@@ -22,6 +22,7 @@ var _player_scrap: int = 0
 var _half_grid: Vector2 = Vector2(16, 16)
 
 func _ready() -> void:
+	wall_container = get_node("../WallContainer")
 	if balance:
 		_grid_size = balance.grid_size
 		_half_grid = Vector2(_grid_size * 0.5, _grid_size * 0.5)
