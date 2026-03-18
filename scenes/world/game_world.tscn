@@ -12,6 +12,7 @@ script = ExtResource("1_world")
 enemy_balance = ExtResource("4_enemybal")
 
 [node name="Ground" type="ColorRect" parent="." unique_id=1637006448]
+z_index = -10
 offset_left = -5000.0
 offset_top = -5000.0
 offset_right = 5000.0
