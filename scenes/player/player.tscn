@@ -1,0 +1,47 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://core/entities/player/player.gd" id="1_player"]
+[ext_resource type="Script" path="res://core/systems/survival/oxygen_system.gd" id="2_oxygen"]
+[ext_resource type="Script" path="res://core/entities/components/health_component.gd" id="3_health"]
+[ext_resource type="Resource" path="res://data/balance/survival_balance.tres" id="4_survbal"]
+
+[sub_resource type="RectangleShape2D" id="player_shape"]
+size = Vector2(28, 28)
+
+[sub_resource type="CircleShape2D" id="attack_shape"]
+radius = 48.0
+
+[node name="Player" type="CharacterBody2D" groups=["player"]]
+collision_layer = 1
+collision_mask = 6
+script = ExtResource("1_player")
+
+[node name="Visual" type="ColorRect" parent="."]
+offset_left = -16.0
+offset_top = -16.0
+offset_right = 16.0
+offset_bottom = 16.0
+color = Color(0.2, 0.5, 0.9, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("player_shape")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+zoom = Vector2(2, 2)
+position_smoothing_enabled = true
+position_smoothing_speed = 8.0
+
+[node name="OxygenSystem" type="Node" parent="."]
+script = ExtResource("2_oxygen")
+balance = ExtResource("4_survbal")
+
+[node name="HealthComponent" type="Node" parent="."]
+script = ExtResource("3_health")
+max_health = 100.0
+
+[node name="AttackArea" type="Area2D" parent="."]
+collision_layer = 0
+collision_mask = 4
+
+[node name="AttackShape" type="CollisionShape2D" parent="AttackArea"]
+shape = SubResource("attack_shape")

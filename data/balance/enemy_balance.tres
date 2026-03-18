@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="EnemyBalance" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/balance/enemy_balance.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+max_health = 30.0
+move_speed = 60.0
+damage_to_player = 15.0
+damage_to_wall = 8.0
+attack_cooldown = 1.5
+spawn_interval = 15.0
+spawn_distance_min = 400.0
+spawn_distance_max = 700.0
+max_enemies = 8
+scrap_drop_min = 1
+scrap_drop_max = 3

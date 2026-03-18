@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="SurvivalBalance" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/balance/survival_balance.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+max_oxygen = 100.0
+oxygen_drain_rate = 6.0
+oxygen_refill_rate = 20.0
+low_oxygen_threshold = 0.3
+speed_penalty_at_low_oxygen = 0.4
+blackout_threshold = 0.05
+suffocation_damage = 10.0
