@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="TimeBalance" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/balance/time_balance.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+day_duration_minutes = 2.0
+hours_per_day = 24
+dawn_hour = 5
+day_hour = 7
+dusk_hour = 18
+night_hour = 21
+season_length_days = 15

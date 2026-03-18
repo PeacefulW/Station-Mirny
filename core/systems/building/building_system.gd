@@ -52,7 +52,7 @@ func _draw() -> void:
 	var ghost_color := Color(0.2, 0.9, 0.3, 0.45) if can_place else Color(0.9, 0.2, 0.2, 0.35)
 	draw_rect(rect, ghost_color)
 
-func _unhandled_input(event: InputEvent) -> void:
+func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_build_mode"):
 		_toggle_build_mode()
 	elif is_build_mode and event.is_action_pressed("primary_action"):
