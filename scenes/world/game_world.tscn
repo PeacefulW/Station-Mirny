@@ -1,43 +1,46 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene format=3 uid="uid://rk33fq0fb6rd"]
 
-[ext_resource type="Script" path="res://scenes/world/game_world.gd" id="1_world"]
-[ext_resource type="Script" path="res://core/systems/building/building_system.gd" id="2_building"]
+[ext_resource type="Script" uid="uid://dcth4p5y8lfni" path="res://scenes/world/game_world.gd" id="1_world"]
+[ext_resource type="Script" uid="uid://bg4sm80ovam5f" path="res://core/systems/building/building_system.gd" id="2_building"]
 [ext_resource type="Resource" path="res://data/balance/building_balance.tres" id="3_buildbal"]
 [ext_resource type="Resource" path="res://data/balance/enemy_balance.tres" id="4_enemybal"]
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="5_player"]
-[ext_resource type="Script" path="res://scenes/ui/hud.gd" id="6_hud"]
+[ext_resource type="Script" uid="uid://b6sxf5rpuos74" path="res://scenes/ui/hud.gd" id="6_hud"]
 
-[node name="GameWorld" type="Node2D"]
+[node name="GameWorld" type="Node2D" unique_id=299385103]
 script = ExtResource("1_world")
 enemy_balance = ExtResource("4_enemybal")
 
-[node name="Ground" type="ColorRect" parent="."]
+[node name="Ground" type="ColorRect" parent="." unique_id=1637006448]
 offset_left = -5000.0
 offset_top = -5000.0
 offset_right = 5000.0
 offset_bottom = 5000.0
+mouse_filter = 2
 color = Color(0.12, 0.16, 0.08, 1)
 
-[node name="WallContainer" type="Node2D" parent="."]
+[node name="WallContainer" type="Node2D" parent="." unique_id=617037608]
 
-[node name="PickupContainer" type="Node2D" parent="."]
+[node name="PickupContainer" type="Node2D" parent="." unique_id=1304760126]
 
-[node name="EnemyContainer" type="Node2D" parent="."]
+[node name="EnemyContainer" type="Node2D" parent="." unique_id=1888235420]
 
-[node name="BuildingSystem" type="Node2D" parent="."]
+[node name="BuildingSystem" type="Node2D" parent="." unique_id=1330468699]
 script = ExtResource("2_building")
 balance = ExtResource("3_buildbal")
 wall_container = NodePath("../WallContainer")
 
-[node name="Player" parent="." instance=ExtResource("5_player")]
-position = Vector2(0, 0)
+[node name="Player" parent="." unique_id=756426991 instance=ExtResource("5_player")]
 
-[node name="UILayer" type="CanvasLayer" parent="."]
+[node name="UILayer" type="CanvasLayer" parent="." unique_id=1822282704]
 layer = 10
 
-[node name="HUD" type="Control" parent="UILayer"]
+[node name="HUD" type="Control" parent="UILayer" unique_id=969120272]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
 script = ExtResource("6_hud")
