@@ -20,6 +20,7 @@ func _ready() -> void:
 # --- Приватные методы ---
 
 func _create_ui() -> void:
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	# O₂ бар (верх экрана)
 	var o2_container := HBoxContainer.new()
 	o2_container.position = Vector2(20, 15)
