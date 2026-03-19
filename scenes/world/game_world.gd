@@ -34,6 +34,11 @@ func _ready() -> void:
 	build_menu.name = "BuildMenu"
 	get_node("UILayer").add_child(build_menu)
 
+	# Создаём UI инвентаря
+	var inv_ui := InventoryUI.new()
+	inv_ui.name = "InventoryUI"
+	get_node("UILayer").add_child(inv_ui)
+	
 	# Создаём PowerSystem
 	var power_sys := PowerSystem.new()
 	power_sys.name = "PowerSystem"

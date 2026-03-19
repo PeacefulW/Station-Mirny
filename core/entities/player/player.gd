@@ -21,20 +21,17 @@ var _inventory: InventoryComponent = null
 func _ready() -> void:
 	add_to_group("player")
 	collision_layer = 1
-	collision_mask = 2 | 4 
-	
+	collision_mask = 2 | 4
 	_oxygen_system = get_node_or_null("OxygenSystem")
 	_health_component = get_node_or_null("HealthComponent")
 	_attack_area = get_node_or_null("AttackArea")
 	_inventory = get_node_or_null("InventoryComponent")
-	
 	if _oxygen_system:
 		_oxygen_system.speed_modifier_changed.connect(_on_speed_modifier_changed)
 	if _health_component:
 		_health_component.died.connect(_on_died)
-	
 	if not _inventory:
-		push_error("Player: Компонент InventoryComponent не найден!")
+		push_error("Player: InventoryComponent не найден!")
 
 func _physics_process(delta: float) -> void:
 	_handle_movement()
@@ -45,85 +42,39 @@ func _physics_process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("attack"):
 		_try_attack()
-		
-	# --- НАЧАЛО ТЕСТА ИНВЕНТАРЯ ---
-	elif event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_1:
-			print("Тест: Подбираем 15 железа...")
-			collect_item("base:iron_ore", 15)
-			_debug_print_inventory()
-		elif event.keycode == KEY_2:
-			print("Тест: Подбираем 55 камня (проверка стаков)...")
-			# Если макс. стак камня 50, он должен занять один слот полностью,
-			# а остаток (5) положить в следующий слот!
-			collect_item("base:stone", 55) 
-			_debug_print_inventory()
-	# --- КОНЕЦ ТЕСТА ИНВЕНТАРЯ ---
 
-## Временная функция для проверки инвентаря в консоли
-func _debug_print_inventory() -> void:
-	print("=== ИНВЕНТАРЬ ИГРОКА ===")
-	if not _inventory:
-		print("Ошибка: Компонент InventoryComponent не найден!")
-		return
-		
-	var has_items: bool = false
-	for i: int in range(_inventory.capacity):
-		var slot: InventorySlot = _inventory.slots[i]
-		if not slot.is_empty():
-			print("Слот [%d]: %s — %d шт." % [i, slot.item.display_name, slot.amount])
-			has_items = true
-			
-	if not has_items:
-		print("Инвентарь абсолютно пуст.")
-	print("========================")
-
-## Собрать предмет в инвентарь (заменяет старую функцию collect_scrap).
+## Собрать предмет в инвентарь.
 func collect_item(item_id: String, amount: int) -> void:
 	if not _inventory:
 		return
-		
 	var item_data: ItemData = ItemRegistry.get_item(item_id)
 	if not item_data:
 		return
-		
 	var leftover: int = _inventory.add_item(item_data, amount)
 	var collected_amount: int = amount - leftover
-	
 	if collected_amount > 0:
 		EventBus.item_collected.emit(item_id, collected_amount)
-		
 	if leftover > 0:
-		# TODO: Позже здесь можно реализовать выброс невлезших предметов на землю (дроп)
 		print("Инвентарь полон! Не влезло: ", leftover)
 
-## Временная функция-переходник для совместимости со старыми механиками.
-## Конвертирует подобранный "скрап" в железную руду и обновляет старые системы.
+## Совместимость со старой системой скрапа.
 func collect_scrap(amount: int) -> void:
 	if not _inventory:
 		return
-		
-	# 1. Подбираем скрап как железную руду
 	collect_item("base:iron_ore", amount)
-	
-	# 2. Считаем, сколько всего железа теперь в инвентаре
 	var total_iron: int = 0
 	for slot: InventorySlot in _inventory.slots:
 		if not slot.is_empty() and slot.item.id == "base:iron_ore":
 			total_iron += slot.amount
-			
-	# 3. Эмитим старый сигнал, чтобы HUD не крашился и стены можно было строить
 	EventBus.scrap_collected.emit(total_iron)
 
-## Получить ссылку на систему кислорода.
 func get_oxygen_system() -> OxygenSystem:
 	return _oxygen_system
 
-## Получить ссылку на инвентарь игрока.
 func get_inventory() -> InventoryComponent:
 	return _inventory
 
-# --- Приватные методы ---
+# --- Приватные ---
 
 func _handle_movement() -> void:
 	var direction := Vector2.ZERO
@@ -149,18 +100,12 @@ func _try_attack() -> void:
 	if _attack_timer > 0.0 or not _attack_area:
 		return
 	_attack_timer = ATTACK_COOLDOWN
-	
-	# Визуальная индикация атаки (мигание) — ОБНОВЛЕНО ДЛЯ SPRITE2D
 	var visual: Sprite2D = get_node_or_null("Visual") as Sprite2D
 	if visual:
-		# Окрашиваем спрайт в красный оттенок при ударе
 		visual.modulate = Color(1.0, 0.3, 0.3)
-		# Возвращаем нормальный цвет (белый = без искажений) через 0.1 сек
 		get_tree().create_timer(0.1).timeout.connect(
 			func() -> void: visual.modulate = Color(1.0, 1.0, 1.0)
 		)
-		
-	# Поиск врагов в зоне атаки
 	var bodies: Array[Node2D] = _attack_area.get_overlapping_bodies()
 	for body: Node2D in bodies:
 		if body.is_in_group("enemies"):
