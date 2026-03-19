@@ -22,12 +22,15 @@ var _player_scrap: int = 0
 var _half_grid: Vector2 = Vector2(16, 16)
 ## Текущая выбранная постройка из меню (или null).
 var _selected_building: BuildingData = null
+## Каталог доступных построек: id(String) -> BuildingData.
+var _building_catalog: Dictionary = {}
 
 func _ready() -> void:
 	wall_container = get_node("../WallContainer")
 	if balance:
 		_grid_size = balance.grid_size
 		_half_grid = Vector2(_grid_size * 0.5, _grid_size * 0.5)
+	_building_catalog = _build_building_catalog()
 	EventBus.scrap_collected.connect(_on_scrap_collected)
 	EventBus.scrap_spent.connect(
 		func(_a: int, remaining: int) -> void: _player_scrap = remaining
@@ -89,6 +92,51 @@ func is_cell_indoor(grid_pos: Vector2i) -> bool:
 ## Задать выбранную постройку (вызывается BuildMenu).
 func set_selected_building(building: BuildingData) -> void:
 	_selected_building = building
+
+## Сохранить состояние системы строительства.
+func save_state() -> Dictionary:
+	var serialized: Array[Dictionary] = []
+	for grid_pos: Vector2i in walls:
+		var node: Node2D = walls[grid_pos]
+		if not is_instance_valid(node):
+			continue
+		var entry: Dictionary = {
+			"x": grid_pos.x,
+			"y": grid_pos.y,
+			"building_id": str(node.get_meta("building_id", "wall")),
+		}
+		var health: HealthComponent = node.get_node_or_null("HealthComponent")
+		if health:
+			entry["health"] = health.current_health
+		if node.has_method("save_state"):
+			entry["state"] = node.save_state()
+		serialized.append(entry)
+	return {"walls": serialized}
+
+## Восстановить состояние системы строительства.
+func load_state(data: Dictionary) -> void:
+	_clear_all_buildings()
+	var wall_data: Array = data.get("walls", [])
+	for raw_entry: Variant in wall_data:
+		if not (raw_entry is Dictionary):
+			continue
+		var entry: Dictionary = raw_entry
+		var grid_pos := Vector2i(int(entry.get("x", 0)), int(entry.get("y", 0)))
+		var building_id: String = str(entry.get("building_id", "wall"))
+		var bd: BuildingData = _get_building_data_by_id(building_id)
+		var node: Node2D = null
+		if bd:
+			node = _create_building_at(grid_pos, bd)
+		else:
+			node = _create_simple_wall(grid_pos, grid_to_world(grid_pos), _make_wall_default_data())
+		if not node:
+			continue
+		var health: HealthComponent = node.get_node_or_null("HealthComponent")
+		if health and entry.has("health"):
+			health.current_health = float(entry["health"])
+		if entry.has("state") and node.has_method("load_state"):
+			node.load_state(entry["state"])
+	_recalculate_indoor()
 
 # --- Приватные ---
 
@@ -152,17 +200,16 @@ func _try_remove_building() -> void:
 	EventBus.building_removed.emit(grid_pos)
 
 ## Создать постройку по BuildingData.
-func _create_building_at(grid_pos: Vector2i, bd: BuildingData) -> void:
+func _create_building_at(grid_pos: Vector2i, bd: BuildingData) -> Node2D:
 	var snap_pos: Vector2 = grid_to_world(grid_pos)
 	# Если у здания есть скрипт — создаём через него
 	if not bd.script_path.is_empty():
-		_create_scripted_building(grid_pos, snap_pos, bd)
-		return
+		return _create_scripted_building(grid_pos, snap_pos, bd)
 	# Иначе — обычная стена (как раньше)
-	_create_simple_wall(grid_pos, snap_pos, bd)
+	return _create_simple_wall(grid_pos, snap_pos, bd)
 
 ## Создать обычную стену без логики.
-func _create_simple_wall(grid_pos: Vector2i, snap_pos: Vector2, bd: BuildingData) -> void:
+func _create_simple_wall(grid_pos: Vector2i, snap_pos: Vector2, bd: BuildingData) -> StaticBody2D:
 	var wall := StaticBody2D.new()
 	wall.position = snap_pos
 	wall.collision_layer = 2
@@ -182,17 +229,18 @@ func _create_simple_wall(grid_pos: Vector2i, snap_pos: Vector2, bd: BuildingData
 	health.max_health = bd.health
 	wall.add_child(health)
 	health.died.connect(_on_building_destroyed.bind(grid_pos))
+	wall.set_meta("building_id", str(bd.id) if not str(bd.id).is_empty() else "wall")
 	if wall_container:
 		wall_container.add_child(wall)
 	walls[grid_pos] = wall
+	return wall
 
 ## Создать здание с собственным скриптом (батарея, термосжигатель...).
-func _create_scripted_building(grid_pos: Vector2i, snap_pos: Vector2, bd: BuildingData) -> void:
+func _create_scripted_building(grid_pos: Vector2i, snap_pos: Vector2, bd: BuildingData) -> Node2D:
 	var script_res: GDScript = load(bd.script_path) as GDScript
 	if not script_res:
 		push_error("BuildingSystem: не найден скрипт %s" % bd.script_path)
-		_create_simple_wall(grid_pos, snap_pos, bd)
-		return
+		return _create_simple_wall(grid_pos, snap_pos, bd)
 	# Загружаем баланс здания если указан
 	var bld_balance: Resource = null
 	if not bd.balance_path.is_empty():
@@ -209,9 +257,11 @@ func _create_scripted_building(grid_pos: Vector2i, snap_pos: Vector2, bd: Buildi
 	var health: HealthComponent = node.get_node_or_null("HealthComponent")
 	if health:
 		health.died.connect(_on_building_destroyed.bind(grid_pos))
+	node.set_meta("building_id", str(bd.id))
 	if wall_container:
 		wall_container.add_child(node)
 	walls[grid_pos] = node
+	return node
 
 func _on_building_destroyed(grid_pos: Vector2i) -> void:
 	if walls.has(grid_pos):
@@ -258,3 +308,69 @@ func _recalculate_indoor() -> void:
 
 func _on_scrap_collected(total: int) -> void:
 	_player_scrap = total
+
+func _clear_all_buildings() -> void:
+	for pos: Vector2i in walls:
+		var node: Node2D = walls[pos]
+		if is_instance_valid(node):
+			node.queue_free()
+	walls.clear()
+	indoor_cells.clear()
+
+func _build_building_catalog() -> Dictionary:
+	var catalog: Dictionary = {}
+	var dir_path: String = "res://data/buildings/"
+	var dir := DirAccess.open(dir_path)
+	if dir:
+		dir.list_dir_begin()
+		var file_name: String = dir.get_next()
+		while file_name != "":
+			if file_name.ends_with(".tres"):
+				var res: Resource = load(dir_path + file_name)
+				if res is BuildingData:
+					var bd: BuildingData = res as BuildingData
+					catalog[str(bd.id)] = bd
+			file_name = dir.get_next()
+	_register_default_buildings(catalog)
+	return catalog
+
+func _register_default_buildings(catalog: Dictionary) -> void:
+	var wall := _make_wall_default_data()
+	catalog[str(wall.id)] = wall
+	var battery := BuildingData.new()
+	battery.id = &"ark_battery"
+	battery.display_name = "Батарея Ковчега"
+	battery.category = BuildingData.Category.POWER
+	battery.scrap_cost = 0
+	battery.health = 80.0
+	battery.placeholder_color = Color(0.3, 0.5, 0.8)
+	battery.script_path = "res://core/entities/structures/ark_battery.gd"
+	battery.balance_path = "res://data/balance/power_balance.tres"
+	if not catalog.has(str(battery.id)):
+		catalog[str(battery.id)] = battery
+	var burner := BuildingData.new()
+	burner.id = &"thermo_burner"
+	burner.display_name = "Термосжигатель"
+	burner.category = BuildingData.Category.POWER
+	burner.scrap_cost = 8
+	burner.health = 60.0
+	burner.placeholder_color = Color(0.8, 0.4, 0.15)
+	burner.script_path = "res://core/entities/structures/thermo_burner.gd"
+	burner.balance_path = "res://data/balance/power_balance.tres"
+	if not catalog.has(str(burner.id)):
+		catalog[str(burner.id)] = burner
+
+func _make_wall_default_data() -> BuildingData:
+	var wall := BuildingData.new()
+	wall.id = &"wall"
+	wall.display_name = "Стена"
+	wall.category = BuildingData.Category.STRUCTURE
+	wall.scrap_cost = 2
+	wall.health = 50.0
+	wall.placeholder_color = Color(0.45, 0.48, 0.52)
+	return wall
+
+func _get_building_data_by_id(building_id: String) -> BuildingData:
+	if _building_catalog.has(building_id):
+		return _building_catalog[building_id] as BuildingData
+	return null
