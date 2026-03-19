@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="BiomeData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/biomes/biome_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"plains"
+display_name = "Оранжевые равнины"
+ground_tile_id = 0
+rock_tile_id = 1
+water_tile_id = 2
+sand_tile_id = 3
+grass_tile_id = 4
+ground_color = Color(0.22, 0.18, 0.12, 1)
+rock_color = Color(0.35, 0.33, 0.30, 1)
+water_color = Color(0.10, 0.15, 0.28, 1)
+sand_color = Color(0.45, 0.38, 0.25, 1)
+grass_color = Color(0.42, 0.32, 0.12, 1)
+base_temperature = -5.0
+spore_density_multiplier = 1.0
+enemy_frequency_multiplier = 1.0
+resource_density_multiplier = 1.0
+tree_types = Array[StringName]([&"dead_tree"])
+grass_coverage = 0.6

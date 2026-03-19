@@ -49,5 +49,19 @@ signal enemy_spawned(enemy_node: Node2D)
 signal enemy_killed(position: Vector2)
 signal enemy_reached_wall(wall_position: Vector2i)
 
+# --- Генерация мира ---
+## Мир инициализирован с seed.
+signal world_seed_set(seed_value: int)
+## Чанк загружен (координаты чанка, не тайла).
+signal chunk_loaded(chunk_coord: Vector2i)
+## Чанк выгружен.
+signal chunk_unloaded(chunk_coord: Vector2i)
+## Ресурсная залежь исчерпана.
+signal resource_node_depleted(tile_pos: Vector2i, deposit_type: int)
+## Игрок обнаружил точку интереса.
+signal poi_discovered(poi_type: StringName, world_pos: Vector2)
+## Игрок вошёл в другой биом.
+signal biome_entered(biome_id: StringName)
+
 # --- Общее ---
 signal game_over()
