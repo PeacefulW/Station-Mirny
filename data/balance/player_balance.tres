@@ -4,7 +4,7 @@
 
 [resource]
 script = ExtResource("1_player_balance")
-move_speed = 150.0
+move_speed = 350.0
 attack_damage = 15.0
 attack_cooldown = 0.4
 attack_range = 48.0
