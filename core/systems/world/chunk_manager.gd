@@ -82,9 +82,12 @@ func _deferred_init() -> void:
 	_build_resource_tileset()
 	_initialized = _shared_tileset != null and _resource_tileset != null
 
+## Генерирует общий тайлсет ландшафта на основе текущего биома.
+## Добавляет слой коллизий для непроходимых тайлов (камень, вода).
 func _build_terrain_tileset() -> void:
 	if not WorldGenerator or not WorldGenerator.balance or not WorldGenerator.current_biome:
 		return
+		
 	var ts: int = WorldGenerator.balance.tile_size
 	var biome: BiomeData = WorldGenerator.current_biome
 	var img := Image.create(TERRAIN_COUNT * ts, VARIANT_COUNT * ts, false, Image.FORMAT_RGBA8)
@@ -92,29 +95,60 @@ func _build_terrain_tileset() -> void:
 		biome.ground_color, biome.rock_color, biome.water_color,
 		biome.sand_color, biome.grass_color,
 	]
+	
 	for ti: int in range(TERRAIN_COUNT):
 		for vi: int in range(VARIANT_COUNT):
 			var c: Color = colors[ti]
-			if vi == 0: c = c.darkened(0.12)
-			elif vi == 2: c = c.lightened(0.10)
+			if vi == 0:
+				c = c.darkened(0.12)
+			elif vi == 2:
+				c = c.lightened(0.10)
 			for py: int in range(ts):
 				for px: int in range(ts):
 					img.set_pixel(ti * ts + px, vi * ts + py, c)
+					
 	var tex := ImageTexture.create_from_image(img)
+	
 	_shared_tileset = TileSet.new()
 	_shared_tileset.tile_size = Vector2i(ts, ts)
+	
+	# Настраиваем физический слой (Слой 2 — как у стен)
+	_shared_tileset.add_physics_layer(0)
+	_shared_tileset.set_physics_layer_collision_layer(0, 2)
+	_shared_tileset.set_physics_layer_collision_mask(0, 0)
+	
 	var src := TileSetAtlasSource.new()
 	src.texture = tex
 	src.texture_region_size = Vector2i(ts, ts)
+	
+	# === ВАЖНО: Сначала добавляем source в TileSet, чтобы TileData узнал о слоях коллизии ===
+	_shared_tileset.add_source(src, 0)
+	
+	# Создаем квадратный полигон коллизии по размеру тайла
+	var half_f: float = float(ts) / 2.0
+	var poly := PackedVector2Array([
+		Vector2(-half_f, -half_f), Vector2(half_f, -half_f),
+		Vector2(half_f, half_f), Vector2(-half_f, half_f)
+	])
+	
 	for x: int in range(TERRAIN_COUNT):
 		for y: int in range(VARIANT_COUNT):
-			src.create_tile(Vector2i(x, y))
-	_shared_tileset.add_source(src, 0)
+			var coords := Vector2i(x, y)
+			src.create_tile(coords)
+			
+			# Назначаем коллизию только камню (x == 1) и воде (x == 2)
+			if x == 1 or x == 2:
+				var tile_data: TileData = src.get_tile_data(coords, 0)
+				tile_data.add_collision_polygon(0)
+				tile_data.set_collision_polygon_points(0, 0, poly)
 
-## Тайлсет для ресурсов: 5 цветных квадратов с точкой по центру.
+
+## Генерирует тайлсет для ресурсов.
+## Всем ресурсам назначается полигон коллизии, чтобы они блокировали проход.
 func _build_resource_tileset() -> void:
 	if not WorldGenerator or not WorldGenerator.balance:
 		return
+		
 	var ts: int = WorldGenerator.balance.tile_size
 	var res_colors: Array[Color] = [
 		Color(0.55, 0.35, 0.25),  # iron
@@ -123,11 +157,13 @@ func _build_resource_tileset() -> void:
 		Color(0.20, 0.35, 0.55),  # water
 		Color(0.30, 0.22, 0.15),  # tree
 	]
+	
 	var img := Image.create(RESOURCE_COUNT * ts, ts, false, Image.FORMAT_RGBA8)
 	# Фон прозрачный, рисуем только маркер ресурса
 	img.fill(Color(0, 0, 0, 0))
 	var half: int = ts / 2
 	var dot_r: int = ts / 4
+	
 	for ri: int in range(RESOURCE_COUNT):
 		var c: Color = res_colors[ri]
 		var ox: int = ri * ts
@@ -135,15 +171,39 @@ func _build_resource_tileset() -> void:
 		for py: int in range(half - dot_r, half + dot_r):
 			for px: int in range(half - dot_r, half + dot_r):
 				img.set_pixel(ox + px, py, c)
+				
 	var tex := ImageTexture.create_from_image(img)
+	
 	_resource_tileset = TileSet.new()
 	_resource_tileset.tile_size = Vector2i(ts, ts)
+	
+	# Настраиваем физический слой (Слой 2 — препятствия)
+	_resource_tileset.add_physics_layer(0)
+	_resource_tileset.set_physics_layer_collision_layer(0, 2)
+	_resource_tileset.set_physics_layer_collision_mask(0, 0)
+	
 	var src := TileSetAtlasSource.new()
 	src.texture = tex
 	src.texture_region_size = Vector2i(ts, ts)
-	for x: int in range(RESOURCE_COUNT):
-		src.create_tile(Vector2i(x, 0))
+	
+	# === ВАЖНО: Сначала добавляем source в TileSet ===
 	_resource_tileset.add_source(src, 0)
+	
+	# Создаем квадратный полигон коллизии
+	var half_f: float = float(ts) / 2.0
+	var poly := PackedVector2Array([
+		Vector2(-half_f, -half_f), Vector2(half_f, -half_f),
+		Vector2(half_f, half_f), Vector2(-half_f, half_f)
+	])
+	
+	for x: int in range(RESOURCE_COUNT):
+		var coords := Vector2i(x, 0)
+		src.create_tile(coords)
+		
+		# Добавляем коллизию всем ресурсным тайлам
+		var tile_data: TileData = src.get_tile_data(coords, 0)
+		tile_data.add_collision_polygon(0)
+		tile_data.set_collision_polygon_points(0, 0, poly)
 
 # --- Обновление ---
 
