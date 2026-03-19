@@ -1,8 +1,8 @@
 class_name InventoryUI
 extends Control
 
-## UI инвентаря v2. Перетаскиваемая панель.
-## Tab — открыть/закрыть. Тащи за заголовок.
+## UI инвентаря и ручного крафта.
+## Tab — открыть/закрыть. Слева инвентарь, справа рецепты.
 
 const COLS: int = 5
 const SLOT_SIZE: int = 56
@@ -16,6 +16,8 @@ var _title_label: Label = null
 var _weight_label: Label = null
 var _inventory: InventoryComponent = null
 var _dimmer: ColorRect = null
+var _crafting_system: CraftingSystem = null
+var _crafting_panel: CraftingPanel = null
 
 func _ready() -> void:
 	mouse_filter = MOUSE_FILTER_IGNORE
@@ -33,6 +35,9 @@ func toggle() -> void:
 	visible = _is_open
 	if _is_open:
 		_find_inventory()
+		_find_crafting_system()
+		if _crafting_panel:
+			_crafting_panel.setup(_inventory, _crafting_system)
 		_refresh()
 
 func close() -> void:
@@ -40,7 +45,6 @@ func close() -> void:
 	visible = false
 
 func _build_ui() -> void:
-	# Затемнение
 	_dimmer = ColorRect.new()
 	_dimmer.set_anchors_preset(PRESET_FULL_RECT)
 	_dimmer.color = Color(0.0, 0.0, 0.0, 0.35)
@@ -48,7 +52,6 @@ func _build_ui() -> void:
 	_dimmer.gui_input.connect(_on_dimmer_click)
 	add_child(_dimmer)
 
-	# Перетаскиваемая панель
 	_panel = DraggablePanel.new()
 	_panel.panel_id = "inventory"
 	_panel.set_header_height(36.0)
@@ -65,10 +68,33 @@ func _build_ui() -> void:
 	_panel.add_theme_stylebox_override("panel", style)
 	add_child(_panel)
 
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
+	var root_vbox := VBoxContainer.new()
+	root_vbox.add_theme_constant_override("separation", 6)
+	root_vbox.add_child(_build_header())
 
-	# Заголовок (зона перетаскивания)
+	var sep := HSeparator.new()
+	sep.add_theme_color_override("separator", Color(0.25, 0.24, 0.20))
+	root_vbox.add_child(sep)
+
+	var content := HBoxContainer.new()
+	content.add_theme_constant_override("separation", 18)
+	content.add_child(_build_inventory_pane())
+
+	_crafting_panel = CraftingPanel.new()
+	content.add_child(_crafting_panel)
+	root_vbox.add_child(content)
+
+	var hint := Label.new()
+	hint.text = "Tab — закрыть  |  Нажми рецепт справа, чтобы скрафтить"
+	hint.add_theme_font_size_override("font_size", 11)
+	hint.add_theme_color_override("font_color", Color(0.35, 0.33, 0.28))
+	root_vbox.add_child(hint)
+
+	_panel.add_child(root_vbox)
+	_create_slot_nodes(20)
+	call_deferred("_center_if_needed")
+
+func _build_header() -> HBoxContainer:
 	var header := HBoxContainer.new()
 	header.custom_minimum_size.y = 24
 
@@ -79,7 +105,7 @@ func _build_ui() -> void:
 	header.add_child(drag_hint)
 
 	_title_label = Label.new()
-	_title_label.text = "ИНВЕНТАРЬ"
+	_title_label.text = "ИНВЕНТАРЬ И КРАФТ"
 	_title_label.add_theme_font_size_override("font_size", 16)
 	_title_label.add_theme_color_override("font_color", Color(0.85, 0.80, 0.65))
 	_title_label.size_flags_horizontal = SIZE_EXPAND_FILL
@@ -90,32 +116,22 @@ func _build_ui() -> void:
 	_weight_label.add_theme_font_size_override("font_size", 13)
 	_weight_label.add_theme_color_override("font_color", Color(0.55, 0.52, 0.45))
 	header.add_child(_weight_label)
-	vbox.add_child(header)
+	return header
 
-	# Разделитель
-	var sep := HSeparator.new()
-	sep.add_theme_color_override("separator", Color(0.25, 0.24, 0.20))
-	vbox.add_child(sep)
+func _build_inventory_pane() -> VBoxContainer:
+	var inventory_pane := VBoxContainer.new()
+	inventory_pane.size_flags_horizontal = SIZE_EXPAND_FILL
+	var inventory_label := Label.new()
+	inventory_label.text = "Инвентарь"
+	inventory_label.add_theme_font_size_override("font_size", 14)
+	inventory_pane.add_child(inventory_label)
 
-	# Сетка слотов
 	_grid = GridContainer.new()
 	_grid.columns = COLS
 	_grid.add_theme_constant_override("h_separation", SLOT_GAP)
 	_grid.add_theme_constant_override("v_separation", SLOT_GAP)
-	vbox.add_child(_grid)
-
-	# Подсказка внизу
-	var hint := Label.new()
-	hint.text = "Tab — закрыть  |  Тащи за ::: чтобы двигать"
-	hint.add_theme_font_size_override("font_size", 11)
-	hint.add_theme_color_override("font_color", Color(0.35, 0.33, 0.28))
-	vbox.add_child(hint)
-
-	_panel.add_child(vbox)
-	_create_slot_nodes(20)
-
-	# Центрируем если нет сохранённой позиции
-	call_deferred("_center_if_needed")
+	inventory_pane.add_child(_grid)
+	return inventory_pane
 
 func _center_if_needed() -> void:
 	if _panel.position == Vector2.ZERO or _panel.position.x < 1:
@@ -125,8 +141,6 @@ func _center_if_needed() -> void:
 func _on_dimmer_click(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
 		close()
-
-# --- Слоты ---
 
 func _create_slot_nodes(count: int) -> void:
 	for child: Node in _grid.get_children():
@@ -183,8 +197,6 @@ func _create_single_slot() -> PanelContainer:
 
 	return container
 
-# --- Обновление ---
-
 func _find_inventory() -> void:
 	if _inventory:
 		return
@@ -197,6 +209,14 @@ func _find_inventory() -> void:
 		if _inventory and _slot_nodes.size() != _inventory.capacity:
 			_create_slot_nodes(_inventory.capacity)
 
+func _find_crafting_system() -> void:
+	if _crafting_system:
+		return
+	var systems: Array[Node] = get_tree().get_nodes_in_group("crafting_system")
+	if systems.is_empty():
+		return
+	_crafting_system = systems[0] as CraftingSystem
+
 func _on_inventory_updated(_inv_node: Node) -> void:
 	if _is_open:
 		_refresh()
@@ -206,6 +226,7 @@ func _refresh() -> void:
 		_find_inventory()
 	if not _inventory:
 		return
+
 	var total_weight: float = 0.0
 	for i: int in range(_slot_nodes.size()):
 		var sn: PanelContainer = _slot_nodes[i]
@@ -231,6 +252,8 @@ func _refresh() -> void:
 			_set_style(sn, Color(0.18, 0.19, 0.15), Color(0.35, 0.33, 0.25))
 			total_weight += slot.item.weight * slot.amount
 	_weight_label.text = "%.1f кг" % total_weight
+	if _crafting_panel:
+		_crafting_panel.refresh()
 
 func _clear_slot(icon_r: TextureRect, color_bg: ColorRect, amt: Label, sn: PanelContainer) -> void:
 	icon_r.texture = null
@@ -247,9 +270,16 @@ func _set_style(sn: PanelContainer, bg: Color, border: Color) -> void:
 
 func _get_item_color(item_id: String) -> Color:
 	match item_id:
-		"base:iron_ore": return Color(0.55, 0.35, 0.25)
-		"base:copper_ore": return Color(0.65, 0.45, 0.20)
-		"base:stone": return Color(0.45, 0.43, 0.40)
-		"base:wood": return Color(0.30, 0.22, 0.15)
-		"base:water_dirty": return Color(0.20, 0.35, 0.55)
+		"base:iron_ore":
+			return Color(0.55, 0.35, 0.25)
+		"base:copper_ore":
+			return Color(0.65, 0.45, 0.20)
+		"base:stone":
+			return Color(0.45, 0.43, 0.40)
+		"base:wood":
+			return Color(0.30, 0.22, 0.15)
+		"base:water_dirty":
+			return Color(0.20, 0.35, 0.55)
+		"base:iron_ingot":
+			return Color(0.7, 0.7, 0.75)
 	return Color(0.5, 0.5, 0.5)

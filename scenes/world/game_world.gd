@@ -16,6 +16,7 @@ var _building_system: BuildingSystem = null
 var _chunk_manager: ChunkManager = null
 var _enemy_container: Node2D = null
 var _pickup_container: Node2D = null
+var _crafting_system: CraftingSystem = null
 var _spawn_timer: float = 0.0
 var _enemy_count: int = 0
 
@@ -33,6 +34,11 @@ func _ready() -> void:
 	var build_menu := BuildMenu.new()
 	build_menu.name = "BuildMenu"
 	get_node("UILayer").add_child(build_menu)
+
+	# Создаём CraftingSystem
+	_crafting_system = CraftingSystem.new()
+	_crafting_system.name = "CraftingSystem"
+	add_child(_crafting_system)
 
 	# Создаём UI инвентаря
 	var inv_ui := InventoryUI.new()
