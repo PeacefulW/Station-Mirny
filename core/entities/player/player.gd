@@ -4,11 +4,7 @@ extends CharacterBody2D
 ## Игрок (Инженер). Управляет движением, атакой,
 ## сбором ресурсов. Компоненты (O₂, здоровье, инвентарь) — дочерние ноды.
 
-const BASE_SPEED: float = 150.0
-const ATTACK_DAMAGE: float = 15.0
-const ATTACK_COOLDOWN: float = 0.4
-const HARVEST_COOLDOWN: float = 0.5
-const HARVEST_RANGE: float = 48.0
+@export var balance: PlayerBalance = null
 
 var _speed_modifier: float = 1.0
 var _attack_timer: float = 0.0
@@ -20,6 +16,9 @@ var _inventory: InventoryComponent = null
 var _chunk_manager: Node = null
 
 func _ready() -> void:
+	if not balance:
+		push_error("Player: PlayerBalance не назначен!")
+		return
 	add_to_group("player")
 	collision_layer = 1
 	collision_mask = 2 | 4
@@ -33,6 +32,7 @@ func _ready() -> void:
 		_health_component.died.connect(_on_died)
 	if not _inventory:
 		push_error("Player: InventoryComponent не найден!")
+	_apply_attack_range()
 	call_deferred("_find_chunk_manager")
 
 func _physics_process(delta: float) -> void:
@@ -62,7 +62,7 @@ func _try_harvest() -> void:
 		harvest_pos = global_position
 		if not _chunk_manager.has_resource_at_world(harvest_pos):
 			return
-	_harvest_timer = HARVEST_COOLDOWN
+	_harvest_timer = balance.harvest_cooldown
 	var result: Dictionary = _chunk_manager.try_harvest_at_world(harvest_pos)
 	if result.is_empty():
 		return
@@ -79,7 +79,7 @@ func _try_harvest() -> void:
 
 func _get_harvest_position() -> Vector2:
 	var dir: Vector2 = (get_global_mouse_position() - global_position).normalized()
-	return global_position + dir * HARVEST_RANGE
+	return global_position + dir * balance.harvest_range
 
 func _update_harvest_cooldown(delta: float) -> void:
 	if _harvest_timer > 0.0:
@@ -89,7 +89,7 @@ func _flash_harvest() -> void:
 	var visual: Node2D = get_node_or_null("Visual") as Node2D
 	if visual:
 		visual.modulate = Color(0.5, 1.0, 0.5)
-		get_tree().create_timer(0.15).timeout.connect(
+		get_tree().create_timer(balance.harvest_flash_duration).timeout.connect(
 			func() -> void:
 				if is_instance_valid(visual):
 					visual.modulate = Color(1.0, 1.0, 1.0)
@@ -111,8 +111,15 @@ func _spawn_harvest_popup(item_id: String, amount: int) -> void:
 	add_child(popup)
 	var tween: Tween = create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(popup, "position:y", -90.0, 0.8).set_ease(Tween.EASE_OUT)
-	tween.tween_property(popup, "modulate:a", 0.0, 0.8).set_delay(0.3)
+	tween.tween_property(
+		popup,
+		"position:y",
+		popup.position.y - balance.harvest_popup_rise_distance,
+		balance.harvest_popup_duration
+	).set_ease(Tween.EASE_OUT)
+	tween.tween_property(popup, "modulate:a", 0.0, balance.harvest_popup_duration).set_delay(
+		balance.harvest_popup_fade_delay
+	)
 	tween.chain().tween_callback(popup.queue_free)
 
 # --- Сбор предметов ---
@@ -170,7 +177,7 @@ func _handle_movement() -> void:
 		direction.x += 1.0
 	if direction.length() > 0.0:
 		direction = direction.normalized()
-	velocity = direction * BASE_SPEED * _speed_modifier
+	velocity = direction * balance.move_speed * _speed_modifier
 
 func _handle_rotation() -> void:
 	var visual: Sprite2D = get_node_or_null("Visual") as Sprite2D
@@ -181,11 +188,11 @@ func _handle_rotation() -> void:
 func _try_attack() -> void:
 	if _attack_timer > 0.0 or not _attack_area:
 		return
-	_attack_timer = ATTACK_COOLDOWN
+	_attack_timer = balance.attack_cooldown
 	var visual: Node2D = get_node_or_null("Visual") as Node2D
 	if visual:
 		visual.modulate = Color(1.0, 0.3, 0.3)
-		get_tree().create_timer(0.1).timeout.connect(
+		get_tree().create_timer(balance.attack_flash_duration).timeout.connect(
 			func() -> void:
 				if is_instance_valid(visual):
 					visual.modulate = Color(1.0, 1.0, 1.0)
@@ -195,7 +202,7 @@ func _try_attack() -> void:
 		if body.is_in_group("enemies"):
 			var health: HealthComponent = body.get_node_or_null("HealthComponent")
 			if health:
-				health.take_damage(ATTACK_DAMAGE)
+				health.take_damage(balance.attack_damage)
 
 func _update_attack_cooldown(delta: float) -> void:
 	if _attack_timer > 0.0:
@@ -207,3 +214,13 @@ func _on_speed_modifier_changed(modifier: float) -> void:
 func _on_died() -> void:
 	EventBus.player_died.emit()
 	EventBus.game_over.emit()
+
+func _apply_attack_range() -> void:
+	if not _attack_area:
+		return
+	var attack_shape_node: CollisionShape2D = _attack_area.get_node_or_null("AttackShape")
+	if not attack_shape_node:
+		return
+	var attack_shape: CircleShape2D = attack_shape_node.shape as CircleShape2D
+	if attack_shape:
+		attack_shape.radius = balance.attack_range

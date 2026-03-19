@@ -5,6 +5,7 @@
 [ext_resource type="Script" uid="uid://ofyy3tbmieis" path="res://core/systems/survival/oxygen_system.gd" id="2_oxygen"]
 [ext_resource type="Script" uid="uid://cfm8rii3bfdq3" path="res://core/entities/components/health_component.gd" id="3_health"]
 [ext_resource type="Resource" path="res://data/balance/survival_balance.tres" id="4_survbal"]
+[ext_resource type="Resource" path="res://data/balance/player_balance.tres" id="6_player_balance"]
 [ext_resource type="Script" uid="uid://d1ar37qoal6x5" path="res://core/entities/components/inventory_component.gd" id="6_75vfm"]
 
 [sub_resource type="RectangleShape2D" id="player_shape"]
@@ -16,6 +17,7 @@ radius = 48.0
 [node name="Player" type="CharacterBody2D" unique_id=1871543181 groups=["player"]]
 collision_mask = 6
 script = ExtResource("1_player")
+balance = ExtResource("6_player_balance")
 
 [node name="Visual" type="Sprite2D" parent="." unique_id=997961818]
 scale = Vector2(0.5, 0.5)
