@@ -5,6 +5,7 @@
 [ext_resource type="Texture2D" uid="uid://d0gb5thij5n16" path="res://assets/sprites/player/engineer_sprite.png" id="2_p47bc"]
 [ext_resource type="Script" uid="uid://cfm8rii3bfdq3" path="res://core/entities/components/health_component.gd" id="3_health"]
 [ext_resource type="Resource" path="res://data/balance/survival_balance.tres" id="4_survbal"]
+[ext_resource type="Script" uid="uid://d1ar37qoal6x5" path="res://core/entities/components/inventory_component.gd" id="6_75vfm"]
 
 [sub_resource type="RectangleShape2D" id="player_shape"]
 size = Vector2(28, 28)
@@ -34,6 +35,9 @@ balance = ExtResource("4_survbal")
 
 [node name="HealthComponent" type="Node" parent="." unique_id=492503489]
 script = ExtResource("3_health")
+
+[node name="InventoryComponent" type="Node" parent="." unique_id=299619149]
+script = ExtResource("6_75vfm")
 
 [node name="AttackArea" type="Area2D" parent="." unique_id=1664152156]
 collision_layer = 0
