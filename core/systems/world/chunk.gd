@@ -1,44 +1,54 @@
 class_name Chunk
 extends Node2D
 
-## Один чанк мира (64×64 тайла). v3: читает из packed arrays (C++).
+## Один чанк мира (64×64 тайла). v4: ресурсы — тайлы, не ноды.
+##
+## ПРОИЗВОДИТЕЛЬНОСТЬ: земля и ресурсы — два TileMapLayer.
+## Ноль физических нод. Взаимодействие через координаты.
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 var is_loaded: bool = false
 var is_dirty: bool = false
 
 var _terrain_layer: TileMapLayer = null
-var _resource_container: Node2D = null
+var _resource_layer: TileMapLayer = null
 var _tile_size: int = 32
 var _chunk_size: int = 64
 var _tileset: TileSet = null
-var _resource_nodes: Dictionary = {}
+var _resource_tileset: TileSet = null
 var _modified_tiles: Dictionary = {}
 var _biome: BiomeData = null
 
+## Данные ресурсов: Vector2i (local) -> Dictionary {deposit, remaining, depleted}
+var _resource_data: Dictionary = {}
+
 func setup(
 	p_coord: Vector2i, p_tile_size: int, p_chunk_size: int,
-	p_biome: BiomeData, p_tileset: TileSet
+	p_biome: BiomeData, p_tileset: TileSet, p_resource_tileset: TileSet
 ) -> void:
 	chunk_coord = p_coord
 	_tile_size = p_tile_size
 	_chunk_size = p_chunk_size
 	_biome = p_biome
 	_tileset = p_tileset
+	_resource_tileset = p_resource_tileset
 	name = "Chunk_%d_%d" % [chunk_coord.x, chunk_coord.y]
 	var cp: int = _chunk_size * _tile_size
 	position = Vector2(chunk_coord.x * cp, chunk_coord.y * cp)
+
 	_terrain_layer = TileMapLayer.new()
 	_terrain_layer.name = "Terrain"
 	_terrain_layer.tile_set = _tileset
 	_terrain_layer.z_index = -10
 	add_child(_terrain_layer)
-	_resource_container = Node2D.new()
-	_resource_container.name = "Resources"
-	_resource_container.z_index = -5
-	add_child(_resource_container)
 
-## Заполнить из C++ данных (packed arrays).
+	_resource_layer = TileMapLayer.new()
+	_resource_layer.name = "Resources"
+	_resource_layer.tile_set = _resource_tileset
+	_resource_layer.z_index = -5
+	add_child(_resource_layer)
+
+## Заполнить из C++ данных (packed arrays). Мгновенно.
 func populate_native(
 	native_data: Dictionary,
 	saved_modifications: Dictionary,
@@ -53,77 +63,85 @@ func populate_native(
 	var start_x: int = chunk_coord.x * cs
 	var start_y: int = chunk_coord.y * cs
 
-	# Заполняем TileMapLayer
 	for ly: int in range(cs):
 		for lx: int in range(cs):
 			var idx: int = ly * cs + lx
-			var atlas_x: int = terrain[idx]  # 0=ground,1=rock,2=water,3=sand,4=grass
-			var h: float = height[idx]
-			var atlas_y: int = 1  # обычный
-			if h < 0.38:
-				atlas_y = 0  # тёмный
-			elif h > 0.62:
-				atlas_y = 2  # светлый
-			_terrain_layer.set_cell(Vector2i(lx, ly), 0, Vector2i(atlas_x, atlas_y))
+			var local: Vector2i = Vector2i(lx, ly)
 
-	# Спавним ресурсы
-	for ly: int in range(cs):
-		for lx: int in range(cs):
-			var idx: int = ly * cs + lx
-			var gx: int = start_x + lx
-			var gy: int = start_y + ly
-			var global_tile := Vector2i(gx, gy)
-			# Пропускаем если тайл уже изменён
+			# Земля
+			var atlas_x: int = terrain[idx]
+			var h: float = height[idx]
+			var atlas_y: int = 1
+			if h < 0.38: atlas_y = 0
+			elif h > 0.62: atlas_y = 2
+			_terrain_layer.set_cell(local, 0, Vector2i(atlas_x, atlas_y))
+
+			# Ресурсы — тайлами, не нодами
+			var global_tile := Vector2i(start_x + lx, start_y + ly)
 			if _modified_tiles.has(global_tile):
 				if _modified_tiles[global_tile].get("depleted", false):
 					continue
+
 			var dep: int = deposit[idx]
 			var tree: int = has_tree[idx]
+
 			if dep > 0:
-				var def: ResourceNodeData = resource_defs.get(dep)
-				if def:
-					_create_resource_node(def, global_tile, Vector2i(lx, ly))
+				# atlas_x: 0=iron, 1=copper, 2=stone, 3=water_src
+				_resource_layer.set_cell(local, 0, Vector2i(dep - 1, 0))
+				_resource_data[local] = {
+					"deposit": dep,
+					"global": global_tile,
+					"remaining": resource_defs.get(dep, {}).get("harvest_count", 5) if resource_defs.has(dep) else 5,
+					"depleted": false,
+				}
 			elif tree > 0:
-				var tree_def: ResourceNodeData = resource_defs.get("tree")
-				if tree_def:
-					_create_resource_node(tree_def, global_tile, Vector2i(lx, ly))
+				_resource_layer.set_cell(local, 0, Vector2i(4, 0))
+				_resource_data[local] = {
+					"deposit": -1,
+					"global": global_tile,
+					"remaining": 3,
+					"depleted": false,
+				}
 	is_loaded = true
 
-## Старый формат (совместимость с не-C++ генератором).
-func populate(
-	gen_data: Dictionary,
-	saved_modifications: Dictionary,
-	resource_defs: Dictionary
-) -> void:
-	_modified_tiles = saved_modifications.duplicate()
-	for global_tile: Vector2i in gen_data:
-		var td: TileGenData = gen_data[global_tile]
-		var local_tile: Vector2i = _global_to_local(global_tile)
-		var atlas_x: int = td.terrain
-		var atlas_y: int = 1
-		if td.height < 0.38: atlas_y = 0
-		elif td.height > 0.62: atlas_y = 2
-		_terrain_layer.set_cell(local_tile, 0, Vector2i(atlas_x, atlas_y))
-		if _modified_tiles.has(global_tile):
-			if _modified_tiles[global_tile].get("depleted", false):
-				continue
-		if td.deposit != TileGenData.DepositType.NONE:
-			var def: ResourceNodeData = resource_defs.get(td.deposit)
-			if def:
-				_create_resource_node(def, global_tile, local_tile)
-		elif td.has_tree:
-			var tree_def: ResourceNodeData = resource_defs.get("tree")
-			if tree_def:
-				_create_resource_node(tree_def, global_tile, local_tile)
-	is_loaded = true
+## Попытаться добыть ресурс в локальном тайле.
+## Возвращает Dictionary {item_id, amount} или пустой.
+func try_harvest_at(local_tile: Vector2i) -> Dictionary:
+	if not _resource_data.has(local_tile):
+		return {}
+	var rd: Dictionary = _resource_data[local_tile]
+	if rd.get("depleted", false):
+		return {}
+
+	rd["remaining"] = rd["remaining"] - 1
+	var dep: int = rd["deposit"]
+	var result: Dictionary = _get_harvest_result(dep)
+
+	if rd["remaining"] <= 0:
+		rd["depleted"] = true
+		_resource_layer.erase_cell(local_tile)
+		var global: Vector2i = rd["global"]
+		_modified_tiles[global] = {"depleted": true}
+		is_dirty = true
+		EventBus.resource_node_depleted.emit(global, dep)
+
+	return result
+
+## Есть ли ресурс в локальном тайле.
+func has_resource_at(local_tile: Vector2i) -> bool:
+	if not _resource_data.has(local_tile):
+		return false
+	return not _resource_data[local_tile].get("depleted", false)
+
+## Глобальный тайл → локальный.
+func global_to_local(global_tile: Vector2i) -> Vector2i:
+	return Vector2i(
+		global_tile.x - chunk_coord.x * _chunk_size,
+		global_tile.y - chunk_coord.y * _chunk_size
+	)
 
 func get_modifications() -> Dictionary:
-	var mods: Dictionary = _modified_tiles.duplicate()
-	for tile_pos: Vector2i in _resource_nodes:
-		var node: ResourceNode = _resource_nodes[tile_pos]
-		if is_instance_valid(node):
-			mods[tile_pos] = node.save_state()
-	return mods
+	return _modified_tiles.duplicate()
 
 func mark_tile_modified(tile_pos: Vector2i, state: Dictionary) -> void:
 	_modified_tiles[tile_pos] = state
@@ -131,25 +149,13 @@ func mark_tile_modified(tile_pos: Vector2i, state: Dictionary) -> void:
 
 func cleanup() -> void:
 	is_loaded = false
+	_resource_data.clear()
 
-func _global_to_local(global_tile: Vector2i) -> Vector2i:
-	return Vector2i(
-		global_tile.x - chunk_coord.x * _chunk_size,
-		global_tile.y - chunk_coord.y * _chunk_size
-	)
-
-func _create_resource_node(def: ResourceNodeData, global_tile: Vector2i, local_tile: Vector2i) -> void:
-	var node := ResourceNode.new()
-	var local_pos := Vector2(
-		local_tile.x * _tile_size + _tile_size * 0.5,
-		local_tile.y * _tile_size + _tile_size * 0.5
-	)
-	node.setup(def, global_tile, local_pos)
-	if _modified_tiles.has(global_tile):
-		node.load_state(_modified_tiles[global_tile])
-	node.depleted.connect(_on_resource_depleted.bind(global_tile))
-	_resource_container.add_child(node)
-	_resource_nodes[global_tile] = node
-
-func _on_resource_depleted(global_tile: Vector2i) -> void:
-	mark_tile_modified(global_tile, {"depleted": true})
+func _get_harvest_result(dep: int) -> Dictionary:
+	match dep:
+		1: return {"item_id": &"iron_ore", "amount": randi_range(1, 3)}
+		2: return {"item_id": &"copper_ore", "amount": randi_range(1, 2)}
+		3: return {"item_id": &"stone", "amount": randi_range(2, 4)}
+		4: return {"item_id": &"water_dirty", "amount": 1}
+		-1: return {"item_id": &"wood", "amount": randi_range(2, 5)}
+	return {}
