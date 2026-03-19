@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://cv8n3rbng8xrf"]
+
+[ext_resource type="Script" uid="uid://o7b5ejvfktdx" path="res://core/entities/items/item_data.gd" id="1_pkq13"]
+[ext_resource type="Texture2D" uid="uid://c34dflmr3ru2j" path="res://icon.svg" id="1_qnvr4"]
+
+[resource]
+script = ExtResource("1_pkq13")
+id = "base:wood"
+display_name = "Дерево"
+icon = ExtResource("1_qnvr4")
+max_stack = 50
+metadata/_custom_type_script = "uid://o7b5ejvfktdx"

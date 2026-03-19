@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://c82053tkbwug4"]
+
+[ext_resource type="Script" uid="uid://o7b5ejvfktdx" path="res://core/entities/items/item_data.gd" id="1_nrqy1"]
+[ext_resource type="Texture2D" uid="uid://c34dflmr3ru2j" path="res://icon.svg" id="1_ofji2"]
+
+[resource]
+script = ExtResource("1_nrqy1")
+id = "base:stone"
+display_name = "Камень"
+icon = ExtResource("1_ofji2")
+max_stack = 50
+metadata/_custom_type_script = "uid://o7b5ejvfktdx"

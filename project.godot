@@ -26,6 +26,7 @@ EventBus="*res://core/autoloads/event_bus.gd"
 GameManager="*res://core/autoloads/game_manager.gd"
 TimeManager="*res://core/autoloads/time_manager.gd"
 WorldGenerator="*res://core/autoloads/world_generator.gd"
+ItemRegistry="*res://core/autoloads/item_registry.gd"
 SaveManager="*res://core/autoloads/save_manager.gd"
 
 [display]

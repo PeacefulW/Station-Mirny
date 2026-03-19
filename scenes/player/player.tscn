@@ -1,8 +1,9 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene format=3 uid="uid://du5ikqcjmp801"]
 
-[ext_resource type="Script" path="res://core/entities/player/player.gd" id="1_player"]
-[ext_resource type="Script" path="res://core/systems/survival/oxygen_system.gd" id="2_oxygen"]
-[ext_resource type="Script" path="res://core/entities/components/health_component.gd" id="3_health"]
+[ext_resource type="Script" uid="uid://b8uotp6a5w0dw" path="res://core/entities/player/player.gd" id="1_player"]
+[ext_resource type="Script" uid="uid://ofyy3tbmieis" path="res://core/systems/survival/oxygen_system.gd" id="2_oxygen"]
+[ext_resource type="Texture2D" uid="uid://d0gb5thij5n16" path="res://assets/sprites/player/engineer_sprite.png" id="2_p47bc"]
+[ext_resource type="Script" uid="uid://cfm8rii3bfdq3" path="res://core/entities/components/health_component.gd" id="3_health"]
 [ext_resource type="Resource" path="res://data/balance/survival_balance.tres" id="4_survbal"]
 
 [sub_resource type="RectangleShape2D" id="player_shape"]
@@ -11,37 +12,33 @@ size = Vector2(28, 28)
 [sub_resource type="CircleShape2D" id="attack_shape"]
 radius = 48.0
 
-[node name="Player" type="CharacterBody2D" groups=["player"]]
-collision_layer = 1
+[node name="Player" type="CharacterBody2D" unique_id=1871543181 groups=["player"]]
 collision_mask = 6
 script = ExtResource("1_player")
 
-[node name="Visual" type="ColorRect" parent="."]
-offset_left = -16.0
-offset_top = -16.0
-offset_right = 16.0
-offset_bottom = 16.0
-color = Color(0.2, 0.5, 0.9, 1)
+[node name="Visual" type="Sprite2D" parent="." unique_id=997961818]
+position = Vector2(0, -1.5)
+scale = Vector2(0.07519531, 0.07519531)
+texture = ExtResource("2_p47bc")
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=543236914]
 shape = SubResource("player_shape")
 
-[node name="Camera2D" type="Camera2D" parent="."]
+[node name="Camera2D" type="Camera2D" parent="." unique_id=1547136717]
 zoom = Vector2(2, 2)
 position_smoothing_enabled = true
 position_smoothing_speed = 8.0
 
-[node name="OxygenSystem" type="Node" parent="."]
+[node name="OxygenSystem" type="Node" parent="." unique_id=1241461731]
 script = ExtResource("2_oxygen")
 balance = ExtResource("4_survbal")
 
-[node name="HealthComponent" type="Node" parent="."]
+[node name="HealthComponent" type="Node" parent="." unique_id=492503489]
 script = ExtResource("3_health")
-max_health = 100.0
 
-[node name="AttackArea" type="Area2D" parent="."]
+[node name="AttackArea" type="Area2D" parent="." unique_id=1664152156]
 collision_layer = 0
 collision_mask = 4
 
-[node name="AttackShape" type="CollisionShape2D" parent="AttackArea"]
+[node name="AttackShape" type="CollisionShape2D" parent="AttackArea" unique_id=907261228]
 shape = SubResource("attack_shape")

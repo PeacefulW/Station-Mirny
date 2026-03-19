@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://cacqn1rl5dxsb"]
+
+[ext_resource type="Texture2D" uid="uid://c34dflmr3ru2j" path="res://icon.svg" id="1_1chv4"]
+[ext_resource type="Script" uid="uid://o7b5ejvfktdx" path="res://core/entities/items/item_data.gd" id="1_jv3em"]
+
+[resource]
+script = ExtResource("1_jv3em")
+id = "base:copper_ore"
+display_name = "Медная руда"
+icon = ExtResource("1_1chv4")
+max_stack = 50
+metadata/_custom_type_script = "uid://o7b5ejvfktdx"

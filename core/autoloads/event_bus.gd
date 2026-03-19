@@ -49,6 +49,12 @@ signal resource_node_depleted(tile_pos: Vector2i, deposit_type: int)
 signal poi_discovered(poi_type: StringName, world_pos: Vector2)
 signal biome_entered(biome_id: StringName)
 
+# --- Инвентарь и Предметы ---
+## Вызывается, когда инвентарь (игрока или сундука) изменился.
+signal inventory_updated(inventory_node: Node)
+## Вызывается, когда игрок успешно подобрал предмет с земли.
+signal item_collected(item_id: String, amount: int)
+
 # --- Сохранение / загрузка ---
 ## SaveManager начал сбор данных.
 signal save_requested()

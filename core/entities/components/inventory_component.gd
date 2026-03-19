@@ -1,0 +1,94 @@
+class_name InventoryComponent
+extends Node
+
+## Универсальный компонент инвентаря.
+## Управляет массивом ячеек, логикой добавления/удаления стаков.
+## Общается с UI и другими системами через EventBus.
+
+# --- Экспортируемые ---
+@export var capacity: int = 20
+
+# --- Публичные переменные ---
+var slots: Array[InventorySlot] = []
+
+func _ready() -> void:
+	_initialize_slots()
+
+# --- Публичные методы ---
+
+## Пытается добавить предмет в инвентарь.
+## Возвращает количество предмета, которое НЕ поместилось (0, если влезло всё).
+func add_item(item_data: ItemData, amount: int) -> int:
+	if amount <= 0 or not item_data:
+		return 0
+		
+	var remaining: int = amount
+	
+	# Шаг 1: Пытаемся заполнить неполные стаки такого же предмета
+	for slot: InventorySlot in slots:
+		if not slot.is_empty() and slot.item.id == item_data.id:
+			var space: int = slot.item.max_stack - slot.amount
+			if space > 0:
+				var to_add: int = mini(space, remaining)
+				slot.amount += to_add
+				remaining -= to_add
+				if remaining <= 0:
+					EventBus.inventory_updated.emit(self)
+					return 0
+					
+	# Шаг 2: Ищем пустые слоты для остатка
+	for slot: InventorySlot in slots:
+		if slot.is_empty():
+			slot.item = item_data
+			var to_add: int = mini(item_data.max_stack, remaining)
+			slot.amount = to_add
+			remaining -= to_add
+			if remaining <= 0:
+				EventBus.inventory_updated.emit(self)
+				return 0
+				
+	# Если дошли сюда — инвентарь заполнился, а остаток не влез
+	if remaining != amount:
+		EventBus.inventory_updated.emit(self)
+		
+	return remaining
+
+## Удаляет предмет из инвентаря.
+## Возвращает true, если было удалено нужное количество, иначе false.
+func remove_item(item_data: ItemData, amount: int) -> bool:
+	if not has_item(item_data, amount):
+		return false
+		
+	var remaining_to_remove: int = amount
+	
+	for slot: InventorySlot in slots:
+		if not slot.is_empty() and slot.item.id == item_data.id:
+			var to_remove: int = mini(slot.amount, remaining_to_remove)
+			slot.amount -= to_remove
+			remaining_to_remove -= to_remove
+			
+			if slot.amount <= 0:
+				slot.clear()
+				
+			if remaining_to_remove <= 0:
+				EventBus.inventory_updated.emit(self)
+				return true
+				
+	return false
+
+## Проверяет, есть ли в инвентаре нужное количество предмета.
+func has_item(item_data: ItemData, amount: int) -> bool:
+	var total: int = 0
+	for slot: InventorySlot in slots:
+		if not slot.is_empty() and slot.item.id == item_data.id:
+			total += slot.amount
+			if total >= amount:
+				return true
+	return false
+
+# --- Приватные методы ---
+
+func _initialize_slots() -> void:
+	slots.clear()
+	for i: int in range(capacity):
+		slots.append(InventorySlot.new())

@@ -7,6 +7,7 @@
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="5_player"]
 [ext_resource type="Script" uid="uid://b6sxf5rpuos74" path="res://scenes/ui/hud.gd" id="6_hud"]
 [ext_resource type="Script" uid="uid://bmctpx8t5mga6" path="res://core/systems/daylight/daylight_system.gd" id="7_daylight"]
+[ext_resource type="Script" uid="uid://j5vndblqo3ec" path="res://scenes/player/inventory_component.gd" id="7_sonj1"]
 [ext_resource type="Script" uid="uid://pbb5x2p2lhxo" path="res://core/systems/power/power_system.gd" id="8_wnjkh"]
 
 [node name="GameWorld" type="Node2D" unique_id=299385103]
@@ -29,6 +30,9 @@ balance = ExtResource("3_buildbal")
 wall_container = NodePath("../WallContainer")
 
 [node name="Player" parent="." unique_id=756426991 instance=ExtResource("5_player")]
+
+[node name="InventoryComponent" type="Node" parent="Player" unique_id=340051868]
+script = ExtResource("7_sonj1")
 
 [node name="UILayer" type="CanvasLayer" parent="." unique_id=1822282704]
 layer = 10
