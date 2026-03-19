@@ -28,7 +28,7 @@ func _ready() -> void:
 	_init_world_generator()
 	_setup_chunk_manager()
 	_spawn_initial_scrap()
-	codex
+	
 	# Создаём меню строительства в UILayer
 	var build_menu := BuildMenu.new()
 	build_menu.name = "BuildMenu"
