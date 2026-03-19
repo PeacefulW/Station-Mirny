@@ -38,7 +38,7 @@ func _ready() -> void:
 	var inv_ui := InventoryUI.new()
 	inv_ui.name = "InventoryUI"
 	get_node("UILayer").add_child(inv_ui)
-	
+
 	# Создаём PowerSystem
 	var power_sys := PowerSystem.new()
 	power_sys.name = "PowerSystem"
@@ -107,11 +107,9 @@ func _spawn_enemy() -> void:
 	enemy.collision_layer = 4
 	enemy.collision_mask = 1 | 2
 	enemy.global_position = spawn_pos
-	var visual := ColorRect.new()
+	var visual := Sprite2D.new()
 	visual.name = "Visual"
-	visual.size = Vector2(24, 24)
-	visual.position = Vector2(-12, -12)
-	visual.color = Color(0.85, 0.15, 0.1)
+	visual.texture = preload("res://assets/sprites/fauna/enemy_cleaner_32.png")
 	enemy.add_child(visual)
 	var collision := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
@@ -156,10 +154,9 @@ func _spawn_scrap_pickup(pos: Vector2) -> void:
 	pickup.collision_mask = 1
 	pickup.monitoring = true
 	pickup.monitorable = false
-	var visual := ColorRect.new()
-	visual.size = Vector2(10, 10)
-	visual.position = Vector2(-5, -5)
-	visual.color = Color(1.0, 0.85, 0.2)
+	var visual := Sprite2D.new()
+	visual.name = "Visual"
+	visual.texture = preload("res://assets/sprites/pickups/pickup_scrap_16.png")
 	pickup.add_child(visual)
 	var collision := CollisionShape2D.new()
 	var shape := CircleShape2D.new()

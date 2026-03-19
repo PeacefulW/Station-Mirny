@@ -83,7 +83,7 @@ func _on_died() -> void:
 	_play_death()
 
 func _play_death() -> void:
-	var visual: ColorRect = get_node_or_null("Visual")
+	var visual: Node2D = get_node_or_null("Visual") as Node2D
 	if visual:
 		var tween: Tween = create_tween()
 		tween.tween_property(visual, "modulate:a", 0.0, 0.3)
