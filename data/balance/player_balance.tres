@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="PlayerBalance" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/balance/player_balance.gd" id="1_player_balance"]
+
+[resource]
+script = ExtResource("1_player_balance")
+move_speed = 150.0
+attack_damage = 15.0
+attack_cooldown = 0.4
+attack_range = 48.0
+attack_flash_duration = 0.1
+harvest_cooldown = 0.5
+harvest_range = 48.0
+harvest_flash_duration = 0.15
+harvest_popup_rise_distance = 40.0
+harvest_popup_duration = 0.8
+harvest_popup_fade_delay = 0.3
