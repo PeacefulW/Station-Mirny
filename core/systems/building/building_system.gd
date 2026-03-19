@@ -24,12 +24,22 @@ var _half_grid: Vector2 = Vector2(16, 16)
 var _selected_building: BuildingData = null
 ## Каталог доступных построек: id(String) -> BuildingData.
 var _building_catalog: Dictionary = {}
+var _placement_service: BuildingPlacementService = BuildingPlacementService.new()
 
 func _ready() -> void:
 	wall_container = get_node("../WallContainer")
 	if balance:
 		_grid_size = balance.grid_size
 		_half_grid = Vector2(_grid_size * 0.5, _grid_size * 0.5)
+	_placement_service.setup(
+		walls,
+		wall_container,
+		_grid_size,
+		_half_grid,
+		func() -> int: return _player_scrap,
+		func(value: int) -> void: _player_scrap = value,
+		func() -> void: _recalculate_indoor()
+	)
 	_building_catalog = _build_building_catalog()
 	EventBus.scrap_collected.connect(_on_scrap_collected)
 	EventBus.scrap_spent.connect(
@@ -55,7 +65,7 @@ func _draw() -> void:
 	var grid_pos: Vector2i = world_to_grid(mouse_world)
 	var snap_pos: Vector2 = grid_to_world(grid_pos)
 	var rect := Rect2(snap_pos - _half_grid, Vector2(_grid_size, _grid_size))
-	var can_place: bool = _can_place_at(grid_pos)
+	var can_place: bool = _placement_service._can_place_at(grid_pos, _selected_building)
 	# Цвет призрака — из выбранной постройки
 	var ghost_color: Color
 	if can_place:
@@ -71,9 +81,13 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_build_mode"):
 		_toggle_build_mode()
 	elif is_build_mode and event.is_action_pressed("primary_action"):
-		_try_place_building()
+		var world_pos: Vector2 = get_global_mouse_position()
+		var grid_pos: Vector2i = world_to_grid(world_pos)
+		_placement_service._try_place_building(grid_pos, _selected_building)
 	elif is_build_mode and event.is_action_pressed("secondary_action"):
-		_try_remove_building()
+		var world_pos: Vector2 = get_global_mouse_position()
+		var grid_pos: Vector2i = world_to_grid(world_pos)
+		_placement_service._try_remove_building(grid_pos)
 
 # --- Публичные методы ---
 
@@ -126,9 +140,13 @@ func load_state(data: Dictionary) -> void:
 		var bd: BuildingData = _get_building_data_by_id(building_id)
 		var node: Node2D = null
 		if bd:
-			node = _create_building_at(grid_pos, bd)
+			node = _placement_service._create_building_at(grid_pos, bd)
 		else:
-			node = _create_simple_wall(grid_pos, grid_to_world(grid_pos), _make_wall_default_data())
+			node = _placement_service._create_simple_wall(
+				grid_pos,
+				grid_to_world(grid_pos),
+				_make_wall_default_data()
+			)
 		if not node:
 			continue
 		var health: HealthComponent = node.get_node_or_null("HealthComponent")
@@ -162,113 +180,11 @@ func _connect_build_menu() -> void:
 func _on_menu_selection(building: BuildingData) -> void:
 	_selected_building = building
 
-func _can_place_at(grid_pos: Vector2i) -> bool:
-	if walls.has(grid_pos):
-		return false
-	if not _selected_building:
-		return false
-	return _player_scrap >= _selected_building.scrap_cost
-
 func _toggle_build_mode() -> void:
 	is_build_mode = not is_build_mode
 	if not is_build_mode:
 		queue_redraw()
 	EventBus.build_mode_changed.emit(is_build_mode)
-
-func _try_place_building() -> void:
-	var world_pos: Vector2 = get_global_mouse_position()
-	var grid_pos: Vector2i = world_to_grid(world_pos)
-	if not _can_place_at(grid_pos):
-		return
-	_player_scrap -= _selected_building.scrap_cost
-	EventBus.scrap_spent.emit(_selected_building.scrap_cost, _player_scrap)
-	_create_building_at(grid_pos, _selected_building)
-	_recalculate_indoor()
-	EventBus.building_placed.emit(grid_pos)
-
-func _try_remove_building() -> void:
-	var world_pos: Vector2 = get_global_mouse_position()
-	var grid_pos: Vector2i = world_to_grid(world_pos)
-	if not walls.has(grid_pos):
-		return
-	var node: Node2D = walls[grid_pos]
-	node.queue_free()
-	walls.erase(grid_pos)
-	_player_scrap += 1
-	EventBus.scrap_collected.emit(_player_scrap)
-	_recalculate_indoor()
-	EventBus.building_removed.emit(grid_pos)
-
-## Создать постройку по BuildingData.
-func _create_building_at(grid_pos: Vector2i, bd: BuildingData) -> Node2D:
-	var snap_pos: Vector2 = grid_to_world(grid_pos)
-	# Если у здания есть скрипт — создаём через него
-	if not bd.script_path.is_empty():
-		return _create_scripted_building(grid_pos, snap_pos, bd)
-	# Иначе — обычная стена (как раньше)
-	return _create_simple_wall(grid_pos, snap_pos, bd)
-
-## Создать обычную стену без логики.
-func _create_simple_wall(grid_pos: Vector2i, snap_pos: Vector2, bd: BuildingData) -> StaticBody2D:
-	var wall := StaticBody2D.new()
-	wall.position = snap_pos
-	wall.collision_layer = 2
-	wall.collision_mask = 0
-	var visual := ColorRect.new()
-	visual.size = Vector2(_grid_size, _grid_size)
-	visual.position = -_half_grid
-	visual.color = bd.placeholder_color
-	wall.add_child(visual)
-	var collision := CollisionShape2D.new()
-	var shape := RectangleShape2D.new()
-	shape.size = Vector2(_grid_size, _grid_size)
-	collision.shape = shape
-	wall.add_child(collision)
-	var health := HealthComponent.new()
-	health.name = "HealthComponent"
-	health.max_health = bd.health
-	wall.add_child(health)
-	health.died.connect(_on_building_destroyed.bind(grid_pos))
-	wall.set_meta("building_id", str(bd.id) if not str(bd.id).is_empty() else "wall")
-	if wall_container:
-		wall_container.add_child(wall)
-	walls[grid_pos] = wall
-	return wall
-
-## Создать здание с собственным скриптом (батарея, термосжигатель...).
-func _create_scripted_building(grid_pos: Vector2i, snap_pos: Vector2, bd: BuildingData) -> Node2D:
-	var script_res: GDScript = load(bd.script_path) as GDScript
-	if not script_res:
-		push_error("BuildingSystem: не найден скрипт %s" % bd.script_path)
-		return _create_simple_wall(grid_pos, snap_pos, bd)
-	# Загружаем баланс здания если указан
-	var bld_balance: Resource = null
-	if not bd.balance_path.is_empty():
-		bld_balance = load(bd.balance_path)
-	# Создаём ноду со скриптом
-	var node := StaticBody2D.new()
-	node.set_script(script_res)
-	# Вызываем setup если метод существует
-	if node.has_method("setup"):
-		node.setup(grid_pos, snap_pos, bld_balance)
-	else:
-		node.global_position = snap_pos
-	# Подписываемся на смерть
-	var health: HealthComponent = node.get_node_or_null("HealthComponent")
-	if health:
-		health.died.connect(_on_building_destroyed.bind(grid_pos))
-	node.set_meta("building_id", str(bd.id))
-	if wall_container:
-		wall_container.add_child(node)
-	walls[grid_pos] = node
-	return node
-
-func _on_building_destroyed(grid_pos: Vector2i) -> void:
-	if walls.has(grid_pos):
-		walls[grid_pos].queue_free()
-		walls.erase(grid_pos)
-		_recalculate_indoor()
-		EventBus.building_removed.emit(grid_pos)
 
 func _recalculate_indoor() -> void:
 	indoor_cells.clear()
