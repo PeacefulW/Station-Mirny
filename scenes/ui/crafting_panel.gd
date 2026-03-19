@@ -16,6 +16,8 @@ func _ready() -> void:
 	custom_minimum_size = Vector2(360, 320)
 	size_flags_horizontal = SIZE_EXPAND_FILL
 	_build_ui()
+	_load_recipes()
+	_refresh_recipe_list()
 
 ## Настраивает ссылки на нужные системы и перечитывает рецепты.
 func setup(inventory: InventoryComponent, crafting_system: CraftingSystem) -> void:
