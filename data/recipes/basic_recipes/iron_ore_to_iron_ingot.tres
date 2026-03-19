@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="RecipeData" format=3]
+
+[ext_resource type="Script" path="res://core/entities/recipes/recipe_data.gd" id="1_recipe_script"]
+
+[resource]
+script = ExtResource("1_recipe_script")
+id = "base:iron_ore_to_iron_ingot"
+display_name = "Переплавка железа"
+description = "Простейший ручной крафт: превратить железную руду в слиток."
+input_item_id = "base:iron_ore"
+input_amount = 1
+output_item_id = "base:iron_ingot"
+output_amount = 1
