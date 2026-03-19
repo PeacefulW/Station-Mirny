@@ -105,3 +105,4 @@ func _setup_native_generator() -> void:
 		"resource_frequency": balance.resource_frequency,
 	}
 	_native_generator.initialize(world_seed, params)
+	print("=== C++ ACTIVE: ", _native_generator != null, " ===")
