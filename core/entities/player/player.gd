@@ -4,19 +4,20 @@ extends CharacterBody2D
 ## Игрок (Инженер). Управляет движением, атакой,
 ## сбором ресурсов. Компоненты (O₂, здоровье, инвентарь) — дочерние ноды.
 
-# --- Константы ---
 const BASE_SPEED: float = 150.0
 const ATTACK_DAMAGE: float = 15.0
 const ATTACK_COOLDOWN: float = 0.4
-const PICKUP_RADIUS: float = 40.0
+const HARVEST_COOLDOWN: float = 0.5
+const HARVEST_RANGE: float = 48.0
 
-# --- Приватные ---
 var _speed_modifier: float = 1.0
 var _attack_timer: float = 0.0
+var _harvest_timer: float = 0.0
 var _oxygen_system: OxygenSystem = null
 var _health_component: HealthComponent = null
 var _attack_area: Area2D = null
 var _inventory: InventoryComponent = null
+var _chunk_manager: Node = null
 
 func _ready() -> void:
 	add_to_group("player")
@@ -32,18 +33,90 @@ func _ready() -> void:
 		_health_component.died.connect(_on_died)
 	if not _inventory:
 		push_error("Player: InventoryComponent не найден!")
+	call_deferred("_find_chunk_manager")
 
 func _physics_process(delta: float) -> void:
 	_handle_movement()
 	_handle_rotation()
 	_update_attack_cooldown(delta)
+	_update_harvest_cooldown(delta)
 	move_and_slide()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("attack"):
 		_try_attack()
+	elif event.is_action_pressed("interact"):
+		_try_harvest()
 
-## Собрать предмет в инвентарь.
+# --- Добыча ресурсов ---
+
+func _try_harvest() -> void:
+	if _harvest_timer > 0.0:
+		return
+	if not _chunk_manager or not _inventory:
+		return
+	# Проверяем тайл перед игроком (в направлении курсора)
+	var harvest_pos: Vector2 = _get_harvest_position()
+	if not _chunk_manager.has_resource_at_world(harvest_pos):
+		# Пробуем прямо под игроком
+		harvest_pos = global_position
+		if not _chunk_manager.has_resource_at_world(harvest_pos):
+			return
+	_harvest_timer = HARVEST_COOLDOWN
+	var result: Dictionary = _chunk_manager.try_harvest_at_world(harvest_pos)
+	if result.is_empty():
+		return
+	var item_id: String = result.get("item_id", "")
+	var amount: int = result.get("amount", 0)
+	if item_id.is_empty() or amount <= 0:
+		return
+	# Конвертируем StringName в полный ID для ItemRegistry
+	var full_id: String = "base:" + item_id
+	collect_item(full_id, amount)
+	# Визуальная обратная связь
+	_spawn_harvest_popup(full_id, amount)
+	_flash_harvest()
+
+func _get_harvest_position() -> Vector2:
+	var dir: Vector2 = (get_global_mouse_position() - global_position).normalized()
+	return global_position + dir * HARVEST_RANGE
+
+func _update_harvest_cooldown(delta: float) -> void:
+	if _harvest_timer > 0.0:
+		_harvest_timer -= delta
+
+func _flash_harvest() -> void:
+	var visual: Node2D = get_node_or_null("Visual") as Node2D
+	if visual:
+		visual.modulate = Color(0.5, 1.0, 0.5)
+		get_tree().create_timer(0.15).timeout.connect(
+			func() -> void:
+				if is_instance_valid(visual):
+					visual.modulate = Color(1.0, 1.0, 1.0)
+		)
+
+## Всплывающий текст "+3 Железная руда"
+func _spawn_harvest_popup(item_id: String, amount: int) -> void:
+	var item_data: ItemData = ItemRegistry.get_item(item_id)
+	var display_name: String = item_data.display_name if item_data else item_id
+	var popup := Label.new()
+	popup.text = "+%d %s" % [amount, display_name]
+	popup.add_theme_font_size_override("font_size", 14)
+	popup.add_theme_color_override("font_color", Color(0.9, 0.85, 0.4))
+	popup.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
+	popup.add_theme_constant_override("shadow_offset_x", 1)
+	popup.add_theme_constant_override("shadow_offset_y", 1)
+	popup.position = Vector2(-40, -50)
+	popup.z_index = 100
+	add_child(popup)
+	var tween: Tween = create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(popup, "position:y", -90.0, 0.8).set_ease(Tween.EASE_OUT)
+	tween.tween_property(popup, "modulate:a", 0.0, 0.8).set_delay(0.3)
+	tween.chain().tween_callback(popup.queue_free)
+
+# --- Сбор предметов ---
+
 func collect_item(item_id: String, amount: int) -> void:
 	if not _inventory:
 		return
@@ -57,7 +130,6 @@ func collect_item(item_id: String, amount: int) -> void:
 	if leftover > 0:
 		print("Инвентарь полон! Не влезло: ", leftover)
 
-## Совместимость со старой системой скрапа.
 func collect_scrap(amount: int) -> void:
 	if not _inventory:
 		return
@@ -75,6 +147,16 @@ func get_inventory() -> InventoryComponent:
 	return _inventory
 
 # --- Приватные ---
+
+func _find_chunk_manager() -> void:
+	var parent: Node = get_parent()
+	if parent:
+		_chunk_manager = parent.get_node_or_null("ChunkManager")
+	if not _chunk_manager:
+		# Поиск по дереву
+		var nodes: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
+		if not nodes.is_empty():
+			_chunk_manager = nodes[0]
 
 func _handle_movement() -> void:
 	var direction := Vector2.ZERO
@@ -100,11 +182,13 @@ func _try_attack() -> void:
 	if _attack_timer > 0.0 or not _attack_area:
 		return
 	_attack_timer = ATTACK_COOLDOWN
-	var visual: Sprite2D = get_node_or_null("Visual") as Sprite2D
+	var visual: Node2D = get_node_or_null("Visual") as Node2D
 	if visual:
 		visual.modulate = Color(1.0, 0.3, 0.3)
 		get_tree().create_timer(0.1).timeout.connect(
-			func() -> void: visual.modulate = Color(1.0, 1.0, 1.0)
+			func() -> void:
+				if is_instance_valid(visual):
+					visual.modulate = Color(1.0, 1.0, 1.0)
 		)
 	var bodies: Array[Node2D] = _attack_area.get_overlapping_bodies()
 	for body: Node2D in bodies:
