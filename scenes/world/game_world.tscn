@@ -6,23 +6,14 @@
 [ext_resource type="Resource" path="res://data/balance/enemy_balance.tres" id="4_enemybal"]
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="5_player"]
 [ext_resource type="Script" uid="uid://b6sxf5rpuos74" path="res://scenes/ui/hud.gd" id="6_hud"]
-[ext_resource type="Script" path="res://core/systems/daylight/daylight_system.gd" id="7_daylight"]
+[ext_resource type="Script" uid="uid://bmctpx8t5mga6" path="res://core/systems/daylight/daylight_system.gd" id="7_daylight"]
 
 [node name="GameWorld" type="Node2D" unique_id=299385103]
 script = ExtResource("1_world")
 enemy_balance = ExtResource("4_enemybal")
 
-[node name="DaylightSystem" type="CanvasModulate" parent="."]
+[node name="DaylightSystem" type="CanvasModulate" parent="." unique_id=933071398]
 script = ExtResource("7_daylight")
-
-[node name="Ground" type="ColorRect" parent="." unique_id=1637006448]
-z_index = -10
-offset_left = -5000.0
-offset_top = -5000.0
-offset_right = 5000.0
-offset_bottom = 5000.0
-mouse_filter = 2
-color = Color(0.12, 0.16, 0.08, 1)
 
 [node name="WallContainer" type="Node2D" parent="." unique_id=617037608]
 
