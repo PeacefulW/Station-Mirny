@@ -1,0 +1,114 @@
+class_name SaveCollectors
+extends RefCounted
+
+## Набор функций для сбора данных сохранения.
+## Не пишет на диск и не меняет состояние мира.
+
+static func collect_meta(save_version: int) -> Dictionary:
+	return {
+		"save_version": save_version,
+		"save_format_version": 2,
+		"save_time": Time.get_datetime_string_from_system(),
+		"world_seed": WorldGenerator.world_seed if WorldGenerator else 0,
+		"game_day": TimeManager.current_day if TimeManager else 1,
+	}
+
+static func collect_player(tree: SceneTree) -> Dictionary:
+	var players: Array[Node] = tree.get_nodes_in_group("player")
+	if players.is_empty():
+		return {}
+	var player: Node2D = players[0]
+	var data: Dictionary = {
+		"position": {
+			"x": player.global_position.x,
+			"y": player.global_position.y,
+		},
+		"resources": {},
+	}
+	if player.has_method("collect_scrap"):
+		data["resources"]["scrap_count"] = int(player.get("scrap_count"))
+	var health: HealthComponent = player.get_node_or_null("HealthComponent")
+	if health:
+		data["health"] = {
+			"current": health.current_health,
+			"max": health.max_health,
+		}
+	var oxygen_system: Node = player.get_node_or_null("OxygenSystem")
+	if oxygen_system and oxygen_system.has_method("save_state"):
+		data["oxygen"] = oxygen_system.save_state()
+	return data
+
+static func collect_world() -> Dictionary:
+	if not WorldGenerator:
+		return {}
+	var data: Dictionary = {
+		"seed": WorldGenerator.world_seed,
+		"spawn_tile": {
+			"x": WorldGenerator.spawn_tile.x,
+			"y": WorldGenerator.spawn_tile.y,
+		},
+		"generation": {},
+	}
+	if WorldGenerator.balance:
+		var balance: WorldGenBalance = WorldGenerator.balance
+		data["generation"] = {
+			"water_threshold": balance.water_threshold,
+			"rock_threshold": balance.rock_threshold,
+			"warp_strength": balance.warp_strength,
+			"ridge_weight": balance.ridge_weight,
+		}
+	return data
+
+static func collect_time() -> Dictionary:
+	if not TimeManager:
+		return {}
+	return {
+		"current_hour": TimeManager.current_hour,
+		"current_day": TimeManager.current_day,
+		"current_season": TimeManager.current_season,
+	}
+
+static func collect_buildings(tree: SceneTree) -> Dictionary:
+	var building_systems: Array[Node] = tree.get_nodes_in_group("building_system")
+	if building_systems.is_empty():
+		building_systems = _find_nodes_by_class(tree, "BuildingSystem")
+		if building_systems.is_empty():
+			return {}
+	var building_system: Node = building_systems[0]
+	if building_system.has_method("save_state"):
+		return building_system.save_state()
+
+	var walls: Dictionary = building_system.get("walls") if building_system.has_method("get") else {}
+	var wall_data: Array[Dictionary] = []
+	for pos: Vector2i in walls:
+		var wall_node: Node2D = walls[pos]
+		var entry: Dictionary = {
+			"x": pos.x,
+			"y": pos.y,
+		}
+		var health: HealthComponent = wall_node.get_node_or_null("HealthComponent")
+		if health:
+			entry["health"] = health.current_health
+		wall_data.append(entry)
+	return {"walls": wall_data}
+
+static func collect_chunk_data(tree: SceneTree) -> Dictionary:
+	var managers: Array[Node] = _find_nodes_by_class(tree, "ChunkManager")
+	if managers.is_empty():
+		return {}
+	var chunk_manager: Node = managers[0]
+	if chunk_manager.has_method("get_save_data"):
+		return chunk_manager.get_save_data()
+	return {}
+
+static func _find_nodes_by_class(tree: SceneTree, class_name_str: String) -> Array[Node]:
+	var result: Array[Node] = []
+	_find_recursive(tree.root, class_name_str, result)
+	return result
+
+static func _find_recursive(node: Node, class_name_str: String, result: Array[Node]) -> void:
+	if node.get_class() == class_name_str or \
+	   (node.get_script() and node.get_script().get_global_name() == class_name_str):
+		result.append(node)
+	for child: Node in node.get_children():
+		_find_recursive(child, class_name_str, result)
