@@ -43,6 +43,6 @@ grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("6_hud")
 
-[node name="PowerSystem" type="Node" parent="." unique_id=1983103841]
+[node name="PowerSystem" type="Node" parent="." unique_id=1363382456]
 script = ExtResource("8_wnjkh")
 metadata/_custom_type_script = "uid://pbb5x2p2lhxo"

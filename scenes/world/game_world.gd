@@ -28,9 +28,16 @@ func _ready() -> void:
 	_init_world_generator()
 	_setup_chunk_manager()
 	_spawn_initial_scrap()
-	_power_system = PowerSystem.new()
-	_power_system.name = "PowerSystem"
-	add_child(_power_system)
+	
+	# Создаём меню строительства в UILayer
+	var build_menu := BuildMenu.new()
+	build_menu.name = "BuildMenu"
+	get_node("UILayer").add_child(build_menu)
+
+	# Создаём PowerSystem
+	var power_sys := PowerSystem.new()
+	power_sys.name = "PowerSystem"
+	add_child(power_sys)
 
 func _process(delta: float) -> void:
 	_update_player_indoor_status()
