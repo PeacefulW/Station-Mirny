@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="PowerBalance" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/balance/power_balance.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+update_interval = 1.0
+ark_battery_output = 80.0
+ark_battery_capacity = 2000.0
+ark_battery_cost = 0
+burner_output = 120.0
+burner_fuel_rate = 0.5
+burner_fuel_capacity = 100.0
+burner_noise_radius = 250.0
+burner_noise_level = 0.7
+burner_cost = 8
+ark_battery_color = Color(0.3, 0.5, 0.8, 1)
+burner_color = Color(0.8, 0.4, 0.15, 1)
+building_tile_size = 1

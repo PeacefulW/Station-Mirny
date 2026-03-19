@@ -28,6 +28,9 @@ func _ready() -> void:
 	_init_world_generator()
 	_setup_chunk_manager()
 	_spawn_initial_scrap()
+	_power_system = PowerSystem.new()
+	_power_system.name = "PowerSystem"
+	add_child(_power_system)
 
 func _process(delta: float) -> void:
 	_update_player_indoor_status()
