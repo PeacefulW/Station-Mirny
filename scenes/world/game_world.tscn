@@ -11,6 +11,7 @@
 [node name="GameWorld" type="Node2D" unique_id=299385103]
 script = ExtResource("1_world")
 enemy_balance = ExtResource("4_enemybal")
+world_seed = 12345
 
 [node name="DaylightSystem" type="CanvasModulate" parent="." unique_id=933071398]
 script = ExtResource("7_daylight")

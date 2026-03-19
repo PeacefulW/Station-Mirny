@@ -1,13 +1,13 @@
 class_name GameWorld
 extends Node2D
 
-## Главная сцена мира. Инициализирует WorldGenerator,
+## Главная сцена мира. Инициализирует WorldGenerator (если не было),
 ## управляет ChunkManager, спавном врагов и пикапов.
-## Проверяет indoor/outdoor статус игрока.
 
 # --- Экспортируемые ---
 @export var enemy_balance: EnemyBalance = null
-## Seed мира. 0 = случайный при каждом запуске.
+## Seed мира. Используется только если мир не инициализирован
+## (при запуске напрямую, минуя экран создания). 0 = случайный.
 @export var world_seed: int = 0
 
 # --- Приватные ---
@@ -25,11 +25,8 @@ func _ready() -> void:
 	_enemy_container = get_node_or_null("EnemyContainer")
 	_pickup_container = get_node_or_null("PickupContainer")
 	EventBus.enemy_killed.connect(_on_enemy_killed)
-	# Инициализация генератора мира
 	_init_world_generator()
-	# Создаём ChunkManager
 	_setup_chunk_manager()
-	# Начальные пикапы скрапа (обломки корабля)
 	_spawn_initial_scrap()
 
 func _process(delta: float) -> void:
@@ -38,25 +35,24 @@ func _process(delta: float) -> void:
 
 # --- Инициализация ---
 
-## Инициализировать WorldGenerator с seed.
 func _init_world_generator() -> void:
 	if not WorldGenerator:
 		push_error("GameWorld: WorldGenerator Autoload не найден!")
 		return
-	# Задаём точку спавна игрока в тайловых координатах
 	if _player:
 		WorldGenerator.spawn_tile = WorldGenerator.world_to_tile(_player.global_position)
-	# Инициализация с seed (0 = случайный)
+	# Если уже инициализирован (из экрана создания мира) — не трогаем
+	if WorldGenerator._is_initialized:
+		return
+	# Иначе инициализируем (запуск напрямую для тестирования)
 	if world_seed == 0:
 		WorldGenerator.initialize_random()
 	else:
 		WorldGenerator.initialize_world(world_seed)
 
-## Создать и настроить ChunkManager.
 func _setup_chunk_manager() -> void:
 	_chunk_manager = ChunkManager.new()
 	_chunk_manager.name = "ChunkManager"
-	# Добавляем перед WallContainer чтобы чанки были под стенами
 	add_child(_chunk_manager)
 	move_child(_chunk_manager, 0)
 
@@ -80,8 +76,6 @@ func _update_enemy_spawning(delta: float) -> void:
 		if _enemy_count < enemy_balance.max_enemies:
 			_spawn_enemy()
 
-# --- Спавн ---
-
 func _spawn_enemy() -> void:
 	if not enemy_balance:
 		return
@@ -91,7 +85,6 @@ func _spawn_enemy() -> void:
 		enemy_balance.spawn_distance_max
 	)
 	var spawn_pos: Vector2 = _player.global_position + Vector2.from_angle(angle) * dist
-	# Проверяем, что позиция проходима (не вода и не камень)
 	if WorldGenerator and WorldGenerator._is_initialized:
 		if not WorldGenerator.is_walkable_at(spawn_pos):
 			return
