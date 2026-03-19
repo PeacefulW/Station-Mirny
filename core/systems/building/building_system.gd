@@ -24,6 +24,7 @@ var _half_grid: Vector2 = Vector2(16, 16)
 var _selected_building: BuildingData = null
 ## Каталог доступных построек: id(String) -> BuildingData.
 var _building_catalog: Dictionary = {}
+var _indoor_solver: IndoorSolver = IndoorSolver.new()
 
 func _ready() -> void:
 	wall_container = get_node("../WallContainer")
@@ -271,38 +272,7 @@ func _on_building_destroyed(grid_pos: Vector2i) -> void:
 		EventBus.building_removed.emit(grid_pos)
 
 func _recalculate_indoor() -> void:
-	indoor_cells.clear()
-	if walls.is_empty():
-		EventBus.rooms_recalculated.emit(indoor_cells)
-		queue_redraw()
-		return
-	var min_pos := Vector2i(999999, 999999)
-	var max_pos := Vector2i(-999999, -999999)
-	for pos: Vector2i in walls:
-		min_pos = Vector2i(mini(min_pos.x, pos.x), mini(min_pos.y, pos.y))
-		max_pos = Vector2i(maxi(max_pos.x, pos.x), maxi(max_pos.y, pos.y))
-	min_pos -= Vector2i(1, 1)
-	max_pos += Vector2i(1, 1)
-	var outdoor: Dictionary = {}
-	var queue: Array[Vector2i] = [min_pos]
-	outdoor[min_pos] = true
-	while not queue.is_empty():
-		var current: Vector2i = queue.pop_front()
-		for offset: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-			var neighbor: Vector2i = current + offset
-			if neighbor.x < min_pos.x or neighbor.x > max_pos.x:
-				continue
-			if neighbor.y < min_pos.y or neighbor.y > max_pos.y:
-				continue
-			if outdoor.has(neighbor) or walls.has(neighbor):
-				continue
-			outdoor[neighbor] = true
-			queue.append(neighbor)
-	for x: int in range(min_pos.x, max_pos.x + 1):
-		for y: int in range(min_pos.y, max_pos.y + 1):
-			var pos := Vector2i(x, y)
-			if not walls.has(pos) and not outdoor.has(pos):
-				indoor_cells[pos] = true
+	indoor_cells = _indoor_solver.solve_indoor_cells(walls)
 	EventBus.rooms_recalculated.emit(indoor_cells)
 	queue_redraw()
 
