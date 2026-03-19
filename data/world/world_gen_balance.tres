@@ -6,8 +6,8 @@
 script = ExtResource("1")
 chunk_size_tiles = 64
 tile_size = 32
-load_radius = 3
-unload_radius = 5
+load_radius = 2
+unload_radius = 4
 height_frequency = 0.01
 height_octaves = 4
 water_threshold = 0.3
