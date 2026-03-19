@@ -43,6 +43,11 @@ func _ready() -> void:
 	var power_sys := PowerSystem.new()
 	power_sys.name = "PowerSystem"
 	add_child(power_sys)
+	
+	# UI энергосистемы
+	var power_ui := PowerUI.new()
+	power_ui.name = "PowerUI"
+	get_node("UILayer").add_child(power_ui)
 
 func _process(delta: float) -> void:
 	_update_player_indoor_status()

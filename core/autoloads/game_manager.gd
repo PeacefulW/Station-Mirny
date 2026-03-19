@@ -11,6 +11,7 @@ const INPUT_ACTIONS: Dictionary = {
 	"move_right": KEY_D,
 	"toggle_build_mode": KEY_B,
 	"toggle_inventory": KEY_TAB,
+	"toggle_power_ui": KEY_P,
 	"attack": KEY_SPACE,
 	"interact": KEY_E,
 }
