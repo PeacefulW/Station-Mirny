@@ -4,6 +4,9 @@ extends VBoxContainer
 ## Правая панель крафта для окна инвентаря.
 ## Показывает рецепты и выполняет крафт по клику.
 
+signal craft_succeeded(message: String)
+signal craft_failed(message: String)
+
 var _inventory: InventoryComponent = null
 var _crafting_system: CraftingSystem = null
 var _recipes: Array[RecipeData] = []
@@ -68,6 +71,15 @@ func _refresh_recipe_list() -> void:
 	for child: Node in _recipe_list.get_children():
 		child.queue_free()
 
+	if _recipes.is_empty():
+		var no_recipes := Label.new()
+		no_recipes.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		no_recipes.text = "Рецепты не найдены. Проверьте папку data/recipes и корректность .tres."
+		no_recipes.add_theme_font_size_override("font_size", 12)
+		no_recipes.add_theme_color_override("font_color", Color(0.85, 0.55, 0.35))
+		_recipe_list.add_child(no_recipes)
+		return
+
 	for recipe: RecipeData in _recipes:
 		var button := Button.new()
 		button.text = _format_recipe_button_text(recipe)
@@ -81,8 +93,10 @@ func _on_recipe_pressed(recipe: RecipeData) -> void:
 	var input_item: ItemData = ItemRegistry.get_item(recipe.input_item_id)
 	var output_item: ItemData = ItemRegistry.get_item(recipe.output_item_id)
 	if not input_item or not output_item:
-		_craft_feedback.text = "Ошибка рецепта: предмет не найден в реестре"
+		var error_message: String = "Ошибка рецепта: предмет не найден в реестре"
+		_craft_feedback.text = error_message
 		_craft_feedback.add_theme_color_override("font_color", Color(0.95, 0.45, 0.35))
+		craft_failed.emit(error_message)
 		return
 
 	_recipe_description.text = "%s\n\nНужно: %s x%d\nРезультат: %s x%d" % [
@@ -94,16 +108,22 @@ func _on_recipe_pressed(recipe: RecipeData) -> void:
 	]
 
 	if not _crafting_system or not _inventory:
-		_craft_feedback.text = "Система крафта недоступна"
+		var unavailable_message: String = "Система крафта недоступна"
+		_craft_feedback.text = unavailable_message
 		_craft_feedback.add_theme_color_override("font_color", Color(0.95, 0.45, 0.35))
+		craft_failed.emit(unavailable_message)
 		return
 
 	if _crafting_system.craft(recipe, _inventory):
-		_craft_feedback.text = "Скрафчено: %s x%d" % [output_item.display_name, recipe.output_amount]
+		var ok_message: String = "Скрафчено: %s x%d" % [output_item.display_name, recipe.output_amount]
+		_craft_feedback.text = ok_message
 		_craft_feedback.add_theme_color_override("font_color", Color(0.55, 0.9, 0.55))
+		craft_succeeded.emit(ok_message)
 	else:
-		_craft_feedback.text = "Недостаточно ресурсов или нет места в инвентаре"
+		var failed_message: String = "Крафт не выполнен: %s" % _get_unavailable_reason(recipe)
+		_craft_feedback.text = failed_message
 		_craft_feedback.add_theme_color_override("font_color", Color(0.95, 0.55, 0.35))
+		craft_failed.emit(failed_message)
 
 	_refresh_recipe_list()
 
@@ -113,16 +133,60 @@ func _format_recipe_button_text(recipe: RecipeData) -> String:
 	if not input_item or not output_item:
 		return "%s\n(некорректный рецепт)" % recipe.display_name
 
-	var can_make: bool = false
-	if _crafting_system and _inventory:
-		can_make = _crafting_system.can_craft(recipe, _inventory)
-
-	var marker: String = "✓" if can_make else "✗"
-	return "%s %s\n%s x%d → %s x%d" % [
+	var reason: String = _get_unavailable_reason(recipe)
+	var marker: String = "✓" if reason.is_empty() else "✗"
+	var status_line: String = "Доступно" if reason.is_empty() else "Недоступно: %s" % reason
+	return "%s %s\n%s x%d → %s x%d\n%s" % [
 		marker,
 		recipe.display_name,
 		input_item.display_name,
 		recipe.input_amount,
 		output_item.display_name,
-		recipe.output_amount
+		recipe.output_amount,
+		status_line
 	]
+
+func _get_unavailable_reason(recipe: RecipeData) -> String:
+	var input_item: ItemData = ItemRegistry.get_item(recipe.input_item_id)
+	var output_item: ItemData = ItemRegistry.get_item(recipe.output_item_id)
+	if not input_item or not output_item:
+		return "рецепт повреждён (предметы не найдены)"
+	if not _crafting_system:
+		return "система крафта не инициализирована"
+	if not _inventory:
+		return "инвентарь игрока не найден"
+	if _crafting_system.can_craft(recipe, _inventory):
+		if _can_fit_item(output_item, recipe.output_amount):
+			return ""
+		return "недостаточно места в инвентаре"
+	var required_amount: int = maxi(recipe.input_amount, 0)
+	var available_amount: int = _count_item_amount(input_item)
+	return "нужно %d %s, есть %d" % [required_amount, input_item.display_name, available_amount]
+
+func _count_item_amount(item_data: ItemData) -> int:
+	if not _inventory or not item_data:
+		return 0
+	var total: int = 0
+	for slot: InventorySlot in _inventory.slots:
+		if not slot.is_empty() and slot.item and slot.item.id == item_data.id:
+			total += slot.amount
+	return total
+
+func _can_fit_item(item_data: ItemData, amount: int) -> bool:
+	if not _inventory or not item_data:
+		return false
+	var remaining: int = maxi(amount, 0)
+	for slot: InventorySlot in _inventory.slots:
+		if slot.is_empty():
+			continue
+		if slot.item and slot.item.id == item_data.id:
+			var free_in_stack: int = maxi(slot.item.max_stack - slot.amount, 0)
+			remaining -= free_in_stack
+			if remaining <= 0:
+				return true
+	for slot: InventorySlot in _inventory.slots:
+		if slot.is_empty():
+			remaining -= item_data.max_stack
+			if remaining <= 0:
+				return true
+	return false
