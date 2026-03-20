@@ -4,327 +4,328 @@ msgstr ""
 "Language: ru\n"
 
 msgid "UI_INVENTORY_TITLE"
-msgstr "РРќР’Р•РќРўРђР Р¬ Р РљР РђР¤Рў"
+msgstr "ИНВЕНТАРЬ И КРАФТ"
 
 msgid "UI_INVENTORY_SECTION"
-msgstr "РРЅРІРµРЅС‚Р°СЂСЊ"
+msgstr "Инвентарь"
 
 msgid "UI_INVENTORY_HINT"
-msgstr "Tab вЂ” Р·Р°РєСЂС‹С‚СЊ  |  РЎРєСЂР°Рї РЅСѓР¶РµРЅ РґР»СЏ СЃС‚СЂРѕРёС‚РµР»СЊСЃС‚РІР°  |  Р СѓРґР° РЅСѓР¶РЅР° РґР»СЏ РєСЂР°С„С‚Р°"
+msgstr "Tab — закрыть  |  Скрап нужен для строительства  |  Руда нужна для крафта"
 
 msgid "UI_INVENTORY_WEIGHT"
-msgstr "{weight} РєРі"
+msgstr "{weight} кг"
 
 msgid "UI_INVENTORY_EMPTY_SLOT"
-msgstr "РџСѓСЃС‚Рѕ"
+msgstr "Пусто"
 
 msgid "UI_BUILD_TITLE"
-msgstr "РЎРўР РћРРўР•Р›Р¬РЎРўР’Рћ"
+msgstr "СТРОИТЕЛЬСТВО"
 
 msgid "UI_BUILD_TITLE_SELECTED"
-msgstr "РЎРўР РћРРўР•Р›Р¬РЎРўР’Рћ: {building}"
+msgstr "СТРОИТЕЛЬСТВО: {building}"
 
 msgid "UI_BUILD_HINT"
-msgstr "  |  Р›РљРњ вЂ” РїРѕСЃС‚Р°РІРёС‚СЊ  |  РџРљРњ вЂ” СЃРЅРµСЃС‚Рё  |  СЃС‚РѕРёРјРѕСЃС‚СЊ вЂ” РІ СЃРєСЂР°РїРµ  |  B вЂ” Р·Р°РєСЂС‹С‚СЊ"
+msgstr "  |  ЛКМ — поставить  |  ПКМ — снести  |  стоимость — в скрапе  |  B — закрыть"
 
 msgid "UI_BUILD_BUTTON"
-msgstr "{hotkey}{name} ({cost} СЃРєСЂР°РїР°)"
+msgstr "{hotkey}{name} ({cost} скрапа)"
 
 msgid "UI_CRAFT_TITLE"
-msgstr "РљСЂР°С„С‚"
+msgstr "Крафт"
 
 msgid "UI_CRAFT_SELECT_RECIPE"
-msgstr "Р’С‹Р±РµСЂРёС‚Рµ СЂРµС†РµРїС‚ СЃРїСЂР°РІР°."
+msgstr "Выберите рецепт справа."
 
 msgid "UI_CRAFT_NO_RECIPES"
-msgstr "Р РµС†РµРїС‚С‹ РЅРµ РЅР°Р№РґРµРЅС‹. РџСЂРѕРІРµСЂСЊС‚Рµ РїР°РїРєСѓ data/recipes Рё РєРѕСЂСЂРµРєС‚РЅРѕСЃС‚СЊ .tres."
+msgstr "Рецепты не найдены. Проверьте папку data/recipes и корректность .tres."
 
 msgid "UI_CRAFT_RECIPE_INVALID"
-msgstr "РћС€РёР±РєР° СЂРµС†РµРїС‚Р°: РїСЂРµРґРјРµС‚ РЅРµ РЅР°Р№РґРµРЅ РІ СЂРµРµСЃС‚СЂРµ"
+msgstr "Ошибка рецепта: предмет не найден в реестре"
 
 msgid "UI_CRAFT_RECIPE_BROKEN"
-msgstr "РЅРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ СЂРµС†РµРїС‚"
+msgstr "некорректный рецепт"
 
 msgid "UI_CRAFT_RECIPE_DETAILS"
-msgstr "{description}\n\nРќСѓР¶РЅРѕ: {input} x{input_amount}\nР РµР·СѓР»СЊС‚Р°С‚: {output} x{output_amount}"
+msgstr "{description}\n\nНужно: {input} x{input_amount}\nРезультат: {output} x{output_amount}"
 
 msgid "UI_CRAFT_SYSTEM_UNAVAILABLE"
-msgstr "РЎРёСЃС‚РµРјР° РєСЂР°С„С‚Р° РЅРµРґРѕСЃС‚СѓРїРЅР°"
+msgstr "Система крафта недоступна"
 
 msgid "UI_CRAFT_STATUS_AVAILABLE"
-msgstr "Р”РѕСЃС‚СѓРїРЅРѕ"
+msgstr "Доступно"
 
 msgid "UI_CRAFT_STATUS_UNAVAILABLE"
-msgstr "РќРµРґРѕСЃС‚СѓРїРЅРѕ: {reason}"
+msgstr "Недоступно: {reason}"
 
 msgid "UI_CRAFT_REASON_RECIPE_BROKEN"
-msgstr "СЂРµС†РµРїС‚ РїРѕРІСЂРµР¶РґС‘РЅ (РїСЂРµРґРјРµС‚С‹ РЅРµ РЅР°Р№РґРµРЅС‹)"
+msgstr "рецепт повреждён (предметы не найдены)"
 
 msgid "UI_CRAFT_REASON_SYSTEM_NOT_READY"
-msgstr "СЃРёСЃС‚РµРјР° РєСЂР°С„С‚Р° РЅРµ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅР°"
+msgstr "система крафта не инициализирована"
 
 msgid "UI_CRAFT_REASON_INVENTORY_NOT_FOUND"
-msgstr "РёРЅРІРµРЅС‚Р°СЂСЊ РёРіСЂРѕРєР° РЅРµ РЅР°Р№РґРµРЅ"
+msgstr "инвентарь игрока не найден"
 
 msgid "UI_CRAFT_REASON_NOT_ENOUGH_SPACE"
-msgstr "РЅРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РјРµСЃС‚Р° РІ РёРЅРІРµРЅС‚Р°СЂРµ"
+msgstr "недостаточно места в инвентаре"
 
 msgid "UI_CRAFT_REASON_MISSING_ITEMS"
-msgstr "РЅСѓР¶РЅРѕ {required} {item}, РµСЃС‚СЊ {available}"
+msgstr "нужно {required} {item}, есть {available}"
 
 msgid "UI_CRAFT_FAILED"
-msgstr "РљСЂР°С„С‚ РЅРµ РІС‹РїРѕР»РЅРµРЅ: {reason}"
+msgstr "Крафт не выполнен: {reason}"
 
 msgid "UI_POWER_TITLE"
-msgstr "вљЎ Р­РќР•Р Р“РћРЎР•РўР¬"
+msgstr "⚡ ЭНЕРГОСЕТЬ"
 
 msgid "UI_POWER_STATUS_OK"
-msgstr "РћРљ"
+msgstr "ОК"
 
 msgid "UI_POWER_STATUS_DEFICIT"
-msgstr "Р”Р•Р¤РР¦РРў"
+msgstr "ДЕФИЦИТ"
 
 msgid "UI_POWER_STATUS_OFFLINE"
-msgstr "РќР•Рў РЎР•РўР"
+msgstr "НЕТ СЕТИ"
 
 msgid "UI_POWER_WATTS"
-msgstr "{supply} / {demand} Р’С‚"
+msgstr "{supply} / {demand} Вт"
 
 msgid "UI_POWER_GENERATORS"
-msgstr "Р“РµРЅРµСЂР°С‚РѕСЂС‹:"
+msgstr "Генераторы:"
 
 msgid "UI_POWER_HINT"
-msgstr "P вЂ” Р·Р°РєСЂС‹С‚СЊ  |  E СЂСЏРґРѕРј вЂ” Р·Р°РіСЂСѓР·РёС‚СЊ РІ РїРµС‡СЊ 1 Р±РёРѕРјР°СЃСЃСѓ  |  Р‘Р°Р·Р° РІРѕСЃСЃС‚Р°РЅР°РІР»РёРІР°РµС‚ O2 С‚РѕР»СЊРєРѕ РїСЂРё РїРёС‚Р°РЅРёРё"
+msgstr "P — закрыть  |  E рядом — загрузить в печь 1 биомассу  |  База восстанавливает O2 только при питании"
 
 msgid "UI_POWER_NO_GENERATORS"
-msgstr "  РќРµС‚ РіРµРЅРµСЂР°С‚РѕСЂРѕРІ"
+msgstr "  Нет генераторов"
 
 msgid "UI_POWER_BATTERY_CHARGE"
-msgstr "{charge} Р’С‚в‹…С‡ ({percent}%)"
+msgstr "{charge} Вт⋅ч ({percent}%)"
 
 msgid "UI_POWER_BURNER_FUEL"
-msgstr "РўРѕРїР»РёРІРѕ: {fuel} ({percent}%)"
+msgstr "Топливо: {fuel} ({percent}%)"
 
 msgid "UI_POWER_BURNER_OFF"
-msgstr "[Р’Р«РљР›]"
+msgstr "[ВЫКЛ]"
 
 msgid "UI_POWER_GENERIC_GENERATOR"
-msgstr "Р“РµРЅРµСЂР°С‚РѕСЂ"
+msgstr "Генератор"
 
 msgid "UI_POWER_SINGLE_WATTS"
-msgstr "{watts} Р’С‚"
+msgstr "{watts} Вт"
 
 msgid "UI_POWER_WATTS_SHORT"
-msgstr "{watts}Р’С‚"
+msgstr "{watts}Вт"
 
 msgid "UI_HUD_OXYGEN"
-msgstr "Oв‚‚: "
+msgstr "O₂: "
 
 msgid "UI_HUD_SCRAP"
-msgstr "РЎРєСЂР°Рї РґР»СЏ СЃС‚СЂРѕРёС‚РµР»СЊСЃС‚РІР°: {count}"
+msgstr "Скрап для строительства: {count}"
 
 msgid "UI_HUD_CONTROLS"
-msgstr "WASD вЂ” РґРІРёР¶РµРЅРёРµ  |  E вЂ” РґРѕР±С‹С‡Р° / Р·Р°РїСЂР°РІРёС‚СЊ РїРµС‡СЊ  |  Tab вЂ” РёРЅРІРµРЅС‚Р°СЂСЊ Рё РєСЂР°С„С‚  |  B вЂ” СЃС‚СЂРѕР№РєР°  |  P вЂ” СЌРЅРµСЂРіРёСЏ  |  РџР РћР‘Р•Р› вЂ” Р°С‚Р°РєР°"
+msgstr "WASD — движение  |  E — добыча / заправить печь  |  Tab — инвентарь и крафт  |  B — стройка  |  P — энергия  |  ПРОБЕЛ — атака"
 
 msgid "UI_HUD_BUILD_MODE"
-msgstr "[ Р Р•Р–РРњ РЎРўР РћРРўР•Р›Р¬РЎРўР’Рђ ]"
+msgstr "[ РЕЖИМ СТРОИТЕЛЬСТВА ]"
 
 msgid "UI_HUD_STATUS_OUTSIDE"
-msgstr "РЎРќРђР РЈР–Р"
+msgstr "СНАРУЖИ"
 
 msgid "UI_HUD_STATUS_BASE_POWERED"
-msgstr "Р’ Р‘РђР—Р• / РџРРўРђРќРР• РћРљ"
+msgstr "В БАЗЕ / ПИТАНИЕ ОК"
 
 msgid "UI_HUD_STATUS_BASE_UNPOWERED"
-msgstr "Р’ Р‘РђР—Р• / Р‘Р•Р— РџРРўРђРќРРЇ"
+msgstr "В БАЗЕ / БЕЗ ПИТАНИЯ"
 
 msgid "UI_HUD_DAY_PHASE"
-msgstr "Р”РµРЅСЊ {day} вЂ” {phase}"
+msgstr "День {day} — {phase}"
 
 msgid "UI_TIME_DAWN"
-msgstr "Р РђРЎРЎР’Р•Рў"
+msgstr "РАССВЕТ"
 
 msgid "UI_TIME_DAY"
-msgstr "Р”Р•РќР¬"
+msgstr "ДЕНЬ"
 
 msgid "UI_TIME_DUSK"
-msgstr "Р—РђРљРђРў"
+msgstr "ЗАКАТ"
 
 msgid "UI_TIME_NIGHT"
-msgstr "РќРћР§Р¬"
+msgstr "НОЧЬ"
 
 msgid "UI_TIME_UNKNOWN"
 msgstr "???"
 
 msgid "UI_GAME_OVER"
-msgstr "РР“Р Рђ РћРљРћРќР§Р•РќРђ"
+msgstr "ИГРА ОКОНЧЕНА"
 
 msgid "UI_PICKUP_POPUP"
 msgstr "+{amount} {item}"
 
 msgid "UI_BURNER_REFUELED"
-msgstr "+{amount} С‚РѕРїР»РёРІР°"
+msgstr "+{amount} топлива"
 
 msgid "ITEM_SCRAP_NAME"
-msgstr "РЎРєСЂР°Рї"
+msgstr "Скрап"
 
 msgid "ITEM_SCRAP_DESC"
-msgstr "РћР±Р»РѕРјРєРё Рё С‚РµС…Р»РѕРј. Р‘Р°Р·РѕРІС‹Р№ СЃС‚СЂРѕРёС‚РµР»СЊРЅС‹Р№ СЂРµСЃСѓСЂСЃ СЂР°РЅРЅРµР№ РёРіСЂС‹."
+msgstr "Обломки и техлом. Базовый строительный ресурс ранней игры."
 
 msgid "ITEM_WOOD_NAME"
-msgstr "Р‘РёРѕРјР°СЃСЃР°"
+msgstr "Биомасса"
 
 msgid "ITEM_WOOD_DESC"
-msgstr "РўРѕРїР»РёРІРѕ СЂР°РЅРЅРµР№ РёРіСЂС‹. РСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РґР»СЏ Р·Р°РїСЂР°РІРєРё С‚РµСЂРјРѕСЃР¶РёРіР°С‚РµР»СЏ."
+msgstr "Топливо ранней игры. Используется для заправки термосжигателя."
 
 msgid "ITEM_IRON_ORE_NAME"
-msgstr "Р–РµР»РµР·РЅР°СЏ СЂСѓРґР°"
+msgstr "Железная руда"
 
 msgid "ITEM_IRON_ORE_DESC"
-msgstr "РЎС‹СЂСЊС‘ РґР»СЏ СЂСѓС‡РЅРѕРіРѕ РєСЂР°С„С‚Р°. РџРµСЂРµРїР»Р°РІР»СЏРµС‚СЃСЏ РІ Р¶РµР»РµР·РЅС‹Рµ СЃР»РёС‚РєРё."
+msgstr "Сырьё для ручного крафта. Переплавляется в железные слитки."
 
 msgid "ITEM_IRON_INGOT_NAME"
-msgstr "Р–РµР»РµР·РЅС‹Р№ СЃР»РёС‚РѕРє"
+msgstr "Железный слиток"
 
 msgid "ITEM_IRON_INGOT_DESC"
-msgstr "Р РµР·СѓР»СЊС‚Р°С‚ СЂСѓС‡РЅРѕР№ РїРµСЂРµРїР»Р°РІРєРё Р¶РµР»РµР·РЅРѕР№ СЂСѓРґС‹. РќРµ РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РІ СЃС‚СЂРѕРёС‚РµР»СЊСЃС‚РІРµ."
+msgstr "Результат ручной переплавки железной руды. Не используется в строительстве."
 
 msgid "ITEM_COPPER_ORE_NAME"
-msgstr "РњРµРґРЅР°СЏ СЂСѓРґР°"
+msgstr "Медная руда"
 
 msgid "ITEM_COPPER_ORE_DESC"
-msgstr "Р‘Р°Р·РѕРІР°СЏ СЂСѓРґР° РґР»СЏ РїСЂРѕРІРѕРґРєРё, СЌР»РµРєС‚СЂРѕРЅРёРєРё Рё СЌРЅРµСЂРіРѕСЃРёСЃС‚РµРјС‹."
+msgstr "Базовая руда для проводки, электроники и энергосистемы."
 
 msgid "ITEM_STONE_NAME"
-msgstr "РљР°РјРµРЅСЊ"
+msgstr "Камень"
 
 msgid "ITEM_STONE_DESC"
-msgstr "РњРёРЅРµСЂР°Р»СЊРЅРѕРµ СЃС‹СЂСЊС‘ РґР»СЏ СЂР°РЅРЅРёС… РєРѕРЅСЃС‚СЂСѓРєС†РёР№ Рё РіСЂСѓР±С‹С… РёРЅСЃС‚СЂСѓРјРµРЅС‚РѕРІ."
+msgstr "Минеральное сырьё для ранних конструкций и грубых инструментов."
 
 msgid "ITEM_WATER_DIRTY_NAME"
-msgstr "Р“СЂСЏР·РЅР°СЏ РІРѕРґР°"
+msgstr "Грязная вода"
 
 msgid "ITEM_WATER_DIRTY_DESC"
-msgstr "РЎС‹СЂР°СЏ РјРµСЃС‚РЅР°СЏ РІРѕРґР°. РўСЂРµР±СѓРµС‚ РѕС‡РёСЃС‚РєРё РїРµСЂРµРґ СѓРїРѕС‚СЂРµР±Р»РµРЅРёРµРј."
+msgstr "Сырая местная вода. Требует очистки перед употреблением."
 
 msgid "BUILD_WALL_NAME"
-msgstr "РЎС‚РµРЅР°"
+msgstr "Стена"
 
 msgid "BUILD_WALL_DESC"
-msgstr "Р‘Р°Р·РѕРІР°СЏ СЃС‚РµРЅР°. Р“РµСЂРјРµС‚РёР·РёСЂСѓРµС‚ РїРѕРјРµС‰РµРЅРёРµ."
+msgstr "Базовая стена. Герметизирует помещение."
 
 msgid "BUILD_ARK_BATTERY_NAME"
-msgstr "Р‘Р°С‚Р°СЂРµСЏ РљРѕРІС‡РµРіР°"
+msgstr "Батарея Ковчега"
 
 msgid "BUILD_ARK_BATTERY_DESC"
-msgstr "РљРѕРЅРµС‡РЅС‹Р№ Р·Р°РїР°СЃ СЌРЅРµСЂРіРёРё. РљРѕРіРґР° СЃСЏРґРµС‚ вЂ” РЅР°РІСЃРµРіРґР°."
+msgstr "Конечный запас энергии. Когда сядет — навсегда."
 
 msgid "BUILD_THERMO_BURNER_NAME"
-msgstr "РўРµСЂРјРѕСЃР¶РёРіР°С‚РµР»СЊ"
+msgstr "Термосжигатель"
 
 msgid "BUILD_THERMO_BURNER_DESC"
-msgstr "Р–Р¶С‘С‚ Р±РёРѕРјР°СЃСЃСѓ Рё РїРёС‚Р°РµС‚ Р±Р°Р·Сѓ. РЁСѓРјРёС‚ Рё РїСЂРёРІР»РµРєР°РµС‚ РћС‡РёСЃС‚РёС‚РµР»РµР№."
+msgstr "Жжёт биомассу и питает базу. Шумит и привлекает Очистителей."
 
 msgid "RECIPE_IRON_ORE_TO_INGOT_NAME"
-msgstr "РџРµСЂРµРїР»Р°РІРєР° Р¶РµР»РµР·Р°"
+msgstr "Переплавка железа"
 
 msgid "RECIPE_IRON_ORE_TO_INGOT_DESC"
-msgstr "Р СѓРґР° РёРґС‘С‚ РІ РєСЂР°С„С‚, Р° РЅРµ РІ СЃС‚СЂРѕРёС‚РµР»СЊСЃС‚РІРѕ: РїРµСЂРµРїР»Р°РІСЊ Р¶РµР»РµР·РЅСѓСЋ СЂСѓРґСѓ РІ СЃР»РёС‚РѕРє."
+msgstr "Руда идёт в крафт, а не в строительство: переплавь железную руду в слиток."
 
 msgid "SYSTEM_PLAYER_NOT_FOUND"
-msgstr "РРіСЂРѕРє РЅРµ РЅР°Р№РґРµРЅ"
+msgstr "Игрок не найден"
 
 msgid "SYSTEM_PICKUP_INVALID"
-msgstr "РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ РїРёРєР°Рї"
+msgstr "Некорректный пикап"
 
 msgid "SYSTEM_INVENTORY_FULL"
-msgstr "РРЅРІРµРЅС‚Р°СЂСЊ РїРѕР»РѕРЅ"
+msgstr "Инвентарь полон"
 
 msgid "SYSTEM_ITEM_PICKED_UP"
-msgstr "РџСЂРµРґРјРµС‚ РїРѕРґРѕР±СЂР°РЅ"
+msgstr "Предмет подобран"
 
 msgid "SYSTEM_CRAFT_RECIPE_OR_INVENTORY_MISSING"
-msgstr "Р РµС†РµРїС‚ РёР»Рё РёРЅРІРµРЅС‚Р°СЂСЊ РЅРµ РїРµСЂРµРґР°РЅ"
+msgstr "Рецепт или инвентарь не передан"
 
 msgid "SYSTEM_CRAFT_ITEMS_NOT_FOUND"
-msgstr "РџСЂРµРґРјРµС‚С‹ СЂРµС†РµРїС‚Р° РЅРµ РЅР°Р№РґРµРЅС‹"
+msgstr "Предметы рецепта не найдены"
 
 msgid "SYSTEM_CRAFT_NOT_ENOUGH_RESOURCES"
-msgstr "РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ СЂРµСЃСѓСЂСЃРѕРІ"
+msgstr "Недостаточно ресурсов"
 
 msgid "SYSTEM_CRAFT_INPUT_REMOVE_FAILED"
-msgstr "РќРµ СѓРґР°Р»РѕСЃСЊ СЃРїРёСЃР°С‚СЊ РІС…РѕРґРЅС‹Рµ СЂРµСЃСѓСЂСЃС‹"
+msgstr "Не удалось списать входные ресурсы"
 
 msgid "SYSTEM_CRAFT_SUCCESS"
-msgstr "РЎРєСЂР°С„С‡РµРЅРѕ: {item} x{amount}"
+msgstr "Скрафчено: {item} x{amount}"
 
 msgid "SYSTEM_CRAFT_NOT_ENOUGH_SPACE"
-msgstr "РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РјРµСЃС‚Р° РІ РёРЅРІРµРЅС‚Р°СЂРµ"
+msgstr "Недостаточно места в инвентаре"
 
 msgid "SYSTEM_BUILD_NOT_SELECTED"
-msgstr "РџРѕСЃС‚СЂРѕР№РєР° РЅРµ РІС‹Р±СЂР°РЅР°"
+msgstr "Постройка не выбрана"
 
 msgid "SYSTEM_BUILD_CANNOT_PLACE"
-msgstr "РџРѕСЃС‚СЂРѕР№РєСѓ РЅРµР»СЊР·СЏ СЂР°Р·РјРµСЃС‚РёС‚СЊ"
+msgstr "Постройку нельзя разместить"
 
 msgid "SYSTEM_BUILD_NOT_ENOUGH_SCRAP"
-msgstr "РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ СЃРєСЂР°РїР°"
+msgstr "Недостаточно скрапа"
 
 msgid "SYSTEM_BUILD_CREATE_FAILED"
-msgstr "РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ РїРѕСЃС‚СЂРѕР№РєСѓ"
+msgstr "Не удалось создать постройку"
 
 msgid "SYSTEM_BUILD_PLACED"
-msgstr "РџРѕСЃС‚СЂРѕР№РєР° СЂР°Р·РјРµС‰РµРЅР°: {building}"
+msgstr "Постройка размещена: {building}"
 
 msgid "SYSTEM_BUILD_NOT_FOUND"
-msgstr "РџРѕСЃС‚СЂРѕР№РєР° РЅРµ РЅР°Р№РґРµРЅР°"
+msgstr "Постройка не найдена"
 
 msgid "SYSTEM_BUILD_REMOVED"
-msgstr "РџРѕСЃС‚СЂРѕР№РєР° СѓРґР°Р»РµРЅР°, РІРѕР·РІСЂР°С‰РµРЅРѕ СЃРєСЂР°РїР°: {amount}"
+msgstr "Постройка удалена, возвращено скрапа: {amount}"
 
 msgid "SYSTEM_INVENTORY_OVERFLOW"
-msgstr "РРЅРІРµРЅС‚Р°СЂСЊ РїРµСЂРµРїРѕР»РЅРµРЅ, РЅРµ РІР»РµР·Р»Рѕ: {amount}"
+msgstr "Инвентарь переполнен, не влезло: {amount}"
+
 msgid "SYSTEM_COMMAND_MISSING"
-msgstr "РљРѕРјР°РЅРґР° РЅРµ РїРµСЂРµРґР°РЅР°"
+msgstr "Команда не передана"
 
 msgid "SYSTEM_CRAFT_UNAVAILABLE"
-msgstr "РљСЂР°С„С‚ РЅРµРґРѕСЃС‚СѓРїРµРЅ"
+msgstr "Крафт недоступен"
 
 msgid "SYSTEM_WORLD_BALANCE_MISSING"
-msgstr "Р‘Р°Р»Р°РЅСЃ РіРµРЅРµСЂР°С†РёРё РјРёСЂР° РЅРµ Р·Р°РіСЂСѓР¶РµРЅ"
+msgstr "Баланс генерации мира не загружен"
 
 msgid "UI_WORLD_CREATE_TITLE"
-msgstr "РЎРўРђРќР¦РРЇ В«РњРР РќР«Р™В»"
+msgstr "СТАНЦИЯ «МИРНЫЙ»"
 
 msgid "UI_WORLD_CREATE_SUBTITLE"
-msgstr "РЎРѕР·РґР°РЅРёРµ РЅРѕРІРѕРіРѕ РјРёСЂР°"
+msgstr "Создание нового мира"
 
 msgid "UI_WORLD_CREATE_SEED_LABEL"
-msgstr "Seed РјРёСЂР°:"
+msgstr "Seed мира:"
 
 msgid "UI_WORLD_CREATE_SEED_PLACEHOLDER"
-msgstr "Р§РёСЃР»Рѕ РёР»Рё СЃР»РѕРІРѕ"
+msgstr "Число или слово"
 
 msgid "UI_WORLD_CREATE_RANDOM_BUTTON"
-msgstr "РЎР»СѓС‡Р°Р№РЅС‹Р№"
+msgstr "Случайный"
 
 msgid "UI_WORLD_CREATE_WATER_LABEL"
-msgstr "РЈСЂРѕРІРµРЅСЊ РІРѕРґС‹:"
+msgstr "Уровень воды:"
 
 msgid "UI_WORLD_CREATE_ROCK_LABEL"
-msgstr "Р’С‹СЃРѕС‚Р° РіРѕСЂ:"
+msgstr "Высота гор:"
 
 msgid "UI_WORLD_CREATE_WARP_LABEL"
-msgstr "РР·РІРёР»РёСЃС‚РѕСЃС‚СЊ:"
+msgstr "Извилистость:"
 
 msgid "UI_WORLD_CREATE_RIDGE_LABEL"
-msgstr "Р“РѕСЂРЅС‹Рµ С…СЂРµР±С‚С‹:"
+msgstr "Горные хребты:"
 
 msgid "UI_WORLD_CREATE_HINT"
-msgstr "РћРґРёРЅР°РєРѕРІС‹Р№ seed = РѕРґРёРЅР°РєРѕРІР°СЏ РїР»Р°РЅРµС‚Р°"
+msgstr "Одинаковый seed = одинаковая планета"
 
 msgid "UI_WORLD_CREATE_START_BUTTON"
-msgstr "в–¶  Р’Р«РЎРђР”РљРђ РќРђ РџР›РђРќР•РўРЈ"
+msgstr "▶  ВЫСАДКА НА ПЛАНЕТУ"
 
 msgid "UI_WORLD_CREATE_PERCENT"
 msgstr "{value}%"
@@ -333,128 +334,130 @@ msgid "UI_WORLD_CREATE_NUMBER"
 msgstr "{value}"
 
 msgid "RESOURCE_COPPER_ORE_NODE_NAME"
-msgstr "РњРµРґРЅР°СЏ Р¶РёР»Р°"
+msgstr "Медная жила"
 
 msgid "RESOURCE_DEAD_TREE_NODE_NAME"
-msgstr "РЎРїРѕСЂРѕСЃС‚РІРѕР»"
+msgstr "Спороствол"
 
 msgid "RESOURCE_IRON_ORE_NODE_NAME"
-msgstr "Р–РµР»РµР·РЅР°СЏ Р¶РёР»Р°"
+msgstr "Железная жила"
 
 msgid "RESOURCE_STONE_NODE_NAME"
-msgstr "РљР°РјРµРЅРЅР°СЏ Р·Р°Р»РµР¶СЊ"
+msgstr "Каменная залежь"
 
 msgid "RESOURCE_WATER_SOURCE_NODE_NAME"
-msgstr "РСЃС‚РѕС‡РЅРёРє РІРѕРґС‹"
+msgstr "Источник воды"
 
 msgid "BIOME_PLAINS_NAME"
-msgstr "РћСЂР°РЅР¶РµРІС‹Рµ СЂР°РІРЅРёРЅС‹"
+msgstr "Оранжевые равнины"
 
 msgid "SYSTEM_COMMAND_NOT_IMPLEMENTED"
-msgstr "РљРѕРјР°РЅРґР° РЅРµ СЂРµР°Р»РёР·РѕРІР°РЅР°"
+msgstr "Команда не реализована"
 
 msgid "SYSTEM_BUILDING_SYSTEM_UNAVAILABLE"
-msgstr "РЎРёСЃС‚РµРјР° СЃС‚СЂРѕРёС‚РµР»СЊСЃС‚РІР° РЅРµРґРѕСЃС‚СѓРїРЅР°"
+msgstr "Система строительства недоступна"
 
 msgid "SYSTEM_BUILD_FACTORY_SCRIPT_MISSING"
-msgstr "РќРµ РЅР°Р№РґРµРЅ script РґР»СЏ РїРѕСЃС‚СЂРѕР№РєРё: {building}"
+msgstr "Не найден script для постройки: {building}"
 
 msgid "SYSTEM_BUILD_PLACEMENT_CREATE_FAILED"
-msgstr "РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ РїРѕСЃС‚СЂРѕР№РєСѓ: {building}"
+msgstr "Не удалось создать постройку: {building}"
 
 msgid "SYSTEM_BUILD_WALL_CONTAINER_MISSING"
-msgstr "РљРѕРЅС‚РµР№РЅРµСЂ РїРѕСЃС‚СЂРѕРµРє РЅРµ РЅР°Р·РЅР°С‡РµРЅ"
+msgstr "Контейнер построек не назначен"
 
 msgid "SYSTEM_PLAYER_BALANCE_MISSING"
-msgstr "Р‘Р°Р»Р°РЅСЃ РёРіСЂРѕРєР° РЅРµ РЅР°Р·РЅР°С‡РµРЅ"
+msgstr "Баланс игрока не назначен"
 
 msgid "SYSTEM_PLAYER_INVENTORY_COMPONENT_MISSING"
-msgstr "РљРѕРјРїРѕРЅРµРЅС‚ РёРЅРІРµРЅС‚Р°СЂСЏ РёРіСЂРѕРєР° РЅРµ РЅР°Р№РґРµРЅ"
+msgstr "Компонент инвентаря игрока не найден"
 
 msgid "SYSTEM_OXYGEN_BALANCE_MISSING"
-msgstr "Р‘Р°Р»Р°РЅСЃ РєРёСЃР»РѕСЂРѕРґР° РЅРµ РЅР°Р·РЅР°С‡РµРЅ"
+msgstr "Баланс кислорода не назначен"
 
 msgid "SYSTEM_WORLD_GENERATOR_MISSING"
-msgstr "WorldGenerator autoload РЅРµ РЅР°Р№РґРµРЅ"
+msgstr "WorldGenerator autoload не найден"
 
 msgid "SYSTEM_UI_LAYER_MISSING"
-msgstr "UILayer РЅРµ РЅР°Р№РґРµРЅ, UI РЅРµ Р±СѓРґРµС‚ СЃРѕР·РґР°РЅ"
+msgstr "UILayer не найден, UI не будет создан"
 
 msgid "SYSTEM_REGISTRY_ITEM_NOT_FOUND"
-msgstr "РџСЂРµРґРјРµС‚ РЅРµ РЅР°Р№РґРµРЅ РІ СЂРµРµСЃС‚СЂРµ: {id}"
+msgstr "Предмет не найден в реестре: {id}"
 
 msgid "SYSTEM_REGISTRY_RECIPE_NOT_FOUND"
-msgstr "Р РµС†РµРїС‚ РЅРµ РЅР°Р№РґРµРЅ РІ СЂРµРµСЃС‚СЂРµ: {id}"
+msgstr "Рецепт не найден в реестре: {id}"
 
 msgid "SYSTEM_REGISTRY_BUILDING_NOT_FOUND"
-msgstr "РџРѕСЃС‚СЂРѕР№РєР° РЅРµ РЅР°Р№РґРµРЅР° РІ СЂРµРµСЃС‚СЂРµ: {id}"
+msgstr "Постройка не найдена в реестре: {id}"
 
 msgid "SYSTEM_REGISTRY_RESOURCE_NODE_NOT_FOUND"
-msgstr "Р РµСЃСѓСЂСЃРЅР°СЏ РЅРѕРґР° РЅРµ РЅР°Р№РґРµРЅР° РІ СЂРµРµСЃС‚СЂРµ: {id}"
+msgstr "Ресурсная нода не найдена в реестре: {id}"
 
 msgid "SYSTEM_REGISTRY_DEPOSIT_NOT_FOUND"
-msgstr "Р РµСЃСѓСЂСЃРЅР°СЏ РЅРѕРґР° РЅРµ РЅР°Р№РґРµРЅР° РґР»СЏ deposit_type: {deposit_type}"
+msgstr "Ресурсная нода не найдена для deposit_type: {deposit_type}"
 
 msgid "SYSTEM_REGISTRY_INVALID_ITEM"
-msgstr "РџРѕРїС‹С‚РєР° Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°С‚СЊ РЅРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ РїСЂРµРґРјРµС‚"
+msgstr "Попытка зарегистрировать некорректный предмет"
 
 msgid "SYSTEM_REGISTRY_INVALID_RECIPE"
-msgstr "РџРѕРїС‹С‚РєР° Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°С‚СЊ РЅРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ СЂРµС†РµРїС‚"
+msgstr "Попытка зарегистрировать некорректный рецепт"
 
 msgid "SYSTEM_REGISTRY_INVALID_BUILDING"
-msgstr "РџРѕРїС‹С‚РєР° Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°С‚СЊ РЅРµРєРѕСЂСЂРµРєС‚РЅСѓСЋ РїРѕСЃС‚СЂРѕР№РєСѓ"
+msgstr "Попытка зарегистрировать некорректную постройку"
 
 msgid "SYSTEM_REGISTRY_INVALID_RESOURCE_NODE"
-msgstr "РџРѕРїС‹С‚РєР° Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°С‚СЊ РЅРµРєРѕСЂСЂРµРєС‚РЅСѓСЋ СЂРµСЃСѓСЂСЃРЅСѓСЋ РЅРѕРґСѓ"
+msgstr "Попытка зарегистрировать некорректную ресурсную ноду"
 
 msgid "SYSTEM_REGISTRY_DIR_OPEN_FAILED"
-msgstr "РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РєСЂС‹С‚СЊ РїР°РїРєСѓ СЂРµРµСЃС‚СЂР°: {path}"
+msgstr "Не удалось открыть папку реестра: {path}"
 
 msgid "SYSTEM_SAVE_ROOT_CREATE_FAILED"
-msgstr "РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ РєРѕСЂРЅРµРІСѓСЋ РїР°РїРєСѓ СЃРѕС…СЂР°РЅРµРЅРёР№: {path}"
+msgstr "Не удалось создать корневую папку сохранений: {path}"
 
 msgid "SYSTEM_SAVE_BUSY"
-msgstr "РћРїРµСЂР°С†РёСЏ СЃРѕС…СЂР°РЅРµРЅРёСЏ РёР»Рё Р·Р°РіСЂСѓР·РєРё СѓР¶Рµ РІС‹РїРѕР»РЅСЏРµС‚СЃСЏ"
+msgstr "Операция сохранения или загрузки уже выполняется"
 
 msgid "SYSTEM_SAVE_SLOT_CREATE_FAILED"
-msgstr "РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ СЃР»РѕС‚ СЃРѕС…СЂР°РЅРµРЅРёСЏ: {slot}"
+msgstr "Не удалось создать слот сохранения: {slot}"
 
 msgid "SYSTEM_SAVE_NOT_FOUND"
-msgstr "РЎРѕС…СЂР°РЅРµРЅРёРµ РЅРµ РЅР°Р№РґРµРЅРѕ: {slot}"
+msgstr "Сохранение не найдено: {slot}"
 
 msgid "SYSTEM_SAVE_WORLD_INVALID"
-msgstr "РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ С„Р°Р№Р» СЃРѕС…СЂР°РЅРµРЅРёСЏ РјРёСЂР°: {file}"
+msgstr "Некорректный файл сохранения мира: {file}"
 
 msgid "SYSTEM_TIME_BALANCE_LOAD_FAILED"
-msgstr "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ Р±Р°Р»Р°РЅСЃ РІСЂРµРјРµРЅРё: {path}"
+msgstr "Не удалось загрузить баланс времени: {path}"
 
 msgid "SYSTEM_WORLD_BALANCE_LOAD_FAILED"
-msgstr "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ Р±Р°Р»Р°РЅСЃ РіРµРЅРµСЂР°С†РёРё РјРёСЂР°: {path}"
+msgstr "Не удалось загрузить баланс генерации мира: {path}"
 
 msgid "SYSTEM_CHUNK_TERRAIN_ATLAS_MISSING"
-msgstr "РђС‚Р»Р°СЃ Р»Р°РЅРґС€Р°С„С‚Р° РЅРµ РЅР°Р№РґРµРЅ, РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ fallback: {path}"
+msgstr "Атлас ландшафта не найден, используется fallback: {path}"
 
 msgid "SYSTEM_CHUNK_RESOURCE_ATLAS_MISSING"
-msgstr "РђС‚Р»Р°СЃ СЂРµСЃСѓСЂСЃРѕРІ РЅРµ РЅР°Р№РґРµРЅ, РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ fallback: {path}"
+msgstr "Атлас ресурсов не найден, используется fallback: {path}"
 
 msgid "SYSTEM_CHUNK_RESOURCE_DEFS_MISSING"
-msgstr "World-resource РґР°РЅРЅС‹Рµ РЅРµ Р·Р°РіСЂСѓР¶РµРЅС‹ РёР· data/resources"
+msgstr "World-resource данные не загружены из data/resources"
 
 msgid "SYSTEM_CHUNK_SAVE_DIR_CREATE_FAILED"
-msgstr "РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ РїР°РїРєСѓ С‡Р°РЅРєРѕРІ: {path}"
+msgstr "Не удалось создать папку чанков: {path}"
 
 msgid "SYSTEM_CHUNK_SAVE_WRITE_FAILED"
-msgstr "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РїРёСЃР°С‚СЊ С„Р°Р№Р» С‡Р°РЅРєР°: {path}"
+msgstr "Не удалось записать файл чанка: {path}"
 
 msgid "SYSTEM_CHUNK_SAVE_READ_FAILED"
-msgstr "РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРѕС‡РёС‚Р°С‚СЊ С„Р°Р№Р» С‡Р°РЅРєР°: {path}"
+msgstr "Не удалось прочитать файл чанка: {path}"
 
 msgid "SYSTEM_CHUNK_SAVE_PARSE_FAILED"
-msgstr "РћС€РёР±РєР° РїР°СЂСЃРёРЅРіР° С„Р°Р№Р»Р° С‡Р°РЅРєР° {path}: {error}"
+msgstr "Ошибка парсинга файла чанка {path}: {error}"
 
 msgid "SYSTEM_CHUNK_SAVE_INVALID_FORMAT"
-msgstr "РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ С„РѕСЂРјР°С‚ С„Р°Р№Р»Р° С‡Р°РЅРєР°: {path}"
+msgstr "Некорректный формат файла чанка: {path}"
+
 msgid "SYSTEM_POWER_BALANCE_LOAD_FAILED"
-msgstr "╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╨╖╨░╨│╤А╤Г╨╖╨╕╤В╤М ╨▒╨░╨╗╨░╨╜╤Б ╤Н╨╜╨╡╤А╨│╨╛╤Б╨╕╤Б╤В╨╡╨╝╤Л: {path}"
+msgstr "Не удалось загрузить баланс энергосистемы: {path}"
+
 msgid "SYSTEM_STATE_NOT_FOUND"
-msgstr "╨б╨╛╤Б╤В╨╛╤П╨╜╨╕╨╡ ╨╜╨╡ ╨╜╨░╨╣╨┤╨╡╨╜╨╛: {state}"
+msgstr "Состояние не найдено: {state}"
