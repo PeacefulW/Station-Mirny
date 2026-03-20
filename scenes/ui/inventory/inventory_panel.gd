@@ -27,6 +27,7 @@ var _crafting_system: CraftingSystem = null
 func _ready() -> void:
 	mouse_filter = MOUSE_FILTER_IGNORE
 	visible = false
+	add_to_group("closeable_ui")
 	_build_ui()
 	EventBus.inventory_updated.connect(_on_inventory_updated)
 	EventBus.language_changed.connect(_on_language_changed)
@@ -60,13 +61,15 @@ func close() -> void:
 func _build_ui() -> void:
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 
-	_dimmer = ColorRect.new()
+	_dimmer = _DropDimmer.new()
 	_dimmer.set_anchors_preset(PRESET_FULL_RECT)
 	_dimmer.color = Color(0.0, 0.0, 0.0, 0.4)
 	_dimmer.mouse_filter = MOUSE_FILTER_STOP
 	_dimmer.gui_input.connect(func(e: InputEvent) -> void:
-		if e is InputEventMouseButton and e.pressed: close()
+		if e is InputEventMouseButton and e.pressed and not _dimmer.is_dropping:
+			close()
 	)
+	_dimmer.item_dropped_outside.connect(_on_drop_outside)
 	add_child(_dimmer)
 
 	_panel = DraggablePanel.new()
@@ -106,6 +109,14 @@ func _build_ui() -> void:
 	_weight_label.add_theme_font_size_override("font_size", 12)
 	_weight_label.add_theme_color_override("font_color", Color(0.5, 0.48, 0.42))
 	header.add_child(_weight_label)
+
+	var sort_btn := Button.new()
+	sort_btn.text = Localization.t("UI_INVENTORY_SORT")
+	sort_btn.add_theme_font_size_override("font_size", 11)
+	sort_btn.custom_minimum_size = Vector2(60, 0)
+	sort_btn.pressed.connect(_sort_inventory)
+	header.add_child(sort_btn)
+
 	root.add_child(header)
 
 	# Контент: инвентарь + экипировка
@@ -196,6 +207,7 @@ func _create_slot_nodes(count: int) -> void:
 		var slot_ui := InventorySlotUI.new()
 		slot_ui.slot_index = i
 		slot_ui.slot_clicked.connect(_on_slot_clicked)
+		slot_ui.slot_dropped.connect(_on_slot_dropped)
 		slot_ui.slot_hovered.connect(_on_slot_hovered)
 		slot_ui.slot_unhovered.connect(_on_slot_unhovered)
 		_grid.add_child(slot_ui)
@@ -242,6 +254,34 @@ func _on_slot_clicked(slot_index: int, button: int) -> void:
 		_split_stack(slot_index)
 	elif button == MOUSE_BUTTON_RIGHT:
 		_try_equip_from_inventory(slot_index)
+
+## Обмен предметов между двумя слотами (drag-drop).
+func _on_slot_dropped(from_index: int, to_index: int) -> void:
+	if not _inventory:
+		return
+	if from_index < 0 or from_index >= _inventory.slots.size():
+		return
+	if to_index < 0 or to_index >= _inventory.slots.size():
+		return
+	var slot_a: InventorySlot = _inventory.slots[from_index]
+	var slot_b: InventorySlot = _inventory.slots[to_index]
+	# Если одинаковый предмет — объединить стаки
+	if not slot_a.is_empty() and not slot_b.is_empty() and slot_a.item.id == slot_b.item.id:
+		var space: int = slot_b.item.max_stack - slot_b.amount
+		var transfer: int = mini(space, slot_a.amount)
+		slot_b.amount += transfer
+		slot_a.amount -= transfer
+		if slot_a.amount <= 0:
+			slot_a.clear()
+	else:
+		# Swap
+		var tmp_item: ItemData = slot_a.item
+		var tmp_amount: int = slot_a.amount
+		slot_a.item = slot_b.item
+		slot_a.amount = slot_b.amount
+		slot_b.item = tmp_item
+		slot_b.amount = tmp_amount
+	EventBus.inventory_updated.emit(_inventory)
 
 func _on_equip_clicked(slot_type: int) -> void:
 	if not _equipment or not _inventory:
@@ -342,3 +382,57 @@ func _center_panel_if_needed() -> void:
 	if _panel.position == Vector2.ZERO or _panel.position.x < 1:
 		var vp: Vector2 = get_viewport_rect().size
 		_panel.position = (vp - _panel.size) * 0.5
+
+## Сортировка инвентаря по имени предмета (A→Z).
+func _sort_inventory() -> void:
+	if not _inventory:
+		return
+	# Собрать непустые слоты
+	var items: Array[Dictionary] = []
+	for slot: InventorySlot in _inventory.slots:
+		if not slot.is_empty():
+			items.append({"item": slot.item, "amount": slot.amount})
+		slot.clear()
+	# Сортировка по имени
+	items.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return (a["item"] as ItemData).get_display_name() < (b["item"] as ItemData).get_display_name()
+	)
+	# Положить обратно
+	var idx: int = 0
+	for entry: Dictionary in items:
+		if idx < _inventory.slots.size():
+			_inventory.slots[idx].item = entry["item"]
+			_inventory.slots[idx].amount = entry["amount"]
+			idx += 1
+	EventBus.inventory_updated.emit(_inventory)
+
+## Выбросить предмет на землю (drop за пределы панели).
+func _on_drop_outside(from_index: int) -> void:
+	if not _inventory or from_index < 0 or from_index >= _inventory.slots.size():
+		return
+	var slot: InventorySlot = _inventory.slots[from_index]
+	if slot.is_empty():
+		return
+	var item_id: String = slot.item.id
+	var amount: int = slot.amount
+	slot.clear()
+	EventBus.inventory_updated.emit(_inventory)
+	EventBus.item_dropped.emit(item_id, amount, Vector2.ZERO)
+
+# --- Внутренний класс: dimmer с поддержкой drop ---
+
+class _DropDimmer extends ColorRect:
+	signal item_dropped_outside(from_index: int)
+	var is_dropping: bool = false
+
+	func _can_drop_data(_position: Vector2, data: Variant) -> bool:
+		if data is Dictionary and data.get("source") == "inventory":
+			return true
+		return false
+
+	func _drop_data(_position: Vector2, data: Variant) -> void:
+		if data is Dictionary and data.get("source") == "inventory":
+			is_dropping = true
+			item_dropped_outside.emit(int(data.get("slot_index", -1)))
+			# Сбросить флаг на следующем кадре (не триггерить close)
+			(func() -> void: is_dropping = false).call_deferred()

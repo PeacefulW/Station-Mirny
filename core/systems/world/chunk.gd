@@ -1,10 +1,10 @@
 class_name Chunk
 extends Node2D
 
-## Один чанк мира (64×64 тайла). v4: ресурсы — тайлы, не ноды.
+## Один чанк мира (64×64 тайла). v5: шейдер земли + ресурсы тайлами.
 ##
-## ПРОИЗВОДИТЕЛЬНОСТЬ: земля и ресурсы — два TileMapLayer.
-## Ноль физических нод. Взаимодействие через координаты.
+## Земля: Sprite2D с шейдером (плавные текстуры) ИЛИ fallback TileMapLayer.
+## Ресурсы: TileMapLayer поверх земли.
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 var is_loaded: bool = false
@@ -12,12 +12,14 @@ var is_dirty: bool = false
 
 var _terrain_layer: TileMapLayer = null
 var _resource_layer: TileMapLayer = null
-var _tile_size: int = 32
+var _terrain_sprite: Sprite2D = null
+var _tile_size: int = 12
 var _chunk_size: int = 64
 var _tileset: TileSet = null
 var _resource_tileset: TileSet = null
 var _modified_tiles: Dictionary = {}
 var _biome: BiomeData = null
+var _terrain_bytes: PackedByteArray = PackedByteArray()
 
 ## Данные ресурсов: Vector2i (local) -> Dictionary {deposit, remaining, depleted}
 var _resource_data: Dictionary = {}
@@ -48,7 +50,7 @@ func setup(
 	_resource_layer.z_index = -5
 	add_child(_resource_layer)
 
-## Заполнить из C++ данных (packed arrays). Мгновенно.
+## Заполнить из C++ данных (packed arrays).
 func populate_native(
 	native_data: Dictionary,
 	saved_modifications: Dictionary,
@@ -62,13 +64,14 @@ func populate_native(
 	var has_tree: PackedByteArray = native_data.get("has_tree", PackedByteArray())
 	var start_x: int = chunk_coord.x * cs
 	var start_y: int = chunk_coord.y * cs
+	_terrain_bytes = terrain
 
 	for ly: int in range(cs):
 		for lx: int in range(cs):
 			var idx: int = ly * cs + lx
 			var local: Vector2i = Vector2i(lx, ly)
 
-			# Земля
+			# Земля (TileMapLayer — fallback / коллизии)
 			var atlas_x: int = terrain[idx]
 			var h: float = height[idx]
 			var atlas_y: int = 1
@@ -76,7 +79,7 @@ func populate_native(
 			elif h > 0.62: atlas_y = 2
 			_terrain_layer.set_cell(local, 0, Vector2i(atlas_x, atlas_y))
 
-			# Ресурсы — тайлами, не нодами
+			# Ресурсы
 			var global_tile := Vector2i(start_x + lx, start_y + ly)
 			if _modified_tiles.has(global_tile):
 				if _modified_tiles[global_tile].get("depleted", false):
@@ -86,7 +89,6 @@ func populate_native(
 			var tree: int = has_tree[idx]
 
 			if dep > 0:
-				# atlas_x: 0=iron, 1=copper, 2=stone, 3=water_src
 				var resource_data: ResourceNodeData = resource_defs.get(dep) as ResourceNodeData
 				if not resource_data:
 					continue
@@ -112,8 +114,61 @@ func populate_native(
 				}
 	is_loaded = true
 
+## Настроить шейдер земли. Вызывается после populate_native.
+func setup_terrain_shader(textures: Dictionary) -> void:
+	var shader: Shader = textures.get("shader") as Shader
+	if not shader or _terrain_bytes.is_empty():
+		return
+
+	# Data-текстура (chunk_size × chunk_size, R = тип земли)
+	var data_img := Image.create(_chunk_size, _chunk_size, false, Image.FORMAT_R8)
+	for y: int in range(_chunk_size):
+		for x: int in range(_chunk_size):
+			var idx: int = y * _chunk_size + x
+			var terrain_type: int = _terrain_bytes[idx] if idx < _terrain_bytes.size() else 0
+			var value: float = 0.0
+			match terrain_type:
+				0: value = 0.0    # GROUND
+				1: value = 0.25   # ROCK
+				2: value = 0.5    # WATER
+				3: value = 0.75   # SAND/SHORE
+				4: value = 1.0    # GRASS
+			data_img.set_pixel(x, y, Color(value, 0, 0, 1))
+	var data_tex := ImageTexture.create_from_image(data_img)
+
+	# Sprite2D на весь чанк
+	var chunk_px: int = _chunk_size * _tile_size
+	var base_img := Image.create(chunk_px, chunk_px, false, Image.FORMAT_RGBA8)
+	base_img.fill(Color.WHITE)
+
+	_terrain_sprite = Sprite2D.new()
+	_terrain_sprite.name = "TerrainSprite"
+	_terrain_sprite.texture = ImageTexture.create_from_image(base_img)
+	_terrain_sprite.centered = false
+	_terrain_sprite.z_index = -10
+
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	mat.set_shader_parameter("terrain_map", data_tex)
+	if textures.has("plains"):
+		mat.set_shader_parameter("tex_plains", textures["plains"])
+	if textures.has("rock"):
+		mat.set_shader_parameter("tex_rock", textures["rock"])
+	if textures.has("shore"):
+		mat.set_shader_parameter("tex_shore", textures["shore"])
+	mat.set_shader_parameter("chunk_world_size", Vector2(chunk_px, chunk_px))
+	mat.set_shader_parameter("chunk_world_offset", Vector2(
+		chunk_coord.x * chunk_px, chunk_coord.y * chunk_px
+	))
+	mat.set_shader_parameter("texture_scale", 6.0)
+
+	_terrain_sprite.material = mat
+	add_child(_terrain_sprite)
+
+	# Скрыть TileMapLayer (шейдер рисует), оставить для коллизий
+	_terrain_layer.visible = false
+
 ## Попытаться добыть ресурс в локальном тайле.
-## Возвращает Dictionary {item_id, amount} или пустой.
 func try_harvest_at(local_tile: Vector2i) -> Dictionary:
 	if not _resource_data.has(local_tile):
 		return {}
@@ -136,13 +191,11 @@ func try_harvest_at(local_tile: Vector2i) -> Dictionary:
 
 	return result
 
-## Есть ли ресурс в локальном тайле.
 func has_resource_at(local_tile: Vector2i) -> bool:
 	if not _resource_data.has(local_tile):
 		return false
 	return not _resource_data[local_tile].get("depleted", false)
 
-## Глобальный тайл → локальный.
 func global_to_local(global_tile: Vector2i) -> Vector2i:
 	return Vector2i(
 		global_tile.x - chunk_coord.x * _chunk_size,
@@ -159,6 +212,7 @@ func mark_tile_modified(tile_pos: Vector2i, state: Dictionary) -> void:
 func cleanup() -> void:
 	is_loaded = false
 	_resource_data.clear()
+	_terrain_bytes = PackedByteArray()
 
 func _get_harvest_result(definition: ResourceNodeData) -> Dictionary:
 	if not definition:

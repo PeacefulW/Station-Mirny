@@ -5,6 +5,7 @@ extends PanelContainer
 ## Поддерживает drag-drop и hover.
 
 signal slot_clicked(slot_index: int, button: int)
+signal slot_dropped(from_index: int, to_index: int)
 signal slot_hovered(slot_index: int)
 signal slot_unhovered()
 
@@ -89,17 +90,24 @@ func _get_drag_data(_position: Vector2) -> Variant:
 	if not _item:
 		return null
 	var preview := TextureRect.new()
-	preview.texture = _item.icon
+	if _item.icon:
+		preview.texture = _item.icon
 	preview.custom_minimum_size = Vector2(32, 32)
 	preview.modulate.a = 0.7
 	set_drag_preview(preview)
 	return {"source": "inventory", "slot_index": slot_index, "item": _item, "amount": _amount}
 
 func _can_drop_data(_position: Vector2, data: Variant) -> bool:
-	return data is Dictionary and data.has("item")
+	if not data is Dictionary:
+		return false
+	return data.has("source") and data.get("source") == "inventory"
 
-func _drop_data(_position: Vector2, _data: Variant) -> void:
-	slot_clicked.emit(slot_index, MOUSE_BUTTON_LEFT)
+func _drop_data(_position: Vector2, data: Variant) -> void:
+	if not data is Dictionary:
+		return
+	var from_index: int = int(data.get("slot_index", -1))
+	if from_index >= 0 and from_index != slot_index:
+		slot_dropped.emit(from_index, slot_index)
 
 func _apply_style(bg: Color, border: Color) -> void:
 	var style := StyleBoxFlat.new()

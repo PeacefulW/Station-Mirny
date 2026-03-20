@@ -16,6 +16,7 @@ var _initialized: bool = false
 var _active_z: int = 0
 var _z_containers: Dictionary = {}
 var _z_chunks: Dictionary = {}
+var _terrain_textures: Dictionary = {}
 
 const TERRAIN_COUNT: int = 5
 const VARIANT_COUNT: int = 3
@@ -83,6 +84,7 @@ func _deferred_init() -> void:
 		_player = players[0] as Node2D
 	_build_terrain_tileset()
 	_build_resource_tileset()
+	_load_terrain_textures()
 	_initialized = _shared_tileset != null and _resource_tileset != null
 
 ## Загружает атлас земли из PNG. Если файла нет — fallback на цветные квадраты.
@@ -241,6 +243,8 @@ func _load_chunk(coord: Vector2i) -> void:
 		WorldGenerator.current_biome, _shared_tileset, _resource_tileset)
 	var saved_mods: Dictionary = _saved_chunk_data.get(coord, {})
 	chunk.populate_native(native_data, saved_mods, _resource_defs)
+	if not _terrain_textures.is_empty():
+		chunk.setup_terrain_shader(_terrain_textures)
 	var z_container: Node2D = _z_containers.get(_active_z) as Node2D
 	if z_container:
 		z_container.add_child(chunk)
@@ -267,6 +271,22 @@ func _load_resource_defs() -> void:
 		_resource_defs[resource_node.deposit_type] = resource_node
 	if _resource_defs.is_empty():
 		push_warning(Localization.t("SYSTEM_CHUNK_RESOURCE_DEFS_MISSING"))
+
+## Загрузить текстуры земли для шейдера (один раз).
+func _load_terrain_textures() -> void:
+	var shader_path: String = "res://assets/shaders/terrain_blend.gdshader"
+	var plains_path: String = "res://assets/textures/terrain/terrain_plains.png"
+	var rock_path: String = "res://assets/textures/terrain/terrain_rock.png"
+	var shore_path: String = "res://assets/textures/terrain/terrain_shore.png"
+	if not ResourceLoader.exists(shader_path):
+		return
+	_terrain_textures["shader"] = load(shader_path)
+	if ResourceLoader.exists(plains_path):
+		_terrain_textures["plains"] = load(plains_path)
+	if ResourceLoader.exists(rock_path):
+		_terrain_textures["rock"] = load(rock_path)
+	if ResourceLoader.exists(shore_path):
+		_terrain_textures["shore"] = load(shore_path)
 
 # --- Z-уровни ---
 

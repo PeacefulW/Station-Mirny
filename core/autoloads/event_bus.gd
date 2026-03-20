@@ -53,8 +53,12 @@ signal biome_entered(biome_id: StringName)
 # --- Инвентарь и Предметы ---
 ## Вызывается, когда инвентарь (игрока или сундука) изменился.
 signal inventory_updated(inventory_node: Node)
+## Вызывается, когда игрок скрафтил предмет.
+signal item_crafted(item_id: String, amount: int)
 ## Вызывается, когда игрок успешно подобрал предмет с земли.
 signal item_collected(item_id: String, amount: int)
+## Вызывается, когда игрок выбросил предмет из инвентаря.
+signal item_dropped(item_id: String, amount: int, world_pos: Vector2)
 
 # --- Сохранение / загрузка ---
 ## SaveManager начал сбор данных.

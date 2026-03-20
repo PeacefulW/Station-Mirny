@@ -1,12 +1,11 @@
 class_name HudStatusWidget
 extends HudWidget
 
-## Статус: снаружи / в базе / питание. Скрап. Строительство. Game over.
+## Статус: снаружи / в базе / питание. Скрап. Строительство.
 
 var _status_label: Label = null
 var _scrap_label: Label = null
 var _build_label: Label = null
-var _game_over_label: Label = null
 var _is_indoor: bool = false
 var _life_support_powered: bool = false
 
@@ -32,15 +31,6 @@ func _setup() -> void:
 
 	add_child(vbox)
 
-	# Game over (поверх всего)
-	_game_over_label = Label.new()
-	_game_over_label.set_anchors_and_offsets_preset(PRESET_CENTER)
-	_game_over_label.add_theme_font_size_override("font_size", 48)
-	_game_over_label.add_theme_color_override("font_color", Color(1.0, 0.2, 0.1))
-	_game_over_label.text = Localization.t("UI_GAME_OVER")
-	_game_over_label.visible = false
-	add_child(_game_over_label)
-
 	_update_status()
 
 	EventBus.player_entered_indoor.connect(func() -> void: _is_indoor = true; _update_status())
@@ -49,7 +39,6 @@ func _setup() -> void:
 	EventBus.scrap_collected.connect(func(total: int) -> void: _scrap_label.text = Localization.t("UI_HUD_SCRAP", {"count": total}))
 	EventBus.scrap_spent.connect(func(_a: int, rem: int) -> void: _scrap_label.text = Localization.t("UI_HUD_SCRAP", {"count": rem}))
 	EventBus.build_mode_changed.connect(func(a: bool) -> void: _build_label.text = Localization.t("UI_HUD_BUILD_MODE") if a else "")
-	EventBus.game_over.connect(func() -> void: _game_over_label.visible = true)
 	EventBus.language_changed.connect(func(_l: String) -> void: _update_status(); _scrap_label.text = Localization.t("UI_HUD_SCRAP", {"count": 0}))
 
 func _update_status() -> void:

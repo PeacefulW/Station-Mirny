@@ -9,6 +9,9 @@ msgstr "ИНВЕНТАРЬ И КРАФТ"
 msgid "UI_INVENTORY_SECTION"
 msgstr "Инвентарь"
 
+msgid "UI_INVENTORY_SORT"
+msgstr "А→Я"
+
 msgid "UI_INVENTORY_HINT"
 msgstr "Tab — закрыть | ПКМ — экипировать | Shift+ЛКМ — разделить"
 
@@ -116,6 +119,36 @@ msgstr "{watts} Вт"
 
 msgid "UI_POWER_WATTS_SHORT"
 msgstr "{watts}Вт"
+
+msgid "UI_DEATH_TITLE"
+msgstr "КОНЕЦ ИГРЫ"
+
+msgid "UI_DEATH_SUBTITLE"
+msgstr "Планета забрала ещё одного..."
+
+msgid "UI_DEATH_STAT_DAYS"
+msgstr "Дней прожито:"
+
+msgid "UI_DEATH_STAT_KILLS"
+msgstr "Врагов убито:"
+
+msgid "UI_DEATH_STAT_BUILDINGS"
+msgstr "Построек:"
+
+msgid "UI_DEATH_STAT_CRAFTED"
+msgstr "Предметов создано:"
+
+msgid "UI_DEATH_STAT_RESOURCES"
+msgstr "Ресурсов собрано:"
+
+msgid "UI_DEATH_LOAD_SAVE"
+msgstr "Загрузить сохранение"
+
+msgid "UI_DEATH_NEW_GAME"
+msgstr "Новая игра"
+
+msgid "UI_DEATH_MAIN_MENU"
+msgstr "В главное меню"
 
 msgid "UI_CRAFT_RECIPES"
 msgstr "Рецепты"

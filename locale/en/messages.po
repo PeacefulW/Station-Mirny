@@ -9,6 +9,9 @@ msgstr "INVENTORY AND CRAFTING"
 msgid "UI_INVENTORY_SECTION"
 msgstr "Inventory"
 
+msgid "UI_INVENTORY_SORT"
+msgstr "A→Z"
+
 msgid "UI_INVENTORY_HINT"
 msgstr "Tab — close | RMB — equip | Shift+LMB — split"
 
@@ -116,6 +119,36 @@ msgstr "{watts} W"
 
 msgid "UI_POWER_WATTS_SHORT"
 msgstr "{watts}W"
+
+msgid "UI_DEATH_TITLE"
+msgstr "GAME OVER"
+
+msgid "UI_DEATH_SUBTITLE"
+msgstr "The planet claims another..."
+
+msgid "UI_DEATH_STAT_DAYS"
+msgstr "Days survived:"
+
+msgid "UI_DEATH_STAT_KILLS"
+msgstr "Enemies killed:"
+
+msgid "UI_DEATH_STAT_BUILDINGS"
+msgstr "Buildings placed:"
+
+msgid "UI_DEATH_STAT_CRAFTED"
+msgstr "Items crafted:"
+
+msgid "UI_DEATH_STAT_RESOURCES"
+msgstr "Resources gathered:"
+
+msgid "UI_DEATH_LOAD_SAVE"
+msgstr "Load save"
+
+msgid "UI_DEATH_NEW_GAME"
+msgstr "New game"
+
+msgid "UI_DEATH_MAIN_MENU"
+msgstr "Main menu"
 
 msgid "UI_CRAFT_RECIPES"
 msgstr "Recipes"

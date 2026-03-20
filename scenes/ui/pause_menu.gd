@@ -19,7 +19,12 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
-		toggle()
+		if _is_open:
+			close()
+		elif _close_any_open_ui():
+			pass
+		else:
+			toggle()
 		get_viewport().set_input_as_handled()
 
 func toggle() -> void:
@@ -245,6 +250,29 @@ func _build_controls_tab() -> VBoxContainer:
 	return tab
 
 # --- Хелперы ---
+
+## Закрыть любую открытую UI-панель (инвентарь, строительство).
+## Возвращает true если что-то закрыл.
+func _close_any_open_ui() -> bool:
+	var closed: bool = false
+	var panels: Array[Node] = get_tree().get_nodes_in_group("closeable_ui")
+	for panel: Node in panels:
+		if panel is Control and (panel as Control).visible:
+			if panel.has_method("close"):
+				panel.close()
+			elif panel.has_method("toggle"):
+				panel.toggle()
+			else:
+				(panel as Control).visible = false
+			closed = true
+	# Также снять режим строительства
+	var build_systems: Array[Node] = get_tree().get_nodes_in_group("building_system")
+	for bs: Node in build_systems:
+		if bs.get("is_build_mode"):
+			bs.set("is_build_mode", false)
+			EventBus.build_mode_changed.emit(false)
+			closed = true
+	return closed
 
 func _on_main_menu_pressed() -> void:
 	get_tree().paused = false

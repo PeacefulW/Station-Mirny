@@ -22,3 +22,5 @@ zoom_speed = 8.0
 zoom_default = 2.5
 burner_refuel_range = 21.0
 burner_fuel_per_wood = 20.0
+item_drop_distance = 24.0
+item_drop_pickup_delay = 0.5

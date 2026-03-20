@@ -22,6 +22,7 @@ var _is_open: bool = false
 
 func _ready() -> void:
 	add_to_group("build_menu")
+	add_to_group("closeable_ui")
 	mouse_filter = MOUSE_FILTER_IGNORE
 	visible = false
 	_load_buildings()

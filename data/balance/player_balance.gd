@@ -37,3 +37,7 @@ extends Resource
 @export var burner_refuel_range: float = 21.0
 ## Топлива за единицу биомассы.
 @export var burner_fuel_per_wood: float = 20.0
+## Дистанция выброса предмета из инвентаря (пиксели).
+@export var item_drop_distance: float = 24.0
+## Задержка подбора выброшенного предмета (секунды).
+@export var item_drop_pickup_delay: float = 0.5

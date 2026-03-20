@@ -61,6 +61,10 @@ func execute_recipe(recipe: RecipeData, inventory: InventoryComponent) -> Dictio
 		if leftover > 0:
 			return {"success": false, "message_key": "SYSTEM_CRAFT_NOT_ENOUGH_SPACE"}
 
+	# Эмитить для статистики
+	for output: Dictionary in recipe_outputs:
+		EventBus.item_crafted.emit(str(output.get("item_id", "")), int(output.get("amount", 0)))
+
 	return {
 		"success": true,
 		"message_key": "SYSTEM_CRAFT_SUCCESS",

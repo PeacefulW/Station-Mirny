@@ -25,6 +25,8 @@ var _command_executor: CommandExecutor = null
 var _enemy_factory: EnemyFactory = EnemyFactory.new()
 var _pickup_factory: PickupFactory = PickupFactory.new()
 var _life_support: BaseLifeSupport = null
+var _game_stats: GameStats = null
+var _death_screen: DeathScreen = null
 var _z_manager: ZLevelManager = null
 var _z_overlay: ZTransitionOverlay = null
 var _bg_rect: ColorRect = null
@@ -37,6 +39,8 @@ func _ready() -> void:
 	_pickup_container = get_node_or_null("PickupContainer")
 	_resolved_ui_layer = _resolve_ui_layer()
 	EventBus.enemy_killed.connect(_on_enemy_killed)
+	EventBus.item_dropped.connect(_on_item_dropped)
+	EventBus.game_over.connect(_on_game_over)
 	_init_world_generator()
 	_setup_chunk_manager()
 	_setup_command_executor()
@@ -78,6 +82,15 @@ func _ready() -> void:
 	pause_menu.name = "PauseMenu"
 	if _resolved_ui_layer:
 		_resolved_ui_layer.add_child(pause_menu)
+
+	_game_stats = GameStats.new()
+	_game_stats.name = "GameStats"
+	add_child(_game_stats)
+
+	_death_screen = DeathScreen.new()
+	_death_screen.name = "DeathScreen"
+	if _resolved_ui_layer:
+		_resolved_ui_layer.add_child(_death_screen)
 
 	call_deferred("_check_pending_load")
 
@@ -165,6 +178,32 @@ func _on_enemy_killed(death_position: Vector2) -> void:
 			var offset := Vector2(randf_range(-8, 8), randf_range(-8, 8))
 			_spawn_scrap_pickup(death_position + offset)
 
+func _on_item_dropped(item_id: String, amount: int, world_pos: Vector2) -> void:
+	if not _pickup_container:
+		return
+	# Рассчитать позицию: если Vector2.ZERO — рядом с игроком
+	var drop_pos: Vector2 = world_pos
+	var drop_distance: float = 24.0
+	var pickup_delay: float = 0.5
+	if _player and _player.balance:
+		drop_distance = _player.balance.item_drop_distance
+		pickup_delay = _player.balance.item_drop_pickup_delay
+	if drop_pos == Vector2.ZERO and _player:
+		var angle: float = randf() * TAU
+		drop_pos = _player.global_position + Vector2.from_angle(angle) * drop_distance
+	var pickup := _pickup_factory.create_item_pickup(item_id, amount, drop_pos)
+	# Отключить коллизию на время чтобы не подобрать сразу
+	var col: CollisionShape2D = pickup.get_child(1) as CollisionShape2D
+	if col:
+		col.set_deferred("disabled", true)
+	pickup.body_entered.connect(_on_pickup_collected.bind(pickup))
+	_pickup_container.add_child(pickup)
+	if col:
+		get_tree().create_timer(pickup_delay).timeout.connect(func() -> void:
+			if is_instance_valid(col):
+				col.disabled = false
+		)
+
 func _spawn_initial_scrap() -> void:
 	if not _player:
 		return
@@ -191,6 +230,10 @@ func _on_pickup_collected(body: Node2D, pickup: Area2D) -> void:
 			return
 		body.collect_item(item_id, amount)
 		pickup.queue_free()
+
+func _on_game_over() -> void:
+	if _death_screen and _game_stats:
+		_death_screen.show_death(_game_stats.get_summary())
 
 func _check_pending_load() -> void:
 	if SaveManager and not SaveManager.pending_load_slot.is_empty():

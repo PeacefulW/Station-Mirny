@@ -20,7 +20,7 @@ script = ExtResource("7_daylight")
 
 [node name="WallContainer" type="Node2D" parent="." unique_id=617037608]
 
-[node name="PickupContainer" type="Node2D" parent="." unique_id=1304760126]
+[node name="PickupContainer" type="Node2D" parent="." unique_id=1304760126 groups=["pickup_container"]]
 
 [node name="EnemyContainer" type="Node2D" parent="." unique_id=1888235420]
 
