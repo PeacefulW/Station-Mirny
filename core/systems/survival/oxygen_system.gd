@@ -15,6 +15,7 @@ signal speed_modifier_changed(modifier: float)
 var _current_oxygen: float = 0.0
 var _is_indoor: bool = false
 var _is_depleting: bool = false
+var _is_base_powered: bool = false
 
 func _ready() -> void:
 	if not balance:
@@ -22,6 +23,7 @@ func _ready() -> void:
 		return
 	_current_oxygen = balance.max_oxygen
 	EventBus.rooms_recalculated.connect(_on_rooms_recalculated)
+	EventBus.life_support_power_changed.connect(_on_life_support_power_changed)
 	_emit_oxygen_state()
 
 func _process(delta: float) -> void:
@@ -46,11 +48,15 @@ func set_indoor(indoor: bool) -> void:
 	else:
 		EventBus.player_exited_indoor.emit()
 
+func set_base_powered(powered: bool) -> void:
+	_is_base_powered = powered
+
 ## Сохранить состояние кислорода.
 func save_state() -> Dictionary:
 	return {
 		"current_oxygen": _current_oxygen,
 		"is_indoor": _is_indoor,
+		"is_base_powered": _is_base_powered,
 	}
 
 ## Восстановить состояние кислорода.
@@ -63,6 +69,7 @@ func load_state(data: Dictionary) -> void:
 		balance.max_oxygen
 	)
 	_is_indoor = bool(data.get("is_indoor", false))
+	_is_base_powered = bool(data.get("is_base_powered", false))
 	_is_depleting = false
 	_emit_oxygen_state()
 	_apply_effects()
@@ -72,10 +79,16 @@ func load_state(data: Dictionary) -> void:
 func _update_oxygen(delta: float) -> void:
 	var old_oxygen: float = _current_oxygen
 	if _is_indoor:
-		_current_oxygen = minf(
-			_current_oxygen + balance.oxygen_refill_rate * delta,
-			balance.max_oxygen
-		)
+		if _is_base_powered:
+			_current_oxygen = minf(
+				_current_oxygen + balance.oxygen_refill_rate * delta,
+				balance.max_oxygen
+			)
+		else:
+			_current_oxygen = maxf(
+				_current_oxygen - balance.oxygen_unpowered_indoor_drain_rate * delta,
+				0.0
+			)
 	else:
 		_current_oxygen = maxf(
 			_current_oxygen - balance.oxygen_drain_rate * delta,
@@ -108,3 +121,6 @@ func _emit_oxygen_state() -> void:
 func _on_rooms_recalculated(_indoor_cells: Dictionary) -> void:
 	# Пересчёт статуса будет вызван из game_world
 	pass
+
+func _on_life_support_power_changed(is_powered: bool) -> void:
+	_is_base_powered = is_powered

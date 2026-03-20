@@ -25,6 +25,7 @@ signal season_changed(new_season: int, old_season: int)
 signal power_changed(total_supply: float, total_demand: float)
 signal power_deficit(deficit_amount: float)
 signal power_restored()
+signal life_support_power_changed(is_powered: bool)
 
 # --- Строительство ---
 signal building_placed(position: Vector2i)

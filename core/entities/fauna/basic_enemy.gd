@@ -6,22 +6,26 @@ extends CharacterBody2D
 ## НЕ видит игрока — атакует только при столкновении.
 ## Активнее ночью (больше радиус слуха).
 
-# --- Состояния ---
-enum State { IDLE, WANDER, INVESTIGATING, ATTACKING }
-
 # --- Экспортируемые ---
 @export var balance: EnemyBalance = null
 
 # --- Приватные ---
-var _state: State = State.IDLE
+const SCAN_INTERVAL: float = 1.5
+const WANDER_INTERVAL: float = 3.0
+const WANDER_SPEED_MULT: float = 0.4
+const ARRIVAL_DISTANCE: float = 32.0
+const PLAYER_DETECT_RADIUS: float = 60.0
+
 var _health_component: HealthComponent = null
 var _attack_timer: float = 0.0
 var _is_dead: bool = false
+var _state_machine: StateMachine = StateMachine.new()
 
 ## Цель — позиция шума (не нода, а точка в мире).
 var _target_pos: Vector2 = Vector2.ZERO
 ## Есть ли активная цель.
 var _has_target: bool = false
+var _attack_target: Node2D = null
 ## Таймер пересканирования шума.
 var _scan_timer: float = 0.0
 ## Таймер смены направления при бродяжничестве.
@@ -32,12 +36,6 @@ var _wander_dir: Vector2 = Vector2.ZERO
 var _hearing_multiplier: float = 1.0
 ## Базовый радиус слуха (в дополнение к noise_radius источника).
 var _base_hearing: float = 50.0
-
-const SCAN_INTERVAL: float = 1.5
-const WANDER_INTERVAL: float = 3.0
-const WANDER_SPEED_MULT: float = 0.4
-const ARRIVAL_DISTANCE: float = 32.0
-const PLAYER_DETECT_RADIUS: float = 60.0
 
 func _ready() -> void:
 	add_to_group("enemies")
@@ -52,69 +50,23 @@ func _ready() -> void:
 	_scan_timer = randf() * SCAN_INTERVAL
 	_wander_timer = randf() * WANDER_INTERVAL
 	_pick_wander_direction()
+	_setup_state_machine()
 	# Подписка на ночь — активнее
 	EventBus.time_of_day_changed.connect(_on_time_changed)
 
 func _physics_process(delta: float) -> void:
-	if _is_dead:
-		return
 	_update_attack_timer(delta)
 	_update_scan(delta)
-	match _state:
-		State.IDLE:
-			_process_idle(delta)
-		State.WANDER:
-			_process_wander(delta)
-		State.INVESTIGATING:
-			_process_investigating(delta)
-		State.ATTACKING:
-			_process_attacking(delta)
+	_state_machine.physics_update(delta)
 	move_and_slide()
-	_check_collisions()
-
-# --- Состояния ---
-
-func _process_idle(delta: float) -> void:
-	velocity = Vector2.ZERO
-	_wander_timer -= delta
-	if _wander_timer <= 0.0:
-		_wander_timer = WANDER_INTERVAL + randf() * 2.0
-		_pick_wander_direction()
-		_state = State.WANDER
-
-func _process_wander(delta: float) -> void:
-	if not balance:
-		return
-	velocity = _wander_dir * balance.move_speed * WANDER_SPEED_MULT
-	_wander_timer -= delta
-	if _wander_timer <= 0.0:
-		_state = State.IDLE
-		_wander_timer = 1.0 + randf() * 2.0
-
-func _process_investigating(_delta: float) -> void:
-	if not balance or not _has_target:
-		_state = State.IDLE
-		return
-	var dir: Vector2 = (_target_pos - global_position)
-	if dir.length() < ARRIVAL_DISTANCE:
-		# Добрались до источника шума — бродим вокруг
-		_has_target = false
-		_state = State.WANDER
-		_wander_timer = 2.0
-		_pick_wander_direction()
-		return
-	velocity = dir.normalized() * balance.move_speed
-
-func _process_attacking(_delta: float) -> void:
-	if not balance or not _has_target:
-		_state = State.IDLE
-		return
-	var dir: Vector2 = (_target_pos - global_position)
-	velocity = dir.normalized() * balance.move_speed * 1.2
+	if not _is_dead:
+		_check_collisions()
 
 # --- Сканирование шума ---
 
 func _update_scan(delta: float) -> void:
+	if _is_dead:
+		return
 	_scan_timer -= delta
 	if _scan_timer > 0.0:
 		return
@@ -159,9 +111,8 @@ func _update_scan(delta: float) -> void:
 	if found:
 		_target_pos = best_pos
 		_has_target = true
-		_state = State.INVESTIGATING
-	elif _state == State.INVESTIGATING and not _has_target:
-		_state = State.IDLE
+		if not has_attack_target():
+			_state_machine.transition_to(&"investigate")
 
 # --- Столкновения ---
 
@@ -185,9 +136,12 @@ func _try_attack_target(target_node: Node2D) -> void:
 		health.take_damage(balance.damage_to_player)
 		_target_pos = target_node.global_position
 		_has_target = true
-		_state = State.ATTACKING
+		_attack_target = target_node
+		_state_machine.transition_to(&"attack")
 	elif target_node.collision_layer & 2:
 		health.take_damage(balance.damage_to_wall)
+		if target_node.has_meta("grid_pos"):
+			EventBus.enemy_reached_wall.emit(target_node.get_meta("grid_pos"))
 
 func _update_attack_timer(delta: float) -> void:
 	if _attack_timer > 0.0:
@@ -210,10 +164,13 @@ func _on_time_changed(new_phase: int, _old_phase: int) -> void:
 
 func _on_died() -> void:
 	_is_dead = true
-	EventBus.enemy_killed.emit(global_position)
-	_play_death()
+	_attack_target = null
+	_has_target = false
+	_state_machine.transition_to(&"dead")
 
-func _play_death() -> void:
+func handle_death() -> void:
+	velocity = Vector2.ZERO
+	EventBus.enemy_killed.emit(global_position)
 	var visual: Node2D = get_node_or_null("Visual") as Node2D
 	if visual:
 		var tween: Tween = create_tween()
@@ -221,3 +178,64 @@ func _play_death() -> void:
 		tween.tween_callback(queue_free)
 	else:
 		queue_free()
+
+func stop_movement() -> void:
+	velocity = Vector2.ZERO
+
+func begin_wander() -> void:
+	_pick_wander_direction()
+	_wander_timer = WANDER_INTERVAL + randf() * 2.0
+
+func tick_wander(delta: float) -> void:
+	if not balance:
+		return
+	velocity = _wander_dir * balance.move_speed * WANDER_SPEED_MULT
+	_wander_timer -= delta
+
+func tick_wander_timer(delta: float) -> void:
+	_wander_timer -= delta
+
+func is_wander_timer_finished() -> bool:
+	return _wander_timer <= 0.0
+
+func should_start_investigating() -> bool:
+	return _has_target and not _is_dead
+
+func has_target() -> bool:
+	return _has_target
+
+func has_attack_target() -> bool:
+	return is_instance_valid(_attack_target)
+
+func reached_target() -> bool:
+	return global_position.distance_to(_target_pos) < ARRIVAL_DISTANCE
+
+func clear_target() -> void:
+	_has_target = false
+	_attack_target = null
+	_wander_timer = 2.0
+	_pick_wander_direction()
+
+func move_to_target(speed_mult: float) -> void:
+	if not balance or not _has_target:
+		stop_movement()
+		return
+	if has_attack_target():
+		_target_pos = _attack_target.global_position
+	var dir: Vector2 = _target_pos - global_position
+	if dir.length() <= 0.001:
+		stop_movement()
+		return
+	velocity = dir.normalized() * balance.move_speed * speed_mult
+
+func is_dead() -> bool:
+	return _is_dead
+
+func _setup_state_machine() -> void:
+	_state_machine.setup(self)
+	_state_machine.add_state(&"idle", EnemyIdleState.new())
+	_state_machine.add_state(&"wander", EnemyWanderState.new())
+	_state_machine.add_state(&"investigate", EnemyInvestigateState.new())
+	_state_machine.add_state(&"attack", EnemyAttackState.new())
+	_state_machine.add_state(&"dead", EnemyDeadState.new())
+	_state_machine.transition_to(&"idle")

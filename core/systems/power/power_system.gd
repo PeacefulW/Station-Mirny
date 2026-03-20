@@ -29,6 +29,8 @@ func _ready() -> void:
 	balance = load(BALANCE_PATH) as PowerBalance
 	if not balance:
 		push_error("PowerSystem: не удалось загрузить %s" % BALANCE_PATH)
+	EventBus.building_placed.connect(func(_pos: Vector2i) -> void: force_recalculate())
+	EventBus.building_removed.connect(func(_pos: Vector2i) -> void: force_recalculate())
 
 func _process(delta: float) -> void:
 	if not balance:

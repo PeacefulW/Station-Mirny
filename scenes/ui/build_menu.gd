@@ -79,7 +79,7 @@ func _build_ui() -> void:
 	header.add_child(_label)
 
 	var hint := Label.new()
-	hint.text = "  |  ЛКМ — поставить  |  ПКМ — снести  |  B — закрыть"
+	hint.text = "  |  ЛКМ — поставить  |  ПКМ — снести  |  стоимость — в скрапе  |  B — закрыть"
 	hint.add_theme_font_size_override("font_size", 12)
 	hint.add_theme_color_override("font_color", Color(0.45, 0.43, 0.38))
 	header.add_child(hint)
@@ -107,7 +107,7 @@ func _create_building_button(bd: BuildingData, index: int) -> Button:
 	var hotkey_text: String = ""
 	if bd.hotkey > 0 and bd.hotkey <= 9:
 		hotkey_text = "[%d] " % bd.hotkey
-	btn.text = "%s%s (%d)" % [hotkey_text, bd.display_name, bd.scrap_cost]
+	btn.text = "%s%s (%d скрапа)" % [hotkey_text, bd.display_name, bd.scrap_cost]
 	btn.custom_minimum_size = Vector2(120, 36)
 	btn.add_theme_font_size_override("font_size", 13)
 	btn.pressed.connect(select_index.bind(index))
@@ -117,67 +117,19 @@ func _create_building_button(bd: BuildingData, index: int) -> Button:
 # --- Загрузка построек ---
 
 func _load_buildings() -> void:
-	var dir_path: String = "res://data/buildings/"
-	var dir := DirAccess.open(dir_path)
-	if not dir:
-		push_warning("BuildMenu: папка %s не найдена, использую встроенные" % dir_path)
+	_buildings = ItemRegistry.get_all_buildings()
+	if _buildings.is_empty():
 		_load_default_buildings()
-		return
-	dir.list_dir_begin()
-	var file_name: String = dir.get_next()
-	while file_name != "":
-		if file_name.ends_with(".tres"):
-			var res: Resource = load(dir_path + file_name)
-			if res is BuildingData:
-				_buildings.append(res as BuildingData)
-		file_name = dir.get_next()
 	# Сортируем по категории, потом по имени
 	_buildings.sort_custom(func(a: BuildingData, b: BuildingData) -> bool:
 		if a.category != b.category:
 			return a.category < b.category
 		return a.display_name < b.display_name
 	)
-	if _buildings.is_empty():
-		_load_default_buildings()
 
 ## Встроенные постройки если .tres файлы не найдены.
 func _load_default_buildings() -> void:
-	var wall := BuildingData.new()
-	wall.id = &"wall"
-	wall.display_name = "Стена"
-	wall.description = "Базовая стена. Герметизирует помещение."
-	wall.category = BuildingData.Category.STRUCTURE
-	wall.scrap_cost = 2
-	wall.health = 50.0
-	wall.placeholder_color = Color(0.45, 0.48, 0.52)
-	wall.hotkey = 1
-	_buildings.append(wall)
-
-	var battery := BuildingData.new()
-	battery.id = &"ark_battery"
-	battery.display_name = "Батарея Ковчега"
-	battery.description = "Конечный запас энергии. Когда сядет — навсегда."
-	battery.category = BuildingData.Category.POWER
-	battery.scrap_cost = 0
-	battery.health = 80.0
-	battery.placeholder_color = Color(0.3, 0.5, 0.8)
-	battery.hotkey = 2
-	battery.script_path = "res://core/entities/structures/ark_battery.gd"
-	battery.balance_path = "res://data/balance/power_balance.tres"
-	_buildings.append(battery)
-
-	var burner := BuildingData.new()
-	burner.id = &"thermo_burner"
-	burner.display_name = "Термосжигатель"
-	burner.description = "Жжёт биомассу → энергия. Шумит!"
-	burner.category = BuildingData.Category.POWER
-	burner.scrap_cost = 8
-	burner.health = 60.0
-	burner.placeholder_color = Color(0.8, 0.4, 0.15)
-	burner.hotkey = 3
-	burner.script_path = "res://core/entities/structures/thermo_burner.gd"
-	burner.balance_path = "res://data/balance/power_balance.tres"
-	_buildings.append(burner)
+	_buildings = BuildingCatalog.get_default_buildings()
 
 # --- Визуал выделения ---
 

@@ -85,7 +85,7 @@ func _build_ui() -> void:
 	root_vbox.add_child(content)
 
 	var hint := Label.new()
-	hint.text = "Tab — закрыть  |  Нажми рецепт справа, чтобы скрафтить"
+	hint.text = "Tab — закрыть  |  Скрап нужен для строительства  |  Руда нужна для крафта"
 	hint.add_theme_font_size_override("font_size", 11)
 	hint.add_theme_color_override("font_color", Color(0.35, 0.33, 0.28))
 	root_vbox.add_child(hint)

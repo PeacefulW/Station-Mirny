@@ -22,23 +22,44 @@ func can_craft(recipe: RecipeData, inventory: InventoryComponent) -> bool:
 
 ## Пытается скрафтить рецепт. Возвращает true при успехе.
 func craft(recipe: RecipeData, inventory: InventoryComponent) -> bool:
+	return execute_recipe(recipe, inventory).get("success", false)
+
+## Выполняет крафт и возвращает структурированный результат.
+func execute_recipe(recipe: RecipeData, inventory: InventoryComponent) -> Dictionary:
 	if not recipe or not inventory:
-		return false
+		return {
+			"success": false,
+			"message": "Рецепт или инвентарь не передан",
+		}
 
 	var input_item: ItemData = ItemRegistry.get_item(recipe.input_item_id)
 	var output_item: ItemData = ItemRegistry.get_item(recipe.output_item_id)
 	if not input_item or not output_item:
-		return false
+		return {
+			"success": false,
+			"message": "Предметы рецепта не найдены",
+		}
 
 	if not inventory.has_item(input_item, recipe.input_amount):
-		return false
+		return {
+			"success": false,
+			"message": "Недостаточно ресурсов",
+		}
 
 	if not inventory.remove_item(input_item, recipe.input_amount):
-		return false
+		return {
+			"success": false,
+			"message": "Не удалось списать входные ресурсы",
+		}
 
 	var leftover: int = inventory.add_item(output_item, recipe.output_amount)
 	if leftover <= 0:
-		return true
+		return {
+			"success": true,
+			"message": "Скрафчено: %s x%d" % [output_item.display_name, recipe.output_amount],
+			"output_item_id": output_item.id,
+			"output_amount": recipe.output_amount,
+		}
 
 	# Защита от потери предметов: откатываем по возможности вход,
 	# а частично добавленный выход удаляем.
@@ -46,4 +67,7 @@ func craft(recipe: RecipeData, inventory: InventoryComponent) -> bool:
 	if crafted_amount > 0:
 		inventory.remove_item(output_item, crafted_amount)
 	inventory.add_item(input_item, recipe.input_amount)
-	return false
+	return {
+		"success": false,
+		"message": "Недостаточно места в инвентаре",
+	}

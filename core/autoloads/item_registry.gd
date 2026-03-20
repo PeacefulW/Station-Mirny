@@ -11,6 +11,7 @@ const RECIPE_DATA_SCRIPT_PATH: String = "res://core/entities/recipes/recipe_data
 
 var _items: Dictionary = {}
 var _recipes: Dictionary = {}
+var _buildings: Dictionary = {}
 var _resource_nodes: Dictionary = {}
 var _resource_nodes_by_deposit: Dictionary = {}
 var _are_recipes_loaded: bool = false
@@ -19,6 +20,10 @@ func _ready() -> void:
 	# На Фазе 0 мы загружаем базовые ресурсы вручную.
 	# Позже ModLoader будет парсить папки автоматически.
 	_load_base_items()
+	_load_buildings()
+	if _buildings.is_empty():
+		for building_data: BuildingData in BuildingCatalog.get_default_buildings():
+			register_building(building_data)
 	_load_resource_nodes()
 	_ensure_recipes_loaded()
 
@@ -45,6 +50,20 @@ func get_all_recipes() -> Array[RecipeData]:
 	var result: Array[RecipeData] = []
 	for recipe: RecipeData in _recipes.values():
 		result.append(recipe)
+	return result
+
+## Возвращает описание ресурсной ноды по её ID.
+func get_building(id: StringName) -> BuildingData:
+	if _buildings.has(id):
+		return _buildings[id]
+	push_warning("ItemRegistry: Постройка с ID '%s' не найдена." % id)
+	return null
+
+## Возвращает все зарегистрированные BuildingData.
+func get_all_buildings() -> Array[BuildingData]:
+	var result: Array[BuildingData] = []
+	for building_data: BuildingData in _buildings.values():
+		result.append(building_data)
 	return result
 
 ## Возвращает описание ресурсной ноды по её ID.
@@ -81,6 +100,13 @@ func register_recipe(recipe: RecipeData) -> void:
 		push_error("ItemRegistry: Попытка зарегистрировать некорректный рецепт.")
 		return
 	_recipes[recipe.id] = recipe
+
+## Регистрирует новый тип постройки.
+func register_building(building_data: BuildingData) -> void:
+	if not building_data or building_data.id.is_empty():
+		push_error("ItemRegistry: Попытка зарегистрировать некорректную постройку.")
+		return
+	_buildings[building_data.id] = building_data
 
 ## Регистрирует описание ресурсной ноды мира.
 func register_resource_node(resource_node: ResourceNodeData) -> void:
@@ -122,6 +148,22 @@ func _load_resource_nodes() -> void:
 			var resource: Resource = load(resources_path + file_name)
 			if resource is ResourceNodeData:
 				register_resource_node(resource as ResourceNodeData)
+		file_name = dir.get_next()
+
+func _load_buildings() -> void:
+	var buildings_path: String = "res://data/buildings/"
+	var dir := DirAccess.open(buildings_path)
+	if not dir:
+		push_warning("ItemRegistry: Не удалось открыть папку %s" % buildings_path)
+		return
+
+	dir.list_dir_begin()
+	var file_name: String = dir.get_next()
+	while file_name != "":
+		if not dir.current_is_dir() and file_name.ends_with(".tres"):
+			var resource: Resource = load(buildings_path + file_name)
+			if resource is BuildingData:
+				register_building(resource as BuildingData)
 		file_name = dir.get_next()
 
 func _ensure_recipes_loaded() -> void:

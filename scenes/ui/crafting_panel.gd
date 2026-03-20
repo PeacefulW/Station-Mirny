@@ -14,6 +14,7 @@ var _recipe_scroll: ScrollContainer = null
 var _recipe_list: VBoxContainer = null
 var _recipe_description: Label = null
 var _craft_feedback: Label = null
+var _command_executor: CommandExecutor = null
 
 func _ready() -> void:
 	add_theme_constant_override("separation", 6)
@@ -27,6 +28,7 @@ func _ready() -> void:
 func setup(inventory: InventoryComponent, crafting_system: CraftingSystem) -> void:
 	_inventory = inventory
 	_crafting_system = crafting_system
+	_command_executor = _find_command_executor()
 	_load_recipes()
 	_refresh_recipe_list()
 
@@ -131,13 +133,23 @@ func _on_recipe_pressed(recipe: RecipeData) -> void:
 		craft_failed.emit(unavailable_message)
 		return
 
-	if _crafting_system.craft(recipe, _inventory):
-		var ok_message: String = "Скрафчено: %s x%d" % [output_item.display_name, recipe.output_amount]
+	if not _command_executor:
+		_command_executor = _find_command_executor()
+
+	var result: Dictionary
+	if _command_executor:
+		var command := CraftRecipeCommand.new().setup(_crafting_system, _inventory, recipe)
+		result = _command_executor.execute(command)
+	else:
+		result = _crafting_system.execute_recipe(recipe, _inventory)
+
+	if result.get("success", false):
+		var ok_message: String = str(result.get("message", "Скрафчено"))
 		_craft_feedback.text = ok_message
 		_craft_feedback.add_theme_color_override("font_color", Color(0.55, 0.9, 0.55))
 		craft_succeeded.emit(ok_message)
 	else:
-		var failed_message: String = "Крафт не выполнен: %s" % _get_unavailable_reason(recipe)
+		var failed_message: String = "Крафт не выполнен: %s" % str(result.get("message", _get_unavailable_reason(recipe)))
 		_craft_feedback.text = failed_message
 		_craft_feedback.add_theme_color_override("font_color", Color(0.95, 0.55, 0.35))
 		craft_failed.emit(failed_message)
@@ -207,3 +219,9 @@ func _can_fit_item(item_data: ItemData, amount: int) -> bool:
 			if remaining <= 0:
 				return true
 	return false
+
+func _find_command_executor() -> CommandExecutor:
+	var executors: Array[Node] = get_tree().get_nodes_in_group("command_executor")
+	if executors.is_empty():
+		return null
+	return executors[0] as CommandExecutor

@@ -41,3 +41,7 @@ enum Category { STRUCTURE, POWER, LIFE_SUPPORT, PRODUCTION, DEFENSE }
 @export var script_path: String = ""
 ## Путь к ресурсу баланса здания (если нужен).
 @export var balance_path: String = ""
+## Прямая ссылка на script-ресурс. Предпочтительнее runtime load().
+@export var logic_script: Script = null
+## Прямая ссылка на ресурс баланса. Предпочтительнее runtime load().
+@export var logic_balance: Resource = null

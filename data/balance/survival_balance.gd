@@ -10,6 +10,8 @@ extends Resource
 @export var oxygen_drain_rate: float = 6.0
 ## Скорость восполнения O₂ в секунду внутри базы.
 @export var oxygen_refill_rate: float = 20.0
+## Если база герметична, но питание не подано, O₂ всё равно медленно падает.
+@export var oxygen_unpowered_indoor_drain_rate: float = 1.5
 ## Порог предупреждения (0.0 — 1.0).
 @export var low_oxygen_threshold: float = 0.3
 ## Множитель скорости при низком O₂.

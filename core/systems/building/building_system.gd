@@ -21,6 +21,7 @@ var _player: Player = null
 var _placement_service: BuildingPlacementService = BuildingPlacementService.new()
 var _indoor_solver: IndoorSolver = IndoorSolver.new()
 var _persistence: BuildingPersistence = BuildingPersistence.new()
+var _command_executor: CommandExecutor = null
 
 # --- Встроенные ---
 
@@ -33,6 +34,7 @@ func _ready() -> void:
 	_placement_service.setup(balance, wall_container)
 	walls = _placement_service.walls
 	indoor_cells = _indoor_solver.indoor_cells
+	_command_executor = _find_command_executor()
 	EventBus.scrap_collected.connect(_on_scrap_collected)
 	EventBus.scrap_spent.connect(func(_a: int, remaining: int) -> void: _player_scrap = remaining)
 	call_deferred("_connect_build_menu")
@@ -69,9 +71,9 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_build_mode"):
 		_toggle_build_mode()
 	elif is_build_mode and event.is_action_pressed("primary_action"):
-		_try_place_building()
+		_execute_place_command()
 	elif is_build_mode and event.is_action_pressed("secondary_action"):
-		_try_remove_building()
+		_execute_remove_command()
 
 # --- Публичные методы ---
 
@@ -116,31 +118,60 @@ func _toggle_build_mode() -> void:
 		queue_redraw()
 	EventBus.build_mode_changed.emit(is_build_mode)
 
-func _try_place_building() -> void:
-	var world_pos: Vector2 = get_global_mouse_position()
+func place_selected_building_at(world_pos: Vector2) -> Dictionary:
 	var grid_pos: Vector2i = world_to_grid(world_pos)
+	var selected_building: BuildingData = _placement_service.get_selected_building()
+	if not selected_building:
+		return {"success": false, "message": "Постройка не выбрана"}
 	if not _placement_service.can_place_at(grid_pos, _player_scrap):
-		return
+		return {"success": false, "message": "Постройку нельзя разместить"}
 	var cost: int = _placement_service.get_selected_building_cost()
 	if not _player and not _find_player():
-		return
+		return {"success": false, "message": "Игрок не найден"}
 	if not _player.spend_scrap(cost):
-		return
+		return {"success": false, "message": "Недостаточно scrap"}
 	_player_scrap = _player.get_scrap_count()
-	EventBus.scrap_spent.emit(cost, _player_scrap)
 	var placed_pos: Vector2i = _placement_service.place_selected_at(world_pos)
+	if placed_pos == Vector2i(2147483647, 2147483647):
+		_player.collect_scrap(cost)
+		_player_scrap = _player.get_scrap_count()
+		return {"success": false, "message": "Не удалось создать постройку"}
+	var building_node: Node2D = walls.get(placed_pos)
+	if not building_node:
+		_player.collect_scrap(cost)
+		_player_scrap = _player.get_scrap_count()
+		return {"success": false, "message": "Не удалось создать постройку"}
+	EventBus.scrap_spent.emit(cost, _player_scrap)
 	_bind_building_health(walls.get(placed_pos), placed_pos)
 	_recalculate_indoor()
 	EventBus.building_placed.emit(placed_pos)
+	return {
+		"success": true,
+		"message": "Постройка размещена",
+		"grid_pos": placed_pos,
+		"building_id": str(selected_building.id),
+	}
 
-func _try_remove_building() -> void:
-	var removed_pos: Vector2i = _placement_service.remove_at(get_global_mouse_position())
-	if removed_pos == Vector2i(2147483647, 2147483647):
-		return
+func remove_building_at(world_pos: Vector2) -> Dictionary:
+	var removal_result: Dictionary = _placement_service.remove_at(world_pos)
+	if removal_result.is_empty():
+		return {"success": false, "message": "Постройка не найдена"}
+	var removed_pos: Vector2i = removal_result.get("grid_pos", Vector2i.ZERO)
+	var building_id: String = str(removal_result.get("building_id", ""))
+	var refund_amount: int = 1
+	var building_data: BuildingData = _placement_service.get_building_data_by_id(building_id)
+	if building_data:
+		refund_amount = maxi(building_data.scrap_cost, 0)
 	if _player or _find_player():
-		_player.collect_scrap(1)
+		_player.collect_scrap(refund_amount)
 	_recalculate_indoor()
 	EventBus.building_removed.emit(removed_pos)
+	return {
+		"success": true,
+		"message": "Постройка удалена",
+		"grid_pos": removed_pos,
+		"refund_amount": refund_amount,
+	}
 
 func _on_building_destroyed(grid_pos: Vector2i) -> void:
 	if walls.has(grid_pos):
@@ -163,6 +194,30 @@ func _find_player() -> Player:
 		return null
 	_player = players[0] as Player
 	return _player
+
+func _find_command_executor() -> CommandExecutor:
+	var executors: Array[Node] = get_tree().get_nodes_in_group("command_executor")
+	if executors.is_empty():
+		return null
+	return executors[0] as CommandExecutor
+
+func _execute_place_command() -> void:
+	if not _command_executor:
+		_command_executor = _find_command_executor()
+	if not _command_executor:
+		place_selected_building_at(get_global_mouse_position())
+		return
+	var command := PlaceBuildingCommand.new().setup(self, get_global_mouse_position())
+	_command_executor.execute(command)
+
+func _execute_remove_command() -> void:
+	if not _command_executor:
+		_command_executor = _find_command_executor()
+	if not _command_executor:
+		remove_building_at(get_global_mouse_position())
+		return
+	var command := RemoveBuildingCommand.new().setup(self, get_global_mouse_position())
+	_command_executor.execute(command)
 
 func _bind_building_health(node: Node2D, grid_pos: Vector2i) -> void:
 	if not node:

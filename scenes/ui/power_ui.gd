@@ -136,7 +136,7 @@ func _build_ui() -> void:
 
 	# Подсказка
 	var hint := Label.new()
-	hint.text = "P — закрыть  |  E рядом — дозаправить"
+	hint.text = "P — закрыть  |  E рядом — загрузить в печь 1 дерево  |  База восстанавливает O2 только при питании"
 	hint.add_theme_font_size_override("font_size", 11)
 	hint.add_theme_color_override("font_color", Color(0.30, 0.32, 0.40))
 	vbox.add_child(hint)

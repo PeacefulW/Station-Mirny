@@ -4,11 +4,6 @@ extends Node2D
 ## Главная сцена мира. Инициализирует WorldGenerator (если не было),
 ## управляет ChunkManager, спавном врагов и пикапов.
 
-# --- Константы ---
-const BASIC_ENEMY_SCRIPT: GDScript = preload("res://core/entities/fauna/basic_enemy.gd")
-const ENEMY_TEXTURE: Texture2D = preload("res://assets/sprites/fauna/enemy_cleaner_32.png")
-const SCRAP_PICKUP_TEXTURE: Texture2D = preload("res://assets/sprites/pickups/pickup_scrap_16.png")
-
 # --- Экспортируемые ---
 @export var enemy_balance: EnemyBalance = null
 ## Seed мира. Используется только если мир не инициализирован
@@ -26,6 +21,10 @@ var _crafting_system: CraftingSystem = null
 var _spawn_timer: float = 0.0
 var _enemy_count: int = 0
 var _resolved_ui_layer: CanvasLayer = null
+var _command_executor: CommandExecutor = null
+var _enemy_factory: EnemyFactory = EnemyFactory.new()
+var _pickup_factory: PickupFactory = PickupFactory.new()
+var _life_support: BaseLifeSupport = null
 
 func _ready() -> void:
 	_player = _find_node_in_group("player") as Player
@@ -36,6 +35,8 @@ func _ready() -> void:
 	EventBus.enemy_killed.connect(_on_enemy_killed)
 	_init_world_generator()
 	_setup_chunk_manager()
+	_setup_command_executor()
+	_setup_life_support()
 	_spawn_initial_scrap()
 	
 	# Создаём меню строительства в UILayer
@@ -88,6 +89,16 @@ func _setup_chunk_manager() -> void:
 	add_child(_chunk_manager)
 	move_child(_chunk_manager, 0)
 
+func _setup_command_executor() -> void:
+	_command_executor = CommandExecutor.new()
+	_command_executor.name = "CommandExecutor"
+	add_child(_command_executor)
+
+func _setup_life_support() -> void:
+	_life_support = BaseLifeSupport.new()
+	_life_support.name = "BaseLifeSupport"
+	add_child(_life_support)
+
 # --- Обновления ---
 
 func _update_player_indoor_status() -> void:
@@ -120,26 +131,9 @@ func _spawn_enemy() -> void:
 	if WorldGenerator and WorldGenerator._is_initialized:
 		if not WorldGenerator.is_walkable_at(spawn_pos):
 			return
-	var enemy := CharacterBody2D.new()
-	enemy.collision_layer = 4
-	enemy.collision_mask = 1 | 2
-	enemy.global_position = spawn_pos
-	var visual := Sprite2D.new()
-	visual.name = "Visual"
-	visual.texture = ENEMY_TEXTURE
-	enemy.add_child(visual)
-	var collision := CollisionShape2D.new()
-	var shape := RectangleShape2D.new()
-	shape.size = Vector2(24, 24)
-	collision.shape = shape
-	enemy.add_child(collision)
-	var health := HealthComponent.new()
-	health.name = "HealthComponent"
-	health.max_health = enemy_balance.max_health
-	enemy.add_child(health)
-	enemy.set_script(BASIC_ENEMY_SCRIPT)
-	enemy.balance = enemy_balance
-	enemy.add_to_group("enemies")
+	var enemy := _enemy_factory.create_basic_enemy(spawn_pos, enemy_balance)
+	if not enemy:
+		return
 	_enemy_container.add_child(enemy)
 	_enemy_count += 1
 	EventBus.enemy_spawned.emit(enemy)
@@ -164,27 +158,19 @@ func _spawn_initial_scrap() -> void:
 func _spawn_scrap_pickup(pos: Vector2) -> void:
 	if not _pickup_container:
 		return
-	var pickup := Area2D.new()
-	pickup.global_position = pos
-	pickup.collision_layer = 0
-	pickup.collision_mask = 1
-	pickup.monitoring = true
-	pickup.monitorable = false
-	var visual := Sprite2D.new()
-	visual.name = "Visual"
-	visual.texture = SCRAP_PICKUP_TEXTURE
-	pickup.add_child(visual)
-	var collision := CollisionShape2D.new()
-	var shape := CircleShape2D.new()
-	shape.radius = 18.0
-	collision.shape = shape
-	pickup.add_child(collision)
+	var pickup := _pickup_factory.create_item_pickup(Player.SCRAP_ITEM_ID, 1, pos)
 	pickup.body_entered.connect(_on_pickup_collected.bind(pickup))
 	_pickup_container.add_child(pickup)
 
 func _on_pickup_collected(body: Node2D, pickup: Area2D) -> void:
 	if body is Player:
-		body.collect_scrap(1)
+		var item_id: String = str(pickup.get_meta("item_id", Player.SCRAP_ITEM_ID))
+		var amount: int = int(pickup.get_meta("amount", 1))
+		if _command_executor:
+			var command := PickupItemCommand.new().setup(body as Player, item_id, amount, pickup)
+			_command_executor.execute(command)
+			return
+		body.collect_item(item_id, amount)
 		pickup.queue_free()
 
 func _find_node_in_group(group_name: String) -> Node:

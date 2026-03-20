@@ -14,6 +14,8 @@ var _controls_label: Label = null
 var _game_over_label: Label = null
 var _time_label: Label = null
 var _day_label: Label = null
+var _is_indoor: bool = false
+var _life_support_powered: bool = false
 
 func _ready() -> void:
 	_create_ui()
@@ -52,7 +54,7 @@ func _create_ui() -> void:
 	# Скрап
 	_scrap_label = Label.new()
 	_scrap_label.position = Vector2(20, 72)
-	_scrap_label.text = "Скрап: 0"
+	_scrap_label.text = "Скрап для строительства: 0"
 	_scrap_label.add_theme_font_size_override("font_size", 16)
 	add_child(_scrap_label)
 	# Режим строительства
@@ -85,7 +87,7 @@ func _create_ui() -> void:
 	_controls_label.anchor_bottom = 1.0
 	_controls_label.anchor_left = 0.0
 	_controls_label.position = Vector2(20, -60)
-	_controls_label.text = "WASD — движение  |  B — строить  |  ЛКМ — стена  |  ПКМ — снести  |  ПРОБЕЛ — атака"
+	_controls_label.text = "WASD — движение  |  E — добыча / заправить печь  |  Tab — инвентарь и крафт  |  B — стройка  |  P — энергия  |  ПРОБЕЛ — атака"
 	_controls_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.5))
 	_controls_label.add_theme_font_size_override("font_size", 14)
 	add_child(_controls_label)
@@ -106,6 +108,7 @@ func _connect_signals() -> void:
 	EventBus.scrap_collected.connect(_on_scrap_changed)
 	EventBus.scrap_spent.connect(_on_scrap_spent)
 	EventBus.build_mode_changed.connect(_on_build_mode_changed)
+	EventBus.life_support_power_changed.connect(_on_life_support_power_changed)
 	EventBus.game_over.connect(_on_game_over)
 	EventBus.hour_changed.connect(_on_hour_changed)
 	EventBus.time_of_day_changed.connect(_on_time_of_day_changed)
@@ -136,18 +139,18 @@ func _make_rounded_box(bg_color: Color, radius: int = 3) -> StyleBoxFlat:
 	return style
 
 func _on_entered_indoor() -> void:
-	_status_label.text = "В БАЗЕ"
-	_status_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.5))
+	_is_indoor = true
+	_update_status_label()
 
 func _on_exited_indoor() -> void:
-	_status_label.text = "СНАРУЖИ"
-	_status_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
+	_is_indoor = false
+	_update_status_label()
 
 func _on_scrap_changed(total: int) -> void:
-	_scrap_label.text = "Скрап: %d" % total
+	_scrap_label.text = "Скрап для строительства: %d" % total
 
 func _on_scrap_spent(_amount: int, remaining: int) -> void:
-	_scrap_label.text = "Скрап: %d" % remaining
+	_scrap_label.text = "Скрап для строительства: %d" % remaining
 
 func _on_build_mode_changed(is_active: bool) -> void:
 	_build_label.text = "[ РЕЖИМ СТРОИТЕЛЬСТВА ]" if is_active else ""
@@ -197,3 +200,21 @@ func _get_phase_name(phase: int) -> String:
 		TimeManagerSingleton.TimeOfDay.NIGHT:
 			return "НОЧЬ"
 	return "???"
+
+func _on_life_support_power_changed(is_powered: bool) -> void:
+	_life_support_powered = is_powered
+	_update_status_label()
+
+func _update_status_label() -> void:
+	if not _status_label:
+		return
+	if not _is_indoor:
+		_status_label.text = "СНАРУЖИ"
+		_status_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
+		return
+	if _life_support_powered:
+		_status_label.text = "В БАЗЕ / ПИТАНИЕ ОК"
+		_status_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.5))
+	else:
+		_status_label.text = "В БАЗЕ / БЕЗ ПИТАНИЯ"
+		_status_label.add_theme_color_override("font_color", Color(0.95, 0.7, 0.25))
