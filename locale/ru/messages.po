@@ -584,3 +584,12 @@ msgstr "Этот слот пуст"
 
 msgid "UI_SAVE_DELETED"
 msgstr "Удалено: {slot}"
+
+msgid "UI_HUD_FLOOR_SURFACE"
+msgstr "Поверхность"
+
+msgid "UI_HUD_FLOOR_BASEMENT"
+msgstr "Подвал"
+
+msgid "UI_HUD_FLOOR_UPPER"
+msgstr "2-й этаж"

@@ -65,5 +65,9 @@ signal save_completed()
 signal load_completed()
 
 signal language_changed(locale_code: String)
+
+# --- Z-уровни ---
+signal z_level_changed(new_z: int, old_z: int)
+
 # --- Общее ---
 signal game_over()

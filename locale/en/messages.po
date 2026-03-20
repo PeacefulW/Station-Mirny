@@ -584,3 +584,12 @@ msgstr "This slot is empty"
 
 msgid "UI_SAVE_DELETED"
 msgstr "Deleted: {slot}"
+
+msgid "UI_HUD_FLOOR_SURFACE"
+msgstr "Surface"
+
+msgid "UI_HUD_FLOOR_BASEMENT"
+msgstr "Basement"
+
+msgid "UI_HUD_FLOOR_UPPER"
+msgstr "2nd Floor"

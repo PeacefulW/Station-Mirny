@@ -25,6 +25,10 @@ var _command_executor: CommandExecutor = null
 var _enemy_factory: EnemyFactory = EnemyFactory.new()
 var _pickup_factory: PickupFactory = PickupFactory.new()
 var _life_support: BaseLifeSupport = null
+var _z_manager: ZLevelManager = null
+var _z_overlay: ZTransitionOverlay = null
+var _bg_rect: ColorRect = null
+var _stairs_container: Node2D = null
 
 func _ready() -> void:
 	_player = _find_node_in_group("player") as Player
@@ -37,7 +41,9 @@ func _ready() -> void:
 	_setup_chunk_manager()
 	_setup_command_executor()
 	_setup_life_support()
+	_setup_z_levels()
 	_spawn_initial_scrap()
+	_spawn_test_stairs()
 	
 	# Создаём меню строительства в UILayer
 	var build_menu := BuildMenu.new()
@@ -177,6 +183,64 @@ func _on_pickup_collected(body: Node2D, pickup: Area2D) -> void:
 			return
 		body.collect_item(item_id, amount)
 		pickup.queue_free()
+
+# --- Z-уровни ---
+
+func _setup_z_levels() -> void:
+	_z_manager = ZLevelManager.new()
+	_z_manager.name = "ZLevelManager"
+	add_child(_z_manager)
+	_z_manager.z_level_changed.connect(_on_z_level_changed)
+	_z_overlay = ZTransitionOverlay.new()
+	_z_overlay.name = "ZTransitionOverlay"
+	add_child(_z_overlay)
+	_stairs_container = Node2D.new()
+	_stairs_container.name = "StairsContainer"
+	add_child(_stairs_container)
+	_setup_background()
+
+func _setup_background() -> void:
+	_bg_rect = ColorRect.new()
+	_bg_rect.name = "BackgroundRect"
+	_bg_rect.z_index = -100
+	_bg_rect.size = Vector2(10000, 10000)
+	_bg_rect.position = Vector2(-5000, -5000)
+	_bg_rect.color = Color(0.05, 0.10, 0.05)
+	add_child(_bg_rect)
+	move_child(_bg_rect, 0)
+
+func _on_z_level_changed(new_z: int, _old_z: int) -> void:
+	if _chunk_manager and _chunk_manager.has_method("set_active_z_level"):
+		_chunk_manager.set_active_z_level(new_z)
+	_update_background_for_z(new_z)
+
+func _update_background_for_z(z: int) -> void:
+	if not _bg_rect:
+		return
+	match z:
+		-1: _bg_rect.color = Color(0.10, 0.08, 0.06)
+		0: _bg_rect.color = Color(0.05, 0.10, 0.05)
+		1: _bg_rect.color = Color(0.02, 0.02, 0.04)
+
+func _spawn_test_stairs() -> void:
+	if not _player or not _stairs_container:
+		return
+	var stair_pos: Vector2 = _player.global_position + Vector2(36, 0)
+	# Люк вниз на поверхности (z=0 → z=-1)
+	var stairs_down := ZStairs.new()
+	stairs_down.target_z = -1
+	stairs_down.source_z = 0
+	stairs_down.global_position = stair_pos
+	stairs_down.name = "TestStairsDown"
+	_stairs_container.add_child(stairs_down)
+	# Парная лестница наверх в подвале (z=-1 → z=0)
+	var stairs_up := ZStairs.new()
+	stairs_up.target_z = 0
+	stairs_up.source_z = -1
+	stairs_up.stairs_type = &"stairs_up"
+	stairs_up.global_position = stair_pos
+	stairs_up.name = "TestStairsUp"
+	_stairs_container.add_child(stairs_up)
 
 func _find_node_in_group(group_name: String) -> Node:
 	var nodes: Array[Node] = get_tree().get_nodes_in_group(group_name)

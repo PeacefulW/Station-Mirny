@@ -1,7 +1,7 @@
 class_name ChunkManager
 extends Node2D
 
-## Менеджер чанков v7. Текстуры земли из атласа PNG.
+## Менеджер чанков v8. Z-уровни + текстуры земли из атласа PNG.
 
 var _loaded_chunks: Dictionary = {}
 var _player_chunk: Vector2i = Vector2i(99999, 99999)
@@ -13,6 +13,9 @@ var _saved_chunk_data: Dictionary = {}
 var _shared_tileset: TileSet = null
 var _resource_tileset: TileSet = null
 var _initialized: bool = false
+var _active_z: int = 0
+var _z_containers: Dictionary = {}
+var _z_chunks: Dictionary = {}
 
 const TERRAIN_COUNT: int = 5
 const VARIANT_COUNT: int = 3
@@ -25,6 +28,7 @@ func _ready() -> void:
 	_chunk_container = Node2D.new()
 	_chunk_container.name = "Chunks"
 	add_child(_chunk_container)
+	_setup_z_containers()
 	_load_resource_defs()
 	call_deferred("_deferred_init")
 
@@ -237,7 +241,11 @@ func _load_chunk(coord: Vector2i) -> void:
 		WorldGenerator.current_biome, _shared_tileset, _resource_tileset)
 	var saved_mods: Dictionary = _saved_chunk_data.get(coord, {})
 	chunk.populate_native(native_data, saved_mods, _resource_defs)
-	_chunk_container.add_child(chunk)
+	var z_container: Node2D = _z_containers.get(_active_z) as Node2D
+	if z_container:
+		z_container.add_child(chunk)
+	else:
+		_chunk_container.add_child(chunk)
 	_loaded_chunks[coord] = chunk
 	EventBus.chunk_loaded.emit(coord)
 
@@ -259,3 +267,24 @@ func _load_resource_defs() -> void:
 		_resource_defs[resource_node.deposit_type] = resource_node
 	if _resource_defs.is_empty():
 		push_warning(Localization.t("SYSTEM_CHUNK_RESOURCE_DEFS_MISSING"))
+
+# --- Z-уровни ---
+
+## Создать контейнеры для каждого z-уровня.
+func _setup_z_containers() -> void:
+	for z: int in [ZLevelManager.Z_MIN, 0, ZLevelManager.Z_MAX]:
+		var container := Node2D.new()
+		container.name = "ZLayer_%d" % z
+		container.visible = (z == 0)
+		_chunk_container.add_child(container)
+		_z_containers[z] = container
+		_z_chunks[z] = {}
+	_loaded_chunks = _z_chunks[0]
+
+## Переключить видимый z-уровень.
+func set_active_z_level(z: int) -> void:
+	_active_z = z
+	for layer_z: int in _z_containers:
+		(_z_containers[layer_z] as Node2D).visible = (layer_z == z)
+	_loaded_chunks = _z_chunks.get(z, {})
+	_player_chunk = Vector2i(99999, 99999)

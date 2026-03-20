@@ -13,6 +13,7 @@ var _controls_label: Label = null
 var _game_over_label: Label = null
 var _time_label: Label = null
 var _day_label: Label = null
+var _floor_label: Label = null
 var _is_indoor: bool = false
 var _life_support_powered: bool = false
 
@@ -76,6 +77,15 @@ func _create_ui() -> void:
 	_day_label.add_theme_color_override("font_color", Color(0.7, 0.65, 0.55))
 	add_child(_day_label)
 
+	_floor_label = Label.new()
+	_floor_label.anchor_left = 1.0
+	_floor_label.anchor_right = 1.0
+	_floor_label.position = Vector2(-180, 66)
+	_floor_label.add_theme_font_size_override("font_size", 14)
+	_floor_label.add_theme_color_override("font_color", Color(0.6, 0.7, 0.6))
+	_floor_label.visible = false
+	add_child(_floor_label)
+
 	_controls_label = Label.new()
 	_controls_label.anchor_top = 1.0
 	_controls_label.anchor_bottom = 1.0
@@ -106,6 +116,7 @@ func _connect_signals() -> void:
 	EventBus.time_of_day_changed.connect(_on_time_of_day_changed)
 	EventBus.day_changed.connect(_on_day_changed)
 	EventBus.language_changed.connect(_on_language_changed)
+	EventBus.z_level_changed.connect(_on_z_level_changed)
 
 func _on_oxygen_changed(current: float, maximum: float) -> void:
 	if not _o2_bar:
@@ -192,6 +203,25 @@ func _get_phase_name(phase: int) -> String:
 		TimeManagerSingleton.TimeOfDay.NIGHT:
 			return Localization.t("UI_TIME_NIGHT")
 	return Localization.t("UI_TIME_UNKNOWN")
+
+func _on_z_level_changed(new_z: int, _old_z: int) -> void:
+	if not _floor_label:
+		return
+	if new_z == 0:
+		_floor_label.visible = false
+	else:
+		_floor_label.visible = true
+		_floor_label.text = _get_floor_name(new_z)
+		if new_z < 0:
+			_floor_label.add_theme_color_override("font_color", Color(0.7, 0.55, 0.4))
+		else:
+			_floor_label.add_theme_color_override("font_color", Color(0.5, 0.6, 0.8))
+
+func _get_floor_name(z: int) -> String:
+	match z:
+		-1: return Localization.t("UI_HUD_FLOOR_BASEMENT")
+		1: return Localization.t("UI_HUD_FLOOR_UPPER")
+	return Localization.t("UI_HUD_FLOOR_SURFACE")
 
 func _on_life_support_power_changed(is_powered: bool) -> void:
 	_life_support_powered = is_powered
