@@ -284,6 +284,7 @@ msgstr "Building removed, scrap refunded: {amount}"
 
 msgid "SYSTEM_INVENTORY_OVERFLOW"
 msgstr "Inventory overflow, could not fit: {amount}"
+
 msgid "SYSTEM_COMMAND_MISSING"
 msgstr "Command was not provided"
 
@@ -454,3 +455,9 @@ msgstr "Failed to parse chunk file {path}: {error}"
 
 msgid "SYSTEM_CHUNK_SAVE_INVALID_FORMAT"
 msgstr "Invalid chunk file format: {path}"
+
+msgid "SYSTEM_POWER_BALANCE_LOAD_FAILED"
+msgstr "Failed to load power system balance: {path}"
+
+msgid "SYSTEM_STATE_NOT_FOUND"
+msgstr "State not found: {state}"
