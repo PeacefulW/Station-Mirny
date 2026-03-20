@@ -585,6 +585,45 @@ msgstr "This slot is empty"
 msgid "UI_SAVE_DELETED"
 msgstr "Deleted: {slot}"
 
+msgid "UI_MAIN_TITLE"
+msgstr "STATION MIRNY"
+
+msgid "UI_MAIN_SUBTITLE"
+msgstr "survival on a hostile planet"
+
+msgid "UI_MAIN_NEW_GAME"
+msgstr "New Game"
+
+msgid "UI_MAIN_CONTINUE"
+msgstr "Continue"
+
+msgid "UI_MAIN_LOAD"
+msgstr "Load Game"
+
+msgid "UI_MAIN_SETTINGS"
+msgstr "Settings"
+
+msgid "UI_MAIN_QUIT"
+msgstr "Quit"
+
+msgid "UI_MAIN_LOAD_TITLE"
+msgstr "Load Game"
+
+msgid "UI_MAIN_LOAD_BACK"
+msgstr "Back"
+
+msgid "UI_MAIN_SETTINGS_BACK"
+msgstr "Back"
+
+msgid "UI_MAIN_VERSION"
+msgstr "Early development v0.1"
+
+msgid "UI_PAUSE_MAIN_MENU"
+msgstr "Main Menu"
+
+msgid "BUILD_TEST_BIG_NAME"
+msgstr "Test block 3×2"
+
 msgid "UI_HUD_FLOOR_SURFACE"
 msgstr "Surface"
 

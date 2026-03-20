@@ -28,6 +28,8 @@ var _command_executor: CommandExecutor = null
 func _ready() -> void:
 	add_to_group("building_system")
 	if not wall_container:
+		wall_container = get_node_or_null("../WallContainer") as Node2D
+	if not wall_container:
 		push_error(Localization.t("SYSTEM_BUILD_WALL_CONTAINER_MISSING"))
 		return
 	_player = _find_player()
@@ -52,20 +54,21 @@ func _draw() -> void:
 		draw_rect(rect, Color(0.1, 0.25, 0.12, 0.35))
 	if not is_build_mode:
 		return
+	var selected: BuildingData = _placement_service.get_selected_building()
+	if not selected:
+		return
 	var mouse_world: Vector2 = get_global_mouse_position()
 	var grid_pos: Vector2i = world_to_grid(mouse_world)
-	var snap_pos: Vector2 = grid_to_world(grid_pos)
-	var half_grid: Vector2 = _placement_service.get_half_grid()
 	var grid_size: int = _placement_service.get_grid_size()
-	var rect := Rect2(snap_pos - half_grid, Vector2(grid_size, grid_size))
+	var origin_world := Vector2(grid_pos.x * grid_size, grid_pos.y * grid_size)
+	var full_size := Vector2(selected.size_x * grid_size, selected.size_y * grid_size)
 	var can_place: bool = _placement_service.can_place_at(grid_pos, _player_scrap)
 	var ghost_color: Color
 	if can_place:
-		var selected: BuildingData = _placement_service.get_selected_building()
-		ghost_color = Color(selected.placeholder_color, 0.55) if selected else Color(0.2, 0.9, 0.3, 0.45)
+		ghost_color = Color(selected.placeholder_color, 0.55)
 	else:
 		ghost_color = Color(0.9, 0.2, 0.2, 0.35)
-	draw_rect(rect, ghost_color)
+	draw_rect(Rect2(origin_world, full_size), ghost_color)
 
 func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_build_mode"):
@@ -180,11 +183,18 @@ func remove_building_at(world_pos: Vector2) -> Dictionary:
 	}
 
 func _on_building_destroyed(grid_pos: Vector2i) -> void:
-	if walls.has(grid_pos):
-		walls[grid_pos].queue_free()
-		walls.erase(grid_pos)
-		_recalculate_indoor()
-		EventBus.building_removed.emit(grid_pos)
+	if not walls.has(grid_pos):
+		return
+	var node: Node2D = walls[grid_pos]
+	var origin: Vector2i = node.get_meta("grid_origin", grid_pos) as Vector2i
+	var sx: int = int(node.get_meta("size_x", 1))
+	var sy: int = int(node.get_meta("size_y", 1))
+	for dx: int in range(sx):
+		for dy: int in range(sy):
+			walls.erase(Vector2i(origin.x + dx, origin.y + dy))
+	node.queue_free()
+	_recalculate_indoor()
+	EventBus.building_removed.emit(origin)
 
 func _recalculate_indoor() -> void:
 	indoor_cells = _indoor_solver.recalculate(walls)

@@ -18,6 +18,8 @@ const SAVE_VERSION: int = 2
 var current_slot: String = ""
 ## Идёт ли процесс сохранения/загрузки.
 var is_busy: bool = false
+## Слот, который нужно загрузить после смены сцены (из главного меню).
+var pending_load_slot: String = ""
 
 func _ready() -> void:
 	if not SaveIO.ensure_directory(SAVES_ROOT):

@@ -73,6 +73,8 @@ func _ready() -> void:
 	if _resolved_ui_layer:
 		_resolved_ui_layer.add_child(pause_menu)
 
+	call_deferred("_check_pending_load")
+
 func _process(delta: float) -> void:
 	_update_player_indoor_status()
 	_update_enemy_spawning(delta)
@@ -183,6 +185,12 @@ func _on_pickup_collected(body: Node2D, pickup: Area2D) -> void:
 			return
 		body.collect_item(item_id, amount)
 		pickup.queue_free()
+
+func _check_pending_load() -> void:
+	if SaveManager and not SaveManager.pending_load_slot.is_empty():
+		var slot: String = SaveManager.pending_load_slot
+		SaveManager.pending_load_slot = ""
+		SaveManager.load_game(slot)
 
 # --- Z-уровни ---
 

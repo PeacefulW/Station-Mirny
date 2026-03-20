@@ -28,13 +28,13 @@ func toggle() -> void:
 	get_tree().paused = _is_open
 	if _is_open and _save_load_tab:
 		_save_load_tab.refresh()
-
 func close() -> void:
 	_is_open = false
 	visible = false
 	get_tree().paused = false
 
 # --- Построение UI ---
+
 
 func _build_ui() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -97,6 +97,12 @@ func _build_ui() -> void:
 	btn_resume.custom_minimum_size.x = 140
 	btn_resume.pressed.connect(close)
 	btn_row.add_child(btn_resume)
+
+	var btn_main_menu := Button.new()
+	btn_main_menu.text = Localization.t("UI_PAUSE_MAIN_MENU")
+	btn_main_menu.custom_minimum_size.x = 140
+	btn_main_menu.pressed.connect(_on_main_menu_pressed)
+	btn_row.add_child(btn_main_menu)
 
 	var btn_quit := Button.new()
 	btn_quit.text = Localization.t("UI_PAUSE_QUIT")
@@ -239,6 +245,10 @@ func _build_controls_tab() -> VBoxContainer:
 	return tab
 
 # --- Хелперы ---
+
+func _on_main_menu_pressed() -> void:
+	get_tree().paused = false
+	get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
 
 func _on_locale_changed(idx: int) -> void:
 	SettingsManager.locale = LOCALES[idx][0]

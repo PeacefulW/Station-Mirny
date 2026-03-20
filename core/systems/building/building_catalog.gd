@@ -10,6 +10,7 @@ static func get_default_buildings() -> Array[BuildingData]:
 		_make_wall_default_data(),
 		_make_battery_default_data(),
 		_make_burner_default_data(),
+		_make_test_big(),
 	]
 
 static func get_default_building(building_id: String) -> BuildingData:
@@ -27,6 +28,8 @@ static func _make_wall_default_data() -> BuildingData:
 	wall.scrap_cost = 2
 	wall.health = 50.0
 	wall.placeholder_color = Color(0.45, 0.48, 0.52)
+	wall.size_x = 1
+	wall.size_y = 1
 	wall.hotkey = 1
 	return wall
 
@@ -39,6 +42,8 @@ static func _make_battery_default_data() -> BuildingData:
 	battery.scrap_cost = POWER_BALANCE.ark_battery_cost
 	battery.health = 80.0
 	battery.placeholder_color = Color(0.3, 0.5, 0.8)
+	battery.size_x = 1
+	battery.size_y = 1
 	battery.hotkey = 2
 	battery.logic_script = ARK_BATTERY_SCRIPT
 	battery.logic_balance = POWER_BALANCE
@@ -55,9 +60,24 @@ static func _make_burner_default_data() -> BuildingData:
 	burner.scrap_cost = POWER_BALANCE.burner_cost
 	burner.health = 60.0
 	burner.placeholder_color = Color(0.8, 0.4, 0.15)
+	burner.size_x = 1
+	burner.size_y = 1
 	burner.hotkey = 3
 	burner.logic_script = THERMO_BURNER_SCRIPT
 	burner.logic_balance = POWER_BALANCE
 	burner.script_path = "res://core/entities/structures/thermo_burner.gd"
 	burner.balance_path = "res://data/balance/power_balance.tres"
 	return burner
+
+static func _make_test_big() -> BuildingData:
+	var bd := BuildingData.new()
+	bd.id = &"test_big"
+	bd.display_name_key = "BUILD_TEST_BIG_NAME"
+	bd.category = BuildingData.Category.PRODUCTION
+	bd.scrap_cost = 1
+	bd.health = 100.0
+	bd.size_x = 3
+	bd.size_y = 2
+	bd.placeholder_color = Color(0.6, 0.3, 0.7)
+	bd.hotkey = 4
+	return bd

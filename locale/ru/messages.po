@@ -585,6 +585,45 @@ msgstr "Этот слот пуст"
 msgid "UI_SAVE_DELETED"
 msgstr "Удалено: {slot}"
 
+msgid "UI_MAIN_TITLE"
+msgstr "СТАНЦИЯ «МИРНЫЙ»"
+
+msgid "UI_MAIN_SUBTITLE"
+msgstr "выживание на враждебной планете"
+
+msgid "UI_MAIN_NEW_GAME"
+msgstr "Новая игра"
+
+msgid "UI_MAIN_CONTINUE"
+msgstr "Продолжить"
+
+msgid "UI_MAIN_LOAD"
+msgstr "Загрузить"
+
+msgid "UI_MAIN_SETTINGS"
+msgstr "Настройки"
+
+msgid "UI_MAIN_QUIT"
+msgstr "Выход"
+
+msgid "UI_MAIN_LOAD_TITLE"
+msgstr "Загрузка игры"
+
+msgid "UI_MAIN_LOAD_BACK"
+msgstr "Назад"
+
+msgid "UI_MAIN_SETTINGS_BACK"
+msgstr "Назад"
+
+msgid "UI_MAIN_VERSION"
+msgstr "Ранняя разработка v0.1"
+
+msgid "UI_PAUSE_MAIN_MENU"
+msgstr "В главное меню"
+
+msgid "BUILD_TEST_BIG_NAME"
+msgstr "Тестовый блок 3×2"
+
 msgid "UI_HUD_FLOOR_SURFACE"
 msgstr "Поверхность"
 

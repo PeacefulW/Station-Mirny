@@ -51,13 +51,17 @@ func get_selected_building() -> BuildingData:
 func set_selected_building(building: BuildingData) -> void:
 	_selected_building = building
 
-## Проверяет, можно ли разместить постройку в клетке.
+## Проверяет, можно ли разместить постройку в клетке (все тайлы свободны).
 func can_place_at(grid_pos: Vector2i, player_scrap: int) -> bool:
-	if walls.has(grid_pos):
-		return false
 	if not _selected_building:
 		return false
-	return player_scrap >= _selected_building.scrap_cost
+	if player_scrap < _selected_building.scrap_cost:
+		return false
+	for dx: int in range(_selected_building.size_x):
+		for dy: int in range(_selected_building.size_y):
+			if walls.has(Vector2i(grid_pos.x + dx, grid_pos.y + dy)):
+				return false
+	return true
 
 ## Возвращает стоимость выбранной постройки.
 func get_selected_building_cost() -> int:
@@ -73,17 +77,22 @@ func place_selected_at(mouse_world: Vector2) -> Vector2i:
 		return Vector2i(2147483647, 2147483647)
 	return grid_pos
 
-## Удаляет постройку в позиции мыши.
+## Удаляет постройку в позиции мыши (освобождает все занятые тайлы).
 func remove_at(mouse_world: Vector2) -> Dictionary:
 	var grid_pos: Vector2i = world_to_grid(mouse_world)
 	if not walls.has(grid_pos):
 		return {}
 	var node: Node2D = walls[grid_pos]
 	var building_id: String = str(node.get_meta("building_id", ""))
+	var origin: Vector2i = node.get_meta("grid_origin", grid_pos) as Vector2i
+	var sx: int = int(node.get_meta("size_x", 1))
+	var sy: int = int(node.get_meta("size_y", 1))
+	for dx: int in range(sx):
+		for dy: int in range(sy):
+			walls.erase(Vector2i(origin.x + dx, origin.y + dy))
 	node.queue_free()
-	walls.erase(grid_pos)
 	return {
-		"grid_pos": grid_pos,
+		"grid_pos": origin,
 		"building_id": building_id,
 	}
 
@@ -107,19 +116,30 @@ func create_building_by_id(grid_pos: Vector2i, building_id: String) -> Node2D:
 
 # --- Приватные методы ---
 
-## Создать постройку по BuildingData.
+## Создать постройку по BuildingData. Занимает все тайлы size_x × size_y.
 func _create_building_at(grid_pos: Vector2i, bd: BuildingData) -> Node2D:
 	if not bd:
 		return null
-	var snap_pos: Vector2 = grid_to_world(grid_pos)
-	var node: Node2D = _building_factory.create_building(grid_pos, snap_pos, bd, _grid_size)
+	var world_pos: Vector2 = _get_building_world_pos(grid_pos, bd)
+	var node: Node2D = _building_factory.create_building(grid_pos, world_pos, bd, _grid_size)
 	if not node:
 		push_error(Localization.t("SYSTEM_BUILD_PLACEMENT_CREATE_FAILED", {"building": bd.get_display_name()}))
 		return null
+	node.set_meta("grid_origin", grid_pos)
+	node.set_meta("size_x", bd.size_x)
+	node.set_meta("size_y", bd.size_y)
 	if _wall_container:
 		_wall_container.add_child(node)
-	walls[grid_pos] = node
+	for dx: int in range(bd.size_x):
+		for dy: int in range(bd.size_y):
+			walls[Vector2i(grid_pos.x + dx, grid_pos.y + dy)] = node
 	return node
+
+## Позиция мира для центра многотайлового здания.
+func _get_building_world_pos(grid_pos: Vector2i, bd: BuildingData) -> Vector2:
+	var cx: float = grid_pos.x * _grid_size + (bd.size_x * _grid_size) * 0.5
+	var cy: float = grid_pos.y * _grid_size + (bd.size_y * _grid_size) * 0.5
+	return Vector2(cx, cy)
 
 func _get_building_data_by_id(building_id: String) -> BuildingData:
 	var registry_building: BuildingData = ItemRegistry.get_building(StringName(building_id))

@@ -16,7 +16,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="Станция Мирный"
 config/description="2D Top-Down Survival Base-Builder — Прототип Фазы 0"
-run/main_scene="res://scenes/ui/world_creation_screen.tscn"
+run/main_scene="res://scenes/ui/main_menu.tscn"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icon.svg"
 

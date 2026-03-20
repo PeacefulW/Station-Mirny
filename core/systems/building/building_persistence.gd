@@ -15,15 +15,22 @@ func load_state(data: Dictionary, create_building_cb: Callable, clear_cb: Callab
 	deserialize_walls(data, create_building_cb, clear_cb)
 
 ## Сериализует словарь построек в словарь с массивом "walls".
+## Многотайловые здания записываются один раз (по grid_origin).
 func serialize_walls(walls: Dictionary) -> Dictionary:
 	var serialized: Array[Dictionary] = []
+	var saved_ids: Dictionary = {}
 	for grid_pos: Vector2i in walls:
 		var node: Node2D = walls[grid_pos]
 		if not is_instance_valid(node):
 			continue
+		var nid: int = node.get_instance_id()
+		if saved_ids.has(nid):
+			continue
+		saved_ids[nid] = true
+		var origin: Vector2i = node.get_meta("grid_origin", grid_pos) as Vector2i
 		var entry: Dictionary = {
-			"x": grid_pos.x,
-			"y": grid_pos.y,
+			"x": origin.x,
+			"y": origin.y,
 			"building_id": str(node.get_meta("building_id", "wall")),
 		}
 		var health: HealthComponent = node.get_node_or_null("HealthComponent")

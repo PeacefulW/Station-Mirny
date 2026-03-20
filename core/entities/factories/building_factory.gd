@@ -26,15 +26,17 @@ func _create_simple_building(
 	wall.collision_layer = 2
 	wall.collision_mask = 0
 
+	var full_w: float = building_data.size_x * grid_size
+	var full_h: float = building_data.size_y * grid_size
 	var visual := ColorRect.new()
-	visual.size = Vector2(grid_size, grid_size)
-	visual.position = -Vector2(grid_size, grid_size) * 0.5
+	visual.size = Vector2(full_w, full_h)
+	visual.position = -Vector2(full_w, full_h) * 0.5
 	visual.color = building_data.placeholder_color
 	wall.add_child(visual)
 
 	var collision := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
-	shape.size = Vector2(grid_size, grid_size)
+	shape.size = Vector2(full_w, full_h)
 	collision.shape = shape
 	wall.add_child(collision)
 

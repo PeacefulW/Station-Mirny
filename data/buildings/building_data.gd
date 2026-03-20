@@ -28,8 +28,10 @@ enum Category { STRUCTURE, POWER, LIFE_SUPPORT, PRODUCTION, DEFENSE }
 @export_group("Характеристики")
 ## Здоровье постройки.
 @export var health: float = 50.0
-## Размер в тайлах (1 = 1×1, позже 2 = 2×2).
-@export var tile_size: int = 1
+## Ширина в тайлах.
+@export var size_x: int = 1
+## Высота в тайлах.
+@export var size_y: int = 1
 ## Блокирует ли проход (стена = да, лампа = нет).
 @export var is_solid: bool = true
 
