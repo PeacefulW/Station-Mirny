@@ -62,6 +62,11 @@ func _ready() -> void:
 	if _resolved_ui_layer:
 		_resolved_ui_layer.add_child(power_ui)
 
+	var pause_menu := PauseMenu.new()
+	pause_menu.name = "PauseMenu"
+	if _resolved_ui_layer:
+		_resolved_ui_layer.add_child(pause_menu)
+
 func _process(delta: float) -> void:
 	_update_player_indoor_status()
 	_update_enemy_spawning(delta)

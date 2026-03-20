@@ -461,3 +461,126 @@ msgstr "Не удалось загрузить баланс энергосист
 
 msgid "SYSTEM_STATE_NOT_FOUND"
 msgstr "Состояние не найдено: {state}"
+
+msgid "UI_PAUSE_TITLE"
+msgstr "ПАУЗА"
+
+msgid "UI_PAUSE_RESUME"
+msgstr "Продолжить"
+
+msgid "UI_PAUSE_QUIT"
+msgstr "Выйти из игры"
+
+msgid "UI_SETTINGS_TAB_GAME"
+msgstr "Игра"
+
+msgid "UI_SETTINGS_TAB_GRAPHICS"
+msgstr "Графика"
+
+msgid "UI_SETTINGS_TAB_AUDIO"
+msgstr "Звук"
+
+msgid "UI_SETTINGS_TAB_CONTROLS"
+msgstr "Управление"
+
+msgid "UI_SETTINGS_TAB_SAVE"
+msgstr "Сохранение"
+
+msgid "UI_SETTINGS_LANGUAGE"
+msgstr "Язык:"
+
+msgid "UI_SETTINGS_AUTOSAVE"
+msgstr "Автосохранение:"
+
+msgid "UI_SETTINGS_AUTOSAVE_OFF"
+msgstr "Выключено"
+
+msgid "UI_SETTINGS_AUTOSAVE_1MIN"
+msgstr "Каждую минуту"
+
+msgid "UI_SETTINGS_AUTOSAVE_5MIN"
+msgstr "Каждые 5 минут"
+
+msgid "UI_SETTINGS_AUTOSAVE_10MIN"
+msgstr "Каждые 10 минут"
+
+msgid "UI_SETTINGS_FULLSCREEN"
+msgstr "Полный экран:"
+
+msgid "UI_SETTINGS_VSYNC"
+msgstr "Вертикальная синхронизация:"
+
+msgid "UI_SETTINGS_UI_SCALE"
+msgstr "Масштаб интерфейса:"
+
+msgid "UI_SETTINGS_BRIGHTNESS"
+msgstr "Яркость:"
+
+msgid "UI_SETTINGS_VOLUME_MASTER"
+msgstr "Общая громкость:"
+
+msgid "UI_SETTINGS_VOLUME_MUSIC"
+msgstr "Музыка:"
+
+msgid "UI_SETTINGS_VOLUME_SFX"
+msgstr "Эффекты:"
+
+msgid "UI_SETTINGS_VOLUME_AMBIENT"
+msgstr "Окружение:"
+
+msgid "UI_CONTROLS_MOVE"
+msgstr "Движение:"
+
+msgid "UI_CONTROLS_BUILD"
+msgstr "Режим строительства:"
+
+msgid "UI_CONTROLS_INVENTORY"
+msgstr "Инвентарь:"
+
+msgid "UI_CONTROLS_POWER"
+msgstr "Энергосеть:"
+
+msgid "UI_CONTROLS_INTERACT"
+msgstr "Взаимодействие:"
+
+msgid "UI_CONTROLS_ATTACK"
+msgstr "Атака:"
+
+msgid "UI_CONTROLS_SPACE"
+msgstr "Пробел"
+
+msgid "UI_CONTROLS_PAUSE"
+msgstr "Пауза / Настройки:"
+
+msgid "UI_SAVE_HINT"
+msgstr "Выберите слот, затем сохраните или загрузите"
+
+msgid "UI_SAVE_BUTTON_SAVE"
+msgstr "Сохранить"
+
+msgid "UI_SAVE_BUTTON_LOAD"
+msgstr "Загрузить"
+
+msgid "UI_SAVE_BUTTON_DELETE"
+msgstr "Удалить"
+
+msgid "UI_SAVE_SLOT_USED"
+msgstr "Слот {slot} — День {day} — {date}"
+
+msgid "UI_SAVE_SLOT_EMPTY"
+msgstr "Слот {slot} — пусто"
+
+msgid "UI_SAVE_SELECT_SLOT"
+msgstr "Сначала выберите слот"
+
+msgid "UI_SAVE_SUCCESS"
+msgstr "Сохранено: {slot}"
+
+msgid "UI_SAVE_UNAVAILABLE"
+msgstr "Система сохранений недоступна"
+
+msgid "UI_SAVE_EMPTY_SLOT"
+msgstr "Этот слот пуст"
+
+msgid "UI_SAVE_DELETED"
+msgstr "Удалено: {slot}"

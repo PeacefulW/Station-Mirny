@@ -461,3 +461,126 @@ msgstr "Failed to load power system balance: {path}"
 
 msgid "SYSTEM_STATE_NOT_FOUND"
 msgstr "State not found: {state}"
+
+msgid "UI_PAUSE_TITLE"
+msgstr "PAUSED"
+
+msgid "UI_PAUSE_RESUME"
+msgstr "Resume"
+
+msgid "UI_PAUSE_QUIT"
+msgstr "Quit Game"
+
+msgid "UI_SETTINGS_TAB_GAME"
+msgstr "Game"
+
+msgid "UI_SETTINGS_TAB_GRAPHICS"
+msgstr "Graphics"
+
+msgid "UI_SETTINGS_TAB_AUDIO"
+msgstr "Audio"
+
+msgid "UI_SETTINGS_TAB_CONTROLS"
+msgstr "Controls"
+
+msgid "UI_SETTINGS_TAB_SAVE"
+msgstr "Save Game"
+
+msgid "UI_SETTINGS_LANGUAGE"
+msgstr "Language:"
+
+msgid "UI_SETTINGS_AUTOSAVE"
+msgstr "Autosave:"
+
+msgid "UI_SETTINGS_AUTOSAVE_OFF"
+msgstr "Off"
+
+msgid "UI_SETTINGS_AUTOSAVE_1MIN"
+msgstr "Every minute"
+
+msgid "UI_SETTINGS_AUTOSAVE_5MIN"
+msgstr "Every 5 minutes"
+
+msgid "UI_SETTINGS_AUTOSAVE_10MIN"
+msgstr "Every 10 minutes"
+
+msgid "UI_SETTINGS_FULLSCREEN"
+msgstr "Fullscreen:"
+
+msgid "UI_SETTINGS_VSYNC"
+msgstr "Vertical sync:"
+
+msgid "UI_SETTINGS_UI_SCALE"
+msgstr "UI Scale:"
+
+msgid "UI_SETTINGS_BRIGHTNESS"
+msgstr "Brightness:"
+
+msgid "UI_SETTINGS_VOLUME_MASTER"
+msgstr "Master volume:"
+
+msgid "UI_SETTINGS_VOLUME_MUSIC"
+msgstr "Music:"
+
+msgid "UI_SETTINGS_VOLUME_SFX"
+msgstr "Sound effects:"
+
+msgid "UI_SETTINGS_VOLUME_AMBIENT"
+msgstr "Ambient:"
+
+msgid "UI_CONTROLS_MOVE"
+msgstr "Movement:"
+
+msgid "UI_CONTROLS_BUILD"
+msgstr "Build mode:"
+
+msgid "UI_CONTROLS_INVENTORY"
+msgstr "Inventory:"
+
+msgid "UI_CONTROLS_POWER"
+msgstr "Power grid:"
+
+msgid "UI_CONTROLS_INTERACT"
+msgstr "Interact:"
+
+msgid "UI_CONTROLS_ATTACK"
+msgstr "Attack:"
+
+msgid "UI_CONTROLS_SPACE"
+msgstr "Space"
+
+msgid "UI_CONTROLS_PAUSE"
+msgstr "Pause / Settings:"
+
+msgid "UI_SAVE_HINT"
+msgstr "Select a slot, then save or load"
+
+msgid "UI_SAVE_BUTTON_SAVE"
+msgstr "Save"
+
+msgid "UI_SAVE_BUTTON_LOAD"
+msgstr "Load"
+
+msgid "UI_SAVE_BUTTON_DELETE"
+msgstr "Delete"
+
+msgid "UI_SAVE_SLOT_USED"
+msgstr "Slot {slot} — Day {day} — {date}"
+
+msgid "UI_SAVE_SLOT_EMPTY"
+msgstr "Slot {slot} — empty"
+
+msgid "UI_SAVE_SELECT_SLOT"
+msgstr "Select a slot first"
+
+msgid "UI_SAVE_SUCCESS"
+msgstr "Saved: {slot}"
+
+msgid "UI_SAVE_UNAVAILABLE"
+msgstr "Save system unavailable"
+
+msgid "UI_SAVE_EMPTY_SLOT"
+msgstr "This slot is empty"
+
+msgid "UI_SAVE_DELETED"
+msgstr "Deleted: {slot}"
