@@ -8,10 +8,14 @@ extends Area2D
 @export var stairs_type: StringName = &"stairs_down"
 ## Z-уровень, на котором расположена лестница.
 @export var source_z: int = 0
+## Баланс z-уровней (загружается из .tres).
+@export var balance: ZLevelBalance = null
 
 var _cooldown: float = 0.0
 
 func _ready() -> void:
+	if not balance:
+		balance = load("res://data/balance/z_level_balance.tres") as ZLevelBalance
 	collision_layer = 0
 	collision_mask = 1
 	monitoring = true
@@ -32,7 +36,7 @@ func _on_body_entered(body: Node2D) -> void:
 		return
 	if not body.is_in_group("player"):
 		return
-	_cooldown = 1.0
+	_cooldown = balance.stairs_cooldown if balance else 1.0
 	_trigger_transition()
 
 ## Запустить переход на целевой z-уровень.
@@ -60,21 +64,29 @@ func _find_game_world() -> Node:
 func _on_z_level_changed(new_z: int, _old_z: int) -> void:
 	visible = (new_z == source_z)
 	monitoring = (new_z == source_z)
-	_cooldown = 0.5
+	_cooldown = balance.stairs_post_transition_cooldown if balance else 0.5
 
 func _create_collision() -> void:
+	var ts: int = _get_tile_size()
 	var col := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
-	shape.size = Vector2(10, 10)
+	shape.size = Vector2(ts - 2, ts - 2)
 	col.shape = shape
 	add_child(col)
 
 func _create_visual() -> void:
+	var ts: int = _get_tile_size()
+	var half: float = ts * 0.5
 	var cr := ColorRect.new()
-	cr.size = Vector2(12, 12)
-	cr.position = Vector2(-6, -6)
-	if target_z < 0:
-		cr.color = Color(0.6, 0.5, 0.2)
+	cr.size = Vector2(ts, ts)
+	cr.position = Vector2(-half, -half)
+	if balance:
+		cr.color = balance.stairs_down_color if target_z < 0 else balance.stairs_up_color
 	else:
-		cr.color = Color(0.3, 0.5, 0.8)
+		cr.color = Color(0.6, 0.5, 0.2) if target_z < 0 else Color(0.3, 0.5, 0.8)
 	add_child(cr)
+
+func _get_tile_size() -> int:
+	if WorldGenerator and WorldGenerator.balance:
+		return WorldGenerator.balance.tile_size
+	return 12

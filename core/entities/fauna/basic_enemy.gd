@@ -10,12 +10,6 @@ extends CharacterBody2D
 @export var balance: EnemyBalance = null
 
 # --- Приватные ---
-const SCAN_INTERVAL: float = 1.5
-const WANDER_INTERVAL: float = 3.0
-const WANDER_SPEED_MULT: float = 0.4
-const ARRIVAL_DISTANCE: float = 12.0
-const PLAYER_DETECT_RADIUS: float = 24.0
-
 var _health_component: HealthComponent = null
 var _attack_timer: float = 0.0
 var _is_dead: bool = false
@@ -34,8 +28,6 @@ var _wander_timer: float = 0.0
 var _wander_dir: Vector2 = Vector2.ZERO
 ## Множитель слуха (ночью × 1.5).
 var _hearing_multiplier: float = 1.0
-## Базовый радиус слуха (в дополнение к noise_radius источника).
-var _base_hearing: float = 19.0
 
 func _ready() -> void:
 	add_to_group("enemies")
@@ -47,8 +39,8 @@ func _ready() -> void:
 			_health_component.max_health = balance.max_health
 			_health_component.current_health = balance.max_health
 		_health_component.died.connect(_on_died)
-	_scan_timer = randf() * SCAN_INTERVAL
-	_wander_timer = randf() * WANDER_INTERVAL
+	_scan_timer = randf() * balance.scan_interval
+	_wander_timer = randf() * balance.wander_interval
 	_pick_wander_direction()
 	_setup_state_machine()
 	# Подписка на ночь — активнее
@@ -70,7 +62,7 @@ func _update_scan(delta: float) -> void:
 	_scan_timer -= delta
 	if _scan_timer > 0.0:
 		return
-	_scan_timer = SCAN_INTERVAL
+	_scan_timer = balance.scan_interval
 
 	var best_pos: Vector2 = Vector2.ZERO
 	var best_priority: float = -1.0
@@ -84,7 +76,7 @@ func _update_scan(delta: float) -> void:
 			continue
 		var noise_pos: Vector2 = nc.get_noise_position()
 		var dist: float = global_position.distance_to(noise_pos)
-		var hear_range: float = (nc.noise_radius + _base_hearing) * _hearing_multiplier
+		var hear_range: float = (nc.noise_radius + balance.base_hearing) * _hearing_multiplier
 		if dist > hear_range:
 			continue
 		# Приоритет: громкий и близкий шум — важнее
@@ -100,7 +92,7 @@ func _update_scan(delta: float) -> void:
 	if not players.is_empty():
 		var player: Node2D = players[0] as Node2D
 		var player_dist: float = global_position.distance_to(player.global_position)
-		var player_hear: float = PLAYER_DETECT_RADIUS * _hearing_multiplier
+		var player_hear: float = balance.player_detect_radius * _hearing_multiplier
 		if player_dist < player_hear:
 			var player_priority: float = 0.3 * (1.0 - player_dist / player_hear)
 			if player_priority > best_priority:
@@ -184,12 +176,12 @@ func stop_movement() -> void:
 
 func begin_wander() -> void:
 	_pick_wander_direction()
-	_wander_timer = WANDER_INTERVAL + randf() * 2.0
+	_wander_timer = balance.wander_interval + randf() * 2.0
 
 func tick_wander(delta: float) -> void:
 	if not balance:
 		return
-	velocity = _wander_dir * balance.move_speed * WANDER_SPEED_MULT
+	velocity = _wander_dir * balance.move_speed * balance.wander_speed_mult
 	_wander_timer -= delta
 
 func tick_wander_timer(delta: float) -> void:
@@ -208,7 +200,7 @@ func has_attack_target() -> bool:
 	return is_instance_valid(_attack_target)
 
 func reached_target() -> bool:
-	return global_position.distance_to(_target_pos) < ARRIVAL_DISTANCE
+	return global_position.distance_to(_target_pos) < balance.arrival_distance
 
 func clear_target() -> void:
 	_has_target = false

@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ZLevelBalance" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/balance/z_level_balance.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+fade_in_duration = 0.15
+fade_hold_duration = 0.05
+fade_out_duration = 0.15
+stairs_cooldown = 1.0
+stairs_post_transition_cooldown = 0.5
+stairs_down_color = Color(0.6, 0.5, 0.2, 1)
+stairs_up_color = Color(0.3, 0.5, 0.8, 1)

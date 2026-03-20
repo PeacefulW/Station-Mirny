@@ -7,6 +7,7 @@
 [ext_resource type="Resource" path="res://data/balance/survival_balance.tres" id="4_survbal"]
 [ext_resource type="Resource" path="res://data/balance/player_balance.tres" id="6_player_balance"]
 [ext_resource type="Script" uid="uid://d1ar37qoal6x5" path="res://core/entities/components/inventory_component.gd" id="6_75vfm"]
+[ext_resource type="Script" path="res://core/entities/player/player_camera.gd" id="7_camera"]
 
 [sub_resource type="RectangleShape2D" id="player_shape"]
 size = Vector2(10, 10)
@@ -27,9 +28,10 @@ texture = ExtResource("2_75vfm")
 shape = SubResource("player_shape")
 
 [node name="Camera2D" type="Camera2D" parent="." unique_id=1547136717]
+script = ExtResource("7_camera")
 zoom = Vector2(2.5, 2.5)
 position_smoothing_enabled = true
-position_smoothing_speed = 8.0
+position_smoothing_speed = 10.0
 
 [node name="OxygenSystem" type="Node" parent="." unique_id=1241461731]
 script = ExtResource("2_oxygen")

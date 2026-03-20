@@ -19,6 +19,20 @@ extends Resource
 ## Максимум врагов одновременно.
 @export var max_enemies: int = 8
 
+@export_group("Поведение")
+## Интервал пересканирования шума (сек).
+@export var scan_interval: float = 1.5
+## Интервал смены направления бродяжничества (сек).
+@export var wander_interval: float = 3.0
+## Множитель скорости при бродяжничестве.
+@export var wander_speed_mult: float = 0.4
+## Дистанция «прибыл к цели» (пиксели).
+@export var arrival_distance: float = 12.0
+## Радиус обнаружения игрока по звуку шагов (пиксели).
+@export var player_detect_radius: float = 24.0
+## Базовый радиус слуха поверх noise_radius источника (пиксели).
+@export var base_hearing: float = 19.0
+
 @export_group("Дроп")
 ## Количество скрапа при убийстве.
 @export var scrap_drop_min: int = 1

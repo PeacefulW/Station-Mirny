@@ -7,11 +7,6 @@ extends CharacterBody2D
 # --- Константы ---
 const SCRAP_ITEM_ID: String = "base:scrap"
 const WOOD_ITEM_ID: String = "base:wood"
-const BURNER_REFUEL_RANGE: float = 21.0
-const BURNER_FUEL_PER_WOOD: float = 20.0
-const ZOOM_MIN: Vector2 = Vector2(1.0, 1.0)
-const ZOOM_MAX: Vector2 = Vector2(4.0, 4.0)
-const ZOOM_STEP: float = 0.2
 
 @export var balance: PlayerBalance = null
 
@@ -25,6 +20,7 @@ var _attack_area: Area2D = null
 var _inventory: InventoryComponent = null
 var _chunk_manager: Node = null
 var _state_machine: StateMachine = StateMachine.new()
+var _camera: PlayerCamera = null
 
 func _ready() -> void:
 	if not balance:
@@ -46,6 +42,7 @@ func _ready() -> void:
 	else:
 		EventBus.inventory_updated.connect(_on_inventory_updated)
 	_apply_attack_range()
+	_setup_camera()
 	_setup_state_machine()
 	call_deferred("_find_chunk_manager")
 	call_deferred("_emit_scrap_state")
@@ -56,22 +53,12 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton:
-		var mb: InputEventMouseButton = event as InputEventMouseButton
-		var camera: Camera2D = get_node_or_null("Camera2D")
-		if camera and mb.pressed:
-			if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
-				camera.zoom = (camera.zoom + Vector2(ZOOM_STEP, ZOOM_STEP)).clamp(ZOOM_MIN, ZOOM_MAX)
-				get_viewport().set_input_as_handled()
-				return
-			elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-				camera.zoom = (camera.zoom - Vector2(ZOOM_STEP, ZOOM_STEP)).clamp(ZOOM_MIN, ZOOM_MAX)
-				get_viewport().set_input_as_handled()
-				return
+	if _camera and _camera.handle_zoom_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	_state_machine.handle_input(event)
 
 # --- Добыча ресурсов ---
-
 func perform_harvest() -> bool:
 	if _try_refuel_nearby_burner():
 		return true
@@ -95,8 +82,7 @@ func perform_harvest() -> bool:
 	if item_id.is_empty() or amount <= 0:
 		return false
 	collect_item(item_id, amount)
-	# Визуальная обратная связь
-	_spawn_harvest_popup(item_id, amount)
+	PlayerPopup.spawn_harvest(self, item_id, amount, balance)
 	_flash_harvest()
 	return true
 
@@ -117,36 +103,6 @@ func _flash_harvest() -> void:
 				if is_instance_valid(visual):
 					visual.modulate = Color(1.0, 1.0, 1.0)
 		)
-
-## Всплывающий текст "+3 Железная руда"
-func _spawn_harvest_popup(item_id: String, amount: int) -> void:
-	var item_data: ItemData = ItemRegistry.get_item(item_id)
-	var display_name: String = item_data.get_display_name() if item_data else item_id
-	var popup := Label.new()
-	popup.text = Localization.t("UI_PICKUP_POPUP", {
-		"amount": amount,
-		"item": display_name,
-	})
-	popup.add_theme_font_size_override("font_size", 14)
-	popup.add_theme_color_override("font_color", Color(0.9, 0.85, 0.4))
-	popup.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
-	popup.add_theme_constant_override("shadow_offset_x", 1)
-	popup.add_theme_constant_override("shadow_offset_y", 1)
-	popup.position = Vector2(-40, -50)
-	popup.z_index = 100
-	add_child(popup)
-	var tween: Tween = create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(
-		popup,
-		"position:y",
-		popup.position.y - balance.harvest_popup_rise_distance,
-		balance.harvest_popup_duration
-	).set_ease(Tween.EASE_OUT)
-	tween.tween_property(popup, "modulate:a", 0.0, balance.harvest_popup_duration).set_delay(
-		balance.harvest_popup_fade_delay
-	)
-	tween.chain().tween_callback(popup.queue_free)
 
 # --- Сбор предметов ---
 
@@ -228,6 +184,11 @@ func _handle_rotation() -> void:
 		visual.look_at(get_global_mouse_position())
 		visual.rotation_degrees -= 90.0
 
+func _setup_camera() -> void:
+	_camera = get_node_or_null("Camera2D") as PlayerCamera
+	if _camera:
+		_camera.setup(balance)
+
 func perform_attack() -> bool:
 	if _attack_timer > 0.0 or not _attack_area:
 		return false
@@ -289,7 +250,7 @@ func _emit_scrap_state() -> void:
 func _try_refuel_nearby_burner() -> bool:
 	var burners: Array[Node] = get_tree().get_nodes_in_group("buildings")
 	var nearest_burner: ThermoBurner = null
-	var best_distance: float = BURNER_REFUEL_RANGE
+	var best_distance: float = balance.burner_refuel_range
 	for node: Node in burners:
 		var burner: ThermoBurner = node as ThermoBurner
 		if not burner:
@@ -302,48 +263,25 @@ func _try_refuel_nearby_burner() -> bool:
 		return false
 	if not spend_item(WOOD_ITEM_ID, 1):
 		return false
-	var accepted: float = nearest_burner.add_fuel(BURNER_FUEL_PER_WOOD)
+	var accepted: float = nearest_burner.add_fuel(balance.burner_fuel_per_wood)
 	if accepted <= 0.0:
 		collect_item(WOOD_ITEM_ID, 1)
 		return false
-	_spawn_context_popup(Localization.t("UI_BURNER_REFUELED", {"amount": roundi(accepted)}), Color(0.95, 0.75, 0.35))
+	PlayerPopup.spawn_context(self, Localization.t("UI_BURNER_REFUELED", {"amount": roundi(accepted)}), Color(0.95, 0.75, 0.35))
 	return true
-
-func _spawn_context_popup(text: String, color: Color) -> void:
-	var popup := Label.new()
-	popup.text = text
-	popup.add_theme_font_size_override("font_size", 13)
-	popup.add_theme_color_override("font_color", color)
-	popup.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
-	popup.add_theme_constant_override("shadow_offset_x", 1)
-	popup.add_theme_constant_override("shadow_offset_y", 1)
-	popup.position = Vector2(-48, -68)
-	popup.z_index = 100
-	add_child(popup)
-	var tween: Tween = create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(popup, "position:y", popup.position.y - 28.0, 0.7).set_ease(Tween.EASE_OUT)
-	tween.tween_property(popup, "modulate:a", 0.0, 0.7).set_delay(0.15)
-	tween.chain().tween_callback(popup.queue_free)
 
 func stop_movement() -> void:
 	velocity = Vector2.ZERO
-
 func has_move_input() -> bool:
 	return get_move_input() != Vector2.ZERO
-
 func can_attack() -> bool:
 	return not _is_dead and _attack_timer <= 0.0 and _attack_area != null
-
 func can_harvest() -> bool:
 	return not _is_dead and _harvest_timer <= 0.0 and _chunk_manager != null and _inventory != null
-
 func is_attack_busy() -> bool:
 	return _attack_timer > 0.0
-
 func is_harvest_busy() -> bool:
 	return _harvest_timer > 0.0
-
 func is_dead() -> bool:
 	return _is_dead
 
@@ -360,5 +298,3 @@ func _setup_state_machine() -> void:
 	_state_machine.add_state(&"attack", PlayerAttackState.new())
 	_state_machine.add_state(&"dead", PlayerDeadState.new())
 	_state_machine.transition_to(&"idle")
-
-
