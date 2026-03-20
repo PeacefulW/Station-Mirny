@@ -10,7 +10,7 @@ msgid "UI_INVENTORY_SECTION"
 msgstr "Inventory"
 
 msgid "UI_INVENTORY_HINT"
-msgstr "Tab - close  |  Scrap is used for building  |  Ore is used for crafting"
+msgstr "Tab — close | RMB — equip | Shift+LMB — split"
 
 msgid "UI_INVENTORY_WEIGHT"
 msgstr "{weight} kg"
@@ -116,6 +116,135 @@ msgstr "{watts} W"
 
 msgid "UI_POWER_WATTS_SHORT"
 msgstr "{watts}W"
+
+msgid "UI_CRAFT_RECIPES"
+msgstr "Recipes"
+
+msgid "UI_CRAFT_INGREDIENTS"
+msgstr "Ingredients:"
+
+msgid "UI_CRAFT_RESULT"
+msgstr "Result:"
+
+msgid "UI_CRAFT_BUTTON"
+msgstr "Craft"
+
+msgid "UI_CRAFT_IN_PROGRESS"
+msgstr "Crafting..."
+
+msgid "UI_CRAFT_STATION_HAND"
+msgstr "By hand"
+
+msgid "UI_CRAFT_HINT_DEPENDENCY"
+msgstr "Need: {item} ×{amount} → {station}"
+
+msgid "UI_CRAFT_HINT_GATHER"
+msgstr "Must find: {item} ×{amount}"
+
+msgid "UI_CRAFT_SUCCESS"
+msgstr "Done!"
+
+msgid "BUILD_CAT_STRUCTURE"
+msgstr "Walls"
+
+msgid "BUILD_CAT_DOORS"
+msgstr "Doors"
+
+msgid "BUILD_CAT_POWER"
+msgstr "Power"
+
+msgid "BUILD_CAT_PRODUCTION"
+msgstr "Production"
+
+msgid "BUILD_CAT_LIFE_SUPPORT"
+msgstr "Life support"
+
+msgid "BUILD_CAT_WATER"
+msgstr "Water"
+
+msgid "BUILD_CAT_DEFENSE"
+msgstr "Defense"
+
+msgid "BUILD_CAT_VERTICAL"
+msgstr "Stairs"
+
+msgid "BUILD_CAT_DECOR"
+msgstr "Decor"
+
+msgid "UI_BUILD_COST"
+msgstr "Cost:"
+
+msgid "UI_BUILD_COST_SCRAP"
+msgstr "Scrap: {amount}"
+
+msgid "UI_BUILD_SIZE"
+msgstr "Size: {w}×{h}"
+
+msgid "UI_BUILD_POWER_PROD"
+msgstr "Output: +{watts} W"
+
+msgid "UI_BUILD_POWER_CONS"
+msgstr "Consumption: {watts} W"
+
+msgid "UI_BUILD_REQUIRES_TECH"
+msgstr "Requires: {tech}"
+
+msgid "UI_BUILD_LOCKED"
+msgstr "Locked"
+
+msgid "UI_BUILD_PLACE_HINT"
+msgstr "LMB — place | RMB — remove | B — close"
+
+msgid "UI_EQUIPMENT_TITLE"
+msgstr "EQUIPMENT"
+
+msgid "EQUIP_SLOT_HEAD"
+msgstr "Helmet"
+
+msgid "EQUIP_SLOT_BODY"
+msgstr "Suit"
+
+msgid "EQUIP_SLOT_FILTER"
+msgstr "Filter"
+
+msgid "EQUIP_SLOT_O2_TANK"
+msgstr "O₂ Tank"
+
+msgid "EQUIP_SLOT_BATTERY"
+msgstr "Battery"
+
+msgid "EQUIP_SLOT_ARMOR"
+msgstr "Armor"
+
+msgid "EQUIP_SLOT_UTILITY"
+msgstr "Utility"
+
+msgid "EQUIP_SLOT_TOOL"
+msgstr "Tool"
+
+msgid "UI_TOOLTIP_WEIGHT"
+msgstr "Weight: {weight} kg"
+
+msgid "UI_TOOLTIP_STACK"
+msgstr "Stack: up to {max}"
+
+msgid "UI_TOOLTIP_EQUIP_SLOT"
+msgstr "Slot: {slot}"
+
+msgid "UI_TOOLTIP_EMPTY_SLOT"
+msgstr "Empty"
+
+msgid "UI_HUD_O2"
+msgstr "O₂:"
+
+msgid "UI_HUD_HP"
+msgstr "HP:"
+
+msgid "UI_HINT_DEFAULT"
+msgstr "WASD — move | B — build | Tab — inventory | E — interact | Space — attack"
+
+msgid "UI_HINT_BUILD_MODE"
+msgstr "LMB — place | RMB — remove | B — close"
 
 msgid "UI_HUD_OXYGEN"
 msgstr "O2: "

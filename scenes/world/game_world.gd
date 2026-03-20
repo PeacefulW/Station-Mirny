@@ -46,7 +46,7 @@ func _ready() -> void:
 	_spawn_test_stairs()
 	
 	# Создаём меню строительства в UILayer
-	var build_menu := BuildMenu.new()
+	var build_menu := BuildMenuPanel.new()
 	build_menu.name = "BuildMenu"
 	if _resolved_ui_layer:
 		_resolved_ui_layer.add_child(build_menu)
@@ -56,11 +56,17 @@ func _ready() -> void:
 	_crafting_system.name = "CraftingSystem"
 	add_child(_crafting_system)
 
+	# EquipmentComponent для игрока
+	if _player:
+		var equipment := EquipmentComponent.new()
+		equipment.name = "EquipmentComponent"
+		_player.add_child(equipment)
+
 	# Создаём UI инвентаря
-	var inv_ui := InventoryUI.new()
-	inv_ui.name = "InventoryUI"
+	var inv_panel := InventoryPanel.new()
+	inv_panel.name = "InventoryPanel"
 	if _resolved_ui_layer:
-		_resolved_ui_layer.add_child(inv_ui)
+		_resolved_ui_layer.add_child(inv_panel)
 	
 	# UI энергосистемы
 	var power_ui := PowerUI.new()

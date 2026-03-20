@@ -76,6 +76,14 @@ func remove_item(item_data: ItemData, amount: int) -> bool:
 				
 	return false
 
+## Подсчитать общее количество предмета по ID.
+func get_item_count(item_id: String) -> int:
+	var total: int = 0
+	for slot: InventorySlot in slots:
+		if not slot.is_empty() and slot.item and slot.item.id == item_id:
+			total += slot.amount
+	return total
+
 ## Проверяет, есть ли в инвентаре нужное количество предмета.
 func has_item(item_data: ItemData, amount: int) -> bool:
 	var total: int = 0

@@ -12,6 +12,8 @@ extends Resource
 @export var icon: Texture2D = null
 @export var max_stack: int = 99
 @export var weight: float = 1.0
+## -1 = не экипируется. 0+ = EquipmentSlotType.Slot.
+@export var equipment_slot: int = -1
 
 func get_display_name() -> String:
 	return Localization.td(display_name_key, display_name)

@@ -108,8 +108,8 @@ func _connect_build_menu() -> void:
 	var menus: Array[Node] = get_tree().get_nodes_in_group("build_menu")
 	if menus.is_empty():
 		return
-	var menu: BuildMenu = menus[0] as BuildMenu
-	if menu and not menu.building_selected.is_connected(_on_menu_selection):
+	var menu: Node = menus[0]
+	if menu.has_signal("building_selected") and not menu.building_selected.is_connected(_on_menu_selection):
 		menu.building_selected.connect(_on_menu_selection)
 
 func _on_menu_selection(building: BuildingData) -> void:

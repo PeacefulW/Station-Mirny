@@ -10,7 +10,7 @@ msgid "UI_INVENTORY_SECTION"
 msgstr "Инвентарь"
 
 msgid "UI_INVENTORY_HINT"
-msgstr "Tab — закрыть  |  Скрап нужен для строительства  |  Руда нужна для крафта"
+msgstr "Tab — закрыть | ПКМ — экипировать | Shift+ЛКМ — разделить"
 
 msgid "UI_INVENTORY_WEIGHT"
 msgstr "{weight} кг"
@@ -116,6 +116,135 @@ msgstr "{watts} Вт"
 
 msgid "UI_POWER_WATTS_SHORT"
 msgstr "{watts}Вт"
+
+msgid "UI_CRAFT_RECIPES"
+msgstr "Рецепты"
+
+msgid "UI_CRAFT_INGREDIENTS"
+msgstr "Ингредиенты:"
+
+msgid "UI_CRAFT_RESULT"
+msgstr "Результат:"
+
+msgid "UI_CRAFT_BUTTON"
+msgstr "Крафтить"
+
+msgid "UI_CRAFT_IN_PROGRESS"
+msgstr "Крафтится..."
+
+msgid "UI_CRAFT_STATION_HAND"
+msgstr "Руками"
+
+msgid "UI_CRAFT_HINT_DEPENDENCY"
+msgstr "Нужно: {item} ×{amount} → {station}"
+
+msgid "UI_CRAFT_HINT_GATHER"
+msgstr "Нужно найти: {item} ×{amount}"
+
+msgid "UI_CRAFT_SUCCESS"
+msgstr "Готово!"
+
+msgid "BUILD_CAT_STRUCTURE"
+msgstr "Стены"
+
+msgid "BUILD_CAT_DOORS"
+msgstr "Двери"
+
+msgid "BUILD_CAT_POWER"
+msgstr "Энергия"
+
+msgid "BUILD_CAT_PRODUCTION"
+msgstr "Производство"
+
+msgid "BUILD_CAT_LIFE_SUPPORT"
+msgstr "Жизнеобеспечение"
+
+msgid "BUILD_CAT_WATER"
+msgstr "Водоснабжение"
+
+msgid "BUILD_CAT_DEFENSE"
+msgstr "Оборона"
+
+msgid "BUILD_CAT_VERTICAL"
+msgstr "Лестницы"
+
+msgid "BUILD_CAT_DECOR"
+msgstr "Декор"
+
+msgid "UI_BUILD_COST"
+msgstr "Стоимость:"
+
+msgid "UI_BUILD_COST_SCRAP"
+msgstr "Скрап: {amount}"
+
+msgid "UI_BUILD_SIZE"
+msgstr "Размер: {w}×{h}"
+
+msgid "UI_BUILD_POWER_PROD"
+msgstr "Выработка: +{watts} Вт"
+
+msgid "UI_BUILD_POWER_CONS"
+msgstr "Потребление: {watts} Вт"
+
+msgid "UI_BUILD_REQUIRES_TECH"
+msgstr "Требуется: {tech}"
+
+msgid "UI_BUILD_LOCKED"
+msgstr "Заблокировано"
+
+msgid "UI_BUILD_PLACE_HINT"
+msgstr "ЛКМ — поставить | ПКМ — снести | B — закрыть"
+
+msgid "UI_EQUIPMENT_TITLE"
+msgstr "ЭКИПИРОВКА"
+
+msgid "EQUIP_SLOT_HEAD"
+msgstr "Шлем"
+
+msgid "EQUIP_SLOT_BODY"
+msgstr "Скафандр"
+
+msgid "EQUIP_SLOT_FILTER"
+msgstr "Фильтр"
+
+msgid "EQUIP_SLOT_O2_TANK"
+msgstr "Баллон О₂"
+
+msgid "EQUIP_SLOT_BATTERY"
+msgstr "Батарея"
+
+msgid "EQUIP_SLOT_ARMOR"
+msgstr "Броня"
+
+msgid "EQUIP_SLOT_UTILITY"
+msgstr "Утилита"
+
+msgid "EQUIP_SLOT_TOOL"
+msgstr "Инструмент"
+
+msgid "UI_TOOLTIP_WEIGHT"
+msgstr "Вес: {weight} кг"
+
+msgid "UI_TOOLTIP_STACK"
+msgstr "Стак: до {max}"
+
+msgid "UI_TOOLTIP_EQUIP_SLOT"
+msgstr "Слот: {slot}"
+
+msgid "UI_TOOLTIP_EMPTY_SLOT"
+msgstr "Пусто"
+
+msgid "UI_HUD_O2"
+msgstr "О₂:"
+
+msgid "UI_HUD_HP"
+msgstr "HP:"
+
+msgid "UI_HINT_DEFAULT"
+msgstr "WASD — движение | B — строить | Tab — инвентарь | E — взаимодействие | Пробел — атака"
+
+msgid "UI_HINT_BUILD_MODE"
+msgstr "ЛКМ — поставить | ПКМ — снести | B — закрыть"
 
 msgid "UI_HUD_OXYGEN"
 msgstr "O₂: "
