@@ -72,7 +72,8 @@ func perform_harvest() -> bool:
 		# Пробуем прямо под игроком
 		harvest_pos = global_position
 		if not _chunk_manager.has_resource_at_world(harvest_pos):
-			return false
+			# Пробуем выкопать скалу
+			return _try_mine_rock()
 	_harvest_timer = balance.harvest_cooldown
 	var result: Dictionary = _chunk_manager.try_harvest_at_world(harvest_pos)
 	if result.is_empty():
@@ -183,6 +184,22 @@ func _handle_rotation() -> void:
 	if visual:
 		visual.look_at(get_global_mouse_position())
 		visual.rotation_degrees -= 90.0
+
+func _try_mine_rock() -> bool:
+	if _harvest_timer > 0.0:
+		return false
+	var mine_pos: Vector2 = _get_harvest_position()
+	var roof_systems: Array[Node] = get_tree().get_nodes_in_group("mountain_roof")
+	if roof_systems.is_empty():
+		return false
+	var roof: MountainRoofSystem = roof_systems[0] as MountainRoofSystem
+	if not roof:
+		return false
+	if roof.try_mine_at(mine_pos):
+		_harvest_timer = balance.harvest_cooldown
+		_flash_harvest()
+		return true
+	return false
 
 func _setup_camera() -> void:
 	_camera = get_node_or_null("Camera2D") as PlayerCamera

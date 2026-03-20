@@ -14,10 +14,14 @@ var _water_slider: HSlider = null
 var _rock_slider: HSlider = null
 var _warp_slider: HSlider = null
 var _ridge_slider: HSlider = null
+var _mountain_size_slider: HSlider = null
+var _tree_density_slider: HSlider = null
 var _water_value_label: Label = null
 var _rock_value_label: Label = null
 var _warp_value_label: Label = null
 var _ridge_value_label: Label = null
+var _mountain_size_value_label: Label = null
+var _tree_density_value_label: Label = null
 var _title_label: Label = null
 var _subtitle_label: Label = null
 var _seed_label: Label = null
@@ -28,6 +32,8 @@ var _water_name_label: Label = null
 var _rock_name_label: Label = null
 var _warp_name_label: Label = null
 var _ridge_name_label: Label = null
+var _mountain_size_name_label: Label = null
+var _tree_density_name_label: Label = null
 
 func _ready() -> void:
 	_balance = load(BALANCE_PATH) as WorldGenBalance
@@ -46,7 +52,7 @@ func _build_ui() -> void:
 	var center := VBoxContainer.new()
 	center.set_anchors_preset(PRESET_CENTER)
 	center.custom_minimum_size = Vector2(420, 0)
-	center.position = Vector2(-210, -220)
+	center.position = Vector2(-210, -280)
 	add_child(center)
 
 	_title_label = Label.new()
@@ -61,7 +67,7 @@ func _build_ui() -> void:
 	_subtitle_label.add_theme_color_override("font_color", Color(0.55, 0.50, 0.40))
 	center.add_child(_subtitle_label)
 
-	center.add_child(_spacer(20))
+	center.add_child(_spacer(16))
 
 	var seed_row := HBoxContainer.new()
 	_seed_label = Label.new()
@@ -79,8 +85,9 @@ func _build_ui() -> void:
 	seed_row.add_child(_random_button)
 	center.add_child(seed_row)
 
-	center.add_child(_spacer(16))
+	center.add_child(_spacer(12))
 
+	# --- Terrain sliders ---
 	var water_row: Array = _create_slider_row(10, 50, 30, true)
 	_water_slider = water_row[0]
 	_water_value_label = water_row[1]
@@ -94,6 +101,24 @@ func _build_ui() -> void:
 	_rock_name_label = rock_row[2]
 	_rock_slider.value_changed.connect(func(v: float) -> void: _rock_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(v)}))
 	center.add_child(rock_row[3])
+
+	# Mountain size: 1=small, 2=medium, 3=large
+	var mtn_row: Array = _create_slider_row(1, 3, 2, false)
+	_mountain_size_slider = mtn_row[0]
+	_mountain_size_slider.step = 1.0
+	_mountain_size_value_label = mtn_row[1]
+	_mountain_size_name_label = mtn_row[2]
+	_mountain_size_value_label.text = _mountain_size_text(2)
+	_mountain_size_slider.value_changed.connect(func(v: float) -> void: _mountain_size_value_label.text = _mountain_size_text(int(v)))
+	center.add_child(mtn_row[3])
+
+	# Tree density: 10-80%
+	var tree_row: Array = _create_slider_row(10, 80, 50, true)
+	_tree_density_slider = tree_row[0]
+	_tree_density_value_label = tree_row[1]
+	_tree_density_name_label = tree_row[2]
+	_tree_density_slider.value_changed.connect(func(v: float) -> void: _tree_density_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(v)}))
+	center.add_child(tree_row[3])
 
 	var warp_row: Array = _create_slider_row(0, 50, 25, false)
 	_warp_slider = warp_row[0]
@@ -109,7 +134,7 @@ func _build_ui() -> void:
 	_ridge_slider.value_changed.connect(func(v: float) -> void: _ridge_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(v)}))
 	center.add_child(ridge_row[3])
 
-	center.add_child(_spacer(8))
+	center.add_child(_spacer(6))
 
 	_hint_label = Label.new()
 	_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -117,7 +142,7 @@ func _build_ui() -> void:
 	_hint_label.add_theme_color_override("font_color", Color(0.40, 0.38, 0.32))
 	center.add_child(_hint_label)
 
-	center.add_child(_spacer(24))
+	center.add_child(_spacer(16))
 
 	_start_button = Button.new()
 	_start_button.custom_minimum_size.y = 50
@@ -139,6 +164,8 @@ func _on_start_pressed() -> void:
 	_balance.rock_threshold = _rock_slider.value / 100.0
 	_balance.warp_strength = _warp_slider.value
 	_balance.ridge_weight = _ridge_slider.value / 100.0
+	_balance.mountain_size = int(_mountain_size_slider.value)
+	_balance.tree_density = _tree_density_slider.value / 100.0
 
 	var seed_text: String = _seed_input.text.strip_edges()
 	var seed_val: int = 0
@@ -151,6 +178,13 @@ func _on_start_pressed() -> void:
 
 	WorldGenerator.initialize_world(seed_val)
 	get_tree().change_scene_to_file(GAME_SCENE_PATH)
+
+func _mountain_size_text(size: int) -> String:
+	match size:
+		1: return Localization.t("UI_WORLD_CREATE_MTN_SMALL")
+		2: return Localization.t("UI_WORLD_CREATE_MTN_MEDIUM")
+		3: return Localization.t("UI_WORLD_CREATE_MTN_LARGE")
+	return str(size)
 
 func _create_slider_row(min_val: float, max_val: float, default_val: float, is_percent: bool) -> Array:
 	var row := HBoxContainer.new()
@@ -169,7 +203,7 @@ func _create_slider_row(min_val: float, max_val: float, default_val: float, is_p
 
 	var value_label := Label.new()
 	value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(default_val)}) if is_percent else Localization.t("UI_WORLD_CREATE_NUMBER", {"value": int(default_val)})
-	value_label.custom_minimum_size.x = 50
+	value_label.custom_minimum_size.x = 80
 	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	value_label.add_theme_color_override("font_color", Color(0.85, 0.80, 0.65))
 	row.add_child(value_label)
@@ -189,12 +223,16 @@ func _apply_localization() -> void:
 	_random_button.text = Localization.t("UI_WORLD_CREATE_RANDOM_BUTTON")
 	_water_name_label.text = Localization.t("UI_WORLD_CREATE_WATER_LABEL")
 	_rock_name_label.text = Localization.t("UI_WORLD_CREATE_ROCK_LABEL")
+	_mountain_size_name_label.text = Localization.t("UI_WORLD_CREATE_MOUNTAIN_SIZE_LABEL")
+	_tree_density_name_label.text = Localization.t("UI_WORLD_CREATE_TREE_DENSITY_LABEL")
 	_warp_name_label.text = Localization.t("UI_WORLD_CREATE_WARP_LABEL")
 	_ridge_name_label.text = Localization.t("UI_WORLD_CREATE_RIDGE_LABEL")
 	_hint_label.text = Localization.t("UI_WORLD_CREATE_HINT")
 	_start_button.text = Localization.t("UI_WORLD_CREATE_START_BUTTON")
 	_water_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(_water_slider.value)})
 	_rock_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(_rock_slider.value)})
+	_mountain_size_value_label.text = _mountain_size_text(int(_mountain_size_slider.value))
+	_tree_density_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(_tree_density_slider.value)})
 	_warp_value_label.text = Localization.t("UI_WORLD_CREATE_NUMBER", {"value": int(_warp_slider.value)})
 	_ridge_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(_ridge_slider.value)})
 

@@ -6,7 +6,7 @@ extends RefCounted
 ## Легковесный объект — создаётся сотнями при генерации чанка.
 
 ## Типы поверхности.
-enum TerrainType { GROUND, ROCK, WATER, SAND, GRASS }
+enum TerrainType { GROUND, ROCK, WATER, SAND, GRASS, MINED_FLOOR, MOUNTAIN_ENTRANCE }
 
 ## Типы ресурсных залежей (NONE = нет ресурса).
 enum DepositType { NONE, IRON_ORE, COPPER_ORE, STONE, WATER_SOURCE }

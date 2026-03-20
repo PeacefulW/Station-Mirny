@@ -794,3 +794,18 @@ msgstr "Basement"
 
 msgid "UI_HUD_FLOOR_UPPER"
 msgstr "2nd Floor"
+
+msgid "UI_WORLD_CREATE_MOUNTAIN_SIZE_LABEL"
+msgstr "Mountain size:"
+
+msgid "UI_WORLD_CREATE_TREE_DENSITY_LABEL"
+msgstr "Tree density:"
+
+msgid "UI_WORLD_CREATE_MTN_SMALL"
+msgstr "Small"
+
+msgid "UI_WORLD_CREATE_MTN_MEDIUM"
+msgstr "Medium"
+
+msgid "UI_WORLD_CREATE_MTN_LARGE"
+msgstr "Large"

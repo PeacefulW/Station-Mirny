@@ -45,6 +45,11 @@ extends Resource
 ## Частота (очень низкая = огромные континенты).
 @export var continental_frequency: float = 0.003
 
+@export_group("Горные формации")
+## Размер горных формаций (1=мелкие, 2=средние, 3=крупные).
+## Настраивается игроком на экране создания мира.
+@export_range(1, 3) var mountain_size: int = 2
+
 @export_group("Реки")
 ## Количество истоков рек.
 @export var river_count: int = 8
@@ -60,8 +65,10 @@ extends Resource
 @export var moisture_frequency: float = 0.015
 ## Порог: выше — трава.
 @export_range(0.0, 1.0) var grass_threshold: float = 0.35
-## Порог: выше — деревья (только где трава).
+## Порог: выше — деревья (только где трава). Используется как fallback.
 @export_range(0.0, 1.0) var tree_threshold: float = 0.72
+## Плотность деревьев (0.1=мало, 0.8=густо). Настраивается игроком.
+@export_range(0.1, 0.8) var tree_density: float = 0.50
 
 @export_group("Споры")
 ## Частота шума спор.

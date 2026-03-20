@@ -8,6 +8,11 @@ uniform sampler2D tex_shore : repeat_enable, filter_linear;
 // Карта типов (64×64, R канал = тип земли, nearest — без артефактов на стыках)
 uniform sampler2D terrain_map : filter_nearest;
 
+// Крыша горы (64×64, R=1 = крыша, R=0 = нет)
+uniform sampler2D roof_map : filter_nearest;
+// Прозрачность крыши (0 = скрыта, 1 = видна)
+uniform float roof_opacity = 1.0;
+
 // Масштаб текстур
 uniform float texture_scale = 6.0;
 
@@ -115,4 +120,21 @@ void fragment() {
     float left_dist = fract(chunk_uv.x * 64.0);
     float left_gradient = smoothstep(0.25, 0.0, left_dist);
     COLOR.rgb = mix(COLOR.rgb, rock_face_color, left_face * left_gradient * 0.4);
+
+    // === КРЫША ГОРЫ ===
+    float roof = texture(roof_map, chunk_uv).r;
+    if (roof > 0.01) {
+        vec4 roof_color = texture(tex_rock, tex_uv) * 0.85;
+        // Край крыши — тень
+        float roof_edge = smoothstep(0.3, 0.5, roof) * smoothstep(0.7, 0.5, roof);
+        roof_color.rgb -= vec3(0.12) * roof_edge;
+        float actual_opacity = roof * roof_opacity;
+        COLOR = mix(COLOR, roof_color, actual_opacity);
+    }
+
+    // === FOG OF WAR: невыкопанный камень внутри горы ===
+    // Когда крыша скрыта (roof_opacity < 1) и тайл = ROCK → чёрный
+    float is_rock_raw = step(0.15, raw_type) * step(raw_type, 0.35);
+    float fog = is_rock_raw * (1.0 - roof_opacity) * roof;
+    COLOR.rgb = mix(COLOR.rgb, vec3(0.03, 0.02, 0.02), fog);
 }

@@ -31,6 +31,7 @@ var _z_manager: ZLevelManager = null
 var _z_overlay: ZTransitionOverlay = null
 var _bg_rect: ColorRect = null
 var _stairs_container: Node2D = null
+var _mountain_roof: MountainRoofSystem = null
 
 func _ready() -> void:
 	_player = _find_node_in_group("player") as Player
@@ -91,6 +92,10 @@ func _ready() -> void:
 	_death_screen.name = "DeathScreen"
 	if _resolved_ui_layer:
 		_resolved_ui_layer.add_child(_death_screen)
+
+	_mountain_roof = MountainRoofSystem.new()
+	_mountain_roof.name = "MountainRoofSystem"
+	add_child(_mountain_roof)
 
 	call_deferred("_check_pending_load")
 

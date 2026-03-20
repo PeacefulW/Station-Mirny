@@ -20,6 +20,9 @@ var _resource_tileset: TileSet = null
 var _modified_tiles: Dictionary = {}
 var _biome: BiomeData = null
 var _terrain_bytes: PackedByteArray = PackedByteArray()
+var _terrain_material: ShaderMaterial = null
+var _roof_image: Image = null
+var _roof_texture: ImageTexture = null
 
 ## Данные ресурсов: Vector2i (local) -> Dictionary {deposit, remaining, depleted}
 var _resource_data: Dictionary = {}
@@ -147,22 +150,35 @@ func setup_terrain_shader(textures: Dictionary) -> void:
 	_terrain_sprite.centered = false
 	_terrain_sprite.z_index = -10
 
-	var mat := ShaderMaterial.new()
-	mat.shader = shader
-	mat.set_shader_parameter("terrain_map", data_tex)
+	# Roof map (ROCK тайлы = крыша)
+	_roof_image = Image.create(_chunk_size, _chunk_size, false, Image.FORMAT_R8)
+	for y2: int in range(_chunk_size):
+		for x2: int in range(_chunk_size):
+			var idx2: int = y2 * _chunk_size + x2
+			var t: int = _terrain_bytes[idx2] if idx2 < _terrain_bytes.size() else 0
+			# ROCK(1) и MINED_FLOOR(5) = под крышей, ENTRANCE(6) = нет
+			var roof_val: float = 1.0 if (t == 1 or t == 5) else 0.0
+			_roof_image.set_pixel(x2, y2, Color(roof_val, 0, 0, 1))
+	_roof_texture = ImageTexture.create_from_image(_roof_image)
+
+	_terrain_material = ShaderMaterial.new()
+	_terrain_material.shader = shader
+	_terrain_material.set_shader_parameter("terrain_map", data_tex)
+	_terrain_material.set_shader_parameter("roof_map", _roof_texture)
+	_terrain_material.set_shader_parameter("roof_opacity", 1.0)
 	if textures.has("plains"):
-		mat.set_shader_parameter("tex_plains", textures["plains"])
+		_terrain_material.set_shader_parameter("tex_plains", textures["plains"])
 	if textures.has("rock"):
-		mat.set_shader_parameter("tex_rock", textures["rock"])
+		_terrain_material.set_shader_parameter("tex_rock", textures["rock"])
 	if textures.has("shore"):
-		mat.set_shader_parameter("tex_shore", textures["shore"])
-	mat.set_shader_parameter("chunk_world_size", Vector2(chunk_px, chunk_px))
-	mat.set_shader_parameter("chunk_world_offset", Vector2(
+		_terrain_material.set_shader_parameter("tex_shore", textures["shore"])
+	_terrain_material.set_shader_parameter("chunk_world_size", Vector2(chunk_px, chunk_px))
+	_terrain_material.set_shader_parameter("chunk_world_offset", Vector2(
 		chunk_coord.x * chunk_px, chunk_coord.y * chunk_px
 	))
-	mat.set_shader_parameter("texture_scale", 6.0)
+	_terrain_material.set_shader_parameter("texture_scale", 6.0)
 
-	_terrain_sprite.material = mat
+	_terrain_sprite.material = _terrain_material
 	add_child(_terrain_sprite)
 
 	# Скрыть TileMapLayer (шейдер рисует), оставить для коллизий
@@ -204,6 +220,54 @@ func global_to_local(global_tile: Vector2i) -> Vector2i:
 
 func get_modifications() -> Dictionary:
 	return _modified_tiles.duplicate()
+
+## Задать roof_opacity для шейдера (0=скрыта, 1=видна).
+func set_roof_opacity(value: float) -> void:
+	if _terrain_material:
+		_terrain_material.set_shader_parameter("roof_opacity", value)
+
+## Изменить тип terrain в тайле (для копания).
+func set_terrain_type_at(local: Vector2i, new_type: int) -> void:
+	var idx: int = local.y * _chunk_size + local.x
+	if idx < 0 or idx >= _terrain_bytes.size():
+		return
+	_terrain_bytes[idx] = new_type
+	_update_terrain_textures_at(local, new_type)
+	is_dirty = true
+
+## Получить тип terrain в локальном тайле.
+func get_terrain_type_at(local: Vector2i) -> int:
+	var idx: int = local.y * _chunk_size + local.x
+	if idx < 0 or idx >= _terrain_bytes.size():
+		return 0
+	return _terrain_bytes[idx]
+
+## Обновить data-текстуры (terrain_map + roof_map) после изменения тайла.
+func _update_terrain_textures_at(local: Vector2i, new_type: int) -> void:
+	if not _terrain_material:
+		return
+
+	# Обновить terrain_map
+	var terrain_value: float = 0.0
+	match new_type:
+		0: terrain_value = 0.0
+		1: terrain_value = 0.25
+		2: terrain_value = 0.5
+		3: terrain_value = 0.75
+		4: terrain_value = 1.0
+		5: terrain_value = 0.0   # MINED_FLOOR → пол (как GROUND)
+		6: terrain_value = 0.0   # ENTRANCE → пол
+	var terrain_img: Image = (_terrain_material.get_shader_parameter("terrain_map") as ImageTexture).get_image()
+	if terrain_img:
+		terrain_img.set_pixel(local.x, local.y, Color(terrain_value, 0, 0, 1))
+		(_terrain_material.get_shader_parameter("terrain_map") as ImageTexture).update(terrain_img)
+
+	# Обновить roof_map
+	if _roof_image:
+		var roof_val: float = 1.0 if (new_type == 1 or new_type == 5) else 0.0
+		_roof_image.set_pixel(local.x, local.y, Color(roof_val, 0, 0, 1))
+		if _roof_texture:
+			_roof_texture.update(_roof_image)
 
 func mark_tile_modified(tile_pos: Vector2i, state: Dictionary) -> void:
 	_modified_tiles[tile_pos] = state

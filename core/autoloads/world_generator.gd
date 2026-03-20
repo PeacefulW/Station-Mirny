@@ -1,7 +1,7 @@
 class_name WorldGeneratorSingleton
 extends Node
 
-## Генератор мира v6. Делегирует тяжёлую генерацию в C++.
+## Генератор мира v7. Делегирует тяжёлую генерацию в C++.
 ## GDScript остаётся координатором — C++ делает математику.
 
 const BALANCE_PATH: String = "res://data/world/world_gen_balance.tres"
@@ -35,7 +35,8 @@ func initialize_random() -> void:
 	initialize_world(rng.randi())
 
 ## Генерация чанка через C++. Возвращает Dictionary с массивами.
-## Ключи: "terrain", "height", "spore", "deposit", "has_tree", "chunk_size"
+## Ключи: "terrain", "height", "spore", "deposit", "has_tree",
+##         "is_mountain", "chunk_size"
 func get_chunk_data_native(chunk_coord: Vector2i) -> Dictionary:
 	if not _is_initialized or not _native_generator:
 		return {}
@@ -49,9 +50,7 @@ func get_chunk_data(chunk_coord: Vector2i) -> Dictionary:
 func get_tile_data(tile_x: int, tile_y: int) -> TileGenData:
 	if not _is_initialized:
 		return TileGenData.new()
-	# Для единичных запросов — GDScript достаточно
 	var data := TileGenData.new()
-	# TODO: можно добавить C++ метод для единичного тайла
 	return data
 
 func world_to_tile(world_pos: Vector2) -> Vector2i:
@@ -119,5 +118,8 @@ func _setup_native_generator() -> void:
 		"moisture_frequency": balance.moisture_frequency,
 		"spore_frequency": balance.spore_frequency,
 		"resource_frequency": balance.resource_frequency,
+		# New parameters
+		"mountain_size": balance.mountain_size,
+		"tree_density": balance.tree_density,
 	}
 	_native_generator.initialize(world_seed, params)

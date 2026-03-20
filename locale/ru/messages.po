@@ -794,3 +794,18 @@ msgstr "Подвал"
 
 msgid "UI_HUD_FLOOR_UPPER"
 msgstr "2-й этаж"
+
+msgid "UI_WORLD_CREATE_MOUNTAIN_SIZE_LABEL"
+msgstr "Размер гор:"
+
+msgid "UI_WORLD_CREATE_TREE_DENSITY_LABEL"
+msgstr "Плотность деревьев:"
+
+msgid "UI_WORLD_CREATE_MTN_SMALL"
+msgstr "Мелкие"
+
+msgid "UI_WORLD_CREATE_MTN_MEDIUM"
+msgstr "Средние"
+
+msgid "UI_WORLD_CREATE_MTN_LARGE"
+msgstr "Крупные"
