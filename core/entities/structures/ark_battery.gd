@@ -31,7 +31,8 @@ func setup(p_grid_pos: Vector2i, world_pos: Vector2, balance: PowerBalance) -> v
 	charge_max = balance.ark_battery_capacity
 	charge_remaining = charge_max
 	# Визуал
-	var size: int = balance.building_tile_size * 32
+	var tile_px: int = WorldGenerator.balance.tile_size if WorldGenerator and WorldGenerator.balance else 12
+	var size: int = balance.building_tile_size * tile_px
 	_visual = ColorRect.new()
 	_visual.size = Vector2(size, size)
 	_visual.position = -Vector2(size, size) * 0.5

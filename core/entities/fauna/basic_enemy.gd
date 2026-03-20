@@ -13,8 +13,8 @@ extends CharacterBody2D
 const SCAN_INTERVAL: float = 1.5
 const WANDER_INTERVAL: float = 3.0
 const WANDER_SPEED_MULT: float = 0.4
-const ARRIVAL_DISTANCE: float = 32.0
-const PLAYER_DETECT_RADIUS: float = 60.0
+const ARRIVAL_DISTANCE: float = 12.0
+const PLAYER_DETECT_RADIUS: float = 24.0
 
 var _health_component: HealthComponent = null
 var _attack_timer: float = 0.0
@@ -35,7 +35,7 @@ var _wander_dir: Vector2 = Vector2.ZERO
 ## Множитель слуха (ночью × 1.5).
 var _hearing_multiplier: float = 1.0
 ## Базовый радиус слуха (в дополнение к noise_radius источника).
-var _base_hearing: float = 50.0
+var _base_hearing: float = 19.0
 
 func _ready() -> void:
 	add_to_group("enemies")

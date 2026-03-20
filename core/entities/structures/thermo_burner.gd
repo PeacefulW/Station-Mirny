@@ -35,7 +35,8 @@ func setup(p_grid_pos: Vector2i, world_pos: Vector2, balance: PowerBalance) -> v
 	_balance = balance
 	fuel_capacity = balance.burner_fuel_capacity
 	_fuel_rate = balance.burner_fuel_rate
-	var size: int = balance.building_tile_size * 32
+	var tile_px: int = WorldGenerator.balance.tile_size if WorldGenerator and WorldGenerator.balance else 12
+	var size: int = balance.building_tile_size * tile_px
 	# Визуал
 	_visual = ColorRect.new()
 	_visual.size = Vector2(size, size)

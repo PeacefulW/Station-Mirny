@@ -9,10 +9,10 @@
 [ext_resource type="Script" uid="uid://d1ar37qoal6x5" path="res://core/entities/components/inventory_component.gd" id="6_75vfm"]
 
 [sub_resource type="RectangleShape2D" id="player_shape"]
-size = Vector2(28, 28)
+size = Vector2(10, 10)
 
 [sub_resource type="CircleShape2D" id="attack_shape"]
-radius = 48.0
+radius = 18.0
 
 [node name="Player" type="CharacterBody2D" unique_id=1871543181 groups=["player"]]
 collision_mask = 6
@@ -20,14 +20,14 @@ script = ExtResource("1_player")
 balance = ExtResource("6_player_balance")
 
 [node name="Visual" type="Sprite2D" parent="." unique_id=997961818]
-scale = Vector2(0.5, 0.5)
+scale = Vector2(0.4, 0.4)
 texture = ExtResource("2_75vfm")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=543236914]
 shape = SubResource("player_shape")
 
 [node name="Camera2D" type="Camera2D" parent="." unique_id=1547136717]
-zoom = Vector2(2, 2)
+zoom = Vector2(2.5, 2.5)
 position_smoothing_enabled = true
 position_smoothing_speed = 8.0
 

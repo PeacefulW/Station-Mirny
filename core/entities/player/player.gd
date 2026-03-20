@@ -7,8 +7,11 @@ extends CharacterBody2D
 # --- Константы ---
 const SCRAP_ITEM_ID: String = "base:scrap"
 const WOOD_ITEM_ID: String = "base:wood"
-const BURNER_REFUEL_RANGE: float = 56.0
+const BURNER_REFUEL_RANGE: float = 21.0
 const BURNER_FUEL_PER_WOOD: float = 20.0
+const ZOOM_MIN: Vector2 = Vector2(1.0, 1.0)
+const ZOOM_MAX: Vector2 = Vector2(4.0, 4.0)
+const ZOOM_STEP: float = 0.2
 
 @export var balance: PlayerBalance = null
 
@@ -53,6 +56,18 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mb: InputEventMouseButton = event as InputEventMouseButton
+		var camera: Camera2D = get_node_or_null("Camera2D")
+		if camera and mb.pressed:
+			if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
+				camera.zoom = (camera.zoom + Vector2(ZOOM_STEP, ZOOM_STEP)).clamp(ZOOM_MIN, ZOOM_MAX)
+				get_viewport().set_input_as_handled()
+				return
+			elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+				camera.zoom = (camera.zoom - Vector2(ZOOM_STEP, ZOOM_STEP)).clamp(ZOOM_MIN, ZOOM_MAX)
+				get_viewport().set_input_as_handled()
+				return
 	_state_machine.handle_input(event)
 
 # --- Добыча ресурсов ---

@@ -15,11 +15,12 @@ func create_basic_enemy(spawn_pos: Vector2, balance: EnemyBalance) -> CharacterB
 	var visual := Sprite2D.new()
 	visual.name = "Visual"
 	visual.texture = ENEMY_TEXTURE
+	visual.scale = Vector2(0.5, 0.5)
 	enemy.add_child(visual)
 
 	var collision := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
-	shape.size = Vector2(24, 24)
+	shape.size = Vector2(10, 10)
 	collision.shape = shape
 	enemy.add_child(collision)
 
