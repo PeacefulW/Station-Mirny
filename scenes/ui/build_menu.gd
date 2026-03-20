@@ -18,6 +18,7 @@ var _buildings: Array[BuildingData] = []
 var _selected_index: int = 0
 
 func _ready() -> void:
+	add_to_group("build_menu")
 	mouse_filter = MOUSE_FILTER_IGNORE
 	visible = false
 	_load_buildings()

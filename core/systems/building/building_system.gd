@@ -17,6 +17,7 @@ var indoor_cells: Dictionary = {}
 
 # --- Приватные ---
 var _player_scrap: int = 0
+var _player: Player = null
 var _placement_service: BuildingPlacementService = BuildingPlacementService.new()
 var _indoor_solver: IndoorSolver = IndoorSolver.new()
 var _persistence: BuildingPersistence = BuildingPersistence.new()
@@ -24,7 +25,11 @@ var _persistence: BuildingPersistence = BuildingPersistence.new()
 # --- Встроенные ---
 
 func _ready() -> void:
-	wall_container = get_node("../WallContainer")
+	add_to_group("building_system")
+	if not wall_container:
+		push_error("BuildingSystem: wall_container не назначен.")
+		return
+	_player = _find_player()
 	_placement_service.setup(balance, wall_container)
 	walls = _placement_service.walls
 	indoor_cells = _indoor_solver.indoor_cells
@@ -97,18 +102,9 @@ func load_state(data: Dictionary) -> void:
 func _connect_build_menu() -> void:
 	var menus: Array[Node] = get_tree().get_nodes_in_group("build_menu")
 	if menus.is_empty():
-		for node: Node in get_tree().get_nodes_in_group(""):
-			if node is BuildMenu:
-				(node as BuildMenu).building_selected.connect(_on_menu_selection)
-				return
-		var ui_layer: Node = get_parent().get_node_or_null("UILayer")
-		if ui_layer:
-			for child: Node in ui_layer.get_children():
-				if child is BuildMenu:
-					(child as BuildMenu).building_selected.connect(_on_menu_selection)
-					return
-	else:
-		var menu: BuildMenu = menus[0] as BuildMenu
+		return
+	var menu: BuildMenu = menus[0] as BuildMenu
+	if menu and not menu.building_selected.is_connected(_on_menu_selection):
 		menu.building_selected.connect(_on_menu_selection)
 
 func _on_menu_selection(building: BuildingData) -> void:
@@ -126,7 +122,11 @@ func _try_place_building() -> void:
 	if not _placement_service.can_place_at(grid_pos, _player_scrap):
 		return
 	var cost: int = _placement_service.get_selected_building_cost()
-	_player_scrap -= cost
+	if not _player and not _find_player():
+		return
+	if not _player.spend_scrap(cost):
+		return
+	_player_scrap = _player.get_scrap_count()
 	EventBus.scrap_spent.emit(cost, _player_scrap)
 	var placed_pos: Vector2i = _placement_service.place_selected_at(world_pos)
 	_bind_building_health(walls.get(placed_pos), placed_pos)
@@ -137,8 +137,8 @@ func _try_remove_building() -> void:
 	var removed_pos: Vector2i = _placement_service.remove_at(get_global_mouse_position())
 	if removed_pos == Vector2i(2147483647, 2147483647):
 		return
-	_player_scrap += 1
-	EventBus.scrap_collected.emit(_player_scrap)
+	if _player or _find_player():
+		_player.collect_scrap(1)
 	_recalculate_indoor()
 	EventBus.building_removed.emit(removed_pos)
 
@@ -156,6 +156,13 @@ func _recalculate_indoor() -> void:
 
 func _on_scrap_collected(total: int) -> void:
 	_player_scrap = total
+
+func _find_player() -> Player:
+	var players: Array[Node] = get_tree().get_nodes_in_group("player")
+	if players.is_empty():
+		return null
+	_player = players[0] as Player
+	return _player
 
 func _bind_building_health(node: Node2D, grid_pos: Vector2i) -> void:
 	if not node:

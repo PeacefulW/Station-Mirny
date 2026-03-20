@@ -4,11 +4,17 @@ extends Node2D
 ## Главная сцена мира. Инициализирует WorldGenerator (если не было),
 ## управляет ChunkManager, спавном врагов и пикапов.
 
+# --- Константы ---
+const BASIC_ENEMY_SCRIPT: GDScript = preload("res://core/entities/fauna/basic_enemy.gd")
+const ENEMY_TEXTURE: Texture2D = preload("res://assets/sprites/fauna/enemy_cleaner_32.png")
+const SCRAP_PICKUP_TEXTURE: Texture2D = preload("res://assets/sprites/pickups/pickup_scrap_16.png")
+
 # --- Экспортируемые ---
 @export var enemy_balance: EnemyBalance = null
 ## Seed мира. Используется только если мир не инициализирован
 ## (при запуске напрямую, минуя экран создания). 0 = случайный.
 @export var world_seed: int = 0
+@export var ui_layer: CanvasLayer = null
 
 # --- Приватные ---
 var _player: Player = null
@@ -19,12 +25,14 @@ var _pickup_container: Node2D = null
 var _crafting_system: CraftingSystem = null
 var _spawn_timer: float = 0.0
 var _enemy_count: int = 0
+var _resolved_ui_layer: CanvasLayer = null
 
 func _ready() -> void:
 	_player = _find_node_in_group("player") as Player
 	_building_system = get_node_or_null("BuildingSystem")
 	_enemy_container = get_node_or_null("EnemyContainer")
 	_pickup_container = get_node_or_null("PickupContainer")
+	_resolved_ui_layer = _resolve_ui_layer()
 	EventBus.enemy_killed.connect(_on_enemy_killed)
 	_init_world_generator()
 	_setup_chunk_manager()
@@ -33,7 +41,8 @@ func _ready() -> void:
 	# Создаём меню строительства в UILayer
 	var build_menu := BuildMenu.new()
 	build_menu.name = "BuildMenu"
-	get_node("UILayer").add_child(build_menu)
+	if _resolved_ui_layer:
+		_resolved_ui_layer.add_child(build_menu)
 
 	# Создаём CraftingSystem
 	_crafting_system = CraftingSystem.new()
@@ -43,17 +52,14 @@ func _ready() -> void:
 	# Создаём UI инвентаря
 	var inv_ui := InventoryUI.new()
 	inv_ui.name = "InventoryUI"
-	get_node("UILayer").add_child(inv_ui)
-
-	# Создаём PowerSystem
-	var power_sys := PowerSystem.new()
-	power_sys.name = "PowerSystem"
-	add_child(power_sys)
+	if _resolved_ui_layer:
+		_resolved_ui_layer.add_child(inv_ui)
 	
 	# UI энергосистемы
 	var power_ui := PowerUI.new()
 	power_ui.name = "PowerUI"
-	get_node("UILayer").add_child(power_ui)
+	if _resolved_ui_layer:
+		_resolved_ui_layer.add_child(power_ui)
 
 func _process(delta: float) -> void:
 	_update_player_indoor_status()
@@ -120,7 +126,7 @@ func _spawn_enemy() -> void:
 	enemy.global_position = spawn_pos
 	var visual := Sprite2D.new()
 	visual.name = "Visual"
-	visual.texture = preload("res://assets/sprites/fauna/enemy_cleaner_32.png")
+	visual.texture = ENEMY_TEXTURE
 	enemy.add_child(visual)
 	var collision := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
@@ -131,8 +137,7 @@ func _spawn_enemy() -> void:
 	health.name = "HealthComponent"
 	health.max_health = enemy_balance.max_health
 	enemy.add_child(health)
-	var script: GDScript = load("res://core/entities/fauna/basic_enemy.gd")
-	enemy.set_script(script)
+	enemy.set_script(BASIC_ENEMY_SCRIPT)
 	enemy.balance = enemy_balance
 	enemy.add_to_group("enemies")
 	_enemy_container.add_child(enemy)
@@ -167,7 +172,7 @@ func _spawn_scrap_pickup(pos: Vector2) -> void:
 	pickup.monitorable = false
 	var visual := Sprite2D.new()
 	visual.name = "Visual"
-	visual.texture = preload("res://assets/sprites/pickups/pickup_scrap_16.png")
+	visual.texture = SCRAP_PICKUP_TEXTURE
 	pickup.add_child(visual)
 	var collision := CollisionShape2D.new()
 	var shape := CircleShape2D.new()
@@ -187,3 +192,11 @@ func _find_node_in_group(group_name: String) -> Node:
 	if nodes.is_empty():
 		return null
 	return nodes[0]
+
+func _resolve_ui_layer() -> CanvasLayer:
+	if ui_layer:
+		return ui_layer
+	var fallback: CanvasLayer = get_node_or_null("UILayer") as CanvasLayer
+	if not fallback:
+		push_error("GameWorld: UILayer не найден, UI не будет создан.")
+	return fallback

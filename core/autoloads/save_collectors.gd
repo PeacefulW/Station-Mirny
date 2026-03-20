@@ -23,16 +23,16 @@ static func collect_player(tree: SceneTree) -> Dictionary:
 			"x": player.global_position.x,
 			"y": player.global_position.y,
 		},
-		"resources": {},
 	}
-	if player.has_method("collect_scrap"):
-		data["resources"]["scrap_count"] = int(player.get("scrap_count"))
 	var health: HealthComponent = player.get_node_or_null("HealthComponent")
 	if health:
 		data["health"] = {
 			"current": health.current_health,
 			"max": health.max_health,
 		}
+	var inventory: Node = player.get_node_or_null("InventoryComponent")
+	if inventory and inventory.has_method("save_state"):
+		data["inventory"] = inventory.save_state()
 	var oxygen_system: Node = player.get_node_or_null("OxygenSystem")
 	if oxygen_system and oxygen_system.has_method("save_state"):
 		data["oxygen"] = oxygen_system.save_state()

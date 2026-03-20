@@ -270,6 +270,8 @@ func _set_style(sn: PanelContainer, bg: Color, border: Color) -> void:
 
 func _get_item_color(item_id: String) -> Color:
 	match item_id:
+		"base:scrap":
+			return Color(0.76, 0.66, 0.42)
 		"base:iron_ore":
 			return Color(0.55, 0.35, 0.25)
 		"base:copper_ore":

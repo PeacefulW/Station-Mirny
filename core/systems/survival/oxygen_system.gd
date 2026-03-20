@@ -46,6 +46,27 @@ func set_indoor(indoor: bool) -> void:
 	else:
 		EventBus.player_exited_indoor.emit()
 
+## Сохранить состояние кислорода.
+func save_state() -> Dictionary:
+	return {
+		"current_oxygen": _current_oxygen,
+		"is_indoor": _is_indoor,
+	}
+
+## Восстановить состояние кислорода.
+func load_state(data: Dictionary) -> void:
+	if not balance:
+		return
+	_current_oxygen = clampf(
+		float(data.get("current_oxygen", balance.max_oxygen)),
+		0.0,
+		balance.max_oxygen
+	)
+	_is_indoor = bool(data.get("is_indoor", false))
+	_is_depleting = false
+	_emit_oxygen_state()
+	_apply_effects()
+
 # --- Приватные методы ---
 
 func _update_oxygen(delta: float) -> void:

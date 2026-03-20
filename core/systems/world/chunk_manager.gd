@@ -253,8 +253,9 @@ func _unload_chunk(coord: Vector2i) -> void:
 	EventBus.chunk_unloaded.emit(coord)
 
 func _load_resource_defs() -> void:
-	_resource_defs[1] = {"id": &"iron_ore", "harvest_count": 8}
-	_resource_defs[2] = {"id": &"copper_ore", "harvest_count": 6}
-	_resource_defs[3] = {"id": &"stone", "harvest_count": 10}
-	_resource_defs[4] = {"id": &"water_source", "harvest_count": 0}
-	_resource_defs[-1] = {"id": &"dead_tree", "harvest_count": 3}
+	_resource_defs.clear()
+	var resource_nodes: Array[ResourceNodeData] = ItemRegistry.get_all_resource_nodes()
+	for resource_node: ResourceNodeData in resource_nodes:
+		_resource_defs[resource_node.deposit_type] = resource_node
+	if _resource_defs.is_empty():
+		push_warning("ChunkManager: не загружены world-resource данные из data/resources")

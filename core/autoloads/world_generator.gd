@@ -76,9 +76,25 @@ func tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
 	)
 
 func is_walkable_at(world_pos: Vector2) -> bool:
-	# Простая проверка через генерацию мини-чанка 1×1
-	# TODO: оптимизировать через C++ single-tile
-	return true
+	if not _is_initialized or not balance:
+		return true
+
+	var tile_pos: Vector2i = world_to_tile(world_pos)
+	var chunk_coord: Vector2i = tile_to_chunk(tile_pos)
+	var chunk_data: Dictionary = get_chunk_data_native(chunk_coord)
+	if chunk_data.is_empty():
+		return true
+
+	var chunk_size: int = int(chunk_data.get("chunk_size", balance.chunk_size_tiles))
+	var local_x: int = posmod(tile_pos.x, chunk_size)
+	var local_y: int = posmod(tile_pos.y, chunk_size)
+	var index: int = local_y * chunk_size + local_x
+	var terrain: PackedByteArray = chunk_data.get("terrain", PackedByteArray())
+	if index < 0 or index >= terrain.size():
+		return true
+
+	var terrain_type: int = int(terrain[index])
+	return terrain_type != TileGenData.TerrainType.WATER and terrain_type != TileGenData.TerrainType.ROCK
 
 func _setup_native_generator() -> void:
 	_native_generator = ChunkGenerator.new()

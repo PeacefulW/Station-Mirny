@@ -10,6 +10,7 @@ signal craft_failed(message: String)
 var _inventory: InventoryComponent = null
 var _crafting_system: CraftingSystem = null
 var _recipes: Array[RecipeData] = []
+var _recipe_scroll: ScrollContainer = null
 var _recipe_list: VBoxContainer = null
 var _recipe_description: Label = null
 var _craft_feedback: Label = null
@@ -39,14 +40,18 @@ func _build_ui() -> void:
 	recipe_title.add_theme_font_size_override("font_size", 14)
 	add_child(recipe_title)
 
-	var recipe_scroll := ScrollContainer.new()
-	recipe_scroll.custom_minimum_size = Vector2(360, 200)
-	recipe_scroll.size_flags_vertical = SIZE_EXPAND_FILL
-	add_child(recipe_scroll)
+	_recipe_scroll = ScrollContainer.new()
+	_recipe_scroll.custom_minimum_size = Vector2(360, 200)
+	_recipe_scroll.size_flags_horizontal = SIZE_EXPAND_FILL
+	_recipe_scroll.size_flags_vertical = SIZE_EXPAND_FILL
+	_recipe_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_recipe_scroll.resized.connect(_sync_recipe_list_width)
+	add_child(_recipe_scroll)
 
 	_recipe_list = VBoxContainer.new()
 	_recipe_list.add_theme_constant_override("separation", 6)
-	recipe_scroll.add_child(_recipe_list)
+	_recipe_list.size_flags_horizontal = SIZE_EXPAND_FILL
+	_recipe_scroll.add_child(_recipe_list)
 
 	_recipe_description = Label.new()
 	_recipe_description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -60,6 +65,8 @@ func _build_ui() -> void:
 	_craft_feedback.add_theme_font_size_override("font_size", 12)
 	_craft_feedback.add_theme_color_override("font_color", Color(0.65, 0.72, 0.9))
 	add_child(_craft_feedback)
+
+	_sync_recipe_list_width()
 
 func _load_recipes() -> void:
 	_recipes = ItemRegistry.get_all_recipes()
@@ -85,9 +92,19 @@ func _refresh_recipe_list() -> void:
 		button.text = _format_recipe_button_text(recipe)
 		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		button.size_flags_horizontal = SIZE_EXPAND_FILL
+		button.custom_minimum_size.y = 72
 		button.focus_mode = Control.FOCUS_NONE
 		button.pressed.connect(_on_recipe_pressed.bind(recipe))
 		_recipe_list.add_child(button)
+
+func _sync_recipe_list_width() -> void:
+	if not _recipe_scroll or not _recipe_list:
+		return
+	# ScrollContainer не растягивает контент по ширине автоматически,
+	# поэтому фиксируем минимальную ширину списка вручную.
+	var content_width: float = maxf(_recipe_scroll.size.x - 12.0, 0.0)
+	_recipe_list.custom_minimum_size.x = content_width
 
 func _on_recipe_pressed(recipe: RecipeData) -> void:
 	var input_item: ItemData = ItemRegistry.get_item(recipe.input_item_id)

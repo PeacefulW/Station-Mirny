@@ -13,6 +13,7 @@
 script = ExtResource("1_world")
 enemy_balance = ExtResource("4_enemybal")
 world_seed = 12345
+ui_layer = NodePath("UILayer")
 
 [node name="DaylightSystem" type="CanvasModulate" parent="." unique_id=933071398]
 script = ExtResource("7_daylight")

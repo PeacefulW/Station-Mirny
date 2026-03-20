@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemData" format=3]
+
+[ext_resource type="Script" path="res://core/entities/items/item_data.gd" id="1_item_script"]
+[ext_resource type="Texture2D" path="res://assets/icons/items/scrap.png" id="2_scrap_icon"]
+
+[resource]
+script = ExtResource("1_item_script")
+id = "base:scrap"
+display_name = "Скрап"
+description = "Обломки и техлом. Базовый строительный ресурс ранней игры."
+icon = ExtResource("2_scrap_icon")
+max_stack = 99
+weight = 0.3

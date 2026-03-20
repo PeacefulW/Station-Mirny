@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="ResourceNodeData" format=3]
+
+[ext_resource type="Script" path="res://core/entities/resources/resource_node_data.gd" id="1_resource_script"]
+
+[resource]
+script = ExtResource("1_resource_script")
+id = "base:dead_tree_node"
+display_name = "Сухое дерево"
+drop_item_id = "base:wood"
+drop_amount_min = 2
+drop_amount_max = 5
+harvest_count = 3
+placeholder_color = Color(0.30, 0.22, 0.15, 1)
+deposit_type = -1
+

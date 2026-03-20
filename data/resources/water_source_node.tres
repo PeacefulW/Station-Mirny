@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="ResourceNodeData" format=3]
+
+[ext_resource type="Script" path="res://core/entities/resources/resource_node_data.gd" id="1_resource_script"]
+
+[resource]
+script = ExtResource("1_resource_script")
+id = "base:water_source_node"
+display_name = "Источник воды"
+drop_item_id = "base:water_dirty"
+drop_amount_min = 1
+drop_amount_max = 1
+harvest_count = 0
+placeholder_color = Color(0.20, 0.35, 0.55, 1)
+is_solid = false
+deposit_type = 4
+

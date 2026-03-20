@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemData" format=3]
+
+[ext_resource type="Script" path="res://core/entities/items/item_data.gd" id="1_item_script"]
+[ext_resource type="Texture2D" path="res://assets/icons/items/water_dirty.png" id="2_water_icon"]
+
+[resource]
+script = ExtResource("1_item_script")
+id = "base:water_dirty"
+display_name = "Грязная вода"
+description = "Сырая местная вода. Требует очистки перед употреблением."
+icon = ExtResource("2_water_icon")
+max_stack = 20
+weight = 1.0

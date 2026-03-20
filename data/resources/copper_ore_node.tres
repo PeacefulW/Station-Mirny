@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="ResourceNodeData" format=3]
+
+[ext_resource type="Script" path="res://core/entities/resources/resource_node_data.gd" id="1_resource_script"]
+
+[resource]
+script = ExtResource("1_resource_script")
+id = "base:copper_ore_node"
+display_name = "Медная жила"
+drop_item_id = "base:copper_ore"
+drop_amount_min = 1
+drop_amount_max = 2
+harvest_count = 6
+placeholder_color = Color(0.65, 0.45, 0.20, 1)
+deposit_type = 2
+

@@ -4,6 +4,9 @@ extends CharacterBody2D
 ## Игрок (Инженер). Управляет движением, атакой,
 ## сбором ресурсов. Компоненты (O₂, здоровье, инвентарь) — дочерние ноды.
 
+# --- Константы ---
+const SCRAP_ITEM_ID: String = "base:scrap"
+
 @export var balance: PlayerBalance = null
 
 var _speed_modifier: float = 1.0
@@ -32,8 +35,11 @@ func _ready() -> void:
 		_health_component.died.connect(_on_died)
 	if not _inventory:
 		push_error("Player: InventoryComponent не найден!")
+	else:
+		EventBus.inventory_updated.connect(_on_inventory_updated)
 	_apply_attack_range()
 	call_deferred("_find_chunk_manager")
+	call_deferred("_emit_scrap_state")
 
 func _physics_process(delta: float) -> void:
 	_handle_movement()
@@ -70,11 +76,9 @@ func _try_harvest() -> void:
 	var amount: int = result.get("amount", 0)
 	if item_id.is_empty() or amount <= 0:
 		return
-	# Конвертируем StringName в полный ID для ItemRegistry
-	var full_id: String = "base:" + item_id
-	collect_item(full_id, amount)
+	collect_item(item_id, amount)
 	# Визуальная обратная связь
-	_spawn_harvest_popup(full_id, amount)
+	_spawn_harvest_popup(item_id, amount)
 	_flash_harvest()
 
 func _get_harvest_position() -> Vector2:
@@ -140,18 +144,24 @@ func collect_item(item_id: String, amount: int) -> void:
 func collect_scrap(amount: int) -> void:
 	if not _inventory:
 		return
-	collect_item("base:iron_ore", amount)
-	var total_iron: int = 0
-	for slot: InventorySlot in _inventory.slots:
-		if not slot.is_empty() and slot.item.id == "base:iron_ore":
-			total_iron += slot.amount
-	EventBus.scrap_collected.emit(total_iron)
+	collect_item(SCRAP_ITEM_ID, amount)
 
 func get_oxygen_system() -> OxygenSystem:
 	return _oxygen_system
 
 func get_inventory() -> InventoryComponent:
 	return _inventory
+
+func get_scrap_count() -> int:
+	return _count_item_amount(SCRAP_ITEM_ID)
+
+func spend_scrap(amount: int) -> bool:
+	if not _inventory or amount <= 0:
+		return false
+	var scrap_item: ItemData = ItemRegistry.get_item(SCRAP_ITEM_ID)
+	if not scrap_item:
+		return false
+	return _inventory.remove_item(scrap_item, amount)
 
 # --- Приватные ---
 
@@ -215,6 +225,11 @@ func _on_died() -> void:
 	EventBus.player_died.emit()
 	EventBus.game_over.emit()
 
+func _on_inventory_updated(inventory_node: Node) -> void:
+	if inventory_node != _inventory:
+		return
+	_emit_scrap_state()
+
 func _apply_attack_range() -> void:
 	if not _attack_area:
 		return
@@ -224,3 +239,17 @@ func _apply_attack_range() -> void:
 	var attack_shape: CircleShape2D = attack_shape_node.shape as CircleShape2D
 	if attack_shape:
 		attack_shape.radius = balance.attack_range
+
+func _count_item_amount(item_id: String) -> int:
+	if not _inventory:
+		return 0
+	var total: int = 0
+	for slot: InventorySlot in _inventory.slots:
+		if not slot.is_empty() and slot.item and slot.item.id == item_id:
+			total += slot.amount
+	return total
+
+func _emit_scrap_state() -> void:
+	EventBus.scrap_collected.emit(get_scrap_count())
+
+

@@ -86,6 +86,43 @@ func has_item(item_data: ItemData, amount: int) -> bool:
 				return true
 	return false
 
+## Сохранить состояние инвентаря.
+func save_state() -> Dictionary:
+	var serialized_slots: Array[Dictionary] = []
+	for slot: InventorySlot in slots:
+		if slot.is_empty() or not slot.item:
+			serialized_slots.append({})
+			continue
+		serialized_slots.append({
+			"item_id": slot.item.id,
+			"amount": slot.amount,
+		})
+	return {
+		"capacity": capacity,
+		"slots": serialized_slots,
+	}
+
+## Восстановить состояние инвентаря.
+func load_state(data: Dictionary) -> void:
+	capacity = int(data.get("capacity", capacity))
+	_initialize_slots()
+
+	var serialized_slots: Array = data.get("slots", [])
+	var limit: int = mini(serialized_slots.size(), slots.size())
+	for i: int in range(limit):
+		var slot_data: Dictionary = serialized_slots[i]
+		if slot_data.is_empty():
+			continue
+		var item_id: String = str(slot_data.get("item_id", ""))
+		var amount: int = int(slot_data.get("amount", 0))
+		var item_data: ItemData = ItemRegistry.get_item(item_id)
+		if not item_data or amount <= 0:
+			continue
+		slots[i].item = item_data
+		slots[i].amount = mini(amount, item_data.max_stack)
+
+	EventBus.inventory_updated.emit(self)
+
 # --- Приватные методы ---
 
 func _initialize_slots() -> void:

@@ -78,9 +78,9 @@ static func apply_player(tree: SceneTree, data: Dictionary) -> void:
 		float(position_data.get("y", 0.0))
 	)
 
-	var resources: Dictionary = data.get("resources", {})
-	if resources.has("scrap_count"):
-		player.set("scrap_count", int(resources["scrap_count"]))
+	var inventory: Node = player.get_node_or_null("InventoryComponent")
+	if inventory and inventory.has_method("load_state") and data.has("inventory"):
+		inventory.load_state(data["inventory"])
 
 	var health_data: Dictionary = data.get("health", {})
 	var health: HealthComponent = player.get_node_or_null("HealthComponent")

@@ -87,19 +87,27 @@ func populate_native(
 
 			if dep > 0:
 				# atlas_x: 0=iron, 1=copper, 2=stone, 3=water_src
+				var resource_data: ResourceNodeData = resource_defs.get(dep) as ResourceNodeData
+				if not resource_data:
+					continue
 				_resource_layer.set_cell(local, 0, Vector2i(dep - 1, 0))
 				_resource_data[local] = {
 					"deposit": dep,
 					"global": global_tile,
-					"remaining": resource_defs.get(dep, {}).get("harvest_count", 5) if resource_defs.has(dep) else 5,
+					"definition": resource_data,
+					"remaining": resource_data.harvest_count,
 					"depleted": false,
 				}
 			elif tree > 0:
+				var tree_data: ResourceNodeData = resource_defs.get(-1) as ResourceNodeData
+				if not tree_data:
+					continue
 				_resource_layer.set_cell(local, 0, Vector2i(4, 0))
 				_resource_data[local] = {
 					"deposit": -1,
 					"global": global_tile,
-					"remaining": 3,
+					"definition": tree_data,
+					"remaining": tree_data.harvest_count,
 					"depleted": false,
 				}
 	is_loaded = true
@@ -115,7 +123,8 @@ func try_harvest_at(local_tile: Vector2i) -> Dictionary:
 
 	rd["remaining"] = rd["remaining"] - 1
 	var dep: int = rd["deposit"]
-	var result: Dictionary = _get_harvest_result(dep)
+	var definition: ResourceNodeData = rd.get("definition") as ResourceNodeData
+	var result: Dictionary = _get_harvest_result(definition)
 
 	if rd["remaining"] <= 0:
 		rd["depleted"] = true
@@ -151,11 +160,10 @@ func cleanup() -> void:
 	is_loaded = false
 	_resource_data.clear()
 
-func _get_harvest_result(dep: int) -> Dictionary:
-	match dep:
-		1: return {"item_id": &"iron_ore", "amount": randi_range(1, 3)}
-		2: return {"item_id": &"copper_ore", "amount": randi_range(1, 2)}
-		3: return {"item_id": &"stone", "amount": randi_range(2, 4)}
-		4: return {"item_id": &"water_dirty", "amount": 1}
-		-1: return {"item_id": &"wood", "amount": randi_range(2, 5)}
-	return {}
+func _get_harvest_result(definition: ResourceNodeData) -> Dictionary:
+	if not definition:
+		return {}
+	return {
+		"item_id": definition.drop_item_id,
+		"amount": randi_range(definition.drop_amount_min, definition.drop_amount_max),
+	}
