@@ -6,7 +6,7 @@
 [resource]
 script = ExtResource("1_jv3em")
 id = "base:copper_ore"
-display_name = "Медная руда"
+display_name = ""
 display_name_key = "ITEM_COPPER_ORE_NAME"
 description_key = "ITEM_COPPER_ORE_DESC"
 icon = ExtResource("1_1chv4")

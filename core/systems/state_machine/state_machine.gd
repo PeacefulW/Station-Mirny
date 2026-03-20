@@ -20,7 +20,7 @@ func transition_to(name: StringName, data: Dictionary = {}) -> void:
 		return
 	var next_state: EntityState = _states.get(name)
 	if not next_state:
-		push_warning("StateMachine: state '%s' not found" % name)
+		push_warning(Localization.t("SYSTEM_STATE_NOT_FOUND", {"state": name}))
 		return
 	if _current_state:
 		_current_state.exit()

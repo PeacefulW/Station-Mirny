@@ -10,11 +10,13 @@ func execute(command: GameCommand) -> Dictionary:
 	if not command:
 		return {
 			"success": false,
-			"message": "Команда не передана",
+			"message_key": "SYSTEM_COMMAND_MISSING",
 		}
 	var result: Dictionary = command.execute()
 	if not result.has("success"):
 		result["success"] = false
-	if not result.has("message"):
-		result["message"] = ""
+	if not result.has("message_key"):
+		result["message_key"] = ""
+	if not result.has("message_args"):
+		result["message_args"] = {}
 	return result

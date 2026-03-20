@@ -5,9 +5,9 @@
 [resource]
 script = ExtResource("1_item_script")
 id = "base:iron_ingot"
-display_name = "Железный слиток"
+display_name = ""
 display_name_key = "ITEM_IRON_INGOT_NAME"
-description = "Результат ручной переплавки железной руды. Не используется в строительстве."
+description = ""
 description_key = "ITEM_IRON_INGOT_DESC"
 max_stack = 50
 weight = 0.8

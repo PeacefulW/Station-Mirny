@@ -36,7 +36,7 @@ var _previous_whole_hour: int = -1
 func _ready() -> void:
 	balance = load(BALANCE_PATH) as TimeBalance
 	if not balance:
-		push_error("TimeManager: не удалось загрузить %s" % BALANCE_PATH)
+		push_error(Localization.t("SYSTEM_TIME_BALANCE_LOAD_FAILED", {"path": BALANCE_PATH}))
 		return
 	_calculate_speed()
 	_previous_whole_hour = floori(current_hour)

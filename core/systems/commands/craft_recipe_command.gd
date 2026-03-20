@@ -15,6 +15,6 @@ func execute() -> Dictionary:
 	if not _crafting_system or not _inventory or not _recipe:
 		return {
 			"success": false,
-			"message": "Крафт недоступен",
+			"message_key": "SYSTEM_CRAFT_UNAVAILABLE",
 		}
 	return _crafting_system.execute_recipe(_recipe, _inventory)

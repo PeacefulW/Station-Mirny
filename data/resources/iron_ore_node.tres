@@ -5,11 +5,11 @@
 [resource]
 script = ExtResource("1_resource_script")
 id = "base:iron_ore_node"
-display_name = "Железная жила"
+display_name = ""
+display_name_key = "RESOURCE_IRON_ORE_NODE_NAME"
 drop_item_id = "base:iron_ore"
 drop_amount_min = 1
 drop_amount_max = 3
 harvest_count = 8
 placeholder_color = Color(0.55, 0.35, 0.25, 1)
 deposit_type = 1
-

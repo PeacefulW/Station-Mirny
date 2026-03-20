@@ -114,7 +114,7 @@ func _create_building_at(grid_pos: Vector2i, bd: BuildingData) -> Node2D:
 	var snap_pos: Vector2 = grid_to_world(grid_pos)
 	var node: Node2D = _building_factory.create_building(grid_pos, snap_pos, bd, _grid_size)
 	if not node:
-		push_error("BuildingPlacementService: не удалось создать постройку %s" % bd.display_name)
+		push_error(Localization.t("SYSTEM_BUILD_PLACEMENT_CREATE_FAILED", {"building": bd.get_display_name()}))
 		return null
 	if _wall_container:
 		_wall_container.add_child(node)

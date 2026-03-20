@@ -7,6 +7,8 @@ extends Resource
 @export_group("Идентификация")
 ## Уникальный ID.
 @export var id: StringName = &""
+## Ключ локализации имени.
+@export var display_name_key: String = ""
 ## Отображаемое имя.
 @export var display_name: String = ""
 
@@ -40,3 +42,6 @@ extends Resource
 @export_group("Связь с генерацией")
 ## Какому DepositType из TileGenData соответствует.
 @export var deposit_type: int = 0
+
+func get_display_name() -> String:
+	return Localization.td(display_name_key, display_name)

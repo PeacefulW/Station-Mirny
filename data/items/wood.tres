@@ -6,9 +6,9 @@
 [resource]
 script = ExtResource("1_pkq13")
 id = "base:wood"
-display_name = "Дерево"
+display_name = ""
 display_name_key = "ITEM_WOOD_NAME"
-description = "Топливо ранней игры. Используется для заправки термосжигателя."
+description = ""
 description_key = "ITEM_WOOD_DESC"
 icon = ExtResource("1_qnvr4")
 max_stack = 50

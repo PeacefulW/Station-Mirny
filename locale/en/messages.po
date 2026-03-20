@@ -284,3 +284,173 @@ msgstr "Building removed, scrap refunded: {amount}"
 
 msgid "SYSTEM_INVENTORY_OVERFLOW"
 msgstr "Inventory overflow, could not fit: {amount}"
+msgid "SYSTEM_COMMAND_MISSING"
+msgstr "Command was not provided"
+
+msgid "SYSTEM_CRAFT_UNAVAILABLE"
+msgstr "Crafting is unavailable"
+
+msgid "SYSTEM_WORLD_BALANCE_MISSING"
+msgstr "World generation balance failed to load"
+
+msgid "UI_WORLD_CREATE_TITLE"
+msgstr "STATION MIRNY"
+
+msgid "UI_WORLD_CREATE_SUBTITLE"
+msgstr "Create New World"
+
+msgid "UI_WORLD_CREATE_SEED_LABEL"
+msgstr "World seed:"
+
+msgid "UI_WORLD_CREATE_SEED_PLACEHOLDER"
+msgstr "Number or word"
+
+msgid "UI_WORLD_CREATE_RANDOM_BUTTON"
+msgstr "Random"
+
+msgid "UI_WORLD_CREATE_WATER_LABEL"
+msgstr "Water level:"
+
+msgid "UI_WORLD_CREATE_ROCK_LABEL"
+msgstr "Mountain height:"
+
+msgid "UI_WORLD_CREATE_WARP_LABEL"
+msgstr "Twist:"
+
+msgid "UI_WORLD_CREATE_RIDGE_LABEL"
+msgstr "Mountain ridges:"
+
+msgid "UI_WORLD_CREATE_HINT"
+msgstr "Same seed = same planet"
+
+msgid "UI_WORLD_CREATE_START_BUTTON"
+msgstr "▶  LAND ON THE PLANET"
+
+msgid "UI_WORLD_CREATE_PERCENT"
+msgstr "{value}%"
+
+msgid "UI_WORLD_CREATE_NUMBER"
+msgstr "{value}"
+
+msgid "RESOURCE_COPPER_ORE_NODE_NAME"
+msgstr "Copper Vein"
+
+msgid "RESOURCE_DEAD_TREE_NODE_NAME"
+msgstr "Spore Trunk"
+
+msgid "RESOURCE_IRON_ORE_NODE_NAME"
+msgstr "Iron Vein"
+
+msgid "RESOURCE_STONE_NODE_NAME"
+msgstr "Stone Deposit"
+
+msgid "RESOURCE_WATER_SOURCE_NODE_NAME"
+msgstr "Water Source"
+
+msgid "BIOME_PLAINS_NAME"
+msgstr "Orange Plains"
+
+msgid "SYSTEM_COMMAND_NOT_IMPLEMENTED"
+msgstr "Command is not implemented"
+
+msgid "SYSTEM_BUILDING_SYSTEM_UNAVAILABLE"
+msgstr "Building system is unavailable"
+
+msgid "SYSTEM_BUILD_FACTORY_SCRIPT_MISSING"
+msgstr "Missing script for building: {building}"
+
+msgid "SYSTEM_BUILD_PLACEMENT_CREATE_FAILED"
+msgstr "Failed to create building: {building}"
+
+msgid "SYSTEM_BUILD_WALL_CONTAINER_MISSING"
+msgstr "Building container is not assigned"
+
+msgid "SYSTEM_PLAYER_BALANCE_MISSING"
+msgstr "Player balance is not assigned"
+
+msgid "SYSTEM_PLAYER_INVENTORY_COMPONENT_MISSING"
+msgstr "Player inventory component not found"
+
+msgid "SYSTEM_OXYGEN_BALANCE_MISSING"
+msgstr "Oxygen balance is not assigned"
+
+msgid "SYSTEM_WORLD_GENERATOR_MISSING"
+msgstr "WorldGenerator autoload not found"
+
+msgid "SYSTEM_UI_LAYER_MISSING"
+msgstr "UILayer not found, UI will not be created"
+
+msgid "SYSTEM_REGISTRY_ITEM_NOT_FOUND"
+msgstr "Item not found in registry: {id}"
+
+msgid "SYSTEM_REGISTRY_RECIPE_NOT_FOUND"
+msgstr "Recipe not found in registry: {id}"
+
+msgid "SYSTEM_REGISTRY_BUILDING_NOT_FOUND"
+msgstr "Building not found in registry: {id}"
+
+msgid "SYSTEM_REGISTRY_RESOURCE_NODE_NOT_FOUND"
+msgstr "Resource node not found in registry: {id}"
+
+msgid "SYSTEM_REGISTRY_DEPOSIT_NOT_FOUND"
+msgstr "Resource node not found for deposit_type: {deposit_type}"
+
+msgid "SYSTEM_REGISTRY_INVALID_ITEM"
+msgstr "Attempted to register an invalid item"
+
+msgid "SYSTEM_REGISTRY_INVALID_RECIPE"
+msgstr "Attempted to register an invalid recipe"
+
+msgid "SYSTEM_REGISTRY_INVALID_BUILDING"
+msgstr "Attempted to register an invalid building"
+
+msgid "SYSTEM_REGISTRY_INVALID_RESOURCE_NODE"
+msgstr "Attempted to register an invalid resource node"
+
+msgid "SYSTEM_REGISTRY_DIR_OPEN_FAILED"
+msgstr "Failed to open registry directory: {path}"
+
+msgid "SYSTEM_SAVE_ROOT_CREATE_FAILED"
+msgstr "Failed to create save root directory: {path}"
+
+msgid "SYSTEM_SAVE_BUSY"
+msgstr "A save or load operation is already in progress"
+
+msgid "SYSTEM_SAVE_SLOT_CREATE_FAILED"
+msgstr "Failed to create save slot: {slot}"
+
+msgid "SYSTEM_SAVE_NOT_FOUND"
+msgstr "Save not found: {slot}"
+
+msgid "SYSTEM_SAVE_WORLD_INVALID"
+msgstr "Invalid world save file: {file}"
+
+msgid "SYSTEM_TIME_BALANCE_LOAD_FAILED"
+msgstr "Failed to load time balance: {path}"
+
+msgid "SYSTEM_WORLD_BALANCE_LOAD_FAILED"
+msgstr "Failed to load world generation balance: {path}"
+
+msgid "SYSTEM_CHUNK_TERRAIN_ATLAS_MISSING"
+msgstr "Terrain atlas not found, using fallback: {path}"
+
+msgid "SYSTEM_CHUNK_RESOURCE_ATLAS_MISSING"
+msgstr "Resource atlas not found, using fallback: {path}"
+
+msgid "SYSTEM_CHUNK_RESOURCE_DEFS_MISSING"
+msgstr "World resource data was not loaded from data/resources"
+
+msgid "SYSTEM_CHUNK_SAVE_DIR_CREATE_FAILED"
+msgstr "Failed to create chunk directory: {path}"
+
+msgid "SYSTEM_CHUNK_SAVE_WRITE_FAILED"
+msgstr "Failed to write chunk file: {path}"
+
+msgid "SYSTEM_CHUNK_SAVE_READ_FAILED"
+msgstr "Failed to read chunk file: {path}"
+
+msgid "SYSTEM_CHUNK_SAVE_PARSE_FAILED"
+msgstr "Failed to parse chunk file {path}: {error}"
+
+msgid "SYSTEM_CHUNK_SAVE_INVALID_FORMAT"
+msgstr "Invalid chunk file format: {path}"

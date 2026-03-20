@@ -8,6 +8,8 @@ extends Resource
 @export_group("Идентификация")
 ## Уникальный ID биома.
 @export var id: StringName = &""
+## Ключ локализации имени.
+@export var display_name_key: String = ""
 ## Отображаемое имя.
 @export var display_name: String = ""
 
@@ -50,3 +52,6 @@ extends Resource
 @export var tree_types: Array[StringName] = [&"dead_tree"]
 ## Вероятность декоративной травы (0.0 – 1.0).
 @export var grass_coverage: float = 0.6
+
+func get_display_name() -> String:
+	return Localization.td(display_name_key, display_name)

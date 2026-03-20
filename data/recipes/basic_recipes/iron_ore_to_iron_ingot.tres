@@ -5,9 +5,9 @@
 [resource]
 script = ExtResource("1_recipe_script")
 id = "base:iron_ore_to_iron_ingot"
-display_name = "Переплавка железа"
+display_name = ""
 display_name_key = "RECIPE_IRON_ORE_TO_INGOT_NAME"
-description = "Руда идёт в крафт, а не в строительство: переплавь железную руду в слиток."
+description = ""
 description_key = "RECIPE_IRON_ORE_TO_INGOT_DESC"
 input_item_id = "base:iron_ore"
 input_amount = 1

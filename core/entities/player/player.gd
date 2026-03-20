@@ -25,7 +25,7 @@ var _state_machine: StateMachine = StateMachine.new()
 
 func _ready() -> void:
 	if not balance:
-		push_error("Player: PlayerBalance не назначен!")
+		push_error(Localization.t("SYSTEM_PLAYER_BALANCE_MISSING"))
 		return
 	add_to_group("player")
 	collision_layer = 1
@@ -39,7 +39,7 @@ func _ready() -> void:
 	if _health_component:
 		_health_component.died.connect(_on_died)
 	if not _inventory:
-		push_error("Player: InventoryComponent не найден!")
+		push_error(Localization.t("SYSTEM_PLAYER_INVENTORY_COMPONENT_MISSING"))
 	else:
 		EventBus.inventory_updated.connect(_on_inventory_updated)
 	_apply_attack_range()

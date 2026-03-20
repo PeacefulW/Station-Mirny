@@ -105,7 +105,7 @@ func _build_terrain_tileset() -> void:
 		_shared_tileset.add_source(source, 0)
 	else:
 		# Fallback — цветные квадраты (как раньше)
-		push_warning("ChunkManager: Атлас %s не найден, используем цвета" % TERRAIN_ATLAS_PATH)
+		push_warning(Localization.t("SYSTEM_CHUNK_TERRAIN_ATLAS_MISSING", {"path": TERRAIN_ATLAS_PATH}))
 		_build_terrain_tileset_fallback()
 
 ## Fallback: генерация цветных квадратов если атлас не найден.
@@ -156,7 +156,7 @@ func _build_resource_tileset() -> void:
 			src.create_tile(Vector2i(x, 0))
 		_resource_tileset.add_source(src, 0)
 	else:
-		push_warning("ChunkManager: Атлас ресурсов не найден, используем квадраты")
+		push_warning(Localization.t("SYSTEM_CHUNK_RESOURCE_ATLAS_MISSING", {"path": RESOURCE_ATLAS_PATH}))
 		_build_resource_tileset_fallback()
 
 ## Fallback: цветные квадраты если атлас ресурсов не найден.
@@ -258,4 +258,4 @@ func _load_resource_defs() -> void:
 	for resource_node: ResourceNodeData in resource_nodes:
 		_resource_defs[resource_node.deposit_type] = resource_node
 	if _resource_defs.is_empty():
-		push_warning("ChunkManager: не загружены world-resource данные из data/resources")
+		push_warning(Localization.t("SYSTEM_CHUNK_RESOURCE_DEFS_MISSING"))

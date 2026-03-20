@@ -55,7 +55,7 @@ func _create_scripted_building(
 	if not script_res and not building_data.script_path.is_empty():
 		script_res = load(building_data.script_path) as Script
 	if not script_res:
-		push_error("BuildingFactory: не найден script для %s" % building_data.display_name)
+		push_error(Localization.t("SYSTEM_BUILD_FACTORY_SCRIPT_MISSING", {"building": building_data.get_display_name()}))
 		return null
 
 	var building_balance: Resource = building_data.logic_balance

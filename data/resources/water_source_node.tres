@@ -5,7 +5,8 @@
 [resource]
 script = ExtResource("1_resource_script")
 id = "base:water_source_node"
-display_name = "Источник воды"
+display_name = ""
+display_name_key = "RESOURCE_WATER_SOURCE_NODE_NAME"
 drop_item_id = "base:water_dirty"
 drop_amount_min = 1
 drop_amount_max = 1
@@ -13,4 +14,3 @@ harvest_count = 0
 placeholder_color = Color(0.20, 0.35, 0.55, 1)
 is_solid = false
 deposit_type = 4
-

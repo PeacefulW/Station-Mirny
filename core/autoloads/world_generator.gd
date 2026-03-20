@@ -19,7 +19,7 @@ var _native_generator: ChunkGenerator = null
 func _ready() -> void:
 	balance = load(BALANCE_PATH) as WorldGenBalance
 	if not balance:
-		push_error("WorldGenerator: не удалось загрузить %s" % BALANCE_PATH)
+		push_error(Localization.t("SYSTEM_WORLD_BALANCE_LOAD_FAILED", {"path": BALANCE_PATH}))
 		return
 	current_biome = load(BIOME_PATH) as BiomeData
 
@@ -121,4 +121,3 @@ func _setup_native_generator() -> void:
 		"resource_frequency": balance.resource_frequency,
 	}
 	_native_generator.initialize(world_seed, params)
-	print("=== C++ ACTIVE: ", _native_generator != null, " ===")

@@ -3,10 +3,10 @@ extends RefCounted
 
 ## Базовая команда игрового действия.
 ## Возвращает словарь формата:
-## { "success": bool, "message": String, ... }
+## { "success": bool, "message_key": String, ... }
 
 func execute() -> Dictionary:
 	return {
 		"success": false,
-		"message": "Команда не реализована",
+		"message_key": "SYSTEM_COMMAND_NOT_IMPLEMENTED",
 	}

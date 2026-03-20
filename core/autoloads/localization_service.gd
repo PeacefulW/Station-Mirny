@@ -16,7 +16,7 @@ func has(key: String) -> bool:
 func t(key: String, args: Dictionary = {}) -> String:
 	var text: String = tr(key)
 	if text == key:
-		push_warning("Localization: ключ не найден — '%s'" % key)
+		push_warning(key)
 	for arg_key: String in args:
 		text = text.replace("{%s}" % arg_key, str(args[arg_key]))
 	return text

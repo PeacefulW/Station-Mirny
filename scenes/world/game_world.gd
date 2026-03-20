@@ -70,7 +70,7 @@ func _process(delta: float) -> void:
 
 func _init_world_generator() -> void:
 	if not WorldGenerator:
-		push_error("GameWorld: WorldGenerator Autoload не найден!")
+		push_error(Localization.t("SYSTEM_WORLD_GENERATOR_MISSING"))
 		return
 	if _player:
 		WorldGenerator.spawn_tile = WorldGenerator.world_to_tile(_player.global_position)
@@ -184,5 +184,5 @@ func _resolve_ui_layer() -> CanvasLayer:
 		return ui_layer
 	var fallback: CanvasLayer = get_node_or_null("UILayer") as CanvasLayer
 	if not fallback:
-		push_error("GameWorld: UILayer не найден, UI не будет создан.")
+		push_error(Localization.t("SYSTEM_UI_LAYER_MISSING"))
 	return fallback

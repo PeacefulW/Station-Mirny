@@ -6,7 +6,7 @@ extends Resource
 
 @export var id: String = "base:unknown"
 @export var display_name_key: String = ""
-@export var display_name: String = "Неизвестный предмет"
+@export var display_name: String = ""
 @export var description_key: String = ""
 @export_multiline var description: String = ""
 @export var icon: Texture2D = null

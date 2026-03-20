@@ -33,7 +33,7 @@ func _ready() -> void:
 func get_item(id: String) -> ItemData:
 	if _items.has(id):
 		return _items[id]
-	push_warning("ItemRegistry: Предмет с ID '%s' не найден." % id)
+	push_warning(Localization.t("SYSTEM_REGISTRY_ITEM_NOT_FOUND", {"id": id}))
 	return null
 
 ## Возвращает данные рецепта по строковому ID.
@@ -41,7 +41,7 @@ func get_recipe(id: String) -> RecipeData:
 	_ensure_recipes_loaded()
 	if _recipes.has(id):
 		return _recipes[id]
-	push_warning("ItemRegistry: Рецепт с ID '%s' не найден." % id)
+	push_warning(Localization.t("SYSTEM_REGISTRY_RECIPE_NOT_FOUND", {"id": id}))
 	return null
 
 ## Возвращает все зарегистрированные рецепты.
@@ -56,7 +56,7 @@ func get_all_recipes() -> Array[RecipeData]:
 func get_building(id: StringName) -> BuildingData:
 	if _buildings.has(id):
 		return _buildings[id]
-	push_warning("ItemRegistry: Постройка с ID '%s' не найдена." % id)
+	push_warning(Localization.t("SYSTEM_REGISTRY_BUILDING_NOT_FOUND", {"id": id}))
 	return null
 
 ## Возвращает все зарегистрированные BuildingData.
@@ -70,14 +70,14 @@ func get_all_buildings() -> Array[BuildingData]:
 func get_resource_node(id: StringName) -> ResourceNodeData:
 	if _resource_nodes.has(id):
 		return _resource_nodes[id]
-	push_warning("ItemRegistry: Ресурсная нода с ID '%s' не найдена." % id)
+	push_warning(Localization.t("SYSTEM_REGISTRY_RESOURCE_NODE_NOT_FOUND", {"id": id}))
 	return null
 
 ## Возвращает описание ресурсной ноды по deposit_type генератора мира.
 func get_resource_node_by_deposit(deposit_type: int) -> ResourceNodeData:
 	if _resource_nodes_by_deposit.has(deposit_type):
 		return _resource_nodes_by_deposit[deposit_type]
-	push_warning("ItemRegistry: Ресурсная нода для deposit_type '%d' не найдена." % deposit_type)
+	push_warning(Localization.t("SYSTEM_REGISTRY_DEPOSIT_NOT_FOUND", {"deposit_type": deposit_type}))
 	return null
 
 ## Возвращает все зарегистрированные world-resource типы.
@@ -90,28 +90,28 @@ func get_all_resource_nodes() -> Array[ResourceNodeData]:
 ## Регистрирует новый предмет в базе (используется ядром и модами).
 func register_item(item: ItemData) -> void:
 	if not item or item.id.is_empty():
-		push_error("ItemRegistry: Попытка зарегистрировать некорректный предмет.")
+		push_error(Localization.t("SYSTEM_REGISTRY_INVALID_ITEM"))
 		return
 	_items[item.id] = item
 
 ## Регистрирует новый рецепт в базе (используется ядром и модами).
 func register_recipe(recipe: RecipeData) -> void:
 	if not recipe or recipe.id.is_empty():
-		push_error("ItemRegistry: Попытка зарегистрировать некорректный рецепт.")
+		push_error(Localization.t("SYSTEM_REGISTRY_INVALID_RECIPE"))
 		return
 	_recipes[recipe.id] = recipe
 
 ## Регистрирует новый тип постройки.
 func register_building(building_data: BuildingData) -> void:
 	if not building_data or building_data.id.is_empty():
-		push_error("ItemRegistry: Попытка зарегистрировать некорректную постройку.")
+		push_error(Localization.t("SYSTEM_REGISTRY_INVALID_BUILDING"))
 		return
 	_buildings[building_data.id] = building_data
 
 ## Регистрирует описание ресурсной ноды мира.
 func register_resource_node(resource_node: ResourceNodeData) -> void:
 	if not resource_node or resource_node.id.is_empty():
-		push_error("ItemRegistry: Попытка зарегистрировать некорректную ресурсную ноду.")
+		push_error(Localization.t("SYSTEM_REGISTRY_INVALID_RESOURCE_NODE"))
 		return
 	_resource_nodes[resource_node.id] = resource_node
 	_resource_nodes_by_deposit[resource_node.deposit_type] = resource_node
@@ -122,7 +122,7 @@ func _load_base_items() -> void:
 	var items_path: String = "res://data/items/"
 	var dir := DirAccess.open(items_path)
 	if not dir:
-		push_warning("ItemRegistry: Не удалось открыть папку %s" % items_path)
+		push_warning(Localization.t("SYSTEM_REGISTRY_DIR_OPEN_FAILED", {"path": items_path}))
 		return
 
 	dir.list_dir_begin()
@@ -138,7 +138,7 @@ func _load_resource_nodes() -> void:
 	var resources_path: String = "res://data/resources/"
 	var dir := DirAccess.open(resources_path)
 	if not dir:
-		push_warning("ItemRegistry: Не удалось открыть папку %s" % resources_path)
+		push_warning(Localization.t("SYSTEM_REGISTRY_DIR_OPEN_FAILED", {"path": resources_path}))
 		return
 
 	dir.list_dir_begin()
@@ -154,7 +154,7 @@ func _load_buildings() -> void:
 	var buildings_path: String = "res://data/buildings/"
 	var dir := DirAccess.open(buildings_path)
 	if not dir:
-		push_warning("ItemRegistry: Не удалось открыть папку %s" % buildings_path)
+		push_warning(Localization.t("SYSTEM_REGISTRY_DIR_OPEN_FAILED", {"path": buildings_path}))
 		return
 
 	dir.list_dir_begin()

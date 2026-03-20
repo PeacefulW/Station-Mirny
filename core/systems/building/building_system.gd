@@ -28,7 +28,7 @@ var _command_executor: CommandExecutor = null
 func _ready() -> void:
 	add_to_group("building_system")
 	if not wall_container:
-		push_error("BuildingSystem: wall_container не назначен.")
+		push_error(Localization.t("SYSTEM_BUILD_WALL_CONTAINER_MISSING"))
 		return
 	_player = _find_player()
 	_placement_service.setup(balance, wall_container)

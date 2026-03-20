@@ -22,7 +22,7 @@ static func save_chunks(save_path: String, chunk_data: Dictionary) -> bool:
 	if not DirAccess.dir_exists_absolute(chunks_path):
 		var err: Error = DirAccess.make_dir_recursive_absolute(chunks_path)
 		if err != OK:
-			push_error("ChunkSaveSystem: не удалось создать %s" % chunks_path)
+			push_error(Localization.t("SYSTEM_CHUNK_SAVE_DIR_CREATE_FAILED", {"path": chunks_path}))
 			return false
 	var saved_count: int = 0
 	for coord: Vector2i in chunk_data:
@@ -36,7 +36,7 @@ static func save_chunks(save_path: String, chunk_data: Dictionary) -> bool:
 		var json_string: String = JSON.stringify(serialized, "\t")
 		var file := FileAccess.open(file_path, FileAccess.WRITE)
 		if not file:
-			push_error("ChunkSaveSystem: не удалось записать %s" % file_path)
+			push_error(Localization.t("SYSTEM_CHUNK_SAVE_WRITE_FAILED", {"path": file_path}))
 			continue
 		file.store_string(json_string)
 		file.close()
@@ -111,18 +111,21 @@ static func _serialize_chunk(coord: Vector2i, modifications: Dictionary) -> Dict
 static func _load_single_chunk(file_path: String) -> Dictionary:
 	var file := FileAccess.open(file_path, FileAccess.READ)
 	if not file:
-		push_warning("ChunkSaveSystem: не удалось прочитать %s" % file_path)
+		push_warning(Localization.t("SYSTEM_CHUNK_SAVE_READ_FAILED", {"path": file_path}))
 		return {}
 	var json_string: String = file.get_as_text()
 	file.close()
 	var json := JSON.new()
 	var parse_err: Error = json.parse(json_string)
 	if parse_err != OK:
-		push_warning("ChunkSaveSystem: ошибка парсинга %s: %s" % [file_path, json.get_error_message()])
+		push_warning(Localization.t("SYSTEM_CHUNK_SAVE_PARSE_FAILED", {
+			"path": file_path,
+			"error": json.get_error_message(),
+		}))
 		return {}
 	var data: Dictionary = json.data
 	if not data.has("coord_x") or not data.has("modifications"):
-		push_warning("ChunkSaveSystem: невалидный формат %s" % file_path)
+		push_warning(Localization.t("SYSTEM_CHUNK_SAVE_INVALID_FORMAT", {"path": file_path}))
 		return {}
 	var coord := Vector2i(int(data["coord_x"]), int(data["coord_y"]))
 	# Восстанавливаем ключи из строк "(x,y)" обратно в Vector2i

@@ -5,11 +5,11 @@
 [resource]
 script = ExtResource("1_resource_script")
 id = "base:dead_tree_node"
-display_name = "Сухое дерево"
+display_name = ""
+display_name_key = "RESOURCE_DEAD_TREE_NODE_NAME"
 drop_item_id = "base:wood"
 drop_amount_min = 2
 drop_amount_max = 5
 harvest_count = 3
 placeholder_color = Color(0.30, 0.22, 0.15, 1)
 deposit_type = -1
-

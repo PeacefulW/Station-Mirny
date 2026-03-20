@@ -6,7 +6,7 @@
 [resource]
 script = ExtResource("1_nrqy1")
 id = "base:stone"
-display_name = "Камень"
+display_name = ""
 display_name_key = "ITEM_STONE_NAME"
 description_key = "ITEM_STONE_DESC"
 icon = ExtResource("1_ofji2")

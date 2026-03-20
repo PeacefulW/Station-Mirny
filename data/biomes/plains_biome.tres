@@ -5,7 +5,8 @@
 [resource]
 script = ExtResource("1")
 id = &"plains"
-display_name = "Оранжевые равнины"
+display_name_key = "BIOME_PLAINS_NAME"
+display_name = ""
 ground_tile_id = 0
 rock_tile_id = 1
 water_tile_id = 2

@@ -21,7 +21,7 @@ var is_busy: bool = false
 
 func _ready() -> void:
 	if not SaveIO.ensure_directory(SAVES_ROOT):
-		push_error("SaveManager: не удалось создать корневую папку сохранений")
+		push_error(Localization.t("SYSTEM_SAVE_ROOT_CREATE_FAILED", {"path": SAVES_ROOT}))
 
 # --- Публичные методы ---
 
@@ -29,7 +29,7 @@ func _ready() -> void:
 ## Если slot_name пуст — используется текущий слот.
 func save_game(slot_name: String = "") -> bool:
 	if is_busy:
-		push_warning("SaveManager: уже идёт операция сохранения/загрузки")
+		push_warning(Localization.t("SYSTEM_SAVE_BUSY"))
 		return false
 
 	var resolved_slot: String = _resolve_slot_name(slot_name)
@@ -40,7 +40,7 @@ func save_game(slot_name: String = "") -> bool:
 	var save_path: String = SAVES_ROOT.path_join(resolved_slot)
 	if not SaveIO.ensure_directory(save_path):
 		is_busy = false
-		push_error("SaveManager: не удалось создать слот %s" % resolved_slot)
+		push_error(Localization.t("SYSTEM_SAVE_SLOT_CREATE_FAILED", {"slot": resolved_slot}))
 		return false
 
 	var success: bool = true
@@ -77,12 +77,12 @@ func save_game(slot_name: String = "") -> bool:
 ## Загрузить игру из слота.
 func load_game(slot_name: String) -> bool:
 	if is_busy:
-		push_warning("SaveManager: уже идёт операция сохранения/загрузки")
+		push_warning(Localization.t("SYSTEM_SAVE_BUSY"))
 		return false
 
 	var save_path: String = SAVES_ROOT.path_join(slot_name)
 	if not DirAccess.dir_exists_absolute(save_path):
-		push_error("SaveManager: сохранение не найдено: %s" % slot_name)
+		push_error(Localization.t("SYSTEM_SAVE_NOT_FOUND", {"slot": slot_name}))
 		return false
 
 	is_busy = true
@@ -90,7 +90,7 @@ func load_game(slot_name: String) -> bool:
 
 	var world_data: Dictionary = SaveIO.read_json(save_path.path_join(WORLD_FILE))
 	if world_data.is_empty() or not SaveAppliers.apply_world(world_data):
-		push_error("SaveManager: невалидный world.json")
+		push_error(Localization.t("SYSTEM_SAVE_WORLD_INVALID", {"file": WORLD_FILE}))
 		is_busy = false
 		return false
 

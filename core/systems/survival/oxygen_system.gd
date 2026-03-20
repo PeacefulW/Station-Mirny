@@ -19,7 +19,7 @@ var _is_base_powered: bool = false
 
 func _ready() -> void:
 	if not balance:
-		push_error("OxygenSystem: balance не назначен!")
+		push_error(Localization.t("SYSTEM_OXYGEN_BALANCE_MISSING"))
 		return
 	_current_oxygen = balance.max_oxygen
 	EventBus.rooms_recalculated.connect(_on_rooms_recalculated)
