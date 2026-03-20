@@ -1,0 +1,286 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: en\n"
+
+msgid "UI_INVENTORY_TITLE"
+msgstr "INVENTORY AND CRAFTING"
+
+msgid "UI_INVENTORY_SECTION"
+msgstr "Inventory"
+
+msgid "UI_INVENTORY_HINT"
+msgstr "Tab - close  |  Scrap is used for building  |  Ore is used for crafting"
+
+msgid "UI_INVENTORY_WEIGHT"
+msgstr "{weight} kg"
+
+msgid "UI_INVENTORY_EMPTY_SLOT"
+msgstr "Empty"
+
+msgid "UI_BUILD_TITLE"
+msgstr "BUILDING"
+
+msgid "UI_BUILD_TITLE_SELECTED"
+msgstr "BUILDING: {building}"
+
+msgid "UI_BUILD_HINT"
+msgstr "  |  LMB - place  |  RMB - remove  |  cost is in scrap  |  B - close"
+
+msgid "UI_BUILD_BUTTON"
+msgstr "{hotkey}{name} ({cost} scrap)"
+
+msgid "UI_CRAFT_TITLE"
+msgstr "Crafting"
+
+msgid "UI_CRAFT_SELECT_RECIPE"
+msgstr "Select a recipe on the right."
+
+msgid "UI_CRAFT_NO_RECIPES"
+msgstr "No recipes found. Check the data/recipes folder and the .tres files."
+
+msgid "UI_CRAFT_RECIPE_INVALID"
+msgstr "Recipe error: item not found in registry"
+
+msgid "UI_CRAFT_RECIPE_BROKEN"
+msgstr "broken recipe"
+
+msgid "UI_CRAFT_RECIPE_DETAILS"
+msgstr "{description}\n\nRequired: {input} x{input_amount}\nResult: {output} x{output_amount}"
+
+msgid "UI_CRAFT_SYSTEM_UNAVAILABLE"
+msgstr "Crafting system unavailable"
+
+msgid "UI_CRAFT_STATUS_AVAILABLE"
+msgstr "Available"
+
+msgid "UI_CRAFT_STATUS_UNAVAILABLE"
+msgstr "Unavailable: {reason}"
+
+msgid "UI_CRAFT_REASON_RECIPE_BROKEN"
+msgstr "recipe is broken (items not found)"
+
+msgid "UI_CRAFT_REASON_SYSTEM_NOT_READY"
+msgstr "crafting system is not initialized"
+
+msgid "UI_CRAFT_REASON_INVENTORY_NOT_FOUND"
+msgstr "player inventory not found"
+
+msgid "UI_CRAFT_REASON_NOT_ENOUGH_SPACE"
+msgstr "not enough inventory space"
+
+msgid "UI_CRAFT_REASON_MISSING_ITEMS"
+msgstr "need {required} {item}, have {available}"
+
+msgid "UI_CRAFT_FAILED"
+msgstr "Craft failed: {reason}"
+
+msgid "UI_POWER_TITLE"
+msgstr "⚡ POWER GRID"
+
+msgid "UI_POWER_STATUS_OK"
+msgstr "OK"
+
+msgid "UI_POWER_STATUS_DEFICIT"
+msgstr "DEFICIT"
+
+msgid "UI_POWER_STATUS_OFFLINE"
+msgstr "OFFLINE"
+
+msgid "UI_POWER_WATTS"
+msgstr "{supply} / {demand} W"
+
+msgid "UI_POWER_GENERATORS"
+msgstr "Generators:"
+
+msgid "UI_POWER_HINT"
+msgstr "P - close  |  E nearby - load 1 biomass into burner  |  Base restores O2 only when powered"
+
+msgid "UI_POWER_NO_GENERATORS"
+msgstr "  No generators"
+
+msgid "UI_POWER_BATTERY_CHARGE"
+msgstr "{charge} Wh ({percent}%)"
+
+msgid "UI_POWER_BURNER_FUEL"
+msgstr "Fuel: {fuel} ({percent}%)"
+
+msgid "UI_POWER_BURNER_OFF"
+msgstr "[OFF]"
+
+msgid "UI_POWER_GENERIC_GENERATOR"
+msgstr "Generator"
+
+msgid "UI_POWER_SINGLE_WATTS"
+msgstr "{watts} W"
+
+msgid "UI_POWER_WATTS_SHORT"
+msgstr "{watts}W"
+
+msgid "UI_HUD_OXYGEN"
+msgstr "O2: "
+
+msgid "UI_HUD_SCRAP"
+msgstr "Building scrap: {count}"
+
+msgid "UI_HUD_CONTROLS"
+msgstr "WASD - move  |  E - harvest / refuel burner  |  Tab - inventory and crafting  |  B - build  |  P - power  |  SPACE - attack"
+
+msgid "UI_HUD_BUILD_MODE"
+msgstr "[ BUILD MODE ]"
+
+msgid "UI_HUD_STATUS_OUTSIDE"
+msgstr "OUTSIDE"
+
+msgid "UI_HUD_STATUS_BASE_POWERED"
+msgstr "IN BASE / POWER OK"
+
+msgid "UI_HUD_STATUS_BASE_UNPOWERED"
+msgstr "IN BASE / NO POWER"
+
+msgid "UI_HUD_DAY_PHASE"
+msgstr "Day {day} - {phase}"
+
+msgid "UI_TIME_DAWN"
+msgstr "DAWN"
+
+msgid "UI_TIME_DAY"
+msgstr "DAY"
+
+msgid "UI_TIME_DUSK"
+msgstr "DUSK"
+
+msgid "UI_TIME_NIGHT"
+msgstr "NIGHT"
+
+msgid "UI_TIME_UNKNOWN"
+msgstr "???"
+
+msgid "UI_GAME_OVER"
+msgstr "GAME OVER"
+
+msgid "UI_PICKUP_POPUP"
+msgstr "+{amount} {item}"
+
+msgid "UI_BURNER_REFUELED"
+msgstr "+{amount} fuel"
+
+msgid "ITEM_SCRAP_NAME"
+msgstr "Scrap"
+
+msgid "ITEM_SCRAP_DESC"
+msgstr "Wreckage and metal junk. Core early-game building resource."
+
+msgid "ITEM_WOOD_NAME"
+msgstr "Biomass"
+
+msgid "ITEM_WOOD_DESC"
+msgstr "Early-game fuel. Used to refuel the thermo burner."
+
+msgid "ITEM_IRON_ORE_NAME"
+msgstr "Iron Ore"
+
+msgid "ITEM_IRON_ORE_DESC"
+msgstr "Manual crafting resource. Smelt it into iron ingots."
+
+msgid "ITEM_IRON_INGOT_NAME"
+msgstr "Iron Ingot"
+
+msgid "ITEM_IRON_INGOT_DESC"
+msgstr "Result of manual iron smelting. Not used for building."
+
+msgid "ITEM_COPPER_ORE_NAME"
+msgstr "Copper Ore"
+
+msgid "ITEM_COPPER_ORE_DESC"
+msgstr "Basic ore for wiring, electronics, and power systems."
+
+msgid "ITEM_STONE_NAME"
+msgstr "Stone"
+
+msgid "ITEM_STONE_DESC"
+msgstr "Mineral raw material for early structures and crude tools."
+
+msgid "ITEM_WATER_DIRTY_NAME"
+msgstr "Dirty Water"
+
+msgid "ITEM_WATER_DIRTY_DESC"
+msgstr "Raw local water. Must be purified before drinking."
+
+msgid "BUILD_WALL_NAME"
+msgstr "Wall"
+
+msgid "BUILD_WALL_DESC"
+msgstr "Basic wall. Seals a room."
+
+msgid "BUILD_ARK_BATTERY_NAME"
+msgstr "Ark Battery"
+
+msgid "BUILD_ARK_BATTERY_DESC"
+msgstr "Finite energy reserve. Once depleted, it is gone forever."
+
+msgid "BUILD_THERMO_BURNER_NAME"
+msgstr "Thermo Burner"
+
+msgid "BUILD_THERMO_BURNER_DESC"
+msgstr "Burns biomass to power the base. Noisy and attracts Cleaners."
+
+msgid "RECIPE_IRON_ORE_TO_INGOT_NAME"
+msgstr "Iron Smelting"
+
+msgid "RECIPE_IRON_ORE_TO_INGOT_DESC"
+msgstr "Ore is for crafting, not building: smelt iron ore into an ingot."
+
+msgid "SYSTEM_PLAYER_NOT_FOUND"
+msgstr "Player not found"
+
+msgid "SYSTEM_PICKUP_INVALID"
+msgstr "Invalid pickup"
+
+msgid "SYSTEM_INVENTORY_FULL"
+msgstr "Inventory is full"
+
+msgid "SYSTEM_ITEM_PICKED_UP"
+msgstr "Item picked up"
+
+msgid "SYSTEM_CRAFT_RECIPE_OR_INVENTORY_MISSING"
+msgstr "Recipe or inventory missing"
+
+msgid "SYSTEM_CRAFT_ITEMS_NOT_FOUND"
+msgstr "Recipe items not found"
+
+msgid "SYSTEM_CRAFT_NOT_ENOUGH_RESOURCES"
+msgstr "Not enough resources"
+
+msgid "SYSTEM_CRAFT_INPUT_REMOVE_FAILED"
+msgstr "Failed to remove input resources"
+
+msgid "SYSTEM_CRAFT_SUCCESS"
+msgstr "Crafted: {item} x{amount}"
+
+msgid "SYSTEM_CRAFT_NOT_ENOUGH_SPACE"
+msgstr "Not enough inventory space"
+
+msgid "SYSTEM_BUILD_NOT_SELECTED"
+msgstr "No building selected"
+
+msgid "SYSTEM_BUILD_CANNOT_PLACE"
+msgstr "Cannot place building here"
+
+msgid "SYSTEM_BUILD_NOT_ENOUGH_SCRAP"
+msgstr "Not enough scrap"
+
+msgid "SYSTEM_BUILD_CREATE_FAILED"
+msgstr "Failed to create building"
+
+msgid "SYSTEM_BUILD_PLACED"
+msgstr "Building placed: {building}"
+
+msgid "SYSTEM_BUILD_NOT_FOUND"
+msgstr "Building not found"
+
+msgid "SYSTEM_BUILD_REMOVED"
+msgstr "Building removed, scrap refunded: {amount}"
+
+msgid "SYSTEM_INVENTORY_OVERFLOW"
+msgstr "Inventory overflow, could not fit: {amount}"

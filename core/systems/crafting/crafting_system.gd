@@ -29,7 +29,7 @@ func execute_recipe(recipe: RecipeData, inventory: InventoryComponent) -> Dictio
 	if not recipe or not inventory:
 		return {
 			"success": false,
-			"message": "Рецепт или инвентарь не передан",
+			"message_key": "SYSTEM_CRAFT_RECIPE_OR_INVENTORY_MISSING",
 		}
 
 	var input_item: ItemData = ItemRegistry.get_item(recipe.input_item_id)
@@ -37,26 +37,30 @@ func execute_recipe(recipe: RecipeData, inventory: InventoryComponent) -> Dictio
 	if not input_item or not output_item:
 		return {
 			"success": false,
-			"message": "Предметы рецепта не найдены",
+			"message_key": "SYSTEM_CRAFT_ITEMS_NOT_FOUND",
 		}
 
 	if not inventory.has_item(input_item, recipe.input_amount):
 		return {
 			"success": false,
-			"message": "Недостаточно ресурсов",
+			"message_key": "SYSTEM_CRAFT_NOT_ENOUGH_RESOURCES",
 		}
 
 	if not inventory.remove_item(input_item, recipe.input_amount):
 		return {
 			"success": false,
-			"message": "Не удалось списать входные ресурсы",
+			"message_key": "SYSTEM_CRAFT_INPUT_REMOVE_FAILED",
 		}
 
 	var leftover: int = inventory.add_item(output_item, recipe.output_amount)
 	if leftover <= 0:
 		return {
 			"success": true,
-			"message": "Скрафчено: %s x%d" % [output_item.display_name, recipe.output_amount],
+			"message_key": "SYSTEM_CRAFT_SUCCESS",
+			"message_args": {
+				"item": output_item.get_display_name(),
+				"amount": recipe.output_amount,
+			},
 			"output_item_id": output_item.id,
 			"output_amount": recipe.output_amount,
 		}
@@ -69,5 +73,5 @@ func execute_recipe(recipe: RecipeData, inventory: InventoryComponent) -> Dictio
 	inventory.add_item(input_item, recipe.input_amount)
 	return {
 		"success": false,
-		"message": "Недостаточно места в инвентаре",
+		"message_key": "SYSTEM_CRAFT_NOT_ENOUGH_SPACE",
 	}

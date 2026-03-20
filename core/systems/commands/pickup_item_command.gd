@@ -17,23 +17,26 @@ func execute() -> Dictionary:
 	if not _player:
 		return {
 			"success": false,
-			"message": "Игрок не найден",
+			"message_key": "SYSTEM_PLAYER_NOT_FOUND",
 		}
 	if _item_id.is_empty() or _amount <= 0:
 		return {
 			"success": false,
-			"message": "Некорректный пикап",
+			"message_key": "SYSTEM_PICKUP_INVALID",
 		}
 	var collected_amount: int = _player.collect_item(_item_id, _amount)
 	if collected_amount <= 0:
 		return {
 			"success": false,
-			"message": "Инвентарь полон",
+			"message_key": "SYSTEM_INVENTORY_FULL",
 		}
 	if _pickup_node and is_instance_valid(_pickup_node):
 		_pickup_node.queue_free()
 	return {
 		"success": true,
-		"message": "Предмет подобран",
+		"message_key": "SYSTEM_ITEM_PICKED_UP",
+		"message_args": {
+			"amount": collected_amount,
+		},
 		"collected_amount": collected_amount,
 	}

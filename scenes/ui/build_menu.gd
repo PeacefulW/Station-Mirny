@@ -13,6 +13,7 @@ signal building_selected(building: BuildingData)
 var _container: HBoxContainer = null
 var _panel: PanelContainer = null
 var _label: Label = null
+var _hint_label: Label = null
 var _buttons: Array[Button] = []
 var _buildings: Array[BuildingData] = []
 var _selected_index: int = 0
@@ -24,6 +25,7 @@ func _ready() -> void:
 	_load_buildings()
 	_build_ui()
 	EventBus.build_mode_changed.connect(_on_build_mode_changed)
+	EventBus.language_changed.connect(_on_language_changed)
 
 # --- Публичные методы ---
 
@@ -44,7 +46,6 @@ func select_index(index: int) -> void:
 # --- Построение UI ---
 
 func _build_ui() -> void:
-	# Панель внизу экрана
 	_panel = PanelContainer.new()
 	_panel.anchor_top = 1.0
 	_panel.anchor_bottom = 1.0
@@ -70,22 +71,18 @@ func _build_ui() -> void:
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 6)
 
-	# Заголовок + подсказка
 	var header := HBoxContainer.new()
 	_label = Label.new()
-	_label.text = "СТРОИТЕЛЬСТВО"
 	_label.add_theme_font_size_override("font_size", 14)
 	_label.add_theme_color_override("font_color", Color(0.8, 0.75, 0.6))
 	header.add_child(_label)
 
-	var hint := Label.new()
-	hint.text = "  |  ЛКМ — поставить  |  ПКМ — снести  |  стоимость — в скрапе  |  B — закрыть"
-	hint.add_theme_font_size_override("font_size", 12)
-	hint.add_theme_color_override("font_color", Color(0.45, 0.43, 0.38))
-	header.add_child(hint)
+	_hint_label = Label.new()
+	_hint_label.add_theme_font_size_override("font_size", 12)
+	_hint_label.add_theme_color_override("font_color", Color(0.45, 0.43, 0.38))
+	header.add_child(_hint_label)
 	vbox.add_child(header)
 
-	# Кнопки построек
 	_container = HBoxContainer.new()
 	_container.add_theme_constant_override("separation", 6)
 
@@ -101,13 +98,18 @@ func _build_ui() -> void:
 
 	if not _buildings.is_empty():
 		select_index(0)
+	_apply_localization()
 
 func _create_building_button(bd: BuildingData, index: int) -> Button:
 	var btn := Button.new()
 	var hotkey_text: String = ""
 	if bd.hotkey > 0 and bd.hotkey <= 9:
 		hotkey_text = "[%d] " % bd.hotkey
-	btn.text = "%s%s (%d скрапа)" % [hotkey_text, bd.display_name, bd.scrap_cost]
+	btn.text = Localization.t("UI_BUILD_BUTTON", {
+		"hotkey": hotkey_text,
+		"name": bd.get_display_name(),
+		"cost": bd.scrap_cost,
+	})
 	btn.custom_minimum_size = Vector2(120, 36)
 	btn.add_theme_font_size_override("font_size", 13)
 	btn.pressed.connect(select_index.bind(index))
@@ -120,11 +122,10 @@ func _load_buildings() -> void:
 	_buildings = ItemRegistry.get_all_buildings()
 	if _buildings.is_empty():
 		_load_default_buildings()
-	# Сортируем по категории, потом по имени
 	_buildings.sort_custom(func(a: BuildingData, b: BuildingData) -> bool:
 		if a.category != b.category:
 			return a.category < b.category
-		return a.display_name < b.display_name
+		return a.get_display_name() < b.get_display_name()
 	)
 
 ## Встроенные постройки если .tres файлы не найдены.
@@ -140,10 +141,11 @@ func _update_selection_visual() -> void:
 			btn.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5))
 		else:
 			btn.remove_theme_color_override("font_color")
-	# Обновляем описание
 	var sel: BuildingData = get_selected()
 	if sel and _label:
-		_label.text = "СТРОИТЕЛЬСТВО: %s" % sel.display_name
+		_label.text = Localization.t("UI_BUILD_TITLE_SELECTED", {"building": sel.get_display_name()})
+	elif _label:
+		_label.text = Localization.t("UI_BUILD_TITLE")
 
 # --- Обработчики ---
 
@@ -156,7 +158,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not visible:
 		return
 	if event is InputEventKey and event.pressed:
-		# Цифровые горячие клавиши 1-9
 		var key: int = event.keycode - KEY_0
 		if key >= 1 and key <= 9:
 			for i: int in range(_buildings.size()):
@@ -164,3 +165,21 @@ func _unhandled_input(event: InputEvent) -> void:
 					select_index(i)
 					get_viewport().set_input_as_handled()
 					return
+
+func _apply_localization() -> void:
+	if _hint_label:
+		_hint_label.text = Localization.t("UI_BUILD_HINT")
+	for i: int in range(_buttons.size()):
+		var building_data: BuildingData = _buildings[i]
+		var hotkey_text: String = ""
+		if building_data.hotkey > 0 and building_data.hotkey <= 9:
+			hotkey_text = "[%d] " % building_data.hotkey
+		_buttons[i].text = Localization.t("UI_BUILD_BUTTON", {
+			"hotkey": hotkey_text,
+			"name": building_data.get_display_name(),
+			"cost": building_data.scrap_cost,
+		})
+	_update_selection_visual()
+
+func _on_language_changed(_locale_code: String) -> void:
+	_apply_localization()

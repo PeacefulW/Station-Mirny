@@ -28,6 +28,11 @@ TimeManager="*res://core/autoloads/time_manager.gd"
 WorldGenerator="*res://core/autoloads/world_generator.gd"
 ItemRegistry="*res://core/autoloads/item_registry.gd"
 SaveManager="*res://core/autoloads/save_manager.gd"
+Localization="*res://core/autoloads/localization_service.gd"
+
+[internationalization]
+
+locale/translations=PackedStringArray("res://locale/ru/messages.po", "res://locale/en/messages.po")
 
 [display]
 

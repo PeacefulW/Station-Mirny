@@ -14,6 +14,8 @@ var _grid: GridContainer = null
 var _slot_nodes: Array[Control] = []
 var _title_label: Label = null
 var _weight_label: Label = null
+var _inventory_label: Label = null
+var _hint_label: Label = null
 var _inventory: InventoryComponent = null
 var _dimmer: ColorRect = null
 var _crafting_system: CraftingSystem = null
@@ -24,6 +26,7 @@ func _ready() -> void:
 	visible = false
 	_build_ui()
 	EventBus.inventory_updated.connect(_on_inventory_updated)
+	EventBus.language_changed.connect(_on_language_changed)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_inventory"):
@@ -84,14 +87,14 @@ func _build_ui() -> void:
 	content.add_child(_crafting_panel)
 	root_vbox.add_child(content)
 
-	var hint := Label.new()
-	hint.text = "Tab — закрыть  |  Скрап нужен для строительства  |  Руда нужна для крафта"
-	hint.add_theme_font_size_override("font_size", 11)
-	hint.add_theme_color_override("font_color", Color(0.35, 0.33, 0.28))
-	root_vbox.add_child(hint)
+	_hint_label = Label.new()
+	_hint_label.add_theme_font_size_override("font_size", 11)
+	_hint_label.add_theme_color_override("font_color", Color(0.35, 0.33, 0.28))
+	root_vbox.add_child(_hint_label)
 
 	_panel.add_child(root_vbox)
 	_create_slot_nodes(20)
+	_apply_localization()
 	call_deferred("_center_if_needed")
 
 func _build_header() -> HBoxContainer:
@@ -105,14 +108,12 @@ func _build_header() -> HBoxContainer:
 	header.add_child(drag_hint)
 
 	_title_label = Label.new()
-	_title_label.text = "ИНВЕНТАРЬ И КРАФТ"
 	_title_label.add_theme_font_size_override("font_size", 16)
 	_title_label.add_theme_color_override("font_color", Color(0.85, 0.80, 0.65))
 	_title_label.size_flags_horizontal = SIZE_EXPAND_FILL
 	header.add_child(_title_label)
 
 	_weight_label = Label.new()
-	_weight_label.text = "0.0 кг"
 	_weight_label.add_theme_font_size_override("font_size", 13)
 	_weight_label.add_theme_color_override("font_color", Color(0.55, 0.52, 0.45))
 	header.add_child(_weight_label)
@@ -121,10 +122,9 @@ func _build_header() -> HBoxContainer:
 func _build_inventory_pane() -> VBoxContainer:
 	var inventory_pane := VBoxContainer.new()
 	inventory_pane.size_flags_horizontal = SIZE_EXPAND_FILL
-	var inventory_label := Label.new()
-	inventory_label.text = "Инвентарь"
-	inventory_label.add_theme_font_size_override("font_size", 14)
-	inventory_pane.add_child(inventory_label)
+	_inventory_label = Label.new()
+	_inventory_label.add_theme_font_size_override("font_size", 14)
+	inventory_pane.add_child(_inventory_label)
 
 	_grid = GridContainer.new()
 	_grid.columns = COLS
@@ -248,10 +248,10 @@ func _refresh() -> void:
 				color_bg.visible = true
 				color_bg.color = _get_item_color(slot.item.id)
 			amt.text = str(slot.amount) if slot.amount > 1 else ""
-			sn.tooltip_text = "%s\n%d / %d" % [slot.item.display_name, slot.amount, slot.item.max_stack]
+			sn.tooltip_text = "%s\n%d / %d" % [slot.item.get_display_name(), slot.amount, slot.item.max_stack]
 			_set_style(sn, Color(0.18, 0.19, 0.15), Color(0.35, 0.33, 0.25))
 			total_weight += slot.item.weight * slot.amount
-	_weight_label.text = "%.1f кг" % total_weight
+	_weight_label.text = Localization.t("UI_INVENTORY_WEIGHT", {"weight": "%.1f" % total_weight})
 	if _crafting_panel:
 		_crafting_panel.refresh()
 
@@ -259,7 +259,7 @@ func _clear_slot(icon_r: TextureRect, color_bg: ColorRect, amt: Label, sn: Panel
 	icon_r.texture = null
 	color_bg.visible = false
 	amt.text = ""
-	sn.tooltip_text = "Пусто"
+	sn.tooltip_text = Localization.t("UI_INVENTORY_EMPTY_SLOT")
 	_set_style(sn, Color(0.15, 0.16, 0.13), Color(0.25, 0.24, 0.20))
 
 func _set_style(sn: PanelContainer, bg: Color, border: Color) -> void:
@@ -285,3 +285,18 @@ func _get_item_color(item_id: String) -> Color:
 		"base:iron_ingot":
 			return Color(0.7, 0.7, 0.75)
 	return Color(0.5, 0.5, 0.5)
+
+func _apply_localization() -> void:
+	if _title_label:
+		_title_label.text = Localization.t("UI_INVENTORY_TITLE")
+	if _inventory_label:
+		_inventory_label.text = Localization.t("UI_INVENTORY_SECTION")
+	if _hint_label:
+		_hint_label.text = Localization.t("UI_INVENTORY_HINT")
+	if _weight_label:
+		_weight_label.text = Localization.t("UI_INVENTORY_WEIGHT", {"weight": "0.0"})
+
+func _on_language_changed(_locale_code: String) -> void:
+	_apply_localization()
+	if _is_open:
+		_refresh()

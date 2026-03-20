@@ -64,5 +64,6 @@ signal save_completed()
 ## Загрузка завершена, все системы восстановлены.
 signal load_completed()
 
+signal language_changed(locale_code: String)
 # --- Общее ---
 signal game_over()

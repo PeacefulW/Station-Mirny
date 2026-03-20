@@ -7,7 +7,9 @@
 script = ExtResource("1_item_script")
 id = "base:scrap"
 display_name = "Скрап"
+display_name_key = "ITEM_SCRAP_NAME"
 description = "Обломки и техлом. Базовый строительный ресурс ранней игры."
+description_key = "ITEM_SCRAP_DESC"
 icon = ExtResource("2_scrap_icon")
 max_stack = 99
 weight = 0.3

@@ -21,8 +21,8 @@ static func get_default_building(building_id: String) -> BuildingData:
 static func _make_wall_default_data() -> BuildingData:
 	var wall := BuildingData.new()
 	wall.id = &"wall"
-	wall.display_name = "Стена"
-	wall.description = "Базовая стена. Герметизирует помещение."
+	wall.display_name_key = "BUILD_WALL_NAME"
+	wall.description_key = "BUILD_WALL_DESC"
 	wall.category = BuildingData.Category.STRUCTURE
 	wall.scrap_cost = 2
 	wall.health = 50.0
@@ -33,8 +33,8 @@ static func _make_wall_default_data() -> BuildingData:
 static func _make_battery_default_data() -> BuildingData:
 	var battery := BuildingData.new()
 	battery.id = &"ark_battery"
-	battery.display_name = "Батарея Ковчега"
-	battery.description = "Конечный запас энергии. Когда сядет — навсегда."
+	battery.display_name_key = "BUILD_ARK_BATTERY_NAME"
+	battery.description_key = "BUILD_ARK_BATTERY_DESC"
 	battery.category = BuildingData.Category.POWER
 	battery.scrap_cost = POWER_BALANCE.ark_battery_cost
 	battery.health = 80.0
@@ -49,8 +49,8 @@ static func _make_battery_default_data() -> BuildingData:
 static func _make_burner_default_data() -> BuildingData:
 	var burner := BuildingData.new()
 	burner.id = &"thermo_burner"
-	burner.display_name = "Термосжигатель"
-	burner.description = "Жжёт древесину -> энергия для базы. Шумит и привлекает Очистителей."
+	burner.display_name_key = "BUILD_THERMO_BURNER_NAME"
+	burner.description_key = "BUILD_THERMO_BURNER_DESC"
 	burner.category = BuildingData.Category.POWER
 	burner.scrap_cost = POWER_BALANCE.burner_cost
 	burner.health = 60.0

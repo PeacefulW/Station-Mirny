@@ -10,8 +10,12 @@ enum Category { STRUCTURE, POWER, LIFE_SUPPORT, PRODUCTION, DEFENSE }
 @export_group("Идентификация")
 ## Уникальный ID.
 @export var id: StringName = &""
+## Ключ локализации имени.
+@export var display_name_key: String = ""
 ## Отображаемое имя.
 @export var display_name: String = ""
+## Ключ локализации описания.
+@export var description_key: String = ""
 ## Описание (для тултипа).
 @export var description: String = ""
 ## Категория (для вкладок меню).
@@ -45,3 +49,9 @@ enum Category { STRUCTURE, POWER, LIFE_SUPPORT, PRODUCTION, DEFENSE }
 @export var logic_script: Script = null
 ## Прямая ссылка на ресурс баланса. Предпочтительнее runtime load().
 @export var logic_balance: Resource = null
+
+func get_display_name() -> String:
+	return Localization.td(display_name_key, display_name)
+
+func get_description() -> String:
+	return Localization.td(description_key, description)

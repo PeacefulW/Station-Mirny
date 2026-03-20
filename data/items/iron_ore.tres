@@ -7,7 +7,9 @@
 script = ExtResource("1_js5kc")
 id = "base:iron_ore"
 display_name = "Железная руда"
+display_name_key = "ITEM_IRON_ORE_NAME"
 description = "Сырьё для ручного крафта. Переплавляется в железные слитки."
+description_key = "ITEM_IRON_ORE_DESC"
 icon = ExtResource("1_hpw1d")
 max_stack = 50
 metadata/_custom_type_script = "uid://o7b5ejvfktdx"

@@ -122,32 +122,35 @@ func place_selected_building_at(world_pos: Vector2) -> Dictionary:
 	var grid_pos: Vector2i = world_to_grid(world_pos)
 	var selected_building: BuildingData = _placement_service.get_selected_building()
 	if not selected_building:
-		return {"success": false, "message": "Постройка не выбрана"}
+		return {"success": false, "message_key": "SYSTEM_BUILD_NOT_SELECTED"}
 	if not _placement_service.can_place_at(grid_pos, _player_scrap):
-		return {"success": false, "message": "Постройку нельзя разместить"}
+		return {"success": false, "message_key": "SYSTEM_BUILD_CANNOT_PLACE"}
 	var cost: int = _placement_service.get_selected_building_cost()
 	if not _player and not _find_player():
-		return {"success": false, "message": "Игрок не найден"}
+		return {"success": false, "message_key": "SYSTEM_PLAYER_NOT_FOUND"}
 	if not _player.spend_scrap(cost):
-		return {"success": false, "message": "Недостаточно scrap"}
+		return {"success": false, "message_key": "SYSTEM_BUILD_NOT_ENOUGH_SCRAP"}
 	_player_scrap = _player.get_scrap_count()
 	var placed_pos: Vector2i = _placement_service.place_selected_at(world_pos)
 	if placed_pos == Vector2i(2147483647, 2147483647):
 		_player.collect_scrap(cost)
 		_player_scrap = _player.get_scrap_count()
-		return {"success": false, "message": "Не удалось создать постройку"}
+		return {"success": false, "message_key": "SYSTEM_BUILD_CREATE_FAILED"}
 	var building_node: Node2D = walls.get(placed_pos)
 	if not building_node:
 		_player.collect_scrap(cost)
 		_player_scrap = _player.get_scrap_count()
-		return {"success": false, "message": "Не удалось создать постройку"}
+		return {"success": false, "message_key": "SYSTEM_BUILD_CREATE_FAILED"}
 	EventBus.scrap_spent.emit(cost, _player_scrap)
 	_bind_building_health(walls.get(placed_pos), placed_pos)
 	_recalculate_indoor()
 	EventBus.building_placed.emit(placed_pos)
 	return {
 		"success": true,
-		"message": "Постройка размещена",
+		"message_key": "SYSTEM_BUILD_PLACED",
+		"message_args": {
+			"building": selected_building.get_display_name(),
+		},
 		"grid_pos": placed_pos,
 		"building_id": str(selected_building.id),
 	}
@@ -155,7 +158,7 @@ func place_selected_building_at(world_pos: Vector2) -> Dictionary:
 func remove_building_at(world_pos: Vector2) -> Dictionary:
 	var removal_result: Dictionary = _placement_service.remove_at(world_pos)
 	if removal_result.is_empty():
-		return {"success": false, "message": "Постройка не найдена"}
+		return {"success": false, "message_key": "SYSTEM_BUILD_NOT_FOUND"}
 	var removed_pos: Vector2i = removal_result.get("grid_pos", Vector2i.ZERO)
 	var building_id: String = str(removal_result.get("building_id", ""))
 	var refund_amount: int = 1
@@ -168,7 +171,10 @@ func remove_building_at(world_pos: Vector2) -> Dictionary:
 	EventBus.building_removed.emit(removed_pos)
 	return {
 		"success": true,
-		"message": "Постройка удалена",
+		"message_key": "SYSTEM_BUILD_REMOVED",
+		"message_args": {
+			"amount": refund_amount,
+		},
 		"grid_pos": removed_pos,
 		"refund_amount": refund_amount,
 	}

@@ -4,7 +4,6 @@ extends Control
 ## Интерфейс (HUD). Подписывается на EventBus и показывает
 ## состояние игрока: O₂, скрап, режим строительства, время.
 
-# --- Приватные ---
 var _o2_bar: ProgressBar = null
 var _o2_label: Label = null
 var _status_label: Label = null
@@ -20,19 +19,16 @@ var _life_support_powered: bool = false
 func _ready() -> void:
 	_create_ui()
 	_connect_signals()
-
-# --- Приватные методы ---
+	_apply_localization()
 
 func _create_ui() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	# O₂ бар (верх экрана)
 	var o2_container := HBoxContainer.new()
 	o2_container.position = Vector2(20, 15)
 	add_child(o2_container)
 
 	_o2_label = Label.new()
-	_o2_label.text = "O₂: "
 	_o2_label.add_theme_font_size_override("font_size", 18)
 	o2_container.add_child(_o2_label)
 
@@ -44,27 +40,25 @@ func _create_ui() -> void:
 	_o2_bar.add_theme_stylebox_override("background", _make_rounded_box(Color(0.15, 0.15, 0.2)))
 	_o2_bar.add_theme_stylebox_override("fill", _make_rounded_box(Color(0.3, 0.7, 1.0)))
 	o2_container.add_child(_o2_bar)
-	# Статус (внутри/снаружи)
+
 	_status_label = Label.new()
 	_status_label.position = Vector2(20, 48)
-	_status_label.text = "СНАРУЖИ"
 	_status_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
 	_status_label.add_theme_font_size_override("font_size", 16)
 	add_child(_status_label)
-	# Скрап
+
 	_scrap_label = Label.new()
 	_scrap_label.position = Vector2(20, 72)
-	_scrap_label.text = "Скрап для строительства: 0"
 	_scrap_label.add_theme_font_size_override("font_size", 16)
 	add_child(_scrap_label)
-	# Режим строительства
+
 	_build_label = Label.new()
 	_build_label.position = Vector2(20, 96)
 	_build_label.text = ""
 	_build_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.3))
 	_build_label.add_theme_font_size_override("font_size", 16)
 	add_child(_build_label)
-	# Время суток (правый верхний угол)
+
 	_time_label = Label.new()
 	_time_label.anchor_left = 1.0
 	_time_label.anchor_right = 1.0
@@ -73,29 +67,27 @@ func _create_ui() -> void:
 	_time_label.add_theme_font_size_override("font_size", 22)
 	_time_label.add_theme_color_override("font_color", Color(0.9, 0.85, 0.7))
 	add_child(_time_label)
+
 	_day_label = Label.new()
 	_day_label.anchor_left = 1.0
 	_day_label.anchor_right = 1.0
 	_day_label.position = Vector2(-180, 42)
-	_day_label.text = "День 1 — ДЕНЬ"
 	_day_label.add_theme_font_size_override("font_size", 14)
 	_day_label.add_theme_color_override("font_color", Color(0.7, 0.65, 0.55))
 	add_child(_day_label)
-	# Подсказки управления (низ экрана)
+
 	_controls_label = Label.new()
 	_controls_label.anchor_top = 1.0
 	_controls_label.anchor_bottom = 1.0
 	_controls_label.anchor_left = 0.0
 	_controls_label.position = Vector2(20, -60)
-	_controls_label.text = "WASD — движение  |  E — добыча / заправить печь  |  Tab — инвентарь и крафт  |  B — стройка  |  P — энергия  |  ПРОБЕЛ — атака"
 	_controls_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.5))
 	_controls_label.add_theme_font_size_override("font_size", 14)
 	add_child(_controls_label)
-	# Game Over
+
 	_game_over_label = Label.new()
 	_game_over_label.anchor_left = 0.5
 	_game_over_label.anchor_top = 0.4
-	_game_over_label.text = "ИГРА ОКОНЧЕНА"
 	_game_over_label.add_theme_font_size_override("font_size", 48)
 	_game_over_label.add_theme_color_override("font_color", Color(1.0, 0.2, 0.1))
 	_game_over_label.visible = false
@@ -113,6 +105,7 @@ func _connect_signals() -> void:
 	EventBus.hour_changed.connect(_on_hour_changed)
 	EventBus.time_of_day_changed.connect(_on_time_of_day_changed)
 	EventBus.day_changed.connect(_on_day_changed)
+	EventBus.language_changed.connect(_on_language_changed)
 
 func _on_oxygen_changed(current: float, maximum: float) -> void:
 	if not _o2_bar:
@@ -147,13 +140,13 @@ func _on_exited_indoor() -> void:
 	_update_status_label()
 
 func _on_scrap_changed(total: int) -> void:
-	_scrap_label.text = "Скрап для строительства: %d" % total
+	_scrap_label.text = Localization.t("UI_HUD_SCRAP", {"count": total})
 
 func _on_scrap_spent(_amount: int, remaining: int) -> void:
-	_scrap_label.text = "Скрап для строительства: %d" % remaining
+	_scrap_label.text = Localization.t("UI_HUD_SCRAP", {"count": remaining})
 
 func _on_build_mode_changed(is_active: bool) -> void:
-	_build_label.text = "[ РЕЖИМ СТРОИТЕЛЬСТВА ]" if is_active else ""
+	_build_label.text = Localization.t("UI_HUD_BUILD_MODE") if is_active else ""
 
 func _on_game_over() -> void:
 	_game_over_label.visible = true
@@ -170,15 +163,14 @@ func _on_day_changed(day_number: int) -> void:
 	if not _day_label:
 		return
 	var phase_name: String = _get_phase_name(TimeManager.current_time_of_day)
-	_day_label.text = "День %d — %s" % [day_number, phase_name]
+	_day_label.text = Localization.t("UI_HUD_DAY_PHASE", {"day": day_number, "phase": phase_name})
 
 func _update_day_label(phase: int) -> void:
 	if not _day_label:
 		return
 	var phase_name: String = _get_phase_name(phase)
 	var day: int = TimeManager.current_day if TimeManager else 1
-	_day_label.text = "День %d — %s" % [day, phase_name]
-	# Цвет лейбла по фазе
+	_day_label.text = Localization.t("UI_HUD_DAY_PHASE", {"day": day, "phase": phase_name})
 	match phase:
 		TimeManagerSingleton.TimeOfDay.DAWN:
 			_day_label.add_theme_color_override("font_color", Color(0.9, 0.7, 0.4))
@@ -192,14 +184,14 @@ func _update_day_label(phase: int) -> void:
 func _get_phase_name(phase: int) -> String:
 	match phase:
 		TimeManagerSingleton.TimeOfDay.DAWN:
-			return "РАССВЕТ"
+			return Localization.t("UI_TIME_DAWN")
 		TimeManagerSingleton.TimeOfDay.DAY:
-			return "ДЕНЬ"
+			return Localization.t("UI_TIME_DAY")
 		TimeManagerSingleton.TimeOfDay.DUSK:
-			return "ЗАКАТ"
+			return Localization.t("UI_TIME_DUSK")
 		TimeManagerSingleton.TimeOfDay.NIGHT:
-			return "НОЧЬ"
-	return "???"
+			return Localization.t("UI_TIME_NIGHT")
+	return Localization.t("UI_TIME_UNKNOWN")
 
 func _on_life_support_power_changed(is_powered: bool) -> void:
 	_life_support_powered = is_powered
@@ -209,12 +201,29 @@ func _update_status_label() -> void:
 	if not _status_label:
 		return
 	if not _is_indoor:
-		_status_label.text = "СНАРУЖИ"
+		_status_label.text = Localization.t("UI_HUD_STATUS_OUTSIDE")
 		_status_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
 		return
 	if _life_support_powered:
-		_status_label.text = "В БАЗЕ / ПИТАНИЕ ОК"
+		_status_label.text = Localization.t("UI_HUD_STATUS_BASE_POWERED")
 		_status_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.5))
 	else:
-		_status_label.text = "В БАЗЕ / БЕЗ ПИТАНИЯ"
+		_status_label.text = Localization.t("UI_HUD_STATUS_BASE_UNPOWERED")
 		_status_label.add_theme_color_override("font_color", Color(0.95, 0.7, 0.25))
+
+func _apply_localization() -> void:
+	if _o2_label:
+		_o2_label.text = Localization.t("UI_HUD_OXYGEN")
+	if _scrap_label:
+		_scrap_label.text = Localization.t("UI_HUD_SCRAP", {"count": 0})
+	if _controls_label:
+		_controls_label.text = Localization.t("UI_HUD_CONTROLS")
+	if _game_over_label:
+		_game_over_label.text = Localization.t("UI_GAME_OVER")
+	if _build_label and not _build_label.text.is_empty():
+		_build_label.text = Localization.t("UI_HUD_BUILD_MODE")
+	_update_status_label()
+	_update_day_label(TimeManager.current_time_of_day if TimeManager else 0)
+
+func _on_language_changed(_locale_code: String) -> void:
+	_apply_localization()

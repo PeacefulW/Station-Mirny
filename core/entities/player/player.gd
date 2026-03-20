@@ -106,9 +106,12 @@ func _flash_harvest() -> void:
 ## Всплывающий текст "+3 Железная руда"
 func _spawn_harvest_popup(item_id: String, amount: int) -> void:
 	var item_data: ItemData = ItemRegistry.get_item(item_id)
-	var display_name: String = item_data.display_name if item_data else item_id
+	var display_name: String = item_data.get_display_name() if item_data else item_id
 	var popup := Label.new()
-	popup.text = "+%d %s" % [amount, display_name]
+	popup.text = Localization.t("UI_PICKUP_POPUP", {
+		"amount": amount,
+		"item": display_name,
+	})
 	popup.add_theme_font_size_override("font_size", 14)
 	popup.add_theme_color_override("font_color", Color(0.9, 0.85, 0.4))
 	popup.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
@@ -143,7 +146,7 @@ func collect_item(item_id: String, amount: int) -> int:
 	if collected_amount > 0:
 		EventBus.item_collected.emit(item_id, collected_amount)
 	if leftover > 0:
-		print("Инвентарь полон! Не влезло: ", leftover)
+		push_warning(Localization.t("SYSTEM_INVENTORY_OVERFLOW", {"amount": leftover}))
 	return collected_amount
 
 func collect_scrap(amount: int) -> int:
@@ -288,7 +291,7 @@ func _try_refuel_nearby_burner() -> bool:
 	if accepted <= 0.0:
 		collect_item(WOOD_ITEM_ID, 1)
 		return false
-	_spawn_context_popup("+%.0f топлива" % accepted, Color(0.95, 0.75, 0.35))
+	_spawn_context_popup(Localization.t("UI_BURNER_REFUELED", {"amount": roundi(accepted)}), Color(0.95, 0.75, 0.35))
 	return true
 
 func _spawn_context_popup(text: String, color: Color) -> void:

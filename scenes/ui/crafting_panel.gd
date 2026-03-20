@@ -15,6 +15,7 @@ var _recipe_list: VBoxContainer = null
 var _recipe_description: Label = null
 var _craft_feedback: Label = null
 var _command_executor: CommandExecutor = null
+var _recipe_title: Label = null
 
 func _ready() -> void:
 	add_theme_constant_override("separation", 6)
@@ -23,6 +24,7 @@ func _ready() -> void:
 	_build_ui()
 	_load_recipes()
 	_refresh_recipe_list()
+	EventBus.language_changed.connect(_on_language_changed)
 
 ## Настраивает ссылки на нужные системы и перечитывает рецепты.
 func setup(inventory: InventoryComponent, crafting_system: CraftingSystem) -> void:
@@ -37,10 +39,9 @@ func refresh() -> void:
 	_refresh_recipe_list()
 
 func _build_ui() -> void:
-	var recipe_title := Label.new()
-	recipe_title.text = "Крафт"
-	recipe_title.add_theme_font_size_override("font_size", 14)
-	add_child(recipe_title)
+	_recipe_title = Label.new()
+	_recipe_title.add_theme_font_size_override("font_size", 14)
+	add_child(_recipe_title)
 
 	_recipe_scroll = ScrollContainer.new()
 	_recipe_scroll.custom_minimum_size = Vector2(360, 200)
@@ -57,7 +58,6 @@ func _build_ui() -> void:
 
 	_recipe_description = Label.new()
 	_recipe_description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_recipe_description.text = "Выберите рецепт справа."
 	_recipe_description.add_theme_font_size_override("font_size", 12)
 	_recipe_description.add_theme_color_override("font_color", Color(0.78, 0.75, 0.68))
 	add_child(_recipe_description)
@@ -68,11 +68,12 @@ func _build_ui() -> void:
 	_craft_feedback.add_theme_color_override("font_color", Color(0.65, 0.72, 0.9))
 	add_child(_craft_feedback)
 
+	_apply_localization()
 	_sync_recipe_list_width()
 
 func _load_recipes() -> void:
 	_recipes = ItemRegistry.get_all_recipes()
-	_recipes.sort_custom(func(a: RecipeData, b: RecipeData) -> bool: return a.display_name < b.display_name)
+	_recipes.sort_custom(func(a: RecipeData, b: RecipeData) -> bool: return a.get_display_name() < b.get_display_name())
 
 func _refresh_recipe_list() -> void:
 	if not _recipe_list:
@@ -83,7 +84,7 @@ func _refresh_recipe_list() -> void:
 	if _recipes.is_empty():
 		var no_recipes := Label.new()
 		no_recipes.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		no_recipes.text = "Рецепты не найдены. Проверьте папку data/recipes и корректность .tres."
+		no_recipes.text = Localization.t("UI_CRAFT_NO_RECIPES")
 		no_recipes.add_theme_font_size_override("font_size", 12)
 		no_recipes.add_theme_color_override("font_color", Color(0.85, 0.55, 0.35))
 		_recipe_list.add_child(no_recipes)
@@ -103,8 +104,6 @@ func _refresh_recipe_list() -> void:
 func _sync_recipe_list_width() -> void:
 	if not _recipe_scroll or not _recipe_list:
 		return
-	# ScrollContainer не растягивает контент по ширине автоматически,
-	# поэтому фиксируем минимальную ширину списка вручную.
 	var content_width: float = maxf(_recipe_scroll.size.x - 12.0, 0.0)
 	_recipe_list.custom_minimum_size.x = content_width
 
@@ -112,22 +111,22 @@ func _on_recipe_pressed(recipe: RecipeData) -> void:
 	var input_item: ItemData = ItemRegistry.get_item(recipe.input_item_id)
 	var output_item: ItemData = ItemRegistry.get_item(recipe.output_item_id)
 	if not input_item or not output_item:
-		var error_message: String = "Ошибка рецепта: предмет не найден в реестре"
+		var error_message: String = Localization.t("UI_CRAFT_RECIPE_INVALID")
 		_craft_feedback.text = error_message
 		_craft_feedback.add_theme_color_override("font_color", Color(0.95, 0.45, 0.35))
 		craft_failed.emit(error_message)
 		return
 
-	_recipe_description.text = "%s\n\nНужно: %s x%d\nРезультат: %s x%d" % [
-		recipe.description,
-		input_item.display_name,
-		recipe.input_amount,
-		output_item.display_name,
-		recipe.output_amount
-	]
+	_recipe_description.text = Localization.t("UI_CRAFT_RECIPE_DETAILS", {
+		"description": recipe.get_description(),
+		"input": input_item.get_display_name(),
+		"input_amount": recipe.input_amount,
+		"output": output_item.get_display_name(),
+		"output_amount": recipe.output_amount,
+	})
 
 	if not _crafting_system or not _inventory:
-		var unavailable_message: String = "Система крафта недоступна"
+		var unavailable_message: String = Localization.t("UI_CRAFT_SYSTEM_UNAVAILABLE")
 		_craft_feedback.text = unavailable_message
 		_craft_feedback.add_theme_color_override("font_color", Color(0.95, 0.45, 0.35))
 		craft_failed.emit(unavailable_message)
@@ -144,12 +143,15 @@ func _on_recipe_pressed(recipe: RecipeData) -> void:
 		result = _crafting_system.execute_recipe(recipe, _inventory)
 
 	if result.get("success", false):
-		var ok_message: String = str(result.get("message", "Скрафчено"))
+		var ok_message: String = _format_result_message(result, "SYSTEM_CRAFT_SUCCESS")
 		_craft_feedback.text = ok_message
 		_craft_feedback.add_theme_color_override("font_color", Color(0.55, 0.9, 0.55))
 		craft_succeeded.emit(ok_message)
 	else:
-		var failed_message: String = "Крафт не выполнен: %s" % str(result.get("message", _get_unavailable_reason(recipe)))
+		var failure_reason: String = _format_result_message(result, "")
+		if failure_reason.is_empty():
+			failure_reason = _get_unavailable_reason(recipe)
+		var failed_message: String = Localization.t("UI_CRAFT_FAILED", {"reason": failure_reason})
 		_craft_feedback.text = failed_message
 		_craft_feedback.add_theme_color_override("font_color", Color(0.95, 0.55, 0.35))
 		craft_failed.emit(failed_message)
@@ -160,17 +162,17 @@ func _format_recipe_button_text(recipe: RecipeData) -> String:
 	var input_item: ItemData = ItemRegistry.get_item(recipe.input_item_id)
 	var output_item: ItemData = ItemRegistry.get_item(recipe.output_item_id)
 	if not input_item or not output_item:
-		return "%s\n(некорректный рецепт)" % recipe.display_name
+		return "%s\n(%s)" % [recipe.get_display_name(), Localization.t("UI_CRAFT_RECIPE_BROKEN")]
 
 	var reason: String = _get_unavailable_reason(recipe)
 	var marker: String = "✓" if reason.is_empty() else "✗"
-	var status_line: String = "Доступно" if reason.is_empty() else "Недоступно: %s" % reason
-	return "%s %s\n%s x%d → %s x%d\n%s" % [
+	var status_line: String = Localization.t("UI_CRAFT_STATUS_AVAILABLE") if reason.is_empty() else Localization.t("UI_CRAFT_STATUS_UNAVAILABLE", {"reason": reason})
+	return "%s %s\n%s x%d -> %s x%d\n%s" % [
 		marker,
-		recipe.display_name,
-		input_item.display_name,
+		recipe.get_display_name(),
+		input_item.get_display_name(),
 		recipe.input_amount,
-		output_item.display_name,
+		output_item.get_display_name(),
 		recipe.output_amount,
 		status_line
 	]
@@ -179,18 +181,22 @@ func _get_unavailable_reason(recipe: RecipeData) -> String:
 	var input_item: ItemData = ItemRegistry.get_item(recipe.input_item_id)
 	var output_item: ItemData = ItemRegistry.get_item(recipe.output_item_id)
 	if not input_item or not output_item:
-		return "рецепт повреждён (предметы не найдены)"
+		return Localization.t("UI_CRAFT_REASON_RECIPE_BROKEN")
 	if not _crafting_system:
-		return "система крафта не инициализирована"
+		return Localization.t("UI_CRAFT_REASON_SYSTEM_NOT_READY")
 	if not _inventory:
-		return "инвентарь игрока не найден"
+		return Localization.t("UI_CRAFT_REASON_INVENTORY_NOT_FOUND")
 	if _crafting_system.can_craft(recipe, _inventory):
 		if _can_fit_item(output_item, recipe.output_amount):
 			return ""
-		return "недостаточно места в инвентаре"
+		return Localization.t("UI_CRAFT_REASON_NOT_ENOUGH_SPACE")
 	var required_amount: int = maxi(recipe.input_amount, 0)
 	var available_amount: int = _count_item_amount(input_item)
-	return "нужно %d %s, есть %d" % [required_amount, input_item.display_name, available_amount]
+	return Localization.t("UI_CRAFT_REASON_MISSING_ITEMS", {
+		"required": required_amount,
+		"item": input_item.get_display_name(),
+		"available": available_amount,
+	})
 
 func _count_item_amount(item_data: ItemData) -> int:
 	if not _inventory or not item_data:
@@ -225,3 +231,20 @@ func _find_command_executor() -> CommandExecutor:
 	if executors.is_empty():
 		return null
 	return executors[0] as CommandExecutor
+
+func _format_result_message(result: Dictionary, fallback_key: String) -> String:
+	var message_key: String = str(result.get("message_key", fallback_key))
+	var message_args: Dictionary = result.get("message_args", {})
+	if not message_key.is_empty():
+		return Localization.t(message_key, message_args)
+	return str(result.get("message", ""))
+
+func _apply_localization() -> void:
+	if _recipe_title:
+		_recipe_title.text = Localization.t("UI_CRAFT_TITLE")
+	if _recipe_description:
+		_recipe_description.text = Localization.t("UI_CRAFT_SELECT_RECIPE")
+
+func _on_language_changed(_locale_code: String) -> void:
+	_apply_localization()
+	_refresh_recipe_list()

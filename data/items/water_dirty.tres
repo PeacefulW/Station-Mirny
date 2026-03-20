@@ -7,7 +7,9 @@
 script = ExtResource("1_item_script")
 id = "base:water_dirty"
 display_name = "Грязная вода"
+display_name_key = "ITEM_WATER_DIRTY_NAME"
 description = "Сырая местная вода. Требует очистки перед употреблением."
+description_key = "ITEM_WATER_DIRTY_DESC"
 icon = ExtResource("2_water_icon")
 max_stack = 20
 weight = 1.0

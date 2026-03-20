@@ -1,0 +1,286 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: ru\n"
+
+msgid "UI_INVENTORY_TITLE"
+msgstr "ИНВЕНТАРЬ И КРАФТ"
+
+msgid "UI_INVENTORY_SECTION"
+msgstr "Инвентарь"
+
+msgid "UI_INVENTORY_HINT"
+msgstr "Tab — закрыть  |  Скрап нужен для строительства  |  Руда нужна для крафта"
+
+msgid "UI_INVENTORY_WEIGHT"
+msgstr "{weight} кг"
+
+msgid "UI_INVENTORY_EMPTY_SLOT"
+msgstr "Пусто"
+
+msgid "UI_BUILD_TITLE"
+msgstr "СТРОИТЕЛЬСТВО"
+
+msgid "UI_BUILD_TITLE_SELECTED"
+msgstr "СТРОИТЕЛЬСТВО: {building}"
+
+msgid "UI_BUILD_HINT"
+msgstr "  |  ЛКМ — поставить  |  ПКМ — снести  |  стоимость — в скрапе  |  B — закрыть"
+
+msgid "UI_BUILD_BUTTON"
+msgstr "{hotkey}{name} ({cost} скрапа)"
+
+msgid "UI_CRAFT_TITLE"
+msgstr "Крафт"
+
+msgid "UI_CRAFT_SELECT_RECIPE"
+msgstr "Выберите рецепт справа."
+
+msgid "UI_CRAFT_NO_RECIPES"
+msgstr "Рецепты не найдены. Проверьте папку data/recipes и корректность .tres."
+
+msgid "UI_CRAFT_RECIPE_INVALID"
+msgstr "Ошибка рецепта: предмет не найден в реестре"
+
+msgid "UI_CRAFT_RECIPE_BROKEN"
+msgstr "некорректный рецепт"
+
+msgid "UI_CRAFT_RECIPE_DETAILS"
+msgstr "{description}\n\nНужно: {input} x{input_amount}\nРезультат: {output} x{output_amount}"
+
+msgid "UI_CRAFT_SYSTEM_UNAVAILABLE"
+msgstr "Система крафта недоступна"
+
+msgid "UI_CRAFT_STATUS_AVAILABLE"
+msgstr "Доступно"
+
+msgid "UI_CRAFT_STATUS_UNAVAILABLE"
+msgstr "Недоступно: {reason}"
+
+msgid "UI_CRAFT_REASON_RECIPE_BROKEN"
+msgstr "рецепт повреждён (предметы не найдены)"
+
+msgid "UI_CRAFT_REASON_SYSTEM_NOT_READY"
+msgstr "система крафта не инициализирована"
+
+msgid "UI_CRAFT_REASON_INVENTORY_NOT_FOUND"
+msgstr "инвентарь игрока не найден"
+
+msgid "UI_CRAFT_REASON_NOT_ENOUGH_SPACE"
+msgstr "недостаточно места в инвентаре"
+
+msgid "UI_CRAFT_REASON_MISSING_ITEMS"
+msgstr "нужно {required} {item}, есть {available}"
+
+msgid "UI_CRAFT_FAILED"
+msgstr "Крафт не выполнен: {reason}"
+
+msgid "UI_POWER_TITLE"
+msgstr "⚡ ЭНЕРГОСЕТЬ"
+
+msgid "UI_POWER_STATUS_OK"
+msgstr "ОК"
+
+msgid "UI_POWER_STATUS_DEFICIT"
+msgstr "ДЕФИЦИТ"
+
+msgid "UI_POWER_STATUS_OFFLINE"
+msgstr "НЕТ СЕТИ"
+
+msgid "UI_POWER_WATTS"
+msgstr "{supply} / {demand} Вт"
+
+msgid "UI_POWER_GENERATORS"
+msgstr "Генераторы:"
+
+msgid "UI_POWER_HINT"
+msgstr "P — закрыть  |  E рядом — загрузить в печь 1 биомассу  |  База восстанавливает O2 только при питании"
+
+msgid "UI_POWER_NO_GENERATORS"
+msgstr "  Нет генераторов"
+
+msgid "UI_POWER_BATTERY_CHARGE"
+msgstr "{charge} Вт⋅ч ({percent}%)"
+
+msgid "UI_POWER_BURNER_FUEL"
+msgstr "Топливо: {fuel} ({percent}%)"
+
+msgid "UI_POWER_BURNER_OFF"
+msgstr "[ВЫКЛ]"
+
+msgid "UI_POWER_GENERIC_GENERATOR"
+msgstr "Генератор"
+
+msgid "UI_POWER_SINGLE_WATTS"
+msgstr "{watts} Вт"
+
+msgid "UI_POWER_WATTS_SHORT"
+msgstr "{watts}Вт"
+
+msgid "UI_HUD_OXYGEN"
+msgstr "O₂: "
+
+msgid "UI_HUD_SCRAP"
+msgstr "Скрап для строительства: {count}"
+
+msgid "UI_HUD_CONTROLS"
+msgstr "WASD — движение  |  E — добыча / заправить печь  |  Tab — инвентарь и крафт  |  B — стройка  |  P — энергия  |  ПРОБЕЛ — атака"
+
+msgid "UI_HUD_BUILD_MODE"
+msgstr "[ РЕЖИМ СТРОИТЕЛЬСТВА ]"
+
+msgid "UI_HUD_STATUS_OUTSIDE"
+msgstr "СНАРУЖИ"
+
+msgid "UI_HUD_STATUS_BASE_POWERED"
+msgstr "В БАЗЕ / ПИТАНИЕ ОК"
+
+msgid "UI_HUD_STATUS_BASE_UNPOWERED"
+msgstr "В БАЗЕ / БЕЗ ПИТАНИЯ"
+
+msgid "UI_HUD_DAY_PHASE"
+msgstr "День {day} — {phase}"
+
+msgid "UI_TIME_DAWN"
+msgstr "РАССВЕТ"
+
+msgid "UI_TIME_DAY"
+msgstr "ДЕНЬ"
+
+msgid "UI_TIME_DUSK"
+msgstr "ЗАКАТ"
+
+msgid "UI_TIME_NIGHT"
+msgstr "НОЧЬ"
+
+msgid "UI_TIME_UNKNOWN"
+msgstr "???"
+
+msgid "UI_GAME_OVER"
+msgstr "ИГРА ОКОНЧЕНА"
+
+msgid "UI_PICKUP_POPUP"
+msgstr "+{amount} {item}"
+
+msgid "UI_BURNER_REFUELED"
+msgstr "+{amount} топлива"
+
+msgid "ITEM_SCRAP_NAME"
+msgstr "Скрап"
+
+msgid "ITEM_SCRAP_DESC"
+msgstr "Обломки и техлом. Базовый строительный ресурс ранней игры."
+
+msgid "ITEM_WOOD_NAME"
+msgstr "Биомасса"
+
+msgid "ITEM_WOOD_DESC"
+msgstr "Топливо ранней игры. Используется для заправки термосжигателя."
+
+msgid "ITEM_IRON_ORE_NAME"
+msgstr "Железная руда"
+
+msgid "ITEM_IRON_ORE_DESC"
+msgstr "Сырьё для ручного крафта. Переплавляется в железные слитки."
+
+msgid "ITEM_IRON_INGOT_NAME"
+msgstr "Железный слиток"
+
+msgid "ITEM_IRON_INGOT_DESC"
+msgstr "Результат ручной переплавки железной руды. Не используется в строительстве."
+
+msgid "ITEM_COPPER_ORE_NAME"
+msgstr "Медная руда"
+
+msgid "ITEM_COPPER_ORE_DESC"
+msgstr "Базовая руда для проводки, электроники и энергосистемы."
+
+msgid "ITEM_STONE_NAME"
+msgstr "Камень"
+
+msgid "ITEM_STONE_DESC"
+msgstr "Минеральное сырьё для ранних конструкций и грубых инструментов."
+
+msgid "ITEM_WATER_DIRTY_NAME"
+msgstr "Грязная вода"
+
+msgid "ITEM_WATER_DIRTY_DESC"
+msgstr "Сырая местная вода. Требует очистки перед употреблением."
+
+msgid "BUILD_WALL_NAME"
+msgstr "Стена"
+
+msgid "BUILD_WALL_DESC"
+msgstr "Базовая стена. Герметизирует помещение."
+
+msgid "BUILD_ARK_BATTERY_NAME"
+msgstr "Батарея Ковчега"
+
+msgid "BUILD_ARK_BATTERY_DESC"
+msgstr "Конечный запас энергии. Когда сядет — навсегда."
+
+msgid "BUILD_THERMO_BURNER_NAME"
+msgstr "Термосжигатель"
+
+msgid "BUILD_THERMO_BURNER_DESC"
+msgstr "Жжёт биомассу и питает базу. Шумит и привлекает Очистителей."
+
+msgid "RECIPE_IRON_ORE_TO_INGOT_NAME"
+msgstr "Переплавка железа"
+
+msgid "RECIPE_IRON_ORE_TO_INGOT_DESC"
+msgstr "Руда идёт в крафт, а не в строительство: переплавь железную руду в слиток."
+
+msgid "SYSTEM_PLAYER_NOT_FOUND"
+msgstr "Игрок не найден"
+
+msgid "SYSTEM_PICKUP_INVALID"
+msgstr "Некорректный пикап"
+
+msgid "SYSTEM_INVENTORY_FULL"
+msgstr "Инвентарь полон"
+
+msgid "SYSTEM_ITEM_PICKED_UP"
+msgstr "Предмет подобран"
+
+msgid "SYSTEM_CRAFT_RECIPE_OR_INVENTORY_MISSING"
+msgstr "Рецепт или инвентарь не передан"
+
+msgid "SYSTEM_CRAFT_ITEMS_NOT_FOUND"
+msgstr "Предметы рецепта не найдены"
+
+msgid "SYSTEM_CRAFT_NOT_ENOUGH_RESOURCES"
+msgstr "Недостаточно ресурсов"
+
+msgid "SYSTEM_CRAFT_INPUT_REMOVE_FAILED"
+msgstr "Не удалось списать входные ресурсы"
+
+msgid "SYSTEM_CRAFT_SUCCESS"
+msgstr "Скрафчено: {item} x{amount}"
+
+msgid "SYSTEM_CRAFT_NOT_ENOUGH_SPACE"
+msgstr "Недостаточно места в инвентаре"
+
+msgid "SYSTEM_BUILD_NOT_SELECTED"
+msgstr "Постройка не выбрана"
+
+msgid "SYSTEM_BUILD_CANNOT_PLACE"
+msgstr "Постройку нельзя разместить"
+
+msgid "SYSTEM_BUILD_NOT_ENOUGH_SCRAP"
+msgstr "Недостаточно скрапа"
+
+msgid "SYSTEM_BUILD_CREATE_FAILED"
+msgstr "Не удалось создать постройку"
+
+msgid "SYSTEM_BUILD_PLACED"
+msgstr "Постройка размещена: {building}"
+
+msgid "SYSTEM_BUILD_NOT_FOUND"
+msgstr "Постройка не найдена"
+
+msgid "SYSTEM_BUILD_REMOVED"
+msgstr "Постройка удалена, возвращено скрапа: {amount}"
+
+msgid "SYSTEM_INVENTORY_OVERFLOW"
+msgstr "Инвентарь переполнен, не влезло: {amount}"
