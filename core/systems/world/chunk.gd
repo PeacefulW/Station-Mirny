@@ -23,6 +23,8 @@ var _terrain_bytes: PackedByteArray = PackedByteArray()
 var _terrain_material: ShaderMaterial = null
 var _roof_image: Image = null
 var _roof_texture: ImageTexture = null
+var _cliff_renderer: CliffRenderer = null
+var _rock_collision: StaticBody2D = null
 
 ## Данные ресурсов: Vector2i (local) -> Dictionary {deposit, remaining, depleted}
 var _resource_data: Dictionary = {}
@@ -116,6 +118,8 @@ func populate_native(
 					"depleted": false,
 				}
 	is_loaded = true
+	_build_rock_collision()
+	_build_cliff_sprites()
 
 ## Настроить шейдер земли. Вызывается после populate_native.
 func setup_terrain_shader(textures: Dictionary) -> void:
@@ -221,6 +225,62 @@ func global_to_local(global_tile: Vector2i) -> Vector2i:
 func get_modifications() -> Dictionary:
 	return _modified_tiles.duplicate()
 
+## Построить StaticBody2D коллизию для краевых ROCK тайлов.
+func _build_rock_collision() -> void:
+	if _rock_collision:
+		_rock_collision.queue_free()
+	_rock_collision = StaticBody2D.new()
+	_rock_collision.name = "RockCollision"
+	_rock_collision.collision_layer = 2
+	_rock_collision.collision_mask = 0
+	add_child(_rock_collision)
+
+	for ly: int in range(_chunk_size):
+		for lx: int in range(_chunk_size):
+			var idx: int = ly * _chunk_size + lx
+			if idx >= _terrain_bytes.size() or _terrain_bytes[idx] != 1:
+				continue
+			if _is_interior_rock(lx, ly):
+				continue
+			var shape := CollisionShape2D.new()
+			var rect := RectangleShape2D.new()
+			rect.size = Vector2(_tile_size, _tile_size)
+			shape.shape = rect
+			shape.position = Vector2(lx * _tile_size + _tile_size * 0.5, ly * _tile_size + _tile_size * 0.5)
+			_rock_collision.add_child(shape)
+
+## Тайл внутренний (все 4 соседа = ROCK).
+func _is_interior_rock(lx: int, ly: int) -> bool:
+	for off: Vector2i in [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]:
+		var nx: int = lx + off.x
+		var ny: int = ly + off.y
+		if nx < 0 or nx >= _chunk_size or ny < 0 or ny >= _chunk_size:
+			continue
+		var nidx: int = ny * _chunk_size + nx
+		if nidx >= _terrain_bytes.size() or _terrain_bytes[nidx] != 1:
+			return false
+	return true
+
+## Построить клиф-спрайты по краям горных формаций.
+func _build_cliff_sprites() -> void:
+	if _cliff_renderer:
+		_cliff_renderer.queue_free()
+	_cliff_renderer = CliffRenderer.new()
+	_cliff_renderer.name = "CliffRenderer"
+	add_child(_cliff_renderer)
+	_cliff_renderer.build_cliffs(_terrain_bytes, _chunk_size, _tile_size, chunk_coord)
+
+## Убрать коллизию с тайла (при копании).
+func _remove_collision_at(local: Vector2i) -> void:
+	if not _rock_collision:
+		return
+	var target_pos := Vector2(local.x * _tile_size + _tile_size * 0.5, local.y * _tile_size + _tile_size * 0.5)
+	for child: Node in _rock_collision.get_children():
+		var col: CollisionShape2D = child as CollisionShape2D
+		if col and col.position.distance_to(target_pos) < 1.0:
+			col.queue_free()
+			break
+
 ## Задать roof_opacity для шейдера (0=скрыта, 1=видна).
 func set_roof_opacity(value: float) -> void:
 	if _terrain_material:
@@ -233,6 +293,10 @@ func set_terrain_type_at(local: Vector2i, new_type: int) -> void:
 		return
 	_terrain_bytes[idx] = new_type
 	_update_terrain_textures_at(local, new_type)
+	# Обновить коллизию и клифы при копании
+	if new_type != 1:
+		_remove_collision_at(local)
+	_build_cliff_sprites()
 	is_dirty = true
 
 ## Получить тип terrain в локальном тайле.
