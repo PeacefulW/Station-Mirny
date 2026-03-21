@@ -4,6 +4,6 @@
 
 [resource]
 script = ExtResource("1")
-grid_size = 12
+grid_size = 64
 wall_health = 50.0
 wall_scrap_cost = 2

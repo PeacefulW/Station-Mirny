@@ -17,12 +17,12 @@ func create_item_pickup(item_id: String, amount: int, position: Vector2) -> Area
 	visual.name = "Visual"
 	var item_data: ItemData = ItemRegistry.get_item(item_id)
 	visual.texture = item_data.icon if item_data else null
-	visual.scale = Vector2(0.4, 0.4)
+	visual.scale = Vector2(1.0, 1.0)
 	pickup.add_child(visual)
 
 	var collision := CollisionShape2D.new()
 	var shape := CircleShape2D.new()
-	shape.radius = 8.0
+	shape.radius = 32.0
 	collision.shape = shape
 	pickup.add_child(collision)
 

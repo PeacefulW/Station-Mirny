@@ -101,7 +101,8 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_update_player_indoor_status()
-	_update_enemy_spawning(delta)
+	# TODO: вернуть когда закончим тесты генерации
+	#_update_enemy_spawning(delta)
 
 # --- Инициализация ---
 
@@ -180,7 +181,7 @@ func _on_enemy_killed(death_position: Vector2) -> void:
 	if enemy_balance:
 		var drop: int = randi_range(enemy_balance.scrap_drop_min, enemy_balance.scrap_drop_max)
 		for i: int in range(drop):
-			var offset := Vector2(randf_range(-8, 8), randf_range(-8, 8))
+			var offset := Vector2(randf_range(-40, 40), randf_range(-40, 40))
 			_spawn_scrap_pickup(death_position + offset)
 
 func _on_item_dropped(item_id: String, amount: int, world_pos: Vector2) -> void:
@@ -214,7 +215,7 @@ func _spawn_initial_scrap() -> void:
 		return
 	for i: int in range(10):
 		var angle: float = randf() * TAU
-		var dist: float = randf_range(19.0, 75.0)
+		var dist: float = randf_range(100.0, 400.0)
 		var pos: Vector2 = _player.global_position + Vector2.from_angle(angle) * dist
 		_spawn_scrap_pickup(pos)
 

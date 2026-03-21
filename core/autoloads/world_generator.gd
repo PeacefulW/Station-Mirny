@@ -1,8 +1,8 @@
 class_name WorldGeneratorSingleton
 extends Node
 
-## Генератор мира v7. Делегирует тяжёлую генерацию в C++.
-## GDScript остаётся координатором — C++ делает математику.
+## Генератор мира v8. Упрощённый: только земля + горы.
+## Делегирует генерацию в C++.
 
 const BALANCE_PATH: String = "res://data/world/world_gen_balance.tres"
 const BIOME_PATH: String = "res://data/biomes/plains_biome.tres"
@@ -12,8 +12,6 @@ var balance: WorldGenBalance = null
 var current_biome: BiomeData = null
 var spawn_tile: Vector2i = Vector2i.ZERO
 var _is_initialized: bool = false
-
-## C++ генератор чанков.
 var _native_generator: ChunkGenerator = null
 
 func _ready() -> void:
@@ -34,24 +32,18 @@ func initialize_random() -> void:
 	rng.randomize()
 	initialize_world(rng.randi())
 
-## Генерация чанка через C++. Возвращает Dictionary с массивами.
-## Ключи: "terrain", "height", "spore", "deposit", "has_tree",
-##         "is_mountain", "chunk_size"
 func get_chunk_data_native(chunk_coord: Vector2i) -> Dictionary:
 	if not _is_initialized or not _native_generator:
 		return {}
 	return _native_generator.generate_chunk(chunk_coord, spawn_tile)
 
-## Старый метод (для совместимости) — теперь тоже через C++.
 func get_chunk_data(chunk_coord: Vector2i) -> Dictionary:
 	return get_chunk_data_native(chunk_coord)
 
-## Одиночный тайл (для pathfinding и т.д.) — лёгкий, на GDScript.
 func get_tile_data(tile_x: int, tile_y: int) -> TileGenData:
 	if not _is_initialized:
 		return TileGenData.new()
-	var data := TileGenData.new()
-	return data
+	return TileGenData.new()
 
 func world_to_tile(world_pos: Vector2) -> Vector2i:
 	return Vector2i(
@@ -77,13 +69,11 @@ func tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
 func is_walkable_at(world_pos: Vector2) -> bool:
 	if not _is_initialized or not balance:
 		return true
-
 	var tile_pos: Vector2i = world_to_tile(world_pos)
 	var chunk_coord: Vector2i = tile_to_chunk(tile_pos)
 	var chunk_data: Dictionary = get_chunk_data_native(chunk_coord)
 	if chunk_data.is_empty():
 		return true
-
 	var chunk_size: int = int(chunk_data.get("chunk_size", balance.chunk_size_tiles))
 	var local_x: int = posmod(tile_pos.x, chunk_size)
 	var local_y: int = posmod(tile_pos.y, chunk_size)
@@ -91,23 +81,16 @@ func is_walkable_at(world_pos: Vector2) -> bool:
 	var terrain: PackedByteArray = chunk_data.get("terrain", PackedByteArray())
 	if index < 0 or index >= terrain.size():
 		return true
-
-	var terrain_type: int = int(terrain[index])
-	return terrain_type != TileGenData.TerrainType.WATER and terrain_type != TileGenData.TerrainType.ROCK
+	return terrain[index] != 1  # 1 = ROCK = непроходим
 
 func _setup_native_generator() -> void:
 	_native_generator = ChunkGenerator.new()
 	var params: Dictionary = {
 		"chunk_size": balance.chunk_size_tiles,
-		"water_threshold": balance.water_threshold,
 		"rock_threshold": balance.rock_threshold,
 		"warp_strength": balance.warp_strength,
 		"ridge_weight": balance.ridge_weight,
 		"continental_weight": balance.continental_weight,
-		"grass_threshold": balance.grass_threshold,
-		"tree_threshold": balance.tree_threshold,
-		"spore_min_density": balance.spore_min_density,
-		"resource_deposit_threshold": balance.resource_deposit_threshold,
 		"safe_zone_radius": balance.safe_zone_radius,
 		"land_guarantee_radius": balance.land_guarantee_radius,
 		"height_frequency": balance.height_frequency,
@@ -115,11 +98,6 @@ func _setup_native_generator() -> void:
 		"warp_frequency": balance.warp_frequency,
 		"ridge_frequency": balance.ridge_frequency,
 		"continental_frequency": balance.continental_frequency,
-		"moisture_frequency": balance.moisture_frequency,
-		"spore_frequency": balance.spore_frequency,
-		"resource_frequency": balance.resource_frequency,
-		# New parameters
 		"mountain_size": balance.mountain_size,
-		"tree_density": balance.tree_density,
 	}
 	_native_generator.initialize(world_seed, params)

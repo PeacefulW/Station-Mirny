@@ -1,28 +1,22 @@
 class_name ChunkManager
 extends Node2D
 
-## Менеджер чанков v8. Z-уровни + текстуры земли из атласа PNG.
+## Менеджер чанков v9. Упрощённый: только земля + горы, 64px тайлы.
 
 var _loaded_chunks: Dictionary = {}
 var _player_chunk: Vector2i = Vector2i(99999, 99999)
 var _player: Node2D = null
 var _chunk_container: Node2D = null
 var _load_queue: Array[Vector2i] = []
-var _resource_defs: Dictionary = {}
 var _saved_chunk_data: Dictionary = {}
 var _shared_tileset: TileSet = null
-var _resource_tileset: TileSet = null
 var _initialized: bool = false
 var _active_z: int = 0
 var _z_containers: Dictionary = {}
 var _z_chunks: Dictionary = {}
-var _terrain_textures: Dictionary = {}
 
-const TERRAIN_COUNT: int = 5
-const VARIANT_COUNT: int = 3
-const RESOURCE_COUNT: int = 5
-const TERRAIN_ATLAS_PATH: String = "res://assets/textures/terrain_atlas.png"
-const RESOURCE_ATLAS_PATH: String = "res://assets/textures/resource_atlas.png"
+const TERRAIN_COUNT: int = 2   # GROUND, ROCK
+const VARIANT_COUNT: int = 3   # dark, normal, light
 
 func _ready() -> void:
 	add_to_group("chunk_manager")
@@ -30,7 +24,6 @@ func _ready() -> void:
 	_chunk_container.name = "Chunks"
 	add_child(_chunk_container)
 	_setup_z_containers()
-	_load_resource_defs()
 	call_deferred("_deferred_init")
 
 func _process(_delta: float) -> void:
@@ -59,22 +52,12 @@ func get_chunk_at_tile(gt: Vector2i) -> Chunk:
 func get_chunk(cc: Vector2i) -> Chunk:
 	return _loaded_chunks.get(cc)
 
-func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
-	var tile: Vector2i = WorldGenerator.world_to_tile(world_pos)
-	var cc: Vector2i = WorldGenerator.tile_to_chunk(tile)
-	var chunk: Chunk = _loaded_chunks.get(cc)
-	if not chunk:
-		return {}
-	var local: Vector2i = chunk.global_to_local(tile)
-	return chunk.try_harvest_at(local)
+# TODO: вернуть когда добавим ресурсы обратно
+func try_harvest_at_world(_world_pos: Vector2) -> Dictionary:
+	return {}
 
-func has_resource_at_world(world_pos: Vector2) -> bool:
-	var tile: Vector2i = WorldGenerator.world_to_tile(world_pos)
-	var cc: Vector2i = WorldGenerator.tile_to_chunk(tile)
-	var chunk: Chunk = _loaded_chunks.get(cc)
-	if not chunk:
-		return false
-	return chunk.has_resource_at(chunk.global_to_local(tile))
+func has_resource_at_world(_world_pos: Vector2) -> bool:
+	return false
 
 # --- Инициализация ---
 
@@ -83,47 +66,20 @@ func _deferred_init() -> void:
 	if not players.is_empty():
 		_player = players[0] as Node2D
 	_build_terrain_tileset()
-	_build_resource_tileset()
-	_load_terrain_textures()
-	_initialized = _shared_tileset != null and _resource_tileset != null
+	_initialized = _shared_tileset != null
 
-## Загружает атлас земли из PNG. Если файла нет — fallback на цветные квадраты.
+## Fallback: цветные квадраты для terrain (GROUND + ROCK × 3 варианта).
 func _build_terrain_tileset() -> void:
 	if not WorldGenerator or not WorldGenerator.balance:
 		return
-	var ts: int = WorldGenerator.balance.tile_size
-
-	# Пытаемся загрузить PNG атлас
-	var atlas_tex: Texture2D = null
-	if ResourceLoader.exists(TERRAIN_ATLAS_PATH):
-		atlas_tex = load(TERRAIN_ATLAS_PATH) as Texture2D
-
-	if atlas_tex:
-		# Атлас найден — используем текстуры
-		_shared_tileset = TileSet.new()
-		_shared_tileset.tile_size = Vector2i(ts, ts)
-		var source := TileSetAtlasSource.new()
-		source.texture = atlas_tex
-		source.texture_region_size = Vector2i(ts, ts)
-		for x: int in range(TERRAIN_COUNT):
-			for y: int in range(VARIANT_COUNT):
-				source.create_tile(Vector2i(x, y))
-		_shared_tileset.add_source(source, 0)
-	else:
-		# Fallback — цветные квадраты (как раньше)
-		push_warning(Localization.t("SYSTEM_CHUNK_TERRAIN_ATLAS_MISSING", {"path": TERRAIN_ATLAS_PATH}))
-		_build_terrain_tileset_fallback()
-
-## Fallback: генерация цветных квадратов если атлас не найден.
-func _build_terrain_tileset_fallback() -> void:
 	var ts: int = WorldGenerator.balance.tile_size
 	var biome: BiomeData = WorldGenerator.current_biome
 	if not biome:
 		return
 	var img := Image.create(TERRAIN_COUNT * ts, VARIANT_COUNT * ts, false, Image.FORMAT_RGBA8)
 	var colors: Array[Color] = [
-		biome.ground_color, biome.rock_color, biome.water_color,
-		biome.sand_color, biome.grass_color,
+		biome.ground_color,
+		biome.rock_color,
 	]
 	for ti: int in range(TERRAIN_COUNT):
 		for vi: int in range(VARIANT_COUNT):
@@ -143,55 +99,6 @@ func _build_terrain_tileset_fallback() -> void:
 		for y: int in range(VARIANT_COUNT):
 			src.create_tile(Vector2i(x, y))
 	_shared_tileset.add_source(src, 0)
-
-func _build_resource_tileset() -> void:
-	if not WorldGenerator or not WorldGenerator.balance:
-		return
-	var ts: int = WorldGenerator.balance.tile_size
-	# Пытаемся загрузить PNG атлас ресурсов
-	var atlas_tex: Texture2D = null
-	if ResourceLoader.exists(RESOURCE_ATLAS_PATH):
-		atlas_tex = load(RESOURCE_ATLAS_PATH) as Texture2D
-	if atlas_tex:
-		_resource_tileset = TileSet.new()
-		_resource_tileset.tile_size = Vector2i(ts, ts)
-		var src := TileSetAtlasSource.new()
-		src.texture = atlas_tex
-		src.texture_region_size = Vector2i(ts, ts)
-		for x: int in range(RESOURCE_COUNT):
-			src.create_tile(Vector2i(x, 0))
-		_resource_tileset.add_source(src, 0)
-	else:
-		push_warning(Localization.t("SYSTEM_CHUNK_RESOURCE_ATLAS_MISSING", {"path": RESOURCE_ATLAS_PATH}))
-		_build_resource_tileset_fallback()
-
-## Fallback: цветные квадраты если атлас ресурсов не найден.
-func _build_resource_tileset_fallback() -> void:
-	var ts: int = WorldGenerator.balance.tile_size
-	var res_colors: Array[Color] = [
-		Color(0.55, 0.35, 0.25), Color(0.65, 0.45, 0.20),
-		Color(0.45, 0.43, 0.40), Color(0.20, 0.35, 0.55),
-		Color(0.30, 0.22, 0.15),
-	]
-	var img := Image.create(RESOURCE_COUNT * ts, ts, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	var half: int = ts / 2
-	var dot_r: int = ts / 4
-	for ri: int in range(RESOURCE_COUNT):
-		var c: Color = res_colors[ri]
-		var ox: int = ri * ts
-		for py: int in range(half - dot_r, half + dot_r):
-			for px: int in range(half - dot_r, half + dot_r):
-				img.set_pixel(ox + px, py, c)
-	var tex := ImageTexture.create_from_image(img)
-	_resource_tileset = TileSet.new()
-	_resource_tileset.tile_size = Vector2i(ts, ts)
-	var src := TileSetAtlasSource.new()
-	src.texture = tex
-	src.texture_region_size = Vector2i(ts, ts)
-	for x: int in range(RESOURCE_COUNT):
-		src.create_tile(Vector2i(x, 0))
-	_resource_tileset.add_source(src, 0)
 
 # --- Обновление ---
 
@@ -234,17 +141,15 @@ func _process_load_queue() -> void:
 		loaded += 1
 
 func _load_chunk(coord: Vector2i) -> void:
-	if _loaded_chunks.has(coord) or not _shared_tileset or not _resource_tileset:
+	if _loaded_chunks.has(coord) or not _shared_tileset:
 		return
 	var native_data: Dictionary = WorldGenerator.get_chunk_data(coord)
 	var chunk := Chunk.new()
 	chunk.setup(coord, WorldGenerator.balance.tile_size,
 		WorldGenerator.balance.chunk_size_tiles,
-		WorldGenerator.current_biome, _shared_tileset, _resource_tileset)
+		WorldGenerator.current_biome, _shared_tileset)
 	var saved_mods: Dictionary = _saved_chunk_data.get(coord, {})
-	chunk.populate_native(native_data, saved_mods, _resource_defs)
-	if not _terrain_textures.is_empty():
-		chunk.setup_terrain_shader(_terrain_textures)
+	chunk.populate_native(native_data, saved_mods)
 	var z_container: Node2D = _z_containers.get(_active_z) as Node2D
 	if z_container:
 		z_container.add_child(chunk)
@@ -264,33 +169,8 @@ func _unload_chunk(coord: Vector2i) -> void:
 	_loaded_chunks.erase(coord)
 	EventBus.chunk_unloaded.emit(coord)
 
-func _load_resource_defs() -> void:
-	_resource_defs.clear()
-	var resource_nodes: Array[ResourceNodeData] = ItemRegistry.get_all_resource_nodes()
-	for resource_node: ResourceNodeData in resource_nodes:
-		_resource_defs[resource_node.deposit_type] = resource_node
-	if _resource_defs.is_empty():
-		push_warning(Localization.t("SYSTEM_CHUNK_RESOURCE_DEFS_MISSING"))
-
-## Загрузить текстуры земли для шейдера (один раз).
-func _load_terrain_textures() -> void:
-	var shader_path: String = "res://assets/shaders/terrain_blend.gdshader"
-	var plains_path: String = "res://assets/textures/terrain/terrain_plains.png"
-	var rock_path: String = "res://assets/textures/terrain/terrain_rock.png"
-	var shore_path: String = "res://assets/textures/terrain/terrain_shore.png"
-	if not ResourceLoader.exists(shader_path):
-		return
-	_terrain_textures["shader"] = load(shader_path)
-	if ResourceLoader.exists(plains_path):
-		_terrain_textures["plains"] = load(plains_path)
-	if ResourceLoader.exists(rock_path):
-		_terrain_textures["rock"] = load(rock_path)
-	if ResourceLoader.exists(shore_path):
-		_terrain_textures["shore"] = load(shore_path)
-
 # --- Z-уровни ---
 
-## Создать контейнеры для каждого z-уровня.
 func _setup_z_containers() -> void:
 	for z: int in [ZLevelManager.Z_MIN, 0, ZLevelManager.Z_MAX]:
 		var container := Node2D.new()
@@ -301,7 +181,6 @@ func _setup_z_containers() -> void:
 		_z_chunks[z] = {}
 	_loaded_chunks = _z_chunks[0]
 
-## Переключить видимый z-уровень.
 func set_active_z_level(z: int) -> void:
 	_active_z = z
 	for layer_z: int in _z_containers:

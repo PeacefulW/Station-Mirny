@@ -7,7 +7,7 @@ extends Node
 
 # --- Экспортируемые ---
 ## Радиус слышимости (пиксели).
-@export var noise_radius: float = 75.0
+@export var noise_radius: float = 400.0
 ## Уровень шума (0.0–1.0). Влияет на агрессивность реакции.
 @export var noise_level: float = 0.5
 ## Активен ли шум сейчас.
