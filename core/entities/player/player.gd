@@ -72,7 +72,6 @@ func perform_harvest() -> bool:
 		# Пробуем прямо под игроком
 		harvest_pos = global_position
 		if not _chunk_manager.has_resource_at_world(harvest_pos):
-			# Пробуем выкопать скалу
 			return _try_mine_rock()
 	_harvest_timer = balance.harvest_cooldown
 	var result: Dictionary = _chunk_manager.try_harvest_at_world(harvest_pos)
@@ -185,21 +184,35 @@ func _handle_rotation() -> void:
 		visual.look_at(get_global_mouse_position())
 		visual.rotation_degrees -= 90.0
 
+## Копание скалы перед игроком (или рядом).
 func _try_mine_rock() -> bool:
-	if _harvest_timer > 0.0:
+	if _harvest_timer > 0.0 or not _chunk_manager:
 		return false
+	# Пробуем позицию в направлении курсора
 	var mine_pos: Vector2 = _get_harvest_position()
-	var roof_systems: Array[Node] = get_tree().get_nodes_in_group("mountain_roof")
-	if roof_systems.is_empty():
+	if not _mine_rock_at_world(mine_pos):
+		# Пробуем ближе к игроку
+		var dir: Vector2 = (get_global_mouse_position() - global_position).normalized()
+		mine_pos = global_position + dir * float(WorldGenerator.balance.tile_size)
+		if not _mine_rock_at_world(mine_pos):
+			return false
+	return true
+
+func _mine_rock_at_world(world_pos: Vector2) -> bool:
+	var tile: Vector2i = WorldGenerator.world_to_tile(world_pos)
+	var cc: Vector2i = WorldGenerator.tile_to_chunk(tile)
+	var chunk: Chunk = _chunk_manager.get_chunk(cc)
+	if not chunk:
 		return false
-	var roof: MountainRoofSystem = roof_systems[0] as MountainRoofSystem
-	if not roof:
+	var local: Vector2i = chunk.global_to_local(tile)
+	if not chunk.has_rock_at(local):
 		return false
-	if roof.try_mine_at(mine_pos):
-		_harvest_timer = balance.harvest_cooldown
-		_flash_harvest()
-		return true
-	return false
+	chunk.remove_rock_at(local)
+	collect_item("base:stone", 1)
+	PlayerPopup.spawn_harvest(self, "base:stone", 1, balance)
+	_harvest_timer = balance.harvest_cooldown
+	_flash_harvest()
+	return true
 
 func _setup_camera() -> void:
 	_camera = get_node_or_null("Camera2D") as PlayerCamera

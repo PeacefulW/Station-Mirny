@@ -89,6 +89,9 @@ func grid_to_world(grid_pos: Vector2i) -> Vector2:
 func is_cell_indoor(grid_pos: Vector2i) -> bool:
 	return _indoor_solver.indoor_cells.has(grid_pos)
 
+func get_grid_size() -> int:
+	return _placement_service.get_grid_size()
+
 ## Задать выбранную постройку (делегирование в placement-сервис).
 func set_selected_building(building: BuildingData) -> void:
 	_placement_service.set_selected_building(building)

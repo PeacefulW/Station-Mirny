@@ -783,6 +783,12 @@ msgstr "Ранняя разработка v0.1"
 msgid "UI_PAUSE_MAIN_MENU"
 msgstr "В главное меню"
 
+msgid "BUILD_ROCK_WALL_NAME"
+msgstr "Горная порода"
+
+msgid "BUILD_ROCK_WALL_DESC"
+msgstr "Твёрдая скала. Можно разрушить в режиме строительства."
+
 msgid "BUILD_TEST_BIG_NAME"
 msgstr "Тестовый блок 3×2"
 

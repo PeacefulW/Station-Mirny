@@ -31,15 +31,15 @@ SaveManager="*res://core/autoloads/save_manager.gd"
 Localization="*res://core/autoloads/localization_service.gd"
 SettingsManager="*res://core/autoloads/settings_manager.gd"
 
-[internationalization]
-
-locale/translations=PackedStringArray("res://locale/ru/messages.po", "res://locale/en/messages.po")
-
 [display]
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
+
+[internationalization]
+
+locale/translations=PackedStringArray("res://locale/ru/messages.po", "res://locale/en/messages.po")
 
 [layer_names]
 

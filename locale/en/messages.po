@@ -783,6 +783,12 @@ msgstr "Early development v0.1"
 msgid "UI_PAUSE_MAIN_MENU"
 msgstr "Main Menu"
 
+msgid "BUILD_ROCK_WALL_NAME"
+msgstr "Rock"
+
+msgid "BUILD_ROCK_WALL_DESC"
+msgstr "Solid rock. Can be destroyed in build mode."
+
 msgid "BUILD_TEST_BIG_NAME"
 msgstr "Test block 3×2"
 

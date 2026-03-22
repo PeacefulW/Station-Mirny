@@ -5,7 +5,7 @@
 [ext_resource type="Resource" path="res://data/balance/building_balance.tres" id="3_buildbal"]
 [ext_resource type="Resource" path="res://data/balance/enemy_balance.tres" id="4_enemybal"]
 [ext_resource type="PackedScene" uid="uid://du5ikqcjmp801" path="res://scenes/player/player.tscn" id="5_player"]
-[ext_resource type="Script" path="res://scenes/ui/hud/hud_manager.gd" id="6_hud"]
+[ext_resource type="Script" uid="uid://bewy0hph1bf3u" path="res://scenes/ui/hud/hud_manager.gd" id="6_hud"]
 [ext_resource type="Script" uid="uid://bmctpx8t5mga6" path="res://core/systems/daylight/daylight_system.gd" id="7_daylight"]
 [ext_resource type="Script" uid="uid://pbb5x2p2lhxo" path="res://core/systems/power/power_system.gd" id="8_wnjkh"]
 
@@ -27,7 +27,6 @@ script = ExtResource("7_daylight")
 [node name="BuildingSystem" type="Node2D" parent="." unique_id=1330468699]
 script = ExtResource("2_building")
 balance = ExtResource("3_buildbal")
-wall_container = NodePath("../WallContainer")
 
 [node name="Player" parent="." unique_id=756426991 instance=ExtResource("5_player")]
 

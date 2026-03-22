@@ -81,3 +81,17 @@ static func _make_test_big() -> BuildingData:
 	bd.placeholder_color = Color(0.6, 0.3, 0.7)
 	bd.hotkey = 4
 	return bd
+
+static func _make_rock_wall() -> BuildingData:
+	var rw := BuildingData.new()
+	rw.id = &"rock_wall"
+	rw.display_name_key = "BUILD_ROCK_WALL_NAME"
+	rw.description_key = "BUILD_ROCK_WALL_DESC"
+	rw.category = BuildingData.Category.STRUCTURE
+	rw.scrap_cost = 0
+	rw.health = 150.0
+	rw.placeholder_color = Color(0.30, 0.25, 0.32)
+	rw.size_x = 1
+	rw.size_y = 1
+	rw.hotkey = 0
+	return rw
