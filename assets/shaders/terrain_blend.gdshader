@@ -8,10 +8,16 @@ uniform sampler2D tex_shore : repeat_enable, filter_linear;
 // Карта типов (64×64, R канал = тип земли, nearest — без артефактов на стыках)
 uniform sampler2D terrain_map : filter_nearest;
 
+/*
+Phase 2 cleanup:
+старый roof/fog shader-подход отключён.
+Секции сохранены комментарием для Phase 3.
+
 // Крыша горы (64×64, R=1 = крыша, R=0 = нет)
 uniform sampler2D roof_map : filter_nearest;
 // Прозрачность крыши (0 = скрыта, 1 = видна)
 uniform float roof_opacity = 1.0;
+*/
 
 // Масштаб текстур
 uniform float texture_scale = 6.0;
@@ -121,6 +127,11 @@ void fragment() {
     float left_gradient = smoothstep(0.25, 0.0, left_dist);
     COLOR.rgb = mix(COLOR.rgb, rock_face_color, left_face * left_gradient * 0.4);
 
+    /*
+    Phase 2 cleanup:
+    roof/fog здесь больше не используются. Интерьер горы рендерится
+    отдельным 2D overlay в Chunk/MountainViewManager.
+
     // === КРЫША ГОРЫ ===
     float roof = texture(roof_map, chunk_uv).r;
     if (roof > 0.01) {
@@ -137,4 +148,5 @@ void fragment() {
     float is_rock_raw = step(0.15, raw_type) * step(raw_type, 0.35);
     float fog = is_rock_raw * (1.0 - roof_opacity) * roof;
     COLOR.rgb = mix(COLOR.rgb, vec3(0.03, 0.02, 0.02), fog);
+    */
 }

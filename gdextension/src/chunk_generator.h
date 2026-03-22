@@ -2,7 +2,6 @@
 #define CHUNK_GENERATOR_H
 
 #include <vector>
-
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
@@ -40,16 +39,12 @@ private:
     int land_guarantee_radius = 24;
 
     // --- Mountain formations ---
-    int mountain_size = 2;
-    float mountain_frequency = 0.008f;
-
     // --- Noise layers ---
     FastNoiseLite noise_height;
     FastNoiseLite noise_warp_x;
     FastNoiseLite noise_warp_y;
     FastNoiseLite noise_ridge;
     FastNoiseLite noise_continental;
-    FastNoiseLite noise_mountain;
 
     // --- Helpers ---
     void setup_noise(FastNoiseLite& n, int s, float freq, int octaves);
@@ -57,7 +52,6 @@ private:
     float sample_ridged(float x, float y);
     float calc_raw_height(float x, float y, float cached_continental);
     float tile_hashf(int x, int y, int s);
-    float calc_mountain_frequency(int size);
 };
 
 } // namespace godot

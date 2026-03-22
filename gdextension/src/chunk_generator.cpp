@@ -22,15 +22,6 @@ void ChunkGenerator::setup_noise(FastNoiseLite& n, int s, float freq, int octave
     n.SetFractalGain(0.5f);
 }
 
-float ChunkGenerator::calc_mountain_frequency(int size) {
-    switch (size) {
-        case 1:  return 0.016f;
-        case 2:  return 0.008f;
-        case 3:  return 0.004f;
-        default: return 0.008f;
-    }
-}
-
 void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
     seed = p_seed;
     chunk_size = p_params.get("chunk_size", 64);
@@ -40,8 +31,6 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
     continental_weight = p_params.get("continental_weight", 0.20f);
     safe_zone_radius = p_params.get("safe_zone_radius", 12);
     land_guarantee_radius = p_params.get("land_guarantee_radius", 24);
-    mountain_size = p_params.get("mountain_size", 2);
-
     float height_freq = p_params.get("height_frequency", 0.01f);
     int height_oct = p_params.get("height_octaves", 4);
     float warp_freq = p_params.get("warp_frequency", 0.008f);
@@ -53,9 +42,6 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
     setup_noise(noise_warp_y, seed + 800, warp_freq, 2);
     setup_noise(noise_ridge, seed + 3000, ridge_freq, 3);
     setup_noise(noise_continental, seed + 7000, cont_freq, 2);
-
-    mountain_frequency = calc_mountain_frequency(mountain_size);
-    setup_noise(noise_mountain, seed + 11000, mountain_frequency, 2);
 
     initialized = true;
 }
@@ -103,19 +89,11 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn) 
     float center_y = (float)(start_y + cs / 2) * 0.4f;
     float continental = sample_normalized(noise_continental, center_x, center_y);
 
-    // Mountain cutoff: remap rock_threshold slider to actual noise cutoff
-    //   slider 0.55 -> cutoff 0.43 -> ~35% mountain tiles
-    //   slider 0.73 -> cutoff 0.57 -> ~15% mountain tiles (default)
-    //   slider 0.90 -> cutoff 0.70 -> ~5% mountain tiles
-    float mtn_cutoff = rock_threshold * 0.78f;
-
     // --- Output arrays ---
     PackedByteArray terrain;
     terrain.resize(total);
     PackedFloat32Array height_arr;
     height_arr.resize(total);
-    PackedByteArray is_mountain_arr;
-    is_mountain_arr.resize(total);
 
     for (int ly = 0; ly < cs; ly++) {
         for (int lx = 0; lx < cs; lx++) {
@@ -136,26 +114,13 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn) 
             }
             height_arr[idx] = h;
 
-            // Mountain detection (low-freq noise blobs + height bias)
-            float mtn_noise = sample_normalized(noise_mountain, (float)gx, (float)gy);
-            float mtn_val = mtn_noise + h * 0.12f;
-            bool is_mtn = (mtn_val > mtn_cutoff);
-
-            // No mountains near spawn
-            if (dist < (float)safe_zone_radius * 1.5f) {
-                is_mtn = false;
-            }
-
-            // Terrain: 0 = GROUND, 1 = ROCK
-            terrain[idx] = is_mtn ? 1 : 0;
-            is_mountain_arr[idx] = is_mtn ? 1 : 0;
+            terrain[idx] = 0;
         }
     }
 
     Dictionary result;
     result["terrain"] = terrain;
     result["height"] = height_arr;
-    result["is_mountain"] = is_mountain_arr;
     result["chunk_size"] = cs;
     return result;
 }

@@ -96,8 +96,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_update_player_indoor_status()
-	# TODO: вернуть когда закончим тесты генерации
-	#_update_enemy_spawning(delta)
+	_update_enemy_spawning(delta)
 
 # --- Инициализация ---
 

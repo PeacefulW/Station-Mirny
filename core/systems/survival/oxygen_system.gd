@@ -29,9 +29,8 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not balance:
 		return
-	# TODO: вернуть когда закончим тесты генерации
-	#_update_oxygen(delta)
-	#_apply_effects()
+	_update_oxygen(delta)
+	_apply_effects()
 
 ## Получить текущий O₂ в процентах (0.0 — 1.0).
 func get_oxygen_percent() -> float:

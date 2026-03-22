@@ -38,7 +38,18 @@ func get_chunk_data_native(chunk_coord: Vector2i) -> Dictionary:
 	return _native_generator.generate_chunk(chunk_coord, spawn_tile)
 
 func get_chunk_data(chunk_coord: Vector2i) -> Dictionary:
-	return get_chunk_data_native(chunk_coord)
+	var native_data: Dictionary = get_chunk_data_native(chunk_coord)
+	if native_data.is_empty():
+		return native_data
+	var terrain: PackedByteArray = native_data.get("terrain", PackedByteArray())
+	for idx: int in range(terrain.size()):
+		terrain[idx] = 0
+	native_data["terrain"] = terrain
+	native_data.erase("is_mountain")
+	native_data.erase("cluster_id")
+	native_data.erase("has_roof")
+	native_data.erase("is_edge")
+	return native_data
 
 func get_tile_data(tile_x: int, tile_y: int) -> TileGenData:
 	if not _is_initialized:
@@ -67,21 +78,7 @@ func tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
 	)
 
 func is_walkable_at(world_pos: Vector2) -> bool:
-	if not _is_initialized or not balance:
-		return true
-	var tile_pos: Vector2i = world_to_tile(world_pos)
-	var chunk_coord: Vector2i = tile_to_chunk(tile_pos)
-	var chunk_data: Dictionary = get_chunk_data_native(chunk_coord)
-	if chunk_data.is_empty():
-		return true
-	var chunk_size: int = int(chunk_data.get("chunk_size", balance.chunk_size_tiles))
-	var local_x: int = posmod(tile_pos.x, chunk_size)
-	var local_y: int = posmod(tile_pos.y, chunk_size)
-	var index: int = local_y * chunk_size + local_x
-	var terrain: PackedByteArray = chunk_data.get("terrain", PackedByteArray())
-	if index < 0 or index >= terrain.size():
-		return true
-	return terrain[index] != 1  # 1 = ROCK = непроходим
+	return true
 
 func _setup_native_generator() -> void:
 	_native_generator = ChunkGenerator.new()
@@ -98,6 +95,5 @@ func _setup_native_generator() -> void:
 		"warp_frequency": balance.warp_frequency,
 		"ridge_frequency": balance.ridge_frequency,
 		"continental_frequency": balance.continental_frequency,
-		"mountain_size": balance.mountain_size,
 	}
 	_native_generator.initialize(world_seed, params)
