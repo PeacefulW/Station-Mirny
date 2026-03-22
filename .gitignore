@@ -15,3 +15,4 @@ Thumbs.db
 .vscode/
 *.code-workspace
 Godot_v4.6.1-stable_win64.exe
+gdextension/godot-cpp/
