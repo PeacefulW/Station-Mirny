@@ -19,10 +19,9 @@ static func apply_world(data: Dictionary) -> bool:
 	if WorldGenerator.balance:
 		var generation: Dictionary = data.get("generation", {})
 		var balance: WorldGenBalance = WorldGenerator.balance
-		balance.water_threshold = generation.get("water_threshold", balance.water_threshold)
-		balance.rock_threshold = generation.get("rock_threshold", balance.rock_threshold)
-		balance.warp_strength = generation.get("warp_strength", balance.warp_strength)
-		balance.ridge_weight = generation.get("ridge_weight", balance.ridge_weight)
+		balance.mountain_density = float(generation.get("mountain_density", balance.mountain_density))
+		balance.mountain_area = int(generation.get("mountain_area", balance.mountain_area))
+		balance.mountain_chaininess = float(generation.get("mountain_chaininess", balance.mountain_chaininess))
 
 	WorldGenerator.initialize_world(int(data.get("seed", 0)))
 	return true

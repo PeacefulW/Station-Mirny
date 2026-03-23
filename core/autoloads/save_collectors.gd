@@ -52,10 +52,9 @@ static func collect_world() -> Dictionary:
 	if WorldGenerator.balance:
 		var balance: WorldGenBalance = WorldGenerator.balance
 		data["generation"] = {
-			"water_threshold": balance.water_threshold,
-			"rock_threshold": balance.rock_threshold,
-			"warp_strength": balance.warp_strength,
-			"ridge_weight": balance.ridge_weight,
+			"mountain_density": balance.mountain_density,
+			"mountain_area": balance.mountain_area,
+			"mountain_chaininess": balance.mountain_chaininess,
 		}
 	return data
 

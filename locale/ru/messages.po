@@ -475,16 +475,16 @@ msgid "UI_WORLD_CREATE_WATER_LABEL"
 msgstr "Уровень воды:"
 
 msgid "UI_WORLD_CREATE_ROCK_LABEL"
-msgstr "Высота гор:"
+msgstr "Горы:"
 
 msgid "UI_WORLD_CREATE_WARP_LABEL"
-msgstr "Извилистость:"
+msgstr "Цепочки гор:"
 
 msgid "UI_WORLD_CREATE_RIDGE_LABEL"
-msgstr "Горные хребты:"
+msgstr "Площадь гор:"
 
 msgid "UI_WORLD_CREATE_HINT"
-msgstr "Одинаковый seed = одинаковая планета"
+msgstr "Одинаковый seed = одинаковая планета. Меняй только число гор, площадь и цепочки."
 
 msgid "UI_WORLD_CREATE_START_BUTTON"
 msgstr "▶  ВЫСАДКА НА ПЛАНЕТУ"
@@ -803,6 +803,15 @@ msgstr "2-й этаж"
 
 msgid "UI_WORLD_CREATE_MOUNTAIN_SIZE_LABEL"
 msgstr "Размер гор:"
+
+msgid "UI_WORLD_CREATE_MOUNTAIN_COUNT_LABEL"
+msgstr "Количество гор:"
+
+msgid "UI_WORLD_CREATE_MOUNTAIN_AREA_LABEL"
+msgstr "Площадь гор:"
+
+msgid "UI_WORLD_CREATE_MOUNTAIN_CHAINS_LABEL"
+msgstr "Цепочки гор:"
 
 msgid "UI_WORLD_CREATE_TREE_DENSITY_LABEL"
 msgstr "Плотность деревьев:"

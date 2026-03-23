@@ -1,21 +1,51 @@
 class_name ChunkManager
 extends Node2D
 
-## Менеджер чанков v12. Чистый: только terrain GROUND.
+## Менеджер чанков мира.
+## Загружает чанки, рендерит землю/горы и выполняет mining горной породы.
 
 var _loaded_chunks: Dictionary = {}
 var _player_chunk: Vector2i = Vector2i(99999, 99999)
 var _player: Node2D = null
 var _chunk_container: Node2D = null
 var _load_queue: Array[Vector2i] = []
+var _redrawing_chunks: Array[Chunk] = []
 var _saved_chunk_data: Dictionary = {}
-var _shared_tileset: TileSet = null
+var _terrain_tileset: TileSet = null
+var _overlay_tileset: TileSet = null
 var _initialized: bool = false
 var _active_z: int = 0
 var _z_containers: Dictionary = {}
 var _z_chunks: Dictionary = {}
-
-const VARIANT_COUNT: int = 3
+var _active_mountain_key: Vector2i = Vector2i(999999, 999999)
+var _active_mountain_chunk_coords: Dictionary = {}
+var _mountain_key_by_tile: Dictionary = {}
+var _mountain_tiles_by_key: Dictionary = {}
+var _mountain_open_tiles_by_key: Dictionary = {}
+var _mountain_tiles_by_key_by_chunk: Dictionary = {}
+var _mountain_open_tiles_by_key_by_chunk: Dictionary = {}
+var _is_topology_dirty: bool = false
+var _native_topology_builder: RefCounted = null
+var _native_topology_active: bool = false
+var _native_topology_dirty: bool = false
+var _is_topology_build_in_progress: bool = false
+var _topology_scan_chunk_coords: Array[Vector2i] = []
+var _topology_scan_chunk_index: int = 0
+var _topology_scan_local_x: int = 0
+var _topology_scan_local_y: int = 0
+var _topology_build_visited: Dictionary = {}
+var _topology_build_key_by_tile: Dictionary = {}
+var _topology_build_tiles_by_key: Dictionary = {}
+var _topology_build_open_tiles_by_key: Dictionary = {}
+var _topology_build_tiles_by_key_by_chunk: Dictionary = {}
+var _topology_build_open_tiles_by_key_by_chunk: Dictionary = {}
+var _topology_component_queue: Array[Vector2i] = []
+var _topology_component_queue_index: int = 0
+var _topology_component_tiles: Dictionary = {}
+var _topology_component_open_tiles: Dictionary = {}
+var _topology_component_tiles_by_chunk: Dictionary = {}
+var _topology_component_open_tiles_by_chunk: Dictionary = {}
+var _topology_component_key: Vector2i = Vector2i(999999, 999999)
 
 func _ready() -> void:
 	add_to_group("chunk_manager")
@@ -30,6 +60,8 @@ func _process(_delta: float) -> void:
 		return
 	_check_player_chunk()
 	_process_load_queue()
+	_process_chunk_redraws()
+	_process_topology_build()
 
 func set_saved_data(data: Dictionary) -> void:
 	_saved_chunk_data = data
@@ -54,49 +86,118 @@ func get_chunk(cc: Vector2i) -> Chunk:
 func get_loaded_chunks() -> Dictionary:
 	return _loaded_chunks
 
-func try_harvest_at_world(_world_pos: Vector2) -> Dictionary:
-	return {}
+func get_mountain_key_at_tile(tile_pos: Vector2i) -> Vector2i:
+	if _is_native_topology_enabled():
+		return _native_topology_builder.call("get_mountain_key_at_tile", tile_pos) as Vector2i
+	_ensure_topology_current()
+	return _mountain_key_by_tile.get(tile_pos, Vector2i(999999, 999999))
 
-func has_resource_at_world(_world_pos: Vector2) -> bool:
-	return false
+func get_mountain_tiles(mountain_key: Vector2i) -> Dictionary:
+	if _is_native_topology_enabled():
+		return _native_topology_builder.call("get_mountain_tiles", mountain_key) as Dictionary
+	_ensure_topology_current()
+	return _mountain_tiles_by_key.get(mountain_key, {}) as Dictionary
 
-# --- Инициализация ---
+func get_mountain_open_tiles(mountain_key: Vector2i) -> Dictionary:
+	if _is_native_topology_enabled():
+		return _native_topology_builder.call("get_mountain_open_tiles", mountain_key) as Dictionary
+	_ensure_topology_current()
+	return _mountain_open_tiles_by_key.get(mountain_key, {}) as Dictionary
+
+func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
+	var started_usec: int = WorldPerfProbe.begin()
+	var tile_pos: Vector2i = WorldGenerator.world_to_tile(world_pos)
+	var chunk: Chunk = get_chunk_at_tile(tile_pos)
+	if not chunk:
+		return {}
+	var local_tile: Vector2i = chunk.global_to_local(tile_pos)
+	var result: Dictionary = chunk.try_mine_at(local_tile)
+	if result.is_empty():
+		return {}
+	_on_mountain_tile_changed(tile_pos, int(result["old_type"]), int(result["new_type"]))
+	EventBus.mountain_tile_mined.emit(tile_pos, int(result["old_type"]), int(result["new_type"]))
+	WorldPerfProbe.end("ChunkManager.try_harvest_at_world", started_usec)
+	return {
+		"item_id": str(WorldGenerator.balance.rock_drop_item_id),
+		"amount": WorldGenerator.balance.rock_drop_amount,
+	}
+
+func has_resource_at_world(world_pos: Vector2) -> bool:
+	var tile_pos: Vector2i = WorldGenerator.world_to_tile(world_pos)
+	var chunk: Chunk = get_chunk_at_tile(tile_pos)
+	if not chunk:
+		return false
+	return chunk.get_terrain_type_at(chunk.global_to_local(tile_pos)) == TileGenData.TerrainType.ROCK
+
+func is_walkable_at_world(world_pos: Vector2) -> bool:
+	var tile_pos: Vector2i = WorldGenerator.world_to_tile(world_pos)
+	var chunk: Chunk = get_chunk_at_tile(tile_pos)
+	if not chunk:
+		return WorldGenerator.is_walkable_at(world_pos)
+	return chunk.get_terrain_type_at(chunk.global_to_local(tile_pos)) != TileGenData.TerrainType.ROCK
+
+func set_active_mountain_key(mountain_key: Vector2i = Vector2i(999999, 999999)) -> void:
+	if mountain_key == _active_mountain_key:
+		return
+	var previous_chunks: Dictionary = {}
+	for coord: Vector2i in _active_mountain_chunk_coords:
+		previous_chunks[coord] = true
+	_active_mountain_key = mountain_key
+	if _is_native_topology_enabled():
+		_active_mountain_chunk_coords = _to_chunk_coord_set(
+			_native_topology_builder.call("get_mountain_chunk_coords", _active_mountain_key) as Array
+		)
+	else:
+		_active_mountain_chunk_coords = _to_chunk_coord_set(
+			(_mountain_tiles_by_key_by_chunk.get(_active_mountain_key, {}) as Dictionary).keys()
+		)
+	var next_chunks: Dictionary = {}
+	for coord: Vector2i in _active_mountain_chunk_coords:
+		next_chunks[coord] = true
+	for coord: Vector2i in previous_chunks:
+		next_chunks[coord] = true
+	for coord: Vector2i in next_chunks:
+		var chunk: Chunk = _loaded_chunks.get(coord)
+		if chunk and chunk.has_any_mountain():
+			chunk.set_mountain_cover_hidden(_active_mountain_chunk_coords.has(coord), _active_mountain_key)
 
 func _deferred_init() -> void:
 	var players: Array[Node] = get_tree().get_nodes_in_group("player")
 	if not players.is_empty():
 		_player = players[0] as Node2D
-	_build_terrain_tileset()
-	_initialized = _shared_tileset != null
+	_build_world_tilesets()
+	_setup_native_topology_builder()
+	_initialized = _terrain_tileset != null and _overlay_tileset != null
 
-## Цветные квадраты для terrain (только GROUND × 3 варианта).
-func _build_terrain_tileset() -> void:
+func _build_world_tilesets() -> void:
 	if not WorldGenerator or not WorldGenerator.balance:
 		return
-	var ts: int = WorldGenerator.balance.tile_size
 	var biome: BiomeData = WorldGenerator.current_biome
 	if not biome:
 		return
-	var img := Image.create(ts, VARIANT_COUNT * ts, false, Image.FORMAT_RGBA8)
-	var base_color: Color = biome.ground_color
-	for vi: int in range(VARIANT_COUNT):
-		var c: Color = base_color
-		if vi == 0: c = c.darkened(0.12)
-		elif vi == 2: c = c.lightened(0.10)
-		for py: int in range(ts):
-			for px: int in range(ts):
-				img.set_pixel(px, vi * ts + py, c)
-	var tex := ImageTexture.create_from_image(img)
-	_shared_tileset = TileSet.new()
-	_shared_tileset.tile_size = Vector2i(ts, ts)
-	var src := TileSetAtlasSource.new()
-	src.texture = tex
-	src.texture_region_size = Vector2i(ts, ts)
-	for y: int in range(VARIANT_COUNT):
-		src.create_tile(Vector2i(0, y))
-	_shared_tileset.add_source(src, 0)
+	var tilesets: Dictionary = ChunkTilesetFactory.build_tilesets(WorldGenerator.balance, biome)
+	_terrain_tileset = tilesets.get("terrain") as TileSet
+	_overlay_tileset = tilesets.get("overlay") as TileSet
 
-# --- Обновление ---
+func _setup_native_topology_builder() -> void:
+	_native_topology_active = false
+	if not WorldGenerator or not WorldGenerator.balance or not WorldGenerator.balance.use_native_mountain_topology:
+		_native_topology_builder = null
+		return
+	if ClassDB.class_exists("MountainTopologyBuilder"):
+		_native_topology_builder = ClassDB.instantiate("MountainTopologyBuilder") as RefCounted
+		if _native_topology_builder \
+			and _native_topology_builder.has_method("set_chunk") \
+			and _native_topology_builder.has_method("ensure_built") \
+			and _native_topology_builder.has_method("get_mountain_chunk_coords"):
+			_native_topology_active = true
+		else:
+			_native_topology_builder = null
+	else:
+		_native_topology_builder = null
+
+func _is_native_topology_enabled() -> bool:
+	return _native_topology_active
 
 func _check_player_chunk() -> void:
 	var cur: Vector2i = WorldGenerator.world_to_chunk(_player.global_position)
@@ -105,15 +206,15 @@ func _check_player_chunk() -> void:
 		_update_chunks(cur)
 
 func _update_chunks(center: Vector2i) -> void:
-	var lr: int = WorldGenerator.balance.load_radius
-	var ur: int = WorldGenerator.balance.unload_radius
+	var load_radius: int = WorldGenerator.balance.load_radius
+	var unload_radius: int = WorldGenerator.balance.unload_radius
 	var needed: Dictionary = {}
-	for dx: int in range(-lr, lr + 1):
-		for dy: int in range(-lr, lr + 1):
+	for dx: int in range(-load_radius, load_radius + 1):
+		for dy: int in range(-load_radius, load_radius + 1):
 			needed[Vector2i(center.x + dx, center.y + dy)] = true
 	var to_unload: Array[Vector2i] = []
 	for coord: Vector2i in _loaded_chunks:
-		if absi(coord.x - center.x) > ur or absi(coord.y - center.y) > ur:
+		if absi(coord.x - center.x) > unload_radius or absi(coord.y - center.y) > unload_radius:
 			to_unload.append(coord)
 	for coord: Vector2i in to_unload:
 		_unload_chunk(coord)
@@ -127,45 +228,79 @@ func _update_chunks(center: Vector2i) -> void:
 	_load_queue.append_array(to_load)
 
 func _process_load_queue() -> void:
-	var loaded: int = 0
-	while not _load_queue.is_empty() and loaded < 3:
+	var loads_per_frame: int = 1
+	if WorldGenerator and WorldGenerator.balance:
+		loads_per_frame = WorldGenerator.balance.chunk_loads_per_frame
+	var loaded_count: int = 0
+	while not _load_queue.is_empty() and loaded_count < loads_per_frame:
 		var coord: Vector2i = _load_queue.pop_front()
-		var lr: int = WorldGenerator.balance.load_radius
-		if absi(coord.x - _player_chunk.x) > lr or absi(coord.y - _player_chunk.y) > lr:
+		var load_radius: int = WorldGenerator.balance.load_radius
+		if absi(coord.x - _player_chunk.x) > load_radius or absi(coord.y - _player_chunk.y) > load_radius:
 			continue
 		_load_chunk(coord)
-		loaded += 1
+		loaded_count += 1
 
 func _load_chunk(coord: Vector2i) -> void:
-	if _loaded_chunks.has(coord) or not _shared_tileset:
+	var started_usec: int = WorldPerfProbe.begin()
+	if _loaded_chunks.has(coord) or not _terrain_tileset or not _overlay_tileset:
 		return
 	var native_data: Dictionary = WorldGenerator.get_chunk_data(coord)
 	var chunk := Chunk.new()
-	chunk.setup(coord, WorldGenerator.balance.tile_size,
+	chunk.setup(
+		coord,
+		WorldGenerator.balance.tile_size,
 		WorldGenerator.balance.chunk_size_tiles,
-		WorldGenerator.current_biome, _shared_tileset)
-	var saved_mods: Dictionary = _saved_chunk_data.get(coord, {})
-	chunk.populate_native(native_data, saved_mods)
+		WorldGenerator.current_biome,
+		_terrain_tileset,
+		_overlay_tileset
+	)
+	var is_player_chunk: bool = (coord == _player_chunk)
+	chunk.populate_native(native_data, _saved_chunk_data.get(coord, {}), is_player_chunk)
+	chunk.set_mountain_cover_hidden(_active_mountain_chunk_coords.has(coord), _active_mountain_key)
 	var z_container: Node2D = _z_containers.get(_active_z) as Node2D
 	if z_container:
 		z_container.add_child(chunk)
 	else:
 		_chunk_container.add_child(chunk)
 	_loaded_chunks[coord] = chunk
+	if not is_player_chunk:
+		_redrawing_chunks.append(chunk)
+	if _is_native_topology_enabled():
+		_native_topology_builder.call("set_chunk", coord, chunk.get_terrain_bytes(), WorldGenerator.balance.chunk_size_tiles)
+		_native_topology_dirty = true
+	else:
+		_mark_topology_dirty()
 	EventBus.chunk_loaded.emit(coord)
+	WorldPerfProbe.end("ChunkManager._load_chunk %s" % [coord], started_usec)
 
 func _unload_chunk(coord: Vector2i) -> void:
 	if not _loaded_chunks.has(coord):
 		return
 	var chunk: Chunk = _loaded_chunks[coord]
+	var redraw_idx: int = _redrawing_chunks.find(chunk)
+	if redraw_idx >= 0:
+		_redrawing_chunks.remove_at(redraw_idx)
 	if chunk.is_dirty:
 		_saved_chunk_data[coord] = chunk.get_modifications()
 	chunk.cleanup()
 	chunk.queue_free()
 	_loaded_chunks.erase(coord)
+	if _is_native_topology_enabled():
+		_native_topology_builder.call("remove_chunk", coord)
+		_native_topology_dirty = true
+	else:
+		_mark_topology_dirty()
 	EventBus.chunk_unloaded.emit(coord)
 
-# --- Z-уровни ---
+func _process_chunk_redraws() -> void:
+	if _redrawing_chunks.is_empty():
+		return
+	var rows_per_frame: int = 8
+	if WorldGenerator and WorldGenerator.balance:
+		rows_per_frame = WorldGenerator.balance.chunk_redraw_rows_per_frame
+	var chunk: Chunk = _redrawing_chunks[0]
+	if chunk.continue_redraw(rows_per_frame):
+		_redrawing_chunks.remove_at(0)
 
 func _setup_z_containers() -> void:
 	for z: int in [ZLevelManager.Z_MIN, 0, ZLevelManager.Z_MAX]:
@@ -183,3 +318,301 @@ func set_active_z_level(z: int) -> void:
 		(_z_containers[layer_z] as Node2D).visible = (layer_z == z)
 	_loaded_chunks = _z_chunks.get(z, {})
 	_player_chunk = Vector2i(99999, 99999)
+
+func _collect_chunk_coords_from_tiles(tile_map: Dictionary) -> Dictionary:
+	var result: Dictionary = {}
+	for tile_pos: Vector2i in tile_map:
+		result[WorldGenerator.tile_to_chunk(tile_pos)] = true
+	return result
+
+func _group_tiles_by_chunk(tile_map: Dictionary) -> Dictionary:
+	var result: Dictionary = {}
+	for tile_pos: Vector2i in tile_map:
+		var chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(tile_pos)
+		if not result.has(chunk_coord):
+			result[chunk_coord] = {}
+		(result[chunk_coord] as Dictionary)[tile_pos] = true
+	return result
+
+func _to_chunk_coord_set(chunk_coords: Array) -> Dictionary:
+	var result: Dictionary = {}
+	for value: Variant in chunk_coords:
+		if value is Vector2i:
+			result[value] = true
+	return result
+
+func _mark_topology_dirty() -> void:
+	_is_topology_dirty = true
+	_is_topology_build_in_progress = false
+
+func _ensure_topology_current() -> void:
+	if _is_native_topology_enabled():
+		_native_topology_builder.call("ensure_built")
+		return
+	if not _is_topology_dirty:
+		return
+	_rebuild_loaded_mountain_topology()
+	_is_topology_dirty = false
+	_is_topology_build_in_progress = false
+
+func _process_topology_build() -> void:
+	if _is_native_topology_enabled():
+		if _native_topology_dirty and _load_queue.is_empty() and _redrawing_chunks.is_empty():
+			_native_topology_builder.call("ensure_built")
+			_native_topology_dirty = false
+		return
+	if not _is_topology_dirty:
+		return
+	if not _is_topology_build_in_progress:
+		_start_topology_build()
+	var started_usec: int = Time.get_ticks_usec()
+	var budget_ms: float = 2.0
+	if WorldGenerator and WorldGenerator.balance:
+		budget_ms = WorldGenerator.balance.mountain_topology_build_budget_ms
+	while float(Time.get_ticks_usec() - started_usec) / 1000.0 < budget_ms:
+		if not _process_topology_build_step():
+			break
+
+func _start_topology_build() -> void:
+	_is_topology_build_in_progress = true
+	_topology_scan_chunk_coords = []
+	for coord: Vector2i in _loaded_chunks:
+		_topology_scan_chunk_coords.append(coord)
+	_topology_scan_chunk_index = 0
+	_topology_scan_local_x = 0
+	_topology_scan_local_y = 0
+	_topology_build_visited = {}
+	_topology_build_key_by_tile = {}
+	_topology_build_tiles_by_key = {}
+	_topology_build_open_tiles_by_key = {}
+	_topology_build_tiles_by_key_by_chunk = {}
+	_topology_build_open_tiles_by_key_by_chunk = {}
+	_clear_topology_component_state()
+
+func _process_topology_build_step() -> bool:
+	if _topology_component_queue_index < _topology_component_queue.size():
+		_process_topology_component_step()
+		return true
+	var next_seed: Vector2i = _find_next_topology_seed()
+	if next_seed != Vector2i(999999, 999999):
+		_begin_topology_component(next_seed)
+		return true
+	_finish_topology_build()
+	return false
+
+func _find_next_topology_seed() -> Vector2i:
+	while _topology_scan_chunk_index < _topology_scan_chunk_coords.size():
+		var chunk_coord: Vector2i = _topology_scan_chunk_coords[_topology_scan_chunk_index]
+		var chunk: Chunk = _loaded_chunks.get(chunk_coord)
+		if not chunk:
+			_topology_scan_chunk_index += 1
+			_topology_scan_local_x = 0
+			_topology_scan_local_y = 0
+			continue
+		var chunk_size: int = chunk.get_chunk_size()
+		while _topology_scan_local_y < chunk_size:
+			while _topology_scan_local_x < chunk_size:
+				var local_tile: Vector2i = Vector2i(_topology_scan_local_x, _topology_scan_local_y)
+				_topology_scan_local_x += 1
+				var terrain_type: int = chunk.get_terrain_type_at(local_tile)
+				if not _is_mountain_topology_tile(terrain_type):
+					continue
+				var global_tile: Vector2i = Vector2i(
+					chunk_coord.x * chunk_size + local_tile.x,
+					chunk_coord.y * chunk_size + local_tile.y
+				)
+				if _topology_build_visited.has(global_tile):
+					continue
+				return global_tile
+			_topology_scan_local_x = 0
+			_topology_scan_local_y += 1
+		_topology_scan_chunk_index += 1
+		_topology_scan_local_x = 0
+		_topology_scan_local_y = 0
+	return Vector2i(999999, 999999)
+
+func _begin_topology_component(start_tile: Vector2i) -> void:
+	_clear_topology_component_state()
+	_topology_component_queue = [start_tile]
+	_topology_component_queue_index = 0
+	_topology_component_key = start_tile
+	_topology_build_visited[start_tile] = true
+
+func _process_topology_component_step() -> void:
+	var current: Vector2i = _topology_component_queue[_topology_component_queue_index]
+	_topology_component_queue_index += 1
+	_topology_component_tiles[current] = true
+	var current_chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(current)
+	if not _topology_component_tiles_by_chunk.has(current_chunk_coord):
+		_topology_component_tiles_by_chunk[current_chunk_coord] = {}
+	(_topology_component_tiles_by_chunk[current_chunk_coord] as Dictionary)[current] = true
+	if current.y < _topology_component_key.y or (current.y == _topology_component_key.y and current.x < _topology_component_key.x):
+		_topology_component_key = current
+	var current_chunk: Chunk = get_chunk_at_tile(current)
+	if current_chunk:
+		var current_local: Vector2i = current_chunk.global_to_local(current)
+		var current_type: int = current_chunk.get_terrain_type_at(current_local)
+		if current_type == TileGenData.TerrainType.MINED_FLOOR or current_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
+			_topology_component_open_tiles[current] = true
+			if not _topology_component_open_tiles_by_chunk.has(current_chunk_coord):
+				_topology_component_open_tiles_by_chunk[current_chunk_coord] = {}
+			(_topology_component_open_tiles_by_chunk[current_chunk_coord] as Dictionary)[current] = true
+	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		var next_tile: Vector2i = current + dir
+		if _topology_build_visited.has(next_tile):
+			continue
+		var next_chunk: Chunk = get_chunk_at_tile(next_tile)
+		if not next_chunk:
+			continue
+		var next_local: Vector2i = next_chunk.global_to_local(next_tile)
+		if not _is_mountain_topology_tile(next_chunk.get_terrain_type_at(next_local)):
+			continue
+		_topology_build_visited[next_tile] = true
+		_topology_component_queue.append(next_tile)
+	if _topology_component_queue_index >= _topology_component_queue.size():
+		_finish_topology_component()
+
+func _finish_topology_component() -> void:
+	for tile_pos: Vector2i in _topology_component_tiles:
+		_topology_build_key_by_tile[tile_pos] = _topology_component_key
+	_topology_build_tiles_by_key[_topology_component_key] = _topology_component_tiles
+	_topology_build_open_tiles_by_key[_topology_component_key] = _topology_component_open_tiles
+	_topology_build_tiles_by_key_by_chunk[_topology_component_key] = _topology_component_tiles_by_chunk
+	_topology_build_open_tiles_by_key_by_chunk[_topology_component_key] = _topology_component_open_tiles_by_chunk
+	_clear_topology_component_state()
+
+func _clear_topology_component_state() -> void:
+	_topology_component_queue = []
+	_topology_component_queue_index = 0
+	_topology_component_tiles = {}
+	_topology_component_open_tiles = {}
+	_topology_component_tiles_by_chunk = {}
+	_topology_component_open_tiles_by_chunk = {}
+	_topology_component_key = Vector2i(999999, 999999)
+
+func _finish_topology_build() -> void:
+	_mountain_key_by_tile = _topology_build_key_by_tile
+	_mountain_tiles_by_key = _topology_build_tiles_by_key
+	_mountain_open_tiles_by_key = _topology_build_open_tiles_by_key
+	_mountain_tiles_by_key_by_chunk = _topology_build_tiles_by_key_by_chunk
+	_mountain_open_tiles_by_key_by_chunk = _topology_build_open_tiles_by_key_by_chunk
+	_is_topology_dirty = false
+	_is_topology_build_in_progress = false
+
+func _rebuild_loaded_mountain_topology() -> void:
+	var started_usec: int = WorldPerfProbe.begin()
+	if _is_native_topology_enabled():
+		_native_topology_builder.call("ensure_built")
+		WorldPerfProbe.end("ChunkManager._rebuild_loaded_mountain_topology", started_usec)
+		return
+	_mountain_key_by_tile.clear()
+	_mountain_tiles_by_key.clear()
+	_mountain_open_tiles_by_key.clear()
+	_mountain_tiles_by_key_by_chunk.clear()
+	_mountain_open_tiles_by_key_by_chunk.clear()
+	var visited: Dictionary = {}
+	for chunk_coord: Vector2i in _loaded_chunks:
+		var chunk: Chunk = _loaded_chunks[chunk_coord]
+		var chunk_size: int = chunk.get_chunk_size()
+		for local_y: int in range(chunk_size):
+			for local_x: int in range(chunk_size):
+				var local_tile: Vector2i = Vector2i(local_x, local_y)
+				var terrain_type: int = chunk.get_terrain_type_at(local_tile)
+				if not _is_mountain_topology_tile(terrain_type):
+					continue
+				var global_tile: Vector2i = Vector2i(
+					chunk_coord.x * chunk_size + local_x,
+					chunk_coord.y * chunk_size + local_y
+				)
+				if visited.has(global_tile):
+					continue
+				_build_mountain_component(global_tile, visited)
+	WorldPerfProbe.end("ChunkManager._rebuild_loaded_mountain_topology", started_usec)
+
+func _build_mountain_component(start_tile: Vector2i, visited: Dictionary) -> void:
+	var queue: Array[Vector2i] = [start_tile]
+	var queue_index: int = 0
+	var component_tiles: Dictionary = {}
+	var component_open_tiles: Dictionary = {}
+	var component_tiles_by_chunk: Dictionary = {}
+	var component_open_tiles_by_chunk: Dictionary = {}
+	var component_key: Vector2i = start_tile
+	visited[start_tile] = true
+	while queue_index < queue.size():
+		var current: Vector2i = queue[queue_index]
+		queue_index += 1
+		component_tiles[current] = true
+		var current_chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(current)
+		if not component_tiles_by_chunk.has(current_chunk_coord):
+			component_tiles_by_chunk[current_chunk_coord] = {}
+		(component_tiles_by_chunk[current_chunk_coord] as Dictionary)[current] = true
+		if current.y < component_key.y or (current.y == component_key.y and current.x < component_key.x):
+			component_key = current
+		var current_chunk: Chunk = get_chunk_at_tile(current)
+		if current_chunk:
+			var current_local: Vector2i = current_chunk.global_to_local(current)
+			var current_type: int = current_chunk.get_terrain_type_at(current_local)
+			if current_type == TileGenData.TerrainType.MINED_FLOOR or current_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
+				component_open_tiles[current] = true
+				if not component_open_tiles_by_chunk.has(current_chunk_coord):
+					component_open_tiles_by_chunk[current_chunk_coord] = {}
+				(component_open_tiles_by_chunk[current_chunk_coord] as Dictionary)[current] = true
+		for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			var next_tile: Vector2i = current + dir
+			if visited.has(next_tile):
+				continue
+			var next_chunk: Chunk = get_chunk_at_tile(next_tile)
+			if not next_chunk:
+				continue
+			var next_local: Vector2i = next_chunk.global_to_local(next_tile)
+			if not _is_mountain_topology_tile(next_chunk.get_terrain_type_at(next_local)):
+				continue
+			visited[next_tile] = true
+			queue.append(next_tile)
+	for tile_pos: Vector2i in component_tiles:
+		_mountain_key_by_tile[tile_pos] = component_key
+	_mountain_tiles_by_key[component_key] = component_tiles
+	_mountain_open_tiles_by_key[component_key] = component_open_tiles
+	_mountain_tiles_by_key_by_chunk[component_key] = component_tiles_by_chunk
+	_mountain_open_tiles_by_key_by_chunk[component_key] = component_open_tiles_by_chunk
+
+func _on_mountain_tile_changed(tile_pos: Vector2i, old_type: int, new_type: int) -> void:
+	if _is_mountain_topology_tile(old_type) or _is_mountain_topology_tile(new_type):
+		if _is_native_topology_enabled():
+			_native_topology_builder.call("update_tile", tile_pos, new_type)
+			return
+		var mountain_key: Vector2i = get_mountain_key_at_tile(tile_pos)
+		if mountain_key == Vector2i(999999, 999999):
+			_rebuild_loaded_mountain_topology()
+			return
+		_mountain_key_by_tile[tile_pos] = mountain_key
+		if not _mountain_tiles_by_key.has(mountain_key):
+			_mountain_tiles_by_key[mountain_key] = {}
+		(_mountain_tiles_by_key[mountain_key] as Dictionary)[tile_pos] = true
+		var tile_chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(tile_pos)
+		if not _mountain_tiles_by_key_by_chunk.has(mountain_key):
+			_mountain_tiles_by_key_by_chunk[mountain_key] = {}
+		var mountain_tiles_by_chunk: Dictionary = _mountain_tiles_by_key_by_chunk[mountain_key] as Dictionary
+		if not mountain_tiles_by_chunk.has(tile_chunk_coord):
+			mountain_tiles_by_chunk[tile_chunk_coord] = {}
+		(mountain_tiles_by_chunk[tile_chunk_coord] as Dictionary)[tile_pos] = true
+		if not _mountain_open_tiles_by_key.has(mountain_key):
+			_mountain_open_tiles_by_key[mountain_key] = {}
+		var open_tiles: Dictionary = _mountain_open_tiles_by_key[mountain_key] as Dictionary
+		if not _mountain_open_tiles_by_key_by_chunk.has(mountain_key):
+			_mountain_open_tiles_by_key_by_chunk[mountain_key] = {}
+		var open_tiles_by_chunk: Dictionary = _mountain_open_tiles_by_key_by_chunk[mountain_key] as Dictionary
+		if not open_tiles_by_chunk.has(tile_chunk_coord):
+			open_tiles_by_chunk[tile_chunk_coord] = {}
+		var chunk_open_tiles: Dictionary = open_tiles_by_chunk[tile_chunk_coord] as Dictionary
+		if new_type == TileGenData.TerrainType.MINED_FLOOR or new_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
+			open_tiles[tile_pos] = true
+			chunk_open_tiles[tile_pos] = true
+		else:
+			open_tiles.erase(tile_pos)
+			chunk_open_tiles.erase(tile_pos)
+
+func _is_mountain_topology_tile(terrain_type: int) -> bool:
+	return terrain_type == TileGenData.TerrainType.ROCK \
+		or terrain_type == TileGenData.TerrainType.MINED_FLOOR \
+		or terrain_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE

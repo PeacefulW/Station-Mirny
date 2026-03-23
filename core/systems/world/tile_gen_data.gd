@@ -7,6 +7,11 @@ extends RefCounted
 enum TerrainType {
 	GROUND = 0,
 	ROCK = 1,
+	WATER = 2,
+	SAND = 3,
+	GRASS = 4,
+	MINED_FLOOR = 5,
+	MOUNTAIN_ENTRANCE = 6,
 }
 
 var terrain: TerrainType = TerrainType.GROUND

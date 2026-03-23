@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Discussion — Station Mirny</title>
+<style>
+  :root {
+    --bg: #15191e;
+    --panel: #1f262d;
+    --text: #e6e1d6;
+    --muted: #aeb7bf;
+    --line: #394551;
+    --accent: #d0a86e;
+    --accent-2: #7fb1c9;
+    --user: #8ccf8a;
+    --codex: #d0a86e;
+    --claude: #9db3ff;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+    background: linear-gradient(180deg, #11161b, var(--bg));
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 22px; }
+  .status {
+    color: var(--muted);
+    font-size: 13px;
+    margin-left: auto;
+  }
+  .connect-btn {
+    border: 1px solid var(--accent);
+    background: linear-gradient(180deg, #a77b44, #8d6536);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .connect-btn:hover { filter: brightness(1.08); }
+  .connect-btn.connected {
+    background: linear-gradient(180deg, #3a5a3a, #2d4a2d);
+    border-color: var(--user);
+  }
+  .refresh-btn {
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, #2f3a45, #27313a);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 8px 14px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .refresh-btn:hover { filter: brightness(1.08); }
+  .thread {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .msg {
+    max-width: 85%;
+    border-radius: 14px;
+    padding: 12px 16px;
+    border: 1px solid var(--line);
+    background: rgba(0,0,0,0.18);
+  }
+  .msg.user { align-self: flex-end; border-color: rgba(140,207,138,0.25); background: rgba(140,207,138,0.06); }
+  .msg.codex { align-self: flex-start; border-color: rgba(208,168,110,0.25); background: rgba(208,168,110,0.06); }
+  .msg.claude { align-self: flex-start; border-color: rgba(157,179,255,0.25); background: rgba(157,179,255,0.06); }
+  .msg-author {
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .msg.user .msg-author { color: var(--user); }
+  .msg.codex .msg-author { color: var(--codex); }
+  .msg.claude .msg-author { color: var(--claude); }
+  .msg-text {
+    white-space: pre-wrap;
+    line-height: 1.55;
+    font-size: 14px;
+  }
+  .separator {
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    padding: 8px 0;
+    opacity: 0.6;
+  }
+  .input-area {
+    padding: 12px 24px 16px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .input-area textarea {
+    flex: 1;
+    resize: none;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: #131920;
+    color: var(--text);
+    padding: 12px 14px;
+    font: 14px/1.5 "Segoe UI", sans-serif;
+    outline: none;
+    min-height: 48px;
+    max-height: 200px;
+  }
+  .input-area textarea:focus { border-color: var(--accent-2); }
+  .input-area textarea::placeholder { color: var(--muted); opacity: 0.6; }
+  .send-btn {
+    border: 1px solid var(--accent);
+    background: linear-gradient(180deg, #a77b44, #8d6536);
+    color: var(--text);
+    border-radius: 12px;
+    padding: 12px 20px;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 14px;
+    align-self: flex-end;
+  }
+  .send-btn:hover { filter: brightness(1.08); }
+  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .empty-state {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 16px;
+    text-align: center;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Discussion</h1>
+  <button class="connect-btn" id="connectBtn">Открыть файл discussion</button>
+  <button class="refresh-btn" id="refreshBtn" style="display:none">Обновить</button>
+  <div class="status" id="status"></div>
+</header>
+
+<div class="thread" id="thread">
+  <div class="empty-state">Нажми «Открыть файл discussion» и выбери файл <code>discussion</code> из корня проекта.</div>
+</div>
+
+<div class="input-area">
+  <textarea id="input" placeholder="Напиши сообщение..." rows="2" disabled></textarea>
+  <button class="send-btn" id="sendBtn" disabled>Отправить</button>
+</div>
+
+<script>
+let fileHandle = null;
+let isSending = false;
+
+const threadEl = document.getElementById("thread");
+const inputEl = document.getElementById("input");
+const sendBtn = document.getElementById("sendBtn");
+const connectBtn = document.getElementById("connectBtn");
+const refreshBtn = document.getElementById("refreshBtn");
+const statusEl = document.getElementById("status");
+
+function setStatus(text) {
+  statusEl.textContent = text;
+}
+
+function parseMessages(raw) {
+  const messages = [];
+  const lines = raw.split("\n");
+  let current = null;
+  let headerPassed = false;
+
+  for (const line of lines) {
+    const match = line.match(/^(User|Codex|Claude):\s*$/);
+    const matchInline = line.match(/^(User|Codex|Claude):\s*(.+)$/);
+
+    if (match) {
+      if (current) messages.push(current);
+      current = { author: match[1], text: "" };
+      headerPassed = true;
+    } else if (matchInline && !current) {
+      if (current) messages.push(current);
+      current = { author: matchInline[1], text: matchInline[2] };
+      headerPassed = true;
+    } else if (matchInline && current) {
+      // New author starts inline — save previous, start new
+      messages.push(current);
+      current = { author: matchInline[1], text: matchInline[2] };
+    } else if (current) {
+      current.text += (current.text ? "\n" : "") + line;
+    }
+  }
+  if (current) messages.push(current);
+
+  // Clean up: trim text, remove tag prefixes for display
+  return messages.map(m => ({
+    author: m.author,
+    role: m.author.toLowerCase(),
+    text: m.text.replace(/^\s*(Idea|Risk|Decision|Check):\s*/i, "").trim()
+  })).filter(m => m.text.length > 0);
+}
+
+function renderThread(messages) {
+  threadEl.innerHTML = "";
+  let lastRole = "";
+  for (const msg of messages) {
+    if (msg.role !== lastRole && lastRole !== "") {
+      // visual spacing between different authors
+    }
+    const el = document.createElement("div");
+    el.className = "msg " + msg.role;
+    el.innerHTML = '<div class="msg-author"></div><div class="msg-text"></div>';
+    el.querySelector(".msg-author").textContent = msg.author;
+    el.querySelector(".msg-text").textContent = msg.text;
+    threadEl.appendChild(el);
+    lastRole = msg.role;
+  }
+  threadEl.scrollTop = threadEl.scrollHeight;
+}
+
+async function readFile() {
+  if (!fileHandle) return "";
+  const file = await fileHandle.getFile();
+  return await file.text();
+}
+
+async function writeFile(content) {
+  if (!fileHandle) return;
+  const writable = await fileHandle.createWritable();
+  await writable.write(content);
+  await writable.close();
+}
+
+async function loadAndRender() {
+  const raw = await readFile();
+  const messages = parseMessages(raw);
+  renderThread(messages);
+  setStatus("Загружено: " + new Date().toLocaleTimeString());
+}
+
+connectBtn.addEventListener("click", async () => {
+  try {
+    if (!window.showOpenFilePicker) {
+      setStatus("Браузер не поддерживает File System Access API. Открой страницу через localhost (см. консоль).");
+      console.log("Запусти в папке проекта: python -m http.server 8080\nЗатем открой: http://localhost:8080/discussion.html");
+      return;
+    }
+    const [handle] = await window.showOpenFilePicker({
+      multiple: false
+    });
+    fileHandle = handle;
+    // Verify we can write
+    const perm = await fileHandle.requestPermission({ mode: "readwrite" });
+    if (perm !== "granted") {
+      setStatus("Нет разрешения на запись.");
+      return;
+    }
+    connectBtn.textContent = "Подключено: " + fileHandle.name;
+    connectBtn.classList.add("connected");
+    refreshBtn.style.display = "";
+    inputEl.disabled = false;
+    sendBtn.disabled = false;
+    await loadAndRender();
+  } catch (e) {
+    if (e.name !== "AbortError") setStatus("Ошибка: " + e.message);
+  }
+});
+
+refreshBtn.addEventListener("click", async () => {
+  await loadAndRender();
+});
+
+sendBtn.addEventListener("click", sendMessage);
+inputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+async function sendMessage() {
+  if (isSending) return;
+  const text = inputEl.value.trim();
+  inputEl.value = "";
+  if (!text || !fileHandle) return;
+
+  isSending = true;
+  sendBtn.disabled = true;
+  try {
+    const raw = await readFile();
+    const addition = "\nUser:\n" + text + "\n";
+    await writeFile(raw + addition);
+    await loadAndRender();
+    setStatus("Отправлено: " + new Date().toLocaleTimeString());
+  } catch (e) {
+    setStatus("Ошибка записи: " + e.message);
+  }
+  sendBtn.disabled = false;
+  isSending = false;
+}
+
+// Auto-resize textarea
+inputEl.addEventListener("input", () => {
+  inputEl.style.height = "auto";
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + "px";
+});
+</script>
+</body>
+</html>

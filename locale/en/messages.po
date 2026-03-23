@@ -475,16 +475,16 @@ msgid "UI_WORLD_CREATE_WATER_LABEL"
 msgstr "Water level:"
 
 msgid "UI_WORLD_CREATE_ROCK_LABEL"
-msgstr "Mountain height:"
+msgstr "Mountains:"
 
 msgid "UI_WORLD_CREATE_WARP_LABEL"
-msgstr "Twist:"
+msgstr "Mountain chains:"
 
 msgid "UI_WORLD_CREATE_RIDGE_LABEL"
-msgstr "Mountain ridges:"
+msgstr "Mountain area:"
 
 msgid "UI_WORLD_CREATE_HINT"
-msgstr "Same seed = same planet"
+msgstr "Same seed = same planet. Adjust only mountain count, area and chains."
 
 msgid "UI_WORLD_CREATE_START_BUTTON"
 msgstr "▶  LAND ON THE PLANET"
@@ -803,6 +803,15 @@ msgstr "2nd Floor"
 
 msgid "UI_WORLD_CREATE_MOUNTAIN_SIZE_LABEL"
 msgstr "Mountain size:"
+
+msgid "UI_WORLD_CREATE_MOUNTAIN_COUNT_LABEL"
+msgstr "Mountain count:"
+
+msgid "UI_WORLD_CREATE_MOUNTAIN_AREA_LABEL"
+msgstr "Mountain area:"
+
+msgid "UI_WORLD_CREATE_MOUNTAIN_CHAINS_LABEL"
+msgstr "Mountain chains:"
 
 msgid "UI_WORLD_CREATE_TREE_DENSITY_LABEL"
 msgstr "Tree density:"

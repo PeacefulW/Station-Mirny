@@ -31,8 +31,13 @@ var _z_manager: ZLevelManager = null
 var _z_overlay: ZTransitionOverlay = null
 var _bg_rect: ColorRect = null
 var _stairs_container: Node2D = null
+var _mountain_roof_system: MountainRoofSystem = null
+var _mountain_shadow_system: MountainShadowSystem = null
+var _fps_label: Label = null
+var _fps_log_timer: float = 0.0
 
 func _ready() -> void:
+	var startup_usec: int = WorldPerfProbe.begin()
 	_player = _find_node_in_group("player") as Player
 	_building_system = get_node_or_null("BuildingSystem")
 	_enemy_container = get_node_or_null("EnemyContainer")
@@ -43,11 +48,14 @@ func _ready() -> void:
 	EventBus.game_over.connect(_on_game_over)
 	_init_world_generator()
 	_setup_chunk_manager()
+	_setup_mountain_roof_system()
 	_setup_command_executor()
 	_setup_life_support()
 	_setup_z_levels()
 	_spawn_initial_scrap()
 	_spawn_test_stairs()
+	_setup_mountain_shadows()
+	_setup_fps_counter()
 	
 	# Создаём меню строительства в UILayer
 	var build_menu := BuildMenuPanel.new()
@@ -93,14 +101,17 @@ func _ready() -> void:
 		_resolved_ui_layer.add_child(_death_screen)
 
 	call_deferred("_check_pending_load")
+	WorldPerfProbe.end("GameWorld._ready", startup_usec)
 
 func _process(delta: float) -> void:
 	_update_player_indoor_status()
 	_update_enemy_spawning(delta)
+	_update_fps(delta)
 
 # --- Инициализация ---
 
 func _init_world_generator() -> void:
+	var started_usec: int = WorldPerfProbe.begin()
 	if not WorldGenerator:
 		push_error(Localization.t("SYSTEM_WORLD_GENERATOR_MISSING"))
 		return
@@ -114,6 +125,7 @@ func _init_world_generator() -> void:
 		WorldGenerator.initialize_random()
 	else:
 		WorldGenerator.initialize_world(world_seed)
+	WorldPerfProbe.end("_init_world_generator", started_usec)
 
 func _setup_chunk_manager() -> void:
 	_chunk_manager = ChunkManager.new()
@@ -125,6 +137,11 @@ func _setup_command_executor() -> void:
 	_command_executor = CommandExecutor.new()
 	_command_executor.name = "CommandExecutor"
 	add_child(_command_executor)
+
+func _setup_mountain_roof_system() -> void:
+	_mountain_roof_system = MountainRoofSystem.new()
+	_mountain_roof_system.name = "MountainRoofSystem"
+	add_child(_mountain_roof_system)
 
 func _setup_life_support() -> void:
 	_life_support = BaseLifeSupport.new()
@@ -140,9 +157,19 @@ func _update_player_indoor_status() -> void:
 	if not o2:
 		return
 	var grid_pos: Vector2i = _building_system.world_to_grid(_player.global_position)
-	o2.set_indoor(_building_system.is_cell_indoor(grid_pos))
+	var is_indoor: bool = _building_system.is_cell_indoor(grid_pos)
+	if not is_indoor and _chunk_manager and WorldGenerator:
+		var tile_pos: Vector2i = WorldGenerator.world_to_tile(_player.global_position)
+		var chunk: Chunk = _chunk_manager.get_chunk_at_tile(tile_pos)
+		if chunk:
+			var terrain_type: int = chunk.get_terrain_type_at(chunk.global_to_local(tile_pos))
+			is_indoor = terrain_type == TileGenData.TerrainType.MINED_FLOOR
+	o2.set_indoor(is_indoor)
 
 func _update_enemy_spawning(delta: float) -> void:
+	# Temporary test override: disable enemies while profiling world
+	# generation, mountain excavation and chunk streaming.
+	return
 	if not enemy_balance or not _player or not _enemy_container:
 		return
 	_spawn_timer -= delta
@@ -205,6 +232,7 @@ func _on_item_dropped(item_id: String, amount: int, world_pos: Vector2) -> void:
 		)
 
 func _spawn_initial_scrap() -> void:
+	var started_usec: int = WorldPerfProbe.begin()
 	if not _player:
 		return
 	for i: int in range(10):
@@ -212,6 +240,7 @@ func _spawn_initial_scrap() -> void:
 		var dist: float = randf_range(100.0, 400.0)
 		var pos: Vector2 = _player.global_position + Vector2.from_angle(angle) * dist
 		_spawn_scrap_pickup(pos)
+	WorldPerfProbe.end("_spawn_initial_scrap", started_usec)
 
 func _spawn_scrap_pickup(pos: Vector2) -> void:
 	if not _pickup_container:
@@ -298,6 +327,32 @@ func _spawn_test_stairs() -> void:
 	stairs_up.global_position = stair_pos
 	stairs_up.name = "TestStairsUp"
 	_stairs_container.add_child(stairs_up)
+
+func _setup_mountain_shadows() -> void:
+	_mountain_shadow_system = MountainShadowSystem.new()
+	_mountain_shadow_system.name = "MountainShadowSystem"
+	add_child(_mountain_shadow_system)
+
+func _setup_fps_counter() -> void:
+	_fps_label = Label.new()
+	_fps_label.name = "FPSLabel"
+	_fps_label.add_theme_font_size_override("font_size", 14)
+	_fps_label.add_theme_color_override("font_color", Color(0.0, 1.0, 0.0, 0.8))
+	_fps_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.6))
+	_fps_label.add_theme_constant_override("shadow_offset_x", 1)
+	_fps_label.add_theme_constant_override("shadow_offset_y", 1)
+	_fps_label.position = Vector2(8, 8)
+	if _resolved_ui_layer:
+		_resolved_ui_layer.add_child(_fps_label)
+
+func _update_fps(delta: float) -> void:
+	var fps: float = Engine.get_frames_per_second()
+	if _fps_label:
+		_fps_label.text = "FPS: %d" % int(fps)
+	_fps_log_timer += delta
+	if _fps_log_timer >= 5.0:
+		_fps_log_timer = 0.0
+		print("[WorldPerf] FPS: %.1f" % fps)
 
 func _find_node_in_group(group_name: String) -> Node:
 	var nodes: Array[Node] = get_tree().get_nodes_in_group(group_name)

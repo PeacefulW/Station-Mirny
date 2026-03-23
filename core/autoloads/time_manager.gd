@@ -62,6 +62,21 @@ func get_day_progress() -> float:
 func get_sun_progress() -> float:
 	return fmod(current_hour / float(balance.hours_per_day) + 0.5, 1.0)
 
+## Угол солнца в радианах.
+## Восход слева (запад), полдень сверху (север), закат справа (восток).
+## Тени: утром → вправо, днём → вниз (юг), вечером → влево.
+func get_sun_angle() -> float:
+	var progress: float = get_sun_progress()
+	var shadow_angle: float = fmod(progress - 0.75 + 1.0, 1.0) * TAU
+	return shadow_angle - PI
+
+## Коэффициент длины тени (1.0 = полдень, 6.0 = рассвет/закат/ночь).
+func get_shadow_length_factor() -> float:
+	var elevation: float = maxf(cos(get_sun_progress() * TAU), 0.0)
+	if elevation < 0.05:
+		return 6.0
+	return clampf(1.0 / (elevation * 2.0), 1.0, 6.0)
+
 # --- Приватные методы ---
 
 func _calculate_speed() -> void:

@@ -50,6 +50,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_handle_rotation()
 	_state_machine.physics_update(delta)
+	_apply_terrain_blocking(delta)
 	move_and_slide()
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -153,14 +154,37 @@ func spend_item(item_id: String, amount: int) -> bool:
 # --- Приватные ---
 
 func _find_chunk_manager() -> void:
-	var parent: Node = get_parent()
-	if parent:
-		_chunk_manager = parent.get_node_or_null("ChunkManager")
-	if not _chunk_manager:
-		# Поиск по дереву
-		var nodes: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
-		if not nodes.is_empty():
-			_chunk_manager = nodes[0]
+	var nodes: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
+	if not nodes.is_empty():
+		_chunk_manager = nodes[0]
+
+func _apply_terrain_blocking(delta: float) -> void:
+	if not _chunk_manager or velocity == Vector2.ZERO:
+		return
+	var adjusted_velocity: Vector2 = velocity
+	var next_x: Vector2 = global_position + Vector2(velocity.x * delta, 0.0)
+	if not _can_occupy_world(next_x):
+		adjusted_velocity.x = 0.0
+	var next_y: Vector2 = global_position + Vector2(0.0, velocity.y * delta)
+	if not _can_occupy_world(next_y):
+		adjusted_velocity.y = 0.0
+	velocity = adjusted_velocity
+
+func _can_occupy_world(target_pos: Vector2) -> bool:
+	if not _chunk_manager or not _chunk_manager.has_method("is_walkable_at_world"):
+		return true
+	var half_extent: float = 20.0
+	var sample_points: Array[Vector2] = [
+		target_pos,
+		target_pos + Vector2(-half_extent, -half_extent),
+		target_pos + Vector2(half_extent, -half_extent),
+		target_pos + Vector2(-half_extent, half_extent),
+		target_pos + Vector2(half_extent, half_extent),
+	]
+	for point: Vector2 in sample_points:
+		if not _chunk_manager.is_walkable_at_world(point):
+			return false
+	return true
 
 func update_movement_velocity() -> void:
 	var direction: Vector2 = get_move_input()
@@ -214,7 +238,9 @@ func tick_attack_cooldown(delta: float) -> void:
 		_attack_timer -= delta
 
 func _on_speed_modifier_changed(modifier: float) -> void:
-	_speed_modifier = modifier
+	# Temporary test override: movement speed should stay stable while
+	# profiling terrain, mountains and chunk streaming.
+	_speed_modifier = 1.0
 
 func _on_died() -> void:
 	_is_dead = true
