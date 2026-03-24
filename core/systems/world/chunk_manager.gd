@@ -400,15 +400,18 @@ func _tick_loading() -> bool:
 	_staged_loading_generate(coord)
 	return true
 
-## Фаза 0: только генерация terrain данных. CPU-heavy, ~10-15 мс.
+## Фаза 0: только генерация terrain данных. CPU-heavy.
 func _staged_loading_generate(coord: Vector2i) -> void:
+	var started_usec: int = WorldPerfProbe.begin()
 	if _loaded_chunks.has(coord) or not _terrain_tileset or not _overlay_tileset:
 		return
 	_staged_data = WorldGenerator.get_chunk_data(coord)
 	_staged_coord = coord
+	WorldPerfProbe.end("ChunkStreaming.phase0_generate %s" % [coord], started_usec)
 
-## Фаза 1: создание Chunk node + populate bytes. ~5-10 мс.
+## Фаза 1: создание Chunk node + populate bytes.
 func _staged_loading_create() -> void:
+	var started_usec: int = WorldPerfProbe.begin()
 	var coord: Vector2i = _staged_coord
 	var native_data: Dictionary = _staged_data
 	_staged_data = {}
@@ -432,9 +435,11 @@ func _staged_loading_create() -> void:
 		false
 	)
 	_staged_chunk = chunk
+	WorldPerfProbe.end("ChunkStreaming.phase1_create %s" % [coord], started_usec)
 
-## Фаза 2: добавить в scene tree + topology + enqueue redraw. ~2-5 мс.
+## Фаза 2: добавить в scene tree + topology + enqueue redraw.
 func _staged_loading_finalize() -> void:
+	var started_usec: int = WorldPerfProbe.begin()
 	var chunk: Chunk = _staged_chunk
 	var coord: Vector2i = _staged_coord
 	_staged_chunk = null
@@ -455,6 +460,7 @@ func _staged_loading_finalize() -> void:
 	else:
 		_mark_topology_dirty()
 	EventBus.chunk_loaded.emit(coord)
+	WorldPerfProbe.end("ChunkStreaming.phase2_finalize %s" % [coord], started_usec)
 
 ## Progressive redraw одного шага. Возвращает true если есть ещё работа.
 func _tick_redraws() -> bool:

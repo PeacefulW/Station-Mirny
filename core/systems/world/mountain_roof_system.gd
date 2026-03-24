@@ -4,7 +4,7 @@ extends Node
 ## Управляет скрытием крыши только у активной горы.
 ## Cover setup + redraw — полностью через FrameBudgetDispatcher.
 
-const COVER_ROWS_PER_STEP: int = 8
+const COVER_ROWS_PER_STEP: int = 4
 const COVER_SETUP_PER_TICK: int = 2
 
 var _chunk_manager: ChunkManager = null
@@ -70,6 +70,7 @@ func _request_refresh() -> void:
 
 ## Единый budgeted tick: setup dirty coords → progressive redraw.
 func _tick_cover() -> bool:
+	var started_usec: int = WorldPerfProbe.begin()
 	var setup_count: int = 0
 	while not _cover_dirty_queue.is_empty() and setup_count < COVER_SETUP_PER_TICK:
 		var coord: Vector2i = _cover_dirty_queue.pop_front()
@@ -85,7 +86,9 @@ func _tick_cover() -> bool:
 			continue
 		if chunk.continue_cover_redraw(COVER_ROWS_PER_STEP):
 			_cover_redrawing_chunks.remove_at(0)
+		WorldPerfProbe.end("Cover.tick_slice", started_usec)
 		return true
+	WorldPerfProbe.end("Cover.tick_slice", started_usec)
 	return not _cover_dirty_queue.is_empty()
 
 func _enqueue_chunks(chunks: Array[Vector2i]) -> void:

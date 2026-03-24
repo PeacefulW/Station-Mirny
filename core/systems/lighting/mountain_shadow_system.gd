@@ -173,6 +173,7 @@ func _start_shadow_build(coord: Vector2i) -> void:
 
 ## Обрабатывает порцию edge-тайлов. Финализирует когда все обработаны.
 func _advance_shadow_build() -> void:
+	var started_usec: int = WorldPerfProbe.begin()
 	var b: Dictionary = _active_build
 	var edges: Array = b["edges"] as Array
 	var edge_idx: int = b["edge_idx"] as int
@@ -213,10 +214,14 @@ func _advance_shadow_build() -> void:
 	b["edge_idx"] = end_idx
 	b["has_pixels"] = has_pixels
 	if end_idx >= edges.size():
+		WorldPerfProbe.end("Shadow.advance_slice", started_usec)
 		_finalize_shadow_build()
+		return
+	WorldPerfProbe.end("Shadow.advance_slice", started_usec)
 
 ## Финализация: создать текстуру и sprite.
 func _finalize_shadow_build() -> void:
+	var finalize_usec: int = WorldPerfProbe.begin()
 	var b: Dictionary = _active_build
 	var coord: Vector2i = b["coord"] as Vector2i
 	var has_pixels: bool = b["has_pixels"] as bool
@@ -227,6 +232,7 @@ func _finalize_shadow_build() -> void:
 	_active_build.clear()
 	if not has_pixels:
 		_remove_shadow(coord)
+		WorldPerfProbe.end("Shadow.finalize %s" % [coord], finalize_usec)
 		return
 	var tex: ImageTexture = ImageTexture.create_from_image(img)
 	var sprite: Sprite2D
@@ -241,6 +247,7 @@ func _finalize_shadow_build() -> void:
 	sprite.texture = tex
 	sprite.scale = Vector2(tile_size, tile_size)
 	sprite.position = Vector2(base_x * tile_size, base_y * tile_size)
+	WorldPerfProbe.end("Shadow.finalize %s" % [coord], finalize_usec)
 
 func _is_external_edge(chunk: Chunk, local: Vector2i, chunk_size: int) -> bool:
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN,
