@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Sprite Forge v2 — Wall Tile Generator</title>
+<title>Sprite Forge v3 — Wall Tile Generator</title>
 <style>
 :root{--bg:#1a1e24;--panel:#232930;--text:#e0ddd4;--muted:#8a9199;--accent:#d0a86e;--line:#3a4450;--on:#5a9e6f;--off:#6e4444}
 *{box-sizing:border-box;margin:0}
@@ -43,7 +43,7 @@ button.secondary{background:linear-gradient(180deg,#2f3a45,#27313a);border-color
 <body>
 <div class="sidebar">
 <h1>Sprite Forge</h1>
-<div class="version">v2 — с эффектами и превью сборки</div>
+<div class="version">v3 — вариативность × макс</div>
 
 <h2>Текстура крыши (top)</h2>
 <label>Текстура крыши (опционально)</label>
@@ -126,8 +126,31 @@ button.secondary{background:linear-gradient(180deg,#2f3a45,#27313a);border-color
 </div>
 <div class="row" id="highlightRow" style="display:none"><label>Ширина блика (px)</label><input type="number" id="highlightPx" value="3" min="1" max="8"></div>
 <div class="toggle-row">
-  <label>Вариативность (×3 seed)</label>
-  <label class="toggle"><input type="checkbox" id="optVariants"><span class="slider"></span></label>
+  <label>Вариативность</label>
+  <label class="toggle"><input type="checkbox" id="optVariants" checked><span class="slider"></span></label>
+</div>
+<div id="variantOpts">
+<div class="row"><label>Кол-во вариантов</label><input type="number" id="variantCount" value="3" min="2" max="7"></div>
+<div class="toggle-row">
+  <label>Зеркалирование (H/V flip)</label>
+  <label class="toggle"><input type="checkbox" id="optFlips" checked><span class="slider"></span></label>
+</div>
+<div class="sub">H-flip, V-flip, H+V для симметричных тайлов</div>
+<div class="toggle-row">
+  <label>Jitter текстуры</label>
+  <label class="toggle"><input type="checkbox" id="optTexJitter" checked><span class="slider"></span></label>
+</div>
+<div class="row"><label>Сила jitter (px)</label><input type="number" id="texJitterAmt" value="8" min="2" max="24"></div>
+<div class="toggle-row">
+  <label>Микро-сдвиг цвета</label>
+  <label class="toggle"><input type="checkbox" id="optColorJitter" checked><span class="slider"></span></label>
+</div>
+<div class="row"><label>Сила сдвига (%)</label><input type="number" id="colorJitterAmt" value="6" min="1" max="15"></div>
+<div class="toggle-row">
+  <label>Вариация эффектов</label>
+  <label class="toggle"><input type="checkbox" id="optFxVariation" checked><span class="slider"></span></label>
+</div>
+<div class="sub">Разные трещины/слои на каждом варианте</div>
 </div>
 <div class="toggle-row">
   <label>Превью сборки горы</label>
@@ -167,6 +190,9 @@ document.getElementById("optCracks").addEventListener("change", e => {
 });
 document.getElementById("optHighlight").addEventListener("change", e => {
   document.getElementById("highlightRow").style.display = e.target.checked ? "flex" : "none";
+});
+document.getElementById("optVariants").addEventListener("change", e => {
+  document.getElementById("variantOpts").style.display = e.target.checked ? "" : "none";
 });
 
 // --- Tile definitions ---
@@ -355,6 +381,13 @@ function generate() {
     texOffsetX: parseInt(document.getElementById("texOffsetX").value),
     texOffsetY: parseInt(document.getElementById("texOffsetY").value),
     variants: document.getElementById("optVariants").checked,
+    variantCount: parseInt(document.getElementById("variantCount").value) || 3,
+    flips: document.getElementById("optFlips").checked,
+    texJitter: document.getElementById("optTexJitter").checked,
+    texJitterAmt: parseInt(document.getElementById("texJitterAmt").value) || 8,
+    colorJitter: document.getElementById("optColorJitter").checked,
+    colorJitterAmt: parseInt(document.getElementById("colorJitterAmt").value) || 6,
+    fxVariation: document.getElementById("optFxVariation").checked,
     demo: document.getElementById("optDemo").checked,
     lumMul: parseFloat(document.getElementById("lumMul").value),
     southRim: document.getElementById("optSouthRim").checked,
@@ -375,7 +408,31 @@ function generate() {
 
   // Build full tile list (with optional variants)
   let allDefs = [];
-  const variantCount = opts.variants ? 3 : 1;
+  const variantCount = opts.variants ? Math.max(1, Math.min(7, opts.variantCount)) : 1;
+  // Per-variant deterministic jitter offsets and color shifts
+  const variantJitter = [];
+  const variantColorShift = [];
+  const variantFx = []; // per-variant effect overrides
+  const jitterRng = mulberry32(98765);
+  for (let vi = 0; vi < variantCount; vi++) {
+    const jAmt = Math.round((opts.texJitterAmt || 8) * scale);
+    variantJitter.push({
+      x: vi === 0 ? 0 : Math.round((jitterRng() - 0.5) * 2 * jAmt),
+      y: vi === 0 ? 0 : Math.round((jitterRng() - 0.5) * 2 * jAmt),
+    });
+    const cAmt = (opts.colorJitterAmt || 6) / 100.0;
+    variantColorShift.push(vi === 0 ? 0 : (jitterRng() - 0.5) * 2 * cAmt);
+    // Effect variation: cycle through crack counts and layer presence
+    if (opts.fxVariation && vi > 0) {
+      variantFx.push({
+        crackCountOverride: Math.max(0, opts.crackCount + Math.floor((jitterRng() - 0.3) * 4)),
+        layerAmtOverride: opts.layerAmt * (0.5 + jitterRng()),
+        noiseAmtOverride: opts.noiseAmt * (0.7 + jitterRng() * 0.6),
+      });
+    } else {
+      variantFx.push(null);
+    }
+  }
   for (let vi = 0; vi < variantCount; vi++) {
     for (const def of TILE_DEFS) {
       allDefs.push({...def, variantIdx: vi,
@@ -400,8 +457,31 @@ function generate() {
     const imgData = ctx.createImageData(T, T);
     const d = imgData.data;
 
-    // Pre-generate cracks for this tile
-    const cracks = opts.cracks ? generateCracks(T, seed, opts.crackCount, 0, wh) : [];
+    // Per-variant jitter and color overrides
+    const jit = opts.texJitter ? variantJitter[vi] : {x:0, y:0};
+    const cShift = opts.colorJitter ? variantColorShift[vi] : 0;
+    const fxOv = variantFx[vi];
+    const tileCrackCount = fxOv ? fxOv.crackCountOverride : opts.crackCount;
+    const tileLayerAmt = fxOv ? fxOv.layerAmtOverride : opts.layerAmt;
+    const tileNoiseAmt = fxOv ? fxOv.noiseAmtOverride : opts.noiseAmt;
+
+    // Build tile-local opts with overrides
+    const tileOpts = Object.assign({}, opts, {
+      texOffsetX: (opts.texOffsetX || 0) + jit.x,
+      texOffsetY: (opts.texOffsetY || 0) + jit.y,
+      layerAmt: tileLayerAmt,
+      noiseAmt: tileNoiseAmt,
+    });
+
+    // Pre-generate cracks for this tile (with per-variant count)
+    const cracks = opts.cracks ? generateCracks(T, seed, tileCrackCount, 0, wh) : [];
+
+    // Temporarily mutate opts for per-variant jitter (restored after pixel loop)
+    const _sav = {tox: opts.texOffsetX, toy: opts.texOffsetY, la: opts.layerAmt, na: opts.noiseAmt};
+    opts.texOffsetX = tileOpts.texOffsetX;
+    opts.texOffsetY = tileOpts.texOffsetY;
+    opts.layerAmt = tileOpts.layerAmt;
+    opts.noiseAmt = tileOpts.noiseAmt;
 
     for (let x = 0; x < T; x++) {
       const vjo = (def.variantIdx || 0) * 50000;
@@ -752,19 +832,54 @@ function generate() {
 
     ctx.putImageData(imgData, 0, 0);
 
-    // Post-process: horizontal flip for odd variants (symmetric tiles only)
-    const canFlipH = !def.w !== !def.e ? false : true; // skip if asymmetric left/right
-    const canFlipFromFlags = !def.tWestFull && !def.tEastFull &&
-      !def.cornerWallEdge && !def.extraWallEdge;
-    if (vi % 2 === 1 && canFlipH && canFlipFromFlags) {
-      const flipped = document.createElement("canvas");
-      flipped.width = T; flipped.height = T;
-      const fctx = flipped.getContext("2d");
-      fctx.translate(T, 0);
-      fctx.scale(-1, 1);
-      fctx.drawImage(canvas, 0, 0);
-      ctx.clearRect(0, 0, T, T);
-      ctx.drawImage(flipped, 0, 0);
+    // Restore mutated opts
+    opts.texOffsetX = _sav.tox; opts.texOffsetY = _sav.toy;
+    opts.layerAmt = _sav.la; opts.noiseAmt = _sav.na;
+
+    // Post-process: per-variant color shift (brightness micro-variation)
+    if (cShift !== 0) {
+      const shifted = ctx.getImageData(0, 0, T, T);
+      const sd = shifted.data;
+      const mul = 1.0 + cShift;
+      for (let i = 0; i < sd.length; i += 4) {
+        if (sd[i+3] === 0) continue;
+        sd[i]   = Math.min(255, Math.max(0, Math.round(sd[i]   * mul)));
+        sd[i+1] = Math.min(255, Math.max(0, Math.round(sd[i+1] * mul)));
+        sd[i+2] = Math.min(255, Math.max(0, Math.round(sd[i+2] * mul)));
+      }
+      ctx.putImageData(shifted, 0, 0);
+    }
+
+    // --- Post-process: geometric transforms (H-flip, V-flip, H+V) ---
+    // Flip eligibility: tile must be symmetric on the axis being flipped
+    const noAsymFlags = !def.tWestFull && !def.tEastFull && !def.cornerWallEdge && !def.extraWallEdge;
+    // H-symmetry: left and right edges must match
+    const edgeSymH = (!!def.w === !!def.e);
+    const notchSymH = ((!def.nne && !def.nnw) || (!!def.nne === !!def.nnw)) &&
+      ((!def.nse && !def.nsw) || (!!def.nse === !!def.nsw));
+    const symH = edgeSymH && noAsymFlags && notchSymH;
+    // V-symmetry: top and bottom edges must match
+    const edgeSymV = (!!def.n === !!def.s);
+    const notchSymV = ((!def.nne && !def.nse) || (!!def.nne === !!def.nse)) &&
+      ((!def.nnw && !def.nsw) || (!!def.nnw === !!def.nsw));
+    const symV = edgeSymV && noAsymFlags && notchSymV;
+
+    if (opts.flips && vi > 0) {
+      const flipMode = vi % 4; // 1=H, 2=V, 3=H+V, 0=none
+      const doH = (flipMode === 1 && symH) || (flipMode === 3 && symH);
+      const doV = (flipMode === 2 && symV) || (flipMode === 3 && symV);
+      if (doH || doV) {
+        const fl = document.createElement("canvas");
+        fl.width = T; fl.height = T;
+        const fctx = fl.getContext("2d");
+        fctx.save();
+        fctx.translate(doH ? T : 0, doV ? T : 0);
+        fctx.scale(doH ? -1 : 1, doV ? -1 : 1);
+        fctx.drawImage(canvas, 0, 0);
+        fctx.restore();
+        ctx.clearRect(0, 0, T, T);
+        ctx.drawImage(fl, 0, 0);
+      }
     }
 
     tileCanvases.push(canvas);
@@ -811,7 +926,10 @@ function generate() {
 
   document.getElementById("downloadAtlas").style.display = "";
   document.getElementById("downloadAll").style.display = "";
-  const suffix = opts.variants ? " (×3 вариантов)" : "";
+  const suffix = opts.variants ? " (×" + variantCount + " вариантов" +
+    (opts.flips ? " + flips" : "") +
+    (opts.texJitter ? " + jitter" : "") +
+    (opts.colorJitter ? " + цвет" : "") + ")" : "";
   document.getElementById("status").textContent =
     "Готово: " + allDefs.length + " тайлов" + suffix + ", " + T + "×" + T + "px, атлас " + COLS + "×" + rows;
   window._tileCanvases = tileCanvases;
@@ -850,7 +968,8 @@ function buildDemo(T, tiles, opts) {
 
   function vSuf(gx, gy) {
     if (!opts.variants) return "";
-    return "_v" + (Math.abs(gx * 73 + gy * 97) % 3);
+    const vc = Math.max(1, Math.min(7, opts.variantCount || 3));
+    return "_v" + (Math.abs(gx * 73 + gy * 97) % vc);
   }
   function place(name, gx, gy) {
     const t = tiles[name + vSuf(gx, gy)] || tiles[name];

@@ -71,6 +71,70 @@ const WALL_DIAG3_NO_NW: Vector2i = Vector2i(52, 0)
 const WALL_DIAG3_NO_NE: Vector2i = Vector2i(53, 0)
 const TILE_DEFS_COUNT: int = 47
 
+## Runtime flip symmetry classification for wall tiles.
+## 0 = no flips, 1 = H only, 2 = V only, 3 = H+V (4 variants).
+## Indexed by tile def offset (WALL_INTERIOR.x - 7 = 0, WALL_NOTCH_NE.x - 7 = 1, etc.)
+const _WALL_FLIP_CLASS: PackedByteArray = [
+	3, # 00 INTERIOR      — fully symmetric
+	0, # 01 NOTCH_NE       — asymmetric corner
+	0, # 02 NOTCH_NW       — asymmetric corner
+	0, # 03 NOTCH_SE       — asymmetric corner
+	0, # 04 NOTCH_SW       — asymmetric corner
+	1, # 05 SOUTH          — H-symmetric
+	1, # 06 NORTH          — H-symmetric
+	2, # 07 WEST           — V-symmetric
+	2, # 08 EAST           — V-symmetric
+	0, # 09 CORNER_SW      — asymmetric
+	0, # 10 CORNER_SE      — asymmetric
+	0, # 11 CORNER_NW      — asymmetric
+	0, # 12 CORNER_NE      — asymmetric
+	2, # 13 CORRIDOR_EW    — V-symmetric (wall edges same top/bottom)
+	1, # 14 CORRIDOR_NS    — H-symmetric
+	1, # 15 PENINSULA_S    — H-symmetric
+	1, # 16 PENINSULA_N    — H-symmetric
+	2, # 17 PENINSULA_E    — V-symmetric
+	2, # 18 PENINSULA_W    — V-symmetric
+	3, # 19 PILLAR         — fully symmetric
+	3, # 20 CROSS          — fully symmetric
+	1, # 21 T_SOUTH        — H-symmetric
+	1, # 22 T_NORTH        — H-symmetric
+	0, # 23 T_WEST         — asymmetric (wallEdge logic)
+	0, # 24 T_EAST         — asymmetric (wallEdge logic)
+	0, # 25 CORNER_NW_T    — asymmetric
+	0, # 26 CORNER_NE_T    — asymmetric
+	0, # 27 CORNER_SW_T    — asymmetric
+	0, # 28 CORNER_SE_T    — asymmetric
+	2, # 29 EDGE_EW        — V-symmetric
+	0, # 30 NORTH_SE       — asymmetric
+	0, # 31 NORTH_SW       — asymmetric
+	0, # 32 SOUTH_NE       — asymmetric
+	0, # 33 SOUTH_NW       — asymmetric
+	0, # 34 WEST_NE        — asymmetric
+	0, # 35 WEST_SE        — asymmetric
+	0, # 36 EAST_NW        — asymmetric
+	0, # 37 EAST_SW        — asymmetric
+	1, # 38 DIAG_NE_NW     — H-symmetric (both notches top)
+	0, # 39 DIAG_NE_SE     — asymmetric
+	0, # 40 DIAG_NW_SW     — asymmetric
+	0, # 41 DIAG_NE_SW     — asymmetric
+	0, # 42 DIAG_NW_SE     — asymmetric
+	0, # 43 DIAG3_NO_SW    — asymmetric
+	0, # 44 DIAG3_NO_SE    — asymmetric
+	0, # 45 DIAG3_NO_NW    — asymmetric
+	0, # 46 DIAG3_NO_NE    — asymmetric
+]
+
+## Lookup: flip_class → array of [flip_h, flip_v] pairs for alternative tiles.
+const _FLIP_TRANSFORMS: Array = [
+	[],                                    # class 0: no flips
+	[[true, false]],                       # class 1: H-flip only
+	[[false, true]],                       # class 2: V-flip only
+	[[true, false], [false, true], [true, true]],  # class 3: H, V, H+V
+]
+
+## How many alternative tile IDs exist per flip class (0=1, 1=2, 2=2, 3=4).
+static var wall_flip_alt_count: PackedByteArray = PackedByteArray([1, 2, 2, 4])
+
 const TILE_ROOF: Vector2i = Vector2i(0, 0)
 const TILE_INTERIOR_FILL: Vector2i = Vector2i(1, 0)
 const TILE_SHADOW_SOUTH: Vector2i = Vector2i(2, 0)
@@ -122,6 +186,20 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData) -
 	src.texture_region_size = Vector2i(ts, ts)
 	for x: int in range(total):
 		src.create_tile(Vector2i(x, 0))
+	## Create alternative tiles with runtime flips for wall tiles.
+	for vi: int in range(wall_variant_count):
+		for def_i: int in range(TILE_DEFS_COUNT):
+			var flip_class: int = _WALL_FLIP_CLASS[def_i]
+			if flip_class == 0:
+				continue
+			var atlas_x: int = 7 + def_i + vi * wall_base_count
+			var coords := Vector2i(atlas_x, 0)
+			var transforms: Array = _FLIP_TRANSFORMS[flip_class]
+			for t_i: int in range(transforms.size()):
+				var alt_id: int = src.create_alternative_tile(coords)
+				var alt_data: TileData = src.get_tile_data(coords, alt_id)
+				alt_data.flip_h = transforms[t_i][0]
+				alt_data.flip_v = transforms[t_i][1]
 	tileset.add_source(src, TERRAIN_SOURCE_ID)
 	return tileset
 

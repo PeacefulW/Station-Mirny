@@ -45,10 +45,17 @@ button.secondary{background:linear-gradient(180deg,#2f3a45,#27313a);border-color
 <h1>Sprite Forge</h1>
 <div class="version">v2 — с эффектами и превью сборки</div>
 
-<h2>Текстура</h2>
-<label>Текстура-источник (опционально)</label>
-<input type="file" id="texInput" accept="image/*">
-<div id="texStatus" style="font-size:12px;color:var(--muted);margin-top:4px">Без текстуры = чистый цвет</div>
+<h2>Текстура крыши (top)</h2>
+<label>Текстура крыши (опционально)</label>
+<input type="file" id="texRoof" accept="image/*">
+<div id="texRoofStatus" style="font-size:12px;color:var(--muted);margin-top:4px">Без текстуры = чистый цвет</div>
+
+<h2>Текстура стены (south face)</h2>
+<label>Текстура стены (опционально)</label>
+<input type="file" id="texWall" accept="image/*">
+<div id="texWallStatus" style="font-size:12px;color:var(--muted);margin-top:4px">Без текстуры = чистый цвет</div>
+
+<h2>Общие настройки текстур</h2>
 <div class="row"><label>Масштаб текстуры</label><input type="number" id="texScale" value="1.0" min="0.25" max="4.0" step="0.25"></div>
 <div class="row"><label>Сдвиг X</label><input type="number" id="texOffsetX" value="0" min="-128" max="128" step="4"></div>
 <div class="row"><label>Сдвиг Y</label><input type="number" id="texOffsetY" value="0" min="-128" max="128" step="4"></div>
@@ -58,8 +65,10 @@ button.secondary{background:linear-gradient(180deg,#2f3a45,#27313a);border-color
   <label>Тонировать цветом</label>
   <label class="toggle"><input type="checkbox" id="optTint" checked><span class="slider"></span></label>
 </div>
-<label>Основной цвет</label>
-<input type="color" id="tintColor" value="#4d4254">
+<label>Цвет крыши</label>
+<input type="color" id="tintRoof" value="#4d4254">
+<label>Цвет стены</label>
+<input type="color" id="tintWall" value="#3d3545">
 <div class="row"><label>Множитель яркости</label><input type="number" id="lumMul" value="2.0" min="0.5" max="4.0" step="0.1"></div>
 
 <h2>Размер</h2>
@@ -74,6 +83,7 @@ button.secondary{background:linear-gradient(180deg,#2f3a45,#27313a);border-color
 <div class="row"><label>Ширина кромки (px)</label><input type="number" id="edgeWidth" value="14" min="3" max="30"></div>
 <div class="row"><label>Волнистость кромки</label><input type="number" id="edgeVar" value="5" min="0" max="10"></div>
 <div class="row"><label>Alpha Fade (px)</label><input type="number" id="alphaFade" value="3" min="1" max="8"></div>
+<div class="row"><label>Яркость кромки</label><input type="number" id="edgeBright" value="0.55" min="0.2" max="1.0" step="0.05"></div>
 
 <h2>Нотчи (diagonal)</h2>
 <div class="row"><label>Ширина нотча (px)</label><input type="number" id="notchWidth" value="14" min="5" max="25"></div>
@@ -210,22 +220,27 @@ const TILE_DEFS = [
   {name:"46_diag3_no_ne", n:0,s:0,e:0,w:0, cornerWallEdge:"sw", nnw:1, extraWallEdge:"se"},
 ];
 
-let userTexture = null;
+let roofTexture = null;
+let wallTexture = null;
 
-document.getElementById("texInput").addEventListener("change", (e) => {
-  const file = e.target.files[0];
-  if (!file) { userTexture = null; document.getElementById("texStatus").textContent = "Без текстуры"; return; }
-  const img = new Image();
-  img.onload = () => {
-    const c = document.createElement("canvas");
-    c.width = 256; c.height = 256;
-    const ctx = c.getContext("2d");
-    ctx.drawImage(img, 0, 0, 256, 256);
-    userTexture = ctx.getImageData(0, 0, 256, 256);
-    document.getElementById("texStatus").textContent = "Загружена: " + file.name;
-  };
-  img.src = URL.createObjectURL(file);
-});
+function loadTexture(inputId, statusId, setter) {
+  document.getElementById(inputId).addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) { setter(null); document.getElementById(statusId).textContent = "Без текстуры"; return; }
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = 256; c.height = 256;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(img, 0, 0, 256, 256);
+      setter(ctx.getImageData(0, 0, 256, 256));
+      document.getElementById(statusId).textContent = "Загружена: " + file.name;
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+loadTexture("texRoof", "texRoofStatus", v => { roofTexture = v; });
+loadTexture("texWall", "texWallStatus", v => { wallTexture = v; });
 
 function hexToRgb(hex) {
   return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
@@ -249,19 +264,17 @@ function jag(pos, seed, base, v, useJag) {
   );
 }
 
-function sampleTinted(x, y, seed, brightness, tR, tG, tB, opts, rng) {
+function sampleTinted(x, y, seed, brightness, tR, tG, tB, opts, rng, tex) {
   let lum = 1.0;
-  let origR = tR, origG = tG, origB = tB;
-  if (userTexture) {
+  if (tex) {
     const sc = opts.texScale || 1.0;
     const ox = opts.texOffsetX || 0;
     const oy = opts.texOffsetY || 0;
     const sx = ((Math.round((x + ox) * sc) + seed * 47) % 256 + 256) % 256;
     const sy = ((Math.round((y + oy) * sc) + seed * 31) % 256 + 256) % 256;
     const idx = (sy * 256 + sx) * 4;
-    const r = userTexture.data[idx], g = userTexture.data[idx+1], b = userTexture.data[idx+2];
+    const r = tex.data[idx], g = tex.data[idx+1], b = tex.data[idx+2];
     if (!opts.tint) {
-      // No tint: use original texture colors directly
       lum = brightness;
       if (opts.layers) lum += Math.sin(y * 0.8 + seed * 0.05) * opts.layerAmt;
       const v = opts.noise ? (rng() - 0.5) * opts.noiseAmt : 0;
@@ -279,8 +292,6 @@ function sampleTinted(x, y, seed, brightness, tR, tG, tB, opts, rng) {
   }
 
   lum *= brightness;
-
-  // Micro-variation to break flat areas
   lum += Math.sin(y * 0.4 + x * 0.08 + seed) * 0.02;
 
   const v = opts.noise ? (rng() - 0.5) * opts.noiseAmt : 0;
@@ -316,7 +327,8 @@ function isCrackPixel(x, y, cracks, seed) {
 
 function generate() {
   const T = parseInt(document.getElementById("tileSize").value);
-  const [tR,tG,tB] = hexToRgb(document.getElementById("tintColor").value);
+  const [rR,rG,rB] = hexToRgb(document.getElementById("tintRoof").value);
+  const [wR,wG,wB] = hexToRgb(document.getElementById("tintWall").value);
   const WH = parseInt(document.getElementById("wallHeight").value);
   const WV = parseInt(document.getElementById("wallVar").value);
   const EW = parseInt(document.getElementById("edgeWidth").value);
@@ -346,6 +358,7 @@ function generate() {
     demo: document.getElementById("optDemo").checked,
     lumMul: parseFloat(document.getElementById("lumMul").value),
     southRim: document.getElementById("optSouthRim").checked,
+    edgeBright: parseFloat(document.getElementById("edgeBright").value),
   };
 
   const scale = T / 64.0;
@@ -449,9 +462,9 @@ function generate() {
           const extraRight = (T-1-x) < cewR && y >= jagWH;
           const extraCorner = (T-1-x) < cewR && (T-1-y) < jagNS_bot;
           if (extraRight || extraCorner) {
-            let br = 0.55;
+            let br = opts.edgeBright;
             if (extraRight) br = 0.7 - (y - wh) / Math.max(T - wh, 1) * 0.25;
-            let [tr,tg,tb] = sampleTinted(x, y, seed + 100, br, tR, tG, tB, opts, rng);
+            let [tr,tg,tb] = sampleTinted(x, y, seed + 100, br, wR, wG, wB, opts, rng, wallTexture);
             let ta = 255;
             if (T-1-x < af) ta = Math.min(ta, Math.round(255 * (T-x) / (af+1)));
             if (extraCorner && T-1-y < 2 && T-1-x < 2) ta = Math.min(ta, Math.round(255 * (T-x+T-y-1) / 5));
@@ -465,9 +478,9 @@ function generate() {
           const extraLeft = x < cewL && y >= jagWH;
           const extraCorner = x < cewL && (T-1-y) < jagNS_bot;
           if (extraLeft || extraCorner) {
-            let br = 0.55;
+            let br = opts.edgeBright;
             if (extraLeft) br = 0.7 - (y - wh) / Math.max(T - wh, 1) * 0.25;
-            let [tr,tg,tb] = sampleTinted(x, y, seed + 100, br, tR, tG, tB, opts, rng);
+            let [tr,tg,tb] = sampleTinted(x, y, seed + 100, br, wR, wG, wB, opts, rng, wallTexture);
             let ta = 255;
             if (x < af) ta = Math.min(ta, Math.round(255 * (x+1) / (af+1)));
             if (extraCorner && T-1-y < 2 && x < 2) ta = Math.min(ta, Math.round(255 * (x+T-y) / 5));
@@ -480,7 +493,7 @@ function generate() {
           const cewR = jagEW_right * taperFactor;
           const extraRight = (T-1-x) < cewR && y < jagNS_top;
           if (extraRight) {
-            let [tr,tg,tb] = sampleTinted(x, y, seed + 100, 0.55, tR, tG, tB, opts, rng);
+            let [tr,tg,tb] = sampleTinted(x, y, seed + 100, opts.edgeBright, wR, wG, wB, opts, rng, wallTexture);
             let ta = 255;
             if (T-1-x < af) ta = Math.min(ta, Math.round(255 * (T-x) / (af+1)));
             if (y < 2 && T-1-x < 2) ta = Math.min(ta, Math.round(255 * (T-x+y) / 5));
@@ -493,7 +506,7 @@ function generate() {
           const cewL = jagEW_left * taperFactor;
           const extraLeft = x < cewL && y < jagNS_top;
           if (extraLeft) {
-            let [tr,tg,tb] = sampleTinted(x, y, seed + 100, 0.55, tR, tG, tB, opts, rng);
+            let [tr,tg,tb] = sampleTinted(x, y, seed + 100, opts.edgeBright, wR, wG, wB, opts, rng, wallTexture);
             let ta = 255;
             if (x < af) ta = Math.min(ta, Math.round(255 * (x+1) / (af+1)));
             if (y < 2 && x < 2) ta = Math.min(ta, Math.round(255 * (x+y+1) / 5));
@@ -507,7 +520,7 @@ function generate() {
           const extraLeft = x < jagEW_left * taperFactor && y >= jagWH;
           if (extraLeft) {
             let br = 0.7 - (y - wh) / Math.max(T - wh, 1) * 0.25;
-            let [tr,tg,tb] = sampleTinted(x, y, seed + 100, br, tR, tG, tB, opts, rng);
+            let [tr,tg,tb] = sampleTinted(x, y, seed + 100, br, wR, wG, wB, opts, rng, wallTexture);
             let ta = 255;
             if (x < af) ta = Math.min(ta, Math.round(255 * (x+1) / (af+1)));
             const idx2 = (y * T + x) * 4;
@@ -519,7 +532,7 @@ function generate() {
           const extraRight = (T-1-x) < jagEW_right * taperFactor && y >= jagWH;
           if (extraRight) {
             let br = 0.7 - (y - wh) / Math.max(T - wh, 1) * 0.25;
-            let [tr,tg,tb] = sampleTinted(x, y, seed + 100, br, tR, tG, tB, opts, rng);
+            let [tr,tg,tb] = sampleTinted(x, y, seed + 100, br, wR, wG, wB, opts, rng, wallTexture);
             let ta = 255;
             if (T-1-x < af) ta = Math.min(ta, Math.round(255 * (T-x) / (af+1)));
             const idx2 = (y * T + x) * 4;
@@ -540,11 +553,11 @@ function generate() {
             } else {
               br = 0.7 - (y - jagWH) / Math.max(T - jagWH, 1) * 0.25;
             }
-            [tr, tg, tb] = sampleTinted(x, y, seed + 100, br, tR, tG, tB, opts, rng);
+            [tr, tg, tb] = sampleTinted(x, y, seed + 100, br, wR, wG, wB, opts, rng, wallTexture);
             if (leftKink && x < af) ta = Math.min(ta, Math.round(255 * (x + 1) / (af+1)));
             if (rightBotKink && T-1-x < af) ta = Math.min(ta, Math.round(255 * (T - x) / (af+1)));
           } else {
-            [tr, tg, tb] = sampleTinted(x, y, seed, 0.85, tR, tG, tB, opts, rng);
+            [tr, tg, tb] = sampleTinted(x, y, seed, 0.85, rR, rG, rB, opts, rng, roofTexture);
           }
           const idx = (y * T + x) * 4;
           d[idx] = tr; d[idx+1] = tg; d[idx+2] = tb; d[idx+3] = Math.max(0, ta);
@@ -563,11 +576,11 @@ function generate() {
             } else {
               br = 0.7 - (y - jagWH) / Math.max(T - jagWH, 1) * 0.25;
             }
-            [tr, tg, tb] = sampleTinted(x, y, seed + 100, br, tR, tG, tB, opts, rng);
+            [tr, tg, tb] = sampleTinted(x, y, seed + 100, br, wR, wG, wB, opts, rng, wallTexture);
             if (rightKink && T-1-x < af) ta = Math.min(ta, Math.round(255 * (T - x) / (af+1)));
             if (leftBotKink && x < af) ta = Math.min(ta, Math.round(255 * (x + 1) / (af+1)));
           } else {
-            [tr, tg, tb] = sampleTinted(x, y, seed, 0.85, tR, tG, tB, opts, rng);
+            [tr, tg, tb] = sampleTinted(x, y, seed, 0.85, rR, rG, rB, opts, rng, roofTexture);
           }
           const idx = (y * T + x) * 4;
           d[idx] = tr; d[idx+1] = tg; d[idx+2] = tb; d[idx+3] = Math.max(0, ta);
@@ -598,7 +611,7 @@ function generate() {
           const dist = dists.length ? Math.min(...dists) : 0;
 
           if (vertTop && !iW && !iE) {
-            [r, g, b] = sampleTinted(x, y, seed + 100, 0.55, tR, tG, tB, opts, rng);
+            [r, g, b] = sampleTinted(x, y, seed + 100, opts.edgeBright, wR, wG, wB, opts, rng, wallTexture);
             let na = 255;
             if (y < af) na = Math.round(255 * (y + 1) / (af+1));
             const idx = (y * T + x) * 4;
@@ -608,7 +621,7 @@ function generate() {
           if (vertBot && !iW && !iE) {
             const prog = (y - wh) / Math.max(T - wh, 1);
             const sbr = 0.7 - prog * 0.25;
-            [r, g, b] = sampleTinted(x, y, seed + 100, sbr, tR, tG, tB, opts, rng);
+            [r, g, b] = sampleTinted(x, y, seed + 100, sbr, wR, wG, wB, opts, rng, wallTexture);
             let na = 255;
             if (T-1-y < af) na = Math.round(255 * (T - y) / (af+1));
             const idx = (y * T + x) * 4;
@@ -616,7 +629,7 @@ function generate() {
             continue;
           }
           if (def.wallEdgeVert && (vertTop || vertBot) && (iW || iE)) {
-            [r, g, b] = sampleTinted(x, y, seed + 100, 0.55, tR, tG, tB, opts, rng);
+            [r, g, b] = sampleTinted(x, y, seed + 100, opts.edgeBright, wR, wG, wB, opts, rng, wallTexture);
             let na = 255;
             if (def.w && x < af) na = Math.min(na, Math.round(255 * (x + 1) / (af+1)));
             if (def.e && T-1-x < af) na = Math.min(na, Math.round(255 * (T - x) / (af+1)));
@@ -633,7 +646,7 @@ function generate() {
             continue;
           }
           if (def.wallEdge && iN) {
-            [r, g, b] = sampleTinted(x, y, seed + 100, 0.55, tR, tG, tB, opts, rng);
+            [r, g, b] = sampleTinted(x, y, seed + 100, opts.edgeBright, wR, wG, wB, opts, rng, wallTexture);
             let na = 255;
             if (y < af) na = Math.round(255 * (y + 1) / (af+1));
             const idx = (y * T + x) * 4;
@@ -644,21 +657,21 @@ function generate() {
           const isWallEdgeSide = def.wallEdge && (iW || iE) && !iS && !iN;
           let br;
           if (isWallEdgeSide && y < jagWH && !crossCorner && !notch) {
-            [r, g, b] = sampleTinted(x, y, seed, 0.85, tR, tG, tB, opts, rng);
+            [r, g, b] = sampleTinted(x, y, seed, 0.85, rR, rG, rB, opts, rng, roofTexture);
             const idx = (y * T + x) * 4;
             d[idx] = r; d[idx+1] = g; d[idx+2] = b; d[idx+3] = 255;
             continue;
           } else if (crossCorner) {
-            br = 0.55;
+            br = opts.edgeBright;
           } else if (notch) {
-            br = 0.55;
+            br = opts.edgeBright;
           } else if (iN && (iW || iE)) {
-            br = 0.55;
+            br = opts.edgeBright;
           } else if (iS) {
             const distFromEdge = y - sY;
             if (opts.southRim && distFromEdge < ew) {
               // Rim zone — same darkness as N/E/W edges
-              br = 0.55;
+              br = opts.edgeBright;
             } else {
               // Wall zone — darker, gradient downward
               const wallTop = opts.southRim ? sY + ew : sY;
@@ -669,7 +682,7 @@ function generate() {
             const prog = (y - wh) / Math.max(T - wh, 1);
             br = 0.7 - prog * 0.25;
           } else {
-            br = 0.55;
+            br = opts.edgeBright;
           }
           const twoEdges = (iS && (iW || iE)) || (iN && (iW || iE));
           const skipLip = (def.wallEdge && (iW || iE) && y >= jagWH) || twoEdges;
@@ -708,7 +721,7 @@ function generate() {
             }
           }
 
-          [r, g, b] = sampleTinted(x, y, seed + 100, br, tR, tG, tB, opts, rng);
+          [r, g, b] = sampleTinted(x, y, seed + 100, br, wR, wG, wB, opts, rng, wallTexture);
 
           if (crossCornerTop) {
             if (x < ew && x < 2 && y < 2) a = Math.min(a, Math.round(255 * (x + y + 1) / 5));
@@ -729,7 +742,7 @@ function generate() {
           if (notchSE && T-1-x < 2 && T-1-y < 2) a = Math.min(a, Math.round(255 * (T-x + T-y - 1) / 5));
           if (notchSW && x < 2 && T-1-y < 2) a = Math.min(a, Math.round(255 * (x + T-y) / 5));
         } else {
-          [r, g, b] = sampleTinted(x, y, seed, 0.85, tR, tG, tB, opts, rng);
+          [r, g, b] = sampleTinted(x, y, seed, 0.85, rR, rG, rB, opts, rng, roofTexture);
         }
 
         const idx = (y * T + x) * 4;
@@ -791,7 +804,7 @@ function generate() {
   const demoSection = document.getElementById("demoSection");
   if (opts.demo) {
     demoSection.style.display = "";
-    buildDemo(T, tileByName, tR, tG, tB, opts);
+    buildDemo(T, tileByName, opts);
   } else {
     demoSection.style.display = "none";
   }
@@ -807,7 +820,7 @@ function generate() {
 }
 
 // --- Comprehensive demo ---
-function buildDemo(T, tiles, tR, tG, tB, opts) {
+function buildDemo(T, tiles, opts) {
   const GW = 17, GH = 13;
   const dc = document.getElementById("demoCanvas");
   dc.width = GW * T * 2; dc.height = GH * T * 2;

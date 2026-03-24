@@ -208,16 +208,20 @@ func _redraw_dirty_tiles(dirty_tiles: Dictionary) -> void:
 func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 	var terrain_type: int = get_terrain_type_at(local_tile)
 	var atlas: Vector2i = ChunkTilesetFactory.TILE_GROUND
+	var alt_id: int = 0
 	match terrain_type:
 		TileGenData.TerrainType.ROCK:
-			atlas = _apply_variant(_rock_visual_class(local_tile), local_tile)
+			var result: Array = _apply_variant_full(
+				_rock_visual_class(local_tile), local_tile)
+			atlas = result[0]
+			alt_id = result[1]
 		TileGenData.TerrainType.MINED_FLOOR:
 			atlas = ChunkTilesetFactory.TILE_MINED_FLOOR
 		TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
 			atlas = ChunkTilesetFactory.TILE_MOUNTAIN_ENTRANCE
 		_:
 			atlas = _ground_atlas_for_height(_height_at(local_tile))
-	_terrain_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas)
+	_terrain_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, alt_id)
 
 func _ground_atlas_for_height(height_value: float) -> Vector2i:
 	if height_value < 0.38:
@@ -261,6 +265,9 @@ func _get_neighbor_terrain(local_tile: Vector2i) -> int:
 	if _is_inside(local_tile):
 		return get_terrain_type_at(local_tile)
 	return TileGenData.TerrainType.GROUND
+
+func _is_open_for_visual(terrain_type: int) -> bool:
+	return terrain_type != TileGenData.TerrainType.ROCK
 
 func _is_open_exterior(terrain_type: int) -> bool:
 	return terrain_type == TileGenData.TerrainType.GROUND \
@@ -307,25 +314,49 @@ func _redraw_cliff_tile(_local_tile: Vector2i) -> void:
 	pass
 
 func _redraw_cover_tile(local_tile: Vector2i) -> void:
-	if get_terrain_type_at(local_tile) == TileGenData.TerrainType.MINED_FLOOR:
-		_cover_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, _cover_rock_atlas(local_tile))
+	var terrain: int = get_terrain_type_at(local_tile)
+	var need_cover: bool = terrain == TileGenData.TerrainType.MINED_FLOOR \
+		or _is_cave_edge_rock(local_tile)
+	if not need_cover:
 		return
-	if _is_cave_edge_rock(local_tile):
-		_cover_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, _cover_rock_atlas(local_tile))
+	# Use the same variant hash as terrain layer — mountain looks identical before/after mining
+	var base: Vector2i = _cover_rock_atlas(local_tile)
+	var result: Array = _apply_variant_full(base, local_tile)
+	_cover_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, result[0], result[1])
+
+## XOR-shift hash — no visible linear patterns.
+static func _tile_hash(pos: Vector2i) -> int:
+	var h: int = pos.x * 374761393 + pos.y * 668265263
+	h = (h ^ (h >> 13)) * 1274126177
+	h = h ^ (h >> 16)
+	return absi(h)
+
+## Returns [atlas_coords, alternative_tile_id].
+func _apply_variant_full(base: Vector2i, local_tile: Vector2i) -> Array:
+	var gt: Vector2i = _to_global_tile(local_tile)
+	var h: int = _tile_hash(gt)
+	var vi: int = 0
+	if ChunkTilesetFactory.wall_variant_count > 1:
+		vi = h % ChunkTilesetFactory.wall_variant_count
+	var atlas := Vector2i(base.x + vi * ChunkTilesetFactory.wall_base_count, 0)
+	var def_index: int = base.x - 7
+	var alt_id: int = 0
+	if def_index >= 0 and def_index < ChunkTilesetFactory._WALL_FLIP_CLASS.size():
+		var flip_class: int = ChunkTilesetFactory._WALL_FLIP_CLASS[def_index]
+		if flip_class > 0:
+			var alt_count: int = ChunkTilesetFactory.wall_flip_alt_count[flip_class]
+			var flip_hash: int = _tile_hash(Vector2i(gt.x + 17, gt.y + 31))
+			alt_id = flip_hash % alt_count
+	return [atlas, alt_id]
 
 func _apply_variant(base: Vector2i, local_tile: Vector2i) -> Vector2i:
-	if ChunkTilesetFactory.wall_variant_count <= 1:
-		return base
-	var gt: Vector2i = _to_global_tile(local_tile)
-	var hash_val: int = absi(gt.x * 73 + gt.y * 97 + gt.x * gt.x * 13 + gt.y * gt.y * 7)
-	var vi: int = hash_val % ChunkTilesetFactory.wall_variant_count
-	return Vector2i(base.x + vi * ChunkTilesetFactory.wall_base_count, 0)
+	return _apply_variant_full(base, local_tile)[0]
 
 func _rock_visual_class(local_tile: Vector2i) -> Vector2i:
-	var s: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.DOWN))
-	var n: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.UP))
-	var w: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.LEFT))
-	var e: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.RIGHT))
+	var s: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i.DOWN))
+	var n: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i.UP))
+	var w: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i.LEFT))
+	var e: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i.RIGHT))
 	var count: int = int(s) + int(n) + int(w) + int(e)
 	if count == 4:
 		return ChunkTilesetFactory.WALL_PILLAR
@@ -336,55 +367,55 @@ func _rock_visual_class(local_tile: Vector2i) -> Vector2i:
 		return ChunkTilesetFactory.WALL_PENINSULA_W
 	if count == 2:
 		if s and w:
-			if _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(1, -1))):
+			if _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1))):
 				return ChunkTilesetFactory.WALL_CORNER_SW_T
 			return ChunkTilesetFactory.WALL_CORNER_SW
 		if s and e:
-			if _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(-1, -1))):
+			if _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1))):
 				return ChunkTilesetFactory.WALL_CORNER_SE_T
 			return ChunkTilesetFactory.WALL_CORNER_SE
 		if n and w:
-			if _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(1, 1))):
+			if _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1))):
 				return ChunkTilesetFactory.WALL_CORNER_NW_T
 			return ChunkTilesetFactory.WALL_CORNER_NW
 		if n and e:
-			if _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(-1, 1))):
+			if _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1))):
 				return ChunkTilesetFactory.WALL_CORNER_NE_T
 			return ChunkTilesetFactory.WALL_CORNER_NE
 		if e and w: return ChunkTilesetFactory.WALL_CORRIDOR_EW
 		return ChunkTilesetFactory.WALL_CORRIDOR_NS
 	if count == 1:
 		if s:
-			var s_ne: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(1, -1)))
-			var s_nw: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)))
+			var s_ne: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1)))
+			var s_nw: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)))
 			if s_ne and s_nw: return ChunkTilesetFactory.WALL_T_SOUTH
 			if s_ne: return ChunkTilesetFactory.WALL_SOUTH_NE
 			if s_nw: return ChunkTilesetFactory.WALL_SOUTH_NW
 			return ChunkTilesetFactory.WALL_SOUTH
 		if n:
-			var n_se: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(1, 1)))
-			var n_sw: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)))
+			var n_se: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1)))
+			var n_sw: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)))
 			if n_se and n_sw: return ChunkTilesetFactory.WALL_T_NORTH
 			if n_se: return ChunkTilesetFactory.WALL_NORTH_SE
 			if n_sw: return ChunkTilesetFactory.WALL_NORTH_SW
 			return ChunkTilesetFactory.WALL_NORTH
 		if w:
-			var w_ne: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(1, -1)))
-			var w_se: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(1, 1)))
+			var w_ne: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1)))
+			var w_se: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1)))
 			if w_ne and w_se: return ChunkTilesetFactory.WALL_T_WEST
 			if w_ne: return ChunkTilesetFactory.WALL_WEST_NE
 			if w_se: return ChunkTilesetFactory.WALL_WEST_SE
 			return ChunkTilesetFactory.WALL_WEST
-		var e_nw: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)))
-		var e_sw: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)))
+		var e_nw: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)))
+		var e_sw: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)))
 		if e_nw and e_sw: return ChunkTilesetFactory.WALL_T_EAST
 		if e_nw: return ChunkTilesetFactory.WALL_EAST_NW
 		if e_sw: return ChunkTilesetFactory.WALL_EAST_SW
 		return ChunkTilesetFactory.WALL_EAST
-	var d_sw: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)))
-	var d_se: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(1, 1)))
-	var d_ne: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(1, -1)))
-	var d_nw: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)))
+	var d_sw: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)))
+	var d_se: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1)))
+	var d_ne: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1)))
+	var d_nw: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)))
 	var d_count: int = int(d_sw) + int(d_se) + int(d_ne) + int(d_nw)
 	if d_count == 4:
 		return ChunkTilesetFactory.WALL_CROSS
@@ -413,8 +444,8 @@ func _rock_atlas(local_tile: Vector2i) -> Vector2i:
 
 func _cover_rock_atlas(local_tile: Vector2i) -> Vector2i:
 	if _is_exterior_surface_rock(local_tile):
-		return ChunkTilesetFactory.TILE_ROCK
-	return ChunkTilesetFactory.TILE_ROCK_INTERIOR
+		return ChunkTilesetFactory.WALL_SOUTH
+	return ChunkTilesetFactory.WALL_INTERIOR
 
 func _is_cave_edge_rock(local_tile: Vector2i) -> bool:
 	if get_terrain_type_at(local_tile) != TileGenData.TerrainType.ROCK:
