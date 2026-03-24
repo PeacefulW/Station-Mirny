@@ -7,6 +7,12 @@ extends RefCounted
 const TERRAIN_SOURCE_ID: int = 0
 const OVERLAY_SOURCE_ID: int = 1
 
+const ROCK_FACES_PATH: String = "res://assets/sprites/terrain/rock_faces_atlas.png"
+## Количество базовых тайлов стен (без вариантов). Обновляется при сборке tileset.
+static var wall_base_count: int = 0
+## Количество вариантов (1 = без вариативности, 3 = три варианта).
+static var wall_variant_count: int = 1
+
 const TILE_GROUND_DARK: Vector2i = Vector2i(0, 0)
 const TILE_GROUND: Vector2i = Vector2i(1, 0)
 const TILE_GROUND_LIGHT: Vector2i = Vector2i(2, 0)
@@ -14,6 +20,56 @@ const TILE_ROCK: Vector2i = Vector2i(3, 0)
 const TILE_ROCK_INTERIOR: Vector2i = Vector2i(4, 0)
 const TILE_MINED_FLOOR: Vector2i = Vector2i(5, 0)
 const TILE_MOUNTAIN_ENTRANCE: Vector2i = Vector2i(6, 0)
+
+## Rock visual-class tiles (from atlas, positions 7+)
+const WALL_INTERIOR: Vector2i = Vector2i(7, 0)
+const WALL_NOTCH_NE: Vector2i = Vector2i(8, 0)
+const WALL_NOTCH_NW: Vector2i = Vector2i(9, 0)
+const WALL_NOTCH_SE: Vector2i = Vector2i(10, 0)
+const WALL_NOTCH_SW: Vector2i = Vector2i(11, 0)
+const WALL_SOUTH: Vector2i = Vector2i(12, 0)
+const WALL_NORTH: Vector2i = Vector2i(13, 0)
+const WALL_WEST: Vector2i = Vector2i(14, 0)
+const WALL_EAST: Vector2i = Vector2i(15, 0)
+const WALL_CORNER_SW: Vector2i = Vector2i(16, 0)
+const WALL_CORNER_SE: Vector2i = Vector2i(17, 0)
+const WALL_CORNER_NW: Vector2i = Vector2i(18, 0)
+const WALL_CORNER_NE: Vector2i = Vector2i(19, 0)
+const WALL_CORRIDOR_EW: Vector2i = Vector2i(20, 0)
+const WALL_CORRIDOR_NS: Vector2i = Vector2i(21, 0)
+const WALL_PENINSULA_S: Vector2i = Vector2i(22, 0)
+const WALL_PENINSULA_N: Vector2i = Vector2i(23, 0)
+const WALL_PENINSULA_E: Vector2i = Vector2i(24, 0)
+const WALL_PENINSULA_W: Vector2i = Vector2i(25, 0)
+const WALL_PILLAR: Vector2i = Vector2i(26, 0)
+const WALL_CROSS: Vector2i = Vector2i(27, 0)
+const WALL_T_SOUTH: Vector2i = Vector2i(28, 0)
+const WALL_T_NORTH: Vector2i = Vector2i(29, 0)
+const WALL_T_WEST: Vector2i = Vector2i(30, 0)
+const WALL_T_EAST: Vector2i = Vector2i(31, 0)
+const WALL_CORNER_NW_T: Vector2i = Vector2i(32, 0)
+const WALL_CORNER_NE_T: Vector2i = Vector2i(33, 0)
+const WALL_CORNER_SW_T: Vector2i = Vector2i(34, 0)
+const WALL_CORNER_SE_T: Vector2i = Vector2i(35, 0)
+const WALL_EDGE_EW: Vector2i = Vector2i(36, 0)
+const WALL_NORTH_SE: Vector2i = Vector2i(37, 0)
+const WALL_NORTH_SW: Vector2i = Vector2i(38, 0)
+const WALL_SOUTH_NE: Vector2i = Vector2i(39, 0)
+const WALL_SOUTH_NW: Vector2i = Vector2i(40, 0)
+const WALL_WEST_NE: Vector2i = Vector2i(41, 0)
+const WALL_WEST_SE: Vector2i = Vector2i(42, 0)
+const WALL_EAST_NW: Vector2i = Vector2i(43, 0)
+const WALL_EAST_SW: Vector2i = Vector2i(44, 0)
+const WALL_DIAG_NE_NW: Vector2i = Vector2i(45, 0)
+const WALL_DIAG_NE_SE: Vector2i = Vector2i(46, 0)
+const WALL_DIAG_NW_SW: Vector2i = Vector2i(47, 0)
+const WALL_DIAG_NE_SW: Vector2i = Vector2i(48, 0)
+const WALL_DIAG_NW_SE: Vector2i = Vector2i(49, 0)
+const WALL_DIAG3_NO_SW: Vector2i = Vector2i(50, 0)
+const WALL_DIAG3_NO_SE: Vector2i = Vector2i(51, 0)
+const WALL_DIAG3_NO_NW: Vector2i = Vector2i(52, 0)
+const WALL_DIAG3_NO_NE: Vector2i = Vector2i(53, 0)
+const TILE_DEFS_COUNT: int = 47
 
 const TILE_ROOF: Vector2i = Vector2i(0, 0)
 const TILE_INTERIOR_FILL: Vector2i = Vector2i(1, 0)
@@ -31,7 +87,21 @@ static func build_tilesets(balance: WorldGenBalance, biome: BiomeData) -> Dictio
 
 static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData) -> TileSet:
 	var ts: int = balance.tile_size
-	var img := Image.create(ts * 7, ts, false, Image.FORMAT_RGBA8)
+	var faces_tex: Texture2D = load(ROCK_FACES_PATH) as Texture2D
+	var atlas_tiles: int = 0
+	var faces_img: Image = null
+	var atlas_cols: int = 0
+	if faces_tex:
+		faces_img = faces_tex.get_image()
+		if faces_img:
+			atlas_cols = faces_img.get_width() / ts
+			var atlas_rows: int = faces_img.get_height() / ts
+			atlas_tiles = atlas_cols * atlas_rows
+	wall_base_count = TILE_DEFS_COUNT
+	wall_variant_count = maxi(1, atlas_tiles / wall_base_count)
+	print("[ChunkTilesetFactory] atlas_tiles=%d, wall_base_count=%d, wall_variant_count=%d" % [atlas_tiles, wall_base_count, wall_variant_count])
+	var total: int = 7 + atlas_tiles
+	var img := Image.create(ts * total, ts, false, Image.FORMAT_RGBA8)
 	_draw_ground_tile(img, Rect2i(0, 0, ts, ts), biome.ground_color.darkened(0.12), 0)
 	_draw_ground_tile(img, Rect2i(ts, 0, ts, ts), biome.ground_color, 1)
 	_draw_ground_tile(img, Rect2i(ts * 2, 0, ts, ts), biome.ground_color.lightened(0.10), 2)
@@ -39,32 +109,32 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData) -
 	_draw_rock_interior_tile(img, Rect2i(ts * 4, 0, ts, ts), balance.rock_color)
 	_draw_mined_floor_tile(img, Rect2i(ts * 5, 0, ts, ts), balance.mined_floor_color)
 	_draw_entrance_tile(img, Rect2i(ts * 6, 0, ts, ts), balance.entrance_color, balance.mined_floor_color, biome.ground_color)
+	if faces_img:
+		for i: int in range(atlas_tiles):
+			var src_col: int = i % atlas_cols
+			var src_row: int = i / atlas_cols
+			img.blit_rect(faces_img, Rect2i(src_col * ts, src_row * ts, ts, ts), Vector2i((7 + i) * ts, 0))
 	var tex: ImageTexture = ImageTexture.create_from_image(img)
 	var tileset := TileSet.new()
 	tileset.tile_size = Vector2i(ts, ts)
 	var src := TileSetAtlasSource.new()
 	src.texture = tex
 	src.texture_region_size = Vector2i(ts, ts)
-	for x: int in range(7):
+	for x: int in range(total):
 		src.create_tile(Vector2i(x, 0))
 	tileset.add_source(src, TERRAIN_SOURCE_ID)
 	return tileset
 
-static func _build_overlay_tileset(balance: WorldGenBalance, biome: BiomeData) -> TileSet:
+static func _build_overlay_tileset(balance: WorldGenBalance, _biome: BiomeData) -> TileSet:
 	var ts: int = balance.tile_size
-	var img := Image.create(ts * 7, ts, false, Image.FORMAT_RGBA8)
-	_draw_roof_tile(img, Rect2i(0, 0, ts, ts), balance.roof_color, balance.rock_color)
-	_draw_rock_interior_tile(img, Rect2i(ts, 0, ts, ts), balance.rock_color)
-	_draw_south_shadow(img, Rect2i(ts * 2, 0, ts, ts), balance.rock_shadow_color)
-	_draw_east_shadow(img, Rect2i(ts * 3, 0, ts, ts), balance.rock_shadow_color)
-	_draw_top_edge(img, Rect2i(ts * 4, 0, ts, ts), balance.rock_top_color, biome.ground_color)
-	_draw_north_shadow(img, Rect2i(ts * 5, 0, ts, ts), balance.rock_shadow_color)
-	_draw_west_shadow(img, Rect2i(ts * 6, 0, ts, ts), balance.rock_shadow_color)
-	var tex: ImageTexture = ImageTexture.create_from_image(img)
+	var atlas_tex: Texture2D = load("res://assets/sprites/terrain/rock_overlay_atlas.png") as Texture2D
+	if not atlas_tex:
+		push_error("Rock overlay atlas not found")
+		return TileSet.new()
 	var tileset := TileSet.new()
 	tileset.tile_size = Vector2i(ts, ts)
 	var src := TileSetAtlasSource.new()
-	src.texture = tex
+	src.texture = atlas_tex
 	src.texture_region_size = Vector2i(ts, ts)
 	for x: int in range(7):
 		src.create_tile(Vector2i(x, 0))
