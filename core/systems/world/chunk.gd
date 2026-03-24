@@ -16,14 +16,16 @@ var _tile_size: int = 64
 var _chunk_size: int = 64
 var _terrain_tileset: TileSet = null
 var _overlay_tileset: TileSet = null
+var _chunk_manager: ChunkManager = null
 var _modified_tiles: Dictionary = {}
 var _biome: BiomeData = null
 var _terrain_bytes: PackedByteArray = PackedByteArray()
 var _height_bytes: PackedFloat32Array = PackedFloat32Array()
 var _active_mountain_key: Vector2i = Vector2i(999999, 999999)
-var _is_mountain_overlay_active: bool = false
+var _active_mountain_tiles: Dictionary = {}
 var _has_mountain: bool = false
 var _redraw_row: int = -1
+var _cover_redraw_row: int = -1
 
 func setup(
 	p_coord: Vector2i,
@@ -31,7 +33,8 @@ func setup(
 	p_chunk_size: int,
 	p_biome: BiomeData,
 	p_terrain_tileset: TileSet,
-	p_overlay_tileset: TileSet
+	p_overlay_tileset: TileSet,
+	p_chunk_manager: ChunkManager
 ) -> void:
 	chunk_coord = p_coord
 	_tile_size = p_tile_size
@@ -39,6 +42,7 @@ func setup(
 	_biome = p_biome
 	_terrain_tileset = p_terrain_tileset
 	_overlay_tileset = p_overlay_tileset
+	_chunk_manager = p_chunk_manager
 	name = "Chunk_%d_%d" % [chunk_coord.x, chunk_coord.y]
 	var chunk_pixels: int = _chunk_size * _tile_size
 	position = Vector2(chunk_coord.x * chunk_pixels, chunk_coord.y * chunk_pixels)
@@ -93,14 +97,37 @@ func mark_tile_modified(tile_pos: Vector2i, state: Dictionary) -> void:
 func is_roofed_terrain(terrain_type: int) -> bool:
 	return terrain_type == TileGenData.TerrainType.ROCK or terrain_type == TileGenData.TerrainType.MINED_FLOOR
 
-func set_mountain_cover_hidden(is_hidden: bool, mountain_key: Vector2i = Vector2i(999999, 999999)) -> void:
-	var started_usec: int = WorldPerfProbe.begin()
-	var topology_changed: bool = _is_mountain_overlay_active != is_hidden or _active_mountain_key != mountain_key
+## Устанавливает данные активной горы. При start_redraw=true запускает progressive cover redraw.
+## При загрузке чанка вызывать с start_redraw=false — cover рисуется вместе с terrain.
+func set_mountain_cover_hidden(active_mountain_tiles: Dictionary = {}, mountain_key: Vector2i = Vector2i(999999, 999999), start_redraw: bool = true) -> void:
+	var topology_changed: bool = _active_mountain_key != mountain_key or _active_mountain_tiles != active_mountain_tiles
 	_active_mountain_key = mountain_key
-	_is_mountain_overlay_active = is_hidden
-	if is_loaded and has_any_mountain() and topology_changed:
-		_apply_overlay_visibility()
-	WorldPerfProbe.end("Chunk.set_mountain_cover_hidden %s" % [chunk_coord], started_usec)
+	_active_mountain_tiles = active_mountain_tiles.duplicate()
+	if start_redraw and is_loaded and has_any_mountain() and topology_changed:
+		_begin_progressive_cover_redraw()
+
+## Начинает прогрессивный cover redraw по строкам.
+func _begin_progressive_cover_redraw() -> void:
+	_cover_layer.clear()
+	_cover_redraw_row = 0
+
+## Возвращает true если cover redraw завершён.
+func is_cover_redraw_complete() -> bool:
+	return _cover_redraw_row < 0
+
+## Рисует N строк cover-слоя. Возвращает true если redraw завершён.
+func continue_cover_redraw(max_rows: int) -> bool:
+	if _cover_redraw_row < 0:
+		return true
+	var end_row: int = mini(_cover_redraw_row + max_rows, _chunk_size)
+	for local_y: int in range(_cover_redraw_row, end_row):
+		for local_x: int in range(_chunk_size):
+			_redraw_cover_tile(Vector2i(local_x, local_y))
+	_cover_redraw_row = end_row
+	if _cover_redraw_row >= _chunk_size:
+		_cover_redraw_row = -1
+		return true
+	return false
 
 func try_mine_at(local: Vector2i) -> Dictionary:
 	var started_usec: int = WorldPerfProbe.begin()
@@ -149,7 +176,6 @@ func _redraw_all() -> void:
 			_redraw_terrain_tile(tile)
 			_redraw_cover_tile(tile)
 			_redraw_cliff_tile(tile)
-	_apply_overlay_visibility()
 	_rebuild_debug_markers()
 	WorldPerfProbe.end("Chunk._redraw_all %s" % [chunk_coord], started_usec)
 
@@ -177,13 +203,12 @@ func continue_redraw(max_rows: int) -> bool:
 	_redraw_row = end_row
 	if _redraw_row >= _chunk_size:
 		_redraw_row = -1
-		_apply_overlay_visibility()
 		_rebuild_debug_markers()
 		return true
 	return false
 
 func _redraw_dynamic_visibility(_dirty_tiles: Dictionary) -> void:
-	_apply_overlay_visibility()
+	_rebuild_cover_layer()
 	if WorldGenerator and WorldGenerator.balance and WorldGenerator.balance.mountain_debug_visualization:
 		for child: Node in _debug_root.get_children():
 			child.queue_free()
@@ -199,11 +224,17 @@ func _redraw_dirty_tiles(dirty_tiles: Dictionary) -> void:
 		_redraw_terrain_tile(local_tile)
 		_redraw_cover_tile(local_tile)
 		_redraw_cliff_tile(local_tile)
-	_apply_overlay_visibility()
 	if WorldGenerator and WorldGenerator.balance and WorldGenerator.balance.mountain_debug_visualization:
 		for child: Node in _debug_root.get_children():
 			child.queue_free()
 		_rebuild_debug_markers()
+
+func _redraw_cover_tiles(dirty_tiles: Dictionary) -> void:
+	for local_tile: Vector2i in dirty_tiles:
+		if not _is_inside(local_tile):
+			continue
+		_cover_layer.erase_cell(local_tile)
+		_redraw_cover_tile(local_tile)
 
 func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 	var terrain_type: int = get_terrain_type_at(local_tile)
@@ -262,8 +293,13 @@ func _set_terrain_type(local_tile: Vector2i, terrain_type: int, mark_modified: b
 		_modified_tiles[local_tile] = {"terrain": terrain_type}
 
 func _get_neighbor_terrain(local_tile: Vector2i) -> int:
-	if _is_inside(local_tile):
-		return get_terrain_type_at(local_tile)
+	return _get_global_terrain(_to_global_tile(local_tile))
+
+func _get_global_terrain(global_tile: Vector2i) -> int:
+	if _chunk_manager:
+		return _chunk_manager.get_terrain_type_at_global(global_tile)
+	if WorldGenerator and WorldGenerator._is_initialized:
+		return WorldGenerator.get_tile_data(global_tile.x, global_tile.y).terrain
 	return TileGenData.TerrainType.GROUND
 
 func _is_open_for_visual(terrain_type: int) -> bool:
@@ -289,9 +325,13 @@ func _should_blacken_rock(local_tile: Vector2i) -> bool:
 			return false
 	return true
 
-func _apply_overlay_visibility() -> void:
-	if _cover_layer:
-		_cover_layer.visible = not _is_mountain_overlay_active
+func _rebuild_cover_layer() -> void:
+	if not _cover_layer:
+		return
+	_cover_layer.clear()
+	for local_y: int in range(_chunk_size):
+		for local_x: int in range(_chunk_size):
+			_redraw_cover_tile(Vector2i(local_x, local_y))
 
 func refresh_cliffs() -> void:
 	if not _cliff_layer:
@@ -319,10 +359,35 @@ func _redraw_cover_tile(local_tile: Vector2i) -> void:
 		or _is_cave_edge_rock(local_tile)
 	if not need_cover:
 		return
+	if _is_tile_in_active_mountain(local_tile):
+		return
 	# Use the same variant hash as terrain layer — mountain looks identical before/after mining
 	var base: Vector2i = _cover_rock_atlas(local_tile)
 	var result: Array = _apply_variant_full(base, local_tile)
 	_cover_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, result[0], result[1])
+
+func _is_tile_in_active_mountain(local_tile: Vector2i) -> bool:
+	if _active_mountain_key == Vector2i(999999, 999999):
+		return false
+	return _active_mountain_tiles.has(_to_global_tile(local_tile))
+
+func _collect_cover_membership_dirty_tiles(previous_tiles: Dictionary, next_tiles: Dictionary) -> Dictionary:
+	var dirty_tiles: Dictionary = {}
+	for global_tile: Vector2i in previous_tiles:
+		_mark_cover_tile_and_neighbors_dirty(global_tile, dirty_tiles)
+	for global_tile: Vector2i in next_tiles:
+		if previous_tiles.has(global_tile):
+			continue
+		_mark_cover_tile_and_neighbors_dirty(global_tile, dirty_tiles)
+	return dirty_tiles
+
+func _mark_cover_tile_and_neighbors_dirty(global_tile: Vector2i, dirty_tiles: Dictionary) -> void:
+	var local_tile: Vector2i = global_to_local(global_tile)
+	for offset_y: int in range(-1, 2):
+		for offset_x: int in range(-1, 2):
+			var candidate: Vector2i = local_tile + Vector2i(offset_x, offset_y)
+			if _is_inside(candidate):
+				dirty_tiles[candidate] = true
 
 ## XOR-shift hash — no visible linear patterns.
 static func _tile_hash(pos: Vector2i) -> int:

@@ -30,6 +30,8 @@ ItemRegistry="*res://core/autoloads/item_registry.gd"
 SaveManager="*res://core/autoloads/save_manager.gd"
 Localization="*res://core/autoloads/localization_service.gd"
 SettingsManager="*res://core/autoloads/settings_manager.gd"
+FrameBudgetDispatcher="*res://core/autoloads/frame_budget_dispatcher.gd"
+WorldPerfMonitor="*res://core/autoloads/world_perf_monitor.gd"
 
 [display]
 

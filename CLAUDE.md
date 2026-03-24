@@ -15,6 +15,9 @@
 | **GDD** | `GDD_Station_Mirny.md` | Любой вопрос по механикам, лору, системам, прогрессии |
 | **GDD Дополнение v1.2** | `GDD_Addendum_v1_2_Resources.md` | Ресурсы, флора, прогрессия инструментов |
 | **Стандарт кодирования** | `CODING_STANDARDS.md` | Любой код — архитектура, паттерны, правила |
+| **⚡ ФУНДАМЕНТ** | `CODING_STANDARDS_FUNDAMENT.md` | **ОБЯЗАТЕЛЬНО** при работе с чанками, тайлами, рендером, спавном, кешами, циклами по мировым данным |
+
+> **⚠️ ПРАВИЛО:** если задача затрагивает чанки, тайлы, визуальные слои, спавн сущностей, кеши (topology, pathfinding, rooms), или содержит циклы по мировым данным — **СНАЧАЛА прочитай `CODING_STANDARDS_FUNDAMENT.md`**. Нарушение performance contracts = переделка.
 
 Не полагайся на память — **открой и перечитай** нужный документ перед работой.
 
@@ -30,13 +33,14 @@
 
 ---
 
-## 5 золотых правил (нарушение = переделка)
+## 6 золотых правил (нарушение = переделка)
 
 1. **Никакого хардкода данных.** Числа, строки, пути — всё в Resource-файлах (.tres). Если пишешь `health = 100` в скрипте — ты ошибся.
 2. **Системы не знают друг о друге.** Общение только через `EventBus` (сигналы) или `Registry` (данные). Прямые ссылки между системами запрещены.
 3. **Один скрипт — одна ответственность.** Soft limit: 200 строк. Hard limit: 300 строк. Больше — декомпозируй.
 4. **Типизация обязательна.** Каждая переменная, параметр, возвращаемое значение — с явным типом.
 5. **Модо-совместимость.** Каждая система проектируется так, чтобы мод мог её расширить или заменить.
+6. **Performance-first.** Никаких full rebuild в interactive path. Тяжёлая работа — по бюджету, через dirty queue. Подробности в `CODING_STANDARDS_FUNDAMENT.md`.
 
 ---
 
@@ -51,6 +55,8 @@
 | **Component Pattern** | Переиспользуемое поведение — HealthComponent, NoiseComponent |
 | **Command Pattern** | Действия игрока (будущий мультиплеер + undo) |
 | **Factory Pattern** | Создание сложных объектов из данных реестра |
+| **⚡ Dirty Queue + Budget** | Любая тяжёлая работа с миром — см. `CODING_STANDARDS_FUNDAMENT.md` секция 3 |
+| **⚡ Immutable Base + Diff** | Данные мира — см. `CODING_STANDARDS_FUNDAMENT.md` секция 4 |
 
 ---
 
@@ -59,7 +65,7 @@
 ```
 res://
 ├── core/
-│   ├── autoloads/        ← EventBus, Registry, GameManager, ModLoader, TimeManager
+│   ├── autoloads/        ← EventBus, Registry, GameManager, ModLoader, TimeManager, FrameBudgetDispatcher
 │   ├── systems/          ← survival, building, crafting, combat, ai, decryption, weather, events, transport
 │   └── entities/         ← player, fauna, structures, items (базовые классы + компоненты)
 ├── data/                 ← Resource-файлы (.tres) — модифицируемые модами
@@ -114,6 +120,8 @@ func _private_method():      # 12
 - Прямые зависимости между системами
 - `match`/`if` цепочки по строкам для определения типа — используй полиморфизм через данные
 - UI, меняющий игровые данные напрямую — только через Command или EventBus
+- **Full rebuild в interactive path** — только dirty queue + budget (см. `CODING_STANDARDS_FUNDAMENT.md`)
+- **Циклы по всем тайлам/чанкам** без бюджета времени в `_process` или в реакции на действие игрока
 
 ---
 
@@ -129,6 +137,9 @@ func _private_method():      # 12
 - [ ] Сигналы в прошедшем времени
 - [ ] Registry обновлён (если новый тип данных)
 - [ ] EventBus обновлён (если новое событие)
+- [ ] **⚡ Performance:** операция укладывается в контракт (см. `CODING_STANDARDS_FUNDAMENT.md` секция 2.3)
+- [ ] **⚡ Performance:** нет full rebuild в interactive path
+- [ ] **⚡ Performance:** циклы по мировым данным — с dirty queue + budget
 
 ---
 
@@ -138,3 +149,4 @@ func _private_method():      # 12
 - Показывай путь файла в структуре проекта
 - Объясняй ПОЧЕМУ, не только ЧТО
 - Для архитектурных решений — объясни расширяемость модами и сохранение/загрузку
+- **Для систем, работающих с миром — объясни к какому классу работы относится (Boot/Background/Interactive) и как соблюдается бюджет**

@@ -3,12 +3,17 @@ extends Node
 
 ## Управляет скрытием крыши только у активной горы.
 ## Использует предвычисленную топологию гор из ChunkManager без BFS при входе.
+## Cover redraw — прогрессивный, через FrameBudgetDispatcher.
+
+const COVER_ROWS_PER_STEP: int = 8
 
 var _chunk_manager: ChunkManager = null
 var _player: Player = null
 var _last_tile: Vector2i = Vector2i(999999, 999999)
 var _active_mountain_key: Vector2i = Vector2i(999999, 999999)
 var _is_player_on_mined_floor: bool = false
+var _cover_dirty_queue: Array[Vector2i] = []
+var _cover_redrawing_chunks: Array[Chunk] = []
 
 func _ready() -> void:
 	EventBus.mountain_tile_mined.connect(_on_mountain_tile_mined)
@@ -17,15 +22,8 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if not _chunk_manager or not _player or not WorldGenerator:
 		return
-	var player_tile: Vector2i = WorldGenerator.world_to_tile(_player.global_position)
-	if player_tile == _last_tile:
-		return
-	_last_tile = player_tile
-	var is_on_mined_floor: bool = _is_player_on_opened_mountain_tile(player_tile)
-	if is_on_mined_floor == _is_player_on_mined_floor and (not is_on_mined_floor or _active_mountain_key != Vector2i(999999, 999999)):
-		return
-	_is_player_on_mined_floor = is_on_mined_floor
-	_refresh_now()
+	_check_player_mountain_state()
+	_process_cover_setup()
 
 func _resolve_dependencies() -> void:
 	var chunks: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
@@ -34,9 +32,22 @@ func _resolve_dependencies() -> void:
 	var players: Array[Node] = get_tree().get_nodes_in_group("player")
 	if not players.is_empty():
 		_player = players[0] as Player
-	_refresh_now()
+	FrameBudgetDispatcher.register_job(&"visual", 2.0, _tick_cover)
+	_request_refresh()
 
-func _refresh_now(_arg: Variant = null) -> void:
+func _check_player_mountain_state() -> void:
+	var player_tile: Vector2i = WorldGenerator.world_to_tile(_player.global_position)
+	if player_tile == _last_tile:
+		return
+	_last_tile = player_tile
+	var is_on_mined_floor: bool = _is_player_on_opened_mountain_tile(player_tile)
+	if is_on_mined_floor == _is_player_on_mined_floor and (not is_on_mined_floor or _active_mountain_key != Vector2i(999999, 999999)):
+		return
+	_is_player_on_mined_floor = is_on_mined_floor
+	_request_refresh()
+
+## Определяет новый mountain key и ставит чанки в очередь на обновление cover.
+func _request_refresh() -> void:
 	var started_usec: int = WorldPerfProbe.begin()
 	if not _chunk_manager or not _player or not WorldGenerator:
 		return
@@ -47,7 +58,8 @@ func _refresh_now(_arg: Variant = null) -> void:
 			return
 		_active_mountain_key = Vector2i(999999, 999999)
 		_is_player_on_mined_floor = false
-		_chunk_manager.set_active_mountain_key(_active_mountain_key)
+		_enqueue_chunks(_chunk_manager.set_active_mountain_key(_active_mountain_key))
+		WorldPerfProbe.end("MountainRoofSystem._request_refresh", started_usec)
 		return
 	var next_mountain_key: Vector2i = _chunk_manager.get_mountain_key_at_tile(start_tile)
 	if next_mountain_key == Vector2i(999999, 999999):
@@ -55,8 +67,34 @@ func _refresh_now(_arg: Variant = null) -> void:
 	if next_mountain_key == _active_mountain_key:
 		return
 	_active_mountain_key = next_mountain_key
-	_chunk_manager.set_active_mountain_key(_active_mountain_key)
-	WorldPerfProbe.end("MountainRoofSystem._refresh_now", started_usec)
+	_enqueue_chunks(_chunk_manager.set_active_mountain_key(_active_mountain_key))
+	WorldPerfProbe.end("MountainRoofSystem._request_refresh", started_usec)
+
+## Из очереди координат — устанавливает данные cover и добавляет в redraw.
+func _process_cover_setup() -> void:
+	while not _cover_dirty_queue.is_empty():
+		var coord: Vector2i = _cover_dirty_queue.pop_front()
+		_chunk_manager.update_chunk_cover(coord)
+		var chunk: Chunk = _chunk_manager.get_chunk(coord)
+		if chunk and not chunk.is_cover_redraw_complete() and chunk not in _cover_redrawing_chunks:
+			_cover_redrawing_chunks.append(chunk)
+
+## Tick для FrameBudgetDispatcher. Рисует N строк cover. Возвращает true если есть работа.
+func _tick_cover() -> bool:
+	while not _cover_redrawing_chunks.is_empty():
+		var chunk: Chunk = _cover_redrawing_chunks[0]
+		if not is_instance_valid(chunk):
+			_cover_redrawing_chunks.remove_at(0)
+			continue
+		if chunk.continue_cover_redraw(COVER_ROWS_PER_STEP):
+			_cover_redrawing_chunks.remove_at(0)
+		return not _cover_redrawing_chunks.is_empty()
+	return false
+
+func _enqueue_chunks(chunks: Array[Vector2i]) -> void:
+	for coord: Vector2i in chunks:
+		if coord not in _cover_dirty_queue:
+			_cover_dirty_queue.append(coord)
 
 func _find_reveal_start(player_tile: Vector2i) -> Vector2i:
 	var chunk: Chunk = _chunk_manager.get_chunk_at_tile(player_tile)
@@ -64,7 +102,8 @@ func _find_reveal_start(player_tile: Vector2i) -> Vector2i:
 		return Vector2i(999999, 999999)
 	var local_tile: Vector2i = chunk.global_to_local(player_tile)
 	var terrain_type: int = chunk.get_terrain_type_at(local_tile)
-	if terrain_type == TileGenData.TerrainType.MINED_FLOOR:
+	if terrain_type == TileGenData.TerrainType.MINED_FLOOR \
+		or terrain_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
 		return player_tile
 	return Vector2i(999999, 999999)
 
@@ -73,9 +112,11 @@ func _is_player_on_opened_mountain_tile(player_tile: Vector2i) -> bool:
 	if not chunk:
 		return false
 	var local_tile: Vector2i = chunk.global_to_local(player_tile)
-	return chunk.get_terrain_type_at(local_tile) == TileGenData.TerrainType.MINED_FLOOR
+	var terrain_type: int = chunk.get_terrain_type_at(local_tile)
+	return terrain_type == TileGenData.TerrainType.MINED_FLOOR \
+		or terrain_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE
 
-func _on_mountain_tile_mined(tile_pos: Vector2i, _old_type: int, new_type: int) -> void:
+func _on_mountain_tile_mined(_tile_pos: Vector2i, _old_type: int, new_type: int) -> void:
 	if not _chunk_manager or not _player or not WorldGenerator:
 		return
 	if new_type != TileGenData.TerrainType.MINED_FLOOR and new_type != TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
@@ -83,10 +124,7 @@ func _on_mountain_tile_mined(tile_pos: Vector2i, _old_type: int, new_type: int) 
 	if _active_mountain_key != Vector2i(999999, 999999):
 		return
 	var player_tile: Vector2i = WorldGenerator.world_to_tile(_player.global_position)
-	var distance: int = absi(player_tile.x - tile_pos.x) + absi(player_tile.y - tile_pos.y)
+	var distance: int = absi(player_tile.x - _tile_pos.x) + absi(player_tile.y - _tile_pos.y)
 	if distance > 1:
 		return
-	# Pre-warm topology/key lookup while the player is still stationary after
-	# mining, so the first step into the new opening does not pay the full
-	# native ensure_built() cost.
-	_chunk_manager.get_mountain_key_at_tile(tile_pos)
+	pass

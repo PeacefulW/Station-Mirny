@@ -30,12 +30,12 @@ func _process(_delta: float) -> void:
 	if absf(sun_angle - _last_built_angle) > threshold:
 		_last_built_angle = sun_angle
 		_mark_all_dirty()
-	_process_dirty_queue()
 
 func _resolve_dependencies() -> void:
 	var chunks: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
 	if not chunks.is_empty():
 		_chunk_manager = chunks[0] as ChunkManager
+	FrameBudgetDispatcher.register_job(&"visual", 1.0, _tick_shadows)
 
 func _on_chunk_loaded(coord: Vector2i) -> void:
 	_cache_edges(coord)
@@ -48,13 +48,12 @@ func _on_chunk_unloaded(coord: Vector2i) -> void:
 	_remove_shadow(coord)
 
 func _on_mountain_tile_mined(tile_pos: Vector2i, _old_type: int, _new_type: int) -> void:
+	_update_edges_at(tile_pos)
 	var coord: Vector2i = WorldGenerator.tile_to_chunk(tile_pos)
-	_cache_edges(coord)
 	_mark_dirty(coord)
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
 		var neighbor: Vector2i = coord + dir
 		if _chunk_manager and _chunk_manager.get_chunk(neighbor):
-			_cache_edges(neighbor)
 			_mark_dirty(neighbor)
 
 func _mark_dirty(coord: Vector2i) -> void:
@@ -68,6 +67,15 @@ func _mark_all_dirty() -> void:
 	for coord: Vector2i in _chunk_manager.get_loaded_chunks():
 		_dirty_queue.append(coord)
 
+## Tick для FrameBudgetDispatcher. Рендерит тень 1 чанка. Возвращает true если есть работа.
+func _tick_shadows() -> bool:
+	if _dirty_queue.is_empty():
+		return false
+	var coord: Vector2i = _dirty_queue.pop_front()
+	if _chunk_manager and _chunk_manager.get_chunk(coord):
+		_build_chunk_shadow(coord)
+	return not _dirty_queue.is_empty()
+
 func _process_dirty_queue() -> void:
 	if _dirty_queue.is_empty():
 		return
@@ -78,6 +86,31 @@ func _process_dirty_queue() -> void:
 		if _chunk_manager and _chunk_manager.get_chunk(coord):
 			_build_chunk_shadow(coord)
 		processed += 1
+
+## Инкрементальное обновление edge-кеша для 1 тайла и 8 соседей. O(9) вместо O(4096).
+func _update_edges_at(tile_pos: Vector2i) -> void:
+	if not _chunk_manager:
+		return
+	for offset_y: int in range(-1, 2):
+		for offset_x: int in range(-1, 2):
+			var check_tile: Vector2i = tile_pos + Vector2i(offset_x, offset_y)
+			var coord: Vector2i = WorldGenerator.tile_to_chunk(check_tile)
+			var chunk: Chunk = _chunk_manager.get_chunk(coord)
+			if not chunk:
+				continue
+			var chunk_size: int = chunk.get_chunk_size()
+			var local_tile: Vector2i = chunk.global_to_local(check_tile)
+			if local_tile.x < 0 or local_tile.y < 0 or local_tile.x >= chunk_size or local_tile.y >= chunk_size:
+				continue
+			var is_edge: bool = chunk.get_terrain_type_at(local_tile) == TileGenData.TerrainType.ROCK and _is_external_edge(chunk, local_tile, chunk_size)
+			if not _edge_cache.has(coord):
+				_edge_cache[coord] = [] as Array[Vector2i]
+			var edges: Array = _edge_cache[coord] as Array
+			var edge_idx: int = edges.find(check_tile)
+			if is_edge and edge_idx < 0:
+				edges.append(check_tile)
+			elif not is_edge and edge_idx >= 0:
+				edges.remove_at(edge_idx)
 
 func _cache_edges(coord: Vector2i) -> void:
 	if not _chunk_manager:

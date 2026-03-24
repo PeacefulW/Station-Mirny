@@ -37,6 +37,8 @@ var _fps_label: Label = null
 var _fps_log_timer: float = 0.0
 var _tile_highlight: ColorRect = null
 var _tile_info_label: Label = null
+var _loading_screen: LoadingScreen = null
+var _boot_complete: bool = false
 
 func _ready() -> void:
 	var startup_usec: int = WorldPerfProbe.begin()
@@ -105,8 +107,11 @@ func _ready() -> void:
 
 	call_deferred("_check_pending_load")
 	WorldPerfProbe.end("GameWorld._ready", startup_usec)
+	_start_boot_sequence()
 
 func _process(delta: float) -> void:
+	if not _boot_complete:
+		return
 	_update_player_indoor_status()
 	_update_enemy_spawning(delta)
 	_update_fps(delta)
@@ -306,6 +311,35 @@ func _check_pending_load() -> void:
 		var slot: String = SaveManager.pending_load_slot
 		SaveManager.pending_load_slot = ""
 		SaveManager.load_game(slot)
+
+func _start_boot_sequence() -> void:
+	_loading_screen = LoadingScreen.new()
+	_loading_screen.name = "LoadingScreen"
+	add_child(_loading_screen)
+	if _player:
+		_player.set_physics_process(false)
+		_player.set_process_input(false)
+	call_deferred("_run_boot_sequence")
+
+func _run_boot_sequence() -> void:
+	if not _loading_screen:
+		_boot_complete = true
+		return
+	_loading_screen.set_progress(5.0, "Инициализация мира...")
+	await get_tree().process_frame
+	if _chunk_manager:
+		await _chunk_manager.boot_load_initial_chunks(
+			func(pct: float, text: String) -> void:
+				if _loading_screen:
+					_loading_screen.set_progress(pct, text)
+		)
+	_loading_screen.set_progress(100.0, "Готово!")
+	await get_tree().process_frame
+	if _player:
+		_player.set_physics_process(true)
+		_player.set_process_input(true)
+	_boot_complete = true
+	_loading_screen.fade_out()
 
 # --- Z-уровни ---
 
