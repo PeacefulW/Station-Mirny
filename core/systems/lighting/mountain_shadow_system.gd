@@ -81,16 +81,6 @@ func _tick_shadows() -> bool:
 	_start_shadow_build(coord)
 	return true
 
-func _process_dirty_queue() -> void:
-	if _dirty_queue.is_empty():
-		return
-	var chunks_per_frame: int = 2
-	var processed: int = 0
-	while not _dirty_queue.is_empty() and processed < chunks_per_frame:
-		var coord: Vector2i = _dirty_queue.pop_front()
-		if _chunk_manager and _chunk_manager.get_chunk(coord):
-			_build_chunk_shadow(coord)
-		processed += 1
 
 ## Инкрементальное обновление edge-кеша для 1 тайла и 8 соседей. O(9) вместо O(4096).
 func _update_edges_at(tile_pos: Vector2i) -> void:
