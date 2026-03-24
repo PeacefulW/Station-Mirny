@@ -11,6 +11,7 @@ var _shadow_container: Node2D = null
 var _last_built_angle: float = -999.0
 var _edge_cache: Dictionary = {}
 var _dirty_queue: Array[Vector2i] = []
+var _active_build: Dictionary = {}  ## Progressive shadow build state
 
 func _ready() -> void:
 	_shadow_container = Node2D.new()
@@ -67,14 +68,18 @@ func _mark_all_dirty() -> void:
 	for coord: Vector2i in _chunk_manager.get_loaded_chunks():
 		_dirty_queue.append(coord)
 
-## Tick для FrameBudgetDispatcher. Рендерит тень 1 чанка. Возвращает true если есть работа.
+## Tick для FrameBudgetDispatcher. Progressive shadow build. Возвращает true если есть работа.
 func _tick_shadows() -> bool:
+	if not _active_build.is_empty():
+		_advance_shadow_build()
+		return true
 	if _dirty_queue.is_empty():
 		return false
 	var coord: Vector2i = _dirty_queue.pop_front()
-	if _chunk_manager and _chunk_manager.get_chunk(coord):
-		_build_chunk_shadow(coord)
-	return not _dirty_queue.is_empty()
+	if not _chunk_manager or not _chunk_manager.get_chunk(coord):
+		return not _dirty_queue.is_empty()
+	_start_shadow_build(coord)
+	return true
 
 func _process_dirty_queue() -> void:
 	if _dirty_queue.is_empty():
@@ -132,7 +137,10 @@ func _cache_edges(coord: Vector2i) -> void:
 				edges.append(Vector2i(base_x + local_x, base_y + local_y))
 	_edge_cache[coord] = edges
 
-func _build_chunk_shadow(coord: Vector2i) -> void:
+const EDGES_PER_TICK: int = 30
+
+## Начинает progressive shadow build для чанка.
+func _start_shadow_build(coord: Vector2i) -> void:
 	var balance: WorldGenBalance = WorldGenerator.balance
 	var chunk: Chunk = _chunk_manager.get_chunk(coord)
 	if not chunk:
@@ -143,45 +151,90 @@ func _build_chunk_shadow(coord: Vector2i) -> void:
 		_remove_shadow(coord)
 		return
 	var chunk_size: int = chunk.get_chunk_size()
-	var tile_size: int = balance.tile_size
 	var shadow_length: int = clampi(
 		int(float(balance.shadow_mountain_height) * length_factor),
 		1, balance.shadow_max_length
 	)
 	var sun_angle: float = TimeManager.get_sun_angle()
 	var shadow_dir: Vector2 = Vector2(cos(sun_angle + PI), sin(sun_angle + PI))
-	var shadow_color: Color = balance.shadow_color
-	var max_intensity: float = balance.shadow_intensity
-	var base_x: int = coord.x * chunk_size
-	var base_y: int = coord.y * chunk_size
-	var img: Image = Image.create(chunk_size, chunk_size, false, Image.FORMAT_RGBA8)
-	var has_pixels: bool = false
+	var all_edges: Array[Vector2i] = []
 	var source_chunks: Array[Vector2i] = [coord]
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
 		source_chunks.append(coord + dir)
-	var end_dx: int = roundi(shadow_dir.x * float(shadow_length))
-	var end_dy: int = roundi(shadow_dir.y * float(shadow_length))
 	for source_coord: Vector2i in source_chunks:
 		var edges: Array = _edge_cache.get(source_coord, []) as Array
-		for edge_global: Vector2i in edges:
-			var points: Array[Vector2i] = _bresenham(0, 0, end_dx, end_dy)
-			for point_idx: int in range(points.size()):
-				var pt: Vector2i = points[point_idx]
-				var tx: int = edge_global.x + pt.x
-				var ty: int = edge_global.y + pt.y
-				var px: int = tx - base_x
-				var py: int = ty - base_y
-				if px < 0 or py < 0 or px >= chunk_size or py >= chunk_size:
-					continue
-				var terrain: int = chunk.get_terrain_type_at(Vector2i(px, py))
-				if terrain == TileGenData.TerrainType.ROCK:
-					continue
-				var fade: float = 1.0 - (float(point_idx + 1) / float(points.size() + 1))
-				var alpha: float = max_intensity * fade
-				var current: Color = img.get_pixel(px, py)
-				if alpha > current.a:
-					img.set_pixel(px, py, Color(shadow_color.r, shadow_color.g, shadow_color.b, alpha))
-					has_pixels = true
+		for e: Vector2i in edges:
+			all_edges.append(e)
+	_active_build = {
+		"coord": coord,
+		"chunk_size": chunk_size,
+		"tile_size": balance.tile_size,
+		"base_x": coord.x * chunk_size,
+		"base_y": coord.y * chunk_size,
+		"shadow_color": balance.shadow_color,
+		"max_intensity": balance.shadow_intensity,
+		"end_dx": roundi(shadow_dir.x * float(shadow_length)),
+		"end_dy": roundi(shadow_dir.y * float(shadow_length)),
+		"edges": all_edges,
+		"edge_idx": 0,
+		"img": Image.create(chunk_size, chunk_size, false, Image.FORMAT_RGBA8),
+		"has_pixels": false,
+	}
+
+## Обрабатывает порцию edge-тайлов. Финализирует когда все обработаны.
+func _advance_shadow_build() -> void:
+	var b: Dictionary = _active_build
+	var edges: Array = b["edges"] as Array
+	var edge_idx: int = b["edge_idx"] as int
+	var img: Image = b["img"] as Image
+	var chunk_size: int = b["chunk_size"] as int
+	var base_x: int = b["base_x"] as int
+	var base_y: int = b["base_y"] as int
+	var end_dx: int = b["end_dx"] as int
+	var end_dy: int = b["end_dy"] as int
+	var shadow_color: Color = b["shadow_color"] as Color
+	var max_intensity: float = b["max_intensity"] as float
+	var has_pixels: bool = b["has_pixels"] as bool
+	var coord: Vector2i = b["coord"] as Vector2i
+	var chunk: Chunk = _chunk_manager.get_chunk(coord) if _chunk_manager else null
+	if not chunk:
+		_remove_shadow(coord)
+		_active_build.clear()
+		return
+	var end_idx: int = mini(edge_idx + EDGES_PER_TICK, edges.size())
+	for i: int in range(edge_idx, end_idx):
+		var edge_global: Vector2i = edges[i] as Vector2i
+		var points: Array[Vector2i] = _bresenham(0, 0, end_dx, end_dy)
+		for point_idx: int in range(points.size()):
+			var pt: Vector2i = points[point_idx]
+			var px: int = edge_global.x + pt.x - base_x
+			var py: int = edge_global.y + pt.y - base_y
+			if px < 0 or py < 0 or px >= chunk_size or py >= chunk_size:
+				continue
+			var terrain: int = chunk.get_terrain_type_at(Vector2i(px, py))
+			if terrain == TileGenData.TerrainType.ROCK:
+				continue
+			var fade: float = 1.0 - (float(point_idx + 1) / float(points.size() + 1))
+			var alpha: float = max_intensity * fade
+			var current: Color = img.get_pixel(px, py)
+			if alpha > current.a:
+				img.set_pixel(px, py, Color(shadow_color.r, shadow_color.g, shadow_color.b, alpha))
+				has_pixels = true
+	b["edge_idx"] = end_idx
+	b["has_pixels"] = has_pixels
+	if end_idx >= edges.size():
+		_finalize_shadow_build()
+
+## Финализация: создать текстуру и sprite.
+func _finalize_shadow_build() -> void:
+	var b: Dictionary = _active_build
+	var coord: Vector2i = b["coord"] as Vector2i
+	var has_pixels: bool = b["has_pixels"] as bool
+	var img: Image = b["img"] as Image
+	var tile_size: int = b["tile_size"] as int
+	var base_x: int = b["base_x"] as int
+	var base_y: int = b["base_y"] as int
+	_active_build.clear()
 	if not has_pixels:
 		_remove_shadow(coord)
 		return

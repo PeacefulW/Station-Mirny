@@ -2,10 +2,10 @@ class_name MountainRoofSystem
 extends Node
 
 ## Управляет скрытием крыши только у активной горы.
-## Использует предвычисленную топологию гор из ChunkManager без BFS при входе.
-## Cover redraw — прогрессивный, через FrameBudgetDispatcher.
+## Cover setup + redraw — полностью через FrameBudgetDispatcher.
 
 const COVER_ROWS_PER_STEP: int = 8
+const COVER_SETUP_PER_TICK: int = 2
 
 var _chunk_manager: ChunkManager = null
 var _player: Player = null
@@ -23,7 +23,6 @@ func _process(_delta: float) -> void:
 	if not _chunk_manager or not _player or not WorldGenerator:
 		return
 	_check_player_mountain_state()
-	_process_cover_setup()
 
 func _resolve_dependencies() -> void:
 	var chunks: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
@@ -46,7 +45,6 @@ func _check_player_mountain_state() -> void:
 	_is_player_on_mined_floor = is_on_mined_floor
 	_request_refresh()
 
-## Определяет новый mountain key и ставит чанки в очередь на обновление cover.
 func _request_refresh() -> void:
 	var started_usec: int = WorldPerfProbe.begin()
 	if not _chunk_manager or not _player or not WorldGenerator:
@@ -70,17 +68,16 @@ func _request_refresh() -> void:
 	_enqueue_chunks(_chunk_manager.set_active_mountain_key(_active_mountain_key))
 	WorldPerfProbe.end("MountainRoofSystem._request_refresh", started_usec)
 
-## Из очереди координат — устанавливает данные cover и добавляет в redraw.
-func _process_cover_setup() -> void:
-	while not _cover_dirty_queue.is_empty():
+## Единый budgeted tick: setup dirty coords → progressive redraw.
+func _tick_cover() -> bool:
+	var setup_count: int = 0
+	while not _cover_dirty_queue.is_empty() and setup_count < COVER_SETUP_PER_TICK:
 		var coord: Vector2i = _cover_dirty_queue.pop_front()
 		_chunk_manager.update_chunk_cover(coord)
 		var chunk: Chunk = _chunk_manager.get_chunk(coord)
 		if chunk and not chunk.is_cover_redraw_complete() and chunk not in _cover_redrawing_chunks:
 			_cover_redrawing_chunks.append(chunk)
-
-## Tick для FrameBudgetDispatcher. Рисует N строк cover. Возвращает true если есть работа.
-func _tick_cover() -> bool:
+		setup_count += 1
 	while not _cover_redrawing_chunks.is_empty():
 		var chunk: Chunk = _cover_redrawing_chunks[0]
 		if not is_instance_valid(chunk):
@@ -88,8 +85,8 @@ func _tick_cover() -> bool:
 			continue
 		if chunk.continue_cover_redraw(COVER_ROWS_PER_STEP):
 			_cover_redrawing_chunks.remove_at(0)
-		return not _cover_redrawing_chunks.is_empty()
-	return false
+		return true
+	return not _cover_dirty_queue.is_empty()
 
 func _enqueue_chunks(chunks: Array[Vector2i]) -> void:
 	for coord: Vector2i in chunks:

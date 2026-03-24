@@ -33,6 +33,7 @@ var _is_topology_build_in_progress: bool = false
 var _is_boot_in_progress: bool = false
 var _staged_chunk: Chunk = null
 var _staged_coord: Vector2i = Vector2i(999999, 999999)
+var _staged_data: Dictionary = {}  ## Native data между фазами
 var _topology_scan_chunk_coords: Array[Vector2i] = []
 var _topology_scan_chunk_index: int = 0
 var _topology_scan_local_x: int = 0
@@ -348,9 +349,11 @@ func _load_chunk(coord: Vector2i) -> void:
 	WorldPerfProbe.end("ChunkManager._load_chunk %s" % [coord], started_usec)
 
 func _unload_chunk(coord: Vector2i) -> void:
-	if coord == _staged_coord and _staged_chunk != null:
-		_staged_chunk.queue_free()
-		_staged_chunk = null
+	if coord == _staged_coord:
+		if _staged_chunk != null:
+			_staged_chunk.queue_free()
+			_staged_chunk = null
+		_staged_data = {}
 		_staged_coord = Vector2i(999999, 999999)
 	if not _loaded_chunks.has(coord):
 		return
@@ -375,30 +378,43 @@ func _register_budget_jobs() -> void:
 	FrameBudgetDispatcher.register_job(&"streaming", 2.0, _tick_redraws)
 	FrameBudgetDispatcher.register_job(&"topology", 2.0, _tick_topology)
 
-## Staged chunk loading. Одна фаза за тик. Возвращает true если есть работа.
-## Фаза 0: генерация данных + create + populate (terrain bytes)
-## Фаза 1: add_child в scene tree + cover + topology registration
+## Staged chunk loading. 3 фазы, одна за тик.
+## Фаза 0: генерация terrain данных (CPU-heavy)
+## Фаза 1: создание Chunk node + populate bytes
+## Фаза 2: add_child + topology + enqueue redraw
 func _tick_loading() -> bool:
 	if _is_boot_in_progress:
 		return false
 	if _staged_chunk != null:
-		_staged_loading_phase1()
+		_staged_loading_finalize()
 		return not _load_queue.is_empty()
+	if not _staged_data.is_empty():
+		_staged_loading_create()
+		return true
 	if _load_queue.is_empty():
 		return false
 	var coord: Vector2i = _load_queue.pop_front()
 	var load_radius: int = WorldGenerator.balance.load_radius
 	if absi(coord.x - _player_chunk.x) > load_radius or absi(coord.y - _player_chunk.y) > load_radius:
-		return not _load_queue.is_empty() or _staged_chunk != null
-	_staged_loading_phase0(coord)
+		return not _load_queue.is_empty() or _staged_chunk != null or not _staged_data.is_empty()
+	_staged_loading_generate(coord)
 	return true
 
-## Фаза 0: генерация данных, создание Chunk, populate terrain bytes.
-## Чанк ещё НЕ в scene tree — нет rendering cost.
-func _staged_loading_phase0(coord: Vector2i) -> void:
+## Фаза 0: только генерация terrain данных. CPU-heavy, ~10-15 мс.
+func _staged_loading_generate(coord: Vector2i) -> void:
 	if _loaded_chunks.has(coord) or not _terrain_tileset or not _overlay_tileset:
 		return
-	var native_data: Dictionary = WorldGenerator.get_chunk_data(coord)
+	_staged_data = WorldGenerator.get_chunk_data(coord)
+	_staged_coord = coord
+
+## Фаза 1: создание Chunk node + populate bytes. ~5-10 мс.
+func _staged_loading_create() -> void:
+	var coord: Vector2i = _staged_coord
+	var native_data: Dictionary = _staged_data
+	_staged_data = {}
+	if _loaded_chunks.has(coord):
+		_staged_coord = Vector2i(999999, 999999)
+		return
 	var chunk := Chunk.new()
 	chunk.setup(
 		coord,
@@ -416,10 +432,9 @@ func _staged_loading_phase0(coord: Vector2i) -> void:
 		false
 	)
 	_staged_chunk = chunk
-	_staged_coord = coord
 
-## Фаза 1: добавить в scene tree, начать progressive redraw, зарегистрировать в topology.
-func _staged_loading_phase1() -> void:
+## Фаза 2: добавить в scene tree + topology + enqueue redraw. ~2-5 мс.
+func _staged_loading_finalize() -> void:
 	var chunk: Chunk = _staged_chunk
 	var coord: Vector2i = _staged_coord
 	_staged_chunk = null
@@ -769,6 +784,7 @@ func _on_mountain_tile_changed(tile_pos: Vector2i, old_type: int, new_type: int)
 	WorldPerfProbe.end("ChunkManager._on_mountain_tile_changed", started_usec)
 
 ## Инкрементальный патч топологии для 1 тайла. O(9) вместо full BFS.
+## При подозрении на split компонента — ставит dirty для background rebuild.
 func _incremental_topology_patch(tile_pos: Vector2i, new_type: int) -> void:
 	var mountain_key: Vector2i = _mountain_key_by_tile.get(tile_pos, Vector2i(999999, 999999))
 	if mountain_key == Vector2i(999999, 999999):
@@ -781,6 +797,7 @@ func _incremental_topology_patch(tile_pos: Vector2i, new_type: int) -> void:
 	(_mountain_tiles_by_key[mountain_key] as Dictionary)[tile_pos] = true
 	((_mountain_tiles_by_key_by_chunk[mountain_key] as Dictionary)[tile_chunk] as Dictionary)[tile_pos] = true
 	_update_tile_open_status(tile_pos, new_type, mountain_key, tile_chunk)
+	var rock_neighbor_count: int = 0
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN,
 			Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(1, 1)]:
 		var neighbor: Vector2i = tile_pos + dir
@@ -792,8 +809,12 @@ func _incremental_topology_patch(tile_pos: Vector2i, new_type: int) -> void:
 			continue
 		var neighbor_local: Vector2i = neighbor_chunk.global_to_local(neighbor)
 		var neighbor_type: int = neighbor_chunk.get_terrain_type_at(neighbor_local)
+		if neighbor_type == TileGenData.TerrainType.ROCK:
+			rock_neighbor_count += 1
 		var neighbor_chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(neighbor)
 		_update_tile_open_status(neighbor, neighbor_type, neighbor_key, neighbor_chunk_coord)
+	if new_type != TileGenData.TerrainType.ROCK and rock_neighbor_count >= 2:
+		_mark_topology_dirty()
 
 ## Ищет mountain_key среди 4 кардинальных соседей. O(4).
 func _find_neighbor_key(tile_pos: Vector2i) -> Vector2i:
