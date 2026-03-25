@@ -19,7 +19,6 @@ var _z_containers: Dictionary = {}
 var _z_chunks: Dictionary = {}
 var _active_mountain_key: Vector2i = Vector2i(999999, 999999)
 var _active_mountain_chunk_coords: Dictionary = {}
-var _active_mountain_tiles_by_chunk: Dictionary = {}
 var _mountain_key_by_tile: Dictionary = {}
 var _mountain_tiles_by_key: Dictionary = {}
 var _mountain_open_tiles_by_key: Dictionary = {}
@@ -151,6 +150,11 @@ func get_terrain_type_at_global(tile_pos: Vector2i) -> int:
 func get_loaded_chunks() -> Dictionary:
 	return _loaded_chunks
 
+func is_topology_ready() -> bool:
+	if _is_native_topology_enabled():
+		return not _native_topology_dirty
+	return not _is_topology_dirty and not _is_topology_build_in_progress
+
 func get_mountain_key_at_tile(tile_pos: Vector2i) -> Vector2i:
 	if _is_native_topology_enabled():
 		return _native_topology_builder.call("get_mountain_key_at_tile", tile_pos) as Vector2i
@@ -198,8 +202,8 @@ func is_walkable_at_world(world_pos: Vector2) -> bool:
 		return WorldGenerator.is_walkable_at(world_pos)
 	return chunk.get_terrain_type_at(chunk.global_to_local(tile_pos)) != TileGenData.TerrainType.ROCK
 
-## Устанавливает активный mountain key и возвращает список чанков для обновления cover.
-## Не обновляет чанки синхронно — вызывающий код отвечает за очередь.
+## Устанавливает активный mountain key и возвращает список чанков,
+## у которых должен обновиться cheap roof visual state.
 func set_active_mountain_key(mountain_key: Vector2i = Vector2i(999999, 999999)) -> Array[Vector2i]:
 	if mountain_key == _active_mountain_key:
 		return []
@@ -208,12 +212,10 @@ func set_active_mountain_key(mountain_key: Vector2i = Vector2i(999999, 999999)) 
 		previous_chunks[coord] = true
 	_active_mountain_key = mountain_key
 	if _is_native_topology_enabled():
-		_active_mountain_tiles_by_chunk = _native_topology_builder.call("get_mountain_tiles_by_chunk", _active_mountain_key) as Dictionary
 		_active_mountain_chunk_coords = _to_chunk_coord_set(
 			_native_topology_builder.call("get_mountain_chunk_coords", _active_mountain_key) as Array
 		)
 	else:
-		_active_mountain_tiles_by_chunk = (_mountain_tiles_by_key_by_chunk.get(_active_mountain_key, {}) as Dictionary).duplicate()
 		_active_mountain_chunk_coords = _to_chunk_coord_set(
 			(_mountain_tiles_by_key_by_chunk.get(_active_mountain_key, {}) as Dictionary).keys()
 		)
@@ -224,15 +226,6 @@ func set_active_mountain_key(mountain_key: Vector2i = Vector2i(999999, 999999)) 
 	for coord: Vector2i in previous_chunks:
 		affected_chunks.append(coord)
 	return affected_chunks
-
-## Обновляет cover одного чанка по текущему активному mountain key.
-func update_chunk_cover(coord: Vector2i) -> void:
-	var chunk: Chunk = _loaded_chunks.get(coord)
-	if chunk and chunk.has_any_mountain():
-		chunk.set_mountain_cover_hidden(
-			_active_mountain_tiles_by_chunk.get(coord, {}) as Dictionary,
-			_active_mountain_key
-		)
 
 func _deferred_init() -> void:
 	var players: Array[Node] = get_tree().get_nodes_in_group("player")
@@ -332,11 +325,7 @@ func _load_chunk(coord: Vector2i) -> void:
 	)
 	var is_player_chunk: bool = (coord == _player_chunk)
 	chunk.populate_native(native_data, _saved_chunk_data.get(coord, {}), is_player_chunk)
-	chunk.set_mountain_cover_hidden(
-		_active_mountain_tiles_by_chunk.get(coord, {}) as Dictionary,
-		_active_mountain_key,
-		false
-	)
+	chunk.set_revealed_mountain_key(_active_mountain_key, false)
 	var z_container: Node2D = _z_containers.get(_active_z) as Node2D
 	if z_container:
 		z_container.add_child(chunk)
@@ -472,11 +461,7 @@ func _staged_loading_create() -> void:
 		self
 	)
 	chunk.populate_native(native_data, _saved_chunk_data.get(coord, {}), false)
-	chunk.set_mountain_cover_hidden(
-		_active_mountain_tiles_by_chunk.get(coord, {}) as Dictionary,
-		_active_mountain_key,
-		false
-	)
+	chunk.set_revealed_mountain_key(_active_mountain_key, false)
 	_staged_chunk = chunk
 	WorldPerfProbe.end("ChunkStreaming.phase1_create %s" % [coord], started_usec)
 

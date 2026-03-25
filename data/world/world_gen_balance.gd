@@ -36,6 +36,8 @@ extends Resource
 @export var entrance_color: Color = Color(0.42, 0.36, 0.29)
 @export_range(1, 12) var mountain_visibility_radius: int = 6
 @export_range(0.5, 16.0) var mountain_topology_build_budget_ms: float = 2.0
+@export_range(1, 32) var mountain_roof_visual_build_rows_per_frame: int = 8
+@export_range(0.0, 0.5) var mountain_roof_fade_duration: float = 0.12
 @export var use_native_mountain_topology: bool = true
 @export var mountain_debug_visualization: bool = false
 @export var mountain_debug_collision_color: Color = Color(1.0, 0.12, 0.12, 0.85)

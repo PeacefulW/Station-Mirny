@@ -4,6 +4,8 @@ extends Node2D
 ## Один чанк мира.
 ## Хранит terrain-данные, roof-оверлей и локальные модификации.
 
+const INVALID_MOUNTAIN_KEY: Vector2i = Vector2i(999999, 999999)
+
 var chunk_coord: Vector2i = Vector2i.ZERO
 var is_loaded: bool = false
 var is_dirty: bool = false
@@ -11,6 +13,7 @@ var is_dirty: bool = false
 var _terrain_layer: TileMapLayer = null
 var _cover_layer: TileMapLayer = null
 var _cliff_layer: TileMapLayer = null
+var _roof_visual_root: Node2D = null
 var _debug_root: Node2D = null
 var _tile_size: int = 64
 var _chunk_size: int = 64
@@ -21,12 +24,15 @@ var _modified_tiles: Dictionary = {}
 var _biome: BiomeData = null
 var _terrain_bytes: PackedByteArray = PackedByteArray()
 var _height_bytes: PackedFloat32Array = PackedFloat32Array()
-var _active_mountain_key: Vector2i = Vector2i(999999, 999999)
-var _active_mountain_tiles: Dictionary = {}
+var _revealed_mountain_key: Vector2i = INVALID_MOUNTAIN_KEY
 var _has_mountain: bool = false
 var _redraw_row: int = -1
-var _cover_redraw_row: int = -1
-var _cover_needs_full_clear: bool = false
+var _roof_layers_by_key: Dictionary = {}
+var _roof_tweens_by_key: Dictionary = {}
+var _roof_visual_build_requested: bool = false
+var _roof_visual_build_in_progress: bool = false
+var _roof_visual_build_row: int = -1
+var _roof_visuals_ready: bool = false
 
 func setup(
 	p_coord: Vector2i,
@@ -50,6 +56,10 @@ func setup(
 	_terrain_layer = _create_layer("Terrain", _terrain_tileset, -10)
 	_cliff_layer = _create_layer("Cliffs", _overlay_tileset, -9)
 	_cover_layer = _create_layer("MountainCover", _terrain_tileset, 6)
+	_roof_visual_root = Node2D.new()
+	_roof_visual_root.name = "MountainRoofVisuals"
+	_roof_visual_root.z_index = 6
+	add_child(_roof_visual_root)
 	_debug_root = Node2D.new()
 	_debug_root.name = "DebugRoot"
 	_debug_root.z_index = 50
@@ -61,6 +71,7 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 	_height_bytes = native_data.get("height", PackedFloat32Array()).duplicate()
 	_apply_saved_modifications()
 	_cache_has_mountain()
+	_reset_roof_visual_state()
 	if instant:
 		_redraw_all()
 	else:
@@ -98,60 +109,55 @@ func mark_tile_modified(tile_pos: Vector2i, state: Dictionary) -> void:
 func is_roofed_terrain(terrain_type: int) -> bool:
 	return terrain_type == TileGenData.TerrainType.ROCK or terrain_type == TileGenData.TerrainType.MINED_FLOOR
 
-## Устанавливает данные активной горы. При start_redraw=true запускает progressive cover redraw.
-## При загрузке чанка вызывать с start_redraw=false — cover рисуется вместе с terrain.
-func set_mountain_cover_hidden(active_mountain_tiles: Dictionary = {}, mountain_key: Vector2i = Vector2i(999999, 999999), start_redraw: bool = true) -> void:
-	var topology_changed: bool = _active_mountain_key != mountain_key or _active_mountain_tiles != active_mountain_tiles
-	_active_mountain_key = mountain_key
-	_active_mountain_tiles = active_mountain_tiles.duplicate()
-	if start_redraw and is_loaded and has_any_mountain() and topology_changed:
-		_begin_progressive_cover_redraw()
+## Устанавливает ключ горы, который сейчас раскрыт для игрока.
+## Переход выполняется через cheap visual state change, без массового tile rewrite.
+func set_revealed_mountain_key(mountain_key: Vector2i = INVALID_MOUNTAIN_KEY, animate: bool = true) -> void:
+	_revealed_mountain_key = mountain_key
+	_apply_revealed_mountain_state(animate)
 
-## Начинает прогрессивный cover redraw по строкам.
-## НЕ вызывает clear() — строки очищаются инкрементально при перерисовке.
-func _begin_progressive_cover_redraw() -> void:
-	_cover_redraw_row = 0
-	_cover_needs_full_clear = true
+## Помечает persistent roof visuals как устаревшие.
+## Используется, когда topology могла сменить component keys.
+func invalidate_roof_visuals() -> void:
+	if not _has_mountain:
+		return
+	_roof_visual_build_requested = true
 
-## Возвращает true если cover redraw завершён.
-func is_cover_redraw_complete() -> bool:
-	return _cover_redraw_row < 0
-
-## Рисует N строк cover-слоя. Возвращает true если redraw завершён.
-func continue_cover_redraw(max_rows: int) -> bool:
-	if _cover_redraw_row < 0:
+## Запускает фоновую сборку persistent roof visuals, если topology готова.
+## Возвращает true, если сборка началась или уже идёт.
+func begin_roof_visual_build() -> bool:
+	if not _has_mountain or not _chunk_manager or not _chunk_manager.is_topology_ready():
+		return false
+	if _roof_visual_build_in_progress:
 		return true
-	var end_row: int = mini(_cover_redraw_row + max_rows, _chunk_size)
-	for local_y: int in range(_cover_redraw_row, end_row):
-		for local_x: int in range(_chunk_size):
-			_redraw_cover_tile(Vector2i(local_x, local_y))
-	_cover_redraw_row = end_row
-	if _cover_redraw_row >= _chunk_size:
-		_cover_redraw_row = -1
-		return true
-	return false
-
-## Рисует строки cover-слоя в рамках бюджета времени.
-## budget_usec: оставшийся бюджет в микросекундах.
-## Возвращает true если redraw завершён.
-func continue_cover_redraw_budgeted(budget_usec: int) -> bool:
-	if _cover_redraw_row < 0:
-		return true
-	var start_usec: int = Time.get_ticks_usec()
-	while _cover_redraw_row < _chunk_size:
-		if _cover_redraw_row > 0:
-			var elapsed_usec: int = Time.get_ticks_usec() - start_usec
-			if elapsed_usec >= budget_usec:
-				return false
-		var local_y: int = _cover_redraw_row
-		for local_x: int in range(_chunk_size):
-			_cover_layer.erase_cell(Vector2i(local_x, local_y))
-		for local_x: int in range(_chunk_size):
-			_redraw_cover_tile(Vector2i(local_x, local_y))
-		_cover_redraw_row += 1
-	_cover_redraw_row = -1
-	_cover_needs_full_clear = false
+	if not _roof_visual_build_requested and _roof_visuals_ready:
+		return false
+	_clear_roof_visual_layers()
+	_roof_visual_build_requested = false
+	_roof_visual_build_in_progress = true
+	_roof_visual_build_row = 0
+	_cover_layer.visible = true
 	return true
+
+## Строит roof visuals построчно. Возвращает true, когда сборка завершена.
+func continue_roof_visual_build(max_rows: int) -> bool:
+	if not _roof_visual_build_in_progress:
+		return _roof_visuals_ready
+	var end_row: int = mini(_roof_visual_build_row + max_rows, _chunk_size)
+	for local_y: int in range(_roof_visual_build_row, end_row):
+		for local_x: int in range(_chunk_size):
+			_redraw_roof_visual_tile(Vector2i(local_x, local_y))
+	_roof_visual_build_row = end_row
+	if _roof_visual_build_row < _chunk_size:
+		return false
+	_roof_visual_build_row = -1
+	_roof_visual_build_in_progress = false
+	_roof_visuals_ready = true
+	_cover_layer.visible = false
+	_apply_revealed_mountain_state(false)
+	return true
+
+func is_roof_visual_build_complete() -> bool:
+	return _roof_visuals_ready and not _roof_visual_build_in_progress
 
 func try_mine_at(local: Vector2i) -> Dictionary:
 	var started_usec: int = WorldPerfProbe.begin()
@@ -172,6 +178,7 @@ func cleanup() -> void:
 	is_loaded = false
 	_terrain_bytes = PackedByteArray()
 	_height_bytes = PackedFloat32Array()
+	_clear_roof_visual_layers()
 
 func _create_layer(layer_name: String, tileset: TileSet, z_index_value: int) -> TileMapLayer:
 	var layer := TileMapLayer.new()
@@ -192,6 +199,7 @@ func _redraw_all() -> void:
 	_terrain_layer.clear()
 	_cover_layer.clear()
 	_cliff_layer.clear()
+	_reset_roof_visual_state()
 	for child: Node in _debug_root.get_children():
 		child.queue_free()
 	for local_y: int in range(_chunk_size):
@@ -207,6 +215,7 @@ func _begin_progressive_redraw() -> void:
 	_terrain_layer.clear()
 	_cover_layer.clear()
 	_cliff_layer.clear()
+	_reset_roof_visual_state()
 	for child: Node in _debug_root.get_children():
 		child.queue_free()
 	_redraw_row = 0
@@ -233,6 +242,7 @@ func continue_redraw(max_rows: int) -> bool:
 
 func _redraw_dynamic_visibility(_dirty_tiles: Dictionary) -> void:
 	_rebuild_cover_layer()
+	invalidate_roof_visuals()
 	if WorldGenerator and WorldGenerator.balance and WorldGenerator.balance.mountain_debug_visualization:
 		for child: Node in _debug_root.get_children():
 			child.queue_free()
@@ -248,6 +258,10 @@ func _redraw_dirty_tiles(dirty_tiles: Dictionary) -> void:
 		_redraw_terrain_tile(local_tile)
 		_redraw_cover_tile(local_tile)
 		_redraw_cliff_tile(local_tile)
+	if _roof_visual_build_in_progress:
+		_roof_visual_build_requested = true
+	elif _roof_visuals_ready:
+		_redraw_roof_visual_tiles(dirty_tiles)
 	if WorldGenerator and WorldGenerator.balance and WorldGenerator.balance.mountain_debug_visualization:
 		for child: Node in _debug_root.get_children():
 			child.queue_free()
@@ -259,6 +273,111 @@ func _redraw_cover_tiles(dirty_tiles: Dictionary) -> void:
 			continue
 		_cover_layer.erase_cell(local_tile)
 		_redraw_cover_tile(local_tile)
+
+func _reset_roof_visual_state() -> void:
+	_roof_visual_build_requested = _has_mountain
+	_roof_visual_build_in_progress = false
+	_roof_visual_build_row = -1
+	_roof_visuals_ready = false
+	_clear_roof_visual_layers()
+	if _cover_layer:
+		_cover_layer.visible = true
+
+func _clear_roof_visual_layers() -> void:
+	for mountain_key: Vector2i in _roof_tweens_by_key:
+		var tween: Tween = _roof_tweens_by_key[mountain_key] as Tween
+		if tween:
+			tween.kill()
+	_roof_tweens_by_key.clear()
+	if not _roof_visual_root:
+		_roof_layers_by_key.clear()
+		return
+	for child: Node in _roof_visual_root.get_children():
+		_roof_visual_root.remove_child(child)
+		child.queue_free()
+	_roof_layers_by_key.clear()
+
+func _redraw_roof_visual_tiles(dirty_tiles: Dictionary) -> void:
+	for local_tile: Vector2i in dirty_tiles:
+		if not _is_inside(local_tile):
+			continue
+		_erase_roof_visual_tile_from_layers(local_tile)
+	for local_tile: Vector2i in dirty_tiles:
+		if not _is_inside(local_tile):
+			continue
+		_redraw_roof_visual_tile(local_tile)
+
+func _erase_roof_visual_tile_from_layers(local_tile: Vector2i) -> void:
+	for mountain_key: Vector2i in _roof_layers_by_key:
+		var layer: TileMapLayer = _roof_layers_by_key[mountain_key] as TileMapLayer
+		if layer:
+			layer.erase_cell(local_tile)
+
+func _redraw_roof_visual_tile(local_tile: Vector2i) -> void:
+	var terrain: int = get_terrain_type_at(local_tile)
+	var need_cover: bool = terrain == TileGenData.TerrainType.MINED_FLOOR \
+		or _is_cave_edge_rock(local_tile)
+	if not need_cover:
+		return
+	var mountain_key: Vector2i = _get_cover_mountain_key(local_tile)
+	if mountain_key == INVALID_MOUNTAIN_KEY:
+		return
+	var layer: TileMapLayer = _ensure_roof_layer(mountain_key)
+	var base: Vector2i = _cover_rock_atlas(local_tile)
+	var result: Array = _apply_variant_full(base, local_tile)
+	layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, result[0], result[1])
+
+func _get_cover_mountain_key(local_tile: Vector2i) -> Vector2i:
+	if not _chunk_manager:
+		return INVALID_MOUNTAIN_KEY
+	return _chunk_manager.get_mountain_key_at_tile(_to_global_tile(local_tile))
+
+func _ensure_roof_layer(mountain_key: Vector2i) -> TileMapLayer:
+	var existing: TileMapLayer = _roof_layers_by_key.get(mountain_key) as TileMapLayer
+	if existing:
+		return existing
+	var layer := TileMapLayer.new()
+	layer.name = "Roof_%d_%d" % [mountain_key.x, mountain_key.y]
+	layer.tile_set = _terrain_tileset
+	layer.z_index = 6
+	_roof_visual_root.add_child(layer)
+	_roof_layers_by_key[mountain_key] = layer
+	_apply_revealed_alpha_to_layer(mountain_key, layer, false)
+	return layer
+
+func _apply_revealed_mountain_state(animate: bool) -> void:
+	if not _roof_visuals_ready:
+		return
+	for mountain_key: Vector2i in _roof_layers_by_key:
+		var layer: TileMapLayer = _roof_layers_by_key[mountain_key] as TileMapLayer
+		if not layer:
+			continue
+		_apply_revealed_alpha_to_layer(mountain_key, layer, animate)
+
+func _apply_revealed_alpha_to_layer(mountain_key: Vector2i, layer: TileMapLayer, animate: bool) -> void:
+	var target_alpha: float = 1.0
+	if _revealed_mountain_key != INVALID_MOUNTAIN_KEY and mountain_key == _revealed_mountain_key:
+		target_alpha = 0.0
+	layer.visible = true
+	var current_tween: Tween = _roof_tweens_by_key.get(mountain_key) as Tween
+	if current_tween:
+		current_tween.kill()
+	if not animate or not WorldGenerator or not WorldGenerator.balance or WorldGenerator.balance.mountain_roof_fade_duration <= 0.0:
+		var color: Color = layer.modulate
+		color.a = target_alpha
+		layer.modulate = color
+		layer.visible = target_alpha > 0.001
+		_roof_tweens_by_key.erase(mountain_key)
+		return
+	var tween: Tween = create_tween()
+	_roof_tweens_by_key[mountain_key] = tween
+	tween.tween_property(layer, "modulate:a", target_alpha, WorldGenerator.balance.mountain_roof_fade_duration)
+	tween.finished.connect(_on_roof_tween_finished.bind(mountain_key, layer, target_alpha), CONNECT_ONE_SHOT)
+
+func _on_roof_tween_finished(mountain_key: Vector2i, layer: TileMapLayer, target_alpha: float) -> void:
+	_roof_tweens_by_key.erase(mountain_key)
+	if layer:
+		layer.visible = target_alpha > 0.001
 
 func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 	var terrain_type: int = get_terrain_type_at(local_tile)
@@ -383,35 +502,10 @@ func _redraw_cover_tile(local_tile: Vector2i) -> void:
 		or _is_cave_edge_rock(local_tile)
 	if not need_cover:
 		return
-	if _is_tile_in_active_mountain(local_tile):
-		return
 	# Use the same variant hash as terrain layer — mountain looks identical before/after mining
 	var base: Vector2i = _cover_rock_atlas(local_tile)
 	var result: Array = _apply_variant_full(base, local_tile)
 	_cover_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, result[0], result[1])
-
-func _is_tile_in_active_mountain(local_tile: Vector2i) -> bool:
-	if _active_mountain_key == Vector2i(999999, 999999):
-		return false
-	return _active_mountain_tiles.has(_to_global_tile(local_tile))
-
-func _collect_cover_membership_dirty_tiles(previous_tiles: Dictionary, next_tiles: Dictionary) -> Dictionary:
-	var dirty_tiles: Dictionary = {}
-	for global_tile: Vector2i in previous_tiles:
-		_mark_cover_tile_and_neighbors_dirty(global_tile, dirty_tiles)
-	for global_tile: Vector2i in next_tiles:
-		if previous_tiles.has(global_tile):
-			continue
-		_mark_cover_tile_and_neighbors_dirty(global_tile, dirty_tiles)
-	return dirty_tiles
-
-func _mark_cover_tile_and_neighbors_dirty(global_tile: Vector2i, dirty_tiles: Dictionary) -> void:
-	var local_tile: Vector2i = global_to_local(global_tile)
-	for offset_y: int in range(-1, 2):
-		for offset_x: int in range(-1, 2):
-			var candidate: Vector2i = local_tile + Vector2i(offset_x, offset_y)
-			if _is_inside(candidate):
-				dirty_tiles[candidate] = true
 
 ## XOR-shift hash — no visible linear patterns.
 static func _tile_hash(pos: Vector2i) -> int:
