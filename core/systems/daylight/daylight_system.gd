@@ -49,7 +49,6 @@ func _on_time_tick(current_hour: float, _day_progress: float) -> void:
 	if not balance:
 		return
 	var hour: int = floori(current_hour)
-	var frac: float = current_hour - float(hour)
 
 	# Внутри рассвета: плавно от ночного к рассветному
 	if hour >= balance.dawn_hour and hour < balance.day_hour:

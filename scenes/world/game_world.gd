@@ -39,6 +39,7 @@ var _tile_highlight: ColorRect = null
 var _tile_info_label: Label = null
 var _loading_screen: LoadingScreen = null
 var _boot_complete: bool = false
+var _enemy_spawning_enabled: bool = false
 
 func _ready() -> void:
 	var startup_usec: int = WorldPerfProbe.begin()
@@ -209,9 +210,8 @@ func _update_player_indoor_status() -> void:
 	o2.set_indoor(is_indoor)
 
 func _update_enemy_spawning(delta: float) -> void:
-	# Temporary test override: disable enemies while profiling world
-	# generation, mountain excavation and chunk streaming.
-	return
+	if not _enemy_spawning_enabled:
+		return
 	if not enemy_balance or not _player or not _enemy_container:
 		return
 	_spawn_timer -= delta

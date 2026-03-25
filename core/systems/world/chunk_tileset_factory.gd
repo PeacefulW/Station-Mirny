@@ -204,19 +204,11 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData) -
 	return tileset
 
 static func _build_overlay_tileset(balance: WorldGenBalance, _biome: BiomeData) -> TileSet:
-	var ts: int = balance.tile_size
-	var atlas_tex: Texture2D = load("res://assets/sprites/terrain/rock_overlay_atlas.png") as Texture2D
-	if not atlas_tex:
-		push_error("Rock overlay atlas not found")
-		return TileSet.new()
 	var tileset := TileSet.new()
-	tileset.tile_size = Vector2i(ts, ts)
-	var src := TileSetAtlasSource.new()
-	src.texture = atlas_tex
-	src.texture_region_size = Vector2i(ts, ts)
-	for x: int in range(7):
-		src.create_tile(Vector2i(x, 0))
-	tileset.add_source(src, OVERLAY_SOURCE_ID)
+	tileset.tile_size = Vector2i(balance.tile_size, balance.tile_size)
+	# Overlay atlas is currently an inactive/unfinished subsystem.
+	# _redraw_cliff_tile() is a no-op, so the game does not need a hard
+	# runtime dependency on rock_overlay_atlas.png right now.
 	return tileset
 
 static func _fill_rect(image: Image, rect: Rect2i, color: Color) -> void:
