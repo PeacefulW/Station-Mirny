@@ -25,6 +25,8 @@ var _active_mountain_key: Vector2i = Vector2i(999999, 999999)
 var _active_mountain_tiles: Dictionary = {}
 var _has_mountain: bool = false
 var _redraw_row: int = -1
+var _cover_redraw_row: int = -1
+var _cover_needs_full_clear: bool = false
 
 func setup(
 	p_coord: Vector2i,
@@ -96,51 +98,60 @@ func mark_tile_modified(tile_pos: Vector2i, state: Dictionary) -> void:
 func is_roofed_terrain(terrain_type: int) -> bool:
 	return terrain_type == TileGenData.TerrainType.ROCK or terrain_type == TileGenData.TerrainType.MINED_FLOOR
 
-## Устанавливает данные активной горы и мгновенно обновляет cover для diff-тайлов.
-## Новая архитектура: cover layer всегда содержит ВСЕ cover тайлы (полная крыша).
-## Enter/exit модифицирует только тайлы, которые ИЗМЕНИЛИ membership — O(diff), не O(chunk²).
+## Устанавливает данные активной горы. При start_redraw=true запускает progressive cover redraw.
+## При загрузке чанка вызывать с start_redraw=false — cover рисуется вместе с terrain.
 func set_mountain_cover_hidden(active_mountain_tiles: Dictionary = {}, mountain_key: Vector2i = Vector2i(999999, 999999), start_redraw: bool = true) -> void:
-	var previous_key: Vector2i = _active_mountain_key
-	var previous_tiles: Dictionary = _active_mountain_tiles
+	var topology_changed: bool = _active_mountain_key != mountain_key or _active_mountain_tiles != active_mountain_tiles
 	_active_mountain_key = mountain_key
 	_active_mountain_tiles = active_mountain_tiles.duplicate()
-	if start_redraw and is_loaded and has_any_mountain():
-		_apply_cover_diff(previous_tiles, _active_mountain_tiles)
+	if start_redraw and is_loaded and has_any_mountain() and topology_changed:
+		_begin_progressive_cover_redraw()
 
-## Мгновенное обновление cover только для тайлов, которые изменили membership.
-## Reveal (вход): erase cover для новых active tiles.
-## Hide (выход): restore cover для бывших active tiles.
-## Сложность: O(|previous| + |new|), обычно 50-500 тайлов, не 4096.
-func _apply_cover_diff(previous_tiles: Dictionary, new_tiles: Dictionary) -> void:
-	for global_tile: Vector2i in previous_tiles:
-		if new_tiles.has(global_tile):
-			continue
-		var local_tile: Vector2i = global_to_local(global_tile)
-		if _is_inside(local_tile):
-			_restore_cover_tile_and_neighbors(local_tile)
-	for global_tile: Vector2i in new_tiles:
-		if previous_tiles.has(global_tile):
-			continue
-		var local_tile: Vector2i = global_to_local(global_tile)
-		if _is_inside(local_tile):
-			_erase_cover_tile_and_neighbors(local_tile)
+## Начинает прогрессивный cover redraw по строкам.
+## НЕ вызывает clear() — строки очищаются инкрементально при перерисовке.
+func _begin_progressive_cover_redraw() -> void:
+	_cover_redraw_row = 0
+	_cover_needs_full_clear = true
 
-## Восстанавливает cover для тайла и 8 соседей (hide — крыша возвращается).
-func _restore_cover_tile_and_neighbors(local_tile: Vector2i) -> void:
-	for oy: int in range(-1, 2):
-		for ox: int in range(-1, 2):
-			var tile: Vector2i = local_tile + Vector2i(ox, oy)
-			if _is_inside(tile):
-				_cover_layer.erase_cell(tile)
-				_redraw_cover_tile(tile)
+## Возвращает true если cover redraw завершён.
+func is_cover_redraw_complete() -> bool:
+	return _cover_redraw_row < 0
 
-## Убирает cover для тайла и 8 соседей (reveal — крыша открывается).
-func _erase_cover_tile_and_neighbors(local_tile: Vector2i) -> void:
-	for oy: int in range(-1, 2):
-		for ox: int in range(-1, 2):
-			var tile: Vector2i = local_tile + Vector2i(ox, oy)
-			if _is_inside(tile) and _is_tile_in_active_mountain(tile):
-				_cover_layer.erase_cell(tile)
+## Рисует N строк cover-слоя. Возвращает true если redraw завершён.
+func continue_cover_redraw(max_rows: int) -> bool:
+	if _cover_redraw_row < 0:
+		return true
+	var end_row: int = mini(_cover_redraw_row + max_rows, _chunk_size)
+	for local_y: int in range(_cover_redraw_row, end_row):
+		for local_x: int in range(_chunk_size):
+			_redraw_cover_tile(Vector2i(local_x, local_y))
+	_cover_redraw_row = end_row
+	if _cover_redraw_row >= _chunk_size:
+		_cover_redraw_row = -1
+		return true
+	return false
+
+## Рисует строки cover-слоя в рамках бюджета времени.
+## budget_usec: оставшийся бюджет в микросекундах.
+## Возвращает true если redraw завершён.
+func continue_cover_redraw_budgeted(budget_usec: int) -> bool:
+	if _cover_redraw_row < 0:
+		return true
+	var start_usec: int = Time.get_ticks_usec()
+	while _cover_redraw_row < _chunk_size:
+		if _cover_redraw_row > 0:
+			var elapsed_usec: int = Time.get_ticks_usec() - start_usec
+			if elapsed_usec >= budget_usec:
+				return false
+		var local_y: int = _cover_redraw_row
+		for local_x: int in range(_chunk_size):
+			_cover_layer.erase_cell(Vector2i(local_x, local_y))
+		for local_x: int in range(_chunk_size):
+			_redraw_cover_tile(Vector2i(local_x, local_y))
+		_cover_redraw_row += 1
+	_cover_redraw_row = -1
+	_cover_needs_full_clear = false
+	return true
 
 func try_mine_at(local: Vector2i) -> Dictionary:
 	var started_usec: int = WorldPerfProbe.begin()
