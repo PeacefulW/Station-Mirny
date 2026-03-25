@@ -3,7 +3,7 @@ extends RefCounted
 
 ## Инструментальный профайлер для мировых систем.
 ## Статические методы — не требует autoload.
-## Проверяет контракты из CODING_STANDARDS_FUNDAMENT.md секция 2.3.
+## Проверяет контракты из docs/00_governance/PERFORMANCE_CONTRACTS.md.
 
 const _THRESHOLD_MS: float = 2.0
 
