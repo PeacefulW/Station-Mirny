@@ -34,6 +34,11 @@ var _is_boot_in_progress: bool = false
 var _staged_chunk: Chunk = null
 var _staged_coord: Vector2i = Vector2i(999999, 999999)
 var _staged_data: Dictionary = {}  ## Native data между фазами
+## --- Async generation (runtime only) ---
+var _gen_task_id: int = -1  ## WorkerThreadPool task ID, -1 = нет активной задачи
+var _gen_coord: Vector2i = Vector2i(999999, 999999)  ## Координата в процессе генерации
+var _gen_result: Dictionary = {}  ## Результат от worker thread
+var _gen_mutex: Mutex = Mutex.new()
 var _topology_scan_chunk_coords: Array[Vector2i] = []
 var _topology_scan_chunk_index: int = 0
 var _topology_scan_local_x: int = 0
@@ -290,7 +295,7 @@ func _update_chunks(center: Vector2i) -> void:
 		_unload_chunk(coord)
 	var to_load: Array[Vector2i] = []
 	for coord: Vector2i in needed:
-		if not _loaded_chunks.has(coord) and coord not in _load_queue and coord != _staged_coord:
+		if not _loaded_chunks.has(coord) and coord not in _load_queue and coord != _staged_coord and coord != _gen_coord:
 			to_load.append(coord)
 	to_load.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return absi(a.x - center.x) + absi(a.y - center.y) < absi(b.x - center.x) + absi(b.y - center.y)
@@ -355,6 +360,8 @@ func _unload_chunk(coord: Vector2i) -> void:
 			_staged_chunk = null
 		_staged_data = {}
 		_staged_coord = Vector2i(999999, 999999)
+	if coord == _gen_coord:
+		_gen_coord = Vector2i(999999, 999999)
 	if not _loaded_chunks.has(coord):
 		return
 	var chunk: Chunk = _loaded_chunks[coord]
@@ -378,29 +385,65 @@ func _register_budget_jobs() -> void:
 	FrameBudgetDispatcher.register_job(&"streaming", 2.0, _tick_redraws)
 	FrameBudgetDispatcher.register_job(&"topology", 2.0, _tick_topology)
 
-## Staged chunk loading. 3 фазы, одна за тик.
-## Фаза 0: генерация terrain данных (CPU-heavy)
-## Фаза 1: создание Chunk node + populate bytes
-## Фаза 2: add_child + topology + enqueue redraw
+## Async staged chunk loading. Generation в WorkerThreadPool, create/finalize на main thread.
+## Thread-safety: Strategy A — один worker, read-only access к WorldGenerator.
 func _tick_loading() -> bool:
 	if _is_boot_in_progress:
 		return false
 	if _staged_chunk != null:
 		_staged_loading_finalize()
-		return not _load_queue.is_empty()
+		return _has_streaming_work()
 	if not _staged_data.is_empty():
 		_staged_loading_create()
 		return true
+	if _gen_task_id >= 0:
+		if WorkerThreadPool.is_task_completed(_gen_task_id):
+			WorkerThreadPool.wait_for_task_completion(_gen_task_id)
+			_gen_task_id = -1
+			var coord: Vector2i = _gen_coord
+			_gen_coord = Vector2i(999999, 999999)
+			var load_radius: int = WorldGenerator.balance.load_radius
+			if _loaded_chunks.has(coord) or absi(coord.x - _player_chunk.x) > load_radius or absi(coord.y - _player_chunk.y) > load_radius:
+				_gen_mutex.lock()
+				_gen_result.clear()
+				_gen_mutex.unlock()
+				return _has_streaming_work()
+			_gen_mutex.lock()
+			_staged_data = _gen_result.duplicate()
+			_gen_result.clear()
+			_gen_mutex.unlock()
+			_staged_coord = coord
+			return true
+		return _has_streaming_work()
 	if _load_queue.is_empty():
 		return false
 	var coord: Vector2i = _load_queue.pop_front()
 	var load_radius: int = WorldGenerator.balance.load_radius
 	if absi(coord.x - _player_chunk.x) > load_radius or absi(coord.y - _player_chunk.y) > load_radius:
-		return not _load_queue.is_empty() or _staged_chunk != null or not _staged_data.is_empty()
-	_staged_loading_generate(coord)
+		return _has_streaming_work()
+	if _loaded_chunks.has(coord):
+		return _has_streaming_work()
+	_submit_async_generate(coord)
 	return true
 
-## Фаза 0: только генерация terrain данных. CPU-heavy.
+func _has_streaming_work() -> bool:
+	return not _load_queue.is_empty() or _staged_chunk != null or not _staged_data.is_empty() or _gen_task_id >= 0
+
+## Отправляет генерацию чанка в WorkerThreadPool. Один worker за раз.
+func _submit_async_generate(coord: Vector2i) -> void:
+	_gen_coord = coord
+	_gen_task_id = WorkerThreadPool.add_task(_worker_generate.bind(coord))
+
+## Выполняется в worker thread. Только чистые данные, никаких Node/scene tree.
+## Thread-safety: Strategy A — read-only access к noise instances и balance.
+## FastNoiseLite.get_noise_2d() — pure function, no mutable state.
+func _worker_generate(coord: Vector2i) -> void:
+	var data: Dictionary = WorldGenerator.get_chunk_data(coord)
+	_gen_mutex.lock()
+	_gen_result = data
+	_gen_mutex.unlock()
+
+## Фаза 0: только генерация terrain данных. CPU-heavy. Используется ТОЛЬКО в boot.
 func _staged_loading_generate(coord: Vector2i) -> void:
 	var started_usec: int = WorldPerfProbe.begin()
 	if _loaded_chunks.has(coord) or not _terrain_tileset or not _overlay_tileset:
