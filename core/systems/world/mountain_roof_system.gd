@@ -1,19 +1,16 @@
 class_name MountainRoofSystem
 extends Node
 
-## Управляет скрытием крыши только у активной горы.
-## Cover setup + redraw — полностью через FrameBudgetDispatcher.
-
-const COVER_BUDGET_USEC: int = 1800  ## 1.8 мс — запас 0.2 мс до бюджета 2 мс
-const COVER_SETUP_PER_TICK: int = 2
+## Управляет скрытием крыши активной горы.
+## НОВАЯ АРХИТЕКТУРА: координатор состояния, не оркестратор redraw.
+## Enter/exit — мгновенный diff-based cover update на чанках (O(diff), не O(chunk²)).
+## Не зависит от progressive redraw очередей для near-player UX.
 
 var _chunk_manager: ChunkManager = null
 var _player: Player = null
 var _last_tile: Vector2i = Vector2i(999999, 999999)
 var _active_mountain_key: Vector2i = Vector2i(999999, 999999)
 var _is_player_on_mined_floor: bool = false
-var _cover_dirty_queue: Array[Vector2i] = []
-var _cover_redrawing_chunks: Array[Chunk] = []
 
 func _ready() -> void:
 	EventBus.mountain_tile_mined.connect(_on_mountain_tile_mined)
@@ -31,7 +28,6 @@ func _resolve_dependencies() -> void:
 	var players: Array[Node] = get_tree().get_nodes_in_group("player")
 	if not players.is_empty():
 		_player = players[0] as Player
-	FrameBudgetDispatcher.register_job(&"visual", 2.0, _tick_cover)
 	_request_refresh()
 
 func _check_player_mountain_state() -> void:
@@ -45,6 +41,8 @@ func _check_player_mountain_state() -> void:
 	_is_player_on_mined_floor = is_on_mined_floor
 	_request_refresh()
 
+## Определяет новый mountain key и применяет cover diff на все затронутые чанки.
+## Мгновенная операция — diff-based update, не progressive redraw.
 func _request_refresh() -> void:
 	var started_usec: int = WorldPerfProbe.begin()
 	if not _chunk_manager or not _player or not WorldGenerator:
@@ -56,7 +54,8 @@ func _request_refresh() -> void:
 			return
 		_active_mountain_key = Vector2i(999999, 999999)
 		_is_player_on_mined_floor = false
-		_enqueue_chunks(_chunk_manager.set_active_mountain_key(_active_mountain_key))
+		var affected: Array[Vector2i] = _chunk_manager.set_active_mountain_key(_active_mountain_key)
+		_apply_cover_on_chunks(affected)
 		WorldPerfProbe.end("MountainRoofSystem._request_refresh", started_usec)
 		return
 	var next_mountain_key: Vector2i = _chunk_manager.get_mountain_key_at_tile(start_tile)
@@ -65,48 +64,15 @@ func _request_refresh() -> void:
 	if next_mountain_key == _active_mountain_key:
 		return
 	_active_mountain_key = next_mountain_key
-	_enqueue_chunks(_chunk_manager.set_active_mountain_key(_active_mountain_key))
+	var affected: Array[Vector2i] = _chunk_manager.set_active_mountain_key(_active_mountain_key)
+	_apply_cover_on_chunks(affected)
 	WorldPerfProbe.end("MountainRoofSystem._request_refresh", started_usec)
 
-## Единый budgeted tick: setup dirty coords → progressive redraw.
-## Контролирует время на КАЖДОМ шаге, не только между вызовами.
-func _tick_cover() -> bool:
-	var tick_start_usec: int = Time.get_ticks_usec()
-	var setup_count: int = 0
-	while not _cover_dirty_queue.is_empty() and setup_count < COVER_SETUP_PER_TICK:
-		var elapsed_usec: int = Time.get_ticks_usec() - tick_start_usec
-		if elapsed_usec >= COVER_BUDGET_USEC:
-			WorldPerfProbe.end("Cover.tick_slice", tick_start_usec)
-			return true
-		var coord: Vector2i = _cover_dirty_queue.pop_front()
+## Мгновенно применяет cover diff на всех затронутых чанках.
+## set_mountain_cover_hidden внутри делает O(diff) update, не full redraw.
+func _apply_cover_on_chunks(chunk_coords: Array[Vector2i]) -> void:
+	for coord: Vector2i in chunk_coords:
 		_chunk_manager.update_chunk_cover(coord)
-		var chunk: Chunk = _chunk_manager.get_chunk(coord)
-		if chunk and not chunk.is_cover_redraw_complete() and chunk not in _cover_redrawing_chunks:
-			_cover_redrawing_chunks.append(chunk)
-		setup_count += 1
-	while not _cover_redrawing_chunks.is_empty():
-		var elapsed_usec: int = Time.get_ticks_usec() - tick_start_usec
-		var remaining_usec: int = COVER_BUDGET_USEC - elapsed_usec
-		if remaining_usec <= 0:
-			WorldPerfProbe.end("Cover.tick_slice", tick_start_usec)
-			return true
-		var chunk: Chunk = _cover_redrawing_chunks[0]
-		if not is_instance_valid(chunk):
-			_cover_redrawing_chunks.remove_at(0)
-			continue
-		var is_complete: bool = chunk.continue_cover_redraw_budgeted(remaining_usec)
-		if is_complete:
-			_cover_redrawing_chunks.remove_at(0)
-		else:
-			WorldPerfProbe.end("Cover.tick_slice", tick_start_usec)
-			return true
-	WorldPerfProbe.end("Cover.tick_slice", tick_start_usec)
-	return not _cover_dirty_queue.is_empty()
-
-func _enqueue_chunks(chunks: Array[Vector2i]) -> void:
-	for coord: Vector2i in chunks:
-		if coord not in _cover_dirty_queue:
-			_cover_dirty_queue.append(coord)
 
 func _find_reveal_start(player_tile: Vector2i) -> Vector2i:
 	var chunk: Chunk = _chunk_manager.get_chunk_at_tile(player_tile)
