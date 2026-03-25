@@ -26,6 +26,7 @@ var _active_mountain_tiles: Dictionary = {}
 var _has_mountain: bool = false
 var _redraw_row: int = -1
 var _cover_redraw_row: int = -1
+var _cover_needs_full_clear: bool = false
 
 func setup(
 	p_coord: Vector2i,
@@ -107,9 +108,10 @@ func set_mountain_cover_hidden(active_mountain_tiles: Dictionary = {}, mountain_
 		_begin_progressive_cover_redraw()
 
 ## Начинает прогрессивный cover redraw по строкам.
+## НЕ вызывает clear() — строки очищаются инкрементально при перерисовке.
 func _begin_progressive_cover_redraw() -> void:
-	_cover_layer.clear()
 	_cover_redraw_row = 0
+	_cover_needs_full_clear = true
 
 ## Возвращает true если cover redraw завершён.
 func is_cover_redraw_complete() -> bool:
@@ -128,6 +130,28 @@ func continue_cover_redraw(max_rows: int) -> bool:
 		_cover_redraw_row = -1
 		return true
 	return false
+
+## Рисует строки cover-слоя в рамках бюджета времени.
+## budget_usec: оставшийся бюджет в микросекундах.
+## Возвращает true если redraw завершён.
+func continue_cover_redraw_budgeted(budget_usec: int) -> bool:
+	if _cover_redraw_row < 0:
+		return true
+	var start_usec: int = Time.get_ticks_usec()
+	while _cover_redraw_row < _chunk_size:
+		if _cover_redraw_row > 0:
+			var elapsed_usec: int = Time.get_ticks_usec() - start_usec
+			if elapsed_usec >= budget_usec:
+				return false
+		var local_y: int = _cover_redraw_row
+		for local_x: int in range(_chunk_size):
+			_cover_layer.erase_cell(Vector2i(local_x, local_y))
+		for local_x: int in range(_chunk_size):
+			_redraw_cover_tile(Vector2i(local_x, local_y))
+		_cover_redraw_row += 1
+	_cover_redraw_row = -1
+	_cover_needs_full_clear = false
+	return true
 
 func try_mine_at(local: Vector2i) -> Dictionary:
 	var started_usec: int = WorldPerfProbe.begin()

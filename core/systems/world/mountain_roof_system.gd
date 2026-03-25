@@ -4,7 +4,7 @@ extends Node
 ## Управляет скрытием крыши только у активной горы.
 ## Cover setup + redraw — полностью через FrameBudgetDispatcher.
 
-const COVER_ROWS_PER_STEP: int = 4
+const COVER_BUDGET_USEC: int = 1800  ## 1.8 мс — запас 0.2 мс до бюджета 2 мс
 const COVER_SETUP_PER_TICK: int = 2
 
 var _chunk_manager: ChunkManager = null
@@ -69,10 +69,15 @@ func _request_refresh() -> void:
 	WorldPerfProbe.end("MountainRoofSystem._request_refresh", started_usec)
 
 ## Единый budgeted tick: setup dirty coords → progressive redraw.
+## Контролирует время на КАЖДОМ шаге, не только между вызовами.
 func _tick_cover() -> bool:
-	var started_usec: int = WorldPerfProbe.begin()
+	var tick_start_usec: int = Time.get_ticks_usec()
 	var setup_count: int = 0
 	while not _cover_dirty_queue.is_empty() and setup_count < COVER_SETUP_PER_TICK:
+		var elapsed_usec: int = Time.get_ticks_usec() - tick_start_usec
+		if elapsed_usec >= COVER_BUDGET_USEC:
+			WorldPerfProbe.end("Cover.tick_slice", tick_start_usec)
+			return true
 		var coord: Vector2i = _cover_dirty_queue.pop_front()
 		_chunk_manager.update_chunk_cover(coord)
 		var chunk: Chunk = _chunk_manager.get_chunk(coord)
@@ -80,15 +85,22 @@ func _tick_cover() -> bool:
 			_cover_redrawing_chunks.append(chunk)
 		setup_count += 1
 	while not _cover_redrawing_chunks.is_empty():
+		var elapsed_usec: int = Time.get_ticks_usec() - tick_start_usec
+		var remaining_usec: int = COVER_BUDGET_USEC - elapsed_usec
+		if remaining_usec <= 0:
+			WorldPerfProbe.end("Cover.tick_slice", tick_start_usec)
+			return true
 		var chunk: Chunk = _cover_redrawing_chunks[0]
 		if not is_instance_valid(chunk):
 			_cover_redrawing_chunks.remove_at(0)
 			continue
-		if chunk.continue_cover_redraw(COVER_ROWS_PER_STEP):
+		var is_complete: bool = chunk.continue_cover_redraw_budgeted(remaining_usec)
+		if is_complete:
 			_cover_redrawing_chunks.remove_at(0)
-		WorldPerfProbe.end("Cover.tick_slice", started_usec)
-		return true
-	WorldPerfProbe.end("Cover.tick_slice", started_usec)
+		else:
+			WorldPerfProbe.end("Cover.tick_slice", tick_start_usec)
+			return true
+	WorldPerfProbe.end("Cover.tick_slice", tick_start_usec)
 	return not _cover_dirty_queue.is_empty()
 
 func _enqueue_chunks(chunks: Array[Vector2i]) -> void:
