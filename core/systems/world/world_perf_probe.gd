@@ -5,7 +5,7 @@ extends RefCounted
 ## Статические методы — не требует autoload.
 ## Проверяет контракты из CODING_STANDARDS_FUNDAMENT.md секция 2.3.
 
-const _THRESHOLD_MS: float = 0.1
+const _THRESHOLD_MS: float = 2.0
 
 ## Контракты на интерактивные операции (максимально допустимое время в мс).
 const _CONTRACTS: Dictionary = {

@@ -439,7 +439,7 @@ func _staged_loading_create() -> void:
 
 ## Фаза 2: добавить в scene tree + topology + enqueue redraw.
 func _staged_loading_finalize() -> void:
-	var started_usec: int = WorldPerfProbe.begin()
+	var total_usec: int = WorldPerfProbe.begin()
 	var chunk: Chunk = _staged_chunk
 	var coord: Vector2i = _staged_coord
 	_staged_chunk = null
@@ -447,20 +447,26 @@ func _staged_loading_finalize() -> void:
 	if _loaded_chunks.has(coord):
 		chunk.queue_free()
 		return
+	var sub_usec: int = WorldPerfProbe.begin()
 	var z_container: Node2D = _z_containers.get(_active_z) as Node2D
 	if z_container:
 		z_container.add_child(chunk)
 	else:
 		_chunk_container.add_child(chunk)
+	WorldPerfProbe.end("ChunkStreaming.finalize.add_child %s" % [coord], sub_usec)
 	_loaded_chunks[coord] = chunk
 	_redrawing_chunks.append(chunk)
+	sub_usec = WorldPerfProbe.begin()
 	if _is_native_topology_enabled():
 		_native_topology_builder.call("set_chunk", coord, chunk.get_terrain_bytes(), WorldGenerator.balance.chunk_size_tiles)
 		_native_topology_dirty = true
 	else:
 		_mark_topology_dirty()
+	WorldPerfProbe.end("ChunkStreaming.finalize.topology %s" % [coord], sub_usec)
+	sub_usec = WorldPerfProbe.begin()
 	EventBus.chunk_loaded.emit(coord)
-	WorldPerfProbe.end("ChunkStreaming.phase2_finalize %s" % [coord], started_usec)
+	WorldPerfProbe.end("ChunkStreaming.finalize.emit %s" % [coord], sub_usec)
+	WorldPerfProbe.end("ChunkStreaming.phase2_finalize %s" % [coord], total_usec)
 
 ## Progressive redraw одного шага. Возвращает true если есть ещё работа.
 func _tick_redraws() -> bool:

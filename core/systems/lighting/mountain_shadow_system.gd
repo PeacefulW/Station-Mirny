@@ -11,6 +11,7 @@ var _shadow_container: Node2D = null
 var _last_built_angle: float = -999.0
 var _edge_cache: Dictionary = {}
 var _dirty_queue: Array[Vector2i] = []
+var _edge_build_queue: Array[Vector2i] = []
 var _active_build: Dictionary = {}  ## Progressive shadow build state
 
 func _ready() -> void:
@@ -39,10 +40,8 @@ func _resolve_dependencies() -> void:
 	FrameBudgetDispatcher.register_job(&"visual", 1.0, _tick_shadows)
 
 func _on_chunk_loaded(coord: Vector2i) -> void:
-	_cache_edges(coord)
-	_mark_dirty(coord)
-	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		_mark_dirty(coord + dir)
+	if coord not in _edge_build_queue:
+		_edge_build_queue.append(coord)
 
 func _on_chunk_unloaded(coord: Vector2i) -> void:
 	_edge_cache.erase(coord)
@@ -68,8 +67,15 @@ func _mark_all_dirty() -> void:
 	for coord: Vector2i in _chunk_manager.get_loaded_chunks():
 		_dirty_queue.append(coord)
 
-## Tick для FrameBudgetDispatcher. Progressive shadow build. Возвращает true если есть работа.
+## Tick для FrameBudgetDispatcher. Edge build → progressive shadow build.
 func _tick_shadows() -> bool:
+	if not _edge_build_queue.is_empty():
+		var coord: Vector2i = _edge_build_queue.pop_front()
+		_cache_edges(coord)
+		_mark_dirty(coord)
+		for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			_mark_dirty(coord + dir)
+		return true
 	if not _active_build.is_empty():
 		_advance_shadow_build()
 		return true
