@@ -67,13 +67,10 @@ func perform_harvest() -> bool:
 		return false
 	if not _chunk_manager or not _inventory:
 		return false
-	# Проверяем тайл перед игроком (в направлении курсора)
-	var harvest_pos: Vector2 = _get_harvest_position()
-	if not _chunk_manager.has_resource_at_world(harvest_pos):
-		# Пробуем прямо под игроком
-		harvest_pos = global_position
-		if not _chunk_manager.has_resource_at_world(harvest_pos):
-			return false
+	# Ищем первый rock-тайл по лучу от игрока к курсору.
+	var harvest_pos: Vector2 = _find_harvest_target_position()
+	if harvest_pos == Vector2.INF:
+		return false
 	_harvest_timer = balance.harvest_cooldown
 	var result: Dictionary = _chunk_manager.try_harvest_at_world(harvest_pos)
 	if result.is_empty():
@@ -90,6 +87,30 @@ func perform_harvest() -> bool:
 func _get_harvest_position() -> Vector2:
 	var dir: Vector2 = (get_global_mouse_position() - global_position).normalized()
 	return global_position + dir * balance.harvest_range
+
+func _find_harvest_target_position() -> Vector2:
+	if not WorldGenerator or not WorldGenerator.balance:
+		var fallback_pos: Vector2 = _get_harvest_position()
+		if _chunk_manager.has_resource_at_world(fallback_pos):
+			return fallback_pos
+		return global_position if _chunk_manager.has_resource_at_world(global_position) else Vector2.INF
+	var dir: Vector2 = get_global_mouse_position() - global_position
+	if dir.length_squared() <= 0.0001:
+		return global_position if _chunk_manager.has_resource_at_world(global_position) else Vector2.INF
+	dir = dir.normalized()
+	var step_size: float = maxf(8.0, float(WorldGenerator.balance.tile_size) * 0.25)
+	var max_steps: int = maxi(1, ceili(balance.harvest_range / step_size))
+	var visited_tiles: Dictionary = {}
+	for step: int in range(1, max_steps + 1):
+		var sample_pos: Vector2 = global_position + dir * minf(step * step_size, balance.harvest_range)
+		var sample_tile: Vector2i = WorldGenerator.world_to_tile(sample_pos)
+		if visited_tiles.has(sample_tile):
+			continue
+		visited_tiles[sample_tile] = true
+		var tile_center: Vector2 = WorldGenerator.tile_to_world(sample_tile)
+		if _chunk_manager.has_resource_at_world(tile_center):
+			return tile_center
+	return global_position if _chunk_manager.has_resource_at_world(global_position) else Vector2.INF
 
 func tick_harvest_cooldown(delta: float) -> void:
 	if _harvest_timer > 0.0:
