@@ -5,6 +5,9 @@ extends Node
 ## внешней кромки горы и угла солнца. Рендер через Sprite2D + ImageTexture.
 ## Edge-тайлы кешируются при загрузке чанка. Rebuild бюджетирован.
 
+const RuntimeWorkTypes = preload("res://core/runtime/runtime_work_types.gd")
+const JOB_SHADOWS: StringName = &"mountain_shadow.visual_rebuild"
+
 var _chunk_manager: ChunkManager = null
 var _shadow_sprites: Dictionary = {}
 var _shadow_container: Node2D = null
@@ -24,6 +27,10 @@ func _ready() -> void:
 	EventBus.mountain_tile_mined.connect(_on_mountain_tile_mined)
 	call_deferred("_resolve_dependencies")
 
+func _exit_tree() -> void:
+	if FrameBudgetDispatcher:
+		FrameBudgetDispatcher.unregister_job(JOB_SHADOWS)
+
 func _process(_delta: float) -> void:
 	if not _chunk_manager or not TimeManager or not WorldGenerator or not WorldGenerator.balance:
 		return
@@ -37,7 +44,16 @@ func _resolve_dependencies() -> void:
 	var chunks: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
 	if not chunks.is_empty():
 		_chunk_manager = chunks[0] as ChunkManager
-	FrameBudgetDispatcher.register_job(&"visual", 1.0, _tick_shadows)
+	FrameBudgetDispatcher.register_job(
+		RuntimeWorkTypes.CATEGORY_VISUAL,
+		1.0,
+		_tick_shadows,
+		JOB_SHADOWS,
+		RuntimeWorkTypes.CadenceKind.PRESENTATION,
+		RuntimeWorkTypes.ThreadingRole.MAIN_THREAD_ONLY,
+		false,
+		"Mountain shadows"
+	)
 
 func _on_chunk_loaded(coord: Vector2i) -> void:
 	if coord not in _edge_build_queue:

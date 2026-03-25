@@ -4,7 +4,9 @@ extends Node
 ## Координирует логическое состояние активной горы и cheap visual transition крыши.
 ## Persistent roof visuals строятся в фоне, а вход/выход из горы переключает только reveal state.
 
+const RuntimeWorkTypes = preload("res://core/runtime/runtime_work_types.gd")
 const INVALID_MOUNTAIN_KEY: Vector2i = Vector2i(999999, 999999)
+const JOB_ROOF_VISUALS: StringName = &"mountain_roof.visual_rebuild"
 
 var _chunk_manager: ChunkManager = null
 var _player: Player = null
@@ -21,6 +23,10 @@ func _ready() -> void:
 	EventBus.chunk_unloaded.connect(_on_chunk_unloaded)
 	call_deferred("_resolve_dependencies")
 
+func _exit_tree() -> void:
+	if FrameBudgetDispatcher:
+		FrameBudgetDispatcher.unregister_job(JOB_ROOF_VISUALS)
+
 func _process(_delta: float) -> void:
 	if not _chunk_manager or not _player or not WorldGenerator:
 		return
@@ -33,7 +39,16 @@ func _resolve_dependencies() -> void:
 	var players: Array[Node] = get_tree().get_nodes_in_group("player")
 	if not players.is_empty():
 		_player = players[0] as Player
-	FrameBudgetDispatcher.register_job(&"visual", 2.0, _tick_roof_visuals)
+	FrameBudgetDispatcher.register_job(
+		RuntimeWorkTypes.CATEGORY_VISUAL,
+		2.0,
+		_tick_roof_visuals,
+		JOB_ROOF_VISUALS,
+		RuntimeWorkTypes.CadenceKind.PRESENTATION,
+		RuntimeWorkTypes.ThreadingRole.MAIN_THREAD_ONLY,
+		false,
+		"Mountain roof visuals"
+	)
 	_mark_all_loaded_roof_visuals_dirty()
 	_request_refresh()
 

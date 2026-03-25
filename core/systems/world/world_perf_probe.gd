@@ -36,6 +36,9 @@ static func end(label: String, started_usec: int) -> void:
 	var elapsed_ms: float = float(Time.get_ticks_usec() - started_usec) / 1000.0
 	_record(label, elapsed_ms)
 
+static func record(label: String, elapsed_ms: float) -> void:
+	_record(label, elapsed_ms)
+
 static func _record(label: String, elapsed_ms: float) -> void:
 	if elapsed_ms >= _THRESHOLD_MS:
 		print("[WorldPerf] %s: %.2f ms" % [label, elapsed_ms])

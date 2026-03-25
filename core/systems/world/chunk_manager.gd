@@ -4,6 +4,11 @@ extends Node2D
 ## Менеджер чанков мира.
 ## Загружает чанки, рендерит землю/горы и выполняет mining горной породы.
 
+const RuntimeWorkTypes = preload("res://core/runtime/runtime_work_types.gd")
+const JOB_STREAMING_LOAD: StringName = &"chunk_manager.streaming_load"
+const JOB_STREAMING_REDRAW: StringName = &"chunk_manager.streaming_redraw"
+const JOB_TOPOLOGY: StringName = &"chunk_manager.topology_rebuild"
+
 var _loaded_chunks: Dictionary = {}
 var _player_chunk: Vector2i = Vector2i(99999, 99999)
 var _player: Node2D = null
@@ -63,6 +68,12 @@ func _ready() -> void:
 	add_child(_chunk_container)
 	_setup_z_containers()
 	call_deferred("_deferred_init")
+
+func _exit_tree() -> void:
+	if FrameBudgetDispatcher:
+		FrameBudgetDispatcher.unregister_job(JOB_STREAMING_LOAD)
+		FrameBudgetDispatcher.unregister_job(JOB_STREAMING_REDRAW)
+		FrameBudgetDispatcher.unregister_job(JOB_TOPOLOGY)
 
 func _process(_delta: float) -> void:
 	if not _initialized or not _player or _is_boot_in_progress:
@@ -370,9 +381,36 @@ func _unload_chunk(coord: Vector2i) -> void:
 	EventBus.chunk_unloaded.emit(coord)
 
 func _register_budget_jobs() -> void:
-	FrameBudgetDispatcher.register_job(&"streaming", 3.0, _tick_loading)
-	FrameBudgetDispatcher.register_job(&"streaming", 2.0, _tick_redraws)
-	FrameBudgetDispatcher.register_job(&"topology", 2.0, _tick_topology)
+	FrameBudgetDispatcher.register_job(
+		RuntimeWorkTypes.CATEGORY_STREAMING,
+		3.0,
+		_tick_loading,
+		JOB_STREAMING_LOAD,
+		RuntimeWorkTypes.CadenceKind.BACKGROUND,
+		RuntimeWorkTypes.ThreadingRole.COMPUTE_THEN_APPLY,
+		false,
+		"Chunk streaming load"
+	)
+	FrameBudgetDispatcher.register_job(
+		RuntimeWorkTypes.CATEGORY_STREAMING,
+		2.0,
+		_tick_redraws,
+		JOB_STREAMING_REDRAW,
+		RuntimeWorkTypes.CadenceKind.BACKGROUND,
+		RuntimeWorkTypes.ThreadingRole.MAIN_THREAD_ONLY,
+		false,
+		"Chunk redraw"
+	)
+	FrameBudgetDispatcher.register_job(
+		RuntimeWorkTypes.CATEGORY_TOPOLOGY,
+		2.0,
+		_tick_topology,
+		JOB_TOPOLOGY,
+		RuntimeWorkTypes.CadenceKind.BACKGROUND,
+		RuntimeWorkTypes.ThreadingRole.COMPUTE_THEN_APPLY,
+		false,
+		"Mountain topology rebuild"
+	)
 
 ## Async staged chunk loading. Generation в WorkerThreadPool, create/finalize на main thread.
 ## Thread-safety: Strategy A — один worker, read-only access к WorldGenerator.
