@@ -52,14 +52,19 @@ Deprecated or migrated legacy versions.
 - [AI Playbook](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\AI_PLAYBOOK.md)
 - [Engineering Standards](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\ENGINEERING_STANDARDS.md)
 - [Performance Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md)
+- [Simulation and Threading Model](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\SIMULATION_AND_THREADING_MODEL.md)
 - [Document Precedence](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\DOCUMENT_PRECEDENCE.md)
 - [Documentation Migration Plan](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\DOCUMENTATION_MIGRATION_PLAN.md)
 
 ### Product
 - [Game Vision GDD](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\GAME_VISION_GDD.md)
+- [Non-Negotiable Experience](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\NON_NEGOTIABLE_EXPERIENCE.md)
 
 ### System Specs
 - [World Generation Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\world_generation_foundation.md)
+- [Environment Runtime Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\environment_runtime_foundation.md)
+- [Lighting, Visibility, and Darkness](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\lighting_visibility_and_darkness.md)
+- [Subsurface and Verticality Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\subsurface_and_verticality_foundation.md)
 - [Engineering Networks](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\base\engineering_networks.md)
 - [Resource Progression](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\progression\resource_progression.md)
 - [Survival Core](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\survival\survival_core.md)
@@ -74,6 +79,9 @@ Deprecated or migrated legacy versions.
 - [UI and UX Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\ui\ui_ux_foundation.md)
 - [Save and Persistence](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\save_and_persistence.md)
 - [Multiplayer and Modding Constraints](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\multiplayer_and_modding.md)
+- [Multiplayer Authority and Replication](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\multiplayer_authority_and_replication.md)
+- [Modding Extension Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\modding_extension_contracts.md)
+- [Localization Pipeline](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\localization_pipeline.md)
 
 ### Content Bible
 - [Canon](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\lore\canon.md)
@@ -91,20 +99,35 @@ Deprecated or migrated legacy versions.
 
 ### "How should we build the world?"
 - [World Generation Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\world_generation_foundation.md)
+- [Environment Runtime Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\environment_runtime_foundation.md)
 
 ### "How do survival and base systems fit together?"
 - [Survival Core](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\survival\survival_core.md)
 - [Engineering Networks](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\base\engineering_networks.md)
 - [Building and Rooms](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\base\building_and_rooms.md)
 
+### "What is the non-negotiable player experience?"
+- [Non-Negotiable Experience](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\NON_NEGOTIABLE_EXPERIENCE.md)
+- [Game Vision GDD](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\GAME_VISION_GDD.md)
+
 ### "In what order should world generation be implemented?"
 - [World Generation Rollout](M:\dev\Station Peaceful\Station Peaceful\docs\04_execution\world_generation_rollout.md)
 
 ### "What is the game trying to feel like?"
 - [Game Vision GDD](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\GAME_VISION_GDD.md)
+- [Non-Negotiable Experience](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\NON_NEGOTIABLE_EXPERIENCE.md)
 
 ### "What is locked lore truth?"
 - [Canon](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\lore\canon.md)
+
+### "How should environment, weather, seasons, and wind behave at runtime?"
+- [Environment Runtime Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\environment_runtime_foundation.md)
+
+### "How should darkness, light, visibility, and underground readability work?"
+- [Lighting, Visibility, and Darkness](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\lighting_visibility_and_darkness.md)
+
+### "How should underground space, mining, and vertical traversal work?"
+- [Subsurface and Verticality Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\subsurface_and_verticality_foundation.md)
 
 ### "What are the creatures / art / tone supposed to be?"
 - [Fauna Catalog](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\fauna\catalog.md)
@@ -113,6 +136,16 @@ Deprecated or migrated legacy versions.
 
 ### "What are the runtime rules?"
 - [Performance Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md)
+- [Simulation and Threading Model](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\SIMULATION_AND_THREADING_MODEL.md)
+
+### "How should multiplayer authority and replication work?"
+- [Multiplayer Authority and Replication](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\multiplayer_authority_and_replication.md)
+
+### "How should modding, registries, and extension contracts work?"
+- [Modding Extension Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\modding_extension_contracts.md)
+
+### "How should localization workflow and translation pipeline work?"
+- [Localization Pipeline](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\localization_pipeline.md)
 
 ## Migration rule
 

@@ -39,13 +39,40 @@ Primary responsibilities:
 
 ### Tasks touching world, chunks, tiles, rendering, caches, streaming, native bridge
 4. [Performance Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md)
+5. [Simulation and Threading Model](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\SIMULATION_AND_THREADING_MODEL.md)
 
 ### Tasks touching mechanics, progression, lore, resources, product intent
 4. [Game Vision GDD](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\GAME_VISION_GDD.md)
-5. relevant system spec or content bible file
+5. [Non-Negotiable Experience](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\NON_NEGOTIABLE_EXPERIENCE.md)
+6. relevant system spec or content bible file
 
 ### Tasks touching roadmap or sequencing
 4. [Master Roadmap](M:\dev\Station Peaceful\Station Peaceful\docs\04_execution\MASTER_ROADMAP.md)
+
+### Required foundation reading by task area
+
+- product intent / fantasy / pillars / non-negotiable experience:
+  - [Non-Negotiable Experience](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\NON_NEGOTIABLE_EXPERIENCE.md)
+- environment / weather / season / wind / runtime world state:
+  - [Environment Runtime Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\environment_runtime_foundation.md)
+- light / darkness / visibility / night / underground readability:
+  - [Lighting, Visibility, and Darkness](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\lighting_visibility_and_darkness.md)
+- underground / mining / cellar / stairs / vertical traversal:
+  - [Subsurface and Verticality Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\subsurface_and_verticality_foundation.md)
+- multiplayer / co-op / authority / replication:
+  - [Multiplayer Authority and Replication](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\multiplayer_authority_and_replication.md)
+- modding / extension / registries / content packs:
+  - [Modding Extension Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\modding_extension_contracts.md)
+- localization pipeline / localization workflow / translation process:
+  - [Localization Pipeline](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\localization_pipeline.md)
+- threading / simulation cadence / main-thread vs worker / runtime update model:
+  - [Simulation and Threading Model](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\SIMULATION_AND_THREADING_MODEL.md)
+
+### Mandatory foundation-doc rule
+
+If a task falls into one of the domains above, the AI must read the corresponding foundation document before proposing architecture, an implementation plan, or code.
+
+Do not answer such tasks from memory or only from adjacent docs when a dedicated foundation doc exists.
 
 ## Current project status
 
