@@ -37,6 +37,7 @@ var _redrawing_chunks: Array[Chunk] = []
 var _saved_chunk_data: Dictionary = {}
 var _terrain_tileset: TileSet = null
 var _overlay_tileset: TileSet = null
+var _underground_terrain_tileset: TileSet = null
 var _fog_tileset: TileSet = null
 var _fog_state: UndergroundFogState = UndergroundFogState.new()
 var _fog_job_id: StringName = &""
@@ -303,7 +304,8 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	# Underground fog: reveal newly mined tile + neighbors
 	if _active_z != 0:
 		var reveal_tiles: Array = [tile_pos]
-		for offset: Vector2i in [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1)]:
+		for offset: Vector2i in [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1),
+				Vector2i(-1,-1), Vector2i(1,-1), Vector2i(-1,1), Vector2i(1,1)]:
 			reveal_tiles.append(tile_pos + offset)
 		_fog_state.force_reveal(reveal_tiles)
 		# Apply fog update for mined tile and neighbors
@@ -367,6 +369,7 @@ func _build_world_tilesets() -> void:
 	var tilesets: Dictionary = ChunkTilesetFactory.build_tilesets(WorldGenerator.balance, biome)
 	_terrain_tileset = tilesets.get("terrain") as TileSet
 	_overlay_tileset = tilesets.get("overlay") as TileSet
+	_underground_terrain_tileset = ChunkTilesetFactory.build_underground_terrain_tileset(WorldGenerator.balance, biome)
 
 func _build_fog_tileset() -> void:
 	if not WorldGenerator or not WorldGenerator.balance:
@@ -470,13 +473,14 @@ func _load_chunk(coord: Vector2i) -> void:
 		native_data = _generate_solid_rock_chunk()
 	else:
 		native_data = WorldGenerator.get_chunk_data(coord)
+	var ts_tileset: TileSet = _underground_terrain_tileset if _active_z != 0 else _terrain_tileset
 	var chunk := Chunk.new()
 	chunk.setup(
 		coord,
 		WorldGenerator.balance.tile_size,
 		WorldGenerator.balance.chunk_size_tiles,
 		WorldGenerator.current_biome,
-		_terrain_tileset,
+		ts_tileset,
 		_overlay_tileset,
 		self
 	)
@@ -644,13 +648,14 @@ func _staged_loading_create() -> void:
 	if _loaded_chunks.has(coord):
 		_staged_coord = Vector2i(999999, 999999)
 		return
+	var ts_tileset2: TileSet = _underground_terrain_tileset if _active_z != 0 else _terrain_tileset
 	var chunk := Chunk.new()
 	chunk.setup(
 		coord,
 		WorldGenerator.balance.tile_size,
 		WorldGenerator.balance.chunk_size_tiles,
 		WorldGenerator.current_biome,
-		_terrain_tileset,
+		ts_tileset2,
 		_overlay_tileset,
 		self
 	)
@@ -767,6 +772,19 @@ func set_active_z_level(z: int) -> void:
 		(_z_containers[layer_z] as Node2D).visible = (layer_z == z)
 	_loaded_chunks = _z_chunks.get(z, {})
 	_player_chunk = Vector2i(99999, 99999)
+	# Force immediate fog update on z-level entry
+	if z != 0 and _player:
+		_fog_state.clear()
+		var player_tile: Vector2i = WorldGenerator.world_to_tile(_player.global_position)
+		var delta: Dictionary = _fog_state.update(player_tile)
+		for tile: Vector2i in delta.get("newly_visible", {}):
+			var cc: Vector2i = WorldGenerator.tile_to_chunk(tile)
+			var ch: Chunk = _loaded_chunks.get(cc) as Chunk
+			if not ch:
+				continue
+			var local: Vector2i = ch.global_to_local(tile)
+			if ch.is_fog_revealable(local):
+				ch.apply_fog_visible({local: true})
 
 func get_active_z_level() -> int:
 	return _active_z
@@ -779,29 +797,32 @@ func _generate_solid_rock_chunk() -> Dictionary:
 	terrain.resize(chunk_size * chunk_size)
 	height.resize(chunk_size * chunk_size)
 	terrain.fill(TileGenData.TerrainType.ROCK)
+	height.fill(0.5)
 	return {"chunk_size": chunk_size, "terrain": terrain, "height": height}
 
-## Create a tiny underground pocket at z=-1. Ensures the chunk is loaded and sets
-## specified tiles to MINED_FLOOR. Called from debug path only.
+## Create a tiny underground pocket at z=-1. Ensures ALL needed chunks are loaded
+## and sets specified tiles to MINED_FLOOR. Called from debug path only.
 func ensure_underground_pocket(center_tile: Vector2i, pocket_tiles: Array) -> void:
 	var prev_z: int = _active_z
-	# Temporarily switch to z=-1 to load the chunk there
 	if _active_z != -1:
 		set_active_z_level(-1)
-	var chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(center_tile)
-	# Force-load the chunk if not already present
-	if not _loaded_chunks.has(chunk_coord):
+	# Collect all chunk coords needed: pocket tiles + 1-tile wall ring around them
+	var needed_coords: Dictionary = {}
+	for tile_pos: Variant in pocket_tiles:
+		var t: Vector2i = tile_pos as Vector2i
+		needed_coords[WorldGenerator.tile_to_chunk(t)] = true
+		for offset: Vector2i in [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1),
+				Vector2i(-1,-1), Vector2i(1,-1), Vector2i(-1,1), Vector2i(1,1)]:
+			needed_coords[WorldGenerator.tile_to_chunk(t + offset)] = true
+	# Ensure all needed chunks are loaded
+	var ug_ts: TileSet = _underground_terrain_tileset if _underground_terrain_tileset else _terrain_tileset
+	for coord: Vector2i in needed_coords:
+		if _loaded_chunks.has(coord):
+			continue
 		var data: Dictionary = _generate_solid_rock_chunk()
 		var chunk := Chunk.new()
-		chunk.setup(
-			chunk_coord,
-			WorldGenerator.balance.tile_size,
-			WorldGenerator.balance.chunk_size_tiles,
-			WorldGenerator.current_biome,
-			_terrain_tileset,
-			_overlay_tileset,
-			self
-		)
+		chunk.setup(coord, WorldGenerator.balance.tile_size, WorldGenerator.balance.chunk_size_tiles,
+			WorldGenerator.current_biome, ug_ts, _overlay_tileset, self)
 		chunk.set_underground(true)
 		chunk.populate_native(data, {}, false)
 		if _fog_tileset:
@@ -809,28 +830,39 @@ func ensure_underground_pocket(center_tile: Vector2i, pocket_tiles: Array) -> vo
 		var z_container: Node2D = _z_containers.get(-1) as Node2D
 		if z_container:
 			z_container.add_child(chunk)
-		_loaded_chunks[chunk_coord] = chunk
+		_loaded_chunks[coord] = chunk
 		chunk._begin_progressive_redraw()
-	var chunk: Chunk = _loaded_chunks.get(chunk_coord) as Chunk
-	if not chunk:
-		if prev_z != -1:
-			set_active_z_level(prev_z)
-		return
-	# Mine the pocket tiles
-	var dirty: Dictionary = {}
+	# Mine the pocket tiles — group by chunk for correct local coords
+	var dirty_by_chunk: Dictionary = {}
 	for tile_pos: Variant in pocket_tiles:
 		var t: Vector2i = tile_pos as Vector2i
-		var local: Vector2i = chunk.global_to_local(t)
-		if chunk.get_terrain_type_at(local) == TileGenData.TerrainType.ROCK:
-			chunk._set_terrain_type(local, TileGenData.TerrainType.MINED_FLOOR)
-			dirty[local] = true
-			# Mark neighbors dirty for visual update
-			for offset: Vector2i in [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1)]:
-				var n: Vector2i = local + offset
-				if chunk._is_inside(n):
-					dirty[n] = true
-	if not dirty.is_empty():
-		chunk._redraw_dirty_tiles(dirty)
+		var cc: Vector2i = WorldGenerator.tile_to_chunk(t)
+		var ch: Chunk = _loaded_chunks.get(cc) as Chunk
+		if not ch:
+			continue
+		var local: Vector2i = ch.global_to_local(t)
+		if ch.get_terrain_type_at(local) == TileGenData.TerrainType.ROCK:
+			ch._set_terrain_type(local, TileGenData.TerrainType.MINED_FLOOR)
+			if not dirty_by_chunk.has(cc):
+				dirty_by_chunk[cc] = {}
+			(dirty_by_chunk[cc] as Dictionary)[local] = true
+			# Mark 8 neighbors dirty (may be in different chunks)
+			for offset: Vector2i in [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1),
+					Vector2i(-1,-1), Vector2i(1,-1), Vector2i(-1,1), Vector2i(1,1)]:
+				var n_global: Vector2i = t + offset
+				var n_cc: Vector2i = WorldGenerator.tile_to_chunk(n_global)
+				var n_ch: Chunk = _loaded_chunks.get(n_cc) as Chunk
+				if n_ch:
+					var n_local: Vector2i = n_ch.global_to_local(n_global)
+					if n_ch._is_inside(n_local):
+						if not dirty_by_chunk.has(n_cc):
+							dirty_by_chunk[n_cc] = {}
+						(dirty_by_chunk[n_cc] as Dictionary)[n_local] = true
+	# Redraw dirty tiles per chunk
+	for cc: Vector2i in dirty_by_chunk:
+		var ch: Chunk = _loaded_chunks.get(cc) as Chunk
+		if ch:
+			ch._redraw_dirty_tiles(dirty_by_chunk[cc])
 	# Restore original z
 	if prev_z != -1:
 		set_active_z_level(prev_z)

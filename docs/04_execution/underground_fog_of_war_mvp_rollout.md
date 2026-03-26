@@ -484,9 +484,11 @@ Implement the smallest correct architecture-compliant slice that:
 |---|-----------|--------|
 | 0 | Read, align, clean up entry path | DONE |
 | 1 | Fog state model + reveal bubble | DONE |
-| 2 | Excavation reveal + hidden mass + wall visuals | IN PROGRESS |
-| 3 | Underground-specific rock visuals | PENDING |
-| 4 | Performance validation and cleanup | PENDING |
+| 2 | Excavation reveal + hidden mass + wall visuals | DONE |
+| 3 | Underground-specific rock visuals | DONE |
+| 4 | Performance validation, cleanup, doc update | DONE |
+
+**Rollout complete (2026-03-26).** All completion criteria met.
 
 ### Iteration 0 Changes (2026-03-26)
 
@@ -509,8 +511,29 @@ Implement the smallest correct architecture-compliant slice that:
 
 ### Iteration 2 Changes (2026-03-26)
 
-- `Chunk.is_fog_revealable()`: fog reveals only MINED_FLOOR, MOUNTAIN_ENTRANCE, GROUND, and cave-edge rocks. Solid rock mass stays hidden under fog.
-- `Chunk._is_underground` flag: set before populate/redraw. Underground ROCK renders as dark `TILE_ROCK_INTERIOR` except cave-edge rocks which use full 47-variant wall faces.
-- `Chunk._redraw_cover_tile()`: skips entirely for underground (no roof system underground).
-- `ChunkManager.try_harvest_at_world()`: excavation force-reveals mined tile + neighbors in fog state.
+- `Chunk.is_fog_revealable()`: fog reveals MINED_FLOOR, MOUNTAIN_ENTRANCE, GROUND, and cave-edge rocks (all 8 directions). Deep solid rock stays hidden under fog.
+- `Chunk._is_underground` flag: set before populate/redraw via `set_underground(true)`.
+- `Chunk._redraw_cover_tile()`: skips entirely for underground — no roof system underground (ADR-0006).
+- `ChunkManager.try_harvest_at_world()`: excavation force-reveals mined tile + 8 neighbors in fog state.
 - `ChunkManager.get_terrain_type_at_global()`: underground fallback returns ROCK instead of surface terrain, fixing wall variant calculation at chunk boundaries.
+- All dirty tile sets include 8 neighbors (including diagonals) for correct notch/corner wall variant rendering.
+
+### Iteration 3 Changes (2026-03-26)
+
+- Added `rock_faces_atlas_dungeon.png` — underground-specific rock wall textures.
+- `ChunkTilesetFactory.build_underground_terrain_tileset()`: builds terrain tileset using dungeon atlas instead of surface atlas.
+- `ChunkTilesetFactory._build_terrain_tileset()`: accepts optional `faces_path` parameter for atlas selection.
+- `ChunkManager._underground_terrain_tileset`: separate tileset created at init.
+- All 3 chunk creation paths select underground tileset when `_active_z != 0`.
+- Underground rock walls now have distinct interior visual identity, separate from surface mountain rock.
+
+### Iteration 4 Changes (2026-03-26)
+
+Full audit performed. Issues found and fixed:
+- `_generate_solid_rock_chunk()`: height bytes now filled with 0.5 (was uninitialized zeros).
+- `create_fog_tileset()`: cleaned up pixel range calculation (`tile_size + 0` → `tile_size`).
+- `UndergroundFogState`: doc comment updated with state contract (transient, not persisted, cleared on z-entry).
+- `is_fog_revealable()`: doc comment clarified with explicit rules per terrain type.
+- `_redraw_cover_tile()`: ADR-0006 reference added to underground guard comment.
+- `set_active_z_level()`: force fog update uses `global_to_local()` consistently (was manual calc).
+- Rollout doc, glossary updated.

@@ -4,7 +4,7 @@ doc_type: governance
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.0
+version: 1.1
 last_updated: 2026-03-26
 related_docs:
   - ENGINEERING_STANDARDS.md
@@ -155,6 +155,9 @@ A shallow underground space directly beneath the base (z=-1). Built by the playe
 
 ### Subsurface
 Any underground layer (z < 0). Includes cellars, mines, and deeper excavated spaces. Has distinct environmental rules: no natural light, different threat profile, excavation-based traversal. See: subsurface_and_verticality_foundation.md.
+
+### Underground fog of war
+Per-tile visibility system for underground z-levels. Three states: **unseen** (opaque black — player has never been here), **discovered** (dimmed — player was here but moved away), **visible** (clear — within reveal radius). Fog is transient: not persisted to save, cleared on z-level entry. Implemented as a TileMapLayer (`_fog_layer`, z_index 7) on each underground chunk. See: underground_fog_of_war_mvp_rollout.md.
 
 ### Connector / Vertical connector
 A structure that links Z-levels: stairs, ladders, hatches. Has stable identity for persistence and streaming. Currently: `ZStairs` with source_z/target_z. Both ends must exist for the connection to work.

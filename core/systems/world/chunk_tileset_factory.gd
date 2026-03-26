@@ -8,6 +8,7 @@ const TERRAIN_SOURCE_ID: int = 0
 const OVERLAY_SOURCE_ID: int = 1
 
 const ROCK_FACES_PATH: String = "res://assets/sprites/terrain/rock_faces_atlas.png"
+const ROCK_FACES_DUNGEON_PATH: String = "res://assets/sprites/terrain/rock_faces_atlas_dungeon.png"
 ## Количество базовых тайлов стен (без вариантов). Обновляется при сборке tileset.
 static var wall_base_count: int = 0
 ## Количество вариантов (1 = без вариативности, 3 = три варианта).
@@ -149,9 +150,12 @@ static func build_tilesets(balance: WorldGenBalance, biome: BiomeData) -> Dictio
 		"overlay": _build_overlay_tileset(balance, biome),
 	}
 
-static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData) -> TileSet:
+static func build_underground_terrain_tileset(balance: WorldGenBalance, biome: BiomeData) -> TileSet:
+	return _build_terrain_tileset(balance, biome, ROCK_FACES_DUNGEON_PATH)
+
+static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, faces_path: String = ROCK_FACES_PATH) -> TileSet:
 	var ts: int = balance.tile_size
-	var faces_tex: Texture2D = load(ROCK_FACES_PATH) as Texture2D
+	var faces_tex: Texture2D = load(faces_path) as Texture2D
 	var atlas_tiles: int = 0
 	var faces_img: Image = null
 	var atlas_cols: int = 0
@@ -228,7 +232,7 @@ static func create_fog_tileset(tile_size: int) -> TileSet:
 	# Tile 1: DISCOVERED — dark, semi-transparent
 	var discovered_color := Color(0.03, 0.03, 0.05, 0.65)
 	for py: int in range(tile_size):
-		for px: int in range(tile_size + 0, tile_size * 2):
+		for px: int in range(tile_size, tile_size * 2):
 			image.set_pixel(px, py, discovered_color)
 	var texture := ImageTexture.create_from_image(image)
 	var src := TileSetAtlasSource.new()

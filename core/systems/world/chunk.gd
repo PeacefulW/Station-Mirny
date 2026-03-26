@@ -135,7 +135,7 @@ func init_fog_layer(fog_tileset: TileSet) -> void:
 	_fog_layer = TileMapLayer.new()
 	_fog_layer.name = "FogLayer"
 	_fog_layer.tile_set = fog_tileset
-	_fog_layer.z_index = 7
+	_fog_layer.z_index = 7  # Above cover_layer(6), below debug(50)
 	add_child(_fog_layer)
 	# Fill with UNSEEN
 	for y: int in range(_chunk_size):
@@ -147,12 +147,14 @@ func init_fog_layer(fog_tileset: TileSet) -> void:
 			)
 
 ## Erase fog for tiles that are currently visible (player nearby).
+## Also redraws terrain to update wall variants with current neighbor data.
 func apply_fog_visible(visible_locals: Dictionary) -> void:
 	if not _fog_layer:
 		return
 	for local: Vector2i in visible_locals:
 		if _is_inside(local):
 			_fog_layer.erase_cell(local)
+			_redraw_terrain_tile(local)
 
 ## Set DISCOVERED fog tile for tiles that were visible but player moved away.
 func apply_fog_discovered(discovered_locals: Dictionary) -> void:
@@ -167,8 +169,10 @@ func apply_fog_discovered(discovered_locals: Dictionary) -> void:
 			)
 
 ## Returns true if this tile should have fog removed when in reveal radius.
-## Open space + cave-edge rocks (visible wall faces) are revealable.
-## Deep solid rock stays hidden under fog (dark mass).
+## - MINED_FLOOR / MOUNTAIN_ENTRANCE: always (open space)
+## - GROUND: always (surface terrain, shouldn't normally appear underground)
+## - ROCK: only if adjacent (8-dir) to open space — visible cave wall face
+## - Deep rock with no open neighbors: stays hidden under fog (dark mass)
 func is_fog_revealable(local_tile: Vector2i) -> bool:
 	if not _is_inside(local_tile):
 		return false
@@ -177,7 +181,7 @@ func is_fog_revealable(local_tile: Vector2i) -> bool:
 		or terrain == TileGenData.TerrainType.MOUNTAIN_ENTRANCE \
 		or terrain == TileGenData.TerrainType.GROUND:
 		return true
-	# Cave-edge rocks = visible wall faces (volumetric walls like in the reference)
+	# Rock adjacent to open space (any of 8 directions) = visible wall
 	if terrain == TileGenData.TerrainType.ROCK:
 		return _is_cave_edge_rock(local_tile)
 	return false
@@ -320,15 +324,12 @@ func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 	var alt_id: int = 0
 	match terrain_type:
 		TileGenData.TerrainType.ROCK:
-			if _is_underground and not _is_cave_edge_rock(local_tile):
-				# Deep underground rock = dark mass (hidden by fog anyway)
-				atlas = ChunkTilesetFactory.TILE_ROCK_INTERIOR
-			else:
-				# Surface rock OR underground cave-edge = volumetric wall faces
-				var result: Array = _apply_variant_full(
-					_rock_visual_class(local_tile), local_tile)
-				atlas = result[0]
-				alt_id = result[1]
+			# All rock uses wall face variants (47 types). Underground non-edge rock
+			# is hidden by fog layer anyway — no need for special dark tile.
+			var result: Array = _apply_variant_full(
+				_rock_visual_class(local_tile), local_tile)
+			atlas = result[0]
+			alt_id = result[1]
 		TileGenData.TerrainType.MINED_FLOOR:
 			atlas = ChunkTilesetFactory.TILE_MINED_FLOOR
 		TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
@@ -440,7 +441,8 @@ func _redraw_cliff_tile(_local_tile: Vector2i) -> void:
 	pass
 
 func _redraw_cover_tile(local_tile: Vector2i) -> void:
-	# Underground has no roof/cover — fog layer handles visibility instead.
+	# Underground z-levels don't use roof/cover system (ADR-0006).
+	# Visibility handled by fog layer instead.
 	if _is_underground:
 		return
 	var terrain: int = get_terrain_type_at(local_tile)

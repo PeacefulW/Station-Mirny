@@ -3,8 +3,13 @@ extends RefCounted
 
 ## Lightweight fog-of-war state for underground Z-levels.
 ## Tracks which tiles the player has ever revealed and which are currently visible.
-## Fog of War MVP — Iteration 1.
+##
+## State contract:
+## - TRANSIENT: cleared on z-level entry, NOT persisted to save files.
+## - One shared instance in ChunkManager (covers all underground z-levels).
+## - Reveal driven by player movement (budgeted tick) and excavation (immediate).
 
+## Reveal radius in tiles around the player. TODO: move to balance resource.
 const REVEAL_RADIUS: int = 5
 
 ## All tiles the player has ever seen. Persists for the session.

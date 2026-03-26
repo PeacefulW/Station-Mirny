@@ -4,7 +4,7 @@ doc_type: adr
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.0
+version: 1.1
 last_updated: 2026-03-26
 related_docs:
   - ../02_system_specs/world/subsurface_and_verticality_foundation.md
@@ -37,3 +37,15 @@ Underground types:
 - Each Z-level can have different environmental rules without polluting the other.
 - Chunk streaming loads only relevant Z layers — no wasted memory on distant depths.
 - Building system works on any Z-level but rooms are Z-local (a room at z=0 is not connected to z=-1 unless a connector exists).
+
+## Implementation Status (2026-03-26)
+
+Underground Fog of War MVP rollout complete. Separation enforced in code:
+
+- **Chunk generation**: z != 0 → solid ROCK (`_generate_solid_rock_chunk`), not surface terrain
+- **Chunk terrain tileset**: underground uses `rock_faces_atlas_dungeon.png`, surface uses `rock_faces_atlas.png`
+- **Cover/roof system**: `MountainRoofSystem._request_refresh()` skips z != 0. `Chunk._redraw_cover_tile()` skips `_is_underground`.
+- **Fog of war**: underground-only `_fog_layer` (TileMapLayer z=7) with 3-state visibility (unseen/discovered/visible). Surface has no fog layer.
+- **Terrain fallback**: `get_terrain_type_at_global()` returns ROCK for unloaded underground tiles, surface terrain for z=0.
+- **Pocket creation**: `ensure_underground_pocket()` loads all needed chunks across boundaries, mines tiles per-chunk correctly.
+- **Fog state**: transient (`UndergroundFogState`), cleared on z-entry, not persisted.
