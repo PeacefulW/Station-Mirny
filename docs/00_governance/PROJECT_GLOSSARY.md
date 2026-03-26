@@ -84,8 +84,51 @@ A micro-region within a biome that modifies its character without replacing its 
 ### Wrap-world
 World topology where the X axis wraps seamlessly (cylindrical). Moving far enough east returns you to the west. Y axis carries latitude logic (temperature gradient). Sampling must be wrap-safe — no seams at wrap boundary. Defined in spec, not yet enforced in code.
 
+### Biome
+A named world region with distinct environmental identity: terrain palette, flora set, resource distribution, threat profile, temperature range, spore density. Determined by the biome resolver from world channel values at a position. Biomes define what a place IS — its permanent geographic character. Examples: plains, foothills, mountains, wet lowland, dry/scorched zone, cold zone. Each biome is a `.tres` resource (BiomeData), not a code branch.
+
+### Height
+World channel (0.0–1.0) representing elevation. Drives: mountain placement, biome selection (high = mountains/foothills, low = lowlands/floodplains), river flow direction, visibility distance. The most fundamental channel — everything else builds on top of it.
+
+### Moisture
+World channel (0.0–1.0) representing water availability at a position. Drives: biome selection (high = wet lowland/floodplain, low = dry/scorched), flora density, river proximity influence, resource distribution. Correlates with proximity to rivers and low elevation.
+
+### Cave
+An underground space inside a mountain, accessed by mining through rock. Distinct from cellar (player-built underground beneath base). Caves are discovered, not constructed. Environmental rules: no natural light, potential for unique resources, enclosed threat profile. Cave topology is generated from mountain structure + player excavation. See: subsurface_and_verticality_foundation.md.
+
 ### Chunk
 A fixed-size tile grid (default 64x64 tiles) used as the streaming, rendering, and persistence unit. Chunks are loaded/unloaded based on player proximity. A chunk is a cache/materialization of world truth, not a source of identity. World truth comes from channels + resolver + structures; chunks just render it.
+
+---
+
+## Environment Runtime
+
+The environment runtime is the layer that answers: **"what does this place feel like RIGHT NOW?"**
+
+World generation defines what a place IS (biome, terrain, elevation). Environment runtime defines what state it is IN (time of day, weather, season, wind, temperature exposure, visibility). Generation is stable and deterministic. Environment runtime changes every frame.
+
+See: environment_runtime_foundation.md.
+
+### World generation vs Environment runtime
+- **Generation**: "this is a cold mountain biome at elevation 0.8 with low moisture" — permanent, from seed
+- **Runtime**: "it's night, a storm is passing, wind is 15 m/s from the north, temperature is -22C, visibility is 40 tiles" — transient, changes over time
+
+Generation is the stable base. Runtime is the changing layer on top.
+
+### Time of day
+Runtime dimension. Drives: ambient light level, shadow angles, fauna activity patterns, player visibility. Phases: dawn, day, dusk, night. Night = darkness = exposure pressure. Currently implemented in `TimeManager` + `DaylightSystem`.
+
+### Season
+Runtime dimension on a slow cycle. Drives: base temperature offset, storm frequency, spore density, flora state. Phases: warm, spore, cold, storm. Each season shifts the balance of survival pressure. Currently: enum exists in `TimeManager`, gameplay effects not implemented.
+
+### Weather
+Runtime dimension. Transient events that modify environmental state: storms (reduce visibility, increase wind), fog (reduce visibility), clear sky. Weather is not biome — any biome can have any weather, but frequency differs. Not yet implemented.
+
+### Wind
+Runtime dimension. Direction and strength. Drives: spore drift direction, storm severity, sound occlusion, flag/smoke animation. Gameplay-authoritative (affects spore spread, not just visuals). Not yet implemented.
+
+### Temperature exposure
+Runtime-computed value combining: biome base temperature + time-of-day modifier + season modifier + weather modifier + altitude modifier + shelter state. Determines thermal stress on the player. Inside sanctuary: controlled. Outside in exposure: driven by all these factors. Not yet implemented as gameplay system.
 
 ---
 
