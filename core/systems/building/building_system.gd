@@ -22,7 +22,8 @@ var _placement_service: BuildingPlacementService = BuildingPlacementService.new(
 var _indoor_solver: IndoorSolver = IndoorSolver.new()
 var _persistence: BuildingPersistence = BuildingPersistence.new()
 var _command_executor: CommandExecutor = null
-var _dirty_queue: RuntimeDirtyQueue = RuntimeDirtyQueue.new()
+var _dirty_room_regions: Array[Dictionary] = []
+var _full_room_rebuild_state: Dictionary = {}
 var _room_job_id: StringName = &""
 
 # --- Встроенные ---
@@ -103,10 +104,13 @@ func grid_to_world(grid_pos: Vector2i) -> Vector2:
 	return _placement_service.grid_to_world(grid_pos)
 
 func is_cell_indoor(grid_pos: Vector2i) -> bool:
-	return _indoor_solver.indoor_cells.has(grid_pos)
+	return indoor_cells.has(grid_pos)
 
 func get_grid_size() -> int:
 	return _placement_service.get_grid_size()
+
+func has_pending_room_recompute() -> bool:
+	return not _dirty_room_regions.is_empty() or not _full_room_rebuild_state.is_empty()
 
 ## Задать выбранную постройку (делегирование в placement-сервис).
 func set_selected_building(building: BuildingData) -> void:
@@ -119,6 +123,8 @@ func save_state() -> Dictionary:
 ## Восстановить состояние системы строительства.
 func load_state(data: Dictionary) -> void:
 	_persistence.load_state(data, _create_building_from_persistence, _clear_buildings_for_persistence)
+	_dirty_room_regions.clear()
+	_full_room_rebuild_state.clear()
 	# Boot/load path: sync full rebuild is acceptable behind loading screen (ADR-0001).
 	indoor_cells = _indoor_solver.recalculate(walls)
 	EventBus.rooms_recalculated.emit(indoor_cells)
@@ -168,8 +174,8 @@ func place_selected_building_at(world_pos: Vector2) -> Dictionary:
 		_player_scrap = _player.get_scrap_count()
 		return {"success": false, "message_key": "SYSTEM_BUILD_CREATE_FAILED"}
 	EventBus.scrap_spent.emit(cost, _player_scrap)
-	_bind_building_health(walls.get(placed_pos), placed_pos)
-	_mark_rooms_dirty(placed_pos)
+	_bind_building_health(building_node, placed_pos)
+	_mark_rooms_dirty(_get_node_footprint(building_node, placed_pos), &"place")
 	EventBus.building_placed.emit(placed_pos)
 	WorldPerfProbe.end("BuildingSystem.place_building", _t)
 	return {
@@ -190,12 +196,14 @@ func remove_building_at(world_pos: Vector2) -> Dictionary:
 	var removed_pos: Vector2i = removal_result.get("grid_pos", Vector2i.ZERO)
 	var building_id: String = str(removal_result.get("building_id", ""))
 	var refund_amount: int = 1
+	var dirty_size := Vector2i.ONE
 	var building_data: BuildingData = _placement_service.get_building_data_by_id(building_id)
 	if building_data:
 		refund_amount = maxi(building_data.scrap_cost, 0)
+		dirty_size = Vector2i(maxi(building_data.size_x, 1), maxi(building_data.size_y, 1))
 	if _player or _find_player():
 		_player.collect_scrap(refund_amount)
-	_mark_rooms_dirty(removed_pos)
+	_mark_rooms_dirty(_make_building_footprint(removed_pos, dirty_size), &"remove")
 	EventBus.building_removed.emit(removed_pos)
 	WorldPerfProbe.end("BuildingSystem.remove_building", _t)
 	return {
@@ -213,6 +221,7 @@ func _on_building_destroyed(grid_pos: Vector2i) -> void:
 	if not walls.has(grid_pos):
 		return
 	var node: Node2D = walls[grid_pos]
+	var footprint: Rect2i = _get_node_footprint(node, grid_pos)
 	var origin: Vector2i = node.get_meta("grid_origin", grid_pos) as Vector2i
 	var sx: int = int(node.get_meta("size_x", 1))
 	var sy: int = int(node.get_meta("size_y", 1))
@@ -220,21 +229,169 @@ func _on_building_destroyed(grid_pos: Vector2i) -> void:
 		for dy: int in range(sy):
 			walls.erase(Vector2i(origin.x + dx, origin.y + dy))
 	node.queue_free()
-	_mark_rooms_dirty(origin)
+	_mark_rooms_dirty(footprint, &"destroy")
 	EventBus.building_removed.emit(origin)
 	WorldPerfProbe.end("BuildingSystem.destroy_building", _t)
 
-func _mark_rooms_dirty(pos: Vector2i) -> void:
-	_dirty_queue.enqueue(pos)
+func _mark_rooms_dirty(footprint: Rect2i, reason: StringName) -> void:
+	_enqueue_room_dirty_region(footprint, reason)
 
 func _room_recompute_tick() -> bool:
-	if _dirty_queue.is_empty():
+	if not _full_room_rebuild_state.is_empty():
+		return _advance_full_room_rebuild()
+	if _dirty_room_regions.is_empty():
 		return false
-	_dirty_queue.clear()
-	indoor_cells = _indoor_solver.recalculate(walls)
+	var region: Dictionary = _dirty_room_regions.pop_front()
+	var proof_bounds: Rect2i = region.get("padded_bounds", Rect2i())
+	var patch: Dictionary = _indoor_solver.solve_local_patch(walls, indoor_cells, proof_bounds)
+	if not bool(patch.get("proof_succeeded", false)):
+		var current_padding: int = int(region.get("proof_padding", _get_room_patch_padding()))
+		var max_padding: int = _get_room_patch_max_padding()
+		if current_padding < max_padding:
+			var next_padding: int = mini(max_padding, current_padding + _get_room_patch_padding())
+			_enqueue_room_dirty_region(region.get("footprint", Rect2i()), region.get("reason", StringName()), next_padding)
+			return not _dirty_room_regions.is_empty()
+		push_warning("[BuildingSystem] room patch exceeded local proof bounds; switching to staged full rebuild")
+		_begin_full_room_rebuild()
+		return true
+	if _apply_room_patch(patch):
+		_indoor_solver.indoor_cells = indoor_cells
+		EventBus.rooms_recalculated.emit(indoor_cells)
+		queue_redraw()
+	return not _dirty_room_regions.is_empty()
+
+func _begin_full_room_rebuild() -> void:
+	_dirty_room_regions.clear()
+	_full_room_rebuild_state = _indoor_solver.begin_recalculate_state(walls)
+
+func _advance_full_room_rebuild() -> bool:
+	if _full_room_rebuild_state.is_empty():
+		return false
+	if not _dirty_room_regions.is_empty():
+		_begin_full_room_rebuild()
+	var is_complete: bool = _indoor_solver.advance_recalculate_state(
+		_full_room_rebuild_state,
+		walls,
+		_get_room_full_rebuild_flood_budget(),
+		_get_room_full_rebuild_scan_budget()
+	)
+	if not is_complete:
+		return true
+	indoor_cells = _indoor_solver.finish_recalculate_state(_full_room_rebuild_state)
+	_full_room_rebuild_state.clear()
 	EventBus.rooms_recalculated.emit(indoor_cells)
 	queue_redraw()
 	return false
+
+func _apply_room_patch(patch: Dictionary) -> bool:
+	var changed: bool = false
+	var removed_cells: Dictionary = patch.get("removed_cells", {})
+	for cell: Vector2i in removed_cells:
+		if indoor_cells.has(cell):
+			indoor_cells.erase(cell)
+			changed = true
+	var added_cells: Dictionary = patch.get("added_cells", {})
+	for cell: Vector2i in added_cells:
+		if not indoor_cells.has(cell):
+			indoor_cells[cell] = true
+			changed = true
+	return changed
+
+func _enqueue_room_dirty_region(footprint: Rect2i, reason: StringName, preferred_padding: int = -1) -> void:
+	var merged_region: Dictionary = _make_room_dirty_region(footprint, reason, preferred_padding)
+	var merge_indices: Array[int] = []
+	for index: int in range(_dirty_room_regions.size()):
+		var existing: Dictionary = _dirty_room_regions[index]
+		if _room_regions_overlap(existing, merged_region):
+			merge_indices.append(index)
+			merged_region = _merge_room_dirty_regions(existing, merged_region)
+	if merge_indices.is_empty():
+		_dirty_room_regions.append(merged_region)
+		return
+	_dirty_room_regions[merge_indices[0]] = merged_region
+	for idx: int in range(merge_indices.size() - 1, 0, -1):
+		_dirty_room_regions.remove_at(merge_indices[idx])
+
+func _make_room_dirty_region(footprint: Rect2i, reason: StringName, preferred_padding: int = -1) -> Dictionary:
+	var padding: int = preferred_padding
+	if padding < 0:
+		padding = _get_room_patch_padding()
+	padding = clampi(padding, _get_room_patch_padding(), _get_room_patch_max_padding())
+	return {
+		"footprint": footprint,
+		"padded_bounds": _grow_rect(footprint, padding),
+		"reason": reason,
+		"proof_padding": padding,
+	}
+
+func _merge_room_dirty_regions(lhs: Dictionary, rhs: Dictionary) -> Dictionary:
+	var merged_footprint: Rect2i = _merge_rects(lhs.get("footprint", Rect2i()), rhs.get("footprint", Rect2i()))
+	var merged_padding: int = maxi(int(lhs.get("proof_padding", _get_room_patch_padding())), int(rhs.get("proof_padding", _get_room_patch_padding())))
+	var lhs_reason: StringName = lhs.get("reason", StringName())
+	var rhs_reason: StringName = rhs.get("reason", StringName())
+	var merged_reason: StringName = lhs_reason if lhs_reason == rhs_reason else &"mixed"
+	return {
+		"footprint": merged_footprint,
+		"padded_bounds": _grow_rect(merged_footprint, merged_padding),
+		"reason": merged_reason,
+		"proof_padding": merged_padding,
+	}
+
+func _room_regions_overlap(lhs: Dictionary, rhs: Dictionary) -> bool:
+	var gap: int = _get_room_patch_merge_gap()
+	return _rects_intersect(_grow_rect(lhs.get("padded_bounds", Rect2i()), gap), _grow_rect(rhs.get("padded_bounds", Rect2i()), gap))
+
+func _make_building_footprint(origin: Vector2i, size: Vector2i) -> Rect2i:
+	return Rect2i(origin, Vector2i(maxi(size.x, 1), maxi(size.y, 1)))
+
+func _get_node_footprint(node: Node2D, fallback_origin: Vector2i) -> Rect2i:
+	var origin: Vector2i = node.get_meta("grid_origin", fallback_origin) as Vector2i
+	var sx: int = int(node.get_meta("size_x", 1))
+	var sy: int = int(node.get_meta("size_y", 1))
+	return _make_building_footprint(origin, Vector2i(sx, sy))
+
+func _grow_rect(rect: Rect2i, amount: int) -> Rect2i:
+	var grow_by: int = maxi(amount, 0)
+	var grow_vec := Vector2i(grow_by, grow_by)
+	return Rect2i(rect.position - grow_vec, rect.size + grow_vec * 2)
+
+func _merge_rects(lhs: Rect2i, rhs: Rect2i) -> Rect2i:
+	var min_x: int = mini(lhs.position.x, rhs.position.x)
+	var min_y: int = mini(lhs.position.y, rhs.position.y)
+	var max_x: int = maxi(lhs.position.x + lhs.size.x, rhs.position.x + rhs.size.x)
+	var max_y: int = maxi(lhs.position.y + lhs.size.y, rhs.position.y + rhs.size.y)
+	return Rect2i(Vector2i(min_x, min_y), Vector2i(max_x - min_x, max_y - min_y))
+
+func _rects_intersect(lhs: Rect2i, rhs: Rect2i) -> bool:
+	return lhs.position.x < rhs.position.x + rhs.size.x \
+		and rhs.position.x < lhs.position.x + lhs.size.x \
+		and lhs.position.y < rhs.position.y + rhs.size.y \
+		and rhs.position.y < lhs.position.y + lhs.size.y
+
+func _get_room_patch_padding() -> int:
+	if balance:
+		return maxi(balance.room_patch_padding, 1)
+	return 6
+
+func _get_room_patch_max_padding() -> int:
+	if balance:
+		return maxi(balance.room_patch_max_padding, _get_room_patch_padding())
+	return 32
+
+func _get_room_patch_merge_gap() -> int:
+	if balance:
+		return maxi(balance.room_patch_merge_gap, 0)
+	return 2
+
+func _get_room_full_rebuild_flood_budget() -> int:
+	if balance:
+		return maxi(balance.room_full_rebuild_flood_budget, 64)
+	return 192
+
+func _get_room_full_rebuild_scan_budget() -> int:
+	if balance:
+		return maxi(balance.room_full_rebuild_scan_budget, 64)
+	return 256
 
 func _on_scrap_collected(total: int) -> void:
 	_player_scrap = total
@@ -280,6 +437,8 @@ func _create_building_from_persistence(grid_pos: Vector2i, building_id: String) 
 	return node
 
 func _clear_buildings_for_persistence() -> void:
+	_dirty_room_regions.clear()
+	_full_room_rebuild_state.clear()
 	_placement_service.clear_all_buildings()
 	_indoor_solver.indoor_cells.clear()
 	indoor_cells = _indoor_solver.indoor_cells

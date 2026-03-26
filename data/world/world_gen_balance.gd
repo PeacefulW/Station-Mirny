@@ -46,13 +46,13 @@ extends Resource
 @export var mountain_debug_mined_color: Color = Color(0.15, 0.65, 1.0, 0.55)
 
 @export_group("Тени гор")
-@export_range(0.1, 0.8) var shadow_intensity: float = 0.45
+@export_range(0.1, 0.8) var shadow_intensity: float = 0.60
 @export_range(1, 12) var shadow_max_length: int = 8
-@export_range(1, 5) var shadow_mountain_height: int = 3
-@export var shadow_color: Color = Color(0.0, 0.0, 0.05)
-@export_range(0.02, 0.2) var shadow_angle_threshold: float = 0.08
+@export_range(1, 5) var shadow_mountain_height: int = 4
+@export var shadow_color: Color = Color(0.01, 0.01, 0.06)
+@export_range(0.02, 0.35) var shadow_angle_threshold: float = 0.20
 @export_range(16, 4096) var mountain_shadow_edge_cache_tiles_per_step: int = 128
-@export_range(1, 64) var mountain_shadow_edges_per_step: int = 4
+@export_range(1, 64) var mountain_shadow_edges_per_step: int = 8
 
 @export_group("Стартовая зона")
 @export var safe_zone_radius: int = 12

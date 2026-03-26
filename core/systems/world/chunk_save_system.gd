@@ -25,13 +25,15 @@ static func save_chunks(save_path: String, chunk_data: Dictionary) -> bool:
 			push_error(Localization.t("SYSTEM_CHUNK_SAVE_DIR_CREATE_FAILED", {"path": chunks_path}))
 			return false
 	var saved_count: int = 0
+	var expected_files: Dictionary = {}
 	for coord: Vector2i in chunk_data:
 		var modifications: Dictionary = chunk_data[coord]
+		var file_path: String = _chunk_file_path(chunks_path, coord)
 		if modifications.is_empty():
 			# Если изменений нет — удаляем файл (чанк стал чистым)
 			_delete_chunk_file(chunks_path, coord)
 			continue
-		var file_path: String = _chunk_file_path(chunks_path, coord)
+		expected_files[file_path.get_file()] = true
 		var serialized: Dictionary = _serialize_chunk(coord, modifications)
 		var json_string: String = JSON.stringify(serialized, "\t")
 		var file := FileAccess.open(file_path, FileAccess.WRITE)
@@ -41,6 +43,7 @@ static func save_chunks(save_path: String, chunk_data: Dictionary) -> bool:
 		file.store_string(json_string)
 		file.close()
 		saved_count += 1
+	_delete_stale_chunk_files(chunks_path, expected_files)
 	return true
 
 ## Загрузить все сохранённые чанки с диска.
@@ -91,6 +94,17 @@ static func _delete_chunk_file(chunks_dir: String, coord: Vector2i) -> void:
 	var path: String = _chunk_file_path(chunks_dir, coord)
 	if FileAccess.file_exists(path):
 		DirAccess.remove_absolute(path)
+
+static func _delete_stale_chunk_files(chunks_dir: String, expected_files: Dictionary) -> void:
+	var dir := DirAccess.open(chunks_dir)
+	if not dir:
+		return
+	dir.list_dir_begin()
+	var file_name: String = dir.get_next()
+	while file_name != "":
+		if file_name.ends_with(".json") and file_name.begins_with("chunk_") and not expected_files.has(file_name):
+			dir.remove(file_name)
+		file_name = dir.get_next()
 
 ## Сериализовать данные чанка в словарь для JSON.
 ## Ключи Vector2i превращаются в строки "(x,y)".

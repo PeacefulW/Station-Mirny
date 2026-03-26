@@ -4,7 +4,7 @@ doc_type: adr
 status: approved
 owner: engineering
 source_of_truth: true
-version: 2.0
+version: 2.4
 last_updated: 2026-03-26
 related_docs:
   - ../00_governance/ENGINEERING_STANDARDS.md
@@ -13,6 +13,7 @@ related_docs:
   - ../02_system_specs/base/building_and_rooms.md
   - ../02_system_specs/base/engineering_networks.md
   - ../04_execution/MASTER_ROADMAP.md
+  - ../04_execution/runtime_integrity_gap_closure_plan.md
 ---
 
 # ADR-0001 Runtime Work and Dirty Update Foundation
@@ -21,8 +22,8 @@ related_docs:
 
 The current base/world foundation already contains:
 - a shared `FrameBudgetDispatcher` path for streaming/topology/visual work
-- synchronous building room recalculation on every place/remove/destroy/load
-- synchronous full power balance recalculation on building mutations and timer ticks
+- boot/load full room recalculation plus runtime dirty-region room recompute for place/remove/destroy
+- registry-global power recompute on explicit registration/dirty mark plus heartbeat safety net
 - boot-time chunk loading under a loading screen
 
 This refactor series needs one canonical contract for what work is allowed in the interactive path and what must move into dirty/budgeted processing.
@@ -115,6 +116,8 @@ The current code paths that define scope for this series are:
 
 3. Power recalculation
 - `core/systems/power/power_system.gd`
+- `_power_recompute_tick`
+- `register_source` / `register_consumer`
 - `force_recalculate`
 - `_recalculate_balance`
 
@@ -134,20 +137,23 @@ The current code paths that define scope for this series are:
 
 ## Current Main-Thread Hazards
 
-The following hazards are present in the current code and must guide the next iterations.
+The following hazards were present in the baseline code and still guide the remaining iterations. The status table below tracks what remains current versus resolved.
 
-### Hazard A: full room recomputation in interactive building path
+### Hazard A: runtime room recompute originally stayed a queued full flood-fill
 
-`BuildingSystem` currently calls `_recalculate_indoor()` after:
-- load
+`BuildingSystem` interactive path now marks dirty regions for:
 - place
 - remove
 - destroy
 
-`IndoorSolver.recalculate()` performs a full bounded flood-fill across the current wall extents, not a local dirty patch.
+Runtime room recompute now uses staged local proof regions and bounded `IndoorSolver.solve_local_patch()` expansion.
+
+Boot/load still uses full `IndoorSolver.recalculate(walls)` behind the loading screen, and runtime keeps an explicit oversized fallback if local proof bounds are exhausted.
 
 Implication:
-- building hot paths already violate the runtime direction in `building_and_rooms.md` and `PERFORMANCE_CONTRACTS.md`
+- ordinary runtime building no longer defaults to queued full flood-fill across all wall extents
+- live telemetry now shows the oversized path as staged/bounded rather than a recurring runtime spike source
+- Hazard A is resolved for ordinary runtime contract closure; boot/load broad rebuild remains separately classified
 
 ### Hazard B: global power scan in interactive and periodic paths
 
@@ -160,13 +166,13 @@ Implication:
 Implication:
 - the baseline strategy is still a full-tree/group scan, not dirty partition invalidation
 
-### Hazard C: load path still reuses runtime sync room rebuild
+### Hazard C: load path must stay conceptually separate from runtime room patching
 
-`SaveAppliers.apply_buildings()` may still call `_recalculate_indoor()` directly after restore.
+`BuildingSystem.load_state()` now owns the room rebuild on restore and keeps it explicitly in boot/load classification.
 
 Implication:
-- load correctness currently depends on the same synchronous room rebuild path that is used for interactive mutations
-- this must be separated conceptually into boot/load work vs interactive work
+- load correctness no longer reuses the ordinary runtime dirty-region path
+- sync rebuild remains acceptable only behind the loading screen or equivalent boot/load boundary
 
 ### Hazard D: `GameWorld` still owns broad orchestration
 
@@ -234,26 +240,40 @@ Tracks which hazards and contract items have been addressed by completed iterati
 
 | Hazard | Description                                    | Status   | Iteration |
 |--------|------------------------------------------------|----------|-----------|
-| A      | Full room recomputation in interactive path    | RESOLVED | 2         |
-| B      | Global power scan in interactive/periodic path | RESOLVED | 3         |
+| A      | Full room recomputation in interactive path    | RESOLVED | G5        |
+| B      | Global power scan in interactive/periodic path | PARTIAL  | 3         |
 | C      | Load path reuses runtime sync room rebuild     | RESOLVED | 2         |
 | D      | GameWorld broad orchestration                  | RESOLVED | 5         |
 | E      | Main-thread-heavy ops in local actions         | ACCEPTED | —         |
 
 ### Iteration 6 — Save/Load Audit + Series Closure (2026-03-26)
 
-**Save/load audit result: CLEAN.** No transient runtime state leaks into save data:
+**Save/load audit result: UPDATED, not full series closure.** No transient runtime state leaks into serialized save payload:
 - `BuildingSystem._dirty_queue`, `_room_job_id` — not serialized, not referenced by save_state()
 - `PowerSystem._is_dirty`, `_power_job_id`, `_heartbeat_timer`, `_was_deficit` — not serialized
 - `BuildingPersistence` serializes only: grid position, building_id, health, node state
 - `PowerSystem.save_state()` serializes only: supply, demand, deficit
-- Load path correctly classified as boot work (sync full rebuild behind loading screen)
+- In-game load entry now routes through scene reload / boot path instead of in-place live-world mutation
+- Chunk diff save sync now reconciles stale `chunks/*.json` files, including the empty-diff case
 - Dirty queues and dispatcher jobs re-initialize in `_ready()` after load
 
-**Hazard E status: ACCEPTED.** Main-thread-heavy operations (TileMapLayer.clear(), mass set_cell(), add_child(), queue_free()) are architectural constraints of Godot's scene tree. The refactor series ensures they are only used in boot/load paths or tightly local operations, never triggered by a single interactive building/power action. Further optimization is a future concern when scale demands it.
+Remaining gaps:
+- `BuildingSystem` runtime room recompute now uses local proof regions, and the oversized fallback has been converted to staged bounded slices; it remains a safety net, not a live closure blocker
+- `PowerSystem` now uses explicit registries, but still remains registry-global instead of a real dirty-network/partition model
+- direct combat damage still bypasses a formal command boundary
 
-**Series complete.** All 6 iterations delivered. Final acceptance criteria met (see TASK.md).
+**Hazard E status: ACCEPTED.** Main-thread-heavy operations (TileMapLayer.clear(), mass set_cell(), add_child(), queue_free()) are architectural constraints of Godot's scene tree. The refactor series keeps them out of local interactive building/power actions, but this does not by itself close Hazards A or B.
 
+**Series not complete.** Building/power contract closure remains open and is now tracked by `docs/04_execution/runtime_integrity_gap_closure_plan.md`.
+
+### Gap Closure G3 - Local Room Patch (2026-03-26)
+
+- `BuildingSystem` runtime path no longer clears dirty state and wholesale-replaces `indoor_cells` on every room job tick
+- room invalidation now queues merged `dirty region` entries carrying footprint, proof bounds, and reason metadata
+- `IndoorSolver.solve_local_patch()` computes bounded local add/remove diffs inside a proof region instead of defaulting to full flood-fill
+- proof regions expand in staged background steps until the local patch is proven or an explicit oversized fallback is reached
+- boot/load remains on sync `recalculate()` behind the loading screen
+- headless validation now includes a scripted room case: build closed room -> breach wall -> reclose -> destroy wall
 ### Iteration 5 Changes (2026-03-26)
 
 - `GameWorld` decomposed: debug overlay extracted to `GameWorldDebug` (FPS, tile highlight, rock toggle, validation driver), spawn logic extracted to `SpawnOrchestrator` (enemy spawning, item drops, pickup collection)
@@ -270,6 +290,23 @@ Tracks which hazards and contract items have been addressed by completed iterati
 - 300-frame summary now shows `building=X.Xms power=X.Xms` alongside streaming/topology/visual/spawn
 - Interactive vs deferred cost now distinguishable: interactive building ops appear in WorldPerfProbe immediate logs; deferred room/power recompute appears in FrameBudgetDispatcher per-job stats
 
+### Gap Closure G4 - Power Registry De-globalization (2026-03-26)
+
+- `PowerSystem` no longer pulls authoritative sources/consumers through `get_nodes_in_group(...)` during runtime recompute
+- `PowerSourceComponent` and `PowerConsumerComponent` now register/unregister explicitly with `PowerSystem`
+- source output changes and consumer configuration changes now dirty the power job through registry-connected signals
+- runtime balance recompute uses registry snapshots only; scene-tree groups remain only for UI/debug compatibility
+- headless validation now includes a scripted power case: place battery -> verify source registration and life-support power -> remove battery -> verify baseline restore
+
+### Gap Closure G5 - Revalidation and Truthful Closure (2026-03-26)
+
+- current headless `codex_validate_runtime` passes room, power, and mining+persistence validation without new parse/runtime errors
+- a fresh post-fix live gameplay log no longer shows standalone `building.room_recompute` offenders; summaries keep `building.room_recompute=0.0ms`, and late-session dispatcher summaries settle around `total=3.4ms/6.0ms`
+- Hazard A is therefore promoted to `RESOLVED` for ordinary runtime contract closure
+- `power.balance_recompute` no longer appears as a meaningful runtime offender, but Hazard B remains `PARTIAL` because power is still registry-global rather than dirty-network or partition-local
+- save/load integrity holes fixed in `G0/G1` remain code-closed, but a fresh manual GUI save/load session on the current build remains explicit residual backlog
+- direct combat damage and headless `topology catch-up timeout` remain outside closure and stay documented as backlog, not hidden under optimistic wording
+
 ### Iteration 3 Changes (2026-03-26)
 
 - `PowerSystem` interactive path (`building_placed`/`building_removed` signals) now calls `_mark_power_dirty()` instead of `force_recalculate()`
@@ -278,6 +315,7 @@ Tracks which hazards and contract items have been addressed by completed iterati
 - `force_recalculate()` retained as public boot/load entry point
 - Brownout priority sort stays in deferred tick (cheap at current scale)
 - `_is_dirty` flag initialized to `true` so first tick after boot computes initial state
+- Note: this iteration introduced deferred scheduling; the explicit registry lifecycle later arrived in gap-closure iteration `G4`, while partition-local power work still remains open
 
 ### Iteration 2 Changes (2026-03-26)
 
@@ -285,10 +323,11 @@ Tracks which hazards and contract items have been addressed by completed iterati
 - Room recomputation runs as a TOPOLOGY budget job (`building.room_recompute`, 1.5ms) through `FrameBudgetDispatcher`
 - Load path explicitly classified as boot work — direct sync `recalculate()` behind loading screen
 - `SaveAppliers` legacy fallback `_recalculate_indoor()` call removed (dead code; primary path uses `BuildingSystem.load_state()`)
+- Note: this iteration removed interactive sync rebuild; the genuinely local bounded room patch arrived later in gap-closure iteration `G3`
 
 ## Status Rationale
 
 This ADR is approved because it does not invent new gameplay behavior.
 It records the runtime law already implied by governance docs and applies it explicitly to the current base/world refactor series.
 
-**v2.0**: Refactor series complete. All contract items implemented. Building and power systems use dirty/deferred processing via FrameBudgetDispatcher. GameWorld decomposed. Save/load audited clean. Perf instrumentation distinguishes interactive from background cost.
+**v2.5**: Save/load integrity, excavation command closure, staged room patching, and explicit power registration are in place. A fresh live gameplay log no longer shows standalone `building.room_recompute` spikes, so Hazard A is now resolved for ordinary runtime contract closure. Hazard B remains PARTIAL because power is still registry-global rather than dirty-network or partition-local. Save/load code holes are closed, but fresh GUI save/load revalidation remains explicit backlog. Follow-up execution is tracked in `docs/04_execution/runtime_integrity_gap_closure_plan.md`.

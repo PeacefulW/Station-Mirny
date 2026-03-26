@@ -7,6 +7,7 @@ extends Node
 
 const RuntimeWorkTypes = preload("res://core/runtime/runtime_work_types.gd")
 const JOB_SHADOWS: StringName = &"mountain_shadow.visual_rebuild"
+const INVALID_COORD: Vector2i = Vector2i(999999, 999999)
 const EDGE_NEIGHBOR_OFFSETS: Array[Vector2i] = [
 	Vector2i.LEFT,
 	Vector2i.RIGHT,
@@ -27,6 +28,7 @@ var _dirty_queue: Array[Vector2i] = []
 var _edge_build_queue: Array[Vector2i] = []
 var _active_edge_cache_build: Dictionary = {}
 var _active_build: Dictionary = {}  ## Progressive shadow build state
+var _prefer_shadow_step: bool = true
 
 func _ready() -> void:
 	_shadow_container = Node2D.new()
@@ -67,8 +69,12 @@ func _resolve_dependencies() -> void:
 	)
 
 func _on_chunk_loaded(coord: Vector2i) -> void:
-	if coord not in _edge_build_queue:
-		_edge_build_queue.append(coord)
+	var chunk: Chunk = _chunk_manager.get_chunk(coord) if _chunk_manager else null
+	if chunk and chunk.has_any_mountain():
+		_enqueue_edge_cache_build(coord)
+	_mark_dirty(coord)
+	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		_mark_dirty(coord + dir)
 
 func _on_chunk_unloaded(coord: Vector2i) -> void:
 	var active_edge_coord: Vector2i = _active_edge_cache_build.get("coord", Vector2i(999999, 999999))
@@ -96,21 +102,14 @@ func _mark_dirty(coord: Vector2i) -> void:
 		_dirty_queue.append(coord)
 
 func _mark_all_dirty() -> void:
-	_dirty_queue.clear()
 	if not _chunk_manager:
 		return
 	for coord: Vector2i in _chunk_manager.get_loaded_chunks():
-		_dirty_queue.append(coord)
+		if _chunk_or_neighbors_have_mountain(coord):
+			_mark_dirty(coord)
 
 ## Tick для FrameBudgetDispatcher. Edge build → progressive shadow build.
 func _tick_shadows() -> bool:
-	if not _active_edge_cache_build.is_empty():
-		_advance_edge_cache_build()
-		return true
-	if not _edge_build_queue.is_empty():
-		var coord: Vector2i = _edge_build_queue.pop_front()
-		_start_edge_cache_build(coord)
-		return true
 	if not _active_build.is_empty():
 		var phase: String = str(_active_build.get("phase", "build"))
 		match phase:
@@ -123,13 +122,43 @@ func _tick_shadows() -> bool:
 			_:
 				_active_build.clear()
 		return true
-	if _dirty_queue.is_empty():
+	var has_dirty: bool = not _dirty_queue.is_empty()
+	var has_edge_work: bool = not _active_edge_cache_build.is_empty() or not _edge_build_queue.is_empty()
+	if has_dirty and has_edge_work:
+		if _prefer_shadow_step and _try_shadow_step():
+			_prefer_shadow_step = false
+			return true
+		if _try_edge_step():
+			_prefer_shadow_step = true
+			return true
+		if _try_shadow_step():
+			_prefer_shadow_step = false
+			return true
 		return false
-	var coord: Vector2i = _dirty_queue.pop_front()
-	if not _chunk_manager or not _chunk_manager.get_chunk(coord):
-		return not _dirty_queue.is_empty()
-	_start_shadow_build(coord)
-	return true
+	if has_dirty:
+		return _try_shadow_step()
+	if has_edge_work:
+		return _try_edge_step()
+	return false
+
+func _try_shadow_step() -> bool:
+	while not _dirty_queue.is_empty():
+		var coord: Vector2i = _pop_best_queue_coord(_dirty_queue)
+		if not _chunk_manager or not _chunk_manager.get_chunk(coord):
+			continue
+		_start_shadow_build(coord)
+		return true
+	return false
+
+func _try_edge_step() -> bool:
+	if not _active_edge_cache_build.is_empty():
+		_advance_edge_cache_build()
+		return true
+	if not _edge_build_queue.is_empty():
+		var coord: Vector2i = _pop_best_queue_coord(_edge_build_queue)
+		_start_edge_cache_build(coord)
+		return true
+	return false
 
 
 ## Инкрементальное обновление edge-кеша для 1 тайла и 8 соседей. O(9) вместо O(4096).
@@ -150,7 +179,7 @@ func _update_edges_at(tile_pos: Vector2i) -> void:
 			var terrain_bytes: PackedByteArray = chunk.get_terrain_bytes()
 			var local_index: int = local_tile.y * chunk_size + local_tile.x
 			var is_edge: bool = terrain_bytes[local_index] == TileGenData.TerrainType.ROCK \
-				and _is_external_edge_bytes(terrain_bytes, local_tile.x, local_tile.y, chunk_size)
+				and _is_external_edge_at(coord, terrain_bytes, local_tile.x, local_tile.y, chunk_size)
 			if not _edge_cache.has(coord):
 				_edge_cache[coord] = [] as Array[Vector2i]
 			var edges: Array = _edge_cache[coord] as Array
@@ -159,6 +188,58 @@ func _update_edges_at(tile_pos: Vector2i) -> void:
 				edges.append(check_tile)
 			elif not is_edge and edge_idx >= 0:
 				edges.remove_at(edge_idx)
+
+func _enqueue_edge_cache_build(coord: Vector2i) -> void:
+	if _active_edge_cache_build.get("coord", INVALID_COORD) == coord:
+		return
+	var chunk: Chunk = _chunk_manager.get_chunk(coord) if _chunk_manager else null
+	if not chunk or not chunk.has_any_mountain():
+		return
+	if coord not in _edge_build_queue:
+		_edge_build_queue.append(coord)
+
+func _pop_best_queue_coord(queue: Array[Vector2i]) -> Vector2i:
+	if queue.is_empty():
+		return INVALID_COORD
+	var player_chunk: Vector2i = _get_player_chunk_coord()
+	if player_chunk == INVALID_COORD:
+		var first_coord: Vector2i = queue[0]
+		queue.remove_at(0)
+		return first_coord
+	var best_idx: int = 0
+	var best_score: int = _chunk_priority_score(queue[0], player_chunk)
+	for i: int in range(1, queue.size()):
+		var score: int = _chunk_priority_score(queue[i], player_chunk)
+		if score < best_score:
+			best_idx = i
+			best_score = score
+	var coord: Vector2i = queue[best_idx]
+	queue.remove_at(best_idx)
+	return coord
+
+func _get_player_chunk_coord() -> Vector2i:
+	if not WorldGenerator or not PlayerAuthority:
+		return INVALID_COORD
+	var player_pos: Vector2 = PlayerAuthority.get_local_player_position()
+	var player_tile: Vector2i = WorldGenerator.world_to_tile(player_pos)
+	return WorldGenerator.tile_to_chunk(player_tile)
+
+func _chunk_priority_score(coord: Vector2i, player_chunk: Vector2i) -> int:
+	var dx: int = coord.x - player_chunk.x
+	var dy: int = coord.y - player_chunk.y
+	return dx * dx + dy * dy
+
+func _chunk_or_neighbors_have_mountain(coord: Vector2i) -> bool:
+	if not _chunk_manager:
+		return false
+	var chunk: Chunk = _chunk_manager.get_chunk(coord)
+	if chunk and chunk.has_any_mountain():
+		return true
+	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		var neighbor: Chunk = _chunk_manager.get_chunk(coord + dir)
+		if neighbor and neighbor.has_any_mountain():
+			return true
+	return false
 
 func _start_edge_cache_build(coord: Vector2i) -> void:
 	if not _chunk_manager:
@@ -203,7 +284,7 @@ func _advance_edge_cache_build() -> void:
 			continue
 		var local_x: int = current_index % chunk_size
 		var local_y: int = current_index / chunk_size
-		if _is_external_edge_bytes(terrain_bytes, local_x, local_y, chunk_size):
+		if _is_external_edge_at(coord, terrain_bytes, local_x, local_y, chunk_size):
 			edges.append(Vector2i(base_x + local_x, base_y + local_y))
 	build["tile_index"] = end_index
 	if end_index >= total_tiles:
@@ -357,15 +438,27 @@ func _finalize_shadow_apply() -> void:
 	WorldPerfProbe.end("Shadow.finalize_apply %s" % [coord], finalize_usec)
 
 func _is_external_edge(chunk: Chunk, local: Vector2i, chunk_size: int) -> bool:
-	return _is_external_edge_bytes(chunk.get_terrain_bytes(), local.x, local.y, chunk_size)
+	return _is_external_edge_at(chunk.chunk_coord, chunk.get_terrain_bytes(), local.x, local.y, chunk_size)
 
-func _is_external_edge_bytes(terrain_bytes: PackedByteArray, local_x: int, local_y: int, chunk_size: int) -> bool:
+func _is_external_edge_at(
+	chunk_coord: Vector2i,
+	terrain_bytes: PackedByteArray,
+	local_x: int,
+	local_y: int,
+	chunk_size: int
+) -> bool:
+	var global_tile: Vector2i = Vector2i(
+		chunk_coord.x * chunk_size + local_x,
+		chunk_coord.y * chunk_size + local_y
+	)
 	for dir: Vector2i in EDGE_NEIGHBOR_OFFSETS:
 		var neighbor_x: int = local_x + dir.x
 		var neighbor_y: int = local_y + dir.y
-		if neighbor_x < 0 or neighbor_y < 0 or neighbor_x >= chunk_size or neighbor_y >= chunk_size:
-			continue
-		var terrain: int = terrain_bytes[neighbor_y * chunk_size + neighbor_x]
+		var terrain: int = TileGenData.TerrainType.ROCK
+		if neighbor_x >= 0 and neighbor_y >= 0 and neighbor_x < chunk_size and neighbor_y < chunk_size:
+			terrain = terrain_bytes[neighbor_y * chunk_size + neighbor_x]
+		elif _chunk_manager:
+			terrain = _chunk_manager.get_terrain_type_at_global(global_tile + dir)
 		if _is_shadow_open_terrain(terrain):
 			return true
 	return false

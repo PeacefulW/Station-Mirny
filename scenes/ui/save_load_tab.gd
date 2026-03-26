@@ -86,8 +86,8 @@ func _rebuild_slot_list() -> void:
 
 		if exists:
 			var meta: Dictionary = _read_meta(slot_path)
-			var date: String = meta.get("date", "???")
-			var day: int = meta.get("day", 0)
+			var date: String = str(meta.get("save_time", meta.get("date", "???")))
+			var day: int = int(meta.get("game_day", meta.get("day", 0)))
 			btn.text = Localization.t("UI_SAVE_SLOT_USED", {
 				"slot": i, "day": day, "date": date
 			})
@@ -124,14 +124,11 @@ func _on_load_pressed() -> void:
 	if not DirAccess.dir_exists_absolute(slot_path):
 		_set_status(Localization.t("UI_SAVE_EMPTY_SLOT"), Color(0.9, 0.5, 0.3))
 		return
-	if SaveManager and SaveManager.has_method("load_game"):
+	if SaveManager:
 		# Снимаем паузу перед загрузкой
 		get_tree().paused = false
-		SaveManager.load_game(_selected_slot)
-		# Закрываем меню
-		var menu: PauseMenu = get_parent().get_parent().get_parent() as PauseMenu
-		if menu:
-			menu.close()
+		SaveManager.pending_load_slot = _selected_slot
+		get_tree().change_scene_to_file("res://scenes/world/game_world.tscn")
 
 func _on_delete_pressed() -> void:
 	if _selected_slot.is_empty():

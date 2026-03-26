@@ -4,7 +4,8 @@ extends Node
 ## Компонент источника энергии. Прикрепляется к любой
 ## постройке, производящей ватты (батареи, термосжигатель,
 ## ферментатор, сейсмоуловитель...).
-## PowerSystem находит все источники через группу "power_sources".
+## PowerSystem получает его через explicit register/unregister.
+## Группа "power_sources" сохраняется для UI/debug совместимости.
 
 # --- Сигналы ---
 signal output_changed(new_output: float)
@@ -22,9 +23,16 @@ var is_enabled: bool = true
 ## Погода, сейсмоактивность, топливо и т.д.
 var condition_multiplier: float = 1.0
 
+# --- Приватные ---
+var _power_system: PowerSystem = null
+
 func _ready() -> void:
 	add_to_group("power_sources")
 	_recalculate()
+	call_deferred("_register_with_power_system")
+
+func _exit_tree() -> void:
+	_unregister_from_power_system()
 
 ## Задать множитель условий (вызывается владельцем).
 func set_condition(multiplier: float) -> void:
@@ -49,6 +57,21 @@ func load_state(data: Dictionary) -> void:
 	is_enabled = data.get("enabled", true)
 	condition_multiplier = data.get("condition", 1.0)
 	_recalculate()
+
+func _register_with_power_system() -> void:
+	if _power_system and is_instance_valid(_power_system):
+		return
+	var systems: Array[Node] = get_tree().get_nodes_in_group("power_system")
+	if systems.is_empty():
+		return
+	_power_system = systems[0] as PowerSystem
+	if _power_system:
+		_power_system.register_source(self)
+
+func _unregister_from_power_system() -> void:
+	if _power_system and is_instance_valid(_power_system):
+		_power_system.unregister_source(self)
+	_power_system = null
 
 func _recalculate() -> void:
 	var new_val: float = max_output * condition_multiplier if is_enabled else 0.0

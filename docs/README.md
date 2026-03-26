@@ -95,6 +95,7 @@ Deprecated or migrated legacy versions.
 
 ### Execution
 - [Master Roadmap](04_execution/MASTER_ROADMAP.md)
+- [Runtime Integrity Gap Closure Plan](04_execution/runtime_integrity_gap_closure_plan.md)
 - [World Generation Rollout](04_execution/world_generation_rollout.md)
 - [Mountain Roof System Refactor Plan](04_execution/mountain_roof_system_refactor_plan.md)
 
@@ -118,6 +119,9 @@ Deprecated or migrated legacy versions.
 
 ### "How should the current mountain roof system be refactored?"
 - [Mountain Roof System Refactor Plan](04_execution/mountain_roof_system_refactor_plan.md)
+
+### "What runtime/save-load holes are still open and in what order should they be closed?"
+- [Runtime Integrity Gap Closure Plan](04_execution/runtime_integrity_gap_closure_plan.md)
 
 ### "What is the game trying to feel like?"
 - [Game Vision GDD](01_product/GAME_VISION_GDD.md)

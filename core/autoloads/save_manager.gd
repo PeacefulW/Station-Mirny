@@ -68,8 +68,7 @@ func save_game(slot_name: String = "") -> bool:
 	)
 
 	var chunk_data: Dictionary = SaveCollectors.collect_chunk_data(get_tree())
-	if not chunk_data.is_empty():
-		success = success and ChunkSaveSystem.save_chunks(save_path, chunk_data)
+	success = success and ChunkSaveSystem.save_chunks(save_path, chunk_data)
 
 	is_busy = false
 	if success:
@@ -122,10 +121,18 @@ func get_save_list() -> Array[Dictionary]:
 	for slot_name: String in slot_names:
 		var meta: Dictionary = SaveIO.read_json(SAVES_ROOT.path_join(slot_name).path_join(META_FILE))
 		if not meta.is_empty():
+			if not meta.has("save_time") and meta.has("date"):
+				meta["save_time"] = meta.get("date", "")
+			if not meta.has("game_day") and meta.has("day"):
+				meta["game_day"] = int(meta.get("day", 0))
+			if not meta.has("date") and meta.has("save_time"):
+				meta["date"] = meta.get("save_time", "")
+			if not meta.has("day") and meta.has("game_day"):
+				meta["day"] = int(meta.get("game_day", 0))
 			meta["slot_name"] = slot_name
 			saves.append(meta)
 	saves.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return a.get("save_time", "") > b.get("save_time", "")
+		return str(a.get("save_time", a.get("date", ""))) > str(b.get("save_time", b.get("date", "")))
 	)
 	return saves
 

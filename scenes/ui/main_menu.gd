@@ -131,8 +131,8 @@ func _build_save_list() -> VBoxContainer:
 	else:
 		for save_info: Dictionary in saves:
 			var slot_name: String = save_info.get("slot_name", "")
-			var day: int = save_info.get("day", 0)
-			var date: String = save_info.get("date", "???")
+			var day: int = int(save_info.get("game_day", save_info.get("day", 0)))
+			var date: String = str(save_info.get("save_time", save_info.get("date", "???")))
 			var btn := _make_button(
 				Localization.t("UI_SAVE_SLOT_USED", {"slot": slot_name, "day": day, "date": date}),
 				_start_game_from_save.bind(slot_name)

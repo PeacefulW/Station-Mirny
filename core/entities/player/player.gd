@@ -7,6 +7,7 @@ extends CharacterBody2D
 # --- Константы ---
 const SCRAP_ITEM_ID: String = "base:scrap"
 const WOOD_ITEM_ID: String = "base:wood"
+const HarvestTileCommandScript = preload("res://core/systems/commands/harvest_tile_command.gd")
 
 @export var balance: PlayerBalance = null
 
@@ -19,6 +20,7 @@ var _health_component: HealthComponent = null
 var _attack_area: Area2D = null
 var _inventory: InventoryComponent = null
 var _chunk_manager: Node = null
+var _command_executor: CommandExecutor = null
 var _state_machine: StateMachine = StateMachine.new()
 var _camera: PlayerCamera = null
 
@@ -45,6 +47,7 @@ func _ready() -> void:
 	_setup_camera()
 	_setup_state_machine()
 	call_deferred("_find_chunk_manager")
+	call_deferred("_find_command_executor")
 	call_deferred("_emit_scrap_state")
 
 func _physics_process(delta: float) -> void:
@@ -71,9 +74,17 @@ func perform_harvest() -> bool:
 	var harvest_pos: Vector2 = _find_harvest_target_position()
 	if harvest_pos == Vector2.INF:
 		return false
+	if not _command_executor:
+		_find_command_executor()
+	if not _command_executor:
+		push_warning("Harvest command executor unavailable")
+		return false
 	_harvest_timer = balance.harvest_cooldown
-	var result: Dictionary = _chunk_manager.try_harvest_at_world(harvest_pos)
+	var command := HarvestTileCommandScript.new().setup(_chunk_manager as ChunkManager, harvest_pos)
+	var result: Dictionary = _command_executor.execute(command)
 	if result.is_empty():
+		return false
+	if not bool(result.get("success", true)):
 		return false
 	var item_id: String = result.get("item_id", "")
 	var amount: int = result.get("amount", 0)
@@ -178,6 +189,11 @@ func _find_chunk_manager() -> void:
 	var nodes: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
 	if not nodes.is_empty():
 		_chunk_manager = nodes[0]
+
+func _find_command_executor() -> void:
+	var nodes: Array[Node] = get_tree().get_nodes_in_group("command_executor")
+	if not nodes.is_empty():
+		_command_executor = nodes[0] as CommandExecutor
 
 func _apply_terrain_blocking(delta: float) -> void:
 	if not _chunk_manager or velocity == Vector2.ZERO:
