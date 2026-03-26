@@ -2,9 +2,24 @@ class_name Chunk
 extends Node2D
 
 ## Один чанк мира.
-## Хранит terrain-данные, roof-оверлей и локальные модификации.
+## Хранит terrain-данные, exterior shell cover и локальные модификации.
 
-const INVALID_MOUNTAIN_KEY: Vector2i = Vector2i(999999, 999999)
+const REDRAW_PHASE_TERRAIN: int = 0
+const REDRAW_PHASE_COVER: int = 1
+const REDRAW_PHASE_CLIFF: int = 2
+const REDRAW_PHASE_DEBUG_INTERIOR: int = 3
+const REDRAW_PHASE_DEBUG_COLLISION: int = 4
+const REDRAW_PHASE_DONE: int = 5
+const _COVER_REVEAL_DIRS := [
+	Vector2i.LEFT,
+	Vector2i.RIGHT,
+	Vector2i.UP,
+	Vector2i.DOWN,
+	Vector2i(-1, -1),
+	Vector2i(1, -1),
+	Vector2i(-1, 1),
+	Vector2i(1, 1),
+]
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 var is_loaded: bool = false
@@ -13,7 +28,6 @@ var is_dirty: bool = false
 var _terrain_layer: TileMapLayer = null
 var _cover_layer: TileMapLayer = null
 var _cliff_layer: TileMapLayer = null
-var _roof_visual_root: Node2D = null
 var _debug_root: Node2D = null
 var _tile_size: int = 64
 var _chunk_size: int = 64
@@ -24,15 +38,10 @@ var _modified_tiles: Dictionary = {}
 var _biome: BiomeData = null
 var _terrain_bytes: PackedByteArray = PackedByteArray()
 var _height_bytes: PackedFloat32Array = PackedFloat32Array()
-var _revealed_mountain_key: Vector2i = INVALID_MOUNTAIN_KEY
 var _has_mountain: bool = false
-var _redraw_row: int = -1
-var _roof_layers_by_key: Dictionary = {}
-var _roof_tweens_by_key: Dictionary = {}
-var _roof_visual_build_requested: bool = false
-var _roof_visual_build_in_progress: bool = false
-var _roof_visual_build_row: int = -1
-var _roof_visuals_ready: bool = false
+var _redraw_phase: int = REDRAW_PHASE_DONE
+var _redraw_tile_index: int = 0
+var _revealed_local_cover_tiles: Dictionary = {}
 
 func setup(
 	p_coord: Vector2i,
@@ -56,10 +65,6 @@ func setup(
 	_terrain_layer = _create_layer("Terrain", _terrain_tileset, -10)
 	_cliff_layer = _create_layer("Cliffs", _overlay_tileset, -9)
 	_cover_layer = _create_layer("MountainCover", _terrain_tileset, 6)
-	_roof_visual_root = Node2D.new()
-	_roof_visual_root.name = "MountainRoofVisuals"
-	_roof_visual_root.z_index = 6
-	add_child(_roof_visual_root)
 	_debug_root = Node2D.new()
 	_debug_root.name = "DebugRoot"
 	_debug_root.z_index = 50
@@ -71,12 +76,15 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 	_height_bytes = native_data.get("height", PackedFloat32Array()).duplicate()
 	_apply_saved_modifications()
 	_cache_has_mountain()
-	_reset_roof_visual_state()
+	_reset_cover_visual_state()
 	if instant:
 		_redraw_all()
 	else:
 		_begin_progressive_redraw()
 	is_loaded = true
+
+func complete_redraw_now() -> void:
+	_redraw_all()
 
 func global_to_local(global_tile: Vector2i) -> Vector2i:
 	return Vector2i(
@@ -106,58 +114,18 @@ func mark_tile_modified(tile_pos: Vector2i, state: Dictionary) -> void:
 	_modified_tiles[tile_pos] = state
 	is_dirty = true
 
-func is_roofed_terrain(terrain_type: int) -> bool:
-	return terrain_type == TileGenData.TerrainType.ROCK or terrain_type == TileGenData.TerrainType.MINED_FLOOR
+func set_revealed_local_zone(zone_tiles: Dictionary) -> void:
+	set_revealed_local_cover_tiles(_build_revealed_local_cover_tiles(zone_tiles))
 
-## Устанавливает ключ горы, который сейчас раскрыт для игрока.
-## Переход выполняется через cheap visual state change, без массового tile rewrite.
-func set_revealed_mountain_key(mountain_key: Vector2i = INVALID_MOUNTAIN_KEY, animate: bool = true) -> void:
-	_revealed_mountain_key = mountain_key
-	_apply_revealed_mountain_state(animate)
+func set_revealed_local_cover_tiles(cover_tiles: Dictionary) -> void:
+	_apply_local_zone_cover_state(cover_tiles)
 
-## Помечает persistent roof visuals как устаревшие.
-## Используется, когда topology могла сменить component keys.
-func invalidate_roof_visuals() -> void:
-	if not _has_mountain:
-		return
-	_roof_visual_build_requested = true
-
-## Запускает фоновую сборку persistent roof visuals, если topology готова.
-## Возвращает true, если сборка началась или уже идёт.
-func begin_roof_visual_build() -> bool:
-	if not _has_mountain or not _chunk_manager or not _chunk_manager.is_topology_ready():
+func is_revealable_cover_edge(local_tile: Vector2i) -> bool:
+	if not _is_inside(local_tile):
 		return false
-	if _roof_visual_build_in_progress:
-		return true
-	if not _roof_visual_build_requested and _roof_visuals_ready:
+	if get_terrain_type_at(local_tile) != TileGenData.TerrainType.ROCK:
 		return false
-	_clear_roof_visual_layers()
-	_roof_visual_build_requested = false
-	_roof_visual_build_in_progress = true
-	_roof_visual_build_row = 0
-	_cover_layer.visible = true
-	return true
-
-## Строит roof visuals построчно. Возвращает true, когда сборка завершена.
-func continue_roof_visual_build(max_rows: int) -> bool:
-	if not _roof_visual_build_in_progress:
-		return _roof_visuals_ready
-	var end_row: int = mini(_roof_visual_build_row + max_rows, _chunk_size)
-	for local_y: int in range(_roof_visual_build_row, end_row):
-		for local_x: int in range(_chunk_size):
-			_redraw_roof_visual_tile(Vector2i(local_x, local_y))
-	_roof_visual_build_row = end_row
-	if _roof_visual_build_row < _chunk_size:
-		return false
-	_roof_visual_build_row = -1
-	_roof_visual_build_in_progress = false
-	_roof_visuals_ready = true
-	_cover_layer.visible = false
-	_apply_revealed_mountain_state(false)
-	return true
-
-func is_roof_visual_build_complete() -> bool:
-	return _roof_visuals_ready and not _roof_visual_build_in_progress
+	return _is_cave_edge_rock(local_tile)
 
 func try_mine_at(local: Vector2i) -> Dictionary:
 	var started_usec: int = WorldPerfProbe.begin()
@@ -178,7 +146,7 @@ func cleanup() -> void:
 	is_loaded = false
 	_terrain_bytes = PackedByteArray()
 	_height_bytes = PackedFloat32Array()
-	_clear_roof_visual_layers()
+	_revealed_local_cover_tiles = {}
 
 func _create_layer(layer_name: String, tileset: TileSet, z_index_value: int) -> TileMapLayer:
 	var layer := TileMapLayer.new()
@@ -199,7 +167,7 @@ func _redraw_all() -> void:
 	_terrain_layer.clear()
 	_cover_layer.clear()
 	_cliff_layer.clear()
-	_reset_roof_visual_state()
+	_reset_cover_visual_state()
 	for child: Node in _debug_root.get_children():
 		child.queue_free()
 	for local_y: int in range(_chunk_size):
@@ -209,40 +177,47 @@ func _redraw_all() -> void:
 			_redraw_cover_tile(tile)
 			_redraw_cliff_tile(tile)
 	_rebuild_debug_markers()
+	_redraw_phase = REDRAW_PHASE_DONE
+	_redraw_tile_index = 0
 	WorldPerfProbe.end("Chunk._redraw_all %s" % [chunk_coord], started_usec)
 
 func _begin_progressive_redraw() -> void:
 	_terrain_layer.clear()
 	_cover_layer.clear()
 	_cliff_layer.clear()
-	_reset_roof_visual_state()
+	_reset_cover_visual_state()
 	for child: Node in _debug_root.get_children():
 		child.queue_free()
-	_redraw_row = 0
+	_redraw_phase = REDRAW_PHASE_TERRAIN
+	_redraw_tile_index = 0
 
 func is_redraw_complete() -> bool:
-	return _redraw_row < 0
+	return _redraw_phase == REDRAW_PHASE_DONE
 
 func continue_redraw(max_rows: int) -> bool:
-	if _redraw_row < 0:
+	if _redraw_phase == REDRAW_PHASE_DONE:
 		return true
-	var end_row: int = mini(_redraw_row + max_rows, _chunk_size)
-	for local_y: int in range(_redraw_row, end_row):
-		for local_x: int in range(_chunk_size):
-			var tile := Vector2i(local_x, local_y)
-			_redraw_terrain_tile(tile)
-			_redraw_cover_tile(tile)
-			_redraw_cliff_tile(tile)
-	_redraw_row = end_row
-	if _redraw_row >= _chunk_size:
-		_redraw_row = -1
-		_rebuild_debug_markers()
-		return true
-	return false
+	while _redraw_phase != REDRAW_PHASE_DONE:
+		if _redraw_phase == REDRAW_PHASE_DEBUG_INTERIOR or _redraw_phase == REDRAW_PHASE_DEBUG_COLLISION:
+			if not _should_build_debug_markers():
+				_advance_redraw_phase()
+				continue
+		var processed_phase: int = _redraw_phase
+		var phase_start_index: int = _redraw_tile_index
+		var processed: int = _process_redraw_phase_tiles(_resolve_redraw_phase_tile_budget(max_rows))
+		if processed <= 0:
+			_advance_redraw_phase()
+			continue
+		if processed_phase == REDRAW_PHASE_COVER:
+			_reapply_local_zone_cover_state_for_index_range(phase_start_index, _redraw_tile_index)
+		if _redraw_tile_index >= _chunk_size * _chunk_size:
+			_advance_redraw_phase()
+		return _redraw_phase == REDRAW_PHASE_DONE
+	return true
 
 func _redraw_dynamic_visibility(_dirty_tiles: Dictionary) -> void:
 	_rebuild_cover_layer()
-	invalidate_roof_visuals()
+	_reapply_local_zone_cover_state()
 	if WorldGenerator and WorldGenerator.balance and WorldGenerator.balance.mountain_debug_visualization:
 		for child: Node in _debug_root.get_children():
 			child.queue_free()
@@ -258,10 +233,7 @@ func _redraw_dirty_tiles(dirty_tiles: Dictionary) -> void:
 		_redraw_terrain_tile(local_tile)
 		_redraw_cover_tile(local_tile)
 		_redraw_cliff_tile(local_tile)
-	if _roof_visual_build_in_progress:
-		_roof_visual_build_requested = true
-	elif _roof_visuals_ready:
-		_redraw_roof_visual_tiles(dirty_tiles)
+	_reapply_local_zone_cover_state_for_tiles(dirty_tiles)
 	if WorldGenerator and WorldGenerator.balance and WorldGenerator.balance.mountain_debug_visualization:
 		for child: Node in _debug_root.get_children():
 			child.queue_free()
@@ -273,111 +245,12 @@ func _redraw_cover_tiles(dirty_tiles: Dictionary) -> void:
 			continue
 		_cover_layer.erase_cell(local_tile)
 		_redraw_cover_tile(local_tile)
+	_reapply_local_zone_cover_state_for_tiles(dirty_tiles)
 
-func _reset_roof_visual_state() -> void:
-	_roof_visual_build_requested = _has_mountain
-	_roof_visual_build_in_progress = false
-	_roof_visual_build_row = -1
-	_roof_visuals_ready = false
-	_clear_roof_visual_layers()
+func _reset_cover_visual_state() -> void:
 	if _cover_layer:
 		_cover_layer.visible = true
-
-func _clear_roof_visual_layers() -> void:
-	for mountain_key: Vector2i in _roof_tweens_by_key:
-		var tween: Tween = _roof_tweens_by_key[mountain_key] as Tween
-		if tween:
-			tween.kill()
-	_roof_tweens_by_key.clear()
-	if not _roof_visual_root:
-		_roof_layers_by_key.clear()
-		return
-	for child: Node in _roof_visual_root.get_children():
-		_roof_visual_root.remove_child(child)
-		child.queue_free()
-	_roof_layers_by_key.clear()
-
-func _redraw_roof_visual_tiles(dirty_tiles: Dictionary) -> void:
-	for local_tile: Vector2i in dirty_tiles:
-		if not _is_inside(local_tile):
-			continue
-		_erase_roof_visual_tile_from_layers(local_tile)
-	for local_tile: Vector2i in dirty_tiles:
-		if not _is_inside(local_tile):
-			continue
-		_redraw_roof_visual_tile(local_tile)
-
-func _erase_roof_visual_tile_from_layers(local_tile: Vector2i) -> void:
-	for mountain_key: Vector2i in _roof_layers_by_key:
-		var layer: TileMapLayer = _roof_layers_by_key[mountain_key] as TileMapLayer
-		if layer:
-			layer.erase_cell(local_tile)
-
-func _redraw_roof_visual_tile(local_tile: Vector2i) -> void:
-	var terrain: int = get_terrain_type_at(local_tile)
-	var need_cover: bool = terrain == TileGenData.TerrainType.MINED_FLOOR \
-		or _is_cave_edge_rock(local_tile)
-	if not need_cover:
-		return
-	var mountain_key: Vector2i = _get_cover_mountain_key(local_tile)
-	if mountain_key == INVALID_MOUNTAIN_KEY:
-		return
-	var layer: TileMapLayer = _ensure_roof_layer(mountain_key)
-	var base: Vector2i = _cover_rock_atlas(local_tile)
-	var result: Array = _apply_variant_full(base, local_tile)
-	layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, result[0], result[1])
-
-func _get_cover_mountain_key(local_tile: Vector2i) -> Vector2i:
-	if not _chunk_manager:
-		return INVALID_MOUNTAIN_KEY
-	return _chunk_manager.get_mountain_key_at_tile(_to_global_tile(local_tile))
-
-func _ensure_roof_layer(mountain_key: Vector2i) -> TileMapLayer:
-	var existing: TileMapLayer = _roof_layers_by_key.get(mountain_key) as TileMapLayer
-	if existing:
-		return existing
-	var layer := TileMapLayer.new()
-	layer.name = "Roof_%d_%d" % [mountain_key.x, mountain_key.y]
-	layer.tile_set = _terrain_tileset
-	layer.z_index = 6
-	_roof_visual_root.add_child(layer)
-	_roof_layers_by_key[mountain_key] = layer
-	_apply_revealed_alpha_to_layer(mountain_key, layer, false)
-	return layer
-
-func _apply_revealed_mountain_state(animate: bool) -> void:
-	if not _roof_visuals_ready:
-		return
-	for mountain_key: Vector2i in _roof_layers_by_key:
-		var layer: TileMapLayer = _roof_layers_by_key[mountain_key] as TileMapLayer
-		if not layer:
-			continue
-		_apply_revealed_alpha_to_layer(mountain_key, layer, animate)
-
-func _apply_revealed_alpha_to_layer(mountain_key: Vector2i, layer: TileMapLayer, animate: bool) -> void:
-	var target_alpha: float = 1.0
-	if _revealed_mountain_key != INVALID_MOUNTAIN_KEY and mountain_key == _revealed_mountain_key:
-		target_alpha = 0.0
-	layer.visible = true
-	var current_tween: Tween = _roof_tweens_by_key.get(mountain_key) as Tween
-	if current_tween:
-		current_tween.kill()
-	if not animate or not WorldGenerator or not WorldGenerator.balance or WorldGenerator.balance.mountain_roof_fade_duration <= 0.0:
-		var color: Color = layer.modulate
-		color.a = target_alpha
-		layer.modulate = color
-		layer.visible = target_alpha > 0.001
-		_roof_tweens_by_key.erase(mountain_key)
-		return
-	var tween: Tween = create_tween()
-	_roof_tweens_by_key[mountain_key] = tween
-	tween.tween_property(layer, "modulate:a", target_alpha, WorldGenerator.balance.mountain_roof_fade_duration)
-	tween.finished.connect(_on_roof_tween_finished.bind(mountain_key, layer, target_alpha), CONNECT_ONE_SHOT)
-
-func _on_roof_tween_finished(mountain_key: Vector2i, layer: TileMapLayer, target_alpha: float) -> void:
-	_roof_tweens_by_key.erase(mountain_key)
-	if layer:
-		layer.visible = target_alpha > 0.001
+	_reapply_local_zone_cover_state()
 
 func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 	var terrain_type: int = get_terrain_type_at(local_tile)
@@ -436,6 +309,8 @@ func _set_terrain_type(local_tile: Vector2i, terrain_type: int, mark_modified: b
 		_modified_tiles[local_tile] = {"terrain": terrain_type}
 
 func _get_neighbor_terrain(local_tile: Vector2i) -> int:
+	if _is_inside(local_tile):
+		return get_terrain_type_at(local_tile)
 	return _get_global_terrain(_to_global_tile(local_tile))
 
 func _get_global_terrain(global_tile: Vector2i) -> int:
@@ -475,6 +350,7 @@ func _rebuild_cover_layer() -> void:
 	for local_y: int in range(_chunk_size):
 		for local_x: int in range(_chunk_size):
 			_redraw_cover_tile(Vector2i(local_x, local_y))
+	_reapply_local_zone_cover_state()
 
 func refresh_cliffs() -> void:
 	if not _cliff_layer:
@@ -702,6 +578,161 @@ func _blocks_from_surface(local_tile: Vector2i) -> bool:
 		or neighbor_type == TileGenData.TerrainType.WATER \
 		or neighbor_type == TileGenData.TerrainType.SAND \
 		or neighbor_type == TileGenData.TerrainType.GRASS
+
+func _resolve_redraw_tile_budget(max_rows: int) -> int:
+	var row_budget: int = maxi(1, max_rows) * _chunk_size
+	if WorldGenerator and WorldGenerator.balance:
+		return maxi(1, mini(row_budget, WorldGenerator.balance.chunk_redraw_tiles_per_step))
+	return row_budget
+
+func _resolve_redraw_phase_tile_budget(max_rows: int) -> int:
+	var base_budget: int = _resolve_redraw_tile_budget(max_rows)
+	match _redraw_phase:
+		REDRAW_PHASE_TERRAIN:
+			return maxi(1, base_budget / 2)
+		REDRAW_PHASE_COVER, REDRAW_PHASE_DEBUG_INTERIOR, REDRAW_PHASE_DEBUG_COLLISION:
+			return maxi(1, base_budget / 2)
+		_:
+			return base_budget
+
+func _build_revealed_local_cover_tiles(zone_tiles: Dictionary) -> Dictionary:
+	var reveal_tiles: Dictionary = {}
+	if zone_tiles.is_empty():
+		return reveal_tiles
+	for local_y: int in range(_chunk_size):
+		for local_x: int in range(_chunk_size):
+			var local_tile: Vector2i = Vector2i(local_x, local_y)
+			var global_tile: Vector2i = _to_global_tile(local_tile)
+			if zone_tiles.has(global_tile):
+				reveal_tiles[local_tile] = true
+				continue
+			if get_terrain_type_at(local_tile) != TileGenData.TerrainType.ROCK:
+				continue
+			if not _is_cave_edge_rock(local_tile):
+				continue
+			for dir: Vector2i in _COVER_REVEAL_DIRS:
+				if zone_tiles.has(global_tile + dir):
+					reveal_tiles[local_tile] = true
+					break
+	return reveal_tiles
+
+func _apply_local_zone_cover_state(next_cover_tiles: Dictionary) -> void:
+	if not _cover_layer:
+		_revealed_local_cover_tiles = next_cover_tiles
+		return
+	for local_tile: Vector2i in _revealed_local_cover_tiles:
+		if next_cover_tiles.has(local_tile):
+			continue
+		_redraw_cover_tile(local_tile)
+	for local_tile: Vector2i in next_cover_tiles:
+		if _revealed_local_cover_tiles.has(local_tile):
+			continue
+		_cover_layer.erase_cell(local_tile)
+	_revealed_local_cover_tiles = next_cover_tiles
+
+func _reapply_local_zone_cover_state() -> void:
+	if not _cover_layer or _revealed_local_cover_tiles.is_empty():
+		return
+	for local_tile: Vector2i in _revealed_local_cover_tiles:
+		_cover_layer.erase_cell(local_tile)
+
+func _reapply_local_zone_cover_state_for_tiles(tile_map: Dictionary) -> void:
+	if not _cover_layer or _revealed_local_cover_tiles.is_empty() or tile_map.is_empty():
+		return
+	for local_tile: Vector2i in tile_map:
+		if _revealed_local_cover_tiles.has(local_tile):
+			_cover_layer.erase_cell(local_tile)
+
+func _reapply_local_zone_cover_state_for_index_range(start_index: int, end_index: int) -> void:
+	if not _cover_layer or _revealed_local_cover_tiles.is_empty():
+		return
+	for tile_index: int in range(start_index, end_index):
+		var local_tile: Vector2i = _tile_from_index(tile_index)
+		if _revealed_local_cover_tiles.has(local_tile):
+			_cover_layer.erase_cell(local_tile)
+
+func get_redraw_phase_name() -> StringName:
+	match _redraw_phase:
+		REDRAW_PHASE_TERRAIN:
+			return &"terrain"
+		REDRAW_PHASE_COVER:
+			return &"cover"
+		REDRAW_PHASE_CLIFF:
+			return &"cliff"
+		REDRAW_PHASE_DEBUG_INTERIOR:
+			return &"debug_interior"
+		REDRAW_PHASE_DEBUG_COLLISION:
+			return &"debug_collision"
+		_:
+			return &"done"
+
+func _process_redraw_phase_tiles(tile_budget: int) -> int:
+	var total_tiles: int = _chunk_size * _chunk_size
+	var end_index: int = mini(_redraw_tile_index + tile_budget, total_tiles)
+	for tile_index: int in range(_redraw_tile_index, end_index):
+		var local_tile: Vector2i = _tile_from_index(tile_index)
+		match _redraw_phase:
+			REDRAW_PHASE_TERRAIN:
+				_redraw_terrain_tile(local_tile)
+			REDRAW_PHASE_COVER:
+				_redraw_cover_tile(local_tile)
+			REDRAW_PHASE_CLIFF:
+				_redraw_cliff_tile(local_tile)
+			REDRAW_PHASE_DEBUG_INTERIOR:
+				_process_debug_marker_tile(local_tile, false)
+			REDRAW_PHASE_DEBUG_COLLISION:
+				_process_debug_marker_tile(local_tile, true)
+			_:
+				break
+	var processed: int = end_index - _redraw_tile_index
+	_redraw_tile_index = end_index
+	return processed
+
+func _advance_redraw_phase() -> void:
+	match _redraw_phase:
+		REDRAW_PHASE_TERRAIN:
+			_redraw_phase = REDRAW_PHASE_COVER
+		REDRAW_PHASE_COVER:
+			_redraw_phase = REDRAW_PHASE_CLIFF
+		REDRAW_PHASE_CLIFF:
+			if _should_build_debug_markers():
+				_redraw_phase = REDRAW_PHASE_DEBUG_INTERIOR
+			else:
+				_redraw_phase = REDRAW_PHASE_DONE
+		REDRAW_PHASE_DEBUG_INTERIOR:
+			_redraw_phase = REDRAW_PHASE_DEBUG_COLLISION
+		REDRAW_PHASE_DEBUG_COLLISION:
+			_redraw_phase = REDRAW_PHASE_DONE
+		_:
+			_redraw_phase = REDRAW_PHASE_DONE
+	_redraw_tile_index = 0
+
+func _should_build_debug_markers() -> bool:
+	return WorldGenerator != null \
+		and WorldGenerator.balance != null \
+		and WorldGenerator.balance.mountain_debug_visualization
+
+func _process_debug_marker_tile(local_tile: Vector2i, collision_only: bool) -> void:
+	if collision_only:
+		if get_terrain_type_at(local_tile) != TileGenData.TerrainType.ROCK:
+			return
+		if _blocks_from_surface(local_tile + Vector2i.UP):
+			_add_debug_rect(local_tile, Vector2(0.0, -_tile_size * 0.45), Vector2(_tile_size - 6, 4), WorldGenerator.balance.mountain_debug_collision_color)
+		if _blocks_from_surface(local_tile + Vector2i.DOWN):
+			_add_debug_rect(local_tile, Vector2(0.0, _tile_size * 0.45), Vector2(_tile_size - 6, 4), WorldGenerator.balance.mountain_debug_collision_color)
+		if _blocks_from_surface(local_tile + Vector2i.LEFT):
+			_add_debug_rect(local_tile, Vector2(-_tile_size * 0.45, 0.0), Vector2(4, _tile_size - 6), WorldGenerator.balance.mountain_debug_collision_color)
+		if _blocks_from_surface(local_tile + Vector2i.RIGHT):
+			_add_debug_rect(local_tile, Vector2(_tile_size * 0.45, 0.0), Vector2(4, _tile_size - 6), WorldGenerator.balance.mountain_debug_collision_color)
+		return
+	var terrain_type: int = get_terrain_type_at(local_tile)
+	if terrain_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
+		_add_debug_rect(local_tile, Vector2.ZERO, Vector2(_tile_size - 18, _tile_size - 18), WorldGenerator.balance.mountain_debug_entrance_color)
+	elif terrain_type == TileGenData.TerrainType.MINED_FLOOR:
+		_add_debug_rect(local_tile, Vector2.ZERO, Vector2(_tile_size - 24, _tile_size - 24), WorldGenerator.balance.mountain_debug_mined_color)
+
+func _tile_from_index(tile_index: int) -> Vector2i:
+	return Vector2i(tile_index % _chunk_size, tile_index / _chunk_size)
 
 func _rebuild_debug_markers() -> void:
 	if not WorldGenerator or not WorldGenerator.balance or not WorldGenerator.balance.mountain_debug_visualization:

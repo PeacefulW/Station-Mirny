@@ -11,8 +11,10 @@ const _THRESHOLD_MS: float = 2.0
 const _CONTRACTS: Dictionary = {
 	"ChunkManager.try_harvest_at_world": 2.0,
 	"ChunkManager._on_mountain_tile_changed": 0.5,
+	"ChunkManager.query_local_underground_zone": 2.0,
 	"Chunk.try_mine_at": 2.0,
 	"MountainRoofSystem._request_refresh": 4.0,
+	"MountainRoofSystem._refresh_local_zone": 2.0,
 	"MountainRoofSystem._process_cover_step": 2.0,
 }
 

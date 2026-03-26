@@ -94,6 +94,7 @@ Deprecated or migrated legacy versions.
 ### Execution
 - [Master Roadmap](M:\dev\Station Peaceful\Station Peaceful\docs\04_execution\MASTER_ROADMAP.md)
 - [World Generation Rollout](M:\dev\Station Peaceful\Station Peaceful\docs\04_execution\world_generation_rollout.md)
+- [Mountain Roof System Refactor Plan](M:\dev\Station Peaceful\Station Peaceful\docs\04_execution\mountain_roof_system_refactor_plan.md)
 
 ## Recommended entrypoints by topic
 
@@ -112,6 +113,9 @@ Deprecated or migrated legacy versions.
 
 ### "In what order should world generation be implemented?"
 - [World Generation Rollout](M:\dev\Station Peaceful\Station Peaceful\docs\04_execution\world_generation_rollout.md)
+
+### "How should the current mountain roof system be refactored?"
+- [Mountain Roof System Refactor Plan](M:\dev\Station Peaceful\Station Peaceful\docs\04_execution\mountain_roof_system_refactor_plan.md)
 
 ### "What is the game trying to feel like?"
 - [Game Vision GDD](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\GAME_VISION_GDD.md)

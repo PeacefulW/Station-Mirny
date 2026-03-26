@@ -7,6 +7,16 @@ extends Node
 
 const RuntimeWorkTypes = preload("res://core/runtime/runtime_work_types.gd")
 const JOB_SHADOWS: StringName = &"mountain_shadow.visual_rebuild"
+const EDGE_NEIGHBOR_OFFSETS: Array[Vector2i] = [
+	Vector2i.LEFT,
+	Vector2i.RIGHT,
+	Vector2i.UP,
+	Vector2i.DOWN,
+	Vector2i(-1, -1),
+	Vector2i(1, -1),
+	Vector2i(-1, 1),
+	Vector2i(1, 1),
+]
 
 var _chunk_manager: ChunkManager = null
 var _shadow_sprites: Dictionary = {}
@@ -15,6 +25,7 @@ var _last_built_angle: float = -999.0
 var _edge_cache: Dictionary = {}
 var _dirty_queue: Array[Vector2i] = []
 var _edge_build_queue: Array[Vector2i] = []
+var _active_edge_cache_build: Dictionary = {}
 var _active_build: Dictionary = {}  ## Progressive shadow build state
 
 func _ready() -> void:
@@ -60,6 +71,14 @@ func _on_chunk_loaded(coord: Vector2i) -> void:
 		_edge_build_queue.append(coord)
 
 func _on_chunk_unloaded(coord: Vector2i) -> void:
+	var active_edge_coord: Vector2i = _active_edge_cache_build.get("coord", Vector2i(999999, 999999))
+	if not _active_edge_cache_build.is_empty() \
+		and active_edge_coord == coord:
+		_active_edge_cache_build.clear()
+	var active_shadow_coord: Vector2i = _active_build.get("coord", Vector2i(999999, 999999))
+	if not _active_build.is_empty() \
+		and active_shadow_coord == coord:
+		_active_build.clear()
 	_edge_cache.erase(coord)
 	_remove_shadow(coord)
 
@@ -85,15 +104,24 @@ func _mark_all_dirty() -> void:
 
 ## Tick для FrameBudgetDispatcher. Edge build → progressive shadow build.
 func _tick_shadows() -> bool:
+	if not _active_edge_cache_build.is_empty():
+		_advance_edge_cache_build()
+		return true
 	if not _edge_build_queue.is_empty():
 		var coord: Vector2i = _edge_build_queue.pop_front()
-		_cache_edges(coord)
-		_mark_dirty(coord)
-		for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-			_mark_dirty(coord + dir)
+		_start_edge_cache_build(coord)
 		return true
 	if not _active_build.is_empty():
-		_advance_shadow_build()
+		var phase: String = str(_active_build.get("phase", "build"))
+		match phase:
+			"build":
+				_advance_shadow_build()
+			"finalize_texture":
+				_finalize_shadow_texture()
+			"finalize_apply":
+				_finalize_shadow_apply()
+			_:
+				_active_build.clear()
 		return true
 	if _dirty_queue.is_empty():
 		return false
@@ -119,7 +147,10 @@ func _update_edges_at(tile_pos: Vector2i) -> void:
 			var local_tile: Vector2i = chunk.global_to_local(check_tile)
 			if local_tile.x < 0 or local_tile.y < 0 or local_tile.x >= chunk_size or local_tile.y >= chunk_size:
 				continue
-			var is_edge: bool = chunk.get_terrain_type_at(local_tile) == TileGenData.TerrainType.ROCK and _is_external_edge(chunk, local_tile, chunk_size)
+			var terrain_bytes: PackedByteArray = chunk.get_terrain_bytes()
+			var local_index: int = local_tile.y * chunk_size + local_tile.x
+			var is_edge: bool = terrain_bytes[local_index] == TileGenData.TerrainType.ROCK \
+				and _is_external_edge_bytes(terrain_bytes, local_tile.x, local_tile.y, chunk_size)
 			if not _edge_cache.has(coord):
 				_edge_cache[coord] = [] as Array[Vector2i]
 			var edges: Array = _edge_cache[coord] as Array
@@ -129,27 +160,62 @@ func _update_edges_at(tile_pos: Vector2i) -> void:
 			elif not is_edge and edge_idx >= 0:
 				edges.remove_at(edge_idx)
 
-func _cache_edges(coord: Vector2i) -> void:
+func _start_edge_cache_build(coord: Vector2i) -> void:
 	if not _chunk_manager:
 		return
 	var chunk: Chunk = _chunk_manager.get_chunk(coord)
 	if not chunk or not chunk.has_any_mountain():
 		_edge_cache[coord] = [] as Array[Vector2i]
+		_complete_edge_cache_build(coord)
 		return
 	var chunk_size: int = chunk.get_chunk_size()
-	var base_x: int = coord.x * chunk_size
-	var base_y: int = coord.y * chunk_size
-	var edges: Array[Vector2i] = []
-	for local_y: int in range(chunk_size):
-		for local_x: int in range(chunk_size):
-			var local_tile: Vector2i = Vector2i(local_x, local_y)
-			if chunk.get_terrain_type_at(local_tile) != TileGenData.TerrainType.ROCK:
-				continue
-			if _is_external_edge(chunk, local_tile, chunk_size):
-				edges.append(Vector2i(base_x + local_x, base_y + local_y))
-	_edge_cache[coord] = edges
+	_active_edge_cache_build = {
+		"coord": coord,
+		"chunk_size": chunk_size,
+		"base_x": coord.x * chunk_size,
+		"base_y": coord.y * chunk_size,
+		"tile_index": 0,
+		"edges": [] as Array[Vector2i],
+	}
 
-const EDGES_PER_TICK: int = 30
+func _advance_edge_cache_build() -> void:
+	var started_usec: int = WorldPerfProbe.begin()
+	var build: Dictionary = _active_edge_cache_build
+	var coord: Vector2i = build.get("coord", Vector2i(999999, 999999))
+	var chunk: Chunk = _chunk_manager.get_chunk(coord) if _chunk_manager else null
+	if not chunk or not chunk.has_any_mountain():
+		_edge_cache[coord] = [] as Array[Vector2i]
+		_active_edge_cache_build.clear()
+		_complete_edge_cache_build(coord)
+		WorldPerfProbe.end("Shadow.edge_cache_slice", started_usec)
+		return
+	var chunk_size: int = build["chunk_size"] as int
+	var base_x: int = build["base_x"] as int
+	var base_y: int = build["base_y"] as int
+	var tile_index: int = build["tile_index"] as int
+	var tile_budget: int = _resolve_shadow_edge_cache_tile_budget()
+	var total_tiles: int = chunk_size * chunk_size
+	var end_index: int = mini(tile_index + tile_budget, total_tiles)
+	var edges: Array = build["edges"] as Array
+	var terrain_bytes: PackedByteArray = chunk.get_terrain_bytes()
+	for current_index: int in range(tile_index, end_index):
+		if terrain_bytes[current_index] != TileGenData.TerrainType.ROCK:
+			continue
+		var local_x: int = current_index % chunk_size
+		var local_y: int = current_index / chunk_size
+		if _is_external_edge_bytes(terrain_bytes, local_x, local_y, chunk_size):
+			edges.append(Vector2i(base_x + local_x, base_y + local_y))
+	build["tile_index"] = end_index
+	if end_index >= total_tiles:
+		_edge_cache[coord] = edges
+		_active_edge_cache_build.clear()
+		_complete_edge_cache_build(coord)
+	WorldPerfProbe.end("Shadow.edge_cache_slice", started_usec)
+
+func _complete_edge_cache_build(coord: Vector2i) -> void:
+	_mark_dirty(coord)
+	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		_mark_dirty(coord + dir)
 
 ## Начинает progressive shadow build для чанка.
 func _start_shadow_build(coord: Vector2i) -> void:
@@ -177,7 +243,15 @@ func _start_shadow_build(coord: Vector2i) -> void:
 		var edges: Array = _edge_cache.get(source_coord, []) as Array
 		for e: Vector2i in edges:
 			all_edges.append(e)
+	if all_edges.is_empty():
+		_remove_shadow(coord)
+		return
+	var shadow_points: Array[Vector2i] = _bresenham(0, 0, roundi(shadow_dir.x * float(shadow_length)), roundi(shadow_dir.y * float(shadow_length)))
+	if shadow_points.is_empty():
+		_remove_shadow(coord)
+		return
 	_active_build = {
+		"phase": "build",
 		"coord": coord,
 		"chunk_size": chunk_size,
 		"tile_size": balance.tile_size,
@@ -185,10 +259,9 @@ func _start_shadow_build(coord: Vector2i) -> void:
 		"base_y": coord.y * chunk_size,
 		"shadow_color": balance.shadow_color,
 		"max_intensity": balance.shadow_intensity,
-		"end_dx": roundi(shadow_dir.x * float(shadow_length)),
-		"end_dy": roundi(shadow_dir.y * float(shadow_length)),
 		"edges": all_edges,
 		"edge_idx": 0,
+		"shadow_points": shadow_points,
 		"img": Image.create(chunk_size, chunk_size, false, Image.FORMAT_RGBA8),
 		"has_pixels": false,
 	}
@@ -203,23 +276,21 @@ func _advance_shadow_build() -> void:
 	var chunk_size: int = b["chunk_size"] as int
 	var base_x: int = b["base_x"] as int
 	var base_y: int = b["base_y"] as int
-	var end_dx: int = b["end_dx"] as int
-	var end_dy: int = b["end_dy"] as int
 	var shadow_color: Color = b["shadow_color"] as Color
 	var max_intensity: float = b["max_intensity"] as float
 	var has_pixels: bool = b["has_pixels"] as bool
-	var coord: Vector2i = b["coord"] as Vector2i
+	var shadow_points: Array = b["shadow_points"] as Array
+	var coord: Vector2i = b.get("coord", Vector2i(999999, 999999))
 	var chunk: Chunk = _chunk_manager.get_chunk(coord) if _chunk_manager else null
 	if not chunk:
 		_remove_shadow(coord)
 		_active_build.clear()
 		return
-	var end_idx: int = mini(edge_idx + EDGES_PER_TICK, edges.size())
+	var end_idx: int = mini(edge_idx + _resolve_shadow_edges_per_step(), edges.size())
 	for i: int in range(edge_idx, end_idx):
 		var edge_global: Vector2i = edges[i] as Vector2i
-		var points: Array[Vector2i] = _bresenham(0, 0, end_dx, end_dy)
-		for point_idx: int in range(points.size()):
-			var pt: Vector2i = points[point_idx]
+		for point_idx: int in range(shadow_points.size()):
+			var pt: Vector2i = shadow_points[point_idx] as Vector2i
 			var px: int = edge_global.x + pt.x - base_x
 			var py: int = edge_global.y + pt.y - base_y
 			if px < 0 or py < 0 or px >= chunk_size or py >= chunk_size:
@@ -227,7 +298,7 @@ func _advance_shadow_build() -> void:
 			var terrain: int = chunk.get_terrain_type_at(Vector2i(px, py))
 			if terrain == TileGenData.TerrainType.ROCK:
 				continue
-			var fade: float = 1.0 - (float(point_idx + 1) / float(points.size() + 1))
+			var fade: float = 1.0 - (float(point_idx + 1) / float(shadow_points.size() + 1))
 			var alpha: float = max_intensity * fade
 			var current: Color = img.get_pixel(px, py)
 			if alpha > current.a:
@@ -237,26 +308,39 @@ func _advance_shadow_build() -> void:
 	b["has_pixels"] = has_pixels
 	if end_idx >= edges.size():
 		WorldPerfProbe.end("Shadow.advance_slice", started_usec)
-		_finalize_shadow_build()
+		b["phase"] = "finalize_texture"
 		return
 	WorldPerfProbe.end("Shadow.advance_slice", started_usec)
 
-## Финализация: создать текстуру и sprite.
-func _finalize_shadow_build() -> void:
+## Финализация apply разбита на texture build и sprite apply, чтобы не склеивать её с последним compute-step.
+func _finalize_shadow_texture() -> void:
 	var finalize_usec: int = WorldPerfProbe.begin()
 	var b: Dictionary = _active_build
-	var coord: Vector2i = b["coord"] as Vector2i
+	var coord: Vector2i = b.get("coord", Vector2i(999999, 999999))
 	var has_pixels: bool = b["has_pixels"] as bool
 	var img: Image = b["img"] as Image
+	if not has_pixels:
+		_active_build.clear()
+		_remove_shadow(coord)
+		WorldPerfProbe.end("Shadow.finalize_texture %s" % [coord], finalize_usec)
+		return
+	b["texture"] = ImageTexture.create_from_image(img)
+	b["phase"] = "finalize_apply"
+	WorldPerfProbe.end("Shadow.finalize_texture %s" % [coord], finalize_usec)
+
+func _finalize_shadow_apply() -> void:
+	var finalize_usec: int = WorldPerfProbe.begin()
+	var b: Dictionary = _active_build
+	var coord: Vector2i = b.get("coord", Vector2i(999999, 999999))
 	var tile_size: int = b["tile_size"] as int
 	var base_x: int = b["base_x"] as int
 	var base_y: int = b["base_y"] as int
-	_active_build.clear()
-	if not has_pixels:
+	var tex: ImageTexture = b.get("texture") as ImageTexture
+	if not _chunk_manager or not _chunk_manager.get_chunk(coord) or tex == null:
+		_active_build.clear()
 		_remove_shadow(coord)
-		WorldPerfProbe.end("Shadow.finalize %s" % [coord], finalize_usec)
+		WorldPerfProbe.end("Shadow.finalize_apply %s" % [coord], finalize_usec)
 		return
-	var tex: ImageTexture = ImageTexture.create_from_image(img)
 	var sprite: Sprite2D
 	if _shadow_sprites.has(coord):
 		sprite = _shadow_sprites[coord]
@@ -269,21 +353,28 @@ func _finalize_shadow_build() -> void:
 	sprite.texture = tex
 	sprite.scale = Vector2(tile_size, tile_size)
 	sprite.position = Vector2(base_x * tile_size, base_y * tile_size)
-	WorldPerfProbe.end("Shadow.finalize %s" % [coord], finalize_usec)
+	_active_build.clear()
+	WorldPerfProbe.end("Shadow.finalize_apply %s" % [coord], finalize_usec)
 
 func _is_external_edge(chunk: Chunk, local: Vector2i, chunk_size: int) -> bool:
-	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN,
-			Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(1, 1)]:
-		var neighbor: Vector2i = local + dir
-		if neighbor.x < 0 or neighbor.y < 0 or neighbor.x >= chunk_size or neighbor.y >= chunk_size:
+	return _is_external_edge_bytes(chunk.get_terrain_bytes(), local.x, local.y, chunk_size)
+
+func _is_external_edge_bytes(terrain_bytes: PackedByteArray, local_x: int, local_y: int, chunk_size: int) -> bool:
+	for dir: Vector2i in EDGE_NEIGHBOR_OFFSETS:
+		var neighbor_x: int = local_x + dir.x
+		var neighbor_y: int = local_y + dir.y
+		if neighbor_x < 0 or neighbor_y < 0 or neighbor_x >= chunk_size or neighbor_y >= chunk_size:
 			continue
-		var terrain: int = chunk.get_terrain_type_at(neighbor)
-		if terrain == TileGenData.TerrainType.GROUND \
-			or terrain == TileGenData.TerrainType.WATER \
-			or terrain == TileGenData.TerrainType.SAND \
-			or terrain == TileGenData.TerrainType.GRASS:
+		var terrain: int = terrain_bytes[neighbor_y * chunk_size + neighbor_x]
+		if _is_shadow_open_terrain(terrain):
 			return true
 	return false
+
+func _is_shadow_open_terrain(terrain: int) -> bool:
+	return terrain == TileGenData.TerrainType.GROUND \
+		or terrain == TileGenData.TerrainType.WATER \
+		or terrain == TileGenData.TerrainType.SAND \
+		or terrain == TileGenData.TerrainType.GRASS
 
 func _remove_shadow(coord: Vector2i) -> void:
 	if _shadow_sprites.has(coord):
@@ -312,3 +403,13 @@ func _bresenham(x0: int, y0: int, x1: int, y1: int) -> Array[Vector2i]:
 			err += dx
 			cy += sy
 	return result
+
+func _resolve_shadow_edge_cache_tile_budget() -> int:
+	if WorldGenerator and WorldGenerator.balance:
+		return maxi(1, WorldGenerator.balance.mountain_shadow_edge_cache_tiles_per_step)
+	return 128
+
+func _resolve_shadow_edges_per_step() -> int:
+	if WorldGenerator and WorldGenerator.balance:
+		return maxi(1, WorldGenerator.balance.mountain_shadow_edges_per_step)
+	return 4

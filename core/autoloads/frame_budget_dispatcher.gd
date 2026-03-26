@@ -26,6 +26,7 @@ var _frame_count: int = 0
 var _category_time_accum: Dictionary = {}
 var _job_time_accum: Dictionary = {}
 var _job_run_count_accum: Dictionary = {}
+var _job_last_step_ms: Dictionary = {}
 
 func _ready() -> void:
 	name = "FrameBudgetDispatcher"
@@ -52,8 +53,19 @@ func _process(_delta: float) -> void:
 			var budget_ms: float = minf(job.budget_ms, remaining_ms)
 			var tick_start: int = Time.get_ticks_usec()
 			var has_work: bool = true
-			while has_work and _elapsed_ms(tick_start) < budget_ms:
+			var step_count: int = 0
+			var predicted_step_ms: float = _job_last_step_ms.get(job.job_id, 0.0) as float
+			while has_work:
+				var elapsed_before_step: float = _elapsed_ms(tick_start)
+				if elapsed_before_step >= budget_ms:
+					break
+				if step_count > 0 and predicted_step_ms > 0.0 and elapsed_before_step + predicted_step_ms > budget_ms:
+					break
+				var step_start: int = Time.get_ticks_usec()
 				has_work = job.tick_callable.call() as bool
+				predicted_step_ms = _elapsed_ms(step_start)
+				_job_last_step_ms[job.job_id] = predicted_step_ms
+				step_count += 1
 			var used_ms: float = _elapsed_ms(tick_start)
 			remaining_ms -= used_ms
 			_category_time_accum[category] = (_category_time_accum.get(category, 0.0) as float) + used_ms
@@ -112,6 +124,7 @@ func unregister_job(identifier: StringName) -> void:
 	if _jobs_by_id.has(identifier):
 		var job: RuntimeBudgetJob = _jobs_by_id[identifier] as RuntimeBudgetJob
 		_jobs_by_id.erase(identifier)
+		_job_last_step_ms.erase(identifier)
 		if job and _jobs_by_category.has(job.category):
 			var jobs: Array = _jobs_by_category[job.category] as Array
 			for idx: int in range(jobs.size() - 1, -1, -1):
@@ -125,6 +138,7 @@ func unregister_job(identifier: StringName) -> void:
 			var category_job: RuntimeBudgetJob = job_variant as RuntimeBudgetJob
 			if category_job:
 				_jobs_by_id.erase(category_job.job_id)
+				_job_last_step_ms.erase(category_job.job_id)
 		_jobs_by_category[identifier] = []
 
 func get_supported_categories() -> Array[StringName]:

@@ -1,0 +1,1 @@
+- [Project docs structure](project_docs_structure.md) -- Station Mirny layered docs architecture, frontmatter conventions, link patterns

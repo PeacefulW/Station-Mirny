@@ -4,6 +4,8 @@ extends Node2D
 ## Главная сцена мира. Инициализирует WorldGenerator (если не было),
 ## управляет ChunkManager, спавном врагов и пикапов.
 
+const RuntimeValidationDriverScript = preload("res://core/debug/runtime_validation_driver.gd")
+
 # --- Экспортируемые ---
 @export var enemy_balance: EnemyBalance = null
 ## Seed мира. Используется только если мир не инициализирован
@@ -40,6 +42,7 @@ var _tile_info_label: Label = null
 var _loading_screen: LoadingScreen = null
 var _boot_complete: bool = false
 var _enemy_spawning_enabled: bool = false
+var _runtime_validation_driver: Node = null
 
 func _ready() -> void:
 	var startup_usec: int = WorldPerfProbe.begin()
@@ -62,6 +65,7 @@ func _ready() -> void:
 	_setup_mountain_shadows()
 	_setup_fps_counter()
 	_setup_tile_highlight()
+	_setup_runtime_validation_driver()
 	
 	# Создаём меню строительства в UILayer
 	var build_menu := BuildMenuPanel.new()
@@ -117,6 +121,9 @@ func _process(delta: float) -> void:
 	_update_enemy_spawning(delta)
 	_update_fps(delta)
 	_update_tile_highlight()
+
+func is_boot_complete() -> bool:
+	return _boot_complete
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not _chunk_manager or not WorldGenerator:
@@ -433,6 +440,11 @@ func _setup_tile_highlight() -> void:
 	_tile_info_label.position = Vector2(8, 60)
 	if _resolved_ui_layer:
 		_resolved_ui_layer.add_child(_tile_info_label)
+
+func _setup_runtime_validation_driver() -> void:
+	_runtime_validation_driver = RuntimeValidationDriverScript.new()
+	_runtime_validation_driver.name = "RuntimeValidationDriver"
+	add_child(_runtime_validation_driver)
 
 func _update_tile_highlight() -> void:
 	if not _tile_highlight or not WorldGenerator or not _chunk_manager:

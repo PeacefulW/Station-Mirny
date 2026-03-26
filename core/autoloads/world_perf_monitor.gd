@@ -39,6 +39,11 @@ func _accumulate_categories(ops: Dictionary) -> void:
 		_category_totals[category] = _category_totals.get(category, 0.0) + (ops[key] as float)
 
 func _categorize(label: String) -> String:
+	if label.contains(".boot"):
+		if label.contains("topology") or label.contains("Topology"):
+			return "topology_boot"
+		if label.begins_with("ChunkManager._load_chunk") or label.begins_with("Chunk._redraw"):
+			return "streaming_boot"
 	if label == "FrameBudgetDispatcher.total":
 		return "dispatcher"
 	if label.begins_with("FrameBudgetDispatcher.streaming."):
@@ -81,12 +86,16 @@ func _print_summary() -> void:
 	var visual_avg: float = _category_totals.get("visual", 0.0) / float(_summary_frame_count)
 	var spawn_avg: float = _category_totals.get("spawn", 0.0) / float(_summary_frame_count)
 	var dispatcher_avg: float = _category_totals.get("dispatcher", 0.0) / float(_summary_frame_count)
+	var boot_streaming_avg: float = _category_totals.get("streaming_boot", 0.0) / float(_summary_frame_count)
+	var boot_topology_avg: float = _category_totals.get("topology_boot", 0.0) / float(_summary_frame_count)
 	var total_avg: float = streaming_avg + topology_avg + visual_avg + spawn_avg
 	print("[WorldPerf] === Frame Summary (%d frames) ===" % _summary_frame_count)
 	print("[WorldPerf] Frame time: avg=%.1f ms, p99=%.1f ms, hitches=%d" % [avg_ms, p99_ms, _hitch_count])
 	print("[WorldPerf] Frame budget: dispatcher=%.1fms streaming=%.1fms topology=%.1fms visual=%.1fms spawn=%.1fms total=%.1fms/%.1fms" % [
 		dispatcher_avg, streaming_avg, topology_avg, visual_avg, spawn_avg, total_avg, BUDGET_TOTAL_MS
 	])
+	if boot_streaming_avg > 0.0 or boot_topology_avg > 0.0:
+		print("[WorldPerf] Boot work: streaming=%.1fms topology=%.1fms" % [boot_streaming_avg, boot_topology_avg])
 
 func _calc_average() -> float:
 	if _frame_times.is_empty():

@@ -4,7 +4,7 @@ doc_type: adr
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.0
+version: 1.1
 last_updated: 2026-03-25
 related_docs:
   - ../00_governance/ENGINEERING_STANDARDS.md
@@ -213,6 +213,8 @@ Rules:
 - systems may keep their own internal dirty state, but registration and budget consumption should go through the shared dispatcher
 - jobs must declare category, budget, cadence class, and threading/apply role explicitly
 - the seam is intentionally small and must not grow into a large generic job framework without real consumers
+- dispatcher budgeting only happens between `tick()` calls, so each consumer must expose a genuinely small bounded internal step
+- a monolithic runtime path is not acceptable as the default consumer for this seam, even if it has instrumentation around it
 
 ## Consequences
 
@@ -221,6 +223,8 @@ Expected code direction for the next iterations:
 - convert room work first to dirty/bounded processing
 - convert power work next to dirty/bounded processing
 - preserve save/load truth while keeping derived caches and queues transient
+- keep boot-only heavy paths explicitly separate from runtime background paths
+- keep native or optimized rebuild paths opt-in for runtime only after they obey the same bounded-step contract
 
 ## Status Rationale
 

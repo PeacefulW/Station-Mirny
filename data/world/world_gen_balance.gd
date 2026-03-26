@@ -11,6 +11,7 @@ extends Resource
 @export var unload_radius: int = 4
 @export_range(1, 8) var chunk_loads_per_frame: int = 1
 @export_range(4, 64) var chunk_redraw_rows_per_frame: int = 8
+@export_range(16, 1024) var chunk_redraw_tiles_per_step: int = 64
 
 @export_group("Рельеф")
 @export var height_frequency: float = 0.01
@@ -36,9 +37,9 @@ extends Resource
 @export var entrance_color: Color = Color(0.42, 0.36, 0.29)
 @export_range(1, 12) var mountain_visibility_radius: int = 6
 @export_range(0.5, 16.0) var mountain_topology_build_budget_ms: float = 2.0
-@export_range(1, 32) var mountain_roof_visual_build_rows_per_frame: int = 8
-@export_range(0.0, 0.5) var mountain_roof_fade_duration: float = 0.12
-@export var use_native_mountain_topology: bool = true
+@export_range(16, 4096) var mountain_topology_scan_tiles_per_step: int = 64
+@export_range(16, 4096) var mountain_topology_finalize_tiles_per_step: int = 64
+@export var use_native_mountain_topology: bool = false
 @export var mountain_debug_visualization: bool = false
 @export var mountain_debug_collision_color: Color = Color(1.0, 0.12, 0.12, 0.85)
 @export var mountain_debug_entrance_color: Color = Color(0.15, 0.95, 0.35, 0.75)
@@ -50,6 +51,8 @@ extends Resource
 @export_range(1, 5) var shadow_mountain_height: int = 3
 @export var shadow_color: Color = Color(0.0, 0.0, 0.05)
 @export_range(0.02, 0.2) var shadow_angle_threshold: float = 0.08
+@export_range(16, 4096) var mountain_shadow_edge_cache_tiles_per_step: int = 128
+@export_range(1, 64) var mountain_shadow_edges_per_step: int = 4
 
 @export_group("Стартовая зона")
 @export var safe_zone_radius: int = 12
