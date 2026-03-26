@@ -126,6 +126,12 @@ The process of converting solid rock mass into traversable space underground. So
 ### Visibility pressure
 The degree to which environmental conditions limit the player's ability to see and navigate. Sources: darkness (night, underground, power loss), weather (storms, fog), spore density. Light is safety; darkness is threat. Gameplay must expose explicit visibility state, not scrape the renderer. See: lighting_visibility_and_darkness.md.
 
+### Sanctuary
+The emotional and mechanical state of being inside a sealed, powered base. Core fantasy of the game: "inside feels safe." Sanctuary means: O2 recovers, temperature is controlled, spores are filtered, light is stable, threats are outside. The contrast between sanctuary and exposure drives every gameplay decision. See: GAME_VISION_GDD.md, NON_NEGOTIABLE_EXPERIENCE.md.
+
+### Exposure
+The opposite of sanctuary — being outside the base or in a breached/unpowered room. Exposure means: O2 depletes, temperature is hostile, spores accumulate, visibility degrades, fauna is a threat. The player's primary motivation is to minimize exposure time while maximizing what they accomplish during it. Every expedition is a race against exposure.
+
 ### Spores
 Pervasive biological hazard on the planet surface. Dual threat: damages the engineer (cough, hallucination, sickness) and contaminates machinery (clog, filter degradation). Sealed rooms with filtration protect against spores. Central to the Adaptation vs Terraformer late-game divergence.
 
