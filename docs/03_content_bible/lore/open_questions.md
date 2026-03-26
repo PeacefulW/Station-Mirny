@@ -49,5 +49,5 @@ If one of these questions starts affecting:
 - content production
 
 then either:
-- lock it into [canon.md](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\lore\canon.md), or
+- lock it into [canon.md](canon.md), or
 - explicitly mark the dependent implementation as provisional.

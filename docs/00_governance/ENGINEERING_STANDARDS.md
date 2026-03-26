@@ -267,7 +267,7 @@ Before considering implementation done:
 When an AI assistant writes code for this project, it must:
 - prefer canonical docs under `docs/`
 - follow this file first for engineering law
-- follow [Performance Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md) for runtime-sensitive systems
+- follow [Performance Contracts](PERFORMANCE_CONTRACTS.md) for runtime-sensitive systems
 - preserve approved patterns instead of inventing parallel ones
 - explain architecture choices clearly when tradeoffs matter
 

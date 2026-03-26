@@ -13,7 +13,7 @@ last_updated: 2026-03-25
 Architecture Decision Records should capture irreversible or foundational decisions.
 
 Current ADRs:
-- [ADR-0001 Runtime Work and Dirty Update Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\05_adrs\0001-runtime-work-and-dirty-update-foundation.md)
+- [ADR-0001 Runtime Work and Dirty Update Foundation](0001-runtime-work-and-dirty-update-foundation.md)
 
 Recommended first ADRs:
 - square grid + oblique camera

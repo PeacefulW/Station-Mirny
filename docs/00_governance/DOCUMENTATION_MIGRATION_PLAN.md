@@ -4,8 +4,8 @@ doc_type: governance
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.1
-last_updated: 2026-03-25
+version: 1.2
+last_updated: 2026-03-26
 related_docs:
   - ../README.md
   - AI_PLAYBOOK.md
@@ -43,13 +43,13 @@ Outcome:
 
 ### Stage 3: migrate detailed content by domain
 Current progress:
-1. governance — completed at canonical layer
-2. product bible — completed for high-level vision
-3. lore canon — completed for high-level locked truth and open questions
-4. execution layer — completed for master roadmap
-5. system specs — substantially migrated for current legacy root content
-6. content/resource split — substantially migrated
-7. ADRs — not started meaningfully yet
+1. governance — completed (includes AI Playbook, Engineering Standards, Performance Contracts, Document Precedence, Simulation and Threading Model, Project Glossary, Legacy Root Doc Audit)
+2. product bible — completed (Game Vision GDD, Non-Negotiable Experience)
+3. lore canon — completed (canon, open questions)
+4. execution layer — completed (Master Roadmap, World Generation Rollout, Mountain Roof System Refactor Plan)
+5. system specs — completed for current scope (21 specs across world, base, combat, progression, survival, UI, meta)
+6. content/resource split — completed (flora/resources, fauna catalog, art direction, audio direction)
+7. ADRs — ADR-0001 (Runtime Work and Dirty Update Foundation) approved at v1.1; recommended ADRs for grid/camera, room engineering, wrap-world, z-levels still pending
 
 ### Stage 4: archive superseded root files
 Only after a migrated area has:
@@ -65,54 +65,73 @@ Current status:
 ## What is already migrated
 
 ### Governance
-- [AI_PLAYBOOK.md](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\AI_PLAYBOOK.md)
-- [ENGINEERING_STANDARDS.md](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\ENGINEERING_STANDARDS.md)
-- [PERFORMANCE_CONTRACTS.md](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md)
+- [AI_PLAYBOOK.md](AI_PLAYBOOK.md)
+- [ENGINEERING_STANDARDS.md](ENGINEERING_STANDARDS.md)
+- [PERFORMANCE_CONTRACTS.md](PERFORMANCE_CONTRACTS.md)
+- [DOCUMENT_PRECEDENCE.md](DOCUMENT_PRECEDENCE.md)
+- [SIMULATION_AND_THREADING_MODEL.md](SIMULATION_AND_THREADING_MODEL.md)
+- [PROJECT_GLOSSARY.md](PROJECT_GLOSSARY.md)
+- [LEGACY_ROOT_DOC_AUDIT.md](LEGACY_ROOT_DOC_AUDIT.md)
 
 ### Product
-- [GAME_VISION_GDD.md](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\GAME_VISION_GDD.md)
+- [GAME_VISION_GDD.md](../01_product/GAME_VISION_GDD.md)
+- [NON_NEGOTIABLE_EXPERIENCE.md](../01_product/NON_NEGOTIABLE_EXPERIENCE.md)
 
 ### System specs
-- [world_generation_foundation.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\world_generation_foundation.md)
-- [engineering_networks.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\base\engineering_networks.md)
-- [resource_progression.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\progression\resource_progression.md)
-- [survival_core.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\survival\survival_core.md)
-- [building_and_rooms.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\base\building_and_rooms.md)
-- [automation_and_logistics.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\base\automation_and_logistics.md)
-- [fauna_and_threats.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\combat\fauna_and_threats.md)
-- [base_defense_and_noise.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\combat\base_defense_and_noise.md)
-- [character_progression.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\progression\character_progression.md)
-- [crafting_and_decryption.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\progression\crafting_and_decryption.md)
-- [transport_and_outposts.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\transport_and_outposts.md)
-- [events_and_precursor_complexes.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\events_and_precursor_complexes.md)
-- [ui_ux_foundation.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\ui\ui_ux_foundation.md)
-- [save_and_persistence.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\save_and_persistence.md)
-- [multiplayer_and_modding.md](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\multiplayer_and_modding.md)
+- [world_generation_foundation.md](../02_system_specs/world/world_generation_foundation.md)
+- [environment_runtime_foundation.md](../02_system_specs/world/environment_runtime_foundation.md)
+- [lighting_visibility_and_darkness.md](../02_system_specs/world/lighting_visibility_and_darkness.md)
+- [subsurface_and_verticality_foundation.md](../02_system_specs/world/subsurface_and_verticality_foundation.md)
+- [engineering_networks.md](../02_system_specs/base/engineering_networks.md)
+- [resource_progression.md](../02_system_specs/progression/resource_progression.md)
+- [survival_core.md](../02_system_specs/survival/survival_core.md)
+- [building_and_rooms.md](../02_system_specs/base/building_and_rooms.md)
+- [automation_and_logistics.md](../02_system_specs/base/automation_and_logistics.md)
+- [fauna_and_threats.md](../02_system_specs/combat/fauna_and_threats.md)
+- [base_defense_and_noise.md](../02_system_specs/combat/base_defense_and_noise.md)
+- [character_progression.md](../02_system_specs/progression/character_progression.md)
+- [crafting_and_decryption.md](../02_system_specs/progression/crafting_and_decryption.md)
+- [transport_and_outposts.md](../02_system_specs/world/transport_and_outposts.md)
+- [events_and_precursor_complexes.md](../02_system_specs/world/events_and_precursor_complexes.md)
+- [ui_ux_foundation.md](../02_system_specs/ui/ui_ux_foundation.md)
+- [save_and_persistence.md](../02_system_specs/meta/save_and_persistence.md)
+- [multiplayer_and_modding.md](../02_system_specs/meta/multiplayer_and_modding.md)
+- [multiplayer_authority_and_replication.md](../02_system_specs/meta/multiplayer_authority_and_replication.md)
+- [modding_extension_contracts.md](../02_system_specs/meta/modding_extension_contracts.md)
+- [localization_pipeline.md](../02_system_specs/meta/localization_pipeline.md)
 
 ### Content bible
-- [canon.md](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\lore\canon.md)
-- [open_questions.md](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\lore\open_questions.md)
-- [flora_and_resources.md](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\resources\flora_and_resources.md)
-- [catalog.md](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\fauna\catalog.md)
-- [art_direction.md](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\aesthetics\art_direction.md)
-- [audio_direction.md](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\aesthetics\audio_direction.md)
+- [canon.md](../03_content_bible/lore/canon.md)
+- [open_questions.md](../03_content_bible/lore/open_questions.md)
+- [flora_and_resources.md](../03_content_bible/resources/flora_and_resources.md)
+- [catalog.md](../03_content_bible/fauna/catalog.md)
+- [art_direction.md](../03_content_bible/aesthetics/art_direction.md)
+- [audio_direction.md](../03_content_bible/aesthetics/audio_direction.md)
 
 ### Execution
-- [MASTER_ROADMAP.md](M:\dev\Station Peaceful\Station Peaceful\docs\04_execution\MASTER_ROADMAP.md)
-- [world_generation_rollout.md](M:\dev\Station Peaceful\Station Peaceful\docs\04_execution\world_generation_rollout.md)
+- [MASTER_ROADMAP.md](../04_execution/MASTER_ROADMAP.md)
+- [world_generation_rollout.md](../04_execution/world_generation_rollout.md)
+- [mountain_roof_system_refactor_plan.md](../04_execution/mountain_roof_system_refactor_plan.md)
+
+### ADRs
+- [ADR-0001 Runtime Work and Dirty Update Foundation](../05_adrs/0001-runtime-work-and-dirty-update-foundation.md)
 
 ## Immediate targets
 
 ### Current next targets
 
-1. Add first real ADRs in `docs/05_adrs/` for decisions already treated as foundational:
-   - wrap world topology
-   - room-vs-wall engineering distribution
-   - dirty queue + budget as runtime law
+1. Add remaining recommended ADRs in `docs/05_adrs/`:
+   - square grid + oblique camera
+   - room-based engineering strategy
+   - wrap-world strategy
+   - 3 z-level model
+   (Note: dirty queue + budget as runtime law is now covered by ADR-0001)
 
 2. Add missing targeted specs only if new subsystems appear or current docs prove insufficient:
    - mountains / terrain specific visual spec
    - weather / seasons specific runtime spec
+
+3. Populate `PROJECT_GLOSSARY.md` with key project terms currently used across docs without formal definition
 
 ## Important non-goals of this pass
 - no broad content rewrite

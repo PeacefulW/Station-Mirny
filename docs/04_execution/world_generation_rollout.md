@@ -27,7 +27,7 @@ This file exists to answer:
 It is an execution document, not the architectural truth of the generator itself.
 
 The architectural truth lives in:
-- [World Generation Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\world_generation_foundation.md)
+- [World Generation Foundation](../02_system_specs/world/world_generation_foundation.md)
 
 ## Rollout philosophy
 
@@ -220,7 +220,7 @@ World generation rollout must obey runtime law:
 - player interaction must not trigger full world-side rebuild
 
 See:
-- [Performance Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md)
+- [Performance Contracts](../00_governance/PERFORMANCE_CONTRACTS.md)
 
 ## Acceptance checkpoints
 

@@ -30,7 +30,7 @@ This file does not own:
 - roadmap sequencing
 - unresolved hypotheses
 
-Anything still fluid belongs in [open_questions.md](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\lore\open_questions.md).
+Anything still fluid belongs in [open_questions.md](open_questions.md).
 
 ## Canonical premise
 
@@ -178,4 +178,4 @@ The technological late-game path based on domination, infrastructure, and impose
 ### Adaptation
 The biological late-game path based on transformation, symbiosis, and return toward the world's deeper logic.
 
-Canon truth should now be anchored here, with unresolved material moved into [open_questions.md](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\lore\open_questions.md).
+Canon truth should now be anchored here, with unresolved material moved into [open_questions.md](open_questions.md).

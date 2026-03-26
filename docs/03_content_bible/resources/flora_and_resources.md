@@ -32,7 +32,7 @@ This file does not own:
 - economic pacing
 
 Those belong in:
-- [Resource Progression](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\progression\resource_progression.md)
+- [Resource Progression](../../02_system_specs/progression/resource_progression.md)
 
 ## Content philosophy
 

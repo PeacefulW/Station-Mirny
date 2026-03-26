@@ -57,8 +57,8 @@ This spec does not own:
 Those belong in:
 - progression specs
 - content docs
-- [Performance Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md)
-- [Game Vision GDD](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\GAME_VISION_GDD.md)
+- [Performance Contracts](../../00_governance/PERFORMANCE_CONTRACTS.md)
+- [Game Vision GDD](../../01_product/GAME_VISION_GDD.md)
 
 ## Core architectural statement
 
@@ -276,7 +276,7 @@ They must follow runtime law:
 - visual overlays must remain decoupled from heavy gameplay recomputation
 
 See:
-- [Performance Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md)
+- [Performance Contracts](../../00_governance/PERFORMANCE_CONTRACTS.md)
 
 ## Save contract
 

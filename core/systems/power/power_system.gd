@@ -17,22 +17,41 @@ var total_supply: float = 0.0
 var total_demand: float = 0.0
 ## ╨Х╤Б╤В╤М ╨╗╨╕ ╨┤╨╡╤Д╨╕╤Ж╨╕╤В ╨┐╤А╤П╨╝╨╛ ╤Б╨╡╨╣╤З╨░╤Б.
 var is_deficit: bool = false
-# --- ╨Я╤А╨╕╨▓╨░╤В╨╜╤Л╨╡ ---
-var _update_timer: float = 0.0
+# --- Приватные ---
 var _was_deficit: bool = false
+var _is_dirty: bool = true
+var _power_job_id: StringName = &""
+var _heartbeat_timer: float = 0.0
+const _HEARTBEAT_INTERVAL: float = 5.0
+
 func _ready() -> void:
 	balance = load(BALANCE_PATH) as PowerBalance
 	if not balance:
 		push_error(Localization.t("SYSTEM_POWER_BALANCE_LOAD_FAILED", {"path": BALANCE_PATH}))
-	EventBus.building_placed.connect(func(_pos: Vector2i) -> void: force_recalculate())
-	EventBus.building_removed.connect(func(_pos: Vector2i) -> void: force_recalculate())
+	EventBus.building_placed.connect(func(_pos: Vector2i) -> void: _mark_power_dirty())
+	EventBus.building_removed.connect(func(_pos: Vector2i) -> void: _mark_power_dirty())
+	_power_job_id = FrameBudgetDispatcher.register_job(
+		RuntimeWorkTypes.CATEGORY_TOPOLOGY,
+		1.0,
+		_power_recompute_tick,
+		&"power.balance_recompute",
+		RuntimeWorkTypes.CadenceKind.NEAR_PLAYER,
+		RuntimeWorkTypes.ThreadingRole.MAIN_THREAD_ONLY,
+		false,
+		"Power balance recompute"
+	)
+
+func _exit_tree() -> void:
+	if _power_job_id and FrameBudgetDispatcher:
+		FrameBudgetDispatcher.unregister_job(_power_job_id)
+
 func _process(delta: float) -> void:
 	if not balance:
 		return
-	_update_timer -= delta
-	if _update_timer <= 0.0:
-		_update_timer = balance.update_interval
-		_recalculate_balance()
+	_heartbeat_timer -= delta
+	if _heartbeat_timer <= 0.0:
+		_heartbeat_timer = _HEARTBEAT_INTERVAL
+		_is_dirty = true
 # --- ╨Я╤Г╨▒╨╗╨╕╤З╨╜╤Л╨╡ ╨╝╨╡╤В╨╛╨┤╤Л ---
 ## ╨Я╤А╨╕╨╜╤Г╨┤╨╕╤В╨╡╨╗╤М╨╜╤Л╨╣ ╨┐╨╡╤А╨╡╤Б╤З╤С╤В (╨┐╨╛╤Б╨╗╨╡ ╨┐╨╛╤Б╤В╤А╨╛╨╣╨║╨╕/╤Б╨╜╨╛╤Б╨░ ╨│╨╡╨╜╨╡╤А╨░╤В╨╛╤А╨░).
 func force_recalculate() -> void:
@@ -51,7 +70,17 @@ func save_state() -> Dictionary:
 		"demand": total_demand,
 		"deficit": is_deficit,
 	}
-# --- ╨Я╤А╨╕╨▓╨░╤В╨╜╤Л╨╡ ╨╝╨╡╤В╨╛╨┤╤Л ---
+func _mark_power_dirty() -> void:
+	_is_dirty = true
+
+func _power_recompute_tick() -> bool:
+	if not _is_dirty:
+		return false
+	_is_dirty = false
+	_recalculate_balance()
+	return false
+
+# --- Приватные методы ---
 func _recalculate_balance() -> void:
 	# ╨б╨╛╨▒╨╕╤А╨░╨╡╨╝ ╨▓╤Б╨╡ ╨╕╤Б╤В╨╛╤З╨╜╨╕╨║╨╕
 	var sources: Array[Node] = get_tree().get_nodes_in_group("power_sources")

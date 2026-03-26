@@ -62,7 +62,7 @@ This spec does not own:
 - detailed lore associations
 
 Those belong in:
-- [Flora and Resources](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\resources\flora_and_resources.md)
+- [Flora and Resources](../../03_content_bible/resources/flora_and_resources.md)
 - lore/content bible files
 
 ## Core progression philosophy

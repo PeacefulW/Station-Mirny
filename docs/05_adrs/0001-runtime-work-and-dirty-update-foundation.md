@@ -4,8 +4,8 @@ doc_type: adr
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.1
-last_updated: 2026-03-25
+version: 2.0
+last_updated: 2026-03-26
 related_docs:
   - ../00_governance/ENGINEERING_STANDARDS.md
   - ../00_governance/PERFORMANCE_CONTRACTS.md
@@ -226,7 +226,69 @@ Expected code direction for the next iterations:
 - keep boot-only heavy paths explicitly separate from runtime background paths
 - keep native or optimized rebuild paths opt-in for runtime only after they obey the same bounded-step contract
 
+## Implementation Status
+
+Tracks which hazards and contract items have been addressed by completed iterations.
+
+### Hazard Resolution
+
+| Hazard | Description                                    | Status   | Iteration |
+|--------|------------------------------------------------|----------|-----------|
+| A      | Full room recomputation in interactive path    | RESOLVED | 2         |
+| B      | Global power scan in interactive/periodic path | RESOLVED | 3         |
+| C      | Load path reuses runtime sync room rebuild     | RESOLVED | 2         |
+| D      | GameWorld broad orchestration                  | RESOLVED | 5         |
+| E      | Main-thread-heavy ops in local actions         | ACCEPTED | —         |
+
+### Iteration 6 — Save/Load Audit + Series Closure (2026-03-26)
+
+**Save/load audit result: CLEAN.** No transient runtime state leaks into save data:
+- `BuildingSystem._dirty_queue`, `_room_job_id` — not serialized, not referenced by save_state()
+- `PowerSystem._is_dirty`, `_power_job_id`, `_heartbeat_timer`, `_was_deficit` — not serialized
+- `BuildingPersistence` serializes only: grid position, building_id, health, node state
+- `PowerSystem.save_state()` serializes only: supply, demand, deficit
+- Load path correctly classified as boot work (sync full rebuild behind loading screen)
+- Dirty queues and dispatcher jobs re-initialize in `_ready()` after load
+
+**Hazard E status: ACCEPTED.** Main-thread-heavy operations (TileMapLayer.clear(), mass set_cell(), add_child(), queue_free()) are architectural constraints of Godot's scene tree. The refactor series ensures they are only used in boot/load paths or tightly local operations, never triggered by a single interactive building/power action. Further optimization is a future concern when scale demands it.
+
+**Series complete.** All 6 iterations delivered. Final acceptance criteria met (see TASK.md).
+
+### Iteration 5 Changes (2026-03-26)
+
+- `GameWorld` decomposed: debug overlay extracted to `GameWorldDebug` (FPS, tile highlight, rock toggle, validation driver), spawn logic extracted to `SpawnOrchestrator` (enemy spawning, item drops, pickup collection)
+- `GameWorld._process()` now only calls `_update_player_indoor_status()` — no debug or spawn updates
+- `GameWorld` no longer owns enemy count, spawn timer, pickup factory, or debug visualization
+- New files: `scenes/world/game_world_debug.gd`, `scenes/world/spawn_orchestrator.gd`
+- Debug code can be disabled for release by not creating `GameWorldDebug` node
+
+### Iteration 4 Changes (2026-03-26)
+
+- `BuildingSystem` interactive path (place/remove/destroy) instrumented with `WorldPerfProbe.begin()/end()` and contract checks (< 2ms)
+- `WorldPerfProbe._CONTRACTS` extended with `BuildingSystem.place_building`, `remove_building`, `destroy_building` at 2.0ms limit
+- `WorldPerfMonitor._categorize()` now splits "building" and "power" from generic "topology" — labels from `FrameBudgetDispatcher.topology.building.*` and `BuildingSystem.*` go to "building"; `FrameBudgetDispatcher.topology.power.*` goes to "power"
+- 300-frame summary now shows `building=X.Xms power=X.Xms` alongside streaming/topology/visual/spawn
+- Interactive vs deferred cost now distinguishable: interactive building ops appear in WorldPerfProbe immediate logs; deferred room/power recompute appears in FrameBudgetDispatcher per-job stats
+
+### Iteration 3 Changes (2026-03-26)
+
+- `PowerSystem` interactive path (`building_placed`/`building_removed` signals) now calls `_mark_power_dirty()` instead of `force_recalculate()`
+- Power recomputation runs as a TOPOLOGY budget job (`power.balance_recompute`, 1.0ms) through `FrameBudgetDispatcher`
+- Removed 1s periodic timer full scan; replaced with 5s heartbeat safety net (marks dirty, actual work done by dispatcher)
+- `force_recalculate()` retained as public boot/load entry point
+- Brownout priority sort stays in deferred tick (cheap at current scale)
+- `_is_dirty` flag initialized to `true` so first tick after boot computes initial state
+
+### Iteration 2 Changes (2026-03-26)
+
+- `BuildingSystem` interactive path (place/remove/destroy) now marks dirty region via `RuntimeDirtyQueue` instead of calling `IndoorSolver.recalculate()` synchronously
+- Room recomputation runs as a TOPOLOGY budget job (`building.room_recompute`, 1.5ms) through `FrameBudgetDispatcher`
+- Load path explicitly classified as boot work — direct sync `recalculate()` behind loading screen
+- `SaveAppliers` legacy fallback `_recalculate_indoor()` call removed (dead code; primary path uses `BuildingSystem.load_state()`)
+
 ## Status Rationale
 
 This ADR is approved because it does not invent new gameplay behavior.
 It records the runtime law already implied by governance docs and applies it explicitly to the current base/world refactor series.
+
+**v2.0**: Refactor series complete. All contract items implemented. Building and power systems use dirty/deferred processing via FrameBudgetDispatcher. GameWorld decomposed. Save/load audited clean. Perf instrumentation distinguishes interactive from background cost.

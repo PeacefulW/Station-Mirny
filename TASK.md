@@ -57,6 +57,20 @@
 - perf-инструментация реально показывает, где тратится бюджет
 - GameWorld перестает быть местом, где бесконтрольно живет половина runtime orchestration
 
+СТАТУС ИТЕРАЦИЙ
+
+| #  | Итерация                              | Статус     |
+|----|---------------------------------------|------------|
+| 0  | Foundation Audit + Work Contract      | [DONE]     |
+| 1  | Runtime Work Model + Shared Seams     | [DONE]     |
+| 2  | Building/Rooms: Local Dirty Update    | [DONE]     |
+| 3  | Power/Engineering: Dirty Network      | [DONE]     |
+| 4  | Perf Instrumentation                  | [DONE]     |
+| 5  | GameWorld Decomposition               | [DONE]     |
+| 6  | Save/Load + Doc Hardening             | [DONE]     |
+
+СЕРИЯ ЗАВЕРШЕНА (2026-03-26). Все 6 итераций выполнены. См. ADR-0001 v2.0.
+
 ITERATION 0 — FOUNDATION AUDIT + WORK CONTRACT
 
 Цель:
@@ -326,14 +340,14 @@ ITERATION 6 — SAVE/LOAD + DOC HARDENING
 
 Серия считается успешной только если одновременно верно следующее:
 
-1. Build/remove actions больше не тянут тяжелый sync rebuild в обычном hot path.
-2. Room/indoor updates живут по dirty/bounded модели.
-3. Power/network recalculation живет по dirty-partition или bounded invalidation модели.
-4. Background work реально идет через shared dispatcher/budget path.
-5. Perf instrumentation показывает разницу между interactive и background cost.
-6. Save/load не сериализует transient runtime noise как durable truth.
-7. GameWorld стал архитектурно чище хотя бы в критичных местах.
-8. Все изменения соответствуют docs/ и сами docs/ обновлены там, где это требуется.
+1. [PASS] Build/remove actions больше не тянут тяжелый sync rebuild в обычном hot path.
+2. [PASS] Room/indoor updates живут по dirty/bounded модели.
+3. [PASS] Power/network recalculation живет по dirty-partition или bounded invalidation модели.
+4. [PASS] Background work реально идет через shared dispatcher/budget path.
+5. [PASS] Perf instrumentation показывает разницу между interactive и background cost.
+6. [PASS] Save/load не сериализует transient runtime noise как durable truth.
+7. [PASS] GameWorld стал архитектурно чище хотя бы в критичных местах.
+8. [PASS] Все изменения соответствуют docs/ и сами docs/ обновлены там, где это требуется.
 
 ФОРМАТ РАБОТЫ ПО КАЖДОЙ ИТЕРАЦИИ
 

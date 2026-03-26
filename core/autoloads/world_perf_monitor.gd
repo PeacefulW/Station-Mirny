@@ -48,6 +48,10 @@ func _categorize(label: String) -> String:
 		return "dispatcher"
 	if label.begins_with("FrameBudgetDispatcher.streaming."):
 		return "streaming"
+	if label.begins_with("FrameBudgetDispatcher.topology.building.") or label.begins_with("BuildingSystem."):
+		return "building"
+	if label.begins_with("FrameBudgetDispatcher.topology.power."):
+		return "power"
 	if label.begins_with("FrameBudgetDispatcher.topology."):
 		return "topology"
 	if label.begins_with("FrameBudgetDispatcher.visual."):
@@ -81,18 +85,21 @@ func _print_summary() -> void:
 		return
 	var avg_ms: float = _calc_average()
 	var p99_ms: float = _calc_percentile(99.0)
-	var streaming_avg: float = _category_totals.get("streaming", 0.0) / float(_summary_frame_count)
-	var topology_avg: float = _category_totals.get("topology", 0.0) / float(_summary_frame_count)
-	var visual_avg: float = _category_totals.get("visual", 0.0) / float(_summary_frame_count)
-	var spawn_avg: float = _category_totals.get("spawn", 0.0) / float(_summary_frame_count)
-	var dispatcher_avg: float = _category_totals.get("dispatcher", 0.0) / float(_summary_frame_count)
-	var boot_streaming_avg: float = _category_totals.get("streaming_boot", 0.0) / float(_summary_frame_count)
-	var boot_topology_avg: float = _category_totals.get("topology_boot", 0.0) / float(_summary_frame_count)
-	var total_avg: float = streaming_avg + topology_avg + visual_avg + spawn_avg
+	var n: float = float(_summary_frame_count)
+	var streaming_avg: float = _category_totals.get("streaming", 0.0) / n
+	var topology_avg: float = _category_totals.get("topology", 0.0) / n
+	var visual_avg: float = _category_totals.get("visual", 0.0) / n
+	var spawn_avg: float = _category_totals.get("spawn", 0.0) / n
+	var building_avg: float = _category_totals.get("building", 0.0) / n
+	var power_avg: float = _category_totals.get("power", 0.0) / n
+	var dispatcher_avg: float = _category_totals.get("dispatcher", 0.0) / n
+	var boot_streaming_avg: float = _category_totals.get("streaming_boot", 0.0) / n
+	var boot_topology_avg: float = _category_totals.get("topology_boot", 0.0) / n
+	var total_avg: float = streaming_avg + topology_avg + visual_avg + spawn_avg + building_avg + power_avg
 	print("[WorldPerf] === Frame Summary (%d frames) ===" % _summary_frame_count)
 	print("[WorldPerf] Frame time: avg=%.1f ms, p99=%.1f ms, hitches=%d" % [avg_ms, p99_ms, _hitch_count])
-	print("[WorldPerf] Frame budget: dispatcher=%.1fms streaming=%.1fms topology=%.1fms visual=%.1fms spawn=%.1fms total=%.1fms/%.1fms" % [
-		dispatcher_avg, streaming_avg, topology_avg, visual_avg, spawn_avg, total_avg, BUDGET_TOTAL_MS
+	print("[WorldPerf] Frame budget: dispatcher=%.1fms streaming=%.1fms topology=%.1fms building=%.1fms power=%.1fms visual=%.1fms spawn=%.1fms total=%.1fms/%.1fms" % [
+		dispatcher_avg, streaming_avg, topology_avg, building_avg, power_avg, visual_avg, spawn_avg, total_avg, BUDGET_TOTAL_MS
 	])
 	if boot_streaming_avg > 0.0 or boot_topology_avg > 0.0:
 		print("[WorldPerf] Boot work: streaming=%.1fms topology=%.1fms" % [boot_streaming_avg, boot_topology_avg])

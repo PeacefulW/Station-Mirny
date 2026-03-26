@@ -33,40 +33,40 @@ Primary responsibilities:
 ## Required reading by task
 
 ### Every task
-1. [AI Playbook](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\AI_PLAYBOOK.md)
-2. [Document Precedence](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\DOCUMENT_PRECEDENCE.md)
-3. [Engineering Standards](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\ENGINEERING_STANDARDS.md)
+1. [AI Playbook](AI_PLAYBOOK.md)
+2. [Document Precedence](DOCUMENT_PRECEDENCE.md)
+3. [Engineering Standards](ENGINEERING_STANDARDS.md)
 
 ### Tasks touching world, chunks, tiles, rendering, caches, streaming, native bridge
-4. [Performance Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md)
-5. [Simulation and Threading Model](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\SIMULATION_AND_THREADING_MODEL.md)
+4. [Performance Contracts](PERFORMANCE_CONTRACTS.md)
+5. [Simulation and Threading Model](SIMULATION_AND_THREADING_MODEL.md)
 
 ### Tasks touching mechanics, progression, lore, resources, product intent
-4. [Game Vision GDD](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\GAME_VISION_GDD.md)
-5. [Non-Negotiable Experience](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\NON_NEGOTIABLE_EXPERIENCE.md)
+4. [Game Vision GDD](../01_product/GAME_VISION_GDD.md)
+5. [Non-Negotiable Experience](../01_product/NON_NEGOTIABLE_EXPERIENCE.md)
 6. relevant system spec or content bible file
 
 ### Tasks touching roadmap or sequencing
-4. [Master Roadmap](M:\dev\Station Peaceful\Station Peaceful\docs\04_execution\MASTER_ROADMAP.md)
+4. [Master Roadmap](../04_execution/MASTER_ROADMAP.md)
 
 ### Required foundation reading by task area
 
 - product intent / fantasy / pillars / non-negotiable experience:
-  - [Non-Negotiable Experience](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\NON_NEGOTIABLE_EXPERIENCE.md)
+  - [Non-Negotiable Experience](../01_product/NON_NEGOTIABLE_EXPERIENCE.md)
 - environment / weather / season / wind / runtime world state:
-  - [Environment Runtime Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\environment_runtime_foundation.md)
+  - [Environment Runtime Foundation](../02_system_specs/world/environment_runtime_foundation.md)
 - light / darkness / visibility / night / underground readability:
-  - [Lighting, Visibility, and Darkness](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\lighting_visibility_and_darkness.md)
+  - [Lighting, Visibility, and Darkness](../02_system_specs/world/lighting_visibility_and_darkness.md)
 - underground / mining / cellar / stairs / vertical traversal:
-  - [Subsurface and Verticality Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\subsurface_and_verticality_foundation.md)
+  - [Subsurface and Verticality Foundation](../02_system_specs/world/subsurface_and_verticality_foundation.md)
 - multiplayer / co-op / authority / replication:
-  - [Multiplayer Authority and Replication](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\multiplayer_authority_and_replication.md)
+  - [Multiplayer Authority and Replication](../02_system_specs/meta/multiplayer_authority_and_replication.md)
 - modding / extension / registries / content packs:
-  - [Modding Extension Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\modding_extension_contracts.md)
+  - [Modding Extension Contracts](../02_system_specs/meta/modding_extension_contracts.md)
 - localization pipeline / localization workflow / translation process:
-  - [Localization Pipeline](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\localization_pipeline.md)
+  - [Localization Pipeline](../02_system_specs/meta/localization_pipeline.md)
 - threading / simulation cadence / main-thread vs worker / runtime update model:
-  - [Simulation and Threading Model](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\SIMULATION_AND_THREADING_MODEL.md)
+  - [Simulation and Threading Model](SIMULATION_AND_THREADING_MODEL.md)
 
 ### Mandatory foundation-doc rule
 
@@ -88,7 +88,7 @@ Do not rely on old phase labels from legacy root documents unless a canonical `d
 ## Hard operating rules
 
 1. Treat `docs/` as the canonical navigation layer.
-2. Follow [Document Precedence](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\DOCUMENT_PRECEDENCE.md) when documents disagree.
+2. Follow [Document Precedence](DOCUMENT_PRECEDENCE.md) when documents disagree.
 3. Do not invent mechanics or architecture when a relevant system spec or canonical governance file already exists.
 4. Do not hardcode gameplay data, user text, IDs, or balance values into code.
 5. Do not place heavy world work in the interactive path.

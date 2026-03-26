@@ -62,8 +62,7 @@ static func apply_buildings(tree: SceneTree, data: Dictionary) -> void:
 				var health: HealthComponent = wall_node.get_node_or_null("HealthComponent")
 				if health:
 					health.current_health = wall_entry["health"]
-	if building_system.has_method("_recalculate_indoor"):
-		building_system._recalculate_indoor()
+	# Legacy fallback: room rebuild handled by load_state() in primary path above.
 
 static func apply_player(tree: SceneTree, data: Dictionary) -> void:
 	var players: Array[Node] = tree.get_nodes_in_group("player")

@@ -36,11 +36,11 @@ This file does not own:
 - milestone sequencing
 
 Those belong in:
-- [Engineering Standards](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\ENGINEERING_STANDARDS.md)
-- [Performance Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md)
+- [Engineering Standards](../00_governance/ENGINEERING_STANDARDS.md)
+- [Performance Contracts](../00_governance/PERFORMANCE_CONTRACTS.md)
 - `docs/02_system_specs/*`
 - `docs/03_content_bible/*`
-- [Master Roadmap](M:\dev\Station Peaceful\Station Peaceful\docs\04_execution\MASTER_ROADMAP.md)
+- [Master Roadmap](../04_execution/MASTER_ROADMAP.md)
 
 ## Project framing
 

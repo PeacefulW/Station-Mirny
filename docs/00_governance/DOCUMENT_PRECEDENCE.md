@@ -35,7 +35,7 @@ Canonical lore lives in:
 - `docs/03_content_bible/lore/canon.md`
 
 ### Runtime/performance
-If a product or system document suggests an implementation that violates performance rules, [Performance Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md) wins.
+If a product or system document suggests an implementation that violates performance rules, [Performance Contracts](PERFORMANCE_CONTRACTS.md) wins.
 
 ### Execution docs
 Roadmaps and iteration briefs do not override approved architecture or standards.

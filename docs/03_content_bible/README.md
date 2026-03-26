@@ -28,15 +28,15 @@ Planned sections:
 ## Current canonical content docs
 
 ### Lore
-- [Canon](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\lore\canon.md)
-- [Open Questions](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\lore\open_questions.md)
+- [Canon](lore/canon.md)
+- [Open Questions](lore/open_questions.md)
 
 ### Resources and flora
-- [Flora and Resources](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\resources\flora_and_resources.md)
+- [Flora and Resources](resources/flora_and_resources.md)
 
 ### Fauna
-- [Fauna Catalog](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\fauna\catalog.md)
+- [Fauna Catalog](fauna/catalog.md)
 
 ### Aesthetics
-- [Art Direction](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\aesthetics\art_direction.md)
-- [Audio Direction](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\aesthetics\audio_direction.md)
+- [Art Direction](aesthetics/art_direction.md)
+- [Audio Direction](aesthetics/audio_direction.md)

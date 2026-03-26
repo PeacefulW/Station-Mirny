@@ -22,6 +22,8 @@ var _placement_service: BuildingPlacementService = BuildingPlacementService.new(
 var _indoor_solver: IndoorSolver = IndoorSolver.new()
 var _persistence: BuildingPersistence = BuildingPersistence.new()
 var _command_executor: CommandExecutor = null
+var _dirty_queue: RuntimeDirtyQueue = RuntimeDirtyQueue.new()
+var _room_job_id: StringName = &""
 
 # --- Встроенные ---
 
@@ -39,7 +41,21 @@ func _ready() -> void:
 	_command_executor = _find_command_executor()
 	EventBus.scrap_collected.connect(_on_scrap_collected)
 	EventBus.scrap_spent.connect(func(_a: int, remaining: int) -> void: _player_scrap = remaining)
+	_room_job_id = FrameBudgetDispatcher.register_job(
+		RuntimeWorkTypes.CATEGORY_TOPOLOGY,
+		1.5,
+		_room_recompute_tick,
+		&"building.room_recompute",
+		RuntimeWorkTypes.CadenceKind.NEAR_PLAYER,
+		RuntimeWorkTypes.ThreadingRole.MAIN_THREAD_ONLY,
+		false,
+		"Room indoor recompute"
+	)
 	call_deferred("_connect_build_menu")
+
+func _exit_tree() -> void:
+	if _room_job_id and FrameBudgetDispatcher:
+		FrameBudgetDispatcher.unregister_job(_room_job_id)
 
 func _process(_delta: float) -> void:
 	if is_build_mode:
@@ -103,7 +119,10 @@ func save_state() -> Dictionary:
 ## Восстановить состояние системы строительства.
 func load_state(data: Dictionary) -> void:
 	_persistence.load_state(data, _create_building_from_persistence, _clear_buildings_for_persistence)
-	_recalculate_indoor()
+	# Boot/load path: sync full rebuild is acceptable behind loading screen (ADR-0001).
+	indoor_cells = _indoor_solver.recalculate(walls)
+	EventBus.rooms_recalculated.emit(indoor_cells)
+	queue_redraw()
 
 # --- Приватные ---
 
@@ -125,6 +144,7 @@ func _toggle_build_mode() -> void:
 	EventBus.build_mode_changed.emit(is_build_mode)
 
 func place_selected_building_at(world_pos: Vector2) -> Dictionary:
+	var _t: int = WorldPerfProbe.begin()
 	var grid_pos: Vector2i = world_to_grid(world_pos)
 	var selected_building: BuildingData = _placement_service.get_selected_building()
 	if not selected_building:
@@ -149,8 +169,9 @@ func place_selected_building_at(world_pos: Vector2) -> Dictionary:
 		return {"success": false, "message_key": "SYSTEM_BUILD_CREATE_FAILED"}
 	EventBus.scrap_spent.emit(cost, _player_scrap)
 	_bind_building_health(walls.get(placed_pos), placed_pos)
-	_recalculate_indoor()
+	_mark_rooms_dirty(placed_pos)
 	EventBus.building_placed.emit(placed_pos)
+	WorldPerfProbe.end("BuildingSystem.place_building", _t)
 	return {
 		"success": true,
 		"message_key": "SYSTEM_BUILD_PLACED",
@@ -162,6 +183,7 @@ func place_selected_building_at(world_pos: Vector2) -> Dictionary:
 	}
 
 func remove_building_at(world_pos: Vector2) -> Dictionary:
+	var _t: int = WorldPerfProbe.begin()
 	var removal_result: Dictionary = _placement_service.remove_at(world_pos)
 	if removal_result.is_empty():
 		return {"success": false, "message_key": "SYSTEM_BUILD_NOT_FOUND"}
@@ -173,8 +195,9 @@ func remove_building_at(world_pos: Vector2) -> Dictionary:
 		refund_amount = maxi(building_data.scrap_cost, 0)
 	if _player or _find_player():
 		_player.collect_scrap(refund_amount)
-	_recalculate_indoor()
+	_mark_rooms_dirty(removed_pos)
 	EventBus.building_removed.emit(removed_pos)
+	WorldPerfProbe.end("BuildingSystem.remove_building", _t)
 	return {
 		"success": true,
 		"message_key": "SYSTEM_BUILD_REMOVED",
@@ -186,6 +209,7 @@ func remove_building_at(world_pos: Vector2) -> Dictionary:
 	}
 
 func _on_building_destroyed(grid_pos: Vector2i) -> void:
+	var _t: int = WorldPerfProbe.begin()
 	if not walls.has(grid_pos):
 		return
 	var node: Node2D = walls[grid_pos]
@@ -196,13 +220,21 @@ func _on_building_destroyed(grid_pos: Vector2i) -> void:
 		for dy: int in range(sy):
 			walls.erase(Vector2i(origin.x + dx, origin.y + dy))
 	node.queue_free()
-	_recalculate_indoor()
+	_mark_rooms_dirty(origin)
 	EventBus.building_removed.emit(origin)
+	WorldPerfProbe.end("BuildingSystem.destroy_building", _t)
 
-func _recalculate_indoor() -> void:
+func _mark_rooms_dirty(pos: Vector2i) -> void:
+	_dirty_queue.enqueue(pos)
+
+func _room_recompute_tick() -> bool:
+	if _dirty_queue.is_empty():
+		return false
+	_dirty_queue.clear()
 	indoor_cells = _indoor_solver.recalculate(walls)
 	EventBus.rooms_recalculated.emit(indoor_cells)
 	queue_redraw()
+	return false
 
 func _on_scrap_collected(total: int) -> void:
 	_player_scrap = total

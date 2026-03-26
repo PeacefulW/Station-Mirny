@@ -36,30 +36,36 @@ Current transition strategy:
 ## Current canonical specs
 
 ### Base
-- [Engineering Networks](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\base\engineering_networks.md)
-- [Building and Rooms](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\base\building_and_rooms.md)
-- [Automation and Logistics](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\base\automation_and_logistics.md)
+- [Engineering Networks](base/engineering_networks.md)
+- [Building and Rooms](base/building_and_rooms.md)
+- [Automation and Logistics](base/automation_and_logistics.md)
 
 ### Combat / Threat
-- [Fauna and Threat Gameplay](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\combat\fauna_and_threats.md)
-- [Base Defense and Noise](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\combat\base_defense_and_noise.md)
+- [Fauna and Threat Gameplay](combat/fauna_and_threats.md)
+- [Base Defense and Noise](combat/base_defense_and_noise.md)
 
 ### Progression
-- [Resource Progression](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\progression\resource_progression.md)
-- [Character Progression](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\progression\character_progression.md)
-- [Crafting and Decryption](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\progression\crafting_and_decryption.md)
+- [Resource Progression](progression/resource_progression.md)
+- [Character Progression](progression/character_progression.md)
+- [Crafting and Decryption](progression/crafting_and_decryption.md)
 
 ### Survival
-- [Survival Core](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\survival\survival_core.md)
+- [Survival Core](survival/survival_core.md)
 
 ### UI
-- [UI and UX Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\ui\ui_ux_foundation.md)
+- [UI and UX Foundation](ui/ui_ux_foundation.md)
 
 ### World
-- [World Generation Foundation](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\world_generation_foundation.md)
-- [Transport and Outposts](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\transport_and_outposts.md)
-- [Events and Precursor Complexes](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\world\events_and_precursor_complexes.md)
+- [World Generation Foundation](world/world_generation_foundation.md)
+- [Environment Runtime Foundation](world/environment_runtime_foundation.md)
+- [Lighting, Visibility, and Darkness](world/lighting_visibility_and_darkness.md)
+- [Subsurface and Verticality Foundation](world/subsurface_and_verticality_foundation.md)
+- [Transport and Outposts](world/transport_and_outposts.md)
+- [Events and Precursor Complexes](world/events_and_precursor_complexes.md)
 
 ### Meta constraints
-- [Multiplayer and Modding Constraints](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\multiplayer_and_modding.md)
-- [Save and Persistence](M:\dev\Station Peaceful\Station Peaceful\docs\02_system_specs\meta\save_and_persistence.md)
+- [Multiplayer and Modding Constraints](meta/multiplayer_and_modding.md)
+- [Multiplayer Authority and Replication](meta/multiplayer_authority_and_replication.md)
+- [Modding Extension Contracts](meta/modding_extension_contracts.md)
+- [Localization Pipeline](meta/localization_pipeline.md)
+- [Save and Persistence](meta/save_and_persistence.md)

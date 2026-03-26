@@ -16,6 +16,9 @@ const _CONTRACTS: Dictionary = {
 	"MountainRoofSystem._request_refresh": 4.0,
 	"MountainRoofSystem._refresh_local_zone": 2.0,
 	"MountainRoofSystem._process_cover_step": 2.0,
+	"BuildingSystem.place_building": 2.0,
+	"BuildingSystem.remove_building": 2.0,
+	"BuildingSystem.destroy_building": 2.0,
 }
 
 ## Per-frame аккумулятор: операция → время в мс. Сбрасывается каждый кадр WorldPerfMonitor.

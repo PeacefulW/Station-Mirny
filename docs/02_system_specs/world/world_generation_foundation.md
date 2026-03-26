@@ -59,10 +59,10 @@ This spec does not own:
 - final lore canon
 
 Those belong in:
-- [Performance Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md)
-- [Master Roadmap](M:\dev\Station Peaceful\Station Peaceful\docs\04_execution\MASTER_ROADMAP.md)
-- [Game Vision GDD](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\GAME_VISION_GDD.md)
-- [Flora and Resources](M:\dev\Station Peaceful\Station Peaceful\docs\03_content_bible\resources\flora_and_resources.md)
+- [Performance Contracts](../../00_governance/PERFORMANCE_CONTRACTS.md)
+- [Master Roadmap](../../04_execution/MASTER_ROADMAP.md)
+- [Game Vision GDD](../../01_product/GAME_VISION_GDD.md)
+- [Flora and Resources](../../03_content_bible/resources/flora_and_resources.md)
 
 ## Core architectural statement
 
@@ -359,7 +359,7 @@ Implications:
 - player actions must modify runtime diff, not force world-base regeneration
 
 See:
-- [Performance Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md)
+- [Performance Contracts](../../00_governance/PERFORMANCE_CONTRACTS.md)
 
 ## Save contract
 

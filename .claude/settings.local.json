@@ -3,7 +3,16 @@
     "allow": [
       "WebSearch",
       "WebFetch(domain:docs.godotengine.org)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(grep -c 'M:\\\\\\\\dev' docs/README.md docs/00_governance/AI_PLAYBOOK.md docs/02_system_specs/README.md)",
+      "Bash(find /m/dev/Station Peaceful/Station Peaceful/docs -type f -name *.md)",
+      "Bash(grep -n \"add_to_group\\\\|PowerSourceComponent\\\\|PowerConsumerComponent\" /m/dev/Station Peaceful/Station Peaceful/core/entities/structures/*.gd)",
+      "Bash(ls -la /m/dev/Station Peaceful/Station Peaceful/*.md)",
+      "Bash(grep -E \"\\\\.gd$|^d\")",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Read(//m/dev/Station Peaceful/Station Peaceful/**)",
+      "Bash(done)"
     ]
   }
 }

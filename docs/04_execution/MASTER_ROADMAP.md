@@ -32,9 +32,9 @@ This document does not own:
 - detailed system contracts
 
 Those belong in:
-- [Game Vision GDD](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\GAME_VISION_GDD.md)
-- [Engineering Standards](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\ENGINEERING_STANDARDS.md)
-- [Performance Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md)
+- [Game Vision GDD](../01_product/GAME_VISION_GDD.md)
+- [Engineering Standards](../00_governance/ENGINEERING_STANDARDS.md)
+- [Performance Contracts](../00_governance/PERFORMANCE_CONTRACTS.md)
 - `docs/02_system_specs/*`
 - `docs/03_content_bible/*`
 
