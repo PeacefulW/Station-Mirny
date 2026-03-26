@@ -25,7 +25,6 @@ This spec owns:
 - use-based skills
 - suit module progression
 - inventory carrying model
-- adaptation-path body transformation
 
 ## Stats
 
@@ -72,23 +71,13 @@ Desired effect:
 - expeditions are shaped by preparation and carrying choices
 - base storage remains important
 
-## Adaptation-path transformation
-
-Adaptation is not only a buff tree.
-It is an escalating body transformation with:
-- visible physical change
-- irreversible commitment
-- new environmental tolerances
-
 ## Acceptance criteria
 
 - progression changes capability and planning, not just raw numbers
 - the suit feels like a core identity object
 - use-based growth rewards actual playstyle
-- adaptation feels consequential and visible
 
 ## Failure signs
 
 - stats exist but do not affect choices
 - suit modules are obvious linear upgrades only
-- adaptation becomes just another talent tree with no identity

@@ -33,7 +33,7 @@ var _spawn_orchestrator: SpawnOrchestrator = null
 
 func _ready() -> void:
 	var startup_usec: int = WorldPerfProbe.begin()
-	_player = _find_node_in_group("player") as Player
+	_player = PlayerAuthority.get_local_player()
 	_building_system = get_node_or_null("BuildingSystem")
 	var enemy_container: Node2D = get_node_or_null("EnemyContainer")
 	var pickup_container: Node2D = get_node_or_null("PickupContainer")
@@ -201,7 +201,7 @@ func _run_boot_sequence() -> void:
 	if not _loading_screen:
 		_boot_complete = true
 		return
-	_loading_screen.set_progress(5.0, "Инициализация мира...")
+	_loading_screen.set_progress(5.0, Localization.t("UI_LOADING_INITIALIZING_WORLD"))
 	await get_tree().process_frame
 	if _chunk_manager:
 		await _chunk_manager.boot_load_initial_chunks(
@@ -209,7 +209,7 @@ func _run_boot_sequence() -> void:
 				if _loading_screen:
 					_loading_screen.set_progress(pct, text)
 		)
-	_loading_screen.set_progress(100.0, "Готово!")
+	_loading_screen.set_progress(100.0, Localization.t("UI_LOADING_DONE"))
 	await get_tree().process_frame
 	if _player:
 		_player.set_physics_process(true)

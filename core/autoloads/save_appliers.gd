@@ -65,10 +65,14 @@ static func apply_buildings(tree: SceneTree, data: Dictionary) -> void:
 	# Legacy fallback: room rebuild handled by load_state() in primary path above.
 
 static func apply_player(tree: SceneTree, data: Dictionary) -> void:
-	var players: Array[Node] = tree.get_nodes_in_group("player")
-	if players.is_empty():
-		return
-	var player: Node2D = players[0]
+	var authority: Node = tree.root.get_node_or_null("/root/PlayerAuthority")
+	var player: Node2D = authority.get_local_player() if authority else null
+	if not player:
+		# Fallback: static context cannot access autoloads directly.
+		var players: Array[Node] = tree.get_nodes_in_group("player")
+		if players.is_empty():
+			return
+		player = players[0]
 
 	var position_data: Dictionary = data.get("position", {})
 	player.global_position = Vector2(

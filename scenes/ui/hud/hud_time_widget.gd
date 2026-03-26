@@ -15,7 +15,7 @@ func _setup() -> void:
 	_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_time_label.add_theme_font_size_override("font_size", 16)
 	_time_label.add_theme_color_override("font_color", Color(0.9, 0.85, 0.7))
-	_time_label.text = "07:00"
+	_time_label.text = "%02d:00" % 7
 	vbox.add_child(_time_label)
 
 	_day_label = Label.new()

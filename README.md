@@ -7,15 +7,15 @@
 Этот `README` больше не является главным источником правды по проекту.
 Каноническая карта документации теперь живёт здесь:
 
-- [docs/README.md](M:\dev\Station Peaceful\Station Peaceful\docs\README.md)
+- [docs/README.md](docs/README.md)
 
 Для правил разработки и архитектуры см.:
-- [AI Playbook](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\AI_PLAYBOOK.md)
-- [Engineering Standards](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\ENGINEERING_STANDARDS.md)
-- [Performance Contracts](M:\dev\Station Peaceful\Station Peaceful\docs\00_governance\PERFORMANCE_CONTRACTS.md)
+- [AI Playbook](docs/00_governance\AI_PLAYBOOK.md)
+- [Engineering Standards](docs/00_governance\ENGINEERING_STANDARDS.md)
+- [Performance Contracts](docs/00_governance\PERFORMANCE_CONTRACTS.md)
 
 Для продуктового контекста см.:
-- [Game Vision GDD](M:\dev\Station Peaceful\Station Peaceful\docs\01_product\GAME_VISION_GDD.md)
+- [Game Vision GDD](docs/01_product\GAME_VISION_GDD.md)
 
 ## Текущее состояние
 
@@ -64,4 +64,4 @@ docs/         — каноническая карта документации
 ## Примечание о legacy-документах
 
 Старые markdown-файлы в корне ещё существуют, но больше не должны рассматриваться как равноправные источники.
-Если нужен актуальный маршрут по документации, начинай с [docs/README.md](M:\dev\Station Peaceful\Station Peaceful\docs\README.md).
+Если нужен актуальный маршрут по документации, начинай с [docs/README.md](docs/README.md).

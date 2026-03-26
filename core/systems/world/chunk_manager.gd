@@ -138,16 +138,16 @@ func boot_load_initial_chunks(progress_callback: Callable) -> void:
 			if redraw_idx >= 0:
 				_redrawing_chunks.remove_at(redraw_idx)
 		var pct: float = float(i + 1) / float(total) * 80.0
-		progress_callback.call(pct, "Генерация местности... (%d/%d)" % [i + 1, total])
+		progress_callback.call(pct, Localization.t("UI_LOADING_GENERATING_TERRAIN", {"current": i + 1, "total": total}))
 		await get_tree().process_frame
-	progress_callback.call(85.0, "Построение карты гор...")
+	progress_callback.call(85.0, Localization.t("UI_LOADING_BUILDING_MOUNTAINS"))
 	await get_tree().process_frame
 	if _is_native_topology_enabled():
 		_native_topology_builder.call("ensure_built")
 		_native_topology_dirty = false
 	else:
 		_ensure_topology_current()
-	progress_callback.call(95.0, "Высадка...")
+	progress_callback.call(95.0, Localization.t("UI_LOADING_LANDING"))
 	await get_tree().process_frame
 	_is_boot_in_progress = false
 
@@ -340,9 +340,7 @@ func is_walkable_at_world(world_pos: Vector2) -> bool:
 ## Устанавливает активный mountain key и возвращает список чанков,
 ## у которых должен обновиться local mountain shell reveal state.
 func _deferred_init() -> void:
-	var players: Array[Node] = get_tree().get_nodes_in_group("player")
-	if not players.is_empty():
-		_player = players[0] as Node2D
+	_player = PlayerAuthority.get_local_player()
 	_build_world_tilesets()
 	_build_fog_tileset()
 	_setup_native_topology_builder()

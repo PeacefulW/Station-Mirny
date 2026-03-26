@@ -349,10 +349,9 @@ func _on_slot_unhovered() -> void:
 func _find_components() -> void:
 	if _inventory and _equipment:
 		return
-	var players: Array[Node] = get_tree().get_nodes_in_group("player")
-	if players.is_empty():
+	var player: Node = PlayerAuthority.get_local_player()
+	if not player:
 		return
-	var player: Node = players[0]
 	if not _inventory and player.has_method("get_inventory"):
 		_inventory = player.get_inventory()
 	if not _equipment:

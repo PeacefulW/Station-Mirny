@@ -33,4 +33,4 @@ func _update_label(z: int) -> void:
 			_label.text = Localization.t("UI_HUD_FLOOR_UPPER")
 			_label.add_theme_color_override("font_color", Color(0.5, 0.6, 0.8))
 		_:
-			_label.text = "z=%d" % z
+			_label.text = Localization.t("UI_HUD_FLOOR_GENERIC", {"z": z})

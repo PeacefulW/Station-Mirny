@@ -116,7 +116,7 @@ The meaning of the reveal is:
 
 ## Consequence of the reveal
 
-The reveal changes the meaning of the two long-form paths:
+The reveal changes the meaning of the Terraformer identity:
 
 ### Terraformer
 
@@ -124,13 +124,6 @@ Canonical interpretation:
 - the player rejects the world's claim over humanity
 - survival means imposing human order over inherited planetary pressure
 - the path is not just technical, but philosophical
-
-### Adaptation
-
-Canonical interpretation:
-- the player stops treating the planet only as an enemy to be overwritten
-- survival becomes transformation and biological acceptance
-- the path is not just mutation, but a return toward buried origin
 
 ## Ruins and discovery cadence
 
@@ -173,9 +166,6 @@ The earlier civilization tied to the planet's deep past and to humanity's own hi
 The planet-wide hostile biological presence tied to contamination, mutation pressure, and the deeper ancestral reveal.
 
 ### Terraformer
-The technological late-game path based on domination, infrastructure, and imposed order.
-
-### Adaptation
-The biological late-game path based on transformation, symbiosis, and return toward the world's deeper logic.
+The late-game identity based on domination, infrastructure, and imposed order.
 
 Canon truth should now be anchored here, with unresolved material moved into [open_questions.md](open_questions.md).

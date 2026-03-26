@@ -28,4 +28,3 @@ Architecture Decision Records capture irreversible or foundational decisions. On
 
 - Square grid + oblique camera
 - Room-based engineering network strategy
-- Terraformer vs Adaptation as late-game fork

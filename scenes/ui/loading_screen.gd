@@ -46,7 +46,7 @@ func _build_ui() -> void:
 	_bg.add_child(vbox)
 
 	_label = Label.new()
-	_label.text = "Подготовка..."
+	_label.text = Localization.t("UI_LOADING_PREPARING")
 	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(_label)
 

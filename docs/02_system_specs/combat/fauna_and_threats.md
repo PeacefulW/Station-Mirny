@@ -26,7 +26,7 @@ Creatures are former bioengineered tools of the ancient civilization. Their orig
 This spec owns:
 - gameplay role of the main casts
 - threat categories
-- path split interactions
+- fauna interaction model
 - ecological readability
 
 ## Main cast roles
@@ -44,7 +44,7 @@ Design role:
 Design role:
 - peaceful oxygen-cleaner megafauna
 - environmental sign of breathable safety
-- future adaptation-path transport partner
+- future transport role under investigation
 
 ### Expansion fauna
 
@@ -53,26 +53,21 @@ Future creature families include:
 - harmless light fauna as safe-zone indicators
 - giant landscape-changing entities like Goliaths
 
-## Path interaction principle
+## Fauna interaction model
 
-Terraformer path tends toward:
+The player interacts with fauna primarily through combat and defense:
 - destruction
 - harvest
 - vehicle-heavy control
-
-Adaptation path tends toward:
-- repellents
-- coexistence
-- taming / symbiosis
+- defensive perimeter management
 
 ## Acceptance criteria
 
 - each major fauna cast is readable in both lore and gameplay
 - creatures make the planet feel purposeful rather than random
-- path divergence changes how the player relates to fauna
+- fauna interaction supports the Terraformer fantasy of environmental domination
 
 ## Failure signs
 
 - fauna feels like generic enemy skins
 - peaceful creatures have no strategic role
-- path split affects only numbers and not relationships

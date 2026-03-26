@@ -32,6 +32,7 @@ Localization="*res://core/autoloads/localization_service.gd"
 SettingsManager="*res://core/autoloads/settings_manager.gd"
 FrameBudgetDispatcher="*res://core/autoloads/frame_budget_dispatcher.gd"
 WorldPerfMonitor="*res://core/autoloads/world_perf_monitor.gd"
+PlayerAuthority="*res://core/autoloads/player_authority.gd"
 
 [display]
 

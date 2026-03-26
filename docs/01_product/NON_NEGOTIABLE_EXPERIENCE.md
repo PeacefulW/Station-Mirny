@@ -324,7 +324,7 @@ The following may change without violating this document:
 - exact numerical severity of cold or darkness
 - exact underground structure rules
 - exact progression pacing
-- exact final implementation of the two philosophical paths
+- exact final implementation of the Terraformer late-game identity
 
 These details may evolve.
 

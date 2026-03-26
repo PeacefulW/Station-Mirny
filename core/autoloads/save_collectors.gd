@@ -14,10 +14,14 @@ static func collect_meta(save_version: int) -> Dictionary:
 	}
 
 static func collect_player(tree: SceneTree) -> Dictionary:
-	var players: Array[Node] = tree.get_nodes_in_group("player")
-	if players.is_empty():
-		return {}
-	var player: Node2D = players[0]
+	var authority: Node = tree.root.get_node_or_null("/root/PlayerAuthority")
+	var player: Node2D = authority.get_local_player() if authority else null
+	if not player:
+		# Fallback: static context cannot access autoloads directly.
+		var players: Array[Node] = tree.get_nodes_in_group("player")
+		if players.is_empty():
+			return {}
+		player = players[0]
 	var data: Dictionary = {
 		"position": {
 			"x": player.global_position.x,

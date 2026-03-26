@@ -48,9 +48,7 @@ func _resolve_dependencies() -> void:
 	var chunks: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
 	if not chunks.is_empty():
 		_chunk_manager = chunks[0] as ChunkManager
-	var players: Array[Node] = get_tree().get_nodes_in_group("player")
-	if not players.is_empty():
-		_player = players[0] as Player
+	_player = PlayerAuthority.get_local_player()
 	_request_refresh()
 
 func _check_player_mountain_state() -> void:

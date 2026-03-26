@@ -215,7 +215,6 @@ Progression role:
 - branch-sensitive late-game material
 
 Design role:
-- Adaptation path: mutation/biological progression
 - Terraformer path: high-energy or alternative fuel logic
 
 ### Kriostal
@@ -274,7 +273,7 @@ Player condition:
 - they are choosing what kind of power they are becoming
 
 Progression function:
-- make the two long-form paths materially distinct
+- make the Terraformer identity materially distinct from earlier progression
 
 ## Economic chain
 
@@ -314,7 +313,7 @@ Resources should support the late-game branch split rather than ignore it.
 Canonical direction:
 - some materials are shared infrastructure essentials
 - some materials become disproportionately valuable to one path
-- late resources should help make Terraformer and Adaptation feel materially different
+- late resources should reinforce the Terraformer identity
 
 ## System dependencies
 

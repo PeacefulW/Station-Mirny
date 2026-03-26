@@ -118,9 +118,7 @@ func _is_enabled() -> bool:
 	return ENABLE_ARG in OS.get_cmdline_user_args()
 
 func _resolve_player() -> void:
-	var players: Array[Node] = get_tree().get_nodes_in_group("player")
-	if not players.is_empty():
-		_player = players[0] as Player
+	_player = PlayerAuthority.get_local_player()
 
 func _resolve_chunk_manager() -> void:
 	var chunk_managers: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")

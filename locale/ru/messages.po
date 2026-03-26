@@ -824,3 +824,27 @@ msgstr "Средние"
 
 msgid "UI_WORLD_CREATE_MTN_LARGE"
 msgstr "Крупные"
+
+msgid "UI_LOADING_PREPARING"
+msgstr "Подготовка..."
+
+msgid "UI_LOADING_INITIALIZING_WORLD"
+msgstr "Инициализация мира..."
+
+msgid "UI_LOADING_DONE"
+msgstr "Готово!"
+
+msgid "UI_LOADING_GENERATING_TERRAIN"
+msgstr "Генерация местности... ({current}/{total})"
+
+msgid "UI_LOADING_BUILDING_MOUNTAINS"
+msgstr "Построение карты гор..."
+
+msgid "UI_LOADING_LANDING"
+msgstr "Высадка..."
+
+msgid "UI_HUD_FLOOR_GENERIC"
+msgstr "Уровень {z}"
+
+msgid "UI_INVENTORY_SLOT_TOOLTIP"
+msgstr "{name}\n{amount} / {max_stack}"

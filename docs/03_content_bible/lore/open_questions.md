@@ -29,16 +29,14 @@ Rule:
 
 These items are not locked canon yet:
 
-1. Final design of the "Original" end-form on the Adaptation path.
-2. Exact role of robots and drones in the setting and progression.
-3. Final design of noise propagation and soundproofing as world fiction versus pure mechanics.
-4. Whether there is intelligent local life beyond the currently implied ecosystem and precursor remains.
-5. Fate of other Ark Engineers and whether they become quest lines, encounters, or purely background lore.
-6. Final release platform framing and whether that affects in-fiction references.
-7. Language rollout expectations as a world-facing product consideration.
-8. Whether diplomacy or deeper coexistence with fauna exists mechanically and fictionally on the Adaptation path.
-9. Whether underwater biomes or equivalent submerged spaces belong in final world canon.
-10. Whether the title "Станция Мирный" is final in-universe/product naming or still a working name.
+1. Exact role of robots and drones in the setting and progression.
+2. Final design of noise propagation and soundproofing as world fiction versus pure mechanics.
+3. Whether there is intelligent local life beyond the currently implied ecosystem and precursor remains.
+4. Fate of other Ark Engineers and whether they become quest lines, encounters, or purely background lore.
+5. Final release platform framing and whether that affects in-fiction references.
+6. Language rollout expectations as a world-facing product consideration.
+7. Whether underwater biomes or equivalent submerged spaces belong in final world canon.
+8. Whether the title "Станция Мирный" is final in-universe/product naming or still a working name.
 
 ## Working rule
 

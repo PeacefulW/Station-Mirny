@@ -29,7 +29,7 @@ This spec owns:
 - multi-step craft pipeline
 - workstation ladder
 - decryption tree framing
-- branch divergence into Terraformer vs Adaptation
+- Terraformer-grade late-game technology
 
 ## Crafting chain
 
@@ -72,16 +72,16 @@ The broad structure runs from:
 - basic survival
 - electronics / materials / chemistry
 - equipment / transport / medicine
-- then diverges toward Terraformer and Adaptation
+- then culminates in Terraformer-grade technology
 
 ## Acceptance criteria
 
 - crafting chains feel grounded and satisfying
 - decryption feels like infrastructure-dependent progress
-- branch split matters in both capabilities and fantasy
+- Terraformer technology feels distinct and earned
 
 ## Failure signs
 
 - recipes become flat and forgettable
 - decryption is just another passive timer
-- branch split is cosmetic rather than structural
+- late-game technology is cosmetic rather than structural

@@ -240,10 +240,7 @@ func _on_scrap_collected(total: int) -> void:
 	_player_scrap = total
 
 func _find_player() -> Player:
-	var players: Array[Node] = get_tree().get_nodes_in_group("player")
-	if players.is_empty():
-		return null
-	_player = players[0] as Player
+	_player = PlayerAuthority.get_local_player()
 	return _player
 
 func _find_command_executor() -> CommandExecutor:

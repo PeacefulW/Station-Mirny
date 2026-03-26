@@ -4,8 +4,8 @@ doc_type: governance
 status: approved
 owner: engineering
 source_of_truth: true
-version: 2.0
-last_updated: 2026-03-25
+version: 2.1
+last_updated: 2026-03-26
 depends_on:
   - DOCUMENT_PRECEDENCE.md
 related_docs:
@@ -114,36 +114,81 @@ Rules:
 - UI subscribes and dispatches, but does not own game-state mutation
 - mods/extensions may subscribe to events instead of patching core systems directly
 
-## 9. State / Component / Command / Factory / Service guidance
+## 9. Mandatory architectural patterns
 
-### State Machine
+The following four patterns are not suggestions — they are required wherever applicable. Each exists because of a specific architectural constraint.
+
+### 9.1 Command Pattern for world mutations
+
+**Rule:** Every action that mutates authoritative world state (place building, remove building, mine tile, craft item) MUST be expressed as a Command object with deterministic application.
+
+**Why:** ADR-0003 (immutable base + runtime diff) requires all mutations to be recordable as diffs. ADR-0004 (host-authoritative multiplayer) requires mutations to be replayable on host and clients. Undo/redo requires reversible commands. Save/load requires deterministic state reconstruction.
+
+**Shape:**
+- Command has `execute()` and optionally `undo()`
+- Command carries all parameters needed to reproduce the action
+- Commands flow through CommandExecutor, not direct system calls
+- No side-channel mutations that bypass the command path
+
+**Applies to:** building placement/removal, terrain excavation, crafting, item pickup/drop, future: research, equipment changes.
+
+### 9.2 Compute → Apply as standard two-phase pattern
+
+**Rule:** Any operation that produces derived state from authoritative data MUST separate into a compute phase and an apply phase.
+
+**Why:** PERFORMANCE_CONTRACTS requires that interactive paths stay under 2ms. SIMULATION_AND_THREADING_MODEL requires that heavy computation does not block the main thread. The compute phase can be deferred, budgeted, or run on a worker thread. The apply phase stays bounded and main-thread-safe.
+
+**Shape:**
+- Compute: read inputs, produce result (pure data, no scene tree mutation)
+- Apply: write result to scene tree / state (bounded, local, main-thread)
+- Never mix the two — a function that computes AND mutates is a violation
+
+**Applies to:** chunk terrain generation, mountain topology rebuild, room flood-fill, power network recalculation, shadow/cover rebuild, fog of war updates, future: pathfinding, AI decisions.
+
+### 9.3 Data-driven registries with namespaced IDs
+
+**Rule:** Every category of extensible game content MUST be accessible through a registry with stable namespaced string IDs (`"namespace:content_id"`). No direct `load()` by path in gameplay logic.
+
+**Why:** ADR-0004 requires clean entity identity. Mod compatibility requires content to be addable without code surgery. Save/load requires stable IDs that survive refactors. Multiplayer requires all peers to resolve the same ID to the same definition.
+
+**Shape:**
+- Registry autoload (e.g., `ItemRegistry`) scans data directories on init
+- Content defined as `.tres` Resource files with `id: StringName`
+- All gameplay lookups go through `Registry.get_by_id(id)`, never `load("res://data/...")`
+- Namespace convention: `"base:iron_ore"`, `"mod_name:custom_item"`
+
+**Currently implemented for:** items, recipes, buildings, resource nodes (via `ItemRegistry`).
+**Must be extended to:** biomes, flora sets, fauna types, POI definitions, events, workstations.
+
+### 9.4 Deterministic hashing by world position
+
+**Rule:** Visual and content variation that depends on world location MUST use deterministic hashing from world coordinates, not runtime randomness.
+
+**Why:** ADR-0003 (immutable base) requires that the same seed + coordinates produce the same result always. Multiplayer requires all clients to see the same world without synchronizing random state. Save/load requires that visual variation reconstructs identically from seed.
+
+**Shape:**
+- Hash function: `pos.x * PRIME_A + pos.y * PRIME_B`, XOR-shifted (see `Chunk._tile_hash()`)
+- Use for: rock wall variant selection, flora placement, terrain detail variation, POI eligibility, resource node distribution
+- Never use `randf()` or `randi()` for anything that depends on world position
+- Per-frame randomness (particles, sound variation) is exempt — it's client-local presentation
+
+**Applies to:** terrain tile variants, mountain wall faces, future: flora distribution, POI placement, resource vein patterns, biome transition noise.
+
+### 9.5 Other approved patterns
+
+#### State Machine
 Use for entities or flows with explicit modes:
-- player states
-- AI states
-- machine states
+- player states, AI states, machine states
 
-### Component Pattern
+#### Component Pattern
 Use for reusable cross-entity behavior:
-- health
-- noise
-- fuel usage
-- power source/sink
+- health, noise, fuel usage, power source/sink
 
-### Command Pattern
-Use for player-driven actions when clean action boundaries matter:
-- build/place/remove
-- craft
-- future multiplayer/network-safe actions
-- undo-capable editing flows
-
-### Factory Pattern
+#### Factory Pattern
 Use for construction of complex entities from data:
-- creatures
-- buildings
-- pickups
-- items with setup requirements
+- creatures, buildings, pickups, items with setup requirements
 
-### Services
+#### Services
 Use to decompose larger systems cleanly instead of creating god classes.
 
 ## 10. Anti-patterns

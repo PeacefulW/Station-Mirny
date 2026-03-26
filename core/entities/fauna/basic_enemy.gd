@@ -88,9 +88,8 @@ func _update_scan(delta: float) -> void:
 
 	# Проверяем игрока — слышим только если ОЧЕНЬ близко
 	# (шаги слышны на 60px, тогда как генератор на 250px)
-	var players: Array[Node] = get_tree().get_nodes_in_group("player")
-	if not players.is_empty():
-		var player: Node2D = players[0] as Node2D
+	var player: Node2D = PlayerAuthority.get_local_player()
+	if player:
 		var player_dist: float = global_position.distance_to(player.global_position)
 		var player_hear: float = balance.player_detect_radius * _hearing_multiplier
 		if player_dist < player_hear:

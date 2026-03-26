@@ -87,8 +87,7 @@ The target is a compact bunker-like base of roughly 10-15 meaningful rooms, for 
 - arsenal
 - medbay
 
-Branch-specific rooms may extend this:
-- adaptation biolab / incubator
+Late-game rooms may extend this:
 - terraformer heavy workshop / generator hall
 
 ## Outposts

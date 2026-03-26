@@ -29,7 +29,7 @@ Planetary fauna are feral descendants of once-functional bioengineering tools.
 
 - peaceful megafauna
 - atmospheric cleaning role
-- associated with cleaner air and possible adaptation-path transport
+- associated with cleaner air zones
 
 ### Burrowers
 

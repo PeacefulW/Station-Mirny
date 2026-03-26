@@ -200,10 +200,9 @@ func _create_single_slot() -> PanelContainer:
 func _find_inventory() -> void:
 	if _inventory:
 		return
-	var players: Array[Node] = get_tree().get_nodes_in_group("player")
-	if players.is_empty():
+	var player: Node = PlayerAuthority.get_local_player()
+	if not player:
 		return
-	var player: Node = players[0]
 	if player.has_method("get_inventory"):
 		_inventory = player.get_inventory()
 		if _inventory and _slot_nodes.size() != _inventory.capacity:
@@ -248,7 +247,7 @@ func _refresh() -> void:
 				color_bg.visible = true
 				color_bg.color = _get_item_color(slot.item.id)
 			amt.text = str(slot.amount) if slot.amount > 1 else ""
-			sn.tooltip_text = "%s\n%d / %d" % [slot.item.get_display_name(), slot.amount, slot.item.max_stack]
+			sn.tooltip_text = Localization.t("UI_INVENTORY_SLOT_TOOLTIP", {"name": slot.item.get_display_name(), "amount": slot.amount, "max_stack": slot.item.max_stack})
 			_set_style(sn, Color(0.18, 0.19, 0.15), Color(0.35, 0.33, 0.25))
 			total_weight += slot.item.weight * slot.amount
 	_weight_label.text = Localization.t("UI_INVENTORY_WEIGHT", {"weight": "%.1f" % total_weight})

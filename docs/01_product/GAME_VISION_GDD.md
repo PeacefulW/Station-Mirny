@@ -25,7 +25,7 @@ This file owns:
 - unique selling points
 - high-level gameplay loop
 - high-level progression arc
-- high-level path split
+- high-level late-game identity
 - high-level world and lore framing
 
 This file does not own:
@@ -94,19 +94,16 @@ The player should feel:
 4. **Expeditions have tension**
    Every trip outside the walls should involve planning, cost, risk, and relief on return.
 
-5. **Two late-game identities**
-   The player does not simply become stronger. They eventually commit to a worldview:
-   - Terraformer
-   - Adaptation
+5. **Late-game identity**
+   The player does not simply become stronger. They eventually commit to the Terraformer worldview: imposing human order on the planet through industrial infrastructure.
 
 6. **Lore reinforces mechanics**
    The mystery of the planet should not feel detached from gameplay. The world's biological hostility, mutation pressure, ruins, and progression should all support the central reveal.
 
 ## Unique selling points
 
-1. **Two divergent development paths with different fantasy and aesthetics**
-   - Terraformer: industrial bunker, machinery, environmental domination
-   - Adaptation: symbiosis, mutation, biological integration
+1. **Terraformer late-game identity with distinct fantasy and aesthetics**
+   - industrial bunker, machinery, environmental domination, heavy infrastructure
 
 2. **Save/load tied to fiction**
    Persistence is not just a menu feature; it has an in-world explanation and progression role.
@@ -118,7 +115,7 @@ The player should feel:
    Spores, contamination, system clogging, breaches, and environmental decay give the world its own agency.
 
 5. **Late lore twist with mechanical consequences**
-   The planet is not merely alien; it is bound to humanity's origin and reshapes the meaning of both progression paths.
+   The planet is not merely alien; it is bound to humanity's origin and reshapes the meaning of the Terraformer progression.
 
 ## High-level emotional references
 
@@ -142,7 +139,7 @@ The planet is beautiful, hostile, windswept, spore-ridden, and full of traces of
 The late reveal is:
 - the planet is tied to humanity's origin
 - the spores are not simply poison but a biological rollback pressure
-- the two major progression paths become ideological as well as mechanical choices
+- the Terraformer progression becomes ideological as well as a mechanical choice
 
 Detailed canon and reveal sequencing should live in the content bible, not in this file.
 
@@ -181,14 +178,12 @@ The key emotional rhythm is:
 - start decryption and wider territorial presence
 
 ### Late game
-- commit to Terraformer or Adaptation
-- express that path through infrastructure and progression
+- commit to Terraformer identity
+- express that identity through infrastructure and progression
 - understand the truth of the planet
-- reach an end-state that reflects the chosen philosophy
+- reach an end-state that reflects the Terraformer philosophy
 
-## The two paths
-
-### Terraformer
+## Late-game identity: Terraformer
 
 Fantasy:
 - impose order on a hostile world
@@ -200,19 +195,9 @@ Expected aesthetic:
 - machinery
 - hard surfaces
 - environmental domination
-
-### Adaptation
-
-Fantasy:
-- stop forcing the world to become Earth
-- change the self instead
-- survive through biological integration
-
-Expected aesthetic:
-- symbiosis
-- organic structures
-- mutation
-- coexistence with hostile ecology
+- heavy infrastructure
+- clearing fauna
+- reshaping terrain
 
 ## Base fantasy
 
@@ -278,4 +263,4 @@ Station Mirny is a survival/base-builder where the strongest fantasy is not simp
 
 **build a real sanctuary in a world that is always trying to take it back.**
 
-The player survives by engineering safety, then eventually chooses whether that safety means dominating the planet or changing to belong to it.
+The player survives by engineering safety, then commits to dominating the planet through industrial infrastructure and imposed order.

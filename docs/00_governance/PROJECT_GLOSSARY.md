@@ -179,7 +179,7 @@ The emotional and mechanical state of being inside a sealed, powered base. Core 
 The opposite of sanctuary — being outside the base or in a breached/unpowered room. Exposure means: O2 depletes, temperature is hostile, spores accumulate, visibility degrades, fauna is a threat. The player's primary motivation is to minimize exposure time while maximizing what they accomplish during it. Every expedition is a race against exposure.
 
 ### Spores
-Pervasive biological hazard on the planet surface. Dual threat: damages the engineer (cough, hallucination, sickness) and contaminates machinery (clog, filter degradation). Sealed rooms with filtration protect against spores. Central to the Adaptation vs Terraformer late-game divergence.
+Pervasive biological hazard on the planet surface. Dual threat: damages the engineer (cough, hallucination, sickness) and contaminates machinery (clog, filter degradation). Sealed rooms with filtration protect against spores.
 
 ### Life support
 The set of base systems that maintain habitable conditions inside sealed rooms: O2 generation/distribution, temperature regulation, spore filtration, water supply. Requires power. Loss of life support = interior becomes hostile.
