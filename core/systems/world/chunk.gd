@@ -28,6 +28,7 @@ var is_dirty: bool = false
 var _terrain_layer: TileMapLayer = null
 var _cover_layer: TileMapLayer = null
 var _cliff_layer: TileMapLayer = null
+var _fog_layer: TileMapLayer = null
 var _debug_root: Node2D = null
 var _tile_size: int = 64
 var _chunk_size: int = 64
@@ -42,6 +43,7 @@ var _has_mountain: bool = false
 var _redraw_phase: int = REDRAW_PHASE_DONE
 var _redraw_tile_index: int = 0
 var _revealed_local_cover_tiles: Dictionary = {}
+var _is_underground: bool = false
 
 func setup(
 	p_coord: Vector2i,
@@ -119,6 +121,66 @@ func set_revealed_local_zone(zone_tiles: Dictionary) -> void:
 
 func set_revealed_local_cover_tiles(cover_tiles: Dictionary) -> void:
 	_apply_local_zone_cover_state(cover_tiles)
+
+# --- Underground Fog of War ---
+
+## Mark this chunk as underground. Must be called BEFORE redraw.
+func set_underground(value: bool) -> void:
+	_is_underground = value
+
+## Initialize fog layer for underground chunks. Fills all tiles with UNSEEN.
+func init_fog_layer(fog_tileset: TileSet) -> void:
+	if _fog_layer:
+		return
+	_fog_layer = TileMapLayer.new()
+	_fog_layer.name = "FogLayer"
+	_fog_layer.tile_set = fog_tileset
+	_fog_layer.z_index = 7
+	add_child(_fog_layer)
+	# Fill with UNSEEN
+	for y: int in range(_chunk_size):
+		for x: int in range(_chunk_size):
+			_fog_layer.set_cell(
+				Vector2i(x, y),
+				ChunkTilesetFactory.FOG_SOURCE_ID,
+				ChunkTilesetFactory.TILE_FOG_UNSEEN
+			)
+
+## Erase fog for tiles that are currently visible (player nearby).
+func apply_fog_visible(visible_locals: Dictionary) -> void:
+	if not _fog_layer:
+		return
+	for local: Vector2i in visible_locals:
+		if _is_inside(local):
+			_fog_layer.erase_cell(local)
+
+## Set DISCOVERED fog tile for tiles that were visible but player moved away.
+func apply_fog_discovered(discovered_locals: Dictionary) -> void:
+	if not _fog_layer:
+		return
+	for local: Vector2i in discovered_locals:
+		if _is_inside(local):
+			_fog_layer.set_cell(
+				local,
+				ChunkTilesetFactory.FOG_SOURCE_ID,
+				ChunkTilesetFactory.TILE_FOG_DISCOVERED
+			)
+
+## Returns true if this tile should have fog removed when in reveal radius.
+## Open space + cave-edge rocks (visible wall faces) are revealable.
+## Deep solid rock stays hidden under fog (dark mass).
+func is_fog_revealable(local_tile: Vector2i) -> bool:
+	if not _is_inside(local_tile):
+		return false
+	var terrain: int = get_terrain_type_at(local_tile)
+	if terrain == TileGenData.TerrainType.MINED_FLOOR \
+		or terrain == TileGenData.TerrainType.MOUNTAIN_ENTRANCE \
+		or terrain == TileGenData.TerrainType.GROUND:
+		return true
+	# Cave-edge rocks = visible wall faces (volumetric walls like in the reference)
+	if terrain == TileGenData.TerrainType.ROCK:
+		return _is_cave_edge_rock(local_tile)
+	return false
 
 func is_revealable_cover_edge(local_tile: Vector2i) -> bool:
 	if not _is_inside(local_tile):
@@ -258,10 +320,15 @@ func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 	var alt_id: int = 0
 	match terrain_type:
 		TileGenData.TerrainType.ROCK:
-			var result: Array = _apply_variant_full(
-				_rock_visual_class(local_tile), local_tile)
-			atlas = result[0]
-			alt_id = result[1]
+			if _is_underground and not _is_cave_edge_rock(local_tile):
+				# Deep underground rock = dark mass (hidden by fog anyway)
+				atlas = ChunkTilesetFactory.TILE_ROCK_INTERIOR
+			else:
+				# Surface rock OR underground cave-edge = volumetric wall faces
+				var result: Array = _apply_variant_full(
+					_rock_visual_class(local_tile), local_tile)
+				atlas = result[0]
+				alt_id = result[1]
 		TileGenData.TerrainType.MINED_FLOOR:
 			atlas = ChunkTilesetFactory.TILE_MINED_FLOOR
 		TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
@@ -373,6 +440,9 @@ func _redraw_cliff_tile(_local_tile: Vector2i) -> void:
 	pass
 
 func _redraw_cover_tile(local_tile: Vector2i) -> void:
+	# Underground has no roof/cover — fog layer handles visibility instead.
+	if _is_underground:
+		return
 	var terrain: int = get_terrain_type_at(local_tile)
 	var need_cover: bool = terrain == TileGenData.TerrainType.MINED_FLOOR \
 		or _is_cave_edge_rock(local_tile)

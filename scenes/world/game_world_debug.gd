@@ -8,14 +8,17 @@ const RuntimeValidationDriverScript = preload("res://core/debug/runtime_validati
 
 var _chunk_manager: ChunkManager = null
 var _ui_layer: CanvasLayer = null
+var _game_world: GameWorld = null
 var _fps_label: Label = null
 var _fps_log_timer: float = 0.0
 var _tile_highlight: ColorRect = null
 var _tile_info_label: Label = null
+var _stairs_container: Node2D = null
 
-func setup(chunk_manager: ChunkManager, ui_layer: CanvasLayer) -> void:
+func setup(chunk_manager: ChunkManager, ui_layer: CanvasLayer, game_world: GameWorld = null) -> void:
 	_chunk_manager = chunk_manager
 	_ui_layer = ui_layer
+	_game_world = game_world
 	_setup_fps_counter()
 	_setup_tile_highlight()
 	_setup_runtime_validation_driver()
@@ -32,6 +35,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_debug_toggle_rock(true)
 		elif event.keycode == KEY_H:
 			_debug_toggle_rock(false)
+		elif event.keycode == KEY_J:
+			_debug_spawn_underground_pocket()
 
 func _debug_toggle_rock(place: bool) -> void:
 	var mouse_pos: Vector2 = get_parent().get_global_mouse_position()
@@ -125,3 +130,41 @@ func _update_fps(delta: float) -> void:
 	if _fps_log_timer >= 5.0:
 		_fps_log_timer = 0.0
 		print("[WorldPerf] FPS: %.1f" % fps)
+
+func _debug_spawn_underground_pocket() -> void:
+	if not _game_world or not _chunk_manager:
+		return
+	# Place at mouse cursor, like building placement
+	var stair_pos: Vector2 = _game_world.get_global_mouse_position()
+	var stair_tile: Vector2i = WorldGenerator.world_to_tile(stair_pos)
+	# Snap to tile center
+	var ts: int = WorldGenerator.balance.tile_size
+	stair_pos = Vector2(stair_tile.x * ts + ts / 2, stair_tile.y * ts + ts / 2)
+	# Create stairs container if needed
+	if not _stairs_container:
+		_stairs_container = Node2D.new()
+		_stairs_container.name = "DebugStairsContainer"
+		_game_world.add_child(_stairs_container)
+	# Surface staircase (z=0 → z=-1)
+	var stairs_down := ZStairs.new()
+	stairs_down.target_z = -1
+	stairs_down.source_z = 0
+	stairs_down.global_position = stair_pos
+	stairs_down.name = "DebugStairsDown_%d" % Time.get_ticks_msec()
+	_stairs_container.add_child(stairs_down)
+	# Underground staircase (z=-1 → z=0)
+	var stairs_up := ZStairs.new()
+	stairs_up.target_z = 0
+	stairs_up.source_z = -1
+	stairs_up.stairs_type = &"stairs_up"
+	stairs_up.global_position = stair_pos
+	stairs_up.name = "DebugStairsUp_%d" % Time.get_ticks_msec()
+	_stairs_container.add_child(stairs_up)
+	# Create underground pocket: stair tile + 3x3 area around it for movement space
+	# Player spawns to the right of the staircase
+	var pocket_tiles: Array = []
+	for dy: int in range(-1, 2):
+		for dx: int in range(-1, 3):
+			pocket_tiles.append(stair_tile + Vector2i(dx, dy))
+	_chunk_manager.ensure_underground_pocket(stair_tile, pocket_tiles)
+	print("[Debug] Underground pocket at cursor %s (tile %s). Walk into staircase to descend." % [stair_pos, stair_tile])

@@ -70,6 +70,9 @@ func _request_refresh(force_refresh: bool = false) -> void:
 	var started_usec: int = WorldPerfProbe.begin()
 	if not _chunk_manager or not _player or not WorldGenerator:
 		return
+	# Surface-only system. Skip underground (ADR-0006).
+	if _chunk_manager.get_active_z_level() != 0:
+		return
 	var previous_cover_tiles_by_chunk: Dictionary = _duplicate_cover_tiles_by_chunk(_active_local_cover_tiles_by_chunk)
 	var player_tile: Vector2i = WorldGenerator.world_to_tile(_player.global_position)
 	var start_tile: Vector2i = _find_reveal_start(player_tile)

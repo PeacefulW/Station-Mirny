@@ -211,6 +211,34 @@ static func _build_overlay_tileset(balance: WorldGenBalance, _biome: BiomeData) 
 	# runtime dependency on rock_overlay_atlas.png right now.
 	return tileset
 
+## Fog of war tileset for underground. Two tiles: UNSEEN (opaque black) and DISCOVERED (dim).
+const FOG_SOURCE_ID: int = 0
+const TILE_FOG_UNSEEN: Vector2i = Vector2i(0, 0)
+const TILE_FOG_DISCOVERED: Vector2i = Vector2i(1, 0)
+
+static func create_fog_tileset(tile_size: int) -> TileSet:
+	var tileset := TileSet.new()
+	tileset.tile_size = Vector2i(tile_size, tile_size)
+	var image := Image.create(tile_size * 2, tile_size, false, Image.FORMAT_RGBA8)
+	# Tile 0: UNSEEN — nearly black, fully opaque
+	var unseen_color := Color(0.02, 0.02, 0.03, 1.0)
+	for py: int in range(tile_size):
+		for px: int in range(tile_size):
+			image.set_pixel(px, py, unseen_color)
+	# Tile 1: DISCOVERED — dark, semi-transparent
+	var discovered_color := Color(0.03, 0.03, 0.05, 0.65)
+	for py: int in range(tile_size):
+		for px: int in range(tile_size + 0, tile_size * 2):
+			image.set_pixel(px, py, discovered_color)
+	var texture := ImageTexture.create_from_image(image)
+	var src := TileSetAtlasSource.new()
+	src.texture = texture
+	src.texture_region_size = Vector2i(tile_size, tile_size)
+	src.create_tile(TILE_FOG_UNSEEN)
+	src.create_tile(TILE_FOG_DISCOVERED)
+	tileset.add_source(src, FOG_SOURCE_ID)
+	return tileset
+
 static func _fill_rect(image: Image, rect: Rect2i, color: Color) -> void:
 	for py: int in range(rect.position.y, rect.end.y):
 		for px: int in range(rect.position.x, rect.end.x):

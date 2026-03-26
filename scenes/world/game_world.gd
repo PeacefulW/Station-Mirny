@@ -25,7 +25,6 @@ var _death_screen: DeathScreen = null
 var _z_manager: ZLevelManager = null
 var _z_overlay: ZTransitionOverlay = null
 var _bg_rect: ColorRect = null
-var _stairs_container: Node2D = null
 var _mountain_roof_system: MountainRoofSystem = null
 var _mountain_shadow_system: MountainShadowSystem = null
 var _loading_screen: LoadingScreen = null
@@ -54,13 +53,12 @@ func _ready() -> void:
 	add_child(_spawn_orchestrator)
 	_spawn_orchestrator.setup(_player, enemy_container, pickup_container, _command_executor, enemy_balance)
 	_spawn_orchestrator.spawn_initial_scrap()
-	_spawn_test_stairs()
 
 	# Debug overlay
 	var debug := GameWorldDebug.new()
 	debug.name = "GameWorldDebug"
 	add_child(debug)
-	debug.setup(_chunk_manager, _resolved_ui_layer)
+	debug.setup(_chunk_manager, _resolved_ui_layer, self)
 
 	# UI composition
 	var build_menu := BuildMenuPanel.new()
@@ -229,9 +227,6 @@ func _setup_z_levels() -> void:
 	_z_overlay = ZTransitionOverlay.new()
 	_z_overlay.name = "ZTransitionOverlay"
 	add_child(_z_overlay)
-	_stairs_container = Node2D.new()
-	_stairs_container.name = "StairsContainer"
-	add_child(_stairs_container)
 	_setup_background()
 
 func _setup_background() -> void:
@@ -256,24 +251,6 @@ func _update_background_for_z(z: int) -> void:
 		-1: _bg_rect.color = Color(0.10, 0.08, 0.06)
 		0: _bg_rect.color = Color(0.05, 0.10, 0.05)
 		1: _bg_rect.color = Color(0.02, 0.02, 0.04)
-
-func _spawn_test_stairs() -> void:
-	if not _player or not _stairs_container:
-		return
-	var stair_pos: Vector2 = _player.global_position + Vector2(36, 0)
-	var stairs_down := ZStairs.new()
-	stairs_down.target_z = -1
-	stairs_down.source_z = 0
-	stairs_down.global_position = stair_pos
-	stairs_down.name = "TestStairsDown"
-	_stairs_container.add_child(stairs_down)
-	var stairs_up := ZStairs.new()
-	stairs_up.target_z = 0
-	stairs_up.source_z = -1
-	stairs_up.stairs_type = &"stairs_up"
-	stairs_up.global_position = stair_pos
-	stairs_up.name = "TestStairsUp"
-	_stairs_container.add_child(stairs_up)
 
 # --- Утилиты ---
 

@@ -4,7 +4,7 @@ doc_type: execution
 status: draft
 owner: design+engineering
 source_of_truth: true
-version: 0.1
+version: 0.3
 last_updated: 2026-03-26
 depends_on:
   - ../02_system_specs/world/subsurface_and_verticality_foundation.md
@@ -283,163 +283,99 @@ Interior rock faces and hidden rock mass use underground-specific visuals, not s
 
 The implementing AI must deliver this work in the following order.
 Do not skip ahead.
-Do not merge multiple iterations into one giant unreviewable implementation if that increases risk.
 
-## Iteration 0 — Read and align
+### Iteration 0 — Read, align, and clean up entry path
 
 Goal:
-- confirm all required docs are read
-- confirm implementation plan respects them
+- confirm all required docs are read and implementation plan respects them
+- remove bad automatic basement entry; establish debug-only underground access
+
+Tasks:
+- read all mandatory docs listed above
 - identify existing staircase/underground test hooks and current auto-spawn behavior
-
-Deliverables:
-- short implementation note or PR summary listing the docs used
-- confirmation of what existing staircase spawn behavior is removed or preserved
-
-Acceptance:
-- no architecture is introduced that conflicts with current docs
-- current bug source is identified (or at least current auto-spawn path is identified)
-
-## Iteration 1 — Remove bad automatic basement entry behavior
-
-Goal:
-- normal game start must no longer dump the player into the basement by accident
-- auto staircase placement must be removed if it still exists as default startup behavior
-
-Tasks:
-- identify and disable automatic staircase spawn on ordinary startup
-- ensure the normal player spawn flow remains surface-correct
-- ensure underground entry happens only through explicit debug/test action for now
+- remove automatic staircase spawn from normal startup (player must not start underground)
+- wire temporary debug hotkey `J` to place a staircase and create a tiny linked underground pocket (stair tile + arrival tile + optionally one extra tile, everything else solid rock)
+- ensure underground does not use surface-style roof-open/roof-close logic in this MVP
 
 Acceptance:
-- starting a normal session does not automatically place the player underground
-- staircase no longer appears automatically as part of normal startup
+- normal game start: player spawns on surface, no staircase auto-placed
+- pressing `J`: staircase appears, descending leads to tiny pocket surrounded by solid rock
+- underground presentation does not behave like a house roof system
+- no architecture conflicts with canonical docs
 
-## Iteration 2 — Debug staircase placement and tiny underground pocket
-
-Goal:
-- temporary debug hotkey `J` creates a staircase and linked underground pocket
-
-Tasks:
-- add or wire temporary debug staircase placement to `J`
-- create a linked underground destination when placed
-- create only a tiny initial open pocket:
-  - stair destination tile
-  - player spawn/arrival tile
-  - optionally one extra support tile if needed
-- everything else remains solid rock
-
-Acceptance:
-- pressing `J` produces a valid test staircase
-- descending leads to a tiny underground pocket only
-- the rest of surrounding underground remains enclosed rock
-
-## Iteration 3 — Underground no-roof MVP rule
+### Iteration 1 — Fog of war state model + reveal bubble
 
 Goal:
-- underground does not use surface-style roof-open/roof-close presentation in this MVP
+- introduce the discovery/visibility state layer and local reveal radius for underground
 
 Tasks:
-- ensure underground tiles/spaces do not rely on surface room roof reveal logic
-- ensure excavated underground cells remain visible according to underground visibility/fog rules instead of room-roof rules
-
-Acceptance:
-- underground presentation no longer behaves like a house roof opening/closing system
-- digging out space underground results in stable visible carved space according to the underground rules
-
-## Iteration 4 — Underground fog of war state MVP
-
-Goal:
-- introduce the discovery/visibility layer for underground space
-
-Tasks:
-- implement a simple underground visibility/discovery model with at least:
-  - unseen
-  - discovered but not currently visible
-  - currently visible
-- apply this only to underground scope for the MVP
-- keep the model cheap and local
-
-Acceptance:
-- newly entered underground space is not fully readable beyond the immediate reveal radius
-- previously visited underground may remain partially remembered if implemented
-- unseen underground remains hidden/dark enough to prevent fully reading the surrounding mass
-
-## Iteration 5 — Local reveal bubble around player / local light context
-
-Goal:
-- only nearby underground space is clearly visible
-
-Tasks:
-- add a small reveal radius around the player underground
-- ensure immediate walking/copying/digging space is readable
+- implement a lightweight underground visibility model with three states per tile:
+  - **unseen**: player has never revealed this area
+  - **discovered**: previously revealed, not currently in reveal radius
+  - **visible**: within player's current reveal radius
+- add a small reveal radius around the player when underground
+- ensure immediate walking/digging space is readable
 - ensure distant underground remains dark/hidden
-- ensure entry into underground does not visually expose a large region at once
+- ensure entry into underground does not expose a large region at once
 
 Acceptance:
-- player can read immediate nearby space
+- nearby underground space is clearly readable
 - distant underground is not fully visible
-- visibility feels local and claustrophobic rather than map-like
+- visibility feels local and claustrophobic, not map-like
+- unseen tiles remain hidden enough to prevent reading surrounding mass geometry
 
-## Iteration 6 — Reveal-by-excavation behavior
+### Iteration 2 — Excavation-driven reveal + hidden mass presentation
 
 Goal:
-- excavation expands visible knowledge of the underground naturally
+- digging expands the known pocket; unseen mass reads as darkness, not readable geometry
 
 Tasks:
-- when a solid rock cell is excavated, it becomes open space
-- newly opened space becomes visible/revealed locally
-- adjacent underground discovery may update in a bounded local way if needed
-- no whole-region reveal is allowed
+- when solid rock is excavated, newly opened space transitions to visible/discovered locally
+- adjacent discovery updates are bounded and local (no whole-region reveal)
+- add presentation treatment for unseen underground: dark/black mass, not readable terrain
+- ensure player does not see full rock geometry far beyond visibility
+- presentation hides streaming/rebuild artifacts
 
 Acceptance:
-- digging feels like expanding a safe/readable pocket into darkness
-- only local space changes visibility when digging
-- no global underground repaint occurs
+- digging feels like expanding a readable pocket into darkness
+- only local space changes on dig, no global repaint
+- unseen underground reads as unknown heavy darkness
+- player no longer watches distant underground visibly draw in
 
-## Iteration 7 — Underground hidden-mass presentation
-
-Goal:
-- unseen underground reads as dark mass, not fully readable mountain geometry
-
-Tasks:
-- add a presentation treatment for unseen underground mass
-- ensure the player does not see clear full rock geometry far beyond visibility
-- presentation should hide build/reveal behavior rather than expose streaming artifacts
-
-Acceptance:
-- unseen underground reads as unknown heavy darkness / black mass
-- the player no longer watches distant underground visibly draw in around them
-
-## Iteration 8 — Underground-specific rock visuals
+### Iteration 3 — Underground-specific rock visuals
 
 Goal:
-- underground rock and rock faces have an interior visual identity distinct from the surface
+- underground rock has its own interior visual identity, distinct from surface mountain rock
 
 Tasks:
 - add or wire distinct underground rock textures/tiles/visual states
-- ensure visible underground rock face uses the underground style
-- ensure unseen hidden mass and visible rock face remain distinguishable if the art supports that split
+- visible underground rock face uses the underground style (enclosed, heavy, dark, unweathered)
+- unseen hidden mass and visible rock face remain distinguishable where art supports it
 
 Acceptance:
-- underground no longer looks like surface mountain tiles shown in a different place
+- underground no longer looks like surface mountain tiles in a different location
 - carved underground space feels visually interior and enclosed
 
-## Iteration 9 — Performance validation and cleanup
+### Iteration 4 — Performance validation, cleanup, and doc update
 
 Goal:
-- confirm the solution improves the feel without violating runtime law
+- confirm the solution improves feel without violating runtime law; close the rollout cleanly
 
 Tasks:
 - profile underground entry and first reveal behavior
-- ensure no large synchronous rebuild is triggered on entry
+- ensure no large synchronous rebuild is triggered on entry or on dig
 - ensure local dig does not trigger full underground redraw/recompute
-- clean up temporary debug comments and keep only the intended temporary testing hooks
+- clean up temporary debug comments, keep only intended testing hooks
+- update canonical docs if implementation changed any contracts:
+  - `docs/00_governance/PROJECT_GLOSSARY.md`
+  - `docs/02_system_specs/world/subsurface_and_verticality_foundation.md`
+  - `docs/02_system_specs/world/lighting_visibility_and_darkness.md`
 
 Acceptance:
 - underground entry no longer visibly paints in large nearby space
-- no obvious hitch is introduced by the new visibility system
-- the implementation remains local, bounded, and consistent with performance rules
+- no obvious hitch introduced by the visibility system
+- implementation is local, bounded, and consistent with performance rules
+- docs and code are in sync
 
 ## Technical guidance for the AI
 
@@ -539,3 +475,42 @@ Implement the smallest correct architecture-compliant slice that:
 - strengthens underground darkness and discovery
 - supports digging-driven expansion
 - stays compatible with the documented future direction
+
+## Implementation Status
+
+### Iteration Status
+
+| # | Iteration | Status |
+|---|-----------|--------|
+| 0 | Read, align, clean up entry path | DONE |
+| 1 | Fog state model + reveal bubble | DONE |
+| 2 | Excavation reveal + hidden mass + wall visuals | IN PROGRESS |
+| 3 | Underground-specific rock visuals | PENDING |
+| 4 | Performance validation and cleanup | PENDING |
+
+### Iteration 0 Changes (2026-03-26)
+
+- Removed auto-spawn stairs from `GameWorld._ready()` — normal startup no longer places player underground
+- Added KEY_J debug hotkey in `GameWorldDebug` to place staircase at mouse cursor position
+- Underground pocket: 4x3 MINED_FLOOR tiles around staircase destination
+- Underground chunks generate as solid ROCK (`_generate_solid_rock_chunk()` in ChunkManager)
+- MountainRoofSystem z-guard: `_request_refresh()` skips when active z != 0 (ADR-0006)
+
+**New files:** `core/systems/world/underground_fog_state.gd`
+
+### Iteration 1 Changes (2026-03-26)
+
+- `UndergroundFogState` class: tracks revealed/visible tiles, compute visible circle (radius 5), update delta
+- Fog tileset: 2 tiles (UNSEEN = opaque black, DISCOVERED = semi-transparent dark) via `ChunkTilesetFactory.create_fog_tileset()`
+- `Chunk._fog_layer` (TileMapLayer, z_index 7): initialized for z != 0, filled with UNSEEN on creation
+- `Chunk.apply_fog_visible()` / `apply_fog_discovered()`: toggle fog tiles per visibility state
+- `ChunkManager._fog_update_tick()`: TOPOLOGY budget job, updates fog when player moves underground
+- All chunk creation paths (boot, runtime, ensure_pocket) init fog layer for z != 0
+
+### Iteration 2 Changes (2026-03-26)
+
+- `Chunk.is_fog_revealable()`: fog reveals only MINED_FLOOR, MOUNTAIN_ENTRANCE, GROUND, and cave-edge rocks. Solid rock mass stays hidden under fog.
+- `Chunk._is_underground` flag: set before populate/redraw. Underground ROCK renders as dark `TILE_ROCK_INTERIOR` except cave-edge rocks which use full 47-variant wall faces.
+- `Chunk._redraw_cover_tile()`: skips entirely for underground (no roof system underground).
+- `ChunkManager.try_harvest_at_world()`: excavation force-reveals mined tile + neighbors in fog state.
+- `ChunkManager.get_terrain_type_at_global()`: underground fallback returns ROCK instead of surface terrain, fixing wall variant calculation at chunk boundaries.
