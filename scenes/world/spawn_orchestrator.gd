@@ -31,6 +31,7 @@ func setup(
 	EventBus.item_dropped.connect(_on_item_dropped)
 
 func _process(delta: float) -> void:
+	_sync_pickups_to_player()
 	_update_enemy_spawning(delta)
 
 func spawn_initial_scrap() -> void:
@@ -56,12 +57,13 @@ func save_pickups() -> Array[Dictionary]:
 		var amount: int = int(pickup.get_meta("amount", 0))
 		if item_id.is_empty() or amount <= 0:
 			continue
+		var logical_position: Vector2 = _get_pickup_logical_position(pickup)
 		result.append({
 			"item_id": item_id,
 			"amount": amount,
 			"position": {
-				"x": pickup.global_position.x,
-				"y": pickup.global_position.y,
+				"x": logical_position.x,
+				"y": logical_position.y,
 			},
 		})
 	return result
@@ -85,6 +87,7 @@ func load_pickups(entries: Array) -> void:
 				float(position_data.get("y", 0.0))
 			)
 		)
+		_prepare_pickup_for_world_wrap(pickup)
 		pickup.body_entered.connect(_on_pickup_collected.bind(pickup))
 		_pickup_container.add_child(pickup)
 
@@ -148,6 +151,7 @@ func _on_item_dropped(item_id: String, amount: int, world_pos: Vector2) -> void:
 	var col: CollisionShape2D = pickup.get_child(1) as CollisionShape2D
 	if col:
 		col.set_deferred("disabled", true)
+	_prepare_pickup_for_world_wrap(pickup)
 	pickup.body_entered.connect(_on_pickup_collected.bind(pickup))
 	_pickup_container.add_child(pickup)
 	if col:
@@ -160,6 +164,7 @@ func _spawn_scrap_pickup(pos: Vector2) -> void:
 	if not _pickup_container:
 		return
 	var pickup := _pickup_factory.create_item_pickup(Player.SCRAP_ITEM_ID, 1, pos)
+	_prepare_pickup_for_world_wrap(pickup)
 	pickup.body_entered.connect(_on_pickup_collected.bind(pickup))
 	_pickup_container.add_child(pickup)
 
@@ -173,3 +178,41 @@ func _on_pickup_collected(body: Node2D, pickup: Area2D) -> void:
 			return
 		body.collect_item(item_id, amount)
 		pickup.queue_free()
+
+func sync_pickups_to_player() -> void:
+	_sync_pickups_to_player()
+
+func _sync_pickups_to_player() -> void:
+	if not _pickup_container:
+		return
+	for child: Node in _pickup_container.get_children():
+		var pickup: Area2D = child as Area2D
+		if not pickup:
+			continue
+		_sync_pickup_display_position(pickup)
+
+func _prepare_pickup_for_world_wrap(pickup: Area2D) -> void:
+	if not pickup:
+		return
+	pickup.set_meta("logical_position", _canonicalize_pickup_position(pickup.global_position))
+	_sync_pickup_display_position(pickup)
+
+func _sync_pickup_display_position(pickup: Area2D) -> void:
+	if not pickup:
+		return
+	var logical_position: Vector2 = _get_pickup_logical_position(pickup)
+	if _player and WorldGenerator and WorldGenerator._is_initialized:
+		pickup.global_position = WorldGenerator.get_display_world_position(logical_position, _player.global_position)
+	else:
+		pickup.global_position = logical_position
+
+func _get_pickup_logical_position(pickup: Area2D) -> Vector2:
+	var stored: Variant = pickup.get_meta("logical_position", pickup.global_position)
+	if stored is Vector2:
+		return _canonicalize_pickup_position(stored as Vector2)
+	return _canonicalize_pickup_position(pickup.global_position)
+
+func _canonicalize_pickup_position(world_pos: Vector2) -> Vector2:
+	if WorldGenerator and WorldGenerator._is_initialized:
+		return WorldGenerator.canonicalize_world_position(world_pos)
+	return world_pos

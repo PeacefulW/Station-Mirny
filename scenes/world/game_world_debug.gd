@@ -5,6 +5,7 @@ extends Node
 ## Извлечён из GameWorld для изоляции debug-кода от runtime (Iteration 5, ADR-0001).
 
 const RuntimeValidationDriverScript = preload("res://core/debug/runtime_validation_driver.gd")
+const WorldPreviewExporterScript = preload("res://core/debug/world_preview_exporter.gd")
 
 var _chunk_manager: ChunkManager = null
 var _ui_layer: CanvasLayer = null
@@ -14,6 +15,7 @@ var _fps_log_timer: float = 0.0
 var _tile_highlight: ColorRect = null
 var _tile_info_label: Label = null
 var _stairs_container: Node2D = null
+var _world_preview_exporter: WorldPreviewExporter = null
 
 func setup(chunk_manager: ChunkManager, ui_layer: CanvasLayer, game_world: GameWorld = null) -> void:
 	_chunk_manager = chunk_manager
@@ -22,6 +24,7 @@ func setup(chunk_manager: ChunkManager, ui_layer: CanvasLayer, game_world: GameW
 	_setup_fps_counter()
 	_setup_tile_highlight()
 	_setup_runtime_validation_driver()
+	_setup_world_preview_exporter()
 
 func _process(delta: float) -> void:
 	_update_fps(delta)
@@ -37,6 +40,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_debug_toggle_rock(false)
 		elif event.keycode == KEY_J:
 			_debug_spawn_underground_pocket()
+		elif event.keycode == KEY_P:
+			call_deferred("_debug_export_world_preview")
 
 func _debug_toggle_rock(place: bool) -> void:
 	var mouse_pos: Vector2 = get_parent().get_global_mouse_position()
@@ -97,6 +102,10 @@ func _setup_runtime_validation_driver() -> void:
 	driver.name = "RuntimeValidationDriver"
 	get_parent().add_child(driver)
 
+func _setup_world_preview_exporter() -> void:
+	if WorldGenerator:
+		_world_preview_exporter = WorldPreviewExporterScript.new().initialize(WorldGenerator)
+
 func _update_tile_highlight() -> void:
 	if not _tile_highlight or not WorldGenerator or not _chunk_manager:
 		return
@@ -109,11 +118,18 @@ func _update_tile_highlight() -> void:
 		var tile_data: TileGenData = WorldGenerator.get_tile_data(tile_pos.x, tile_pos.y)
 		var biome_text: String = "biome:-"
 		var variation_text: String = "subzone:none"
+		var structure_text: String = "ridge:- mass:- river:- flood:-"
 		if tile_data:
 			if not String(tile_data.biome_id).is_empty():
 				biome_text = "biome:%s" % String(tile_data.biome_id)
 			if tile_data.local_variation_id != 0 or tile_data.local_variation_score > 0.0:
 				variation_text = "subzone:%s %.2f" % [String(tile_data.local_variation_kind), tile_data.local_variation_score]
+			structure_text = "ridge:%.2f mass:%.2f river:%.2f flood:%.2f" % [
+				tile_data.ridge_strength,
+				tile_data.mountain_mass,
+				tile_data.river_strength,
+				tile_data.floodplain_strength
+			]
 		var chunk: Chunk = _chunk_manager.get_chunk_at_tile(tile_pos)
 		if chunk:
 			var local: Vector2i = chunk.global_to_local(tile_pos)
@@ -133,8 +149,9 @@ func _update_tile_highlight() -> void:
 				variation_text,
 				local
 			]
+			_tile_info_label.text += " | %s" % structure_text
 		else:
-			_tile_info_label.text = "Tile: %s | unloaded | %s | %s" % [tile_pos, biome_text, variation_text]
+			_tile_info_label.text = "Tile: %s | unloaded | %s | %s | %s" % [tile_pos, biome_text, variation_text, structure_text]
 
 func _update_fps(delta: float) -> void:
 	var fps: float = Engine.get_frames_per_second()
@@ -182,3 +199,18 @@ func _debug_spawn_underground_pocket() -> void:
 			pocket_tiles.append(stair_tile + Vector2i(dx, dy))
 	_chunk_manager.ensure_underground_pocket(stair_tile, pocket_tiles)
 	print("[Debug] Underground pocket at cursor %s (tile %s). Walk into staircase to descend." % [stair_pos, stair_tile])
+
+func _debug_export_world_preview() -> void:
+	if _world_preview_exporter == null:
+		_setup_world_preview_exporter()
+	if _world_preview_exporter == null:
+		print("[Debug] World preview exporter is unavailable.")
+		return
+	var exported: Dictionary = _world_preview_exporter.export_current_world_preview()
+	if exported.is_empty():
+		print("[Debug] World preview export failed.")
+		return
+	print("[Debug] World preview exported:")
+	print("  biomes: %s" % [exported.get("biomes", "")])
+	print("  terrain: %s" % [exported.get("terrain", "")])
+	print("  structures: %s" % [exported.get("structures", "")])

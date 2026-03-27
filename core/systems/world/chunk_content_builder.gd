@@ -32,7 +32,13 @@ func build_chunk(chunk_coord: Vector2i):
 			var tile_pos: Vector2i = Vector2i(base_tile.x + local_x, base_tile.y + local_y)
 			var tile_data: TileGenData = _build_tile_data(_canonicalize_tile(tile_pos), spawn_tile, safe_radius)
 			var index: int = local_y * result.chunk_size + local_x
-			result.set_tile(index, tile_data.terrain, tile_data.height, tile_data.local_variation_id)
+			result.set_tile(
+				index,
+				tile_data.terrain,
+				tile_data.height,
+				tile_data.local_variation_id,
+				tile_data.biome_palette_index
+			)
 	return result
 
 func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
@@ -73,6 +79,7 @@ func _build_tile_data(canonical_tile: Vector2i, spawn_tile: Vector2i, safe_radiu
 		data.biome_score = float(biome_result.score)
 	elif _world_provider.current_biome:
 		data.biome_id = _world_provider.current_biome.id
+	data.biome_palette_index = _resolve_biome_palette_index(data.biome_id)
 	data.temperature = channels.temperature
 	data.moisture = channels.moisture
 	data.ruggedness = channels.ruggedness
@@ -109,21 +116,26 @@ func _resolve_surface_terrain(
 		return TileGenData.TerrainType.WATER
 	if _is_river_bank_tile(distance_from_spawn, channels, structure_context):
 		return TileGenData.TerrainType.SAND
-	if _is_mountain_tile(tile_pos.x, tile_pos.y, distance_from_spawn, channels, structure_context):
+	if _is_mountain_tile(tile_pos, distance_from_spawn, channels, structure_context):
 		return TileGenData.TerrainType.ROCK
 	return TileGenData.TerrainType.GROUND
 
-func _is_mountain_tile(tile_x: int, tile_y: int, distance_from_spawn: float, channels = null, structure_context = null) -> bool:
+func _is_mountain_tile(tile_pos: Vector2i, distance_from_spawn: float, channels = null, structure_context = null) -> bool:
 	if distance_from_spawn <= float(_balance.land_guarantee_radius):
 		return false
 	var ridge_strength: float = structure_context.ridge_strength if structure_context else 0.0
 	var mountain_mass: float = structure_context.mountain_mass if structure_context else 0.0
-	var blob: float = _sample01(_mountain_blob_noise.get_noise_2d(tile_x, tile_y))
-	var detail: float = _sample01(_mountain_detail_noise.get_noise_2d(tile_x, tile_y))
+	var blob: float = _sample_periodic_noise01(_mountain_blob_noise, tile_pos)
+	var detail: float = _sample_periodic_noise01(_mountain_detail_noise, tile_pos)
 	var terrain_gate: float = 1.0
 	if channels != null:
-		terrain_gate = clampf(channels.height * 0.45 + channels.ruggedness * 0.85 - 0.18, 0.20, 1.0)
-	var combined: float = ridge_strength * 0.72 + mountain_mass * 0.20 + detail * 0.05 + blob * 0.03
+		terrain_gate = clampf(channels.height * 0.38 + channels.ruggedness * 0.95 - 0.14, 0.28, 1.0)
+	var chaininess: float = clampf(_balance.mountain_chaininess, 0.0, 1.0)
+	var ridge_weight: float = lerpf(0.64, 0.80, chaininess)
+	var mass_weight: float = lerpf(0.25, 0.18, chaininess)
+	var blob_weight: float = lerpf(0.08, 0.03, chaininess)
+	var combined: float = ridge_strength * ridge_weight + mountain_mass * mass_weight + detail * 0.05 + blob * blob_weight
+	combined += maxf(0.0, ridge_strength - 0.46) * 0.18
 	combined *= terrain_gate
 	return combined >= _mountain_threshold()
 
@@ -132,11 +144,11 @@ func _is_river_tile(distance_from_spawn: float, channels, structure_context) -> 
 		return false
 	if distance_from_spawn <= float(_balance.land_guarantee_radius):
 		return false
-	if structure_context.river_strength < 0.60:
+	if structure_context.river_strength < 0.40:
 		return false
-	if structure_context.ridge_strength > 0.48:
+	if structure_context.ridge_strength > 0.70:
 		return false
-	if channels != null and channels.height > 0.62:
+	if channels != null and channels.height > 0.74:
 		return false
 	return true
 
@@ -147,13 +159,13 @@ func _is_river_bank_tile(distance_from_spawn: float, channels, structure_context
 		return false
 	if _is_river_tile(distance_from_spawn, channels, structure_context):
 		return false
-	if structure_context.floodplain_strength < 0.58:
+	if structure_context.floodplain_strength < 0.32:
 		return false
-	if structure_context.ridge_strength > 0.42:
+	if structure_context.ridge_strength > 0.64:
 		return false
-	if structure_context.river_strength >= 0.28:
+	if structure_context.river_strength >= 0.16:
 		return true
-	return channels != null and channels.moisture > 0.65 and channels.height < 0.50
+	return channels != null and channels.moisture > 0.54 and channels.height < 0.60
 
 func _mountain_threshold() -> float:
 	return clampf(0.74 - _balance.mountain_density, 0.32, 0.78)
@@ -203,6 +215,31 @@ func _tile_wrap_delta_x(tile_x: int, reference_x: int) -> int:
 	if _world_provider:
 		return _world_provider.tile_wrap_delta_x(tile_x, reference_x)
 	return tile_x - reference_x
+
+func _resolve_biome_palette_index(biome_id: StringName) -> int:
+	if _world_provider and _world_provider.has_method("get_biome_palette_index"):
+		return int(_world_provider.get_biome_palette_index(biome_id))
+	return 0
+
+func _sample_periodic_noise01(noise: FastNoiseLite, world_pos: Vector2i) -> float:
+	var width: int = _resolve_wrap_width_tiles()
+	if width <= 0:
+		return _sample01(noise.get_noise_2d(world_pos.x, world_pos.y))
+	var wrapped_x: int = int(posmod(world_pos.x, width))
+	var angle: float = TAU * float(wrapped_x) / float(width)
+	var ring_radius: float = float(width) / TAU
+	var sample_x: float = cos(angle) * ring_radius
+	var sample_y: float = float(world_pos.y)
+	var sample_z: float = sin(angle) * ring_radius
+	return _sample01(noise.get_noise_3d(sample_x, sample_y, sample_z))
+
+func _resolve_wrap_width_tiles() -> int:
+	if not _balance:
+		return 0
+	var tile_width: int = maxi(256, _balance.world_wrap_width_tiles)
+	var chunk_size: int = maxi(1, _balance.chunk_size_tiles)
+	var chunk_count: int = maxi(1, int(ceili(float(tile_width) / float(chunk_size))))
+	return chunk_count * chunk_size
 
 func _sample01(value: float) -> float:
 	return value * 0.5 + 0.5

@@ -31,17 +31,17 @@ extends Resource
 @export_range(1, 8) var flora_density_octaves: int = 2
 
 @export_group("Large Structures")
-@export_range(128, 8192) var ridge_spacing_tiles: int = 960
-@export_range(8.0, 512.0, 1.0) var ridge_core_width_tiles: float = 72.0
-@export_range(8.0, 512.0, 1.0) var ridge_feather_tiles: float = 168.0
+@export_range(128, 8192) var ridge_spacing_tiles: int = 640
+@export_range(8.0, 512.0, 1.0) var ridge_core_width_tiles: float = 104.0
+@export_range(8.0, 512.0, 1.0) var ridge_feather_tiles: float = 224.0
 @export var ridge_warp_frequency: float = 0.0018
-@export_range(0.0, 1024.0, 1.0) var ridge_warp_amplitude_tiles: float = 220.0
-@export var ridge_cluster_frequency: float = 0.0011
-@export_range(128, 8192) var river_spacing_tiles: int = 832
-@export_range(4.0, 128.0, 1.0) var river_core_width_tiles: float = 18.0
-@export_range(8.0, 512.0, 1.0) var river_floodplain_width_tiles: float = 104.0
+@export_range(0.0, 1024.0, 1.0) var ridge_warp_amplitude_tiles: float = 260.0
+@export var ridge_cluster_frequency: float = 0.00075
+@export_range(128, 8192) var river_spacing_tiles: int = 480
+@export_range(4.0, 128.0, 1.0) var river_core_width_tiles: float = 42.0
+@export_range(8.0, 512.0, 1.0) var river_floodplain_width_tiles: float = 224.0
 @export var river_warp_frequency: float = 0.0016
-@export_range(0.0, 1024.0, 1.0) var river_warp_amplitude_tiles: float = 180.0
+@export_range(0.0, 1024.0, 1.0) var river_warp_amplitude_tiles: float = 300.0
 
 @export_group("Local Variation")
 @export var local_variation_frequency: float = 0.018
@@ -49,9 +49,9 @@ extends Resource
 @export_range(0.0, 1.0, 0.01) var local_variation_min_score: float = 0.22
 
 @export_group("Mountains")
-@export_range(0.05, 0.50) var mountain_density: float = 0.22
+@export_range(0.05, 0.50) var mountain_density: float = 0.30
 @export_range(1, 3) var mountain_area: int = 2
-@export_range(0.0, 1.0) var mountain_chaininess: float = 0.45
+@export_range(0.0, 1.0) var mountain_chaininess: float = 0.60
 
 @export_group("Mountain Noise")
 @export var mountain_blob_frequency: float = 0.012
