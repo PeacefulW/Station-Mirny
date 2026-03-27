@@ -5,6 +5,8 @@ extends Node2D
 ## Загружает чанки, рендерит землю/горы и выполняет mining горной породы.
 
 const RuntimeWorkTypes = preload("res://core/runtime/runtime_work_types.gd")
+const ChunkFloraBuilderScript = preload("res://core/systems/world/chunk_flora_builder.gd")
+const ChunkFloraResultScript = preload("res://core/systems/world/chunk_flora_result.gd")
 const JOB_STREAMING_LOAD: StringName = &"chunk_manager.streaming_load"
 const JOB_STREAMING_REDRAW: StringName = &"chunk_manager.streaming_redraw"
 const JOB_TOPOLOGY: StringName = &"chunk_manager.topology_rebuild"
@@ -27,6 +29,9 @@ const TOPOLOGY_COMMIT_OPEN_TILES_BY_KEY_BY_CHUNK: int = 4
 const _CARDINAL_DIRS := [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
 const TOPOLOGY_START_CHUNKS_PER_STEP: int = 8
 const TOPOLOGY_RETIRED_DICT_KEYS_PER_STEP: int = 512
+const MAX_LOAD_REQUESTS_SCANNED_PER_TICK: int = 16
+const MAX_RELEVANT_LOAD_QUEUE_OVERSCAN: int = 8
+const SURFACE_PAYLOAD_CACHE_LIMIT: int = 48
 const INVALID_CHUNK_STATE_KEY: Vector3i = Vector3i(999999, 999999, 999999)
 const INVALID_Z_LEVEL: int = 999999
 
@@ -57,19 +62,24 @@ var _is_topology_dirty: bool = false
 var _native_topology_builder: RefCounted = null
 var _native_topology_active: bool = false
 var _native_topology_dirty: bool = false
-var _flora_builder: ChunkFloraBuilder = null
+var _flora_builder: ChunkFloraBuilderScript = null
 var _is_topology_build_in_progress: bool = false
 var _is_boot_in_progress: bool = false
 var _staged_chunk: Chunk = null
 var _staged_coord: Vector2i = Vector2i(999999, 999999)
 var _staged_z: int = 0
 var _staged_data: Dictionary = {}  ## Native data между фазами
+var _staged_flora_result: ChunkFloraResultScript = null
 ## --- Async generation (runtime only) ---
 var _gen_task_id: int = -1  ## WorkerThreadPool task ID, -1 = нет активной задачи
 var _gen_coord: Vector2i = Vector2i(999999, 999999)  ## Координата в процессе генерации
 var _gen_z: int = 0
 var _gen_result: Dictionary = {}  ## Результат от worker thread
 var _gen_mutex: Mutex = Mutex.new()
+var _worker_chunk_builder: RefCounted = null
+var _shutdown_in_progress: bool = false
+var _surface_payload_cache: Dictionary = {}
+var _surface_payload_cache_lru: Array[Vector3i] = []
 var _topology_scan_chunk_coords: Array[Vector2i] = []
 var _topology_scan_chunk_index: int = 0
 var _topology_scan_local_x: int = 0
@@ -104,6 +114,24 @@ func _ready() -> void:
 	call_deferred("_deferred_init")
 
 func _exit_tree() -> void:
+	_shutdown_in_progress = true
+	_load_queue.clear()
+	_redrawing_chunks.clear()
+	if _staged_chunk != null:
+		_staged_chunk = null
+	_staged_data = {}
+	_staged_flora_result = null
+	if _gen_task_id >= 0:
+		WorkerThreadPool.wait_for_task_completion(_gen_task_id)
+		_gen_task_id = -1
+	_gen_coord = Vector2i(999999, 999999)
+	_gen_z = 0
+	_gen_mutex.lock()
+	_gen_result = {}
+	_gen_mutex.unlock()
+	_worker_chunk_builder = null
+	_surface_payload_cache.clear()
+	_surface_payload_cache_lru.clear()
 	if FrameBudgetDispatcher:
 		FrameBudgetDispatcher.unregister_job(JOB_STREAMING_LOAD)
 		FrameBudgetDispatcher.unregister_job(JOB_STREAMING_REDRAW)
@@ -328,6 +356,7 @@ func _clear_staged_request() -> void:
 	_staged_coord = Vector2i(999999, 999999)
 	_staged_z = 0
 	_staged_data = {}
+	_staged_flora_result = null
 
 func is_topology_ready() -> bool:
 	if _is_native_topology_enabled():
@@ -711,25 +740,79 @@ func _setup_native_topology_builder() -> void:
 
 func _setup_flora_builder() -> void:
 	if WorldGenerator and WorldGenerator._is_initialized:
-		_flora_builder = ChunkFloraBuilder.new()
+		_flora_builder = ChunkFloraBuilderScript.new()
 		_flora_builder.initialize(WorldGenerator.world_seed)
 
-func _compute_flora_for_chunk(chunk: Chunk, build_result: ChunkBuildResult) -> void:
+func _compute_flora_for_chunk(chunk: Chunk, build_result: ChunkBuildResult) -> ChunkFloraResultScript:
 	if _flora_builder == null or build_result == null or not build_result.is_valid():
-		return
-	var biome_palette: Array[BiomeData] = WorldGenerator.get_registered_biomes()
-	var flora_result: ChunkFloraResult = _flora_builder.compute_placements(
+		return null
+	var flora_result: ChunkFloraResultScript = _compute_flora_result(
 		build_result.canonical_chunk_coord,
 		build_result.chunk_size,
 		build_result.base_tile,
-		build_result.terrain,
-		biome_palette,
 		build_result.biome,
 		build_result.variation,
+		build_result.terrain,
 		build_result.flora_density_values,
 		build_result.flora_modulation_values
 	)
-	chunk.set_flora_result(flora_result)
+	if flora_result != null:
+		chunk.set_flora_result(flora_result)
+	return flora_result
+
+func _compute_flora_for_native_data(chunk: Chunk, chunk_coord: Vector2i, native_data: Dictionary) -> ChunkFloraResultScript:
+	if _flora_builder == null or chunk == null or native_data.is_empty():
+		return null
+	var chunk_size: int = int(native_data.get("chunk_size", 0))
+	var base_tile: Vector2i = native_data.get(
+		"base_tile",
+		WorldGenerator.chunk_to_tile_origin(chunk_coord) if WorldGenerator else Vector2i.ZERO
+	) as Vector2i
+	var flora_result: ChunkFloraResultScript = _compute_flora_result(
+		chunk_coord,
+		chunk_size,
+		base_tile,
+		native_data.get("biome", PackedByteArray()) as PackedByteArray,
+		native_data.get("variation", PackedByteArray()) as PackedByteArray,
+		native_data.get("terrain", PackedByteArray()) as PackedByteArray,
+		native_data.get("flora_density_values", PackedFloat32Array()) as PackedFloat32Array,
+		native_data.get("flora_modulation_values", PackedFloat32Array()) as PackedFloat32Array
+	)
+	if flora_result != null:
+		chunk.set_flora_result(flora_result)
+	return flora_result
+
+func _compute_flora_result(
+	chunk_coord: Vector2i,
+	chunk_size: int,
+	base_tile: Vector2i,
+	biome_bytes: PackedByteArray,
+	variation_bytes: PackedByteArray,
+	terrain_bytes: PackedByteArray,
+	flora_density_values: PackedFloat32Array,
+	flora_modulation_values: PackedFloat32Array
+) -> ChunkFloraResultScript:
+	if _flora_builder == null or WorldGenerator == null or chunk_size <= 0:
+		return null
+	var tile_count: int = chunk_size * chunk_size
+	if terrain_bytes.size() != tile_count \
+		or biome_bytes.size() != tile_count \
+		or variation_bytes.size() != tile_count \
+		or flora_density_values.size() != tile_count \
+		or flora_modulation_values.size() != tile_count:
+		return null
+	var biome_palette: Array[BiomeData] = WorldGenerator.get_registered_biomes()
+	return _flora_builder.compute_placements(
+		chunk_coord,
+		chunk_size,
+		base_tile,
+		terrain_bytes,
+		biome_palette,
+		biome_bytes,
+		variation_bytes,
+		flora_density_values,
+		flora_modulation_values
+	)
 
 func _is_native_topology_enabled() -> bool:
 	return _native_topology_active
@@ -755,6 +838,7 @@ func _update_chunks(center: Vector2i) -> void:
 			to_unload.append(coord)
 	for coord: Vector2i in to_unload:
 		_unload_chunk(coord)
+	_prune_load_queue(center, _active_z, load_radius)
 	var to_load: Array[Vector2i] = []
 	for coord: Vector2i in needed:
 		if not _loaded_chunks.has(coord) \
@@ -800,8 +884,10 @@ func _load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
 	if z_level != 0:
 		native_data = _generate_solid_rock_chunk()
 	else:
-		build_result = WorldGenerator.build_chunk_content(coord) if WorldGenerator else null
-		native_data = build_result.to_native_data() if build_result and build_result.is_valid() else _build_surface_chunk_native_data(coord)
+		if not _try_get_surface_payload_cache_native_data(coord, z_level, native_data):
+			build_result = WorldGenerator.build_chunk_content(coord) if WorldGenerator else null
+			native_data = build_result.to_native_data() if build_result and build_result.is_valid() else _build_surface_chunk_native_data(coord)
+			_cache_surface_chunk_payload(coord, z_level, native_data)
 	var chunk_biome: BiomeData = _resolve_chunk_biome(coord, z_level)
 	var tileset_bundle: Dictionary = _get_or_build_tileset_bundle(chunk_biome)
 	var ts_tileset: TileSet = null
@@ -824,11 +910,20 @@ func _load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
 	)
 	_sync_chunk_display_position(chunk, _player_chunk)
 	var is_player_chunk: bool = (coord == _player_chunk)
+	var saved_modifications: Dictionary = _get_saved_chunk_modifications(z_level, coord)
 	if z_level != 0:
 		chunk.set_underground(true)
-	chunk.populate_native(native_data, _get_saved_chunk_modifications(z_level, coord), is_player_chunk)
-	if z_level == 0 and build_result != null:
-		_compute_flora_for_chunk(chunk, build_result)
+	chunk.populate_native(native_data, saved_modifications, is_player_chunk)
+	if z_level == 0:
+		var flora_result: ChunkFloraResultScript = _get_cached_surface_chunk_flora_result(coord, z_level) if saved_modifications.is_empty() else null
+		if flora_result != null:
+			chunk.set_flora_result(flora_result)
+		elif build_result != null:
+			flora_result = _compute_flora_for_chunk(chunk, build_result)
+		else:
+			flora_result = _compute_flora_for_native_data(chunk, coord, native_data)
+		if saved_modifications.is_empty() and flora_result != null:
+			_cache_surface_chunk_flora_result(coord, z_level, flora_result)
 	if z_level != 0 and _fog_tileset:
 		chunk.init_fog_layer(_fog_tileset)
 	var z_container: Node2D = _z_containers.get(z_level) as Node2D
@@ -911,16 +1006,21 @@ func _register_budget_jobs() -> void:
 ## Async staged chunk loading. Generation в WorkerThreadPool, create/finalize на main thread.
 ## Thread-safety: Strategy A — один worker, read-only access к WorldGenerator.
 func _tick_loading() -> bool:
+	if _shutdown_in_progress:
+		return false
 	if _is_boot_in_progress:
 		return false
+	var load_radius: int = WorldGenerator.balance.load_radius if WorldGenerator and WorldGenerator.balance else 0
+	if _should_compact_load_queue(_player_chunk, _active_z, load_radius):
+		_prune_load_queue(_player_chunk, _active_z, load_radius)
 	if _staged_chunk != null:
-		if _staged_z != _active_z:
+		if _staged_z != _active_z or not _is_chunk_within_radius(_staged_coord, _player_chunk, load_radius):
 			_clear_staged_request()
 			return _has_streaming_work()
 		_staged_loading_finalize()
 		return _has_streaming_work()
 	if not _staged_data.is_empty():
-		if _staged_z != _active_z:
+		if _staged_z != _active_z or not _is_chunk_within_radius(_staged_coord, _player_chunk, load_radius):
 			_clear_staged_request()
 			return _has_streaming_work()
 		_staged_loading_create()
@@ -933,43 +1033,53 @@ func _tick_loading() -> bool:
 			var request_z: int = _gen_z
 			_gen_coord = Vector2i(999999, 999999)
 			_gen_z = 0
-			var load_radius: int = WorldGenerator.balance.load_radius
+			_gen_mutex.lock()
+			var completed_data: Dictionary = _gen_result
+			_gen_result = {}
+			_gen_mutex.unlock()
+			if not completed_data.is_empty():
+				_cache_surface_chunk_payload(coord, request_z, completed_data)
 			if request_z != _active_z \
 				or (_z_chunks.get(request_z, {}) as Dictionary).has(coord) \
 				or not _is_chunk_within_radius(coord, _player_chunk, load_radius):
-				_gen_mutex.lock()
-				_gen_result = {}
-				_gen_mutex.unlock()
 				return _has_streaming_work()
-			_gen_mutex.lock()
-			_staged_data = _gen_result
-			_gen_result = {}
-			_gen_mutex.unlock()
+			_staged_data = completed_data
 			_staged_coord = coord
 			_staged_z = request_z
 			return true
-		return _has_streaming_work()
+		# Worker generation is already running on a background thread.
+		# Returning true here would make FrameBudgetDispatcher spin on polling
+		# and burn the full streaming budget without any new main-thread work.
+		return false
 	if _load_queue.is_empty():
 		return false
-	var request: Dictionary = _load_queue.pop_front()
-	var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
-	var request_z: int = int(request.get("z", _active_z))
-	if request_z != _active_z:
-		return _has_streaming_work()
-	var load_radius: int = WorldGenerator.balance.load_radius
-	if not _is_chunk_within_radius(coord, _player_chunk, load_radius):
-		return _has_streaming_work()
-	if (_z_chunks.get(request_z, {}) as Dictionary).has(coord):
-		return _has_streaming_work()
-	_submit_async_generate(coord, request_z)
-	return true
+	var scanned_requests: int = 0
+	while not _load_queue.is_empty() and scanned_requests < MAX_LOAD_REQUESTS_SCANNED_PER_TICK:
+		scanned_requests += 1
+		var request: Dictionary = _load_queue.pop_front()
+		if not _is_load_request_relevant(request, _player_chunk, _active_z, load_radius):
+			continue
+		var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
+		var request_z: int = int(request.get("z", _active_z))
+		if _try_stage_surface_chunk_from_cache(coord, request_z):
+			return true
+		_submit_async_generate(coord, request_z)
+		# Background compute has been queued; wait until a later frame to poll completion.
+		return false
+	return _has_streaming_work()
 
 func _has_streaming_work() -> bool:
 	return not _load_queue.is_empty() or _staged_chunk != null or not _staged_data.is_empty() or _gen_task_id >= 0
 
+func _is_streaming_generation_idle() -> bool:
+	return _load_queue.is_empty() and _staged_chunk == null and _staged_data.is_empty() and _gen_task_id < 0
+
 ## Отправляет генерацию чанка в WorkerThreadPool. Один worker за раз.
 func _submit_async_generate(coord: Vector2i, z_level: int) -> void:
+	if _shutdown_in_progress:
+		return
 	coord = _canonical_chunk_coord(coord)
+	_ensure_worker_chunk_builder()
 	_gen_coord = coord
 	_gen_z = z_level
 	_gen_task_id = WorkerThreadPool.add_task(_worker_generate.bind(coord, z_level))
@@ -978,19 +1088,186 @@ func _submit_async_generate(coord: Vector2i, z_level: int) -> void:
 ## Thread-safety: Strategy A — read-only access к noise instances и balance.
 ## FastNoiseLite.get_noise_2d() — pure function, no mutable state.
 func _worker_generate(coord: Vector2i, z_level: int) -> void:
+	if _shutdown_in_progress:
+		return
 	var data: Dictionary
 	if z_level != 0:
 		data = _generate_solid_rock_chunk()
 	else:
 		data = _build_surface_chunk_native_data(coord)
+	if _shutdown_in_progress:
+		return
 	_gen_mutex.lock()
 	_gen_result = data
 	_gen_mutex.unlock()
 
 func _build_surface_chunk_native_data(coord: Vector2i) -> Dictionary:
+	if _worker_chunk_builder != null:
+		return _worker_chunk_builder.build_chunk_native_data(coord)
 	if not WorldGenerator:
 		return {}
 	return WorldGenerator.build_chunk_native_data(coord)
+
+func _ensure_worker_chunk_builder() -> void:
+	if _worker_chunk_builder != null:
+		return
+	if WorldGenerator and WorldGenerator.has_method("create_detached_chunk_content_builder"):
+		_worker_chunk_builder = WorldGenerator.create_detached_chunk_content_builder()
+
+func _is_load_request_relevant(
+	request: Dictionary,
+	center: Vector2i,
+	active_z_level: int,
+	load_radius: int
+) -> bool:
+	var request_z: int = int(request.get("z", INVALID_Z_LEVEL))
+	if request_z != active_z_level:
+		return false
+	var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
+	if (_z_chunks.get(request_z, {}) as Dictionary).has(coord):
+		return false
+	return _is_chunk_within_radius(coord, center, load_radius)
+
+func _prune_load_queue(center: Vector2i, active_z_level: int, load_radius: int) -> void:
+	if _load_queue.is_empty():
+		return
+	var filtered_queue: Array[Dictionary] = []
+	var seen_requests: Dictionary = {}
+	for request: Dictionary in _load_queue:
+		if not _is_load_request_relevant(request, center, active_z_level, load_radius):
+			continue
+		var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
+		var request_z: int = int(request.get("z", INVALID_Z_LEVEL))
+		var request_key: Vector3i = Vector3i(coord.x, coord.y, request_z)
+		if seen_requests.has(request_key):
+			continue
+		seen_requests[request_key] = true
+		filtered_queue.append({
+			"coord": coord,
+			"z": request_z,
+		})
+	filtered_queue.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var coord_a: Vector2i = _canonical_chunk_coord(a.get("coord", Vector2i.ZERO) as Vector2i)
+		var coord_b: Vector2i = _canonical_chunk_coord(b.get("coord", Vector2i.ZERO) as Vector2i)
+		var dist_a: int = _chunk_manhattan_distance(coord_a, center)
+		var dist_b: int = _chunk_manhattan_distance(coord_b, center)
+		if dist_a == dist_b:
+			if coord_a.y == coord_b.y:
+				return coord_a.x < coord_b.x
+			return coord_a.y < coord_b.y
+		return dist_a < dist_b
+	)
+	_load_queue = filtered_queue
+
+func _should_compact_load_queue(center: Vector2i, active_z_level: int, load_radius: int) -> bool:
+	if _load_queue.is_empty():
+		return false
+	var max_relevant_requests: int = _resolve_max_relevant_load_queue_size(load_radius)
+	if _load_queue.size() > max_relevant_requests + MAX_RELEVANT_LOAD_QUEUE_OVERSCAN:
+		return true
+	var front_request: Dictionary = _load_queue[0] as Dictionary
+	if not _is_load_request_relevant(front_request, center, active_z_level, load_radius):
+		return true
+	var tail_request: Dictionary = _load_queue[_load_queue.size() - 1] as Dictionary
+	if not _is_load_request_relevant(tail_request, center, active_z_level, load_radius):
+		return true
+	return false
+
+func _resolve_max_relevant_load_queue_size(load_radius: int) -> int:
+	var diameter: int = load_radius * 2 + 1
+	return maxi(0, diameter * diameter)
+
+func _make_surface_payload_cache_key(coord: Vector2i, z_level: int) -> Vector3i:
+	var canonical_coord: Vector2i = _canonical_chunk_coord(coord)
+	return Vector3i(canonical_coord.x, canonical_coord.y, z_level)
+
+func _has_surface_chunk_cache(coord: Vector2i, z_level: int) -> bool:
+	if z_level != 0:
+		return false
+	return _surface_payload_cache.has(_make_surface_payload_cache_key(coord, z_level))
+
+func _cache_surface_chunk_payload(coord: Vector2i, z_level: int, native_data: Dictionary) -> void:
+	if z_level != 0 or native_data.is_empty():
+		return
+	var cache_key: Vector3i = _make_surface_payload_cache_key(coord, z_level)
+	var entry: Dictionary = _surface_payload_cache.get(cache_key, {}) as Dictionary
+	entry["native_data"] = _duplicate_native_data(native_data)
+	_surface_payload_cache[cache_key] = entry
+	_touch_surface_payload_cache_key(cache_key)
+	_trim_surface_payload_cache()
+
+func _cache_surface_chunk_flora_result(coord: Vector2i, z_level: int, flora_result: ChunkFloraResultScript) -> void:
+	if z_level != 0 or flora_result == null:
+		return
+	var cache_key: Vector3i = _make_surface_payload_cache_key(coord, z_level)
+	var entry: Dictionary = _surface_payload_cache.get(cache_key, {}) as Dictionary
+	if entry.is_empty():
+		return
+	entry["flora_result"] = flora_result
+	_surface_payload_cache[cache_key] = entry
+	_touch_surface_payload_cache_key(cache_key)
+
+func _get_cached_surface_chunk_flora_result(coord: Vector2i, z_level: int) -> ChunkFloraResultScript:
+	if z_level != 0:
+		return null
+	var entry: Dictionary = _surface_payload_cache.get(_make_surface_payload_cache_key(coord, z_level), {}) as Dictionary
+	if entry.is_empty():
+		return null
+	return entry.get("flora_result", null) as ChunkFloraResultScript
+
+func _try_get_surface_payload_cache_native_data(coord: Vector2i, z_level: int, out_native_data: Dictionary) -> bool:
+	if z_level != 0:
+		return false
+	var cache_key: Vector3i = _make_surface_payload_cache_key(coord, z_level)
+	var entry: Dictionary = _surface_payload_cache.get(cache_key, {}) as Dictionary
+	if entry.is_empty():
+		return false
+	var cached_native_data: Dictionary = entry.get("native_data", {}) as Dictionary
+	if cached_native_data.is_empty():
+		return false
+	out_native_data.assign(_duplicate_native_data(cached_native_data))
+	_touch_surface_payload_cache_key(cache_key)
+	return true
+
+func _try_stage_surface_chunk_from_cache(coord: Vector2i, z_level: int) -> bool:
+	if z_level != 0:
+		return false
+	var staged_native_data: Dictionary = {}
+	if not _try_get_surface_payload_cache_native_data(coord, z_level, staged_native_data):
+		return false
+	_staged_coord = _canonical_chunk_coord(coord)
+	_staged_z = z_level
+	_staged_data = staged_native_data
+	var saved_modifications: Dictionary = _get_saved_chunk_modifications(z_level, coord)
+	_staged_flora_result = _get_cached_surface_chunk_flora_result(coord, z_level) if saved_modifications.is_empty() else null
+	return true
+
+func _duplicate_native_data(native_data: Dictionary) -> Dictionary:
+	if native_data.is_empty():
+		return {}
+	return {
+		"chunk_coord": native_data.get("chunk_coord", Vector2i.ZERO),
+		"canonical_chunk_coord": native_data.get("canonical_chunk_coord", Vector2i.ZERO),
+		"base_tile": native_data.get("base_tile", Vector2i.ZERO),
+		"chunk_size": int(native_data.get("chunk_size", 0)),
+		"terrain": (native_data.get("terrain", PackedByteArray()) as PackedByteArray).duplicate(),
+		"height": (native_data.get("height", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
+		"variation": (native_data.get("variation", PackedByteArray()) as PackedByteArray).duplicate(),
+		"biome": (native_data.get("biome", PackedByteArray()) as PackedByteArray).duplicate(),
+		"flora_density_values": (native_data.get("flora_density_values", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
+		"flora_modulation_values": (native_data.get("flora_modulation_values", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
+	}
+
+func _touch_surface_payload_cache_key(cache_key: Vector3i) -> void:
+	var existing_index: int = _surface_payload_cache_lru.find(cache_key)
+	if existing_index >= 0:
+		_surface_payload_cache_lru.remove_at(existing_index)
+	_surface_payload_cache_lru.append(cache_key)
+
+func _trim_surface_payload_cache() -> void:
+	while _surface_payload_cache_lru.size() > SURFACE_PAYLOAD_CACHE_LIMIT:
+		var evicted_key: Vector3i = _surface_payload_cache_lru.pop_front()
+		_surface_payload_cache.erase(evicted_key)
 
 ## Фаза 0: только генерация terrain данных. CPU-heavy. Используется ТОЛЬКО в boot.
 func _staged_loading_generate(coord: Vector2i) -> void:
@@ -1011,7 +1288,9 @@ func _staged_loading_create() -> void:
 	var coord: Vector2i = _staged_coord
 	var z_level: int = _staged_z
 	var native_data: Dictionary = _staged_data
+	var staged_flora_result: ChunkFloraResultScript = _staged_flora_result
 	_staged_data = {}
+	_staged_flora_result = null
 	if (_z_chunks.get(z_level, {}) as Dictionary).has(coord):
 		_staged_coord = Vector2i(999999, 999999)
 		_staged_z = 0
@@ -1039,9 +1318,20 @@ func _staged_loading_create() -> void:
 		self
 	)
 	_sync_chunk_display_position(chunk, _player_chunk)
+	var saved_modifications: Dictionary = _get_saved_chunk_modifications(z_level, coord)
 	if z_level != 0:
 		chunk.set_underground(true)
-	chunk.populate_native(native_data, _get_saved_chunk_modifications(z_level, coord), false)
+	if z_level == 0 and not _has_surface_chunk_cache(coord, z_level):
+		_cache_surface_chunk_payload(coord, z_level, native_data)
+	chunk.populate_native(native_data, saved_modifications, false)
+	if z_level == 0:
+		var flora_result: ChunkFloraResultScript = staged_flora_result if saved_modifications.is_empty() else null
+		if flora_result != null:
+			chunk.set_flora_result(flora_result)
+		else:
+			flora_result = _compute_flora_for_native_data(chunk, coord, native_data)
+		if saved_modifications.is_empty() and flora_result != null:
+			_cache_surface_chunk_flora_result(coord, z_level, flora_result)
 	if z_level != 0 and _fog_tileset:
 		chunk.init_fog_layer(_fog_tileset)
 	_staged_chunk = chunk
@@ -1087,6 +1377,8 @@ func _staged_loading_finalize() -> void:
 
 ## Progressive redraw одного шага. Возвращает true если есть ещё работа.
 func _tick_redraws() -> bool:
+	if _shutdown_in_progress:
+		return false
 	if _is_boot_in_progress:
 		return false
 	while not _redrawing_chunks.is_empty():
@@ -1109,12 +1401,14 @@ func _tick_redraws() -> bool:
 
 ## Topology build один шаг. Возвращает true если есть ещё работа.
 func _tick_topology() -> bool:
+	if _shutdown_in_progress:
+		return false
 	if _is_boot_in_progress:
 		return false
 	if _active_z != 0:
 		return false
 	if _is_native_topology_enabled():
-		if _native_topology_dirty and _load_queue.is_empty() and _redrawing_chunks.is_empty():
+		if _native_topology_dirty and _is_streaming_generation_idle():
 			_native_topology_builder.call("ensure_built")
 			_native_topology_dirty = false
 		return false

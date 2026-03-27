@@ -45,13 +45,20 @@ func is_valid() -> bool:
 		and terrain.size() == tile_count \
 		and height.size() == tile_count \
 		and variation.size() == tile_count \
-		and biome.size() == tile_count
+		and biome.size() == tile_count \
+		and flora_density_values.size() == tile_count \
+		and flora_modulation_values.size() == tile_count
 
 func to_native_data() -> Dictionary:
 	return {
+		"chunk_coord": chunk_coord,
+		"canonical_chunk_coord": canonical_chunk_coord,
+		"base_tile": base_tile,
 		"chunk_size": chunk_size,
-		"terrain": terrain.duplicate(),
-		"height": height.duplicate(),
-		"variation": variation.duplicate(),
-		"biome": biome.duplicate(),
+		"terrain": terrain,
+		"height": height,
+		"variation": variation,
+		"biome": biome,
+		"flora_density_values": flora_density_values,
+		"flora_modulation_values": flora_modulation_values,
 	}

@@ -2,6 +2,7 @@ class_name LocalVariationResolver
 extends RefCounted
 
 const _SCORE_EPSILON: float = 0.00001
+const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_utils.gd")
 
 const _KIND_NONE: StringName = &"none"
 const _KIND_SPARSE_FLORA: StringName = &"sparse_flora"
@@ -12,7 +13,7 @@ const _KIND_WET_PATCH: StringName = &"wet_patch"
 
 var _world_seed: int = 0
 var _balance: WorldGenBalance = null
-var _cached_wrap_width: int = WorldNoiseUtils.DEFAULT_WRAP_WIDTH_TILES
+var _cached_wrap_width: int = WorldNoiseUtilsScript.DEFAULT_WRAP_WIDTH_TILES
 var _field_noise: FastNoiseLite = FastNoiseLite.new()
 var _patch_noise: FastNoiseLite = FastNoiseLite.new()
 var _detail_noise: FastNoiseLite = FastNoiseLite.new()
@@ -22,12 +23,12 @@ func initialize(seed_value: int, balance_resource: WorldGenBalance) -> void:
 	_balance = balance_resource
 	if not _balance:
 		return
-	_cached_wrap_width = WorldNoiseUtils.resolve_wrap_width_tiles(_balance)
+	_cached_wrap_width = WorldNoiseUtilsScript.resolve_wrap_width_tiles(_balance)
 	var base_frequency: float = maxf(_balance.local_variation_frequency, 0.0001)
 	var base_octaves: int = maxi(1, _balance.local_variation_octaves)
-	WorldNoiseUtils.setup_noise_instance(_field_noise, _world_seed + 311, base_frequency, base_octaves)
-	WorldNoiseUtils.setup_noise_instance(_patch_noise, _world_seed + 353, base_frequency * 1.85, maxi(1, base_octaves + 1))
-	WorldNoiseUtils.setup_noise_instance(_detail_noise, _world_seed + 389, base_frequency * 3.2, maxi(1, min(base_octaves + 1, 6)))
+	WorldNoiseUtilsScript.setup_noise_instance(_field_noise, _world_seed + 311, base_frequency, base_octaves)
+	WorldNoiseUtilsScript.setup_noise_instance(_patch_noise, _world_seed + 353, base_frequency * 1.85, maxi(1, base_octaves + 1))
+	WorldNoiseUtilsScript.setup_noise_instance(_detail_noise, _world_seed + 389, base_frequency * 3.2, maxi(1, min(base_octaves + 1, 6)))
 
 func resolve_local_variation(world_pos: Vector2i, biome: BiomeResult = null, channels: WorldChannels = null, structure_context: WorldStructureContext = null) -> LocalVariationContext:
 	var context: LocalVariationContext = LocalVariationContext.new()
@@ -66,10 +67,10 @@ func resolve_local_variation(world_pos: Vector2i, biome: BiomeResult = null, cha
 	return context.clamp_fields()
 
 func canonicalize_world_pos(world_pos: Vector2i) -> Vector2i:
-	return WorldNoiseUtils.canonicalize_pos(world_pos, _cached_wrap_width)
+	return WorldNoiseUtilsScript.canonicalize_pos(world_pos, _cached_wrap_width)
 
 func wrap_world_x(world_x: int) -> int:
-	return WorldNoiseUtils.wrap_x(world_x, _cached_wrap_width)
+	return WorldNoiseUtilsScript.wrap_x(world_x, _cached_wrap_width)
 
 func get_wrap_width_tiles() -> int:
 	return _cached_wrap_width
@@ -301,4 +302,4 @@ func _resolve_min_score() -> float:
 	return clampf(_balance.local_variation_min_score, 0.0, 1.0)
 
 func _sample_noise(noise: FastNoiseLite, world_pos: Vector2i) -> float:
-	return WorldNoiseUtils.sample_periodic_noise01(noise, world_pos, _cached_wrap_width)
+	return WorldNoiseUtilsScript.sample_periodic_noise01(noise, world_pos, _cached_wrap_width)

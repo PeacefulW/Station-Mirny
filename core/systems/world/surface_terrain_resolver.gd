@@ -1,0 +1,332 @@
+class_name SurfaceTerrainResolver
+extends RefCounted
+
+var _world_context: RefCounted = null
+var _balance: WorldGenBalance = null
+var _safe_radius: float = 0.0
+var _safe_radius_sq: float = 0.0
+var _land_guarantee_radius: float = 0.0
+var _land_guarantee_radius_sq: float = 0.0
+var _mountain_threshold_value: float = 0.0
+var _ridge_backbone_weight: float = 0.76
+var _massif_fill_weight: float = 0.30
+var _core_bonus_weight: float = 0.16
+var _current_biome_palette_index: int = 0
+
+func initialize(balance_resource: WorldGenBalance, world_context: RefCounted) -> SurfaceTerrainResolver:
+	_balance = balance_resource
+	_world_context = world_context
+	if _balance:
+		_safe_radius = float(_balance.safe_zone_radius)
+		_safe_radius_sq = _safe_radius * _safe_radius
+		_land_guarantee_radius = float(_balance.land_guarantee_radius)
+		_land_guarantee_radius_sq = _land_guarantee_radius * _land_guarantee_radius
+		_mountain_threshold_value = clampf(
+			_balance.mountain_base_threshold - _balance.mountain_density,
+			_balance.mountain_threshold_min,
+			_balance.mountain_threshold_max
+		)
+		var chaininess: float = clampf(_balance.mountain_chaininess, 0.0, 1.0)
+		_ridge_backbone_weight = lerpf(0.76, 0.92, chaininess)
+		_massif_fill_weight = lerpf(0.30, 0.38, chaininess)
+		_core_bonus_weight = lerpf(0.16, 0.28, chaininess)
+	if _world_context and _world_context.current_biome:
+		_current_biome_palette_index = _world_context.get_biome_palette_index(_world_context.current_biome.id)
+	return self
+
+func build_tile_data(tile_pos: Vector2i) -> TileGenData:
+	var data := TileGenData.new()
+	populate_tile_data(tile_pos, data)
+	return data
+
+func populate_tile_data(tile_pos: Vector2i, data: TileGenData) -> void:
+	if data == null:
+		return
+	_reset_tile_data(data)
+	if _world_context == null:
+		return
+	var canonical_tile: Vector2i = _world_context.canonicalize_tile(tile_pos)
+	var spawn_tile: Vector2i = _resolve_spawn_tile()
+	_populate_tile_data(data, canonical_tile, spawn_tile)
+
+func populate_canonical_tile_data(
+	canonical_tile: Vector2i,
+	spawn_tile: Vector2i,
+	_safe_radius_ignored: float,
+	data: TileGenData
+) -> void:
+	if data == null:
+		return
+	_reset_tile_data(data)
+	if _world_context == null:
+		return
+	_populate_tile_data(data, canonical_tile, spawn_tile)
+
+func populate_chunk_build_data(canonical_tile: Vector2i, spawn_tile: Vector2i, data: TileGenData) -> void:
+	if data == null:
+		return
+	_reset_chunk_build_data(data)
+	if _world_context == null:
+		return
+	var channels: WorldChannels = _world_context.sample_world_channels(canonical_tile)
+	var structure_context: WorldStructureContext = _world_context.sample_structure_context(canonical_tile, channels)
+	var biome_result: BiomeResult = _world_context.get_biome_result_at_tile(canonical_tile, channels, structure_context)
+	var local_variation: LocalVariationContext = _world_context.sample_local_variation(
+		canonical_tile,
+		biome_result,
+		channels,
+		structure_context
+	)
+	var distance_from_spawn_sq: float = _distance_from_spawn_sq(canonical_tile, spawn_tile)
+	data.height = channels.height
+	data.flora_density = channels.flora_density
+	data.terrain = _resolve_surface_terrain_sq(
+		distance_from_spawn_sq,
+		channels,
+		structure_context,
+		local_variation
+	)
+	if biome_result:
+		var resolved_biome: BiomeData = biome_result.biome as BiomeData
+		if resolved_biome:
+			data.biome_palette_index = _world_context.get_biome_palette_index(resolved_biome.id)
+	elif _current_biome_palette_index > 0:
+		data.biome_palette_index = _current_biome_palette_index
+	if data.terrain == TileGenData.TerrainType.GROUND and local_variation:
+		data.local_variation_id = LocalVariationContext.kind_to_variation_id(local_variation.variation_kind)
+		data.flora_modulation = local_variation.flora_modulation
+
+func sample_terrain_type(tile_x: int, tile_y: int) -> TileGenData.TerrainType:
+	var canonical_tile: Vector2i = _world_context.canonicalize_tile(Vector2i(tile_x, tile_y)) if _world_context else Vector2i(tile_x, tile_y)
+	if _world_context == null:
+		return TileGenData.TerrainType.GROUND
+	var spawn_tile: Vector2i = _resolve_spawn_tile()
+	var channels: WorldChannels = _world_context.sample_world_channels(canonical_tile)
+	var structure_context: WorldStructureContext = _world_context.sample_structure_context(canonical_tile, channels)
+	var biome_result: BiomeResult = _world_context.get_biome_result_at_tile(canonical_tile, channels, structure_context)
+	var local_variation: LocalVariationContext = _world_context.sample_local_variation(
+		canonical_tile,
+		biome_result,
+		channels,
+		structure_context
+	)
+	return _resolve_surface_terrain_sq(
+		_distance_from_spawn_sq(canonical_tile, spawn_tile),
+		channels,
+		structure_context,
+		local_variation
+	)
+
+func canonicalize_chunk_coord(chunk_coord: Vector2i) -> Vector2i:
+	if _world_context == null:
+		return chunk_coord
+	return _world_context.canonicalize_chunk_coord(chunk_coord)
+
+func chunk_to_tile_origin(chunk_coord: Vector2i) -> Vector2i:
+	if _world_context == null:
+		return Vector2i.ZERO
+	return _world_context.chunk_to_tile_origin(chunk_coord)
+
+func get_chunk_size() -> int:
+	return _balance.chunk_size_tiles if _balance else 0
+
+func _populate_tile_data(
+	data: TileGenData,
+	canonical_tile: Vector2i,
+	spawn_tile: Vector2i
+) -> void:
+	data.canonical_world_pos = canonical_tile
+	var channels: WorldChannels = _world_context.sample_world_channels(canonical_tile)
+	var structure_context: WorldStructureContext = _world_context.sample_structure_context(canonical_tile, channels)
+	var biome_result: BiomeResult = _world_context.get_biome_result_at_tile(canonical_tile, channels, structure_context)
+	var local_variation: LocalVariationContext = _world_context.sample_local_variation(
+		canonical_tile,
+		biome_result,
+		channels,
+		structure_context
+	)
+	var distance_from_spawn_sq: float = _distance_from_spawn_sq(canonical_tile, spawn_tile)
+	var distance_from_spawn: float = sqrt(distance_from_spawn_sq)
+	data.height = channels.height
+	data.world_height = channels.height
+	data.canonical_world_pos = channels.canonical_world_pos
+	if structure_context:
+		data.ridge_strength = structure_context.ridge_strength
+		data.mountain_mass = structure_context.mountain_mass
+		data.river_strength = structure_context.river_strength
+		data.floodplain_strength = structure_context.floodplain_strength
+	if biome_result:
+		var resolved_biome: BiomeData = biome_result.biome as BiomeData
+		if resolved_biome:
+			data.biome_id = resolved_biome.id
+		data.biome_score = float(biome_result.score)
+	elif _world_context.current_biome:
+		data.biome_id = _world_context.current_biome.id
+	data.biome_palette_index = _world_context.get_biome_palette_index(data.biome_id)
+	data.temperature = channels.temperature
+	data.moisture = channels.moisture
+	data.ruggedness = channels.ruggedness
+	data.flora_density = channels.flora_density
+	data.latitude = channels.latitude
+	data.distance_from_spawn = distance_from_spawn
+	data.terrain = _resolve_surface_terrain_sq(
+		distance_from_spawn_sq,
+		channels,
+		structure_context,
+		local_variation
+	)
+	if data.terrain == TileGenData.TerrainType.GROUND and local_variation:
+		data.local_variation_kind = local_variation.variation_kind
+		data.local_variation_id = LocalVariationContext.kind_to_variation_id(local_variation.variation_kind)
+		data.local_variation_score = local_variation.variation_score
+		data.flora_modulation = local_variation.flora_modulation
+		data.wetness_modulation = local_variation.wetness_modulation
+		data.rockiness_modulation = local_variation.rockiness_modulation
+		data.openness_modulation = local_variation.openness_modulation
+
+func _reset_tile_data(data: TileGenData) -> void:
+	data.terrain = TileGenData.TerrainType.GROUND
+	data.height = 0.5
+	data.world_height = 0.5
+	data.canonical_world_pos = Vector2i.ZERO
+	data.temperature = 0.5
+	data.moisture = 0.5
+	data.ruggedness = 0.5
+	data.flora_density = 0.5
+	data.latitude = 0.0
+	data.ridge_strength = 0.0
+	data.mountain_mass = 0.0
+	data.river_strength = 0.0
+	data.floodplain_strength = 0.0
+	data.biome_id = &""
+	data.biome_palette_index = 0
+	data.biome_score = -1.0
+	data.local_variation_id = 0
+	data.local_variation_kind = &"none"
+	data.local_variation_score = 0.0
+	data.flora_modulation = 0.0
+	data.wetness_modulation = 0.0
+	data.rockiness_modulation = 0.0
+	data.openness_modulation = 0.0
+	data.distance_from_spawn = 0.0
+
+func _reset_chunk_build_data(data: TileGenData) -> void:
+	data.terrain = TileGenData.TerrainType.GROUND
+	data.height = 0.5
+	data.local_variation_id = 0
+	data.biome_palette_index = 0
+	data.flora_density = 0.5
+	data.flora_modulation = 0.0
+
+func _resolve_spawn_tile() -> Vector2i:
+	return _world_context.spawn_tile if _world_context else Vector2i.ZERO
+
+func _resolve_safe_radius() -> float:
+	return _safe_radius
+
+func _resolve_surface_terrain_sq(
+	distance_from_spawn_sq: float,
+	channels: WorldChannels,
+	structure_context: WorldStructureContext,
+	local_variation: LocalVariationContext = null
+) -> int:
+	if distance_from_spawn_sq <= _safe_radius_sq:
+		return TileGenData.TerrainType.GROUND
+	if _is_river_tile_sq(distance_from_spawn_sq, channels, structure_context, local_variation):
+		return TileGenData.TerrainType.WATER
+	if _is_river_bank_tile_sq(distance_from_spawn_sq, channels, structure_context, local_variation):
+		return TileGenData.TerrainType.SAND
+	if _is_mountain_tile_sq(distance_from_spawn_sq, channels, structure_context, local_variation):
+		return TileGenData.TerrainType.ROCK
+	return TileGenData.TerrainType.GROUND
+
+func _is_mountain_tile_sq(
+	distance_from_spawn_sq: float,
+	channels: WorldChannels = null,
+	structure_context: WorldStructureContext = null,
+	local_variation: LocalVariationContext = null
+) -> bool:
+	if distance_from_spawn_sq <= _land_guarantee_radius_sq:
+		return false
+	return _is_mountain_from_context(channels, structure_context, local_variation)
+
+func _is_mountain_from_context(
+	channels: WorldChannels = null,
+	structure_context: WorldStructureContext = null,
+	local_variation: LocalVariationContext = null
+) -> bool:
+	if structure_context == null:
+		return false
+	var ridge_strength: float = structure_context.ridge_strength
+	var mountain_mass: float = structure_context.mountain_mass
+	var river_strength: float = structure_context.river_strength
+	var floodplain_strength: float = structure_context.floodplain_strength
+	var terrain_gate: float = 1.0
+	var ruggedness_gate: float = 0.0
+	if channels != null:
+		ruggedness_gate = clampf(channels.ruggedness * 0.72 + channels.height * 0.28, 0.0, 1.0)
+		terrain_gate = clampf(channels.height * 0.42 + channels.ruggedness * 1.08 - 0.16, 0.22, 1.0)
+	var ridge_backbone: float = ridge_strength * _ridge_backbone_weight
+	var massif_fill: float = mountain_mass * _massif_fill_weight
+	var core_bonus: float = maxf(0.0, ridge_strength - 0.58) * _core_bonus_weight
+	var foothill_support: float = ruggedness_gate * 0.10 + maxf(0.0, mountain_mass - 0.36) * 0.10
+	var river_cut: float = maxf(0.0, river_strength - 0.22) * 0.20 + floodplain_strength * 0.08
+	var variation_shift: float = 0.0
+	if local_variation != null:
+		variation_shift += local_variation.rockiness_modulation * 0.08
+		variation_shift -= local_variation.wetness_modulation * 0.04
+		variation_shift -= local_variation.openness_modulation * 0.05
+	var combined: float = ridge_backbone + massif_fill + core_bonus + foothill_support - river_cut + variation_shift
+	combined *= terrain_gate
+	return combined >= _mountain_threshold_value
+
+func _is_river_tile_sq(
+	distance_from_spawn_sq: float,
+	channels: WorldChannels,
+	structure_context: WorldStructureContext,
+	local_variation: LocalVariationContext = null
+) -> bool:
+	if structure_context == null:
+		return false
+	if distance_from_spawn_sq <= _land_guarantee_radius_sq:
+		return false
+	var wetness_bonus: float = local_variation.wetness_modulation if local_variation != null else 0.0
+	var rockiness_bonus: float = local_variation.rockiness_modulation if local_variation != null else 0.0
+	var effective_river_strength: float = structure_context.river_strength + wetness_bonus * 0.10 - rockiness_bonus * 0.05
+	if effective_river_strength < _balance.river_min_strength:
+		return false
+	if structure_context.ridge_strength > _balance.river_ridge_exclusion:
+		return false
+	if channels != null and channels.height > (_balance.river_max_height + wetness_bonus * 0.05):
+		return false
+	return true
+
+func _is_river_bank_tile_sq(
+	distance_from_spawn_sq: float,
+	channels: WorldChannels,
+	structure_context: WorldStructureContext,
+	local_variation: LocalVariationContext = null
+) -> bool:
+	if structure_context == null:
+		return false
+	if distance_from_spawn_sq <= _land_guarantee_radius_sq:
+		return false
+	if _is_river_tile_sq(distance_from_spawn_sq, channels, structure_context, local_variation):
+		return false
+	var wetness_bonus: float = local_variation.wetness_modulation if local_variation != null else 0.0
+	var effective_floodplain: float = structure_context.floodplain_strength + wetness_bonus * 0.10
+	var effective_river_strength: float = structure_context.river_strength + wetness_bonus * 0.08
+	if effective_floodplain < _balance.bank_min_floodplain:
+		return false
+	if structure_context.ridge_strength > _balance.bank_ridge_exclusion:
+		return false
+	if effective_river_strength >= _balance.bank_min_river:
+		return true
+	return channels != null \
+		and channels.moisture + wetness_bonus * 0.10 > _balance.bank_min_moisture \
+		and channels.height - wetness_bonus * 0.04 < _balance.bank_max_height
+
+func _distance_from_spawn_sq(canonical_tile: Vector2i, spawn_tile: Vector2i) -> float:
+	var dx: float = float(_world_context.tile_wrap_delta_x(canonical_tile.x, spawn_tile.x))
+	var dy: float = float(canonical_tile.y - spawn_tile.y)
+	return dx * dx + dy * dy

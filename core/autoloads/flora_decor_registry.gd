@@ -4,6 +4,8 @@ extends Node
 ## Реестр наборов флоры и декора.
 ## Загружает FloraSetData/DecorSetData и предоставляет доступ по namespaced ID.
 
+const FloraSetDataScript = preload("res://data/flora/flora_set_data.gd")
+const DecorSetDataScript = preload("res://data/decor/decor_set_data.gd")
 const BASE_NAMESPACE: StringName = &"base"
 const BASE_FLORA_DIR: String = "res://data/flora"
 const BASE_DECOR_DIR: String = "res://data/decor"
@@ -15,40 +17,42 @@ func _ready() -> void:
 	_load_sets_from_directory(BASE_FLORA_DIR, BASE_NAMESPACE, true)
 	_load_sets_from_directory(BASE_DECOR_DIR, BASE_NAMESPACE, false)
 
-func register_flora_set(flora_set: FloraSetData, biome_namespace: StringName = BASE_NAMESPACE) -> void:
-	if flora_set == null or str(flora_set.id).is_empty():
+func register_flora_set(flora_set: Resource, biome_namespace: StringName = BASE_NAMESPACE) -> void:
+	var typed_flora_set: FloraSetDataScript = flora_set as FloraSetDataScript
+	if typed_flora_set == null or str(typed_flora_set.id).is_empty():
 		return
-	_flora_sets[_namespaced_id(flora_set.id, biome_namespace)] = flora_set
+	_flora_sets[_namespaced_id(typed_flora_set.id, biome_namespace)] = typed_flora_set
 
-func register_decor_set(decor_set: DecorSetData, biome_namespace: StringName = BASE_NAMESPACE) -> void:
-	if decor_set == null or str(decor_set.id).is_empty():
+func register_decor_set(decor_set: Resource, biome_namespace: StringName = BASE_NAMESPACE) -> void:
+	var typed_decor_set: DecorSetDataScript = decor_set as DecorSetDataScript
+	if typed_decor_set == null or str(typed_decor_set.id).is_empty():
 		return
-	_decor_sets[_namespaced_id(decor_set.id, biome_namespace)] = decor_set
+	_decor_sets[_namespaced_id(typed_decor_set.id, biome_namespace)] = typed_decor_set
 
-func get_flora_set(id: StringName) -> FloraSetData:
-	var result: FloraSetData = _flora_sets.get(id, null) as FloraSetData
+func get_flora_set(id: StringName) -> Resource:
+	var result: Resource = _flora_sets.get(id, null) as Resource
 	if result:
 		return result
-	return _flora_sets.get(_namespaced_id(id, BASE_NAMESPACE), null) as FloraSetData
+	return _flora_sets.get(_namespaced_id(id, BASE_NAMESPACE), null) as Resource
 
-func get_decor_set(id: StringName) -> DecorSetData:
-	var result: DecorSetData = _decor_sets.get(id, null) as DecorSetData
+func get_decor_set(id: StringName) -> Resource:
+	var result: Resource = _decor_sets.get(id, null) as Resource
 	if result:
 		return result
-	return _decor_sets.get(_namespaced_id(id, BASE_NAMESPACE), null) as DecorSetData
+	return _decor_sets.get(_namespaced_id(id, BASE_NAMESPACE), null) as Resource
 
-func get_flora_sets_for_ids(ids: Array[StringName]) -> Array[FloraSetData]:
-	var result: Array[FloraSetData] = []
+func get_flora_sets_for_ids(ids: Array[StringName]) -> Array[Resource]:
+	var result: Array[Resource] = []
 	for id: StringName in ids:
-		var flora_set: FloraSetData = get_flora_set(id)
+		var flora_set: Resource = get_flora_set(id)
 		if flora_set:
 			result.append(flora_set)
 	return result
 
-func get_decor_sets_for_ids(ids: Array[StringName]) -> Array[DecorSetData]:
-	var result: Array[DecorSetData] = []
+func get_decor_sets_for_ids(ids: Array[StringName]) -> Array[Resource]:
+	var result: Array[Resource] = []
 	for id: StringName in ids:
-		var decor_set: DecorSetData = get_decor_set(id)
+		var decor_set: Resource = get_decor_set(id)
 		if decor_set:
 			result.append(decor_set)
 	return result
@@ -74,10 +78,15 @@ func _load_sets_from_directory(dir_path: String, biome_namespace: StringName, is
 	paths.sort()
 	for path: String in paths:
 		var res: Resource = load(path)
-		if is_flora and res is FloraSetData:
-			register_flora_set(res as FloraSetData, biome_namespace)
-		elif not is_flora and res is DecorSetData:
-			register_decor_set(res as DecorSetData, biome_namespace)
+		if res == null:
+			push_warning("Failed to load flora/decor resource: %s" % path)
+			continue
+		if is_flora and res is FloraSetDataScript:
+			register_flora_set(res, biome_namespace)
+		elif not is_flora and res is DecorSetDataScript:
+			register_decor_set(res, biome_namespace)
+		else:
+			push_warning("Unexpected flora/decor resource type at %s: %s" % [path, res.get_class()])
 
 func _namespaced_id(short_id: StringName, biome_namespace: StringName) -> StringName:
 	if str(short_id).contains(":"):

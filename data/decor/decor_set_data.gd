@@ -1,6 +1,8 @@
 class_name DecorSetData
 extends Resource
 
+const DecorEntryScript = preload("res://data/decor/decor_entry.gd")
+
 ## Набор элементов декора, назначаемый биому.
 
 @export_group("Identity")
@@ -9,7 +11,7 @@ extends Resource
 @export var tags: Array[StringName] = []
 
 @export_group("Entries")
-@export var entries: Array[DecorEntry] = []
+@export var entries: Array[Resource] = []
 
 @export_group("Density")
 @export_range(0.0, 1.0, 0.01) var base_density: float = 0.06
@@ -27,18 +29,24 @@ func is_allowed_on_terrain(terrain_type: int) -> bool:
 		return terrain_type == 0
 	return terrain_filter.has(terrain_type)
 
-func pick_entry(hash_value: float) -> DecorEntry:
+func pick_entry(hash_value: float) -> DecorEntryScript:
 	if entries.is_empty():
 		return null
 	var total_weight: float = 0.0
-	for entry: DecorEntry in entries:
+	for entry_resource: Resource in entries:
+		var entry: DecorEntryScript = entry_resource as DecorEntryScript
+		if entry == null:
+			continue
 		total_weight += entry.weight
 	if total_weight <= 0.0:
 		return null
 	var target: float = hash_value * total_weight
 	var accumulated: float = 0.0
-	for entry: DecorEntry in entries:
+	for entry_resource: Resource in entries:
+		var entry: DecorEntryScript = entry_resource as DecorEntryScript
+		if entry == null:
+			continue
 		accumulated += entry.weight
 		if target <= accumulated:
 			return entry
-	return entries.back()
+	return entries.back() as DecorEntryScript
