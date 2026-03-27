@@ -120,7 +120,7 @@ Observed files for this version:
 - `current violations / ambiguities / contract gaps`:
 - `Chunk.get_terrain_type_at()` returns `GROUND` on invalid local index instead of asserting or surfacing misuse.
 - `Chunk.populate_native()` silently drops mismatched `variation` and `biome` arrays by replacing them with empty arrays.
-- `ChunkManager.is_walkable_at_world()` falls back to `WorldGenerator.is_walkable_at()` when a chunk is not loaded, even on underground z-levels, while `get_terrain_type_at_global()` treats unloaded underground tiles as `ROCK`. Those read-path rules do not currently match.
+- ~~`ChunkManager.is_walkable_at_world()` falls back to `WorldGenerator.is_walkable_at()` when a chunk is not loaded, even on underground z-levels, while `get_terrain_type_at_global()` treats unloaded underground tiles as `ROCK`. Those read-path rules do not currently match.~~ **resolved 2026-03-27**: `is_walkable_at_world()` now delegates to `get_terrain_type_at_global()` for all cases, matching the authoritative loaded → saved → underground-ROCK → surface-generator fallback chain.
 - `ChunkManager.has_resource_at_world()` has no unloaded fallback. For unloaded tiles it returns `false`, even though unloaded underground terrain is otherwise treated as solid rock by `get_terrain_type_at_global()`.
 - `Chunk.populate_native()` reapplies saved terrain modifications tile-by-tile through `_apply_saved_modifications()` and does not recompute neighboring open-tile state during load.
 
@@ -134,14 +134,16 @@ Observed files for this version:
 - `invariants`:
 - `assert(old_type == TileGenData.TerrainType.ROCK, "only ROCK is mineable through Chunk.try_mine_at()")`
 - `assert((has_exterior_neighbor and new_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE) or (not has_exterior_neighbor and new_type == TileGenData.TerrainType.MINED_FLOOR), "mined tile must become ENTRANCE if exterior-adjacent, else MINED_FLOOR")`
-- `assert(current_mining_path_classifies_only_the_mined_tile, "current code classifies the mined tile itself but does not automatically re-normalize neighboring open tiles")`
+- `assert(mining_orchestration_renormalizes_same_chunk_and_cross_chunk_cardinal_neighbors, "try_harvest_at_world() re-normalizes MINED_FLOOR/MOUNTAIN_ENTRANCE for same-chunk and cross-chunk cardinal neighbors after mining")`
 - `assert(_modified_tiles[local_tile] == {"terrain": new_type}, "loaded terrain mutations must be recorded as terrain-only diffs")`
 - `assert(result.item_id == str(WorldGenerator.balance.rock_drop_item_id) and result.amount == WorldGenerator.balance.rock_drop_amount, "successful world harvest must return the configured rock drop payload")`
 - `write operations`:
 - `ChunkManager.try_harvest_at_world()`
 - `Chunk.try_mine_at()`
 - `Chunk._set_terrain_type()`
-- `Chunk._refresh_open_neighbors()` (currently unused helper)
+- `Chunk._refresh_open_neighbors()` (called by `try_harvest_at_world()` for same-chunk neighbors)
+- `Chunk._refresh_open_tile()` (called by `ChunkManager._seam_normalize_and_redraw()` for cross-chunk neighbors)
+- `ChunkManager._seam_normalize_and_redraw()` (cross-chunk border normalization and redraw after mining)
 - Debug-only direct writes in `scenes/world/game_world_debug.gd`
 - Debug-only direct writes in `ChunkManager.ensure_underground_pocket()`
 - `forbidden writes`:
@@ -155,8 +157,8 @@ Observed files for this version:
 - `MountainRoofSystem` and `MountainShadowSystem` both listen to `EventBus.mountain_tile_mined`
 - `current violations / ambiguities / contract gaps`:
 - `Chunk.try_mine_at()` mutates canonical terrain but does not itself emit events, patch topology, or update fog. The safe orchestration point is `ChunkManager.try_harvest_at_world()`, not the chunk method.
-- `Chunk.try_mine_at()` does not call `_refresh_open_neighbors()`. Neighboring `MINED_FLOOR` / `MOUNTAIN_ENTRANCE` tiles are not re-normalized automatically, even inside the same chunk.
-- Cross-chunk mining redraw is local-only. `_collect_mining_dirty_tiles()` returns only same-chunk tiles, so neighbor chunk visuals at seams can remain stale.
+- ~~`Chunk.try_mine_at()` does not call `_refresh_open_neighbors()`. Neighboring `MINED_FLOOR` / `MOUNTAIN_ENTRANCE` tiles are not re-normalized automatically, even inside the same chunk.~~ **resolved 2026-03-27**: `try_harvest_at_world()` now calls `_refresh_open_neighbors()` for same-chunk neighbors and `_refresh_open_tile()` for cross-chunk cardinal neighbors after mining.
+- ~~Cross-chunk mining redraw is local-only. `_collect_mining_dirty_tiles()` returns only same-chunk tiles, so neighbor chunk visuals at seams can remain stale.~~ **resolved 2026-03-27**: `try_harvest_at_world()` now calls `_seam_normalize_and_redraw()` which detects edge-tile mining and redraws a 3-tile border strip in each affected loaded neighbor chunk. `_collect_mining_dirty_tiles()` still returns same-chunk tiles only; cross-chunk redraw is handled at the orchestration level.
 - Debug direct writers bypass the normal event and invalidation chain.
 
 ## Layer: Topology
@@ -276,7 +278,7 @@ Observed files for this version:
 - Sun-angle threshold crossing in `MountainShadowSystem._process()`
 - Player movement indirectly through reveal and fog systems
 - `current violations / ambiguities / contract gaps`:
-- Cross-chunk mining redraw gaps leak directly into presentation: neighboring chunk cover, terrain, and cliff visuals are not refreshed by the current mining path.
+- ~~Cross-chunk mining redraw gaps leak directly into presentation: neighboring chunk cover, terrain, and cliff visuals are not refreshed by the current mining path.~~ **resolved 2026-03-27**: `_seam_normalize_and_redraw()` now redraws border strips in loaded neighbor chunks after seam mining.
 - Presentation is loaded-chunk scoped. There is no presentation object for unloaded continuation even when world read APIs can still answer terrain queries.
 - Debug direct writers can redraw visuals without going through the normal world -> mining -> topology -> reveal invalidation chain.
 
@@ -350,6 +352,8 @@ Observed files for this version:
 - The changed terrain values are stored in the loaded chunk runtime state and written into `Chunk._modified_tiles`.
 - The owning chunk is marked dirty.
 - Same-chunk `3x3` dirty tiles are redrawn for terrain, cover, and cliff presentation.
+- Same-chunk cardinal neighbors that are `MINED_FLOOR` or `MOUNTAIN_ENTRANCE` are re-normalized through `_refresh_open_neighbors()` and redrawn.
+- If the mined tile is on a chunk edge, loaded neighbor chunks receive cross-chunk normalization for the direct cardinal neighbor and a 3-tile border strip redraw through `_seam_normalize_and_redraw()`. Cross-chunk normalization for tiles in unloaded neighbor chunks is not performed.
 - Surface topology is updated immediately through `_on_mountain_tile_changed()` and may additionally be marked dirty for a background rebuild if split suspicion is detected.
 - `EventBus.mountain_tile_mined` is emitted after the immediate topology patch path runs.
 - If the active z-level is underground, the mined tile plus its 8-neighbor halo are force-revealed in `UndergroundFogState`, and revealable loaded tiles in that set have fog removed immediately.
@@ -363,8 +367,7 @@ Observed files for this version:
 
 ### Current non-guarantees
 
-- Neighboring `MINED_FLOOR` / `MOUNTAIN_ENTRANCE` tiles are not guaranteed to be re-normalized by the current mining path.
-- Cross-chunk redraw after mining is not guaranteed today.
+- Cross-chunk terrain normalization for tiles in **unloaded** neighbor chunks is not performed. The normalization will apply when those chunks load and their neighbors are read.
 
 ## Boundary Rules At Chunk Seams
 
@@ -375,7 +378,7 @@ Observed files for this version:
 - `MountainRoofSystem` only reveals cover for chunks that are currently loaded.
 - `MountainShadowSystem` edge detection can read across chunk seams through `get_terrain_type_at_global()`, including unloaded-neighbor fallback rules, but it still only builds sprites for loaded chunks.
 - Surface terrain wall shaping can read cross-chunk neighbor terrain through unloaded fallbacks, because `_surface_rock_visual_class()` goes through `_get_neighbor_terrain()` and `ChunkManager.get_terrain_type_at_global()`.
-- Current contract gap: mining at a chunk seam does not refresh or normalize neighbor-chunk open tiles or neighbor-chunk visuals.
+- Mining at a chunk seam now refreshes neighbor-chunk open tiles and redraws neighbor-chunk border visuals for loaded neighbors through `ChunkManager._seam_normalize_and_redraw()`. Unloaded neighbor chunks are not normalized or redrawn at mining time.
 
 ## Loaded Vs Unloaded Read-Path Rules
 
@@ -388,7 +391,7 @@ Observed files for this version:
 - `ChunkManager.query_local_underground_zone(seed_tile)` requires the seed tile to be loaded and open in the current active `_loaded_chunks` set. There is no unloaded fallback path.
 - `ChunkManager.get_mountain_key_at_tile()`, `get_mountain_tiles()`, and `get_mountain_open_tiles()` only expose surface topology and do not synthesize unloaded topology.
 - `ChunkManager.has_resource_at_world()` has no unloaded fallback and returns `false` for unloaded chunks.
-- `ChunkManager.is_walkable_at_world()` falls back to `WorldGenerator.is_walkable_at()` for unloaded chunks regardless of active z. That currently disagrees with underground terrain fallback in `get_terrain_type_at_global()`.
+- `ChunkManager.is_walkable_at_world()` delegates to `get_terrain_type_at_global()` and applies `_is_walkable_terrain()` to the result. This matches the authoritative terrain read-path for all cases including unloaded underground tiles.
 - Surface terrain atlas selection for unloaded neighbors uses the same read ladder as `get_terrain_type_at_global()`. Underground wall atlas selection also uses that ladder, but underground unloaded fallback collapses to `ROCK`.
 
 ## Source Of Truth Vs Derived State
@@ -425,12 +428,12 @@ Observed files for this version:
 | --- | --- | --- | --- | --- |
 | 1 | World | `Chunk.get_terrain_type_at()` возвращает `GROUND` для невалидного local index вместо fail-fast | medium | Ошибочный вызов может тихо маскироваться под открытую землю и давать неверные визуальные или gameplay-решения |
 | 2 | World | `Chunk.populate_native()` молча сбрасывает несовпавшие `variation` / `biome` массивы | medium | После загрузки chunk может потерять вариативность поверхности или biome palette и выглядеть не так, как ожидалось |
-| 3 | World | `is_walkable_at_world()` для unloaded underground идёт через `WorldGenerator.is_walkable_at()`, а terrain fallback считает tile `ROCK` | high | Проверки проходимости и фактическое terrain-чтение могут расходиться на unloaded underground tiles |
+| 3 | World | ~~`is_walkable_at_world()` для unloaded underground идёт через `WorldGenerator.is_walkable_at()`, а terrain fallback считает tile `ROCK`~~ **resolved 2026-03-27** | ~~high~~ | ~~Проверки проходимости и фактическое terrain-чтение могут расходиться на unloaded underground tiles~~ |
 | 4 | World | `has_resource_at_world()` не имеет unloaded fallback | medium | Добываемый ресурс на unloaded tile не виден системам, пока chunk не подгрузится |
 | 5 | World | `populate_native()` переигрывает сохранённые terrain-модификации без neighbor re-normalization | medium | Неконсистентный save diff может загрузить cave opening с устаревшим `MINED_FLOOR` / `MOUNTAIN_ENTRANCE` состоянием |
 | 6 | Mining | `Chunk.try_mine_at()` не является безопасной orchestration point | high | Любой обходной путь, который вызовет прямую мутацию, сможет выкопать tile без корректного обновления topology / reveal / visuals |
-| 7 | Mining | Текущий mining path не делает automatic open-tile re-normalization соседей | high | После раскопки соседние `MINED_FLOOR` / `MOUNTAIN_ENTRANCE` tiles могут сохранить устаревшее состояние |
-| 8 | Mining | Отсутствует cross-chunk redraw после mining | high | После копания на шве соседний chunk может оставаться визуально устаревшим |
+| 7 | Mining | ~~Текущий mining path не делает automatic open-tile re-normalization соседей~~ **resolved 2026-03-27** | ~~high~~ | ~~После раскопки соседние `MINED_FLOOR` / `MOUNTAIN_ENTRANCE` tiles могут сохранить устаревшее состояние~~ |
+| 8 | Mining | ~~Отсутствует cross-chunk redraw после mining~~ **resolved 2026-03-27** | ~~high~~ | ~~После копания на шве соседний chunk может оставаться визуально устаревшим~~ |
 | 9 | Mining | Debug direct writers обходят normal invalidation chain | medium | Debug-операции могут оставлять мир в частично обновлённом состоянии |
 | 10 | Topology | Topology loaded-bubble scoped, а не world-global | medium | Связность горы и open pocket обрывается на границе выгруженного мира |
 | 11 | Topology | `_incremental_topology_patch()` использует эвристику split detection | high | После некоторых раскопок topology может временно отставать или неверно склеивать / разделять компоненты до full rebuild |
@@ -440,7 +443,7 @@ Observed files for this version:
 | 15 | Reveal | Surface reveal loaded-bubble scoped | medium | Раскрытие локальной пещеры обрывается на unloaded boundary даже если pocket продолжается дальше |
 | 16 | Reveal | `Chunk` одновременно держит `set_revealed_local_zone()` и `set_revealed_local_cover_tiles()` | low | Новый вызователь может выбрать не тот entrypoint и получить лишний слой преобразования или рассинхрон |
 | 17 | Reveal | Underground fog shared across underground runtime and cleared on z change | medium | Исследованность underground не образует устойчивую непрерывную историю между разными underground floors / z-переходами |
-| 18 | Presentation | Cross-chunk mining redraw gap протекает прямо в presentation | high | Игрок увидит, что соседняя стена / cover / cliff на границе чанка не обновилась после копания |
+| 18 | Presentation | ~~Cross-chunk mining redraw gap протекает прямо в presentation~~ **resolved 2026-03-27** (for loaded neighbor chunks) | ~~high~~ | ~~Игрок увидит, что соседняя стена / cover / cliff на границе чанка не обновилась после копания~~ |
 | 19 | Presentation | Presentation существует только для loaded chunks | low | Продолжение мира вне loaded bubble не имеет visual object до стриминга, даже если terrain-query уже может ответить |
 | 20 | Presentation | Debug direct writers могут перерисовать visuals вне world -> mining -> topology -> reveal chain | medium | Отладочное изменение может дать картинку, не совпадающую с реальным derived state |
 | 21 | Wall Atlas Selection | Surface и underground wall shaping используют разные openness contracts и разные neighbor sets | medium | Одинаково выглядящая граница rock/open space может рисоваться по-разному на surface и underground |
