@@ -4,10 +4,11 @@ doc_type: governance
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.0
-last_updated: 2026-03-25
+version: 1.1
+last_updated: 2026-03-27
 related_docs:
   - AI_PLAYBOOK.md
+  - WORKFLOW.md
   - ENGINEERING_STANDARDS.md
   - PERFORMANCE_CONTRACTS.md
 ---
@@ -36,6 +37,9 @@ Canonical lore lives in:
 
 ### Runtime/performance
 If a product or system document suggests an implementation that violates performance rules, [Performance Contracts](PERFORMANCE_CONTRACTS.md) wins.
+
+### Task workflow
+[Workflow](WORKFLOW.md) is mandatory reading and defines task execution procedure for agents and developers, but it does not override Engineering Standards, Performance Contracts, ADRs, or approved system specs.
 
 ### Execution docs
 Roadmaps and iteration briefs do not override approved architecture or standards.

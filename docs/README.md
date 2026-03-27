@@ -4,8 +4,8 @@ doc_type: docs_index
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.1
-last_updated: 2026-03-25
+version: 1.2
+last_updated: 2026-03-27
 related_docs:
   - 00_governance/DOCUMENT_PRECEDENCE.md
   - 00_governance/DOCUMENTATION_MIGRATION_PLAN.md
@@ -50,6 +50,7 @@ Deprecated or migrated legacy versions.
 
 ### Governance
 - [AI Playbook](00_governance/AI_PLAYBOOK.md)
+- [Workflow](00_governance/WORKFLOW.md)
 - [Engineering Standards](00_governance/ENGINEERING_STANDARDS.md)
 - [Performance Contracts](00_governance/PERFORMANCE_CONTRACTS.md)
 - [Simulation and Threading Model](00_governance/SIMULATION_AND_THREADING_MODEL.md)

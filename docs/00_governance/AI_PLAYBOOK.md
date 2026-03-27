@@ -4,13 +4,15 @@ doc_type: governance
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.1
-last_updated: 2026-03-25
+version: 1.2
+last_updated: 2026-03-27
 depends_on:
   - DOCUMENT_PRECEDENCE.md
   - ENGINEERING_STANDARDS.md
   - PERFORMANCE_CONTRACTS.md
+  - WORKFLOW.md
 related_docs:
+  - WORKFLOW.md
   - ../01_product/GAME_VISION_GDD.md
   - ../04_execution/MASTER_ROADMAP.md
 ---
@@ -34,25 +36,26 @@ Primary responsibilities:
 
 ### Every task
 1. [AI Playbook](AI_PLAYBOOK.md)
-2. [Document Precedence](DOCUMENT_PRECEDENCE.md)
-3. [Engineering Standards](ENGINEERING_STANDARDS.md)
+2. [Workflow](WORKFLOW.md)
+3. [Document Precedence](DOCUMENT_PRECEDENCE.md)
+4. [Engineering Standards](ENGINEERING_STANDARDS.md)
 
 ### Tasks touching world, chunks, tiles, rendering, caches, streaming, native bridge
-4. [Performance Contracts](PERFORMANCE_CONTRACTS.md)
-5. [Simulation and Threading Model](SIMULATION_AND_THREADING_MODEL.md)
+5. [Performance Contracts](PERFORMANCE_CONTRACTS.md)
+6. [Simulation and Threading Model](SIMULATION_AND_THREADING_MODEL.md)
 
 ### Tasks touching the world / mining / topology / reveal / presentation stack
-4. [Performance Contracts](PERFORMANCE_CONTRACTS.md)
-5. [Simulation and Threading Model](SIMULATION_AND_THREADING_MODEL.md)
-6. [World Data Contracts](../02_system_specs/world/DATA_CONTRACTS.md)
+5. [Performance Contracts](PERFORMANCE_CONTRACTS.md)
+6. [Simulation and Threading Model](SIMULATION_AND_THREADING_MODEL.md)
+7. [World Data Contracts](../02_system_specs/world/DATA_CONTRACTS.md)
 
 ### Tasks touching mechanics, progression, lore, resources, product intent
-4. [Game Vision GDD](../01_product/GAME_VISION_GDD.md)
-5. [Non-Negotiable Experience](../01_product/NON_NEGOTIABLE_EXPERIENCE.md)
-6. relevant system spec or content bible file
+5. [Game Vision GDD](../01_product/GAME_VISION_GDD.md)
+6. [Non-Negotiable Experience](../01_product/NON_NEGOTIABLE_EXPERIENCE.md)
+7. relevant system spec or content bible file
 
 ### Tasks touching roadmap or sequencing
-4. [Master Roadmap](../04_execution/MASTER_ROADMAP.md)
+5. [Master Roadmap](../04_execution/MASTER_ROADMAP.md)
 
 ### Required foundation reading by task area
 
@@ -78,6 +81,8 @@ Primary responsibilities:
 If a task falls into one of the domains above, the AI must read the corresponding foundation document before proposing architecture, an implementation plan, or code.
 
 Do not answer such tasks from memory or only from adjacent docs when a dedicated foundation doc exists.
+
+Before any task, the AI must also read [Workflow](WORKFLOW.md) and follow it as mandatory operating procedure.
 
 Before any iteration that touches the `world / mining / topology / reveal / presentation` stack, the AI must also read [World Data Contracts](../02_system_specs/world/DATA_CONTRACTS.md).
 

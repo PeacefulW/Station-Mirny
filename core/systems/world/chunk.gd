@@ -388,10 +388,10 @@ func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 	_terrain_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, alt_id)
 
 func _surface_rock_visual_class(local_tile: Vector2i) -> Vector2i:
-	var s: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.DOWN))
-	var n: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.UP))
-	var w: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.LEFT))
-	var e: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.RIGHT))
+	var s: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i.DOWN))
+	var n: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i.UP))
+	var w: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i.LEFT))
+	var e: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i.RIGHT))
 	var count: int = int(s) + int(n) + int(w) + int(e)
 	if count == 0:
 		return ChunkTilesetFactory.WALL_INTERIOR
@@ -491,6 +491,11 @@ func _get_global_terrain(global_tile: Vector2i) -> int:
 
 func _is_open_for_visual(terrain_type: int) -> bool:
 	return terrain_type != TileGenData.TerrainType.ROCK
+
+func _is_open_for_surface_rock_visual(terrain_type: int) -> bool:
+	return _is_open_exterior(terrain_type) \
+		or terrain_type == TileGenData.TerrainType.MINED_FLOOR \
+		or terrain_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE
 
 func _is_open_exterior(terrain_type: int) -> bool:
 	return terrain_type == TileGenData.TerrainType.GROUND \

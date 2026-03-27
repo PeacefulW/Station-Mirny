@@ -286,20 +286,19 @@ Observed files for this version:
 - `Где`: `core/systems/world/chunk.gd` in `_redraw_terrain_tile()`, `_surface_rock_visual_class()`, `_rock_visual_class()`, `_resolve_variant_atlas()`, and `_resolve_variant_alt_id()`. Atlas definitions and wall-variant layout live in `core/systems/world/chunk_tileset_factory.gd`.
 - `Входные данные`: current tile `terrain_type`; cardinal neighbor terrain for surface rock; cardinal plus diagonal neighbor terrain for underground rock; global tile coordinates for hash-based wall variant and flip selection; cross-chunk neighbor reads go through `_get_neighbor_terrain()` and then `ChunkManager.get_terrain_type_at_global()`.
 - `Определение "открытого" соседа`:
-- Surface terrain wall shaping in `_surface_rock_visual_class()` uses `_is_open_exterior()`, which currently treats `GROUND`, `WATER`, `SAND`, and `GRASS` as exterior-open.
+- Surface terrain wall shaping in `_surface_rock_visual_class()` uses a presentation-local open-neighbor predicate that treats `GROUND`, `WATER`, `SAND`, `GRASS`, `MINED_FLOOR`, and `MOUNTAIN_ENTRANCE` as open for wall-form selection. This does not change `_is_open_exterior()` or mining semantics.
 - Underground terrain wall shaping in `_rock_visual_class()` uses `_is_open_for_visual()`, which currently treats every terrain type except `ROCK` as open for visual shaping.
 - Surface cliff overlay selection in `_redraw_cliff_tile()` also uses `_is_open_exterior()`.
 - Surface cover reveal helpers `_is_cave_edge_rock()` and `_is_surface_rock()` treat `MINED_FLOOR` and `MOUNTAIN_ENTRANCE` as open for revealability / edge detection, but that is separate from terrain atlas selection.
 - `Инварианты`:
 - `assert(terrain_type != TileGenData.TerrainType.ROCK or atlas_selected_explicitly_in_Chunk__redraw_terrain_tile, "rock atlas selection is explicit code, not implicit Godot autotile terrain behavior")`
-- `assert(not surface_rock_has_cardinal_exterior_open_neighbor or surface_rock_visual_class != ChunkTilesetFactory.WALL_INTERIOR, "surface rock with a cardinal exterior-open neighbor must use a wall-form tile")`
+- `assert(not surface_rock_has_cardinal_visual_open_neighbor or surface_rock_visual_class != ChunkTilesetFactory.WALL_INTERIOR, "surface rock with a cardinal visual-open neighbor must use a wall-form tile")`
 - `assert(neighbor_terrain == TileGenData.TerrainType.ROCK or underground_neighbor_treated_as_open, "underground wall shaping treats every non-ROCK neighbor as open")`
 - `assert(surface_alt_id == 0 and underground_alt_id_is_hash_selected, "surface disables wall flip alt IDs while underground enables them")`
 - `forbidden writes`:
 - Wall atlas selection must not mutate canonical terrain or redefine terrain semantics.
 - Presentation tile choice must not be used as a substitute for topology, reveal, or mining truth.
 - `current violations / ambiguities / contract gaps`:
-- Surface terrain wall shaping does not treat `MINED_FLOOR` or `MOUNTAIN_ENTRANCE` as open neighbors. Surface cave-edge rock bordering mined space can therefore keep an interior or exterior-only wall form even though cover reveal logic and underground wall shaping treat mined space as open.
 - Surface and underground wall shaping do not share one common openness contract. Surface uses cardinal exterior-open checks only; underground uses cardinal plus diagonal non-`ROCK` openness.
 
 ## Postconditions: `generate chunk`
@@ -444,8 +443,7 @@ Observed files for this version:
 | 18 | Presentation | Cross-chunk mining redraw gap протекает прямо в presentation | high | Игрок увидит, что соседняя стена / cover / cliff на границе чанка не обновилась после копания |
 | 19 | Presentation | Presentation существует только для loaded chunks | low | Продолжение мира вне loaded bubble не имеет visual object до стриминга, даже если terrain-query уже может ответить |
 | 20 | Presentation | Debug direct writers могут перерисовать visuals вне world -> mining -> topology -> reveal chain | medium | Отладочное изменение может дать картинку, не совпадающую с реальным derived state |
-| 21 | Wall Atlas Selection | Surface terrain wall shaping не считает `MINED_FLOOR` и `MOUNTAIN_ENTRANCE` "открытыми" соседями | high | На поверхности rock tile рядом с mined pocket может сохранить неверную wall-form / interior форму |
-| 22 | Wall Atlas Selection | Surface и underground wall shaping используют разные openness contracts и разные neighbor sets | medium | Одинаково выглядящая граница rock/open space может рисоваться по-разному на surface и underground |
+| 21 | Wall Atlas Selection | Surface и underground wall shaping используют разные openness contracts и разные neighbor sets | medium | Одинаково выглядящая граница rock/open space может рисоваться по-разному на surface и underground |
 
 ## Out Of Scope / Follow-up
 

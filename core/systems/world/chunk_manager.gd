@@ -468,6 +468,17 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	var result: Dictionary = chunk.try_mine_at(local_tile)
 	if result.is_empty():
 		return {}
+	# Same-chunk neighbor re-normalization (MINED_FLOOR <-> MOUNTAIN_ENTRANCE)
+	chunk._refresh_open_neighbors(local_tile)
+	var same_chunk_norm_dirty: Dictionary = {}
+	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		var neighbor_local: Vector2i = local_tile + dir
+		if chunk._is_inside(neighbor_local):
+			same_chunk_norm_dirty[neighbor_local] = true
+	if not same_chunk_norm_dirty.is_empty():
+		chunk._redraw_dirty_tiles(same_chunk_norm_dirty)
+	# Cross-chunk seam: normalize + redraw affected neighbor chunks
+	_seam_normalize_and_redraw(tile_pos, local_tile, chunk)
 	_on_mountain_tile_changed(tile_pos, int(result["old_type"]), int(result["new_type"]))
 	EventBus.mountain_tile_mined.emit(tile_pos, int(result["old_type"]), int(result["new_type"]))
 	# Underground fog: reveal newly mined tile + neighbors
@@ -488,6 +499,44 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 		"amount": WorldGenerator.balance.rock_drop_amount,
 	}
 
+func _seam_normalize_and_redraw(tile_pos: Vector2i, local_tile: Vector2i, source_chunk: Chunk) -> void:
+	var chunk_size: int = WorldGenerator.balance.chunk_size_tiles
+	var on_left: bool = local_tile.x == 0
+	var on_right: bool = local_tile.x == chunk_size - 1
+	var on_top: bool = local_tile.y == 0
+	var on_bottom: bool = local_tile.y == chunk_size - 1
+	if not (on_left or on_right or on_top or on_bottom):
+		return
+	# Cardinal neighbor directions that cross into another chunk
+	var cross_dirs: Array[Vector2i] = []
+	if on_left:
+		cross_dirs.append(Vector2i.LEFT)
+	if on_right:
+		cross_dirs.append(Vector2i.RIGHT)
+	if on_top:
+		cross_dirs.append(Vector2i.UP)
+	if on_bottom:
+		cross_dirs.append(Vector2i.DOWN)
+	for dir: Vector2i in cross_dirs:
+		var neighbor_global: Vector2i = _offset_tile(tile_pos, dir)
+		var neighbor_chunk: Chunk = get_chunk_at_tile(neighbor_global)
+		if not neighbor_chunk or neighbor_chunk == source_chunk:
+			continue
+		var n_local: Vector2i = neighbor_chunk.global_to_local(neighbor_global)
+		# Re-normalize the direct cardinal neighbor (MINED_FLOOR <-> MOUNTAIN_ENTRANCE)
+		neighbor_chunk._refresh_open_tile(n_local)
+		neighbor_chunk.is_dirty = true
+		# Redraw a border strip: the neighbor tile + tiles along the seam edge
+		# (covers cardinal + diagonal visual dependencies)
+		var perp: Vector2i = Vector2i(abs(dir.y), abs(dir.x))
+		var cross_dirty: Dictionary = {}
+		for p_offset: int in range(-1, 2):
+			var t: Vector2i = n_local + perp * p_offset
+			if neighbor_chunk._is_inside(t):
+				cross_dirty[t] = true
+		if not cross_dirty.is_empty():
+			neighbor_chunk._redraw_dirty_tiles(cross_dirty)
+
 func has_resource_at_world(world_pos: Vector2) -> bool:
 	var tile_pos: Vector2i = WorldGenerator.world_to_tile(world_pos)
 	var chunk: Chunk = get_chunk_at_tile(tile_pos)
@@ -497,10 +546,7 @@ func has_resource_at_world(world_pos: Vector2) -> bool:
 
 func is_walkable_at_world(world_pos: Vector2) -> bool:
 	var tile_pos: Vector2i = WorldGenerator.world_to_tile(world_pos)
-	var chunk: Chunk = get_chunk_at_tile(tile_pos)
-	if not chunk:
-		return WorldGenerator.is_walkable_at(world_pos)
-	return _is_walkable_terrain(chunk.get_terrain_type_at(chunk.global_to_local(tile_pos)))
+	return _is_walkable_terrain(get_terrain_type_at_global(tile_pos))
 
 ## Устанавливает активный mountain key и возвращает список чанков,
 ## у которых должен обновиться local mountain shell reveal state.
