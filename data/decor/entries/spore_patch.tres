@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="DecorEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/decor/decor_entry.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"spore_patch"
+display_name_key = "DECOR_SPORE_PATCH_NAME"
+tags = Array[StringName]([&"fungal", &"ground"])
+placeholder_color = Color(0.32, 0.40, 0.25)
+placeholder_size = Vector2i(14, 6)
+z_index_offset = -2
+weight = 1.0

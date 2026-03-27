@@ -1,28 +1,29 @@
 class_name ChunkContentBuilder
 extends RefCounted
 
-const CHUNK_BUILD_RESULT_SCRIPT := preload("res://core/systems/world/chunk_build_result.gd")
-const LOCAL_VARIATION_CONTEXT_SCRIPT := preload("res://core/systems/world/local_variation_context.gd")
-
-var _world_provider = null
+## WorldGeneratorSingleton instance, untyped to avoid circular dependency
+## (RefCounted cannot reference a Node-derived autoload by class_name at parse time).
+var _world_provider: Node = null
 var _world_seed: int = 0
 var _balance: WorldGenBalance = null
+var _cached_wrap_width: int = WorldNoiseUtils.DEFAULT_WRAP_WIDTH_TILES
 var _mountain_blob_noise: FastNoiseLite = FastNoiseLite.new()
 var _mountain_detail_noise: FastNoiseLite = FastNoiseLite.new()
 
-func initialize(seed_value: int, balance_resource: WorldGenBalance, world_provider) -> void:
+func initialize(seed_value: int, balance_resource: WorldGenBalance, world_provider: Node) -> void:
 	_world_seed = seed_value
 	_balance = balance_resource
 	_world_provider = world_provider
 	if not _balance:
 		return
-	_setup_noise_instance(_mountain_blob_noise, _world_seed + 29, _blob_frequency(), 3)
-	_setup_noise_instance(_mountain_detail_noise, _world_seed + 71, _balance.mountain_detail_frequency, 2)
+	_cached_wrap_width = WorldNoiseUtils.resolve_wrap_width_tiles(_balance)
+	WorldNoiseUtils.setup_noise_instance(_mountain_blob_noise, _world_seed + 29, _blob_frequency(), 3)
+	WorldNoiseUtils.setup_noise_instance(_mountain_detail_noise, _world_seed + 71, _balance.mountain_detail_frequency, 2)
 
-func build_chunk(chunk_coord: Vector2i):
+func build_chunk(chunk_coord: Vector2i) -> ChunkBuildResult:
 	var canonical_chunk: Vector2i = _canonicalize_chunk_coord(chunk_coord)
 	var base_tile: Vector2i = _chunk_to_tile_origin(canonical_chunk)
-	var result = CHUNK_BUILD_RESULT_SCRIPT.new().initialize(canonical_chunk, _chunk_size(), base_tile)
+	var result: ChunkBuildResult = ChunkBuildResult.new().initialize(canonical_chunk, _chunk_size(), base_tile)
 	if not result.is_valid():
 		return result
 	var safe_radius: float = float(_balance.safe_zone_radius) if _balance else 0.0
@@ -37,12 +38,14 @@ func build_chunk(chunk_coord: Vector2i):
 				tile_data.terrain,
 				tile_data.height,
 				tile_data.local_variation_id,
-				tile_data.biome_palette_index
+				tile_data.biome_palette_index,
+				tile_data.flora_density,
+				tile_data.flora_modulation
 			)
 	return result
 
 func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
-	var build_result = build_chunk(chunk_coord)
+	var build_result: ChunkBuildResult = build_chunk(chunk_coord)
 	if not build_result or not build_result.is_valid():
 		return {}
 	return build_result.to_native_data()
@@ -54,15 +57,28 @@ func build_tile_data(tile_x: int, tile_y: int) -> TileGenData:
 		float(_balance.safe_zone_radius) if _balance else 0.0
 	)
 
+func sample_terrain_type(tile_x: int, tile_y: int) -> TileGenData.TerrainType:
+	var canonical_tile: Vector2i = _canonicalize_tile(Vector2i(tile_x, tile_y))
+	if _world_provider == null:
+		return TileGenData.TerrainType.GROUND
+	var spawn: Vector2i = _spawn_tile()
+	var safe_radius: float = float(_balance.safe_zone_radius) if _balance else 0.0
+	var distance_from_spawn: float = Vector2(_tile_wrap_delta_x(canonical_tile.x, spawn.x), canonical_tile.y - spawn.y).length()
+	if distance_from_spawn <= safe_radius:
+		return TileGenData.TerrainType.GROUND
+	var channels: WorldChannels = _world_provider.sample_world_channels(canonical_tile)
+	var structure_context: WorldStructureContext = _world_provider.sample_structure_context(canonical_tile, channels)
+	return _resolve_surface_terrain(canonical_tile, distance_from_spawn, channels, structure_context, safe_radius)
+
 func _build_tile_data(canonical_tile: Vector2i, spawn_tile: Vector2i, safe_radius: float) -> TileGenData:
 	var data := TileGenData.new()
 	data.canonical_world_pos = canonical_tile
 	if _world_provider == null:
 		return data
-	var channels = _world_provider.sample_world_channels(canonical_tile)
-	var structure_context = _world_provider.sample_structure_context(canonical_tile, channels)
-	var biome_result = _world_provider.get_biome_result_at_tile(canonical_tile, channels, structure_context)
-	var local_variation = _world_provider.sample_local_variation(canonical_tile, biome_result, channels, structure_context)
+	var channels: WorldChannels = _world_provider.sample_world_channels(canonical_tile)
+	var structure_context: WorldStructureContext = _world_provider.sample_structure_context(canonical_tile, channels)
+	var biome_result: BiomeResult = _world_provider.get_biome_result_at_tile(canonical_tile, channels, structure_context)
+	var local_variation: LocalVariationContext = _world_provider.sample_local_variation(canonical_tile, biome_result, channels, structure_context)
 	var distance_from_spawn: float = Vector2(_tile_wrap_delta_x(canonical_tile.x, spawn_tile.x), canonical_tile.y - spawn_tile.y).length()
 	data.height = channels.height
 	data.world_height = channels.height
@@ -95,7 +111,7 @@ func _build_tile_data(canonical_tile: Vector2i, spawn_tile: Vector2i, safe_radiu
 	)
 	if data.terrain == TileGenData.TerrainType.GROUND and local_variation:
 		data.local_variation_kind = local_variation.variation_kind
-		data.local_variation_id = LOCAL_VARIATION_CONTEXT_SCRIPT.kind_to_variation_id(local_variation.variation_kind)
+		data.local_variation_id = LocalVariationContext.kind_to_variation_id(local_variation.variation_kind)
 		data.local_variation_score = local_variation.variation_score
 		data.flora_modulation = local_variation.flora_modulation
 		data.wetness_modulation = local_variation.wetness_modulation
@@ -106,8 +122,8 @@ func _build_tile_data(canonical_tile: Vector2i, spawn_tile: Vector2i, safe_radiu
 func _resolve_surface_terrain(
 	tile_pos: Vector2i,
 	distance_from_spawn: float,
-	channels,
-	structure_context,
+	channels: WorldChannels,
+	structure_context: WorldStructureContext,
 	safe_radius: float
 ) -> int:
 	if distance_from_spawn <= safe_radius:
@@ -120,13 +136,13 @@ func _resolve_surface_terrain(
 		return TileGenData.TerrainType.ROCK
 	return TileGenData.TerrainType.GROUND
 
-func _is_mountain_tile(tile_pos: Vector2i, distance_from_spawn: float, channels = null, structure_context = null) -> bool:
+func _is_mountain_tile(tile_pos: Vector2i, distance_from_spawn: float, channels: WorldChannels = null, structure_context: WorldStructureContext = null) -> bool:
 	if distance_from_spawn <= float(_balance.land_guarantee_radius):
 		return false
 	var ridge_strength: float = structure_context.ridge_strength if structure_context else 0.0
 	var mountain_mass: float = structure_context.mountain_mass if structure_context else 0.0
-	var blob: float = _sample_periodic_noise01(_mountain_blob_noise, tile_pos)
-	var detail: float = _sample_periodic_noise01(_mountain_detail_noise, tile_pos)
+	var blob: float = _sample_noise(_mountain_blob_noise, tile_pos)
+	var detail: float = _sample_noise(_mountain_detail_noise, tile_pos)
 	var terrain_gate: float = 1.0
 	if channels != null:
 		terrain_gate = clampf(channels.height * 0.38 + channels.ruggedness * 0.95 - 0.14, 0.28, 1.0)
@@ -139,36 +155,36 @@ func _is_mountain_tile(tile_pos: Vector2i, distance_from_spawn: float, channels 
 	combined *= terrain_gate
 	return combined >= _mountain_threshold()
 
-func _is_river_tile(distance_from_spawn: float, channels, structure_context) -> bool:
+func _is_river_tile(distance_from_spawn: float, channels: WorldChannels, structure_context: WorldStructureContext) -> bool:
 	if structure_context == null:
 		return false
 	if distance_from_spawn <= float(_balance.land_guarantee_radius):
 		return false
-	if structure_context.river_strength < 0.40:
+	if structure_context.river_strength < _balance.river_min_strength:
 		return false
-	if structure_context.ridge_strength > 0.70:
+	if structure_context.ridge_strength > _balance.river_ridge_exclusion:
 		return false
-	if channels != null and channels.height > 0.74:
+	if channels != null and channels.height > _balance.river_max_height:
 		return false
 	return true
 
-func _is_river_bank_tile(distance_from_spawn: float, channels, structure_context) -> bool:
+func _is_river_bank_tile(distance_from_spawn: float, channels: WorldChannels, structure_context: WorldStructureContext) -> bool:
 	if structure_context == null:
 		return false
 	if distance_from_spawn <= float(_balance.land_guarantee_radius):
 		return false
 	if _is_river_tile(distance_from_spawn, channels, structure_context):
 		return false
-	if structure_context.floodplain_strength < 0.32:
+	if structure_context.floodplain_strength < _balance.bank_min_floodplain:
 		return false
-	if structure_context.ridge_strength > 0.64:
+	if structure_context.ridge_strength > _balance.bank_ridge_exclusion:
 		return false
-	if structure_context.river_strength >= 0.16:
+	if structure_context.river_strength >= _balance.bank_min_river:
 		return true
-	return channels != null and channels.moisture > 0.54 and channels.height < 0.60
+	return channels != null and channels.moisture > _balance.bank_min_moisture and channels.height < _balance.bank_max_height
 
 func _mountain_threshold() -> float:
-	return clampf(0.74 - _balance.mountain_density, 0.32, 0.78)
+	return clampf(_balance.mountain_base_threshold - _balance.mountain_density, _balance.mountain_threshold_min, _balance.mountain_threshold_max)
 
 func _blob_frequency() -> float:
 	match _balance.mountain_area:
@@ -179,14 +195,6 @@ func _blob_frequency() -> float:
 		3:
 			return _balance.mountain_blob_frequency * 0.65
 	return _balance.mountain_blob_frequency
-
-func _setup_noise_instance(noise: FastNoiseLite, seed_value: int, frequency: float, octaves: int) -> void:
-	noise.seed = seed_value
-	noise.frequency = frequency
-	noise.fractal_octaves = octaves
-	noise.fractal_gain = 0.55
-	noise.fractal_lacunarity = 2.1
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
 
 func _chunk_size() -> int:
 	return _balance.chunk_size_tiles if _balance else 0
@@ -221,25 +229,5 @@ func _resolve_biome_palette_index(biome_id: StringName) -> int:
 		return int(_world_provider.get_biome_palette_index(biome_id))
 	return 0
 
-func _sample_periodic_noise01(noise: FastNoiseLite, world_pos: Vector2i) -> float:
-	var width: int = _resolve_wrap_width_tiles()
-	if width <= 0:
-		return _sample01(noise.get_noise_2d(world_pos.x, world_pos.y))
-	var wrapped_x: int = int(posmod(world_pos.x, width))
-	var angle: float = TAU * float(wrapped_x) / float(width)
-	var ring_radius: float = float(width) / TAU
-	var sample_x: float = cos(angle) * ring_radius
-	var sample_y: float = float(world_pos.y)
-	var sample_z: float = sin(angle) * ring_radius
-	return _sample01(noise.get_noise_3d(sample_x, sample_y, sample_z))
-
-func _resolve_wrap_width_tiles() -> int:
-	if not _balance:
-		return 0
-	var tile_width: int = maxi(256, _balance.world_wrap_width_tiles)
-	var chunk_size: int = maxi(1, _balance.chunk_size_tiles)
-	var chunk_count: int = maxi(1, int(ceili(float(tile_width) / float(chunk_size))))
-	return chunk_count * chunk_size
-
-func _sample01(value: float) -> float:
-	return value * 0.5 + 0.5
+func _sample_noise(noise: FastNoiseLite, world_pos: Vector2i) -> float:
+	return WorldNoiseUtils.sample_periodic_noise01(noise, world_pos, _cached_wrap_width)

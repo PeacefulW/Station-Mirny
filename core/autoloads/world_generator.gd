@@ -2,16 +2,7 @@ class_name WorldGeneratorSingleton
 extends Node
 
 const BALANCE_PATH: String = "res://data/world/world_gen_balance.tres"
-const BIOMES_DIR_PATH: String = "res://data/biomes"
-const DEFAULT_BIOME_ID: StringName = &"plains"
 const CHUNK_BIOME_SAMPLE_GRID: int = 3
-const PLANET_SAMPLER_SCRIPT := preload("res://core/systems/world/planet_sampler.gd")
-const WORLD_CHANNELS_SCRIPT := preload("res://core/systems/world/world_channels.gd")
-const LARGE_STRUCTURE_SAMPLER_SCRIPT := preload("res://core/systems/world/large_structure_sampler.gd")
-const BIOME_RESOLVER_SCRIPT := preload("res://core/systems/world/biome_resolver.gd")
-const LOCAL_VARIATION_RESOLVER_SCRIPT := preload("res://core/systems/world/local_variation_resolver.gd")
-const LOCAL_VARIATION_CONTEXT_SCRIPT := preload("res://core/systems/world/local_variation_context.gd")
-const CHUNK_CONTENT_BUILDER_SCRIPT := preload("res://core/systems/world/chunk_content_builder.gd")
 
 var world_seed: int = 0
 var balance: WorldGenBalance = null
@@ -19,14 +10,11 @@ var current_biome: BiomeData = null
 var spawn_tile: Vector2i = Vector2i.ZERO
 var _is_initialized: bool = false
 var _native_generator: ChunkGenerator = null
-var _planet_sampler: RefCounted = null
-var _structure_sampler: RefCounted = null
-var _biome_resolver: RefCounted = null
-var _local_variation_resolver: RefCounted = null
-var _chunk_content_builder: RefCounted = null
-var _available_biomes: Array[BiomeData] = []
-var _biome_by_id: Dictionary = {}
-var _biome_palette_index_by_id: Dictionary = {}
+var _planet_sampler: PlanetSampler = null
+var _structure_sampler: LargeStructureSampler = null
+var _biome_resolver: BiomeResolver = null
+var _local_variation_resolver: LocalVariationResolver = null
+var _chunk_content_builder: ChunkContentBuilder = null
 var _chunk_biome_cache: Dictionary = {}
 
 func _ready() -> void:
@@ -34,8 +22,7 @@ func _ready() -> void:
 	if not balance:
 		push_error(Localization.t("SYSTEM_WORLD_BALANCE_LOAD_FAILED", {"path": BALANCE_PATH}))
 		return
-	_load_biome_resources()
-	current_biome = _resolve_default_biome()
+	current_biome = BiomeRegistry.get_default_biome()
 
 func initialize_world(seed_value: int) -> void:
 	world_seed = seed_value
@@ -49,7 +36,7 @@ func initialize_world(seed_value: int) -> void:
 	_chunk_biome_cache.clear()
 	current_biome = get_biome_at_tile(spawn_tile)
 	_is_initialized = true
-	EventBus.world_seed_set.emit(world_seed)
+	EventBus.world_initialized.emit(world_seed)
 
 func initialize_random() -> void:
 	var rng := RandomNumberGenerator.new()
@@ -75,12 +62,12 @@ func build_tile_data(tile_pos: Vector2i) -> TileGenData:
 		return _chunk_content_builder.build_tile_data(canonical_tile.x, canonical_tile.y)
 	return TileGenData.new()
 
-func build_chunk_content(chunk_coord: Vector2i):
+func build_chunk_content(chunk_coord: Vector2i) -> ChunkBuildResult:
 	if not _is_initialized or not _chunk_content_builder:
 		return null
 	return _chunk_content_builder.build_chunk(canonicalize_chunk_coord(chunk_coord))
 
-func build_chunk_result(chunk_coord: Vector2i):
+func build_chunk_result(chunk_coord: Vector2i) -> ChunkBuildResult:
 	return build_chunk_content(chunk_coord)
 
 func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
@@ -88,25 +75,25 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 		return {}
 	return _chunk_content_builder.build_chunk_native_data(canonicalize_chunk_coord(chunk_coord))
 
-func sample_world_channels(world_pos: Vector2i):
+func sample_world_channels(world_pos: Vector2i) -> WorldChannels:
 	if not _planet_sampler:
-		return WORLD_CHANNELS_SCRIPT.new()
+		return WorldChannels.new()
 	return _planet_sampler.sample_world_channels(world_pos)
 
-func sample_structure_context(world_pos: Vector2i, channels = null):
+func sample_structure_context(world_pos: Vector2i, channels: WorldChannels = null) -> WorldStructureContext:
 	if not _structure_sampler:
 		return null
 	return _structure_sampler.sample_structure_context(world_pos, channels)
 
-func sample_local_variation(world_pos: Vector2i, biome = null, channels = null, structure_context = null):
+func sample_local_variation(world_pos: Vector2i, biome: BiomeResult = null, channels: WorldChannels = null, structure_context: WorldStructureContext = null) -> LocalVariationContext:
 	var canonical_tile: Vector2i = canonicalize_tile(world_pos)
-	var sampled_channels = channels
+	var sampled_channels: WorldChannels = channels
 	if sampled_channels == null:
 		sampled_channels = sample_world_channels(canonical_tile)
-	var sampled_structure_context = structure_context
+	var sampled_structure_context: WorldStructureContext = structure_context
 	if sampled_structure_context == null:
 		sampled_structure_context = sample_structure_context(canonical_tile, sampled_channels)
-	var resolved_biome = biome
+	var resolved_biome: BiomeResult = biome
 	if resolved_biome == null:
 		resolved_biome = get_biome_result_at_tile(canonical_tile, sampled_channels, sampled_structure_context)
 	if _local_variation_resolver:
@@ -116,38 +103,36 @@ func sample_local_variation(world_pos: Vector2i, biome = null, channels = null, 
 			sampled_channels,
 			sampled_structure_context
 		)
-	return LOCAL_VARIATION_CONTEXT_SCRIPT.new()
+	return LocalVariationContext.new()
 
 func get_registered_biomes() -> Array[BiomeData]:
-	return _available_biomes.duplicate()
+	return BiomeRegistry.get_all_biomes()
 
 func get_biome_by_id(biome_id: StringName) -> BiomeData:
-	return _biome_by_id.get(biome_id, null) as BiomeData
+	return BiomeRegistry.get_biome_by_short_id(biome_id)
 
 func get_biome_palette_index(biome_id: StringName) -> int:
-	if biome_id == &"":
-		return 0
-	return int(_biome_palette_index_by_id.get(biome_id, 0))
+	return BiomeRegistry.get_palette_index(biome_id)
 
 func get_biome_palette_order() -> Array[BiomeData]:
-	return _available_biomes.duplicate()
+	return BiomeRegistry.get_palette_order()
 
-func get_biome_result_at_tile(tile_pos: Vector2i, channels = null, structure_context = null):
+func get_biome_result_at_tile(tile_pos: Vector2i, channels: WorldChannels = null, structure_context: WorldStructureContext = null) -> BiomeResult:
 	var canonical_tile: Vector2i = canonicalize_tile(tile_pos)
-	var sampled_channels = channels
+	var sampled_channels: WorldChannels = channels
 	if sampled_channels == null:
 		sampled_channels = sample_world_channels(canonical_tile)
-	var sampled_structure_context = structure_context
+	var sampled_structure_context: WorldStructureContext = structure_context
 	if sampled_structure_context == null:
 		sampled_structure_context = sample_structure_context(canonical_tile, sampled_channels)
 	return resolve_biome(canonical_tile, sampled_channels, sampled_structure_context)
 
-func resolve_biome(world_pos: Vector2i, channels = null, structure_context = null):
+func resolve_biome(world_pos: Vector2i, channels: WorldChannels = null, structure_context: WorldStructureContext = null) -> BiomeResult:
 	var canonical_tile: Vector2i = canonicalize_tile(world_pos)
-	var sampled_channels = channels
+	var sampled_channels: WorldChannels = channels
 	if sampled_channels == null:
 		sampled_channels = sample_world_channels(canonical_tile)
-	var sampled_structure_context = structure_context
+	var sampled_structure_context: WorldStructureContext = structure_context
 	if sampled_structure_context == null:
 		sampled_structure_context = sample_structure_context(canonical_tile, sampled_channels)
 	if _biome_resolver:
@@ -157,16 +142,16 @@ func resolve_biome(world_pos: Vector2i, channels = null, structure_context = nul
 func get_tile_biome(tile_pos: Vector2i) -> BiomeData:
 	return get_biome_at_tile(tile_pos)
 
-func resolve_biome_at_tile(tile_pos: Vector2i):
+func resolve_biome_at_tile(tile_pos: Vector2i) -> BiomeResult:
 	return get_biome_result_at_tile(tile_pos)
 
 func get_biome_at_tile(tile_pos: Vector2i) -> BiomeData:
-	var result = get_biome_result_at_tile(tile_pos)
+	var result: BiomeResult = get_biome_result_at_tile(tile_pos)
 	if result:
 		var biome: BiomeData = result.biome as BiomeData
 		if biome:
 			return biome
-	return _resolve_default_biome()
+	return BiomeRegistry.get_default_biome()
 
 func get_dominant_biome_for_chunk(chunk_coord: Vector2i) -> BiomeData:
 	var canonical_chunk: Vector2i = canonicalize_chunk_coord(chunk_coord)
@@ -177,15 +162,10 @@ func get_dominant_biome_for_chunk(chunk_coord: Vector2i) -> BiomeData:
 	if dominant_biome:
 		_chunk_biome_cache[canonical_chunk] = dominant_biome
 		return dominant_biome
-	return _resolve_default_biome()
+	return BiomeRegistry.get_default_biome()
 
+## Alias retained for compatibility with chunk_manager and other callers.
 func get_chunk_biome(chunk_coord: Vector2i) -> BiomeData:
-	return get_dominant_biome_for_chunk(chunk_coord)
-
-func get_dominant_chunk_biome(chunk_coord: Vector2i) -> BiomeData:
-	return get_dominant_biome_for_chunk(chunk_coord)
-
-func resolve_chunk_biome(chunk_coord: Vector2i) -> BiomeData:
 	return get_dominant_biome_for_chunk(chunk_coord)
 
 func canonicalize_tile(tile_pos: Vector2i) -> Vector2i:
@@ -201,10 +181,7 @@ func wrap_world_tile_x(tile_x: int) -> int:
 func get_world_wrap_width_tiles() -> int:
 	if not balance:
 		return 0
-	var tile_width: int = maxi(256, balance.world_wrap_width_tiles)
-	var chunk_size: int = maxi(1, balance.chunk_size_tiles)
-	var chunk_count: int = maxi(1, int(ceili(float(tile_width) / float(chunk_size))))
-	return chunk_count * chunk_size
+	return WorldNoiseUtils.resolve_wrap_width_tiles(balance)
 
 func get_world_wrap_width_pixels() -> float:
 	if not balance:
@@ -333,10 +310,15 @@ func tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
 		floori(float(canonical_tile.y) / cs)
 	))
 
+func get_terrain_type_fast(tile_pos: Vector2i) -> TileGenData.TerrainType:
+	if not _is_initialized or not _chunk_content_builder:
+		return TileGenData.TerrainType.GROUND
+	var canonical_tile: Vector2i = canonicalize_tile(tile_pos)
+	return _chunk_content_builder.sample_terrain_type(canonical_tile.x, canonical_tile.y)
+
 func is_walkable_at(world_pos: Vector2) -> bool:
 	var tile_pos: Vector2i = world_to_tile(world_pos)
-	var tile_data: TileGenData = get_tile_data(tile_pos.x, tile_pos.y)
-	return _is_walkable_terrain(tile_data.terrain)
+	return _is_walkable_terrain(get_terrain_type_fast(tile_pos))
 
 func _setup_native_generator() -> void:
 	_native_generator = ChunkGenerator.new()
@@ -357,64 +339,28 @@ func _setup_native_generator() -> void:
 	_native_generator.initialize(world_seed, params)
 
 func _setup_planet_sampler() -> void:
-	_planet_sampler = PLANET_SAMPLER_SCRIPT.new()
+	_planet_sampler = PlanetSampler.new()
 	_planet_sampler.initialize(world_seed, balance)
 
 func _setup_structure_sampler() -> void:
-	_structure_sampler = LARGE_STRUCTURE_SAMPLER_SCRIPT.new()
+	_structure_sampler = LargeStructureSampler.new()
 	_structure_sampler.initialize(world_seed, balance)
 
 func _setup_biome_resolver() -> void:
-	_biome_resolver = BIOME_RESOLVER_SCRIPT.new()
-	if _biome_resolver:
-		_biome_resolver.configure(_available_biomes)
+	_biome_resolver = BiomeResolver.new()
+	_biome_resolver.configure(BiomeRegistry.get_all_biomes())
 
 func _setup_local_variation_resolver() -> void:
-	_local_variation_resolver = LOCAL_VARIATION_RESOLVER_SCRIPT.new()
-	if _local_variation_resolver:
-		_local_variation_resolver.initialize(world_seed, balance)
+	_local_variation_resolver = LocalVariationResolver.new()
+	_local_variation_resolver.initialize(world_seed, balance)
 
 func _setup_chunk_content_builder() -> void:
-	_chunk_content_builder = CHUNK_CONTENT_BUILDER_SCRIPT.new()
-	if _chunk_content_builder:
-		_chunk_content_builder.initialize(world_seed, balance, self)
+	_chunk_content_builder = ChunkContentBuilder.new()
+	_chunk_content_builder.initialize(world_seed, balance, self)
 
 func _is_walkable_terrain(terrain_type: int) -> bool:
 	return terrain_type != TileGenData.TerrainType.ROCK \
 		and terrain_type != TileGenData.TerrainType.WATER
-
-func _load_biome_resources() -> void:
-	_available_biomes.clear()
-	_biome_by_id.clear()
-	_biome_palette_index_by_id.clear()
-	var dir: DirAccess = DirAccess.open(BIOMES_DIR_PATH)
-	if not dir:
-		push_error("WorldGenerator: failed to open biome directory: %s" % BIOMES_DIR_PATH)
-		return
-	var resource_paths: Array[String] = []
-	dir.list_dir_begin()
-	var entry: String = dir.get_next()
-	while not entry.is_empty():
-		if not dir.current_is_dir() and (entry.ends_with(".tres") or entry.ends_with(".res")):
-			resource_paths.append("%s/%s" % [BIOMES_DIR_PATH, entry])
-		entry = dir.get_next()
-	dir.list_dir_end()
-	resource_paths.sort()
-	for path: String in resource_paths:
-		var biome: BiomeData = load(path) as BiomeData
-		if not biome or biome.id == &"":
-			continue
-		_biome_palette_index_by_id[biome.id] = _available_biomes.size()
-		_available_biomes.append(biome)
-		_biome_by_id[biome.id] = biome
-
-func _resolve_default_biome() -> BiomeData:
-	var fallback_biome: BiomeData = _biome_by_id.get(DEFAULT_BIOME_ID, null) as BiomeData
-	if fallback_biome:
-		return fallback_biome
-	if not _available_biomes.is_empty():
-		return _available_biomes[0]
-	return null
 
 func _resolve_chunk_dominant_biome(chunk_coord: Vector2i) -> BiomeData:
 	var chunk_size: int = balance.chunk_size_tiles if balance else 64
@@ -423,15 +369,15 @@ func _resolve_chunk_dominant_biome(chunk_coord: Vector2i) -> BiomeData:
 	var center_biome_id: StringName = &""
 	for sample_local: Vector2i in _get_chunk_biome_sample_points(chunk_size):
 		var sample_tile: Vector2i = chunk_local_to_tile(chunk_coord, sample_local)
-		var channels = sample_world_channels(sample_tile)
-		var result = get_biome_result_at_tile(sample_tile, channels)
+		var channels: WorldChannels = sample_world_channels(sample_tile)
+		var result: BiomeResult = get_biome_result_at_tile(sample_tile, channels)
 		var sample_biome: BiomeData = null
 		var sample_score: float = 0.25
 		if result:
 			sample_biome = result.biome as BiomeData
 			sample_score = maxf(0.01, float(result.score))
 		if not sample_biome:
-			sample_biome = _resolve_default_biome()
+			sample_biome = BiomeRegistry.get_default_biome()
 		if not sample_biome:
 			continue
 		var biome_id: StringName = sample_biome.id
@@ -439,7 +385,7 @@ func _resolve_chunk_dominant_biome(chunk_coord: Vector2i) -> BiomeData:
 		wins_by_id[biome_id] = int(wins_by_id.get(biome_id, 0)) + 1
 		if sample_local == Vector2i(chunk_size / 2, chunk_size / 2):
 			center_biome_id = biome_id
-	var best_biome: BiomeData = _resolve_default_biome()
+	var best_biome: BiomeData = BiomeRegistry.get_default_biome()
 	var best_score: float = -1.0
 	var best_wins: int = -1
 	for biome_id: StringName in score_by_id:

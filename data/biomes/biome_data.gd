@@ -76,7 +76,7 @@ const _EPSILON: float = 0.00001
 func get_display_name() -> String:
 	return Localization.td(display_name_key, display_name)
 
-func matches_channels(channels, structure_context = null) -> bool:
+func matches_channels(channels: WorldChannels, structure_context: WorldStructureContext = null) -> bool:
 	return _is_in_range(channels.height, min_height, max_height) \
 		and _is_in_range(channels.temperature, min_temperature, max_temperature) \
 		and _is_in_range(channels.moisture, min_moisture, max_moisture) \
@@ -85,15 +85,15 @@ func matches_channels(channels, structure_context = null) -> bool:
 		and _is_in_range(channels.latitude, min_latitude, max_latitude) \
 		and _matches_structure_context(structure_context)
 
-func compute_match_score(channels, structure_context = null) -> float:
+func compute_match_score(channels: WorldChannels, structure_context: WorldStructureContext = null) -> float:
 	if not matches_channels(channels, structure_context):
 		return -1.0
 	return _compute_weighted_score(channels, false, structure_context)
 
-func compute_fallback_score(channels, structure_context = null) -> float:
+func compute_fallback_score(channels: WorldChannels, structure_context: WorldStructureContext = null) -> float:
 	return _compute_weighted_score(channels, true, structure_context)
 
-func get_channel_scores(channels, soft: bool = false) -> Dictionary:
+func get_channel_scores(channels: WorldChannels, soft: bool = false) -> Dictionary:
 	return {
 		"height": _score_range(channels.height, min_height, max_height, soft),
 		"temperature": _score_range(channels.temperature, min_temperature, max_temperature, soft),
@@ -103,7 +103,7 @@ func get_channel_scores(channels, soft: bool = false) -> Dictionary:
 		"latitude": _score_range(channels.latitude, min_latitude, max_latitude, soft),
 	}
 
-func get_structure_scores(structure_context, soft: bool = false) -> Dictionary:
+func get_structure_scores(structure_context: WorldStructureContext, soft: bool = false) -> Dictionary:
 	if structure_context == null:
 		return {}
 	return {
@@ -112,13 +112,13 @@ func get_structure_scores(structure_context, soft: bool = false) -> Dictionary:
 		"floodplain_strength": _score_range(_get_structure_value(structure_context, "floodplain_strength"), min_floodplain_strength, max_floodplain_strength, soft),
 	}
 
-func get_resolver_scores(channels, structure_context = null, soft: bool = false) -> Dictionary:
+func get_resolver_scores(channels: WorldChannels, structure_context: WorldStructureContext = null, soft: bool = false) -> Dictionary:
 	var scores: Dictionary = get_channel_scores(channels, soft)
 	if structure_context != null:
 		scores.merge(get_structure_scores(structure_context, soft), true)
 	return scores
 
-func _compute_weighted_score(channels, soft: bool, structure_context = null) -> float:
+func _compute_weighted_score(channels: WorldChannels, soft: bool, structure_context: WorldStructureContext = null) -> float:
 	var total_weight: float = 0.0
 	var total_score: float = 0.0
 	var channel_scores: Dictionary = get_resolver_scores(channels, structure_context, soft)
@@ -157,19 +157,17 @@ func _get_weight_for_key(key: String) -> float:
 			return floodplain_strength_weight
 	return 0.0
 
-func _matches_structure_context(structure_context) -> bool:
+func _matches_structure_context(structure_context: WorldStructureContext) -> bool:
 	if structure_context == null:
 		return true
 	return _is_in_range(_get_structure_value(structure_context, "ridge_strength"), min_ridge_strength, max_ridge_strength) \
 		and _is_in_range(_get_structure_value(structure_context, "river_strength"), min_river_strength, max_river_strength) \
 		and _is_in_range(_get_structure_value(structure_context, "floodplain_strength"), min_floodplain_strength, max_floodplain_strength)
 
-func _get_structure_value(structure_context, key: String, default_value: float = 0.0) -> float:
-	var value: Variant = null
-	if structure_context is Dictionary:
-		value = (structure_context as Dictionary).get(key, default_value)
-	elif structure_context != null and structure_context is Object:
-		value = (structure_context as Object).get(StringName(key))
+func _get_structure_value(structure_context: WorldStructureContext, key: StringName, default_value: float = 0.0) -> float:
+	if structure_context == null:
+		return default_value
+	var value: Variant = structure_context.get(key)
 	if value is float or value is int:
 		return float(value)
 	return default_value

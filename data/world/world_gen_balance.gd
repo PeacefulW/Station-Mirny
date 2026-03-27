@@ -87,6 +87,19 @@ extends Resource
 @export_range(16, 4096) var mountain_shadow_edge_cache_tiles_per_step: int = 128
 @export_range(1, 64) var mountain_shadow_edges_per_step: int = 8
 
+@export_group("Terrain Classification")
+@export_range(0.0, 1.0, 0.01) var river_min_strength: float = 0.40
+@export_range(0.0, 1.0, 0.01) var river_ridge_exclusion: float = 0.70
+@export_range(0.0, 1.0, 0.01) var river_max_height: float = 0.74
+@export_range(0.0, 1.0, 0.01) var bank_min_floodplain: float = 0.32
+@export_range(0.0, 1.0, 0.01) var bank_ridge_exclusion: float = 0.64
+@export_range(0.0, 1.0, 0.01) var bank_min_river: float = 0.16
+@export_range(0.0, 1.0, 0.01) var bank_min_moisture: float = 0.54
+@export_range(0.0, 1.0, 0.01) var bank_max_height: float = 0.60
+@export_range(0.0, 1.0, 0.01) var mountain_base_threshold: float = 0.74
+@export_range(0.0, 1.0, 0.01) var mountain_threshold_min: float = 0.32
+@export_range(0.0, 1.0, 0.01) var mountain_threshold_max: float = 0.78
+
 @export_group("Start Zone")
 @export var safe_zone_radius: int = 12
 @export var land_guarantee_radius: int = 24

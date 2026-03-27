@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="FloraSetData" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://data/flora/flora_set_data.gd" id="1"]
+[ext_resource type="Resource" path="res://data/flora/entries/dry_thorn.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"scorched_flora"
+display_name_key = "FLORA_SET_SCORCHED_NAME"
+entries = [ExtResource("2")]
+base_density = 0.03
+flora_channel_weight = 0.5
+flora_modulation_weight = 0.3
+excluded_subzones = Array[StringName]([&"clearing", &"wet_patch"])
+terrain_filter = [0]

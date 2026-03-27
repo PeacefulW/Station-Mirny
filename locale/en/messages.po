@@ -513,6 +513,21 @@ msgstr "Water Source"
 msgid "BIOME_PLAINS_NAME"
 msgstr "Orange Plains"
 
+msgid "BIOME_FOOTHILLS_NAME"
+msgstr "Foothills"
+
+msgid "BIOME_MOUNTAINS_NAME"
+msgstr "Mountains"
+
+msgid "BIOME_WET_LOWLAND_NAME"
+msgstr "Wet Lowland"
+
+msgid "BIOME_SCORCHED_NAME"
+msgstr "Scorched Zone"
+
+msgid "BIOME_COLD_ZONE_NAME"
+msgstr "Cold Zone"
+
 msgid "SYSTEM_COMMAND_NOT_IMPLEMENTED"
 msgstr "Command is not implemented"
 

@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="FloraEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/flora/flora_entry.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"dry_thorn"
+display_name_key = "FLORA_DRY_THORN_NAME"
+tags = Array[StringName]([&"low", &"dry", &"hardy"])
+placeholder_color = Color(0.52, 0.42, 0.28)
+placeholder_size = Vector2i(10, 16)
+z_index_offset = 0
+min_density_threshold = 0.05
+max_density_threshold = 0.5
+weight = 1.0

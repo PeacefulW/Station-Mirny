@@ -15,6 +15,8 @@ var _fps_label: Label = null
 var _fps_log_timer: float = 0.0
 var _tile_highlight: ColorRect = null
 var _tile_info_label: Label = null
+var _last_highlighted_tile: Vector2i = Vector2i(999999, 999999)
+var _last_tile_data: TileGenData = null
 var _stairs_container: Node2D = null
 var _world_preview_exporter: WorldPreviewExporter = null
 var _local_preview_panel: PanelContainer = null
@@ -247,7 +249,10 @@ func _update_tile_highlight() -> void:
 	_tile_highlight.size = Vector2(ts, ts)
 	_tile_highlight.global_position = Vector2(tile_pos.x * ts, tile_pos.y * ts)
 	if _tile_info_label:
-		var tile_data: TileGenData = WorldGenerator.get_tile_data(tile_pos.x, tile_pos.y)
+		if tile_pos != _last_highlighted_tile:
+			_last_highlighted_tile = tile_pos
+			_last_tile_data = WorldGenerator.get_tile_data(tile_pos.x, tile_pos.y)
+		var tile_data: TileGenData = _last_tile_data
 		var biome_text: String = "biome:-"
 		var variation_text: String = "subzone:none"
 		var structure_text: String = "ridge:- mass:- river:- flood:-"

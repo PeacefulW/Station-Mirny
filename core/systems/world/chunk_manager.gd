@@ -57,6 +57,7 @@ var _is_topology_dirty: bool = false
 var _native_topology_builder: RefCounted = null
 var _native_topology_active: bool = false
 var _native_topology_dirty: bool = false
+var _flora_builder: ChunkFloraBuilder = null
 var _is_topology_build_in_progress: bool = false
 var _is_boot_in_progress: bool = false
 var _staged_chunk: Chunk = null
@@ -200,7 +201,7 @@ func get_terrain_type_at_global(tile_pos: Vector2i) -> int:
 	if _active_z != 0:
 		return TileGenData.TerrainType.ROCK
 	if WorldGenerator and WorldGenerator._is_initialized:
-		return WorldGenerator.get_tile_data(canonical_tile.x, canonical_tile.y).terrain
+		return WorldGenerator.get_terrain_type_fast(canonical_tile)
 	return TileGenData.TerrainType.GROUND
 
 func get_loaded_chunks() -> Dictionary:
@@ -479,6 +480,7 @@ func _deferred_init() -> void:
 	_build_world_tilesets()
 	_build_fog_tileset()
 	_setup_native_topology_builder()
+	_setup_flora_builder()
 	_initialized = _terrain_tileset != null and _overlay_tileset != null
 	if _initialized:
 		_register_budget_jobs()
@@ -581,10 +583,8 @@ func _resolve_chunk_biome_from_world_generator(chunk_coord: Vector2i) -> BiomeDa
 	if not WorldGenerator:
 		return null
 	for method_name: String in [
+		"get_dominant_biome_for_chunk",
 		"get_chunk_biome",
-		"resolve_chunk_biome",
-		"get_dominant_chunk_biome",
-		"get_chunk_biome_data",
 	]:
 		if not WorldGenerator.has_method(method_name):
 			continue
@@ -709,6 +709,28 @@ func _setup_native_topology_builder() -> void:
 	else:
 		_native_topology_builder = null
 
+func _setup_flora_builder() -> void:
+	if WorldGenerator and WorldGenerator._is_initialized:
+		_flora_builder = ChunkFloraBuilder.new()
+		_flora_builder.initialize(WorldGenerator.world_seed)
+
+func _compute_flora_for_chunk(chunk: Chunk, build_result: ChunkBuildResult) -> void:
+	if _flora_builder == null or build_result == null or not build_result.is_valid():
+		return
+	var biome_palette: Array[BiomeData] = WorldGenerator.get_registered_biomes()
+	var flora_result: ChunkFloraResult = _flora_builder.compute_placements(
+		build_result.canonical_chunk_coord,
+		build_result.chunk_size,
+		build_result.base_tile,
+		build_result.terrain,
+		biome_palette,
+		build_result.biome,
+		build_result.variation,
+		build_result.flora_density_values,
+		build_result.flora_modulation_values
+	)
+	chunk.set_flora_result(flora_result)
+
 func _is_native_topology_enabled() -> bool:
 	return _native_topology_active
 
@@ -774,10 +796,12 @@ func _load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
 	if loaded_chunks_for_z.has(coord) or not _terrain_tileset or not _overlay_tileset:
 		return
 	var native_data: Dictionary
+	var build_result: ChunkBuildResult = null
 	if z_level != 0:
 		native_data = _generate_solid_rock_chunk()
 	else:
-		native_data = _build_surface_chunk_native_data(coord)
+		build_result = WorldGenerator.build_chunk_content(coord) if WorldGenerator else null
+		native_data = build_result.to_native_data() if build_result and build_result.is_valid() else _build_surface_chunk_native_data(coord)
 	var chunk_biome: BiomeData = _resolve_chunk_biome(coord, z_level)
 	var tileset_bundle: Dictionary = _get_or_build_tileset_bundle(chunk_biome)
 	var ts_tileset: TileSet = null
@@ -803,6 +827,8 @@ func _load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
 	if z_level != 0:
 		chunk.set_underground(true)
 	chunk.populate_native(native_data, _get_saved_chunk_modifications(z_level, coord), is_player_chunk)
+	if z_level == 0 and build_result != null:
+		_compute_flora_for_chunk(chunk, build_result)
 	if z_level != 0 and _fog_tileset:
 		chunk.init_fog_layer(_fog_tileset)
 	var z_container: Node2D = _z_containers.get(z_level) as Node2D

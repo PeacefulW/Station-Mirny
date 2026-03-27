@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="FloraEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/flora/flora_entry.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"sporestalk"
+display_name_key = "FLORA_SPORESTALK_NAME"
+tags = Array[StringName]([&"tall", &"fungal"])
+placeholder_color = Color(0.45, 0.55, 0.35)
+placeholder_size = Vector2i(10, 28)
+z_index_offset = 1
+min_density_threshold = 0.3
+max_density_threshold = 1.0
+weight = 1.0

@@ -7,9 +7,10 @@ extends Node2D
 const REDRAW_PHASE_TERRAIN: int = 0
 const REDRAW_PHASE_COVER: int = 1
 const REDRAW_PHASE_CLIFF: int = 2
-const REDRAW_PHASE_DEBUG_INTERIOR: int = 3
-const REDRAW_PHASE_DEBUG_COLLISION: int = 4
-const REDRAW_PHASE_DONE: int = 5
+const REDRAW_PHASE_FLORA: int = 3
+const REDRAW_PHASE_DEBUG_INTERIOR: int = 4
+const REDRAW_PHASE_DEBUG_COLLISION: int = 5
+const REDRAW_PHASE_DONE: int = 6
 const _COVER_REVEAL_DIRS := [
 	Vector2i.LEFT,
 	Vector2i.RIGHT,
@@ -29,6 +30,8 @@ var _terrain_layer: TileMapLayer = null
 var _cover_layer: TileMapLayer = null
 var _cliff_layer: TileMapLayer = null
 var _fog_layer: TileMapLayer = null
+var _flora_container: Node2D = null
+var _flora_result: ChunkFloraResult = null
 var _debug_root: Node2D = null
 var _tile_size: int = 64
 var _chunk_size: int = 64
@@ -68,6 +71,11 @@ func setup(
 	_terrain_layer = _create_layer("Terrain", _terrain_tileset, -10)
 	_cliff_layer = _create_layer("Cliffs", _overlay_tileset, -9)
 	_cover_layer = _create_layer("MountainCover", _terrain_tileset, 6)
+	_flora_container = Node2D.new()
+	_flora_container.name = "Flora"
+	_flora_container.y_sort_enabled = true
+	_flora_container.z_index = -5
+	add_child(_flora_container)
 	_debug_root = Node2D.new()
 	_debug_root.name = "DebugRoot"
 	_debug_root.z_index = 50
@@ -767,7 +775,7 @@ func _resolve_redraw_phase_tile_budget(max_rows: int) -> int:
 	match _redraw_phase:
 		REDRAW_PHASE_TERRAIN:
 			return maxi(1, base_budget / 2)
-		REDRAW_PHASE_COVER, REDRAW_PHASE_DEBUG_INTERIOR, REDRAW_PHASE_DEBUG_COLLISION:
+		REDRAW_PHASE_COVER, REDRAW_PHASE_FLORA, REDRAW_PHASE_DEBUG_INTERIOR, REDRAW_PHASE_DEBUG_COLLISION:
 			return maxi(1, base_budget / 2)
 		_:
 			return base_budget
@@ -856,6 +864,8 @@ func _process_redraw_phase_tiles(tile_budget: int) -> int:
 				_redraw_cover_tile(local_tile)
 			REDRAW_PHASE_CLIFF:
 				_redraw_cliff_tile(local_tile)
+			REDRAW_PHASE_FLORA:
+				_redraw_flora_tile(tile_index)
 			REDRAW_PHASE_DEBUG_INTERIOR:
 				_process_debug_marker_tile(local_tile, false)
 			REDRAW_PHASE_DEBUG_COLLISION:
@@ -866,6 +876,37 @@ func _process_redraw_phase_tiles(tile_budget: int) -> int:
 	_redraw_tile_index = end_index
 	return processed
 
+func set_flora_result(result: ChunkFloraResult) -> void:
+	_flora_result = result
+
+func _redraw_flora_tile(tile_index: int) -> void:
+	if _flora_result == null or _flora_container == null:
+		return
+	if _redraw_tile_index == 0 and tile_index == 0:
+		for child: Node in _flora_container.get_children():
+			child.queue_free()
+	if _flora_result.is_empty():
+		return
+	var local_x: int = tile_index % _chunk_size
+	var local_y: int = tile_index / _chunk_size
+	var local_pos: Vector2i = Vector2i(local_x, local_y)
+	for placement: Dictionary in _flora_result.placements:
+		var p_pos: Vector2i = placement.get("local_pos", Vector2i(-1, -1))
+		if p_pos != local_pos:
+			continue
+		var color: Color = placement.get("color", Color.WHITE)
+		var size: Vector2i = placement.get("size", Vector2i(8, 8))
+		var z_off: int = int(placement.get("z_offset", 0))
+		var rect: ColorRect = ColorRect.new()
+		rect.color = color
+		rect.size = Vector2(size.x, size.y)
+		rect.position = Vector2(
+			local_x * _tile_size + (_tile_size - size.x) * 0.5,
+			local_y * _tile_size + (_tile_size - size.y)
+		)
+		rect.z_index = z_off
+		_flora_container.add_child(rect)
+
 func _advance_redraw_phase() -> void:
 	match _redraw_phase:
 		REDRAW_PHASE_TERRAIN:
@@ -873,6 +914,8 @@ func _advance_redraw_phase() -> void:
 		REDRAW_PHASE_COVER:
 			_redraw_phase = REDRAW_PHASE_CLIFF
 		REDRAW_PHASE_CLIFF:
+			_redraw_phase = REDRAW_PHASE_FLORA
+		REDRAW_PHASE_FLORA:
 			if _should_build_debug_markers():
 				_redraw_phase = REDRAW_PHASE_DEBUG_INTERIOR
 			else:

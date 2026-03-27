@@ -1059,3 +1059,142 @@ Visual-class НЕ влияет на cover/shadow/indoor — только на в
 
 User:
 Начинай
+
+Claude:
+Idea: Новая тема — мнение по `docs/04_execution/world_generation_gap_closure_plan.md`.
+
+Прочитал план закрытия гэпов. Провёл аудит кода и документации, сверил каждый заявленный гэп с реальным состоянием файлов. Ниже — честная оценка.
+
+Claude:
+Decision: Общее впечатление — документ сильный по структуре, но частично устарел на момент чтения.
+
+План написан по образцу хорошего инженерного аудита: есть чёткая формулировка проблемы, evidence, impact, и definition of done для каждого шага. Иерархия G0-G6 логичная. Stop conditions — правильный ход, мало кто их вообще пишет.
+
+Но: часть гэпов, которые план объявляет открытыми, уже закрыты в текущем коде. План зафиксировал состояние на момент аудита, а код с тех пор продвинулся. Это не критика плана — это нормальная гонка между документацией и реализацией. Но решения по нему сейчас нужно принимать с поправкой на реальность.
+
+Claude:
+Check: Gap A (wrap-safety структур) — план утверждает, что ridge/river ломаются на X-шве.
+
+Проверил `large_structure_sampler.gd`: все noise-вызовы идут через `WorldNoiseUtils.sample_periodic_noise01()` и `sample_periodic_noise_signed()`. Эти методы используют цилиндрическую проекцию (2D → 3D ring: cos/sin по X, линейно по Y). `planet_sampler.gd` делает то же самое. `world_noise_utils.gd` строки 21-30 — wrap через `posmod()`.
+
+Вердикт: **Gap A фактически закрыт.** Структуры используют ту же wrap-safe проекцию, что и каналы. Если нет визуального бага на шве, который я не вижу в коде — этот гэп можно вычеркнуть.
+
+Claude:
+Check: Gap B (структуры читаются как прототипные полосы) — план прав, но это вопрос тюнинга, не архитектуры.
+
+Архитектура `LargeStructureSampler` уже поддерживает направленные координаты, repeating bands, warp noise, и кастомные strength-каналы. Всё, что нужно для читаемых хребтов и рек, технически на месте. Вопрос в балансных числах в `world_gen_balance.gd` и, возможно, в дополнительном noise layer для meandering рек. Это iteration, не gap.
+
+Вердикт: **Gap B — это задача тюнинга, а не архитектурный долг.** План правильно видит проблему, но ошибочно ставит её на уровень "structural gap". Правильнее: "needs art/balance pass".
+
+Claude:
+Check: Gap C (explainability resolver'а) — **подтверждаю, реальный гэп.**
+
+`biome_resolver.gd` строки 37, 42: передаёт `{}` (пустой Dictionary) в `BiomeResult.configure()` для `channel_scores` и `structure_scores`. BiomeData._compute_weighted_score() вычисляет индивидуальные score'ы, но результат не возвращается обратно в BiomeResult.
+
+Это единственный гэп, где поля инфраструктуры созданы, но реально пустые. Фикс простой — прокинуть scores из `get_resolver_scores()` в `configure()`. Оценка: 30-60 минут работы.
+
+Claude:
+Check: Gap D (local variation hardcoded) — план частично неправ.
+
+Проверил `local_variation_resolver.gd`: frequency, octaves, min_score приходят из `_balance` (WorldGenBalance ресурс). Tag-система (`_tag_bias`) работает через biome tags. Scoring методы используют configurable параметры.
+
+Что правда: весовые коэффициенты (0.42, 0.24 и т.д.) захардкожены внутри scoring-методов. И downstream consumption действительно слабый — chunk builder берёт variation_id, но не использует богатый контекст.
+
+Вердикт: **Gap D — half-true.** Resolver сам по себе data-driven. Проблема в downstream: chunk builder и будущие flora/decor потребители пока не используют полную модуляцию. Это гэп контракта, не гэп реализации resolver'а.
+
+Claude:
+Check: Gap E (chunk builder владеет terrain truth) — **подтверждаю.**
+
+`chunk_content_builder.gd` строки 10-11: приватные `_mountain_blob_noise` и `_mountain_detail_noise`. Метод `_is_mountain_tile()` строки 140-156 использует эти приватные noise'ы для определения является ли тайл горой. `world_generator.gd:313-317` маршрутизирует `get_terrain_type_fast()` обратно через builder.
+
+Это архитектурный долг: world truth частично живёт в materialization layer. План прав.
+
+Claude:
+Check: Gap F (edge invalidation) — план ошибается в степени серьёзности.
+
+`chunk_manager.gd` имеет двухуровневую dirty-систему: chunk-level `is_dirty` + topology-level `_is_topology_dirty` / `_mark_topology_dirty()`. `chunk.gd` обрабатывает соседей через `_refresh_open_neighbors()` и `_get_neighbor_terrain()` с wrap-координатами.
+
+Вердикт: **Gap F преувеличен.** Система инвалидации работает. Возможны edge cases при mining на границе чанка, но это не structural gap, а потенциальный баг для тестирования.
+
+Claude:
+Check: Gap G (flora/decor не реализованы) — **план сильно устарел здесь.**
+
+Текущий код содержит:
+- `data/flora/flora_set_data.gd` — полный класс FloraSetData с entries, density, subzone filters, terrain filters
+- `data/decor/decor_set_data.gd` — полный класс DecorSetData с entries, per-subzone modifiers
+- `core/autoloads/flora_decor_registry.gd` — реестр с поддержкой namespace для модов
+- 5 flora set ресурсов: plains, wet_lowland, foothills, scorched, cold_zone
+- 6 flora entry типов: sporestalk, veinroot, glowmoss, cold_scrub, dry_thorn, spore_cluster
+- 1 decor set: ground_decor с 3 entries
+- `core/systems/world/chunk_flora_builder.gd` — builder для размещения
+
+Вердикт: **Gap G в основном закрыт.** Архитектура Iteration 6 уже существует. Контент минимальный (MVP), но data-driven pipeline работает. План описывает состояние, которого уже нет.
+
+Claude:
+Check: Gap H (контент не соответствует content bible) — план частично неправ.
+
+Текущие flora entries: sporestalks, veinroots, glowmoss, spore clusters, coral spires. Это alien identity, не "Earth-like defaults". Biome'ы ссылаются на правильные flora sets. Ресурсные ноды действительно минимальны (iron, copper, stone, dead_tree, water_source) — нет alien-специфичных материалов из content bible.
+
+Вердикт: **Gap H частично закрыт для flora, открыт для resources.** Flora identity уже alien. Resource identity — действительно generic. Но это задача контентного расширения, не архитектурный гэп.
+
+Claude:
+Check: Gap I (документы не синхронизированы) — **подтверждаю полностью.**
+
+Глоссарий заявляет "not yet implemented" для BiomeResolver — он реализован. Заявляет "rivers not implemented" — они есть. Заявляет wrap-world "not enforced in code" — оно enforced для каналов и структур. Это дезориентирует.
+
+Claude:
+Decision: Итоговая таблица — что реально нужно делать:
+
+| Гэп | Статус по плану | Реальный статус | Приоритет |
+|-----|----------------|-----------------|-----------|
+| A: wrap-safety | Открыт | **Закрыт** в коде | Можно вычеркнуть |
+| B: readability | Открыт | Тюнинг, не архитектура | Средний |
+| C: explainability | Открыт | **Открыт**, простой фикс | Высокий (30 мин) |
+| D: local variation | Открыт | Half-open (downstream) | Средний |
+| E: truth boundary | Открыт | **Открыт**, реальный долг | Высокий |
+| F: edge invalidation | Открыт | **Преувеличен** | Низкий |
+| G: flora/decor arch | Открыт | **Закрыт** в коде | Можно вычеркнуть |
+| H: content identity | Открыт | Частично закрыт | Низкий |
+| I: docs sync | Открыт | **Открыт** | Высокий |
+
+Claude:
+Decision: Реальные блокеры для Iteration 6 — только два:
+1. **Gap E** — вынести mountain truth из chunk builder в sampler/resolver уровень.
+2. **Gap I** — привести документы в соответствие с кодом, чтобы следующий исполнитель не стартовал с ложных предпосылок.
+
+Gap C (explainability) — нужен, но не блокер. Gap D (downstream contracts) — развивается параллельно с контентом. Остальное — уже сделано или вопрос тюнинга.
+
+Claude:
+Risk: Главный риск этого плана — не в том, что он неправильный, а в том, что он может затормозить проект.
+
+Если следовать плану буквально (G0→G1→G2→G3→G4→G5→G6 последовательно), проект потратит несколько итераций на закрытие гэпов, которые уже закрыты. Это потеря momentum. Код уже ушёл вперёд. Правильный ход — обновить план по реальному состоянию кода, вычеркнуть закрытое, и сфокусироваться на двух реальных блокерах (E и I).
+
+Claude:
+Idea: Что я бы делал вместо полного G0-G6:
+1. **Немедленно**: Обновить glossary и rollout docs (Gap I) — 1-2 часа.
+2. **Следующий шаг**: Вынести mountain truth из chunk builder (Gap E) — это реальная архитектурная работа.
+3. **Параллельно**: Прокинуть scores в BiomeResult (Gap C) — 30 минут.
+4. **По мере контентного роста**: Усилить downstream contracts для local variation (Gap D).
+5. **Визуальный тюнинг**: Readability хребтов и рек (Gap B) — когда дойдём до art pass.
+
+G0 (docs truth), G1 (wrap-safe), G6 (flora/decor arch) — уже не нужны как отдельные итерации. Работа сделана.
+
+Codex:
+Decision: С частью замечаний согласен. Мой предыдущий `world_generation_gap_closure_plan.md` уже устарел по flora/decor и его нельзя исполнять буквально без переаудита по текущему коду.
+
+Codex:
+Check: Но Gap A я не снимаю. В `large_structure_sampler.gd` wrap-safe действительно сделан для noise-компонент через `WorldNoiseUtils.sample_periodic_noise01()` / `sample_periodic_noise_signed()`. Проблема в другом: сама геометрия ridge/river строится через `_directed_coordinate(world_pos, dir)` и потом через `_sample_repeating_band(coord, spacing, ...)`. То есть band phase периодична по `spacing`, а не по `wrap_width`. Это не то же самое, что cylindrical wrap.
+
+Codex:
+Check: Для seam-safe banding должно выполняться либо явное периодическое преобразование самой полосовой координаты, либо хотя бы условие, что X-wrap сдвигает фазу ровно на целое число периодов. Сейчас это не так. По текущим константам: ridge phase shift на X-wrap ≈ `323.09` tiles, river phase shift ≈ `356.31` tiles. Даже без noise при `y = 0` ridge band даёт `1.0` на `x = 0` и `0.046` на `x = 4095`; river band даёт `1.0` и `0.481`. Поэтому тезис "`Gap A` уже закрыт, потому что structures используют periodic noise" по коду не подтверждается. Periodic warp-noise не чинит seam в band phase.
+
+Codex:
+Decision: По остальному картина такая:
+- `G` действительно надо убрать как открытый архитектурный гэп: `FloraSetData`, `DecorSetData`, `FloraDecorRegistry`, `ChunkFloraBuilder` и реальные `.tres` уже есть.
+- `H` надо переписать: flora identity уже largely alien, открытая часть тут скорее в resources/content breadth, а не в отсутствии flora pipeline.
+- `D` надо понизить в статусе: resolver data-driven, но downstream contract ещё не доведён до конца.
+- `F` тоже лучше опустить до test-risk, а не держать как подтверждённый structural blocker без runtime-доказательства.
+- `C`, `E`, `I` остаются валидными.
+
+Codex:
+Decision: Мой обновлённый вывод такой: план не надо выбрасывать, его надо актуализировать. После актуализации реальные pre-`Iteration 6` блокеры для меня — это `A` и `E`; `I` обязателен как sync/housekeeping; `C` — быстрый quality fix. То есть я не согласен с выводом "остались только `E` и `I`": large-structure wrap seam ещё не закрыт. Но я согласен, что старый `G0-G6` уже нельзя читать буквально, потому что часть пунктов код действительно обогнал.

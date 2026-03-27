@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="DecorSetData" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://data/decor/decor_set_data.gd" id="1"]
+[ext_resource type="Resource" path="res://data/decor/entries/small_rocks.tres" id="2"]
+[ext_resource type="Resource" path="res://data/decor/entries/bone_fragment.tres" id="3"]
+[ext_resource type="Resource" path="res://data/decor/entries/spore_patch.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+id = &"ground_decor"
+display_name_key = "DECOR_SET_GROUND_NAME"
+entries = [ExtResource("2"), ExtResource("3"), ExtResource("4")]
+base_density = 0.05
+terrain_filter = [0]

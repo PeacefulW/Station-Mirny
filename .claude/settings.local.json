@@ -12,7 +12,13 @@
       "Bash(for f:*)",
       "Bash(do echo:*)",
       "Read(//m/dev/Station Peaceful/Station Peaceful/**)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(wc -l \"M:/dev/Station Peaceful/Station Peaceful/core/entities/components\"/*.gd)",
+      "Bash(wc -l \"M:/dev/Station Peaceful/Station Peaceful/core/entities/player/states\"/*.gd)",
+      "Bash(find \"M:/dev/Station Peaceful/Station Peaceful/core/autoloads\" -name \"*.gd\" -exec wc -l {} +)",
+      "Bash(find \"M:/dev/Station Peaceful/Station Peaceful/core/systems\" -name \"*.gd\" -exec wc -l {} +)",
+      "Bash(find \"M:/dev/Station Peaceful/Station Peaceful/core/entities\" -name \"*.gd\" -exec wc -l {} +)",
+      "Bash(wc -l core/systems/world/*.gd)"
     ]
   }
 }

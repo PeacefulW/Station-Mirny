@@ -1,7 +1,7 @@
 class_name BiomeResolver
 extends RefCounted
 
-const BIOME_RESULT_SCRIPT := preload("res://core/systems/world/biome_result.gd")
+const _SCORE_EPSILON: float = 0.0001
 
 var _biomes: Array[BiomeData] = []
 
@@ -25,55 +25,34 @@ func get_biomes() -> Array[BiomeData]:
 func has_biomes() -> bool:
 	return not _biomes.is_empty()
 
-func resolve_biome(world_pos: Vector2i, channels, structure_context = null):
-	var best_valid = null
-	var best_fallback = null
+func resolve_biome(world_pos: Vector2i, channels: WorldChannels, structure_context: WorldStructureContext = null) -> BiomeResult:
+	var best_valid: BiomeResult = null
+	var best_fallback: BiomeResult = null
 	for biome: BiomeData in _biomes:
 		var is_valid: bool = biome.matches_channels(channels, structure_context)
 		if is_valid:
-			var valid_result = BIOME_RESULT_SCRIPT.new()
-			valid_result.configure(
-				world_pos,
-				biome,
-				biome.compute_match_score(channels, structure_context),
-				true,
-				biome.get_channel_scores(channels, false),
-				false,
-				biome.get_structure_scores(structure_context, false)
-			)
-			if _is_better_result(valid_result, best_valid):
-				best_valid = valid_result
-		var fallback_result = BIOME_RESULT_SCRIPT.new()
-		fallback_result.configure(
-			world_pos,
-			biome,
-			biome.compute_fallback_score(channels, structure_context),
-			is_valid,
-			biome.get_channel_scores(channels, true),
-			not is_valid,
-			biome.get_structure_scores(structure_context, true)
-		)
-		if _is_better_result(fallback_result, best_fallback):
-			best_fallback = fallback_result
+			var score: float = biome._compute_weighted_score(channels, false, structure_context)
+			if _is_better_score(score, biome, best_valid):
+				best_valid = BiomeResult.new()
+				best_valid.configure(world_pos, biome, score, true, {}, false, {})
+		if best_valid == null:
+			var fallback_score: float = biome._compute_weighted_score(channels, true, structure_context)
+			if _is_better_score(fallback_score, biome, best_fallback):
+				best_fallback = BiomeResult.new()
+				best_fallback.configure(world_pos, biome, fallback_score, is_valid, {}, not is_valid, {})
 	if best_valid != null:
 		return best_valid
 	if best_fallback != null:
 		return best_fallback
-	return BIOME_RESULT_SCRIPT.new()
+	return BiomeResult.new()
 
-func _is_better_result(candidate, incumbent) -> bool:
-	if candidate == null or not candidate.has_biome():
-		return false
+func _is_better_score(score: float, biome: BiomeData, incumbent: BiomeResult) -> bool:
 	if incumbent == null or not incumbent.has_biome():
 		return true
-	if not candidate.is_valid and incumbent.is_valid:
-		return false
-	if candidate.is_valid and not incumbent.is_valid:
+	if score > incumbent.score + _SCORE_EPSILON:
 		return true
-	if candidate.score > incumbent.score + 0.0001:
-		return true
-	if candidate.score < incumbent.score - 0.0001:
+	if score < incumbent.score - _SCORE_EPSILON:
 		return false
-	if candidate.priority != incumbent.priority:
-		return candidate.priority > incumbent.priority
-	return String(candidate.biome_id) < String(incumbent.biome_id)
+	if biome.priority != incumbent.priority:
+		return biome.priority > incumbent.priority
+	return String(biome.id) < String(incumbent.biome_id)

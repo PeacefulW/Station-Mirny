@@ -513,6 +513,21 @@ msgstr "Источник воды"
 msgid "BIOME_PLAINS_NAME"
 msgstr "Оранжевые равнины"
 
+msgid "BIOME_FOOTHILLS_NAME"
+msgstr "Предгорья"
+
+msgid "BIOME_MOUNTAINS_NAME"
+msgstr "Горы"
+
+msgid "BIOME_WET_LOWLAND_NAME"
+msgstr "Влажная низина"
+
+msgid "BIOME_SCORCHED_NAME"
+msgstr "Выжженная зона"
+
+msgid "BIOME_COLD_ZONE_NAME"
+msgstr "Холодная зона"
+
 msgid "SYSTEM_COMMAND_NOT_IMPLEMENTED"
 msgstr "Команда не реализована"
 

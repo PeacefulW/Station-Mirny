@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="FloraSetData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://data/flora/flora_set_data.gd" id="1"]
+[ext_resource type="Resource" path="res://data/flora/entries/veinroot.tres" id="2"]
+[ext_resource type="Resource" path="res://data/flora/entries/glowmoss.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+id = &"wet_lowland_flora"
+display_name_key = "FLORA_SET_WET_LOWLAND_NAME"
+entries = [ExtResource("2"), ExtResource("3")]
+base_density = 0.12
+flora_channel_weight = 1.2
+flora_modulation_weight = 0.6
+excluded_subzones = Array[StringName]([&"rocky_patch"])
+terrain_filter = [0]

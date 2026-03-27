@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="DecorEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/decor/decor_entry.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"small_rocks"
+display_name_key = "DECOR_SMALL_ROCKS_NAME"
+tags = Array[StringName]([&"rock", &"ground"])
+placeholder_color = Color(0.38, 0.35, 0.32)
+placeholder_size = Vector2i(8, 6)
+z_index_offset = -1
+weight = 1.5
