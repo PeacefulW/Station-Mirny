@@ -41,6 +41,11 @@ Primary responsibilities:
 4. [Performance Contracts](PERFORMANCE_CONTRACTS.md)
 5. [Simulation and Threading Model](SIMULATION_AND_THREADING_MODEL.md)
 
+### Tasks touching the world / mining / topology / reveal / presentation stack
+4. [Performance Contracts](PERFORMANCE_CONTRACTS.md)
+5. [Simulation and Threading Model](SIMULATION_AND_THREADING_MODEL.md)
+6. [World Data Contracts](../02_system_specs/world/DATA_CONTRACTS.md)
+
 ### Tasks touching mechanics, progression, lore, resources, product intent
 4. [Game Vision GDD](../01_product/GAME_VISION_GDD.md)
 5. [Non-Negotiable Experience](../01_product/NON_NEGOTIABLE_EXPERIENCE.md)
@@ -73,6 +78,8 @@ Primary responsibilities:
 If a task falls into one of the domains above, the AI must read the corresponding foundation document before proposing architecture, an implementation plan, or code.
 
 Do not answer such tasks from memory or only from adjacent docs when a dedicated foundation doc exists.
+
+Before any iteration that touches the `world / mining / topology / reveal / presentation` stack, the AI must also read [World Data Contracts](../02_system_specs/world/DATA_CONTRACTS.md).
 
 ## Current project status
 

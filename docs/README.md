@@ -67,6 +67,7 @@ Deprecated or migrated legacy versions.
 - [Environment Runtime Foundation](02_system_specs/world/environment_runtime_foundation.md)
 - [Lighting, Visibility, and Darkness](02_system_specs/world/lighting_visibility_and_darkness.md)
 - [Subsurface and Verticality Foundation](02_system_specs/world/subsurface_and_verticality_foundation.md)
+- [World Data Contracts](02_system_specs/world/DATA_CONTRACTS.md)
 - [Engineering Networks](02_system_specs/base/engineering_networks.md)
 - [Resource Progression](02_system_specs/progression/resource_progression.md)
 - [Survival Core](02_system_specs/survival/survival_core.md)
