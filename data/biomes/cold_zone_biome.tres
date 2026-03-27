@@ -1,0 +1,48 @@
+[gd_resource type="Resource" script_class="BiomeData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/biomes/biome_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"cold_zone"
+display_name_key = "BIOME_COLD_ZONE_NAME"
+display_name = "Cold Zone"
+tags = Array[StringName]([&"surface", &"cold", &"latitude_band"])
+priority = 36
+min_height = 0.0
+max_height = 1.0
+min_temperature = 0.0
+max_temperature = 0.36
+min_moisture = 0.10
+max_moisture = 0.88
+min_ruggedness = 0.0
+max_ruggedness = 0.86
+min_flora_density = 0.04
+max_flora_density = 0.58
+min_ridge_strength = 0.0
+max_ridge_strength = 1.0
+min_river_strength = 0.0
+max_river_strength = 0.70
+min_floodplain_strength = 0.0
+max_floodplain_strength = 0.64
+ridge_strength_weight = 0.55
+river_strength_weight = 0.45
+floodplain_strength_weight = 0.40
+flora_set_ids = Array[StringName]([&"dead_tree"])
+decor_set_ids = Array[StringName]([&"cold_surface"])
+ground_tile_id = 0
+rock_tile_id = 1
+water_tile_id = 2
+sand_tile_id = 3
+grass_tile_id = 4
+ground_color = Color(0.23, 0.24, 0.27, 1)
+rock_color = Color(0.40, 0.42, 0.45, 1)
+water_color = Color(0.08, 0.13, 0.22, 1)
+sand_color = Color(0.42, 0.41, 0.38, 1)
+grass_color = Color(0.31, 0.34, 0.37, 1)
+base_temperature = -18.0
+spore_density_multiplier = 0.82
+enemy_frequency_multiplier = 1.08
+resource_density_multiplier = 1.05
+tree_types = Array[StringName]([&"dead_tree"])
+grass_coverage = 0.24

@@ -44,6 +44,56 @@ func spawn_initial_scrap() -> void:
 		_spawn_scrap_pickup(pos)
 	WorldPerfProbe.end("_spawn_initial_scrap", started_usec)
 
+func save_pickups() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if not _pickup_container:
+		return result
+	for child: Node in _pickup_container.get_children():
+		var pickup: Area2D = child as Area2D
+		if not pickup:
+			continue
+		var item_id: String = str(pickup.get_meta("item_id", ""))
+		var amount: int = int(pickup.get_meta("amount", 0))
+		if item_id.is_empty() or amount <= 0:
+			continue
+		result.append({
+			"item_id": item_id,
+			"amount": amount,
+			"position": {
+				"x": pickup.global_position.x,
+				"y": pickup.global_position.y,
+			},
+		})
+	return result
+
+func load_pickups(entries: Array) -> void:
+	clear_pickups()
+	for entry_variant: Variant in entries:
+		if not entry_variant is Dictionary:
+			continue
+		var entry: Dictionary = entry_variant as Dictionary
+		var item_id: String = str(entry.get("item_id", ""))
+		var amount: int = int(entry.get("amount", 0))
+		if item_id.is_empty() or amount <= 0:
+			continue
+		var position_data: Dictionary = entry.get("position", {})
+		var pickup := _pickup_factory.create_item_pickup(
+			item_id,
+			amount,
+			Vector2(
+				float(position_data.get("x", 0.0)),
+				float(position_data.get("y", 0.0))
+			)
+		)
+		pickup.body_entered.connect(_on_pickup_collected.bind(pickup))
+		_pickup_container.add_child(pickup)
+
+func clear_pickups() -> void:
+	if not _pickup_container:
+		return
+	for child: Node in _pickup_container.get_children():
+		child.queue_free()
+
 func _update_enemy_spawning(delta: float) -> void:
 	if not _enemy_spawning_enabled:
 		return

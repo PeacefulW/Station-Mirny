@@ -5,7 +5,7 @@ extends RefCounted
 ## Один JSON-файл на каждый изменённый чанк.
 ## Неизменённые чанки не занимают места на диске.
 ##
-## Формат: saves/{slot}/chunks/chunk_{x}_{y}.json
+## Формат: saves/{slot}/chunks/chunk_{z}_{x}_{y}.json
 ## Содержимое: Dictionary { координаты_тайла -> изменение }
 
 # --- Константы ---
@@ -15,7 +15,7 @@ const CHUNKS_DIR: String = "chunks"
 
 ## Сохранить все изменённые чанки на диск.
 ## [param save_path] — папка сохранения (напр. "user://saves/save_001").
-## [param chunk_data] — Dictionary[Vector2i -> Dictionary] от ChunkManager.
+## [param chunk_data] — z-aware Dictionary[Vector3i -> Dictionary] от ChunkManager.
 static func save_chunks(save_path: String, chunk_data: Dictionary) -> bool:
 	var chunks_path: String = save_path.path_join(CHUNKS_DIR)
 	# Создаём папку если нет
@@ -26,15 +26,20 @@ static func save_chunks(save_path: String, chunk_data: Dictionary) -> bool:
 			return false
 	var saved_count: int = 0
 	var expected_files: Dictionary = {}
-	for coord: Vector2i in chunk_data:
-		var modifications: Dictionary = chunk_data[coord]
-		var file_path: String = _chunk_file_path(chunks_path, coord)
+	for key: Variant in chunk_data:
+		var identity: Dictionary = _normalize_chunk_identity(key)
+		if not identity.get("valid", false):
+			continue
+		var coord: Vector2i = _canonicalize_chunk_coord(identity["coord"] as Vector2i)
+		var z_level: int = int(identity.get("z", 0))
+		var modifications: Dictionary = chunk_data[key]
+		var file_path: String = _chunk_file_path(chunks_path, coord, z_level)
 		if modifications.is_empty():
 			# Если изменений нет — удаляем файл (чанк стал чистым)
-			_delete_chunk_file(chunks_path, coord)
+			_delete_chunk_file(chunks_path, coord, z_level)
 			continue
 		expected_files[file_path.get_file()] = true
-		var serialized: Dictionary = _serialize_chunk(coord, modifications)
+		var serialized: Dictionary = _serialize_chunk(coord, z_level, modifications)
 		var json_string: String = JSON.stringify(serialized, "\t")
 		var file := FileAccess.open(file_path, FileAccess.WRITE)
 		if not file:
@@ -47,7 +52,7 @@ static func save_chunks(save_path: String, chunk_data: Dictionary) -> bool:
 	return true
 
 ## Загрузить все сохранённые чанки с диска.
-## Возвращает Dictionary[Vector2i -> Dictionary].
+## Возвращает z-aware Dictionary[Vector3i -> Dictionary].
 static func load_chunks(save_path: String) -> Dictionary:
 	var chunks_path: String = save_path.path_join(CHUNKS_DIR)
 	var result: Dictionary = {}
@@ -63,8 +68,8 @@ static func load_chunks(save_path: String) -> Dictionary:
 			var file_path: String = chunks_path.path_join(file_name)
 			var chunk_result: Dictionary = _load_single_chunk(file_path)
 			if not chunk_result.is_empty():
-				var coord: Vector2i = chunk_result["coord"]
-				result[coord] = chunk_result["modifications"]
+				var chunk_key: Vector3i = chunk_result["key"] as Vector3i
+				result[chunk_key] = chunk_result["modifications"]
 		file_name = dir.get_next()
 	return result
 
@@ -86,14 +91,22 @@ static func delete_all_chunks(save_path: String) -> void:
 # --- Приватные методы ---
 
 ## Путь к файлу конкретного чанка.
-static func _chunk_file_path(chunks_dir: String, coord: Vector2i) -> String:
+static func _chunk_file_path(chunks_dir: String, coord: Vector2i, z_level: int) -> String:
+	var canonical_coord: Vector2i = _canonicalize_chunk_coord(coord)
+	return chunks_dir.path_join("chunk_%d_%d_%d.json" % [z_level, canonical_coord.x, canonical_coord.y])
+
+static func _legacy_chunk_file_path(chunks_dir: String, coord: Vector2i) -> String:
 	return chunks_dir.path_join("chunk_%d_%d.json" % [coord.x, coord.y])
 
 ## Удалить файл чанка если существует.
-static func _delete_chunk_file(chunks_dir: String, coord: Vector2i) -> void:
-	var path: String = _chunk_file_path(chunks_dir, coord)
+static func _delete_chunk_file(chunks_dir: String, coord: Vector2i, z_level: int) -> void:
+	var path: String = _chunk_file_path(chunks_dir, coord, z_level)
 	if FileAccess.file_exists(path):
 		DirAccess.remove_absolute(path)
+	if z_level == 0:
+		var legacy_path: String = _legacy_chunk_file_path(chunks_dir, coord)
+		if FileAccess.file_exists(legacy_path):
+			DirAccess.remove_absolute(legacy_path)
 
 static func _delete_stale_chunk_files(chunks_dir: String, expected_files: Dictionary) -> void:
 	var dir := DirAccess.open(chunks_dir)
@@ -108,20 +121,22 @@ static func _delete_stale_chunk_files(chunks_dir: String, expected_files: Dictio
 
 ## Сериализовать данные чанка в словарь для JSON.
 ## Ключи Vector2i превращаются в строки "(x,y)".
-static func _serialize_chunk(coord: Vector2i, modifications: Dictionary) -> Dictionary:
+static func _serialize_chunk(coord: Vector2i, z_level: int, modifications: Dictionary) -> Dictionary:
+	var canonical_coord: Vector2i = _canonicalize_chunk_coord(coord)
 	var mods: Dictionary = {}
 	for tile_pos: Vector2i in modifications:
 		var key: String = "(%d,%d)" % [tile_pos.x, tile_pos.y]
 		mods[key] = modifications[tile_pos]
 	return {
-		"coord_x": coord.x,
-		"coord_y": coord.y,
-		"version": 1,
+		"coord_x": canonical_coord.x,
+		"coord_y": canonical_coord.y,
+		"coord_z": z_level,
+		"version": 3,
 		"modifications": mods,
 	}
 
 ## Загрузить один файл чанка.
-## Возвращает {"coord": Vector2i, "modifications": Dictionary} или пустой.
+## Возвращает {"coord": Vector2i, "z": int, "key": Vector3i, "modifications": Dictionary} или пустой.
 static func _load_single_chunk(file_path: String) -> Dictionary:
 	var file := FileAccess.open(file_path, FileAccess.READ)
 	if not file:
@@ -141,13 +156,19 @@ static func _load_single_chunk(file_path: String) -> Dictionary:
 	if not data.has("coord_x") or not data.has("modifications"):
 		push_warning(Localization.t("SYSTEM_CHUNK_SAVE_INVALID_FORMAT", {"path": file_path}))
 		return {}
-	var coord := Vector2i(int(data["coord_x"]), int(data["coord_y"]))
+	var coord := _canonicalize_chunk_coord(Vector2i(int(data["coord_x"]), int(data["coord_y"])))
+	var z_level: int = int(data.get("coord_z", 0))
 	# Восстанавливаем ключи из строк "(x,y)" обратно в Vector2i
 	var modifications: Dictionary = {}
 	for key: String in data["modifications"]:
 		var tile_pos: Vector2i = _parse_vector2i_key(key)
 		modifications[tile_pos] = data["modifications"][key]
-	return {"coord": coord, "modifications": modifications}
+	return {
+		"coord": coord,
+		"z": z_level,
+		"key": Vector3i(coord.x, coord.y, z_level),
+		"modifications": modifications,
+	}
 
 ## Распарсить строку "(x,y)" в Vector2i.
 static func _parse_vector2i_key(key: String) -> Vector2i:
@@ -156,3 +177,24 @@ static func _parse_vector2i_key(key: String) -> Vector2i:
 	if parts.size() < 2:
 		return Vector2i.ZERO
 	return Vector2i(parts[0].strip_edges().to_int(), parts[1].strip_edges().to_int())
+
+static func _normalize_chunk_identity(key: Variant) -> Dictionary:
+	if key is Vector3i:
+		var coord3: Vector3i = key as Vector3i
+		return {
+			"valid": true,
+			"coord": _canonicalize_chunk_coord(Vector2i(coord3.x, coord3.y)),
+			"z": coord3.z,
+		}
+	if key is Vector2i:
+		return {
+			"valid": true,
+			"coord": _canonicalize_chunk_coord(key as Vector2i),
+			"z": 0,
+		}
+	return {"valid": false}
+
+static func _canonicalize_chunk_coord(coord: Vector2i) -> Vector2i:
+	if WorldGenerator and WorldGenerator.has_method("canonicalize_chunk_coord"):
+		return WorldGenerator.canonicalize_chunk_coord(coord)
+	return coord

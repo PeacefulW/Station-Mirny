@@ -16,6 +16,8 @@ func _ready() -> void:
 	EventBus.building_placed.connect(_on_building_placed)
 	EventBus.item_crafted.connect(_on_item_crafted)
 	EventBus.item_collected.connect(_on_item_collected)
+	if TimeManager:
+		days_survived = TimeManager.current_day
 
 ## Получить сводку для UI.
 func get_summary() -> Dictionary:

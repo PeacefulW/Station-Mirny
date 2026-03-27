@@ -11,7 +11,7 @@ const PLAYER_FILE: String = "player.json"
 const WORLD_FILE: String = "world.json"
 const TIME_FILE: String = "time.json"
 const BUILDINGS_FILE: String = "buildings.json"
-const SAVE_VERSION: int = 2
+const SAVE_VERSION: int = 4
 
 # --- Публичные ---
 ## Текущий слот сохранения.
@@ -56,7 +56,7 @@ func save_game(slot_name: String = "") -> bool:
 	)
 	success = success and SaveIO.write_json(
 		save_path.path_join(WORLD_FILE),
-		SaveCollectors.collect_world()
+		SaveCollectors.collect_world(get_tree())
 	)
 	success = success and SaveIO.write_json(
 		save_path.path_join(TIME_FILE),
@@ -90,7 +90,7 @@ func load_game(slot_name: String) -> bool:
 	current_slot = slot_name
 
 	var world_data: Dictionary = SaveIO.read_json(save_path.path_join(WORLD_FILE))
-	if world_data.is_empty() or not SaveAppliers.apply_world(world_data):
+	if world_data.is_empty() or not SaveAppliers.apply_world(get_tree(), world_data):
 		push_error(Localization.t("SYSTEM_SAVE_WORLD_INVALID", {"file": WORLD_FILE}))
 		is_busy = false
 		return false

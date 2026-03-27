@@ -7,7 +7,7 @@ extends RefCounted
 static func collect_meta(save_version: int) -> Dictionary:
 	return {
 		"save_version": save_version,
-		"save_format_version": 2,
+		"save_format_version": 4,
 		"save_time": Time.get_datetime_string_from_system(),
 		"world_seed": WorldGenerator.world_seed if WorldGenerator else 0,
 		"game_day": TimeManager.current_day if TimeManager else 1,
@@ -28,6 +28,11 @@ static func collect_player(tree: SceneTree) -> Dictionary:
 			"y": player.global_position.y,
 		},
 	}
+	var z_level_managers: Array[Node] = _find_nodes_by_class(tree, "ZLevelManager")
+	if not z_level_managers.is_empty():
+		var z_level_manager: Node = z_level_managers[0]
+		if z_level_manager.has_method("get_current_z"):
+			data["z_level"] = int(z_level_manager.get_current_z())
 	var health: HealthComponent = player.get_node_or_null("HealthComponent")
 	if health:
 		data["health"] = {
@@ -42,7 +47,7 @@ static func collect_player(tree: SceneTree) -> Dictionary:
 		data["oxygen"] = oxygen_system.save_state()
 	return data
 
-static func collect_world() -> Dictionary:
+static func collect_world(tree: SceneTree) -> Dictionary:
 	if not WorldGenerator:
 		return {}
 	var data: Dictionary = {
@@ -60,6 +65,11 @@ static func collect_world() -> Dictionary:
 			"mountain_area": balance.mountain_area,
 			"mountain_chaininess": balance.mountain_chaininess,
 		}
+	var spawn_orchestrators: Array[Node] = _find_nodes_by_class(tree, "SpawnOrchestrator")
+	if not spawn_orchestrators.is_empty():
+		var spawn_orchestrator: Node = spawn_orchestrators[0]
+		if spawn_orchestrator.has_method("save_pickups"):
+			data["pickups"] = spawn_orchestrator.save_pickups()
 	return data
 
 static func collect_time() -> Dictionary:
@@ -68,7 +78,7 @@ static func collect_time() -> Dictionary:
 	return {
 		"current_hour": TimeManager.current_hour,
 		"current_day": TimeManager.current_day,
-		"current_season": TimeManager.current_season,
+		"current_season": int(TimeManager.current_season),
 	}
 
 static func collect_buildings(tree: SceneTree) -> Dictionary:

@@ -196,7 +196,7 @@ func _build_local_cover_tiles_by_chunk(zone_tiles: Dictionary) -> Dictionary:
 		for offset: Vector2i in _ZONE_REVEAL_TILE_OFFSETS:
 			if offset == Vector2i.ZERO:
 				continue
-			var candidate_tile: Vector2i = global_tile + offset
+			var candidate_tile: Vector2i = WorldGenerator.offset_tile(global_tile, offset)
 			if candidate_cache.has(candidate_tile):
 				if bool(candidate_cache[candidate_tile]):
 					_append_global_cover_tile(cover_tiles_by_chunk, candidate_tile)
@@ -217,6 +217,7 @@ func _build_local_cover_tiles_by_chunk(zone_tiles: Dictionary) -> Dictionary:
 	return cover_tiles_by_chunk
 
 func _append_global_cover_tile(cover_tiles_by_chunk: Dictionary, global_tile: Vector2i) -> void:
+	global_tile = WorldGenerator.canonicalize_tile(global_tile)
 	var chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(global_tile)
 	var chunk: Chunk = _chunk_manager.get_chunk(chunk_coord)
 	if not chunk:

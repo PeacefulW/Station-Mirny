@@ -30,14 +30,17 @@ var _mountain_shadow_system: MountainShadowSystem = null
 var _loading_screen: LoadingScreen = null
 var _boot_complete: bool = false
 var _spawn_orchestrator: SpawnOrchestrator = null
+var _pending_load_slot: String = ""
 
 func _ready() -> void:
 	var startup_usec: int = WorldPerfProbe.begin()
+	_pause_time_for_boot()
 	_player = PlayerAuthority.get_local_player()
 	_building_system = get_node_or_null("BuildingSystem")
 	var enemy_container: Node2D = get_node_or_null("EnemyContainer")
 	var pickup_container: Node2D = get_node_or_null("PickupContainer")
 	_resolved_ui_layer = _resolve_ui_layer()
+	_pending_load_slot = _consume_pending_load_slot()
 	EventBus.game_over.connect(_on_game_over)
 	_init_world_generator()
 	_setup_chunk_manager()
@@ -52,7 +55,8 @@ func _ready() -> void:
 	_spawn_orchestrator.name = "SpawnOrchestrator"
 	add_child(_spawn_orchestrator)
 	_spawn_orchestrator.setup(_player, enemy_container, pickup_container, _command_executor, enemy_balance)
-	_spawn_orchestrator.spawn_initial_scrap()
+	_bootstrap_session_state()
+	_canonicalize_player_world_position()
 
 	# Debug overlay
 	var debug := GameWorldDebug.new()
@@ -99,13 +103,13 @@ func _ready() -> void:
 	if _resolved_ui_layer:
 		_resolved_ui_layer.add_child(_death_screen)
 
-	call_deferred("_check_pending_load")
 	WorldPerfProbe.end("GameWorld._ready", startup_usec)
 	_start_boot_sequence()
 
 func _process(_delta: float) -> void:
 	if not _boot_complete:
 		return
+	_canonicalize_player_world_position()
 	_update_player_indoor_status()
 
 func is_boot_complete() -> bool:
@@ -178,14 +182,6 @@ func _on_game_over() -> void:
 	if _death_screen and _game_stats:
 		_death_screen.show_death(_game_stats.get_summary())
 
-# --- Save/Load ---
-
-func _check_pending_load() -> void:
-	if SaveManager and not SaveManager.pending_load_slot.is_empty():
-		var slot: String = SaveManager.pending_load_slot
-		SaveManager.pending_load_slot = ""
-		SaveManager.load_game(slot)
-
 # --- Boot ---
 
 func _start_boot_sequence() -> void:
@@ -199,7 +195,7 @@ func _start_boot_sequence() -> void:
 
 func _run_boot_sequence() -> void:
 	if not _loading_screen:
-		_boot_complete = true
+		_finish_boot_sequence()
 		return
 	_loading_screen.set_progress(5.0, Localization.t("UI_LOADING_INITIALIZING_WORLD"))
 	await get_tree().process_frame
@@ -209,13 +205,15 @@ func _run_boot_sequence() -> void:
 				if _loading_screen:
 					_loading_screen.set_progress(pct, text)
 		)
+	if _mountain_shadow_system and _mountain_shadow_system.has_method("prepare_boot_shadows"):
+		_mountain_shadow_system.prepare_boot_shadows(
+			func(pct: float, text: String) -> void:
+				if _loading_screen:
+					_loading_screen.set_progress(pct, text)
+		)
 	_loading_screen.set_progress(100.0, Localization.t("UI_LOADING_DONE"))
 	await get_tree().process_frame
-	if _player:
-		_player.set_physics_process(true)
-		_player.set_process_input(true)
-	_boot_complete = true
-	_loading_screen.fade_out()
+	_finish_boot_sequence()
 
 # --- Z-уровни ---
 
@@ -242,6 +240,11 @@ func _setup_background() -> void:
 func _on_z_level_changed(new_z: int, _old_z: int) -> void:
 	if _chunk_manager and _chunk_manager.has_method("set_active_z_level"):
 		_chunk_manager.set_active_z_level(new_z)
+	var daylight_system: Node = get_node_or_null("DaylightSystem")
+	if daylight_system and daylight_system.has_method("set_active_z_level"):
+		daylight_system.set_active_z_level(new_z)
+	if _mountain_shadow_system and _mountain_shadow_system.has_method("set_active_z_level"):
+		_mountain_shadow_system.set_active_z_level(new_z)
 	_update_background_for_z(new_z)
 
 func _update_background_for_z(z: int) -> void:
@@ -267,3 +270,51 @@ func _resolve_ui_layer() -> CanvasLayer:
 	if not fallback:
 		push_error(Localization.t("SYSTEM_UI_LAYER_MISSING"))
 	return fallback
+
+func _consume_pending_load_slot() -> String:
+	if not SaveManager:
+		return ""
+	var slot: String = SaveManager.pending_load_slot
+	SaveManager.pending_load_slot = ""
+	return slot
+
+func _bootstrap_session_state() -> void:
+	if _pending_load_slot.is_empty():
+		if TimeManager and TimeManager.has_method("reset_for_new_game"):
+			TimeManager.reset_for_new_game()
+		_pause_time_for_boot()
+		if _spawn_orchestrator:
+			_spawn_orchestrator.spawn_initial_scrap()
+		return
+	if SaveManager and not SaveManager.load_game(_pending_load_slot):
+		_pending_load_slot = ""
+		if TimeManager and TimeManager.has_method("reset_for_new_game"):
+			TimeManager.reset_for_new_game()
+		_pause_time_for_boot()
+		if _spawn_orchestrator:
+			_spawn_orchestrator.spawn_initial_scrap()
+		return
+	_pause_time_for_boot()
+
+func _pause_time_for_boot() -> void:
+	if TimeManager:
+		TimeManager.is_paused = true
+
+func _finish_boot_sequence() -> void:
+	_canonicalize_player_world_position()
+	if _player:
+		_player.set_physics_process(true)
+		_player.set_process_input(true)
+	if TimeManager:
+		TimeManager.is_paused = false
+	_boot_complete = true
+	if _loading_screen:
+		_loading_screen.fade_out()
+
+func _canonicalize_player_world_position() -> void:
+	if not _player or not WorldGenerator or not WorldGenerator._is_initialized:
+		return
+	var canonical_pos: Vector2 = WorldGenerator.canonicalize_world_position(_player.global_position)
+	if canonical_pos.is_equal_approx(_player.global_position):
+		return
+	_player.global_position = canonical_pos

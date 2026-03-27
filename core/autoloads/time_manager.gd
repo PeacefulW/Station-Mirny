@@ -12,15 +12,18 @@ enum Season { WARM, SPORE, COLD, STORM }
 # --- Константы ---
 ## Путь к ресурсу баланса. Моды могут подменить файл по этому пути.
 const BALANCE_PATH: String = "res://data/balance/time_balance.tres"
+const DEFAULT_START_HOUR: float = 7.0
+const DEFAULT_START_DAY: int = 1
+const DEFAULT_START_SEASON: Season = Season.WARM
 
 # --- Публичные ---
 var balance: TimeBalance = null
 ## Текущий час (0.0 — 24.0, дробная часть = минуты).
-var current_hour: float = 7.0
+var current_hour: float = DEFAULT_START_HOUR
 ## Текущий игровой день (начинается с 1).
-var current_day: int = 1
+var current_day: int = DEFAULT_START_DAY
 ## Текущий сезон.
-var current_season: Season = Season.WARM
+var current_season: Season = DEFAULT_START_SEASON
 ## Текущая фаза дня.
 var current_time_of_day: TimeOfDay = TimeOfDay.DAY
 ## Пауза времени.
@@ -39,9 +42,7 @@ func _ready() -> void:
 		push_error(Localization.t("SYSTEM_TIME_BALANCE_LOAD_FAILED", {"path": BALANCE_PATH}))
 		return
 	_calculate_speed()
-	_previous_whole_hour = floori(current_hour)
-	current_time_of_day = _get_time_of_day(floori(current_hour))
-	_emit_initial_state()
+	_apply_authoritative_time_state(current_hour, current_day, current_season)
 
 func _process(delta: float) -> void:
 	if not balance or is_paused:
@@ -77,11 +78,30 @@ func get_shadow_length_factor() -> float:
 		return 6.0
 	return clampf(1.0 / (elevation * 2.0), 1.0, 6.0)
 
+func reset_for_new_game() -> void:
+	is_paused = false
+	time_scale = 1.0
+	_apply_authoritative_time_state(DEFAULT_START_HOUR, DEFAULT_START_DAY, DEFAULT_START_SEASON)
+
+func restore_persisted_state(hour: float, day: int, season: int) -> void:
+	is_paused = false
+	_apply_authoritative_time_state(hour, day, season)
+
 # --- Приватные методы ---
 
 func _calculate_speed() -> void:
 	var real_seconds_per_day: float = balance.day_duration_minutes * 60.0
 	_hours_per_real_second = float(balance.hours_per_day) / real_seconds_per_day
+
+func _apply_authoritative_time_state(hour: float, day: int, season: int) -> void:
+	if not balance:
+		return
+	current_hour = fposmod(hour, float(balance.hours_per_day))
+	current_day = maxi(day, 1)
+	current_season = clampi(season, 0, Season.size() - 1) as Season
+	_previous_whole_hour = floori(current_hour)
+	current_time_of_day = _get_time_of_day(get_hour())
+	_emit_initial_state()
 
 func _advance_time(delta: float) -> void:
 	var advance: float = _hours_per_real_second * delta * time_scale
@@ -142,3 +162,4 @@ func _emit_initial_state() -> void:
 	EventBus.hour_changed.emit(get_hour())
 	EventBus.day_changed.emit(current_day)
 	EventBus.season_changed.emit(current_season, current_season)
+	EventBus.time_tick.emit(current_hour, get_day_progress())

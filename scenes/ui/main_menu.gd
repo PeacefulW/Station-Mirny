@@ -10,6 +10,8 @@ var _settings_panel: Control = null
 var _buttons_container: VBoxContainer = null
 
 func _ready() -> void:
+	if TimeManager:
+		TimeManager.is_paused = true
 	_build_ui()
 	EventBus.language_changed.connect(_on_language_changed)
 

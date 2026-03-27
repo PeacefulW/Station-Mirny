@@ -27,17 +27,20 @@ const TOPOLOGY_COMMIT_OPEN_TILES_BY_KEY_BY_CHUNK: int = 4
 const _CARDINAL_DIRS := [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
 const TOPOLOGY_START_CHUNKS_PER_STEP: int = 8
 const TOPOLOGY_RETIRED_DICT_KEYS_PER_STEP: int = 512
+const INVALID_CHUNK_STATE_KEY: Vector3i = Vector3i(999999, 999999, 999999)
+const INVALID_Z_LEVEL: int = 999999
 
 var _loaded_chunks: Dictionary = {}
 var _player_chunk: Vector2i = Vector2i(99999, 99999)
 var _player: Node2D = null
 var _chunk_container: Node2D = null
-var _load_queue: Array[Vector2i] = []
+var _load_queue: Array[Dictionary] = []
 var _redrawing_chunks: Array[Chunk] = []
 var _saved_chunk_data: Dictionary = {}
 var _terrain_tileset: TileSet = null
 var _overlay_tileset: TileSet = null
 var _underground_terrain_tileset: TileSet = null
+var _tileset_bundles_by_biome: Dictionary = {}
 var _fog_tileset: TileSet = null
 var _fog_state: UndergroundFogState = UndergroundFogState.new()
 var _fog_job_id: StringName = &""
@@ -58,10 +61,12 @@ var _is_topology_build_in_progress: bool = false
 var _is_boot_in_progress: bool = false
 var _staged_chunk: Chunk = null
 var _staged_coord: Vector2i = Vector2i(999999, 999999)
+var _staged_z: int = 0
 var _staged_data: Dictionary = {}  ## Native data между фазами
 ## --- Async generation (runtime only) ---
 var _gen_task_id: int = -1  ## WorkerThreadPool task ID, -1 = нет активной задачи
 var _gen_coord: Vector2i = Vector2i(999999, 999999)  ## Координата в процессе генерации
+var _gen_z: int = 0
 var _gen_result: Dictionary = {}  ## Результат от worker thread
 var _gen_mutex: Mutex = Mutex.new()
 var _topology_scan_chunk_coords: Array[Vector2i] = []
@@ -122,9 +127,9 @@ func boot_load_initial_chunks(progress_callback: Callable) -> void:
 	var coords: Array[Vector2i] = []
 	for dx: int in range(-load_radius, load_radius + 1):
 		for dy: int in range(-load_radius, load_radius + 1):
-			coords.append(Vector2i(center.x + dx, center.y + dy))
+			coords.append(_offset_chunk_coord(center, Vector2i(dx, dy)))
 	coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return absi(a.x - center.x) + absi(a.y - center.y) < absi(b.x - center.x) + absi(b.y - center.y)
+		return _chunk_manhattan_distance(a, center) < _chunk_manhattan_distance(b, center)
 	)
 	var total: int = coords.size()
 	for i: int in range(total):
@@ -152,35 +157,41 @@ func boot_load_initial_chunks(progress_callback: Callable) -> void:
 	_is_boot_in_progress = false
 
 func set_saved_data(data: Dictionary) -> void:
-	_saved_chunk_data = data
+	var normalized: Dictionary = {}
+	for key: Variant in data:
+		var normalized_key: Vector3i = _normalize_saved_chunk_key(key)
+		if normalized_key == INVALID_CHUNK_STATE_KEY:
+			continue
+		normalized[normalized_key] = data[key]
+	_saved_chunk_data = normalized
 
 func get_save_data() -> Dictionary:
 	var result: Dictionary = _saved_chunk_data.duplicate()
-	for coord: Vector2i in _loaded_chunks:
-		var chunk: Chunk = _loaded_chunks[coord]
-		if chunk.is_dirty:
-			result[coord] = chunk.get_modifications()
+	for z_value: int in _z_chunks:
+		var z_loaded_chunks: Dictionary = _z_chunks[z_value] as Dictionary
+		for coord: Vector2i in z_loaded_chunks:
+			var chunk: Chunk = z_loaded_chunks[coord]
+			if chunk.is_dirty:
+				result[_make_chunk_state_key(z_value, coord)] = chunk.get_modifications()
 	return result
 
 func is_tile_loaded(gt: Vector2i) -> bool:
-	return _loaded_chunks.has(WorldGenerator.tile_to_chunk(gt))
+	return _loaded_chunks.has(WorldGenerator.tile_to_chunk(_canonical_tile(gt)))
 
 func get_chunk_at_tile(gt: Vector2i) -> Chunk:
-	return _loaded_chunks.get(WorldGenerator.tile_to_chunk(gt))
+	return _loaded_chunks.get(WorldGenerator.tile_to_chunk(_canonical_tile(gt)))
 
 func get_chunk(cc: Vector2i) -> Chunk:
-	return _loaded_chunks.get(cc)
+	return _loaded_chunks.get(_canonical_chunk_coord(cc))
 
 func get_terrain_type_at_global(tile_pos: Vector2i) -> int:
-	var chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(tile_pos)
+	var canonical_tile: Vector2i = _canonical_tile(tile_pos)
+	var chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(canonical_tile)
 	var loaded_chunk: Chunk = _loaded_chunks.get(chunk_coord)
 	if loaded_chunk:
-		return loaded_chunk.get_terrain_type_at(loaded_chunk.global_to_local(tile_pos))
-	var saved_chunk_state: Dictionary = _saved_chunk_data.get(chunk_coord, {}) as Dictionary
-	var local_tile: Vector2i = Vector2i(
-		tile_pos.x - chunk_coord.x * WorldGenerator.balance.chunk_size_tiles,
-		tile_pos.y - chunk_coord.y * WorldGenerator.balance.chunk_size_tiles
-	)
+		return loaded_chunk.get_terrain_type_at(loaded_chunk.global_to_local(canonical_tile))
+	var saved_chunk_state: Dictionary = _get_saved_chunk_modifications(_active_z, chunk_coord)
+	var local_tile: Vector2i = _tile_to_local(canonical_tile, chunk_coord, WorldGenerator.balance.chunk_size_tiles)
 	var tile_state: Dictionary = saved_chunk_state.get(local_tile, {}) as Dictionary
 	if tile_state.has("terrain"):
 		return int(tile_state["terrain"])
@@ -188,11 +199,107 @@ func get_terrain_type_at_global(tile_pos: Vector2i) -> int:
 	if _active_z != 0:
 		return TileGenData.TerrainType.ROCK
 	if WorldGenerator and WorldGenerator._is_initialized:
-		return WorldGenerator.get_tile_data(tile_pos.x, tile_pos.y).terrain
+		return WorldGenerator.get_tile_data(canonical_tile.x, canonical_tile.y).terrain
 	return TileGenData.TerrainType.GROUND
 
 func get_loaded_chunks() -> Dictionary:
 	return _loaded_chunks
+
+func _make_chunk_state_key(z_level: int, coord: Vector2i) -> Vector3i:
+	var canonical_coord: Vector2i = _canonical_chunk_coord(coord)
+	return Vector3i(canonical_coord.x, canonical_coord.y, z_level)
+
+func _normalize_saved_chunk_key(key: Variant) -> Vector3i:
+	if key is Vector3i:
+		var coord3: Vector3i = key as Vector3i
+		var canonical_coord: Vector2i = _canonical_chunk_coord(Vector2i(coord3.x, coord3.y))
+		return Vector3i(canonical_coord.x, canonical_coord.y, coord3.z)
+	if key is Vector2i:
+		var coord2: Vector2i = key as Vector2i
+		var canonical_coord: Vector2i = _canonical_chunk_coord(coord2)
+		return Vector3i(canonical_coord.x, canonical_coord.y, 0)
+	return INVALID_CHUNK_STATE_KEY
+
+func _get_saved_chunk_modifications(z_level: int, coord: Vector2i) -> Dictionary:
+	return _saved_chunk_data.get(_make_chunk_state_key(z_level, coord), {}) as Dictionary
+
+func _canonical_tile(tile_pos: Vector2i) -> Vector2i:
+	if WorldGenerator and WorldGenerator.has_method("canonicalize_tile"):
+		return WorldGenerator.canonicalize_tile(tile_pos)
+	return tile_pos
+
+func _canonical_chunk_coord(coord: Vector2i) -> Vector2i:
+	if WorldGenerator and WorldGenerator.has_method("canonicalize_chunk_coord"):
+		return WorldGenerator.canonicalize_chunk_coord(coord)
+	return coord
+
+func _offset_tile(tile_pos: Vector2i, offset: Vector2i) -> Vector2i:
+	if WorldGenerator and WorldGenerator.has_method("offset_tile"):
+		return WorldGenerator.offset_tile(tile_pos, offset)
+	return tile_pos + offset
+
+func _offset_chunk_coord(coord: Vector2i, offset: Vector2i) -> Vector2i:
+	if WorldGenerator and WorldGenerator.has_method("offset_chunk_coord"):
+		return WorldGenerator.offset_chunk_coord(coord, offset)
+	return coord + offset
+
+func _tile_to_local(tile_pos: Vector2i, chunk_coord: Vector2i, chunk_size: int) -> Vector2i:
+	if WorldGenerator and WorldGenerator.has_method("tile_to_local_in_chunk"):
+		return WorldGenerator.tile_to_local_in_chunk(tile_pos, chunk_coord)
+	return Vector2i(
+		tile_pos.x - chunk_coord.x * chunk_size,
+		tile_pos.y - chunk_coord.y * chunk_size
+	)
+
+func _chunk_local_to_tile(chunk_coord: Vector2i, local_tile: Vector2i) -> Vector2i:
+	if WorldGenerator and WorldGenerator.has_method("chunk_local_to_tile"):
+		return WorldGenerator.chunk_local_to_tile(chunk_coord, local_tile)
+	var chunk_size: int = WorldGenerator.balance.chunk_size_tiles if WorldGenerator and WorldGenerator.balance else 1
+	return Vector2i(
+		chunk_coord.x * chunk_size + local_tile.x,
+		chunk_coord.y * chunk_size + local_tile.y
+	)
+
+func _chunk_axis_distance(chunk_x: int, center_x: int) -> int:
+	if WorldGenerator and WorldGenerator.has_method("chunk_wrap_delta_x"):
+		return absi(WorldGenerator.chunk_wrap_delta_x(chunk_x, center_x))
+	return absi(chunk_x - center_x)
+
+func _chunk_manhattan_distance(a: Vector2i, b: Vector2i) -> int:
+	return _chunk_axis_distance(a.x, b.x) + absi(a.y - b.y)
+
+func _is_chunk_within_radius(coord: Vector2i, center: Vector2i, radius: int) -> bool:
+	return _chunk_axis_distance(coord.x, center.x) <= radius and absi(coord.y - center.y) <= radius
+
+func _has_load_request(coord: Vector2i, z_level: int) -> bool:
+	var canonical_coord: Vector2i = _canonical_chunk_coord(coord)
+	for request: Dictionary in _load_queue:
+		if request.get("coord", Vector2i.ZERO) == canonical_coord and int(request.get("z", INVALID_Z_LEVEL)) == z_level:
+			return true
+	return false
+
+func _enqueue_load_request(coord: Vector2i, z_level: int) -> void:
+	var canonical_coord: Vector2i = _canonical_chunk_coord(coord)
+	if _has_load_request(canonical_coord, z_level):
+		return
+	_load_queue.append({
+		"coord": canonical_coord,
+		"z": z_level,
+	})
+
+func _is_staged_request(coord: Vector2i, z_level: int) -> bool:
+	return _staged_coord == _canonical_chunk_coord(coord) and _staged_z == z_level
+
+func _is_generating_request(coord: Vector2i, z_level: int) -> bool:
+	return _gen_coord == _canonical_chunk_coord(coord) and _gen_z == z_level
+
+func _clear_staged_request() -> void:
+	if _staged_chunk != null:
+		_staged_chunk.queue_free()
+	_staged_chunk = null
+	_staged_coord = Vector2i(999999, 999999)
+	_staged_z = 0
+	_staged_data = {}
 
 func is_topology_ready() -> bool:
 	if _is_native_topology_enabled():
@@ -200,16 +307,23 @@ func is_topology_ready() -> bool:
 	return not _is_topology_dirty and not _is_topology_build_in_progress
 
 func get_mountain_key_at_tile(tile_pos: Vector2i) -> Vector2i:
+	if _active_z != 0:
+		return Vector2i(999999, 999999)
+	tile_pos = _canonical_tile(tile_pos)
 	if _is_native_topology_enabled():
 		return _native_topology_builder.call("get_mountain_key_at_tile", tile_pos) as Vector2i
 	return _mountain_key_by_tile.get(tile_pos, Vector2i(999999, 999999))
 
 func get_mountain_tiles(mountain_key: Vector2i) -> Dictionary:
+	if _active_z != 0:
+		return {}
 	if _is_native_topology_enabled():
 		return _native_topology_builder.call("get_mountain_tiles", mountain_key) as Dictionary
 	return _mountain_tiles_by_key.get(mountain_key, {}) as Dictionary
 
 func get_mountain_open_tiles(mountain_key: Vector2i) -> Dictionary:
+	if _active_z != 0:
+		return {}
 	if _is_native_topology_enabled():
 		return _native_topology_builder.call("get_mountain_open_tiles", mountain_key) as Dictionary
 	return _mountain_open_tiles_by_key.get(mountain_key, {}) as Dictionary
@@ -218,6 +332,7 @@ func get_mountain_open_tiles(mountain_key: Vector2i) -> Dictionary:
 ## Не использует `mountain_key` как reveal-domain и не является shared world truth.
 func query_local_underground_zone(seed_tile: Vector2i) -> Dictionary:
 	var started_usec: int = WorldPerfProbe.begin()
+	seed_tile = _canonical_tile(seed_tile)
 	if not is_tile_loaded(seed_tile):
 		return {}
 	var seed_chunk: Chunk = get_chunk_at_tile(seed_tile)
@@ -243,31 +358,28 @@ func query_local_underground_zone(seed_tile: Vector2i) -> Dictionary:
 			truncated = true
 			continue
 		var chunk_size: int = current_chunk.get_chunk_size()
-		var current_local: Vector2i = Vector2i(
-			current.x - current_chunk_coord.x * chunk_size,
-			current.y - current_chunk_coord.y * chunk_size
-		)
+		var current_local: Vector2i = _tile_to_local(current, current_chunk_coord, chunk_size)
 		for dir: Vector2i in _CARDINAL_DIRS:
-			var next_tile: Vector2i = current + dir
+			var next_tile: Vector2i = _offset_tile(current, dir)
 			if visited.has(next_tile):
 				continue
 			var next_chunk_coord: Vector2i = current_chunk_coord
 			var next_local: Vector2i = current_local + dir
 			var next_chunk: Chunk = current_chunk
 			if next_local.x < 0:
-				next_chunk_coord = Vector2i(current_chunk_coord.x - 1, current_chunk_coord.y)
+				next_chunk_coord = _offset_chunk_coord(current_chunk_coord, Vector2i.LEFT)
 				next_local.x += chunk_size
 				next_chunk = _loaded_chunks.get(next_chunk_coord)
 			elif next_local.x >= chunk_size:
-				next_chunk_coord = Vector2i(current_chunk_coord.x + 1, current_chunk_coord.y)
+				next_chunk_coord = _offset_chunk_coord(current_chunk_coord, Vector2i.RIGHT)
 				next_local.x -= chunk_size
 				next_chunk = _loaded_chunks.get(next_chunk_coord)
 			elif next_local.y < 0:
-				next_chunk_coord = Vector2i(current_chunk_coord.x, current_chunk_coord.y - 1)
+				next_chunk_coord = _offset_chunk_coord(current_chunk_coord, Vector2i.UP)
 				next_local.y += chunk_size
 				next_chunk = _loaded_chunks.get(next_chunk_coord)
 			elif next_local.y >= chunk_size:
-				next_chunk_coord = Vector2i(current_chunk_coord.x, current_chunk_coord.y + 1)
+				next_chunk_coord = _offset_chunk_coord(current_chunk_coord, Vector2i.DOWN)
 				next_local.y -= chunk_size
 				next_chunk = _loaded_chunks.get(next_chunk_coord)
 			if not next_chunk:
@@ -306,17 +418,13 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 		var reveal_tiles: Array = [tile_pos]
 		for offset: Vector2i in [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1),
 				Vector2i(-1,-1), Vector2i(1,-1), Vector2i(-1,1), Vector2i(1,1)]:
-			reveal_tiles.append(tile_pos + offset)
+			reveal_tiles.append(_offset_tile(tile_pos, offset))
 		_fog_state.force_reveal(reveal_tiles)
-		# Apply fog update for mined tile and neighbors
+		var visible_tiles: Dictionary = {}
 		for t: Variant in reveal_tiles:
 			var rv_tile: Vector2i = t as Vector2i
-			var rv_chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(rv_tile)
-			var rv_chunk: Chunk = _loaded_chunks.get(rv_chunk_coord) as Chunk
-			if rv_chunk:
-				var rv_local: Vector2i = rv_chunk.global_to_local(rv_tile)
-				if rv_chunk.is_fog_revealable(rv_local):
-					rv_chunk.apply_fog_visible({rv_local: true})
+			visible_tiles[rv_tile] = true
+		_apply_underground_fog_visible_tiles(visible_tiles)
 	WorldPerfProbe.end("ChunkManager.try_harvest_at_world", started_usec)
 	return {
 		"item_id": str(WorldGenerator.balance.rock_drop_item_id),
@@ -335,7 +443,7 @@ func is_walkable_at_world(world_pos: Vector2) -> bool:
 	var chunk: Chunk = get_chunk_at_tile(tile_pos)
 	if not chunk:
 		return WorldGenerator.is_walkable_at(world_pos)
-	return chunk.get_terrain_type_at(chunk.global_to_local(tile_pos)) != TileGenData.TerrainType.ROCK
+	return _is_walkable_terrain(chunk.get_terrain_type_at(chunk.global_to_local(tile_pos)))
 
 ## Устанавливает активный mountain key и возвращает список чанков,
 ## у которых должен обновиться local mountain shell reveal state.
@@ -359,20 +467,132 @@ func _deferred_init() -> void:
 		)
 
 func _build_world_tilesets() -> void:
+	_tileset_bundles_by_biome.clear()
 	if not WorldGenerator or not WorldGenerator.balance:
 		return
-	var biome: BiomeData = WorldGenerator.current_biome
+	if WorldGenerator.has_method("get_registered_biomes"):
+		var registered_biomes: Array[BiomeData] = WorldGenerator.get_registered_biomes()
+		for biome_candidate: BiomeData in registered_biomes:
+			_get_or_build_tileset_bundle(biome_candidate)
+	var biome: BiomeData = _get_default_biome()
 	if not biome:
 		return
-	var tilesets: Dictionary = ChunkTilesetFactory.build_tilesets(WorldGenerator.balance, biome)
+	var tilesets: Dictionary = _get_or_build_tileset_bundle(biome)
 	_terrain_tileset = tilesets.get("terrain") as TileSet
 	_overlay_tileset = tilesets.get("overlay") as TileSet
-	_underground_terrain_tileset = ChunkTilesetFactory.build_underground_terrain_tileset(WorldGenerator.balance, biome)
+	_underground_terrain_tileset = tilesets.get("underground_terrain") as TileSet
+
+func _get_default_biome() -> BiomeData:
+	if WorldGenerator and WorldGenerator.current_biome:
+		return WorldGenerator.current_biome
+	if WorldGenerator and WorldGenerator.has_method("get_registered_biomes"):
+		var registered_biomes: Array[BiomeData] = WorldGenerator.get_registered_biomes()
+		if not registered_biomes.is_empty():
+			return registered_biomes[0]
+	for biome_key: Variant in _tileset_bundles_by_biome:
+		var bundle: Dictionary = _tileset_bundles_by_biome.get(biome_key, {}) as Dictionary
+		var cached_biome: BiomeData = bundle.get("biome") as BiomeData
+		if cached_biome:
+			return cached_biome
+	return null
+
+func _get_biome_cache_key(biome: BiomeData) -> StringName:
+	if not biome:
+		return &""
+	if not biome.id.is_empty():
+		return biome.id
+	if not biome.resource_path.is_empty():
+		return StringName(biome.resource_path)
+	return StringName("%s:%d" % [biome.get_class(), biome.get_instance_id()])
+
+func _get_or_build_tileset_bundle(biome: BiomeData) -> Dictionary:
+	if not biome or not WorldGenerator or not WorldGenerator.balance:
+		return {}
+	var biome_key: StringName = _get_biome_cache_key(biome)
+	var cached: Dictionary = _tileset_bundles_by_biome.get(biome_key, {}) as Dictionary
+	if not cached.is_empty():
+		return cached
+	var tilesets: Dictionary = ChunkTilesetFactory.build_tilesets(WorldGenerator.balance, biome)
+	var bundle := {
+		"biome": biome,
+		"terrain": tilesets.get("terrain") as TileSet,
+		"overlay": tilesets.get("overlay") as TileSet,
+		"underground_terrain": ChunkTilesetFactory.build_underground_terrain_tileset(WorldGenerator.balance, biome),
+	}
+	_tileset_bundles_by_biome[biome_key] = bundle
+	return bundle
+
+func _coerce_biome_candidate(candidate: Variant) -> BiomeData:
+	if candidate is BiomeData:
+		return candidate as BiomeData
+	if candidate is Dictionary:
+		var candidate_dict: Dictionary = candidate as Dictionary
+		if candidate_dict.get("biome") is BiomeData:
+			return candidate_dict.get("biome") as BiomeData
+	if candidate != null and candidate is Object:
+		var object_biome: Variant = (candidate as Object).get("biome")
+		if object_biome is BiomeData:
+			return object_biome as BiomeData
+	return null
+
+func _get_chunk_center_tile(chunk_coord: Vector2i) -> Vector2i:
+	var origin: Vector2i = WorldGenerator.chunk_to_tile_origin(chunk_coord)
+	var half_chunk: int = maxi(0, WorldGenerator.balance.chunk_size_tiles / 2)
+	return WorldGenerator.offset_tile(origin, Vector2i(half_chunk, half_chunk))
+
+func _resolve_chunk_biome(coord: Vector2i, z_level: int) -> BiomeData:
+	if z_level != 0:
+		return _get_default_biome()
+	var canonical_coord: Vector2i = _canonical_chunk_coord(coord)
+	var resolved_biome: BiomeData = _resolve_chunk_biome_from_world_generator(canonical_coord)
+	if resolved_biome:
+		return resolved_biome
+	return _get_default_biome()
+
+func _resolve_chunk_biome_from_world_generator(chunk_coord: Vector2i) -> BiomeData:
+	if not WorldGenerator:
+		return null
+	for method_name: String in [
+		"get_chunk_biome",
+		"resolve_chunk_biome",
+		"get_dominant_chunk_biome",
+		"get_chunk_biome_data",
+	]:
+		if not WorldGenerator.has_method(method_name):
+			continue
+		var direct_candidate: Variant = WorldGenerator.call(method_name, chunk_coord)
+		var direct_biome: BiomeData = _coerce_biome_candidate(direct_candidate)
+		if direct_biome:
+			return direct_biome
+	var center_tile: Vector2i = _get_chunk_center_tile(chunk_coord)
+	for method_name: String in [
+		"get_tile_biome",
+		"resolve_biome_at_tile",
+		"get_biome_at_tile",
+		"resolve_biome_for_tile",
+	]:
+		if not WorldGenerator.has_method(method_name):
+			continue
+		var tile_candidate: Variant = WorldGenerator.call(method_name, center_tile)
+		var tile_biome: BiomeData = _coerce_biome_candidate(tile_candidate)
+		if tile_biome:
+			return tile_biome
+	if WorldGenerator.has_method("resolve_biome") and WorldGenerator.has_method("sample_world_channels"):
+		var channels = WorldGenerator.sample_world_channels(center_tile)
+		var resolved_candidate: Variant = WorldGenerator.call("resolve_biome", center_tile, channels)
+		var resolved_biome: BiomeData = _coerce_biome_candidate(resolved_candidate)
+		if resolved_biome:
+			return resolved_biome
+	return null
 
 func _build_fog_tileset() -> void:
 	if not WorldGenerator or not WorldGenerator.balance:
 		return
 	_fog_tileset = ChunkTilesetFactory.create_fog_tileset(WorldGenerator.balance.tile_size)
+
+func _is_walkable_terrain(terrain_type: int) -> bool:
+	return terrain_type != TileGenData.TerrainType.ROCK \
+		and terrain_type != TileGenData.TerrainType.WATER
 
 func _fog_update_tick() -> bool:
 	if _active_z == 0 or not _player:
@@ -383,23 +603,66 @@ func _fog_update_tick() -> bool:
 	var newly_discovered: Dictionary = delta.get("newly_discovered", {})
 	if newly_visible.is_empty() and newly_discovered.is_empty():
 		return false
-	# Apply fog changes — only reveal open space and cave-edge rocks, not solid mass
-	for tile: Vector2i in newly_visible:
-		var chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(tile)
-		var chunk: Chunk = _loaded_chunks.get(chunk_coord) as Chunk
-		if chunk:
-			var local: Vector2i = chunk.global_to_local(tile)
-			if chunk.is_fog_revealable(local):
-				chunk.apply_fog_visible({local: true})
-			# Solid rock stays with UNSEEN fog (hidden mass)
-	for tile: Vector2i in newly_discovered:
-		var chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(tile)
-		var chunk: Chunk = _loaded_chunks.get(chunk_coord) as Chunk
-		if chunk:
-			var local: Vector2i = chunk.global_to_local(tile)
-			if chunk.is_fog_revealable(local):
-				chunk.apply_fog_discovered({local: true})
+	_apply_underground_fog_visible_tiles(newly_visible)
+	_apply_underground_fog_discovered_tiles(newly_discovered)
 	return false
+
+func _apply_underground_fog_visible_tiles(global_tiles: Dictionary) -> void:
+	var tiles_by_chunk: Dictionary = _collect_underground_revealable_tiles(global_tiles)
+	for chunk_coord: Vector2i in tiles_by_chunk:
+		var chunk: Chunk = _loaded_chunks.get(chunk_coord) as Chunk
+		if chunk:
+			chunk.apply_fog_visible(tiles_by_chunk[chunk_coord] as Dictionary)
+
+func _apply_underground_fog_discovered_tiles(global_tiles: Dictionary) -> void:
+	var tiles_by_chunk: Dictionary = _collect_underground_revealable_tiles(global_tiles)
+	for chunk_coord: Vector2i in tiles_by_chunk:
+		var chunk: Chunk = _loaded_chunks.get(chunk_coord) as Chunk
+		if chunk:
+			chunk.apply_fog_discovered(tiles_by_chunk[chunk_coord] as Dictionary)
+
+func _collect_underground_revealable_tiles(global_tiles: Dictionary) -> Dictionary:
+	var candidate_tiles: Dictionary = global_tiles.duplicate()
+	for global_tile: Vector2i in global_tiles:
+		_expand_underground_wall_halo(_canonical_tile(global_tile), candidate_tiles)
+	var tiles_by_chunk: Dictionary = {}
+	for global_tile: Vector2i in candidate_tiles:
+		var canonical_tile: Vector2i = _canonical_tile(global_tile)
+		var chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(canonical_tile)
+		var chunk: Chunk = _loaded_chunks.get(chunk_coord) as Chunk
+		if not chunk:
+			continue
+		var local: Vector2i = chunk.global_to_local(canonical_tile)
+		if not chunk.is_fog_revealable(local):
+			continue
+		if not tiles_by_chunk.has(chunk_coord):
+			tiles_by_chunk[chunk_coord] = {}
+		(tiles_by_chunk[chunk_coord] as Dictionary)[local] = true
+	return tiles_by_chunk
+
+func _expand_underground_wall_halo(global_tile: Vector2i, candidate_tiles: Dictionary) -> void:
+	global_tile = _canonical_tile(global_tile)
+	var chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(global_tile)
+	var chunk: Chunk = _loaded_chunks.get(chunk_coord) as Chunk
+	if not chunk:
+		return
+	var local: Vector2i = chunk.global_to_local(global_tile)
+	var terrain: int = chunk.get_terrain_type_at(local)
+	if terrain != TileGenData.TerrainType.MINED_FLOOR \
+		and terrain != TileGenData.TerrainType.MOUNTAIN_ENTRANCE \
+		and terrain != TileGenData.TerrainType.GROUND:
+		return
+	for offset: Vector2i in [
+		Vector2i(1, 0),
+		Vector2i(-1, 0),
+		Vector2i(0, 1),
+		Vector2i(0, -1),
+		Vector2i(-1, -1),
+		Vector2i(1, -1),
+		Vector2i(-1, 1),
+		Vector2i(1, 1),
+	]:
+		candidate_tiles[_offset_tile(global_tile, offset)] = true
 
 func _setup_native_topology_builder() -> void:
 	_native_topology_active = false
@@ -428,26 +691,31 @@ func _check_player_chunk() -> void:
 		_update_chunks(cur)
 
 func _update_chunks(center: Vector2i) -> void:
+	center = _canonical_chunk_coord(center)
 	var load_radius: int = WorldGenerator.balance.load_radius
 	var unload_radius: int = WorldGenerator.balance.unload_radius
 	var needed: Dictionary = {}
 	for dx: int in range(-load_radius, load_radius + 1):
 		for dy: int in range(-load_radius, load_radius + 1):
-			needed[Vector2i(center.x + dx, center.y + dy)] = true
+			needed[_offset_chunk_coord(center, Vector2i(dx, dy))] = true
 	var to_unload: Array[Vector2i] = []
 	for coord: Vector2i in _loaded_chunks:
-		if absi(coord.x - center.x) > unload_radius or absi(coord.y - center.y) > unload_radius:
+		if not _is_chunk_within_radius(coord, center, unload_radius):
 			to_unload.append(coord)
 	for coord: Vector2i in to_unload:
 		_unload_chunk(coord)
 	var to_load: Array[Vector2i] = []
 	for coord: Vector2i in needed:
-		if not _loaded_chunks.has(coord) and coord not in _load_queue and coord != _staged_coord and coord != _gen_coord:
+		if not _loaded_chunks.has(coord) \
+			and not _has_load_request(coord, _active_z) \
+			and not _is_staged_request(coord, _active_z) \
+			and not _is_generating_request(coord, _active_z):
 			to_load.append(coord)
 	to_load.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return absi(a.x - center.x) + absi(a.y - center.y) < absi(b.x - center.x) + absi(b.y - center.y)
+		return _chunk_manhattan_distance(a, center) < _chunk_manhattan_distance(b, center)
 	)
-	_load_queue.append_array(to_load)
+	for coord: Vector2i in to_load:
+		_enqueue_load_request(coord, _active_z)
 
 func _process_load_queue() -> void:
 	var loads_per_frame: int = 1
@@ -455,64 +723,83 @@ func _process_load_queue() -> void:
 		loads_per_frame = WorldGenerator.balance.chunk_loads_per_frame
 	var loaded_count: int = 0
 	while not _load_queue.is_empty() and loaded_count < loads_per_frame:
-		var coord: Vector2i = _load_queue.pop_front()
-		var load_radius: int = WorldGenerator.balance.load_radius
-		if absi(coord.x - _player_chunk.x) > load_radius or absi(coord.y - _player_chunk.y) > load_radius:
+		var request: Dictionary = _load_queue.pop_front()
+		var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
+		var request_z: int = int(request.get("z", _active_z))
+		if request_z != _active_z:
 			continue
-		_load_chunk(coord)
+		var load_radius: int = WorldGenerator.balance.load_radius
+		if not _is_chunk_within_radius(coord, _player_chunk, load_radius):
+			continue
+		_load_chunk_for_z(coord, request_z)
 		loaded_count += 1
 
 func _load_chunk(coord: Vector2i) -> void:
+	_load_chunk_for_z(_canonical_chunk_coord(coord), _active_z)
+
+func _load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
+	coord = _canonical_chunk_coord(coord)
 	var started_usec: int = WorldPerfProbe.begin()
-	if _loaded_chunks.has(coord) or not _terrain_tileset or not _overlay_tileset:
+	var loaded_chunks_for_z: Dictionary = _z_chunks.get(z_level, {})
+	if loaded_chunks_for_z.has(coord) or not _terrain_tileset or not _overlay_tileset:
 		return
 	var native_data: Dictionary
-	if _active_z != 0:
+	if z_level != 0:
 		native_data = _generate_solid_rock_chunk()
 	else:
-		native_data = WorldGenerator.get_chunk_data(coord)
-	var ts_tileset: TileSet = _underground_terrain_tileset if _active_z != 0 else _terrain_tileset
+		native_data = _build_surface_chunk_native_data(coord)
+	var chunk_biome: BiomeData = _resolve_chunk_biome(coord, z_level)
+	var tileset_bundle: Dictionary = _get_or_build_tileset_bundle(chunk_biome)
+	var ts_tileset: TileSet = null
+	if z_level != 0:
+		ts_tileset = tileset_bundle.get("underground_terrain") as TileSet
+	else:
+		ts_tileset = tileset_bundle.get("terrain") as TileSet
+	var overlay_tileset: TileSet = tileset_bundle.get("overlay") as TileSet
+	if not ts_tileset or not overlay_tileset:
+		return
 	var chunk := Chunk.new()
 	chunk.setup(
 		coord,
 		WorldGenerator.balance.tile_size,
 		WorldGenerator.balance.chunk_size_tiles,
-		WorldGenerator.current_biome,
+		chunk_biome,
 		ts_tileset,
-		_overlay_tileset,
+		overlay_tileset,
 		self
 	)
 	var is_player_chunk: bool = (coord == _player_chunk)
-	if _active_z != 0:
+	if z_level != 0:
 		chunk.set_underground(true)
-	chunk.populate_native(native_data, _saved_chunk_data.get(coord, {}), is_player_chunk)
-	if _active_z != 0 and _fog_tileset:
+	chunk.populate_native(native_data, _get_saved_chunk_modifications(z_level, coord), is_player_chunk)
+	if z_level != 0 and _fog_tileset:
 		chunk.init_fog_layer(_fog_tileset)
-	var z_container: Node2D = _z_containers.get(_active_z) as Node2D
+	var z_container: Node2D = _z_containers.get(z_level) as Node2D
 	if z_container:
 		z_container.add_child(chunk)
 	else:
 		_chunk_container.add_child(chunk)
-	_loaded_chunks[coord] = chunk
+	loaded_chunks_for_z[coord] = chunk
+	if z_level == _active_z:
+		_loaded_chunks = loaded_chunks_for_z
 	if not is_player_chunk:
 		_redrawing_chunks.append(chunk)
-	if _is_native_topology_enabled():
-		_native_topology_builder.call("set_chunk", coord, chunk.get_terrain_bytes(), WorldGenerator.balance.chunk_size_tiles)
-		_native_topology_dirty = true
-	else:
-		_mark_topology_dirty()
+	if _should_track_surface_topology(z_level):
+		if _is_native_topology_enabled():
+			_native_topology_builder.call("set_chunk", coord, chunk.get_terrain_bytes(), WorldGenerator.balance.chunk_size_tiles)
+			_native_topology_dirty = true
+		else:
+			_mark_topology_dirty()
 	EventBus.chunk_loaded.emit(coord)
 	WorldPerfProbe.end("ChunkManager._load_chunk %s" % [coord], started_usec)
 
 func _unload_chunk(coord: Vector2i) -> void:
-	if coord == _staged_coord:
-		if _staged_chunk != null:
-			_staged_chunk.queue_free()
-			_staged_chunk = null
-		_staged_data = {}
-		_staged_coord = Vector2i(999999, 999999)
-	if coord == _gen_coord:
+	coord = _canonical_chunk_coord(coord)
+	if _is_staged_request(coord, _active_z):
+		_clear_staged_request()
+	if _is_generating_request(coord, _active_z):
 		_gen_coord = Vector2i(999999, 999999)
+		_gen_z = 0
 	if not _loaded_chunks.has(coord):
 		return
 	var chunk: Chunk = _loaded_chunks[coord]
@@ -520,15 +807,16 @@ func _unload_chunk(coord: Vector2i) -> void:
 	if redraw_idx >= 0:
 		_redrawing_chunks.remove_at(redraw_idx)
 	if chunk.is_dirty:
-		_saved_chunk_data[coord] = chunk.get_modifications()
+		_saved_chunk_data[_make_chunk_state_key(_active_z, coord)] = chunk.get_modifications()
 	chunk.cleanup()
 	chunk.queue_free()
 	_loaded_chunks.erase(coord)
-	if _is_native_topology_enabled():
-		_native_topology_builder.call("remove_chunk", coord)
-		_native_topology_dirty = true
-	else:
-		_mark_topology_dirty()
+	if _should_track_surface_topology(_active_z):
+		if _is_native_topology_enabled():
+			_native_topology_builder.call("remove_chunk", coord)
+			_native_topology_dirty = true
+		else:
+			_mark_topology_dirty()
 	EventBus.chunk_unloaded.emit(coord)
 
 func _register_budget_jobs() -> void:
@@ -569,9 +857,15 @@ func _tick_loading() -> bool:
 	if _is_boot_in_progress:
 		return false
 	if _staged_chunk != null:
+		if _staged_z != _active_z:
+			_clear_staged_request()
+			return _has_streaming_work()
 		_staged_loading_finalize()
 		return _has_streaming_work()
 	if not _staged_data.is_empty():
+		if _staged_z != _active_z:
+			_clear_staged_request()
+			return _has_streaming_work()
 		_staged_loading_create()
 		return true
 	if _gen_task_id >= 0:
@@ -579,9 +873,13 @@ func _tick_loading() -> bool:
 			WorkerThreadPool.wait_for_task_completion(_gen_task_id)
 			_gen_task_id = -1
 			var coord: Vector2i = _gen_coord
+			var request_z: int = _gen_z
 			_gen_coord = Vector2i(999999, 999999)
+			_gen_z = 0
 			var load_radius: int = WorldGenerator.balance.load_radius
-			if _loaded_chunks.has(coord) or absi(coord.x - _player_chunk.x) > load_radius or absi(coord.y - _player_chunk.y) > load_radius:
+			if request_z != _active_z \
+				or (_z_chunks.get(request_z, {}) as Dictionary).has(coord) \
+				or not _is_chunk_within_radius(coord, _player_chunk, load_radius):
 				_gen_mutex.lock()
 				_gen_result = {}
 				_gen_mutex.unlock()
@@ -591,39 +889,57 @@ func _tick_loading() -> bool:
 			_gen_result = {}
 			_gen_mutex.unlock()
 			_staged_coord = coord
+			_staged_z = request_z
 			return true
 		return _has_streaming_work()
 	if _load_queue.is_empty():
 		return false
-	var coord: Vector2i = _load_queue.pop_front()
+	var request: Dictionary = _load_queue.pop_front()
+	var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
+	var request_z: int = int(request.get("z", _active_z))
+	if request_z != _active_z:
+		return _has_streaming_work()
 	var load_radius: int = WorldGenerator.balance.load_radius
-	if absi(coord.x - _player_chunk.x) > load_radius or absi(coord.y - _player_chunk.y) > load_radius:
+	if not _is_chunk_within_radius(coord, _player_chunk, load_radius):
 		return _has_streaming_work()
-	if _loaded_chunks.has(coord):
+	if (_z_chunks.get(request_z, {}) as Dictionary).has(coord):
 		return _has_streaming_work()
-	_submit_async_generate(coord)
+	_submit_async_generate(coord, request_z)
 	return true
 
 func _has_streaming_work() -> bool:
 	return not _load_queue.is_empty() or _staged_chunk != null or not _staged_data.is_empty() or _gen_task_id >= 0
 
 ## Отправляет генерацию чанка в WorkerThreadPool. Один worker за раз.
-func _submit_async_generate(coord: Vector2i) -> void:
+func _submit_async_generate(coord: Vector2i, z_level: int) -> void:
+	coord = _canonical_chunk_coord(coord)
 	_gen_coord = coord
-	_gen_task_id = WorkerThreadPool.add_task(_worker_generate.bind(coord))
+	_gen_z = z_level
+	_gen_task_id = WorkerThreadPool.add_task(_worker_generate.bind(coord, z_level))
 
 ## Выполняется в worker thread. Только чистые данные, никаких Node/scene tree.
 ## Thread-safety: Strategy A — read-only access к noise instances и balance.
 ## FastNoiseLite.get_noise_2d() — pure function, no mutable state.
-func _worker_generate(coord: Vector2i) -> void:
+func _worker_generate(coord: Vector2i, z_level: int) -> void:
 	var data: Dictionary
-	if _active_z != 0:
+	if z_level != 0:
 		data = _generate_solid_rock_chunk()
 	else:
-		data = WorldGenerator.get_chunk_data(coord)
+		data = _build_surface_chunk_native_data(coord)
 	_gen_mutex.lock()
 	_gen_result = data
 	_gen_mutex.unlock()
+
+func _build_surface_chunk_native_data(coord: Vector2i) -> Dictionary:
+	if not WorldGenerator:
+		return {}
+	if WorldGenerator.has_method("build_chunk_native_data"):
+		return WorldGenerator.build_chunk_native_data(coord)
+	if WorldGenerator.has_method("build_chunk_result"):
+		var build_result = WorldGenerator.build_chunk_result(coord)
+		if build_result and build_result.has_method("to_native_data"):
+			return build_result.to_native_data()
+	return WorldGenerator.get_chunk_data(coord)
 
 ## Фаза 0: только генерация terrain данных. CPU-heavy. Используется ТОЛЬКО в boot.
 func _staged_loading_generate(coord: Vector2i) -> void:
@@ -633,34 +949,48 @@ func _staged_loading_generate(coord: Vector2i) -> void:
 	if _active_z != 0:
 		_staged_data = _generate_solid_rock_chunk()
 	else:
-		_staged_data = WorldGenerator.get_chunk_data(coord)
+		_staged_data = _build_surface_chunk_native_data(coord)
 	_staged_coord = coord
+	_staged_z = _active_z
 	WorldPerfProbe.end("ChunkStreaming.phase0_generate %s" % [coord], started_usec)
 
 ## Фаза 1: создание Chunk node + populate bytes.
 func _staged_loading_create() -> void:
 	var started_usec: int = WorldPerfProbe.begin()
 	var coord: Vector2i = _staged_coord
+	var z_level: int = _staged_z
 	var native_data: Dictionary = _staged_data
 	_staged_data = {}
-	if _loaded_chunks.has(coord):
+	if (_z_chunks.get(z_level, {}) as Dictionary).has(coord):
 		_staged_coord = Vector2i(999999, 999999)
+		_staged_z = 0
 		return
-	var ts_tileset2: TileSet = _underground_terrain_tileset if _active_z != 0 else _terrain_tileset
+	var chunk_biome: BiomeData = _resolve_chunk_biome(coord, z_level)
+	var tileset_bundle: Dictionary = _get_or_build_tileset_bundle(chunk_biome)
+	var ts_tileset2: TileSet = null
+	if z_level != 0:
+		ts_tileset2 = tileset_bundle.get("underground_terrain") as TileSet
+	else:
+		ts_tileset2 = tileset_bundle.get("terrain") as TileSet
+	var overlay_tileset: TileSet = tileset_bundle.get("overlay") as TileSet
+	if not ts_tileset2 or not overlay_tileset:
+		_staged_coord = Vector2i(999999, 999999)
+		_staged_z = 0
+		return
 	var chunk := Chunk.new()
 	chunk.setup(
 		coord,
 		WorldGenerator.balance.tile_size,
 		WorldGenerator.balance.chunk_size_tiles,
-		WorldGenerator.current_biome,
+		chunk_biome,
 		ts_tileset2,
-		_overlay_tileset,
+		overlay_tileset,
 		self
 	)
-	if _active_z != 0:
+	if z_level != 0:
 		chunk.set_underground(true)
-	chunk.populate_native(native_data, _saved_chunk_data.get(coord, {}), false)
-	if _active_z != 0 and _fog_tileset:
+	chunk.populate_native(native_data, _get_saved_chunk_modifications(z_level, coord), false)
+	if z_level != 0 and _fog_tileset:
 		chunk.init_fog_layer(_fog_tileset)
 	_staged_chunk = chunk
 	WorldPerfProbe.end("ChunkStreaming.phase1_create %s" % [coord], started_usec)
@@ -670,26 +1000,32 @@ func _staged_loading_finalize() -> void:
 	var total_usec: int = WorldPerfProbe.begin()
 	var chunk: Chunk = _staged_chunk
 	var coord: Vector2i = _staged_coord
+	var z_level: int = _staged_z
 	_staged_chunk = null
 	_staged_coord = Vector2i(999999, 999999)
-	if _loaded_chunks.has(coord):
+	_staged_z = 0
+	var loaded_chunks_for_z: Dictionary = _z_chunks.get(z_level, {})
+	if loaded_chunks_for_z.has(coord):
 		chunk.queue_free()
 		return
 	var sub_usec: int = WorldPerfProbe.begin()
-	var z_container: Node2D = _z_containers.get(_active_z) as Node2D
+	var z_container: Node2D = _z_containers.get(z_level) as Node2D
 	if z_container:
 		z_container.add_child(chunk)
 	else:
 		_chunk_container.add_child(chunk)
 	WorldPerfProbe.end("ChunkStreaming.finalize.add_child %s" % [coord], sub_usec)
-	_loaded_chunks[coord] = chunk
+	loaded_chunks_for_z[coord] = chunk
+	if z_level == _active_z:
+		_loaded_chunks = loaded_chunks_for_z
 	_redrawing_chunks.append(chunk)
 	sub_usec = WorldPerfProbe.begin()
-	if _is_native_topology_enabled():
-		_native_topology_builder.call("set_chunk", coord, chunk.get_terrain_bytes(), WorldGenerator.balance.chunk_size_tiles)
-		_native_topology_dirty = true
-	else:
-		_mark_topology_dirty()
+	if _should_track_surface_topology(z_level):
+		if _is_native_topology_enabled():
+			_native_topology_builder.call("set_chunk", coord, chunk.get_terrain_bytes(), WorldGenerator.balance.chunk_size_tiles)
+			_native_topology_dirty = true
+		else:
+			_mark_topology_dirty()
 	WorldPerfProbe.end("ChunkStreaming.finalize.topology %s" % [coord], sub_usec)
 	sub_usec = WorldPerfProbe.begin()
 	EventBus.chunk_loaded.emit(coord)
@@ -721,6 +1057,8 @@ func _tick_redraws() -> bool:
 ## Topology build один шаг. Возвращает true если есть ещё работа.
 func _tick_topology() -> bool:
 	if _is_boot_in_progress:
+		return false
+	if _active_z != 0:
 		return false
 	if _is_native_topology_enabled():
 		if _native_topology_dirty and _load_queue.is_empty() and _redrawing_chunks.is_empty():
@@ -769,20 +1107,20 @@ func set_active_z_level(z: int) -> void:
 	for layer_z: int in _z_containers:
 		(_z_containers[layer_z] as Node2D).visible = (layer_z == z)
 	_loaded_chunks = _z_chunks.get(z, {})
+	var filtered_queue: Array[Dictionary] = []
+	for request: Dictionary in _load_queue:
+		if int(request.get("z", INVALID_Z_LEVEL)) == z:
+			filtered_queue.append(request)
+	_load_queue = filtered_queue
+	if _staged_z != z:
+		_clear_staged_request()
 	_player_chunk = Vector2i(99999, 99999)
 	# Force immediate fog update on z-level entry
 	if z != 0 and _player:
 		_fog_state.clear()
 		var player_tile: Vector2i = WorldGenerator.world_to_tile(_player.global_position)
 		var delta: Dictionary = _fog_state.update(player_tile)
-		for tile: Vector2i in delta.get("newly_visible", {}):
-			var cc: Vector2i = WorldGenerator.tile_to_chunk(tile)
-			var ch: Chunk = _loaded_chunks.get(cc) as Chunk
-			if not ch:
-				continue
-			var local: Vector2i = ch.global_to_local(tile)
-			if ch.is_fog_revealable(local):
-				ch.apply_fog_visible({local: true})
+		_apply_underground_fog_visible_tiles(delta.get("newly_visible", {}))
 
 func get_active_z_level() -> int:
 	return _active_z
@@ -792,11 +1130,14 @@ func _generate_solid_rock_chunk() -> Dictionary:
 	var chunk_size: int = WorldGenerator.balance.chunk_size_tiles
 	var terrain := PackedByteArray()
 	var height := PackedFloat32Array()
+	var variation := PackedByteArray()
 	terrain.resize(chunk_size * chunk_size)
 	height.resize(chunk_size * chunk_size)
+	variation.resize(chunk_size * chunk_size)
 	terrain.fill(TileGenData.TerrainType.ROCK)
 	height.fill(0.5)
-	return {"chunk_size": chunk_size, "terrain": terrain, "height": height}
+	variation.fill(0)
+	return {"chunk_size": chunk_size, "terrain": terrain, "height": height, "variation": variation}
 
 ## Create a tiny underground pocket at z=-1. Ensures ALL needed chunks are loaded
 ## and sets specified tiles to MINED_FLOOR. Called from debug path only.
@@ -807,20 +1148,25 @@ func ensure_underground_pocket(center_tile: Vector2i, pocket_tiles: Array) -> vo
 	# Collect all chunk coords needed: pocket tiles + 1-tile wall ring around them
 	var needed_coords: Dictionary = {}
 	for tile_pos: Variant in pocket_tiles:
-		var t: Vector2i = tile_pos as Vector2i
+		var t: Vector2i = _canonical_tile(tile_pos as Vector2i)
 		needed_coords[WorldGenerator.tile_to_chunk(t)] = true
 		for offset: Vector2i in [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1),
 				Vector2i(-1,-1), Vector2i(1,-1), Vector2i(-1,1), Vector2i(1,1)]:
-			needed_coords[WorldGenerator.tile_to_chunk(t + offset)] = true
+			needed_coords[WorldGenerator.tile_to_chunk(_offset_tile(t, offset))] = true
 	# Ensure all needed chunks are loaded
-	var ug_ts: TileSet = _underground_terrain_tileset if _underground_terrain_tileset else _terrain_tileset
 	for coord: Vector2i in needed_coords:
 		if _loaded_chunks.has(coord):
 			continue
 		var data: Dictionary = _generate_solid_rock_chunk()
+		var chunk_biome: BiomeData = _resolve_chunk_biome(coord, -1)
+		var tileset_bundle: Dictionary = _get_or_build_tileset_bundle(chunk_biome)
+		var ug_ts: TileSet = tileset_bundle.get("underground_terrain") as TileSet
+		var overlay_tileset: TileSet = tileset_bundle.get("overlay") as TileSet
+		if not ug_ts or not overlay_tileset:
+			continue
 		var chunk := Chunk.new()
 		chunk.setup(coord, WorldGenerator.balance.tile_size, WorldGenerator.balance.chunk_size_tiles,
-			WorldGenerator.current_biome, ug_ts, _overlay_tileset, self)
+			chunk_biome, ug_ts, overlay_tileset, self)
 		chunk.set_underground(true)
 		chunk.populate_native(data, {}, false)
 		if _fog_tileset:
@@ -833,7 +1179,7 @@ func ensure_underground_pocket(center_tile: Vector2i, pocket_tiles: Array) -> vo
 	# Mine the pocket tiles — group by chunk for correct local coords
 	var dirty_by_chunk: Dictionary = {}
 	for tile_pos: Variant in pocket_tiles:
-		var t: Vector2i = tile_pos as Vector2i
+		var t: Vector2i = _canonical_tile(tile_pos as Vector2i)
 		var cc: Vector2i = WorldGenerator.tile_to_chunk(t)
 		var ch: Chunk = _loaded_chunks.get(cc) as Chunk
 		if not ch:
@@ -847,7 +1193,7 @@ func ensure_underground_pocket(center_tile: Vector2i, pocket_tiles: Array) -> vo
 			# Mark 8 neighbors dirty (may be in different chunks)
 			for offset: Vector2i in [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1),
 					Vector2i(-1,-1), Vector2i(1,-1), Vector2i(-1,1), Vector2i(1,1)]:
-				var n_global: Vector2i = t + offset
+				var n_global: Vector2i = _offset_tile(t, offset)
 				var n_cc: Vector2i = WorldGenerator.tile_to_chunk(n_global)
 				var n_ch: Chunk = _loaded_chunks.get(n_cc) as Chunk
 				if n_ch:
@@ -895,6 +1241,8 @@ func _mark_topology_dirty() -> void:
 	_is_topology_build_in_progress = false
 
 func _ensure_topology_current() -> void:
+	if _active_z != 0:
+		return
 	if _is_native_topology_enabled():
 		_native_topology_builder.call("ensure_built")
 		return
@@ -1025,10 +1373,7 @@ func _find_next_topology_seed() -> Dictionary:
 				var terrain_type: int = chunk.get_terrain_type_at(local_tile)
 				if not _is_mountain_topology_tile(terrain_type):
 					continue
-				var global_tile: Vector2i = Vector2i(
-					chunk_coord.x * chunk_size + local_tile.x,
-					chunk_coord.y * chunk_size + local_tile.y
-				)
+				var global_tile: Vector2i = _chunk_local_to_tile(chunk_coord, local_tile)
 				if _topology_build_visited.has(global_tile):
 					continue
 				return {"seed": global_tile, "complete": false}
@@ -1065,34 +1410,31 @@ func _process_topology_component_step() -> void:
 		if not current_chunk:
 			continue
 		var chunk_size: int = current_chunk.get_chunk_size()
-		var current_local: Vector2i = Vector2i(
-			current.x - current_chunk_coord.x * chunk_size,
-			current.y - current_chunk_coord.y * chunk_size
-		)
+		var current_local: Vector2i = _tile_to_local(current, current_chunk_coord, chunk_size)
 		var current_type: int = current_chunk.get_terrain_type_at(current_local)
 		if current_type == TileGenData.TerrainType.MINED_FLOOR or current_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
 			_topology_component_open_tiles[current] = true
 		for dir: Vector2i in _CARDINAL_DIRS:
-			var next_tile: Vector2i = current + dir
+			var next_tile: Vector2i = _offset_tile(current, dir)
 			if _topology_build_visited.has(next_tile):
 				continue
 			var next_chunk_coord: Vector2i = current_chunk_coord
 			var next_local: Vector2i = current_local + dir
 			var next_chunk: Chunk = current_chunk
 			if next_local.x < 0:
-				next_chunk_coord = Vector2i(current_chunk_coord.x - 1, current_chunk_coord.y)
+				next_chunk_coord = _offset_chunk_coord(current_chunk_coord, Vector2i.LEFT)
 				next_local.x += chunk_size
 				next_chunk = _loaded_chunks.get(next_chunk_coord)
 			elif next_local.x >= chunk_size:
-				next_chunk_coord = Vector2i(current_chunk_coord.x + 1, current_chunk_coord.y)
+				next_chunk_coord = _offset_chunk_coord(current_chunk_coord, Vector2i.RIGHT)
 				next_local.x -= chunk_size
 				next_chunk = _loaded_chunks.get(next_chunk_coord)
 			elif next_local.y < 0:
-				next_chunk_coord = Vector2i(current_chunk_coord.x, current_chunk_coord.y - 1)
+				next_chunk_coord = _offset_chunk_coord(current_chunk_coord, Vector2i.UP)
 				next_local.y += chunk_size
 				next_chunk = _loaded_chunks.get(next_chunk_coord)
 			elif next_local.y >= chunk_size:
-				next_chunk_coord = Vector2i(current_chunk_coord.x, current_chunk_coord.y + 1)
+				next_chunk_coord = _offset_chunk_coord(current_chunk_coord, Vector2i.DOWN)
 				next_local.y -= chunk_size
 				next_chunk = _loaded_chunks.get(next_chunk_coord)
 			if not next_chunk:
@@ -1236,10 +1578,7 @@ func _rebuild_loaded_mountain_topology() -> void:
 				var terrain_type: int = chunk.get_terrain_type_at(local_tile)
 				if not _is_mountain_topology_tile(terrain_type):
 					continue
-				var global_tile: Vector2i = Vector2i(
-					chunk_coord.x * chunk_size + local_x,
-					chunk_coord.y * chunk_size + local_y
-				)
+				var global_tile: Vector2i = _chunk_local_to_tile(chunk_coord, Vector2i(local_x, local_y))
 				if visited.has(global_tile):
 					continue
 				_build_mountain_component(global_tile, visited)
@@ -1268,10 +1607,7 @@ func _build_mountain_component(start_tile: Vector2i, visited: Dictionary) -> voi
 		if not current_chunk:
 			continue
 		var chunk_size: int = current_chunk.get_chunk_size()
-		var current_local: Vector2i = Vector2i(
-			current.x - current_chunk_coord.x * chunk_size,
-			current.y - current_chunk_coord.y * chunk_size
-		)
+		var current_local: Vector2i = _tile_to_local(current, current_chunk_coord, chunk_size)
 		var current_type: int = current_chunk.get_terrain_type_at(current_local)
 		if current_type == TileGenData.TerrainType.MINED_FLOOR or current_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
 			component_open_tiles[current] = true
@@ -1279,26 +1615,26 @@ func _build_mountain_component(start_tile: Vector2i, visited: Dictionary) -> voi
 				component_open_tiles_by_chunk[current_chunk_coord] = {}
 			(component_open_tiles_by_chunk[current_chunk_coord] as Dictionary)[current] = true
 		for dir: Vector2i in _CARDINAL_DIRS:
-			var next_tile: Vector2i = current + dir
+			var next_tile: Vector2i = _offset_tile(current, dir)
 			if visited.has(next_tile):
 				continue
 			var next_chunk_coord: Vector2i = current_chunk_coord
 			var next_local: Vector2i = current_local + dir
 			var next_chunk: Chunk = current_chunk
 			if next_local.x < 0:
-				next_chunk_coord = Vector2i(current_chunk_coord.x - 1, current_chunk_coord.y)
+				next_chunk_coord = _offset_chunk_coord(current_chunk_coord, Vector2i.LEFT)
 				next_local.x += chunk_size
 				next_chunk = _loaded_chunks.get(next_chunk_coord)
 			elif next_local.x >= chunk_size:
-				next_chunk_coord = Vector2i(current_chunk_coord.x + 1, current_chunk_coord.y)
+				next_chunk_coord = _offset_chunk_coord(current_chunk_coord, Vector2i.RIGHT)
 				next_local.x -= chunk_size
 				next_chunk = _loaded_chunks.get(next_chunk_coord)
 			elif next_local.y < 0:
-				next_chunk_coord = Vector2i(current_chunk_coord.x, current_chunk_coord.y - 1)
+				next_chunk_coord = _offset_chunk_coord(current_chunk_coord, Vector2i.UP)
 				next_local.y += chunk_size
 				next_chunk = _loaded_chunks.get(next_chunk_coord)
 			elif next_local.y >= chunk_size:
-				next_chunk_coord = Vector2i(current_chunk_coord.x, current_chunk_coord.y + 1)
+				next_chunk_coord = _offset_chunk_coord(current_chunk_coord, Vector2i.DOWN)
 				next_local.y -= chunk_size
 				next_chunk = _loaded_chunks.get(next_chunk_coord)
 			if not next_chunk:
@@ -1315,6 +1651,9 @@ func _build_mountain_component(start_tile: Vector2i, visited: Dictionary) -> voi
 	_mountain_open_tiles_by_key_by_chunk[component_key] = component_open_tiles_by_chunk
 
 func _on_mountain_tile_changed(tile_pos: Vector2i, old_type: int, new_type: int) -> void:
+	if _active_z != 0:
+		return
+	tile_pos = _canonical_tile(tile_pos)
 	if not (_is_mountain_topology_tile(old_type) or _is_mountain_topology_tile(new_type)):
 		return
 	var started_usec: int = WorldPerfProbe.begin()
@@ -1325,9 +1664,13 @@ func _on_mountain_tile_changed(tile_pos: Vector2i, old_type: int, new_type: int)
 	_incremental_topology_patch(tile_pos, new_type)
 	WorldPerfProbe.end("ChunkManager._on_mountain_tile_changed", started_usec)
 
+func _should_track_surface_topology(z_level: int) -> bool:
+	return z_level == 0
+
 ## Инкрементальный патч топологии для 1 тайла. O(9) вместо full BFS.
 ## При подозрении на split компонента — ставит dirty для background rebuild.
 func _incremental_topology_patch(tile_pos: Vector2i, new_type: int) -> void:
+	tile_pos = _canonical_tile(tile_pos)
 	var mountain_key: Vector2i = _mountain_key_by_tile.get(tile_pos, Vector2i(999999, 999999))
 	if mountain_key == Vector2i(999999, 999999):
 		mountain_key = _find_neighbor_key(tile_pos)
@@ -1342,7 +1685,7 @@ func _incremental_topology_patch(tile_pos: Vector2i, new_type: int) -> void:
 	var rock_neighbor_count: int = 0
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN,
 			Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(1, 1)]:
-		var neighbor: Vector2i = tile_pos + dir
+		var neighbor: Vector2i = _offset_tile(tile_pos, dir)
 		var neighbor_key: Vector2i = _mountain_key_by_tile.get(neighbor, Vector2i(999999, 999999))
 		if neighbor_key == Vector2i(999999, 999999):
 			continue
@@ -1361,7 +1704,7 @@ func _incremental_topology_patch(tile_pos: Vector2i, new_type: int) -> void:
 ## Ищет mountain_key среди 4 кардинальных соседей. O(4).
 func _find_neighbor_key(tile_pos: Vector2i) -> Vector2i:
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		var key: Vector2i = _mountain_key_by_tile.get(tile_pos + dir, Vector2i(999999, 999999))
+		var key: Vector2i = _mountain_key_by_tile.get(_offset_tile(tile_pos, dir), Vector2i(999999, 999999))
 		if key != Vector2i(999999, 999999):
 			return key
 	return Vector2i(999999, 999999)

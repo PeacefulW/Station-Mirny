@@ -106,6 +106,14 @@ func _update_tile_highlight() -> void:
 	_tile_highlight.size = Vector2(ts, ts)
 	_tile_highlight.global_position = Vector2(tile_pos.x * ts, tile_pos.y * ts)
 	if _tile_info_label:
+		var tile_data: TileGenData = WorldGenerator.get_tile_data(tile_pos.x, tile_pos.y)
+		var biome_text: String = "biome:-"
+		var variation_text: String = "subzone:none"
+		if tile_data:
+			if not String(tile_data.biome_id).is_empty():
+				biome_text = "biome:%s" % String(tile_data.biome_id)
+			if tile_data.local_variation_id != 0 or tile_data.local_variation_score > 0.0:
+				variation_text = "subzone:%s %.2f" % [String(tile_data.local_variation_kind), tile_data.local_variation_score]
 		var chunk: Chunk = _chunk_manager.get_chunk_at_tile(tile_pos)
 		if chunk:
 			var local: Vector2i = chunk.global_to_local(tile_pos)
@@ -118,9 +126,15 @@ func _update_tile_highlight() -> void:
 				TileGenData.TerrainType.WATER: type_name = "WATER"
 				TileGenData.TerrainType.SAND: type_name = "SAND"
 				TileGenData.TerrainType.GRASS: type_name = "GRASS"
-			_tile_info_label.text = "Tile: %s | %s | local:%s" % [tile_pos, type_name, local]
+			_tile_info_label.text = "Tile: %s | %s | %s | %s | local:%s" % [
+				tile_pos,
+				type_name,
+				biome_text,
+				variation_text,
+				local
+			]
 		else:
-			_tile_info_label.text = "Tile: %s | unloaded" % [tile_pos]
+			_tile_info_label.text = "Tile: %s | unloaded | %s | %s" % [tile_pos, biome_text, variation_text]
 
 func _update_fps(delta: float) -> void:
 	var fps: float = Engine.get_frames_per_second()

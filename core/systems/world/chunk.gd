@@ -39,6 +39,7 @@ var _modified_tiles: Dictionary = {}
 var _biome: BiomeData = null
 var _terrain_bytes: PackedByteArray = PackedByteArray()
 var _height_bytes: PackedFloat32Array = PackedFloat32Array()
+var _variation_bytes: PackedByteArray = PackedByteArray()
 var _has_mountain: bool = false
 var _redraw_phase: int = REDRAW_PHASE_DONE
 var _redraw_tile_index: int = 0
@@ -54,7 +55,7 @@ func setup(
 	p_overlay_tileset: TileSet,
 	p_chunk_manager: ChunkManager
 ) -> void:
-	chunk_coord = p_coord
+	chunk_coord = WorldGenerator.canonicalize_chunk_coord(p_coord) if WorldGenerator else p_coord
 	_tile_size = p_tile_size
 	_chunk_size = p_chunk_size
 	_biome = p_biome
@@ -76,6 +77,9 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 	_modified_tiles = saved_modifications.duplicate()
 	_terrain_bytes = native_data.get("terrain", PackedByteArray()).duplicate()
 	_height_bytes = native_data.get("height", PackedFloat32Array()).duplicate()
+	_variation_bytes = native_data.get("variation", PackedByteArray()).duplicate()
+	if _variation_bytes.size() != _terrain_bytes.size():
+		_variation_bytes = PackedByteArray()
 	_apply_saved_modifications()
 	_cache_has_mountain()
 	_reset_cover_visual_state()
@@ -89,6 +93,8 @@ func complete_redraw_now() -> void:
 	_redraw_all()
 
 func global_to_local(global_tile: Vector2i) -> Vector2i:
+	if WorldGenerator and WorldGenerator.has_method("tile_to_local_in_chunk"):
+		return WorldGenerator.tile_to_local_in_chunk(global_tile, chunk_coord)
 	return Vector2i(
 		global_tile.x - chunk_coord.x * _chunk_size,
 		global_tile.y - chunk_coord.y * _chunk_size
@@ -212,6 +218,7 @@ func cleanup() -> void:
 	is_loaded = false
 	_terrain_bytes = PackedByteArray()
 	_height_bytes = PackedFloat32Array()
+	_variation_bytes = PackedByteArray()
 	_revealed_local_cover_tiles = {}
 
 func _create_layer(layer_name: String, tileset: TileSet, z_index_value: int) -> TileMapLayer:
@@ -330,13 +337,27 @@ func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 				_rock_visual_class(local_tile), local_tile)
 			atlas = result[0]
 			alt_id = result[1]
+		TileGenData.TerrainType.WATER:
+			atlas = ChunkTilesetFactory.tile_water
+		TileGenData.TerrainType.SAND:
+			atlas = ChunkTilesetFactory.tile_sand
+		TileGenData.TerrainType.GRASS:
+			atlas = ChunkTilesetFactory.tile_grass
 		TileGenData.TerrainType.MINED_FLOOR:
 			atlas = ChunkTilesetFactory.TILE_MINED_FLOOR
 		TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
 			atlas = ChunkTilesetFactory.TILE_MOUNTAIN_ENTRANCE
 		_:
-			atlas = _ground_atlas_for_height(_height_at(local_tile))
+			atlas = _resolve_surface_ground_atlas(local_tile)
 	_terrain_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, alt_id)
+
+func _resolve_surface_ground_atlas(local_tile: Vector2i) -> Vector2i:
+	if _is_underground:
+		return _ground_atlas_for_height(_height_at(local_tile))
+	var variation_tile: Vector2i = ChunkTilesetFactory.get_surface_variation_tile(_variation_at(local_tile))
+	if variation_tile.x >= 0:
+		return variation_tile
+	return _ground_atlas_for_height(_height_at(local_tile))
 
 func _ground_atlas_for_height(height_value: float) -> Vector2i:
 	if height_value < 0.38:
@@ -614,6 +635,12 @@ func _height_at(local_tile: Vector2i) -> float:
 		return 0.5
 	return _height_bytes[idx]
 
+func _variation_at(local_tile: Vector2i) -> int:
+	var idx: int = local_tile.y * _chunk_size + local_tile.x
+	if idx < 0 or idx >= _variation_bytes.size():
+		return ChunkTilesetFactory.SURFACE_VARIATION_NONE
+	return _variation_bytes[idx]
+
 func _cache_has_mountain() -> void:
 	_has_mountain = false
 	for terrain_type: int in _terrain_bytes:
@@ -630,6 +657,8 @@ func _is_inside(local_tile: Vector2i) -> bool:
 	return local_tile.x >= 0 and local_tile.y >= 0 and local_tile.x < _chunk_size and local_tile.y < _chunk_size
 
 func _to_global_tile(local_tile: Vector2i) -> Vector2i:
+	if WorldGenerator and WorldGenerator.has_method("chunk_local_to_tile"):
+		return WorldGenerator.chunk_local_to_tile(chunk_coord, local_tile)
 	return Vector2i(
 		chunk_coord.x * _chunk_size + local_tile.x,
 		chunk_coord.y * _chunk_size + local_tile.y
@@ -683,7 +712,8 @@ func _build_revealed_local_cover_tiles(zone_tiles: Dictionary) -> Dictionary:
 			if not _is_cave_edge_rock(local_tile):
 				continue
 			for dir: Vector2i in _COVER_REVEAL_DIRS:
-				if zone_tiles.has(global_tile + dir):
+				var neighbor_tile: Vector2i = WorldGenerator.offset_tile(global_tile, dir) if WorldGenerator else global_tile + dir
+				if zone_tiles.has(neighbor_tile):
 					reveal_tiles[local_tile] = true
 					break
 	return reveal_tiles

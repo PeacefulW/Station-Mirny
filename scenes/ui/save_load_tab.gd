@@ -127,6 +127,8 @@ func _on_load_pressed() -> void:
 	if SaveManager:
 		# Снимаем паузу перед загрузкой
 		get_tree().paused = false
+		if TimeManager:
+			TimeManager.is_paused = true
 		SaveManager.pending_load_slot = _selected_slot
 		get_tree().change_scene_to_file("res://scenes/world/game_world.tscn")
 

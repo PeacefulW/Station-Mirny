@@ -27,6 +27,9 @@ const ROUTE_CHUNK_OFFSETS: Array[Vector2i] = [
 ]
 const INVALID_TILE: Vector2i = Vector2i(999999, 999999)
 const _CARDINAL_DIRS := [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
+const _ALLOWED_CHUNK_STATE_KEYS := {
+	&"terrain": true,
+}
 
 var _game_world: GameWorld = null
 var _player: Player = null
@@ -544,7 +547,7 @@ func _validate_chunk_save_payload(chunk_save_data: Dictionary) -> bool:
 			var tile_state: Dictionary = chunk_entry.get(local_tile, {}) as Dictionary
 			for state_key in tile_state.keys():
 				var key_string: String = str(state_key).to_lower()
-				if key_string.contains("reveal") or key_string.contains("roof") or key_string.contains("zone"):
+				if not _ALLOWED_CHUNK_STATE_KEYS.has(StringName(key_string)):
 					return false
 	return true
 

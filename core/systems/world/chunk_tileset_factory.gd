@@ -21,6 +21,21 @@ const TILE_ROCK: Vector2i = Vector2i(3, 0)
 const TILE_ROCK_INTERIOR: Vector2i = Vector2i(4, 0)
 const TILE_MINED_FLOOR: Vector2i = Vector2i(5, 0)
 const TILE_MOUNTAIN_ENTRANCE: Vector2i = Vector2i(6, 0)
+static var tile_water: Vector2i = Vector2i(7, 0)
+static var tile_sand: Vector2i = Vector2i(8, 0)
+static var tile_grass: Vector2i = Vector2i(9, 0)
+static var tile_sparse_flora: Vector2i = Vector2i(10, 0)
+static var tile_dense_flora: Vector2i = Vector2i(11, 0)
+static var tile_clearing: Vector2i = Vector2i(12, 0)
+static var tile_rocky_patch: Vector2i = Vector2i(13, 0)
+static var tile_wet_patch: Vector2i = Vector2i(14, 0)
+
+const SURFACE_VARIATION_NONE: int = 0
+const SURFACE_VARIATION_SPARSE_FLORA: int = 1
+const SURFACE_VARIATION_DENSE_FLORA: int = 2
+const SURFACE_VARIATION_CLEARING: int = 3
+const SURFACE_VARIATION_ROCKY_PATCH: int = 4
+const SURFACE_VARIATION_WET_PATCH: int = 5
 
 ## Rock visual-class tiles (from atlas, positions 7+)
 const WALL_INTERIOR: Vector2i = Vector2i(7, 0)
@@ -168,7 +183,17 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, f
 	wall_base_count = TILE_DEFS_COUNT
 	wall_variant_count = maxi(1, atlas_tiles / wall_base_count)
 	print("[ChunkTilesetFactory] atlas_tiles=%d, wall_base_count=%d, wall_variant_count=%d" % [atlas_tiles, wall_base_count, wall_variant_count])
-	var total: int = 7 + atlas_tiles
+	var surface_extra_tiles: int = 8
+	var extras_start: int = 7 + atlas_tiles
+	tile_water = Vector2i(extras_start, 0)
+	tile_sand = Vector2i(extras_start + 1, 0)
+	tile_grass = Vector2i(extras_start + 2, 0)
+	tile_sparse_flora = Vector2i(extras_start + 3, 0)
+	tile_dense_flora = Vector2i(extras_start + 4, 0)
+	tile_clearing = Vector2i(extras_start + 5, 0)
+	tile_rocky_patch = Vector2i(extras_start + 6, 0)
+	tile_wet_patch = Vector2i(extras_start + 7, 0)
+	var total: int = extras_start + surface_extra_tiles
 	var img := Image.create(ts * total, ts, false, Image.FORMAT_RGBA8)
 	_draw_ground_tile(img, Rect2i(0, 0, ts, ts), biome.ground_color.darkened(0.12), 0)
 	_draw_ground_tile(img, Rect2i(ts, 0, ts, ts), biome.ground_color, 1)
@@ -182,6 +207,14 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, f
 			var src_col: int = i % atlas_cols
 			var src_row: int = i / atlas_cols
 			img.blit_rect(faces_img, Rect2i(src_col * ts, src_row * ts, ts, ts), Vector2i((7 + i) * ts, 0))
+	_draw_water_tile(img, Rect2i(tile_water.x * ts, 0, ts, ts), biome.water_color)
+	_draw_sand_tile(img, Rect2i(tile_sand.x * ts, 0, ts, ts), biome.sand_color, biome.water_color)
+	_draw_grass_tile(img, Rect2i(tile_grass.x * ts, 0, ts, ts), biome.grass_color, biome.ground_color)
+	_draw_sparse_flora_tile(img, Rect2i(tile_sparse_flora.x * ts, 0, ts, ts), biome.ground_color, biome.grass_color)
+	_draw_dense_flora_tile(img, Rect2i(tile_dense_flora.x * ts, 0, ts, ts), biome.ground_color, biome.grass_color)
+	_draw_clearing_tile(img, Rect2i(tile_clearing.x * ts, 0, ts, ts), biome.ground_color)
+	_draw_rocky_patch_tile(img, Rect2i(tile_rocky_patch.x * ts, 0, ts, ts), biome.ground_color, balance.rock_color)
+	_draw_wet_patch_tile(img, Rect2i(tile_wet_patch.x * ts, 0, ts, ts), biome.ground_color, biome.water_color)
 	var tex: ImageTexture = ImageTexture.create_from_image(img)
 	var tileset := TileSet.new()
 	tileset.tile_size = Vector2i(ts, ts)
@@ -206,6 +239,21 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, f
 				alt_data.flip_v = transforms[t_i][1]
 	tileset.add_source(src, TERRAIN_SOURCE_ID)
 	return tileset
+
+static func get_surface_variation_tile(variation_id: int) -> Vector2i:
+	match variation_id:
+		SURFACE_VARIATION_SPARSE_FLORA:
+			return tile_sparse_flora
+		SURFACE_VARIATION_DENSE_FLORA:
+			return tile_dense_flora
+		SURFACE_VARIATION_CLEARING:
+			return tile_clearing
+		SURFACE_VARIATION_ROCKY_PATCH:
+			return tile_rocky_patch
+		SURFACE_VARIATION_WET_PATCH:
+			return tile_wet_patch
+		_:
+			return Vector2i(-1, -1)
 
 static func _build_overlay_tileset(balance: WorldGenBalance, _biome: BiomeData) -> TileSet:
 	var tileset := TileSet.new()
@@ -326,6 +374,117 @@ static func _draw_entrance_tile(image: Image, rect: Rect2i, base_color: Color, f
 	for py: int in range(rect.end.y - maxi(3, rect.size.y / 12), rect.end.y):
 		for px: int in range(rect.position.x + band_width, rect.end.x):
 			image.set_pixel(px, py, lip_color.darkened(0.04))
+
+static func _draw_water_tile(image: Image, rect: Rect2i, base_color: Color) -> void:
+	_fill_rect(image, rect, base_color.darkened(0.08))
+	for py: int in range(rect.position.y, rect.end.y):
+		for px: int in range(rect.position.x, rect.end.x):
+			var local_x: int = px - rect.position.x
+			var local_y: int = py - rect.position.y
+			var wave: float = sin(float(local_x) * 0.32 + float(local_y) * 0.18) * 0.05
+			var ripple: float = cos(float(local_y) * 0.28 - float(local_x) * 0.11) * 0.03
+			var c: Color = base_color.lightened(wave + ripple)
+			if local_y < rect.size.y / 3:
+				c = c.lightened(0.06)
+			image.set_pixel(px, py, c)
+
+static func _draw_sand_tile(image: Image, rect: Rect2i, base_color: Color, water_color: Color) -> void:
+	_fill_rect(image, rect, base_color)
+	for py: int in range(rect.position.y, rect.end.y):
+		for px: int in range(rect.position.x, rect.end.x):
+			var local_x: int = px - rect.position.x
+			var local_y: int = py - rect.position.y
+			var grain: float = sin(float(local_x + local_y) * 0.24) * 0.025
+			var c: Color = base_color.lightened(grain)
+			if local_y < rect.size.y / 4:
+				c = c.lerp(water_color, 0.12)
+			if (local_x * 3 + local_y) % 19 == 0:
+				c = c.darkened(0.06)
+			image.set_pixel(px, py, c)
+
+static func _draw_grass_tile(image: Image, rect: Rect2i, base_color: Color, ground_color: Color) -> void:
+	_fill_rect(image, rect, ground_color.lerp(base_color, 0.68))
+	for py: int in range(rect.position.y, rect.end.y):
+		for px: int in range(rect.position.x, rect.end.x):
+			var local_x: int = px - rect.position.x
+			var local_y: int = py - rect.position.y
+			var sway: float = sin(float(local_x) * 0.26 + float(local_y) * 0.09) * 0.04
+			var c: Color = base_color.lightened(sway)
+			if local_y > rect.size.y * 0.7:
+				c = ground_color.lerp(c, 0.55)
+			if (local_x + local_y * 5) % 13 == 0:
+				c = c.darkened(0.05)
+			image.set_pixel(px, py, c)
+
+static func _draw_sparse_flora_tile(image: Image, rect: Rect2i, ground_color: Color, flora_color: Color) -> void:
+	_draw_ground_tile(image, rect, ground_color, 3)
+	var tuft_color: Color = ground_color.lerp(flora_color, 0.58)
+	for tuft_idx: int in range(8):
+		var px: int = rect.position.x + 6 + (tuft_idx * 7) % max(8, rect.size.x - 12)
+		var py: int = rect.position.y + 10 + int(abs(sin(float(tuft_idx) * 1.9)) * (rect.size.y - 18))
+		_draw_grass_tuft(image, Vector2i(px, py), 2, tuft_color)
+
+static func _draw_dense_flora_tile(image: Image, rect: Rect2i, ground_color: Color, flora_color: Color) -> void:
+	_fill_rect(image, rect, ground_color.lerp(flora_color, 0.28))
+	for py: int in range(rect.position.y, rect.end.y):
+		for px: int in range(rect.position.x, rect.end.x):
+			var local_x: int = px - rect.position.x
+			var local_y: int = py - rect.position.y
+			var sway: float = sin(float(local_x) * 0.35 + float(local_y) * 0.14) * 0.05
+			var c: Color = flora_color.lightened(sway)
+			if local_y > rect.size.y * 0.74:
+				c = ground_color.lerp(c, 0.45)
+			if (local_x * 5 + local_y * 3) % 17 == 0:
+				c = c.darkened(0.08)
+			image.set_pixel(px, py, c)
+	for tuft_idx: int in range(14):
+		var px: int = rect.position.x + 4 + (tuft_idx * 5) % max(8, rect.size.x - 8)
+		var py: int = rect.position.y + 8 + int(abs(cos(float(tuft_idx) * 1.3)) * (rect.size.y - 14))
+		_draw_grass_tuft(image, Vector2i(px, py), 3, flora_color.lightened(0.08))
+
+static func _draw_clearing_tile(image: Image, rect: Rect2i, ground_color: Color) -> void:
+	_draw_ground_tile(image, rect, ground_color.lightened(0.08), 4)
+	for py: int in range(rect.position.y, rect.end.y):
+		for px: int in range(rect.position.x, rect.end.x):
+			var local_x: int = px - rect.position.x
+			var local_y: int = py - rect.position.y
+			if (local_x + local_y * 2) % 21 == 0:
+				image.set_pixel(px, py, ground_color.darkened(0.08))
+
+static func _draw_rocky_patch_tile(image: Image, rect: Rect2i, ground_color: Color, rock_color: Color) -> void:
+	_draw_ground_tile(image, rect, ground_color.darkened(0.03), 5)
+	for stone_idx: int in range(9):
+		var px: int = rect.position.x + 7 + (stone_idx * 6) % max(8, rect.size.x - 12)
+		var py: int = rect.position.y + 8 + int(abs(sin(float(stone_idx) * 1.5)) * (rect.size.y - 16))
+		_draw_blob(image, Vector2i(px, py), 2 + stone_idx % 2, rock_color.lightened(0.12), rock_color.darkened(0.16))
+
+static func _draw_wet_patch_tile(image: Image, rect: Rect2i, ground_color: Color, water_color: Color) -> void:
+	_fill_rect(image, rect, ground_color.darkened(0.12).lerp(water_color, 0.18))
+	for py: int in range(rect.position.y, rect.end.y):
+		for px: int in range(rect.position.x, rect.end.x):
+			var local_x: int = px - rect.position.x
+			var local_y: int = py - rect.position.y
+			var sheen: float = sin(float(local_x) * 0.28 + float(local_y) * 0.19) * 0.04
+			var c: Color = ground_color.darkened(0.12).lerp(water_color, 0.18).lightened(sheen)
+			if local_y < rect.size.y / 3:
+				c = c.lightened(0.04)
+			if (local_x * 2 + local_y * 7) % 23 == 0:
+				c = c.lerp(water_color, 0.22)
+			image.set_pixel(px, py, c)
+	for puddle_idx: int in range(4):
+		var px: int = rect.position.x + 10 + puddle_idx * max(8, rect.size.x / 5)
+		var py: int = rect.position.y + rect.size.y / 2 + int(sin(float(puddle_idx) * 1.8) * 6.0)
+		_draw_blob(image, Vector2i(px, py), 4, water_color.lightened(0.10), water_color.darkened(0.14))
+
+static func _draw_grass_tuft(image: Image, center: Vector2i, height: int, color: Color) -> void:
+	for blade: int in range(3):
+		var blade_x: int = center.x + blade - 1
+		for step: int in range(height):
+			var py: int = center.y - step
+			if blade_x < 0 or py < 0 or blade_x >= image.get_width() or py >= image.get_height():
+				continue
+			var blade_color: Color = color.lightened(float(height - step) * 0.03)
+			image.set_pixel(blade_x, py, blade_color)
 
 static func _draw_blob(image: Image, center: Vector2i, radius: int, light_color: Color, shadow_color: Color) -> void:
 	for py: int in range(center.y - radius, center.y + radius + 1):

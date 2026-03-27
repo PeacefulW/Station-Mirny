@@ -1,0 +1,48 @@
+[gd_resource type="Resource" script_class="BiomeData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/biomes/biome_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"scorched"
+display_name_key = "BIOME_SCORCHED_NAME"
+display_name = "Scorched Zone"
+tags = Array[StringName]([&"surface", &"dry", &"hot"])
+priority = 33
+min_height = 0.10
+max_height = 0.90
+min_temperature = 0.62
+max_temperature = 1.0
+min_moisture = 0.0
+max_moisture = 0.38
+min_ruggedness = 0.0
+max_ruggedness = 0.72
+min_flora_density = 0.0
+max_flora_density = 0.38
+min_ridge_strength = 0.0
+max_ridge_strength = 0.54
+min_river_strength = 0.0
+max_river_strength = 0.20
+min_floodplain_strength = 0.0
+max_floodplain_strength = 0.18
+ridge_strength_weight = 0.55
+river_strength_weight = 1.10
+floodplain_strength_weight = 1.20
+flora_set_ids = Array[StringName]([])
+decor_set_ids = Array[StringName]([&"dry_surface"])
+ground_tile_id = 0
+rock_tile_id = 1
+water_tile_id = 2
+sand_tile_id = 3
+grass_tile_id = 4
+ground_color = Color(0.37, 0.25, 0.14, 1)
+rock_color = Color(0.44, 0.32, 0.22, 1)
+water_color = Color(0.09, 0.13, 0.20, 1)
+sand_color = Color(0.55, 0.39, 0.19, 1)
+grass_color = Color(0.46, 0.28, 0.11, 1)
+base_temperature = 8.0
+spore_density_multiplier = 0.72
+enemy_frequency_multiplier = 1.12
+resource_density_multiplier = 0.92
+tree_types = Array[StringName]([])
+grass_coverage = 0.12

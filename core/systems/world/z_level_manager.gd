@@ -12,6 +12,9 @@ const Z_MAX: int = 1
 
 var current_z: int = 0
 
+func _ready() -> void:
+	add_to_group("z_level_manager")
+
 ## Переключиться на указанный z-уровень.
 func change_level(new_z: int) -> void:
 	if new_z < Z_MIN or new_z > Z_MAX:

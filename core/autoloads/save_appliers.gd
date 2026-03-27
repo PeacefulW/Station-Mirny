@@ -4,7 +4,7 @@ extends RefCounted
 ## Набор функций для применения данных сохранения в рантайм.
 ## Не работает с файловой системой напрямую.
 
-static func apply_world(data: Dictionary) -> bool:
+static func apply_world(tree: SceneTree, data: Dictionary) -> bool:
 	if not WorldGenerator:
 		return false
 	if not data.has("seed") or not data.has("spawn_tile"):
@@ -24,6 +24,12 @@ static func apply_world(data: Dictionary) -> bool:
 		balance.mountain_chaininess = float(generation.get("mountain_chaininess", balance.mountain_chaininess))
 
 	WorldGenerator.initialize_world(int(data.get("seed", 0)))
+	WorldGenerator.spawn_tile = WorldGenerator.canonicalize_tile(WorldGenerator.spawn_tile)
+	var spawn_orchestrators: Array[Node] = _find_nodes_by_class(tree, "SpawnOrchestrator")
+	if not spawn_orchestrators.is_empty():
+		var spawn_orchestrator: Node = spawn_orchestrators[0]
+		if spawn_orchestrator.has_method("load_pickups"):
+			spawn_orchestrator.load_pickups(data.get("pickups", []))
 	return true
 
 static func apply_chunk_data(tree: SceneTree, data: Dictionary) -> void:
@@ -37,9 +43,11 @@ static func apply_chunk_data(tree: SceneTree, data: Dictionary) -> void:
 static func apply_time(data: Dictionary) -> void:
 	if not TimeManager:
 		return
-	TimeManager.current_hour = data.get("current_hour", 7.0)
-	TimeManager.current_day = int(data.get("current_day", 1))
-	TimeManager.current_season = int(data.get("current_season", 0))
+	TimeManager.restore_persisted_state(
+		float(data.get("current_hour", 7.0)),
+		int(data.get("current_day", 1)),
+		int(data.get("current_season", 0))
+	)
 
 static func apply_buildings(tree: SceneTree, data: Dictionary) -> void:
 	var building_systems: Array[Node] = _find_nodes_by_class(tree, "BuildingSystem")
@@ -74,11 +82,21 @@ static func apply_player(tree: SceneTree, data: Dictionary) -> void:
 			return
 		player = players[0]
 
+	if data.has("z_level"):
+		var z_level_managers: Array[Node] = _find_nodes_by_class(tree, "ZLevelManager")
+		if not z_level_managers.is_empty():
+			var z_level_manager: Node = z_level_managers[0]
+			if z_level_manager.has_method("change_level"):
+				z_level_manager.change_level(int(data.get("z_level", 0)))
+
 	var position_data: Dictionary = data.get("position", {})
-	player.global_position = Vector2(
+	var player_position := Vector2(
 		float(position_data.get("x", 0.0)),
 		float(position_data.get("y", 0.0))
 	)
+	if WorldGenerator and WorldGenerator._is_initialized:
+		player_position = WorldGenerator.canonicalize_world_position(player_position)
+	player.global_position = player_position
 
 	var inventory: Node = player.get_node_or_null("InventoryComponent")
 	if inventory and inventory.has_method("load_state") and data.has("inventory"):

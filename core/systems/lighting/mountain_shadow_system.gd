@@ -29,6 +29,7 @@ var _edge_build_queue: Array[Vector2i] = []
 var _active_edge_cache_build: Dictionary = {}
 var _active_build: Dictionary = {}  ## Progressive shadow build state
 var _prefer_shadow_step: bool = true
+var _current_z: int = 0
 
 func _ready() -> void:
 	_shadow_container = Node2D.new()
@@ -38,6 +39,9 @@ func _ready() -> void:
 	EventBus.chunk_loaded.connect(_on_chunk_loaded)
 	EventBus.chunk_unloaded.connect(_on_chunk_unloaded)
 	EventBus.mountain_tile_mined.connect(_on_mountain_tile_mined)
+	EventBus.z_level_changed.connect(_on_z_level_changed)
+	_current_z = _resolve_current_z()
+	_shadow_container.visible = _is_surface_context()
 	call_deferred("_resolve_dependencies")
 
 func _exit_tree() -> void:
@@ -46,6 +50,8 @@ func _exit_tree() -> void:
 
 func _process(_delta: float) -> void:
 	if not _chunk_manager or not TimeManager or not WorldGenerator or not WorldGenerator.balance:
+		return
+	if not _is_surface_context():
 		return
 	var sun_angle: float = TimeManager.get_sun_angle()
 	var threshold: float = WorldGenerator.balance.shadow_angle_threshold
@@ -68,15 +74,101 @@ func _resolve_dependencies() -> void:
 		"Mountain shadows"
 	)
 
+func build_boot_shadows() -> void:
+	if not _chunk_manager:
+		_resolve_dependencies()
+	if not _is_surface_context() or not _chunk_manager:
+		_suspend_surface_shadow_runtime(true)
+		return
+	var player_chunk: Vector2i = _get_player_chunk_coord()
+	var coords: Array[Vector2i] = []
+	for coord: Vector2i in _chunk_manager.get_loaded_chunks():
+		if _chunk_or_neighbors_have_mountain(coord):
+			coords.append(coord)
+	coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return _chunk_priority_score(a, player_chunk) < _chunk_priority_score(b, player_chunk)
+	)
+	_suspend_surface_shadow_runtime(false)
+	var live_coords: Dictionary = {}
+	for coord: Vector2i in coords:
+		live_coords[coord] = true
+	for existing_coord: Vector2i in _shadow_sprites.keys():
+		if live_coords.has(existing_coord):
+			continue
+		_remove_shadow(existing_coord)
+	for coord: Vector2i in coords:
+		_build_edge_cache_now(coord)
+	for coord: Vector2i in coords:
+		_rebuild_shadow_now(coord)
+	_seed_current_sun_angle()
+	_show_shadow_container()
+
+func prepare_boot_shadows(progress_callback: Callable) -> void:
+	if not _chunk_manager:
+		_resolve_dependencies()
+	if not _is_surface_context() or not _chunk_manager:
+		_suspend_surface_shadow_runtime(true)
+		return
+	var player_chunk: Vector2i = _get_player_chunk_coord()
+	var coords: Array[Vector2i] = []
+	for coord: Vector2i in _chunk_manager.get_loaded_chunks():
+		if _chunk_or_neighbors_have_mountain(coord):
+			coords.append(coord)
+	coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return _chunk_priority_score(a, player_chunk) < _chunk_priority_score(b, player_chunk)
+	)
+	_suspend_surface_shadow_runtime(false)
+	var live_coords: Dictionary = {}
+	for coord: Vector2i in coords:
+		live_coords[coord] = true
+	for existing_coord: Vector2i in _shadow_sprites.keys():
+		if live_coords.has(existing_coord):
+			continue
+		_remove_shadow(existing_coord)
+	var total_steps: int = maxi(1, coords.size() * 2)
+	var completed_steps: int = 0
+	if progress_callback.is_valid():
+		progress_callback.call(96.0, Localization.t("UI_LOADING_BUILDING_MOUNTAINS"))
+	for coord: Vector2i in coords:
+		_build_edge_cache_now(coord)
+		completed_steps += 1
+		_report_boot_shadow_progress(progress_callback, completed_steps, total_steps)
+	for coord: Vector2i in coords:
+		_rebuild_shadow_now(coord)
+		completed_steps += 1
+		_report_boot_shadow_progress(progress_callback, completed_steps, total_steps)
+	_seed_current_sun_angle()
+	_show_shadow_container()
+
+func _on_z_level_changed(new_z: int, _old_z: int) -> void:
+	if new_z == _current_z:
+		_show_shadow_container()
+		return
+	_current_z = new_z
+	if not _is_surface_context():
+		_suspend_surface_shadow_runtime(true)
+		return
+	_show_shadow_container()
+	_mark_all_dirty()
+
+func set_active_z_level(new_z: int) -> void:
+	_on_z_level_changed(new_z, _current_z)
+
 func _on_chunk_loaded(coord: Vector2i) -> void:
+	if not _is_surface_context():
+		return
+	coord = _canonical_chunk_coord(coord)
 	var chunk: Chunk = _chunk_manager.get_chunk(coord) if _chunk_manager else null
 	if chunk and chunk.has_any_mountain():
 		_enqueue_edge_cache_build(coord)
 	_mark_dirty(coord)
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		_mark_dirty(coord + dir)
+		_mark_dirty(_offset_chunk_coord(coord, dir))
 
 func _on_chunk_unloaded(coord: Vector2i) -> void:
+	if not _is_surface_context():
+		return
+	coord = _canonical_chunk_coord(coord)
 	var active_edge_coord: Vector2i = _active_edge_cache_build.get("coord", Vector2i(999999, 999999))
 	if not _active_edge_cache_build.is_empty() \
 		and active_edge_coord == coord:
@@ -89,15 +181,19 @@ func _on_chunk_unloaded(coord: Vector2i) -> void:
 	_remove_shadow(coord)
 
 func _on_mountain_tile_mined(tile_pos: Vector2i, _old_type: int, _new_type: int) -> void:
+	if not _is_surface_context():
+		return
+	tile_pos = WorldGenerator.canonicalize_tile(tile_pos)
 	_update_edges_at(tile_pos)
 	var coord: Vector2i = WorldGenerator.tile_to_chunk(tile_pos)
 	_mark_dirty(coord)
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		var neighbor: Vector2i = coord + dir
+		var neighbor: Vector2i = _offset_chunk_coord(coord, dir)
 		if _chunk_manager and _chunk_manager.get_chunk(neighbor):
 			_mark_dirty(neighbor)
 
 func _mark_dirty(coord: Vector2i) -> void:
+	coord = _canonical_chunk_coord(coord)
 	if coord not in _dirty_queue:
 		_dirty_queue.append(coord)
 
@@ -110,6 +206,9 @@ func _mark_all_dirty() -> void:
 
 ## Tick для FrameBudgetDispatcher. Edge build → progressive shadow build.
 func _tick_shadows() -> bool:
+	if not _is_surface_context():
+		_suspend_surface_shadow_runtime(true)
+		return false
 	if not _active_build.is_empty():
 		var phase: String = str(_active_build.get("phase", "build"))
 		match phase:
@@ -167,7 +266,7 @@ func _update_edges_at(tile_pos: Vector2i) -> void:
 		return
 	for offset_y: int in range(-1, 2):
 		for offset_x: int in range(-1, 2):
-			var check_tile: Vector2i = tile_pos + Vector2i(offset_x, offset_y)
+			var check_tile: Vector2i = WorldGenerator.offset_tile(tile_pos, Vector2i(offset_x, offset_y))
 			var coord: Vector2i = WorldGenerator.tile_to_chunk(check_tile)
 			var chunk: Chunk = _chunk_manager.get_chunk(coord)
 			if not chunk:
@@ -190,6 +289,7 @@ func _update_edges_at(tile_pos: Vector2i) -> void:
 				edges.remove_at(edge_idx)
 
 func _enqueue_edge_cache_build(coord: Vector2i) -> void:
+	coord = _canonical_chunk_coord(coord)
 	if _active_edge_cache_build.get("coord", INVALID_COORD) == coord:
 		return
 	var chunk: Chunk = _chunk_manager.get_chunk(coord) if _chunk_manager else null
@@ -224,8 +324,18 @@ func _get_player_chunk_coord() -> Vector2i:
 	var player_tile: Vector2i = WorldGenerator.world_to_tile(player_pos)
 	return WorldGenerator.tile_to_chunk(player_tile)
 
+func _canonical_chunk_coord(coord: Vector2i) -> Vector2i:
+	if WorldGenerator and WorldGenerator.has_method("canonicalize_chunk_coord"):
+		return WorldGenerator.canonicalize_chunk_coord(coord)
+	return coord
+
+func _offset_chunk_coord(coord: Vector2i, offset: Vector2i) -> Vector2i:
+	if WorldGenerator and WorldGenerator.has_method("offset_chunk_coord"):
+		return WorldGenerator.offset_chunk_coord(coord, offset)
+	return coord + offset
+
 func _chunk_priority_score(coord: Vector2i, player_chunk: Vector2i) -> int:
-	var dx: int = coord.x - player_chunk.x
+	var dx: int = WorldGenerator.chunk_wrap_delta_x(coord.x, player_chunk.x) if WorldGenerator and WorldGenerator.has_method("chunk_wrap_delta_x") else coord.x - player_chunk.x
 	var dy: int = coord.y - player_chunk.y
 	return dx * dx + dy * dy
 
@@ -236,7 +346,7 @@ func _chunk_or_neighbors_have_mountain(coord: Vector2i) -> bool:
 	if chunk and chunk.has_any_mountain():
 		return true
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		var neighbor: Chunk = _chunk_manager.get_chunk(coord + dir)
+		var neighbor: Chunk = _chunk_manager.get_chunk(_offset_chunk_coord(coord, dir))
 		if neighbor and neighbor.has_any_mountain():
 			return true
 	return false
@@ -253,7 +363,7 @@ func _start_edge_cache_build(coord: Vector2i) -> void:
 	_active_edge_cache_build = {
 		"coord": coord,
 		"chunk_size": chunk_size,
-		"base_x": coord.x * chunk_size,
+		"base_x": WorldGenerator.chunk_to_tile_origin(coord).x,
 		"base_y": coord.y * chunk_size,
 		"tile_index": 0,
 		"edges": [] as Array[Vector2i],
@@ -296,7 +406,29 @@ func _advance_edge_cache_build() -> void:
 func _complete_edge_cache_build(coord: Vector2i) -> void:
 	_mark_dirty(coord)
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		_mark_dirty(coord + dir)
+		_mark_dirty(_offset_chunk_coord(coord, dir))
+
+func _build_edge_cache_now(coord: Vector2i) -> void:
+	if not _chunk_manager:
+		return
+	var chunk: Chunk = _chunk_manager.get_chunk(coord)
+	if not chunk or not chunk.has_any_mountain():
+		_edge_cache[coord] = [] as Array[Vector2i]
+		return
+	var chunk_size: int = chunk.get_chunk_size()
+	var total_tiles: int = chunk_size * chunk_size
+	var base_x: int = WorldGenerator.chunk_to_tile_origin(coord).x
+	var base_y: int = coord.y * chunk_size
+	var terrain_bytes: PackedByteArray = chunk.get_terrain_bytes()
+	var edges: Array[Vector2i] = []
+	for tile_index: int in range(total_tiles):
+		if terrain_bytes[tile_index] != TileGenData.TerrainType.ROCK:
+			continue
+		var local_x: int = tile_index % chunk_size
+		var local_y: int = tile_index / chunk_size
+		if _is_external_edge_at(coord, terrain_bytes, local_x, local_y, chunk_size):
+			edges.append(Vector2i(base_x + local_x, base_y + local_y))
+	_edge_cache[coord] = edges
 
 ## Начинает progressive shadow build для чанка.
 func _start_shadow_build(coord: Vector2i) -> void:
@@ -319,7 +451,7 @@ func _start_shadow_build(coord: Vector2i) -> void:
 	var all_edges: Array[Vector2i] = []
 	var source_chunks: Array[Vector2i] = [coord]
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		source_chunks.append(coord + dir)
+		source_chunks.append(_offset_chunk_coord(coord, dir))
 	for source_coord: Vector2i in source_chunks:
 		var edges: Array = _edge_cache.get(source_coord, []) as Array
 		for e: Vector2i in edges:
@@ -336,7 +468,7 @@ func _start_shadow_build(coord: Vector2i) -> void:
 		"coord": coord,
 		"chunk_size": chunk_size,
 		"tile_size": balance.tile_size,
-		"base_x": coord.x * chunk_size,
+		"base_x": WorldGenerator.chunk_to_tile_origin(coord).x,
 		"base_y": coord.y * chunk_size,
 		"shadow_color": balance.shadow_color,
 		"max_intensity": balance.shadow_intensity,
@@ -437,6 +569,20 @@ func _finalize_shadow_apply() -> void:
 	_active_build.clear()
 	WorldPerfProbe.end("Shadow.finalize_apply %s" % [coord], finalize_usec)
 
+func _rebuild_shadow_now(coord: Vector2i) -> void:
+	_start_shadow_build(coord)
+	while not _active_build.is_empty():
+		var phase: String = str(_active_build.get("phase", "build"))
+		match phase:
+			"build":
+				_advance_shadow_build()
+			"finalize_texture":
+				_finalize_shadow_texture()
+			"finalize_apply":
+				_finalize_shadow_apply()
+			_:
+				_active_build.clear()
+
 func _is_external_edge(chunk: Chunk, local: Vector2i, chunk_size: int) -> bool:
 	return _is_external_edge_at(chunk.chunk_coord, chunk.get_terrain_bytes(), local.x, local.y, chunk_size)
 
@@ -447,10 +593,7 @@ func _is_external_edge_at(
 	local_y: int,
 	chunk_size: int
 ) -> bool:
-	var global_tile: Vector2i = Vector2i(
-		chunk_coord.x * chunk_size + local_x,
-		chunk_coord.y * chunk_size + local_y
-	)
+	var global_tile: Vector2i = WorldGenerator.chunk_local_to_tile(chunk_coord, Vector2i(local_x, local_y))
 	for dir: Vector2i in EDGE_NEIGHBOR_OFFSETS:
 		var neighbor_x: int = local_x + dir.x
 		var neighbor_y: int = local_y + dir.y
@@ -458,7 +601,7 @@ func _is_external_edge_at(
 		if neighbor_x >= 0 and neighbor_y >= 0 and neighbor_x < chunk_size and neighbor_y < chunk_size:
 			terrain = terrain_bytes[neighbor_y * chunk_size + neighbor_x]
 		elif _chunk_manager:
-			terrain = _chunk_manager.get_terrain_type_at_global(global_tile + dir)
+			terrain = _chunk_manager.get_terrain_type_at_global(WorldGenerator.offset_tile(global_tile, dir))
 		if _is_shadow_open_terrain(terrain):
 			return true
 	return false
@@ -473,6 +616,29 @@ func _remove_shadow(coord: Vector2i) -> void:
 	if _shadow_sprites.has(coord):
 		(_shadow_sprites[coord] as Sprite2D).queue_free()
 		_shadow_sprites.erase(coord)
+
+func _suspend_surface_shadow_runtime(hide_container: bool) -> void:
+	_dirty_queue.clear()
+	_edge_build_queue.clear()
+	_active_edge_cache_build.clear()
+	_active_build.clear()
+	_prefer_shadow_step = true
+	if hide_container and _shadow_container:
+		_shadow_container.visible = false
+
+func _show_shadow_container() -> void:
+	if _shadow_container:
+		_shadow_container.visible = _is_surface_context()
+
+func _seed_current_sun_angle() -> void:
+	if TimeManager:
+		_last_built_angle = TimeManager.get_sun_angle()
+
+func _report_boot_shadow_progress(progress_callback: Callable, completed_steps: int, total_steps: int) -> void:
+	if not progress_callback.is_valid():
+		return
+	var progress: float = 96.0 + (float(completed_steps) / float(total_steps)) * 3.0
+	progress_callback.call(progress, Localization.t("UI_LOADING_BUILDING_MOUNTAINS"))
 
 func _bresenham(x0: int, y0: int, x1: int, y1: int) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
@@ -506,3 +672,15 @@ func _resolve_shadow_edges_per_step() -> int:
 	if WorldGenerator and WorldGenerator.balance:
 		return maxi(1, WorldGenerator.balance.mountain_shadow_edges_per_step)
 	return 4
+
+func _is_surface_context() -> bool:
+	return _current_z == 0
+
+func _resolve_current_z() -> int:
+	var z_managers: Array[Node] = get_tree().get_nodes_in_group("z_level_manager")
+	if z_managers.is_empty():
+		return 0
+	var z_manager: Node = z_managers[0]
+	if z_manager.has_method("get_current_z"):
+		return int(z_manager.get_current_z())
+	return 0

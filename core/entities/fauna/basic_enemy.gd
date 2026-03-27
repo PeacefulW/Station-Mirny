@@ -45,6 +45,8 @@ func _ready() -> void:
 	_setup_state_machine()
 	# Подписка на ночь — активнее
 	EventBus.time_of_day_changed.connect(_on_time_changed)
+	if TimeManager:
+		_on_time_changed(TimeManager.current_time_of_day, TimeManager.current_time_of_day)
 
 func _physics_process(delta: float) -> void:
 	_update_attack_timer(delta)

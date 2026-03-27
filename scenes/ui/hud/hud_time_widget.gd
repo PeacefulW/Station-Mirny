@@ -30,8 +30,11 @@ func _setup() -> void:
 	EventBus.day_changed.connect(_on_day_changed)
 	EventBus.time_of_day_changed.connect(_on_phase_changed)
 	EventBus.language_changed.connect(func(_l: String) -> void: _refresh_day_label())
-
-	_refresh_day_label()
+	_on_hour_changed(TimeManager.get_hour() if TimeManager else 7)
+	_on_phase_changed(
+		TimeManager.current_time_of_day if TimeManager else 1,
+		TimeManager.current_time_of_day if TimeManager else 1
+	)
 
 func _on_hour_changed(hour: int) -> void:
 	if _time_label:

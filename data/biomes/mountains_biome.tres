@@ -1,0 +1,48 @@
+[gd_resource type="Resource" script_class="BiomeData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/biomes/biome_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"mountains"
+display_name_key = "BIOME_MOUNTAINS_NAME"
+display_name = "Mountains"
+tags = Array[StringName]([&"surface", &"mountain", &"highland"])
+priority = 40
+min_height = 0.56
+max_height = 1.0
+min_temperature = 0.0
+max_temperature = 0.58
+min_moisture = 0.08
+max_moisture = 0.68
+min_ruggedness = 0.62
+max_ruggedness = 1.0
+min_flora_density = 0.0
+max_flora_density = 0.40
+min_ridge_strength = 0.62
+max_ridge_strength = 1.0
+min_river_strength = 0.0
+max_river_strength = 0.16
+min_floodplain_strength = 0.0
+max_floodplain_strength = 0.14
+ridge_strength_weight = 1.70
+river_strength_weight = 0.20
+floodplain_strength_weight = 0.15
+flora_set_ids = Array[StringName]([])
+decor_set_ids = Array[StringName]([&"mountain_surface"])
+ground_tile_id = 0
+rock_tile_id = 1
+water_tile_id = 2
+sand_tile_id = 3
+grass_tile_id = 4
+ground_color = Color(0.24, 0.23, 0.22, 1)
+rock_color = Color(0.42, 0.42, 0.42, 1)
+water_color = Color(0.09, 0.14, 0.23, 1)
+sand_color = Color(0.39, 0.36, 0.31, 1)
+grass_color = Color(0.28, 0.28, 0.28, 1)
+base_temperature = -14.0
+spore_density_multiplier = 0.70
+enemy_frequency_multiplier = 1.15
+resource_density_multiplier = 1.20
+tree_types = Array[StringName]([])
+grass_coverage = 0.10

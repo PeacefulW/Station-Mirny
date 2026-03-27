@@ -1,0 +1,48 @@
+[gd_resource type="Resource" script_class="BiomeData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/biomes/biome_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"foothills"
+display_name_key = "BIOME_FOOTHILLS_NAME"
+display_name = "Foothills"
+tags = Array[StringName]([&"surface", &"upland", &"transition"])
+priority = 28
+min_height = 0.42
+max_height = 0.88
+min_temperature = 0.18
+max_temperature = 0.66
+min_moisture = 0.16
+max_moisture = 0.66
+min_ruggedness = 0.34
+max_ruggedness = 0.82
+min_flora_density = 0.12
+max_flora_density = 0.60
+min_ridge_strength = 0.28
+max_ridge_strength = 0.78
+min_river_strength = 0.0
+max_river_strength = 0.28
+min_floodplain_strength = 0.0
+max_floodplain_strength = 0.26
+ridge_strength_weight = 1.25
+river_strength_weight = 0.30
+floodplain_strength_weight = 0.25
+flora_set_ids = Array[StringName]([&"dead_tree"])
+decor_set_ids = Array[StringName]([&"foothills_surface"])
+ground_tile_id = 0
+rock_tile_id = 1
+water_tile_id = 2
+sand_tile_id = 3
+grass_tile_id = 4
+ground_color = Color(0.33, 0.28, 0.20, 1)
+rock_color = Color(0.40, 0.37, 0.34, 1)
+water_color = Color(0.10, 0.15, 0.28, 1)
+sand_color = Color(0.47, 0.40, 0.28, 1)
+grass_color = Color(0.46, 0.36, 0.18, 1)
+base_temperature = -6.0
+spore_density_multiplier = 0.95
+enemy_frequency_multiplier = 1.05
+resource_density_multiplier = 1.10
+tree_types = Array[StringName]([&"dead_tree"])
+grass_coverage = 0.42
