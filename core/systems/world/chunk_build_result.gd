@@ -8,6 +8,7 @@ var base_tile: Vector2i = Vector2i.ZERO
 var terrain: PackedByteArray = PackedByteArray()
 var height: PackedFloat32Array = PackedFloat32Array()
 var variation: PackedByteArray = PackedByteArray()
+var biome: PackedByteArray = PackedByteArray()
 
 func initialize(coord: Vector2i, size: int, chunk_base_tile: Vector2i = Vector2i.ZERO) -> ChunkBuildResult:
 	chunk_coord = coord
@@ -18,23 +19,27 @@ func initialize(coord: Vector2i, size: int, chunk_base_tile: Vector2i = Vector2i
 	terrain.resize(tile_count)
 	height.resize(tile_count)
 	variation.resize(tile_count)
+	biome.resize(tile_count)
 	if tile_count > 0:
 		variation.fill(0)
+		biome.fill(0)
 	return self
 
-func set_tile(index: int, terrain_type: int, height_value: float, variation_id: int = 0) -> void:
+func set_tile(index: int, terrain_type: int, height_value: float, variation_id: int = 0, biome_id: int = 0) -> void:
 	if index < 0 or index >= terrain.size():
 		return
 	terrain[index] = terrain_type
 	height[index] = height_value
 	variation[index] = variation_id
+	biome[index] = biome_id
 
 func is_valid() -> bool:
 	var tile_count: int = chunk_size * chunk_size
 	return chunk_size > 0 \
 		and terrain.size() == tile_count \
 		and height.size() == tile_count \
-		and variation.size() == tile_count
+		and variation.size() == tile_count \
+		and biome.size() == tile_count
 
 func to_native_data() -> Dictionary:
 	return {
@@ -42,4 +47,5 @@ func to_native_data() -> Dictionary:
 		"terrain": terrain.duplicate(),
 		"height": height.duplicate(),
 		"variation": variation.duplicate(),
+		"biome": biome.duplicate(),
 	}

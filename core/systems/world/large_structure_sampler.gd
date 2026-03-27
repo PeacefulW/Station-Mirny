@@ -62,8 +62,9 @@ func get_wrap_width_tiles() -> int:
 
 func _sample_mountain_mass(world_pos: Vector2i, height_value: float, ruggedness_value: float) -> float:
 	var cluster_noise: float = _sample_periodic_noise01(_ridge_cluster_noise, world_pos)
-	var cluster_gate: float = clampf((cluster_noise - 0.34) / 0.52, 0.0, 1.0)
-	var terrain_gate: float = clampf(height_value * 0.65 + ruggedness_value * 0.85 - 0.30, 0.0, 1.0)
+	var density_floor: float = clampf(0.44 - _balance.mountain_density * 0.30, 0.20, 0.38)
+	var cluster_gate: float = clampf((cluster_noise - density_floor) / 0.44, 0.0, 1.0)
+	var terrain_gate: float = clampf(height_value * 0.58 + ruggedness_value * 0.92 - 0.24, 0.0, 1.0)
 	return clampf(cluster_gate * terrain_gate, 0.0, 1.0)
 
 func _sample_ridge_strength(world_pos: Vector2i, mountain_mass: float, height_value: float, ruggedness_value: float) -> float:
@@ -75,9 +76,12 @@ func _sample_ridge_strength(world_pos: Vector2i, mountain_mass: float, height_va
 		_balance.ridge_core_width_tiles,
 		_balance.ridge_feather_tiles
 	)
-	var terrain_gate: float = clampf(height_value * 0.55 + ruggedness_value * 0.95 - 0.24, 0.0, 1.0)
-	var mass_gate: float = lerpf(0.30, 1.0, mountain_mass)
-	return clampf(band_strength * terrain_gate * mass_gate, 0.0, 1.0)
+	var chaininess: float = clampf(_balance.mountain_chaininess, 0.0, 1.0)
+	var terrain_gate: float = clampf(height_value * 0.50 + ruggedness_value * 1.02 - 0.18, 0.08, 1.0)
+	var mass_floor: float = lerpf(0.24, 0.46, chaininess)
+	var mass_gate: float = lerpf(mass_floor, 1.0, mountain_mass)
+	var ridge_bias: float = lerpf(0.94, 1.14, chaininess)
+	return clampf(band_strength * terrain_gate * mass_gate * ridge_bias, 0.0, 1.0)
 
 func _sample_river_strength(
 	world_pos: Vector2i,
@@ -93,11 +97,11 @@ func _sample_river_strength(
 		river_coord,
 		float(_balance.river_spacing_tiles),
 		_balance.river_core_width_tiles,
-		_balance.river_floodplain_width_tiles * 0.45
+		_balance.river_floodplain_width_tiles * 0.70
 	)
-	var lowland_gate: float = clampf(1.0 - (height_value * 0.95 + ruggedness_value * 0.65), 0.0, 1.0)
-	var moisture_gate: float = clampf(0.40 + moisture_value * 0.60, 0.0, 1.0)
-	var mountain_penalty: float = clampf(1.0 - ridge_strength * 0.55 - mountain_mass * 0.30, 0.10, 1.0)
+	var lowland_gate: float = clampf(1.0 - (height_value * 0.70 + ruggedness_value * 0.42), 0.08, 1.0)
+	var moisture_gate: float = clampf(0.58 + moisture_value * 0.42, 0.0, 1.0)
+	var mountain_penalty: float = clampf(1.0 - ridge_strength * 0.30 - mountain_mass * 0.12, 0.28, 1.0)
 	return clampf(band_strength * lowland_gate * moisture_gate * mountain_penalty, 0.0, 1.0)
 
 func _sample_floodplain_strength(
@@ -116,10 +120,10 @@ func _sample_floodplain_strength(
 		_balance.river_core_width_tiles * 2.5,
 		_balance.river_floodplain_width_tiles
 	)
-	var lowland_gate: float = clampf(1.0 - (height_value * 0.80 + ruggedness_value * 0.45), 0.0, 1.0)
-	var moisture_gate: float = clampf(0.25 + moisture_value * 0.75, 0.0, 1.0)
-	var mountain_penalty: float = clampf(1.0 - mountain_mass * 0.50, 0.20, 1.0)
-	return clampf(maxf(river_strength * 0.55, floodplain_band * lowland_gate * moisture_gate * mountain_penalty), 0.0, 1.0)
+	var lowland_gate: float = clampf(1.0 - (height_value * 0.60 + ruggedness_value * 0.25), 0.10, 1.0)
+	var moisture_gate: float = clampf(0.45 + moisture_value * 0.55, 0.0, 1.0)
+	var mountain_penalty: float = clampf(1.0 - mountain_mass * 0.30, 0.34, 1.0)
+	return clampf(maxf(river_strength * 0.78, floodplain_band * lowland_gate * moisture_gate * mountain_penalty), 0.0, 1.0)
 
 func _directed_coordinate(world_pos: Vector2i, direction: Vector2) -> float:
 	return float(world_pos.x) * direction.normalized().x + float(world_pos.y) * direction.normalized().y

@@ -13,6 +13,11 @@ const ROCK_FACES_DUNGEON_PATH: String = "res://assets/sprites/terrain/rock_faces
 static var wall_base_count: int = 0
 ## Количество вариантов (1 = без вариативности, 3 = три варианта).
 static var wall_variant_count: int = 1
+static var terrain_tiles_per_row: int = 64
+const MAX_TERRAIN_ATLAS_EDGE_PX: int = 4096
+const SURFACE_PALETTE_TILE_COUNT: int = 11
+
+static var _surface_palette_tiles: Array[Dictionary] = []
 
 const TILE_GROUND_DARK: Vector2i = Vector2i(0, 0)
 const TILE_GROUND: Vector2i = Vector2i(1, 0)
@@ -165,8 +170,34 @@ static func build_tilesets(balance: WorldGenBalance, biome: BiomeData) -> Dictio
 		"overlay": _build_overlay_tileset(balance, biome),
 	}
 
+static func build_surface_tileset(balance: WorldGenBalance, biomes: Array[BiomeData]) -> TileSet:
+	return _build_surface_terrain_tileset(balance, biomes)
+
+static func build_overlay_tileset(balance: WorldGenBalance, biome: BiomeData) -> TileSet:
+	return _build_overlay_tileset(balance, biome)
+
 static func build_underground_terrain_tileset(balance: WorldGenBalance, biome: BiomeData) -> TileSet:
 	return _build_terrain_tileset(balance, biome, ROCK_FACES_DUNGEON_PATH)
+
+static func get_surface_ground_tile(biome_palette_index: int, height_value: float) -> Vector2i:
+	var palette: Dictionary = _get_surface_palette(biome_palette_index)
+	if height_value < 0.38:
+		return palette.get("ground_dark", TILE_GROUND_DARK)
+	if height_value > 0.62:
+		return palette.get("ground_light", TILE_GROUND_LIGHT)
+	return palette.get("ground", TILE_GROUND)
+
+static func get_surface_terrain_tile(terrain_type: int, biome_palette_index: int) -> Vector2i:
+	var palette: Dictionary = _get_surface_palette(biome_palette_index)
+	match terrain_type:
+		TileGenData.TerrainType.WATER:
+			return palette.get("water", tile_water)
+		TileGenData.TerrainType.SAND:
+			return palette.get("sand", tile_sand)
+		TileGenData.TerrainType.GRASS:
+			return palette.get("grass", tile_grass)
+		_:
+			return Vector2i(-1, -1)
 
 static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, faces_path: String = ROCK_FACES_PATH) -> TileSet:
 	var ts: int = balance.tile_size
@@ -185,52 +216,53 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, f
 	print("[ChunkTilesetFactory] atlas_tiles=%d, wall_base_count=%d, wall_variant_count=%d" % [atlas_tiles, wall_base_count, wall_variant_count])
 	var surface_extra_tiles: int = 8
 	var extras_start: int = 7 + atlas_tiles
-	tile_water = Vector2i(extras_start, 0)
-	tile_sand = Vector2i(extras_start + 1, 0)
-	tile_grass = Vector2i(extras_start + 2, 0)
-	tile_sparse_flora = Vector2i(extras_start + 3, 0)
-	tile_dense_flora = Vector2i(extras_start + 4, 0)
-	tile_clearing = Vector2i(extras_start + 5, 0)
-	tile_rocky_patch = Vector2i(extras_start + 6, 0)
-	tile_wet_patch = Vector2i(extras_start + 7, 0)
 	var total: int = extras_start + surface_extra_tiles
-	var img := Image.create(ts * total, ts, false, Image.FORMAT_RGBA8)
-	_draw_ground_tile(img, Rect2i(0, 0, ts, ts), biome.ground_color.darkened(0.12), 0)
-	_draw_ground_tile(img, Rect2i(ts, 0, ts, ts), biome.ground_color, 1)
-	_draw_ground_tile(img, Rect2i(ts * 2, 0, ts, ts), biome.ground_color.lightened(0.10), 2)
-	_draw_rock_tile(img, Rect2i(ts * 3, 0, ts, ts), balance.rock_color)
-	_draw_rock_interior_tile(img, Rect2i(ts * 4, 0, ts, ts), balance.rock_color)
-	_draw_mined_floor_tile(img, Rect2i(ts * 5, 0, ts, ts), balance.mined_floor_color)
-	_draw_entrance_tile(img, Rect2i(ts * 6, 0, ts, ts), balance.entrance_color, balance.mined_floor_color, biome.ground_color)
+	terrain_tiles_per_row = _resolve_terrain_tiles_per_row(total, ts)
+	var total_rows: int = int(ceili(float(total) / float(terrain_tiles_per_row)))
+	var img := Image.create(ts * terrain_tiles_per_row, ts * total_rows, false, Image.FORMAT_RGBA8)
+	_draw_ground_tile(img, _rect_for_linear_index(0, ts), biome.ground_color.darkened(0.12), 0)
+	_draw_ground_tile(img, _rect_for_linear_index(1, ts), biome.ground_color, 1)
+	_draw_ground_tile(img, _rect_for_linear_index(2, ts), biome.ground_color.lightened(0.10), 2)
+	_draw_rock_tile(img, _rect_for_linear_index(3, ts), balance.rock_color)
+	_draw_rock_interior_tile(img, _rect_for_linear_index(4, ts), balance.rock_color)
+	_draw_mined_floor_tile(img, _rect_for_linear_index(5, ts), balance.mined_floor_color)
+	_draw_entrance_tile(img, _rect_for_linear_index(6, ts), balance.entrance_color, balance.mined_floor_color, biome.ground_color)
 	if faces_img:
 		for i: int in range(atlas_tiles):
 			var src_col: int = i % atlas_cols
 			var src_row: int = i / atlas_cols
-			img.blit_rect(faces_img, Rect2i(src_col * ts, src_row * ts, ts, ts), Vector2i((7 + i) * ts, 0))
-	_draw_water_tile(img, Rect2i(tile_water.x * ts, 0, ts, ts), biome.water_color)
-	_draw_sand_tile(img, Rect2i(tile_sand.x * ts, 0, ts, ts), biome.sand_color, biome.water_color)
-	_draw_grass_tile(img, Rect2i(tile_grass.x * ts, 0, ts, ts), biome.grass_color, biome.ground_color)
-	_draw_sparse_flora_tile(img, Rect2i(tile_sparse_flora.x * ts, 0, ts, ts), biome.ground_color, biome.grass_color)
-	_draw_dense_flora_tile(img, Rect2i(tile_dense_flora.x * ts, 0, ts, ts), biome.ground_color, biome.grass_color)
-	_draw_clearing_tile(img, Rect2i(tile_clearing.x * ts, 0, ts, ts), biome.ground_color)
-	_draw_rocky_patch_tile(img, Rect2i(tile_rocky_patch.x * ts, 0, ts, ts), biome.ground_color, balance.rock_color)
-	_draw_wet_patch_tile(img, Rect2i(tile_wet_patch.x * ts, 0, ts, ts), biome.ground_color, biome.water_color)
+			img.blit_rect(faces_img, Rect2i(src_col * ts, src_row * ts, ts, ts), _coords_for_linear_index(7 + i) * ts)
+	tile_water = _coords_for_linear_index(extras_start)
+	tile_sand = _coords_for_linear_index(extras_start + 1)
+	tile_grass = _coords_for_linear_index(extras_start + 2)
+	tile_sparse_flora = _coords_for_linear_index(extras_start + 3)
+	tile_dense_flora = _coords_for_linear_index(extras_start + 4)
+	tile_clearing = _coords_for_linear_index(extras_start + 5)
+	tile_rocky_patch = _coords_for_linear_index(extras_start + 6)
+	tile_wet_patch = _coords_for_linear_index(extras_start + 7)
+	_draw_water_tile(img, Rect2i(tile_water.x * ts, tile_water.y * ts, ts, ts), biome.water_color)
+	_draw_sand_tile(img, Rect2i(tile_sand.x * ts, tile_sand.y * ts, ts, ts), biome.sand_color, biome.water_color)
+	_draw_grass_tile(img, Rect2i(tile_grass.x * ts, tile_grass.y * ts, ts, ts), biome.grass_color, biome.ground_color)
+	_draw_sparse_flora_tile(img, Rect2i(tile_sparse_flora.x * ts, tile_sparse_flora.y * ts, ts, ts), biome.ground_color, biome.grass_color)
+	_draw_dense_flora_tile(img, Rect2i(tile_dense_flora.x * ts, tile_dense_flora.y * ts, ts, ts), biome.ground_color, biome.grass_color)
+	_draw_clearing_tile(img, Rect2i(tile_clearing.x * ts, tile_clearing.y * ts, ts, ts), biome.ground_color)
+	_draw_rocky_patch_tile(img, Rect2i(tile_rocky_patch.x * ts, tile_rocky_patch.y * ts, ts, ts), biome.ground_color, balance.rock_color)
+	_draw_wet_patch_tile(img, Rect2i(tile_wet_patch.x * ts, tile_wet_patch.y * ts, ts, ts), biome.ground_color, biome.water_color)
 	var tex: ImageTexture = ImageTexture.create_from_image(img)
 	var tileset := TileSet.new()
 	tileset.tile_size = Vector2i(ts, ts)
 	var src := TileSetAtlasSource.new()
 	src.texture = tex
 	src.texture_region_size = Vector2i(ts, ts)
-	for x: int in range(total):
-		src.create_tile(Vector2i(x, 0))
+	for tile_index: int in range(total):
+		src.create_tile(_coords_for_linear_index(tile_index))
 	## Create alternative tiles with runtime flips for wall tiles.
 	for vi: int in range(wall_variant_count):
 		for def_i: int in range(TILE_DEFS_COUNT):
 			var flip_class: int = _WALL_FLIP_CLASS[def_i]
 			if flip_class == 0:
 				continue
-			var atlas_x: int = 7 + def_i + vi * wall_base_count
-			var coords := Vector2i(atlas_x, 0)
+			var coords := _coords_for_linear_index(7 + def_i + vi * wall_base_count)
 			var transforms: Array = _FLIP_TRANSFORMS[flip_class]
 			for t_i: int in range(transforms.size()):
 				var alt_id: int = src.create_alternative_tile(coords)
@@ -240,27 +272,182 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, f
 	tileset.add_source(src, TERRAIN_SOURCE_ID)
 	return tileset
 
-static func get_surface_variation_tile(variation_id: int) -> Vector2i:
+static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Array[BiomeData]) -> TileSet:
+	var ordered_biomes: Array[BiomeData] = biomes.duplicate()
+	if ordered_biomes.is_empty():
+		ordered_biomes.append(BiomeData.new())
+	var default_biome: BiomeData = ordered_biomes[0]
+	var ts: int = balance.tile_size
+	var faces_tex: Texture2D = load(ROCK_FACES_PATH) as Texture2D
+	var atlas_tiles: int = 0
+	var faces_img: Image = null
+	var atlas_cols: int = 0
+	if faces_tex:
+		faces_img = faces_tex.get_image()
+		if faces_img:
+			atlas_cols = faces_img.get_width() / ts
+			var atlas_rows: int = faces_img.get_height() / ts
+			atlas_tiles = atlas_cols * atlas_rows
+	wall_base_count = TILE_DEFS_COUNT
+	wall_variant_count = maxi(1, atlas_tiles / wall_base_count)
+	var palette_start: int = 7 + atlas_tiles
+	var total: int = palette_start + SURFACE_PALETTE_TILE_COUNT * ordered_biomes.size()
+	terrain_tiles_per_row = _resolve_terrain_tiles_per_row(total, ts)
+	var total_rows: int = int(ceili(float(total) / float(terrain_tiles_per_row)))
+	var img := Image.create(ts * terrain_tiles_per_row, ts * total_rows, false, Image.FORMAT_RGBA8)
+	_draw_ground_tile(img, _rect_for_linear_index(0, ts), default_biome.ground_color.darkened(0.12), 0)
+	_draw_ground_tile(img, _rect_for_linear_index(1, ts), default_biome.ground_color, 1)
+	_draw_ground_tile(img, _rect_for_linear_index(2, ts), default_biome.ground_color.lightened(0.10), 2)
+	_draw_rock_tile(img, _rect_for_linear_index(3, ts), balance.rock_color)
+	_draw_rock_interior_tile(img, _rect_for_linear_index(4, ts), balance.rock_color)
+	_draw_mined_floor_tile(img, _rect_for_linear_index(5, ts), balance.mined_floor_color)
+	_draw_entrance_tile(img, _rect_for_linear_index(6, ts), balance.entrance_color, balance.mined_floor_color, default_biome.ground_color)
+	if faces_img:
+		for i: int in range(atlas_tiles):
+			var src_col: int = i % atlas_cols
+			var src_row: int = i / atlas_cols
+			img.blit_rect(faces_img, Rect2i(src_col * ts, src_row * ts, ts, ts), _coords_for_linear_index(7 + i) * ts)
+	_surface_palette_tiles.clear()
+	for biome_index: int in range(ordered_biomes.size()):
+		var biome: BiomeData = ordered_biomes[biome_index]
+		var start_index: int = palette_start + biome_index * SURFACE_PALETTE_TILE_COUNT
+		var palette := {
+			"ground_dark": _coords_for_linear_index(start_index),
+			"ground": _coords_for_linear_index(start_index + 1),
+			"ground_light": _coords_for_linear_index(start_index + 2),
+			"water": _coords_for_linear_index(start_index + 3),
+			"sand": _coords_for_linear_index(start_index + 4),
+			"grass": _coords_for_linear_index(start_index + 5),
+			"sparse_flora": _coords_for_linear_index(start_index + 6),
+			"dense_flora": _coords_for_linear_index(start_index + 7),
+			"clearing": _coords_for_linear_index(start_index + 8),
+			"rocky_patch": _coords_for_linear_index(start_index + 9),
+			"wet_patch": _coords_for_linear_index(start_index + 10),
+		}
+		_surface_palette_tiles.append(palette)
+		var ground_dark: Vector2i = palette["ground_dark"]
+		var ground: Vector2i = palette["ground"]
+		var ground_light: Vector2i = palette["ground_light"]
+		var water: Vector2i = palette["water"]
+		var sand: Vector2i = palette["sand"]
+		var grass: Vector2i = palette["grass"]
+		var sparse_flora: Vector2i = palette["sparse_flora"]
+		var dense_flora: Vector2i = palette["dense_flora"]
+		var clearing: Vector2i = palette["clearing"]
+		var rocky_patch: Vector2i = palette["rocky_patch"]
+		var wet_patch: Vector2i = palette["wet_patch"]
+		_draw_ground_tile(img, Rect2i(ground_dark.x * ts, ground_dark.y * ts, ts, ts), biome.ground_color.darkened(0.12), 0)
+		_draw_ground_tile(img, Rect2i(ground.x * ts, ground.y * ts, ts, ts), biome.ground_color, 1)
+		_draw_ground_tile(img, Rect2i(ground_light.x * ts, ground_light.y * ts, ts, ts), biome.ground_color.lightened(0.10), 2)
+		_draw_water_tile(img, Rect2i(water.x * ts, water.y * ts, ts, ts), biome.water_color)
+		_draw_sand_tile(img, Rect2i(sand.x * ts, sand.y * ts, ts, ts), biome.sand_color, biome.water_color)
+		_draw_grass_tile(img, Rect2i(grass.x * ts, grass.y * ts, ts, ts), biome.grass_color, biome.ground_color)
+		_draw_sparse_flora_tile(img, Rect2i(sparse_flora.x * ts, sparse_flora.y * ts, ts, ts), biome.ground_color, biome.grass_color)
+		_draw_dense_flora_tile(img, Rect2i(dense_flora.x * ts, dense_flora.y * ts, ts, ts), biome.ground_color, biome.grass_color)
+		_draw_clearing_tile(img, Rect2i(clearing.x * ts, clearing.y * ts, ts, ts), biome.ground_color)
+		_draw_rocky_patch_tile(img, Rect2i(rocky_patch.x * ts, rocky_patch.y * ts, ts, ts), biome.ground_color, balance.rock_color)
+		_draw_wet_patch_tile(img, Rect2i(wet_patch.x * ts, wet_patch.y * ts, ts, ts), biome.ground_color, biome.water_color)
+	tile_water = _coords_for_linear_index(palette_start + 3)
+	tile_sand = _coords_for_linear_index(palette_start + 4)
+	tile_grass = _coords_for_linear_index(palette_start + 5)
+	tile_sparse_flora = _coords_for_linear_index(palette_start + 6)
+	tile_dense_flora = _coords_for_linear_index(palette_start + 7)
+	tile_clearing = _coords_for_linear_index(palette_start + 8)
+	tile_rocky_patch = _coords_for_linear_index(palette_start + 9)
+	tile_wet_patch = _coords_for_linear_index(palette_start + 10)
+	var tex: ImageTexture = ImageTexture.create_from_image(img)
+	var tileset := TileSet.new()
+	tileset.tile_size = Vector2i(ts, ts)
+	var src := TileSetAtlasSource.new()
+	src.texture = tex
+	src.texture_region_size = Vector2i(ts, ts)
+	for tile_index: int in range(total):
+		src.create_tile(_coords_for_linear_index(tile_index))
+	for vi: int in range(wall_variant_count):
+		for def_i: int in range(TILE_DEFS_COUNT):
+			var flip_class: int = _WALL_FLIP_CLASS[def_i]
+			if flip_class == 0:
+				continue
+			var coords := _coords_for_linear_index(7 + def_i + vi * wall_base_count)
+			var transforms: Array = _FLIP_TRANSFORMS[flip_class]
+			for t_i: int in range(transforms.size()):
+				var alt_id: int = src.create_alternative_tile(coords)
+				var alt_data: TileData = src.get_tile_data(coords, alt_id)
+				alt_data.flip_h = transforms[t_i][0]
+				alt_data.flip_v = transforms[t_i][1]
+	tileset.add_source(src, TERRAIN_SOURCE_ID)
+	return tileset
+
+static func get_surface_variation_tile(variation_id: int, biome_palette_index: int = 0) -> Vector2i:
+	var palette: Dictionary = _get_surface_palette(biome_palette_index)
 	match variation_id:
 		SURFACE_VARIATION_SPARSE_FLORA:
-			return tile_sparse_flora
+			return palette.get("sparse_flora", tile_sparse_flora)
 		SURFACE_VARIATION_DENSE_FLORA:
-			return tile_dense_flora
+			return palette.get("dense_flora", tile_dense_flora)
 		SURFACE_VARIATION_CLEARING:
-			return tile_clearing
+			return palette.get("clearing", tile_clearing)
 		SURFACE_VARIATION_ROCKY_PATCH:
-			return tile_rocky_patch
+			return palette.get("rocky_patch", tile_rocky_patch)
 		SURFACE_VARIATION_WET_PATCH:
-			return tile_wet_patch
+			return palette.get("wet_patch", tile_wet_patch)
 		_:
 			return Vector2i(-1, -1)
+
+static func get_wall_variant_coords(base: Vector2i, variant_index: int) -> Vector2i:
+	var def_index: int = base.x - 7
+	if def_index < 0:
+		return base
+	return _coords_for_linear_index(7 + def_index + variant_index * wall_base_count)
+
+static func _resolve_terrain_tiles_per_row(total_tiles: int, tile_size: int) -> int:
+	if total_tiles <= 0:
+		return 1
+	var max_columns: int = maxi(1, int(floori(float(MAX_TERRAIN_ATLAS_EDGE_PX) / float(maxi(1, tile_size)))))
+	return max_columns
+
+static func _coords_for_linear_index(index: int) -> Vector2i:
+	var columns: int = maxi(1, terrain_tiles_per_row)
+	return Vector2i(index % columns, index / columns)
+
+static func _rect_for_linear_index(index: int, tile_size: int) -> Rect2i:
+	var coords: Vector2i = _coords_for_linear_index(index)
+	return Rect2i(coords.x * tile_size, coords.y * tile_size, tile_size, tile_size)
+
+static func _get_surface_palette(biome_palette_index: int) -> Dictionary:
+	if _surface_palette_tiles.is_empty():
+		return {}
+	var clamped_index: int = clampi(biome_palette_index, 0, _surface_palette_tiles.size() - 1)
+	return _surface_palette_tiles[clamped_index] as Dictionary
 
 static func _build_overlay_tileset(balance: WorldGenBalance, _biome: BiomeData) -> TileSet:
 	var tileset := TileSet.new()
 	tileset.tile_size = Vector2i(balance.tile_size, balance.tile_size)
-	# Overlay atlas is currently an inactive/unfinished subsystem.
-	# _redraw_cliff_tile() is a no-op, so the game does not need a hard
-	# runtime dependency on rock_overlay_atlas.png right now.
+	var ts: int = balance.tile_size
+	var image := Image.create(ts * 7, ts, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0.0, 0.0, 0.0, 0.0))
+	_draw_overlay_fill(image, Rect2i(TILE_ROOF.x * ts, 0, ts, ts), Color(0.04, 0.03, 0.02, 0.24))
+	_draw_overlay_fill(image, Rect2i(TILE_INTERIOR_FILL.x * ts, 0, ts, ts), Color(0.02, 0.02, 0.02, 0.16))
+	_draw_overlay_vertical_shadow(image, Rect2i(TILE_SHADOW_SOUTH.x * ts, 0, ts, ts), false, Color(0.02, 0.02, 0.01, 0.50))
+	_draw_overlay_horizontal_shadow(image, Rect2i(TILE_SHADOW_EAST.x * ts, 0, ts, ts), true, Color(0.02, 0.02, 0.01, 0.32))
+	_draw_overlay_top_edge(image, Rect2i(TILE_TOP_EDGE.x * ts, 0, ts, ts))
+	_draw_overlay_vertical_shadow(image, Rect2i(TILE_SHADOW_NORTH.x * ts, 0, ts, ts), true, Color(0.02, 0.02, 0.01, 0.24))
+	_draw_overlay_horizontal_shadow(image, Rect2i(TILE_SHADOW_WEST.x * ts, 0, ts, ts), false, Color(0.02, 0.02, 0.01, 0.32))
+	var texture := ImageTexture.create_from_image(image)
+	var source := TileSetAtlasSource.new()
+	source.texture = texture
+	source.texture_region_size = Vector2i(ts, ts)
+	for coords: Vector2i in [
+		TILE_ROOF,
+		TILE_INTERIOR_FILL,
+		TILE_SHADOW_SOUTH,
+		TILE_SHADOW_EAST,
+		TILE_TOP_EDGE,
+		TILE_SHADOW_NORTH,
+		TILE_SHADOW_WEST,
+	]:
+		source.create_tile(coords)
+	tileset.add_source(source, OVERLAY_SOURCE_ID)
 	return tileset
 
 ## Fog of war tileset for underground. Two tiles: UNSEEN (opaque black) and DISCOVERED (dim).
@@ -295,6 +482,42 @@ static func _fill_rect(image: Image, rect: Rect2i, color: Color) -> void:
 	for py: int in range(rect.position.y, rect.end.y):
 		for px: int in range(rect.position.x, rect.end.x):
 			image.set_pixel(px, py, color)
+
+static func _draw_overlay_fill(image: Image, rect: Rect2i, color: Color) -> void:
+	_fill_rect(image, rect, color)
+
+static func _draw_overlay_vertical_shadow(image: Image, rect: Rect2i, from_top: bool, base_color: Color) -> void:
+	for py: int in range(rect.position.y, rect.end.y):
+		var t: float = float(py - rect.position.y) / float(maxi(1, rect.size.y - 1))
+		var strength: float = 1.0 - t if from_top else t
+		var color: Color = Color(base_color.r, base_color.g, base_color.b, base_color.a * strength)
+		for px: int in range(rect.position.x, rect.end.x):
+			image.set_pixel(px, py, color)
+
+static func _draw_overlay_horizontal_shadow(image: Image, rect: Rect2i, from_right: bool, base_color: Color) -> void:
+	for px: int in range(rect.position.x, rect.end.x):
+		var t: float = float(px - rect.position.x) / float(maxi(1, rect.size.x - 1))
+		var strength: float = t if from_right else 1.0 - t
+		var color: Color = Color(base_color.r, base_color.g, base_color.b, base_color.a * strength)
+		for py: int in range(rect.position.y, rect.end.y):
+			image.set_pixel(px, py, color)
+
+static func _draw_overlay_top_edge(image: Image, rect: Rect2i) -> void:
+	for py: int in range(rect.position.y, rect.end.y):
+		var local_y: int = py - rect.position.y
+		var alpha: float = 0.0
+		if local_y <= 2:
+			alpha = 0.38 - float(local_y) * 0.08
+		elif local_y <= 6:
+			alpha = 0.12 - float(local_y - 3) * 0.02
+		if alpha <= 0.0:
+			continue
+		for px: int in range(rect.position.x, rect.end.x):
+			var local_x: int = px - rect.position.x
+			var jitter: float = 0.0
+			if (local_x * 5 + local_y * 11) % 9 == 0:
+				jitter = 0.05
+			image.set_pixel(px, py, Color(0.90, 0.82, 0.66, alpha + jitter))
 
 static func _draw_ground_tile(image: Image, rect: Rect2i, base_color: Color, variant_seed: int) -> void:
 	_fill_rect(image, rect, base_color)

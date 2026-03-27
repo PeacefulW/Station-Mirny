@@ -25,6 +25,7 @@ var mountain_mass: float = 0.0
 var river_strength: float = 0.0
 var floodplain_strength: float = 0.0
 var biome_id: StringName = &""
+var biome_palette_index: int = 0
 var biome_score: float = -1.0
 var local_variation_id: int = 0
 var local_variation_kind: StringName = &"none"

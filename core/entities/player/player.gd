@@ -250,6 +250,10 @@ func _setup_camera() -> void:
 	if _camera:
 		_camera.setup(balance)
 
+func reset_camera_smoothing() -> void:
+	if _camera:
+		_camera.reset_smoothing()
+
 func perform_attack() -> bool:
 	if _attack_timer > 0.0 or not _attack_area:
 		return false

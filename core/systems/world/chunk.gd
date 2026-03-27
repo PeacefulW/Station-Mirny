@@ -40,6 +40,7 @@ var _biome: BiomeData = null
 var _terrain_bytes: PackedByteArray = PackedByteArray()
 var _height_bytes: PackedFloat32Array = PackedFloat32Array()
 var _variation_bytes: PackedByteArray = PackedByteArray()
+var _biome_bytes: PackedByteArray = PackedByteArray()
 var _has_mountain: bool = false
 var _redraw_phase: int = REDRAW_PHASE_DONE
 var _redraw_tile_index: int = 0
@@ -63,8 +64,7 @@ func setup(
 	_overlay_tileset = p_overlay_tileset
 	_chunk_manager = p_chunk_manager
 	name = "Chunk_%d_%d" % [chunk_coord.x, chunk_coord.y]
-	var chunk_pixels: int = _chunk_size * _tile_size
-	position = Vector2(chunk_coord.x * chunk_pixels, chunk_coord.y * chunk_pixels)
+	sync_display_position(chunk_coord)
 	_terrain_layer = _create_layer("Terrain", _terrain_tileset, -10)
 	_cliff_layer = _create_layer("Cliffs", _overlay_tileset, -9)
 	_cover_layer = _create_layer("MountainCover", _terrain_tileset, 6)
@@ -73,13 +73,23 @@ func setup(
 	_debug_root.z_index = 50
 	add_child(_debug_root)
 
+func sync_display_position(reference_chunk: Vector2i) -> void:
+	var display_chunk: Vector2i = chunk_coord
+	if WorldGenerator and WorldGenerator._is_initialized:
+		display_chunk = WorldGenerator.get_display_chunk_coord(chunk_coord, reference_chunk)
+	var chunk_pixels: int = _chunk_size * _tile_size
+	position = Vector2(display_chunk.x * chunk_pixels, display_chunk.y * chunk_pixels)
+
 func populate_native(native_data: Dictionary, saved_modifications: Dictionary, instant: bool = false) -> void:
 	_modified_tiles = saved_modifications.duplicate()
 	_terrain_bytes = native_data.get("terrain", PackedByteArray()).duplicate()
 	_height_bytes = native_data.get("height", PackedFloat32Array()).duplicate()
 	_variation_bytes = native_data.get("variation", PackedByteArray()).duplicate()
+	_biome_bytes = native_data.get("biome", PackedByteArray()).duplicate()
 	if _variation_bytes.size() != _terrain_bytes.size():
 		_variation_bytes = PackedByteArray()
+	if _biome_bytes.size() != _terrain_bytes.size():
+		_biome_bytes = PackedByteArray()
 	_apply_saved_modifications()
 	_cache_has_mountain()
 	_reset_cover_visual_state()
@@ -219,6 +229,7 @@ func cleanup() -> void:
 	_terrain_bytes = PackedByteArray()
 	_height_bytes = PackedFloat32Array()
 	_variation_bytes = PackedByteArray()
+	_biome_bytes = PackedByteArray()
 	_revealed_local_cover_tiles = {}
 
 func _create_layer(layer_name: String, tileset: TileSet, z_index_value: int) -> TileMapLayer:
@@ -333,16 +344,18 @@ func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 		TileGenData.TerrainType.ROCK:
 			# All rock uses wall face variants (47 types). Underground non-edge rock
 			# is hidden by fog layer anyway — no need for special dark tile.
-			var result: Array = _apply_variant_full(
-				_rock_visual_class(local_tile), local_tile)
+			var rock_visual: Vector2i = _rock_visual_class(local_tile)
+			if not _is_underground:
+				rock_visual = _surface_rock_visual_class(local_tile)
+			var result: Array = _apply_variant_full(rock_visual, local_tile, _is_underground)
 			atlas = result[0]
 			alt_id = result[1]
 		TileGenData.TerrainType.WATER:
-			atlas = ChunkTilesetFactory.tile_water
+			atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, _biome_palette_index_at(local_tile))
 		TileGenData.TerrainType.SAND:
-			atlas = ChunkTilesetFactory.tile_sand
+			atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, _biome_palette_index_at(local_tile))
 		TileGenData.TerrainType.GRASS:
-			atlas = ChunkTilesetFactory.tile_grass
+			atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, _biome_palette_index_at(local_tile))
 		TileGenData.TerrainType.MINED_FLOOR:
 			atlas = ChunkTilesetFactory.TILE_MINED_FLOOR
 		TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
@@ -351,13 +364,52 @@ func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 			atlas = _resolve_surface_ground_atlas(local_tile)
 	_terrain_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, alt_id)
 
+func _surface_rock_visual_class(local_tile: Vector2i) -> Vector2i:
+	var s: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.DOWN))
+	var n: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.UP))
+	var w: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.LEFT))
+	var e: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.RIGHT))
+	var count: int = int(s) + int(n) + int(w) + int(e)
+	if count == 0:
+		return ChunkTilesetFactory.WALL_INTERIOR
+	if count == 4:
+		return ChunkTilesetFactory.WALL_PILLAR
+	if count == 3:
+		if not n:
+			return ChunkTilesetFactory.WALL_PENINSULA_S
+		if not s:
+			return ChunkTilesetFactory.WALL_PENINSULA_N
+		if not w:
+			return ChunkTilesetFactory.WALL_PENINSULA_E
+		return ChunkTilesetFactory.WALL_PENINSULA_W
+	if count == 2:
+		if s and w:
+			return ChunkTilesetFactory.WALL_CORNER_SW
+		if s and e:
+			return ChunkTilesetFactory.WALL_CORNER_SE
+		if n and w:
+			return ChunkTilesetFactory.WALL_CORNER_NW
+		if n and e:
+			return ChunkTilesetFactory.WALL_CORNER_NE
+		if w and e:
+			return ChunkTilesetFactory.WALL_CORRIDOR_EW
+		return ChunkTilesetFactory.WALL_CORRIDOR_NS
+	if s:
+		return ChunkTilesetFactory.WALL_SOUTH
+	if n:
+		return ChunkTilesetFactory.WALL_NORTH
+	if w:
+		return ChunkTilesetFactory.WALL_WEST
+	return ChunkTilesetFactory.WALL_EAST
+
 func _resolve_surface_ground_atlas(local_tile: Vector2i) -> Vector2i:
 	if _is_underground:
 		return _ground_atlas_for_height(_height_at(local_tile))
-	var variation_tile: Vector2i = ChunkTilesetFactory.get_surface_variation_tile(_variation_at(local_tile))
+	var biome_palette_index: int = _biome_palette_index_at(local_tile)
+	var variation_tile: Vector2i = ChunkTilesetFactory.get_surface_variation_tile(_variation_at(local_tile), biome_palette_index)
 	if variation_tile.x >= 0:
 		return variation_tile
-	return _ground_atlas_for_height(_height_at(local_tile))
+	return ChunkTilesetFactory.get_surface_ground_tile(biome_palette_index, _height_at(local_tile))
 
 func _ground_atlas_for_height(height_value: float) -> Vector2i:
 	if height_value < 0.38:
@@ -458,8 +510,26 @@ func _get_sun_direction() -> Vector2:
 func _is_cliff_exposed_to_surface(local_tile: Vector2i) -> bool:
 	return _is_open_exterior(_get_neighbor_terrain(local_tile))
 
-func _redraw_cliff_tile(_local_tile: Vector2i) -> void:
-	pass
+func _redraw_cliff_tile(local_tile: Vector2i) -> void:
+	if not _cliff_layer or _is_underground:
+		return
+	if get_terrain_type_at(local_tile) != TileGenData.TerrainType.ROCK:
+		return
+	var south_open: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.DOWN))
+	var west_open: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.LEFT))
+	var east_open: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.RIGHT))
+	var north_open: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + Vector2i.UP))
+	var overlay: Vector2i = Vector2i(-1, -1)
+	if south_open:
+		overlay = ChunkTilesetFactory.TILE_SHADOW_SOUTH
+	elif west_open:
+		overlay = ChunkTilesetFactory.TILE_SHADOW_WEST
+	elif east_open:
+		overlay = ChunkTilesetFactory.TILE_SHADOW_EAST
+	elif north_open:
+		overlay = ChunkTilesetFactory.TILE_TOP_EDGE
+	if overlay.x >= 0:
+		_cliff_layer.set_cell(local_tile, ChunkTilesetFactory.OVERLAY_SOURCE_ID, overlay)
 
 func _redraw_cover_tile(local_tile: Vector2i) -> void:
 	# Underground z-levels don't use roof/cover system (ADR-0006).
@@ -473,7 +543,7 @@ func _redraw_cover_tile(local_tile: Vector2i) -> void:
 		return
 	# Use the same variant hash as terrain layer — mountain looks identical before/after mining
 	var base: Vector2i = _cover_rock_atlas(local_tile)
-	var result: Array = _apply_variant_full(base, local_tile)
+	var result: Array = _apply_variant_full(base, local_tile, false)
 	_cover_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, result[0], result[1])
 
 ## XOR-shift hash — no visible linear patterns.
@@ -484,16 +554,16 @@ static func _tile_hash(pos: Vector2i) -> int:
 	return absi(h)
 
 ## Returns [atlas_coords, alternative_tile_id].
-func _apply_variant_full(base: Vector2i, local_tile: Vector2i) -> Array:
+func _apply_variant_full(base: Vector2i, local_tile: Vector2i, allow_flip: bool = true) -> Array:
 	var gt: Vector2i = _to_global_tile(local_tile)
 	var h: int = _tile_hash(gt)
 	var vi: int = 0
 	if ChunkTilesetFactory.wall_variant_count > 1:
 		vi = h % ChunkTilesetFactory.wall_variant_count
-	var atlas := Vector2i(base.x + vi * ChunkTilesetFactory.wall_base_count, 0)
+	var atlas: Vector2i = ChunkTilesetFactory.get_wall_variant_coords(base, vi)
 	var def_index: int = base.x - 7
 	var alt_id: int = 0
-	if def_index >= 0 and def_index < ChunkTilesetFactory._WALL_FLIP_CLASS.size():
+	if allow_flip and def_index >= 0 and def_index < ChunkTilesetFactory._WALL_FLIP_CLASS.size():
 		var flip_class: int = ChunkTilesetFactory._WALL_FLIP_CLASS[def_index]
 		if flip_class > 0:
 			var alt_count: int = ChunkTilesetFactory.wall_flip_alt_count[flip_class]
@@ -640,6 +710,12 @@ func _variation_at(local_tile: Vector2i) -> int:
 	if idx < 0 or idx >= _variation_bytes.size():
 		return ChunkTilesetFactory.SURFACE_VARIATION_NONE
 	return _variation_bytes[idx]
+
+func _biome_palette_index_at(local_tile: Vector2i) -> int:
+	var idx: int = local_tile.y * _chunk_size + local_tile.x
+	if idx < 0 or idx >= _biome_bytes.size():
+		return 0
+	return int(_biome_bytes[idx])
 
 func _cache_has_mountain() -> void:
 	_has_mountain = false

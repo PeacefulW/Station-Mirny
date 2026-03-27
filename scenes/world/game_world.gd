@@ -106,10 +106,14 @@ func _ready() -> void:
 	WorldPerfProbe.end("GameWorld._ready", startup_usec)
 	_start_boot_sequence()
 
-func _process(_delta: float) -> void:
+func _physics_process(_delta: float) -> void:
 	if not _boot_complete:
 		return
 	_canonicalize_player_world_position()
+
+func _process(_delta: float) -> void:
+	if not _boot_complete:
+		return
 	_update_player_indoor_status()
 
 func is_boot_complete() -> bool:
@@ -318,3 +322,8 @@ func _canonicalize_player_world_position() -> void:
 	if canonical_pos.is_equal_approx(_player.global_position):
 		return
 	_player.global_position = canonical_pos
+	_player.reset_camera_smoothing()
+	if _chunk_manager:
+		_chunk_manager.sync_display_to_player()
+	if _spawn_orchestrator:
+		_spawn_orchestrator.sync_pickups_to_player()

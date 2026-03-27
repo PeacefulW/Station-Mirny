@@ -26,6 +26,7 @@ var _local_variation_resolver: RefCounted = null
 var _chunk_content_builder: RefCounted = null
 var _available_biomes: Array[BiomeData] = []
 var _biome_by_id: Dictionary = {}
+var _biome_palette_index_by_id: Dictionary = {}
 var _chunk_biome_cache: Dictionary = {}
 
 func _ready() -> void:
@@ -70,7 +71,7 @@ func build_tile_data(tile_pos: Vector2i) -> TileGenData:
 	if not _is_initialized:
 		return TileGenData.new()
 	var canonical_tile: Vector2i = canonicalize_tile(tile_pos)
-	if _chunk_content_builder and _chunk_content_builder.has_method("build_tile_data"):
+	if _chunk_content_builder:
 		return _chunk_content_builder.build_tile_data(canonical_tile.x, canonical_tile.y)
 	return TileGenData.new()
 
@@ -85,12 +86,7 @@ func build_chunk_result(chunk_coord: Vector2i):
 func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 	if not _is_initialized or not _chunk_content_builder:
 		return {}
-	if _chunk_content_builder.has_method("build_chunk_native_data"):
-		return _chunk_content_builder.build_chunk_native_data(canonicalize_chunk_coord(chunk_coord))
-	var build_result = build_chunk_content(chunk_coord)
-	if build_result and build_result.has_method("to_native_data"):
-		return build_result.to_native_data()
-	return {}
+	return _chunk_content_builder.build_chunk_native_data(canonicalize_chunk_coord(chunk_coord))
 
 func sample_world_channels(world_pos: Vector2i):
 	if not _planet_sampler:
@@ -113,7 +109,7 @@ func sample_local_variation(world_pos: Vector2i, biome = null, channels = null, 
 	var resolved_biome = biome
 	if resolved_biome == null:
 		resolved_biome = get_biome_result_at_tile(canonical_tile, sampled_channels, sampled_structure_context)
-	if _local_variation_resolver and _local_variation_resolver.has_method("resolve_local_variation"):
+	if _local_variation_resolver:
 		return _local_variation_resolver.resolve_local_variation(
 			canonical_tile,
 			resolved_biome,
@@ -127,6 +123,14 @@ func get_registered_biomes() -> Array[BiomeData]:
 
 func get_biome_by_id(biome_id: StringName) -> BiomeData:
 	return _biome_by_id.get(biome_id, null) as BiomeData
+
+func get_biome_palette_index(biome_id: StringName) -> int:
+	if biome_id == &"":
+		return 0
+	return int(_biome_palette_index_by_id.get(biome_id, 0))
+
+func get_biome_palette_order() -> Array[BiomeData]:
+	return _available_biomes.duplicate()
 
 func get_biome_result_at_tile(tile_pos: Vector2i, channels = null, structure_context = null):
 	var canonical_tile: Vector2i = canonicalize_tile(tile_pos)
@@ -146,7 +150,7 @@ func resolve_biome(world_pos: Vector2i, channels = null, structure_context = nul
 	var sampled_structure_context = structure_context
 	if sampled_structure_context == null:
 		sampled_structure_context = sample_structure_context(canonical_tile, sampled_channels)
-	if _biome_resolver and _biome_resolver.has_method("resolve_biome"):
+	if _biome_resolver:
 		return _biome_resolver.resolve_biome(canonical_tile, sampled_channels, sampled_structure_context)
 	return null
 
@@ -195,8 +199,6 @@ func wrap_world_tile_x(tile_x: int) -> int:
 	return _planet_sampler.wrap_world_x(tile_x)
 
 func get_world_wrap_width_tiles() -> int:
-	if _planet_sampler and _planet_sampler.has_method("get_wrap_width_tiles"):
-		return int(_planet_sampler.get_wrap_width_tiles())
 	if not balance:
 		return 0
 	var tile_width: int = maxi(256, balance.world_wrap_width_tiles)
@@ -222,6 +224,35 @@ func wrap_chunk_x(chunk_x: int) -> int:
 
 func canonicalize_chunk_coord(chunk_coord: Vector2i) -> Vector2i:
 	return Vector2i(wrap_chunk_x(chunk_coord.x), chunk_coord.y)
+
+func get_display_chunk_coord(chunk_coord: Vector2i, reference_chunk_coord: Vector2i) -> Vector2i:
+	var canonical_chunk: Vector2i = canonicalize_chunk_coord(chunk_coord)
+	var canonical_reference: Vector2i = canonicalize_chunk_coord(reference_chunk_coord)
+	return Vector2i(
+		canonical_reference.x + chunk_wrap_delta_x(canonical_chunk.x, canonical_reference.x),
+		canonical_chunk.y
+	)
+
+func world_wrap_delta_x(world_x: float, reference_x: float) -> float:
+	var wrap_width: float = get_world_wrap_width_pixels()
+	if wrap_width <= 0.0:
+		return world_x - reference_x
+	var wrapped_world_x: float = fposmod(world_x, wrap_width)
+	var wrapped_reference_x: float = fposmod(reference_x, wrap_width)
+	var delta: float = wrapped_world_x - wrapped_reference_x
+	var half_width: float = wrap_width * 0.5
+	if delta > half_width:
+		delta -= wrap_width
+	elif delta < -half_width:
+		delta += wrap_width
+	return delta
+
+func get_display_world_position(world_pos: Vector2, reference_world_pos: Vector2) -> Vector2:
+	var canonical_world_pos: Vector2 = canonicalize_world_position(world_pos)
+	return Vector2(
+		reference_world_pos.x + world_wrap_delta_x(canonical_world_pos.x, reference_world_pos.x),
+		canonical_world_pos.y
+	)
 
 func offset_tile(tile_pos: Vector2i, offset: Vector2i) -> Vector2i:
 	return canonicalize_tile(tile_pos + offset)
@@ -335,17 +366,17 @@ func _setup_structure_sampler() -> void:
 
 func _setup_biome_resolver() -> void:
 	_biome_resolver = BIOME_RESOLVER_SCRIPT.new()
-	if _biome_resolver and _biome_resolver.has_method("configure"):
+	if _biome_resolver:
 		_biome_resolver.configure(_available_biomes)
 
 func _setup_local_variation_resolver() -> void:
 	_local_variation_resolver = LOCAL_VARIATION_RESOLVER_SCRIPT.new()
-	if _local_variation_resolver and _local_variation_resolver.has_method("initialize"):
+	if _local_variation_resolver:
 		_local_variation_resolver.initialize(world_seed, balance)
 
 func _setup_chunk_content_builder() -> void:
 	_chunk_content_builder = CHUNK_CONTENT_BUILDER_SCRIPT.new()
-	if _chunk_content_builder and _chunk_content_builder.has_method("initialize"):
+	if _chunk_content_builder:
 		_chunk_content_builder.initialize(world_seed, balance, self)
 
 func _is_walkable_terrain(terrain_type: int) -> bool:
@@ -355,6 +386,7 @@ func _is_walkable_terrain(terrain_type: int) -> bool:
 func _load_biome_resources() -> void:
 	_available_biomes.clear()
 	_biome_by_id.clear()
+	_biome_palette_index_by_id.clear()
 	var dir: DirAccess = DirAccess.open(BIOMES_DIR_PATH)
 	if not dir:
 		push_error("WorldGenerator: failed to open biome directory: %s" % BIOMES_DIR_PATH)
@@ -372,6 +404,7 @@ func _load_biome_resources() -> void:
 		var biome: BiomeData = load(path) as BiomeData
 		if not biome or biome.id == &"":
 			continue
+		_biome_palette_index_by_id[biome.id] = _available_biomes.size()
 		_available_biomes.append(biome)
 		_biome_by_id[biome.id] = biome
 

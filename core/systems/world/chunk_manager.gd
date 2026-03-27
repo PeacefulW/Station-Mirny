@@ -154,6 +154,7 @@ func boot_load_initial_chunks(progress_callback: Callable) -> void:
 		_ensure_topology_current()
 	progress_callback.call(95.0, Localization.t("UI_LOADING_LANDING"))
 	await get_tree().process_frame
+	_sync_loaded_chunk_display_positions(center)
 	_is_boot_in_progress = false
 
 func set_saved_data(data: Dictionary) -> void:
@@ -204,6 +205,16 @@ func get_terrain_type_at_global(tile_pos: Vector2i) -> int:
 
 func get_loaded_chunks() -> Dictionary:
 	return _loaded_chunks
+
+func sync_display_to_player() -> void:
+	if not _initialized or not _player or not WorldGenerator:
+		return
+	var reference_chunk: Vector2i = WorldGenerator.world_to_chunk(_player.global_position)
+	var chunk_changed: bool = reference_chunk != _player_chunk
+	_player_chunk = reference_chunk
+	_sync_loaded_chunk_display_positions(reference_chunk)
+	if chunk_changed and not _is_boot_in_progress:
+		_update_chunks(reference_chunk)
 
 func _make_chunk_state_key(z_level: int, coord: Vector2i) -> Vector3i:
 	var canonical_coord: Vector2i = _canonical_chunk_coord(coord)
@@ -261,7 +272,7 @@ func _chunk_local_to_tile(chunk_coord: Vector2i, local_tile: Vector2i) -> Vector
 	)
 
 func _chunk_axis_distance(chunk_x: int, center_x: int) -> int:
-	if WorldGenerator and WorldGenerator.has_method("chunk_wrap_delta_x"):
+	if WorldGenerator:
 		return absi(WorldGenerator.chunk_wrap_delta_x(chunk_x, center_x))
 	return absi(chunk_x - center_x)
 
@@ -270,6 +281,22 @@ func _chunk_manhattan_distance(a: Vector2i, b: Vector2i) -> int:
 
 func _is_chunk_within_radius(coord: Vector2i, center: Vector2i, radius: int) -> bool:
 	return _chunk_axis_distance(coord.x, center.x) <= radius and absi(coord.y - center.y) <= radius
+
+func _resolve_display_reference_chunk(fallback_chunk: Vector2i) -> Vector2i:
+	if _player and WorldGenerator:
+		return WorldGenerator.world_to_chunk(_player.global_position)
+	return _canonical_chunk_coord(fallback_chunk)
+
+func _sync_chunk_display_position(chunk: Chunk, reference_chunk: Vector2i) -> void:
+	if not is_instance_valid(chunk):
+		return
+	chunk.sync_display_position(_resolve_display_reference_chunk(reference_chunk))
+
+func _sync_loaded_chunk_display_positions(reference_chunk: Vector2i) -> void:
+	var canonical_reference: Vector2i = _resolve_display_reference_chunk(reference_chunk)
+	for coord: Vector2i in _loaded_chunks:
+		var chunk: Chunk = _loaded_chunks[coord]
+		_sync_chunk_display_position(chunk, canonical_reference)
 
 func _has_load_request(coord: Vector2i, z_level: int) -> bool:
 	var canonical_coord: Vector2i = _canonical_chunk_coord(coord)
@@ -470,17 +497,19 @@ func _build_world_tilesets() -> void:
 	_tileset_bundles_by_biome.clear()
 	if not WorldGenerator or not WorldGenerator.balance:
 		return
+	var registered_biomes: Array[BiomeData] = []
 	if WorldGenerator.has_method("get_registered_biomes"):
-		var registered_biomes: Array[BiomeData] = WorldGenerator.get_registered_biomes()
-		for biome_candidate: BiomeData in registered_biomes:
-			_get_or_build_tileset_bundle(biome_candidate)
+		registered_biomes = WorldGenerator.get_registered_biomes()
 	var biome: BiomeData = _get_default_biome()
 	if not biome:
 		return
-	var tilesets: Dictionary = _get_or_build_tileset_bundle(biome)
-	_terrain_tileset = tilesets.get("terrain") as TileSet
-	_overlay_tileset = tilesets.get("overlay") as TileSet
-	_underground_terrain_tileset = tilesets.get("underground_terrain") as TileSet
+	if registered_biomes.is_empty():
+		registered_biomes.append(biome)
+	_terrain_tileset = ChunkTilesetFactory.build_surface_tileset(WorldGenerator.balance, registered_biomes)
+	_overlay_tileset = ChunkTilesetFactory.build_overlay_tileset(WorldGenerator.balance, biome)
+	_underground_terrain_tileset = ChunkTilesetFactory.build_underground_terrain_tileset(WorldGenerator.balance, biome)
+	for biome_candidate: BiomeData in registered_biomes:
+		_get_or_build_tileset_bundle(biome_candidate)
 
 func _get_default_biome() -> BiomeData:
 	if WorldGenerator and WorldGenerator.current_biome:
@@ -512,11 +541,10 @@ func _get_or_build_tileset_bundle(biome: BiomeData) -> Dictionary:
 	var cached: Dictionary = _tileset_bundles_by_biome.get(biome_key, {}) as Dictionary
 	if not cached.is_empty():
 		return cached
-	var tilesets: Dictionary = ChunkTilesetFactory.build_tilesets(WorldGenerator.balance, biome)
 	var bundle := {
 		"biome": biome,
-		"terrain": tilesets.get("terrain") as TileSet,
-		"overlay": tilesets.get("overlay") as TileSet,
+		"terrain": _terrain_tileset,
+		"overlay": _overlay_tileset,
 		"underground_terrain": ChunkTilesetFactory.build_underground_terrain_tileset(WorldGenerator.balance, biome),
 	}
 	_tileset_bundles_by_biome[biome_key] = bundle
@@ -688,6 +716,7 @@ func _check_player_chunk() -> void:
 	var cur: Vector2i = WorldGenerator.world_to_chunk(_player.global_position)
 	if cur != _player_chunk:
 		_player_chunk = cur
+		_sync_loaded_chunk_display_positions(cur)
 		_update_chunks(cur)
 
 func _update_chunks(center: Vector2i) -> void:
@@ -716,6 +745,7 @@ func _update_chunks(center: Vector2i) -> void:
 	)
 	for coord: Vector2i in to_load:
 		_enqueue_load_request(coord, _active_z)
+	_sync_loaded_chunk_display_positions(center)
 
 func _process_load_queue() -> void:
 	var loads_per_frame: int = 1
@@ -768,6 +798,7 @@ func _load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
 		overlay_tileset,
 		self
 	)
+	_sync_chunk_display_position(chunk, _player_chunk)
 	var is_player_chunk: bool = (coord == _player_chunk)
 	if z_level != 0:
 		chunk.set_underground(true)
@@ -933,13 +964,7 @@ func _worker_generate(coord: Vector2i, z_level: int) -> void:
 func _build_surface_chunk_native_data(coord: Vector2i) -> Dictionary:
 	if not WorldGenerator:
 		return {}
-	if WorldGenerator.has_method("build_chunk_native_data"):
-		return WorldGenerator.build_chunk_native_data(coord)
-	if WorldGenerator.has_method("build_chunk_result"):
-		var build_result = WorldGenerator.build_chunk_result(coord)
-		if build_result and build_result.has_method("to_native_data"):
-			return build_result.to_native_data()
-	return WorldGenerator.get_chunk_data(coord)
+	return WorldGenerator.build_chunk_native_data(coord)
 
 ## Фаза 0: только генерация terrain данных. CPU-heavy. Используется ТОЛЬКО в boot.
 func _staged_loading_generate(coord: Vector2i) -> void:
@@ -987,6 +1012,7 @@ func _staged_loading_create() -> void:
 		overlay_tileset,
 		self
 	)
+	_sync_chunk_display_position(chunk, _player_chunk)
 	if z_level != 0:
 		chunk.set_underground(true)
 	chunk.populate_native(native_data, _get_saved_chunk_modifications(z_level, coord), false)
@@ -1008,6 +1034,7 @@ func _staged_loading_finalize() -> void:
 	if loaded_chunks_for_z.has(coord):
 		chunk.queue_free()
 		return
+	_sync_chunk_display_position(chunk, _player_chunk)
 	var sub_usec: int = WorldPerfProbe.begin()
 	var z_container: Node2D = _z_containers.get(z_level) as Node2D
 	if z_container:
@@ -1107,6 +1134,10 @@ func set_active_z_level(z: int) -> void:
 	for layer_z: int in _z_containers:
 		(_z_containers[layer_z] as Node2D).visible = (layer_z == z)
 	_loaded_chunks = _z_chunks.get(z, {})
+	var reference_chunk: Vector2i = _player_chunk
+	if _player and WorldGenerator:
+		reference_chunk = WorldGenerator.world_to_chunk(_player.global_position)
+	_sync_loaded_chunk_display_positions(reference_chunk)
 	var filtered_queue: Array[Dictionary] = []
 	for request: Dictionary in _load_queue:
 		if int(request.get("z", INVALID_Z_LEVEL)) == z:
@@ -1131,13 +1162,16 @@ func _generate_solid_rock_chunk() -> Dictionary:
 	var terrain := PackedByteArray()
 	var height := PackedFloat32Array()
 	var variation := PackedByteArray()
+	var biome := PackedByteArray()
 	terrain.resize(chunk_size * chunk_size)
 	height.resize(chunk_size * chunk_size)
 	variation.resize(chunk_size * chunk_size)
+	biome.resize(chunk_size * chunk_size)
 	terrain.fill(TileGenData.TerrainType.ROCK)
 	height.fill(0.5)
 	variation.fill(0)
-	return {"chunk_size": chunk_size, "terrain": terrain, "height": height, "variation": variation}
+	biome.fill(0)
+	return {"chunk_size": chunk_size, "terrain": terrain, "height": height, "variation": variation, "biome": biome}
 
 ## Create a tiny underground pocket at z=-1. Ensures ALL needed chunks are loaded
 ## and sets specified tiles to MINED_FLOOR. Called from debug path only.
