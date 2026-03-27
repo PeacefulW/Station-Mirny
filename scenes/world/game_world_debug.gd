@@ -6,6 +6,7 @@ extends Node
 
 const RuntimeValidationDriverScript = preload("res://core/debug/runtime_validation_driver.gd")
 const WorldPreviewExporterScript = preload("res://core/debug/world_preview_exporter.gd")
+const LOCAL_PREVIEW_TEXTURE_SIZE: Vector2 = Vector2(300, 300)
 
 var _chunk_manager: ChunkManager = null
 var _ui_layer: CanvasLayer = null
@@ -16,6 +17,12 @@ var _tile_highlight: ColorRect = null
 var _tile_info_label: Label = null
 var _stairs_container: Node2D = null
 var _world_preview_exporter: WorldPreviewExporter = null
+var _local_preview_panel: PanelContainer = null
+var _local_preview_header_label: Label = null
+var _local_preview_hint_label: Label = null
+var _local_preview_biome_rect: TextureRect = null
+var _local_preview_terrain_rect: TextureRect = null
+var _local_preview_structure_rect: TextureRect = null
 
 func setup(chunk_manager: ChunkManager, ui_layer: CanvasLayer, game_world: GameWorld = null) -> void:
 	_chunk_manager = chunk_manager
@@ -25,6 +32,7 @@ func setup(chunk_manager: ChunkManager, ui_layer: CanvasLayer, game_world: GameW
 	_setup_tile_highlight()
 	_setup_runtime_validation_driver()
 	_setup_world_preview_exporter()
+	_setup_local_preview_panel()
 
 func _process(delta: float) -> void:
 	_update_fps(delta)
@@ -40,7 +48,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			_debug_toggle_rock(false)
 		elif event.keycode == KEY_J:
 			_debug_spawn_underground_pocket()
-		elif event.keycode == KEY_P:
+		elif event.keycode == KEY_F6:
+			call_deferred("_debug_capture_local_preview")
+		elif event.keycode == KEY_F7:
+			_toggle_local_preview_panel()
+		elif event.keycode == KEY_F8:
 			call_deferred("_debug_export_world_preview")
 
 func _debug_toggle_rock(place: bool) -> void:
@@ -105,6 +117,126 @@ func _setup_runtime_validation_driver() -> void:
 func _setup_world_preview_exporter() -> void:
 	if WorldGenerator:
 		_world_preview_exporter = WorldPreviewExporterScript.new().initialize(WorldGenerator)
+
+func _setup_local_preview_panel() -> void:
+	_local_preview_panel = PanelContainer.new()
+	_local_preview_panel.name = "LocalWorldPreviewPanel"
+	_local_preview_panel.visible = false
+	_local_preview_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_local_preview_panel.position = Vector2(12, 116)
+
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.05, 0.06, 0.08, 0.94)
+	panel_style.border_color = Color(0.30, 0.34, 0.42, 0.95)
+	panel_style.set_border_width_all(1)
+	panel_style.set_corner_radius_all(6)
+	panel_style.content_margin_left = 10
+	panel_style.content_margin_right = 10
+	panel_style.content_margin_top = 10
+	panel_style.content_margin_bottom = 10
+	_local_preview_panel.add_theme_stylebox_override("panel", panel_style)
+
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 8)
+	_local_preview_panel.add_child(root)
+
+	_local_preview_header_label = Label.new()
+	_local_preview_header_label.add_theme_font_size_override("font_size", 13)
+	_local_preview_header_label.add_theme_color_override("font_color", Color(0.90, 0.92, 0.96))
+	_local_preview_header_label.text = "Local generator preview"
+	root.add_child(_local_preview_header_label)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	root.add_child(row)
+
+	_local_preview_biome_rect = _create_local_preview_card(row, "Biomes")
+	_local_preview_terrain_rect = _create_local_preview_card(row, "Terrain")
+	_local_preview_structure_rect = _create_local_preview_card(row, "Structures")
+
+	_local_preview_hint_label = Label.new()
+	_local_preview_hint_label.add_theme_font_size_override("font_size", 11)
+	_local_preview_hint_label.add_theme_color_override("font_color", Color(0.55, 0.60, 0.68))
+	_local_preview_hint_label.text = "F6 snapshot + save | F7 hide/show | F8 full export"
+	root.add_child(_local_preview_hint_label)
+
+	if _ui_layer:
+		_ui_layer.add_child(_local_preview_panel)
+	else:
+		get_parent().add_child(_local_preview_panel)
+
+func _create_local_preview_card(parent: BoxContainer, title: String) -> TextureRect:
+	var card := VBoxContainer.new()
+	card.custom_minimum_size = Vector2(LOCAL_PREVIEW_TEXTURE_SIZE.x, 0.0)
+	card.add_theme_constant_override("separation", 4)
+	parent.add_child(card)
+
+	var title_label := Label.new()
+	title_label.add_theme_font_size_override("font_size", 12)
+	title_label.add_theme_color_override("font_color", Color(0.78, 0.82, 0.88))
+	title_label.text = title
+	card.add_child(title_label)
+
+	var preview_bg := Panel.new()
+	preview_bg.custom_minimum_size = LOCAL_PREVIEW_TEXTURE_SIZE
+	var bg_style := StyleBoxFlat.new()
+	bg_style.bg_color = Color(0.10, 0.11, 0.14, 1.0)
+	bg_style.border_color = Color(0.20, 0.24, 0.30, 1.0)
+	bg_style.set_border_width_all(1)
+	bg_style.set_corner_radius_all(4)
+	preview_bg.add_theme_stylebox_override("panel", bg_style)
+	card.add_child(preview_bg)
+
+	var texture_rect := TextureRect.new()
+	texture_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	texture_rect.stretch_mode = TextureRect.STRETCH_SCALE
+	texture_rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	preview_bg.add_child(texture_rect)
+
+	return texture_rect
+
+func _toggle_local_preview_panel() -> void:
+	if _local_preview_panel:
+		_local_preview_panel.visible = not _local_preview_panel.visible
+
+func _debug_capture_local_preview() -> void:
+	if _world_preview_exporter == null:
+		_setup_world_preview_exporter()
+	if _world_preview_exporter == null:
+		print("[Debug] Local world preview exporter is unavailable.")
+		return
+	var center_tile: Vector2i = _get_preview_center_tile()
+	var preview: Dictionary = _world_preview_exporter.build_local_preview(center_tile)
+	if preview.is_empty():
+		print("[Debug] Local world preview build failed.")
+		return
+	_apply_preview_image(_local_preview_biome_rect, preview.get("biomes_image", null) as Image)
+	_apply_preview_image(_local_preview_terrain_rect, preview.get("terrain_image", null) as Image)
+	_apply_preview_image(_local_preview_structure_rect, preview.get("structures_image", null) as Image)
+	var resolved_center_tile: Vector2i = preview.get("center_tile", center_tile)
+	var radius_tiles: int = int(preview.get("radius_tiles", 0))
+	var saved: Dictionary = _world_preview_exporter.save_local_preview(preview)
+	if _local_preview_header_label:
+		_local_preview_header_label.text = "Local generator preview | center:%s | radius:%d tiles" % [resolved_center_tile, radius_tiles]
+	if _local_preview_panel:
+		_local_preview_panel.visible = true
+	print("[Debug] Local world preview updated at %s." % [resolved_center_tile])
+	if not saved.is_empty():
+		print("[Debug] Local world preview saved:")
+		print("  biomes: %s" % [saved.get("biomes", "")])
+		print("  terrain: %s" % [saved.get("terrain", "")])
+		print("  structures: %s" % [saved.get("structures", "")])
+
+func _get_preview_center_tile() -> Vector2i:
+	if not WorldGenerator:
+		return Vector2i.ZERO
+	var mouse_pos: Vector2 = get_parent().get_global_mouse_position()
+	return WorldGenerator.world_to_tile(mouse_pos)
+
+func _apply_preview_image(texture_rect: TextureRect, image: Image) -> void:
+	if texture_rect == null or image == null:
+		return
+	texture_rect.texture = ImageTexture.create_from_image(image)
 
 func _update_tile_highlight() -> void:
 	if not _tile_highlight or not WorldGenerator or not _chunk_manager:

@@ -4,6 +4,8 @@ extends RefCounted
 const OUTPUT_ROOT: String = "res://debug_exports/world_previews"
 const PREVIEW_WIDTH: int = 1024
 const MAX_PREVIEW_HEIGHT: int = 2048
+const LOCAL_PREVIEW_RADIUS_TILES: int = 80
+const LOCAL_PREVIEW_EXPORT_SCALE: int = 4
 
 var _world_generator: WorldGeneratorSingleton = null
 
@@ -15,33 +17,36 @@ func export_current_world_preview() -> Dictionary:
 	if not _can_export():
 		return {}
 	var spec: Dictionary = _build_preview_spec()
-	var biome_image: Image = Image.create(spec["width"], spec["height"], false, Image.FORMAT_RGBA8)
-	var terrain_image: Image = Image.create(spec["width"], spec["height"], false, Image.FORMAT_RGBA8)
-	var structure_image: Image = Image.create(spec["width"], spec["height"], false, Image.FORMAT_RGBA8)
-	for pixel_y: int in range(int(spec["height"])):
-		var tile_y: int = _sample_tile_y(pixel_y, int(spec["height"]), int(spec["min_y"]), int(spec["max_y"]))
-		for pixel_x: int in range(int(spec["width"])):
-			var tile_x: int = _sample_tile_x(pixel_x, int(spec["width"]), int(spec["wrap_width"]))
-			var tile_data: TileGenData = _world_generator.get_tile_data(tile_x, tile_y)
-			var biome: BiomeData = _world_generator.get_biome_by_id(tile_data.biome_id)
-			biome_image.set_pixel(pixel_x, pixel_y, _resolve_biome_preview_color(biome))
-			terrain_image.set_pixel(pixel_x, pixel_y, _resolve_terrain_preview_color(tile_data, biome))
-			structure_image.set_pixel(pixel_x, pixel_y, _resolve_structure_preview_color(tile_data))
-	var output_dir: String = _ensure_output_directory()
-	if output_dir.is_empty():
+	var rendered: Dictionary = _render_preview_images(spec)
+	if rendered.is_empty():
 		return {}
 	var prefix: String = "seed_%d_%d" % [_world_generator.world_seed, Time.get_unix_time_from_system()]
-	var biome_path: String = output_dir.path_join("%s_biomes.png" % prefix)
-	var terrain_path: String = output_dir.path_join("%s_terrain.png" % prefix)
-	var structure_path: String = output_dir.path_join("%s_structures.png" % prefix)
-	biome_image.save_png(biome_path)
-	terrain_image.save_png(terrain_path)
-	structure_image.save_png(structure_path)
-	return {
-		"biomes": biome_path,
-		"terrain": terrain_path,
-		"structures": structure_path,
-	}
+	return _save_rendered_images(rendered, prefix)
+
+func build_local_preview(center_tile: Vector2i, radius_tiles: int = LOCAL_PREVIEW_RADIUS_TILES) -> Dictionary:
+	if not _can_export():
+		return {}
+	var spec: Dictionary = _build_local_preview_spec(center_tile, radius_tiles)
+	var rendered: Dictionary = _render_preview_images(spec)
+	if rendered.is_empty():
+		return {}
+	rendered["center_tile"] = _world_generator.canonicalize_tile(center_tile)
+	rendered["radius_tiles"] = maxi(1, radius_tiles)
+	return rendered
+
+func save_local_preview(preview: Dictionary) -> Dictionary:
+	if preview.is_empty():
+		return {}
+	var center_tile: Vector2i = preview.get("center_tile", Vector2i.ZERO)
+	var radius_tiles: int = int(preview.get("radius_tiles", LOCAL_PREVIEW_RADIUS_TILES))
+	var prefix: String = "seed_%d_local_%d_%d_r%d_%d" % [
+		_world_generator.world_seed,
+		center_tile.x,
+		center_tile.y,
+		radius_tiles,
+		Time.get_unix_time_from_system()
+	]
+	return _save_rendered_images(preview, prefix, LOCAL_PREVIEW_EXPORT_SCALE)
 
 func _can_export() -> bool:
 	return _world_generator != null \
@@ -62,6 +67,59 @@ func _build_preview_spec() -> Dictionary:
 		"min_y": equator_y - half_span,
 		"max_y": equator_y + half_span - 1,
 	}
+
+func _build_local_preview_spec(center_tile: Vector2i, radius_tiles: int) -> Dictionary:
+	var resolved_radius: int = maxi(1, radius_tiles)
+	var canonical_center: Vector2i = _world_generator.canonicalize_tile(center_tile)
+	var size: int = resolved_radius * 2 + 1
+	return {
+		"width": size,
+		"height": size,
+		"sample_mode": &"local",
+		"center_tile": canonical_center,
+		"radius_tiles": resolved_radius,
+	}
+
+func _render_preview_images(spec: Dictionary) -> Dictionary:
+	var width: int = int(spec.get("width", 0))
+	var height: int = int(spec.get("height", 0))
+	if width <= 0 or height <= 0:
+		return {}
+	var biome_image: Image = Image.create(width, height, false, Image.FORMAT_RGBA8)
+	var terrain_image: Image = Image.create(width, height, false, Image.FORMAT_RGBA8)
+	var structure_image: Image = Image.create(width, height, false, Image.FORMAT_RGBA8)
+	var sample_mode: StringName = StringName(spec.get("sample_mode", &"planet"))
+	for pixel_y: int in range(height):
+		for pixel_x: int in range(width):
+			var tile_pos: Vector2i = _resolve_sample_tile(spec, sample_mode, pixel_x, pixel_y)
+			var tile_data: TileGenData = _world_generator.get_tile_data(tile_pos.x, tile_pos.y)
+			var biome: BiomeData = _world_generator.get_biome_by_id(tile_data.biome_id)
+			biome_image.set_pixel(pixel_x, pixel_y, _resolve_biome_preview_color(biome))
+			terrain_image.set_pixel(pixel_x, pixel_y, _resolve_terrain_preview_color(tile_data, biome))
+			structure_image.set_pixel(pixel_x, pixel_y, _resolve_structure_preview_color(tile_data))
+	return {
+		"biomes_image": biome_image,
+		"terrain_image": terrain_image,
+		"structures_image": structure_image,
+		"width": width,
+		"height": height,
+	}
+
+func _resolve_sample_tile(spec: Dictionary, sample_mode: StringName, pixel_x: int, pixel_y: int) -> Vector2i:
+	if sample_mode == &"local":
+		var center_tile: Vector2i = spec.get("center_tile", Vector2i.ZERO)
+		var radius_tiles: int = int(spec.get("radius_tiles", LOCAL_PREVIEW_RADIUS_TILES))
+		return _world_generator.offset_tile(center_tile, Vector2i(pixel_x - radius_tiles, pixel_y - radius_tiles))
+	var width: int = int(spec.get("width", 1))
+	var height: int = int(spec.get("height", 1))
+	var tile_x: int = _sample_tile_x(pixel_x, width, int(spec.get("wrap_width", 1)))
+	var tile_y: int = _sample_tile_y(
+		pixel_y,
+		height,
+		int(spec.get("min_y", 0)),
+		int(spec.get("max_y", 0))
+	)
+	return Vector2i(tile_x, tile_y)
 
 func _sample_tile_x(pixel_x: int, width: int, wrap_width: int) -> int:
 	if width <= 1:
@@ -134,3 +192,42 @@ func _ensure_output_directory() -> String:
 	if dir_result != OK and not DirAccess.dir_exists_absolute(absolute_path):
 		return ""
 	return absolute_path
+
+func _save_rendered_images(rendered: Dictionary, prefix: String, scale: int = 1) -> Dictionary:
+	var output_dir: String = _ensure_output_directory()
+	if output_dir.is_empty():
+		return {}
+	var biome_image: Image = rendered.get("biomes_image", null) as Image
+	var terrain_image: Image = rendered.get("terrain_image", null) as Image
+	var structure_image: Image = rendered.get("structures_image", null) as Image
+	if biome_image == null or terrain_image == null or structure_image == null:
+		return {}
+	var export_prefix: String = prefix
+	if scale > 1:
+		export_prefix = "%s_x%d" % [prefix, scale]
+	biome_image = _copy_image_for_export(biome_image, scale)
+	terrain_image = _copy_image_for_export(terrain_image, scale)
+	structure_image = _copy_image_for_export(structure_image, scale)
+	var biome_path: String = output_dir.path_join("%s_biomes.png" % export_prefix)
+	var terrain_path: String = output_dir.path_join("%s_terrain.png" % export_prefix)
+	var structure_path: String = output_dir.path_join("%s_structures.png" % export_prefix)
+	biome_image.save_png(biome_path)
+	terrain_image.save_png(terrain_path)
+	structure_image.save_png(structure_path)
+	return {
+		"biomes": biome_path,
+		"terrain": terrain_path,
+		"structures": structure_path,
+		"scale": maxi(1, scale),
+	}
+
+func _copy_image_for_export(image: Image, scale: int) -> Image:
+	var copy: Image = image.duplicate()
+	var resolved_scale: int = maxi(1, scale)
+	if resolved_scale > 1:
+		copy.resize(
+			maxi(1, copy.get_width() * resolved_scale),
+			maxi(1, copy.get_height() * resolved_scale),
+			Image.INTERPOLATE_NEAREST
+		)
+	return copy
