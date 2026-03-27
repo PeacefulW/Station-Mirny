@@ -1,9 +1,11 @@
 class_name PlanetSampler
 extends RefCounted
 
+const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_utils.gd")
+
 var _world_seed: int = 0
 var _balance: WorldGenBalance = null
-var _cached_wrap_width: int = WorldNoiseUtils.DEFAULT_WRAP_WIDTH_TILES
+var _cached_wrap_width: int = WorldNoiseUtilsScript.DEFAULT_WRAP_WIDTH_TILES
 var _height_noise: FastNoiseLite = FastNoiseLite.new()
 var _temperature_noise: FastNoiseLite = FastNoiseLite.new()
 var _moisture_noise: FastNoiseLite = FastNoiseLite.new()
@@ -15,12 +17,12 @@ func initialize(seed_value: int, balance_resource: WorldGenBalance) -> void:
 	_balance = balance_resource
 	if not _balance:
 		return
-	_cached_wrap_width = WorldNoiseUtils.resolve_wrap_width_tiles(_balance)
-	WorldNoiseUtils.setup_noise_instance(_height_noise, _world_seed + 11, _balance.height_frequency, _balance.height_octaves)
-	WorldNoiseUtils.setup_noise_instance(_temperature_noise, _world_seed + 101, _balance.temperature_frequency, _balance.temperature_octaves)
-	WorldNoiseUtils.setup_noise_instance(_moisture_noise, _world_seed + 131, _balance.moisture_frequency, _balance.moisture_octaves)
-	WorldNoiseUtils.setup_noise_instance(_ruggedness_noise, _world_seed + 151, _balance.ruggedness_frequency, _balance.ruggedness_octaves)
-	WorldNoiseUtils.setup_noise_instance(_flora_density_noise, _world_seed + 181, _balance.flora_density_frequency, _balance.flora_density_octaves)
+	_cached_wrap_width = WorldNoiseUtilsScript.resolve_wrap_width_tiles(_balance)
+	WorldNoiseUtilsScript.setup_noise_instance(_height_noise, _world_seed + 11, _balance.height_frequency, _balance.height_octaves)
+	WorldNoiseUtilsScript.setup_noise_instance(_temperature_noise, _world_seed + 101, _balance.temperature_frequency, _balance.temperature_octaves)
+	WorldNoiseUtilsScript.setup_noise_instance(_moisture_noise, _world_seed + 131, _balance.moisture_frequency, _balance.moisture_octaves)
+	WorldNoiseUtilsScript.setup_noise_instance(_ruggedness_noise, _world_seed + 151, _balance.ruggedness_frequency, _balance.ruggedness_octaves)
+	WorldNoiseUtilsScript.setup_noise_instance(_flora_density_noise, _world_seed + 181, _balance.flora_density_frequency, _balance.flora_density_octaves)
 
 func sample_world_channels(world_pos: Vector2i) -> WorldChannels:
 	var channels: WorldChannels = WorldChannels.new()
@@ -45,10 +47,10 @@ func sample_latitude(world_pos: Vector2i) -> float:
 	return clampf(absf(float(world_pos.y - equator_y)) / float(half_span), 0.0, 1.0)
 
 func canonicalize_world_pos(world_pos: Vector2i) -> Vector2i:
-	return WorldNoiseUtils.canonicalize_pos(world_pos, _cached_wrap_width)
+	return WorldNoiseUtilsScript.canonicalize_pos(world_pos, _cached_wrap_width)
 
 func wrap_world_x(world_x: int) -> int:
-	return WorldNoiseUtils.wrap_x(world_x, _cached_wrap_width)
+	return WorldNoiseUtilsScript.wrap_x(world_x, _cached_wrap_width)
 
 func get_wrap_width_tiles() -> int:
 	return _cached_wrap_width
@@ -68,7 +70,7 @@ func _sample_flora_density(world_pos: Vector2i, moisture: float) -> float:
 	return clampf(lerpf(flora_noise, moisture, 0.35), 0.0, 1.0)
 
 func _sample_noise(noise: FastNoiseLite, world_pos: Vector2i) -> float:
-	return WorldNoiseUtils.sample_periodic_noise01(noise, world_pos, _cached_wrap_width)
+	return WorldNoiseUtilsScript.sample_periodic_noise01(noise, world_pos, _cached_wrap_width)
 
 func _resolve_latitude_half_span_tiles() -> int:
 	if not _balance:

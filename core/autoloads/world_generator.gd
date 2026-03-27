@@ -3,6 +3,9 @@ extends Node
 
 const BALANCE_PATH: String = "res://data/world/world_gen_balance.tres"
 const CHUNK_BIOME_SAMPLE_GRID: int = 3
+const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_utils.gd")
+const WorldComputeContextScript = preload("res://core/systems/world/world_compute_context.gd")
+const SurfaceTerrainResolverScript = preload("res://core/systems/world/surface_terrain_resolver.gd")
 
 var world_seed: int = 0
 var balance: WorldGenBalance = null
@@ -14,6 +17,8 @@ var _planet_sampler: PlanetSampler = null
 var _structure_sampler: LargeStructureSampler = null
 var _biome_resolver: BiomeResolver = null
 var _local_variation_resolver: LocalVariationResolver = null
+var _compute_context: RefCounted = null
+var _surface_terrain_resolver: RefCounted = null
 var _chunk_content_builder: ChunkContentBuilder = null
 var _chunk_biome_cache: Dictionary = {}
 
@@ -24,6 +29,17 @@ func _ready() -> void:
 		return
 	current_biome = BiomeRegistry.get_default_biome()
 
+func _exit_tree() -> void:
+	_chunk_biome_cache.clear()
+	_chunk_content_builder = null
+	_surface_terrain_resolver = null
+	_compute_context = null
+	_local_variation_resolver = null
+	_biome_resolver = null
+	_structure_sampler = null
+	_planet_sampler = null
+	_native_generator = null
+
 func initialize_world(seed_value: int) -> void:
 	world_seed = seed_value
 	_setup_native_generator()
@@ -31,10 +47,11 @@ func initialize_world(seed_value: int) -> void:
 	_setup_structure_sampler()
 	_setup_biome_resolver()
 	_setup_local_variation_resolver()
-	_setup_chunk_content_builder()
 	spawn_tile = canonicalize_tile(spawn_tile)
 	_chunk_biome_cache.clear()
 	current_biome = get_biome_at_tile(spawn_tile)
+	_setup_compute_context()
+	_setup_chunk_content_builder()
 	_is_initialized = true
 	EventBus.world_initialized.emit(world_seed)
 
@@ -58,8 +75,8 @@ func build_tile_data(tile_pos: Vector2i) -> TileGenData:
 	if not _is_initialized:
 		return TileGenData.new()
 	var canonical_tile: Vector2i = canonicalize_tile(tile_pos)
-	if _chunk_content_builder:
-		return _chunk_content_builder.build_tile_data(canonical_tile.x, canonical_tile.y)
+	if _surface_terrain_resolver:
+		return _surface_terrain_resolver.build_tile_data(canonical_tile)
 	return TileGenData.new()
 
 func build_chunk_content(chunk_coord: Vector2i) -> ChunkBuildResult:
@@ -181,7 +198,7 @@ func wrap_world_tile_x(tile_x: int) -> int:
 func get_world_wrap_width_tiles() -> int:
 	if not balance:
 		return 0
-	return WorldNoiseUtils.resolve_wrap_width_tiles(balance)
+	return WorldNoiseUtilsScript.resolve_wrap_width_tiles(balance)
 
 func get_world_wrap_width_pixels() -> float:
 	if not balance:
@@ -311,10 +328,10 @@ func tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
 	))
 
 func get_terrain_type_fast(tile_pos: Vector2i) -> TileGenData.TerrainType:
-	if not _is_initialized or not _chunk_content_builder:
+	if not _is_initialized or not _surface_terrain_resolver:
 		return TileGenData.TerrainType.GROUND
 	var canonical_tile: Vector2i = canonicalize_tile(tile_pos)
-	return _chunk_content_builder.sample_terrain_type(canonical_tile.x, canonical_tile.y)
+	return _surface_terrain_resolver.sample_terrain_type(canonical_tile.x, canonical_tile.y)
 
 func is_walkable_at(world_pos: Vector2) -> bool:
 	var tile_pos: Vector2i = world_to_tile(world_pos)
@@ -354,9 +371,47 @@ func _setup_local_variation_resolver() -> void:
 	_local_variation_resolver = LocalVariationResolver.new()
 	_local_variation_resolver.initialize(world_seed, balance)
 
+func _setup_compute_context() -> void:
+	var biome_by_id: Dictionary = {}
+	var palette_index_by_id: Dictionary = {}
+	var palette_order: Array[BiomeData] = BiomeRegistry.get_palette_order()
+	for index: int in range(palette_order.size()):
+		var biome: BiomeData = palette_order[index]
+		if biome == null or str(biome.id).is_empty():
+			continue
+		biome_by_id[biome.id] = biome
+		palette_index_by_id[biome.id] = index
+	_compute_context = WorldComputeContextScript.new().configure(
+		balance,
+		spawn_tile,
+		current_biome,
+		BiomeRegistry.get_default_biome(),
+		_planet_sampler,
+		_structure_sampler,
+		_biome_resolver,
+		_local_variation_resolver,
+		biome_by_id,
+		palette_index_by_id
+	)
+	_surface_terrain_resolver = _create_surface_terrain_resolver(_compute_context)
+
 func _setup_chunk_content_builder() -> void:
-	_chunk_content_builder = ChunkContentBuilder.new()
-	_chunk_content_builder.initialize(world_seed, balance, self)
+	_chunk_content_builder = _create_chunk_content_builder(_compute_context)
+
+func create_detached_chunk_content_builder() -> ChunkContentBuilder:
+	return _create_chunk_content_builder(_compute_context)
+
+func _create_chunk_content_builder(world_context: RefCounted) -> ChunkContentBuilder:
+	if world_context == null:
+		return null
+	var builder := ChunkContentBuilder.new()
+	builder.initialize(balance, world_context, _create_surface_terrain_resolver(world_context))
+	return builder
+
+func _create_surface_terrain_resolver(world_context: RefCounted) -> RefCounted:
+	if world_context == null:
+		return null
+	return SurfaceTerrainResolverScript.new().initialize(balance, world_context)
 
 func _is_walkable_terrain(terrain_type: int) -> bool:
 	return terrain_type != TileGenData.TerrainType.ROCK \

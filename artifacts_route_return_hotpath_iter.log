@@ -1,0 +1,909 @@
+Godot Engine v4.6.1.stable.official.14d19694e - https://godotengine.org
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2570)
+[CodexValidation] runtime validation driver enabled
+[WorldPerf] GameWorld._ready: 37.45 ms
+[ChunkTilesetFactory] atlas_tiles=240, wall_base_count=47, wall_variant_count=5
+[ChunkTilesetFactory] atlas_tiles=240, wall_base_count=47, wall_variant_count=5
+[ChunkTilesetFactory] atlas_tiles=240, wall_base_count=47, wall_variant_count=5
+[ChunkTilesetFactory] atlas_tiles=240, wall_base_count=47, wall_variant_count=5
+[ChunkTilesetFactory] atlas_tiles=240, wall_base_count=47, wall_variant_count=5
+[ChunkTilesetFactory] atlas_tiles=240, wall_base_count=47, wall_variant_count=5
+[ChunkTilesetFactory] atlas_tiles=240, wall_base_count=47, wall_variant_count=5
+[WorldPerf] Chunk._redraw_all (0, 0): 16.77 ms
+[WorldPerf] ChunkManager._load_chunk (0, 0): 1191.10 ms
+[WorldPerf] ChunkManager._load_chunk (1, 0): 1187.77 ms
+[WorldPerf] Chunk._redraw_all (1, 0): 17.45 ms
+[WorldPerf] ChunkManager._load_chunk (63, 0): 1149.83 ms
+[WorldPerf] Chunk._redraw_all (63, 0): 15.16 ms
+[WorldPerf] ChunkManager._load_chunk (0, -1): 1171.11 ms
+[WorldPerf] Chunk._redraw_all (0, -1): 17.58 ms
+[WorldPerf] ChunkManager._load_chunk (0, 1): 1176.31 ms
+[WorldPerf] Chunk._redraw_all (0, 1): 16.67 ms
+[WorldPerf] ChunkManager._load_chunk (2, 0): 1171.13 ms
+[WorldPerf] Chunk._redraw_all (2, 0): 17.20 ms
+[WorldPerf] ChunkManager._load_chunk (62, 0): 1162.34 ms
+[WorldPerf] Chunk._redraw_all (62, 0): 17.15 ms
+[WorldPerf] ChunkManager._load_chunk (1, 1): 1196.66 ms
+[WorldPerf] Chunk._redraw_all (1, 1): 17.45 ms
+[WorldPerf] ChunkManager._load_chunk (63, -1): 1197.95 ms
+[WorldPerf] Chunk._redraw_all (63, -1): 17.19 ms
+[WorldPerf] ChunkManager._load_chunk (63, 1): 1174.05 ms
+[WorldPerf] Chunk._redraw_all (63, 1): 15.40 ms
+[WorldPerf] ChunkManager._load_chunk (1, -1): 1200.23 ms
+[WorldPerf] Chunk._redraw_all (1, -1): 17.21 ms
+[WorldPerf] ChunkManager._load_chunk (0, -2): 1199.72 ms
+[WorldPerf] Chunk._redraw_all (0, -2): 17.14 ms
+[WorldPerf] ChunkManager._load_chunk (0, 2): 1120.04 ms
+[WorldPerf] Chunk._redraw_all (0, 2): 14.82 ms
+[WorldPerf] ChunkManager._load_chunk (2, -1): 1165.56 ms
+[WorldPerf] Chunk._redraw_all (2, -1): 24.27 ms
+[WorldPerf] ChunkManager._load_chunk (1, 2): 1141.92 ms
+[WorldPerf] Chunk._redraw_all (1, 2): 15.26 ms
+[WorldPerf] ChunkManager._load_chunk (1, -2): 1153.64 ms
+[WorldPerf] Chunk._redraw_all (1, -2): 22.42 ms
+[WorldPerf] ChunkManager._load_chunk (63, 2): 1055.54 ms
+[WorldPerf] Chunk._redraw_all (63, 2): 15.88 ms
+[WorldPerf] ChunkManager._load_chunk (63, -2): 1176.15 ms
+[WorldPerf] Chunk._redraw_all (63, -2): 15.65 ms
+[WorldPerf] ChunkManager._load_chunk (2, 1): 1157.83 ms
+[WorldPerf] Chunk._redraw_all (2, 1): 17.61 ms
+[WorldPerf] ChunkManager._load_chunk (62, 1): 1159.86 ms
+[WorldPerf] Chunk._redraw_all (62, 1): 17.65 ms
+[WorldPerf] ChunkManager._load_chunk (62, -1): 1156.23 ms
+[WorldPerf] Chunk._redraw_all (62, -1): 16.81 ms
+[WorldPerf] ChunkManager._load_chunk (2, 2): 1140.20 ms
+[WorldPerf] Chunk._redraw_all (2, 2): 16.11 ms
+[WorldPerf] ChunkManager._load_chunk (2, -2): 1178.77 ms
+[WorldPerf] Chunk._redraw_all (2, -2): 65.36 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.21 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.35 ms
+[WorldPerf] ChunkManager._load_chunk (62, 2): 1132.05 ms
+[WorldPerf] Chunk._redraw_all (62, 2): 14.69 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.19 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.32 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.42 ms
+[WorldPerf] ChunkManager._load_chunk (62, -2): 1170.90 ms
+[WorldPerf] Chunk._redraw_all (62, -2): 17.27 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.25 ms
+[WorldPerf] ChunkManager._rebuild_loaded_mountain_topology.boot: 50.26 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.17 ms
+[CodexValidation] room validation prepared at (4, 4)
+[CodexValidation] power validation prepared at (8, 4)
+[CodexValidation] mining validation prepared at (188, -64)
+[CodexValidation] boot complete; route prepared
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.3ms spawn=0.0ms total=0.4ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.3ms(60)
+[CodexValidation] built validation room
+[CodexValidation] removed validation room wall (5, 4)
+[CodexValidation] re-placed validation room wall (5, 4)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[CodexValidation] destroyed validation room wall (4, 5)
+[CodexValidation] room validation complete
+[CodexValidation] placed validation battery (8, 4)
+[CodexValidation] removed validation battery (8, 4)
+[CodexValidation] power validation complete
+[CodexValidation] mined entry tile (188, -64)
+[WorldPerf] FrameBudgetDispatcher.total: 2.88 ms
+[FrameBudget] streaming=0.0ms topology=0.1ms visual=0.0ms spawn=0.0ms total=0.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.1ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] Topology.runtime.scan: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.29 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] Topology.runtime.scan: 2.25 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 4.12 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.23 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.39 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.51 ms
+[CodexValidation] mined interior tile (189, -64)
+[WorldPerf] FrameBudgetDispatcher.total: 2.88 ms
+[WorldPerf] Topology.runtime.scan: 2.44 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.50 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.79 ms
+[WorldPerf] Topology.runtime.scan: 2.53 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.58 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.84 ms
+[WorldPerf] Topology.runtime.scan: 2.65 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.70 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.02 ms
+[WorldPerf] Topology.runtime.scan: 2.91 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.97 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.25 ms
+[WorldPerf] Topology.runtime.scan: 2.68 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.72 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.85 ms
+[WorldPerf] Topology.runtime.scan: 2.56 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.60 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.78 ms
+[WorldPerf] Topology.runtime.scan: 2.52 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.56 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.73 ms
+[WorldPerf] Topology.runtime.scan: 2.53 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.57 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.73 ms
+[WorldPerf] Topology.runtime.scan: 2.52 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.55 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.71 ms
+[WorldPerf] Topology.runtime.scan: 2.65 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.72 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.95 ms
+[WorldPerf] Topology.runtime.scan: 3.10 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 3.13 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.32 ms
+[WorldPerf] Topology.runtime.scan: 2.70 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.76 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.98 ms
+[WorldPerf] Topology.runtime.scan: 2.62 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.71 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.83 ms
+[WorldPerf] Topology.runtime.scan: 2.59 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.62 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.75 ms
+[WorldPerf] Topology.runtime.scan: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.13 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.30 ms
+[WorldPerf] Topology.runtime.scan: 2.71 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 4.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.18 ms
+[WorldPerf] Topology.runtime.scan: 2.65 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.71 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.86 ms
+[WorldPerf] Topology.runtime.scan: 2.13 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 3.29 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.44 ms
+[WorldPerf] ChunkManager.try_harvest_at_world: 2.73 ms
+WARNING: [WorldPerf] WARNING: ChunkManager.try_harvest_at_world took 2.73 ms (contract: 2.0 ms)
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] _record (res://core/systems/world/world_perf_probe.gd:54)
+       [1] end (res://core/systems/world/world_perf_probe.gd:42)
+       [2] try_harvest_at_world (res://core/systems/world/chunk_manager.gd:485)
+       [3] execute (res://core/systems/commands/harvest_tile_command.gd:18)
+       [4] execute (res://core/systems/commands/command_executor.gd:15)
+       [5] _mine_tile (res://core/debug/runtime_validation_driver.gd:645)
+       [6] _process_mining_validation (res://core/debug/runtime_validation_driver.gd:552)
+       [7] _process (res://core/debug/runtime_validation_driver.gd:107)
+[CodexValidation] mined deeper tile (190, -64)
+[WorldPerf] MountainRoofSystem._request_refresh: 2.00 ms
+[WorldPerf] FPS: 70.0
+[FrameBudget] streaming=0.0ms topology=1.5ms visual=0.0ms spawn=0.0ms total=1.6ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=1.5ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[CodexValidation] moved player back to exterior tile (187, -64)
+[CodexValidation] mining + persistence validation complete
+[CodexValidation] route start
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=18.1 ms, p99=143.8 ms, hitches=28
+[WorldPerf] Frame budget: dispatcher=0.5ms streaming=98.6ms topology=0.6ms building=0.0ms power=0.0ms visual=0.1ms spawn=0.0ms total=99.4ms/6.0ms
+[WorldPerf] Boot work: streaming=0.0ms topology=0.2ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] ChunkStreaming.phase1_create (3, -1): 8.09 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 8.23 ms
+[WorldPerf] FrameBudgetDispatcher.total: 8.38 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 10.21 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 10.27 ms
+[WorldPerf] FrameBudgetDispatcher.total: 10.62 ms
+[WorldPerf] Shadow.edge_cache_slice: 5.64 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 6.15 ms
+[WorldPerf] FrameBudgetDispatcher.total: 8.37 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.18 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.22 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.cover: 5.59 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 7.41 ms
+[WorldPerf] FrameBudgetDispatcher.total: 7.61 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.14 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.cliff: 2.90 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 4.49 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.67 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.16 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.15 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[FrameBudget] streaming=1.1ms topology=0.0ms visual=0.1ms spawn=0.0ms total=1.3ms/6.0ms chunk_manager.streaming_load=0.2ms(60) chunk_manager.streaming_redraw=1.0ms(59) building.room_recompute=0.0ms(57) power.balance_recompute=0.0ms(57) chunk_manager.topology_rebuild=0.0ms(57) underground.fog_update=0.0ms(57) mountain_shadow.visual_rebuild=0.1ms(57)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[CodexValidation] reached waypoint 1/6 at (24576.0, 0.0)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] ChunkStreaming.phase1_create (4, -1): 8.77 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 8.90 ms
+[WorldPerf] FrameBudgetDispatcher.total: 9.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.17 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.89 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.91 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.85 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.97 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.78 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.19 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.12 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.26 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.86 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.03 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.59 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.71 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.16 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.11 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.42 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.55 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.07 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[FrameBudget] streaming=1.2ms topology=0.0ms visual=0.1ms spawn=0.0ms total=1.3ms/6.0ms chunk_manager.streaming_load=0.2ms(60) chunk_manager.streaming_redraw=1.0ms(59) building.room_recompute=0.0ms(59) power.balance_recompute=0.0ms(59) chunk_manager.topology_rebuild=0.0ms(59) underground.fog_update=0.0ms(59) mountain_shadow.visual_rebuild=0.1ms(59)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.6ms streaming=0.5ms topology=0.0ms building=0.0ms power=0.0ms visual=0.1ms spawn=0.0ms total=0.6ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] ChunkStreaming.phase1_create (6, 0): 3.24 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 3.37 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.58 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.95 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.94 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.31 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.66 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.70 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.62 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.64 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.70 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.55 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.50 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.50 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.53 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.32 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.34 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.05 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.19 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.42 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.28 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.19 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.17 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.19 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.15 ms
+[FrameBudget] streaming=1.3ms topology=0.0ms visual=0.2ms spawn=0.0ms total=1.6ms/6.0ms chunk_manager.streaming_load=0.1ms(60) chunk_manager.streaming_redraw=1.2ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.2ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[CodexValidation] reached waypoint 2/6 at (24576.0, 20480.0)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.4ms streaming=0.3ms topology=0.0ms building=0.0ms power=0.0ms visual=0.1ms spawn=0.0ms total=0.4ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] FPS: 145.0
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms
+[WorldPerf] ChunkStreaming.phase1_create (3, 5): 14.78 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 14.95 ms
+[WorldPerf] FrameBudgetDispatcher.total: 15.11 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.24 ms
+[FrameBudget] streaming=0.3ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.3ms/6.0ms chunk_manager.streaming_load=0.3ms(60) chunk_manager.streaming_redraw=0.0ms(59) building.room_recompute=0.0ms(59) power.balance_recompute=0.0ms(59) chunk_manager.topology_rebuild=0.0ms(59) underground.fog_update=0.0ms(59) mountain_shadow.visual_rebuild=0.0ms(59)
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.13 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.12 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.11 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.11 ms
+[FrameBudget] streaming=0.8ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.8ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.7ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.3ms streaming=0.2ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms spawn=0.0ms total=0.3ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] ChunkStreaming.phase1_create (62, 5): 3.01 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 3.15 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.26 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.38 ms
+[WorldPerf] Shadow.edge_cache_slice: 3.33 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 3.38 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.52 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.10 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.77 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.80 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.18 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.93 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.96 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.19 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 3.11 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.88 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.92 ms
+[WorldPerf] FrameBudgetDispatcher.total: 6.32 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.30 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.96 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 3.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.71 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.26 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.59 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.77 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.21 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.50 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.16 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.34 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.69 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.83 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.16 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.50 ms
+[WorldPerf] Shadow.edge_cache_slice: 7.69 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 7.86 ms
+[WorldPerf] FrameBudgetDispatcher.total: 10.75 ms
+[FrameBudget] streaming=0.5ms topology=0.0ms visual=0.4ms spawn=0.0ms total=0.9ms/6.0ms chunk_manager.streaming_load=0.1ms(60) chunk_manager.streaming_redraw=0.4ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.4ms(60)
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.19 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.59 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.71 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.15 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.56 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.84 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.16 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.59 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.83 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.20 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.68 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.92 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.17 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.62 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.87 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.20 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.15 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 14.09 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 14.69 ms
+[WorldPerf] FrameBudgetDispatcher.total: 14.84 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.72 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.83 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.cover: 7.47 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 8.23 ms
+[WorldPerf] FrameBudgetDispatcher.total: 8.33 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.11 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.39 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.52 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.12 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.cliff: 4.04 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 4.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.36 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[FrameBudget] streaming=1.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.7ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=1.7ms(60) building.room_recompute=0.0ms(58) power.balance_recompute=0.0ms(58) chunk_manager.topology_rebuild=0.0ms(58) underground.fog_update=0.0ms(58) mountain_shadow.visual_rebuild=0.0ms(58)
+[WorldPerf] FPS: 145.0
+[CodexValidation] reached waypoint 3/6 at (241664.0, 20480.0)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] ChunkStreaming.phase1_create (60, 5): 3.07 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 3.21 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.33 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 5.34 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 5.39 ms
+[WorldPerf] Shadow.edge_cache_slice: 35.66 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 35.91 ms
+[WorldPerf] FrameBudgetDispatcher.total: 41.66 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 47.50 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 47.59 ms
+[WorldPerf] FrameBudgetDispatcher.total: 47.78 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.21 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.38 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.85 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.88 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.55 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.21 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.41 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.83 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.86 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.51 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.39 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.61 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.85 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.88 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.74 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.33 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.51 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.87 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.90 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.66 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.41 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.61 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.83 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.86 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.71 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.25 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.43 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.73 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.75 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.45 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.21 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.38 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.57 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.60 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.22 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.22 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.43 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.66 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.69 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.38 ms
+[FrameBudget] streaming=1.3ms topology=0.0ms visual=1.0ms spawn=0.0ms total=2.3ms/6.0ms chunk_manager.streaming_load=0.1ms(60) chunk_manager.streaming_redraw=1.2ms(60) building.room_recompute=0.0ms(59) power.balance_recompute=0.0ms(59) chunk_manager.topology_rebuild=0.0ms(59) underground.fog_update=0.0ms(59) mountain_shadow.visual_rebuild=1.0ms(59)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.1 ms, p99=16.7 ms, hitches=2
+[WorldPerf] Frame budget: dispatcher=1.1ms streaming=0.7ms topology=0.0ms building=0.0ms power=0.0ms visual=0.6ms spawn=0.0ms total=1.3ms/6.0ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.22 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.42 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.68 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.71 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.37 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.48 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.71 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.74 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.78 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.75 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.27 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.46 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.67 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.70 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.40 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.26 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.42 ms
+[WorldPerf] Shadow.edge_cache_slice: 2.74 ms
+[WorldPerf] FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild: 2.78 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.45 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.22 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.38 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.25 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.12 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.27 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.31 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.25 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.38 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 3.16 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 3.39 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.18 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.18 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.36 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.19 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.40 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.53 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.36 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.56 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.71 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.14 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.31 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.43 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.18 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.35 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.48 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.24 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.42 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.61 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.20 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.37 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.20 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.38 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.terrain: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.20 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.41 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.22 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.13 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.cover: 34.73 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 34.83 ms
+[WorldPerf] FrameBudgetDispatcher.total: 34.91 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] ChunkManager.streaming_redraw_step.cliff: 14.99 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 15.49 ms
+[WorldPerf] FrameBudgetDispatcher.total: 15.71 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.11 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[FrameBudget] streaming=2.7ms topology=0.0ms visual=0.2ms spawn=0.0ms total=3.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=2.7ms(60) building.room_recompute=0.0ms(58) power.balance_recompute=0.0ms(58) chunk_manager.topology_rebuild=0.0ms(58) underground.fog_update=0.0ms(58) mountain_shadow.visual_rebuild=0.2ms(58)
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[FrameBudget] streaming=0.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.4ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.3ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.0 ms, p99=7.1 ms, hitches=1
+[WorldPerf] Frame budget: dispatcher=0.8ms streaming=0.6ms topology=0.0ms building=0.0ms power=0.0ms visual=0.3ms spawn=0.0ms total=0.9ms/6.0ms
+[WorldPerf] ChunkStreaming.phase1_create (59, 1): 4.54 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 4.68 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.81 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.36 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.26 ms
+[FrameBudget] streaming=0.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.7ms/6.0ms chunk_manager.streaming_load=0.1ms(60) chunk_manager.streaming_redraw=0.6ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] ChunkStreaming.phase1_create (59, -1): 3.29 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 3.42 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.54 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.36 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.13 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[FrameBudget] streaming=0.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.7ms/6.0ms chunk_manager.streaming_load=0.1ms(60) chunk_manager.streaming_redraw=0.6ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[CodexValidation] reached waypoint 4/6 at (241664.0, -16384.0)
+[WorldPerf] FPS: 145.0
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.4ms streaming=0.3ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms spawn=0.0ms total=0.3ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] ChunkStreaming.phase1_create (59, -3): 10.88 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 11.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 11.16 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.35 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.17 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.16 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.23 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[FrameBudget] streaming=0.9ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.9ms/6.0ms chunk_manager.streaming_load=0.2ms(60) chunk_manager.streaming_redraw=0.7ms(59) building.room_recompute=0.0ms(59) power.balance_recompute=0.0ms(59) chunk_manager.topology_rebuild=0.0ms(59) underground.fog_update=0.0ms(59) mountain_shadow.visual_rebuild=0.0ms(59)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] ChunkStreaming.phase1_create (60, -4): 4.89 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 5.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.24 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.41 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.19 ms
+[FrameBudget] streaming=0.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.7ms/6.0ms chunk_manager.streaming_load=0.1ms(60) chunk_manager.streaming_redraw=0.6ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.4ms streaming=0.3ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms spawn=0.0ms total=0.4ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[CodexValidation] reached waypoint 5/6 at (0.0, -16384.0)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] ChunkStreaming.phase1_create (62, -4): 4.83 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 4.96 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.19 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.30 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.12 ms
+[FrameBudget] streaming=0.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.8ms/6.0ms chunk_manager.streaming_load=0.1ms(60) chunk_manager.streaming_redraw=0.6ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.2ms streaming=0.2ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms spawn=0.0ms total=0.2ms/6.0ms
+[WorldPerf] ChunkStreaming.phase1_create (0, -4): 3.27 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 3.45 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.57 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.57 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.17 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.16 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.15 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.13 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.17 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.13 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.12 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.12 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.08 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.25 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.15 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[FrameBudget] streaming=1.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.5ms/6.0ms chunk_manager.streaming_load=0.1ms(60) chunk_manager.streaming_redraw=1.3ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[CodexValidation] reached waypoint 6/6 at (0.0, 0.0)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] FPS: 145.0
+[CodexValidation] route complete; draining background work
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 2.90 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.18 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 3.11 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.55 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 3.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.48 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 2.91 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.40 ms
+[WorldPerf] ChunkStreaming.phase1_create (2, -1): 13.02 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 14.26 ms
+[WorldPerf] FrameBudgetDispatcher.total: 14.41 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 2.34 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.46 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 2.73 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.76 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_load: 3.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 6.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 6.21 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.84 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.82 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.94 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.26 ms
+[WorldPerf] Topology.runtime.scan: 2.16 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.22 ms
+[WorldPerf] FrameBudgetDispatcher.total: 6.28 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.80 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.79 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.72 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.70 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.74 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.76 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.88 ms
+[WorldPerf] FrameBudgetDispatcher.total: 5.80 ms
+[WorldPerf] Topology.runtime.scan: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.93 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.57 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.01 ms
+[WorldPerf] Topology.runtime.scan: 2.25 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 3.96 ms
+[WorldPerf] FrameBudgetDispatcher.total: 6.18 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.80 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.87 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.03 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 2.30 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.36 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.95 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.43 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.67 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.96 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.98 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.93 ms
+[WorldPerf] FrameBudgetDispatcher.total: 3.85 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 4.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.12 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.14 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[FrameBudget] streaming=2.2ms topology=1.0ms visual=0.5ms spawn=0.0ms total=3.6ms/6.0ms chunk_manager.streaming_load=0.6ms(60) chunk_manager.streaming_redraw=1.6ms(59) building.room_recompute=0.0ms(59) power.balance_recompute=0.0ms(59) chunk_manager.topology_rebuild=1.0ms(59) underground.fog_update=0.0ms(59) mountain_shadow.visual_rebuild=0.5ms(59)
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.21 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.11 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.01 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.17 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.03 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.14 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.04 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.06 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.05 ms
+[FrameBudget] streaming=2.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) chunk_manager.streaming_redraw=1.9ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.0 ms, p99=8.8 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=1.5ms streaming=1.1ms topology=0.4ms building=0.0ms power=0.0ms visual=0.2ms spawn=0.0ms total=1.7ms/6.0ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.07 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.14 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.02 ms
+[CodexValidation] route drain complete with redraw backlog: streaming_truth_idle=true redraw_idle=false load_queue=0 redraw=24 staged_chunk=no staged_data=0 gen_task_id=-1 topology_ready=true native_topology=false native_dirty=false dirty=false build_in_progress=false
+[WorldPerf] FrameBudgetDispatcher.streaming.chunk_manager.streaming_redraw: 2.00 ms
+[WorldPerf] FrameBudgetDispatcher.total: 2.10 ms
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 7 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

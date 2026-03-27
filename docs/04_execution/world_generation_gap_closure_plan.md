@@ -38,6 +38,22 @@ It exists to answer one practical question:
 - what is actively broken at runtime
 - what must be closed before the foundation can be treated as ready for `Iteration 7+`
 
+## 2026-03-27 Execution Progress Note
+
+Implemented in the current correction pass:
+- shipped flora/decor resources now load cleanly at startup again
+- sync and async surface chunk paths now both carry flora/decor placement inputs
+- surface terrain truth was moved out of `ChunkContentBuilder` into detached compute/resolver code, so the builder is back to chunk materialization work
+- biome explainability payloads now carry real channel/structure score evidence
+- surface payload caching, queue compaction, and non-spinning async polling now remove the earlier route-return generation backlog
+- chunk flora redraw now uses tile-local placement lookup instead of scanning the full placement list per tile
+- headless runtime validation now completes room, power, mining, chunk-persistence, and the full `6/6` route with `exit code 0`; catch-up closure now treats `streaming_truth` and `topology` as blockers while logging redraw-only tail as residual background work
+
+Still open after this pass:
+- route drain can still finish with a redraw-only backlog, so visual catch-up is still slower than ideal
+- a perf contract overrun still appears in `ChunkManager.try_harvest_at_world()` in the current validation path
+- wider geography/readability tuning should continue after the current runtime-stability closure
+
 ## Scope
 
 This review stops at `Iteration 6`.
@@ -80,7 +96,7 @@ Current rollout state:
 - `Iteration 3`: implemented, not closed
 - `Iteration 4`: MVP implemented, not closed
 - `Iteration 5`: partial, not closed
-- `Iteration 6`: implemented as MVP architecture, but not closed and currently runtime-broken
+- `Iteration 6`: implemented as MVP architecture, runtime-stable in validation, but not closed
 
 Practical conclusion:
 - do not reopen `Iteration 6` as greenfield work
@@ -169,18 +185,20 @@ What remains open:
 
 Status:
 - implemented as MVP architecture
+- runtime-stable in the current headless validation pass
 - not closed
-- currently runtime-broken
 
 What is true now:
 - `FloraSetData`, `DecorSetData`, `FloraDecorRegistry`, `ChunkFloraBuilder`, and `ChunkFloraResult` exist
 - biomes already reference flora/decor set ids
 - flora/decor resources exist under `data/flora/` and `data/decor/`
-- the sync surface chunk load path computes placements and `Chunk` redraw renders placeholder flora/decor
+- shipped flora/decor entries and sets load cleanly at startup again
+- sync and async surface chunk loading both compute equivalent flora/decor placements from the same deterministic inputs
+- `Chunk` redraw renders placeholder flora/decor and now uses tile-local flora lookup instead of scanning all placements for every tile
 
 What remains open:
-- the shipped flora/decor entry resources currently fail to parse at startup, so the registry cannot load the base sets cleanly
-- the async streaming path does not compute flora placements, so load-path behavior is inconsistent even after registry load is fixed
+- redraw-only visual backlog can remain after long route completion even when streaming truth and topology are already caught up
+- flora/decor presentation is still placeholder-level and should be improved later as a quality/content pass
 
 ## Confirmed current issues
 
@@ -295,58 +313,31 @@ Definition of done:
 - builder consumes upstream world truth rather than inventing part of it locally
 - terrain truth no longer lives partly in materialization code
 
-### Issue F: Iteration 6 resources currently fail at runtime
+### Issue F: Iteration 6 runtime resource load failures
 
-Current problem:
-- the shipped flora and decor entry resources fail to parse at startup
-- once those entry resources fail, the flora/decor set resources that reference them also fail to load
-- `FloraDecorRegistry` starts with missing base content instead of usable base sets
+Status:
+- resolved in the current correction pass
 
-Why this matters:
-- this is not a theoretical architecture gap
-- it is a confirmed runtime failure after `Iteration 6`
-
-Concrete evidence:
-- launch log captured on `2026-03-27` after the `Iteration 6` implementation landed
-- `core/autoloads/flora_decor_registry.gd`
-- `data/flora/entries/*.tres`
-- `data/decor/entries/*.tres`
-- `data/flora/*.tres`
-- `data/decor/*.tres`
-
-Observed runtime symptom:
-- repeated `Parse Error: Expected 4 arguments for constructor`
-- then repeated failures loading flora/decor sets that reference those entries
-
-Likely immediate cause in shipped resources:
-- entry resources use three-argument `Color(...)` literals in the text resource format
-- current runtime expects a four-argument constructor for those serialized resource values
+Current state:
+- shipped flora and decor entry resources now parse cleanly at startup
+- dependent flora/decor sets load again
+- `FloraDecorRegistry` starts with usable base sets instead of missing content
 
 Definition of done:
-- all shipped flora/decor entries and sets load cleanly at startup
-- the base registry contains the expected sets after boot
+- met for runtime loadability
 
 ### Issue G: async streaming path drops flora placement
 
-Current problem:
-- sync `_load_chunk_for_z()` computes a full `ChunkBuildResult` and calls `_compute_flora_for_chunk(...)`
-- async staged loading only moves through `build_chunk_native_data()` / `to_native_data()`
-- `ChunkBuildResult.to_native_data()` omits flora arrays
-- staged finalize never computes flora placements
+Status:
+- resolved in the current correction pass
 
-Why this matters:
-- `Iteration 6` behaves differently depending on chunk load path
-- newly streamed chunks can miss flora/decor behavior even after the registry/resource fix
-
-Concrete evidence:
-- `core/systems/world/chunk_manager.gd`
-- `core/systems/world/chunk_build_result.gd`
-- `core/systems/world/chunk_flora_builder.gd`
-- `core/systems/world/chunk.gd`
+Current state:
+- sync and async surface chunk loading now both preserve the flora/decor inputs needed by `ChunkFloraBuilder`
+- surface payload caching and staged creation reuse the same deterministic native payload + flora result path
+- `Iteration 6` no longer changes behavior based on whether a chunk arrived through sync boot load or async streaming
 
 Definition of done:
-- sync and async surface chunk loading both produce equivalent flora/decor placements
-- `Iteration 6` is not path-dependent
+- met for load-path parity
 
 ### Issue H: documentation is still stale against current code
 
@@ -378,13 +369,12 @@ These older assumptions should not drive new work anymore:
 
 ## Revised work order
 
-1. Fix `Iteration 6` runtime resource load failures.
-2. Fix `Iteration 6` sync/async load-path parity for flora/decor placement.
-3. Close the `Iteration 5` world-truth vs materialization boundary.
-4. Close the `Iteration 3` wrap seam at the structure phase level.
-5. Improve `Iteration 3` readability from prototype bands toward readable systems.
-6. Finish `Iteration 2` explainability and `Iteration 4` downstream contract closure.
-7. Sync rollout/glossary/status docs after the code truth is stable.
+1. Close the `Iteration 5` world-truth vs materialization boundary.
+2. Close the remaining runtime tail: redraw backlog and the last `ChunkManager.try_harvest_at_world()` overrun.
+3. Close the `Iteration 3` wrap seam at the structure phase level.
+4. Improve `Iteration 3` readability from prototype bands toward readable systems.
+5. Finish `Iteration 2` explainability and `Iteration 4` downstream contract closure.
+6. Sync rollout/glossary/status docs after the code truth is stable.
 
 ## Task breakdown
 
@@ -392,6 +382,9 @@ These older assumptions should not drive new work anymore:
 
 Goal:
 - make the shipped flora/decor content load cleanly at runtime
+
+Status:
+- done in the current correction pass
 
 In scope:
 - fix parse-invalid entry resources
@@ -409,6 +402,9 @@ Likely files:
 
 Goal:
 - remove sync/async divergence in flora/decor placement
+
+Status:
+- done in the current correction pass
 
 In scope:
 - either carry the needed flora data through `to_native_data()`
@@ -498,9 +494,9 @@ Likely files:
 The next correct step is not another broad re-audit.
 
 It is:
-- fix the shipped `Iteration 6` resource load failures first
-- then fix async streaming parity for flora/decor placement
+- finish the remaining runtime tail around redraw backlog and `ChunkManager.try_harvest_at_world()`
 - then close the structural truth debts in `Iteration 5` and `Iteration 3`
+- then continue the geography/readability quality pass on top of the stabilized runtime path
 
 Until those are done, the honest status of the worldgen rollout through `Iteration 6` is:
 - materially progressed

@@ -10,6 +10,7 @@ const START_SETTLE_FRAMES: int = 60
 const SEGMENT_SETTLE_FRAMES: int = 30
 const TAIL_SETTLE_FRAMES: int = 180
 const TOPOLOGY_WAIT_TIMEOUT_FRAMES: int = 360
+const CATCH_UP_STATUS_LOG_INTERVAL_FRAMES: int = 60
 const MINING_SETTLE_FRAMES: int = 20
 const ROOM_SETTLE_FRAMES: int = 12
 const ROOM_WAIT_TIMEOUT_FRAMES: int = 180
@@ -45,6 +46,9 @@ var _start_frames_remaining: int = START_SETTLE_FRAMES
 var _segment_frames_remaining: int = 0
 var _tail_frames_remaining: int = -1
 var _topology_wait_frames_remaining: int = -1
+var _catch_up_status_frames_remaining: int = -1
+var _last_catch_up_signature: String = ""
+var _unchanged_catch_up_status_count: int = 0
 var _started: bool = false
 var _route_announced: bool = false
 var _room_validation_stage: int = -1
@@ -109,35 +113,61 @@ func _process(delta: float) -> void:
 		if _tail_frames_remaining > 0:
 			_tail_frames_remaining -= 1
 			return
-		if _is_topology_caught_up():
-			print("[CodexValidation] route drain complete; quitting")
+		if _is_runtime_caught_up():
+			if _has_redraw_backlog():
+				print("[CodexValidation] route drain complete with redraw backlog: %s" % [_describe_chunk_manager_catch_up_state()])
+			else:
+				print("[CodexValidation] route drain complete; quitting")
 			get_tree().quit()
 			return
 		if _topology_wait_frames_remaining < 0:
 			_topology_wait_frames_remaining = TOPOLOGY_WAIT_TIMEOUT_FRAMES
-			print("[CodexValidation] waiting for topology catch-up")
-			return
+			_catch_up_status_frames_remaining = 0
+			_last_catch_up_signature = ""
+			_unchanged_catch_up_status_count = 0
+			print("[CodexValidation] waiting for world catch-up")
+		if _catch_up_status_frames_remaining <= 0:
+			var catch_up_signature: String = _build_catch_up_signature()
+			if catch_up_signature == _last_catch_up_signature:
+				_unchanged_catch_up_status_count += 1
+			else:
+				_last_catch_up_signature = catch_up_signature
+				_unchanged_catch_up_status_count = 0
+			print("[CodexValidation] catch-up status: blocker=%s stalled_intervals=%d %s" % [
+				_describe_catch_up_blocker(),
+				_unchanged_catch_up_status_count,
+				_describe_chunk_manager_catch_up_state(),
+			])
+			_catch_up_status_frames_remaining = CATCH_UP_STATUS_LOG_INTERVAL_FRAMES
 		if _topology_wait_frames_remaining > 0:
 			_topology_wait_frames_remaining -= 1
+			_catch_up_status_frames_remaining -= 1
 			return
-		print("[CodexValidation] topology catch-up timeout; quitting")
-		get_tree().quit()
+		_fail_validation("world catch-up timeout: blocker=%s stalled_intervals=%d %s" % [
+			_describe_catch_up_blocker(),
+			_unchanged_catch_up_status_count,
+			_describe_chunk_manager_catch_up_state(),
+		])
 		return
 	if _target_index >= _targets.size():
 		_tail_frames_remaining = TAIL_SETTLE_FRAMES
 		_topology_wait_frames_remaining = -1
+		_catch_up_status_frames_remaining = -1
+		_last_catch_up_signature = ""
+		_unchanged_catch_up_status_count = 0
 		print("[CodexValidation] route complete; draining background work")
 		return
 	if not _route_announced:
 		_route_announced = true
 		print("[CodexValidation] route start")
 	var target: Vector2 = _targets[_target_index]
+	var display_target: Vector2 = _resolve_route_display_target(target)
 	_player.global_position = _player.global_position.move_toward(
-		target,
+		display_target,
 		MOVE_SPEED_PX_PER_SEC * delta
 	)
-	if _player.global_position.distance_to(target) <= ARRIVE_DISTANCE_PX:
-		_player.global_position = target
+	if _player.global_position.distance_to(display_target) <= ARRIVE_DISTANCE_PX:
+		_player.global_position = _canonicalize_world_position(target)
 		print("[CodexValidation] reached waypoint %d/%d at %s" % [
 			_target_index + 1,
 			_targets.size(),
@@ -181,12 +211,94 @@ func _resolve_command_executor() -> void:
 func _build_route() -> void:
 	_targets.clear()
 	var chunk_pixels: float = float(WorldGenerator.balance.get_chunk_size_pixels())
-	var start: Vector2 = _player.global_position
+	var start: Vector2 = _canonicalize_world_position(_player.global_position)
 	for offset: Vector2i in ROUTE_CHUNK_OFFSETS:
-		_targets.append(start + Vector2(offset.x, offset.y) * chunk_pixels)
+		_targets.append(_canonicalize_world_position(
+			start + Vector2(offset.x, offset.y) * chunk_pixels
+		))
+
+func _resolve_route_display_target(canonical_target: Vector2) -> Vector2:
+	if _player == null or WorldGenerator == null:
+		return canonical_target
+	return WorldGenerator.get_display_world_position(canonical_target, _player.global_position)
+
+func _canonicalize_world_position(world_pos: Vector2) -> Vector2:
+	if WorldGenerator == null:
+		return world_pos
+	return WorldGenerator.canonicalize_world_position(world_pos)
 
 func _is_topology_caught_up() -> bool:
 	return _chunk_manager == null or _chunk_manager.is_topology_ready()
+
+func _is_runtime_caught_up() -> bool:
+	return _is_streaming_truth_caught_up() and _is_topology_caught_up()
+
+func _is_streaming_truth_caught_up() -> bool:
+	if _chunk_manager == null:
+		return true
+	if _get_variant_size(_chunk_manager.get("_load_queue")) > 0:
+		return false
+	if _chunk_manager.get("_staged_chunk") != null:
+		return false
+	if _get_variant_size(_chunk_manager.get("_staged_data")) > 0:
+		return false
+	return int(_chunk_manager.get("_gen_task_id")) < 0
+
+func _has_redraw_backlog() -> bool:
+	return _chunk_manager != null and _get_variant_size(_chunk_manager.get("_redrawing_chunks")) > 0
+
+func _build_catch_up_signature() -> String:
+	if _chunk_manager == null:
+		return "chunk_manager=missing"
+	return "%s|%d|%d|%s|%d|%d|%s|%s|%s|%s|%s" % [
+		_describe_catch_up_blocker(),
+		_get_variant_size(_chunk_manager.get("_load_queue")),
+		_get_variant_size(_chunk_manager.get("_redrawing_chunks")),
+		"yes" if _chunk_manager.get("_staged_chunk") != null else "no",
+		_get_variant_size(_chunk_manager.get("_staged_data")),
+		int(_chunk_manager.get("_gen_task_id")),
+		str(_is_topology_caught_up()),
+		str(bool(_chunk_manager.get("_native_topology_active"))),
+		str(bool(_chunk_manager.get("_native_topology_dirty"))),
+		str(bool(_chunk_manager.get("_is_topology_dirty"))),
+		str(bool(_chunk_manager.get("_is_topology_build_in_progress"))),
+	]
+
+func _describe_catch_up_blocker() -> String:
+	if not _is_topology_caught_up():
+		return "topology"
+	if not _is_streaming_truth_caught_up():
+		return "streaming_truth"
+	if _has_redraw_backlog():
+		return "redraw_only"
+	return "none"
+
+func _describe_chunk_manager_catch_up_state() -> String:
+	if _chunk_manager == null:
+		return "chunk_manager=missing"
+	var streaming_truth_idle: bool = _is_streaming_truth_caught_up()
+	var topology_ready: bool = _is_topology_caught_up()
+	return "streaming_truth_idle=%s redraw_idle=%s load_queue=%d redraw=%d staged_chunk=%s staged_data=%d gen_task_id=%d topology_ready=%s native_topology=%s native_dirty=%s dirty=%s build_in_progress=%s" % [
+		streaming_truth_idle,
+		not _has_redraw_backlog(),
+		_get_variant_size(_chunk_manager.get("_load_queue")),
+		_get_variant_size(_chunk_manager.get("_redrawing_chunks")),
+		"yes" if _chunk_manager.get("_staged_chunk") != null else "no",
+		_get_variant_size(_chunk_manager.get("_staged_data")),
+		int(_chunk_manager.get("_gen_task_id")),
+		topology_ready,
+		bool(_chunk_manager.get("_native_topology_active")),
+		bool(_chunk_manager.get("_native_topology_dirty")),
+		bool(_chunk_manager.get("_is_topology_dirty")),
+		bool(_chunk_manager.get("_is_topology_build_in_progress")),
+	]
+
+func _get_variant_size(value: Variant) -> int:
+	if value is Array:
+		return (value as Array).size()
+	if value is Dictionary:
+		return (value as Dictionary).size()
+	return 0
 
 func _prepare_room_validation() -> void:
 	if not _building_system or not _player:
@@ -541,10 +653,14 @@ func _tile_to_world_center(tile_pos: Vector2i) -> Vector2:
 	)
 
 func _validate_chunk_save_payload(chunk_save_data: Dictionary) -> bool:
-	for chunk_coord: Vector2i in chunk_save_data:
-		var chunk_entry: Dictionary = chunk_save_data.get(chunk_coord, {}) as Dictionary
-		for local_tile: Vector2i in chunk_entry:
-			var tile_state: Dictionary = chunk_entry.get(local_tile, {}) as Dictionary
+	for chunk_key: Variant in chunk_save_data:
+		if not (chunk_key is Vector2i or chunk_key is Vector3i):
+			return false
+		var chunk_entry: Dictionary = chunk_save_data.get(chunk_key, {}) as Dictionary
+		for local_tile_key: Variant in chunk_entry:
+			if not (local_tile_key is Vector2i):
+				return false
+			var tile_state: Dictionary = chunk_entry.get(local_tile_key, {}) as Dictionary
 			for state_key in tile_state.keys():
 				var key_string: String = str(state_key).to_lower()
 				if not _ALLOWED_CHUNK_STATE_KEYS.has(StringName(key_string)):

@@ -1,6 +1,8 @@
 class_name FloraSetData
 extends Resource
 
+const FloraEntryScript = preload("res://data/flora/flora_entry.gd")
+
 ## Набор элементов флоры, назначаемый биому или подзоне.
 ## Управляет плотностью и фильтрацией по условиям мира.
 
@@ -10,7 +12,7 @@ extends Resource
 @export var tags: Array[StringName] = []
 
 @export_group("Entries")
-@export var entries: Array[FloraEntry] = []
+@export var entries: Array[Resource] = []
 
 @export_group("Density")
 @export_range(0.0, 1.0, 0.01) var base_density: float = 0.10
@@ -34,10 +36,13 @@ func is_allowed_on_terrain(terrain_type: int) -> bool:
 		return terrain_type == 0
 	return terrain_filter.has(terrain_type)
 
-func pick_entry(hash_value: float, flora_density: float) -> FloraEntry:
-	var eligible: Array[FloraEntry] = []
+func pick_entry(hash_value: float, flora_density: float) -> FloraEntryScript:
+	var eligible: Array[FloraEntryScript] = []
 	var total_weight: float = 0.0
-	for entry: FloraEntry in entries:
+	for entry_resource: Resource in entries:
+		var entry: FloraEntryScript = entry_resource as FloraEntryScript
+		if entry == null:
+			continue
 		if flora_density >= entry.min_density_threshold and flora_density <= entry.max_density_threshold:
 			eligible.append(entry)
 			total_weight += entry.weight
@@ -45,7 +50,7 @@ func pick_entry(hash_value: float, flora_density: float) -> FloraEntry:
 		return null
 	var target: float = hash_value * total_weight
 	var accumulated: float = 0.0
-	for entry: FloraEntry in eligible:
+	for entry: FloraEntryScript in eligible:
 		accumulated += entry.weight
 		if target <= accumulated:
 			return entry

@@ -30,16 +30,28 @@ func resolve_biome(world_pos: Vector2i, channels: WorldChannels, structure_conte
 	var best_fallback: BiomeResult = null
 	for biome: BiomeData in _biomes:
 		var is_valid: bool = biome.matches_channels(channels, structure_context)
+		var channel_scores: Dictionary = biome.get_channel_scores(channels, false)
+		var structure_scores: Dictionary = biome.get_structure_scores(structure_context, false)
 		if is_valid:
 			var score: float = biome._compute_weighted_score(channels, false, structure_context)
 			if _is_better_score(score, biome, best_valid):
 				best_valid = BiomeResult.new()
-				best_valid.configure(world_pos, biome, score, true, {}, false, {})
+				best_valid.configure(world_pos, biome, score, true, channel_scores, false, structure_scores)
 		if best_valid == null:
+			var fallback_channel_scores: Dictionary = biome.get_channel_scores(channels, true)
+			var fallback_structure_scores: Dictionary = biome.get_structure_scores(structure_context, true)
 			var fallback_score: float = biome._compute_weighted_score(channels, true, structure_context)
 			if _is_better_score(fallback_score, biome, best_fallback):
 				best_fallback = BiomeResult.new()
-				best_fallback.configure(world_pos, biome, fallback_score, is_valid, {}, not is_valid, {})
+				best_fallback.configure(
+					world_pos,
+					biome,
+					fallback_score,
+					is_valid,
+					fallback_channel_scores,
+					not is_valid,
+					fallback_structure_scores
+				)
 	if best_valid != null:
 		return best_valid
 	if best_fallback != null:
