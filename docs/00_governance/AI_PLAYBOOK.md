@@ -81,6 +81,8 @@ Do not answer such tasks from memory or only from adjacent docs when a dedicated
 
 Before any iteration that touches the `world / mining / topology / reveal / presentation` stack, the AI must also read [World Data Contracts](../02_system_specs/world/DATA_CONTRACTS.md).
 
+The `draft` status of a required foundation document does not make it optional. If the playbook says the doc must be read, it must be read.
+
 ## Current project status
 
 The project is no longer a Phase 0 toy prototype.
