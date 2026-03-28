@@ -39,6 +39,9 @@ func _exit_tree() -> void:
 	_planet_sampler = null
 
 func initialize_world(seed_value: int) -> void:
+	if not _ensure_world_feature_registry_ready():
+		_is_initialized = false
+		return
 	world_seed = seed_value
 	_setup_planet_sampler()
 	_setup_structure_sampler()
@@ -371,6 +374,13 @@ func _setup_chunk_content_builder() -> void:
 
 func create_detached_chunk_content_builder() -> ChunkContentBuilder:
 	return _create_chunk_content_builder(_compute_context)
+
+func _ensure_world_feature_registry_ready() -> bool:
+	if not WorldFeatureRegistry or not WorldFeatureRegistry.is_ready():
+		push_error("WorldFeatureRegistry must be ready before WorldGenerator.initialize_world()")
+		assert(false, "WorldFeatureRegistry must be ready before world initialization")
+		return false
+	return true
 
 func _create_chunk_content_builder(world_context: RefCounted) -> ChunkContentBuilder:
 	if world_context == null:
