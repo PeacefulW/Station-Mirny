@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="PoiDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/world/features/poi_definition.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"base:test_poi"
+display_name_key = "WORLD_FEATURE_TEST_POI_NAME"
+display_name = "Test POI"
+tags = Array[StringName]([&"test", &"baseline"])
+required_feature_hook_ids = Array[StringName]([&"base:test_feature"])
+allowed_biome_ids = Array[StringName]([&"base:plains"])
+required_structure_tags = Array[StringName]([&"surface"])
+allowed_terrain_types = [0]
+footprint_tiles = [Vector2i(0, 0), Vector2i(1, 0), Vector2i(0, 1)]
+anchor_offset = Vector2i(0, 0)
+priority = 100
+debug_marker_kind = &"test_poi"

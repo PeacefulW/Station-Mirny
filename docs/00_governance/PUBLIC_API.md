@@ -4,7 +4,7 @@ doc_type: governance
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.6
+version: 0.7
 last_updated: 2026-03-28
 depends_on:
   - WORKFLOW.md
@@ -65,7 +65,7 @@ related_docs:
 | Поставить время на паузу / изменить scale | `TimeManager.set_paused()` / `TimeManager.set_time_scale()` |
 | Скрафтить рецепт | `CraftingSystem.execute_recipe()` |
 | Выполнить game command | `CommandExecutor.execute()` |
-| Получить read-only content data | `ItemRegistry.get_item()` / `BiomeRegistry.get_biome()` / `FloraDecorRegistry.get_flora_set()` |
+| Получить read-only content data | `ItemRegistry.get_item()` / `BiomeRegistry.get_biome()` / `FloraDecorRegistry.get_flora_set()` / `WorldFeatureRegistry.get_feature_by_id()` / `WorldFeatureRegistry.get_poi_by_id()` |
 
 ---
 
@@ -526,7 +526,7 @@ related_docs:
 `WorldGenerator.initialize_world(seed_value: int) -> void`
 - Когда вызывать: при старте новой сессии, если seed задан явно.
 - Что делает: инициализирует generator graph, samplers, biome/variation resolvers, chunk content builder и emits `world_initialized`.
-- Гарантии: после этого generator-side surface reads/builds готовы; см. `Current Source Of Truth Summary`.
+- Гарантии: после этого generator-side surface reads/builds готовы; см. `Current Source Of Truth Summary`. `WorldFeatureRegistry` must already be boot-loaded before this call succeeds, so feature/POI definitions are not lazy-loaded during world generation. Invalid, duplicate, or unsupported feature definitions keep the registry not-ready, and this call fail-fast'ит instead of starting the world over a partial registry snapshot.
 - Пример вызова: `WorldGenerator.initialize_world(world_seed)`
 
 `WorldGenerator.initialize_random() -> void`
@@ -1602,6 +1602,39 @@ Current commands in scope:
 |---------|-------------------|---------|
 | `none` | Dedicated flora/decor-registry events отсутствуют | gap |
 
+### World feature / POI registry
+
+`classification`: `canonical`
+
+#### Безопасные точки входа
+
+`WorldFeatureRegistry.get_feature_by_id(id: StringName) -> FeatureHookData`
+- Read-only feature-hook definition lookup. Loaded at boot; runtime mutation запрещена. Safe only after strict boot load succeeds.
+
+`WorldFeatureRegistry.get_poi_by_id(id: StringName) -> PoiDefinition`
+- Read-only POI definition lookup. Loaded at boot; runtime mutation запрещена. Safe only after strict boot load succeeds.
+
+#### Чтение
+
+`WorldFeatureRegistry.get_all_feature_hooks() -> Array[FeatureHookData]`
+- Snapshot of the loaded feature-hook registry. Failed boot load returns no partial runtime snapshot.
+
+`WorldFeatureRegistry.get_all_pois() -> Array[PoiDefinition]`
+- Snapshot of the loaded POI registry. Failed boot load returns no partial runtime snapshot.
+
+#### Внутренние методы (НЕ вызывать)
+
+| Метод | Почему нельзя вызывать напрямую |
+|-------|-------------------------------|
+| `WorldFeatureRegistry.is_ready() -> bool` | Boot/runtime guard used by `WorldGenerator.initialize_world()`, не generic gameplay/content query API. |
+| `WorldFeatureRegistry._load_base_definitions()` / `_load_definitions_from_directory()` / `_register_feature()` / `_register_poi()` | Internal registry loading path. Runtime code must not re-scan resources or mutate the catalog directly. |
+
+#### События
+
+| Событие | Когда срабатывает | Payload |
+|---------|-------------------|---------|
+| `none` | Dedicated world-feature-registry events отсутствуют | gap |
+
 ---
 
 ## Current API Gaps
@@ -1611,6 +1644,7 @@ Current commands in scope:
 - У `World` нет generic public terrain-mutation API. Это хорошо как boundary, но агент должен явно знать, что mutation идёт только через `Mining`.
 - У `Chunk Lifecycle` нет public per-chunk load/unload API в scope. Есть только boot-load orchestration и internal streaming paths.
 - У `Presentation` нет generic public redraw API. Безопасный путь к redraw идёт через higher-level world/mining/lifecycle entrypoints.
+- Feature-hook and POI resolver APIs are intentionally not public in the current iteration; runtime callers get only read-only definition-registry access plus the existing `WorldGenerator` build entrypoints.
 - `EventBus.z_level_changed` используется внутри scope, но source emission находится вне текущего scope.
 - У `Spawn / pickup orchestration` нет public generic enemy-spawn API; spawn loop остаётся owner-only even though enable/save-load ownership уже оформлены.
 - У `Enemy AI / fauna runtime` нет public behavior-driving API. Это допустимо, но важно явно понимать, что поведение автономно после spawn.

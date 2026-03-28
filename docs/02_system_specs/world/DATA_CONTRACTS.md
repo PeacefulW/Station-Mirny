@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.8
+version: 0.9
 last_updated: 2026-03-28
 depends_on:
   - world_generation_foundation.md
@@ -21,7 +21,7 @@ related_docs:
 
 # World Data Contracts
 
-This document records the current data contracts for the `world / mining / topology / reveal / presentation` runtime stack as it exists in code today.
+This document records the current data contracts for the `world / feature definitions / mining / topology / reveal / presentation` runtime stack as it exists in code today.
 
 It is intentionally descriptive, not aspirational.
 
@@ -31,7 +31,7 @@ This is the first runtime contract baseline for this stack.
 
 `status: draft` here means the document may still expand in coverage. It does not make the document optional.
 
-Until superseded, this document is mandatory reading for any iteration that touches the `world / mining / topology / reveal / presentation` stack.
+Until superseded, this document is mandatory reading for any iteration that touches the `world / feature definitions / mining / topology / reveal / presentation` stack.
 
 ## How Agents Must Use This Document
 
@@ -46,6 +46,7 @@ Until superseded, this document is mandatory reading for any iteration that touc
 
 | Layer | Class | Owner | Writes | Reads | Scope / rebuild |
 | --- | --- | --- | --- | --- | --- |
+| Feature / POI Definitions | `canonical` | `WorldFeatureRegistry` | boot-time registry load of immutable definition resources | `WorldFeatureRegistry` read APIs, `WorldGenerator` readiness gate, future generator-side resolvers | boot-time load only, read-only during runtime |
 | World | `canonical` | `ChunkManager` runtime arbitration, `Chunk` loaded storage, `WorldGenerator` unloaded surface base | canonical terrain bytes and unloaded overlay | terrain/resource/walkability/presentation consumers | loaded + unloaded reads, immediate writes, generator fallback |
 | Mining | `canonical` | `ChunkManager` orchestration, `Chunk` loaded mutation storage | loaded terrain mutation and mining-side invalidation entrypoint | topology, reveal, presentation, save collection | loaded-only mutation, immediate |
 | Topology | `derived` | `ChunkManager`, with native `MountainTopologyBuilder` behind it when enabled | surface topology caches | `MountainRoofSystem` and topology getters | surface-only, loaded-bubble scoped, incremental patch + deferred dirty rebuild |
@@ -56,6 +57,7 @@ Until superseded, this document is mandatory reading for any iteration that touc
 
 Observed files for this version:
 
+- `core/autoloads/world_feature_registry.gd`
 - `core/autoloads/world_generator.gd`
 - `core/autoloads/event_bus.gd`
 - `core/systems/commands/harvest_tile_command.gd`
@@ -70,9 +72,12 @@ Observed files for this version:
 - `core/systems/world/mountain_roof_system.gd`
 - `core/systems/lighting/mountain_shadow_system.gd`
 - `scenes/world/game_world.gd`
+- `data/world/features/feature_hook_data.gd`
+- `data/world/features/poi_definition.gd`
 
 ## Current Source Of Truth Summary
 
+- Feature hook and POI definition truth lives in `WorldFeatureRegistry` and is loaded from registry-backed resources before world initialization.
 - Surface base terrain for unloaded tiles comes from `WorldGenerator` through `build_chunk_native_data()`, `build_chunk_content()`, and `get_terrain_type_fast()`.
 - Loaded chunk terrain truth lives in `Chunk._terrain_bytes`.
 - Loaded chunk runtime modifications live in `Chunk._modified_tiles`.
@@ -85,6 +90,36 @@ Observed files for this version:
 - Underground fog state is transient reveal state, shared by the active underground runtime, and not persisted.
 - Rock atlas selection is explicit code in `Chunk`; current rendering does not rely on Godot TileSet terrain peering or autotile rules.
 - TileMap layers, fog cells, cover erasures, cliff overlays, and mountain shadow sprites are presentation outputs, not world truth.
+
+## Layer: Feature / POI Definitions
+
+- `classification`: `canonical`
+- `owner`: `WorldFeatureRegistry` owns the registry-backed catalog of feature hook and POI definitions loaded at boot.
+- `writers`: authored `.tres` resources under `data/world/features`; `WorldFeatureRegistry._load_base_definitions()` and its private registration helpers.
+- `readers`: `WorldFeatureRegistry.get_feature_by_id()`, `get_all_feature_hooks()`, `get_poi_by_id()`, and `get_all_pois()`; `WorldGenerator.initialize_world()` readiness guard; future generator-side feature/POI resolvers.
+- `rebuild policy`: boot-time load only; definitions are duplicated into registry-owned runtime instances and stay read-only for gameplay/runtime generation. Any invalid, duplicate, or unsupported definition aborts the load, clears the runtime snapshot, and leaves the registry not ready.
+- `invariants`:
+- `assert(feature_id != &"" and String(feature_id).contains(":"), "feature hook ids must be non-empty and namespaced in the runtime registry")`
+- `assert(poi_id != &"" and String(poi_id).contains(":"), "poi ids must be non-empty and namespaced in the runtime registry")`
+- `assert(WorldFeatureRegistry.is_ready(), "feature/poi definition registry must finish boot loading before world initialization")`
+- `assert(WorldFeatureRegistry.get_all_feature_hooks().size() >= 1 and WorldFeatureRegistry.get_all_pois().size() >= 1, "baseline registry content must include at least one feature and one poi definition")`
+- `assert(any invalid_or_duplicate_or_unsupported_definition => not WorldFeatureRegistry.is_ready(), "registry readiness must fail closed on invalid content")`
+- `assert(not WorldFeatureRegistry.is_ready() => WorldFeatureRegistry.get_all_feature_hooks().is_empty() and WorldFeatureRegistry.get_all_pois().is_empty(), "failed registry load must not expose a partial runtime snapshot")`
+- `assert(for_all_poi in WorldFeatureRegistry.get_all_pois(): for_all_poi.has_explicit_anchor_offset(), "iteration 7 baseline requires explicit poi anchor_offset")`
+- `assert(for_all_poi in WorldFeatureRegistry.get_all_pois(): for_all_poi.has_explicit_priority(), "iteration 7 baseline requires explicit poi priority")`
+- `write operations`:
+- `WorldFeatureRegistry._load_base_definitions()`
+- `WorldFeatureRegistry._load_definitions_from_directory()`
+- `WorldFeatureRegistry._register_feature()`
+- `WorldFeatureRegistry._register_poi()`
+- `forbidden writes`:
+- Runtime gameplay, chunk lifecycle, mining, topology, reveal, and presentation code must not mutate registry-backed feature or POI definitions.
+- Generator build paths must not direct-load feature or POI resources from `res://data/world/features`; registry reads are the only sanctioned runtime path.
+- Feature / POI definition resources must not be lazy-loaded during chunk generation.
+- `emitted events / invalidation signals`:
+- none; readiness is established by boot-time load completion and consumed synchronously by `WorldGenerator.initialize_world()`
+- `current violations / ambiguities / contract gaps`:
+- No public mutation or mod-loading API exists yet for this catalog; that remains deferred until the dedicated extension-layer iteration.
 
 ## Layer: World
 
