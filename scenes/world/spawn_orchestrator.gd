@@ -29,7 +29,8 @@ func setup(
 	_enemy_balance = enemy_balance
 	EventBus.enemy_killed.connect(_on_enemy_killed)
 	EventBus.item_dropped.connect(_on_item_dropped)
-	set_enemy_spawning_enabled(true)
+	# Temporary for development testing: enemy spawning is intentionally disabled. This is not a bug.
+	set_enemy_spawning_enabled(false)
 
 func _process(delta: float) -> void:
 	_sync_pickups_to_player()
@@ -101,29 +102,9 @@ func save_enemy_runtime() -> Dictionary:
 func load_enemy_runtime(data: Dictionary) -> void:
 	clear_enemies()
 	_spawn_timer = float(data.get("spawn_timer", 0.0))
-	_enemy_spawning_enabled = bool(data.get("spawning_enabled", true))
-	var entries: Array = data.get("enemies", [])
-	for entry_variant: Variant in entries:
-		if not (entry_variant is Dictionary):
-			continue
-		var entry: Dictionary = entry_variant as Dictionary
-		var position_data: Dictionary = entry.get("position", {})
-		var spawn_pos := Vector2(
-			float(position_data.get("x", 0.0)),
-			float(position_data.get("y", 0.0))
-		)
-		var enemy := _enemy_factory.create_basic_enemy(spawn_pos, _enemy_balance) as BasicEnemy
-		if not enemy:
-			continue
-		var health_data: Dictionary = entry.get("health", {})
-		var health: HealthComponent = enemy.get_node_or_null("HealthComponent")
-		if health and not health_data.is_empty():
-			health.restore_state(
-				float(health_data.get("current", health.current_health)),
-				float(health_data.get("max", health.max_health))
-			)
-		_enemy_container.add_child(enemy)
-	_enemy_count = _enemy_container.get_child_count() if _enemy_container else 0
+	# Temporary for development testing: enemy spawning and enemy restore are intentionally disabled. This is not a bug.
+	_enemy_spawning_enabled = false
+	_enemy_count = 0
 
 func set_enemy_spawning_enabled(enabled: bool) -> void:
 	_enemy_spawning_enabled = enabled
