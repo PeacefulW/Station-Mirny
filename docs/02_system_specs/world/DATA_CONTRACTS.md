@@ -97,12 +97,14 @@ Observed files for this version:
 - `owner`: `WorldFeatureRegistry` owns the registry-backed catalog of feature hook and POI definitions loaded at boot.
 - `writers`: authored `.tres` resources under `data/world/features`; `WorldFeatureRegistry._load_base_definitions()` and its private registration helpers.
 - `readers`: `WorldFeatureRegistry.get_feature_by_id()`, `get_all_feature_hooks()`, `get_poi_by_id()`, and `get_all_pois()`; `WorldGenerator.initialize_world()` readiness guard; future generator-side feature/POI resolvers.
-- `rebuild policy`: boot-time load only; definitions are duplicated into registry-owned runtime instances and stay read-only for gameplay/runtime generation.
+- `rebuild policy`: boot-time load only; definitions are duplicated into registry-owned runtime instances and stay read-only for gameplay/runtime generation. Any invalid, duplicate, or unsupported definition aborts the load, clears the runtime snapshot, and leaves the registry not ready.
 - `invariants`:
 - `assert(feature_id != &"" and String(feature_id).contains(":"), "feature hook ids must be non-empty and namespaced in the runtime registry")`
 - `assert(poi_id != &"" and String(poi_id).contains(":"), "poi ids must be non-empty and namespaced in the runtime registry")`
 - `assert(WorldFeatureRegistry.is_ready(), "feature/poi definition registry must finish boot loading before world initialization")`
 - `assert(WorldFeatureRegistry.get_all_feature_hooks().size() >= 1 and WorldFeatureRegistry.get_all_pois().size() >= 1, "baseline registry content must include at least one feature and one poi definition")`
+- `assert(any invalid_or_duplicate_or_unsupported_definition => not WorldFeatureRegistry.is_ready(), "registry readiness must fail closed on invalid content")`
+- `assert(not WorldFeatureRegistry.is_ready() => WorldFeatureRegistry.get_all_feature_hooks().is_empty() and WorldFeatureRegistry.get_all_pois().is_empty(), "failed registry load must not expose a partial runtime snapshot")`
 - `assert(for_all_poi in WorldFeatureRegistry.get_all_pois(): for_all_poi.has_explicit_anchor_offset(), "iteration 7 baseline requires explicit poi anchor_offset")`
 - `assert(for_all_poi in WorldFeatureRegistry.get_all_pois(): for_all_poi.has_explicit_priority(), "iteration 7 baseline requires explicit poi priority")`
 - `write operations`:

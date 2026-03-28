@@ -526,7 +526,7 @@ related_docs:
 `WorldGenerator.initialize_world(seed_value: int) -> void`
 - Когда вызывать: при старте новой сессии, если seed задан явно.
 - Что делает: инициализирует generator graph, samplers, biome/variation resolvers, chunk content builder и emits `world_initialized`.
-- Гарантии: после этого generator-side surface reads/builds готовы; см. `Current Source Of Truth Summary`. `WorldFeatureRegistry` must already be boot-loaded before this call succeeds, so feature/POI definitions are not lazy-loaded during world generation.
+- Гарантии: после этого generator-side surface reads/builds готовы; см. `Current Source Of Truth Summary`. `WorldFeatureRegistry` must already be boot-loaded before this call succeeds, so feature/POI definitions are not lazy-loaded during world generation. Invalid, duplicate, or unsupported feature definitions keep the registry not-ready, and this call fail-fast'ит instead of starting the world over a partial registry snapshot.
 - Пример вызова: `WorldGenerator.initialize_world(world_seed)`
 
 `WorldGenerator.initialize_random() -> void`
@@ -1609,18 +1609,18 @@ Current commands in scope:
 #### Безопасные точки входа
 
 `WorldFeatureRegistry.get_feature_by_id(id: StringName) -> FeatureHookData`
-- Read-only feature-hook definition lookup. Loaded at boot; runtime mutation запрещена.
+- Read-only feature-hook definition lookup. Loaded at boot; runtime mutation запрещена. Safe only after strict boot load succeeds.
 
 `WorldFeatureRegistry.get_poi_by_id(id: StringName) -> PoiDefinition`
-- Read-only POI definition lookup. Loaded at boot; runtime mutation запрещена.
+- Read-only POI definition lookup. Loaded at boot; runtime mutation запрещена. Safe only after strict boot load succeeds.
 
 #### Чтение
 
 `WorldFeatureRegistry.get_all_feature_hooks() -> Array[FeatureHookData]`
-- Snapshot of the loaded feature-hook registry.
+- Snapshot of the loaded feature-hook registry. Failed boot load returns no partial runtime snapshot.
 
 `WorldFeatureRegistry.get_all_pois() -> Array[PoiDefinition]`
-- Snapshot of the loaded POI registry.
+- Snapshot of the loaded POI registry. Failed boot load returns no partial runtime snapshot.
 
 #### Внутренние методы (НЕ вызывать)
 

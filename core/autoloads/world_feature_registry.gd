@@ -11,6 +11,7 @@ var _feature_ordered: Array[Resource] = []
 var _pois_by_id: Dictionary = {}
 var _poi_ordered: Array[Resource] = []
 var _is_ready: bool = false
+var _last_load_error: String = ""
 
 func _ready() -> void:
 	_load_base_definitions()
@@ -43,19 +44,24 @@ func get_all_pois() -> Array[Resource]:
 	return result
 
 func _load_base_definitions() -> void:
-	_features_by_id.clear()
-	_feature_ordered.clear()
-	_pois_by_id.clear()
-	_poi_ordered.clear()
-	_is_ready = _load_definitions_from_directory(BASE_DEFINITIONS_DIR, BASE_NAMESPACE) \
-		and not _feature_ordered.is_empty() \
-		and not _poi_ordered.is_empty()
+	_reload_from_directory_for_validation(BASE_DEFINITIONS_DIR, BASE_NAMESPACE)
+
+func _reload_from_directory_for_validation(dir_path: String, definition_namespace: StringName = BASE_NAMESPACE) -> bool:
+	_reset_load_state()
+	if not _load_definitions_from_directory(dir_path, definition_namespace):
+		return false
+	if _feature_ordered.is_empty():
+		return _fail_load("WorldFeatureRegistry requires at least one valid feature hook definition")
+	if _poi_ordered.is_empty():
+		return _fail_load("WorldFeatureRegistry requires at least one valid POI definition")
+	_is_ready = true
+	_last_load_error = ""
+	return true
 
 func _load_definitions_from_directory(dir_path: String, definition_namespace: StringName) -> bool:
 	var dir: DirAccess = DirAccess.open(dir_path)
 	if not dir:
-		push_error("WorldFeatureRegistry failed to open definitions directory: %s" % dir_path)
-		return false
+		return _fail_load("WorldFeatureRegistry failed to open definitions directory: %s" % dir_path)
 	var resource_paths: Array[String] = []
 	dir.list_dir_begin()
 	var entry: String = dir.get_next()
@@ -68,57 +74,52 @@ func _load_definitions_from_directory(dir_path: String, definition_namespace: St
 	for path: String in resource_paths:
 		var resource: Resource = load(path)
 		if resource == null:
-			push_error("WorldFeatureRegistry failed to load definition resource: %s" % path)
-			continue
+			return _fail_load("WorldFeatureRegistry failed to load definition resource: %s" % path)
 		if resource is FeatureHookDataScript:
-			_register_feature(resource as FeatureHookDataScript, definition_namespace)
+			if not _register_feature(resource as FeatureHookDataScript, definition_namespace):
+				return false
 		elif resource is PoiDefinitionScript:
-			_register_poi(resource as PoiDefinitionScript, definition_namespace)
+			if not _register_poi(resource as PoiDefinitionScript, definition_namespace):
+				return false
 		else:
-			push_warning("WorldFeatureRegistry ignored unsupported definition resource at %s" % path)
+			return _fail_load("WorldFeatureRegistry rejected unsupported definition resource at %s" % path)
 	return true
 
-func _register_feature(feature: Resource, definition_namespace: StringName) -> void:
+func _register_feature(feature: Resource, definition_namespace: StringName) -> bool:
 	var typed_feature: FeatureHookDataScript = feature as FeatureHookDataScript
 	if typed_feature == null:
-		return
+		return _fail_load("WorldFeatureRegistry received invalid feature definition resource")
 	var runtime_feature: FeatureHookDataScript = typed_feature.duplicate(true) as FeatureHookDataScript
 	if runtime_feature == null:
-		push_error("WorldFeatureRegistry failed to duplicate FeatureHookData: %s" % typed_feature)
-		return
+		return _fail_load("WorldFeatureRegistry failed to duplicate FeatureHookData: %s" % typed_feature)
 	runtime_feature.id = _make_namespaced_id(runtime_feature.id, definition_namespace)
 	if str(runtime_feature.id).is_empty():
-		push_error("WorldFeatureRegistry rejected feature hook with empty id")
-		return
+		return _fail_load("WorldFeatureRegistry rejected feature hook with empty id")
 	if _features_by_id.has(runtime_feature.id):
-		push_error("WorldFeatureRegistry found duplicate feature hook id: %s" % str(runtime_feature.id))
-		return
+		return _fail_load("WorldFeatureRegistry found duplicate feature hook id: %s" % str(runtime_feature.id))
 	_features_by_id[runtime_feature.id] = runtime_feature
 	_feature_ordered.append(runtime_feature)
+	return true
 
-func _register_poi(poi: Resource, definition_namespace: StringName) -> void:
+func _register_poi(poi: Resource, definition_namespace: StringName) -> bool:
 	var typed_poi: PoiDefinitionScript = poi as PoiDefinitionScript
 	if typed_poi == null:
-		return
+		return _fail_load("WorldFeatureRegistry received invalid POI definition resource")
 	var runtime_poi: PoiDefinitionScript = typed_poi.duplicate(true) as PoiDefinitionScript
 	if runtime_poi == null:
-		push_error("WorldFeatureRegistry failed to duplicate PoiDefinition: %s" % typed_poi)
-		return
+		return _fail_load("WorldFeatureRegistry failed to duplicate PoiDefinition: %s" % typed_poi)
 	runtime_poi.id = _make_namespaced_id(runtime_poi.id, definition_namespace)
 	if str(runtime_poi.id).is_empty():
-		push_error("WorldFeatureRegistry rejected POI with empty id")
-		return
+		return _fail_load("WorldFeatureRegistry rejected POI with empty id")
 	if not runtime_poi.has_explicit_anchor_offset():
-		push_error("WorldFeatureRegistry rejected POI without explicit anchor_offset: %s" % str(runtime_poi.id))
-		return
+		return _fail_load("WorldFeatureRegistry rejected POI without explicit anchor_offset: %s" % str(runtime_poi.id))
 	if not runtime_poi.has_explicit_priority():
-		push_error("WorldFeatureRegistry rejected POI without explicit priority: %s" % str(runtime_poi.id))
-		return
+		return _fail_load("WorldFeatureRegistry rejected POI without explicit priority: %s" % str(runtime_poi.id))
 	if _pois_by_id.has(runtime_poi.id):
-		push_error("WorldFeatureRegistry found duplicate POI id: %s" % str(runtime_poi.id))
-		return
+		return _fail_load("WorldFeatureRegistry found duplicate POI id: %s" % str(runtime_poi.id))
 	_pois_by_id[runtime_poi.id] = runtime_poi
 	_poi_ordered.append(runtime_poi)
+	return true
 
 func _make_namespaced_id(short_id: StringName, definition_namespace: StringName) -> StringName:
 	var id_str: String = str(short_id)
@@ -127,3 +128,21 @@ func _make_namespaced_id(short_id: StringName, definition_namespace: StringName)
 	if id_str.contains(":"):
 		return short_id
 	return StringName("%s:%s" % [str(definition_namespace), id_str])
+
+func _reset_load_state() -> void:
+	_is_ready = false
+	_last_load_error = ""
+	_features_by_id.clear()
+	_feature_ordered.clear()
+	_pois_by_id.clear()
+	_poi_ordered.clear()
+
+func _fail_load(message: String) -> bool:
+	_last_load_error = message
+	push_error(message)
+	_is_ready = false
+	_features_by_id.clear()
+	_feature_ordered.clear()
+	_pois_by_id.clear()
+	_poi_ordered.clear()
+	return false

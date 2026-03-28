@@ -472,6 +472,7 @@ What is done:
 - require explicit arbitration `priority` on every `PoiDefinition`
 - add minimal base definitions used for implementation and tests
 - expose immutable registry-backed runtime data for generator-side reads
+- registry readiness is strict all-or-nothing: invalid, duplicate, or unsupported definitions keep the registry not ready and expose no partial runtime snapshot
 - update `DATA_CONTRACTS.md` in the same iteration for the new registry-backed canonical definition layer
 - update `PUBLIC_API.md` in the same iteration for read-only registry entrypoints only
 - do not add resolver public APIs
@@ -485,6 +486,8 @@ Acceptance tests:
 - [ ] `assert(WorldFeatureRegistry.get_all_pois().size() >= 1)` — at least one base POI definition loads
 - [ ] `assert(WorldFeatureRegistry.get_poi_by_id(&"base:test_poi").anchor_offset is explicitly defined)` — anchor ownership is not implicit
 - [ ] `assert(WorldFeatureRegistry.get_poi_by_id(&"base:test_poi").priority is explicitly defined)` — arbitration priority is not implicit
+- [ ] `assert(WorldFeatureRegistry.is_ready() == false when any definition in res://data/world/features is invalid, duplicate, or unsupported)` — registry readiness is fail-closed, not partial-success
+- [ ] `assert(WorldFeatureRegistry exposes no partial runtime snapshot when readiness fails)` — invalid boot content does not leak mixed valid/invalid data into runtime reads
 - [ ] `assert(WorldFeatureRegistry readiness is established before first feature/POI-aware chunk build call)` — no lazy load during generation
 - [ ] `assert(generator gameplay code and worker-side compute paths do not direct-load feature or POI resources outside WorldFeatureRegistry)` — registry is the only runtime read path
 - [ ] `assert(PUBLIC_API.md exposes registry reads but does not expose WorldFeatureHookResolver or WorldPoiResolver as public safe entrypoints)` — public/internal API boundary is fixed at baseline
@@ -496,6 +499,7 @@ Files that will be touched:
 - `data/world/features/poi_definition.gd`
 - `data/world/features/*.tres`
 - `project.godot` only if autoload registration is needed
+- `tools/world_feature_registry_validation.gd` for cheap guardrail validation only
 - `docs/02_system_specs/world/DATA_CONTRACTS.md`
 - `docs/00_governance/PUBLIC_API.md`
 
