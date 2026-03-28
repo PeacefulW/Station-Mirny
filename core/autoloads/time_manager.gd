@@ -26,15 +26,13 @@ var current_day: int = DEFAULT_START_DAY
 var current_season: Season = DEFAULT_START_SEASON
 ## Текущая фаза дня.
 var current_time_of_day: TimeOfDay = TimeOfDay.DAY
-## Пауза времени.
-var is_paused: bool = false
-## Множитель скорости времени (1.0 = нормально).
-var time_scale: float = 1.0
 
 # --- Приватные ---
 ## Скорость: сколько игровых часов проходит за 1 реальную секунду.
 var _hours_per_real_second: float = 0.0
 var _previous_whole_hour: int = -1
+var _is_paused: bool = false
+var _time_scale: float = 1.0
 
 func _ready() -> void:
 	balance = load(BALANCE_PATH) as TimeBalance
@@ -45,7 +43,7 @@ func _ready() -> void:
 	_apply_authoritative_time_state(current_hour, current_day, current_season)
 
 func _process(delta: float) -> void:
-	if not balance or is_paused:
+	if not balance or _is_paused:
 		return
 	_advance_time(delta)
 
@@ -79,13 +77,25 @@ func get_shadow_length_factor() -> float:
 	return clampf(1.0 / (elevation * 2.0), 1.0, 6.0)
 
 func reset_for_new_game() -> void:
-	is_paused = false
-	time_scale = 1.0
+	set_paused(false)
+	set_time_scale(1.0)
 	_apply_authoritative_time_state(DEFAULT_START_HOUR, DEFAULT_START_DAY, DEFAULT_START_SEASON)
 
 func restore_persisted_state(hour: float, day: int, season: int) -> void:
-	is_paused = false
+	set_paused(false)
 	_apply_authoritative_time_state(hour, day, season)
+
+func set_paused(paused: bool) -> void:
+	_is_paused = paused
+
+func is_time_paused() -> bool:
+	return _is_paused
+
+func set_time_scale(scale: float) -> void:
+	_time_scale = maxf(scale, 0.0)
+
+func get_time_scale() -> float:
+	return _time_scale
 
 # --- Приватные методы ---
 
@@ -104,7 +114,7 @@ func _apply_authoritative_time_state(hour: float, day: int, season: int) -> void
 	_emit_initial_state()
 
 func _advance_time(delta: float) -> void:
-	var advance: float = _hours_per_real_second * delta * time_scale
+	var advance: float = _hours_per_real_second * delta * _time_scale
 	current_hour += advance
 
 	# Проверяем переход через целый час

@@ -496,9 +496,9 @@ func _remove_validation_building(tile_pos: Vector2i) -> bool:
 	return bool(result.get("success", false))
 
 func _destroy_validation_building(tile_pos: Vector2i) -> bool:
-	if not _building_system or not _building_system.walls.has(tile_pos):
+	if not _building_system or not _building_system.has_building_at(tile_pos):
 		return false
-	var building_node: Node2D = _building_system.walls[tile_pos]
+	var building_node: Node2D = _building_system.get_building_node_at(tile_pos)
 	if not building_node:
 		return false
 	var health: HealthComponent = building_node.get_node_or_null("HealthComponent")

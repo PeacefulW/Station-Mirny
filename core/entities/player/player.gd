@@ -79,7 +79,6 @@ func perform_harvest() -> bool:
 	if not _command_executor:
 		push_warning("Harvest command executor unavailable")
 		return false
-	_harvest_timer = balance.harvest_cooldown
 	var command := HarvestTileCommandScript.new().setup(_chunk_manager as ChunkManager, harvest_pos)
 	var result: Dictionary = _command_executor.execute(command)
 	if result.is_empty():
@@ -90,6 +89,7 @@ func perform_harvest() -> bool:
 	var amount: int = result.get("amount", 0)
 	if item_id.is_empty() or amount <= 0:
 		return false
+	_harvest_timer = balance.harvest_cooldown
 	collect_item(item_id, amount)
 	PlayerPopup.spawn_harvest(self, item_id, amount, balance)
 	_flash_harvest()
@@ -279,9 +279,7 @@ func tick_attack_cooldown(delta: float) -> void:
 		_attack_timer -= delta
 
 func _on_speed_modifier_changed(modifier: float) -> void:
-	# Temporary test override: movement speed should stay stable while
-	# profiling terrain, mountains and chunk streaming.
-	_speed_modifier = 1.0
+	_speed_modifier = modifier
 
 func _on_died() -> void:
 	_is_dead = true

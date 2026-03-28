@@ -465,7 +465,9 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	if not chunk:
 		return {}
 	var local_tile: Vector2i = chunk.global_to_local(tile_pos)
+	chunk.set_mining_write_authorized(true)
 	var result: Dictionary = chunk.try_mine_at(local_tile)
+	chunk.set_mining_write_authorized(false)
 	if result.is_empty():
 		return {}
 	# Same-chunk neighbor re-normalization (MINED_FLOOR <-> MOUNTAIN_ENTRANCE)
@@ -539,10 +541,7 @@ func _seam_normalize_and_redraw(tile_pos: Vector2i, local_tile: Vector2i, source
 
 func has_resource_at_world(world_pos: Vector2) -> bool:
 	var tile_pos: Vector2i = WorldGenerator.world_to_tile(world_pos)
-	var chunk: Chunk = get_chunk_at_tile(tile_pos)
-	if not chunk:
-		return false
-	return chunk.get_terrain_type_at(chunk.global_to_local(tile_pos)) == TileGenData.TerrainType.ROCK
+	return get_terrain_type_at_global(tile_pos) == TileGenData.TerrainType.ROCK
 
 func is_walkable_at_world(world_pos: Vector2) -> bool:
 	var tile_pos: Vector2i = WorldGenerator.world_to_tile(world_pos)
@@ -1576,37 +1575,21 @@ func ensure_underground_pocket(center_tile: Vector2i, pocket_tiles: Array) -> vo
 			z_container.add_child(chunk)
 		_loaded_chunks[coord] = chunk
 		chunk._begin_progressive_redraw()
-	# Mine the pocket tiles — group by chunk for correct local coords
-	var dirty_by_chunk: Dictionary = {}
+	# Carve the pocket through the production mining path so topology/reveal/visuals stay aligned.
+	var tile_size: int = WorldGenerator.balance.tile_size if WorldGenerator and WorldGenerator.balance else 1
 	for tile_pos: Variant in pocket_tiles:
 		var t: Vector2i = _canonical_tile(tile_pos as Vector2i)
-		var cc: Vector2i = WorldGenerator.tile_to_chunk(t)
-		var ch: Chunk = _loaded_chunks.get(cc) as Chunk
+		var ch: Chunk = get_chunk_at_tile(t)
 		if not ch:
 			continue
 		var local: Vector2i = ch.global_to_local(t)
-		if ch.get_terrain_type_at(local) == TileGenData.TerrainType.ROCK:
-			ch._set_terrain_type(local, TileGenData.TerrainType.MINED_FLOOR)
-			if not dirty_by_chunk.has(cc):
-				dirty_by_chunk[cc] = {}
-			(dirty_by_chunk[cc] as Dictionary)[local] = true
-			# Mark 8 neighbors dirty (may be in different chunks)
-			for offset: Vector2i in [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1),
-					Vector2i(-1,-1), Vector2i(1,-1), Vector2i(-1,1), Vector2i(1,1)]:
-				var n_global: Vector2i = _offset_tile(t, offset)
-				var n_cc: Vector2i = WorldGenerator.tile_to_chunk(n_global)
-				var n_ch: Chunk = _loaded_chunks.get(n_cc) as Chunk
-				if n_ch:
-					var n_local: Vector2i = n_ch.global_to_local(n_global)
-					if n_ch._is_inside(n_local):
-						if not dirty_by_chunk.has(n_cc):
-							dirty_by_chunk[n_cc] = {}
-						(dirty_by_chunk[n_cc] as Dictionary)[n_local] = true
-	# Redraw dirty tiles per chunk
-	for cc: Vector2i in dirty_by_chunk:
-		var ch: Chunk = _loaded_chunks.get(cc) as Chunk
-		if ch:
-			ch._redraw_dirty_tiles(dirty_by_chunk[cc])
+		if ch.get_terrain_type_at(local) != TileGenData.TerrainType.ROCK:
+			continue
+		var world_pos := Vector2(
+			t.x * tile_size + tile_size * 0.5,
+			t.y * tile_size + tile_size * 0.5
+		)
+		try_harvest_at_world(world_pos)
 	# Restore original z
 	if prev_z != -1:
 		set_active_z_level(prev_z)
@@ -1709,6 +1692,12 @@ func _advance_topology_build_start_step() -> void:
 			_topology_build_start_phase = TOPOLOGY_START_RESET_OPEN_TILES_BY_KEY
 		TOPOLOGY_START_RESET_OPEN_TILES_BY_KEY:
 			_topology_build_open_tiles_by_key = {}
+			_topology_build_start_phase = TOPOLOGY_START_RESET_TILES_BY_KEY_BY_CHUNK
+		TOPOLOGY_START_RESET_TILES_BY_KEY_BY_CHUNK:
+			_topology_build_tiles_by_key_by_chunk = {}
+			_topology_build_start_phase = TOPOLOGY_START_RESET_OPEN_TILES_BY_KEY_BY_CHUNK
+		TOPOLOGY_START_RESET_OPEN_TILES_BY_KEY_BY_CHUNK:
+			_topology_build_open_tiles_by_key_by_chunk = {}
 			_topology_build_start_phase = TOPOLOGY_START_RESET_COMPONENT
 		TOPOLOGY_START_RESET_COMPONENT:
 			_clear_topology_component_state()
@@ -1804,6 +1793,9 @@ func _process_topology_component_step() -> void:
 		_topology_component_tiles[current] = true
 		_topology_component_tiles_list.append(current)
 		var current_chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(current)
+		if not _topology_component_tiles_by_chunk.has(current_chunk_coord):
+			_topology_component_tiles_by_chunk[current_chunk_coord] = {}
+		(_topology_component_tiles_by_chunk[current_chunk_coord] as Dictionary)[current] = true
 		if current.y < _topology_component_key.y or (current.y == _topology_component_key.y and current.x < _topology_component_key.x):
 			_topology_component_key = current
 		var current_chunk: Chunk = _loaded_chunks.get(current_chunk_coord)
@@ -1814,6 +1806,9 @@ func _process_topology_component_step() -> void:
 		var current_type: int = current_chunk.get_terrain_type_at(current_local)
 		if current_type == TileGenData.TerrainType.MINED_FLOOR or current_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
 			_topology_component_open_tiles[current] = true
+			if not _topology_component_open_tiles_by_chunk.has(current_chunk_coord):
+				_topology_component_open_tiles_by_chunk[current_chunk_coord] = {}
+			(_topology_component_open_tiles_by_chunk[current_chunk_coord] as Dictionary)[current] = true
 		for dir: Vector2i in _CARDINAL_DIRS:
 			var next_tile: Vector2i = _offset_tile(current, dir)
 			if _topology_build_visited.has(next_tile):
@@ -1865,6 +1860,8 @@ func _finalize_topology_component_step() -> void:
 		return
 	_topology_build_tiles_by_key[_topology_component_key] = _topology_component_tiles
 	_topology_build_open_tiles_by_key[_topology_component_key] = _topology_component_open_tiles
+	_topology_build_tiles_by_key_by_chunk[_topology_component_key] = _topology_component_tiles_by_chunk
+	_topology_build_open_tiles_by_key_by_chunk[_topology_component_key] = _topology_component_open_tiles_by_chunk
 	_clear_topology_component_state()
 
 func _clear_topology_component_state() -> void:
@@ -1894,6 +1891,14 @@ func _process_topology_build_commit_step() -> bool:
 		TOPOLOGY_COMMIT_OPEN_TILES_BY_KEY:
 			_queue_retired_topology_dictionary(_mountain_open_tiles_by_key)
 			_mountain_open_tiles_by_key = _topology_build_open_tiles_by_key
+			_topology_build_commit_phase = TOPOLOGY_COMMIT_TILES_BY_KEY_BY_CHUNK
+		TOPOLOGY_COMMIT_TILES_BY_KEY_BY_CHUNK:
+			_queue_retired_topology_dictionary(_mountain_tiles_by_key_by_chunk)
+			_mountain_tiles_by_key_by_chunk = _topology_build_tiles_by_key_by_chunk
+			_topology_build_commit_phase = TOPOLOGY_COMMIT_OPEN_TILES_BY_KEY_BY_CHUNK
+		TOPOLOGY_COMMIT_OPEN_TILES_BY_KEY_BY_CHUNK:
+			_queue_retired_topology_dictionary(_mountain_open_tiles_by_key_by_chunk)
+			_mountain_open_tiles_by_key_by_chunk = _topology_build_open_tiles_by_key_by_chunk
 			_topology_build_commit_phase = TOPOLOGY_COMMIT_NONE
 			_finish_topology_build()
 			return false
@@ -2054,14 +2059,20 @@ func _on_mountain_tile_changed(tile_pos: Vector2i, old_type: int, new_type: int)
 	if _active_z != 0:
 		return
 	tile_pos = _canonical_tile(tile_pos)
-	if not (_is_mountain_topology_tile(old_type) or _is_mountain_topology_tile(new_type)):
+	var old_is_mountain: bool = _is_mountain_topology_tile(old_type)
+	var new_is_mountain: bool = _is_mountain_topology_tile(new_type)
+	if not (old_is_mountain or new_is_mountain):
 		return
 	var started_usec: int = WorldPerfProbe.begin()
 	if _is_native_topology_enabled():
 		_native_topology_builder.call("update_tile", tile_pos, new_type)
 		WorldPerfProbe.end("ChunkManager._on_mountain_tile_changed", started_usec)
 		return
-	_incremental_topology_patch(tile_pos, new_type)
+	if old_is_mountain and new_is_mountain:
+		_incremental_topology_patch(tile_pos, new_type)
+	else:
+		_mark_topology_dirty()
+		_ensure_topology_current()
 	WorldPerfProbe.end("ChunkManager._on_mountain_tile_changed", started_usec)
 
 func _should_track_surface_topology(z_level: int) -> bool:
@@ -2075,6 +2086,8 @@ func _incremental_topology_patch(tile_pos: Vector2i, new_type: int) -> void:
 	if mountain_key == Vector2i(999999, 999999):
 		mountain_key = _find_neighbor_key(tile_pos)
 	if mountain_key == Vector2i(999999, 999999):
+		_mark_topology_dirty()
+		_ensure_topology_current()
 		return
 	var tile_chunk: Vector2i = WorldGenerator.tile_to_chunk(tile_pos)
 	_ensure_key_structures(mountain_key, tile_chunk)
@@ -2082,7 +2095,6 @@ func _incremental_topology_patch(tile_pos: Vector2i, new_type: int) -> void:
 	(_mountain_tiles_by_key[mountain_key] as Dictionary)[tile_pos] = true
 	((_mountain_tiles_by_key_by_chunk[mountain_key] as Dictionary)[tile_chunk] as Dictionary)[tile_pos] = true
 	_update_tile_open_status(tile_pos, new_type, mountain_key, tile_chunk)
-	var rock_neighbor_count: int = 0
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN,
 			Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(1, 1)]:
 		var neighbor: Vector2i = _offset_tile(tile_pos, dir)
@@ -2094,12 +2106,8 @@ func _incremental_topology_patch(tile_pos: Vector2i, new_type: int) -> void:
 			continue
 		var neighbor_local: Vector2i = neighbor_chunk.global_to_local(neighbor)
 		var neighbor_type: int = neighbor_chunk.get_terrain_type_at(neighbor_local)
-		if neighbor_type == TileGenData.TerrainType.ROCK:
-			rock_neighbor_count += 1
 		var neighbor_chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(neighbor)
 		_update_tile_open_status(neighbor, neighbor_type, neighbor_key, neighbor_chunk_coord)
-	if new_type != TileGenData.TerrainType.ROCK and rock_neighbor_count >= 2:
-		_mark_topology_dirty()
 
 ## Ищет mountain_key среди 4 кардинальных соседей. O(4).
 func _find_neighbor_key(tile_pos: Vector2i) -> Vector2i:

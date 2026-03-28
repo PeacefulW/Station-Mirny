@@ -276,8 +276,8 @@ func _close_any_open_ui() -> bool:
 
 func _on_main_menu_pressed() -> void:
 	get_tree().paused = false
-	if TimeManager:
-		TimeManager.is_paused = true
+	if TimeManager and TimeManager.has_method("set_paused"):
+		TimeManager.set_paused(true)
 	get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
 
 func _on_locale_changed(idx: int) -> void:

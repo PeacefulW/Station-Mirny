@@ -59,27 +59,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _debug_toggle_rock(place: bool) -> void:
 	var mouse_pos: Vector2 = get_parent().get_global_mouse_position()
-	var tile_pos: Vector2i = WorldGenerator.world_to_tile(mouse_pos)
-	var chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(tile_pos)
-	var chunk: Chunk = _chunk_manager.get_chunk(chunk_coord)
-	if not chunk:
+	if place:
+		push_warning("[Debug] Direct rock placement is disabled. Use sanctioned world-generation/debug tools instead.")
 		return
-	var local: Vector2i = chunk.global_to_local(tile_pos)
-	var current_type: int = chunk.get_terrain_type_at(local)
-	if place and current_type != TileGenData.TerrainType.ROCK:
-		chunk._set_terrain_type(local, TileGenData.TerrainType.ROCK)
-	elif not place and current_type == TileGenData.TerrainType.ROCK:
-		chunk._set_terrain_type(local, TileGenData.TerrainType.GROUND)
-	else:
-		return
-	chunk._cache_has_mountain()
-	var dirty: Dictionary = {}
-	for dy: int in range(-1, 2):
-		for dx: int in range(-1, 2):
-			var t: Vector2i = local + Vector2i(dx, dy)
-			if chunk._is_inside(t):
-				dirty[t] = true
-	chunk._redraw_dirty_tiles(dirty)
+	_chunk_manager.try_harvest_at_world(mouse_pos)
 
 func _setup_fps_counter() -> void:
 	_fps_label = Label.new()

@@ -42,6 +42,9 @@ static func collect_player(tree: SceneTree) -> Dictionary:
 	var inventory: Node = player.get_node_or_null("InventoryComponent")
 	if inventory and inventory.has_method("save_state"):
 		data["inventory"] = inventory.save_state()
+	var equipment: Node = player.get_node_or_null("EquipmentComponent")
+	if equipment and equipment.has_method("save_state"):
+		data["equipment"] = equipment.save_state()
 	var oxygen_system: Node = player.get_node_or_null("OxygenSystem")
 	if oxygen_system and oxygen_system.has_method("save_state"):
 		data["oxygen"] = oxygen_system.save_state()
@@ -70,6 +73,8 @@ static func collect_world(tree: SceneTree) -> Dictionary:
 		var spawn_orchestrator: Node = spawn_orchestrators[0]
 		if spawn_orchestrator.has_method("save_pickups"):
 			data["pickups"] = spawn_orchestrator.save_pickups()
+		if spawn_orchestrator.has_method("save_enemy_runtime"):
+			data["enemy_runtime"] = spawn_orchestrator.save_enemy_runtime()
 	return data
 
 static func collect_time() -> Dictionary:

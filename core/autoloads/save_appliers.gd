@@ -30,6 +30,8 @@ static func apply_world(tree: SceneTree, data: Dictionary) -> bool:
 		var spawn_orchestrator: Node = spawn_orchestrators[0]
 		if spawn_orchestrator.has_method("load_pickups"):
 			spawn_orchestrator.load_pickups(data.get("pickups", []))
+		if spawn_orchestrator.has_method("load_enemy_runtime"):
+			spawn_orchestrator.load_enemy_runtime(data.get("enemy_runtime", {}))
 	return true
 
 static func apply_chunk_data(tree: SceneTree, data: Dictionary) -> void:
@@ -65,11 +67,11 @@ static func apply_buildings(tree: SceneTree, data: Dictionary) -> void:
 		if building_system.has_method("_create_wall_at"):
 			building_system._create_wall_at(pos)
 		if wall_entry.has("health"):
-			var wall_node: Node2D = building_system.walls.get(pos)
+			var wall_node: Node2D = building_system.get_building_node_at(pos) if building_system.has_method("get_building_node_at") else null
 			if wall_node:
 				var health: HealthComponent = wall_node.get_node_or_null("HealthComponent")
 				if health:
-					health.current_health = wall_entry["health"]
+					health.restore_state(float(wall_entry["health"]), health.max_health)
 	# Legacy fallback: room rebuild handled by load_state() in primary path above.
 
 static func apply_player(tree: SceneTree, data: Dictionary) -> void:
@@ -102,11 +104,17 @@ static func apply_player(tree: SceneTree, data: Dictionary) -> void:
 	if inventory and inventory.has_method("load_state") and data.has("inventory"):
 		inventory.load_state(data["inventory"])
 
+	var equipment: Node = player.get_node_or_null("EquipmentComponent")
+	if equipment and equipment.has_method("load_state") and data.has("equipment"):
+		equipment.load_state(data["equipment"])
+
 	var health_data: Dictionary = data.get("health", {})
 	var health: HealthComponent = player.get_node_or_null("HealthComponent")
 	if health and not health_data.is_empty():
-		health.current_health = float(health_data.get("current", health.current_health))
-		health.max_health = float(health_data.get("max", health.max_health))
+		health.restore_state(
+			float(health_data.get("current", health.current_health)),
+			float(health_data.get("max", health.max_health))
+		)
 
 	var oxygen_system: Node = player.get_node_or_null("OxygenSystem")
 	if oxygen_system and oxygen_system.has_method("load_state") and data.has("oxygen"):

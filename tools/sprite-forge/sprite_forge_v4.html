@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Sprite Forge v4 — Volumetric Tile Engine</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Outfit:wght@300;500;700&display=swap');
+
+:root {
+  --bg: #0f1117;
+  --panel: #181b23;
+  --panel2: #1e222d;
+  --text: #e2dfd6;
+  --muted: #6b7280;
+  --accent: #e8a849;
+  --accent2: #c47d2a;
+  --line: #2a2f3a;
+  --on: #4ead6b;
+  --off: #5c3a3a;
+  --blue: #5b8def;
+  --red: #e05555;
+}
+
+* { box-sizing: border-box; margin: 0; }
+body {
+  font-family: 'Outfit', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 360px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 0;
+  overflow-y: auto;
+  flex-shrink: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.sidebar-header {
+  padding: 20px 20px 12px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 10;
+}
+
+.sidebar-header h1 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.sidebar-header h1 span { color: var(--accent); }
+
+.version {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.sidebar-content { padding: 8px 20px 20px; }
+
+h2 {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 18px 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+h2::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 5px 0 2px;
+}
+
+input[type=number], select {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  width: 72px;
+  outline: none;
+  transition: border-color .15s;
+}
+input[type=number]:focus, select:focus {
+  border-color: var(--accent);
+}
+select { width: auto; min-width: 120px; cursor: pointer; }
+
+input[type=color] {
+  height: 28px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  background: var(--bg);
+  padding: 2px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 4px 0;
+}
+.row label { flex: 1; margin: 0; }
+
+.row-slider {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0;
+}
+.row-slider label { flex: 0 0 auto; min-width: 110px; margin: 0; font-size: 12px; color: var(--muted); }
+.row-slider input[type=range] { flex: 1; accent-color: var(--accent); height: 4px; }
+.row-slider .val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text);
+  min-width: 36px;
+  text-align: right;
+}
+
+input[type=range] {
+  -webkit-appearance: none;
+  background: var(--line);
+  border-radius: 3px;
+  height: 4px;
+  outline: none;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  background: var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid var(--bg);
+}
+
+button {
+  background: linear-gradient(180deg, var(--accent), var(--accent2));
+  border: none;
+  color: #1a1a1a;
+  border-radius: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13px;
+  width: 100%;
+  margin-top: 12px;
+  font-family: 'Outfit', sans-serif;
+  letter-spacing: 0.02em;
+  transition: filter .1s, transform .1s;
+}
+button:hover { filter: brightness(1.1); }
+button:active { transform: scale(0.98); }
+button.secondary {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.toggle-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 5px 0;
+}
+.toggle-row > label:first-child {
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text);
+}
+.toggle {
+  position: relative;
+  width: 38px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle .slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--off);
+  border-radius: 10px;
+  transition: .2s;
+}
+.toggle .slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+  background: var(--text);
+  border-radius: 50%;
+  transition: .2s;
+}
+.toggle input:checked + .slider { background: var(--on); }
+.toggle input:checked + .slider:before { transform: translateX(18px); }
+
+.preset-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.preset-btn {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  width: auto;
+  margin: 0;
+  transition: all .15s;
+}
+.preset-btn:hover { border-color: var(--accent); color: var(--accent); }
+.preset-btn.active { background: var(--accent); color: #1a1a1a; border-color: var(--accent); }
+
+.main {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 16px;
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 3px;
+  width: fit-content;
+}
+.tab {
+  padding: 7px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all .15s;
+  border: none;
+  background: none;
+  width: auto;
+  margin: 0;
+}
+.tab:hover { color: var(--text); }
+.tab.active { background: var(--accent); color: #1a1a1a; font-weight: 700; }
+
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tile-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px;
+  text-align: center;
+  transition: border-color .15s;
+}
+.tile-card:hover { border-color: var(--accent); }
+.tile-card canvas {
+  image-rendering: pixelated;
+  border-radius: 3px;
+  display: block;
+}
+.tile-card .name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--muted);
+  margin-top: 4px;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atlas-preview { margin-top: 16px; }
+.atlas-preview canvas {
+  image-rendering: pixelated;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  max-width: 100%;
+}
+
+.demo-section { margin-top: 16px; }
+.demo-section canvas {
+  image-rendering: pixelated;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+#status {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 10px;
+}
+
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+.sub {
+  font-size: 10px;
+  color: var(--muted);
+  margin: 2px 0 4px;
+  font-style: italic;
+}
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>Sprite <span>Forge</span></h1>
+    <div class="version">v4 — heightmap volumetric engine</div>
+  </div>
+  <div class="sidebar-content">
+
+    <h2>Пресеты</h2>
+    <div class="preset-row">
+      <button class="preset-btn active" data-preset="stone">Камень</button>
+      <button class="preset-btn" data-preset="mountain">Гора</button>
+      <button class="preset-btn" data-preset="grass_cliff">Трава+обрыв</button>
+      <button class="preset-btn" data-preset="sand">Песок</button>
+      <button class="preset-btn" data-preset="snow">Снег</button>
+      <button class="preset-btn" data-preset="lava">Лава</button>
+    </div>
+
+    <h2>Размер</h2>
+    <div class="row"><label>Тайл (px)</label><input type="number" id="tileSize" value="64" min="32" max="256" step="32"></div>
+
+    <h2>Высота и объём</h2>
+    <div class="row-slider">
+      <label>Высота платформы</label>
+      <input type="range" id="platformHeight" min="4" max="48" value="20">
+      <span class="val" id="platformHeightVal">20</span>
+    </div>
+    <div class="row-slider">
+      <label>Высота рельефа</label>
+      <input type="range" id="reliefHeight" min="0" max="30" value="8">
+      <span class="val" id="reliefHeightVal">8</span>
+    </div>
+    <div class="row-slider">
+      <label>Крутизна обрыва</label>
+      <input type="range" id="cliffSteepness" min="1" max="20" value="8">
+      <span class="val" id="cliffSteepnessVal">8</span>
+    </div>
+    <div class="row-slider">
+      <label>Кромка (px)</label>
+      <input type="range" id="edgeWidth" min="2" max="24" value="10">
+      <span class="val" id="edgeWidthVal">10</span>
+    </div>
+
+    <h2>Освещение</h2>
+    <div class="row-slider">
+      <label>Азимут света</label>
+      <input type="range" id="lightAzimuth" min="0" max="360" value="225">
+      <span class="val" id="lightAzimuthVal">225°</span>
+    </div>
+    <div class="row-slider">
+      <label>Высота света</label>
+      <input type="range" id="lightElevation" min="10" max="80" value="45">
+      <span class="val" id="lightElevationVal">45°</span>
+    </div>
+    <div class="row-slider">
+      <label>Сила света</label>
+      <input type="range" id="lightIntensity" min="0" max="100" value="70">
+      <span class="val" id="lightIntensityVal">70</span>
+    </div>
+    <div class="row-slider">
+      <label>Ambient</label>
+      <input type="range" id="ambientLight" min="10" max="80" value="35">
+      <span class="val" id="ambientLightVal">35</span>
+    </div>
+    <div class="toggle-row">
+      <label>Ambient Occlusion</label>
+      <label class="toggle"><input type="checkbox" id="optAO" checked><span class="slider"></span></label>
+    </div>
+    <div class="row-slider">
+      <label>Сила AO</label>
+      <input type="range" id="aoStrength" min="0" max="100" value="60">
+      <span class="val" id="aoStrengthVal">60</span>
+    </div>
+
+    <h2>Цвета материала</h2>
+    <div class="row"><label>Цвет верха</label><input type="color" id="colorTop" value="#7a7065"></div>
+    <div class="row"><label>Цвет обрыва</label><input type="color" id="colorCliff" value="#544a42"></div>
+    <div class="row"><label>Блик верха</label><input type="color" id="colorHighlight" value="#c4b8a8"></div>
+
+    <h2>Текстура</h2>
+    <div class="row-slider">
+      <label>Масштаб шума</label>
+      <input type="range" id="noiseScale" min="1" max="50" value="12">
+      <span class="val" id="noiseScaleVal">12</span>
+    </div>
+    <div class="row-slider">
+      <label>Октавы</label>
+      <input type="range" id="noiseOctaves" min="1" max="6" value="4">
+      <span class="val" id="noiseOctavesVal">4</span>
+    </div>
+    <div class="row-slider">
+      <label>Сила текстуры</label>
+      <input type="range" id="textureStrength" min="0" max="100" value="40">
+      <span class="val" id="textureStrengthVal">40</span>
+    </div>
+    <div class="row-slider">
+      <label>Пиксельный шум</label>
+      <input type="range" id="pixelNoise" min="0" max="30" value="6">
+      <span class="val" id="pixelNoiseVal">6</span>
+    </div>
+
+    <h2>Эффекты</h2>
+    <div class="toggle-row">
+      <label>Горизонтальные слои</label>
+      <label class="toggle"><input type="checkbox" id="optLayers"><span class="slider"></span></label>
+    </div>
+    <div class="toggle-row">
+      <label>Вертикальные трещины</label>
+      <label class="toggle"><input type="checkbox" id="optCracks"><span class="slider"></span></label>
+    </div>
+    <div class="toggle-row">
+      <label>Рваный край</label>
+      <label class="toggle"><input type="checkbox" id="optJag" checked><span class="slider"></span></label>
+    </div>
+    <div class="toggle-row">
+      <label>Блик верхней кромки</label>
+      <label class="toggle"><input type="checkbox" id="optRimLight" checked><span class="slider"></span></label>
+    </div>
+    <div class="row-slider">
+      <label>Вариантов</label>
+      <input type="range" id="variantCount" min="1" max="5" value="3">
+      <span class="val" id="variantCountVal">3</span>
+    </div>
+
+    <button id="generateBtn">⚒ Сгенерировать</button>
+    <button id="downloadAtlas" class="secondary" style="display:none">↓ Скачать атлас PNG</button>
+    <div id="status"></div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="tabs">
+    <button class="tab active" data-tab="tiles">Тайлы</button>
+    <button class="tab" data-tab="atlas">Атлас</button>
+    <button class="tab" data-tab="demo">Превью сборки</button>
+    <button class="tab" data-tab="heightmap">Heightmap debug</button>
+  </div>
+
+  <div class="tab-content active" id="tab-tiles">
+    <div class="grid" id="grid"></div>
+  </div>
+  <div class="tab-content" id="tab-atlas">
+    <div class="atlas-preview">
+      <canvas id="atlasCanvas"></canvas>
+    </div>
+  </div>
+  <div class="tab-content" id="tab-demo">
+    <div class="demo-section">
+      <canvas id="demoCanvas"></canvas>
+      <div class="sub">Автоматическая сборка из bitmask. Горы, обрывы, коридоры.</div>
+    </div>
+  </div>
+  <div class="tab-content" id="tab-heightmap">
+    <div class="sub" style="margin-bottom:8px">Heightmap визуализация — белый = высоко, чёрный = низко. Это основа объёма.</div>
+    <div class="grid" id="hmGrid"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+// SIMPLEX NOISE 2D (compact implementation)
+// ═══════════════════════════════════════════════
+const SimplexNoise = (() => {
+  const F2 = 0.5 * (Math.sqrt(3) - 1);
+  const G2 = (3 - Math.sqrt(3)) / 6;
+  const grad3 = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]];
+
+  function create(seed) {
+    const perm = new Uint8Array(512);
+    const p = new Uint8Array(256);
+    const rng = mulberry32(seed);
+    for (let i = 0; i < 256; i++) p[i] = i;
+    for (let i = 255; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [p[i], p[j]] = [p[j], p[i]];
+    }
+    for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+
+    return function noise2D(x, y) {
+      const s = (x + y) * F2;
+      const i = Math.floor(x + s);
+      const j = Math.floor(y + s);
+      const t = (i + j) * G2;
+      const X0 = i - t, Y0 = j - t;
+      const x0 = x - X0, y0 = y - Y0;
+      const i1 = x0 > y0 ? 1 : 0;
+      const j1 = x0 > y0 ? 0 : 1;
+      const x1 = x0 - i1 + G2, y1 = y0 - j1 + G2;
+      const x2 = x0 - 1 + 2 * G2, y2 = y0 - 1 + 2 * G2;
+      const ii = i & 255, jj = j & 255;
+
+      let n0 = 0, n1 = 0, n2 = 0;
+      let t0 = 0.5 - x0*x0 - y0*y0;
+      if (t0 > 0) { t0 *= t0; const g = grad3[perm[ii + perm[jj]] & 7]; n0 = t0*t0 * (g[0]*x0 + g[1]*y0); }
+      let t1 = 0.5 - x1*x1 - y1*y1;
+      if (t1 > 0) { t1 *= t1; const g = grad3[perm[ii+i1 + perm[jj+j1]] & 7]; n1 = t1*t1 * (g[0]*x1 + g[1]*y1); }
+      let t2 = 0.5 - x2*x2 - y2*y2;
+      if (t2 > 0) { t2 *= t2; const g = grad3[perm[ii+1 + perm[jj+1]] & 7]; n2 = t2*t2 * (g[0]*x2 + g[1]*y2); }
+      return 70 * (n0 + n1 + n2);
+    };
+  }
+  return { create };
+})();
+
+// ═══════════════════════════════════════════════
+// SEEDED PRNG
+// ═══════════════════════════════════════════════
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// ═══════════════════════════════════════════════
+// fBm (fractal Brownian motion)
+// ═══════════════════════════════════════════════
+function fbm(noise, x, y, octaves, lacunarity = 2.0, gain = 0.5) {
+  let sum = 0, amp = 1, freq = 1, maxAmp = 0;
+  for (let i = 0; i < octaves; i++) {
+    sum += noise(x * freq, y * freq) * amp;
+    maxAmp += amp;
+    amp *= gain;
+    freq *= lacunarity;
+  }
+  return sum / maxAmp;
+}
+
+// ═══════════════════════════════════════════════
+// TILE DEFINITIONS (13 base tiles for 4-bit bitmask)
+// n/s/e/w = 1 means edge on that side
+// ═══════════════════════════════════════════════
+const TILE_DEFS = [
+  { name: "00_interior",    n:0, s:0, e:0, w:0, mask: 0b0000 },
+  { name: "01_north",       n:1, s:0, e:0, w:0, mask: 0b1000 },
+  { name: "02_south",       n:0, s:1, e:0, w:0, mask: 0b0100 },
+  { name: "03_east",        n:0, s:0, e:1, w:0, mask: 0b0010 },
+  { name: "04_west",        n:0, s:0, e:0, w:1, mask: 0b0001 },
+  { name: "05_corner_nw",   n:1, s:0, e:0, w:1, mask: 0b1001 },
+  { name: "06_corner_ne",   n:1, s:0, e:1, w:0, mask: 0b1010 },
+  { name: "07_corner_sw",   n:0, s:1, e:0, w:1, mask: 0b0101 },
+  { name: "08_corner_se",   n:0, s:1, e:1, w:0, mask: 0b0110 },
+  { name: "09_corridor_ns", n:1, s:1, e:0, w:0, mask: 0b1100 },
+  { name: "10_corridor_ew", n:0, s:0, e:1, w:1, mask: 0b0011 },
+  { name: "11_peninsula_n", n:1, s:0, e:1, w:1, mask: 0b1011 },
+  { name: "12_peninsula_s", n:0, s:1, e:1, w:1, mask: 0b0111 },
+  { name: "13_peninsula_e", n:1, s:1, e:1, w:0, mask: 0b1110 },
+  { name: "14_peninsula_w", n:1, s:1, e:0, w:1, mask: 0b1101 },
+  { name: "15_pillar",      n:1, s:1, e:1, w:1, mask: 0b1111 },
+];
+
+// Lookup by bitmask
+const TILE_BY_MASK = {};
+TILE_DEFS.forEach(d => TILE_BY_MASK[d.mask] = d);
+
+// ═══════════════════════════════════════════════
+// PRESETS
+// ═══════════════════════════════════════════════
+const PRESETS = {
+  stone: {
+    platformHeight: 20, reliefHeight: 8, cliffSteepness: 8, edgeWidth: 10,
+    lightAzimuth: 225, lightElevation: 45, lightIntensity: 70, ambientLight: 35,
+    colorTop: '#7a7065', colorCliff: '#544a42', colorHighlight: '#c4b8a8',
+    noiseScale: 12, noiseOctaves: 4, textureStrength: 40, pixelNoise: 6,
+    optAO: true, aoStrength: 60, optLayers: false, optCracks: false,
+    optJag: true, optRimLight: true, variantCount: 3,
+  },
+  mountain: {
+    platformHeight: 32, reliefHeight: 15, cliffSteepness: 12, edgeWidth: 14,
+    lightAzimuth: 200, lightElevation: 35, lightIntensity: 80, ambientLight: 25,
+    colorTop: '#6b6860', colorCliff: '#4a4540', colorHighlight: '#b5a890',
+    noiseScale: 8, noiseOctaves: 5, textureStrength: 55, pixelNoise: 8,
+    optAO: true, aoStrength: 75, optLayers: true, optCracks: true,
+    optJag: true, optRimLight: true, variantCount: 3,
+  },
+  grass_cliff: {
+    platformHeight: 16, reliefHeight: 5, cliffSteepness: 6, edgeWidth: 8,
+    lightAzimuth: 225, lightElevation: 50, lightIntensity: 65, ambientLight: 40,
+    colorTop: '#5a7a48', colorCliff: '#6b5e45', colorHighlight: '#8cb470',
+    noiseScale: 15, noiseOctaves: 3, textureStrength: 35, pixelNoise: 5,
+    optAO: true, aoStrength: 50, optLayers: false, optCracks: false,
+    optJag: true, optRimLight: true, variantCount: 3,
+  },
+  sand: {
+    platformHeight: 12, reliefHeight: 4, cliffSteepness: 5, edgeWidth: 8,
+    lightAzimuth: 240, lightElevation: 55, lightIntensity: 60, ambientLight: 45,
+    colorTop: '#c4a86a', colorCliff: '#9a7e50', colorHighlight: '#e8d8a8',
+    noiseScale: 18, noiseOctaves: 3, textureStrength: 25, pixelNoise: 4,
+    optAO: true, aoStrength: 40, optLayers: false, optCracks: false,
+    optJag: true, optRimLight: true, variantCount: 3,
+  },
+  snow: {
+    platformHeight: 18, reliefHeight: 6, cliffSteepness: 7, edgeWidth: 10,
+    lightAzimuth: 210, lightElevation: 40, lightIntensity: 50, ambientLight: 55,
+    colorTop: '#c8cad0', colorCliff: '#8a90a0', colorHighlight: '#f0f2f8',
+    noiseScale: 14, noiseOctaves: 4, textureStrength: 20, pixelNoise: 3,
+    optAO: true, aoStrength: 45, optLayers: false, optCracks: false,
+    optJag: false, optRimLight: true, variantCount: 3,
+  },
+  lava: {
+    platformHeight: 22, reliefHeight: 12, cliffSteepness: 10, edgeWidth: 12,
+    lightAzimuth: 180, lightElevation: 30, lightIntensity: 40, ambientLight: 20,
+    colorTop: '#3a2a28', colorCliff: '#2a1a18', colorHighlight: '#e85030',
+    noiseScale: 10, noiseOctaves: 5, textureStrength: 60, pixelNoise: 10,
+    optAO: true, aoStrength: 80, optLayers: true, optCracks: true,
+    optJag: true, optRimLight: true, variantCount: 3,
+  },
+};
+
+// ═══════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════
+function hexToRgb(hex) {
+  return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+}
+function lerp(a, b, t) { return a + (b - a) * Math.max(0, Math.min(1, t)); }
+function lerpColor(c1, c2, t) {
+  return [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
+}
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function smoothstep(edge0, edge1, x) {
+  const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+// ═══════════════════════════════════════════════
+// HEIGHTMAP GENERATION
+// ═══════════════════════════════════════════════
+function generateHeightmap(T, def, params, seed) {
+  const hm = new Float32Array(T * T);
+  const noise = SimplexNoise.create(seed);
+  const rng = mulberry32(seed);
+
+  const { platformHeight, reliefHeight, cliffSteepness, edgeWidth, noiseScale, noiseOctaves, optJag } = params;
+
+  const scale = T / 64;
+  const pH = platformHeight * scale;
+  const rH = reliefHeight * scale;
+  const cS = cliffSteepness * scale;
+  const eW = edgeWidth * scale;
+
+  // Jag offsets per edge (deterministic wobble)
+  const jagN = [], jagS = [], jagE = [], jagW = [];
+  for (let i = 0; i < T; i++) {
+    const jAmt = optJag ? 3 * scale : 0;
+    jagN[i] = optJag ? Math.round(fbm(noise, i * 0.1, seed * 0.01, 2) * jAmt) : 0;
+    jagS[i] = optJag ? Math.round(fbm(noise, i * 0.1, seed * 0.02 + 100, 2) * jAmt) : 0;
+    jagE[i] = optJag ? Math.round(fbm(noise, seed * 0.03 + 200, i * 0.1, 2) * jAmt) : 0;
+    jagW[i] = optJag ? Math.round(fbm(noise, seed * 0.04 + 300, i * 0.1, 2) * jAmt) : 0;
+  }
+
+  for (let y = 0; y < T; y++) {
+    for (let x = 0; x < T; x++) {
+      // Distance from each edge (with jag)
+      const dN = def.n ? (y - jagN[x]) : T;
+      const dS = def.s ? (T - 1 - y - jagS[x]) : T;
+      const dE = def.e ? (T - 1 - x - jagE[y]) : T;
+      const dW = def.w ? (x - jagW[y]) : T;
+
+      // Minimum distance to any active edge
+      const dMin = Math.min(dN, dS, dE, dW);
+
+      // Edge falloff: smoothstep from 0 at edge to 1 at edgeWidth
+      const edgeFactor = smoothstep(0, eW, dMin);
+
+      // Platform height with edge falloff
+      let h = pH * edgeFactor;
+
+      // Add relief noise on top surface
+      if (edgeFactor > 0.3) {
+        const nx = x / T * (noiseScale * 0.1);
+        const ny = y / T * (noiseScale * 0.1);
+        const relief = (fbm(noise, nx + seed * 0.1, ny + seed * 0.2, noiseOctaves) * 0.5 + 0.5);
+        h += relief * rH * edgeFactor;
+      }
+
+      // Cliff steepness — sharpen the falloff
+      if (dMin < eW && dMin >= 0) {
+        const cliffProfile = Math.pow(edgeFactor, 1.0 / (cS * 0.2 + 0.5));
+        h = pH * cliffProfile;
+        // Add cliff texture
+        const cx = x / T * 0.3;
+        const cy = y / T * 0.3;
+        h += fbm(noise, cx + seed * 0.5, cy + seed * 0.6, 3) * 2 * scale * (1 - edgeFactor);
+      }
+
+      // Below edge = 0 (transparent zone)
+      if (dMin < -1) h = 0;
+
+      hm[y * T + x] = Math.max(0, h);
+    }
+  }
+
+  return { heightmap: hm, jagN, jagS, jagE, jagW };
+}
+
+// ═══════════════════════════════════════════════
+// NORMAL CALCULATION FROM HEIGHTMAP
+// ═══════════════════════════════════════════════
+function computeNormals(hm, T) {
+  const normals = new Float32Array(T * T * 3);
+  for (let y = 0; y < T; y++) {
+    for (let x = 0; x < T; x++) {
+      const idx = y * T + x;
+      const hL = x > 0 ? hm[(y) * T + (x-1)] : hm[idx];
+      const hR = x < T-1 ? hm[(y) * T + (x+1)] : hm[idx];
+      const hU = y > 0 ? hm[(y-1) * T + x] : hm[idx];
+      const hD = y < T-1 ? hm[(y+1) * T + x] : hm[idx];
+
+      // Central differences
+      let nx = (hL - hR) * 0.5;
+      let ny = (hU - hD) * 0.5;
+      let nz = 1.0;
+
+      // Normalize
+      const len = Math.sqrt(nx*nx + ny*ny + nz*nz);
+      normals[idx*3]   = nx / len;
+      normals[idx*3+1] = ny / len;
+      normals[idx*3+2] = nz / len;
+    }
+  }
+  return normals;
+}
+
+// ═══════════════════════════════════════════════
+// AMBIENT OCCLUSION FROM HEIGHTMAP
+// ═══════════════════════════════════════════════
+function computeAO(hm, T, radius = 3) {
+  const ao = new Float32Array(T * T);
+  for (let y = 0; y < T; y++) {
+    for (let x = 0; x < T; x++) {
+      const h = hm[y * T + x];
+      if (h <= 0) { ao[y * T + x] = 0; continue; }
+      let occlusion = 0;
+      let samples = 0;
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || nx >= T || ny < 0 || ny >= T) {
+            // Edge of tile = lower ground = more occlusion potential
+            occlusion += Math.max(0, h) * 0.02;
+            samples++;
+            continue;
+          }
+          const nh = hm[ny * T + nx];
+          const diff = nh - h;
+          if (diff > 0) {
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            occlusion += (diff / (dist + 1)) * 0.15;
+          }
+          samples++;
+        }
+      }
+      ao[y * T + x] = 1.0 - clamp(occlusion / Math.max(samples * 0.03, 1), 0, 1);
+    }
+  }
+  return ao;
+}
+
+// ═══════════════════════════════════════════════
+// RENDER TILE FROM HEIGHTMAP + NORMALS + AO
+// ═══════════════════════════════════════════════
+function renderTile(T, def, params, seed) {
+  const { heightmap: hm, jagN, jagS, jagE, jagW } = generateHeightmap(T, def, params, seed);
+  const normals = computeNormals(hm, T);
+  const useAO = params.optAO;
+  const ao = useAO ? computeAO(hm, T) : null;
+  const noise = SimplexNoise.create(seed + 999);
+  const rng = mulberry32(seed + 5555);
+
+  const scale = T / 64;
+  const pH = params.platformHeight * scale;
+  const eW = params.edgeWidth * scale;
+
+  // Light direction
+  const azRad = params.lightAzimuth * Math.PI / 180;
+  const elRad = params.lightElevation * Math.PI / 180;
+  const lightDir = [
+    Math.cos(elRad) * Math.sin(azRad),
+    Math.cos(elRad) * Math.cos(azRad),
+    Math.sin(elRad)
+  ];
+  const lightInt = params.lightIntensity / 100;
+  const ambient = params.ambientLight / 100;
+  const aoStr = params.aoStrength / 100;
+
+  const colorTop = hexToRgb(params.colorTop);
+  const colorCliff = hexToRgb(params.colorCliff);
+  const colorHL = hexToRgb(params.colorHighlight);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = T; canvas.height = T;
+  const ctx = canvas.getContext("2d");
+  const imgData = ctx.createImageData(T, T);
+  const d = imgData.data;
+
+  // Also build heightmap debug canvas
+  const hmCanvas = document.createElement("canvas");
+  hmCanvas.width = T; hmCanvas.height = T;
+  const hmCtx = hmCanvas.getContext("2d");
+  const hmImg = hmCtx.createImageData(T, T);
+  const hd = hmImg.data;
+
+  const maxH = pH + params.reliefHeight * scale;
+
+  for (let y = 0; y < T; y++) {
+    for (let x = 0; x < T; x++) {
+      const idx = y * T + x;
+      const h = hm[idx];
+
+      // Heightmap debug
+      const hv = clamp(h / Math.max(maxH, 1) * 255, 0, 255);
+      hd[idx*4] = hv; hd[idx*4+1] = hv; hd[idx*4+2] = hv; hd[idx*4+3] = h > 0.5 ? 255 : 0;
+
+      if (h < 0.5) {
+        d[idx*4] = 0; d[idx*4+1] = 0; d[idx*4+2] = 0; d[idx*4+3] = 0;
+        continue;
+      }
+
+      // Normal-based lighting
+      const nx = normals[idx*3];
+      const ny = normals[idx*3+1];
+      const nz = normals[idx*3+2];
+      const ndotl = Math.max(0, nx * lightDir[0] + ny * lightDir[1] + nz * lightDir[2]);
+      let lighting = ambient + ndotl * lightInt;
+
+      // AO
+      if (useAO && ao) {
+        const aoVal = ao[idx];
+        lighting *= lerp(1.0, aoVal, aoStr);
+      }
+
+      // Determine material: top surface vs cliff face
+      // Use the heightmap gradient (slope) to determine
+      const slope = 1.0 - nz; // 0 = flat top, 1 = vertical cliff
+      const slopeFactor = smoothstep(0.15, 0.6, slope);
+
+      // Base color: blend between top and cliff based on slope
+      let baseColor = lerpColor(colorTop, colorCliff, slopeFactor);
+
+      // Rim light: highlight the top edge where slope transitions
+      if (params.optRimLight && slope > 0.1 && slope < 0.5) {
+        const rimFactor = smoothstep(0.1, 0.25, slope) * smoothstep(0.5, 0.25, slope);
+        baseColor = lerpColor(baseColor, colorHL, rimFactor * 0.6);
+      }
+
+      // South face vertical gradient (fake side-lit wall)
+      const dN = def.n ? y : T;
+      const dS = def.s ? (T - 1 - y) : T;
+      const dMin = Math.min(dN, dS, def.e ? (T-1-x) : T, def.w ? x : T);
+      if (def.s && dS < eW && nz < 0.7) {
+        // Darken south face more to simulate vertical wall
+        const wallDarken = smoothstep(eW, 0, dS) * 0.3;
+        lighting *= (1.0 - wallDarken);
+      }
+
+      // Texture noise
+      const texNx = x / T * params.noiseScale * 0.15;
+      const texNy = y / T * params.noiseScale * 0.15;
+      const texNoise = fbm(noise, texNx + seed * 0.1, texNy + seed * 0.2, params.noiseOctaves);
+      const texStr = params.textureStrength / 100;
+      const texMod = 1.0 + texNoise * texStr;
+
+      // Horizontal layers effect
+      if (params.optLayers && slopeFactor > 0.2) {
+        const layerNoise = Math.sin(y * 0.8 + fbm(noise, x * 0.05, y * 0.05 + seed, 2) * 4) * 0.5 + 0.5;
+        const layerFactor = layerNoise * slopeFactor * 0.15;
+        lighting *= (1.0 - layerFactor);
+      }
+
+      // Cracks
+      if (params.optCracks && slopeFactor > 0.3) {
+        const crackNoise = fbm(noise, x * 0.3 + seed * 3, y * 0.05 + seed * 2, 3);
+        if (Math.abs(crackNoise) < 0.03) {
+          lighting *= 0.5;
+        }
+      }
+
+      // Pixel noise
+      const pn = (rng() - 0.5) * params.pixelNoise;
+
+      // Final color
+      const r = clamp(Math.round(baseColor[0] * lighting * texMod + pn), 0, 255);
+      const g = clamp(Math.round(baseColor[1] * lighting * texMod + pn), 0, 255);
+      const b = clamp(Math.round(baseColor[2] * lighting * texMod + pn), 0, 255);
+
+      // Alpha: fade at edges
+      let alpha = 255;
+      if (h < 3) alpha = Math.round(clamp(h / 3, 0, 1) * 255);
+
+      d[idx*4] = r; d[idx*4+1] = g; d[idx*4+2] = b; d[idx*4+3] = alpha;
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+  hmCtx.putImageData(hmImg, 0, 0);
+  return { canvas, hmCanvas };
+}
+
+// ═══════════════════════════════════════════════
+// READ ALL PARAMS FROM UI
+// ═══════════════════════════════════════════════
+function readParams() {
+  return {
+    platformHeight: +document.getElementById("platformHeight").value,
+    reliefHeight: +document.getElementById("reliefHeight").value,
+    cliffSteepness: +document.getElementById("cliffSteepness").value,
+    edgeWidth: +document.getElementById("edgeWidth").value,
+    lightAzimuth: +document.getElementById("lightAzimuth").value,
+    lightElevation: +document.getElementById("lightElevation").value,
+    lightIntensity: +document.getElementById("lightIntensity").value,
+    ambientLight: +document.getElementById("ambientLight").value,
+    optAO: document.getElementById("optAO").checked,
+    aoStrength: +document.getElementById("aoStrength").value,
+    colorTop: document.getElementById("colorTop").value,
+    colorCliff: document.getElementById("colorCliff").value,
+    colorHighlight: document.getElementById("colorHighlight").value,
+    noiseScale: +document.getElementById("noiseScale").value,
+    noiseOctaves: +document.getElementById("noiseOctaves").value,
+    textureStrength: +document.getElementById("textureStrength").value,
+    pixelNoise: +document.getElementById("pixelNoise").value,
+    optLayers: document.getElementById("optLayers").checked,
+    optCracks: document.getElementById("optCracks").checked,
+    optJag: document.getElementById("optJag").checked,
+    optRimLight: document.getElementById("optRimLight").checked,
+    variantCount: +document.getElementById("variantCount").value,
+  };
+}
+
+// ═══════════════════════════════════════════════
+// MAIN GENERATE
+// ═══════════════════════════════════════════════
+function generate() {
+  const T = parseInt(document.getElementById("tileSize").value);
+  const params = readParams();
+  const vc = Math.max(1, Math.min(5, params.variantCount));
+
+  const grid = document.getElementById("grid");
+  const hmGrid = document.getElementById("hmGrid");
+  grid.innerHTML = "";
+  hmGrid.innerHTML = "";
+
+  const allCanvases = [];
+  const allDefs = [];
+  const tileByName = {};
+
+  for (let vi = 0; vi < vc; vi++) {
+    for (const def of TILE_DEFS) {
+      const name = vc > 1 ? def.name + "_v" + vi : def.name;
+      const seed = 42 + (TILE_DEFS.indexOf(def)) * 1337 + vi * 77777;
+
+      const { canvas, hmCanvas } = renderTile(T, def, params, seed);
+      allCanvases.push(canvas);
+      allDefs.push({ ...def, name });
+      tileByName[name] = canvas;
+
+      // Tile card
+      const card = document.createElement("div");
+      card.className = "tile-card";
+      const preview = document.createElement("canvas");
+      const previewSize = Math.min(96, T * 2);
+      preview.width = previewSize; preview.height = previewSize;
+      preview.style.width = previewSize + "px"; preview.style.height = previewSize + "px";
+      const pctx = preview.getContext("2d");
+      pctx.imageSmoothingEnabled = false;
+      pctx.drawImage(canvas, 0, 0, previewSize, previewSize);
+      card.appendChild(preview);
+      const nameEl = document.createElement("div");
+      nameEl.className = "name";
+      nameEl.textContent = name;
+      card.appendChild(nameEl);
+      grid.appendChild(card);
+
+      // Heightmap card (only first variant)
+      if (vi === 0) {
+        const hmCard = document.createElement("div");
+        hmCard.className = "tile-card";
+        const hmPreview = document.createElement("canvas");
+        hmPreview.width = previewSize; hmPreview.height = previewSize;
+        hmPreview.style.width = previewSize + "px"; hmPreview.style.height = previewSize + "px";
+        const hmPctx = hmPreview.getContext("2d");
+        hmPctx.imageSmoothingEnabled = false;
+        hmPctx.drawImage(hmCanvas, 0, 0, previewSize, previewSize);
+        hmCard.appendChild(hmPreview);
+        const hmName = document.createElement("div");
+        hmName.className = "name";
+        hmName.textContent = def.name + " [H]";
+        hmCard.appendChild(hmName);
+        hmGrid.appendChild(hmCard);
+      }
+    }
+  }
+
+  // Atlas
+  const cols = Math.min(8, allCanvases.length);
+  const rows = Math.ceil(allCanvases.length / cols);
+  const atlasCanvas = document.getElementById("atlasCanvas");
+  atlasCanvas.width = T * cols;
+  atlasCanvas.height = T * rows;
+  const actx = atlasCanvas.getContext("2d");
+  actx.imageSmoothingEnabled = false;
+  actx.clearRect(0, 0, atlasCanvas.width, atlasCanvas.height);
+  for (let i = 0; i < allCanvases.length; i++) {
+    actx.drawImage(allCanvases[i], (i % cols) * T, Math.floor(i / cols) * T);
+  }
+
+  // Demo: bitmask autotiling
+  buildDemo(T, tileByName, params, vc);
+
+  document.getElementById("downloadAtlas").style.display = "";
+  document.getElementById("status").textContent =
+    `Готово: ${allCanvases.length} тайлов, ${T}×${T}px, ${vc} вариант(ов)`;
+  window._atlasCanvas = atlasCanvas;
+}
+
+// ═══════════════════════════════════════════════
+// DEMO: bitmask autotiling
+// ═══════════════════════════════════════════════
+function buildDemo(T, tiles, params, vc) {
+  const W = 14, H = 10;
+  // Define a map with 1=solid, 0=empty
+  const map = [
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,1,1,1,1,0,0,0,1,1,1,0,0],
+    [0,1,1,1,1,1,1,0,0,1,1,1,0,0],
+    [0,1,1,1,1,1,1,0,0,1,1,1,1,0],
+    [0,1,1,1,0,1,1,1,1,1,1,1,1,0],
+    [0,1,1,1,0,1,1,1,1,1,1,1,1,0],
+    [0,0,1,1,1,1,1,0,0,0,0,1,1,0],
+    [0,0,0,1,1,1,0,0,0,0,0,1,1,0],
+    [0,0,0,0,1,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  ];
+
+  const dc = document.getElementById("demoCanvas");
+  dc.width = W * T * 2; dc.height = H * T * 2;
+  dc.style.width = Math.min(W * T * 2, 900) + "px";
+  const dctx = dc.getContext("2d");
+  dctx.imageSmoothingEnabled = false;
+
+  // Ground fill
+  const noise = SimplexNoise.create(54321);
+  for (let gy = 0; gy < H; gy++) {
+    for (let gx = 0; gx < W; gx++) {
+      const n = fbm(noise, gx * 0.3, gy * 0.3, 2) * 0.5 + 0.5;
+      const v = Math.round(40 + n * 20);
+      dctx.fillStyle = `rgb(${v+5},${v+2},${v-8})`;
+      dctx.fillRect(gx * T * 2, gy * T * 2, T * 2, T * 2);
+    }
+  }
+
+  function getSolid(gx, gy) {
+    if (gy < 0 || gy >= H || gx < 0 || gx >= W) return 0;
+    return map[gy][gx];
+  }
+
+  for (let gy = 0; gy < H; gy++) {
+    for (let gx = 0; gx < W; gx++) {
+      if (!map[gy][gx]) continue;
+
+      // 4-bit bitmask: N S E W
+      const n = getSolid(gx, gy - 1) ? 0 : 1;
+      const s = getSolid(gx, gy + 1) ? 0 : 1;
+      const e = getSolid(gx + 1, gy) ? 0 : 1;
+      const w = getSolid(gx - 1, gy) ? 0 : 1;
+      const mask = (n << 3) | (s << 2) | (e << 1) | w;
+
+      const def = TILE_BY_MASK[mask];
+      if (!def) continue;
+
+      // Pick variant
+      let tileName = def.name;
+      if (vc > 1) {
+        const vi = Math.abs(gx * 73 + gy * 97) % vc;
+        tileName = def.name + "_v" + vi;
+      }
+
+      const t = tiles[tileName] || tiles[def.name] || tiles[def.name + "_v0"];
+      if (t) {
+        dctx.drawImage(t, gx * T * 2, gy * T * 2, T * 2, T * 2);
+      }
+    }
+  }
+
+  // Grid
+  dctx.strokeStyle = "rgba(255,255,255,0.04)";
+  dctx.lineWidth = 1;
+  for (let i = 0; i <= W; i++) {
+    dctx.beginPath(); dctx.moveTo(i * T * 2, 0); dctx.lineTo(i * T * 2, H * T * 2); dctx.stroke();
+  }
+  for (let i = 0; i <= H; i++) {
+    dctx.beginPath(); dctx.moveTo(0, i * T * 2); dctx.lineTo(W * T * 2, i * T * 2); dctx.stroke();
+  }
+}
+
+// ═══════════════════════════════════════════════
+// UI WIRING
+// ═══════════════════════════════════════════════
+
+// Tabs
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".tab-content").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    document.getElementById("tab-" + tab.dataset.tab).classList.add("active");
+  });
+});
+
+// Sliders: update value display
+document.querySelectorAll(".row-slider input[type=range]").forEach(slider => {
+  const val = document.getElementById(slider.id + "Val");
+  if (val) {
+    slider.addEventListener("input", () => {
+      let v = slider.value;
+      if (slider.id === "lightAzimuth" || slider.id === "lightElevation") v += "°";
+      val.textContent = v;
+    });
+  }
+});
+
+// Presets
+document.querySelectorAll(".preset-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".preset-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    applyPreset(btn.dataset.preset);
+  });
+});
+
+function applyPreset(name) {
+  const p = PRESETS[name];
+  if (!p) return;
+
+  for (const [key, val] of Object.entries(p)) {
+    const el = document.getElementById(key);
+    if (!el) continue;
+    if (el.type === "checkbox") {
+      el.checked = val;
+    } else if (el.type === "color") {
+      el.value = val;
+    } else {
+      el.value = val;
+    }
+    // Update slider display
+    const valEl = document.getElementById(key + "Val");
+    if (valEl) {
+      let v = val;
+      if (key === "lightAzimuth" || key === "lightElevation") v += "°";
+      valEl.textContent = v;
+    }
+  }
+  scheduleRegen(100);
+}
+
+// Auto-regen
+let _regenTimer = null;
+function scheduleRegen(delay) {
+  if (_regenTimer) clearTimeout(_regenTimer);
+  _regenTimer = setTimeout(generate, delay);
+}
+
+document.querySelectorAll('.toggle input[type=checkbox]').forEach(el => {
+  el.addEventListener("change", () => scheduleRegen(100));
+});
+document.querySelectorAll('input[type=range], input[type=number], input[type=color]').forEach(el => {
+  el.addEventListener("input", () => scheduleRegen(200));
+  el.addEventListener("change", () => scheduleRegen(50));
+});
+
+// Download
+document.getElementById("downloadAtlas").addEventListener("click", () => {
+  const a = document.createElement("a");
+  a.download = "tileset_atlas.png";
+  a.href = window._atlasCanvas.toDataURL("image/png");
+  a.click();
+});
+
+// Generate button
+document.getElementById("generateBtn").addEventListener("click", generate);
+
+// Initial generation
+setTimeout(generate, 200);
+</script>
+</body>
+</html>

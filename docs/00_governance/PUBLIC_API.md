@@ -4,7 +4,7 @@ doc_type: governance
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.3
+version: 0.6
 last_updated: 2026-03-28
 depends_on:
   - WORKFLOW.md
@@ -43,20 +43,26 @@ related_docs:
 | Прочитать current z | `ZLevelManager.get_current_z()` |
 | Сбросить или восстановить игровое время | `TimeManager.reset_for_new_game()` / `TimeManager.restore_persisted_state()` |
 | Сохранить / загрузить слот | `SaveManager.save_game()` / `SaveManager.load_game()` |
+| Поставить загрузку в очередь после смены сцены | `SaveManager.request_load_after_scene_change()` |
 | Выдать игроку предмет | `Player.collect_item()` |
 | Потратить item / scrap у игрока | `Player.spend_item()` / `Player.spend_scrap()` |
 | Нанести урон сущности | `HealthComponent.take_damage()` |
 | Добавить / убрать stack из inventory | `InventoryComponent.add_item()` / `InventoryComponent.remove_item()` |
-| Экипировать / снять предмет | `EquipmentComponent.equip()` / `EquipmentComponent.unequip()` |
+| Переместить / разделить / отсортировать / выбросить stack | `InventoryComponent.move_slot_contents()` / `split_stack()` / `sort_slots_by_name()` / `remove_slot_contents()` |
+| Экипировать / снять предмет через inventory handoff | `EquipmentComponent.equip_from_inventory_slot()` / `EquipmentComponent.unequip_to_inventory()` |
 | Прочитать процент кислорода | `OxygenSystem.get_oxygen_percent()` |
 | Проверить питание life support | `BaseLifeSupport.is_powered()` |
+| Изменить demand life support | `BaseLifeSupport.set_power_demand()` |
 | Выбрать / поставить / снести постройку | `BuildingSystem.set_selected_building()` / `BuildingSystem.place_selected_building_at()` / `BuildingSystem.remove_building_at()` |
+| Проверить, можно ли поставить выбранную постройку | `BuildingSystem.can_place_selected_building_at()` |
 | Проверить indoor tile | `BuildingSystem.is_cell_indoor()` |
 | Прочитать power balance | `PowerSystem.get_balance()` / `PowerSystem.get_supply_ratio()` |
-| Изменить runtime power config | `PowerSourceComponent.set_enabled()` / `PowerSourceComponent.set_condition()` / `PowerConsumerComponent.set_demand()` / `PowerConsumerComponent.set_priority()` |
-| Сохранить / восстановить pickups | `SpawnOrchestrator.save_pickups()` / `SpawnOrchestrator.load_pickups()` |
+| Изменить runtime power config | `PowerSourceComponent.set_enabled()` / `PowerSourceComponent.set_condition()` / `PowerSourceComponent.set_max_output()` / `PowerConsumerComponent.set_demand()` / `PowerConsumerComponent.set_priority()` |
+| Сохранить / восстановить pickups и enemy runtime | `SpawnOrchestrator.save_pickups()` / `load_pickups()` / `save_enemy_runtime()` / `load_enemy_runtime()` |
 | Проверить enemy runtime state | `BasicEnemy.is_dead()` / `BasicEnemy.has_target()` |
 | Включить / выключить шумный источник | `NoiseComponent.set_active()` |
+| Запросить in-world z transition с overlay orchestration | `GameWorld.request_z_transition()` |
+| Поставить время на паузу / изменить scale | `TimeManager.set_paused()` / `TimeManager.set_time_scale()` |
 | Скрафтить рецепт | `CraftingSystem.execute_recipe()` |
 | Выполнить game command | `CommandExecutor.execute()` |
 | Получить read-only content data | `ItemRegistry.get_item()` / `BiomeRegistry.get_biome()` / `FloraDecorRegistry.get_flora_set()` |
@@ -154,19 +160,19 @@ related_docs:
 ### Чтение
 
 `ChunkManager.has_resource_at_world(world_pos: Vector2) -> bool`
-- Что возвращает: есть ли сейчас `ROCK` в loaded chunk по world position.
+- Что возвращает: есть ли сейчас `ROCK` по world position через тот же terrain arbiter, что и world-layer reads.
 - Когда использовать: перед попыткой mining interaction.
-- Особенности: loaded-only; не authoritative для unloaded chunks. Текущий gap из `DATA_CONTRACTS.md`: unloaded fallback отсутствует.
+- Особенности: authoritative для loaded и unloaded tiles; unloaded underground now follows the same `ROCK` fallback as `get_terrain_type_at_global()`.
 
 ### Внутренние методы (НЕ вызывать)
 
 | Метод | Почему нельзя вызывать напрямую |
 |-------|-------------------------------|
-| `Chunk.try_mine_at(local: Vector2i) -> Dictionary` | Делает raw chunk-local mutation и redraw, но сам не эмитит `EventBus.mountain_tile_mined`, не патчит topology через owner path и не применяет underground fog orchestration. |
+| `Chunk.try_mine_at(local: Vector2i) -> Dictionary` | Guarded chunk-local mutation primitive. Без owner authorization from `ChunkManager.try_harvest_at_world()` теперь assert-ит и не должен использоваться как обходной mining path. |
 | `Chunk._refresh_open_neighbors(local_tile: Vector2i) -> void` | Это normalization helper, а не safe mining API. Сам по себе не выполняет полный mining contract. |
 | `Chunk._refresh_open_tile(local_tile: Vector2i) -> void` | Low-level helper для `MINED_FLOOR <-> MOUNTAIN_ENTRANCE` normalization. |
 | `ChunkManager._seam_normalize_and_redraw(tile_pos: Vector2i, local_tile: Vector2i, source_chunk: Chunk) -> void` | Cross-chunk redraw helper. Нельзя использовать как substitute для mining orchestration. |
-| `ChunkManager.ensure_underground_pocket(center_tile: Vector2i, pocket_tiles: Array) -> void` | Debug-only direct writer. Обходит production mining path. |
+| `ChunkManager.ensure_underground_pocket(center_tile: Vector2i, pocket_tiles: Array) -> void` | Debug-only helper that now reuses `try_harvest_at_world()` internally after loading required underground chunks; still не gameplay API. |
 
 ### События
 
@@ -672,6 +678,12 @@ related_docs:
 - Гарантии: respect current max clamp.
 - Пример: `health.heal(5.0)`
 
+`HealthComponent.restore_state(new_current_health: float, new_max_health: float) -> void`
+- Когда вызывать: только на setup/save/load boundary, когда нужно authoritative restore текущего hp-состояния.
+- Что делает: atomically обновляет `current_health` и `max_health`, затем эмитит `health_changed`.
+- Гарантии: единый owner-side restore path для live state.
+- Пример: `health.restore_state(32.0, 50.0)`
+
 #### Чтение
 
 `HealthComponent.get_health_percent() -> float`
@@ -715,6 +727,31 @@ related_docs:
 - Гарантии: failure не мутирует inventory.
 - Пример: `if inventory.remove_item(item_data, 2): ...`
 
+`InventoryComponent.move_slot_contents(from_index: int, to_index: int) -> bool`
+- Когда вызывать: когда authoritative runtime должен swap/merge contents between two slots.
+- Что делает: либо merge-ит одинаковые стаки, либо меняет содержимое слотов местами.
+- Гарантии: emits `EventBus.inventory_updated`; UI не должен делать это вручную.
+
+`InventoryComponent.split_stack(slot_index: int) -> bool`
+- Когда вызывать: когда нужно split-нуть stack пополам в пустой слот.
+- Что делает: делит stack и переносит половину в первый свободный слот.
+- Гарантии: respects capacity and empty-slot availability.
+
+`InventoryComponent.sort_slots_by_name() -> bool`
+- Когда вызывать: когда нужен owner-side inventory sort.
+- Что делает: сортирует непустые слоты по `ItemData.get_display_name()`.
+- Гарантии: emits `EventBus.inventory_updated`.
+
+`InventoryComponent.remove_amount_from_slot(slot_index: int, amount: int) -> Dictionary`
+- Когда вызывать: когда owner/orchestration path снимает часть stack из конкретного слота.
+- Что делает: уменьшает amount в слоте и возвращает `{ item, item_id, amount }`.
+- Гарантии: authoritative per-slot removal API.
+
+`InventoryComponent.remove_slot_contents(slot_index: int) -> Dictionary`
+- Когда вызывать: когда нужно полностью вынуть stack из конкретного слота, например перед world-drop.
+- Что делает: снимает весь stack и возвращает `{ item, item_id, amount }`.
+- Гарантии: authoritative drop/export path.
+
 `InventoryComponent.save_state() -> Dictionary` / `InventoryComponent.load_state(data: Dictionary) -> void`
 - Когда вызывать: только на save/load boundary.
 - Что делает: сериализует и восстанавливает capacity + slots.
@@ -736,7 +773,7 @@ related_docs:
 | Метод / поле | Почему нельзя вызывать напрямую |
 |-------------|---------------------------------|
 | `InventoryComponent._initialize_slots() -> void` | Internal allocation helper, не gameplay API. |
-| Direct mutation of `InventoryComponent.slots` or `InventorySlot.item` / `amount` | Обходит owner-layer и `inventory_updated`; текущий UI сам так делает, но это contract gap. |
+| Direct mutation of `InventoryComponent.slots` or `InventorySlot.item` / `amount` | Обходит owner-layer и `inventory_updated`; вместо этого используй owner APIs `move_slot_contents()` / `split_stack()` / `sort_slots_by_name()` / `remove_*`. |
 
 #### События
 
@@ -760,6 +797,16 @@ related_docs:
 - Что делает: очищает slot и возвращает снятый item.
 - Гарантии: emits `equipment_changed`.
 
+`EquipmentComponent.equip_from_inventory_slot(inventory: InventoryComponent, slot_index: int) -> bool`
+- Когда вызывать: когда runtime flow переносит предмет из inventory в equipment через owner path.
+- Что делает: снимает один предмет из inventory slot, экипирует его и возвращает прежний предмет обратно в inventory.
+- Гарантии: authoritative inventory/equipment handoff без UI-side direct mutation.
+
+`EquipmentComponent.unequip_to_inventory(slot: int, inventory: InventoryComponent) -> bool`
+- Когда вызывать: когда нужно снять предмет из equipment обратно в inventory.
+- Что делает: сначала резервирует место в inventory, затем снимает item со слота.
+- Гарантии: failure не теряет item.
+
 #### Чтение
 
 `EquipmentComponent.get_equipped(slot: int) -> ItemData`
@@ -776,7 +823,7 @@ related_docs:
 | Метод / поле | Почему нельзя вызывать напрямую |
 |-------------|---------------------------------|
 | Direct mutation of `EquipmentComponent._equipped` | Обходит `equipment_changed` и ломает slot contract. |
-| `EquipmentComponent.load_state(data: Dictionary) -> void` | Save/load boundary only; не generic runtime equip API. |
+| `EquipmentComponent.load_state(data: Dictionary) -> void` | Component-level save/load boundary only; current `SaveManager` flow вызывает его через `SaveAppliers.apply_player()`, но это не generic runtime equip API. |
 
 #### События
 
@@ -846,10 +893,18 @@ related_docs:
 - Что делает: возвращает powered-state внутреннего `PowerConsumerComponent`.
 - Гарантии: read-only projection of the owner layer.
 
+`BaseLifeSupport.set_power_demand(new_demand: float) -> void`
+- Когда вызывать: когда owner life-support node меняет свой demand.
+- Что делает: обновляет owner demand и делегирует его во внутренний consumer через sanctioned setter path.
+- Гарантии: не требует прямого доступа к child `PowerConsumerComponent`.
+
 #### Чтение
 
 `BaseLifeSupport.is_powered() -> bool`
 - Preferred read API for gameplay/UI checks.
+
+`BaseLifeSupport.get_power_demand() -> float`
+- Read-only owner demand probe.
 
 #### Внутренние методы (НЕ вызывать)
 
@@ -882,9 +937,14 @@ related_docs:
 
 `BuildingSystem.place_selected_building_at(world_pos: Vector2) -> Dictionary`
 - Когда вызывать: когда нужно поставить выбранную постройку.
-- Что делает: валидирует выбор/стоимость/размещение, тратит scrap, создаёт building node, помечает room topology dirty и эмитит `building_placed`.
-- Гарантии: authoritative placement path для building runtime.
+- Что делает: валидирует наличие выбранной постройки, scrap budget, active-z, occupancy, walkability и запрет `ROCK` / `WATER`, тратит scrap, создаёт building node, помечает room topology dirty и эмитит `building_placed`.
+- Гарантии: authoritative placement path для текущего surface-only building runtime.
 - Пример: `var result: Dictionary = building_system.place_selected_building_at(mouse_pos)`
+
+`BuildingSystem.can_place_selected_building_at(world_pos: Vector2) -> bool`
+- Когда вызывать: когда нужен authoritative pre-check placement без фактической мутации.
+- Что делает: проверяет current selected building, active-z, occupancy, walkability и запрет `ROCK` / `WATER`.
+- Гарантии: использует тот же validation contract, что и реальный placement path.
 
 `BuildingSystem.remove_building_at(world_pos: Vector2) -> Dictionary`
 - Когда вызывать: когда нужно снести постройку.
@@ -909,6 +969,12 @@ related_docs:
 `BuildingSystem.get_grid_size() -> int`
 - Read-only building grid size.
 
+`BuildingSystem.has_building_at(grid_pos: Vector2i) -> bool`
+- Read-only occupancy probe through owner layer.
+
+`BuildingSystem.get_building_node_at(grid_pos: Vector2i) -> Node2D`
+- Owner-approved node lookup for save/load/debug glue that already owns the building runtime boundary.
+
 #### Внутренние методы (НЕ вызывать)
 
 | Метод | Почему нельзя вызывать напрямую |
@@ -916,7 +982,7 @@ related_docs:
 | `BuildingSystem._toggle_build_mode() -> void` | Input/UI internal mode toggle, не placement API. |
 | `BuildingSystem._on_building_destroyed(grid_pos: Vector2i) -> void` | Destruction callback path tied to health binding. |
 | `BuildingPlacementService.place_selected_at(mouse_world: Vector2) -> Vector2i` | Low-level creation helper; safe placement orchestration живёт в `BuildingSystem.place_selected_building_at()`. |
-| Direct mutation of `BuildingSystem.walls` | Ломает canonical occupancy map и room invalidation chain. |
+| Direct mutation of `BuildingSystem._walls` or `BuildingPlacementService.walls` | Ломает canonical occupancy map и room invalidation chain. |
 
 #### События
 
@@ -993,6 +1059,11 @@ related_docs:
 - Когда вызывать: когда внешний фактор меняет производительность источника.
 - Что делает: clamp-ит multiplier, пересчитывает output и эмитит `output_changed`.
 
+`PowerSourceComponent.set_max_output(output: float) -> void`
+- Когда вызывать: когда owner источника меняет его nominal output.
+- Что делает: обновляет `max_output`, пересчитывает `current_output` и эмитит `output_changed`.
+- Гарантии: sanctioned config path for source capacity.
+
 `PowerSourceComponent.force_shutdown() -> void`
 - Когда вызывать: аварийное отключение источника.
 - Что делает: мгновенно обнуляет output и эмитит `output_changed(0.0)`.
@@ -1000,11 +1071,15 @@ related_docs:
 `PowerConsumerComponent.set_demand(new_demand: float) -> void` / `PowerConsumerComponent.set_priority(new_priority: Priority) -> void`
 - Когда вызывать: когда owner потребителя меняет power config.
 - Что делает: обновляет config и эмитит `configuration_changed`.
+- Ограничение: safe только для owner-managed consumer-ов; не применять к внутреннему child consumer у `BaseLifeSupport`.
 
 #### Чтение
 
 `PowerSystem.total_supply`, `PowerSystem.total_demand`, `PowerSystem.is_deficit`
 - Read-only aggregate state for HUD/debug/owner systems. Не write-safe.
+
+`PowerSystem.get_debug_snapshot() -> Dictionary`
+- Aggregate debug/export snapshot of current `supply/demand/deficit`. Не persistence API.
 
 `PowerSystem.get_registered_source_count() -> int` / `get_registered_consumer_count() -> int`
 - Read-only registry size probes.
@@ -1023,6 +1098,7 @@ related_docs:
 | `PowerSystem._apply_brownout(consumers: Array[PowerConsumerComponent]) -> void` | Internal brownout policy implementation. |
 | `PowerSystem._power_all(consumers: Array[PowerConsumerComponent]) -> void` | Internal no-deficit apply step. |
 | Direct writes to `PowerSourceComponent.is_enabled`, `condition_multiplier`, `PowerConsumerComponent.demand`, `priority` | Обходят setter-ы и invalidation signals. |
+| Direct config writes on `BaseLifeSupport` child `PowerConsumer` | Обходят локальный ownership `BaseLifeSupport` и конфликтуют с life-support contract. |
 
 #### События
 
@@ -1056,9 +1132,23 @@ related_docs:
 - Когда вызывать: на load boundary.
 - Что делает: очищает текущие pickups и восстанавливает их из save shape.
 
+`SpawnOrchestrator.save_enemy_runtime() -> Dictionary` / `SpawnOrchestrator.load_enemy_runtime(data: Dictionary) -> void`
+- Когда вызывать: на world save/load boundary.
+- Что делает: сериализует и восстанавливает enemy population, spawn timer и enable flag.
+- Гарантии: hostile runtime now participates in canonical world save/load.
+
 `SpawnOrchestrator.clear_pickups() -> void`
 - Когда вызывать: owner-side reset before load/reset.
 - Что делает: удаляет все текущие pickup nodes.
+
+`SpawnOrchestrator.clear_enemies() -> void`
+- Когда вызывать: owner-side reset before world load/reset.
+- Что делает: удаляет текущие enemy nodes и синхронизирует internal enemy count.
+
+`SpawnOrchestrator.set_enemy_spawning_enabled(enabled: bool) -> void`
+- Когда вызывать: только из owner/session orchestration path.
+- Что делает: включает или выключает timer-driven enemy spawning.
+- Гарантии: sanctioned writer for `_enemy_spawning_enabled`.
 
 `SpawnOrchestrator.sync_pickups_to_player() -> void`
 - Когда вызывать: после wrap/canonicalization, если pickup display positions нужно пересчитать.
@@ -1134,7 +1224,7 @@ related_docs:
 `NoiseComponent.set_active(active: bool) -> void`
 - Когда вызывать: когда owner объекта включает или выключает шум.
 - Что делает: меняет runtime active-flag noise source.
-- Гарантии: enemy AI увидит change на следующем scan tick.
+- Гарантии: эмитит `EventBus.noise_source_changed`, поэтому perception owner может инициировать immediate rescan.
 
 #### Чтение
 
@@ -1155,7 +1245,7 @@ related_docs:
 
 | Событие | Когда срабатывает | Payload |
 |---------|-------------------|---------|
-| `none` | Dedicated noise-changed event отсутствует | gap |
+| `EventBus.noise_source_changed` | После `NoiseComponent.set_active()` на реальном state change | `(noise_source: Node)` |
 
 ---
 
@@ -1169,9 +1259,14 @@ related_docs:
 
 `ZLevelManager.change_level(new_z: int) -> void`
 - Когда вызывать: когда gameplay or scene orchestration должна перейти на другой z-level.
-- Что делает: проверяет bounds, обновляет `current_z`, эмитит local signal и `EventBus.z_level_changed`.
+- Что делает: проверяет bounds, обновляет private canonical z state, эмитит local signal и `EventBus.z_level_changed`.
 - Гарантии: canonical z-switch API; downstream world/presentation systems подписаны на это событие. `ChunkManager.set_active_z_level()` не является альтернативным public owner-path.
 - Пример: `z_manager.change_level(-1)`
+
+`GameWorld.request_z_transition(new_z: int) -> bool`
+- Когда вызывать: из scene/in-world trigger path, если переход должен пройти через overlay orchestration.
+- Что делает: запускает overlay transition, а затем вызывает `ZLevelManager.change_level(new_z)`.
+- Гарантии: sanctioned scene-level transition API for `ZStairs` and similar triggers.
 
 #### Чтение
 
@@ -1182,9 +1277,9 @@ related_docs:
 
 | Метод | Почему нельзя вызывать напрямую |
 |-------|-------------------------------|
-| `ZStairs._trigger_transition() -> void` | Internal scene-glue path via `GameWorld`, overlay, and `ZLevelManager`. |
+| `ZStairs._trigger_transition() -> void` | Internal trigger path; sanctioned scene entrypoint lives in `GameWorld.request_z_transition()`. |
 | `ZStairs._on_body_entered(body: Node2D) -> void` | Collision-driven trigger path, не generic z-switch API. |
-| Direct writes to `ZLevelManager.current_z` | Обходят signal/event emission и downstream sync. |
+| Direct writes to `ZLevelManager._current_z` | Обходят signal/event emission и downstream sync. |
 
 #### События
 
@@ -1209,6 +1304,16 @@ related_docs:
 - Что делает: восстанавливает authoritative time state и эмитит initial time signals.
 - Гарантии: canonical load path for time layer.
 
+`TimeManager.set_paused(paused: bool) -> void`
+- Когда вызывать: когда owner scene/UI должен поставить время на паузу или снять с паузы.
+- Что делает: обновляет private pause flag.
+- Гарантии: sanctioned pause API instead of direct field writes.
+
+`TimeManager.set_time_scale(scale: float) -> void`
+- Когда вызывать: когда owner path меняет global time scale.
+- Что делает: clamp-ит и применяет private time scale.
+- Гарантии: sanctioned scale API instead of direct field writes.
+
 #### Чтение
 
 `TimeManager.get_hour() -> int`
@@ -1226,13 +1331,19 @@ related_docs:
 `TimeManager.get_shadow_length_factor() -> float`
 - Read-only daylight/shadow length query.
 
+`TimeManager.is_time_paused() -> bool`
+- Read-only pause-state probe.
+
+`TimeManager.get_time_scale() -> float`
+- Read-only time-scale probe.
+
 #### Внутренние методы (НЕ вызывать)
 
 | Метод / поле | Почему нельзя вызывать напрямую |
 |-------------|---------------------------------|
 | `TimeManager._advance_time(delta: float) -> void` | Internal frame-owned time progression step. |
 | `TimeManager._apply_authoritative_time_state(hour: float, day: int, season: int) -> void` | Internal shared setup helper behind reset/load. |
-| Direct writes to `TimeManager.current_hour`, `current_day`, `current_season`, `is_paused`, `time_scale` | Обходят explicit API и затрудняют ownership of time semantics. |
+| Direct writes to `TimeManager.current_hour`, `current_day`, `current_season`, `_is_paused`, `_time_scale` | Обходят explicit API и затрудняют ownership of time semantics. |
 
 #### События
 
@@ -1273,6 +1384,15 @@ related_docs:
 `SaveManager.save_exists(slot_name: String) -> bool`
 - Read-only existence probe for slot.
 
+`SaveManager.request_load_after_scene_change(slot_name: String) -> void`
+- Когда вызывать: когда UI/main-menu/death flow должны поставить слот в очередь на загрузку после scene change.
+- Что делает: записывает canonical pending-load request в owner layer.
+- Гарантии: sanctioned alternative to direct pending-slot mutation.
+
+`SaveManager.clear_pending_load_request() -> void`
+- Когда вызывать: когда new-game/bootstrap flow должен гарантированно очистить pending load.
+- Что делает: очищает queued load request.
+
 #### Чтение
 
 `SaveManager.current_slot`
@@ -1284,11 +1404,14 @@ related_docs:
 `SaveManager.get_save_list() -> Array[Dictionary]`
 - Canonical save-slot listing API.
 
+`SaveManager.consume_pending_load_slot() -> String`
+- Owner-only read/write queue consumer for `GameWorld` boot sequence.
+
 #### Внутренние методы (НЕ вызывать)
 
 | Метод / поле | Почему нельзя вызывать напрямую |
 |-------------|---------------------------------|
-| Direct writes to `SaveManager.pending_load_slot`, `current_slot`, `is_busy` | Обходят canonical save/load orchestration. |
+| Direct writes to `SaveManager._pending_load_slot`, `current_slot`, `is_busy` | Обходят canonical save/load orchestration. |
 | `SaveCollectors.collect_*()` | Internal collection helpers behind `SaveManager.save_game()`. |
 | `SaveAppliers.apply_*()` | Internal apply helpers behind `SaveManager.load_game()`. |
 | `SaveIO.write_json()` / `read_json()` / `delete_save_slot()` | Filesystem helper layer, не gameplay API. |
@@ -1489,11 +1612,6 @@ Current commands in scope:
 - У `Chunk Lifecycle` нет public per-chunk load/unload API в scope. Есть только boot-load orchestration и internal streaming paths.
 - У `Presentation` нет generic public redraw API. Безопасный путь к redraw идёт через higher-level world/mining/lifecycle entrypoints.
 - `EventBus.z_level_changed` используется внутри scope, но source emission находится вне текущего scope.
-- У `Inventory runtime` нет authoritative public API для move/split/sort/drop. Эти semantics сейчас частично живут в `InventoryPanel`.
-- У `Equipment runtime` нет authoritative public API, который одновременно оркестрирует inventory + equipment handoff.
-- У `Spawn / pickup orchestration` нет public generic enemy-spawn API; текущий spawn loop остаётся owner-only и сейчас не включается public path-ом.
+- У `Spawn / pickup orchestration` нет public generic enemy-spawn API; spawn loop остаётся owner-only even though enable/save-load ownership уже оформлены.
 - У `Enemy AI / fauna runtime` нет public behavior-driving API. Это допустимо, но важно явно понимать, что поведение автономно после spawn.
-- У `Noise / hearing input` нет dedicated noise-changed signal; реакция идёт только через polling enemy scan.
-- У `Z-level switching` нет dedicated public transition orchestrator beyond `ZLevelManager.change_level()`; `ZStairs` использует internal scene glue.
-- У `Time / calendar` нет public pause/resume API; текущие callers мутируют `TimeManager.is_paused` напрямую.
-- У `Save / load orchestration` UI-код всё ещё может обойти owner-layer direct writes в `pending_load_slot` и direct filesystem logic, если не придерживаться этого документа.
+- У `Save / load orchestration` `current_slot` и `is_busy` остаются public read probes, поэтому caller discipline всё ещё зависит от соблюдения этого документа.

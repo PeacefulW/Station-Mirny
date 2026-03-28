@@ -59,7 +59,7 @@ func deserialize_walls(data: Dictionary, create_building_cb: Callable, clear_cb:
 			continue
 		var health: HealthComponent = node.get_node_or_null("HealthComponent")
 		if health and entry.has("health"):
-			health.current_health = float(entry["health"])
+			health.restore_state(float(entry["health"]), health.max_health)
 		if entry.has("state") and node.has_method("load_state"):
 			node.load_state(entry["state"])
 

@@ -39,6 +39,10 @@ func set_condition(multiplier: float) -> void:
 	condition_multiplier = clampf(multiplier, 0.0, 1.0)
 	_recalculate()
 
+func set_max_output(output: float) -> void:
+	max_output = maxf(output, 0.0)
+	_recalculate()
+
 ## Включить/выключить.
 func set_enabled(enabled: bool) -> void:
 	is_enabled = enabled
@@ -56,6 +60,9 @@ func save_state() -> Dictionary:
 func load_state(data: Dictionary) -> void:
 	is_enabled = data.get("enabled", true)
 	condition_multiplier = data.get("condition", 1.0)
+	_recalculate()
+
+func refresh_from_config() -> void:
 	_recalculate()
 
 func _register_with_power_system() -> void:

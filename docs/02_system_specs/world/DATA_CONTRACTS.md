@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.5
+version: 0.8
 last_updated: 2026-03-28
 depends_on:
   - world_generation_foundation.md
@@ -118,17 +118,17 @@ Observed files for this version:
 - `EventBus.chunk_unloaded`
 - `ChunkManager._mark_topology_dirty()` or native topology dirtying on chunk load and unload
 - `current violations / ambiguities / contract gaps`:
-- `Chunk.get_terrain_type_at()` returns `GROUND` on invalid local index instead of asserting or surfacing misuse.
-- `Chunk.populate_native()` silently drops mismatched `variation` and `biome` arrays by replacing them with empty arrays.
+- ~~`Chunk.get_terrain_type_at()` returns `GROUND` on invalid local index instead of asserting or surfacing misuse.~~ **resolved 2026-03-28**: invalid local reads now raise `push_error` + `assert` and fall back to `ROCK` rather than silently masquerading as open ground.
+- ~~`Chunk.populate_native()` silently drops mismatched `variation` and `biome` arrays by replacing them with empty arrays.~~ **resolved 2026-03-28**: native payload size mismatch now raises `push_error` + `assert` and normalizes arrays to deterministic default-filled buffers instead of silently dropping them.
 - ~~`ChunkManager.is_walkable_at_world()` falls back to `WorldGenerator.is_walkable_at()` when a chunk is not loaded, even on underground z-levels, while `get_terrain_type_at_global()` treats unloaded underground tiles as `ROCK`. Those read-path rules do not currently match.~~ **resolved 2026-03-27**: `is_walkable_at_world()` now delegates to `get_terrain_type_at_global()` for all cases, matching the authoritative loaded → saved → underground-ROCK → surface-generator fallback chain.
-- `ChunkManager.has_resource_at_world()` has no unloaded fallback. For unloaded tiles it returns `false`, even though unloaded underground terrain is otherwise treated as solid rock by `get_terrain_type_at_global()`.
-- `Chunk.populate_native()` reapplies saved terrain modifications tile-by-tile through `_apply_saved_modifications()` and does not recompute neighboring open-tile state during load.
+- ~~`ChunkManager.has_resource_at_world()` has no unloaded fallback. For unloaded tiles it returns `false`, even though unloaded underground terrain is otherwise treated as solid rock by `get_terrain_type_at_global()`.~~ **resolved 2026-03-28**: `has_resource_at_world()` now delegates to `get_terrain_type_at_global()`, so unloaded underground reads observe the same `ROCK` fallback as the world-layer arbiter.
+- ~~`Chunk.populate_native()` reapplies saved terrain modifications tile-by-tile through `_apply_saved_modifications()` and does not recompute neighboring open-tile state during load.~~ **resolved 2026-03-28**: after replaying saved terrain diffs, `populate_native()` now re-normalizes affected open tiles and their cardinal neighbors inside the loaded chunk before redraw starts.
 
 ## Layer: Mining
 
 - `classification`: `canonical`
 - `owner`: `ChunkManager` owns authoritative mine-tile orchestration, while `Chunk` owns the loaded terrain mutation storage that mining changes.
-- `writers`: the normal production path is `HarvestTileCommand -> ChunkManager.try_harvest_at_world() -> Chunk.try_mine_at()`. Direct mutation helpers also exist in `Chunk.try_mine_at()`, `GameWorldDebug`, and `ChunkManager.ensure_underground_pocket()`.
+- `writers`: the normal production path is `HarvestTileCommand -> ChunkManager.try_harvest_at_world() -> Chunk.try_mine_at()`. Debug pocket generation now reuses `ChunkManager.try_harvest_at_world()` after loading required underground chunks.
 - `readers`: topology patching in `ChunkManager`; `MountainRoofSystem`; `MountainShadowSystem`; underground fog reveal path; save collection through `Chunk.get_modifications()`.
 - `rebuild policy`: immediate loaded-chunk mutation; immediate topology patch and mining event emission on the safe orchestration path; underground fog reveal is immediate on underground mining; broader topology rebuild remains deferred dirty rebuild when flagged.
 - `invariants`:
@@ -156,10 +156,10 @@ Observed files for this version:
 - Underground `UndergroundFogState.force_reveal()` and immediate fog apply on successful underground mining
 - `MountainRoofSystem` and `MountainShadowSystem` both listen to `EventBus.mountain_tile_mined`
 - `current violations / ambiguities / contract gaps`:
-- `Chunk.try_mine_at()` mutates canonical terrain but does not itself emit events, patch topology, or update fog. The safe orchestration point is `ChunkManager.try_harvest_at_world()`, not the chunk method.
+- ~~`Chunk.try_mine_at()` mutates canonical terrain but does not itself emit events, patch topology, or update fog. The safe orchestration point is `ChunkManager.try_harvest_at_world()`, not the chunk method.~~ **resolved 2026-03-28**: `Chunk.try_mine_at()` now asserts on unauthorized direct use; `ChunkManager.try_harvest_at_world()` explicitly authorizes the chunk-local mutation just for the sanctioned orchestration path.
 - ~~`Chunk.try_mine_at()` does not call `_refresh_open_neighbors()`. Neighboring `MINED_FLOOR` / `MOUNTAIN_ENTRANCE` tiles are not re-normalized automatically, even inside the same chunk.~~ **resolved 2026-03-27**: `try_harvest_at_world()` now calls `_refresh_open_neighbors()` for same-chunk neighbors and `_refresh_open_tile()` for cross-chunk cardinal neighbors after mining.
 - ~~Cross-chunk mining redraw is local-only. `_collect_mining_dirty_tiles()` returns only same-chunk tiles, so neighbor chunk visuals at seams can remain stale.~~ **resolved 2026-03-27**: `try_harvest_at_world()` now calls `_seam_normalize_and_redraw()` which detects edge-tile mining and redraws a 3-tile border strip in each affected loaded neighbor chunk. `_collect_mining_dirty_tiles()` still returns same-chunk tiles only; cross-chunk redraw is handled at the orchestration level.
-- Debug direct writers bypass the normal event and invalidation chain.
+- ~~Debug direct writers bypass the normal event and invalidation chain.~~ **resolved 2026-03-28**: debug pocket carving now goes through `ChunkManager.try_harvest_at_world()`, and direct debug rock placement was removed instead of leaving an unsafe terrain write path.
 
 ## Layer: Topology
 
@@ -195,9 +195,9 @@ Observed files for this version:
 - Readiness is currently observable only through `ChunkManager.is_topology_ready()`.
 - `current violations / ambiguities / contract gaps`:
 - Topology is loaded-bubble scoped, not world-global. Unloaded continuation is absent from the cache even when canonical surface terrain exists.
-- Incremental split detection is heuristic. `_incremental_topology_patch()` only escalates to a dirty rebuild when a newly opened tile sees at least two rock neighbors.
-- The progressive topology rebuild path commits `_mountain_key_by_tile`, `_mountain_tiles_by_key`, and `_mountain_open_tiles_by_key`, but does not rebuild or commit `_mountain_tiles_by_key_by_chunk` or `_mountain_open_tiles_by_key_by_chunk`.
-- Staging dictionaries `_topology_build_tiles_by_key_by_chunk` and `_topology_build_open_tiles_by_key_by_chunk` currently exist but are not part of the progressive rebuild flow.
+- ~~Incremental split detection is heuristic. `_incremental_topology_patch()` only escalates to a dirty rebuild when a newly opened tile sees at least two rock neighbors.~~ **resolved 2026-03-28**: the heuristic branch was removed. In-domain mountain changes now update open-status deterministically, and domain entry/exit falls back to immediate full managed rebuild.
+- ~~The progressive topology rebuild path commits `_mountain_key_by_tile`, `_mountain_tiles_by_key`, and `_mountain_open_tiles_by_key`, but does not rebuild or commit `_mountain_tiles_by_key_by_chunk` or `_mountain_open_tiles_by_key_by_chunk`.~~ **resolved 2026-03-28**: progressive rebuild now rebuilds and commits both `*_by_chunk` maps alongside the key/tile/open dictionaries.
+- ~~Staging dictionaries `_topology_build_tiles_by_key_by_chunk` and `_topology_build_open_tiles_by_key_by_chunk` currently exist but are not part of the progressive rebuild flow.~~ **resolved 2026-03-28**: staging `*_by_chunk` maps are now reset, populated, and committed during the progressive rebuild flow.
 
 ## Layer: Reveal
 
@@ -235,7 +235,7 @@ Observed files for this version:
 - `current violations / ambiguities / contract gaps`:
 - `MountainRoofSystem` tracks `zone_kind` and `truncated`, but current runtime behavior does not branch on `zone_kind`, and `truncated` is only exposed as a getter.
 - Surface reveal is loaded-bubble scoped. If the local open pocket continues into an unloaded chunk, reveal stops at the current load boundary.
-- `Chunk` currently exposes both `set_revealed_local_zone()` and `set_revealed_local_cover_tiles()`. The active runtime path uses the cover-tile API directly.
+- ~~`Chunk` currently exposes both `set_revealed_local_zone()` and `set_revealed_local_cover_tiles()`. The active runtime path uses the cover-tile API directly.~~ **resolved 2026-03-28**: the unused `set_revealed_local_zone()` wrapper was removed; reveal writes now have one chunk-level entrypoint.
 - Underground fog state is shared across underground runtime and cleared on z change, so discovered-state continuity between underground floors is not currently represented.
 
 ## Layer: Presentation
@@ -280,13 +280,13 @@ Observed files for this version:
 - `current violations / ambiguities / contract gaps`:
 - ~~Cross-chunk mining redraw gaps leak directly into presentation: neighboring chunk cover, terrain, and cliff visuals are not refreshed by the current mining path.~~ **resolved 2026-03-27**: `_seam_normalize_and_redraw()` now redraws border strips in loaded neighbor chunks after seam mining.
 - Presentation is loaded-chunk scoped. There is no presentation object for unloaded continuation even when world read APIs can still answer terrain queries.
-- Debug direct writers can redraw visuals without going through the normal world -> mining -> topology -> reveal invalidation chain.
+- ~~Debug direct writers can redraw visuals without going through the normal world -> mining -> topology -> reveal invalidation chain.~~ **resolved 2026-03-28**: debug terrain mutation paths no longer call raw chunk redraw helpers directly; the remaining pocket-carve path reuses production mining orchestration.
 
 ### Wall Atlas Selection (Presentation sublayer)
 
 - `Что`: explicit code-side selection of the concrete rock-wall atlas tile and alternative tile ID for the terrain layer.
 - `Где`: `core/systems/world/chunk.gd` in `_redraw_terrain_tile()`, `_surface_rock_visual_class()`, `_rock_visual_class()`, `_resolve_variant_atlas()`, and `_resolve_variant_alt_id()`. Atlas definitions and wall-variant layout live in `core/systems/world/chunk_tileset_factory.gd`.
-- `Входные данные`: current tile `terrain_type`; cardinal neighbor terrain for surface rock; cardinal plus diagonal neighbor terrain for underground rock; global tile coordinates for hash-based wall variant and flip selection; cross-chunk neighbor reads go through `_get_neighbor_terrain()` and then `ChunkManager.get_terrain_type_at_global()`.
+- `Входные данные`: current tile `terrain_type`; cardinal plus diagonal neighbor terrain for both surface and underground rock wall shaping; global tile coordinates for hash-based wall variant and flip selection; cross-chunk neighbor reads go through `_get_neighbor_terrain()` and then `ChunkManager.get_terrain_type_at_global()`.
 - `Определение "открытого" соседа`:
 - Surface terrain wall shaping in `_surface_rock_visual_class()` uses a presentation-local open-neighbor predicate that treats `GROUND`, `WATER`, `SAND`, `GRASS`, `MINED_FLOOR`, and `MOUNTAIN_ENTRANCE` as open for wall-form selection. This does not change `_is_open_exterior()` or mining semantics.
 - Underground terrain wall shaping in `_rock_visual_class()` uses `_is_open_for_visual()`, which currently treats every terrain type except `ROCK` as open for visual shaping.
@@ -301,7 +301,7 @@ Observed files for this version:
 - Wall atlas selection must not mutate canonical terrain or redefine terrain semantics.
 - Presentation tile choice must not be used as a substitute for topology, reveal, or mining truth.
 - `current violations / ambiguities / contract gaps`:
-- Surface and underground wall shaping do not share one common openness contract. Surface uses cardinal exterior-open checks only; underground uses cardinal plus diagonal non-`ROCK` openness.
+- ~~Surface and underground wall shaping do not share one common openness contract. Surface uses cardinal exterior-open checks only; underground uses cardinal plus diagonal non-`ROCK` openness.~~ **resolved 2026-03-28**: surface rock wall-form selection now uses the same cardinal+diagonal wall-shape neighborhood set as underground shaping, while preserving the explicit current-surface-open terrain set.
 
 ## Postconditions: `generate chunk`
 
@@ -321,7 +321,7 @@ Observed files for this version:
 - Current surface generation does not assign `MINED_FLOOR` or `MOUNTAIN_ENTRANCE`. Mountain boundary tiles generated by `SurfaceTerrainResolver._resolve_surface_terrain_sq()` remain `ROCK` even when adjacent to open exterior terrain.
 - Chunk generation does not compute or store a wall-neighbor mask, autotile mask, or terrain peering metadata in canonical chunk data.
 - `Chunk.populate_native()` installs native arrays, reapplies saved modifications through `_apply_saved_modifications()`, recalculates `_has_mountain`, resets cover visual state, and starts redraw.
-- Saved modifications are replayed as direct tile writes. Modified neighbors are not re-normalized during load.
+- Saved modifications are replayed as direct tile writes and then re-normalized for affected open tiles plus their cardinal same-chunk neighbors before redraw starts.
 - Non-player streamed chunks begin progressive redraw through `_begin_progressive_redraw()`. Player chunk loads use immediate `_redraw_all()`. Boot loading can additionally force `complete_redraw_now()` after load.
 - Boot loading later forces topology ready through native `ensure_built()` or `_ensure_topology_current()` before the loading sequence finishes.
 - Surface flora presentation is derived after `populate_native()`: from cached flora, from `ChunkBuildResult`, or from native data, depending on load path and whether saved modifications exist.
@@ -334,7 +334,7 @@ Observed files for this version:
 
 - Chunk generation/load does not auto-classify boundary `ROCK` as `MOUNTAIN_ENTRANCE`.
 - Chunk generation/load does not compute or persist wall neighbor masks; wall forms are derived later during redraw from neighbor terrain reads.
-- Reapplying saved modifications during load does not recompute neighboring `MINED_FLOOR` / `MOUNTAIN_ENTRANCE` state.
+- Save replay still does not normalize cross-chunk open-tile state for unloaded neighbor chunks until those chunks are loaded.
 - `EventBus.chunk_loaded` does not guarantee that surface topology is already ready. Surface topology may still be dirty or native-dirty until its rebuild path completes.
 
 ## Postconditions: `mine tile`
@@ -402,7 +402,7 @@ Observed files for this version:
 - Loaded terrain bytes: `Chunk._terrain_bytes`
 - Loaded runtime modification diff: `Chunk._modified_tiles`
 - Unloaded runtime modification diff: `ChunkManager._saved_chunk_data`
-- Canonical active z selection: `ZLevelManager.current_z` via `ZLevelManager.change_level()`
+- Canonical active z selection: private `ZLevelManager._current_z` via `ZLevelManager.change_level()`
 
 ### Derived state
 
@@ -470,8 +470,8 @@ Observed files for this version:
 - `EventBus.player_died`
 - `EventBus.game_over`
 - `current violations / ambiguities / contract gaps`:
-- `Player._on_speed_modifier_changed()` currently hardcodes `_speed_modifier = 1.0`, so oxygen slowdown does not actually affect movement speed.
-- `Player.perform_harvest()` spends harvest cooldown before command success is known, so a failed command can still consume the cooldown window.
+- ~~`Player._on_speed_modifier_changed()` hardcoded `_speed_modifier = 1.0`, so oxygen slowdown did not affect movement speed.~~ **resolved 2026-03-28**: the player now applies the emitted oxygen modifier directly.
+- ~~`Player.perform_harvest()` spent harvest cooldown before command success was known, so a failed command could still consume the cooldown window.~~ **resolved 2026-03-28**: harvest cooldown is now committed only after a successful command result with a valid item payload.
 
 ### Layer: Health / damage
 
@@ -480,9 +480,10 @@ Observed files for this version:
 - `writers`:
 - `core/entities/components/health_component.gd::take_damage()`
 - `core/entities/components/health_component.gd::heal()`
-- direct host setup in `core/entities/fauna/basic_enemy.gd::_ready()`
-- direct host setup in `core/entities/structures/thermo_burner.gd::setup()`
-- direct host setup in `core/entities/structures/ark_battery.gd::setup()`
+- `core/entities/components/health_component.gd::restore_state()`
+- host setup in `core/entities/fauna/basic_enemy.gd::_ready()`
+- host setup in `core/entities/structures/thermo_burner.gd::setup()`
+- host setup in `core/entities/structures/ark_battery.gd::setup()`
 - save/load writes in `core/autoloads/save_appliers.gd::apply_player()`
 - save/load writes in `core/systems/building/building_persistence.gd::deserialize_walls()`
 - `readers`:
@@ -500,7 +501,7 @@ Observed files for this version:
 - `write operations`:
 - `HealthComponent.take_damage()`
 - `HealthComponent.heal()`
-- direct load/setup assignments to `current_health` and `max_health`
+- `HealthComponent.restore_state()`
 - `forbidden writes`:
 - External systems must not assign `current_health` or `max_health` directly on live entities unless they also own the load/setup boundary.
 - Gameplay code must not emulate damage by skipping `take_damage()` because that bypasses `health_changed` / `died`.
@@ -508,7 +509,7 @@ Observed files for this version:
 - `HealthComponent.health_changed`
 - `HealthComponent.died`
 - `current violations / ambiguities / contract gaps`:
-- `current_health` and `max_health` are public mutable fields, and several load/setup paths write them directly without re-emitting `health_changed`.
+- ~~`current_health` and `max_health` were written directly by several live load/setup paths without re-emitting `health_changed`.~~ **resolved 2026-03-28**: live setup and save/load restoration now go through `HealthComponent.restore_state()`, which re-emits `health_changed`.
 - `HealthComponent` has no component-level `save_state()` / `load_state()` API; persistence is fragmented across host-specific save helpers.
 
 ### Layer: Inventory runtime
@@ -518,11 +519,13 @@ Observed files for this version:
 - `writers`:
 - `core/entities/components/inventory_component.gd::add_item()`
 - `core/entities/components/inventory_component.gd::remove_item()`
+- `core/entities/components/inventory_component.gd::move_slot_contents()`
+- `core/entities/components/inventory_component.gd::split_stack()`
+- `core/entities/components/inventory_component.gd::sort_slots_by_name()`
+- `core/entities/components/inventory_component.gd::remove_amount_from_slot()`
+- `core/entities/components/inventory_component.gd::remove_slot_contents()`
 - `core/entities/components/inventory_component.gd::load_state()`
-- direct slot mutations in `scenes/ui/inventory/inventory_panel.gd::_on_slot_dropped()`
-- direct slot mutations in `scenes/ui/inventory/inventory_panel.gd::_split_stack()`
-- direct slot mutations in `scenes/ui/inventory/inventory_panel.gd::_sort_inventory()`
-- direct slot mutations in `scenes/ui/inventory/inventory_panel.gd::_on_drop_outside()`
+- orchestration calls from `scenes/ui/inventory/inventory_panel.gd`
 - `readers`:
 - `core/entities/player/player.gd::collect_item()`
 - `core/entities/player/player.gd::spend_scrap()`
@@ -539,16 +542,20 @@ Observed files for this version:
 - `write operations`:
 - `InventoryComponent.add_item()`
 - `InventoryComponent.remove_item()`
+- `InventoryComponent.move_slot_contents()`
+- `InventoryComponent.split_stack()`
+- `InventoryComponent.sort_slots_by_name()`
+- `InventoryComponent.remove_amount_from_slot()`
+- `InventoryComponent.remove_slot_contents()`
 - `InventoryComponent.load_state()`
-- direct UI slot mutation paths in `InventoryPanel`
 - `forbidden writes`:
 - External systems must not mutate `InventoryComponent.slots` or `InventorySlot.item` / `InventorySlot.amount` directly.
 - UI code must not become the de facto owner of split/swap/sort/drop semantics.
 - `emitted events / invalidation signals`:
 - `EventBus.inventory_updated`
 - `current violations / ambiguities / contract gaps`:
-- `InventoryPanel` directly mutates `InventoryComponent.slots` for swap, split, sort, equip handoff, and drop-outside flows instead of going through component-owned APIs.
-- There is no authoritative public runtime API for move/split/sort/drop operations; current semantics live partly in UI code.
+- ~~`InventoryPanel` directly mutated `InventoryComponent.slots` for swap, split, sort, equip handoff, and drop-outside flows instead of going through component-owned APIs.~~ **resolved 2026-03-28**: UI orchestration now delegates move/split/sort/drop through `InventoryComponent` owner methods.
+- ~~There was no authoritative public runtime API for move/split/sort/drop operations; semantics lived partly in UI code.~~ **resolved 2026-03-28**: `InventoryComponent` now owns dedicated move/split/sort/remove entrypoints.
 
 ### Layer: Equipment runtime
 
@@ -557,6 +564,8 @@ Observed files for this version:
 - `writers`:
 - `core/entities/components/equipment_component.gd::equip()`
 - `core/entities/components/equipment_component.gd::unequip()`
+- `core/entities/components/equipment_component.gd::equip_from_inventory_slot()`
+- `core/entities/components/equipment_component.gd::unequip_to_inventory()`
 - `core/entities/components/equipment_component.gd::load_state()`
 - orchestration writes in `scenes/ui/inventory/inventory_panel.gd::_try_equip_from_inventory()`
 - orchestration writes in `scenes/ui/inventory/inventory_panel.gd::_on_equip_clicked()`
@@ -572,6 +581,8 @@ Observed files for this version:
 - `write operations`:
 - `EquipmentComponent.equip()`
 - `EquipmentComponent.unequip()`
+- `EquipmentComponent.equip_from_inventory_slot()`
+- `EquipmentComponent.unequip_to_inventory()`
 - `EquipmentComponent.load_state()`
 - `forbidden writes`:
 - External systems must not mutate `EquipmentComponent._equipped` directly.
@@ -579,8 +590,8 @@ Observed files for this version:
 - `emitted events / invalidation signals`:
 - `EquipmentComponent.equipment_changed`
 - `current violations / ambiguities / contract gaps`:
-- Equipment state is not included in the current save/load flow, so equipped items do not have a canonical persisted path.
-- Inventory/equipment handoff semantics currently live in `InventoryPanel`, not in an authoritative runtime orchestration API.
+- ~~`EquipmentComponent.load_state()` existed at component level, but equipment state was not included in the `SaveManager` flow.~~ **resolved 2026-03-28**: player save/load now collects and restores equipment state through `SaveCollectors.collect_player()` and `SaveAppliers.apply_player()`.
+- ~~Inventory/equipment handoff semantics lived in `InventoryPanel`, not in an authoritative runtime orchestration API.~~ **resolved 2026-03-28**: `EquipmentComponent` now owns inventory handoff via `equip_from_inventory_slot()` and `unequip_to_inventory()`.
 
 ### Layer: Oxygen / survival
 
@@ -595,7 +606,7 @@ Observed files for this version:
 - `readers`:
 - `core/entities/player/player.gd::get_oxygen_system()`
 - `core/entities/player/player.gd::_on_speed_modifier_changed()`
-- `scenes/world/game_world.gd::_update_player_indoor_status()`
+- `core/systems/survival/oxygen_system.gd::_refresh_indoor_state()`
 - `core/autoloads/save_collectors.gd::collect_player()`
 - `rebuild policy`: immediate per-frame drain/refill; no deferred rebuild layer
 - `invariants`:
@@ -609,7 +620,7 @@ Observed files for this version:
 - frame-driven `_update_oxygen()`
 - `forbidden writes`:
 - Other systems must not mutate `_current_oxygen`, `_is_indoor`, or `_is_base_powered` directly.
-- Indoor semantics must not be redefined independently of `GameWorld` / room and mined-floor ownership rules.
+- Indoor semantics must not be redefined independently of room topology, loaded mined-floor reads, and `OxygenSystem._refresh_indoor_state()`.
 - `emitted events / invalidation signals`:
 - `EventBus.oxygen_changed`
 - `EventBus.oxygen_depleting`
@@ -617,8 +628,8 @@ Observed files for this version:
 - `EventBus.player_exited_indoor`
 - `OxygenSystem.speed_modifier_changed`
 - `current violations / ambiguities / contract gaps`:
-- `OxygenSystem._on_rooms_recalculated()` is a no-op; the system relies on `GameWorld._update_player_indoor_status()` polling every frame to keep indoor state authoritative.
-- There are two write paths for power context (`set_base_powered()` and `life_support_power_changed`), but no single explicit orchestration point documents which one owns runtime transitions.
+- ~~`OxygenSystem._on_rooms_recalculated()` was a no-op, so indoor state relied on `GameWorld` polling every frame.~~ **resolved 2026-03-28**: `OxygenSystem` now refreshes indoor state itself on both frame ticks and `rooms_recalculated`.
+- Runtime life-support power now enters through `EventBus.life_support_power_changed` into `OxygenSystem._on_life_support_power_changed()`, while `load_state()` remains the persistence boundary for restoring `_is_base_powered`.
 
 ### Layer: Base life support
 
@@ -640,6 +651,7 @@ Observed files for this version:
 - `assert(is_powered() == (_consumer != null and _consumer.is_powered), "BaseLifeSupport.is_powered() is a direct projection of the internal consumer state")`
 - `write operations`:
 - `BaseLifeSupport._ready()`
+- `BaseLifeSupport.set_power_demand()`
 - `BaseLifeSupport._on_powered_changed()`
 - internal `PowerConsumerComponent.set_powered()`
 - `forbidden writes`:
@@ -648,7 +660,7 @@ Observed files for this version:
 - `emitted events / invalidation signals`:
 - `EventBus.life_support_power_changed`
 - `current violations / ambiguities / contract gaps`:
-- `BaseLifeSupport` exposes only `is_powered()` publicly; demand and consumer ownership remain indirect through a child component that outside code can still reach and mutate.
+- ~~`BaseLifeSupport` exposed only `is_powered()` publicly, while demand/config ownership stayed indirect through a child consumer.~~ **resolved 2026-03-28**: `BaseLifeSupport` now exposes owner-owned demand accessors (`set_power_demand()` / `get_power_demand()`) and config writes no longer need to tunnel through the child consumer.
 
 ## Domain: Structures & Economy
 
@@ -666,14 +678,14 @@ Observed files for this version:
 - placement helpers in `core/systems/building/building_placement_service.gd`
 - `readers`:
 - `core/systems/building/building_system.gd::save_state()`
-- `scenes/world/game_world.gd::_update_player_indoor_status()`
+- `core/systems/survival/oxygen_system.gd::_refresh_indoor_state()`
 - `core/autoloads/save_collectors.gd::collect_buildings()`
 - `scenes/ui/build/build_menu_panel.gd::get_selected()`
 - `scenes/ui/power_ui.gd::_refresh_generators()`
 - `rebuild policy`: immediate placement/removal writes; room topology invalidation is deferred dirty rebuild
 - `invariants`:
-- `assert(for_all_pos in walls.keys(): is_instance_valid(walls[for_all_pos]), "building grid must only point at live building nodes")`
-- `assert(for_all_node in unique(walls.values()): node.get_meta("grid_origin") != null, "every placed building node must expose grid_origin metadata")`
+- `assert(for_all_pos in _walls.keys(): is_instance_valid(_walls[for_all_pos]), "building grid must only point at live building nodes")`
+- `assert(for_all_node in unique(_walls.values()): node.get_meta("grid_origin") != null, "every placed building node must expose grid_origin metadata")`
 - `assert(_placement_service != null and wall_container != null, "building runtime requires initialized placement service and wall container")`
 - `write operations`:
 - `BuildingSystem.place_selected_building_at()`
@@ -684,8 +696,8 @@ Observed files for this version:
 - `BuildingPlacementService.remove_at()`
 - `BuildingPlacementService.create_building_by_id()`
 - `forbidden writes`:
-- External systems must not mutate `BuildingSystem.walls` directly.
-- Placement code must not bypass `BuildingSystem` by inserting/removing nodes in `wall_container` without updating `walls` and room invalidation.
+- External systems must not mutate `BuildingSystem._walls` or `BuildingPlacementService.walls` directly.
+- Placement code must not bypass `BuildingSystem` by inserting/removing nodes in `wall_container` without updating the owner occupancy map and room invalidation.
 - Build-mode presentation must not be treated as canonical building state.
 - `emitted events / invalidation signals`:
 - `EventBus.build_mode_changed`
@@ -693,8 +705,8 @@ Observed files for this version:
 - `EventBus.building_removed`
 - room invalidation through `BuildingSystem._mark_rooms_dirty()`
 - `current violations / ambiguities / contract gaps`:
-- `BuildingPlacementService.can_place_at()` only checks scrap and occupied tiles; it does not validate terrain type, walkability, z-context, or other world-placement constraints.
-- `BuildingSystem.walls` is a public dictionary shared across placement and persistence helpers, so outside code can mutate canonical building occupancy without going through invalidation.
+- ~~`BuildingPlacementService.can_place_at()` only checked scrap and occupied tiles; it did not validate terrain type, walkability, z-context, or other world-placement constraints.~~ **resolved 2026-03-28**: `BuildingSystem.can_place_selected_building_at()` and `place_selected_building_at()` now enforce active-z, walkability, and `ROCK` / `WATER` rejection before placement.
+- ~~`BuildingSystem.walls` was a public dictionary shared across placement and persistence helpers.~~ **resolved 2026-03-28**: occupancy is now held behind private `_walls` with read access through `has_building_at()` / `get_building_node_at()`.
 
 ### Layer: Indoor room topology
 
@@ -710,11 +722,11 @@ Observed files for this version:
 - `core/systems/building/building_indoor_solver.gd::solve_local_patch()`
 - `readers`:
 - `core/systems/building/building_system.gd::is_cell_indoor()`
-- `scenes/world/game_world.gd::_update_player_indoor_status()`
+- `core/systems/survival/oxygen_system.gd::_refresh_indoor_state()`
 - `core/systems/survival/oxygen_system.gd::_on_rooms_recalculated()`
 - `rebuild policy`: deferred dirty rebuild via `FrameBudgetDispatcher`; synchronous full rebuild on load/boot path
 - `invariants`:
-- `assert(for_all_cell in indoor_cells.keys(): not walls.has(for_all_cell), "indoor cells must never overlap occupied building cells")`
+- `assert(for_all_cell in indoor_cells.keys(): not _walls.has(for_all_cell), "indoor cells must never overlap occupied building cells")`
 - `assert(has_pending_room_recompute() == (not _dirty_room_regions.is_empty() or not _full_room_rebuild_state.is_empty()), "pending room recompute flag is derived from dirty region or staged full rebuild state")`
 - `assert(_indoor_solver.indoor_cells == indoor_cells or has_pending_room_recompute(), "solver snapshot and published indoor_cells must match when no recompute is pending")`
 - `write operations`:
@@ -732,7 +744,7 @@ Observed files for this version:
 - `EventBus.rooms_recalculated`
 - `FrameBudgetDispatcher` job `building.room_recompute`
 - `current violations / ambiguities / contract gaps`:
-- Indoor topology is keyed only by 2D grid coordinates and has no z-level dimension.
+- ~~Indoor topology was keyed only by 2D grid coordinates with no z-level dimension.~~ **resolved 2026-03-28 for current runtime scope**: authoritative building placement now refuses non-surface z-levels, so supported room topology remains surface-only and cannot alias across active z levels.
 - `BuildingSystem.indoor_cells` is a public dictionary, so outside code can bypass solver ownership and corrupt derived room state.
 
 ### Layer: Power network
@@ -746,7 +758,9 @@ Observed files for this version:
 - `core/systems/power/power_system.gd::unregister_consumer()`
 - `core/systems/power/power_system.gd::force_recalculate()`
 - `core/systems/power/power_system.gd::_power_recompute_tick()`
+- `core/systems/power/power_system.gd::_refresh_observed_runtime_configs()`
 - `core/entities/components/power_source_component.gd::set_condition()`
+- `core/entities/components/power_source_component.gd::set_max_output()`
 - `core/entities/components/power_source_component.gd::set_enabled()`
 - `core/entities/components/power_source_component.gd::force_shutdown()`
 - `core/entities/components/power_consumer_component.gd::set_demand()`
@@ -777,6 +791,7 @@ Observed files for this version:
 - `forbidden writes`:
 - External systems must not mutate `_registered_sources`, `_registered_consumers`, `total_supply`, `total_demand`, or `is_deficit` directly.
 - Callers must not mutate `PowerSourceComponent.is_enabled`, `PowerSourceComponent.condition_multiplier`, `PowerConsumerComponent.demand`, or `PowerConsumerComponent.priority` directly on live components if they expect immediate recompute semantics.
+- Owner-only power setter paths must not be used to reconfigure the internal child consumer owned by `BaseLifeSupport`.
 - `emitted events / invalidation signals`:
 - `EventBus.power_changed`
 - `EventBus.power_deficit`
@@ -785,8 +800,8 @@ Observed files for this version:
 - `PowerConsumerComponent.powered_changed`
 - `PowerConsumerComponent.configuration_changed`
 - `current violations / ambiguities / contract gaps`:
-- Power source and consumer configuration fields are public, so direct assignment can bypass `output_changed` / `configuration_changed` and leave power state stale until a later dirty mark.
-- `PowerSystem.save_state()` exposes only aggregate fields and is not the authoritative persistence shape for runtime power state, which actually lives across components and structure nodes.
+- ~~Power source and consumer configuration fields were public, so direct assignment could bypass `output_changed` / `configuration_changed` and leave power state stale until a later dirty mark.~~ **resolved 2026-03-28**: owner paths now use setters, and `PowerSystem._refresh_observed_runtime_configs()` watches registered components for bypass config drift and re-invalidates balance.
+- ~~`PowerSystem.save_state()` looked like a persistence API even though authoritative power state lives across components and structure nodes.~~ **resolved 2026-03-28**: the misleading method was replaced with `get_debug_snapshot()`, explicitly documenting aggregate debug/export intent only.
 
 ## Domain: World Entities
 
@@ -817,7 +832,11 @@ Observed files for this version:
 - `write operations`:
 - `SpawnOrchestrator.spawn_initial_scrap()`
 - `SpawnOrchestrator.load_pickups()`
+- `SpawnOrchestrator.save_enemy_runtime()`
+- `SpawnOrchestrator.load_enemy_runtime()`
 - `SpawnOrchestrator.clear_pickups()`
+- `SpawnOrchestrator.clear_enemies()`
+- `SpawnOrchestrator.set_enemy_spawning_enabled()`
 - `SpawnOrchestrator._spawn_enemy()`
 - `SpawnOrchestrator._on_enemy_killed()`
 - `SpawnOrchestrator._on_item_dropped()`
@@ -830,8 +849,8 @@ Observed files for this version:
 - `EventBus.enemy_killed` (consumed)
 - `EventBus.item_dropped` (consumed)
 - `current violations / ambiguities / contract gaps`:
-- `_enemy_spawning_enabled` has no writer in the current code path, so runtime enemy spawning is effectively disabled.
-- Save/load currently persists pickups, but not live enemies or spawn timers, so hostile world state is not restored as a canonical session layer.
+- ~~`_enemy_spawning_enabled` had no writer in the current code path, so runtime enemy spawning was effectively disabled.~~ **resolved 2026-03-28**: `SpawnOrchestrator.setup()` now enables spawning through `set_enemy_spawning_enabled(true)`.
+- ~~Save/load persisted pickups, but not live enemies or spawn timers.~~ **resolved 2026-03-28**: world save/load now serializes `enemy_runtime` through `SpawnOrchestrator.save_enemy_runtime()` / `load_enemy_runtime()`.
 
 ### Layer: Enemy AI / fauna runtime
 
@@ -874,7 +893,7 @@ Observed files for this version:
 - `EventBus.enemy_reached_wall`
 - `EventBus.time_of_day_changed` (consumed)
 - `current violations / ambiguities / contract gaps`:
-- Enemy hearing scans `noise_sources` and the local player globally with no z-level filtering, so multi-z runtime can create cross-floor perception if entities coexist across floors.
+- ~~Enemy hearing scanned `noise_sources` and the local player globally with no z-level filtering.~~ **resolved 2026-03-28 for current runtime scope**: `BasicEnemy._update_scan()` now drops targets and suppresses perception whenever the active runtime z is not the supported surface layer.
 
 ### Layer: Noise / hearing input
 
@@ -897,11 +916,11 @@ Observed files for this version:
 - direct host configuration during structure setup
 - `forbidden writes`:
 - External systems must not treat noise data as persisted world state; it is runtime-local to the owner entity.
-- Callers must not expect immediate reactive fan-out from noise writes; there is no event bus for this layer.
+- Callers must not treat `EventBus.noise_source_changed` as a persistence or gameplay-state signal; it is a runtime invalidation hint for perception consumers.
 - `emitted events / invalidation signals`:
-- none
+- `EventBus.noise_source_changed`
 - `current violations / ambiguities / contract gaps`:
-- Noise state has no emitted invalidation signal; enemy AI only notices changes on the next scan interval.
+- ~~Noise state had no emitted invalidation signal; enemy AI only noticed changes on the next scan interval.~~ **resolved 2026-03-28**: `NoiseComponent.set_active()` now emits `EventBus.noise_source_changed`, and `BasicEnemy` uses it to pull the next scan immediately.
 
 ## Domain: Session & Time
 
@@ -921,24 +940,25 @@ Observed files for this version:
 - `core/entities/structures/z_stairs.gd::_on_z_level_changed()`
 - `rebuild policy`: immediate; one authoritative z-change triggers downstream world/presentation sync
 - `invariants`:
-- `assert(current_z >= Z_MIN and current_z <= Z_MAX, "active z level must remain within declared bounds")`
+- `assert(_current_z >= Z_MIN and _current_z <= Z_MAX, "active z level must remain within declared bounds")`
 - `assert(new_z != current_z_before_emit, "z_level_changed must only emit on real z transitions")`
-- `assert(chunk_manager_active_z == current_z after downstream_sync, "ChunkManager._active_z must mirror canonical z after signal-driven world sync")`
+- `assert(chunk_manager_active_z == _current_z after downstream_sync, "ChunkManager._active_z must mirror canonical z after signal-driven world sync")`
 - `assert(not monitoring or visible, "stairs monitoring must match current visible source_z context")`
 - `write operations`:
 - `ZLevelManager.change_level()`
+- `scenes/world/game_world.gd::request_z_transition()`
 - `ZStairs._trigger_transition()`
 - `forbidden writes`:
-- External systems must not assign `ZLevelManager.current_z` directly.
+- External systems must not assign `ZLevelManager._current_z` directly.
 - External systems must not call `ChunkManager.set_active_z_level()` as a primary z-switch API; it is a downstream world-stack sink driven by `scenes/world/game_world.gd::_on_z_level_changed()`.
 - Callers must not treat `ChunkManager.get_active_z_level()` as global z source of truth when `ZLevelManager` is available.
 - `emitted events / invalidation signals`:
 - `ZLevelManager.z_level_changed`
 - `EventBus.z_level_changed`
 - `current violations / ambiguities / contract gaps`:
-- `ZLevelManager.current_z` is a public mutable field, so external code can bypass `change_level()` and skip event emission.
-- `ChunkManager` still stores mirrored `_active_z`; bypass writes to canonical or sink paths can desync world-stack switching from canonical z ownership.
-- `ZStairs` reaches into `GameWorld` to find `ZLevelManager` and `ZTransitionOverlay` directly instead of using a dedicated public transition API.
+- ~~`ZLevelManager.current_z` was a public mutable field, so external code could bypass `change_level()` and skip event emission.~~ **resolved 2026-03-28**: canonical z state is now private `_current_z`, readable only through `get_current_z()`.
+- `ChunkManager` still stores mirrored `_active_z`, but it is now a downstream sink updated from canonical `ZLevelManager` transitions rather than a competing owner path.
+- ~~`ZStairs` reached into `GameWorld`, `ZLevelManager`, and overlay internals directly.~~ **resolved 2026-03-28**: stairs now go through `GameWorld.request_z_transition()` as the scene-orchestration entrypoint.
 
 ### Layer: Time / calendar / day-night
 
@@ -947,10 +967,10 @@ Observed files for this version:
 - `writers`:
 - `core/autoloads/time_manager.gd::reset_for_new_game()`
 - `core/autoloads/time_manager.gd::restore_persisted_state()`
+- `core/autoloads/time_manager.gd::set_paused()`
+- `core/autoloads/time_manager.gd::set_time_scale()`
 - `core/autoloads/time_manager.gd::_process()`
 - `core/autoloads/time_manager.gd::_apply_authoritative_time_state()`
-- direct field writes in `scenes/world/game_world.gd::_pause_time_for_boot()`
-- direct field writes in `scenes/ui/save_load_tab.gd::_on_load_pressed()`
 - `readers`:
 - `core/systems/daylight/daylight_system.gd::_resolve_context_color()`
 - `core/systems/daylight/daylight_system.gd::_on_time_tick()`
@@ -966,9 +986,11 @@ Observed files for this version:
 - `write operations`:
 - `TimeManager.reset_for_new_game()`
 - `TimeManager.restore_persisted_state()`
+- `TimeManager.set_paused()`
+- `TimeManager.set_time_scale()`
 - frame-driven `_advance_time()`
 - `forbidden writes`:
-- External systems must not mutate `current_hour`, `current_day`, `current_season`, `is_paused`, or `time_scale` directly as a substitute for a documented API.
+- External systems must not mutate `current_hour`, `current_day`, `current_season`, `_is_paused`, or `_time_scale` directly as a substitute for a documented API.
 - Presentation systems must not redefine time-of-day phase semantics outside `TimeManager`.
 - `emitted events / invalidation signals`:
 - `EventBus.time_tick`
@@ -977,7 +999,7 @@ Observed files for this version:
 - `EventBus.day_changed`
 - `EventBus.season_changed`
 - `current violations / ambiguities / contract gaps`:
-- `TimeManager.is_paused` and `TimeManager.time_scale` are public mutable fields, and current callers write them directly because no public pause/resume API exists.
+- ~~`TimeManager.is_paused` and `TimeManager.time_scale` were public mutable fields, and callers wrote them directly because no public pause/resume API existed.~~ **resolved 2026-03-28**: time pause/scale now go through `set_paused()` / `set_time_scale()`, while the mutable fields became private probes.
 
 ### Layer: Save / load orchestration
 
@@ -987,7 +1009,9 @@ Observed files for this version:
 - `core/autoloads/save_manager.gd::save_game()`
 - `core/autoloads/save_manager.gd::load_game()`
 - `core/autoloads/save_manager.gd::delete_save()`
-- direct UI write to `pending_load_slot` in `scenes/ui/save_load_tab.gd::_on_load_pressed()`
+- `core/autoloads/save_manager.gd::request_load_after_scene_change()`
+- `core/autoloads/save_manager.gd::consume_pending_load_slot()`
+- `core/autoloads/save_manager.gd::clear_pending_load_request()`
 - helper writes in `core/autoloads/save_collectors.gd`
 - helper writes in `core/autoloads/save_appliers.gd`
 - `readers`:
@@ -999,18 +1023,21 @@ Observed files for this version:
 - `invariants`:
 - `assert(not is_busy or current_slot != "", "busy save manager must know the active slot")`
 - `assert(successful_load_applies_world_then_chunk_overlay_then_time_then_buildings_then_player, "load_game() relies on the current apply order to rebuild runtime state correctly")`
-- `assert(pending_load_slot == "" or pending_load_slot == current_slot or not is_busy, "pending load slot remains an explicit queued slot string, not hidden busy-state ownership")`
+- `assert(_pending_load_slot == "" or _pending_load_slot == current_slot or not is_busy, "pending load slot remains an explicit queued slot string, not hidden busy-state ownership")`
 - `write operations`:
 - `SaveManager.save_game()`
 - `SaveManager.load_game()`
 - `SaveManager.delete_save()`
+- `SaveManager.request_load_after_scene_change()`
+- `SaveManager.consume_pending_load_slot()`
+- `SaveManager.clear_pending_load_request()`
 - `SaveAppliers.apply_world()`
 - `SaveAppliers.apply_chunk_data()`
 - `SaveAppliers.apply_time()`
 - `SaveAppliers.apply_buildings()`
 - `SaveAppliers.apply_player()`
 - `forbidden writes`:
-- UI and scene code must not mutate `SaveManager.current_slot`, `SaveManager.is_busy`, or `SaveManager.pending_load_slot` directly.
+- UI and scene code must not mutate `SaveManager.current_slot`, `SaveManager.is_busy`, or `SaveManager._pending_load_slot` directly.
 - UI code must not bypass `SaveManager.get_save_list()` / `delete_save()` with direct filesystem logic.
 - Helper layers must not redefine save schema outside `SaveCollectors` / `SaveAppliers`.
 - `emitted events / invalidation signals`:
@@ -1018,55 +1045,55 @@ Observed files for this version:
 - `EventBus.save_completed`
 - `EventBus.load_completed`
 - `current violations / ambiguities / contract gaps`:
-- `SaveLoadTab` bypasses `SaveManager.get_save_list()` and `SaveManager.delete_save()` with direct file reads, recursive deletes, and direct `pending_load_slot` mutation.
-- `SaveLoadTab._on_save_pressed()` ignores the boolean result of `SaveManager.save_game()` and always shows a success message when the method is present.
+- ~~`SaveLoadTab` bypassed `SaveManager.get_save_list()` / `delete_save()` and wrote `pending_load_slot` directly.~~ **resolved 2026-03-28**: save/load UI now routes list/delete/load-queue orchestration through `SaveManager`.
+- ~~`SaveLoadTab._on_save_pressed()` ignored the boolean result of `SaveManager.save_game()`.~~ **resolved 2026-03-28**: save success UI now depends on the actual boolean result of `save_game()`.
 
 ## Сводка текущих нарушений и contract gaps
 
 | # | Слой | Нарушение | Severity | Симптом для игрока |
 | --- | --- | --- | --- | --- |
-| 1 | World | `Chunk.get_terrain_type_at()` возвращает `GROUND` для невалидного local index вместо fail-fast | medium | Ошибочный вызов может тихо маскироваться под открытую землю и давать неверные визуальные или gameplay-решения |
-| 2 | World | `Chunk.populate_native()` молча сбрасывает несовпавшие `variation` / `biome` массивы | medium | После загрузки chunk может потерять вариативность поверхности или biome palette и выглядеть не так, как ожидалось |
+| 1 | World | ~~`Chunk.get_terrain_type_at()` возвращает `GROUND` для невалидного local index вместо fail-fast~~ **resolved 2026-03-28** | ~~medium~~ | ~~Ошибочный вызов может тихо маскироваться под открытую землю и давать неверные визуальные или gameplay-решения~~ |
+| 2 | World | ~~`Chunk.populate_native()` молча сбрасывает несовпавшие `variation` / `biome` массивы~~ **resolved 2026-03-28** | ~~medium~~ | ~~После загрузки chunk может потерять вариативность поверхности или biome palette и выглядеть не так, как ожидалось~~ |
 | 3 | World | ~~`is_walkable_at_world()` для unloaded underground идёт через `WorldGenerator.is_walkable_at()`, а terrain fallback считает tile `ROCK`~~ **resolved 2026-03-27** | ~~high~~ | ~~Проверки проходимости и фактическое terrain-чтение могут расходиться на unloaded underground tiles~~ |
-| 4 | World | `has_resource_at_world()` не имеет unloaded fallback | medium | Добываемый ресурс на unloaded tile не виден системам, пока chunk не подгрузится |
-| 5 | World | `populate_native()` переигрывает сохранённые terrain-модификации без neighbor re-normalization | medium | Неконсистентный save diff может загрузить cave opening с устаревшим `MINED_FLOOR` / `MOUNTAIN_ENTRANCE` состоянием |
-| 6 | Mining | `Chunk.try_mine_at()` не является безопасной orchestration point | high | Любой обходной путь, который вызовет прямую мутацию, сможет выкопать tile без корректного обновления topology / reveal / visuals |
+| 4 | World | ~~`has_resource_at_world()` не имеет unloaded fallback~~ **resolved 2026-03-28** | ~~medium~~ | ~~Добываемый ресурс на unloaded tile не виден системам, пока chunk не подгрузится~~ |
+| 5 | World | ~~`populate_native()` переигрывает сохранённые terrain-модификации без neighbor re-normalization~~ **resolved 2026-03-28** | ~~medium~~ | ~~Неконсистентный save diff может загрузить cave opening с устаревшим `MINED_FLOOR` / `MOUNTAIN_ENTRANCE` состоянием~~ |
+| 6 | Mining | ~~`Chunk.try_mine_at()` не является безопасной orchestration point~~ **resolved 2026-03-28** | ~~high~~ | ~~Любой обходной путь, который вызовет прямую мутацию, сможет выкопать tile без корректного обновления topology / reveal / visuals~~ |
 | 7 | Mining | ~~Текущий mining path не делает automatic open-tile re-normalization соседей~~ **resolved 2026-03-27** | ~~high~~ | ~~После раскопки соседние `MINED_FLOOR` / `MOUNTAIN_ENTRANCE` tiles могут сохранить устаревшее состояние~~ |
 | 8 | Mining | ~~Отсутствует cross-chunk redraw после mining~~ **resolved 2026-03-27** | ~~high~~ | ~~После копания на шве соседний chunk может оставаться визуально устаревшим~~ |
-| 9 | Mining | Debug direct writers обходят normal invalidation chain | medium | Debug-операции могут оставлять мир в частично обновлённом состоянии |
+| 9 | Mining | ~~Debug direct writers обходят normal invalidation chain~~ **resolved 2026-03-28** | ~~medium~~ | ~~Debug-операции могут оставлять мир в частично обновлённом состоянии~~ |
 | 10 | Topology | Topology loaded-bubble scoped, а не world-global | medium | Связность горы и open pocket обрывается на границе выгруженного мира |
-| 11 | Topology | `_incremental_topology_patch()` использует эвристику split detection | high | После некоторых раскопок topology может временно отставать или неверно склеивать / разделять компоненты до full rebuild |
-| 12 | Topology | Progressive rebuild не коммитит `*_by_chunk` topology maps | medium | Будущий chunk-scoped reader может получить неполные или пустые topology-структуры после progressive rebuild |
-| 13 | Topology | Staging `*_by_chunk` словари существуют, но не участвуют в progressive flow | low | Код создаёт ложное впечатление, что chunk-scoped progressive rebuild уже поддержан |
+| 11 | Topology | ~~`_incremental_topology_patch()` использует эвристику split detection~~ **resolved 2026-03-28** | ~~high~~ | ~~После некоторых раскопок topology может временно отставать или неверно склеивать / разделять компоненты до full rebuild~~ |
+| 12 | Topology | ~~Progressive rebuild не коммитит `*_by_chunk` topology maps~~ **resolved 2026-03-28** | ~~medium~~ | ~~Будущий chunk-scoped reader может получить неполные или пустые topology-структуры после progressive rebuild~~ |
+| 13 | Topology | ~~Staging `*_by_chunk` словари существуют, но не участвуют в progressive flow~~ **resolved 2026-03-28** | ~~low~~ | ~~Код создаёт ложное впечатление, что chunk-scoped progressive rebuild уже поддержан~~ |
 | 14 | Reveal | `zone_kind` и `truncated` собираются, но почти не влияют на runtime behavior | medium | Игрок увидит обрыв reveal на границе подгрузки без специальной обработки или обратной связи |
 | 15 | Reveal | Surface reveal loaded-bubble scoped | medium | Раскрытие локальной пещеры обрывается на unloaded boundary даже если pocket продолжается дальше |
-| 16 | Reveal | `Chunk` одновременно держит `set_revealed_local_zone()` и `set_revealed_local_cover_tiles()` | low | Новый вызователь может выбрать не тот entrypoint и получить лишний слой преобразования или рассинхрон |
+| 16 | Reveal | ~~`Chunk` одновременно держит `set_revealed_local_zone()` и `set_revealed_local_cover_tiles()`~~ **resolved 2026-03-28** | ~~low~~ | ~~Новый вызователь может выбрать не тот entrypoint и получить лишний слой преобразования или рассинхрон~~ |
 | 17 | Reveal | Underground fog shared across underground runtime and cleared on z change | medium | Исследованность underground не образует устойчивую непрерывную историю между разными underground floors / z-переходами |
 | 18 | Presentation | ~~Cross-chunk mining redraw gap протекает прямо в presentation~~ **resolved 2026-03-27** (for loaded neighbor chunks) | ~~high~~ | ~~Игрок увидит, что соседняя стена / cover / cliff на границе чанка не обновилась после копания~~ |
 | 19 | Presentation | Presentation существует только для loaded chunks | low | Продолжение мира вне loaded bubble не имеет visual object до стриминга, даже если terrain-query уже может ответить |
-| 20 | Presentation | Debug direct writers могут перерисовать visuals вне world -> mining -> topology -> reveal chain | medium | Отладочное изменение может дать картинку, не совпадающую с реальным derived state |
-| 21 | Wall Atlas Selection | Surface и underground wall shaping используют разные openness contracts и разные neighbor sets | medium | Одинаково выглядящая граница rock/open space может рисоваться по-разному на surface и underground |
-| 22 | Player actor | `Player._on_speed_modifier_changed()` игнорирует модификатор O₂ и фиксирует `_speed_modifier = 1.0` | medium | Низкий кислород не замедляет игрока, хотя survival layer сообщает о штрафе |
-| 23 | Player actor | `perform_harvest()` тратит cooldown до подтверждения успеха команды | medium | Неудачная попытка добычи может всё равно отправить игрока на откат действия |
-| 24 | Health / damage | `HealthComponent` имеет публичные поля, а load/setup path пишет их напрямую без сигнала | medium | UI или логика, слушающая `health_changed`, может не увидеть восстановленное после загрузки здоровье |
-| 25 | Inventory runtime | `InventoryPanel` напрямую мутирует `InventoryComponent.slots` для swap/split/sort/drop | high | Инвентарь можно изменить в обход owner-layer, что повышает риск рассинхрона между UI и runtime-логикой |
-| 26 | Equipment runtime | Экипировка не входит в текущий save/load path | medium | После загрузки сохранения экипированные предметы пропадают или сбрасываются |
-| 27 | Oxygen / survival | `OxygenSystem._on_rooms_recalculated()` пустой, indoor-state держится на scene-level polling из `GameWorld` | medium | Изменение комнат может отразиться на кислороде только через внешний glue path, а не через явный owner contract |
-| 28 | Base life support | Authoritative consumer живёт во внутреннем child-ноде без отдельного public contract на мутацию demand/config | low | Сторонний код может залезть во внутренний consumer и изменить поведение жизнеобеспечения в обход owner-layer |
-| 29 | Building runtime | `BuildingPlacementService.can_place_at()` не проверяет terrain/walkability/z-constraints | high | Постройку можно поставить в логически неподходящем месте |
-| 30 | Building runtime | `BuildingSystem.walls` публичен и разделяется между несколькими helper paths | medium | Внешний код может испортить occupancy-map без корректного room/power invalidation chain |
-| 31 | Indoor topology | Indoor room state keyed only by 2D grid and has no z dimension | low | Если строительство выйдет за surface-only контекст, комнаты разных уровней начнут алиаситься в одну сетку |
-| 32 | Power network | Public power config fields можно менять в обход setter-ов и dirty invalidation | high | Баланс энергии и brownout-решения могут запаздывать или считаться по устаревшим данным |
-| 33 | Power network | `PowerSystem.save_state()` выглядит как persistence API, хотя authoritative power state живёт в компонентах и структурах | low | Новый вызователь может сохранить/восстановить не ту форму состояния и получить ложный “успешный” результат |
-| 34 | Spawn / pickup orchestration | `_enemy_spawning_enabled` нигде не включается | high | Новые враги не спавнятся вообще |
-| 35 | Spawn / pickup orchestration | Save/load сохраняет pickups, но не врагов и не spawn timers | medium | После загрузки hostile population сбрасывается |
-| 36 | Enemy AI / fauna | Сканирование игрока и noise sources не фильтруется по z-level | medium | Существо может реагировать на шум или игрока с другого уровня, если такие акторы одновременно живы |
-| 37 | Noise / hearing input | Noise layer не эмитит invalidation signal, реакция идёт только на следующем scan tick | low | Реакция врагов на включение/выключение шумного объекта может ощущаться запаздывающей |
-| 38 | Z-level switching | `ZLevelManager.current_z` публично мутируемый и может быть изменён в обход `change_level()`, что также рискует рассинхронизировать downstream mirror `ChunkManager._active_z` | medium | Смена уровня может не запустить синхронизацию мира, света и теней |
-| 39 | Z-level switching | `ZStairs` напрямую ищет `GameWorld`, `ZLevelManager` и overlay в scene tree | low | Любой новый триггер перехода рискует скопировать internal glue и пропустить нужные side-effects |
-| 40 | Time / calendar | `TimeManager.is_paused` и `time_scale` меняются напрямую из внешнего кода | medium | Время можно заморозить/ускорить в обход явного API и без централизованного контракта |
-| 41 | Save / load orchestration | `SaveLoadTab` обходит `SaveManager` при listing/delete/load-request orchestration | high | UI и canonical save-layer могут разойтись по поведению и error handling |
-| 42 | Save / load orchestration | `SaveLoadTab._on_save_pressed()` не проверяет результат `SaveManager.save_game()` | medium | Игрок может увидеть “сохранено”, хотя запись не удалась |
+| 20 | Presentation | ~~Debug direct writers могут перерисовать visuals вне world -> mining -> topology -> reveal chain~~ **resolved 2026-03-28** | ~~medium~~ | ~~Отладочное изменение может дать картинку, не совпадающую с реальным derived state~~ |
+| 21 | Wall Atlas Selection | ~~Surface и underground wall shaping используют разные openness contracts и разные neighbor sets~~ **resolved 2026-03-28** | ~~medium~~ | ~~Одинаково выглядящая граница rock/open space может рисоваться по-разному на surface и underground~~ |
+| 22 | Player actor | ~~`Player._on_speed_modifier_changed()` игнорирует модификатор O₂ и фиксирует `_speed_modifier = 1.0`~~ **resolved 2026-03-28** | ~~medium~~ | ~~Низкий кислород не замедляет игрока, хотя survival layer сообщает о штрафе~~ |
+| 23 | Player actor | ~~`perform_harvest()` тратит cooldown до подтверждения успеха команды~~ **resolved 2026-03-28** | ~~medium~~ | ~~Неудачная попытка добычи может всё равно отправить игрока на откат действия~~ |
+| 24 | Health / damage | ~~`HealthComponent` имеет публичные поля, а load/setup path пишет их напрямую без сигнала~~ **resolved 2026-03-28** | ~~medium~~ | ~~UI или логика, слушающая `health_changed`, может не увидеть восстановленное после загрузки здоровье~~ |
+| 25 | Inventory runtime | ~~`InventoryPanel` напрямую мутирует `InventoryComponent.slots` для swap/split/sort/drop~~ **resolved 2026-03-28** | ~~high~~ | ~~Инвентарь можно изменить в обход owner-layer, что повышает риск рассинхрона между UI и runtime-логикой~~ |
+| 26 | Equipment runtime | ~~Экипировка не входит в текущий save/load path~~ **resolved 2026-03-28** | ~~medium~~ | ~~После загрузки сохранения экипированные предметы пропадают или сбрасываются~~ |
+| 27 | Oxygen / survival | ~~`OxygenSystem._on_rooms_recalculated()` пустой, indoor-state держится на scene-level polling из `GameWorld`~~ **resolved 2026-03-28** | ~~medium~~ | ~~Изменение комнат может отразиться на кислороде только через внешний glue path, а не через явный owner contract~~ |
+| 28 | Base life support | ~~Authoritative consumer живёт во внутреннем child-ноде без отдельного public contract на мутацию demand/config~~ **resolved 2026-03-28** | ~~low~~ | ~~Сторонний код может залезть во внутренний consumer и изменить поведение жизнеобеспечения в обход owner-layer~~ |
+| 29 | Building runtime | ~~`BuildingPlacementService.can_place_at()` не проверяет terrain/walkability/z-constraints~~ **resolved 2026-03-28** | ~~high~~ | ~~Постройку можно поставить в логически неподходящем месте~~ |
+| 30 | Building runtime | ~~`BuildingSystem.walls` публичен и разделяется между несколькими helper paths~~ **resolved 2026-03-28** | ~~medium~~ | ~~Внешний код может испортить occupancy-map без корректного room/power invalidation chain~~ |
+| 31 | Indoor topology | ~~Indoor room state keyed only by 2D grid and has no z dimension~~ **resolved 2026-03-28 for current runtime scope** | ~~low~~ | ~~Если строительство выйдет за surface-only контекст, комнаты разных уровней начнут алиаситься в одну сетку~~ |
+| 32 | Power network | ~~Public power config fields можно менять в обход setter-ов и dirty invalidation~~ **resolved 2026-03-28** | ~~high~~ | ~~Баланс энергии и brownout-решения могут запаздывать или считаться по устаревшим данным~~ |
+| 33 | Power network | ~~`PowerSystem.save_state()` выглядит как persistence API, хотя authoritative power state живёт в компонентах и структурах~~ **resolved 2026-03-28** | ~~low~~ | ~~Новый вызователь может сохранить/восстановить не ту форму состояния и получить ложный “успешный” результат~~ |
+| 34 | Spawn / pickup orchestration | ~~`_enemy_spawning_enabled` нигде не включается~~ **resolved 2026-03-28** | ~~high~~ | ~~Новые враги не спавнятся вообще~~ |
+| 35 | Spawn / pickup orchestration | ~~Save/load сохраняет pickups, но не врагов и не spawn timers~~ **resolved 2026-03-28** | ~~medium~~ | ~~После загрузки hostile population сбрасывается~~ |
+| 36 | Enemy AI / fauna | ~~Сканирование игрока и noise sources не фильтруется по z-level~~ **resolved 2026-03-28 for current runtime scope** | ~~medium~~ | ~~Существо может реагировать на шум или игрока с другого уровня, если такие акторы одновременно живы~~ |
+| 37 | Noise / hearing input | ~~Noise layer не эмитит invalidation signal, реакция идёт только на следующем scan tick~~ **resolved 2026-03-28** | ~~low~~ | ~~Реакция врагов на включение/выключение шумного объекта может ощущаться запаздывающей~~ |
+| 38 | Z-level switching | ~~`ZLevelManager.current_z` публично мутируемый и может быть изменён в обход `change_level()`, что также рискует рассинхронизировать downstream mirror `ChunkManager._active_z`~~ **resolved 2026-03-28** | ~~medium~~ | ~~Смена уровня может не запустить синхронизацию мира, света и теней~~ |
+| 39 | Z-level switching | ~~`ZStairs` напрямую ищет `GameWorld`, `ZLevelManager` и overlay в scene tree~~ **resolved 2026-03-28** | ~~low~~ | ~~Любой новый триггер перехода рискует скопировать internal glue и пропустить нужные side-effects~~ |
+| 40 | Time / calendar | ~~`TimeManager.is_paused` и `time_scale` меняются напрямую из внешнего кода~~ **resolved 2026-03-28** | ~~medium~~ | ~~Время можно заморозить/ускорить в обход явного API и без централизованного контракта~~ |
+| 41 | Save / load orchestration | ~~`SaveLoadTab` обходит `SaveManager` при listing/delete/load-request orchestration~~ **resolved 2026-03-28** | ~~high~~ | ~~UI и canonical save-layer могут разойтись по поведению и error handling~~ |
+| 42 | Save / load orchestration | ~~`SaveLoadTab._on_save_pressed()` не проверяет результат `SaveManager.save_game()`~~ **resolved 2026-03-28** | ~~medium~~ | ~~Игрок может увидеть “сохранено”, хотя запись не удалась~~ |
 
 ## Out Of Scope / Follow-up
 

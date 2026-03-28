@@ -28,6 +28,7 @@ var _wander_timer: float = 0.0
 var _wander_dir: Vector2 = Vector2.ZERO
 ## Множитель слуха (ночью × 1.5).
 var _hearing_multiplier: float = 1.0
+var _z_level_manager: ZLevelManager = null
 
 func _ready() -> void:
 	add_to_group("enemies")
@@ -36,8 +37,7 @@ func _ready() -> void:
 	_health_component = get_node_or_null("HealthComponent")
 	if _health_component:
 		if balance:
-			_health_component.max_health = balance.max_health
-			_health_component.current_health = balance.max_health
+			_health_component.restore_state(balance.max_health, balance.max_health)
 		_health_component.died.connect(_on_died)
 	_scan_timer = randf() * balance.scan_interval
 	_wander_timer = randf() * balance.wander_interval
@@ -45,6 +45,7 @@ func _ready() -> void:
 	_setup_state_machine()
 	# Подписка на ночь — активнее
 	EventBus.time_of_day_changed.connect(_on_time_changed)
+	EventBus.noise_source_changed.connect(_on_noise_source_changed)
 	if TimeManager:
 		_on_time_changed(TimeManager.current_time_of_day, TimeManager.current_time_of_day)
 
@@ -60,6 +61,9 @@ func _physics_process(delta: float) -> void:
 
 func _update_scan(delta: float) -> void:
 	if _is_dead:
+		return
+	if _get_current_runtime_z() != 0:
+		clear_target()
 		return
 	_scan_timer -= delta
 	if _scan_timer > 0.0:
@@ -155,6 +159,9 @@ func _on_time_changed(new_phase: int, _old_phase: int) -> void:
 	else:
 		_hearing_multiplier = 1.0
 
+func _on_noise_source_changed(_noise_source: Node) -> void:
+	_scan_timer = 0.0
+
 func _on_died() -> void:
 	_is_dead = true
 	_attack_target = null
@@ -232,3 +239,12 @@ func _setup_state_machine() -> void:
 	_state_machine.add_state(&"attack", EnemyAttackState.new())
 	_state_machine.add_state(&"dead", EnemyDeadState.new())
 	_state_machine.transition_to(&"idle")
+
+func _get_current_runtime_z() -> int:
+	if _z_level_manager and is_instance_valid(_z_level_manager):
+		return _z_level_manager.get_current_z()
+	var managers: Array[Node] = get_tree().get_nodes_in_group("z_level_manager")
+	if managers.is_empty():
+		return 0
+	_z_level_manager = managers[0] as ZLevelManager
+	return _z_level_manager.get_current_z()

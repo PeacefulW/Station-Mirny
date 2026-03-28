@@ -18,7 +18,10 @@ func _ready() -> void:
 
 ## Включить/выключить шум.
 func set_active(active: bool) -> void:
+	if is_active == active:
+		return
 	is_active = active
+	EventBus.noise_source_changed.emit(self)
 
 ## Получить мировую позицию источника шума.
 func get_noise_position() -> Vector2:

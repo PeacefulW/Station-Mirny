@@ -16,11 +16,15 @@ var _current_oxygen: float = 0.0
 var _is_indoor: bool = false
 var _is_depleting: bool = false
 var _is_base_powered: bool = false
+var _building_system: BuildingSystem = null
+var _chunk_manager: ChunkManager = null
+var _owner_body: Node2D = null
 
 func _ready() -> void:
 	if not balance:
 		push_error(Localization.t("SYSTEM_OXYGEN_BALANCE_MISSING"))
 		return
+	_owner_body = get_parent() as Node2D
 	_current_oxygen = balance.max_oxygen
 	EventBus.rooms_recalculated.connect(_on_rooms_recalculated)
 	EventBus.life_support_power_changed.connect(_on_life_support_power_changed)
@@ -29,6 +33,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not balance:
 		return
+	_refresh_indoor_state()
 	_update_oxygen(delta)
 	_apply_effects()
 
@@ -119,8 +124,45 @@ func _emit_oxygen_state() -> void:
 		EventBus.oxygen_changed.emit(_current_oxygen, balance.max_oxygen)
 
 func _on_rooms_recalculated(_indoor_cells: Dictionary) -> void:
-	# Пересчёт статуса будет вызван из game_world
-	pass
+	_refresh_indoor_state()
 
 func _on_life_support_power_changed(is_powered: bool) -> void:
 	_is_base_powered = is_powered
+
+func _refresh_indoor_state() -> void:
+	if not _owner_body:
+		_owner_body = get_parent() as Node2D
+	if not _owner_body:
+		return
+	var is_indoor: bool = false
+	var building_system: BuildingSystem = _get_building_system()
+	if building_system:
+		var grid_pos: Vector2i = building_system.world_to_grid(_owner_body.global_position)
+		is_indoor = building_system.is_cell_indoor(grid_pos)
+	if not is_indoor:
+		var chunk_manager: ChunkManager = _get_chunk_manager()
+		if chunk_manager and WorldGenerator:
+			var tile_pos: Vector2i = WorldGenerator.world_to_tile(_owner_body.global_position)
+			var chunk: Chunk = chunk_manager.get_chunk_at_tile(tile_pos)
+			if chunk:
+				var terrain_type: int = chunk.get_terrain_type_at(chunk.global_to_local(tile_pos))
+				is_indoor = terrain_type == TileGenData.TerrainType.MINED_FLOOR
+	set_indoor(is_indoor)
+
+func _get_building_system() -> BuildingSystem:
+	if _building_system and is_instance_valid(_building_system):
+		return _building_system
+	var nodes: Array[Node] = get_tree().get_nodes_in_group("building_system")
+	if nodes.is_empty():
+		return null
+	_building_system = nodes[0] as BuildingSystem
+	return _building_system
+
+func _get_chunk_manager() -> ChunkManager:
+	if _chunk_manager and is_instance_valid(_chunk_manager):
+		return _chunk_manager
+	var nodes: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
+	if nodes.is_empty():
+		return null
+	_chunk_manager = nodes[0] as ChunkManager
+	return _chunk_manager

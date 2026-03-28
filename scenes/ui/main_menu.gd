@@ -10,8 +10,8 @@ var _settings_panel: Control = null
 var _buttons_container: VBoxContainer = null
 
 func _ready() -> void:
-	if TimeManager:
-		TimeManager.is_paused = true
+	if TimeManager and TimeManager.has_method("set_paused"):
+		TimeManager.set_paused(true)
 	_build_ui()
 	EventBus.language_changed.connect(_on_language_changed)
 
@@ -262,7 +262,7 @@ func _on_settings_back() -> void:
 # --- Утилиты ---
 
 func _start_game_from_save(slot_name: String) -> void:
-	SaveManager.pending_load_slot = slot_name
+	SaveManager.request_load_after_scene_change(slot_name)
 	get_tree().change_scene_to_file("res://scenes/world/game_world.tscn")
 
 func _find_latest_save() -> String:

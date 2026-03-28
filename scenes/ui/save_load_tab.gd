@@ -5,8 +5,6 @@ extends VBoxContainer
 ## Показывает список слотов, позволяет сохранить/загрузить/удалить.
 
 const MAX_SLOTS: int = 5
-const SAVE_DIR: String = "user://saves/"
-
 var _slot_list: VBoxContainer = null
 var _status_label: Label = null
 var _selected_slot: String = ""
@@ -73,11 +71,16 @@ func _build_ui() -> void:
 func _rebuild_slot_list() -> void:
 	for child: Node in _slot_list.get_children():
 		child.queue_free()
+	var saves_by_slot: Dictionary = {}
+	if SaveManager and SaveManager.has_method("get_save_list"):
+		for entry: Dictionary in SaveManager.get_save_list():
+			var slot_name: String = str(entry.get("slot_name", ""))
+			if not slot_name.is_empty():
+				saves_by_slot[slot_name] = entry
 
 	for i: int in range(1, MAX_SLOTS + 1):
 		var slot_name: String = "save_%02d" % i
-		var slot_path: String = SAVE_DIR + slot_name + "/"
-		var exists: bool = DirAccess.dir_exists_absolute(slot_path)
+		var exists: bool = saves_by_slot.has(slot_name)
 
 		var btn := Button.new()
 		btn.custom_minimum_size.y = 36
@@ -85,7 +88,7 @@ func _rebuild_slot_list() -> void:
 		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 		if exists:
-			var meta: Dictionary = _read_meta(slot_path)
+			var meta: Dictionary = saves_by_slot.get(slot_name, {}) as Dictionary
 			var date: String = str(meta.get("save_time", meta.get("date", "???")))
 			var day: int = int(meta.get("game_day", meta.get("day", 0)))
 			btn.text = Localization.t("UI_SAVE_SLOT_USED", {
@@ -110,9 +113,11 @@ func _on_save_pressed() -> void:
 		_set_status(Localization.t("UI_SAVE_SELECT_SLOT"), Color(0.9, 0.7, 0.3))
 		return
 	if SaveManager and SaveManager.has_method("save_game"):
-		SaveManager.save_game(_selected_slot)
-		_set_status(Localization.t("UI_SAVE_SUCCESS", {"slot": _selected_slot}), Color(0.4, 0.8, 0.4))
-		refresh()
+		if SaveManager.save_game(_selected_slot):
+			_set_status(Localization.t("UI_SAVE_SUCCESS", {"slot": _selected_slot}), Color(0.4, 0.8, 0.4))
+			refresh()
+		else:
+			_set_status(Localization.t("UI_SAVE_UNAVAILABLE"), Color(0.9, 0.4, 0.3))
 	else:
 		_set_status(Localization.t("UI_SAVE_UNAVAILABLE"), Color(0.9, 0.4, 0.3))
 
@@ -120,60 +125,29 @@ func _on_load_pressed() -> void:
 	if _selected_slot.is_empty():
 		_set_status(Localization.t("UI_SAVE_SELECT_SLOT"), Color(0.9, 0.7, 0.3))
 		return
-	var slot_path: String = SAVE_DIR + _selected_slot + "/"
-	if not DirAccess.dir_exists_absolute(slot_path):
+	if not SaveManager or not SaveManager.has_method("save_exists") or not SaveManager.save_exists(_selected_slot):
 		_set_status(Localization.t("UI_SAVE_EMPTY_SLOT"), Color(0.9, 0.5, 0.3))
 		return
-	if SaveManager:
-		# Снимаем паузу перед загрузкой
-		get_tree().paused = false
-		if TimeManager:
-			TimeManager.is_paused = true
-		SaveManager.pending_load_slot = _selected_slot
-		get_tree().change_scene_to_file("res://scenes/world/game_world.tscn")
+	get_tree().paused = false
+	if TimeManager and TimeManager.has_method("set_paused"):
+		TimeManager.set_paused(true)
+	SaveManager.request_load_after_scene_change(_selected_slot)
+	get_tree().change_scene_to_file("res://scenes/world/game_world.tscn")
 
 func _on_delete_pressed() -> void:
 	if _selected_slot.is_empty():
 		_set_status(Localization.t("UI_SAVE_SELECT_SLOT"), Color(0.9, 0.7, 0.3))
 		return
-	var slot_path: String = SAVE_DIR + _selected_slot + "/"
-	if DirAccess.dir_exists_absolute(slot_path):
-		_delete_dir_recursive(slot_path)
+	if SaveManager and SaveManager.has_method("delete_save") and SaveManager.delete_save(_selected_slot):
 		_set_status(Localization.t("UI_SAVE_DELETED", {"slot": _selected_slot}), Color(0.7, 0.6, 0.5))
 		refresh()
+	else:
+		_set_status(Localization.t("UI_SAVE_UNAVAILABLE"), Color(0.9, 0.4, 0.3))
 
 func _set_status(text: String, color: Color) -> void:
 	if _status_label:
 		_status_label.text = text
 		_status_label.add_theme_color_override("font_color", color)
-
-func _read_meta(slot_path: String) -> Dictionary:
-	var meta_path: String = slot_path + "meta.json"
-	if not FileAccess.file_exists(meta_path):
-		return {}
-	var file := FileAccess.open(meta_path, FileAccess.READ)
-	if not file:
-		return {}
-	var json := JSON.new()
-	if json.parse(file.get_as_text()) != OK:
-		return {}
-	if json.data is Dictionary:
-		return json.data
-	return {}
-
-func _delete_dir_recursive(path: String) -> void:
-	var dir := DirAccess.open(path)
-	if not dir:
-		return
-	dir.list_dir_begin()
-	var entry: String = dir.get_next()
-	while entry != "":
-		if dir.current_is_dir():
-			_delete_dir_recursive(path + entry + "/")
-		else:
-			dir.remove(entry)
-		entry = dir.get_next()
-	DirAccess.remove_absolute(path)
 
 var _button_group: ButtonGroup = null
 func _get_or_create_group() -> ButtonGroup:

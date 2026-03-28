@@ -65,6 +65,8 @@ signal enemy_spawned(enemy_node: Node2D)
 signal enemy_killed(position: Vector2)
 @warning_ignore("unused_signal")
 signal enemy_reached_wall(wall_position: Vector2i)
+@warning_ignore("unused_signal")
+signal noise_source_changed(noise_source: Node)
 
 # --- Генерация мира ---
 @warning_ignore("unused_signal")

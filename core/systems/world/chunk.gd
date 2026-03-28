@@ -59,6 +59,7 @@ var _revealed_local_cover_tiles: Dictionary = {}
 var _is_underground: bool = false
 var _use_operation_global_terrain_cache: bool = false
 var _operation_global_terrain_cache: Dictionary = {}
+var _mining_write_authorized: bool = false
 
 func setup(
 	p_coord: Vector2i,
@@ -105,9 +106,15 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 	_variation_bytes = native_data.get("variation", PackedByteArray())
 	_biome_bytes = native_data.get("biome", PackedByteArray())
 	if _variation_bytes.size() != _terrain_bytes.size():
-		_variation_bytes = PackedByteArray()
+		push_error("Chunk.populate_native(): variation array size mismatch for %s" % [chunk_coord])
+		assert(false, "variation array size must match terrain array size")
+		_variation_bytes.resize(_terrain_bytes.size())
+		_variation_bytes.fill(ChunkTilesetFactory.SURFACE_VARIATION_NONE)
 	if _biome_bytes.size() != _terrain_bytes.size():
-		_biome_bytes = PackedByteArray()
+		push_error("Chunk.populate_native(): biome array size mismatch for %s" % [chunk_coord])
+		assert(false, "biome array size must match terrain array size")
+		_biome_bytes.resize(_terrain_bytes.size())
+		_biome_bytes.fill(0)
 	_apply_saved_modifications()
 	_cache_has_mountain()
 	_reset_cover_visual_state()
@@ -141,20 +148,26 @@ func get_modifications() -> Dictionary:
 	return _modified_tiles.duplicate()
 
 func get_terrain_type_at(local: Vector2i) -> int:
+	if not _is_inside(local):
+		push_error("Chunk.get_terrain_type_at(): local tile %s is outside chunk %s" % [local, chunk_coord])
+		assert(false, "local terrain read must stay inside chunk bounds")
+		return TileGenData.TerrainType.ROCK
 	var idx: int = local.y * _chunk_size + local.x
 	if idx < 0 or idx >= _terrain_bytes.size():
-		return TileGenData.TerrainType.GROUND
+		push_error("Chunk.get_terrain_type_at(): terrain array index %d is invalid for chunk %s" % [idx, chunk_coord])
+		assert(false, "terrain byte array must match chunk bounds")
+		return TileGenData.TerrainType.ROCK
 	return _terrain_bytes[idx]
 
 func mark_tile_modified(tile_pos: Vector2i, state: Dictionary) -> void:
 	_modified_tiles[tile_pos] = state
 	is_dirty = true
 
-func set_revealed_local_zone(zone_tiles: Dictionary) -> void:
-	set_revealed_local_cover_tiles(_build_revealed_local_cover_tiles(zone_tiles))
-
 func set_revealed_local_cover_tiles(cover_tiles: Dictionary) -> void:
 	_apply_local_zone_cover_state(cover_tiles)
+
+func set_mining_write_authorized(value: bool) -> void:
+	_mining_write_authorized = value
 
 # --- Underground Fog of War ---
 
@@ -229,6 +242,10 @@ func is_revealable_cover_edge(local_tile: Vector2i) -> bool:
 
 func try_mine_at(local: Vector2i) -> Dictionary:
 	var started_usec: int = WorldPerfProbe.begin()
+	if not _mining_write_authorized:
+		push_error("Chunk.try_mine_at(): unauthorized direct call for chunk %s" % [chunk_coord])
+		assert(false, "ChunkManager.try_harvest_at_world() is the safe mining orchestration point")
+		return {}
 	if not _is_inside(local):
 		return {}
 	var old_type: int = get_terrain_type_at(local)
@@ -268,6 +285,28 @@ func _apply_saved_modifications() -> void:
 		var state: Dictionary = _modified_tiles[tile_pos]
 		if state.has("terrain"):
 			_set_terrain_type(tile_pos, int(state["terrain"]), false)
+	_normalize_saved_open_tiles_after_load()
+
+func _normalize_saved_open_tiles_after_load() -> void:
+	if _modified_tiles.is_empty():
+		return
+	var previous_cache_enabled: bool = _use_operation_global_terrain_cache
+	var previous_global_terrain_cache: Dictionary = _operation_global_terrain_cache
+	_use_operation_global_terrain_cache = true
+	_operation_global_terrain_cache = {}
+	var tiles_to_refresh: Dictionary = {}
+	for tile_pos: Vector2i in _modified_tiles:
+		if not _is_inside(tile_pos):
+			continue
+		tiles_to_refresh[tile_pos] = true
+		for dir: Vector2i in _CARDINAL_DIRS:
+			var neighbor_tile: Vector2i = tile_pos + dir
+			if _is_inside(neighbor_tile):
+				tiles_to_refresh[neighbor_tile] = true
+	for tile_pos: Vector2i in tiles_to_refresh:
+		_refresh_open_tile(tile_pos)
+	_use_operation_global_terrain_cache = previous_cache_enabled
+	_operation_global_terrain_cache = previous_global_terrain_cache
 
 func _redraw_all() -> void:
 	var started_usec: int = WorldPerfProbe.begin()
@@ -393,8 +432,6 @@ func _surface_rock_visual_class(local_tile: Vector2i) -> Vector2i:
 	var w: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i.LEFT))
 	var e: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i.RIGHT))
 	var count: int = int(s) + int(n) + int(w) + int(e)
-	if count == 0:
-		return ChunkTilesetFactory.WALL_INTERIOR
 	if count == 4:
 		return ChunkTilesetFactory.WALL_PILLAR
 	if count == 3:
@@ -417,13 +454,82 @@ func _surface_rock_visual_class(local_tile: Vector2i) -> Vector2i:
 		if w and e:
 			return ChunkTilesetFactory.WALL_CORRIDOR_EW
 		return ChunkTilesetFactory.WALL_CORRIDOR_NS
-	if s:
-		return ChunkTilesetFactory.WALL_SOUTH
-	if n:
-		return ChunkTilesetFactory.WALL_NORTH
-	if w:
-		return ChunkTilesetFactory.WALL_WEST
-	return ChunkTilesetFactory.WALL_EAST
+	if count == 1:
+		if s:
+			var s_ne: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1)))
+			var s_nw: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)))
+			if s_ne and s_nw:
+				return ChunkTilesetFactory.WALL_T_SOUTH
+			if s_ne:
+				return ChunkTilesetFactory.WALL_SOUTH_NE
+			if s_nw:
+				return ChunkTilesetFactory.WALL_SOUTH_NW
+			return ChunkTilesetFactory.WALL_SOUTH
+		if n:
+			var n_se: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1)))
+			var n_sw: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)))
+			if n_se and n_sw:
+				return ChunkTilesetFactory.WALL_T_NORTH
+			if n_se:
+				return ChunkTilesetFactory.WALL_NORTH_SE
+			if n_sw:
+				return ChunkTilesetFactory.WALL_NORTH_SW
+			return ChunkTilesetFactory.WALL_NORTH
+		if w:
+			var w_ne: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1)))
+			var w_se: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1)))
+			if w_ne and w_se:
+				return ChunkTilesetFactory.WALL_T_WEST
+			if w_ne:
+				return ChunkTilesetFactory.WALL_WEST_NE
+			if w_se:
+				return ChunkTilesetFactory.WALL_WEST_SE
+			return ChunkTilesetFactory.WALL_WEST
+		var e_nw: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)))
+		var e_sw: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)))
+		if e_nw and e_sw:
+			return ChunkTilesetFactory.WALL_T_EAST
+		if e_nw:
+			return ChunkTilesetFactory.WALL_EAST_NW
+		if e_sw:
+			return ChunkTilesetFactory.WALL_EAST_SW
+		return ChunkTilesetFactory.WALL_EAST
+	var d_sw: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)))
+	var d_se: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1)))
+	var d_ne: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1)))
+	var d_nw: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)))
+	var d_count: int = int(d_sw) + int(d_se) + int(d_ne) + int(d_nw)
+	if d_count == 4:
+		return ChunkTilesetFactory.WALL_CROSS
+	if d_count == 3:
+		if not d_sw:
+			return ChunkTilesetFactory.WALL_DIAG3_NO_SW
+		if not d_se:
+			return ChunkTilesetFactory.WALL_DIAG3_NO_SE
+		if not d_nw:
+			return ChunkTilesetFactory.WALL_DIAG3_NO_NW
+		return ChunkTilesetFactory.WALL_DIAG3_NO_NE
+	if d_count == 2:
+		if d_sw and d_se:
+			return ChunkTilesetFactory.WALL_EDGE_EW
+		if d_ne and d_nw:
+			return ChunkTilesetFactory.WALL_DIAG_NE_NW
+		if d_ne and d_se:
+			return ChunkTilesetFactory.WALL_DIAG_NE_SE
+		if d_nw and d_sw:
+			return ChunkTilesetFactory.WALL_DIAG_NW_SW
+		if d_ne and d_sw:
+			return ChunkTilesetFactory.WALL_DIAG_NE_SW
+		return ChunkTilesetFactory.WALL_DIAG_NW_SE
+	if d_sw:
+		return ChunkTilesetFactory.WALL_NOTCH_SW
+	if d_se:
+		return ChunkTilesetFactory.WALL_NOTCH_SE
+	if d_ne:
+		return ChunkTilesetFactory.WALL_NOTCH_NE
+	if d_nw:
+		return ChunkTilesetFactory.WALL_NOTCH_NW
+	return ChunkTilesetFactory.WALL_INTERIOR
 
 func _resolve_surface_ground_atlas(local_tile: Vector2i) -> Vector2i:
 	if _is_underground:

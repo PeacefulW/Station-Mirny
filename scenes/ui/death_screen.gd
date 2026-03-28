@@ -125,25 +125,25 @@ func _make_button(text: String, callback: Callable) -> Button:
 
 func _on_load_pressed() -> void:
 	get_tree().paused = false
-	if TimeManager:
-		TimeManager.is_paused = true
+	if TimeManager and TimeManager.has_method("set_paused"):
+		TimeManager.set_paused(true)
 	var latest: String = _find_latest_save()
 	if latest.is_empty():
 		_on_main_menu_pressed()
 		return
-	SaveManager.pending_load_slot = latest
+	SaveManager.request_load_after_scene_change(latest)
 	get_tree().change_scene_to_file("res://scenes/world/game_world.tscn")
 
 func _on_new_game_pressed() -> void:
 	get_tree().paused = false
-	if TimeManager:
-		TimeManager.is_paused = true
+	if TimeManager and TimeManager.has_method("set_paused"):
+		TimeManager.set_paused(true)
 	get_tree().change_scene_to_file("res://scenes/ui/world_creation_screen.tscn")
 
 func _on_main_menu_pressed() -> void:
 	get_tree().paused = false
-	if TimeManager:
-		TimeManager.is_paused = true
+	if TimeManager and TimeManager.has_method("set_paused"):
+		TimeManager.set_paused(true)
 	get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
 
 func _find_latest_save() -> String:

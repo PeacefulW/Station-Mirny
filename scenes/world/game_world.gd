@@ -111,11 +111,6 @@ func _physics_process(_delta: float) -> void:
 		return
 	_canonicalize_player_world_position()
 
-func _process(_delta: float) -> void:
-	if not _boot_complete:
-		return
-	_update_player_indoor_status()
-
 func is_boot_complete() -> bool:
 	return _boot_complete
 
@@ -161,24 +156,6 @@ func _setup_mountain_shadows() -> void:
 	_mountain_shadow_system = MountainShadowSystem.new()
 	_mountain_shadow_system.name = "MountainShadowSystem"
 	add_child(_mountain_shadow_system)
-
-# --- Runtime ---
-
-func _update_player_indoor_status() -> void:
-	if not _player or not _building_system:
-		return
-	var o2: OxygenSystem = _player.get_oxygen_system()
-	if not o2:
-		return
-	var grid_pos: Vector2i = _building_system.world_to_grid(_player.global_position)
-	var is_indoor: bool = _building_system.is_cell_indoor(grid_pos)
-	if not is_indoor and _chunk_manager and WorldGenerator:
-		var tile_pos: Vector2i = WorldGenerator.world_to_tile(_player.global_position)
-		var chunk: Chunk = _chunk_manager.get_chunk_at_tile(tile_pos)
-		if chunk:
-			var terrain_type: int = chunk.get_terrain_type_at(chunk.global_to_local(tile_pos))
-			is_indoor = terrain_type == TileGenData.TerrainType.MINED_FLOOR
-	o2.set_indoor(is_indoor)
 
 # --- Game Over ---
 
@@ -259,6 +236,15 @@ func _update_background_for_z(z: int) -> void:
 		0: _bg_rect.color = Color(0.05, 0.10, 0.05)
 		1: _bg_rect.color = Color(0.02, 0.02, 0.04)
 
+func request_z_transition(new_z: int) -> bool:
+	if not _z_manager:
+		return false
+	if _z_overlay:
+		_z_overlay.do_transition(func() -> void: _z_manager.change_level(new_z))
+	else:
+		_z_manager.change_level(new_z)
+	return true
+
 # --- Утилиты ---
 
 func _find_node_in_group(group_name: String) -> Node:
@@ -278,9 +264,7 @@ func _resolve_ui_layer() -> CanvasLayer:
 func _consume_pending_load_slot() -> String:
 	if not SaveManager:
 		return ""
-	var slot: String = SaveManager.pending_load_slot
-	SaveManager.pending_load_slot = ""
-	return slot
+	return SaveManager.consume_pending_load_slot()
 
 func _bootstrap_session_state() -> void:
 	if _pending_load_slot.is_empty():
@@ -301,16 +285,16 @@ func _bootstrap_session_state() -> void:
 	_pause_time_for_boot()
 
 func _pause_time_for_boot() -> void:
-	if TimeManager:
-		TimeManager.is_paused = true
+	if TimeManager and TimeManager.has_method("set_paused"):
+		TimeManager.set_paused(true)
 
 func _finish_boot_sequence() -> void:
 	_canonicalize_player_world_position()
 	if _player:
 		_player.set_physics_process(true)
 		_player.set_process_input(true)
-	if TimeManager:
-		TimeManager.is_paused = false
+	if TimeManager and TimeManager.has_method("set_paused"):
+		TimeManager.set_paused(false)
 	_boot_complete = true
 	if _loading_screen:
 		_loading_screen.fade_out()

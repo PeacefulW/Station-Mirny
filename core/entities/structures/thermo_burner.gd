@@ -58,9 +58,9 @@ func setup(p_grid_pos: Vector2i, world_pos: Vector2, balance: PowerBalance) -> v
 	# Источник энергии
 	_power_source = PowerSourceComponent.new()
 	_power_source.name = "PowerSource"
-	_power_source.max_output = balance.burner_output
-	_power_source.is_enabled = false  # Не работает пока нет топлива
 	add_child(_power_source)
+	_power_source.set_max_output(balance.burner_output)
+	_power_source.set_enabled(false)  # Не работает пока нет топлива
 	# Шум (привлекает Очистителей!)
 	_noise = NoiseComponent.new()
 	_noise.name = "NoiseComponent"

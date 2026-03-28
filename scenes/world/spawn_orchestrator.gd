@@ -29,6 +29,7 @@ func setup(
 	_enemy_balance = enemy_balance
 	EventBus.enemy_killed.connect(_on_enemy_killed)
 	EventBus.item_dropped.connect(_on_item_dropped)
+	set_enemy_spawning_enabled(true)
 
 func _process(delta: float) -> void:
 	_sync_pickups_to_player()
@@ -68,6 +69,65 @@ func save_pickups() -> Array[Dictionary]:
 		})
 	return result
 
+func save_enemy_runtime() -> Dictionary:
+	var entries: Array[Dictionary] = []
+	if _enemy_container:
+		for child: Node in _enemy_container.get_children():
+			var enemy: BasicEnemy = child as BasicEnemy
+			if not enemy or enemy.is_dead():
+				continue
+			var logical_position: Vector2 = enemy.global_position
+			if WorldGenerator and WorldGenerator._is_initialized:
+				logical_position = WorldGenerator.canonicalize_world_position(logical_position)
+			var entry: Dictionary = {
+				"position": {
+					"x": logical_position.x,
+					"y": logical_position.y,
+				},
+			}
+			var health: HealthComponent = enemy.get_node_or_null("HealthComponent")
+			if health:
+				entry["health"] = {
+					"current": health.current_health,
+					"max": health.max_health,
+				}
+			entries.append(entry)
+	return {
+		"spawn_timer": _spawn_timer,
+		"spawning_enabled": _enemy_spawning_enabled,
+		"enemies": entries,
+	}
+
+func load_enemy_runtime(data: Dictionary) -> void:
+	clear_enemies()
+	_spawn_timer = float(data.get("spawn_timer", 0.0))
+	_enemy_spawning_enabled = bool(data.get("spawning_enabled", true))
+	var entries: Array = data.get("enemies", [])
+	for entry_variant: Variant in entries:
+		if not (entry_variant is Dictionary):
+			continue
+		var entry: Dictionary = entry_variant as Dictionary
+		var position_data: Dictionary = entry.get("position", {})
+		var spawn_pos := Vector2(
+			float(position_data.get("x", 0.0)),
+			float(position_data.get("y", 0.0))
+		)
+		var enemy := _enemy_factory.create_basic_enemy(spawn_pos, _enemy_balance) as BasicEnemy
+		if not enemy:
+			continue
+		var health_data: Dictionary = entry.get("health", {})
+		var health: HealthComponent = enemy.get_node_or_null("HealthComponent")
+		if health and not health_data.is_empty():
+			health.restore_state(
+				float(health_data.get("current", health.current_health)),
+				float(health_data.get("max", health.max_health))
+			)
+		_enemy_container.add_child(enemy)
+	_enemy_count = _enemy_container.get_child_count() if _enemy_container else 0
+
+func set_enemy_spawning_enabled(enabled: bool) -> void:
+	_enemy_spawning_enabled = enabled
+
 func load_pickups(entries: Array) -> void:
 	clear_pickups()
 	for entry_variant: Variant in entries:
@@ -96,6 +156,14 @@ func clear_pickups() -> void:
 		return
 	for child: Node in _pickup_container.get_children():
 		child.queue_free()
+
+func clear_enemies() -> void:
+	if not _enemy_container:
+		_enemy_count = 0
+		return
+	for child: Node in _enemy_container.get_children():
+		child.queue_free()
+	_enemy_count = 0
 
 func _update_enemy_spawning(delta: float) -> void:
 	if not _enemy_spawning_enabled:

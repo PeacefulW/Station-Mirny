@@ -28,6 +28,8 @@ var _power_job_id: StringName = &""
 var _heartbeat_timer: float = 0.0
 var _registered_sources: Dictionary = {}
 var _registered_consumers: Dictionary = {}
+var _source_config_snapshots: Dictionary = {}
+var _consumer_config_snapshots: Dictionary = {}
 
 func _ready() -> void:
 	add_to_group("power_system")
@@ -52,6 +54,7 @@ func _exit_tree() -> void:
 func _process(delta: float) -> void:
 	if not balance:
 		return
+	_refresh_observed_runtime_configs()
 	_heartbeat_timer -= delta
 	if _heartbeat_timer <= 0.0:
 		_heartbeat_timer = _HEARTBEAT_INTERVAL
@@ -63,6 +66,7 @@ func register_source(source: PowerSourceComponent) -> void:
 	if not source or _registered_sources.has(source):
 		return
 	_registered_sources[source] = true
+	_source_config_snapshots[source] = _make_source_config_snapshot(source)
 	if not source.output_changed.is_connected(_on_source_output_changed):
 		source.output_changed.connect(_on_source_output_changed)
 	_mark_power_dirty()
@@ -73,12 +77,14 @@ func unregister_source(source: PowerSourceComponent) -> void:
 	if source.output_changed.is_connected(_on_source_output_changed):
 		source.output_changed.disconnect(_on_source_output_changed)
 	_registered_sources.erase(source)
+	_source_config_snapshots.erase(source)
 	_mark_power_dirty()
 
 func register_consumer(consumer: PowerConsumerComponent) -> void:
 	if not consumer or _registered_consumers.has(consumer):
 		return
 	_registered_consumers[consumer] = true
+	_consumer_config_snapshots[consumer] = _make_consumer_config_snapshot(consumer)
 	if not consumer.configuration_changed.is_connected(_on_consumer_configuration_changed):
 		consumer.configuration_changed.connect(_on_consumer_configuration_changed)
 	_mark_power_dirty()
@@ -89,6 +95,7 @@ func unregister_consumer(consumer: PowerConsumerComponent) -> void:
 	if consumer.configuration_changed.is_connected(_on_consumer_configuration_changed):
 		consumer.configuration_changed.disconnect(_on_consumer_configuration_changed)
 	_registered_consumers.erase(consumer)
+	_consumer_config_snapshots.erase(consumer)
 	_mark_power_dirty()
 
 ## Принудительный пересчёт (после boot/load). Boot/load only.
@@ -114,7 +121,7 @@ func get_registered_source_count() -> int:
 func get_registered_consumer_count() -> int:
 	return _registered_consumers.size()
 
-func save_state() -> Dictionary:
+func get_debug_snapshot() -> Dictionary:
 	return {
 		"supply": total_supply,
 		"demand": total_demand,
@@ -201,3 +208,33 @@ func _on_source_output_changed(_new_output: float) -> void:
 
 func _on_consumer_configuration_changed() -> void:
 	_mark_power_dirty()
+
+func _refresh_observed_runtime_configs() -> void:
+	var observed_change: bool = false
+	for source: PowerSourceComponent in _registered_sources.keys():
+		if not is_instance_valid(source):
+			_source_config_snapshots.erase(source)
+			continue
+		var current_snapshot: Array = _make_source_config_snapshot(source)
+		var previous_snapshot: Array = _source_config_snapshots.get(source, [])
+		if current_snapshot != previous_snapshot:
+			source.refresh_from_config()
+			_source_config_snapshots[source] = _make_source_config_snapshot(source)
+			observed_change = true
+	for consumer: PowerConsumerComponent in _registered_consumers.keys():
+		if not is_instance_valid(consumer):
+			_consumer_config_snapshots.erase(consumer)
+			continue
+		var current_consumer_snapshot: Array = _make_consumer_config_snapshot(consumer)
+		var previous_consumer_snapshot: Array = _consumer_config_snapshots.get(consumer, [])
+		if current_consumer_snapshot != previous_consumer_snapshot:
+			_consumer_config_snapshots[consumer] = current_consumer_snapshot
+			observed_change = true
+	if observed_change:
+		_mark_power_dirty()
+
+func _make_source_config_snapshot(source: PowerSourceComponent) -> Array:
+	return [source.max_output, source.is_enabled, source.condition_multiplier, source.current_output]
+
+func _make_consumer_config_snapshot(consumer: PowerConsumerComponent) -> Array:
+	return [consumer.demand, consumer.priority]

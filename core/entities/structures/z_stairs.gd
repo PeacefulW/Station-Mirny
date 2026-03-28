@@ -44,14 +44,9 @@ func _trigger_transition() -> void:
 	var game_world: Node = _find_game_world()
 	if not game_world:
 		return
-	var z_manager: ZLevelManager = game_world.get_node_or_null("ZLevelManager") as ZLevelManager
-	var overlay: ZTransitionOverlay = game_world.get_node_or_null("ZTransitionOverlay") as ZTransitionOverlay
-	if not z_manager:
+	if not game_world.has_method("request_z_transition"):
 		return
-	if overlay:
-		overlay.do_transition(func() -> void: z_manager.change_level(target_z))
-	else:
-		z_manager.change_level(target_z)
+	game_world.request_z_transition(target_z)
 
 func _find_game_world() -> Node:
 	var node: Node = get_parent()

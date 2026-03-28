@@ -259,63 +259,23 @@ func _on_slot_clicked(slot_index: int, button: int) -> void:
 func _on_slot_dropped(from_index: int, to_index: int) -> void:
 	if not _inventory:
 		return
-	if from_index < 0 or from_index >= _inventory.slots.size():
-		return
-	if to_index < 0 or to_index >= _inventory.slots.size():
-		return
-	var slot_a: InventorySlot = _inventory.slots[from_index]
-	var slot_b: InventorySlot = _inventory.slots[to_index]
-	# Если одинаковый предмет — объединить стаки
-	if not slot_a.is_empty() and not slot_b.is_empty() and slot_a.item.id == slot_b.item.id:
-		var space: int = slot_b.item.max_stack - slot_b.amount
-		var transfer: int = mini(space, slot_a.amount)
-		slot_b.amount += transfer
-		slot_a.amount -= transfer
-		if slot_a.amount <= 0:
-			slot_a.clear()
-	else:
-		# Swap
-		var tmp_item: ItemData = slot_a.item
-		var tmp_amount: int = slot_a.amount
-		slot_a.item = slot_b.item
-		slot_a.amount = slot_b.amount
-		slot_b.item = tmp_item
-		slot_b.amount = tmp_amount
-	EventBus.inventory_updated.emit(_inventory)
+	_inventory.move_slot_contents(from_index, to_index)
 
 func _on_equip_clicked(slot_type: int) -> void:
 	if not _equipment or not _inventory:
 		return
-	var item: ItemData = _equipment.unequip(slot_type)
-	if item:
-		_inventory.add_item(item, 1)
-	_refresh()
+	if _equipment.unequip_to_inventory(slot_type, _inventory):
+		_refresh()
 
 func _split_stack(slot_index: int) -> void:
-	if not _inventory or slot_index >= _inventory.slots.size():
+	if not _inventory:
 		return
-	var slot: InventorySlot = _inventory.slots[slot_index]
-	if slot.is_empty() or slot.amount <= 1:
-		return
-	var half: int = slot.amount / 2
-	slot.amount -= half
-	_inventory.add_item(slot.item, half)
-	EventBus.inventory_updated.emit(_inventory)
+	_inventory.split_stack(slot_index)
 
 func _try_equip_from_inventory(slot_index: int) -> void:
-	if not _inventory or not _equipment or slot_index >= _inventory.slots.size():
+	if not _inventory or not _equipment:
 		return
-	var slot: InventorySlot = _inventory.slots[slot_index]
-	if slot.is_empty() or slot.item.equipment_slot < 0:
-		return
-	var equip_slot: int = slot.item.equipment_slot
-	if not _equipment.can_equip(equip_slot, slot.item):
-		return
-	var previous: ItemData = _equipment.equip(equip_slot, slot.item)
-	slot.clear()
-	if previous:
-		_inventory.add_item(previous, 1)
-	EventBus.inventory_updated.emit(_inventory)
+	_equipment.equip_from_inventory_slot(_inventory, slot_index)
 
 # --- Тултипы ---
 
@@ -386,36 +346,17 @@ func _center_panel_if_needed() -> void:
 func _sort_inventory() -> void:
 	if not _inventory:
 		return
-	# Собрать непустые слоты
-	var items: Array[Dictionary] = []
-	for slot: InventorySlot in _inventory.slots:
-		if not slot.is_empty():
-			items.append({"item": slot.item, "amount": slot.amount})
-		slot.clear()
-	# Сортировка по имени
-	items.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return (a["item"] as ItemData).get_display_name() < (b["item"] as ItemData).get_display_name()
-	)
-	# Положить обратно
-	var idx: int = 0
-	for entry: Dictionary in items:
-		if idx < _inventory.slots.size():
-			_inventory.slots[idx].item = entry["item"]
-			_inventory.slots[idx].amount = entry["amount"]
-			idx += 1
-	EventBus.inventory_updated.emit(_inventory)
+	_inventory.sort_slots_by_name()
 
 ## Выбросить предмет на землю (drop за пределы панели).
 func _on_drop_outside(from_index: int) -> void:
-	if not _inventory or from_index < 0 or from_index >= _inventory.slots.size():
+	if not _inventory:
 		return
-	var slot: InventorySlot = _inventory.slots[from_index]
-	if slot.is_empty():
+	var removed: Dictionary = _inventory.remove_slot_contents(from_index)
+	if removed.is_empty():
 		return
-	var item_id: String = slot.item.id
-	var amount: int = slot.amount
-	slot.clear()
-	EventBus.inventory_updated.emit(_inventory)
+	var item_id: String = str(removed.get("item_id", ""))
+	var amount: int = int(removed.get("amount", 0))
 	EventBus.item_dropped.emit(item_id, amount, Vector2.ZERO)
 
 # --- Внутренний класс: dimmer с поддержкой drop ---

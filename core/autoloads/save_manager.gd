@@ -19,7 +19,7 @@ var current_slot: String = ""
 ## Идёт ли процесс сохранения/загрузки.
 var is_busy: bool = false
 ## Слот, который нужно загрузить после смены сцены (из главного меню).
-var pending_load_slot: String = ""
+var _pending_load_slot: String = ""
 
 func _ready() -> void:
 	if not SaveIO.ensure_directory(SAVES_ROOT):
@@ -147,6 +147,17 @@ func delete_save(slot_name: String) -> bool:
 ## Существует ли сохранение?
 func save_exists(slot_name: String) -> bool:
 	return FileAccess.file_exists(SAVES_ROOT.path_join(slot_name).path_join(META_FILE))
+
+func request_load_after_scene_change(slot_name: String) -> void:
+	_pending_load_slot = slot_name
+
+func consume_pending_load_slot() -> String:
+	var slot: String = _pending_load_slot
+	_pending_load_slot = ""
+	return slot
+
+func clear_pending_load_request() -> void:
+	_pending_load_slot = ""
 
 # --- Приватные ---
 

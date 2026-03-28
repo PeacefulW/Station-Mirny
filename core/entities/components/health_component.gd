@@ -12,12 +12,11 @@ signal died()
 var current_health: float = 0.0
 
 func _ready() -> void:
-	current_health = max_health
+	restore_state(max_health, max_health)
 
 ## Нанести урон. Возвращает true если сущность погибла.
 func take_damage(amount: float) -> bool:
-	current_health = maxf(current_health - amount, 0.0)
-	health_changed.emit(current_health, max_health)
+	restore_state(current_health - amount, max_health)
 	if current_health <= 0.0:
 		died.emit()
 		return true
@@ -25,11 +24,15 @@ func take_damage(amount: float) -> bool:
 
 ## Восстановить здоровье.
 func heal(amount: float) -> void:
-	current_health = minf(current_health + amount, max_health)
-	health_changed.emit(current_health, max_health)
+	restore_state(current_health + amount, max_health)
 
 ## Получить здоровье в процентах (0.0 — 1.0).
 func get_health_percent() -> float:
 	if max_health <= 0.0:
 		return 0.0
 	return current_health / max_health
+
+func restore_state(new_current_health: float, new_max_health: float) -> void:
+	max_health = maxf(new_max_health, 0.0)
+	current_health = clampf(new_current_health, 0.0, max_health)
+	health_changed.emit(current_health, max_health)

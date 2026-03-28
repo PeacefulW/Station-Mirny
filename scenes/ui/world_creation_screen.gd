@@ -26,8 +26,8 @@ var _mountain_area_name_label: Label = null
 var _mountain_chains_name_label: Label = null
 
 func _ready() -> void:
-	if TimeManager:
-		TimeManager.is_paused = true
+	if TimeManager and TimeManager.has_method("set_paused"):
+		TimeManager.set_paused(true)
 	_balance = load(BALANCE_PATH) as WorldGenBalance
 	_build_ui()
 	_randomize_seed()
@@ -129,7 +129,7 @@ func _on_start_pressed() -> void:
 		seed_val = seed_text.hash()
 	else:
 		seed_val = randi()
-	SaveManager.pending_load_slot = ""
+	SaveManager.clear_pending_load_request()
 	WorldGenerator.initialize_world(seed_val)
 	get_tree().change_scene_to_file(GAME_SCENE_PATH)
 

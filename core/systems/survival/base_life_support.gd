@@ -13,14 +13,22 @@ func _ready() -> void:
 	add_to_group("life_support")
 	_consumer = PowerConsumerComponent.new()
 	_consumer.name = "PowerConsumer"
-	_consumer.demand = demand
-	_consumer.priority = PowerConsumerComponent.Priority.CRITICAL
 	add_child(_consumer)
+	set_power_demand(demand)
+	_consumer.set_priority(PowerConsumerComponent.Priority.CRITICAL)
 	_consumer.powered_changed.connect(_on_powered_changed)
 	_emit_state()
 
 func is_powered() -> bool:
 	return _consumer != null and _consumer.is_powered
+
+func set_power_demand(new_demand: float) -> void:
+	demand = maxf(new_demand, 0.0)
+	if _consumer:
+		_consumer.set_demand(demand)
+
+func get_power_demand() -> float:
+	return demand
 
 func _on_powered_changed(powered: bool) -> void:
 	EventBus.life_support_power_changed.emit(powered)
