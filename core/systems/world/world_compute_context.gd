@@ -4,6 +4,7 @@ extends RefCounted
 const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_utils.gd")
 
 var balance: WorldGenBalance = null
+var world_seed: int = 0
 var spawn_tile: Vector2i = Vector2i.ZERO
 var current_biome: BiomeData = null
 
@@ -12,11 +13,14 @@ var _planet_sampler: PlanetSampler = null
 var _structure_sampler: LargeStructureSampler = null
 var _biome_resolver: BiomeResolver = null
 var _local_variation_resolver: LocalVariationResolver = null
+var _surface_terrain_resolver: RefCounted = null
 var _biome_by_id: Dictionary = {}
 var _palette_index_by_id: Dictionary = {}
+var _feature_hook_snapshot: Array[Resource] = []
 
 func configure(
 	balance_resource: WorldGenBalance,
+	world_seed_value: int,
 	spawn_tile_value: Vector2i,
 	current_biome_value: BiomeData,
 	default_biome: BiomeData,
@@ -25,9 +29,11 @@ func configure(
 	biome_resolver: BiomeResolver,
 	local_variation_resolver: LocalVariationResolver,
 	biome_by_id: Dictionary,
-	palette_index_by_id: Dictionary
+	palette_index_by_id: Dictionary,
+	feature_hook_snapshot: Array[Resource]
 ) -> WorldComputeContext:
 	balance = balance_resource
+	world_seed = world_seed_value
 	spawn_tile = spawn_tile_value
 	current_biome = current_biome_value
 	_default_biome = default_biome
@@ -37,6 +43,11 @@ func configure(
 	_local_variation_resolver = local_variation_resolver
 	_biome_by_id = biome_by_id.duplicate()
 	_palette_index_by_id = palette_index_by_id.duplicate()
+	_feature_hook_snapshot = feature_hook_snapshot.duplicate()
+	return self
+
+func set_surface_terrain_resolver(surface_terrain_resolver: RefCounted) -> WorldComputeContext:
+	_surface_terrain_resolver = surface_terrain_resolver
 	return self
 
 func sample_world_channels(world_pos: Vector2i) -> WorldChannels:
@@ -121,6 +132,21 @@ func get_biome_palette_index(biome_id: StringName) -> int:
 	if biome_id == &"":
 		return 0
 	return int(_palette_index_by_id.get(biome_id, 0))
+
+func get_world_seed() -> int:
+	return world_seed
+
+func get_feature_hook_snapshot() -> Array[Resource]:
+	var result: Array[Resource] = []
+	for feature_hook: Resource in _feature_hook_snapshot:
+		result.append(feature_hook)
+	return result
+
+func get_surface_terrain_type(tile_pos: Vector2i) -> int:
+	var canonical_tile: Vector2i = canonicalize_tile(tile_pos)
+	if _surface_terrain_resolver == null:
+		return TileGenData.TerrainType.GROUND
+	return _surface_terrain_resolver.sample_terrain_type(canonical_tile.x, canonical_tile.y)
 
 func canonicalize_tile(tile_pos: Vector2i) -> Vector2i:
 	if _planet_sampler == null:

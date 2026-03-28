@@ -5,6 +5,8 @@ const BALANCE_PATH: String = "res://data/world/world_gen_balance.tres"
 const CHUNK_BIOME_SAMPLE_GRID: int = 3
 const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_utils.gd")
 const WorldComputeContextScript = preload("res://core/systems/world/world_compute_context.gd")
+const WorldFeatureHookResolverScript = preload("res://core/systems/world/world_feature_hook_resolver.gd")
+const WorldPoiResolverScript = preload("res://core/systems/world/world_poi_resolver.gd")
 const SurfaceTerrainResolverScript = preload("res://core/systems/world/surface_terrain_resolver.gd")
 
 var world_seed: int = 0
@@ -357,6 +359,7 @@ func _setup_compute_context() -> void:
 		palette_index_by_id[biome.id] = index
 	_compute_context = WorldComputeContextScript.new().configure(
 		balance,
+		world_seed,
 		spawn_tile,
 		current_biome,
 		BiomeRegistry.get_default_biome(),
@@ -365,15 +368,28 @@ func _setup_compute_context() -> void:
 		_biome_resolver,
 		_local_variation_resolver,
 		biome_by_id,
-		palette_index_by_id
+		palette_index_by_id,
+		WorldFeatureRegistry.get_all_feature_hooks()
 	)
 	_surface_terrain_resolver = _create_surface_terrain_resolver(_compute_context)
+	_compute_context.set_surface_terrain_resolver(_surface_terrain_resolver)
 
 func _setup_chunk_content_builder() -> void:
 	_chunk_content_builder = _create_chunk_content_builder(_compute_context)
 
 func create_detached_chunk_content_builder() -> ChunkContentBuilder:
 	return _create_chunk_content_builder(_compute_context)
+
+func _resolve_feature_hook_decisions(candidate_origin: Vector2i) -> Array[Dictionary]:
+	if not _is_initialized or _compute_context == null:
+		return []
+	return WorldFeatureHookResolverScript.resolve_for_origin(candidate_origin, _compute_context)
+
+func _resolve_poi_placement_decisions(candidate_origin: Vector2i) -> Array[Dictionary]:
+	if not _is_initialized or _compute_context == null:
+		return []
+	var hook_decisions: Array[Dictionary] = _resolve_feature_hook_decisions(candidate_origin)
+	return WorldPoiResolverScript.resolve_for_origin(candidate_origin, hook_decisions, _compute_context)
 
 func _ensure_world_feature_registry_ready() -> bool:
 	if not WorldFeatureRegistry or not WorldFeatureRegistry.is_ready():

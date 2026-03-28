@@ -47,6 +47,8 @@ Until superseded, this document is mandatory reading for any iteration that touc
 | Layer | Class | Owner | Writes | Reads | Scope / rebuild |
 | --- | --- | --- | --- | --- | --- |
 | Feature / POI Definitions | `canonical` | `WorldFeatureRegistry` | boot-time registry load of immutable definition resources | `WorldFeatureRegistry` read APIs, `WorldGenerator` readiness gate, future generator-side resolvers | boot-time load only, read-only during runtime |
+| Feature Hook Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic hook decision compute from canonical generator context + immutable definition snapshot | future `WorldPoiResolver`, future chunk payload generation, debug inspectors | per-origin deterministic compute, no persistence |
+| POI Placement Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic POI arbitration from hook decisions + immutable POI definitions | future chunk payload generation, future debug/materialization consumers | per-origin deterministic compute, owner-only placement authority, no persistence |
 | World | `canonical` | `ChunkManager` runtime arbitration, `Chunk` loaded storage, `WorldGenerator` unloaded surface base | canonical terrain bytes and unloaded overlay | terrain/resource/walkability/presentation consumers | loaded + unloaded reads, immediate writes, generator fallback |
 | Mining | `canonical` | `ChunkManager` orchestration, `Chunk` loaded mutation storage | loaded terrain mutation and mining-side invalidation entrypoint | topology, reveal, presentation, save collection | loaded-only mutation, immediate |
 | Topology | `derived` | `ChunkManager`, with native `MountainTopologyBuilder` behind it when enabled | surface topology caches | `MountainRoofSystem` and topology getters | surface-only, loaded-bubble scoped, incremental patch + deferred dirty rebuild |
@@ -64,6 +66,9 @@ Observed files for this version:
 - `core/systems/world/tile_gen_data.gd`
 - `core/systems/world/chunk_build_result.gd`
 - `core/systems/world/chunk_content_builder.gd`
+- `core/systems/world/world_compute_context.gd`
+- `core/systems/world/world_feature_hook_resolver.gd`
+- `core/systems/world/world_poi_resolver.gd`
 - `core/systems/world/chunk_tileset_factory.gd`
 - `core/systems/world/chunk_manager.gd`
 - `core/systems/world/chunk.gd`
@@ -78,6 +83,8 @@ Observed files for this version:
 ## Current Source Of Truth Summary
 
 - Feature hook and POI definition truth lives in `WorldFeatureRegistry` and is loaded from registry-backed resources before world initialization.
+- Feature hook decisions are derived on demand by `WorldFeatureHookResolver` from canonical generator context plus immutable registry-backed definitions; they are not loaded-world or presentation truth.
+- POI placement decisions are derived on demand by `WorldPoiResolver` from hook decisions plus immutable POI definitions; canonical anchor ownership and arbitration order are computed before any payload/materialization step.
 - Surface base terrain for unloaded tiles comes from `WorldGenerator` through `build_chunk_native_data()`, `build_chunk_content()`, and `get_terrain_type_fast()`.
 - Loaded chunk terrain truth lives in `Chunk._terrain_bytes`.
 - Loaded chunk runtime modifications live in `Chunk._modified_tiles`.
@@ -120,6 +127,55 @@ Observed files for this version:
 - none; readiness is established by boot-time load completion and consumed synchronously by `WorldGenerator.initialize_world()`
 - `current violations / ambiguities / contract gaps`:
 - No public mutation or mod-loading API exists yet for this catalog; that remains deferred until the dedicated extension-layer iteration.
+
+## Layer: Feature Hook Decisions
+
+- `classification`: `derived`
+- `owner`: `WorldGenerator` generation pipeline owns feature-hook decision compute for Iteration 7.2; `WorldFeatureHookResolver` is the only writer path.
+- `writers`: `WorldFeatureHookResolver.resolve_for_origin(candidate_origin, ctx)` using canonical generator context plus immutable feature-hook definitions.
+- `readers`: `WorldPoiResolver`, future chunk payload build integration, debug/validation tooling.
+- `rebuild policy`: deterministic per-origin compute only; no persistence, no chunk-local authority, no presentation back-write.
+- `invariants`:
+- `assert(same_seed_and_candidate_origin => same hook decision set, "feature-hook resolution must be deterministic for a canonical origin")`
+- `assert(hook_decisions_depend_only_on_canonical_generator_context_and_definition_catalog, "feature-hook resolution must stay unloaded-safe and registry-backed")`
+- `assert(feature_hook_decisions_are_sorted_by_explicit_stable_order, "hook decision ordering must not depend on resource load order")`
+- `assert(chunk_edge_evaluation_uses_canonical_origin_only, "neighboring chunk builds must resolve identical hook decisions for the same canonical origin")`
+- `write operations`:
+- `WorldFeatureHookResolver.resolve_for_origin()`
+- `WorldGenerator` internal generator-side compute paths that call the resolver
+- `forbidden writes`:
+- `Chunk`, `ChunkManager`, mining, topology, reveal, and presentation systems must not author or mutate feature-hook decisions.
+- Feature-hook compute must not mutate terrain answers, structure context, biome results, or local variation outputs while evaluating eligibility.
+- Feature-hook compute must not read `ChunkManager`, `Chunk`, topology caches, reveal state, underground fog, or presentation objects as hidden inputs.
+- `emitted events / invalidation signals`:
+- none; decisions are derived synchronously from canonical generator context when queried.
+- `current violations / ambiguities / contract gaps`:
+- Resolver output is internal-only in Iteration 7.2; no public inspection API or chunk payload materialization contract exists yet.
+
+## Layer: POI Placement Decisions
+
+- `classification`: `derived`
+- `owner`: `WorldGenerator` generation pipeline owns deterministic POI placement arbitration for Iteration 7.3; `WorldPoiResolver` is the only writer path.
+- `writers`: `WorldPoiResolver.resolve_for_origin(candidate_origin, hook_decisions, ctx)` using canonical hook decisions plus immutable POI definitions.
+- `readers`: future chunk payload build integration, future debug/materialization consumers.
+- `rebuild policy`: deterministic per-origin compute only; no deferred queue, no second-pass arbitration, no persistence.
+- `invariants`:
+- `assert(each_canonical_anchor_produces_zero_or_one_final_placement, "single baseline exclusive slot is enforced per anchor")`
+- `assert(anchor_tile == candidate_origin + anchor_offset, "anchor ownership is explicit and deterministic")`
+- `assert(owner_chunk == canonical_chunk_containing(anchor_tile), "placement ownership is derived from anchor tile, not load order")`
+- `assert(competing_valid_pois_at_same_anchor_are_resolved_by_priority_then_hash_then_lexicographic_id, "arbitration order must stay fixed")`
+- `assert(footprint_tiles_are_canonical_world_tiles_sorted_deterministically, "downstream payload export must not depend on load order")`
+- `write operations`:
+- `WorldPoiResolver.resolve_for_origin()`
+- `WorldGenerator` internal generator-side compute paths that call the resolver
+- `forbidden writes`:
+- `Chunk`, `ChunkManager`, mining, topology, reveal, and presentation systems must not author or mutate POI placement decisions.
+- POI placement compute must not use loaded runtime diffs, topology caches, reveal state, underground fog, or presentation objects as hidden inputs.
+- POI placement compute must not introduce deferred placement queues, second-pass arbitration, or non-owner secondary authority in the baseline.
+- `emitted events / invalidation signals`:
+- none; placements are rebuilt synchronously from deterministic generator inputs when queried.
+- `current violations / ambiguities / contract gaps`:
+- Placement decisions remain internal-only in Iteration 7.3; payload serialization and non-owner chunk materialization stay out of scope until Iteration 7.4.
 
 ## Layer: World
 
