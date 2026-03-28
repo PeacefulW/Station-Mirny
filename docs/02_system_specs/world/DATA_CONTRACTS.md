@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.4
+version: 0.5
 last_updated: 2026-03-28
 depends_on:
   - world_generation_foundation.md
@@ -402,11 +402,12 @@ Observed files for this version:
 - Loaded terrain bytes: `Chunk._terrain_bytes`
 - Loaded runtime modification diff: `Chunk._modified_tiles`
 - Unloaded runtime modification diff: `ChunkManager._saved_chunk_data`
-- Active z selection for chunk set switching: `ChunkManager._active_z`
+- Canonical active z selection: `ZLevelManager.current_z` via `ZLevelManager.change_level()`
 
 ### Derived state
 
 - `Chunk._has_mountain`
+- `ChunkManager._active_z` as downstream world-stack mirror of canonical z state
 - Surface topology caches in `ChunkManager`
 - `ChunkManager.query_local_underground_zone()` result
 - `MountainRoofSystem` active local zone and cover-tile maps
@@ -922,18 +923,21 @@ Observed files for this version:
 - `invariants`:
 - `assert(current_z >= Z_MIN and current_z <= Z_MAX, "active z level must remain within declared bounds")`
 - `assert(new_z != current_z_before_emit, "z_level_changed must only emit on real z transitions")`
+- `assert(chunk_manager_active_z == current_z after downstream_sync, "ChunkManager._active_z must mirror canonical z after signal-driven world sync")`
 - `assert(not monitoring or visible, "stairs monitoring must match current visible source_z context")`
 - `write operations`:
 - `ZLevelManager.change_level()`
 - `ZStairs._trigger_transition()`
 - `forbidden writes`:
 - External systems must not assign `ZLevelManager.current_z` directly.
-- Callers must not treat `ChunkManager.set_active_z_level()` or daylight/shadow sync as a substitute primary z-switch API.
+- External systems must not call `ChunkManager.set_active_z_level()` as a primary z-switch API; it is a downstream world-stack sink driven by `scenes/world/game_world.gd::_on_z_level_changed()`.
+- Callers must not treat `ChunkManager.get_active_z_level()` as global z source of truth when `ZLevelManager` is available.
 - `emitted events / invalidation signals`:
 - `ZLevelManager.z_level_changed`
 - `EventBus.z_level_changed`
 - `current violations / ambiguities / contract gaps`:
 - `ZLevelManager.current_z` is a public mutable field, so external code can bypass `change_level()` and skip event emission.
+- `ChunkManager` still stores mirrored `_active_z`; bypass writes to canonical or sink paths can desync world-stack switching from canonical z ownership.
 - `ZStairs` reaches into `GameWorld` to find `ZLevelManager` and `ZTransitionOverlay` directly instead of using a dedicated public transition API.
 
 ### Layer: Time / calendar / day-night
@@ -1058,7 +1062,7 @@ Observed files for this version:
 | 35 | Spawn / pickup orchestration | Save/load сохраняет pickups, но не врагов и не spawn timers | medium | После загрузки hostile population сбрасывается |
 | 36 | Enemy AI / fauna | Сканирование игрока и noise sources не фильтруется по z-level | medium | Существо может реагировать на шум или игрока с другого уровня, если такие акторы одновременно живы |
 | 37 | Noise / hearing input | Noise layer не эмитит invalidation signal, реакция идёт только на следующем scan tick | low | Реакция врагов на включение/выключение шумного объекта может ощущаться запаздывающей |
-| 38 | Z-level switching | `ZLevelManager.current_z` публично мутируемый и может быть изменён в обход `change_level()` | medium | Смена уровня может не запустить синхронизацию мира, света и теней |
+| 38 | Z-level switching | `ZLevelManager.current_z` публично мутируемый и может быть изменён в обход `change_level()`, что также рискует рассинхронизировать downstream mirror `ChunkManager._active_z` | medium | Смена уровня может не запустить синхронизацию мира, света и теней |
 | 39 | Z-level switching | `ZStairs` напрямую ищет `GameWorld`, `ZLevelManager` и overlay в scene tree | low | Любой новый триггер перехода рискует скопировать internal glue и пропустить нужные side-effects |
 | 40 | Time / calendar | `TimeManager.is_paused` и `time_scale` меняются напрямую из внешнего кода | medium | Время можно заморозить/ускорить в обход явного API и без централизованного контракта |
 | 41 | Save / load orchestration | `SaveLoadTab` обходит `SaveManager` при listing/delete/load-request orchestration | high | UI и canonical save-layer могут разойтись по поведению и error handling |

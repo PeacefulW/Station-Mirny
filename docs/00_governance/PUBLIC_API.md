@@ -4,7 +4,7 @@ doc_type: governance
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.2
+version: 0.3
 last_updated: 2026-03-28
 depends_on:
   - WORKFLOW.md
@@ -321,11 +321,7 @@ related_docs:
 - Гарантии: immediate underground reveal side-effects из `Postconditions: mine tile`; canonical terrain semantics не меняются вне mining contract.
 - Пример вызова: `var result := chunk_manager.try_harvest_at_world(hit_world_pos)`
 
-`ChunkManager.set_active_z_level(z: int) -> void`
-- Когда вызывать: при переходе между z-levels, когда reveal runtime должен переключиться вместе с active world.
-- Что делает: на underground entry очищает shared fog state и immediately recomputes visible circle around player.
-- Гарантии: соблюдает reveal-layer contract про transient underground fog state.
-- Пример вызова: `chunk_manager.set_active_z_level(-1)`
+Примечание: z-switch reveal side-effects достигаются через canonical owner-path `ZLevelManager.change_level()`. `ChunkManager.set_active_z_level()` остаётся downstream sink и не является public z-switch API.
 
 Примечание: public surface reveal refresh API сейчас нет. `MountainRoofSystem` владеет refresh internally и сам реагирует на player movement, chunk load/unload и mining events.
 
@@ -418,11 +414,11 @@ related_docs:
 - Гарантии: presentation-only; same shadow contract as `prepare_boot_shadows()`.
 - Пример вызова: `_mountain_shadow_system.build_boot_shadows()`
 
-`Chunk.complete_redraw_now() -> void`
+`Chunk.complete_redraw_now() -> void`  `(owner-only safe entrypoint)`
 - Когда вызывать: только из chunk lifecycle owner path, если уже созданный loaded chunk нужно redraw immediately.
 - Что делает: полный terrain/cover/cliff redraw этого chunk.
-- Гарантии: presentation-only, loaded-only; не меняет canonical terrain.
-- Пример вызова: `chunk.complete_redraw_now()`
+- Гарантии: presentation-only, loaded-only; не меняет canonical terrain и не является general external redraw API.
+- Пример вызова: внутри owner path `chunk.complete_redraw_now()`
 
 ### Чтение
 
@@ -473,29 +469,35 @@ related_docs:
 
 ## Z-Level Management
 
-`classification`: orchestration over `canonical` active-z selection plus reveal/presentation switching.  
+`classification`: orchestration over canonical active-z ownership plus downstream world/reveal/presentation switching.  
 См. [World Data Contracts](../02_system_specs/world/DATA_CONTRACTS.md): `Layer: World`, `Layer: Reveal`, `Source Of Truth Vs Derived State`.
 
 ### Безопасные точки входа
 
-`ChunkManager.set_active_z_level(z: int) -> void`
-- Когда вызывать: когда higher-level scene orchestration переводит world stack на другой z-level.
-- Что делает: переключает active chunk set, обновляет visibility z-containers, фильтрует load queue, а на underground entry очищает fog state и immediately recomputes visible fog around player.
-- Гарантии: active z source-of-truth остаётся в `ChunkManager`; reveal/presentation side-effects выполняются в documented owner path.
-- Пример вызова: `chunk_manager.set_active_z_level(new_z)`
+`ZLevelManager.change_level(new_z: int) -> void`
+- Когда вызывать: когда gameplay or scene orchestration должна перейти на другой z-level.
+- Что делает: обновляет canonical `current_z`, эмитит z-change signals, а downstream world stack synchronizes through `GameWorld._on_z_level_changed()`.
+- Гарантии: это primary owner-path для z traversal; `ChunkManager.set_active_z_level()` не должен использоваться как равноправный public API.
+- Пример вызова: `z_manager.change_level(new_z)`
 
 ### Чтение
 
+`ZLevelManager.get_current_z() -> int`
+- Что возвращает: canonical current active z-level.
+- Когда использовать: для общего gameplay / scene / API-level z reads.
+- Особенности: authoritative read.
+
 `ChunkManager.get_active_z_level() -> int`
-- Что возвращает: текущий active z-level world stack.
-- Когда использовать: перед z-dependent world/topology/reveal/presentation reads.
-- Особенности: authoritative active-z read in scope.
+- Что возвращает: downstream mirrored active z-level world stack.
+- Когда использовать: только внутри world-stack reads/debug, когда нужен уже synchronized chunk-layer state.
+- Особенности: mirror read; не global source of truth.
 
 ### Внутренние методы (НЕ вызывать)
 
 | Метод | Почему нельзя вызывать напрямую |
 |-------|-------------------------------|
 | `GameWorld._on_z_level_changed(new_z: int, _old_z: int) -> void` | Scene glue. Координирует `ChunkManager`, daylight и `MountainShadowSystem`; не public API. |
+| `ChunkManager.set_active_z_level(z: int) -> void` | Downstream world-stack sink. Должен вызываться только из `GameWorld._on_z_level_changed()` после canonical `ZLevelManager.change_level()`. |
 | `MountainShadowSystem.set_active_z_level(new_z: int) -> void` | Secondary presentation sync helper. Safe only as part of higher-level z orchestration, не как primary z switch API. |
 | `ChunkManager._generate_solid_rock_chunk() -> Dictionary` | Underground chunk generation helper, не z switch API. |
 | `ChunkManager.ensure_underground_pocket(center_tile: Vector2i, pocket_tiles: Array) -> void` | Debug-only helper, не runtime z traversal API. |
@@ -1168,7 +1170,7 @@ related_docs:
 `ZLevelManager.change_level(new_z: int) -> void`
 - Когда вызывать: когда gameplay or scene orchestration должна перейти на другой z-level.
 - Что делает: проверяет bounds, обновляет `current_z`, эмитит local signal и `EventBus.z_level_changed`.
-- Гарантии: canonical z-switch API; downstream world/presentation systems подписаны на это событие.
+- Гарантии: canonical z-switch API; downstream world/presentation systems подписаны на это событие. `ChunkManager.set_active_z_level()` не является альтернативным public owner-path.
 - Пример: `z_manager.change_level(-1)`
 
 #### Чтение
@@ -1274,10 +1276,10 @@ related_docs:
 #### Чтение
 
 `SaveManager.current_slot`
-- Current active slot name. Read-only by convention; не write-safe.
+- Read-only probe of current active slot name. Never assign directly.
 
 `SaveManager.is_busy`
-- Busy-state probe for save/load UI/orchestration. Не write-safe.
+- Read-only probe for save/load UI/orchestration. Never assign directly.
 
 `SaveManager.get_save_list() -> Array[Dictionary]`
 - Canonical save-slot listing API.
