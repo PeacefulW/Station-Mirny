@@ -4,8 +4,8 @@ doc_type: execution
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.0
-last_updated: 2026-03-25
+version: 1.1
+last_updated: 2026-03-28
 related_docs:
   - ../02_system_specs/world/world_generation_foundation.md
   - ../00_governance/PERFORMANCE_CONTRACTS.md
@@ -241,6 +241,20 @@ The rollout is off track if:
 - local diversity is missing, causing endless top-level biome growth
 - generation gets tied to chunk-local randomness instead of world truth
 - performance problems appear because rebuilds leak into interactive paths
+
+## Current implementation status (as of 2026-03-28)
+
+This section is a lightweight status overlay. Detailed audit and remaining gaps live in [World Generation Gap Closure Plan](world_generation_gap_closure_plan.md).
+
+| Iteration | Status | Key facts |
+| --- | --- | --- |
+| 1 — Continuous world channels | done | `PlanetSampler` samples height, temperature, moisture, ruggedness, flora_density; cylindrical X-wrap via `WorldNoiseUtils` |
+| 2 — Biome resolver foundation | done | `BiomeResolver` + `BiomeRegistry` + `BiomeData` resources; real per-channel and per-structure scores in `BiomeResult` |
+| 3 — Large terrain structures | done | `LargeStructureSampler` with primary + secondary cross-ridge, river bands, floodplain; cylindrical wrap-safe; structure context visible to biome resolution |
+| 4 — Local variation layer | done | `LocalVariationResolver` with 5 variation kinds; all modulation channels consumed by terrain classification and flora placement |
+| 5 — Chunk content builder stabilization | done | `ChunkContentBuilder` is pure materialization delegate; terrain truth lives in `SurfaceTerrainResolver`; `get_terrain_type_fast()` routes to resolver directly |
+| 6 — Flora and decor sets | done (MVP) | `FloraSetData`, `DecorSetData`, `FloraDecorRegistry`, `ChunkFloraBuilder` exist; sync/async load-path parity achieved; placeholder visuals. Flora terrain filter contract exists in data, but builder currently consumes only `GROUND`; full filter support deferred to content growth phase. |
+| 7+ | not started | — |
 
 ## Source note
 

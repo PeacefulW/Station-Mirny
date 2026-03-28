@@ -37,6 +37,12 @@ extends Resource
 @export var ridge_warp_frequency: float = 0.0018
 @export_range(0.0, 1024.0, 1.0) var ridge_warp_amplitude_tiles: float = 260.0
 @export var ridge_cluster_frequency: float = 0.00075
+@export_range(128, 8192) var ridge_secondary_spacing_tiles: int = 880
+@export_range(8.0, 512.0, 1.0) var ridge_secondary_core_width_tiles: float = 72.0
+@export_range(8.0, 512.0, 1.0) var ridge_secondary_feather_tiles: float = 192.0
+@export var ridge_secondary_warp_frequency: float = 0.0014
+@export_range(0.0, 1024.0, 1.0) var ridge_secondary_warp_amplitude_tiles: float = 220.0
+@export_range(0.0, 1.0, 0.01) var ridge_secondary_weight: float = 0.60
 @export_range(128, 8192) var river_spacing_tiles: int = 480
 @export_range(4.0, 128.0, 1.0) var river_core_width_tiles: float = 42.0
 @export_range(8.0, 512.0, 1.0) var river_floodplain_width_tiles: float = 224.0
@@ -52,11 +58,6 @@ extends Resource
 @export_range(0.05, 0.50) var mountain_density: float = 0.30
 @export_range(1, 3) var mountain_area: int = 2
 @export_range(0.0, 1.0) var mountain_chaininess: float = 0.60
-
-@export_group("Mountain Noise")
-@export var mountain_blob_frequency: float = 0.012
-@export var mountain_chain_frequency: float = 0.016
-@export var mountain_detail_frequency: float = 0.035
 
 @export_group("Mountain Presentation")
 @export var rock_drop_item_id: StringName = &"base:stone"

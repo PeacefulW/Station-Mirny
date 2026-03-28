@@ -2,6 +2,7 @@ class_name LargeStructureSampler
 extends RefCounted
 
 const _RIDGE_DIR := Vector3(0.82, 0.53, 0.21)
+const _RIDGE_SECONDARY_DIR := Vector3(0.35, -0.48, 0.80)
 const _RIVER_DIR := Vector3(-0.31, 0.90, 0.30)
 const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_utils.gd")
 
@@ -9,6 +10,7 @@ var _world_seed: int = 0
 var _balance: WorldGenBalance = null
 var _cached_wrap_width: int = WorldNoiseUtilsScript.DEFAULT_WRAP_WIDTH_TILES
 var _ridge_warp_noise: FastNoiseLite = FastNoiseLite.new()
+var _ridge_secondary_warp_noise: FastNoiseLite = FastNoiseLite.new()
 var _ridge_cluster_noise: FastNoiseLite = FastNoiseLite.new()
 var _river_warp_noise: FastNoiseLite = FastNoiseLite.new()
 
@@ -19,6 +21,7 @@ func initialize(seed_value: int, balance_resource: WorldGenBalance) -> void:
 		return
 	_cached_wrap_width = WorldNoiseUtilsScript.resolve_wrap_width_tiles(_balance)
 	WorldNoiseUtilsScript.setup_noise_instance(_ridge_warp_noise, _world_seed + 211, _balance.ridge_warp_frequency, 2)
+	WorldNoiseUtilsScript.setup_noise_instance(_ridge_secondary_warp_noise, _world_seed + 217, _balance.ridge_secondary_warp_frequency, 2)
 	WorldNoiseUtilsScript.setup_noise_instance(_ridge_cluster_noise, _world_seed + 223, _balance.ridge_cluster_frequency, 3)
 	WorldNoiseUtilsScript.setup_noise_instance(_river_warp_noise, _world_seed + 241, _balance.river_warp_frequency, 2)
 
@@ -74,6 +77,18 @@ func _sample_ridge_strength(world_pos: Vector2i, mountain_mass: float, height_va
 		_balance.ridge_core_width_tiles,
 		_balance.ridge_feather_tiles
 	)
+	# Secondary cross-ridge: breaks parallel band uniformity
+	var secondary_weight: float = _balance.ridge_secondary_weight
+	if secondary_weight > 0.001:
+		var secondary_coord: float = _directed_coordinate(world_pos, _RIDGE_SECONDARY_DIR)
+		secondary_coord += _sample_noise_signed(_ridge_secondary_warp_noise, world_pos) * _balance.ridge_secondary_warp_amplitude_tiles
+		var secondary_band: float = _sample_repeating_band(
+			secondary_coord,
+			float(_balance.ridge_secondary_spacing_tiles),
+			_balance.ridge_secondary_core_width_tiles,
+			_balance.ridge_secondary_feather_tiles
+		)
+		band_strength = maxf(band_strength, secondary_band * secondary_weight)
 	var band_profile: float = band_strength * band_strength * (3.0 - 2.0 * band_strength)
 	var cluster_support: float = clampf(_sample_noise(_ridge_cluster_noise, world_pos) * 1.15 - 0.18, 0.0, 1.0)
 	var chaininess: float = clampf(_balance.mountain_chaininess, 0.0, 1.0)

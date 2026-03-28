@@ -4,8 +4,8 @@ doc_type: governance
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.1
-last_updated: 2026-03-26
+version: 1.2
+last_updated: 2026-03-28
 related_docs:
   - ENGINEERING_STANDARDS.md
   - PERFORMANCE_CONTRACTS.md
@@ -73,16 +73,16 @@ A stable, unique identifier for a game entity that survives save/load, multiplay
 A continuous deterministic scalar field sampled by world coordinates. Channels define what the world IS at any point. Target channels: height, temperature, moisture, ruggedness, flora_density. Same seed + same coordinates = same value, always. No chunk-local randomness. See: world_generation_foundation.md.
 
 ### Biome resolver
-A data-driven system that takes world channel values at a position and returns the winning biome. Evaluates registered BiomeData candidates by score/conditions (min/max height, temperature, moisture). Adding a biome = adding a .tres file, not editing generator code. Not yet implemented.
+A data-driven system that takes world channel values at a position and returns the winning biome. Evaluates registered `BiomeData` candidates by score/conditions (channel ranges, structure context). Adding a biome = adding a `.tres` file, not editing generator code. Implemented: `BiomeResolver` resolves biomes deterministically from `PlanetSampler` channels and `LargeStructureSampler` structure context; `BiomeRegistry` loads biome resources from `data/biomes/`.
 
 ### Large structure
-A world-scale geographic feature generated at Layer 2: mountain ridges, river systems, floodplains, dry belts, cold belts. Large structures influence biome resolution and provide world readability at distance. Currently: mountains exist as noise blobs, not structured ridges. Rivers not implemented.
+A world-scale geographic feature generated at Layer 2: mountain ridges, river systems, floodplains. Large structures influence biome resolution and provide world readability at distance. Implemented: `LargeStructureSampler` outputs `mountain_mass`, `ridge_strength` (primary + secondary cross-ridge), `river_strength`, and `floodplain_strength`. Ridge and river bands use cylindrical wrap-safe directed coordinates with noise warp. Structure context is visible to biome resolution and terrain classification.
 
 ### Local variation / Subzone
-A micro-region within a biome that modifies its character without replacing its identity. Types: sparse flora, dense flora, clearing, rocky edge, wet pocket. Reduces visual repetition without multiplying top-level biomes. Layer 4 of world generation. Not yet implemented.
+A micro-region within a biome that modifies its character without replacing its identity. Types: sparse flora, dense flora, clearing, rocky edge, wet pocket. Reduces visual repetition without multiplying top-level biomes. Layer 4 of world generation. Implemented: `LocalVariationResolver` samples five variation kinds from seeded periodic noise; variation ids and modulation channels (`flora_modulation`, `wetness_modulation`, `rockiness_modulation`, `openness_modulation`) propagate into chunk output and downstream consumers.
 
 ### Wrap-world
-World topology where the X axis wraps seamlessly (cylindrical). Moving far enough east returns you to the west. Y axis carries latitude logic (temperature gradient). Sampling must be wrap-safe — no seams at wrap boundary. Defined in spec, not yet enforced in code.
+World topology where the X axis wraps seamlessly (cylindrical). Moving far enough east returns you to the west. Y axis carries latitude logic (temperature gradient). Sampling must be wrap-safe — no seams at wrap boundary. Enforced in code: `WorldNoiseUtils` projects noise sampling onto a 3D cylinder; `PlanetSampler` and `LargeStructureSampler` use cylindrical periodic sampling for all channels and structure fields; wrap width is aligned to chunk boundaries through `resolve_wrap_width_tiles()`.
 
 ### Biome
 A named world region with distinct environmental identity: terrain palette, flora set, resource distribution, threat profile, temperature range, spore density. Determined by the biome resolver from world channel values at a position. Biomes define what a place IS — its permanent geographic character. Examples: plains, foothills, mountains, wet lowland, dry/scorched zone, cold zone. Each biome is a `.tres` resource (BiomeData), not a code branch.

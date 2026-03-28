@@ -12,7 +12,6 @@ var balance: WorldGenBalance = null
 var current_biome: BiomeData = null
 var spawn_tile: Vector2i = Vector2i.ZERO
 var _is_initialized: bool = false
-var _native_generator: ChunkGenerator = null
 var _planet_sampler: PlanetSampler = null
 var _structure_sampler: LargeStructureSampler = null
 var _biome_resolver: BiomeResolver = null
@@ -38,11 +37,9 @@ func _exit_tree() -> void:
 	_biome_resolver = null
 	_structure_sampler = null
 	_planet_sampler = null
-	_native_generator = null
 
 func initialize_world(seed_value: int) -> void:
 	world_seed = seed_value
-	_setup_native_generator()
 	_setup_planet_sampler()
 	_setup_structure_sampler()
 	_setup_biome_resolver()
@@ -59,14 +56,6 @@ func initialize_random() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	initialize_world(rng.randi())
-
-func get_chunk_data_native(chunk_coord: Vector2i) -> Dictionary:
-	if not _is_initialized or not _native_generator:
-		return {}
-	return _native_generator.generate_chunk(canonicalize_chunk_coord(chunk_coord), spawn_tile)
-
-func get_chunk_data(chunk_coord: Vector2i) -> Dictionary:
-	return build_chunk_native_data(chunk_coord)
 
 func get_tile_data(tile_x: int, tile_y: int) -> TileGenData:
 	return build_tile_data(Vector2i(tile_x, tile_y))
@@ -336,24 +325,6 @@ func get_terrain_type_fast(tile_pos: Vector2i) -> TileGenData.TerrainType:
 func is_walkable_at(world_pos: Vector2) -> bool:
 	var tile_pos: Vector2i = world_to_tile(world_pos)
 	return _is_walkable_terrain(get_terrain_type_fast(tile_pos))
-
-func _setup_native_generator() -> void:
-	_native_generator = ChunkGenerator.new()
-	var params: Dictionary = {
-		"chunk_size": balance.chunk_size_tiles,
-		"rock_threshold": 0.0,
-		"warp_strength": 0.0,
-		"ridge_weight": 0.0,
-		"continental_weight": 0.0,
-		"safe_zone_radius": balance.safe_zone_radius,
-		"land_guarantee_radius": balance.land_guarantee_radius,
-		"height_frequency": balance.height_frequency,
-		"height_octaves": balance.height_octaves,
-		"warp_frequency": 0.0,
-		"ridge_frequency": 0.0,
-		"continental_frequency": 0.0,
-	}
-	_native_generator.initialize(world_seed, params)
 
 func _setup_planet_sampler() -> void:
 	_planet_sampler = PlanetSampler.new()
