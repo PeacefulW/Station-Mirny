@@ -114,7 +114,7 @@ related_docs:
 `Chunk.get_terrain_type_at(local: Vector2i) -> int`
 - Что возвращает: terrain type из local array loaded chunk.
 - Когда использовать: только после `get_chunk()` / `get_chunk_at_tile()` и только для loaded chunk reads.
-- Особенности: loaded-only; не authoritative для unloaded world. Текущий gap: при невалидном индексе возвращает `GROUND`.
+- Особенности: loaded-only; не authoritative для unloaded world. При невалидном local index now raises `push_error` + `assert` and falls back to `ROCK` instead of silently returning `GROUND`.
 
 `ChunkManager.get_save_data() -> Dictionary`
 - Что возвращает: snapshot unloaded overlay плюс dirty diffs загруженных чанков.
