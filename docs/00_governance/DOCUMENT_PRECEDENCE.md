@@ -4,13 +4,14 @@ doc_type: governance
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.1
-last_updated: 2026-03-27
+version: 1.2
+last_updated: 2026-03-28
 related_docs:
   - AI_PLAYBOOK.md
   - WORKFLOW.md
   - ENGINEERING_STANDARDS.md
   - PERFORMANCE_CONTRACTS.md
+  - SYSTEM_INVENTORY.md
 ---
 
 # Document Precedence
@@ -40,6 +41,15 @@ If a product or system document suggests an implementation that violates perform
 
 ### Task workflow
 [Workflow](WORKFLOW.md) is mandatory reading and defines task execution procedure for agents and developers, but it does not override Engineering Standards, Performance Contracts, ADRs, or approved system specs.
+
+### System inventory
+[System Inventory](SYSTEM_INVENTORY.md) is a reference map of project systems, ownership boundaries, and documented exclusions.
+
+It is mandatory as a discovery/index document when an agent needs to find the right contract or API surface, but it does not override:
+- `PUBLIC_API.md`
+- relevant `docs/02_system_specs/*`
+- `ENGINEERING_STANDARDS.md`
+- `PERFORMANCE_CONTRACTS.md`
 
 ### Execution docs
 Roadmaps and iteration briefs do not override approved architecture or standards.

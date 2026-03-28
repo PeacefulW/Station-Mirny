@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.3
-last_updated: 2026-03-27
+version: 0.4
+last_updated: 2026-03-28
 depends_on:
   - world_generation_foundation.md
   - subsurface_and_verticality_foundation.md
@@ -422,6 +422,601 @@ Observed files for this version:
 - `MountainShadowSystem._shadow_sprites`
 - Hash-based atlas variant and alternative tile selection
 
+## Domain: Player & Survival
+
+### Layer: Player actor / movement / combat / harvest
+
+- `classification`: `canonical`
+- `owner`: `core/entities/player/player.gd::Player`
+- `writers`:
+- `core/entities/player/player.gd::perform_harvest()`
+- `core/entities/player/player.gd::perform_attack()`
+- `core/entities/player/player.gd::collect_item()`
+- `core/entities/player/player.gd::spend_scrap()`
+- `core/entities/player/player.gd::spend_item()`
+- `core/entities/player/player.gd::_on_died()`
+- `core/entities/player/player.gd::handle_death()`
+- Player state transitions in `core/entities/player/states/*.gd`
+- `readers`:
+- `core/entities/player/states/player_idle_state.gd::handle_input()`
+- `core/entities/player/states/player_move_state.gd::handle_input()`
+- `scenes/world/spawn_orchestrator.gd::_on_pickup_collected()`
+- `scenes/world/game_world.gd::_canonicalize_player_world_position()`
+- `core/autoloads/player_authority.gd::get_local_player()`
+- `rebuild policy`: immediate, frame/input-driven runtime state; no deferred rebuild path
+- `invariants`:
+- `assert(_attack_timer >= 0.0, "player attack cooldown must never be negative at frame boundaries")`
+- `assert(_harvest_timer >= 0.0, "player harvest cooldown must never be negative at frame boundaries")`
+- `assert(can_attack() == (not _is_dead and _attack_timer <= 0.0 and _attack_area != null), "player attack readiness is derived from death state, cooldown, and attack area presence")`
+- `assert(can_harvest() == (not _is_dead and _harvest_timer <= 0.0 and _chunk_manager != null and _inventory != null), "player harvest readiness is derived from death state, cooldown, chunk manager, and inventory presence")`
+- `assert(not _is_dead or velocity == Vector2.ZERO, "dead player must not keep active movement velocity after death handling")`
+- `write operations`:
+- `Player.perform_harvest()`
+- `Player.perform_attack()`
+- `Player.collect_item()`
+- `Player.collect_scrap()`
+- `Player.spend_scrap()`
+- `Player.spend_item()`
+- `Player._on_died()`
+- `Player.handle_death()`
+- `forbidden writes`:
+- External systems must not mutate `Player._attack_timer`, `Player._harvest_timer`, `Player._is_dead`, or `Player._state_machine` directly.
+- External callers must not bypass `perform_attack()` / `perform_harvest()` by poking player state objects or private helpers.
+- Player movement/blocking code must not redefine walkability semantics independently of `ChunkManager.is_walkable_at_world()`.
+- `emitted events / invalidation signals`:
+- `EventBus.item_collected`
+- `EventBus.scrap_collected`
+- `EventBus.player_died`
+- `EventBus.game_over`
+- `current violations / ambiguities / contract gaps`:
+- `Player._on_speed_modifier_changed()` currently hardcodes `_speed_modifier = 1.0`, so oxygen slowdown does not actually affect movement speed.
+- `Player.perform_harvest()` spends harvest cooldown before command success is known, so a failed command can still consume the cooldown window.
+
+### Layer: Health / damage
+
+- `classification`: `canonical`
+- `owner`: host entity that owns `core/entities/components/health_component.gd::HealthComponent`
+- `writers`:
+- `core/entities/components/health_component.gd::take_damage()`
+- `core/entities/components/health_component.gd::heal()`
+- direct host setup in `core/entities/fauna/basic_enemy.gd::_ready()`
+- direct host setup in `core/entities/structures/thermo_burner.gd::setup()`
+- direct host setup in `core/entities/structures/ark_battery.gd::setup()`
+- save/load writes in `core/autoloads/save_appliers.gd::apply_player()`
+- save/load writes in `core/systems/building/building_persistence.gd::deserialize_walls()`
+- `readers`:
+- `core/entities/player/player.gd::_on_died()`
+- `core/entities/player/player.gd::perform_attack()`
+- `core/entities/fauna/basic_enemy.gd::_on_died()`
+- `core/entities/fauna/basic_enemy.gd::_try_attack_target()`
+- `core/systems/building/building_system.gd::_bind_building_health()`
+- `core/autoloads/save_collectors.gd::collect_player()`
+- `rebuild policy`: immediate writes; no rebuild layer
+- `invariants`:
+- `assert(max_health >= 0.0, "max_health must stay non-negative")`
+- `assert(current_health >= 0.0 and current_health <= max_health, "current_health must stay within [0, max_health]")`
+- `assert(current_health > 0.0 or died_signal_emitted_or_pending, "zero health must correspond to death handling")`
+- `write operations`:
+- `HealthComponent.take_damage()`
+- `HealthComponent.heal()`
+- direct load/setup assignments to `current_health` and `max_health`
+- `forbidden writes`:
+- External systems must not assign `current_health` or `max_health` directly on live entities unless they also own the load/setup boundary.
+- Gameplay code must not emulate damage by skipping `take_damage()` because that bypasses `health_changed` / `died`.
+- `emitted events / invalidation signals`:
+- `HealthComponent.health_changed`
+- `HealthComponent.died`
+- `current violations / ambiguities / contract gaps`:
+- `current_health` and `max_health` are public mutable fields, and several load/setup paths write them directly without re-emitting `health_changed`.
+- `HealthComponent` has no component-level `save_state()` / `load_state()` API; persistence is fragmented across host-specific save helpers.
+
+### Layer: Inventory runtime
+
+- `classification`: `canonical`
+- `owner`: `core/entities/components/inventory_component.gd::InventoryComponent`
+- `writers`:
+- `core/entities/components/inventory_component.gd::add_item()`
+- `core/entities/components/inventory_component.gd::remove_item()`
+- `core/entities/components/inventory_component.gd::load_state()`
+- direct slot mutations in `scenes/ui/inventory/inventory_panel.gd::_on_slot_dropped()`
+- direct slot mutations in `scenes/ui/inventory/inventory_panel.gd::_split_stack()`
+- direct slot mutations in `scenes/ui/inventory/inventory_panel.gd::_sort_inventory()`
+- direct slot mutations in `scenes/ui/inventory/inventory_panel.gd::_on_drop_outside()`
+- `readers`:
+- `core/entities/player/player.gd::collect_item()`
+- `core/entities/player/player.gd::spend_scrap()`
+- `core/entities/player/player.gd::spend_item()`
+- `core/systems/crafting/crafting_system.gd::can_craft()`
+- `core/systems/crafting/crafting_system.gd::execute_recipe()`
+- `scenes/ui/inventory/inventory_panel.gd::_refresh()`
+- `scenes/ui/crafting_panel.gd::_count_item_amount()`
+- `rebuild policy`: immediate, slot-array writes; no rebuild layer
+- `invariants`:
+- `assert(slots.size() == capacity, "inventory must allocate exactly capacity slots")`
+- `assert(for_all_slot in slots: for_all_slot.is_empty() or (for_all_slot.item != null and for_all_slot.amount > 0 and for_all_slot.amount <= for_all_slot.item.max_stack), "every non-empty inventory slot must hold a valid item stack within max_stack")`
+- `assert(for_all_slot in slots: not for_all_slot.is_empty() or for_all_slot.amount == 0, "empty inventory slots must not keep positive amount")`
+- `write operations`:
+- `InventoryComponent.add_item()`
+- `InventoryComponent.remove_item()`
+- `InventoryComponent.load_state()`
+- direct UI slot mutation paths in `InventoryPanel`
+- `forbidden writes`:
+- External systems must not mutate `InventoryComponent.slots` or `InventorySlot.item` / `InventorySlot.amount` directly.
+- UI code must not become the de facto owner of split/swap/sort/drop semantics.
+- `emitted events / invalidation signals`:
+- `EventBus.inventory_updated`
+- `current violations / ambiguities / contract gaps`:
+- `InventoryPanel` directly mutates `InventoryComponent.slots` for swap, split, sort, equip handoff, and drop-outside flows instead of going through component-owned APIs.
+- There is no authoritative public runtime API for move/split/sort/drop operations; current semantics live partly in UI code.
+
+### Layer: Equipment runtime
+
+- `classification`: `canonical`
+- `owner`: `core/entities/components/equipment_component.gd::EquipmentComponent`
+- `writers`:
+- `core/entities/components/equipment_component.gd::equip()`
+- `core/entities/components/equipment_component.gd::unequip()`
+- `core/entities/components/equipment_component.gd::load_state()`
+- orchestration writes in `scenes/ui/inventory/inventory_panel.gd::_try_equip_from_inventory()`
+- orchestration writes in `scenes/ui/inventory/inventory_panel.gd::_on_equip_clicked()`
+- `readers`:
+- `scenes/ui/inventory/inventory_panel.gd::_refresh()`
+- `scenes/ui/inventory/inventory_panel.gd::_on_equip_hovered()`
+- `scenes/ui/inventory/equip_slot_ui.gd::set_equipped_item()`
+- `rebuild policy`: immediate, slot-map writes; no rebuild layer
+- `invariants`:
+- `assert(_equipped.keys().size() == EquipmentSlotType.Slot.values().size(), "equipment map must track every declared equipment slot")`
+- `assert(for_all_slot in _equipped.keys(): _equipped[for_all_slot] == null or int((_equipped[for_all_slot] as ItemData).equipment_slot) == int(for_all_slot), "equipped item must match declared equipment slot")`
+- `assert(can_equip(slot, item) == (item != null and item.equipment_slot == slot), "equipment compatibility is currently a direct slot-id equality check")`
+- `write operations`:
+- `EquipmentComponent.equip()`
+- `EquipmentComponent.unequip()`
+- `EquipmentComponent.load_state()`
+- `forbidden writes`:
+- External systems must not mutate `EquipmentComponent._equipped` directly.
+- Inventory/UI flows must not treat `equip()` as a substitute for full inventory + equipment orchestration unless they also handle inventory ownership explicitly.
+- `emitted events / invalidation signals`:
+- `EquipmentComponent.equipment_changed`
+- `current violations / ambiguities / contract gaps`:
+- Equipment state is not included in the current save/load flow, so equipped items do not have a canonical persisted path.
+- Inventory/equipment handoff semantics currently live in `InventoryPanel`, not in an authoritative runtime orchestration API.
+
+### Layer: Oxygen / survival
+
+- `classification`: `canonical`
+- `owner`: `core/systems/survival/oxygen_system.gd::OxygenSystem`
+- `writers`:
+- `core/systems/survival/oxygen_system.gd::_process()`
+- `core/systems/survival/oxygen_system.gd::set_indoor()`
+- `core/systems/survival/oxygen_system.gd::set_base_powered()`
+- `core/systems/survival/oxygen_system.gd::load_state()`
+- `core/systems/survival/oxygen_system.gd::_on_life_support_power_changed()`
+- `readers`:
+- `core/entities/player/player.gd::get_oxygen_system()`
+- `core/entities/player/player.gd::_on_speed_modifier_changed()`
+- `scenes/world/game_world.gd::_update_player_indoor_status()`
+- `core/autoloads/save_collectors.gd::collect_player()`
+- `rebuild policy`: immediate per-frame drain/refill; no deferred rebuild layer
+- `invariants`:
+- `assert(balance != null, "oxygen system requires SurvivalBalance")`
+- `assert(_current_oxygen >= 0.0 and _current_oxygen <= balance.max_oxygen, "oxygen amount must stay within [0, max_oxygen]")`
+- `assert(not _is_depleting or get_oxygen_percent() <= balance.low_oxygen_threshold, "depleting warning state must only be active below the low oxygen threshold")`
+- `write operations`:
+- `OxygenSystem.set_indoor()`
+- `OxygenSystem.set_base_powered()`
+- `OxygenSystem.load_state()`
+- frame-driven `_update_oxygen()`
+- `forbidden writes`:
+- Other systems must not mutate `_current_oxygen`, `_is_indoor`, or `_is_base_powered` directly.
+- Indoor semantics must not be redefined independently of `GameWorld` / room and mined-floor ownership rules.
+- `emitted events / invalidation signals`:
+- `EventBus.oxygen_changed`
+- `EventBus.oxygen_depleting`
+- `EventBus.player_entered_indoor`
+- `EventBus.player_exited_indoor`
+- `OxygenSystem.speed_modifier_changed`
+- `current violations / ambiguities / contract gaps`:
+- `OxygenSystem._on_rooms_recalculated()` is a no-op; the system relies on `GameWorld._update_player_indoor_status()` polling every frame to keep indoor state authoritative.
+- There are two write paths for power context (`set_base_powered()` and `life_support_power_changed`), but no single explicit orchestration point documents which one owns runtime transitions.
+
+### Layer: Base life support
+
+- `classification`: `canonical`
+- `owner`: `core/systems/survival/base_life_support.gd::BaseLifeSupport`
+- `writers`:
+- `core/systems/survival/base_life_support.gd::_ready()`
+- `core/systems/survival/base_life_support.gd::_on_powered_changed()`
+- `core/systems/survival/base_life_support.gd::_emit_state()`
+- internal child writes through `PowerConsumerComponent.set_powered()`
+- `readers`:
+- `core/systems/survival/base_life_support.gd::is_powered()`
+- `core/systems/survival/oxygen_system.gd::_on_life_support_power_changed()`
+- `core/debug/runtime_validation_driver.gd::_prepare_power_validation()`
+- `rebuild policy`: immediate event-driven state projection from the internal power consumer
+- `invariants`:
+- `assert(_consumer != null, "base life support must own one internal power consumer after _ready()")`
+- `assert(_consumer == null or _consumer.priority == PowerConsumerComponent.Priority.CRITICAL, "life support consumer must stay CRITICAL priority")`
+- `assert(is_powered() == (_consumer != null and _consumer.is_powered), "BaseLifeSupport.is_powered() is a direct projection of the internal consumer state")`
+- `write operations`:
+- `BaseLifeSupport._ready()`
+- `BaseLifeSupport._on_powered_changed()`
+- internal `PowerConsumerComponent.set_powered()`
+- `forbidden writes`:
+- External systems must not mutate the child `PowerConsumerComponent` directly as a substitute for `BaseLifeSupport` ownership.
+- Consumers of life-support state must not emit `EventBus.life_support_power_changed` themselves.
+- `emitted events / invalidation signals`:
+- `EventBus.life_support_power_changed`
+- `current violations / ambiguities / contract gaps`:
+- `BaseLifeSupport` exposes only `is_powered()` publicly; demand and consumer ownership remain indirect through a child component that outside code can still reach and mutate.
+
+## Domain: Structures & Economy
+
+### Layer: Building placement / building runtime
+
+- `classification`: `canonical`
+- `owner`: `core/systems/building/building_system.gd::BuildingSystem`
+- `writers`:
+- `core/systems/building/building_system.gd::set_selected_building()`
+- `core/systems/building/building_system.gd::place_selected_building_at()`
+- `core/systems/building/building_system.gd::remove_building_at()`
+- `core/systems/building/building_system.gd::load_state()`
+- `core/systems/building/building_system.gd::_on_building_destroyed()`
+- `core/systems/building/building_system.gd::_toggle_build_mode()`
+- placement helpers in `core/systems/building/building_placement_service.gd`
+- `readers`:
+- `core/systems/building/building_system.gd::save_state()`
+- `scenes/world/game_world.gd::_update_player_indoor_status()`
+- `core/autoloads/save_collectors.gd::collect_buildings()`
+- `scenes/ui/build/build_menu_panel.gd::get_selected()`
+- `scenes/ui/power_ui.gd::_refresh_generators()`
+- `rebuild policy`: immediate placement/removal writes; room topology invalidation is deferred dirty rebuild
+- `invariants`:
+- `assert(for_all_pos in walls.keys(): is_instance_valid(walls[for_all_pos]), "building grid must only point at live building nodes")`
+- `assert(for_all_node in unique(walls.values()): node.get_meta("grid_origin") != null, "every placed building node must expose grid_origin metadata")`
+- `assert(_placement_service != null and wall_container != null, "building runtime requires initialized placement service and wall container")`
+- `write operations`:
+- `BuildingSystem.place_selected_building_at()`
+- `BuildingSystem.remove_building_at()`
+- `BuildingSystem.load_state()`
+- `BuildingSystem._on_building_destroyed()`
+- `BuildingPlacementService.place_selected_at()`
+- `BuildingPlacementService.remove_at()`
+- `BuildingPlacementService.create_building_by_id()`
+- `forbidden writes`:
+- External systems must not mutate `BuildingSystem.walls` directly.
+- Placement code must not bypass `BuildingSystem` by inserting/removing nodes in `wall_container` without updating `walls` and room invalidation.
+- Build-mode presentation must not be treated as canonical building state.
+- `emitted events / invalidation signals`:
+- `EventBus.build_mode_changed`
+- `EventBus.building_placed`
+- `EventBus.building_removed`
+- room invalidation through `BuildingSystem._mark_rooms_dirty()`
+- `current violations / ambiguities / contract gaps`:
+- `BuildingPlacementService.can_place_at()` only checks scrap and occupied tiles; it does not validate terrain type, walkability, z-context, or other world-placement constraints.
+- `BuildingSystem.walls` is a public dictionary shared across placement and persistence helpers, so outside code can mutate canonical building occupancy without going through invalidation.
+
+### Layer: Indoor room topology
+
+- `classification`: `derived`
+- `owner`: `core/systems/building/building_system.gd::BuildingSystem` with `core/systems/building/building_indoor_solver.gd::IndoorSolver`
+- `writers`:
+- `core/systems/building/building_system.gd::_mark_rooms_dirty()`
+- `core/systems/building/building_system.gd::_room_recompute_tick()`
+- `core/systems/building/building_system.gd::_begin_full_room_rebuild()`
+- `core/systems/building/building_system.gd::_advance_full_room_rebuild()`
+- `core/systems/building/building_system.gd::load_state()`
+- `core/systems/building/building_indoor_solver.gd::recalculate()`
+- `core/systems/building/building_indoor_solver.gd::solve_local_patch()`
+- `readers`:
+- `core/systems/building/building_system.gd::is_cell_indoor()`
+- `scenes/world/game_world.gd::_update_player_indoor_status()`
+- `core/systems/survival/oxygen_system.gd::_on_rooms_recalculated()`
+- `rebuild policy`: deferred dirty rebuild via `FrameBudgetDispatcher`; synchronous full rebuild on load/boot path
+- `invariants`:
+- `assert(for_all_cell in indoor_cells.keys(): not walls.has(for_all_cell), "indoor cells must never overlap occupied building cells")`
+- `assert(has_pending_room_recompute() == (not _dirty_room_regions.is_empty() or not _full_room_rebuild_state.is_empty()), "pending room recompute flag is derived from dirty region or staged full rebuild state")`
+- `assert(_indoor_solver.indoor_cells == indoor_cells or has_pending_room_recompute(), "solver snapshot and published indoor_cells must match when no recompute is pending")`
+- `write operations`:
+- `BuildingSystem._mark_rooms_dirty()`
+- `BuildingSystem._room_recompute_tick()`
+- `BuildingSystem._begin_full_room_rebuild()`
+- `BuildingSystem._advance_full_room_rebuild()`
+- `BuildingSystem.load_state()`
+- `IndoorSolver.recalculate()`
+- `IndoorSolver.solve_local_patch()`
+- `forbidden writes`:
+- External systems must not mutate `BuildingSystem.indoor_cells` or `IndoorSolver.indoor_cells` directly.
+- Consumers must not treat room topology as source of truth for building placement or z-level semantics.
+- `emitted events / invalidation signals`:
+- `EventBus.rooms_recalculated`
+- `FrameBudgetDispatcher` job `building.room_recompute`
+- `current violations / ambiguities / contract gaps`:
+- Indoor topology is keyed only by 2D grid coordinates and has no z-level dimension.
+- `BuildingSystem.indoor_cells` is a public dictionary, so outside code can bypass solver ownership and corrupt derived room state.
+
+### Layer: Power network
+
+- `classification`: `canonical`
+- `owner`: `core/systems/power/power_system.gd::PowerSystem`
+- `writers`:
+- `core/systems/power/power_system.gd::register_source()`
+- `core/systems/power/power_system.gd::unregister_source()`
+- `core/systems/power/power_system.gd::register_consumer()`
+- `core/systems/power/power_system.gd::unregister_consumer()`
+- `core/systems/power/power_system.gd::force_recalculate()`
+- `core/systems/power/power_system.gd::_power_recompute_tick()`
+- `core/entities/components/power_source_component.gd::set_condition()`
+- `core/entities/components/power_source_component.gd::set_enabled()`
+- `core/entities/components/power_source_component.gd::force_shutdown()`
+- `core/entities/components/power_consumer_component.gd::set_demand()`
+- `core/entities/components/power_consumer_component.gd::set_priority()`
+- `core/entities/components/power_consumer_component.gd::set_powered()`
+- `readers`:
+- `core/systems/survival/base_life_support.gd::is_powered()`
+- `scenes/ui/power_ui.gd::_on_power_changed()`
+- `scenes/ui/power_ui.gd::_refresh_generators()`
+- `core/debug/runtime_validation_driver.gd::_prepare_power_validation()`
+- `rebuild policy`: deferred dirty rebuild via `FrameBudgetDispatcher` plus heartbeat-triggered invalidation
+- `invariants`:
+- `assert(total_supply >= 0.0 and total_demand >= 0.0, "power aggregates must stay non-negative")`
+- `assert(not is_deficit or total_supply < total_demand, "deficit flag means supply is below demand")`
+- `assert(is_deficit or total_supply >= total_demand, "non-deficit flag means supply covers demand")`
+- `assert(_registered_sources.size() >= 0 and _registered_consumers.size() >= 0, "power registries must stay valid dictionaries of live components")`
+- `write operations`:
+- `PowerSystem.register_source()`
+- `PowerSystem.unregister_source()`
+- `PowerSystem.register_consumer()`
+- `PowerSystem.unregister_consumer()`
+- `PowerSystem.force_recalculate()`
+- `PowerSourceComponent.set_condition()`
+- `PowerSourceComponent.set_enabled()`
+- `PowerSourceComponent.force_shutdown()`
+- `PowerConsumerComponent.set_demand()`
+- `PowerConsumerComponent.set_priority()`
+- `forbidden writes`:
+- External systems must not mutate `_registered_sources`, `_registered_consumers`, `total_supply`, `total_demand`, or `is_deficit` directly.
+- Callers must not mutate `PowerSourceComponent.is_enabled`, `PowerSourceComponent.condition_multiplier`, `PowerConsumerComponent.demand`, or `PowerConsumerComponent.priority` directly on live components if they expect immediate recompute semantics.
+- `emitted events / invalidation signals`:
+- `EventBus.power_changed`
+- `EventBus.power_deficit`
+- `EventBus.power_restored`
+- `PowerSourceComponent.output_changed`
+- `PowerConsumerComponent.powered_changed`
+- `PowerConsumerComponent.configuration_changed`
+- `current violations / ambiguities / contract gaps`:
+- Power source and consumer configuration fields are public, so direct assignment can bypass `output_changed` / `configuration_changed` and leave power state stale until a later dirty mark.
+- `PowerSystem.save_state()` exposes only aggregate fields and is not the authoritative persistence shape for runtime power state, which actually lives across components and structure nodes.
+
+## Domain: World Entities
+
+### Layer: Spawn / pickup orchestration
+
+- `classification`: `canonical`
+- `owner`: `scenes/world/spawn_orchestrator.gd::SpawnOrchestrator`
+- `writers`:
+- `scenes/world/spawn_orchestrator.gd::setup()`
+- `scenes/world/spawn_orchestrator.gd::spawn_initial_scrap()`
+- `scenes/world/spawn_orchestrator.gd::load_pickups()`
+- `scenes/world/spawn_orchestrator.gd::clear_pickups()`
+- `scenes/world/spawn_orchestrator.gd::_update_enemy_spawning()`
+- `scenes/world/spawn_orchestrator.gd::_spawn_enemy()`
+- `scenes/world/spawn_orchestrator.gd::_on_enemy_killed()`
+- `scenes/world/spawn_orchestrator.gd::_on_item_dropped()`
+- `scenes/world/spawn_orchestrator.gd::_on_pickup_collected()`
+- `readers`:
+- `core/autoloads/save_collectors.gd::collect_world()`
+- `core/autoloads/save_appliers.gd::apply_world()`
+- `scenes/world/game_world.gd::_bootstrap_session_state()`
+- `scenes/world/game_world.gd::_canonicalize_player_world_position()`
+- `rebuild policy`: immediate, timer/frame-driven runtime orchestration; pickup display sync runs every frame
+- `invariants`:
+- `assert(_enemy_count >= 0, "enemy count must never be negative")`
+- `assert(for_all_pickup in _pickup_container.get_children(): pickup_has_item_id_and_amount_or_is_transient, "world pickups must carry item_id and amount metadata")`
+- `assert(not (WorldGenerator and WorldGenerator._is_initialized) or saved_pickup_positions_are_canonicalized, "pickup logical positions must be canonical when world wrapping is active")`
+- `write operations`:
+- `SpawnOrchestrator.spawn_initial_scrap()`
+- `SpawnOrchestrator.load_pickups()`
+- `SpawnOrchestrator.clear_pickups()`
+- `SpawnOrchestrator._spawn_enemy()`
+- `SpawnOrchestrator._on_enemy_killed()`
+- `SpawnOrchestrator._on_item_dropped()`
+- `SpawnOrchestrator._on_pickup_collected()`
+- `forbidden writes`:
+- External systems must not mutate `_enemy_count`, `_spawn_timer`, or pickup metadata directly.
+- Pickup persistence must not bypass `save_pickups()` / `load_pickups()` with ad hoc serialization.
+- `emitted events / invalidation signals`:
+- `EventBus.enemy_spawned`
+- `EventBus.enemy_killed` (consumed)
+- `EventBus.item_dropped` (consumed)
+- `current violations / ambiguities / contract gaps`:
+- `_enemy_spawning_enabled` has no writer in the current code path, so runtime enemy spawning is effectively disabled.
+- Save/load currently persists pickups, but not live enemies or spawn timers, so hostile world state is not restored as a canonical session layer.
+
+### Layer: Enemy AI / fauna runtime
+
+- `classification`: `canonical`
+- `owner`: `core/entities/fauna/basic_enemy.gd::BasicEnemy`
+- `writers`:
+- `core/entities/fauna/basic_enemy.gd::_update_scan()`
+- `core/entities/fauna/basic_enemy.gd::_try_attack_target()`
+- `core/entities/fauna/basic_enemy.gd::_on_time_changed()`
+- `core/entities/fauna/basic_enemy.gd::_on_died()`
+- `core/entities/fauna/basic_enemy.gd::handle_death()`
+- `core/entities/fauna/basic_enemy.gd::begin_wander()`
+- `core/entities/fauna/basic_enemy.gd::tick_wander()`
+- `core/entities/fauna/basic_enemy.gd::clear_target()`
+- state transitions in `core/entities/fauna/states/*.gd`
+- `readers`:
+- `core/entities/fauna/basic_enemy.gd::_check_collisions()`
+- `core/entities/fauna/basic_enemy.gd::move_to_target()`
+- `scenes/world/spawn_orchestrator.gd::_on_enemy_killed()`
+- `core/debug/runtime_validation_driver.gd` enemy validation helpers
+- `rebuild policy`: immediate physics-driven runtime state plus scan-interval refresh
+- `invariants`:
+- `assert(not _is_dead or (not _has_target and _attack_target == null), "dead enemies must not keep active targets")`
+- `assert(_hearing_multiplier == 1.0 or _hearing_multiplier == 1.2 or _hearing_multiplier == 1.5, "enemy hearing multiplier is currently phase-based and discrete")`
+- `assert(not has_attack_target() or _has_target, "attack target implies a tracked target state")`
+- `write operations`:
+- `BasicEnemy._update_scan()`
+- `BasicEnemy._try_attack_target()`
+- `BasicEnemy._on_time_changed()`
+- `BasicEnemy._on_died()`
+- `BasicEnemy.handle_death()`
+- `BasicEnemy.begin_wander()`
+- `BasicEnemy.tick_wander()`
+- `BasicEnemy.clear_target()`
+- `forbidden writes`:
+- External systems must not mutate `_target_pos`, `_has_target`, `_attack_target`, `_wander_dir`, or `_state_machine` directly.
+- Enemy AI must not redefine player or wall attack semantics outside `BasicEnemy`.
+- `emitted events / invalidation signals`:
+- `EventBus.enemy_killed`
+- `EventBus.enemy_reached_wall`
+- `EventBus.time_of_day_changed` (consumed)
+- `current violations / ambiguities / contract gaps`:
+- Enemy hearing scans `noise_sources` and the local player globally with no z-level filtering, so multi-z runtime can create cross-floor perception if entities coexist across floors.
+
+### Layer: Noise / hearing input
+
+- `classification`: `canonical`
+- `owner`: owner node that contains `core/entities/components/noise_component.gd::NoiseComponent`
+- `writers`:
+- `core/entities/components/noise_component.gd::set_active()`
+- host setup in `core/entities/structures/thermo_burner.gd::setup()`
+- direct export-field writes on `noise_radius`, `noise_level`, `is_active`
+- `readers`:
+- `core/entities/fauna/basic_enemy.gd::_update_scan()`
+- `core/entities/components/noise_component.gd::is_audible_at()`
+- `rebuild policy`: immediate field writes; consumers observe changes on their next scan tick
+- `invariants`:
+- `assert(not is_active or noise_radius >= 0.0, "active noise source must not expose negative radius")`
+- `assert(not is_active or noise_level >= 0.0, "active noise source must not expose negative noise level")`
+- `assert(not is_active or get_noise_position() != null, "active noise source must resolve a world position")`
+- `write operations`:
+- `NoiseComponent.set_active()`
+- direct host configuration during structure setup
+- `forbidden writes`:
+- External systems must not treat noise data as persisted world state; it is runtime-local to the owner entity.
+- Callers must not expect immediate reactive fan-out from noise writes; there is no event bus for this layer.
+- `emitted events / invalidation signals`:
+- none
+- `current violations / ambiguities / contract gaps`:
+- Noise state has no emitted invalidation signal; enemy AI only notices changes on the next scan interval.
+
+## Domain: Session & Time
+
+### Layer: Z-level switching / stairs
+
+- `classification`: `canonical`
+- `owner`: `core/systems/world/z_level_manager.gd::ZLevelManager`, with `core/entities/structures/z_stairs.gd::ZStairs` as runtime trigger
+- `writers`:
+- `core/systems/world/z_level_manager.gd::change_level()`
+- `core/autoloads/save_appliers.gd::apply_player()` via `change_level()`
+- `core/entities/structures/z_stairs.gd::_on_body_entered()`
+- `core/entities/structures/z_stairs.gd::_trigger_transition()`
+- `readers`:
+- `core/systems/world/z_level_manager.gd::get_current_z()`
+- `scenes/world/game_world.gd::_on_z_level_changed()`
+- `core/systems/daylight/daylight_system.gd::_resolve_current_z()`
+- `core/entities/structures/z_stairs.gd::_on_z_level_changed()`
+- `rebuild policy`: immediate; one authoritative z-change triggers downstream world/presentation sync
+- `invariants`:
+- `assert(current_z >= Z_MIN and current_z <= Z_MAX, "active z level must remain within declared bounds")`
+- `assert(new_z != current_z_before_emit, "z_level_changed must only emit on real z transitions")`
+- `assert(not monitoring or visible, "stairs monitoring must match current visible source_z context")`
+- `write operations`:
+- `ZLevelManager.change_level()`
+- `ZStairs._trigger_transition()`
+- `forbidden writes`:
+- External systems must not assign `ZLevelManager.current_z` directly.
+- Callers must not treat `ChunkManager.set_active_z_level()` or daylight/shadow sync as a substitute primary z-switch API.
+- `emitted events / invalidation signals`:
+- `ZLevelManager.z_level_changed`
+- `EventBus.z_level_changed`
+- `current violations / ambiguities / contract gaps`:
+- `ZLevelManager.current_z` is a public mutable field, so external code can bypass `change_level()` and skip event emission.
+- `ZStairs` reaches into `GameWorld` to find `ZLevelManager` and `ZTransitionOverlay` directly instead of using a dedicated public transition API.
+
+### Layer: Time / calendar / day-night
+
+- `classification`: `canonical`
+- `owner`: `core/autoloads/time_manager.gd::TimeManagerSingleton`
+- `writers`:
+- `core/autoloads/time_manager.gd::reset_for_new_game()`
+- `core/autoloads/time_manager.gd::restore_persisted_state()`
+- `core/autoloads/time_manager.gd::_process()`
+- `core/autoloads/time_manager.gd::_apply_authoritative_time_state()`
+- direct field writes in `scenes/world/game_world.gd::_pause_time_for_boot()`
+- direct field writes in `scenes/ui/save_load_tab.gd::_on_load_pressed()`
+- `readers`:
+- `core/systems/daylight/daylight_system.gd::_resolve_context_color()`
+- `core/systems/daylight/daylight_system.gd::_on_time_tick()`
+- `core/entities/fauna/basic_enemy.gd::_on_time_changed()`
+- `core/systems/game_stats.gd::_on_day_changed()`
+- `scenes/ui/hud/hud_time_widget.gd::_on_hour_changed()`
+- `rebuild policy`: immediate per-frame advance; no deferred rebuild
+- `invariants`:
+- `assert(balance != null, "time manager requires TimeBalance")`
+- `assert(current_hour >= 0.0 and current_hour < float(balance.hours_per_day), "current hour must stay within the configured day range")`
+- `assert(current_day >= 1, "current day starts from 1")`
+- `assert(int(current_season) >= 0 and int(current_season) < Season.size(), "current season must stay within enum bounds")`
+- `write operations`:
+- `TimeManager.reset_for_new_game()`
+- `TimeManager.restore_persisted_state()`
+- frame-driven `_advance_time()`
+- `forbidden writes`:
+- External systems must not mutate `current_hour`, `current_day`, `current_season`, `is_paused`, or `time_scale` directly as a substitute for a documented API.
+- Presentation systems must not redefine time-of-day phase semantics outside `TimeManager`.
+- `emitted events / invalidation signals`:
+- `EventBus.time_tick`
+- `EventBus.hour_changed`
+- `EventBus.time_of_day_changed`
+- `EventBus.day_changed`
+- `EventBus.season_changed`
+- `current violations / ambiguities / contract gaps`:
+- `TimeManager.is_paused` and `TimeManager.time_scale` are public mutable fields, and current callers write them directly because no public pause/resume API exists.
+
+### Layer: Save / load orchestration
+
+- `classification`: `canonical`
+- `owner`: `core/autoloads/save_manager.gd::SaveManagerSingleton`
+- `writers`:
+- `core/autoloads/save_manager.gd::save_game()`
+- `core/autoloads/save_manager.gd::load_game()`
+- `core/autoloads/save_manager.gd::delete_save()`
+- direct UI write to `pending_load_slot` in `scenes/ui/save_load_tab.gd::_on_load_pressed()`
+- helper writes in `core/autoloads/save_collectors.gd`
+- helper writes in `core/autoloads/save_appliers.gd`
+- `readers`:
+- `core/autoloads/save_manager.gd::get_save_list()`
+- `core/autoloads/save_manager.gd::save_exists()`
+- `scenes/world/game_world.gd::_consume_pending_load_slot()`
+- `scenes/ui/save_load_tab.gd::_rebuild_slot_list()`
+- `rebuild policy`: immediate orchestration; no deferred pipeline
+- `invariants`:
+- `assert(not is_busy or current_slot != "", "busy save manager must know the active slot")`
+- `assert(successful_load_applies_world_then_chunk_overlay_then_time_then_buildings_then_player, "load_game() relies on the current apply order to rebuild runtime state correctly")`
+- `assert(pending_load_slot == "" or pending_load_slot == current_slot or not is_busy, "pending load slot remains an explicit queued slot string, not hidden busy-state ownership")`
+- `write operations`:
+- `SaveManager.save_game()`
+- `SaveManager.load_game()`
+- `SaveManager.delete_save()`
+- `SaveAppliers.apply_world()`
+- `SaveAppliers.apply_chunk_data()`
+- `SaveAppliers.apply_time()`
+- `SaveAppliers.apply_buildings()`
+- `SaveAppliers.apply_player()`
+- `forbidden writes`:
+- UI and scene code must not mutate `SaveManager.current_slot`, `SaveManager.is_busy`, or `SaveManager.pending_load_slot` directly.
+- UI code must not bypass `SaveManager.get_save_list()` / `delete_save()` with direct filesystem logic.
+- Helper layers must not redefine save schema outside `SaveCollectors` / `SaveAppliers`.
+- `emitted events / invalidation signals`:
+- `EventBus.save_requested`
+- `EventBus.save_completed`
+- `EventBus.load_completed`
+- `current violations / ambiguities / contract gaps`:
+- `SaveLoadTab` bypasses `SaveManager.get_save_list()` and `SaveManager.delete_save()` with direct file reads, recursive deletes, and direct `pending_load_slot` mutation.
+- `SaveLoadTab._on_save_pressed()` ignores the boolean result of `SaveManager.save_game()` and always shows a success message when the method is present.
+
 ## Сводка текущих нарушений и contract gaps
 
 | # | Слой | Нарушение | Severity | Симптом для игрока |
@@ -447,6 +1042,27 @@ Observed files for this version:
 | 19 | Presentation | Presentation существует только для loaded chunks | low | Продолжение мира вне loaded bubble не имеет visual object до стриминга, даже если terrain-query уже может ответить |
 | 20 | Presentation | Debug direct writers могут перерисовать visuals вне world -> mining -> topology -> reveal chain | medium | Отладочное изменение может дать картинку, не совпадающую с реальным derived state |
 | 21 | Wall Atlas Selection | Surface и underground wall shaping используют разные openness contracts и разные neighbor sets | medium | Одинаково выглядящая граница rock/open space может рисоваться по-разному на surface и underground |
+| 22 | Player actor | `Player._on_speed_modifier_changed()` игнорирует модификатор O₂ и фиксирует `_speed_modifier = 1.0` | medium | Низкий кислород не замедляет игрока, хотя survival layer сообщает о штрафе |
+| 23 | Player actor | `perform_harvest()` тратит cooldown до подтверждения успеха команды | medium | Неудачная попытка добычи может всё равно отправить игрока на откат действия |
+| 24 | Health / damage | `HealthComponent` имеет публичные поля, а load/setup path пишет их напрямую без сигнала | medium | UI или логика, слушающая `health_changed`, может не увидеть восстановленное после загрузки здоровье |
+| 25 | Inventory runtime | `InventoryPanel` напрямую мутирует `InventoryComponent.slots` для swap/split/sort/drop | high | Инвентарь можно изменить в обход owner-layer, что повышает риск рассинхрона между UI и runtime-логикой |
+| 26 | Equipment runtime | Экипировка не входит в текущий save/load path | medium | После загрузки сохранения экипированные предметы пропадают или сбрасываются |
+| 27 | Oxygen / survival | `OxygenSystem._on_rooms_recalculated()` пустой, indoor-state держится на scene-level polling из `GameWorld` | medium | Изменение комнат может отразиться на кислороде только через внешний glue path, а не через явный owner contract |
+| 28 | Base life support | Authoritative consumer живёт во внутреннем child-ноде без отдельного public contract на мутацию demand/config | low | Сторонний код может залезть во внутренний consumer и изменить поведение жизнеобеспечения в обход owner-layer |
+| 29 | Building runtime | `BuildingPlacementService.can_place_at()` не проверяет terrain/walkability/z-constraints | high | Постройку можно поставить в логически неподходящем месте |
+| 30 | Building runtime | `BuildingSystem.walls` публичен и разделяется между несколькими helper paths | medium | Внешний код может испортить occupancy-map без корректного room/power invalidation chain |
+| 31 | Indoor topology | Indoor room state keyed only by 2D grid and has no z dimension | low | Если строительство выйдет за surface-only контекст, комнаты разных уровней начнут алиаситься в одну сетку |
+| 32 | Power network | Public power config fields можно менять в обход setter-ов и dirty invalidation | high | Баланс энергии и brownout-решения могут запаздывать или считаться по устаревшим данным |
+| 33 | Power network | `PowerSystem.save_state()` выглядит как persistence API, хотя authoritative power state живёт в компонентах и структурах | low | Новый вызователь может сохранить/восстановить не ту форму состояния и получить ложный “успешный” результат |
+| 34 | Spawn / pickup orchestration | `_enemy_spawning_enabled` нигде не включается | high | Новые враги не спавнятся вообще |
+| 35 | Spawn / pickup orchestration | Save/load сохраняет pickups, но не врагов и не spawn timers | medium | После загрузки hostile population сбрасывается |
+| 36 | Enemy AI / fauna | Сканирование игрока и noise sources не фильтруется по z-level | medium | Существо может реагировать на шум или игрока с другого уровня, если такие акторы одновременно живы |
+| 37 | Noise / hearing input | Noise layer не эмитит invalidation signal, реакция идёт только на следующем scan tick | low | Реакция врагов на включение/выключение шумного объекта может ощущаться запаздывающей |
+| 38 | Z-level switching | `ZLevelManager.current_z` публично мутируемый и может быть изменён в обход `change_level()` | medium | Смена уровня может не запустить синхронизацию мира, света и теней |
+| 39 | Z-level switching | `ZStairs` напрямую ищет `GameWorld`, `ZLevelManager` и overlay в scene tree | low | Любой новый триггер перехода рискует скопировать internal glue и пропустить нужные side-effects |
+| 40 | Time / calendar | `TimeManager.is_paused` и `time_scale` меняются напрямую из внешнего кода | medium | Время можно заморозить/ускорить в обход явного API и без централизованного контракта |
+| 41 | Save / load orchestration | `SaveLoadTab` обходит `SaveManager` при listing/delete/load-request orchestration | high | UI и canonical save-layer могут разойтись по поведению и error handling |
+| 42 | Save / load orchestration | `SaveLoadTab._on_save_pressed()` не проверяет результат `SaveManager.save_game()` | medium | Игрок может увидеть “сохранено”, хотя запись не удалась |
 
 ## Out Of Scope / Follow-up
 

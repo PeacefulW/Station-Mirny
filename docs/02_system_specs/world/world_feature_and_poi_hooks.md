@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.1
+version: 0.2
 last_updated: 2026-03-28
 depends_on:
   - world_generation_foundation.md
@@ -72,8 +72,18 @@ This spec does not own:
 `POI definition`
 - A data-authored template with placement constraints, anchor rules, and optional footprint/spacing constraints.
 
+`candidate_origin`
+- The canonical world tile currently being evaluated as the origin for POI-local coordinates.
+
+`anchor_offset`
+- A required local offset declared by each `PoiDefinition` in Iteration 7 baseline.
+
+`priority`
+- A required explicit POI arbitration priority used before deterministic hash tie-break.
+
 `anchor tile`
 - The canonical world tile that owns the final placement decision for a feature or POI.
+- Computed as `candidate_origin + anchor_offset`.
 
 `placement payload`
 - Derived chunk-build output that records selected feature or POI placements for materialization or debug consumption.
@@ -98,12 +108,17 @@ This spec does not own:
   - `assert(ids are stable and namespaced)`
   - `assert(definitions are read-only during runtime gameplay)`
   - `assert(definitions do not depend on chunk-local randomness)`
+  - `assert(each PoiDefinition declares explicit local anchor_offset in Iteration 7 baseline)`
+  - `assert(missing anchor_offset => invalid PoiDefinition for Iteration 7)`
+  - `assert(each PoiDefinition declares explicit arbitration priority in Iteration 7 baseline)`
+  - `assert(registry content is fully loaded at boot before generator-side feature_or_poi reads begin)`
 - `write operations`:
   - boot-time registry load
   - authoring or editing data resources
 - `forbidden writes`:
   - `Chunk`, `ChunkManager`, or presentation systems mutating feature/POI definitions at runtime
   - generator gameplay code loading feature/POI content by hardcoded `res://` path outside the registry
+  - worker-side feature/POI resolution calling `load()` or scanning resources directly
 - `emitted events / invalidation`:
   - boot-time registry readiness only
   - no runtime mutation signal in Iteration 7 baseline
@@ -121,7 +136,7 @@ This spec does not own:
   - `ChunkContentBuilder`
   - future debug inspectors
 - `invariants`:
-  - `assert(same_seed_and_anchor_tile => same hook decision set)`
+  - `assert(same_seed_and_candidate_origin => same hook decision set)`
   - `assert(hook decisions depend only on canonical generator context plus definition catalog)`
   - `assert(hook decisions do not mutate terrain, biome, structure, or local variation answers)`
   - `assert(hook decisions are invariant across chunk-boundary evaluation)`
@@ -150,10 +165,11 @@ This spec does not own:
   - `ChunkContentBuilder`
   - future spawn/materialization or debug consumers
 - `invariants`:
-  - `assert(each canonical anchor produces zero or one resolved placement per exclusive slot)`
+  - `assert(each canonical anchor produces zero or one resolved placement in the single Iteration 7 baseline exclusive slot)`
   - `assert(placement acceptance validates biome, structure, terrain, and footprint constraints before selection)`
   - `assert(multi_chunk_poi_ownership is decided by canonical anchor, not load order)`
   - `assert(poi placement is not authoritative terrain or walkability truth)`
+  - `assert(competing valid POIs at the same canonical anchor are resolved by explicit priority, then deterministic hash, then lexicographic poi_id)`
 - `write operations`:
   - unloaded generator build/read path
   - chunk payload construction
@@ -203,9 +219,9 @@ This spec does not own:
 - `writers`:
   - `ChunkContentBuilder`
   - `ChunkBuildResult`
-  - optional minimal debug/materialization consumer
+  - dedicated debug-only overlay consumer in Iteration 7.5 proof path
 - `readers`:
-  - `Chunk`
+  - dedicated debug-only overlay consumer in Iteration 7.5 proof path
   - future POI materialization/spawn consumers
   - debug tooling
 - `invariants`:
@@ -252,6 +268,44 @@ This spec does not own:
 - a loaded chunk must not author new canonical POI truth by itself
 - presentation absence or delay must not change generator answers
 
+## Baseline Internal Resolver Entry Points
+
+These are fixed internal implementation entry points for Iterations `7.2` and `7.3`.
+
+They are not public API.
+
+`WorldFeatureHookResolver.resolve_for_origin(candidate_origin: Vector2i, ctx: WorldComputeContext) -> Array[FeatureHookDecision]`
+
+- Reads canonical generator context for one `candidate_origin`
+- Returns deterministic feature-hook decisions for that origin
+
+`WorldPoiResolver.resolve_for_origin(candidate_origin: Vector2i, hook_decisions: Array[FeatureHookDecision], ctx: WorldComputeContext) -> Array[PoiPlacementDecision]`
+
+- Consumes hook decisions for one `candidate_origin`
+- Computes final placement decisions
+- Each returned placement must include `anchor_tile = candidate_origin + anchor_offset`
+
+These names should stay stable across the spec, implementation prompts, and acceptance tests unless this document is revised first.
+
+## Anchor Ownership Rule
+
+- In Iteration 7 baseline, every `PoiDefinition` must declare an explicit local `anchor_offset`.
+- The canonical anchor tile is `candidate_origin + anchor_offset`.
+- If no explicit `anchor_offset` is present, the POI definition is invalid for Iteration 7.
+- The owner chunk is the chunk containing `anchor_tile`.
+- Only the owner chunk may author the final placement record in the baseline payload contract.
+
+## Arbitration Order
+
+Arbitration order for competing valid POIs at the same canonical anchor in the single Iteration 7 baseline exclusive slot:
+
+1. Reject invalid candidates by constraints.
+2. Prefer higher explicit priority.
+3. If priority is equal, prefer the deterministic hash winner computed from `(seed, canonical_anchor_tile, poi_id)`.
+4. If still equal, prefer lexicographically smaller `poi_id`.
+
+No alternative arbitration order is allowed unless this spec is revised first.
+
 ## Deterministic Placement Expectations
 
 - Determinism key is `seed + canonical world coordinates + stable definitions`.
@@ -262,6 +316,13 @@ This spec does not own:
   - sync chunk build
   - worker/native chunk build
 
+## Worker / Registry Read Rules
+
+- Worker-side feature and POI resolution must not call `load()` or scan resource directories.
+- Registry content must be fully loaded on boot and exposed as immutable runtime data before chunk build compute begins.
+- Generator-side compute paths may read registry-backed immutable data or an immutable snapshot only.
+- Missing registry readiness is an initialization error, not a signal to lazy-load content during chunk build.
+
 ## Chunk Boundary Rules
 
 - Evaluation keys must use canonical world coordinates or canonical anchor tiles, never local chunk coordinates.
@@ -270,6 +331,7 @@ This spec does not own:
 - Chunk border loading order must not duplicate, suppress, or replace a placement.
 - East-west wrap behavior must remain seamless on the accepted cylindrical topology.
 - If a placement cannot validate its required footprint deterministically from canonical generator context, it must be rejected or deferred. It must not guess from partial loaded state.
+- Iteration 7 baseline uses owner-only placement authority: the owner chunk stores the full placement record and non-owner chunks do not become secondary authorities.
 
 ## Loaded Vs Unloaded Read Rules
 
@@ -277,6 +339,38 @@ This spec does not own:
 - Loaded chunk presentation may consume placement payload, but it must not become the source of that payload.
 - Iteration 7 baseline does not allow feature or POI truth to depend on loaded-world runtime diffs.
 - If a future POI type requires loaded-world or runtime-diff awareness, that is a separate contract change and is out of scope here.
+
+## Placement Payload Baseline Schema
+
+In Iteration 7 baseline, `ChunkBuildResult` and native chunk payloads use the field name:
+
+`feature_and_poi_payload`
+
+Baseline schema:
+
+```gdscript
+{
+	"placements": [
+		{
+			"kind": StringName, # "feature" or "poi"
+			"id": StringName,
+			"candidate_origin": Vector2i,
+			"anchor_tile": Vector2i,
+			"owner_chunk": Vector2i,
+			"footprint_tiles": Array[Vector2i],
+			"debug_marker_kind": StringName
+		}
+	]
+}
+```
+
+Rules:
+
+- Only resolved placements are serialized into the baseline payload.
+- Rejected candidates and raw hook scores are not serialized.
+- The owner chunk stores the full placement record.
+- Non-owner touched chunks do not receive duplicated secondary placement records in Iteration 7 baseline.
+- Cross-chunk footprint projection into non-owner chunks is future work and not part of the baseline payload contract.
 
 ## Feature Hooks Vs POI Placement Hooks
 
@@ -316,7 +410,10 @@ What is done:
 - add `FeatureHookData` resource type
 - add `PoiDefinition` resource type
 - add `WorldFeatureRegistry` for boot-time loading of base definitions
+- require explicit `anchor_offset` on every `PoiDefinition`
+- require explicit arbitration `priority` on every `PoiDefinition`
 - add minimal base definitions used for implementation and tests
+- expose immutable registry-backed runtime data for generator-side reads
 - do not add placement logic yet
 
 Acceptance tests:
@@ -325,7 +422,9 @@ Acceptance tests:
 - [ ] `assert(WorldFeatureRegistry.get_poi_by_id(&"base:test_poi") != null)` — POI definitions resolve through the registry
 - [ ] `assert(WorldFeatureRegistry.get_all_feature_hooks().size() >= 1)` — at least one base feature definition loads
 - [ ] `assert(WorldFeatureRegistry.get_all_pois().size() >= 1)` — at least one base POI definition loads
-- [ ] Manual review: generator gameplay code does not direct-`load()` feature or POI resources outside the registry
+- [ ] `assert(WorldFeatureRegistry.get_poi_by_id(&"base:test_poi").anchor_offset is explicitly defined)` — anchor ownership is not implicit
+- [ ] `assert(WorldFeatureRegistry.get_poi_by_id(&"base:test_poi").priority is explicitly defined)` — arbitration priority is not implicit
+- [ ] Manual review: generator gameplay code and worker-side compute paths do not direct-`load()` feature or POI resources outside the registry
 
 Files that will be touched:
 
@@ -349,16 +448,17 @@ Goal:
 What is done:
 
 - add a generator-side resolver that reads existing channels, structure context, biome result, and local variation
-- compute deterministic feature-hook candidate results keyed by canonical anchor tile
+- compute deterministic feature-hook candidate results keyed by `candidate_origin`
+- use the fixed internal entrypoint `WorldFeatureHookResolver.resolve_for_origin(candidate_origin, ctx)`
 - keep output detached from presentation and chunk-local identity
 - do not select final POIs yet
 
 Acceptance tests:
 
-- [ ] `assert(resolve_feature_hooks(seed, anchor_tile) == resolve_feature_hooks(seed, anchor_tile))` — repeated evaluation is stable
-- [ ] `assert(resolve_feature_hooks(seed, anchor_tile) is identical when requested from neighboring chunk builds)` — chunk borders do not change the answer
+- [ ] `assert(WorldFeatureHookResolver.resolve_for_origin(candidate_origin, ctx) == WorldFeatureHookResolver.resolve_for_origin(candidate_origin, ctx))` — repeated evaluation is stable
+- [ ] `assert(WorldFeatureHookResolver.resolve_for_origin(candidate_origin_on_chunk_edge, ctx) is identical when evaluated from neighboring chunk builds)` — chunk borders do not change the answer
 - [ ] `assert(feature_hook_compute does not modify terrain, structure, biome, or local_variation outputs)` — canonical inputs remain read-only
-- [ ] Manual verification: same seed and same canonical anchor tile produce stable hook ids and scores across repeated runs
+- [ ] Manual verification: same seed and same candidate origin produce stable hook ids and scores across repeated runs
 
 Files that will be touched:
 
@@ -382,15 +482,18 @@ What is done:
 - add a POI resolver consuming feature-hook candidates plus POI definitions
 - define canonical anchor ownership
 - define spacing, conflict, and footprint eligibility rules
+- use the fixed internal entrypoint `WorldPoiResolver.resolve_for_origin(candidate_origin, hook_decisions, ctx)`
+- enforce the fixed arbitration order from this spec
 - reject placements that fail biome, structure, terrain, or footprint constraints
 - keep result generator-side derived state
 
 Acceptance tests:
 
-- [ ] `assert(each exclusive anchor or slot resolves to at most one final POI placement)` — arbitration is unambiguous
+- [ ] `assert(each canonical anchor resolves to at most one final POI placement in the single baseline exclusive slot)` — arbitration is unambiguous
+- [ ] `assert(each returned PoiPlacementDecision.anchor_tile == candidate_origin + poi.anchor_offset)` — anchor ownership is explicit
 - [ ] `assert(a multi_chunk_poi is selected once by canonical anchor ownership, independent of chunk load order)` — border-safe ownership
 - [ ] `assert(pois_with_unmet_constraints are rejected deterministically)` — geography compatibility is enforced
-- [ ] `assert(poi_arbitration uses deterministic hashing by world position and no runtime RNG)` — deterministic placement only
+- [ ] `assert(competing valid POIs at the same canonical anchor are resolved by priority, then hash(seed, anchor_tile, poi_id), then lexicographic poi_id)` — deterministic arbitration order
 
 Files that will be touched:
 
@@ -412,15 +515,20 @@ Goal:
 What is done:
 
 - extend `ChunkBuildResult` payload with feature and POI placement records
+- fix the payload field name to `feature_and_poi_payload`
+- fix the baseline payload schema from this spec
 - extend `build_chunk_content()` and `build_chunk_native_data()` outputs to carry the same placement truth
 - wire `ChunkContentBuilder` and `WorldGenerator` to include the derived placement payload
 - maintain sync and worker/native parity for payload generation
+- use owner-only payload authority for multi-chunk placements
 - do not add full gameplay/entity materialization yet
 
 Acceptance tests:
 
-- [ ] `assert(build_chunk_content(coord) and build_chunk_native_data(coord) carry equivalent feature_and_poi placement data)` — sync/native parity
+- [ ] `assert(build_chunk_content(coord).feature_and_poi_payload == build_chunk_native_data(coord)["feature_and_poi_payload"])` — sync/native parity
+- [ ] `assert(each serialized placement contains kind, id, candidate_origin, anchor_tile, owner_chunk, footprint_tiles, debug_marker_kind)` — schema is stable
 - [ ] `assert(feature_and_poi payload is deterministic for the same seed and canonical chunk coord)` — stable build output
+- [ ] `assert(non-owner chunks do not receive duplicate secondary placement records for placements owned by another chunk)` — owner-only payload authority
 - [ ] `assert(base terrain, height, variation, and biome answers remain unchanged by feature_and_poi payload integration)` — canonical world semantics stay intact
 - [ ] Manual verification: a chunk containing a test anchor exposes the same placement payload whether built synchronously or through the worker/native path
 
@@ -433,7 +541,7 @@ Files that will be touched:
 
 Files that must not be touched:
 
-- `core/systems/world/chunk.gd` except optional debug proof consumer
+- `core/systems/world/chunk.gd`
 - mining/topology/reveal runtime code
 - presentation/shadow systems
 
@@ -444,27 +552,33 @@ Goal:
 
 What is done:
 
-- add one minimal non-authoritative debug or placeholder materialization consumer for selected placements
+- add one dedicated debug-only overlay consumer for selected placements
+- draw anchor markers only for resolved placements
+- do not modify `Chunk` terrain rendering for this proof
+- do not spawn gameplay entities for this proof
 - update `DATA_CONTRACTS.md` with the new derived layers and boundary rules
 - update `PUBLIC_API.md` only for the final safe registry/build entrypoints
 - do not add full quest, story, or entity systems
 
 Acceptance tests:
 
-- [ ] `assert(a test feature_or_poi placement can be observed through a debug or placeholder consumer without mutating canonical terrain state)` — end-to-end proof
+- [ ] `assert(a test feature_or_poi placement can be observed through the dedicated debug-only overlay without mutating canonical terrain state)` — end-to-end proof
+- [ ] `assert(the proof consumer is a dedicated debug-only overlay that draws anchor markers only)` — proof path is fixed
 - [ ] `assert(disabling or delaying presentation does not change placement truth)` — presentation is not authoritative
 - [ ] `assert(DATA_CONTRACTS.md and PUBLIC_API.md document owner, writers, readers, invariants, forbidden writes, and safe entrypoints)` — contract sync complete
 - [ ] Manual review: no parallel public API path exists for feature or POI placement generation
 
 Files that will be touched:
 
-- `core/systems/world/chunk.gd` or a dedicated debug consumer only if needed for proof
+- `core/systems/world/world_feature_debug_overlay.gd`
+- `scenes/world/game_world.gd`
 - `docs/02_system_specs/world/DATA_CONTRACTS.md`
 - `docs/00_governance/PUBLIC_API.md`
 - implementation files from previous iterations only as needed
 
 Files that must not be touched:
 
+- `core/systems/world/chunk.gd`
 - modding extension docs or APIs
 - content-growth files beyond one minimal proof definition
 - unrelated runtime systems
@@ -499,6 +613,7 @@ Proposed additions:
 - add `POI Placement` derived layer, or document it as a named sublayer of `Feature Hooks` if implementation stays tightly coupled
 - update `Current Source Of Truth Summary` to state that feature and POI truth are derived from canonical generator context and definitions, not from chunk-local presentation
 - add loaded vs unloaded read rules for feature and POI placement payloads
+- add explicit anchor ownership and arbitration order rules
 - add chunk-boundary ownership rules for multi-chunk placements and X-wrap behavior
 - add postconditions for `build_chunk_content()` / `build_chunk_native_data()` once placement payload is part of the contract
 
@@ -513,6 +628,7 @@ Preferred public API shape:
   - `WorldFeatureRegistry.get_all_feature_hooks() -> Array`
   - `WorldFeatureRegistry.get_poi_by_id(id: StringName) -> PoiDefinition`
   - `WorldFeatureRegistry.get_all_pois() -> Array`
+- keep `WorldFeatureHookResolver.resolve_for_origin(...)` and `WorldPoiResolver.resolve_for_origin(...)` internal, not public
 - keep `WorldGenerator.build_chunk_content()` and `WorldGenerator.build_chunk_native_data()` as the canonical chunk-build entrypoints
 - extend existing build outputs instead of adding a parallel `generate_feature_chunk()` or `generate_poi_chunk()` public API
 - if future tooling needs a dedicated inspection API, it should be read-only and added explicitly after contract review
@@ -525,6 +641,7 @@ Preferred public API shape:
 - Decomposed rollout Iteration 7 into five implementation iterations
 - Defined proposed new and affected data layers, with owner/writer/reader/invariant/forbidden-write fields
 - Documented source-of-truth vs derived/materialized boundaries, deterministic expectations, loaded vs unloaded rules, and chunk-boundary rules
+- Fixed the baseline spec for anchor ownership, arbitration order, resolver entrypoints, payload schema, and worker-safe registry reads
 - Added proposed `DATA_CONTRACTS.md` and `PUBLIC_API.md` deltas without applying them
 
 ### Root Cause

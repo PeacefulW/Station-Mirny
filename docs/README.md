@@ -4,8 +4,8 @@ doc_type: docs_index
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.2
-last_updated: 2026-03-27
+version: 1.3
+last_updated: 2026-03-28
 related_docs:
   - 00_governance/DOCUMENT_PRECEDENCE.md
   - 00_governance/DOCUMENTATION_MIGRATION_PLAN.md
@@ -55,6 +55,7 @@ Deprecated or migrated legacy versions.
 - [Performance Contracts](00_governance/PERFORMANCE_CONTRACTS.md)
 - [Simulation and Threading Model](00_governance/SIMULATION_AND_THREADING_MODEL.md)
 - [Document Precedence](00_governance/DOCUMENT_PRECEDENCE.md)
+- [System Inventory](00_governance/SYSTEM_INVENTORY.md)
 - [Documentation Migration Plan](00_governance/DOCUMENTATION_MIGRATION_PLAN.md)
 - [Project Glossary](00_governance/PROJECT_GLOSSARY.md)
 - [Legacy Root Doc Audit](00_governance/LEGACY_ROOT_DOC_AUDIT.md)
@@ -125,6 +126,11 @@ Deprecated or migrated legacy versions.
 
 ### "What runtime/save-load holes are still open and in what order should they be closed?"
 - [Runtime Integrity Gap Closure Plan](04_execution/runtime_integrity_gap_closure_plan.md)
+
+### "What systems exist, what do they own, and why are some excluded from contracts?"
+- [System Inventory](00_governance/SYSTEM_INVENTORY.md)
+- [Public API](00_governance/PUBLIC_API.md)
+- [World Data Contracts](02_system_specs/world/DATA_CONTRACTS.md)
 
 ### "What world lighting, time-of-day, and z-layer runtime holes are still open?"
 - [World Layer Runtime Gap Closure Plan](04_execution/world_layer_runtime_gap_closure_plan.md)
