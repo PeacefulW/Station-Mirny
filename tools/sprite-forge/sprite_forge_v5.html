@@ -86,7 +86,6 @@ button.sec{background:var(--panel2);border:1px solid var(--line);color:var(--tex
 <div class="rs"><label>Рельеф верха</label><input type="range" id="reliefH" min="0" max="30" value="6"><span class="v" id="reliefHV">6</span></div>
 <div class="rs"><label>Кромка (px)</label><input type="range" id="edgeW" min="2" max="20" value="8"><span class="v" id="edgeWV">8</span></div>
 <div class="rs"><label>Крутизна</label><input type="range" id="steep" min="1" max="20" value="8"><span class="v" id="steepV">8</span></div>
-<div class="rs"><label>Размер нотча</label><input type="range" id="notchSize" min="4" max="30" value="14"><span class="v" id="notchSizeV">14</span></div>
 
 <h2>Освещение</h2>
 <div class="rs"><label>Азимут</label><input type="range" id="lightAz" min="0" max="360" value="225"><span class="v" id="lightAzV">225°</span></div>
@@ -145,7 +144,7 @@ button.sec{background:var(--panel2);border:1px solid var(--line);color:var(--tex
 </div>
 <div class="tcont on" id="t-tiles"><div class="grid" id="grid"></div></div>
 <div class="tcont" id="t-atlas"><div class="atlas-wrap"><canvas id="atlasC"></canvas></div></div>
-<div class="tcont" id="t-demo"><div class="demo-wrap"><canvas id="demoC"></canvas></div><div class="sub">8-bit blob autotiling. Горы, обрывы, дыры, коридоры.</div></div>
+<div class="tcont" id="t-demo"><div class="demo-wrap"><canvas id="demoC"></canvas></div><div class="sub">Terrain рисуется первым, горы поверх с прозрачностью. Рваные края кромок показывают землю под горой.</div></div>
 <div class="tcont" id="t-hm"><div class="sub">Heightmap debug: белый = высоко. Это основа объёма — нормали и AO считаются из этих данных.</div><div class="grid" id="hmGrid"></div></div>
 </div>
 
@@ -289,82 +288,66 @@ function genHeightmap(T,def,P,seed){
   const hm=new Float32Array(T*T);
   const nf=mkNoise(seed);
   const sc=T/64;
-  const wH=P.wallHeight*sc;  // south wall height in pixels
+  const wH=P.wallHeight*sc;
   const rH=P.reliefH*sc;
   const eW=P.edgeW*sc;
   const steep=P.steep;
-  const nSz=P.notchSize*sc;
   const useJag=P.optJag;
 
   const hasN=!!(def.e&0b1000), hasS=!!(def.e&0b0100), hasE=!!(def.e&0b0010), hasW=!!(def.e&0b0001);
   const cNE=!!(def.c&0b1000), cNW=!!(def.c&0b0100), cSE=!!(def.c&0b0010), cSW=!!(def.c&0b0001);
 
-  // Precompute jag offsets per edge
+  // One set of jag arrays — shared between cardinal edges AND corner notches
   const jagAmt=useJag?3*sc:0;
   const jN=[],jS=[],jE=[],jW=[];
-  const jNE=[],jNW=[],jSE=[],jSW=[];
   for(let i=0;i<T;i++){
     jN[i]=useJag?Math.round(fbm(nf,i*.08,seed*.01,2)*jagAmt):0;
     jS[i]=useJag?Math.round(fbm(nf,i*.08,seed*.02+100,2)*jagAmt):0;
     jE[i]=useJag?Math.round(fbm(nf,seed*.03+200,i*.08,2)*jagAmt):0;
     jW[i]=useJag?Math.round(fbm(nf,seed*.04+300,i*.08,2)*jagAmt):0;
-    // Corner jag (diagonal wobble)
-    jNE[i]=useJag?Math.round(fbm(nf,i*.1,seed*.05+400,2)*jagAmt*.7):0;
-    jNW[i]=useJag?Math.round(fbm(nf,i*.1,seed*.06+500,2)*jagAmt*.7):0;
-    jSE[i]=useJag?Math.round(fbm(nf,i*.1,seed*.07+600,2)*jagAmt*.7):0;
-    jSW[i]=useJag?Math.round(fbm(nf,i*.1,seed*.08+700,2)*jagAmt*.7):0;
   }
 
-  const platH=30*sc; // internal platform height units
+  const platH=30*sc;
+  const southFaceH=wH+eW; // full south face = wall + edge
 
   for(let y=0;y<T;y++){
     for(let x=0;x<T;x++){
-      // Distances to each active edge
-      // South edge: boundary at T - wallHeight (leave room for wall below)
+      // Cardinal edge distances
       const southBound=T-wH;
       const dN=hasN?(y-jN[x]):9999;
       const dS=hasS?(southBound-1-y-jS[x]):9999;
       const dE=hasE?(T-1-x-jE[y]):9999;
       const dW=hasW?(x-jW[y]):9999;
-
-      // Corner notch distances (rectangular cut in the corner)
-      let dCorner=9999;
-      if(cNE){
-        const cx=T-1-x-jNE[y];
-        const cy=y-jNE[x];
-        if(cx<nSz&&cy<nSz) dCorner=Math.min(dCorner,Math.min(nSz-cx,nSz-cy));
-        else dCorner=Math.min(dCorner,9999);
-      }
-      if(cNW){
-        const cx=x-jNW[y];
-        const cy=y-jNW[x];
-        if(cx<nSz&&cy<nSz) dCorner=Math.min(dCorner,Math.min(nSz-cx,nSz-cy));
-      }
-      if(cSE){
-        const cx=T-1-x-jSE[y];
-        const cy=T-1-y-jSE[x]; // SE notch requires S=0, terrain extends to T-1
-        if(cx<nSz&&cy<nSz) dCorner=Math.min(dCorner,Math.min(nSz-cx,nSz-cy));
-      }
-      if(cSW){
-        const cx=x-jSW[y];
-        const cy=T-1-y-jSW[x]; // SW notch requires S=0, terrain extends to T-1
-        if(cx<nSz&&cy<nSz) dCorner=Math.min(dCorner,Math.min(nSz-cx,nSz-cy));
-      }
-
-      // Minimum distance to any boundary
       let dMin=Math.min(dN,dS,dE,dW);
 
-      // If pixel is inside a corner notch, treat it as outside
-      if(dCorner<9000){
-        // The pixel is within a notch region
-        // dCorner = how deep into the notch (higher = deeper inside)
-        const notchEdgeDist=-dCorner; // negative = outside platform
-        dMin=Math.min(dMin,notchEdgeDist);
+      // === CORNER NOTCHES ===
+      // Notch = continuation of the SAME cardinal edges into the corner.
+      // Uses the SAME jag arrays, SAME edgeW, SAME jagged distances.
+      // The distances injected into dMin match the cardinal formulas exactly:
+      //   E-side: T-1-x - jE[y]   (same as dE)
+      //   W-side: x - jW[y]       (same as dW)
+      //   N-side: y - jN[x]       (same as dN)
+      //   S-bottom: T-1-y - jS[x] (jagged distance from bottom edge)
+      if(cNE){
+        const bx=eW+jE[y], by=eW+jN[x];
+        if(T-1-x<bx && y<by) dMin=Math.min(dMin, T-1-x-jE[y], y-jN[x]);
+      }
+      if(cNW){
+        const bx=eW+jW[y], by=eW+jN[x];
+        if(x<bx && y<by) dMin=Math.min(dMin, x-jW[y], y-jN[x]);
+      }
+      if(cSE){
+        const bx=eW+jE[y], by=southFaceH+jS[x];
+        if(T-1-x<bx && T-1-y<by) dMin=Math.min(dMin, T-1-x-jE[y], T-1-y-jS[x]);
+      }
+      if(cSW){
+        const bx=eW+jW[y], by=southFaceH+jS[x];
+        if(x<bx && T-1-y<by) dMin=Math.min(dMin, x-jW[y], T-1-y-jS[x]);
       }
 
       if(dMin<-2){hm[y*T+x]=0;continue}
 
-      // Edge falloff with steepness control
+      // Edge falloff — identical for cardinal edges and notch edges
       const edgeFactor=ss(0,eW,dMin);
       const cliffPow=1.0/(steep*0.15+0.5);
       let h=platH*Math.pow(edgeFactor,cliffPow);
@@ -514,21 +497,25 @@ function renderTile(T,def,P,seed){
 
       // HM debug
       const hv=clamp(h/Math.max(platH,1)*255,0,255);
-      hd[i*4]=hv;hd[i*4+1]=hv;hd[i*4+2]=hv;hd[i*4+3]=h>.3||y>=wallStart[x]?255:0;
+      const inWallZone=wallStart[x]<T&&h<1&&y>=wallStart[x];
+      hd[i*4]=hv;hd[i*4+1]=inWallZone?hv*.5:hv;hd[i*4+2]=inWallZone?0:hv;hd[i*4+3]=h>.3||inWallZone?255:0;
 
-      // === WALL RENDERING ===
-      if(h<1&&y>=wallStart[x]&&wallStart[x]<T){
-        // This pixel is in the south wall zone
-        const wallDist=y-wallStart[x]; // 0 at top of wall
-        const wallTotal=T-wallStart[x];
-        const wallProg=wallDist/Math.max(wallTotal,1); // 0→1 top→bottom
+      // === SOUTH WALL RENDERING ===
+      // Only for south-edge columns where platform ends near wallZoneTop.
+      // Notch columns have wallStart much higher → skip them.
+      const wallZoneTop=Math.round(T-wH);
+      const isSouthWallCol=wallStart[x]<T&&wallStart[x]>=wallZoneTop-Math.round(eW*2.5);
+      if(h<1&&y>=wallStart[x]&&isSouthWallCol){
+        const distFromCliffTop=y-wallStart[x]; // 0 at very top of exposed face
 
-        // Wall brightness: lighter at top, darker at bottom
+        // Same gradient for everything: south wall and notch faces alike
+        const wallDist=y-wallZoneTop; // can be negative if notch above wall line
+        const wallProg=clamp(wallDist/Math.max(wH,1),0,1); // 0→1
         let wallBr=.7-wallProg*.35;
 
-        // Rim light at top of wall
-        if(P.optRim&&wallDist<3*sc){
-          wallBr+=.2*(1-wallDist/(3*sc));
+        // Rim light at top of south wall line
+        if(P.optRim&&wallDist>=0&&wallDist<3*sc){
+          wallBr+=.15*(1-wallDist/(3*sc));
         }
 
         // Horizontal layers
@@ -555,23 +542,20 @@ function renderTile(T,def,P,seed){
         const g=clamp(Math.round(bc[1]*wallBr*texMod+pn),0,255);
         const b=clamp(Math.round(bc[2]*wallBr*texMod+pn),0,255);
 
-        // Alpha fade at bottom of wall
+        // Wall alpha: fade at bottom, at top of cliff, at side edges
         let a=255;
         if(T-1-y<2*sc)a=Math.round(clamp((T-y)/(2*sc+1),0,1)*255);
-        // Also fade at side edges for east/west walls
+        if(distFromCliffTop<2*sc)a=Math.min(a,Math.round(clamp((distFromCliffTop+1)/(2*sc),0,1)*255));
         const hasE2=!!(def.e&0b0010),hasW2=!!(def.e&0b0001);
         if(hasW2&&x<eW*.5)a=Math.min(a,Math.round(clamp(x/(eW*.5),0,1)*255));
         if(hasE2&&T-1-x<eW*.5)a=Math.min(a,Math.round(clamp((T-x)/(eW*.5),0,1)*255));
-        // Fade at corners involving N edge
-        const hasN2=!!(def.e&0b1000);
-        if(hasN2&&hasW2&&x<eW&&wallDist<eW)a=Math.min(a,Math.round(clamp((x+wallDist)/(eW),0,1)*255));
-        if(hasN2&&hasE2&&T-1-x<eW&&wallDist<eW)a=Math.min(a,Math.round(clamp((T-x+wallDist)/(eW),0,1)*255));
 
         d[i*4]=r;d[i*4+1]=g;d[i*4+2]=b;d[i*4+3]=Math.max(0,a);
         continue;
       }
 
       // === TRANSPARENT ===
+      // Pixel is outside platform — transparent. Terrain layer below shows through.
       if(h<.5){
         d[i*4]=0;d[i*4+1]=0;d[i*4+2]=0;d[i*4+3]=0;
         continue;
@@ -621,7 +605,7 @@ function renderTile(T,def,P,seed){
       const g=clamp(Math.round(bc[1]*lighting*texMod+pn),0,255);
       const b2=clamp(Math.round(bc[2]*lighting*texMod+pn),0,255);
 
-      // Alpha fade at very edge
+      // Alpha fade at very edge — terrain shows through
       let a=255;
       if(h<3)a=Math.round(clamp(h/3,0,1)*255);
 
@@ -638,20 +622,20 @@ function renderTile(T,def,P,seed){
 // PRESETS
 // ═══════════════════════════════════════════
 const PRESETS={
-stone_wall:{wallHeight:22,reliefH:6,edgeW:8,steep:8,notchSize:14,lightAz:225,lightEl:45,lightInt:70,ambient:35,optAO:true,aoStr:55,optRim:true,cTop:'#7a7065',cCliff:'#544a42',cHL:'#c4b8a8',nScale:12,nOct:4,texStr:40,pxNoise:6,optJag:true,optLay:false,optCrk:false,crkN:3,varN:3,optFlip:true,optJit:true,optCJit:true},
-mountain:{wallHeight:30,reliefH:14,edgeW:12,steep:14,notchSize:16,lightAz:200,lightEl:35,lightInt:80,ambient:25,optAO:true,aoStr:70,optRim:true,cTop:'#6b6860',cCliff:'#4a4540',cHL:'#b5a890',nScale:8,nOct:5,texStr:55,pxNoise:8,optJag:true,optLay:true,optCrk:true,crkN:4,varN:3,optFlip:true,optJit:true,optCJit:true},
-grass:{wallHeight:14,reliefH:4,edgeW:7,steep:6,notchSize:12,lightAz:225,lightEl:50,lightInt:65,ambient:40,optAO:true,aoStr:45,optRim:true,cTop:'#5a7a48',cCliff:'#6b5e45',cHL:'#8cb470',nScale:15,nOct:3,texStr:35,pxNoise:5,optJag:true,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
-sand:{wallHeight:10,reliefH:3,edgeW:7,steep:5,notchSize:12,lightAz:240,lightEl:55,lightInt:60,ambient:45,optAO:true,aoStr:35,optRim:true,cTop:'#c4a86a',cCliff:'#9a7e50',cHL:'#e8d8a8',nScale:18,nOct:3,texStr:25,pxNoise:4,optJag:true,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
-snow:{wallHeight:16,reliefH:5,edgeW:9,steep:7,notchSize:14,lightAz:210,lightEl:40,lightInt:50,ambient:55,optAO:true,aoStr:40,optRim:true,cTop:'#c8cad0',cCliff:'#8a90a0',cHL:'#f0f2f8',nScale:14,nOct:4,texStr:20,pxNoise:3,optJag:false,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
-lava:{wallHeight:24,reliefH:10,edgeW:10,steep:12,notchSize:14,lightAz:180,lightEl:30,lightInt:40,ambient:20,optAO:true,aoStr:75,optRim:true,cTop:'#3a2a28',cCliff:'#2a1a18',cHL:'#e85030',nScale:10,nOct:5,texStr:60,pxNoise:10,optJag:true,optLay:true,optCrk:true,crkN:5,varN:3,optFlip:true,optJit:true,optCJit:true},
-water_edge:{wallHeight:12,reliefH:3,edgeW:8,steep:5,notchSize:12,lightAz:225,lightEl:50,lightInt:55,ambient:45,optAO:true,aoStr:40,optRim:true,cTop:'#5a8068',cCliff:'#4a6858',cHL:'#80b890',nScale:16,nOct:3,texStr:30,pxNoise:4,optJag:true,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
-dark:{wallHeight:26,reliefH:8,edgeW:10,steep:10,notchSize:14,lightAz:215,lightEl:38,lightInt:60,ambient:18,optAO:true,aoStr:80,optRim:true,cTop:'#3a3840',cCliff:'#28262e',cHL:'#7070a0',nScale:11,nOct:4,texStr:45,pxNoise:7,optJag:true,optLay:true,optCrk:true,crkN:3,varN:3,optFlip:true,optJit:true,optCJit:true},
+stone_wall:{wallHeight:22,reliefH:6,edgeW:8,steep:8,lightAz:225,lightEl:45,lightInt:70,ambient:35,optAO:true,aoStr:55,optRim:true,cTop:'#7a7065',cCliff:'#544a42',cHL:'#c4b8a8',nScale:12,nOct:4,texStr:40,pxNoise:6,optJag:true,optLay:false,optCrk:false,crkN:3,varN:3,optFlip:true,optJit:true,optCJit:true},
+mountain:{wallHeight:30,reliefH:14,edgeW:12,steep:14,lightAz:200,lightEl:35,lightInt:80,ambient:25,optAO:true,aoStr:70,optRim:true,cTop:'#6b6860',cCliff:'#4a4540',cHL:'#b5a890',nScale:8,nOct:5,texStr:55,pxNoise:8,optJag:true,optLay:true,optCrk:true,crkN:4,varN:3,optFlip:true,optJit:true,optCJit:true},
+grass:{wallHeight:14,reliefH:4,edgeW:7,steep:6,lightAz:225,lightEl:50,lightInt:65,ambient:40,optAO:true,aoStr:45,optRim:true,cTop:'#5a7a48',cCliff:'#6b5e45',cHL:'#8cb470',nScale:15,nOct:3,texStr:35,pxNoise:5,optJag:true,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
+sand:{wallHeight:10,reliefH:3,edgeW:7,steep:5,lightAz:240,lightEl:55,lightInt:60,ambient:45,optAO:true,aoStr:35,optRim:true,cTop:'#c4a86a',cCliff:'#9a7e50',cHL:'#e8d8a8',nScale:18,nOct:3,texStr:25,pxNoise:4,optJag:true,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
+snow:{wallHeight:16,reliefH:5,edgeW:9,steep:7,lightAz:210,lightEl:40,lightInt:50,ambient:55,optAO:true,aoStr:40,optRim:true,cTop:'#c8cad0',cCliff:'#8a90a0',cHL:'#f0f2f8',nScale:14,nOct:4,texStr:20,pxNoise:3,optJag:false,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
+lava:{wallHeight:24,reliefH:10,edgeW:10,steep:12,lightAz:180,lightEl:30,lightInt:40,ambient:20,optAO:true,aoStr:75,optRim:true,cTop:'#3a2a28',cCliff:'#2a1a18',cHL:'#e85030',nScale:10,nOct:5,texStr:60,pxNoise:10,optJag:true,optLay:true,optCrk:true,crkN:5,varN:3,optFlip:true,optJit:true,optCJit:true},
+water_edge:{wallHeight:12,reliefH:3,edgeW:8,steep:5,lightAz:225,lightEl:50,lightInt:55,ambient:45,optAO:true,aoStr:40,optRim:true,cTop:'#5a8068',cCliff:'#4a6858',cHL:'#80b890',nScale:16,nOct:3,texStr:30,pxNoise:4,optJag:true,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
+dark:{wallHeight:26,reliefH:8,edgeW:10,steep:10,lightAz:215,lightEl:38,lightInt:60,ambient:18,optAO:true,aoStr:80,optRim:true,cTop:'#3a3840',cCliff:'#28262e',cHL:'#7070a0',nScale:11,nOct:4,texStr:45,pxNoise:7,optJag:true,optLay:true,optCrk:true,crkN:3,varN:3,optFlip:true,optJit:true,optCJit:true},
 };
 
 // ═══════════════════════════════════════════
 // READ PARAMS FROM UI
 // ═══════════════════════════════════════════
-const SLIDER_IDS=['wallHeight','reliefH','edgeW','steep','notchSize','lightAz','lightEl','lightInt','ambient','aoStr','nScale','nOct','texStr','pxNoise','crkN','varN'];
+const SLIDER_IDS=['wallHeight','reliefH','edgeW','steep','lightAz','lightEl','lightInt','ambient','aoStr','nScale','nOct','texStr','pxNoise','crkN','varN'];
 const TOGGLE_IDS=['optAO','optRim','optJag','optLay','optCrk','optFlip','optJit','optCJit'];
 const COLOR_IDS=['cTop','cCliff','cHL'];
 

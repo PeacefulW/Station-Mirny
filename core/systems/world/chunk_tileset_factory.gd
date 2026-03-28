@@ -42,107 +42,109 @@ const SURFACE_VARIATION_CLEARING: int = 3
 const SURFACE_VARIATION_ROCKY_PATCH: int = 4
 const SURFACE_VARIATION_WET_PATCH: int = 5
 
-## Rock visual-class tiles (from atlas, positions 7+)
+## Rock visual-class tiles.
+## Atlas offsets must match the canonical TD order from tools/sprite-forge/sprite_forge_v5.html.
+## Keep the semantic WALL_* names stable so chunk visual logic does not depend on raw atlas indices.
 const WALL_INTERIOR: Vector2i = Vector2i(7, 0)
 const WALL_NOTCH_NE: Vector2i = Vector2i(8, 0)
 const WALL_NOTCH_NW: Vector2i = Vector2i(9, 0)
 const WALL_NOTCH_SE: Vector2i = Vector2i(10, 0)
 const WALL_NOTCH_SW: Vector2i = Vector2i(11, 0)
-const WALL_SOUTH: Vector2i = Vector2i(12, 0)
-const WALL_NORTH: Vector2i = Vector2i(13, 0)
-const WALL_WEST: Vector2i = Vector2i(14, 0)
-const WALL_EAST: Vector2i = Vector2i(15, 0)
-const WALL_CORNER_SW: Vector2i = Vector2i(16, 0)
-const WALL_CORNER_SE: Vector2i = Vector2i(17, 0)
-const WALL_CORNER_NW: Vector2i = Vector2i(18, 0)
-const WALL_CORNER_NE: Vector2i = Vector2i(19, 0)
-const WALL_CORRIDOR_EW: Vector2i = Vector2i(20, 0)
-const WALL_CORRIDOR_NS: Vector2i = Vector2i(21, 0)
-const WALL_PENINSULA_S: Vector2i = Vector2i(22, 0)
-const WALL_PENINSULA_N: Vector2i = Vector2i(23, 0)
-const WALL_PENINSULA_E: Vector2i = Vector2i(24, 0)
-const WALL_PENINSULA_W: Vector2i = Vector2i(25, 0)
-const WALL_PILLAR: Vector2i = Vector2i(26, 0)
-const WALL_CROSS: Vector2i = Vector2i(27, 0)
-const WALL_T_SOUTH: Vector2i = Vector2i(28, 0)
-const WALL_T_NORTH: Vector2i = Vector2i(29, 0)
-const WALL_T_WEST: Vector2i = Vector2i(30, 0)
-const WALL_T_EAST: Vector2i = Vector2i(31, 0)
-const WALL_CORNER_NW_T: Vector2i = Vector2i(32, 0)
-const WALL_CORNER_NE_T: Vector2i = Vector2i(33, 0)
-const WALL_CORNER_SW_T: Vector2i = Vector2i(34, 0)
-const WALL_CORNER_SE_T: Vector2i = Vector2i(35, 0)
-const WALL_EDGE_EW: Vector2i = Vector2i(36, 0)
-const WALL_NORTH_SE: Vector2i = Vector2i(37, 0)
-const WALL_NORTH_SW: Vector2i = Vector2i(38, 0)
-const WALL_SOUTH_NE: Vector2i = Vector2i(39, 0)
-const WALL_SOUTH_NW: Vector2i = Vector2i(40, 0)
-const WALL_WEST_NE: Vector2i = Vector2i(41, 0)
-const WALL_WEST_SE: Vector2i = Vector2i(42, 0)
-const WALL_EAST_NW: Vector2i = Vector2i(43, 0)
-const WALL_EAST_SW: Vector2i = Vector2i(44, 0)
-const WALL_DIAG_NE_NW: Vector2i = Vector2i(45, 0)
-const WALL_DIAG_NE_SE: Vector2i = Vector2i(46, 0)
-const WALL_DIAG_NW_SW: Vector2i = Vector2i(47, 0)
-const WALL_DIAG_NE_SW: Vector2i = Vector2i(48, 0)
-const WALL_DIAG_NW_SE: Vector2i = Vector2i(49, 0)
-const WALL_DIAG3_NO_SW: Vector2i = Vector2i(50, 0)
-const WALL_DIAG3_NO_SE: Vector2i = Vector2i(51, 0)
-const WALL_DIAG3_NO_NW: Vector2i = Vector2i(52, 0)
-const WALL_DIAG3_NO_NE: Vector2i = Vector2i(53, 0)
+const WALL_DIAG_NE_NW: Vector2i = Vector2i(12, 0)
+const WALL_DIAG_NE_SE: Vector2i = Vector2i(13, 0)
+const WALL_DIAG_NE_SW: Vector2i = Vector2i(14, 0)
+const WALL_DIAG_NW_SE: Vector2i = Vector2i(15, 0)
+const WALL_DIAG_NW_SW: Vector2i = Vector2i(16, 0)
+const WALL_EDGE_EW: Vector2i = Vector2i(17, 0)
+const WALL_DIAG3_NO_SW: Vector2i = Vector2i(18, 0)
+const WALL_DIAG3_NO_SE: Vector2i = Vector2i(19, 0)
+const WALL_DIAG3_NO_NW: Vector2i = Vector2i(20, 0)
+const WALL_DIAG3_NO_NE: Vector2i = Vector2i(21, 0)
+const WALL_CROSS: Vector2i = Vector2i(22, 0)
+const WALL_NORTH: Vector2i = Vector2i(23, 0)
+const WALL_NORTH_SE: Vector2i = Vector2i(24, 0)
+const WALL_NORTH_SW: Vector2i = Vector2i(25, 0)
+const WALL_T_NORTH: Vector2i = Vector2i(26, 0)
+const WALL_SOUTH: Vector2i = Vector2i(27, 0)
+const WALL_SOUTH_NE: Vector2i = Vector2i(28, 0)
+const WALL_SOUTH_NW: Vector2i = Vector2i(29, 0)
+const WALL_T_SOUTH: Vector2i = Vector2i(30, 0)
+const WALL_EAST: Vector2i = Vector2i(31, 0)
+const WALL_EAST_NW: Vector2i = Vector2i(32, 0)
+const WALL_EAST_SW: Vector2i = Vector2i(33, 0)
+const WALL_T_EAST: Vector2i = Vector2i(34, 0)
+const WALL_WEST: Vector2i = Vector2i(35, 0)
+const WALL_WEST_NE: Vector2i = Vector2i(36, 0)
+const WALL_WEST_SE: Vector2i = Vector2i(37, 0)
+const WALL_T_WEST: Vector2i = Vector2i(38, 0)
+const WALL_CORNER_NW: Vector2i = Vector2i(39, 0)
+const WALL_CORNER_NW_T: Vector2i = Vector2i(40, 0)
+const WALL_CORNER_NE: Vector2i = Vector2i(41, 0)
+const WALL_CORNER_NE_T: Vector2i = Vector2i(42, 0)
+const WALL_CORNER_SW: Vector2i = Vector2i(43, 0)
+const WALL_CORNER_SW_T: Vector2i = Vector2i(44, 0)
+const WALL_CORNER_SE: Vector2i = Vector2i(45, 0)
+const WALL_CORNER_SE_T: Vector2i = Vector2i(46, 0)
+const WALL_CORRIDOR_NS: Vector2i = Vector2i(47, 0)
+const WALL_CORRIDOR_EW: Vector2i = Vector2i(48, 0)
+const WALL_PENINSULA_N: Vector2i = Vector2i(49, 0)
+const WALL_PENINSULA_S: Vector2i = Vector2i(50, 0)
+const WALL_PENINSULA_E: Vector2i = Vector2i(51, 0)
+const WALL_PENINSULA_W: Vector2i = Vector2i(52, 0)
+const WALL_PILLAR: Vector2i = Vector2i(53, 0)
 const TILE_DEFS_COUNT: int = 47
 
 ## Runtime flip symmetry classification for wall tiles.
 ## 0 = no flips, 1 = H only, 2 = V only, 3 = H+V (4 variants).
-## Indexed by tile def offset (WALL_INTERIOR.x - 7 = 0, WALL_NOTCH_NE.x - 7 = 1, etc.)
+## Indexed by sprite_forge_v5 TD order (offset 0..46 after the first 7 non-wall terrain tiles).
 const _WALL_FLIP_CLASS: PackedByteArray = [
 	3, # 00 INTERIOR      — fully symmetric
 	0, # 01 NOTCH_NE       — asymmetric corner
 	0, # 02 NOTCH_NW       — asymmetric corner
 	0, # 03 NOTCH_SE       — asymmetric corner
 	0, # 04 NOTCH_SW       — asymmetric corner
-	1, # 05 SOUTH          — H-symmetric
-	1, # 06 NORTH          — H-symmetric
-	2, # 07 WEST           — V-symmetric
-	2, # 08 EAST           — V-symmetric
-	0, # 09 CORNER_SW      — asymmetric
-	0, # 10 CORNER_SE      — asymmetric
-	0, # 11 CORNER_NW      — asymmetric
-	0, # 12 CORNER_NE      — asymmetric
-	2, # 13 CORRIDOR_EW    — V-symmetric (wall edges same top/bottom)
-	1, # 14 CORRIDOR_NS    — H-symmetric
-	1, # 15 PENINSULA_S    — H-symmetric
-	1, # 16 PENINSULA_N    — H-symmetric
-	2, # 17 PENINSULA_E    — V-symmetric
-	2, # 18 PENINSULA_W    — V-symmetric
-	3, # 19 PILLAR         — fully symmetric
-	3, # 20 CROSS          — fully symmetric
-	1, # 21 T_SOUTH        — H-symmetric
-	1, # 22 T_NORTH        — H-symmetric
-	0, # 23 T_WEST         — asymmetric (wallEdge logic)
-	0, # 24 T_EAST         — asymmetric (wallEdge logic)
-	0, # 25 CORNER_NW_T    — asymmetric
-	0, # 26 CORNER_NE_T    — asymmetric
-	0, # 27 CORNER_SW_T    — asymmetric
-	0, # 28 CORNER_SE_T    — asymmetric
-	2, # 29 EDGE_EW        — V-symmetric
-	0, # 30 NORTH_SE       — asymmetric
-	0, # 31 NORTH_SW       — asymmetric
-	0, # 32 SOUTH_NE       — asymmetric
-	0, # 33 SOUTH_NW       — asymmetric
-	0, # 34 WEST_NE        — asymmetric
-	0, # 35 WEST_SE        — asymmetric
-	0, # 36 EAST_NW        — asymmetric
-	0, # 37 EAST_SW        — asymmetric
-	1, # 38 DIAG_NE_NW     — H-symmetric (both notches top)
-	0, # 39 DIAG_NE_SE     — asymmetric
-	0, # 40 DIAG_NW_SW     — asymmetric
-	0, # 41 DIAG_NE_SW     — asymmetric
-	0, # 42 DIAG_NW_SE     — asymmetric
-	0, # 43 DIAG3_NO_SW    — asymmetric
-	0, # 44 DIAG3_NO_SE    — asymmetric
-	0, # 45 DIAG3_NO_NW    — asymmetric
-	0, # 46 DIAG3_NO_NE    — asymmetric
+	1, # 05 DIAG_NE_NW     — H-symmetric
+	0, # 06 DIAG_NE_SE     — asymmetric
+	0, # 07 DIAG_NE_SW     — asymmetric
+	0, # 08 DIAG_NW_SE     — asymmetric
+	0, # 09 DIAG_NW_SW     — asymmetric
+	2, # 10 DIAG_SE_SW     — V-symmetric (legacy EDGE_EW semantics)
+	0, # 11 TRI_NO_SW      — asymmetric
+	0, # 12 TRI_NO_SE      — asymmetric
+	0, # 13 TRI_NO_NW      — asymmetric
+	0, # 14 TRI_NO_NE      — asymmetric
+	3, # 15 QUAD           — fully symmetric
+	1, # 16 NORTH          — H-symmetric
+	0, # 17 NORTH_SE       — asymmetric
+	0, # 18 NORTH_SW       — asymmetric
+	1, # 19 NORTH_SE_SW    — H-symmetric (legacy T_NORTH semantics)
+	1, # 20 SOUTH          — H-symmetric
+	0, # 21 SOUTH_NE       — asymmetric
+	0, # 22 SOUTH_NW       — asymmetric
+	1, # 23 SOUTH_NE_NW    — H-symmetric (legacy T_SOUTH semantics)
+	2, # 24 EAST           — V-symmetric
+	0, # 25 EAST_NW        — asymmetric
+	0, # 26 EAST_SW        — asymmetric
+	0, # 27 EAST_NW_SW     — asymmetric (legacy T_EAST semantics)
+	2, # 28 WEST           — V-symmetric
+	0, # 29 WEST_NE        — asymmetric
+	0, # 30 WEST_SE        — asymmetric
+	0, # 31 WEST_NE_SE     — asymmetric (legacy T_WEST semantics)
+	0, # 32 CORNER_NW      — asymmetric
+	0, # 33 CORNER_NW_CSE  — asymmetric
+	0, # 34 CORNER_NE      — asymmetric
+	0, # 35 CORNER_NE_CSW  — asymmetric
+	0, # 36 CORNER_SW      — asymmetric
+	0, # 37 CORNER_SW_CNE  — asymmetric
+	0, # 38 CORNER_SE      — asymmetric
+	0, # 39 CORNER_SE_CNW  — asymmetric
+	1, # 40 CORRIDOR_NS    — H-symmetric
+	2, # 41 CORRIDOR_EW    — V-symmetric
+	1, # 42 PEN_N          — H-symmetric
+	1, # 43 PEN_S          — H-symmetric
+	2, # 44 PEN_E          — V-symmetric
+	2, # 45 PEN_W          — V-symmetric
+	3, # 46 PILLAR         — fully symmetric
 ]
 
 ## Lookup: flip_class → array of [flip_h, flip_v] pairs for alternative tiles.

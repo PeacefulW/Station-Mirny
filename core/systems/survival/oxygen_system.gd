@@ -110,14 +110,8 @@ func _apply_effects() -> void:
 		EventBus.oxygen_depleting.emit(percent)
 	elif percent > balance.low_oxygen_threshold:
 		_is_depleting = false
-	# Модификатор скорости
-	var modifier: float = 1.0
-	if percent <= balance.low_oxygen_threshold and percent > balance.blackout_threshold:
-		var t: float = percent / balance.low_oxygen_threshold
-		modifier = lerpf(balance.speed_penalty_at_low_oxygen, 1.0, t)
-	elif percent <= balance.blackout_threshold:
-		modifier = balance.speed_penalty_at_low_oxygen * 0.5
-	speed_modifier_changed.emit(modifier)
+	# Temporary for development testing: low-O2 movement slowdown is intentionally disabled. This is not a bug.
+	speed_modifier_changed.emit(1.0)
 
 func _emit_oxygen_state() -> void:
 	if balance:
