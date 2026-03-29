@@ -13,6 +13,7 @@ const REDRAW_PHASE_FLORA: int = 3
 const REDRAW_PHASE_DEBUG_INTERIOR: int = 4
 const REDRAW_PHASE_DEBUG_COLLISION: int = 5
 const REDRAW_PHASE_DONE: int = 6
+const REDRAW_TIME_BUDGET_USEC: int = 1500
 const _CARDINAL_DIRS := [
 	Vector2i.LEFT,
 	Vector2i.RIGHT,
@@ -124,8 +125,8 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 		_begin_progressive_redraw()
 	is_loaded = true
 
-func complete_redraw_now() -> void:
-	_redraw_all()
+func complete_redraw_now(include_flora: bool = false) -> void:
+	_redraw_all(include_flora)
 
 ## Draws terrain layer immediately for all tiles, then leaves cover/cliff/flora
 ## for progressive redraw. Used by boot apply for ring 1 chunks so the player
@@ -320,7 +321,7 @@ func _normalize_saved_open_tiles_after_load() -> void:
 	_use_operation_global_terrain_cache = previous_cache_enabled
 	_operation_global_terrain_cache = previous_global_terrain_cache
 
-func _redraw_all() -> void:
+func _redraw_all(include_flora: bool = false) -> void:
 	var started_usec: int = WorldPerfProbe.begin()
 	_terrain_layer.clear()
 	_cover_layer.clear()
@@ -335,9 +336,14 @@ func _redraw_all() -> void:
 			_redraw_cover_tile(tile)
 			_redraw_cliff_tile(tile)
 	_rebuild_debug_markers()
-	## Flora is deferred to progressive redraw. Set phase to FLORA so
-	## progressive path can draw flora without re-doing terrain/cover/cliff.
-	_redraw_phase = REDRAW_PHASE_FLORA
+	if include_flora:
+		for tile_index: int in range(_chunk_size * _chunk_size):
+			_redraw_flora_tile(tile_index)
+		_redraw_phase = REDRAW_PHASE_DONE
+	else:
+		## Flora is deferred to progressive redraw. Set phase to FLORA so
+		## progressive path can draw flora without re-doing terrain/cover/cliff.
+		_redraw_phase = REDRAW_PHASE_FLORA
 	_redraw_tile_index = 0
 	WorldPerfProbe.end("Chunk._redraw_all %s" % [chunk_coord], started_usec)
 
@@ -361,6 +367,9 @@ func is_terrain_phase_done() -> bool:
 ## are NOT required — they are cosmetic/debug and must not block boot gates.
 func is_gameplay_redraw_complete() -> bool:
 	return _redraw_phase >= REDRAW_PHASE_FLORA
+
+func is_flora_phase_done() -> bool:
+	return _redraw_phase > REDRAW_PHASE_FLORA
 
 func continue_redraw(max_rows: int) -> bool:
 	if _redraw_phase == REDRAW_PHASE_DONE:
@@ -1017,7 +1026,10 @@ func get_redraw_phase_name() -> StringName:
 func _process_redraw_phase_tiles(tile_budget: int) -> int:
 	var total_tiles: int = _chunk_size * _chunk_size
 	var end_index: int = mini(_redraw_tile_index + tile_budget, total_tiles)
-	for tile_index: int in range(_redraw_tile_index, end_index):
+	var start_index: int = _redraw_tile_index
+	var processed_end_index: int = start_index
+	var started_usec: int = Time.get_ticks_usec()
+	for tile_index: int in range(start_index, end_index):
 		var local_tile: Vector2i = _tile_from_index(tile_index)
 		match _redraw_phase:
 			REDRAW_PHASE_TERRAIN:
@@ -1034,8 +1046,12 @@ func _process_redraw_phase_tiles(tile_budget: int) -> int:
 				_process_debug_marker_tile(local_tile, true)
 			_:
 				break
-	var processed: int = end_index - _redraw_tile_index
-	_redraw_tile_index = end_index
+		processed_end_index = tile_index + 1
+		if processed_end_index < end_index and (processed_end_index - start_index) % 8 == 0:
+			if Time.get_ticks_usec() - started_usec >= REDRAW_TIME_BUDGET_USEC:
+				break
+	var processed: int = processed_end_index - start_index
+	_redraw_tile_index = processed_end_index
 	return processed
 
 func set_flora_result(result: ChunkFloraResultScript) -> void:

@@ -142,9 +142,16 @@ func _chunk_to_tile_origin(chunk_coord: Vector2i) -> Vector2i:
 func _build_feature_and_poi_payload(canonical_chunk: Vector2i, base_tile: Vector2i, chunk_size: int) -> Dictionary:
 	if _world_context == null or chunk_size <= 0:
 		return _empty_feature_and_poi_payload()
+	if _feature_and_poi_payload_cache != null \
+		and _feature_and_poi_payload_cache.has_method("has_payload") \
+		and _feature_and_poi_payload_cache.call("has_payload", canonical_chunk):
+		return _feature_and_poi_payload_cache.call("get_payload", canonical_chunk) as Dictionary
 	var placements: Array[Dictionary] = []
 	var hook_decisions_by_origin: Dictionary = {}
 	var poi_placements_by_origin: Dictionary = {}
+	var anchor_winner_cache: Dictionary = {}
+	var hook_id_cache_by_origin: Dictionary = {}
+	var candidate_cache: Dictionary = {}
 	_append_feature_payload_records(placements, base_tile, chunk_size, hook_decisions_by_origin)
 	_append_poi_payload_records(
 		placements,
@@ -152,7 +159,10 @@ func _build_feature_and_poi_payload(canonical_chunk: Vector2i, base_tile: Vector
 		base_tile,
 		chunk_size,
 		hook_decisions_by_origin,
-		poi_placements_by_origin
+		poi_placements_by_origin,
+		anchor_winner_cache,
+		hook_id_cache_by_origin,
+		candidate_cache
 	)
 	_sort_payload_placements(placements)
 	return {
@@ -181,12 +191,22 @@ func _append_poi_payload_records(
 	base_tile: Vector2i,
 	chunk_size: int,
 	hook_decisions_by_origin: Dictionary,
-	poi_placements_by_origin: Dictionary
+	poi_placements_by_origin: Dictionary,
+	anchor_winner_cache: Dictionary,
+	hook_id_cache_by_origin: Dictionary,
+	candidate_cache: Dictionary
 ) -> void:
 	var emitted_placement_keys: Dictionary = {}
 	for candidate_origin: Vector2i in _collect_candidate_origins_for_chunk_anchors(base_tile, chunk_size):
 		var hook_decisions: Array[Dictionary] = _get_feature_hook_decisions(candidate_origin, hook_decisions_by_origin)
-		var poi_placements: Array[Dictionary] = _get_poi_placements(candidate_origin, hook_decisions, poi_placements_by_origin)
+		var poi_placements: Array[Dictionary] = _get_poi_placements(
+			candidate_origin,
+			hook_decisions,
+			poi_placements_by_origin,
+			anchor_winner_cache,
+			hook_id_cache_by_origin,
+			candidate_cache
+		)
 		for placement: Dictionary in poi_placements:
 			var owner_chunk: Vector2i = placement.get("owner_chunk", Vector2i.ZERO) as Vector2i
 			if owner_chunk != canonical_chunk:
@@ -206,13 +226,14 @@ func _collect_candidate_origins_for_chunk_anchors(base_tile: Vector2i, chunk_siz
 	var all_pois: Array[Resource] = _get_all_pois()
 	if all_pois.is_empty():
 		return candidate_origins
+	var unique_anchor_offsets: Array[Vector2i] = _collect_unique_poi_anchor_offsets(all_pois)
+	if unique_anchor_offsets.is_empty():
+		return candidate_origins
 	for local_y: int in range(chunk_size):
 		for local_x: int in range(chunk_size):
 			var anchor_tile: Vector2i = _world_context.canonicalize_tile(base_tile + Vector2i(local_x, local_y))
-			for poi_resource: Resource in all_pois:
-				if poi_resource == null:
-					continue
-				var candidate_origin: Vector2i = _world_context.canonicalize_tile(anchor_tile - _get_poi_anchor_offset(poi_resource))
+			for anchor_offset: Vector2i in unique_anchor_offsets:
+				var candidate_origin: Vector2i = _world_context.canonicalize_tile(anchor_tile - anchor_offset)
 				if seen_origins.has(candidate_origin):
 					continue
 				seen_origins[candidate_origin] = true
@@ -235,14 +256,38 @@ func _get_feature_hook_decisions(candidate_origin: Vector2i, hook_decisions_by_o
 func _get_poi_placements(
 	candidate_origin: Vector2i,
 	hook_decisions: Array[Dictionary],
-	poi_placements_by_origin: Dictionary
+	poi_placements_by_origin: Dictionary,
+	anchor_winner_cache: Dictionary,
+	hook_id_cache_by_origin: Dictionary,
+	candidate_cache: Dictionary
 ) -> Array[Dictionary]:
 	var canonical_origin: Vector2i = _world_context.canonicalize_tile(candidate_origin)
 	if poi_placements_by_origin.has(canonical_origin):
 		return poi_placements_by_origin.get(canonical_origin, [])
-	var poi_placements: Array[Dictionary] = WorldPoiResolverScript.resolve_for_origin(canonical_origin, hook_decisions, _world_context, _all_pois_snapshot)
+	var poi_placements: Array[Dictionary] = WorldPoiResolverScript.resolve_for_origin(
+		canonical_origin,
+		hook_decisions,
+		_world_context,
+		_all_pois_snapshot,
+		anchor_winner_cache,
+		hook_id_cache_by_origin,
+		candidate_cache
+	)
 	poi_placements_by_origin[canonical_origin] = poi_placements
 	return poi_placements
+
+func _collect_unique_poi_anchor_offsets(all_pois: Array[Resource]) -> Array[Vector2i]:
+	var unique_offsets: Array[Vector2i] = []
+	var seen_offsets: Dictionary = {}
+	for poi_resource: Resource in all_pois:
+		if poi_resource == null:
+			continue
+		var anchor_offset: Vector2i = _get_poi_anchor_offset(poi_resource)
+		if seen_offsets.has(anchor_offset):
+			continue
+		seen_offsets[anchor_offset] = true
+		unique_offsets.append(anchor_offset)
+	return unique_offsets
 
 func _serialize_feature_decision(decision: Dictionary) -> Dictionary:
 	var feature_id: StringName = decision.get("hook_id", &"") as StringName

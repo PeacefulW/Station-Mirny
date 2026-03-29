@@ -117,6 +117,21 @@ func sample_terrain_type(tile_x: int, tile_y: int) -> TileGenData.TerrainType:
 		local_variation
 	)
 
+func resolve_surface_terrain_type_from_context(
+	canonical_tile: Vector2i,
+	channels: WorldChannels,
+	structure_context: WorldStructureContext,
+	local_variation: LocalVariationContext = null
+) -> int:
+	if _world_context == null:
+		return TileGenData.TerrainType.GROUND
+	return _resolve_surface_terrain_sq(
+		_distance_from_spawn_sq(canonical_tile, _resolve_spawn_tile()),
+		channels,
+		structure_context,
+		local_variation
+	)
+
 func canonicalize_chunk_coord(chunk_coord: Vector2i) -> Vector2i:
 	if _world_context == null:
 		return chunk_coord

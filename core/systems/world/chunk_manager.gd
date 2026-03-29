@@ -31,7 +31,7 @@ const TOPOLOGY_START_CHUNKS_PER_STEP: int = 8
 const TOPOLOGY_RETIRED_DICT_KEYS_PER_STEP: int = 512
 const MAX_LOAD_REQUESTS_SCANNED_PER_TICK: int = 16
 const MAX_RELEVANT_LOAD_QUEUE_OVERSCAN: int = 8
-const SURFACE_PAYLOAD_CACHE_LIMIT: int = 48
+const SURFACE_PAYLOAD_CACHE_LIMIT: int = 192
 const INVALID_CHUNK_STATE_KEY: Vector3i = Vector3i(999999, 999999, 999999)
 const INVALID_Z_LEVEL: int = 999999
 
@@ -97,6 +97,7 @@ const BOOT_MAX_CONCURRENT_COMPUTE: int = 3
 ## --- Boot apply budget (boot_chunk_apply_budget_spec) ---
 const BOOT_MAX_APPLY_PER_STEP: int = 1
 const BOOT_APPLY_WARNING_MS: float = 8.0
+const RUNTIME_MAX_CONCURRENT_COMPUTE: int = 3
 var _boot_compute_pending: Array[Vector2i] = []
 var _boot_compute_active: Dictionary = {}  ## Vector2i -> int (WorkerThreadPool task_id)
 var _boot_compute_builders: Dictionary = {}  ## Vector2i -> ChunkContentBuilder (detached, per-task)
@@ -107,9 +108,13 @@ var _boot_applied_count: int = 0
 var _boot_total_count: int = 0
 var _boot_compute_generation: int = 0  ## Incremented on each boot start; stale results carry old generation
 var _boot_failed_coords: Array[Vector2i] = []
+var _boot_runtime_handoff_started: bool = false
+var _boot_compute_requested_usec: Dictionary = {}  ## Vector2i -> int
+var _boot_compute_started_usec: Dictionary = {}  ## Vector2i -> int
+var _boot_metric_queue_wait_ms: float = 0.0
 
 ## --- Boot apply queue (boot_chunk_apply_budget_spec) ---
-var _boot_apply_queue: Array[Dictionary] = []  ## [{coord: Vector2i, native_data: Dictionary}], sorted by distance
+var _boot_apply_queue: Array[Dictionary] = []  ## [{coord: Vector2i, native_data: Dictionary, flora_payload: Dictionary}], sorted by distance
 var _boot_has_remaining_chunks: bool = false  ## True while boot background work is not fully complete
 var _boot_pipeline_drained: bool = false  ## True once compute/apply pipeline is fully drained
 var _staged_chunk: Chunk = null
@@ -121,9 +126,13 @@ var _staged_flora_result: ChunkFloraResultScript = null
 var _gen_task_id: int = -1  ## WorkerThreadPool task ID, -1 = нет активной задачи
 var _gen_coord: Vector2i = Vector2i(999999, 999999)  ## Координата в процессе генерации
 var _gen_z: int = 0
-var _gen_result: Dictionary = {}  ## Результат от worker thread
+var _gen_result: Dictionary = {}  ## Vector2i -> {native_data, flora_payload}
 var _gen_mutex: Mutex = Mutex.new()
 var _worker_chunk_builder: RefCounted = null
+var _gen_active_tasks: Dictionary = {}  ## Vector2i -> int task_id
+var _gen_active_z_levels: Dictionary = {}  ## Vector2i -> int z_level
+var _gen_builders: Dictionary = {}  ## Vector2i -> ChunkContentBuilder
+var _gen_ready_queue: Array[Dictionary] = []  ## [{coord, z, native_data, flora_payload}]
 var _shutdown_in_progress: bool = false
 var _surface_payload_cache: Dictionary = {}
 var _surface_payload_cache_lru: Array[Vector3i] = []
@@ -168,14 +177,16 @@ func _exit_tree() -> void:
 		_staged_chunk = null
 	_staged_data = {}
 	_staged_flora_result = null
-	if _gen_task_id >= 0:
-		WorkerThreadPool.wait_for_task_completion(_gen_task_id)
-		_gen_task_id = -1
-	_gen_coord = Vector2i(999999, 999999)
-	_gen_z = 0
+	for task_variant: Variant in _gen_active_tasks.values():
+		WorkerThreadPool.wait_for_task_completion(int(task_variant))
+	_gen_active_tasks.clear()
+	_gen_active_z_levels.clear()
+	_gen_builders.clear()
+	_gen_ready_queue.clear()
 	_gen_mutex.lock()
 	_gen_result = {}
 	_gen_mutex.unlock()
+	_sync_runtime_generation_status()
 	_worker_chunk_builder = null
 	_surface_payload_cache.clear()
 	_surface_payload_cache_lru.clear()
@@ -214,62 +225,48 @@ func boot_load_initial_chunks(progress_callback: Callable) -> void:
 		for dy: int in range(-load_radius, load_radius + 1):
 			coords.append(_offset_chunk_coord(center, Vector2i(dx, dy)))
 	coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return _chunk_manhattan_distance(a, center) < _chunk_manhattan_distance(b, center)
+		return _chunk_priority_less(a, b, center)
 	)
 	var total: int = coords.size()
 	_boot_compute_z = _active_z
 	_boot_applied_count = 0
 	_boot_total_count = total
-	## Separate already-loaded from needing-compute.
 	for coord: Vector2i in coords:
 		_boot_set_chunk_state(coord, BootChunkState.QUEUED_COMPUTE)
 		if _loaded_chunks.has(coord):
-			_boot_set_chunk_state(coord, BootChunkState.VISUAL_COMPLETE)
-			_boot_applied_count += 1
+			var loaded_chunk: Chunk = _loaded_chunks.get(coord) as Chunk
+			if loaded_chunk != null and coord != _player_chunk and not loaded_chunk.is_terrain_phase_done():
+				loaded_chunk.visible = false
+			_boot_on_chunk_applied(coord, loaded_chunk)
 		else:
 			_boot_compute_pending.append(coord)
-	## Async produce-consume loop: submit workers, drain to apply queue, apply on main thread.
-	## Loop exits early once first_playable is reached — outer chunks finish in _process.
-	while _boot_applied_count < total:
+			_boot_compute_requested_usec[coord] = Time.get_ticks_usec()
+	while not _boot_first_playable:
 		_boot_submit_pending_tasks()
 		_boot_collect_completed()
 		_boot_drain_computed_to_apply_queue()
 		_boot_apply_from_queue()
-		_boot_update_gates()
-		var pct: float = float(_boot_applied_count) / float(total) * 80.0
-		progress_callback.call(pct, Localization.t("UI_LOADING_GENERATING_TERRAIN", {"current": _boot_applied_count, "total": total}))
-		await get_tree().process_frame
-		if _boot_first_playable and _boot_applied_count < total:
-			_boot_has_remaining_chunks = true
-			break
-	if not _boot_has_remaining_chunks:
-		## All chunks applied in boot loop. Check if any still need progressive redraw.
-		_boot_wait_all_compute()
-		var has_pending_visuals: bool = false
-		for coord: Vector2i in _boot_chunk_states:
-			if int(_boot_chunk_states[coord]) < BootChunkState.VISUAL_COMPLETE:
-				has_pending_visuals = true
-				break
-		if has_pending_visuals:
-			## Non-ring-0 chunks still redrawing — defer to background.
-			_boot_has_remaining_chunks = true
+		_boot_process_redraw_budget(2500)
+		_boot_promote_redrawn_chunks()
+		if _boot_compute_active.is_empty() \
+			and _boot_compute_pending.is_empty() \
+			and _boot_apply_queue.is_empty() \
+			and _boot_compute_results.is_empty():
 			_boot_pipeline_drained = true
-			progress_callback.call(85.0, Localization.t("UI_LOADING_LANDING"))
-			await get_tree().process_frame
-		else:
-			## All chunks visually complete — run topology synchronously.
-			_boot_cleanup_compute_pipeline()
-			progress_callback.call(85.0, Localization.t("UI_LOADING_BUILDING_MOUNTAINS"))
-			await get_tree().process_frame
-			if _is_native_topology_enabled():
-				_native_topology_builder.call("ensure_built")
-				_native_topology_dirty = false
-			else:
-				_ensure_topology_current()
-			_boot_topology_ready = true
-			_boot_update_gates()
-	else:
-		## first_playable reached — topology deferred to background tick.
+		_boot_update_gates()
+		var applied_count: int = _boot_count_applied_chunks()
+		var pct: float = float(applied_count) / float(total) * 80.0 if total > 0 else 80.0
+		progress_callback.call(
+			pct,
+			Localization.t("UI_LOADING_GENERATING_TERRAIN", {"current": applied_count, "total": total})
+		)
+		if _boot_first_playable:
+			break
+		await get_tree().process_frame
+	_boot_has_remaining_chunks = not _boot_complete_flag
+	if _boot_has_remaining_chunks:
+		if not _boot_pipeline_drained and _boot_has_pending_runtime_handoff_work():
+			_boot_start_runtime_handoff()
 		progress_callback.call(85.0, Localization.t("UI_LOADING_LANDING"))
 		await get_tree().process_frame
 	progress_callback.call(95.0, Localization.t("UI_LOADING_LANDING"))
@@ -402,6 +399,19 @@ func _chunk_manhattan_distance(a: Vector2i, b: Vector2i) -> int:
 func _chunk_chebyshev_distance(a: Vector2i, b: Vector2i) -> int:
 	return maxi(_chunk_axis_distance(a.x, b.x), absi(a.y - b.y))
 
+func _chunk_priority_less(a: Vector2i, b: Vector2i, center: Vector2i) -> bool:
+	var ring_a: int = _chunk_chebyshev_distance(a, center)
+	var ring_b: int = _chunk_chebyshev_distance(b, center)
+	if ring_a != ring_b:
+		return ring_a < ring_b
+	var dist_a: int = _chunk_manhattan_distance(a, center)
+	var dist_b: int = _chunk_manhattan_distance(b, center)
+	if dist_a != dist_b:
+		return dist_a < dist_b
+	if a.y == b.y:
+		return a.x < b.x
+	return a.y < b.y
+
 func _is_chunk_within_radius(coord: Vector2i, center: Vector2i, radius: int) -> bool:
 	return _chunk_axis_distance(coord.x, center.x) <= radius and absi(coord.y - center.y) <= radius
 
@@ -441,7 +451,8 @@ func _is_staged_request(coord: Vector2i, z_level: int) -> bool:
 	return _staged_coord == _canonical_chunk_coord(coord) and _staged_z == z_level
 
 func _is_generating_request(coord: Vector2i, z_level: int) -> bool:
-	return _gen_coord == _canonical_chunk_coord(coord) and _gen_z == z_level
+	var canonical_coord: Vector2i = _canonical_chunk_coord(coord)
+	return _gen_active_tasks.has(canonical_coord) and int(_gen_active_z_levels.get(canonical_coord, INVALID_Z_LEVEL)) == z_level
 
 func _clear_staged_request() -> void:
 	if _staged_chunk != null:
@@ -882,10 +893,18 @@ func _setup_flora_builder() -> void:
 		_flora_builder = ChunkFloraBuilderScript.new()
 		_flora_builder.initialize(WorldGenerator.world_seed)
 
+func _create_detached_flora_builder() -> ChunkFloraBuilderScript:
+	if WorldGenerator == null or not WorldGenerator._is_initialized:
+		return null
+	var flora_builder := ChunkFloraBuilderScript.new()
+	flora_builder.initialize(WorldGenerator.world_seed)
+	return flora_builder
+
 func _compute_flora_for_chunk(chunk: Chunk, build_result: ChunkBuildResult) -> ChunkFloraResultScript:
 	if _flora_builder == null or build_result == null or not build_result.is_valid():
 		return null
 	var flora_result: ChunkFloraResultScript = _compute_flora_result(
+		_flora_builder,
 		build_result.canonical_chunk_coord,
 		build_result.chunk_size,
 		build_result.base_tile,
@@ -899,15 +918,21 @@ func _compute_flora_for_chunk(chunk: Chunk, build_result: ChunkBuildResult) -> C
 		chunk.set_flora_result(flora_result)
 	return flora_result
 
-func _compute_flora_for_native_data(chunk: Chunk, chunk_coord: Vector2i, native_data: Dictionary) -> ChunkFloraResultScript:
-	if _flora_builder == null or chunk == null or native_data.is_empty():
+func _build_flora_result_for_native_data(
+	chunk_coord: Vector2i,
+	native_data: Dictionary,
+	flora_builder: ChunkFloraBuilderScript = null
+) -> ChunkFloraResultScript:
+	var active_flora_builder: ChunkFloraBuilderScript = flora_builder if flora_builder != null else _flora_builder
+	if active_flora_builder == null or native_data.is_empty():
 		return null
 	var chunk_size: int = int(native_data.get("chunk_size", 0))
 	var base_tile: Vector2i = native_data.get(
 		"base_tile",
 		WorldGenerator.chunk_to_tile_origin(chunk_coord) if WorldGenerator else Vector2i.ZERO
 	) as Vector2i
-	var flora_result: ChunkFloraResultScript = _compute_flora_result(
+	return _compute_flora_result(
+		active_flora_builder,
 		chunk_coord,
 		chunk_size,
 		base_tile,
@@ -917,11 +942,32 @@ func _compute_flora_for_native_data(chunk: Chunk, chunk_coord: Vector2i, native_
 		native_data.get("flora_density_values", PackedFloat32Array()) as PackedFloat32Array,
 		native_data.get("flora_modulation_values", PackedFloat32Array()) as PackedFloat32Array
 	)
+
+func _build_flora_payload_for_native_data(
+	chunk_coord: Vector2i,
+	native_data: Dictionary,
+	flora_builder: ChunkFloraBuilderScript = null
+) -> Dictionary:
+	var flora_result: ChunkFloraResultScript = _build_flora_result_for_native_data(chunk_coord, native_data, flora_builder)
+	if flora_result == null:
+		return {}
+	return flora_result.to_serialized_payload()
+
+func _flora_result_from_payload(flora_payload: Dictionary) -> ChunkFloraResultScript:
+	if flora_payload.is_empty():
+		return null
+	return ChunkFloraResultScript.from_serialized_payload(flora_payload)
+
+func _compute_flora_for_native_data(chunk: Chunk, chunk_coord: Vector2i, native_data: Dictionary) -> ChunkFloraResultScript:
+	if _flora_builder == null or chunk == null or native_data.is_empty():
+		return null
+	var flora_result: ChunkFloraResultScript = _build_flora_result_for_native_data(chunk_coord, native_data)
 	if flora_result != null:
 		chunk.set_flora_result(flora_result)
 	return flora_result
 
 func _compute_flora_result(
+	flora_builder: ChunkFloraBuilderScript,
 	chunk_coord: Vector2i,
 	chunk_size: int,
 	base_tile: Vector2i,
@@ -931,7 +977,7 @@ func _compute_flora_result(
 	flora_density_values: PackedFloat32Array,
 	flora_modulation_values: PackedFloat32Array
 ) -> ChunkFloraResultScript:
-	if _flora_builder == null or WorldGenerator == null or chunk_size <= 0:
+	if flora_builder == null or WorldGenerator == null or chunk_size <= 0:
 		return null
 	var tile_count: int = chunk_size * chunk_size
 	if terrain_bytes.size() != tile_count \
@@ -941,7 +987,7 @@ func _compute_flora_result(
 		or flora_modulation_values.size() != tile_count:
 		return null
 	var biome_palette: Array[BiomeData] = WorldGenerator.get_registered_biomes()
-	return _flora_builder.compute_placements(
+	return flora_builder.compute_placements(
 		chunk_coord,
 		chunk_size,
 		base_tile,
@@ -986,7 +1032,7 @@ func _update_chunks(center: Vector2i) -> void:
 			and not _is_generating_request(coord, _active_z):
 			to_load.append(coord)
 	to_load.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return _chunk_manhattan_distance(a, center) < _chunk_manhattan_distance(b, center)
+		return _chunk_priority_less(a, b, center)
 	)
 	for coord: Vector2i in to_load:
 		_enqueue_load_request(coord, _active_z)
@@ -1075,6 +1121,9 @@ func _load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
 		_loaded_chunks = loaded_chunks_for_z
 	if not chunk.is_redraw_complete():
 		_redrawing_chunks.append(chunk)
+	if coord != _player_chunk and not chunk.is_terrain_phase_done():
+		chunk.visible = false
+	_boot_on_chunk_applied(coord, chunk)
 	if _should_track_surface_topology(z_level):
 		if _is_native_topology_enabled():
 			_native_topology_builder.call("set_chunk", coord, chunk.get_terrain_bytes(), WorldGenerator.balance.chunk_size_tiles)
@@ -1089,8 +1138,7 @@ func _unload_chunk(coord: Vector2i) -> void:
 	if _is_staged_request(coord, _active_z):
 		_clear_staged_request()
 	if _is_generating_request(coord, _active_z):
-		_gen_coord = Vector2i(999999, 999999)
-		_gen_z = 0
+		_sync_runtime_generation_status()
 	if not _loaded_chunks.has(coord):
 		return
 	var chunk: Chunk = _loaded_chunks[coord]
@@ -1143,7 +1191,7 @@ func _register_budget_jobs() -> void:
 	)
 
 ## Async staged chunk loading. Generation в WorkerThreadPool, create/finalize на main thread.
-## Thread-safety: Strategy A — один worker, read-only access к WorldGenerator.
+## Thread-safety: pure-data compute runs in detached builders; scene-tree apply remains serialized.
 func _tick_loading() -> bool:
 	if _shutdown_in_progress:
 		return false
@@ -1152,6 +1200,7 @@ func _tick_loading() -> bool:
 	var load_radius: int = WorldGenerator.balance.load_radius if WorldGenerator and WorldGenerator.balance else 0
 	if _should_compact_load_queue(_player_chunk, _active_z, load_radius):
 		_prune_load_queue(_player_chunk, _active_z, load_radius)
+	_collect_completed_runtime_generates(load_radius)
 	if _staged_chunk != null:
 		if _staged_z != _active_z or not _is_chunk_within_radius(_staged_coord, _player_chunk, load_radius):
 			_clear_staged_request()
@@ -1164,36 +1213,14 @@ func _tick_loading() -> bool:
 			return _has_streaming_work()
 		_staged_loading_create()
 		return true
-	if _gen_task_id >= 0:
-		if WorkerThreadPool.is_task_completed(_gen_task_id):
-			WorkerThreadPool.wait_for_task_completion(_gen_task_id)
-			_gen_task_id = -1
-			var coord: Vector2i = _gen_coord
-			var request_z: int = _gen_z
-			_gen_coord = Vector2i(999999, 999999)
-			_gen_z = 0
-			_gen_mutex.lock()
-			var completed_data: Dictionary = _gen_result
-			_gen_result = {}
-			_gen_mutex.unlock()
-			if not completed_data.is_empty():
-				_cache_surface_chunk_payload(coord, request_z, completed_data)
-			if request_z != _active_z \
-				or (_z_chunks.get(request_z, {}) as Dictionary).has(coord) \
-				or not _is_chunk_within_radius(coord, _player_chunk, load_radius):
-				return _has_streaming_work()
-			_staged_data = completed_data
-			_staged_coord = coord
-			_staged_z = request_z
-			return true
-		# Worker generation is already running on a background thread.
-		# Returning true here would make FrameBudgetDispatcher spin on polling
-		# and burn the full streaming budget without any new main-thread work.
-		return false
+	if _promote_runtime_ready_result_to_stage(load_radius):
+		return true
 	if _load_queue.is_empty():
-		return false
+		return _has_streaming_work()
 	var scanned_requests: int = 0
-	while not _load_queue.is_empty() and scanned_requests < MAX_LOAD_REQUESTS_SCANNED_PER_TICK:
+	while not _load_queue.is_empty() \
+		and scanned_requests < MAX_LOAD_REQUESTS_SCANNED_PER_TICK \
+		and _gen_active_tasks.size() < RUNTIME_MAX_CONCURRENT_COMPUTE:
 		scanned_requests += 1
 		var request: Dictionary = _load_queue.pop_front()
 		if not _is_load_request_relevant(request, _player_chunk, _active_z, load_radius):
@@ -1203,44 +1230,63 @@ func _tick_loading() -> bool:
 		if _try_stage_surface_chunk_from_cache(coord, request_z):
 			return true
 		_submit_async_generate(coord, request_z)
-		# Background compute has been queued; wait until a later frame to poll completion.
-		return false
+	if _promote_runtime_ready_result_to_stage(load_radius):
+		return true
 	return _has_streaming_work()
 
 func _has_streaming_work() -> bool:
-	return not _load_queue.is_empty() or _staged_chunk != null or not _staged_data.is_empty() or _gen_task_id >= 0
+	return not _load_queue.is_empty() \
+		or _staged_chunk != null \
+		or not _staged_data.is_empty() \
+		or not _gen_ready_queue.is_empty() \
+		or _has_relevant_runtime_generate_task()
 
 func _is_streaming_generation_idle() -> bool:
-	return _load_queue.is_empty() and _staged_chunk == null and _staged_data.is_empty() and _gen_task_id < 0
+	return _load_queue.is_empty() \
+		and _staged_chunk == null \
+		and _staged_data.is_empty() \
+		and _gen_ready_queue.is_empty() \
+		and not _has_relevant_runtime_generate_task()
 
-## Отправляет генерацию чанка в WorkerThreadPool. Один worker за раз.
+## Отправляет генерацию чанка в WorkerThreadPool.
 func _submit_async_generate(coord: Vector2i, z_level: int) -> void:
 	if _shutdown_in_progress:
 		return
 	coord = _canonical_chunk_coord(coord)
-	_ensure_worker_chunk_builder()
-	_gen_coord = coord
-	_gen_z = z_level
-	_gen_task_id = WorkerThreadPool.add_task(_worker_generate.bind(coord, z_level))
+	if _gen_active_tasks.has(coord):
+		return
+	var builder: ChunkContentBuilder = null
+	if WorldGenerator and WorldGenerator.has_method("create_detached_chunk_content_builder"):
+		builder = WorldGenerator.create_detached_chunk_content_builder()
+	var task_id: int = WorkerThreadPool.add_task(_worker_generate.bind(coord, z_level, builder))
+	_gen_active_tasks[coord] = task_id
+	_gen_active_z_levels[coord] = z_level
+	_gen_builders[coord] = builder
+	_sync_runtime_generation_status()
 
 ## Выполняется в worker thread. Только чистые данные, никаких Node/scene tree.
-## Thread-safety: Strategy A — read-only access к noise instances и balance.
-## FastNoiseLite.get_noise_2d() — pure function, no mutable state.
-func _worker_generate(coord: Vector2i, z_level: int) -> void:
+func _worker_generate(coord: Vector2i, z_level: int, builder: ChunkContentBuilder = null) -> void:
 	if _shutdown_in_progress:
 		return
+	var result_entry: Dictionary = {}
 	var data: Dictionary
 	if z_level != 0:
 		data = _generate_solid_rock_chunk()
 	else:
-		data = _build_surface_chunk_native_data(coord)
+		data = _build_surface_chunk_native_data(coord, builder)
+		var flora_builder: ChunkFloraBuilderScript = _create_detached_flora_builder()
+		var flora_payload: Dictionary = _build_flora_payload_for_native_data(coord, data, flora_builder)
+		result_entry["flora_payload"] = flora_payload
 	if _shutdown_in_progress:
 		return
+	result_entry["native_data"] = data
 	_gen_mutex.lock()
-	_gen_result = data
+	_gen_result[coord] = result_entry
 	_gen_mutex.unlock()
 
-func _build_surface_chunk_native_data(coord: Vector2i) -> Dictionary:
+func _build_surface_chunk_native_data(coord: Vector2i, builder: ChunkContentBuilder = null) -> Dictionary:
+	if builder != null:
+		return builder.build_chunk_native_data(coord)
 	if _worker_chunk_builder != null:
 		return _worker_chunk_builder.build_chunk_native_data(coord)
 	if not WorldGenerator:
@@ -1252,6 +1298,108 @@ func _ensure_worker_chunk_builder() -> void:
 		return
 	if WorldGenerator and WorldGenerator.has_method("create_detached_chunk_content_builder"):
 		_worker_chunk_builder = WorldGenerator.create_detached_chunk_content_builder()
+
+func _collect_completed_runtime_generates(load_radius: int) -> void:
+	if _gen_active_tasks.is_empty():
+		return
+	var completed_coords: Array[Vector2i] = []
+	for coord_variant: Variant in _gen_active_tasks.keys():
+		var coord: Vector2i = coord_variant as Vector2i
+		var task_id: int = int(_gen_active_tasks.get(coord, -1))
+		if task_id >= 0 and WorkerThreadPool.is_task_completed(task_id):
+			completed_coords.append(coord)
+	if completed_coords.size() > 1:
+		completed_coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+			return _chunk_priority_less(a, b, _player_chunk)
+		)
+	for coord: Vector2i in completed_coords:
+		var task_id: int = int(_gen_active_tasks.get(coord, -1))
+		if task_id >= 0:
+			WorkerThreadPool.wait_for_task_completion(task_id)
+		_gen_active_tasks.erase(coord)
+		var request_z: int = int(_gen_active_z_levels.get(coord, INVALID_Z_LEVEL))
+		_gen_active_z_levels.erase(coord)
+		_gen_builders.erase(coord)
+		_gen_mutex.lock()
+		var completed_entry: Dictionary = _gen_result.get(coord, {}) as Dictionary
+		_gen_result.erase(coord)
+		_gen_mutex.unlock()
+		var completed_data: Dictionary = completed_entry.get("native_data", {}) as Dictionary
+		var completed_flora_payload: Dictionary = completed_entry.get("flora_payload", {}) as Dictionary
+		if not completed_data.is_empty():
+			_cache_surface_chunk_payload(coord, request_z, completed_data)
+			var completed_flora_result: ChunkFloraResultScript = _flora_result_from_payload(completed_flora_payload)
+			if request_z == 0 and completed_flora_result != null:
+				_cache_surface_chunk_flora_result(coord, request_z, completed_flora_result)
+		if request_z != _active_z \
+			or (_z_chunks.get(request_z, {}) as Dictionary).has(coord) \
+			or not _is_chunk_within_radius(coord, _player_chunk, load_radius):
+			continue
+		_gen_ready_queue.append({
+			"coord": coord,
+			"z": request_z,
+			"native_data": completed_data,
+			"flora_payload": completed_flora_payload,
+		})
+	_sort_runtime_ready_queue()
+	_sync_runtime_generation_status()
+
+func _promote_runtime_ready_result_to_stage(load_radius: int) -> bool:
+	while not _gen_ready_queue.is_empty():
+		var ready_entry: Dictionary = _gen_ready_queue.pop_front()
+		var coord: Vector2i = ready_entry.get("coord", Vector2i.ZERO) as Vector2i
+		var request_z: int = int(ready_entry.get("z", INVALID_Z_LEVEL))
+		var completed_data: Dictionary = ready_entry.get("native_data", {}) as Dictionary
+		var completed_flora_payload: Dictionary = ready_entry.get("flora_payload", {}) as Dictionary
+		if completed_data.is_empty():
+			continue
+		if request_z != _active_z \
+			or (_z_chunks.get(request_z, {}) as Dictionary).has(coord) \
+			or not _is_chunk_within_radius(coord, _player_chunk, load_radius):
+			continue
+		_staged_coord = coord
+		_staged_z = request_z
+		_staged_data = completed_data
+		_staged_flora_result = _flora_result_from_payload(completed_flora_payload)
+		return true
+	return false
+
+func _sort_runtime_ready_queue() -> void:
+	if _gen_ready_queue.size() <= 1:
+		return
+	_gen_ready_queue.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return _chunk_priority_less(
+			a.get("coord", Vector2i.ZERO) as Vector2i,
+			b.get("coord", Vector2i.ZERO) as Vector2i,
+			_player_chunk
+		)
+	)
+
+func _has_relevant_runtime_generate_task() -> bool:
+	var load_radius: int = WorldGenerator.balance.load_radius if WorldGenerator and WorldGenerator.balance else 0
+	for coord_variant: Variant in _gen_active_tasks.keys():
+		var coord: Vector2i = coord_variant as Vector2i
+		var z_level: int = int(_gen_active_z_levels.get(coord, INVALID_Z_LEVEL))
+		if z_level == _active_z and _is_chunk_within_radius(coord, _player_chunk, load_radius):
+			return true
+	return false
+
+func _sync_runtime_generation_status() -> void:
+	if _gen_active_tasks.is_empty():
+		_gen_task_id = -1
+		_gen_coord = Vector2i(999999, 999999)
+		_gen_z = 0
+		return
+	var active_coords: Array[Vector2i] = []
+	for coord_variant: Variant in _gen_active_tasks.keys():
+		active_coords.append(coord_variant as Vector2i)
+	active_coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return _chunk_priority_less(a, b, _player_chunk)
+	)
+	var selected_coord: Vector2i = active_coords[0]
+	_gen_coord = selected_coord
+	_gen_z = int(_gen_active_z_levels.get(selected_coord, _active_z))
+	_gen_task_id = int(_gen_active_tasks.get(selected_coord, -1))
 
 func _is_load_request_relevant(
 	request: Dictionary,
@@ -1288,13 +1436,7 @@ func _prune_load_queue(center: Vector2i, active_z_level: int, load_radius: int) 
 	filtered_queue.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		var coord_a: Vector2i = _canonical_chunk_coord(a.get("coord", Vector2i.ZERO) as Vector2i)
 		var coord_b: Vector2i = _canonical_chunk_coord(b.get("coord", Vector2i.ZERO) as Vector2i)
-		var dist_a: int = _chunk_manhattan_distance(coord_a, center)
-		var dist_b: int = _chunk_manhattan_distance(coord_b, center)
-		if dist_a == dist_b:
-			if coord_a.y == coord_b.y:
-				return coord_a.x < coord_b.x
-			return coord_a.y < coord_b.y
-		return dist_a < dist_b
+		return _chunk_priority_less(coord_a, coord_b, center)
 	)
 	_load_queue = filtered_queue
 
@@ -1395,6 +1537,7 @@ func _duplicate_native_data(native_data: Dictionary) -> Dictionary:
 		"biome": (native_data.get("biome", PackedByteArray()) as PackedByteArray).duplicate(),
 		"flora_density_values": (native_data.get("flora_density_values", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
 		"flora_modulation_values": (native_data.get("flora_modulation_values", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
+		"feature_and_poi_payload": (native_data.get("feature_and_poi_payload", {"placements": []}) as Dictionary).duplicate(true),
 	}
 
 func _touch_surface_payload_cache_key(cache_key: Vector3i) -> void:
@@ -1501,6 +1644,9 @@ func _staged_loading_finalize() -> void:
 	if z_level == _active_z:
 		_loaded_chunks = loaded_chunks_for_z
 	_redrawing_chunks.append(chunk)
+	if coord != _player_chunk and not chunk.is_terrain_phase_done():
+		chunk.visible = false
+	_boot_on_chunk_applied(coord, chunk)
 	sub_usec = WorldPerfProbe.begin()
 	if _should_track_surface_topology(z_level):
 		if _is_native_topology_enabled():
@@ -1533,6 +1679,7 @@ func _tick_redraws() -> bool:
 		var step_ms: float = float(Time.get_ticks_usec() - step_started_usec) / 1000.0
 		if step_ms >= 2.0:
 			WorldPerfProbe.record("ChunkManager.streaming_redraw_step.%s" % [String(phase_name)], step_ms)
+		_boot_on_chunk_redraw_progress(chunk)
 		if not is_complete:
 			_redrawing_chunks.append(chunk)
 		return not _redrawing_chunks.is_empty()
@@ -1576,7 +1723,10 @@ func _process_chunk_redraws() -> void:
 	if not is_instance_valid(chunk):
 		return
 	if not chunk.continue_redraw(rows_per_frame):
+		_boot_on_chunk_redraw_progress(chunk)
 		_redrawing_chunks.append(chunk)
+		return
+	_boot_on_chunk_redraw_progress(chunk)
 
 func _setup_z_containers() -> void:
 	for z: int in [ZLevelManager.Z_MIN, 0, ZLevelManager.Z_MAX]:
@@ -2247,46 +2397,149 @@ func _is_local_underground_zone_open_tile(terrain_type: int) -> bool:
 	return terrain_type == TileGenData.TerrainType.MINED_FLOOR \
 		or terrain_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE
 
+func _boot_count_applied_chunks() -> int:
+	var applied_count: int = 0
+	for coord: Vector2i in _boot_chunk_states:
+		if int(_boot_chunk_states[coord]) >= BootChunkState.APPLIED:
+			applied_count += 1
+	return applied_count
+
+func _boot_on_chunk_applied(coord: Vector2i, chunk: Chunk) -> void:
+	if not _boot_chunk_states.has(coord):
+		return
+	if int(_boot_chunk_states[coord]) < BootChunkState.APPLIED:
+		_boot_set_chunk_state(coord, BootChunkState.APPLIED)
+	_boot_on_chunk_redraw_progress(chunk)
+
+func _boot_on_chunk_redraw_progress(chunk: Chunk) -> void:
+	if chunk == null or not _boot_chunk_states.has(chunk.chunk_coord):
+		return
+	if not chunk.visible and chunk.is_terrain_phase_done():
+		chunk.visible = true
+	if chunk.is_flora_phase_done():
+		_boot_set_chunk_state(chunk.chunk_coord, BootChunkState.VISUAL_COMPLETE)
+
+func _boot_is_first_playable_slice_ready() -> bool:
+	if _boot_chunk_states.is_empty():
+		return false
+	for coord: Vector2i in _boot_chunk_states:
+		var ring: int = _boot_get_chunk_ring(coord)
+		if ring > BOOT_FIRST_PLAYABLE_MAX_RING:
+			continue
+		var chunk: Chunk = _loaded_chunks.get(coord)
+		if chunk == null or int(_boot_chunk_states[coord]) < BootChunkState.APPLIED:
+			return false
+		if not chunk.is_flora_phase_done():
+			return false
+	return true
+
+func _boot_has_pending_near_ring_work() -> bool:
+	if _boot_chunk_states.is_empty():
+		return false
+	for coord: Vector2i in _boot_chunk_states:
+		if _boot_get_chunk_ring(coord) > BOOT_FIRST_PLAYABLE_MAX_RING:
+			continue
+		var chunk: Chunk = _loaded_chunks.get(coord)
+		var state: int = int(_boot_chunk_states[coord])
+		if state < BootChunkState.APPLIED or chunk == null:
+			return true
+		if not chunk.is_flora_phase_done():
+			return true
+	return false
+
+func _boot_enqueue_runtime_load(coord: Vector2i) -> void:
+	coord = _canonical_chunk_coord(coord)
+	if _loaded_chunks.has(coord) \
+		or _has_load_request(coord, _boot_compute_z) \
+		or _is_staged_request(coord, _boot_compute_z) \
+		or _is_generating_request(coord, _boot_compute_z):
+		return
+	_enqueue_load_request(coord, _boot_compute_z)
+	_load_queue.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var coord_a: Vector2i = a.get("coord", Vector2i.ZERO) as Vector2i
+		var coord_b: Vector2i = b.get("coord", Vector2i.ZERO) as Vector2i
+		return _chunk_priority_less(coord_a, coord_b, _boot_center)
+	)
+
+func _boot_all_tracked_chunks_visual_complete() -> bool:
+	for coord: Vector2i in _boot_chunk_states:
+		if int(_boot_chunk_states[coord]) < BootChunkState.VISUAL_COMPLETE:
+			return false
+	return true
+
+func _boot_has_pending_runtime_handoff_work() -> bool:
+	if not _boot_apply_queue.is_empty() or not _boot_compute_pending.is_empty():
+		return true
+	for coord: Vector2i in _boot_chunk_states:
+		if int(_boot_chunk_states[coord]) < BootChunkState.APPLIED:
+			return true
+	return false
+
+func _boot_process_redraw_budget(max_usec: int) -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	while not _redrawing_chunks.is_empty():
+		_process_chunk_redraws()
+		if Time.get_ticks_usec() - started_usec >= max_usec:
+			break
+
+func _boot_start_runtime_handoff() -> void:
+	if _boot_runtime_handoff_started:
+		return
+	_boot_runtime_handoff_started = true
+	_boot_compute_generation += 1
+	for entry_variant: Variant in _boot_apply_queue:
+		var entry: Dictionary = entry_variant as Dictionary
+		var coord: Vector2i = entry.get("coord", Vector2i.ZERO) as Vector2i
+		var native_data: Dictionary = entry.get("native_data", {}) as Dictionary
+		var flora_payload: Dictionary = entry.get("flora_payload", {}) as Dictionary
+		if not native_data.is_empty():
+			_cache_surface_chunk_payload(coord, _boot_compute_z, native_data)
+		var flora_result: ChunkFloraResultScript = _flora_result_from_payload(flora_payload)
+		if flora_result != null and _boot_compute_z == 0:
+			_cache_surface_chunk_flora_result(coord, _boot_compute_z, flora_result)
+	for coord_variant: Variant in _boot_compute_pending:
+		var pending_coord: Vector2i = coord_variant as Vector2i
+		_boot_compute_requested_usec.erase(pending_coord)
+		_boot_compute_started_usec.erase(pending_coord)
+	_boot_apply_queue.clear()
+	_boot_compute_pending.clear()
+	for coord: Vector2i in _boot_chunk_states:
+		if int(_boot_chunk_states[coord]) < BootChunkState.APPLIED:
+			_boot_enqueue_runtime_load(coord)
+
 ## --- Boot remaining tick (post-first_playable background completion) ---
 
 func _tick_boot_remaining() -> void:
 	if not _boot_has_remaining_chunks:
 		return
-	## After first_playable: drain boot pipeline immediately.
-	## Outer chunks will load via runtime streaming (_check_player_chunk → _tick_loading)
-	## which is budgeted through FrameBudgetDispatcher, avoiding 100-900ms apply hitches.
-	if not _boot_pipeline_drained:
-		if _boot_first_playable:
-			## Drain: cancel remaining boot compute/apply, let runtime streaming take over.
-			_boot_wait_all_compute()
-			## Mark all unprocessed boot chunks as VISUAL_COMPLETE so boot_complete gate
-			## does not wait for chunks that will load via runtime streaming instead.
-			for coord: Vector2i in _boot_chunk_states:
-				var state: int = int(_boot_chunk_states[coord])
-				if state < BootChunkState.APPLIED:
-					_boot_chunk_states[coord] = BootChunkState.VISUAL_COMPLETE
-			_boot_pipeline_drained = true
-		else:
-			_boot_submit_pending_tasks()
-			_boot_collect_completed()
-			_boot_drain_computed_to_apply_queue()
-			_boot_apply_from_queue()
-			var pipeline_done: bool = _boot_applied_count >= _boot_total_count \
-				and _boot_compute_active.is_empty() \
-				and _boot_compute_pending.is_empty() \
-				and _boot_apply_queue.is_empty()
-			if pipeline_done:
-				_boot_wait_all_compute()
-				_boot_pipeline_drained = true
-	## Promote boot chunks that finished progressive redraw to VISUAL_COMPLETE.
-	## Also makes hidden outer chunks visible once terrain phase completes.
+	if _boot_first_playable and not _boot_runtime_handoff_started and _boot_has_pending_runtime_handoff_work():
+		_boot_start_runtime_handoff()
+	if _boot_runtime_handoff_started:
+		_boot_collect_completed()
+		_boot_drain_computed_to_apply_queue()
+		_boot_apply_queue.clear()
+		for coord: Vector2i in _boot_chunk_states:
+			if int(_boot_chunk_states[coord]) < BootChunkState.APPLIED:
+				_boot_enqueue_runtime_load(coord)
+	else:
+		_boot_submit_pending_tasks()
+		_boot_collect_completed()
+		_boot_drain_computed_to_apply_queue()
+		_boot_apply_from_queue()
+	_boot_pipeline_drained = _boot_compute_active.is_empty() \
+		and _boot_compute_pending.is_empty() \
+		and _boot_apply_queue.is_empty() \
+		and _boot_compute_results.is_empty()
 	_boot_promote_redrawn_chunks()
-	## Topology: let _tick_topology() (FrameBudgetDispatcher, 2ms budget) handle it.
 	if _boot_pipeline_drained and not _boot_topology_ready:
-		if is_topology_ready():
+		var all_startup_applied: bool = true
+		for coord: Vector2i in _boot_chunk_states:
+			if int(_boot_chunk_states[coord]) < BootChunkState.APPLIED:
+				all_startup_applied = false
+				break
+		if all_startup_applied and is_topology_ready():
 			_boot_topology_ready = true
 	_boot_update_gates()
-	## Stop when boot is fully complete (all tracked chunks terminal + topology ready).
 	if _boot_complete_flag:
 		_boot_cleanup_compute_pipeline()
 		_boot_has_remaining_chunks = false
@@ -2306,9 +2559,20 @@ func _boot_compute_chunk_native_data(coord: Vector2i, z_level: int) -> Dictionar
 	return native_data
 
 ## Worker function: runs in WorkerThreadPool, writes result through mutex.
-func _boot_worker_compute(coord: Vector2i, z_level: int, builder: ChunkContentBuilder, generation: int) -> void:
+func _boot_worker_compute(
+	coord: Vector2i,
+	z_level: int,
+	builder: ChunkContentBuilder,
+	generation: int,
+	requested_usec: int
+) -> void:
 	if _shutdown_in_progress:
 		return
+	var started_usec: int = Time.get_ticks_usec()
+	var result_entry: Dictionary = {
+		"generation": generation,
+		"queue_wait_ms": float(started_usec - requested_usec) / 1000.0,
+	}
 	var data: Dictionary
 	if z_level != 0:
 		data = _generate_solid_rock_chunk()
@@ -2316,8 +2580,13 @@ func _boot_worker_compute(coord: Vector2i, z_level: int, builder: ChunkContentBu
 		data = builder.build_chunk_native_data(coord)
 	if _shutdown_in_progress:
 		return
+	result_entry["native_data"] = data
+	result_entry["compute_ms"] = float(Time.get_ticks_usec() - started_usec) / 1000.0
+	if z_level == 0 and not data.is_empty():
+		var flora_builder: ChunkFloraBuilderScript = _create_detached_flora_builder()
+		result_entry["flora_payload"] = _build_flora_payload_for_native_data(coord, data, flora_builder)
 	_boot_compute_mutex.lock()
-	_boot_compute_results[coord] = {"native_data": data, "generation": generation}
+	_boot_compute_results[coord] = result_entry
 	_boot_compute_mutex.unlock()
 
 ## Submit pending compute tasks up to BOOT_MAX_CONCURRENT_COMPUTE.
@@ -2328,22 +2597,29 @@ func _boot_submit_pending_tasks() -> void:
 		var coord: Vector2i = _boot_compute_pending.pop_front()
 		if _boot_compute_active.has(coord):
 			continue
+		var requested_usec: int = int(_boot_compute_requested_usec.get(coord, Time.get_ticks_usec()))
 		var builder: ChunkContentBuilder = null
 		if WorldGenerator and WorldGenerator.has_method("create_detached_chunk_content_builder"):
 			builder = WorldGenerator.create_detached_chunk_content_builder()
 		if builder == null:
-			## Fallback: compute synchronously
 			var compute_usec: int = Time.get_ticks_usec()
 			var native_data: Dictionary = _boot_compute_chunk_native_data(coord, _boot_compute_z)
-			_boot_metric_compute_ms += float(Time.get_ticks_usec() - compute_usec) / 1000.0
-			_boot_metric_chunks_computed += 1
+			var compute_ms: float = float(Time.get_ticks_usec() - compute_usec) / 1000.0
+			var result_entry: Dictionary = {
+				"native_data": native_data,
+				"generation": _boot_compute_generation,
+				"queue_wait_ms": float(compute_usec - requested_usec) / 1000.0,
+				"compute_ms": compute_ms,
+			}
+			if _boot_compute_z == 0 and not native_data.is_empty():
+				result_entry["flora_payload"] = _build_flora_payload_for_native_data(coord, native_data)
 			_boot_compute_mutex.lock()
-			_boot_compute_results[coord] = {"native_data": native_data, "generation": _boot_compute_generation}
+			_boot_compute_results[coord] = result_entry
 			_boot_compute_mutex.unlock()
-			_boot_set_chunk_state(coord, BootChunkState.COMPUTED)
 			continue
+		_boot_compute_started_usec[coord] = Time.get_ticks_usec()
 		var task_id: int = WorkerThreadPool.add_task(
-			_boot_worker_compute.bind(coord, _boot_compute_z, builder, _boot_compute_generation)
+			_boot_worker_compute.bind(coord, _boot_compute_z, builder, _boot_compute_generation, requested_usec)
 		)
 		_boot_compute_active[coord] = task_id
 		_boot_compute_builders[coord] = builder
@@ -2359,8 +2635,7 @@ func _boot_collect_completed() -> Array[Vector2i]:
 	for coord: Vector2i in completed:
 		_boot_compute_active.erase(coord)
 		_boot_compute_builders.erase(coord)
-		_boot_set_chunk_state(coord, BootChunkState.COMPUTED)
-		_boot_metric_chunks_computed += 1
+		_boot_compute_started_usec.erase(coord)
 	return completed
 
 ## Move computed results from worker output into the sorted apply queue.
@@ -2376,80 +2651,76 @@ func _boot_drain_computed_to_apply_queue() -> void:
 		var result_entry: Dictionary = _boot_compute_results.get(coord, {})
 		_boot_compute_results.erase(coord)
 		_boot_compute_mutex.unlock()
-		## Stale generation check.
+		var queue_wait_ms: float = float(result_entry.get("queue_wait_ms", 0.0))
+		var compute_ms: float = float(result_entry.get("compute_ms", 0.0))
+		_boot_metric_queue_wait_ms += queue_wait_ms
+		_boot_metric_compute_ms += compute_ms
+		if not result_entry.is_empty():
+			_boot_metric_chunks_computed += 1
 		var result_generation: int = int(result_entry.get("generation", -1))
 		if result_generation != _boot_compute_generation:
-			print("[Boot] discarded stale result for %s (gen %d != %d)" % [coord, result_generation, _boot_compute_generation])
-			_boot_applied_count += 1
+			if int(_boot_chunk_states.get(coord, -1)) < BootChunkState.APPLIED:
+				_boot_enqueue_runtime_load(coord)
 			continue
 		var native_data: Dictionary = result_entry.get("native_data", {})
-		## Empty native_data = compute failure. Fail-fast: skip, don't deadlock.
 		if native_data.is_empty():
 			push_warning("[Boot] compute failed for chunk %s — skipping" % [coord])
-			_boot_failed_coords.append(coord)
-			_boot_applied_count += 1
+			if _boot_failed_coords.find(coord) < 0:
+				_boot_failed_coords.append(coord)
+			_boot_enqueue_runtime_load(coord)
 			continue
+		var flora_payload: Dictionary = result_entry.get("flora_payload", {}) as Dictionary
+		_boot_set_chunk_state(coord, BootChunkState.COMPUTED)
 		_boot_set_chunk_state(coord, BootChunkState.QUEUED_APPLY)
-		_boot_apply_queue.append({"coord": coord, "native_data": native_data})
-	## Re-sort queue by distance: near-player first.
+		_boot_apply_queue.append({
+			"coord": coord,
+			"native_data": native_data,
+			"flora_payload": flora_payload,
+		})
 	if _boot_apply_queue.size() > 1:
 		_boot_apply_queue.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-			return _chunk_manhattan_distance(a["coord"] as Vector2i, _boot_center) < _chunk_manhattan_distance(b["coord"] as Vector2i, _boot_center)
+			return _chunk_priority_less(
+				a.get("coord", Vector2i.ZERO) as Vector2i,
+				b.get("coord", Vector2i.ZERO) as Vector2i,
+				_boot_center
+			)
 		)
 
 ## Apply up to BOOT_MAX_APPLY_PER_STEP chunks from the sorted apply queue.
-## Ring 0: immediate full redraw (terrain + cover + cliff).
-## Ring 1: immediate terrain-only redraw — eliminates green placeholder zones near spawn.
-##         Cover/cliff/flora complete via progressive redraw (FrameBudgetDispatcher).
-## Outer:  pure progressive redraw (all phases deferred).
-## Returns number of chunks applied this step.
+## Ring 0 gets one explicit synchronous full redraw with flora. All other startup
+## chunks use progressive redraw and stay hidden until terrain is ready.
 func _boot_apply_from_queue() -> int:
 	var applied_this_step: int = 0
 	while not _boot_apply_queue.is_empty() and applied_this_step < BOOT_MAX_APPLY_PER_STEP:
 		if _shutdown_in_progress:
 			break
+		var front_coord: Vector2i = _boot_apply_queue[0].get("coord", Vector2i.ZERO) as Vector2i
+		if _boot_get_chunk_ring(front_coord) > BOOT_FIRST_PLAYABLE_MAX_RING and _boot_has_pending_near_ring_work():
+			break
 		var step_start_usec: int = Time.get_ticks_usec()
 		var entry: Dictionary = _boot_apply_queue.pop_front()
 		var coord: Vector2i = entry["coord"] as Vector2i
 		var native_data: Dictionary = entry["native_data"] as Dictionary
+		var flora_payload: Dictionary = entry.get("flora_payload", {}) as Dictionary
 		_cache_surface_chunk_payload(coord, _boot_compute_z, native_data)
+		if _boot_compute_z == 0:
+			var flora_result: ChunkFloraResultScript = _flora_result_from_payload(flora_payload)
+			if flora_result != null:
+				_cache_surface_chunk_flora_result(coord, _boot_compute_z, flora_result)
 		var apply_usec: int = Time.get_ticks_usec()
-		_boot_apply_chunk_from_native_data(coord, _boot_compute_z, native_data)
+		_boot_apply_chunk_from_native_data(coord, _boot_compute_z, native_data, flora_payload)
 		var apply_ms: float = float(Time.get_ticks_usec() - apply_usec) / 1000.0
 		_boot_metric_apply_ms += apply_ms
 		_boot_metric_chunks_applied += 1
 		WorldPerfProbe.record("Boot.apply_chunk %s" % [coord], apply_ms)
-		_boot_set_chunk_state(coord, BootChunkState.APPLIED)
 		var chunk: Chunk = _loaded_chunks.get(coord)
-		var ring: int = _boot_get_chunk_ring(coord)
-		if ring == 0 and chunk and not chunk.is_redraw_complete():
-			## Player chunk: force immediate full redraw — mandatory for first_playable.
+		if coord == _boot_center and chunk != null and not chunk.is_flora_phase_done():
 			var redraw_usec: int = Time.get_ticks_usec()
-			chunk.complete_redraw_now()
+			chunk.complete_redraw_now(true)
 			var redraw_ms: float = float(Time.get_ticks_usec() - redraw_usec) / 1000.0
 			_boot_metric_terrain_redraw_ms += redraw_ms
 			WorldPerfProbe.record("Boot.redraw_full %s" % [coord], redraw_ms)
-		elif ring <= BOOT_FIRST_PLAYABLE_MAX_RING and chunk:
-			## Ring 1: force terrain-only redraw so player never sees green zones near spawn.
-			## Cover/cliff/flora continue via progressive redraw after first_playable.
-			var redraw_usec: int = Time.get_ticks_usec()
-			chunk.complete_terrain_phase_now()
-			var redraw_ms: float = float(Time.get_ticks_usec() - redraw_usec) / 1000.0
-			_boot_metric_terrain_redraw_ms += redraw_ms
-			WorldPerfProbe.record("Boot.redraw_terrain %s" % [coord], redraw_ms)
-		## Outer chunks: hide until terrain phase is done to prevent green placeholder zones.
-		if ring > BOOT_FIRST_PLAYABLE_MAX_RING and chunk:
-			chunk.visible = false
-		## Boot promotion uses gameplay redraw (terrain+cover+cliff), not full redraw.
-		## Debug and flora phases do not block boot gates.
-		if chunk and chunk.is_gameplay_redraw_complete():
-			_boot_set_chunk_state(coord, BootChunkState.VISUAL_COMPLETE)
-			## Only remove from progressive redraw if fully done (including flora/debug).
-			## Flora is deferred — chunk stays in _redrawing_chunks for progressive flora.
-			if chunk.is_redraw_complete():
-				var redraw_idx: int = _redrawing_chunks.find(chunk)
-				if redraw_idx >= 0:
-					_redrawing_chunks.remove_at(redraw_idx)
+			_boot_on_chunk_redraw_progress(chunk)
 		applied_this_step += 1
 		_boot_applied_count += 1
 		var step_ms: float = float(Time.get_ticks_usec() - step_start_usec) / 1000.0
@@ -2469,6 +2740,9 @@ func _boot_cleanup_compute_pipeline() -> void:
 	_boot_compute_pending.clear()
 	_boot_compute_active.clear()
 	_boot_compute_builders.clear()
+	_boot_runtime_handoff_started = false
+	_boot_compute_requested_usec.clear()
+	_boot_compute_started_usec.clear()
 	_boot_compute_mutex.lock()
 	_boot_compute_results.clear()
 	_boot_compute_mutex.unlock()
@@ -2479,10 +2753,18 @@ func _boot_cleanup_compute_pipeline() -> void:
 		print("[Boot] %d chunk(s) failed compute: %s" % [_boot_failed_coords.size(), str(_boot_failed_coords)])
 
 ## Main-thread apply: creates Chunk node, populates, attaches to tree.
-func _boot_apply_chunk_from_native_data(coord: Vector2i, z_level: int, native_data: Dictionary) -> void:
+func _boot_apply_chunk_from_native_data(
+	coord: Vector2i,
+	z_level: int,
+	native_data: Dictionary,
+	flora_payload: Dictionary = {}
+) -> void:
 	coord = _canonical_chunk_coord(coord)
 	var loaded_chunks_for_z: Dictionary = _z_chunks.get(z_level, {})
-	if loaded_chunks_for_z.has(coord) or not _terrain_tileset or not _overlay_tileset:
+	if loaded_chunks_for_z.has(coord):
+		_boot_on_chunk_applied(coord, loaded_chunks_for_z.get(coord) as Chunk)
+		return
+	if not _terrain_tileset or not _overlay_tileset:
 		return
 	var chunk_biome: BiomeData = _resolve_chunk_biome(coord, z_level)
 	var tileset_bundle: Dictionary = _get_or_build_tileset_bundle(chunk_biome)
@@ -2509,9 +2791,11 @@ func _boot_apply_chunk_from_native_data(coord: Vector2i, z_level: int, native_da
 	var saved_modifications: Dictionary = _get_saved_chunk_modifications(z_level, coord)
 	if z_level != 0:
 		chunk.set_underground(true)
-	chunk.populate_native(native_data, saved_modifications, is_player_chunk)
+	chunk.populate_native(native_data, saved_modifications, false)
 	if z_level == 0:
 		var flora_result: ChunkFloraResultScript = _get_cached_surface_chunk_flora_result(coord, z_level) if saved_modifications.is_empty() else null
+		if flora_result == null and saved_modifications.is_empty():
+			flora_result = _flora_result_from_payload(flora_payload)
 		if flora_result != null:
 			chunk.set_flora_result(flora_result)
 		else:
@@ -2528,8 +2812,10 @@ func _boot_apply_chunk_from_native_data(coord: Vector2i, z_level: int, native_da
 	loaded_chunks_for_z[coord] = chunk
 	if z_level == _active_z:
 		_loaded_chunks = loaded_chunks_for_z
-	if not chunk.is_redraw_complete():
+	if not chunk.is_redraw_complete() and _redrawing_chunks.find(chunk) < 0:
 		_redrawing_chunks.append(chunk)
+	if not is_player_chunk and not chunk.is_terrain_phase_done():
+		chunk.visible = false
 	if _should_track_surface_topology(z_level):
 		if _is_native_topology_enabled():
 			_native_topology_builder.call("set_chunk", coord, chunk.get_terrain_bytes(), WorldGenerator.balance.chunk_size_tiles)
@@ -2537,6 +2823,7 @@ func _boot_apply_chunk_from_native_data(coord: Vector2i, z_level: int, native_da
 		else:
 			_mark_topology_dirty()
 	EventBus.chunk_loaded.emit(coord)
+	_boot_on_chunk_applied(coord, chunk)
 
 ## --- Boot readiness helpers (boot_chunk_readiness_spec) ---
 
@@ -2547,13 +2834,18 @@ func _boot_init_readiness(center: Vector2i, load_radius: int) -> void:
 	_boot_first_playable = false
 	_boot_complete_flag = false
 	_boot_topology_ready = false
+	_boot_has_remaining_chunks = false
 	_boot_pipeline_drained = false
+	_boot_runtime_handoff_started = false
 	_boot_started_usec = Time.get_ticks_usec()
 	_boot_compute_generation += 1
 	_boot_failed_coords.clear()
+	_boot_compute_requested_usec.clear()
+	_boot_compute_started_usec.clear()
 	_boot_metric_compute_ms = 0.0
 	_boot_metric_apply_ms = 0.0
 	_boot_metric_terrain_redraw_ms = 0.0
+	_boot_metric_queue_wait_ms = 0.0
 	_boot_metric_chunks_computed = 0
 	_boot_metric_chunks_applied = 0
 
@@ -2569,59 +2861,35 @@ func _boot_get_chunk_ring(coord: Vector2i) -> int:
 func _boot_update_gates() -> void:
 	if _boot_chunk_states.is_empty():
 		return
-	var playable_ring_applied: bool = true
-	var player_chunk_visual_complete: bool = false
-	var all_chunks_terminal: bool = true
-	for coord: Vector2i in _boot_chunk_states:
-		var state: int = int(_boot_chunk_states[coord])
-		var ring: int = _boot_get_chunk_ring(coord)
-		if ring == 0:
-			if state >= BootChunkState.VISUAL_COMPLETE:
-				player_chunk_visual_complete = true
-			else:
-				playable_ring_applied = false
-		elif ring <= BOOT_FIRST_PLAYABLE_MAX_RING:
-			if state < BootChunkState.APPLIED:
-				playable_ring_applied = false
-		if state < BootChunkState.VISUAL_COMPLETE:
-			all_chunks_terminal = false
-	## first_playable: ring 0 visual_complete + ring 0..1 applied. Topology NOT required.
+	var all_chunks_terminal: bool = _boot_all_tracked_chunks_visual_complete()
 	var was_first_playable: bool = _boot_first_playable
-	_boot_first_playable = player_chunk_visual_complete and playable_ring_applied
+	_boot_first_playable = _boot_is_first_playable_slice_ready()
 	if _boot_first_playable and not was_first_playable:
 		var elapsed_ms: float = float(Time.get_ticks_usec() - _boot_started_usec) / 1000.0 if _boot_started_usec > 0 else 0.0
-		print("[Boot] first_playable reached (%.1f ms) | compute=%.1fms (%d chunks) apply=%.1fms (%d chunks) redraw=%.1fms" % [
-			elapsed_ms, _boot_metric_compute_ms, _boot_metric_chunks_computed,
+		WorldPerfProbe.mark_milestone("Boot.first_playable")
+		print("[Boot] first_playable reached (%.1f ms) | queue_wait=%.1fms compute=%.1fms (%d chunks) apply=%.1fms (%d chunks) redraw=%.1fms" % [
+			elapsed_ms, _boot_metric_queue_wait_ms, _boot_metric_compute_ms, _boot_metric_chunks_computed,
 			_boot_metric_apply_ms, _boot_metric_chunks_applied,
 			_boot_metric_terrain_redraw_ms])
-	## boot_complete: all startup chunks terminal AND topology ready.
 	var was_boot_complete: bool = _boot_complete_flag
 	_boot_complete_flag = all_chunks_terminal and _boot_topology_ready
 	if _boot_complete_flag and not was_boot_complete:
 		var elapsed_ms: float = float(Time.get_ticks_usec() - _boot_started_usec) / 1000.0 if _boot_started_usec > 0 else 0.0
-		print("[Boot] boot_complete reached (%.1f ms) | compute=%.1fms (%d chunks) apply=%.1fms (%d chunks) redraw=%.1fms" % [
-			elapsed_ms, _boot_metric_compute_ms, _boot_metric_chunks_computed,
+		WorldPerfProbe.mark_milestone("Boot.boot_complete")
+		print("[Boot] boot_complete reached (%.1f ms) | queue_wait=%.1fms compute=%.1fms (%d chunks) apply=%.1fms (%d chunks) redraw=%.1fms" % [
+			elapsed_ms, _boot_metric_queue_wait_ms, _boot_metric_compute_ms, _boot_metric_chunks_computed,
 			_boot_metric_apply_ms, _boot_metric_chunks_applied,
 			_boot_metric_terrain_redraw_ms])
 
-## Promote boot chunks from APPLIED to VISUAL_COMPLETE once gameplay redraw finishes
-## (terrain + cover + cliff). Debug and flora phases do NOT block boot gates.
-## Also makes hidden outer chunks visible once their terrain phase completes.
 func _boot_promote_redrawn_chunks() -> void:
 	for coord: Vector2i in _boot_chunk_states:
 		var state: int = int(_boot_chunk_states[coord])
-		if state != BootChunkState.APPLIED:
+		if state < BootChunkState.APPLIED:
 			continue
 		var chunk: Chunk = _loaded_chunks.get(coord)
-		if not chunk:
+		if chunk == null:
 			continue
-		## Show hidden outer chunks once terrain is drawn (no more green zones).
-		if not chunk.visible and chunk.is_terrain_phase_done():
-			chunk.visible = true
-		if chunk.is_gameplay_redraw_complete():
-			if not chunk.visible:
-				chunk.visible = true
-			_boot_set_chunk_state(coord, BootChunkState.VISUAL_COMPLETE)
+		_boot_on_chunk_redraw_progress(chunk)
 
 ## Read-only boot readiness API.
 

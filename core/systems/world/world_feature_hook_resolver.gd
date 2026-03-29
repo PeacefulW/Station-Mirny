@@ -21,7 +21,12 @@ static func resolve_for_origin(candidate_origin: Vector2i, ctx: WorldComputeCont
 		channels,
 		structure_context
 	)
-	var terrain_type: int = ctx.get_surface_terrain_type(canonical_origin)
+	var terrain_type: int = ctx.get_surface_terrain_type_from_context(
+		canonical_origin,
+		channels,
+		structure_context,
+		local_variation
+	)
 	var structure_tags: Array[StringName] = _collect_structure_tags(structure_context)
 	for feature_hook_resource: Resource in ctx.get_feature_hook_snapshot():
 		if feature_hook_resource == null:

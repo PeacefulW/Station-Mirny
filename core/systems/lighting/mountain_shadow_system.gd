@@ -8,6 +8,9 @@ extends Node
 const RuntimeWorkTypes = preload("res://core/runtime/runtime_work_types.gd")
 const JOB_SHADOWS: StringName = &"mountain_shadow.visual_rebuild"
 const INVALID_COORD: Vector2i = Vector2i(999999, 999999)
+const EDGE_CACHE_TIME_BUDGET_USEC: int = 900
+const EDGE_CACHE_TIME_CHECK_INTERVAL: int = 1
+const SHADOW_BUILD_TIME_BUDGET_USEC: int = 900
 const EDGE_NEIGHBOR_OFFSETS: Array[Vector2i] = [
 	Vector2i.LEFT,
 	Vector2i.RIGHT,
@@ -30,6 +33,11 @@ var _active_edge_cache_build: Dictionary = {}
 var _active_build: Dictionary = {}  ## Progressive shadow build state
 var _prefer_shadow_step: bool = true
 var _current_z: int = 0
+var _boot_shadow_work_started: bool = false
+var _boot_shadow_work_drained: bool = false
+var _boot_shadow_completion_emitted: bool = false
+
+signal boot_shadow_work_drained
 
 func _ready() -> void:
 	_shadow_container = Node2D.new()
@@ -80,6 +88,7 @@ func build_boot_shadows() -> void:
 	if not _is_surface_context() or not _chunk_manager:
 		_suspend_surface_shadow_runtime(true)
 		return
+	_mark_boot_shadow_work_started()
 	var player_chunk: Vector2i = _get_player_chunk_coord()
 	var coords: Array[Vector2i] = []
 	for coord: Vector2i in _chunk_manager.get_loaded_chunks():
@@ -102,6 +111,7 @@ func build_boot_shadows() -> void:
 		_rebuild_shadow_now(coord)
 	_seed_current_sun_angle()
 	_show_shadow_container()
+	_refresh_boot_shadow_completion_state()
 
 ## Lightweight boot initialization: seeds sun angle, shows container, and ensures
 ## all loaded mountain chunks are in the dirty/edge queues for budgeted processing
@@ -112,6 +122,7 @@ func schedule_boot_shadows() -> void:
 	if not _is_surface_context() or not _chunk_manager:
 		_suspend_surface_shadow_runtime(true)
 		return
+	_mark_boot_shadow_work_started()
 	_suspend_surface_shadow_runtime(false)
 	## Chunks already enqueued via EventBus.chunk_loaded → _on_chunk_loaded.
 	## Ensure nothing was missed and re-mark all dirty for completeness.
@@ -121,6 +132,7 @@ func schedule_boot_shadows() -> void:
 			_mark_dirty(coord)
 	_seed_current_sun_angle()
 	_show_shadow_container()
+	_refresh_boot_shadow_completion_state()
 
 func prepare_boot_shadows(progress_callback: Callable) -> void:
 	if not _chunk_manager:
@@ -128,6 +140,7 @@ func prepare_boot_shadows(progress_callback: Callable) -> void:
 	if not _is_surface_context() or not _chunk_manager:
 		_suspend_surface_shadow_runtime(true)
 		return
+	_mark_boot_shadow_work_started()
 	var player_chunk: Vector2i = _get_player_chunk_coord()
 	var coords: Array[Vector2i] = []
 	for coord: Vector2i in _chunk_manager.get_loaded_chunks():
@@ -158,6 +171,7 @@ func prepare_boot_shadows(progress_callback: Callable) -> void:
 		_report_boot_shadow_progress(progress_callback, completed_steps, total_steps)
 	_seed_current_sun_angle()
 	_show_shadow_container()
+	_refresh_boot_shadow_completion_state()
 
 func _on_z_level_changed(new_z: int, _old_z: int) -> void:
 	if new_z == _current_z:
@@ -183,6 +197,7 @@ func _on_chunk_loaded(coord: Vector2i) -> void:
 	_mark_dirty(coord)
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
 		_mark_dirty(_offset_chunk_coord(coord, dir))
+	_refresh_boot_shadow_completion_state()
 
 func _on_chunk_unloaded(coord: Vector2i) -> void:
 	if not _is_surface_context():
@@ -198,6 +213,7 @@ func _on_chunk_unloaded(coord: Vector2i) -> void:
 		_active_build.clear()
 	_edge_cache.erase(coord)
 	_remove_shadow(coord)
+	_refresh_boot_shadow_completion_state()
 
 func _on_mountain_tile_mined(tile_pos: Vector2i, _old_type: int, _new_type: int) -> void:
 	if not _is_surface_context():
@@ -210,6 +226,7 @@ func _on_mountain_tile_mined(tile_pos: Vector2i, _old_type: int, _new_type: int)
 		var neighbor: Vector2i = _offset_chunk_coord(coord, dir)
 		if _chunk_manager and _chunk_manager.get_chunk(neighbor):
 			_mark_dirty(neighbor)
+	_refresh_boot_shadow_completion_state()
 
 func _mark_dirty(coord: Vector2i) -> void:
 	coord = _canonical_chunk_coord(coord)
@@ -222,11 +239,13 @@ func _mark_all_dirty() -> void:
 	for coord: Vector2i in _chunk_manager.get_loaded_chunks():
 		if _chunk_or_neighbors_have_mountain(coord):
 			_mark_dirty(coord)
+	_refresh_boot_shadow_completion_state()
 
 ## Tick для FrameBudgetDispatcher. Edge build → progressive shadow build.
 func _tick_shadows() -> bool:
 	if not _is_surface_context():
 		_suspend_surface_shadow_runtime(true)
+		_refresh_boot_shadow_completion_state()
 		return false
 	if not _active_build.is_empty():
 		var phase: String = str(_active_build.get("phase", "build"))
@@ -239,24 +258,34 @@ func _tick_shadows() -> bool:
 				_finalize_shadow_apply()
 			_:
 				_active_build.clear()
-		return true
+		_refresh_boot_shadow_completion_state()
+		return false
 	var has_dirty: bool = not _dirty_queue.is_empty()
 	var has_edge_work: bool = not _active_edge_cache_build.is_empty() or not _edge_build_queue.is_empty()
 	if has_dirty and has_edge_work:
 		if _prefer_shadow_step and _try_shadow_step():
 			_prefer_shadow_step = false
-			return true
+			_refresh_boot_shadow_completion_state()
+			return false
 		if _try_edge_step():
 			_prefer_shadow_step = true
-			return true
+			_refresh_boot_shadow_completion_state()
+			return false
 		if _try_shadow_step():
 			_prefer_shadow_step = false
-			return true
+			_refresh_boot_shadow_completion_state()
+			return false
+		_refresh_boot_shadow_completion_state()
 		return false
 	if has_dirty:
-		return _try_shadow_step()
+		_try_shadow_step()
+		_refresh_boot_shadow_completion_state()
+		return false
 	if has_edge_work:
-		return _try_edge_step()
+		_try_edge_step()
+		_refresh_boot_shadow_completion_state()
+		return false
+	_refresh_boot_shadow_completion_state()
 	return false
 
 func _try_shadow_step() -> bool:
@@ -403,27 +432,27 @@ func _advance_edge_cache_build() -> void:
 	var base_x: int = build["base_x"] as int
 	var base_y: int = build["base_y"] as int
 	var tile_index: int = build["tile_index"] as int
-	var tile_budget: int = _resolve_shadow_edge_cache_tile_budget()
 	var total_tiles: int = chunk_size * chunk_size
-	var end_index: int = mini(tile_index + tile_budget, total_tiles)
 	var edges: Array = build["edges"] as Array
 	var terrain_bytes: PackedByteArray = chunk.get_terrain_bytes()
-	const EDGE_CACHE_TIME_BUDGET_USEC: int = 1000  ## 1ms hard cap per tick
-	for current_index: int in range(tile_index, end_index):
+	var current_index: int = tile_index
+	while current_index < total_tiles:
 		if terrain_bytes[current_index] != TileGenData.TerrainType.ROCK:
+			current_index += 1
+			if (current_index - tile_index) % EDGE_CACHE_TIME_CHECK_INTERVAL == 0 \
+				and (Time.get_ticks_usec() - started_usec) >= EDGE_CACHE_TIME_BUDGET_USEC:
+				break
 			continue
 		var local_x: int = current_index % chunk_size
 		var local_y: int = current_index / chunk_size
 		if _is_external_edge_at(coord, terrain_bytes, local_x, local_y, chunk_size):
 			edges.append(Vector2i(base_x + local_x, base_y + local_y))
-		## Time guard: break early if over budget to prevent 50-200ms spikes.
-		if current_index % 32 == 0 and current_index > tile_index:
-			if (Time.get_ticks_usec() - started_usec) > EDGE_CACHE_TIME_BUDGET_USEC:
-				build["tile_index"] = current_index + 1
-				WorldPerfProbe.end("Shadow.edge_cache_slice", started_usec)
-				return
-	build["tile_index"] = end_index
-	if end_index >= total_tiles:
+		current_index += 1
+		if (current_index - tile_index) % EDGE_CACHE_TIME_CHECK_INTERVAL == 0 \
+			and (Time.get_ticks_usec() - started_usec) >= EDGE_CACHE_TIME_BUDGET_USEC:
+			break
+	build["tile_index"] = current_index
+	if current_index >= total_tiles:
 		_edge_cache[coord] = edges
 		_active_edge_cache_build.clear()
 		_complete_edge_cache_build(coord)
@@ -500,6 +529,7 @@ func _start_shadow_build(coord: Vector2i) -> void:
 		"max_intensity": balance.shadow_intensity,
 		"edges": all_edges,
 		"edge_idx": 0,
+		"point_idx": 0,
 		"shadow_points": shadow_points,
 		"img": Image.create(chunk_size, chunk_size, false, Image.FORMAT_RGBA8),
 		"has_pixels": false,
@@ -511,6 +541,7 @@ func _advance_shadow_build() -> void:
 	var b: Dictionary = _active_build
 	var edges: Array = b["edges"] as Array
 	var edge_idx: int = b["edge_idx"] as int
+	var point_idx: int = b.get("point_idx", 0) as int
 	var img: Image = b["img"] as Image
 	var chunk_size: int = b["chunk_size"] as int
 	var base_x: int = b["base_x"] as int
@@ -524,18 +555,34 @@ func _advance_shadow_build() -> void:
 	if not chunk:
 		_remove_shadow(coord)
 		_active_build.clear()
+		WorldPerfProbe.end("Shadow.advance_slice", started_usec)
 		return
-	var end_idx: int = mini(edge_idx + _resolve_shadow_edges_per_step(), edges.size())
-	for i: int in range(edge_idx, end_idx):
+	var i: int = edge_idx
+	while i < edges.size():
+		if Time.get_ticks_usec() - started_usec >= SHADOW_BUILD_TIME_BUDGET_USEC:
+			b["edge_idx"] = i
+			b["point_idx"] = point_idx
+			b["has_pixels"] = has_pixels
+			WorldPerfProbe.end("Shadow.advance_slice", started_usec)
+			return
 		var edge_global: Vector2i = edges[i] as Vector2i
-		for point_idx: int in range(shadow_points.size()):
+		var point_count: int = shadow_points.size()
+		while point_idx < point_count:
+			if Time.get_ticks_usec() - started_usec >= SHADOW_BUILD_TIME_BUDGET_USEC:
+				b["edge_idx"] = i
+				b["point_idx"] = point_idx
+				b["has_pixels"] = has_pixels
+				WorldPerfProbe.end("Shadow.advance_slice", started_usec)
+				return
 			var pt: Vector2i = shadow_points[point_idx] as Vector2i
 			var px: int = edge_global.x + pt.x - base_x
 			var py: int = edge_global.y + pt.y - base_y
 			if px < 0 or py < 0 or px >= chunk_size or py >= chunk_size:
+				point_idx += 1
 				continue
 			var terrain: int = chunk.get_terrain_type_at(Vector2i(px, py))
 			if terrain == TileGenData.TerrainType.ROCK:
+				point_idx += 1
 				continue
 			var fade: float = 1.0 - (float(point_idx + 1) / float(shadow_points.size() + 1))
 			var alpha: float = max_intensity * fade
@@ -543,9 +590,13 @@ func _advance_shadow_build() -> void:
 			if alpha > current.a:
 				img.set_pixel(px, py, Color(shadow_color.r, shadow_color.g, shadow_color.b, alpha))
 				has_pixels = true
-	b["edge_idx"] = end_idx
+			point_idx += 1
+		point_idx = 0
+		i += 1
+	b["edge_idx"] = i
+	b["point_idx"] = 0
 	b["has_pixels"] = has_pixels
-	if end_idx >= edges.size():
+	if i >= edges.size():
 		WorldPerfProbe.end("Shadow.advance_slice", started_usec)
 		b["phase"] = "finalize_texture"
 		return
@@ -562,6 +613,7 @@ func _finalize_shadow_texture() -> void:
 		_active_build.clear()
 		_remove_shadow(coord)
 		WorldPerfProbe.end("Shadow.finalize_texture %s" % [coord], finalize_usec)
+		_refresh_boot_shadow_completion_state()
 		return
 	b["texture"] = ImageTexture.create_from_image(img)
 	b["phase"] = "finalize_apply"
@@ -579,6 +631,7 @@ func _finalize_shadow_apply() -> void:
 		_active_build.clear()
 		_remove_shadow(coord)
 		WorldPerfProbe.end("Shadow.finalize_apply %s" % [coord], finalize_usec)
+		_refresh_boot_shadow_completion_state()
 		return
 	var sprite: Sprite2D
 	if _shadow_sprites.has(coord):
@@ -594,6 +647,7 @@ func _finalize_shadow_apply() -> void:
 	sprite.position = Vector2(base_x * tile_size, base_y * tile_size)
 	_active_build.clear()
 	WorldPerfProbe.end("Shadow.finalize_apply %s" % [coord], finalize_usec)
+	_refresh_boot_shadow_completion_state()
 
 func _rebuild_shadow_now(coord: Vector2i) -> void:
 	_start_shadow_build(coord)
@@ -651,6 +705,7 @@ func _suspend_surface_shadow_runtime(hide_container: bool) -> void:
 	_prefer_shadow_step = true
 	if hide_container and _shadow_container:
 		_shadow_container.visible = false
+	_refresh_boot_shadow_completion_state()
 
 func _show_shadow_container() -> void:
 	if _shadow_container:
@@ -659,6 +714,34 @@ func _show_shadow_container() -> void:
 func _seed_current_sun_angle() -> void:
 	if TimeManager:
 		_last_built_angle = TimeManager.get_sun_angle()
+
+func _mark_boot_shadow_work_started() -> void:
+	_boot_shadow_work_started = true
+	_boot_shadow_work_drained = false
+	_boot_shadow_completion_emitted = false
+
+func _has_shadow_work_pending() -> bool:
+	return not _dirty_queue.is_empty() \
+		or not _edge_build_queue.is_empty() \
+		or not _active_edge_cache_build.is_empty() \
+		or not _active_build.is_empty()
+
+func _refresh_boot_shadow_completion_state() -> void:
+	if not _boot_shadow_work_started:
+		return
+	var drained: bool = _is_surface_context() and not _has_shadow_work_pending()
+	if not drained:
+		_boot_shadow_work_drained = false
+		_boot_shadow_completion_emitted = false
+		return
+	if not _boot_shadow_work_drained:
+		_boot_shadow_work_drained = true
+		if not _boot_shadow_completion_emitted:
+			_boot_shadow_completion_emitted = true
+			boot_shadow_work_drained.emit()
+
+func is_boot_shadow_work_drained() -> bool:
+	return _boot_shadow_work_started and _boot_shadow_work_drained
 
 func _report_boot_shadow_progress(progress_callback: Callable, completed_steps: int, total_steps: int) -> void:
 	if not progress_callback.is_valid():

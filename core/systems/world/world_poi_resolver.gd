@@ -3,25 +3,39 @@ extends RefCounted
 
 const WorldFeatureHookResolverScript = preload("res://core/systems/world/world_feature_hook_resolver.gd")
 
-static func resolve_for_origin(candidate_origin: Vector2i, hook_decisions: Array[Dictionary], ctx: WorldComputeContext, all_pois: Array[Resource] = []) -> Array[Dictionary]:
+static func resolve_for_origin(
+	candidate_origin: Vector2i,
+	hook_decisions: Array[Dictionary],
+	ctx: WorldComputeContext,
+	all_pois: Array[Resource] = [],
+	anchor_winner_cache: Dictionary = {},
+	hook_id_cache_by_origin: Dictionary = {},
+	candidate_cache: Dictionary = {}
+) -> Array[Dictionary]:
 	var placements_by_anchor: Dictionary = {}
-	var anchor_winner_cache: Dictionary = {}
-	var hook_id_cache_by_origin: Dictionary = {}
 	if ctx == null:
 		return []
 	var canonical_origin: Vector2i = ctx.canonicalize_tile(candidate_origin)
 	var resolved_hook_ids: Array[StringName] = _collect_resolved_hook_ids(hook_decisions)
+	hook_id_cache_by_origin[canonical_origin] = resolved_hook_ids
 	for poi_resource: Resource in all_pois:
 		if poi_resource == null:
 			continue
-		if not _matches_required_feature_hooks(poi_resource, resolved_hook_ids):
+		var required_hook_ids: Array[StringName] = _get_string_name_array(poi_resource, "required_feature_hook_ids")
+		if not required_hook_ids.is_empty() and not _matches_required_feature_hooks(poi_resource, resolved_hook_ids):
 			continue
-		var candidate: Dictionary = _build_candidate(canonical_origin, poi_resource, ctx)
+		var candidate: Dictionary = _get_or_build_candidate(canonical_origin, poi_resource, ctx, candidate_cache)
 		if candidate.is_empty():
 			continue
 		var anchor_tile: Vector2i = candidate.get("anchor_tile", Vector2i.ZERO) as Vector2i
 		if not anchor_winner_cache.has(anchor_tile):
-			anchor_winner_cache[anchor_tile] = _resolve_anchor_winner(anchor_tile, ctx, hook_id_cache_by_origin, all_pois)
+			anchor_winner_cache[anchor_tile] = _resolve_anchor_winner(
+				anchor_tile,
+				ctx,
+				hook_id_cache_by_origin,
+				candidate_cache,
+				all_pois
+			)
 		var anchor_winner: Dictionary = anchor_winner_cache.get(anchor_tile, {})
 		if anchor_winner.is_empty():
 			continue
@@ -29,17 +43,25 @@ static func resolve_for_origin(candidate_origin: Vector2i, hook_decisions: Array
 			placements_by_anchor[anchor_tile] = anchor_winner
 	return _sorted_placements(placements_by_anchor)
 
-static func _resolve_anchor_winner(anchor_tile: Vector2i, ctx: WorldComputeContext, hook_id_cache_by_origin: Dictionary, all_pois: Array[Resource] = []) -> Dictionary:
+static func _resolve_anchor_winner(
+	anchor_tile: Vector2i,
+	ctx: WorldComputeContext,
+	hook_id_cache_by_origin: Dictionary,
+	candidate_cache: Dictionary,
+	all_pois: Array[Resource] = []
+) -> Dictionary:
 	var best_candidate: Dictionary = {}
 	var canonical_anchor_tile: Vector2i = ctx.canonicalize_tile(anchor_tile)
 	for poi_resource: Resource in all_pois:
 		if poi_resource == null:
 			continue
 		var candidate_origin: Vector2i = _resolve_candidate_origin_for_anchor(canonical_anchor_tile, poi_resource, ctx)
-		var resolved_hook_ids: Array[StringName] = _get_resolved_hook_ids_for_origin(candidate_origin, ctx, hook_id_cache_by_origin)
-		if not _matches_required_feature_hooks(poi_resource, resolved_hook_ids):
-			continue
-		var candidate: Dictionary = _build_candidate(candidate_origin, poi_resource, ctx)
+		var required_hook_ids: Array[StringName] = _get_string_name_array(poi_resource, "required_feature_hook_ids")
+		if not required_hook_ids.is_empty():
+			var resolved_hook_ids: Array[StringName] = _get_resolved_hook_ids_for_origin(candidate_origin, ctx, hook_id_cache_by_origin)
+			if not _matches_required_feature_hooks(poi_resource, resolved_hook_ids):
+				continue
+		var candidate: Dictionary = _get_or_build_candidate(candidate_origin, poi_resource, ctx, candidate_cache)
 		if candidate.is_empty():
 			continue
 		if candidate.get("anchor_tile", Vector2i.ZERO) != canonical_anchor_tile:
@@ -80,6 +102,22 @@ static func _build_candidate(candidate_origin: Vector2i, poi_resource: Resource,
 		"tie_break_hash": _hash_for_anchor(ctx.get_world_seed(), anchor_tile, _get_poi_id(poi_resource)),
 	}
 
+static func _get_or_build_candidate(
+	candidate_origin: Vector2i,
+	poi_resource: Resource,
+	ctx: WorldComputeContext,
+	candidate_cache: Dictionary
+) -> Dictionary:
+	var canonical_origin: Vector2i = ctx.canonicalize_tile(candidate_origin)
+	var poi_id: StringName = _get_poi_id(poi_resource)
+	var cached_by_origin: Dictionary = candidate_cache.get(poi_id, {}) as Dictionary
+	if cached_by_origin.has(canonical_origin):
+		return cached_by_origin.get(canonical_origin, {}) as Dictionary
+	var candidate: Dictionary = _build_candidate(canonical_origin, poi_resource, ctx)
+	cached_by_origin[canonical_origin] = candidate
+	candidate_cache[poi_id] = cached_by_origin
+	return candidate
+
 static func _matches_required_feature_hooks(poi_resource: Resource, resolved_hook_ids: Array[StringName]) -> bool:
 	for required_hook_id: StringName in _get_string_name_array(poi_resource, "required_feature_hook_ids"):
 		if not resolved_hook_ids.has(required_hook_id):
@@ -109,22 +147,53 @@ static func _footprint_satisfies_constraints(footprint_tiles: Array[Vector2i], p
 	return true
 
 static func _tile_satisfies_constraints(tile_pos: Vector2i, poi_resource: Resource, ctx: WorldComputeContext) -> bool:
+	var canonical_tile: Vector2i = ctx.canonicalize_tile(tile_pos)
 	var allowed_biome_ids: Array[StringName] = _get_string_name_array(poi_resource, "allowed_biome_ids")
+	var required_structure_tags: Array[StringName] = _get_string_name_array(poi_resource, "required_structure_tags")
+	var allowed_terrain_types: Array[int] = _get_int_array(poi_resource, "allowed_terrain_types")
+	var needs_context: bool = not allowed_biome_ids.is_empty() \
+		or not required_structure_tags.is_empty() \
+		or not allowed_terrain_types.is_empty()
+	var channels: WorldChannels = null
+	var structure_context: WorldStructureContext = null
+	var biome_result: BiomeResult = null
 	if not allowed_biome_ids.is_empty():
-		var biome_result: BiomeResult = ctx.get_biome_result_at_tile(tile_pos)
+		if channels == null and needs_context:
+			channels = ctx.sample_world_channels(canonical_tile)
+		if structure_context == null and needs_context:
+			structure_context = ctx.sample_structure_context(canonical_tile, channels)
+		biome_result = ctx.get_biome_result_at_tile(canonical_tile, channels, structure_context)
 		if biome_result == null or not allowed_biome_ids.has(biome_result.biome_id):
 			return false
-	var required_structure_tags: Array[StringName] = _get_string_name_array(poi_resource, "required_structure_tags")
 	if not required_structure_tags.is_empty():
-		var channels: WorldChannels = ctx.sample_world_channels(tile_pos)
-		var structure_context: WorldStructureContext = ctx.sample_structure_context(tile_pos, channels)
+		if channels == null:
+			channels = ctx.sample_world_channels(canonical_tile)
+		if structure_context == null:
+			structure_context = ctx.sample_structure_context(canonical_tile, channels)
 		var structure_tags: Array[StringName] = _collect_structure_tags(structure_context)
 		for required_tag: StringName in required_structure_tags:
 			if not structure_tags.has(required_tag):
 				return false
-	var allowed_terrain_types: Array[int] = _get_int_array(poi_resource, "allowed_terrain_types")
 	if not allowed_terrain_types.is_empty():
-		if not allowed_terrain_types.has(ctx.get_surface_terrain_type(tile_pos)):
+		if channels == null:
+			channels = ctx.sample_world_channels(canonical_tile)
+		if structure_context == null:
+			structure_context = ctx.sample_structure_context(canonical_tile, channels)
+		if biome_result == null:
+			biome_result = ctx.get_biome_result_at_tile(canonical_tile, channels, structure_context)
+		var local_variation: LocalVariationContext = ctx.sample_local_variation(
+			canonical_tile,
+			biome_result,
+			channels,
+			structure_context
+		)
+		var terrain_type: int = ctx.get_surface_terrain_type_from_context(
+			canonical_tile,
+			channels,
+			structure_context,
+			local_variation
+		)
+		if not allowed_terrain_types.has(terrain_type):
 			return false
 	return true
 

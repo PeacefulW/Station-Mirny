@@ -18,6 +18,12 @@ class FeatureAndPoiPayloadCache extends RefCounted:
 		_payload_by_chunk[chunk_coord] = stored_payload
 		_mutex.unlock()
 
+	func has_payload(chunk_coord: Vector2i) -> bool:
+		_mutex.lock()
+		var has_cached_payload: bool = _payload_by_chunk.has(chunk_coord)
+		_mutex.unlock()
+		return has_cached_payload
+
 	func get_payload(chunk_coord: Vector2i) -> Dictionary:
 		_mutex.lock()
 		var stored_payload: Dictionary = (_payload_by_chunk.get(chunk_coord, {}) as Dictionary).duplicate(true)

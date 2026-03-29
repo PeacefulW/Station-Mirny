@@ -148,6 +148,25 @@ func get_surface_terrain_type(tile_pos: Vector2i) -> int:
 		return TileGenData.TerrainType.GROUND
 	return _surface_terrain_resolver.sample_terrain_type(canonical_tile.x, canonical_tile.y)
 
+func get_surface_terrain_type_from_context(
+	tile_pos: Vector2i,
+	channels: WorldChannels,
+	structure_context: WorldStructureContext,
+	local_variation: LocalVariationContext = null
+) -> int:
+	var canonical_tile: Vector2i = canonicalize_tile(tile_pos)
+	if _surface_terrain_resolver == null:
+		return TileGenData.TerrainType.GROUND
+	if _surface_terrain_resolver.has_method("resolve_surface_terrain_type_from_context"):
+		return int(_surface_terrain_resolver.call(
+			"resolve_surface_terrain_type_from_context",
+			canonical_tile,
+			channels,
+			structure_context,
+			local_variation
+		))
+	return get_surface_terrain_type(canonical_tile)
+
 func canonicalize_tile(tile_pos: Vector2i) -> Vector2i:
 	if _planet_sampler == null:
 		return tile_pos

@@ -278,14 +278,24 @@ func _describe_chunk_manager_catch_up_state() -> String:
 		return "chunk_manager=missing"
 	var streaming_truth_idle: bool = _is_streaming_truth_caught_up()
 	var topology_ready: bool = _is_topology_caught_up()
-	return "streaming_truth_idle=%s redraw_idle=%s load_queue=%d redraw=%d staged_chunk=%s staged_data=%d gen_task_id=%d topology_ready=%s native_topology=%s native_dirty=%s dirty=%s build_in_progress=%s" % [
+	var load_queue_preview: Array[String] = []
+	var load_queue: Array = _chunk_manager.get("_load_queue") as Array
+	for request_variant: Variant in load_queue.slice(0, mini(3, load_queue.size())):
+		var request: Dictionary = request_variant as Dictionary
+		load_queue_preview.append(str(request.get("coord", Vector2i.ZERO)))
+	var gen_coord: Vector2i = _chunk_manager.get("_gen_coord") as Vector2i
+	if gen_coord == null:
+		gen_coord = Vector2i(999999, 999999)
+	return "streaming_truth_idle=%s redraw_idle=%s load_queue=%d load_queue_preview=%s redraw=%d staged_chunk=%s staged_data=%d gen_task_id=%d gen_coord=%s topology_ready=%s native_topology=%s native_dirty=%s dirty=%s build_in_progress=%s" % [
 		streaming_truth_idle,
 		not _has_redraw_backlog(),
 		_get_variant_size(_chunk_manager.get("_load_queue")),
+		str(load_queue_preview),
 		_get_variant_size(_chunk_manager.get("_redrawing_chunks")),
 		"yes" if _chunk_manager.get("_staged_chunk") != null else "no",
 		_get_variant_size(_chunk_manager.get("_staged_data")),
 		int(_chunk_manager.get("_gen_task_id")),
+		str(gen_coord),
 		topology_ready,
 		bool(_chunk_manager.get("_native_topology_active")),
 		bool(_chunk_manager.get("_native_topology_dirty")),

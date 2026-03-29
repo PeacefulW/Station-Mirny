@@ -18,7 +18,8 @@
       "Bash(find \"M:/dev/Station Peaceful/Station Peaceful/core/autoloads\" -name \"*.gd\" -exec wc -l {} +)",
       "Bash(find \"M:/dev/Station Peaceful/Station Peaceful/core/systems\" -name \"*.gd\" -exec wc -l {} +)",
       "Bash(find \"M:/dev/Station Peaceful/Station Peaceful/core/entities\" -name \"*.gd\" -exec wc -l {} +)",
-      "Bash(wc -l core/systems/world/*.gd)"
+      "Bash(wc -l core/systems/world/*.gd)",
+      "Bash(find /m/dev/Station Peaceful -type f -name *.gdextension -o -name *.so -o -name *.dll)"
     ]
   }
 }

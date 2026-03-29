@@ -33,6 +33,7 @@ var _feature_debug_overlay: WorldFeatureDebugOverlay = null
 var _loading_screen: LoadingScreen = null
 var _boot_complete: bool = false
 var _boot_first_playable_done: bool = false
+var _boot_shadows_scheduled: bool = false
 var _boot_shadows_built: bool = false
 var _spawn_orchestrator: SpawnOrchestrator = null
 var _pending_load_slot: String = ""
@@ -314,20 +315,19 @@ func _on_boot_first_playable() -> void:
 		_loading_screen.fade_out()
 
 func _tick_boot_finalization() -> void:
-	if not _boot_shadows_built:
-		if _mountain_shadow_system and _mountain_shadow_system.has_method("schedule_boot_shadows"):
+	if _mountain_shadow_system:
+		if not _boot_shadows_scheduled and _mountain_shadow_system.has_method("schedule_boot_shadows"):
 			## Lightweight: seeds sun angle, shows container, ensures dirty queues.
 			## Actual shadow build happens incrementally via FrameBudgetDispatcher (1ms budget).
+			_boot_shadows_scheduled = true
 			_mountain_shadow_system.schedule_boot_shadows()
-		_boot_shadows_built = true
-		return
-	if _chunk_manager and _chunk_manager.is_boot_complete():
+		if not _boot_shadows_built and _mountain_shadow_system.has_method("is_boot_shadow_work_drained") and _mountain_shadow_system.is_boot_shadow_work_drained():
+			_boot_shadows_built = true
+	if _chunk_manager and _chunk_manager.is_boot_complete() and _boot_shadows_built:
 		_boot_complete = true
 
 func _finish_boot_sequence() -> void:
 	_on_boot_first_playable()
-	_boot_shadows_built = true
-	_boot_complete = true
 
 func _canonicalize_player_world_position() -> void:
 	if not _player or not WorldGenerator or not WorldGenerator._is_initialized:

@@ -44,6 +44,15 @@ static func end(label: String, started_usec: int) -> void:
 static func record(label: String, elapsed_ms: float) -> void:
 	_record(label, elapsed_ms)
 
+## Zero-cost marker for milestones or other state transitions that should be
+## visible in summaries without pretending to be timing data.
+static func mark(label: String) -> void:
+	_record(label, 0.0)
+
+## Explicit milestone helper for Boot.* state transitions.
+static func mark_milestone(label: String) -> void:
+	_record(label, 0.0)
+
 static func _record(label: String, elapsed_ms: float) -> void:
 	if elapsed_ms >= _THRESHOLD_MS:
 		print("[WorldPerf] %s: %.2f ms" % [label, elapsed_ms])
