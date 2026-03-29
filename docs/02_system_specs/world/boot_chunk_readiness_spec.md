@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.1
-last_updated: 2026-03-28
+version: 0.2
+last_updated: 2026-03-29
 depends_on:
   - chunk_boot_streaming_rollout.md
   - DATA_CONTRACTS.md
@@ -30,6 +30,8 @@ Boot must instead define a strict, player-facing readiness contract:
 - what counts as first playable versus full startup completion
 
 This spec exists so implementation work does not optimize blindly or reintroduce hidden full-bubble completion requirements.
+
+`first_playable` is not just an internal `ChunkManager` flag — it is the product moment when `GameWorld` hands control to the player: input and physics are enabled, the blocking loading screen is dismissed, and time is unpaused. All remaining boot work (outer chunks, topology, shadows) completes in background via `_tick_boot_remaining()` and `GameWorld._tick_boot_finalization()` without re-blocking the player.
 
 ## Public API impact
 
@@ -64,8 +66,12 @@ Required API/documentation outcome after implementation:
 ### Affected layer: Chunk Lifecycle
 - What changes:
   - boot lifecycle gains explicit readiness states separate from raw load completion.
+  - `GameWorld` uses `first_playable` as the product handoff point: enables player input/physics, dismisses blocking loading screen, unpauses time. Shadows and remaining boot work complete in background via `_tick_boot_finalization()`.
+  - Ring distance uses Chebyshev metric so diagonal chunks are ring 1, not ring 2.
 - New invariants:
   - startup chunk state must distinguish at least `computed`, `applied`, and `visual_complete`.
+  - `first_playable` implies player can move and interact; no re-blocking after this point.
+  - diagonal chunks visible from a 4-chunk junction must be ready at `first_playable`.
 - Who adapts:
   - `ChunkManager`
   - `scenes/world/game_world.gd`
@@ -108,9 +114,11 @@ The boot process must expose these aggregate gates:
 - `first_playable`
 - `boot_complete`
 
+Ring distance metric: **Chebyshev** (`max(abs(dx), abs(dy))`), not Manhattan. This ensures diagonal chunks at offset (1,1) are ring 1, covering the case where the player/camera straddles a 4-chunk junction.
+
 Recommended ring policy:
 - ring 0: player chunk only, mandatory for first-playable
-- ring 1: immediate movement and readability ring, mandatory for first-playable
+- ring 1: immediate movement and readability ring (including diagonals), mandatory for first-playable
 - outer startup rings: mandatory for boot-complete, not mandatory for first-playable
 
 ## Iterations

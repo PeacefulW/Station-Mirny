@@ -193,8 +193,8 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: в boot sequence, когда initial world bubble должен быть загружен и доведён до gameplay-ready state.
-- Что делает: staged boot with bounded-parallel compute and budgeted apply. Returns early once `first_playable` is reached (ring 0+1 ready). Outer ring chunks and topology complete in background via `_tick_boot_remaining()` in `_process`. Max `BOOT_MAX_APPLY_PER_STEP` (1) chunk finalized per frame. Apply order is distance-sorted (near-first).
-- Гарантии: `first_playable` = ring 0 `VISUAL_COMPLETE` + ring 0..1 `APPLIED`, topology NOT required. `boot_complete` = ALL startup `VISUAL_COMPLETE` + topology ready (may happen after function returns). Apply budget warning emitted if single step exceeds 8ms. См. `Boot Readiness State` и `Boot Compute Queue` layers в `DATA_CONTRACTS.md`.
+- Что делает: staged boot with bounded-parallel compute and split apply. Apply is separated into cheap install/attach (scene tree registration) and progressive visual completion via `FrameBudgetDispatcher`. Only ring 0 (player chunk) gets immediate `complete_redraw_now()`; all other chunks use budgeted progressive redraw. Returns early once `first_playable` is reached (ring 0+1 ready). Outer ring chunks and topology complete in background via `_tick_boot_remaining()` in `_process`. Max `BOOT_MAX_APPLY_PER_STEP` (1) chunk installed per frame. Apply order is distance-sorted (near-first).
+- Гарантии: `first_playable` = ring 0 `VISUAL_COMPLETE` + ring 0..1 `APPLIED` (rings measured by Chebyshev distance, so diagonal chunks at offset (1,1) are ring 1), topology NOT required. `first_playable` is the product handoff moment — `GameWorld` enables player input/physics, dismisses the blocking loading screen, and unpauses time upon reaching this gate. `boot_complete` = ALL startup `VISUAL_COMPLETE` + topology ready (may happen after function returns). Remaining boot work (outer chunks, topology, shadows) completes in background without re-blocking. `_boot_promote_redrawn_chunks()` transitions `APPLIED` → `VISUAL_COMPLETE` as progressive redraw completes. См. `Boot Readiness State` и `Boot Compute Queue` layers в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.sync_display_to_player() -> void`
@@ -233,9 +233,9 @@ related_docs:
 - Особенности: presentation-only progress indicator.
 
 `ChunkManager.is_boot_first_playable() -> bool`
-- Что возвращает: достигнут ли `first_playable` gate — ring 0 (player chunk) `VISUAL_COMPLETE` и ring 0..1 `APPLIED`.
-- Когда использовать: boot progress UI, GameWorld boot sequence для определения момента, когда gameplay может начаться.
-- Особенности: topology НЕ входит в `first_playable`. Возвращает `false` до вызова `boot_load_initial_chunks()`.
+- Что возвращает: достигнут ли `first_playable` gate — ring 0 (player chunk) `VISUAL_COMPLETE` и ring 0..1 `APPLIED`. Rings measured by Chebyshev distance (`max(abs(dx), abs(dy))`), so diagonal chunks are ring 1.
+- Когда использовать: boot progress UI, `GameWorld` boot sequence для определения момента передачи управления игроку (input, physics, loading screen dismissal).
+- Особенности: topology НЕ входит в `first_playable`. Возвращает `false` до вызова `boot_load_initial_chunks()`. Это продуктовый момент — после него игрок взаимодействует с миром, а не ждёт.
 
 `ChunkManager.is_boot_complete() -> bool`
 - Что возвращает: достигнут ли `boot_complete` gate — все startup chunks `VISUAL_COMPLETE` И topology ready.
@@ -275,8 +275,8 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: когда surface topology должна быть готова до старта gameplay.
-- Что делает: после initial chunk load вызывает native `ensure_built()` или `_ensure_topology_current()`, затем ставит `_boot_topology_ready = true`.
-- Гарантии: topology ready is part of `boot_complete` gate but NOT part of `first_playable` gate. См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
+- Что делает: после initial chunk load вызывает native `ensure_built()` или `_ensure_topology_current()`, затем ставит `_boot_topology_ready = true`. Topology runs either synchronously (if all chunks done in boot loop) or deferred (if `first_playable` exited early).
+- Гарантии: topology ready is part of `boot_complete` gate but NOT part of `first_playable` gate. Rings use Chebyshev distance. См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.try_harvest_at_world(world_pos: Vector2) -> Dictionary`
@@ -415,8 +415,8 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: когда initial chunk visuals должны быть готовы в boot sequence.
-- Что делает: loads chunks with per-chunk readiness tracking. Ring 0 (player chunk) receives immediate `VISUAL_COMPLETE`. `first_playable` gate does not require full visual completion of the entire startup bubble.
-- Гарантии: canonical terrain authoritative после load; presentation строится через documented redraw paths. Ring 0 visual completion is mandatory for `first_playable`; outer ring visual completion is mandatory only for `boot_complete`. См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
+- Что делает: loads chunks with per-chunk readiness tracking. Ring 0 (player chunk) receives immediate `VISUAL_COMPLETE`. `first_playable` gate does not require full visual completion of the entire startup bubble. Rings use Chebyshev distance — diagonal chunks at offset (1,1) from player are ring 1.
+- Гарантии: canonical terrain authoritative после load; presentation строится через documented redraw paths. Ring 0 visual completion is mandatory for `first_playable`; outer ring visual completion is mandatory only for `boot_complete`. `GameWorld` uses `first_playable` as the player handoff point (input/physics/loading screen). См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.try_harvest_at_world(world_pos: Vector2) -> Dictionary`
@@ -426,7 +426,7 @@ related_docs:
 - Пример вызова: `var result := chunk_manager.try_harvest_at_world(hit_world_pos)`
 
 `MountainShadowSystem.prepare_boot_shadows(progress_callback: Callable) -> void`
-- Когда вызывать: во время boot, если surface shadow presentation должна быть собрана до завершения загрузки.
+- Когда вызывать: во время boot. Now called by `GameWorld._tick_boot_finalization()` in background after `first_playable`, not under blocking loading screen.
 - Что делает: строит edge cache и shadow sprites для текущих loaded mountain chunks с прогресс-коллбеком.
 - Гарантии: presentation-only; canonical terrain и topology не меняются.
 - Пример вызова: `_mountain_shadow_system.prepare_boot_shadows(_on_boot_progress)`
@@ -438,7 +438,7 @@ related_docs:
 - Пример вызова: `_mountain_shadow_system.build_boot_shadows()`
 
 `Chunk.complete_redraw_now() -> void`  `(owner-only safe entrypoint)`
-- Когда вызывать: только из chunk lifecycle owner path, если уже созданный loaded chunk нужно redraw immediately.
+- Когда вызывать: только из chunk lifecycle owner path, если уже созданный loaded chunk нужно redraw immediately. In boot path, called only for ring 0 (player chunk); all other boot chunks use progressive redraw via `FrameBudgetDispatcher`.
 - Что делает: полный terrain/cover/cliff redraw этого chunk.
 - Гарантии: presentation-only, loaded-only; не меняет canonical terrain и не является general external redraw API.
 - Пример вызова: внутри owner path `chunk.complete_redraw_now()`

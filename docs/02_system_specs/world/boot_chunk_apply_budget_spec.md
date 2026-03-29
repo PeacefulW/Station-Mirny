@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.1
-last_updated: 2026-03-28
+version: 0.2
+last_updated: 2026-03-29
 depends_on:
   - boot_chunk_readiness_spec.md
   - boot_chunk_compute_pipeline_spec.md
@@ -74,8 +74,12 @@ Required API/documentation outcome after implementation:
 ### Affected layer: Presentation
 - What changes:
   - apply order may precede full visual completion order.
+  - non-ring-0 boot chunks no longer get `complete_redraw_now()`; they use progressive redraw via `FrameBudgetDispatcher._tick_redraws()`.
+  - `_boot_promote_redrawn_chunks()` polls `is_redraw_complete()` and promotes `APPLIED` → `VISUAL_COMPLETE`.
 - New invariants:
   - apply queue controls ownership and presence; redraw policy is separate.
+  - only ring 0 (player chunk) gets forced immediate redraw during boot.
+  - `APPLIED` does not imply visual readiness for non-ring-0 chunks.
 - Who adapts:
   - `ChunkManager`
   - `Chunk`
@@ -93,6 +97,16 @@ Initial concrete limits for iteration 1:
 - maximum one chunk finalize per frame or per boot step
 - log a warning if single apply/finalize step exceeds `8.0 ms`
 - do not apply outer-ring startup chunks while a required near-ring chunk is still pending
+
+### Apply split: install/attach vs visual completion
+
+Boot apply is now split into two phases:
+1. **Install/attach** (cheap, bounded): `_boot_apply_chunk_from_native_data()` creates the Chunk node, populates native data, attaches to scene tree, registers with topology. State transitions to `APPLIED`. This is the only work done per-chunk in `_boot_apply_from_queue()` for non-ring-0 chunks.
+2. **Visual completion** (progressive, budgeted): progressive redraw via existing `FrameBudgetDispatcher` registered `_tick_redraws()` job (2ms budget). `_boot_promote_redrawn_chunks()` promotes `APPLIED` → `VISUAL_COMPLETE` when `is_redraw_complete()` returns true.
+
+**Ring 0 exception**: the player chunk gets `complete_redraw_now()` immediately — mandatory for `first_playable` visual correctness. All other chunks use the progressive path.
+
+This eliminates the `push_warning("[Boot] apply step ... took XXX ms")` issue: install/attach alone is cheap (sub-8ms), and visual work is naturally budgeted by FrameBudgetDispatcher.
 
 ## Iterations
 

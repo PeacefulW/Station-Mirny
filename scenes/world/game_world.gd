@@ -32,6 +32,8 @@ var _mountain_shadow_system: MountainShadowSystem = null
 var _feature_debug_overlay: WorldFeatureDebugOverlay = null
 var _loading_screen: LoadingScreen = null
 var _boot_complete: bool = false
+var _boot_first_playable_done: bool = false
+var _boot_shadows_built: bool = false
 var _spawn_orchestrator: SpawnOrchestrator = null
 var _pending_load_slot: String = ""
 
@@ -111,9 +113,11 @@ func _ready() -> void:
 	_start_boot_sequence()
 
 func _physics_process(_delta: float) -> void:
-	if not _boot_complete:
+	if not _boot_first_playable_done:
 		return
 	_canonicalize_player_world_position()
+	if not _boot_complete:
+		_tick_boot_finalization()
 
 func is_boot_complete() -> bool:
 	return _boot_complete
@@ -201,15 +205,10 @@ func _run_boot_sequence() -> void:
 				if _loading_screen:
 					_loading_screen.set_progress(pct, text)
 		)
-	if _mountain_shadow_system and _mountain_shadow_system.has_method("prepare_boot_shadows"):
-		_mountain_shadow_system.prepare_boot_shadows(
-			func(pct: float, text: String) -> void:
-				if _loading_screen:
-					_loading_screen.set_progress(pct, text)
-		)
-	_loading_screen.set_progress(100.0, Localization.t("UI_LOADING_DONE"))
-	await get_tree().process_frame
-	_finish_boot_sequence()
+	## first_playable reached — hand control to player immediately.
+	## Remaining boot work (shadows, outer chunks, topology) completes in background
+	## via _tick_boot_finalization() without re-blocking the player.
+	_on_boot_first_playable()
 
 # --- Z-уровни ---
 
@@ -303,16 +302,30 @@ func _pause_time_for_boot() -> void:
 	if TimeManager and TimeManager.has_method("set_paused"):
 		TimeManager.set_paused(true)
 
-func _finish_boot_sequence() -> void:
+func _on_boot_first_playable() -> void:
 	_canonicalize_player_world_position()
 	if _player:
 		_player.set_physics_process(true)
 		_player.set_process_input(true)
 	if TimeManager and TimeManager.has_method("set_paused"):
 		TimeManager.set_paused(false)
-	_boot_complete = true
+	_boot_first_playable_done = true
 	if _loading_screen:
 		_loading_screen.fade_out()
+
+func _tick_boot_finalization() -> void:
+	if not _boot_shadows_built:
+		if _mountain_shadow_system and _mountain_shadow_system.has_method("prepare_boot_shadows"):
+			_mountain_shadow_system.prepare_boot_shadows(func(_p: float, _t: String) -> void: pass)
+		_boot_shadows_built = true
+		return
+	if _chunk_manager and _chunk_manager.is_boot_complete():
+		_boot_complete = true
+
+func _finish_boot_sequence() -> void:
+	_on_boot_first_playable()
+	_boot_shadows_built = true
+	_boot_complete = true
 
 func _canonicalize_player_world_position() -> void:
 	if not _player or not WorldGenerator or not WorldGenerator._is_initialized:
