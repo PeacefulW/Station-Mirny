@@ -65,6 +65,46 @@ var _native_topology_dirty: bool = false
 var _flora_builder: ChunkFloraBuilderScript = null
 var _is_topology_build_in_progress: bool = false
 var _is_boot_in_progress: bool = false
+
+## --- Boot readiness state (boot_chunk_readiness_spec) ---
+enum BootChunkState {
+	QUEUED_COMPUTE,
+	COMPUTED,
+	QUEUED_APPLY,
+	APPLIED,
+	VISUAL_COMPLETE,
+}
+## Ring 0 (player) + ring 1 (immediate neighbors) = first-playable gate.
+## Outer rings are required for boot_complete only.
+const BOOT_FIRST_PLAYABLE_MAX_RING: int = 1
+var _boot_chunk_states: Dictionary = {}  ## Vector2i -> BootChunkState
+var _boot_center: Vector2i = Vector2i.ZERO
+var _boot_load_radius: int = 0
+var _boot_first_playable: bool = false
+var _boot_complete_flag: bool = false
+## Topology is part of boot_complete but NOT part of first_playable.
+var _boot_topology_ready: bool = false
+var _boot_started_usec: int = 0
+
+## --- Boot compute pipeline (boot_chunk_compute_pipeline_spec) ---
+const BOOT_MAX_CONCURRENT_COMPUTE: int = 3
+## --- Boot apply budget (boot_chunk_apply_budget_spec) ---
+const BOOT_MAX_APPLY_PER_STEP: int = 1
+const BOOT_APPLY_WARNING_MS: float = 8.0
+var _boot_compute_pending: Array[Vector2i] = []
+var _boot_compute_active: Dictionary = {}  ## Vector2i -> int (WorkerThreadPool task_id)
+var _boot_compute_builders: Dictionary = {}  ## Vector2i -> ChunkContentBuilder (detached, per-task)
+var _boot_compute_results: Dictionary = {}  ## Vector2i -> Dictionary (native_data)
+var _boot_compute_mutex: Mutex = Mutex.new()
+var _boot_compute_z: int = 0
+var _boot_applied_count: int = 0
+var _boot_total_count: int = 0
+var _boot_compute_generation: int = 0  ## Incremented on each boot start; stale results carry old generation
+var _boot_failed_coords: Array[Vector2i] = []
+
+## --- Boot apply queue (boot_chunk_apply_budget_spec) ---
+var _boot_apply_queue: Array[Dictionary] = []  ## [{coord: Vector2i, native_data: Dictionary}], sorted by distance
+var _boot_has_remaining_chunks: bool = false  ## True while outer chunks still need apply after first_playable
 var _staged_chunk: Chunk = null
 var _staged_coord: Vector2i = Vector2i(999999, 999999)
 var _staged_z: int = 0
@@ -132,6 +172,10 @@ func _exit_tree() -> void:
 	_worker_chunk_builder = null
 	_surface_payload_cache.clear()
 	_surface_payload_cache_lru.clear()
+	_boot_wait_all_compute()
+	_boot_cleanup_compute_pipeline()
+	_boot_chunk_states.clear()
+	_boot_started_usec = 0
 	if FrameBudgetDispatcher:
 		FrameBudgetDispatcher.unregister_job(JOB_STREAMING_LOAD)
 		FrameBudgetDispatcher.unregister_job(JOB_STREAMING_REDRAW)
@@ -140,7 +184,11 @@ func _exit_tree() -> void:
 			FrameBudgetDispatcher.unregister_job(_fog_job_id)
 
 func _process(_delta: float) -> void:
-	if not _initialized or not _player or _is_boot_in_progress:
+	if not _initialized or not _player:
+		return
+	if _boot_has_remaining_chunks:
+		_tick_boot_remaining()
+	if _is_boot_in_progress:
 		return
 	_check_player_chunk()
 
@@ -153,6 +201,7 @@ func boot_load_initial_chunks(progress_callback: Callable) -> void:
 	var center: Vector2i = WorldGenerator.world_to_chunk(_player.global_position)
 	_player_chunk = center
 	var load_radius: int = WorldGenerator.balance.load_radius
+	_boot_init_readiness(center, load_radius)
 	var coords: Array[Vector2i] = []
 	for dx: int in range(-load_radius, load_radius + 1):
 		for dy: int in range(-load_radius, load_radius + 1):
@@ -161,26 +210,48 @@ func boot_load_initial_chunks(progress_callback: Callable) -> void:
 		return _chunk_manhattan_distance(a, center) < _chunk_manhattan_distance(b, center)
 	)
 	var total: int = coords.size()
-	for i: int in range(total):
-		var coord: Vector2i = coords[i]
-		if not _loaded_chunks.has(coord):
-			_load_chunk(coord)
-			var chunk: Chunk = _loaded_chunks.get(coord)
-			if chunk and not chunk.is_redraw_complete():
-				chunk.complete_redraw_now()
-			var redraw_idx: int = _redrawing_chunks.find(chunk)
-			if redraw_idx >= 0:
-				_redrawing_chunks.remove_at(redraw_idx)
-		var pct: float = float(i + 1) / float(total) * 80.0
-		progress_callback.call(pct, Localization.t("UI_LOADING_GENERATING_TERRAIN", {"current": i + 1, "total": total}))
+	_boot_compute_z = _active_z
+	_boot_applied_count = 0
+	_boot_total_count = total
+	## Separate already-loaded from needing-compute.
+	for coord: Vector2i in coords:
+		_boot_set_chunk_state(coord, BootChunkState.QUEUED_COMPUTE)
+		if _loaded_chunks.has(coord):
+			_boot_set_chunk_state(coord, BootChunkState.VISUAL_COMPLETE)
+			_boot_applied_count += 1
+		else:
+			_boot_compute_pending.append(coord)
+	## Async produce-consume loop: submit workers, drain to apply queue, apply on main thread.
+	## Loop exits early once first_playable is reached — outer chunks finish in _process.
+	while _boot_applied_count < total:
+		_boot_submit_pending_tasks()
+		_boot_collect_completed()
+		_boot_drain_computed_to_apply_queue()
+		_boot_apply_from_queue()
+		_boot_update_gates()
+		var pct: float = float(_boot_applied_count) / float(total) * 80.0
+		progress_callback.call(pct, Localization.t("UI_LOADING_GENERATING_TERRAIN", {"current": _boot_applied_count, "total": total}))
 		await get_tree().process_frame
-	progress_callback.call(85.0, Localization.t("UI_LOADING_BUILDING_MOUNTAINS"))
-	await get_tree().process_frame
-	if _is_native_topology_enabled():
-		_native_topology_builder.call("ensure_built")
-		_native_topology_dirty = false
+		if _boot_first_playable and _boot_applied_count < total:
+			_boot_has_remaining_chunks = true
+			break
+	if not _boot_has_remaining_chunks:
+		## All chunks done in boot loop — run topology synchronously.
+		_boot_wait_all_compute()
+		_boot_cleanup_compute_pipeline()
+		progress_callback.call(85.0, Localization.t("UI_LOADING_BUILDING_MOUNTAINS"))
+		await get_tree().process_frame
+		if _is_native_topology_enabled():
+			_native_topology_builder.call("ensure_built")
+			_native_topology_dirty = false
+		else:
+			_ensure_topology_current()
+		_boot_topology_ready = true
+		_boot_update_gates()
 	else:
-		_ensure_topology_current()
+		## first_playable reached — topology deferred to background tick.
+		progress_callback.call(85.0, Localization.t("UI_LOADING_LANDING"))
+		await get_tree().process_frame
 	progress_callback.call(95.0, Localization.t("UI_LOADING_LANDING"))
 	await get_tree().process_frame
 	_sync_loaded_chunk_display_positions(center)
@@ -2152,3 +2223,322 @@ func _is_mountain_topology_tile(terrain_type: int) -> bool:
 func _is_local_underground_zone_open_tile(terrain_type: int) -> bool:
 	return terrain_type == TileGenData.TerrainType.MINED_FLOOR \
 		or terrain_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE
+
+## --- Boot remaining tick (post-first_playable outer chunk completion) ---
+
+func _tick_boot_remaining() -> void:
+	if not _boot_has_remaining_chunks:
+		return
+	## Continue compute pipeline for remaining chunks.
+	_boot_submit_pending_tasks()
+	_boot_collect_completed()
+	_boot_drain_computed_to_apply_queue()
+	_boot_apply_from_queue()
+	_boot_update_gates()
+	## Check if all chunks done.
+	var all_done: bool = _boot_applied_count >= _boot_total_count \
+		and _boot_compute_active.is_empty() \
+		and _boot_compute_pending.is_empty() \
+		and _boot_apply_queue.is_empty()
+	if all_done:
+		_boot_wait_all_compute()
+		## Run topology now that all chunks are applied.
+		if not _boot_topology_ready:
+			if _is_native_topology_enabled():
+				_native_topology_builder.call("ensure_built")
+				_native_topology_dirty = false
+			else:
+				_ensure_topology_current()
+			_boot_topology_ready = true
+			_boot_update_gates()
+		_boot_cleanup_compute_pipeline()
+		_boot_has_remaining_chunks = false
+
+## --- Boot compute/apply helpers (boot_chunk_compute_pipeline_spec) ---
+
+## Pure-data compute (sync fallback): generates native_data without scene tree.
+func _boot_compute_chunk_native_data(coord: Vector2i, z_level: int) -> Dictionary:
+	coord = _canonical_chunk_coord(coord)
+	if z_level != 0:
+		return _generate_solid_rock_chunk()
+	var cached_data: Dictionary = {}
+	if _try_get_surface_payload_cache_native_data(coord, z_level, cached_data):
+		return cached_data
+	var native_data: Dictionary = _build_surface_chunk_native_data(coord)
+	_cache_surface_chunk_payload(coord, z_level, native_data)
+	return native_data
+
+## Worker function: runs in WorkerThreadPool, writes result through mutex.
+func _boot_worker_compute(coord: Vector2i, z_level: int, builder: ChunkContentBuilder, generation: int) -> void:
+	if _shutdown_in_progress:
+		return
+	var data: Dictionary
+	if z_level != 0:
+		data = _generate_solid_rock_chunk()
+	else:
+		data = builder.build_chunk_native_data(coord)
+	if _shutdown_in_progress:
+		return
+	_boot_compute_mutex.lock()
+	_boot_compute_results[coord] = {"native_data": data, "generation": generation}
+	_boot_compute_mutex.unlock()
+
+## Submit pending compute tasks up to BOOT_MAX_CONCURRENT_COMPUTE.
+func _boot_submit_pending_tasks() -> void:
+	while not _boot_compute_pending.is_empty() and _boot_compute_active.size() < BOOT_MAX_CONCURRENT_COMPUTE:
+		if _shutdown_in_progress:
+			break
+		var coord: Vector2i = _boot_compute_pending.pop_front()
+		if _boot_compute_active.has(coord):
+			continue
+		var builder: ChunkContentBuilder = null
+		if WorldGenerator and WorldGenerator.has_method("create_detached_chunk_content_builder"):
+			builder = WorldGenerator.create_detached_chunk_content_builder()
+		if builder == null:
+			## Fallback: compute synchronously
+			var native_data: Dictionary = _boot_compute_chunk_native_data(coord, _boot_compute_z)
+			_boot_compute_mutex.lock()
+			_boot_compute_results[coord] = {"native_data": native_data, "generation": _boot_compute_generation}
+			_boot_compute_mutex.unlock()
+			_boot_set_chunk_state(coord, BootChunkState.COMPUTED)
+			continue
+		var task_id: int = WorkerThreadPool.add_task(
+			_boot_worker_compute.bind(coord, _boot_compute_z, builder, _boot_compute_generation)
+		)
+		_boot_compute_active[coord] = task_id
+		_boot_compute_builders[coord] = builder
+
+## Collect completed worker results. Returns coords that finished.
+func _boot_collect_completed() -> Array[Vector2i]:
+	var completed: Array[Vector2i] = []
+	for coord: Vector2i in _boot_compute_active.keys():
+		var task_id: int = int(_boot_compute_active[coord])
+		if WorkerThreadPool.is_task_completed(task_id):
+			WorkerThreadPool.wait_for_task_completion(task_id)
+			completed.append(coord)
+	for coord: Vector2i in completed:
+		_boot_compute_active.erase(coord)
+		_boot_compute_builders.erase(coord)
+		_boot_set_chunk_state(coord, BootChunkState.COMPUTED)
+	return completed
+
+## Move computed results from worker output into the sorted apply queue.
+## Discards stale (wrong generation) and failed (empty native_data) results.
+func _boot_drain_computed_to_apply_queue() -> void:
+	_boot_compute_mutex.lock()
+	var ready_coords: Array[Vector2i] = []
+	for coord: Vector2i in _boot_compute_results:
+		ready_coords.append(coord)
+	_boot_compute_mutex.unlock()
+	for coord: Vector2i in ready_coords:
+		_boot_compute_mutex.lock()
+		var result_entry: Dictionary = _boot_compute_results.get(coord, {})
+		_boot_compute_results.erase(coord)
+		_boot_compute_mutex.unlock()
+		## Stale generation check.
+		var result_generation: int = int(result_entry.get("generation", -1))
+		if result_generation != _boot_compute_generation:
+			print("[Boot] discarded stale result for %s (gen %d != %d)" % [coord, result_generation, _boot_compute_generation])
+			_boot_applied_count += 1
+			continue
+		var native_data: Dictionary = result_entry.get("native_data", {})
+		## Empty native_data = compute failure. Fail-fast: skip, don't deadlock.
+		if native_data.is_empty():
+			push_warning("[Boot] compute failed for chunk %s — skipping" % [coord])
+			_boot_failed_coords.append(coord)
+			_boot_applied_count += 1
+			continue
+		_boot_set_chunk_state(coord, BootChunkState.QUEUED_APPLY)
+		_boot_apply_queue.append({"coord": coord, "native_data": native_data})
+	## Re-sort queue by distance: near-player first.
+	if _boot_apply_queue.size() > 1:
+		_boot_apply_queue.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			return _chunk_manhattan_distance(a["coord"] as Vector2i, _boot_center) < _chunk_manhattan_distance(b["coord"] as Vector2i, _boot_center)
+		)
+
+## Apply up to BOOT_MAX_APPLY_PER_STEP chunks from the sorted apply queue.
+## Returns number of chunks applied this step.
+func _boot_apply_from_queue() -> int:
+	var applied_this_step: int = 0
+	while not _boot_apply_queue.is_empty() and applied_this_step < BOOT_MAX_APPLY_PER_STEP:
+		if _shutdown_in_progress:
+			break
+		var step_start_usec: int = Time.get_ticks_usec()
+		var entry: Dictionary = _boot_apply_queue.pop_front()
+		var coord: Vector2i = entry["coord"] as Vector2i
+		var native_data: Dictionary = entry["native_data"] as Dictionary
+		_cache_surface_chunk_payload(coord, _boot_compute_z, native_data)
+		_boot_apply_chunk_from_native_data(coord, _boot_compute_z, native_data)
+		_boot_set_chunk_state(coord, BootChunkState.APPLIED)
+		var chunk: Chunk = _loaded_chunks.get(coord)
+		if chunk and not chunk.is_redraw_complete():
+			chunk.complete_redraw_now()
+		_boot_set_chunk_state(coord, BootChunkState.VISUAL_COMPLETE)
+		var redraw_idx: int = _redrawing_chunks.find(chunk)
+		if redraw_idx >= 0:
+			_redrawing_chunks.remove_at(redraw_idx)
+		applied_this_step += 1
+		_boot_applied_count += 1
+		var step_ms: float = float(Time.get_ticks_usec() - step_start_usec) / 1000.0
+		if step_ms > BOOT_APPLY_WARNING_MS:
+			push_warning("[Boot] apply step for %s took %.1f ms (budget %.1f ms)" % [coord, step_ms, BOOT_APPLY_WARNING_MS])
+	return applied_this_step
+
+## Wait for all active boot compute tasks and clean up.
+func _boot_wait_all_compute() -> void:
+	for coord: Vector2i in _boot_compute_active.keys():
+		var task_id: int = int(_boot_compute_active[coord])
+		WorkerThreadPool.wait_for_task_completion(task_id)
+	_boot_compute_active.clear()
+	_boot_compute_builders.clear()
+
+func _boot_cleanup_compute_pipeline() -> void:
+	_boot_compute_pending.clear()
+	_boot_compute_active.clear()
+	_boot_compute_builders.clear()
+	_boot_compute_mutex.lock()
+	_boot_compute_results.clear()
+	_boot_compute_mutex.unlock()
+	_boot_apply_queue.clear()
+	_boot_has_remaining_chunks = false
+	_boot_applied_count = 0
+	_boot_total_count = 0
+	if not _boot_failed_coords.is_empty():
+		print("[Boot] %d chunk(s) failed compute: %s" % [_boot_failed_coords.size(), str(_boot_failed_coords)])
+
+## Main-thread apply: creates Chunk node, populates, attaches to tree.
+func _boot_apply_chunk_from_native_data(coord: Vector2i, z_level: int, native_data: Dictionary) -> void:
+	coord = _canonical_chunk_coord(coord)
+	var loaded_chunks_for_z: Dictionary = _z_chunks.get(z_level, {})
+	if loaded_chunks_for_z.has(coord) or not _terrain_tileset or not _overlay_tileset:
+		return
+	var chunk_biome: BiomeData = _resolve_chunk_biome(coord, z_level)
+	var tileset_bundle: Dictionary = _get_or_build_tileset_bundle(chunk_biome)
+	var ts_tileset: TileSet = null
+	if z_level != 0:
+		ts_tileset = tileset_bundle.get("underground_terrain") as TileSet
+	else:
+		ts_tileset = tileset_bundle.get("terrain") as TileSet
+	var overlay_tileset: TileSet = tileset_bundle.get("overlay") as TileSet
+	if not ts_tileset or not overlay_tileset:
+		return
+	var chunk := Chunk.new()
+	chunk.setup(
+		coord,
+		WorldGenerator.balance.tile_size,
+		WorldGenerator.balance.chunk_size_tiles,
+		chunk_biome,
+		ts_tileset,
+		overlay_tileset,
+		self
+	)
+	_sync_chunk_display_position(chunk, _player_chunk)
+	var is_player_chunk: bool = (coord == _player_chunk)
+	var saved_modifications: Dictionary = _get_saved_chunk_modifications(z_level, coord)
+	if z_level != 0:
+		chunk.set_underground(true)
+	chunk.populate_native(native_data, saved_modifications, is_player_chunk)
+	if z_level == 0:
+		var flora_result: ChunkFloraResultScript = _get_cached_surface_chunk_flora_result(coord, z_level) if saved_modifications.is_empty() else null
+		if flora_result != null:
+			chunk.set_flora_result(flora_result)
+		else:
+			flora_result = _compute_flora_for_native_data(chunk, coord, native_data)
+		if saved_modifications.is_empty() and flora_result != null:
+			_cache_surface_chunk_flora_result(coord, z_level, flora_result)
+	if z_level != 0 and _fog_tileset:
+		chunk.init_fog_layer(_fog_tileset)
+	var z_container: Node2D = _z_containers.get(z_level) as Node2D
+	if z_container:
+		z_container.add_child(chunk)
+	else:
+		_chunk_container.add_child(chunk)
+	loaded_chunks_for_z[coord] = chunk
+	if z_level == _active_z:
+		_loaded_chunks = loaded_chunks_for_z
+	if not is_player_chunk:
+		_redrawing_chunks.append(chunk)
+	if _should_track_surface_topology(z_level):
+		if _is_native_topology_enabled():
+			_native_topology_builder.call("set_chunk", coord, chunk.get_terrain_bytes(), WorldGenerator.balance.chunk_size_tiles)
+			_native_topology_dirty = true
+		else:
+			_mark_topology_dirty()
+	EventBus.chunk_loaded.emit(coord)
+
+## --- Boot readiness helpers (boot_chunk_readiness_spec) ---
+
+func _boot_init_readiness(center: Vector2i, load_radius: int) -> void:
+	_boot_chunk_states.clear()
+	_boot_center = center
+	_boot_load_radius = load_radius
+	_boot_first_playable = false
+	_boot_complete_flag = false
+	_boot_topology_ready = false
+	_boot_started_usec = Time.get_ticks_usec()
+	_boot_compute_generation += 1
+	_boot_failed_coords.clear()
+
+func _boot_set_chunk_state(coord: Vector2i, new_state: BootChunkState) -> void:
+	var current_state: int = int(_boot_chunk_states.get(coord, -1))
+	assert(new_state != BootChunkState.VISUAL_COMPLETE or current_state >= BootChunkState.APPLIED,
+		"boot: visual_complete must not precede applied for chunk %s" % [coord])
+	_boot_chunk_states[coord] = new_state
+
+func _boot_get_chunk_ring(coord: Vector2i) -> int:
+	return _chunk_manhattan_distance(coord, _boot_center)
+
+func _boot_update_gates() -> void:
+	if _boot_chunk_states.is_empty():
+		return
+	var playable_ring_applied: bool = true
+	var player_chunk_visual_complete: bool = false
+	var all_chunks_terminal: bool = true
+	for coord: Vector2i in _boot_chunk_states:
+		var state: int = int(_boot_chunk_states[coord])
+		var ring: int = _boot_get_chunk_ring(coord)
+		if ring == 0:
+			if state >= BootChunkState.VISUAL_COMPLETE:
+				player_chunk_visual_complete = true
+			else:
+				playable_ring_applied = false
+		elif ring <= BOOT_FIRST_PLAYABLE_MAX_RING:
+			if state < BootChunkState.APPLIED:
+				playable_ring_applied = false
+		if state < BootChunkState.VISUAL_COMPLETE:
+			all_chunks_terminal = false
+	## first_playable: ring 0 visual_complete + ring 0..1 applied. Topology NOT required.
+	var was_first_playable: bool = _boot_first_playable
+	_boot_first_playable = player_chunk_visual_complete and playable_ring_applied
+	if _boot_first_playable and not was_first_playable:
+		var elapsed_ms: float = float(Time.get_ticks_usec() - _boot_started_usec) / 1000.0 if _boot_started_usec > 0 else 0.0
+		print("[Boot] first_playable reached (%.1f ms)" % elapsed_ms)
+	## boot_complete: all startup chunks terminal AND topology ready.
+	var was_boot_complete: bool = _boot_complete_flag
+	_boot_complete_flag = all_chunks_terminal and _boot_topology_ready
+	if _boot_complete_flag and not was_boot_complete:
+		var elapsed_ms: float = float(Time.get_ticks_usec() - _boot_started_usec) / 1000.0 if _boot_started_usec > 0 else 0.0
+		print("[Boot] boot_complete reached (%.1f ms)" % elapsed_ms)
+
+## Read-only boot readiness API.
+
+func is_boot_first_playable() -> bool:
+	return _boot_first_playable
+
+func is_boot_complete() -> bool:
+	return _boot_complete_flag
+
+func get_boot_chunk_state(coord: Vector2i) -> int:
+	return int(_boot_chunk_states.get(coord, -1))
+
+func get_boot_chunk_states_snapshot() -> Dictionary:
+	return _boot_chunk_states.duplicate()
+
+func get_boot_compute_active_count() -> int:
+	return _boot_compute_active.size()
+
+func get_boot_compute_pending_count() -> int:
+	return _boot_compute_pending.size()
+
+func get_boot_failed_coords() -> Array[Vector2i]:
+	return _boot_failed_coords.duplicate()

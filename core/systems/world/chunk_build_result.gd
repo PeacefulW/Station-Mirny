@@ -1,6 +1,9 @@
 class_name ChunkBuildResult
 extends RefCounted
 
+const FEATURE_AND_POI_PAYLOAD_KEY: String = "feature_and_poi_payload"
+const PLACEMENTS_KEY: String = "placements"
+
 var chunk_coord: Vector2i = Vector2i.ZERO
 var canonical_chunk_coord: Vector2i = Vector2i.ZERO
 var chunk_size: int = 0
@@ -11,12 +14,14 @@ var variation: PackedByteArray = PackedByteArray()
 var biome: PackedByteArray = PackedByteArray()
 var flora_density_values: PackedFloat32Array = PackedFloat32Array()
 var flora_modulation_values: PackedFloat32Array = PackedFloat32Array()
+var feature_and_poi_payload: Dictionary = _empty_feature_and_poi_payload()
 
 func initialize(coord: Vector2i, size: int, chunk_base_tile: Vector2i = Vector2i.ZERO) -> ChunkBuildResult:
 	chunk_coord = coord
 	canonical_chunk_coord = coord
 	chunk_size = maxi(0, size)
 	base_tile = chunk_base_tile
+	feature_and_poi_payload = _empty_feature_and_poi_payload()
 	var tile_count: int = chunk_size * chunk_size
 	terrain.resize(tile_count)
 	height.resize(tile_count)
@@ -61,4 +66,13 @@ func to_native_data() -> Dictionary:
 		"biome": biome,
 		"flora_density_values": flora_density_values,
 		"flora_modulation_values": flora_modulation_values,
+		FEATURE_AND_POI_PAYLOAD_KEY: _duplicate_feature_and_poi_payload(),
 	}
+
+func _empty_feature_and_poi_payload() -> Dictionary:
+	return {
+		PLACEMENTS_KEY: [],
+	}
+
+func _duplicate_feature_and_poi_payload() -> Dictionary:
+	return feature_and_poi_payload.duplicate(true) if not feature_and_poi_payload.is_empty() else _empty_feature_and_poi_payload()

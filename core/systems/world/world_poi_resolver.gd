@@ -1,13 +1,17 @@
 class_name WorldPoiResolver
 extends RefCounted
 
-static func resolve_for_origin(candidate_origin: Vector2i, hook_decisions: Array[Dictionary], ctx: WorldComputeContext) -> Array[Dictionary]:
+const WorldFeatureHookResolverScript = preload("res://core/systems/world/world_feature_hook_resolver.gd")
+
+static func resolve_for_origin(candidate_origin: Vector2i, hook_decisions: Array[Dictionary], ctx: WorldComputeContext, all_pois: Array[Resource] = []) -> Array[Dictionary]:
 	var placements_by_anchor: Dictionary = {}
+	var anchor_winner_cache: Dictionary = {}
+	var hook_id_cache_by_origin: Dictionary = {}
 	if ctx == null:
 		return []
 	var canonical_origin: Vector2i = ctx.canonicalize_tile(candidate_origin)
 	var resolved_hook_ids: Array[StringName] = _collect_resolved_hook_ids(hook_decisions)
-	for poi_resource: Resource in WorldFeatureRegistry.get_all_pois():
+	for poi_resource: Resource in all_pois:
 		if poi_resource == null:
 			continue
 		if not _matches_required_feature_hooks(poi_resource, resolved_hook_ids):
@@ -16,10 +20,45 @@ static func resolve_for_origin(candidate_origin: Vector2i, hook_decisions: Array
 		if candidate.is_empty():
 			continue
 		var anchor_tile: Vector2i = candidate.get("anchor_tile", Vector2i.ZERO) as Vector2i
-		var existing_candidate: Dictionary = placements_by_anchor.get(anchor_tile, {})
-		if existing_candidate.is_empty() or _is_candidate_better(candidate, existing_candidate):
-			placements_by_anchor[anchor_tile] = candidate
+		if not anchor_winner_cache.has(anchor_tile):
+			anchor_winner_cache[anchor_tile] = _resolve_anchor_winner(anchor_tile, ctx, hook_id_cache_by_origin, all_pois)
+		var anchor_winner: Dictionary = anchor_winner_cache.get(anchor_tile, {})
+		if anchor_winner.is_empty():
+			continue
+		if _is_same_candidate(candidate, anchor_winner):
+			placements_by_anchor[anchor_tile] = anchor_winner
 	return _sorted_placements(placements_by_anchor)
+
+static func _resolve_anchor_winner(anchor_tile: Vector2i, ctx: WorldComputeContext, hook_id_cache_by_origin: Dictionary, all_pois: Array[Resource] = []) -> Dictionary:
+	var best_candidate: Dictionary = {}
+	var canonical_anchor_tile: Vector2i = ctx.canonicalize_tile(anchor_tile)
+	for poi_resource: Resource in all_pois:
+		if poi_resource == null:
+			continue
+		var candidate_origin: Vector2i = _resolve_candidate_origin_for_anchor(canonical_anchor_tile, poi_resource, ctx)
+		var resolved_hook_ids: Array[StringName] = _get_resolved_hook_ids_for_origin(candidate_origin, ctx, hook_id_cache_by_origin)
+		if not _matches_required_feature_hooks(poi_resource, resolved_hook_ids):
+			continue
+		var candidate: Dictionary = _build_candidate(candidate_origin, poi_resource, ctx)
+		if candidate.is_empty():
+			continue
+		if candidate.get("anchor_tile", Vector2i.ZERO) != canonical_anchor_tile:
+			continue
+		if best_candidate.is_empty() or _is_candidate_better(candidate, best_candidate):
+			best_candidate = candidate
+	return best_candidate
+
+static func _get_resolved_hook_ids_for_origin(candidate_origin: Vector2i, ctx: WorldComputeContext, hook_id_cache_by_origin: Dictionary) -> Array[StringName]:
+	var canonical_origin: Vector2i = ctx.canonicalize_tile(candidate_origin)
+	if hook_id_cache_by_origin.has(canonical_origin):
+		return hook_id_cache_by_origin[canonical_origin] as Array[StringName]
+	var hook_decisions: Array[Dictionary] = WorldFeatureHookResolverScript.resolve_for_origin(canonical_origin, ctx)
+	var resolved_hook_ids: Array[StringName] = _collect_resolved_hook_ids(hook_decisions)
+	hook_id_cache_by_origin[canonical_origin] = resolved_hook_ids
+	return resolved_hook_ids
+
+static func _resolve_candidate_origin_for_anchor(anchor_tile: Vector2i, poi_resource: Resource, ctx: WorldComputeContext) -> Vector2i:
+	return ctx.canonicalize_tile(anchor_tile - _get_anchor_offset(poi_resource))
 
 static func _build_candidate(candidate_origin: Vector2i, poi_resource: Resource, ctx: WorldComputeContext) -> Dictionary:
 	var anchor_offset: Vector2i = _get_anchor_offset(poi_resource)
@@ -99,6 +138,13 @@ static func _is_candidate_better(left: Dictionary, right: Dictionary) -> bool:
 	if left_hash != right_hash:
 		return left_hash > right_hash
 	return str(left.get("id", &"")) < str(right.get("id", &""))
+
+static func _is_same_candidate(left: Dictionary, right: Dictionary) -> bool:
+	if left.is_empty() or right.is_empty():
+		return false
+	return left.get("id", &"") == right.get("id", &"") \
+		and left.get("anchor_tile", Vector2i.ZERO) == right.get("anchor_tile", Vector2i.ZERO) \
+		and left.get("candidate_origin", Vector2i.ZERO) == right.get("candidate_origin", Vector2i.ZERO)
 
 static func _sorted_placements(placements_by_anchor: Dictionary) -> Array[Dictionary]:
 	var placements: Array[Dictionary] = []

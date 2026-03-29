@@ -1,6 +1,8 @@
 class_name GameWorld
 extends Node2D
 
+const WorldFeatureDebugOverlayScript = preload("res://core/systems/world/world_feature_debug_overlay.gd")
+
 ## Главная сцена мира. Инициализирует системы, запускает boot-последовательность,
 ## управляет runtime-связкой между системами (indoor status ↔ oxygen).
 ## Debug-оверлей и spawn-логика вынесены в GameWorldDebug и SpawnOrchestrator.
@@ -27,6 +29,7 @@ var _z_overlay: ZTransitionOverlay = null
 var _bg_rect: ColorRect = null
 var _mountain_roof_system: MountainRoofSystem = null
 var _mountain_shadow_system: MountainShadowSystem = null
+var _feature_debug_overlay: WorldFeatureDebugOverlay = null
 var _loading_screen: LoadingScreen = null
 var _boot_complete: bool = false
 var _spawn_orchestrator: SpawnOrchestrator = null
@@ -49,6 +52,7 @@ func _ready() -> void:
 	_setup_life_support()
 	_setup_z_levels()
 	_setup_mountain_shadows()
+	_setup_feature_debug_overlay()
 
 	# Spawn orchestrator
 	_spawn_orchestrator = SpawnOrchestrator.new()
@@ -156,6 +160,17 @@ func _setup_mountain_shadows() -> void:
 	_mountain_shadow_system = MountainShadowSystem.new()
 	_mountain_shadow_system.name = "MountainShadowSystem"
 	add_child(_mountain_shadow_system)
+
+func _setup_feature_debug_overlay() -> void:
+	if not WorldGenerator:
+		return
+	_feature_debug_overlay = WorldFeatureDebugOverlayScript.new()
+	_feature_debug_overlay.name = "WorldFeatureDebugOverlay"
+	add_child(_feature_debug_overlay)
+	_feature_debug_overlay.setup(
+		Callable(WorldGenerator, "_get_cached_feature_and_poi_payload"),
+		Callable(WorldGenerator, "tile_to_world")
+	)
 
 # --- Game Over ---
 

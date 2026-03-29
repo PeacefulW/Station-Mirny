@@ -66,6 +66,8 @@ related_docs:
 | Скрафтить рецепт | `CraftingSystem.execute_recipe()` |
 | Выполнить game command | `CommandExecutor.execute()` |
 | Получить read-only content data | `ItemRegistry.get_item()` / `BiomeRegistry.get_biome()` / `FloraDecorRegistry.get_flora_set()` / `WorldFeatureRegistry.get_feature_by_id()` / `WorldFeatureRegistry.get_poi_by_id()` |
+| Проверить boot first-playable | `ChunkManager.is_boot_first_playable()` |
+| Проверить boot complete | `ChunkManager.is_boot_complete()` |
 
 ---
 
@@ -191,8 +193,8 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: в boot sequence, когда initial world bubble должен быть загружен и доведён до gameplay-ready state.
-- Что делает: synchronously loads the initial radius, completes player-chunk redraw immediately, then forces topology ready before boot finishes.
-- Гарантии: соблюдает `Postconditions: generate chunk`; initial surface topology ready before boot complete.
+- Что делает: staged boot with bounded-parallel compute and budgeted apply. Returns early once `first_playable` is reached (ring 0+1 ready). Outer ring chunks and topology complete in background via `_tick_boot_remaining()` in `_process`. Max `BOOT_MAX_APPLY_PER_STEP` (1) chunk finalized per frame. Apply order is distance-sorted (near-first).
+- Гарантии: `first_playable` = ring 0 `VISUAL_COMPLETE` + ring 0..1 `APPLIED`, topology NOT required. `boot_complete` = ALL startup `VISUAL_COMPLETE` + topology ready (may happen after function returns). Apply budget warning emitted if single step exceeds 8ms. См. `Boot Readiness State` и `Boot Compute Queue` layers в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.sync_display_to_player() -> void`
@@ -230,6 +232,21 @@ related_docs:
 - Когда использовать: debug/telemetry around chunk redraw.
 - Особенности: presentation-only progress indicator.
 
+`ChunkManager.is_boot_first_playable() -> bool`
+- Что возвращает: достигнут ли `first_playable` gate — ring 0 (player chunk) `VISUAL_COMPLETE` и ring 0..1 `APPLIED`.
+- Когда использовать: boot progress UI, GameWorld boot sequence для определения момента, когда gameplay может начаться.
+- Особенности: topology НЕ входит в `first_playable`. Возвращает `false` до вызова `boot_load_initial_chunks()`.
+
+`ChunkManager.is_boot_complete() -> bool`
+- Что возвращает: достигнут ли `boot_complete` gate — все startup chunks `VISUAL_COMPLETE` И topology ready.
+- Когда использовать: для определения полного завершения boot sequence.
+- Особенности: включает outer rings и topology. Возвращает `false` до полного завершения boot path.
+
+`ChunkManager.get_boot_chunk_states_snapshot() -> Dictionary`
+- Что возвращает: копию `Dictionary` { `Vector2i` -> `BootChunkState` } для всех startup chunks.
+- Когда использовать: debug/instrumentation, boot progress visualization.
+- Особенности: read-only snapshot; не влияет на boot state.
+
 ### Внутренние методы (НЕ вызывать)
 
 | Метод | Почему нельзя вызывать напрямую |
@@ -258,8 +275,8 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: когда surface topology должна быть готова до старта gameplay.
-- Что делает: после initial chunk load вызывает native `ensure_built()` или `_ensure_topology_current()`.
-- Гарантии: topology ready at end of boot load path; см. `Postconditions: generate chunk`.
+- Что делает: после initial chunk load вызывает native `ensure_built()` или `_ensure_topology_current()`, затем ставит `_boot_topology_ready = true`.
+- Гарантии: topology ready is part of `boot_complete` gate but NOT part of `first_playable` gate. См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.try_harvest_at_world(world_pos: Vector2) -> Dictionary`
@@ -398,8 +415,8 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: когда initial chunk visuals должны быть готовы в boot sequence.
-- Что делает: loads chunks, forces immediate redraw where needed, оставляет non-player chunks на progressive redraw.
-- Гарантии: canonical terrain уже authoritative после load; presentation строится через documented chunk redraw paths. См. `Postconditions: generate chunk`.
+- Что делает: loads chunks with per-chunk readiness tracking. Ring 0 (player chunk) receives immediate `VISUAL_COMPLETE`. `first_playable` gate does not require full visual completion of the entire startup bubble.
+- Гарантии: canonical terrain authoritative после load; presentation строится через documented redraw paths. Ring 0 visual completion is mandatory for `first_playable`; outer ring visual completion is mandatory only for `boot_complete`. См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.try_harvest_at_world(world_pos: Vector2) -> Dictionary`
@@ -537,14 +554,14 @@ related_docs:
 
 `WorldGenerator.build_chunk_content(chunk_coord: Vector2i) -> ChunkBuildResult`
 - Когда вызывать: когда нужен structured surface chunk payload в виде `ChunkBuildResult`.
-- Что делает: canonicalizes chunk coord и строит full chunk content через `ChunkContentBuilder`.
-- Гарантии: current surface generator semantics; не генерирует runtime-only `MINED_FLOOR` / `MOUNTAIN_ENTRANCE`.
+- Что делает: canonicalizes chunk coord и строит full chunk content через `ChunkContentBuilder`, включая baseline `feature_and_poi_payload`.
+- Гарантии: current surface generator semantics; не генерирует runtime-only `MINED_FLOOR` / `MOUNTAIN_ENTRANCE`. `feature_and_poi_payload` всегда присутствует в output shape и детерминирован для одного seed + canonical chunk coord. Internal debug-only presentation may consume cached copies of this payload downstream, but presentation does not become authoritative for placement truth.
 - Пример вызова: `var result: ChunkBuildResult = WorldGenerator.build_chunk_content(coord)`
 
 `WorldGenerator.build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary`
 - Когда вызывать: когда lifecycle/worker path нужен native payload dictionary для `Chunk.populate_native()`.
-- Что делает: canonicalizes chunk coord и возвращает packed arrays for terrain/height/variation/biome/flora.
-- Гарантии: payload fields соответствуют `ChunkBuildResult.to_native_data()` contract из `DATA_CONTRACTS.md`.
+- Что делает: canonicalizes chunk coord и возвращает packed arrays for terrain/height/variation/biome/flora плюс тот же `feature_and_poi_payload`, что и structured build path.
+- Гарантии: payload fields соответствуют `ChunkBuildResult.to_native_data()` contract из `DATA_CONTRACTS.md`; sync и worker/native build paths обязаны выдавать один и тот же `feature_and_poi_payload`. Any debug presentation proof must stay downstream of this built payload instead of recomputing feature / POI decisions.
 - Пример вызова: `var native_data: Dictionary = WorldGenerator.build_chunk_native_data(coord)`
 
 `WorldGenerator.build_tile_data(tile_pos: Vector2i) -> TileGenData`
@@ -1642,9 +1659,10 @@ Current commands in scope:
 - У `Topology` нет dedicated `topology_changed` или `topology_ready` signal. Сейчас readiness читается только через `ChunkManager.is_topology_ready()`.
 - У `Reveal` нет dedicated reveal-changed signal. Surface reveal и underground fog применяются owner-systems напрямую.
 - У `World` нет generic public terrain-mutation API. Это хорошо как boundary, но агент должен явно знать, что mutation идёт только через `Mining`.
-- У `Chunk Lifecycle` нет public per-chunk load/unload API в scope. Есть только boot-load orchestration и internal streaming paths.
+- У `Chunk Lifecycle` нет public per-chunk load/unload API в scope. Есть только boot-load orchestration и internal streaming paths. Boot compute queue (`_boot_submit_pending_tasks`, `_boot_worker_compute`, `_boot_collect_completed`) остаётся internal; public surface — только read-only: `get_boot_compute_active_count()`, `get_boot_compute_pending_count()`, `get_boot_failed_coords()`.
 - У `Presentation` нет generic public redraw API. Безопасный путь к redraw идёт через higher-level world/mining/lifecycle entrypoints.
 - Feature-hook and POI resolver APIs are intentionally not public in the current iteration; runtime callers get only read-only definition-registry access plus the existing `WorldGenerator` build entrypoints.
+- `WorldFeatureDebugOverlay` remains an internal debug-only payload consumer. There is no public `ChunkManager` / `Chunk` placement-generation API and no public overlay API that recomputes feature or POI truth.
 - `EventBus.z_level_changed` используется внутри scope, но source emission находится вне текущего scope.
 - У `Spawn / pickup orchestration` нет public generic enemy-spawn API; spawn loop остаётся owner-only even though enable/save-load ownership уже оформлены.
 - У `Enemy AI / fauna runtime` нет public behavior-driving API. Это допустимо, но важно явно понимать, что поведение автономно после spawn.

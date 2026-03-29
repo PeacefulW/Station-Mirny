@@ -1,6 +1,33 @@
 class_name WorldGeneratorSingleton
 extends Node
 
+class FeatureAndPoiPayloadCache extends RefCounted:
+	const PLACEMENTS_KEY: String = "placements"
+
+	var _mutex: Mutex = Mutex.new()
+	var _payload_by_chunk: Dictionary = {}
+
+	func clear() -> void:
+		_mutex.lock()
+		_payload_by_chunk.clear()
+		_mutex.unlock()
+
+	func store_payload(chunk_coord: Vector2i, payload: Dictionary) -> void:
+		var stored_payload: Dictionary = payload.duplicate(true)
+		_mutex.lock()
+		_payload_by_chunk[chunk_coord] = stored_payload
+		_mutex.unlock()
+
+	func get_payload(chunk_coord: Vector2i) -> Dictionary:
+		_mutex.lock()
+		var stored_payload: Dictionary = (_payload_by_chunk.get(chunk_coord, {}) as Dictionary).duplicate(true)
+		_mutex.unlock()
+		if stored_payload.is_empty():
+			return {
+				PLACEMENTS_KEY: [],
+			}
+		return stored_payload
+
 const BALANCE_PATH: String = "res://data/world/world_gen_balance.tres"
 const CHUNK_BIOME_SAMPLE_GRID: int = 3
 const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_utils.gd")
@@ -22,6 +49,7 @@ var _compute_context: RefCounted = null
 var _surface_terrain_resolver: RefCounted = null
 var _chunk_content_builder: ChunkContentBuilder = null
 var _chunk_biome_cache: Dictionary = {}
+var _feature_and_poi_payload_cache: FeatureAndPoiPayloadCache = FeatureAndPoiPayloadCache.new()
 
 func _ready() -> void:
 	balance = load(BALANCE_PATH) as WorldGenBalance
@@ -32,6 +60,7 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	_chunk_biome_cache.clear()
+	_feature_and_poi_payload_cache.clear()
 	_chunk_content_builder = null
 	_surface_terrain_resolver = null
 	_compute_context = null
@@ -44,6 +73,7 @@ func initialize_world(seed_value: int) -> void:
 	if not _ensure_world_feature_registry_ready():
 		_clear_initialized_runtime_state()
 		return
+	_feature_and_poi_payload_cache.clear()
 	world_seed = seed_value
 	_setup_planet_sampler()
 	_setup_structure_sampler()
@@ -380,6 +410,10 @@ func _setup_chunk_content_builder() -> void:
 func create_detached_chunk_content_builder() -> ChunkContentBuilder:
 	return _create_chunk_content_builder(_compute_context)
 
+func _get_cached_feature_and_poi_payload(chunk_coord: Vector2i) -> Dictionary:
+	var canonical_chunk: Vector2i = canonicalize_chunk_coord(chunk_coord)
+	return _feature_and_poi_payload_cache.get_payload(canonical_chunk)
+
 func _resolve_feature_hook_decisions(candidate_origin: Vector2i) -> Array[Dictionary]:
 	if not _is_initialized or _compute_context == null:
 		return []
@@ -389,7 +423,8 @@ func _resolve_poi_placement_decisions(candidate_origin: Vector2i) -> Array[Dicti
 	if not _is_initialized or _compute_context == null:
 		return []
 	var hook_decisions: Array[Dictionary] = _resolve_feature_hook_decisions(candidate_origin)
-	return WorldPoiResolverScript.resolve_for_origin(candidate_origin, hook_decisions, _compute_context)
+	var all_pois: Array[Resource] = WorldFeatureRegistry.get_all_pois() if WorldFeatureRegistry and WorldFeatureRegistry.is_ready() else []
+	return WorldPoiResolverScript.resolve_for_origin(candidate_origin, hook_decisions, _compute_context, all_pois)
 
 func _ensure_world_feature_registry_ready() -> bool:
 	if not WorldFeatureRegistry or not WorldFeatureRegistry.is_ready():
@@ -401,6 +436,7 @@ func _ensure_world_feature_registry_ready() -> bool:
 func _clear_initialized_runtime_state() -> void:
 	_is_initialized = false
 	_chunk_biome_cache.clear()
+	_feature_and_poi_payload_cache.clear()
 	_chunk_content_builder = null
 	_surface_terrain_resolver = null
 	_compute_context = null
@@ -412,8 +448,17 @@ func _clear_initialized_runtime_state() -> void:
 func _create_chunk_content_builder(world_context: RefCounted) -> ChunkContentBuilder:
 	if world_context == null:
 		return null
+	var all_pois: Array[Resource] = []
+	if WorldFeatureRegistry and WorldFeatureRegistry.is_ready():
+		all_pois = WorldFeatureRegistry.get_all_pois()
 	var builder := ChunkContentBuilder.new()
-	builder.initialize(balance, world_context, _create_surface_terrain_resolver(world_context))
+	builder.initialize(
+		balance,
+		world_context,
+		_create_surface_terrain_resolver(world_context),
+		_feature_and_poi_payload_cache,
+		all_pois
+	)
 	return builder
 
 func _create_surface_terrain_resolver(world_context: RefCounted) -> RefCounted:

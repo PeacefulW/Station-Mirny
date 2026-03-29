@@ -79,7 +79,7 @@ func _validate_single_anchor_slot(registry: Node, resolver_script: GDScript, ctx
 	})
 	if _has_failed:
 		return
-	var placements: Array[Dictionary] = resolver_script.resolve_for_origin(Vector2i(10, 10), hook_decisions, ctx)
+	var placements: Array[Dictionary] = resolver_script.resolve_for_origin(Vector2i(10, 10), hook_decisions, ctx, _get_all_pois(registry))
 	_assert(placements.size() == 1, "each canonical anchor resolves to at most one final POI placement in the single baseline exclusive slot")
 
 func _validate_anchor_and_owner_chunk(registry: Node, resolver_script: GDScript, ctx: WorldComputeContext, hook_decisions: Array[Dictionary]) -> void:
@@ -89,7 +89,7 @@ func _validate_anchor_and_owner_chunk(registry: Node, resolver_script: GDScript,
 	if _has_failed:
 		return
 	var candidate_origin: Vector2i = Vector2i(10, 10)
-	var placements: Array[Dictionary] = resolver_script.resolve_for_origin(candidate_origin, hook_decisions, ctx)
+	var placements: Array[Dictionary] = resolver_script.resolve_for_origin(candidate_origin, hook_decisions, ctx, _get_all_pois(registry))
 	_assert(placements.size() == 1, "expected one anchored placement for anchor ownership validation")
 	if _has_failed:
 		return
@@ -105,8 +105,8 @@ func _validate_cross_chunk_anchor_ownership(registry: Node, resolver_script: GDS
 	if _has_failed:
 		return
 	var candidate_origin: Vector2i = Vector2i(63, 5)
-	var placements_a: Array[Dictionary] = resolver_script.resolve_for_origin(candidate_origin, hook_decisions, ctx)
-	var placements_b: Array[Dictionary] = resolver_script.resolve_for_origin(candidate_origin, hook_decisions, ctx)
+	var placements_a: Array[Dictionary] = resolver_script.resolve_for_origin(candidate_origin, hook_decisions, ctx, _get_all_pois(registry))
+	var placements_b: Array[Dictionary] = resolver_script.resolve_for_origin(candidate_origin, hook_decisions, ctx, _get_all_pois(registry))
 	_assert(placements_a == placements_b, "a multi_chunk_poi is selected once by canonical anchor ownership, independent of chunk load order")
 	if _has_failed:
 		return
@@ -121,8 +121,8 @@ func _validate_constraint_rejection(registry: Node, resolver_script: GDScript, c
 	})
 	if _has_failed:
 		return
-	var placements_a: Array[Dictionary] = resolver_script.resolve_for_origin(Vector2i(10, 10), hook_decisions, ctx)
-	var placements_b: Array[Dictionary] = resolver_script.resolve_for_origin(Vector2i(10, 10), hook_decisions, ctx)
+	var placements_a: Array[Dictionary] = resolver_script.resolve_for_origin(Vector2i(10, 10), hook_decisions, ctx, _get_all_pois(registry))
+	var placements_b: Array[Dictionary] = resolver_script.resolve_for_origin(Vector2i(10, 10), hook_decisions, ctx, _get_all_pois(registry))
 	_assert(placements_a.is_empty() and placements_b.is_empty(), "pois_with_unmet_constraints are rejected deterministically")
 
 func _validate_arbitration_order(registry: Node, resolver_script: GDScript, ctx: WorldComputeContext, hook_decisions: Array[Dictionary]) -> void:
@@ -132,7 +132,7 @@ func _validate_arbitration_order(registry: Node, resolver_script: GDScript, ctx:
 	})
 	if _has_failed:
 		return
-	var priority_placements: Array[Dictionary] = resolver_script.resolve_for_origin(Vector2i(10, 10), hook_decisions, ctx)
+	var priority_placements: Array[Dictionary] = resolver_script.resolve_for_origin(Vector2i(10, 10), hook_decisions, ctx, _get_all_pois(registry))
 	_assert(priority_placements.size() == 1, "priority arbitration expects one winning placement")
 	if _has_failed:
 		return
@@ -146,7 +146,7 @@ func _validate_arbitration_order(registry: Node, resolver_script: GDScript, ctx:
 	})
 	if _has_failed:
 		return
-	var hash_placements: Array[Dictionary] = resolver_script.resolve_for_origin(Vector2i(10, 10), hook_decisions, ctx)
+	var hash_placements: Array[Dictionary] = resolver_script.resolve_for_origin(Vector2i(10, 10), hook_decisions, ctx, _get_all_pois(registry))
 	_assert(hash_placements.size() == 1, "hash arbitration expects one winning placement")
 	if _has_failed:
 		return
@@ -173,7 +173,7 @@ func _validate_sorted_output(registry: Node, resolver_script: GDScript, ctx: Wor
 	})
 	if _has_failed:
 		return
-	var placements: Array[Dictionary] = resolver_script.resolve_for_origin(Vector2i(10, 10), hook_decisions, ctx)
+	var placements: Array[Dictionary] = resolver_script.resolve_for_origin(Vector2i(10, 10), hook_decisions, ctx, _get_all_pois(registry))
 	_assert(placements.size() == 2, "sorted-output validation expects two distinct anchors")
 	if _has_failed:
 		return
@@ -239,6 +239,13 @@ func _build_poi_text(poi_id: StringName, priority: int, anchor_offset: Vector2i,
 		+ "anchor_offset = %s\n" % var_to_str(anchor_offset) \
 		+ "priority = %d\n" % priority \
 		+ "debug_marker_kind = &\"test_poi\"\n"
+
+func _get_all_pois(registry: Node) -> Array[Resource]:
+	var result: Array[Resource] = []
+	for poi: Variant in registry.call("get_all_pois") as Array:
+		if poi is Resource:
+			result.append(poi)
+	return result
 
 func _tile_to_chunk(ctx: WorldComputeContext, tile_pos: Vector2i) -> Vector2i:
 	var canonical_tile: Vector2i = ctx.canonicalize_tile(tile_pos)

@@ -47,13 +47,14 @@ Until superseded, this document is mandatory reading for any iteration that touc
 | Layer | Class | Owner | Writes | Reads | Scope / rebuild |
 | --- | --- | --- | --- | --- | --- |
 | Feature / POI Definitions | `canonical` | `WorldFeatureRegistry` | boot-time registry load of immutable definition resources | `WorldFeatureRegistry` read APIs, `WorldGenerator` readiness gate, future generator-side resolvers | boot-time load only, read-only during runtime |
-| Feature Hook Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic hook decision compute from canonical generator context + immutable definition snapshot | future `WorldPoiResolver`, future chunk payload generation, debug inspectors | per-origin deterministic compute, no persistence |
-| POI Placement Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic POI arbitration from hook decisions + immutable POI definitions | future chunk payload generation, future debug/materialization consumers | per-origin deterministic compute, owner-only placement authority, no persistence |
+| Feature Hook Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic hook decision compute from canonical generator context + immutable definition snapshot | `WorldPoiResolver`, chunk payload generation, debug inspectors | per-origin deterministic compute, no persistence |
+| POI Placement Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic POI arbitration from hook decisions + immutable POI definitions | chunk payload generation, future debug/materialization consumers | per-origin deterministic compute, owner-only placement authority, no persistence |
 | World | `canonical` | `ChunkManager` runtime arbitration, `Chunk` loaded storage, `WorldGenerator` unloaded surface base | canonical terrain bytes and unloaded overlay | terrain/resource/walkability/presentation consumers | loaded + unloaded reads, immediate writes, generator fallback |
 | Mining | `canonical` | `ChunkManager` orchestration, `Chunk` loaded mutation storage | loaded terrain mutation and mining-side invalidation entrypoint | topology, reveal, presentation, save collection | loaded-only mutation, immediate |
 | Topology | `derived` | `ChunkManager`, with native `MountainTopologyBuilder` behind it when enabled | surface topology caches | `MountainRoofSystem` and topology getters | surface-only, loaded-bubble scoped, incremental patch + deferred dirty rebuild |
 | Reveal | `derived` | `MountainRoofSystem`, `UndergroundFogState`, `ChunkManager` fog applier | local cover reveal and underground fog state | chunk cover/fog presentation and reveal getters | active-z dependent, loaded-bubble scoped, immediate/deferred hybrid |
-| Presentation | `presentation-only` | `Chunk`, `MountainShadowSystem` | TileMap and shadow sprite output | Godot renderer | loaded-only, redraw-driven, surface shadow build is sun-angle dependent |
+| Presentation | `presentation-only` | `Chunk`, `MountainShadowSystem`, `WorldFeatureDebugOverlay` | TileMap, shadow sprite, and debug anchor-marker output | Godot renderer, debug inspection | loaded-only, redraw-driven, surface shadow build is sun-angle dependent |
+| Boot Readiness | `derived` | `ChunkManager` | per-chunk boot state tracking and aggregate gate flags | `GameWorld`, boot progress UI, instrumentation | boot-time only, not persisted |
 
 ## Scope
 
@@ -72,6 +73,7 @@ Observed files for this version:
 - `core/systems/world/chunk_tileset_factory.gd`
 - `core/systems/world/chunk_manager.gd`
 - `core/systems/world/chunk.gd`
+- `core/systems/world/world_feature_debug_overlay.gd`
 - `core/systems/world/surface_terrain_resolver.gd`
 - `core/systems/world/underground_fog_state.gd`
 - `core/systems/world/mountain_roof_system.gd`
@@ -85,6 +87,8 @@ Observed files for this version:
 - Feature hook and POI definition truth lives in `WorldFeatureRegistry` and is loaded from registry-backed resources before world initialization.
 - Feature hook decisions are derived on demand by `WorldFeatureHookResolver` from canonical generator context plus immutable registry-backed definitions; they are not loaded-world or presentation truth.
 - POI placement decisions are derived on demand by `WorldPoiResolver` from hook decisions plus immutable POI definitions; canonical anchor ownership and arbitration order are computed before any payload/materialization step.
+- `WorldGenerator.build_chunk_content()` and `build_chunk_native_data()` serialize deterministic `feature_and_poi_payload` records from those derived feature-hook and POI results; owner chunks carry the authoritative baseline placement records.
+- `WorldFeatureDebugOverlay` consumes cached copies of already-built `feature_and_poi_payload` records as a debug-only presentation proof; disabling that overlay does not change placement truth.
 - Surface base terrain for unloaded tiles comes from `WorldGenerator` through `build_chunk_native_data()`, `build_chunk_content()`, and `get_terrain_type_fast()`.
 - Loaded chunk terrain truth lives in `Chunk._terrain_bytes`.
 - Loaded chunk runtime modifications live in `Chunk._modified_tiles`.
@@ -123,6 +127,7 @@ Observed files for this version:
 - Runtime gameplay, chunk lifecycle, mining, topology, reveal, and presentation code must not mutate registry-backed feature or POI definitions.
 - Generator build paths must not direct-load feature or POI resources from `res://data/world/features`; registry reads are the only sanctioned runtime path.
 - Feature / POI definition resources must not be lazy-loaded during chunk generation.
+- Worker-thread and detached builder compute paths must not access `WorldFeatureRegistry` autoload or any scene-tree node directly; they must receive an immutable POI/feature snapshot at builder initialization time on the main thread.
 - `emitted events / invalidation signals`:
 - none; readiness is established by boot-time load completion and consumed synchronously by `WorldGenerator.initialize_world()`
 - `current violations / ambiguities / contract gaps`:
@@ -133,7 +138,7 @@ Observed files for this version:
 - `classification`: `derived`
 - `owner`: `WorldGenerator` generation pipeline owns feature-hook decision compute for Iteration 7.2; `WorldFeatureHookResolver` is the only writer path.
 - `writers`: `WorldFeatureHookResolver.resolve_for_origin(candidate_origin, ctx)` using canonical generator context plus immutable feature-hook definitions.
-- `readers`: `WorldPoiResolver`, future chunk payload build integration, debug/validation tooling.
+- `readers`: `WorldPoiResolver`, chunk payload build integration, debug/validation tooling.
 - `rebuild policy`: deterministic per-origin compute only; no persistence, no chunk-local authority, no presentation back-write.
 - `invariants`:
 - `assert(same_seed_and_candidate_origin => same hook decision set, "feature-hook resolution must be deterministic for a canonical origin")`
@@ -150,14 +155,14 @@ Observed files for this version:
 - `emitted events / invalidation signals`:
 - none; decisions are derived synchronously from canonical generator context when queried.
 - `current violations / ambiguities / contract gaps`:
-- Resolver output is internal-only in Iteration 7.2; no public inspection API or chunk payload materialization contract exists yet.
+- Resolver output remains internal-only; external/runtime consumers read serialized feature records only through `feature_and_poi_payload` on existing chunk build outputs.
 
 ## Layer: POI Placement Decisions
 
 - `classification`: `derived`
 - `owner`: `WorldGenerator` generation pipeline owns deterministic POI placement arbitration for Iteration 7.3; `WorldPoiResolver` is the only writer path.
 - `writers`: `WorldPoiResolver.resolve_for_origin(candidate_origin, hook_decisions, ctx)` using canonical hook decisions plus immutable POI definitions.
-- `readers`: future chunk payload build integration, future debug/materialization consumers.
+- `readers`: chunk payload build integration, future debug/materialization consumers.
 - `rebuild policy`: deterministic per-origin compute only; no deferred queue, no second-pass arbitration, no persistence.
 - `invariants`:
 - `assert(each_canonical_anchor_produces_zero_or_one_final_placement, "single baseline exclusive slot is enforced per anchor")`
@@ -175,7 +180,7 @@ Observed files for this version:
 - `emitted events / invalidation signals`:
 - none; placements are rebuilt synchronously from deterministic generator inputs when queried.
 - `current violations / ambiguities / contract gaps`:
-- Placement decisions remain internal-only in Iteration 7.3; payload serialization and non-owner chunk materialization stay out of scope until Iteration 7.4.
+- Placement decisions remain internal-only; baseline owner-only payload serialization exists, but non-owner chunk projection/materialization is still out of scope.
 
 ## Layer: World
 
@@ -191,7 +196,8 @@ Observed files for this version:
 - `assert(native_arrays_copied_before_saved_modifications and saved_modifications_reapplied_after_native_copy, "populate_native must install native arrays before saved modifications are reapplied")`
 - `assert(loaded_chunk or not saved_tile_state.has("terrain") or resolved_terrain == int(saved_tile_state["terrain"]), "saved terrain override must win for unloaded reads")`
 - `assert(loaded_chunk or saved_tile_state.has("terrain") or active_z == 0 or resolved_terrain == TileGenData.TerrainType.ROCK, "unloaded underground fallback must be ROCK")`
-- `assert(native_data.keys().has_all(["chunk_coord", "canonical_chunk_coord", "base_tile", "chunk_size", "terrain", "height", "variation", "biome", "flora_density_values", "flora_modulation_values"]), "ChunkBuildResult.to_native_data() must export the current payload fields")`
+- `assert(native_data.keys().has_all(["chunk_coord", "canonical_chunk_coord", "base_tile", "chunk_size", "terrain", "height", "variation", "biome", "flora_density_values", "flora_modulation_values", "feature_and_poi_payload"]), "ChunkBuildResult.to_native_data() must export the current payload fields")`
+- `assert(native_data["feature_and_poi_payload"] == {"placements": []} or native_data["feature_and_poi_payload"].has("placements"), "feature_and_poi_payload must always use the explicit baseline shape")`
 - `write operations`:
 - `WorldGenerator.build_chunk_native_data()`
 - `WorldGenerator.build_chunk_content()`
@@ -332,9 +338,9 @@ Observed files for this version:
 ## Layer: Presentation
 
 - `classification`: `presentation-only`
-- `owner`: `Chunk` owns loaded chunk visual layers, and `MountainShadowSystem` owns surface mountain-shadow presentation state.
-- `writers`: `Chunk` redraw and fog-application methods write TileMap state; `ChunkManager` schedules redraw and applies underground fog deltas; `MountainRoofSystem` drives cover erasure through chunk APIs; `MountainShadowSystem` writes shadow caches, textures, and sprites.
-- `readers`: Godot rendering is the effective consumer. No in-scope simulation system was found that treats these presentation nodes as authority.
+- `owner`: `Chunk` owns loaded chunk visual layers, `MountainShadowSystem` owns surface mountain-shadow presentation state, and `WorldFeatureDebugOverlay` owns debug-only anchor-marker presentation sourced from serialized chunk payloads.
+- `writers`: `Chunk` redraw and fog-application methods write TileMap state; `ChunkManager` schedules redraw and applies underground fog deltas; `MountainRoofSystem` drives cover erasure through chunk APIs; `MountainShadowSystem` writes shadow caches, textures, and sprites; `WorldFeatureDebugOverlay` writes its chunk-local anchor-marker cache and redraw state.
+- `readers`: Godot rendering is the effective consumer; developer-facing debug inspection can read `WorldFeatureDebugOverlay` marker snapshots. No in-scope simulation system was found that treats these presentation nodes as authority.
 - `rebuild policy`: loaded-only and redraw-driven; underground fog presentation is applied to loaded chunks only; surface shadow presentation is surface-only and rebuilt when edge cache or sun-angle thresholds require it.
 - `invariants`:
 - `assert(terrain_layer_is_derived_from_chunk_data and cover_layer_is_derived_from_chunk_data and cliff_layer_is_derived_from_chunk_data, "terrain, cover, and cliff TileMap layers are derived outputs, not source of truth")`
@@ -344,6 +350,9 @@ Observed files for this version:
 - `assert(active_z == 0 or not mountain_shadow_system_running, "MountainShadowSystem only runs in surface context")`
 - `assert(shadow_inputs == {external_mountain_edges, sun_angle, shadow_length_factor}, "shadow sprites are built from cached edges plus current sun data")`
 - `assert(shadow_edge_source_chunks == {target_chunk, north_chunk, south_chunk, east_chunk, west_chunk}, "shadow builds use the target chunk plus four cardinal neighbors as edge sources")`
+- `assert(feature_debug_overlay_reads_only_serialized_feature_and_poi_payload, "debug feature/POI presentation must consume only built payload records")`
+- `assert(feature_debug_overlay_draws_anchor_markers_only, "debug feature/POI proof stays marker-only and does not materialize gameplay content")`
+- `assert(disabling_feature_debug_overlay_does_not_change_feature_or_poi_truth, "presentation delay or disable must not change placement truth")`
 - `write operations`:
 - `Chunk._redraw_all()`
 - `Chunk.continue_redraw()`
@@ -361,6 +370,7 @@ Observed files for this version:
 - Presentation code must not mutate canonical terrain, mining state, topology caches, or reveal source-of-truth state.
 - Presentation nodes and layers must not be read as authority for gameplay, walkability, resource availability, or terrain semantics.
 - Presentation systems must not redefine roof, fog, or mountain-edge semantics independently of the world / topology / reveal layers.
+- `WorldFeatureDebugOverlay` must not query registries, resolvers, world channels, canonical terrain reads, `ChunkManager`, `Chunk`, topology, or reveal in order to reconstruct feature / POI truth.
 - `emitted events / invalidation signals`:
 - `EventBus.chunk_loaded`
 - `EventBus.chunk_unloaded`
@@ -394,6 +404,61 @@ Observed files for this version:
 - `current violations / ambiguities / contract gaps`:
 - ~~Surface and underground wall shaping do not share one common openness contract. Surface uses cardinal exterior-open checks only; underground uses cardinal plus diagonal non-`ROCK` openness.~~ **resolved 2026-03-28**: surface rock wall-form selection now uses the same cardinal+diagonal wall-shape neighborhood set as underground shaping, while preserving the explicit current-surface-open terrain set.
 
+## Layer: Boot Readiness
+
+- `classification`: `derived`
+- `owner`: `ChunkManager` owns all boot readiness state for the startup chunk bubble.
+- `writers`: `ChunkManager.boot_load_initial_chunks()` and internal `_boot_*` helpers.
+- `readers`: `GameWorld` boot sequence, boot progress UI, instrumentation/logging.
+- `rebuild policy`: boot-time only; state is initialized at boot start, updated during boot, and remains static after boot completes. Not persisted across save/load.
+- `invariants`:
+- `assert(boot_chunk_state != VISUAL_COMPLETE or boot_chunk_state_was_APPLIED_first, "visual completion must not precede apply for any boot chunk")`
+- `assert(not first_playable or player_chunk_state >= VISUAL_COMPLETE, "first_playable requires player chunk (ring 0) to be visually complete")`
+- `assert(not first_playable or all_ring_0_and_ring_1_chunks_state >= APPLIED, "first_playable requires ring 0..1 to be at least applied")`
+- `assert(first_playable does not require topology_ready, "topology is decoupled from first_playable gate")`
+- `assert(not boot_complete or all_startup_chunks_state >= VISUAL_COMPLETE, "boot_complete requires all startup chunks to reach terminal state")`
+- `assert(not boot_complete or topology_ready, "boot_complete requires topology to be ready")`
+- `write operations`:
+- `ChunkManager._boot_init_readiness()`
+- `ChunkManager._boot_set_chunk_state()`
+- `ChunkManager._boot_update_gates()`
+- `forbidden writes`:
+- UI, scene code, or non-owner systems must not write boot readiness state.
+- Boot readiness must not be inferred from `_load_queue.is_empty()` alone.
+- `is_topology_ready()` must not be treated as identical to `is_boot_first_playable()`.
+- `emitted events / invalidation signals`:
+- none; readiness is polled via `is_boot_first_playable()` and `is_boot_complete()`. Console log milestones are printed on first gate transition.
+- `current violations / ambiguities / contract gaps`:
+- `GameWorld._boot_complete` is a separate flag that covers the full boot sequence including shadow build and player input enable. `ChunkManager._boot_complete_flag` covers only chunk readiness and topology. Unification is deferred until `GameWorld` adopts staged boot.
+
+## Layer: Boot Compute Queue
+
+- `classification`: `derived`
+- `owner`: `ChunkManager` owns the bounded boot compute queue and its worker lifecycle.
+- `writers`: `ChunkManager._boot_submit_pending_tasks()`, `_boot_collect_completed()`, `_boot_drain_computed_to_apply_queue()`, `_boot_apply_from_queue()`, `_boot_worker_compute()` (via mutex), `_tick_boot_remaining()`.
+- `readers`: boot progress loop, instrumentation (`get_boot_compute_active_count()`, `get_boot_compute_pending_count()`, `get_boot_failed_coords()`).
+- `rebuild policy`: initialized at boot start; drained during boot loop until `first_playable`, then remaining chunks complete via `_tick_boot_remaining()` in normal `_process`. Not persisted.
+- `invariants`:
+- `assert(active_compute_tasks <= BOOT_MAX_CONCURRENT_COMPUTE, "bounded concurrency must be enforced")`
+- `assert(no_chunk_has_more_than_one_active_compute_task, "duplicate compute races must be blocked")`
+- `assert(worker_output_contains_only_native_data_and_generation, "no scene-tree objects in worker results")`
+- `assert(stale_generation_results_are_discarded, "results from previous boot generations must not be applied")`
+- `assert(empty_native_data_is_treated_as_failure, "failed compute does not deadlock boot — chunk is skipped")`
+- `assert(applied_chunks_per_step <= BOOT_MAX_APPLY_PER_STEP, "main-thread apply budget is enforced per boot step")`
+- `assert(apply_queue_sorted_by_distance, "near-player chunks are always applied before far chunks")`
+- `assert(first_playable_exits_boot_loop_early, "boot_load_initial_chunks returns on first_playable; outer chunks finish via _tick_boot_remaining")`
+- `write operations`:
+- `ChunkManager._boot_submit_pending_tasks()`
+- `ChunkManager._boot_worker_compute()` (mutex-protected result write)
+- `ChunkManager._boot_collect_completed()`
+- `ChunkManager._boot_apply_ready_results()`
+- `forbidden writes`:
+- Worker threads must not create `Chunk` nodes, `TileMapLayer` objects, or any scene-tree references.
+- Boot compute submission must remain internal to `ChunkManager`; no public gameplay API for submitting boot compute.
+- Unbounded submission of all startup chunks without concurrency cap is forbidden.
+- `emitted events / invalidation signals`:
+- none; queue state is polled from the boot loop.
+
 ## Postconditions: `generate chunk`
 
 ### Authoritative orchestration points
@@ -414,7 +479,8 @@ Observed files for this version:
 - `Chunk.populate_native()` installs native arrays, reapplies saved modifications through `_apply_saved_modifications()`, recalculates `_has_mountain`, resets cover visual state, and starts redraw.
 - Saved modifications are replayed as direct tile writes and then re-normalized for affected open tiles plus their cardinal same-chunk neighbors before redraw starts.
 - Non-player streamed chunks begin progressive redraw through `_begin_progressive_redraw()`. Player chunk loads use immediate `_redraw_all()`. Boot loading can additionally force `complete_redraw_now()` after load.
-- Boot loading later forces topology ready through native `ensure_built()` or `_ensure_topology_current()` before the loading sequence finishes.
+- Boot loading tracks per-chunk readiness through `BootChunkState` transitions: `QUEUED_COMPUTE -> COMPUTED -> QUEUED_APPLY -> APPLIED -> VISUAL_COMPLETE`. Aggregate gates `first_playable` (ring 0 visual_complete + ring 0..1 applied, topology NOT required) and `boot_complete` (all startup chunks terminal + topology ready) are updated after each chunk. See `Layer: Boot Readiness`.
+- Boot loading later forces topology ready through native `ensure_built()` or `_ensure_topology_current()` before the loading sequence finishes. Topology readiness is part of `boot_complete` but not `first_playable`.
 - Surface flora presentation is derived after `populate_native()`: from cached flora, from `ChunkBuildResult`, or from native data, depending on load path and whether saved modifications exist.
 - Underground chunks are marked with `set_underground(true)` before `populate_native()` and then receive a fog layer through `init_fog_layer()` after population.
 - Once the chunk is inserted into `_loaded_chunks`, terrain reads and interaction paths use its loaded data even if progressive redraw is still in progress for that chunk.
