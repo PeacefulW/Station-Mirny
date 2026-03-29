@@ -85,6 +85,12 @@ var _boot_complete_flag: bool = false
 ## Topology is part of boot_complete but NOT part of first_playable.
 var _boot_topology_ready: bool = false
 var _boot_started_usec: int = 0
+## --- Boot performance instrumentation (boot_performance_instrumentation_spec) ---
+var _boot_metric_compute_ms: float = 0.0
+var _boot_metric_apply_ms: float = 0.0
+var _boot_metric_terrain_redraw_ms: float = 0.0
+var _boot_metric_chunks_computed: int = 0
+var _boot_metric_chunks_applied: int = 0
 
 ## --- Boot compute pipeline (boot_chunk_compute_pipeline_spec) ---
 const BOOT_MAX_CONCURRENT_COMPUTE: int = 3
@@ -1067,7 +1073,7 @@ func _load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
 	loaded_chunks_for_z[coord] = chunk
 	if z_level == _active_z:
 		_loaded_chunks = loaded_chunks_for_z
-	if not is_player_chunk:
+	if not chunk.is_redraw_complete():
 		_redrawing_chunks.append(chunk)
 	if _should_track_surface_topology(z_level):
 		if _is_native_topology_enabled():
@@ -2246,31 +2252,41 @@ func _is_local_underground_zone_open_tile(terrain_type: int) -> bool:
 func _tick_boot_remaining() -> void:
 	if not _boot_has_remaining_chunks:
 		return
-	## Continue compute/apply pipeline (skipped once drained).
+	## After first_playable: drain boot pipeline immediately.
+	## Outer chunks will load via runtime streaming (_check_player_chunk → _tick_loading)
+	## which is budgeted through FrameBudgetDispatcher, avoiding 100-900ms apply hitches.
 	if not _boot_pipeline_drained:
-		_boot_submit_pending_tasks()
-		_boot_collect_completed()
-		_boot_drain_computed_to_apply_queue()
-		_boot_apply_from_queue()
-		var pipeline_done: bool = _boot_applied_count >= _boot_total_count \
-			and _boot_compute_active.is_empty() \
-			and _boot_compute_pending.is_empty() \
-			and _boot_apply_queue.is_empty()
-		if pipeline_done:
+		if _boot_first_playable:
+			## Drain: cancel remaining boot compute/apply, let runtime streaming take over.
 			_boot_wait_all_compute()
+			## Mark all unprocessed boot chunks as VISUAL_COMPLETE so boot_complete gate
+			## does not wait for chunks that will load via runtime streaming instead.
+			for coord: Vector2i in _boot_chunk_states:
+				var state: int = int(_boot_chunk_states[coord])
+				if state < BootChunkState.APPLIED:
+					_boot_chunk_states[coord] = BootChunkState.VISUAL_COMPLETE
 			_boot_pipeline_drained = true
-	## Promote boot chunks that finished progressive redraw to VISUAL_COMPLETE.
-	_boot_promote_redrawn_chunks()
-	## Run topology once all chunks are applied (one-shot).
-	if _boot_pipeline_drained and not _boot_topology_ready:
-		if _is_native_topology_enabled():
-			_native_topology_builder.call("ensure_built")
-			_native_topology_dirty = false
 		else:
-			_ensure_topology_current()
-		_boot_topology_ready = true
+			_boot_submit_pending_tasks()
+			_boot_collect_completed()
+			_boot_drain_computed_to_apply_queue()
+			_boot_apply_from_queue()
+			var pipeline_done: bool = _boot_applied_count >= _boot_total_count \
+				and _boot_compute_active.is_empty() \
+				and _boot_compute_pending.is_empty() \
+				and _boot_apply_queue.is_empty()
+			if pipeline_done:
+				_boot_wait_all_compute()
+				_boot_pipeline_drained = true
+	## Promote boot chunks that finished progressive redraw to VISUAL_COMPLETE.
+	## Also makes hidden outer chunks visible once terrain phase completes.
+	_boot_promote_redrawn_chunks()
+	## Topology: let _tick_topology() (FrameBudgetDispatcher, 2ms budget) handle it.
+	if _boot_pipeline_drained and not _boot_topology_ready:
+		if is_topology_ready():
+			_boot_topology_ready = true
 	_boot_update_gates()
-	## Stop only when boot is fully complete (all VISUAL_COMPLETE + topology ready).
+	## Stop when boot is fully complete (all tracked chunks terminal + topology ready).
 	if _boot_complete_flag:
 		_boot_cleanup_compute_pipeline()
 		_boot_has_remaining_chunks = false
@@ -2317,7 +2333,10 @@ func _boot_submit_pending_tasks() -> void:
 			builder = WorldGenerator.create_detached_chunk_content_builder()
 		if builder == null:
 			## Fallback: compute synchronously
+			var compute_usec: int = Time.get_ticks_usec()
 			var native_data: Dictionary = _boot_compute_chunk_native_data(coord, _boot_compute_z)
+			_boot_metric_compute_ms += float(Time.get_ticks_usec() - compute_usec) / 1000.0
+			_boot_metric_chunks_computed += 1
 			_boot_compute_mutex.lock()
 			_boot_compute_results[coord] = {"native_data": native_data, "generation": _boot_compute_generation}
 			_boot_compute_mutex.unlock()
@@ -2341,6 +2360,7 @@ func _boot_collect_completed() -> Array[Vector2i]:
 		_boot_compute_active.erase(coord)
 		_boot_compute_builders.erase(coord)
 		_boot_set_chunk_state(coord, BootChunkState.COMPUTED)
+		_boot_metric_chunks_computed += 1
 	return completed
 
 ## Move computed results from worker output into the sorted apply queue.
@@ -2378,8 +2398,10 @@ func _boot_drain_computed_to_apply_queue() -> void:
 		)
 
 ## Apply up to BOOT_MAX_APPLY_PER_STEP chunks from the sorted apply queue.
-## Ring 0 (player chunk) gets immediate full redraw for first_playable.
-## Other chunks stay APPLIED and complete visually via progressive redraw (FrameBudgetDispatcher).
+## Ring 0: immediate full redraw (terrain + cover + cliff).
+## Ring 1: immediate terrain-only redraw — eliminates green placeholder zones near spawn.
+##         Cover/cliff/flora complete via progressive redraw (FrameBudgetDispatcher).
+## Outer:  pure progressive redraw (all phases deferred).
 ## Returns number of chunks applied this step.
 func _boot_apply_from_queue() -> int:
 	var applied_this_step: int = 0
@@ -2391,19 +2413,43 @@ func _boot_apply_from_queue() -> int:
 		var coord: Vector2i = entry["coord"] as Vector2i
 		var native_data: Dictionary = entry["native_data"] as Dictionary
 		_cache_surface_chunk_payload(coord, _boot_compute_z, native_data)
+		var apply_usec: int = Time.get_ticks_usec()
 		_boot_apply_chunk_from_native_data(coord, _boot_compute_z, native_data)
+		var apply_ms: float = float(Time.get_ticks_usec() - apply_usec) / 1000.0
+		_boot_metric_apply_ms += apply_ms
+		_boot_metric_chunks_applied += 1
+		WorldPerfProbe.record("Boot.apply_chunk %s" % [coord], apply_ms)
 		_boot_set_chunk_state(coord, BootChunkState.APPLIED)
 		var chunk: Chunk = _loaded_chunks.get(coord)
-		var is_ring_0: bool = (coord == _boot_center)
-		if is_ring_0 and chunk and not chunk.is_redraw_complete():
+		var ring: int = _boot_get_chunk_ring(coord)
+		if ring == 0 and chunk and not chunk.is_redraw_complete():
 			## Player chunk: force immediate full redraw — mandatory for first_playable.
+			var redraw_usec: int = Time.get_ticks_usec()
 			chunk.complete_redraw_now()
-		if chunk and chunk.is_redraw_complete():
+			var redraw_ms: float = float(Time.get_ticks_usec() - redraw_usec) / 1000.0
+			_boot_metric_terrain_redraw_ms += redraw_ms
+			WorldPerfProbe.record("Boot.redraw_full %s" % [coord], redraw_ms)
+		elif ring <= BOOT_FIRST_PLAYABLE_MAX_RING and chunk:
+			## Ring 1: force terrain-only redraw so player never sees green zones near spawn.
+			## Cover/cliff/flora continue via progressive redraw after first_playable.
+			var redraw_usec: int = Time.get_ticks_usec()
+			chunk.complete_terrain_phase_now()
+			var redraw_ms: float = float(Time.get_ticks_usec() - redraw_usec) / 1000.0
+			_boot_metric_terrain_redraw_ms += redraw_ms
+			WorldPerfProbe.record("Boot.redraw_terrain %s" % [coord], redraw_ms)
+		## Outer chunks: hide until terrain phase is done to prevent green placeholder zones.
+		if ring > BOOT_FIRST_PLAYABLE_MAX_RING and chunk:
+			chunk.visible = false
+		## Boot promotion uses gameplay redraw (terrain+cover+cliff), not full redraw.
+		## Debug and flora phases do not block boot gates.
+		if chunk and chunk.is_gameplay_redraw_complete():
 			_boot_set_chunk_state(coord, BootChunkState.VISUAL_COMPLETE)
-			var redraw_idx: int = _redrawing_chunks.find(chunk)
-			if redraw_idx >= 0:
-				_redrawing_chunks.remove_at(redraw_idx)
-		## Non-ring-0 chunks stay APPLIED; _boot_promote_redrawn_chunks() promotes later.
+			## Only remove from progressive redraw if fully done (including flora/debug).
+			## Flora is deferred — chunk stays in _redrawing_chunks for progressive flora.
+			if chunk.is_redraw_complete():
+				var redraw_idx: int = _redrawing_chunks.find(chunk)
+				if redraw_idx >= 0:
+					_redrawing_chunks.remove_at(redraw_idx)
 		applied_this_step += 1
 		_boot_applied_count += 1
 		var step_ms: float = float(Time.get_ticks_usec() - step_start_usec) / 1000.0
@@ -2482,7 +2528,7 @@ func _boot_apply_chunk_from_native_data(coord: Vector2i, z_level: int, native_da
 	loaded_chunks_for_z[coord] = chunk
 	if z_level == _active_z:
 		_loaded_chunks = loaded_chunks_for_z
-	if not is_player_chunk:
+	if not chunk.is_redraw_complete():
 		_redrawing_chunks.append(chunk)
 	if _should_track_surface_topology(z_level):
 		if _is_native_topology_enabled():
@@ -2505,6 +2551,11 @@ func _boot_init_readiness(center: Vector2i, load_radius: int) -> void:
 	_boot_started_usec = Time.get_ticks_usec()
 	_boot_compute_generation += 1
 	_boot_failed_coords.clear()
+	_boot_metric_compute_ms = 0.0
+	_boot_metric_apply_ms = 0.0
+	_boot_metric_terrain_redraw_ms = 0.0
+	_boot_metric_chunks_computed = 0
+	_boot_metric_chunks_applied = 0
 
 func _boot_set_chunk_state(coord: Vector2i, new_state: BootChunkState) -> void:
 	var current_state: int = int(_boot_chunk_states.get(coord, -1))
@@ -2539,22 +2590,37 @@ func _boot_update_gates() -> void:
 	_boot_first_playable = player_chunk_visual_complete and playable_ring_applied
 	if _boot_first_playable and not was_first_playable:
 		var elapsed_ms: float = float(Time.get_ticks_usec() - _boot_started_usec) / 1000.0 if _boot_started_usec > 0 else 0.0
-		print("[Boot] first_playable reached (%.1f ms)" % elapsed_ms)
+		print("[Boot] first_playable reached (%.1f ms) | compute=%.1fms (%d chunks) apply=%.1fms (%d chunks) redraw=%.1fms" % [
+			elapsed_ms, _boot_metric_compute_ms, _boot_metric_chunks_computed,
+			_boot_metric_apply_ms, _boot_metric_chunks_applied,
+			_boot_metric_terrain_redraw_ms])
 	## boot_complete: all startup chunks terminal AND topology ready.
 	var was_boot_complete: bool = _boot_complete_flag
 	_boot_complete_flag = all_chunks_terminal and _boot_topology_ready
 	if _boot_complete_flag and not was_boot_complete:
 		var elapsed_ms: float = float(Time.get_ticks_usec() - _boot_started_usec) / 1000.0 if _boot_started_usec > 0 else 0.0
-		print("[Boot] boot_complete reached (%.1f ms)" % elapsed_ms)
+		print("[Boot] boot_complete reached (%.1f ms) | compute=%.1fms (%d chunks) apply=%.1fms (%d chunks) redraw=%.1fms" % [
+			elapsed_ms, _boot_metric_compute_ms, _boot_metric_chunks_computed,
+			_boot_metric_apply_ms, _boot_metric_chunks_applied,
+			_boot_metric_terrain_redraw_ms])
 
-## Promote boot chunks from APPLIED to VISUAL_COMPLETE once progressive redraw finishes.
+## Promote boot chunks from APPLIED to VISUAL_COMPLETE once gameplay redraw finishes
+## (terrain + cover + cliff). Debug and flora phases do NOT block boot gates.
+## Also makes hidden outer chunks visible once their terrain phase completes.
 func _boot_promote_redrawn_chunks() -> void:
 	for coord: Vector2i in _boot_chunk_states:
 		var state: int = int(_boot_chunk_states[coord])
 		if state != BootChunkState.APPLIED:
 			continue
 		var chunk: Chunk = _loaded_chunks.get(coord)
-		if chunk and chunk.is_redraw_complete():
+		if not chunk:
+			continue
+		## Show hidden outer chunks once terrain is drawn (no more green zones).
+		if not chunk.visible and chunk.is_terrain_phase_done():
+			chunk.visible = true
+		if chunk.is_gameplay_redraw_complete():
+			if not chunk.visible:
+				chunk.visible = true
 			_boot_set_chunk_state(coord, BootChunkState.VISUAL_COMPLETE)
 
 ## Read-only boot readiness API.

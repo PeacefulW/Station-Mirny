@@ -419,10 +419,21 @@ Observed files for this version:
 - `assert(first_playable does not require topology_ready, "topology is decoupled from first_playable gate")`
 - `assert(first_playable_enables_player_input_and_physics, "GameWorld enables input/physics and dismisses loading screen on first_playable")`
 - `assert(no_reblocking_after_first_playable, "remaining boot work (outer chunks, topology, shadows) completes in background without re-blocking")`
+- `assert(no_synchronous_shadow_rebuild_after_first_playable, "shadow build uses schedule_boot_shadows() + _tick_shadows() via FrameBudgetDispatcher (1ms), not synchronous prepare_boot_shadows()")`
+- `assert(no_synchronous_topology_build_after_first_playable, "topology uses _tick_topology() via FrameBudgetDispatcher (2ms), not synchronous ensure_built() in _tick_boot_remaining()")`
 - `assert(not boot_complete or all_startup_chunks_state >= VISUAL_COMPLETE, "boot_complete requires all startup chunks to reach terminal state")`
 - `assert(not boot_complete or topology_ready, "boot_complete requires topology to be ready")`
-- `assert(only_ring_0_gets_complete_redraw_now, "non-ring-0 boot chunks use progressive redraw via FrameBudgetDispatcher, not synchronous complete_redraw_now()")`
-- `assert(boot_promote_transitions_applied_to_visual_complete, "_boot_promote_redrawn_chunks() polls is_redraw_complete() and promotes APPLIED → VISUAL_COMPLETE")`
+- `assert(ring_0_gets_complete_redraw_now, "ring 0 boot chunk gets full synchronous redraw at apply time")`
+- `assert(ring_1_gets_complete_terrain_phase_now, "ring 1 boot chunks get terrain-only immediate redraw at apply time via complete_terrain_phase_now() — no green placeholder zones near spawn")`
+- `assert(outer_rings_use_progressive_redraw, "outer boot chunks use pure progressive redraw via FrameBudgetDispatcher")`
+- `assert(outer_chunks_hidden_until_terrain_ready, "outer boot chunks set visible=false at apply time, visible=true when is_terrain_phase_done()")`
+- `assert(boot_pipeline_drains_on_first_playable, "after first_playable, boot compute/apply pipeline is drained; outer chunks load via runtime streaming")`
+- `assert(no_unbounded_apply_in_gameplay_frames, "post-first-playable does not call _boot_apply_from_queue(); outer chunks load via budgeted runtime streaming")`
+- `assert(shadow_edge_cache_has_time_guard, "_advance_edge_cache_build() breaks at 1ms budget to prevent 50-200ms spikes")`
+- `assert(boot_promote_uses_gameplay_redraw_not_full, "_boot_promote_redrawn_chunks() uses is_gameplay_redraw_complete() (terrain+cover+cliff) for VISUAL_COMPLETE promotion — debug and flora phases do not block boot gates")`
+- `assert(debug_phases_excluded_from_boot_gates, "REDRAW_PHASE_DEBUG_INTERIOR and REDRAW_PHASE_DEBUG_COLLISION never block first_playable or boot_complete")`
+- `assert(flora_deferred_from_boot_gates, "REDRAW_PHASE_FLORA does not block VISUAL_COMPLETE, first_playable, or boot_complete — flora draws progressively after gameplay begins")`
+- `assert(redraw_all_leaves_flora_for_progressive, "_redraw_all() sets phase=FLORA not DONE — chunk stays in _redrawing_chunks for deferred flora")`
 - `write operations`:
 - `ChunkManager._boot_init_readiness()`
 - `ChunkManager._boot_set_chunk_state()`
@@ -435,7 +446,7 @@ Observed files for this version:
 - `emitted events / invalidation signals`:
 - none; readiness is polled via `is_boot_first_playable()` and `is_boot_complete()`. Console log milestones are printed on first gate transition.
 - `current violations / ambiguities / contract gaps`:
-- ~~`GameWorld._boot_complete` is a separate flag that covers the full boot sequence including shadow build and player input enable. `ChunkManager._boot_complete_flag` covers only chunk readiness and topology. Unification is deferred until `GameWorld` adopts staged boot.~~ **resolved 2026-03-29**: `GameWorld` now uses staged boot. `_boot_first_playable_done` gates player input/physics handoff (driven by `ChunkManager.is_boot_first_playable()`). `_boot_complete` gates full-finish (shadows built + `ChunkManager.is_boot_complete()`). Shadow build runs in background via `_tick_boot_finalization()` after first_playable.
+- ~~`GameWorld._boot_complete` is a separate flag that covers the full boot sequence including shadow build and player input enable. `ChunkManager._boot_complete_flag` covers only chunk readiness and topology. Unification is deferred until `GameWorld` adopts staged boot.~~ **resolved 2026-03-29**: `GameWorld` now uses staged boot. `_boot_first_playable_done` gates player input/physics handoff (driven by `ChunkManager.is_boot_first_playable()`). `_boot_complete` gates full-finish (shadows built + `ChunkManager.is_boot_complete()`). Shadow build uses `schedule_boot_shadows()` (seeds dirty queues) and incremental `_tick_shadows()` via FrameBudgetDispatcher (1ms budget). Topology uses existing `_tick_topology()` (2ms budget) — no synchronous `ensure_built()` in post-first-playable path.
 
 ## Layer: Boot Compute Queue
 
@@ -452,9 +463,10 @@ Observed files for this version:
 - `assert(empty_native_data_is_treated_as_failure, "failed compute does not deadlock boot — chunk is skipped")`
 - `assert(applied_chunks_per_step <= BOOT_MAX_APPLY_PER_STEP, "main-thread install/attach budget is enforced per boot step")`
 - `assert(apply_queue_sorted_by_distance, "near-player chunks are always applied before far chunks")`
-- `assert(first_playable_exits_boot_loop_early, "boot_load_initial_chunks returns on first_playable; outer chunks finish via _tick_boot_remaining")`
-- `assert(only_ring_0_gets_synchronous_redraw, "complete_redraw_now() called only for player chunk; other boot chunks use progressive redraw")`
-- `assert(boot_apply_is_install_only_for_non_ring_0, "non-ring-0 apply step is cheap install/attach without visual completion")`
+- `assert(first_playable_exits_boot_loop_early, "boot_load_initial_chunks returns on first_playable; boot pipeline drains, outer chunks load via runtime streaming")`
+- `assert(ring_0_gets_full_synchronous_redraw, "complete_redraw_now() called only for player chunk (ring 0)")`
+- `assert(ring_1_gets_terrain_only_synchronous_redraw, "complete_terrain_phase_now() called for ring 1 chunks — terrain drawn, cover/cliff/flora deferred")`
+- `assert(outer_ring_apply_is_install_only, "outer ring apply step is cheap install/attach without any synchronous visual completion")`
 - `write operations`:
 - `ChunkManager._boot_submit_pending_tasks()`
 - `ChunkManager._boot_worker_compute()` (mutex-protected result write)
@@ -486,7 +498,7 @@ Observed files for this version:
 - Chunk generation does not compute or store a wall-neighbor mask, autotile mask, or terrain peering metadata in canonical chunk data.
 - `Chunk.populate_native()` installs native arrays, reapplies saved modifications through `_apply_saved_modifications()`, recalculates `_has_mountain`, resets cover visual state, and starts redraw.
 - Saved modifications are replayed as direct tile writes and then re-normalized for affected open tiles plus their cardinal same-chunk neighbors before redraw starts.
-- Non-player streamed chunks begin progressive redraw through `_begin_progressive_redraw()`. Player chunk loads use immediate `_redraw_all()`. Boot loading forces `complete_redraw_now()` only for ring 0 (player chunk); all other boot chunks use progressive redraw via `FrameBudgetDispatcher`. `_boot_promote_redrawn_chunks()` promotes `APPLIED` → `VISUAL_COMPLETE` as progressive redraw completes.
+- Non-player streamed chunks begin progressive redraw through `_begin_progressive_redraw()`. Player chunk loads use immediate `_redraw_all()`. Boot loading visual policy: ring 0 gets `complete_redraw_now()` (full redraw); ring 1 gets `complete_terrain_phase_now()` (terrain-only, eliminates green placeholder zones near spawn, cover/cliff/flora via progressive); outer rings use pure progressive redraw via `FrameBudgetDispatcher`. `_boot_promote_redrawn_chunks()` promotes `APPLIED` → `VISUAL_COMPLETE` as progressive redraw completes.
 - Boot loading tracks per-chunk readiness through `BootChunkState` transitions: `QUEUED_COMPUTE -> COMPUTED -> QUEUED_APPLY -> APPLIED -> VISUAL_COMPLETE`. Aggregate gates `first_playable` (ring 0 visual_complete + ring 0..1 applied, topology NOT required) and `boot_complete` (all startup chunks terminal + topology ready) are updated after each chunk. Ring distance uses Chebyshev metric (`max(abs(dx), abs(dy))`), so diagonal chunks at offset (1,1) are ring 1 — critical for 4-chunk junction spawns. `first_playable` is the product handoff moment: `GameWorld` enables player input/physics, dismisses loading screen, and unpauses time. Shadows and remaining boot work complete in background via `GameWorld._tick_boot_finalization()`. See `Layer: Boot Readiness`.
 - Boot loading later forces topology ready through native `ensure_built()` or `_ensure_topology_current()` before the loading sequence finishes. Topology readiness is part of `boot_complete` but not `first_playable`.
 - Surface flora presentation is derived after `populate_native()`: from cached flora, from `ChunkBuildResult`, or from native data, depending on load path and whether saved modifications exist.

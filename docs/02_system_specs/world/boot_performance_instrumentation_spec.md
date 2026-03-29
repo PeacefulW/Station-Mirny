@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.1
-last_updated: 2026-03-28
+version: 0.2
+last_updated: 2026-03-29
 depends_on:
   - boot_chunk_readiness_spec.md
   - boot_chunk_compute_pipeline_spec.md
@@ -106,18 +106,21 @@ Required boot summary must answer:
 
 ## Iterations
 
-### Iteration 1 — Split boot timings into compute/apply/redraw/topology buckets
+### Iteration 1 — Split boot timings into compute/apply/redraw/topology buckets ✅
 Goal: stop using a single blended boot timing that hides the real bottleneck.
 
 What is done:
-- add separate metric labels for compute, apply, redraw, flora, topology
-- ensure boot paths emit these labels consistently
-- keep legacy labels only if clearly marked deprecated
+- boot metric accumulators: `_boot_metric_compute_ms`, `_boot_metric_apply_ms`, `_boot_metric_terrain_redraw_ms`, `_boot_metric_chunks_computed`, `_boot_metric_chunks_applied`
+- per-chunk `WorldPerfProbe.record()` labels: `Boot.apply_chunk`, `Boot.redraw_full` (ring 0), `Boot.redraw_terrain` (ring 1)
+- sync fallback compute instrumented with `_boot_metric_compute_ms` accumulator
+- async compute tracked via `_boot_metric_chunks_computed` count on collect
+- summary printed at `first_playable` and `boot_complete` gates: `compute=Xms (N chunks) apply=Xms (N chunks) redraw=Xms`
+- reset in `_boot_init_readiness()`
 
 Acceptance tests:
-- [ ] `assert(boot_metrics_have_distinct_compute_apply_redraw_topology_labels)` — attribution exists.
-- [ ] manual: boot log can answer whether time is spent in compute or apply without reading code.
-- [ ] `assert(no_single_blended_boot_metric_is_the_only_signal)` — one opaque total is not the only output.
+- [x] `assert(boot_metrics_have_distinct_compute_apply_redraw_topology_labels)` — `Boot.apply_chunk`, `Boot.redraw_full`, `Boot.redraw_terrain` are distinct per-chunk labels. Summary prints separate compute/apply/redraw totals.
+- [x] manual: boot log answers "compute or apply?" — summary line: `compute=Xms (N) apply=Xms (N) redraw=Xms`.
+- [x] `assert(no_single_blended_boot_metric_is_the_only_signal)` — three separate accumulators + per-chunk probes. No single opaque total.
 
 Files that may be touched:
 - `core/systems/world/chunk_manager.gd`

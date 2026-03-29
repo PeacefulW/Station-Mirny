@@ -127,6 +127,18 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 func complete_redraw_now() -> void:
 	_redraw_all()
 
+## Draws terrain layer immediately for all tiles, then leaves cover/cliff/flora
+## for progressive redraw. Used by boot apply for ring 1 chunks so the player
+## never sees green placeholder zones near spawn.
+func complete_terrain_phase_now() -> void:
+	if _redraw_phase != REDRAW_PHASE_TERRAIN:
+		return
+	for local_y: int in range(_chunk_size):
+		for local_x: int in range(_chunk_size):
+			_redraw_terrain_tile(Vector2i(local_x, local_y))
+	_redraw_phase = REDRAW_PHASE_COVER
+	_redraw_tile_index = 0
+
 func global_to_local(global_tile: Vector2i) -> Vector2i:
 	if WorldGenerator and WorldGenerator.has_method("tile_to_local_in_chunk"):
 		return WorldGenerator.tile_to_local_in_chunk(global_tile, chunk_coord)
@@ -323,7 +335,9 @@ func _redraw_all() -> void:
 			_redraw_cover_tile(tile)
 			_redraw_cliff_tile(tile)
 	_rebuild_debug_markers()
-	_redraw_phase = REDRAW_PHASE_DONE
+	## Flora is deferred to progressive redraw. Set phase to FLORA so
+	## progressive path can draw flora without re-doing terrain/cover/cliff.
+	_redraw_phase = REDRAW_PHASE_FLORA
 	_redraw_tile_index = 0
 	WorldPerfProbe.end("Chunk._redraw_all %s" % [chunk_coord], started_usec)
 
@@ -339,6 +353,14 @@ func _begin_progressive_redraw() -> void:
 
 func is_redraw_complete() -> bool:
 	return _redraw_phase == REDRAW_PHASE_DONE
+
+func is_terrain_phase_done() -> bool:
+	return _redraw_phase > REDRAW_PHASE_TERRAIN
+
+## True when terrain + cover + cliff are complete. Flora and debug phases
+## are NOT required — they are cosmetic/debug and must not block boot gates.
+func is_gameplay_redraw_complete() -> bool:
+	return _redraw_phase >= REDRAW_PHASE_FLORA
 
 func continue_redraw(max_rows: int) -> bool:
 	if _redraw_phase == REDRAW_PHASE_DONE:
@@ -705,11 +727,9 @@ func _apply_variant_full(base: Vector2i, local_tile: Vector2i, allow_flip: bool 
 func _apply_variant(base: Vector2i, local_tile: Vector2i) -> Vector2i:
 	return _apply_variant_full(base, local_tile)[0]
 
-func _resolve_variant_atlas(base: Vector2i, global_x: int, global_y: int) -> Vector2i:
-	var variant_index: int = 0
-	if ChunkTilesetFactory.wall_variant_count > 1:
-		variant_index = _tile_hash_xy(global_x, global_y) % ChunkTilesetFactory.wall_variant_count
-	return ChunkTilesetFactory.get_wall_variant_coords(base, variant_index)
+func _resolve_variant_atlas(base: Vector2i, _global_x: int, _global_y: int) -> Vector2i:
+	## Atlas variant selection disabled — always use variant 0 (base sprite set).
+	return ChunkTilesetFactory.get_wall_variant_coords(base, 0)
 
 func _resolve_variant_alt_id(base: Vector2i, global_x: int, global_y: int, allow_flip: bool) -> int:
 	if not allow_flip:

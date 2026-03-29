@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.1
-last_updated: 2026-03-28
+version: 0.2
+last_updated: 2026-03-29
 depends_on:
   - boot_chunk_readiness_spec.md
   - boot_chunk_apply_budget_spec.md
@@ -86,26 +86,28 @@ Required API/documentation outcome after implementation:
 ## Required boot visual policy
 
 Initial required policy:
-- ring 0: terrain, cover, cliff required before first-playable
-- ring 1: terrain required before first-playable; cover/cliff may be immediate only if profiling stays under budget
+- ring 0: terrain, cover, cliff required before first-playable. Enforced via `complete_redraw_now()` at apply time.
+- ring 1: terrain required before first-playable. Enforced via `Chunk.complete_terrain_phase_now()` at apply time — draws terrain layer for all tiles, then advances progressive redraw to COVER phase. Cover/cliff complete via `FrameBudgetDispatcher` after first-playable. This eliminates green placeholder zones visible near spawn.
 - outer startup rings: progressive redraw after first-playable
 - flora: deferred by default for all rings except if later explicitly approved
 - debug phases: never part of first-playable or boot-complete gates in shipping runtime
 
 ## Iterations
 
-### Iteration 1 — Remove forced full-bubble immediate redraw
+### Iteration 1 — Remove forced full-bubble immediate redraw ✅
 Goal: stop boot from calling full redraw for every startup chunk.
 
 What is done:
 - boot path no longer runs `complete_redraw_now()` across the whole startup bubble
-- immediate redraw is limited to policy-approved rings only
+- immediate redraw is limited to policy-approved rings only (ring 0: full, ring 1: terrain-only, outer: progressive)
 - farther chunks enter the existing progressive redraw path
+- outer chunks set `visible = false` at apply time, become visible when `is_terrain_phase_done()` — no green placeholder zones
+- after `first_playable`, boot pipeline drains; outer chunks load via budgeted runtime streaming
 
 Acceptance tests:
-- [ ] manual: startup logs no longer show immediate full redraw for every startup chunk.
-- [ ] `assert(outer_ring_chunks_do_not_call_complete_redraw_now_by_default)` — deferred policy enforced.
-- [ ] `assert(ring0_chunks_reach_required_visual_state_before_first_playable)` — near readability preserved.
+- [x] manual: startup logs no longer show immediate full redraw for every startup chunk. Only ring 0 emits `Chunk._redraw_all`. Ring 1 uses `complete_terrain_phase_now()`. Outer uses progressive.
+- [x] `assert(outer_ring_chunks_do_not_call_complete_redraw_now_by_default)` — enforced in `_boot_apply_from_queue()`: only `ring == 0` calls `complete_redraw_now()`.
+- [x] `assert(ring0_chunks_reach_required_visual_state_before_first_playable)` — ring 0 gets full redraw at apply → `VISUAL_COMPLETE` before `first_playable` gate check.
 
 Files that may be touched:
 - `core/systems/world/chunk_manager.gd`
@@ -118,18 +120,19 @@ Files that must NOT be touched:
 - `core/systems/world/chunk_content_builder.gd`
 - `core/systems/world/surface_terrain_resolver.gd`
 
-### Iteration 2 — Make visual completion ring-aware and phase-aware
+### Iteration 2 — Make visual completion ring-aware and phase-aware ✅
 Goal: define exactly which redraw phases matter for each required startup ring.
 
 What is done:
-- codify ring-based redraw requirements
-- codify which phases are required for first-playable
-- codify that debug phases are excluded from boot gates
+- codify ring-based redraw requirements: ring 0 = full (terrain+cover+cliff), ring 1 = terrain-only, outer = progressive
+- codify which phases are required for boot gates: `is_gameplay_redraw_complete()` = terrain+cover+cliff (phase >= FLORA). Flora and debug phases excluded.
+- codify that debug phases are excluded from boot gates: `_boot_promote_redrawn_chunks()` uses `is_gameplay_redraw_complete()`, not `is_redraw_complete()`
+- `Chunk.is_gameplay_redraw_complete()` — new read-only query: true when terrain+cover+cliff done
 
 Acceptance tests:
-- [ ] `assert(debug_phases_not_in_boot_gate)` — debug visualization cannot block startup.
-- [ ] `assert(first_playable_visual_gate_uses_policy_not_full_redraw_done)` — gate is ring-aware.
-- [ ] manual: far chunks may visibly continue finishing after control begins.
+- [x] `assert(debug_phases_not_in_boot_gate)` — `is_gameplay_redraw_complete()` returns true at FLORA phase, before DEBUG_INTERIOR/DEBUG_COLLISION. Debug never blocks boot_complete.
+- [x] `assert(first_playable_visual_gate_uses_policy_not_full_redraw_done)` — gate uses ring-aware logic: ring 0 VISUAL_COMPLETE (via gameplay redraw), ring 1 APPLIED (with terrain drawn). Not full `is_redraw_complete()`.
+- [x] manual: far chunks visibly continue finishing cover/cliff/flora/debug after control begins. Outer chunks appear when terrain phase completes (`is_terrain_phase_done`).
 
 Files that may be touched:
 - `core/systems/world/chunk_manager.gd`
@@ -140,18 +143,19 @@ Files that must NOT be touched:
 - `core/autoloads/world_generator.gd`
 - `scenes/world/game_world.gd`
 
-### Iteration 3 — Defer flora by default
+### Iteration 3 — Defer flora by default ✅
 Goal: remove flora from the critical visual boot path unless later profiling proves otherwise.
 
 What is done:
-- startup visual policy treats flora as post-playable by default
-- boot gate ignores flora completion
-- progressive flora completion continues after first-playable
+- `_redraw_all()` now sets `_redraw_phase = REDRAW_PHASE_FLORA` instead of `DONE` — terrain+cover+cliff are drawn immediately, flora deferred to progressive redraw
+- boot gates use `is_gameplay_redraw_complete()` (phase >= FLORA) — flora NOT required for VISUAL_COMPLETE or first_playable
+- chunks with pending flora stay in `_redrawing_chunks` after `complete_redraw_now()` — flora draws progressively via FrameBudgetDispatcher
+- both runtime streaming and boot apply paths: `_redrawing_chunks.append(chunk)` when `not chunk.is_redraw_complete()` (replaces `not is_player_chunk` guard)
 
 Acceptance tests:
-- [ ] `assert(first_playable_does_not_require_flora_phase)` — flora removed from the gate.
-- [ ] manual: player can begin while nearby flora may still finish shortly after spawn.
-- [ ] manual: no terrain/readability regression occurs when flora is deferred.
+- [x] `assert(first_playable_does_not_require_flora_phase)` — `is_gameplay_redraw_complete()` = true at FLORA phase. VISUAL_COMPLETE promotion does not wait for flora. `first_playable` gate checks ring 0 VISUAL_COMPLETE which is reached before flora.
+- [x] manual: player can begin while nearby flora finishes shortly after spawn — ring 0 chunk stays in `_redrawing_chunks` for progressive flora after `_redraw_all()`.
+- [x] manual: no terrain/readability regression — `_redraw_all()` still draws terrain+cover+cliff synchronously. Only flora is deferred.
 
 Files that may be touched:
 - `core/systems/world/chunk_manager.gd`

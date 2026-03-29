@@ -315,8 +315,10 @@ func _on_boot_first_playable() -> void:
 
 func _tick_boot_finalization() -> void:
 	if not _boot_shadows_built:
-		if _mountain_shadow_system and _mountain_shadow_system.has_method("prepare_boot_shadows"):
-			_mountain_shadow_system.prepare_boot_shadows(func(_p: float, _t: String) -> void: pass)
+		if _mountain_shadow_system and _mountain_shadow_system.has_method("schedule_boot_shadows"):
+			## Lightweight: seeds sun angle, shows container, ensures dirty queues.
+			## Actual shadow build happens incrementally via FrameBudgetDispatcher (1ms budget).
+			_mountain_shadow_system.schedule_boot_shadows()
 		_boot_shadows_built = true
 		return
 	if _chunk_manager and _chunk_manager.is_boot_complete():

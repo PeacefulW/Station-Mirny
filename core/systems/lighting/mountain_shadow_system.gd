@@ -103,6 +103,25 @@ func build_boot_shadows() -> void:
 	_seed_current_sun_angle()
 	_show_shadow_container()
 
+## Lightweight boot initialization: seeds sun angle, shows container, and ensures
+## all loaded mountain chunks are in the dirty/edge queues for budgeted processing
+## via _tick_shadows() (FrameBudgetDispatcher). No synchronous rebuild.
+func schedule_boot_shadows() -> void:
+	if not _chunk_manager:
+		_resolve_dependencies()
+	if not _is_surface_context() or not _chunk_manager:
+		_suspend_surface_shadow_runtime(true)
+		return
+	_suspend_surface_shadow_runtime(false)
+	## Chunks already enqueued via EventBus.chunk_loaded → _on_chunk_loaded.
+	## Ensure nothing was missed and re-mark all dirty for completeness.
+	for coord: Vector2i in _chunk_manager.get_loaded_chunks():
+		if _chunk_or_neighbors_have_mountain(coord):
+			_enqueue_edge_cache_build(coord)
+			_mark_dirty(coord)
+	_seed_current_sun_angle()
+	_show_shadow_container()
+
 func prepare_boot_shadows(progress_callback: Callable) -> void:
 	if not _chunk_manager:
 		_resolve_dependencies()
@@ -389,6 +408,7 @@ func _advance_edge_cache_build() -> void:
 	var end_index: int = mini(tile_index + tile_budget, total_tiles)
 	var edges: Array = build["edges"] as Array
 	var terrain_bytes: PackedByteArray = chunk.get_terrain_bytes()
+	const EDGE_CACHE_TIME_BUDGET_USEC: int = 1000  ## 1ms hard cap per tick
 	for current_index: int in range(tile_index, end_index):
 		if terrain_bytes[current_index] != TileGenData.TerrainType.ROCK:
 			continue
@@ -396,6 +416,12 @@ func _advance_edge_cache_build() -> void:
 		var local_y: int = current_index / chunk_size
 		if _is_external_edge_at(coord, terrain_bytes, local_x, local_y, chunk_size):
 			edges.append(Vector2i(base_x + local_x, base_y + local_y))
+		## Time guard: break early if over budget to prevent 50-200ms spikes.
+		if current_index % 32 == 0 and current_index > tile_index:
+			if (Time.get_ticks_usec() - started_usec) > EDGE_CACHE_TIME_BUDGET_USEC:
+				build["tile_index"] = current_index + 1
+				WorldPerfProbe.end("Shadow.edge_cache_slice", started_usec)
+				return
 	build["tile_index"] = end_index
 	if end_index >= total_tiles:
 		_edge_cache[coord] = edges

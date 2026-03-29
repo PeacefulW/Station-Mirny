@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.1
-last_updated: 2026-03-28
+version: 0.2
+last_updated: 2026-03-29
 depends_on:
   - boot_chunk_readiness_spec.md
   - boot_chunk_apply_budget_spec.md
@@ -91,18 +91,20 @@ Default recommendation for iteration 1:
 
 ## Iterations
 
-### Iteration 1 — Separate topology gate from legacy full boot gate
+### Iteration 1 — Separate topology gate from legacy full boot gate ✅
 Goal: make topology timing explicit instead of inherited from the old synchronous boot path.
 
 What is done:
-- define whether first-playable needs no topology, near-ring topology, or full startup topology
-- codify the chosen rule in `ChunkManager`
-- update docs to remove ambiguity
+- `first_playable` explicitly does NOT require topology: `_boot_first_playable = player_chunk_visual_complete and playable_ring_applied` — no `_boot_topology_ready` in formula
+- `boot_complete` explicitly requires topology: `_boot_complete_flag = all_chunks_terminal and _boot_topology_ready`
+- topology builds incrementally via `_tick_topology()` (FrameBudgetDispatcher, 2ms budget) after first_playable — no synchronous `ensure_built()` in post-first-playable path
+- `_tick_boot_remaining()` polls `is_topology_ready()` to set `_boot_topology_ready` once FrameBudgetDispatcher finishes
+- DATA_CONTRACTS.md contains explicit invariants: `first_playable does not require topology_ready`, `not boot_complete or topology_ready`
 
 Acceptance tests:
-- [ ] `assert(first_playable_topology_requirement_is_explicit)` — no hidden legacy assumption remains.
-- [ ] `assert(boot_complete_topology_requirement_is_explicit)` — boot-complete topology semantics are documented.
-- [ ] manual: topology no longer blocks first-playable unless the documented gate requires it.
+- [x] `assert(first_playable_topology_requirement_is_explicit)` — `_boot_update_gates()` line comment: "Topology NOT required". Formula: `player_chunk_visual_complete and playable_ring_applied` — no topology term. DATA_CONTRACTS invariant documents this.
+- [x] `assert(boot_complete_topology_requirement_is_explicit)` — `_boot_complete_flag = all_chunks_terminal and _boot_topology_ready`. DATA_CONTRACTS invariant: `not boot_complete or topology_ready`.
+- [x] manual: topology does not block first-playable. After first_playable, topology processes incrementally via FrameBudgetDispatcher. `_tick_boot_remaining()` polls completion.
 
 Files that may be touched:
 - `core/systems/world/chunk_manager.gd`
@@ -114,18 +116,21 @@ Files that must NOT be touched:
 - `core/autoloads/world_generator.gd`
 - `scenes/world/game_world.gd`
 
-### Iteration 2 — Re-stage topology after required apply readiness
+### Iteration 2 — Re-stage topology after required apply readiness ✅
 Goal: ensure topology starts at the right point in the staged boot pipeline.
 
 What is done:
-- move topology kick-off behind required apply readiness
-- ensure native and scripted topology builders both follow the same scheduling rule
-- prevent topology from running against an incomplete startup set unintentionally
+- topology blocked during boot loop: `_tick_topology()` has `if _is_boot_in_progress: return false`
+- after first_playable (ring 0..1 applied), boot loop exits → `_is_boot_in_progress = false`
+- native topology: `_native_topology_dirty and _is_streaming_generation_idle()` — waits for streaming to finish before building
+- scripted topology: `_is_topology_dirty and not _has_streaming_work()` — same idle gate
+- each chunk load sets dirty flag (`_native_topology_dirty = true` / `_mark_topology_dirty()`) — topology rebuilds once streaming drains
+- after pipeline drain (Patch B), outer chunks load via runtime streaming → topology waits for all streaming to complete before starting
 
 Acceptance tests:
-- [ ] `assert(topology_does_not_start_before_required_chunks_are_applied)` — correct sequencing enforced.
-- [ ] `assert(native_and_scripted_topology_follow_same_gate)` — backend parity enforced.
-- [ ] manual: boot no longer spends topology time before the required near-player chunk set exists.
+- [x] `assert(topology_does_not_start_before_required_chunks_are_applied)` — `_is_boot_in_progress` guard blocks during boot loop. After exit, streaming idle gate prevents premature build. Topology only fires when load queue empty + no staged chunk.
+- [x] `assert(native_and_scripted_topology_follow_same_gate)` — native: `_is_boot_in_progress` + `_is_streaming_generation_idle()`. Scripted: `_is_boot_in_progress` + `not _has_streaming_work()`. Both blocked during boot, both wait for streaming idle.
+- [x] manual: topology does not run during boot loop. After first_playable, topology waits for streaming to drain before building. No wasted topology work on incomplete chunk set.
 
 Files that may be touched:
 - `core/systems/world/chunk_manager.gd`

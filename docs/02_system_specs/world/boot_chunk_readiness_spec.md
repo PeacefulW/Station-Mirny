@@ -117,9 +117,9 @@ The boot process must expose these aggregate gates:
 Ring distance metric: **Chebyshev** (`max(abs(dx), abs(dy))`), not Manhattan. This ensures diagonal chunks at offset (1,1) are ring 1, covering the case where the player/camera straddles a 4-chunk junction.
 
 Recommended ring policy:
-- ring 0: player chunk only, mandatory for first-playable
-- ring 1: immediate movement and readability ring (including diagonals), mandatory for first-playable
-- outer startup rings: mandatory for boot-complete, not mandatory for first-playable
+- ring 0: player chunk only, mandatory for first-playable. Full redraw (terrain + cover + cliff) at apply time.
+- ring 1: immediate movement and readability ring (including diagonals), mandatory for first-playable. Terrain-only immediate redraw at apply time via `complete_terrain_phase_now()` — eliminates green placeholder zones. Cover/cliff/flora complete via progressive redraw.
+- outer startup rings: mandatory for boot-complete, not mandatory for first-playable. Pure progressive redraw.
 
 ## Iterations
 
