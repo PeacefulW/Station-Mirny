@@ -36,6 +36,7 @@ var is_loaded: bool = false
 var is_dirty: bool = false
 
 var _terrain_layer: TileMapLayer = null
+var _rock_layer: TileMapLayer = null
 var _cover_layer: TileMapLayer = null
 var _cliff_layer: TileMapLayer = null
 var _fog_layer: TileMapLayer = null
@@ -81,7 +82,8 @@ func setup(
 	name = "Chunk_%d_%d" % [chunk_coord.x, chunk_coord.y]
 	sync_display_position(chunk_coord)
 	_terrain_layer = _create_layer("Terrain", _terrain_tileset, -10)
-	_cliff_layer = _create_layer("Cliffs", _overlay_tileset, -9)
+	_rock_layer = _create_layer("Rock", _terrain_tileset, -9)
+	_cliff_layer = _create_layer("Cliffs", _overlay_tileset, -8)
 	_cover_layer = _create_layer("MountainCover", _terrain_tileset, 6)
 	_flora_container = Node2D.new()
 	_flora_container.name = "Flora"
@@ -324,6 +326,7 @@ func _normalize_saved_open_tiles_after_load() -> void:
 func _redraw_all(include_flora: bool = false) -> void:
 	var started_usec: int = WorldPerfProbe.begin()
 	_terrain_layer.clear()
+	_rock_layer.clear()
 	_cover_layer.clear()
 	_cliff_layer.clear()
 	_reset_cover_visual_state()
@@ -349,6 +352,7 @@ func _redraw_all(include_flora: bool = false) -> void:
 
 func _begin_progressive_redraw() -> void:
 	_terrain_layer.clear()
+	_rock_layer.clear()
 	_cover_layer.clear()
 	_cliff_layer.clear()
 	_reset_cover_visual_state()
@@ -405,6 +409,7 @@ func _redraw_dirty_tiles(dirty_tiles: Dictionary) -> void:
 		if not _is_inside(local_tile):
 			continue
 		_terrain_layer.erase_cell(local_tile)
+		_rock_layer.erase_cell(local_tile)
 		_cover_layer.erase_cell(local_tile)
 		_cliff_layer.erase_cell(local_tile)
 		_redraw_terrain_tile(local_tile)
@@ -433,16 +438,19 @@ func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 	var terrain_type: int = get_terrain_type_at(local_tile)
 	var atlas: Vector2i = ChunkTilesetFactory.TILE_GROUND
 	var alt_id: int = 0
+	var rock_atlas: Vector2i = Vector2i(-1, -1)
+	var rock_alt_id: int = 0
 	match terrain_type:
 		TileGenData.TerrainType.ROCK:
-			# All rock uses wall face variants (47 types). Underground non-edge rock
-			# is hidden by fog layer anyway — no need for special dark tile.
+			# Base terrain under mountain: biome ground tile (always visible through rock alpha)
+			atlas = _resolve_surface_ground_atlas(local_tile)
+			# Rock wall form goes to separate rock_layer (alpha-blended over terrain)
 			var rock_visual: Vector2i = _rock_visual_class(local_tile)
 			if not _is_underground:
 				rock_visual = _surface_rock_visual_class(local_tile)
 			var global_tile: Vector2i = _to_global_tile(local_tile)
-			atlas = _resolve_variant_atlas(rock_visual, global_tile.x, global_tile.y)
-			alt_id = _resolve_variant_alt_id(rock_visual, global_tile.x, global_tile.y, _is_underground)
+			rock_atlas = _resolve_variant_atlas(rock_visual, global_tile.x, global_tile.y)
+			rock_alt_id = _resolve_variant_alt_id(rock_visual, global_tile.x, global_tile.y, _is_underground)
 		TileGenData.TerrainType.WATER:
 			atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, _biome_palette_index_at(local_tile))
 		TileGenData.TerrainType.SAND:
@@ -456,6 +464,11 @@ func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 		_:
 			atlas = _resolve_surface_ground_atlas(local_tile)
 	_terrain_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, alt_id)
+	# Rock layer: set wall form if ROCK, erase otherwise
+	if rock_atlas.x >= 0:
+		_rock_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, rock_atlas, rock_alt_id)
+	else:
+		_rock_layer.erase_cell(local_tile)
 
 func _surface_rock_visual_class(local_tile: Vector2i) -> Vector2i:
 	var s: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i.DOWN))
@@ -1047,7 +1060,11 @@ func _process_redraw_phase_tiles(tile_budget: int) -> int:
 			_:
 				break
 		processed_end_index = tile_index + 1
-		if processed_end_index < end_index and (processed_end_index - start_index) % 8 == 0:
+		## Hard time guard: check every 4 tiles (terrain/cover/cliff) or every tile (flora/debug).
+		## No end_index bypass — budget must be respected even if tile_budget allows more.
+		var tiles_done: int = processed_end_index - start_index
+		var check_interval: int = 1
+		if tiles_done % check_interval == 0:
 			if Time.get_ticks_usec() - started_usec >= REDRAW_TIME_BUDGET_USEC:
 				break
 	var processed: int = processed_end_index - start_index

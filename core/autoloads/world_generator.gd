@@ -54,6 +54,7 @@ var _local_variation_resolver: LocalVariationResolver = null
 var _compute_context: RefCounted = null
 var _surface_terrain_resolver: RefCounted = null
 var _chunk_content_builder: ChunkContentBuilder = null
+var _native_chunk_generator: RefCounted = null
 var _chunk_biome_cache: Dictionary = {}
 var _feature_and_poi_payload_cache: FeatureAndPoiPayloadCache = FeatureAndPoiPayloadCache.new()
 
@@ -409,6 +410,182 @@ func _setup_compute_context() -> void:
 	)
 	_surface_terrain_resolver = _create_surface_terrain_resolver(_compute_context)
 	_compute_context.set_surface_terrain_resolver(_surface_terrain_resolver)
+	_setup_native_chunk_generator(palette_index_by_id)
+
+func _setup_native_chunk_generator(palette_index_by_id: Dictionary) -> void:
+	_native_chunk_generator = null
+	if not balance or not balance.use_native_chunk_generation:
+		return
+	if not ClassDB.class_exists(&"ChunkGenerator"):
+		push_warning("[WorldGenerator] ChunkGenerator C++ class not available — falling back to GDScript")
+		return
+	var gen: RefCounted = ClassDB.instantiate(&"ChunkGenerator")
+	if gen == null:
+		return
+	var wrap: int = WorldNoiseUtilsScript.resolve_wrap_width_tiles(balance)
+	var params: Dictionary = {
+		"chunk_size": balance.chunk_size_tiles,
+		"wrap_width": wrap,
+		"equator_tile_y": balance.equator_tile_y,
+		"latitude_half_span_tiles": balance.latitude_half_span_tiles,
+		"temperature_noise_amplitude": balance.temperature_noise_amplitude,
+		"temperature_latitude_weight": balance.temperature_latitude_weight,
+		"latitude_temperature_curve": balance.latitude_temperature_curve,
+		"height_frequency": balance.height_frequency,
+		"height_octaves": balance.height_octaves,
+		"temperature_frequency": balance.temperature_frequency,
+		"temperature_octaves": balance.temperature_octaves,
+		"moisture_frequency": balance.moisture_frequency,
+		"moisture_octaves": balance.moisture_octaves,
+		"ruggedness_frequency": balance.ruggedness_frequency,
+		"ruggedness_octaves": balance.ruggedness_octaves,
+		"flora_density_frequency": balance.flora_density_frequency,
+		"flora_density_octaves": balance.flora_density_octaves,
+		"ridge_warp_frequency": balance.ridge_warp_frequency,
+		"ridge_warp_amplitude_tiles": balance.ridge_warp_amplitude_tiles,
+		"ridge_cluster_frequency": balance.ridge_cluster_frequency,
+		"ridge_spacing_tiles": balance.ridge_spacing_tiles,
+		"ridge_core_width_tiles": balance.ridge_core_width_tiles,
+		"ridge_feather_tiles": balance.ridge_feather_tiles,
+		"ridge_secondary_warp_frequency": balance.ridge_secondary_warp_frequency,
+		"ridge_secondary_weight": balance.get("ridge_secondary_weight") if balance.get("ridge_secondary_weight") != null else 0.0,
+		"ridge_secondary_warp_amplitude_tiles": balance.get("ridge_secondary_warp_amplitude_tiles") if balance.get("ridge_secondary_warp_amplitude_tiles") != null else 0.0,
+		"ridge_secondary_spacing_tiles": balance.get("ridge_secondary_spacing_tiles") if balance.get("ridge_secondary_spacing_tiles") != null else 0.0,
+		"ridge_secondary_core_width_tiles": balance.get("ridge_secondary_core_width_tiles") if balance.get("ridge_secondary_core_width_tiles") != null else 0.0,
+		"ridge_secondary_feather_tiles": balance.get("ridge_secondary_feather_tiles") if balance.get("ridge_secondary_feather_tiles") != null else 0.0,
+		"river_spacing_tiles": balance.river_spacing_tiles,
+		"river_core_width_tiles": balance.river_core_width_tiles,
+		"river_floodplain_width_tiles": balance.river_floodplain_width_tiles,
+		"river_warp_frequency": balance.river_warp_frequency,
+		"river_warp_amplitude_tiles": balance.river_warp_amplitude_tiles,
+		"mountain_density": balance.mountain_density,
+		"mountain_chaininess": balance.mountain_chaininess,
+		"mountain_base_threshold": balance.mountain_base_threshold,
+		"safe_zone_radius": balance.safe_zone_radius,
+		"land_guarantee_radius": balance.land_guarantee_radius,
+		"local_variation_frequency": balance.local_variation_frequency,
+		"local_variation_octaves": balance.local_variation_octaves,
+		"local_variation_min_score": balance.local_variation_min_score,
+		"river_min_strength": balance.river_min_strength,
+		"river_ridge_exclusion": balance.river_ridge_exclusion,
+		"river_max_height": balance.river_max_height,
+		"bank_min_floodplain": balance.bank_min_floodplain,
+		"bank_ridge_exclusion": balance.bank_ridge_exclusion,
+		"bank_min_river": balance.bank_min_river,
+		"bank_min_moisture": balance.bank_min_moisture,
+		"bank_max_height": balance.bank_max_height,
+	}
+	# Biome definitions
+	var biome_defs: Array = []
+	var palette_order: Array[BiomeData] = BiomeRegistry.get_palette_order()
+	for index: int in range(palette_order.size()):
+		var biome: BiomeData = palette_order[index]
+		if biome == null or str(biome.id).is_empty():
+			continue
+		biome_defs.append({
+			"id": biome.id,
+			"priority": biome.priority,
+			"palette_index": int(palette_index_by_id.get(biome.id, index)),
+			"min_height": biome.min_height, "max_height": biome.max_height,
+			"min_temperature": biome.min_temperature, "max_temperature": biome.max_temperature,
+			"min_moisture": biome.min_moisture, "max_moisture": biome.max_moisture,
+			"min_ruggedness": biome.min_ruggedness, "max_ruggedness": biome.max_ruggedness,
+			"min_flora_density": biome.min_flora_density, "max_flora_density": biome.max_flora_density,
+			"min_latitude": biome.min_latitude, "max_latitude": biome.max_latitude,
+			"min_ridge_strength": biome.min_ridge_strength, "max_ridge_strength": biome.max_ridge_strength,
+			"min_river_strength": biome.min_river_strength, "max_river_strength": biome.max_river_strength,
+			"min_floodplain_strength": biome.min_floodplain_strength, "max_floodplain_strength": biome.max_floodplain_strength,
+			"height_weight": biome.height_weight,
+			"temperature_weight": biome.temperature_weight,
+			"moisture_weight": biome.moisture_weight,
+			"ruggedness_weight": biome.ruggedness_weight,
+			"flora_density_weight": biome.flora_density_weight,
+			"latitude_weight": biome.latitude_weight,
+			"ridge_strength_weight": biome.ridge_strength_weight,
+			"river_strength_weight": biome.river_strength_weight,
+			"floodplain_strength_weight": biome.floodplain_strength_weight,
+			"tags": biome.tags.duplicate(),
+			"flora_set_ids": biome.flora_set_ids.duplicate() if biome.flora_set_ids else [],
+			"decor_set_ids": biome.decor_set_ids.duplicate() if biome.decor_set_ids else [],
+		})
+	params["biomes"] = biome_defs
+	# Flora/decor set definitions for native flora computation
+	# Collect unique flora/decor sets referenced by biomes
+	var flora_set_defs: Array = []
+	var decor_set_defs: Array = []
+	var seen_flora_ids: Dictionary = {}
+	var seen_decor_ids: Dictionary = {}
+	if FloraDecorRegistry:
+		for biome_data: BiomeData in palette_order:
+			if biome_data == null:
+				continue
+			for fs_id: StringName in biome_data.flora_set_ids:
+				if seen_flora_ids.has(fs_id):
+					continue
+				var fs: Resource = FloraDecorRegistry.get_flora_set(fs_id)
+				if fs == null:
+					continue
+				seen_flora_ids[fs_id] = true
+				var fs_dict: Dictionary = {
+					"id": fs.id,
+					"base_density": fs.base_density,
+					"flora_channel_weight": fs.flora_channel_weight,
+					"flora_modulation_weight": fs.flora_modulation_weight,
+					"subzone_filters": fs.subzone_filters.duplicate() if fs.subzone_filters else [],
+					"excluded_subzones": fs.excluded_subzones.duplicate() if fs.excluded_subzones else [],
+				}
+				var entries_arr: Array = []
+				for entry_res: Resource in fs.entries:
+					if entry_res == null:
+						continue
+					entries_arr.append({
+						"id": entry_res.id,
+						"color": entry_res.placeholder_color,
+						"size": entry_res.placeholder_size,
+						"z_offset": entry_res.z_index_offset,
+						"weight": entry_res.weight,
+						"min_density_threshold": entry_res.min_density_threshold,
+						"max_density_threshold": entry_res.max_density_threshold,
+					})
+				fs_dict["entries"] = entries_arr
+				flora_set_defs.append(fs_dict)
+		for biome_data2: BiomeData in palette_order:
+			if biome_data2 == null:
+				continue
+			for ds_id: StringName in biome_data2.decor_set_ids:
+				if seen_decor_ids.has(ds_id):
+					continue
+				var ds: Resource = FloraDecorRegistry.get_decor_set(ds_id)
+				if ds == null:
+					continue
+				seen_decor_ids[ds_id] = true
+				var ds_dict: Dictionary = {
+					"id": ds.id,
+					"base_density": ds.base_density,
+					"entries": [],
+					"subzone_density_modifiers": ds.subzone_density_modifiers.duplicate() if ds.subzone_density_modifiers else {},
+				}
+				var entries_arr: Array = []
+				for entry_res: Resource in ds.entries:
+					if entry_res == null:
+						continue
+					entries_arr.append({
+						"id": entry_res.id,
+						"color": entry_res.placeholder_color,
+						"size": entry_res.placeholder_size,
+						"z_offset": entry_res.z_index_offset,
+						"weight": entry_res.weight,
+					})
+				ds_dict["entries"] = entries_arr
+				decor_set_defs.append(ds_dict)
+	params["flora_sets"] = flora_set_defs
+	params["decor_sets"] = decor_set_defs
+	gen.initialize(world_seed, params)
+	_native_chunk_generator = gen
+	print("[WorldGenerator] Native ChunkGenerator initialized (%d biomes, %d flora sets, %d decor sets)" % [biome_defs.size(), flora_set_defs.size(), decor_set_defs.size()])
+
+func get_native_chunk_generator() -> RefCounted:
+	return _native_chunk_generator
 
 func _setup_chunk_content_builder() -> void:
 	_chunk_content_builder = _create_chunk_content_builder(_compute_context)
@@ -444,6 +621,7 @@ func _clear_initialized_runtime_state() -> void:
 	_chunk_biome_cache.clear()
 	_feature_and_poi_payload_cache.clear()
 	_chunk_content_builder = null
+	_native_chunk_generator = null
 	_surface_terrain_resolver = null
 	_compute_context = null
 	_local_variation_resolver = null

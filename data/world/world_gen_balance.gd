@@ -74,6 +74,7 @@ extends Resource
 @export_range(16, 4096) var mountain_topology_scan_tiles_per_step: int = 64
 @export_range(16, 4096) var mountain_topology_finalize_tiles_per_step: int = 64
 @export var use_native_mountain_topology: bool = false
+@export var use_native_chunk_generation: bool = false
 @export var mountain_debug_visualization: bool = false
 @export var mountain_debug_collision_color: Color = Color(1.0, 0.12, 0.12, 0.85)
 @export var mountain_debug_entrance_color: Color = Color(0.15, 0.95, 0.35, 0.75)

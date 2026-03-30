@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.2
-last_updated: 2026-03-29
+version: 0.3
+last_updated: 2026-03-30
 depends_on:
   - chunk_boot_streaming_rollout.md
   - DATA_CONTRACTS.md

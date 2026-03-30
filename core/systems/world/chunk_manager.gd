@@ -241,7 +241,9 @@ func boot_load_initial_chunks(progress_callback: Callable) -> void:
 		else:
 			_boot_compute_pending.append(coord)
 			_boot_compute_requested_usec[coord] = Time.get_ticks_usec()
+	var _loop_iter: int = 0
 	while not _boot_first_playable:
+		var _iter_start: int = Time.get_ticks_usec()
 		_boot_submit_pending_tasks()
 		_boot_collect_completed()
 		_boot_drain_computed_to_apply_queue()
@@ -260,6 +262,13 @@ func boot_load_initial_chunks(progress_callback: Callable) -> void:
 			pct,
 			Localization.t("UI_LOADING_GENERATING_TERRAIN", {"current": applied_count, "total": total})
 		)
+		var _iter_ms: float = float(Time.get_ticks_usec() - _iter_start) / 1000.0
+		_loop_iter += 1
+		if _iter_ms > 5.0 or _loop_iter % 100 == 1:
+			print("[Boot] loop iter %d: %.1fms | pending=%d active=%d apply_q=%d applied=%d/%d" % [
+				_loop_iter, _iter_ms,
+				_boot_compute_pending.size(), _boot_compute_active.size(),
+				_boot_apply_queue.size(), _boot_applied_count, total])
 		if _boot_first_playable:
 			break
 		await get_tree().process_frame
@@ -1274,9 +1283,17 @@ func _worker_generate(coord: Vector2i, z_level: int, builder: ChunkContentBuilde
 		data = _generate_solid_rock_chunk()
 	else:
 		data = _build_surface_chunk_native_data(coord, builder)
-		var flora_builder: ChunkFloraBuilderScript = _create_detached_flora_builder()
-		var flora_payload: Dictionary = _build_flora_payload_for_native_data(coord, data, flora_builder)
-		result_entry["flora_payload"] = flora_payload
+		## Use native flora_placements if available, else GDScript fallback
+		if data.has("flora_placements") and not (data["flora_placements"] as Array).is_empty():
+			result_entry["flora_payload"] = {
+				"chunk_coord": coord,
+				"chunk_size": int(data.get("chunk_size", 64)),
+				"placements": data["flora_placements"],
+			}
+		else:
+			var flora_builder: ChunkFloraBuilderScript = _create_detached_flora_builder()
+			var flora_payload: Dictionary = _build_flora_payload_for_native_data(coord, data, flora_builder)
+			result_entry["flora_payload"] = flora_payload
 	if _shutdown_in_progress:
 		return
 	result_entry["native_data"] = data
@@ -1643,7 +1660,13 @@ func _staged_loading_finalize() -> void:
 	loaded_chunks_for_z[coord] = chunk
 	if z_level == _active_z:
 		_loaded_chunks = loaded_chunks_for_z
-	_redrawing_chunks.append(chunk)
+	## Near-player chunks (ring 0-1): force immediate terrain redraw so player
+	## never sees green placeholder. Far chunks use progressive redraw.
+	var stream_ring: int = _chunk_chebyshev_distance(coord, _player_chunk)
+	if stream_ring <= 1 and not chunk.is_gameplay_redraw_complete():
+		chunk.complete_redraw_now()
+	if not chunk.is_redraw_complete():
+		_redrawing_chunks.append(chunk)
 	if coord != _player_chunk and not chunk.is_terrain_phase_done():
 		chunk.visible = false
 	_boot_on_chunk_applied(coord, chunk)
@@ -1679,6 +1702,9 @@ func _tick_redraws() -> bool:
 		var step_ms: float = float(Time.get_ticks_usec() - step_started_usec) / 1000.0
 		if step_ms >= 2.0:
 			WorldPerfProbe.record("ChunkManager.streaming_redraw_step.%s" % [String(phase_name)], step_ms)
+		## Show hidden chunks once terrain phase is done (both boot AND runtime-streamed).
+		if not chunk.visible and chunk.is_terrain_phase_done():
+			chunk.visible = true
 		_boot_on_chunk_redraw_progress(chunk)
 		if not is_complete:
 			_redrawing_chunks.append(chunk)
@@ -2315,8 +2341,9 @@ func _on_mountain_tile_changed(tile_pos: Vector2i, old_type: int, new_type: int)
 	if old_is_mountain and new_is_mountain:
 		_incremental_topology_patch(tile_pos, new_type)
 	else:
+		## Mark dirty for background rebuild via _tick_topology() (FrameBudgetDispatcher).
+		## No synchronous _ensure_topology_current() — that caused 1000ms+ freezes on harvest.
 		_mark_topology_dirty()
-		_ensure_topology_current()
 	WorldPerfProbe.end("ChunkManager._on_mountain_tile_changed", started_usec)
 
 func _should_track_surface_topology(z_level: int) -> bool:
@@ -2331,7 +2358,6 @@ func _incremental_topology_patch(tile_pos: Vector2i, new_type: int) -> void:
 		mountain_key = _find_neighbor_key(tile_pos)
 	if mountain_key == Vector2i(999999, 999999):
 		_mark_topology_dirty()
-		_ensure_topology_current()
 		return
 	var tile_chunk: Vector2i = WorldGenerator.tile_to_chunk(tile_pos)
 	_ensure_key_structures(mountain_key, tile_chunk)
@@ -2426,10 +2452,18 @@ func _boot_is_first_playable_slice_ready() -> bool:
 		var ring: int = _boot_get_chunk_ring(coord)
 		if ring > BOOT_FIRST_PLAYABLE_MAX_RING:
 			continue
-		var chunk: Chunk = _loaded_chunks.get(coord)
-		if chunk == null or int(_boot_chunk_states[coord]) < BootChunkState.APPLIED:
+		var state: int = int(_boot_chunk_states[coord])
+		if state < BootChunkState.APPLIED:
 			return false
-		if not chunk.is_flora_phase_done():
+		## Ring 0: needs VISUAL_COMPLETE (terrain+cover+cliff via gameplay_redraw_complete).
+		## Ring 1: needs APPLIED with terrain drawn (is_terrain_phase_done).
+		## Flora is deferred — does NOT block first_playable.
+		var chunk: Chunk = _loaded_chunks.get(coord)
+		if chunk == null:
+			return false
+		if ring == 0 and not chunk.is_gameplay_redraw_complete():
+			return false
+		if ring > 0 and not chunk.is_terrain_phase_done():
 			return false
 	return true
 
@@ -2437,13 +2471,14 @@ func _boot_has_pending_near_ring_work() -> bool:
 	if _boot_chunk_states.is_empty():
 		return false
 	for coord: Vector2i in _boot_chunk_states:
-		if _boot_get_chunk_ring(coord) > BOOT_FIRST_PLAYABLE_MAX_RING:
+		var ring: int = _boot_get_chunk_ring(coord)
+		if ring > BOOT_FIRST_PLAYABLE_MAX_RING:
 			continue
 		var chunk: Chunk = _loaded_chunks.get(coord)
 		var state: int = int(_boot_chunk_states[coord])
 		if state < BootChunkState.APPLIED or chunk == null:
 			return true
-		if not chunk.is_flora_phase_done():
+		if ring == 0 and not chunk.is_gameplay_redraw_complete():
 			return true
 	return false
 
@@ -2582,9 +2617,19 @@ func _boot_worker_compute(
 		return
 	result_entry["native_data"] = data
 	result_entry["compute_ms"] = float(Time.get_ticks_usec() - started_usec) / 1000.0
+	## If native generated flora_placements, use them directly.
+	## Otherwise fall back to GDScript flora computation.
 	if z_level == 0 and not data.is_empty():
-		var flora_builder: ChunkFloraBuilderScript = _create_detached_flora_builder()
-		result_entry["flora_payload"] = _build_flora_payload_for_native_data(coord, data, flora_builder)
+		if data.has("flora_placements") and not (data["flora_placements"] as Array).is_empty():
+			result_entry["flora_payload"] = {
+				"chunk_coord": coord,
+				"chunk_size": int(data.get("chunk_size", 64)),
+				"placements": data["flora_placements"],
+			}
+		else:
+			push_warning("[Boot] native flora empty for %s — GDScript flora fallback in worker" % [coord])
+			var flora_builder: ChunkFloraBuilderScript = _create_detached_flora_builder()
+			result_entry["flora_payload"] = _build_flora_payload_for_native_data(coord, data, flora_builder)
 	_boot_compute_mutex.lock()
 	_boot_compute_results[coord] = result_entry
 	_boot_compute_mutex.unlock()
@@ -2602,6 +2647,7 @@ func _boot_submit_pending_tasks() -> void:
 		if WorldGenerator and WorldGenerator.has_method("create_detached_chunk_content_builder"):
 			builder = WorldGenerator.create_detached_chunk_content_builder()
 		if builder == null:
+			print("[Boot] WARN: builder is null for %s — using sync fallback" % [coord])
 			var compute_usec: int = Time.get_ticks_usec()
 			var native_data: Dictionary = _boot_compute_chunk_native_data(coord, _boot_compute_z)
 			var compute_ms: float = float(Time.get_ticks_usec() - compute_usec) / 1000.0
@@ -2612,7 +2658,14 @@ func _boot_submit_pending_tasks() -> void:
 				"compute_ms": compute_ms,
 			}
 			if _boot_compute_z == 0 and not native_data.is_empty():
-				result_entry["flora_payload"] = _build_flora_payload_for_native_data(coord, native_data)
+				if native_data.has("flora_placements") and not (native_data["flora_placements"] as Array).is_empty():
+					result_entry["flora_payload"] = {
+						"chunk_coord": coord,
+						"chunk_size": int(native_data.get("chunk_size", 64)),
+						"placements": native_data["flora_placements"],
+					}
+				else:
+					result_entry["flora_payload"] = _build_flora_payload_for_native_data(coord, native_data)
 			_boot_compute_mutex.lock()
 			_boot_compute_results[coord] = result_entry
 			_boot_compute_mutex.unlock()
