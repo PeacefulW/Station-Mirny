@@ -445,12 +445,10 @@ func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 			# Base terrain under mountain: biome ground tile (always visible through rock alpha)
 			atlas = _resolve_surface_ground_atlas(local_tile)
 			# Rock wall form goes to separate rock_layer (alpha-blended over terrain)
-			var rock_visual: Vector2i = _rock_visual_class(local_tile)
-			if not _is_underground:
-				rock_visual = _surface_rock_visual_class(local_tile)
-			var global_tile: Vector2i = _to_global_tile(local_tile)
-			rock_atlas = _resolve_variant_atlas(rock_visual, global_tile.x, global_tile.y)
-			rock_alt_id = _resolve_variant_alt_id(rock_visual, global_tile.x, global_tile.y, _is_underground)
+			var rock_visual: Vector2i = _resolve_visible_rock_visual_class(local_tile)
+			var rock_variant: Array = _apply_variant_full(rock_visual, local_tile, true)
+			rock_atlas = rock_variant[0]
+			rock_alt_id = rock_variant[1]
 		TileGenData.TerrainType.WATER:
 			atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, _biome_palette_index_at(local_tile))
 		TileGenData.TerrainType.SAND:
@@ -723,11 +721,11 @@ func _redraw_cover_tile(local_tile: Vector2i) -> void:
 		or _is_cave_edge_rock(local_tile)
 	if not need_cover:
 		return
-	# Use the same variant hash as terrain layer — mountain looks identical before/after mining
-	var base: Vector2i = _cover_rock_atlas(local_tile)
-	var global_tile: Vector2i = _to_global_tile(local_tile)
-	var atlas: Vector2i = _resolve_variant_atlas(base, global_tile.x, global_tile.y)
-	_cover_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, 0)
+	# Cover should restore the same wall class + deterministic variation policy
+	# as the visible mountain shell on the surface.
+	var base: Vector2i = _cover_rock_visual_class(local_tile)
+	var cover_variant: Array = _apply_variant_full(base, local_tile, true)
+	_cover_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, cover_variant[0], cover_variant[1])
 
 ## XOR-shift hash — no visible linear patterns.
 static func _tile_hash_xy(tile_x: int, tile_y: int) -> int:
@@ -749,9 +747,12 @@ func _apply_variant_full(base: Vector2i, local_tile: Vector2i, allow_flip: bool 
 func _apply_variant(base: Vector2i, local_tile: Vector2i) -> Vector2i:
 	return _apply_variant_full(base, local_tile)[0]
 
-func _resolve_variant_atlas(base: Vector2i, _global_x: int, _global_y: int) -> Vector2i:
-	## Atlas variant selection disabled — always use variant 0 (base sprite set).
-	return ChunkTilesetFactory.get_wall_variant_coords(base, 0)
+func _resolve_variant_atlas(base: Vector2i, global_x: int, global_y: int) -> Vector2i:
+	var variant_count: int = maxi(1, ChunkTilesetFactory.wall_variant_count)
+	if variant_count <= 1:
+		return ChunkTilesetFactory.get_wall_variant_coords(base, 0)
+	var variant_index: int = _tile_hash_xy(global_x - 53, global_y + 97) % variant_count
+	return ChunkTilesetFactory.get_wall_variant_coords(base, variant_index)
 
 func _resolve_variant_alt_id(base: Vector2i, global_x: int, global_y: int, allow_flip: bool) -> int:
 	if not allow_flip:
@@ -766,6 +767,11 @@ func _resolve_variant_alt_id(base: Vector2i, global_x: int, global_y: int, allow
 	if alt_count <= 0:
 		return 0
 	return _tile_hash_xy(global_x + 17, global_y + 31) % alt_count
+
+func _resolve_visible_rock_visual_class(local_tile: Vector2i) -> Vector2i:
+	if _is_underground:
+		return _rock_visual_class(local_tile)
+	return _surface_rock_visual_class(local_tile)
 
 func _rock_visual_class(local_tile: Vector2i) -> Vector2i:
 	var s: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i.DOWN))
@@ -857,10 +863,8 @@ func _rock_atlas(local_tile: Vector2i) -> Vector2i:
 		return ChunkTilesetFactory.TILE_ROCK
 	return ChunkTilesetFactory.TILE_ROCK_INTERIOR
 
-func _cover_rock_atlas(local_tile: Vector2i) -> Vector2i:
-	if _is_exterior_surface_rock(local_tile):
-		return ChunkTilesetFactory.WALL_SOUTH
-	return ChunkTilesetFactory.WALL_INTERIOR
+func _cover_rock_visual_class(local_tile: Vector2i) -> Vector2i:
+	return _surface_rock_visual_class(local_tile)
 
 func _is_cave_edge_rock(local_tile: Vector2i) -> bool:
 	if get_terrain_type_at(local_tile) != TileGenData.TerrainType.ROCK:
@@ -873,12 +877,6 @@ func _is_cave_edge_rock(local_tile: Vector2i) -> bool:
 		if neighbor_type == TileGenData.TerrainType.MINED_FLOOR or neighbor_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
 			has_open_neighbor = true
 	return has_open_neighbor
-
-func _is_exterior_surface_rock(local_tile: Vector2i) -> bool:
-	for dir: Vector2i in _COVER_REVEAL_DIRS:
-		if _is_open_exterior(_get_neighbor_terrain(local_tile + dir)):
-			return true
-	return false
 
 func _is_surface_rock(local_tile: Vector2i) -> bool:
 	for dir: Vector2i in _COVER_REVEAL_DIRS:
