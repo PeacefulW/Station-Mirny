@@ -16,7 +16,6 @@ ChunkGenerator::~ChunkGenerator() {}
 void ChunkGenerator::_bind_methods() {
     ClassDB::bind_method(D_METHOD("initialize", "seed", "params"), &ChunkGenerator::initialize);
     ClassDB::bind_method(D_METHOD("generate_chunk", "chunk_coord", "spawn_tile"), &ChunkGenerator::generate_chunk);
-    ClassDB::bind_method(D_METHOD("sample_tile", "world_pos", "spawn_tile"), &ChunkGenerator::sample_tile);
 }
 
 // ============================================================
@@ -903,41 +902,6 @@ Array ChunkGenerator::compute_flora_placements(int cs, int base_x, int base_y,
         }
     }
     return placements;
-}
-
-// ============================================================
-// sample_tile() — fast single-tile query, no allocations
-// ============================================================
-
-Dictionary ChunkGenerator::sample_tile(Vector2i world_pos, Vector2i spawn_tile) {
-    if (!initialized) return Dictionary();
-    int wx = world_pos.x;
-    int wy = world_pos.y;
-    Channels ch = sample_channels(wx, wy);
-    StructureContext sc = sample_structure(wx, wy, ch);
-    int biome_idx = resolve_biome(ch, sc);
-    const BiomeDef* biome_ptr = nullptr;
-    for (int bi = 0; bi < (int)biomes.size(); bi++) {
-        if (biomes[bi].palette_index == biome_idx) { biome_ptr = &biomes[bi]; break; }
-    }
-    VariationResult vr = resolve_variation(wx, wy, ch, sc, biome_ptr);
-    float dx_s = (float)(wrap_x(wx, wrap_width) - wrap_x(spawn_tile.x, wrap_width));
-    if (wrap_width > 0) {
-        if (dx_s > wrap_width / 2) dx_s -= wrap_width;
-        else if (dx_s < -wrap_width / 2) dx_s += wrap_width;
-    }
-    float dy_s = (float)(wy - spawn_tile.y);
-    float dist_sq = dx_s * dx_s + dy_s * dy_s;
-    TerrainType tt = resolve_terrain(dist_sq, ch, sc, vr);
-
-    Dictionary result;
-    result["terrain"] = (int)tt;
-    result["biome"] = biome_idx;
-    result["height"] = ch.height;
-    result["ridge_strength"] = sc.ridge_strength;
-    result["river_strength"] = sc.river_strength;
-    result["floodplain_strength"] = sc.floodplain_strength;
-    return result;
 }
 
 // ============================================================
