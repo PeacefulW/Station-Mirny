@@ -76,10 +76,14 @@ func _debug_toggle_rock(place: bool) -> void:
 	chunk.set_mining_write_authorized(false)
 	chunk._refresh_open_neighbors(local_tile)
 	chunk._redraw_terrain_tile(local_tile)
-	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		var neighbor: Vector2i = local_tile + dir
-		if chunk._is_inside(neighbor):
-			chunk._redraw_terrain_tile(neighbor)
+	## Redraw cardinal AND diagonal neighbors — wall form depends on all 8 directions.
+	for dy: int in range(-1, 2):
+		for dx: int in range(-1, 2):
+			if dx == 0 and dy == 0:
+				continue
+			var neighbor: Vector2i = local_tile + Vector2i(dx, dy)
+			if chunk._is_inside(neighbor):
+				chunk._redraw_terrain_tile(neighbor)
 	_chunk_manager._on_mountain_tile_changed(tile_pos, current_type, TileGenData.TerrainType.ROCK)
 
 func _setup_fps_counter() -> void:

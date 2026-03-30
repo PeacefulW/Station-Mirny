@@ -36,9 +36,11 @@ var is_loaded: bool = false
 var is_dirty: bool = false
 
 var _terrain_layer: TileMapLayer = null
+var _ground_face_layer: TileMapLayer = null
 var _rock_layer: TileMapLayer = null
 var _cover_layer: TileMapLayer = null
 var _cliff_layer: TileMapLayer = null
+var _gf_debug_printed: bool = false
 var _fog_layer: TileMapLayer = null
 var _flora_container: Node2D = null
 var _flora_result: ChunkFloraResultScript = null
@@ -81,9 +83,11 @@ func setup(
 	_chunk_manager = p_chunk_manager
 	name = "Chunk_%d_%d" % [chunk_coord.x, chunk_coord.y]
 	sync_display_position(chunk_coord)
-	_terrain_layer = _create_layer("Terrain", _terrain_tileset, -10)
-	_rock_layer = _create_layer("Rock", _terrain_tileset, -9)
-	_cliff_layer = _create_layer("Cliffs", _overlay_tileset, -8)
+	_terrain_layer = _create_layer("Terrain", _terrain_tileset, -12)
+	_ground_face_layer = _create_layer("GroundFaces", _terrain_tileset, -11)
+	_ground_face_layer.modulate = p_biome.ground_color if p_biome else Color.WHITE
+	_rock_layer = _create_layer("Rock", _terrain_tileset, -10)
+	_cliff_layer = _create_layer("Cliffs", _overlay_tileset, -9)
 	_cover_layer = _create_layer("MountainCover", _terrain_tileset, 6)
 	_flora_container = Node2D.new()
 	_flora_container.name = "Flora"
@@ -326,6 +330,7 @@ func _normalize_saved_open_tiles_after_load() -> void:
 func _redraw_all(include_flora: bool = false) -> void:
 	var started_usec: int = WorldPerfProbe.begin()
 	_terrain_layer.clear()
+	_ground_face_layer.clear()
 	_rock_layer.clear()
 	_cover_layer.clear()
 	_cliff_layer.clear()
@@ -352,6 +357,7 @@ func _redraw_all(include_flora: bool = false) -> void:
 
 func _begin_progressive_redraw() -> void:
 	_terrain_layer.clear()
+	_ground_face_layer.clear()
 	_rock_layer.clear()
 	_cover_layer.clear()
 	_cliff_layer.clear()
@@ -409,6 +415,7 @@ func _redraw_dirty_tiles(dirty_tiles: Dictionary) -> void:
 		if not _is_inside(local_tile):
 			continue
 		_terrain_layer.erase_cell(local_tile)
+		_ground_face_layer.erase_cell(local_tile)
 		_rock_layer.erase_cell(local_tile)
 		_cover_layer.erase_cell(local_tile)
 		_cliff_layer.erase_cell(local_tile)
@@ -467,6 +474,113 @@ func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 		_rock_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, rock_atlas, rock_alt_id)
 	else:
 		_rock_layer.erase_cell(local_tile)
+	# Ground/Sand face layer: elevation edges adjacent to WATER
+	var gf_visual: Vector2i = Vector2i(-1, -1)
+	if terrain_type == TileGenData.TerrainType.GROUND \
+		or terrain_type == TileGenData.TerrainType.GRASS \
+		or terrain_type == TileGenData.TerrainType.SAND:
+		gf_visual = _ground_face_visual_class(local_tile)
+		if gf_visual.x >= 0 and not _gf_debug_printed:
+			print("[GF] tile=%s type=%d gf_visual=%s atlas=%s" % [local_tile, terrain_type, gf_visual, ChunkTilesetFactory.get_ground_face_coords(gf_visual)])
+			_gf_debug_printed = true
+	if gf_visual.x >= 0:
+		var gf_atlas: Vector2i
+		if terrain_type == TileGenData.TerrainType.SAND:
+			gf_atlas = ChunkTilesetFactory.get_sand_face_coords(gf_visual)
+		else:
+			gf_atlas = ChunkTilesetFactory.get_ground_face_coords(gf_visual)
+		if gf_atlas.x >= 0:
+			_ground_face_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, gf_atlas, 0)
+		else:
+			_ground_face_layer.erase_cell(local_tile)
+	else:
+		_ground_face_layer.erase_cell(local_tile)
+
+## Ground face wall form — same 47-type logic as rock, but "open" = WATER only.
+## Returns WALL_* constant or Vector2i(-1,-1) if no water neighbor.
+func _ground_face_visual_class(local_tile: Vector2i) -> Vector2i:
+	var s: bool = _get_neighbor_terrain(local_tile + Vector2i.DOWN) == TileGenData.TerrainType.WATER
+	var n: bool = _get_neighbor_terrain(local_tile + Vector2i.UP) == TileGenData.TerrainType.WATER
+	var w: bool = _get_neighbor_terrain(local_tile + Vector2i.LEFT) == TileGenData.TerrainType.WATER
+	var e: bool = _get_neighbor_terrain(local_tile + Vector2i.RIGHT) == TileGenData.TerrainType.WATER
+	var count: int = int(s) + int(n) + int(w) + int(e)
+	if count == 0:
+		# Check diagonals for notch corners
+		var d_ne: bool = _get_neighbor_terrain(local_tile + Vector2i(1, -1)) == TileGenData.TerrainType.WATER
+		var d_nw: bool = _get_neighbor_terrain(local_tile + Vector2i(-1, -1)) == TileGenData.TerrainType.WATER
+		var d_se: bool = _get_neighbor_terrain(local_tile + Vector2i(1, 1)) == TileGenData.TerrainType.WATER
+		var d_sw: bool = _get_neighbor_terrain(local_tile + Vector2i(-1, 1)) == TileGenData.TerrainType.WATER
+		var d_count: int = int(d_ne) + int(d_nw) + int(d_se) + int(d_sw)
+		if d_count == 0:
+			return Vector2i(-1, -1)  # No water neighbors at all
+		if d_count == 4:
+			return ChunkTilesetFactory.WALL_CROSS
+		if d_count == 3:
+			if not d_sw: return ChunkTilesetFactory.WALL_DIAG3_NO_SW
+			if not d_se: return ChunkTilesetFactory.WALL_DIAG3_NO_SE
+			if not d_nw: return ChunkTilesetFactory.WALL_DIAG3_NO_NW
+			return ChunkTilesetFactory.WALL_DIAG3_NO_NE
+		if d_count == 2:
+			if d_sw and d_se: return ChunkTilesetFactory.WALL_EDGE_EW
+			if d_ne and d_nw: return ChunkTilesetFactory.WALL_DIAG_NE_NW
+			if d_ne and d_se: return ChunkTilesetFactory.WALL_DIAG_NE_SE
+			if d_nw and d_sw: return ChunkTilesetFactory.WALL_DIAG_NW_SW
+			if d_ne and d_sw: return ChunkTilesetFactory.WALL_DIAG_NE_SW
+			return ChunkTilesetFactory.WALL_DIAG_NW_SE
+		if d_sw: return ChunkTilesetFactory.WALL_NOTCH_SW
+		if d_se: return ChunkTilesetFactory.WALL_NOTCH_SE
+		if d_ne: return ChunkTilesetFactory.WALL_NOTCH_NE
+		return ChunkTilesetFactory.WALL_NOTCH_NW
+	if count == 4:
+		return ChunkTilesetFactory.WALL_PILLAR
+	if count == 3:
+		if not s: return ChunkTilesetFactory.WALL_PENINSULA_N
+		if not n: return ChunkTilesetFactory.WALL_PENINSULA_S
+		if not e: return ChunkTilesetFactory.WALL_PENINSULA_E
+		return ChunkTilesetFactory.WALL_PENINSULA_W
+	if count == 2:
+		if s and w:
+			var c_ne: bool = _get_neighbor_terrain(local_tile + Vector2i(1, -1)) == TileGenData.TerrainType.WATER
+			return ChunkTilesetFactory.WALL_CORNER_SW_T if c_ne else ChunkTilesetFactory.WALL_CORNER_SW
+		if s and e:
+			var c_nw: bool = _get_neighbor_terrain(local_tile + Vector2i(-1, -1)) == TileGenData.TerrainType.WATER
+			return ChunkTilesetFactory.WALL_CORNER_SE_T if c_nw else ChunkTilesetFactory.WALL_CORNER_SE
+		if n and w:
+			var c_se: bool = _get_neighbor_terrain(local_tile + Vector2i(1, 1)) == TileGenData.TerrainType.WATER
+			return ChunkTilesetFactory.WALL_CORNER_NW_T if c_se else ChunkTilesetFactory.WALL_CORNER_NW
+		if n and e:
+			var c_sw: bool = _get_neighbor_terrain(local_tile + Vector2i(-1, 1)) == TileGenData.TerrainType.WATER
+			return ChunkTilesetFactory.WALL_CORNER_NE_T if c_sw else ChunkTilesetFactory.WALL_CORNER_NE
+		if w and e: return ChunkTilesetFactory.WALL_CORRIDOR_EW
+		return ChunkTilesetFactory.WALL_CORRIDOR_NS
+	# count == 1: single edge + diagonal checks
+	if s:
+		var s_ne: bool = _get_neighbor_terrain(local_tile + Vector2i(1, -1)) == TileGenData.TerrainType.WATER
+		var s_nw: bool = _get_neighbor_terrain(local_tile + Vector2i(-1, -1)) == TileGenData.TerrainType.WATER
+		if s_ne and s_nw: return ChunkTilesetFactory.WALL_T_SOUTH
+		if s_ne: return ChunkTilesetFactory.WALL_SOUTH_NE
+		if s_nw: return ChunkTilesetFactory.WALL_SOUTH_NW
+		return ChunkTilesetFactory.WALL_SOUTH
+	if n:
+		var n_se: bool = _get_neighbor_terrain(local_tile + Vector2i(1, 1)) == TileGenData.TerrainType.WATER
+		var n_sw: bool = _get_neighbor_terrain(local_tile + Vector2i(-1, 1)) == TileGenData.TerrainType.WATER
+		if n_se and n_sw: return ChunkTilesetFactory.WALL_T_NORTH
+		if n_se: return ChunkTilesetFactory.WALL_NORTH_SE
+		if n_sw: return ChunkTilesetFactory.WALL_NORTH_SW
+		return ChunkTilesetFactory.WALL_NORTH
+	if w:
+		var w_ne: bool = _get_neighbor_terrain(local_tile + Vector2i(1, -1)) == TileGenData.TerrainType.WATER
+		var w_se: bool = _get_neighbor_terrain(local_tile + Vector2i(1, 1)) == TileGenData.TerrainType.WATER
+		if w_ne and w_se: return ChunkTilesetFactory.WALL_T_WEST
+		if w_ne: return ChunkTilesetFactory.WALL_WEST_NE
+		if w_se: return ChunkTilesetFactory.WALL_WEST_SE
+		return ChunkTilesetFactory.WALL_WEST
+	var e_nw: bool = _get_neighbor_terrain(local_tile + Vector2i(-1, -1)) == TileGenData.TerrainType.WATER
+	var e_sw: bool = _get_neighbor_terrain(local_tile + Vector2i(-1, 1)) == TileGenData.TerrainType.WATER
+	if e_nw and e_sw: return ChunkTilesetFactory.WALL_T_EAST
+	if e_nw: return ChunkTilesetFactory.WALL_EAST_NW
+	if e_sw: return ChunkTilesetFactory.WALL_EAST_SW
+	return ChunkTilesetFactory.WALL_EAST
 
 func _surface_rock_visual_class(local_tile: Vector2i) -> Vector2i:
 	var s: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i.DOWN))
@@ -477,21 +591,45 @@ func _surface_rock_visual_class(local_tile: Vector2i) -> Vector2i:
 	if count == 4:
 		return ChunkTilesetFactory.WALL_PILLAR
 	if count == 3:
-		if not n:
-			return ChunkTilesetFactory.WALL_PENINSULA_S
+		## Peninsula: 3 edges open, 1 closed.
+		## Sprite Forge edge bits: eX=1 when neighbor X is OPEN.
+		## pen_n (42): e=0b1011 → eN=1,eS=0,eE=1,eW=1 → S closed → not s
+		## pen_s (43): e=0b0111 → eN=0,eS=1,eE=1,eW=1 → N closed → not n
+		## pen_e (44): e=0b1101 → eN=1,eS=1,eE=0,eW=1 → E closed → not e
+		## pen_w (45): e=0b1110 → eN=1,eS=1,eE=1,eW=0 → W closed → not w
 		if not s:
 			return ChunkTilesetFactory.WALL_PENINSULA_N
-		if not w:
+		if not n:
+			return ChunkTilesetFactory.WALL_PENINSULA_S
+		if not e:
 			return ChunkTilesetFactory.WALL_PENINSULA_E
 		return ChunkTilesetFactory.WALL_PENINSULA_W
 	if count == 2:
+		## L-corners: check diagonal notch on the closed-side corner.
+		## Sprite Forge: corner notch visible when both adjacent cardinals = rock AND diagonal = open.
 		if s and w:
+			## S+W open → N+E rock. Possible notch at NE diagonal.
+			var c_ne: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1)))
+			if c_ne:
+				return ChunkTilesetFactory.WALL_CORNER_SW_T
 			return ChunkTilesetFactory.WALL_CORNER_SW
 		if s and e:
+			## S+E open → N+W rock. Possible notch at NW diagonal.
+			var c_nw: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)))
+			if c_nw:
+				return ChunkTilesetFactory.WALL_CORNER_SE_T
 			return ChunkTilesetFactory.WALL_CORNER_SE
 		if n and w:
+			## N+W open → S+E rock. Possible notch at SE diagonal.
+			var c_se: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1)))
+			if c_se:
+				return ChunkTilesetFactory.WALL_CORNER_NW_T
 			return ChunkTilesetFactory.WALL_CORNER_NW
 		if n and e:
+			## N+E open → S+W rock. Possible notch at SW diagonal.
+			var c_sw: bool = _is_open_for_surface_rock_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)))
+			if c_sw:
+				return ChunkTilesetFactory.WALL_CORNER_NE_T
 			return ChunkTilesetFactory.WALL_CORNER_NE
 		if w and e:
 			return ChunkTilesetFactory.WALL_CORRIDOR_EW
@@ -747,26 +885,15 @@ func _apply_variant_full(base: Vector2i, local_tile: Vector2i, allow_flip: bool 
 func _apply_variant(base: Vector2i, local_tile: Vector2i) -> Vector2i:
 	return _apply_variant_full(base, local_tile)[0]
 
-func _resolve_variant_atlas(base: Vector2i, global_x: int, global_y: int) -> Vector2i:
-	var variant_count: int = maxi(1, ChunkTilesetFactory.wall_variant_count)
-	if variant_count <= 1:
-		return ChunkTilesetFactory.get_wall_variant_coords(base, 0)
-	var variant_index: int = _tile_hash_xy(global_x - 53, global_y + 97) % variant_count
-	return ChunkTilesetFactory.get_wall_variant_coords(base, variant_index)
+func _resolve_variant_atlas(base: Vector2i, _global_x: int, _global_y: int) -> Vector2i:
+	## Atlas variant selection disabled — always use variant 0.
+	## Per-tile variant hashing creates visual "mess" instead of cohesive mountains.
+	## If per-mountain or per-chunk variants are needed, implement that separately.
+	return ChunkTilesetFactory.get_wall_variant_coords(base, 0)
 
-func _resolve_variant_alt_id(base: Vector2i, global_x: int, global_y: int, allow_flip: bool) -> int:
-	if not allow_flip:
-		return 0
-	var def_index: int = base.x - 7
-	if def_index < 0 or def_index >= ChunkTilesetFactory._WALL_FLIP_CLASS.size():
-		return 0
-	var flip_class: int = ChunkTilesetFactory._WALL_FLIP_CLASS[def_index]
-	if flip_class <= 0:
-		return 0
-	var alt_count: int = ChunkTilesetFactory.wall_flip_alt_count[flip_class]
-	if alt_count <= 0:
-		return 0
-	return _tile_hash_xy(global_x + 17, global_y + 31) % alt_count
+func _resolve_variant_alt_id(_base: Vector2i, _global_x: int, _global_y: int, _allow_flip: bool) -> int:
+	## Flip variants disabled — creates visible mirroring artifacts on mountain edges.
+	return 0
 
 func _resolve_visible_rock_visual_class(local_tile: Vector2i) -> Vector2i:
 	if _is_underground:

@@ -9,6 +9,7 @@ const OVERLAY_SOURCE_ID: int = 1
 
 const ROCK_FACES_PATH: String = "res://assets/sprites/terrain/rock_faces_atlas.png"
 const ROCK_FACES_DUNGEON_PATH: String = "res://assets/sprites/terrain/rock_faces_atlas_dungeon.png"
+const GROUND_FACES_PATH: String = "res://assets/sprites/terrain/ground_faces_atlas.png"
 ## Количество базовых тайлов стен (без вариантов). Обновляется при сборке tileset.
 static var wall_base_count: int = 0
 ## Количество вариантов (1 = без вариативности, 3 = три варианта).
@@ -18,6 +19,9 @@ const MAX_TERRAIN_ATLAS_EDGE_PX: int = 4096
 const SURFACE_PALETTE_TILE_COUNT: int = 11
 
 static var _surface_palette_tiles: Array[Dictionary] = []
+## Offset of ground face tiles in atlas (linear index of first ground face tile)
+static var ground_face_tiles_start: int = 0
+static var sand_face_tiles_start: int = 0
 
 const TILE_GROUND_DARK: Vector2i = Vector2i(0, 0)
 const TILE_GROUND: Vector2i = Vector2i(1, 0)
@@ -215,7 +219,7 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, f
 			atlas_tiles = atlas_cols * atlas_rows
 	wall_base_count = TILE_DEFS_COUNT
 	wall_variant_count = maxi(1, atlas_tiles / wall_base_count)
-	print("[ChunkTilesetFactory] atlas_tiles=%d, wall_base_count=%d, wall_variant_count=%d" % [atlas_tiles, wall_base_count, wall_variant_count])
+	print("[ChunkTilesetFactory] rock_atlas=%d, wall_base=%d, variants=%d" % [atlas_tiles, wall_base_count, wall_variant_count])
 	var surface_extra_tiles: int = 8
 	var extras_start: int = 7 + atlas_tiles
 	var total: int = extras_start + surface_extra_tiles
@@ -250,6 +254,67 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, f
 	_draw_clearing_tile(img, Rect2i(tile_clearing.x * ts, tile_clearing.y * ts, ts, ts), biome.ground_color)
 	_draw_rocky_patch_tile(img, Rect2i(tile_rocky_patch.x * ts, tile_rocky_patch.y * ts, ts, ts), biome.ground_color, balance.rock_color)
 	_draw_wet_patch_tile(img, Rect2i(tile_wet_patch.x * ts, tile_wet_patch.y * ts, ts, ts), biome.ground_color, biome.water_color)
+	## Ground elevation faces — neutral gray atlas tinted with biome ground_color
+	var ground_faces_tex: Texture2D = load(GROUND_FACES_PATH) as Texture2D
+	var gf_count: int = 0
+	ground_face_tiles_start = total
+	if ground_faces_tex == null:
+		push_warning("[ChunkTilesetFactory] ground_faces_atlas.png not found at %s" % GROUND_FACES_PATH)
+	if ground_faces_tex:
+		var gf_img: Image = ground_faces_tex.get_image()
+		if gf_img:
+			var gf_cols: int = gf_img.get_width() / ts
+			var gf_rows: int = gf_img.get_height() / ts
+			gf_count = mini(gf_cols * gf_rows, TILE_DEFS_COUNT)  ## Only first 47 (variant 0)
+			## Tint gray atlas with biome ground_color
+			## Blit ground faces untinted — color applied via layer modulate in Chunk
+			var src_gf: Image = gf_img.duplicate()
+			src_gf.decompress()
+			if src_gf.get_format() != Image.FORMAT_RGBA8:
+				src_gf.convert(Image.FORMAT_RGBA8)
+			## Expand atlas image to fit new tiles
+			var new_total: int = total + gf_count
+			var new_rows: int = int(ceili(float(new_total) / float(terrain_tiles_per_row)))
+			if new_rows * ts > img.get_height():
+				var expanded := Image.create(img.get_width(), new_rows * ts, false, Image.FORMAT_RGBA8)
+				expanded.blit_rect(img, Rect2i(0, 0, img.get_width(), img.get_height()), Vector2i.ZERO)
+				img = expanded
+			for i: int in range(gf_count):
+				var src_col: int = i % gf_cols
+				var src_row: int = i / gf_cols
+				var dst_coords: Vector2i = _coords_for_linear_index(ground_face_tiles_start + i)
+				img.blit_rect(src_gf, Rect2i(src_col * ts, src_row * ts, ts, ts), dst_coords * ts)
+			total = new_total
+			print("[ChunkTilesetFactory] ground_faces: start=%d count=%d" % [ground_face_tiles_start, gf_count])
+	## Sand elevation faces — same ground_faces atlas tinted with biome sand_color
+	sand_face_tiles_start = total
+	if ground_faces_tex and gf_count > 0:
+		var gf_img2: Image = ground_faces_tex.get_image()
+		if gf_img2:
+			var gf_cols2: int = gf_img2.get_width() / ts
+			var tinted_sf: Image = gf_img2.duplicate()
+			tinted_sf.decompress()
+			if tinted_sf.get_format() != Image.FORMAT_RGBA8:
+				tinted_sf.convert(Image.FORMAT_RGBA8)
+			var sand_tint: Color = biome.sand_color
+			for py: int in range(tinted_sf.get_height()):
+				for px: int in range(tinted_sf.get_width()):
+					var c: Color = tinted_sf.get_pixel(px, py)
+					var lum: float = c.r * 0.33 + c.g * 0.34 + c.b * 0.33
+					tinted_sf.set_pixel(px, py, Color(sand_tint.r * lum * 2.0, sand_tint.g * lum * 2.0, sand_tint.b * lum * 2.0, c.a))
+			var sf_count: int = gf_count
+			var new_total2: int = total + sf_count
+			var new_rows2: int = int(ceili(float(new_total2) / float(terrain_tiles_per_row)))
+			if new_rows2 * ts > img.get_height():
+				var expanded2 := Image.create(img.get_width(), new_rows2 * ts, false, Image.FORMAT_RGBA8)
+				expanded2.blit_rect(img, Rect2i(0, 0, img.get_width(), img.get_height()), Vector2i.ZERO)
+				img = expanded2
+			for i: int in range(sf_count):
+				var src_col: int = i % gf_cols2
+				var src_row: int = i / gf_cols2
+				var dst_coords: Vector2i = _coords_for_linear_index(sand_face_tiles_start + i)
+				img.blit_rect(tinted_sf, Rect2i(src_col * ts, src_row * ts, ts, ts), dst_coords * ts)
+			total = new_total2
 	var tex: ImageTexture = ImageTexture.create_from_image(img)
 	var tileset := TileSet.new()
 	tileset.tile_size = Vector2i(ts, ts)
@@ -395,6 +460,18 @@ static func get_surface_variation_tile(variation_id: int, biome_palette_index: i
 			return palette.get("wet_patch", tile_wet_patch)
 		_:
 			return Vector2i(-1, -1)
+
+static func get_sand_face_coords(wall_def: Vector2i) -> Vector2i:
+	var def_index: int = wall_def.x - 7
+	if def_index < 0 or def_index >= TILE_DEFS_COUNT:
+		return Vector2i(-1, -1)
+	return _coords_for_linear_index(sand_face_tiles_start + def_index)
+
+static func get_ground_face_coords(wall_def: Vector2i) -> Vector2i:
+	var def_index: int = wall_def.x - 7
+	if def_index < 0 or def_index >= TILE_DEFS_COUNT:
+		return Vector2i(-1, -1)
+	return _coords_for_linear_index(ground_face_tiles_start + def_index)
 
 static func get_wall_variant_coords(base: Vector2i, variant_index: int) -> Vector2i:
 	var def_index: int = base.x - 7
