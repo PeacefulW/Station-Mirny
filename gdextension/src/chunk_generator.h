@@ -56,6 +56,8 @@ public:
 
     void initialize(int p_seed, Dictionary p_params);
     Dictionary generate_chunk(Vector2i chunk_coord, Vector2i spawn_tile);
+    /// Fast single-tile sample: returns {terrain: int, biome: int}. No array allocations.
+    Dictionary sample_tile(Vector2i world_pos, Vector2i spawn_tile);
 
 protected:
     static void _bind_methods();

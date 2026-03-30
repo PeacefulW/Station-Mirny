@@ -615,6 +615,30 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 		"amount": WorldGenerator.balance.rock_drop_amount,
 	}
 
+## Redraw border tiles of loaded neighbor chunks after a new chunk is loaded.
+## Fixes cross-chunk wall form mismatches when neighbors were drawn before this chunk existed.
+func _redraw_neighbor_borders(coord: Vector2i) -> void:
+	var chunk_size: int = WorldGenerator.balance.chunk_size_tiles
+	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		var neighbor_coord: Vector2i = _offset_chunk_coord(coord, dir)
+		var neighbor_chunk: Chunk = _loaded_chunks.get(neighbor_coord) as Chunk
+		if not neighbor_chunk:
+			continue
+		var dirty: Dictionary = {}
+		if dir == Vector2i.LEFT:
+			for y: int in range(chunk_size):
+				dirty[Vector2i(chunk_size - 1, y)] = true
+		elif dir == Vector2i.RIGHT:
+			for y: int in range(chunk_size):
+				dirty[Vector2i(0, y)] = true
+		elif dir == Vector2i.UP:
+			for x: int in range(chunk_size):
+				dirty[Vector2i(x, chunk_size - 1)] = true
+		elif dir == Vector2i.DOWN:
+			for x: int in range(chunk_size):
+				dirty[Vector2i(x, 0)] = true
+		neighbor_chunk._redraw_dirty_tiles(dirty)
+
 func _seam_normalize_and_redraw(tile_pos: Vector2i, local_tile: Vector2i, source_chunk: Chunk) -> void:
 	var chunk_size: int = WorldGenerator.balance.chunk_size_tiles
 	var on_left: bool = local_tile.x == 0
@@ -1140,6 +1164,7 @@ func _load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
 		else:
 			_mark_topology_dirty()
 	EventBus.chunk_loaded.emit(coord)
+	_redraw_neighbor_borders(coord)
 	WorldPerfProbe.end("ChunkManager._load_chunk %s" % [coord], started_usec)
 
 func _unload_chunk(coord: Vector2i) -> void:
@@ -1680,6 +1705,7 @@ func _staged_loading_finalize() -> void:
 	WorldPerfProbe.end("ChunkStreaming.finalize.topology %s" % [coord], sub_usec)
 	sub_usec = WorldPerfProbe.begin()
 	EventBus.chunk_loaded.emit(coord)
+	_redraw_neighbor_borders(coord)
 	WorldPerfProbe.end("ChunkStreaming.finalize.emit %s" % [coord], sub_usec)
 	WorldPerfProbe.end("ChunkStreaming.phase2_finalize %s" % [coord], total_usec)
 
@@ -2442,7 +2468,7 @@ func _boot_on_chunk_redraw_progress(chunk: Chunk) -> void:
 		return
 	if not chunk.visible and chunk.is_terrain_phase_done():
 		chunk.visible = true
-	if chunk.is_flora_phase_done():
+	if chunk.is_gameplay_redraw_complete():
 		_boot_set_chunk_state(chunk.chunk_coord, BootChunkState.VISUAL_COMPLETE)
 
 func _boot_is_first_playable_slice_ready() -> bool:
@@ -2767,7 +2793,7 @@ func _boot_apply_from_queue() -> int:
 		_boot_metric_chunks_applied += 1
 		WorldPerfProbe.record("Boot.apply_chunk %s" % [coord], apply_ms)
 		var chunk: Chunk = _loaded_chunks.get(coord)
-		if coord == _boot_center and chunk != null and not chunk.is_flora_phase_done():
+		if coord == _boot_center and chunk != null and not chunk.is_gameplay_redraw_complete():
 			var redraw_usec: int = Time.get_ticks_usec()
 			chunk.complete_redraw_now(true)
 			var redraw_ms: float = float(Time.get_ticks_usec() - redraw_usec) / 1000.0
@@ -2876,6 +2902,7 @@ func _boot_apply_chunk_from_native_data(
 		else:
 			_mark_topology_dirty()
 	EventBus.chunk_loaded.emit(coord)
+	_redraw_neighbor_borders(coord)
 	_boot_on_chunk_applied(coord, chunk)
 
 ## --- Boot readiness helpers (boot_chunk_readiness_spec) ---
