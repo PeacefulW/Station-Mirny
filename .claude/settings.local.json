@@ -19,7 +19,12 @@
       "Bash(find \"M:/dev/Station Peaceful/Station Peaceful/core/systems\" -name \"*.gd\" -exec wc -l {} +)",
       "Bash(find \"M:/dev/Station Peaceful/Station Peaceful/core/entities\" -name \"*.gd\" -exec wc -l {} +)",
       "Bash(wc -l core/systems/world/*.gd)",
-      "Bash(find /m/dev/Station Peaceful -type f -name *.gdextension -o -name *.so -o -name *.dll)"
+      "Bash(find /m/dev/Station Peaceful -type f -name *.gdextension -o -name *.so -o -name *.dll)",
+      "Bash(grep -E \"\\\\.\\(gd|gdscript\\)$\")",
+      "Bash(grep -rn ChunkGenerator '/m/dev/Station Peaceful/Station Peaceful/' --include=*.gd --include=*.cpp --include=*.h)",
+      "Bash(grep \"\\\\.gd$\")",
+      "Bash(stat /m/dev/Station Peaceful/Station Peaceful/gdextension/src/*.cpp)",
+      "Bash(scons platform=windows target=template_debug)"
     ]
   }
 }

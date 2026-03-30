@@ -14,6 +14,7 @@ var _terrain_resolver: RefCounted = null
 var _balance: WorldGenBalance = null
 var _feature_and_poi_payload_cache: RefCounted = null
 var _all_pois_snapshot: Array[Resource] = []
+var _native_generator: RefCounted = null
 
 func initialize(
 	balance_resource: WorldGenBalance,
@@ -29,6 +30,8 @@ func initialize(
 	_all_pois_snapshot = all_pois
 	if not _balance:
 		return
+	if WorldGenerator and WorldGenerator.has_method("get_native_chunk_generator"):
+		_native_generator = WorldGenerator.get_native_chunk_generator()
 
 func build_chunk(chunk_coord: Vector2i) -> ChunkBuildResult:
 	var canonical_chunk: Vector2i = _canonicalize_chunk_coord(chunk_coord)
@@ -69,6 +72,22 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 	var chunk_size: int = _chunk_size()
 	if chunk_size <= 0:
 		return {}
+	var spawn_tile: Vector2i = _world_context.spawn_tile if _world_context else Vector2i.ZERO
+	# Try native C++ path — skip expensive feature/POI computation on worker threads.
+	# Feature/POI payload is deferred to main-thread cache population.
+	if _native_generator != null and _native_generator.has_method("generate_chunk"):
+		var native_start_usec: int = Time.get_ticks_usec()
+		var native_result: Dictionary = _native_generator.generate_chunk(canonical_chunk, spawn_tile)
+		var native_ms: float = float(Time.get_ticks_usec() - native_start_usec) / 1000.0
+		if not native_result.is_empty():
+			native_result[FEATURE_AND_POI_PAYLOAD_KEY] = _empty_feature_and_poi_payload()
+			if native_ms >= 2.0:
+				print("[ChunkGen] native generate_chunk %s: %.1f ms" % [canonical_chunk, native_ms])
+			return native_result
+	# GDScript fallback — compute feature/POI here
+	var feature_and_poi_payload: Dictionary = _build_feature_and_poi_payload(canonical_chunk, base_tile, chunk_size)
+	_publish_feature_and_poi_payload(canonical_chunk, feature_and_poi_payload)
+	# GDScript fallback
 	var tile_count: int = chunk_size * chunk_size
 	var terrain := PackedByteArray()
 	var height := PackedFloat32Array()
@@ -82,9 +101,6 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 	biome.resize(tile_count)
 	flora_density_values.resize(tile_count)
 	flora_modulation_values.resize(tile_count)
-	var feature_and_poi_payload: Dictionary = _build_feature_and_poi_payload(canonical_chunk, base_tile, chunk_size)
-	_publish_feature_and_poi_payload(canonical_chunk, feature_and_poi_payload)
-	var spawn_tile: Vector2i = _world_context.spawn_tile if _world_context else Vector2i.ZERO
 	var tile_data: TileGenData = TileGenData.new()
 	var canonical_tile: Vector2i = base_tile
 	var row_index: int = 0

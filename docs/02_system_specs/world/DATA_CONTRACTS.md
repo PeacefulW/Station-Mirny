@@ -186,7 +186,7 @@ Observed files for this version:
 
 - `classification`: `canonical`
 - `owner`: `ChunkManager` owns runtime cross-state terrain arbitration, `Chunk` owns loaded chunk terrain storage, and `WorldGenerator` owns the generated surface base terrain used for unloaded fallback.
-- `writers`: `WorldGenerator` and `ChunkContentBuilder` generate base chunk payloads; `Chunk.populate_native()` installs chunk state; `Chunk._set_terrain_type()` and `Chunk.mark_tile_modified()` mutate loaded runtime terrain; `ChunkManager.set_saved_data()` and `ChunkManager._unload_chunk()` write the unloaded overlay.
+- `writers`: `WorldGenerator` and `ChunkContentBuilder` generate base chunk payloads (via native `ChunkGenerator` C++ path when `use_native_chunk_generation` enabled, GDScript fallback otherwise); `Chunk.populate_native()` installs chunk state; `Chunk._set_terrain_type()` and `Chunk.mark_tile_modified()` mutate loaded runtime terrain; `ChunkManager.set_saved_data()` and `ChunkManager._unload_chunk()` write the unloaded overlay.
 - `readers`: `Chunk` terrain, cover, cliff, and fog drawing paths; `ChunkManager.get_terrain_type_at_global()`; `Player` resource targeting and movement checks through `ChunkManager`; `GameWorld` indoor fallback; `MountainShadowSystem` edge detection.
 - `rebuild policy`: immediate writes; loaded chunk terrain is mutated in place; unloaded runtime changes are stored as overlay state and re-applied on load; cross-state reads are centralized through `ChunkManager.get_terrain_type_at_global()`.
 - `invariants`:
@@ -198,6 +198,10 @@ Observed files for this version:
 - `assert(loaded_chunk or saved_tile_state.has("terrain") or active_z == 0 or resolved_terrain == TileGenData.TerrainType.ROCK, "unloaded underground fallback must be ROCK")`
 - `assert(native_data.keys().has_all(["chunk_coord", "canonical_chunk_coord", "base_tile", "chunk_size", "terrain", "height", "variation", "biome", "flora_density_values", "flora_modulation_values", "feature_and_poi_payload"]), "ChunkBuildResult.to_native_data() must export the current payload fields")`
 - `assert(native_data["feature_and_poi_payload"] == {"placements": []} or native_data["feature_and_poi_payload"].has("placements"), "feature_and_poi_payload must always use the explicit baseline shape")`
+- `assert(native_cpp_output_format_matches_gdscript, "ChunkGenerator C++ generate_chunk() output Dictionary must be wire-compatible with GDScript ChunkContentBuilder.build_chunk_native_data() — same keys, same array types, same index order. Additional key 'flora_placements' (Array of Dictionary) is optional native extension.")`
+- `assert(native_fallback_graceful, "if ChunkGenerator C++ class unavailable, ChunkContentBuilder falls back to GDScript generation without error")`
+- `assert(native_flora_placements_optional, "flora_placements key in native output is optional. If present and non-empty, worker paths skip GDScript flora computation. If absent, GDScript flora builder runs as fallback.")`
+- `assert(native_flora_hash_uses_int64, "tile_hash in C++ uses int64_t arithmetic to match GDScript 64-bit int for deterministic flora placement parity")`
 - `write operations`:
 - `WorldGenerator.build_chunk_native_data()`
 - `WorldGenerator.build_chunk_content()`
@@ -421,6 +425,8 @@ Observed files for this version:
 - `assert(no_reblocking_after_first_playable, "remaining boot work (outer chunks, topology, shadows) completes in background without re-blocking")`
 - `assert(no_synchronous_shadow_rebuild_after_first_playable, "shadow build uses schedule_boot_shadows() + _tick_shadows() via FrameBudgetDispatcher (1ms), not synchronous prepare_boot_shadows()")`
 - `assert(no_synchronous_topology_build_after_first_playable, "topology uses _tick_topology() via FrameBudgetDispatcher (2ms), not synchronous ensure_built() in _tick_boot_remaining()")`
+- `assert(no_sync_topology_rebuild_in_harvest, "harvest path uses _mark_topology_dirty() for background rebuild via _tick_topology(), not synchronous _ensure_topology_current()")`
+- `assert(runtime_near_chunks_get_instant_redraw, "runtime-streamed chunks within Chebyshev ring 0-1 of player get complete_redraw_now() at finalize for instant terrain+cover+cliff — no progressive wait")`
 - `assert(not boot_complete or all_startup_chunks_state >= VISUAL_COMPLETE, "boot_complete requires all startup chunks to reach terminal state")`
 - `assert(not boot_complete or topology_ready, "boot_complete requires topology to be ready")`
 - `assert(ring_0_gets_complete_redraw_now_with_flora, "ring 0 boot chunk gets complete_redraw_now(true) at apply time")`

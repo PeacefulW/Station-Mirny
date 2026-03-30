@@ -309,6 +309,10 @@ function genHeightmap(T,def,P,seed){
 
   const platH=30*sc;
   const southFaceH=wH+eW; // full south face = wall + edge
+  const topNotchW=eW+rH;
+  const topNotchH=eW;
+  const bottomNotchW=eW+rH;
+  const bottomNotchH=southFaceH+rH;
 
   for(let y=0;y<T;y++){
     for(let x=0;x<T;x++){
@@ -321,28 +325,51 @@ function genHeightmap(T,def,P,seed){
       let dMin=Math.min(dN,dS,dE,dW);
 
       // === CORNER NOTCHES ===
-      // Notch = continuation of the SAME cardinal edges into the corner.
-      // Uses the SAME jag arrays, SAME edgeW, SAME jagged distances.
-      // The distances injected into dMin match the cardinal formulas exactly:
-      //   E-side: T-1-x - jE[y]   (same as dE)
-      //   W-side: x - jW[y]       (same as dW)
-      //   N-side: y - jN[x]       (same as dN)
-      //   S-bottom: T-1-y - jS[x] (jagged distance from bottom edge)
+      // Corner notch = attached continuation piece, not a free-standing tab.
+      // So the OUTER sides (touching neighbor tiles) stay fully merged, while
+      // the INNER sides define the visible bevel/wall of the notch.
+      // Upper notches are shallow: width follows top edge+relief, height
+      // follows side edge height. Lower notches are tall: width follows the
+      // lower block top edge+relief, height follows full south face + relief.
       if(cNE){
-        const bx=eW+jE[y], by=eW+jN[x];
-        if(T-1-x<bx && y<by) dMin=Math.min(dMin, T-1-x-jE[y], y-jN[x]);
+        const notchW=Math.max(1,Math.round(topNotchW));
+        const notchH=Math.max(1,Math.round(topNotchH));
+        const dx=T-1-x, dy=y;
+        if(dx<notchW && dy<notchH){
+          const innerDx=notchW-1-dx;
+          const innerDy=notchH-1-dy;
+          dMin=Math.min(dMin, innerDx, innerDy);
+        }
       }
       if(cNW){
-        const bx=eW+jW[y], by=eW+jN[x];
-        if(x<bx && y<by) dMin=Math.min(dMin, x-jW[y], y-jN[x]);
+        const notchW=Math.max(1,Math.round(topNotchW));
+        const notchH=Math.max(1,Math.round(topNotchH));
+        const dx=x, dy=y;
+        if(dx<notchW && dy<notchH){
+          const innerDx=notchW-1-dx;
+          const innerDy=notchH-1-dy;
+          dMin=Math.min(dMin, innerDx, innerDy);
+        }
       }
       if(cSE){
-        const bx=eW+jE[y], by=southFaceH+jS[x];
-        if(T-1-x<bx && T-1-y<by) dMin=Math.min(dMin, T-1-x-jE[y], T-1-y-jS[x]);
+        const notchW=Math.max(1,Math.round(bottomNotchW));
+        const notchH=Math.max(1,Math.round(bottomNotchH));
+        const dx=T-1-x, dy=T-1-y;
+        if(dx<notchW && dy<notchH){
+          const innerDx=notchW-1-dx;
+          const innerDy=notchH-1-dy;
+          dMin=Math.min(dMin, innerDx, innerDy);
+        }
       }
       if(cSW){
-        const bx=eW+jW[y], by=southFaceH+jS[x];
-        if(x<bx && T-1-y<by) dMin=Math.min(dMin, x-jW[y], T-1-y-jS[x]);
+        const notchW=Math.max(1,Math.round(bottomNotchW));
+        const notchH=Math.max(1,Math.round(bottomNotchH));
+        const dx=x, dy=T-1-y;
+        if(dx<notchW && dy<notchH){
+          const innerDx=notchW-1-dx;
+          const innerDy=notchH-1-dy;
+          dMin=Math.min(dMin, innerDx, innerDy);
+        }
       }
 
       if(dMin<-2){hm[y*T+x]=0;continue}
@@ -369,6 +396,91 @@ function genHeightmap(T,def,P,seed){
     }
   }
   return hm;
+}
+
+function patchUpperNotchHeightmap(T,def,P,hm){
+  const cNE=!!(def.c&0b1000), cNW=!!(def.c&0b0100);
+  if(!cNE && !cNW)return;
+
+  const sc=T/64;
+  const eW=P.edgeW*sc;
+  const rH=P.reliefH*sc;
+  const platH=30*sc+rH;
+  const notchW=Math.max(1,Math.round(eW+rH));
+  const notchH=Math.max(1,Math.round(eW));
+  const mergePad=Math.max(1,Math.round(Math.max(sc,rH*.35)));
+  const cornerCap=Math.max(1,Math.round(Math.max(sc,rH*.6)));
+
+  function patchRect(startX,isLeftOuter){
+    for(let localY=0;localY<notchH;localY++){
+      for(let localX=0;localX<notchW;localX++){
+        const x=startX+localX,y=localY,i=y*T+x;
+        const outerSideDist=isLeftOuter?localX:(notchW-1-localX);
+        const innerSideDist=isLeftOuter?(notchW-1-localX):localX;
+        const innerBottomDist=notchH-1-localY;
+
+        // Merge the notch into the top and side neighbors so no dark slit
+        // appears on the shared outer borders.
+        if(localY<mergePad||outerSideDist<mergePad){
+          hm[i]=Math.max(hm[i],platH);
+        }
+
+        // Fill the inner overlap where the horizontal and vertical top relief
+        // bands meet. Without this cap the renderer leaves a dark triangular
+        // split between the two continuations.
+        if(innerSideDist<cornerCap&&innerBottomDist<cornerCap){
+          hm[i]=Math.max(hm[i],platH*.92);
+        }
+      }
+    }
+  }
+
+  if(cNW)patchRect(0,true);
+  if(cNE)patchRect(T-notchW,false);
+}
+
+function retouchUpperNotchAlbedo(T,def,P,d,nd){
+  const cNE=!!(def.c&0b1000), cNW=!!(def.c&0b0100);
+  if(!cNE && !cNW)return;
+
+  const sc=T/64;
+  const eW=P.edgeW*sc;
+  const rH=P.reliefH*sc;
+  const notchW=Math.max(1,Math.round(eW+rH));
+  const notchH=Math.max(1,Math.round(eW));
+  const bevelBand=Math.max(1,Math.round(Math.max(sc,rH*.4)));
+  const cornerBand=Math.max(bevelBand,Math.round(Math.max(sc,rH*.65)));
+  const topTint=hex2rgb(P.cTop),hlTint=hex2rgb(P.cHL);
+
+  function patchRect(startX,isLeftOuter){
+    for(let localY=0;localY<notchH;localY++){
+      for(let localX=0;localX<notchW;localX++){
+        const x=startX+localX,y=localY,i=(y*T+x)*4;
+        if(d[i+3]<=0)continue;
+
+        const outerSideDist=isLeftOuter?localX:(notchW-1-localX);
+        const innerSideDist=isLeftOuter?(notchW-1-localX):localX;
+        const innerBottomDist=notchH-1-localY;
+
+        let blend=0;
+        if(localY===0||outerSideDist===0)blend=Math.max(blend,.14);
+        if(innerBottomDist<bevelBand)blend=Math.max(blend,.32*(1-innerBottomDist/Math.max(bevelBand,1)));
+        if(innerSideDist<bevelBand)blend=Math.max(blend,.34*(1-innerSideDist/Math.max(bevelBand,1)));
+        if(innerSideDist<cornerBand&&innerBottomDist<cornerBand)blend=Math.max(blend,.52);
+        if(blend<=0)continue;
+
+        const target=lerpC(topTint,hlTint,.78);
+        d[i]=clamp(Math.round(lerp(d[i],target[0],blend)),0,255);
+        d[i+1]=clamp(Math.round(lerp(d[i+1],target[1],blend)),0,255);
+        d[i+2]=clamp(Math.round(lerp(d[i+2],target[2],blend)),0,255);
+        d[i+3]=255;
+        nd[i+3]=255;
+      }
+    }
+  }
+
+  if(cNW)patchRect(0,true);
+  if(cNE)patchRect(T-notchW,false);
 }
 
 // ═══════════════════════════════════════════
@@ -451,6 +563,7 @@ function isCrack(x,y,cracks,seed){
 // ═══════════════════════════════════════════
 function renderTile(T,def,P,seed){
   const hm=genHeightmap(T,def,P,seed);
+  patchUpperNotchHeightmap(T,def,P,hm);
   const normals=calcNormals(hm,T);
   const ao=P.optAO?calcAO(hm,T):null;
   const nf=mkNoise(seed+999);
@@ -611,6 +724,8 @@ function renderTile(T,def,P,seed){
       nd[i*4+3]=a;
     }
   }
+
+  retouchUpperNotchAlbedo(T,def,P,d,nd);
 
   ctx.putImageData(img,0,0);
   hmCtx.putImageData(hmI,0,0);
