@@ -100,7 +100,7 @@ Observed files for this version:
 - Surface local mountain reveal state is derived from the current loaded open pocket around the player.
 - Underground fog state is transient reveal state, shared by the active underground runtime, and not persisted.
 - Rock atlas selection is explicit code in `Chunk`; current rendering does not rely on Godot TileSet terrain peering or autotile rules.
-- TileMap layers, fog cells, cover erasures, cliff overlays, and mountain shadow sprites are presentation outputs, not world truth.
+- TileMap layers, ground elevation face overlays, fog cells, cover erasures, cliff overlays, and mountain shadow sprites are presentation outputs, not world truth.
 
 ## Layer: Feature / POI Definitions
 
@@ -347,7 +347,9 @@ Observed files for this version:
 - `readers`: Godot rendering is the effective consumer; developer-facing debug inspection can read `WorldFeatureDebugOverlay` marker snapshots. No in-scope simulation system was found that treats these presentation nodes as authority.
 - `rebuild policy`: loaded-only and redraw-driven; underground fog presentation is applied to loaded chunks only; surface shadow presentation is surface-only and rebuilt when edge cache or sun-angle thresholds require it.
 - `invariants`:
-- `assert(terrain_layer_is_derived_from_chunk_data and cover_layer_is_derived_from_chunk_data and cliff_layer_is_derived_from_chunk_data, "terrain, cover, and cliff TileMap layers are derived outputs, not source of truth")`
+- `assert(terrain_layer_is_derived_from_chunk_data and ground_face_layer_is_derived_from_chunk_data and cover_layer_is_derived_from_chunk_data and cliff_layer_is_derived_from_chunk_data, "terrain, ground-face, cover, and cliff TileMap layers are derived outputs, not source of truth")`
+- `assert(surface_ground_face_layer_uses_wall_interior_for_non_water_ground_grass_sand_and_water_shaped_faces_for_water_adjacent_tiles, "ground/sand face overlay stays presentation-only but is applied consistently across eligible surface terrain")`
+- `assert(water_adjacent_ground_face_tiles_may_use_water_underlay_in_terrain_layer_to_expose_face_alpha, "riverbank/coast presentation may intentionally place WATER under face overlays for eligible surface tiles")`
 - `assert(all_revealed_cover_tiles_are_erased_from_cover_layer, "surface cover reveal is applied by erasing cover_layer cells")`
 - `assert(not _is_underground or roof_cover_system_disabled_for_chunk, "underground chunks do not use roof cover")`
 - `assert(not _is_underground or fog_layer_initialized_to_unseen_for_all_loaded_tiles, "underground fog layer starts every loaded underground tile as UNSEEN")`
@@ -598,7 +600,7 @@ Observed files for this version:
 
 ### Presentation-only state
 
-- `Chunk` TileMap layers and flora/debug nodes
+- `Chunk` TileMap layers (including water-adjacent ground/sand face overlays) and flora/debug nodes
 - Fog tiles written into `Chunk._fog_layer`
 - Cover erasures applied to `Chunk._cover_layer`
 - `MountainShadowSystem._shadow_sprites`

@@ -19,31 +19,36 @@ related_docs:
 
 ## Design Intent
 
-Ground tiles adjacent to WATER should display elevation faces — wall-like edges that create a visual impression of raised terrain next to water, like a riverbank or coastline cliff. This gives the world a 3D depth effect: water sits lower, ground sits higher, with visible edges at the boundary.
+Surface `GROUND/GRASS/SAND` tiles should use the elevation-face atlas as their presentation skin. Tiles adjacent to `WATER` display water-shaped elevation faces — wall-like edges that create a visual impression of raised terrain next to water, like a riverbank or coastline cliff. Tiles not adjacent to `WATER` use the same atlas in its interior form, tinted to the biome color.
 
 Uses the same 47-tile wall form system as mountains (`rock_faces_atlas.png`), but with a separate atlas (`ground_faces_atlas.png`) that has shorter wall height and neutral gray base color. The biome-specific ground color is applied at runtime via `modulate`, so one atlas serves all biomes.
 
-Sand tiles adjacent to WATER use a separate atlas (`sand_faces_atlas.png`) with the same approach.
+Sand tiles use a separate atlas (`sand_faces_atlas.png`) with the same approach.
 
 ## Visual Model
 
 ```
 Render order (bottom to top):
 1. Water tile (WATER terrain in _terrain_layer, z=-10)
-2. Ground/Sand tile (biome-colored flat fill in _terrain_layer, z=-10)
+2. Ground/Sand tile (biome-colored flat fill in _terrain_layer, z=-10) for non-bank tiles
+   OR Water tile under bank tiles so face alpha reveals water below
 3. Ground faces overlay (ground_faces_atlas tinted by biome color, z=-9.5)
    OR Sand faces overlay (sand_faces_atlas, z=-9.5)
 4. Rock faces overlay (rock_faces_atlas, z=-9)
 ```
 
-Ground faces are ONLY drawn on GROUND/GRASS tiles that have at least one WATER neighbor. The wall form selection logic is identical to rock wall forms — same 47-type neighbor analysis, same cardinal + diagonal checks. The difference is:
+Ground faces are drawn on all surface `GROUND/GRASS` tiles. The wall form selection logic is identical to rock wall forms — same 47-type neighbor analysis, same cardinal + diagonal checks. The difference is:
 - "open" for ground faces = neighbor is WATER (not "neighbor is non-ROCK")
+- If no WATER neighbor exists, use `WALL_INTERIOR`
+- If any WATER neighbor exists (including diagonal), draw WATER in `_terrain_layer` under the face overlay so atlas alpha reveals the river/coast below
 - Ground face atlas has shorter walls (lower elevation)
 - Color is biome `ground_color` applied via modulate
 
 Sand faces follow the same pattern but:
-- Drawn on SAND tiles adjacent to WATER
+- Drawn on all surface `SAND` tiles
 - Use `sand_faces_atlas.png`
+- Use `WALL_INTERIOR` when not adjacent to WATER
+- Use WATER underlay when adjacent to WATER
 - Color is biome `sand_color` via modulate
 
 ## Atlases
@@ -88,12 +93,11 @@ Option 3 is most consistent with current rock atlas approach. `ChunkTilesetFacto
 
 ### Integration with redraw
 In `_redraw_terrain_tile()`:
-- If terrain_type is GROUND/GRASS and any cardinal/diagonal neighbor is WATER:
-  - Compute ground face visual class (same 47-type logic, open = WATER)
-  - Set cell in `_ground_face_layer` with tinted atlas coords
-- If terrain_type is SAND and any neighbor is WATER:
-  - Compute sand face visual class
-  - Set cell in `_ground_face_layer` with sand atlas coords
+- If terrain_type is `GROUND/GRASS/SAND`:
+  - Always set a face tile in `_ground_face_layer`
+  - If any cardinal/diagonal neighbor is `WATER`, compute water-shaped visual class
+  - Else use `WALL_INTERIOR`
+  - If any cardinal/diagonal neighbor is `WATER`, set base `_terrain_layer` tile to `WATER` under the face overlay
 - Else: erase `_ground_face_layer` cell
 
 ## Data Contracts
@@ -101,32 +105,36 @@ In `_redraw_terrain_tile()`:
 ### Affected layer: Presentation
 - What changes: new `_ground_face_layer` TileMapLayer in Chunk for elevation faces
 - New invariants:
-  - ground faces drawn ONLY on GROUND/GRASS tiles adjacent to WATER
-  - sand faces drawn ONLY on SAND tiles adjacent to WATER
+  - ground faces drawn on all surface GROUND/GRASS tiles
+  - sand faces drawn on all surface SAND tiles
+  - non-water-adjacent tiles use `WALL_INTERIOR`
+  - water-adjacent tiles use WATER underlay in `_terrain_layer`, including diagonal adjacency
   - wall form selection identical to rock (47 types, cardinal + diagonal)
   - ground face color = biome ground_color, sand face color = biome sand_color
 - Who adapts: Chunk, ChunkTilesetFactory
-- What does NOT change: rock layer, terrain layer, cover layer
+- What does NOT change: rock layer, cover layer
 
 ## Iterations
 
-### Iteration 1 — Ground faces next to water
+### Iteration 1 — Ground faces as full terrain skin
 
-Goal: GROUND/GRASS tiles adjacent to WATER show elevation edge faces.
+Goal: surface GROUND/GRASS tiles always use the face atlas; water-adjacent tiles show riverbank/coast shaping.
 
 What is done:
 - Load `ground_faces_atlas.png` in ChunkTilesetFactory
 - Add pre-tinted ground face tiles to per-biome tileset (colored by ground_color)
 - Add `_ground_face_layer` TileMapLayer to Chunk (z_index between terrain and rock)
 - New `_ground_face_visual_class(local_tile)` — same 47-type logic, open = WATER
-- In `_redraw_terrain_tile()`: if GROUND/GRASS and has WATER neighbor → set ground face
+- In `_redraw_terrain_tile()`: if GROUND/GRASS → always set face tile
+- If GROUND/GRASS has WATER neighbor → use WATER underlay in `_terrain_layer`
 - Clear ground face layer in `_redraw_all()` and `_begin_progressive_redraw()`
 
 Acceptance tests:
 - [ ] GROUND tiles next to river show elevation faces
+- [ ] GROUND tiles away from water use tinted `WALL_INTERIOR`
 - [ ] Face form matches neighbor pattern (corners, edges, peninsulas correct)
 - [ ] Face color matches biome ground_color
-- [ ] GROUND tiles NOT next to water have no faces
+- [ ] Water-adjacent face tiles reveal WATER through atlas alpha
 - [ ] No performance regression (ground face check is O(8 neighbors) per tile, same as rock)
 
 Files that may be touched:
@@ -138,19 +146,22 @@ Files that must NOT be touched:
 - `core/autoloads/world_generator.gd`
 - C++ code
 
-### Iteration 2 — Sand faces next to water
+### Iteration 2 — Sand faces as full terrain skin
 
-Goal: SAND tiles adjacent to WATER show sand elevation faces.
+Goal: surface SAND tiles always use the sand face atlas; water-adjacent tiles show sand bank shaping.
 
 What is done:
 - Load `sand_faces_atlas.png` in ChunkTilesetFactory
 - Add pre-tinted sand face tiles to per-biome tileset (colored by sand_color)
-- In `_redraw_terrain_tile()`: if SAND and has WATER neighbor → set sand face
+- In `_redraw_terrain_tile()`: if SAND → always set sand face
+- If SAND has WATER neighbor → use WATER underlay in `_terrain_layer`
 - Same visual class logic as ground faces
 
 Acceptance tests:
 - [ ] SAND tiles next to river show sand elevation faces
+- [ ] SAND tiles away from water use tinted `WALL_INTERIOR`
 - [ ] Sand face color matches biome sand_color
+- [ ] Water-adjacent sand face tiles reveal WATER through atlas alpha
 - [ ] Sand and ground faces don't conflict at boundaries
 
 Files that may be touched:

@@ -10,6 +10,7 @@ const OVERLAY_SOURCE_ID: int = 1
 const ROCK_FACES_PATH: String = "res://assets/sprites/terrain/rock_faces_atlas.png"
 const ROCK_FACES_DUNGEON_PATH: String = "res://assets/sprites/terrain/rock_faces_atlas_dungeon.png"
 const GROUND_FACES_PATH: String = "res://assets/sprites/terrain/ground_faces_atlas.png"
+const SAND_FACES_PATH: String = "res://assets/sprites/terrain/sand_faces_atlas.png"
 ## Количество базовых тайлов стен (без вариантов). Обновляется при сборке tileset.
 static var wall_base_count: int = 0
 ## Количество вариантов (1 = без вариативности, 3 = три варианта).
@@ -20,8 +21,8 @@ const SURFACE_PALETTE_TILE_COUNT: int = 11
 
 static var _surface_palette_tiles: Array[Dictionary] = []
 ## Offset of ground face tiles in atlas (linear index of first ground face tile)
-static var ground_face_tiles_start: int = 0
-static var sand_face_tiles_start: int = 0
+static var ground_face_tiles_start: int = -1
+static var sand_face_tiles_start: int = -1
 
 const TILE_GROUND_DARK: Vector2i = Vector2i(0, 0)
 const TILE_GROUND: Vector2i = Vector2i(1, 0)
@@ -375,6 +376,10 @@ static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Arr
 			var src_row: int = i / atlas_cols
 			img.blit_rect(faces_img, Rect2i(src_col * ts, src_row * ts, ts, ts), _coords_for_linear_index(7 + i) * ts)
 	_surface_palette_tiles.clear()
+	ground_face_tiles_start = -1
+	sand_face_tiles_start = -1
+	var ground_faces_img: Image = _load_face_image(GROUND_FACES_PATH)
+	var sand_faces_img: Image = _load_face_image(SAND_FACES_PATH)
 	for biome_index: int in range(ordered_biomes.size()):
 		var biome: BiomeData = ordered_biomes[biome_index]
 		var start_index: int = palette_start + biome_index * SURFACE_PALETTE_TILE_COUNT
@@ -391,7 +396,6 @@ static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Arr
 			"rocky_patch": _coords_for_linear_index(start_index + 9),
 			"wet_patch": _coords_for_linear_index(start_index + 10),
 		}
-		_surface_palette_tiles.append(palette)
 		var ground_dark: Vector2i = palette["ground_dark"]
 		var ground: Vector2i = palette["ground"]
 		var ground_light: Vector2i = palette["ground_light"]
@@ -414,6 +418,31 @@ static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Arr
 		_draw_clearing_tile(img, Rect2i(clearing.x * ts, clearing.y * ts, ts, ts), biome.ground_color)
 		_draw_rocky_patch_tile(img, Rect2i(rocky_patch.x * ts, rocky_patch.y * ts, ts, ts), biome.ground_color, balance.rock_color)
 		_draw_wet_patch_tile(img, Rect2i(wet_patch.x * ts, wet_patch.y * ts, ts, ts), biome.ground_color, biome.water_color)
+		var ground_face_append: Dictionary = _append_face_tiles(
+			img,
+			total,
+			_tint_face_image(ground_faces_img, biome.ground_color),
+			ts
+		)
+		img = ground_face_append["image"]
+		var ground_face_start: int = int(ground_face_append["start"])
+		total = int(ground_face_append["total"])
+		if biome_index == 0:
+			ground_face_tiles_start = ground_face_start
+		var sand_face_append: Dictionary = _append_face_tiles(
+			img,
+			total,
+			_tint_face_image(sand_faces_img, biome.sand_color),
+			ts
+		)
+		img = sand_face_append["image"]
+		var sand_face_start: int = int(sand_face_append["start"])
+		total = int(sand_face_append["total"])
+		if biome_index == 0:
+			sand_face_tiles_start = sand_face_start
+		palette["ground_face_start"] = ground_face_start
+		palette["sand_face_start"] = sand_face_start
+		_surface_palette_tiles.append(palette)
 	tile_water = _coords_for_linear_index(palette_start + 3)
 	tile_sand = _coords_for_linear_index(palette_start + 4)
 	tile_grass = _coords_for_linear_index(palette_start + 5)
@@ -461,15 +490,29 @@ static func get_surface_variation_tile(variation_id: int, biome_palette_index: i
 		_:
 			return Vector2i(-1, -1)
 
-static func get_sand_face_coords(wall_def: Vector2i) -> Vector2i:
-	var def_index: int = wall_def.x - 7
-	if def_index < 0 or def_index >= TILE_DEFS_COUNT:
+static func get_sand_face_coords(wall_def: Vector2i, biome_palette_index: int = -1) -> Vector2i:
+	var def_index: int = _wall_def_index(wall_def)
+	if def_index < 0:
+		return Vector2i(-1, -1)
+	if biome_palette_index >= 0:
+		var palette: Dictionary = _get_surface_palette(biome_palette_index)
+		var start_index: int = int(palette.get("sand_face_start", -1))
+		if start_index >= 0:
+			return _coords_for_linear_index(start_index + def_index)
+	if sand_face_tiles_start < 0:
 		return Vector2i(-1, -1)
 	return _coords_for_linear_index(sand_face_tiles_start + def_index)
 
-static func get_ground_face_coords(wall_def: Vector2i) -> Vector2i:
-	var def_index: int = wall_def.x - 7
-	if def_index < 0 or def_index >= TILE_DEFS_COUNT:
+static func get_ground_face_coords(wall_def: Vector2i, biome_palette_index: int = -1) -> Vector2i:
+	var def_index: int = _wall_def_index(wall_def)
+	if def_index < 0:
+		return Vector2i(-1, -1)
+	if biome_palette_index >= 0:
+		var palette: Dictionary = _get_surface_palette(biome_palette_index)
+		var start_index: int = int(palette.get("ground_face_start", -1))
+		if start_index >= 0:
+			return _coords_for_linear_index(start_index + def_index)
+	if ground_face_tiles_start < 0:
 		return Vector2i(-1, -1)
 	return _coords_for_linear_index(ground_face_tiles_start + def_index)
 
@@ -478,6 +521,71 @@ static func get_wall_variant_coords(base: Vector2i, variant_index: int) -> Vecto
 	if def_index < 0:
 		return base
 	return _coords_for_linear_index(7 + def_index + variant_index * wall_base_count)
+
+static func _wall_def_index(wall_def: Vector2i) -> int:
+	var def_index: int = wall_def.x - 7
+	if def_index < 0 or def_index >= TILE_DEFS_COUNT:
+		return -1
+	return def_index
+
+static func _load_face_image(face_path: String) -> Image:
+	var face_tex: Texture2D = load(face_path) as Texture2D
+	if face_tex == null:
+		push_warning("[ChunkTilesetFactory] face atlas not found at %s" % face_path)
+		return null
+	var face_img: Image = face_tex.get_image()
+	if face_img == null:
+		push_warning("[ChunkTilesetFactory] failed to read face atlas at %s" % face_path)
+	return face_img
+
+static func _tint_face_image(face_img: Image, tint_color: Color) -> Image:
+	if face_img == null:
+		return null
+	var tinted: Image = face_img.duplicate()
+	tinted.decompress()
+	if tinted.get_format() != Image.FORMAT_RGBA8:
+		tinted.convert(Image.FORMAT_RGBA8)
+	for py: int in range(tinted.get_height()):
+		for px: int in range(tinted.get_width()):
+			var c: Color = tinted.get_pixel(px, py)
+			var lum: float = c.r * 0.33 + c.g * 0.34 + c.b * 0.33
+			tinted.set_pixel(
+				px,
+				py,
+				Color(
+					minf(1.0, tint_color.r * lum * 2.0),
+					minf(1.0, tint_color.g * lum * 2.0),
+					minf(1.0, tint_color.b * lum * 2.0),
+					c.a
+				)
+			)
+	return tinted
+
+static func _ensure_terrain_image_rows(img: Image, total_tiles: int, tile_size: int) -> Image:
+	var required_rows: int = int(ceili(float(total_tiles) / float(terrain_tiles_per_row)))
+	if required_rows * tile_size <= img.get_height():
+		return img
+	var expanded := Image.create(img.get_width(), required_rows * tile_size, false, Image.FORMAT_RGBA8)
+	expanded.blit_rect(img, Rect2i(0, 0, img.get_width(), img.get_height()), Vector2i.ZERO)
+	return expanded
+
+static func _append_face_tiles(img: Image, total: int, face_img: Image, tile_size: int) -> Dictionary:
+	if face_img == null:
+		return {"image": img, "start": -1, "count": 0, "total": total}
+	var face_cols: int = face_img.get_width() / tile_size
+	var face_rows: int = face_img.get_height() / tile_size
+	var face_count: int = mini(face_cols * face_rows, TILE_DEFS_COUNT)
+	if face_count <= 0:
+		return {"image": img, "start": -1, "count": 0, "total": total}
+	var start_index: int = total
+	var new_total: int = total + face_count
+	img = _ensure_terrain_image_rows(img, new_total, tile_size)
+	for i: int in range(face_count):
+		var src_col: int = i % face_cols
+		var src_row: int = i / face_cols
+		var dst_coords: Vector2i = _coords_for_linear_index(start_index + i)
+		img.blit_rect(face_img, Rect2i(src_col * tile_size, src_row * tile_size, tile_size, tile_size), dst_coords * tile_size)
+	return {"image": img, "start": start_index, "count": face_count, "total": new_total}
 
 static func _resolve_terrain_tiles_per_row(total_tiles: int, tile_size: int) -> int:
 	if total_tiles <= 0:
