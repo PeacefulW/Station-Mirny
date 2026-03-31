@@ -5,7 +5,7 @@ status: draft
 owner: engineering
 source_of_truth: true
 version: 0.9
-last_updated: 2026-03-28
+last_updated: 2026-03-31
 depends_on:
   - world_generation_foundation.md
   - subsurface_and_verticality_foundation.md
@@ -53,6 +53,7 @@ Until superseded, this document is mandatory reading for any iteration that touc
 | Mining | `canonical` | `ChunkManager` orchestration, `Chunk` loaded mutation storage | loaded terrain mutation and mining-side invalidation entrypoint | topology, reveal, presentation, save collection | loaded-only mutation, immediate |
 | Topology | `derived` | `ChunkManager`, with native `MountainTopologyBuilder` behind it when enabled | surface topology caches | `MountainRoofSystem` and topology getters | surface-only, loaded-bubble scoped, incremental patch + deferred dirty rebuild |
 | Reveal | `derived` | `MountainRoofSystem`, `UndergroundFogState`, `ChunkManager` fog applier | local cover reveal and underground fog state | chunk cover/fog presentation and reveal getters | active-z dependent, loaded-bubble scoped, immediate/deferred hybrid |
+| Visual Task Scheduling | `derived` | `ChunkManager` | per-chunk visual task queues, dedupe/version state, scheduler telemetry | `ChunkManager` boot/runtime loops, instrumentation | loaded-bubble scoped, per-tick budgeted, not persisted |
 | Presentation | `presentation-only` | `Chunk`, `MountainShadowSystem`, `WorldFeatureDebugOverlay` | TileMap, shadow sprite, and debug anchor-marker output | Godot renderer, debug inspection | loaded-only, redraw-driven, surface shadow build is sun-angle dependent |
 | Boot Readiness | `derived` | `ChunkManager` | per-chunk boot state tracking and aggregate gate flags | `GameWorld`, boot progress UI, instrumentation | boot-time only, not persisted |
 
@@ -99,6 +100,7 @@ Observed files for this version:
 - Mountain topology caches are derived from currently loaded surface chunks only.
 - Surface local mountain reveal state is derived from the current loaded open pocket around the player.
 - Underground fog state is transient reveal state, shared by the active underground runtime, and not persisted.
+- Visual task queues, queue latency metrics, and invalidation versions live in `ChunkManager` and are runtime-only scheduling state rather than canonical world truth.
 - Rock atlas selection is explicit code in `Chunk`; current rendering does not rely on Godot TileSet terrain peering or autotile rules.
 - TileMap layers, ground elevation face overlays, fog cells, cover erasures, cliff overlays, and mountain shadow sprites are presentation outputs, not world truth.
 
@@ -339,6 +341,35 @@ Observed files for this version:
 - ~~`Chunk` currently exposes both `set_revealed_local_zone()` and `set_revealed_local_cover_tiles()`. The active runtime path uses the cover-tile API directly.~~ **resolved 2026-03-28**: the unused `set_revealed_local_zone()` wrapper was removed; reveal writes now have one chunk-level entrypoint.
 - Underground fog state is shared across underground runtime and cleared on z change, so discovered-state continuity between underground floors is not currently represented.
 
+## Layer: Visual Task Scheduling
+
+- `classification`: `derived`
+- `owner`: `ChunkManager` owns the visual scheduler queues, task versioning, and queue latency telemetry for chunk visual work.
+- `writers`: `ChunkManager._schedule_chunk_visual_work()`, `_ensure_visual_task()`, `_enqueue_neighbor_border_redraws()`, `_refresh_visual_task_priorities()`, `_process_visual_task()`, and `_tick_visuals_budget()`.
+- `readers`: `ChunkManager` boot/runtime work loops, `WorldPerfProbe`, and console/instrumentation consumers.
+- `rebuild policy`: runtime-only, per-tick, budgeted scheduler state. Task queues are repopulated from loaded chunk redraw state and dirty-border state; they are not persisted and are cleared on teardown.
+- `invariants`:
+- `assert(only_chunk_manager_mutates_visual_task_queues, "visual task queues are owner-only scheduler state")`
+- `assert(terrain_urgent_and_terrain_near_work_outrank_far_and_cosmetic_work, "near first-pass work must outrank far convergence work")`
+- `assert(task_dedupe_and_versioning_prevent_duplicate_live_work_for_same_chunk_kind, "scheduler must not accumulate multiple live tasks for one chunk/kind/version")`
+- `assert(visual_scheduler_work_stays_within_an_explicit_per_tick_budget, "visual queue draining is budgeted by WorldGenBalance.visual_scheduler_budget_ms")`
+- `assert(urgent_wait_and_queue_depth_are_observable, "scheduler telemetry must expose urgent wait, queue depth, processed count, and budget exhaustion")`
+- `write operations`:
+- `ChunkManager._schedule_chunk_visual_work()`
+- `ChunkManager._ensure_visual_task()`
+- `ChunkManager._refresh_visual_task_priorities()`
+- `ChunkManager._process_visual_task()`
+- `ChunkManager._tick_visuals_budget()`
+- `forbidden writes`:
+- Code outside `ChunkManager` must not push directly into `_visual_q_*`, mutate `_visual_task_pending`, or author `_visual_*_ready_usec` telemetry maps.
+- Scheduler state must not be persisted or treated as canonical world/readiness truth.
+- Direct synchronous terrain completion in the runtime streaming finalize path must not bypass scheduler ownership for near-chunk first-pass work.
+- `emitted events / invalidation signals`:
+- none; observability is currently telemetry/log based rather than event based.
+- `current violations / ambiguities / contract gaps`:
+- First-pass and full-convergence semantics still reuse compatibility paths over `Chunk.continue_redraw()` and existing redraw phases. Iteration 2 introduces the explicit readiness state machine.
+- Border-fix work is explicit scheduler state now, but final canonical full-convergence semantics are still deferred to Iteration 3.
+
 ## Layer: Presentation
 
 - `classification`: `presentation-only`
@@ -445,8 +476,8 @@ Observed files for this version:
 - `assert(no_synchronous_shadow_rebuild_after_first_playable, "shadow build uses schedule_boot_shadows() + _tick_shadows() via FrameBudgetDispatcher (1ms), not synchronous prepare_boot_shadows()")`
 - `assert(no_synchronous_topology_build_after_first_playable, "topology uses _tick_topology() via FrameBudgetDispatcher (2ms), not synchronous ensure_built() in _tick_boot_remaining()")`
 - `assert(no_sync_topology_rebuild_in_harvest, "harvest path uses _mark_topology_dirty() for background rebuild via _tick_topology(), not synchronous _ensure_topology_current()")`
-- `assert(runtime_near_chunks_get_instant_terrain, "runtime-streamed chunks within Chebyshev ring 0-1 of player get complete_terrain_phase_now() at finalize for instant terrain — cover/cliff/flora are progressive (streaming_redraw_budget_spec)")`
-- `assert(no_complete_redraw_now_in_streaming_runtime, "complete_redraw_now() is never called in the streaming runtime path — only complete_terrain_phase_now() (streaming_redraw_budget_spec)")`
+- `assert(runtime_near_chunks_enter_scheduler_owned_first_pass_lane, "runtime-streamed near chunks must enter the scheduler-owned first-pass lanes instead of bypassing visual scheduling with synchronous terrain completion")`
+- `assert(no_sync_visual_bypass_in_streaming_runtime, "streaming runtime finalize must not bypass scheduler ownership with synchronous terrain/full redraw helpers")`
 - `assert(not boot_complete or all_startup_chunks_state >= VISUAL_COMPLETE, "boot_complete requires all startup chunks to reach terminal state")`
 - `assert(not boot_complete or topology_ready, "boot_complete requires topology to be ready")`
 - `assert(ring_0_gets_terrain_phase_at_boot_apply, "ring 0 boot chunk gets complete_terrain_phase_now() at apply time — cover/cliff/flora are progressive (streaming_redraw_budget_spec)")`

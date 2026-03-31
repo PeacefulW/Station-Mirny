@@ -5,7 +5,7 @@ status: draft
 owner: engineering
 source_of_truth: true
 version: 0.7
-last_updated: 2026-03-28
+last_updated: 2026-03-31
 depends_on:
   - WORKFLOW.md
   - ../02_system_specs/world/DATA_CONTRACTS.md
@@ -193,8 +193,8 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: в boot sequence, когда initial world bubble должен быть загружен и доведён до gameplay-ready state.
-- Что делает: staged boot with bounded-parallel compute and split apply. Boot apply path only installs chunk nodes and attaches cached native/flora payloads; it does not do synchronous terrain redraw for non-player chunks. Ring 0 gets `complete_terrain_phase_now()` (terrain-only) — cover/cliff/flora are progressive via `_tick_redraws()` (streaming_redraw_budget_spec). All non-player startup chunks stay `visible=false` until terrain phase completes through progressive redraw. Returns early once the near slice is honestly ready, then hands unfinished startup coords to budgeted runtime streaming instead of faking completion.
-- Гарантии: `first_playable` = ring 0..1 visually ready under Chebyshev distance (`max(abs(dx), abs(dy))`), topology NOT required. In practice that means the near slice is loaded, applied, and past flora phase before `GameWorld` gives the player control. `boot_complete` = all tracked startup chunks terminal (`VISUAL_COMPLETE`) + topology ready. After `first_playable`, no blocking wait on boot compute/apply is allowed; unfinished startup coords are enqueued into runtime streaming, remain boot-tracked, and only become terminal after real apply/redraw progress. Non-player chunk visibility is gated on terrain phase completion (no green placeholder zones). `_boot_promote_redrawn_chunks()` transitions `APPLIED` → `VISUAL_COMPLETE` only after flora phase finishes. Shadow edge cache build respects 1ms time guard per tick. См. `Boot Readiness State` и `Boot Compute Queue` layers в `DATA_CONTRACTS.md`.
+- Что делает: staged boot with bounded-parallel compute and split apply. Boot apply path only installs chunk nodes and attaches cached native/flora payloads; visual completion is then routed through the budgeted chunk visual scheduler and its compatibility redraw tasks. Non-player startup chunks stay `visible=false` until terrain phase completes. Returns early once the near slice is honestly first-playable, then hands unfinished startup coords to budgeted runtime scheduling instead of forcing synchronous visual completion.
+- Гарантии: `first_playable` = ring 0..1 chunks are loaded, applied, and terrain-phase ready under Chebyshev distance (`max(abs(dx), abs(dy))`); topology is NOT required. `boot_complete` = all tracked startup chunks terminal (`VISUAL_COMPLETE`) + topology ready. After `first_playable`, no blocking wait on remaining visual/topology/shadow work is allowed; unfinished startup coords remain boot-tracked and only become terminal after real scheduler progress. Non-player chunk visibility is gated on terrain phase completion (no green placeholder zones). Shadow edge cache build remains budgeted. См. `Boot Readiness State` и `Boot Compute Queue` layers в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.sync_display_to_player() -> void`
@@ -290,7 +290,7 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: когда surface topology должна быть готова до старта gameplay.
-- Что делает: после initial chunk load вызывает native `ensure_built()` или `_ensure_topology_current()`, затем ставит `_boot_topology_ready = true`. Topology runs either synchronously (if all chunks done in boot loop) or deferred (if `first_playable` exited early).
+- Что делает: инициализирует startup bubble и boot gates, после чего topology остается отдельной boot-tracked зависимостью. Topology work может завершиться во время boot loop или продолжиться через budgeted topology pipeline после `first_playable`, без подмены visual/readiness semantics.
 - Гарантии: topology ready is part of `boot_complete` gate but NOT part of `first_playable` gate. Rings use Chebyshev distance. См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
@@ -430,8 +430,8 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: когда initial chunk visuals должны быть готовы в boot sequence.
-- Что делает: loads chunks with per-chunk readiness tracking and honest post-handoff continuation. Ring 0 gets `complete_terrain_phase_now()` (terrain-only) — cover/cliff/flora are progressive (streaming_redraw_budget_spec). All other startup chunks use progressive redraw and stay hidden until terrain phase completes. Unfinished startup coords after `first_playable` are re-enqueued into runtime streaming and remain boot-tracked until real completion.
-- Гарантии: canonical terrain authoritative после load; presentation строится через documented redraw paths. Near slice visual completion is mandatory for `first_playable`; full startup bubble visual completion is mandatory only for `boot_complete`. `GameWorld` uses `first_playable` as the player handoff point (input/physics/loading screen). См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
+- Что делает: loads chunks with per-chunk readiness tracking and honest post-handoff continuation. Startup visual work is scheduled through the budgeted chunk visual scheduler and compatibility redraw tasks; chunks stay hidden until terrain phase completes. Unfinished startup coords after `first_playable` remain boot-tracked and continue through runtime scheduling until real completion.
+- Гарантии: canonical terrain authoritative после load; presentation строится через scheduler-owned redraw paths. Near slice terrain/first-pass readiness is mandatory for `first_playable`; full startup bubble visual completion is mandatory only for `boot_complete`. `GameWorld` uses `first_playable` as the player handoff point (input/physics/loading screen). См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.try_harvest_at_world(world_pos: Vector2) -> Dictionary`
