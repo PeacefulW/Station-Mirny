@@ -51,6 +51,20 @@ Do not use it as a replacement for contracts, APIs, specs, or ADRs.
 6. the relevant contract document for the affected subsystem
 7. only then the exact code files listed in the task/spec
 
+### Skills — read before starting and before closing
+
+Skills in `.claude/skills/` are project-specific behavioral rules that extend governance.
+They are NOT optional. Read the relevant skills at two moments:
+
+**At task start:**
+- `.claude/skills/persistent-tasks/SKILL.md` — if the task is part of a multi-iteration feature. Read `active-epic.md` first to know the current state, documentation debt, and where things were left off.
+- `.claude/skills/brainstorming/SKILL.md` — if the task is a new feature idea without a spec.
+
+**Before writing the closure report:**
+- `.claude/skills/verification-before-completion/SKILL.md` — ALWAYS, for every task. This skill defines the evidence standard for acceptance tests AND for documentation checks. Do not write a closure report without reading this skill first.
+
+If you skip a skill that was relevant to the task, the closure report is incomplete.
+
 ### For world / chunk / mining / topology / reveal / presentation tasks
 Required contract document:
 - `docs/02_system_specs/world/DATA_CONTRACTS.md`
@@ -187,7 +201,12 @@ Use this structure:
 - ...
 
 ### Acceptance tests
-- [ ] ... passed / failed
+- [ ] ... passed / failed (метод верификации)
+
+### Contract/API documentation check
+- Grep DATA_CONTRACTS.md для `changed_name`: [результат]
+- Grep PUBLIC_API.md для `changed_name`: [результат]
+- Секция "Required updates" в спеке: [есть/нет] — [статус]
 
 ### Out-of-scope observations
 - ...
@@ -196,11 +215,14 @@ Use this structure:
 - ...
 
 ### DATA_CONTRACTS.md updated
-- ... / not required
+- ... / not required (с grep-доказательством)
 
 ### PUBLIC_API.md updated
-- ... / not required
+- ... / not required (с grep-доказательством)
 ```
+
+**Правило**: "not required" без grep-доказательства = невалидный closure report.
+См. полный формат и процедуру в `docs/00_governance/WORKFLOW.md`.
 
 ## Practical prompt discipline
 

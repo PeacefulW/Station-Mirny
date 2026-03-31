@@ -106,3 +106,17 @@ Reusable cross-entity behaviors: `HealthComponent`, `InventoryComponent`, `Equip
 ## Task Completion
 
 Every completed task requires a closure report (format in `AGENTS.md` and `docs/00_governance/WORKFLOW.md`). Update `DATA_CONTRACTS.md` and `PUBLIC_API.md` if data layers or API surfaces changed.
+
+## Skills (`.claude/skills/`)
+
+The project includes custom skills that enforce workflow discipline. Use them:
+
+- **`verification-before-completion`** — activates before writing a closure report. Requires running a concrete verification command (grep, file read, validation script) for each acceptance test before marking it "passed." Never write "passed" without evidence.
+
+- **`brainstorming`** — activates when the user proposes a new feature or asks "как лучше сделать...". Guides a structured exploration phase (understand intent → map to architecture → explore alternatives → identify risks → produce design brief) BEFORE creating a formal spec.
+
+- **`persistent-tasks`** — activates when working on multi-iteration features or resuming previous work. Maintains `.claude/agent-memory/active-epic.md` with iteration status, acceptance test progress, and blockers. Read this file at session start to know where things were left off.
+
+## Agents (`.claude/agents/`)
+
+Specialized subagents for specific tasks: `impl-planner` (feature planning), `arch-check` (architecture validation), `gdscript-review` (code review), `perf-audit` (performance analysis), `data-validator`, `docs-reviewer`, `loc-audit`, `save-audit`, `signal-tracer`, `worldgen-debug`.

@@ -97,7 +97,7 @@ const BOOT_MAX_CONCURRENT_COMPUTE: int = 3
 ## --- Boot apply budget (boot_chunk_apply_budget_spec) ---
 const BOOT_MAX_APPLY_PER_STEP: int = 1
 const BOOT_APPLY_WARNING_MS: float = 8.0
-const RUNTIME_MAX_CONCURRENT_COMPUTE: int = 3
+const RUNTIME_MAX_CONCURRENT_COMPUTE: int = 4
 var _boot_compute_pending: Array[Vector2i] = []
 var _boot_compute_active: Dictionary = {}  ## Vector2i -> int (WorkerThreadPool task_id)
 var _boot_compute_builders: Dictionary = {}  ## Vector2i -> ChunkContentBuilder (detached, per-task)
@@ -638,6 +638,38 @@ func _redraw_neighbor_borders(coord: Vector2i) -> void:
 			for x: int in range(chunk_size):
 				dirty[Vector2i(x, 0)] = true
 		neighbor_chunk._redraw_dirty_tiles(dirty)
+
+## Instead of synchronously redrawing all border tiles of 4 neighbors (256
+## tiles, 20-49ms), mark dirty tiles and add neighbors to the progressive
+## redraw queue. Border tiles will be processed by _tick_redraws() over
+## the next 1-2 frames. Used only in streaming finalize path.
+## (boot_fast_first_playable_spec Iteration 3, change 3A)
+func _enqueue_neighbor_border_redraws(coord: Vector2i) -> void:
+	var chunk_size: int = WorldGenerator.balance.chunk_size_tiles
+	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		var neighbor_coord: Vector2i = _offset_chunk_coord(coord, dir)
+		var neighbor_chunk: Chunk = _loaded_chunks.get(neighbor_coord) as Chunk
+		if not neighbor_chunk:
+			continue
+		if not neighbor_chunk.is_terrain_phase_done():
+			continue  # Neighbor hasn't drawn terrain yet, border will be drawn naturally
+		var dirty: Dictionary = {}
+		if dir == Vector2i.LEFT:
+			for y: int in range(chunk_size):
+				dirty[Vector2i(chunk_size - 1, y)] = true
+		elif dir == Vector2i.RIGHT:
+			for y: int in range(chunk_size):
+				dirty[Vector2i(0, y)] = true
+		elif dir == Vector2i.UP:
+			for x: int in range(chunk_size):
+				dirty[Vector2i(x, chunk_size - 1)] = true
+		elif dir == Vector2i.DOWN:
+			for x: int in range(chunk_size):
+				dirty[Vector2i(x, 0)] = true
+		neighbor_chunk.enqueue_dirty_border_redraw(dirty)
+		## Add to progressive redraw queue if not already there.
+		if not _redrawing_chunks.has(neighbor_chunk):
+			_redrawing_chunks.append(neighbor_chunk)
 
 func _seam_normalize_and_redraw(tile_pos: Vector2i, local_tile: Vector2i, source_chunk: Chunk) -> void:
 	var chunk_size: int = WorldGenerator.balance.chunk_size_tiles
@@ -1685,11 +1717,12 @@ func _staged_loading_finalize() -> void:
 	loaded_chunks_for_z[coord] = chunk
 	if z_level == _active_z:
 		_loaded_chunks = loaded_chunks_for_z
-	## Near-player chunks (ring 0-1): force immediate terrain redraw so player
-	## never sees green placeholder. Far chunks use progressive redraw.
+	## Near-player chunks (ring 0-1): force immediate terrain-only redraw so
+	## player never sees green placeholder. Cover/cliff/flora use progressive
+	## redraw. Far chunks use progressive redraw for all phases.
 	var stream_ring: int = _chunk_chebyshev_distance(coord, _player_chunk)
-	if stream_ring <= 1 and not chunk.is_gameplay_redraw_complete():
-		chunk.complete_redraw_now()
+	if stream_ring <= 1 and not chunk.is_terrain_phase_done():
+		chunk.complete_terrain_phase_now()
 	if not chunk.is_redraw_complete():
 		_redrawing_chunks.append(chunk)
 	if coord != _player_chunk and not chunk.is_terrain_phase_done():
@@ -1705,7 +1738,7 @@ func _staged_loading_finalize() -> void:
 	WorldPerfProbe.end("ChunkStreaming.finalize.topology %s" % [coord], sub_usec)
 	sub_usec = WorldPerfProbe.begin()
 	EventBus.chunk_loaded.emit(coord)
-	_redraw_neighbor_borders(coord)
+	_enqueue_neighbor_border_redraws(coord)
 	WorldPerfProbe.end("ChunkStreaming.finalize.emit %s" % [coord], sub_usec)
 	WorldPerfProbe.end("ChunkStreaming.phase2_finalize %s" % [coord], total_usec)
 
@@ -1725,6 +1758,11 @@ func _tick_redraws() -> bool:
 		var phase_name: StringName = chunk.get_redraw_phase_name()
 		var step_started_usec: int = Time.get_ticks_usec()
 		var is_complete: bool = chunk.continue_redraw(rows_per_step)
+		## Process deferred border dirty tiles if any (from streaming neighbor finalize).
+		## (boot_fast_first_playable_spec Iteration 3, change 3A)
+		if not chunk._pending_border_dirty.is_empty():
+			chunk._redraw_dirty_tiles(chunk._pending_border_dirty)
+			chunk._pending_border_dirty.clear()
 		var step_ms: float = float(Time.get_ticks_usec() - step_started_usec) / 1000.0
 		if step_ms >= 2.0:
 			WorldPerfProbe.record("ChunkManager.streaming_redraw_step.%s" % [String(phase_name)], step_ms)
@@ -2481,13 +2519,13 @@ func _boot_is_first_playable_slice_ready() -> bool:
 		var state: int = int(_boot_chunk_states[coord])
 		if state < BootChunkState.APPLIED:
 			return false
-		## Ring 0: needs VISUAL_COMPLETE (terrain+cover+cliff via gameplay_redraw_complete).
-		## Ring 1: needs APPLIED with terrain drawn (is_terrain_phase_done).
-		## Flora is deferred — does NOT block first_playable.
+		## Ring 0-1: needs terrain phase done only.
+		## Cover/cliff/flora are visual overlays — progressive, not blocking first_playable.
+		## (boot_fast_first_playable_spec Iteration 1, change 1A)
 		var chunk: Chunk = _loaded_chunks.get(coord)
 		if chunk == null:
 			return false
-		if ring == 0 and not chunk.is_gameplay_redraw_complete():
+		if ring == 0 and not chunk.is_terrain_phase_done():
 			return false
 		if ring > 0 and not chunk.is_terrain_phase_done():
 			return false
@@ -2504,7 +2542,7 @@ func _boot_has_pending_near_ring_work() -> bool:
 		var state: int = int(_boot_chunk_states[coord])
 		if state < BootChunkState.APPLIED or chunk == null:
 			return true
-		if ring == 0 and not chunk.is_gameplay_redraw_complete():
+		if ring == 0 and not chunk.is_terrain_phase_done():
 			return true
 	return false
 
@@ -2538,10 +2576,24 @@ func _boot_has_pending_runtime_handoff_work() -> bool:
 
 func _boot_process_redraw_budget(max_usec: int) -> void:
 	var started_usec: int = Time.get_ticks_usec()
+	## During boot, prioritize ring 0-1 chunks for faster first_playable.
+	## Deferred (ring 2+) chunks are processed after first_playable in runtime.
+	## (boot_fast_first_playable_spec Iteration 1, change 1D)
+	var priority_chunks: Array[Chunk] = []
+	var deferred_chunks: Array[Chunk] = []
+	while not _redrawing_chunks.is_empty():
+		var c: Chunk = _redrawing_chunks.pop_front()
+		if _boot_get_chunk_ring(c.chunk_coord) <= BOOT_FIRST_PLAYABLE_MAX_RING:
+			priority_chunks.append(c)
+		else:
+			deferred_chunks.append(c)
+	_redrawing_chunks = priority_chunks
 	while not _redrawing_chunks.is_empty():
 		_process_chunk_redraws()
 		if Time.get_ticks_usec() - started_usec >= max_usec:
 			break
+	## Restore deferred chunks at the end of the queue.
+	_redrawing_chunks.append_array(deferred_chunks)
 
 func _boot_start_runtime_handoff() -> void:
 	if _boot_runtime_handoff_started:
@@ -2774,8 +2826,8 @@ func _boot_apply_from_queue() -> int:
 		if _shutdown_in_progress:
 			break
 		var front_coord: Vector2i = _boot_apply_queue[0].get("coord", Vector2i.ZERO) as Vector2i
-		if _boot_get_chunk_ring(front_coord) > BOOT_FIRST_PLAYABLE_MAX_RING and _boot_has_pending_near_ring_work():
-			break
+		if _boot_get_chunk_ring(front_coord) > BOOT_FIRST_PLAYABLE_MAX_RING:
+			break  # Ring 2+ deferred to runtime streaming after first_playable (boot_fast_first_playable_spec 1C)
 		var step_start_usec: int = Time.get_ticks_usec()
 		var entry: Dictionary = _boot_apply_queue.pop_front()
 		var coord: Vector2i = entry["coord"] as Vector2i
@@ -2793,12 +2845,20 @@ func _boot_apply_from_queue() -> int:
 		_boot_metric_chunks_applied += 1
 		WorldPerfProbe.record("Boot.apply_chunk %s" % [coord], apply_ms)
 		var chunk: Chunk = _loaded_chunks.get(coord)
-		if coord == _boot_center and chunk != null and not chunk.is_gameplay_redraw_complete():
+		if coord == _boot_center and chunk != null and not chunk.is_terrain_phase_done():
+			## Warm up TileMapLayer GPU resources (shader compilation, atlas preparation)
+			## before the timed terrain redraw. First set_cell() on each layer triggers
+			## lazy initialization (~950ms total). Dummy set+erase pays this cost once.
+			## (boot_fast_first_playable_spec Iteration 2, change 2A)
+			var warmup_usec: int = Time.get_ticks_usec()
+			chunk.warmup_tile_layers()
+			var warmup_ms: float = float(Time.get_ticks_usec() - warmup_usec) / 1000.0
+			WorldPerfProbe.record("Boot.warmup_tile_layers", warmup_ms)
 			var redraw_usec: int = Time.get_ticks_usec()
-			chunk.complete_redraw_now(true)
+			chunk.complete_terrain_phase_now()
 			var redraw_ms: float = float(Time.get_ticks_usec() - redraw_usec) / 1000.0
 			_boot_metric_terrain_redraw_ms += redraw_ms
-			WorldPerfProbe.record("Boot.redraw_full %s" % [coord], redraw_ms)
+			WorldPerfProbe.record("Boot.redraw_terrain %s" % [coord], redraw_ms)
 			_boot_on_chunk_redraw_progress(chunk)
 		applied_this_step += 1
 		_boot_applied_count += 1

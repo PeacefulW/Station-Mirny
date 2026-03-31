@@ -193,7 +193,7 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: в boot sequence, когда initial world bubble должен быть загружен и доведён до gameplay-ready state.
-- Что делает: staged boot with bounded-parallel compute and split apply. Boot apply path only installs chunk nodes and attaches cached native/flora payloads; it does not do ring-1 synchronous terrain redraw anymore. Ring 0 gets one explicit synchronous `complete_redraw_now(true)` pass so the player chunk is fully visual before handoff. All non-player startup chunks stay `visible=false` until terrain phase completes through progressive redraw. Returns early once the near slice is honestly ready, then hands unfinished startup coords to budgeted runtime streaming instead of faking completion.
+- Что делает: staged boot with bounded-parallel compute and split apply. Boot apply path only installs chunk nodes and attaches cached native/flora payloads; it does not do synchronous terrain redraw for non-player chunks. Ring 0 gets `complete_terrain_phase_now()` (terrain-only) — cover/cliff/flora are progressive via `_tick_redraws()` (streaming_redraw_budget_spec). All non-player startup chunks stay `visible=false` until terrain phase completes through progressive redraw. Returns early once the near slice is honestly ready, then hands unfinished startup coords to budgeted runtime streaming instead of faking completion.
 - Гарантии: `first_playable` = ring 0..1 visually ready under Chebyshev distance (`max(abs(dx), abs(dy))`), topology NOT required. In practice that means the near slice is loaded, applied, and past flora phase before `GameWorld` gives the player control. `boot_complete` = all tracked startup chunks terminal (`VISUAL_COMPLETE`) + topology ready. After `first_playable`, no blocking wait on boot compute/apply is allowed; unfinished startup coords are enqueued into runtime streaming, remain boot-tracked, and only become terminal after real apply/redraw progress. Non-player chunk visibility is gated on terrain phase completion (no green placeholder zones). `_boot_promote_redrawn_chunks()` transitions `APPLIED` → `VISUAL_COMPLETE` only after flora phase finishes. Shadow edge cache build respects 1ms time guard per tick. См. `Boot Readiness State` и `Boot Compute Queue` layers в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
@@ -430,7 +430,7 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: когда initial chunk visuals должны быть готовы в boot sequence.
-- Что делает: loads chunks with per-chunk readiness tracking and honest post-handoff continuation. Ring 0 gets one explicit synchronous `complete_redraw_now(true)` pass; all other startup chunks use progressive redraw and stay hidden until terrain phase completes. Unfinished startup coords after `first_playable` are re-enqueued into runtime streaming and remain boot-tracked until real completion.
+- Что делает: loads chunks with per-chunk readiness tracking and honest post-handoff continuation. Ring 0 gets `complete_terrain_phase_now()` (terrain-only) — cover/cliff/flora are progressive (streaming_redraw_budget_spec). All other startup chunks use progressive redraw and stay hidden until terrain phase completes. Unfinished startup coords after `first_playable` are re-enqueued into runtime streaming and remain boot-tracked until real completion.
 - Гарантии: canonical terrain authoritative после load; presentation строится через documented redraw paths. Near slice visual completion is mandatory for `first_playable`; full startup bubble visual completion is mandatory only for `boot_complete`. `GameWorld` uses `first_playable` as the player handoff point (input/physics/loading screen). См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
@@ -453,14 +453,14 @@ related_docs:
 - Пример вызова: `_mountain_shadow_system.build_boot_shadows()`
 
 `Chunk.complete_redraw_now(include_flora: bool = false) -> void`  `(owner-only safe entrypoint)`
-- Когда вызывать: только из chunk lifecycle owner path, если уже созданный loaded chunk нужно redraw immediately. In boot path, called for ring 0 (player chunk) with `include_flora=true`. In runtime streaming, called for near-player chunks (Chebyshev ring 0-1) at finalize to eliminate green placeholder zones.
+- Когда вызывать: только из chunk lifecycle owner path для exceptional cases. **НЕ вызывается** в streaming runtime path и НЕ вызывается в boot path (streaming_redraw_budget_spec). Сохраняется для потенциальных будущих edge-cases.
 - Что делает: полный terrain/cover/cliff redraw этого chunk; optional `include_flora=true` also finishes flora synchronously.
 - Гарантии: presentation-only, loaded-only; не меняет canonical terrain и не является general external redraw API.
 
 `Chunk.complete_terrain_phase_now() -> void`  `(owner-only safe entrypoint)`
-- Когда вызывать: только из owner-controlled emergency/local presentation path, если нужен синхронный terrain-only completion для уже loaded chunk.
+- Когда вызывать: из boot apply path (ring 0 player chunk) и из streaming finalize path (ring≤1 near-player chunks). Основной синхронный redraw entrypoint после streaming_redraw_budget_spec.
 - Что делает: draws terrain layer for all tiles, advances progressive redraw to COVER phase. Cover/cliff/flora continue via `FrameBudgetDispatcher`.
-- Гарантии: presentation-only, loaded-only. Only effective when chunk is in TERRAIN redraw phase. No-op if terrain phase already complete.
+- Гарантии: presentation-only, loaded-only. Only effective when chunk is in TERRAIN redraw phase. No-op if terrain phase already complete. Допустимый degraded state: terrain без cover/cliff/flora на 0.5-2 секунды.
 - Пример вызова: внутри owner path `chunk.complete_terrain_phase_now()`
 
 `MountainShadowSystem.is_boot_shadow_work_drained() -> bool`

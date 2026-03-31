@@ -13,7 +13,7 @@ const REDRAW_PHASE_FLORA: int = 3
 const REDRAW_PHASE_DEBUG_INTERIOR: int = 4
 const REDRAW_PHASE_DEBUG_COLLISION: int = 5
 const REDRAW_PHASE_DONE: int = 6
-const REDRAW_TIME_BUDGET_USEC: int = 1500
+const REDRAW_TIME_BUDGET_USEC: int = 2500
 const _CARDINAL_DIRS := [
 	Vector2i.LEFT,
 	Vector2i.RIGHT,
@@ -73,6 +73,7 @@ var _biome_bytes: PackedByteArray = PackedByteArray()
 var _has_mountain: bool = false
 var _redraw_phase: int = REDRAW_PHASE_DONE
 var _redraw_tile_index: int = 0
+var _pending_border_dirty: Dictionary = {}
 var _revealed_local_cover_tiles: Dictionary = {}
 var _is_underground: bool = false
 var _use_operation_global_terrain_cache: bool = false
@@ -152,6 +153,21 @@ func complete_redraw_now(include_flora: bool = false) -> void:
 ## Draws terrain layer immediately for all tiles, then leaves cover/cliff/flora
 ## for progressive redraw. Used by boot apply for ring 1 chunks so the player
 ## never sees green placeholder zones near spawn.
+## Forces GPU resource initialization for all tile layers by performing a
+## dummy set_cell + erase_cell. This triggers shader compilation and atlas
+## preparation, paying the one-time cold-start cost (~950ms) outside the
+## timed terrain redraw path. Called by ChunkManager before boot terrain redraw.
+## (boot_fast_first_playable_spec Iteration 2, change 2A)
+func warmup_tile_layers() -> void:
+	var dummy_coord := Vector2i(-1, -1)
+	var dummy_source: int = 0
+	var dummy_atlas := Vector2i.ZERO
+	for layer: TileMapLayer in [_terrain_layer, _ground_face_layer, _rock_layer, _cover_layer, _cliff_layer]:
+		if layer == null:
+			continue
+		layer.set_cell(dummy_coord, dummy_source, dummy_atlas)
+		layer.erase_cell(dummy_coord)
+
 func complete_terrain_phase_now() -> void:
 	if _redraw_phase != REDRAW_PHASE_TERRAIN:
 		return
@@ -439,6 +455,13 @@ func _redraw_dynamic_visibility(_dirty_tiles: Dictionary) -> void:
 		for child: Node in _debug_root.get_children():
 			child.queue_free()
 		_rebuild_debug_markers()
+
+## Enqueue border tiles for deferred redraw. Called by ChunkManager when a
+## new neighbor chunk is loaded and border seam tiles need updating.
+## The actual redraw happens during the next progressive redraw tick.
+## (boot_fast_first_playable_spec Iteration 3, change 3A)
+func enqueue_dirty_border_redraw(dirty_tiles: Dictionary) -> void:
+	_pending_border_dirty.merge(dirty_tiles, true)
 
 func _redraw_dirty_tiles(dirty_tiles: Dictionary) -> void:
 	for local_tile: Vector2i in dirty_tiles:
@@ -1422,7 +1445,7 @@ func _process_redraw_phase_tiles(tile_budget: int) -> int:
 		## Hard time guard: check every 4 tiles (terrain/cover/cliff) or every tile (flora/debug).
 		## No end_index bypass — budget must be respected even if tile_budget allows more.
 		var tiles_done: int = processed_end_index - start_index
-		var check_interval: int = 1
+		var check_interval: int = 4
 		if tiles_done % check_interval == 0:
 			if Time.get_ticks_usec() - started_usec >= REDRAW_TIME_BUDGET_USEC:
 				break

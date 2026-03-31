@@ -436,8 +436,8 @@ Observed files for this version:
 - `rebuild policy`: boot-time only; state is initialized at boot start, updated during boot, and remains static after boot completes. Not persisted across save/load.
 - `invariants`:
 - `assert(boot_chunk_state != VISUAL_COMPLETE or boot_chunk_state_was_APPLIED_first, "visual completion must not precede apply for any boot chunk")`
-- `assert(not first_playable or player_chunk_state >= VISUAL_COMPLETE, "first_playable requires player chunk (ring 0) to be visually complete")`
-- `assert(not first_playable or all_ring_0_and_ring_1_chunks_are_loaded_applied_and_flora_done, "first_playable requires ring 0..1 (Chebyshev distance) to be honestly visual-ready — diagonal chunks included")`
+- `assert(not first_playable or player_chunk_terrain_phase_done, "first_playable requires player chunk (ring 0) terrain phase to be complete — cover/cliff/flora may still be progressive (streaming_redraw_budget_spec)")`
+- `assert(not first_playable or all_ring_0_and_ring_1_chunks_are_loaded_applied_and_terrain_done, "first_playable requires ring 0..1 (Chebyshev distance) terrain phase done — cover/cliff/flora progressive, not blocking first_playable (boot_fast_first_playable_spec)")`
 - `assert(boot_ring_uses_chebyshev_distance, "ring distance is max(abs(dx), abs(dy)), not Manhattan — diagonal chunk at (1,1) is ring 1")`
 - `assert(first_playable does not require topology_ready, "topology is decoupled from first_playable gate")`
 - `assert(first_playable_enables_player_input_and_physics, "GameWorld enables input/physics and dismisses loading screen on first_playable")`
@@ -445,10 +445,11 @@ Observed files for this version:
 - `assert(no_synchronous_shadow_rebuild_after_first_playable, "shadow build uses schedule_boot_shadows() + _tick_shadows() via FrameBudgetDispatcher (1ms), not synchronous prepare_boot_shadows()")`
 - `assert(no_synchronous_topology_build_after_first_playable, "topology uses _tick_topology() via FrameBudgetDispatcher (2ms), not synchronous ensure_built() in _tick_boot_remaining()")`
 - `assert(no_sync_topology_rebuild_in_harvest, "harvest path uses _mark_topology_dirty() for background rebuild via _tick_topology(), not synchronous _ensure_topology_current()")`
-- `assert(runtime_near_chunks_get_instant_redraw, "runtime-streamed chunks within Chebyshev ring 0-1 of player get complete_redraw_now() at finalize for instant terrain+cover+cliff — no progressive wait")`
+- `assert(runtime_near_chunks_get_instant_terrain, "runtime-streamed chunks within Chebyshev ring 0-1 of player get complete_terrain_phase_now() at finalize for instant terrain — cover/cliff/flora are progressive (streaming_redraw_budget_spec)")`
+- `assert(no_complete_redraw_now_in_streaming_runtime, "complete_redraw_now() is never called in the streaming runtime path — only complete_terrain_phase_now() (streaming_redraw_budget_spec)")`
 - `assert(not boot_complete or all_startup_chunks_state >= VISUAL_COMPLETE, "boot_complete requires all startup chunks to reach terminal state")`
 - `assert(not boot_complete or topology_ready, "boot_complete requires topology to be ready")`
-- `assert(ring_0_gets_complete_redraw_now_with_flora, "ring 0 boot chunk gets complete_redraw_now(true) at apply time")`
+- `assert(ring_0_gets_terrain_phase_at_boot_apply, "ring 0 boot chunk gets complete_terrain_phase_now() at apply time — cover/cliff/flora are progressive (streaming_redraw_budget_spec)")`
 - `assert(non_player_startup_chunks_use_progressive_redraw, "all non-player startup chunks use progressive redraw instead of synchronous ring-1 terrain completion")`
 - `assert(non_player_startup_chunks_hidden_until_terrain_ready, "startup chunks outside the player chunk set visible=false at apply/load time, visible=true when is_terrain_phase_done()")`
 - `assert(first_playable_handoff_is_honest, "after first_playable, unfinished startup coords are handed to runtime streaming but remain boot-tracked until real apply/redraw completion")`
@@ -456,8 +457,10 @@ Observed files for this version:
 - `assert(shadow_edge_cache_has_time_guard, "_advance_edge_cache_build() breaks at 1ms budget to prevent 50-200ms spikes")`
 - `assert(boot_promote_waits_for_flora_phase_done, "_boot_promote_redrawn_chunks() uses is_flora_phase_done() for VISUAL_COMPLETE promotion — debug phases do not block boot gates")`
 - `assert(debug_phases_excluded_from_boot_gates, "REDRAW_PHASE_DEBUG_INTERIOR and REDRAW_PHASE_DEBUG_COLLISION never block first_playable or boot_complete")`
-- `assert(flora_blocks_visual_complete_for_boot, "REDRAW_PHASE_FLORA must complete before VISUAL_COMPLETE / boot_complete; near slice first_playable also waits for flora")`
-- `assert(redraw_all_can_finish_flora_for_boot_ring_0, "_redraw_all(include_flora=true) may end in DONE for player boot chunk; default path still leaves flora for progressive redraw")`
+- `assert(flora_blocks_visual_complete_for_boot, "REDRAW_PHASE_FLORA must complete before VISUAL_COMPLETE / boot_complete; first_playable does NOT wait for flora (boot_fast_first_playable_spec)")`
+- `assert(ring_2_deferred_to_runtime_at_boot, "ring 2+ chunks are NOT applied inside boot loop — they are handed off to runtime streaming via _boot_start_runtime_handoff() after first_playable (boot_fast_first_playable_spec)")`
+- `assert(boot_progressive_redraw_prioritizes_near_ring, "_boot_process_redraw_budget() processes only ring 0-1 chunks during boot, deferring ring 2+ to end of queue (boot_fast_first_playable_spec)")`
+- `assert(boot_ring_0_uses_progressive_for_cover_cliff_flora, "boot player chunk gets complete_terrain_phase_now() only — cover/cliff/flora redraw is progressive via _tick_redraws() (streaming_redraw_budget_spec)")`
 - `write operations`:
 - `ChunkManager._boot_init_readiness()`
 - `ChunkManager._boot_set_chunk_state()`
@@ -488,7 +491,7 @@ Observed files for this version:
 - `assert(applied_chunks_per_step <= BOOT_MAX_APPLY_PER_STEP, "main-thread install/attach budget is enforced per boot step")`
 - `assert(apply_queue_sorted_by_distance, "near-player chunks are always applied before far chunks")`
 - `assert(first_playable_exits_boot_loop_early, "boot_load_initial_chunks returns on first_playable; unfinished startup coords are runtime-enqueued instead of being faked complete")`
-- `assert(ring_0_gets_full_synchronous_redraw, "complete_redraw_now(true) called only for player chunk (ring 0)")`
+- `assert(ring_0_gets_terrain_only_synchronous_redraw, "complete_terrain_phase_now() called for player chunk (ring 0) at boot apply — full redraw is progressive (streaming_redraw_budget_spec)")`
 - `assert(non_player_startup_apply_is_install_only, "non-player boot apply step is install/attach + cache hookup without synchronous terrain/full redraw")`
 - `write operations`:
 - `ChunkManager._boot_submit_pending_tasks()`
