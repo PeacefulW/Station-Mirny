@@ -11,6 +11,8 @@ const ROCK_FACES_PATH: String = "res://assets/sprites/terrain/rock_faces_atlas.p
 const ROCK_FACES_DUNGEON_PATH: String = "res://assets/sprites/terrain/rock_faces_atlas_dungeon.png"
 const GROUND_FACES_PATH: String = "res://assets/sprites/terrain/ground_faces_atlas.png"
 const SAND_FACES_PATH: String = "res://assets/sprites/terrain/sand_faces_atlas.png"
+const INTERIOR_BASE_VARIANT_TARGET: int = 5
+const INTERIOR_TRANSFORM_COUNT: int = 8
 ## Количество базовых тайлов стен (без вариантов). Обновляется при сборке tileset.
 static var wall_base_count: int = 0
 ## Количество вариантов (1 = без вариативности, 3 = три варианта).
@@ -160,6 +162,18 @@ const _FLIP_TRANSFORMS: Array = [
 	[[true, false], [false, true], [true, true]],  # class 3: H, V, H+V
 ]
 
+## 8-way dihedral transform set for interior only.
+## Index 0 is identity; alternatives create ids 1..7 in this order.
+const _INTERIOR_ALT_TRANSFORMS: Array = [
+	[true, false, false],
+	[false, true, false],
+	[true, true, false],
+	[false, false, true],
+	[true, false, true],
+	[false, true, true],
+	[true, true, true],
+]
+
 ## How many alternative tile IDs exist per flip class (0=1, 1=2, 2=2, 3=4).
 static var wall_flip_alt_count: PackedByteArray = PackedByteArray([1, 2, 2, 4])
 
@@ -185,6 +199,9 @@ static func build_overlay_tileset(balance: WorldGenBalance, biome: BiomeData) ->
 
 static func build_underground_terrain_tileset(balance: WorldGenBalance, biome: BiomeData) -> TileSet:
 	return _build_terrain_tileset(balance, biome, ROCK_FACES_DUNGEON_PATH)
+
+static func get_interior_base_variant_count() -> int:
+	return maxi(1, mini(INTERIOR_BASE_VARIANT_TARGET, wall_variant_count))
 
 static func get_surface_ground_tile(biome_palette_index: int, height_value: float) -> Vector2i:
 	var palette: Dictionary = _get_surface_palette(biome_palette_index)
@@ -327,6 +344,10 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, f
 	## Create alternative tiles with runtime flips for wall tiles.
 	for vi: int in range(wall_variant_count):
 		for def_i: int in range(TILE_DEFS_COUNT):
+			if def_i == 0:
+				var interior_coords := _coords_for_linear_index(7 + vi * wall_base_count)
+				_create_interior_transform_alternatives(src, interior_coords)
+				continue
 			var flip_class: int = _WALL_FLIP_CLASS[def_i]
 			if flip_class == 0:
 				continue
@@ -380,6 +401,8 @@ static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Arr
 	sand_face_tiles_start = -1
 	var ground_faces_img: Image = _load_face_image(GROUND_FACES_PATH)
 	var sand_faces_img: Image = _load_face_image(SAND_FACES_PATH)
+	var ground_face_variant_count: int = _resolve_face_variant_count(ground_faces_img, ts)
+	var sand_face_variant_count: int = _resolve_face_variant_count(sand_faces_img, ts)
 	for biome_index: int in range(ordered_biomes.size()):
 		var biome: BiomeData = ordered_biomes[biome_index]
 		var start_index: int = palette_start + biome_index * SURFACE_PALETTE_TILE_COUNT
@@ -418,10 +441,11 @@ static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Arr
 		_draw_clearing_tile(img, Rect2i(clearing.x * ts, clearing.y * ts, ts, ts), biome.ground_color)
 		_draw_rocky_patch_tile(img, Rect2i(rocky_patch.x * ts, rocky_patch.y * ts, ts, ts), biome.ground_color, balance.rock_color)
 		_draw_wet_patch_tile(img, Rect2i(wet_patch.x * ts, wet_patch.y * ts, ts, ts), biome.ground_color, biome.water_color)
+		var tinted_ground_faces: Image = _tint_face_image(ground_faces_img, biome.ground_color)
 		var ground_face_append: Dictionary = _append_face_tiles(
 			img,
 			total,
-			_tint_face_image(ground_faces_img, biome.ground_color),
+			tinted_ground_faces,
 			ts
 		)
 		img = ground_face_append["image"]
@@ -429,10 +453,22 @@ static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Arr
 		total = int(ground_face_append["total"])
 		if biome_index == 0:
 			ground_face_tiles_start = ground_face_start
+		var ground_face_interior_append: Dictionary = _append_face_interior_variants(
+			img,
+			total,
+			tinted_ground_faces,
+			ts,
+			ground_face_variant_count
+		)
+		img = ground_face_interior_append["image"]
+		var ground_face_interior_start: int = int(ground_face_interior_append["start"])
+		var ground_face_interior_count: int = int(ground_face_interior_append["count"])
+		total = int(ground_face_interior_append["total"])
+		var tinted_sand_faces: Image = _tint_face_image(sand_faces_img, biome.sand_color)
 		var sand_face_append: Dictionary = _append_face_tiles(
 			img,
 			total,
-			_tint_face_image(sand_faces_img, biome.sand_color),
+			tinted_sand_faces,
 			ts
 		)
 		img = sand_face_append["image"]
@@ -440,8 +476,23 @@ static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Arr
 		total = int(sand_face_append["total"])
 		if biome_index == 0:
 			sand_face_tiles_start = sand_face_start
+		var sand_face_interior_append: Dictionary = _append_face_interior_variants(
+			img,
+			total,
+			tinted_sand_faces,
+			ts,
+			sand_face_variant_count
+		)
+		img = sand_face_interior_append["image"]
+		var sand_face_interior_start: int = int(sand_face_interior_append["start"])
+		var sand_face_interior_count: int = int(sand_face_interior_append["count"])
+		total = int(sand_face_interior_append["total"])
 		palette["ground_face_start"] = ground_face_start
+		palette["ground_face_interior_start"] = ground_face_interior_start
+		palette["ground_face_interior_count"] = ground_face_interior_count
 		palette["sand_face_start"] = sand_face_start
+		palette["sand_face_interior_start"] = sand_face_interior_start
+		palette["sand_face_interior_count"] = sand_face_interior_count
 		_surface_palette_tiles.append(palette)
 	tile_water = _coords_for_linear_index(palette_start + 3)
 	tile_sand = _coords_for_linear_index(palette_start + 4)
@@ -461,6 +512,10 @@ static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Arr
 		src.create_tile(_coords_for_linear_index(tile_index))
 	for vi: int in range(wall_variant_count):
 		for def_i: int in range(TILE_DEFS_COUNT):
+			if def_i == 0:
+				var interior_coords := _coords_for_linear_index(7 + vi * wall_base_count)
+				_create_interior_transform_alternatives(src, interior_coords)
+				continue
 			var flip_class: int = _WALL_FLIP_CLASS[def_i]
 			if flip_class == 0:
 				continue
@@ -471,6 +526,15 @@ static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Arr
 				var alt_data: TileData = src.get_tile_data(coords, alt_id)
 				alt_data.flip_h = transforms[t_i][0]
 				alt_data.flip_v = transforms[t_i][1]
+	for palette: Dictionary in _surface_palette_tiles:
+		var ground_face_interior_start: int = int(palette.get("ground_face_interior_start", -1))
+		var ground_face_interior_count: int = int(palette.get("ground_face_interior_count", 0))
+		for variant_index: int in range(ground_face_interior_count):
+			_create_interior_transform_alternatives(src, _coords_for_linear_index(ground_face_interior_start + variant_index))
+		var sand_face_interior_start: int = int(palette.get("sand_face_interior_start", -1))
+		var sand_face_interior_count: int = int(palette.get("sand_face_interior_count", 0))
+		for variant_index: int in range(sand_face_interior_count):
+			_create_interior_transform_alternatives(src, _coords_for_linear_index(sand_face_interior_start + variant_index))
 	tileset.add_source(src, TERRAIN_SOURCE_ID)
 	return tileset
 
@@ -490,12 +554,18 @@ static func get_surface_variation_tile(variation_id: int, biome_palette_index: i
 		_:
 			return Vector2i(-1, -1)
 
-static func get_sand_face_coords(wall_def: Vector2i, biome_palette_index: int = -1) -> Vector2i:
+static func get_sand_face_coords(wall_def: Vector2i, biome_palette_index: int = -1, variant_index: int = 0) -> Vector2i:
 	var def_index: int = _wall_def_index(wall_def)
 	if def_index < 0:
 		return Vector2i(-1, -1)
 	if biome_palette_index >= 0:
 		var palette: Dictionary = _get_surface_palette(biome_palette_index)
+		if wall_def == WALL_INTERIOR:
+			var interior_start_index: int = int(palette.get("sand_face_interior_start", -1))
+			var interior_count: int = int(palette.get("sand_face_interior_count", 0))
+			if interior_start_index >= 0 and interior_count > 0:
+				var clamped_variant_index: int = clampi(variant_index, 0, interior_count - 1)
+				return _coords_for_linear_index(interior_start_index + clamped_variant_index)
 		var start_index: int = int(palette.get("sand_face_start", -1))
 		if start_index >= 0:
 			return _coords_for_linear_index(start_index + def_index)
@@ -503,12 +573,18 @@ static func get_sand_face_coords(wall_def: Vector2i, biome_palette_index: int = 
 		return Vector2i(-1, -1)
 	return _coords_for_linear_index(sand_face_tiles_start + def_index)
 
-static func get_ground_face_coords(wall_def: Vector2i, biome_palette_index: int = -1) -> Vector2i:
+static func get_ground_face_coords(wall_def: Vector2i, biome_palette_index: int = -1, variant_index: int = 0) -> Vector2i:
 	var def_index: int = _wall_def_index(wall_def)
 	if def_index < 0:
 		return Vector2i(-1, -1)
 	if biome_palette_index >= 0:
 		var palette: Dictionary = _get_surface_palette(biome_palette_index)
+		if wall_def == WALL_INTERIOR:
+			var interior_start_index: int = int(palette.get("ground_face_interior_start", -1))
+			var interior_count: int = int(palette.get("ground_face_interior_count", 0))
+			if interior_start_index >= 0 and interior_count > 0:
+				var clamped_variant_index: int = clampi(variant_index, 0, interior_count - 1)
+				return _coords_for_linear_index(interior_start_index + clamped_variant_index)
 		var start_index: int = int(palette.get("ground_face_start", -1))
 		if start_index >= 0:
 			return _coords_for_linear_index(start_index + def_index)
@@ -586,6 +662,41 @@ static func _append_face_tiles(img: Image, total: int, face_img: Image, tile_siz
 		var dst_coords: Vector2i = _coords_for_linear_index(start_index + i)
 		img.blit_rect(face_img, Rect2i(src_col * tile_size, src_row * tile_size, tile_size, tile_size), dst_coords * tile_size)
 	return {"image": img, "start": start_index, "count": face_count, "total": new_total}
+
+static func _resolve_face_variant_count(face_img: Image, tile_size: int) -> int:
+	if face_img == null:
+		return 0
+	var face_cols: int = face_img.get_width() / tile_size
+	var face_rows: int = face_img.get_height() / tile_size
+	var total_tiles: int = face_cols * face_rows
+	return maxi(0, mini(INTERIOR_BASE_VARIANT_TARGET, total_tiles / TILE_DEFS_COUNT))
+
+static func _append_face_interior_variants(img: Image, total: int, face_img: Image, tile_size: int, variant_count: int) -> Dictionary:
+	if face_img == null or variant_count <= 0:
+		return {"image": img, "start": -1, "count": 0, "total": total}
+	var face_cols: int = face_img.get_width() / tile_size
+	var face_rows: int = face_img.get_height() / tile_size
+	var available_variants: int = mini(variant_count, (face_cols * face_rows) / TILE_DEFS_COUNT)
+	if available_variants <= 0:
+		return {"image": img, "start": -1, "count": 0, "total": total}
+	var start_index: int = total
+	var new_total: int = total + available_variants
+	img = _ensure_terrain_image_rows(img, new_total, tile_size)
+	for variant_index: int in range(available_variants):
+		var src_index: int = variant_index * TILE_DEFS_COUNT
+		var src_col: int = src_index % face_cols
+		var src_row: int = src_index / face_cols
+		var dst_coords: Vector2i = _coords_for_linear_index(start_index + variant_index)
+		img.blit_rect(face_img, Rect2i(src_col * tile_size, src_row * tile_size, tile_size, tile_size), dst_coords * tile_size)
+	return {"image": img, "start": start_index, "count": available_variants, "total": new_total}
+
+static func _create_interior_transform_alternatives(src: TileSetAtlasSource, coords: Vector2i) -> void:
+	for transform_data: Array in _INTERIOR_ALT_TRANSFORMS:
+		var alt_id: int = src.create_alternative_tile(coords)
+		var alt_data: TileData = src.get_tile_data(coords, alt_id)
+		alt_data.flip_h = transform_data[0]
+		alt_data.flip_v = transform_data[1]
+		alt_data.transpose = transform_data[2]
 
 static func _resolve_terrain_tiles_per_row(total_tiles: int, tile_size: int) -> int:
 	if total_tiles <= 0:

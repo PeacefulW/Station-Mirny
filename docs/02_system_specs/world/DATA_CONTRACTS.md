@@ -350,6 +350,8 @@ Observed files for this version:
 - `assert(terrain_layer_is_derived_from_chunk_data and ground_face_layer_is_derived_from_chunk_data and cover_layer_is_derived_from_chunk_data and cliff_layer_is_derived_from_chunk_data, "terrain, ground-face, cover, and cliff TileMap layers are derived outputs, not source of truth")`
 - `assert(surface_ground_face_layer_uses_wall_interior_for_non_water_ground_grass_sand_and_water_shaped_faces_for_water_adjacent_tiles, "ground/sand face overlay stays presentation-only but is applied consistently across eligible surface terrain")`
 - `assert(water_adjacent_ground_face_tiles_may_use_water_underlay_in_terrain_layer_to_expose_face_alpha, "riverbank/coast presentation may intentionally place WATER under face overlays for eligible surface tiles")`
+- `assert(wall_interiors_use_world_space_deterministic_family_then_micro_variant_and_transform_selection_with_load_order_independent_left_up_antirepeat, "WALL_INTERIOR presentation selection must stay deterministic across reloads and chunk seams while preserving coarse blended family regions")`
+- `assert(interior_macro_overlay_is_currently_disabled_pending_perf_safe_rework, "iteration 3 macro overlay is rolled back for now; future reintroduction must preserve presentation-only ownership and seam safety without regressions")`
 - `assert(all_revealed_cover_tiles_are_erased_from_cover_layer, "surface cover reveal is applied by erasing cover_layer cells")`
 - `assert(not _is_underground or roof_cover_system_disabled_for_chunk, "underground chunks do not use roof cover")`
 - `assert(not _is_underground or fog_layer_initialized_to_unseen_for_all_loaded_tiles, "underground fog layer starts every loaded underground tile as UNSEEN")`
@@ -391,6 +393,8 @@ Observed files for this version:
 
 ### Wall Atlas Selection (Presentation sublayer)
 
+- `WALL_INTERIOR family selection`: interior-only presentation first resolves a coarse deterministic blended world-space family field, then picks family-local micro variation plus transform within an overlapping family window.
+
 - `Что`: explicit code-side selection of the concrete rock-wall atlas tile and alternative tile ID for the terrain layer.
 - `Где`: `core/systems/world/chunk.gd` in `_redraw_terrain_tile()`, `_surface_rock_visual_class()`, `_rock_visual_class()`, `_resolve_variant_atlas()`, and `_resolve_variant_alt_id()`. Atlas definitions and wall-variant layout live in `core/systems/world/chunk_tileset_factory.gd`.
 - `Входные данные`: current tile `terrain_type`; cardinal plus diagonal neighbor terrain for both surface and underground rock wall shaping; global tile coordinates for hash-based wall variant and flip selection; cross-chunk neighbor reads go through `_get_neighbor_terrain()` and then `ChunkManager.get_terrain_type_at_global()`.
@@ -403,12 +407,25 @@ Observed files for this version:
 - `assert(terrain_type != TileGenData.TerrainType.ROCK or atlas_selected_explicitly_in_Chunk__redraw_terrain_tile, "rock atlas selection is explicit code, not implicit Godot autotile terrain behavior")`
 - `assert(not surface_rock_has_cardinal_visual_open_neighbor or surface_rock_visual_class != ChunkTilesetFactory.WALL_INTERIOR, "surface rock with a cardinal visual-open neighbor must use a wall-form tile")`
 - `assert(neighbor_terrain == TileGenData.TerrainType.ROCK or underground_neighbor_treated_as_open, "underground wall shaping treats every non-ROCK neighbor as open")`
+- `assert(wall_interior_family_selection_uses_coarser_world_space_blended_regions_than_micro_variation, "WALL_INTERIOR family choice must produce larger coherent regions than per-tile micro hash selection without degenerating into chunked square blocks")`
 - `assert(surface_alt_id == 0 and underground_alt_id_is_hash_selected, "surface disables wall flip alt IDs while underground enables them")`
 - `forbidden writes`:
 - Wall atlas selection must not mutate canonical terrain or redefine terrain semantics.
 - Presentation tile choice must not be used as a substitute for topology, reveal, or mining truth.
 - `current violations / ambiguities / contract gaps`:
 - ~~Surface and underground wall shaping do not share one common openness contract. Surface uses cardinal exterior-open checks only; underground uses cardinal plus diagonal non-`ROCK` openness.~~ **resolved 2026-03-28**: surface rock wall-form selection now uses the same cardinal+diagonal wall-shape neighborhood set as underground shaping, while preserving the explicit current-surface-open terrain set.
+
+### Interior Macro Overlay (Presentation sublayer)
+
+- `Current runtime status`: disabled pending perf-safe rework.
+
+- `Что`: chunk-local presentation overlay that adds placeholder macro detail over tiles that currently resolve to `WALL_INTERIOR`.
+- `Где`: `core/systems/world/chunk.gd` in `_refresh_interior_macro_layer()` and its helper sampling/masking functions.
+- `Входные данные`: current chunk terrain and wall-form resolution, current biome tint data, and deterministic world-space sample coordinates derived from `chunk_coord`.
+- `Инварианты`:
+- `assert(interior_macro_overlay_emits_no_runtime_visual_work_while_disabled, "current runtime must not spend boot, redraw, or streaming budget on iteration 3 macro overlay")`
+- `forbidden writes`:
+- The disabled interior macro slot must not mutate terrain bytes, wall-form classification, mining state, topology caches, reveal state, or public runtime APIs.
 
 ## Layer: Boot Readiness
 

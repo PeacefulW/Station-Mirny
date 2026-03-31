@@ -20,6 +20,20 @@ const _CARDINAL_DIRS := [
 	Vector2i.UP,
 	Vector2i.DOWN,
 ]
+const _INTERIOR_FAMILY_TARGET_COUNT: int = 3
+const _INTERIOR_FAMILY_WINDOW_SIZE: int = 3
+const _INTERIOR_FAMILY_SCALE: float = 18.0
+const _INTERIOR_FAMILY_DETAIL_SCALE: float = 9.0
+const _INTERIOR_FAMILY_SEED: int = 13183
+const _INTERIOR_VARIATION_SEED: int = 12345
+const _INTERIOR_REHASH_SEED: int = 12442
+const _INTERIOR_MACRO_ENABLED: bool = false
+const _INTERIOR_MACRO_SAMPLES_PER_TILE: int = 1
+const _INTERIOR_MACRO_DUST_SEED: int = 16001
+const _INTERIOR_MACRO_MOSS_SEED: int = 16057
+const _INTERIOR_MACRO_CRACK_SEED: int = 16111
+const _INTERIOR_MACRO_PEBBLE_SEED: int = 16183
+const _HASH32_MASK: int = 0xffffffff
 const _COVER_REVEAL_DIRS := [
 	Vector2i.LEFT,
 	Vector2i.RIGHT,
@@ -38,6 +52,7 @@ var is_dirty: bool = false
 var _terrain_layer: TileMapLayer = null
 var _ground_face_layer: TileMapLayer = null
 var _rock_layer: TileMapLayer = null
+var _interior_macro_layer: Sprite2D = null
 var _cover_layer: TileMapLayer = null
 var _cliff_layer: TileMapLayer = null
 var _fog_layer: TileMapLayer = null
@@ -85,6 +100,8 @@ func setup(
 	_terrain_layer = _create_layer("Terrain", _terrain_tileset, -12)
 	_ground_face_layer = _create_layer("GroundFaces", _terrain_tileset, -11)
 	_rock_layer = _create_layer("Rock", _terrain_tileset, -10)
+	if _INTERIOR_MACRO_ENABLED:
+		_interior_macro_layer = _create_interior_macro_layer("InteriorMacro", -9)
 	_cliff_layer = _create_layer("Cliffs", _overlay_tileset, -9)
 	_cover_layer = _create_layer("MountainCover", _terrain_tileset, 6)
 	_flora_container = Node2D.new()
@@ -141,6 +158,7 @@ func complete_terrain_phase_now() -> void:
 	for local_y: int in range(_chunk_size):
 		for local_x: int in range(_chunk_size):
 			_redraw_terrain_tile(Vector2i(local_x, local_y))
+	_refresh_interior_macro_layer()
 	_redraw_phase = REDRAW_PHASE_COVER
 	_redraw_tile_index = 0
 
@@ -288,12 +306,23 @@ func cleanup() -> void:
 	_variation_bytes = PackedByteArray()
 	_biome_bytes = PackedByteArray()
 	_revealed_local_cover_tiles = {}
+	_clear_interior_macro_layer()
 
 func _create_layer(layer_name: String, tileset: TileSet, z_index_value: int) -> TileMapLayer:
 	var layer := TileMapLayer.new()
 	layer.name = layer_name
 	layer.tile_set = tileset
 	layer.z_index = z_index_value
+	add_child(layer)
+	return layer
+
+func _create_interior_macro_layer(layer_name: String, z_index_value: int) -> Sprite2D:
+	var layer := Sprite2D.new()
+	layer.name = layer_name
+	layer.centered = false
+	layer.z_index = z_index_value
+	layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	layer.visible = false
 	add_child(layer)
 	return layer
 
@@ -330,6 +359,7 @@ func _redraw_all(include_flora: bool = false) -> void:
 	_terrain_layer.clear()
 	_ground_face_layer.clear()
 	_rock_layer.clear()
+	_clear_interior_macro_layer()
 	_cover_layer.clear()
 	_cliff_layer.clear()
 	_reset_cover_visual_state()
@@ -341,6 +371,7 @@ func _redraw_all(include_flora: bool = false) -> void:
 			_redraw_terrain_tile(tile)
 			_redraw_cover_tile(tile)
 			_redraw_cliff_tile(tile)
+	_refresh_interior_macro_layer()
 	_rebuild_debug_markers()
 	if include_flora:
 		for tile_index: int in range(_chunk_size * _chunk_size):
@@ -357,6 +388,7 @@ func _begin_progressive_redraw() -> void:
 	_terrain_layer.clear()
 	_ground_face_layer.clear()
 	_rock_layer.clear()
+	_clear_interior_macro_layer()
 	_cover_layer.clear()
 	_cliff_layer.clear()
 	_reset_cover_visual_state()
@@ -420,6 +452,7 @@ func _redraw_dirty_tiles(dirty_tiles: Dictionary) -> void:
 		_redraw_terrain_tile(local_tile)
 		_redraw_cover_tile(local_tile)
 		_redraw_cliff_tile(local_tile)
+	_refresh_interior_macro_layer()
 	_reapply_local_zone_cover_state_for_tiles(dirty_tiles)
 	if WorldGenerator and WorldGenerator.balance and WorldGenerator.balance.mountain_debug_visualization:
 		for child: Node in _debug_root.get_children():
@@ -493,18 +526,24 @@ func _redraw_ground_face_tile(local_tile: Vector2i, terrain_type: int) -> void:
 		_ground_face_layer.erase_cell(local_tile)
 		return
 	var atlas: Vector2i = Vector2i(-1, -1)
+	var alt_id: int = 0
 	if _is_surface_face_terrain(terrain_type):
 		var wall_def: Vector2i = ChunkTilesetFactory.WALL_INTERIOR
+		var interior_variant: Vector2i = Vector2i.ZERO
+		var global_tile: Vector2i = _to_global_tile(local_tile)
 		if _has_water_face_neighbor(local_tile):
 			wall_def = _water_face_visual_class(local_tile)
+		else:
+			interior_variant = _resolve_interior_variant(global_tile.x, global_tile.y)
+			alt_id = interior_variant.y
 		var biome_palette_index: int = _biome_palette_index_at(local_tile)
 		match terrain_type:
 			TileGenData.TerrainType.GROUND, TileGenData.TerrainType.GRASS:
-				atlas = ChunkTilesetFactory.get_ground_face_coords(wall_def, biome_palette_index)
+				atlas = ChunkTilesetFactory.get_ground_face_coords(wall_def, biome_palette_index, interior_variant.x)
 			TileGenData.TerrainType.SAND:
-				atlas = ChunkTilesetFactory.get_sand_face_coords(wall_def, biome_palette_index)
+				atlas = ChunkTilesetFactory.get_sand_face_coords(wall_def, biome_palette_index, interior_variant.x)
 	if atlas.x >= 0:
-		_ground_face_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, 0)
+		_ground_face_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, alt_id)
 	else:
 		_ground_face_layer.erase_cell(local_tile)
 
@@ -797,17 +836,262 @@ func _redraw_cover_tile(local_tile: Vector2i) -> void:
 	var base: Vector2i = _cover_rock_atlas(local_tile)
 	var global_tile: Vector2i = _to_global_tile(local_tile)
 	var atlas: Vector2i = _resolve_variant_atlas(base, global_tile.x, global_tile.y)
-	_cover_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, 0)
+	var alt_id: int = _resolve_variant_alt_id(base, global_tile.x, global_tile.y, false)
+	_cover_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, alt_id)
 
 ## XOR-shift hash — no visible linear patterns.
 static func _tile_hash_xy(tile_x: int, tile_y: int) -> int:
-	var h: int = tile_x * 374761393 + tile_y * 668265263
-	h = (h ^ (h >> 13)) * 1274126177
-	h = h ^ (h >> 16)
-	return absi(h)
+	return _hash32_xy(tile_x, tile_y, 0)
 
 static func _tile_hash(pos: Vector2i) -> int:
 	return _tile_hash_xy(pos.x, pos.y)
+
+static func _hash32_xy(tile_x: int, tile_y: int, seed: int) -> int:
+	var h: int = (tile_x * 374761393 + tile_y * 668265263 + seed * 1442695041) & _HASH32_MASK
+	h = (h ^ (h >> 13)) & _HASH32_MASK
+	h = (h * 1274126177) & _HASH32_MASK
+	h = (h ^ (h >> 16)) & _HASH32_MASK
+	return h
+
+static func _interior_family_count(base_count: int) -> int:
+	return maxi(1, mini(_INTERIOR_FAMILY_TARGET_COUNT, base_count))
+
+static func _interior_family_window(base_count: int, family_index: int) -> Vector2i:
+	var family_count: int = _interior_family_count(base_count)
+	var clamped_family_index: int = clampi(family_index, 0, family_count - 1)
+	var window_size: int = maxi(1, mini(base_count, _INTERIOR_FAMILY_WINDOW_SIZE))
+	if base_count <= window_size or family_count <= 1:
+		return Vector2i(0, base_count)
+	var max_start: int = base_count - window_size
+	var start: int = int(round(float(clamped_family_index * max_start) / float(family_count - 1)))
+	return Vector2i(start, window_size)
+
+static func _hash32_to_unit_float(h: int) -> float:
+	return float(h & _HASH32_MASK) / float(_HASH32_MASK)
+
+static func _smoothstep01(t: float) -> float:
+	var clamped_t: float = clampf(t, 0.0, 1.0)
+	return clamped_t * clamped_t * (3.0 - 2.0 * clamped_t)
+
+func _sample_interior_family_noise(global_x: int, global_y: int, scale: float, seed: int) -> float:
+	var scaled_x: float = float(global_x) / scale
+	var scaled_y: float = float(global_y) / scale
+	var cell_x: int = floori(scaled_x)
+	var cell_y: int = floori(scaled_y)
+	var frac_x: float = _smoothstep01(scaled_x - float(cell_x))
+	var frac_y: float = _smoothstep01(scaled_y - float(cell_y))
+	var v00: float = _hash32_to_unit_float(_hash32_xy(cell_x, cell_y, seed))
+	var v10: float = _hash32_to_unit_float(_hash32_xy(cell_x + 1, cell_y, seed))
+	var v01: float = _hash32_to_unit_float(_hash32_xy(cell_x, cell_y + 1, seed))
+	var v11: float = _hash32_to_unit_float(_hash32_xy(cell_x + 1, cell_y + 1, seed))
+	var nx0: float = lerpf(v00, v10, frac_x)
+	var nx1: float = lerpf(v01, v11, frac_x)
+	return lerpf(nx0, nx1, frac_y)
+
+func _resolve_interior_family(global_x: int, global_y: int, base_count: int) -> int:
+	var family_count: int = _interior_family_count(base_count)
+	if family_count <= 1:
+		return 0
+	var macro_noise: float = _sample_interior_family_noise(global_x, global_y, _INTERIOR_FAMILY_SCALE, _INTERIOR_FAMILY_SEED)
+	var detail_noise: float = _sample_interior_family_noise(
+		global_x,
+		global_y,
+		_INTERIOR_FAMILY_DETAIL_SCALE,
+		_INTERIOR_FAMILY_SEED + 53
+	)
+	var blended_noise: float = clampf(macro_noise * 0.82 + detail_noise * 0.18, 0.0, 0.999999)
+	return mini(family_count - 1, int(floor(blended_noise * family_count)))
+
+static func _shift_interior_family_base(base_index: int, family_window: Vector2i, step: int) -> int:
+	if family_window.y <= 1:
+		return family_window.x
+	return family_window.x + ((base_index - family_window.x + step) % family_window.y)
+
+func _raw_interior_variant(global_x: int, global_y: int, family_index: int, seed: int = _INTERIOR_VARIATION_SEED) -> Vector2i:
+	var base_count: int = ChunkTilesetFactory.get_interior_base_variant_count()
+	if base_count <= 0:
+		return Vector2i.ZERO
+	var family_window: Vector2i = _interior_family_window(base_count, family_index)
+	var h: int = _hash32_xy(global_x, global_y, seed)
+	return Vector2i(
+		family_window.x + (h % family_window.y),
+		(h >> 8) & (ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT - 1)
+	)
+
+static func _interior_variant_matches(a: Vector2i, b: Vector2i) -> bool:
+	return a.x == b.x and a.y == b.y
+
+func _resolve_interior_variant(global_x: int, global_y: int) -> Vector2i:
+	var base_count: int = ChunkTilesetFactory.get_interior_base_variant_count()
+	if base_count <= 0:
+		return Vector2i.ZERO
+	var resolved_family: int = _resolve_interior_family(global_x, global_y, base_count)
+	var family_window: Vector2i = _interior_family_window(base_count, resolved_family)
+	var resolved: Vector2i = _raw_interior_variant(global_x, global_y, resolved_family)
+	var left_variant: Vector2i = _raw_interior_variant(
+		global_x - 1,
+		global_y,
+		_resolve_interior_family(global_x - 1, global_y, base_count)
+	)
+	var top_variant: Vector2i = _raw_interior_variant(
+		global_x,
+		global_y - 1,
+		_resolve_interior_family(global_x, global_y - 1, base_count)
+	)
+	var left_conflict: bool = _interior_variant_matches(resolved, left_variant)
+	var top_conflict: bool = _interior_variant_matches(resolved, top_variant)
+	if left_conflict and top_conflict:
+		resolved = _raw_interior_variant(global_x, global_y, resolved_family, _INTERIOR_REHASH_SEED)
+	if _interior_variant_matches(resolved, left_variant):
+		resolved.y = (resolved.y + 1) % ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT
+	if _interior_variant_matches(resolved, top_variant):
+		if family_window.y > 1:
+			resolved.x = _shift_interior_family_base(resolved.x, family_window, 1)
+		else:
+			resolved.y = (resolved.y + 3) % ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT
+	if _interior_variant_matches(resolved, left_variant) or _interior_variant_matches(resolved, top_variant):
+		resolved = _raw_interior_variant(global_x, global_y, resolved_family, _INTERIOR_REHASH_SEED + 97)
+		if _interior_variant_matches(resolved, left_variant):
+			resolved.y = (resolved.y + 5) % ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT
+		if _interior_variant_matches(resolved, top_variant):
+			if family_window.y > 1:
+				resolved.x = _shift_interior_family_base(resolved.x, family_window, 2)
+			else:
+				resolved.y = (resolved.y + 2) % ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT
+	return resolved
+
+func _clear_interior_macro_layer() -> void:
+	if _interior_macro_layer == null:
+		return
+	_interior_macro_layer.texture = null
+	_interior_macro_layer.visible = false
+
+func _refresh_interior_macro_layer() -> void:
+	if not _INTERIOR_MACRO_ENABLED or _interior_macro_layer == null:
+		return
+	var interior_tiles: Dictionary = _collect_interior_macro_tiles()
+	if interior_tiles.is_empty():
+		_clear_interior_macro_layer()
+		return
+	var sample_size: int = _chunk_size * _INTERIOR_MACRO_SAMPLES_PER_TILE
+	var image := Image.create(sample_size, sample_size, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0.0, 0.0, 0.0, 0.0))
+	var world_sample_origin: Vector2i = Vector2i(
+		chunk_coord.x * sample_size,
+		chunk_coord.y * sample_size
+	)
+	for sample_y: int in range(sample_size):
+		var local_tile_y: int = sample_y / _INTERIOR_MACRO_SAMPLES_PER_TILE
+		for sample_x: int in range(sample_size):
+			var local_tile: Vector2i = Vector2i(
+				sample_x / _INTERIOR_MACRO_SAMPLES_PER_TILE,
+				local_tile_y
+			)
+			if not interior_tiles.has(local_tile):
+				continue
+			var world_sample_x: int = world_sample_origin.x + sample_x
+			var world_sample_y: int = world_sample_origin.y + sample_y
+			var overlay_color: Color = _resolve_interior_macro_color(world_sample_x, world_sample_y, local_tile)
+			if overlay_color.a <= 0.0:
+				continue
+			image.set_pixel(sample_x, sample_y, overlay_color)
+	var texture: ImageTexture = ImageTexture.create_from_image(image)
+	_interior_macro_layer.texture = texture
+	_interior_macro_layer.scale = Vector2(
+		float(_tile_size) / float(_INTERIOR_MACRO_SAMPLES_PER_TILE),
+		float(_tile_size) / float(_INTERIOR_MACRO_SAMPLES_PER_TILE)
+	)
+	_interior_macro_layer.visible = true
+
+func _collect_interior_macro_tiles() -> Dictionary:
+	var interior_tiles: Dictionary = {}
+	for local_y: int in range(_chunk_size):
+		for local_x: int in range(_chunk_size):
+			var local_tile: Vector2i = Vector2i(local_x, local_y)
+			if _is_interior_macro_target(local_tile):
+				interior_tiles[local_tile] = true
+	return interior_tiles
+
+func _is_interior_macro_target(local_tile: Vector2i) -> bool:
+	var terrain_type: int = get_terrain_type_at(local_tile)
+	if terrain_type == TileGenData.TerrainType.ROCK:
+		if _is_underground:
+			return _rock_visual_class(local_tile) == ChunkTilesetFactory.WALL_INTERIOR
+		return _surface_rock_visual_class(local_tile) == ChunkTilesetFactory.WALL_INTERIOR
+	if _is_underground:
+		return false
+	if not _is_surface_face_terrain(terrain_type):
+		return false
+	return not _has_water_face_neighbor(local_tile)
+
+func _resolve_interior_macro_color(world_sample_x: int, world_sample_y: int, local_tile: Vector2i) -> Color:
+	var global_tile: Vector2i = _to_global_tile(local_tile)
+	var family_index: int = _resolve_interior_family(
+		global_tile.x,
+		global_tile.y,
+		ChunkTilesetFactory.get_interior_base_variant_count()
+	)
+	var dust_bias: float = 1.0
+	var moss_bias: float = 1.0
+	var crack_bias: float = 1.0
+	match family_index:
+		0:
+			dust_bias = 1.25
+			moss_bias = 0.70
+		1:
+			dust_bias = 0.90
+			crack_bias = 1.25
+		2:
+			moss_bias = 1.35
+			dust_bias = 0.75
+	var blended: Color = Color(0.0, 0.0, 0.0, 0.0)
+	var dust_field: float = _sample_interior_family_noise(world_sample_x, world_sample_y, 44.0, _INTERIOR_MACRO_DUST_SEED)
+	var dust_detail: float = _sample_interior_family_noise(world_sample_x, world_sample_y, 17.0, _INTERIOR_MACRO_DUST_SEED + 7)
+	var dust_alpha: float = clampf((dust_field - 0.58) * 0.30 + maxf(0.0, dust_detail - 0.72) * 0.18, 0.0, 0.18) * dust_bias
+	if dust_alpha > 0.01:
+		blended = _alpha_blend_colors(
+			blended,
+			Color(_biome.sand_color.r, _biome.sand_color.g, _biome.sand_color.b, minf(0.22, dust_alpha))
+		)
+	var moss_field: float = _sample_interior_family_noise(world_sample_x, world_sample_y, 31.0, _INTERIOR_MACRO_MOSS_SEED)
+	var moss_detail: float = _sample_interior_family_noise(world_sample_x, world_sample_y, 12.0, _INTERIOR_MACRO_MOSS_SEED + 9)
+	var moss_alpha: float = clampf((moss_field - 0.66) * 0.34 + maxf(0.0, moss_detail - 0.74) * 0.10, 0.0, 0.16) * moss_bias
+	if moss_alpha > 0.01:
+		var moss_color: Color = _biome.grass_color.darkened(0.42)
+		blended = _alpha_blend_colors(
+			blended,
+			Color(moss_color.r, moss_color.g, moss_color.b, minf(0.18, moss_alpha))
+		)
+	var crack_distance: float = absf(_sample_interior_family_noise(world_sample_x, world_sample_y, 14.0, _INTERIOR_MACRO_CRACK_SEED) - 0.5)
+	var crack_support: float = _sample_interior_family_noise(world_sample_x, world_sample_y, 28.0, _INTERIOR_MACRO_CRACK_SEED + 13)
+	if crack_support > 0.54 and crack_distance < 0.035:
+		var crack_alpha: float = (0.035 - crack_distance) * 2.9 * crack_bias
+		var crack_color: Color = _biome.ground_color.darkened(0.58)
+		blended = _alpha_blend_colors(
+			blended,
+			Color(crack_color.r, crack_color.g, crack_color.b, minf(0.16, crack_alpha))
+		)
+	var pebble_gate: float = _sample_interior_family_noise(world_sample_x, world_sample_y, 9.0, _INTERIOR_MACRO_PEBBLE_SEED)
+	if pebble_gate > 0.62 and (_hash32_xy(world_sample_x, world_sample_y, _INTERIOR_MACRO_PEBBLE_SEED + 19) & 7) == 0:
+		var pebble_color: Color = _biome.ground_color.darkened(0.45)
+		blended = _alpha_blend_colors(
+			blended,
+			Color(pebble_color.r, pebble_color.g, pebble_color.b, 0.12)
+		)
+	return blended
+
+static func _alpha_blend_colors(base: Color, over: Color) -> Color:
+	if over.a <= 0.0:
+		return base
+	var out_alpha: float = over.a + base.a * (1.0 - over.a)
+	if out_alpha <= 0.0:
+		return Color(0.0, 0.0, 0.0, 0.0)
+	return Color(
+		(over.r * over.a + base.r * base.a * (1.0 - over.a)) / out_alpha,
+		(over.g * over.a + base.g * base.a * (1.0 - over.a)) / out_alpha,
+		(over.b * over.a + base.b * base.a * (1.0 - over.a)) / out_alpha,
+		out_alpha
+	)
 
 ## Returns [atlas_coords, alternative_tile_id].
 func _apply_variant_full(base: Vector2i, local_tile: Vector2i, allow_flip: bool = true) -> Array:
@@ -819,11 +1103,16 @@ func _apply_variant_full(base: Vector2i, local_tile: Vector2i, allow_flip: bool 
 func _apply_variant(base: Vector2i, local_tile: Vector2i) -> Vector2i:
 	return _apply_variant_full(base, local_tile)[0]
 
-func _resolve_variant_atlas(base: Vector2i, _global_x: int, _global_y: int) -> Vector2i:
+func _resolve_variant_atlas(base: Vector2i, global_x: int, global_y: int) -> Vector2i:
+	if base == ChunkTilesetFactory.WALL_INTERIOR:
+		var interior_variant: Vector2i = _resolve_interior_variant(global_x, global_y)
+		return ChunkTilesetFactory.get_wall_variant_coords(base, interior_variant.x)
 	## Atlas variant selection disabled — always use variant 0 (base sprite set).
 	return ChunkTilesetFactory.get_wall_variant_coords(base, 0)
 
 func _resolve_variant_alt_id(base: Vector2i, global_x: int, global_y: int, allow_flip: bool) -> int:
+	if base == ChunkTilesetFactory.WALL_INTERIOR:
+		return _resolve_interior_variant(global_x, global_y).y
 	if not allow_flip:
 		return 0
 	var def_index: int = base.x - 7
@@ -1175,6 +1464,7 @@ func _redraw_flora_tile(tile_index: int) -> void:
 func _advance_redraw_phase() -> void:
 	match _redraw_phase:
 		REDRAW_PHASE_TERRAIN:
+			_refresh_interior_macro_layer()
 			_redraw_phase = REDRAW_PHASE_COVER
 		REDRAW_PHASE_COVER:
 			_redraw_phase = REDRAW_PHASE_CLIFF
