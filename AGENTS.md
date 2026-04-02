@@ -4,8 +4,8 @@ doc_type: agent_entrypoint
 status: draft
 owner: engineering
 source_of_truth: false
-version: 1.0
-last_updated: 2026-03-29
+version: 1.1
+last_updated: 2026-04-01
 related_docs:
   - docs/00_governance/DOCUMENT_PRECEDENCE.md
   - docs/00_governance/WORKFLOW.md
@@ -53,17 +53,32 @@ Do not use it as a replacement for contracts, APIs, specs, or ADRs.
 
 ### Skills — read before starting and before closing
 
-Skills in `.claude/skills/` are project-specific behavioral rules that extend governance.
-They are NOT optional. Read the relevant skills at two moments:
+This project currently has two skill systems:
+- repo-local Claude skills in `.claude/skills/`
+- Codex-native skills in `$CODEX_HOME/skills/` (for this workstation: `C:\Users\progi\.codex\skills\`)
 
-**At task start:**
-- `.claude/skills/persistent-tasks/SKILL.md` — if the task is part of a multi-iteration feature. Read `active-epic.md` first to know the current state, documentation debt, and where things were left off.
-- `.claude/skills/brainstorming/SKILL.md` — if the task is a new feature idea without a spec.
+**Do not treat both skill systems as simultaneously mandatory.**
+Pick the skill family for the active runtime and use only that family for behavioral guidance.
 
-**Before writing the closure report:**
-- `.claude/skills/verification-before-completion/SKILL.md` — ALWAYS, for every task. This skill defines the evidence standard for acceptance tests AND for documentation checks. Do not write a closure report without reading this skill first.
+**If the active runtime is Claude:**
+- use the relevant skills in `.claude/skills/`
+- do not additionally load Codex-native skills for the same purpose
 
-If you skip a skill that was relevant to the task, the closure report is incomplete.
+**If the active runtime is Codex:**
+- use the relevant skills in `C:\Users\progi\.codex\skills\`
+- do not additionally load `.claude/skills/` for the same purpose
+
+**Codex skill routing for this project:**
+- `C:\Users\progi\.codex\skills\spec-first-feature-work\SKILL.md` — if the task is a new feature idea or structural change without an approved spec
+- `C:\Users\progi\.codex\skills\world-contract-discipline\SKILL.md` — for world / chunk / mining / topology / reveal / presentation tasks
+- `C:\Users\progi\.codex\skills\save-load-change-check\SKILL.md` — for save/load and persistence-impact tasks
+- `C:\Users\progi\.codex\skills\docs-impact-check\SKILL.md` — before writing the closure report for any non-trivial change, and whenever semantics or docs may have changed
+
+**Shared project memory for multi-iteration work:**
+- use `.claude/agent-memory/active-epic.md` as the persistent task tracker regardless of runtime
+- the tracker file is shared project state; it is not a reason to load both skill families
+
+If you skip a skill that was relevant inside the active runtime's skill family, the closure report is incomplete.
 
 ### For world / chunk / mining / topology / reveal / presentation tasks
 Required contract document:

@@ -13,6 +13,16 @@ const REDRAW_PHASE_FLORA: int = 3
 const REDRAW_PHASE_DEBUG_INTERIOR: int = 4
 const REDRAW_PHASE_DEBUG_COLLISION: int = 5
 const REDRAW_PHASE_DONE: int = 6
+
+enum ChunkVisualState {
+	UNINITIALIZED,
+	NATIVE_READY,
+	PROXY_READY,
+	TERRAIN_READY,
+	FULL_PENDING,
+	FULL_READY,
+}
+
 const REDRAW_TIME_BUDGET_USEC: int = 2500
 const _CARDINAL_DIRS := [
 	Vector2i.LEFT,
@@ -79,6 +89,7 @@ var _is_underground: bool = false
 var _use_operation_global_terrain_cache: bool = false
 var _operation_global_terrain_cache: Dictionary = {}
 var _mining_write_authorized: bool = false
+var _visual_state: int = ChunkVisualState.UNINITIALIZED
 
 func setup(
 	p_coord: Vector2i,
@@ -177,6 +188,7 @@ func complete_terrain_phase_now() -> void:
 	_refresh_interior_macro_layer()
 	_redraw_phase = REDRAW_PHASE_COVER
 	_redraw_tile_index = 0
+	_sync_visual_state_after_redraw_mutation()
 
 func global_to_local(global_tile: Vector2i) -> Vector2i:
 	if WorldGenerator and WorldGenerator.has_method("tile_to_local_in_chunk"):
@@ -308,12 +320,33 @@ func try_mine_at(local: Vector2i) -> Dictionary:
 	_operation_global_terrain_cache = {}
 	var new_type: int = _resolve_open_tile_type(local)
 	_set_terrain_type(local, new_type)
-	var dirty_tiles: Dictionary = _collect_mining_dirty_tiles(local)
-	_redraw_dirty_tiles(dirty_tiles)
+	# ChunkManager redraws the local patch after neighbor normalization so mining
+	# does not pay for two overlapping same-chunk redraw passes.
 	_use_operation_global_terrain_cache = previous_cache_enabled
 	_operation_global_terrain_cache = previous_global_terrain_cache
 	WorldPerfProbe.end("Chunk.try_mine_at %s" % [chunk_coord], started_usec)
 	return {"old_type": old_type, "new_type": new_type}
+
+func redraw_mining_patch(local_tile: Vector2i) -> void:
+	for offset_y: int in range(-1, 2):
+		for offset_x: int in range(-1, 2):
+			var patch_tile: Vector2i = local_tile + Vector2i(offset_x, offset_y)
+			if not _is_inside(patch_tile):
+				continue
+			_terrain_layer.erase_cell(patch_tile)
+			_ground_face_layer.erase_cell(patch_tile)
+			_rock_layer.erase_cell(patch_tile)
+			_cover_layer.erase_cell(patch_tile)
+			_cliff_layer.erase_cell(patch_tile)
+			_redraw_terrain_tile(patch_tile)
+			_redraw_cover_tile(patch_tile)
+			_redraw_cliff_tile(patch_tile)
+	_refresh_interior_macro_layer()
+	_reapply_local_zone_cover_state_for_mining_patch(local_tile)
+	if WorldGenerator and WorldGenerator.balance and WorldGenerator.balance.mountain_debug_visualization:
+		for child: Node in _debug_root.get_children():
+			child.queue_free()
+		_rebuild_debug_markers()
 
 func cleanup() -> void:
 	is_loaded = false
@@ -323,6 +356,7 @@ func cleanup() -> void:
 	_biome_bytes = PackedByteArray()
 	_revealed_local_cover_tiles = {}
 	_clear_interior_macro_layer()
+	_visual_state = ChunkVisualState.UNINITIALIZED
 
 func _create_layer(layer_name: String, tileset: TileSet, z_index_value: int) -> TileMapLayer:
 	var layer := TileMapLayer.new()
@@ -398,6 +432,7 @@ func _redraw_all(include_flora: bool = false) -> void:
 		## progressive path can draw flora without re-doing terrain/cover/cliff.
 		_redraw_phase = REDRAW_PHASE_FLORA
 	_redraw_tile_index = 0
+	_sync_visual_state_after_redraw_mutation()
 	WorldPerfProbe.end("Chunk._redraw_all %s" % [chunk_coord], started_usec)
 
 func _begin_progressive_redraw() -> void:
@@ -412,9 +447,23 @@ func _begin_progressive_redraw() -> void:
 		child.queue_free()
 	_redraw_phase = REDRAW_PHASE_TERRAIN
 	_redraw_tile_index = 0
+	_mark_visual_native_ready()
 
 func is_redraw_complete() -> bool:
 	return _redraw_phase == REDRAW_PHASE_DONE
+
+func is_first_pass_ready() -> bool:
+	return _visual_state == ChunkVisualState.PROXY_READY \
+		or _visual_state == ChunkVisualState.TERRAIN_READY \
+		or _visual_state == ChunkVisualState.FULL_PENDING \
+		or _visual_state == ChunkVisualState.FULL_READY
+
+func is_full_redraw_ready() -> bool:
+	return _visual_state == ChunkVisualState.FULL_READY
+
+func needs_full_redraw() -> bool:
+	return _visual_state == ChunkVisualState.TERRAIN_READY \
+		or _visual_state == ChunkVisualState.FULL_PENDING
 
 func is_terrain_phase_done() -> bool:
 	return _redraw_phase > REDRAW_PHASE_TERRAIN
@@ -429,6 +478,7 @@ func is_flora_phase_done() -> bool:
 
 func continue_redraw(max_rows: int) -> bool:
 	if _redraw_phase == REDRAW_PHASE_DONE:
+		_sync_visual_state_after_redraw_mutation()
 		return true
 	while _redraw_phase != REDRAW_PHASE_DONE:
 		if _redraw_phase == REDRAW_PHASE_DEBUG_INTERIOR or _redraw_phase == REDRAW_PHASE_DEBUG_COLLISION:
@@ -445,8 +495,47 @@ func continue_redraw(max_rows: int) -> bool:
 			_reapply_local_zone_cover_state_for_index_range(phase_start_index, _redraw_tile_index)
 		if _redraw_tile_index >= _chunk_size * _chunk_size:
 			_advance_redraw_phase()
+		_sync_visual_state_after_redraw_mutation()
 		return _redraw_phase == REDRAW_PHASE_DONE
+	_sync_visual_state_after_redraw_mutation()
 	return true
+
+func _mark_visual_native_ready() -> void:
+	_visual_state = ChunkVisualState.NATIVE_READY
+
+func _mark_visual_proxy_ready() -> void:
+	if _visual_state >= ChunkVisualState.PROXY_READY:
+		return
+	_visual_state = ChunkVisualState.PROXY_READY
+
+func _mark_visual_first_pass_ready() -> void:
+	if _visual_state >= ChunkVisualState.TERRAIN_READY:
+		return
+	_visual_state = ChunkVisualState.TERRAIN_READY
+
+func _mark_visual_convergence_owed() -> void:
+	if not is_first_pass_ready():
+		return
+	_visual_state = ChunkVisualState.FULL_PENDING
+
+func _mark_visual_full_redraw_pending() -> void:
+	if not is_first_pass_ready():
+		_mark_visual_first_pass_ready()
+	_mark_visual_convergence_owed()
+
+func _mark_visual_full_redraw_ready() -> void:
+	assert(_can_publish_full_redraw_ready(),
+		"chunk visual state must not publish FULL_READY before redraw is complete and no border fix is pending")
+	_visual_state = ChunkVisualState.FULL_READY
+
+func _can_publish_full_redraw_ready() -> bool:
+	return is_first_pass_ready() \
+		and _redraw_phase == REDRAW_PHASE_DONE \
+		and _pending_border_dirty.is_empty()
+
+func _sync_visual_state_after_redraw_mutation() -> void:
+	if _redraw_phase > REDRAW_PHASE_TERRAIN:
+		_mark_visual_first_pass_ready()
 
 func _redraw_dynamic_visibility(_dirty_tiles: Dictionary) -> void:
 	_rebuild_cover_layer()
@@ -1392,6 +1481,17 @@ func _reapply_local_zone_cover_state_for_tiles(tile_map: Dictionary) -> void:
 	for local_tile: Vector2i in tile_map:
 		if _revealed_local_cover_tiles.has(local_tile):
 			_cover_layer.erase_cell(local_tile)
+
+func _reapply_local_zone_cover_state_for_mining_patch(center_tile: Vector2i) -> void:
+	if not _cover_layer or _revealed_local_cover_tiles.is_empty():
+		return
+	for offset_y: int in range(-1, 2):
+		for offset_x: int in range(-1, 2):
+			var local_tile: Vector2i = center_tile + Vector2i(offset_x, offset_y)
+			if not _is_inside(local_tile):
+				continue
+			if _revealed_local_cover_tiles.has(local_tile):
+				_cover_layer.erase_cell(local_tile)
 
 func _reapply_local_zone_cover_state_for_index_range(start_index: int, end_index: int) -> void:
 	if not _cover_layer or _revealed_local_cover_tiles.is_empty():

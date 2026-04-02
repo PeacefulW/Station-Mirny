@@ -1,11 +1,11 @@
 ---
-title: WorldLab — Seed Atlas Viewer
+title: WorldLab - Single Seed World Viewer
 doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: false
-version: 0.2
-last_updated: 2026-03-30
+version: 0.3
+last_updated: 2026-04-02
 depends_on:
   - world_generation_foundation.md
   - native_chunk_generation_spec.md
@@ -14,245 +14,130 @@ related_docs:
   - ../../04_execution/world_generation_rollout.md
 ---
 
-# Feature: WorldLab — Seed Atlas Viewer
+# Feature: WorldLab - Single Seed World Viewer
 
 ## Design Intent
 
-Developer/designer tool for evaluating world generation quality across seeds. Instead of spawning into each world and running around, the user sees an atlas of seed thumbnails with analytical metrics — instantly comparing world structure, biome distribution, and landmark density.
+Developer/designer tool for inspecting one world seed as one large overview map.
 
-Accessible from main menu as a separate screen. Not part of gameplay — pure dev/design tooling.
+The goal is not comparing many seeds in a grid. The goal is seeing one seed clearly enough to evaluate the overall world shape, mountain chains, rivers, and biome distribution without loading gameplay and walking around the map.
 
-## What the player sees
+Accessible from main menu as a separate screen. Not part of gameplay - pure dev/design tooling.
 
-A grid of seed cards (3×3, 4×4, or 5×5 configurable). Each card shows:
+## What the user sees
 
-### Two preview modes
+One large global preview for the selected seed.
 
-**Global preview (DEFAULT on card)** — the full wrap-width world or a large latitudinal slice, sampled at low resolution (1 sample per N tiles). Shows the big picture: continent shapes, mountain chain silhouettes, river systems, biome distribution. Safe zone and land guarantee are invisible at this scale.
+The preview samples the full wrap-width world (or the canonical latitude span used by the generator) and scales it into one large image that fills most of the screen.
 
-**Spawn local preview** — 256×256 tile region around spawn at full resolution. Shows what the player actually sees at start. Available on click/toggle, not the default.
+### Supported map modes
 
-Global preview is the primary mode because the goal is evaluating world composition, not spawn quality.
+1. Terrain preview
+- Color by resolved terrain type (`GROUND`, `ROCK`, `WATER`, `SAND`)
 
-### Three miniature maps per card
-1. **Biome map** — colored by biome identity (plains=green, mountains=gray, water=blue, etc.)
-2. **Terrain map** — colored by terrain type (GROUND, ROCK, WATER, SAND)
-3. **Structure map** — colored by ridge_strength (red channel) / river_strength (blue) / floodplain_strength (cyan)
+2. Biome preview
+- Color by biome identity using the registry palette
 
-### Metrics panel (per seed)
+Only one preview is shown at a time. The user switches modes instead of viewing many tiny cards.
 
-All metrics are formally defined below in "Metric Definitions".
+## Controls
 
-1. Longest river length (tiles)
-2. Number of large river basins
-3. Largest mountain chain size (tiles)
-4. Top-3 biome coverage (% each)
-5. Number of small biome noise islands
-6. Average transition smoothness
-7. Number of landmark zones
+- Seed input
+- Map mode toggle: `Terrain` / `Biome`
+- Generate button
+- Cancel button
+- Back button
 
-### Controls
-- Grid size toggle: 9 / 16 / 25 seeds
-- Starting seed input (first seed, rest = seed+1, seed+2, ...)
-- Preview mode toggle: Global / Spawn Local
-- Regenerate button
-- Cancel button (stops in-progress generation)
-
-## Metric Definitions
-
-### 1. Longest river length
-- **Definition**: the longest chain of connected WATER tiles on the global preview grid
-- **Connectivity**: 4-connected (cardinal neighbors only)
-- **Unit**: tiles at preview resolution
-- **What counts as river**: terrain_type == WATER (not river_strength threshold; uses the resolved terrain output)
-
-### 2. Number of large river basins
-- **Definition**: count of 4-connected groups of WATER tiles with area >= `RIVER_BASIN_MIN_TILES`
-- **`RIVER_BASIN_MIN_TILES`**: 50 (at preview resolution)
-- **Connectivity**: 4-connected
-
-### 3. Largest mountain chain size
-- **Definition**: largest 4-connected group of ROCK tiles
-- **Unit**: tiles at preview resolution
-- **What counts as mountain**: terrain_type == ROCK
-
-### 4. Top-3 biome coverage
-- **Definition**: for each biome, count tiles with that biome_id, divide by total sampled tiles. Report top 3 by percentage.
-- **Format**: `biome_name: XX.X%` × 3
-
-### 5. Number of small biome noise islands
-- **Definition**: count of 4-connected groups of same-biome tiles with area < `NOISE_ISLAND_MAX_TILES`
-- **`NOISE_ISLAND_MAX_TILES`**: 20 (at preview resolution)
-- **Purpose**: detects noisy/fragmented biome boundaries. Lower = cleaner.
-
-### 6. Average transition smoothness
-- **Definition**: for each non-edge tile, check if its biome matches all 4 cardinal neighbors. `smoothness = matching_pairs / total_pairs`. Range [0, 1]. Higher = smoother.
-- **Connectivity**: 4-connected cardinal neighbors
-
-### 7. Number of landmark zones
-- **Definition**: count of feature hook placements resolved by the generator for the sampled region
-- **Source**: `feature_and_poi_payload.placements` count from the generation pass
-- **Note**: if feature/POI resolution is unavailable in preview path, report "N/A"
+No grid size toggle. No seed atlas. The workflow is: choose seed -> generate one large map -> inspect -> change seed if needed.
 
 ## Architecture
 
-### WorldLabSampler (abstraction layer)
+### WorldLabSampler
 
-WorldLab does NOT directly depend on `ChunkGenerator` C++ or any specific backend. Instead:
+WorldLab does NOT depend on `ChunkManager`, loaded chunks, or gameplay runtime state.
 
-```
-WorldLabSampler
-├── native path: ChunkGenerator.generate_chunk() if available
-└── fallback path: PlanetSampler + LargeStructureSampler + BiomeResolver
-                   + LocalVariationResolver + SurfaceTerrainResolver (GDScript)
-```
-
-`WorldLabSampler` is a thin wrapper that:
+`WorldLabSampler` is a thin preview-only sampling wrapper that:
 1. Accepts seed + tile coordinate
-2. Returns terrain_type, biome_id, structure values (ridge/river/floodplain)
-3. Uses native C++ if `WorldGenerator.get_native_chunk_generator()` is available
-4. Falls back to GDScript samplers otherwise
+2. Returns resolved terrain type and biome palette index
+3. Uses native C++ chunk generation if available
+4. Falls back to the GDScript sampling stack otherwise
 
-This ensures the tool works even without the C++ DLL.
+Fallback stack:
+- `PlanetSampler`
+- `LargeStructureSampler`
+- `BiomeResolver`
+- `LocalVariationResolver`
+- `WorldComputeContext`
+- `SurfaceTerrainResolver`
 
-### Global preview sampling
+### Sampling rules
 
-For global preview of a wrap-width world:
-- Sample area: `wrap_width × latitude_span` tiles
-- Preview resolution: 1 sample per `GLOBAL_PREVIEW_STEP` tiles (e.g., every 8 tiles → 512×512 preview for 4096×4096 world)
-- Output: 3 Images at preview resolution (biome, terrain, structure)
-- Sampling: iterate at step intervals, call WorldLabSampler per sample point
-
-### Scene structure
-```
-WorldLab (Control)
-├── TopBar (HBoxContainer)
-│   ├── SeedInput (SpinBox)
-│   ├── GridSizeButton (OptionButton: 3×3, 4×4, 5×5)
-│   ├── PreviewModeButton (OptionButton: Global, Spawn Local)
-│   ├── GenerateButton
-│   └── CancelButton
-├── ScrollContainer
-│   └── GridContainer
-│       └── SeedCard × N (PanelContainer)
-│           ├── MinimapContainer (HBoxContainer)
-│           │   ├── BiomePreview (TextureRect)
-│           │   ├── TerrainPreview (TextureRect)
-│           │   └── StructurePreview (TextureRect)
-│           ├── SeedLabel (Label)
-│           └── MetricsLabel (RichTextLabel)
-└── StatusLabel (Label: "Generating seed X/N...")
-```
-
-### Cancellation + stale result protection
-
-Each generation batch has a monotonic `generation_id` (int, incremented on each Generate press). Workers check generation_id before writing results. If user presses Generate again or changes grid size:
-1. `generation_id` incremented
-2. Old workers continue running but their results are discarded (generation_id mismatch)
-3. New workers start for the new batch
-4. UI shows "Cancelled" for stale cards
-
-No `WorkerThreadPool.cancel()` — just stale-discard pattern (same as boot compute pipeline).
+- Sample the full global world view for the selected seed
+- Derive preview resolution from screen-oriented limits instead of a seed-card size
+- Never instantiate `Chunk`
+- Never mutate `ChunkManager`
+- Never emit gameplay world events
+- Discard stale results via monotonically increasing `generation_id`
 
 ## Data Contracts
 
-### New layer: WorldLab Preview Data
-- What: rasterized preview images + computed metrics per seed
-- Where: `scenes/ui/world_lab.gd` (transient, not persisted)
-- Owner (WRITE): WorldLab scene
+### Layer: WorldLab Preview Data
+
+- What: one terrain image, one biome image, and preview metadata for the currently selected seed
+- Where: `scenes/ui/world_lab.gd`
+- Owner (WRITE): `WorldLab`
 - Readers (READ): UI display only
 - Invariants:
-  - preview generation must not modify any game state
-  - must not instantiate Chunk nodes or modify loaded_chunks
-  - must not emit EventBus signals
-  - stale generation results must be discarded by generation_id check
+  - preview generation must not modify gameplay state
+  - preview generation must not instantiate or mutate loaded chunks
+  - preview generation must not use `ChunkManager` as a source of truth
+  - stale generation results must be discarded by `generation_id`
 - Forbidden:
-  - accessing ChunkManager or any runtime streaming state
-  - persisting preview data across sessions
+  - direct reads from runtime chunk streaming state
+  - persistence of preview data across sessions
+  - gameplay-side event emission
 
 ## Iterations
 
-### Iteration 1 — Basic scene with global biome/terrain minimaps
+### Iteration 1 - Single-seed global viewer
 
-Goal: see colored minimaps for multiple seeds side by side.
+Goal: render one large seed overview map that can be regenerated for a new seed.
 
 What is done:
-- WorldLab scene accessible from main menu
-- Grid of seed cards (configurable 3×3 / 4×4 / 5×5)
-- WorldLabSampler with native + GDScript fallback
-- Global preview: sample full world at low resolution
-- Rasterize biome map (biome → color) and terrain map (terrain_type → color) to Image
-- Display as TextureRect in grid
-- Seed number label on each card
-- Generation on WorkerThreadPool, progress indicator
-- Cancellation via generation_id (stale discard)
+- `WorldLab` opens from the main menu
+- User enters one seed value
+- Tool renders one large global preview instead of a seed grid
+- `Terrain` and `Biome` modes are available from one shared preview area
+- Generation runs on `WorkerThreadPool`
+- Cancellation uses `generation_id` stale-discard pattern
+- Native chunk generation is used when available
+- GDScript fallback remains available when native generation is unavailable
 
 Acceptance tests:
-- [ ] WorldLab opens from main menu without affecting game state
-- [ ] 9 seed cards display correctly with biome + terrain minimaps in global mode
-- [ ] Different seeds show visually different worlds
-- [ ] Global preview shows full world wrap-width, not just spawn region
-- [ ] Cancel / re-generate discards stale results cleanly
+- [ ] `WorldLab` opens without affecting gameplay state
+- [ ] One large preview renders for the selected seed
+- [ ] Terrain mode shows the global world shape clearly enough to inspect generator output
+- [ ] Biome mode shows different biome regions for the same seed
+- [ ] Changing the seed and pressing Generate replaces the previous preview
+- [ ] Cancel discards stale generation results cleanly
 - [ ] UI remains responsive during generation
-
-Files that may be touched:
-- `scenes/ui/world_lab.gd` (new)
-- `scenes/ui/world_lab.tscn` (new)
-- `scenes/ui/main_menu.tscn` (add button)
-
-Files that must NOT be touched:
-- `core/systems/world/chunk_manager.gd`
-- `core/autoloads/world_generator.gd`
-- Any gameplay code
-
-### Iteration 2 — Structure map + metrics
-
-Goal: add structure visualization and analytical numbers.
-
-What is done:
-- Structure map: ridge_strength (red), river_strength (blue), floodplain (cyan) as RGB channels
-- Compute all 7 metrics during sampling pass (flood-fill on preview-resolution grid)
-- Display metrics as formatted text under each card
-
-Acceptance tests:
-- [ ] Structure map shows ridge/river patterns clearly
-- [ ] All 7 metrics computed and displayed with reasonable values
-- [ ] Metrics vary meaningfully between seeds
-- [ ] Flood-fill uses 4-connectivity as defined in metric spec
-
-Files that may be touched:
-- `scenes/ui/world_lab.gd`
-
-Files that must NOT be touched:
-- Same as iteration 1
-
-### Iteration 3 — Detail view, spawn preview, polish
-
-Goal: make the tool comfortable for extended use.
-
-What is done:
-- Click seed card → full-size detail panel with zoomable maps
-- Toggle between Global and Spawn Local preview per card
-- Spawn local preview: 256×256 region around spawn at full resolution
-- Biome legend (color → biome name)
-- Export seed list as text
-- Keyboard navigation (arrow keys to browse)
-- Seed comparison mode (select 2 seeds, see side by side)
-
-Acceptance tests:
-- [ ] Detail view shows full-resolution maps
-- [ ] Spawn local preview shows safe zone / land guarantee area correctly
-- [ ] Biome legend is accurate
-- [ ] Tool is usable for 30+ minute evaluation sessions
 
 Files that may be touched:
 - `scenes/ui/world_lab.gd`
 - `scenes/ui/world_lab.tscn`
+- `docs/02_system_specs/world/world_lab_spec.md`
+
+Files that must NOT be touched:
+- `core/systems/world/chunk_manager.gd`
+- `core/systems/world/chunk.gd`
+- gameplay save/load code
+- mining / topology / reveal runtime code
 
 ## Out-of-scope
 
-- Actual gameplay from WorldLab (no spawning into world)
+- Multi-seed atlas grid
+- Metrics panel
+- Spawn-local preview mode
+- Detail/zoom comparison workflows
 - Save/load of preview data
-- Network/multiplayer
-- Modding API for WorldLab
-- Real-time parameter tuning (adjusting balance live) — future iteration
+- Entering gameplay from WorldLab

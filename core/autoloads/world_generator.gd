@@ -38,6 +38,7 @@ const BALANCE_PATH: String = "res://data/world/world_gen_balance.tres"
 const CHUNK_BIOME_SAMPLE_GRID: int = 3
 const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_utils.gd")
 const WorldComputeContextScript = preload("res://core/systems/world/world_compute_context.gd")
+const WorldPrePassScript = preload("res://core/systems/world/world_pre_pass.gd")
 const WorldFeatureHookResolverScript = preload("res://core/systems/world/world_feature_hook_resolver.gd")
 const WorldPoiResolverScript = preload("res://core/systems/world/world_poi_resolver.gd")
 const SurfaceTerrainResolverScript = preload("res://core/systems/world/surface_terrain_resolver.gd")
@@ -51,6 +52,7 @@ var _planet_sampler: PlanetSampler = null
 var _structure_sampler: LargeStructureSampler = null
 var _biome_resolver: BiomeResolver = null
 var _local_variation_resolver: LocalVariationResolver = null
+var _world_pre_pass: RefCounted = null
 var _compute_context: RefCounted = null
 var _surface_terrain_resolver: RefCounted = null
 var _chunk_content_builder: ChunkContentBuilder = null
@@ -75,6 +77,7 @@ func _exit_tree() -> void:
 	_biome_resolver = null
 	_structure_sampler = null
 	_planet_sampler = null
+	_world_pre_pass = null
 
 func initialize_world(seed_value: int) -> void:
 	if not _ensure_world_feature_registry_ready():
@@ -86,6 +89,7 @@ func initialize_world(seed_value: int) -> void:
 	_setup_structure_sampler()
 	_setup_biome_resolver()
 	_setup_local_variation_resolver()
+	_setup_world_pre_pass()
 	spawn_tile = canonicalize_tile(spawn_tile)
 	_chunk_biome_cache.clear()
 	current_biome = get_biome_at_tile(spawn_tile)
@@ -384,6 +388,9 @@ func _setup_local_variation_resolver() -> void:
 	_local_variation_resolver = LocalVariationResolver.new()
 	_local_variation_resolver.initialize(world_seed, balance)
 
+func _setup_world_pre_pass() -> void:
+	_world_pre_pass = WorldPrePassScript.new().configure(balance, _planet_sampler).compute()
+
 func _setup_compute_context() -> void:
 	var biome_by_id: Dictionary = {}
 	var palette_index_by_id: Dictionary = {}
@@ -406,7 +413,8 @@ func _setup_compute_context() -> void:
 		_local_variation_resolver,
 		biome_by_id,
 		palette_index_by_id,
-		WorldFeatureRegistry.get_all_feature_hooks()
+		WorldFeatureRegistry.get_all_feature_hooks(),
+		_world_pre_pass
 	)
 	_surface_terrain_resolver = _create_surface_terrain_resolver(_compute_context)
 	_compute_context.set_surface_terrain_resolver(_surface_terrain_resolver)
@@ -628,6 +636,7 @@ func _clear_initialized_runtime_state() -> void:
 	_biome_resolver = null
 	_structure_sampler = null
 	_planet_sampler = null
+	_world_pre_pass = null
 
 func _create_chunk_content_builder(world_context: RefCounted) -> ChunkContentBuilder:
 	if world_context == null:

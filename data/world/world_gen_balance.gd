@@ -24,6 +24,14 @@ extends Resource
 @export_range(256, 262144) var latitude_half_span_tiles: int = 4096
 @export var equator_tile_y: int = 0
 
+@export_group("World Pre-pass")
+@export_range(8, 512) var prepass_grid_step: int = 32
+
+@export_group("Lakes")
+@export_range(3, 100) var prepass_lake_min_area: int = 8
+@export_range(0.01, 0.3) var prepass_lake_min_depth: float = 0.04
+@export_range(0.0, 0.5) var prepass_frozen_lake_temperature: float = 0.15
+
 @export_group("World Channels")
 @export var height_frequency: float = 0.01
 @export var height_octaves: int = 4
@@ -99,17 +107,17 @@ extends Resource
 @export_range(1, 64) var mountain_shadow_edges_per_step: int = 8
 
 @export_group("Terrain Classification")
-@export_range(0.0, 1.0, 0.01) var river_min_strength: float = 0.40
+@export_range(0.0, 1.0, 0.01) var river_min_strength: float = 0.34
 @export_range(0.0, 1.0, 0.01) var river_ridge_exclusion: float = 0.70
-@export_range(0.0, 1.0, 0.01) var river_max_height: float = 0.74
-@export_range(0.0, 1.0, 0.01) var bank_min_floodplain: float = 0.32
+@export_range(0.0, 1.0, 0.01) var river_max_height: float = 0.78
+@export_range(0.0, 1.0, 0.01) var bank_min_floodplain: float = 0.28
 @export_range(0.0, 1.0, 0.01) var bank_ridge_exclusion: float = 0.64
-@export_range(0.0, 1.0, 0.01) var bank_min_river: float = 0.16
-@export_range(0.0, 1.0, 0.01) var bank_min_moisture: float = 0.54
-@export_range(0.0, 1.0, 0.01) var bank_max_height: float = 0.60
-@export_range(0.0, 1.0, 0.01) var mountain_base_threshold: float = 0.74
-@export_range(0.0, 1.0, 0.01) var mountain_threshold_min: float = 0.32
-@export_range(0.0, 1.0, 0.01) var mountain_threshold_max: float = 0.78
+@export_range(0.0, 1.0, 0.01) var bank_min_river: float = 0.14
+@export_range(0.0, 1.0, 0.01) var bank_min_moisture: float = 0.50
+@export_range(0.0, 1.0, 0.01) var bank_max_height: float = 0.64
+@export_range(0.0, 1.0, 0.01) var mountain_base_threshold: float = 0.68
+@export_range(0.0, 1.0, 0.01) var mountain_threshold_min: float = 0.28
+@export_range(0.0, 1.0, 0.01) var mountain_threshold_max: float = 0.74
 
 @export_group("Start Zone")
 @export var safe_zone_radius: int = 12

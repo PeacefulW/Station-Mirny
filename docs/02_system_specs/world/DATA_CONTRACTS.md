@@ -5,7 +5,7 @@ status: draft
 owner: engineering
 source_of_truth: true
 version: 0.9
-last_updated: 2026-03-31
+last_updated: 2026-04-02
 depends_on:
   - world_generation_foundation.md
   - subsurface_and_verticality_foundation.md
@@ -49,6 +49,7 @@ Until superseded, this document is mandatory reading for any iteration that touc
 | Feature / POI Definitions | `canonical` | `WorldFeatureRegistry` | boot-time registry load of immutable definition resources | `WorldFeatureRegistry` read APIs, `WorldGenerator` readiness gate, future generator-side resolvers | boot-time load only, read-only during runtime |
 | Feature Hook Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic hook decision compute from canonical generator context + immutable definition snapshot | `WorldPoiResolver`, chunk payload generation, debug inspectors | per-origin deterministic compute, no persistence |
 | POI Placement Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic POI arbitration from hook decisions + immutable POI definitions | chunk payload generation, future debug/materialization consumers | per-origin deterministic compute, owner-only placement authority, no persistence |
+| World Pre-pass | `canonical` | `WorldPrePass`, bootstrapped by `WorldGenerator` | boot-time coarse height / filled-height / lake-mask / lake-record grids derived from seed + balance + planet sampler | `WorldGenerator` initialization, `WorldComputeContext` holder, future generator-side resolvers and samplers | boot-time compute only, deterministic rebuild, not persisted |
 | World | `canonical` | `ChunkManager` runtime arbitration, `Chunk` loaded storage, `WorldGenerator` unloaded surface base | canonical terrain bytes and unloaded overlay | terrain/resource/walkability/presentation consumers | loaded + unloaded reads, immediate writes, generator fallback |
 | Mining | `canonical` | `ChunkManager` orchestration, `Chunk` loaded mutation storage | loaded terrain mutation and mining-side invalidation entrypoint | topology, reveal, presentation, save collection | loaded-only mutation, immediate |
 | Topology | `derived` | `ChunkManager`, with native `MountainTopologyBuilder` behind it when enabled | surface topology caches | `MountainRoofSystem` and topology getters | surface-only, loaded-bubble scoped, incremental patch + deferred dirty rebuild |
@@ -69,6 +70,7 @@ Observed files for this version:
 - `core/systems/world/chunk_build_result.gd`
 - `core/systems/world/chunk_content_builder.gd`
 - `core/systems/world/world_compute_context.gd`
+- `core/systems/world/world_pre_pass.gd`
 - `core/systems/world/world_feature_hook_resolver.gd`
 - `core/systems/world/world_poi_resolver.gd`
 - `core/systems/world/chunk_tileset_factory.gd`
@@ -90,6 +92,8 @@ Observed files for this version:
 - POI placement decisions are derived on demand by `WorldPoiResolver` from hook decisions plus immutable POI definitions; canonical anchor ownership and arbitration order are computed before any payload/materialization step.
 - `WorldGenerator.build_chunk_content()` and `build_chunk_native_data()` serialize deterministic `feature_and_poi_payload` records from those derived feature-hook and POI results; owner chunks carry the authoritative baseline placement records.
 - `WorldFeatureDebugOverlay` consumes cached copies of already-built `feature_and_poi_payload` records as a debug-only presentation proof; disabling that overlay does not change placement truth.
+- `WorldPrePass` owns boot-time coarse-grid prepass state (`_height_grid`, `_filled_height_grid`, `_lake_mask`, `_lake_records`) derived from the initialized `PlanetSampler` plus `WorldGenBalance`.
+- `WorldGenerator.initialize_world()` computes `WorldPrePass` before `WorldComputeContext` creation; the context currently holds a read-only reference, but no external runtime/public API consumes filled-height or lake data yet.
 - Surface base terrain for unloaded tiles comes from `WorldGenerator` through `build_chunk_native_data()`, `build_chunk_content()`, and `get_terrain_type_fast()`.
 - Loaded chunk terrain truth lives in `Chunk._terrain_bytes`.
 - Loaded chunk runtime modifications live in `Chunk._modified_tiles`.
@@ -184,6 +188,31 @@ Observed files for this version:
 - `current violations / ambiguities / contract gaps`:
 - Placement decisions remain internal-only; baseline owner-only payload serialization exists, but non-owner chunk projection/materialization is still out of scope.
 
+## Layer: World Pre-pass
+
+- `classification`: `canonical`
+- `owner`: `WorldPrePass` owns the deterministic coarse-grid prepass channels built at boot; `WorldGenerator` is responsible only for lifecycle/orchestration (`initialize_world()` creates and computes it, then hands a read-only reference into `WorldComputeContext`).
+- `writers`: `WorldPrePass.compute()` samples canonical height from `PlanetSampler`, runs Y-boundary priority flood over the coarse grid, and authors `_height_grid`, `_filled_height_grid`, `_lake_mask`, and `_lake_records`.
+- `readers`: `WorldGenerator.initialize_world()` boot sequence, `WorldComputeContext.get_world_pre_pass()`, and future generator-side samplers/resolvers that explicitly opt into prepass channels. Current runtime world/chunk/mining/topology/reveal/presentation systems do not read this layer.
+- `rebuild policy`: computed once per `initialize_world()` after sampler setup and before compute-context publication; deterministic from seed + canonical coarse-grid coordinates + `WorldGenBalance`; not persisted to save data.
+- `invariants`:
+- `assert(_height_grid.size() == grid_width * grid_height, "prepass coarse height grid must cover the entire configured coarse grid")`
+- `assert(_filled_height_grid.size() == _height_grid.size(), "filled-height grid must stay index-aligned with the coarse height grid")`
+- `assert(_lake_mask.size() == _height_grid.size(), "lake mask must stay index-aligned with the coarse height grid")`
+- `assert(for_all_cell in coarse_grid: _filled_height_grid[cell] >= _height_grid[cell], "priority flood must never lower source height values")`
+- `assert(for_all_lake in _lake_records: lake.id >= 1 and lake.id <= 255, "lake ids written into PackedByteArray mask must stay in byte range")`
+- `assert(for_all_lake in _lake_records: lake.area_grid_cells == lake.grid_cells.size(), "lake records must report area consistent with their stored cell list")`
+- `assert(X-neighbors-wrap and Y-neighbors-clamp_to_prepass_band, "prepass connectivity keeps cylindrical X wrap and latitude-bounded Y domain")`
+- `write operations`:
+- `WorldPrePass.compute()`
+- `forbidden writes`:
+- `WorldComputeContext`, `WorldGenerator`, and future generator-side consumers must not mutate `_height_grid`, `_filled_height_grid`, `_lake_mask`, or `_lake_records` after publication.
+- Chunk/runtime world systems must not treat prepass grids as writable terrain state or mutate them in response to gameplay.
+- `emitted events / invalidation signals`:
+- none; the layer is published synchronously by `WorldGenerator.initialize_world()`
+- `current violations / ambiguities / contract gaps`:
+- Filled-height and lake outputs remain internal-only in Iteration 1.2; `WorldPrePass.sample()` still exposes only `height` until a later iteration explicitly promotes additional channels into the read contract.
+
 ## Layer: World
 
 - `classification`: `canonical`
@@ -261,7 +290,7 @@ Observed files for this version:
 - `current violations / ambiguities / contract gaps`:
 - ~~`Chunk.try_mine_at()` mutates canonical terrain but does not itself emit events, patch topology, or update fog. The safe orchestration point is `ChunkManager.try_harvest_at_world()`, not the chunk method.~~ **resolved 2026-03-28**: `Chunk.try_mine_at()` now asserts on unauthorized direct use; `ChunkManager.try_harvest_at_world()` explicitly authorizes the chunk-local mutation just for the sanctioned orchestration path.
 - ~~`Chunk.try_mine_at()` does not call `_refresh_open_neighbors()`. Neighboring `MINED_FLOOR` / `MOUNTAIN_ENTRANCE` tiles are not re-normalized automatically, even inside the same chunk.~~ **resolved 2026-03-27**: `try_harvest_at_world()` now calls `_refresh_open_neighbors()` for same-chunk neighbors and `_refresh_open_tile()` for cross-chunk cardinal neighbors after mining.
-- ~~Cross-chunk mining redraw is local-only. `_collect_mining_dirty_tiles()` returns only same-chunk tiles, so neighbor chunk visuals at seams can remain stale.~~ **resolved 2026-03-27**: `try_harvest_at_world()` now calls `_seam_normalize_and_redraw()` which detects edge-tile mining and redraws a 3-tile border strip in each affected loaded neighbor chunk. `_collect_mining_dirty_tiles()` still returns same-chunk tiles only; cross-chunk redraw is handled at the orchestration level.
+- ~~Cross-chunk mining redraw is local-only. `_collect_mining_dirty_tiles()` returns only same-chunk tiles, so neighbor chunk visuals at seams can remain stale.~~ **resolved 2026-04-02**: `try_harvest_at_world()` now keeps the immediate local patch redraw for responsiveness, while `_seam_normalize_and_redraw()` queues scheduler-owned border-fix work for affected loaded neighbor chunks. `_collect_mining_dirty_tiles()` still returns same-chunk tiles only; cross-chunk convergence is handled at the orchestration level.
 - ~~Debug direct writers bypass the normal event and invalidation chain.~~ **resolved 2026-03-28**: debug pocket carving now goes through `ChunkManager.try_harvest_at_world()`, and direct debug rock placement was removed instead of leaving an unsafe terrain write path.
 
 ## Layer: Topology
@@ -351,7 +380,10 @@ Observed files for this version:
 - `invariants`:
 - `assert(only_chunk_manager_mutates_visual_task_queues, "visual task queues are owner-only scheduler state")`
 - `assert(terrain_urgent_and_terrain_near_work_outrank_far_and_cosmetic_work, "near first-pass work must outrank far convergence work")`
+- `assert(visible_border_fix_work_outranks_far_full_redraw, "near-visible seam repair must run before far full convergence work")`
 - `assert(task_dedupe_and_versioning_prevent_duplicate_live_work_for_same_chunk_kind, "scheduler must not accumulate multiple live tasks for one chunk/kind/version")`
+- `assert(chunk_visual_state_transitions_follow_uninitialized_native_proxy_terrain_full_pending_full_ready, "ChunkVisualState is the chunk-local readiness contract for scheduler-owned publication")`
+- `assert(chunk_full_ready_is_revoked_on_visual_invalidation_until_followup_work_closes, "approximation, seam repair, and mining-side convergence debt must drop FULL_READY back to FULL_PENDING until the owed work is complete")`
 - `assert(visual_scheduler_work_stays_within_an_explicit_per_tick_budget, "visual queue draining is budgeted by WorldGenBalance.visual_scheduler_budget_ms")`
 - `assert(urgent_wait_and_queue_depth_are_observable, "scheduler telemetry must expose urgent wait, queue depth, processed count, and budget exhaustion")`
 - `write operations`:
@@ -367,8 +399,7 @@ Observed files for this version:
 - `emitted events / invalidation signals`:
 - none; observability is currently telemetry/log based rather than event based.
 - `current violations / ambiguities / contract gaps`:
-- First-pass and full-convergence semantics still reuse compatibility paths over `Chunk.continue_redraw()` and existing redraw phases. Iteration 2 introduces the explicit readiness state machine.
-- Border-fix work is explicit scheduler state now, but final canonical full-convergence semantics are still deferred to Iteration 3.
+- `Chunk.continue_redraw()` still provides the compatibility executor behind scheduler-owned first-pass/full-redraw tasks; canonical convergence ownership now lives in `ChunkManager` invalidation/finalization helpers instead of raw redraw-phase completion alone.
 
 ## Layer: Presentation
 
@@ -386,6 +417,10 @@ Observed files for this version:
 - `assert(all_revealed_cover_tiles_are_erased_from_cover_layer, "surface cover reveal is applied by erasing cover_layer cells")`
 - `assert(not _is_underground or roof_cover_system_disabled_for_chunk, "underground chunks do not use roof cover")`
 - `assert(not _is_underground or fog_layer_initialized_to_unseen_for_all_loaded_tiles, "underground fog layer starts every loaded underground tile as UNSEEN")`
+- `assert(near_visible_chunk_nodes_stay_hidden_until_chunk_is_first_pass_ready, "loaded chunk visibility is gated by Chunk.is_first_pass_ready() rather than raw apply completion")`
+- `assert(chunk_full_ready_is_chunk_local_terminal_visual_state, "ChunkVisualState.FULL_READY is the only terminal chunk-local readiness state exposed by Chunk")`
+- `assert(chunk_full_ready_requires_redraw_done_and_no_pending_border_fix, "FULL_READY may be published only after redraw convergence is complete and no border-fix debt remains for the chunk")`
+- `assert(targeted_mutation_or_seam_patch_does_not_by_itself_redefine_terminal_visual_truth, "immediate dirty-tile redraw may provide responsive local feedback, but final terminal convergence is restored only through owner-side follow-up checks")`
 - `assert(active_z == 0 or not mountain_shadow_system_running, "MountainShadowSystem only runs in surface context")`
 - `assert(shadow_inputs == {external_mountain_edges, sun_angle, shadow_length_factor}, "shadow sprites are built from cached edges plus current sun data")`
 - `assert(shadow_edge_source_chunks == {target_chunk, north_chunk, south_chunk, east_chunk, west_chunk}, "shadow builds use the target chunk plus four cardinal neighbors as edge sources")`
@@ -418,7 +453,7 @@ Observed files for this version:
 - Sun-angle threshold crossing in `MountainShadowSystem._process()`
 - Player movement indirectly through reveal and fog systems
 - `current violations / ambiguities / contract gaps`:
-- ~~Cross-chunk mining redraw gaps leak directly into presentation: neighboring chunk cover, terrain, and cliff visuals are not refreshed by the current mining path.~~ **resolved 2026-03-27**: `_seam_normalize_and_redraw()` now redraws border strips in loaded neighbor chunks after seam mining.
+- ~~Cross-chunk mining redraw gaps leak directly into presentation: neighboring chunk cover, terrain, and cliff visuals are not refreshed by the current mining path.~~ **resolved 2026-04-02**: seam repair now becomes explicit scheduler-owned border-fix work; affected chunks lose `FULL_READY` until the queued seam repair closes their pending convergence debt.
 - Presentation is loaded-chunk scoped. There is no presentation object for unloaded continuation even when world read APIs can still answer terrain queries.
 - ~~Debug direct writers can redraw visuals without going through the normal world -> mining -> topology -> reveal invalidation chain.~~ **resolved 2026-03-28**: debug terrain mutation paths no longer call raw chunk redraw helpers directly; the remaining pocket-carve path reuses production mining orchestration.
 
@@ -467,8 +502,8 @@ Observed files for this version:
 - `rebuild policy`: boot-time only; state is initialized at boot start, updated during boot, and remains static after boot completes. Not persisted across save/load.
 - `invariants`:
 - `assert(boot_chunk_state != VISUAL_COMPLETE or boot_chunk_state_was_APPLIED_first, "visual completion must not precede apply for any boot chunk")`
-- `assert(not first_playable or player_chunk_terrain_phase_done, "first_playable requires player chunk (ring 0) terrain phase to be complete — cover/cliff/flora may still be progressive (streaming_redraw_budget_spec)")`
-- `assert(not first_playable or all_ring_0_and_ring_1_chunks_are_loaded_applied_and_terrain_done, "first_playable requires ring 0..1 (Chebyshev distance) terrain phase done — cover/cliff/flora progressive, not blocking first_playable (boot_fast_first_playable_spec)")`
+- `assert(not first_playable or player_chunk_first_pass_ready, "first_playable requires the player chunk (ring 0) to reach Chunk.is_first_pass_ready()")`
+- `assert(not first_playable or all_ring_0_and_ring_1_chunks_are_loaded_applied_and_first_pass_ready, "first_playable requires ring 0..1 (Chebyshev distance) first-pass readiness, not full convergence")`
 - `assert(boot_ring_uses_chebyshev_distance, "ring distance is max(abs(dx), abs(dy)), not Manhattan — diagonal chunk at (1,1) is ring 1")`
 - `assert(first_playable does not require topology_ready, "topology is decoupled from first_playable gate")`
 - `assert(first_playable_enables_player_input_and_physics, "GameWorld enables input/physics and dismisses loading screen on first_playable")`
@@ -478,20 +513,20 @@ Observed files for this version:
 - `assert(no_sync_topology_rebuild_in_harvest, "harvest path uses _mark_topology_dirty() for background rebuild via _tick_topology(), not synchronous _ensure_topology_current()")`
 - `assert(runtime_near_chunks_enter_scheduler_owned_first_pass_lane, "runtime-streamed near chunks must enter the scheduler-owned first-pass lanes instead of bypassing visual scheduling with synchronous terrain completion")`
 - `assert(no_sync_visual_bypass_in_streaming_runtime, "streaming runtime finalize must not bypass scheduler ownership with synchronous terrain/full redraw helpers")`
-- `assert(not boot_complete or all_startup_chunks_state >= VISUAL_COMPLETE, "boot_complete requires all startup chunks to reach terminal state")`
+- `assert(not boot_complete or all_startup_chunks_state >= VISUAL_COMPLETE, "boot_complete requires all startup chunks to reach the Chunk.is_full_redraw_ready() terminal state")`
 - `assert(not boot_complete or topology_ready, "boot_complete requires topology to be ready")`
-- `assert(ring_0_gets_terrain_phase_at_boot_apply, "ring 0 boot chunk gets complete_terrain_phase_now() at apply time — cover/cliff/flora are progressive (streaming_redraw_budget_spec)")`
+- `assert(normal_boot_first_playable_path_uses_scheduler_owned_first_pass_work, "boot critical path must reach first_playable through scheduler-owned first-pass work rather than direct terrain helper shortcuts")`
 - `assert(non_player_startup_chunks_use_progressive_redraw, "all non-player startup chunks use progressive redraw instead of synchronous ring-1 terrain completion")`
-- `assert(non_player_startup_chunks_hidden_until_terrain_ready, "startup chunks outside the player chunk set visible=false at apply/load time, visible=true when is_terrain_phase_done()")`
+- `assert(startup_chunks_hidden_until_first_pass_ready, "startup chunk visibility is false until Chunk.is_first_pass_ready(), then becomes visible through scheduler/boot progress callbacks")`
 - `assert(first_playable_handoff_is_honest, "after first_playable, unfinished startup coords are handed to runtime streaming but remain boot-tracked until real apply/redraw completion")`
 - `assert(no_unbounded_apply_in_gameplay_frames, "post-first-playable does not call _boot_apply_from_queue(); outer chunks load via budgeted runtime streaming")`
 - `assert(shadow_edge_cache_has_time_guard, "_advance_edge_cache_build() breaks at 1ms budget to prevent 50-200ms spikes")`
-- `assert(boot_promote_waits_for_flora_phase_done, "_boot_promote_redrawn_chunks() uses is_flora_phase_done() for VISUAL_COMPLETE promotion — debug phases do not block boot gates")`
-- `assert(debug_phases_excluded_from_boot_gates, "REDRAW_PHASE_DEBUG_INTERIOR and REDRAW_PHASE_DEBUG_COLLISION never block first_playable or boot_complete")`
-- `assert(flora_blocks_visual_complete_for_boot, "REDRAW_PHASE_FLORA must complete before VISUAL_COMPLETE / boot_complete; first_playable does NOT wait for flora (boot_fast_first_playable_spec)")`
+- `assert(boot_promote_waits_for_chunk_full_redraw_ready, "_boot_promote_redrawn_chunks() promotes VISUAL_COMPLETE only after Chunk.is_full_redraw_ready()")`
+- `assert(boot_visual_complete_can_be_revoked_before_boot_complete, "startup chunk state may drop from VISUAL_COMPLETE back to APPLIED when late seam or convergence debt appears before boot_complete is finalized")`
+- `assert(first_playable_and_boot_complete_are_distinct_product_milestones, "GameWorld hands control to the player at first_playable and keeps boot_complete as background convergence + support-system completion")`
 - `assert(ring_2_deferred_to_runtime_at_boot, "ring 2+ chunks are NOT applied inside boot loop — they are handed off to runtime streaming via _boot_start_runtime_handoff() after first_playable (boot_fast_first_playable_spec)")`
 - `assert(boot_progressive_redraw_prioritizes_near_ring, "_boot_process_redraw_budget() processes only ring 0-1 chunks during boot, deferring ring 2+ to end of queue (boot_fast_first_playable_spec)")`
-- `assert(boot_ring_0_uses_progressive_for_cover_cliff_flora, "boot player chunk gets complete_terrain_phase_now() only — cover/cliff/flora redraw is progressive via _tick_redraws() (streaming_redraw_budget_spec)")`
+- `assert(diagnostics_only_sync_visual_helpers_do_not_define_boot_readiness, "compatibility helpers such as complete_terrain_phase_now() may still exist for diagnostics/fallback use, but normal boot readiness no longer depends on them")`
 - `write operations`:
 - `ChunkManager._boot_init_readiness()`
 - `ChunkManager._boot_set_chunk_state()`
@@ -522,7 +557,7 @@ Observed files for this version:
 - `assert(applied_chunks_per_step <= BOOT_MAX_APPLY_PER_STEP, "main-thread install/attach budget is enforced per boot step")`
 - `assert(apply_queue_sorted_by_distance, "near-player chunks are always applied before far chunks")`
 - `assert(first_playable_exits_boot_loop_early, "boot_load_initial_chunks returns on first_playable; unfinished startup coords are runtime-enqueued instead of being faked complete")`
-- `assert(ring_0_gets_terrain_only_synchronous_redraw, "complete_terrain_phase_now() called for player chunk (ring 0) at boot apply — full redraw is progressive (streaming_redraw_budget_spec)")`
+- `assert(ring_0_first_playable_waits_for_scheduler_owned_first_pass, "player-adjacent startup chunks reach first_playable only after scheduler-owned first-pass convergence; boot apply does not call complete_terrain_phase_now()")`
 - `assert(non_player_startup_apply_is_install_only, "non-player boot apply step is install/attach + cache hookup without synchronous terrain/full redraw")`
 - `write operations`:
 - `ChunkManager._boot_submit_pending_tasks()`
@@ -555,8 +590,8 @@ Observed files for this version:
 - Chunk generation does not compute or store a wall-neighbor mask, autotile mask, or terrain peering metadata in canonical chunk data.
 - `Chunk.populate_native()` installs native arrays, reapplies saved modifications through `_apply_saved_modifications()`, recalculates `_has_mountain`, resets cover visual state, and starts redraw.
 - Saved modifications are replayed as direct tile writes and then re-normalized for affected open tiles plus their cardinal same-chunk neighbors before redraw starts.
-- Non-player streamed chunks begin progressive redraw through `_begin_progressive_redraw()` and remain hidden until `is_terrain_phase_done()` to avoid green placeholder zones. Player chunk loads through the general runtime path may still use immediate `_redraw_all()` semantics from `populate_native()`. Boot loading visual policy: ring 0 gets `complete_redraw_now(true)` after install; all other startup chunks stay progressive-only. `_boot_promote_redrawn_chunks()` promotes `APPLIED` → `VISUAL_COMPLETE` only after flora phase finishes.
-- Boot loading tracks per-chunk readiness through `BootChunkState` transitions: `QUEUED_COMPUTE -> COMPUTED -> QUEUED_APPLY -> APPLIED -> VISUAL_COMPLETE`. Aggregate gates `first_playable` (ring 0..1 honest visual readiness, topology NOT required) and `boot_complete` (all startup chunks terminal + topology ready) are updated after each chunk. Ring distance uses Chebyshev metric (`max(abs(dx), abs(dy))`), so diagonal chunks at offset (1,1) are ring 1 — critical for 4-chunk junction spawns. `first_playable` is the product handoff moment: `GameWorld` enables player input/physics, dismisses loading screen, and unpauses time. Shadows and remaining boot work complete in background via `GameWorld._tick_boot_finalization()`. See `Layer: Boot Readiness`.
+- Streamed chunks begin progressive redraw through `_begin_progressive_redraw()`, enter `ChunkVisualState.NATIVE_READY`, and remain hidden until `Chunk.is_first_pass_ready()` to avoid green placeholder zones. Player-chunk runtime loads may still use the general `_redraw_all()` path from `populate_native()`, but boot visibility/readiness now rely on scheduler-owned first-pass work rather than direct terrain helper shortcuts.
+- Boot loading tracks per-chunk readiness through `BootChunkState` transitions `QUEUED_COMPUTE -> COMPUTED -> QUEUED_APPLY -> APPLIED`, with `APPLIED <-> VISUAL_COMPLETE` remaining revocable until final convergence settles. Aggregate gates `first_playable` (ring 0..1 honest first-pass readiness, topology NOT required) and `boot_complete` (all startup chunks currently terminal/full-ready + topology ready) are updated after each chunk. Ring distance uses Chebyshev metric (`max(abs(dx), abs(dy))`), so diagonal chunks at offset (1,1) are ring 1 — critical for 4-chunk junction spawns. `first_playable` is the product handoff moment: `GameWorld` enables player input/physics, dismisses loading screen, and unpauses time. Shadows and remaining boot work complete in background via `GameWorld._tick_boot_finalization()`. See `Layer: Boot Readiness`.
 - Boot loading does not fake terminal state for unfinished startup coords after handoff. Remaining startup coords are enqueued into runtime streaming, stay boot-tracked, and only contribute to `boot_complete` after real apply/redraw progress. Topology readiness is part of `boot_complete` but not `first_playable`.
 - Surface flora presentation is derived after `populate_native()`: from cached flora, from `ChunkBuildResult`, or from native data, depending on load path and whether saved modifications exist.
 - Underground chunks are marked with `set_underground(true)` before `populate_native()` and then receive a fog layer through `init_fog_layer()` after population.

@@ -7,11 +7,13 @@ extends RefCounted
 const DEFAULT_FRACTAL_GAIN: float = 0.55
 const DEFAULT_FRACTAL_LACUNARITY: float = 2.1
 const DEFAULT_WRAP_WIDTH_TILES: int = 4096
+const FRACTAL_TYPE_FBM: int = 1  # FastNoiseLite.FRACTAL_FBM
 
 
 static func setup_noise_instance(noise: FastNoiseLite, seed_value: int, frequency: float, octaves: int) -> void:
 	noise.seed = seed_value
 	noise.frequency = frequency
+	noise.fractal_type = FRACTAL_TYPE_FBM
 	noise.fractal_octaves = octaves
 	noise.fractal_gain = DEFAULT_FRACTAL_GAIN
 	noise.fractal_lacunarity = DEFAULT_FRACTAL_LACUNARITY

@@ -26,11 +26,11 @@ void ChunkGenerator::setup_noise(FastNoiseLite& n, int s, float freq, int octave
     n.SetSeed(s);
     n.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);  // matches Godot TYPE_SIMPLEX
     n.SetFrequency(freq);
-    // GDScript WorldNoiseUtils sets fractal_octaves/gain/lacunarity but does NOT set
-    // fractal_type, so Godot default = TYPE_NONE applies. This means octaves/gain/lacunarity
-    // are dead code in GDScript — single octave evaluation only.
-    // Match GDScript behavior exactly: no fractal type = single octave.
-    n.SetFractalType(FastNoiseLite::FractalType_None);
+    // Phase 0: FBM is now enabled in both GDScript and native paths.
+    // The remaining octave/gain/lacunarity settings are now active because fractal_type is FBM.
+    // This restores the intended multi-octave detail on the native generation path.
+    // Keep native setup semantically aligned with the shared GDScript helper.
+    n.SetFractalType(FastNoiseLite::FractalType_FBm);
     n.SetFractalOctaves(octaves);
     n.SetFractalGain(FRACTAL_GAIN);
     n.SetFractalLacunarity(FRACTAL_LACUNARITY);

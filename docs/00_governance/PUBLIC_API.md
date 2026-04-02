@@ -193,8 +193,8 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: в boot sequence, когда initial world bubble должен быть загружен и доведён до gameplay-ready state.
-- Что делает: staged boot with bounded-parallel compute and split apply. Boot apply path only installs chunk nodes and attaches cached native/flora payloads; visual completion is then routed through the budgeted chunk visual scheduler and its compatibility redraw tasks. Non-player startup chunks stay `visible=false` until terrain phase completes. Returns early once the near slice is honestly first-playable, then hands unfinished startup coords to budgeted runtime scheduling instead of forcing synchronous visual completion.
-- Гарантии: `first_playable` = ring 0..1 chunks are loaded, applied, and terrain-phase ready under Chebyshev distance (`max(abs(dx), abs(dy))`); topology is NOT required. `boot_complete` = all tracked startup chunks terminal (`VISUAL_COMPLETE`) + topology ready. After `first_playable`, no blocking wait on remaining visual/topology/shadow work is allowed; unfinished startup coords remain boot-tracked and only become terminal after real scheduler progress. Non-player chunk visibility is gated on terrain phase completion (no green placeholder zones). Shadow edge cache build remains budgeted. См. `Boot Readiness State` и `Boot Compute Queue` layers в `DATA_CONTRACTS.md`.
+- Что делает: staged boot with bounded-parallel compute and split apply. Boot apply path only installs chunk nodes and attaches cached native/flora payloads; visual publication then goes through the budgeted chunk visual scheduler plus chunk-local `ChunkVisualState`. Startup chunks stay `visible=false` until `Chunk.is_first_pass_ready()` becomes true. Returns early once the near slice is honestly first-playable, then hands unfinished startup coords to budgeted runtime scheduling instead of forcing synchronous visual completion.
+- Гарантии: `first_playable` = ring 0..1 chunks are loaded, applied, and first-pass ready under Chebyshev distance (`max(abs(dx), abs(dy))`); topology is NOT required. `boot_complete` = all tracked startup chunks terminal (`VISUAL_COMPLETE`, meaning `Chunk.is_full_redraw_ready()`) + topology ready. After `first_playable`, no blocking wait on remaining visual/topology/shadow work is allowed; unfinished startup coords remain boot-tracked and only become terminal after real scheduler progress. Chunk visibility is gated on first-pass readiness (no green placeholder zones). Shadow edge cache build remains budgeted. См. `Boot Readiness State` и `Boot Compute Queue` layers в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.sync_display_to_player() -> void`
@@ -222,25 +222,40 @@ related_docs:
 - Когда использовать: при loaded-only lifecycle/presentation reads.
 - Особенности: не authoritative для unloaded reads.
 
+`Chunk.is_first_pass_ready() -> bool`
+- Что возвращает: опубликован ли chunk до first-pass visual readiness (`proxy`, `terrain`, `full-pending`, или `full-ready` state).
+- Когда использовать: boot visibility gates, staged streaming finalize, и любые owner-side проверки "можно ли уже показывать chunk игроку".
+- Особенности: это canonical read-only readiness query для near-visible publication. Заменяет boot/runtime семантику вида "terrain phase done значит можно показать".
+
+`Chunk.is_full_redraw_ready() -> bool`
+- Что возвращает: достиг ли chunk терминального full-redraw состояния (`ChunkVisualState.FULL_READY`).
+- Когда использовать: boot terminal/readiness gates и owner-side проверки, где нужен полностью сошедшийся chunk visual.
+- Особенности: это честнее, чем использовать промежуточные redraw-phase helpers; `boot_complete` теперь опирается именно на full-ready semantics. Значение может снова стать `false`, если seam/mutation/approximation инвалидирует terminal convergence и owner path ещё не закрыл owed follow-up work.
+
+`Chunk.needs_full_redraw() -> bool`
+- Что возвращает: опубликован ли chunk на first-pass, но ещё ли должен дойти до canonical full redraw.
+- Когда использовать: только в lifecycle/scheduler owner-path, когда нужно решить, ставить ли follow-up `TASK_FULL_REDRAW`.
+- Особенности: read-only helper над `ChunkVisualState`; не делает redraw сам по себе. Используется и для первичного convergence после first-pass, и для повторного FULL_PENDING после owner-side invalidation.
+
 `Chunk.is_redraw_complete() -> bool`
 - Что возвращает: завершён ли progressive redraw этого chunk.
-- Когда использовать: boot/lifecycle logic, если нужен fully drawn chunk before proceeding.
-- Особенности: presentation progress only; terrain already authoritative even if redraw not complete.
+- Когда использовать: diagnostic/debug helper around the legacy compatibility redraw machine.
+- Особенности: `Chunk.is_full_redraw_ready()` — более честный owner-facing readiness query; terrain уже authoritative even if redraw not complete.
 
 `Chunk.is_gameplay_redraw_complete() -> bool`
 - Что возвращает: завершены ли terrain + cover + cliff фазы (phase >= FLORA).
 - Когда использовать: если нужен gameplay-safe terrain/cover/cliff completion без ожидания flora/debug.
-- Особенности: true раньше чем `is_redraw_complete()` и раньше чем `is_flora_phase_done()`. Больше не используется как честный boot `VISUAL_COMPLETE` gate.
+- Особенности: это phase helper, а не public boot/readiness contract. Больше не используется как честный `VISUAL_COMPLETE` / `boot_complete` gate.
 
 `Chunk.is_flora_phase_done() -> bool`
 - Что возвращает: завершилась ли flora фаза progressive redraw (phase > FLORA).
-- Когда использовать: честный boot/readiness gate, если chunk не должен считаться visual-complete до окончания flora.
-- Особенности: true раньше чем `is_redraw_complete()`, потому что debug phases не входят в boot contract.
+- Когда использовать: low-level debug/telemetry around legacy redraw phases.
+- Особенности: не является основным query для boot readiness после Iteration 2.
 
 `Chunk.is_terrain_phase_done() -> bool`
 - Что возвращает: прошёл ли chunk terrain фазу progressive redraw (phase > TERRAIN).
-- Когда использовать: boot visibility gate — outer chunks становятся visible только после terrain phase, чтобы избежать зелёных placeholder зон.
-- Особенности: presentation progress only. True also when `is_redraw_complete()` is true.
+- Когда использовать: compatibility/debug helper around the current redraw implementation.
+- Особенности: это больше не публичная семантика "chunk можно показать"; для visibility/readiness используй `Chunk.is_first_pass_ready()`.
 
 `Chunk.get_redraw_phase_name() -> StringName`
 - Что возвращает: текущую фазу progressive redraw.
@@ -248,14 +263,14 @@ related_docs:
 - Особенности: presentation-only progress indicator.
 
 `ChunkManager.is_boot_first_playable() -> bool`
-- Что возвращает: достигнут ли `first_playable` gate — near slice ring 0..1 (Chebyshev distance, включая диагонали) честно готова визуально, без topology.
+- Что возвращает: достигнут ли `first_playable` gate — near slice ring 0..1 (Chebyshev distance, включая диагонали) честно доведена до `Chunk.is_first_pass_ready()`, без topology.
 - Когда использовать: boot progress UI, `GameWorld` boot sequence для определения момента передачи управления игроку (input, physics, loading screen dismissal).
 - Особенности: topology НЕ входит в `first_playable`. Возвращает `false` до вызова `boot_load_initial_chunks()`. Это продуктовый момент — после него игрок взаимодействует с миром, а не ждёт.
 
 `ChunkManager.is_boot_complete() -> bool`
-- Что возвращает: достигнут ли `boot_complete` gate — все startup chunks `VISUAL_COMPLETE` И topology ready.
+- Что возвращает: достигнут ли `boot_complete` gate — все startup chunks `VISUAL_COMPLETE` (full-ready) И topology ready.
 - Когда использовать: для определения полного завершения boot sequence.
-- Особенности: включает outer rings и topology. Возвращает `false` до полного завершения boot path.
+- Особенности: включает outer rings и topology. Возвращает `false` до полного завершения boot path. До финального `boot_complete` startup chunk может быть временно демoted из `VISUAL_COMPLETE` обратно в `APPLIED`, если поздняя seam/convergence invalidation снова делает его не full-ready.
 
 `ChunkManager.get_boot_chunk_states_snapshot() -> Dictionary`
 - Что возвращает: копию `Dictionary` { `Vector2i` -> `BootChunkState` } для всех startup chunks.
@@ -430,14 +445,14 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: когда initial chunk visuals должны быть готовы в boot sequence.
-- Что делает: loads chunks with per-chunk readiness tracking and honest post-handoff continuation. Startup visual work is scheduled through the budgeted chunk visual scheduler and compatibility redraw tasks; chunks stay hidden until terrain phase completes. Unfinished startup coords after `first_playable` remain boot-tracked and continue through runtime scheduling until real completion.
-- Гарантии: canonical terrain authoritative после load; presentation строится через scheduler-owned redraw paths. Near slice terrain/first-pass readiness is mandatory for `first_playable`; full startup bubble visual completion is mandatory only for `boot_complete`. `GameWorld` uses `first_playable` as the player handoff point (input/physics/loading screen). См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
+- Что делает: loads chunks with per-chunk readiness tracking and honest post-handoff continuation. Startup visual work is scheduled through the budgeted chunk visual scheduler, compatibility redraw tasks, and chunk-local `ChunkVisualState`; chunks stay hidden until `Chunk.is_first_pass_ready()`. Unfinished startup coords after `first_playable` remain boot-tracked and continue through runtime scheduling until real completion.
+- Гарантии: canonical terrain authoritative после load; presentation строится через scheduler-owned redraw paths. Near slice first-pass readiness is mandatory for `first_playable`; full startup bubble visual completion (`Chunk.is_full_redraw_ready()`) is mandatory only for `boot_complete`. `GameWorld` uses `first_playable` as the player handoff point (input/physics/loading screen), while `boot_complete` stays a background convergence milestone. См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.try_harvest_at_world(world_pos: Vector2) -> Dictionary`
 - Когда вызывать: когда mining должен immediately обновить terrain/cover/cliff visuals и wall-form selection.
-- Что делает: redraws local dirty set, same-chunk normalized neighbors и loaded cross-chunk seam strips; потом downstream reveal/shadow listeners обновляются через event.
-- Гарантии: соблюдает `Postconditions: mine tile` и current `Wall Atlas Selection` contract.
+- Что делает: immediately patch-redraws локальный dirty set и same-chunk normalized neighbors для отзывчивости, затем переводит affected chunks в non-terminal convergence state и ставит explicit follow-up work через scheduler-owned `TASK_FULL_REDRAW` / `TASK_BORDER_FIX` для seam repair и terminal full-ready reconciliation; потом downstream reveal/shadow listeners обновляются через event.
+- Гарантии: соблюдает `Postconditions: mine tile` и current `Wall Atlas Selection` contract. Immediate local redraw не считается сам по себе восстановлением terminal `FULL_READY`, если ещё остался owed seam/border convergence work.
 - Пример вызова: `var result := chunk_manager.try_harvest_at_world(hit_world_pos)`
 
 `MountainShadowSystem.prepare_boot_shadows(progress_callback: Callable) -> void`
@@ -458,9 +473,9 @@ related_docs:
 - Гарантии: presentation-only, loaded-only; не меняет canonical terrain и не является general external redraw API.
 
 `Chunk.complete_terrain_phase_now() -> void`  `(owner-only safe entrypoint)`
-- Когда вызывать: из boot apply path (ring 0 player chunk) и из streaming finalize path (ring≤1 near-player chunks). Основной синхронный redraw entrypoint после streaming_redraw_budget_spec.
+- Когда вызывать: только как diagnostics/fallback helper в owner-side exceptional path. Нормальный boot path и normal streaming runtime path на него больше не опираются.
 - Что делает: draws terrain layer for all tiles, advances progressive redraw to COVER phase. Cover/cliff/flora continue via `FrameBudgetDispatcher`.
-- Гарантии: presentation-only, loaded-only. Only effective when chunk is in TERRAIN redraw phase. No-op if terrain phase already complete. Допустимый degraded state: terrain без cover/cliff/flora на 0.5-2 секунды.
+- Гарантии: presentation-only, loaded-only. Only effective when chunk is in TERRAIN redraw phase. No-op if terrain phase already complete. Streaming/runtime boot visibility and readiness не должны зависеть от этого helper'а напрямую; они идут через scheduler + `Chunk.is_first_pass_ready()`. Допустимый degraded state: terrain без cover/cliff/flora на 0.5-2 секунды.
 - Пример вызова: внутри owner path `chunk.complete_terrain_phase_now()`
 
 `MountainShadowSystem.is_boot_shadow_work_drained() -> bool`

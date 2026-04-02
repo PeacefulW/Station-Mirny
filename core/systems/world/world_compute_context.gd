@@ -14,6 +14,7 @@ var _structure_sampler: LargeStructureSampler = null
 var _biome_resolver: BiomeResolver = null
 var _local_variation_resolver: LocalVariationResolver = null
 var _surface_terrain_resolver: RefCounted = null
+var _world_pre_pass: RefCounted = null
 var _biome_by_id: Dictionary = {}
 var _palette_index_by_id: Dictionary = {}
 var _feature_hook_snapshot: Array[Resource] = []
@@ -30,7 +31,8 @@ func configure(
 	local_variation_resolver: LocalVariationResolver,
 	biome_by_id: Dictionary,
 	palette_index_by_id: Dictionary,
-	feature_hook_snapshot: Array[Resource]
+	feature_hook_snapshot: Array[Resource],
+	world_pre_pass: RefCounted = null
 ) -> WorldComputeContext:
 	balance = balance_resource
 	world_seed = world_seed_value
@@ -41,6 +43,7 @@ func configure(
 	_structure_sampler = structure_sampler
 	_biome_resolver = biome_resolver
 	_local_variation_resolver = local_variation_resolver
+	_world_pre_pass = world_pre_pass
 	_biome_by_id = biome_by_id.duplicate()
 	_palette_index_by_id = palette_index_by_id.duplicate()
 	_feature_hook_snapshot = feature_hook_snapshot.duplicate()
@@ -135,6 +138,9 @@ func get_biome_palette_index(biome_id: StringName) -> int:
 
 func get_world_seed() -> int:
 	return world_seed
+
+func get_world_pre_pass() -> RefCounted:
+	return _world_pre_pass
 
 func get_feature_hook_snapshot() -> Array[Resource]:
 	var result: Array[Resource] = []

@@ -22,6 +22,8 @@ const _ZONE_REVEAL_TILE_OFFSETS := [
 	Vector2i(-1, 1),
 	Vector2i(1, 1),
 ]
+const _COVER_APPLY_TIME_BUDGET_USEC: int = 1200
+const _COVER_APPLY_MAX_CHUNKS_PER_FRAME: int = 1
 
 var _chunk_manager: ChunkManager = null
 var _player: Player = null
@@ -42,6 +44,8 @@ var _cached_zone_truncated: bool = false
 var _cached_zone_valid: bool = false
 var _pending_incremental_mined_tile: Vector2i = INVALID_MOUNTAIN_KEY
 var _pending_incremental_affected_chunks: Array[Vector2i] = []
+var _pending_cover_apply_coords: Array[Vector2i] = []
+var _pending_cover_apply_lookup: Dictionary = {}
 
 func _ready() -> void:
 	EventBus.mountain_tile_mined.connect(_on_mountain_tile_mined)
@@ -56,6 +60,8 @@ func _exit_tree() -> void:
 		EventBus.chunk_loaded.disconnect(_on_chunk_loaded)
 	if EventBus.chunk_unloaded.is_connected(_on_chunk_unloaded):
 		EventBus.chunk_unloaded.disconnect(_on_chunk_unloaded)
+	_pending_cover_apply_coords.clear()
+	_pending_cover_apply_lookup.clear()
 	_chunk_manager = null
 	_player = null
 
@@ -66,6 +72,7 @@ func _process(_delta: float) -> void:
 		_needs_zone_refresh = false
 		_request_refresh(true)
 	_check_player_mountain_state()
+	_drain_cover_apply_queue()
 
 func _resolve_dependencies() -> void:
 	var chunks: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
@@ -113,16 +120,69 @@ func _request_refresh(force_refresh: bool = false) -> void:
 	_pending_incremental_affected_chunks = []
 	if affected_chunks.is_empty():
 		return
-	_apply_reveal_state(affected_chunks, force_refresh)
+	_queue_reveal_state_apply(affected_chunks)
 
-func _apply_reveal_state(affected_chunks: Array[Vector2i], _animate: bool) -> void:
+func _queue_reveal_state_apply(affected_chunks: Array[Vector2i]) -> void:
 	for coord: Vector2i in affected_chunks:
-		var chunk: Chunk = _chunk_manager.get_chunk(coord)
-		if not chunk:
-			continue
-		var cover_step_usec: int = WorldPerfProbe.begin()
-		chunk.set_revealed_local_cover_tiles(_active_local_cover_tiles_by_chunk.get(coord, {}) as Dictionary)
-		WorldPerfProbe.end("MountainRoofSystem._process_cover_step %s" % [coord], cover_step_usec)
+		_enqueue_cover_apply_coord(coord)
+
+func _enqueue_cover_apply_coord(coord: Vector2i) -> void:
+	if coord == INVALID_MOUNTAIN_KEY or _pending_cover_apply_lookup.has(coord):
+		return
+	_pending_cover_apply_lookup[coord] = true
+	_pending_cover_apply_coords.append(coord)
+
+func _remove_pending_cover_apply_coord(coord: Vector2i) -> void:
+	if not _pending_cover_apply_lookup.has(coord):
+		return
+	_pending_cover_apply_lookup.erase(coord)
+	var idx: int = _pending_cover_apply_coords.find(coord)
+	if idx != -1:
+		_pending_cover_apply_coords.remove_at(idx)
+
+func _drain_cover_apply_queue() -> void:
+	if _pending_cover_apply_coords.is_empty() or _chunk_manager.get_active_z_level() != 0:
+		return
+	var started_usec: int = Time.get_ticks_usec()
+	var processed_chunks: int = 0
+	while processed_chunks < _COVER_APPLY_MAX_CHUNKS_PER_FRAME \
+		and not _pending_cover_apply_coords.is_empty():
+		if Time.get_ticks_usec() - started_usec >= _COVER_APPLY_TIME_BUDGET_USEC:
+			return
+		var coord: Vector2i = _pop_next_cover_apply_coord()
+		if coord == INVALID_MOUNTAIN_KEY:
+			return
+		_apply_cover_state_to_chunk(coord)
+		processed_chunks += 1
+
+func _pop_next_cover_apply_coord() -> Vector2i:
+	if _pending_cover_apply_coords.is_empty():
+		return INVALID_MOUNTAIN_KEY
+	var best_idx: int = 0
+	var best_score: int = _cover_apply_priority_score(_pending_cover_apply_coords[0])
+	for idx: int in range(1, _pending_cover_apply_coords.size()):
+		var score: int = _cover_apply_priority_score(_pending_cover_apply_coords[idx])
+		if score < best_score:
+			best_idx = idx
+			best_score = score
+	var coord: Vector2i = _pending_cover_apply_coords[best_idx]
+	_pending_cover_apply_coords.remove_at(best_idx)
+	_pending_cover_apply_lookup.erase(coord)
+	return coord
+
+func _cover_apply_priority_score(coord: Vector2i) -> int:
+	if not _player or not WorldGenerator:
+		return 0
+	var player_chunk: Vector2i = WorldGenerator.world_to_chunk(_player.global_position)
+	return absi(coord.x - player_chunk.x) + absi(coord.y - player_chunk.y)
+
+func _apply_cover_state_to_chunk(coord: Vector2i) -> void:
+	var chunk: Chunk = _chunk_manager.get_chunk(coord)
+	if not chunk:
+		return
+	var cover_step_usec: int = WorldPerfProbe.begin()
+	chunk.set_revealed_local_cover_tiles(_active_local_cover_tiles_by_chunk.get(coord, {}) as Dictionary)
+	WorldPerfProbe.end("MountainRoofSystem._process_cover_step %s" % [coord], cover_step_usec)
 
 func _find_reveal_start(player_tile: Vector2i) -> Vector2i:
 	var chunk: Chunk = _chunk_manager.get_chunk_at_tile(player_tile)
@@ -164,15 +224,14 @@ func _on_chunk_loaded(coord: Vector2i) -> void:
 		_invalidate_cached_zone()
 	if _has_active_local_zone():
 		if _active_local_reveal_chunk_coords.has(coord):
-			var chunk: Chunk = _chunk_manager.get_chunk(coord)
-			if chunk:
-				chunk.set_revealed_local_cover_tiles(_active_local_cover_tiles_by_chunk.get(coord, {}) as Dictionary)
+			_enqueue_cover_apply_coord(coord)
 		if _active_local_zone_truncated:
 			_needs_zone_refresh = true
 
 func _on_chunk_unloaded(coord: Vector2i) -> void:
 	if coord == Vector2i(999999, 999999):
 		return
+	_remove_pending_cover_apply_coord(coord)
 	if _cached_zone_valid and _cached_cover_tiles_by_chunk.has(coord):
 		_invalidate_cached_zone()
 	if _has_active_local_zone():

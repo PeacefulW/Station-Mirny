@@ -188,6 +188,72 @@ noise.fractal_type = FastNoiseLite.TYPE_FBM
 
 ## Фаза 1: Global Pre-pass Infrastructure
 
+### Gate перед реализацией
+
+- Фаза 1 не стартует как код-задача, пока не закрыты acceptance criteria Фазы 0 (`FBM` baseline + retune thresholds / biome ranges).
+- Фаза 1 слишком велика для одной agent-задачи; практический вход в неё всегда идёт через одну явную итерацию за раз.
+- Для текущего runtime pre-pass по Y ограничивается существующим latitude-contract, а не бесконечным миром:
+  - `prepass_min_y = equator_tile_y - latitude_half_span_tiles`
+  - `prepass_max_y = equator_tile_y + latitude_half_span_tiles`
+  - lookup вне этого диапазона clamp'ится к ближайшей граничной строке coarse grid, пока отдельный vertical-world contract не утверждён.
+
+### Итерация 1.1 — `WorldPrePass` shell + coarse heightfield
+
+**Цель:** ввести минимальный boot-time owner для global pre-pass и вычислить только coarse heightfield без изменения текущей terrain / biome / large-structure семантики.
+
+**Что делается:**
+
+- добавить `core/systems/world/world_pre_pass.gd` (`RefCounted`) с lifecycle `configure(...)`, `compute()`, `sample()`, `sample_all()`, `get_grid_value()`
+- хранить только grid metadata и канал `height`; drainage / lakes / ridges / erosion / rain shadow в эту итерацию не входят
+- вычислять `grid_width` из wrapped X-span, а `grid_height` из `latitude_half_span_tiles * 2`, используя `prepass_grid_step`
+- в `WorldGenerator.initialize_world()` создавать и вычислять `WorldPrePass` после setup sampler'ов и до `_setup_compute_context()`
+- пробросить ссылку на pre-pass в `WorldComputeContext` только как read-only holder; действующие resolver'ы и sampler'ы в этой итерации не меняют своё поведение
+- добавить только `prepass_grid_step` в `WorldGenBalance` и `world_gen_balance.tres`
+
+**Что не меняется:**
+
+- `LargeStructureSampler`, `BiomeResolver`, `SurfaceTerrainResolver`, `ChunkContentBuilder` продолжают работать по текущему pipeline
+- native chunk generation path не читает pre-pass в этой итерации
+- terrain thresholds, biome `.tres` ranges и визуальные правила не ретюнятся; это остаётся в Фазе 0
+- `ChunkManager`, `Chunk`, mining / topology / reveal / presentation не затрагиваются
+
+**Файлы, которые можно трогать:**
+
+- `core/autoloads/world_generator.gd`
+- `core/systems/world/world_compute_context.gd`
+- `core/systems/world/world_pre_pass.gd` (new)
+- `data/world/world_gen_balance.gd`
+- `data/world/world_gen_balance.tres`
+- `docs/02_system_specs/world/natural_world_generation_overhaul.md`
+
+**Файлы, которые нельзя трогать в Iteration 1.1:**
+
+- `core/systems/world/large_structure_sampler.gd`
+- `core/systems/world/biome_resolver.gd`
+- `core/systems/world/surface_terrain_resolver.gd`
+- `core/systems/world/chunk_content_builder.gd`
+- `core/systems/world/chunk_manager.gd`
+- `core/systems/world/chunk.gd`
+- `gdextension/src/chunk_generator.cpp`
+- biome `.tres` resources
+- `docs/02_system_specs/world/DATA_CONTRACTS.md`
+- `docs/00_governance/PUBLIC_API.md`
+
+**Required contract and API updates:**
+
+- `DATA_CONTRACTS.md`: не обновляется в Iteration 1.1, если `WorldPrePass` остаётся boot-time scaffolding без нового внешнего owner/read contract за пределами `WorldGenerator` / `WorldComputeContext`
+- `PUBLIC_API.md`: не обновляется в Iteration 1.1, если не появляется новый safe entrypoint для внешних runtime callers
+- если scope расширяется дальше inert shell/bootstrap ownership, итерацию надо остановить и обновить канонические docs в том же таске
+
+**Acceptance tests для Iteration 1.1:**
+
+- [ ] `WorldPrePass.compute()` создаёт `_height_grid` размера `grid_width * grid_height`
+- [ ] одинаковые `seed + canonical world_pos` дают одинаковый `sample(&"height", world_pos)`
+- [ ] `sample(&"height", pos)` seam-safe по X-wrap (`x` и `x ± world_wrap_width_tiles` дают один результат)
+- [ ] `WorldGenerator.initialize_world()` создаёт и вычисляет pre-pass до `_setup_compute_context()` и `_setup_chunk_content_builder()`
+- [ ] chunk terrain output до и после Iteration 1.1 бит-в-бит совпадает; pre-pass в этой итерации — inert scaffolding
+- [ ] если acceptance Фазы 0 не подтверждены, coding по Iteration 1.1 не начинается
+
 ### Шаг 1.1: Coarse Heightfield
 
 В рамках `WorldPrePass.compute()`:

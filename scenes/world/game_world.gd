@@ -209,7 +209,10 @@ func _run_boot_sequence() -> void:
 	## first_playable reached — hand control to player immediately.
 	## Remaining boot work (shadows, outer chunks, topology) completes in background
 	## via _tick_boot_finalization() without re-blocking the player.
-	_on_boot_first_playable()
+	if _chunk_manager and _chunk_manager.is_boot_first_playable():
+		_on_boot_first_playable()
+	else:
+		_finish_boot_sequence()
 
 # --- Z-уровни ---
 
@@ -304,6 +307,8 @@ func _pause_time_for_boot() -> void:
 		TimeManager.set_paused(true)
 
 func _on_boot_first_playable() -> void:
+	if _boot_first_playable_done:
+		return
 	_canonicalize_player_world_position()
 	if _player:
 		_player.set_physics_process(true)
