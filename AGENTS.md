@@ -4,8 +4,8 @@ doc_type: agent_entrypoint
 status: draft
 owner: engineering
 source_of_truth: false
-version: 1.1
-last_updated: 2026-04-01
+version: 1.2
+last_updated: 2026-04-02
 related_docs:
   - docs/00_governance/DOCUMENT_PRECEDENCE.md
   - docs/00_governance/WORKFLOW.md
@@ -53,26 +53,37 @@ Do not use it as a replacement for contracts, APIs, specs, or ADRs.
 
 ### Skills — read before starting and before closing
 
-This project currently has two skill systems:
-- repo-local Claude skills in `.claude/skills/`
-- Codex-native skills in `$CODEX_HOME/skills/` (for this workstation: `C:\Users\progi\.codex\skills\`)
+This project uses three distinct skill locations:
+- project-specific Station Mirny skills in `.agents/skills/`
+- compatibility mirrors in `.claude/skills/`
+- global/system Codex skills in `$CODEX_HOME/skills/` (or `~/.codex/skills/` when `CODEX_HOME` is unset)
 
-**Do not treat both skill systems as simultaneously mandatory.**
-Pick the skill family for the active runtime and use only that family for behavioral guidance.
+**Do not treat all three locations as simultaneously mandatory.**
+Pick the relevant skill source by concern and use the smallest valid set.
 
-**If the active runtime is Claude:**
-- use the relevant skills in `.claude/skills/`
-- do not additionally load Codex-native skills for the same purpose
+**For project-specific Station Mirny behavior in Codex:**
+- use the relevant skills in `.agents/skills/`
+- do not additionally load `.claude/skills/` for the same purpose unless the task explicitly involves mirror sync or legacy compatibility
 
-**If the active runtime is Codex:**
-- use the relevant skills in `C:\Users\progi\.codex\skills\`
-- do not additionally load `.claude/skills/` for the same purpose
+**For Claude or legacy compatibility behavior:**
+- `.claude/skills/` remains a mirror for tooling that still expects it
+- the mirror is compatibility state, not a second source of truth
 
-**Codex skill routing for this project:**
-- `C:\Users\progi\.codex\skills\spec-first-feature-work\SKILL.md` — if the task is a new feature idea or structural change without an approved spec
-- `C:\Users\progi\.codex\skills\world-contract-discipline\SKILL.md` — for world / chunk / mining / topology / reveal / presentation tasks
-- `C:\Users\progi\.codex\skills\save-load-change-check\SKILL.md` — for save/load and persistence-impact tasks
-- `C:\Users\progi\.codex\skills\docs-impact-check\SKILL.md` — before writing the closure report for any non-trivial change, and whenever semantics or docs may have changed
+**For global/system behavior:**
+- use relevant skills from `$CODEX_HOME/skills/` only for cross-repository workflows that are not owned by the Station Mirny project skill pack
+- do not let a global skill override repo-specific guidance from `.agents/skills/`
+
+**Project skill routing for this repository:**
+- `.agents/skills/mirny-task-router/SKILL.md` — broad Station Mirny task routing and multi-skill composition
+- `.agents/skills/persistent-tasks/SKILL.md` — multi-iteration or resume-sensitive work
+- `.agents/skills/verification-before-completion/SKILL.md` — proof-based closure and documentation checks
+- use the relevant domain specialist skill in `.agents/skills/` for performance, lore, UI, content, balance, localization, playtest, or prompt-shaping tasks
+
+**Global Codex skill routing when installed in the active runtime:**
+- `$CODEX_HOME/skills/spec-first-feature-work/SKILL.md` — if the task is a new feature idea or structural change without an approved spec
+- `$CODEX_HOME/skills/world-contract-discipline/SKILL.md` — for world / chunk / mining / topology / reveal / presentation tasks
+- `$CODEX_HOME/skills/save-load-change-check/SKILL.md` — for save/load and persistence-impact tasks
+- `$CODEX_HOME/skills/docs-impact-check/SKILL.md` — before writing the closure report for any non-trivial change, and whenever semantics or docs may have changed
 
 **Shared project memory for multi-iteration work:**
 - use `.claude/agent-memory/active-epic.md` as the persistent task tracker regardless of runtime

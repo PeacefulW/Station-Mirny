@@ -4,8 +4,8 @@ doc_type: governance
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.2
-last_updated: 2026-03-27
+version: 1.3
+last_updated: 2026-04-02
 depends_on:
   - DOCUMENT_PRECEDENCE.md
   - ENGINEERING_STANDARDS.md
@@ -57,6 +57,9 @@ Primary responsibilities:
 ### Tasks touching roadmap or sequencing
 5. [Master Roadmap](../04_execution/MASTER_ROADMAP.md)
 
+### Tasks touching agent workflow, project skill authoring, or skill routing
+5. [Agent Skill Pack](../02_system_specs/meta/agent_skill_pack.md)
+
 ### Required foundation reading by task area
 
 - product intent / fantasy / pillars / non-negotiable experience:
@@ -75,6 +78,8 @@ Primary responsibilities:
   - [Localization Pipeline](../02_system_specs/meta/localization_pipeline.md)
 - threading / simulation cadence / main-thread vs worker / runtime update model:
   - [Simulation and Threading Model](SIMULATION_AND_THREADING_MODEL.md)
+- agent workflow / project skill pack / Station Mirny routing:
+  - [Agent Skill Pack](../02_system_specs/meta/agent_skill_pack.md)
 
 ### Mandatory foundation-doc rule
 
@@ -108,6 +113,8 @@ Do not rely on old phase labels from legacy root documents unless a canonical `d
 5. Do not place heavy world work in the interactive path.
 6. Prefer extending existing systems over creating parallel architecture.
 7. When changing documentation architecture, preserve migration safety: add canonical docs first, archive legacy later.
+8. Treat `.agents/skills/` as the canonical home for Station Mirny project skills; keep `.claude/skills/` only as a compatibility mirror.
+9. For broad Station Mirny requests that span multiple domains, follow the router + specialist model from [Agent Skill Pack](../02_system_specs/meta/agent_skill_pack.md) instead of defaulting to generic single-skill advice.
 
 ## Golden rules for implementation
 
