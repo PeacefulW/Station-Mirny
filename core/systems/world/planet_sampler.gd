@@ -39,6 +39,9 @@ func sample_world_channels(world_pos: Vector2i) -> WorldChannels:
 func sample_height(world_pos: Vector2i) -> float:
 	return _sample_noise(_height_noise, world_pos)
 
+func sample_ruggedness(world_pos: Vector2i) -> float:
+	return _sample_noise(_ruggedness_noise, world_pos)
+
 func sample_latitude(world_pos: Vector2i) -> float:
 	var half_span: int = _resolve_latitude_half_span_tiles()
 	if half_span <= 0:
@@ -54,6 +57,9 @@ func wrap_world_x(world_x: int) -> int:
 
 func get_wrap_width_tiles() -> int:
 	return _cached_wrap_width
+
+func get_world_seed() -> int:
+	return _world_seed
 
 func _sample_temperature(world_pos: Vector2i, latitude: float) -> float:
 	var climate_noise: float = _sample_noise(_temperature_noise, world_pos)

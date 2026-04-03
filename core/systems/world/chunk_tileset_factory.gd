@@ -19,7 +19,7 @@ static var wall_base_count: int = 0
 static var wall_variant_count: int = 1
 static var terrain_tiles_per_row: int = 64
 const MAX_TERRAIN_ATLAS_EDGE_PX: int = 4096
-const SURFACE_PALETTE_TILE_COUNT: int = 11
+const SURFACE_PALETTE_TILE_COUNT: int = 15
 
 static var _surface_palette_tiles: Array[Dictionary] = []
 ## Offset of ground face tiles in atlas (linear index of first ground face tile)
@@ -41,6 +41,10 @@ static var tile_dense_flora: Vector2i = Vector2i(11, 0)
 static var tile_clearing: Vector2i = Vector2i(12, 0)
 static var tile_rocky_patch: Vector2i = Vector2i(13, 0)
 static var tile_wet_patch: Vector2i = Vector2i(14, 0)
+static var tile_ice: Vector2i = Vector2i(15, 0)
+static var tile_scorched: Vector2i = Vector2i(16, 0)
+static var tile_salt_flat: Vector2i = Vector2i(17, 0)
+static var tile_dry_riverbed: Vector2i = Vector2i(18, 0)
 
 const SURFACE_VARIATION_NONE: int = 0
 const SURFACE_VARIATION_SPARSE_FLORA: int = 1
@@ -48,6 +52,10 @@ const SURFACE_VARIATION_DENSE_FLORA: int = 2
 const SURFACE_VARIATION_CLEARING: int = 3
 const SURFACE_VARIATION_ROCKY_PATCH: int = 4
 const SURFACE_VARIATION_WET_PATCH: int = 5
+const SURFACE_VARIATION_ICE: int = 6
+const SURFACE_VARIATION_SCORCHED: int = 7
+const SURFACE_VARIATION_SALT_FLAT: int = 8
+const SURFACE_VARIATION_DRY_RIVERBED: int = 9
 
 ## Rock visual-class tiles.
 ## Atlas offsets must match the canonical TD order from tools/sprite-forge/sprite_forge_v5.html.
@@ -238,7 +246,7 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, f
 	wall_base_count = TILE_DEFS_COUNT
 	wall_variant_count = maxi(1, atlas_tiles / wall_base_count)
 	print("[ChunkTilesetFactory] rock_atlas=%d, wall_base=%d, variants=%d" % [atlas_tiles, wall_base_count, wall_variant_count])
-	var surface_extra_tiles: int = 8
+	var surface_extra_tiles: int = 12
 	var extras_start: int = 7 + atlas_tiles
 	var total: int = extras_start + surface_extra_tiles
 	terrain_tiles_per_row = _resolve_terrain_tiles_per_row(total, ts)
@@ -264,6 +272,10 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, f
 	tile_clearing = _coords_for_linear_index(extras_start + 5)
 	tile_rocky_patch = _coords_for_linear_index(extras_start + 6)
 	tile_wet_patch = _coords_for_linear_index(extras_start + 7)
+	tile_ice = _coords_for_linear_index(extras_start + 8)
+	tile_scorched = _coords_for_linear_index(extras_start + 9)
+	tile_salt_flat = _coords_for_linear_index(extras_start + 10)
+	tile_dry_riverbed = _coords_for_linear_index(extras_start + 11)
 	_draw_water_tile(img, Rect2i(tile_water.x * ts, tile_water.y * ts, ts, ts), biome.water_color)
 	_draw_sand_tile(img, Rect2i(tile_sand.x * ts, tile_sand.y * ts, ts, ts), biome.sand_color, biome.water_color)
 	_draw_grass_tile(img, Rect2i(tile_grass.x * ts, tile_grass.y * ts, ts, ts), biome.grass_color, biome.ground_color)
@@ -272,6 +284,10 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, f
 	_draw_clearing_tile(img, Rect2i(tile_clearing.x * ts, tile_clearing.y * ts, ts, ts), biome.ground_color)
 	_draw_rocky_patch_tile(img, Rect2i(tile_rocky_patch.x * ts, tile_rocky_patch.y * ts, ts, ts), biome.ground_color, balance.rock_color)
 	_draw_wet_patch_tile(img, Rect2i(tile_wet_patch.x * ts, tile_wet_patch.y * ts, ts, ts), biome.ground_color, biome.water_color)
+	_draw_ice_tile(img, Rect2i(tile_ice.x * ts, tile_ice.y * ts, ts, ts), biome.ground_color, biome.water_color)
+	_draw_scorched_tile(img, Rect2i(tile_scorched.x * ts, tile_scorched.y * ts, ts, ts), biome.ground_color)
+	_draw_salt_flat_tile(img, Rect2i(tile_salt_flat.x * ts, tile_salt_flat.y * ts, ts, ts), biome.sand_color)
+	_draw_dry_riverbed_tile(img, Rect2i(tile_dry_riverbed.x * ts, tile_dry_riverbed.y * ts, ts, ts), biome.sand_color, biome.ground_color)
 	## Ground elevation faces — neutral gray atlas tinted with biome ground_color
 	var ground_faces_tex: Texture2D = load(GROUND_FACES_PATH) as Texture2D
 	var gf_count: int = 0
@@ -418,6 +434,10 @@ static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Arr
 			"clearing": _coords_for_linear_index(start_index + 8),
 			"rocky_patch": _coords_for_linear_index(start_index + 9),
 			"wet_patch": _coords_for_linear_index(start_index + 10),
+			"ice": _coords_for_linear_index(start_index + 11),
+			"scorched": _coords_for_linear_index(start_index + 12),
+			"salt_flat": _coords_for_linear_index(start_index + 13),
+			"dry_riverbed": _coords_for_linear_index(start_index + 14),
 		}
 		var ground_dark: Vector2i = palette["ground_dark"]
 		var ground: Vector2i = palette["ground"]
@@ -430,6 +450,10 @@ static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Arr
 		var clearing: Vector2i = palette["clearing"]
 		var rocky_patch: Vector2i = palette["rocky_patch"]
 		var wet_patch: Vector2i = palette["wet_patch"]
+		var ice: Vector2i = palette["ice"]
+		var scorched: Vector2i = palette["scorched"]
+		var salt_flat: Vector2i = palette["salt_flat"]
+		var dry_riverbed: Vector2i = palette["dry_riverbed"]
 		_draw_ground_tile(img, Rect2i(ground_dark.x * ts, ground_dark.y * ts, ts, ts), biome.ground_color.darkened(0.12), 0)
 		_draw_ground_tile(img, Rect2i(ground.x * ts, ground.y * ts, ts, ts), biome.ground_color, 1)
 		_draw_ground_tile(img, Rect2i(ground_light.x * ts, ground_light.y * ts, ts, ts), biome.ground_color.lightened(0.10), 2)
@@ -441,6 +465,10 @@ static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Arr
 		_draw_clearing_tile(img, Rect2i(clearing.x * ts, clearing.y * ts, ts, ts), biome.ground_color)
 		_draw_rocky_patch_tile(img, Rect2i(rocky_patch.x * ts, rocky_patch.y * ts, ts, ts), biome.ground_color, balance.rock_color)
 		_draw_wet_patch_tile(img, Rect2i(wet_patch.x * ts, wet_patch.y * ts, ts, ts), biome.ground_color, biome.water_color)
+		_draw_ice_tile(img, Rect2i(ice.x * ts, ice.y * ts, ts, ts), biome.ground_color, biome.water_color)
+		_draw_scorched_tile(img, Rect2i(scorched.x * ts, scorched.y * ts, ts, ts), biome.ground_color)
+		_draw_salt_flat_tile(img, Rect2i(salt_flat.x * ts, salt_flat.y * ts, ts, ts), biome.sand_color)
+		_draw_dry_riverbed_tile(img, Rect2i(dry_riverbed.x * ts, dry_riverbed.y * ts, ts, ts), biome.sand_color, biome.ground_color)
 		var tinted_ground_faces: Image = _tint_face_image(ground_faces_img, biome.ground_color)
 		var ground_face_append: Dictionary = _append_face_tiles(
 			img,
@@ -502,6 +530,10 @@ static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Arr
 	tile_clearing = _coords_for_linear_index(palette_start + 8)
 	tile_rocky_patch = _coords_for_linear_index(palette_start + 9)
 	tile_wet_patch = _coords_for_linear_index(palette_start + 10)
+	tile_ice = _coords_for_linear_index(palette_start + 11)
+	tile_scorched = _coords_for_linear_index(palette_start + 12)
+	tile_salt_flat = _coords_for_linear_index(palette_start + 13)
+	tile_dry_riverbed = _coords_for_linear_index(palette_start + 14)
 	var tex: ImageTexture = ImageTexture.create_from_image(img)
 	var tileset := TileSet.new()
 	tileset.tile_size = Vector2i(ts, ts)
@@ -551,6 +583,14 @@ static func get_surface_variation_tile(variation_id: int, biome_palette_index: i
 			return palette.get("rocky_patch", tile_rocky_patch)
 		SURFACE_VARIATION_WET_PATCH:
 			return palette.get("wet_patch", tile_wet_patch)
+		SURFACE_VARIATION_ICE:
+			return palette.get("ice", tile_ice)
+		SURFACE_VARIATION_SCORCHED:
+			return palette.get("scorched", tile_scorched)
+		SURFACE_VARIATION_SALT_FLAT:
+			return palette.get("salt_flat", tile_salt_flat)
+		SURFACE_VARIATION_DRY_RIVERBED:
+			return palette.get("dry_riverbed", tile_dry_riverbed)
 		_:
 			return Vector2i(-1, -1)
 
@@ -996,6 +1036,80 @@ static func _draw_wet_patch_tile(image: Image, rect: Rect2i, ground_color: Color
 		var px: int = rect.position.x + 10 + puddle_idx * max(8, rect.size.x / 5)
 		var py: int = rect.position.y + rect.size.y / 2 + int(sin(float(puddle_idx) * 1.8) * 6.0)
 		_draw_blob(image, Vector2i(px, py), 4, water_color.lightened(0.10), water_color.darkened(0.14))
+
+static func _draw_ice_tile(image: Image, rect: Rect2i, ground_color: Color, water_color: Color) -> void:
+	var base_color: Color = ground_color.lerp(water_color, 0.48).lightened(0.42)
+	_fill_rect(image, rect, base_color)
+	for py: int in range(rect.position.y, rect.end.y):
+		for px: int in range(rect.position.x, rect.end.x):
+			var local_x: int = px - rect.position.x
+			var local_y: int = py - rect.position.y
+			var shimmer: float = sin(float(local_x) * 0.22 + float(local_y) * 0.17) * 0.06
+			var c: Color = base_color.lightened(shimmer)
+			if local_y < rect.size.y / 3:
+				c = c.lightened(0.08)
+			image.set_pixel(px, py, c)
+	for crack_idx: int in range(4):
+		var start_x: int = rect.position.x + 6 + crack_idx * max(6, rect.size.x / 5)
+		for step: int in range(rect.size.y - 8):
+			var px: int = mini(rect.end.x - 2, start_x + int(sin(float(step + crack_idx * 9) * 0.24) * 2.0))
+			var py: int = rect.position.y + 4 + step
+			image.set_pixel(px, py, Color(1.0, 1.0, 1.0, 0.34))
+
+static func _draw_scorched_tile(image: Image, rect: Rect2i, ground_color: Color) -> void:
+	var base_color: Color = ground_color.darkened(0.42).lerp(Color(0.23, 0.16, 0.10), 0.55)
+	_fill_rect(image, rect, base_color)
+	for py: int in range(rect.position.y, rect.end.y):
+		for px: int in range(rect.position.x, rect.end.x):
+			var local_x: int = px - rect.position.x
+			var local_y: int = py - rect.position.y
+			var heat_wave: float = sin(float(local_x) * 0.18 + float(local_y) * 0.31) * 0.05
+			var c: Color = base_color.lightened(heat_wave).darkened(maxf(0.0, float(local_y) / float(maxi(1, rect.size.y)) * 0.08))
+			if (local_x * 7 + local_y * 11) % 19 == 0:
+				c = c.lightened(0.10)
+			image.set_pixel(px, py, c)
+	for crack_idx: int in range(5):
+		var start_y: int = rect.position.y + 5 + crack_idx * max(5, rect.size.y / 6)
+		for step: int in range(rect.size.x - 8):
+			var px: int = rect.position.x + 4 + step
+			var py: int = mini(rect.end.y - 2, start_y + int(sin(float(step + crack_idx * 7) * 0.20) * 2.0))
+			image.set_pixel(px, py, base_color.darkened(0.30))
+
+static func _draw_salt_flat_tile(image: Image, rect: Rect2i, sand_color: Color) -> void:
+	var base_color: Color = sand_color.lightened(0.36).lerp(Color(0.92, 0.91, 0.86), 0.42)
+	_fill_rect(image, rect, base_color)
+	for py: int in range(rect.position.y, rect.end.y):
+		for px: int in range(rect.position.x, rect.end.x):
+			var local_x: int = px - rect.position.x
+			var local_y: int = py - rect.position.y
+			var salt_noise: float = sin(float(local_x) * 0.29 + float(local_y) * 0.11) * 0.04
+			var c: Color = base_color.lightened(salt_noise)
+			if (local_x * 5 + local_y * 3) % 13 == 0:
+				c = c.lightened(0.08)
+			image.set_pixel(px, py, c)
+	for ridge_idx: int in range(4):
+		var line_y: int = rect.position.y + 6 + ridge_idx * max(4, rect.size.y / 6)
+		for px: int in range(rect.position.x + 4, rect.end.x - 4):
+			image.set_pixel(px, line_y, Color(1.0, 1.0, 1.0, 0.24))
+
+static func _draw_dry_riverbed_tile(image: Image, rect: Rect2i, sand_color: Color, ground_color: Color) -> void:
+	var base_color: Color = sand_color.darkened(0.06).lerp(ground_color.darkened(0.10), 0.22)
+	_fill_rect(image, rect, base_color)
+	for py: int in range(rect.position.y, rect.end.y):
+		for px: int in range(rect.position.x, rect.end.x):
+			var local_x: int = px - rect.position.x
+			var local_y: int = py - rect.position.y
+			var wash: float = sin(float(local_x) * 0.14 + float(local_y) * 0.26) * 0.05
+			var c: Color = base_color.lightened(wash)
+			if local_y < rect.size.y / 4:
+				c = c.lightened(0.04)
+			image.set_pixel(px, py, c)
+	for groove_idx: int in range(3):
+		var start_x: int = rect.position.x + 8 + groove_idx * max(8, rect.size.x / 4)
+		for step: int in range(rect.size.y - 10):
+			var px: int = clampi(start_x + int(sin(float(step + groove_idx * 11) * 0.22) * 2.0), rect.position.x + 2, rect.end.x - 2)
+			var py: int = rect.position.y + 5 + step
+			image.set_pixel(px, py, base_color.darkened(0.18))
 
 static func _draw_grass_tuft(image: Image, center: Vector2i, height: int, color: Color) -> void:
 	for blade: int in range(3):

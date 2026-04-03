@@ -13,6 +13,11 @@ var _massif_fill_weight: float = 0.30
 var _core_bonus_weight: float = 0.16
 var _current_biome_palette_index: int = 0
 
+const _POLAR_KIND_ICE: StringName = &"polar_ice"
+const _POLAR_KIND_SCORCHED: StringName = &"polar_scorched"
+const _POLAR_KIND_SALT_FLAT: StringName = &"polar_salt_flat"
+const _POLAR_KIND_DRY_RIVERBED: StringName = &"polar_dry_riverbed"
+
 func initialize(balance_resource: WorldGenBalance, world_context: RefCounted) -> SurfaceTerrainResolver:
 	_balance = balance_resource
 	_world_context = world_context
@@ -95,6 +100,7 @@ func populate_chunk_build_data(canonical_tile: Vector2i, spawn_tile: Vector2i, d
 	if data.terrain == TileGenData.TerrainType.GROUND and local_variation:
 		data.local_variation_id = LocalVariationContext.kind_to_variation_id(local_variation.variation_kind)
 		data.flora_modulation = local_variation.flora_modulation
+	_apply_polar_surface_modifiers(data, canonical_tile, channels, structure_context)
 
 func sample_terrain_type(tile_x: int, tile_y: int) -> TileGenData.TerrainType:
 	var canonical_tile: Vector2i = _world_context.canonicalize_tile(Vector2i(tile_x, tile_y)) if _world_context else Vector2i(tile_x, tile_y)
@@ -198,6 +204,7 @@ func _populate_tile_data(
 		data.wetness_modulation = local_variation.wetness_modulation
 		data.rockiness_modulation = local_variation.rockiness_modulation
 		data.openness_modulation = local_variation.openness_modulation
+	_apply_polar_surface_modifiers(data, canonical_tile, channels, structure_context)
 
 func _reset_tile_data(data: TileGenData) -> void:
 	data.terrain = TileGenData.TerrainType.GROUND
@@ -232,6 +239,89 @@ func _reset_chunk_build_data(data: TileGenData) -> void:
 	data.biome_palette_index = 0
 	data.flora_density = 0.5
 	data.flora_modulation = 0.0
+
+func _apply_polar_surface_modifiers(
+	data: TileGenData,
+	canonical_tile: Vector2i,
+	channels: WorldChannels,
+	structure_context: WorldStructureContext
+) -> void:
+	if data == null or channels == null or _balance == null:
+		return
+	if data.terrain == TileGenData.TerrainType.ROCK \
+		or data.terrain == TileGenData.TerrainType.MINED_FLOOR \
+		or data.terrain == TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
+		return
+	var cold_factor: float = _resolve_cold_factor(channels.temperature)
+	var hot_factor: float = _resolve_hot_factor(channels.temperature)
+	if cold_factor <= 0.0 and hot_factor <= 0.0:
+		return
+	var overlay_id: int = data.local_variation_id
+	var overlay_kind: StringName = data.local_variation_kind
+	var overlay_score: float = data.local_variation_score
+	var is_flat_surface: bool = _is_flat_polar_surface(canonical_tile, channels)
+	var evaporation_strength: float = hot_factor * maxf(0.0, _balance.hot_evaporation_rate)
+	if data.terrain == TileGenData.TerrainType.WATER:
+		if channels.temperature < _balance.prepass_frozen_river_threshold and cold_factor > 0.0:
+			overlay_id = ChunkTilesetFactory.SURFACE_VARIATION_ICE
+			overlay_kind = _POLAR_KIND_ICE
+			overlay_score = cold_factor
+		elif evaporation_strength >= 0.125:
+			overlay_id = ChunkTilesetFactory.SURFACE_VARIATION_DRY_RIVERBED
+			overlay_kind = _POLAR_KIND_DRY_RIVERBED
+			overlay_score = evaporation_strength
+	elif is_flat_surface:
+		if cold_factor > 0.0 and data.height < _balance.ice_cap_max_height:
+			overlay_id = ChunkTilesetFactory.SURFACE_VARIATION_ICE
+			overlay_kind = _POLAR_KIND_ICE
+			overlay_score = cold_factor
+			data.height = clampf(data.height + cold_factor * _balance.ice_cap_height_bonus, 0.0, 1.0)
+			data.world_height = data.height
+		elif hot_factor > 0.70 and data.terrain == TileGenData.TerrainType.SAND \
+			and structure_context != null \
+			and structure_context.floodplain_strength >= _balance.bank_min_floodplain:
+			overlay_id = ChunkTilesetFactory.SURFACE_VARIATION_SALT_FLAT
+			overlay_kind = _POLAR_KIND_SALT_FLAT
+			overlay_score = hot_factor
+		elif hot_factor > 0.0 and data.terrain != TileGenData.TerrainType.WATER:
+			overlay_id = ChunkTilesetFactory.SURFACE_VARIATION_SCORCHED
+			overlay_kind = _POLAR_KIND_SCORCHED
+			overlay_score = hot_factor
+	if overlay_id != data.local_variation_id:
+		data.local_variation_id = overlay_id
+		data.local_variation_kind = overlay_kind
+		data.local_variation_score = overlay_score
+	var cold_suppression: float = maxf(0.0, 1.0 - cold_factor * 0.9)
+	var hot_suppression: float = maxf(0.0, 1.0 - hot_factor * 0.95)
+	data.flora_density = clampf(data.flora_density * cold_suppression * hot_suppression, 0.0, 1.0)
+	if data.local_variation_id == ChunkTilesetFactory.SURFACE_VARIATION_SALT_FLAT \
+		or data.local_variation_id == ChunkTilesetFactory.SURFACE_VARIATION_DRY_RIVERBED:
+		data.flora_density = minf(data.flora_density, 0.03)
+
+func _resolve_cold_factor(temperature: float) -> float:
+	if _balance == null:
+		return 0.0
+	return clampf(
+		(_balance.cold_pole_temperature - temperature) / maxf(0.001, _balance.cold_pole_transition_width),
+		0.0,
+		1.0
+	)
+
+func _resolve_hot_factor(temperature: float) -> float:
+	if _balance == null:
+		return 0.0
+	return clampf(
+		(temperature - _balance.hot_pole_temperature) / maxf(0.001, _balance.hot_pole_transition_width),
+		0.0,
+		1.0
+	)
+
+func _is_flat_polar_surface(canonical_tile: Vector2i, channels: WorldChannels) -> bool:
+	var pre_pass: RefCounted = _world_context.get_world_pre_pass() if _world_context and _world_context.has_method("get_world_pre_pass") else null
+	if pre_pass != null and pre_pass.has_method("sample"):
+		var slope_value: float = float(pre_pass.call("sample", &"slope", canonical_tile))
+		return slope_value <= 0.15
+	return channels.ruggedness <= 0.28
 
 func _resolve_spawn_tile() -> Vector2i:
 	return _world_context.spawn_tile if _world_context else Vector2i.ZERO

@@ -105,6 +105,14 @@ private:
     float bank_min_river = 0.16f;
     float bank_min_moisture = 0.54f;
     float bank_max_height = 0.60f;
+    float prepass_frozen_river_threshold = 0.18f;
+    float cold_pole_temperature = 0.20f;
+    float cold_pole_transition_width = 0.12f;
+    float ice_cap_height_bonus = 0.10f;
+    float ice_cap_max_height = 0.55f;
+    float hot_pole_temperature = 0.82f;
+    float hot_pole_transition_width = 0.15f;
+    float hot_evaporation_rate = 0.25f;
     // Pre-computed from balance
     float mountain_threshold_value = 0.0f;
     float ridge_backbone_weight = 0.76f;
@@ -178,7 +186,8 @@ private:
     enum TerrainType { GROUND = 0, ROCK = 1, WATER = 2, SAND = 3 };
     // --- Variation kinds ---
     enum VarKind { VAR_NONE = 0, VAR_SPARSE_FLORA = 1, VAR_DENSE_FLORA = 2,
-                   VAR_CLEARING = 3, VAR_ROCKY_PATCH = 4, VAR_WET_PATCH = 5 };
+                   VAR_CLEARING = 3, VAR_ROCKY_PATCH = 4, VAR_WET_PATCH = 5,
+                   VAR_ICE = 6, VAR_SCORCHED = 7, VAR_SALT_FLAT = 8, VAR_DRY_RIVERBED = 9 };
 
     // --- Per-tile intermediate data ---
     struct Channels {
@@ -233,6 +242,11 @@ private:
     // Terrain resolver
     TerrainType resolve_terrain(float dist_sq, const Channels& ch, const StructureContext& sc,
                                 const VariationResult& var_r) const;
+    void apply_polar_surface_modifiers(TerrainType terrain, const Channels& ch, const StructureContext& sc,
+                                       int& io_variation_id, float& io_height, float& io_flora_density) const;
+    float resolve_cold_factor(float temperature) const;
+    float resolve_hot_factor(float temperature) const;
+    bool is_flat_polar_surface(const Channels& ch) const;
 
     // Flora computation
     Array compute_flora_placements(int cs, int base_x, int base_y,

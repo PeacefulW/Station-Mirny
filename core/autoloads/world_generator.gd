@@ -482,6 +482,14 @@ func _setup_native_chunk_generator(palette_index_by_id: Dictionary) -> void:
 		"bank_min_river": balance.bank_min_river,
 		"bank_min_moisture": balance.bank_min_moisture,
 		"bank_max_height": balance.bank_max_height,
+		"prepass_frozen_river_threshold": balance.prepass_frozen_river_threshold,
+		"cold_pole_temperature": balance.cold_pole_temperature,
+		"cold_pole_transition_width": balance.cold_pole_transition_width,
+		"ice_cap_height_bonus": balance.ice_cap_height_bonus,
+		"ice_cap_max_height": balance.ice_cap_max_height,
+		"hot_pole_temperature": balance.hot_pole_temperature,
+		"hot_pole_transition_width": balance.hot_pole_transition_width,
+		"hot_evaporation_rate": balance.hot_evaporation_rate,
 	}
 	# Biome definitions
 	var biome_defs: Array = []

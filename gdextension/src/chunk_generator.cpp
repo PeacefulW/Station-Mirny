@@ -129,6 +129,14 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
     bank_min_river = (float)(double)p_params.get("bank_min_river", 0.16);
     bank_min_moisture = (float)(double)p_params.get("bank_min_moisture", 0.54);
     bank_max_height = (float)(double)p_params.get("bank_max_height", 0.60);
+    prepass_frozen_river_threshold = (float)(double)p_params.get("prepass_frozen_river_threshold", 0.18);
+    cold_pole_temperature = (float)(double)p_params.get("cold_pole_temperature", 0.20);
+    cold_pole_transition_width = (float)(double)p_params.get("cold_pole_transition_width", 0.12);
+    ice_cap_height_bonus = (float)(double)p_params.get("ice_cap_height_bonus", 0.10);
+    ice_cap_max_height = (float)(double)p_params.get("ice_cap_max_height", 0.55);
+    hot_pole_temperature = (float)(double)p_params.get("hot_pole_temperature", 0.82);
+    hot_pole_transition_width = (float)(double)p_params.get("hot_pole_transition_width", 0.15);
+    hot_evaporation_rate = (float)(double)p_params.get("hot_evaporation_rate", 0.25);
     // Pre-compute mountain weights (matches surface_terrain_resolver.gd lines 24-32)
     float chain = clampf(mountain_chaininess, 0.0f, 1.0f);
     mountain_threshold_value = clampf(mountain_base_threshold - mountain_density, 0.0f, 1.0f);
@@ -739,6 +747,65 @@ ChunkGenerator::TerrainType ChunkGenerator::resolve_terrain(
     return GROUND;
 }
 
+void ChunkGenerator::apply_polar_surface_modifiers(
+        TerrainType terrain, const Channels& ch, const StructureContext& sc,
+        int& io_variation_id, float& io_height, float& io_flora_density) const {
+    if (terrain == ROCK) return;
+
+    float cold_factor = resolve_cold_factor(ch.temperature);
+    float hot_factor = resolve_hot_factor(ch.temperature);
+    if (cold_factor <= 0.0f && hot_factor <= 0.0f) return;
+
+    int overlay_id = io_variation_id;
+    bool flat_surface = is_flat_polar_surface(ch);
+    float evaporation_strength = hot_factor * std::max(0.0f, hot_evaporation_rate);
+
+    if (terrain == WATER) {
+        if (ch.temperature < prepass_frozen_river_threshold && cold_factor > 0.0f) {
+            overlay_id = VAR_ICE;
+        } else if (evaporation_strength >= 0.125f) {
+            overlay_id = VAR_DRY_RIVERBED;
+        }
+    } else if (flat_surface) {
+        if (cold_factor > 0.0f && io_height < ice_cap_max_height) {
+            overlay_id = VAR_ICE;
+            io_height = clampf(io_height + cold_factor * ice_cap_height_bonus, 0.0f, 1.0f);
+        } else if (hot_factor > 0.70f && terrain == SAND && sc.floodplain_strength >= bank_min_floodplain) {
+            overlay_id = VAR_SALT_FLAT;
+        } else if (hot_factor > 0.0f) {
+            overlay_id = VAR_SCORCHED;
+        }
+    }
+
+    io_variation_id = overlay_id;
+    float cold_suppression = std::max(0.0f, 1.0f - cold_factor * 0.9f);
+    float hot_suppression = std::max(0.0f, 1.0f - hot_factor * 0.95f);
+    io_flora_density = clampf(io_flora_density * cold_suppression * hot_suppression, 0.0f, 1.0f);
+    if (overlay_id == VAR_SALT_FLAT || overlay_id == VAR_DRY_RIVERBED) {
+        io_flora_density = std::min(io_flora_density, 0.03f);
+    }
+}
+
+float ChunkGenerator::resolve_cold_factor(float temperature) const {
+    return clampf(
+        (cold_pole_temperature - temperature) / std::max(0.001f, cold_pole_transition_width),
+        0.0f,
+        1.0f
+    );
+}
+
+float ChunkGenerator::resolve_hot_factor(float temperature) const {
+    return clampf(
+        (temperature - hot_pole_temperature) / std::max(0.001f, hot_pole_transition_width),
+        0.0f,
+        1.0f
+    );
+}
+
+bool ChunkGenerator::is_flat_polar_surface(const Channels& ch) const {
+    return ch.ruggedness <= 0.28f;
+}
+
 // ============================================================
 // Flora computation (matches chunk_flora_builder.gd)
 // ============================================================
@@ -760,9 +827,12 @@ bool ChunkGenerator::flora_set_allowed_in_subzone(const FloraSetDef& fs, int var
     // Map var_id to StringName for comparison
     static const StringName VAR_NAMES[] = {
         StringName("none"), StringName("sparse_flora"), StringName("dense_flora"),
-        StringName("clearing"), StringName("rocky_patch"), StringName("wet_patch")
+        StringName("clearing"), StringName("rocky_patch"), StringName("wet_patch"),
+        StringName("polar_ice"), StringName("polar_scorched"), StringName("polar_salt_flat"),
+        StringName("polar_dry_riverbed")
     };
-    StringName sz = (var_id >= 0 && var_id < 6) ? VAR_NAMES[var_id] : VAR_NAMES[0];
+    constexpr int VAR_NAME_COUNT = sizeof(VAR_NAMES) / sizeof(VAR_NAMES[0]);
+    StringName sz = (var_id >= 0 && var_id < VAR_NAME_COUNT) ? VAR_NAMES[var_id] : VAR_NAMES[0];
     if (!fs.excluded_subzones.empty()) {
         for (const auto& e : fs.excluded_subzones) { if (e == sz) return false; }
     }
@@ -777,9 +847,12 @@ bool ChunkGenerator::flora_set_allowed_in_subzone(const FloraSetDef& fs, int var
 float ChunkGenerator::decor_set_subzone_density(const DecorSetDef& ds, int var_id) const {
     static const StringName VAR_NAMES[] = {
         StringName("none"), StringName("sparse_flora"), StringName("dense_flora"),
-        StringName("clearing"), StringName("rocky_patch"), StringName("wet_patch")
+        StringName("clearing"), StringName("rocky_patch"), StringName("wet_patch"),
+        StringName("polar_ice"), StringName("polar_scorched"), StringName("polar_salt_flat"),
+        StringName("polar_dry_riverbed")
     };
-    StringName sz = (var_id >= 0 && var_id < 6) ? VAR_NAMES[var_id] : VAR_NAMES[0];
+    constexpr int VAR_NAME_COUNT = sizeof(VAR_NAMES) / sizeof(VAR_NAMES[0]);
+    StringName sz = (var_id >= 0 && var_id < VAR_NAME_COUNT) ? VAR_NAMES[var_id] : VAR_NAMES[0];
     for (const auto& p : ds.subzone_density_modifiers) {
         if (p.first == sz) return ds.base_density * p.second;
     }
@@ -970,13 +1043,17 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
             float dy_s = (float)(wy - (int)spawn_y);
             float dist_sq = dx_s * dx_s + dy_s * dy_s;
             TerrainType tt = resolve_terrain(dist_sq, ch, sc, vr);
+            int variation_id = (int)vr.kind;
+            float height_value = ch.height;
+            float flora_density_value = ch.flora_density;
+            apply_polar_surface_modifiers(tt, ch, sc, variation_id, height_value, flora_density_value);
 
             // Pack output
             terrain[idx] = (uint8_t)tt;
-            height_arr[idx] = ch.height;
-            variation[idx] = (uint8_t)vr.kind;
+            height_arr[idx] = height_value;
+            variation[idx] = (uint8_t)variation_id;
             biome_arr[idx] = (uint8_t)biome_idx;
-            flora_density_values[idx] = ch.flora_density;
+            flora_density_values[idx] = flora_density_value;
             flora_modulation_values[idx] = vr.flora_mod;
         }
     }

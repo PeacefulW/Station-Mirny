@@ -18,6 +18,10 @@ const VARIATION_KIND_BY_ID: Array[StringName] = [
 	&"clearing",
 	&"rocky_patch",
 	&"wet_patch",
+	&"polar_ice",
+	&"polar_scorched",
+	&"polar_salt_flat",
+	&"polar_dry_riverbed",
 ]
 
 var _world_seed: int = 0

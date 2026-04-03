@@ -49,7 +49,7 @@ Until superseded, this document is mandatory reading for any iteration that touc
 | Feature / POI Definitions | `canonical` | `WorldFeatureRegistry` | boot-time registry load of immutable definition resources | `WorldFeatureRegistry` read APIs, `WorldGenerator` readiness gate, future generator-side resolvers | boot-time load only, read-only during runtime |
 | Feature Hook Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic hook decision compute from canonical generator context + immutable definition snapshot | `WorldPoiResolver`, chunk payload generation, debug inspectors | per-origin deterministic compute, no persistence |
 | POI Placement Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic POI arbitration from hook decisions + immutable POI definitions | chunk payload generation, future debug/materialization consumers | per-origin deterministic compute, owner-only placement authority, no persistence |
-| World Pre-pass | `canonical` | `WorldPrePass`, bootstrapped by `WorldGenerator` | boot-time coarse height / filled-height / lake-mask / lake-record grids derived from seed + balance + planet sampler | `WorldGenerator` initialization, `WorldComputeContext` holder, future generator-side resolvers and samplers | boot-time compute only, deterministic rebuild, not persisted |
+| World Pre-pass | `canonical` | `WorldPrePass`, bootstrapped by `WorldGenerator` | boot-time coarse height / filled-height / eroded-height / flow-direction / accumulation / drainage / river-mask / river-width / river-distance / floodplain-strength / ridge-strength / mountain-mass / slope / rain-shadow / continentalness / tectonic spine-seed records / ridge-path graph / ridge spline samples + half-width profile / lake-mask / lake-record grids derived from seed + balance + planet sampler | `WorldGenerator` initialization, `WorldComputeContext` holder, future generator-side resolvers and samplers | boot-time compute only, deterministic rebuild, not persisted |
 | World | `canonical` | `ChunkManager` runtime arbitration, `Chunk` loaded storage, `WorldGenerator` unloaded surface base | canonical terrain bytes and unloaded overlay | terrain/resource/walkability/presentation consumers | loaded + unloaded reads, immediate writes, generator fallback |
 | Mining | `canonical` | `ChunkManager` orchestration, `Chunk` loaded mutation storage | loaded terrain mutation and mining-side invalidation entrypoint | topology, reveal, presentation, save collection | loaded-only mutation, immediate |
 | Topology | `derived` | `ChunkManager`, with native `MountainTopologyBuilder` behind it when enabled | surface topology caches | `MountainRoofSystem` and topology getters | surface-only, loaded-bubble scoped, incremental patch + deferred dirty rebuild |
@@ -92,8 +92,8 @@ Observed files for this version:
 - POI placement decisions are derived on demand by `WorldPoiResolver` from hook decisions plus immutable POI definitions; canonical anchor ownership and arbitration order are computed before any payload/materialization step.
 - `WorldGenerator.build_chunk_content()` and `build_chunk_native_data()` serialize deterministic `feature_and_poi_payload` records from those derived feature-hook and POI results; owner chunks carry the authoritative baseline placement records.
 - `WorldFeatureDebugOverlay` consumes cached copies of already-built `feature_and_poi_payload` records as a debug-only presentation proof; disabling that overlay does not change placement truth.
-- `WorldPrePass` owns boot-time coarse-grid prepass state (`_height_grid`, `_filled_height_grid`, `_lake_mask`, `_lake_records`) derived from the initialized `PlanetSampler` plus `WorldGenBalance`.
-- `WorldGenerator.initialize_world()` computes `WorldPrePass` before `WorldComputeContext` creation; the context currently holds a read-only reference, but no external runtime/public API consumes filled-height or lake data yet.
+- `WorldPrePass` owns boot-time coarse-grid prepass state (`_height_grid`, `_filled_height_grid`, `_flow_dir_grid`, `_accumulation_grid`, `_drainage_grid`, `_river_mask_grid`, `_river_width_grid`, `_river_distance_grid`, `_floodplain_strength_grid`, `_ridge_strength_grid`, `_mountain_mass_grid`, `_eroded_height_grid`, `_slope_grid`, `_rain_shadow_grid`, `_continentalness_grid`, `_spine_seeds`, `_ridge_paths`, `_lake_mask`, `_lake_records`) derived from the initialized `PlanetSampler` plus `WorldGenBalance`; each `RidgePath` now carries the raw coarse-grid polyline plus internal `spline_samples` (stored in wrap-local continuous X space for seam-safe smoothing) and `spline_half_widths`.
+- `WorldGenerator.initialize_world()` computes `WorldPrePass` before `WorldComputeContext` creation; the context currently holds a read-only reference. `WorldPrePass.sample()` now exposes `height`, normalized `drainage`, normalized `ridge_strength`, normalized `mountain_mass`, normalized `slope`, normalized `rain_shadow`, and normalized `continentalness`, while filled-height, eroded-height, flow-direction, accumulation, river, floodplain, spine-seed, ridge-graph, raw ridge spline data, and lake data remain internal-only.
 - Surface base terrain for unloaded tiles comes from `WorldGenerator` through `build_chunk_native_data()`, `build_chunk_content()`, and `get_terrain_type_fast()`.
 - Loaded chunk terrain truth lives in `Chunk._terrain_bytes`.
 - Loaded chunk runtime modifications live in `Chunk._modified_tiles`.
@@ -101,6 +101,7 @@ Observed files for this version:
 - `ChunkManager.get_terrain_type_at_global()` is the current read arbiter that resolves loaded data first, then saved modifications, then generator fallback, with special underground handling.
 - Underground unloaded tiles are currently treated as solid `ROCK` by `ChunkManager.get_terrain_type_at_global()`.
 - Current surface chunk generation resolves canonical terrain as `GROUND`, `WATER`, `SAND`, or `ROCK`. `MINED_FLOOR` and `MOUNTAIN_ENTRANCE` are runtime mutation results, not generator outputs.
+- Surface chunk payload `variation` bytes are presentation-only overlay markers. In addition to biome-local subzones, they may now carry polar overlay ids (`polar_ice`, `polar_scorched`, `polar_salt_flat`, `polar_dry_riverbed`) without mutating canonical terrain ownership or unloaded walkability truth.
 - Mountain topology caches are derived from currently loaded surface chunks only.
 - Surface local mountain reveal state is derived from the current loaded open pocket around the player.
 - Underground fog state is transient reveal state, shared by the active underground runtime, and not persisted.
@@ -192,26 +193,69 @@ Observed files for this version:
 
 - `classification`: `canonical`
 - `owner`: `WorldPrePass` owns the deterministic coarse-grid prepass channels built at boot; `WorldGenerator` is responsible only for lifecycle/orchestration (`initialize_world()` creates and computes it, then hands a read-only reference into `WorldComputeContext`).
-- `writers`: `WorldPrePass.compute()` samples canonical height from `PlanetSampler`, runs Y-boundary priority flood over the coarse grid, and authors `_height_grid`, `_filled_height_grid`, `_lake_mask`, and `_lake_records`.
+- `writers`: `WorldPrePass.compute()` samples canonical height from `PlanetSampler`, runs Y-boundary priority flood over the coarse grid, derives D8 flow directions over the filled surface, computes latitude-shaped flow accumulation, normalizes a drainage read channel from accumulation, extracts thresholded river cells and river widths, propagates a nearest-river distance field, expands river reach into a normalized floodplain-strength field, selects deterministic tectonic spine seed records from coarse height plus ruggedness, grows deterministic main and branch ridge polylines from those seeds, smooths each ridge into wrap-aware spline samples with per-sample half-width profile, rasterizes those splines into a normalized ridge-strength field, derives a normalized `mountain_mass` field from ridge-strength plus height/ruggedness gates, applies the internal erosion proxy over filled / accumulation / ridge / river inputs, derives a normalized `slope` field from the maximum 8-neighbor gradient over `eroded-height`, transports sampler moisture along the prevailing wind direction to derive a normalized `rain_shadow` field from positive eroded-height gradients, derives a normalized `continentalness` field from the distance to sea-level coarse cells and Y-edge water boundaries, and authors `_height_grid`, `_filled_height_grid`, `_flow_dir_grid`, `_accumulation_grid`, `_drainage_grid`, `_river_mask_grid`, `_river_width_grid`, `_river_distance_grid`, `_floodplain_strength_grid`, `_ridge_strength_grid`, `_mountain_mass_grid`, `_eroded_height_grid`, `_slope_grid`, `_rain_shadow_grid`, `_continentalness_grid`, `_spine_seeds`, `_ridge_paths`, `_lake_mask`, and `_lake_records`.
 - `readers`: `WorldGenerator.initialize_world()` boot sequence, `WorldComputeContext.get_world_pre_pass()`, and future generator-side samplers/resolvers that explicitly opt into prepass channels. Current runtime world/chunk/mining/topology/reveal/presentation systems do not read this layer.
 - `rebuild policy`: computed once per `initialize_world()` after sampler setup and before compute-context publication; deterministic from seed + canonical coarse-grid coordinates + `WorldGenBalance`; not persisted to save data.
 - `invariants`:
 - `assert(_height_grid.size() == grid_width * grid_height, "prepass coarse height grid must cover the entire configured coarse grid")`
 - `assert(_filled_height_grid.size() == _height_grid.size(), "filled-height grid must stay index-aligned with the coarse height grid")`
+- `assert(_flow_dir_grid.size() == _height_grid.size(), "flow-direction grid must stay index-aligned with the coarse height grid")`
+- `assert(_accumulation_grid.size() == _height_grid.size(), "accumulation grid must stay index-aligned with the coarse height grid")`
+- `assert(_drainage_grid.size() == _height_grid.size(), "drainage grid must stay index-aligned with the coarse height grid")`
+- `assert(_river_mask_grid.size() == _height_grid.size(), "river mask grid must stay index-aligned with the coarse height grid")`
+- `assert(_river_width_grid.size() == _height_grid.size(), "river width grid must stay index-aligned with the coarse height grid")`
+- `assert(_river_distance_grid.size() == _height_grid.size(), "river distance grid must stay index-aligned with the coarse height grid")`
+- `assert(_floodplain_strength_grid.size() == _height_grid.size(), "floodplain strength grid must stay index-aligned with the coarse height grid")`
+- `assert(_ridge_strength_grid.size() == _height_grid.size(), "ridge strength grid must stay index-aligned with the coarse height grid")`
+- `assert(_mountain_mass_grid.size() == _height_grid.size(), "mountain mass grid must stay index-aligned with the coarse height grid")`
+- `assert(_eroded_height_grid.size() == _height_grid.size(), "eroded-height grid must stay index-aligned with the coarse height grid")`
+- `assert(_slope_grid.size() == _height_grid.size(), "slope grid must stay index-aligned with the coarse height grid")`
+- `assert(_rain_shadow_grid.size() == _height_grid.size(), "rain shadow grid must stay index-aligned with the coarse height grid")`
+- `assert(_continentalness_grid.size() == _height_grid.size(), "continentalness grid must stay index-aligned with the coarse height grid")`
 - `assert(_lake_mask.size() == _height_grid.size(), "lake mask must stay index-aligned with the coarse height grid")`
+- `assert(_spine_seeds.size() <= prepass_target_spine_count, "tectonic spine seed selection must never exceed the configured target count")`
+- `assert(for_all_path in _ridge_paths: path.points.size() >= 2, "ridge graph paths must contain at least two coarse-grid points")`
 - `assert(for_all_cell in coarse_grid: _filled_height_grid[cell] >= _height_grid[cell], "priority flood must never lower source height values")`
+- `assert(for_all_cell in coarse_grid: _flow_dir_grid[cell] in [0, 1, 2, 3, 4, 5, 6, 7, 255], "flow-direction grid uses D8 encoding with 255 reserved for sink/edge outlets")`
+- `assert(for_all_cell in coarse_grid where cell.y == 0 or cell.y == grid_height - 1: _flow_dir_grid[cell] == 255, "Y-edge coarse cells remain terminal drainage outlets")`
+- `assert(for_all_cell in coarse_grid: _accumulation_grid[cell] >= 0.0, "flow accumulation must stay non-negative even after latitude evaporation")`
+- `assert(for_all_cell in coarse_grid: _drainage_grid[cell] >= 0.0 and _drainage_grid[cell] <= 1.0, "drainage read channel must stay normalized to [0,1]")`
+- `assert(for_all_cell in coarse_grid: _river_mask_grid[cell] in [0, 1], "river mask uses binary coarse-grid membership")`
+- `assert(for_all_cell in coarse_grid where _river_mask_grid[cell] == 1: _river_width_grid[cell] >= prepass_river_base_width, "river cells must resolve to at least the configured base width")`
+- `assert(for_all_cell in coarse_grid: _river_distance_grid[cell] >= 0.0, "nearest-river distance field must stay non-negative")`
+- `assert(for_all_cell in coarse_grid: _floodplain_strength_grid[cell] >= 0.0 and _floodplain_strength_grid[cell] <= 1.0, "floodplain strength must stay normalized to [0,1]")`
+- `assert(for_all_cell in coarse_grid where _river_mask_grid[cell] == 1: _floodplain_strength_grid[cell] == 1.0, "river cells must seed floodplain strength at full intensity")`
+- `assert(for_all_cell in coarse_grid: _ridge_strength_grid[cell] >= 0.0 and _ridge_strength_grid[cell] <= 1.0, "ridge strength field must stay normalized to [0,1]")`
+- `assert(for_all_cell in coarse_grid: _mountain_mass_grid[cell] >= 0.0 and _mountain_mass_grid[cell] <= 1.0, "mountain mass field must stay normalized to [0,1]")`
+- `assert(for_all_cell in coarse_grid: _eroded_height_grid[cell] >= 0.0 and _eroded_height_grid[cell] <= 1.0, "erosion proxy height must stay normalized to [0,1]")`
+- `assert(for_all_cell in coarse_grid: _slope_grid[cell] >= 0.0 and _slope_grid[cell] <= 1.0, "slope field must stay normalized to [0,1]")`
+- `assert(for_all_cell in coarse_grid: _rain_shadow_grid[cell] >= 0.0 and _rain_shadow_grid[cell] <= 1.0, "rain shadow field must stay normalized to [0,1]")`
+- `assert(for_all_cell in coarse_grid: _continentalness_grid[cell] >= 0.0 and _continentalness_grid[cell] <= 1.0, "continentalness field must stay normalized to [0,1]")`
+- `assert(for_all_cell in coarse_grid where _lake_mask[cell] > 0: absf(_eroded_height_grid[cell] - _filled_height_grid[cell]) <= 0.001, "erosion proxy must preserve filled lake surface cells")`
 - `assert(for_all_lake in _lake_records: lake.id >= 1 and lake.id <= 255, "lake ids written into PackedByteArray mask must stay in byte range")`
 - `assert(for_all_lake in _lake_records: lake.area_grid_cells == lake.grid_cells.size(), "lake records must report area consistent with their stored cell list")`
+- `assert(for_all_lake in _lake_records: lake.inflow_accumulation >= 0.0, "lake inflow accumulation must stay non-negative")`
+- `assert(for_all_seed in _spine_seeds: seed.position.x >= 0 and seed.position.x < grid_width and seed.position.y >= 0 and seed.position.y < grid_height, "spine seed positions must stay inside the coarse grid")`
+- `assert(for_all_seed in _spine_seeds: seed.strength >= 0.5 and seed.strength <= 1.0, "spine seed strength must stay normalized to the [0.5, 1.0] ridge seed range")`
+- `assert(for_all_seed in _spine_seeds where seed.direction_bias != Vector2.ZERO: absf(seed.direction_bias.length() - 1.0) <= 0.001, "non-zero spine seed direction bias must stay normalized")`
+- `assert(for_all_distinct_seed_pairs in _spine_seeds: wrapped_grid_distance(seed_a.position, seed_b.position) >= prepass_min_spine_distance_grid, "spine seeds must respect the configured coarse-grid Poisson spacing")`
+- `assert(for_all_main_path in _ridge_paths where not main_path.is_branch: main_path.points.size() <= prepass_max_ridge_length_grid + 1, "main ridge paths must respect the configured max coarse-grid length")`
+- `assert(for_all_branch_path in _ridge_paths where branch_path.is_branch: branch_path.points.size() <= prepass_max_branch_length_grid + 1, "branch ridge paths must respect the configured branch max coarse-grid length")`
+- `assert(for_all_point in _ridge_paths: point.x >= 0 and point.x < grid_width and point.y >= 0 and point.y < grid_height, "ridge path points must stay inside the coarse grid")`
+- `assert(for_all_path in _ridge_paths: path.spline_samples.size() >= 2, "ridge spline smoothing must emit at least two samples per ridge path")`
+- `assert(for_all_path in _ridge_paths: path.spline_half_widths.size() == path.spline_samples.size(), "ridge spline half-width profile must stay index-aligned with spline samples")`
+- `assert(for_all_sample in _ridge_paths: sample.y >= 0.0 and sample.y <= grid_height - 1, "ridge spline sample Y coordinates must stay inside the latitude-bounded coarse band")`
+- `assert(for_all_half_width in _ridge_paths: half_width > 0.0, "ridge spline half-width profile must stay strictly positive")`
 - `assert(X-neighbors-wrap and Y-neighbors-clamp_to_prepass_band, "prepass connectivity keeps cylindrical X wrap and latitude-bounded Y domain")`
 - `write operations`:
 - `WorldPrePass.compute()`
 - `forbidden writes`:
-- `WorldComputeContext`, `WorldGenerator`, and future generator-side consumers must not mutate `_height_grid`, `_filled_height_grid`, `_lake_mask`, or `_lake_records` after publication.
+- `WorldComputeContext`, `WorldGenerator`, and future generator-side consumers must not mutate `_height_grid`, `_filled_height_grid`, `_accumulation_grid`, `_flow_dir_grid`, `_drainage_grid`, `_river_mask_grid`, `_river_width_grid`, `_river_distance_grid`, `_floodplain_strength_grid`, `_ridge_strength_grid`, `_mountain_mass_grid`, `_eroded_height_grid`, `_slope_grid`, `_rain_shadow_grid`, `_continentalness_grid`, `_spine_seeds`, `_ridge_paths`, `_lake_mask`, or `_lake_records` after publication, including `RidgePath.spline_samples` and `RidgePath.spline_half_widths`.
 - Chunk/runtime world systems must not treat prepass grids as writable terrain state or mutate them in response to gameplay.
 - `emitted events / invalidation signals`:
 - none; the layer is published synchronously by `WorldGenerator.initialize_world()`
 - `current violations / ambiguities / contract gaps`:
-- Filled-height and lake outputs remain internal-only in Iteration 1.2; `WorldPrePass.sample()` still exposes only `height` until a later iteration explicitly promotes additional channels into the read contract.
+- Filled-height, eroded-height, flow-direction, accumulation, river, floodplain, spine-seed, ridge-graph, raw ridge spline state, and lake outputs remain internal-only; `WorldPrePass.sample()` now exposes `height`, normalized `drainage`, normalized `ridge_strength`, normalized `mountain_mass`, normalized `slope`, normalized `rain_shadow`, and normalized `continentalness`, so no dedicated public read contract exists yet for the raw filled / eroded / flow / accumulation / river / floodplain / spine / ridge-graph / ridge-spline / lake internals beyond those normalized channels.
 
 ## Layer: World
 
@@ -585,7 +629,7 @@ Observed files for this version:
 
 - Requested chunk coordinates are canonicalized before generation or load.
 - Surface load can reuse cached native payload and cached flora results. In that case the chunk is populated from cache instead of regenerating terrain.
-- Surface chunk generation writes per-tile `terrain`, `height`, `variation`, and `biome` into native payload arrays. `flora_density_values` and `flora_modulation_values` are also generated in the payload for surface chunks.
+- Surface chunk generation writes per-tile `terrain`, `height`, `variation`, and `biome` into native payload arrays. `flora_density_values` and `flora_modulation_values` are also generated in the payload for surface chunks. `variation` remains presentation-only metadata; polar overlays live there instead of expanding canonical terrain types.
 - Current surface generation does not assign `MINED_FLOOR` or `MOUNTAIN_ENTRANCE`. Mountain boundary tiles generated by `SurfaceTerrainResolver._resolve_surface_terrain_sq()` remain `ROCK` even when adjacent to open exterior terrain.
 - Chunk generation does not compute or store a wall-neighbor mask, autotile mask, or terrain peering metadata in canonical chunk data.
 - `Chunk.populate_native()` installs native arrays, reapplies saved modifications through `_apply_saved_modifications()`, recalculates `_has_mountain`, resets cover visual state, and starts redraw.

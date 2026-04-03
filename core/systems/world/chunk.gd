@@ -591,6 +591,10 @@ func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 	var rock_atlas: Vector2i = Vector2i(-1, -1)
 	var rock_alt_id: int = 0
 	var use_water_underlay: bool = _should_use_water_face_underlay(local_tile, terrain_type)
+	var biome_palette_index: int = _biome_palette_index_at(local_tile)
+	var variation_tile: Vector2i = Vector2i(-1, -1)
+	if not _is_underground:
+		variation_tile = ChunkTilesetFactory.get_surface_variation_tile(_variation_at(local_tile), biome_palette_index)
 	match terrain_type:
 		TileGenData.TerrainType.ROCK:
 			# Base terrain under mountain: biome ground tile (always visible through rock alpha)
@@ -603,23 +607,32 @@ func _redraw_terrain_tile(local_tile: Vector2i) -> void:
 			rock_atlas = _resolve_variant_atlas(rock_visual, global_tile.x, global_tile.y)
 			rock_alt_id = _resolve_variant_alt_id(rock_visual, global_tile.x, global_tile.y, _is_underground)
 		TileGenData.TerrainType.WATER:
-			atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, _biome_palette_index_at(local_tile))
+			if variation_tile.x >= 0:
+				atlas = variation_tile
+			else:
+				atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, biome_palette_index)
 		TileGenData.TerrainType.SAND:
-			if use_water_underlay:
+			if variation_tile.x >= 0:
+				atlas = variation_tile
+			elif use_water_underlay:
 				atlas = ChunkTilesetFactory.get_surface_terrain_tile(TileGenData.TerrainType.WATER, _biome_palette_index_at(local_tile))
 			else:
-				atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, _biome_palette_index_at(local_tile))
+				atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, biome_palette_index)
 		TileGenData.TerrainType.GRASS:
-			if use_water_underlay:
+			if variation_tile.x >= 0:
+				atlas = variation_tile
+			elif use_water_underlay:
 				atlas = ChunkTilesetFactory.get_surface_terrain_tile(TileGenData.TerrainType.WATER, _biome_palette_index_at(local_tile))
 			else:
-				atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, _biome_palette_index_at(local_tile))
+				atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, biome_palette_index)
 		TileGenData.TerrainType.MINED_FLOOR:
 			atlas = ChunkTilesetFactory.TILE_MINED_FLOOR
 		TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
 			atlas = ChunkTilesetFactory.TILE_MOUNTAIN_ENTRANCE
 		_:
-			if use_water_underlay:
+			if variation_tile.x >= 0:
+				atlas = variation_tile
+			elif use_water_underlay:
 				atlas = ChunkTilesetFactory.get_surface_terrain_tile(TileGenData.TerrainType.WATER, _biome_palette_index_at(local_tile))
 			else:
 				atlas = _resolve_surface_ground_atlas(local_tile)

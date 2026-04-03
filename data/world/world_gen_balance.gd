@@ -32,6 +32,53 @@ extends Resource
 @export_range(0.01, 0.3) var prepass_lake_min_depth: float = 0.04
 @export_range(0.0, 0.5) var prepass_frozen_lake_temperature: float = 0.15
 
+@export_group("Latitude Hydrology")
+@export_range(0.0, 0.5) var prepass_glacial_melt_temperature: float = 0.22
+@export_range(0.0, 5.0) var prepass_glacial_melt_bonus: float = 2.5
+@export_range(0.0, 0.3) var prepass_latitude_evaporation_rate: float = 0.08
+@export_range(0.0, 0.3) var prepass_frozen_river_threshold: float = 0.18
+
+@export_group("Rivers")
+@export_range(50, 5000) var prepass_river_accumulation_threshold: int = 200
+@export_range(1.0, 20.0) var prepass_river_base_width: float = 2.0
+@export_range(1.0, 20.0) var prepass_river_width_scale: float = 6.0
+@export_range(1.5, 8.0) var prepass_floodplain_multiplier: float = 3.0
+
+@export_group("Ridge Skeleton")
+@export_range(2, 12) var prepass_target_spine_count: int = 4
+@export_range(20, 200) var prepass_min_spine_distance_grid: int = 80
+@export_range(50, 500) var prepass_max_ridge_length_grid: int = 200
+@export_range(10, 200) var prepass_max_branch_length_grid: int = 60
+@export_range(0.0, 0.5) var prepass_branch_probability: float = 0.15
+@export_range(0.1, 0.7) var prepass_ridge_min_height: float = 0.35
+@export_range(0.3, 1.0) var prepass_ridge_continuation_inertia: float = 0.65
+
+@export_group("Erosion Proxy")
+@export_range(0.0, 0.5) var prepass_erosion_valley_strength: float = 0.12
+@export_range(1, 10) var prepass_thermal_iterations: int = 3
+@export_range(0.0, 0.3) var prepass_thermal_rate: float = 0.08
+@export_range(0.0, 0.5) var prepass_deposit_rate: float = 0.15
+
+@export_group("Rain Shadow")
+@export var prepass_prevailing_wind_direction: Vector2 = Vector2(1.0, 0.0)
+@export_range(0.0, 0.5) var prepass_precipitation_rate: float = 0.12
+@export_range(0.5, 8.0) var prepass_orographic_lift_factor: float = 3.0
+@export_range(0.0, 0.2) var prepass_evaporation_rate: float = 0.02
+
+@export_group("Continentalness")
+@export_range(0.0, 0.5) var prepass_sea_level_threshold: float = 0.15
+
+@export_group("Cold Pole")
+@export_range(0.0, 0.4) var cold_pole_temperature: float = 0.20
+@export_range(0.05, 0.3) var cold_pole_transition_width: float = 0.12
+@export_range(0.0, 0.3) var ice_cap_height_bonus: float = 0.10
+@export_range(0.0, 0.8) var ice_cap_max_height: float = 0.55
+
+@export_group("Hot Pole")
+@export_range(0.6, 1.0) var hot_pole_temperature: float = 0.82
+@export_range(0.05, 0.3) var hot_pole_transition_width: float = 0.15
+@export_range(0.0, 0.5) var hot_evaporation_rate: float = 0.25
+
 @export_group("World Channels")
 @export var height_frequency: float = 0.01
 @export var height_octaves: int = 4
