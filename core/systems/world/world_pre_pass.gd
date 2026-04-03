@@ -32,6 +32,20 @@ const MOUNTAIN_MASS_CHANNEL: StringName = &"mountain_mass"
 const SLOPE_CHANNEL: StringName = &"slope"
 const RAIN_SHADOW_CHANNEL: StringName = &"rain_shadow"
 const CONTINENTALNESS_CHANNEL: StringName = &"continentalness"
+const LANDMARK_FAILURE_PREPASS_UNINITIALIZED: String = "prepass_uninitialized"
+const LANDMARK_FAILURE_GREAT_RIVER: String = "great_river"
+const LANDMARK_FAILURE_MOUNTAIN_ARC: String = "mountain_arc"
+const LANDMARK_FAILURE_DELTA: String = "delta"
+const LANDMARK_FAILURE_LARGE_LAKE: String = "large_lake"
+const LANDMARK_FAILURE_GLACIER_FRONT: String = "glacier_front"
+const LANDMARK_FAILURE_DRY_BELT: String = "dry_belt"
+const LANDMARK_FAILURE_SCORCHED_WASTELAND: String = "scorched_wasteland"
+const LANDMARK_FAILURE_WOW_REGION: String = "wow_region"
+const WOW_REGION_CANYON: String = "canyon"
+const WOW_REGION_CALDERA: String = "caldera"
+const WOW_REGION_MARSH_BASIN: String = "marsh_basin"
+const WOW_REGION_ALPINE_LAKE: String = "alpine_lake"
+const WOW_REGION_GLACIAL_FJORD: String = "glacial_fjord"
 const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_utils.gd")
 const FLOAT_EPSILON: float = 0.00001
 const MAX_LAKE_MASK_ID: int = 255
@@ -59,6 +73,22 @@ const MOUNTAIN_MASS_HEIGHT_MIN: float = 0.25
 const MOUNTAIN_MASS_HEIGHT_RANGE: float = 0.35
 const MOUNTAIN_MASS_RUGGEDNESS_RANGE: float = 0.6
 const THERMAL_SMOOTHING_RIDGE_THRESHOLD: float = 0.3
+const LANDMARK_DELTA_COASTAL_CONTINENTALNESS_MAX: float = 0.18
+const LANDMARK_TRANSITION_MIN_FACTOR: float = 0.3
+const LANDMARK_TRANSITION_MAX_FACTOR: float = 0.7
+const WOW_CANYON_MIN_ACCUMULATION: float = 500.0
+const WOW_CANYON_MIN_SLOPE: float = 0.6
+const WOW_CANYON_MAX_RIVER_WIDTH: float = 4.0
+const WOW_MARSH_MAX_SLOPE: float = 0.1
+const WOW_MARSH_MIN_MOISTURE: float = 0.6
+const WOW_MARSH_MAX_HEIGHT: float = 0.3
+const WOW_MARSH_MIN_AREA: int = 300
+const WOW_ALPINE_MIN_DEPTH: float = 0.12
+const WOW_ALPINE_MIN_SHORE_RIDGE_RATIO: float = 0.5
+const WOW_FJORD_MIN_ASPECT_RATIO: float = 3.0
+const WOW_FJORD_MIN_SHORE_SLOPE: float = 0.4
+const WOW_CALDERA_MIN_RING_RATIO: float = 0.7
+const WOW_CALDERA_MIN_HEIGHT_DROP: float = 0.08
 const GRID_NEIGHBOR_OFFSETS_8: Array[Vector2i] = [
 	Vector2i(-1, -1),
 	Vector2i(0, -1),
@@ -285,6 +315,557 @@ func get_grid_value(channel: StringName, grid_x: int, grid_y: int) -> float:
 			return _continentalness_grid[_flatten_index(grid_x, grid_y)]
 		_:
 			return 0.0
+
+func validate_landmarks() -> Dictionary:
+	var failures: Array[String] = []
+	var metrics: Dictionary = {}
+	var landmarks: Dictionary = {}
+	if _height_grid.is_empty():
+		failures.append(LANDMARK_FAILURE_PREPASS_UNINITIALIZED)
+		return {
+			"passed": false,
+			"failures": failures,
+			"metrics": {
+				"failure_count": failures.size(),
+			},
+			"landmarks": landmarks,
+		}
+	var climate_grids: Dictionary = _build_validation_climate_grids()
+	var temperature_grid: PackedFloat32Array = PackedFloat32Array()
+	var moisture_grid: PackedFloat32Array = PackedFloat32Array()
+	if climate_grids.has("temperature"):
+		temperature_grid = climate_grids["temperature"]
+	if climate_grids.has("moisture"):
+		moisture_grid = climate_grids["moisture"]
+
+	var great_river: Dictionary = _measure_great_river_landmark()
+	landmarks[LANDMARK_FAILURE_GREAT_RIVER] = great_river
+	metrics["great_river_max_accumulation"] = great_river.get("max_accumulation", 0.0)
+	if not bool(great_river.get("present", false)):
+		failures.append(LANDMARK_FAILURE_GREAT_RIVER)
+
+	var mountain_arc: Dictionary = _measure_mountain_arc_landmark()
+	landmarks[LANDMARK_FAILURE_MOUNTAIN_ARC] = mountain_arc
+	metrics["longest_ridge_length_grid"] = mountain_arc.get("length_grid", 0)
+	if not bool(mountain_arc.get("present", false)):
+		failures.append(LANDMARK_FAILURE_MOUNTAIN_ARC)
+
+	var delta_landmark: Dictionary = _measure_delta_landmark()
+	landmarks[LANDMARK_FAILURE_DELTA] = delta_landmark
+	metrics["delta_count"] = delta_landmark.get("count", 0)
+	metrics["delta_best_accumulation"] = delta_landmark.get("best_accumulation", 0.0)
+	if not bool(delta_landmark.get("present", false)):
+		failures.append(LANDMARK_FAILURE_DELTA)
+
+	var large_lake: Dictionary = _measure_large_lake_landmark()
+	landmarks[LANDMARK_FAILURE_LARGE_LAKE] = large_lake
+	metrics["largest_lake_area_grid"] = large_lake.get("largest_area_grid", 0)
+	metrics["largest_lake_max_depth"] = large_lake.get("max_depth", 0.0)
+	if not bool(large_lake.get("present", false)):
+		failures.append(LANDMARK_FAILURE_LARGE_LAKE)
+
+	var glacier_front: Dictionary = _measure_glacier_front_landmark(temperature_grid)
+	landmarks[LANDMARK_FAILURE_GLACIER_FRONT] = glacier_front
+	metrics["glacier_front_max_length_grid"] = glacier_front.get("max_length_grid", 0)
+	if not bool(glacier_front.get("present", false)):
+		failures.append(LANDMARK_FAILURE_GLACIER_FRONT)
+
+	var dry_belt: Dictionary = _measure_dry_belt_landmark()
+	landmarks[LANDMARK_FAILURE_DRY_BELT] = dry_belt
+	metrics["dry_belt_max_area_grid"] = dry_belt.get("largest_area_grid", 0)
+	if not bool(dry_belt.get("present", false)):
+		failures.append(LANDMARK_FAILURE_DRY_BELT)
+
+	var scorched: Dictionary = _measure_scorched_landmark(temperature_grid)
+	landmarks[LANDMARK_FAILURE_SCORCHED_WASTELAND] = scorched
+	metrics["scorched_max_area_grid"] = scorched.get("largest_area_grid", 0)
+	if not bool(scorched.get("present", false)):
+		failures.append(LANDMARK_FAILURE_SCORCHED_WASTELAND)
+
+	var wow_region: Dictionary = _measure_wow_regions(temperature_grid, moisture_grid)
+	landmarks[LANDMARK_FAILURE_WOW_REGION] = wow_region
+	metrics["wow_regions"] = wow_region.get("regions", [])
+	metrics["wow_region_count"] = wow_region.get("count", 0)
+	if not bool(wow_region.get("present", false)):
+		failures.append(LANDMARK_FAILURE_WOW_REGION)
+
+	metrics["failure_count"] = failures.size()
+	return {
+		"passed": failures.is_empty(),
+		"failures": failures,
+		"metrics": metrics,
+		"landmarks": landmarks,
+	}
+
+func _build_validation_climate_grids() -> Dictionary:
+	var temperature_grid := PackedFloat32Array()
+	var moisture_grid := PackedFloat32Array()
+	temperature_grid.resize(_height_grid.size())
+	moisture_grid.resize(_height_grid.size())
+	if _planet_sampler == null:
+		temperature_grid.fill(0.5)
+		moisture_grid.fill(0.0)
+		return {
+			"temperature": temperature_grid,
+			"moisture": moisture_grid,
+		}
+	for cell_index: int in range(_height_grid.size()):
+		var channels: WorldChannels = _planet_sampler.sample_world_channels(_get_cell_world_pos(cell_index))
+		temperature_grid[cell_index] = channels.temperature
+		moisture_grid[cell_index] = channels.moisture
+	return {
+		"temperature": temperature_grid,
+		"moisture": moisture_grid,
+	}
+
+func _measure_great_river_landmark() -> Dictionary:
+	var max_accumulation: float = 0.0
+	var best_index: int = -1
+	for cell_index: int in range(_accumulation_grid.size()):
+		if _river_mask_grid.is_empty() or _river_mask_grid[cell_index] != 1:
+			continue
+		var accumulation: float = _accumulation_grid[cell_index]
+		if accumulation > max_accumulation + FLOAT_EPSILON:
+			max_accumulation = accumulation
+			best_index = cell_index
+	var threshold: float = _resolve_landmark_great_river_min_accumulation()
+	return {
+		"present": max_accumulation > threshold,
+		"max_accumulation": max_accumulation,
+		"threshold": threshold,
+		"cell_index": best_index,
+	}
+
+func _measure_mountain_arc_landmark() -> Dictionary:
+	var longest_length: int = 0
+	for ridge_path: RidgePath in _ridge_paths:
+		longest_length = maxi(longest_length, maxi(0, ridge_path.points.size() - 1))
+	var threshold: int = _resolve_landmark_mountain_arc_min_length()
+	return {
+		"present": longest_length > threshold,
+		"length_grid": longest_length,
+		"threshold": threshold,
+	}
+
+func _measure_delta_landmark() -> Dictionary:
+	var delta_mask := PackedByteArray()
+	delta_mask.resize(_accumulation_grid.size())
+	delta_mask.fill(0)
+	var sea_level_max: float = minf(1.0, _resolve_sea_level_threshold() + 0.05)
+	var threshold: float = _resolve_landmark_delta_min_accumulation()
+	var best_accumulation: float = 0.0
+	for cell_index: int in range(_accumulation_grid.size()):
+		if _river_mask_grid.is_empty() or _river_mask_grid[cell_index] != 1:
+			continue
+		if int(_lake_mask[cell_index]) > 0:
+			continue
+		var accumulation: float = _accumulation_grid[cell_index]
+		if accumulation > best_accumulation + FLOAT_EPSILON:
+			best_accumulation = accumulation
+		if accumulation <= threshold:
+			continue
+		if _eroded_height_grid[cell_index] > sea_level_max + FLOAT_EPSILON:
+			continue
+		if not _is_y_edge_cell(cell_index) \
+			and (not _continentalness_grid.is_empty() and _continentalness_grid[cell_index] > LANDMARK_DELTA_COASTAL_CONTINENTALNESS_MAX):
+			continue
+		delta_mask[cell_index] = 1
+	var component_metrics: Dictionary = _find_connected_component_metrics(delta_mask)
+	var delta_count: int = int(component_metrics.get("component_count", 0))
+	return {
+		"present": delta_count > 0,
+		"count": delta_count,
+		"largest_area_grid": int(component_metrics.get("largest_area_grid", 0)),
+		"best_accumulation": best_accumulation,
+		"threshold": threshold,
+	}
+
+func _measure_large_lake_landmark() -> Dictionary:
+	var largest_area: int = 0
+	var max_depth: float = 0.0
+	var lake_type: StringName = &""
+	for lake_record: LakeRecord in _lake_records:
+		if lake_record.area_grid_cells > largest_area:
+			largest_area = lake_record.area_grid_cells
+			max_depth = lake_record.max_depth
+			lake_type = lake_record.lake_type
+	var threshold: int = _resolve_landmark_lake_min_area()
+	return {
+		"present": largest_area > threshold,
+		"largest_area_grid": largest_area,
+		"max_depth": max_depth,
+		"lake_type": lake_type,
+		"threshold": threshold,
+	}
+
+func _measure_glacier_front_landmark(temperature_grid: PackedFloat32Array) -> Dictionary:
+	var transition_mask := PackedByteArray()
+	transition_mask.resize(_height_grid.size())
+	transition_mask.fill(0)
+	for cell_index: int in range(temperature_grid.size()):
+		var cold_factor: float = _resolve_landmark_cold_factor(temperature_grid[cell_index])
+		if cold_factor >= LANDMARK_TRANSITION_MIN_FACTOR and cold_factor <= LANDMARK_TRANSITION_MAX_FACTOR:
+			transition_mask[cell_index] = 1
+	var component_metrics: Dictionary = _find_connected_component_metrics(transition_mask)
+	var max_length: int = int(component_metrics.get("largest_length_grid", 0))
+	var threshold: int = _resolve_landmark_glacier_front_min_length()
+	return {
+		"present": max_length > threshold,
+		"max_length_grid": max_length,
+		"largest_area_grid": int(component_metrics.get("largest_area_grid", 0)),
+		"threshold": threshold,
+	}
+
+func _measure_dry_belt_landmark() -> Dictionary:
+	var dry_mask := PackedByteArray()
+	dry_mask.resize(_rain_shadow_grid.size())
+	dry_mask.fill(0)
+	for cell_index: int in range(_rain_shadow_grid.size()):
+		if _rain_shadow_grid[cell_index] < 0.2:
+			dry_mask[cell_index] = 1
+	var component_metrics: Dictionary = _find_connected_component_metrics(dry_mask)
+	var largest_area: int = int(component_metrics.get("largest_area_grid", 0))
+	var threshold: int = _resolve_landmark_dry_belt_min_area()
+	return {
+		"present": largest_area > threshold,
+		"largest_area_grid": largest_area,
+		"threshold": threshold,
+	}
+
+func _measure_scorched_landmark(temperature_grid: PackedFloat32Array) -> Dictionary:
+	var scorched_mask := PackedByteArray()
+	scorched_mask.resize(_height_grid.size())
+	scorched_mask.fill(0)
+	for cell_index: int in range(temperature_grid.size()):
+		if _resolve_landmark_hot_factor(temperature_grid[cell_index]) > 0.5:
+			scorched_mask[cell_index] = 1
+	var component_metrics: Dictionary = _find_connected_component_metrics(scorched_mask)
+	var largest_area: int = int(component_metrics.get("largest_area_grid", 0))
+	var threshold: int = _resolve_landmark_scorched_min_area()
+	return {
+		"present": largest_area > threshold,
+		"largest_area_grid": largest_area,
+		"threshold": threshold,
+	}
+
+func _measure_wow_regions(
+	temperature_grid: PackedFloat32Array,
+	moisture_grid: PackedFloat32Array
+) -> Dictionary:
+	var regions: Array[String] = []
+	var details: Dictionary = {}
+
+	var canyon: Dictionary = _measure_canyon_wow_region()
+	details[WOW_REGION_CANYON] = canyon
+	if bool(canyon.get("present", false)):
+		regions.append(WOW_REGION_CANYON)
+
+	var caldera: Dictionary = _measure_caldera_wow_region()
+	details[WOW_REGION_CALDERA] = caldera
+	if bool(caldera.get("present", false)):
+		regions.append(WOW_REGION_CALDERA)
+
+	var marsh_basin: Dictionary = _measure_marsh_basin_wow_region(moisture_grid)
+	details[WOW_REGION_MARSH_BASIN] = marsh_basin
+	if bool(marsh_basin.get("present", false)):
+		regions.append(WOW_REGION_MARSH_BASIN)
+
+	var alpine_lake: Dictionary = _measure_alpine_lake_wow_region()
+	details[WOW_REGION_ALPINE_LAKE] = alpine_lake
+	if bool(alpine_lake.get("present", false)):
+		regions.append(WOW_REGION_ALPINE_LAKE)
+
+	var glacial_fjord: Dictionary = _measure_glacial_fjord_wow_region(temperature_grid)
+	details[WOW_REGION_GLACIAL_FJORD] = glacial_fjord
+	if bool(glacial_fjord.get("present", false)):
+		regions.append(WOW_REGION_GLACIAL_FJORD)
+
+	return {
+		"present": not regions.is_empty(),
+		"count": regions.size(),
+		"regions": regions,
+		"details": details,
+	}
+
+func _measure_canyon_wow_region() -> Dictionary:
+	var canyon_mask := PackedByteArray()
+	canyon_mask.resize(_height_grid.size())
+	canyon_mask.fill(0)
+	var best_accumulation: float = 0.0
+	for cell_index: int in range(_height_grid.size()):
+		if _river_mask_grid.is_empty() or _river_mask_grid[cell_index] != 1:
+			continue
+		if _accumulation_grid[cell_index] <= WOW_CANYON_MIN_ACCUMULATION:
+			continue
+		if _slope_grid[cell_index] <= WOW_CANYON_MIN_SLOPE:
+			continue
+		if _river_width_grid[cell_index] >= WOW_CANYON_MAX_RIVER_WIDTH:
+			continue
+		canyon_mask[cell_index] = 1
+		best_accumulation = maxf(best_accumulation, _accumulation_grid[cell_index])
+	var component_metrics: Dictionary = _find_connected_component_metrics(canyon_mask)
+	return {
+		"present": int(component_metrics.get("component_count", 0)) > 0,
+		"count": int(component_metrics.get("component_count", 0)),
+		"largest_area_grid": int(component_metrics.get("largest_area_grid", 0)),
+		"best_accumulation": best_accumulation,
+	}
+
+func _measure_caldera_wow_region() -> Dictionary:
+	var best_ring_ratio: float = 0.0
+	var best_height_drop: float = 0.0
+	var hit_count: int = 0
+	for cell_index: int in range(_height_grid.size()):
+		if int(_lake_mask[cell_index]) > 0:
+			continue
+		if not _is_caldera_center_candidate(cell_index):
+			continue
+		var candidate_metrics: Dictionary = _measure_caldera_candidate(cell_index)
+		if not bool(candidate_metrics.get("present", false)):
+			continue
+		hit_count += 1
+		best_ring_ratio = maxf(best_ring_ratio, float(candidate_metrics.get("ring_ratio", 0.0)))
+		best_height_drop = maxf(best_height_drop, float(candidate_metrics.get("height_drop", 0.0)))
+	return {
+		"present": hit_count > 0,
+		"count": hit_count,
+		"best_ring_ratio": best_ring_ratio,
+		"best_height_drop": best_height_drop,
+	}
+
+func _measure_marsh_basin_wow_region(moisture_grid: PackedFloat32Array) -> Dictionary:
+	var marsh_mask := PackedByteArray()
+	marsh_mask.resize(_height_grid.size())
+	marsh_mask.fill(0)
+	for cell_index: int in range(_height_grid.size()):
+		if _slope_grid[cell_index] >= WOW_MARSH_MAX_SLOPE:
+			continue
+		if _eroded_height_grid[cell_index] >= WOW_MARSH_MAX_HEIGHT:
+			continue
+		if cell_index >= moisture_grid.size() or moisture_grid[cell_index] <= WOW_MARSH_MIN_MOISTURE:
+			continue
+		marsh_mask[cell_index] = 1
+	var component_metrics: Dictionary = _find_connected_component_metrics(marsh_mask)
+	var largest_area: int = int(component_metrics.get("largest_area_grid", 0))
+	return {
+		"present": largest_area > WOW_MARSH_MIN_AREA,
+		"largest_area_grid": largest_area,
+		"component_count": int(component_metrics.get("component_count", 0)),
+	}
+
+func _measure_alpine_lake_wow_region() -> Dictionary:
+	var candidate_count: int = 0
+	var best_depth: float = 0.0
+	var best_shore_ratio: float = 0.0
+	for lake_record: LakeRecord in _lake_records:
+		if lake_record.lake_type != LAKE_TYPE_MOUNTAIN:
+			continue
+		if lake_record.max_depth <= WOW_ALPINE_MIN_DEPTH:
+			continue
+		var shore_ridge_ratio: float = _measure_lake_shore_ridge_ratio(lake_record)
+		if shore_ridge_ratio < WOW_ALPINE_MIN_SHORE_RIDGE_RATIO:
+			continue
+		candidate_count += 1
+		best_depth = maxf(best_depth, lake_record.max_depth)
+		best_shore_ratio = maxf(best_shore_ratio, shore_ridge_ratio)
+	return {
+		"present": candidate_count > 0,
+		"count": candidate_count,
+		"best_depth": best_depth,
+		"best_shore_ridge_ratio": best_shore_ratio,
+	}
+
+func _measure_glacial_fjord_wow_region(_temperature_grid: PackedFloat32Array) -> Dictionary:
+	var candidate_count: int = 0
+	var best_aspect_ratio: float = 0.0
+	var best_shore_slope: float = 0.0
+	for lake_record: LakeRecord in _lake_records:
+		if lake_record.lake_type != LAKE_TYPE_GLACIAL:
+			continue
+		var aspect_ratio: float = _measure_lake_aspect_ratio(lake_record)
+		if aspect_ratio <= WOW_FJORD_MIN_ASPECT_RATIO:
+			continue
+		var average_shore_slope: float = _measure_lake_average_shore_slope(lake_record)
+		if average_shore_slope <= WOW_FJORD_MIN_SHORE_SLOPE:
+			continue
+		candidate_count += 1
+		best_aspect_ratio = maxf(best_aspect_ratio, aspect_ratio)
+		best_shore_slope = maxf(best_shore_slope, average_shore_slope)
+	return {
+		"present": candidate_count > 0,
+		"count": candidate_count,
+		"best_aspect_ratio": best_aspect_ratio,
+		"best_shore_slope": best_shore_slope,
+	}
+
+func _find_connected_component_metrics(mask: PackedByteArray) -> Dictionary:
+	var visited := PackedByteArray()
+	visited.resize(mask.size())
+	visited.fill(0)
+	var component_count: int = 0
+	var largest_area: int = 0
+	var largest_length: int = 0
+	for cell_index: int in range(mask.size()):
+		if mask[cell_index] == 0 or visited[cell_index] != 0:
+			continue
+		var component_cells: Array[int] = _collect_mask_component(cell_index, mask, visited)
+		component_count += 1
+		largest_area = maxi(largest_area, component_cells.size())
+		largest_length = maxi(largest_length, _measure_component_major_axis_length(component_cells))
+	return {
+		"component_count": component_count,
+		"largest_area_grid": largest_area,
+		"largest_length_grid": largest_length,
+	}
+
+func _collect_mask_component(
+	start_index: int,
+	mask: PackedByteArray,
+	visited: PackedByteArray
+) -> Array[int]:
+	var component_cells: Array[int] = []
+	var queue: Array[int] = [start_index]
+	var queue_index: int = 0
+	visited[start_index] = 1
+	while queue_index < queue.size():
+		var cell_index: int = queue[queue_index]
+		queue_index += 1
+		component_cells.append(cell_index)
+		for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
+			var neighbor_index: int = _get_neighbor_index(cell_index, direction_index)
+			if neighbor_index < 0:
+				continue
+			if mask[neighbor_index] == 0 or visited[neighbor_index] != 0:
+				continue
+			visited[neighbor_index] = 1
+			queue.append(neighbor_index)
+	return component_cells
+
+func _measure_component_major_axis_length(component_cells: Array[int]) -> int:
+	if component_cells.is_empty():
+		return 0
+	var first_grid: Vector2i = _index_to_grid(component_cells[0])
+	var min_x: float = 0.0
+	var max_x: float = 0.0
+	var min_y: int = first_grid.y
+	var max_y: int = first_grid.y
+	for cell_index: int in component_cells:
+		var grid_pos: Vector2i = _index_to_grid(cell_index)
+		var relative_x: float = float(_grid_wrap_delta_x(grid_pos.x, first_grid.x))
+		min_x = minf(min_x, relative_x)
+		max_x = maxf(max_x, relative_x)
+		min_y = mini(min_y, grid_pos.y)
+		max_y = maxi(max_y, grid_pos.y)
+	var span_x: float = (max_x - min_x) + 1.0
+	var span_y: float = float(max_y - min_y + 1)
+	return maxi(1, int(round(sqrt(span_x * span_x + span_y * span_y))))
+
+func _is_caldera_center_candidate(cell_index: int) -> bool:
+	if _ridge_strength_grid[cell_index] > 0.35:
+		return false
+	if not _slope_grid.is_empty() and _slope_grid[cell_index] > 0.25:
+		return false
+	if not _mountain_mass_grid.is_empty() and _mountain_mass_grid[cell_index] > 0.55:
+		return false
+	return true
+
+func _measure_caldera_candidate(cell_index: int) -> Dictionary:
+	var center_grid: Vector2i = _index_to_grid(cell_index)
+	var center_height: float = _eroded_height_grid[cell_index]
+	for radius: int in range(3, 5):
+		var ring_indices: Array[int] = _collect_ring_indices(center_grid, radius)
+		if ring_indices.size() < 8:
+			continue
+		var high_ridge_count: int = 0
+		var total_ring_height: float = 0.0
+		for ring_index: int in ring_indices:
+			if _ridge_strength_grid[ring_index] > 0.5:
+				high_ridge_count += 1
+			total_ring_height += _eroded_height_grid[ring_index]
+		var ring_ratio: float = float(high_ridge_count) / float(ring_indices.size())
+		var average_ring_height: float = total_ring_height / float(ring_indices.size())
+		var height_drop: float = average_ring_height - center_height
+		if ring_ratio >= WOW_CALDERA_MIN_RING_RATIO and height_drop >= WOW_CALDERA_MIN_HEIGHT_DROP:
+			return {
+				"present": true,
+				"ring_ratio": ring_ratio,
+				"height_drop": height_drop,
+				"radius": radius,
+			}
+	return {
+		"present": false,
+	}
+
+func _collect_ring_indices(center_grid: Vector2i, radius: int) -> Array[int]:
+	var ring_indices: Array[int] = []
+	for dy: int in range(-radius, radius + 1):
+		for dx: int in range(-radius, radius + 1):
+			if maxi(abs(dx), abs(dy)) != radius:
+				continue
+			var grid_y: int = center_grid.y + dy
+			if grid_y < 0 or grid_y >= _grid_height:
+				continue
+			var grid_x: int = int(posmod(center_grid.x + dx, _grid_width))
+			ring_indices.append(_flatten_index(grid_x, grid_y))
+	return ring_indices
+
+func _measure_lake_shore_ridge_ratio(lake_record: LakeRecord) -> float:
+	var shore_cells: Array[int] = _collect_lake_shore_cells(lake_record)
+	if shore_cells.is_empty():
+		return 0.0
+	var ridge_count: int = 0
+	for shore_index: int in shore_cells:
+		if _ridge_strength_grid[shore_index] > 0.4:
+			ridge_count += 1
+	return float(ridge_count) / float(shore_cells.size())
+
+func _measure_lake_average_shore_slope(lake_record: LakeRecord) -> float:
+	var shore_cells: Array[int] = _collect_lake_shore_cells(lake_record)
+	if shore_cells.is_empty():
+		return 0.0
+	var total_slope: float = 0.0
+	for shore_index: int in shore_cells:
+		total_slope += _slope_grid[shore_index]
+	return total_slope / float(shore_cells.size())
+
+func _measure_lake_aspect_ratio(lake_record: LakeRecord) -> float:
+	if lake_record.grid_cells.is_empty():
+		return 0.0
+	var first_grid: Vector2i = _index_to_grid(lake_record.grid_cells[0])
+	var min_x: float = 0.0
+	var max_x: float = 0.0
+	var min_y: int = first_grid.y
+	var max_y: int = first_grid.y
+	for cell_index: int in lake_record.grid_cells:
+		var grid_pos: Vector2i = _index_to_grid(cell_index)
+		var relative_x: float = float(_grid_wrap_delta_x(grid_pos.x, first_grid.x))
+		min_x = minf(min_x, relative_x)
+		max_x = maxf(max_x, relative_x)
+		min_y = mini(min_y, grid_pos.y)
+		max_y = maxi(max_y, grid_pos.y)
+	var width: float = maxf(1.0, (max_x - min_x) + 1.0)
+	var height: float = maxf(1.0, float(max_y - min_y + 1))
+	return maxf(width, height) / maxf(1.0, minf(width, height))
+
+func _collect_lake_shore_cells(lake_record: LakeRecord) -> Array[int]:
+	var shore_by_index: Dictionary = {}
+	for cell_index: int in lake_record.grid_cells:
+		for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
+			var neighbor_index: int = _get_neighbor_index(cell_index, direction_index)
+			if neighbor_index < 0:
+				continue
+			if int(_lake_mask[neighbor_index]) == lake_record.id:
+				continue
+			shore_by_index[neighbor_index] = true
+	var shore_cells: Array[int] = []
+	for shore_index: Variant in shore_by_index.keys():
+		shore_cells.append(int(shore_index))
+	shore_cells.sort()
+	return shore_cells
+
+func _get_cell_world_pos(cell_index: int) -> Vector2i:
+	var grid_pos: Vector2i = _index_to_grid(cell_index)
+	return Vector2i(_grid_to_world_x(grid_pos.x), _grid_to_world_y(grid_pos.y))
 
 func _sample_grid(grid: PackedFloat32Array, world_pos: Vector2i) -> float:
 	var wrapped_x: int = _wrap_x(world_pos.x)
@@ -2084,6 +2665,59 @@ func _resolve_sea_level_threshold() -> float:
 	if _balance == null:
 		return 0.15
 	return clampf(_balance.prepass_sea_level_threshold, 0.0, 0.5)
+
+func _resolve_landmark_great_river_min_accumulation() -> float:
+	if _balance == null:
+		return 2000.0
+	return maxf(1.0, float(_balance.landmark_great_river_min_accumulation))
+
+func _resolve_landmark_mountain_arc_min_length() -> int:
+	if _balance == null:
+		return 120
+	return maxi(1, _balance.landmark_mountain_arc_min_length)
+
+func _resolve_landmark_delta_min_accumulation() -> float:
+	if _balance == null:
+		return 800.0
+	return maxf(1.0, float(_balance.landmark_delta_min_accumulation))
+
+func _resolve_landmark_lake_min_area() -> int:
+	if _balance == null:
+		return 30
+	return maxi(1, _balance.landmark_lake_min_area)
+
+func _resolve_landmark_glacier_front_min_length() -> int:
+	if _balance == null:
+		return 40
+	return maxi(1, _balance.landmark_glacier_front_min_length)
+
+func _resolve_landmark_dry_belt_min_area() -> int:
+	if _balance == null:
+		return 500
+	return maxi(1, _balance.landmark_dry_belt_min_area)
+
+func _resolve_landmark_scorched_min_area() -> int:
+	if _balance == null:
+		return 300
+	return maxi(1, _balance.landmark_scorched_min_area)
+
+func _resolve_landmark_cold_factor(temperature: float) -> float:
+	if _balance == null:
+		return 0.0
+	return clampf(
+		(_balance.cold_pole_temperature - temperature) / maxf(0.001, _balance.cold_pole_transition_width),
+		0.0,
+		1.0
+	)
+
+func _resolve_landmark_hot_factor(temperature: float) -> float:
+	if _balance == null:
+		return 0.0
+	return clampf(
+		(temperature - _balance.hot_pole_temperature) / maxf(0.001, _balance.hot_pole_transition_width),
+		0.0,
+		1.0
+	)
 
 func _resolve_river_accumulation_threshold() -> float:
 	if _balance == null:

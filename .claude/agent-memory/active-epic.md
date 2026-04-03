@@ -2,8 +2,8 @@
 
 **Spec**: `docs/02_system_specs/world/natural_world_generation_overhaul.md`
 **Started**: 2026-04-02
-**Current iteration**: 1.17
-**Total iterations**: Phase 1 steps 1.1-1.17
+**Current iteration**: Phase 2
+**Total iterations**: Phase 1 steps 1.1-1.17 + Phases 2-4
 
 ## Documentation debt
 
@@ -14,6 +14,151 @@
 - **Status**: reviewed in iteration 1.17; `DATA_CONTRACTS.md` and `PUBLIC_API.md` now record that polar overlays live in `variation` rather than expanding canonical terrain truth. Future `PUBLIC_API.md` work is only needed if a later iteration promotes a new safe runtime entrypoint.
 
 ## Iterations
+
+### Phase 2 - Landmark Grammar
+**Status**: completed
+**Started**: 2026-04-03
+**Completed**: 2026-04-03
+
+#### Acceptance tests
+- [x] `validate_landmarks()` корректно определяет наличие/отсутствие каждого mandatory landmark-а и wow-region family. — verified by file read in `core/systems/world/world_pre_pass.gd` (lines 319, 421, 439, 450, 483, 501, 519, 535, 551, 590, 614, 636, 656, 678)
+- [x] Soft fix path подстраивает borderline seeds через runtime thresholds и пересчитывает pre-pass. — verified by file read in `core/autoloads/world_generator.gd` (lines 401-425, 445-478)
+- [x] Reroll path меняет effective seed и пересчитывает pre-pass snapshot. — verified by file read in `core/autoloads/world_generator.gd` (lines 401-425, especially line 408)
+- [x] После validation boot path пытается добиться landmark guarantees (`great_river`, `mountain_arc`, `delta`) через validate → soft-fix → reroll до публикации accepted snapshot. — verified by file read in `core/autoloads/world_generator.gd` (lines 401-425) together with `core/systems/world/world_pre_pass.gd` (lines 319-481)
+- [x] Validation не блокирует запуск: после исчерпания remediation остаётся warning fallback. — verified by file read in `core/autoloads/world_generator.gd` (lines 426-433)
+- [ ] Performance: validation + remediation < 5s total. — blocked (`godot`, `godot4`, `gdlint`, and `gdformat` returned `NONE`; runtime timing could not be measured in this environment)
+
+#### Doc check
+- [x] Grep `DATA_CONTRACTS.md` for changed names — `validate_landmarks` matches at lines 52, 96, 97, 197, 198, 251, 261; `sample_all|get_grid_value` matches at lines 97 and 261; `initialize_world` landmark-remediation semantics match at lines 96, 196, 198, 199, 252
+- [x] Grep `PUBLIC_API.md` for changed names — `validate_landmarks` matches at lines 585, 633, 636; `sample_all|get_grid_value` match at lines 623 and 628; `initialize_world|world_initialized|landmark_validation_enabled` semantics match at lines 583, 585, 586, 661, 662, 673
+- [x] Documentation debt section reviewed — this phase updated both `DATA_CONTRACTS.md` and `PUBLIC_API.md` because `WorldPrePass.validate_landmarks()` was promoted to a documented read-only API and `initialize_world()` gained effective-seed remediation semantics
+
+#### Files touched
+- `core/systems/world/world_pre_pass.gd` — add `validate_landmarks()` plus landmark and wow-region detection helpers over the accepted pre-pass snapshot.
+- `core/autoloads/world_generator.gd` — add boot-time landmark remediation loop with runtime balance duplication, soft-fix, reroll, and warning fallback.
+- `data/world/world_gen_balance.gd` — add landmark grammar tuning exports.
+- `data/world/world_gen_balance.tres` — seed default landmark grammar values.
+- `docs/02_system_specs/world/DATA_CONTRACTS.md` — document validation/remediation ownership and public read surface.
+- `docs/00_governance/PUBLIC_API.md` — document `WorldPrePass.validate_landmarks()` and the effective-seed semantics of `initialize_world()`.
+- `.claude/agent-memory/active-epic.md` — persistent task tracking updated for Phase 2.
+
+#### Closure report
+## Closure Report
+
+### Implemented
+- Added `WorldPrePass.validate_landmarks()` and dedicated proof helpers for great river, mountain arc, delta, large lake, glacier front, dry belt, scorched wasteland, and wow-region detection (`canyon`, `caldera`, `marsh_basin`, `alpine_lake`, `glacial_fjord`).
+- Added landmark grammar tuning knobs to `WorldGenBalance` / `world_gen_balance.tres`.
+- Added boot-time landmark remediation in `WorldGenerator.initialize_world()`: duplicate runtime balance, compute pre-pass, validate landmarks, soft-fix pre-pass thresholds, reroll effective seed when needed, and fall back with warning instead of blocking startup.
+- Updated canonical docs so `WorldPrePass.validate_landmarks()` and the accepted/effective-seed boot semantics are part of the documented contract.
+
+### Root cause
+- After Phase 1 the pre-pass already computed enough global structure to judge world quality, but boot had no rule that turned those channels into guaranteed memorable geography. Seeds could still initialize into statistically valid yet forgettable worlds because nothing validated or remediated landmark presence before publishing the generator state.
+
+### Files changed
+- `core/systems/world/world_pre_pass.gd` — validation/report helpers.
+- `core/autoloads/world_generator.gd` — remediation loop and runtime balance handling.
+- `data/world/world_gen_balance.gd` — landmark exports.
+- `data/world/world_gen_balance.tres` — default landmark values.
+- `docs/02_system_specs/world/DATA_CONTRACTS.md` — pre-pass ownership/read-surface update.
+- `docs/00_governance/PUBLIC_API.md` — public API update for validation/effective seed.
+- `.claude/agent-memory/active-epic.md` — phase tracking.
+
+### Acceptance tests
+- [x] `validate_landmarks()` detects each landmark / wow-region family — passed (file read)
+- [x] Soft fix adjusts runtime thresholds and recomputes — passed (file read)
+- [x] Reroll changes effective seed and recomputes — passed (file read)
+- [x] Boot path attempts guaranteed landmark publication before final snapshot — passed (file read)
+- [x] Validation does not block startup forever — passed (file read)
+- [ ] Validation + remediation < 5s total — blocked (runtime tools unavailable)
+
+### Contract/API documentation check
+- Grep `DATA_CONTRACTS.md` for `validate_landmarks`: matches at lines 52, 96, 97, 197, 198, 251, 261 — updated
+- Grep `DATA_CONTRACTS.md` for `sample_all|get_grid_value`: matches at lines 97 and 261 — updated
+- Grep `DATA_CONTRACTS.md` for `initialize_world`: matches at lines 96, 118, 140, 196, 198, 199, 252, 259 — updated where pre-pass semantics changed
+- Grep `PUBLIC_API.md` for `validate_landmarks`: matches at lines 585, 633, 636 — updated
+- Grep `PUBLIC_API.md` for `sample_all|get_grid_value`: matches at lines 623 and 628 — updated
+- Grep `PUBLIC_API.md` for `initialize_world|world_initialized|landmark_validation_enabled`: matches at lines 583, 585, 586, 591, 592, 661, 662, 673, 1713 — updated where semantics changed
+- Section `Фаза 2: Landmark Grammar` / `Acceptance criteria (landmark grammar)` / `Data Contracts изменения` / `PUBLIC_API.md изменения` in spec: exists at lines 735, 822, 1023, and 1034 — reviewed; this phase updated both canonical docs because landmark validation became a documented boot-time/public contract
+
+### Out-of-scope observations
+- Landmark validation currently relies on heuristic caldera/fjord detection over the coarse pre-pass grids; qualitative tuning against real atlas output still belongs to later tooling/seed-curation work.
+- The remediation loop only adjusts `prepass_river_accumulation_threshold` and `prepass_ridge_min_height`, exactly as scoped by the spec; dry-belt/scorched misses still rely on reroll rather than deeper climate retuning.
+
+### Remaining blockers
+- Runtime/performance proof for the `< 5s total` acceptance remains blocked until a usable Godot/editor/runtime tool is available in the environment.
+
+### DATA_CONTRACTS.md updated
+- updated — grep evidence recorded above for `validate_landmarks`, `sample_all`, `get_grid_value`, and `initialize_world`
+
+### PUBLIC_API.md updated
+- updated — grep evidence recorded above for `validate_landmarks`, `sample_all`, `get_grid_value`, `initialize_world`, `world_initialized`, and `landmark_validation_enabled`
+
+#### Blockers
+- Runtime/performance proof remains blocked by missing Godot/editor tooling in this environment
+
+---
+
+### Phase 2 follow-up - WorldLab preview readability
+**Status**: completed
+**Started**: 2026-04-03
+**Completed**: 2026-04-03
+
+#### Acceptance tests
+- [x] `WorldLab` exposes a dedicated `Landmarks` mode plus a readable sidebar (`Inspect`, legend, landmark report) instead of a single undersized overview. — verified by file read in `scenes/ui/world_lab.gd` (`MapMode.LANDMARKS`, UI sidebar block, `_refresh_legend()`, `_refresh_landmark_report()`, `_refresh_detail_preview()`)
+- [x] `WorldLab` computes and displays `validate_landmarks()` output for the selected seed. — verified by file read in `scenes/ui/world_lab.gd` (`_world_pre_pass`, `sample_landmark_channels()`, `get_landmark_report()`, worker report wiring)
+- [x] `git diff --check` passes for the touched file. — verified by command output: `git diff --check -- scenes/ui/world_lab.gd` returned no output
+
+#### Doc check
+- [x] Grep `DATA_CONTRACTS.md` for `WorldLab|world_lab|World Preview` — 0 matches
+- [x] Grep `PUBLIC_API.md` for `WorldLab|world_lab|World Preview` — 0 matches
+- [x] Documentation debt section reviewed — not required; this follow-up only changed internal tooling UI and consumed already-documented `WorldPrePass.validate_landmarks()` without altering runtime ownership or safe entrypoints
+
+#### Files touched
+- `scenes/ui/world_lab.gd` — add `Landmarks` mode, pre-pass-backed landmark report, inspect magnifier, legend, and higher-resolution preview cap.
+- `.claude/agent-memory/active-epic.md` — record the follow-up completion.
+
+#### Closure report
+## Closure Report
+
+### Implemented
+- Added a `Landmarks` preview mode to `WorldLab` so drainage, mountain arcs, dry belts, and coast transitions read as an explanatory atlas rather than as muted terrain colors.
+- Added a right-hand sidebar with an inspect magnifier, mode legend, and live landmark report derived from `WorldPrePass.validate_landmarks()`.
+- Increased the preview height cap from `640` to `1024`, which reduces downsampling for tall world overviews before the inspect crop is applied.
+
+### Root cause
+- The existing WorldLab UI only showed a fit-to-panel terrain/biome atlas. For a tall cylindrical world that meant the overview became too narrow to read, and nothing in the UI told the user whether the selected seed actually contained the Phase 2 landmark set.
+
+### Files changed
+- `scenes/ui/world_lab.gd`
+- `.claude/agent-memory/active-epic.md`
+
+### Acceptance tests
+- [x] `Landmarks` mode, inspect panel, legend, and landmark report exist in `WorldLab` — passed (file read)
+- [x] `WorldLab` now calls `validate_landmarks()` through its local pre-pass snapshot — passed (file read)
+- [x] `git diff --check -- scenes/ui/world_lab.gd` — passed (no output)
+
+### Contract/API documentation check
+- Grep `DATA_CONTRACTS.md` for `WorldLab|world_lab|World Preview`: 0 matches
+- Grep `PUBLIC_API.md` for `WorldLab|world_lab|World Preview`: 0 matches
+- No spec `Required updates` section applied here; this was a tooling-only follow-up and did not change canonical runtime contracts or public APIs
+
+### Out-of-scope observations
+- `WorldLab` still previews the requested seed directly; it does not yet emulate `WorldGenerator.initialize_world()` remediation/effective-seed reroll semantics from Phase 2.
+- Runtime/editor smoke verification is still blocked by missing Godot tooling in this environment.
+
+### Remaining blockers
+- none
+
+### DATA_CONTRACTS.md updated
+- not required — grep proof above shows no `WorldLab` / `world_lab` / `World Preview` surface in `DATA_CONTRACTS.md`
+
+### PUBLIC_API.md updated
+- not required — grep proof above shows no `WorldLab` / `world_lab` / `World Preview` surface in `PUBLIC_API.md`
+
+#### Blockers
+- none
+
+---
 
 ### Iteration 1.17 - Polar terrain modifiers
 **Status**: completed

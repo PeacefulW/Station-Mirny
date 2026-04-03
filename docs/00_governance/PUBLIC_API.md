@@ -582,8 +582,8 @@ related_docs:
 
 `WorldGenerator.initialize_world(seed_value: int) -> void`
 - Когда вызывать: при старте новой сессии, если seed задан явно.
-- Что делает: инициализирует generator graph, samplers, biome/variation resolvers, chunk content builder и emits `world_initialized`.
-- Гарантии: после этого generator-side surface reads/builds готовы; см. `Current Source Of Truth Summary`. `WorldFeatureRegistry` must already be boot-loaded before this call succeeds, so feature/POI definitions are not lazy-loaded during world generation. Invalid, duplicate, or unsupported feature definitions keep the registry not-ready, and this call fail-fast'ит instead of starting the world over a partial registry snapshot.
+- Что делает: инициализирует generator graph, boot-time `WorldPrePass`, biome/variation resolvers, chunk content builder и emits `world_initialized`. Если `balance.landmark_validation_enabled`, boot path валидирует landmarks через `WorldPrePass.validate_landmarks()`, может мягко подстроить runtime pre-pass thresholds и может перейти на `seed_value + N` перед публикацией финального generator state.
+- Гарантии: после этого generator-side surface reads/builds готовы; см. `Current Source Of Truth Summary`. `WorldFeatureRegistry` must already be boot-loaded before this call succeeds, so feature/POI definitions are not lazy-loaded during world generation. Invalid, duplicate, or unsupported feature definitions keep the registry not-ready, and this call fail-fast'ит instead of starting the world over a partial registry snapshot. Landmark remediation never blocks startup forever: after exhausting soft-fix/reroll attempts, boot accepts the last candidate with `push_warning()`. `EventBus.world_initialized` emits the effective seed that was actually published, which may differ from the requested input when reroll succeeds.
 - Пример вызова: `WorldGenerator.initialize_world(world_seed)`
 
 `WorldGenerator.initialize_random() -> void`
@@ -615,6 +615,26 @@ related_docs:
 - Гарантии: generator-side surface base terrain semantics only.
 - Пример вызова: `var tile_data: TileGenData = WorldGenerator.build_tile_data(tile_pos)`
 
+`WorldPrePass.sample(channel: StringName, world_pos: Vector2i) -> float`
+- Когда вызывать: когда owner-side generator consumer уже держит опубликованный `WorldPrePass` reference и нужен интерполированный coarse-grid канал по мировым координатам.
+- Что делает: читает normalized pre-pass channel (`height`, `drainage`, `ridge_strength`, `mountain_mass`, `slope`, `rain_shadow`, `continentalness`) seam-safe по X-wrap и clamp-safe по latitude band.
+- Гарантии: read-only API над accepted pre-pass snapshot; не публикует raw mutable grid access и не триггерит recompute.
+
+`WorldPrePass.sample_all(world_pos: Vector2i) -> Dictionary`
+- Когда вызывать: когда owner-side code хочет получить все публичные normalized pre-pass channels для одной мировой точки одним вызовом.
+- Что делает: возвращает Dictionary с теми же публичными каналами, что и `sample()`.
+- Гарантии: read-only convenience API; значения происходят из того же accepted pre-pass snapshot.
+
+`WorldPrePass.get_grid_value(channel: StringName, grid_x: int, grid_y: int) -> float`
+- Когда вызывать: для debug/tooling/boot diagnostics, когда нужен прямой coarse-grid read без интерполяции.
+- Что делает: возвращает значение публичного канала по coarse-grid index.
+- Гарантии: read-only grid probe; out-of-range reads return `0.0` instead of mutating state.
+
+`WorldPrePass.validate_landmarks() -> Dictionary`
+- Когда вызывать: в boot-time validation / tooling / diagnostics, когда нужно проверить mandatory landmark grammar на уже вычисленном pre-pass snapshot.
+- Что делает: возвращает `{passed, failures, metrics, landmarks}` на основе текущего pre-pass state, включая proof для great river, mountain arc, delta, large lake, glacier front, dry belt, scorched wasteland и wow-region rules.
+- Гарантии: read-only proof API. Не recompute'ит pre-pass, не мутирует grids и не меняет seed; remediation decision остаётся обязанностью `WorldGenerator.initialize_world()`.
+
 ### Чтение
 
 `WorldGenerator.get_terrain_type_fast(tile_pos: Vector2i) -> TileGenData.TerrainType`
@@ -638,6 +658,8 @@ related_docs:
 |-------|-------------------------------|
 | `WorldGenerator.get_chunk_data(chunk_coord: Vector2i) -> Dictionary` | Historical alias removed from `WorldGenerator` public surface; use `build_chunk_native_data()` explicitly. |
 | `WorldGenerator.get_chunk_data_native(chunk_coord: Vector2i) -> Dictionary` | Legacy path, не использовать. Removed from `WorldGenerator` public surface; historical references should migrate to `build_chunk_native_data()`. |
+| `WorldGenerator._setup_world_pre_pass_with_landmark_remediation() -> void` | Boot-time orchestration helper. Only `initialize_world()` may decide when to soft-fix thresholds or reroll seed. |
+| `WorldGenerator._apply_landmark_soft_fix(validation: Dictionary, soft_fix_index: int) -> bool` | Internal remediation policy. Callers must not bypass `initialize_world()` and mutate runtime pre-pass thresholds ad hoc. |
 | `WorldGenerator.create_detached_chunk_content_builder() -> ChunkContentBuilder` | Worker/staged loading owner helper, не generic gameplay API. |
 | `ChunkContentBuilder.build_chunk(chunk_coord: Vector2i) -> ChunkBuildResult` | Generator plumbing behind `WorldGenerator`; direct callers обходят canonical generator facade. |
 | `ChunkContentBuilder.build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary` | Generator plumbing behind `WorldGenerator`; same reason as above. |
@@ -648,7 +670,7 @@ related_docs:
 
 | Событие | Когда срабатывает | Payload |
 |---------|-------------------|---------|
-| `EventBus.world_initialized` | После `WorldGenerator.initialize_world()` завершает setup | `(seed_value: int)` |
+| `EventBus.world_initialized` | После `WorldGenerator.initialize_world()` завершает setup и публикует accepted generator snapshot | `(seed_value: int)` where `seed_value` is the effective published seed after any landmark reroll |
 
 ---
 

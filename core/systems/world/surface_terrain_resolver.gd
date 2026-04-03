@@ -260,16 +260,11 @@ func _apply_polar_surface_modifiers(
 	var overlay_kind: StringName = data.local_variation_kind
 	var overlay_score: float = data.local_variation_score
 	var is_flat_surface: bool = _is_flat_polar_surface(canonical_tile, channels)
-	var evaporation_strength: float = hot_factor * maxf(0.0, _balance.hot_evaporation_rate)
 	if data.terrain == TileGenData.TerrainType.WATER:
 		if channels.temperature < _balance.prepass_frozen_river_threshold and cold_factor > 0.0:
 			overlay_id = ChunkTilesetFactory.SURFACE_VARIATION_ICE
 			overlay_kind = _POLAR_KIND_ICE
 			overlay_score = cold_factor
-		elif evaporation_strength >= 0.125:
-			overlay_id = ChunkTilesetFactory.SURFACE_VARIATION_DRY_RIVERBED
-			overlay_kind = _POLAR_KIND_DRY_RIVERBED
-			overlay_score = evaporation_strength
 	elif is_flat_surface:
 		if cold_factor > 0.0 and data.height < _balance.ice_cap_max_height:
 			overlay_id = ChunkTilesetFactory.SURFACE_VARIATION_ICE

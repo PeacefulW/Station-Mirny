@@ -5,8 +5,10 @@ extends Control
 ## Renders one large overview map for the selected seed without touching runtime chunks.
 
 const MAX_PREVIEW_WIDTH: int = 1024
-const MAX_PREVIEW_HEIGHT: int = 640
+const MAX_PREVIEW_HEIGHT: int = 1024
 const PROGRESS_ROW_BATCH: int = 16
+const DETAIL_CROP_SIZE: int = 72
+const DETAIL_SCALE: int = 4
 
 const TERRAIN_COLORS: Dictionary = {
 	0: Color(0.22, 0.35, 0.15),  # GROUND
@@ -21,6 +23,7 @@ const TERRAIN_COLORS: Dictionary = {
 enum MapMode {
 	TERRAIN,
 	BIOME,
+	LANDMARKS,
 }
 
 class WorldLabSampler:
@@ -34,6 +37,7 @@ class WorldLabSampler:
 	var _native_generator: RefCounted = null
 	var _native_chunk_cache: Dictionary = {}
 	var _world_context: WorldComputeContext = null
+	var _world_pre_pass: WorldPrePass = null
 	var _surface_terrain_resolver: SurfaceTerrainResolver = null
 
 	func configure(request: Dictionary) -> WorldLabSampler:
@@ -81,6 +85,7 @@ class WorldLabSampler:
 
 		var planet_sampler := PlanetSampler.new()
 		planet_sampler.initialize(_seed_value, _balance)
+		_world_pre_pass = WorldPrePass.new().configure(_balance, planet_sampler).compute()
 
 		var structure_sampler := LargeStructureSampler.new()
 		structure_sampler.initialize(_seed_value, _balance)
@@ -112,7 +117,8 @@ class WorldLabSampler:
 			local_variation_resolver,
 			biome_by_id,
 			palette_index_by_id,
-			[]
+			[],
+			_world_pre_pass
 		)
 		_surface_terrain_resolver = SurfaceTerrainResolver.new().initialize(_balance, _world_context)
 		_world_context.set_surface_terrain_resolver(_surface_terrain_resolver)
@@ -166,6 +172,16 @@ class WorldLabSampler:
 			"biome": int(tile_data.biome_palette_index),
 		}
 
+	func sample_landmark_channels(tile_pos: Vector2i) -> Dictionary:
+		if _world_pre_pass == null:
+			return {}
+		return _world_pre_pass.sample_all(tile_pos)
+
+	func get_landmark_report() -> Dictionary:
+		if _world_pre_pass == null:
+			return {}
+		return _world_pre_pass.validate_landmarks()
+
 var _status_label: Label = null
 var _seed_input: SpinBox = null
 var _mode_option: OptionButton = null
@@ -174,14 +190,22 @@ var _cancel_button: Button = null
 var _preview_title: Label = null
 var _preview_texture_rect: TextureRect = null
 var _preview_meta: Label = null
+var _detail_texture_rect: TextureRect = null
+var _detail_meta: Label = null
+var _legend_entries_box: VBoxContainer = null
+var _landmark_summary_label: Label = null
 
 var _generation_id: int = 0
 var _terrain_image: Image = null
 var _biome_image: Image = null
+var _landmark_image: Image = null
+var _landmark_report: Dictionary = {}
 var _current_seed: int = 0
 var _current_preview_size: Vector2i = Vector2i.ZERO
 var _current_sample_step: int = 1
 var _current_world_size: Vector2i = Vector2i.ZERO
+var _current_world_origin: Vector2i = Vector2i.ZERO
+var _hover_source_pixel: Vector2i = Vector2i(-1, -1)
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
@@ -228,7 +252,8 @@ func _build_ui() -> void:
 	_mode_option = OptionButton.new()
 	_mode_option.add_item("Terrain", MapMode.TERRAIN)
 	_mode_option.add_item("Biome", MapMode.BIOME)
-	_mode_option.selected = 0
+	_mode_option.add_item("Landmarks", MapMode.LANDMARKS)
+	_mode_option.selected = MapMode.LANDMARKS
 	_mode_option.item_selected.connect(_on_mode_changed)
 	top_bar.add_child(_mode_option)
 
@@ -284,19 +309,86 @@ func _build_ui() -> void:
 	_preview_title.add_theme_color_override("font_color", Color(0.82, 0.84, 0.88))
 	preview_box.add_child(_preview_title)
 
+	var content_row := HBoxContainer.new()
+	content_row.size_flags_horizontal = SIZE_EXPAND_FILL
+	content_row.size_flags_vertical = SIZE_EXPAND_FILL
+	content_row.add_theme_constant_override("separation", 14)
+	preview_box.add_child(content_row)
+
+	var preview_column := VBoxContainer.new()
+	preview_column.size_flags_horizontal = SIZE_EXPAND_FILL
+	preview_column.size_flags_vertical = SIZE_EXPAND_FILL
+	preview_column.add_theme_constant_override("separation", 8)
+	content_row.add_child(preview_column)
+
 	_preview_texture_rect = TextureRect.new()
 	_preview_texture_rect.size_flags_horizontal = SIZE_EXPAND_FILL
 	_preview_texture_rect.size_flags_vertical = SIZE_EXPAND_FILL
-	_preview_texture_rect.custom_minimum_size = Vector2(960, 560)
+	_preview_texture_rect.custom_minimum_size = Vector2(820, 560)
 	_preview_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	preview_box.add_child(_preview_texture_rect)
+	_preview_texture_rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_preview_texture_rect.mouse_filter = Control.MOUSE_FILTER_STOP
+	_preview_texture_rect.gui_input.connect(_on_preview_gui_input)
+	preview_column.add_child(_preview_texture_rect)
 
 	_preview_meta = Label.new()
 	_preview_meta.text = "No preview generated yet."
 	_preview_meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_preview_meta.add_theme_font_size_override("font_size", 12)
 	_preview_meta.add_theme_color_override("font_color", Color(0.58, 0.62, 0.66))
-	preview_box.add_child(_preview_meta)
+	preview_column.add_child(_preview_meta)
+
+	var sidebar := VBoxContainer.new()
+	sidebar.custom_minimum_size.x = 300
+	sidebar.size_flags_vertical = SIZE_EXPAND_FILL
+	sidebar.add_theme_constant_override("separation", 10)
+	content_row.add_child(sidebar)
+
+	var inspect_title := Label.new()
+	inspect_title.text = "Inspect"
+	inspect_title.add_theme_font_size_override("font_size", 16)
+	inspect_title.add_theme_color_override("font_color", Color(0.82, 0.84, 0.88))
+	sidebar.add_child(inspect_title)
+
+	_detail_texture_rect = TextureRect.new()
+	_detail_texture_rect.custom_minimum_size = Vector2(288, 288)
+	_detail_texture_rect.stretch_mode = TextureRect.STRETCH_SCALE
+	_detail_texture_rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	sidebar.add_child(_detail_texture_rect)
+
+	_detail_meta = Label.new()
+	_detail_meta.text = "Move over the preview to inspect an area."
+	_detail_meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_detail_meta.add_theme_font_size_override("font_size", 12)
+	_detail_meta.add_theme_color_override("font_color", Color(0.58, 0.62, 0.66))
+	sidebar.add_child(_detail_meta)
+
+	var legend_title := Label.new()
+	legend_title.text = "Legend"
+	legend_title.add_theme_font_size_override("font_size", 16)
+	legend_title.add_theme_color_override("font_color", Color(0.82, 0.84, 0.88))
+	sidebar.add_child(legend_title)
+
+	_legend_entries_box = VBoxContainer.new()
+	_legend_entries_box.add_theme_constant_override("separation", 6)
+	sidebar.add_child(_legend_entries_box)
+
+	var report_title := Label.new()
+	report_title.text = "Landmark Report"
+	report_title.add_theme_font_size_override("font_size", 16)
+	report_title.add_theme_color_override("font_color", Color(0.82, 0.84, 0.88))
+	sidebar.add_child(report_title)
+
+	_landmark_summary_label = Label.new()
+	_landmark_summary_label.text = "Generate a seed to inspect the landmark grammar."
+	_landmark_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_landmark_summary_label.size_flags_vertical = SIZE_EXPAND_FILL
+	_landmark_summary_label.add_theme_font_size_override("font_size", 12)
+	_landmark_summary_label.add_theme_color_override("font_color", Color(0.72, 0.75, 0.80))
+	sidebar.add_child(_landmark_summary_label)
+
+	_preview_title.text = "%s Preview" % _current_mode_name()
+	_refresh_legend()
 
 func _on_mode_changed(_index: int) -> void:
 	_refresh_preview_texture()
@@ -313,9 +405,15 @@ func _on_generate_pressed() -> void:
 	_cancel_button.disabled = false
 	_terrain_image = null
 	_biome_image = null
+	_landmark_image = null
+	_landmark_report = {}
+	_hover_source_pixel = Vector2i(-1, -1)
 	_preview_texture_rect.texture = null
+	_detail_texture_rect.texture = null
 	_preview_title.text = "%s Preview" % _current_mode_name()
 	_preview_meta.text = "Generating seed %d..." % seed_value
+	_detail_meta.text = "Generating inspect view..."
+	_landmark_summary_label.text = "Analyzing landmark grammar..."
 	_status_label.text = "Generating seed %d..." % seed_value
 	var gen_id: int = _generation_id
 	WorkerThreadPool.add_task(_worker_generate.bind(request, gen_id))
@@ -350,7 +448,9 @@ func _worker_generate(request: Dictionary, gen_id: int) -> void:
 
 	var terrain_img := Image.create(preview_w, preview_h, false, Image.FORMAT_RGB8)
 	var biome_img := Image.create(preview_w, preview_h, false, Image.FORMAT_RGB8)
+	var landmark_img := Image.create(preview_w, preview_h, false, Image.FORMAT_RGB8)
 	var biome_colors: Array = request.get("biome_colors", [])
+	var landmark_report: Dictionary = sampler.get_landmark_report()
 
 	for py: int in range(preview_h):
 		if gen_id != _generation_id:
@@ -359,10 +459,12 @@ func _worker_generate(request: Dictionary, gen_id: int) -> void:
 		for px: int in range(preview_w):
 			var wx: int = mini(px * step, wrap_width - 1)
 			var tile_data: Dictionary = sampler.sample_tile(Vector2i(wx, wy))
+			var landmark_channels: Dictionary = sampler.sample_landmark_channels(Vector2i(wx, wy))
 			var terrain_type: int = int(tile_data.get("terrain", 0))
 			var biome_idx: int = int(tile_data.get("biome", 0))
 			terrain_img.set_pixel(px, py, TERRAIN_COLORS.get(terrain_type, Color(0.2, 0.2, 0.2)))
 			biome_img.set_pixel(px, py, _resolve_biome_preview_color(biome_colors, biome_idx))
+			landmark_img.set_pixel(px, py, _resolve_landmark_preview_color(landmark_channels, terrain_type))
 		if (py + 1) % PROGRESS_ROW_BATCH == 0 or py == preview_h - 1:
 			call_deferred("_on_worker_progress", gen_id, seed_value, py + 1, preview_h)
 
@@ -372,9 +474,12 @@ func _worker_generate(request: Dictionary, gen_id: int) -> void:
 		seed_value,
 		terrain_img,
 		biome_img,
+		landmark_img,
+		landmark_report,
 		Vector2i(preview_w, preview_h),
 		step,
-		Vector2i(wrap_width, lat_span)
+		Vector2i(wrap_width, lat_span),
+		Vector2i(0, start_y)
 	)
 
 func _on_worker_progress(gen_id: int, seed_value: int, completed_rows: int, total_rows: int) -> void:
@@ -389,49 +494,68 @@ func _on_worker_failed(gen_id: int, seed_value: int) -> void:
 	_cancel_button.disabled = true
 	_status_label.text = "Generation failed for seed %d." % seed_value
 	_preview_meta.text = "WorldLab could not build the preview for seed %d." % seed_value
+	_detail_meta.text = "Inspect view unavailable."
+	_landmark_summary_label.text = "Landmark report unavailable for seed %d." % seed_value
 
 func _on_worker_done(
 	gen_id: int,
 	seed_value: int,
 	terrain_img: Image,
 	biome_img: Image,
+	landmark_img: Image,
+	landmark_report: Dictionary,
 	preview_size: Vector2i,
 	step: int,
-	world_size: Vector2i
+	world_size: Vector2i,
+	world_origin: Vector2i
 ) -> void:
 	if gen_id != _generation_id:
 		return
 	_terrain_image = terrain_img
 	_biome_image = biome_img
+	_landmark_image = landmark_img
+	_landmark_report = landmark_report.duplicate(true)
 	_current_seed = seed_value
 	_current_preview_size = preview_size
 	_current_sample_step = step
 	_current_world_size = world_size
+	_current_world_origin = world_origin
+	_hover_source_pixel = Vector2i(preview_size.x / 2, preview_size.y / 2)
 	_generate_button.disabled = false
 	_cancel_button.disabled = true
-	_status_label.text = "Seed %d rendered." % seed_value
+	_status_label.text = _build_render_status(seed_value)
 	_refresh_preview_texture()
 
 func _refresh_preview_texture() -> void:
 	_preview_title.text = "%s Preview" % _current_mode_name()
-	var selected_mode: int = _mode_option.get_item_id(_mode_option.selected) if _mode_option != null else MapMode.TERRAIN
-	var source_image: Image = _terrain_image if selected_mode == MapMode.TERRAIN else _biome_image
+	var source_image: Image = _get_current_source_image()
 	if source_image == null:
 		_preview_texture_rect.texture = null
+		_detail_texture_rect.texture = null
 		return
 	_preview_texture_rect.texture = ImageTexture.create_from_image(source_image)
-	_preview_meta.text = "Seed %d | world %dx%d tiles | sample step %d | preview %dx%d" % [
+	_preview_meta.text = "Seed %d | world %dx%d tiles | sample step %d | preview %dx%d | %s" % [
 		_current_seed,
 		_current_world_size.x,
 		_current_world_size.y,
 		_current_sample_step,
 		_current_preview_size.x,
 		_current_preview_size.y,
+		_build_landmark_status_summary(),
 	]
+	_refresh_legend()
+	_refresh_landmark_report()
+	_refresh_detail_preview()
 
 func _current_mode_name() -> String:
-	var selected_mode: int = _mode_option.get_item_id(_mode_option.selected) if _mode_option != null else MapMode.TERRAIN
-	return "Biome" if selected_mode == MapMode.BIOME else "Terrain"
+	var selected_mode: int = _get_selected_mode()
+	match selected_mode:
+		MapMode.BIOME:
+			return "Biome"
+		MapMode.LANDMARKS:
+			return "Landmarks"
+		_:
+			return "Terrain"
 
 func _compute_preview_layout(wrap_width: int, lat_span: int) -> Dictionary:
 	if wrap_width <= 0 or lat_span <= 0:
@@ -488,6 +612,236 @@ func _resolve_biome_preview_color(biome_colors: Array, biome_idx: int) -> Color:
 		if color_value is Color:
 			return color_value
 	return Color(0.22, 0.18, 0.12)
+
+func _resolve_landmark_preview_color(channels: Dictionary, terrain_type: int) -> Color:
+	if channels.is_empty():
+		return TERRAIN_COLORS.get(terrain_type, Color(0.2, 0.2, 0.2)).darkened(0.18)
+	var drainage: float = clampf(_read_float(channels, &"drainage"), 0.0, 1.0)
+	var ridge_strength: float = clampf(_read_float(channels, &"ridge_strength"), 0.0, 1.0)
+	var mountain_mass: float = clampf(_read_float(channels, &"mountain_mass"), 0.0, 1.0)
+	var slope: float = clampf(_read_float(channels, &"slope"), 0.0, 1.0)
+	var rain_shadow: float = clampf(_read_float(channels, &"rain_shadow"), 0.0, 1.0)
+	var continentalness: float = clampf(_read_float(channels, &"continentalness"), 0.0, 1.0)
+	var color := Color(0.10, 0.14, 0.11)
+	color = color.lerp(Color(0.18, 0.29, 0.20), 0.35)
+	color = color.lerp(Color(0.11, 0.37, 0.48), clampf((1.0 - continentalness) * 0.55, 0.0, 1.0))
+	color = color.lerp(Color(0.61, 0.43, 0.18), clampf(rain_shadow * continentalness * 0.80, 0.0, 1.0))
+	color = color.lerp(
+		Color(0.96, 0.88, 0.75),
+		clampf(mountain_mass * 0.72 + ridge_strength * 0.52 + slope * 0.18, 0.0, 1.0)
+	)
+	color = color.lerp(Color(0.08, 0.63, 0.98), clampf(pow(drainage, 0.70), 0.0, 1.0))
+	if terrain_type == TileGenData.TerrainType.WATER:
+		color = color.lerp(Color(0.05, 0.44, 0.87), 0.72)
+	return color
+
+func _read_float(values: Dictionary, key: StringName) -> float:
+	var value: Variant = values.get(key, values.get(String(key), 0.0))
+	if value is float:
+		return value
+	if value is int:
+		return float(value)
+	return 0.0
+
+func _get_selected_mode() -> int:
+	return _mode_option.get_item_id(_mode_option.selected) if _mode_option != null else MapMode.TERRAIN
+
+func _get_current_source_image() -> Image:
+	match _get_selected_mode():
+		MapMode.BIOME:
+			return _biome_image
+		MapMode.LANDMARKS:
+			return _landmark_image
+		_:
+			return _terrain_image
+
+func _build_render_status(seed_value: int) -> String:
+	if _landmark_report.is_empty():
+		return "Seed %d rendered." % seed_value
+	if bool(_landmark_report.get("passed", false)):
+		return "Seed %d rendered. Landmark report: PASS." % seed_value
+	var failures: Array = _landmark_report.get("failures", [])
+	return "Seed %d rendered. Landmark misses: %s" % [seed_value, _join_variants(failures)]
+
+func _build_landmark_status_summary() -> String:
+	if _landmark_report.is_empty():
+		return "landmarks n/a"
+	var metrics: Dictionary = _landmark_report.get("metrics", {})
+	var wow_count: int = int(metrics.get("wow_region_count", 0))
+	if bool(_landmark_report.get("passed", false)):
+		return "landmarks pass | wow %d" % wow_count
+	var failures: Array = _landmark_report.get("failures", [])
+	return "misses: %s" % _join_variants(failures)
+
+func _join_variants(values: Array) -> String:
+	if values.is_empty():
+		return "none"
+	var parts: Array[String] = []
+	for value: Variant in values:
+		parts.append(str(value))
+	return _join_strings(parts, ", ")
+
+func _join_strings(parts: Array[String], separator: String) -> String:
+	if parts.is_empty():
+		return ""
+	var result: String = parts[0]
+	for index: int in range(1, parts.size()):
+		result += separator + parts[index]
+	return result
+
+func _refresh_legend() -> void:
+	if _legend_entries_box == null:
+		return
+	for child: Node in _legend_entries_box.get_children():
+		_legend_entries_box.remove_child(child)
+		child.queue_free()
+	for entry: Dictionary in _legend_entries_for_mode(_get_selected_mode()):
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		var swatch := ColorRect.new()
+		swatch.custom_minimum_size = Vector2(14, 14)
+		swatch.color = entry.get("color", Color.WHITE)
+		row.add_child(swatch)
+		var label := Label.new()
+		label.text = str(entry.get("label", ""))
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.size_flags_horizontal = SIZE_EXPAND_FILL
+		label.add_theme_font_size_override("font_size", 12)
+		row.add_child(label)
+		_legend_entries_box.add_child(row)
+
+func _legend_entries_for_mode(mode: int) -> Array[Dictionary]:
+	match mode:
+		MapMode.BIOME:
+			return [
+				{"label": "Biome colors come from each biome ground palette.", "color": Color(0.44, 0.55, 0.33)},
+				{"label": "Use Inspect to zoom the sampled biome mosaic.", "color": Color(0.22, 0.28, 0.20)},
+			]
+		MapMode.LANDMARKS:
+			return [
+				{"label": "Blue = strong drainage / main rivers", "color": Color(0.08, 0.63, 0.98)},
+				{"label": "Pale ridges = mountain arcs / high massifs", "color": Color(0.96, 0.88, 0.75)},
+				{"label": "Amber = dry belts / rain shadows", "color": Color(0.61, 0.43, 0.18)},
+				{"label": "Teal = coastal transition / wet edge", "color": Color(0.11, 0.37, 0.48)},
+			]
+		_:
+			return [
+				{"label": "Ground", "color": TERRAIN_COLORS[TileGenData.TerrainType.GROUND]},
+				{"label": "Rock", "color": TERRAIN_COLORS[TileGenData.TerrainType.ROCK]},
+				{"label": "Water", "color": TERRAIN_COLORS[TileGenData.TerrainType.WATER]},
+				{"label": "Sand", "color": TERRAIN_COLORS[TileGenData.TerrainType.SAND]},
+				{"label": "Grass / fertile patches", "color": TERRAIN_COLORS[TileGenData.TerrainType.GRASS]},
+			]
+
+func _refresh_landmark_report() -> void:
+	if _landmark_summary_label == null:
+		return
+	if _landmark_report.is_empty():
+		_landmark_summary_label.text = "Generate a seed to inspect the landmark grammar."
+		return
+	var landmarks: Dictionary = _landmark_report.get("landmarks", {})
+	var wow_landmark: Dictionary = landmarks.get("wow_region", {})
+	var lines: Array[String] = [
+		"Validation: %s" % ("PASS" if bool(_landmark_report.get("passed", false)) else "MISS"),
+	]
+	if not bool(_landmark_report.get("passed", false)):
+		lines.append("Missing: %s" % _join_variants(_landmark_report.get("failures", [])))
+	var delta_landmark: Dictionary = landmarks.get("delta", {})
+	lines.append(_format_landmark_line("Great river", landmarks.get("great_river", {}), "max_accumulation", "threshold", false))
+	lines.append(_format_landmark_line("Mountain arc", landmarks.get("mountain_arc", {}), "length_grid", "threshold", true))
+	lines.append("Delta: %s | count %d" % [
+		"OK" if bool(delta_landmark.get("present", false)) else "MISS",
+		int(delta_landmark.get("count", 0)),
+	])
+	lines.append(_format_landmark_line("Large lake", landmarks.get("large_lake", {}), "largest_area_grid", "threshold", true))
+	lines.append(_format_landmark_line("Glacier front", landmarks.get("glacier_front", {}), "max_length_grid", "threshold", true))
+	lines.append(_format_landmark_line("Dry belt", landmarks.get("dry_belt", {}), "largest_area_grid", "threshold", true))
+	lines.append(_format_landmark_line("Scorched", landmarks.get("scorched_wasteland", {}), "largest_area_grid", "threshold", true))
+	lines.append("Wow regions: %s" % _join_variants(wow_landmark.get("regions", [])))
+	_landmark_summary_label.text = _join_strings(lines, "\n")
+
+func _format_landmark_line(
+	label: String,
+	landmark: Dictionary,
+	value_key: String,
+	threshold_key: String,
+	is_integer: bool
+) -> String:
+	var value: float = float(landmark.get(value_key, 0.0))
+	var threshold: float = float(landmark.get(threshold_key, 0.0))
+	var value_text: String = "%d / %d" % [int(round(value)), int(round(threshold))] if is_integer else "%.0f / %.0f" % [value, threshold]
+	return "%s: %s | %s" % [
+		label,
+		"OK" if bool(landmark.get("present", false)) else "MISS",
+		value_text,
+	]
+
+func _on_preview_gui_input(event: InputEvent) -> void:
+	if not (event is InputEventMouseMotion or event is InputEventMouseButton):
+		return
+	var source_image: Image = _get_current_source_image()
+	if source_image == null:
+		return
+	var local_pos: Vector2 = event.position
+	var source_pixel: Vector2i = _resolve_source_pixel(local_pos, source_image)
+	if source_pixel.x < 0 or source_pixel.y < 0:
+		return
+	_hover_source_pixel = source_pixel
+	_refresh_detail_preview()
+
+func _resolve_source_pixel(local_pos: Vector2, source_image: Image) -> Vector2i:
+	if _preview_texture_rect == null or source_image == null:
+		return Vector2i(-1, -1)
+	var control_size: Vector2 = _preview_texture_rect.size
+	if control_size.x <= 0.0 or control_size.y <= 0.0:
+		return Vector2i(-1, -1)
+	var source_size := Vector2(float(source_image.get_width()), float(source_image.get_height()))
+	if source_size.x <= 0.0 or source_size.y <= 0.0:
+		return Vector2i(-1, -1)
+	var scale: float = minf(control_size.x / source_size.x, control_size.y / source_size.y)
+	var draw_size: Vector2 = source_size * scale
+	var draw_origin: Vector2 = (control_size - draw_size) * 0.5
+	var draw_rect := Rect2(draw_origin, draw_size)
+	if not draw_rect.has_point(local_pos):
+		return Vector2i(-1, -1)
+	var image_x: int = clampi(int(floor((local_pos.x - draw_origin.x) / scale)), 0, source_image.get_width() - 1)
+	var image_y: int = clampi(int(floor((local_pos.y - draw_origin.y) / scale)), 0, source_image.get_height() - 1)
+	return Vector2i(image_x, image_y)
+
+func _refresh_detail_preview() -> void:
+	if _detail_texture_rect == null or _detail_meta == null:
+		return
+	var source_image: Image = _get_current_source_image()
+	if source_image == null:
+		_detail_texture_rect.texture = null
+		_detail_meta.text = "Move over the preview to inspect an area."
+		return
+	var center: Vector2i = _hover_source_pixel
+	if center.x < 0 or center.y < 0:
+		center = Vector2i(source_image.get_width() / 2, source_image.get_height() / 2)
+	var half_crop: int = DETAIL_CROP_SIZE / 2
+	var crop_x: int = clampi(center.x - half_crop, 0, maxi(0, source_image.get_width() - DETAIL_CROP_SIZE))
+	var crop_y: int = clampi(center.y - half_crop, 0, maxi(0, source_image.get_height() - DETAIL_CROP_SIZE))
+	var crop_w: int = mini(DETAIL_CROP_SIZE, source_image.get_width())
+	var crop_h: int = mini(DETAIL_CROP_SIZE, source_image.get_height())
+	var detail_image := Image.create(crop_w, crop_h, false, Image.FORMAT_RGB8)
+	detail_image.blit_rect(source_image, Rect2i(crop_x, crop_y, crop_w, crop_h), Vector2i.ZERO)
+	detail_image.resize(crop_w * DETAIL_SCALE, crop_h * DETAIL_SCALE, Image.INTERPOLATE_NEAREST)
+	_detail_texture_rect.texture = ImageTexture.create_from_image(detail_image)
+	var world_tile: Vector2i = _source_pixel_to_world_tile(center)
+	_detail_meta.text = "Preview px %d,%d | approx tile %d,%d | crop %dx%d px" % [
+		center.x,
+		center.y,
+		world_tile.x,
+		world_tile.y,
+		crop_w,
+		crop_h,
+	]
+
+func _source_pixel_to_world_tile(source_pixel: Vector2i) -> Vector2i:
+	var tile_x: int = mini(source_pixel.x * _current_sample_step, maxi(0, _current_world_size.x - 1))
+	var tile_y: int = _current_world_origin.y + mini(source_pixel.y * _current_sample_step, maxi(0, _current_world_size.y - 1))
+	return Vector2i(tile_x, tile_y)
 
 func _load_balance() -> WorldGenBalance:
 	var res: Resource = load("res://data/world/world_gen_balance.tres")
