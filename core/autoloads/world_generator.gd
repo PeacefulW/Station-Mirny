@@ -50,7 +50,6 @@ var current_biome: BiomeData = null
 var spawn_tile: Vector2i = Vector2i.ZERO
 var _is_initialized: bool = false
 var _planet_sampler: PlanetSampler = null
-var _structure_sampler: LargeStructureSampler = null
 var _biome_resolver: BiomeResolver = null
 var _local_variation_resolver: LocalVariationResolver = null
 var _world_pre_pass: RefCounted = null
@@ -77,29 +76,52 @@ func _exit_tree() -> void:
 	_compute_context = null
 	_local_variation_resolver = null
 	_biome_resolver = null
-	_structure_sampler = null
 	_planet_sampler = null
 	_world_pre_pass = null
 
 func initialize_world(seed_value: int) -> void:
+	var init_started_usec: int = WorldPerfProbe.begin()
 	if not _ensure_world_feature_registry_ready():
 		_clear_initialized_runtime_state()
 		return
 	_feature_and_poi_payload_cache.clear()
 	_reset_runtime_balance()
 	world_seed = seed_value
+	var step_started_usec: int = WorldPerfProbe.begin()
 	_setup_biome_resolver()
+	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_biome_resolver", step_started_usec)
+	step_started_usec = WorldPerfProbe.begin()
 	_setup_planet_sampler()
+	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_planet_sampler", step_started_usec)
+	step_started_usec = WorldPerfProbe.begin()
 	_setup_world_pre_pass()
-	_setup_structure_sampler()
+	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_world_pre_pass", step_started_usec)
+	step_started_usec = WorldPerfProbe.begin()
 	_setup_local_variation_resolver()
+	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_local_variation_resolver", step_started_usec)
 	spawn_tile = canonicalize_tile(spawn_tile)
 	_chunk_biome_cache.clear()
-	current_biome = get_biome_at_tile(spawn_tile)
+	current_biome = BiomeRegistry.get_default_biome()
+	step_started_usec = WorldPerfProbe.begin()
 	_setup_compute_context()
+	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_compute_context", step_started_usec)
+	step_started_usec = WorldPerfProbe.begin()
+	current_biome = get_biome_at_tile(spawn_tile)
+	WorldPerfProbe.end("WorldGenerator.initialize_world.resolve_spawn_biome", step_started_usec)
+	if _compute_context != null:
+		_compute_context.current_biome = current_biome
+	if _surface_terrain_resolver != null:
+		step_started_usec = WorldPerfProbe.begin()
+		_surface_terrain_resolver.initialize(balance, _compute_context)
+		WorldPerfProbe.end("WorldGenerator.initialize_world.reinitialize_surface_terrain_resolver", step_started_usec)
+	step_started_usec = WorldPerfProbe.begin()
 	_setup_chunk_content_builder()
+	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_chunk_content_builder", step_started_usec)
 	_is_initialized = true
+	step_started_usec = WorldPerfProbe.begin()
 	EventBus.world_initialized.emit(world_seed)
+	WorldPerfProbe.end("WorldGenerator.initialize_world.emit_world_initialized", step_started_usec)
+	WorldPerfProbe.end("WorldGenerator.initialize_world", init_started_usec)
 
 func initialize_random() -> void:
 	var rng := RandomNumberGenerator.new()
@@ -136,9 +158,9 @@ func sample_world_channels(world_pos: Vector2i) -> WorldChannels:
 	return _planet_sampler.sample_world_channels(world_pos)
 
 func sample_structure_context(world_pos: Vector2i, channels: WorldChannels = null) -> WorldStructureContext:
-	if not _structure_sampler:
+	if _compute_context == null:
 		return null
-	return _structure_sampler.sample_structure_context(world_pos, channels)
+	return _compute_context.sample_structure_context(canonicalize_tile(world_pos), channels)
 
 func sample_local_variation(world_pos: Vector2i, biome: BiomeResult = null, channels: WorldChannels = null, structure_context: WorldStructureContext = null) -> LocalVariationContext:
 	var canonical_tile: Vector2i = canonicalize_tile(world_pos)
@@ -379,10 +401,6 @@ func _setup_planet_sampler() -> void:
 	_planet_sampler = PlanetSampler.new()
 	_planet_sampler.initialize(world_seed, balance)
 
-func _setup_structure_sampler() -> void:
-	_structure_sampler = LargeStructureSampler.new()
-	_structure_sampler.initialize(world_seed, balance)
-
 func _setup_biome_resolver() -> void:
 	_biome_resolver = BiomeResolver.new()
 	_biome_resolver.configure(BiomeRegistry.get_all_biomes())
@@ -392,7 +410,12 @@ func _setup_local_variation_resolver() -> void:
 	_local_variation_resolver.initialize(world_seed, balance)
 
 func _setup_world_pre_pass() -> void:
-	_world_pre_pass = WorldPrePassScript.new().configure(balance, _planet_sampler).compute()
+	var configure_usec: int = WorldPerfProbe.begin()
+	var pre_pass: WorldPrePass = WorldPrePassScript.new().configure(balance, _planet_sampler)
+	WorldPerfProbe.end("WorldGenerator._setup_world_pre_pass.configure", configure_usec)
+	var compute_usec: int = WorldPerfProbe.begin()
+	_world_pre_pass = pre_pass.compute()
+	WorldPerfProbe.end("WorldGenerator._setup_world_pre_pass.compute", compute_usec)
 
 func _reset_runtime_balance() -> void:
 	if _base_balance == null:
@@ -405,6 +428,7 @@ func _duplicate_runtime_balance(source_balance: WorldGenBalance) -> WorldGenBala
 	return source_balance.duplicate(true) as WorldGenBalance
 
 func _setup_compute_context() -> void:
+	var build_palette_maps_usec: int = WorldPerfProbe.begin()
 	var biome_by_id: Dictionary = {}
 	var palette_index_by_id: Dictionary = {}
 	var palette_order: Array[BiomeData] = BiomeRegistry.get_palette_order()
@@ -414,6 +438,8 @@ func _setup_compute_context() -> void:
 			continue
 		biome_by_id[biome.id] = biome
 		palette_index_by_id[biome.id] = index
+	WorldPerfProbe.end("WorldGenerator._setup_compute_context.build_palette_maps", build_palette_maps_usec)
+	var configure_context_usec: int = WorldPerfProbe.begin()
 	_compute_context = WorldComputeContextScript.new().configure(
 		balance,
 		world_seed,
@@ -421,7 +447,6 @@ func _setup_compute_context() -> void:
 		current_biome,
 		BiomeRegistry.get_default_biome(),
 		_planet_sampler,
-		_structure_sampler,
 		_biome_resolver,
 		_local_variation_resolver,
 		biome_by_id,
@@ -429,9 +454,16 @@ func _setup_compute_context() -> void:
 		WorldFeatureRegistry.get_all_feature_hooks(),
 		_world_pre_pass
 	)
+	WorldPerfProbe.end("WorldGenerator._setup_compute_context.configure_context", configure_context_usec)
+	var create_surface_resolver_usec: int = WorldPerfProbe.begin()
 	_surface_terrain_resolver = _create_surface_terrain_resolver(_compute_context)
+	WorldPerfProbe.end("WorldGenerator._setup_compute_context.create_surface_terrain_resolver", create_surface_resolver_usec)
+	var attach_surface_resolver_usec: int = WorldPerfProbe.begin()
 	_compute_context.set_surface_terrain_resolver(_surface_terrain_resolver)
+	WorldPerfProbe.end("WorldGenerator._setup_compute_context.attach_surface_terrain_resolver", attach_surface_resolver_usec)
+	var native_init_usec: int = WorldPerfProbe.begin()
 	_setup_native_chunk_generator(palette_index_by_id)
+	WorldPerfProbe.end("WorldGenerator._setup_compute_context.setup_native_chunk_generator", native_init_usec)
 
 func _setup_native_chunk_generator(palette_index_by_id: Dictionary) -> void:
 	_native_chunk_generator = null
@@ -609,7 +641,9 @@ func _setup_native_chunk_generator(palette_index_by_id: Dictionary) -> void:
 				decor_set_defs.append(ds_dict)
 	params["flora_sets"] = flora_set_defs
 	params["decor_sets"] = decor_set_defs
+	var native_generator_initialize_usec: int = WorldPerfProbe.begin()
 	gen.initialize(world_seed, params)
+	WorldPerfProbe.end("WorldGenerator._setup_native_chunk_generator.initialize", native_generator_initialize_usec)
 	_native_chunk_generator = gen
 	print("[WorldGenerator] Native ChunkGenerator initialized (%d biomes, %d flora sets, %d decor sets)" % [biome_defs.size(), flora_set_defs.size(), decor_set_defs.size()])
 
@@ -655,7 +689,6 @@ func _clear_initialized_runtime_state() -> void:
 	_compute_context = null
 	_local_variation_resolver = null
 	_biome_resolver = null
-	_structure_sampler = null
 	_planet_sampler = null
 	_world_pre_pass = null
 

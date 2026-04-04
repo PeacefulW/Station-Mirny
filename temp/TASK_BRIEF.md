@@ -85,7 +85,6 @@ related_docs:
 Эти файлы в этой задаче трогать нельзя:
 - `core/autoloads/world_generator.gd`
 - `core/systems/world/chunk_content_builder.gd`
-- `core/systems/world/large_structure_sampler.gd`
 - `core/systems/world/planet_sampler.gd`
 - любой файл под `data/biomes/`
 - любой файл под `data/flora/`

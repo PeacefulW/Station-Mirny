@@ -59,7 +59,9 @@ func build_chunk(chunk_coord: Vector2i) -> ChunkBuildResult:
 				tile_data.local_variation_id,
 				tile_data.biome_palette_index,
 				tile_data.flora_density,
-				tile_data.flora_modulation
+				tile_data.flora_modulation,
+				tile_data.secondary_biome_palette_index,
+				tile_data.ecotone_factor
 			)
 			canonical_tile.x += 1
 		row_index += chunk_size
@@ -93,12 +95,16 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 	var height := PackedFloat32Array()
 	var variation := PackedByteArray()
 	var biome := PackedByteArray()
+	var secondary_biome := PackedByteArray()
+	var ecotone_values := PackedFloat32Array()
 	var flora_density_values := PackedFloat32Array()
 	var flora_modulation_values := PackedFloat32Array()
 	terrain.resize(tile_count)
 	height.resize(tile_count)
 	variation.resize(tile_count)
 	biome.resize(tile_count)
+	secondary_biome.resize(tile_count)
+	ecotone_values.resize(tile_count)
 	flora_density_values.resize(tile_count)
 	flora_modulation_values.resize(tile_count)
 	var tile_data: TileGenData = TileGenData.new()
@@ -114,6 +120,8 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 			height[index] = tile_data.height
 			variation[index] = tile_data.local_variation_id
 			biome[index] = tile_data.biome_palette_index
+			secondary_biome[index] = tile_data.secondary_biome_palette_index
+			ecotone_values[index] = tile_data.ecotone_factor
 			flora_density_values[index] = tile_data.flora_density
 			flora_modulation_values[index] = tile_data.flora_modulation
 			canonical_tile.x += 1
@@ -127,6 +135,8 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 		"height": height,
 		"variation": variation,
 		"biome": biome,
+		"secondary_biome": secondary_biome,
+		"ecotone_values": ecotone_values,
 		"flora_density_values": flora_density_values,
 		"flora_modulation_values": flora_modulation_values,
 		FEATURE_AND_POI_PAYLOAD_KEY: feature_and_poi_payload,

@@ -56,14 +56,13 @@
 - В DATA_CONTRACTS.md он документирован в отдельной секции «Domain: Session & Time», но **не включён в основную Layer Map таблицу** (строки 47–57) и **не указан в «Observed files for this version»**.
 - Это организационное замечание — код и документация согласованы по содержанию, но структура документа может вводить в заблуждение.
 
-**[ИНФО] 15 файлов в `core/systems/world/` не включены в Observed files**
+**[ИНФО] 14 файлов в `core/systems/world/` не включены в Observed files**
 
 Следующие файлы не перечислены в секции «Observed files», но являются implementation-деталями документированных слоёв (World, Mining, Generation):
 
 - `biome_resolver.gd`, `biome_result.gd` — поддержка World layer
 - `chunk_flora_builder.gd`, `chunk_flora_result.gd` — генерация флоры
 - `local_variation_context.gd`, `local_variation_resolver.gd` — вариация terrain
-- `large_structure_sampler.gd` — размещение крупных структур
 - `planet_sampler.gd`, `world_channels.gd`, `world_noise_utils.gd` — шум/сэмплинг
 - `world_structure_context.gd` — контекст генерации структур
 - `chunk_save_system.gd` — персистенция чанков

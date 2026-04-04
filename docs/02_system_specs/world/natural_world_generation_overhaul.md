@@ -43,7 +43,7 @@ Runtime landmark validation, soft-fix remediation, wow-region boot checks, and a
 
 ### P2. Реки — направленные band'ы
 
-`LargeStructureSampler` генерирует реки как band'ы с одним direction vector `(-0.31, 0.90, 0.30)`, spacing 480 tiles, warp noise. Реки не следуют рельефу, не имеют притоков, не расширяются к устью, не формируют бассейны.
+Старый directed-band structure sampler генерирует реки как band'ы с одним direction vector `(-0.31, 0.90, 0.30)`, spacing 480 tiles, warp noise. Реки не следуют рельефу, не имеют притоков, не расширяются к устью, не формируют бассейны.
 
 ### P3. Горы — параллельные band'ы
 
@@ -126,7 +126,7 @@ Drainage network, ridge skeleton, erosion и rain shadow требуют глоб
 - **Класс**: `WorldPrePass` (RefCounted)
 - **Owner**: `WorldGenerator`
 - **Lifecycle**: вычисляется один раз в `initialize_world()` после noise init, до chunk generation
-- **Read access**: `PlanetSampler`, `LargeStructureSampler` (заменённые), `BiomeResolver`, `SurfaceTerrainResolver` — через lookup по world coordinate → interpolated grid value
+- **Read access**: `PlanetSampler`, pre-pass-backed structure readers (`WorldComputeContext.sample_structure_context()` и related facades), `BiomeResolver`, `SurfaceTerrainResolver` — через lookup по world coordinate → interpolated grid value
 - **Write access**: только `WorldPrePass` внутри `compute()`
 - **Threading**: compute — чистый data, может быть вынесен в worker thread или GDExtension
 - **Persistence**: не сохраняется; детерминистично пересчитывается из seed
@@ -163,7 +163,7 @@ func get_grid_value(channel: StringName, grid_x: int, grid_y: int) -> float:
 
 ### Решение
 
-Для каждого шумового инстанса в `PlanetSampler`, `LargeStructureSampler`, `LocalVariationResolver`:
+Для каждого шумового инстанса в `PlanetSampler`, legacy directed-band structure sampler, `LocalVariationResolver`:
 
 ```gdscript
 noise.fractal_type = FastNoiseLite.TYPE_FBM
@@ -172,7 +172,7 @@ noise.fractal_type = FastNoiseLite.TYPE_FBM
 ### Affected files
 
 - `core/systems/world/planet_sampler.gd`
-- `core/systems/world/large_structure_sampler.gd`
+- legacy directed-band structure sampler script (removed from the repository on 2026-04-04)
 - `core/systems/world/local_variation_resolver.gd`
 - `core/systems/world/world_noise_utils.gd` (если централизованное создание)
 - `gdextension/src/chunk_generator.cpp` (native path должен соответствовать)
@@ -218,7 +218,7 @@ noise.fractal_type = FastNoiseLite.TYPE_FBM
 
 **Что не меняется:**
 
-- `LargeStructureSampler`, `BiomeResolver`, `SurfaceTerrainResolver`, `ChunkContentBuilder` продолжают работать по текущему pipeline
+- legacy directed-band structure stage, `BiomeResolver`, `SurfaceTerrainResolver`, `ChunkContentBuilder` продолжают работать по текущему pipeline
 - native chunk generation path не читает pre-pass в этой итерации
 - terrain thresholds, biome `.tres` ranges и визуальные правила не ретюнятся; это остаётся в Фазе 0
 - `ChunkManager`, `Chunk`, mining / topology / reveal / presentation не затрагиваются
@@ -234,7 +234,7 @@ noise.fractal_type = FastNoiseLite.TYPE_FBM
 
 **Файлы, которые нельзя трогать в Iteration 1.1:**
 
-- `core/systems/world/large_structure_sampler.gd`
+- legacy directed-band structure sampler script (removed from the repository on 2026-04-04)
 - `core/systems/world/biome_resolver.gd`
 - `core/systems/world/surface_terrain_resolver.gd`
 - `core/systems/world/chunk_content_builder.gd`
@@ -555,7 +555,7 @@ ruggedness_factor = clamp(ruggedness / 0.6, 0, 1)
 - [ ] Spline smoothing даёт плавные хребты
 - [ ] `ridge_strength` и `mountain_mass` доступны через `WorldPrePass.sample()`
 - [ ] Визуально: горы образуют иерархию spine→branches→foothills, не полосы
-- [ ] Старый `LargeStructureSampler` ridge code заменён lookup'ами из pre-pass
+- [ ] Старый directed-band ridge code заменён lookup'ами из pre-pass
 
 ---
 
@@ -929,12 +929,12 @@ ecotone_factor = 1.0 - clamp(dominance / ecotone_threshold, 0.0, 1.0)
 
 | Компонент | Текущий | После overhaul |
 |-----------|---------|----------------|
-| `LargeStructureSampler.river_strength` | Band-based | Lookup из `WorldPrePass.drainage` + distance-to-river |
-| `LargeStructureSampler.floodplain_strength` | Band-based | Lookup из `WorldPrePass` floodplain distance field |
-| `LargeStructureSampler.ridge_strength` | Band-based | Lookup из `WorldPrePass` ridge distance field |
-| `LargeStructureSampler.mountain_mass` | Cluster noise + terrain gate | Lookup из `WorldPrePass.mountain_mass` |
+| legacy `river_strength` | Band-based | Lookup из `WorldPrePass.drainage` + distance-to-river |
+| legacy `floodplain_strength` | Band-based | Lookup из `WorldPrePass` floodplain distance field |
+| legacy `ridge_strength` | Band-based | Lookup из `WorldPrePass` ridge distance field |
+| legacy `mountain_mass` | Cluster noise + terrain gate | Lookup из `WorldPrePass.mountain_mass` |
 
-`LargeStructureSampler` может быть переименован в `LargeStructureAccessor` — он больше не *семплирует* noise, а *читает* pre-computed data.
+Legacy directed-band sampler/accessor можно удалить целиком — он больше не должен *семплировать* noise и не нужен как отдельный GDScript runtime script.
 
 ### Сохраняемые компоненты (без изменений или minimal changes)
 
@@ -943,7 +943,7 @@ ecotone_factor = 1.0 - clamp(dominance / ecotone_threshold, 0.0, 1.0)
 | `PlanetSampler` | FBM fix (Фаза 0), остальное без изменений |
 | `BiomeResolver` | Расширенный input (Фаза 3), ecotone output |
 | `LocalVariationResolver` | FBM fix, ecotone-aware modulation |
-| `SurfaceTerrainResolver` | Читает из WorldPrePass вместо LargeStructureSampler + polar overlay logic |
+| `SurfaceTerrainResolver` | Читает из WorldPrePass вместо legacy band sampler + polar overlay logic |
 | `ChunkContentBuilder` | Передаёт prepass channels в pipeline |
 | `ChunkManager` | Без изменений (streaming logic не затрагивается) |
 | `Chunk` | Без изменений |

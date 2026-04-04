@@ -28,7 +28,7 @@ The existing `ChunkGenerator` C++ class in `gdextension/src/` is a stub (~30% co
 
 This spec defines the port of the full per-tile generation pipeline to C++:
 - PlanetSampler (5 noise channels)
-- LargeStructureSampler (4 noise + ridge/river/floodplain math)
+- legacy directed-band structure stage (4 noise + ridge/river/floodplain math)
 - BiomeResolver (scoring across registered biomes)
 - LocalVariationResolver (3 noise + 5 variation types)
 - SurfaceTerrainResolver (terrain type decision tree)
@@ -45,7 +45,7 @@ Expected speedup: ×5–10 (eliminates GDScript overhead, all noise inline, cach
 
 ### What exists in GDScript (to be ported)
 - `core/systems/world/planet_sampler.gd` — 5 noise instances, latitude, temperature, moisture, ruggedness, flora_density
-- `core/systems/world/large_structure_sampler.gd` — 4 noise instances, ridge/river/floodplain strength
+- removed legacy GDScript directed-band structure sampler — historical predecessor of the current native `sample_structure()` formulas
 - `core/systems/world/biome_resolver.gd` — iterate biomes, score by channels + structure, select best
 - `core/systems/world/local_variation_resolver.gd` — 3 noise instances, score 5 variation types, modulations
 - `core/systems/world/surface_terrain_resolver.gd` — decision tree: safe zone → river → bank → mountain → ground
@@ -182,7 +182,7 @@ Goal: generate channels + structure context per tile in C++.
 
 What is done:
 - `sample_channels(wx, wy)` — port of `planet_sampler.gd:sample_world_channels()`: latitude from equator distance, height noise, temperature (noise+latitude+curve), moisture noise, ruggedness noise, flora_density (noise+moisture blend)
-- `sample_structure(wx, wy, channels)` — port of `large_structure_sampler.gd:sample_structure_context()`: mountain_mass (cluster noise + terrain gate), ridge_strength (directed coord + warp + band + profile + chain), river_strength (directed coord + warp + band + gates), floodplain_strength (wider band + river support)
+- `sample_structure(wx, wy, channels)` — port of the removed legacy GDScript directed-band structure sampler: mountain_mass (cluster noise + terrain gate), ridge_strength (directed coord + warp + band + profile + chain), river_strength (directed coord + warp + band + gates), floodplain_strength (wider band + river support)
 - `directed_coordinate(wx, wy, dir)` — cylindrical point dot normalized direction
 - `repeating_band(coord, spacing, core, feather)` — fmod-wrapped distance band with feather falloff
 - Direction vectors `_RIDGE_DIR`, `_RIDGE_SECONDARY_DIR`, `_RIVER_DIR` normalized at init time
@@ -191,7 +191,7 @@ What is done:
 
 Acceptance tests:
 - [x] `assert(channels output matches GDScript)` — line-by-line port of planet_sampler.gd formulas, same noise instances, same cylindrical wrapping, same clamp/lerp/pow logic
-- [x] `assert(structure output matches GDScript)` — line-by-line port of large_structure_sampler.gd, same band/profile/gate formulas, same direction vectors
+- [x] `assert(structure output matches the removed legacy GDScript structure sampler)` — same band/profile/gate formulas, same direction vectors
 - [x] `assert(generate_chunk returns valid channels data)` — height and flora_density arrays populated from sample_channels in the per-tile loop
 
 Files that may be touched:

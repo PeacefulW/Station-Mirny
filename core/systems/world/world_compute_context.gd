@@ -10,7 +10,6 @@ var current_biome: BiomeData = null
 
 var _default_biome: BiomeData = null
 var _planet_sampler: PlanetSampler = null
-var _structure_sampler: LargeStructureSampler = null
 var _biome_resolver: BiomeResolver = null
 var _local_variation_resolver: LocalVariationResolver = null
 var _surface_terrain_resolver: RefCounted = null
@@ -26,21 +25,20 @@ func configure(
 	current_biome_value: BiomeData,
 	default_biome: BiomeData,
 	planet_sampler: PlanetSampler,
-	structure_sampler: LargeStructureSampler,
 	biome_resolver: BiomeResolver,
 	local_variation_resolver: LocalVariationResolver,
 	biome_by_id: Dictionary,
 	palette_index_by_id: Dictionary,
 	feature_hook_snapshot: Array[Resource],
-	world_pre_pass: RefCounted = null
+	world_pre_pass: RefCounted
 ) -> WorldComputeContext:
+	assert(world_pre_pass != null, "WorldComputeContext requires WorldPrePass for authoritative GDScript structure sampling")
 	balance = balance_resource
 	world_seed = world_seed_value
 	spawn_tile = spawn_tile_value
 	current_biome = current_biome_value
 	_default_biome = default_biome
 	_planet_sampler = planet_sampler
-	_structure_sampler = structure_sampler
 	_biome_resolver = biome_resolver
 	_local_variation_resolver = local_variation_resolver
 	_world_pre_pass = world_pre_pass
@@ -63,6 +61,8 @@ func sample_structure_context(world_pos: Vector2i, channels: WorldChannels = nul
 	sampled.world_pos = world_pos
 	sampled.canonical_world_pos = canonicalize_tile(world_pos)
 	if _world_pre_pass == null or not _world_pre_pass.has_method("sample"):
+		push_error("WorldComputeContext.sample_structure_context() requires a published WorldPrePass snapshot")
+		assert(false, "WorldComputeContext.sample_structure_context() requires WorldPrePass as the only authoritative structure source")
 		return sampled.clamp_fields()
 	sampled.ridge_strength = _sample_prepass_value(WorldPrePass.RIDGE_STRENGTH_CHANNEL, sampled.canonical_world_pos)
 	sampled.mountain_mass = _sample_prepass_value(WorldPrePass.MOUNTAIN_MASS_CHANNEL, sampled.canonical_world_pos)
@@ -77,6 +77,8 @@ func sample_prepass_channels(world_pos: Vector2i) -> WorldPrePassChannels:
 	sampled.world_pos = world_pos
 	sampled.canonical_world_pos = canonicalize_tile(world_pos)
 	if _world_pre_pass == null or not _world_pre_pass.has_method("sample"):
+		push_error("WorldComputeContext.sample_prepass_channels() requires a published WorldPrePass snapshot")
+		assert(false, "WorldComputeContext.sample_prepass_channels() requires WorldPrePass as the only authoritative pre-pass source")
 		return sampled
 	sampled.drainage = _sample_prepass_value(WorldPrePass.DRAINAGE_CHANNEL, sampled.canonical_world_pos)
 	sampled.slope = _sample_prepass_value(WorldPrePass.SLOPE_CHANNEL, sampled.canonical_world_pos)
@@ -135,8 +137,15 @@ func resolve_biome(
 	var sampled_structure_context: WorldStructureContext = structure_context
 	if sampled_structure_context == null:
 		sampled_structure_context = sample_structure_context(canonical_tile, sampled_channels)
+	var sampled_prepass_channels: WorldPrePassChannels = sample_prepass_channels(canonical_tile)
 	if _biome_resolver:
-		return _biome_resolver.resolve_biome(canonical_tile, sampled_channels, sampled_structure_context)
+		return _biome_resolver.resolve_biome(
+			canonical_tile,
+			sampled_channels,
+			sampled_structure_context,
+			sampled_prepass_channels,
+			balance
+		)
 	return null
 
 func get_biome_at_tile(tile_pos: Vector2i) -> BiomeData:
@@ -290,3 +299,4 @@ func _derive_river_strength_from_prepass(river_width: float, river_distance: flo
 	if river_distance <= 0.001 and river_width > 0.0:
 		return maxf(width_strength, 0.55)
 	return width_strength
+

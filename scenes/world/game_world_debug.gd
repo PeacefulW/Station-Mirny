@@ -6,6 +6,7 @@ extends Node
 
 const RuntimeValidationDriverScript = preload("res://core/debug/runtime_validation_driver.gd")
 const WorldPreviewExporterScript = preload("res://core/debug/world_preview_exporter.gd")
+const WorldPreviewProofDriverScript = preload("res://core/debug/world_preview_proof_driver.gd")
 const LOCAL_PREVIEW_TEXTURE_SIZE: Vector2 = Vector2(300, 300)
 
 var _chunk_manager: ChunkManager = null
@@ -25,6 +26,8 @@ var _local_preview_hint_label: Label = null
 var _local_preview_biome_rect: TextureRect = null
 var _local_preview_terrain_rect: TextureRect = null
 var _local_preview_structure_rect: TextureRect = null
+var _local_preview_ecotone_rect: TextureRect = null
+var _local_preview_vegetation_rect: TextureRect = null
 
 func setup(chunk_manager: ChunkManager, ui_layer: CanvasLayer, game_world: GameWorld = null) -> void:
 	_chunk_manager = chunk_manager
@@ -34,6 +37,7 @@ func setup(chunk_manager: ChunkManager, ui_layer: CanvasLayer, game_world: GameW
 	_setup_tile_highlight()
 	_setup_runtime_validation_driver()
 	_setup_world_preview_exporter()
+	_setup_world_preview_proof_driver()
 	_setup_local_preview_panel()
 
 func _process(delta: float) -> void:
@@ -121,6 +125,11 @@ func _setup_world_preview_exporter() -> void:
 	if WorldGenerator:
 		_world_preview_exporter = WorldPreviewExporterScript.new().initialize(WorldGenerator)
 
+func _setup_world_preview_proof_driver() -> void:
+	var driver := WorldPreviewProofDriverScript.new()
+	driver.name = "WorldPreviewProofDriver"
+	get_parent().add_child(driver)
+
 func _setup_local_preview_panel() -> void:
 	_local_preview_panel = PanelContainer.new()
 	_local_preview_panel.name = "LocalWorldPreviewPanel"
@@ -156,6 +165,13 @@ func _setup_local_preview_panel() -> void:
 	_local_preview_biome_rect = _create_local_preview_card(row, "Biomes")
 	_local_preview_terrain_rect = _create_local_preview_card(row, "Terrain")
 	_local_preview_structure_rect = _create_local_preview_card(row, "Structures")
+
+	var secondary_row := HBoxContainer.new()
+	secondary_row.add_theme_constant_override("separation", 8)
+	root.add_child(secondary_row)
+
+	_local_preview_ecotone_rect = _create_local_preview_card(secondary_row, "Ecotone")
+	_local_preview_vegetation_rect = _create_local_preview_card(secondary_row, "Vegetation")
 
 	_local_preview_hint_label = Label.new()
 	_local_preview_hint_label.add_theme_font_size_override("font_size", 11)
@@ -216,11 +232,22 @@ func _debug_capture_local_preview() -> void:
 	_apply_preview_image(_local_preview_biome_rect, preview.get("biomes_image", null) as Image)
 	_apply_preview_image(_local_preview_terrain_rect, preview.get("terrain_image", null) as Image)
 	_apply_preview_image(_local_preview_structure_rect, preview.get("structures_image", null) as Image)
+	_apply_preview_image(_local_preview_ecotone_rect, preview.get("ecotone_image", null) as Image)
+	_apply_preview_image(_local_preview_vegetation_rect, preview.get("vegetation_image", null) as Image)
 	var resolved_center_tile: Vector2i = preview.get("center_tile", center_tile)
 	var radius_tiles: int = int(preview.get("radius_tiles", 0))
+	var ecotone_tile_count: int = int(preview.get("local_ecotone_tile_count", 0))
+	var mixed_tile_count: int = int(preview.get("local_mixed_tile_count", 0))
+	var flora_tile_count: int = int(preview.get("local_flora_tile_count", 0))
 	var saved: Dictionary = _world_preview_exporter.save_local_preview(preview)
 	if _local_preview_header_label:
-		_local_preview_header_label.text = "Local generator preview | center:%s | radius:%d tiles" % [resolved_center_tile, radius_tiles]
+		_local_preview_header_label.text = "Local generator preview | center:%s | radius:%d tiles | ecotone:%d | mixed:%d | flora:%d" % [
+			resolved_center_tile,
+			radius_tiles,
+			ecotone_tile_count,
+			mixed_tile_count,
+			flora_tile_count,
+		]
 	if _local_preview_panel:
 		_local_preview_panel.visible = true
 	print("[Debug] Local world preview updated at %s." % [resolved_center_tile])
@@ -229,6 +256,8 @@ func _debug_capture_local_preview() -> void:
 		print("  biomes: %s" % [saved.get("biomes", "")])
 		print("  terrain: %s" % [saved.get("terrain", "")])
 		print("  structures: %s" % [saved.get("structures", "")])
+		print("  ecotone: %s" % [saved.get("ecotone", "")])
+		print("  vegetation: %s" % [saved.get("vegetation", "")])
 
 func _get_preview_center_tile() -> Vector2i:
 	if not WorldGenerator:
@@ -352,3 +381,4 @@ func _debug_export_world_preview() -> void:
 	print("  biomes: %s" % [exported.get("biomes", "")])
 	print("  terrain: %s" % [exported.get("terrain", "")])
 	print("  structures: %s" % [exported.get("structures", "")])
+	print("  ecotone: %s" % [exported.get("ecotone", "")])

@@ -148,6 +148,128 @@ Acceptance tests:
 
 Цель валидации — подтвердить acceptance tests текущей итерации, а не строить временную инфраструктуру проверки.
 
+### Обязательный proof для видимых изменений
+
+Если итерация меняет видимый результат мира или player-facing presentation, недостаточно только grep, parse-check или рассуждения по коду.
+
+К таким изменениям относятся, например:
+- биомы
+- реки, ridges, drainage, climate
+- terrain silhouette / terrain placement
+- flora / decor placement
+- ecotone transitions
+- любые другие изменения, которые должны быть "видны на картинке", а не только в данных
+
+Для таких задач proof обязателен:
+- использовать fixed seed, а не случайный запуск
+- использовать sanctioned proof harness из спеки или subsystem docs (`WorldLab`, `GameWorldDebug` exporter и т.п.)
+- сохранять артефакты в репозиторий или в agreed debug export path внутри проекта
+- в closure report указывать:
+- какой seed использовался
+- какой режим/экспорт использовался
+- где лежат артефакты
+
+Нельзя закрывать такую итерацию формулировками:
+- "визуально стало лучше"
+- "должно рисоваться правильно"
+- "по коду видно, что биомы теперь появляются"
+
+Если acceptance test формулируется как видимый результат, валидация тоже должна содержать видимое доказательство или честный blocker.
+
+### Стандартный recipe для visible world proof
+
+Чтобы не изобретать новый механизм под каждую итерацию, для world-visible задач используется один и тот же базовый pipeline.
+
+1. Macro proof:
+   - открыть `res://scenes/ui/world_lab.tscn`
+   - использовать fixed seed
+   - снять минимум `Terrain` плюс режим, который отражает changed truth (`Biome`, `Drainage`, `Ridges`, `Climate`, `Ecotone`)
+2. Runtime consumer proof:
+   - открыть `res://scenes/world/game_world.tscn`
+   - использовать существующий `GameWorldDebug` preview/export path
+   - `F6` — local snapshot + save
+   - `F7` — показать/скрыть local preview panel
+   - `F8` — full export
+3. Headless proof:
+   - если proof можно снять без ручного UI, использовать существующий exporter/driver, а не придумывать новый
+   - для fixed-seed runtime proof использовать sanctioned args/driver, уже существующие в проекте
+4. Artifact path:
+   - сохранять proof в `debug_exports/world_previews/`, если subsystem spec не требует другой путь
+5. Closure report:
+   - указать seed
+   - указать harness (`WorldLab`, `GameWorldDebug`, headless driver)
+   - перечислить сохранённые PNG или screenshot paths
+
+### Правило расширения harness
+
+Если существующие `WorldLab` или `GameWorldDebug` уже близки к нужной проверке:
+- расширяй их
+- добавляй новый mode / export layer / stat line
+- переиспользуй `debug_exports/world_previews/`
+
+Не создавать отдельный одноразовый proof tool, если тот же результат можно получить расширением существующего harness.
+
+### Стандартный recipe для performance proof
+
+Если задача про boot time, loading-screen drag, streaming catch-up, недогруженные чанки, runtime hitch или world traversal validation, proof тоже должен быть стандартизован.
+
+Базовый порядок:
+
+1. Boot / load proof:
+   - запускать реальную world scene через console binary (`godot_console.exe` или repo-local `Godot_v4.6.1-stable_win64_console.exe`, если он есть)
+   - писать log artifact через PowerShell `Tee-Object`
+   - для boot-only run использовать `codex_quit_on_boot_complete`, чтобы сцена завершилась сама сразу после `Startup.boot_complete`
+   - если project-local capture не сработал или нужен fallback, читать штатный Godot log path:
+   - `C:\Users\peaceful\AppData\Roaming\Godot\app_userdata\Станция Мирный\logs`
+   - фиксировать startup/boot milestones и `WorldPerf` строки
+2. Runtime / streaming proof:
+   - использовать существующий `RuntimeValidationDriver`
+   - запускать его через console binary (`godot_console.exe` или repo-local `Godot_v4.6.1-stable_win64_console.exe`)
+   - выбирать стандартный preset через `codex_validate_route=local_ring|seam_cross|far_loop`
+   - запускать reproducible fixed-seed route
+   - читать лог и проверять route completion, catch-up status, timeout/failure lines
+3. Hot-path proof:
+   - использовать `WorldPerfProbe` / `WorldPerfMonitor`
+   - прикладывать конкретные timings / hitch counts / budget summaries
+4. Artifact path:
+   - по умолчанию сохранять perf-артефакты в `debug_exports/perf/`
+   - fallback/manual log path остаётся Godot `app_userdata` logs
+5. Summary extraction:
+   - после boot/runtime run прогонять `tools/perf_log_summary.gd`
+   - сохранять рядом `.json` и `.md` summary
+
+Стандартные команды:
+
+```powershell
+.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_quit_on_boot_complete codex_world_seed=12345 *>&1 | Tee-Object -FilePath debug_exports/perf/boot_seed12345.log
+.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_validate_runtime codex_validate_route=seam_cross codex_world_seed=12345 *>&1 | Tee-Object -FilePath debug_exports/perf/runtime_seam_cross_seed12345.log
+godot.exe --headless --path . --script res://tools/perf_log_summary.gd -- codex_perf_log=debug_exports/perf/runtime_seam_cross_seed12345.log
+```
+
+В closure report для perf-задач обязательно указывать:
+- seed
+- harness (`WorldPerfProbe`, `WorldPerfMonitor`, `RuntimeValidationDriver`, boot run)
+- команду запуска
+- путь к логу
+- путь к summary artifact, если использовался parser
+- какие строки/метрики были проверены
+- есть ли `ERROR` / `WARNING`
+
+Нельзя закрывать perf-задачу формулировками:
+- "стало быстрее"
+- "вроде не лагает"
+- "по коду видно, что теперь incremental"
+- "лог где-то был, но я его не читал"
+
+Если задача обещает:
+- более быстрый boot
+- лучший first-playable
+- отсутствие недогруженных чанков при route traversal
+- корректный streaming/topology catch-up
+- меньше hitch при интерактивном действии
+
+то proof должен показывать это в логах, metrics summary или validation run.
+
 ### Разрешено
 - Использовать штатные acceptance tests из spec
 - Сделать 1 простую runtime-проверку, если она прямо нужна для acceptance
@@ -233,6 +355,24 @@ Acceptance tests:
 ### Acceptance tests
 - [ ] (тест 1) — passed / failed (метод верификации)
 - [ ] (тест 2) — passed / failed (метод верификации)
+
+### Proof artifacts
+- (обязательно для видимых world / rendering / presentation изменений)
+- Seed: ...
+- Harness / mode: ...
+- Артефакты: [пути]
+- Если не применимо — написать "not applicable"
+
+### Performance artifacts
+- (обязательно для perf / loading / streaming / hitch задач)
+- Seed: ...
+- Harness / mode: ...
+- Команда: ...
+- Лог: [путь]
+- Summary: [путь] / not applicable
+- Проверенные метрики / строки: ...
+- `ERROR` / `WARNING`: [нет / есть, статус]
+- Если не применимо — написать "not applicable"
 
 ### Contract/API documentation check (ОБЯЗАТЕЛЬНО)
 

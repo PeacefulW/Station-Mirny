@@ -1,8 +1,8 @@
 class_name WorldNoiseUtils
 extends RefCounted
 ## Shared noise sampling utilities for cylindrical world wrap.
-## Eliminates duplication across PlanetSampler, LargeStructureSampler,
-## LocalVariationResolver, and ChunkContentBuilder.
+## Eliminates duplication across PlanetSampler, LocalVariationResolver,
+## ChunkContentBuilder, and any remaining native/legacy structure helpers.
 
 const DEFAULT_FRACTAL_GAIN: float = 0.55
 const DEFAULT_FRACTAL_LACUNARITY: float = 2.1

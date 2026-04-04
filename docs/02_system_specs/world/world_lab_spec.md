@@ -64,10 +64,10 @@ WorldLab does NOT depend on `ChunkManager`, loaded chunks, or gameplay runtime s
 
 Fallback stack:
 - `PlanetSampler`
-- `LargeStructureSampler`
+- `WorldPrePass`
+- `WorldComputeContext`
 - `BiomeResolver`
 - `LocalVariationResolver`
-- `WorldComputeContext`
 - `SurfaceTerrainResolver`
 
 ### Sampling rules

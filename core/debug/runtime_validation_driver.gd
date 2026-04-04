@@ -5,6 +5,8 @@ extends Node
 ## Activates only when launched with the user arg `codex_validate_runtime`.
 
 const ENABLE_ARG: String = "codex_validate_runtime"
+const ROUTE_ARG_PREFIX: String = "codex_validate_route="
+const DEFAULT_ROUTE_PRESET: StringName = &"local_ring"
 const HarvestTileCommandScript = preload("res://core/systems/commands/harvest_tile_command.gd")
 const START_SETTLE_FRAMES: int = 60
 const SEGMENT_SETTLE_FRAMES: int = 30
@@ -18,14 +20,32 @@ const POWER_SETTLE_FRAMES: int = 12
 const POWER_WAIT_TIMEOUT_FRAMES: int = 180
 const ARRIVE_DISTANCE_PX: float = 16.0
 const MOVE_SPEED_PX_PER_SEC: float = 8192.0
-const ROUTE_CHUNK_OFFSETS: Array[Vector2i] = [
-	Vector2i(6, 0),
-	Vector2i(6, 5),
-	Vector2i(-5, 5),
-	Vector2i(-5, -4),
-	Vector2i(0, -4),
-	Vector2i(0, 0),
-]
+const ROUTE_PRESETS := {
+	&"local_ring": [
+		Vector2i(6, 0),
+		Vector2i(6, 5),
+		Vector2i(-5, 5),
+		Vector2i(-5, -4),
+		Vector2i(0, -4),
+		Vector2i(0, 0),
+	],
+	&"seam_cross": [
+		Vector2i(2, 0),
+		Vector2i(2, 2),
+		Vector2i(-2, 2),
+		Vector2i(-2, -2),
+		Vector2i(2, -2),
+		Vector2i(0, 0),
+	],
+	&"far_loop": [
+		Vector2i(12, 0),
+		Vector2i(12, 8),
+		Vector2i(-10, 8),
+		Vector2i(-10, -8),
+		Vector2i(0, -8),
+		Vector2i(0, 0),
+	],
+}
 const INVALID_TILE: Vector2i = Vector2i(999999, 999999)
 const _CARDINAL_DIRS := [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
 const _ALLOWED_CHUNK_STATE_KEYS := {
@@ -41,6 +61,7 @@ var _chunk_manager: ChunkManager = null
 var _mountain_roof_system: MountainRoofSystem = null
 var _command_executor: CommandExecutor = null
 var _targets: Array[Vector2] = []
+var _route_preset_name: StringName = DEFAULT_ROUTE_PRESET
 var _target_index: int = 0
 var _start_frames_remaining: int = START_SETTLE_FRAMES
 var _segment_frames_remaining: int = 0
@@ -70,7 +91,8 @@ func _ready() -> void:
 	if not _is_enabled():
 		queue_free()
 		return
-	print("[CodexValidation] runtime validation driver enabled")
+	_route_preset_name = _resolve_route_preset_name()
+	print("[CodexValidation] runtime validation driver enabled; route_preset=%s" % [_route_preset_name])
 
 func _process(delta: float) -> void:
 	if not _is_enabled():
@@ -115,9 +137,18 @@ func _process(delta: float) -> void:
 			return
 		if _is_runtime_caught_up():
 			if _has_redraw_backlog():
-				print("[CodexValidation] route drain complete with redraw backlog: %s" % [_describe_chunk_manager_catch_up_state()])
+				print("[CodexValidation] route drain complete: preset=%s reached=%d/%d redraw_backlog=true state=%s" % [
+					_route_preset_name,
+					_target_index,
+					_targets.size(),
+					_describe_chunk_manager_catch_up_state(),
+				])
 			else:
-				print("[CodexValidation] route drain complete; quitting")
+				print("[CodexValidation] route drain complete; preset=%s reached=%d/%d redraw_backlog=false" % [
+					_route_preset_name,
+					_target_index,
+					_targets.size(),
+				])
 			get_tree().quit()
 			return
 		if _topology_wait_frames_remaining < 0:
@@ -125,7 +156,11 @@ func _process(delta: float) -> void:
 			_catch_up_status_frames_remaining = 0
 			_last_catch_up_signature = ""
 			_unchanged_catch_up_status_count = 0
-			print("[CodexValidation] waiting for world catch-up")
+			print("[CodexValidation] waiting for world catch-up: preset=%s reached=%d/%d" % [
+				_route_preset_name,
+				_target_index,
+				_targets.size(),
+			])
 		if _catch_up_status_frames_remaining <= 0:
 			var catch_up_signature: String = _build_catch_up_signature()
 			if catch_up_signature == _last_catch_up_signature:
@@ -155,11 +190,18 @@ func _process(delta: float) -> void:
 		_catch_up_status_frames_remaining = -1
 		_last_catch_up_signature = ""
 		_unchanged_catch_up_status_count = 0
-		print("[CodexValidation] route complete; draining background work")
+		print("[CodexValidation] route complete: preset=%s reached=%d/%d draining_background_work=true" % [
+			_route_preset_name,
+			_target_index,
+			_targets.size(),
+		])
 		return
 	if not _route_announced:
 		_route_announced = true
-		print("[CodexValidation] route start")
+		print("[CodexValidation] route start: preset=%s waypoints=%d" % [
+			_route_preset_name,
+			_targets.size(),
+		])
 	var target: Vector2 = _targets[_target_index]
 	var display_target: Vector2 = _resolve_route_display_target(target)
 	_player.global_position = _player.global_position.move_toward(
@@ -212,10 +254,50 @@ func _build_route() -> void:
 	_targets.clear()
 	var chunk_pixels: float = float(WorldGenerator.balance.get_chunk_size_pixels())
 	var start: Vector2 = _canonicalize_world_position(_player.global_position)
-	for offset: Vector2i in ROUTE_CHUNK_OFFSETS:
+	for offset: Vector2i in _resolve_route_offsets():
 		_targets.append(_canonicalize_world_position(
 			start + Vector2(offset.x, offset.y) * chunk_pixels
 		))
+	print("[CodexValidation] route prepared: preset=%s waypoints=%d start=%s chunk_pixels=%.1f" % [
+		_route_preset_name,
+		_targets.size(),
+		start,
+		chunk_pixels,
+	])
+
+func _resolve_route_offsets() -> Array[Vector2i]:
+	var preset_offsets: Array = ROUTE_PRESETS.get(_route_preset_name, ROUTE_PRESETS.get(DEFAULT_ROUTE_PRESET, [])) as Array
+	var resolved: Array[Vector2i] = []
+	for offset_variant: Variant in preset_offsets:
+		resolved.append(offset_variant as Vector2i)
+	return resolved
+
+func _resolve_route_preset_name() -> StringName:
+	var requested: String = _get_user_arg_value(ROUTE_ARG_PREFIX)
+	if requested.is_empty():
+		return DEFAULT_ROUTE_PRESET
+	var normalized: StringName = StringName(requested.strip_edges().to_lower())
+	if ROUTE_PRESETS.has(normalized):
+		return normalized
+	print("[CodexValidation] unknown route preset '%s'; falling back to %s (available=%s)" % [
+		requested,
+		DEFAULT_ROUTE_PRESET,
+		", ".join(_get_route_preset_names()),
+	])
+	return DEFAULT_ROUTE_PRESET
+
+func _get_route_preset_names() -> Array[String]:
+	var names: Array[String] = []
+	for preset_name: Variant in ROUTE_PRESETS.keys():
+		names.append(String(preset_name))
+	names.sort()
+	return names
+
+func _get_user_arg_value(prefix: String) -> String:
+	for arg: String in OS.get_cmdline_user_args():
+		if arg.begins_with(prefix):
+			return arg.trim_prefix(prefix)
+	return ""
 
 func _resolve_route_display_target(canonical_target: Vector2) -> Vector2:
 	if _player == null or WorldGenerator == null:

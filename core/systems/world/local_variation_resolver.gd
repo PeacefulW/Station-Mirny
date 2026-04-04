@@ -36,6 +36,10 @@ func resolve_local_variation(world_pos: Vector2i, biome: BiomeResult = null, cha
 	context.canonical_world_pos = canonicalize_world_pos(world_pos)
 	context.biome_id = _resolve_biome_id(biome)
 	context.biome_tags = _resolve_biome_tags(biome)
+	context.secondary_biome_id = _resolve_secondary_biome_id(biome)
+	context.secondary_biome_tags = _resolve_secondary_biome_tags(biome)
+	context.ecotone_factor = _resolve_ecotone_factor(biome)
+	context.dominance = _resolve_dominance(biome)
 	context.local_noise = _sample_noise(_field_noise, context.canonical_world_pos)
 	context.patch_noise = _sample_noise(_patch_noise, context.canonical_world_pos)
 	context.detail_noise = _sample_noise(_detail_noise, context.canonical_world_pos)
@@ -95,8 +99,8 @@ func _score_sparse_flora(context: LocalVariationContext, channels: WorldChannels
 		_band_score(context.patch_noise, 0.34, 0.20),
 		0.65
 	)
-	var tag_bias: float = _tag_bias(
-		context.biome_tags,
+	var tag_bias: float = _resolve_tag_bias(
+		context,
 		[&"dry", &"upland", &"mountain", &"cold"],
 		[&"wet", &"lowland"]
 	)
@@ -122,8 +126,8 @@ func _score_dense_flora(context: LocalVariationContext, channels: WorldChannels,
 		_band_score(context.detail_noise, 0.62, 0.20),
 		0.70
 	)
-	var tag_bias: float = _tag_bias(
-		context.biome_tags,
+	var tag_bias: float = _resolve_tag_bias(
+		context,
 		[&"wet", &"temperate", &"baseline", &"lowland"],
 		[&"dry", &"mountain"]
 	)
@@ -148,8 +152,8 @@ func _score_clearing(context: LocalVariationContext, channels: WorldChannels, st
 		_band_score(context.patch_noise, 0.48, 0.14),
 		0.55
 	)
-	var tag_bias: float = _tag_bias(
-		context.biome_tags,
+	var tag_bias: float = _resolve_tag_bias(
+		context,
 		[&"temperate", &"baseline", &"wet"],
 		[&"mountain", &"dry"]
 	)
@@ -175,8 +179,8 @@ func _score_rocky_patch(context: LocalVariationContext, channels: WorldChannels,
 		_band_score(context.detail_noise, 0.82, 0.18),
 		0.65
 	)
-	var tag_bias: float = _tag_bias(
-		context.biome_tags,
+	var tag_bias: float = _resolve_tag_bias(
+		context,
 		[&"mountain", &"highland", &"upland"],
 		[&"wet", &"lowland"]
 	)
@@ -202,8 +206,8 @@ func _score_wet_patch(context: LocalVariationContext, channels: WorldChannels, s
 		_band_score(context.patch_noise, 0.70, 0.20),
 		0.70
 	)
-	var tag_bias: float = _tag_bias(
-		context.biome_tags,
+	var tag_bias: float = _resolve_tag_bias(
+		context,
 		[&"wet", &"lowland", &"temperate"],
 		[&"dry", &"mountain", &"highland"]
 	)
@@ -212,7 +216,9 @@ func _score_wet_patch(context: LocalVariationContext, channels: WorldChannels, s
 func _apply_modulations(context: LocalVariationContext, channels: WorldChannels, structure_context: WorldStructureContext) -> void:
 	if context.variation_kind == _KIND_NONE:
 		return
-	var intensity: float = context.variation_score
+	var ecotone_factor: float = clampf(context.ecotone_factor, 0.0, 1.0)
+	var intensity: float = context.variation_score * lerpf(1.0, 0.72, ecotone_factor)
+	var neutral_pull: float = ecotone_factor * 0.28
 	var floodplain_strength: float = _structure_value(structure_context, &"floodplain_strength")
 	var river_strength: float = _structure_value(structure_context, &"river_strength")
 	var ridge_strength: float = _structure_value(structure_context, &"ridge_strength")
@@ -245,6 +251,11 @@ func _apply_modulations(context: LocalVariationContext, channels: WorldChannels,
 			context.wetness_modulation = 0.18 + intensity * 0.40 + maxf(floodplain_strength, river_strength) * 0.10
 			context.rockiness_modulation = -(0.06 + intensity * 0.12)
 			context.openness_modulation = -(0.04 + intensity * 0.12)
+	if neutral_pull > 0.0:
+		context.flora_modulation = lerpf(context.flora_modulation, 0.0, neutral_pull)
+		context.wetness_modulation = lerpf(context.wetness_modulation, 0.0, neutral_pull)
+		context.rockiness_modulation = lerpf(context.rockiness_modulation, 0.0, neutral_pull)
+		context.openness_modulation = lerpf(context.openness_modulation, 0.0, neutral_pull)
 
 func _resolve_biome_id(biome: BiomeResult) -> StringName:
 	if biome == null:
@@ -257,6 +268,42 @@ func _resolve_biome_tags(biome: BiomeResult) -> Array[StringName]:
 	if biome == null:
 		return []
 	return biome.matched_tags.duplicate()
+
+func _resolve_secondary_biome_id(biome: BiomeResult) -> StringName:
+	if biome == null:
+		return &""
+	if biome.secondary_biome_id != &"":
+		return biome.secondary_biome_id
+	return &""
+
+func _resolve_secondary_biome_tags(biome: BiomeResult) -> Array[StringName]:
+	if biome == null or not biome.has_secondary_biome():
+		return []
+	if biome.secondary_biome:
+		return biome.secondary_biome.tags.duplicate()
+	return []
+
+func _resolve_ecotone_factor(biome: BiomeResult) -> float:
+	if biome == null:
+		return 0.0
+	return clampf(biome.ecotone_factor, 0.0, 1.0)
+
+func _resolve_dominance(biome: BiomeResult) -> float:
+	if biome == null:
+		return 1.0
+	return clampf(biome.dominance, 0.0, 1.0)
+
+func _resolve_tag_bias(context: LocalVariationContext, positive_tags: Array[StringName], negative_tags: Array[StringName]) -> float:
+	var primary_bias: float = _tag_bias(context.biome_tags, positive_tags, negative_tags)
+	if context.secondary_biome_tags.is_empty():
+		return primary_bias
+	var secondary_bias: float = _tag_bias(context.secondary_biome_tags, positive_tags, negative_tags)
+	var secondary_weight: float = clampf(context.ecotone_factor * 0.65, 0.0, 0.55)
+	return clampf(
+		primary_bias * (1.0 - secondary_weight) + secondary_bias * secondary_weight,
+		-0.12,
+		0.12
+	)
 
 func _tag_bias(tags: Array[StringName], positive_tags: Array[StringName], negative_tags: Array[StringName]) -> float:
 	var bias: float = 0.0

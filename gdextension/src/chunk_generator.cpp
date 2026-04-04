@@ -395,7 +395,7 @@ ChunkGenerator::Channels ChunkGenerator::sample_channels(int wx, int wy) const {
 }
 
 // ============================================================
-// StructureSampler — sample_structure()  (matches large_structure_sampler.gd)
+// Legacy structure stage — sample_structure()  (matches the removed GDScript directed-band sampler formulas)
 // ============================================================
 
 float ChunkGenerator::directed_coordinate(int wx, int wy, const float dir[3]) const {

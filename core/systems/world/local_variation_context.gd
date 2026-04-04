@@ -19,6 +19,10 @@ var world_pos: Vector2i = Vector2i.ZERO
 var canonical_world_pos: Vector2i = Vector2i.ZERO
 var biome_id: StringName = &""
 var biome_tags: Array[StringName] = []
+var secondary_biome_id: StringName = &""
+var secondary_biome_tags: Array[StringName] = []
+var ecotone_factor: float = 0.0
+var dominance: float = 1.0
 
 var variation_kind: StringName = KIND_NONE
 var variation_score: float = 0.0
@@ -66,6 +70,8 @@ func clamp_fields() -> LocalVariationContext:
 	local_noise = clampf(local_noise, 0.0, 1.0)
 	patch_noise = clampf(patch_noise, 0.0, 1.0)
 	detail_noise = clampf(detail_noise, 0.0, 1.0)
+	ecotone_factor = clampf(ecotone_factor, 0.0, 1.0)
+	dominance = clampf(dominance, 0.0, 1.0)
 	flora_modulation = clampf(flora_modulation, -1.0, 1.0)
 	wetness_modulation = clampf(wetness_modulation, -1.0, 1.0)
 	rockiness_modulation = clampf(rockiness_modulation, -1.0, 1.0)
@@ -78,6 +84,10 @@ func get_debug_summary() -> Dictionary:
 		"canonical_world_pos": canonical_world_pos,
 		"biome_id": biome_id,
 		"biome_tags": biome_tags.duplicate(),
+		"secondary_biome_id": secondary_biome_id,
+		"secondary_biome_tags": secondary_biome_tags.duplicate(),
+		"ecotone_factor": ecotone_factor,
+		"dominance": dominance,
 		"variation_kind": variation_kind,
 		"variation_score": variation_score,
 		"local_noise": local_noise,

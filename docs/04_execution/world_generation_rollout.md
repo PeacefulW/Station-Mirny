@@ -250,7 +250,7 @@ This section is a lightweight status overlay. Detailed audit and remaining gaps 
 | --- | --- | --- |
 | 1 — Continuous world channels | done | `PlanetSampler` samples height, temperature, moisture, ruggedness, flora_density; cylindrical X-wrap via `WorldNoiseUtils` |
 | 2 — Biome resolver foundation | done | `BiomeResolver` + `BiomeRegistry` + `BiomeData` resources; real per-channel and per-structure scores in `BiomeResult` |
-| 3 — Large terrain structures | done | `LargeStructureSampler` with primary + secondary cross-ridge, river bands, floodplain; cylindrical wrap-safe; structure context visible to biome resolution |
+| 3 — Large terrain structures | done | `WorldPrePass` + `WorldComputeContext.sample_structure_context()` provide the authoritative GDScript structure context for ridges, rivers, and floodplains; the old directed-band sampler script has been removed from the repository |
 | 4 — Local variation layer | done | `LocalVariationResolver` with 5 variation kinds; all modulation channels consumed by terrain classification and flora placement |
 | 5 — Chunk content builder stabilization | done | `ChunkContentBuilder` is pure materialization delegate; terrain truth lives in `SurfaceTerrainResolver`; `get_terrain_type_fast()` routes to resolver directly |
 | 6 — Flora and decor sets | done (MVP) | `FloraSetData`, `DecorSetData`, `FloraDecorRegistry`, `ChunkFloraBuilder` exist; sync/async load-path parity achieved; placeholder visuals. Flora terrain filter contract exists in data, but builder currently consumes only `GROUND`; full filter support deferred to content growth phase. |

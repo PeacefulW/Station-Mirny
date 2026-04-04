@@ -1017,7 +1017,9 @@ func _compute_flora_for_chunk(chunk: Chunk, build_result: ChunkBuildResult) -> C
 		build_result.variation,
 		build_result.terrain,
 		build_result.flora_density_values,
-		build_result.flora_modulation_values
+		build_result.flora_modulation_values,
+		build_result.secondary_biome,
+		build_result.ecotone_values
 	)
 	if flora_result != null:
 		chunk.set_flora_result(flora_result)
@@ -1045,7 +1047,9 @@ func _build_flora_result_for_native_data(
 		native_data.get("variation", PackedByteArray()) as PackedByteArray,
 		native_data.get("terrain", PackedByteArray()) as PackedByteArray,
 		native_data.get("flora_density_values", PackedFloat32Array()) as PackedFloat32Array,
-		native_data.get("flora_modulation_values", PackedFloat32Array()) as PackedFloat32Array
+		native_data.get("flora_modulation_values", PackedFloat32Array()) as PackedFloat32Array,
+		native_data.get("secondary_biome", PackedByteArray()) as PackedByteArray,
+		native_data.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array
 	)
 
 func _build_flora_payload_for_native_data(
@@ -1080,16 +1084,22 @@ func _compute_flora_result(
 	variation_bytes: PackedByteArray,
 	terrain_bytes: PackedByteArray,
 	flora_density_values: PackedFloat32Array,
-	flora_modulation_values: PackedFloat32Array
+	flora_modulation_values: PackedFloat32Array,
+	secondary_biome_bytes: PackedByteArray = PackedByteArray(),
+	ecotone_values: PackedFloat32Array = PackedFloat32Array()
 ) -> ChunkFloraResultScript:
 	if flora_builder == null or WorldGenerator == null or chunk_size <= 0:
 		return null
 	var tile_count: int = chunk_size * chunk_size
+	var secondary_biome_ok: bool = secondary_biome_bytes.is_empty() or secondary_biome_bytes.size() == tile_count
+	var ecotone_values_ok: bool = ecotone_values.is_empty() or ecotone_values.size() == tile_count
 	if terrain_bytes.size() != tile_count \
 		or biome_bytes.size() != tile_count \
 		or variation_bytes.size() != tile_count \
 		or flora_density_values.size() != tile_count \
-		or flora_modulation_values.size() != tile_count:
+		or flora_modulation_values.size() != tile_count \
+		or not secondary_biome_ok \
+		or not ecotone_values_ok:
 		return null
 	var biome_palette: Array[BiomeData] = WorldGenerator.get_registered_biomes()
 	return flora_builder.compute_placements(
@@ -1101,7 +1111,9 @@ func _compute_flora_result(
 		biome_bytes,
 		variation_bytes,
 		flora_density_values,
-		flora_modulation_values
+		flora_modulation_values,
+		secondary_biome_bytes,
+		ecotone_values
 	)
 
 func _is_native_topology_enabled() -> bool:
@@ -2266,6 +2278,8 @@ func _duplicate_native_data(native_data: Dictionary) -> Dictionary:
 		"height": (native_data.get("height", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
 		"variation": (native_data.get("variation", PackedByteArray()) as PackedByteArray).duplicate(),
 		"biome": (native_data.get("biome", PackedByteArray()) as PackedByteArray).duplicate(),
+		"secondary_biome": (native_data.get("secondary_biome", PackedByteArray()) as PackedByteArray).duplicate(),
+		"ecotone_values": (native_data.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
 		"flora_density_values": (native_data.get("flora_density_values", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
 		"flora_modulation_values": (native_data.get("flora_modulation_values", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
 		"feature_and_poi_payload": (native_data.get("feature_and_poi_payload", {"placements": []}) as Dictionary).duplicate(true),

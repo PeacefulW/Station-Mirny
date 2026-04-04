@@ -73,8 +73,8 @@ related_docs:
 На момент старта этой спеки полезная часть overhaul уже частично существует, но не замкнута на финальный результат:
 
 - `WorldPrePass` уже считает полезные крупномасштабные каналы и структуры;
-- `WorldComputeContext.sample_structure_context()` всё ещё зависит от старого `LargeStructureSampler`;
-- `SurfaceTerrainResolver` в основном живёт на старом `structure_context`, пришедшем из band-based sampler;
+- GDScript runtime уже читает structure truth через `WorldPrePass -> WorldComputeContext.sample_structure_context() -> SurfaceTerrainResolver`;
+- native path всё ещё несёт старую band/noise структуру и потому пока не совпадает с GDScript path;
 - `BiomeResolver`, `BiomeData` и `BiomeResult` всё ещё работают по старой схеме;
 - `LocalVariationResolver` и `ChunkFloraBuilder` ещё не ecotone-aware;
 - native path всё ещё опирается на старую band/noise модель и старую схему биомов.
@@ -88,6 +88,7 @@ related_docs:
 Обязательный visual proof pipeline для всех "видимых" итераций:
 
 - использовать `WorldLab` как основной single-seed proof tool;
+- использовать `GameWorldDebug` local preview export как sanctioned artifact path для runtime-visible proof, когда нужен chunk/flora/ecotone result в реальном world boot;
 - работать на фиксированном наборе seed: `42`, `1337`, `9001`, `424242`, `777777`;
 - для каждой видимой итерации сохранять минимум два режима предпросмотра:
 - `Terrain`
@@ -98,8 +99,75 @@ related_docs:
 - `Climate`
 - `Ecotone`
 - для каждой видимой итерации прикладывать before/after screenshots в задачу или PR.
+- если proof снят не вручную, а через exporter, в closure report обязательно указывать seed, команду запуска и пути к сохранённым PNG.
+- если итерация меняет flora / decor / biome-border behavior, proof должен включать не только `Terrain` / `Biome`, но и слой, на котором видно сам consumer result (`vegetation`, `ecotone`, или эквивалентный режим).
 
 Нельзя завершать видимую итерацию словами "на глаз стало лучше" без хотя бы одного fixed-seed сравнения.
+
+### Standard world proof recipe
+
+Чтобы следующие итерации не изобретали новый proof path каждый раз, использовать следующий порядок по умолчанию.
+
+#### A. Macro truth proof через `WorldLab`
+
+Использовать:
+- scene: `res://scenes/ui/world_lab.tscn`
+- fixed seed из agreed seed set
+- минимум два режима:
+- `Terrain`
+- режим, который показывает changed truth (`Biome`, `Drainage`, `Ridges`, `Climate`, `Ecotone`)
+
+Когда применять:
+- изменение world truth
+- изменение крупных river / ridge / biome shapes
+- causal biome tuning
+- native/script parity по крупной форме мира
+
+#### B. Runtime consumer proof через `GameWorldDebug`
+
+Использовать:
+- scene: `res://scenes/world/game_world.tscn`
+- `F6` — local snapshot + save
+- `F7` — hide/show panel
+- `F8` — full export
+- export root: `debug_exports/world_previews/`
+
+Когда применять:
+- terrain consumers
+- flora / decor placement
+- ecotone consumers
+- любые local chunk-visible изменения, которые должны быть видны в реальном runtime world
+
+#### C. Headless fixed-seed proof
+
+Если нужен reproducible artifact без ручного UI, использовать sanctioned runtime exporter вместо нового механизма.
+
+Текущий стандартный runtime proof command:
+
+```powershell
+godot.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_export_ecotone_proof codex_world_seed=<seed> codex_ecotone_proof_count=1 codex_ecotone_radius=16
+```
+
+Что делает:
+- запускает `GameWorld`
+- принудительно использует указанный seed через `codex_world_seed=<seed>`
+- находит hotspot с выраженным ecotone / mixed-border behavior
+- сохраняет `biomes`, `terrain`, `structures`, `ecotone`, `vegetation` PNG в `debug_exports/world_previews/`
+
+Когда применять:
+- Iteration 7 style proof для mixed-border flora / ecotone consumers
+- любые следующие world-visible итерации, если существующий exporter уже покрывает нужный слой
+
+#### D. Правило расширения
+
+Если новой итерации нужен дополнительный proof layer:
+- сначала расширить `WorldLab` mode или `WorldPreviewExporter`
+- только потом думать о новом harness
+
+Цель:
+- один устойчивый proof pipeline
+- повторяемые fixed-seed артефакты
+- минимум ad-hoc tooling на каждую итерацию
 
 ## Data Contracts - New And Touched
 
@@ -241,8 +309,7 @@ Required updates:
 Что делается:
 
 - переписать `WorldComputeContext.sample_structure_context()` на pre-pass-derived structure sampling;
-- либо превратить `LargeStructureSampler` в thin accessor к pre-pass;
-- либо заменить его новым accessor-классом с тем же consumer contract;
+- убрать legacy directed-band sampler plumbing из GDScript runtime, чтобы не оставалось второй structural truth;
 - заполнить `WorldStructureContext` из pre-pass значений:
 - `ridge_strength`
 - `mountain_mass`
@@ -267,9 +334,9 @@ Acceptance tests:
 
 Файлы, которые будут затронуты:
 
+- `core/autoloads/world_generator.gd`
 - `core/systems/world/world_compute_context.gd`
 - `core/systems/world/world_structure_context.gd`
-- `core/systems/world/large_structure_sampler.gd` или новый accessor-файл
 - `scenes/ui/world_lab.gd`
 - `docs/02_system_specs/world/DATA_CONTRACTS.md`
 - `docs/00_governance/PUBLIC_API.md`
@@ -573,7 +640,7 @@ Required updates:
 
 Что делается:
 
-- удалить или переименовать legacy `LargeStructureSampler`, если он больше не семплирует noise;
+- удалить любой оставшийся legacy directed-band sampler/accessor, если authoritative path уже полностью живёт на `WorldPrePass`;
 - удалить legacy band params из `WorldGenBalance`, когда больше нет runtime/native consumers;
 - выпилить мёртвые helper'ы и debug serialization, завязанные на старую band logic;
 - синхронизировать `DATA_CONTRACTS.md` и `PUBLIC_API.md` с финальной схемой;
@@ -587,13 +654,12 @@ Required updates:
 Acceptance tests:
 
 - [ ] grep по runtime path не находит активных чтений legacy band params для rivers/ridges после миграции.
-- [ ] `LargeStructureSampler` больше не содержит world-truth noise sampling или удалён/переименован в accessor.
+- [ ] В репозитории больше нет legacy directed-band sampler script, а authoritative runtime path идёт только через `WorldPrePass`.
 - [ ] fixed-seed world result не меняется при удалении legacy band params, если новая система уже authoritative.
 - [ ] `DATA_CONTRACTS.md` и `PUBLIC_API.md` описывают только актуальную схему без dual truth.
 
 Файлы, которые будут затронуты:
 
-- `core/systems/world/large_structure_sampler.gd` или его replacement
 - `data/world/world_gen_balance.gd`
 - `data/world/world_gen_balance.tres`
 - `scenes/ui/world_lab.gd`

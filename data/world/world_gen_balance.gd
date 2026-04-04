@@ -100,6 +100,10 @@ extends Resource
 @export var flora_density_frequency: float = 0.020
 @export_range(1, 8) var flora_density_octaves: int = 2
 
+@export_group("Biome Causal Scoring")
+@export_range(0.0, 1.0, 0.01) var biome_continental_drying_factor: float = 0.35
+@export_range(0.0, 1.0, 0.01) var biome_drainage_moisture_bonus: float = 0.28
+
 @export_group("Large Structures")
 @export_range(128, 8192) var ridge_spacing_tiles: int = 640
 @export_range(8.0, 512.0, 1.0) var ridge_core_width_tiles: float = 104.0
@@ -178,3 +182,4 @@ extends Resource
 
 func get_chunk_size_pixels() -> int:
 	return chunk_size_tiles * tile_size
+

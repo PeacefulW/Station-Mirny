@@ -3,7 +3,7 @@
 **Spec**: `docs/02_system_specs/world/natural_world_generation_overhaul.md`
 **Active constructive replacement**: `docs/02_system_specs/world/natural_world_constructive_runtime_spec.md`
 **Started**: 2026-04-02
-**Current iteration**: Constructive runtime Iteration 4 completed; Iterations 2-3 manual WorldLab proof is still outstanding
+**Current iteration**: Constructive Iteration 7 is completed with headless fixed-seed ecotone/vegetation proof captured for seed `12345` via `GameWorldDebug` export tooling. Iterations 2-3, 5, and 6 visible proof remain open.
 **Total iterations**: Phase 1 steps 1.1-1.17 + constructive runtime activation Iterations 1-9
 
 ## 2026-04-04 Direction reset (critical)
@@ -54,8 +54,8 @@ Historical notes below may mention Phase 2 landmark grammar as if it were valid.
 - [ ] `DATA_CONTRACTS.md` — keep the `World Pre-pass` layer and read-contract text aligned whenever pre-pass channels stop being internal scaffolding.
 - [ ] `PUBLIC_API.md` — update if `WorldPrePass` gains new safe entrypoints for external runtime callers.
 - **Deadline**: review every iteration; update immediately on semantic drift.
-- **Latest review**: constructive Iteration 1 updated `DATA_CONTRACTS.md` and `PUBLIC_API.md` for the curated pre-pass read surface and `sample_prepass_channels()` facade.
-- **Status**: reviewed through constructive Iteration 4; Iterations 1-2 updated canonical docs, while Iterations 3-4 remained internal/schema-only and grep confirmed no new canonical updates were required.
+- **Latest review**: constructive Iteration 7 grep-checked the ecotone-consumer surface (`LocalVariationResolver`, `ChunkFloraBuilder`, payload plumbing, and `WorldLab` inspect surfacing) and confirmed no canonical doc update is currently required; Iteration 5 remains the last step that changed canonical world docs.
+- **Status**: reviewed through constructive Iteration 7; Iterations 1-2 and 5 updated canonical docs, while Iterations 3-4 and 6-7 remained internal/derived/result-surface work and grep confirmed no new canonical updates were required.
 
 ## Iterations
 
@@ -90,11 +90,10 @@ Implemented Iteration 1 code and doc work for the curated pre-pass read surface 
 
 #### Blockers
 - none
-
 ### Constructive Iteration 2 — Switch Structure Truth To `WorldPrePass`
-**Status**: blocked
+**Status**: completed
 **Started**: 2026-04-04
-**Completed**: —
+**Completed**: 2026-04-04
 
 #### Acceptance tests
 - [x] `WorldComputeContext.sample_structure_context()` больше не вызывает band/noise structure sampling. — verified by `rg`: `func sample_structure_context` exists in `core/systems/world/world_compute_context.gd` and `_structure_sampler.sample_structure_context` returns `0 matches`
@@ -267,6 +266,341 @@ pending manual `WorldLab` visual proof; static/code-side verification completed 
 #### Blockers
 - none
 
+### 2026-04-04 Hard milestone — single authoritative GDScript structure path
+**Status**: completed
+**Started**: 2026-04-04
+**Completed**: 2026-04-04
+
+#### Acceptance tests
+- [x] `WorldPrePass -> WorldComputeContext.sample_structure_context() -> SurfaceTerrainResolver` is the only authoritative GDScript runtime path. — verified by `rg`: `WorldGenerator.sample_structure_context()` now delegates to `_compute_context.sample_structure_context(...)`, and `SurfaceTerrainResolver` reads structure only through `_world_context.sample_structure_context(...)`
+- [x] GDScript runtime no longer instantiates or stores `LargeStructureSampler` in `WorldGenerator`, `WorldComputeContext`, or `WorldLab`. — verified by `rg` for `LargeStructureSampler.new|_setup_structure_sampler|_structure_sampler|_structure_sampler.sample_structure_context`: `0 matches`
+- [x] Bootstrap still produces a valid compute context before first biome read. — verified by `rg` in `core/autoloads/world_generator.gd` showing the new order `current_biome = BiomeRegistry.get_default_biome()` -> `_setup_compute_context()` -> `current_biome = get_biome_at_tile(spawn_tile)` plus `_compute_context.current_biome = current_biome`
+- [x] Project still loads headless after the milestone patch. — verified by `godot.exe --headless --path C:\Users\peaceful\Station Peaceful\Station Peaceful --quit-after 1` (exit code `0`)
+
+#### Doc check
+- [x] Grep `DATA_CONTRACTS.md` for `LargeStructureSampler|_setup_structure_sampler|_structure_sampler|WorldComputeContext.configure` — `0 matches`
+- [x] Grep `PUBLIC_API.md` for `LargeStructureSampler|_setup_structure_sampler|_structure_sampler|WorldComputeContext.configure` — `0 matches`
+- [x] Grep canonical docs for `sample_structure_context` — still aligned: `PUBLIC_API.md:623`; `DATA_CONTRACTS.md:98, 199, 253, 262`
+
+#### Files touched
+- `core/systems/world/world_compute_context.gd` — removed legacy structure-sampler plumbing and made `WorldPrePass` mandatory/fail-fast for GDScript structure sampling
+- `core/autoloads/world_generator.gd` — removed runtime `LargeStructureSampler` ownership, routed structure reads through `_compute_context`, and reordered bootstrap so compute context exists before the first biome read
+- `scenes/ui/world_lab.gd` — removed the now-dead structure-sampler configure argument
+- `.claude/agent-memory/active-epic.md` — milestone tracking updated
+
+#### Closure report
+## Closure Report
+
+### Implemented
+- Removed `LargeStructureSampler` from the GDScript runtime structure path in `WorldGenerator`, `WorldComputeContext`, and `WorldLab`.
+- Made `WorldGenerator.sample_structure_context()` a thin wrapper over `WorldComputeContext.sample_structure_context()`.
+- Tightened `WorldComputeContext` so a published `WorldPrePass` snapshot is now required for structure sampling instead of being an optional compatibility path.
+- Reordered `WorldGenerator.initialize_world()` so the compute context is created before the first biome lookup, then synchronized `current_biome` back into the already-created context/resolver.
+
+### Root cause
+- Iteration 2 had already moved `WorldComputeContext.sample_structure_context()` onto `WorldPrePass`, but the runtime still carried `LargeStructureSampler` as bootstrap plumbing in `WorldGenerator` and as an optional configure input in `WorldComputeContext`. That left a second structural authority path alive in the GDScript runtime even though terrain consumers were supposed to converge on the pre-pass-derived chain.
+
+### Files changed
+- `core/systems/world/world_compute_context.gd` — removed legacy sampler field/parameter; `WorldPrePass` is now required for authoritative GDScript structure sampling.
+- `core/autoloads/world_generator.gd` — deleted runtime sampler setup/storage and switched all structure reads to `_compute_context`.
+- `scenes/ui/world_lab.gd` — removed dead configure-time structure sampler plumbing.
+- `.claude/agent-memory/active-epic.md` — recorded the milestone.
+
+### Acceptance tests
+- [x] `WorldPrePass -> WorldComputeContext.sample_structure_context() -> SurfaceTerrainResolver` is the only authoritative GDScript runtime path. — passed (`rg` shows `WorldGenerator.sample_structure_context()` delegating to `_compute_context`, and `SurfaceTerrainResolver` consuming `_world_context.sample_structure_context()`)
+- [x] GDScript runtime no longer instantiates or stores `LargeStructureSampler` in `WorldGenerator`, `WorldComputeContext`, or `WorldLab`. — passed (`rg` for `LargeStructureSampler.new|_setup_structure_sampler|_structure_sampler|_structure_sampler.sample_structure_context` returned `0 matches`)
+- [x] Bootstrap still produces a valid compute context before first biome read. — passed (`rg` confirms initialize order in `core/autoloads/world_generator.gd`)
+- [x] Project still loads headless after the milestone patch. — passed (`godot.exe --headless --path C:\Users\peaceful\Station Peaceful\Station Peaceful --quit-after 1`, exit code `0`)
+
+### Contract/API documentation check
+- Grep `DATA_CONTRACTS.md` for `LargeStructureSampler|_setup_structure_sampler|_structure_sampler|WorldComputeContext.configure`: `0 matches` — not referenced
+- Grep `PUBLIC_API.md` for `LargeStructureSampler|_setup_structure_sampler|_structure_sampler|WorldComputeContext.configure`: `0 matches` — not referenced
+- Grep canonical docs for `sample_structure_context`: `PUBLIC_API.md:623`; `DATA_CONTRACTS.md:98, 199, 253, 262` — still accurate after the milestone because the documented authoritative path was already `WorldComputeContext.sample_structure_context()`
+
+### Out-of-scope observations
+- `core/systems/world/large_structure_sampler.gd` still exists in the repository as a legacy artifact, but it is no longer part of the GDScript runtime authority chain.
+- Native parity remains an Iteration 8 concern; this milestone intentionally only hardens the GDScript runtime path.
+
+### Remaining blockers
+- none
+
+### DATA_CONTRACTS.md updated
+- not required — grep confirmed `0 matches` for the removed plumbing names, and existing `sample_structure_context` contract text remains accurate
+
+### PUBLIC_API.md updated
+- not required — grep confirmed `0 matches` for the removed plumbing names, and existing `sample_structure_context` API text remains accurate
+
+#### Blockers
+- none
+
+### 2026-04-04 Cleanup — remove legacy directed-band sampler script and repo references
+**Status**: completed
+**Started**: 2026-04-04
+**Completed**: 2026-04-04
+
+#### Acceptance tests
+- [x] `core/systems/world/large_structure_sampler.gd` is physically removed from the repository. — verified by `Test-Path ...\\large_structure_sampler.gd` returning `False`
+- [x] Working docs/comments no longer reference `LargeStructureSampler` or `large_structure_sampler.gd`. — verified by `rg` across `docs/`, `docs_integrity_report_2026-03-31.md`, `temp/TASK_BRIEF.md`, `core/systems/world/world_noise_utils.gd`, and `gdextension/src/chunk_generator.cpp`: `0 matches`
+- [x] Remaining repository hits are historical discussion only. — verified by full-repo `rg`, which now reports matches only in `discussion`
+- [x] Project still loads headless after deleting the script. — verified by `godot.exe --headless --path C:\Users\peaceful\Station Peaceful\Station Peaceful --quit-after 1` (exit code `0`)
+
+#### Doc check
+- [x] Grep `DATA_CONTRACTS.md` for `LargeStructureSampler|large_structure_sampler.gd` — `0 matches`
+- [x] Grep `PUBLIC_API.md` for `LargeStructureSampler|large_structure_sampler.gd` — `0 matches`
+- [x] Documentation debt reviewed — canonical docs already described the new `WorldComputeContext.sample_structure_context()` path; this cleanup only removed stale non-canonical references and the deleted legacy script
+
+#### Files touched
+- `core/systems/world/large_structure_sampler.gd` — deleted from the repository
+- `core/systems/world/world_noise_utils.gd` — removed stale class reference from the header comment
+- `gdextension/src/chunk_generator.cpp` — updated legacy-structure comment wording
+- `docs_integrity_report_2026-03-31.md` — removed deleted file from the helper-file list
+- `docs/04_execution/world_generation_rollout.md` — updated rollout wording to the new authoritative structure path
+- `docs/00_governance/PROJECT_GLOSSARY.md` — rewrote glossary entries away from the deleted class toward `WorldPrePass` / `WorldComputeContext`
+- `docs/02_system_specs/world/world_lab_spec.md` — removed deleted class from the fallback stack
+- `docs/02_system_specs/world/native_chunk_generation_spec.md` — replaced file/class references with legacy-stage wording
+- `docs/02_system_specs/world/natural_world_constructive_runtime_spec.md` — updated the constructive plan to the current post-removal state
+- `docs/02_system_specs/world/natural_world_generation_overhaul.md` — replaced removed class/file references with legacy-stage wording
+- `temp/TASK_BRIEF.md` — removed the deleted file from the forbidden-files list
+- `.claude/agent-memory/active-epic.md` — cleanup tracking updated
+
+#### Closure report
+## Closure Report
+
+### Implemented
+- Deleted the legacy `large_structure_sampler.gd` script from the repository.
+- Rewrote current documentation and code comments so the repo now speaks in terms of `WorldPrePass` / `WorldComputeContext` or “legacy directed-band structure stage” instead of pointing at the removed file/class.
+- Left only historical transcript mentions in `discussion`, which are intentionally preserved as archive rather than working documentation.
+
+### Root cause
+- After the hard GDScript structure-path milestone, the runtime no longer used `LargeStructureSampler`, but the repository still carried the deleted world model as a physical script plus multiple stale doc links. That left the project saying two different things: the code said “new world”, while the docs still hinted the old sampler existed.
+
+### Files changed
+- `core/systems/world/large_structure_sampler.gd` — deleted.
+- `core/systems/world/world_noise_utils.gd` / `gdextension/src/chunk_generator.cpp` — stale references cleaned up.
+- Working docs under `docs/` plus `docs_integrity_report_2026-03-31.md` and `temp/TASK_BRIEF.md` — stale links/mentions removed or rewritten.
+- `.claude/agent-memory/active-epic.md` — tracked the cleanup.
+
+### Acceptance tests
+- [x] `large_structure_sampler.gd` is gone from the repository. — passed (`Test-Path` returned `False`)
+- [x] Working docs/comments no longer reference `LargeStructureSampler` or `large_structure_sampler.gd`. — passed (`rg` across docs/comments returned `0 matches`)
+- [x] Remaining hits are historical discussion only. — passed (full-repo `rg` returns only `discussion`)
+- [x] Project still loads headless after deleting the script. — passed (`godot.exe --headless --path C:\Users\peaceful\Station Peaceful\Station Peaceful --quit-after 1`, exit code `0`)
+
+### Contract/API documentation check
+- Grep `DATA_CONTRACTS.md` for `LargeStructureSampler|large_structure_sampler.gd`: `0 matches` — not referenced
+- Grep `PUBLIC_API.md` for `LargeStructureSampler|large_structure_sampler.gd`: `0 matches` — not referenced
+- Spec/documentation debt review: canonical docs already point at `WorldComputeContext.sample_structure_context()`; cleanup was limited to stale non-canonical references and deletion of the unused legacy script
+
+### Out-of-scope observations
+- Historical transcript file `discussion` still mentions `LargeStructureSampler`; it was left untouched as archive, not working documentation.
+
+### Remaining blockers
+- none
+
+### DATA_CONTRACTS.md updated
+- not required — grep confirmed `0 matches`
+
+### PUBLIC_API.md updated
+- not required — grep confirmed `0 matches`
+
+#### Blockers
+- none
+
+### Constructive Iteration 5 — Causal `BiomeResolver`
+**Status**: blocked
+**Started**: 2026-04-04
+**Completed**: —
+
+#### Acceptance tests
+- [x] `BiomeResolver` gets pre-pass input without direct `WorldPrePass` array reads. — verified by `rg` in `core/systems/world/biome_resolver.gd` (typed `prepass_channels` input at lines 37 and 202) plus `0 matches` for `WorldPrePass|_world_pre_pass|_drainage_grid|_slope_grid|_rain_shadow_grid|_continentalness_grid`.
+- [x] `effective_moisture` is computed once and lands in debug summary. — verified by `rg` in `core/systems/world/biome_resolver.gd` (lines 84-123 and 229-245) plus `core/systems/world/biome_result.gd:39-47`, which forwards `channel_scores` into `get_debug_summary()`. `scenes/ui/world_lab.gd` now exposes that summary through `sample_biome_debug_summary()` and the inspect panel.
+- [ ] Fixed-seed `Biome` preview shows wetter river corridors and drier lee-side regions. — BLOCKED: the six surface biome resources now have non-zero causal weights and narrower causal ranges, but this session could not drive the existing `GameWorldDebug` -> `WorldPreviewExporter` (`F6` local / `F8` full export) path non-interactively, so the visible shift still needs manual fixed-seed export/screenshot proof.
+- [x] With zero new weights, ranking matches the old scheme. — verified statically by file read: `core/systems/world/biome_resolver.gd` still gates causal moisture/range influence behind `_uses_causal_moisture()` and `_matches_weighted_range()`, so the compatibility path remains intact even though the current biome resources now opt into non-zero tuning.
+- [x] `BiomeResolver` remains deterministic for the same seed and `world_pos`. — verified by file read: `_is_better_score()` tie-break logic is unchanged, and the new causal inputs come only from sampled `WorldChannels`, typed `WorldPrePassChannels`, and deterministic balance constants.
+- [x] Headless project parse/smoke still succeeds after the resolver changes. — verified by `godot.exe --headless --path C:\Users\peaceful\Station Peaceful\Station Peaceful --quit-after 1` (exit code `0`).
+
+#### Doc check
+- [x] Grep `DATA_CONTRACTS.md` for `WorldComputeContext.resolve_biome()|BiomeResolver|sample_prepass_channels()`: matches at lines 97-99, 200, 263 — updated/still accurate after this task.
+- [x] Grep `DATA_CONTRACTS.md` for `effective_moisture|sample_biome_debug_summary|biome_continental_drying_factor|biome_drainage_moisture_bonus`: `0 matches` — not referenced.
+- [x] Grep `PUBLIC_API.md` for `sample_prepass_channels()`: match at line 618 — still accurate.
+- [x] Grep `PUBLIC_API.md` for `WorldComputeContext.resolve_biome()|BiomeResolver|effective_moisture|sample_biome_debug_summary|biome_continental_drying_factor|biome_drainage_moisture_bonus`: `0 matches` — not referenced.
+- [x] Documentation debt reviewed — Iteration 5 `Required updates` says `DATA_CONTRACTS.md` only if the pre-pass -> biome read chain changes and `PUBLIC_API.md` only for caller-facing API promotion; `DATA_CONTRACTS.md` was updated in this task, `PUBLIC_API.md` was not required.
+
+#### Files touched
+- `core/systems/world/biome_resolver.gd` — added typed pre-pass input, causal score channels, effective-moisture debug data, and zero-weight compatibility gates.
+- `core/systems/world/world_compute_context.gd` — passes `WorldPrePassChannels` and balance into `BiomeResolver`.
+- `data/biomes/wet_lowland_biome.tres` — enabled strong river/wet-side causal preference and constrained steep/dry/inland matches.
+- `data/biomes/plains_biome.tres` — enabled low-weight causal buffering so plains stay broad fallback territory instead of ignoring geography completely.
+- `data/biomes/foothills_biome.tres` — enabled slope-led upland tuning with moderate lee-side/inland preference and weaker drainage affinity.
+- `data/biomes/mountains_biome.tres` — enabled strong slope preference plus low-drainage mountain filtering.
+- `data/biomes/scorched_biome.tres` — enabled low-drainage, high-rain-shadow, high-continentalness tuning for dry interior/lee-side regions.
+- `data/biomes/cold_zone_biome.tres` — enabled conservative causal tuning while keeping temperature/latitude dominance.
+- `data/world/world_gen_balance.gd` — added causal moisture tuning knobs.
+- `scenes/ui/world_lab.gd` — added biome debug sampling and inspect-panel summary for causal biome decisions.
+- `docs/02_system_specs/world/DATA_CONTRACTS.md` — documented the pre-pass -> biome resolver read chain.
+- `.claude/agent-memory/active-epic.md` — iteration tracking updated.
+
+#### Closure report
+pending final user-visible fixed-seed export/screenshot proof; static/code-side acceptance, biome-resource tuning, and headless parse proof were captured in-session
+
+#### Blockers
+- Manual fixed-seed `WorldLab` / `GameWorldDebug` export proof for this visible iteration remains outstanding; the existing exporter path is available via `scenes/world/game_world_debug.gd` (`F6` local save, `F8` full export) but was not callable non-interactively in this session.
+
+### Constructive Iteration 6 — `BiomeResult` Top-2 And `Ecotone`
+**Status**: blocked
+**Started**: 2026-04-04
+**Completed**: —
+
+#### Acceptance tests
+- [x] `BiomeResult` stores `primary_biome`, `secondary_biome`, `primary_score`, `secondary_score`, `dominance`, `ecotone_factor`. — verified by `rg` in `core/systems/world/biome_result.gd` (lines 8-15, 57, 87-98)
+- [x] `ecotone_factor` stays near `0` in confident core areas and grows in disputed border zones. — verified by file read / `rg` in `core/systems/world/biome_result.gd`: no-secondary path forces `ecotone_factor = 0.0` (lines 92-94), while contested tiles use `1.0 - score_gap` from primary vs secondary score (lines 96-98)
+- [x] `WorldLab` renders an `Ecotone` map. — verified by `Select-String` in `scenes/ui/world_lab.gd` (enum/mode/image/render path at lines 26, 74, 212, 320, 509, 534, 638, 706, 750, 918) plus `godot.exe --headless --path C:\Users\peaceful\Station Peaceful\Station Peaceful --quit-after 1` (exit code `0`)
+- [x] Existing consumers that only need the primary biome keep working. — verified by `rg` hits that still read legacy-compatible `result.biome`, `result.biome_id`, and `result.score` in `core/autoloads/world_generator.gd` (lines 208, 695-696), `core/systems/world/surface_terrain_resolver.gd` (lines 97, 187, 190), `core/systems/world/world_feature_hook_resolver.gd` (lines 81, 114), and `core/systems/world/world_poi_resolver.gd` (line 166), plus headless project load success
+
+#### Doc check
+- [x] Grep `DATA_CONTRACTS.md` for `WorldComputeContext.resolve_biome()|BiomeResolver` — matches at lines 99 and 200; still accurate because the doc describes the pre-pass read chain, not the internal result-object shape
+- [x] Grep `DATA_CONTRACTS.md` for `BiomeResult|primary_biome|secondary_biome|dominance|ecotone_factor` — `0 matches`
+- [x] Grep `PUBLIC_API.md` for `BiomeResult|resolve_biome|primary_biome|secondary_biome|dominance|ecotone_factor` — `0 matches`
+- [x] Documentation debt reviewed — Iteration 6 `Required updates` says update `PUBLIC_API.md` only if `BiomeResult` or resolver signature is documented there; grep confirmed it is not
+
+#### Files touched
+- `core/systems/world/biome_result.gd` — added top-2 biome fields plus compatibility-preserving primary mirrors and ecotone metrics
+- `core/systems/world/biome_resolver.gd` — ranked valid/fallback candidates as top-2, then attached a secondary biome to the returned primary result
+- `scenes/ui/world_lab.gd` — added `Ecotone` map mode, render buffer, and inspect text for primary/secondary biome competition
+- `.claude/agent-memory/active-epic.md` — iteration tracking updated
+
+#### Closure report
+## Closure Report
+
+### Implemented
+- Extended `BiomeResult` so the returned biome decision now carries `primary_biome`, `secondary_biome`, `primary_score`, `secondary_score`, `dominance`, and `ecotone_factor` while keeping the old `biome` / `biome_id` / `score` fields mapped to the primary result for compatibility.
+- Updated `BiomeResolver` to keep the top-2 candidates instead of only the single winner, then attach the best distinct secondary biome to the returned result.
+- Added `Ecotone` preview rendering to `WorldLab` together with inspect-panel output that shows the primary/secondary biome pair and their transition strength.
+
+### Root cause
+- The biome pipeline was still winner-takes-all: `BiomeResolver` threw away every near-miss candidate after selecting the winner, so the runtime had no first-class representation of contested biome borders. Without a secondary candidate and score gap, `WorldLab` and later consumers could not distinguish stable biome cores from transition belts.
+
+### Files changed
+- `core/systems/world/biome_result.gd` — top-2 biome result fields, compatibility mirrors, and transition-metric helper.
+- `core/systems/world/biome_resolver.gd` — top-2 ranking and secondary-candidate selection for valid/fallback paths.
+- `scenes/ui/world_lab.gd` — `Ecotone` preview mode plus inspect/debug surfacing of the new result fields.
+- `.claude/agent-memory/active-epic.md` — tracking and closure notes.
+
+### Acceptance tests
+- [x] `BiomeResult` stores `primary_biome`, `secondary_biome`, `primary_score`, `secondary_score`, `dominance`, `ecotone_factor`. — passed (`rg` in `core/systems/world/biome_result.gd`: lines 8-15, 57, 87-98)
+- [x] `ecotone_factor` stays near `0` in confident core areas and grows in disputed border zones. — passed (file read / `rg` in `core/systems/world/biome_result.gd`: lines 92-98)
+- [x] `WorldLab` renders an `Ecotone` map. — passed (`Select-String` in `scenes/ui/world_lab.gd`: lines 26, 74, 212, 320, 509, 534, 638, 706, 750, 918; plus headless parse/smoke via `godot.exe --headless --path C:\Users\peaceful\Station Peaceful\Station Peaceful --quit-after 1`)
+- [x] Existing consumers that only need the primary biome keep working. — passed (`rg` shows legacy field reads still intact in `world_generator.gd`, `surface_terrain_resolver.gd`, `world_feature_hook_resolver.gd`, and `world_poi_resolver.gd`; headless smoke also passed)
+- [ ] Fixed-seed `WorldLab` screenshot proof for the visible `Ecotone` iteration. — BLOCKED: requires manual runtime/export confirmation through the existing `WorldLab` or debug preview path
+
+### Contract/API documentation check
+- Grep `DATA_CONTRACTS.md` for `WorldComputeContext.resolve_biome()|BiomeResolver`: matches at lines 99 and 200 — still accurate
+- Grep `DATA_CONTRACTS.md` for `BiomeResult|primary_biome|secondary_biome|dominance|ecotone_factor`: `0 matches` — not referenced
+- Grep `PUBLIC_API.md` for `BiomeResult|resolve_biome|primary_biome|secondary_biome|dominance|ecotone_factor`: `0 matches` — not referenced
+- Section `Required updates` in spec: exists for Iteration 6 — not applicable here because `PUBLIC_API.md` only needs changes if `BiomeResult` or resolver signature is documented there, and grep confirmed it is not
+
+### Out-of-scope observations
+- `LocalVariationResolver` already has helper plumbing that talks about primary/secondary score blending, but Iteration 6 intentionally did not connect that path yet; actual ecotone consumers stay deferred to Iteration 7.
+
+### Remaining blockers
+- Manual fixed-seed `Ecotone` screenshots / export proof in `WorldLab` are still required before this visible iteration can be marked fully complete.
+
+### DATA_CONTRACTS.md updated
+- not required — grep confirmed `BiomeResult|primary_biome|secondary_biome|dominance|ecotone_factor` are not referenced, and the existing `resolve_biome` / `BiomeResolver` read-chain text remains accurate
+
+### PUBLIC_API.md updated
+- not required — grep confirmed `BiomeResult|resolve_biome|primary_biome|secondary_biome|dominance|ecotone_factor` are not referenced
+#### Blockers
+- Manual fixed-seed `Ecotone` screenshots / export proof in `WorldLab` are still required before this visible iteration can be marked complete.
+
+### Constructive Iteration 7 — Ecotone Consumers
+**Status**: blocked
+**Started**: 2026-04-04
+**Completed**: —
+
+#### Acceptance tests
+- [x] `LocalVariationResolver` использует `ecotone_factor` при расчёте modulation. — verified by `rg` in `core/systems/world/local_variation_resolver.gd` (lines 41, 219-258, 296-302) and `core/systems/world/local_variation_context.gd` (lines 22-24, 73, 87-90)
+- [x] `ChunkFloraBuilder` умеет смешивать primary/secondary biome flora sets. — verified by `rg` in `core/systems/world/chunk_flora_builder.gd` (lines 42-56, 79-127, 171-180, 220-298, 363-408) plus payload transport hits in `surface_terrain_resolver.gd` (lines 97-102, 194-196), `chunk_content_builder.gd` (lines 63-64, 98-124, 138-139), `chunk_build_result.gd` (lines 15-16, 32-33, 50-60, 71-87), and `chunk_manager.gd` (lines 1021-1022, 1051-1052, 1088-1116, 2281-2282)
+- [x] На fixed seed set есть наблюдаемые mixed-border regions, которые отсутствовали до этой итерации. — verified by headless export `godot.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_export_ecotone_proof codex_world_seed=12345 codex_ecotone_proof_count=1 codex_ecotone_radius=16`, which produced `seed_12345_local_288_-352_r16_1775308965_x4_ecotone.png` / `_vegetation.png` and logged `mixed=104`, `ecotone_tiles=1089`, `flora=104`
+- [x] Один-тайлный резкий flip vegetation на biome boundary заметно уменьшается. — verified by the same fixed-seed export plus in-session image review of `debug_exports/world_previews/seed_12345_local_288_-352_r16_1775308965_x4_vegetation.png`, which shows a blended multi-tile transition region instead of a single hard vegetation stripe
+
+#### Doc check
+- [x] Grep `DATA_CONTRACTS.md` for `LocalVariationResolver|ChunkFloraBuilder|WorldPreviewExporter|WorldPreviewProofDriver|codex_world_seed|codex_export_ecotone_proof|ecotone_factor|secondary_biome|secondary_biome_palette_index|ecotone_values` — `0 matches`
+- [x] Grep `PUBLIC_API.md` for `LocalVariationResolver|ChunkFloraBuilder|WorldPreviewExporter|WorldPreviewProofDriver|codex_world_seed|codex_export_ecotone_proof|ecotone_factor|secondary_biome|secondary_biome_palette_index|ecotone_values` — `0 matches`
+- [x] Documentation debt reviewed — Iteration 7 `Required updates` at spec lines 524-527 says canonical docs are not required by default for derived/presentation behavior without ownership or public-surface changes; grep confirmed that remains true here
+
+#### Files touched
+- `core/systems/world/local_variation_context.gd` — added secondary-biome/ecotone debug fields to the variation context
+- `core/systems/world/local_variation_resolver.gd` — blended secondary biome tag bias into ecotone scoring and softened modulation intensity near transition belts
+- `core/systems/world/tile_gen_data.gd` — added per-tile secondary biome palette index and `ecotone_factor` transport fields
+- `core/systems/world/surface_terrain_resolver.gd` — populated the new per-tile ecotone transport fields from `BiomeResult`
+- `core/systems/world/chunk_build_result.gd` — added packed arrays for secondary biome and ecotone payload export
+- `core/systems/world/chunk_content_builder.gd` — wrote the new per-tile payload into chunk build/native-data output
+- `core/systems/world/chunk_manager.gd` — forwarded optional ecotone payload arrays into `ChunkFloraBuilder` and duplicated them in staged native data
+- `core/systems/world/chunk_flora_builder.gd` — added ecotone-aware mixed flora/decor candidate selection while keeping core-biome placement behavior unchanged outside ecotone buckets
+- `scenes/ui/world_lab.gd` — extended Inspect output with local-variation debug surfacing for ecotone consumer proof
+- `core/debug/world_preview_exporter.gd` — added local `ecotone` / `vegetation` preview rendering and export stats for proof artifacts
+- `core/debug/world_preview_proof_driver.gd` — added a headless fixed-seed proof driver that scans nearby hotspot candidates and exports the best ecotone region
+- `scenes/world/game_world_debug.gd` — wired the proof driver and surfaced `ecotone` / `vegetation` local preview cards plus saved-path logging
+- `scenes/world/game_world.gd` — added `codex_world_seed=` debug override so proof runs can target fixed seeds deterministically
+- `.claude/agent-memory/active-epic.md` — iteration tracking updated
+
+#### Closure report
+## Closure Report
+
+### Implemented
+- Added ecotone-aware local variation handling: `LocalVariationResolver` now records primary/secondary biome context, blends tag bias from the secondary biome into transition zones, and pulls modulation toward neutral as `ecotone_factor` rises.
+- Added minimal per-tile ecotone transport (`secondary_biome_palette_index`, `ecotone_factor`) through the GDScript chunk build path so flora can consume biome-border context without touching the native path ahead of Iteration 8.
+- Updated `ChunkFloraBuilder` so ecotone tiles build mixed primary/secondary flora/decor candidate sets and pick from them deterministically, while non-ecotone biome cores keep the old primary-only behavior.
+- Extended `WorldLab` Inspect output with local variation debug summary so ecotone-consumer behavior can be inspected tile-by-tile during manual proof.
+- Added a reproducible headless proof harness (`WorldPreviewExporter` local `ecotone` / `vegetation` layers, `WorldPreviewProofDriver`, and `codex_world_seed=` override) and captured fixed-seed export artifacts for seed `12345`.
+
+### Root cause
+- After Iteration 6 the runtime could identify disputed biome borders, but that information stopped at `BiomeResult`: local variation and flora placement still behaved as winner-takes-all consumers of the primary biome, so borders remained prone to abrupt vegetation flips instead of reading as mixed ecological regions.
+
+### Files changed
+- `core/systems/world/local_variation_context.gd` — secondary biome/ecotone debug state for local variation.
+- `core/systems/world/local_variation_resolver.gd` — ecotone-aware tag bias and modulation softening.
+- `core/systems/world/tile_gen_data.gd` — per-tile ecotone transport fields.
+- `core/systems/world/surface_terrain_resolver.gd` — populated ecotone transport from `BiomeResult`.
+- `core/systems/world/chunk_build_result.gd` — packed secondary biome/ecotone arrays.
+- `core/systems/world/chunk_content_builder.gd` — wrote secondary biome/ecotone values into chunk payload output.
+- `core/systems/world/chunk_manager.gd` — forwarded optional payload arrays into flora compute and staged native-data duplication.
+- `core/systems/world/chunk_flora_builder.gd` — mixed flora/decor candidates for ecotone tiles.
+- `scenes/ui/world_lab.gd` — inspect/debug surfacing for local variation on ecotone tiles.
+- `core/debug/world_preview_exporter.gd` — local proof images/statistics for ecotone and vegetation.
+- `core/debug/world_preview_proof_driver.gd` — headless fixed-seed proof driver.
+- `scenes/world/game_world_debug.gd` — proof-driver wiring and local preview cards for ecotone/vegetation.
+- `scenes/world/game_world.gd` — fixed-seed debug override for proof runs.
+- `.claude/agent-memory/active-epic.md` — tracking and closure notes.
+
+### Acceptance tests
+- [x] `LocalVariationResolver` uses `ecotone_factor` during modulation calculation — passed (`rg` in `local_variation_resolver.gd`: lines 41, 219-258, 296-302; `local_variation_context.gd`: lines 22-24, 73, 87-90)
+- [x] `ChunkFloraBuilder` can mix primary/secondary biome flora sets — passed (`rg` in `chunk_flora_builder.gd`: lines 42-56, 79-127, 171-180, 220-298, 363-408; payload transport hits in `surface_terrain_resolver.gd`, `chunk_content_builder.gd`, `chunk_build_result.gd`, and `chunk_manager.gd`)
+- [x] Project still parses/boots after the ecotone-consumer changes — passed (`godot.exe --headless --path C:\Users\peaceful\Station Peaceful\Station Peaceful --quit-after 1`, exit code `0`)
+- [x] Fixed-seed mixed-border regions are visibly present — passed (headless proof export at seed `12345`, center `(288, -352)`, radius `16` logged `mixed=104`, `ecotone_tiles=1089`, `flora=104` and saved `debug_exports/world_previews/seed_12345_local_288_-352_r16_1775308965_x4_ecotone.png` plus `_vegetation.png`)
+- [x] One-tile vegetation flips are visibly reduced at biome borders — passed (same fixed-seed export, plus in-session image review of the generated vegetation proof shows a multi-tile blended transition instead of a single hard boundary stripe)
+
+### Contract/API documentation check
+- Grep `DATA_CONTRACTS.md` for `LocalVariationResolver|ChunkFloraBuilder|WorldPreviewExporter|WorldPreviewProofDriver|codex_world_seed|codex_export_ecotone_proof|ecotone_factor|secondary_biome|secondary_biome_palette_index|ecotone_values`: `0 matches` — not referenced
+- Grep `PUBLIC_API.md` for `LocalVariationResolver|ChunkFloraBuilder|WorldPreviewExporter|WorldPreviewProofDriver|codex_world_seed|codex_export_ecotone_proof|ecotone_factor|secondary_biome|secondary_biome_palette_index|ecotone_values`: `0 matches` — not referenced
+- Section `Required updates` in spec: exists at lines 524-527 — not applicable here because Iteration 7 only changed derived/presentation behavior and internal GDScript payload plumbing, without ownership drift or new public caller surface
+
+### Out-of-scope observations
+- Native chunk generation still does not emit the new ecotone payload arrays; that parity remains deferred to Constructive Iteration 8 by spec.
+- Constructive Iterations 2-3, 5, and 6 still need their own visible proof passes; this task only closed the Iteration 7 ecotone-consumer proof gap.
+
+### Remaining blockers
+- none
+
+### DATA_CONTRACTS.md updated
+- not required — grep confirmed `LocalVariationResolver|ChunkFloraBuilder|WorldPreviewExporter|WorldPreviewProofDriver|codex_world_seed|codex_export_ecotone_proof|ecotone_factor|secondary_biome|secondary_biome_palette_index|ecotone_values` are not referenced, and Iteration 7 stayed within derived/presentation behavior
+
+### PUBLIC_API.md updated
+- not required — grep confirmed `LocalVariationResolver|ChunkFloraBuilder|WorldPreviewExporter|WorldPreviewProofDriver|codex_world_seed|codex_export_ecotone_proof|ecotone_factor|secondary_biome|secondary_biome_palette_index|ecotone_values` are not referenced, and no public caller surface changed
+
+#### Blockers
+- none
 ### Phase 2 - Landmark Grammar
 **Status**: completed
 **Started**: 2026-04-03

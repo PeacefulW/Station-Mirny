@@ -302,7 +302,174 @@ After implementation:
 - verify no hidden full rebuild remains
 - verify the player does not feel hitch even if logs look clean
 
-## 12. Final principle
+## 12. Standard performance proof recipe
+
+Performance work must be proven with repeatable harnesses and readable artifacts.
+
+### 12.1 What counts as proof
+
+Acceptable proof may include:
+- boot/load milestone timings
+- frame summary metrics
+- runtime validation route logs
+- explicit review of `ERROR` / `WARNING` / backlog lines
+- project-local saved log files
+
+This is not enough:
+- "feels faster"
+- "I moved work to background, so it should be fine"
+- "the code is incremental now"
+- "a log exists somewhere"
+
+### 12.2 Sanctioned harnesses
+
+Use these first:
+- `WorldPerfProbe`
+- `WorldPerfMonitor`
+- `RuntimeValidationDriver`
+- `tools/perf_log_summary.gd`
+- `GameWorld` boot milestones (`Startup.loading_screen_visible`, `Startup.startup_bubble_ready`, `Startup.boot_complete`)
+
+### 12.3 Boot/load proof
+
+Use when validating:
+- startup time
+- loading-screen drag
+- first-playable delay
+- boot completion drag
+
+Recipe:
+1. Run the real world scene.
+2. Prefer a console binary (`godot_console.exe` or repo-local `Godot_v4.6.1-stable_win64_console.exe` when present).
+3. Capture a project-local log artifact with PowerShell `Tee-Object`.
+4. For boot-only proof, pass `codex_quit_on_boot_complete` so the scene quits immediately after `Startup.boot_complete`.
+5. Read the log yourself.
+6. Extract and cite:
+   - `Startup.start_to_loading_screen_visible_ms`
+   - `Startup.loading_screen_visible_to_startup_bubble_ready_ms`
+   - `Startup.startup_bubble_ready_to_boot_complete_ms`
+   - relevant `Boot.*` / `WorldPerf` detail lines
+7. Grep the same log for:
+   - `ERROR`
+   - `WARNING`
+   - `WorldPerf`
+   - `Boot`
+
+Recommended command shape:
+
+```powershell
+.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_quit_on_boot_complete codex_world_seed=<seed> *>&1 | Tee-Object -FilePath debug_exports/perf/<name>.log
+```
+
+Recommended fixed-seed example:
+
+```powershell
+.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_quit_on_boot_complete codex_world_seed=12345 *>&1 | Tee-Object -FilePath debug_exports/perf/boot_seed12345.log
+```
+
+Default fallback log location when `--log-file` is not used or manual review is needed:
+
+```text
+C:\Users\peaceful\AppData\Roaming\Godot\app_userdata\Станция Мирный\logs
+```
+
+### 12.4 Runtime/streaming proof
+
+Use when validating:
+- route traversal hitching
+- chunk streaming lag
+- catch-up after movement
+- "the world should load around the player without missing chunks"
+
+Recipe:
+1. Run the real world scene with `RuntimeValidationDriver`.
+2. Use a fixed seed.
+3. Let the driver:
+   - wait for boot readiness
+   - traverse the sanctioned route
+   - wait for streaming/topology catch-up
+   - report success or timeout/failure
+4. Pick one sanctioned route preset:
+   - `local_ring` for near-base streaming churn
+   - `seam_cross` for repeated chunk-boundary crossing
+   - `far_loop` for long-travel load/catch-up proof
+5. Prefer a console binary (`godot_console.exe` or repo-local `Godot_v4.6.1-stable_win64_console.exe` when present).
+6. Capture the route log with PowerShell `Tee-Object`.
+7. Read the log yourself.
+8. Confirm:
+   - route started
+   - waypoints were reached
+   - no validation failure fired
+   - no catch-up timeout fired
+   - successful route drain / quitting line appeared
+   - unexplained `ERROR` / `WARNING` lines are absent
+
+Recommended command shape:
+
+```powershell
+.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_validate_runtime codex_validate_route=<local_ring|seam_cross|far_loop> codex_world_seed=<seed> *>&1 | Tee-Object -FilePath debug_exports/perf/<name>.log
+```
+
+Recommended fixed-seed examples:
+
+```powershell
+.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_validate_runtime codex_validate_route=local_ring codex_world_seed=12345 *>&1 | Tee-Object -FilePath debug_exports/perf/runtime_local_ring_seed12345.log
+.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_validate_runtime codex_validate_route=far_loop codex_world_seed=12345 *>&1 | Tee-Object -FilePath debug_exports/perf/runtime_far_loop_seed12345.log
+```
+
+### 12.5 Log summary extraction
+
+After boot/load or runtime proof, run the project-local summary parser on the saved log.
+
+Recommended command shape:
+
+```powershell
+godot.exe --headless --path . --script res://tools/perf_log_summary.gd -- codex_perf_log=debug_exports/perf/<name>.log
+```
+
+Default outputs:
+- `debug_exports/perf/<name>_summary.json`
+- `debug_exports/perf/<name>_summary.md`
+
+### 12.6 Log review is mandatory
+
+For perf tasks, producing a log file is not enough. The agent must read it.
+
+Minimum review:
+- grep `ERROR`
+- grep `WARNING`
+- grep `WorldPerf`
+- grep `CodexValidation`
+- grep subsystem-specific markers relevant to the task
+
+If warnings or errors exist, the closure report must say whether they:
+- are caused by the current task
+- are known pre-existing noise
+- block acceptance
+
+### 12.7 Artifact path
+
+Unless a subsystem spec says otherwise, performance proof artifacts should live in:
+
+```text
+debug_exports/perf/
+```
+
+This may contain:
+- boot/load logs
+- runtime validation logs
+- extracted metric summaries
+
+### 12.8 Extend canonical harnesses, not ad-hoc tooling
+
+If current proof is close but not sufficient:
+- extend `WorldPerfProbe`
+- extend `WorldPerfMonitor`
+- extend `RuntimeValidationDriver`
+
+Do not create one-off perf tooling if the same result can be achieved by extending the canonical harness.
+
+## 13. Final principle
 
 Performance in this project is not something we “optimize later”.
 

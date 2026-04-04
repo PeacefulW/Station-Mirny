@@ -2,6 +2,8 @@ class_name GameWorld
 extends Node2D
 
 const WorldFeatureDebugOverlayScript = preload("res://core/systems/world/world_feature_debug_overlay.gd")
+const WORLD_SEED_OVERRIDE_ARG_PREFIX: String = "codex_world_seed="
+const BOOT_PROOF_QUIT_ARG: String = "codex_quit_on_boot_complete"
 
 ## Главная сцена мира. Инициализирует системы, запускает boot-последовательность,
 ## управляет runtime-связкой между системами (indoor status ↔ oxygen).
@@ -41,6 +43,8 @@ var _pending_load_slot: String = ""
 
 func _ready() -> void:
 	var startup_usec: int = WorldPerfProbe.begin()
+	if not WorldPerfProbe.has_milestone("Startup.start_pressed"):
+		WorldPerfProbe.mark_milestone("Startup.start_pressed")
 	_pause_time_for_boot()
 	_player = PlayerAuthority.get_local_player()
 	_start_boot_sequence()
@@ -147,11 +151,25 @@ func _init_world_generator() -> void:
 		WorldGenerator.spawn_tile = WorldGenerator.world_to_tile(_player.global_position)
 	if WorldGenerator._is_initialized:
 		return
+	world_seed = _resolve_requested_world_seed()
 	if world_seed == 0:
 		WorldGenerator.initialize_random()
 	else:
 		WorldGenerator.initialize_world(world_seed)
 	WorldPerfProbe.end("_init_world_generator", started_usec)
+
+func _resolve_requested_world_seed() -> int:
+	for arg: String in OS.get_cmdline_user_args():
+		if not arg.begins_with(WORLD_SEED_OVERRIDE_ARG_PREFIX):
+			continue
+		var raw_value: String = arg.trim_prefix(WORLD_SEED_OVERRIDE_ARG_PREFIX)
+		if raw_value.is_empty():
+			continue
+		return raw_value.to_int()
+	return world_seed
+
+func _should_quit_on_boot_complete() -> bool:
+	return BOOT_PROOF_QUIT_ARG in OS.get_cmdline_user_args()
 
 func _setup_chunk_manager() -> void:
 	_chunk_manager = ChunkManager.new()
@@ -366,6 +384,9 @@ func _tick_boot_finalization() -> void:
 				"Startup.startup_bubble_ready",
 				"Startup.boot_complete"
 			)
+			if _should_quit_on_boot_complete():
+				print("[CodexValidation] boot proof complete; quitting")
+				get_tree().quit()
 
 func _finish_boot_sequence() -> void:
 	_on_boot_first_playable()
