@@ -23,6 +23,7 @@ const _CONTRACTS: Dictionary = {
 
 ## Per-frame аккумулятор: операция → время в мс. Сбрасывается каждый кадр WorldPerfMonitor.
 static var _frame_operations: Dictionary = {}
+static var _milestones_usec: Dictionary = {}
 
 ## Суммарные hitches за сессию.
 static var _hitch_count: int = 0
@@ -47,11 +48,33 @@ static func record(label: String, elapsed_ms: float) -> void:
 ## Zero-cost marker for milestones or other state transitions that should be
 ## visible in summaries without pretending to be timing data.
 static func mark(label: String) -> void:
-	_record(label, 0.0)
+	mark_milestone(label)
 
 ## Explicit milestone helper for Boot.* state transitions.
 static func mark_milestone(label: String) -> void:
+	_milestones_usec[label] = Time.get_ticks_usec()
 	_record(label, 0.0)
+
+static func has_milestone(label: String) -> bool:
+	return _milestones_usec.has(label)
+
+static func record_since(label: String, from_label: String) -> float:
+	return _record_milestone_delta(label, from_label, Time.get_ticks_usec())
+
+static func record_between(label: String, from_label: String, to_label: String) -> float:
+	if not _milestones_usec.has(to_label):
+		return -1.0
+	return _record_milestone_delta(label, from_label, int(_milestones_usec[to_label]))
+
+static func _record_milestone_delta(label: String, from_label: String, end_usec: int) -> float:
+	if not _milestones_usec.has(from_label):
+		return -1.0
+	var started_usec: int = int(_milestones_usec[from_label])
+	if started_usec <= 0 or end_usec < started_usec:
+		return -1.0
+	var elapsed_ms: float = float(end_usec - started_usec) / 1000.0
+	_record(label, elapsed_ms)
+	return elapsed_ms
 
 static func _record(label: String, elapsed_ms: float) -> void:
 	if elapsed_ms >= _THRESHOLD_MS:

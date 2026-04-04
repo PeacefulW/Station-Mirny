@@ -5,15 +5,21 @@ extends CanvasLayer
 ## Перекрывает всё до завершения boot sequence.
 
 signal loading_completed
+signal screen_presented
 
 var _bg: ColorRect = null
 var _progress_bar: ProgressBar = null
 var _label: Label = null
 var _fade_tween: Tween = null
+var _presented: bool = false
 
 func _ready() -> void:
 	layer = 100
 	_build_ui()
+	call_deferred("_announce_presented")
+
+func is_presented() -> bool:
+	return _presented
 
 func set_progress(value: float, text: String) -> void:
 	if _progress_bar:
@@ -57,3 +63,10 @@ func _build_ui() -> void:
 	_progress_bar.custom_minimum_size = Vector2(400.0, 24.0)
 	_progress_bar.show_percentage = false
 	vbox.add_child(_progress_bar)
+
+func _announce_presented() -> void:
+	await get_tree().process_frame
+	if _presented or not is_inside_tree():
+		return
+	_presented = true
+	screen_presented.emit()

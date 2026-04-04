@@ -16,6 +16,7 @@ var _hitch_count: int = 0
 var _category_totals: Dictionary = {}
 var _category_counts: Dictionary = {}
 var _category_peaks: Dictionary = {}
+var _observation_latest: Dictionary = {}
 var _summary_frame_count: int = 0
 
 func _ready() -> void:
@@ -28,6 +29,7 @@ func _process(delta: float) -> void:
 	_summary_frame_count += 1
 	_frame_times.append(frame_ms)
 	var frame_ops: Dictionary = WorldPerfProbe.flush_frame()
+	_capture_observations(frame_ops)
 	_accumulate_categories(frame_ops)
 	if frame_ms > HITCH_THRESHOLD_MS:
 		_hitch_count += 1
@@ -43,6 +45,19 @@ func _accumulate_categories(ops: Dictionary) -> void:
 		_category_counts[category] = int(_category_counts.get(category, 0)) + 1
 		if value > float(_category_peaks.get(category, 0.0)):
 			_category_peaks[category] = value
+
+func _capture_observations(ops: Dictionary) -> void:
+	for key: String in ops:
+		if _is_observation_metric(key):
+			_observation_latest[key] = float(ops[key])
+
+func _is_observation_metric(label: String) -> bool:
+	return label.begins_with("Startup.") \
+		or label == "Scheduler.urgent_visual_wait_ms" \
+		or label == "scheduler.max_urgent_wait_ms" \
+		or label == "Shadow.stale_age_ms" \
+		or label == "Autosave.snapshot_ms" \
+		or label == "Autosave.write_ms"
 
 func _categorize(label: String) -> String:
 	if label.begins_with("Boot.first_playable") or label.begins_with("Boot.boot_complete") \
@@ -144,6 +159,15 @@ func _print_summary() -> void:
 			boot_compute_avg, boot_apply_avg, boot_redraw_avg, boot_topology_avg, boot_shadow_avg, boot_milestone_count, boot_other_avg,
 			boot_compute_peak, boot_apply_peak, boot_redraw_peak, boot_topology_peak, boot_shadow_peak, boot_milestone_peak, streaming_load_peak, streaming_redraw_peak
 		])
+	if not _observation_latest.is_empty():
+		var labels: Array[String] = []
+		for key: Variant in _observation_latest.keys():
+			labels.append(String(key))
+		labels.sort()
+		var parts: Array[String] = []
+		for label: String in labels:
+			parts.append("%s=%.1fms" % [label, float(_observation_latest.get(label, 0.0))])
+		print("[WorldPerf] Observability: %s" % [", ".join(parts)])
 
 func _calc_average() -> float:
 	if _frame_times.is_empty():
@@ -169,4 +193,5 @@ func _reset_summary() -> void:
 	_category_totals.clear()
 	_category_counts.clear()
 	_category_peaks.clear()
+	_observation_latest.clear()
 	_summary_frame_count = 0

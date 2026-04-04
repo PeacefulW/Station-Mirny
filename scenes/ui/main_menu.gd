@@ -267,6 +267,7 @@ func _on_settings_back() -> void:
 # --- Утилиты ---
 
 func _start_game_from_save(slot_name: String) -> void:
+	WorldPerfProbe.mark_milestone("Startup.start_pressed")
 	SaveManager.request_load_after_scene_change(slot_name)
 	get_tree().change_scene_to_file("res://scenes/world/game_world.tscn")
 

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: proposal
 owner: engineering+design
 source_of_truth: false
-version: 0.2
-last_updated: 2026-03-31
+version: 0.3
+last_updated: 2026-04-04
 depends_on:
   - world_generation_foundation.md
   - DATA_CONTRACTS.md
@@ -24,6 +24,16 @@ related_docs:
 Текущая система генерации мира архитектурно здорова (детерминизм, слои, chunk streaming, data-driven биомы), но визуально производит мир, который не выглядит натуральным.
 
 Этот документ — спецификация поэтапного перевода генерации на физически мотивированные алгоритмы при сохранении всех существующих архитектурных контрактов: детерминизма, chunk-streaming, data-driven registries, command pattern, compute→apply.
+
+## Direction Reset (2026-04-04)
+
+Runtime landmark validation, soft-fix remediation, wow-region boot checks, and any form of lucky-seed search are rejected and removed from the active direction of this spec.
+
+Новый принцип:
+- мир должен становиться выразительным по конструкции, а не через post-hoc проверку «достаточно ли красиво»
+- seed задаёт макро-скелет мира, а не становится кандидатом на отбраковку
+- runtime bootstrap строит один детерминированный мир для запрошенного seed и не ищет соседний «получше»
+- offline tooling может анализировать миры, но не подменяет конструктивный дизайн мира lucky-seed curator'ом
 
 ## Проблемный диагноз
 
@@ -51,9 +61,9 @@ Ridge system — два direction vector'а с band профилями. Резу
 
 `BiomeResolver` выбирает одного победителя per tile. Нет экотонов, нет мягких переходов, нет gradient-based flora blending.
 
-### P7. Нет landmark guarantee
+### P7. Нет конструктивного макро-скелета мира
 
-Процедурный мир статистически однороден. Нет гарантии, что в мире будет хотя бы одна великая река, одна горная дуга, одна дельта. Мир может быть «везде чуть красиво, нигде не запоминается».
+Процедурный мир статистически однороден. Выразительные формы не задаются как причинная структура мира заранее. Плохое решение — пытаться после полной генерации проверять, «достаточно ли красиво», и чинить thresholds или искать соседний seed. Правильное решение — строить запоминающиеся реки, хребты и бассейны как следствие макро-скелета мира.
 
 ### P8. Нет широтно-зависимой гидрологии
 
@@ -72,8 +82,8 @@ Ridge system — два direction vector'а с band профилями. Резу
 - переходом от band-based к drainage-based рек
 - переходом от band-based к skeleton-based гор
 - ecotone system
-- landmark grammar
-- seed quality tooling
+- конструктивным макро-скелетом мира как будущей заменой отвергнутой runtime landmark grammar
+- atlas / diagnostic tooling для offline анализа, а не для runtime seed curation
 - изменениями в `WorldGenBalance`
 - широтно-зависимой гидрологией (latitude-driven evaporation, glacial sources)
 - генерацией озёр (lake detection из modified sink filling)
@@ -138,10 +148,6 @@ extends RefCounted
 func sample(channel: StringName, world_pos: Vector2i) -> float:
     pass
 
-## Batch-lookup для chunk builder: все каналы одной точки.
-func sample_all(world_pos: Vector2i) -> Dictionary:
-    pass
-
 ## Прямой доступ к grid-ячейке (для debug/tooling).
 func get_grid_value(channel: StringName, grid_x: int, grid_y: int) -> float:
     pass
@@ -203,7 +209,7 @@ noise.fractal_type = FastNoiseLite.TYPE_FBM
 
 **Что делается:**
 
-- добавить `core/systems/world/world_pre_pass.gd` (`RefCounted`) с lifecycle `configure(...)`, `compute()`, `sample()`, `sample_all()`, `get_grid_value()`
+- добавить `core/systems/world/world_pre_pass.gd` (`RefCounted`) с lifecycle `configure(...)`, `compute()`, `sample()`, `get_grid_value()`
 - хранить только grid metadata и канал `height`; drainage / lakes / ridges / erosion / rain shadow в эту итерацию не входят
 - вычислять `grid_width` из wrapped X-span, а `grid_height` из `latitude_half_span_tiles * 2`, используя `prepass_grid_step`
 - в `WorldGenerator.initialize_world()` создавать и вычислять `WorldPrePass` после setup sampler'ов и до `_setup_compute_context()`
@@ -694,7 +700,7 @@ hot_factor = clamp((temperature - hot_pole_temperature) / hot_pole_transition_wi
 
 Граница пустоши (`hot_factor ≈ 0.3–0.7`): последние оазисы, пересыхающие реки, засушливые степи, солончаки. Биом: savanna → scorched transition.
 
-Эти transition zones — главные зоны биоразнообразия и gameplay-интереса. Landmark grammar (Фаза 2) может гарантировать их наличие.
+Эти transition zones — главные зоны биоразнообразия и gameplay-интереса. В будущем их наличие должно следовать из конструктивного макро-скелета мира, а не из post-hoc landmark validation.
 
 ### New WorldGenBalance parameters (polar modifiers)
 
@@ -732,101 +738,33 @@ hot_factor = clamp((temperature - hot_pole_temperature) / hot_pole_transition_wi
 
 ---
 
-## Фаза 2: Landmark Grammar
+## Фаза 2: Runtime Landmark Grammar (Rejected)
 
-### Мотивация
+### Статус
 
-Процедурные миры часто страдают от статистической однородности: «везде немного красиво, нигде не запоминается». Landmark grammar гарантирует, что каждый seed содержит минимальный набор примечательных географических зон.
+Rejected on `2026-04-04`.
 
-### Mandatory Landmarks
+### Почему отклонено
 
-Каждый seed обязан содержать (проверяется после pre-pass):
+Этот подход строил дорогой pre-pass, потом судил мир по checklist-метрикам, потом пытался чинить thresholds и добиваться прохождения seed через post-hoc validation. Это противоречит целевой причинности генерации и уже привело к бесконечному reroll / тяжёлому boot path.
 
-| Landmark | Metric | Threshold |
-|----------|--------|-----------|
-| Великая река | max(accumulation) в сети | > `landmark_great_river_min_accumulation` (default: 2000) |
-| Горная дуга | longest ridge path (grid steps) | > `landmark_mountain_arc_min_length` (default: 120 grid steps) |
-| Дельта / устье | river accumulation near sea level | > `landmark_delta_min_accumulation` AND height < sea_level + 0.05 |
-| Крупное озеро | lake area (grid cells) | хотя бы 1 озеро с area > `landmark_lake_min_area` (default: 30 grid cells) |
-| Ледниковая граница | transition zone cold→temperate | connected strip с `cold_factor` в [0.3, 0.7], длиной > `landmark_glacier_front_min_length` (default: 40 grid cells) |
-| Сухой пояс | connected area of rain_shadow < 0.2 | > `landmark_dry_belt_min_area` (default: 500 grid cells) |
-| Выжженная пустошь | connected area с `hot_factor > 0.5` | > `landmark_scorched_min_area` (default: 300 grid cells) |
-| «Вау»-регион | special feature (один из: каньон, кальдера, болотный бассейн, горное озеро) | хотя бы 1 present |
+### Что больше не допускается
 
-### «Вау»-регионы (rule-based)
+- обязательный runtime gate вида `validate_landmarks()` перед стартом новой игры
+- remediation loop с повторным полным `WorldPrePass.compute()`
+- wow-region detection как часть bootstrap
+- soft-fix через мутацию runtime thresholds под конкретный seed
+- seed curation / lucky-seed search как способ гарантировать красивый мир
 
-Детектируются по комбинации каналов после pre-pass:
+### Что должно прийти на замену
 
-**Каньон:**
-```
-high drainage + high slope + low width river → canyon
-Criteria: accumulation > 500 AND slope > 0.6 AND river_width < 4
-```
+Будущая замена этой фазы — отдельная конструктивная спецификация macro skeleton world generation:
 
-**Кальдера:**
-```
-circular high ridge enclosing low interior
-Criteria: ridge ring detected (ridge_strength > 0.5 в замкнутом контуре, interior height < exterior)
-```
+- seed сначала задаёт макро-скелет мира
+- из макро-скелета детерминированно выводятся крупные бассейны, spine/ridge families, главные реки и климатические переходы
+- выразительные регионы появляются как следствие конструкции, а не как результат фильтрации готовых миров
 
-**Гигантский болотный бассейн:**
-```
-large low-drainage flat area with high moisture
-Criteria: connected area where slope < 0.1 AND moisture > 0.6 AND height < 0.3, size > 300 grid cells
-```
-
-**Горное озеро (alpine lake):**
-```
-deep lake in mountain basin
-Criteria: lake с type "mountain" AND max_depth > 0.12 AND ridge_strength > 0.4 у ≥50% берега
-```
-
-**Ледниковый фьорд:**
-```
-narrow elongated lake at glacier boundary with steep sides
-Criteria: lake с type "glacial" AND aspect_ratio > 3.0 AND avg_shore_slope > 0.4
-```
-
-### Seed Validation
-
-```gdscript
-func validate_landmarks() -> Dictionary:
-    # Returns {passed: bool, failures: Array[String], metrics: Dictionary}
-    pass
-```
-
-### Seed Remediation
-
-Если seed не проходит landmark validation:
-
-1. **Soft fix**: adjust `prepass_river_accumulation_threshold` или `ridge_min_height` на ±10% и пересчитать pre-pass. Up to 3 attempts.
-2. **Reroll**: если soft fix не помог, increment seed by 1 и полный recalculate. Up to 10 attempts.
-3. **Accept with warning**: если 10 rerolls не дали результат — принять seed, записать warning в лог. Не блокировать запуск.
-
-### New WorldGenBalance parameters
-
-```gdscript
-@export_group("Landmark Grammar")
-@export var landmark_validation_enabled: bool = true
-@export_range(500, 10000) var landmark_great_river_min_accumulation: int = 2000
-@export_range(40, 300) var landmark_mountain_arc_min_length: int = 120
-@export_range(200, 5000) var landmark_delta_min_accumulation: int = 800
-@export_range(10, 200) var landmark_lake_min_area: int = 30
-@export_range(10, 200) var landmark_glacier_front_min_length: int = 40
-@export_range(100, 2000) var landmark_dry_belt_min_area: int = 500
-@export_range(50, 1000) var landmark_scorched_min_area: int = 300
-@export_range(1, 5) var landmark_max_soft_fix_attempts: int = 3
-@export_range(1, 20) var landmark_max_reroll_attempts: int = 10
-```
-
-### Acceptance criteria (landmark grammar)
-
-- [ ] `validate_landmarks()` корректно определяет наличие/отсутствие каждого landmark'а
-- [ ] Soft fix успешно расширяет прохождение для borderline seeds
-- [ ] Reroll меняет seed и пересчитывает
-- [ ] После validation: мир гарантированно содержит великую реку, горную дугу, дельту
-- [ ] Validation не блокирует запуск (accept with warning fallback)
-- [ ] Performance: validation + remediation < 5s total
+До появления такой спецификации эта фаза считается закрытой и не подлежит реанимации в runtime bootstrap.
 
 ---
 
@@ -834,7 +772,7 @@ func validate_landmarks() -> Dictionary:
 
 ### Шаг 3.1: Интеграция новых каналов в BiomeResolver
 
-После Фаз 0–2 доступны новые каналы из `WorldPrePass`:
+После Фаз 0–1 доступны новые каналы из `WorldPrePass`:
 
 | Канал | Источник | Тип |
 |-------|----------|-----|
@@ -943,7 +881,7 @@ ecotone_factor = 1.0 - clamp(dominance / ecotone_threshold, 0.0, 1.0)
 
 ---
 
-## Фаза 4: Seed Quality Tooling
+## Фаза 4: Atlas & Scenic Diagnostics Tooling
 
 ### World Atlas Generator
 
@@ -953,11 +891,12 @@ ecotone_factor = 1.0 - clamp(dominance / ecotone_threshold, 0.0, 1.0)
 # tools/world_atlas_generator.gd
 # Прогоняет N seeds, для каждого:
 # 1. initialize_world(seed)
-# 2. compute WorldPrePass
-# 3. validate_landmarks()
-# 4. рендерит minimap (drainage, height, biomes, ridges)
-# 5. сохраняет PNG + JSON metrics
+# 2. читает опубликованный WorldPrePass
+# 3. рендерит minimap (drainage, height, biomes, ridges)
+# 4. сохраняет PNG + JSON metrics
 ```
+
+Важно: tooling здесь существует для offline анализа и балансировки. Он не должен превращаться в runtime gate, whitelist сидов или механизм поиска «правильного» мира для игрока.
 
 ### Metrics JSON
 
@@ -969,26 +908,16 @@ ecotone_factor = 1.0 - clamp(dominance / ecotone_threshold, 0.0, 1.0)
     "longest_ridge_length_grid": 145,
     "delta_count": 2,
     "dry_belt_area_grid": 720,
-    "wow_regions": ["canyon_1", "marsh_basin_1"],
-    "landmark_validation": "passed",
+    "major_basin_count": 3,
+    "ridge_spine_count": 2,
     "generation_time_ms": 340
 }
 ```
 
-### Seed Curator
-
-Автоматическая классификация seeds:
-
-- **Gold**: все landmarks present, ≥ 2 wow regions
-- **Silver**: все landmarks present
-- **Bronze**: ≥ 3 из 5 landmarks
-- **Rejected**: < 3 landmarks
-
 ### Acceptance criteria (tooling)
 
 - [ ] Atlas generator создаёт PNG minimaps для batch of seeds
-- [ ] JSON metrics содержат все landmark measurements
-- [ ] Seed curator классифицирует seeds
+- [ ] JSON metrics содержат диагностические hydrology / ridge / climate measurements без runtime pass/fail gate
 - [ ] Tool запускается из Godot editor
 - [ ] 100 seeds прогоняются за < 5 минут
 
@@ -1027,7 +956,7 @@ ecotone_factor = 1.0 - clamp(dominance / ecotone_threshold, 0.0, 1.0)
 ```
 | World Pre-pass | canonical | WorldPrePass | boot-time compute from seed |
 |   Readers: PlanetSampler, BiomeResolver, SurfaceTerrainResolver, |
-|   ChunkContentBuilder, LargeStructureAccessor, landmark validation |
+|   ChunkContentBuilder, LargeStructureAccessor |
 |   Rebuild: boot-time only, deterministic from seed |
 ```
 
@@ -1037,9 +966,7 @@ ecotone_factor = 1.0 - clamp(dominance / ecotone_threshold, 0.0, 1.0)
 
 ```gdscript
 WorldPrePass.sample(channel: StringName, world_pos: Vector2i) -> float
-WorldPrePass.sample_all(world_pos: Vector2i) -> Dictionary
 WorldPrePass.get_grid_value(channel: StringName, grid_x: int, grid_y: int) -> float
-WorldPrePass.validate_landmarks() -> Dictionary
 ```
 
 Изменённые entry points:
@@ -1079,16 +1006,16 @@ BiomeResult.ecotone_factor   # new field
   │          1.17 Polar terrain modifiers         ← зависит от 1.2, 1.4, 1.13
   │
   ▼
-Фаза 2 ─── Landmark Grammar
-  │          Зависит от полной Фазы 1 (включая lakes + polar zones)
+Фаза 2 ─── Runtime Landmark Grammar (rejected 2026-04-04)
+  │          Не реализовывать. Будущая замена: отдельная constructive macro-skeleton spec
   │
   ▼
 Фаза 3 ─── Причинные каналы + экотоны
-  │          Зависит от Фазы 1 (каналы) и Фазы 2 (landmark context)
+  │          Зависит от Фазы 1 (каналы)
   │
   ▼
-Фаза 4 ─── Seed Quality Tooling
-             Зависит от Фаз 1–3 (нужны все каналы + landmark validation)
+Фаза 4 ─── Atlas & Scenic Diagnostics Tooling
+             Зависит от Фаз 1–3, но не вводит runtime landmark validation
 ```
 
 ## Risks
@@ -1136,8 +1063,10 @@ GDExtension C++ path должен использовать те же pre-pass д
 
 ## Transitional source note
 
-Этот документ объединяет анализ текущей реализации (диагноз из code review март 2026), предложения по drainage-based рекам и skeleton-based горам, и рекомендации по landmark grammar и причинным каналам.
+Этот документ объединяет анализ текущей реализации (диагноз из code review март 2026), предложения по drainage-based рекам и skeleton-based горам, и рекомендации по причинным каналам.
 
-v0.2 дополнения: latitude-dependent hydrology (ледниковый сток, широтное испарение), генерация озёр (modified sink filling с lake detection), polar terrain modifiers (cold pole: ICE/glaciers, hot pole: SCORCHED/salt flats/dry riverbeds), расширенная landmark grammar (крупное озеро, ледниковая граница, выжженная пустошь, горное озеро, ледниковый фьорд).
+v0.2 дополнения: latitude-dependent hydrology (ледниковый сток, широтное испарение), генерация озёр (modified sink filling с lake detection), polar terrain modifiers (cold pole: ICE/glaciers, hot pole: SCORCHED/salt flats/dry riverbeds), а также now-rejected runtime landmark grammar.
+
+v0.3 reset: runtime landmark validation / remediation / wow-region bootstrap / lucky-seed search removed from the active direction. Future memorable worlds must come from constructive macro-skeleton generation rather than post-hoc filtering.
 
 Является proposal, требует approval перед реализацией.

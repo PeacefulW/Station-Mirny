@@ -19,6 +19,12 @@ extends Resource
 @export_range(1, 8) var visual_first_pass_max_tasks_per_tick: int = 8
 @export_range(1, 16) var visual_full_redraw_max_tasks_per_tick: int = 8
 
+@export_group("Quality Zones")
+@export_range(0, 8) var startup_bubble_chunk_radius: int = 1
+@export_range(0, 8) var near_visible_chunk_radius: int = 1
+@export_range(0, 16) var mid_visible_chunk_radius: int = 2
+@export_range(0, 32) var far_visible_chunk_radius: int = 4
+
 @export_group("World Topology")
 @export_range(256, 262144) var world_wrap_width_tiles: int = 4096
 @export_range(256, 262144) var latitude_half_span_tiles: int = 4096
@@ -67,18 +73,6 @@ extends Resource
 
 @export_group("Continentalness")
 @export_range(0.0, 0.5) var prepass_sea_level_threshold: float = 0.15
-
-@export_group("Landmark Grammar")
-@export var landmark_validation_enabled: bool = true
-@export_range(500, 10000) var landmark_great_river_min_accumulation: int = 2000
-@export_range(40, 300) var landmark_mountain_arc_min_length: int = 120
-@export_range(200, 5000) var landmark_delta_min_accumulation: int = 800
-@export_range(10, 200) var landmark_lake_min_area: int = 30
-@export_range(10, 200) var landmark_glacier_front_min_length: int = 40
-@export_range(100, 2000) var landmark_dry_belt_min_area: int = 500
-@export_range(50, 1000) var landmark_scorched_min_area: int = 300
-@export_range(1, 5) var landmark_max_soft_fix_attempts: int = 3
-@export_range(1, 20) var landmark_max_reroll_attempts: int = 10
 
 @export_group("Cold Pole")
 @export_range(0.0, 0.4) var cold_pole_temperature: float = 0.20

@@ -35,6 +35,7 @@ var _boot_complete: bool = false
 var _boot_first_playable_done: bool = false
 var _boot_shadows_scheduled: bool = false
 var _boot_shadows_built: bool = false
+var _boot_shadows_scheduled_usec: int = 0
 var _spawn_orchestrator: SpawnOrchestrator = null
 var _pending_load_slot: String = ""
 
@@ -42,6 +43,19 @@ func _ready() -> void:
 	var startup_usec: int = WorldPerfProbe.begin()
 	_pause_time_for_boot()
 	_player = PlayerAuthority.get_local_player()
+	_start_boot_sequence()
+	WorldPerfProbe.end("GameWorld._ready", startup_usec)
+	call_deferred("_finish_scene_setup_after_loading_screen")
+
+func _finish_scene_setup_after_loading_screen() -> void:
+	await _await_loading_screen_presented()
+	WorldPerfProbe.mark_milestone("Startup.loading_screen_visible")
+	WorldPerfProbe.record_between(
+		"Startup.start_to_loading_screen_visible_ms",
+		"Startup.start_pressed",
+		"Startup.loading_screen_visible"
+	)
+	var setup_usec: int = WorldPerfProbe.begin()
 	_building_system = get_node_or_null("BuildingSystem")
 	var enemy_container: Node2D = get_node_or_null("EnemyContainer")
 	var pickup_container: Node2D = get_node_or_null("PickupContainer")
@@ -109,9 +123,8 @@ func _ready() -> void:
 	_death_screen.name = "DeathScreen"
 	if _resolved_ui_layer:
 		_resolved_ui_layer.add_child(_death_screen)
-
-	WorldPerfProbe.end("GameWorld._ready", startup_usec)
-	_start_boot_sequence()
+	WorldPerfProbe.end("GameWorld._setup_after_loading_screen", setup_usec)
+	await _run_boot_sequence()
 
 func _physics_process(_delta: float) -> void:
 	if not _boot_first_playable_done:
@@ -192,7 +205,13 @@ func _start_boot_sequence() -> void:
 	if _player:
 		_player.set_physics_process(false)
 		_player.set_process_input(false)
-	call_deferred("_run_boot_sequence")
+
+func _await_loading_screen_presented() -> void:
+	if not _loading_screen:
+		return
+	if _loading_screen.is_presented():
+		return
+	await _loading_screen.screen_presented
 
 func _run_boot_sequence() -> void:
 	if not _loading_screen:
@@ -309,6 +328,12 @@ func _pause_time_for_boot() -> void:
 func _on_boot_first_playable() -> void:
 	if _boot_first_playable_done:
 		return
+	WorldPerfProbe.mark_milestone("Startup.startup_bubble_ready")
+	WorldPerfProbe.record_between(
+		"Startup.loading_screen_visible_to_startup_bubble_ready_ms",
+		"Startup.loading_screen_visible",
+		"Startup.startup_bubble_ready"
+	)
 	_canonicalize_player_world_position()
 	if _player:
 		_player.set_physics_process(true)
@@ -325,11 +350,22 @@ func _tick_boot_finalization() -> void:
 			## Lightweight: seeds sun angle, shows container, ensures dirty queues.
 			## Actual shadow build happens incrementally via FrameBudgetDispatcher (1ms budget).
 			_boot_shadows_scheduled = true
+			_boot_shadows_scheduled_usec = Time.get_ticks_usec()
 			_mountain_shadow_system.schedule_boot_shadows()
 		if not _boot_shadows_built and _mountain_shadow_system.has_method("is_boot_shadow_work_drained") and _mountain_shadow_system.is_boot_shadow_work_drained():
 			_boot_shadows_built = true
+			if _boot_shadows_scheduled_usec > 0:
+				var shadow_stale_age_ms: float = float(Time.get_ticks_usec() - _boot_shadows_scheduled_usec) / 1000.0
+				WorldPerfProbe.record("Shadow.stale_age_ms", shadow_stale_age_ms)
 	if _chunk_manager and _chunk_manager.is_boot_complete() and _boot_shadows_built:
-		_boot_complete = true
+		if not _boot_complete:
+			_boot_complete = true
+			WorldPerfProbe.mark_milestone("Startup.boot_complete")
+			WorldPerfProbe.record_between(
+				"Startup.startup_bubble_ready_to_boot_complete_ms",
+				"Startup.startup_bubble_ready",
+				"Startup.boot_complete"
+			)
 
 func _finish_boot_sequence() -> void:
 	_on_boot_first_playable()

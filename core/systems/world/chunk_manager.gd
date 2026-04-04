@@ -1512,6 +1512,7 @@ func _record_visual_task_wait(task: Dictionary) -> void:
 	var wait_ms: float = float(Time.get_ticks_usec() - int(_visual_task_enqueued_usec[key])) / 1000.0
 	task["wait_recorded"] = true
 	_visual_scheduler_max_urgent_wait_ms = maxf(_visual_scheduler_max_urgent_wait_ms, wait_ms)
+	WorldPerfProbe.record("Scheduler.urgent_visual_wait_ms", wait_ms)
 	WorldPerfProbe.record("scheduler.max_urgent_wait_ms", wait_ms)
 	if wait_ms > 100.0:
 		_visual_scheduler_starvation_incident_count += 1

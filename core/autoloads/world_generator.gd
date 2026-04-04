@@ -42,11 +42,6 @@ const WorldPrePassScript = preload("res://core/systems/world/world_pre_pass.gd")
 const WorldFeatureHookResolverScript = preload("res://core/systems/world/world_feature_hook_resolver.gd")
 const WorldPoiResolverScript = preload("res://core/systems/world/world_poi_resolver.gd")
 const SurfaceTerrainResolverScript = preload("res://core/systems/world/surface_terrain_resolver.gd")
-const LANDMARK_FAILURE_GREAT_RIVER: String = "great_river"
-const LANDMARK_FAILURE_MOUNTAIN_ARC: String = "mountain_arc"
-const LANDMARK_FAILURE_DELTA: String = "delta"
-const LANDMARK_FAILURE_GLACIER_FRONT: String = "glacier_front"
-const LANDMARK_FAILURE_WOW_REGION: String = "wow_region"
 
 var world_seed: int = 0
 var balance: WorldGenBalance = null
@@ -94,7 +89,8 @@ func initialize_world(seed_value: int) -> void:
 	_reset_runtime_balance()
 	world_seed = seed_value
 	_setup_biome_resolver()
-	_setup_world_pre_pass_with_landmark_remediation()
+	_setup_planet_sampler()
+	_setup_world_pre_pass()
 	_setup_structure_sampler()
 	_setup_local_variation_resolver()
 	spawn_tile = canonicalize_tile(spawn_tile)
@@ -397,109 +393,6 @@ func _setup_local_variation_resolver() -> void:
 
 func _setup_world_pre_pass() -> void:
 	_world_pre_pass = WorldPrePassScript.new().configure(balance, _planet_sampler).compute()
-
-func _setup_world_pre_pass_with_landmark_remediation() -> void:
-	var requested_seed: int = world_seed
-	var reroll_attempts: int = _resolve_landmark_max_reroll_attempts()
-	var soft_fix_attempts: int = _resolve_landmark_max_soft_fix_attempts()
-	var last_validation: Dictionary = {}
-	for reroll_index: int in range(reroll_attempts + 1):
-		_reset_runtime_balance()
-		world_seed = requested_seed + reroll_index
-		_setup_planet_sampler()
-		_setup_world_pre_pass()
-		if not _is_landmark_validation_enabled():
-			return
-		var validation: Dictionary = _validate_current_landmarks()
-		last_validation = validation
-		if bool(validation.get("passed", false)):
-			return
-		for soft_fix_index: int in range(soft_fix_attempts):
-			if not _apply_landmark_soft_fix(validation, soft_fix_index):
-				break
-			_setup_planet_sampler()
-			_setup_world_pre_pass()
-			validation = _validate_current_landmarks()
-			last_validation = validation
-			if bool(validation.get("passed", false)):
-				return
-	var warning_message: String = (
-		"[WorldGenerator] Landmark validation exhausted remediation for seed %d. "
-		+ "Using warning fallback with effective seed %d and failures %s"
-	) % [
-		requested_seed,
-		world_seed,
-		last_validation.get("failures", [])
-	]
-	push_warning(warning_message)
-
-func _validate_current_landmarks() -> Dictionary:
-	if _world_pre_pass == null or not _world_pre_pass.has_method("validate_landmarks"):
-		return {
-			"passed": true,
-			"failures": [],
-			"metrics": {},
-		}
-	return _world_pre_pass.call("validate_landmarks")
-
-func _apply_landmark_soft_fix(validation: Dictionary, soft_fix_index: int) -> bool:
-	if balance == null:
-		return false
-	var needs_river_soft_fix: bool = _validation_has_failure(validation, LANDMARK_FAILURE_GREAT_RIVER) \
-		or _validation_has_failure(validation, LANDMARK_FAILURE_DELTA)
-	var needs_ridge_soft_fix: bool = _validation_has_failure(validation, LANDMARK_FAILURE_MOUNTAIN_ARC) \
-		or _validation_has_failure(validation, LANDMARK_FAILURE_GLACIER_FRONT)
-	if _validation_has_failure(validation, LANDMARK_FAILURE_WOW_REGION):
-		var metrics: Dictionary = validation.get("metrics", {})
-		var great_river_accumulation: float = float(metrics.get("great_river_max_accumulation", 0.0))
-		var mountain_arc_length: int = int(metrics.get("longest_ridge_length_grid", 0))
-		if great_river_accumulation < float(balance.landmark_great_river_min_accumulation):
-			needs_river_soft_fix = true
-		elif mountain_arc_length < balance.landmark_mountain_arc_min_length:
-			needs_ridge_soft_fix = true
-		elif soft_fix_index % 2 == 0:
-			needs_river_soft_fix = true
-		else:
-			needs_ridge_soft_fix = true
-	if needs_river_soft_fix and (not needs_ridge_soft_fix or soft_fix_index % 2 == 0):
-		var adjusted_river_threshold: int = maxi(
-			50,
-			int(round(float(balance.prepass_river_accumulation_threshold) * 0.9))
-		)
-		if adjusted_river_threshold == balance.prepass_river_accumulation_threshold:
-			return false
-		balance.prepass_river_accumulation_threshold = adjusted_river_threshold
-		return true
-	if needs_ridge_soft_fix:
-		var adjusted_ridge_height: float = maxf(0.1, balance.prepass_ridge_min_height * 0.9)
-		if absf(adjusted_ridge_height - balance.prepass_ridge_min_height) <= 0.0001:
-			return false
-		balance.prepass_ridge_min_height = adjusted_ridge_height
-		return true
-	return false
-
-func _validation_has_failure(validation: Dictionary, failure_id: String) -> bool:
-	var failures: Variant = validation.get("failures", [])
-	if failures is Array:
-		for failure_entry: Variant in failures:
-			if String(failure_entry) == failure_id:
-				return true
-	return false
-
-func _is_landmark_validation_enabled() -> bool:
-	if balance == null:
-		return true
-	return balance.landmark_validation_enabled
-
-func _resolve_landmark_max_soft_fix_attempts() -> int:
-	if balance == null:
-		return 3
-	return maxi(1, balance.landmark_max_soft_fix_attempts)
-
-func _resolve_landmark_max_reroll_attempts() -> int:
-	if balance == null:
-		return 10
-	return maxi(1, balance.landmark_max_reroll_attempts)
 
 func _reset_runtime_balance() -> void:
 	if _base_balance == null:

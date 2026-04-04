@@ -24,6 +24,8 @@ var _random_button: Button = null
 var _mountain_count_name_label: Label = null
 var _mountain_area_name_label: Label = null
 var _mountain_chains_name_label: Label = null
+var _loading_screen: LoadingScreen = null
+var _is_starting: bool = false
 
 func _ready() -> void:
 	if TimeManager and TimeManager.has_method("set_paused"):
@@ -115,9 +117,13 @@ func _randomize_seed() -> void:
 	_seed_input.text = str(rng.randi_range(10000, 99999))
 
 func _on_start_pressed() -> void:
+	if _is_starting:
+		return
 	if not _balance:
 		push_error(Localization.t("SYSTEM_WORLD_BALANCE_MISSING"))
 		return
+	_is_starting = true
+	_set_start_controls_enabled(false)
 	_balance.mountain_density = _mountain_count_slider.value / 100.0
 	_balance.mountain_area = int(_mountain_area_slider.value)
 	_balance.mountain_chaininess = _mountain_chains_slider.value / 100.0
@@ -130,8 +136,31 @@ func _on_start_pressed() -> void:
 	else:
 		seed_val = randi()
 	SaveManager.clear_pending_load_request()
+	call_deferred("_begin_world_start", seed_val)
+
+func _begin_world_start(seed_val: int) -> void:
+	if not is_inside_tree():
+		return
+	if _loading_screen == null:
+		_loading_screen = LoadingScreen.new()
+		_loading_screen.name = "LoadingScreen"
+		add_child(_loading_screen)
+	if not _loading_screen.is_presented():
+		await _loading_screen.screen_presented
+	_loading_screen.set_progress(5.0, Localization.t("UI_LOADING_INITIALIZING_WORLD"))
+	await get_tree().process_frame
+	var initialize_usec: int = WorldPerfProbe.begin()
 	WorldGenerator.initialize_world(seed_val)
+	WorldPerfProbe.end("WorldCreationScreen.initialize_world_before_scene_change", initialize_usec)
 	get_tree().change_scene_to_file(GAME_SCENE_PATH)
+
+func _set_start_controls_enabled(enabled: bool) -> void:
+	if _seed_input:
+		_seed_input.editable = enabled
+	if _random_button:
+		_random_button.disabled = not enabled
+	if _start_button:
+		_start_button.disabled = not enabled
 
 func _mountain_size_text(size: int) -> String:
 	match size:

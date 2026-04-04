@@ -23,7 +23,6 @@ const TERRAIN_COLORS: Dictionary = {
 enum MapMode {
 	TERRAIN,
 	BIOME,
-	LANDMARKS,
 }
 
 class WorldLabSampler:
@@ -172,16 +171,6 @@ class WorldLabSampler:
 			"biome": int(tile_data.biome_palette_index),
 		}
 
-	func sample_landmark_channels(tile_pos: Vector2i) -> Dictionary:
-		if _world_pre_pass == null:
-			return {}
-		return _world_pre_pass.sample_all(tile_pos)
-
-	func get_landmark_report() -> Dictionary:
-		if _world_pre_pass == null:
-			return {}
-		return _world_pre_pass.validate_landmarks()
-
 var _status_label: Label = null
 var _seed_input: SpinBox = null
 var _mode_option: OptionButton = null
@@ -193,13 +182,10 @@ var _preview_meta: Label = null
 var _detail_texture_rect: TextureRect = null
 var _detail_meta: Label = null
 var _legend_entries_box: VBoxContainer = null
-var _landmark_summary_label: Label = null
 
 var _generation_id: int = 0
 var _terrain_image: Image = null
 var _biome_image: Image = null
-var _landmark_image: Image = null
-var _landmark_report: Dictionary = {}
 var _current_seed: int = 0
 var _current_preview_size: Vector2i = Vector2i.ZERO
 var _current_sample_step: int = 1
@@ -252,8 +238,7 @@ func _build_ui() -> void:
 	_mode_option = OptionButton.new()
 	_mode_option.add_item("Terrain", MapMode.TERRAIN)
 	_mode_option.add_item("Biome", MapMode.BIOME)
-	_mode_option.add_item("Landmarks", MapMode.LANDMARKS)
-	_mode_option.selected = MapMode.LANDMARKS
+	_mode_option.selected = MapMode.TERRAIN
 	_mode_option.item_selected.connect(_on_mode_changed)
 	top_bar.add_child(_mode_option)
 
@@ -373,20 +358,6 @@ func _build_ui() -> void:
 	_legend_entries_box.add_theme_constant_override("separation", 6)
 	sidebar.add_child(_legend_entries_box)
 
-	var report_title := Label.new()
-	report_title.text = "Landmark Report"
-	report_title.add_theme_font_size_override("font_size", 16)
-	report_title.add_theme_color_override("font_color", Color(0.82, 0.84, 0.88))
-	sidebar.add_child(report_title)
-
-	_landmark_summary_label = Label.new()
-	_landmark_summary_label.text = "Generate a seed to inspect the landmark grammar."
-	_landmark_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_landmark_summary_label.size_flags_vertical = SIZE_EXPAND_FILL
-	_landmark_summary_label.add_theme_font_size_override("font_size", 12)
-	_landmark_summary_label.add_theme_color_override("font_color", Color(0.72, 0.75, 0.80))
-	sidebar.add_child(_landmark_summary_label)
-
 	_preview_title.text = "%s Preview" % _current_mode_name()
 	_refresh_legend()
 
@@ -405,15 +376,12 @@ func _on_generate_pressed() -> void:
 	_cancel_button.disabled = false
 	_terrain_image = null
 	_biome_image = null
-	_landmark_image = null
-	_landmark_report = {}
 	_hover_source_pixel = Vector2i(-1, -1)
 	_preview_texture_rect.texture = null
 	_detail_texture_rect.texture = null
 	_preview_title.text = "%s Preview" % _current_mode_name()
 	_preview_meta.text = "Generating seed %d..." % seed_value
 	_detail_meta.text = "Generating inspect view..."
-	_landmark_summary_label.text = "Analyzing landmark grammar..."
 	_status_label.text = "Generating seed %d..." % seed_value
 	var gen_id: int = _generation_id
 	WorkerThreadPool.add_task(_worker_generate.bind(request, gen_id))
@@ -448,9 +416,7 @@ func _worker_generate(request: Dictionary, gen_id: int) -> void:
 
 	var terrain_img := Image.create(preview_w, preview_h, false, Image.FORMAT_RGB8)
 	var biome_img := Image.create(preview_w, preview_h, false, Image.FORMAT_RGB8)
-	var landmark_img := Image.create(preview_w, preview_h, false, Image.FORMAT_RGB8)
 	var biome_colors: Array = request.get("biome_colors", [])
-	var landmark_report: Dictionary = sampler.get_landmark_report()
 
 	for py: int in range(preview_h):
 		if gen_id != _generation_id:
@@ -459,12 +425,10 @@ func _worker_generate(request: Dictionary, gen_id: int) -> void:
 		for px: int in range(preview_w):
 			var wx: int = mini(px * step, wrap_width - 1)
 			var tile_data: Dictionary = sampler.sample_tile(Vector2i(wx, wy))
-			var landmark_channels: Dictionary = sampler.sample_landmark_channels(Vector2i(wx, wy))
 			var terrain_type: int = int(tile_data.get("terrain", 0))
 			var biome_idx: int = int(tile_data.get("biome", 0))
 			terrain_img.set_pixel(px, py, TERRAIN_COLORS.get(terrain_type, Color(0.2, 0.2, 0.2)))
 			biome_img.set_pixel(px, py, _resolve_biome_preview_color(biome_colors, biome_idx))
-			landmark_img.set_pixel(px, py, _resolve_landmark_preview_color(landmark_channels, terrain_type))
 		if (py + 1) % PROGRESS_ROW_BATCH == 0 or py == preview_h - 1:
 			call_deferred("_on_worker_progress", gen_id, seed_value, py + 1, preview_h)
 
@@ -474,8 +438,6 @@ func _worker_generate(request: Dictionary, gen_id: int) -> void:
 		seed_value,
 		terrain_img,
 		biome_img,
-		landmark_img,
-		landmark_report,
 		Vector2i(preview_w, preview_h),
 		step,
 		Vector2i(wrap_width, lat_span),
@@ -495,15 +457,12 @@ func _on_worker_failed(gen_id: int, seed_value: int) -> void:
 	_status_label.text = "Generation failed for seed %d." % seed_value
 	_preview_meta.text = "WorldLab could not build the preview for seed %d." % seed_value
 	_detail_meta.text = "Inspect view unavailable."
-	_landmark_summary_label.text = "Landmark report unavailable for seed %d." % seed_value
 
 func _on_worker_done(
 	gen_id: int,
 	seed_value: int,
 	terrain_img: Image,
 	biome_img: Image,
-	landmark_img: Image,
-	landmark_report: Dictionary,
 	preview_size: Vector2i,
 	step: int,
 	world_size: Vector2i,
@@ -513,8 +472,6 @@ func _on_worker_done(
 		return
 	_terrain_image = terrain_img
 	_biome_image = biome_img
-	_landmark_image = landmark_img
-	_landmark_report = landmark_report.duplicate(true)
 	_current_seed = seed_value
 	_current_preview_size = preview_size
 	_current_sample_step = step
@@ -534,17 +491,15 @@ func _refresh_preview_texture() -> void:
 		_detail_texture_rect.texture = null
 		return
 	_preview_texture_rect.texture = ImageTexture.create_from_image(source_image)
-	_preview_meta.text = "Seed %d | world %dx%d tiles | sample step %d | preview %dx%d | %s" % [
+	_preview_meta.text = "Seed %d | world %dx%d tiles | sample step %d | preview %dx%d" % [
 		_current_seed,
 		_current_world_size.x,
 		_current_world_size.y,
 		_current_sample_step,
 		_current_preview_size.x,
 		_current_preview_size.y,
-		_build_landmark_status_summary(),
 	]
 	_refresh_legend()
-	_refresh_landmark_report()
 	_refresh_detail_preview()
 
 func _current_mode_name() -> String:
@@ -552,8 +507,6 @@ func _current_mode_name() -> String:
 	match selected_mode:
 		MapMode.BIOME:
 			return "Biome"
-		MapMode.LANDMARKS:
-			return "Landmarks"
 		_:
 			return "Terrain"
 
@@ -613,36 +566,6 @@ func _resolve_biome_preview_color(biome_colors: Array, biome_idx: int) -> Color:
 			return color_value
 	return Color(0.22, 0.18, 0.12)
 
-func _resolve_landmark_preview_color(channels: Dictionary, terrain_type: int) -> Color:
-	if channels.is_empty():
-		return TERRAIN_COLORS.get(terrain_type, Color(0.2, 0.2, 0.2)).darkened(0.18)
-	var drainage: float = clampf(_read_float(channels, &"drainage"), 0.0, 1.0)
-	var ridge_strength: float = clampf(_read_float(channels, &"ridge_strength"), 0.0, 1.0)
-	var mountain_mass: float = clampf(_read_float(channels, &"mountain_mass"), 0.0, 1.0)
-	var slope: float = clampf(_read_float(channels, &"slope"), 0.0, 1.0)
-	var rain_shadow: float = clampf(_read_float(channels, &"rain_shadow"), 0.0, 1.0)
-	var continentalness: float = clampf(_read_float(channels, &"continentalness"), 0.0, 1.0)
-	var color := Color(0.10, 0.14, 0.11)
-	color = color.lerp(Color(0.18, 0.29, 0.20), 0.35)
-	color = color.lerp(Color(0.11, 0.37, 0.48), clampf((1.0 - continentalness) * 0.55, 0.0, 1.0))
-	color = color.lerp(Color(0.61, 0.43, 0.18), clampf(rain_shadow * continentalness * 0.80, 0.0, 1.0))
-	color = color.lerp(
-		Color(0.96, 0.88, 0.75),
-		clampf(mountain_mass * 0.72 + ridge_strength * 0.52 + slope * 0.18, 0.0, 1.0)
-	)
-	color = color.lerp(Color(0.08, 0.63, 0.98), clampf(pow(drainage, 0.70), 0.0, 1.0))
-	if terrain_type == TileGenData.TerrainType.WATER:
-		color = color.lerp(Color(0.05, 0.44, 0.87), 0.72)
-	return color
-
-func _read_float(values: Dictionary, key: StringName) -> float:
-	var value: Variant = values.get(key, values.get(String(key), 0.0))
-	if value is float:
-		return value
-	if value is int:
-		return float(value)
-	return 0.0
-
 func _get_selected_mode() -> int:
 	return _mode_option.get_item_id(_mode_option.selected) if _mode_option != null else MapMode.TERRAIN
 
@@ -650,44 +573,11 @@ func _get_current_source_image() -> Image:
 	match _get_selected_mode():
 		MapMode.BIOME:
 			return _biome_image
-		MapMode.LANDMARKS:
-			return _landmark_image
 		_:
 			return _terrain_image
 
 func _build_render_status(seed_value: int) -> String:
-	if _landmark_report.is_empty():
-		return "Seed %d rendered." % seed_value
-	if bool(_landmark_report.get("passed", false)):
-		return "Seed %d rendered. Landmark report: PASS." % seed_value
-	var failures: Array = _landmark_report.get("failures", [])
-	return "Seed %d rendered. Landmark misses: %s" % [seed_value, _join_variants(failures)]
-
-func _build_landmark_status_summary() -> String:
-	if _landmark_report.is_empty():
-		return "landmarks n/a"
-	var metrics: Dictionary = _landmark_report.get("metrics", {})
-	var wow_count: int = int(metrics.get("wow_region_count", 0))
-	if bool(_landmark_report.get("passed", false)):
-		return "landmarks pass | wow %d" % wow_count
-	var failures: Array = _landmark_report.get("failures", [])
-	return "misses: %s" % _join_variants(failures)
-
-func _join_variants(values: Array) -> String:
-	if values.is_empty():
-		return "none"
-	var parts: Array[String] = []
-	for value: Variant in values:
-		parts.append(str(value))
-	return _join_strings(parts, ", ")
-
-func _join_strings(parts: Array[String], separator: String) -> String:
-	if parts.is_empty():
-		return ""
-	var result: String = parts[0]
-	for index: int in range(1, parts.size()):
-		result += separator + parts[index]
-	return result
+	return "Seed %d rendered." % seed_value
 
 func _refresh_legend() -> void:
 	if _legend_entries_box == null:
@@ -717,13 +607,6 @@ func _legend_entries_for_mode(mode: int) -> Array[Dictionary]:
 				{"label": "Biome colors come from each biome ground palette.", "color": Color(0.44, 0.55, 0.33)},
 				{"label": "Use Inspect to zoom the sampled biome mosaic.", "color": Color(0.22, 0.28, 0.20)},
 			]
-		MapMode.LANDMARKS:
-			return [
-				{"label": "Blue = strong drainage / main rivers", "color": Color(0.08, 0.63, 0.98)},
-				{"label": "Pale ridges = mountain arcs / high massifs", "color": Color(0.96, 0.88, 0.75)},
-				{"label": "Amber = dry belts / rain shadows", "color": Color(0.61, 0.43, 0.18)},
-				{"label": "Teal = coastal transition / wet edge", "color": Color(0.11, 0.37, 0.48)},
-			]
 		_:
 			return [
 				{"label": "Ground", "color": TERRAIN_COLORS[TileGenData.TerrainType.GROUND]},
@@ -732,49 +615,6 @@ func _legend_entries_for_mode(mode: int) -> Array[Dictionary]:
 				{"label": "Sand", "color": TERRAIN_COLORS[TileGenData.TerrainType.SAND]},
 				{"label": "Grass / fertile patches", "color": TERRAIN_COLORS[TileGenData.TerrainType.GRASS]},
 			]
-
-func _refresh_landmark_report() -> void:
-	if _landmark_summary_label == null:
-		return
-	if _landmark_report.is_empty():
-		_landmark_summary_label.text = "Generate a seed to inspect the landmark grammar."
-		return
-	var landmarks: Dictionary = _landmark_report.get("landmarks", {})
-	var wow_landmark: Dictionary = landmarks.get("wow_region", {})
-	var lines: Array[String] = [
-		"Validation: %s" % ("PASS" if bool(_landmark_report.get("passed", false)) else "MISS"),
-	]
-	if not bool(_landmark_report.get("passed", false)):
-		lines.append("Missing: %s" % _join_variants(_landmark_report.get("failures", [])))
-	var delta_landmark: Dictionary = landmarks.get("delta", {})
-	lines.append(_format_landmark_line("Great river", landmarks.get("great_river", {}), "max_accumulation", "threshold", false))
-	lines.append(_format_landmark_line("Mountain arc", landmarks.get("mountain_arc", {}), "length_grid", "threshold", true))
-	lines.append("Delta: %s | count %d" % [
-		"OK" if bool(delta_landmark.get("present", false)) else "MISS",
-		int(delta_landmark.get("count", 0)),
-	])
-	lines.append(_format_landmark_line("Large lake", landmarks.get("large_lake", {}), "largest_area_grid", "threshold", true))
-	lines.append(_format_landmark_line("Glacier front", landmarks.get("glacier_front", {}), "max_length_grid", "threshold", true))
-	lines.append(_format_landmark_line("Dry belt", landmarks.get("dry_belt", {}), "largest_area_grid", "threshold", true))
-	lines.append(_format_landmark_line("Scorched", landmarks.get("scorched_wasteland", {}), "largest_area_grid", "threshold", true))
-	lines.append("Wow regions: %s" % _join_variants(wow_landmark.get("regions", [])))
-	_landmark_summary_label.text = _join_strings(lines, "\n")
-
-func _format_landmark_line(
-	label: String,
-	landmark: Dictionary,
-	value_key: String,
-	threshold_key: String,
-	is_integer: bool
-) -> String:
-	var value: float = float(landmark.get(value_key, 0.0))
-	var threshold: float = float(landmark.get(threshold_key, 0.0))
-	var value_text: String = "%d / %d" % [int(round(value)), int(round(threshold))] if is_integer else "%.0f / %.0f" % [value, threshold]
-	return "%s: %s | %s" % [
-		label,
-		"OK" if bool(landmark.get("present", false)) else "MISS",
-		value_text,
-	]
 
 func _on_preview_gui_input(event: InputEvent) -> void:
 	if not (event is InputEventMouseMotion or event is InputEventMouseButton):
