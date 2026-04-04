@@ -1,9 +1,10 @@
 # Epic: Natural World Generation Overhaul
 
 **Spec**: `docs/02_system_specs/world/natural_world_generation_overhaul.md`
+**Active constructive replacement**: `docs/02_system_specs/world/natural_world_constructive_runtime_spec.md`
 **Started**: 2026-04-02
-**Current iteration**: Direction reset after Phase 2 rollback
-**Total iterations**: Phase 1 steps 1.1-1.17 + future constructive rewrite (TBD)
+**Current iteration**: Constructive runtime activation spec drafted after Phase 2 rollback
+**Total iterations**: Phase 1 steps 1.1-1.17 + constructive runtime activation Iterations 1-9
 
 ## 2026-04-04 Direction reset (critical)
 
@@ -24,6 +25,29 @@ New non-negotiable principle for future work:
 - runtime boot must build one deterministic world for the requested seed and stop
 
 Historical notes below may mention Phase 2 landmark grammar as if it were valid. Treat that content as deprecated history only, not as an implementation plan.
+
+## 2026-04-04 Constructive runtime replacement
+
+Новый исполнимый план лежит в:
+
+- `docs/02_system_specs/world/natural_world_constructive_runtime_spec.md`
+
+Что делать дальше:
+
+1. открыть curated read surface pre-pass и visual proof через `WorldLab`
+2. переключить `sample_structure_context()` на pre-pass truth
+3. довести `SurfaceTerrainResolver` до constructive terrain placement
+4. расширить `BiomeData` и biome resources
+5. перевести `BiomeResolver` на causal channels
+6. ввести `BiomeResult` top-2 + `ecotone_factor`
+7. подключить экотоны к flora / local variation / terrain
+8. довести native parity
+9. удалить legacy band path и дочистить balance/docs
+
+Новый критерий прогресса:
+
+- после каждой видимой итерации должен быть fixed-seed visual proof в `WorldLab`
+- мир должен становиться красивее за счёт структуры и причинности, а не за счёт reroll/bootstrap filtering
 
 ## Documentation debt
 
