@@ -3,7 +3,7 @@
 **Spec**: `docs/02_system_specs/world/natural_world_generation_overhaul.md`
 **Active constructive replacement**: `docs/02_system_specs/world/natural_world_constructive_runtime_spec.md`
 **Started**: 2026-04-02
-**Current iteration**: Constructive runtime activation spec drafted after Phase 2 rollback
+**Current iteration**: Constructive runtime Iteration 4 completed; Iterations 2-3 manual WorldLab proof is still outstanding
 **Total iterations**: Phase 1 steps 1.1-1.17 + constructive runtime activation Iterations 1-9
 
 ## 2026-04-04 Direction reset (critical)
@@ -54,10 +54,218 @@ Historical notes below may mention Phase 2 landmark grammar as if it were valid.
 - [ ] `DATA_CONTRACTS.md` — keep the `World Pre-pass` layer and read-contract text aligned whenever pre-pass channels stop being internal scaffolding.
 - [ ] `PUBLIC_API.md` — update if `WorldPrePass` gains new safe entrypoints for external runtime callers.
 - **Deadline**: review every iteration; update immediately on semantic drift.
-- **Latest review**: iteration 1.17 updated `DATA_CONTRACTS.md` and `PUBLIC_API.md` for presentation-only polar variation markers in the surface payload contract.
-- **Status**: reviewed in iteration 1.17; `DATA_CONTRACTS.md` and `PUBLIC_API.md` now record that polar overlays live in `variation` rather than expanding canonical terrain truth. Future `PUBLIC_API.md` work is only needed if a later iteration promotes a new safe runtime entrypoint.
+- **Latest review**: constructive Iteration 1 updated `DATA_CONTRACTS.md` and `PUBLIC_API.md` for the curated pre-pass read surface and `sample_prepass_channels()` facade.
+- **Status**: reviewed through constructive Iteration 4; Iterations 1-2 updated canonical docs, while Iterations 3-4 remained internal/schema-only and grep confirmed no new canonical updates were required.
 
 ## Iterations
+
+### Constructive Iteration 1 — Curated Pre-pass Read Surface And Visual Proof
+**Status**: completed
+**Started**: 2026-04-04
+**Completed**: 2026-04-04
+
+#### Acceptance tests
+- [x] `WorldComputeContext` safe sampler exists — verified by `Select-String` in `core/systems/world/world_compute_context.gd` (lines 66-75)
+- [x] `WorldPrePass.sample()` / `get_grid_value()` expose `floodplain_strength`, `river_distance`, `river_width` — verified by `Select-String` in `core/systems/world/world_pre_pass.gd` (lines 30-32, 213-231, 258-278)
+- [x] `WorldLab` wires `Terrain`, `Biome`, `Drainage`, `Ridges`, `Climate` and has no runtime chunk bootstrap calls — verified by `Select-String` hits in `scenes/ui/world_lab.gd` plus `0 matches` for `ChunkManager|boot_load_initial_chunks|_load_chunk(`
+- [x] No new `sample_all() -> Dictionary` hot-path API — verified by `Select-String` across touched code files: `0 matches`
+- [x] Fixed-seed screenshot proof — passed (manual visual confirmation from user on 2026-04-04)
+
+#### Doc check
+- [x] Grep `DATA_CONTRACTS.md` for `sample_prepass_channels|WorldPrePassChannels|river_width|river_distance|floodplain_strength` — matches at lines 95, 97, 197-198, 207-209, 225-228, 255, 260
+- [x] Grep `PUBLIC_API.md` for `sample_prepass_channels|WorldPrePassChannels|river_width|river_distance|floodplain_strength` — matches at lines 618 and 625
+- [x] Documentation debt section reviewed — spec lines 232-235 require both canonical docs; both updated in this iteration
+
+#### Files touched
+- `core/systems/world/world_pre_pass.gd` — expanded curated read channels
+- `core/systems/world/world_compute_context.gd` — added `sample_prepass_channels(world_pos)`
+- `core/systems/world/world_pre_pass_channels.gd` — new typed container
+- `scenes/ui/world_lab.gd` — added `Drainage` / `Ridges` / `Climate` preview modes
+- `docs/02_system_specs/world/DATA_CONTRACTS.md` — updated pre-pass read contract
+- `docs/00_governance/PUBLIC_API.md` — documented new safe sampler and channel list
+- `.claude/agent-memory/active-epic.md` — tracking updated
+
+#### Closure report
+Implemented Iteration 1 code and doc work for the curated pre-pass read surface and WorldLab visual proof pipeline. Static/code-side proof was captured in-session; fixed-seed visual proof was confirmed manually by the user on 2026-04-04.
+
+#### Blockers
+- none
+
+### Constructive Iteration 2 — Switch Structure Truth To `WorldPrePass`
+**Status**: blocked
+**Started**: 2026-04-04
+**Completed**: —
+
+#### Acceptance tests
+- [x] `WorldComputeContext.sample_structure_context()` больше не вызывает band/noise structure sampling. — verified by `rg`: `func sample_structure_context` exists in `core/systems/world/world_compute_context.gd` and `_structure_sampler.sample_structure_context` returns `0 matches`
+- [x] `ridge_strength`, `mountain_mass`, `river_strength`, `floodplain_strength` в `WorldStructureContext` происходят из `WorldPrePass`. — verified by `rg` in `core/systems/world/world_compute_context.gd` (lines 67-72 show `WorldPrePass.*CHANNEL` reads plus `_derive_river_strength_from_prepass()`)
+- [x] `river_distance` и `river_width` доступны runtime consumers через `WorldStructureContext`. — verified by `rg` in `core/systems/world/world_structure_context.gd` (lines 11-12, 19-20) and `core/systems/world/world_compute_context.gd` (lines 70-71)
+- [ ] В `WorldLab` terrain preview для fixed seed set больше нет доминирования почти параллельных river/ridge band'ов через весь мир. — BLOCKED: requires manual `WorldLab` visual proof in Godot; `Get-Command godot, godot4, gdformat, gdlint` returned command-not-found for all four tools in this environment
+- [x] requested seed создаёт один world snapshot без reroll/remediation. — verified by `rg` in `core/autoloads/world_generator.gd`: single pre-pass compute at line 395 and `0 matches` for `validate_landmarks|effective_seed|reroll|remediation`; `scenes/ui/world_lab.gd` also forces `"use_native": false` at line 651 for the constructive proof path
+
+#### Doc check
+- [x] Grep `DATA_CONTRACTS.md` for changed names — `sample_structure_context` matches at lines 98, 199, 253, 262; `river_distance|river_width` remain documented at lines 95, 97, 98, 198, 208-209, 226-227, 257
+- [x] Grep `PUBLIC_API.md` for changed names — `sample_structure_context` / `WorldStructureContext` / `river_distance|river_width` now match at lines 623-630
+- [x] Documentation debt section reviewed — spec Iteration 2 `Required updates` at lines 283-286 requires `DATA_CONTRACTS.md` and conditionally `PUBLIC_API.md`; both updated in this task because the sanctioned structure-truth sampling path changed
+
+#### Files touched
+- `core/systems/world/world_compute_context.gd` — `sample_structure_context()` now reads structural truth from `WorldPrePass`, and `river_strength` is derived from sampled pre-pass river metrics
+- `core/systems/world/world_structure_context.gd` — added `river_distance` / `river_width` fields and non-negative clamps for tile-space river metrics
+- `scenes/ui/world_lab.gd` — constructive proof path now stays on GDScript (`"use_native": false`) so Iteration 2 visuals reflect the migrated script-side structure truth
+- `docs/02_system_specs/world/DATA_CONTRACTS.md` — documented `sample_structure_context()` as a pre-pass-backed reader and updated the pre-pass read surface / invariants
+- `docs/00_governance/PUBLIC_API.md` — documented the sanctioned `sample_structure_context()` entrypoint and refreshed curated pre-pass channel list
+- `.claude/agent-memory/active-epic.md` — tracked Iteration 2 start, proof status, and blocker
+
+#### Closure report
+## Closure Report
+
+### Implemented
+- Rewrote `WorldComputeContext.sample_structure_context()` so GDScript runtime structure truth comes from the published `WorldPrePass` instead of `LargeStructureSampler` band/noise sampling.
+- Expanded `WorldStructureContext` with `river_distance` and `river_width`, and derived runtime `river_strength` from sampled pre-pass river metrics.
+- Forced `WorldLab` constructive proof to stay on the GDScript path for this iteration so native legacy structure logic does not mask the script-side migration before Iteration 8.
+- Updated `DATA_CONTRACTS.md` and `PUBLIC_API.md` to reflect the new source of truth and sanctioned structure-sampling facade.
+
+### Root cause
+- `WorldPrePass` already authored the real large-scale river/ridge/mountain fields, but `WorldComputeContext.sample_structure_context()` still delegated to the old `LargeStructureSampler`, leaving a second world-truth path in the runtime and making terrain consumers continue to read band-shaped structures instead of the constructive pre-pass result.
+
+### Files changed
+- `core/systems/world/world_compute_context.gd` — migrated structure sampling to `WorldPrePass`.
+- `core/systems/world/world_structure_context.gd` — added pre-pass river metrics to the structure context object.
+- `scenes/ui/world_lab.gd` — pinned constructive proof to the GDScript path for this stage.
+- `docs/02_system_specs/world/DATA_CONTRACTS.md` — updated structure-context/pre-pass reader contract.
+- `docs/00_governance/PUBLIC_API.md` — documented the new sanctioned structure-sampling entrypoint.
+- `.claude/agent-memory/active-epic.md` — iteration tracking updated.
+
+### Acceptance tests
+- [x] `sample_structure_context()` no longer calls band/noise structure sampling — passed (`rg` shows `0 matches` for `_structure_sampler.sample_structure_context`)
+- [x] `ridge_strength`, `mountain_mass`, `river_strength`, `floodplain_strength` now come from `WorldPrePass`-backed sampling — passed (`rg` shows `WorldPrePass.*CHANNEL` reads plus `_derive_river_strength_from_prepass()` in `world_compute_context.gd`)
+- [x] `river_distance` and `river_width` are present on `WorldStructureContext` and populated by the compute context — passed (`rg` in `world_structure_context.gd` and `world_compute_context.gd`)
+- [ ] Fixed-seed `WorldLab` terrain preview no longer shows dominating parallel bands — BLOCKED (manual Godot visual proof required; CLI tools unavailable)
+- [x] requested seed creates one world snapshot without reroll/remediation — passed (`world_generator.gd` shows a single pre-pass compute at line 395 and `0 matches` for reroll/remediation keywords)
+
+### Contract/API documentation check
+- Grep `DATA_CONTRACTS.md` for `sample_structure_context`: matches at lines 98, 199, 253, 262 — updated
+- Grep `DATA_CONTRACTS.md` for `river_distance|river_width`: matches at lines 95, 97, 98, 198, 208-209, 226-227, 257 — updated/still accurate
+- Grep `PUBLIC_API.md` for `sample_structure_context|WorldStructureContext|river_distance|river_width`: matches at lines 623-630 — updated
+- Section `Required updates` in spec: exists at lines 283-286 — completed in this task because Iteration 2 changes the structure-context reader contract and sanctioned structure-sampling entrypoint
+
+### Out-of-scope observations
+- `LargeStructureSampler` still exists as compatibility ballast in the repository, but `WorldComputeContext.sample_structure_context()` no longer uses it as world truth.
+- Native chunk generation remains on its own path until Iteration 8; this iteration only ensures that the proof harness and GDScript runtime stop reading legacy band structure.
+
+### Remaining blockers
+- Manual fixed-seed `WorldLab` visual proof in Godot is still required to close the visible acceptance criterion for this iteration.
+
+### DATA_CONTRACTS.md updated
+- updated — grep evidence recorded above for `sample_structure_context`, `river_distance`, and `river_width`
+
+### PUBLIC_API.md updated
+- updated — grep evidence recorded above for `sample_structure_context`, `WorldStructureContext`, `river_distance`, and `river_width`
+
+#### Blockers
+- Manual `WorldLab` visual proof remains blocked: `godot.exe` is available, but this session did not find an existing non-interactive `WorldLab` screenshot/export path in the repository, and workflow does not allow inventing a new validation harness without explicit approval.
+
+### Constructive Iteration 3 — Constructive Surface Terrain Resolution
+**Status**: blocked
+**Started**: 2026-04-04
+**Completed**: —
+
+#### Acceptance tests
+- [x] `SurfaceTerrainResolver` uses pre-pass-derived `river_width` / `river_distance` / `floodplain_strength`. — verified by `rg` in `core/systems/world/surface_terrain_resolver.gd` (lines 354-400, 445-510)
+- [ ] river tiles visually expand downstream instead of staying near-constant width. — BLOCKED: code now derives river core radius from `river_width` and `river_distance` (lines 347-359, 445-472), but visible proof still requires manual `WorldLab` screenshots
+- [ ] bank / floodplain tiles stay near river corridors instead of broad parallel noise stripes. — BLOCKED: code now gates bank/floodplain classification by `river_distance` and a bounded outer radius (lines 361-377, 477-515), but visible proof still requires manual `WorldLab` screenshots
+- [x] mountain placement depends on ridge families and slope-aware carving rather than old threshold mixes alone. — verified by `rg` in `core/systems/world/surface_terrain_resolver.gd` (lines 380-400, 517-579 show slope-aware mountain core / foothill carve helpers)
+- [ ] fixed-seed screenshots show noticeable terrain change before vs after Iteration 3. — BLOCKED: requires manual `WorldLab` screenshot capture in Godot
+
+#### Doc check
+- [x] Grep `DATA_CONTRACTS.md` for changed names — `_resolve_surface_terrain_sq` matches at line 637 and remains accurate; `rg` for `_is_river_core_tile_sq|_is_bank_floodplain_tile_sq|_is_mountain_core_tile_sq|_is_foothill_tile_sq|populate_chunk_build_data` returned no new stale contract text besides the existing `_resolve_surface_terrain_sq` note
+- [x] Grep `PUBLIC_API.md` for changed names — `populate_chunk_build_data` matches at line 664 and remains accurate; new helper names return `0 matches`
+- [x] Documentation debt reviewed against Iteration 3 `Required updates` — spec lines 339-342 say canonical docs update only if payload/read semantics or caller-facing API changed; this iteration stayed inside `SurfaceTerrainResolver` internals and grep found no stale public docs to update
+
+#### Files touched
+- `core/systems/world/surface_terrain_resolver.gd` — terrain classification moved to constructive river core / bank / mountain core / foothill-carve helpers, with polar modifiers kept as overlay
+- `.claude/agent-memory/active-epic.md` — iteration tracking updated
+- `data/world/world_gen_balance.gd` / `core/systems/world/tile_gen_data.gd` / `core/systems/world/chunk_content_builder.gd` — not changed (`git diff --name-only` returned no output)
+
+#### Closure report
+pending manual `WorldLab` visual proof; static/code-side verification completed in this session
+
+#### Blockers
+- Manual `WorldLab` screenshot proof in Godot is still required for the visible Iteration 3 acceptance tests; `godot.exe` is available, but no existing non-interactive `WorldLab` export path was found in this session.
+- Constructive Iteration 2 still lacks its own manual fixed-seed `WorldLab` visual proof; user explicitly requested moving ahead with Iteration 3 implementation while that proof remains outstanding.
+
+### Constructive Iteration 4 — Biome Schema Expansion
+**Status**: completed
+**Started**: 2026-04-04
+**Completed**: 2026-04-04
+
+#### Acceptance tests
+- [x] All biome resources load with the new fields without errors. — verified by `godot.exe --headless --path C:\Users\peaceful\Station Peaceful\Station Peaceful --quit-after 1` (exit code `0`, no parse/load errors) plus `rg` over `data/biomes/` showing every biome resource now declares the new ranges and weights
+- [x] With `*_weight = 0.0`, the new channels do not affect the final score. — verified by `rg` in `data/biomes/biome_data.gd` (line 143) and `gdextension/src/chunk_generator.cpp` (lines 550-552): both scorers still use only the old structure keys/weights, so the new schema stays inert
+- [x] `WorldLab` and biome debug/native dumps do not lose the new fields during serialization. — verified by `rg` in `scenes/ui/world_lab.gd` (lines 924-947) and `gdextension/src/chunk_generator.{h,cpp}` (header lines 31-49, parser lines 205-230)
+- [x] Fixed-seed set before and after Iteration 4 yields the same biome winners with zeroed new weights. — verified statically: `WorldLab` constructive proof remains on GDScript (`"use_native": false` at `scenes/ui/world_lab.gd:651`), and both GDScript/native scorer key lists remain unchanged, so identical seeds still resolve identical winners
+
+#### Doc check
+- [x] Grep `DATA_CONTRACTS.md` for changed names — `0 matches` for `min_drainage|max_drainage|min_slope|max_slope|min_rain_shadow|max_rain_shadow|min_continentalness|max_continentalness|drainage_weight|slope_weight|rain_shadow_weight|continentalness_weight`
+- [x] Grep `PUBLIC_API.md` for changed names — `0 matches` for `min_drainage|max_drainage|min_slope|max_slope|min_rain_shadow|max_rain_shadow|min_continentalness|max_continentalness|drainage_weight|slope_weight|rain_shadow_weight|continentalness_weight`
+- [x] Documentation debt section reviewed — spec Iteration 4 `Required updates` (lines 382-385 and summary line 617) says canonical docs are not required by default; grep confirmed the new schema is not yet referenced there
+
+#### Files touched
+- `data/biomes/biome_data.gd` — added causal schema ranges and zero-default weights
+- `data/biomes/cold_zone_biome.tres` — serialized the new schema with backward-compatible defaults
+- `data/biomes/foothills_biome.tres` — serialized the new schema with backward-compatible defaults
+- `data/biomes/mountains_biome.tres` — serialized the new schema with backward-compatible defaults
+- `data/biomes/plains_biome.tres` — serialized the new schema with backward-compatible defaults
+- `data/biomes/scorched_biome.tres` — serialized the new schema with backward-compatible defaults
+- `data/biomes/wet_lowland_biome.tres` — serialized the new schema with backward-compatible defaults
+- `scenes/ui/world_lab.gd` — extended biome definition export with the new schema fields while keeping the constructive proof path on GDScript
+- `gdextension/src/chunk_generator.h` — extended native `BiomeDef` storage with the new schema fields
+- `gdextension/src/chunk_generator.cpp` — extended native biome-definition parsing with the new schema fields
+- `.claude/agent-memory/active-epic.md` — iteration tracking updated
+
+#### Closure report
+## Closure Report
+
+### Implemented
+- Expanded `BiomeData` with causal schema ranges for `drainage`, `slope`, `rain_shadow`, and `continentalness`, plus zero-default weights for each.
+- Updated every surface biome resource to serialize the new schema explicitly with backward-compatible defaults.
+- Extended `WorldLab` biome-definition export and the native biome bridge so the new fields survive tooling/native serialization without changing current winner selection.
+
+### Root cause
+- The constructive runtime plan needed new biome metadata before causal scoring could land, but the repository still only serialized the legacy channel/structure schema. Without this schema pass, Iteration 5 would need to mix data-model migration with resolver behavior changes and would risk hidden serialization drift between GDScript tooling and the native bridge.
+
+### Files changed
+- `data/biomes/biome_data.gd` — schema expansion only; no scoring behavior change.
+- `data/biomes/*.tres` — all six biome resources now declare the new fields explicitly.
+- `scenes/ui/world_lab.gd` — biome export now includes the new schema fields.
+- `gdextension/src/chunk_generator.h` / `gdextension/src/chunk_generator.cpp` — native bridge now stores/parses the new schema fields.
+- `.claude/agent-memory/active-epic.md` — progress tracking updated.
+
+### Acceptance tests
+- [x] All biome resources load with the new fields without errors. — passed (`godot.exe --headless --path C:\Users\peaceful\Station Peaceful\Station Peaceful --quit-after 1`, exit code `0`; `rg` also shows the new fields in all six biome `.tres`)
+- [x] With `*_weight = 0.0`, the new channels do not affect the final score. — passed (`rg` shows unchanged scorer key lists in `data/biomes/biome_data.gd:143` and `gdextension/src/chunk_generator.cpp:550-552`)
+- [x] `WorldLab` and biome debug/native dumps do not lose the new fields during serialization. — passed (`rg` shows export lines in `scenes/ui/world_lab.gd:924-947` and native storage/parser lines in `gdextension/src/chunk_generator.h:31-49` plus `gdextension/src/chunk_generator.cpp:205-230`)
+- [x] Fixed-seed set before and after Iteration 4 yields the same biome winners with zeroed new weights. — passed by static proof (`scenes/ui/world_lab.gd:651` keeps constructive proof on GDScript, and both scorers still use the same old winner inputs/weights)
+
+### Contract/API documentation check
+- Grep `DATA_CONTRACTS.md` for `min_drainage|max_drainage|min_slope|max_slope|min_rain_shadow|max_rain_shadow|min_continentalness|max_continentalness|drainage_weight|slope_weight|rain_shadow_weight|continentalness_weight`: `0 matches` — not referenced
+- Grep `PUBLIC_API.md` for `min_drainage|max_drainage|min_slope|max_slope|min_rain_shadow|max_rain_shadow|min_continentalness|max_continentalness|drainage_weight|slope_weight|rain_shadow_weight|continentalness_weight`: `0 matches` — not referenced
+- Section `Required updates` in spec: exists at lines 382-385 and summary line 617 — reviewed; not applicable because this iteration stayed on biome resource schema/serialization and did not change caller-facing API or world-layer ownership
+
+### Out-of-scope observations
+- Constructive Iterations 2 and 3 still need their manual fixed-seed `WorldLab` screenshot proof; this schema-only iteration did not change that status.
+
+### Remaining blockers
+- none
+
+### DATA_CONTRACTS.md updated
+- not required — grep confirmed `0 matches` for the new schema names
+
+### PUBLIC_API.md updated
+- not required — grep confirmed `0 matches` for the new schema names
+
+#### Blockers
+- none
 
 ### Phase 2 - Landmark Grammar
 **Status**: completed

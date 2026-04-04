@@ -27,6 +27,9 @@ class RidgePath extends RefCounted:
 
 const HEIGHT_CHANNEL: StringName = &"height"
 const DRAINAGE_CHANNEL: StringName = &"drainage"
+const RIVER_WIDTH_CHANNEL: StringName = &"river_width"
+const RIVER_DISTANCE_CHANNEL: StringName = &"river_distance"
+const FLOODPLAIN_STRENGTH_CHANNEL: StringName = &"floodplain_strength"
 const RIDGE_STRENGTH_CHANNEL: StringName = &"ridge_strength"
 const MOUNTAIN_MASS_CHANNEL: StringName = &"mountain_mass"
 const SLOPE_CHANNEL: StringName = &"slope"
@@ -217,6 +220,18 @@ func sample(channel: StringName, world_pos: Vector2i) -> float:
 			if _drainage_grid.is_empty():
 				return 0.0
 			return _sample_grid(_drainage_grid, world_pos)
+		RIVER_WIDTH_CHANNEL:
+			if _river_width_grid.is_empty():
+				return 0.0
+			return _sample_grid(_river_width_grid, world_pos)
+		RIVER_DISTANCE_CHANNEL:
+			if _river_distance_grid.is_empty():
+				return 0.0
+			return _sample_grid(_river_distance_grid, world_pos)
+		FLOODPLAIN_STRENGTH_CHANNEL:
+			if _floodplain_strength_grid.is_empty():
+				return 0.0
+			return _sample_grid(_floodplain_strength_grid, world_pos)
 		RIDGE_STRENGTH_CHANNEL:
 			if _ridge_strength_grid.is_empty():
 				return 0.0
@@ -252,6 +267,18 @@ func get_grid_value(channel: StringName, grid_x: int, grid_y: int) -> float:
 			if _drainage_grid.is_empty():
 				return 0.0
 			return _drainage_grid[_flatten_index(grid_x, grid_y)]
+		RIVER_WIDTH_CHANNEL:
+			if _river_width_grid.is_empty():
+				return 0.0
+			return _river_width_grid[_flatten_index(grid_x, grid_y)]
+		RIVER_DISTANCE_CHANNEL:
+			if _river_distance_grid.is_empty():
+				return 0.0
+			return _river_distance_grid[_flatten_index(grid_x, grid_y)]
+		FLOODPLAIN_STRENGTH_CHANNEL:
+			if _floodplain_strength_grid.is_empty():
+				return 0.0
+			return _floodplain_strength_grid[_flatten_index(grid_x, grid_y)]
 		RIDGE_STRENGTH_CHANNEL:
 			if _ridge_strength_grid.is_empty():
 				return 0.0

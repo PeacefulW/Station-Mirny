@@ -24,6 +24,16 @@ const _EPSILON: float = 0.00001
 @export_range(-1.0, 1.0, 0.001) var min_latitude: float = -1.0
 @export_range(-1.0, 1.0, 0.001) var max_latitude: float = 1.0
 
+@export_group("Causal Channel Ranges")
+@export_range(0.0, 1.0, 0.001) var min_drainage: float = 0.0
+@export_range(0.0, 1.0, 0.001) var max_drainage: float = 1.0
+@export_range(0.0, 1.0, 0.001) var min_slope: float = 0.0
+@export_range(0.0, 1.0, 0.001) var max_slope: float = 1.0
+@export_range(0.0, 1.0, 0.001) var min_rain_shadow: float = 0.0
+@export_range(0.0, 1.0, 0.001) var max_rain_shadow: float = 1.0
+@export_range(0.0, 1.0, 0.001) var min_continentalness: float = 0.0
+@export_range(0.0, 1.0, 0.001) var max_continentalness: float = 1.0
+
 @export_group("Structure Ranges")
 @export_range(0.0, 1.0, 0.001) var min_ridge_strength: float = 0.0
 @export_range(0.0, 1.0, 0.001) var max_ridge_strength: float = 1.0
@@ -39,6 +49,12 @@ const _EPSILON: float = 0.00001
 @export_range(0.0, 4.0, 0.01) var ruggedness_weight: float = 1.0
 @export_range(0.0, 4.0, 0.01) var flora_density_weight: float = 0.6
 @export_range(0.0, 4.0, 0.01) var latitude_weight: float = 0.6
+
+@export_group("Causal Channel Weights")
+@export_range(0.0, 4.0, 0.01) var drainage_weight: float = 0.0
+@export_range(0.0, 4.0, 0.01) var slope_weight: float = 0.0
+@export_range(0.0, 4.0, 0.01) var rain_shadow_weight: float = 0.0
+@export_range(0.0, 4.0, 0.01) var continentalness_weight: float = 0.0
 
 @export_group("Structure Weights")
 @export_range(0.0, 4.0, 0.01) var ridge_strength_weight: float = 1.0

@@ -28,6 +28,10 @@ struct BiomeDef {
     float min_ruggedness = 0.0f, max_ruggedness = 1.0f;
     float min_flora_density = 0.0f, max_flora_density = 1.0f;
     float min_latitude = -1.0f, max_latitude = 1.0f;
+    float min_drainage = 0.0f, max_drainage = 1.0f;
+    float min_slope = 0.0f, max_slope = 1.0f;
+    float min_rain_shadow = 0.0f, max_rain_shadow = 1.0f;
+    float min_continentalness = 0.0f, max_continentalness = 1.0f;
     // Structure ranges
     float min_ridge_strength = 0.0f, max_ridge_strength = 1.0f;
     float min_river_strength = 0.0f, max_river_strength = 1.0f;
@@ -39,6 +43,10 @@ struct BiomeDef {
     float ruggedness_weight = 1.0f;
     float flora_density_weight = 0.6f;
     float latitude_weight = 0.6f;
+    float drainage_weight = 0.0f;
+    float slope_weight = 0.0f;
+    float rain_shadow_weight = 0.0f;
+    float continentalness_weight = 0.0f;
     // Structure weights
     float ridge_strength_weight = 1.0f;
     float river_strength_weight = 1.0f;

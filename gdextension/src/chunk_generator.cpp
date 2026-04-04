@@ -202,6 +202,14 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
         def.max_flora_density = (float)(double)bd.get("max_flora_density", 1.0);
         def.min_latitude = (float)(double)bd.get("min_latitude", -1.0);
         def.max_latitude = (float)(double)bd.get("max_latitude", 1.0);
+        def.min_drainage = (float)(double)bd.get("min_drainage", 0.0);
+        def.max_drainage = (float)(double)bd.get("max_drainage", 1.0);
+        def.min_slope = (float)(double)bd.get("min_slope", 0.0);
+        def.max_slope = (float)(double)bd.get("max_slope", 1.0);
+        def.min_rain_shadow = (float)(double)bd.get("min_rain_shadow", 0.0);
+        def.max_rain_shadow = (float)(double)bd.get("max_rain_shadow", 1.0);
+        def.min_continentalness = (float)(double)bd.get("min_continentalness", 0.0);
+        def.max_continentalness = (float)(double)bd.get("max_continentalness", 1.0);
         // Structure ranges
         def.min_ridge_strength = (float)(double)bd.get("min_ridge_strength", 0.0);
         def.max_ridge_strength = (float)(double)bd.get("max_ridge_strength", 1.0);
@@ -216,6 +224,10 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
         def.ruggedness_weight = (float)(double)bd.get("ruggedness_weight", 1.0);
         def.flora_density_weight = (float)(double)bd.get("flora_density_weight", 0.6);
         def.latitude_weight = (float)(double)bd.get("latitude_weight", 0.6);
+        def.drainage_weight = (float)(double)bd.get("drainage_weight", 0.0);
+        def.slope_weight = (float)(double)bd.get("slope_weight", 0.0);
+        def.rain_shadow_weight = (float)(double)bd.get("rain_shadow_weight", 0.0);
+        def.continentalness_weight = (float)(double)bd.get("continentalness_weight", 0.0);
         // Structure weights
         def.ridge_strength_weight = (float)(double)bd.get("ridge_strength_weight", 1.0);
         def.river_strength_weight = (float)(double)bd.get("river_strength_weight", 1.0);

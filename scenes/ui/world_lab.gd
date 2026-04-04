@@ -23,6 +23,9 @@ const TERRAIN_COLORS: Dictionary = {
 enum MapMode {
 	TERRAIN,
 	BIOME,
+	DRAINAGE,
+	RIDGES,
+	CLIMATE,
 }
 
 class WorldLabSampler:
@@ -57,6 +60,16 @@ class WorldLabSampler:
 				return native_tile
 		return _sample_tile_gdscript(tile_pos)
 
+	func sample_prepass_channels(tile_pos: Vector2i) -> WorldPrePassChannels:
+		if _world_context == null:
+			return WorldPrePassChannels.new()
+		return _world_context.sample_prepass_channels(tile_pos)
+
+	func sample_prepass_value(channel: StringName, tile_pos: Vector2i) -> float:
+		if _world_pre_pass == null:
+			return 0.0
+		return _world_pre_pass.sample(channel, tile_pos)
+
 	func _build_native_generator(request: Dictionary) -> void:
 		if _balance == null or not bool(request.get("use_native", false)):
 			return
@@ -86,8 +99,7 @@ class WorldLabSampler:
 		planet_sampler.initialize(_seed_value, _balance)
 		_world_pre_pass = WorldPrePass.new().configure(_balance, planet_sampler).compute()
 
-		var structure_sampler := LargeStructureSampler.new()
-		structure_sampler.initialize(_seed_value, _balance)
+		var structure_sampler: LargeStructureSampler = null
 
 		var biome_resolver := BiomeResolver.new()
 		biome_resolver.configure(all_biomes)
@@ -186,6 +198,9 @@ var _legend_entries_box: VBoxContainer = null
 var _generation_id: int = 0
 var _terrain_image: Image = null
 var _biome_image: Image = null
+var _drainage_image: Image = null
+var _ridges_image: Image = null
+var _climate_image: Image = null
 var _current_seed: int = 0
 var _current_preview_size: Vector2i = Vector2i.ZERO
 var _current_sample_step: int = 1
@@ -193,10 +208,58 @@ var _current_world_size: Vector2i = Vector2i.ZERO
 var _current_world_origin: Vector2i = Vector2i.ZERO
 var _hover_source_pixel: Vector2i = Vector2i(-1, -1)
 
+static func _is_worker_generation_current(owner_ref: WeakRef, gen_id: int) -> bool:
+	var owner: WorldLab = owner_ref.get_ref() as WorldLab
+	return owner != null and owner._generation_id == gen_id
+
+static func _defer_worker_failed(owner_ref: WeakRef, gen_id: int, seed_value: int) -> void:
+	var owner: WorldLab = owner_ref.get_ref() as WorldLab
+	if owner != null:
+		owner.call_deferred("_on_worker_failed", gen_id, seed_value)
+
+static func _defer_worker_progress(owner_ref: WeakRef, gen_id: int, seed_value: int, completed_rows: int, total_rows: int) -> void:
+	var owner: WorldLab = owner_ref.get_ref() as WorldLab
+	if owner != null:
+		owner.call_deferred("_on_worker_progress", gen_id, seed_value, completed_rows, total_rows)
+
+static func _defer_worker_done(
+	owner_ref: WeakRef,
+	gen_id: int,
+	seed_value: int,
+	terrain_img: Image,
+	biome_img: Image,
+	drainage_img: Image,
+	ridges_img: Image,
+	climate_img: Image,
+	preview_size: Vector2i,
+	step: int,
+	world_size: Vector2i,
+	world_origin: Vector2i
+) -> void:
+	var owner: WorldLab = owner_ref.get_ref() as WorldLab
+	if owner != null:
+		owner.call_deferred(
+			"_on_worker_done",
+			gen_id,
+			seed_value,
+			terrain_img,
+			biome_img,
+			drainage_img,
+			ridges_img,
+			climate_img,
+			preview_size,
+			step,
+			world_size,
+			world_origin
+		)
+
 func _ready() -> void:
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	mouse_filter = MOUSE_FILTER_STOP
 	_build_ui()
+
+func _exit_tree() -> void:
+	_generation_id += 1
 
 func _build_ui() -> void:
 	var bg := ColorRect.new()
@@ -238,6 +301,9 @@ func _build_ui() -> void:
 	_mode_option = OptionButton.new()
 	_mode_option.add_item("Terrain", MapMode.TERRAIN)
 	_mode_option.add_item("Biome", MapMode.BIOME)
+	_mode_option.add_item("Drainage", MapMode.DRAINAGE)
+	_mode_option.add_item("Ridges", MapMode.RIDGES)
+	_mode_option.add_item("Climate", MapMode.CLIMATE)
 	_mode_option.selected = MapMode.TERRAIN
 	_mode_option.item_selected.connect(_on_mode_changed)
 	top_bar.add_child(_mode_option)
@@ -376,6 +442,9 @@ func _on_generate_pressed() -> void:
 	_cancel_button.disabled = false
 	_terrain_image = null
 	_biome_image = null
+	_drainage_image = null
+	_ridges_image = null
+	_climate_image = null
 	_hover_source_pixel = Vector2i(-1, -1)
 	_preview_texture_rect.texture = null
 	_detail_texture_rect.texture = null
@@ -384,7 +453,7 @@ func _on_generate_pressed() -> void:
 	_detail_meta.text = "Generating inspect view..."
 	_status_label.text = "Generating seed %d..." % seed_value
 	var gen_id: int = _generation_id
-	WorkerThreadPool.add_task(_worker_generate.bind(request, gen_id))
+	WorkerThreadPool.add_task(Callable(WorldLab, "_worker_generate").bind(request, gen_id, weakref(self)))
 
 func _on_cancel_pressed() -> void:
 	_generation_id += 1
@@ -398,46 +467,64 @@ func _on_back_pressed() -> void:
 	_generation_id += 1
 	get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
 
-func _worker_generate(request: Dictionary, gen_id: int) -> void:
-	if gen_id != _generation_id:
+static func _worker_generate(request: Dictionary, gen_id: int, owner_ref: WeakRef) -> void:
+	if not WorldLab._is_worker_generation_current(owner_ref, gen_id):
 		return
 	var sampler := WorldLabSampler.new().configure(request)
 	var wrap_width: int = int(request.get("wrap_width", 0))
 	var lat_span: int = int(request.get("lat_span", 0))
 	var start_y: int = int(request.get("start_y", 0))
 	var seed_value: int = int(request.get("seed", 0))
-	var preview_layout: Dictionary = _compute_preview_layout(wrap_width, lat_span)
+	var preview_layout: Dictionary = WorldLab._compute_preview_layout(wrap_width, lat_span)
 	var preview_w: int = int(preview_layout.get("preview_w", 0))
 	var preview_h: int = int(preview_layout.get("preview_h", 0))
 	var step: int = int(preview_layout.get("step", 1))
 	if preview_w <= 0 or preview_h <= 0:
-		call_deferred("_on_worker_failed", gen_id, seed_value)
+		WorldLab._defer_worker_failed(owner_ref, gen_id, seed_value)
 		return
 
 	var terrain_img := Image.create(preview_w, preview_h, false, Image.FORMAT_RGB8)
 	var biome_img := Image.create(preview_w, preview_h, false, Image.FORMAT_RGB8)
+	var drainage_img := Image.create(preview_w, preview_h, false, Image.FORMAT_RGB8)
+	var ridges_img := Image.create(preview_w, preview_h, false, Image.FORMAT_RGB8)
+	var climate_img := Image.create(preview_w, preview_h, false, Image.FORMAT_RGB8)
 	var biome_colors: Array = request.get("biome_colors", [])
 
 	for py: int in range(preview_h):
-		if gen_id != _generation_id:
+		if not WorldLab._is_worker_generation_current(owner_ref, gen_id):
 			return
 		var wy: int = mini(start_y + py * step, start_y + lat_span - 1)
 		for px: int in range(preview_w):
 			var wx: int = mini(px * step, wrap_width - 1)
-			var tile_data: Dictionary = sampler.sample_tile(Vector2i(wx, wy))
+			var tile_pos := Vector2i(wx, wy)
+			var tile_data: Dictionary = sampler.sample_tile(tile_pos)
 			var terrain_type: int = int(tile_data.get("terrain", 0))
 			var biome_idx: int = int(tile_data.get("biome", 0))
-			terrain_img.set_pixel(px, py, TERRAIN_COLORS.get(terrain_type, Color(0.2, 0.2, 0.2)))
-			biome_img.set_pixel(px, py, _resolve_biome_preview_color(biome_colors, biome_idx))
-		if (py + 1) % PROGRESS_ROW_BATCH == 0 or py == preview_h - 1:
-			call_deferred("_on_worker_progress", gen_id, seed_value, py + 1, preview_h)
+			var prepass_channels: WorldPrePassChannels = sampler.sample_prepass_channels(tile_pos)
+			var floodplain_strength: float = sampler.sample_prepass_value(WorldPrePass.FLOODPLAIN_STRENGTH_CHANNEL, tile_pos)
+			var river_distance: float = sampler.sample_prepass_value(WorldPrePass.RIVER_DISTANCE_CHANNEL, tile_pos)
+			var river_width: float = sampler.sample_prepass_value(WorldPrePass.RIVER_WIDTH_CHANNEL, tile_pos)
+			var ridge_strength: float = sampler.sample_prepass_value(WorldPrePass.RIDGE_STRENGTH_CHANNEL, tile_pos)
+			var mountain_mass: float = sampler.sample_prepass_value(WorldPrePass.MOUNTAIN_MASS_CHANNEL, tile_pos)
+			terrain_img.set_pixel(px, py, WorldLab.TERRAIN_COLORS.get(terrain_type, Color(0.2, 0.2, 0.2)))
+			biome_img.set_pixel(px, py, WorldLab._resolve_biome_preview_color(biome_colors, biome_idx))
+			drainage_img.set_pixel(px, py, WorldLab._resolve_drainage_preview_color(prepass_channels.drainage, floodplain_strength, river_distance, river_width))
+			ridges_img.set_pixel(px, py, WorldLab._resolve_ridges_preview_color(ridge_strength, mountain_mass, prepass_channels.slope))
+			climate_img.set_pixel(px, py, WorldLab._resolve_climate_preview_color(prepass_channels.rain_shadow, prepass_channels.continentalness))
+		if (py + 1) % WorldLab.PROGRESS_ROW_BATCH == 0 or py == preview_h - 1:
+			WorldLab._defer_worker_progress(owner_ref, gen_id, seed_value, py + 1, preview_h)
 
-	call_deferred(
-		"_on_worker_done",
+	if not WorldLab._is_worker_generation_current(owner_ref, gen_id):
+		return
+	WorldLab._defer_worker_done(
+		owner_ref,
 		gen_id,
 		seed_value,
 		terrain_img,
 		biome_img,
+		drainage_img,
+		ridges_img,
+		climate_img,
 		Vector2i(preview_w, preview_h),
 		step,
 		Vector2i(wrap_width, lat_span),
@@ -463,6 +550,9 @@ func _on_worker_done(
 	seed_value: int,
 	terrain_img: Image,
 	biome_img: Image,
+	drainage_img: Image,
+	ridges_img: Image,
+	climate_img: Image,
 	preview_size: Vector2i,
 	step: int,
 	world_size: Vector2i,
@@ -472,6 +562,9 @@ func _on_worker_done(
 		return
 	_terrain_image = terrain_img
 	_biome_image = biome_img
+	_drainage_image = drainage_img
+	_ridges_image = ridges_img
+	_climate_image = climate_img
 	_current_seed = seed_value
 	_current_preview_size = preview_size
 	_current_sample_step = step
@@ -507,10 +600,16 @@ func _current_mode_name() -> String:
 	match selected_mode:
 		MapMode.BIOME:
 			return "Biome"
+		MapMode.DRAINAGE:
+			return "Drainage"
+		MapMode.RIDGES:
+			return "Ridges"
+		MapMode.CLIMATE:
+			return "Climate"
 		_:
 			return "Terrain"
 
-func _compute_preview_layout(wrap_width: int, lat_span: int) -> Dictionary:
+static func _compute_preview_layout(wrap_width: int, lat_span: int) -> Dictionary:
 	if wrap_width <= 0 or lat_span <= 0:
 		return {
 			"step": 1,
@@ -548,7 +647,8 @@ func _build_generation_request(seed_value: int) -> Dictionary:
 		"palette_order": BiomeRegistry.get_palette_order(),
 		"biome_colors": _build_biome_preview_colors(),
 		"default_biome": BiomeRegistry.get_default_biome(),
-		"use_native": balance.use_native_chunk_generation,
+		# Keep proof on the constructive GDScript path until native parity lands.
+		"use_native": false,
 		"native_params": _build_generator_params(balance),
 	}
 
@@ -559,12 +659,39 @@ func _build_biome_preview_colors() -> Array[Color]:
 		colors.append(biome.ground_color if biome else Color(0.22, 0.18, 0.12))
 	return colors
 
-func _resolve_biome_preview_color(biome_colors: Array, biome_idx: int) -> Color:
+static func _resolve_biome_preview_color(biome_colors: Array, biome_idx: int) -> Color:
 	if biome_idx >= 0 and biome_idx < biome_colors.size():
 		var color_value: Variant = biome_colors[biome_idx]
 		if color_value is Color:
 			return color_value
 	return Color(0.22, 0.18, 0.12)
+
+static func _resolve_drainage_preview_color(drainage: float, floodplain_strength: float, river_distance: float, river_width: float) -> Color:
+	var basin_strength: float = clampf(drainage, 0.0, 1.0)
+	var floodplain: float = clampf(floodplain_strength, 0.0, 1.0)
+	var river_proximity: float = clampf(1.0 / (1.0 + maxf(0.0, river_distance) * 0.12), 0.0, 1.0)
+	var width_glow: float = clampf(river_width / 8.0, 0.0, 1.0)
+	var base := Color(0.07, 0.08, 0.10)
+	var basin_color: Color = base.lerp(Color(0.12, 0.34, 0.28), basin_strength)
+	var floodplain_color: Color = basin_color.lerp(Color(0.58, 0.73, 0.38), floodplain * 0.70)
+	return floodplain_color.lerp(Color(0.17, 0.74, 0.88), maxf(river_proximity, width_glow) * 0.90)
+
+static func _resolve_ridges_preview_color(ridge_strength: float, mountain_mass: float, slope: float) -> Color:
+	var ridge: float = clampf(ridge_strength, 0.0, 1.0)
+	var mass: float = clampf(mountain_mass, 0.0, 1.0)
+	var slope_strength: float = clampf(slope, 0.0, 1.0)
+	var base := Color(0.08, 0.08, 0.10).lerp(Color(0.20, 0.16, 0.12), slope_strength * 0.50)
+	var ridge_color: Color = base.lerp(Color(0.76, 0.54, 0.24), ridge)
+	return ridge_color.lerp(Color(0.95, 0.90, 0.78), mass * 0.78)
+
+static func _resolve_climate_preview_color(rain_shadow: float, continentalness: float) -> Color:
+	var shadow: float = clampf(rain_shadow, 0.0, 1.0)
+	var inland: float = clampf(continentalness, 0.0, 1.0)
+	var maritime: float = 1.0 - inland
+	var moist: float = 1.0 - shadow
+	var base := Color(0.10, 0.18, 0.26).lerp(Color(0.52, 0.32, 0.20), inland)
+	var moisture_color: Color = base.lerp(Color(0.22, 0.60, 0.48), moist * 0.65)
+	return moisture_color.lerp(Color(0.78, 0.48, 0.24), shadow * (0.45 + inland * 0.35)).lerp(Color(0.24, 0.48, 0.70), maritime * 0.25)
 
 func _get_selected_mode() -> int:
 	return _mode_option.get_item_id(_mode_option.selected) if _mode_option != null else MapMode.TERRAIN
@@ -573,6 +700,12 @@ func _get_current_source_image() -> Image:
 	match _get_selected_mode():
 		MapMode.BIOME:
 			return _biome_image
+		MapMode.DRAINAGE:
+			return _drainage_image
+		MapMode.RIDGES:
+			return _ridges_image
+		MapMode.CLIMATE:
+			return _climate_image
 		_:
 			return _terrain_image
 
@@ -606,6 +739,24 @@ func _legend_entries_for_mode(mode: int) -> Array[Dictionary]:
 			return [
 				{"label": "Biome colors come from each biome ground palette.", "color": Color(0.44, 0.55, 0.33)},
 				{"label": "Use Inspect to zoom the sampled biome mosaic.", "color": Color(0.22, 0.28, 0.20)},
+			]
+		MapMode.DRAINAGE:
+			return [
+				{"label": "Dark = dry basins or far from rivers.", "color": Color(0.07, 0.08, 0.10)},
+				{"label": "Green-yellow = floodplain reach around river corridors.", "color": Color(0.58, 0.73, 0.38)},
+				{"label": "Cyan = river core / strongest drainage concentration.", "color": Color(0.17, 0.74, 0.88)},
+			]
+		MapMode.RIDGES:
+			return [
+				{"label": "Dark = low relief.", "color": Color(0.08, 0.08, 0.10)},
+				{"label": "Amber = ridge families / spine intensity.", "color": Color(0.76, 0.54, 0.24)},
+				{"label": "Pale = heaviest mountain mass.", "color": Color(0.95, 0.90, 0.78)},
+			]
+		MapMode.CLIMATE:
+			return [
+				{"label": "Blue = maritime / coast-facing climate.", "color": Color(0.24, 0.48, 0.70)},
+				{"label": "Green = wetter macro-regions.", "color": Color(0.22, 0.60, 0.48)},
+				{"label": "Orange = inland dry-side / rain-shadow pressure.", "color": Color(0.78, 0.48, 0.24)},
 			]
 		_:
 			return [
@@ -770,6 +921,14 @@ func _build_generator_params(balance: WorldGenBalance) -> Dictionary:
 			"max_flora_density": biome.max_flora_density,
 			"min_latitude": biome.min_latitude,
 			"max_latitude": biome.max_latitude,
+			"min_drainage": biome.min_drainage,
+			"max_drainage": biome.max_drainage,
+			"min_slope": biome.min_slope,
+			"max_slope": biome.max_slope,
+			"min_rain_shadow": biome.min_rain_shadow,
+			"max_rain_shadow": biome.max_rain_shadow,
+			"min_continentalness": biome.min_continentalness,
+			"max_continentalness": biome.max_continentalness,
 			"min_ridge_strength": biome.min_ridge_strength,
 			"max_ridge_strength": biome.max_ridge_strength,
 			"min_river_strength": biome.min_river_strength,
@@ -782,6 +941,10 @@ func _build_generator_params(balance: WorldGenBalance) -> Dictionary:
 			"ruggedness_weight": biome.ruggedness_weight,
 			"flora_density_weight": biome.flora_density_weight,
 			"latitude_weight": biome.latitude_weight,
+			"drainage_weight": biome.drainage_weight,
+			"slope_weight": biome.slope_weight,
+			"rain_shadow_weight": biome.rain_shadow_weight,
+			"continentalness_weight": biome.continentalness_weight,
 			"ridge_strength_weight": biome.ridge_strength_weight,
 			"river_strength_weight": biome.river_strength_weight,
 			"floodplain_strength_weight": biome.floodplain_strength_weight,

@@ -615,9 +615,19 @@ related_docs:
 - Гарантии: generator-side surface base terrain semantics only.
 - Пример вызова: `var tile_data: TileGenData = WorldGenerator.build_tile_data(tile_pos)`
 
+`WorldComputeContext.sample_prepass_channels(world_pos: Vector2i) -> WorldPrePassChannels`
+- Когда вызывать: когда runtime/tooling consumer уже держит `WorldComputeContext` и ему нужен safe typed sample причинных pre-pass каналов без прямой работы со строковыми channel id.
+- Что делает: canonicalizes tile и возвращает lightweight container с normalized `drainage`, `slope`, `rain_shadow`, и `continentalness`.
+- Гарантии: safe facade над опубликованным `WorldPrePass`; при отсутствии pre-pass reference возвращает нулевой container вместо crash.
+
+`WorldComputeContext.sample_structure_context(world_pos: Vector2i, channels: WorldChannels = null) -> WorldStructureContext`
+- Когда вызывать: когда runtime/tooling consumer уже держит `WorldComputeContext` и ему нужен тот же structural context, который читает текущий GDScript world runtime.
+- Что делает: canonicalizes tile и собирает `WorldStructureContext` из опубликованного `WorldPrePass`: `ridge_strength`, `mountain_mass`, `floodplain_strength`, `river_distance`, `river_width`; `river_strength` derives from river-width / river-distance metrics instead of legacy band/noise sampling. Legacy `channels` parameter retained only for consumer compatibility.
+- Гарантии: sanctioned structure-truth sampler for GDScript runtime. Не вызывает legacy band/noise structure sampling; при отсутствии pre-pass reference возвращает нулевой context вместо альтернативной "второй правды".
+
 `WorldPrePass.sample(channel: StringName, world_pos: Vector2i) -> float`
 - Когда вызывать: когда owner-side generator consumer уже держит опубликованный `WorldPrePass` reference и нужен интерполированный coarse-grid канал по мировым координатам.
-- Что делает: читает normalized pre-pass channel (`height`, `drainage`, `ridge_strength`, `mountain_mass`, `slope`, `rain_shadow`, `continentalness`) seam-safe по X-wrap и clamp-safe по latitude band.
+- Что делает: читает curated pre-pass channel (`height`, `drainage`, `river_width`, `river_distance`, `floodplain_strength`, `ridge_strength`, `mountain_mass`, `slope`, `rain_shadow`, `continentalness`) seam-safe по X-wrap и clamp-safe по latitude band.
 - Гарантии: read-only API над опубликованным pre-pass snapshot; не публикует raw mutable grid access и не триггерит recompute.
 
 `WorldPrePass.get_grid_value(channel: StringName, grid_x: int, grid_y: int) -> float`

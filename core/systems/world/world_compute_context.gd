@@ -59,9 +59,30 @@ func sample_world_channels(world_pos: Vector2i) -> WorldChannels:
 	return _planet_sampler.sample_world_channels(world_pos)
 
 func sample_structure_context(world_pos: Vector2i, channels: WorldChannels = null) -> WorldStructureContext:
-	if _structure_sampler == null:
-		return null
-	return _structure_sampler.sample_structure_context(world_pos, channels)
+	var sampled := WorldStructureContext.new()
+	sampled.world_pos = world_pos
+	sampled.canonical_world_pos = canonicalize_tile(world_pos)
+	if _world_pre_pass == null or not _world_pre_pass.has_method("sample"):
+		return sampled.clamp_fields()
+	sampled.ridge_strength = _sample_prepass_value(WorldPrePass.RIDGE_STRENGTH_CHANNEL, sampled.canonical_world_pos)
+	sampled.mountain_mass = _sample_prepass_value(WorldPrePass.MOUNTAIN_MASS_CHANNEL, sampled.canonical_world_pos)
+	sampled.floodplain_strength = _sample_prepass_value(WorldPrePass.FLOODPLAIN_STRENGTH_CHANNEL, sampled.canonical_world_pos)
+	sampled.river_distance = _sample_prepass_value(WorldPrePass.RIVER_DISTANCE_CHANNEL, sampled.canonical_world_pos)
+	sampled.river_width = _sample_prepass_value(WorldPrePass.RIVER_WIDTH_CHANNEL, sampled.canonical_world_pos)
+	sampled.river_strength = _derive_river_strength_from_prepass(sampled.river_width, sampled.river_distance)
+	return sampled.clamp_fields()
+
+func sample_prepass_channels(world_pos: Vector2i) -> WorldPrePassChannels:
+	var sampled := WorldPrePassChannels.new()
+	sampled.world_pos = world_pos
+	sampled.canonical_world_pos = canonicalize_tile(world_pos)
+	if _world_pre_pass == null or not _world_pre_pass.has_method("sample"):
+		return sampled
+	sampled.drainage = _sample_prepass_value(WorldPrePass.DRAINAGE_CHANNEL, sampled.canonical_world_pos)
+	sampled.slope = _sample_prepass_value(WorldPrePass.SLOPE_CHANNEL, sampled.canonical_world_pos)
+	sampled.rain_shadow = _sample_prepass_value(WorldPrePass.RAIN_SHADOW_CHANNEL, sampled.canonical_world_pos)
+	sampled.continentalness = _sample_prepass_value(WorldPrePass.CONTINENTALNESS_CHANNEL, sampled.canonical_world_pos)
+	return sampled.clamp_fields()
 
 func sample_local_variation(
 	world_pos: Vector2i,
@@ -258,3 +279,14 @@ func _resolve_default_biome() -> BiomeData:
 	if current_biome:
 		return current_biome
 	return _default_biome
+
+func _sample_prepass_value(channel: StringName, canonical_world_pos: Vector2i) -> float:
+	if _world_pre_pass == null or not _world_pre_pass.has_method("sample"):
+		return 0.0
+	return float(_world_pre_pass.call("sample", channel, canonical_world_pos))
+
+func _derive_river_strength_from_prepass(river_width: float, river_distance: float) -> float:
+	var width_strength: float = clampf((maxf(0.0, river_width) + 1.0) / 6.0, 0.0, 1.0)
+	if river_distance <= 0.001 and river_width > 0.0:
+		return maxf(width_strength, 0.55)
+	return width_strength
