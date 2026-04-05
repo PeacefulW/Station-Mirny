@@ -59,6 +59,13 @@ var _chunk_content_builder: ChunkContentBuilder = null
 var _native_chunk_generator: RefCounted = null
 var _chunk_biome_cache: Dictionary = {}
 var _feature_and_poi_payload_cache: FeatureAndPoiPayloadCache = FeatureAndPoiPayloadCache.new()
+var _pending_init_generation: int = 0
+var _pending_init_task_id: int = -1
+var _pending_init_seed: int = 0
+var _pending_init_started_usec: int = 0
+var _pending_init_balance: WorldGenBalance = null
+var _pending_init_result_mutex: Mutex = Mutex.new()
+var _pending_init_result: Dictionary = {}
 
 func _ready() -> void:
 	_base_balance = load(BALANCE_PATH) as WorldGenBalance
@@ -69,64 +76,81 @@ func _ready() -> void:
 	current_biome = BiomeRegistry.get_default_biome()
 
 func _exit_tree() -> void:
-	_chunk_biome_cache.clear()
+	_clear_pending_world_initialization_state(true)
 	_feature_and_poi_payload_cache.clear()
-	_chunk_content_builder = null
-	_surface_terrain_resolver = null
-	_compute_context = null
-	_local_variation_resolver = null
-	_biome_resolver = null
-	_planet_sampler = null
-	_world_pre_pass = null
+	_clear_initialized_runtime_state()
 
 func initialize_world(seed_value: int) -> void:
 	var init_started_usec: int = WorldPerfProbe.begin()
-	if not _ensure_world_feature_registry_ready():
-		_clear_initialized_runtime_state()
+	if not begin_initialize_world_async(seed_value):
+		WorldPerfProbe.end("WorldGenerator.initialize_world", init_started_usec)
 		return
-	_feature_and_poi_payload_cache.clear()
-	_reset_runtime_balance()
-	world_seed = seed_value
-	var step_started_usec: int = WorldPerfProbe.begin()
-	_setup_biome_resolver()
-	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_biome_resolver", step_started_usec)
-	step_started_usec = WorldPerfProbe.begin()
-	_setup_planet_sampler()
-	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_planet_sampler", step_started_usec)
-	step_started_usec = WorldPerfProbe.begin()
-	_setup_world_pre_pass()
-	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_world_pre_pass", step_started_usec)
-	step_started_usec = WorldPerfProbe.begin()
-	_setup_local_variation_resolver()
-	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_local_variation_resolver", step_started_usec)
-	spawn_tile = canonicalize_tile(spawn_tile)
-	_chunk_biome_cache.clear()
-	current_biome = BiomeRegistry.get_default_biome()
-	step_started_usec = WorldPerfProbe.begin()
-	_setup_compute_context()
-	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_compute_context", step_started_usec)
-	step_started_usec = WorldPerfProbe.begin()
-	current_biome = get_biome_at_tile(spawn_tile)
-	WorldPerfProbe.end("WorldGenerator.initialize_world.resolve_spawn_biome", step_started_usec)
-	if _compute_context != null:
-		_compute_context.current_biome = current_biome
-	if _surface_terrain_resolver != null:
-		step_started_usec = WorldPerfProbe.begin()
-		_surface_terrain_resolver.initialize(balance, _compute_context)
-		WorldPerfProbe.end("WorldGenerator.initialize_world.reinitialize_surface_terrain_resolver", step_started_usec)
-	step_started_usec = WorldPerfProbe.begin()
-	_setup_chunk_content_builder()
-	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_chunk_content_builder", step_started_usec)
-	_is_initialized = true
-	step_started_usec = WorldPerfProbe.begin()
-	EventBus.world_initialized.emit(world_seed)
-	WorldPerfProbe.end("WorldGenerator.initialize_world.emit_world_initialized", step_started_usec)
+	_wait_for_pending_world_initialization_sync()
+	complete_pending_initialize_world()
 	WorldPerfProbe.end("WorldGenerator.initialize_world", init_started_usec)
 
 func initialize_random() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	initialize_world(rng.randi())
+
+func begin_initialize_world_async(seed_value: int) -> bool:
+	if _is_initialized and not is_initialize_world_pending() and world_seed == seed_value:
+		return true
+	if is_initialize_world_pending() and _pending_init_seed == seed_value:
+		return true
+	if not _ensure_world_feature_registry_ready():
+		_clear_pending_world_initialization_state(true)
+		_clear_initialized_runtime_state()
+		return false
+	_clear_pending_world_initialization_state(true)
+	_clear_initialized_runtime_state()
+	_feature_and_poi_payload_cache.clear()
+	_reset_runtime_balance()
+	world_seed = seed_value
+	current_biome = BiomeRegistry.get_default_biome()
+	_pending_init_seed = seed_value
+	_pending_init_started_usec = Time.get_ticks_usec()
+	_pending_init_balance = balance
+	var worker_balance: WorldGenBalance = _duplicate_runtime_balance(_pending_init_balance)
+	if worker_balance == null:
+		_clear_pending_world_initialization_state(false)
+		return false
+	var generation: int = _pending_init_generation
+	var task_id: int = WorkerThreadPool.add_task(
+		_worker_compute_world_pre_pass.bind(generation, seed_value, worker_balance)
+	)
+	if task_id < 0:
+		_clear_pending_world_initialization_state(false)
+		return false
+	_pending_init_task_id = task_id
+	return true
+
+func is_initialize_world_pending() -> bool:
+	return _pending_init_task_id >= 0
+
+func complete_pending_initialize_world() -> bool:
+	if _is_initialized:
+		return true
+	if not is_initialize_world_pending():
+		return false
+	if not WorkerThreadPool.is_task_completed(_pending_init_task_id):
+		return false
+	WorkerThreadPool.wait_for_task_completion(_pending_init_task_id)
+	var pre_pass_result: Dictionary = _take_pending_world_initialization_result()
+	var published_seed: int = _pending_init_seed
+	var published_balance: WorldGenBalance = _pending_init_balance
+	var pending_age_ms: float = 0.0
+	if _pending_init_started_usec > 0:
+		pending_age_ms = float(Time.get_ticks_usec() - _pending_init_started_usec) / 1000.0
+	_clear_pending_world_initialization_state(false)
+	if pre_pass_result.is_empty():
+		push_error("WorldGenerator async pre-pass completed without a publishable result")
+		return false
+	_publish_initialized_runtime_state(published_seed, published_balance, pre_pass_result)
+	if pending_age_ms > 0.0:
+		WorldPerfProbe.record("WorldGenerator.complete_pending_initialize_world.pending_age_ms", pending_age_ms)
+	return _is_initialized
 
 func get_tile_data(tile_x: int, tile_y: int) -> TileGenData:
 	return build_tile_data(Vector2i(tile_x, tile_y))
@@ -409,6 +433,38 @@ func _setup_local_variation_resolver() -> void:
 	_local_variation_resolver = LocalVariationResolver.new()
 	_local_variation_resolver.initialize(world_seed, balance)
 
+func _wait_for_pending_world_initialization_sync() -> void:
+	if not is_initialize_world_pending():
+		return
+	WorkerThreadPool.wait_for_task_completion(_pending_init_task_id)
+
+func _worker_compute_world_pre_pass(
+	generation: int,
+	seed_value: int,
+	worker_balance: WorldGenBalance
+) -> void:
+	var worker_planet_sampler_usec: int = Time.get_ticks_usec()
+	var worker_planet_sampler: PlanetSampler = PlanetSampler.new()
+	worker_planet_sampler.initialize(seed_value, worker_balance)
+	var worker_planet_sampler_ms: float = float(Time.get_ticks_usec() - worker_planet_sampler_usec) / 1000.0
+	var configure_usec: int = Time.get_ticks_usec()
+	var pre_pass: WorldPrePass = WorldPrePassScript.new().configure(worker_balance, worker_planet_sampler)
+	var configure_ms: float = float(Time.get_ticks_usec() - configure_usec) / 1000.0
+	var compute_usec: int = Time.get_ticks_usec()
+	pre_pass = pre_pass.compute()
+	var compute_ms: float = float(Time.get_ticks_usec() - compute_usec) / 1000.0
+	_pending_init_result_mutex.lock()
+	if generation == _pending_init_generation:
+		_pending_init_result = {
+			"generation": generation,
+			"worker_planet_sampler_ms": worker_planet_sampler_ms,
+			"configure_ms": configure_ms,
+			"compute_ms": compute_ms,
+			"setup_world_pre_pass_ms": configure_ms + compute_ms,
+			"world_pre_pass": pre_pass,
+		}
+	_pending_init_result_mutex.unlock()
+
 func _setup_world_pre_pass() -> void:
 	var configure_usec: int = WorldPerfProbe.begin()
 	var pre_pass: WorldPrePass = WorldPrePassScript.new().configure(balance, _planet_sampler)
@@ -416,6 +472,24 @@ func _setup_world_pre_pass() -> void:
 	var compute_usec: int = WorldPerfProbe.begin()
 	_world_pre_pass = pre_pass.compute()
 	WorldPerfProbe.end("WorldGenerator._setup_world_pre_pass.compute", compute_usec)
+
+func _take_pending_world_initialization_result() -> Dictionary:
+	_pending_init_result_mutex.lock()
+	var result: Dictionary = _pending_init_result
+	_pending_init_result = {}
+	_pending_init_result_mutex.unlock()
+	return result
+
+func _clear_pending_world_initialization_state(invalidate_generation: bool) -> void:
+	_pending_init_result_mutex.lock()
+	if invalidate_generation:
+		_pending_init_generation += 1
+	_pending_init_result = {}
+	_pending_init_result_mutex.unlock()
+	_pending_init_task_id = -1
+	_pending_init_seed = 0
+	_pending_init_started_usec = 0
+	_pending_init_balance = null
 
 func _reset_runtime_balance() -> void:
 	if _base_balance == null:
@@ -678,6 +752,62 @@ func _ensure_world_feature_registry_ready() -> bool:
 		assert(false, "WorldFeatureRegistry must be ready before world initialization")
 		return false
 	return true
+
+func _publish_initialized_runtime_state(
+	seed_value: int,
+	balance_snapshot: WorldGenBalance,
+	pre_pass_result: Dictionary
+) -> void:
+	var published_pre_pass: RefCounted = pre_pass_result.get("world_pre_pass", null) as RefCounted
+	if published_pre_pass == null:
+		push_error("WorldGenerator publish step requires a computed WorldPrePass result")
+		return
+	world_seed = seed_value
+	balance = balance_snapshot if balance_snapshot != null else _duplicate_runtime_balance(_base_balance)
+	var step_started_usec: int = WorldPerfProbe.begin()
+	_setup_biome_resolver()
+	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_biome_resolver", step_started_usec)
+	step_started_usec = WorldPerfProbe.begin()
+	_setup_planet_sampler()
+	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_planet_sampler", step_started_usec)
+	var worker_planet_sampler_ms: float = float(pre_pass_result.get("worker_planet_sampler_ms", 0.0))
+	if worker_planet_sampler_ms > 0.0:
+		WorldPerfProbe.record("WorldGenerator._setup_world_pre_pass.worker_planet_sampler", worker_planet_sampler_ms)
+	var configure_ms: float = float(pre_pass_result.get("configure_ms", 0.0))
+	if configure_ms > 0.0:
+		WorldPerfProbe.record("WorldGenerator._setup_world_pre_pass.configure", configure_ms)
+	var compute_ms: float = float(pre_pass_result.get("compute_ms", 0.0))
+	if compute_ms > 0.0:
+		WorldPerfProbe.record("WorldGenerator._setup_world_pre_pass.compute", compute_ms)
+	var setup_world_pre_pass_ms: float = float(pre_pass_result.get("setup_world_pre_pass_ms", 0.0))
+	if setup_world_pre_pass_ms > 0.0:
+		WorldPerfProbe.record("WorldGenerator.initialize_world.setup_world_pre_pass", setup_world_pre_pass_ms)
+	_world_pre_pass = published_pre_pass
+	step_started_usec = WorldPerfProbe.begin()
+	_setup_local_variation_resolver()
+	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_local_variation_resolver", step_started_usec)
+	spawn_tile = canonicalize_tile(spawn_tile)
+	_chunk_biome_cache.clear()
+	current_biome = BiomeRegistry.get_default_biome()
+	step_started_usec = WorldPerfProbe.begin()
+	_setup_compute_context()
+	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_compute_context", step_started_usec)
+	step_started_usec = WorldPerfProbe.begin()
+	current_biome = get_biome_at_tile(spawn_tile)
+	WorldPerfProbe.end("WorldGenerator.initialize_world.resolve_spawn_biome", step_started_usec)
+	if _compute_context != null:
+		_compute_context.current_biome = current_biome
+	if _surface_terrain_resolver != null:
+		step_started_usec = WorldPerfProbe.begin()
+		_surface_terrain_resolver.initialize(balance, _compute_context)
+		WorldPerfProbe.end("WorldGenerator.initialize_world.reinitialize_surface_terrain_resolver", step_started_usec)
+	step_started_usec = WorldPerfProbe.begin()
+	_setup_chunk_content_builder()
+	WorldPerfProbe.end("WorldGenerator.initialize_world.setup_chunk_content_builder", step_started_usec)
+	_is_initialized = true
+	step_started_usec = WorldPerfProbe.begin()
+	EventBus.world_initialized.emit(world_seed)
+	WorldPerfProbe.end("WorldGenerator.initialize_world.emit_world_initialized", step_started_usec)
 
 func _clear_initialized_runtime_state() -> void:
 	_is_initialized = false

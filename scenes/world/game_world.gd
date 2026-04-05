@@ -35,6 +35,7 @@ var _feature_debug_overlay: WorldFeatureDebugOverlay = null
 var _loading_screen: LoadingScreen = null
 var _boot_complete: bool = false
 var _boot_first_playable_done: bool = false
+var _boot_player_handoff_done: bool = false
 var _boot_shadows_scheduled: bool = false
 var _boot_shadows_built: bool = false
 var _boot_shadows_scheduled_usec: int = 0
@@ -53,7 +54,8 @@ func _ready() -> void:
 
 func _finish_scene_setup_after_loading_screen() -> void:
 	await _await_loading_screen_presented()
-	WorldPerfProbe.mark_milestone("Startup.loading_screen_visible")
+	if not WorldPerfProbe.has_milestone("Startup.loading_screen_visible"):
+		WorldPerfProbe.mark_milestone("Startup.loading_screen_visible")
 	WorldPerfProbe.record_between(
 		"Startup.start_to_loading_screen_visible_ms",
 		"Startup.start_pressed",
@@ -66,7 +68,7 @@ func _finish_scene_setup_after_loading_screen() -> void:
 	_resolved_ui_layer = _resolve_ui_layer()
 	_pending_load_slot = _consume_pending_load_slot()
 	EventBus.game_over.connect(_on_game_over)
-	_init_world_generator()
+	await _init_world_generator()
 	_setup_chunk_manager()
 	_setup_mountain_roof_system()
 	_setup_command_executor()
@@ -150,12 +152,32 @@ func _init_world_generator() -> void:
 	if _player:
 		WorldGenerator.spawn_tile = WorldGenerator.world_to_tile(_player.global_position)
 	if WorldGenerator._is_initialized:
+		WorldPerfProbe.end("_init_world_generator", started_usec)
 		return
 	world_seed = _resolve_requested_world_seed()
-	if world_seed == 0:
-		WorldGenerator.initialize_random()
-	else:
-		WorldGenerator.initialize_world(world_seed)
+	if world_seed == 0 and WorldGenerator.has_method("is_initialize_world_pending") and WorldGenerator.is_initialize_world_pending():
+		world_seed = WorldGenerator.world_seed
+	var requested_seed: int = world_seed
+	if requested_seed == 0:
+		var rng := RandomNumberGenerator.new()
+		rng.randomize()
+		requested_seed = rng.randi()
+		world_seed = requested_seed
+	var begin_ok: bool = false
+	if WorldGenerator.has_method("begin_initialize_world_async") and WorldGenerator.has_method("complete_pending_initialize_world"):
+		if not WorldGenerator.is_initialize_world_pending():
+			begin_ok = WorldGenerator.begin_initialize_world_async(requested_seed)
+		else:
+			begin_ok = true
+		while WorldGenerator.is_initialize_world_pending() and not WorldGenerator.complete_pending_initialize_world():
+			await get_tree().process_frame
+	if not WorldGenerator._is_initialized:
+		if requested_seed == 0:
+			WorldGenerator.initialize_random()
+		else:
+			WorldGenerator.initialize_world(requested_seed)
+	elif not begin_ok:
+		push_warning("[GameWorld] async world initialization unavailable; used sync fallback")
 	WorldPerfProbe.end("_init_world_generator", started_usec)
 
 func _resolve_requested_world_seed() -> int:
@@ -243,9 +265,9 @@ func _run_boot_sequence() -> void:
 				if _loading_screen:
 					_loading_screen.set_progress(pct, text)
 		)
-	## first_playable reached — hand control to player immediately.
-	## Remaining boot work (shadows, outer chunks, topology) completes in background
-	## via _tick_boot_finalization() without re-blocking the player.
+	## first_playable reached — near chunk visuals are converged enough to start boot finalization.
+	## Player handoff still waits for the fully-ready boot milestone so the loading screen
+	## does not drop while shadows or startup visuals are still building on screen.
 	if _chunk_manager and _chunk_manager.is_boot_first_playable():
 		_on_boot_first_playable()
 	else:
@@ -353,12 +375,18 @@ func _on_boot_first_playable() -> void:
 		"Startup.startup_bubble_ready"
 	)
 	_canonicalize_player_world_position()
+	_boot_first_playable_done = true
+
+func _handoff_boot_to_player() -> void:
+	if _boot_player_handoff_done:
+		return
+	_canonicalize_player_world_position()
 	if _player:
 		_player.set_physics_process(true)
 		_player.set_process_input(true)
 	if TimeManager and TimeManager.has_method("set_paused"):
 		TimeManager.set_paused(false)
-	_boot_first_playable_done = true
+	_boot_player_handoff_done = true
 	if _loading_screen:
 		_loading_screen.fade_out()
 
@@ -384,12 +412,14 @@ func _tick_boot_finalization() -> void:
 				"Startup.startup_bubble_ready",
 				"Startup.boot_complete"
 			)
+			_handoff_boot_to_player()
 			if _should_quit_on_boot_complete():
 				print("[CodexValidation] boot proof complete; quitting")
 				get_tree().quit()
 
 func _finish_boot_sequence() -> void:
 	_on_boot_first_playable()
+	_handoff_boot_to_player()
 
 func _canonicalize_player_world_position() -> void:
 	if not _player or not WorldGenerator or not WorldGenerator._is_initialized:

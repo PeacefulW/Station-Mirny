@@ -57,6 +57,32 @@ Historical notes below may mention Phase 2 landmark grammar as if it were valid.
 - **Latest review**: constructive Iteration 7 grep-checked the ecotone-consumer surface (`LocalVariationResolver`, `ChunkFloraBuilder`, payload plumbing, and `WorldLab` inspect surfacing) and confirmed no canonical doc update is currently required; Iteration 5 remains the last step that changed canonical world docs.
 - **Status**: reviewed through constructive Iteration 7; Iterations 1-2 and 5 updated canonical docs, while Iterations 3-4 and 6-7 remained internal/derived/result-surface work and grep confirmed no new canonical updates were required.
 
+## 2026-04-05 Perf follow-up
+
+- Added staged world-init orchestration in `WorldGenerator`: `begin_initialize_world_async()` + `is_initialize_world_pending()` + `complete_pending_initialize_world()`.
+- Intent: stop paying the entire `WorldPrePass.compute()` cost synchronously before the `GameWorld` scene can take ownership; keep publication as one deterministic snapshot on the main-thread completion step.
+- Canonical docs updated in the same task because this introduced new sanctioned lifecycle entrypoints and changed the pre-pass publish semantics from sync-only to sync-or-staged.
+- Latest proof artifacts:
+  - `debug_exports/perf/boot_seed12345_postfix5_summary.md`
+  - `debug_exports/perf/runtime_far_loop_postfix5_seed12345_summary.md`
+- 2026-04-05 phase breakdown follow-up:
+  - `WorldPrePass.compute()` now records nested subphase timings for `lake_aware_fill`, `river_extraction`, and `continentalness`, and `tools/perf_log_summary.gd` now surfaces those timings in the sanctioned summary artifact.
+  - Latest artifact: `debug_exports/perf/boot_seed12345_postfix6_summary.md`
+  - Current hottest subphases on fixed seed `12345`: `river_extraction.distance_propagation` (`1917.15 ms`), `continentalness.distance_propagation` (`1547.13 ms`), `lake_aware_fill.priority_flood` (`1084.76 ms`), with `lake_aware_fill.extract_lake_records` (`617.73 ms`) as the next contributor.
+  - First native/worker candidate should be the shared distance/flood wavefront kernel family, starting with `river_extraction.distance_propagation`; the measured hotspot is pure-data, detached from runtime publication, and larger than the lake-record classification tail.
+- 2026-04-05 native kernel follow-up:
+  - Added `WorldPrePassKernels` GDExtension with shared pure-data kernels for wrapped distance propagation and lake priority flood, wired behind `WorldPrePass` with GDScript fallback retained.
+  - Tightened chunk publication so `Chunk.is_first_pass_ready()` no longer treats terrain-only completion as visible-ready; streamed chunks stay hidden until cover phase closes, preventing transient green terrain-only publication.
+  - Latest sanctioned boot artifact: `debug_exports/perf/boot_seed12345_postfix9_summary.md`
+  - Latest sanctioned runtime artifact: `debug_exports/perf/runtime_far_loop_postfix9_seed12345_summary.md`
+  - Fixed-seed `12345` boot proof now shows `WorldGenerator._setup_world_pre_pass.compute = 4582.27 ms` (down from `9185.35 ms` in `postfix6`), with native subphases at `river_extraction.distance_propagation = 5.03 ms`, `continentalness.distance_propagation = 5.57 ms`, and `lake_aware_fill.priority_flood = 5.13 ms`.
+  - Runtime far-loop proof on the same seed improved over the last pre-native sanctioned baseline (`postfix6`) from `avg=14.60 / p99=33.80 / hitches=20` to `avg=12.30 / p99=28.10 / hitches=12`, and `ChunkManager.try_harvest_at_world` warnings dropped out of the summary. Topology and first-pass runtime visual budget remain the next blockers.
+- Current status: the dominant `WorldPrePass` bottleneck is no longer hydrology distance propagation; the remaining boot/runtime debt is now centered on `rain_shadow`, `flow_accumulation`, `flow_directions`, boot apply > `8.0 ms`, and runtime topology / near first-pass visual catch-up.
+- 2026-04-05 publication/acceptance reset:
+  - Product requirement tightened: player-visible world handoff must not occur while chunks, flora, or shadows are still visibly building on screen.
+  - Canonical docs now reject perf-only wins when the player can still catch green/raw chunks or incomplete near-world presentation.
+  - `ChunkManager` internal `first_playable` remains a boot-finalization milestone, but `GameWorld` player handoff now waits for the fully-ready boot milestone.
+
 ## Iterations
 
 ### Constructive Iteration 1 — Curated Pre-pass Read Surface And Visual Proof

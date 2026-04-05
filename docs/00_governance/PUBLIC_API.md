@@ -193,8 +193,8 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: в boot sequence, когда initial world bubble должен быть загружен и доведён до gameplay-ready state.
-- Что делает: staged boot with bounded-parallel compute and split apply. Boot apply path only installs chunk nodes and attaches cached native/flora payloads; visual publication then goes through the budgeted chunk visual scheduler plus chunk-local `ChunkVisualState`. Startup chunks stay `visible=false` until `Chunk.is_first_pass_ready()` becomes true. Returns early once the near slice is honestly first-playable, then hands unfinished startup coords to budgeted runtime scheduling instead of forcing synchronous visual completion.
-- Гарантии: `first_playable` = ring 0..1 chunks are loaded, applied, and first-pass ready under Chebyshev distance (`max(abs(dx), abs(dy))`); topology is NOT required. `boot_complete` = all tracked startup chunks terminal (`VISUAL_COMPLETE`, meaning `Chunk.is_full_redraw_ready()`) + topology ready. After `first_playable`, no blocking wait on remaining visual/topology/shadow work is allowed; unfinished startup coords remain boot-tracked and only become terminal after real scheduler progress. Chunk visibility is gated on first-pass readiness (no green placeholder zones). Shadow edge cache build remains budgeted. См. `Boot Readiness State` и `Boot Compute Queue` layers в `DATA_CONTRACTS.md`.
+- Что делает: staged boot with bounded-parallel compute and split apply. Boot apply path only installs chunk nodes and attaches cached native/flora payloads; visual publication then goes through the budgeted chunk visual scheduler plus chunk-local `ChunkVisualState`. Fresh startup chunks stay `visible=false` until their first `Chunk.is_full_redraw_ready()` publication closes; first-pass work may still progress internally, but it no longer authorizes player-visible publication of a raw chunk. Returns after the near slice reaches the internal `first_playable` milestone, then unfinished startup coords continue through budgeted runtime scheduling and boot finalization until real completion.
+- Гарантии: `first_playable` = ring 0..1 chunks are loaded, applied, and fully converged to `Chunk.is_full_redraw_ready()` under Chebyshev distance (`max(abs(dx), abs(dy))`); topology is NOT part of the `ChunkManager` gate. `boot_complete` = all tracked startup chunks terminal (`VISUAL_COMPLETE`, meaning `Chunk.is_full_redraw_ready()`) + topology ready. Player-visible handoff must not rely on raw first-pass readiness; loading/UI handoff happens only after the full boot-ready milestone in `GameWorld` (startup chunks terminal + boot shadow work drained). Chunk visibility is gated on full publication for fresh loads, and perf wins do not count if the player can still see green/raw chunk build-up. См. `Boot Readiness State` и `Boot Compute Queue` layers в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.sync_display_to_player() -> void`
@@ -223,14 +223,14 @@ related_docs:
 - Особенности: не authoritative для unloaded reads.
 
 `Chunk.is_first_pass_ready() -> bool`
-- Что возвращает: опубликован ли chunk до first-pass visual readiness (`proxy`, `terrain`, `full-pending`, или `full-ready` state).
-- Когда использовать: boot visibility gates, staged streaming finalize, и любые owner-side проверки "можно ли уже показывать chunk игроку".
-- Особенности: это canonical read-only readiness query для near-visible publication. Заменяет boot/runtime семантику вида "terrain phase done значит можно показать".
+- Что возвращает: достиг ли chunk first-pass visual readiness (`terrain-ready`, `full-pending`, или `full-ready` state). `proxy`/native-only и terrain-only redraw этого gate не проходят.
+- Когда использовать: scheduler-owned convergence bookkeeping, follow-up `TASK_FULL_REDRAW` scheduling, и owner-side проверки "дошёл ли chunk хотя бы до cover-complete first pass".
+- Особенности: это больше не public visibility/publication contract. `first-pass` остаётся внутренним промежуточным milestone, но player-visible publication нового чанка и boot handoff должны опираться на `Chunk.is_full_redraw_ready()`.
 
 `Chunk.is_full_redraw_ready() -> bool`
 - Что возвращает: достиг ли chunk терминального full-redraw состояния (`ChunkVisualState.FULL_READY`).
-- Когда использовать: boot terminal/readiness gates и owner-side проверки, где нужен полностью сошедшийся chunk visual.
-- Особенности: это честнее, чем использовать промежуточные redraw-phase helpers; `boot_complete` теперь опирается именно на full-ready semantics. Значение может снова стать `false`, если seam/mutation/approximation инвалидирует terminal convergence и owner path ещё не закрыл owed follow-up work.
+- Когда использовать: initial chunk publication gates, boot/readiness gates, и owner-side проверки, где игрок уже может видеть chunk.
+- Особенности: это canonical publication/terminal query. Fresh chunk load не должен становиться visible раньше этого состояния; perf-оптимизация не считается принятой, если игрок всё ещё видит достройку cliff/flora/near-world presentation на глазах. Значение может снова стать `false`, если seam/mutation/approximation инвалидирует terminal convergence и owner path ещё не закрыл owed follow-up work.
 
 `Chunk.needs_full_redraw() -> bool`
 - Что возвращает: опубликован ли chunk на first-pass, но ещё ли должен дойти до canonical full redraw.
@@ -255,7 +255,7 @@ related_docs:
 `Chunk.is_terrain_phase_done() -> bool`
 - Что возвращает: прошёл ли chunk terrain фазу progressive redraw (phase > TERRAIN).
 - Когда использовать: compatibility/debug helper around the current redraw implementation.
-- Особенности: это больше не публичная семантика "chunk можно показать"; для visibility/readiness используй `Chunk.is_first_pass_ready()`.
+- Особенности: это больше не публичная семантика "chunk можно показать"; для visibility/readiness используй `Chunk.is_full_redraw_ready()`.
 
 `Chunk.get_redraw_phase_name() -> StringName`
 - Что возвращает: текущую фазу progressive redraw.
@@ -263,14 +263,14 @@ related_docs:
 - Особенности: presentation-only progress indicator.
 
 `ChunkManager.is_boot_first_playable() -> bool`
-- Что возвращает: достигнут ли `first_playable` gate — near slice ring 0..1 (Chebyshev distance, включая диагонали) честно доведена до `Chunk.is_first_pass_ready()`, без topology.
-- Когда использовать: boot progress UI, `GameWorld` boot sequence для определения момента передачи управления игроку (input, physics, loading screen dismissal).
-- Особенности: topology НЕ входит в `first_playable`. Возвращает `false` до вызова `boot_load_initial_chunks()`. Это продуктовый момент — после него игрок взаимодействует с миром, а не ждёт.
+- Что возвращает: достигнут ли internal `first_playable` gate — near slice ring 0..1 (Chebyshev distance, включая диагонали) честно доведена до `Chunk.is_full_redraw_ready()`, без topology.
+- Когда использовать: boot progress UI и `GameWorld` boot sequence как сигнал "можно запускать post-ready finalization", но не как разрешение показать игроку сырой мир.
+- Особенности: topology НЕ входит в `first_playable`. Возвращает `false` до вызова `boot_load_initial_chunks()`. Это больше не player-handoff milestone; loading screen/input/physics должны дождаться полного boot-ready handoff.
 
 `ChunkManager.is_boot_complete() -> bool`
 - Что возвращает: достигнут ли `boot_complete` gate — все startup chunks `VISUAL_COMPLETE` (full-ready) И topology ready.
-- Когда использовать: для определения полного завершения boot sequence.
-- Особенности: включает outer rings и topology. Возвращает `false` до полного завершения boot path. До финального `boot_complete` startup chunk может быть временно демoted из `VISUAL_COMPLETE` обратно в `APPLIED`, если поздняя seam/convergence invalidation снова делает его не full-ready.
+- Когда использовать: для определения chunk/topology части полного boot sequence.
+- Особенности: включает outer rings и topology. Возвращает `false` до полного завершения boot path. До финального `boot_complete` startup chunk может быть временно demoted из `VISUAL_COMPLETE` обратно в `APPLIED`, если поздняя seam/convergence invalidation снова делает его не full-ready. В `GameWorld` player-visible handoff должен дополнительно дождаться boot shadow completion.
 
 `ChunkManager.get_boot_chunk_states_snapshot() -> Dictionary`
 - Что возвращает: копию `Dictionary` { `Vector2i` -> `BootChunkState` } для всех startup chunks.
@@ -445,8 +445,8 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: когда initial chunk visuals должны быть готовы в boot sequence.
-- Что делает: loads chunks with per-chunk readiness tracking and honest post-handoff continuation. Startup visual work is scheduled through the budgeted chunk visual scheduler, compatibility redraw tasks, and chunk-local `ChunkVisualState`; chunks stay hidden until `Chunk.is_first_pass_ready()`. Unfinished startup coords after `first_playable` remain boot-tracked and continue through runtime scheduling until real completion.
-- Гарантии: canonical terrain authoritative после load; presentation строится через scheduler-owned redraw paths. Near slice first-pass readiness is mandatory for `first_playable`; full startup bubble visual completion (`Chunk.is_full_redraw_ready()`) is mandatory only for `boot_complete`. `GameWorld` uses `first_playable` as the player handoff point (input/physics/loading screen), while `boot_complete` stays a background convergence milestone. См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
+- Что делает: loads chunks with per-chunk readiness tracking and honest post-handoff continuation. Startup visual work is scheduled through the budgeted chunk visual scheduler, compatibility redraw tasks, and chunk-local `ChunkVisualState`; fresh chunks stay hidden until their first `Chunk.is_full_redraw_ready()` publication closes. Unfinished startup coords after internal `first_playable` remain boot-tracked and continue through runtime scheduling until real completion.
+- Гарантии: canonical terrain authoritative после load; presentation строится через scheduler-owned redraw paths. Near slice full visual convergence (`Chunk.is_full_redraw_ready()`) is mandatory for `first_playable`; full startup bubble visual completion (`Chunk.is_full_redraw_ready()`) is still mandatory for `boot_complete`. `GameWorld` now uses full boot-ready handoff for player control/loading-screen dismissal; internal `first_playable` only starts post-ready finalization work. См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.try_harvest_at_world(world_pos: Vector2) -> Dictionary`
@@ -475,7 +475,7 @@ related_docs:
 `Chunk.complete_terrain_phase_now() -> void`  `(owner-only safe entrypoint)`
 - Когда вызывать: только как diagnostics/fallback helper в owner-side exceptional path. Нормальный boot path и normal streaming runtime path на него больше не опираются.
 - Что делает: draws terrain layer for all tiles, advances progressive redraw to COVER phase. Cover/cliff/flora continue via `FrameBudgetDispatcher`.
-- Гарантии: presentation-only, loaded-only. Only effective when chunk is in TERRAIN redraw phase. No-op if terrain phase already complete. Streaming/runtime boot visibility and readiness не должны зависеть от этого helper'а напрямую; они идут через scheduler + `Chunk.is_first_pass_ready()`. Допустимый degraded state: terrain без cover/cliff/flora на 0.5-2 секунды.
+- Гарантии: presentation-only, loaded-only. Only effective when chunk is in TERRAIN redraw phase. No-op if terrain phase already complete. Streaming/runtime boot visibility and readiness не должны зависеть от этого helper'а напрямую; они идут через scheduler + `Chunk.is_full_redraw_ready()` для initial publication. Допустимый hidden degraded state может существовать только пока chunk не показан игроку; player-visible publication нового чанка до full-ready (terrain/cover/cliff/flora) запрещена, и perf-метрики не могут это оправдать.
 - Пример вызова: внутри owner path `chunk.complete_terrain_phase_now()`
 
 `MountainShadowSystem.is_boot_shadow_work_drained() -> bool`
@@ -582,7 +582,7 @@ related_docs:
 
 `WorldGenerator.initialize_world(seed_value: int) -> void`
 - Когда вызывать: при старте новой сессии, если seed задан явно.
-- Что делает: инициализирует generator graph, boot-time `WorldPrePass`, biome/variation resolvers, chunk content builder и emits `world_initialized`.
+- Что делает: синхронно доводит generator graph до publish-ready state. Внутри может использовать detached worker compute для `WorldPrePass`, но сама функция не возвращается, пока read-only generator snapshot не опубликован, biome/variation resolvers и chunk content builder не готовы, и `world_initialized` не emitted.
 - Гарантии: после этого generator-side surface reads/builds готовы; см. `Current Source Of Truth Summary`. `WorldFeatureRegistry` must already be boot-loaded before this call succeeds, so feature/POI definitions are not lazy-loaded during world generation. Invalid, duplicate, or unsupported feature definitions keep the registry not-ready, and this call fail-fast'ит instead of starting the world over a partial registry snapshot. Boot computes and publishes one deterministic pre-pass snapshot for the requested seed; runtime does not perform landmark validation, seed search, or threshold remediation during initialization. `EventBus.world_initialized` emits the requested/published seed value used for runtime state.
 - Пример вызова: `WorldGenerator.initialize_world(world_seed)`
 
@@ -591,6 +591,24 @@ related_docs:
 - Что делает: выбирает random seed и делегирует в `initialize_world()`.
 - Гарантии: те же generator initialization guarantees, что и у `initialize_world()`.
 - Пример вызова: `WorldGenerator.initialize_random()`
+
+`WorldGenerator.begin_initialize_world_async(seed_value: int) -> bool`
+- Когда вызывать: когда owner-scene хочет начать compute `WorldPrePass` заранее под loading screen и завершить publish позже, не блокируя scene switch на всём pre-pass compute.
+- Что делает: валидирует registry readiness, фиксирует runtime balance snapshot для запрошенного seed и запускает detached worker compute только для pure-data pre-pass. Не публикует partial runtime state и не emits `world_initialized`.
+- Гарантии: safe staged-prewarm entrypoint. Пока pending init не завершён через `complete_pending_initialize_world()`, runtime readers должны считать `WorldGenerator` not initialized. Повторный вызов с тем же pending seed is idempotent.
+- Пример вызова: `WorldGenerator.begin_initialize_world_async(seed_value)`
+
+`WorldGenerator.is_initialize_world_pending() -> bool`
+- Когда вызывать: когда owner-scene должен понять, есть ли незавершённый staged generator init.
+- Что делает: возвращает, есть ли сейчас активный pending pre-pass compute/publish cycle.
+- Гарантии: read-only lifecycle probe; не публикует state и не мутирует runtime snapshot.
+- Пример вызова: `if WorldGenerator.is_initialize_world_pending():`
+
+`WorldGenerator.complete_pending_initialize_world() -> bool`
+- Когда вызывать: из owner-scene loading/boot loop, когда нужно попытаться завершить staged init и опубликовать generator snapshot, если worker compute уже готов.
+- Что делает: если pending worker compute завершён, публикует один read-only runtime snapshot для requested seed, достраивает biome/variation/compute-context/builder graph на main thread и emits `EventBus.world_initialized`. Если compute ещё не завершён, returns `false` without partial publication.
+- Гарантии: `true` means the requested generator snapshot is fully published and `_is_initialized` is now authoritative for runtime readers. Partial pre-pass truth is never exposed before this completion step.
+- Пример вызова: `while WorldGenerator.is_initialize_world_pending() and not WorldGenerator.complete_pending_initialize_world(): await get_tree().process_frame`
 
 `WorldGenerator.build_chunk_content(chunk_coord: Vector2i) -> ChunkBuildResult`
 - Когда вызывать: когда нужен structured surface chunk payload в виде `ChunkBuildResult`.
@@ -668,7 +686,7 @@ related_docs:
 
 | Событие | Когда срабатывает | Payload |
 |---------|-------------------|---------|
-| `EventBus.world_initialized` | После `WorldGenerator.initialize_world()` завершает setup и публикует generator snapshot для запрошенного seed | `(seed_value: int)` where `seed_value` is the requested/published runtime seed |
+| `EventBus.world_initialized` | После `WorldGenerator.initialize_world()` или `WorldGenerator.complete_pending_initialize_world()` завершает setup и публикует generator snapshot для запрошенного seed | `(seed_value: int)` where `seed_value` is the requested/published runtime seed |
 
 ---
 

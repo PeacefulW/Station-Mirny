@@ -35,6 +35,7 @@ const MOUNTAIN_MASS_CHANNEL: StringName = &"mountain_mass"
 const SLOPE_CHANNEL: StringName = &"slope"
 const RAIN_SHADOW_CHANNEL: StringName = &"rain_shadow"
 const CONTINENTALNESS_CHANNEL: StringName = &"continentalness"
+const NATIVE_PREPASS_KERNELS_CLASS: StringName = &"WorldPrePassKernels"
 const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_utils.gd")
 const FLOAT_EPSILON: float = 0.00001
 const MAX_LAKE_MASK_ID: int = 255
@@ -93,6 +94,10 @@ var _grid_width: int = 1
 var _grid_height: int = 1
 var _grid_span_x: float = 1.0
 var _grid_span_y: float = 1.0
+var _neighbor_index_cache: PackedInt32Array = PackedInt32Array()
+var _grid_world_x_cache: PackedInt32Array = PackedInt32Array()
+var _grid_world_y_cache: PackedInt32Array = PackedInt32Array()
+var _grid_world_center_cache: PackedVector2Array = PackedVector2Array()
 var _height_grid: PackedFloat32Array = PackedFloat32Array()
 var _filled_height_grid: PackedFloat32Array = PackedFloat32Array()
 var _flow_dir_grid: PackedByteArray = PackedByteArray()
@@ -112,6 +117,7 @@ var _lake_mask: PackedByteArray = PackedByteArray()
 var _lake_records: Array[LakeRecord] = []
 var _spine_seeds: Array[SpineSeed] = []
 var _ridge_paths: Array[RidgePath] = []
+var _native_prepass_kernels: RefCounted = null
 
 func configure(balance_resource: WorldGenBalance, planet_sampler: PlanetSampler) -> WorldPrePass:
 	_balance = balance_resource
@@ -125,6 +131,8 @@ func configure(balance_resource: WorldGenBalance, planet_sampler: PlanetSampler)
 	_grid_height = maxi(1, int(ceili(float(y_span_tiles) / float(_grid_step))))
 	_grid_span_x = float(_wrap_width_tiles) / float(_grid_width)
 	_grid_span_y = float(y_span_tiles) / float(_grid_height)
+	_setup_native_prepass_kernels()
+	_rebuild_cell_caches()
 	_height_grid = PackedFloat32Array()
 	_filled_height_grid = PackedFloat32Array()
 	_flow_dir_grid = PackedByteArray()
@@ -145,6 +153,87 @@ func configure(balance_resource: WorldGenBalance, planet_sampler: PlanetSampler)
 	_spine_seeds.clear()
 	_ridge_paths.clear()
 	return self
+
+func _setup_native_prepass_kernels() -> void:
+	_native_prepass_kernels = null
+	if not ClassDB.class_exists(NATIVE_PREPASS_KERNELS_CLASS):
+		return
+	_native_prepass_kernels = ClassDB.instantiate(NATIVE_PREPASS_KERNELS_CLASS) as RefCounted
+
+func _compute_native_wrapped_distance_field(
+	source_indices: PackedInt32Array,
+	max_distance: float
+) -> PackedFloat32Array:
+	if _native_prepass_kernels == null or not _native_prepass_kernels.has_method("compute_wrapped_distance_field"):
+		return PackedFloat32Array()
+	var result: PackedFloat32Array = _native_prepass_kernels.compute_wrapped_distance_field(
+		_grid_width,
+		_grid_height,
+		source_indices,
+		_build_neighbor_distance_cache(),
+		max_distance
+	)
+	if result.size() != _grid_width * _grid_height:
+		return PackedFloat32Array()
+	return result
+
+func _compute_native_priority_flood_fill() -> PackedFloat32Array:
+	if _native_prepass_kernels == null or not _native_prepass_kernels.has_method("compute_priority_flood"):
+		return PackedFloat32Array()
+	var result: PackedFloat32Array = _native_prepass_kernels.compute_priority_flood(
+		_grid_width,
+		_grid_height,
+		_height_grid
+	)
+	if result.size() != _grid_width * _grid_height:
+		return PackedFloat32Array()
+	return result
+
+func _rebuild_cell_caches() -> void:
+	var cell_count: int = _grid_width * _grid_height
+	_neighbor_index_cache = PackedInt32Array()
+	_grid_world_x_cache = PackedInt32Array()
+	_grid_world_y_cache = PackedInt32Array()
+	_grid_world_center_cache = PackedVector2Array()
+	if cell_count <= 0:
+		return
+	_neighbor_index_cache.resize(cell_count * GRID_NEIGHBOR_OFFSETS_8.size())
+	_neighbor_index_cache.fill(-1)
+	_grid_world_x_cache.resize(cell_count)
+	_grid_world_y_cache.resize(cell_count)
+	_grid_world_center_cache.resize(cell_count)
+	for grid_y: int in range(_grid_height):
+		var row_base: int = grid_y * _grid_width
+		var north_row_base: int = (grid_y - 1) * _grid_width
+		var south_row_base: int = (grid_y + 1) * _grid_width
+		var world_y: int = _grid_to_world_y(grid_y)
+		var world_center_y: float = float(world_y) + (_grid_span_y * 0.5)
+		for grid_x: int in range(_grid_width):
+			var cell_index: int = row_base + grid_x
+			var west_x: int = grid_x - 1
+			if west_x < 0:
+				west_x += _grid_width
+			var east_x: int = grid_x + 1
+			if east_x >= _grid_width:
+				east_x -= _grid_width
+			var world_x: int = _grid_to_world_x(grid_x)
+			_grid_world_x_cache[cell_index] = world_x
+			_grid_world_y_cache[cell_index] = world_y
+			_grid_world_center_cache[cell_index] = Vector2(
+				float(world_x) + (_grid_span_x * 0.5),
+				world_center_y
+			)
+			var cache_base: int = cell_index * GRID_NEIGHBOR_OFFSETS_8.size()
+			if grid_y > 0:
+				_neighbor_index_cache[cache_base + 0] = north_row_base + west_x
+				_neighbor_index_cache[cache_base + 1] = north_row_base + grid_x
+				_neighbor_index_cache[cache_base + 2] = north_row_base + east_x
+			_neighbor_index_cache[cache_base + 3] = row_base + west_x
+			_neighbor_index_cache[cache_base + 4] = row_base + east_x
+			if grid_y + 1 < _grid_height:
+				_neighbor_index_cache[cache_base + 5] = south_row_base + west_x
+				_neighbor_index_cache[cache_base + 6] = south_row_base + grid_x
+				_neighbor_index_cache[cache_base + 7] = south_row_base + east_x
 
 func compute() -> WorldPrePass:
 	var stage_started_usec: int = WorldPerfProbe.begin()
@@ -433,33 +522,53 @@ func _wrap_x(world_x: int) -> int:
 func _compute_lake_aware_fill() -> void:
 	if _height_grid.is_empty():
 		return
-	_filled_height_grid = _height_grid.duplicate()
+	var native_filled_height := PackedFloat32Array()
+	var phase_started_usec: int = WorldPerfProbe.begin()
+	if _native_prepass_kernels != null:
+		native_filled_height = _compute_native_priority_flood_fill()
+	if not native_filled_height.is_empty():
+		_filled_height_grid = native_filled_height
+		WorldPerfProbe.end("WorldPrePass.compute.lake_aware_fill.priority_flood", phase_started_usec)
+	else:
+		WorldPerfProbe.end("WorldPrePass.compute.lake_aware_fill.priority_flood", phase_started_usec)
+		phase_started_usec = WorldPerfProbe.begin()
+		_filled_height_grid = _height_grid.duplicate()
+		WorldPerfProbe.end("WorldPrePass.compute.lake_aware_fill.duplicate_height_grid", phase_started_usec)
+	if not native_filled_height.is_empty():
+		phase_started_usec = WorldPerfProbe.begin()
+		_extract_lake_records()
+		WorldPerfProbe.end("WorldPrePass.compute.lake_aware_fill.extract_lake_records", phase_started_usec)
+		return
 	var visited := PackedByteArray()
 	visited.resize(_height_grid.size())
 	visited.fill(0)
-	var heap: Array[Dictionary] = []
-	_seed_priority_flood_boundaries(visited, heap)
-	while not heap.is_empty():
-		var current: Dictionary = _heap_pop(heap)
-		var current_index: int = int(current.get("index", -1))
-		var current_level: float = float(current.get("priority", 0.0))
+	var heap_indices: Array[int] = []
+	var heap_priorities: Array[float] = []
+	phase_started_usec = WorldPerfProbe.begin()
+	_seed_priority_flood_boundaries(visited, heap_indices, heap_priorities)
+	WorldPerfProbe.end("WorldPrePass.compute.lake_aware_fill.seed_boundaries", phase_started_usec)
+	phase_started_usec = WorldPerfProbe.begin()
+	while not heap_indices.is_empty():
+		var current_index: int = _numeric_heap_pop(heap_indices, heap_priorities)
+		var current_level: float = 0.0
 		if current_index < 0:
 			continue
-		var current_grid: Vector2i = _index_to_grid(current_index)
-		for offset: Vector2i in GRID_NEIGHBOR_OFFSETS_8:
-			var neighbor_y: int = current_grid.y + offset.y
-			if neighbor_y < 0 or neighbor_y >= _grid_height:
+		current_level = _filled_height_grid[current_index]
+		for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
+			var neighbor_index: int = _get_neighbor_index(current_index, direction_index)
+			if neighbor_index < 0:
 				continue
-			var neighbor_x: int = int(posmod(current_grid.x + offset.x, _grid_width))
-			var neighbor_index: int = _flatten_index(neighbor_x, neighbor_y)
 			if visited[neighbor_index] != 0:
 				continue
 			visited[neighbor_index] = 1
 			var raw_height: float = _height_grid[neighbor_index]
 			var filled_height: float = maxf(raw_height, current_level)
 			_filled_height_grid[neighbor_index] = filled_height
-			_heap_push(heap, neighbor_index, filled_height)
+			_numeric_heap_push(heap_indices, heap_priorities, neighbor_index, filled_height)
+	WorldPerfProbe.end("WorldPrePass.compute.lake_aware_fill.priority_flood", phase_started_usec)
+	phase_started_usec = WorldPerfProbe.begin()
 	_extract_lake_records()
+	WorldPerfProbe.end("WorldPrePass.compute.lake_aware_fill.extract_lake_records", phase_started_usec)
 
 func _compute_flow_directions() -> void:
 	if _filled_height_grid.is_empty():
@@ -545,6 +654,7 @@ func _compute_drainage_grid() -> void:
 func _compute_river_extraction() -> void:
 	if _accumulation_grid.is_empty():
 		return
+	var phase_started_usec: int = WorldPerfProbe.begin()
 	_river_mask_grid.resize(_accumulation_grid.size())
 	_river_mask_grid.fill(0)
 	_river_width_grid.resize(_accumulation_grid.size())
@@ -553,31 +663,45 @@ func _compute_river_extraction() -> void:
 	var max_distance: float = _resolve_max_river_distance_tiles()
 	_river_distance_grid.fill(max_distance)
 	var river_threshold: float = _resolve_river_accumulation_threshold()
-	var heap: Array[Dictionary] = []
+	var neighbor_distances: PackedFloat32Array = _build_neighbor_distance_cache()
+	var heap_indices: Array[int] = []
+	var heap_priorities: Array[float] = []
+	var source_indices := PackedInt32Array()
+	WorldPerfProbe.end("WorldPrePass.compute.river_extraction.initialize_buffers", phase_started_usec)
+	phase_started_usec = WorldPerfProbe.begin()
 	for cell_index: int in range(_accumulation_grid.size()):
 		if not _is_river_cell(cell_index, river_threshold):
 			continue
 		_river_mask_grid[cell_index] = 1
 		_river_width_grid[cell_index] = _resolve_river_width_tiles(_accumulation_grid[cell_index], river_threshold)
 		_river_distance_grid[cell_index] = 0.0
-		_heap_push(heap, cell_index, 0.0)
-	while not heap.is_empty():
-		var current: Dictionary = _heap_pop(heap)
-		var cell_index: int = int(current.get("index", -1))
-		var current_distance: float = float(current.get("priority", max_distance))
+		source_indices.append(cell_index)
+		_numeric_heap_push(heap_indices, heap_priorities, cell_index, 0.0)
+	WorldPerfProbe.end("WorldPrePass.compute.river_extraction.seed_river_sources", phase_started_usec)
+	var native_river_distance := PackedFloat32Array()
+	phase_started_usec = WorldPerfProbe.begin()
+	if _native_prepass_kernels != null:
+		native_river_distance = _compute_native_wrapped_distance_field(source_indices, max_distance)
+	if not native_river_distance.is_empty():
+		_river_distance_grid = native_river_distance
+		WorldPerfProbe.end("WorldPrePass.compute.river_extraction.distance_propagation", phase_started_usec)
+		return
+	phase_started_usec = WorldPerfProbe.begin()
+	while not heap_indices.is_empty():
+		var cell_index: int = _numeric_heap_pop(heap_indices, heap_priorities)
 		if cell_index < 0:
 			continue
-		if current_distance > _river_distance_grid[cell_index] + FLOAT_EPSILON:
-			continue
+		var current_distance: float = _river_distance_grid[cell_index]
 		for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
 			var neighbor_index: int = _get_neighbor_index(cell_index, direction_index)
 			if neighbor_index < 0:
 				continue
-			var next_distance: float = current_distance + _resolve_neighbor_distance_tiles(direction_index)
+			var next_distance: float = current_distance + neighbor_distances[direction_index]
 			if next_distance + FLOAT_EPSILON >= _river_distance_grid[neighbor_index]:
 				continue
 			_river_distance_grid[neighbor_index] = next_distance
-			_heap_push(heap, neighbor_index, next_distance)
+			_numeric_heap_push(heap_indices, heap_priorities, neighbor_index, next_distance)
+	WorldPerfProbe.end("WorldPrePass.compute.river_extraction.distance_propagation", phase_started_usec)
 
 func _compute_floodplain_strength() -> void:
 	_floodplain_strength_grid.resize(_river_mask_grid.size())
@@ -673,51 +797,70 @@ func _compute_rain_shadow() -> void:
 		)
 
 func _compute_continentalness() -> void:
+	var phase_started_usec: int = WorldPerfProbe.begin()
 	_continentalness_grid.resize(_eroded_height_grid.size())
 	_continentalness_grid.fill(INF)
 	if _eroded_height_grid.is_empty():
 		return
 	var sea_level_threshold: float = _resolve_sea_level_threshold()
-	var heap: Array[Dictionary] = []
+	var neighbor_distances: PackedFloat32Array = _build_neighbor_distance_cache()
+	var heap_indices: Array[int] = []
+	var heap_priorities: Array[float] = []
+	var source_indices := PackedInt32Array()
+	WorldPerfProbe.end("WorldPrePass.compute.continentalness.initialize_buffers", phase_started_usec)
+	phase_started_usec = WorldPerfProbe.begin()
 	for cell_index: int in range(_eroded_height_grid.size()):
 		if not _is_continentalness_water_source(cell_index, sea_level_threshold):
 			continue
 		_continentalness_grid[cell_index] = 0.0
-		_heap_push(heap, cell_index, 0.0)
-	if heap.is_empty():
+		source_indices.append(cell_index)
+		_numeric_heap_push(heap_indices, heap_priorities, cell_index, 0.0)
+	WorldPerfProbe.end("WorldPrePass.compute.continentalness.seed_water_sources", phase_started_usec)
+	if heap_indices.is_empty():
 		_continentalness_grid.fill(0.0)
 		return
-	while not heap.is_empty():
-		var current: Dictionary = _heap_pop(heap)
-		var cell_index: int = int(current.get("index", -1))
-		var current_distance: float = float(current.get("priority", 0.0))
-		if cell_index < 0:
-			continue
-		if current_distance > _continentalness_grid[cell_index] + FLOAT_EPSILON:
-			continue
-		for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
-			var neighbor_index: int = _get_neighbor_index(cell_index, direction_index)
-			if neighbor_index < 0:
+	var native_continentalness := PackedFloat32Array()
+	phase_started_usec = WorldPerfProbe.begin()
+	if _native_prepass_kernels != null:
+		native_continentalness = _compute_native_wrapped_distance_field(source_indices, INF)
+	if not native_continentalness.is_empty():
+		_continentalness_grid = native_continentalness
+		WorldPerfProbe.end("WorldPrePass.compute.continentalness.distance_propagation", phase_started_usec)
+	else:
+		phase_started_usec = WorldPerfProbe.begin()
+		while not heap_indices.is_empty():
+			var cell_index: int = _numeric_heap_pop(heap_indices, heap_priorities)
+			if cell_index < 0:
 				continue
-			var next_distance: float = current_distance + _resolve_neighbor_distance_tiles(direction_index)
-			if next_distance + FLOAT_EPSILON >= _continentalness_grid[neighbor_index]:
-				continue
-			_continentalness_grid[neighbor_index] = next_distance
-			_heap_push(heap, neighbor_index, next_distance)
+			var current_distance: float = _continentalness_grid[cell_index]
+			for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
+				var neighbor_index: int = _get_neighbor_index(cell_index, direction_index)
+				if neighbor_index < 0:
+					continue
+				var next_distance: float = current_distance + neighbor_distances[direction_index]
+				if next_distance + FLOAT_EPSILON >= _continentalness_grid[neighbor_index]:
+					continue
+				_continentalness_grid[neighbor_index] = next_distance
+				_numeric_heap_push(heap_indices, heap_priorities, neighbor_index, next_distance)
+		WorldPerfProbe.end("WorldPrePass.compute.continentalness.distance_propagation", phase_started_usec)
+	phase_started_usec = WorldPerfProbe.begin()
 	var max_distance: float = 0.0
 	for distance_to_water: float in _continentalness_grid:
 		if is_inf(distance_to_water):
 			continue
 		max_distance = maxf(max_distance, distance_to_water)
+	WorldPerfProbe.end("WorldPrePass.compute.continentalness.measure_max_distance", phase_started_usec)
 	if max_distance <= FLOAT_EPSILON:
 		_continentalness_grid.fill(0.0)
 		return
+	phase_started_usec = WorldPerfProbe.begin()
 	for cell_index: int in range(_continentalness_grid.size()):
 		var distance_to_water: float = _continentalness_grid[cell_index]
 		if is_inf(distance_to_water):
 			_continentalness_grid[cell_index] = 1.0
 			continue
 		_continentalness_grid[cell_index] = clampf(distance_to_water / max_distance, 0.0, 1.0)
+	WorldPerfProbe.end("WorldPrePass.compute.continentalness.normalize_output", phase_started_usec)
 
 func _apply_valley_carving() -> void:
 	if _eroded_height_grid.is_empty() or _accumulation_grid.size() != _eroded_height_grid.size():
@@ -829,11 +972,8 @@ func _compute_ridge_strength_grid() -> void:
 	_ridge_strength_grid.fill(0.0)
 	if _ridge_paths.is_empty():
 		return
-	for cell_index: int in range(_ridge_strength_grid.size()):
-		var grid_pos: Vector2i = _index_to_grid(cell_index)
-		_ridge_strength_grid[cell_index] = _sample_ridge_strength_at_grid(
-			Vector2(float(grid_pos.x), float(grid_pos.y))
-		)
+	for ridge_path: RidgePath in _ridge_paths:
+		_stamp_ridge_path_strength(ridge_path)
 
 func _compute_mountain_mass_grid() -> void:
 	_mountain_mass_grid.resize(_height_grid.size())
@@ -864,6 +1004,78 @@ func _sample_ridge_strength_at_grid(grid_pos: Vector2) -> float:
 		if best_strength >= 1.0 - FLOAT_EPSILON:
 			return 1.0
 	return best_strength
+
+func _stamp_ridge_path_strength(ridge_path: RidgePath) -> void:
+	if ridge_path == null or ridge_path.spline_samples.is_empty():
+		return
+	if ridge_path.spline_half_widths.size() != ridge_path.spline_samples.size():
+		return
+	if ridge_path.spline_samples.size() == 1:
+		_stamp_ridge_point_strength(
+			ridge_path.spline_samples[0],
+			ridge_path.spline_half_widths[0]
+		)
+		return
+	for segment_index: int in range(ridge_path.spline_samples.size() - 1):
+		_stamp_ridge_segment_strength(
+			ridge_path.spline_samples[segment_index],
+			ridge_path.spline_samples[segment_index + 1],
+			ridge_path.spline_half_widths[segment_index],
+			ridge_path.spline_half_widths[segment_index + 1]
+		)
+
+func _stamp_ridge_point_strength(point: Vector2, ridge_half_width: float) -> void:
+	if ridge_half_width <= FLOAT_EPSILON or _grid_width <= 0 or _grid_height <= 0:
+		return
+	var min_x: int = floori(point.x - ridge_half_width)
+	var max_x: int = ceili(point.x + ridge_half_width)
+	var min_y: int = maxi(0, floori(point.y - ridge_half_width))
+	var max_y: int = mini(_grid_height - 1, ceili(point.y + ridge_half_width))
+	for grid_y: int in range(min_y, max_y + 1):
+		for grid_x_unwrapped: int in range(min_x, max_x + 1):
+			var query := Vector2(float(grid_x_unwrapped), float(grid_y))
+			var strength: float = _resolve_ridge_strength(query.distance_to(point), ridge_half_width)
+			if strength <= FLOAT_EPSILON:
+				continue
+			_update_ridge_strength_cell(grid_x_unwrapped, grid_y, strength)
+
+func _stamp_ridge_segment_strength(
+	segment_start: Vector2,
+	segment_end: Vector2,
+	start_half_width: float,
+	end_half_width: float
+) -> void:
+	if _grid_width <= 0 or _grid_height <= 0:
+		return
+	var max_half_width: float = maxf(start_half_width, end_half_width)
+	if max_half_width <= FLOAT_EPSILON:
+		return
+	var min_x: int = floori(minf(segment_start.x, segment_end.x) - max_half_width)
+	var max_x: int = ceili(maxf(segment_start.x, segment_end.x) + max_half_width)
+	var min_y: int = maxi(0, floori(minf(segment_start.y, segment_end.y) - max_half_width))
+	var max_y: int = mini(_grid_height - 1, ceili(maxf(segment_start.y, segment_end.y) + max_half_width))
+	var segment_delta: Vector2 = segment_end - segment_start
+	var segment_length_sq: float = segment_delta.length_squared()
+	for grid_y: int in range(min_y, max_y + 1):
+		for grid_x_unwrapped: int in range(min_x, max_x + 1):
+			var query := Vector2(float(grid_x_unwrapped), float(grid_y))
+			var t: float = 0.0
+			if segment_length_sq > FLOAT_EPSILON:
+				t = clampf((query - segment_start).dot(segment_delta) / segment_length_sq, 0.0, 1.0)
+			var nearest_point: Vector2 = segment_start.lerp(segment_end, t)
+			var ridge_half_width: float = lerpf(start_half_width, end_half_width, t)
+			var strength: float = _resolve_ridge_strength(query.distance_to(nearest_point), ridge_half_width)
+			if strength <= FLOAT_EPSILON:
+				continue
+			_update_ridge_strength_cell(grid_x_unwrapped, grid_y, strength)
+
+func _update_ridge_strength_cell(grid_x_unwrapped: int, grid_y: int, strength: float) -> void:
+	if strength <= FLOAT_EPSILON or grid_y < 0 or grid_y >= _grid_height or _grid_width <= 0:
+		return
+	var wrapped_x: int = int(posmod(grid_x_unwrapped, _grid_width))
+	var cell_index: int = _flatten_index(wrapped_x, grid_y)
+	if strength > _ridge_strength_grid[cell_index]:
+		_ridge_strength_grid[cell_index] = strength
 
 func _sample_ridge_path_strength(ridge_path: RidgePath, grid_pos: Vector2) -> float:
 	if ridge_path == null or ridge_path.spline_samples.is_empty():
@@ -911,16 +1123,16 @@ func _compute_spine_seeds() -> void:
 	var target_seed_count: int = _resolve_target_spine_count()
 	if target_seed_count <= 0:
 		return
-	var candidate_heap: Array[Dictionary] = []
+	var candidate_heap_indices: Array[int] = []
+	var candidate_heap_priorities: Array[float] = []
 	for cell_index: int in range(_height_grid.size()):
 		var grid_pos: Vector2i = _index_to_grid(cell_index)
 		var ruggedness: float = _sample_ruggedness_at_grid(grid_pos.x, grid_pos.y)
 		var selection_score: float = _resolve_spine_selection_score(_height_grid[cell_index], ruggedness, grid_pos)
-		_heap_push(candidate_heap, cell_index, -selection_score)
+		_numeric_heap_push(candidate_heap_indices, candidate_heap_priorities, cell_index, -selection_score)
 	var min_distance_grid: int = _resolve_min_spine_distance_grid()
-	while not candidate_heap.is_empty() and _spine_seeds.size() < target_seed_count:
-		var candidate: Dictionary = _heap_pop(candidate_heap)
-		var cell_index: int = int(candidate.get("index", -1))
+	while not candidate_heap_indices.is_empty() and _spine_seeds.size() < target_seed_count:
+		var cell_index: int = _numeric_heap_pop(candidate_heap_indices, candidate_heap_priorities)
 		if cell_index < 0:
 			continue
 		var grid_pos: Vector2i = _index_to_grid(cell_index)
@@ -1557,6 +1769,13 @@ func _resolve_neighbor_distance_tiles(direction_index: int) -> float:
 	var distance_y: float = absf(float(offset.y)) * _grid_span_y
 	return sqrt(distance_x * distance_x + distance_y * distance_y)
 
+func _build_neighbor_distance_cache() -> PackedFloat32Array:
+	var distances := PackedFloat32Array()
+	distances.resize(GRID_NEIGHBOR_OFFSETS_8.size())
+	for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
+		distances[direction_index] = _resolve_neighbor_distance_tiles(direction_index)
+	return distances
+
 func _resolve_max_possible_neighbor_gradient() -> float:
 	var min_neighbor_distance: float = 0.0
 	for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
@@ -1606,8 +1825,7 @@ func _build_temperature_grid() -> PackedFloat32Array:
 	var temperature_grid := PackedFloat32Array()
 	temperature_grid.resize(_flow_dir_grid.size())
 	for cell_index: int in range(_flow_dir_grid.size()):
-		var cell_grid: Vector2i = _index_to_grid(cell_index)
-		var world_pos := Vector2i(_grid_to_world_x(cell_grid.x), _grid_to_world_y(cell_grid.y))
+		var world_pos := Vector2i(_grid_world_x_cache[cell_index], _grid_world_y_cache[cell_index])
 		var channels: WorldChannels = _planet_sampler.sample_world_channels(world_pos)
 		temperature_grid[cell_index] = clampf(channels.temperature, 0.0, 1.0)
 	return temperature_grid
@@ -1616,8 +1834,7 @@ func _build_moisture_grid() -> PackedFloat32Array:
 	var moisture_grid := PackedFloat32Array()
 	moisture_grid.resize(_eroded_height_grid.size())
 	for cell_index: int in range(_eroded_height_grid.size()):
-		var cell_grid: Vector2i = _index_to_grid(cell_index)
-		var world_pos := Vector2i(_grid_to_world_x(cell_grid.x), _grid_to_world_y(cell_grid.y))
+		var world_pos := Vector2i(_grid_world_x_cache[cell_index], _grid_world_y_cache[cell_index])
 		var channels: WorldChannels = _planet_sampler.sample_world_channels(world_pos)
 		moisture_grid[cell_index] = clampf(channels.moisture, 0.0, 1.0)
 	return moisture_grid
@@ -1627,8 +1844,7 @@ func _build_rain_shadow_columns(wind_direction: Vector2) -> Array:
 	var column_scale: float = _resolve_rain_shadow_column_scale()
 	var columns_by_key: Dictionary = {}
 	for cell_index: int in range(_eroded_height_grid.size()):
-		var cell_grid: Vector2i = _index_to_grid(cell_index)
-		var cell_world_center: Vector2 = _get_grid_cell_world_center(cell_grid)
+		var cell_world_center: Vector2 = _get_grid_cell_world_center_by_index(cell_index)
 		var cross_coord: float = cell_world_center.dot(cross_direction)
 		var along_coord: float = cell_world_center.dot(wind_direction)
 		var column_key: int = roundi(cross_coord / column_scale)
@@ -1707,8 +1923,8 @@ func _compute_orographic_lift(
 	var height_gain: float = _eroded_height_grid[cell_index] - _eroded_height_grid[previous_cell_index]
 	if height_gain <= FLOAT_EPSILON or max_possible_gradient <= FLOAT_EPSILON:
 		return 0.0
-	var previous_world_center: Vector2 = _get_grid_cell_world_center(_index_to_grid(previous_cell_index))
-	var current_world_center: Vector2 = _get_grid_cell_world_center(_index_to_grid(cell_index))
+	var previous_world_center: Vector2 = _get_grid_cell_world_center_by_index(previous_cell_index)
+	var current_world_center: Vector2 = _get_grid_cell_world_center_by_index(cell_index)
 	var travel_vector: Vector2 = _get_wrapped_world_vector(previous_world_center, current_world_center)
 	var along_distance: float = absf(travel_vector.dot(wind_direction))
 	if along_distance <= FLOAT_EPSILON:
@@ -1876,6 +2092,12 @@ func _find_flat_exit_direction(
 	return best_direction
 
 func _get_neighbor_index(cell_index: int, direction_index: int) -> int:
+	if cell_index < 0 or direction_index < 0 or direction_index >= GRID_NEIGHBOR_OFFSETS_8.size():
+		return -1
+	if not _neighbor_index_cache.is_empty():
+		var cache_index: int = cell_index * GRID_NEIGHBOR_OFFSETS_8.size() + direction_index
+		if cache_index >= 0 and cache_index < _neighbor_index_cache.size():
+			return _neighbor_index_cache[cache_index]
 	var cell_grid: Vector2i = _index_to_grid(cell_index)
 	var offset: Vector2i = GRID_NEIGHBOR_OFFSETS_8[direction_index]
 	var neighbor_y: int = cell_grid.y + offset.y
@@ -1900,29 +2122,36 @@ func _get_direction_between_indices(from_index: int, to_index: int) -> int:
 	return -1
 
 func _is_y_edge_cell(cell_index: int) -> bool:
-	var grid_pos: Vector2i = _index_to_grid(cell_index)
-	return grid_pos.y <= 0 or grid_pos.y >= _grid_height - 1
+	if _grid_width <= 0:
+		return true
+	var grid_y: int = int(cell_index / _grid_width)
+	return grid_y <= 0 or grid_y >= _grid_height - 1
 
 func _heights_match(left_height: float, right_height: float) -> bool:
 	return absf(left_height - right_height) <= FLOAT_EPSILON
 
-func _seed_priority_flood_boundaries(visited: PackedByteArray, heap: Array[Dictionary]) -> void:
+func _seed_priority_flood_boundaries(
+	visited: PackedByteArray,
+	heap_indices: Array[int],
+	heap_priorities: Array[float]
+) -> void:
 	for grid_x: int in range(_grid_width):
-		_seed_priority_flood_boundary_cell(grid_x, 0, visited, heap)
+		_seed_priority_flood_boundary_cell(grid_x, 0, visited, heap_indices, heap_priorities)
 		if _grid_height > 1:
-			_seed_priority_flood_boundary_cell(grid_x, _grid_height - 1, visited, heap)
+			_seed_priority_flood_boundary_cell(grid_x, _grid_height - 1, visited, heap_indices, heap_priorities)
 
 func _seed_priority_flood_boundary_cell(
 	grid_x: int,
 	grid_y: int,
 	visited: PackedByteArray,
-	heap: Array[Dictionary]
+	heap_indices: Array[int],
+	heap_priorities: Array[float]
 ) -> void:
 	var cell_index: int = _flatten_index(grid_x, grid_y)
 	if visited[cell_index] != 0:
 		return
 	visited[cell_index] = 1
-	_heap_push(heap, cell_index, _height_grid[cell_index])
+	_numeric_heap_push(heap_indices, heap_priorities, cell_index, _height_grid[cell_index])
 
 func _extract_lake_records() -> void:
 	_lake_mask.fill(0)
@@ -1972,13 +2201,10 @@ func _collect_basin_component(
 		var current_index: int = queue[queue_index]
 		queue_index += 1
 		component_cells.append(current_index)
-		var current_grid: Vector2i = _index_to_grid(current_index)
-		for offset: Vector2i in GRID_NEIGHBOR_OFFSETS_8:
-			var neighbor_y: int = current_grid.y + offset.y
-			if neighbor_y < 0 or neighbor_y >= _grid_height:
+		for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
+			var neighbor_index: int = _get_neighbor_index(current_index, direction_index)
+			if neighbor_index < 0:
 				continue
-			var neighbor_x: int = int(posmod(current_grid.x + offset.x, _grid_width))
-			var neighbor_index: int = _flatten_index(neighbor_x, neighbor_y)
 			if component_id_by_cell[neighbor_index] != -1:
 				continue
 			if _filled_height_grid[neighbor_index] <= _height_grid[neighbor_index] + FLOAT_EPSILON:
@@ -2025,13 +2251,10 @@ func _find_component_spill_index(
 	var best_filled_height: float = INF
 	var best_raw_height: float = INF
 	for cell_index: int in component_cells:
-		var cell_grid: Vector2i = _index_to_grid(cell_index)
-		for offset: Vector2i in GRID_NEIGHBOR_OFFSETS_8:
-			var neighbor_y: int = cell_grid.y + offset.y
-			if neighbor_y < 0 or neighbor_y >= _grid_height:
+		for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
+			var neighbor_index: int = _get_neighbor_index(cell_index, direction_index)
+			if neighbor_index < 0:
 				continue
-			var neighbor_x: int = int(posmod(cell_grid.x + offset.x, _grid_width))
-			var neighbor_index: int = _flatten_index(neighbor_x, neighbor_y)
 			if component_id_by_cell[neighbor_index] == component_id:
 				continue
 			var neighbor_filled_height: float = _filled_height_grid[neighbor_index]
@@ -2199,6 +2422,11 @@ func _get_grid_cell_world_center(grid: Vector2i) -> Vector2:
 		float(_grid_to_world_y(grid.y)) + (_grid_span_y * 0.5)
 	)
 
+func _get_grid_cell_world_center_by_index(cell_index: int) -> Vector2:
+	if cell_index >= 0 and cell_index < _grid_world_center_cache.size():
+		return _grid_world_center_cache[cell_index]
+	return _get_grid_cell_world_center(_index_to_grid(cell_index))
+
 func _get_wrapped_world_vector(from_world: Vector2, to_world: Vector2) -> Vector2:
 	var delta_x: float = to_world.x - from_world.x
 	var wrap_width: float = maxf(1.0, float(_wrap_width_tiles))
@@ -2259,6 +2487,70 @@ func _heap_pop(heap: Array[Dictionary]) -> Dictionary:
 		parent_index = smallest_index
 	return result
 
+func _numeric_heap_push(heap_indices: Array[int], heap_priorities: Array[float], cell_index: int, priority: float) -> void:
+	heap_indices.append(cell_index)
+	heap_priorities.append(priority)
+	var child_index: int = heap_indices.size() - 1
+	while child_index > 0:
+		var parent_index: int = int((child_index - 1) / 2)
+		if not _is_numeric_heap_entry_less(
+			heap_priorities[child_index],
+			heap_indices[child_index],
+			heap_priorities[parent_index],
+			heap_indices[parent_index]
+		):
+			break
+		var temp_index: int = heap_indices[parent_index]
+		var temp_priority: float = heap_priorities[parent_index]
+		heap_indices[parent_index] = heap_indices[child_index]
+		heap_priorities[parent_index] = heap_priorities[child_index]
+		heap_indices[child_index] = temp_index
+		heap_priorities[child_index] = temp_priority
+		child_index = parent_index
+
+func _numeric_heap_pop(heap_indices: Array[int], heap_priorities: Array[float]) -> int:
+	if heap_indices.is_empty():
+		return -1
+	var result_index: int = heap_indices[0]
+	var last_index: int = heap_indices.size() - 1
+	if last_index == 0:
+		heap_indices.pop_back()
+		heap_priorities.pop_back()
+		return result_index
+	heap_indices[0] = heap_indices[last_index]
+	heap_priorities[0] = heap_priorities[last_index]
+	heap_indices.pop_back()
+	heap_priorities.pop_back()
+	var parent_index: int = 0
+	while true:
+		var left_index: int = parent_index * 2 + 1
+		if left_index >= heap_indices.size():
+			break
+		var smallest_index: int = left_index
+		var right_index: int = left_index + 1
+		if right_index < heap_indices.size() and _is_numeric_heap_entry_less(
+			heap_priorities[right_index],
+			heap_indices[right_index],
+			heap_priorities[left_index],
+			heap_indices[left_index]
+		):
+			smallest_index = right_index
+		if not _is_numeric_heap_entry_less(
+			heap_priorities[smallest_index],
+			heap_indices[smallest_index],
+			heap_priorities[parent_index],
+			heap_indices[parent_index]
+		):
+			break
+		var temp_index: int = heap_indices[parent_index]
+		var temp_priority: float = heap_priorities[parent_index]
+		heap_indices[parent_index] = heap_indices[smallest_index]
+		heap_priorities[parent_index] = heap_priorities[smallest_index]
+		heap_indices[smallest_index] = temp_index
+		heap_priorities[smallest_index] = temp_priority
+		parent_index = smallest_index
+	return result_index
+
 func _is_heap_entry_less(left_entry: Dictionary, right_entry: Dictionary) -> bool:
 	var left_priority: float = float(left_entry.get("priority", 0.0))
 	var right_priority: float = float(right_entry.get("priority", 0.0))
@@ -2267,6 +2559,18 @@ func _is_heap_entry_less(left_entry: Dictionary, right_entry: Dictionary) -> boo
 	if left_priority > right_priority + FLOAT_EPSILON:
 		return false
 	return int(left_entry.get("index", 0)) < int(right_entry.get("index", 0))
+
+func _is_numeric_heap_entry_less(
+	left_priority: float,
+	left_index: int,
+	right_priority: float,
+	right_index: int
+) -> bool:
+	if left_priority < right_priority - FLOAT_EPSILON:
+		return true
+	if left_priority > right_priority + FLOAT_EPSILON:
+		return false
+	return left_index < right_index
 
 func _is_index_lexicographically_less(left_index: int, right_index: int) -> bool:
 	if right_index < 0:

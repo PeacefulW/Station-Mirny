@@ -1,0 +1,125 @@
+{
+	"boot_detail_lines": [
+		"[WorldPerf] Boot detail: compute=0.0ms apply=0.2ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=0.0ms | peaks: compute=0.0ms apply=10.1ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=2.9ms stream_redraw=13.1ms",
+		"[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=1 other=0.0ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=10.9ms stream_redraw=21.6ms"
+	],
+	"boot_metrics_ms": {
+		"Startup.loading_screen_visible_to_startup_bubble_ready_ms": 28803.6,
+		"Startup.start_to_loading_screen_visible_ms": 13.38,
+		"Startup.startup_bubble_ready_to_boot_complete_ms": 16889.54
+	},
+	"catch_up_timeout": false,
+	"codex_validation_line_count": 1,
+	"drain_completed": false,
+	"error_count": 1,
+	"errors": [
+		"ERROR: 22 resources still in use at exit (run with --verbose for details)."
+	],
+	"frame_budget_lines": [
+		"[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.1ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.1ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.1ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.1ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.5ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=1.3ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.7ms spawn=0.0ms total=2.7ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.4ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=4.4ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.4ms spawn=0.0ms total=5.2ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=3.3ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=3.4ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=3.2ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=3.4ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=3.8ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=3.9ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=4.9ms streaming=0.0ms streaming_load=0.4ms streaming_redraw=6.7ms topology=1.7ms building=0.0ms power=0.0ms visual=0.0ms shadow=3.5ms spawn=0.0ms total=17.3ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=10.5ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=8.6ms topology=1.6ms building=0.0ms power=0.0ms visual=0.0ms shadow=9.6ms spawn=0.0ms total=30.4ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=9.8ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=8.7ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=9.7ms spawn=0.0ms total=28.3ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=9.3ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=7.2ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=9.2ms spawn=0.0ms total=25.8ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=4.3ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.1ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=4.7ms spawn=0.0ms total=9.1ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=3.9ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=4.4ms spawn=0.0ms total=8.3ms/6.0ms"
+	],
+	"frame_time_summary": {
+		"avg_ms": 6.9,
+		"hitches": 0,
+		"p99_ms": 6.9
+	},
+	"latest_catch_up_status": "",
+	"latest_codex_validation_lines": [
+		"[CodexValidation] boot proof complete; quitting"
+	],
+	"latest_world_perf_lines": [
+		"[WorldPerf] stream.chunk_full_redraw_ms (1, -2)@z0: 16769.39 ms",
+		"[WorldPerf] scheduler.visual_tasks_processed: 8.00 ms",
+		"[WorldPerf] scheduler.visual_queue_depth.full_near: 11.00 ms",
+		"[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 2.05 ms",
+		"[WorldPerf] FrameBudgetDispatcher.total: 2.28 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (62, -1)@z0: 16724.08 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (1, 2)@z0: 16673.57 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (2, -2)@z0: 16657.51 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (2, 0)@z0: 16812.79 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (0, 2)@z0: 16784.13 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (62, -2)@z0: 16649.65 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (62, 2)@z0: 16620.63 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (62, 1)@z0: 16696.03 ms",
+		"[WorldPerf] scheduler.visual_tasks_processed: 8.00 ms",
+		"[WorldPerf] scheduler.visual_queue_depth.full_near: 3.00 ms",
+		"[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 2.45 ms",
+		"[WorldPerf] FrameBudgetDispatcher.total: 2.74 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (2, -1)@z0: 16755.52 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (2, 1)@z0: 16709.55 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (0, -2)@z0: 16828.08 ms",
+		"[WorldPerf] scheduler.visual_tasks_processed: 7.00 ms",
+		"[WorldPerf] FrameBudgetDispatcher.total: 2.76 ms",
+		"[WorldPerf] Shadow.stale_age_ms: 16870.51 ms",
+		"[WorldPerf] Startup.startup_bubble_ready_to_boot_complete_ms: 16889.54 ms"
+	],
+	"line_count": 15613,
+	"log_file_name": "boot_seed12345_postfix6.log",
+	"log_path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/debug_exports/perf/boot_seed12345_postfix6.log",
+	"observability_lines": [
+		"[WorldPerf] Observability: Startup.loading_screen_visible=0.0ms, Startup.start_pressed=0.0ms, Startup.start_to_loading_screen_visible_ms=13.4ms",
+		"[WorldPerf] Observability: Startup.loading_screen_visible_to_startup_bubble_ready_ms=28803.6ms, Startup.startup_bubble_ready=0.0ms"
+	],
+	"route_completed": false,
+	"route_preset": "",
+	"route_started": false,
+	"route_waypoints": 0,
+	"validation_failed": false,
+	"warning_count": 11,
+	"warnings": [
+		"WARNING: [Boot] apply step for (0, -1) took 9.2 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (0, 0) took 8.1 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (1, 0) took 8.9 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (63, 0) took 8.8 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (1, -1) took 8.3 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (0, 1) took 10.8 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (63, -1) took 11.0 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (1, 1) took 12.8 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (63, 1) took 10.7 ms (budget 8.0 ms)",
+		"WARNING: [Boot] native flora empty for (2, 2) — GDScript flora fallback in worker",
+		"WARNING: ObjectDB instances leaked at exit (run with --verbose for details)."
+	],
+	"waypoints_reached": 0,
+	"world_perf_line_count": 14906,
+	"world_prepass_phase_ms": {
+		"WorldPrePass.compute.continentalness": 1579.43,
+		"WorldPrePass.compute.drainage_grid": 6.04,
+		"WorldPrePass.compute.erosion_proxy": 297.1,
+		"WorldPrePass.compute.floodplain_strength": 11.46,
+		"WorldPrePass.compute.flow_accumulation": 813.42,
+		"WorldPrePass.compute.flow_directions": 788.78,
+		"WorldPrePass.compute.lake_aware_fill": 1704.08,
+		"WorldPrePass.compute.mountain_mass_grid": 28.07,
+		"WorldPrePass.compute.rain_shadow": 1017.97,
+		"WorldPrePass.compute.ridge_graph": 49.3,
+		"WorldPrePass.compute.ridge_strength_grid": 59.09,
+		"WorldPrePass.compute.river_extraction": 1933.05,
+		"WorldPrePass.compute.sample_height_grid": 129.52,
+		"WorldPrePass.compute.slope_grid": 393.16,
+		"WorldPrePass.compute.smooth_ridge_paths": 3.95,
+		"WorldPrePass.compute.spine_seeds": 390.75
+	},
+	"world_prepass_subphase_ms": {
+		"WorldPrePass.compute.continentalness.distance_propagation": 1547.13,
+		"WorldPrePass.compute.continentalness.normalize_output": 2.87,
+		"WorldPrePass.compute.continentalness.seed_water_sources": 27.45,
+		"WorldPrePass.compute.lake_aware_fill.extract_lake_records": 617.73,
+		"WorldPrePass.compute.lake_aware_fill.priority_flood": 1084.76,
+		"WorldPrePass.compute.river_extraction.distance_propagation": 1917.15,
+		"WorldPrePass.compute.river_extraction.seed_river_sources": 15.64
+	}
+}

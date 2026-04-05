@@ -24,6 +24,7 @@ const _CONTRACTS: Dictionary = {
 ## Per-frame аккумулятор: операция → время в мс. Сбрасывается каждый кадр WorldPerfMonitor.
 static var _frame_operations: Dictionary = {}
 static var _milestones_usec: Dictionary = {}
+static var _mutex: Mutex = Mutex.new()
 
 ## Суммарные hitches за сессию.
 static var _hitch_count: int = 0
@@ -52,24 +53,36 @@ static func mark(label: String) -> void:
 
 ## Explicit milestone helper for Boot.* state transitions.
 static func mark_milestone(label: String) -> void:
+	_mutex.lock()
 	_milestones_usec[label] = Time.get_ticks_usec()
+	_mutex.unlock()
 	_record(label, 0.0)
 
 static func has_milestone(label: String) -> bool:
-	return _milestones_usec.has(label)
+	_mutex.lock()
+	var has_label: bool = _milestones_usec.has(label)
+	_mutex.unlock()
+	return has_label
 
 static func record_since(label: String, from_label: String) -> float:
 	return _record_milestone_delta(label, from_label, Time.get_ticks_usec())
 
 static func record_between(label: String, from_label: String, to_label: String) -> float:
+	_mutex.lock()
 	if not _milestones_usec.has(to_label):
+		_mutex.unlock()
 		return -1.0
-	return _record_milestone_delta(label, from_label, int(_milestones_usec[to_label]))
+	var end_usec: int = int(_milestones_usec[to_label])
+	_mutex.unlock()
+	return _record_milestone_delta(label, from_label, end_usec)
 
 static func _record_milestone_delta(label: String, from_label: String, end_usec: int) -> float:
+	_mutex.lock()
 	if not _milestones_usec.has(from_label):
+		_mutex.unlock()
 		return -1.0
 	var started_usec: int = int(_milestones_usec[from_label])
+	_mutex.unlock()
 	if started_usec <= 0 or end_usec < started_usec:
 		return -1.0
 	var elapsed_ms: float = float(end_usec - started_usec) / 1000.0
@@ -84,7 +97,9 @@ static func _record(label: String, elapsed_ms: float) -> void:
 		var limit: float = _CONTRACTS[contract_key]
 		if elapsed_ms > limit:
 			push_warning("[WorldPerf] WARNING: %s took %.2f ms (contract: %.1f ms)" % [label, elapsed_ms, limit])
+	_mutex.lock()
 	_frame_operations[label] = _frame_operations.get(label, 0.0) + elapsed_ms
+	_mutex.unlock()
 
 ## Извлекает ключ контракта из label (отбрасывает параметры вроде chunk coord).
 static func _extract_contract_key(label: String) -> String:
@@ -95,6 +110,8 @@ static func _extract_contract_key(label: String) -> String:
 
 ## Возвращает и очищает per-frame данные. Вызывается WorldPerfMonitor раз в кадр.
 static func flush_frame() -> Dictionary:
+	_mutex.lock()
 	var result: Dictionary = _frame_operations.duplicate()
 	_frame_operations.clear()
+	_mutex.unlock()
 	return result

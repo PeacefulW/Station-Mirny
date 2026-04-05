@@ -90,6 +90,7 @@ var _use_operation_global_terrain_cache: bool = false
 var _operation_global_terrain_cache: Dictionary = {}
 var _mining_write_authorized: bool = false
 var _visual_state: int = ChunkVisualState.UNINITIALIZED
+var _has_full_publication_once: bool = false
 
 func setup(
 	p_coord: Vector2i,
@@ -139,6 +140,7 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 	_height_bytes = native_data.get("height", PackedFloat32Array())
 	_variation_bytes = native_data.get("variation", PackedByteArray())
 	_biome_bytes = native_data.get("biome", PackedByteArray())
+	_has_full_publication_once = false
 	if _variation_bytes.size() != _terrain_bytes.size():
 		push_error("Chunk.populate_native(): variation array size mismatch for %s" % [chunk_coord])
 		assert(false, "variation array size must match terrain array size")
@@ -357,6 +359,7 @@ func cleanup() -> void:
 	_revealed_local_cover_tiles = {}
 	_clear_interior_macro_layer()
 	_visual_state = ChunkVisualState.UNINITIALIZED
+	_has_full_publication_once = false
 
 func _create_layer(layer_name: String, tileset: TileSet, z_index_value: int) -> TileMapLayer:
 	var layer := TileMapLayer.new()
@@ -453,13 +456,15 @@ func is_redraw_complete() -> bool:
 	return _redraw_phase == REDRAW_PHASE_DONE
 
 func is_first_pass_ready() -> bool:
-	return _visual_state == ChunkVisualState.PROXY_READY \
-		or _visual_state == ChunkVisualState.TERRAIN_READY \
+	return _visual_state == ChunkVisualState.TERRAIN_READY \
 		or _visual_state == ChunkVisualState.FULL_PENDING \
 		or _visual_state == ChunkVisualState.FULL_READY
 
 func is_full_redraw_ready() -> bool:
 	return _visual_state == ChunkVisualState.FULL_READY
+
+func _is_visibility_publication_ready() -> bool:
+	return _has_full_publication_once or is_full_redraw_ready()
 
 func needs_full_redraw() -> bool:
 	return _visual_state == ChunkVisualState.TERRAIN_READY \
@@ -527,6 +532,7 @@ func _mark_visual_full_redraw_ready() -> void:
 	assert(_can_publish_full_redraw_ready(),
 		"chunk visual state must not publish FULL_READY before redraw is complete and no border fix is pending")
 	_visual_state = ChunkVisualState.FULL_READY
+	_has_full_publication_once = true
 
 func _can_publish_full_redraw_ready() -> bool:
 	return is_first_pass_ready() \
@@ -534,7 +540,7 @@ func _can_publish_full_redraw_ready() -> bool:
 		and _pending_border_dirty.is_empty()
 
 func _sync_visual_state_after_redraw_mutation() -> void:
-	if _redraw_phase > REDRAW_PHASE_TERRAIN:
+	if _redraw_phase > REDRAW_PHASE_COVER:
 		_mark_visual_first_pass_ready()
 
 func _redraw_dynamic_visibility(_dirty_tiles: Dictionary) -> void:

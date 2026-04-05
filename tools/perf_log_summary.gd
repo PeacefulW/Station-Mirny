@@ -8,6 +8,7 @@ const MAX_CAPTURED_LINES: int = 24
 
 var _startup_metric_regex: RegEx = RegEx.new()
 var _frame_time_regex: RegEx = RegEx.new()
+var _world_perf_timing_regex: RegEx = RegEx.new()
 var _route_prepared_regex: RegEx = RegEx.new()
 var _route_start_regex: RegEx = RegEx.new()
 var _route_complete_regex: RegEx = RegEx.new()
@@ -47,6 +48,7 @@ func _run() -> void:
 func _compile_regexes() -> bool:
 	return _compile_regex(_startup_metric_regex, "^\\[WorldPerf\\] (Startup\\.[^:]+): ([0-9]+(?:\\.[0-9]+)?) ms$") \
 		and _compile_regex(_frame_time_regex, "^\\[WorldPerf\\] Frame time: avg=([0-9]+(?:\\.[0-9]+)?) ms, p99=([0-9]+(?:\\.[0-9]+)?) ms, hitches=(\\d+)$") \
+		and _compile_regex(_world_perf_timing_regex, "^\\[WorldPerf\\] ([^:]+): ([0-9]+(?:\\.[0-9]+)?) ms$") \
 		and _compile_regex(_route_prepared_regex, "^\\[CodexValidation\\] route prepared: preset=([a-z_]+) waypoints=(\\d+) start=(.+) chunk_pixels=([0-9]+(?:\\.[0-9]+)?)$") \
 		and _compile_regex(_route_start_regex, "^\\[CodexValidation\\] route start: preset=([a-z_]+) waypoints=(\\d+)$") \
 		and _compile_regex(_route_complete_regex, "^\\[CodexValidation\\] route complete: preset=([a-z_]+) reached=(\\d+)/(\\d+) draining_background_work=true$") \
@@ -73,6 +75,8 @@ func _build_summary(log_text: String, log_path: String) -> Dictionary:
 		"codex_validation_line_count": 0,
 		"boot_metrics_ms": {},
 		"frame_time_summary": {},
+		"world_prepass_phase_ms": {},
+		"world_prepass_subphase_ms": {},
 		"boot_detail_lines": [],
 		"frame_budget_lines": [],
 		"observability_lines": [],
@@ -128,6 +132,13 @@ func _parse_world_perf_line(summary: Dictionary, line: String) -> void:
 			"hitches": frame_time_match.get_string(3).to_int(),
 		}
 		return
+	var timing_match: RegExMatch = _world_perf_timing_regex.search(line)
+	if timing_match != null:
+		_capture_world_prepass_timing(
+			summary,
+			timing_match.get_string(1),
+			timing_match.get_string(2).to_float()
+		)
 	if line.begins_with("[WorldPerf] Boot detail:"):
 		_capture_latest_line(summary, "boot_detail_lines", line)
 		return
@@ -181,6 +192,15 @@ func _capture_latest_line(summary: Dictionary, key: String, line: String) -> voi
 	while lines.size() > MAX_CAPTURED_LINES:
 		lines.remove_at(0)
 	summary[key] = lines
+
+func _capture_world_prepass_timing(summary: Dictionary, label: String, elapsed_ms: float) -> void:
+	if not label.begins_with("WorldPrePass.compute."):
+		return
+	var suffix: String = label.trim_prefix("WorldPrePass.compute.")
+	var key: String = "world_prepass_subphase_ms" if suffix.contains(".") else "world_prepass_phase_ms"
+	var timings: Dictionary = summary.get(key, {}) as Dictionary
+	timings[label] = elapsed_ms
+	summary[key] = timings
 
 func _write_summary_artifacts(summary: Dictionary, log_path: String) -> Dictionary:
 	var output_dir: String = _resolve_output_dir()
@@ -241,6 +261,8 @@ func _build_markdown_summary(summary: Dictionary) -> String:
 		var latest_catch_up_status: String = String(summary.get("latest_catch_up_status", ""))
 		if not latest_catch_up_status.is_empty():
 			lines.append("- Latest catch-up status: `%s`" % latest_catch_up_status)
+	_append_sorted_timing_section(lines, "WorldPrePass phases", summary.get("world_prepass_phase_ms", {}) as Dictionary, 12)
+	_append_sorted_timing_section(lines, "WorldPrePass subphases", summary.get("world_prepass_subphase_ms", {}) as Dictionary, 16)
 	_append_line_section(lines, "Recent errors", summary.get("errors", []) as Array)
 	_append_line_section(lines, "Recent warnings", summary.get("warnings", []) as Array)
 	_append_line_section(lines, "Recent WorldPerf lines", summary.get("latest_world_perf_lines", []) as Array)
@@ -254,6 +276,28 @@ func _append_line_section(lines: Array[String], title: String, raw_items: Array)
 	lines.append("## %s" % title)
 	for item: Variant in raw_items:
 		lines.append("- `%s`" % String(item))
+
+func _append_sorted_timing_section(lines: Array[String], title: String, timings: Dictionary, limit: int) -> void:
+	if timings.is_empty():
+		return
+	var keys: Array[String] = []
+	for key: Variant in timings.keys():
+		keys.append(String(key))
+	keys.sort_custom(func(a: String, b: String) -> bool:
+		var a_value: float = float(timings.get(a, 0.0))
+		var b_value: float = float(timings.get(b, 0.0))
+		if absf(a_value - b_value) > 0.001:
+			return a_value > b_value
+		return a < b
+	)
+	lines.append("")
+	lines.append("## %s" % title)
+	var emitted: int = 0
+	for key: String in keys:
+		lines.append("- `%s`: `%.2f ms`" % [key, float(timings.get(key, 0.0))])
+		emitted += 1
+		if emitted >= limit:
+			break
 
 func _bool_to_status(value: bool) -> String:
 	return "yes" if value else "no"

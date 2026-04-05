@@ -74,11 +74,11 @@
 
 **Влияние:** 1-секундный хитч при загрузке. После имплементации streaming_redraw_budget_spec (Iteration 1) уменьшился с 1267ms до 957ms (без cover/cliff/flora), но всё ещё огромен.
 
-### Причина 3: Boot gate слишком строгий для first_playable (ВЫСОКАЯ)
+### Причина 3: Boot gate слишком строгий для first_playable (историческая гипотеза, superseded)
 
-**Наблюдение:** `_boot_is_first_playable_slice_ready()` требует для ring 0: `is_gameplay_redraw_complete()` = terrain + cover + cliff.
+**Наблюдение:** `_boot_is_first_playable_slice_ready()` когда-то требовал для ring 0: `is_gameplay_redraw_complete()` = terrain + cover + cliff.
 
-**Механизм:** Cover и cliff — визуальные overlay'и. Игрок может начать играть с одним terrain. Текущий gate заставляет boot loop крутиться ещё ~35 секунд после того, как terrain готов.
+**Статус на 2026-04-05:** эта линия мышления больше не считается допустимой продуктовой целью. Игрок не должен получать handoff в сырой видимый мир ради лучших boot-цифр. Near-world publication теперь должна оцениваться по полной player-visible готовности, а не по раннему terrain/cover shortcut.
 
 ### Причина 4: Ring 2 apply внутри boot loop (СРЕДНЯЯ)
 
@@ -148,7 +148,7 @@ func _boot_process_redraw_budget(max_usec: int) -> void:
 
 ---
 
-### Fix 2: Ослабить first_playable gate для ring 0 (КРИТИЧЕСКИЙ)
+### Fix 2: Ослабить first_playable gate для ring 0 (ИСТОРИЧЕСКОЕ, БОЛЬШЕ НЕ ПРИМЕНЯТЬ)
 
 **Что:** Изменить требование для ring 0 с `is_gameplay_redraw_complete()` на `is_terrain_phase_done()`. Cover/cliff — визуальные и не блокируют gameplay.
 
@@ -177,7 +177,7 @@ if ring == 0 and not chunk.is_terrain_phase_done():
 
 **Файлы:** `core/systems/world/chunk_manager.gd` — `_boot_is_first_playable_slice_ready()`, `_boot_has_pending_near_ring_work()`
 
-**Риск:** Игрок увидит чанк (0,0) без cover/cliff overlay'ев на 0.5-2 секунды. Это допустимый degraded state по PERFORMANCE_CONTRACTS §7.
+**Статус:** superseded. Такой degraded state больше не считается допустимым player-visible handoff. Метрики boot не оправдывают зелёные/сырые чанки, достраивающиеся cliff/flora, или видимую shadow догрузку.
 
 ---
 
