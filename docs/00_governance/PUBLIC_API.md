@@ -320,7 +320,7 @@ related_docs:
 `ChunkManager.is_topology_ready() -> bool`
 - Что возвращает: готова ли surface topology для active runtime.
 - Когда использовать: если код должен дождаться readiness before reading topology. Also used by `_tick_boot_remaining()` to poll topology completion for `boot_complete` gate.
-- Особенности: authoritative only for currently loaded surface bubble; нет dedicated ready event. **Not part of `first_playable` gate** — topology is decoupled from first_playable. Part of `boot_complete` gate.
+- Особенности: authoritative only for currently loaded surface bubble; нет dedicated ready event. **Not part of `first_playable` gate** — topology is decoupled from first_playable. Part of `boot_complete` gate. Для managed GDScript path возвращает `false`, пока active dirty rebuild ещё находится в одном из owner-owned этапов `snapshot capture -> worker compute -> ready-snapshot commit`.
 
 `ChunkManager.get_mountain_key_at_tile(tile_pos: Vector2i) -> Vector2i`
 - Что возвращает: component key for mountain topology tile.
@@ -348,8 +348,8 @@ related_docs:
 |-------|-------------------------------|
 | `ChunkManager._mark_topology_dirty() -> void` | Dirty flag helper, не topology API. |
 | `ChunkManager._ensure_topology_current() -> void` | Synchronous owner-only rebuild gate. Может форсить full rebuild. |
-| `ChunkManager._process_topology_build() -> void` | Budgeted runtime worker step, а не caller-facing API. |
-| `ChunkManager._rebuild_loaded_mountain_topology() -> void` | Full rebuild implementation, loaded-bubble scoped only. |
+| `ChunkManager._process_topology_build() -> void` | Owner-side topology scheduler. Для managed GDScript path запускает `snapshot -> worker compute -> main-thread commit`; не caller-facing API. |
+| `ChunkManager._rebuild_loaded_mountain_topology() -> void` | Synchronous owner-only fallback implementation, loaded-bubble scoped only. |
 | `ChunkManager._incremental_topology_patch(tile_pos: Vector2i, new_type: int) -> void` | Low-level derived patch helper; caller не должен поддерживать topology вручную. |
 | Native builder calls `set_chunk`, `remove_chunk`, `update_tile`, `ensure_built` | Internal backend contract behind `ChunkManager`; direct callers рискуют разойтись с managed topology state. |
 

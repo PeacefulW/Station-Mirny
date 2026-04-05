@@ -346,9 +346,9 @@ Observed files for this version:
 
 - `classification`: `derived`
 - `owner`: `ChunkManager` owns the managed topology contract, and the native `MountainTopologyBuilder` owns the internal cache implementation when that path is enabled.
-- `writers`: `ChunkManager` rebuild and incremental patch entrypoints update topology state; the native builder receives `set_chunk`, `remove_chunk`, `update_tile`, and `ensure_built` calls behind the same public API.
+- `writers`: `ChunkManager` rebuild and incremental patch entrypoints update topology state; the managed GDScript rebuild path captures a read-only loaded-chunk terrain snapshot on the main thread, computes a full topology snapshot on a worker, and commits ready `_mountain_*` dictionaries back on the main thread; the native builder receives `set_chunk`, `remove_chunk`, `update_tile`, and `ensure_built` calls behind the same public API.
 - `readers`: `MountainRoofSystem` reads `ChunkManager.query_local_underground_zone()`. No direct in-scope runtime reader was found for `get_mountain_key_at_tile()`, `get_mountain_tiles()`, or `get_mountain_open_tiles()`.
-- `rebuild policy`: surface-only, loaded-bubble scoped; immediate incremental patch on successful mountain-tile mutation; deferred dirty rebuild on chunk load, unload, or explicit dirtying.
+- `rebuild policy`: surface-only, loaded-bubble scoped; immediate incremental patch on successful mountain-tile mutation; deferred dirty rebuild on chunk load, unload, or explicit dirtying. The managed GDScript rebuild path now uses `main-thread snapshot -> worker compute -> main-thread ready-snapshot commit` instead of scanning/building components on the main thread.
 - `invariants`:
 - `assert(_active_z == 0 or get_mountain_key_at_tile(tile_pos) == Vector2i(999999, 999999), "surface mountain topology must not be exposed on underground z levels")`
 - `assert(terrain_type == TileGenData.TerrainType.ROCK or terrain_type == TileGenData.TerrainType.MINED_FLOOR or terrain_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE, "topology domain is ROCK + open mountain terrain")`
@@ -356,12 +356,17 @@ Observed files for this version:
 - `assert(connectivity_dirs == [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN], "mountain topology connectivity is cardinal only")`
 - `assert(component_key == lexicographically_smallest_tile(component_tiles), "component key must be the lexicographically smallest tile in the component")`
 - `assert(topology_scan_domain == _loaded_chunks, "runtime topology rebuilds operate on loaded chunks only")`
+- `assert(managed_topology_worker_reads_snapshot_only, "managed GDScript topology rebuild must read only the captured snapshot and must not traverse Chunk nodes from the worker thread")`
+- `assert(managed_topology_commit_is_main_thread_snapshot_swap, "managed GDScript topology rebuild must publish only a fully computed ready snapshot on the main thread")`
 - `assert(zone_result.get("zone_kind", &"") == &"loaded_open_pocket", "query_local_underground_zone() currently returns a loaded_open_pocket product")`
 - `assert(not traversal_hit_unloaded_neighbor or bool(zone_result.get("truncated", false)), "query_local_underground_zone() must mark truncated when traversal reaches an unloaded neighbor chunk")`
 - `write operations`:
 - `ChunkManager._mark_topology_dirty()`
 - `ChunkManager._tick_topology()`
 - `ChunkManager._start_topology_build()`
+- `ChunkManager._capture_topology_build_snapshot()`
+- `ChunkManager._worker_rebuild_topology()`
+- `ChunkManager._collect_completed_topology_build()`
 - `ChunkManager._process_topology_build_step()`
 - `ChunkManager._rebuild_loaded_mountain_topology()`
 - `ChunkManager._incremental_topology_patch()`
@@ -377,8 +382,8 @@ Observed files for this version:
 - `current violations / ambiguities / contract gaps`:
 - Topology is loaded-bubble scoped, not world-global. Unloaded continuation is absent from the cache even when canonical surface terrain exists.
 - ~~Incremental split detection is heuristic. `_incremental_topology_patch()` only escalates to a dirty rebuild when a newly opened tile sees at least two rock neighbors.~~ **resolved 2026-03-28**: the heuristic branch was removed. In-domain mountain changes now update open-status deterministically, and domain entry/exit falls back to immediate full managed rebuild.
-- ~~The progressive topology rebuild path commits `_mountain_key_by_tile`, `_mountain_tiles_by_key`, and `_mountain_open_tiles_by_key`, but does not rebuild or commit `_mountain_tiles_by_key_by_chunk` or `_mountain_open_tiles_by_key_by_chunk`.~~ **resolved 2026-03-28**: progressive rebuild now rebuilds and commits both `*_by_chunk` maps alongside the key/tile/open dictionaries.
-- ~~Staging dictionaries `_topology_build_tiles_by_key_by_chunk` and `_topology_build_open_tiles_by_key_by_chunk` currently exist but are not part of the progressive rebuild flow.~~ **resolved 2026-03-28**: staging `*_by_chunk` maps are now reset, populated, and committed during the progressive rebuild flow.
+- ~~The managed topology rebuild path commits `_mountain_key_by_tile`, `_mountain_tiles_by_key`, and `_mountain_open_tiles_by_key`, but does not rebuild or commit `_mountain_tiles_by_key_by_chunk` or `_mountain_open_tiles_by_key_by_chunk`.~~ **resolved 2026-03-28**: managed rebuild now rebuilds and commits both `*_by_chunk` maps alongside the key/tile/open dictionaries.
+- ~~Staging dictionaries `_topology_build_tiles_by_key_by_chunk` and `_topology_build_open_tiles_by_key_by_chunk` currently exist but are not part of the managed rebuild flow.~~ **resolved 2026-03-28**: staging `*_by_chunk` maps are now reset, populated, and committed during the managed rebuild flow.
 
 ## Layer: Reveal
 
@@ -1443,4 +1448,3 @@ Observed files for this version:
 - Validate that `query_local_underground_zone()` reports `truncated = true` whenever traversal hits an unloaded continuation.
 - Validate that revealed cover tiles are actually erased from `cover_layer` for every chunk in the active local zone.
 - Validate that fog-visible and fog-discovered transitions only touch revealable underground tiles.
-
