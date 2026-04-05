@@ -8,9 +8,7 @@ extends Node
 const RuntimeWorkTypes = preload("res://core/runtime/runtime_work_types.gd")
 const JOB_SHADOWS: StringName = &"mountain_shadow.visual_rebuild"
 const INVALID_COORD: Vector2i = Vector2i(999999, 999999)
-const EDGE_CACHE_TIME_BUDGET_USEC: int = 900
-const EDGE_CACHE_TIME_CHECK_INTERVAL: int = 1
-const SHADOW_BUILD_TIME_BUDGET_USEC: int = 900
+const SHADOW_START_SCAN_LIMIT: int = 4
 const EDGE_NEIGHBOR_OFFSETS: Array[Vector2i] = [
 	Vector2i.LEFT,
 	Vector2i.RIGHT,
@@ -27,15 +25,22 @@ var _shadow_sprites: Dictionary = {}
 var _shadow_container: Node2D = null
 var _last_built_angle: float = -999.0
 var _edge_cache: Dictionary = {}
+var _edge_cache_versions: Dictionary = {}
 var _dirty_queue: Array[Vector2i] = []
 var _edge_build_queue: Array[Vector2i] = []
 var _active_edge_cache_build: Dictionary = {}
-var _active_build: Dictionary = {}  ## Progressive shadow build state
+var _edge_cache_compute_results: Dictionary = {}
+var _edge_cache_compute_mutex: Mutex = Mutex.new()
+var _shadow_build_versions: Dictionary = {}
+var _active_build: Dictionary = {}  ## Detached shadow compute + main-thread finalize state
+var _shadow_compute_results: Dictionary = {}
+var _shadow_compute_mutex: Mutex = Mutex.new()
 var _prefer_shadow_step: bool = true
 var _current_z: int = 0
 var _boot_shadow_work_started: bool = false
 var _boot_shadow_work_drained: bool = false
 var _boot_shadow_completion_emitted: bool = false
+var _worker_task_serial: int = 0
 
 signal boot_shadow_work_drained
 
@@ -55,6 +60,7 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if FrameBudgetDispatcher:
 		FrameBudgetDispatcher.unregister_job(JOB_SHADOWS)
+	_wait_for_active_compute_tasks()
 
 func _process(_delta: float) -> void:
 	if not _chunk_manager or not TimeManager or not WorldGenerator or not WorldGenerator.balance:
@@ -77,7 +83,7 @@ func _resolve_dependencies() -> void:
 		_tick_shadows,
 		JOB_SHADOWS,
 		RuntimeWorkTypes.CadenceKind.PRESENTATION,
-		RuntimeWorkTypes.ThreadingRole.MAIN_THREAD_ONLY,
+		RuntimeWorkTypes.ThreadingRole.COMPUTE_THEN_APPLY,
 		false,
 		"Mountain shadows"
 	)
@@ -200,17 +206,19 @@ func _on_chunk_loaded(coord: Vector2i) -> void:
 	_refresh_boot_shadow_completion_state()
 
 func _on_chunk_unloaded(coord: Vector2i) -> void:
-	if not _is_surface_context():
-		return
 	coord = _canonical_chunk_coord(coord)
 	var active_edge_coord: Vector2i = _active_edge_cache_build.get("coord", Vector2i(999999, 999999))
 	if not _active_edge_cache_build.is_empty() \
 		and active_edge_coord == coord:
-		_active_edge_cache_build.clear()
+		_active_edge_cache_build["cancelled"] = true
 	var active_shadow_coord: Vector2i = _active_build.get("coord", Vector2i(999999, 999999))
 	if not _active_build.is_empty() \
 		and active_shadow_coord == coord:
-		_active_build.clear()
+		var phase: String = str(_active_build.get("phase", "compute"))
+		if phase == "compute":
+			_active_build["cancelled"] = true
+		else:
+			_active_build.clear()
 	_edge_cache.erase(coord)
 	_remove_shadow(coord)
 	_refresh_boot_shadow_completion_state()
@@ -230,6 +238,7 @@ func _on_mountain_tile_mined(tile_pos: Vector2i, _old_type: int, _new_type: int)
 
 func _mark_dirty(coord: Vector2i) -> void:
 	coord = _canonical_chunk_coord(coord)
+	_bump_chunk_version(_shadow_build_versions, coord)
 	if coord not in _dirty_queue:
 		_dirty_queue.append(coord)
 
@@ -244,13 +253,13 @@ func _mark_all_dirty() -> void:
 ## Tick для FrameBudgetDispatcher. Edge build → progressive shadow build.
 func _tick_shadows() -> bool:
 	if not _is_surface_context():
-		_suspend_surface_shadow_runtime(true)
+		_tick_suspended_shadow_runtime()
 		_refresh_boot_shadow_completion_state()
 		return false
 	if not _active_build.is_empty():
-		var phase: String = str(_active_build.get("phase", "build"))
+		var phase: String = str(_active_build.get("phase", "compute"))
 		match phase:
-			"build":
+			"compute":
 				_advance_shadow_build()
 			"finalize_texture":
 				_finalize_shadow_texture()
@@ -289,12 +298,25 @@ func _tick_shadows() -> bool:
 	return false
 
 func _try_shadow_step() -> bool:
-	while not _dirty_queue.is_empty():
+	var step_usec: int = WorldPerfProbe.begin()
+	var deferred: Array[Vector2i] = []
+	var remaining_checks: int = mini(SHADOW_START_SCAN_LIMIT, _dirty_queue.size())
+	while remaining_checks > 0 and not _dirty_queue.is_empty():
+		remaining_checks -= 1
 		var coord: Vector2i = _pop_best_queue_coord(_dirty_queue)
 		if not _chunk_manager or not _chunk_manager.get_chunk(coord):
 			continue
+		if not _shadow_inputs_ready(coord):
+			deferred.append(coord)
+			continue
 		_start_shadow_build(coord)
+		for deferred_coord: Vector2i in deferred:
+			_requeue_dirty_coord(deferred_coord)
+		WorldPerfProbe.end("Shadow.try_shadow_step start=%s deferred=%d" % [coord, deferred.size()], step_usec)
 		return true
+	for deferred_coord: Vector2i in deferred:
+		_requeue_dirty_coord(deferred_coord)
+	WorldPerfProbe.end("Shadow.try_shadow_step start=none deferred=%d" % [deferred.size()], step_usec)
 	return false
 
 func _try_edge_step() -> bool:
@@ -312,13 +334,15 @@ func _try_edge_step() -> bool:
 func _update_edges_at(tile_pos: Vector2i) -> void:
 	if not _chunk_manager:
 		return
+	var touched_coords: Dictionary = {}
 	for offset_y: int in range(-1, 2):
 		for offset_x: int in range(-1, 2):
 			var check_tile: Vector2i = WorldGenerator.offset_tile(tile_pos, Vector2i(offset_x, offset_y))
-			var coord: Vector2i = WorldGenerator.tile_to_chunk(check_tile)
+			var coord: Vector2i = _canonical_chunk_coord(WorldGenerator.tile_to_chunk(check_tile))
 			var chunk: Chunk = _chunk_manager.get_chunk(coord)
 			if not chunk:
 				continue
+			touched_coords[coord] = true
 			var chunk_size: int = chunk.get_chunk_size()
 			var local_tile: Vector2i = chunk.global_to_local(check_tile)
 			if local_tile.x < 0 or local_tile.y < 0 or local_tile.x >= chunk_size or local_tile.y >= chunk_size:
@@ -335,14 +359,21 @@ func _update_edges_at(tile_pos: Vector2i) -> void:
 				edges.append(check_tile)
 			elif not is_edge and edge_idx >= 0:
 				edges.remove_at(edge_idx)
+	for touched_coord_variant: Variant in touched_coords.keys():
+		var touched_coord: Vector2i = touched_coord_variant as Vector2i
+		_bump_chunk_version(_edge_cache_versions, touched_coord)
+		var active_coord: Vector2i = _active_edge_cache_build.get("coord", INVALID_COORD)
+		if active_coord == touched_coord or not _edge_cache.has(touched_coord):
+			var touched_chunk: Chunk = _chunk_manager.get_chunk(touched_coord)
+			if touched_chunk and touched_chunk.has_any_mountain() and touched_coord not in _edge_build_queue:
+				_edge_build_queue.append(touched_coord)
 
 func _enqueue_edge_cache_build(coord: Vector2i) -> void:
 	coord = _canonical_chunk_coord(coord)
-	if _active_edge_cache_build.get("coord", INVALID_COORD) == coord:
-		return
 	var chunk: Chunk = _chunk_manager.get_chunk(coord) if _chunk_manager else null
 	if not chunk or not chunk.has_any_mountain():
 		return
+	_bump_chunk_version(_edge_cache_versions, coord)
 	if coord not in _edge_build_queue:
 		_edge_build_queue.append(coord)
 
@@ -407,56 +438,48 @@ func _start_edge_cache_build(coord: Vector2i) -> void:
 		_edge_cache[coord] = [] as Array[Vector2i]
 		_complete_edge_cache_build(coord)
 		return
-	var chunk_size: int = chunk.get_chunk_size()
+	var version: int = _ensure_chunk_version(_edge_cache_versions, coord)
+	var request: Dictionary = _build_edge_cache_request(coord, chunk, version)
+	var task_key: String = _make_worker_task_key("edge", coord, version)
+	var builder: ChunkContentBuilder = _create_detached_edge_builder()
+	var task_id: int = WorkerThreadPool.add_task(_worker_build_edge_cache.bind(task_key, request, builder))
 	_active_edge_cache_build = {
 		"coord": coord,
-		"chunk_size": chunk_size,
-		"base_x": WorldGenerator.chunk_to_tile_origin(coord).x,
-		"base_y": coord.y * chunk_size,
-		"tile_index": 0,
-		"edges": [] as Array[Vector2i],
+		"version": version,
+		"task_key": task_key,
+		"task_id": task_id,
+		"cancelled": false,
+		"builder": builder,
 	}
 
 func _advance_edge_cache_build() -> void:
-	var started_usec: int = WorldPerfProbe.begin()
 	var build: Dictionary = _active_edge_cache_build
-	var coord: Vector2i = build.get("coord", Vector2i(999999, 999999))
+	var task_id: int = int(build.get("task_id", -1))
+	if task_id < 0 or not WorkerThreadPool.is_task_completed(task_id):
+		return
+	WorkerThreadPool.wait_for_task_completion(task_id)
+	var task_key: String = str(build.get("task_key", ""))
+	var coord: Vector2i = build.get("coord", INVALID_COORD)
+	var version: int = int(build.get("version", -1))
+	var cancelled: bool = bool(build.get("cancelled", false))
+	var result: Dictionary = _take_edge_cache_worker_result(task_key)
+	_active_edge_cache_build.clear()
+	if result.is_empty():
+		return
+	var compute_ms: float = float(result.get("compute_ms", 0.0))
+	if compute_ms > 0.0:
+		WorldPerfProbe.record("Shadow.edge_cache_compute %s" % [coord], compute_ms)
+	if cancelled or coord == INVALID_COORD:
+		return
+	if int(_edge_cache_versions.get(coord, -1)) != version:
+		return
 	var chunk: Chunk = _chunk_manager.get_chunk(coord) if _chunk_manager else null
 	if not chunk or not chunk.has_any_mountain():
 		_edge_cache[coord] = [] as Array[Vector2i]
-		_active_edge_cache_build.clear()
 		_complete_edge_cache_build(coord)
-		WorldPerfProbe.end("Shadow.edge_cache_slice", started_usec)
 		return
-	var chunk_size: int = build["chunk_size"] as int
-	var base_x: int = build["base_x"] as int
-	var base_y: int = build["base_y"] as int
-	var tile_index: int = build["tile_index"] as int
-	var total_tiles: int = chunk_size * chunk_size
-	var edges: Array = build["edges"] as Array
-	var terrain_bytes: PackedByteArray = chunk.get_terrain_bytes()
-	var current_index: int = tile_index
-	while current_index < total_tiles:
-		if terrain_bytes[current_index] != TileGenData.TerrainType.ROCK:
-			current_index += 1
-			if (current_index - tile_index) % EDGE_CACHE_TIME_CHECK_INTERVAL == 0 \
-				and (Time.get_ticks_usec() - started_usec) >= EDGE_CACHE_TIME_BUDGET_USEC:
-				break
-			continue
-		var local_x: int = current_index % chunk_size
-		var local_y: int = current_index / chunk_size
-		if _is_external_edge_at(coord, terrain_bytes, local_x, local_y, chunk_size):
-			edges.append(Vector2i(base_x + local_x, base_y + local_y))
-		current_index += 1
-		if (current_index - tile_index) % EDGE_CACHE_TIME_CHECK_INTERVAL == 0 \
-			and (Time.get_ticks_usec() - started_usec) >= EDGE_CACHE_TIME_BUDGET_USEC:
-			break
-	build["tile_index"] = current_index
-	if current_index >= total_tiles:
-		_edge_cache[coord] = edges
-		_active_edge_cache_build.clear()
-		_complete_edge_cache_build(coord)
-	WorldPerfProbe.end("Shadow.edge_cache_slice", started_usec)
+	_edge_cache[coord] = result.get("edges", [] as Array[Vector2i])
+	_complete_edge_cache_build(coord)
 
 func _complete_edge_cache_build(coord: Vector2i) -> void:
 	_mark_dirty(coord)
@@ -470,137 +493,69 @@ func _build_edge_cache_now(coord: Vector2i) -> void:
 	if not chunk or not chunk.has_any_mountain():
 		_edge_cache[coord] = [] as Array[Vector2i]
 		return
-	var chunk_size: int = chunk.get_chunk_size()
-	var total_tiles: int = chunk_size * chunk_size
-	var base_x: int = WorldGenerator.chunk_to_tile_origin(coord).x
-	var base_y: int = coord.y * chunk_size
-	var terrain_bytes: PackedByteArray = chunk.get_terrain_bytes()
-	var edges: Array[Vector2i] = []
-	for tile_index: int in range(total_tiles):
-		if terrain_bytes[tile_index] != TileGenData.TerrainType.ROCK:
-			continue
-		var local_x: int = tile_index % chunk_size
-		var local_y: int = tile_index / chunk_size
-		if _is_external_edge_at(coord, terrain_bytes, local_x, local_y, chunk_size):
-			edges.append(Vector2i(base_x + local_x, base_y + local_y))
-	_edge_cache[coord] = edges
+	var version: int = _ensure_chunk_version(_edge_cache_versions, coord)
+	var request: Dictionary = _build_edge_cache_request(coord, chunk, version)
+	var result: Dictionary = _run_edge_cache_request_blocking(request)
+	if result.is_empty():
+		return
+	if int(_edge_cache_versions.get(coord, -1)) != version:
+		return
+	_edge_cache[coord] = result.get("edges", [] as Array[Vector2i])
 
-## Начинает progressive shadow build для чанка.
+## Подготавливает detached shadow build для чанка.
 func _start_shadow_build(coord: Vector2i) -> void:
-	var balance: WorldGenBalance = WorldGenerator.balance
-	var chunk: Chunk = _chunk_manager.get_chunk(coord)
-	if not chunk:
+	var request: Dictionary = _build_shadow_request(coord)
+	if request.is_empty():
 		_remove_shadow(coord)
 		return
-	var length_factor: float = TimeManager.get_shadow_length_factor()
-	if length_factor <= 0.0:
-		_remove_shadow(coord)
-		return
-	var chunk_size: int = chunk.get_chunk_size()
-	var shadow_length: int = clampi(
-		int(float(balance.shadow_mountain_height) * length_factor),
-		1, balance.shadow_max_length
-	)
-	var sun_angle: float = TimeManager.get_sun_angle()
-	var shadow_dir: Vector2 = Vector2(cos(sun_angle + PI), sin(sun_angle + PI))
-	var all_edges: Array[Vector2i] = []
-	var source_chunks: Array[Vector2i] = [coord]
-	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		source_chunks.append(_offset_chunk_coord(coord, dir))
-	for source_coord: Vector2i in source_chunks:
-		var edges: Array = _edge_cache.get(source_coord, []) as Array
-		for e: Vector2i in edges:
-			all_edges.append(e)
-	if all_edges.is_empty():
-		_remove_shadow(coord)
-		return
-	var shadow_points: Array[Vector2i] = _bresenham(0, 0, roundi(shadow_dir.x * float(shadow_length)), roundi(shadow_dir.y * float(shadow_length)))
-	if shadow_points.is_empty():
-		_remove_shadow(coord)
-		return
+	var version: int = int(request.get("version", -1))
+	var task_key: String = _make_worker_task_key("shadow", coord, version)
+	var task_id: int = WorkerThreadPool.add_task(_worker_build_shadow.bind(task_key, request))
 	_active_build = {
-		"phase": "build",
+		"phase": "compute",
 		"coord": coord,
-		"chunk_size": chunk_size,
-		"tile_size": balance.tile_size,
-		"base_x": WorldGenerator.chunk_to_tile_origin(coord).x,
-		"base_y": coord.y * chunk_size,
-		"shadow_color": balance.shadow_color,
-		"max_intensity": balance.shadow_intensity,
-		"edges": all_edges,
-		"edge_idx": 0,
-		"point_idx": 0,
-		"shadow_points": shadow_points,
-		"img": Image.create(chunk_size, chunk_size, false, Image.FORMAT_RGBA8),
-		"has_pixels": false,
+		"version": version,
+		"tile_size": int(request.get("tile_size", 1)),
+		"base_x": int(request.get("base_x", 0)),
+		"base_y": int(request.get("base_y", 0)),
+		"task_key": task_key,
+		"task_id": task_id,
+		"cancelled": false,
 	}
 
-## Обрабатывает порцию edge-тайлов. Финализирует когда все обработаны.
+## Polls detached shadow raster/compute and forwards completed payloads to finalize/apply.
 func _advance_shadow_build() -> void:
-	var started_usec: int = WorldPerfProbe.begin()
 	var b: Dictionary = _active_build
-	var edges: Array = b["edges"] as Array
-	var edge_idx: int = b["edge_idx"] as int
-	var point_idx: int = b.get("point_idx", 0) as int
-	var img: Image = b["img"] as Image
-	var chunk_size: int = b["chunk_size"] as int
-	var base_x: int = b["base_x"] as int
-	var base_y: int = b["base_y"] as int
-	var shadow_color: Color = b["shadow_color"] as Color
-	var max_intensity: float = b["max_intensity"] as float
-	var has_pixels: bool = b["has_pixels"] as bool
-	var shadow_points: Array = b["shadow_points"] as Array
-	var coord: Vector2i = b.get("coord", Vector2i(999999, 999999))
-	var chunk: Chunk = _chunk_manager.get_chunk(coord) if _chunk_manager else null
-	if not chunk:
+	var task_id: int = int(b.get("task_id", -1))
+	if task_id < 0 or not WorkerThreadPool.is_task_completed(task_id):
+		return
+	WorkerThreadPool.wait_for_task_completion(task_id)
+	var task_key: String = str(b.get("task_key", ""))
+	var coord: Vector2i = b.get("coord", INVALID_COORD)
+	var version: int = int(b.get("version", -1))
+	var cancelled: bool = bool(b.get("cancelled", false))
+	var result: Dictionary = _take_shadow_worker_result(task_key)
+	if result.is_empty():
+		_active_build.clear()
+		return
+	var compute_ms: float = float(result.get("compute_ms", 0.0))
+	if compute_ms > 0.0:
+		WorldPerfProbe.record("Shadow.compute %s" % [coord], compute_ms)
+	if cancelled or coord == INVALID_COORD or not _is_surface_context():
+		_active_build.clear()
+		return
+	if int(_shadow_build_versions.get(coord, -1)) != version:
+		_active_build.clear()
+		return
+	if not _chunk_manager or not _chunk_manager.get_chunk(coord):
 		_remove_shadow(coord)
 		_active_build.clear()
-		WorldPerfProbe.end("Shadow.advance_slice", started_usec)
 		return
-	var i: int = edge_idx
-	while i < edges.size():
-		if Time.get_ticks_usec() - started_usec >= SHADOW_BUILD_TIME_BUDGET_USEC:
-			b["edge_idx"] = i
-			b["point_idx"] = point_idx
-			b["has_pixels"] = has_pixels
-			WorldPerfProbe.end("Shadow.advance_slice", started_usec)
-			return
-		var edge_global: Vector2i = edges[i] as Vector2i
-		var point_count: int = shadow_points.size()
-		while point_idx < point_count:
-			if Time.get_ticks_usec() - started_usec >= SHADOW_BUILD_TIME_BUDGET_USEC:
-				b["edge_idx"] = i
-				b["point_idx"] = point_idx
-				b["has_pixels"] = has_pixels
-				WorldPerfProbe.end("Shadow.advance_slice", started_usec)
-				return
-			var pt: Vector2i = shadow_points[point_idx] as Vector2i
-			var px: int = edge_global.x + pt.x - base_x
-			var py: int = edge_global.y + pt.y - base_y
-			if px < 0 or py < 0 or px >= chunk_size or py >= chunk_size:
-				point_idx += 1
-				continue
-			var terrain: int = chunk.get_terrain_type_at(Vector2i(px, py))
-			if terrain == TileGenData.TerrainType.ROCK:
-				point_idx += 1
-				continue
-			var fade: float = 1.0 - (float(point_idx + 1) / float(shadow_points.size() + 1))
-			var alpha: float = max_intensity * fade
-			var current: Color = img.get_pixel(px, py)
-			if alpha > current.a:
-				img.set_pixel(px, py, Color(shadow_color.r, shadow_color.g, shadow_color.b, alpha))
-				has_pixels = true
-			point_idx += 1
-		point_idx = 0
-		i += 1
-	b["edge_idx"] = i
-	b["point_idx"] = 0
-	b["has_pixels"] = has_pixels
-	if i >= edges.size():
-		WorldPerfProbe.end("Shadow.advance_slice", started_usec)
-		b["phase"] = "finalize_texture"
-		return
-	WorldPerfProbe.end("Shadow.advance_slice", started_usec)
+	b.erase("task_id")
+	b.erase("task_key")
+	b["img"] = result.get("img")
+	b["has_pixels"] = bool(result.get("has_pixels", false))
+	b["phase"] = "finalize_texture"
 
 ## Финализация apply разбита на texture build и sprite apply, чтобы не склеивать её с последним compute-step.
 func _finalize_shadow_texture() -> void:
@@ -650,11 +605,31 @@ func _finalize_shadow_apply() -> void:
 	_refresh_boot_shadow_completion_state()
 
 func _rebuild_shadow_now(coord: Vector2i) -> void:
-	_start_shadow_build(coord)
+	var request: Dictionary = _build_shadow_request(coord)
+	if request.is_empty():
+		_remove_shadow(coord)
+		return
+	var version: int = int(request.get("version", -1))
+	var result: Dictionary = _run_shadow_request_blocking(request)
+	if result.is_empty():
+		return
+	if int(_shadow_build_versions.get(coord, -1)) != version:
+		return
+	_active_build = {
+		"phase": "finalize_texture",
+		"coord": coord,
+		"version": version,
+		"tile_size": int(request.get("tile_size", 1)),
+		"base_x": int(request.get("base_x", 0)),
+		"base_y": int(request.get("base_y", 0)),
+		"img": result.get("img"),
+		"has_pixels": bool(result.get("has_pixels", false)),
+		"cancelled": false,
+	}
 	while not _active_build.is_empty():
-		var phase: String = str(_active_build.get("phase", "build"))
+		var phase: String = str(_active_build.get("phase", "compute"))
 		match phase:
-			"build":
+			"compute":
 				_advance_shadow_build()
 			"finalize_texture":
 				_finalize_shadow_texture()
@@ -662,6 +637,291 @@ func _rebuild_shadow_now(coord: Vector2i) -> void:
 				_finalize_shadow_apply()
 			_:
 				_active_build.clear()
+
+func _build_edge_cache_request(coord: Vector2i, chunk: Chunk, version: int) -> Dictionary:
+	var request_usec: int = WorldPerfProbe.begin()
+	var chunk_size: int = chunk.get_chunk_size()
+	var request: Dictionary = {
+		"coord": coord,
+		"version": version,
+		"chunk_size": chunk_size,
+		"base_x": WorldGenerator.chunk_to_tile_origin(coord).x,
+		"base_y": coord.y * chunk_size,
+		"terrain_bytes": chunk.get_terrain_bytes().duplicate(),
+		"north_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(coord, Vector2i.UP)),
+		"south_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(coord, Vector2i.DOWN)),
+		"west_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(coord, Vector2i.LEFT)),
+		"east_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(coord, Vector2i.RIGHT)),
+		"northwest_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(_offset_chunk_coord(coord, Vector2i.UP), Vector2i.LEFT)),
+		"northeast_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(_offset_chunk_coord(coord, Vector2i.UP), Vector2i.RIGHT)),
+		"southwest_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(_offset_chunk_coord(coord, Vector2i.DOWN), Vector2i.LEFT)),
+		"southeast_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(_offset_chunk_coord(coord, Vector2i.DOWN), Vector2i.RIGHT)),
+	}
+	WorldPerfProbe.end("Shadow.edge_cache_request %s" % [coord], request_usec)
+	return request
+
+static func _build_edge_terrain_snapshot(request: Dictionary, builder: ChunkContentBuilder = null) -> PackedByteArray:
+	var chunk_size: int = int(request.get("chunk_size", 0))
+	var stride: int = chunk_size + 2
+	var snapshot: PackedByteArray = PackedByteArray()
+	snapshot.resize(stride * stride)
+	var terrain_bytes: PackedByteArray = request.get("terrain_bytes", PackedByteArray())
+	for local_y: int in range(chunk_size):
+		for local_x: int in range(chunk_size):
+			var src_idx: int = local_y * chunk_size + local_x
+			var dst_idx: int = (local_y + 1) * stride + (local_x + 1)
+			snapshot[dst_idx] = terrain_bytes[src_idx]
+	var north_bytes: PackedByteArray = request.get("north_bytes", PackedByteArray())
+	var south_bytes: PackedByteArray = request.get("south_bytes", PackedByteArray())
+	var west_bytes: PackedByteArray = request.get("west_bytes", PackedByteArray())
+	var east_bytes: PackedByteArray = request.get("east_bytes", PackedByteArray())
+	var northwest_bytes: PackedByteArray = request.get("northwest_bytes", PackedByteArray())
+	var northeast_bytes: PackedByteArray = request.get("northeast_bytes", PackedByteArray())
+	var southwest_bytes: PackedByteArray = request.get("southwest_bytes", PackedByteArray())
+	var southeast_bytes: PackedByteArray = request.get("southeast_bytes", PackedByteArray())
+	var base_x: int = int(request.get("base_x", 0))
+	var base_y: int = int(request.get("base_y", 0))
+	for local_x: int in range(chunk_size):
+		var top_idx: int = local_x + 1
+		var bottom_idx: int = (stride - 1) * stride + local_x + 1
+		if north_bytes.size() >= chunk_size * chunk_size:
+			snapshot[top_idx] = north_bytes[(chunk_size - 1) * chunk_size + local_x]
+		else:
+			snapshot[top_idx] = _sample_edge_snapshot_terrain(builder, base_x + local_x, base_y - 1)
+		if south_bytes.size() >= chunk_size * chunk_size:
+			snapshot[bottom_idx] = south_bytes[local_x]
+		else:
+			snapshot[bottom_idx] = _sample_edge_snapshot_terrain(builder, base_x + local_x, base_y + chunk_size)
+	for local_y: int in range(chunk_size):
+		var left_idx: int = (local_y + 1) * stride
+		var right_idx: int = (local_y + 1) * stride + (stride - 1)
+		if west_bytes.size() >= chunk_size * chunk_size:
+			snapshot[left_idx] = west_bytes[local_y * chunk_size + (chunk_size - 1)]
+		else:
+			snapshot[left_idx] = _sample_edge_snapshot_terrain(builder, base_x - 1, base_y + local_y)
+		if east_bytes.size() >= chunk_size * chunk_size:
+			snapshot[right_idx] = east_bytes[local_y * chunk_size]
+		else:
+			snapshot[right_idx] = _sample_edge_snapshot_terrain(builder, base_x + chunk_size, base_y + local_y)
+	snapshot[0] = _resolve_snapshot_corner(northwest_bytes, builder, base_x - 1, base_y - 1, chunk_size, chunk_size - 1, chunk_size - 1)
+	snapshot[stride - 1] = _resolve_snapshot_corner(northeast_bytes, builder, base_x + chunk_size, base_y - 1, chunk_size, 0, chunk_size - 1)
+	snapshot[(stride - 1) * stride] = _resolve_snapshot_corner(southwest_bytes, builder, base_x - 1, base_y + chunk_size, chunk_size, chunk_size - 1, 0)
+	snapshot[(stride * stride) - 1] = _resolve_snapshot_corner(southeast_bytes, builder, base_x + chunk_size, base_y + chunk_size, chunk_size, 0, 0)
+	return snapshot
+
+func _get_loaded_chunk_terrain_bytes(coord: Vector2i) -> PackedByteArray:
+	if not _chunk_manager:
+		return PackedByteArray()
+	var chunk: Chunk = _chunk_manager.get_chunk(coord)
+	if not chunk:
+		return PackedByteArray()
+	return chunk.get_terrain_bytes().duplicate()
+
+static func _sample_edge_snapshot_terrain(builder: ChunkContentBuilder, global_x: int, global_y: int) -> int:
+	if builder == null:
+		return TileGenData.TerrainType.GROUND
+	return builder.sample_terrain_type(global_x, global_y)
+
+static func _resolve_snapshot_corner(
+	neighbor_bytes: PackedByteArray,
+	builder: ChunkContentBuilder,
+	global_x: int,
+	global_y: int,
+	chunk_size: int,
+	local_x: int,
+	local_y: int
+) -> int:
+	if neighbor_bytes.size() >= chunk_size * chunk_size:
+		return neighbor_bytes[local_y * chunk_size + local_x]
+	return _sample_edge_snapshot_terrain(builder, global_x, global_y)
+
+func _run_edge_cache_request_blocking(request: Dictionary) -> Dictionary:
+	var coord: Vector2i = request.get("coord", INVALID_COORD)
+	var version: int = int(request.get("version", -1))
+	var task_key: String = _make_worker_task_key("edge_sync", coord, version)
+	var builder: ChunkContentBuilder = _create_detached_edge_builder()
+	var task_id: int = WorkerThreadPool.add_task(_worker_build_edge_cache.bind(task_key, request, builder))
+	WorkerThreadPool.wait_for_task_completion(task_id)
+	return _take_edge_cache_worker_result(task_key)
+
+func _worker_build_edge_cache(task_key: String, request: Dictionary, builder: ChunkContentBuilder = null) -> void:
+	var result: Dictionary = _compute_edge_cache_request(request, builder)
+	_edge_cache_compute_mutex.lock()
+	_edge_cache_compute_results[task_key] = result
+	_edge_cache_compute_mutex.unlock()
+
+static func _compute_edge_cache_request(request: Dictionary, builder: ChunkContentBuilder = null) -> Dictionary:
+	var started_usec: int = Time.get_ticks_usec()
+	var coord: Vector2i = request.get("coord", INVALID_COORD)
+	var version: int = int(request.get("version", -1))
+	var chunk_size: int = int(request.get("chunk_size", 0))
+	var base_x: int = int(request.get("base_x", 0))
+	var base_y: int = int(request.get("base_y", 0))
+	var snapshot: PackedByteArray = _build_edge_terrain_snapshot(request, builder)
+	var stride: int = chunk_size + 2
+	var edges: Array[Vector2i] = []
+	if chunk_size > 0 and snapshot.size() >= stride * stride:
+		for tile_index: int in range(chunk_size * chunk_size):
+			var local_x: int = tile_index % chunk_size
+			var local_y: int = tile_index / chunk_size
+			var center_idx: int = (local_y + 1) * stride + (local_x + 1)
+			if snapshot[center_idx] != TileGenData.TerrainType.ROCK:
+				continue
+			if _is_external_edge_in_snapshot(snapshot, stride, local_x, local_y):
+				edges.append(Vector2i(base_x + local_x, base_y + local_y))
+	return {
+		"coord": coord,
+		"version": version,
+		"edges": edges,
+		"compute_ms": float(Time.get_ticks_usec() - started_usec) / 1000.0,
+	}
+
+func _create_detached_edge_builder() -> ChunkContentBuilder:
+	if WorldGenerator and WorldGenerator.has_method("create_detached_chunk_content_builder"):
+		return WorldGenerator.create_detached_chunk_content_builder()
+	return null
+
+static func _is_external_edge_in_snapshot(
+	terrain_snapshot: PackedByteArray,
+	stride: int,
+	local_x: int,
+	local_y: int
+) -> bool:
+	var center_x: int = local_x + 1
+	var center_y: int = local_y + 1
+	for dir: Vector2i in EDGE_NEIGHBOR_OFFSETS:
+		var idx: int = (center_y + dir.y) * stride + (center_x + dir.x)
+		if _is_shadow_open_terrain_value(terrain_snapshot[idx]):
+			return true
+	return false
+
+func _take_edge_cache_worker_result(task_key: String) -> Dictionary:
+	_edge_cache_compute_mutex.lock()
+	var result: Dictionary = _edge_cache_compute_results.get(task_key, {}) as Dictionary
+	_edge_cache_compute_results.erase(task_key)
+	_edge_cache_compute_mutex.unlock()
+	return result
+
+func _build_shadow_request(coord: Vector2i) -> Dictionary:
+	var request_usec: int = WorldPerfProbe.begin()
+	if not _chunk_manager or not WorldGenerator or not WorldGenerator.balance or not TimeManager:
+		WorldPerfProbe.end("Shadow.request %s" % [coord], request_usec)
+		return {}
+	var chunk: Chunk = _chunk_manager.get_chunk(coord)
+	if not chunk:
+		WorldPerfProbe.end("Shadow.request %s" % [coord], request_usec)
+		return {}
+	var balance: WorldGenBalance = WorldGenerator.balance
+	var length_factor: float = TimeManager.get_shadow_length_factor()
+	if length_factor <= 0.0:
+		WorldPerfProbe.end("Shadow.request %s" % [coord], request_usec)
+		return {}
+	var chunk_size: int = chunk.get_chunk_size()
+	var shadow_length: int = clampi(
+		int(float(balance.shadow_mountain_height) * length_factor),
+		1, balance.shadow_max_length
+	)
+	var sun_angle: float = TimeManager.get_sun_angle()
+	var shadow_dir: Vector2 = Vector2(cos(sun_angle + PI), sin(sun_angle + PI))
+	var all_edges: Array[Vector2i] = []
+	var source_chunks: Array[Vector2i] = [coord]
+	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		source_chunks.append(_offset_chunk_coord(coord, dir))
+	for source_coord: Vector2i in source_chunks:
+		var source_edges: Array = _edge_cache.get(source_coord, []) as Array
+		for edge_variant: Variant in source_edges:
+			all_edges.append(edge_variant as Vector2i)
+	if all_edges.is_empty():
+		WorldPerfProbe.end("Shadow.request %s" % [coord], request_usec)
+		return {}
+	var shadow_points: Array[Vector2i] = _bresenham(
+		0,
+		0,
+		roundi(shadow_dir.x * float(shadow_length)),
+		roundi(shadow_dir.y * float(shadow_length))
+	)
+	if shadow_points.is_empty():
+		WorldPerfProbe.end("Shadow.request %s" % [coord], request_usec)
+		return {}
+	var version: int = _ensure_chunk_version(_shadow_build_versions, coord)
+	var request: Dictionary = {
+		"coord": coord,
+		"version": version,
+		"chunk_size": chunk_size,
+		"tile_size": balance.tile_size,
+		"base_x": WorldGenerator.chunk_to_tile_origin(coord).x,
+		"base_y": coord.y * chunk_size,
+		"shadow_color": balance.shadow_color,
+		"max_intensity": balance.shadow_intensity,
+		"terrain_bytes": chunk.get_terrain_bytes().duplicate(),
+		"edges": all_edges.duplicate(),
+		"shadow_points": shadow_points.duplicate(),
+	}
+	WorldPerfProbe.end("Shadow.request %s" % [coord], request_usec)
+	return request
+
+func _run_shadow_request_blocking(request: Dictionary) -> Dictionary:
+	var coord: Vector2i = request.get("coord", INVALID_COORD)
+	var version: int = int(request.get("version", -1))
+	var task_key: String = _make_worker_task_key("shadow_sync", coord, version)
+	var task_id: int = WorkerThreadPool.add_task(_worker_build_shadow.bind(task_key, request))
+	WorkerThreadPool.wait_for_task_completion(task_id)
+	return _take_shadow_worker_result(task_key)
+
+func _worker_build_shadow(task_key: String, request: Dictionary) -> void:
+	var result: Dictionary = _compute_shadow_request(request)
+	_shadow_compute_mutex.lock()
+	_shadow_compute_results[task_key] = result
+	_shadow_compute_mutex.unlock()
+
+static func _compute_shadow_request(request: Dictionary) -> Dictionary:
+	var started_usec: int = Time.get_ticks_usec()
+	var coord: Vector2i = request.get("coord", INVALID_COORD)
+	var version: int = int(request.get("version", -1))
+	var chunk_size: int = int(request.get("chunk_size", 0))
+	var base_x: int = int(request.get("base_x", 0))
+	var base_y: int = int(request.get("base_y", 0))
+	var shadow_color: Color = request.get("shadow_color", Color(0.0, 0.0, 0.0, 1.0))
+	var max_intensity: float = float(request.get("max_intensity", 0.0))
+	var terrain_bytes: PackedByteArray = request.get("terrain_bytes", PackedByteArray())
+	var edges: Array = request.get("edges", []) as Array
+	var shadow_points: Array = request.get("shadow_points", []) as Array
+	var img: Image = Image.create(maxi(1, chunk_size), maxi(1, chunk_size), false, Image.FORMAT_RGBA8)
+	var has_pixels: bool = false
+	if chunk_size > 0:
+		for edge_variant: Variant in edges:
+			var edge_global: Vector2i = edge_variant as Vector2i
+			for point_idx: int in range(shadow_points.size()):
+				var pt: Vector2i = shadow_points[point_idx] as Vector2i
+				var px: int = edge_global.x + pt.x - base_x
+				var py: int = edge_global.y + pt.y - base_y
+				if px < 0 or py < 0 or px >= chunk_size or py >= chunk_size:
+					continue
+				var terrain_idx: int = py * chunk_size + px
+				if terrain_idx < 0 or terrain_idx >= terrain_bytes.size():
+					continue
+				if terrain_bytes[terrain_idx] == TileGenData.TerrainType.ROCK:
+					continue
+				var fade: float = 1.0 - (float(point_idx + 1) / float(shadow_points.size() + 1))
+				var alpha: float = max_intensity * fade
+				var current: Color = img.get_pixel(px, py)
+				if alpha > current.a:
+					img.set_pixel(px, py, Color(shadow_color.r, shadow_color.g, shadow_color.b, alpha))
+					has_pixels = true
+	return {
+		"coord": coord,
+		"version": version,
+		"img": img,
+		"has_pixels": has_pixels,
+		"compute_ms": float(Time.get_ticks_usec() - started_usec) / 1000.0,
+	}
+
+func _take_shadow_worker_result(task_key: String) -> Dictionary:
+	_shadow_compute_mutex.lock()
+	var result: Dictionary = _shadow_compute_results.get(task_key, {}) as Dictionary
+	_shadow_compute_results.erase(task_key)
+	_shadow_compute_mutex.unlock()
+	return result
 
 func _is_external_edge(chunk: Chunk, local: Vector2i, chunk_size: int) -> bool:
 	return _is_external_edge_at(chunk.chunk_coord, chunk.get_terrain_bytes(), local.x, local.y, chunk_size)
@@ -687,6 +947,9 @@ func _is_external_edge_at(
 	return false
 
 func _is_shadow_open_terrain(terrain: int) -> bool:
+	return _is_shadow_open_terrain_value(terrain)
+
+static func _is_shadow_open_terrain_value(terrain: int) -> bool:
 	return terrain == TileGenData.TerrainType.GROUND \
 		or terrain == TileGenData.TerrainType.WATER \
 		or terrain == TileGenData.TerrainType.SAND \
@@ -700,12 +963,30 @@ func _remove_shadow(coord: Vector2i) -> void:
 func _suspend_surface_shadow_runtime(hide_container: bool) -> void:
 	_dirty_queue.clear()
 	_edge_build_queue.clear()
-	_active_edge_cache_build.clear()
-	_active_build.clear()
+	if not _active_edge_cache_build.is_empty():
+		_active_edge_cache_build["cancelled"] = true
+	if not _active_build.is_empty():
+		var phase: String = str(_active_build.get("phase", "compute"))
+		if phase == "compute":
+			_active_build["cancelled"] = true
+		else:
+			_active_build.clear()
 	_prefer_shadow_step = true
 	if hide_container and _shadow_container:
 		_shadow_container.visible = false
 	_refresh_boot_shadow_completion_state()
+
+func _tick_suspended_shadow_runtime() -> void:
+	if _shadow_container:
+		_shadow_container.visible = false
+	if not _active_build.is_empty():
+		var phase: String = str(_active_build.get("phase", "compute"))
+		if phase == "compute":
+			_advance_shadow_build()
+		else:
+			_active_build.clear()
+	if not _active_edge_cache_build.is_empty():
+		_advance_edge_cache_build()
 
 func _show_shadow_container() -> void:
 	if _shadow_container:
@@ -771,6 +1052,65 @@ func _bresenham(x0: int, y0: int, x1: int, y1: int) -> Array[Vector2i]:
 			err += dx
 			cy += sy
 	return result
+
+func _shadow_inputs_ready(coord: Vector2i) -> bool:
+	if not _chunk_manager:
+		return false
+	var active_edge_coord: Vector2i = _active_edge_cache_build.get("coord", INVALID_COORD)
+	var active_edge_cancelled: bool = bool(_active_edge_cache_build.get("cancelled", false))
+	var source_chunks: Array[Vector2i] = [coord]
+	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		source_chunks.append(_offset_chunk_coord(coord, dir))
+	for source_coord: Vector2i in source_chunks:
+		var source_chunk: Chunk = _chunk_manager.get_chunk(source_coord)
+		if not source_chunk or not source_chunk.has_any_mountain():
+			continue
+		if active_edge_coord == source_coord and not active_edge_cancelled:
+			return false
+		if source_coord in _edge_build_queue:
+			return false
+		if not _edge_cache.has(source_coord):
+			_enqueue_edge_cache_build(source_coord)
+			return false
+	return true
+
+func _requeue_dirty_coord(coord: Vector2i) -> void:
+	if coord not in _dirty_queue:
+		_dirty_queue.append(coord)
+
+func _bump_chunk_version(store: Dictionary, coord: Vector2i) -> int:
+	var next_version: int = int(store.get(coord, 0)) + 1
+	store[coord] = next_version
+	return next_version
+
+func _ensure_chunk_version(store: Dictionary, coord: Vector2i) -> int:
+	if not store.has(coord):
+		store[coord] = 1
+	return int(store.get(coord, 1))
+
+func _make_worker_task_key(prefix: String, coord: Vector2i, version: int) -> String:
+	_worker_task_serial += 1
+	return "%s:%d:%d:v%d:%d" % [prefix, coord.x, coord.y, version, _worker_task_serial]
+
+func _wait_for_active_compute_tasks() -> void:
+	if not _active_edge_cache_build.is_empty():
+		var edge_task_id: int = int(_active_edge_cache_build.get("task_id", -1))
+		if edge_task_id >= 0:
+			WorkerThreadPool.wait_for_task_completion(edge_task_id)
+		_active_edge_cache_build.clear()
+	if not _active_build.is_empty():
+		var phase: String = str(_active_build.get("phase", "compute"))
+		if phase == "compute":
+			var shadow_task_id: int = int(_active_build.get("task_id", -1))
+			if shadow_task_id >= 0:
+				WorkerThreadPool.wait_for_task_completion(shadow_task_id)
+		_active_build.clear()
+	_edge_cache_compute_mutex.lock()
+	_edge_cache_compute_results.clear()
+	_edge_cache_compute_mutex.unlock()
+	_shadow_compute_mutex.lock()
+	_shadow_compute_results.clear()
+	_shadow_compute_mutex.unlock()
 
 func _resolve_shadow_edge_cache_tile_budget() -> int:
 	if WorldGenerator and WorldGenerator.balance:

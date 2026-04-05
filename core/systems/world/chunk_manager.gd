@@ -86,6 +86,10 @@ var _visual_scheduler_budget_exhausted_count: int = 0
 var _visual_scheduler_starvation_incident_count: int = 0
 var _visual_scheduler_max_urgent_wait_ms: float = 0.0
 var _visual_scheduler_log_ticks: int = 0
+var _visual_compute_active: Dictionary = {}  ## String task_key -> int task_id
+var _visual_compute_waiting_tasks: Dictionary = {}  ## String task_key -> queued task payload
+var _visual_compute_results: Dictionary = {}  ## String task_key -> prepared batch
+var _visual_compute_mutex: Mutex = Mutex.new()
 var _saved_chunk_data: Dictionary = {}
 var _terrain_tileset: TileSet = null
 var _overlay_tileset: TileSet = null
@@ -309,11 +313,8 @@ func boot_load_initial_chunks(progress_callback: Callable) -> void:
 		)
 		var _iter_ms: float = float(Time.get_ticks_usec() - _iter_start) / 1000.0
 		_loop_iter += 1
-		if _iter_ms > 5.0 or _loop_iter % 100 == 1:
-			print("[Boot] loop iter %d: %.1fms | pending=%d active=%d apply_q=%d applied=%d/%d" % [
-				_loop_iter, _iter_ms,
-				_boot_compute_pending.size(), _boot_compute_active.size(),
-				_boot_apply_queue.size(), _boot_applied_count, total])
+		if _iter_ms > 10.0:
+			WorldPerfProbe.record("Boot.loop_step_ms", _iter_ms)
 		if _boot_first_playable:
 			break
 		await get_tree().process_frame
@@ -633,7 +634,7 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	# Same-chunk neighbor re-normalization (MINED_FLOOR <-> MOUNTAIN_ENTRANCE)
 	chunk._refresh_open_neighbors(local_tile)
 	chunk.redraw_mining_patch(local_tile)
-	_ensure_chunk_full_redraw_task(chunk, _active_z, true)
+	_ensure_chunk_border_fix_task(chunk, _active_z, true)
 	# Cross-chunk seam: normalize + redraw affected neighbor chunks
 	_seam_normalize_and_redraw(tile_pos, local_tile, chunk)
 	_on_mountain_tile_changed(tile_pos, int(result["old_type"]), int(result["new_type"]))
@@ -1120,6 +1121,8 @@ func _is_native_topology_enabled() -> bool:
 	return _native_topology_active
 
 func _clear_visual_task_state() -> void:
+	for task_variant: Variant in _visual_compute_active.values():
+		WorkerThreadPool.wait_for_task_completion(int(task_variant))
 	_visual_q_terrain_urgent.clear()
 	_visual_q_terrain_near.clear()
 	_visual_q_full_near.clear()
@@ -1134,6 +1137,11 @@ func _clear_visual_task_state() -> void:
 	_visual_convergence_started_usec.clear()
 	_visual_first_pass_ready_usec.clear()
 	_visual_full_ready_usec.clear()
+	_visual_compute_active.clear()
+	_visual_compute_waiting_tasks.clear()
+	_visual_compute_mutex.lock()
+	_visual_compute_results.clear()
+	_visual_compute_mutex.unlock()
 	_visual_scheduler_budget_exhausted_count = 0
 	_visual_scheduler_starvation_incident_count = 0
 	_visual_scheduler_max_urgent_wait_ms = 0.0
@@ -1456,6 +1464,81 @@ func _schedule_chunk_visual_work(chunk: Chunk, z_level: int) -> void:
 	else:
 		_try_finalize_chunk_visual_convergence(chunk, z_level)
 
+func _worker_prepare_visual_batch(task_key: String, request: Dictionary) -> void:
+	if _shutdown_in_progress:
+		return
+	var started_usec: int = Time.get_ticks_usec()
+	var batch: Dictionary = Chunk.compute_visual_batch(request)
+	if _shutdown_in_progress:
+		return
+	batch["task_key"] = task_key
+	batch["chunk_coord"] = request.get("chunk_coord", Vector2i.ZERO)
+	batch["z"] = int(request.get("z", INVALID_Z_LEVEL))
+	batch["invalidation_version"] = int(request.get("invalidation_version", -1))
+	batch["prepare_ms"] = float(Time.get_ticks_usec() - started_usec) / 1000.0
+	_visual_compute_mutex.lock()
+	_visual_compute_results[task_key] = batch
+	_visual_compute_mutex.unlock()
+
+func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) -> bool:
+	if chunk == null or not is_instance_valid(chunk):
+		return false
+	var coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
+	var z_level: int = int(task.get("z", _active_z))
+	var kind: int = int(task.get("kind", VisualTaskKind.TASK_COSMETIC))
+	var key: String = _make_visual_task_key(coord, z_level, kind)
+	if _visual_compute_active.has(key) or _visual_compute_waiting_tasks.has(key):
+		return true
+	var request: Dictionary = {}
+	match kind:
+		VisualTaskKind.TASK_FIRST_PASS, VisualTaskKind.TASK_FULL_REDRAW:
+			if chunk.supports_worker_visual_phase():
+				request = chunk.build_visual_phase_batch(tile_budget)
+		VisualTaskKind.TASK_BORDER_FIX:
+			request = chunk.build_visual_dirty_batch(chunk._pending_border_dirty, mini(tile_budget, BORDER_FIX_REDRAW_MICRO_BATCH_TILES))
+		_:
+			return false
+	if request.is_empty():
+		return false
+	request["chunk_coord"] = coord
+	request["z"] = z_level
+	request["invalidation_version"] = int(task.get("invalidation_version", -1))
+	var task_id: int = WorkerThreadPool.add_task(_worker_prepare_visual_batch.bind(key, request))
+	_visual_compute_active[key] = task_id
+	_visual_compute_waiting_tasks[key] = task
+	return true
+
+func _collect_completed_visual_compute() -> void:
+	if _visual_compute_active.is_empty():
+		return
+	var completed_keys: Array[String] = []
+	for key_variant: Variant in _visual_compute_active.keys():
+		var key: String = str(key_variant)
+		var task_id: int = int(_visual_compute_active.get(key, -1))
+		if task_id >= 0 and WorkerThreadPool.is_task_completed(task_id):
+			WorkerThreadPool.wait_for_task_completion(task_id)
+			completed_keys.append(key)
+	for key: String in completed_keys:
+		_visual_compute_active.erase(key)
+		_visual_compute_mutex.lock()
+		var batch: Dictionary = _visual_compute_results.get(key, {}) as Dictionary
+		_visual_compute_results.erase(key)
+		_visual_compute_mutex.unlock()
+		var waiting_task: Dictionary = _visual_compute_waiting_tasks.get(key, {}) as Dictionary
+		_visual_compute_waiting_tasks.erase(key)
+		if batch.is_empty() or waiting_task.is_empty():
+			continue
+		if int(_visual_task_pending.get(key, -1)) != int(batch.get("invalidation_version", -1)):
+			continue
+		var prepare_ms: float = float(batch.get("prepare_ms", 0.0))
+		if prepare_ms >= 2.0:
+			WorldPerfProbe.record(
+				"ChunkManager.streaming_redraw_prepare_step.%s" % [String(batch.get("phase_name", &"done"))],
+				prepare_ms
+			)
+		waiting_task["prepared_batch"] = batch
+		_push_visual_task(waiting_task)
+
 func _has_pending_visual_tasks() -> bool:
 	return not _visual_q_terrain_urgent.is_empty() \
 		or not _visual_q_terrain_near.is_empty() \
@@ -1463,7 +1546,9 @@ func _has_pending_visual_tasks() -> bool:
 		or not _visual_q_border_fix_near.is_empty() \
 		or not _visual_q_border_fix_far.is_empty() \
 		or not _visual_q_full_far.is_empty() \
-		or not _visual_q_cosmetic.is_empty()
+		or not _visual_q_cosmetic.is_empty() \
+		or not _visual_compute_active.is_empty() \
+		or not _visual_compute_waiting_tasks.is_empty()
 
 func _pop_allowed_visual_task_from_queue(queue: Array[Dictionary], processed_by_kind: Dictionary) -> Dictionary:
 	var queue_size: int = queue.size()
@@ -1537,7 +1622,6 @@ func _record_visual_task_wait(task: Dictionary) -> void:
 	if wait_ms > 100.0:
 		_visual_scheduler_starvation_incident_count += 1
 		WorldPerfProbe.record("scheduler.starvation_incident_count", 1.0)
-		push_warning("[VisualScheduler] urgent task waited %.1f ms before first execution for %s@z%d" % [wait_ms, coord, z_level])
 
 func _run_chunk_redraw_compat(chunk: Chunk, desired_tiles: int, deadline_usec: int, stop_at_terrain_ready: bool) -> bool:
 	if chunk == null or not is_instance_valid(chunk):
@@ -1601,24 +1685,6 @@ func _emit_visual_scheduler_tick_log(processed_count: int, budget_exhausted: boo
 	WorldPerfProbe.record("scheduler.visual_queue_depth.full_far", float(_visual_q_full_far.size()))
 	WorldPerfProbe.record("scheduler.visual_queue_depth.cosmetic", float(_visual_q_cosmetic.size()))
 	_visual_scheduler_log_ticks += 1
-	var log_interval: int = 60
-	if budget_exhausted:
-		log_interval = 30
-	if _visual_scheduler_log_ticks % log_interval != 0:
-		return
-	print("[VisualScheduler] processed=%d exhausted=%s urgent=%d near=%d full_near=%d border_near=%d full_far=%d border_far=%d cosmetic=%d max_urgent_wait=%.1fms starvations=%d" % [
-		processed_count,
-		str(budget_exhausted),
-		_visual_q_terrain_urgent.size(),
-		_visual_q_terrain_near.size(),
-		_visual_q_full_near.size(),
-		_visual_q_border_fix_near.size(),
-		_visual_q_full_far.size(),
-		_visual_q_border_fix_far.size(),
-		_visual_q_cosmetic.size(),
-		_visual_scheduler_max_urgent_wait_ms,
-		_visual_scheduler_starvation_incident_count,
-	])
 
 func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 	var coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
@@ -1635,9 +1701,25 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 		return VisualTaskRunState.DROPPED
 	_record_visual_task_wait(task)
 	var band: int = int(task.get("priority_band", VisualPriorityBand.COSMETIC))
+	var prepared_batch: Dictionary = task.get("prepared_batch", {}) as Dictionary
 	match kind:
 		VisualTaskKind.TASK_FIRST_PASS:
-			_run_chunk_redraw_compat(chunk, _resolve_visual_tiles_per_step(kind, band), deadline_usec, true)
+			if prepared_batch.is_empty() and _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band)):
+				return VisualTaskRunState.DROPPED
+			if not prepared_batch.is_empty():
+				var apply_started_usec: int = Time.get_ticks_usec()
+				if not chunk.apply_visual_phase_batch(prepared_batch):
+					task.erase("prepared_batch")
+					return VisualTaskRunState.REQUEUE
+				var apply_ms: float = float(Time.get_ticks_usec() - apply_started_usec) / 1000.0
+				if apply_ms >= 1.0:
+					WorldPerfProbe.record(
+						"ChunkManager.streaming_redraw_step.%s" % [String(prepared_batch.get("phase_name", &"done"))],
+						apply_ms
+					)
+				_boot_on_chunk_redraw_progress(chunk)
+			else:
+				_run_chunk_redraw_compat(chunk, _resolve_visual_tiles_per_step(kind, band), deadline_usec, true)
 			_sync_chunk_visibility_for_publication(chunk)
 			if chunk.is_first_pass_ready():
 				_mark_visual_first_pass_ready(coord, z_level)
@@ -1648,10 +1730,27 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 				else:
 					_try_finalize_chunk_visual_convergence(chunk, z_level)
 				return VisualTaskRunState.COMPLETED
+			task.erase("prepared_batch")
 			return VisualTaskRunState.REQUEUE
 		VisualTaskKind.TASK_FULL_REDRAW:
 			chunk._mark_visual_full_redraw_pending()
-			var full_has_more: bool = _run_chunk_redraw_compat(chunk, _resolve_visual_tiles_per_step(kind, band), deadline_usec, false)
+			if prepared_batch.is_empty() and _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band)):
+				return VisualTaskRunState.DROPPED
+			var full_has_more: bool = true
+			if not prepared_batch.is_empty():
+				var full_apply_started_usec: int = Time.get_ticks_usec()
+				if not chunk.apply_visual_phase_batch(prepared_batch):
+					task.erase("prepared_batch")
+					return VisualTaskRunState.REQUEUE
+				var full_apply_ms: float = float(Time.get_ticks_usec() - full_apply_started_usec) / 1000.0
+				if full_apply_ms >= 1.0:
+					WorldPerfProbe.record(
+						"ChunkManager.streaming_redraw_step.%s" % [String(prepared_batch.get("phase_name", &"done"))],
+						full_apply_ms
+					)
+				full_has_more = not chunk.is_redraw_complete()
+			else:
+				full_has_more = _run_chunk_redraw_compat(chunk, _resolve_visual_tiles_per_step(kind, band), deadline_usec, false)
 			_sync_chunk_visibility_for_publication(chunk)
 			if not full_has_more or chunk.is_redraw_complete():
 				_clear_visual_task(task)
@@ -1660,9 +1759,25 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 				else:
 					_try_finalize_chunk_visual_convergence(chunk, z_level)
 				return VisualTaskRunState.COMPLETED
+			task.erase("prepared_batch")
 			return VisualTaskRunState.REQUEUE
 		VisualTaskKind.TASK_BORDER_FIX:
-			var border_has_more: bool = _process_border_fix_task(chunk, _resolve_visual_tiles_per_step(kind, band), deadline_usec)
+			if prepared_batch.is_empty() and _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band)):
+				return VisualTaskRunState.DROPPED
+			var border_has_more: bool = true
+			if not prepared_batch.is_empty():
+				var border_apply_started_usec: int = Time.get_ticks_usec()
+				if not chunk.apply_visual_dirty_batch(prepared_batch):
+					task.erase("prepared_batch")
+					return VisualTaskRunState.REQUEUE
+				for tile_variant: Variant in prepared_batch.get("tiles", []):
+					chunk._pending_border_dirty.erase(tile_variant as Vector2i)
+				var border_apply_ms: float = float(Time.get_ticks_usec() - border_apply_started_usec) / 1000.0
+				if border_apply_ms >= 1.0:
+					WorldPerfProbe.record("ChunkManager.streaming_redraw_step.dirty", border_apply_ms)
+				border_has_more = not chunk._pending_border_dirty.is_empty()
+			else:
+				border_has_more = _process_border_fix_task(chunk, _resolve_visual_tiles_per_step(kind, band), deadline_usec)
 			if not border_has_more:
 				if _visual_task_enqueued_usec.has(key):
 					var latency_ms: float = float(Time.get_ticks_usec() - int(_visual_task_enqueued_usec[key])) / 1000.0
@@ -1670,6 +1785,7 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 				_clear_visual_task(task)
 				_try_finalize_chunk_visual_convergence(chunk, z_level)
 				return VisualTaskRunState.COMPLETED
+			task.erase("prepared_batch")
 			return VisualTaskRunState.REQUEUE
 		_:
 			_clear_visual_task(task)
@@ -1696,6 +1812,7 @@ func _tick_visuals_budget(max_usec: int) -> bool:
 	var budget_usec: int = maxi(0, max_usec)
 	if budget_usec <= 0:
 		budget_usec = int(_resolve_visual_scheduler_budget_ms() * 1000.0)
+	_collect_completed_visual_compute()
 	var started_usec: int = Time.get_ticks_usec()
 	var deadline_usec: int = started_usec + budget_usec if budget_usec > 0 else 0
 	var processed_by_kind: Dictionary = {}
@@ -3461,7 +3578,7 @@ func _boot_apply_from_queue() -> int:
 		_boot_applied_count += 1
 		var step_ms: float = float(Time.get_ticks_usec() - step_start_usec) / 1000.0
 		if step_ms > BOOT_APPLY_WARNING_MS:
-			push_warning("[Boot] apply step for %s took %.1f ms (budget %.1f ms)" % [coord, step_ms, BOOT_APPLY_WARNING_MS])
+			WorldPerfProbe.record("Boot.apply_step_over_budget_ms", step_ms)
 	return applied_this_step
 
 ## Wait for all active boot compute tasks and clean up.

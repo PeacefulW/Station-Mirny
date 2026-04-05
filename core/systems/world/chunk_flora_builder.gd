@@ -166,6 +166,7 @@ func compute_placements(
 					hash1,
 					hash3
 				)
+	result.finalize_render_groups()
 	return result
 
 func _resolve_ecotone_bucket(ecotone_factor: float, biome_idx: int, secondary_biome_idx: int) -> int:

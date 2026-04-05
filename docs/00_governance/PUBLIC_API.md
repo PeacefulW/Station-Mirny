@@ -501,6 +501,11 @@ related_docs:
 |-------|-------------------------------|
 | `Chunk._redraw_all() -> void` | Full redraw implementation detail. Используется lifecycle owner path, не external API. |
 | `Chunk._redraw_dirty_tiles(dirty_tiles: Dictionary) -> void` | Dirty redraw primitive without higher-level world/reveal orchestration. |
+| `Chunk.build_visual_phase_batch(tile_budget: int) -> Dictionary` | Scheduler helper for serializable worker payload prep; не caller-facing redraw API. |
+| `Chunk.build_visual_dirty_batch(dirty_tiles: Dictionary, limit: int = -1) -> Dictionary` | Internal dirty-redraw payload builder for scheduler/border-fix work. |
+| `Chunk.compute_visual_batch(request: Dictionary) -> Dictionary` | Pure-data visual command computation helper for worker paths; не scene-tree API. |
+| `Chunk.apply_visual_phase_batch(batch: Dictionary) -> bool` | Owner-only prepared-batch apply helper; caller bypass risks redraw state drift. |
+| `Chunk.apply_visual_dirty_batch(batch: Dictionary) -> bool` | Owner-only dirty prepared-batch apply helper; не external mutation entrypoint. |
 | `Chunk._redraw_terrain_tile(local_tile: Vector2i) -> void` | Single-tile terrain draw helper. |
 | `Chunk._redraw_cover_tile(local_tile: Vector2i) -> void` | Single-tile cover draw helper. |
 | `Chunk._redraw_cliff_tile(local_tile: Vector2i) -> void` | Single-tile cliff overlay helper. |
@@ -508,7 +513,7 @@ related_docs:
 | `Chunk._rock_visual_class(local_tile: Vector2i) -> Vector2i` | Underground presentation-only wall-form helper; не topology/read API. |
 | `MountainShadowSystem._mark_dirty(coord: Vector2i) -> void` | Internal invalidation queue helper. |
 | `MountainShadowSystem._update_edges_at(tile_pos: Vector2i) -> void` | Low-level shadow edge cache patch helper. |
-| `MountainShadowSystem._start_shadow_build(coord: Vector2i) -> void` | Internal progressive shadow build primitive. |
+| `MountainShadowSystem._start_shadow_build(coord: Vector2i) -> void` | Internal detached shadow-compute kickoff. Produces versioned pure-data job state only; renderer mutation stays in `_finalize_shadow_texture()` / `_finalize_shadow_apply()`. |
 
 ### Wall Atlas
 

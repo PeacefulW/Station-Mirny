@@ -424,8 +424,8 @@ Observed files for this version:
 - `classification`: `derived`
 - `owner`: `ChunkManager` owns the visual scheduler queues, task versioning, and queue latency telemetry for chunk visual work.
 - `writers`: `ChunkManager._schedule_chunk_visual_work()`, `_ensure_visual_task()`, `_enqueue_neighbor_border_redraws()`, `_refresh_visual_task_priorities()`, `_process_visual_task()`, and `_tick_visuals_budget()`.
-- `readers`: `ChunkManager` boot/runtime work loops, `WorldPerfProbe`, and console/instrumentation consumers.
-- `rebuild policy`: runtime-only, per-tick, budgeted scheduler state. Task queues are repopulated from loaded chunk redraw state and dirty-border state; they are not persisted and are cleared on teardown.
+- `readers`: `ChunkManager` boot/runtime work loops, worker-side visual batch preparation, `WorldPerfProbe`, and console/instrumentation consumers.
+- `rebuild policy`: runtime-only, per-tick, budgeted scheduler state. Task queues are repopulated from loaded chunk redraw state and dirty-border state; they are not persisted and are cleared on teardown. Terrain / cover / cliff / flora / border-fix work may split into worker-prepared serializable command batches or flora render packets plus bounded main-thread apply.
 - `invariants`:
 - `assert(only_chunk_manager_mutates_visual_task_queues, "visual task queues are owner-only scheduler state")`
 - `assert(terrain_urgent_and_terrain_near_work_outrank_far_and_cosmetic_work, "near first-pass work must outrank far convergence work")`
@@ -435,6 +435,9 @@ Observed files for this version:
 - `assert(chunk_full_ready_is_revoked_on_visual_invalidation_until_followup_work_closes, "approximation, seam repair, and mining-side convergence debt must drop FULL_READY back to FULL_PENDING until the owed work is complete")`
 - `assert(visual_scheduler_work_stays_within_an_explicit_per_tick_budget, "visual queue draining is budgeted by WorldGenBalance.visual_scheduler_budget_ms")`
 - `assert(urgent_wait_and_queue_depth_are_observable, "scheduler telemetry must expose urgent wait, queue depth, processed count, and budget exhaustion")`
+- `assert(worker_visual_prepare_only_emits_serializable_command_batches, "worker visual prepare may compute terrain/ground-face/rock/cover/cliff commands only as pure data, never scene-tree writes")`
+- `assert(worker_flora_prepare_only_emits_serializable_render_packets, "worker flora prepare may group ChunkFloraResult placements into pure-data layer/type render packets only; it must not instantiate per-placement nodes")`
+- `assert(main_thread_visual_apply_is_bounded_to_ready_commands, "main-thread visual scheduler apply is limited to publishing prepared batches plus bounded TileMap set_cell/erase_cell work or a single flora batch-renderer update")`
 - `write operations`:
 - `ChunkManager._schedule_chunk_visual_work()`
 - `ChunkManager._ensure_visual_task()`
@@ -448,13 +451,13 @@ Observed files for this version:
 - `emitted events / invalidation signals`:
 - none; observability is currently telemetry/log based rather than event based.
 - `current violations / ambiguities / contract gaps`:
-- `Chunk.continue_redraw()` still provides the compatibility executor behind scheduler-owned first-pass/full-redraw tasks; canonical convergence ownership now lives in `ChunkManager` invalidation/finalization helpers instead of raw redraw-phase completion alone.
+- `Chunk.continue_redraw()` still provides the compatibility executor behind debug and any unsupported phase; terrain / cover / cliff / flora plus dirty border-fix preparation now prefer worker-computed command batches or flora render packets with bounded main-thread apply.
 
 ## Layer: Presentation
 
 - `classification`: `presentation-only`
 - `owner`: `Chunk` owns loaded chunk visual layers, `MountainShadowSystem` owns surface mountain-shadow presentation state, and `WorldFeatureDebugOverlay` owns debug-only anchor-marker presentation sourced from serialized chunk payloads.
-- `writers`: `Chunk` redraw and fog-application methods write TileMap state; `ChunkManager` schedules redraw and applies underground fog deltas; `MountainRoofSystem` drives cover erasure through chunk APIs; `MountainShadowSystem` writes shadow caches, textures, and sprites; `WorldFeatureDebugOverlay` writes its chunk-local anchor-marker cache and redraw state.
+- `writers`: `Chunk` redraw and fog-application methods write TileMap state; `ChunkManager` schedules redraw and applies underground fog deltas; `MountainRoofSystem` drives cover erasure through chunk APIs; `MountainShadowSystem` owns shadow-local caches plus the main-thread texture/sprite apply path while detached shadow/edge compute stays pure-data only; `WorldFeatureDebugOverlay` writes its chunk-local anchor-marker cache and redraw state.
 - `readers`: Godot rendering is the effective consumer; developer-facing debug inspection can read `WorldFeatureDebugOverlay` marker snapshots. No in-scope simulation system was found that treats these presentation nodes as authority.
 - `rebuild policy`: loaded-only and redraw-driven; underground fog presentation is applied to loaded chunks only; surface shadow presentation is surface-only and rebuilt when edge cache or sun-angle thresholds require it.
 - `invariants`:
@@ -470,9 +473,12 @@ Observed files for this version:
 - `assert(chunk_full_ready_is_chunk_local_terminal_visual_state, "ChunkVisualState.FULL_READY is the only terminal chunk-local readiness state exposed by Chunk")`
 - `assert(chunk_full_ready_requires_redraw_done_and_no_pending_border_fix, "FULL_READY may be published only after redraw convergence is complete and no border-fix debt remains for the chunk")`
 - `assert(targeted_mutation_or_seam_patch_does_not_by_itself_redefine_terminal_visual_truth, "immediate dirty-tile redraw may provide responsive local feedback, but final terminal convergence is restored only through owner-side follow-up checks")`
+- `assert(worker_threads_never_mutate_chunk_tilemap_layers, "terrain, ground-face, rock, cover, and cliff TileMap mutation stays on the main thread through prepared-batch apply only")`
 - `assert(active_z == 0 or not mountain_shadow_system_running, "MountainShadowSystem only runs in surface context")`
 - `assert(shadow_inputs == {external_mountain_edges, sun_angle, shadow_length_factor}, "shadow sprites are built from cached edges plus current sun data")`
 - `assert(shadow_edge_source_chunks == {target_chunk, north_chunk, south_chunk, east_chunk, west_chunk}, "shadow builds use the target chunk plus four cardinal neighbors as edge sources")`
+- `assert(shadow_compute_uses_versioned_snapshot_inputs_and_drops_stale_results, "shadow edge-cache and raster jobs consume snapshot/versioned inputs and must discard completed results that no longer match current chunk/sun state")`
+- `assert(shadow_renderer_mutation_stays_in_finalize_steps_only, "ImageTexture and Sprite2D mutation is limited to _finalize_shadow_texture() and _finalize_shadow_apply() on the main thread")`
 - `assert(feature_debug_overlay_reads_only_serialized_feature_and_poi_payload, "debug feature/POI presentation must consume only built payload records")`
 - `assert(feature_debug_overlay_draws_anchor_markers_only, "debug feature/POI proof stays marker-only and does not materialize gameplay content")`
 - `assert(disabling_feature_debug_overlay_does_not_change_feature_or_poi_truth, "presentation delay or disable must not change placement truth")`
@@ -481,12 +487,14 @@ Observed files for this version:
 - `Chunk.continue_redraw()`
 - `Chunk._redraw_dirty_tiles()`
 - `Chunk._redraw_cover_tiles()`
+- `Chunk.apply_visual_phase_batch()`
+- `Chunk.apply_visual_dirty_batch()`
 - `Chunk.apply_fog_visible()`
 - `Chunk.apply_fog_discovered()`
-- `MountainShadowSystem._build_edge_cache_now()`
-- `MountainShadowSystem._advance_edge_cache_build()`
-- `MountainShadowSystem._start_shadow_build()`
-- `MountainShadowSystem._advance_shadow_build()`
+- `MountainShadowSystem._build_edge_cache_now()`  (shadow-local cache write; detached terrain snapshot + edge compute, no renderer mutation)
+- `MountainShadowSystem._advance_edge_cache_build()`  (shadow-local cache publication only)
+- `MountainShadowSystem._start_shadow_build()`  (detached shadow compute kickoff only)
+- `MountainShadowSystem._advance_shadow_build()`  (detached compute result polling/publication only)
 - `MountainShadowSystem._finalize_shadow_texture()`
 - `MountainShadowSystem._finalize_shadow_apply()`
 - `forbidden writes`:
@@ -569,7 +577,7 @@ Observed files for this version:
 - `assert(startup_chunks_hidden_until_first_full_publication, "fresh startup chunk visibility is false until Chunk.is_full_redraw_ready(), then becomes visible through scheduler/boot progress callbacks")`
 - `assert(first_playable_handoff_is_honest, "after internal first_playable, unfinished startup coords are handed to runtime streaming but remain boot-tracked until real apply/redraw completion; player handoff still waits for full boot-ready")`
 - `assert(no_unbounded_apply_in_gameplay_frames, "post-first-playable does not call _boot_apply_from_queue(); outer chunks load via budgeted runtime streaming")`
-- `assert(shadow_edge_cache_has_time_guard, "_advance_edge_cache_build() breaks at 1ms budget to prevent 50-200ms spikes")`
+- `assert(shadow_edge_cache_compute_is_detached, "_build_edge_cache_now() / _start_edge_cache_build() prepare detached snapshot input, worker compute owns heavy edge detection, and _advance_edge_cache_build() only polls/publishes the completed cache")`
 - `assert(boot_promote_waits_for_chunk_full_redraw_ready, "_boot_promote_redrawn_chunks() promotes VISUAL_COMPLETE only after Chunk.is_full_redraw_ready()")`
 - `assert(boot_visual_complete_can_be_revoked_before_boot_complete, "startup chunk state may drop from VISUAL_COMPLETE back to APPLIED when late seam or convergence debt appears before boot_complete is finalized")`
 - `assert(first_playable_and_boot_complete_are_distinct_boot_milestones, "first_playable starts post-ready finalization, while player-visible handoff waits for GameWorld boot_complete after startup chunks, topology, and boot shadows are ready")`
@@ -642,7 +650,7 @@ Observed files for this version:
 - Streamed chunks begin progressive redraw through `_begin_progressive_redraw()`, enter `ChunkVisualState.NATIVE_READY`, and remain hidden until their first `Chunk.is_full_redraw_ready()` publication closes. Internal first-pass milestones may still advance the scheduler, but first-pass completion does not authorize player-visible publication. Once a chunk has been fully published once, later local convergence debt may keep it visible while owner-side follow-up work restores terminal `FULL_READY`.
 - Boot loading tracks per-chunk readiness through `BootChunkState` transitions `QUEUED_COMPUTE -> COMPUTED -> QUEUED_APPLY -> APPLIED`, with `APPLIED <-> VISUAL_COMPLETE` remaining revocable until final convergence settles. Aggregate gates `first_playable` (ring 0..1 honest full-ready publication, topology NOT required inside `ChunkManager`) and `boot_complete` (all startup chunks currently terminal/full-ready + topology ready) are updated after each chunk. Ring distance uses Chebyshev metric (`max(abs(dx), abs(dy))`), so diagonal chunks at offset (1,1) are ring 1 — critical for 4-chunk junction spawns. `first_playable` is now an internal boot-finalization milestone: `GameWorld` may start shadow/topology completion there, but player input/physics/loading-screen dismissal wait for the full boot-ready handoff after shadows are drained. See `Layer: Boot Readiness`.
 - Boot loading does not fake terminal state for unfinished startup coords after handoff. Remaining startup coords are enqueued into runtime streaming, stay boot-tracked, and only contribute to `boot_complete` after real apply/redraw progress. Topology readiness is part of `boot_complete` but not the internal `first_playable` gate; player-visible handoff additionally waits for boot shadow completion.
-- Surface flora presentation is derived after `populate_native()`: from cached flora, from `ChunkBuildResult`, or from native data, depending on load path and whether saved modifications exist.
+- Surface flora presentation is derived after `populate_native()`: from cached flora, from `ChunkBuildResult`, or from native data, depending on load path and whether saved modifications exist. Publication of that flora is presentation-only and now routes through worker-prepared pure-data render packets plus a single chunk-local flora batch renderer on the main thread, not per-placement scene-tree churn.
 - Underground chunks are marked with `set_underground(true)` before `populate_native()` and then receive a fog layer through `init_fog_layer()` after population.
 - Once the chunk is inserted into `_loaded_chunks`, terrain reads and interaction paths use its loaded data even if progressive redraw is still in progress for that chunk.
 - Surface topology is not built inside `Chunk.populate_native()`. After the chunk is attached and registered, `ChunkManager` invalidates topology through native `set_chunk(...); _native_topology_dirty = true` or `_mark_topology_dirty()`.
@@ -669,7 +677,7 @@ Observed files for this version:
 - The target tile is rewritten to either `MINED_FLOOR` or `MOUNTAIN_ENTRANCE`.
 - The changed terrain values are stored in the loaded chunk runtime state and written into `Chunk._modified_tiles`.
 - The owning chunk is marked dirty.
-- Same-chunk `3x3` dirty tiles are redrawn for terrain, cover, and cliff presentation.
+- Same-chunk `3x3` dirty tiles are queued into scheduler-owned dirty-batch work for terrain, cover, and cliff presentation; worker prep computes ready commands and main-thread apply publishes the bounded TileMap mutations.
 - Same-chunk cardinal neighbors that are `MINED_FLOOR` or `MOUNTAIN_ENTRANCE` are re-normalized through `_refresh_open_neighbors()` and redrawn.
 - If the mined tile is on a chunk edge, loaded neighbor chunks receive cross-chunk normalization for the direct cardinal neighbor and a 3-tile border strip redraw through `_seam_normalize_and_redraw()`. Cross-chunk normalization for tiles in unloaded neighbor chunks is not performed.
 - Surface topology is updated immediately through `_on_mountain_tile_changed()` and may additionally be marked dirty for a background rebuild if split suspicion is detected.
@@ -694,7 +702,7 @@ Observed files for this version:
 - Cross-chunk topology traversal uses cardinal neighbors only and only continues when the neighbor chunk is currently loaded.
 - Cross-chunk local-zone traversal in `query_local_underground_zone()` also stops at unloaded chunks and reports `truncated = true`.
 - `MountainRoofSystem` only reveals cover for chunks that are currently loaded.
-- `MountainShadowSystem` edge detection can read across chunk seams through `get_terrain_type_at_global()`, including unloaded-neighbor fallback rules, but it still only builds sprites for loaded chunks.
+- `MountainShadowSystem` edge detection can read across chunk seams for loaded chunks; when a neighbor chunk is unloaded, the edge-cache snapshot samples detached surface terrain truth rather than querying scene-owned chunk state on the main thread.
 - Surface terrain wall shaping can read cross-chunk neighbor terrain through unloaded fallbacks, because `_surface_rock_visual_class()` goes through `_get_neighbor_terrain()` and `ChunkManager.get_terrain_type_at_global()`.
 - Mining at a chunk seam now refreshes neighbor-chunk open tiles and redraws neighbor-chunk border visuals for loaded neighbors through `ChunkManager._seam_normalize_and_redraw()`. Unloaded neighbor chunks are not normalized or redrawn at mining time.
 
@@ -735,7 +743,7 @@ Observed files for this version:
 
 ### Presentation-only state
 
-- `Chunk` TileMap layers (including water-adjacent ground/sand face overlays) and flora/debug nodes
+- `Chunk` TileMap layers (including water-adjacent ground/sand face overlays), the chunk-local flora batch renderer, and debug nodes
 - Fog tiles written into `Chunk._fog_layer`
 - Cover erasures applied to `Chunk._cover_layer`
 - `MountainShadowSystem._shadow_sprites`
