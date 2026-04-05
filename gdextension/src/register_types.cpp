@@ -1,6 +1,7 @@
 #include "register_types.h"
 #include "chunk_generator.h"
 #include "mountain_topology_builder.h"
+#include "world_prepass_kernels.h"
 #include <gdextension_interface.h>
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
@@ -11,6 +12,7 @@ void initialize_station_mirny(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) return;
     ClassDB::register_class<ChunkGenerator>();
     ClassDB::register_class<MountainTopologyBuilder>();
+    ClassDB::register_class<WorldPrePassKernels>();
 }
 
 void uninitialize_station_mirny(ModuleInitializationLevel p_level) {

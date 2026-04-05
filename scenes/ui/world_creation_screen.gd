@@ -122,6 +122,7 @@ func _on_start_pressed() -> void:
 	if not _balance:
 		push_error(Localization.t("SYSTEM_WORLD_BALANCE_MISSING"))
 		return
+	WorldPerfProbe.mark_milestone("Startup.start_pressed")
 	_is_starting = true
 	_set_start_controls_enabled(false)
 	_balance.mountain_density = _mountain_count_slider.value / 100.0
@@ -147,11 +148,18 @@ func _begin_world_start(seed_val: int) -> void:
 		add_child(_loading_screen)
 	if not _loading_screen.is_presented():
 		await _loading_screen.screen_presented
+	WorldPerfProbe.mark_milestone("Startup.loading_screen_visible")
 	_loading_screen.set_progress(5.0, Localization.t("UI_LOADING_INITIALIZING_WORLD"))
 	await get_tree().process_frame
 	var initialize_usec: int = WorldPerfProbe.begin()
-	WorldGenerator.initialize_world(seed_val)
-	WorldPerfProbe.end("WorldCreationScreen.initialize_world_before_scene_change", initialize_usec)
+	var started_async: bool = false
+	if WorldGenerator and WorldGenerator.has_method("begin_initialize_world_async"):
+		started_async = WorldGenerator.begin_initialize_world_async(seed_val)
+	if started_async:
+		WorldPerfProbe.end("WorldCreationScreen.begin_initialize_world_async_before_scene_change", initialize_usec)
+	else:
+		WorldGenerator.initialize_world(seed_val)
+		WorldPerfProbe.end("WorldCreationScreen.initialize_world_before_scene_change", initialize_usec)
 	get_tree().change_scene_to_file(GAME_SCENE_PATH)
 
 func _set_start_controls_enabled(enabled: bool) -> void:

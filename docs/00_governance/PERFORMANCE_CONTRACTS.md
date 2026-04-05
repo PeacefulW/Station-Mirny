@@ -154,6 +154,8 @@ A system is accepted only when:
 - there are no visible hitches in normal gameplay
 - frame time remains stable under intended usage
 - any rare spikes happen only during boot/loading or clearly non-interactive warmup
+- player-visible world publication is honest: no green/raw chunks, no near-world holes, no visible on-screen build-up of terrain/cliff/flora/shadows during the accepted handoff moment
+- metric wins do not count if the player can still outrun streaming and watch the world finish in front of their eyes
 
 ## 3. Measurement rules
 
@@ -162,6 +164,8 @@ Use `WorldPerfProbe` or equivalent instrumentation on runtime-sensitive paths.
 Important:
 - function timing is not the whole frame
 - a clean function log does not automatically mean the game is hitch-free
+- lower `ms` numbers are not proof if visible world completeness regressed
+- performance validation for world/loading work must include player-facing proof that near-visible chunks, flora, and shadows are not still building on screen at the accepted handoff point
 
 If the user feels a hitch, also inspect:
 - frame time in the Godot profiler

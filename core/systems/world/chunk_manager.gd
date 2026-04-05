@@ -281,7 +281,7 @@ func boot_load_initial_chunks(progress_callback: Callable) -> void:
 		_boot_set_chunk_state(coord, BootChunkState.QUEUED_COMPUTE)
 		if _loaded_chunks.has(coord):
 			var loaded_chunk: Chunk = _loaded_chunks.get(coord) as Chunk
-			_sync_chunk_visibility_for_first_pass(loaded_chunk)
+			_sync_chunk_visibility_for_publication(loaded_chunk)
 			_boot_on_chunk_applied(coord, loaded_chunk)
 		else:
 			_boot_compute_pending.append(coord)
@@ -1144,9 +1144,9 @@ func _resolve_visual_scheduler_budget_ms() -> float:
 	if WorldGenerator and WorldGenerator.balance:
 		budget_ms = WorldGenerator.balance.visual_scheduler_budget_ms
 	if not _visual_q_terrain_urgent.is_empty():
-		return minf(16.0, budget_ms * 3.0)
+		return minf(8.0, budget_ms * 2.0)
 	if not _visual_q_terrain_near.is_empty():
-		return minf(16.0, budget_ms * 2.0)
+		return minf(6.0, budget_ms * 1.5)
 	return budget_ms
 
 func _resolve_visual_tiles_per_step(kind: int, band: int = VisualPriorityBand.COSMETIC) -> int:
@@ -1160,9 +1160,17 @@ func _resolve_visual_tiles_per_step(kind: int, band: int = VisualPriorityBand.CO
 					return maxi(16, first_pass_tiles / 2)
 				return first_pass_tiles
 			VisualTaskKind.TASK_FULL_REDRAW:
-				return WorldGenerator.balance.visual_full_redraw_tiles_per_step
+				var full_redraw_tiles: int = WorldGenerator.balance.visual_full_redraw_tiles_per_step
+				if band == VisualPriorityBand.FULL_FAR:
+					return maxi(16, full_redraw_tiles / 4)
+				if band == VisualPriorityBand.FULL_NEAR:
+					return maxi(16, full_redraw_tiles / 2)
+				return full_redraw_tiles
 			VisualTaskKind.TASK_BORDER_FIX:
-				return WorldGenerator.balance.visual_border_fix_tiles_per_step
+				var border_fix_tiles: int = WorldGenerator.balance.visual_border_fix_tiles_per_step
+				if band == VisualPriorityBand.BORDER_FIX_FAR:
+					return maxi(8, border_fix_tiles / 2)
+				return border_fix_tiles
 			_:
 				return WorldGenerator.balance.visual_cosmetic_tiles_per_step
 	return 64
@@ -1362,15 +1370,15 @@ func _invalidate_boot_visual_complete(coord: Vector2i, z_level: int) -> void:
 	if int(_boot_chunk_states[coord]) >= BootChunkState.VISUAL_COMPLETE:
 		_boot_set_chunk_state(coord, BootChunkState.APPLIED)
 
-func _sync_chunk_visibility_for_first_pass(chunk: Chunk) -> void:
+func _sync_chunk_visibility_for_publication(chunk: Chunk) -> void:
 	if chunk == null or not is_instance_valid(chunk):
 		return
-	chunk.visible = chunk.is_first_pass_ready()
+	chunk.visible = chunk._is_visibility_publication_ready()
 
 func _try_finalize_chunk_visual_convergence(chunk: Chunk, z_level: int) -> bool:
 	if chunk == null or not is_instance_valid(chunk):
 		return false
-	_sync_chunk_visibility_for_first_pass(chunk)
+	_sync_chunk_visibility_for_publication(chunk)
 	if chunk.is_first_pass_ready():
 		_mark_visual_first_pass_ready(chunk.chunk_coord, z_level)
 	if not chunk._can_publish_full_redraw_ready():
@@ -1442,7 +1450,7 @@ func _schedule_chunk_visual_work(chunk: Chunk, z_level: int) -> void:
 	else:
 		_mark_visual_first_pass_ready(chunk.chunk_coord, z_level)
 		_ensure_chunk_full_redraw_task(chunk, z_level)
-	_sync_chunk_visibility_for_first_pass(chunk)
+	_sync_chunk_visibility_for_publication(chunk)
 	if not chunk._pending_border_dirty.is_empty():
 		_ensure_chunk_border_fix_task(chunk, z_level)
 	else:
@@ -1543,11 +1551,11 @@ func _run_chunk_redraw_compat(chunk: Chunk, desired_tiles: int, deadline_usec: i
 	var is_complete: bool = false
 	for _i: int in range(compatibility_calls):
 		is_complete = chunk.continue_redraw(rows_per_call)
-		_sync_chunk_visibility_for_first_pass(chunk)
+		_sync_chunk_visibility_for_publication(chunk)
 		_boot_on_chunk_redraw_progress(chunk)
 		if is_complete:
 			break
-		if stop_at_terrain_ready and chunk.is_terrain_phase_done():
+		if stop_at_terrain_ready and chunk.is_first_pass_ready():
 			break
 		if deadline_usec > 0 and Time.get_ticks_usec() >= deadline_usec:
 			break
@@ -1555,7 +1563,7 @@ func _run_chunk_redraw_compat(chunk: Chunk, desired_tiles: int, deadline_usec: i
 	if step_ms >= 2.0:
 		WorldPerfProbe.record("ChunkManager.streaming_redraw_step.%s" % [String(phase_name)], step_ms)
 	if stop_at_terrain_ready:
-		return not chunk.is_terrain_phase_done() and not is_complete
+		return not chunk.is_first_pass_ready() and not is_complete
 	return not is_complete
 
 func _process_border_fix_task(chunk: Chunk, tile_budget: int, deadline_usec: int) -> bool:
@@ -1630,7 +1638,7 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 	match kind:
 		VisualTaskKind.TASK_FIRST_PASS:
 			_run_chunk_redraw_compat(chunk, _resolve_visual_tiles_per_step(kind, band), deadline_usec, true)
-			_sync_chunk_visibility_for_first_pass(chunk)
+			_sync_chunk_visibility_for_publication(chunk)
 			if chunk.is_first_pass_ready():
 				_mark_visual_first_pass_ready(coord, z_level)
 				_clear_visual_task(task)
@@ -1644,7 +1652,7 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 		VisualTaskKind.TASK_FULL_REDRAW:
 			chunk._mark_visual_full_redraw_pending()
 			var full_has_more: bool = _run_chunk_redraw_compat(chunk, _resolve_visual_tiles_per_step(kind, band), deadline_usec, false)
-			_sync_chunk_visibility_for_first_pass(chunk)
+			_sync_chunk_visibility_for_publication(chunk)
 			if not full_has_more or chunk.is_redraw_complete():
 				_clear_visual_task(task)
 				if not chunk._pending_border_dirty.is_empty():
@@ -1845,7 +1853,7 @@ func _load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
 		_loaded_chunks = loaded_chunks_for_z
 	if not chunk.is_redraw_complete():
 		_schedule_chunk_visual_work(chunk, z_level)
-	_sync_chunk_visibility_for_first_pass(chunk)
+	_sync_chunk_visibility_for_publication(chunk)
 	_boot_on_chunk_applied(coord, chunk)
 	if _should_track_surface_topology(z_level):
 		if _is_native_topology_enabled():
@@ -2392,7 +2400,7 @@ func _staged_loading_finalize() -> void:
 	## completion here. The visual scheduler owns first-pass vs background work.
 	if not chunk.is_redraw_complete():
 		_schedule_chunk_visual_work(chunk, z_level)
-	_sync_chunk_visibility_for_first_pass(chunk)
+	_sync_chunk_visibility_for_publication(chunk)
 	_boot_on_chunk_applied(coord, chunk)
 	sub_usec = WorldPerfProbe.begin()
 	if _should_track_surface_topology(z_level):
@@ -3129,7 +3137,7 @@ func _boot_on_chunk_applied(coord: Vector2i, chunk: Chunk) -> void:
 func _boot_on_chunk_redraw_progress(chunk: Chunk) -> void:
 	if chunk == null or not _boot_chunk_states.has(chunk.chunk_coord):
 		return
-	_sync_chunk_visibility_for_first_pass(chunk)
+	_sync_chunk_visibility_for_publication(chunk)
 	if chunk.is_first_pass_ready():
 		_mark_visual_first_pass_ready(chunk.chunk_coord, _active_z)
 	if chunk.is_full_redraw_ready():
@@ -3146,11 +3154,11 @@ func _boot_is_first_playable_slice_ready() -> bool:
 		var state: int = int(_boot_chunk_states[coord])
 		if state < BootChunkState.APPLIED:
 			return false
-		## Ring 0-1: needs honest first-pass readiness only.
+		## Ring 0-1: must be fully published before player handoff.
 		var chunk: Chunk = _loaded_chunks.get(coord)
 		if chunk == null:
 			return false
-		if not chunk.is_first_pass_ready():
+		if not chunk.is_full_redraw_ready():
 			return false
 	return true
 
@@ -3165,7 +3173,7 @@ func _boot_has_pending_near_ring_work() -> bool:
 		var state: int = int(_boot_chunk_states[coord])
 		if state < BootChunkState.APPLIED or chunk == null:
 			return true
-		if not chunk.is_first_pass_ready():
+		if not chunk.is_full_redraw_ready():
 			return true
 	return false
 
@@ -3542,7 +3550,7 @@ func _boot_apply_chunk_from_native_data(
 		_loaded_chunks = loaded_chunks_for_z
 	if not chunk.is_redraw_complete():
 		_schedule_chunk_visual_work(chunk, z_level)
-	_sync_chunk_visibility_for_first_pass(chunk)
+	_sync_chunk_visibility_for_publication(chunk)
 	if _should_track_surface_topology(z_level):
 		if _is_native_topology_enabled():
 			_native_topology_builder.call("set_chunk", coord, chunk.get_terrain_bytes(), WorldGenerator.balance.chunk_size_tiles)

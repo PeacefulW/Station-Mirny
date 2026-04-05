@@ -1,0 +1,97 @@
+{
+	"boot_detail_lines": [
+		"[WorldPerf] Boot detail: compute=0.0ms apply=0.2ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=0.0ms | peaks: compute=0.0ms apply=11.4ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=2.9ms stream_redraw=12.8ms",
+		"[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=1 other=0.0ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=12.1ms stream_redraw=22.5ms"
+	],
+	"boot_metrics_ms": {
+		"Startup.loading_screen_visible_to_startup_bubble_ready_ms": 28018.21,
+		"Startup.start_to_loading_screen_visible_ms": 13.64,
+		"Startup.startup_bubble_ready_to_boot_complete_ms": 16650.59
+	},
+	"catch_up_timeout": false,
+	"codex_validation_line_count": 1,
+	"drain_completed": false,
+	"error_count": 1,
+	"errors": [
+		"ERROR: 22 resources still in use at exit (run with --verbose for details)."
+	],
+	"frame_budget_lines": [
+		"[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.1ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.1ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.1ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.1ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.4ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=1.2ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.5ms spawn=0.0ms total=2.3ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.4ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=4.4ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.6ms spawn=0.0ms total=5.4ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=3.2ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=3.4ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=3.3ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=3.4ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=3.5ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=3.7ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=5.6ms streaming=0.0ms streaming_load=0.4ms streaming_redraw=7.0ms topology=1.8ms building=0.0ms power=0.0ms visual=0.0ms shadow=4.2ms spawn=0.0ms total=19.0ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=10.2ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=8.4ms topology=1.4ms building=0.0ms power=0.0ms visual=0.0ms shadow=9.4ms spawn=0.0ms total=29.4ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=9.9ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=8.9ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=9.7ms spawn=0.0ms total=28.6ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=8.0ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=5.4ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=7.9ms spawn=0.0ms total=21.3ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=4.3ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.1ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=4.7ms spawn=0.0ms total=9.2ms/6.0ms",
+		"[WorldPerf] Frame budget: dispatcher=3.9ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=4.4ms spawn=0.0ms total=8.3ms/6.0ms"
+	],
+	"frame_time_summary": {
+		"avg_ms": 6.9,
+		"hitches": 0,
+		"p99_ms": 6.9
+	},
+	"latest_catch_up_status": "",
+	"latest_codex_validation_lines": [
+		"[CodexValidation] boot proof complete; quitting"
+	],
+	"latest_world_perf_lines": [
+		"[WorldPerf] FrameBudgetDispatcher.total: 4.37 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (62, -1)@z0: 16168.70 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (63, 2)@z0: 16080.47 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (1, 2)@z0: 16097.64 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (1, -2)@z0: 16216.49 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (2, -2)@z0: 16073.39 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (62, 2)@z0: 16029.34 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (2, 0)@z0: 16253.50 ms",
+		"[WorldPerf] scheduler.visual_tasks_processed: 8.00 ms",
+		"[WorldPerf] scheduler.visual_queue_depth.full_near: 6.00 ms",
+		"[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 2.34 ms",
+		"[WorldPerf] FrameBudgetDispatcher.total: 3.43 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (0, 2)@z0: 16230.24 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (62, -2)@z0: 16072.05 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (62, 1)@z0: 16135.36 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (2, -1)@z0: 16198.74 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (2, 1)@z0: 16154.83 ms",
+		"[WorldPerf] scheduler.visual_tasks_processed: 8.00 ms",
+		"[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 2.27 ms",
+		"[WorldPerf] FrameBudgetDispatcher.total: 2.58 ms",
+		"[WorldPerf] stream.chunk_full_redraw_ms (0, -2)@z0: 16273.33 ms",
+		"[WorldPerf] scheduler.visual_tasks_processed: 2.00 ms",
+		"[WorldPerf] Shadow.stale_age_ms: 16630.66 ms",
+		"[WorldPerf] Startup.startup_bubble_ready_to_boot_complete_ms: 16650.59 ms"
+	],
+	"line_count": 15257,
+	"log_file_name": "boot_seed12345_postfix5.log",
+	"log_path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/debug_exports/perf/boot_seed12345_postfix5.log",
+	"observability_lines": [
+		"[WorldPerf] Observability: Startup.loading_screen_visible=0.0ms, Startup.start_pressed=0.0ms, Startup.start_to_loading_screen_visible_ms=13.6ms",
+		"[WorldPerf] Observability: Startup.loading_screen_visible_to_startup_bubble_ready_ms=28018.2ms, Startup.startup_bubble_ready=0.0ms"
+	],
+	"route_completed": false,
+	"route_preset": "",
+	"route_started": false,
+	"route_waypoints": 0,
+	"validation_failed": false,
+	"warning_count": 10,
+	"warnings": [
+		"WARNING: [Boot] apply step for (0, 0) took 8.1 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (0, -1) took 8.2 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (1, 0) took 10.6 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (63, 0) took 9.9 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (0, 1) took 9.9 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (63, -1) took 9.2 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (1, 1) took 8.8 ms (budget 8.0 ms)",
+		"WARNING: [Boot] apply step for (63, 1) took 13.4 ms (budget 8.0 ms)",
+		"WARNING: [Boot] native flora empty for (2, 2) — GDScript flora fallback in worker",
+		"WARNING: ObjectDB instances leaked at exit (run with --verbose for details)."
+	],
+	"waypoints_reached": 0,
+	"world_perf_line_count": 14595
+}
