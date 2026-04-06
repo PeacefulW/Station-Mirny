@@ -638,7 +638,7 @@ Observed files for this version:
 ### Authoritative orchestration points
 
 - Direct synchronous load path: `ChunkManager._load_chunk_for_z()`.
-- Staged streaming load path: `_worker_generate()` -> `_staged_loading_phase1_create_chunk()` -> `_staged_loading_finalize()`.
+- Staged streaming load path: `_worker_generate()` / surface-cache stage -> `_stage_prepared_chunk_install()` -> `_staged_loading_create()` -> `_staged_loading_finalize()`.
 - Surface generation path on direct surface cache miss: `WorldGenerator.build_chunk_content()` -> `ChunkBuildResult.to_native_data()` -> `Chunk.populate_native()`.
 - Surface generation path on worker/staged surface cache miss: detached `ChunkContentBuilder.build_chunk_native_data()` or `WorldGenerator.build_chunk_native_data()` -> `Chunk.populate_native()`.
 - Underground generation path: `ChunkManager._generate_solid_rock_chunk()` -> `Chunk.populate_native()`.

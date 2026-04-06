@@ -95,6 +95,7 @@ var _grid_height: int = 1
 var _grid_span_x: float = 1.0
 var _grid_span_y: float = 1.0
 var _neighbor_index_cache: PackedInt32Array = PackedInt32Array()
+var _neighbor_distance_cache: PackedFloat32Array = PackedFloat32Array()
 var _grid_world_x_cache: PackedInt32Array = PackedInt32Array()
 var _grid_world_y_cache: PackedInt32Array = PackedInt32Array()
 var _grid_world_center_cache: PackedVector2Array = PackedVector2Array()
@@ -118,6 +119,7 @@ var _lake_records: Array[LakeRecord] = []
 var _spine_seeds: Array[SpineSeed] = []
 var _ridge_paths: Array[RidgePath] = []
 var _native_prepass_kernels: RefCounted = null
+var _numeric_heap_last_priority: float = 0.0
 
 func configure(balance_resource: WorldGenBalance, planet_sampler: PlanetSampler) -> WorldPrePass:
 	_balance = balance_resource
@@ -132,6 +134,8 @@ func configure(balance_resource: WorldGenBalance, planet_sampler: PlanetSampler)
 	_grid_span_x = float(_wrap_width_tiles) / float(_grid_width)
 	_grid_span_y = float(y_span_tiles) / float(_grid_height)
 	_setup_native_prepass_kernels()
+	_neighbor_distance_cache = PackedFloat32Array()
+	_numeric_heap_last_priority = 0.0
 	_rebuild_cell_caches()
 	_height_grid = PackedFloat32Array()
 	_filled_height_grid = PackedFloat32Array()
@@ -692,6 +696,8 @@ func _compute_river_extraction() -> void:
 		if cell_index < 0:
 			continue
 		var current_distance: float = _river_distance_grid[cell_index]
+		if _numeric_heap_last_priority > current_distance + FLOAT_EPSILON:
+			continue
 		for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
 			var neighbor_index: int = _get_neighbor_index(cell_index, direction_index)
 			if neighbor_index < 0:
@@ -833,6 +839,8 @@ func _compute_continentalness() -> void:
 			if cell_index < 0:
 				continue
 			var current_distance: float = _continentalness_grid[cell_index]
+			if _numeric_heap_last_priority > current_distance + FLOAT_EPSILON:
+				continue
 			for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
 				var neighbor_index: int = _get_neighbor_index(cell_index, direction_index)
 				if neighbor_index < 0:
@@ -1027,17 +1035,31 @@ func _stamp_ridge_path_strength(ridge_path: RidgePath) -> void:
 func _stamp_ridge_point_strength(point: Vector2, ridge_half_width: float) -> void:
 	if ridge_half_width <= FLOAT_EPSILON or _grid_width <= 0 or _grid_height <= 0:
 		return
+	var point_x: float = point.x
+	var point_y: float = point.y
+	var half_width_sq: float = ridge_half_width * ridge_half_width
 	var min_x: int = floori(point.x - ridge_half_width)
 	var max_x: int = ceili(point.x + ridge_half_width)
 	var min_y: int = maxi(0, floori(point.y - ridge_half_width))
 	var max_y: int = mini(_grid_height - 1, ceili(point.y + ridge_half_width))
 	for grid_y: int in range(min_y, max_y + 1):
-		for grid_x_unwrapped: int in range(min_x, max_x + 1):
-			var query := Vector2(float(grid_x_unwrapped), float(grid_y))
-			var strength: float = _resolve_ridge_strength(query.distance_to(point), ridge_half_width)
-			if strength <= FLOAT_EPSILON:
-				continue
-			_update_ridge_strength_cell(grid_x_unwrapped, grid_y, strength)
+		var row_base: int = grid_y * _grid_width
+		var delta_y: float = float(grid_y) - point_y
+		var delta_y_sq: float = delta_y * delta_y
+		var wrapped_x: int = int(posmod(min_x, _grid_width))
+		var query_x: float = float(min_x)
+		for _x_offset: int in range(max_x - min_x + 1):
+			var delta_x: float = query_x - point_x
+			var distance_sq: float = delta_x * delta_x + delta_y_sq
+			if distance_sq < half_width_sq:
+				var strength: float = _resolve_ridge_strength(sqrt(distance_sq), ridge_half_width)
+				var cell_index: int = row_base + wrapped_x
+				if strength > _ridge_strength_grid[cell_index]:
+					_ridge_strength_grid[cell_index] = strength
+			query_x += 1.0
+			wrapped_x += 1
+			if wrapped_x >= _grid_width:
+				wrapped_x = 0
 
 func _stamp_ridge_segment_strength(
 	segment_start: Vector2,
@@ -1050,32 +1072,48 @@ func _stamp_ridge_segment_strength(
 	var max_half_width: float = maxf(start_half_width, end_half_width)
 	if max_half_width <= FLOAT_EPSILON:
 		return
-	var min_x: int = floori(minf(segment_start.x, segment_end.x) - max_half_width)
-	var max_x: int = ceili(maxf(segment_start.x, segment_end.x) + max_half_width)
-	var min_y: int = maxi(0, floori(minf(segment_start.y, segment_end.y) - max_half_width))
-	var max_y: int = mini(_grid_height - 1, ceili(maxf(segment_start.y, segment_end.y) + max_half_width))
+	var start_x: float = segment_start.x
+	var start_y: float = segment_start.y
+	var min_x: int = floori(minf(start_x, segment_end.x) - max_half_width)
+	var max_x: int = ceili(maxf(start_x, segment_end.x) + max_half_width)
+	var min_y: int = maxi(0, floori(minf(start_y, segment_end.y) - max_half_width))
+	var max_y: int = mini(_grid_height - 1, ceili(maxf(start_y, segment_end.y) + max_half_width))
 	var segment_delta: Vector2 = segment_end - segment_start
-	var segment_length_sq: float = segment_delta.length_squared()
+	var segment_delta_x: float = segment_delta.x
+	var segment_delta_y: float = segment_delta.y
+	var segment_length_sq: float = segment_delta_x * segment_delta_x + segment_delta_y * segment_delta_y
+	var inverse_length_sq: float = 0.0
+	if segment_length_sq > FLOAT_EPSILON:
+		inverse_length_sq = 1.0 / segment_length_sq
+	var width_delta: float = end_half_width - start_half_width
 	for grid_y: int in range(min_y, max_y + 1):
-		for grid_x_unwrapped: int in range(min_x, max_x + 1):
-			var query := Vector2(float(grid_x_unwrapped), float(grid_y))
+		var row_base: int = grid_y * _grid_width
+		var query_y: float = float(grid_y)
+		var offset_y: float = query_y - start_y
+		var wrapped_x: int = int(posmod(min_x, _grid_width))
+		var query_x: float = float(min_x)
+		for _x_offset: int in range(max_x - min_x + 1):
+			var offset_x: float = query_x - start_x
 			var t: float = 0.0
-			if segment_length_sq > FLOAT_EPSILON:
-				t = clampf((query - segment_start).dot(segment_delta) / segment_length_sq, 0.0, 1.0)
-			var nearest_point: Vector2 = segment_start.lerp(segment_end, t)
-			var ridge_half_width: float = lerpf(start_half_width, end_half_width, t)
-			var strength: float = _resolve_ridge_strength(query.distance_to(nearest_point), ridge_half_width)
-			if strength <= FLOAT_EPSILON:
-				continue
-			_update_ridge_strength_cell(grid_x_unwrapped, grid_y, strength)
-
-func _update_ridge_strength_cell(grid_x_unwrapped: int, grid_y: int, strength: float) -> void:
-	if strength <= FLOAT_EPSILON or grid_y < 0 or grid_y >= _grid_height or _grid_width <= 0:
-		return
-	var wrapped_x: int = int(posmod(grid_x_unwrapped, _grid_width))
-	var cell_index: int = _flatten_index(wrapped_x, grid_y)
-	if strength > _ridge_strength_grid[cell_index]:
-		_ridge_strength_grid[cell_index] = strength
+			if inverse_length_sq > 0.0:
+				t = clampf((offset_x * segment_delta_x + offset_y * segment_delta_y) * inverse_length_sq, 0.0, 1.0)
+			var ridge_half_width: float = start_half_width + width_delta * t
+			if ridge_half_width > FLOAT_EPSILON:
+				var nearest_x: float = start_x + segment_delta_x * t
+				var nearest_y: float = start_y + segment_delta_y * t
+				var delta_x: float = query_x - nearest_x
+				var delta_y: float = query_y - nearest_y
+				var distance_sq: float = delta_x * delta_x + delta_y * delta_y
+				var half_width_sq: float = ridge_half_width * ridge_half_width
+				if distance_sq < half_width_sq:
+					var strength: float = _resolve_ridge_strength(sqrt(distance_sq), ridge_half_width)
+					var cell_index: int = row_base + wrapped_x
+					if strength > _ridge_strength_grid[cell_index]:
+						_ridge_strength_grid[cell_index] = strength
+			query_x += 1.0
+			wrapped_x += 1
+			if wrapped_x >= _grid_width:
+				wrapped_x = 0
 
 func _sample_ridge_path_strength(ridge_path: RidgePath, grid_pos: Vector2) -> float:
 	if ridge_path == null or ridge_path.spline_samples.is_empty():
@@ -1770,11 +1808,13 @@ func _resolve_neighbor_distance_tiles(direction_index: int) -> float:
 	return sqrt(distance_x * distance_x + distance_y * distance_y)
 
 func _build_neighbor_distance_cache() -> PackedFloat32Array:
-	var distances := PackedFloat32Array()
-	distances.resize(GRID_NEIGHBOR_OFFSETS_8.size())
+	if _neighbor_distance_cache.size() == GRID_NEIGHBOR_OFFSETS_8.size():
+		return _neighbor_distance_cache
+	_neighbor_distance_cache = PackedFloat32Array()
+	_neighbor_distance_cache.resize(GRID_NEIGHBOR_OFFSETS_8.size())
 	for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
-		distances[direction_index] = _resolve_neighbor_distance_tiles(direction_index)
-	return distances
+		_neighbor_distance_cache[direction_index] = _resolve_neighbor_distance_tiles(direction_index)
+	return _neighbor_distance_cache
 
 func _resolve_max_possible_neighbor_gradient() -> float:
 	var min_neighbor_distance: float = 0.0
@@ -2510,8 +2550,10 @@ func _numeric_heap_push(heap_indices: Array[int], heap_priorities: Array[float],
 
 func _numeric_heap_pop(heap_indices: Array[int], heap_priorities: Array[float]) -> int:
 	if heap_indices.is_empty():
+		_numeric_heap_last_priority = INF
 		return -1
 	var result_index: int = heap_indices[0]
+	_numeric_heap_last_priority = heap_priorities[0]
 	var last_index: int = heap_indices.size() - 1
 	if last_index == 0:
 		heap_indices.pop_back()
