@@ -107,6 +107,7 @@ var _cliff_layer: TileMapLayer = null
 var _fog_layer: TileMapLayer = null
 var _flora_renderer: FloraBatchRenderer = null
 var _flora_result: ChunkFloraResultScript = null
+var _flora_payload: Dictionary = {}
 var _debug_root: Node2D = null
 var _tile_size: int = 64
 var _chunk_size: int = 64
@@ -178,6 +179,8 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 	_height_bytes = native_data.get("height", PackedFloat32Array())
 	_variation_bytes = native_data.get("variation", PackedByteArray())
 	_biome_bytes = native_data.get("biome", PackedByteArray())
+	_flora_result = null
+	_flora_payload = {}
 	_has_full_publication_once = false
 	if _variation_bytes.size() != _terrain_bytes.size():
 		push_error("Chunk.populate_native(): variation array size mismatch for %s" % [chunk_coord])
@@ -608,6 +611,8 @@ func build_visual_phase_batch(tile_budget: int) -> Dictionary:
 	if _redraw_tile_index >= total_tiles:
 		return {}
 	if _redraw_phase == REDRAW_PHASE_FLORA:
+		var flora_payload: Dictionary = _ensure_flora_payload()
+		var prebuilt_packet: Dictionary = _get_prebuilt_flora_render_packet(flora_payload)
 		return {
 			"mode": VISUAL_BATCH_MODE_PHASE,
 			"phase": REDRAW_PHASE_FLORA,
@@ -619,7 +624,9 @@ func build_visual_phase_batch(tile_budget: int) -> Dictionary:
 			"start_index": _redraw_tile_index,
 			"end_index": total_tiles,
 			"tiles": [],
-			"flora_payload": _flora_result.to_serialized_payload() if _flora_result != null else {},
+			"flora_payload": flora_payload,
+			"flora_packet": prebuilt_packet,
+			"skip_worker_compute": not prebuilt_packet.is_empty(),
 		}
 	var start_index: int = _redraw_tile_index
 	var end_index: int = mini(total_tiles, start_index + maxi(1, tile_budget))
@@ -782,10 +789,13 @@ static func compute_visual_batch(request: Dictionary) -> Dictionary:
 			var phase: int = int(request.get("phase", REDRAW_PHASE_DONE))
 			match phase:
 				REDRAW_PHASE_FLORA:
-					result["flora_packet"] = ChunkFloraResultScript.build_render_packet_from_payload(
-						request.get("flora_payload", {}) as Dictionary,
-						int(request.get("tile_size", 0))
-					)
+					var prebuilt_packet: Dictionary = request.get("flora_packet", {}) as Dictionary
+					if prebuilt_packet.is_empty():
+						prebuilt_packet = ChunkFloraResultScript.build_render_packet_from_payload(
+							request.get("flora_payload", {}) as Dictionary,
+							int(request.get("tile_size", 0))
+						)
+					result["flora_packet"] = prebuilt_packet
 				_:
 					for tile_variant: Variant in request.get("tiles", []):
 						var local_tile: Vector2i = tile_variant as Vector2i
@@ -2420,6 +2430,11 @@ func _process_redraw_phase_tiles(tile_budget: int) -> int:
 
 func set_flora_result(result: ChunkFloraResultScript) -> void:
 	_flora_result = result
+	_flora_payload = result.to_serialized_payload(_tile_size) if result != null else {}
+
+func set_flora_payload(payload: Dictionary) -> void:
+	_flora_payload = payload if not payload.is_empty() else {}
+	_flora_result = null
 
 func _flora_publish_logging_enabled() -> bool:
 	return FLORA_PUBLISH_LOG_ARG in OS.get_cmdline_user_args()
@@ -2427,9 +2442,19 @@ func _flora_publish_logging_enabled() -> bool:
 func _log_flora_publish_summary(mode: StringName, renderer_nodes: int) -> void:
 	if not _flora_publish_logging_enabled():
 		return
-	var placement_count: int = _flora_result.get_placement_count() if _flora_result != null else 0
-	var group_count: int = _flora_result.get_render_group_count() if _flora_result != null else 0
-	var layer_count: int = _flora_result.get_render_layer_count() if _flora_result != null else 0
+	var flora_payload: Dictionary = _ensure_flora_payload()
+	var placement_count: int = int(flora_payload.get(
+		"placement_count",
+		_flora_result.get_placement_count() if _flora_result != null else 0
+	))
+	var group_count: int = int(flora_payload.get(
+		"group_count",
+		_flora_result.get_render_group_count() if _flora_result != null else 0
+	))
+	var layer_count: int = int(flora_payload.get(
+		"layer_count",
+		_flora_result.get_render_layer_count() if _flora_result != null else 0
+	))
 	print("[FloraPublish] chunk=%s mode=%s placements=%d groups=%d layers=%d renderer_nodes=%d" % [
 		chunk_coord,
 		String(mode),
@@ -2440,6 +2465,9 @@ func _log_flora_publish_summary(mode: StringName, renderer_nodes: int) -> void:
 	])
 
 func _build_flora_render_packet() -> Dictionary:
+	var flora_payload: Dictionary = _ensure_flora_payload()
+	if not flora_payload.is_empty():
+		return ChunkFloraResultScript.build_render_packet_from_payload(flora_payload, _tile_size)
 	if _flora_result == null:
 		return {}
 	return _flora_result.build_render_packet(_tile_size)
@@ -2456,6 +2484,19 @@ func _apply_flora_render_packet(packet: Dictionary, mode: StringName) -> void:
 	else:
 		_flora_renderer.set_render_packet(packet)
 	_log_flora_publish_summary(mode, 1 if not packet.is_empty() else 0)
+
+func _ensure_flora_payload() -> Dictionary:
+	if _flora_payload.is_empty() and _flora_result != null:
+		_flora_payload = _flora_result.to_serialized_payload(_tile_size)
+	return _flora_payload
+
+func _get_prebuilt_flora_render_packet(payload: Dictionary) -> Dictionary:
+	if payload.is_empty():
+		return {}
+	var tile_size: int = int(payload.get("render_packet_tile_size", 0))
+	if tile_size > 0 and tile_size != _tile_size:
+		return {}
+	return payload.get("render_packet", {}) as Dictionary
 
 func _advance_redraw_phase() -> void:
 	match _redraw_phase:

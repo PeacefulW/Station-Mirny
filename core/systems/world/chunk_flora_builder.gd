@@ -169,6 +169,37 @@ func compute_placements(
 	result.finalize_render_groups()
 	return result
 
+func compute_payload(
+	chunk_coord: Vector2i,
+	chunk_size: int,
+	base_tile: Vector2i,
+	terrain_bytes: PackedByteArray,
+	biome_palette: Array[BiomeData],
+	biome_bytes: PackedByteArray,
+	variation_bytes: PackedByteArray,
+	flora_density_values: PackedFloat32Array,
+	flora_modulation_values: PackedFloat32Array,
+	tile_size: int,
+	secondary_biome_bytes: PackedByteArray = PackedByteArray(),
+	ecotone_values: PackedFloat32Array = PackedFloat32Array()
+) -> Dictionary:
+	var result: ChunkFloraResultScript = compute_placements(
+		chunk_coord,
+		chunk_size,
+		base_tile,
+		terrain_bytes,
+		biome_palette,
+		biome_bytes,
+		variation_bytes,
+		flora_density_values,
+		flora_modulation_values,
+		secondary_biome_bytes,
+		ecotone_values
+	)
+	if result == null or result.is_empty():
+		return {}
+	return result.to_serialized_payload(tile_size)
+
 func _resolve_ecotone_bucket(ecotone_factor: float, biome_idx: int, secondary_biome_idx: int) -> int:
 	if biome_idx < 0 or secondary_biome_idx < 0 or secondary_biome_idx == biome_idx:
 		return 0

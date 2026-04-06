@@ -173,6 +173,7 @@ var _staged_coord: Vector2i = Vector2i(999999, 999999)
 var _staged_z: int = 0
 var _staged_data: Dictionary = {}  ## Native data между фазами
 var _staged_flora_result: ChunkFloraResultScript = null
+var _staged_flora_payload: Dictionary = {}
 var _staged_install_entry: Dictionary = {}
 ## --- Async generation (runtime only) ---
 var _gen_task_id: int = -1  ## WorkerThreadPool task ID, -1 = нет активной задачи
@@ -235,6 +236,7 @@ func _exit_tree() -> void:
 		_staged_chunk = null
 	_staged_data = {}
 	_staged_flora_result = null
+	_staged_flora_payload = {}
 	for task_variant: Variant in _gen_active_tasks.values():
 		WorkerThreadPool.wait_for_task_completion(int(task_variant))
 	_gen_active_tasks.clear()
@@ -535,6 +537,7 @@ func _clear_staged_request() -> void:
 	_staged_z = 0
 	_staged_data = {}
 	_staged_flora_result = null
+	_staged_flora_payload = {}
 	_staged_install_entry = {}
 
 func is_topology_ready() -> bool:
@@ -1017,6 +1020,9 @@ func _setup_flora_builder() -> void:
 		_flora_builder = ChunkFloraBuilderScript.new()
 		_flora_builder.initialize(WorldGenerator.world_seed)
 
+func _resolve_flora_tile_size() -> int:
+	return WorldGenerator.balance.tile_size if WorldGenerator and WorldGenerator.balance else 0
+
 func _create_detached_flora_builder() -> ChunkFloraBuilderScript:
 	if WorldGenerator == null or not WorldGenerator._is_initialized:
 		return null
@@ -1076,15 +1082,45 @@ func _build_flora_payload_for_native_data(
 	native_data: Dictionary,
 	flora_builder: ChunkFloraBuilderScript = null
 ) -> Dictionary:
-	var flora_result: ChunkFloraResultScript = _build_flora_result_for_native_data(chunk_coord, native_data, flora_builder)
-	if flora_result == null:
+	var active_flora_builder: ChunkFloraBuilderScript = flora_builder if flora_builder != null else _flora_builder
+	if active_flora_builder == null or native_data.is_empty():
 		return {}
-	return flora_result.to_serialized_payload()
+	var chunk_size: int = int(native_data.get("chunk_size", 0))
+	var base_tile: Vector2i = native_data.get(
+		"base_tile",
+		WorldGenerator.chunk_to_tile_origin(chunk_coord) if WorldGenerator else Vector2i.ZERO
+	) as Vector2i
+	return _compute_flora_payload(
+		active_flora_builder,
+		chunk_coord,
+		chunk_size,
+		base_tile,
+		native_data.get("biome", PackedByteArray()) as PackedByteArray,
+		native_data.get("variation", PackedByteArray()) as PackedByteArray,
+		native_data.get("terrain", PackedByteArray()) as PackedByteArray,
+		native_data.get("flora_density_values", PackedFloat32Array()) as PackedFloat32Array,
+		native_data.get("flora_modulation_values", PackedFloat32Array()) as PackedFloat32Array,
+		native_data.get("secondary_biome", PackedByteArray()) as PackedByteArray,
+		native_data.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array
+	)
 
 func _flora_result_from_payload(flora_payload: Dictionary) -> ChunkFloraResultScript:
 	if flora_payload.is_empty():
 		return null
 	return ChunkFloraResultScript.from_serialized_payload(flora_payload)
+
+func _build_native_flora_payload_from_placements(chunk_coord: Vector2i, native_data: Dictionary) -> Dictionary:
+	if native_data.is_empty():
+		return {}
+	var placements: Array = native_data.get("flora_placements", []) as Array
+	if placements.is_empty():
+		return {}
+	return ChunkFloraResultScript.build_serialized_payload_from_placements(
+		chunk_coord,
+		int(native_data.get("chunk_size", 0)),
+		placements,
+		_resolve_flora_tile_size()
+	)
 
 func _compute_flora_for_native_data(chunk: Chunk, chunk_coord: Vector2i, native_data: Dictionary) -> ChunkFloraResultScript:
 	if _flora_builder == null or chunk == null or native_data.is_empty():
@@ -1131,6 +1167,48 @@ func _compute_flora_result(
 		variation_bytes,
 		flora_density_values,
 		flora_modulation_values,
+		secondary_biome_bytes,
+		ecotone_values
+	)
+
+func _compute_flora_payload(
+	flora_builder: ChunkFloraBuilderScript,
+	chunk_coord: Vector2i,
+	chunk_size: int,
+	base_tile: Vector2i,
+	biome_bytes: PackedByteArray,
+	variation_bytes: PackedByteArray,
+	terrain_bytes: PackedByteArray,
+	flora_density_values: PackedFloat32Array,
+	flora_modulation_values: PackedFloat32Array,
+	secondary_biome_bytes: PackedByteArray = PackedByteArray(),
+	ecotone_values: PackedFloat32Array = PackedFloat32Array()
+) -> Dictionary:
+	if flora_builder == null or WorldGenerator == null or chunk_size <= 0:
+		return {}
+	var tile_count: int = chunk_size * chunk_size
+	var secondary_biome_ok: bool = secondary_biome_bytes.is_empty() or secondary_biome_bytes.size() == tile_count
+	var ecotone_values_ok: bool = ecotone_values.is_empty() or ecotone_values.size() == tile_count
+	if terrain_bytes.size() != tile_count \
+		or biome_bytes.size() != tile_count \
+		or variation_bytes.size() != tile_count \
+		or flora_density_values.size() != tile_count \
+		or flora_modulation_values.size() != tile_count \
+		or not secondary_biome_ok \
+		or not ecotone_values_ok:
+		return {}
+	var biome_palette: Array[BiomeData] = WorldGenerator.get_registered_biomes()
+	return flora_builder.compute_payload(
+		chunk_coord,
+		chunk_size,
+		base_tile,
+		terrain_bytes,
+		biome_palette,
+		biome_bytes,
+		variation_bytes,
+		flora_density_values,
+		flora_modulation_values,
+		_resolve_flora_tile_size(),
 		secondary_biome_bytes,
 		ecotone_values
 	)
@@ -1518,6 +1596,11 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 			return false
 	if request.is_empty():
 		return false
+	if bool(request.get("skip_worker_compute", false)):
+		var immediate_task: Dictionary = task.duplicate(true)
+		immediate_task["prepared_batch"] = Chunk.compute_visual_batch(request)
+		_push_visual_task(immediate_task)
+		return true
 	request["chunk_coord"] = coord
 	request["z"] = z_level
 	request["invalidation_version"] = int(task.get("invalidation_version", -1))
@@ -1967,8 +2050,13 @@ func _load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
 		chunk.set_underground(true)
 	chunk.populate_native(native_data, saved_modifications, is_player_chunk)
 	if z_level == 0:
-		var flora_result: ChunkFloraResultScript = _get_cached_surface_chunk_flora_result(coord, z_level) if saved_modifications.is_empty() else null
-		if flora_result != null:
+		var flora_payload: Dictionary = _get_cached_surface_chunk_flora_payload(coord, z_level) if saved_modifications.is_empty() else {}
+		var flora_result: ChunkFloraResultScript = null
+		if saved_modifications.is_empty() and flora_payload.is_empty():
+			flora_result = _get_cached_surface_chunk_flora_result(coord, z_level)
+		if not flora_payload.is_empty():
+			chunk.set_flora_payload(flora_payload)
+		elif flora_result != null:
 			chunk.set_flora_result(flora_result)
 		elif build_result != null:
 			flora_result = _compute_flora_for_chunk(chunk, build_result)
@@ -2154,11 +2242,7 @@ func _worker_generate(coord: Vector2i, z_level: int, builder: ChunkContentBuilde
 		data = _build_surface_chunk_native_data(coord, builder)
 		## Use native flora_placements if available, else GDScript fallback
 		if data.has("flora_placements") and not (data["flora_placements"] as Array).is_empty():
-			result_entry["flora_payload"] = {
-				"chunk_coord": coord,
-				"chunk_size": int(data.get("chunk_size", 64)),
-				"placements": data["flora_placements"],
-			}
+			result_entry["flora_payload"] = _build_native_flora_payload_from_placements(coord, data)
 		else:
 			var flora_builder: ChunkFloraBuilderScript = _create_detached_flora_builder()
 			var flora_payload: Dictionary = _build_flora_payload_for_native_data(coord, data, flora_builder)
@@ -2214,9 +2298,8 @@ func _collect_completed_runtime_generates(load_radius: int) -> void:
 		var completed_flora_payload: Dictionary = completed_entry.get("flora_payload", {}) as Dictionary
 		if not completed_data.is_empty():
 			_cache_surface_chunk_payload(coord, request_z, completed_data)
-			var completed_flora_result: ChunkFloraResultScript = _flora_result_from_payload(completed_flora_payload)
-			if request_z == 0 and completed_flora_result != null:
-				_cache_surface_chunk_flora_result(coord, request_z, completed_flora_result)
+			if request_z == 0 and not completed_flora_payload.is_empty():
+				_cache_surface_chunk_flora_payload(coord, request_z, completed_flora_payload)
 		if request_z != _active_z \
 			or (_z_chunks.get(request_z, {}) as Dictionary).has(coord) \
 			or not _is_chunk_within_radius(coord, _player_chunk, load_radius):
@@ -2243,8 +2326,7 @@ func _promote_runtime_ready_result_to_stage(load_radius: int) -> bool:
 			or (_z_chunks.get(request_z, {}) as Dictionary).has(coord) \
 			or not _is_chunk_within_radius(coord, _player_chunk, load_radius):
 			continue
-		var completed_flora_result: ChunkFloraResultScript = _flora_result_from_payload(completed_flora_payload)
-		if _stage_prepared_chunk_install(coord, request_z, completed_data, completed_flora_result):
+		if _stage_prepared_chunk_install(coord, request_z, completed_data, null, completed_flora_payload):
 			return true
 	return false
 
@@ -2369,16 +2451,50 @@ func _cache_surface_chunk_flora_result(coord: Vector2i, z_level: int, flora_resu
 	if entry.is_empty():
 		return
 	entry["flora_result"] = flora_result
+	if not entry.has("flora_payload"):
+		entry["flora_payload"] = flora_result.to_serialized_payload(_resolve_flora_tile_size())
 	_surface_payload_cache[cache_key] = entry
 	_touch_surface_payload_cache_key(cache_key)
+
+func _cache_surface_chunk_flora_payload(coord: Vector2i, z_level: int, flora_payload: Dictionary) -> void:
+	if z_level != 0 or flora_payload.is_empty():
+		return
+	var cache_key: Vector3i = _make_surface_payload_cache_key(coord, z_level)
+	var entry: Dictionary = _surface_payload_cache.get(cache_key, {}) as Dictionary
+	if entry.is_empty():
+		return
+	entry["flora_payload"] = flora_payload
+	_surface_payload_cache[cache_key] = entry
+	_touch_surface_payload_cache_key(cache_key)
+
+func _get_cached_surface_chunk_flora_payload(coord: Vector2i, z_level: int) -> Dictionary:
+	if z_level != 0:
+		return {}
+	var entry: Dictionary = _surface_payload_cache.get(_make_surface_payload_cache_key(coord, z_level), {}) as Dictionary
+	if entry.is_empty():
+		return {}
+	return entry.get("flora_payload", {}) as Dictionary
 
 func _get_cached_surface_chunk_flora_result(coord: Vector2i, z_level: int) -> ChunkFloraResultScript:
 	if z_level != 0:
 		return null
-	var entry: Dictionary = _surface_payload_cache.get(_make_surface_payload_cache_key(coord, z_level), {}) as Dictionary
+	var cache_key: Vector3i = _make_surface_payload_cache_key(coord, z_level)
+	var entry: Dictionary = _surface_payload_cache.get(cache_key, {}) as Dictionary
 	if entry.is_empty():
 		return null
-	return entry.get("flora_result", null) as ChunkFloraResultScript
+	var flora_result: ChunkFloraResultScript = entry.get("flora_result", null) as ChunkFloraResultScript
+	if flora_result != null:
+		return flora_result
+	var flora_payload: Dictionary = entry.get("flora_payload", {}) as Dictionary
+	if flora_payload.is_empty():
+		return null
+	flora_result = _flora_result_from_payload(flora_payload)
+	if flora_result == null:
+		return null
+	entry["flora_result"] = flora_result
+	_surface_payload_cache[cache_key] = entry
+	_touch_surface_payload_cache_key(cache_key)
+	return flora_result
 
 func _try_get_surface_payload_cache_native_data(coord: Vector2i, z_level: int, out_native_data: Dictionary) -> bool:
 	if z_level != 0:
@@ -2401,8 +2517,8 @@ func _try_stage_surface_chunk_from_cache(coord: Vector2i, z_level: int) -> bool:
 	if not _try_get_surface_payload_cache_native_data(coord, z_level, staged_native_data):
 		return false
 	var saved_modifications: Dictionary = _get_saved_chunk_modifications(z_level, coord)
-	var staged_flora_result: ChunkFloraResultScript = _get_cached_surface_chunk_flora_result(coord, z_level) if saved_modifications.is_empty() else null
-	return _stage_prepared_chunk_install(coord, z_level, staged_native_data, staged_flora_result)
+	var staged_flora_payload: Dictionary = _get_cached_surface_chunk_flora_payload(coord, z_level) if saved_modifications.is_empty() else {}
+	return _stage_prepared_chunk_install(coord, z_level, staged_native_data, null, staged_flora_payload)
 
 func _duplicate_native_data(native_data: Dictionary) -> Dictionary:
 	if native_data.is_empty():
@@ -2449,7 +2565,8 @@ func _prepare_chunk_install_entry(
 	coord: Vector2i,
 	z_level: int,
 	native_data: Dictionary,
-	prepared_flora_result: ChunkFloraResultScript = null
+	prepared_flora_result: ChunkFloraResultScript = null,
+	prepared_flora_payload: Dictionary = {}
 ) -> Dictionary:
 	if native_data.is_empty():
 		return {}
@@ -2466,16 +2583,28 @@ func _prepare_chunk_install_entry(
 		return {}
 	var saved_modifications: Dictionary = _get_saved_chunk_modifications(z_level, coord)
 	var flora_result: ChunkFloraResultScript = null
+	var flora_payload: Dictionary = {}
 	if z_level == 0:
 		if not _has_surface_chunk_cache(coord, z_level):
 			_cache_surface_chunk_payload(coord, z_level, native_data)
 		if saved_modifications.is_empty():
-			flora_result = _get_cached_surface_chunk_flora_result(coord, z_level)
-			if flora_result == null:
+			flora_payload = _get_cached_surface_chunk_flora_payload(coord, z_level)
+			if flora_payload.is_empty():
+				flora_payload = prepared_flora_payload
+			if flora_payload.is_empty() and prepared_flora_result != null:
+				flora_payload = prepared_flora_result.to_serialized_payload(_resolve_flora_tile_size())
 				flora_result = prepared_flora_result
-			if flora_result == null:
-				flora_result = _build_flora_result_for_native_data(coord, native_data)
-			if flora_result != null and _get_cached_surface_chunk_flora_result(coord, z_level) == null:
+			if flora_payload.is_empty():
+				flora_result = _get_cached_surface_chunk_flora_result(coord, z_level)
+				if flora_result == null:
+					flora_result = prepared_flora_result
+				if flora_result == null:
+					flora_result = _build_flora_result_for_native_data(coord, native_data)
+				if flora_result != null:
+					flora_payload = flora_result.to_serialized_payload(_resolve_flora_tile_size())
+			if not flora_payload.is_empty() and _get_cached_surface_chunk_flora_payload(coord, z_level).is_empty():
+				_cache_surface_chunk_flora_payload(coord, z_level, flora_payload)
+			if flora_result != null:
 				_cache_surface_chunk_flora_result(coord, z_level, flora_result)
 	return {
 		"coord": coord,
@@ -2486,6 +2615,7 @@ func _prepare_chunk_install_entry(
 		"terrain_tileset": terrain_tileset,
 		"overlay_tileset": overlay_tileset,
 		"flora_result": flora_result,
+		"flora_payload": flora_payload,
 		"underground": z_level != 0,
 		"init_fog": z_level != 0 and _fog_tileset != null,
 	}
@@ -2515,8 +2645,11 @@ func _create_chunk_from_install_entry(install_entry: Dictionary) -> Chunk:
 	if install_entry.get("underground", false):
 		chunk.set_underground(true)
 	chunk.populate_native(native_data, saved_modifications, false)
+	var flora_payload: Dictionary = install_entry.get("flora_payload", {}) as Dictionary
+	if not flora_payload.is_empty():
+		chunk.set_flora_payload(flora_payload)
 	var flora_result: ChunkFloraResultScript = install_entry.get("flora_result", null) as ChunkFloraResultScript
-	if flora_result != null:
+	if flora_payload.is_empty() and flora_result != null:
 		chunk.set_flora_result(flora_result)
 	if install_entry.get("init_fog", false):
 		chunk.init_fog_layer(_fog_tileset)
@@ -2553,16 +2686,26 @@ func _stage_prepared_chunk_install(
 	coord: Vector2i,
 	z_level: int,
 	native_data: Dictionary,
-	prepared_flora_result: ChunkFloraResultScript = null
+	prepared_flora_result: ChunkFloraResultScript = null,
+	prepared_flora_payload: Dictionary = {}
 ) -> bool:
-	var install_entry: Dictionary = _prepare_chunk_install_entry(coord, z_level, native_data, prepared_flora_result)
+	var install_entry: Dictionary = _prepare_chunk_install_entry(
+		coord,
+		z_level,
+		native_data,
+		prepared_flora_result,
+		prepared_flora_payload
+	)
 	if install_entry.is_empty():
+		_staged_flora_result = null
+		_staged_flora_payload = {}
 		_staged_install_entry = {}
 		return false
 	_staged_coord = install_entry.get("coord", Vector2i.ZERO) as Vector2i
 	_staged_z = z_level
 	_staged_data = native_data
-	_staged_flora_result = prepared_flora_result
+	_staged_flora_result = install_entry.get("flora_result", prepared_flora_result) as ChunkFloraResultScript
+	_staged_flora_payload = install_entry.get("flora_payload", prepared_flora_payload) as Dictionary
 	_staged_install_entry = install_entry
 	return true
 
@@ -2574,9 +2717,10 @@ func _cache_chunk_install_handoff_entry(entry: Dictionary, z_level: int) -> void
 		_cache_surface_chunk_payload(coord, z_level, native_data)
 	if z_level != 0:
 		return
+	var flora_payload: Dictionary = install_entry.get("flora_payload", entry.get("flora_payload", {})) as Dictionary
+	if not flora_payload.is_empty():
+		_cache_surface_chunk_flora_payload(coord, z_level, flora_payload)
 	var flora_result: ChunkFloraResultScript = install_entry.get("flora_result", null) as ChunkFloraResultScript
-	if flora_result == null:
-		flora_result = _flora_result_from_payload(entry.get("flora_payload", {}) as Dictionary)
 	if flora_result != null:
 		_cache_surface_chunk_flora_result(coord, z_level, flora_result)
 
@@ -2600,8 +2744,10 @@ func _staged_loading_create() -> void:
 	var z_level: int = _staged_z
 	var native_data: Dictionary = _staged_data
 	var staged_flora_result: ChunkFloraResultScript = _staged_flora_result
+	var staged_flora_payload: Dictionary = _staged_flora_payload
 	_staged_data = {}
 	_staged_flora_result = null
+	_staged_flora_payload = {}
 	if (_z_chunks.get(z_level, {}) as Dictionary).has(coord):
 		_staged_coord = Vector2i(999999, 999999)
 		_staged_z = 0
@@ -2609,7 +2755,7 @@ func _staged_loading_create() -> void:
 		return
 	var install_entry: Dictionary = _staged_install_entry
 	if install_entry.is_empty():
-		install_entry = _prepare_chunk_install_entry(coord, z_level, native_data, staged_flora_result)
+		install_entry = _prepare_chunk_install_entry(coord, z_level, native_data, staged_flora_result, staged_flora_payload)
 	if install_entry.is_empty():
 		_staged_coord = Vector2i(999999, 999999)
 		_staged_z = 0
@@ -3806,11 +3952,7 @@ func _boot_worker_compute(
 	## Otherwise fall back to GDScript flora computation.
 	if z_level == 0 and not data.is_empty():
 		if data.has("flora_placements") and not (data["flora_placements"] as Array).is_empty():
-			result_entry["flora_payload"] = {
-				"chunk_coord": coord,
-				"chunk_size": int(data.get("chunk_size", 64)),
-				"placements": data["flora_placements"],
-			}
+			result_entry["flora_payload"] = _build_native_flora_payload_from_placements(coord, data)
 		else:
 			push_warning("[Boot] native flora empty for %s — GDScript flora fallback in worker" % [coord])
 			var flora_builder: ChunkFloraBuilderScript = _create_detached_flora_builder()
@@ -3844,11 +3986,7 @@ func _boot_submit_pending_tasks() -> void:
 			}
 			if _boot_compute_z == 0 and not native_data.is_empty():
 				if native_data.has("flora_placements") and not (native_data["flora_placements"] as Array).is_empty():
-					result_entry["flora_payload"] = {
-						"chunk_coord": coord,
-						"chunk_size": int(native_data.get("chunk_size", 64)),
-						"placements": native_data["flora_placements"],
-					}
+					result_entry["flora_payload"] = _build_native_flora_payload_from_placements(coord, native_data)
 				else:
 					result_entry["flora_payload"] = _build_flora_payload_for_native_data(coord, native_data)
 			_boot_compute_mutex.lock()
@@ -3929,10 +4067,16 @@ func _boot_prepare_apply_entries() -> int:
 			_boot_on_chunk_applied(coord, loaded_chunks_for_z.get(coord) as Chunk)
 			continue
 		var native_data: Dictionary = entry.get("native_data", {}) as Dictionary
-		var prepared_flora_result: ChunkFloraResultScript = null
+		var prepared_flora_payload: Dictionary = {}
 		if _boot_compute_z == 0:
-			prepared_flora_result = _flora_result_from_payload(entry.get("flora_payload", {}) as Dictionary)
-		var install_entry: Dictionary = _prepare_chunk_install_entry(coord, _boot_compute_z, native_data, prepared_flora_result)
+			prepared_flora_payload = entry.get("flora_payload", {}) as Dictionary
+		var install_entry: Dictionary = _prepare_chunk_install_entry(
+			coord,
+			_boot_compute_z,
+			native_data,
+			null,
+			prepared_flora_payload
+		)
 		if install_entry.is_empty():
 			continue
 		entry["install_entry"] = install_entry
@@ -4015,8 +4159,14 @@ func _boot_apply_chunk_from_native_data(
 		return
 	var effective_install_entry: Dictionary = install_entry
 	if effective_install_entry.is_empty():
-		var prepared_flora_result: ChunkFloraResultScript = _flora_result_from_payload(flora_payload) if z_level == 0 else null
-		effective_install_entry = _prepare_chunk_install_entry(coord, z_level, native_data, prepared_flora_result)
+		var prepared_flora_payload: Dictionary = flora_payload if z_level == 0 else {}
+		effective_install_entry = _prepare_chunk_install_entry(
+			coord,
+			z_level,
+			native_data,
+			null,
+			prepared_flora_payload
+		)
 	if effective_install_entry.is_empty():
 		return
 	var chunk: Chunk = _create_chunk_from_install_entry(effective_install_entry)

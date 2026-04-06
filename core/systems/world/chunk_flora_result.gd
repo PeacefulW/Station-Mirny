@@ -12,6 +12,7 @@ var placements: Array[Dictionary] = []
 var _placements_by_local_pos: Dictionary = {}
 var _render_groups_by_key: Dictionary = {}
 var _render_groups_cache: Array[Dictionary] = []
+var _render_packet_cache_by_tile_size: Dictionary = {}
 
 func add_placement(local_pos: Vector2i, entry_id: StringName, is_flora: bool, color: Color, size: Vector2i, z_offset: int) -> void:
 	var placement: Dictionary = {
@@ -72,16 +73,30 @@ func get_render_layer_count() -> int:
 
 func build_render_packet(tile_size: int) -> Dictionary:
 	finalize_render_groups()
-	return _build_render_packet_from_groups(_render_groups_cache, tile_size, placements.size())
+	if tile_size <= 0:
+		return {}
+	var cached_packet: Dictionary = _render_packet_cache_by_tile_size.get(tile_size, {}) as Dictionary
+	if cached_packet.is_empty():
+		cached_packet = _build_render_packet_from_groups(_render_groups_cache, tile_size, placements.size())
+		if not cached_packet.is_empty():
+			_render_packet_cache_by_tile_size[tile_size] = cached_packet
+	return cached_packet
 
-func to_serialized_payload() -> Dictionary:
+func to_serialized_payload(tile_size: int = 0) -> Dictionary:
 	finalize_render_groups()
-	return {
+	var payload: Dictionary = {
 		"chunk_coord": chunk_coord,
 		"chunk_size": chunk_size,
 		"placements": placements.duplicate(true),
 		"render_groups": _render_groups_cache.duplicate(true),
+		"placement_count": placements.size(),
+		"group_count": _render_groups_cache.size(),
+		"layer_count": get_render_layer_count(),
 	}
+	if tile_size > 0:
+		payload["render_packet"] = build_render_packet(tile_size)
+		payload["render_packet_tile_size"] = tile_size
+	return payload
 
 static func from_serialized_payload(payload: Dictionary) -> ChunkFloraResult:
 	var result := ChunkFloraResult.new()
@@ -100,11 +115,19 @@ static func from_serialized_payload(payload: Dictionary) -> ChunkFloraResult:
 			int(placement.get("z_offset", 0))
 		)
 	result.finalize_render_groups()
+	var render_packet: Dictionary = payload.get("render_packet", {}) as Dictionary
+	var render_packet_tile_size: int = int(payload.get("render_packet_tile_size", 0))
+	if render_packet_tile_size > 0 and not render_packet.is_empty():
+		result._render_packet_cache_by_tile_size[render_packet_tile_size] = render_packet
 	return result
 
 static func build_render_packet_from_payload(payload: Dictionary, tile_size: int) -> Dictionary:
 	if payload.is_empty():
 		return {}
+	var cached_packet: Dictionary = payload.get("render_packet", {}) as Dictionary
+	var cached_tile_size: int = int(payload.get("render_packet_tile_size", 0))
+	if not cached_packet.is_empty() and (cached_tile_size <= 0 or cached_tile_size == tile_size):
+		return cached_packet
 	var render_groups: Array = payload.get("render_groups", []) as Array
 	if render_groups.is_empty():
 		return ChunkFloraResult.from_serialized_payload(payload).build_render_packet(tile_size)
@@ -115,8 +138,23 @@ static func build_render_packet_from_payload(payload: Dictionary, tile_size: int
 		placement_count += int(group.get("placement_count", local_tiles.size()))
 	return _build_render_packet_from_groups(render_groups, tile_size, placement_count)
 
+static func build_serialized_payload_from_placements(
+	chunk_coord: Vector2i,
+	chunk_size: int,
+	serialized_placements: Array,
+	tile_size: int
+) -> Dictionary:
+	if serialized_placements.is_empty() or chunk_size <= 0:
+		return {}
+	return ChunkFloraResult.from_serialized_payload({
+		"chunk_coord": chunk_coord,
+		"chunk_size": chunk_size,
+		"placements": serialized_placements,
+	}).to_serialized_payload(tile_size)
+
 func _append_render_group(placement: Dictionary) -> void:
 	_render_groups_cache.clear()
+	_render_packet_cache_by_tile_size.clear()
 	var kind: StringName = RENDER_KIND_FLORA if bool(placement.get("is_flora", true)) else RENDER_KIND_DECOR
 	var entry_id: StringName = placement.get("entry_id", &"") as StringName
 	var color: Color = placement.get("color", Color.WHITE) as Color
