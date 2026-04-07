@@ -276,9 +276,10 @@ Observed files for this version:
 - `assert(native_arrays_copied_before_saved_modifications and saved_modifications_reapplied_after_native_copy, "populate_native must install native arrays before saved modifications are reapplied")`
 - `assert(loaded_chunk or not saved_tile_state.has("terrain") or resolved_terrain == int(saved_tile_state["terrain"]), "saved terrain override must win for unloaded reads")`
 - `assert(loaded_chunk or saved_tile_state.has("terrain") or active_z == 0 or resolved_terrain == TileGenData.TerrainType.ROCK, "unloaded underground fallback must be ROCK")`
-- `assert(native_data.keys().has_all(["chunk_coord", "canonical_chunk_coord", "base_tile", "chunk_size", "terrain", "height", "variation", "biome", "flora_density_values", "flora_modulation_values", "feature_and_poi_payload"]), "ChunkBuildResult.to_native_data() must export the current payload fields")`
+- `assert(native_data.keys().has_all(["chunk_coord", "canonical_chunk_coord", "base_tile", "chunk_size", "terrain", "height", "variation", "biome", "secondary_biome", "ecotone_values", "flora_density_values", "flora_modulation_values", "rock_visual_class", "ground_face_atlas", "cover_mask", "cliff_overlay", "variant_id", "alt_id", "feature_and_poi_payload"]), "ChunkBuildResult.to_native_data() must export the current payload fields")`
 - `assert(native_data["feature_and_poi_payload"] == {"placements": []} or native_data["feature_and_poi_payload"].has("placements"), "feature_and_poi_payload must always use the explicit baseline shape")`
 - `assert(native_cpp_output_format_matches_gdscript, "ChunkGenerator C++ generate_chunk() output Dictionary must be wire-compatible with GDScript ChunkContentBuilder.build_chunk_native_data() — same keys, same array types, same index order. Additional key 'flora_placements' (Array of Dictionary) is optional native extension.")`
+- `assert(surface_native_visual_payload_arrays_are_aligned_when_present, "rock_visual_class, ground_face_atlas, cover_mask, cliff_overlay, variant_id, and alt_id must either all match tile_count or be treated as unavailable presentation cache")`
 - `assert(native_fallback_graceful, "if ChunkGenerator C++ class unavailable, ChunkContentBuilder falls back to GDScript generation without error")`
 - `assert(native_flora_placements_optional, "flora_placements key in native output is optional. If present and non-empty, worker paths skip GDScript flora computation. If absent, GDScript flora builder runs as fallback.")`
 - `assert(native_flora_hash_uses_int64, "tile_hash in C++ uses int64_t arithmetic to match GDScript 64-bit int for deterministic flora placement parity")`
@@ -543,6 +544,20 @@ Observed files for this version:
 - `current violations / ambiguities / contract gaps`:
 - ~~Surface and underground wall shaping do not share one common openness contract. Surface uses cardinal exterior-open checks only; underground uses cardinal plus diagonal non-`ROCK` openness.~~ **resolved 2026-03-28**: surface rock wall-form selection now uses the same cardinal+diagonal wall-shape neighborhood set as underground shaping, while preserving the explicit current-surface-open terrain set.
 
+### Surface Prebaked Visual Payload (Presentation sublayer)
+
+- `Что`: generation-time surface presentation payload stored in `native_data` for pristine generated chunks: `rock_visual_class`, `ground_face_atlas`, `cover_mask`, `cliff_overlay`, `variant_id`, and `alt_id`. These buffers are derived-only; they are not canonical terrain truth.
+- `Где`: `core/systems/world/chunk_content_builder.gd` in `_build_prebaked_visual_payload()` and `_build_terrain_halo()`, native `gdextension/src/chunk_visual_kernels.cpp` in `build_prebaked_visual_payload()`, GDScript fallback `Chunk.build_prebaked_visual_payload()`, and runtime consumption in `Chunk.populate_native()`, `Chunk.build_visual_phase_batch()`, and `Chunk.compute_visual_batch()`.
+- `Входные данные`: center-chunk `terrain` / `height` / `variation` / `biome` arrays, one-tile `terrain_halo` around the chunk, canonical chunk/global coordinates, and the same tileset wall/face rules that incremental redraw uses.
+- `Жизненный цикл`: payload is usable only for unmodified generated surface chunks. `Chunk.populate_native()` marks it valid only when every array matches `tile_count`. Any saved terrain replay during load or later `_set_terrain_type()` invalidates the cached payload; dirty/mutation redraw paths then fall back to live neighbor-based derivation.
+- `Инварианты`:
+- `assert(surface_prebaked_visual_halo_size == (chunk_size + 2) * (chunk_size + 2), "surface prebaked visual derivation must sample a one-tile halo to stay seam-safe at chunk borders")`
+- `assert(prebaked_visual_phase_skips_neighbor_derivation_when_payload_valid, "terrain/cover/cliff phase batches may apply ready buffers directly when prebaked payload is valid")`
+- `assert(prebaked_visual_payload_never_authors_canonical_terrain, "prebaked visual payload may accelerate presentation only and must not become terrain/topology/reveal truth")`
+- `forbidden writes`:
+- Prebaked visual payload builders must not mutate `terrain`, saved diffs, topology caches, reveal state, or public terrain semantics.
+- Runtime consumers must not try to repair mutated chunks by editing prebaked arrays in place; once terrain changes, the payload is invalidated and normal redraw rules apply.
+
 ### Interior Macro Overlay (Presentation sublayer)
 
 - `Current runtime status`: disabled pending perf-safe rework.
@@ -648,11 +663,12 @@ Observed files for this version:
 - Requested chunk coordinates are canonicalized before generation or load.
 - Surface load can reuse cached native payload and cached flora results. In that case the chunk is populated from cache instead of regenerating terrain.
 - Surface chunk generation writes per-tile `terrain`, `height`, `variation`, and `biome` into native payload arrays. `flora_density_values` and `flora_modulation_values` are also generated in the payload for surface chunks. `variation` remains presentation-only metadata; polar overlays live there instead of expanding canonical terrain types.
+- Surface chunk generation may additionally write presentation-only derived arrays `rock_visual_class`, `ground_face_atlas`, `cover_mask`, `cliff_overlay`, `variant_id`, and `alt_id`. They are computed from the current chunk arrays plus a one-tile seam halo so terrain/cover/cliff visual phases can reuse ready buffers instead of rebuilding neighbor lookup state for pristine chunks.
 - Current surface generation does not assign `MINED_FLOOR` or `MOUNTAIN_ENTRANCE`. Mountain boundary tiles generated by `SurfaceTerrainResolver._resolve_surface_terrain_sq()` remain `ROCK` even when adjacent to open exterior terrain.
-- Chunk generation does not compute or store a wall-neighbor mask, autotile mask, or terrain peering metadata in canonical chunk data.
-- `Chunk.populate_native()` installs native arrays, reapplies saved modifications through `_apply_saved_modifications()`, recalculates `_has_mountain`, resets cover visual state, and starts redraw.
+- Chunk generation does not publish a generic wall-neighbor mask or terrain-peering API as canonical chunk data. Any stored `rock_visual_class` / `ground_face_atlas` / `cover_mask` / `cliff_overlay` / `variant_id` / `alt_id` buffers remain presentation-only derived state.
+- `Chunk.populate_native()` installs native arrays, loads the presentation payload cache when array sizes match, reapplies saved modifications through `_apply_saved_modifications()`, invalidates the presentation cache if saved terrain diffs exist, recalculates `_has_mountain`, resets cover visual state, and starts redraw.
 - Saved modifications are replayed as direct tile writes and then re-normalized for affected open tiles plus their cardinal same-chunk neighbors before redraw starts.
-- Streamed chunks begin progressive redraw through `_begin_progressive_redraw()`, enter `ChunkVisualState.NATIVE_READY`, and remain hidden until their first `Chunk.is_full_redraw_ready()` publication closes. Internal first-pass milestones may still advance the scheduler, but first-pass completion does not authorize player-visible publication. Once a chunk has been fully published once, later local convergence debt may keep it visible while owner-side follow-up work restores terminal `FULL_READY`.
+- Streamed chunks begin progressive redraw through `_begin_progressive_redraw()`, enter `ChunkVisualState.NATIVE_READY`, and remain hidden until their first `Chunk.is_full_redraw_ready()` publication closes. Internal first-pass milestones may still advance the scheduler, but first-pass completion does not authorize player-visible publication. When the surface presentation payload cache is valid, terrain/cover/cliff phase batches may skip neighbor derivation and only apply ready buffers; once the cache is missing or invalidated, existing lookup-based worker compute remains the fallback. Once a chunk has been fully published once, later local convergence debt may keep it visible while owner-side follow-up work restores terminal `FULL_READY`.
 - Boot loading tracks per-chunk readiness through `BootChunkState` transitions `QUEUED_COMPUTE -> COMPUTED -> QUEUED_APPLY -> APPLIED`, with `APPLIED <-> VISUAL_COMPLETE` remaining revocable until final convergence settles. Aggregate gates `first_playable` (ring 0..1 honest full-ready publication, topology NOT required inside `ChunkManager`) and `boot_complete` (all startup chunks currently terminal/full-ready + topology ready) are updated after each chunk. Ring distance uses Chebyshev metric (`max(abs(dx), abs(dy))`), so diagonal chunks at offset (1,1) are ring 1 — critical for 4-chunk junction spawns. `first_playable` is now an internal boot-finalization milestone: `GameWorld` may start shadow/topology completion there, but player input/physics/loading-screen dismissal wait for the full boot-ready handoff after shadows are drained. See `Layer: Boot Readiness`.
 - Boot loading does not fake terminal state for unfinished startup coords after handoff. Remaining startup coords are enqueued into runtime streaming, stay boot-tracked, and only contribute to `boot_complete` after real apply/redraw progress. Topology readiness is part of `boot_complete` but not the internal `first_playable` gate; player-visible handoff additionally waits for boot shadow completion.
 - Surface flora presentation is derived after `populate_native()`: from cached flora, from `ChunkBuildResult`, or from native data, depending on load path and whether saved modifications exist. Publication of that flora is presentation-only and now routes through worker-prepared pure-data render packets plus a single chunk-local flora batch renderer on the main thread, not per-placement scene-tree churn.
@@ -664,7 +680,7 @@ Observed files for this version:
 ### Current non-guarantees
 
 - Chunk generation/load does not auto-classify boundary `ROCK` as `MOUNTAIN_ENTRANCE`.
-- Chunk generation/load does not compute or persist wall neighbor masks; wall forms are derived later during redraw from neighbor terrain reads.
+- Chunk generation/load does not expose a generic persisted wall-neighbor mask API. Mutated or otherwise invalidated chunks still derive wall/cover/cliff visuals later during redraw from current neighbor terrain reads.
 - Save replay still does not normalize cross-chunk open-tile state for unloaded neighbor chunks until those chunks are loaded.
 - `EventBus.chunk_loaded` does not guarantee that surface topology is already ready. Surface topology may still be dirty or native-dirty until its rebuild path completes.
 
@@ -708,6 +724,7 @@ Observed files for this version:
 - Cross-chunk local-zone traversal in `query_local_underground_zone()` also stops at unloaded chunks and reports `truncated = true`.
 - `MountainRoofSystem` only reveals cover for chunks that are currently loaded.
 - `MountainShadowSystem` edge detection can read across chunk seams for loaded chunks; when a neighbor chunk is unloaded, the edge-cache snapshot samples detached surface terrain truth rather than querying scene-owned chunk state on the main thread.
+- Surface generation-time visual derivation reads one-tile seam context through `ChunkContentBuilder._build_terrain_halo()` and detached terrain sampling, so initial `rock_visual_class` / `ground_face_atlas` / `cover_mask` / `cliff_overlay` / `variant_id` / `alt_id` buffers do not wait for neighbor chunk nodes to load.
 - Surface terrain wall shaping can read cross-chunk neighbor terrain through unloaded fallbacks, because `_surface_rock_visual_class()` goes through `_get_neighbor_terrain()` and `ChunkManager.get_terrain_type_at_global()`.
 - Mining at a chunk seam now refreshes neighbor-chunk open tiles and redraws neighbor-chunk border visuals for loaded neighbors through `ChunkManager._seam_normalize_and_redraw()`. Unloaded neighbor chunks are not normalized or redrawn at mining time.
 

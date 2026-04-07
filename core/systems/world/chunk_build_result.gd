@@ -16,6 +16,12 @@ var secondary_biome: PackedByteArray = PackedByteArray()
 var ecotone_values: PackedFloat32Array = PackedFloat32Array()
 var flora_density_values: PackedFloat32Array = PackedFloat32Array()
 var flora_modulation_values: PackedFloat32Array = PackedFloat32Array()
+var rock_visual_class: PackedByteArray = PackedByteArray()
+var ground_face_atlas: PackedInt32Array = PackedInt32Array()
+var cover_mask: PackedInt32Array = PackedInt32Array()
+var cliff_overlay: PackedByteArray = PackedByteArray()
+var variant_id: PackedByteArray = PackedByteArray()
+var alt_id: PackedInt32Array = PackedInt32Array()
 var feature_and_poi_payload: Dictionary = _empty_feature_and_poi_payload()
 
 func initialize(coord: Vector2i, size: int, chunk_base_tile: Vector2i = Vector2i.ZERO) -> ChunkBuildResult:
@@ -73,6 +79,14 @@ func is_valid() -> bool:
 		and flora_density_values.size() == tile_count \
 		and flora_modulation_values.size() == tile_count
 
+func apply_prebaked_visual_payload(payload: Dictionary) -> void:
+	rock_visual_class = payload.get("rock_visual_class", PackedByteArray()) as PackedByteArray
+	ground_face_atlas = payload.get("ground_face_atlas", PackedInt32Array()) as PackedInt32Array
+	cover_mask = payload.get("cover_mask", PackedInt32Array()) as PackedInt32Array
+	cliff_overlay = payload.get("cliff_overlay", PackedByteArray()) as PackedByteArray
+	variant_id = payload.get("variant_id", PackedByteArray()) as PackedByteArray
+	alt_id = payload.get("alt_id", PackedInt32Array()) as PackedInt32Array
+
 func to_native_data() -> Dictionary:
 	return {
 		"chunk_coord": chunk_coord,
@@ -87,6 +101,12 @@ func to_native_data() -> Dictionary:
 		"ecotone_values": ecotone_values,
 		"flora_density_values": flora_density_values,
 		"flora_modulation_values": flora_modulation_values,
+		"rock_visual_class": rock_visual_class,
+		"ground_face_atlas": ground_face_atlas,
+		"cover_mask": cover_mask,
+		"cliff_overlay": cliff_overlay,
+		"variant_id": variant_id,
+		"alt_id": alt_id,
 		FEATURE_AND_POI_PAYLOAD_KEY: _duplicate_feature_and_poi_payload(),
 	}
 

@@ -15,6 +15,7 @@ public:
 	ChunkVisualKernels();
 	~ChunkVisualKernels();
 
+	Dictionary build_prebaked_visual_payload(Dictionary p_request) const;
 	Dictionary compute_visual_batch(Dictionary p_request) const;
 	int32_t apply_chunk_visual_buffers(
 		TileMapLayer *p_terrain_layer,

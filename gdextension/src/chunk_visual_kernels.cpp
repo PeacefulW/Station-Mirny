@@ -8,6 +8,7 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/string_name.hpp>
 #include <godot_cpp/variant/vector2i.hpp>
@@ -27,6 +28,12 @@ constexpr int VISUAL_LAYER_GROUND_FACE = 1;
 constexpr int VISUAL_LAYER_ROCK = 2;
 constexpr int VISUAL_LAYER_COVER = 3;
 constexpr int VISUAL_LAYER_CLIFF = 4;
+constexpr int PREBAKED_ROCK_VISUAL_NONE = 255;
+constexpr int PREBAKED_CLIFF_NONE = 0;
+constexpr int PREBAKED_CLIFF_SOUTH = 1;
+constexpr int PREBAKED_CLIFF_WEST = 2;
+constexpr int PREBAKED_CLIFF_EAST = 3;
+constexpr int PREBAKED_CLIFF_TOP = 4;
 constexpr int INTERIOR_FAMILY_TARGET_COUNT = 3;
 constexpr int INTERIOR_FAMILY_WINDOW_SIZE = 3;
 constexpr double INTERIOR_FAMILY_SCALE = 18.0;
@@ -89,9 +96,15 @@ struct VisualRequestContext {
 	Dictionary height_lookup;
 	Dictionary variation_lookup;
 	Dictionary biome_lookup;
+	PackedByteArray terrain_bytes;
+	PackedFloat32Array height_bytes;
+	PackedByteArray variation_bytes;
+	PackedByteArray biome_bytes;
+	PackedByteArray terrain_halo;
 	Vector2i chunk_coord = Vector2i();
 	int chunk_size = 64;
 	bool is_underground = false;
+	bool uses_native_arrays = false;
 	VisualTables tables;
 };
 
@@ -145,9 +158,15 @@ bool load_tables(const Dictionary &request, VisualRequestContext &ctx) {
 	ctx.height_lookup = request.get("height_lookup", Dictionary());
 	ctx.variation_lookup = request.get("variation_lookup", Dictionary());
 	ctx.biome_lookup = request.get("biome_lookup", Dictionary());
+	ctx.terrain_bytes = request.get("terrain_bytes", PackedByteArray());
+	ctx.height_bytes = request.get("height_bytes", PackedFloat32Array());
+	ctx.variation_bytes = request.get("variation_bytes", PackedByteArray());
+	ctx.biome_bytes = request.get("biome_bytes", PackedByteArray());
+	ctx.terrain_halo = request.get("terrain_halo", PackedByteArray());
 	ctx.chunk_coord = request.get("chunk_coord", Vector2i());
 	ctx.chunk_size = int(request.get("chunk_size", 64));
 	ctx.is_underground = bool(request.get("is_underground", false));
+	ctx.uses_native_arrays = !ctx.terrain_bytes.is_empty();
 
 	ctx.tables.surface_palette_tiles = tables.get("surface_palette_tiles", Array());
 	ctx.tables.wall_flip_class = tables.get("wall_flip_class", PackedByteArray());
@@ -192,6 +211,20 @@ bool load_tables(const Dictionary &request, VisualRequestContext &ctx) {
 	return true;
 }
 
+bool has_valid_center_arrays(const VisualRequestContext &ctx) {
+	const int tile_count = ctx.chunk_size * ctx.chunk_size;
+	return tile_count > 0
+		&& ctx.terrain_bytes.size() == tile_count
+		&& ctx.height_bytes.size() == tile_count
+		&& ctx.variation_bytes.size() == tile_count
+		&& ctx.biome_bytes.size() == tile_count;
+}
+
+bool has_valid_terrain_halo(const VisualRequestContext &ctx) {
+	const int halo_stride = ctx.chunk_size + 2;
+	return ctx.terrain_halo.size() == halo_stride * halo_stride;
+}
+
 Dictionary surface_palette(const VisualTables &tables, int biome_palette_index) {
 	if (tables.surface_palette_tiles.is_empty()) {
 		return Dictionary();
@@ -206,18 +239,40 @@ Vector2i coords_for_linear_index(const VisualTables &tables, int index) {
 }
 
 int terrain_at(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	if (ctx.uses_native_arrays) {
+		if (local_tile.x >= 0 && local_tile.y >= 0 && local_tile.x < ctx.chunk_size && local_tile.y < ctx.chunk_size && has_valid_center_arrays(ctx)) {
+			return ctx.terrain_bytes[local_tile.y * ctx.chunk_size + local_tile.x];
+		}
+		if (has_valid_terrain_halo(ctx)) {
+			const int halo_stride = ctx.chunk_size + 2;
+			const int halo_x = local_tile.x + 1;
+			const int halo_y = local_tile.y + 1;
+			if (halo_x >= 0 && halo_y >= 0 && halo_x < halo_stride && halo_y < halo_stride) {
+				return ctx.terrain_halo[halo_y * halo_stride + halo_x];
+			}
+		}
+	}
 	return int(ctx.terrain_lookup.get(local_tile, ctx.tables.terrain_rock));
 }
 
 double height_at(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	if (ctx.uses_native_arrays && local_tile.x >= 0 && local_tile.y >= 0 && local_tile.x < ctx.chunk_size && local_tile.y < ctx.chunk_size && has_valid_center_arrays(ctx)) {
+		return ctx.height_bytes[local_tile.y * ctx.chunk_size + local_tile.x];
+	}
 	return double(ctx.height_lookup.get(local_tile, 0.5));
 }
 
 int variation_at(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	if (ctx.uses_native_arrays && local_tile.x >= 0 && local_tile.y >= 0 && local_tile.x < ctx.chunk_size && local_tile.y < ctx.chunk_size && has_valid_center_arrays(ctx)) {
+		return ctx.variation_bytes[local_tile.y * ctx.chunk_size + local_tile.x];
+	}
 	return int(ctx.variation_lookup.get(local_tile, ctx.tables.surface_variation_none));
 }
 
 int biome_at(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	if (ctx.uses_native_arrays && local_tile.x >= 0 && local_tile.y >= 0 && local_tile.x < ctx.chunk_size && local_tile.y < ctx.chunk_size && has_valid_center_arrays(ctx)) {
+		return ctx.biome_bytes[local_tile.y * ctx.chunk_size + local_tile.x];
+	}
 	return int(ctx.biome_lookup.get(local_tile, 0));
 }
 
@@ -492,6 +547,20 @@ int variant_alt_id(const VisualRequestContext &ctx, const Vector2i &base, int gl
 	const uint8_t *alt_counts = ctx.tables.wall_flip_alt_count.ptr();
 	const int alt_count = static_cast<int>(alt_counts[flip_class_id]);
 	return alt_count <= 0 ? 0 : static_cast<int>(hash32_xy(global_x + 17, global_y + 31, 0) % static_cast<uint32_t>(alt_count));
+}
+
+int linear_index_for_coords(const VisualTables &tables, const Vector2i &coords) {
+	if (coords.x < 0 || coords.y < 0) {
+		return -1;
+	}
+	return coords.y * std::max(1, tables.terrain_tiles_per_row) + coords.x;
+}
+
+int pack_cover_mask(int atlas_index, int alt_id) {
+	if (atlas_index < 0) {
+		return -1;
+	}
+	return (atlas_index << 8) | (alt_id & 0xff);
 }
 
 Vector2i surface_visual_class(const VisualRequestContext &ctx, const Vector2i &local_tile, bool water_only) {
@@ -782,6 +851,114 @@ void append_terrain_visual_commands(const VisualRequestContext &ctx, const Vecto
 	else if (explicit_clear) append_erase_command(buffers, VISUAL_LAYER_ROCK, local_tile);
 }
 
+Dictionary build_prebaked_visual_payload_internal(const VisualRequestContext &ctx) {
+	Dictionary result;
+	if (!has_valid_center_arrays(ctx) || !has_valid_terrain_halo(ctx)) {
+		return result;
+	}
+	const int tile_count = ctx.chunk_size * ctx.chunk_size;
+	PackedByteArray rock_visual_class_bytes;
+	PackedInt32Array ground_face_atlas;
+	PackedInt32Array cover_mask;
+	PackedByteArray cliff_overlay;
+	PackedByteArray variant_id_bytes;
+	PackedInt32Array alt_id_values;
+	rock_visual_class_bytes.resize(tile_count);
+	ground_face_atlas.resize(tile_count);
+	cover_mask.resize(tile_count);
+	cliff_overlay.resize(tile_count);
+	variant_id_bytes.resize(tile_count);
+	alt_id_values.resize(tile_count);
+	for (int idx = 0; idx < tile_count; ++idx) {
+		rock_visual_class_bytes[idx] = PREBAKED_ROCK_VISUAL_NONE;
+		ground_face_atlas[idx] = -1;
+		cover_mask[idx] = -1;
+		cliff_overlay[idx] = PREBAKED_CLIFF_NONE;
+		variant_id_bytes[idx] = 0;
+		alt_id_values[idx] = 0;
+	}
+	for (int local_y = 0; local_y < ctx.chunk_size; ++local_y) {
+		for (int local_x = 0; local_x < ctx.chunk_size; ++local_x) {
+			const Vector2i local_tile(local_x, local_y);
+			const int idx = local_y * ctx.chunk_size + local_x;
+			const int terrain_type = terrain_at(ctx, local_tile);
+			const Vector2i global_tile = to_global_tile(ctx, local_tile);
+			Vector2i shared_base(-1, -1);
+			Vector2i shared_interior = Vector2i();
+			bool shared_has_interior = false;
+			if (!ctx.is_underground && is_surface_face_terrain(ctx, terrain_type)) {
+				Vector2i face_wall = wall_def(0);
+				Vector2i interior = Vector2i();
+				if (has_water_face_neighbor(ctx, local_tile)) {
+					face_wall = surface_visual_class(ctx, local_tile, true);
+				} else {
+					interior = interior_variant(ctx.tables, global_tile.x, global_tile.y);
+				}
+				const int biome_palette_index = biome_at(ctx, local_tile);
+				Vector2i face_atlas(-1, -1);
+				if (terrain_type == ctx.tables.terrain_ground || terrain_type == ctx.tables.terrain_grass) {
+					face_atlas = get_face_coords(ctx.tables, face_wall, biome_palette_index, interior.x, false);
+				} else if (terrain_type == ctx.tables.terrain_sand) {
+					face_atlas = get_face_coords(ctx.tables, face_wall, biome_palette_index, interior.x, true);
+				}
+				ground_face_atlas[idx] = linear_index_for_coords(ctx.tables, face_atlas);
+				shared_base = face_wall;
+				shared_interior = interior;
+				shared_has_interior = face_wall == wall_def(0);
+			}
+			if (terrain_type == ctx.tables.terrain_rock) {
+				const Vector2i rock_visual = ctx.is_underground ? rock_visual_class(ctx, local_tile) : surface_visual_class(ctx, local_tile, false);
+				rock_visual_class_bytes[idx] = wall_def_index(rock_visual);
+				shared_base = rock_visual;
+				shared_has_interior = rock_visual == wall_def(0);
+				if (shared_has_interior) {
+					shared_interior = interior_variant(ctx.tables, global_tile.x, global_tile.y);
+				}
+			}
+			if (!ctx.is_underground && (terrain_type == ctx.tables.terrain_mined_floor || is_cave_edge_rock(ctx, local_tile))) {
+				const Vector2i cover_base = is_exterior_surface_rock(ctx, local_tile) ? wall_def(20) : wall_def(0);
+				Vector2i cover_interior = Vector2i();
+				int cover_alt_id = 0;
+				int cover_variant = 0;
+				if (cover_base == wall_def(0)) {
+					cover_interior = interior_variant(ctx.tables, global_tile.x, global_tile.y);
+					cover_variant = cover_interior.x;
+					cover_alt_id = cover_interior.y;
+					if (shared_base.x < 0) {
+						shared_base = cover_base;
+						shared_interior = cover_interior;
+						shared_has_interior = true;
+					}
+				}
+				const Vector2i cover_atlas = get_wall_variant_coords(ctx.tables, cover_base, cover_variant);
+				cover_mask[idx] = pack_cover_mask(linear_index_for_coords(ctx.tables, cover_atlas), cover_alt_id);
+			}
+			if (!ctx.is_underground && terrain_type == ctx.tables.terrain_rock) {
+				if (is_open_exterior(ctx, terrain_at(ctx, local_tile + Vector2i(0, 1)))) cliff_overlay[idx] = PREBAKED_CLIFF_SOUTH;
+				else if (is_open_exterior(ctx, terrain_at(ctx, local_tile + Vector2i(-1, 0)))) cliff_overlay[idx] = PREBAKED_CLIFF_WEST;
+				else if (is_open_exterior(ctx, terrain_at(ctx, local_tile + Vector2i(1, 0)))) cliff_overlay[idx] = PREBAKED_CLIFF_EAST;
+				else if (is_open_exterior(ctx, terrain_at(ctx, local_tile + Vector2i(0, -1)))) cliff_overlay[idx] = PREBAKED_CLIFF_TOP;
+			}
+			variant_id_bytes[idx] = 0;
+			if (shared_base.x >= 0) {
+				if (shared_has_interior) {
+					variant_id_bytes[idx] = shared_interior.x;
+					alt_id_values[idx] = shared_interior.y;
+				} else {
+					alt_id_values[idx] = variant_alt_id(ctx, shared_base, global_tile.x, global_tile.y, ctx.is_underground);
+				}
+			}
+		}
+	}
+	result["rock_visual_class"] = rock_visual_class_bytes;
+	result["ground_face_atlas"] = ground_face_atlas;
+	result["cover_mask"] = cover_mask;
+	result["cliff_overlay"] = cliff_overlay;
+	result["variant_id"] = variant_id_bytes;
+	result["alt_id"] = alt_id_values;
+	return result;
+}
+
 int apply_visual_buffer(TileMapLayer *layer, const PackedInt32Array &buffer, int32_t buffer_stride) {
 	if (layer == nullptr || buffer.is_empty() || buffer_stride <= 0) {
 		return 0;
@@ -815,6 +992,7 @@ ChunkVisualKernels::ChunkVisualKernels() {}
 ChunkVisualKernels::~ChunkVisualKernels() {}
 
 void ChunkVisualKernels::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("build_prebaked_visual_payload", "request"), &ChunkVisualKernels::build_prebaked_visual_payload);
 	ClassDB::bind_method(D_METHOD("compute_visual_batch", "request"), &ChunkVisualKernels::compute_visual_batch);
 	ClassDB::bind_method(
 		D_METHOD(
@@ -829,6 +1007,14 @@ void ChunkVisualKernels::_bind_methods() {
 		&ChunkVisualKernels::apply_chunk_visual_buffers,
 		DEFVAL(VISUAL_APPLY_BUFFER_STRIDE)
 	);
+}
+
+Dictionary ChunkVisualKernels::build_prebaked_visual_payload(Dictionary p_request) const {
+	VisualRequestContext ctx;
+	if (!load_tables(p_request, ctx)) {
+		return Dictionary();
+	}
+	return build_prebaked_visual_payload_internal(ctx);
 }
 
 Dictionary ChunkVisualKernels::compute_visual_batch(Dictionary p_request) const {

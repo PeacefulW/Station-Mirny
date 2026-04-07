@@ -68,7 +68,8 @@ func perform_harvest() -> bool:
 		return true
 	if _harvest_timer > 0.0:
 		return false
-	if not _chunk_manager or not _inventory:
+	var chunk_manager: Node = _get_chunk_manager()
+	if not chunk_manager or not _inventory:
 		return false
 	# Ищем первый rock-тайл по лучу от игрока к курсору.
 	var harvest_pos: Vector2 = _find_harvest_target_position()
@@ -79,7 +80,7 @@ func perform_harvest() -> bool:
 	if not _command_executor:
 		push_warning("Harvest command executor unavailable")
 		return false
-	var command := HarvestTileCommandScript.new().setup(_chunk_manager as ChunkManager, harvest_pos)
+	var command := HarvestTileCommandScript.new().setup(chunk_manager as ChunkManager, harvest_pos)
 	var result: Dictionary = _command_executor.execute(command)
 	if result.is_empty():
 		return false
@@ -100,14 +101,17 @@ func _get_harvest_position() -> Vector2:
 	return global_position + dir * balance.harvest_range
 
 func _find_harvest_target_position() -> Vector2:
+	var chunk_manager: Node = _get_chunk_manager()
+	if chunk_manager == null:
+		return Vector2.INF
 	if not WorldGenerator or not WorldGenerator.balance:
 		var fallback_pos: Vector2 = _get_harvest_position()
-		if _chunk_manager.has_resource_at_world(fallback_pos):
+		if chunk_manager.has_resource_at_world(fallback_pos):
 			return fallback_pos
-		return global_position if _chunk_manager.has_resource_at_world(global_position) else Vector2.INF
+		return global_position if chunk_manager.has_resource_at_world(global_position) else Vector2.INF
 	var dir: Vector2 = get_global_mouse_position() - global_position
 	if dir.length_squared() <= 0.0001:
-		return global_position if _chunk_manager.has_resource_at_world(global_position) else Vector2.INF
+		return global_position if chunk_manager.has_resource_at_world(global_position) else Vector2.INF
 	dir = dir.normalized()
 	var step_size: float = maxf(8.0, float(WorldGenerator.balance.tile_size) * 0.25)
 	var max_steps: int = maxi(1, ceili(balance.harvest_range / step_size))
@@ -119,9 +123,9 @@ func _find_harvest_target_position() -> Vector2:
 			continue
 		visited_tiles[sample_tile] = true
 		var tile_center: Vector2 = WorldGenerator.tile_to_world(sample_tile)
-		if _chunk_manager.has_resource_at_world(tile_center):
+		if chunk_manager.has_resource_at_world(tile_center):
 			return tile_center
-	return global_position if _chunk_manager.has_resource_at_world(global_position) else Vector2.INF
+	return global_position if chunk_manager.has_resource_at_world(global_position) else Vector2.INF
 
 func tick_harvest_cooldown(delta: float) -> void:
 	if _harvest_timer > 0.0:
@@ -190,38 +194,88 @@ func _find_chunk_manager() -> void:
 	if not nodes.is_empty():
 		_chunk_manager = nodes[0]
 
+func _get_chunk_manager() -> Node:
+	if _chunk_manager != null and is_instance_valid(_chunk_manager):
+		return _chunk_manager
+	_find_chunk_manager()
+	if _chunk_manager != null and is_instance_valid(_chunk_manager):
+		return _chunk_manager
+	return null
+
 func _find_command_executor() -> void:
 	var nodes: Array[Node] = get_tree().get_nodes_in_group("command_executor")
 	if not nodes.is_empty():
 		_command_executor = nodes[0] as CommandExecutor
 
 func _apply_terrain_blocking(delta: float) -> void:
-	if not _chunk_manager or velocity == Vector2.ZERO:
+	if velocity == Vector2.ZERO:
 		return
-	var adjusted_velocity: Vector2 = velocity
-	var next_x: Vector2 = global_position + Vector2(velocity.x * delta, 0.0)
-	if not _can_occupy_world(next_x):
-		adjusted_velocity.x = 0.0
-	var next_y: Vector2 = global_position + Vector2(0.0, velocity.y * delta)
-	if not _can_occupy_world(next_y):
-		adjusted_velocity.y = 0.0
+	if _get_chunk_manager() == null:
+		return
+	var intended_pos: Vector2 = global_position + velocity * delta
+	if _can_occupy_world(intended_pos):
+		return
+	var adjusted_velocity: Vector2 = Vector2.ZERO
+	var horizontal_first: bool = absf(velocity.x) >= absf(velocity.y)
+	if horizontal_first:
+		var next_x: Vector2 = global_position + Vector2(velocity.x * delta, 0.0)
+		if _can_occupy_world(next_x):
+			adjusted_velocity.x = velocity.x
+		var resolved_x_pos: Vector2 = global_position + Vector2(adjusted_velocity.x * delta, 0.0)
+		var next_y_after_x: Vector2 = resolved_x_pos + Vector2(0.0, velocity.y * delta)
+		if _can_occupy_world(next_y_after_x):
+			adjusted_velocity.y = velocity.y
+	else:
+		var next_y: Vector2 = global_position + Vector2(0.0, velocity.y * delta)
+		if _can_occupy_world(next_y):
+			adjusted_velocity.y = velocity.y
+		var resolved_y_pos: Vector2 = global_position + Vector2(0.0, adjusted_velocity.y * delta)
+		var next_x_after_y: Vector2 = resolved_y_pos + Vector2(velocity.x * delta, 0.0)
+		if _can_occupy_world(next_x_after_y):
+			adjusted_velocity.x = velocity.x
 	velocity = adjusted_velocity
 
 func _can_occupy_world(target_pos: Vector2) -> bool:
-	if not _chunk_manager or not _chunk_manager.has_method("is_walkable_at_world"):
+	var chunk_manager: Node = _get_chunk_manager()
+	if not chunk_manager or not chunk_manager.has_method("is_walkable_at_world"):
 		return true
-	var half_extent: float = 20.0
-	var sample_points: Array[Vector2] = [
-		target_pos,
-		target_pos + Vector2(-half_extent, -half_extent),
-		target_pos + Vector2(half_extent, -half_extent),
-		target_pos + Vector2(-half_extent, half_extent),
-		target_pos + Vector2(half_extent, half_extent),
-	]
+	var sample_points: Array[Vector2] = _build_occupancy_sample_points(target_pos)
 	for point: Vector2 in sample_points:
-		if not _chunk_manager.is_walkable_at_world(point):
+		if not chunk_manager.is_walkable_at_world(point):
 			return false
 	return true
+
+func _build_occupancy_sample_points(target_pos: Vector2) -> Array[Vector2]:
+	var half_extents: Vector2 = _resolve_blocking_half_extents()
+	var edge_x: float = maxf(4.0, half_extents.x - 2.0)
+	var edge_y: float = maxf(4.0, half_extents.y - 2.0)
+	# Sample the full footprint so diagonal motion cannot cut through impassable tiles.
+	return [
+		target_pos,
+		target_pos + Vector2(-edge_x, 0.0),
+		target_pos + Vector2(edge_x, 0.0),
+		target_pos + Vector2(0.0, -edge_y),
+		target_pos + Vector2(0.0, edge_y),
+		target_pos + Vector2(-edge_x, -edge_y),
+		target_pos + Vector2(edge_x, -edge_y),
+		target_pos + Vector2(-edge_x, edge_y),
+		target_pos + Vector2(edge_x, edge_y),
+	]
+
+func _resolve_blocking_half_extents() -> Vector2:
+	var collision_shape_node: CollisionShape2D = get_node_or_null("CollisionShape2D") as CollisionShape2D
+	if collision_shape_node == null or collision_shape_node.shape == null:
+		return Vector2(20.0, 20.0)
+	var shape: Shape2D = collision_shape_node.shape
+	if shape is RectangleShape2D:
+		return (shape as RectangleShape2D).size * 0.5
+	if shape is CircleShape2D:
+		var radius: float = (shape as CircleShape2D).radius
+		return Vector2(radius, radius)
+	if shape is CapsuleShape2D:
+		var capsule: CapsuleShape2D = shape as CapsuleShape2D
+		return Vector2(capsule.radius, capsule.radius + capsule.height * 0.5)
+	return Vector2(20.0, 20.0)
 
 func update_movement_velocity() -> void:
 	var direction: Vector2 = get_move_input()
@@ -342,7 +396,7 @@ func has_move_input() -> bool:
 func can_attack() -> bool:
 	return not _is_dead and _attack_timer <= 0.0 and _attack_area != null
 func can_harvest() -> bool:
-	return not _is_dead and _harvest_timer <= 0.0 and _chunk_manager != null and _inventory != null
+	return not _is_dead and _harvest_timer <= 0.0 and _get_chunk_manager() != null and _inventory != null
 func is_attack_busy() -> bool:
 	return _attack_timer > 0.0
 func is_harvest_busy() -> bool:

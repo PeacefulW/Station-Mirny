@@ -2960,6 +2960,12 @@ func _duplicate_native_data(native_data: Dictionary) -> Dictionary:
 		"ecotone_values": (native_data.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
 		"flora_density_values": (native_data.get("flora_density_values", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
 		"flora_modulation_values": (native_data.get("flora_modulation_values", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
+		"rock_visual_class": (native_data.get("rock_visual_class", PackedByteArray()) as PackedByteArray).duplicate(),
+		"ground_face_atlas": (native_data.get("ground_face_atlas", PackedInt32Array()) as PackedInt32Array).duplicate(),
+		"cover_mask": (native_data.get("cover_mask", PackedInt32Array()) as PackedInt32Array).duplicate(),
+		"cliff_overlay": (native_data.get("cliff_overlay", PackedByteArray()) as PackedByteArray).duplicate(),
+		"variant_id": (native_data.get("variant_id", PackedByteArray()) as PackedByteArray).duplicate(),
+		"alt_id": (native_data.get("alt_id", PackedInt32Array()) as PackedInt32Array).duplicate(),
 		"feature_and_poi_payload": (native_data.get("feature_and_poi_payload", {"placements": []}) as Dictionary).duplicate(true),
 	}
 

@@ -1,6 +1,7 @@
 class_name ChunkContentBuilder
 extends RefCounted
 
+const ChunkScript = preload("res://core/systems/world/chunk.gd")
 const WorldFeatureHookResolverScript = preload("res://core/systems/world/world_feature_hook_resolver.gd")
 const WorldPoiResolverScript = preload("res://core/systems/world/world_poi_resolver.gd")
 
@@ -9,6 +10,7 @@ const PLACEMENTS_KEY: String = "placements"
 const FEATURE_KIND: StringName = &"feature"
 const POI_KIND: StringName = &"poi"
 const CHUNK_GEN_SLOW_LOG_THRESHOLD_MS: float = 80.0
+const NATIVE_VISUAL_KERNELS_CLASS: StringName = &"ChunkVisualKernels"
 
 var _world_context: RefCounted = null
 var _terrain_resolver: RefCounted = null
@@ -16,6 +18,7 @@ var _balance: WorldGenBalance = null
 var _feature_and_poi_payload_cache: RefCounted = null
 var _all_pois_snapshot: Array[Resource] = []
 var _native_generator: RefCounted = null
+var _native_visual_kernels: RefCounted = null
 
 func initialize(
 	balance_resource: WorldGenBalance,
@@ -67,6 +70,7 @@ func build_chunk(chunk_coord: Vector2i) -> ChunkBuildResult:
 			canonical_tile.x += 1
 		row_index += chunk_size
 	result.feature_and_poi_payload = feature_and_poi_payload
+	result.apply_prebaked_visual_payload(_build_prebaked_visual_payload(result.to_native_data(), canonical_chunk, base_tile, chunk_size))
 	return result
 
 func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
@@ -84,6 +88,7 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 		var native_ms: float = float(Time.get_ticks_usec() - native_start_usec) / 1000.0
 		if not native_result.is_empty():
 			native_result[FEATURE_AND_POI_PAYLOAD_KEY] = _empty_feature_and_poi_payload()
+			native_result.merge(_build_prebaked_visual_payload(native_result, canonical_chunk, base_tile, chunk_size), true)
 			if native_ms >= CHUNK_GEN_SLOW_LOG_THRESHOLD_MS:
 				print("[ChunkGen] slow native generate_chunk %s: %.1f ms" % [canonical_chunk, native_ms])
 			return native_result
@@ -127,7 +132,7 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 			flora_modulation_values[index] = tile_data.flora_modulation
 			canonical_tile.x += 1
 		row_index += chunk_size
-	return {
+	var native_data: Dictionary = {
 		"chunk_coord": canonical_chunk,
 		"canonical_chunk_coord": canonical_chunk,
 		"base_tile": base_tile,
@@ -142,6 +147,8 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 		"flora_modulation_values": flora_modulation_values,
 		FEATURE_AND_POI_PAYLOAD_KEY: feature_and_poi_payload,
 	}
+	native_data.merge(_build_prebaked_visual_payload(native_data, canonical_chunk, base_tile, chunk_size), true)
+	return native_data
 
 func build_tile_data(tile_x: int, tile_y: int) -> TileGenData:
 	if _terrain_resolver == null:
@@ -152,6 +159,58 @@ func sample_terrain_type(tile_x: int, tile_y: int) -> TileGenData.TerrainType:
 	if _terrain_resolver == null:
 		return TileGenData.TerrainType.GROUND
 	return _terrain_resolver.sample_terrain_type(tile_x, tile_y)
+
+func _build_prebaked_visual_payload(
+	native_data: Dictionary,
+	canonical_chunk: Vector2i,
+	base_tile: Vector2i,
+	chunk_size: int
+) -> Dictionary:
+	if native_data.is_empty() or chunk_size <= 0:
+		return {}
+	var request: Dictionary = {
+		"chunk_coord": canonical_chunk,
+		"chunk_size": chunk_size,
+		"is_underground": false,
+		"terrain_bytes": native_data.get("terrain", PackedByteArray()) as PackedByteArray,
+		"height_bytes": native_data.get("height", PackedFloat32Array()) as PackedFloat32Array,
+		"variation_bytes": native_data.get("variation", PackedByteArray()) as PackedByteArray,
+		"biome_bytes": native_data.get("biome", PackedByteArray()) as PackedByteArray,
+		"terrain_halo": _build_terrain_halo(native_data.get("terrain", PackedByteArray()) as PackedByteArray, base_tile, chunk_size),
+		"native_visual_tables": ChunkScript.build_native_visual_tables(),
+	}
+	var helper: RefCounted = _get_native_visual_kernels()
+	if helper != null and helper.has_method("build_prebaked_visual_payload"):
+		var native_payload: Dictionary = helper.call("build_prebaked_visual_payload", request) as Dictionary
+		if not native_payload.is_empty():
+			return native_payload
+	return ChunkScript.build_prebaked_visual_payload(request)
+
+func _build_terrain_halo(terrain_bytes: PackedByteArray, base_tile: Vector2i, chunk_size: int) -> PackedByteArray:
+	var stride: int = chunk_size + 2
+	var halo := PackedByteArray()
+	halo.resize(stride * stride)
+	if terrain_bytes.size() != chunk_size * chunk_size:
+		return halo
+	for local_y: int in range(-1, chunk_size + 1):
+		for local_x: int in range(-1, chunk_size + 1):
+			var halo_index: int = (local_y + 1) * stride + (local_x + 1)
+			if local_x >= 0 and local_y >= 0 and local_x < chunk_size and local_y < chunk_size:
+				halo[halo_index] = terrain_bytes[local_y * chunk_size + local_x]
+				continue
+			var world_tile: Vector2i = base_tile + Vector2i(local_x, local_y)
+			if _world_context != null and _world_context.has_method("canonicalize_tile"):
+				world_tile = _world_context.canonicalize_tile(world_tile)
+			halo[halo_index] = sample_terrain_type(world_tile.x, world_tile.y)
+	return halo
+
+func _get_native_visual_kernels() -> RefCounted:
+	if _native_visual_kernels != null:
+		return _native_visual_kernels
+	if not ClassDB.class_exists(NATIVE_VISUAL_KERNELS_CLASS):
+		return null
+	_native_visual_kernels = ClassDB.instantiate(NATIVE_VISUAL_KERNELS_CLASS) as RefCounted
+	return _native_visual_kernels
 
 func _chunk_size() -> int:
 	return _balance.chunk_size_tiles if _balance else 0
