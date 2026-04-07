@@ -7,8 +7,10 @@ extends Node
 
 const RuntimeWorkTypes = preload("res://core/runtime/runtime_work_types.gd")
 const JOB_SHADOWS: StringName = &"mountain_shadow.visual_rebuild"
+const NATIVE_SHADOW_KERNELS_CLASS: StringName = &"MountainShadowKernels"
 const INVALID_COORD: Vector2i = Vector2i(999999, 999999)
 const SHADOW_START_SCAN_LIMIT: int = 4
+const RETIRED_SHADOW_BUILD_LIMIT: int = 2
 const EDGE_NEIGHBOR_OFFSETS: Array[Vector2i] = [
 	Vector2i.LEFT,
 	Vector2i.RIGHT,
@@ -26,6 +28,7 @@ var _shadow_container: Node2D = null
 var _last_built_angle: float = -999.0
 var _edge_cache: Dictionary = {}
 var _edge_cache_versions: Dictionary = {}
+var _edge_cache_ready_versions: Dictionary = {}
 var _dirty_queue: Array[Vector2i] = []
 var _edge_build_queue: Array[Vector2i] = []
 var _active_edge_cache_build: Dictionary = {}
@@ -33,6 +36,7 @@ var _edge_cache_compute_results: Dictionary = {}
 var _edge_cache_compute_mutex: Mutex = Mutex.new()
 var _shadow_build_versions: Dictionary = {}
 var _active_build: Dictionary = {}  ## Detached shadow compute + main-thread finalize state
+var _retired_shadow_builds: Array[Dictionary] = []
 var _shadow_compute_results: Dictionary = {}
 var _shadow_compute_mutex: Mutex = Mutex.new()
 var _prefer_shadow_step: bool = true
@@ -41,6 +45,8 @@ var _boot_shadow_work_started: bool = false
 var _boot_shadow_work_drained: bool = false
 var _boot_shadow_completion_emitted: bool = false
 var _worker_task_serial: int = 0
+var _native_shadow_kernels_checked: bool = false
+var _native_shadow_kernels_available: bool = false
 
 signal boot_shadow_work_drained
 
@@ -77,6 +83,7 @@ func _resolve_dependencies() -> void:
 	var chunks: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
 	if not chunks.is_empty():
 		_chunk_manager = chunks[0] as ChunkManager
+	_cache_native_shadow_kernels_support()
 	FrameBudgetDispatcher.register_job(
 		RuntimeWorkTypes.CATEGORY_VISUAL,
 		1.0,
@@ -211,15 +218,9 @@ func _on_chunk_unloaded(coord: Vector2i) -> void:
 	if not _active_edge_cache_build.is_empty() \
 		and active_edge_coord == coord:
 		_active_edge_cache_build["cancelled"] = true
-	var active_shadow_coord: Vector2i = _active_build.get("coord", Vector2i(999999, 999999))
-	if not _active_build.is_empty() \
-		and active_shadow_coord == coord:
-		var phase: String = str(_active_build.get("phase", "compute"))
-		if phase == "compute":
-			_active_build["cancelled"] = true
-		else:
-			_active_build.clear()
+	_supersede_active_shadow_build(coord)
 	_edge_cache.erase(coord)
+	_edge_cache_ready_versions.erase(coord)
 	_remove_shadow(coord)
 	_refresh_boot_shadow_completion_state()
 
@@ -227,18 +228,15 @@ func _on_mountain_tile_mined(tile_pos: Vector2i, _old_type: int, _new_type: int)
 	if not _is_surface_context():
 		return
 	tile_pos = WorldGenerator.canonicalize_tile(tile_pos)
-	_update_edges_at(tile_pos)
-	var coord: Vector2i = WorldGenerator.tile_to_chunk(tile_pos)
-	_mark_dirty(coord)
-	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		var neighbor: Vector2i = _offset_chunk_coord(coord, dir)
-		if _chunk_manager and _chunk_manager.get_chunk(neighbor):
-			_mark_dirty(neighbor)
+	var dirty_targets: Array[Vector2i] = _update_edges_at(tile_pos)
+	for dirty_coord: Vector2i in dirty_targets:
+		_mark_dirty(dirty_coord)
 	_refresh_boot_shadow_completion_state()
 
 func _mark_dirty(coord: Vector2i) -> void:
 	coord = _canonical_chunk_coord(coord)
 	_bump_chunk_version(_shadow_build_versions, coord)
+	_supersede_active_shadow_build(coord)
 	if coord not in _dirty_queue:
 		_dirty_queue.append(coord)
 
@@ -252,6 +250,7 @@ func _mark_all_dirty() -> void:
 
 ## Tick для FrameBudgetDispatcher. Edge build → progressive shadow build.
 func _tick_shadows() -> bool:
+	_drain_retired_shadow_builds()
 	if not _is_surface_context():
 		_tick_suspended_shadow_runtime()
 		_refresh_boot_shadow_completion_state()
@@ -329,12 +328,14 @@ func _try_edge_step() -> bool:
 		return true
 	return false
 
-
 ## Инкрементальное обновление edge-кеша для 1 тайла и 8 соседей. O(9) вместо O(4096).
-func _update_edges_at(tile_pos: Vector2i) -> void:
+func _update_edges_at(tile_pos: Vector2i) -> Array[Vector2i]:
 	if not _chunk_manager:
-		return
-	var touched_coords: Dictionary = {}
+		return []
+	var dirty_targets: Dictionary = {}
+	var changed_coords: Dictionary = {}
+	var coords_needing_rebuild: Dictionary = {}
+	var boundary_reach: int = _resolve_shadow_cross_chunk_reach()
 	for offset_y: int in range(-1, 2):
 		for offset_x: int in range(-1, 2):
 			var check_tile: Vector2i = WorldGenerator.offset_tile(tile_pos, Vector2i(offset_x, offset_y))
@@ -342,7 +343,6 @@ func _update_edges_at(tile_pos: Vector2i) -> void:
 			var chunk: Chunk = _chunk_manager.get_chunk(coord)
 			if not chunk:
 				continue
-			touched_coords[coord] = true
 			var chunk_size: int = chunk.get_chunk_size()
 			var local_tile: Vector2i = chunk.global_to_local(check_tile)
 			if local_tile.x < 0 or local_tile.y < 0 or local_tile.x >= chunk_size or local_tile.y >= chunk_size:
@@ -351,22 +351,192 @@ func _update_edges_at(tile_pos: Vector2i) -> void:
 			var local_index: int = local_tile.y * chunk_size + local_tile.x
 			var is_edge: bool = terrain_bytes[local_index] == TileGenData.TerrainType.ROCK \
 				and _is_external_edge_at(coord, terrain_bytes, local_tile.x, local_tile.y, chunk_size)
+			var previous_version: int = int(_edge_cache_versions.get(coord, 0))
+			var had_ready_cache: bool = _edge_cache.has(coord) \
+				and int(_edge_cache_ready_versions.get(coord, -1)) == previous_version
 			if not _edge_cache.has(coord):
 				_edge_cache[coord] = [] as Array[Vector2i]
 			var edges: Array = _edge_cache[coord] as Array
 			var edge_idx: int = edges.find(check_tile)
-			if is_edge and edge_idx < 0:
+			var had_edge: bool = edge_idx >= 0
+			if is_edge == had_edge:
+				continue
+			if is_edge:
 				edges.append(check_tile)
-			elif not is_edge and edge_idx >= 0:
+			else:
 				edges.remove_at(edge_idx)
-	for touched_coord_variant: Variant in touched_coords.keys():
-		var touched_coord: Vector2i = touched_coord_variant as Vector2i
-		_bump_chunk_version(_edge_cache_versions, touched_coord)
-		var active_coord: Vector2i = _active_edge_cache_build.get("coord", INVALID_COORD)
-		if active_coord == touched_coord or not _edge_cache.has(touched_coord):
-			var touched_chunk: Chunk = _chunk_manager.get_chunk(touched_coord)
-			if touched_chunk and touched_chunk.has_any_mountain() and touched_coord not in _edge_build_queue:
-				_edge_build_queue.append(touched_coord)
+			changed_coords[coord] = had_ready_cache
+			if not had_ready_cache:
+				coords_needing_rebuild[coord] = true
+			_maybe_mark_shadow_target(dirty_targets, coord)
+			if local_tile.x < boundary_reach:
+				_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, Vector2i.LEFT))
+			if local_tile.x >= chunk_size - boundary_reach:
+				_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, Vector2i.RIGHT))
+			if local_tile.y < boundary_reach:
+				_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, Vector2i.UP))
+			if local_tile.y >= chunk_size - boundary_reach:
+				_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, Vector2i.DOWN))
+	for changed_coord_variant: Variant in changed_coords.keys():
+		var changed_coord: Vector2i = changed_coord_variant as Vector2i
+		var new_version: int = _bump_chunk_version(_edge_cache_versions, changed_coord)
+		if bool(changed_coords[changed_coord]):
+			_edge_cache_ready_versions[changed_coord] = new_version
+		else:
+			_edge_cache_ready_versions.erase(changed_coord)
+		if coords_needing_rebuild.has(changed_coord) and changed_coord not in _edge_build_queue:
+			_edge_build_queue.append(changed_coord)
+	var result: Array[Vector2i] = []
+	for target_variant: Variant in dirty_targets.keys():
+		result.append(target_variant as Vector2i)
+	return result
+
+func _resolve_shadow_cross_chunk_reach() -> int:
+	if WorldGenerator and WorldGenerator.balance:
+		return maxi(1, WorldGenerator.balance.shadow_max_length)
+	return 8
+
+func _is_shadow_target_live(coord: Vector2i) -> bool:
+	if _shadow_sprites.has(coord):
+		return true
+	return _chunk_manager != null and _chunk_manager.get_chunk(coord) != null
+
+func _maybe_mark_shadow_target(targets: Dictionary, coord: Vector2i) -> void:
+	coord = _canonical_chunk_coord(coord)
+	if _is_shadow_target_live(coord):
+		targets[coord] = true
+
+static func _copy_edge_array(source: Array) -> Array[Vector2i]:
+	var copy: Array[Vector2i] = []
+	for edge_variant: Variant in source:
+		copy.append(edge_variant as Vector2i)
+	return copy
+
+static func _edge_tile_key(edge: Vector2i) -> String:
+	return "%d:%d" % [edge.x, edge.y]
+
+static func _build_edge_lookup(edges: Array[Vector2i]) -> Dictionary:
+	var lookup: Dictionary = {}
+	for edge: Vector2i in edges:
+		lookup[_edge_tile_key(edge)] = edge
+	return lookup
+
+static func _edge_lookup_differs(old_lookup: Dictionary, new_lookup: Dictionary) -> bool:
+	if old_lookup.size() != new_lookup.size():
+		return true
+	for key_variant: Variant in old_lookup.keys():
+		if not new_lookup.has(key_variant):
+			return true
+	return false
+
+func _edge_touches_boundary(
+	coord: Vector2i,
+	edge: Vector2i,
+	dir: Vector2i,
+	chunk_size: int,
+	boundary_reach: int
+) -> bool:
+	var origin: Vector2i = WorldGenerator.chunk_to_tile_origin(coord)
+	var local_x: int = edge.x - origin.x
+	var local_y: int = edge.y - origin.y
+	match dir:
+		Vector2i.LEFT:
+			return local_x >= 0 and local_x < boundary_reach
+		Vector2i.RIGHT:
+			return local_x >= chunk_size - boundary_reach and local_x < chunk_size
+		Vector2i.UP:
+			return local_y >= 0 and local_y < boundary_reach
+		Vector2i.DOWN:
+			return local_y >= chunk_size - boundary_reach and local_y < chunk_size
+		_:
+			return false
+
+func _edge_boundary_differs_one_way(
+	coord: Vector2i,
+	source_lookup: Dictionary,
+	other_lookup: Dictionary,
+	dir: Vector2i,
+	chunk_size: int,
+	boundary_reach: int
+) -> bool:
+	for edge_variant: Variant in source_lookup.values():
+		var edge: Vector2i = edge_variant as Vector2i
+		if not _edge_touches_boundary(coord, edge, dir, chunk_size, boundary_reach):
+			continue
+		if not other_lookup.has(_edge_tile_key(edge)):
+			return true
+	return false
+
+func _edge_boundary_differs(
+	coord: Vector2i,
+	old_lookup: Dictionary,
+	new_lookup: Dictionary,
+	dir: Vector2i,
+	chunk_size: int,
+	boundary_reach: int
+) -> bool:
+	return _edge_boundary_differs_one_way(coord, old_lookup, new_lookup, dir, chunk_size, boundary_reach) \
+		or _edge_boundary_differs_one_way(coord, new_lookup, old_lookup, dir, chunk_size, boundary_reach)
+
+func _collect_shadow_targets_for_edge_delta(
+	coord: Vector2i,
+	old_edges: Array[Vector2i],
+	new_edges: Array[Vector2i]
+) -> Array[Vector2i]:
+	var old_lookup: Dictionary = _build_edge_lookup(old_edges)
+	var new_lookup: Dictionary = _build_edge_lookup(new_edges)
+	var dirty_targets: Dictionary = {}
+	if _edge_lookup_differs(old_lookup, new_lookup):
+		_maybe_mark_shadow_target(dirty_targets, coord)
+	var chunk: Chunk = _chunk_manager.get_chunk(coord) if _chunk_manager else null
+	var chunk_size: int = chunk.get_chunk_size() if chunk != null else (WorldGenerator.balance.chunk_size_tiles if WorldGenerator and WorldGenerator.balance else 64)
+	var boundary_reach: int = mini(chunk_size, _resolve_shadow_cross_chunk_reach())
+	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		if not _edge_boundary_differs(coord, old_lookup, new_lookup, dir, chunk_size, boundary_reach):
+			continue
+		_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, dir))
+	var result: Array[Vector2i] = []
+	for target_variant: Variant in dirty_targets.keys():
+		result.append(target_variant as Vector2i)
+	return result
+
+func _supersede_active_shadow_build(coord: Vector2i) -> void:
+	if _active_build.is_empty():
+		return
+	var active_coord: Vector2i = _active_build.get("coord", INVALID_COORD)
+	if active_coord != coord:
+		return
+	var phase: String = str(_active_build.get("phase", "compute"))
+	if phase != "compute":
+		_active_build.clear()
+		WorldPerfProbe.record("Shadow.stale_superseded", 1.0)
+		return
+	_drain_retired_shadow_builds()
+	if _retired_shadow_builds.size() >= RETIRED_SHADOW_BUILD_LIMIT:
+		_active_build["cancelled"] = true
+		return
+	_retired_shadow_builds.append({
+		"task_id": int(_active_build.get("task_id", -1)),
+		"task_key": str(_active_build.get("task_key", "")),
+	})
+	_active_build.clear()
+	WorldPerfProbe.record("Shadow.stale_superseded", 1.0)
+
+func _drain_retired_shadow_builds(force_wait: bool = false) -> void:
+	if _retired_shadow_builds.is_empty():
+		return
+	var remaining: Array[Dictionary] = []
+	for build: Dictionary in _retired_shadow_builds:
+		var task_id: int = int(build.get("task_id", -1))
+		var task_key: String = str(build.get("task_key", ""))
+		if task_id >= 0 and not force_wait and not WorkerThreadPool.is_task_completed(task_id):
+			remaining.append(build)
+			continue
+		if task_id >= 0:
+			WorkerThreadPool.wait_for_task_completion(task_id)
+		_take_shadow_worker_result(task_key)
+		WorldPerfProbe.record("Shadow.stale_discarded", 1.0)
+	_retired_shadow_builds = remaining
 
 func _enqueue_edge_cache_build(coord: Vector2i) -> void:
 	coord = _canonical_chunk_coord(coord)
@@ -374,6 +544,7 @@ func _enqueue_edge_cache_build(coord: Vector2i) -> void:
 	if not chunk or not chunk.has_any_mountain():
 		return
 	_bump_chunk_version(_edge_cache_versions, coord)
+	_edge_cache_ready_versions.erase(coord)
 	if coord not in _edge_build_queue:
 		_edge_build_queue.append(coord)
 
@@ -435,14 +606,19 @@ func _start_edge_cache_build(coord: Vector2i) -> void:
 		return
 	var chunk: Chunk = _chunk_manager.get_chunk(coord)
 	if not chunk or not chunk.has_any_mountain():
-		_edge_cache[coord] = [] as Array[Vector2i]
-		_complete_edge_cache_build(coord)
+		var empty_version: int = _ensure_chunk_version(_edge_cache_versions, coord)
+		var old_edges: Array[Vector2i] = _copy_edge_array(_edge_cache.get(coord, []) as Array)
+		var empty_edges: Array[Vector2i] = []
+		_edge_cache[coord] = empty_edges
+		_edge_cache_ready_versions[coord] = empty_version
+		_complete_edge_cache_build(coord, old_edges, empty_edges)
 		return
 	var version: int = _ensure_chunk_version(_edge_cache_versions, coord)
 	var request: Dictionary = _build_edge_cache_request(coord, chunk, version)
 	var task_key: String = _make_worker_task_key("edge", coord, version)
 	var builder: ChunkContentBuilder = _create_detached_edge_builder()
-	var task_id: int = WorkerThreadPool.add_task(_worker_build_edge_cache.bind(task_key, request, builder))
+	var kernels: RefCounted = _create_shadow_kernels()
+	var task_id: int = WorkerThreadPool.add_task(_worker_build_edge_cache.bind(task_key, request, builder, kernels))
 	_active_edge_cache_build = {
 		"coord": coord,
 		"version": version,
@@ -473,25 +649,35 @@ func _advance_edge_cache_build() -> void:
 		return
 	if int(_edge_cache_versions.get(coord, -1)) != version:
 		return
+	var old_edges: Array[Vector2i] = _copy_edge_array(_edge_cache.get(coord, []) as Array)
 	var chunk: Chunk = _chunk_manager.get_chunk(coord) if _chunk_manager else null
 	if not chunk or not chunk.has_any_mountain():
-		_edge_cache[coord] = [] as Array[Vector2i]
-		_complete_edge_cache_build(coord)
+		var empty_edges: Array[Vector2i] = []
+		_edge_cache[coord] = empty_edges
+		_edge_cache_ready_versions[coord] = version
+		_complete_edge_cache_build(coord, old_edges, empty_edges)
 		return
-	_edge_cache[coord] = result.get("edges", [] as Array[Vector2i])
-	_complete_edge_cache_build(coord)
+	var new_edges: Array[Vector2i] = _copy_edge_array(result.get("edges", []) as Array)
+	_edge_cache[coord] = new_edges
+	_edge_cache_ready_versions[coord] = version
+	_complete_edge_cache_build(coord, old_edges, new_edges)
 
-func _complete_edge_cache_build(coord: Vector2i) -> void:
-	_mark_dirty(coord)
-	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		_mark_dirty(_offset_chunk_coord(coord, dir))
+func _complete_edge_cache_build(
+	coord: Vector2i,
+	old_edges: Array[Vector2i],
+	new_edges: Array[Vector2i]
+) -> void:
+	for dirty_coord: Vector2i in _collect_shadow_targets_for_edge_delta(coord, old_edges, new_edges):
+		_mark_dirty(dirty_coord)
 
 func _build_edge_cache_now(coord: Vector2i) -> void:
 	if not _chunk_manager:
 		return
 	var chunk: Chunk = _chunk_manager.get_chunk(coord)
 	if not chunk or not chunk.has_any_mountain():
+		var empty_version: int = _ensure_chunk_version(_edge_cache_versions, coord)
 		_edge_cache[coord] = [] as Array[Vector2i]
+		_edge_cache_ready_versions[coord] = empty_version
 		return
 	var version: int = _ensure_chunk_version(_edge_cache_versions, coord)
 	var request: Dictionary = _build_edge_cache_request(coord, chunk, version)
@@ -500,7 +686,8 @@ func _build_edge_cache_now(coord: Vector2i) -> void:
 		return
 	if int(_edge_cache_versions.get(coord, -1)) != version:
 		return
-	_edge_cache[coord] = result.get("edges", [] as Array[Vector2i])
+	_edge_cache[coord] = _copy_edge_array(result.get("edges", []) as Array)
+	_edge_cache_ready_versions[coord] = version
 
 ## Подготавливает detached shadow build для чанка.
 func _start_shadow_build(coord: Vector2i) -> void:
@@ -510,7 +697,8 @@ func _start_shadow_build(coord: Vector2i) -> void:
 		return
 	var version: int = int(request.get("version", -1))
 	var task_key: String = _make_worker_task_key("shadow", coord, version)
-	var task_id: int = WorkerThreadPool.add_task(_worker_build_shadow.bind(task_key, request))
+	var kernels: RefCounted = _create_shadow_kernels()
+	var task_id: int = WorkerThreadPool.add_task(_worker_build_shadow.bind(task_key, request, kernels))
 	_active_build = {
 		"phase": "compute",
 		"coord": coord,
@@ -562,6 +750,12 @@ func _finalize_shadow_texture() -> void:
 	var finalize_usec: int = WorldPerfProbe.begin()
 	var b: Dictionary = _active_build
 	var coord: Vector2i = b.get("coord", Vector2i(999999, 999999))
+	var version: int = int(b.get("version", -1))
+	if int(_shadow_build_versions.get(coord, -1)) != version:
+		_active_build.clear()
+		WorldPerfProbe.end("Shadow.finalize_texture %s" % [coord], finalize_usec)
+		_refresh_boot_shadow_completion_state()
+		return
 	var has_pixels: bool = b["has_pixels"] as bool
 	var img: Image = b["img"] as Image
 	if not has_pixels:
@@ -578,6 +772,12 @@ func _finalize_shadow_apply() -> void:
 	var finalize_usec: int = WorldPerfProbe.begin()
 	var b: Dictionary = _active_build
 	var coord: Vector2i = b.get("coord", Vector2i(999999, 999999))
+	var version: int = int(b.get("version", -1))
+	if int(_shadow_build_versions.get(coord, -1)) != version:
+		_active_build.clear()
+		WorldPerfProbe.end("Shadow.finalize_apply %s" % [coord], finalize_usec)
+		_refresh_boot_shadow_completion_state()
+		return
 	var tile_size: int = b["tile_size"] as int
 	var base_x: int = b["base_x"] as int
 	var base_y: int = b["base_y"] as int
@@ -740,17 +940,27 @@ func _run_edge_cache_request_blocking(request: Dictionary) -> Dictionary:
 	var version: int = int(request.get("version", -1))
 	var task_key: String = _make_worker_task_key("edge_sync", coord, version)
 	var builder: ChunkContentBuilder = _create_detached_edge_builder()
-	var task_id: int = WorkerThreadPool.add_task(_worker_build_edge_cache.bind(task_key, request, builder))
+	var kernels: RefCounted = _create_shadow_kernels()
+	var task_id: int = WorkerThreadPool.add_task(_worker_build_edge_cache.bind(task_key, request, builder, kernels))
 	WorkerThreadPool.wait_for_task_completion(task_id)
 	return _take_edge_cache_worker_result(task_key)
 
-func _worker_build_edge_cache(task_key: String, request: Dictionary, builder: ChunkContentBuilder = null) -> void:
-	var result: Dictionary = _compute_edge_cache_request(request, builder)
+func _worker_build_edge_cache(
+	task_key: String,
+	request: Dictionary,
+	builder: ChunkContentBuilder = null,
+	kernels: RefCounted = null
+) -> void:
+	var result: Dictionary = _compute_edge_cache_request(request, builder, kernels)
 	_edge_cache_compute_mutex.lock()
 	_edge_cache_compute_results[task_key] = result
 	_edge_cache_compute_mutex.unlock()
 
-static func _compute_edge_cache_request(request: Dictionary, builder: ChunkContentBuilder = null) -> Dictionary:
+func _compute_edge_cache_request(
+	request: Dictionary,
+	builder: ChunkContentBuilder = null,
+	kernels: RefCounted = null
+) -> Dictionary:
 	var started_usec: int = Time.get_ticks_usec()
 	var coord: Vector2i = request.get("coord", INVALID_COORD)
 	var version: int = int(request.get("version", -1))
@@ -758,6 +968,15 @@ static func _compute_edge_cache_request(request: Dictionary, builder: ChunkConte
 	var base_x: int = int(request.get("base_x", 0))
 	var base_y: int = int(request.get("base_y", 0))
 	var snapshot: PackedByteArray = _build_edge_terrain_snapshot(request, builder)
+	if kernels != null:
+		var native_edges_variant: Variant = kernels.call("compute_edge_cache", chunk_size, base_x, base_y, snapshot)
+		if typeof(native_edges_variant) == TYPE_ARRAY:
+			return {
+				"coord": coord,
+				"version": version,
+				"edges": native_edges_variant,
+				"compute_ms": float(Time.get_ticks_usec() - started_usec) / 1000.0,
+			}
 	var stride: int = chunk_size + 2
 	var edges: Array[Vector2i] = []
 	if chunk_size > 0 and snapshot.size() >= stride * stride:
@@ -864,17 +1083,18 @@ func _run_shadow_request_blocking(request: Dictionary) -> Dictionary:
 	var coord: Vector2i = request.get("coord", INVALID_COORD)
 	var version: int = int(request.get("version", -1))
 	var task_key: String = _make_worker_task_key("shadow_sync", coord, version)
-	var task_id: int = WorkerThreadPool.add_task(_worker_build_shadow.bind(task_key, request))
+	var kernels: RefCounted = _create_shadow_kernels()
+	var task_id: int = WorkerThreadPool.add_task(_worker_build_shadow.bind(task_key, request, kernels))
 	WorkerThreadPool.wait_for_task_completion(task_id)
 	return _take_shadow_worker_result(task_key)
 
-func _worker_build_shadow(task_key: String, request: Dictionary) -> void:
-	var result: Dictionary = _compute_shadow_request(request)
+func _worker_build_shadow(task_key: String, request: Dictionary, kernels: RefCounted = null) -> void:
+	var result: Dictionary = _compute_shadow_request(request, kernels)
 	_shadow_compute_mutex.lock()
 	_shadow_compute_results[task_key] = result
 	_shadow_compute_mutex.unlock()
 
-static func _compute_shadow_request(request: Dictionary) -> Dictionary:
+func _compute_shadow_request(request: Dictionary, kernels: RefCounted = null) -> Dictionary:
 	var started_usec: int = Time.get_ticks_usec()
 	var coord: Vector2i = request.get("coord", INVALID_COORD)
 	var version: int = int(request.get("version", -1))
@@ -886,6 +1106,27 @@ static func _compute_shadow_request(request: Dictionary) -> Dictionary:
 	var terrain_bytes: PackedByteArray = request.get("terrain_bytes", PackedByteArray())
 	var edges: Array = request.get("edges", []) as Array
 	var shadow_points: Array = request.get("shadow_points", []) as Array
+	if kernels != null:
+		var native_result_variant: Variant = kernels.call(
+			"rasterize_shadow_image",
+			chunk_size,
+			base_x,
+			base_y,
+			shadow_color,
+			max_intensity,
+			terrain_bytes,
+			edges,
+			shadow_points
+		)
+		if typeof(native_result_variant) == TYPE_DICTIONARY:
+			var native_result: Dictionary = native_result_variant as Dictionary
+			return {
+				"coord": coord,
+				"version": version,
+				"img": native_result.get("img"),
+				"has_pixels": bool(native_result.get("has_pixels", false)),
+				"compute_ms": float(Time.get_ticks_usec() - started_usec) / 1000.0,
+			}
 	var img: Image = Image.create(maxi(1, chunk_size), maxi(1, chunk_size), false, Image.FORMAT_RGBA8)
 	var has_pixels: bool = false
 	if chunk_size > 0:
@@ -977,6 +1218,7 @@ func _suspend_surface_shadow_runtime(hide_container: bool) -> void:
 	_refresh_boot_shadow_completion_state()
 
 func _tick_suspended_shadow_runtime() -> void:
+	_drain_retired_shadow_builds()
 	if _shadow_container:
 		_shadow_container.visible = false
 	if not _active_build.is_empty():
@@ -1065,13 +1307,19 @@ func _shadow_inputs_ready(coord: Vector2i) -> bool:
 		var source_chunk: Chunk = _chunk_manager.get_chunk(source_coord)
 		if not source_chunk or not source_chunk.has_any_mountain():
 			continue
+		var current_version: int = int(_edge_cache_versions.get(source_coord, -1))
+		var ready_version: int = int(_edge_cache_ready_versions.get(source_coord, -1))
+		var has_ready_cache: bool = _edge_cache.has(source_coord) \
+			and current_version >= 0 \
+			and ready_version == current_version
+		if has_ready_cache:
+			continue
 		if active_edge_coord == source_coord and not active_edge_cancelled:
 			return false
 		if source_coord in _edge_build_queue:
 			return false
-		if not _edge_cache.has(source_coord):
-			_enqueue_edge_cache_build(source_coord)
-			return false
+		_enqueue_edge_cache_build(source_coord)
+		return false
 	return true
 
 func _requeue_dirty_coord(coord: Vector2i) -> void:
@@ -1092,6 +1340,24 @@ func _make_worker_task_key(prefix: String, coord: Vector2i, version: int) -> Str
 	_worker_task_serial += 1
 	return "%s:%d:%d:v%d:%d" % [prefix, coord.x, coord.y, version, _worker_task_serial]
 
+func _cache_native_shadow_kernels_support() -> void:
+	if _native_shadow_kernels_checked:
+		return
+	_native_shadow_kernels_checked = true
+	_native_shadow_kernels_available = ClassDB.class_exists(NATIVE_SHADOW_KERNELS_CLASS) \
+		and ClassDB.can_instantiate(NATIVE_SHADOW_KERNELS_CLASS)
+
+func _create_shadow_kernels() -> RefCounted:
+	_cache_native_shadow_kernels_support()
+	if not _native_shadow_kernels_available:
+		return null
+	var instance: Object = ClassDB.instantiate(NATIVE_SHADOW_KERNELS_CLASS)
+	if instance == null:
+		return null
+	if not instance.has_method("compute_edge_cache") or not instance.has_method("rasterize_shadow_image"):
+		return null
+	return instance as RefCounted
+
 func _wait_for_active_compute_tasks() -> void:
 	if not _active_edge_cache_build.is_empty():
 		var edge_task_id: int = int(_active_edge_cache_build.get("task_id", -1))
@@ -1105,6 +1371,7 @@ func _wait_for_active_compute_tasks() -> void:
 			if shadow_task_id >= 0:
 				WorkerThreadPool.wait_for_task_completion(shadow_task_id)
 		_active_build.clear()
+	_drain_retired_shadow_builds(true)
 	_edge_cache_compute_mutex.lock()
 	_edge_cache_compute_results.clear()
 	_edge_cache_compute_mutex.unlock()

@@ -512,7 +512,7 @@ related_docs:
 | `Chunk._surface_rock_visual_class(local_tile: Vector2i) -> Vector2i` | Presentation-only wall-form selection helper; не terrain semantics. |
 | `Chunk._rock_visual_class(local_tile: Vector2i) -> Vector2i` | Underground presentation-only wall-form helper; не topology/read API. |
 | `MountainShadowSystem._mark_dirty(coord: Vector2i) -> void` | Internal invalidation queue helper. |
-| `MountainShadowSystem._update_edges_at(tile_pos: Vector2i) -> void` | Low-level shadow edge cache patch helper. |
+| `MountainShadowSystem._update_edges_at(tile_pos: Vector2i) -> Array[Vector2i]` | Low-level shadow edge cache patch helper. Returns only the actually affected shadow target coords after the edge delta is patched. |
 | `MountainShadowSystem._start_shadow_build(coord: Vector2i) -> void` | Internal detached shadow-compute kickoff. Produces versioned pure-data job state only; renderer mutation stays in `_finalize_shadow_texture()` / `_finalize_shadow_apply()`. |
 
 ### Wall Atlas

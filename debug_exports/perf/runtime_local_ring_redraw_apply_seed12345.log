@@ -1,0 +1,608 @@
+Godot Engine v4.6.1.stable.official.14d19694e - https://godotengine.org
+
+[WorldPerf] Startup.start_to_loading_screen_visible_ms: 12.89 ms
+[WorldPerf] WorldPrePass.compute.sample_height_grid: 154.19 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] WorldPrePass.compute.spine_seeds: 392.07 ms
+[WorldPerf] WorldPrePass.compute.ridge_graph: 43.58 ms
+[WorldPerf] WorldPrePass.compute.ridge_strength_grid.native_total: 0.85 ms
+[WorldPerf] WorldPrePass.compute.mountain_mass_grid: 23.79 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] WorldPrePass.compute.lake_aware_fill.extract_lake_records: 523.77 ms
+[WorldPerf] WorldPrePass.compute.lake_aware_fill: 528.99 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] WorldPrePass.compute.flow_directions: 655.77 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.4 ms, p99=6.9 ms, hitches=1
+[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.1ms/6.0ms
+[WorldPerf] Observability: Startup.loading_screen_visible=0.0ms, Startup.start_pressed=0.0ms, Startup.start_to_loading_screen_visible_ms=12.9ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] WorldPrePass.compute.flow_accumulation: 803.01 ms
+[WorldPerf] WorldPrePass.compute.floodplain_strength: 11.39 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] WorldPrePass.compute.erosion_proxy: 301.87 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] WorldPrePass.compute.slope_grid: 388.56 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.1ms/6.0ms
+[WorldPerf] WorldPrePass.compute.rain_shadow: 955.77 ms
+[WorldPerf] WorldPrePass.compute.continentalness.seed_water_sources: 27.68 ms
+[WorldPerf] WorldPrePass.compute.continentalness: 39.03 ms
+[WorldPerf] WorldGenerator._setup_world_pre_pass.configure: 60.97 ms
+[WorldPerf] WorldGenerator._setup_world_pre_pass.compute: 4316.78 ms
+[WorldPerf] WorldGenerator.initialize_world.setup_world_pre_pass: 4377.76 ms
+[WorldGenerator] Native ChunkGenerator initialized (6 biomes, 5 flora sets, 1 decor sets)
+[WorldPerf] WorldGenerator.complete_pending_initialize_world.pending_age_ms: 4382.04 ms
+[WorldPerf] _init_world_generator: 4384.05 ms
+[CodexValidation] runtime validation driver enabled; route_preset=local_ring
+[WorldPerf] GameWorld._setup_after_loading_screen: 4436.01 ms
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,load_queued,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=true staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Boot.loop_step_ms: 73.15 ms
+[FrameBudget] streaming=0.1ms topology=0.0ms visual=0.1ms spawn=0.0ms total=0.1ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.streaming_load=0.1ms(23) chunk_manager.topology_rebuild=0.0ms(23) underground.fog_update=0.0ms(23) chunk_manager.streaming_redraw=0.0ms(23) mountain_shadow.visual_rebuild=0.1ms(23)
+[WorldPerf] Shadow.edge_cache_compute (0, 0): 284.89 ms
+[WorldPerf] Shadow.edge_cache_compute (0, -1): 73.03 ms
+[WorldPerf] Shadow.edge_cache_compute (1, -1): 150.69 ms
+[WorldPerf] Shadow.edge_cache_compute (63, -1): 131.06 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.8ms spawn=0.0ms total=0.8ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.8ms(60)
+[WorldPerf] Shadow.edge_cache_compute (1, 1): 155.73 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.1ms spawn=0.0ms total=0.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.1ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=9.1 ms, p99=55.2 ms, hitches=12
+[WorldPerf] Frame budget: dispatcher=0.4ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=3.0ms spawn=0.0ms total=5.6ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.1ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=2.1ms | peaks: compute=0.0ms apply=3.2ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=2.9ms stream_redraw=0.0ms
+[WorldPerf] stream.chunk_first_pass_ms (0, 0)@z0: 2390.70 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.2ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.2ms/6.0ms
+[WorldPerf] FPS: 145.0
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.9 ms, p99=34.5 ms, hitches=11
+[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=1.5ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=1.3ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.0ms stream_redraw=0.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] stream.chunk_first_pass_ms (0, -1)@z0: 8735.23 ms
+[WorldPerf] stream.chunk_first_pass_ms (1, 0)@z0: 8672.02 ms
+[WorldPerf] stream.chunk_first_pass_ms (63, 0)@z0: 8772.98 ms
+[WorldPerf] stream.chunk_first_pass_ms (0, 1)@z0: 8710.27 ms
+[WorldPerf] stream.chunk_first_pass_ms (1, -1)@z0: 8663.31 ms
+[WorldPerf] stream.chunk_first_pass_ms (63, -1)@z0: 8656.05 ms
+[WorldPerf] stream.chunk_first_pass_ms (1, 1)@z0: 8596.08 ms
+[WorldPerf] stream.chunk_first_pass_ms (63, 1)@z0: 8617.59 ms
+[WorldPerf] Boot.loop_step_ms: 36.90 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=8.5 ms, p99=30.3 ms, hitches=15
+[WorldPerf] Frame budget: dispatcher=0.2ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=2.0ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=1.7ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.0ms stream_redraw=0.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] stream.chunk_full_redraw_ms (0, 0)@z0: 9681.70 ms
+[WorldPerf] FPS: 100.0
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.2ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] Boot.loop_step_ms: 36.08 ms
+[WorldPerf] stream.chunk_full_redraw_ms (0, -1)@z0: 13006.59 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, 0)@z0: 12944.39 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, 0)@z0: 12956.56 ms
+[WorldPerf] stream.chunk_full_redraw_ms (0, 1)@z0: 12895.03 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, -1)@z0: 12870.84 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, -1)@z0: 12864.61 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, 1)@z0: 12829.02 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, 1)@z0: 12784.51 ms
+[Boot] first_playable reached (13271.6 ms) | queue_wait=11285.8ms compute=768.3ms (25 chunks) apply=16.3ms (9 chunks) redraw=0.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] Startup.loading_screen_visible_to_startup_bubble_ready_ms: 25040.99 ms
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_ready phase=done first_pass=true full_ready=true issues=healthy ages(first=-ms full=-ms border=-ms apply=13192ms converge=13192ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 32.19 ms
+[WorldPerf] FrameBudgetDispatcher.total: 35.01 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 38.91 ms
+[WorldPerf] ChunkManager.streaming_redraw_prepare_step.terrain: 16.85 ms
+[FrameBudget] streaming=0.6ms topology=0.1ms visual=12.5ms spawn=0.0ms total=13.1ms/6.0ms chunk_manager.streaming_load=0.6ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=12.0ms(60) mountain_shadow.visual_rebuild=0.5ms(26)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=9.3 ms, p99=35.6 ms, hitches=24
+[WorldPerf] Frame budget: dispatcher=2.8ms streaming=0.0ms streaming_load=0.1ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=2.6ms spawn=0.0ms total=6.2ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=1 other=0.7ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=3.2ms stream_redraw=0.0ms
+[WorldPerf] Observability: Startup.loading_screen_visible_to_startup_bubble_ready_ms=25041.0ms, Startup.startup_bubble_ready=0.0ms
+[WorldPerf] Shadow.edge_cache_compute (0, -2): 65.94 ms
+[WorldPerf] Shadow.edge_cache_compute (1, -2): 65.08 ms
+[WorldPerf] Shadow.edge_cache_compute (2, -1): 63.59 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=6.3ms spawn=0.0ms total=6.3ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=6.0ms(60) mountain_shadow.visual_rebuild=0.3ms(30)
+[WorldPerf] Shadow.edge_cache_compute (2, 1): 67.39 ms
+[WorldPerf] Shadow.edge_cache_compute (62, 1): 71.33 ms
+[WorldPerf] FPS: 88.0
+[WorldPerf] Shadow.edge_cache_compute (1, 2): 76.24 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=6.2ms spawn=0.0ms total=6.3ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.9ms(60) mountain_shadow.visual_rebuild=0.3ms(37)
+[WorldPerf] Shadow.edge_cache_compute (2, -2): 138.88 ms
+[WorldPerf] Shadow.stale_age_ms: 2148.24 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.9ms spawn=0.0ms total=6.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.8ms(60) mountain_shadow.visual_rebuild=0.1ms(35)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=6.1ms spawn=0.0ms total=6.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=6.0ms(60) mountain_shadow.visual_rebuild=0.0ms(36)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=6.0ms spawn=0.0ms total=6.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=6.0ms(60) mountain_shadow.visual_rebuild=0.0ms(35)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.4 ms, p99=9.2 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=6.3ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=15.2ms spawn=0.0ms total=21.5ms/6.0ms
+[WorldPerf] Observability: Shadow.stale_age_ms=2148.2ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=6.0ms spawn=0.0ms total=6.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=6.0ms(60) mountain_shadow.visual_rebuild=0.0ms(33)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.9ms spawn=0.0ms total=6.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.9ms(60) mountain_shadow.visual_rebuild=0.0ms(35)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.9ms spawn=0.0ms total=6.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.9ms(60) mountain_shadow.visual_rebuild=0.0ms(35)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_ready phase=done first_pass=true full_ready=true issues=healthy ages(first=-ms full=-ms border=-ms apply=17794ms converge=17794ms) queues(fast=0 urgent=0 near=15 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=17.29ms exhausted=true)
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 32.51 ms
+[WorldPerf] FrameBudgetDispatcher.total: 33.02 ms
+[FrameBudget] streaming=0.1ms topology=0.0ms visual=8.0ms spawn=0.0ms total=8.0ms/6.0ms chunk_manager.streaming_load=0.1ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=8.0ms(60) mountain_shadow.visual_rebuild=0.0ms(20)
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 33.35 ms
+[WorldPerf] FrameBudgetDispatcher.total: 33.57 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=13.1ms spawn=0.0ms total=13.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=13.1ms(60) mountain_shadow.visual_rebuild=0.0ms(23)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=9.2 ms, p99=36.1 ms, hitches=17
+[WorldPerf] Frame budget: dispatcher=8.0ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=7.8ms spawn=0.0ms total=15.8ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=8.2ms spawn=0.0ms total=8.3ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=8.2ms(60) mountain_shadow.visual_rebuild=0.0ms(32)
+[WorldPerf] FPS: 59.0
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.1ms spawn=0.0ms total=5.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.0ms(60) mountain_shadow.visual_rebuild=0.0ms(43)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.1ms spawn=0.0ms total=5.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.1ms(60) mountain_shadow.visual_rebuild=0.0ms(43)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=4.8ms spawn=0.0ms total=4.8ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=4.7ms(60) mountain_shadow.visual_rebuild=0.0ms(52)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.5ms spawn=0.0ms total=5.5ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.5ms(60) mountain_shadow.visual_rebuild=0.0ms(38)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.6 ms, p99=33.3 ms, hitches=5
+[WorldPerf] Frame budget: dispatcher=5.9ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=5.7ms spawn=0.0ms total=11.7ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.6ms spawn=0.0ms total=5.6ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.6ms(60) mountain_shadow.visual_rebuild=0.0ms(41)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.8ms spawn=0.0ms total=5.9ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.8ms(60) mountain_shadow.visual_rebuild=0.0ms(38)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_ready phase=done first_pass=true full_ready=true issues=healthy ages(first=-ms full=-ms border=-ms apply=22562ms converge=22562ms) queues(fast=0 urgent=0 near=10 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=20.76ms exhausted=true)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=6.0ms spawn=0.0ms total=6.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.9ms(60) mountain_shadow.visual_rebuild=0.0ms(40)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=6.0ms spawn=0.0ms total=6.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=6.0ms(60) mountain_shadow.visual_rebuild=0.0ms(32)
+[WorldPerf] stream.chunk_first_pass_ms (0, -2)@z0: 10138.62 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 41.09 ms
+[WorldPerf] FrameBudgetDispatcher.total: 41.34 ms
+[WorldPerf] stream.chunk_first_pass_ms (2, -1)@z0: 10125.00 ms
+[WorldPerf] stream.chunk_first_pass_ms (62, -1)@z0: 10084.75 ms
+[WorldPerf] stream.chunk_first_pass_ms (2, 1)@z0: 10119.55 ms
+[WorldPerf] stream.chunk_first_pass_ms (2, 0)@z0: 10320.14 ms
+[WorldPerf] stream.chunk_first_pass_ms (62, 0)@z0: 10395.09 ms
+[WorldPerf] stream.chunk_first_pass_ms (63, -2)@z0: 10316.39 ms
+[WorldPerf] stream.chunk_first_pass_ms (2, 2)@z0: 10148.48 ms
+[WorldPerf] stream.chunk_first_pass_ms (62, 2)@z0: 10113.06 ms
+[WorldPerf] stream.chunk_first_pass_ms (0, 2)@z0: 10363.37 ms
+[WorldPerf] stream.chunk_first_pass_ms (1, -2)@z0: 10399.39 ms
+[WorldPerf] stream.chunk_first_pass_ms (1, 2)@z0: 10310.28 ms
+[WorldPerf] stream.chunk_first_pass_ms (62, 1)@z0: 10315.47 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=11.0ms spawn=0.0ms total=11.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=11.0ms(60) mountain_shadow.visual_rebuild=0.0ms(25)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=8.2 ms, p99=35.7 ms, hitches=10
+[WorldPerf] Frame budget: dispatcher=7.0ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=6.9ms spawn=0.0ms total=13.9ms/6.0ms
+[WorldPerf] stream.chunk_first_pass_ms (62, -2)@z0: 10235.87 ms
+[WorldPerf] stream.chunk_first_pass_ms (63, 2)@z0: 10282.90 ms
+[WorldPerf] stream.chunk_first_pass_ms (2, -2)@z0: 10247.81 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=9.9ms spawn=0.0ms total=9.9ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=9.9ms(60) mountain_shadow.visual_rebuild=0.0ms(41)
+[WorldPerf] FPS: 63.0
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.0ms spawn=0.0ms total=5.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.0ms(60) mountain_shadow.visual_rebuild=0.0ms(47)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.3ms spawn=0.0ms total=5.4ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.3ms(60) mountain_shadow.visual_rebuild=0.0ms(41)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.5ms spawn=0.0ms total=5.5ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.4ms(60) mountain_shadow.visual_rebuild=0.0ms(39)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.0ms spawn=0.0ms total=5.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.0ms(60) mountain_shadow.visual_rebuild=0.0ms(46)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.9 ms, p99=33.7 ms, hitches=9
+[WorldPerf] Frame budget: dispatcher=6.3ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=6.1ms spawn=0.0ms total=12.5ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.3ms spawn=0.0ms total=5.4ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.3ms(60) mountain_shadow.visual_rebuild=0.0ms(43)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.2ms spawn=0.0ms total=5.3ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.2ms(60) mountain_shadow.visual_rebuild=0.0ms(40)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=4.7ms spawn=0.0ms total=4.8ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=4.7ms(60) mountain_shadow.visual_rebuild=0.0ms(52)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.6ms spawn=0.0ms total=5.6ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.6ms(60) mountain_shadow.visual_rebuild=0.0ms(37)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.2ms spawn=0.0ms total=5.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.2ms(60) mountain_shadow.visual_rebuild=0.0ms(44)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=7.4 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=5.4ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=5.2ms spawn=0.0ms total=10.6ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.2ms spawn=0.0ms total=5.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.2ms(60) mountain_shadow.visual_rebuild=0.0ms(44)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_ready phase=done first_pass=true full_ready=true issues=healthy ages(first=-ms full=-ms border=-ms apply=28648ms converge=28648ms) queues(fast=0 urgent=0 near=0 full_near=15 full_far=0) requests(load=false staged=false generating=false) scheduler(step=31.17ms exhausted=true)
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 33.25 ms
+[WorldPerf] FrameBudgetDispatcher.total: 33.42 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 39.71 ms
+[WorldPerf] FrameBudgetDispatcher.total: 39.95 ms
+[WorldPerf] stream.chunk_full_redraw_ms (0, -2)@z0: 15848.97 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, 2)@z0: 15585.16 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, -1)@z0: 15719.72 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, 1)@z0: 15679.20 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, 0)@z0: 15864.36 ms
+[WorldPerf] stream.chunk_full_redraw_ms (62, 0)@z0: 15832.38 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, -2)@z0: 15753.04 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, 2)@z0: 15623.73 ms
+[WorldPerf] stream.chunk_full_redraw_ms (62, 2)@z0: 15589.67 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, 2)@z0: 15735.05 ms
+[WorldPerf] stream.chunk_full_redraw_ms (62, 1)@z0: 15737.27 ms
+[WorldPerf] stream.chunk_full_redraw_ms (62, -2)@z0: 15657.17 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, -2)@z0: 15862.20 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, -2)@z0: 15704.77 ms
+[WorldPerf] stream.chunk_full_redraw_ms (62, -1)@z0: 15815.04 ms
+[WorldPerf] stream.chunk_full_redraw_ms (0, 2)@z0: 15936.84 ms
+[WorldPerf] stream.chunk_border_fix_ms (0, 1)@z0: 15974.76 ms
+[WorldPerf] stream.chunk_full_redraw_ms (0, 1)@z0: 15974.94 ms
+[WorldPerf] stream.chunk_border_fix_ms (0, -1)@z0: 16084.36 ms
+[WorldPerf] stream.chunk_full_redraw_ms (0, -1)@z0: 16084.48 ms
+[WorldPerf] stream.chunk_border_fix_ms (1, 0)@z0: 16048.62 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, 0)@z0: 16048.71 ms
+[WorldPerf] stream.chunk_border_fix_ms (63, 0)@z0: 16015.87 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, 0)@z0: 16015.98 ms
+[WorldPerf] stream.chunk_border_fix_ms (1, -1)@z0: 15996.90 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, -1)@z0: 15988.52 ms
+[WorldPerf] stream.chunk_border_fix_ms (63, -1)@z0: 15989.63 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, -1)@z0: 15948.05 ms
+[WorldPerf] stream.chunk_border_fix_ms (1, 1)@z0: 15947.38 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, 1)@z0: 15908.69 ms
+[WorldPerf] stream.chunk_border_fix_ms (63, 1)@z0: 15909.81 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, 1)@z0: 15875.13 ms
+[Boot] first_playable reached (29453.2 ms) | queue_wait=11285.8ms compute=768.3ms (25 chunks) apply=16.3ms (9 chunks) redraw=0.0ms
+[Boot] boot_complete reached (29453.3 ms) | queue_wait=11285.8ms compute=768.3ms (25 chunks) apply=16.3ms (9 chunks) redraw=0.0ms
+[WorldPerf] Startup.startup_bubble_ready_to_boot_complete_ms: 16177.23 ms
+[CodexValidation] route prepared: preset=local_ring waypoints=6 start=(0.0, 0.0) chunk_pixels=4096.0
+[CodexValidation] room validation prepared at (4, 4)
+[CodexValidation] power validation prepared at (8, 4)
+[CodexValidation] mining validation prepared at (59, 0)
+[CodexValidation] boot complete; route prepared
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=8.2ms spawn=0.0ms total=8.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=8.2ms(60) mountain_shadow.visual_rebuild=0.0ms(47)
+[WorldPerf] FPS: 81.0
+[CodexValidation] built validation room
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.1ms spawn=0.0ms total=0.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.1ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[CodexValidation] removed validation room wall (5, 4)
+[CodexValidation] re-placed validation room wall (5, 4)
+[CodexValidation] destroyed validation room wall (4, 5)
+[CodexValidation] room validation complete
+[CodexValidation] placed validation battery (8, 4)
+[CodexValidation] removed validation battery (8, 4)
+[FrameBudget] streaming=0.0ms topology=0.1ms visual=0.1ms spawn=0.0ms total=0.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.1ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.1ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[CodexValidation] power validation complete
+[CodexValidation] mined entry tile (59, 0)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_pending phase=done first_pass=true full_ready=false issues=border_fix_pending ages(first=-ms full=-ms border=1ms apply=30397ms converge=1ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.59ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_ready phase=done first_pass=true full_ready=true issues=healthy ages(first=-ms full=-ms border=-ms apply=30398ms converge=2ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.19ms exhausted=false)
+[CodexValidation] mined interior tile (60, 0)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_pending phase=done first_pass=true full_ready=false issues=border_fix_pending ages(first=-ms full=-ms border=1ms apply=30543ms converge=2ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.59ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_ready phase=done first_pass=true full_ready=true issues=healthy ages(first=-ms full=-ms border=-ms apply=30543ms converge=2ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.23ms exhausted=false)
+[CodexValidation] mined deeper tile (61, 0)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_pending phase=done first_pass=true full_ready=false issues=border_fix_pending ages(first=-ms full=-ms border=3ms apply=30691ms converge=3ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=1.06ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_ready phase=done first_pass=true full_ready=true issues=healthy ages(first=-ms full=-ms border=-ms apply=30692ms converge=3ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.32ms exhausted=false)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.2ms spawn=0.0ms total=0.3ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.2ms(60) mountain_shadow.visual_rebuild=0.1ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=8.4 ms, p99=40.7 ms, hitches=15
+[WorldPerf] Frame budget: dispatcher=3.0ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=2.8ms spawn=0.0ms total=5.8ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=2 other=0.0ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.2ms stream_redraw=0.0ms
+[WorldPerf] Observability: Startup.boot_complete=0.0ms, Startup.startup_bubble_ready_to_boot_complete_ms=16177.2ms
+[CodexValidation] moved player back to exterior tile (58, 0)
+[CodexValidation] mining + persistence validation complete
+[CodexValidation] route start: preset=local_ring waypoints=6
+[WorldPerf] PlayerChunk coord=(1, 0) z=0 trigger=scheduler loaded=true visible=true state=full_ready phase=done first_pass=true full_ready=true issues=healthy ages(first=-ms full=-ms border=-ms apply=30905ms converge=17812ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 41.59 ms
+[WorldPerf] FrameBudgetDispatcher.total: 44.77 ms
+[FrameBudget] streaming=1.0ms topology=0.1ms visual=0.8ms spawn=0.0ms total=1.9ms/6.0ms chunk_manager.streaming_load=1.0ms(60) building.room_recompute=0.0ms(56) power.balance_recompute=0.0ms(56) chunk_manager.topology_rebuild=0.1ms(56) underground.fog_update=0.0ms(54) chunk_manager.streaming_redraw=0.8ms(54) mountain_shadow.visual_rebuild=0.0ms(53)
+[WorldPerf] stream.chunk_border_fix_ms (2, 0)@z0: 304.28 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, 0)@z0: 304.43 ms
+[WorldPerf] stream.chunk_border_fix_ms (2, -1)@z0: 322.78 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, -1)@z0: 322.93 ms
+[WorldPerf] stream.chunk_border_fix_ms (2, 1)@z0: 324.66 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, 1)@z0: 324.81 ms
+[WorldPerf] stream.chunk_border_fix_ms (2, -2)@z0: 271.85 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, -2)@z0: 271.99 ms
+[WorldPerf] stream.chunk_border_fix_ms (2, 2)@z0: 261.60 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, 2)@z0: 261.69 ms
+[WorldPerf] Shadow.edge_cache_compute (3, -1): 68.04 ms
+[WorldPerf] PlayerChunk coord=(2, 0) z=0 trigger=scheduler loaded=true visible=true state=full_ready phase=done first_pass=true full_ready=true issues=healthy ages(first=-ms full=-ms border=-ms apply=18328ms converge=457ms) queues(fast=0 urgent=0 near=4 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=1.08ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 28.81 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 51.50 ms
+[WorldPerf] FrameBudgetDispatcher.total: 54.66 ms
+[WorldPerf] Shadow.edge_cache_compute (3, 1): 89.82 ms
+[FrameBudget] streaming=0.8ms topology=0.1ms visual=8.8ms spawn=0.0ms total=9.7ms/6.0ms chunk_manager.streaming_load=0.8ms(60) building.room_recompute=0.0ms(57) power.balance_recompute=0.0ms(57) chunk_manager.topology_rebuild=0.1ms(57) underground.fog_update=0.0ms(56) chunk_manager.streaming_redraw=8.6ms(56) mountain_shadow.visual_rebuild=0.2ms(21)
+[WorldPerf] Shadow.edge_cache_compute (4, 0): 70.79 ms
+[WorldPerf] PlayerChunk coord=(3, 0) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=493ms full=-ms border=-ms apply=951ms converge=951ms) queues(fast=1 urgent=0 near=8 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 9.37 ms
+[WorldPerf] Shadow.edge_cache_compute (3, -2): 88.38 ms
+[WorldPerf] Shadow.edge_cache_compute (3, 2): 64.66 ms
+[WorldPerf] PlayerChunk coord=(3, 0) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=927ms full=-ms border=-ms apply=1386ms converge=1386ms) queues(fast=2 urgent=0 near=13 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.39ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(4, 0) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=496ms full=-ms border=-ms apply=935ms converge=935ms) queues(fast=1 urgent=0 near=12 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[FrameBudget] streaming=0.7ms topology=0.2ms visual=6.1ms spawn=0.0ms total=7.0ms/6.0ms chunk_manager.streaming_load=0.7ms(60) building.room_recompute=0.0ms(59) power.balance_recompute=0.0ms(59) chunk_manager.topology_rebuild=0.2ms(59) underground.fog_update=0.0ms(58) chunk_manager.streaming_redraw=5.5ms(58) mountain_shadow.visual_rebuild=0.6ms(35)
+[WorldPerf] Shadow.edge_cache_compute (5, 0): 88.39 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 33.92 ms
+[WorldPerf] FrameBudgetDispatcher.total: 34.17 ms
+[WorldPerf] Shadow.edge_cache_compute (4, -2): 77.78 ms
+[WorldPerf] PlayerChunk coord=(4, 0) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=917ms full=-ms border=-ms apply=1356ms converge=1356ms) queues(fast=2 urgent=0 near=18 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.25ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (6, 0): 72.58 ms
+[WorldPerf] PlayerChunk coord=(5, 0) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=386ms full=-ms border=-ms apply=927ms converge=927ms) queues(fast=1 urgent=0 near=17 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 9.77 ms
+[FrameBudget] streaming=1.4ms topology=0.3ms visual=5.1ms spawn=0.0ms total=6.8ms/6.0ms chunk_manager.streaming_load=1.4ms(60) building.room_recompute=0.0ms(50) power.balance_recompute=0.0ms(50) chunk_manager.topology_rebuild=0.3ms(50) underground.fog_update=0.0ms(49) chunk_manager.streaming_redraw=4.4ms(49) mountain_shadow.visual_rebuild=0.7ms(41)
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 24.93 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 41.56 ms
+[WorldPerf] FrameBudgetDispatcher.total: 41.76 ms
+[WorldPerf] Shadow.edge_cache_compute (5, -2): 79.42 ms
+[CodexValidation] reached waypoint 1/6 at (24576.0, 0.0)
+[WorldPerf] PlayerChunk coord=(6, 0) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=484ms full=-ms border=-ms apply=933ms converge=933ms) queues(fast=2 urgent=0 near=17 full_near=0 full_far=5) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 12.20 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 26.00 ms
+[FrameBudget] streaming=0.8ms topology=0.9ms visual=7.4ms spawn=0.0ms total=9.0ms/6.0ms chunk_manager.streaming_load=0.8ms(60) building.room_recompute=0.0ms(55) power.balance_recompute=0.0ms(55) chunk_manager.topology_rebuild=0.9ms(55) underground.fog_update=0.0ms(53) chunk_manager.streaming_redraw=6.7ms(53) mountain_shadow.visual_rebuild=0.6ms(39)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=10.6 ms, p99=53.3 ms, hitches=16
+[WorldPerf] Frame budget: dispatcher=7.0ms streaming=0.0ms streaming_load=0.9ms streaming_redraw=0.0ms topology=0.3ms building=0.0ms power=0.0ms visual=0.0ms shadow=8.4ms spawn=0.0ms total=16.7ms/6.0ms
+[WorldPerf] Observability: Scheduler.urgent_visual_wait_ms=12.2ms, scheduler.max_urgent_wait_ms=12.2ms
+[WorldPerf] Shadow.edge_cache_compute (6, -2): 66.75 ms
+[WorldPerf] Shadow.edge_cache_compute (6, 2): 95.83 ms
+[WorldPerf] PlayerChunk coord=(6, 0) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=1079ms full=-ms border=-ms apply=1528ms converge=1528ms) queues(fast=2 urgent=0 near=23 full_near=0 full_far=5) requests(load=false staged=false generating=false) scheduler(step=0.25ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (8, 0): 86.91 ms
+[WorldPerf] Shadow.edge_cache_compute (5, 2): 84.47 ms
+[WorldPerf] PlayerChunk coord=(6, 1) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=3ms full=-ms border=-ms apply=1797ms converge=1797ms) queues(fast=2 urgent=0 near=15 full_near=0 full_far=10) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 9.00 ms
+[FrameBudget] streaming=0.1ms topology=0.0ms visual=6.5ms spawn=0.0ms total=6.6ms/6.0ms chunk_manager.streaming_load=0.1ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.4ms(60) mountain_shadow.visual_rebuild=1.1ms(41)
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 46.61 ms
+[WorldPerf] FrameBudgetDispatcher.total: 47.62 ms
+[WorldPerf] Shadow.edge_cache_compute (8, 1): 68.92 ms
+[WorldPerf] FPS: 97.0
+[WorldPerf] Shadow.edge_cache_compute (6, 3): 76.08 ms
+[WorldPerf] PlayerChunk coord=(6, 2) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=495ms full=-ms border=-ms apply=2272ms converge=2272ms) queues(fast=1 urgent=0 near=16 full_near=0 full_far=15) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 38.39 ms
+[FrameBudget] streaming=1.6ms topology=1.4ms visual=5.3ms spawn=0.0ms total=8.3ms/6.0ms chunk_manager.streaming_load=1.6ms(60) building.room_recompute=0.0ms(54) power.balance_recompute=0.0ms(54) chunk_manager.topology_rebuild=1.4ms(54) underground.fog_update=0.0ms(52) chunk_manager.streaming_redraw=4.7ms(52) mountain_shadow.visual_rebuild=0.6ms(28)
+[WorldPerf] Shadow.edge_cache_compute (8, 2): 69.35 ms
+[WorldPerf] PlayerChunk coord=(6, 2) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=940ms full=-ms border=-ms apply=2717ms converge=2717ms) queues(fast=2 urgent=0 near=23 full_near=0 full_far=15) requests(load=false staged=false generating=false) scheduler(step=0.31ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(6, 3) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=511ms full=-ms border=-ms apply=931ms converge=931ms) queues(fast=0 urgent=0 near=13 full_near=0 full_far=18) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (6, 4): 65.46 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 33.89 ms
+[FrameBudget] streaming=0.7ms topology=0.6ms visual=6.2ms spawn=0.0ms total=7.5ms/6.0ms chunk_manager.streaming_load=0.7ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.6ms(60) underground.fog_update=0.0ms(59) chunk_manager.streaming_redraw=5.3ms(59) mountain_shadow.visual_rebuild=0.9ms(37)
+[WorldPerf] Shadow.edge_cache_compute (4, 3): 67.10 ms
+[WorldPerf] PlayerChunk coord=(6, 3) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=902ms full=-ms border=-ms apply=1322ms converge=1322ms) queues(fast=2 urgent=0 near=23 full_near=0 full_far=20) requests(load=false staged=false generating=false) scheduler(step=0.39ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(6, 4) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=409ms full=-ms border=-ms apply=929ms converge=929ms) queues(fast=1 urgent=0 near=17 full_near=0 full_far=25) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 8.91 ms
+[WorldPerf] Shadow.edge_cache_compute (8, 3): 78.57 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 33.88 ms
+[WorldPerf] FrameBudgetDispatcher.total: 34.59 ms
+[WorldPerf] Shadow.edge_cache_compute (8, 4): 70.91 ms
+[FrameBudget] streaming=0.9ms topology=0.6ms visual=5.7ms spawn=0.0ms total=7.3ms/6.0ms chunk_manager.streaming_load=0.9ms(60) building.room_recompute=0.0ms(58) power.balance_recompute=0.0ms(58) chunk_manager.topology_rebuild=0.6ms(58) underground.fog_update=0.0ms(57) chunk_manager.streaming_redraw=4.9ms(57) mountain_shadow.visual_rebuild=0.9ms(38)
+[WorldPerf] PlayerChunk coord=(6, 4) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=851ms full=-ms border=-ms apply=1371ms converge=1371ms) queues(fast=2 urgent=0 near=23 full_near=0 full_far=25) requests(load=false staged=false generating=false) scheduler(step=0.31ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (6, 6): 67.81 ms
+[CodexValidation] reached waypoint 2/6 at (24576.0, 20480.0)
+[WorldPerf] PlayerChunk coord=(6, 5) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=505ms full=-ms border=-ms apply=916ms converge=916ms) queues(fast=2 urgent=0 near=16 full_near=0 full_far=30) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 9.40 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 37.69 ms
+[WorldPerf] PlayerChunk coord=(5, 5) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=4ms full=-ms border=-ms apply=1218ms converge=1218ms) queues(fast=2 urgent=0 near=16 full_near=0 full_far=35) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 9.09 ms
+[WorldPerf] Shadow.edge_cache_compute (4, 5): 74.04 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 33.60 ms
+[FrameBudget] streaming=1.6ms topology=1.2ms visual=5.2ms spawn=0.0ms total=8.0ms/6.0ms chunk_manager.streaming_load=1.6ms(60) building.room_recompute=0.0ms(55) power.balance_recompute=0.0ms(55) chunk_manager.topology_rebuild=1.2ms(55) underground.fog_update=0.0ms(53) chunk_manager.streaming_redraw=4.6ms(53) mountain_shadow.visual_rebuild=0.6ms(27)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=10.1 ms, p99=39.2 ms, hitches=8
+[WorldPerf] Frame budget: dispatcher=7.7ms streaming=0.0ms streaming_load=1.0ms streaming_redraw=0.0ms topology=0.8ms building=0.0ms power=0.0ms visual=0.0ms shadow=9.9ms spawn=0.0ms total=19.3ms/6.0ms
+[WorldPerf] Observability: Scheduler.urgent_visual_wait_ms=16.9ms, scheduler.max_urgent_wait_ms=16.9ms
+[WorldPerf] Shadow.edge_cache_compute (5, 7): 62.61 ms
+[WorldPerf] Shadow.edge_cache_compute (3, 5): 61.99 ms
+[WorldPerf] PlayerChunk coord=(4, 5) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=514ms full=-ms border=-ms apply=1710ms converge=1710ms) queues(fast=1 urgent=0 near=17 full_near=0 full_far=40) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 41.02 ms
+[WorldPerf] FrameBudgetDispatcher.total: 43.45 ms
+[WorldPerf] Shadow.edge_cache_compute (4, 7): 70.61 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 37.42 ms
+[FrameBudget] streaming=0.8ms topology=0.6ms visual=6.2ms spawn=0.0ms total=7.7ms/6.0ms chunk_manager.streaming_load=0.8ms(60) building.room_recompute=0.0ms(58) power.balance_recompute=0.0ms(58) chunk_manager.topology_rebuild=0.6ms(58) underground.fog_update=0.0ms(57) chunk_manager.streaming_redraw=5.6ms(57) mountain_shadow.visual_rebuild=0.6ms(39)
+[WorldPerf] PlayerChunk coord=(4, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=922ms full=-ms border=-ms apply=2117ms converge=2117ms) queues(fast=2 urgent=0 near=23 full_near=0 full_far=40) requests(load=false staged=false generating=false) scheduler(step=0.37ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(3, 5) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=503ms full=-ms border=-ms apply=932ms converge=932ms) queues(fast=2 urgent=0 near=11 full_near=0 full_far=43) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 11.63 ms
+[WorldPerf] Shadow.edge_cache_compute (3, 7): 74.09 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 29.58 ms
+[FrameBudget] streaming=0.9ms topology=0.5ms visual=6.5ms spawn=0.0ms total=7.9ms/6.0ms chunk_manager.streaming_load=0.9ms(60) building.room_recompute=0.0ms(57) power.balance_recompute=0.0ms(57) chunk_manager.topology_rebuild=0.5ms(57) underground.fog_update=0.0ms(56) chunk_manager.streaming_redraw=6.1ms(56) mountain_shadow.visual_rebuild=0.5ms(35)
+[WorldPerf] Shadow.edge_cache_compute (2, 7): 75.79 ms
+[WorldPerf] PlayerChunk coord=(2, 5) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=507ms full=-ms border=-ms apply=941ms converge=941ms) queues(fast=1 urgent=0 near=17 full_near=0 full_far=50) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 9.33 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 41.52 ms
+[WorldPerf] FrameBudgetDispatcher.total: 47.44 ms
+[WorldPerf] FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild: 22.74 ms
+[WorldPerf] Shadow.edge_cache_compute (1, 3): 73.77 ms
+[WorldPerf] Shadow.edge_cache_compute (1, 7): 78.74 ms
+[WorldPerf] PlayerChunk coord=(1, 5) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=491ms full=-ms border=-ms apply=919ms converge=919ms) queues(fast=1 urgent=0 near=17 full_near=0 full_far=54) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 9.80 ms
+[WorldPerf] Shadow.edge_cache_compute (0, 4): 74.11 ms
+[FrameBudget] streaming=1.6ms topology=0.7ms visual=7.1ms spawn=0.0ms total=9.3ms/6.0ms chunk_manager.streaming_load=1.6ms(60) building.room_recompute=0.0ms(53) power.balance_recompute=0.0ms(53) chunk_manager.topology_rebuild=0.7ms(53) underground.fog_update=0.0ms(51) chunk_manager.streaming_redraw=6.1ms(51) mountain_shadow.visual_rebuild=0.9ms(31)
+[WorldPerf] Shadow.edge_cache_compute (0, 7): 66.00 ms
+[WorldPerf] PlayerChunk coord=(0, 5) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=517ms full=-ms border=-ms apply=926ms converge=926ms) queues(fast=0 urgent=0 near=15 full_near=0 full_far=60) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 38.77 ms
+[WorldPerf] FrameBudgetDispatcher.total: 38.99 ms
+[FrameBudget] streaming=0.8ms topology=0.2ms visual=8.0ms spawn=0.0ms total=9.0ms/6.0ms chunk_manager.streaming_load=0.8ms(60) building.room_recompute=0.0ms(58) power.balance_recompute=0.0ms(58) chunk_manager.topology_rebuild=0.2ms(58) underground.fog_update=0.0ms(57) chunk_manager.streaming_redraw=7.1ms(57) mountain_shadow.visual_rebuild=0.9ms(37)
+[WorldPerf] Shadow.edge_cache_compute (62, 5): 63.40 ms
+[WorldPerf] PlayerChunk coord=(0, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=979ms full=-ms border=-ms apply=1388ms converge=1388ms) queues(fast=1 urgent=0 near=24 full_near=0 full_far=60) requests(load=false staged=false generating=false) scheduler(step=0.17ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(63, 5) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=4ms full=-ms border=-ms apply=959ms converge=959ms) queues(fast=1 urgent=0 near=19 full_near=0 full_far=65) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 8.84 ms
+[WorldPerf] FPS: 87.0
+[WorldPerf] Shadow.edge_cache_compute (62, 4): 70.32 ms
+[WorldPerf] Shadow.edge_cache_compute (63, 3): 68.24 ms
+[WorldPerf] Shadow.try_shadow_step start=none deferred=4: 9.79 ms
+[WorldPerf] PlayerChunk coord=(62, 5) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=8ms full=-ms border=-ms apply=949ms converge=949ms) queues(fast=1 urgent=0 near=16 full_near=0 full_far=70) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 12.45 ms
+[WorldPerf] Shadow.edge_cache_compute (63, 7): 99.77 ms
+[FrameBudget] streaming=1.3ms topology=0.3ms visual=7.7ms spawn=0.0ms total=9.3ms/6.0ms chunk_manager.streaming_load=1.3ms(60) building.room_recompute=0.0ms(53) power.balance_recompute=0.0ms(53) chunk_manager.topology_rebuild=0.2ms(53) underground.fog_update=0.0ms(52) chunk_manager.streaming_redraw=6.1ms(52) mountain_shadow.visual_rebuild=1.6ms(33)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=11.5 ms, p99=46.1 ms, hitches=22
+[WorldPerf] Frame budget: dispatcher=8.8ms streaming=0.0ms streaming_load=1.1ms streaming_redraw=0.0ms topology=0.5ms building=0.0ms power=0.0ms visual=0.0ms shadow=11.2ms spawn=0.0ms total=21.6ms/6.0ms
+[WorldPerf] Observability: Scheduler.urgent_visual_wait_ms=12.5ms, scheduler.max_urgent_wait_ms=12.5ms
+[WorldPerf] Scheduler.fast_visual_wait_ms: 9.18 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 40.41 ms
+[WorldPerf] FrameBudgetDispatcher.total: 40.64 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 50.74 ms
+[WorldPerf] FrameBudgetDispatcher.total: 50.98 ms
+[WorldPerf] Shadow.edge_cache_compute (62, 3): 73.49 ms
+[WorldPerf] Shadow.edge_cache_compute (62, 7): 69.73 ms
+[WorldPerf] PlayerChunk coord=(61, 5) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=351ms full=-ms border=-ms apply=951ms converge=951ms) queues(fast=1 urgent=0 near=17 full_near=0 full_far=75) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 10.04 ms
+[WorldPerf] Shadow.edge_cache_compute (60, 5): 86.97 ms
+[FrameBudget] streaming=1.3ms topology=0.5ms visual=7.7ms spawn=0.0ms total=9.6ms/6.0ms chunk_manager.streaming_load=1.3ms(60) building.room_recompute=0.0ms(55) power.balance_recompute=0.0ms(55) chunk_manager.topology_rebuild=0.5ms(55) underground.fog_update=0.0ms(53) chunk_manager.streaming_redraw=6.7ms(53) mountain_shadow.visual_rebuild=1.0ms(34)
+[WorldPerf] Shadow.edge_cache_compute (61, 3): 68.48 ms
+[WorldPerf] PlayerChunk coord=(60, 5) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=490ms full=-ms border=-ms apply=883ms converge=883ms) queues(fast=1 urgent=0 near=10 full_near=0 full_far=79) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 46.65 ms
+[WorldPerf] Shadow.edge_cache_compute (61, 7): 80.89 ms
+[WorldPerf] PlayerChunk coord=(59, 5) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=471ms full=-ms border=-ms apply=936ms converge=936ms) queues(fast=2 urgent=0 near=15 full_near=0 full_far=85) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 10.12 ms
+[WorldPerf] Shadow.edge_cache_compute (60, 3): 61.75 ms
+[FrameBudget] streaming=1.3ms topology=0.3ms visual=7.8ms spawn=0.0ms total=9.4ms/6.0ms chunk_manager.streaming_load=1.3ms(60) building.room_recompute=0.0ms(56) power.balance_recompute=0.0ms(56) chunk_manager.topology_rebuild=0.3ms(56) underground.fog_update=0.0ms(55) chunk_manager.streaming_redraw=6.4ms(55) mountain_shadow.visual_rebuild=1.4ms(34)
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 44.10 ms
+[WorldPerf] FrameBudgetDispatcher.total: 47.33 ms
+[WorldPerf] Shadow.edge_cache_compute (58, 5): 69.21 ms
+[CodexValidation] reached waypoint 3/6 at (241664.0, 20480.0)
+[WorldPerf] Shadow.edge_cache_compute (59, 7): 74.62 ms
+[WorldPerf] PlayerChunk coord=(59, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=1142ms full=-ms border=-ms apply=1607ms converge=1607ms) queues(fast=2 urgent=0 near=23 full_near=0 full_far=85) requests(load=false staged=false generating=false) scheduler(step=0.21ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (57, 5): 71.83 ms
+[FrameBudget] streaming=0.5ms topology=0.3ms visual=7.7ms spawn=0.0ms total=8.6ms/6.0ms chunk_manager.streaming_load=0.5ms(60) building.room_recompute=0.0ms(58) power.balance_recompute=0.0ms(58) chunk_manager.topology_rebuild=0.3ms(58) underground.fog_update=0.0ms(57) chunk_manager.streaming_redraw=6.3ms(57) mountain_shadow.visual_rebuild=1.4ms(38)
+[WorldPerf] PlayerChunk coord=(59, 4) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=5ms full=-ms border=-ms apply=1673ms converge=1673ms) queues(fast=2 urgent=0 near=16 full_near=0 full_far=90) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 9.04 ms
+[WorldPerf] Scheduler.fast_visual_wait_ms: 9.42 ms
+[WorldPerf] Shadow.edge_cache_compute (60, 7): 67.75 ms
+[WorldPerf] Shadow.edge_cache_compute (57, 4): 65.66 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 32.65 ms
+[WorldPerf] FrameBudgetDispatcher.total: 32.87 ms
+[WorldPerf] PlayerChunk coord=(59, 3) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=558ms full=-ms border=-ms apply=2198ms converge=2198ms) queues(fast=2 urgent=0 near=16 full_near=0 full_far=95) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 10.92 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 38.69 ms
+[WorldPerf] FrameBudgetDispatcher.total: 41.85 ms
+[FrameBudget] streaming=1.8ms topology=0.6ms visual=12.1ms spawn=0.0ms total=14.5ms/6.0ms chunk_manager.streaming_load=1.8ms(60) building.room_recompute=0.0ms(54) power.balance_recompute=0.0ms(54) chunk_manager.topology_rebuild=0.6ms(54) underground.fog_update=0.0ms(52) chunk_manager.streaming_redraw=11.8ms(52) mountain_shadow.visual_rebuild=0.4ms(25)
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 46.25 ms
+[WorldPerf] PlayerChunk coord=(59, 2) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=515ms full=-ms border=-ms apply=992ms converge=992ms) queues(fast=0 urgent=0 near=17 full_near=0 full_far=100) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] FrameBudgetDispatcher.total: 51.15 ms
+[WorldPerf] Shadow.edge_cache_compute (60, 1): 79.39 ms
+[WorldPerf] PlayerChunk coord=(59, 1) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=307ms full=-ms border=-ms apply=850ms converge=850ms) queues(fast=1 urgent=0 near=17 full_near=0 full_far=104) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 11.72 ms
+[WorldPerf] PlayerChunk coord=(59, 0) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=514ms full=-ms border=-ms apply=865ms converge=865ms) queues(fast=1 urgent=0 near=17 full_near=0 full_far=110) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 15.70 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 39.70 ms
+[WorldPerf] FrameBudgetDispatcher.total: 44.13 ms
+[FrameBudget] streaming=2.0ms topology=0.4ms visual=15.0ms spawn=0.0ms total=17.4ms/6.0ms chunk_manager.streaming_load=2.0ms(60) building.room_recompute=0.0ms(56) power.balance_recompute=0.0ms(56) chunk_manager.topology_rebuild=0.4ms(56) underground.fog_update=0.0ms(54) chunk_manager.streaming_redraw=14.7ms(54) mountain_shadow.visual_rebuild=0.3ms(22)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=14.5 ms, p99=57.3 ms, hitches=48
+[WorldPerf] Frame budget: dispatcher=12.0ms streaming=0.0ms streaming_load=1.4ms streaming_redraw=0.0ms topology=0.4ms building=0.0ms power=0.0ms visual=0.0ms shadow=14.1ms spawn=0.0ms total=27.9ms/6.0ms
+[WorldPerf] Observability: Scheduler.urgent_visual_wait_ms=15.7ms, scheduler.max_urgent_wait_ms=15.7ms
+[WorldPerf] FPS: 48.0
+[WorldPerf] Shadow.edge_cache_compute (57, 0): 64.99 ms
+[WorldPerf] PlayerChunk coord=(59, -1) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=475ms full=-ms border=-ms apply=890ms converge=890ms) queues(fast=1 urgent=0 near=17 full_near=0 full_far=115) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 10.30 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 53.35 ms
+[WorldPerf] FrameBudgetDispatcher.total: 56.52 ms
+[WorldPerf] PlayerChunk coord=(59, -2) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=528ms full=-ms border=-ms apply=862ms converge=862ms) queues(fast=2 urgent=0 near=17 full_near=0 full_far=120) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 11.25 ms
+[FrameBudget] streaming=2.0ms topology=0.2ms visual=15.5ms spawn=0.0ms total=17.7ms/6.0ms chunk_manager.streaming_load=2.0ms(60) building.room_recompute=0.0ms(58) power.balance_recompute=0.0ms(58) chunk_manager.topology_rebuild=0.2ms(58) underground.fog_update=0.0ms(57) chunk_manager.streaming_redraw=15.3ms(57) mountain_shadow.visual_rebuild=0.2ms(19)
+[WorldPerf] Shadow.edge_cache_compute (57, -4): 132.10 ms
+[WorldPerf] PlayerChunk coord=(59, -3) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=505ms full=-ms border=-ms apply=938ms converge=938ms) queues(fast=2 urgent=0 near=17 full_near=0 full_far=125) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 11.14 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 39.70 ms
+[WorldPerf] FrameBudgetDispatcher.total: 42.85 ms
+[WorldPerf] PlayerChunk coord=(59, -4) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=475ms full=-ms border=-ms apply=874ms converge=874ms) queues(fast=1 urgent=0 near=17 full_near=0 full_far=130) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 10.28 ms
+[WorldPerf] Shadow.edge_cache_compute (57, -5): 137.94 ms
+[WorldPerf] Shadow.edge_cache_compute (58, -6): 62.20 ms
+[CodexValidation] reached waypoint 4/6 at (241664.0, -16384.0)
+[FrameBudget] streaming=1.8ms topology=0.1ms visual=15.0ms spawn=0.0ms total=16.9ms/6.0ms chunk_manager.streaming_load=1.8ms(60) building.room_recompute=0.0ms(53) power.balance_recompute=0.0ms(53) chunk_manager.topology_rebuild=0.1ms(53) underground.fog_update=0.0ms(53) chunk_manager.streaming_redraw=14.7ms(53) mountain_shadow.visual_rebuild=0.3ms(21)
+[WorldPerf] Shadow.edge_cache_compute (57, -6): 136.63 ms
+[WorldPerf] PlayerChunk coord=(59, -4) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=1368ms full=-ms border=-ms apply=1767ms converge=1767ms) queues(fast=2 urgent=0 near=23 full_near=0 full_far=130) requests(load=false staged=false generating=false) scheduler(step=0.41ms exhausted=false)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=6.1ms spawn=0.0ms total=6.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.5ms(60) mountain_shadow.visual_rebuild=0.5ms(39)
+[WorldPerf] PlayerChunk coord=(60, -4) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=2111ms full=-ms border=-ms apply=2111ms converge=2111ms) queues(fast=1 urgent=0 near=13 full_near=0 full_far=133) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 10.34 ms
+[WorldPerf] Scheduler.fast_visual_wait_ms: 15.59 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 37.49 ms
+[WorldPerf] FrameBudgetDispatcher.total: 39.78 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 45.63 ms
+[WorldPerf] FrameBudgetDispatcher.total: 45.87 ms
+[WorldPerf] Shadow.edge_cache_compute (62, -3): 63.38 ms
+[FrameBudget] streaming=0.8ms topology=0.1ms visual=8.5ms spawn=0.0ms total=9.3ms/6.0ms chunk_manager.streaming_load=0.8ms(60) building.room_recompute=0.0ms(58) power.balance_recompute=0.0ms(58) chunk_manager.topology_rebuild=0.0ms(58) underground.fog_update=0.0ms(58) chunk_manager.streaming_redraw=7.5ms(58) mountain_shadow.visual_rebuild=1.1ms(34)
+[WorldPerf] PlayerChunk coord=(61, -4) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=488ms full=-ms border=-ms apply=2491ms converge=2491ms) queues(fast=2 urgent=0 near=17 full_near=0 full_far=140) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 12.66 ms
+[WorldPerf] Shadow.edge_cache_compute (63, -5): 67.73 ms
+[WorldPerf] Shadow.edge_cache_compute (63, -3): 82.53 ms
+[WorldPerf] PlayerChunk coord=(62, -4) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=508ms full=-ms border=-ms apply=916ms converge=916ms) queues(fast=1 urgent=0 near=17 full_near=0 full_far=145) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 11.06 ms
+[FrameBudget] streaming=1.5ms topology=0.1ms visual=6.9ms spawn=0.0ms total=8.5ms/6.0ms chunk_manager.streaming_load=1.5ms(60) building.room_recompute=0.0ms(57) power.balance_recompute=0.0ms(57) chunk_manager.topology_rebuild=0.1ms(56) underground.fog_update=0.0ms(56) chunk_manager.streaming_redraw=6.6ms(56) mountain_shadow.visual_rebuild=0.3ms(31)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=14.2 ms, p99=45.4 ms, hitches=56
+[WorldPerf] Frame budget: dispatcher=11.8ms streaming=0.0ms streaming_load=1.2ms streaming_redraw=0.0ms topology=0.1ms building=0.0ms power=0.0ms visual=0.0ms shadow=13.3ms spawn=0.0ms total=26.5ms/6.0ms
+[WorldPerf] Observability: Scheduler.urgent_visual_wait_ms=11.1ms, scheduler.max_urgent_wait_ms=11.1ms
+[WorldPerf] Shadow.edge_cache_compute (0, -3): 66.64 ms
+[WorldPerf] PlayerChunk coord=(62, -4) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=989ms full=-ms border=-ms apply=1397ms converge=1397ms) queues(fast=2 urgent=0 near=23 full_near=0 full_far=145) requests(load=false staged=false generating=false) scheduler(step=0.38ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(63, -4) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=508ms full=-ms border=-ms apply=928ms converge=928ms) queues(fast=0 urgent=0 near=18 full_near=0 full_far=149) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (0, -2): 129.38 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 34.87 ms
+[WorldPerf] FrameBudgetDispatcher.total: 37.49 ms
+[WorldPerf] FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw: 42.22 ms
+[WorldPerf] FrameBudgetDispatcher.total: 44.45 ms
+[FrameBudget] streaming=0.8ms topology=0.0ms visual=9.3ms spawn=0.0ms total=10.2ms/6.0ms chunk_manager.streaming_load=0.8ms(60) building.room_recompute=0.0ms(59) power.balance_recompute=0.0ms(59) chunk_manager.topology_rebuild=0.0ms(59) underground.fog_update=0.0ms(59) chunk_manager.streaming_redraw=9.1ms(59) mountain_shadow.visual_rebuild=0.2ms(32)
+[WorldPerf] FPS: 93.0
+[WorldPerf] PlayerChunk coord=(63, -4) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=963ms full=-ms border=-ms apply=1383ms converge=1383ms) queues(fast=1 urgent=0 near=24 full_near=0 full_far=150) requests(load=false staged=false generating=false) scheduler(step=0.26ms exhausted=false)
+[CodexValidation] reached waypoint 5/6 at (0.0, -16384.0)
+[WorldPerf] PlayerChunk coord=(0, -4) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=922ms full=-ms border=-ms apply=923ms converge=923ms) queues(fast=0 urgent=0 near=10 full_near=0 full_far=151) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (1, -2): 130.52 ms
+[WorldPerf] Shadow.edge_cache_compute (2, -4): 72.25 ms
+[WorldPerf] Shadow.edge_cache_compute (2, -3): 73.41 ms
+[FrameBudget] streaming=0.7ms topology=0.1ms visual=7.8ms spawn=0.0ms total=8.6ms/6.0ms chunk_manager.streaming_load=0.7ms(60) building.room_recompute=0.0ms(57) power.balance_recompute=0.0ms(57) chunk_manager.topology_rebuild=0.0ms(57) underground.fog_update=0.0ms(57) chunk_manager.streaming_redraw=7.2ms(57) mountain_shadow.visual_rebuild=0.6ms(38)
+[WorldPerf] PlayerChunk coord=(0, -4) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=648ms full=-ms border=-ms apply=1631ms converge=1631ms) queues(fast=1 urgent=0 near=24 full_near=0 full_far=155) requests(load=false staged=false generating=false) scheduler(step=0.34ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (2, -2): 128.85 ms
+[WorldPerf] PlayerChunk coord=(0, -3) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=6ms full=-ms border=-ms apply=1813ms converge=1813ms) queues(fast=2 urgent=0 near=9 full_near=0 full_far=159) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 12.43 ms
+[WorldPerf] Scheduler.fast_visual_wait_ms: 14.08 ms
+[WorldPerf] Shadow.edge_cache_compute (0, -1): 63.62 ms
+[FrameBudget] streaming=0.4ms topology=0.1ms visual=6.6ms spawn=0.0ms total=7.0ms/6.0ms chunk_manager.streaming_load=0.4ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.1ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.5ms(60) mountain_shadow.visual_rebuild=1.1ms(41)
+[WorldPerf] Shadow.edge_cache_compute (1, -1): 66.70 ms
+[WorldPerf] Shadow.edge_cache_compute (63, -1): 65.03 ms
+[WorldPerf] PlayerChunk coord=(0, -2) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=500ms full=-ms border=-ms apply=2289ms converge=2289ms) queues(fast=1 urgent=0 near=17 full_near=0 full_far=165) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 13.16 ms
+[WorldPerf] Shadow.edge_cache_compute (2, -1): 154.85 ms
+[WorldPerf] PlayerChunk coord=(0, -2) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=737ms full=-ms border=-ms apply=2527ms converge=2527ms) queues(fast=2 urgent=0 near=23 full_near=0 full_far=165) requests(load=false staged=false generating=false) scheduler(step=0.41ms exhausted=false)
+[FrameBudget] streaming=0.6ms topology=0.1ms visual=5.8ms spawn=0.0ms total=6.5ms/6.0ms chunk_manager.streaming_load=0.6ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.1ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.1ms(60) mountain_shadow.visual_rebuild=0.7ms(36)
+[WorldPerf] Shadow.edge_cache_compute (0, 0): 66.03 ms
+[WorldPerf] PlayerChunk coord=(0, -1) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=524ms full=-ms border=-ms apply=928ms converge=928ms) queues(fast=1 urgent=0 near=17 full_near=0 full_far=170) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 12.01 ms
+[WorldPerf] Shadow.edge_cache_compute (1, 1): 65.11 ms
+[FrameBudget] streaming=0.6ms topology=0.1ms visual=5.4ms spawn=0.0ms total=6.1ms/6.0ms chunk_manager.streaming_load=0.6ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.1ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.1ms(60) mountain_shadow.visual_rebuild=0.3ms(39)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=10.2 ms, p99=45.1 ms, hitches=12
+[WorldPerf] Frame budget: dispatcher=7.8ms streaming=0.0ms streaming_load=0.6ms streaming_redraw=0.0ms topology=0.1ms building=0.0ms power=0.0ms visual=0.0ms shadow=11.1ms spawn=0.0ms total=19.6ms/6.0ms
+[WorldPerf] Observability: Scheduler.urgent_visual_wait_ms=12.0ms, scheduler.max_urgent_wait_ms=12.0ms
+[WorldPerf] PlayerChunk coord=(0, -1) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=823ms full=-ms border=-ms apply=1227ms converge=1227ms) queues(fast=2 urgent=0 near=23 full_near=0 full_far=170) requests(load=false staged=false generating=false) scheduler(step=0.28ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (2, 1): 124.56 ms
+[CodexValidation] reached waypoint 6/6 at (0.0, 0.0)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=495ms full=-ms border=-ms apply=948ms converge=948ms) queues(fast=2 urgent=0 near=17 full_near=0 full_far=175) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 14.65 ms
+[WorldPerf] Shadow.edge_cache_compute (62, 1): 128.29 ms
+[CodexValidation] route complete: preset=local_ring reached=6/6 draining_background_work=true
+[FrameBudget] streaming=0.5ms topology=0.1ms visual=5.7ms spawn=0.0ms total=6.3ms/6.0ms chunk_manager.streaming_load=0.5ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.1ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.0ms(60) mountain_shadow.visual_rebuild=0.7ms(41)
+[WorldPerf] Shadow.edge_cache_compute (1, 2): 66.55 ms
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=810ms full=-ms border=-ms apply=1263ms converge=1263ms) queues(fast=2 urgent=0 near=23 full_near=0 full_far=175) requests(load=false staged=false generating=false) scheduler(step=0.21ms exhausted=false)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=4.5ms spawn=0.0ms total=4.6ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=4.2ms(60) mountain_shadow.visual_rebuild=0.3ms(48)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.7ms spawn=0.0ms total=5.7ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.4ms(60) mountain_shadow.visual_rebuild=0.3ms(37)
+[WorldPerf] stream.chunk_first_pass_ms (0, 0)@z0: 2130.19 ms
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=false state=full_pending phase=cliff first_pass=true full_ready=false issues=full_redraw_pending ages(first=-ms full=0ms border=-ms apply=2130ms converge=2130ms) queues(fast=1 urgent=0 near=23 full_near=1 full_far=175) requests(load=false staged=false generating=false) scheduler(step=0.21ms exhausted=false)
+[WorldPerf] stream.chunk_first_pass_ms (0, 1)@z0: 1779.16 ms
+[CodexValidation] route drain complete; preset=local_ring reached=6/6 redraw_backlog=false
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 22 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

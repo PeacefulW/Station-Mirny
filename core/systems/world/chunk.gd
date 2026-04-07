@@ -63,7 +63,9 @@ const VISUAL_LAYER_GROUND_FACE: int = 1
 const VISUAL_LAYER_ROCK: int = 2
 const VISUAL_LAYER_COVER: int = 3
 const VISUAL_LAYER_CLIFF: int = 4
+const VISUAL_COMMAND_BUFFER_STRIDE: int = 8
 const FLORA_PUBLISH_LOG_ARG: String = "codex_flora_publish_log"
+const NATIVE_VISUAL_KERNELS_CLASS: StringName = &"ChunkVisualKernels"
 
 class FloraBatchRenderer:
 	extends Node2D
@@ -131,6 +133,11 @@ var _operation_global_terrain_cache: Dictionary = {}
 var _mining_write_authorized: bool = false
 var _visual_state: int = ChunkVisualState.UNINITIALIZED
 var _has_full_publication_once: bool = false
+var _interior_macro_dirty: bool = false
+
+static var _native_visual_kernels: RefCounted = null
+static var _native_visual_kernels_checked: bool = false
+static var _native_visual_kernels_available: bool = false
 
 func setup(
 	p_coord: Vector2i,
@@ -182,6 +189,7 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 	_flora_result = null
 	_flora_payload = {}
 	_has_full_publication_once = false
+	_interior_macro_dirty = _INTERIOR_MACRO_ENABLED
 	if _variation_bytes.size() != _terrain_bytes.size():
 		push_error("Chunk.populate_native(): variation array size mismatch for %s" % [chunk_coord])
 		assert(false, "variation array size must match terrain array size")
@@ -381,6 +389,7 @@ func cleanup() -> void:
 	_variation_bytes = PackedByteArray()
 	_biome_bytes = PackedByteArray()
 	_revealed_local_cover_tiles = {}
+	_interior_macro_dirty = false
 	_clear_interior_macro_layer()
 	_visual_state = ChunkVisualState.UNINITIALIZED
 	_has_full_publication_once = false
@@ -664,7 +673,11 @@ func apply_visual_phase_batch(batch: Dictionary) -> bool:
 	if phase == REDRAW_PHASE_FLORA:
 		_apply_flora_render_packet(batch.get("flora_packet", {}) as Dictionary, &"batched_renderer")
 	else:
-		_apply_visual_commands(batch.get("commands", []) as Array)
+		_apply_visual_commands(
+			batch.get("commands", []) as Array,
+			batch.get("command_buffer", PackedInt32Array()),
+			int(batch.get("command_stride", VISUAL_COMMAND_BUFFER_STRIDE))
+		)
 	_redraw_tile_index = end_index
 	if phase == REDRAW_PHASE_COVER:
 		_reapply_local_zone_cover_state_for_index_range(start_index, end_index)
@@ -676,8 +689,12 @@ func apply_visual_phase_batch(batch: Dictionary) -> bool:
 func apply_visual_dirty_batch(batch: Dictionary) -> bool:
 	if StringName(batch.get("mode", &"")) != VISUAL_BATCH_MODE_DIRTY:
 		return false
-	_apply_visual_commands(batch.get("commands", []) as Array)
-	_refresh_interior_macro_layer()
+	_apply_visual_commands(
+		batch.get("commands", []) as Array,
+		batch.get("command_buffer", PackedInt32Array()),
+		int(batch.get("command_stride", VISUAL_COMMAND_BUFFER_STRIDE))
+	)
+	_mark_interior_macro_dirty()
 	var dirty_tiles: Dictionary = {}
 	for tile_variant: Variant in batch.get("tiles", []):
 		var local_tile: Vector2i = tile_variant as Vector2i
@@ -721,7 +738,7 @@ func _build_visual_compute_request(
 		biome_lookup[local_tile] = _biome_palette_index_at(local_tile)
 	_use_operation_global_terrain_cache = previous_cache_enabled
 	_operation_global_terrain_cache = previous_global_terrain_cache
-	return {
+	var request: Dictionary = {
 		"mode": mode,
 		"phase": phase,
 		"phase_name": &"dirty" if mode == VISUAL_BATCH_MODE_DIRTY else Chunk._visual_phase_name(phase),
@@ -736,8 +753,17 @@ func _build_visual_compute_request(
 		"variation_lookup": variation_lookup,
 		"biome_lookup": biome_lookup,
 	}
+	if Chunk._has_native_visual_kernels():
+		request["native_visual_tables"] = Chunk._build_native_visual_tables()
+	return request
 
-func _apply_visual_commands(commands: Array) -> int:
+func _apply_visual_commands(
+	commands: Array,
+	command_buffer: PackedInt32Array = PackedInt32Array(),
+	command_stride: int = VISUAL_COMMAND_BUFFER_STRIDE
+) -> int:
+	if not command_buffer.is_empty():
+		return _apply_visual_command_buffer(command_buffer, command_stride)
 	var applied_commands: int = 0
 	for command_variant: Variant in commands:
 		var command: Dictionary = command_variant as Dictionary
@@ -757,6 +783,29 @@ func _apply_visual_commands(commands: Array) -> int:
 		applied_commands += 1
 	return applied_commands
 
+func _apply_visual_command_buffer(command_buffer: PackedInt32Array, command_stride: int = VISUAL_COMMAND_BUFFER_STRIDE) -> int:
+	if command_stride <= 0:
+		return 0
+	var applied_commands: int = 0
+	var command_limit: int = command_buffer.size() - command_stride + 1
+	var index: int = 0
+	while index < command_limit:
+		var layer: TileMapLayer = _visual_layer_for_command(command_buffer[index])
+		if layer != null:
+			var local_tile: Vector2i = Vector2i(command_buffer[index + 1], command_buffer[index + 2])
+			if command_buffer[index + 3] == VISUAL_COMMAND_OP_SET:
+				layer.set_cell(
+					local_tile,
+					command_buffer[index + 4],
+					Vector2i(command_buffer[index + 5], command_buffer[index + 6]),
+					command_buffer[index + 7]
+				)
+			else:
+				layer.erase_cell(local_tile)
+			applied_commands += 1
+		index += command_stride
+	return applied_commands
+
 func _visual_layer_for_command(layer_id: int) -> TileMapLayer:
 	match layer_id:
 		VISUAL_LAYER_TERRAIN:
@@ -773,13 +822,18 @@ func _visual_layer_for_command(layer_id: int) -> TileMapLayer:
 			return null
 
 static func compute_visual_batch(request: Dictionary) -> Dictionary:
+	var native_batch: Dictionary = Chunk._try_compute_visual_batch_native(request)
+	if not native_batch.is_empty():
+		return native_batch
+	var tiles: Array = request.get("tiles", [])
 	var result: Dictionary = {
 		"mode": request.get("mode", &""),
 		"phase": int(request.get("phase", REDRAW_PHASE_DONE)),
 		"phase_name": request.get("phase_name", &"done"),
 		"start_index": int(request.get("start_index", -1)),
 		"end_index": int(request.get("end_index", -1)),
-		"tiles": request.get("tiles", []),
+		"tiles": tiles,
+		"tile_count": tiles.size(),
 		"commands": [],
 	}
 	var commands: Array[Dictionary] = []
@@ -797,7 +851,7 @@ static func compute_visual_batch(request: Dictionary) -> Dictionary:
 						)
 					result["flora_packet"] = prebuilt_packet
 				_:
-					for tile_variant: Variant in request.get("tiles", []):
+					for tile_variant: Variant in tiles:
 						var local_tile: Vector2i = tile_variant as Vector2i
 						match phase:
 							REDRAW_PHASE_TERRAIN:
@@ -807,7 +861,7 @@ static func compute_visual_batch(request: Dictionary) -> Dictionary:
 							REDRAW_PHASE_CLIFF:
 								Chunk._append_cliff_visual_command(request, local_tile, commands, false)
 		VISUAL_BATCH_MODE_DIRTY:
-			for tile_variant: Variant in request.get("tiles", []):
+			for tile_variant: Variant in tiles:
 				var local_tile: Vector2i = tile_variant as Vector2i
 				Chunk._append_terrain_visual_commands(request, local_tile, commands, true)
 				Chunk._append_cover_visual_command(request, local_tile, commands, true)
@@ -817,6 +871,81 @@ static func compute_visual_batch(request: Dictionary) -> Dictionary:
 	result["commands"] = commands
 	result["command_count"] = commands.size()
 	return result
+
+static func _try_compute_visual_batch_native(request: Dictionary) -> Dictionary:
+	if not Chunk._has_native_visual_kernels():
+		return {}
+	var mode: StringName = StringName(request.get("mode", &""))
+	if mode != VISUAL_BATCH_MODE_DIRTY and mode != VISUAL_BATCH_MODE_PHASE:
+		return {}
+	if mode == VISUAL_BATCH_MODE_PHASE:
+		var phase: int = int(request.get("phase", REDRAW_PHASE_DONE))
+		if phase != REDRAW_PHASE_TERRAIN and phase != REDRAW_PHASE_COVER and phase != REDRAW_PHASE_CLIFF:
+			return {}
+	if not request.has("native_visual_tables"):
+		return {}
+	var helper: RefCounted = Chunk._get_native_visual_kernels()
+	if helper == null or not helper.has_method("compute_visual_batch"):
+		return {}
+	var batch: Dictionary = helper.call("compute_visual_batch", request) as Dictionary
+	return batch if not batch.is_empty() else {}
+
+static func _get_native_visual_kernels() -> RefCounted:
+	if not Chunk._has_native_visual_kernels():
+		return null
+	if _native_visual_kernels == null:
+		_native_visual_kernels = ClassDB.instantiate(NATIVE_VISUAL_KERNELS_CLASS) as RefCounted
+	return _native_visual_kernels
+
+static func _has_native_visual_kernels() -> bool:
+	if not _native_visual_kernels_checked:
+		_native_visual_kernels_checked = true
+		_native_visual_kernels_available = ClassDB.class_exists(NATIVE_VISUAL_KERNELS_CLASS)
+	return _native_visual_kernels_available
+
+static func _build_native_visual_tables() -> Dictionary:
+	return {
+		"surface_palette_tiles": ChunkTilesetFactory._surface_palette_tiles,
+		"wall_flip_class": ChunkTilesetFactory._WALL_FLIP_CLASS,
+		"wall_flip_alt_count": ChunkTilesetFactory.wall_flip_alt_count,
+		"wall_base_count": ChunkTilesetFactory.wall_base_count,
+		"terrain_tiles_per_row": ChunkTilesetFactory.terrain_tiles_per_row,
+		"ground_face_tiles_start": ChunkTilesetFactory.ground_face_tiles_start,
+		"sand_face_tiles_start": ChunkTilesetFactory.sand_face_tiles_start,
+		"interior_base_variant_count": ChunkTilesetFactory.get_interior_base_variant_count(),
+		"interior_transform_count": ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT,
+		"terrain_source_id": ChunkTilesetFactory.TERRAIN_SOURCE_ID,
+		"overlay_source_id": ChunkTilesetFactory.OVERLAY_SOURCE_ID,
+		"surface_variation_none": ChunkTilesetFactory.SURFACE_VARIATION_NONE,
+		"tile_ground_dark": ChunkTilesetFactory.TILE_GROUND_DARK,
+		"tile_ground": ChunkTilesetFactory.TILE_GROUND,
+		"tile_ground_light": ChunkTilesetFactory.TILE_GROUND_LIGHT,
+		"tile_mined_floor": ChunkTilesetFactory.TILE_MINED_FLOOR,
+		"tile_mountain_entrance": ChunkTilesetFactory.TILE_MOUNTAIN_ENTRANCE,
+		"tile_water": ChunkTilesetFactory.tile_water,
+		"tile_sand": ChunkTilesetFactory.tile_sand,
+		"tile_grass": ChunkTilesetFactory.tile_grass,
+		"tile_sparse_flora": ChunkTilesetFactory.tile_sparse_flora,
+		"tile_dense_flora": ChunkTilesetFactory.tile_dense_flora,
+		"tile_clearing": ChunkTilesetFactory.tile_clearing,
+		"tile_rocky_patch": ChunkTilesetFactory.tile_rocky_patch,
+		"tile_wet_patch": ChunkTilesetFactory.tile_wet_patch,
+		"tile_ice": ChunkTilesetFactory.tile_ice,
+		"tile_scorched": ChunkTilesetFactory.tile_scorched,
+		"tile_salt_flat": ChunkTilesetFactory.tile_salt_flat,
+		"tile_dry_riverbed": ChunkTilesetFactory.tile_dry_riverbed,
+		"tile_shadow_south": ChunkTilesetFactory.TILE_SHADOW_SOUTH,
+		"tile_shadow_west": ChunkTilesetFactory.TILE_SHADOW_WEST,
+		"tile_shadow_east": ChunkTilesetFactory.TILE_SHADOW_EAST,
+		"tile_top_edge": ChunkTilesetFactory.TILE_TOP_EDGE,
+		"terrain_ground": TileGenData.TerrainType.GROUND,
+		"terrain_rock": TileGenData.TerrainType.ROCK,
+		"terrain_water": TileGenData.TerrainType.WATER,
+		"terrain_sand": TileGenData.TerrainType.SAND,
+		"terrain_grass": TileGenData.TerrainType.GRASS,
+		"terrain_mined_floor": TileGenData.TerrainType.MINED_FLOOR,
+		"terrain_mountain_entrance": TileGenData.TerrainType.MOUNTAIN_ENTRANCE,
+	}
 
 static func _append_terrain_visual_commands(
 	request: Dictionary,
@@ -1950,6 +2079,17 @@ func _clear_interior_macro_layer() -> void:
 		return
 	_interior_macro_layer.texture = null
 	_interior_macro_layer.visible = false
+	_interior_macro_dirty = false
+
+func _mark_interior_macro_dirty() -> void:
+	if not _INTERIOR_MACRO_ENABLED:
+		return
+	_interior_macro_dirty = true
+
+func _refresh_interior_macro_layer_if_dirty() -> void:
+	if not _INTERIOR_MACRO_ENABLED or not _interior_macro_dirty:
+		return
+	_refresh_interior_macro_layer()
 
 func _refresh_interior_macro_layer() -> void:
 	if not _INTERIOR_MACRO_ENABLED or _interior_macro_layer == null:
@@ -1987,6 +2127,7 @@ func _refresh_interior_macro_layer() -> void:
 		float(_tile_size) / float(_INTERIOR_MACRO_SAMPLES_PER_TILE)
 	)
 	_interior_macro_layer.visible = true
+	_interior_macro_dirty = false
 
 func _collect_interior_macro_tiles() -> Dictionary:
 	var interior_tiles: Dictionary = {}
@@ -2501,7 +2642,7 @@ func _get_prebuilt_flora_render_packet(payload: Dictionary) -> Dictionary:
 func _advance_redraw_phase() -> void:
 	match _redraw_phase:
 		REDRAW_PHASE_TERRAIN:
-			_refresh_interior_macro_layer()
+			_mark_interior_macro_dirty()
 			_redraw_phase = REDRAW_PHASE_COVER
 		REDRAW_PHASE_COVER:
 			_redraw_phase = REDRAW_PHASE_CLIFF

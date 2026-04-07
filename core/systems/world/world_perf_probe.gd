@@ -5,7 +5,33 @@ extends RefCounted
 ## Статические методы — не требует autoload.
 ## Проверяет контракты из docs/00_governance/PERFORMANCE_CONTRACTS.md.
 
-const _THRESHOLD_MS: float = 2.0
+const _DEFAULT_PRINT_THRESHOLD_MS: float = 8.0
+const _SUPPRESSED_PRINT_PREFIXES: Array[String] = [
+	"scheduler.visual_tasks_processed",
+	"scheduler.visual_queue_depth.",
+	"scheduler.visual_budget_exhausted_count",
+	"scheduler.starvation_incident_count",
+]
+const _PRINT_THRESHOLD_OVERRIDES: Array[Dictionary] = [
+	{"prefix": "FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw", "threshold_ms": 24.0},
+	{"prefix": "FrameBudgetDispatcher.total", "threshold_ms": 28.0},
+	{"prefix": "FrameBudgetDispatcher.", "threshold_ms": 20.0},
+	{"prefix": "Scheduler.urgent_visual_wait_ms", "threshold_ms": 100.0},
+	{"prefix": "scheduler.max_urgent_wait_ms", "threshold_ms": 100.0},
+	{"prefix": "Shadow.edge_cache_compute", "threshold_ms": 60.0},
+	{"prefix": "Shadow.compute", "threshold_ms": 12.0},
+	{"prefix": "ChunkManager.streaming_redraw_prepare_step.", "threshold_ms": 8.0},
+	{"prefix": "ChunkManager.streaming_redraw_step.", "threshold_ms": 8.0},
+	{"prefix": "Boot.loop_step_ms", "threshold_ms": 35.0},
+	{"prefix": "stream.chunk_first_pass_ms", "threshold_ms": 50.0},
+	{"prefix": "stream.chunk_full_redraw_ms", "threshold_ms": 50.0},
+	{"prefix": "stream.chunk_border_fix_ms", "threshold_ms": 50.0},
+]
+const _PRINT_COOLDOWN_OVERRIDES: Array[Dictionary] = [
+	{"prefix": "FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw", "cooldown_ms": 1000.0, "delta_ms": 6.0},
+	{"prefix": "FrameBudgetDispatcher.total", "cooldown_ms": 1000.0, "delta_ms": 6.0},
+	{"prefix": "Boot.loop_step_ms", "cooldown_ms": 1000.0, "delta_ms": 10.0},
+]
 
 ## Контракты на интерактивные операции (максимально допустимое время в мс).
 const _CONTRACTS: Dictionary = {
@@ -24,6 +50,8 @@ const _CONTRACTS: Dictionary = {
 ## Per-frame аккумулятор: операция → время в мс. Сбрасывается каждый кадр WorldPerfMonitor.
 static var _frame_operations: Dictionary = {}
 static var _milestones_usec: Dictionary = {}
+static var _print_gate_last_usec: Dictionary = {}
+static var _print_gate_last_value_ms: Dictionary = {}
 static var _mutex: Mutex = Mutex.new()
 
 ## Суммарные hitches за сессию.
@@ -90,16 +118,57 @@ static func _record_milestone_delta(label: String, from_label: String, end_usec:
 	return elapsed_ms
 
 static func _record(label: String, elapsed_ms: float) -> void:
-	if elapsed_ms >= _THRESHOLD_MS:
-		print("[WorldPerf] %s: %.2f ms" % [label, elapsed_ms])
 	var contract_key: String = _extract_contract_key(label)
+	var should_print: bool = false
+	_mutex.lock()
+	should_print = _should_print_record_locked(label, elapsed_ms)
+	_frame_operations[label] = _frame_operations.get(label, 0.0) + elapsed_ms
+	_mutex.unlock()
 	if _CONTRACTS.has(contract_key):
 		var limit: float = _CONTRACTS[contract_key]
 		if elapsed_ms > limit:
 			push_warning("[WorldPerf] WARNING: %s took %.2f ms (contract: %.1f ms)" % [label, elapsed_ms, limit])
-	_mutex.lock()
-	_frame_operations[label] = _frame_operations.get(label, 0.0) + elapsed_ms
-	_mutex.unlock()
+	if should_print:
+		print("[WorldPerf] %s: %.2f ms" % [label, elapsed_ms])
+
+static func _should_print_record_locked(label: String, elapsed_ms: float) -> bool:
+	if elapsed_ms <= 0.0:
+		return false
+	for prefix: String in _SUPPRESSED_PRINT_PREFIXES:
+		if label.begins_with(prefix):
+			return false
+	if elapsed_ms < _resolve_print_threshold_ms(label):
+		return false
+	return _passes_print_cooldown_locked(label, elapsed_ms)
+
+static func _resolve_print_threshold_ms(label: String) -> float:
+	for rule: Dictionary in _PRINT_THRESHOLD_OVERRIDES:
+		var prefix: String = str(rule.get("prefix", ""))
+		if prefix != "" and label.begins_with(prefix):
+			return float(rule.get("threshold_ms", _DEFAULT_PRINT_THRESHOLD_MS))
+	return _DEFAULT_PRINT_THRESHOLD_MS
+
+static func _passes_print_cooldown_locked(label: String, elapsed_ms: float) -> bool:
+	for rule: Dictionary in _PRINT_COOLDOWN_OVERRIDES:
+		var prefix: String = str(rule.get("prefix", ""))
+		if prefix == "" or not label.begins_with(prefix):
+			continue
+		var gate_key: String = prefix
+		var now_usec: int = Time.get_ticks_usec()
+		var cooldown_ms: float = float(rule.get("cooldown_ms", 0.0))
+		var delta_ms: float = float(rule.get("delta_ms", 0.0))
+		var last_usec: int = int(_print_gate_last_usec.get(gate_key, 0))
+		var last_value_ms: float = float(_print_gate_last_value_ms.get(gate_key, -1.0))
+		var should_print: bool = last_usec <= 0
+		if not should_print and cooldown_ms > 0.0:
+			should_print = float(now_usec - last_usec) / 1000.0 >= cooldown_ms
+		if not should_print and delta_ms > 0.0:
+			should_print = elapsed_ms >= last_value_ms + delta_ms
+		if should_print:
+			_print_gate_last_usec[gate_key] = now_usec
+			_print_gate_last_value_ms[gate_key] = elapsed_ms
+		return should_print
+	return true
 
 ## Извлекает ключ контракта из label (отбрасывает параметры вроде chunk coord).
 static func _extract_contract_key(label: String) -> String:

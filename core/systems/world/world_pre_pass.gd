@@ -193,6 +193,76 @@ func _compute_native_priority_flood_fill() -> PackedFloat32Array:
 		return PackedFloat32Array()
 	return result
 
+func _compute_native_ridge_strength_grid() -> PackedFloat32Array:
+	if _native_prepass_kernels == null or not _native_prepass_kernels.has_method("compute_ridge_strength_grid"):
+		return PackedFloat32Array()
+	var path_offsets := PackedInt32Array()
+	var path_counts := PackedInt32Array()
+	var spline_samples := PackedVector2Array()
+	var spline_half_widths := PackedFloat32Array()
+	var sample_offset: int = 0
+	for ridge_path: RidgePath in _ridge_paths:
+		if ridge_path == null or ridge_path.spline_samples.is_empty():
+			continue
+		var sample_count: int = ridge_path.spline_samples.size()
+		if ridge_path.spline_half_widths.size() != sample_count:
+			continue
+		path_offsets.append(sample_offset)
+		path_counts.append(sample_count)
+		for sample: Vector2 in ridge_path.spline_samples:
+			spline_samples.append(sample)
+		for half_width: float in ridge_path.spline_half_widths:
+			spline_half_widths.append(half_width)
+		sample_offset += sample_count
+	if path_counts.is_empty():
+		return PackedFloat32Array()
+	var result: PackedFloat32Array = _native_prepass_kernels.compute_ridge_strength_grid(
+		_grid_width,
+		_grid_height,
+		path_offsets,
+		path_counts,
+		spline_samples,
+		spline_half_widths
+	)
+	if result.size() != _height_grid.size():
+		return PackedFloat32Array()
+	return result
+
+func _compute_native_river_extraction(
+	river_threshold: float,
+	neighbor_distances: PackedFloat32Array,
+	max_distance: float
+) -> Dictionary:
+	if _native_prepass_kernels == null or not _native_prepass_kernels.has_method("compute_river_extraction"):
+		return {}
+	var result: Dictionary = _native_prepass_kernels.compute_river_extraction(
+		_grid_width,
+		_grid_height,
+		_accumulation_grid,
+		_lake_mask,
+		_flow_dir_grid,
+		river_threshold,
+		_resolve_river_base_width(),
+		_resolve_river_width_scale(),
+		neighbor_distances,
+		max_distance
+	)
+	var expected_size: int = _accumulation_grid.size()
+	var river_mask_grid: PackedByteArray = result.get("river_mask_grid", PackedByteArray())
+	var river_width_grid: PackedFloat32Array = result.get("river_width_grid", PackedFloat32Array())
+	var river_distance_grid: PackedFloat32Array = result.get("river_distance_grid", PackedFloat32Array())
+	if (
+		river_mask_grid.size() != expected_size
+		or river_width_grid.size() != expected_size
+		or river_distance_grid.size() != expected_size
+	):
+		return {}
+	return {
+		"river_mask_grid": river_mask_grid,
+		"river_width_grid": river_width_grid,
+		"river_distance_grid": river_distance_grid,
+	}
+
 func _rebuild_cell_caches() -> void:
 	var cell_count: int = _grid_width * _grid_height
 	_neighbor_index_cache = PackedInt32Array()
@@ -672,6 +742,19 @@ func _compute_river_extraction() -> void:
 	var heap_priorities: Array[float] = []
 	var source_indices := PackedInt32Array()
 	WorldPerfProbe.end("WorldPrePass.compute.river_extraction.initialize_buffers", phase_started_usec)
+	if _native_prepass_kernels != null and _native_prepass_kernels.has_method("compute_river_extraction"):
+		phase_started_usec = WorldPerfProbe.begin()
+		var native_river_data: Dictionary = _compute_native_river_extraction(
+			river_threshold,
+			neighbor_distances,
+			max_distance
+		)
+		WorldPerfProbe.end("WorldPrePass.compute.river_extraction.native_total", phase_started_usec)
+		if not native_river_data.is_empty():
+			_river_mask_grid = native_river_data["river_mask_grid"]
+			_river_width_grid = native_river_data["river_width_grid"]
+			_river_distance_grid = native_river_data["river_distance_grid"]
+			return
 	phase_started_usec = WorldPerfProbe.begin()
 	for cell_index: int in range(_accumulation_grid.size()):
 		if not _is_river_cell(cell_index, river_threshold):
@@ -980,6 +1063,16 @@ func _compute_ridge_strength_grid() -> void:
 	_ridge_strength_grid.fill(0.0)
 	if _ridge_paths.is_empty():
 		return
+	if _native_prepass_kernels != null and _native_prepass_kernels.has_method("compute_ridge_strength_grid"):
+		var native_stage_started_usec: int = Time.get_ticks_usec()
+		var native_ridge_strength_grid: PackedFloat32Array = _compute_native_ridge_strength_grid()
+		var native_stage_elapsed_ms: float = float(Time.get_ticks_usec() - native_stage_started_usec) / 1000.0
+		if native_stage_elapsed_ms < 2.0:
+			print("[WorldPerf] WorldPrePass.compute.ridge_strength_grid.native_total: %.2f ms" % [native_stage_elapsed_ms])
+		WorldPerfProbe.record("WorldPrePass.compute.ridge_strength_grid.native_total", native_stage_elapsed_ms)
+		if not native_ridge_strength_grid.is_empty():
+			_ridge_strength_grid = native_ridge_strength_grid
+			return
 	for ridge_path: RidgePath in _ridge_paths:
 		_stamp_ridge_path_strength(ridge_path)
 

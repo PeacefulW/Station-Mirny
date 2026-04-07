@@ -8,6 +8,7 @@ const FEATURE_AND_POI_PAYLOAD_KEY: String = "feature_and_poi_payload"
 const PLACEMENTS_KEY: String = "placements"
 const FEATURE_KIND: StringName = &"feature"
 const POI_KIND: StringName = &"poi"
+const CHUNK_GEN_SLOW_LOG_THRESHOLD_MS: float = 80.0
 
 var _world_context: RefCounted = null
 var _terrain_resolver: RefCounted = null
@@ -83,8 +84,8 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 		var native_ms: float = float(Time.get_ticks_usec() - native_start_usec) / 1000.0
 		if not native_result.is_empty():
 			native_result[FEATURE_AND_POI_PAYLOAD_KEY] = _empty_feature_and_poi_payload()
-			if native_ms >= 2.0:
-				print("[ChunkGen] native generate_chunk %s: %.1f ms" % [canonical_chunk, native_ms])
+			if native_ms >= CHUNK_GEN_SLOW_LOG_THRESHOLD_MS:
+				print("[ChunkGen] slow native generate_chunk %s: %.1f ms" % [canonical_chunk, native_ms])
 			return native_result
 	# GDScript fallback — compute feature/POI here
 	var feature_and_poi_payload: Dictionary = _build_feature_and_poi_payload(canonical_chunk, base_tile, chunk_size)

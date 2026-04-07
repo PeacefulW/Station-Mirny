@@ -1,0 +1,786 @@
+#include "chunk_visual_kernels.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+
+#include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/variant/packed_int32_array.hpp>
+#include <godot_cpp/variant/string_name.hpp>
+#include <godot_cpp/variant/vector2i.hpp>
+
+using namespace godot;
+
+namespace {
+
+constexpr int REDRAW_PHASE_TERRAIN = 0;
+constexpr int REDRAW_PHASE_COVER = 1;
+constexpr int REDRAW_PHASE_CLIFF = 2;
+constexpr int VISUAL_COMMAND_OP_SET = 0;
+constexpr int VISUAL_COMMAND_OP_ERASE = 1;
+constexpr int VISUAL_COMMAND_STRIDE = 8;
+constexpr int VISUAL_LAYER_TERRAIN = 0;
+constexpr int VISUAL_LAYER_GROUND_FACE = 1;
+constexpr int VISUAL_LAYER_ROCK = 2;
+constexpr int VISUAL_LAYER_COVER = 3;
+constexpr int VISUAL_LAYER_CLIFF = 4;
+constexpr int INTERIOR_FAMILY_TARGET_COUNT = 3;
+constexpr int INTERIOR_FAMILY_WINDOW_SIZE = 3;
+constexpr double INTERIOR_FAMILY_SCALE = 18.0;
+constexpr double INTERIOR_FAMILY_DETAIL_SCALE = 9.0;
+constexpr int INTERIOR_FAMILY_SEED = 13183;
+constexpr int INTERIOR_VARIATION_SEED = 12345;
+constexpr int INTERIOR_REHASH_SEED = 12442;
+constexpr uint32_t HASH32_MASK = 0xffffffffu;
+
+const Vector2i COVER_REVEAL_DIRS[8] = {
+	Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1),
+	Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(1, 1),
+};
+
+struct VisualTables {
+	Array surface_palette_tiles;
+	PackedByteArray wall_flip_class;
+	PackedByteArray wall_flip_alt_count;
+	int wall_base_count = 0;
+	int terrain_tiles_per_row = 64;
+	int ground_face_tiles_start = -1;
+	int sand_face_tiles_start = -1;
+	int interior_base_variant_count = 1;
+	int interior_transform_count = 8;
+	int terrain_source_id = 0;
+	int overlay_source_id = 1;
+	int surface_variation_none = 0;
+	Vector2i tile_ground_dark = Vector2i(0, 0);
+	Vector2i tile_ground = Vector2i(1, 0);
+	Vector2i tile_ground_light = Vector2i(2, 0);
+	Vector2i tile_mined_floor = Vector2i(5, 0);
+	Vector2i tile_mountain_entrance = Vector2i(6, 0);
+	Vector2i tile_water = Vector2i(7, 0);
+	Vector2i tile_sand = Vector2i(8, 0);
+	Vector2i tile_grass = Vector2i(9, 0);
+	Vector2i tile_sparse_flora = Vector2i(10, 0);
+	Vector2i tile_dense_flora = Vector2i(11, 0);
+	Vector2i tile_clearing = Vector2i(12, 0);
+	Vector2i tile_rocky_patch = Vector2i(13, 0);
+	Vector2i tile_wet_patch = Vector2i(14, 0);
+	Vector2i tile_ice = Vector2i(15, 0);
+	Vector2i tile_scorched = Vector2i(16, 0);
+	Vector2i tile_salt_flat = Vector2i(17, 0);
+	Vector2i tile_dry_riverbed = Vector2i(18, 0);
+	Vector2i tile_shadow_south = Vector2i(2, 0);
+	Vector2i tile_shadow_west = Vector2i(6, 0);
+	Vector2i tile_shadow_east = Vector2i(3, 0);
+	Vector2i tile_top_edge = Vector2i(4, 0);
+	int terrain_ground = 0;
+	int terrain_rock = 1;
+	int terrain_water = 2;
+	int terrain_sand = 3;
+	int terrain_grass = 4;
+	int terrain_mined_floor = 5;
+	int terrain_mountain_entrance = 6;
+};
+
+struct VisualRequestContext {
+	Dictionary terrain_lookup;
+	Dictionary height_lookup;
+	Dictionary variation_lookup;
+	Dictionary biome_lookup;
+	Vector2i chunk_coord = Vector2i();
+	int chunk_size = 64;
+	bool is_underground = false;
+	VisualTables tables;
+};
+
+inline int clampi_local(int value, int min_value, int max_value) {
+	return value < min_value ? min_value : (value > max_value ? max_value : value);
+}
+
+inline double clampf_local(double value, double min_value, double max_value) {
+	return value < min_value ? min_value : (value > max_value ? max_value : value);
+}
+
+inline double lerpf_local(double a, double b, double t) {
+	return a + (b - a) * t;
+}
+
+inline Vector2i wall_def(int index) {
+	return Vector2i(7 + index, 0);
+}
+
+bool supports_native_compute(const Dictionary &request) {
+	const Dictionary tables = request.get("native_visual_tables", Dictionary());
+	if (tables.is_empty()) {
+		return false;
+	}
+	const String mode = request.get("mode", String());
+	if (mode == "dirty") {
+		return true;
+	}
+	if (mode != "phase") {
+		return false;
+	}
+	const int phase = int(request.get("phase", -1));
+	return phase == REDRAW_PHASE_TERRAIN || phase == REDRAW_PHASE_COVER || phase == REDRAW_PHASE_CLIFF;
+}
+
+bool load_tables(const Dictionary &request, VisualRequestContext &ctx) {
+	const Dictionary tables = request.get("native_visual_tables", Dictionary());
+	if (tables.is_empty()) {
+		return false;
+	}
+	ctx.terrain_lookup = request.get("terrain_lookup", Dictionary());
+	ctx.height_lookup = request.get("height_lookup", Dictionary());
+	ctx.variation_lookup = request.get("variation_lookup", Dictionary());
+	ctx.biome_lookup = request.get("biome_lookup", Dictionary());
+	ctx.chunk_coord = request.get("chunk_coord", Vector2i());
+	ctx.chunk_size = int(request.get("chunk_size", 64));
+	ctx.is_underground = bool(request.get("is_underground", false));
+
+	ctx.tables.surface_palette_tiles = tables.get("surface_palette_tiles", Array());
+	ctx.tables.wall_flip_class = tables.get("wall_flip_class", PackedByteArray());
+	ctx.tables.wall_flip_alt_count = tables.get("wall_flip_alt_count", PackedByteArray());
+	ctx.tables.wall_base_count = int(tables.get("wall_base_count", 0));
+	ctx.tables.terrain_tiles_per_row = int(tables.get("terrain_tiles_per_row", 64));
+	ctx.tables.ground_face_tiles_start = int(tables.get("ground_face_tiles_start", -1));
+	ctx.tables.sand_face_tiles_start = int(tables.get("sand_face_tiles_start", -1));
+	ctx.tables.interior_base_variant_count = int(tables.get("interior_base_variant_count", 1));
+	ctx.tables.interior_transform_count = int(tables.get("interior_transform_count", 8));
+	ctx.tables.terrain_source_id = int(tables.get("terrain_source_id", 0));
+	ctx.tables.overlay_source_id = int(tables.get("overlay_source_id", 1));
+	ctx.tables.surface_variation_none = int(tables.get("surface_variation_none", 0));
+	ctx.tables.tile_ground_dark = tables.get("tile_ground_dark", ctx.tables.tile_ground_dark);
+	ctx.tables.tile_ground = tables.get("tile_ground", ctx.tables.tile_ground);
+	ctx.tables.tile_ground_light = tables.get("tile_ground_light", ctx.tables.tile_ground_light);
+	ctx.tables.tile_mined_floor = tables.get("tile_mined_floor", ctx.tables.tile_mined_floor);
+	ctx.tables.tile_mountain_entrance = tables.get("tile_mountain_entrance", ctx.tables.tile_mountain_entrance);
+	ctx.tables.tile_water = tables.get("tile_water", ctx.tables.tile_water);
+	ctx.tables.tile_sand = tables.get("tile_sand", ctx.tables.tile_sand);
+	ctx.tables.tile_grass = tables.get("tile_grass", ctx.tables.tile_grass);
+	ctx.tables.tile_sparse_flora = tables.get("tile_sparse_flora", ctx.tables.tile_sparse_flora);
+	ctx.tables.tile_dense_flora = tables.get("tile_dense_flora", ctx.tables.tile_dense_flora);
+	ctx.tables.tile_clearing = tables.get("tile_clearing", ctx.tables.tile_clearing);
+	ctx.tables.tile_rocky_patch = tables.get("tile_rocky_patch", ctx.tables.tile_rocky_patch);
+	ctx.tables.tile_wet_patch = tables.get("tile_wet_patch", ctx.tables.tile_wet_patch);
+	ctx.tables.tile_ice = tables.get("tile_ice", ctx.tables.tile_ice);
+	ctx.tables.tile_scorched = tables.get("tile_scorched", ctx.tables.tile_scorched);
+	ctx.tables.tile_salt_flat = tables.get("tile_salt_flat", ctx.tables.tile_salt_flat);
+	ctx.tables.tile_dry_riverbed = tables.get("tile_dry_riverbed", ctx.tables.tile_dry_riverbed);
+	ctx.tables.tile_shadow_south = tables.get("tile_shadow_south", ctx.tables.tile_shadow_south);
+	ctx.tables.tile_shadow_west = tables.get("tile_shadow_west", ctx.tables.tile_shadow_west);
+	ctx.tables.tile_shadow_east = tables.get("tile_shadow_east", ctx.tables.tile_shadow_east);
+	ctx.tables.tile_top_edge = tables.get("tile_top_edge", ctx.tables.tile_top_edge);
+	ctx.tables.terrain_ground = int(tables.get("terrain_ground", ctx.tables.terrain_ground));
+	ctx.tables.terrain_rock = int(tables.get("terrain_rock", ctx.tables.terrain_rock));
+	ctx.tables.terrain_water = int(tables.get("terrain_water", ctx.tables.terrain_water));
+	ctx.tables.terrain_sand = int(tables.get("terrain_sand", ctx.tables.terrain_sand));
+	ctx.tables.terrain_grass = int(tables.get("terrain_grass", ctx.tables.terrain_grass));
+	ctx.tables.terrain_mined_floor = int(tables.get("terrain_mined_floor", ctx.tables.terrain_mined_floor));
+	ctx.tables.terrain_mountain_entrance = int(tables.get("terrain_mountain_entrance", ctx.tables.terrain_mountain_entrance));
+	return true;
+}
+
+Dictionary surface_palette(const VisualTables &tables, int biome_palette_index) {
+	if (tables.surface_palette_tiles.is_empty()) {
+		return Dictionary();
+	}
+	const int clamped_index = clampi_local(biome_palette_index, 0, tables.surface_palette_tiles.size() - 1);
+	return tables.surface_palette_tiles[clamped_index];
+}
+
+Vector2i coords_for_linear_index(const VisualTables &tables, int index) {
+	const int columns = std::max(1, tables.terrain_tiles_per_row);
+	return Vector2i(index % columns, index / columns);
+}
+
+int terrain_at(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	return int(ctx.terrain_lookup.get(local_tile, ctx.tables.terrain_rock));
+}
+
+double height_at(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	return double(ctx.height_lookup.get(local_tile, 0.5));
+}
+
+int variation_at(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	return int(ctx.variation_lookup.get(local_tile, ctx.tables.surface_variation_none));
+}
+
+int biome_at(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	return int(ctx.biome_lookup.get(local_tile, 0));
+}
+
+Vector2i to_global_tile(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	return Vector2i(
+		ctx.chunk_coord.x * ctx.chunk_size + local_tile.x,
+		ctx.chunk_coord.y * ctx.chunk_size + local_tile.y
+	);
+}
+
+bool is_open_for_visual(const VisualRequestContext &ctx, int terrain_type) {
+	return terrain_type != ctx.tables.terrain_rock;
+}
+
+bool is_open_exterior(const VisualRequestContext &ctx, int terrain_type) {
+	return terrain_type == ctx.tables.terrain_ground
+		|| terrain_type == ctx.tables.terrain_water
+		|| terrain_type == ctx.tables.terrain_sand
+		|| terrain_type == ctx.tables.terrain_grass;
+}
+
+bool is_open_for_surface_rock_visual(const VisualRequestContext &ctx, int terrain_type) {
+	return is_open_exterior(ctx, terrain_type)
+		|| terrain_type == ctx.tables.terrain_mined_floor
+		|| terrain_type == ctx.tables.terrain_mountain_entrance;
+}
+
+bool is_open_for_surface_visual(const VisualRequestContext &ctx, int terrain_type, bool water_only) {
+	return water_only ? terrain_type == ctx.tables.terrain_water : is_open_for_surface_rock_visual(ctx, terrain_type);
+}
+
+bool has_water_face_neighbor(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	for (const Vector2i &dir : COVER_REVEAL_DIRS) {
+		if (terrain_at(ctx, local_tile + dir) == ctx.tables.terrain_water) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool is_surface_face_terrain(const VisualRequestContext &ctx, int terrain_type) {
+	return terrain_type == ctx.tables.terrain_ground
+		|| terrain_type == ctx.tables.terrain_grass
+		|| terrain_type == ctx.tables.terrain_sand;
+}
+
+Vector2i ground_atlas_for_height(const VisualRequestContext &ctx, double height_value) {
+	if (height_value < 0.38) return ctx.tables.tile_ground_dark;
+	if (height_value > 0.62) return ctx.tables.tile_ground_light;
+	return ctx.tables.tile_ground;
+}
+
+Vector2i get_surface_ground_tile(const VisualTables &tables, int biome_palette_index, double height_value) {
+	const Dictionary palette = surface_palette(tables, biome_palette_index);
+	if (height_value < 0.38) return palette.get("ground_dark", tables.tile_ground_dark);
+	if (height_value > 0.62) return palette.get("ground_light", tables.tile_ground_light);
+	return palette.get("ground", tables.tile_ground);
+}
+
+Vector2i get_surface_terrain_tile(const VisualTables &tables, int terrain_type, int biome_palette_index) {
+	const Dictionary palette = surface_palette(tables, biome_palette_index);
+	if (terrain_type == tables.terrain_water) return palette.get("water", tables.tile_water);
+	if (terrain_type == tables.terrain_sand) return palette.get("sand", tables.tile_sand);
+	if (terrain_type == tables.terrain_grass) return palette.get("grass", tables.tile_grass);
+	return Vector2i(-1, -1);
+}
+
+Vector2i get_surface_variation_tile(const VisualTables &tables, int variation_id, int biome_palette_index) {
+	const Dictionary palette = surface_palette(tables, biome_palette_index);
+	switch (variation_id) {
+		case 1: return palette.get("sparse_flora", tables.tile_sparse_flora);
+		case 2: return palette.get("dense_flora", tables.tile_dense_flora);
+		case 3: return palette.get("clearing", tables.tile_clearing);
+		case 4: return palette.get("rocky_patch", tables.tile_rocky_patch);
+		case 5: return palette.get("wet_patch", tables.tile_wet_patch);
+		case 6: return palette.get("ice", tables.tile_ice);
+		case 7: return palette.get("scorched", tables.tile_scorched);
+		case 8: return palette.get("salt_flat", tables.tile_salt_flat);
+		case 9: return palette.get("dry_riverbed", tables.tile_dry_riverbed);
+		default: return Vector2i(-1, -1);
+	}
+}
+
+Vector2i surface_ground_atlas(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	if (ctx.is_underground) {
+		return ground_atlas_for_height(ctx, height_at(ctx, local_tile));
+	}
+	const int biome_palette_index = biome_at(ctx, local_tile);
+	const Vector2i variation_tile = get_surface_variation_tile(ctx.tables, variation_at(ctx, local_tile), biome_palette_index);
+	return variation_tile.x >= 0 ? variation_tile : get_surface_ground_tile(ctx.tables, biome_palette_index, height_at(ctx, local_tile));
+}
+
+int wall_def_index(const Vector2i &wall) {
+	const int def_index = wall.x - 7;
+	return def_index < 0 || def_index >= 47 ? -1 : def_index;
+}
+
+Vector2i get_wall_variant_coords(const VisualTables &tables, const Vector2i &base, int variant_index) {
+	const int def_index = base.x - 7;
+	if (def_index < 0 || tables.wall_base_count <= 0) {
+		return base;
+	}
+	return coords_for_linear_index(tables, 7 + def_index + variant_index * tables.wall_base_count);
+}
+
+Vector2i get_face_coords(const VisualTables &tables, const Vector2i &wall, int biome_palette_index, int variant_index, bool sand_face) {
+	const int def_index = wall_def_index(wall);
+	if (def_index < 0) {
+		return Vector2i(-1, -1);
+	}
+	if (biome_palette_index >= 0) {
+		const Dictionary palette = surface_palette(tables, biome_palette_index);
+		if (wall == wall_def(0)) {
+			const int interior_start = int(palette.get(sand_face ? "sand_face_interior_start" : "ground_face_interior_start", -1));
+			const int interior_count = int(palette.get(sand_face ? "sand_face_interior_count" : "ground_face_interior_count", 0));
+			if (interior_start >= 0 && interior_count > 0) {
+				return coords_for_linear_index(tables, interior_start + clampi_local(variant_index, 0, interior_count - 1));
+			}
+		}
+		const int start = int(palette.get(sand_face ? "sand_face_start" : "ground_face_start", -1));
+		if (start >= 0) {
+			return coords_for_linear_index(tables, start + def_index);
+		}
+	}
+	const int fallback_start = sand_face ? tables.sand_face_tiles_start : tables.ground_face_tiles_start;
+	return fallback_start < 0 ? Vector2i(-1, -1) : coords_for_linear_index(tables, fallback_start + def_index);
+}
+
+uint32_t hash32_xy(int tile_x, int tile_y, int seed) {
+	uint32_t h = static_cast<uint32_t>(
+		static_cast<int64_t>(tile_x) * 374761393LL
+		+ static_cast<int64_t>(tile_y) * 668265263LL
+		+ static_cast<int64_t>(seed) * 1442695041LL
+	);
+	h = (h ^ (h >> 13)) & HASH32_MASK;
+	h = (h * 1274126177u) & HASH32_MASK;
+	h = (h ^ (h >> 16)) & HASH32_MASK;
+	return h;
+}
+
+double hash32_to_unit_float(uint32_t h) {
+	return static_cast<double>(h & HASH32_MASK) / static_cast<double>(HASH32_MASK);
+}
+
+double smoothstep01(double t) {
+	const double clamped = clampf_local(t, 0.0, 1.0);
+	return clamped * clamped * (3.0 - 2.0 * clamped);
+}
+
+int interior_family_count(int base_count) {
+	return std::max(1, std::min(INTERIOR_FAMILY_TARGET_COUNT, base_count));
+}
+
+Vector2i interior_family_window(int base_count, int family_index) {
+	const int family_count = interior_family_count(base_count);
+	const int clamped_family = clampi_local(family_index, 0, family_count - 1);
+	const int window_size = std::max(1, std::min(base_count, INTERIOR_FAMILY_WINDOW_SIZE));
+	if (base_count <= window_size || family_count <= 1) {
+		return Vector2i(0, base_count);
+	}
+	const int max_start = base_count - window_size;
+	const int start = static_cast<int>(std::round(static_cast<double>(clamped_family * max_start) / static_cast<double>(family_count - 1)));
+	return Vector2i(start, window_size);
+}
+
+double sample_interior_family_noise(int global_x, int global_y, double scale, int seed) {
+	const double scaled_x = static_cast<double>(global_x) / scale;
+	const double scaled_y = static_cast<double>(global_y) / scale;
+	const int cell_x = static_cast<int>(std::floor(scaled_x));
+	const int cell_y = static_cast<int>(std::floor(scaled_y));
+	const double frac_x = smoothstep01(scaled_x - static_cast<double>(cell_x));
+	const double frac_y = smoothstep01(scaled_y - static_cast<double>(cell_y));
+	const double v00 = hash32_to_unit_float(hash32_xy(cell_x, cell_y, seed));
+	const double v10 = hash32_to_unit_float(hash32_xy(cell_x + 1, cell_y, seed));
+	const double v01 = hash32_to_unit_float(hash32_xy(cell_x, cell_y + 1, seed));
+	const double v11 = hash32_to_unit_float(hash32_xy(cell_x + 1, cell_y + 1, seed));
+	return lerpf_local(lerpf_local(v00, v10, frac_x), lerpf_local(v01, v11, frac_x), frac_y);
+}
+
+int resolve_interior_family(int global_x, int global_y, int base_count) {
+	const int family_count = interior_family_count(base_count);
+	if (family_count <= 1) {
+		return 0;
+	}
+	const double macro_noise = sample_interior_family_noise(global_x, global_y, INTERIOR_FAMILY_SCALE, INTERIOR_FAMILY_SEED);
+	const double detail_noise = sample_interior_family_noise(global_x, global_y, INTERIOR_FAMILY_DETAIL_SCALE, INTERIOR_FAMILY_SEED + 53);
+	const double blended_noise = clampf_local(macro_noise * 0.82 + detail_noise * 0.18, 0.0, 0.999999);
+	return std::min(family_count - 1, static_cast<int>(std::floor(blended_noise * family_count)));
+}
+
+int shift_interior_family_base(int base_index, const Vector2i &family_window, int step) {
+	if (family_window.y <= 1) {
+		return family_window.x;
+	}
+	return family_window.x + ((base_index - family_window.x + step) % family_window.y);
+}
+
+Vector2i raw_interior_variant(const VisualTables &tables, int global_x, int global_y, int family_index, int seed = INTERIOR_VARIATION_SEED) {
+	const int base_count = tables.interior_base_variant_count;
+	if (base_count <= 0) {
+		return Vector2i();
+	}
+	const Vector2i family_window = interior_family_window(base_count, family_index);
+	const uint32_t h = hash32_xy(global_x, global_y, seed);
+	return Vector2i(
+		family_window.x + static_cast<int>(h % static_cast<uint32_t>(family_window.y)),
+		static_cast<int>((h >> 8) & static_cast<uint32_t>(std::max(1, tables.interior_transform_count) - 1))
+	);
+}
+
+Vector2i interior_variant(const VisualTables &tables, int global_x, int global_y) {
+	const int base_count = tables.interior_base_variant_count;
+	if (base_count <= 0) {
+		return Vector2i();
+	}
+	const int resolved_family = resolve_interior_family(global_x, global_y, base_count);
+	const Vector2i family_window = interior_family_window(base_count, resolved_family);
+	Vector2i resolved = raw_interior_variant(tables, global_x, global_y, resolved_family);
+	const Vector2i left = raw_interior_variant(tables, global_x - 1, global_y, resolve_interior_family(global_x - 1, global_y, base_count));
+	const Vector2i top = raw_interior_variant(tables, global_x, global_y - 1, resolve_interior_family(global_x, global_y - 1, base_count));
+	const int transform_count = std::max(1, tables.interior_transform_count);
+	if (resolved == left && resolved == top) {
+		resolved = raw_interior_variant(tables, global_x, global_y, resolved_family, INTERIOR_REHASH_SEED);
+	}
+	if (resolved == left) {
+		resolved.y = (resolved.y + 1) % transform_count;
+	}
+	if (resolved == top) {
+		resolved.y = family_window.y > 1 ? resolved.y : (resolved.y + 3) % transform_count;
+		if (family_window.y > 1) {
+			resolved.x = shift_interior_family_base(resolved.x, family_window, 1);
+		}
+	}
+	if (resolved == left || resolved == top) {
+		resolved = raw_interior_variant(tables, global_x, global_y, resolved_family, INTERIOR_REHASH_SEED + 97);
+		if (resolved == left) {
+			resolved.y = (resolved.y + 5) % transform_count;
+		}
+		if (resolved == top) {
+			resolved.y = family_window.y > 1 ? resolved.y : (resolved.y + 2) % transform_count;
+			if (family_window.y > 1) {
+				resolved.x = shift_interior_family_base(resolved.x, family_window, 2);
+			}
+		}
+	}
+	return resolved;
+}
+
+Vector2i variant_atlas(const VisualRequestContext &ctx, const Vector2i &base, int global_x, int global_y) {
+	if (base == wall_def(0)) {
+		return get_wall_variant_coords(ctx.tables, base, interior_variant(ctx.tables, global_x, global_y).x);
+	}
+	return get_wall_variant_coords(ctx.tables, base, 0);
+}
+
+int variant_alt_id(const VisualRequestContext &ctx, const Vector2i &base, int global_x, int global_y, bool allow_flip) {
+	if (base == wall_def(0)) {
+		return interior_variant(ctx.tables, global_x, global_y).y;
+	}
+	if (!allow_flip) {
+		return 0;
+	}
+	const int def_index = base.x - 7;
+	if (def_index < 0 || def_index >= ctx.tables.wall_flip_class.size()) {
+		return 0;
+	}
+	const uint8_t *flip_class = ctx.tables.wall_flip_class.ptr();
+	const int flip_class_id = static_cast<int>(flip_class[def_index]);
+	if (flip_class_id <= 0 || flip_class_id >= ctx.tables.wall_flip_alt_count.size()) {
+		return 0;
+	}
+	const uint8_t *alt_counts = ctx.tables.wall_flip_alt_count.ptr();
+	const int alt_count = static_cast<int>(alt_counts[flip_class_id]);
+	return alt_count <= 0 ? 0 : static_cast<int>(hash32_xy(global_x + 17, global_y + 31, 0) % static_cast<uint32_t>(alt_count));
+}
+
+Vector2i surface_visual_class(const VisualRequestContext &ctx, const Vector2i &local_tile, bool water_only) {
+	const bool s = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(0, 1)), water_only);
+	const bool n = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(0, -1)), water_only);
+	const bool w = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, 0)), water_only);
+	const bool e = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, 0)), water_only);
+	const int count = int(s) + int(n) + int(w) + int(e);
+	if (count == 4) return wall_def(46);
+	if (count == 3) { if (!n) return wall_def(43); if (!s) return wall_def(42); if (!w) return wall_def(44); return wall_def(45); }
+	if (count == 2) {
+		if (s && w) return wall_def(36);
+		if (s && e) return wall_def(38);
+		if (n && w) return wall_def(32);
+		if (n && e) return wall_def(34);
+		return (w && e) ? wall_def(41) : wall_def(40);
+	}
+	if (count == 1) {
+		if (s) {
+			const bool ne = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, -1)), water_only);
+			const bool nw = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, -1)), water_only);
+			if (ne && nw) return wall_def(23);
+			if (ne) return wall_def(21);
+			return nw ? wall_def(22) : wall_def(20);
+		}
+		if (n) {
+			const bool se = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, 1)), water_only);
+			const bool sw = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, 1)), water_only);
+			if (se && sw) return wall_def(19);
+			if (se) return wall_def(17);
+			return sw ? wall_def(18) : wall_def(16);
+		}
+		if (w) {
+			const bool ne = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, -1)), water_only);
+			const bool se = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, 1)), water_only);
+			if (ne && se) return wall_def(31);
+			if (ne) return wall_def(29);
+			return se ? wall_def(30) : wall_def(28);
+		}
+		const bool nw = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, -1)), water_only);
+		const bool sw = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, 1)), water_only);
+		if (nw && sw) return wall_def(27);
+		if (nw) return wall_def(25);
+		return sw ? wall_def(26) : wall_def(24);
+	}
+	const bool d_sw = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, 1)), water_only);
+	const bool d_se = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, 1)), water_only);
+	const bool d_ne = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, -1)), water_only);
+	const bool d_nw = is_open_for_surface_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, -1)), water_only);
+	const int d_count = int(d_sw) + int(d_se) + int(d_ne) + int(d_nw);
+	if (d_count == 4) return wall_def(15);
+	if (d_count == 3) { if (!d_sw) return wall_def(11); if (!d_se) return wall_def(12); if (!d_nw) return wall_def(13); return wall_def(14); }
+	if (d_count == 2) {
+		if (d_sw && d_se) return wall_def(10);
+		if (d_ne && d_nw) return wall_def(5);
+		if (d_ne && d_se) return wall_def(6);
+		if (d_nw && d_sw) return wall_def(9);
+		return (d_ne && d_sw) ? wall_def(7) : wall_def(8);
+	}
+	if (d_sw) return wall_def(4);
+	if (d_se) return wall_def(3);
+	if (d_ne) return wall_def(1);
+	return d_nw ? wall_def(2) : wall_def(0);
+}
+
+Vector2i rock_visual_class(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	const bool s = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(0, 1)));
+	const bool n = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(0, -1)));
+	const bool w = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, 0)));
+	const bool e = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, 0)));
+	const int count = int(s) + int(n) + int(w) + int(e);
+	if (count == 4) return wall_def(46);
+	if (count == 3) { if (!n) return wall_def(43); if (!s) return wall_def(42); if (!w) return wall_def(44); return wall_def(45); }
+	if (count == 2) {
+		if (s && w) return is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, -1))) ? wall_def(37) : wall_def(36);
+		if (s && e) return is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, -1))) ? wall_def(39) : wall_def(38);
+		if (n && w) return is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, 1))) ? wall_def(33) : wall_def(32);
+		if (n && e) return is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, 1))) ? wall_def(35) : wall_def(34);
+		return (w && e) ? wall_def(41) : wall_def(40);
+	}
+	if (count == 1) {
+		if (s) {
+			const bool ne = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, -1)));
+			const bool nw = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, -1)));
+			if (ne && nw) return wall_def(23);
+			if (ne) return wall_def(21);
+			return nw ? wall_def(22) : wall_def(20);
+		}
+		if (n) {
+			const bool se = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, 1)));
+			const bool sw = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, 1)));
+			if (se && sw) return wall_def(19);
+			if (se) return wall_def(17);
+			return sw ? wall_def(18) : wall_def(16);
+		}
+		if (w) {
+			const bool ne = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, -1)));
+			const bool se = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, 1)));
+			if (ne && se) return wall_def(31);
+			if (ne) return wall_def(29);
+			return se ? wall_def(30) : wall_def(28);
+		}
+		const bool nw = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, -1)));
+		const bool sw = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, 1)));
+		if (nw && sw) return wall_def(27);
+		if (nw) return wall_def(25);
+		return sw ? wall_def(26) : wall_def(24);
+	}
+	const bool d_sw = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, 1)));
+	const bool d_se = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, 1)));
+	const bool d_ne = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(1, -1)));
+	const bool d_nw = is_open_for_visual(ctx, terrain_at(ctx, local_tile + Vector2i(-1, -1)));
+	const int d_count = int(d_sw) + int(d_se) + int(d_ne) + int(d_nw);
+	if (d_count == 4) return wall_def(15);
+	if (d_count == 3) { if (!d_sw) return wall_def(11); if (!d_se) return wall_def(12); if (!d_nw) return wall_def(13); return wall_def(14); }
+	if (d_count == 2) {
+		if (d_sw && d_se) return wall_def(10);
+		if (d_ne && d_nw) return wall_def(5);
+		if (d_ne && d_se) return wall_def(6);
+		if (d_nw && d_sw) return wall_def(9);
+		return (d_ne && d_sw) ? wall_def(7) : wall_def(8);
+	}
+	if (d_sw) return wall_def(4);
+	if (d_se) return wall_def(3);
+	if (d_ne) return wall_def(1);
+	return d_nw ? wall_def(2) : wall_def(0);
+}
+
+bool is_cave_edge_rock(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	if (terrain_at(ctx, local_tile) != ctx.tables.terrain_rock) return false;
+	bool has_open_neighbor = false;
+	for (const Vector2i &dir : COVER_REVEAL_DIRS) {
+		const int neighbor_type = terrain_at(ctx, local_tile + dir);
+		if (is_open_exterior(ctx, neighbor_type)) return false;
+		if (neighbor_type == ctx.tables.terrain_mined_floor || neighbor_type == ctx.tables.terrain_mountain_entrance) has_open_neighbor = true;
+	}
+	return has_open_neighbor;
+}
+
+bool is_exterior_surface_rock(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	for (const Vector2i &dir : COVER_REVEAL_DIRS) {
+		if (is_open_exterior(ctx, terrain_at(ctx, local_tile + dir))) return true;
+	}
+	return false;
+}
+
+void append_set_command(PackedInt32Array &commands, int layer, const Vector2i &local_tile, int source_id, const Vector2i &atlas, int alt_id) {
+	commands.push_back(layer);
+	commands.push_back(local_tile.x);
+	commands.push_back(local_tile.y);
+	commands.push_back(VISUAL_COMMAND_OP_SET);
+	commands.push_back(source_id);
+	commands.push_back(atlas.x);
+	commands.push_back(atlas.y);
+	commands.push_back(alt_id);
+}
+
+void append_erase_command(PackedInt32Array &commands, int layer, const Vector2i &local_tile) {
+	commands.push_back(layer);
+	commands.push_back(local_tile.x);
+	commands.push_back(local_tile.y);
+	commands.push_back(VISUAL_COMMAND_OP_ERASE);
+	commands.push_back(0);
+	commands.push_back(0);
+	commands.push_back(0);
+	commands.push_back(0);
+}
+
+void append_ground_face_visual_command(const VisualRequestContext &ctx, const Vector2i &local_tile, int terrain_type, PackedInt32Array &commands, bool explicit_clear) {
+	if (ctx.is_underground) {
+		if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_GROUND_FACE, local_tile);
+		return;
+	}
+	Vector2i atlas(-1, -1);
+	int alt_id = 0;
+	if (is_surface_face_terrain(ctx, terrain_type)) {
+		Vector2i wall = wall_def(0);
+		Vector2i interior = Vector2i();
+		const Vector2i global_tile = to_global_tile(ctx, local_tile);
+		if (has_water_face_neighbor(ctx, local_tile)) {
+			wall = surface_visual_class(ctx, local_tile, true);
+		} else {
+			interior = interior_variant(ctx.tables, global_tile.x, global_tile.y);
+			alt_id = interior.y;
+		}
+		const int biome_palette_index = biome_at(ctx, local_tile);
+		if (terrain_type == ctx.tables.terrain_ground || terrain_type == ctx.tables.terrain_grass) atlas = get_face_coords(ctx.tables, wall, biome_palette_index, interior.x, false);
+		else if (terrain_type == ctx.tables.terrain_sand) atlas = get_face_coords(ctx.tables, wall, biome_palette_index, interior.x, true);
+	}
+	if (atlas.x >= 0) append_set_command(commands, VISUAL_LAYER_GROUND_FACE, local_tile, ctx.tables.terrain_source_id, atlas, alt_id);
+	else if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_GROUND_FACE, local_tile);
+}
+
+void append_cover_visual_command(const VisualRequestContext &ctx, const Vector2i &local_tile, PackedInt32Array &commands, bool explicit_clear) {
+	if (ctx.is_underground) {
+		if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_COVER, local_tile);
+		return;
+	}
+	const int terrain_type = terrain_at(ctx, local_tile);
+	if (terrain_type != ctx.tables.terrain_mined_floor && !is_cave_edge_rock(ctx, local_tile)) {
+		if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_COVER, local_tile);
+		return;
+	}
+	const Vector2i base = is_exterior_surface_rock(ctx, local_tile) ? wall_def(20) : wall_def(0);
+	const Vector2i global_tile = to_global_tile(ctx, local_tile);
+	append_set_command(commands, VISUAL_LAYER_COVER, local_tile, ctx.tables.terrain_source_id, variant_atlas(ctx, base, global_tile.x, global_tile.y), variant_alt_id(ctx, base, global_tile.x, global_tile.y, false));
+}
+
+void append_cliff_visual_command(const VisualRequestContext &ctx, const Vector2i &local_tile, PackedInt32Array &commands, bool explicit_clear) {
+	if (ctx.is_underground) {
+		if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_CLIFF, local_tile);
+		return;
+	}
+	if (terrain_at(ctx, local_tile) != ctx.tables.terrain_rock) {
+		if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_CLIFF, local_tile);
+		return;
+	}
+	Vector2i overlay(-1, -1);
+	if (is_open_exterior(ctx, terrain_at(ctx, local_tile + Vector2i(0, 1)))) overlay = ctx.tables.tile_shadow_south;
+	else if (is_open_exterior(ctx, terrain_at(ctx, local_tile + Vector2i(-1, 0)))) overlay = ctx.tables.tile_shadow_west;
+	else if (is_open_exterior(ctx, terrain_at(ctx, local_tile + Vector2i(1, 0)))) overlay = ctx.tables.tile_shadow_east;
+	else if (is_open_exterior(ctx, terrain_at(ctx, local_tile + Vector2i(0, -1)))) overlay = ctx.tables.tile_top_edge;
+	if (overlay.x >= 0) append_set_command(commands, VISUAL_LAYER_CLIFF, local_tile, ctx.tables.overlay_source_id, overlay, 0);
+	else if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_CLIFF, local_tile);
+}
+
+void append_terrain_visual_commands(const VisualRequestContext &ctx, const Vector2i &local_tile, PackedInt32Array &commands, bool explicit_clear) {
+	const int terrain_type = terrain_at(ctx, local_tile);
+	Vector2i atlas = ctx.tables.tile_ground;
+	Vector2i rock_atlas(-1, -1);
+	int rock_alt_id = 0;
+	const int biome_palette_index = biome_at(ctx, local_tile);
+	int variation_id = ctx.tables.surface_variation_none;
+	Vector2i variation_tile(-1, -1);
+	if (!ctx.is_underground) {
+		variation_id = variation_at(ctx, local_tile);
+		variation_tile = get_surface_variation_tile(ctx.tables, variation_id, biome_palette_index);
+	}
+	if (terrain_type == ctx.tables.terrain_rock) {
+		atlas = surface_ground_atlas(ctx, local_tile);
+		Vector2i rock_visual = ctx.is_underground ? rock_visual_class(ctx, local_tile) : surface_visual_class(ctx, local_tile, false);
+		const Vector2i global_tile = to_global_tile(ctx, local_tile);
+		rock_atlas = variant_atlas(ctx, rock_visual, global_tile.x, global_tile.y);
+		rock_alt_id = variant_alt_id(ctx, rock_visual, global_tile.x, global_tile.y, ctx.is_underground);
+	} else if (terrain_type == ctx.tables.terrain_water) {
+		atlas = variation_id == 6 && variation_tile.x >= 0 ? variation_tile : get_surface_terrain_tile(ctx.tables, terrain_type, biome_palette_index);
+	} else if (terrain_type == ctx.tables.terrain_sand || terrain_type == ctx.tables.terrain_grass) {
+		atlas = variation_tile.x >= 0 ? variation_tile : get_surface_terrain_tile(ctx.tables, terrain_type, biome_palette_index);
+	} else if (terrain_type == ctx.tables.terrain_mined_floor) atlas = ctx.tables.tile_mined_floor;
+	else if (terrain_type == ctx.tables.terrain_mountain_entrance) atlas = ctx.tables.tile_mountain_entrance;
+	else atlas = variation_tile.x >= 0 ? variation_tile : surface_ground_atlas(ctx, local_tile);
+	append_set_command(commands, VISUAL_LAYER_TERRAIN, local_tile, ctx.tables.terrain_source_id, atlas, 0);
+	append_ground_face_visual_command(ctx, local_tile, terrain_type, commands, explicit_clear);
+	if (rock_atlas.x >= 0) append_set_command(commands, VISUAL_LAYER_ROCK, local_tile, ctx.tables.terrain_source_id, rock_atlas, rock_alt_id);
+	else if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_ROCK, local_tile);
+}
+
+} // namespace
+
+ChunkVisualKernels::ChunkVisualKernels() {}
+ChunkVisualKernels::~ChunkVisualKernels() {}
+
+void ChunkVisualKernels::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("compute_visual_batch", "request"), &ChunkVisualKernels::compute_visual_batch);
+}
+
+Dictionary ChunkVisualKernels::compute_visual_batch(Dictionary p_request) const {
+	Dictionary result;
+	if (!supports_native_compute(p_request)) return result;
+	VisualRequestContext ctx;
+	if (!load_tables(p_request, ctx)) return result;
+	const Array tiles = p_request.get("tiles", Array());
+	const String mode = p_request.get("mode", String());
+	result["mode"] = p_request.get("mode", StringName());
+	result["phase"] = int(p_request.get("phase", -1));
+	result["phase_name"] = p_request.get("phase_name", StringName("done"));
+	result["start_index"] = int(p_request.get("start_index", -1));
+	result["end_index"] = int(p_request.get("end_index", -1));
+	result["tiles"] = tiles;
+	result["tile_count"] = tiles.size();
+	PackedInt32Array command_buffer;
+	result["command_stride"] = VISUAL_COMMAND_STRIDE;
+	if (mode == "phase") {
+		const int phase = int(p_request.get("phase", -1));
+		for (int i = 0; i < tiles.size(); ++i) {
+			const Vector2i local_tile = tiles[i];
+			if (phase == REDRAW_PHASE_TERRAIN) append_terrain_visual_commands(ctx, local_tile, command_buffer, false);
+			else if (phase == REDRAW_PHASE_COVER) append_cover_visual_command(ctx, local_tile, command_buffer, false);
+			else if (phase == REDRAW_PHASE_CLIFF) append_cliff_visual_command(ctx, local_tile, command_buffer, false);
+		}
+	} else if (mode == "dirty") {
+		for (int i = 0; i < tiles.size(); ++i) {
+			const Vector2i local_tile = tiles[i];
+			append_terrain_visual_commands(ctx, local_tile, command_buffer, true);
+			append_cover_visual_command(ctx, local_tile, command_buffer, true);
+			append_cliff_visual_command(ctx, local_tile, command_buffer, true);
+		}
+	}
+	result["command_buffer"] = command_buffer;
+	result["command_count"] = command_buffer.size() / VISUAL_COMMAND_STRIDE;
+	return result;
+}
