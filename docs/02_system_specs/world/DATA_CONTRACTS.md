@@ -442,7 +442,7 @@ Observed files for this version:
 - `assert(urgent_wait_and_queue_depth_are_observable, "scheduler telemetry must expose urgent wait, queue depth, processed count, and budget exhaustion")`
 - `assert(worker_visual_prepare_only_emits_serializable_command_batches, "worker visual prepare may compute terrain/ground-face/rock/cover/cliff commands only as pure data, never scene-tree writes")`
 - `assert(worker_flora_prepare_only_emits_serializable_render_packets, "worker flora prepare may group ChunkFloraResult placements into pure-data layer/type render packets only; it must not instantiate per-placement nodes")`
-- `assert(main_thread_visual_apply_is_bounded_to_ready_commands, "main-thread visual scheduler apply is limited to publishing prepared batches plus bounded TileMap set_cell/erase_cell work or a single flora batch-renderer update")`
+- `assert(main_thread_visual_apply_is_bounded_to_ready_commands, "main-thread visual scheduler apply is limited to publishing prepared batches via bounded TileMap mutation on the main thread, optionally through a native bulk-apply helper, or a single flora batch-renderer update")`
 - `write operations`:
 - `ChunkManager._schedule_chunk_visual_work()`
 - `ChunkManager._ensure_visual_task()`
@@ -456,7 +456,7 @@ Observed files for this version:
 - `emitted events / invalidation signals`:
 - none; observability is currently telemetry/log based rather than event based.
 - `current violations / ambiguities / contract gaps`:
-- `Chunk.continue_redraw()` still provides the compatibility executor behind debug and any unsupported phase; terrain / cover / cliff / flora plus dirty border-fix preparation now prefer worker-computed command batches or flora render packets with bounded main-thread apply.
+- `Chunk.continue_redraw()` still provides the compatibility executor behind debug and any unsupported phase; terrain / cover / cliff / flora plus dirty border-fix preparation now prefer worker-computed prepared batches (including per-layer native apply buffers where available) or flora render packets with bounded main-thread apply.
 
 ## Layer: Presentation
 

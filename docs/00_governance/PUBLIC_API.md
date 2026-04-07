@@ -503,7 +503,7 @@ related_docs:
 | `Chunk._redraw_dirty_tiles(dirty_tiles: Dictionary) -> void` | Dirty redraw primitive without higher-level world/reveal orchestration. |
 | `Chunk.build_visual_phase_batch(tile_budget: int) -> Dictionary` | Scheduler helper for serializable worker payload prep; не caller-facing redraw API. |
 | `Chunk.build_visual_dirty_batch(dirty_tiles: Dictionary, limit: int = -1) -> Dictionary` | Internal dirty-redraw payload builder for scheduler/border-fix work. |
-| `Chunk.compute_visual_batch(request: Dictionary) -> Dictionary` | Pure-data visual command computation helper for worker paths; не scene-tree API. |
+| `Chunk.compute_visual_batch(request: Dictionary) -> Dictionary` | Pure-data prepared-batch computation helper for worker paths; may return script command arrays or native-ready per-layer buffers, but never scene-tree writes. |
 | `Chunk.apply_visual_phase_batch(batch: Dictionary) -> bool` | Owner-only prepared-batch apply helper; caller bypass risks redraw state drift. |
 | `Chunk.apply_visual_dirty_batch(batch: Dictionary) -> bool` | Owner-only dirty prepared-batch apply helper; не external mutation entrypoint. |
 | `Chunk._redraw_terrain_tile(local_tile: Vector2i) -> void` | Single-tile terrain draw helper. |

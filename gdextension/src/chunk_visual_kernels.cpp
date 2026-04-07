@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include <godot_cpp/classes/tile_map_layer.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
@@ -20,7 +21,7 @@ constexpr int REDRAW_PHASE_COVER = 1;
 constexpr int REDRAW_PHASE_CLIFF = 2;
 constexpr int VISUAL_COMMAND_OP_SET = 0;
 constexpr int VISUAL_COMMAND_OP_ERASE = 1;
-constexpr int VISUAL_COMMAND_STRIDE = 8;
+constexpr int VISUAL_APPLY_BUFFER_STRIDE = 7;
 constexpr int VISUAL_LAYER_TERRAIN = 0;
 constexpr int VISUAL_LAYER_GROUND_FACE = 1;
 constexpr int VISUAL_LAYER_ROCK = 2;
@@ -92,6 +93,15 @@ struct VisualRequestContext {
 	int chunk_size = 64;
 	bool is_underground = false;
 	VisualTables tables;
+};
+
+struct LayeredCommandBuffers {
+	PackedInt32Array terrain;
+	PackedInt32Array ground_face;
+	PackedInt32Array rock;
+	PackedInt32Array cover;
+	PackedInt32Array cliff;
+	int command_count = 0;
 };
 
 inline int clampi_local(int value, int min_value, int max_value) {
@@ -628,31 +638,64 @@ bool is_exterior_surface_rock(const VisualRequestContext &ctx, const Vector2i &l
 	return false;
 }
 
-void append_set_command(PackedInt32Array &commands, int layer, const Vector2i &local_tile, int source_id, const Vector2i &atlas, int alt_id) {
-	commands.push_back(layer);
-	commands.push_back(local_tile.x);
-	commands.push_back(local_tile.y);
-	commands.push_back(VISUAL_COMMAND_OP_SET);
-	commands.push_back(source_id);
-	commands.push_back(atlas.x);
-	commands.push_back(atlas.y);
-	commands.push_back(alt_id);
+PackedInt32Array *buffer_for_layer(LayeredCommandBuffers &buffers, int layer) {
+	switch (layer) {
+		case VISUAL_LAYER_TERRAIN:
+			return &buffers.terrain;
+		case VISUAL_LAYER_GROUND_FACE:
+			return &buffers.ground_face;
+		case VISUAL_LAYER_ROCK:
+			return &buffers.rock;
+		case VISUAL_LAYER_COVER:
+			return &buffers.cover;
+		case VISUAL_LAYER_CLIFF:
+			return &buffers.cliff;
+		default:
+			return nullptr;
+	}
 }
 
-void append_erase_command(PackedInt32Array &commands, int layer, const Vector2i &local_tile) {
-	commands.push_back(layer);
-	commands.push_back(local_tile.x);
-	commands.push_back(local_tile.y);
-	commands.push_back(VISUAL_COMMAND_OP_ERASE);
-	commands.push_back(0);
-	commands.push_back(0);
-	commands.push_back(0);
-	commands.push_back(0);
+void append_buffer_set_command(PackedInt32Array &buffer, const Vector2i &local_tile, int source_id, const Vector2i &atlas, int alt_id) {
+	buffer.push_back(local_tile.x);
+	buffer.push_back(local_tile.y);
+	buffer.push_back(VISUAL_COMMAND_OP_SET);
+	buffer.push_back(source_id);
+	buffer.push_back(atlas.x);
+	buffer.push_back(atlas.y);
+	buffer.push_back(alt_id);
 }
 
-void append_ground_face_visual_command(const VisualRequestContext &ctx, const Vector2i &local_tile, int terrain_type, PackedInt32Array &commands, bool explicit_clear) {
+void append_buffer_erase_command(PackedInt32Array &buffer, const Vector2i &local_tile) {
+	buffer.push_back(local_tile.x);
+	buffer.push_back(local_tile.y);
+	buffer.push_back(VISUAL_COMMAND_OP_ERASE);
+	buffer.push_back(0);
+	buffer.push_back(0);
+	buffer.push_back(0);
+	buffer.push_back(0);
+}
+
+void append_set_command(LayeredCommandBuffers &buffers, int layer, const Vector2i &local_tile, int source_id, const Vector2i &atlas, int alt_id) {
+	PackedInt32Array *buffer = buffer_for_layer(buffers, layer);
+	if (buffer == nullptr) {
+		return;
+	}
+	append_buffer_set_command(*buffer, local_tile, source_id, atlas, alt_id);
+	buffers.command_count += 1;
+}
+
+void append_erase_command(LayeredCommandBuffers &buffers, int layer, const Vector2i &local_tile) {
+	PackedInt32Array *buffer = buffer_for_layer(buffers, layer);
+	if (buffer == nullptr) {
+		return;
+	}
+	append_buffer_erase_command(*buffer, local_tile);
+	buffers.command_count += 1;
+}
+
+void append_ground_face_visual_command(const VisualRequestContext &ctx, const Vector2i &local_tile, int terrain_type, LayeredCommandBuffers &buffers, bool explicit_clear) {
 	if (ctx.is_underground) {
-		if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_GROUND_FACE, local_tile);
+		if (explicit_clear) append_erase_command(buffers, VISUAL_LAYER_GROUND_FACE, local_tile);
 		return;
 	}
 	Vector2i atlas(-1, -1);
@@ -671,32 +714,32 @@ void append_ground_face_visual_command(const VisualRequestContext &ctx, const Ve
 		if (terrain_type == ctx.tables.terrain_ground || terrain_type == ctx.tables.terrain_grass) atlas = get_face_coords(ctx.tables, wall, biome_palette_index, interior.x, false);
 		else if (terrain_type == ctx.tables.terrain_sand) atlas = get_face_coords(ctx.tables, wall, biome_palette_index, interior.x, true);
 	}
-	if (atlas.x >= 0) append_set_command(commands, VISUAL_LAYER_GROUND_FACE, local_tile, ctx.tables.terrain_source_id, atlas, alt_id);
-	else if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_GROUND_FACE, local_tile);
+	if (atlas.x >= 0) append_set_command(buffers, VISUAL_LAYER_GROUND_FACE, local_tile, ctx.tables.terrain_source_id, atlas, alt_id);
+	else if (explicit_clear) append_erase_command(buffers, VISUAL_LAYER_GROUND_FACE, local_tile);
 }
 
-void append_cover_visual_command(const VisualRequestContext &ctx, const Vector2i &local_tile, PackedInt32Array &commands, bool explicit_clear) {
+void append_cover_visual_command(const VisualRequestContext &ctx, const Vector2i &local_tile, LayeredCommandBuffers &buffers, bool explicit_clear) {
 	if (ctx.is_underground) {
-		if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_COVER, local_tile);
+		if (explicit_clear) append_erase_command(buffers, VISUAL_LAYER_COVER, local_tile);
 		return;
 	}
 	const int terrain_type = terrain_at(ctx, local_tile);
 	if (terrain_type != ctx.tables.terrain_mined_floor && !is_cave_edge_rock(ctx, local_tile)) {
-		if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_COVER, local_tile);
+		if (explicit_clear) append_erase_command(buffers, VISUAL_LAYER_COVER, local_tile);
 		return;
 	}
 	const Vector2i base = is_exterior_surface_rock(ctx, local_tile) ? wall_def(20) : wall_def(0);
 	const Vector2i global_tile = to_global_tile(ctx, local_tile);
-	append_set_command(commands, VISUAL_LAYER_COVER, local_tile, ctx.tables.terrain_source_id, variant_atlas(ctx, base, global_tile.x, global_tile.y), variant_alt_id(ctx, base, global_tile.x, global_tile.y, false));
+	append_set_command(buffers, VISUAL_LAYER_COVER, local_tile, ctx.tables.terrain_source_id, variant_atlas(ctx, base, global_tile.x, global_tile.y), variant_alt_id(ctx, base, global_tile.x, global_tile.y, false));
 }
 
-void append_cliff_visual_command(const VisualRequestContext &ctx, const Vector2i &local_tile, PackedInt32Array &commands, bool explicit_clear) {
+void append_cliff_visual_command(const VisualRequestContext &ctx, const Vector2i &local_tile, LayeredCommandBuffers &buffers, bool explicit_clear) {
 	if (ctx.is_underground) {
-		if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_CLIFF, local_tile);
+		if (explicit_clear) append_erase_command(buffers, VISUAL_LAYER_CLIFF, local_tile);
 		return;
 	}
 	if (terrain_at(ctx, local_tile) != ctx.tables.terrain_rock) {
-		if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_CLIFF, local_tile);
+		if (explicit_clear) append_erase_command(buffers, VISUAL_LAYER_CLIFF, local_tile);
 		return;
 	}
 	Vector2i overlay(-1, -1);
@@ -704,11 +747,11 @@ void append_cliff_visual_command(const VisualRequestContext &ctx, const Vector2i
 	else if (is_open_exterior(ctx, terrain_at(ctx, local_tile + Vector2i(-1, 0)))) overlay = ctx.tables.tile_shadow_west;
 	else if (is_open_exterior(ctx, terrain_at(ctx, local_tile + Vector2i(1, 0)))) overlay = ctx.tables.tile_shadow_east;
 	else if (is_open_exterior(ctx, terrain_at(ctx, local_tile + Vector2i(0, -1)))) overlay = ctx.tables.tile_top_edge;
-	if (overlay.x >= 0) append_set_command(commands, VISUAL_LAYER_CLIFF, local_tile, ctx.tables.overlay_source_id, overlay, 0);
-	else if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_CLIFF, local_tile);
+	if (overlay.x >= 0) append_set_command(buffers, VISUAL_LAYER_CLIFF, local_tile, ctx.tables.overlay_source_id, overlay, 0);
+	else if (explicit_clear) append_erase_command(buffers, VISUAL_LAYER_CLIFF, local_tile);
 }
 
-void append_terrain_visual_commands(const VisualRequestContext &ctx, const Vector2i &local_tile, PackedInt32Array &commands, bool explicit_clear) {
+void append_terrain_visual_commands(const VisualRequestContext &ctx, const Vector2i &local_tile, LayeredCommandBuffers &buffers, bool explicit_clear) {
 	const int terrain_type = terrain_at(ctx, local_tile);
 	Vector2i atlas = ctx.tables.tile_ground;
 	Vector2i rock_atlas(-1, -1);
@@ -733,10 +776,37 @@ void append_terrain_visual_commands(const VisualRequestContext &ctx, const Vecto
 	} else if (terrain_type == ctx.tables.terrain_mined_floor) atlas = ctx.tables.tile_mined_floor;
 	else if (terrain_type == ctx.tables.terrain_mountain_entrance) atlas = ctx.tables.tile_mountain_entrance;
 	else atlas = variation_tile.x >= 0 ? variation_tile : surface_ground_atlas(ctx, local_tile);
-	append_set_command(commands, VISUAL_LAYER_TERRAIN, local_tile, ctx.tables.terrain_source_id, atlas, 0);
-	append_ground_face_visual_command(ctx, local_tile, terrain_type, commands, explicit_clear);
-	if (rock_atlas.x >= 0) append_set_command(commands, VISUAL_LAYER_ROCK, local_tile, ctx.tables.terrain_source_id, rock_atlas, rock_alt_id);
-	else if (explicit_clear) append_erase_command(commands, VISUAL_LAYER_ROCK, local_tile);
+	append_set_command(buffers, VISUAL_LAYER_TERRAIN, local_tile, ctx.tables.terrain_source_id, atlas, 0);
+	append_ground_face_visual_command(ctx, local_tile, terrain_type, buffers, explicit_clear);
+	if (rock_atlas.x >= 0) append_set_command(buffers, VISUAL_LAYER_ROCK, local_tile, ctx.tables.terrain_source_id, rock_atlas, rock_alt_id);
+	else if (explicit_clear) append_erase_command(buffers, VISUAL_LAYER_ROCK, local_tile);
+}
+
+int apply_visual_buffer(TileMapLayer *layer, const PackedInt32Array &buffer, int32_t buffer_stride) {
+	if (layer == nullptr || buffer.is_empty() || buffer_stride <= 0) {
+		return 0;
+	}
+	const int command_limit = buffer.size() - buffer_stride + 1;
+	if (command_limit <= 0) {
+		return 0;
+	}
+	const int32_t *data = buffer.ptr();
+	int applied_commands = 0;
+	for (int index = 0; index < command_limit; index += buffer_stride) {
+		const Vector2i local_tile(data[index], data[index + 1]);
+		if (data[index + 2] == VISUAL_COMMAND_OP_SET) {
+			layer->set_cell(
+				local_tile,
+				data[index + 3],
+				Vector2i(data[index + 4], data[index + 5]),
+				data[index + 6]
+			);
+		} else {
+			layer->erase_cell(local_tile);
+		}
+		applied_commands += 1;
+	}
+	return applied_commands;
 }
 
 } // namespace
@@ -746,6 +816,19 @@ ChunkVisualKernels::~ChunkVisualKernels() {}
 
 void ChunkVisualKernels::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("compute_visual_batch", "request"), &ChunkVisualKernels::compute_visual_batch);
+	ClassDB::bind_method(
+		D_METHOD(
+			"apply_chunk_visual_buffers",
+			"terrain_layer", "terrain_buffer",
+			"ground_face_layer", "ground_face_buffer",
+			"rock_layer", "rock_buffer",
+			"cover_layer", "cover_buffer",
+			"cliff_layer", "cliff_buffer",
+			"buffer_stride"
+		),
+		&ChunkVisualKernels::apply_chunk_visual_buffers,
+		DEFVAL(VISUAL_APPLY_BUFFER_STRIDE)
+	);
 }
 
 Dictionary ChunkVisualKernels::compute_visual_batch(Dictionary p_request) const {
@@ -762,25 +845,51 @@ Dictionary ChunkVisualKernels::compute_visual_batch(Dictionary p_request) const 
 	result["end_index"] = int(p_request.get("end_index", -1));
 	result["tiles"] = tiles;
 	result["tile_count"] = tiles.size();
-	PackedInt32Array command_buffer;
-	result["command_stride"] = VISUAL_COMMAND_STRIDE;
+	LayeredCommandBuffers buffers;
+	result["buffer_stride"] = VISUAL_APPLY_BUFFER_STRIDE;
 	if (mode == "phase") {
 		const int phase = int(p_request.get("phase", -1));
 		for (int i = 0; i < tiles.size(); ++i) {
 			const Vector2i local_tile = tiles[i];
-			if (phase == REDRAW_PHASE_TERRAIN) append_terrain_visual_commands(ctx, local_tile, command_buffer, false);
-			else if (phase == REDRAW_PHASE_COVER) append_cover_visual_command(ctx, local_tile, command_buffer, false);
-			else if (phase == REDRAW_PHASE_CLIFF) append_cliff_visual_command(ctx, local_tile, command_buffer, false);
+			if (phase == REDRAW_PHASE_TERRAIN) append_terrain_visual_commands(ctx, local_tile, buffers, false);
+			else if (phase == REDRAW_PHASE_COVER) append_cover_visual_command(ctx, local_tile, buffers, false);
+			else if (phase == REDRAW_PHASE_CLIFF) append_cliff_visual_command(ctx, local_tile, buffers, false);
 		}
 	} else if (mode == "dirty") {
 		for (int i = 0; i < tiles.size(); ++i) {
 			const Vector2i local_tile = tiles[i];
-			append_terrain_visual_commands(ctx, local_tile, command_buffer, true);
-			append_cover_visual_command(ctx, local_tile, command_buffer, true);
-			append_cliff_visual_command(ctx, local_tile, command_buffer, true);
+			append_terrain_visual_commands(ctx, local_tile, buffers, true);
+			append_cover_visual_command(ctx, local_tile, buffers, true);
+			append_cliff_visual_command(ctx, local_tile, buffers, true);
 		}
 	}
-	result["command_buffer"] = command_buffer;
-	result["command_count"] = command_buffer.size() / VISUAL_COMMAND_STRIDE;
+	result["terrain_buffer"] = buffers.terrain;
+	result["ground_face_buffer"] = buffers.ground_face;
+	result["rock_buffer"] = buffers.rock;
+	result["cover_buffer"] = buffers.cover;
+	result["cliff_buffer"] = buffers.cliff;
+	result["command_count"] = buffers.command_count;
 	return result;
+}
+
+int32_t ChunkVisualKernels::apply_chunk_visual_buffers(
+	TileMapLayer *p_terrain_layer,
+	const PackedInt32Array &p_terrain_buffer,
+	TileMapLayer *p_ground_face_layer,
+	const PackedInt32Array &p_ground_face_buffer,
+	TileMapLayer *p_rock_layer,
+	const PackedInt32Array &p_rock_buffer,
+	TileMapLayer *p_cover_layer,
+	const PackedInt32Array &p_cover_buffer,
+	TileMapLayer *p_cliff_layer,
+	const PackedInt32Array &p_cliff_buffer,
+	int32_t p_buffer_stride
+) const {
+	int32_t applied_commands = 0;
+	applied_commands += apply_visual_buffer(p_terrain_layer, p_terrain_buffer, p_buffer_stride);
+	applied_commands += apply_visual_buffer(p_ground_face_layer, p_ground_face_buffer, p_buffer_stride);
+	applied_commands += apply_visual_buffer(p_rock_layer, p_rock_buffer, p_buffer_stride);
+	applied_commands += apply_visual_buffer(p_cover_layer, p_cover_buffer, p_buffer_stride);
+	applied_commands += apply_visual_buffer(p_cliff_layer, p_cliff_buffer, p_buffer_stride);
+	return applied_commands;
 }

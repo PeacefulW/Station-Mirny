@@ -58,6 +58,7 @@ const VISUAL_BATCH_MODE_PHASE: StringName = &"phase"
 const VISUAL_BATCH_MODE_DIRTY: StringName = &"dirty"
 const VISUAL_COMMAND_OP_SET: int = 0
 const VISUAL_COMMAND_OP_ERASE: int = 1
+const VISUAL_APPLY_BUFFER_STRIDE: int = 7
 const VISUAL_LAYER_TERRAIN: int = 0
 const VISUAL_LAYER_GROUND_FACE: int = 1
 const VISUAL_LAYER_ROCK: int = 2
@@ -673,11 +674,7 @@ func apply_visual_phase_batch(batch: Dictionary) -> bool:
 	if phase == REDRAW_PHASE_FLORA:
 		_apply_flora_render_packet(batch.get("flora_packet", {}) as Dictionary, &"batched_renderer")
 	else:
-		_apply_visual_commands(
-			batch.get("commands", []) as Array,
-			batch.get("command_buffer", PackedInt32Array()),
-			int(batch.get("command_stride", VISUAL_COMMAND_BUFFER_STRIDE))
-		)
+		_apply_visual_prepared_batch(batch)
 	_redraw_tile_index = end_index
 	if phase == REDRAW_PHASE_COVER:
 		_reapply_local_zone_cover_state_for_index_range(start_index, end_index)
@@ -689,11 +686,7 @@ func apply_visual_phase_batch(batch: Dictionary) -> bool:
 func apply_visual_dirty_batch(batch: Dictionary) -> bool:
 	if StringName(batch.get("mode", &"")) != VISUAL_BATCH_MODE_DIRTY:
 		return false
-	_apply_visual_commands(
-		batch.get("commands", []) as Array,
-		batch.get("command_buffer", PackedInt32Array()),
-		int(batch.get("command_stride", VISUAL_COMMAND_BUFFER_STRIDE))
-	)
+	_apply_visual_prepared_batch(batch)
 	_mark_interior_macro_dirty()
 	var dirty_tiles: Dictionary = {}
 	for tile_variant: Variant in batch.get("tiles", []):
@@ -783,6 +776,57 @@ func _apply_visual_commands(
 		applied_commands += 1
 	return applied_commands
 
+func _apply_visual_prepared_batch(batch: Dictionary) -> int:
+	var terrain_buffer: PackedInt32Array = batch.get("terrain_buffer", PackedInt32Array())
+	var ground_face_buffer: PackedInt32Array = batch.get("ground_face_buffer", PackedInt32Array())
+	var rock_buffer: PackedInt32Array = batch.get("rock_buffer", PackedInt32Array())
+	var cover_buffer: PackedInt32Array = batch.get("cover_buffer", PackedInt32Array())
+	var cliff_buffer: PackedInt32Array = batch.get("cliff_buffer", PackedInt32Array())
+	if not terrain_buffer.is_empty() \
+		or not ground_face_buffer.is_empty() \
+		or not rock_buffer.is_empty() \
+		or not cover_buffer.is_empty() \
+		or not cliff_buffer.is_empty():
+		return _apply_visual_layer_buffers(
+			terrain_buffer,
+			ground_face_buffer,
+			rock_buffer,
+			cover_buffer,
+			cliff_buffer,
+			int(batch.get("buffer_stride", VISUAL_APPLY_BUFFER_STRIDE))
+		)
+	return _apply_visual_commands(
+		batch.get("commands", []) as Array,
+		batch.get("command_buffer", PackedInt32Array()),
+		int(batch.get("command_stride", VISUAL_COMMAND_BUFFER_STRIDE))
+	)
+
+func _apply_visual_layer_buffers(
+	terrain_buffer: PackedInt32Array,
+	ground_face_buffer: PackedInt32Array,
+	rock_buffer: PackedInt32Array,
+	cover_buffer: PackedInt32Array,
+	cliff_buffer: PackedInt32Array,
+	buffer_stride: int = VISUAL_APPLY_BUFFER_STRIDE
+) -> int:
+	var native_applied: int = _try_apply_visual_buffers_native(
+		terrain_buffer,
+		ground_face_buffer,
+		rock_buffer,
+		cover_buffer,
+		cliff_buffer,
+		buffer_stride
+	)
+	if native_applied >= 0:
+		return native_applied
+	var applied_commands: int = 0
+	applied_commands += _apply_visual_layer_buffer(_terrain_layer, terrain_buffer, buffer_stride)
+	applied_commands += _apply_visual_layer_buffer(_ground_face_layer, ground_face_buffer, buffer_stride)
+	applied_commands += _apply_visual_layer_buffer(_rock_layer, rock_buffer, buffer_stride)
+	applied_commands += _apply_visual_layer_buffer(_cover_layer, cover_buffer, buffer_stride)
+	applied_commands += _apply_visual_layer_buffer(_cliff_layer, cliff_buffer, buffer_stride)
+	return applied_commands
+
 func _apply_visual_command_buffer(command_buffer: PackedInt32Array, command_stride: int = VISUAL_COMMAND_BUFFER_STRIDE) -> int:
 	if command_stride <= 0:
 		return 0
@@ -805,6 +849,57 @@ func _apply_visual_command_buffer(command_buffer: PackedInt32Array, command_stri
 			applied_commands += 1
 		index += command_stride
 	return applied_commands
+
+func _apply_visual_layer_buffer(
+	layer: TileMapLayer,
+	buffer: PackedInt32Array,
+	buffer_stride: int = VISUAL_APPLY_BUFFER_STRIDE
+) -> int:
+	if layer == null or buffer.is_empty() or buffer_stride <= 0:
+		return 0
+	var applied_commands: int = 0
+	var command_limit: int = buffer.size() - buffer_stride + 1
+	var index: int = 0
+	while index < command_limit:
+		var local_tile: Vector2i = Vector2i(buffer[index], buffer[index + 1])
+		if buffer[index + 2] == VISUAL_COMMAND_OP_SET:
+			layer.set_cell(
+				local_tile,
+				buffer[index + 3],
+				Vector2i(buffer[index + 4], buffer[index + 5]),
+				buffer[index + 6]
+			)
+		else:
+			layer.erase_cell(local_tile)
+		applied_commands += 1
+		index += buffer_stride
+	return applied_commands
+
+func _try_apply_visual_buffers_native(
+	terrain_buffer: PackedInt32Array,
+	ground_face_buffer: PackedInt32Array,
+	rock_buffer: PackedInt32Array,
+	cover_buffer: PackedInt32Array,
+	cliff_buffer: PackedInt32Array,
+	buffer_stride: int = VISUAL_APPLY_BUFFER_STRIDE
+) -> int:
+	var helper: RefCounted = Chunk._get_native_visual_kernels()
+	if helper == null or not helper.has_method("apply_chunk_visual_buffers"):
+		return -1
+	return int(helper.call(
+		"apply_chunk_visual_buffers",
+		_terrain_layer,
+		terrain_buffer,
+		_ground_face_layer,
+		ground_face_buffer,
+		_rock_layer,
+		rock_buffer,
+		_cover_layer,
+		cover_buffer,
+		_cliff_layer,
+		cliff_buffer,
+		buffer_stride
+	))
 
 func _visual_layer_for_command(layer_id: int) -> TileMapLayer:
 	match layer_id:
