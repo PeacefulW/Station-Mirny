@@ -43,6 +43,9 @@ const _INTERIOR_MACRO_DUST_SEED: int = 16001
 const _INTERIOR_MACRO_MOSS_SEED: int = 16057
 const _INTERIOR_MACRO_CRACK_SEED: int = 16111
 const _INTERIOR_MACRO_PEBBLE_SEED: int = 16183
+const _ECOTONE_BLEND_SEED: int = 18257
+const _ECOTONE_BLEND_SCALE: float = 6.0
+const _ECOTONE_BLEND_START: float = 0.18
 const _HASH32_MASK: int = 0xffffffff
 const _COVER_REVEAL_DIRS := [
 	Vector2i.LEFT,
@@ -81,6 +84,7 @@ class FloraBatchRenderer:
 	extends Node2D
 
 	var _layers: Array = []
+	var _texture_cache: Dictionary = {}
 
 	func clear_render_packet() -> void:
 		_layers.clear()
@@ -89,6 +93,7 @@ class FloraBatchRenderer:
 
 	func set_render_packet(packet: Dictionary) -> void:
 		_layers = (packet.get("layers", []) as Array).duplicate(true)
+		_cache_packet_textures()
 		visible = not _layers.is_empty()
 		queue_redraw()
 
@@ -97,14 +102,33 @@ class FloraBatchRenderer:
 			var layer: Dictionary = layer_variant as Dictionary
 			for item_variant: Variant in layer.get("items", []):
 				var item: Dictionary = item_variant as Dictionary
-				draw_rect(
-					Rect2(
-						item.get("position", Vector2.ZERO) as Vector2,
-						item.get("size", Vector2.ZERO) as Vector2
-					),
-					item.get("color", Color.WHITE) as Color,
-					true
+				var draw_rect_data := Rect2(
+					item.get("position", Vector2.ZERO) as Vector2,
+					item.get("size", Vector2.ZERO) as Vector2
 				)
+				var texture_path: String = String(item.get("texture_path", ""))
+				var texture: Texture2D = _get_cached_texture(texture_path)
+				if texture != null:
+					draw_texture_rect(texture, draw_rect_data, false, Color.WHITE)
+					continue
+				draw_rect(draw_rect_data, item.get("color", Color.WHITE) as Color, true)
+
+	func _cache_packet_textures() -> void:
+		for layer_variant: Variant in _layers:
+			var layer: Dictionary = layer_variant as Dictionary
+			for item_variant: Variant in layer.get("items", []):
+				var item: Dictionary = item_variant as Dictionary
+				var texture_path: String = String(item.get("texture_path", ""))
+				if texture_path.is_empty() or _texture_cache.has(texture_path):
+					continue
+				_texture_cache[texture_path] = ResourceLoader.load(texture_path, "Texture2D")
+
+	func _get_cached_texture(texture_path: String) -> Texture2D:
+		if texture_path.is_empty():
+			return null
+		if not _texture_cache.has(texture_path):
+			_texture_cache[texture_path] = ResourceLoader.load(texture_path, "Texture2D")
+		return _texture_cache.get(texture_path, null) as Texture2D
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 var is_loaded: bool = false
@@ -132,6 +156,8 @@ var _terrain_bytes: PackedByteArray = PackedByteArray()
 var _height_bytes: PackedFloat32Array = PackedFloat32Array()
 var _variation_bytes: PackedByteArray = PackedByteArray()
 var _biome_bytes: PackedByteArray = PackedByteArray()
+var _secondary_biome_bytes: PackedByteArray = PackedByteArray()
+var _ecotone_values: PackedFloat32Array = PackedFloat32Array()
 var _rock_visual_class_bytes: PackedByteArray = PackedByteArray()
 var _ground_face_atlas_bytes: PackedInt32Array = PackedInt32Array()
 var _cover_mask_bytes: PackedInt32Array = PackedInt32Array()
@@ -203,6 +229,8 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 	_height_bytes = native_data.get("height", PackedFloat32Array())
 	_variation_bytes = native_data.get("variation", PackedByteArray())
 	_biome_bytes = native_data.get("biome", PackedByteArray())
+	_secondary_biome_bytes = native_data.get("secondary_biome", PackedByteArray()) as PackedByteArray
+	_ecotone_values = native_data.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array
 	_load_prebaked_visual_payload(native_data)
 	_flora_result = null
 	_flora_payload = {}
@@ -217,7 +245,16 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 		push_error("Chunk.populate_native(): biome array size mismatch for %s" % [chunk_coord])
 		assert(false, "biome array size must match terrain array size")
 		_biome_bytes.resize(_terrain_bytes.size())
-		_biome_bytes.fill(0)
+		_biome_bytes.fill(_default_biome_palette_index())
+	if _secondary_biome_bytes.size() != _terrain_bytes.size():
+		if not _secondary_biome_bytes.is_empty():
+			push_warning("Chunk.populate_native(): secondary biome array size mismatch for %s — falling back to primary biome palette" % [chunk_coord])
+		_secondary_biome_bytes = _biome_bytes.duplicate()
+	if _ecotone_values.size() != _terrain_bytes.size():
+		if not _ecotone_values.is_empty():
+			push_warning("Chunk.populate_native(): ecotone array size mismatch for %s — disabling ecotone blending for this payload" % [chunk_coord])
+		_ecotone_values.resize(_terrain_bytes.size())
+		_ecotone_values.fill(0.0)
 	_apply_saved_modifications()
 	if not saved_modifications.is_empty():
 		_invalidate_prebaked_visual_payload()
@@ -321,8 +358,14 @@ func mark_tile_modified(tile_pos: Vector2i, state: Dictionary) -> void:
 	_modified_tiles[tile_pos] = state
 	is_dirty = true
 
-func set_revealed_local_cover_tiles(cover_tiles: Dictionary) -> void:
-	_apply_local_zone_cover_state(cover_tiles)
+func set_revealed_local_cover_tiles(
+	cover_tiles: Dictionary,
+	changed_tiles: Dictionary = {}
+) -> void:
+	if changed_tiles.is_empty():
+		_apply_local_zone_cover_state(cover_tiles)
+		return
+	_apply_local_zone_cover_state_delta(cover_tiles, changed_tiles)
 
 func set_mining_write_authorized(value: bool) -> void:
 	_mining_write_authorized = value
@@ -434,6 +477,8 @@ func cleanup() -> void:
 	_height_bytes = PackedFloat32Array()
 	_variation_bytes = PackedByteArray()
 	_biome_bytes = PackedByteArray()
+	_secondary_biome_bytes = PackedByteArray()
+	_ecotone_values = PackedFloat32Array()
 	_revealed_local_cover_tiles = {}
 	_interior_macro_dirty = false
 	_clear_interior_macro_layer()
@@ -731,6 +776,8 @@ func _build_prebaked_visual_phase_batch(tile_budget: int) -> Dictionary:
 		"height_bytes": _height_bytes,
 		"variation_bytes": _variation_bytes,
 		"biome_bytes": _biome_bytes,
+		"secondary_biome_bytes": _secondary_biome_bytes,
+		"ecotone_values": _ecotone_values,
 		"rock_visual_class": _rock_visual_class_bytes,
 		"ground_face_atlas": _ground_face_atlas_bytes,
 		"cover_mask": _cover_mask_bytes,
@@ -1168,6 +1215,8 @@ static func build_prebaked_visual_payload(request: Dictionary) -> Dictionary:
 	var height_bytes: PackedFloat32Array = request.get("height_bytes", PackedFloat32Array()) as PackedFloat32Array
 	var variation_bytes: PackedByteArray = request.get("variation_bytes", PackedByteArray()) as PackedByteArray
 	var biome_bytes: PackedByteArray = request.get("biome_bytes", PackedByteArray()) as PackedByteArray
+	var secondary_biome_bytes: PackedByteArray = request.get("secondary_biome_bytes", PackedByteArray()) as PackedByteArray
+	var ecotone_values: PackedFloat32Array = request.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array
 	var terrain_halo: PackedByteArray = request.get("terrain_halo", PackedByteArray()) as PackedByteArray
 	var chunk_coord: Vector2i = request.get("chunk_coord", Vector2i.ZERO) as Vector2i
 	var chunk_size: int = int(request.get("chunk_size", 0))
@@ -1188,6 +1237,10 @@ static func build_prebaked_visual_payload(request: Dictionary) -> Dictionary:
 	var height_lookup: Dictionary = {}
 	var variation_lookup: Dictionary = {}
 	var biome_lookup: Dictionary = {}
+	var secondary_biome_lookup: Dictionary = {}
+	var ecotone_lookup: Dictionary = {}
+	var has_secondary_biome: bool = secondary_biome_bytes.size() == tile_count
+	var has_ecotone_values: bool = ecotone_values.size() == tile_count
 	for local_y: int in range(chunk_size):
 		for local_x: int in range(chunk_size):
 			var idx: int = local_y * chunk_size + local_x
@@ -1195,6 +1248,8 @@ static func build_prebaked_visual_payload(request: Dictionary) -> Dictionary:
 			height_lookup[local_tile] = float(height_bytes[idx])
 			variation_lookup[local_tile] = int(variation_bytes[idx])
 			biome_lookup[local_tile] = int(biome_bytes[idx])
+			secondary_biome_lookup[local_tile] = int(secondary_biome_bytes[idx]) if has_secondary_biome else int(biome_bytes[idx])
+			ecotone_lookup[local_tile] = float(ecotone_values[idx]) if has_ecotone_values else 0.0
 	var visual_request: Dictionary = {
 		"chunk_coord": chunk_coord,
 		"chunk_size": chunk_size,
@@ -1203,6 +1258,8 @@ static func build_prebaked_visual_payload(request: Dictionary) -> Dictionary:
 		"height_lookup": height_lookup,
 		"variation_lookup": variation_lookup,
 		"biome_lookup": biome_lookup,
+		"secondary_biome_lookup": secondary_biome_lookup,
+		"ecotone_lookup": ecotone_lookup,
 	}
 	var rock_visual_class := PackedByteArray()
 	var ground_face_atlas := PackedInt32Array()
@@ -1240,7 +1297,7 @@ static func build_prebaked_visual_payload(request: Dictionary) -> Dictionary:
 				else:
 					interior_variant = Chunk._visual_request_interior_variant(global_tile.x, global_tile.y)
 				var face_atlas: Vector2i = Vector2i(-1, -1)
-				var biome_palette_index: int = int(biome_bytes[idx])
+				var biome_palette_index: int = Chunk._visual_request_biome(visual_request, local_tile)
 				match terrain_type:
 					TileGenData.TerrainType.GROUND, TileGenData.TerrainType.GRASS:
 						face_atlas = ChunkTilesetFactory.get_ground_face_coords(face_wall, biome_palette_index, interior_variant.x)
@@ -1308,6 +1365,8 @@ static func _compute_prebaked_visual_batch(request: Dictionary) -> Dictionary:
 	var height_bytes: PackedFloat32Array = request.get("height_bytes", PackedFloat32Array()) as PackedFloat32Array
 	var variation_bytes: PackedByteArray = request.get("variation_bytes", PackedByteArray()) as PackedByteArray
 	var biome_bytes: PackedByteArray = request.get("biome_bytes", PackedByteArray()) as PackedByteArray
+	var secondary_biome_bytes: PackedByteArray = request.get("secondary_biome_bytes", PackedByteArray()) as PackedByteArray
+	var ecotone_values: PackedFloat32Array = request.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array
 	var rock_visual_class: PackedByteArray = request.get("rock_visual_class", PackedByteArray()) as PackedByteArray
 	var ground_face_atlas: PackedInt32Array = request.get("ground_face_atlas", PackedInt32Array()) as PackedInt32Array
 	var cover_mask: PackedInt32Array = request.get("cover_mask", PackedInt32Array()) as PackedInt32Array
@@ -1329,15 +1388,26 @@ static func _compute_prebaked_visual_batch(request: Dictionary) -> Dictionary:
 	var commands: Array[Dictionary] = []
 	var phase: int = int(request.get("phase", REDRAW_PHASE_DONE))
 	var is_underground: bool = bool(request.get("is_underground", false))
+	var has_secondary_biome: bool = secondary_biome_bytes.size() == terrain_bytes.size()
+	var has_ecotone_values: bool = ecotone_values.size() == terrain_bytes.size()
 	for tile_variant: Variant in tiles:
 		var local_tile: Vector2i = tile_variant as Vector2i
 		var idx: int = local_tile.y * chunk_size + local_tile.x
 		if idx < 0 or idx >= terrain_bytes.size():
 			continue
 		var terrain_type: int = terrain_bytes[idx]
-		var biome_palette_index: int = int(biome_bytes[idx]) if idx < biome_bytes.size() else 0
 		var global_tile: Vector2i = request.get("chunk_coord", Vector2i.ZERO) as Vector2i
 		global_tile = Vector2i(global_tile.x * chunk_size + local_tile.x, global_tile.y * chunk_size + local_tile.y)
+		var primary_biome_palette_index: int = int(biome_bytes[idx]) if idx < biome_bytes.size() else Chunk._default_biome_palette_index()
+		var secondary_biome_palette_index: int = int(secondary_biome_bytes[idx]) if has_secondary_biome else primary_biome_palette_index
+		var ecotone_factor: float = float(ecotone_values[idx]) if has_ecotone_values else 0.0
+		var biome_palette_index: int = Chunk._resolve_effective_surface_palette_index(
+			primary_biome_palette_index,
+			secondary_biome_palette_index,
+			ecotone_factor,
+			global_tile.x,
+			global_tile.y
+		)
 		match phase:
 			REDRAW_PHASE_TERRAIN:
 				var atlas: Vector2i = ChunkTilesetFactory.TILE_GROUND
@@ -1618,7 +1688,19 @@ static func _visual_request_variation(request: Dictionary, local_tile: Vector2i)
 
 static func _visual_request_biome(request: Dictionary, local_tile: Vector2i) -> int:
 	var biome_lookup: Dictionary = request.get("biome_lookup", {}) as Dictionary
-	return int(biome_lookup.get(local_tile, 0))
+	var primary_biome_palette_index: int = int(biome_lookup.get(local_tile, Chunk._default_biome_palette_index()))
+	var secondary_biome_lookup: Dictionary = request.get("secondary_biome_lookup", {}) as Dictionary
+	var secondary_biome_palette_index: int = int(secondary_biome_lookup.get(local_tile, primary_biome_palette_index))
+	var ecotone_lookup: Dictionary = request.get("ecotone_lookup", {}) as Dictionary
+	var ecotone_factor: float = float(ecotone_lookup.get(local_tile, 0.0))
+	var global_tile: Vector2i = Chunk._visual_request_to_global_tile(request, local_tile)
+	return Chunk._resolve_effective_surface_palette_index(
+		primary_biome_palette_index,
+		secondary_biome_palette_index,
+		ecotone_factor,
+		global_tile.x,
+		global_tile.y
+	)
 
 static func _visual_request_to_global_tile(request: Dictionary, local_tile: Vector2i) -> Vector2i:
 	var chunk_coord: Vector2i = request.get("chunk_coord", Vector2i.ZERO) as Vector2i
@@ -2419,6 +2501,43 @@ func _redraw_cover_tile(local_tile: Vector2i) -> void:
 	var alt_id: int = _resolve_variant_alt_id(base, global_tile.x, global_tile.y, false)
 	_cover_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, alt_id)
 
+static func _resolve_effective_surface_palette_index(
+	primary_biome_palette_index: int,
+	secondary_biome_palette_index: int,
+	ecotone_factor: float,
+	global_x: int,
+	global_y: int
+) -> int:
+	if secondary_biome_palette_index == primary_biome_palette_index:
+		return primary_biome_palette_index
+	var secondary_weight: float = _resolve_ecotone_secondary_weight(ecotone_factor)
+	if secondary_weight <= 0.0:
+		return primary_biome_palette_index
+	var blend_noise: float = _sample_ecotone_blend_noise(global_x, global_y, _ECOTONE_BLEND_SCALE, _ECOTONE_BLEND_SEED)
+	return secondary_biome_palette_index if blend_noise < secondary_weight else primary_biome_palette_index
+
+static func _resolve_ecotone_secondary_weight(ecotone_factor: float) -> float:
+	var normalized_factor: float = clampf(
+		(ecotone_factor - _ECOTONE_BLEND_START) / maxf(0.001, 1.0 - _ECOTONE_BLEND_START),
+		0.0,
+		1.0
+	)
+	return 0.5 * _smoothstep01(normalized_factor)
+
+static func _sample_ecotone_blend_noise(global_x: int, global_y: int, scale: float, seed: int) -> float:
+	var resolved_scale: float = maxf(1.0, scale)
+	var scaled_x: float = float(global_x) / resolved_scale
+	var scaled_y: float = float(global_y) / resolved_scale
+	var cell_x: int = floori(scaled_x)
+	var cell_y: int = floori(scaled_y)
+	var frac_x: float = _smoothstep01(scaled_x - float(cell_x))
+	var frac_y: float = _smoothstep01(scaled_y - float(cell_y))
+	var v00: float = _hash32_to_unit_float(_hash32_xy(cell_x, cell_y, seed))
+	var v10: float = _hash32_to_unit_float(_hash32_xy(cell_x + 1, cell_y, seed))
+	var v01: float = _hash32_to_unit_float(_hash32_xy(cell_x, cell_y + 1, seed))
+	var v11: float = _hash32_to_unit_float(_hash32_xy(cell_x + 1, cell_y + 1, seed))
+	return lerpf(lerpf(v00, v10, frac_x), lerpf(v01, v11, frac_x), frac_y)
+
 ## XOR-shift hash — no visible linear patterns.
 static func _tile_hash_xy(tile_x: int, tile_y: int) -> int:
 	return _hash32_xy(tile_x, tile_y, 0)
@@ -2852,11 +2971,36 @@ func _variation_at(local_tile: Vector2i) -> int:
 		return ChunkTilesetFactory.SURFACE_VARIATION_NONE
 	return _variation_bytes[idx]
 
-func _biome_palette_index_at(local_tile: Vector2i) -> int:
+func _primary_biome_palette_index_at(local_tile: Vector2i) -> int:
 	var idx: int = local_tile.y * _chunk_size + local_tile.x
 	if idx < 0 or idx >= _biome_bytes.size():
-		return 0
+		return _default_biome_palette_index()
 	return int(_biome_bytes[idx])
+
+func _secondary_biome_palette_index_at(local_tile: Vector2i) -> int:
+	var idx: int = local_tile.y * _chunk_size + local_tile.x
+	if idx < 0 or idx >= _secondary_biome_bytes.size():
+		return _primary_biome_palette_index_at(local_tile)
+	return int(_secondary_biome_bytes[idx])
+
+func _ecotone_factor_at(local_tile: Vector2i) -> float:
+	var idx: int = local_tile.y * _chunk_size + local_tile.x
+	if idx < 0 or idx >= _ecotone_values.size():
+		return 0.0
+	return float(_ecotone_values[idx])
+
+func _biome_palette_index_at(local_tile: Vector2i) -> int:
+	var global_tile: Vector2i = _to_global_tile(local_tile)
+	return Chunk._resolve_effective_surface_palette_index(
+		_primary_biome_palette_index_at(local_tile),
+		_secondary_biome_palette_index_at(local_tile),
+		_ecotone_factor_at(local_tile),
+		global_tile.x,
+		global_tile.y
+	)
+
+static func _default_biome_palette_index() -> int:
+	return BiomeRegistry.get_default_palette_index() if BiomeRegistry else 0
 
 func _cache_has_mountain() -> void:
 	_has_mountain = false
@@ -2947,6 +3091,24 @@ func _apply_local_zone_cover_state(next_cover_tiles: Dictionary) -> void:
 		if _revealed_local_cover_tiles.has(local_tile):
 			continue
 		_cover_layer.erase_cell(local_tile)
+	_revealed_local_cover_tiles = next_cover_tiles
+
+func _apply_local_zone_cover_state_delta(
+	next_cover_tiles: Dictionary,
+	changed_tiles: Dictionary
+) -> void:
+	if not _cover_layer:
+		_revealed_local_cover_tiles = next_cover_tiles
+		return
+	for local_tile: Vector2i in changed_tiles:
+		var was_revealed: bool = _revealed_local_cover_tiles.has(local_tile)
+		var should_be_revealed: bool = next_cover_tiles.has(local_tile)
+		if was_revealed == should_be_revealed:
+			continue
+		if should_be_revealed:
+			_cover_layer.erase_cell(local_tile)
+		else:
+			_redraw_cover_tile(local_tile)
 	_revealed_local_cover_tiles = next_cover_tiles
 
 func _reapply_local_zone_cover_state() -> void:
@@ -3062,10 +3224,17 @@ func _log_flora_publish_summary(mode: StringName, renderer_nodes: int) -> void:
 		"layer_count",
 		_flora_result.get_render_layer_count() if _flora_result != null else 0
 	))
-	print("[FloraPublish] chunk=%s mode=%s placements=%d groups=%d layers=%d renderer_nodes=%d" % [
+	var textured_placement_count: int = 0
+	var placements: Array = flora_payload.get("placements", []) as Array
+	for placement_variant: Variant in placements:
+		var placement: Dictionary = placement_variant as Dictionary
+		if not String(placement.get("texture_path", "")).is_empty():
+			textured_placement_count += 1
+	print("[FloraPublish] chunk=%s mode=%s placements=%d textured=%d groups=%d layers=%d renderer_nodes=%d" % [
 		chunk_coord,
 		String(mode),
 		placement_count,
+		textured_placement_count,
 		group_count,
 		layer_count,
 		renderer_nodes,

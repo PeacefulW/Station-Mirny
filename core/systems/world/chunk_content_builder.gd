@@ -176,11 +176,15 @@ func _build_prebaked_visual_payload(
 		"height_bytes": native_data.get("height", PackedFloat32Array()) as PackedFloat32Array,
 		"variation_bytes": native_data.get("variation", PackedByteArray()) as PackedByteArray,
 		"biome_bytes": native_data.get("biome", PackedByteArray()) as PackedByteArray,
+		"secondary_biome_bytes": native_data.get("secondary_biome", PackedByteArray()) as PackedByteArray,
+		"ecotone_values": native_data.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array,
 		"terrain_halo": _build_terrain_halo(native_data.get("terrain", PackedByteArray()) as PackedByteArray, base_tile, chunk_size),
 		"native_visual_tables": ChunkScript.build_native_visual_tables(),
 	}
 	var helper: RefCounted = _get_native_visual_kernels()
-	if helper != null and helper.has_method("build_prebaked_visual_payload"):
+	if not _requires_gdscript_prebaked_visual_payload(request, chunk_size) \
+		and helper != null \
+		and helper.has_method("build_prebaked_visual_payload"):
 		var native_payload: Dictionary = helper.call("build_prebaked_visual_payload", request) as Dictionary
 		if not native_payload.is_empty():
 			return native_payload
@@ -211,6 +215,22 @@ func _get_native_visual_kernels() -> RefCounted:
 		return null
 	_native_visual_kernels = ClassDB.instantiate(NATIVE_VISUAL_KERNELS_CLASS) as RefCounted
 	return _native_visual_kernels
+
+func _requires_gdscript_prebaked_visual_payload(request: Dictionary, chunk_size: int) -> bool:
+	if chunk_size <= 0:
+		return false
+	var tile_count: int = chunk_size * chunk_size
+	var biome_bytes: PackedByteArray = request.get("biome_bytes", PackedByteArray()) as PackedByteArray
+	var secondary_biome_bytes: PackedByteArray = request.get("secondary_biome_bytes", PackedByteArray()) as PackedByteArray
+	var ecotone_values: PackedFloat32Array = request.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array
+	if biome_bytes.size() != tile_count \
+		or secondary_biome_bytes.size() != tile_count \
+		or ecotone_values.size() != tile_count:
+		return false
+	for idx: int in range(tile_count):
+		if secondary_biome_bytes[idx] != biome_bytes[idx] and ecotone_values[idx] > 0.05:
+			return true
+	return false
 
 func _chunk_size() -> int:
 	return _balance.chunk_size_tiles if _balance else 0

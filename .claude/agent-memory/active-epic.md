@@ -3,7 +3,7 @@
 **Spec**: `docs/02_system_specs/world/natural_world_generation_overhaul.md`
 **Active constructive replacement**: `docs/02_system_specs/world/natural_world_constructive_runtime_spec.md`
 **Started**: 2026-04-02
-**Current iteration**: Constructive Iteration 7 is completed with headless fixed-seed ecotone/vegetation proof captured for seed `12345` via `GameWorldDebug` export tooling. Iterations 2-3, 5, and 6 visible proof remain open.
+**Current iteration**: Constructive Iteration 8 biome-parity fix completed on 2026-04-08. Updated native GDExtension rebuilt successfully, authoritative script-side proof was refreshed for seed `12345`, and an existing `WorldLabSampler`-based compare confirmed `0` biome mismatches between script and native on both a coarse fixed-seed sweep and the saved hotspot window. Broader terrain parity remains a separate Iteration 8 concern.
 **Total iterations**: Phase 1 steps 1.1-1.17 + constructive runtime activation Iterations 1-9
 
 ## 2026-04-04 Direction reset (critical)
@@ -54,8 +54,8 @@ Historical notes below may mention Phase 2 landmark grammar as if it were valid.
 - [ ] `DATA_CONTRACTS.md` — keep the `World Pre-pass` layer and read-contract text aligned whenever pre-pass channels stop being internal scaffolding.
 - [ ] `PUBLIC_API.md` — update if `WorldPrePass` gains new safe entrypoints for external runtime callers.
 - **Deadline**: review every iteration; update immediately on semantic drift.
-- **Latest review**: constructive Iteration 7 grep-checked the ecotone-consumer surface (`LocalVariationResolver`, `ChunkFloraBuilder`, payload plumbing, and `WorldLab` inspect surfacing) and confirmed no canonical doc update is currently required; Iteration 5 remains the last step that changed canonical world docs.
-- **Status**: reviewed through constructive Iteration 7; Iterations 1-2 and 5 updated canonical docs, while Iterations 3-4 and 6-7 remained internal/derived/result-surface work and grep confirmed no new canonical updates were required.
+- **Latest review**: constructive Iteration 8 grep-checked `WorldGenerator.resolve_biome`, `WorldComputeContext.resolve_biome`, `ChunkGenerator.initialize`, `biome_continental_drying_factor`, and `biome_drainage_moisture_bonus`; `DATA_CONTRACTS.md` and `PUBLIC_API.md` were updated in the same task because the sanctioned native bridge now consumes a serialized pre-pass snapshot and public biome reads no longer bypass the compute-context path.
+- **Status**: reviewed through constructive Iteration 8; Iterations 1-2, 5, and 8 updated canonical docs, while Iterations 3-4 and 6-7 remained internal/derived/result-surface work and grep confirmed no new canonical updates were required.
 
 ## 2026-04-05 Perf follow-up
 
@@ -116,6 +116,40 @@ Implemented Iteration 1 code and doc work for the curated pre-pass read surface 
 
 #### Blockers
 - none
+
+---
+
+### Constructive Iteration 8 — Native Path Parity
+**Status**: completed
+**Started**: 2026-04-08
+**Completed**: 2026-04-08
+
+#### Acceptance tests
+- [x] `WorldGenerator._build_generator_params()` exports causal biome fields and causal balance knobs for native init. — verified by `rg` in `core/autoloads/world_generator.gd` (lines 562, 623-675)
+- [x] Native `ChunkGenerator` consumes `drainage`, `slope`, `rain_shadow`, `continentalness`, and `effective_moisture` in biome match/score resolution. — verified by `rg` in `gdextension/src/chunk_generator.{h,cpp}` (range/weight definitions at header lines 31-49 and cpp lines 237-262; causal match/score path at cpp lines 607-773)
+- [x] Public `WorldGenerator.resolve_biome()` no longer calls the legacy `_biome_resolver.resolve_biome()` shortcut and now routes through `WorldComputeContext.resolve_biome()`. — verified by `rg` in `core/autoloads/world_generator.gd` (lines 231-240) and `0 matches` for `_biome_resolver.resolve_biome`
+- [x] Canonical docs reflect the new native pre-pass bridge and authoritative public biome-read path. — verified by `rg` in `docs/02_system_specs/world/DATA_CONTRACTS.md` and `docs/00_governance/PUBLIC_API.md` (matches at lines 99-100, 201, and 634 after update)
+- [x] Fixed-seed authoritative biome proof artifact captured through a sanctioned path. — verified by headless `GameWorldDebug` proof driver with `codex_export_ecotone_proof codex_world_seed=12345`; output saved to `debug_exports/world_previews/seed_12345_local_288_-352_r16_1775657535_x4_{biomes,terrain,structures,ecotone,vegetation}.png` plus log `debug_exports/world_previews/biome_seed12345_authoritative.log`
+- [x] Fixed-seed native biome parity proof captured through a sanctioned path. — verified after successful `python -m SCons -Q --debug=stacktrace platform=windows target=template_debug`: headless compare reused existing `WorldLabSampler` from `scenes/ui/world_lab.gd` and saved log `debug_exports/world_previews/native_vs_script_seed12345_worldlab.log`, which reports `COARSE_BIOME_MISMATCHES=0` across `8192` coarse samples and `HOTSPOT_BIOME_MISMATCHES=0` across the `seed_12345_local_288_-352_r16...` hotspot window
+
+#### Doc check
+- [x] Grep `DATA_CONTRACTS.md` for `WorldGenerator.resolve_biome|WorldComputeContext.resolve_biome|ChunkGenerator.initialize|biome_continental_drying_factor|biome_drainage_moisture_bonus` — matches at lines 99-100 and 201; updated where semantics changed
+- [x] Grep `PUBLIC_API.md` for `WorldGenerator.resolve_biome|WorldComputeContext.resolve_biome|ChunkGenerator.initialize|biome_continental_drying_factor|biome_drainage_moisture_bonus` — match at line 634 for `ChunkGenerator.initialize`; `0 matches` for the others, so no additional public doc text existed to update
+- [x] Documentation debt section reviewed — Iteration 8 spec requires updating both canonical docs; completed in this task
+
+#### Files touched
+- `core/autoloads/world_generator.gd` — native biome params/pre-pass snapshot export and public biome-read routing through compute context
+- `gdextension/src/chunk_generator.h` — native causal biome/pre-pass config state and helper declarations
+- `gdextension/src/chunk_generator.cpp` — native causal biome matching/scoring, effective moisture, pre-pass-backed structure sampling, and parity tie-break/fallback behavior
+- `docs/02_system_specs/world/DATA_CONTRACTS.md` — documented authoritative public biome path and native pre-pass snapshot reader semantics
+- `docs/00_governance/PUBLIC_API.md` — documented the expanded `ChunkGenerator.initialize()` bridge surface
+- `.claude/agent-memory/active-epic.md` — tracked Iteration 8 status, docs, proof, and blocker
+
+#### Closure report
+completed for the biome-parity scope: implementation, canonical doc updates, authoritative script proof, native rebuild, and fixed-seed native-vs-script biome compare all completed in this session. Terrain parity still shows large mismatches and remains outside this bugfix's accepted scope.
+
+#### Blockers
+- none for the biome-resolution task. Separate broader Iteration 8 terrain parity work remains open.
 ### Constructive Iteration 2 — Switch Structure Truth To `WorldPrePass`
 **Status**: completed
 **Started**: 2026-04-04

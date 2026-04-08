@@ -16,6 +16,7 @@ var _surface_terrain_resolver: RefCounted = null
 var _world_pre_pass: RefCounted = null
 var _biome_by_id: Dictionary = {}
 var _palette_index_by_id: Dictionary = {}
+var _default_palette_index: int = 0
 var _feature_hook_snapshot: Array[Resource] = []
 
 func configure(
@@ -44,6 +45,7 @@ func configure(
 	_world_pre_pass = world_pre_pass
 	_biome_by_id = biome_by_id.duplicate()
 	_palette_index_by_id = palette_index_by_id.duplicate()
+	_default_palette_index = int(_palette_index_by_id.get(default_biome.id if default_biome else &"", 0))
 	_feature_hook_snapshot = feature_hook_snapshot.duplicate()
 	return self
 
@@ -163,8 +165,11 @@ func get_biome_by_id(biome_id: StringName) -> BiomeData:
 
 func get_biome_palette_index(biome_id: StringName) -> int:
 	if biome_id == &"":
-		return 0
-	return int(_palette_index_by_id.get(biome_id, 0))
+		return _default_palette_index
+	var idx: Variant = _palette_index_by_id.get(biome_id, null)
+	if idx != null:
+		return int(idx)
+	return BiomeRegistry.get_palette_index(biome_id) if BiomeRegistry else _default_palette_index
 
 func get_world_seed() -> int:
 	return world_seed

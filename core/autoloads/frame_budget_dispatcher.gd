@@ -72,6 +72,8 @@ func _process(_delta: float) -> void:
 			_job_time_accum[job.job_id] = (_job_time_accum.get(job.job_id, 0.0) as float) + used_ms
 			_job_run_count_accum[job.job_id] = (_job_run_count_accum.get(job.job_id, 0) as int) + 1
 			WorldPerfProbe.record("FrameBudgetDispatcher.%s.%s" % [String(category), String(job.job_id)], used_ms)
+			if used_ms > job.budget_ms:
+				WorldPerfProbe.report_budget_overrun(job.job_id, category, used_ms, job.budget_ms)
 	var total_used: float = _elapsed_ms(frame_start)
 	WorldPerfProbe.record("FrameBudgetDispatcher.total", total_used)
 	if _frame_count % LOG_INTERVAL_FRAMES == 0:

@@ -1,0 +1,82 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+[WorldPerf] WorldPrePass.compute.sample_height_grid: 152.13 ms
+[WorldPerf] WorldPrePass.compute.spine_seeds: 453.85 ms
+[WorldPerf] WorldPrePass.compute.ridge_graph: 66.67 ms
+[WorldPerf] WorldPrePass.compute.ridge_strength_grid.native_total: 0.91 ms
+[WorldPerf] WorldPrePass.compute.mountain_mass_grid: 36.44 ms
+[WorldPerf] WorldPrePass.compute.lake_aware_fill.extract_lake_records: 644.91 ms
+[WorldPerf] WorldPrePass.compute.lake_aware_fill: 651.21 ms
+[WorldPerf] WorldPrePass.compute.flow_directions: 759.78 ms
+[WorldPerf] WorldPrePass.compute.flow_accumulation: 1111.76 ms
+[WorldPerf] WorldPrePass.compute.drainage_grid: 8.66 ms
+[WorldPerf] WorldPrePass.compute.floodplain_strength: 13.16 ms
+[WorldPerf] WorldPrePass.compute.erosion_proxy: 361.24 ms
+[WorldPerf] WorldPrePass.compute.slope_grid: 450.02 ms
+[WorldPerf] WorldPrePass.compute.rain_shadow: 1375.25 ms
+[WorldPerf] WorldPrePass.compute.continentalness.seed_water_sources: 51.55 ms
+[WorldPerf] WorldPrePass.compute.continentalness: 63.80 ms
+[WorldPerf] WorldPrePass.compute.sample_height_grid: 186.63 ms
+[WorldPerf] WorldPrePass.compute.spine_seeds: 570.09 ms
+[WorldPerf] WorldPrePass.compute.ridge_graph: 67.75 ms
+[WorldPerf] WorldPrePass.compute.ridge_strength_grid.native_total: 1.10 ms
+[WorldPerf] WorldPrePass.compute.mountain_mass_grid: 36.66 ms
+[WorldPerf] WorldPrePass.compute.lake_aware_fill.extract_lake_records: 1069.96 ms
+[WorldPerf] WorldPrePass.compute.lake_aware_fill: 1077.48 ms
+[WorldPerf] WorldPrePass.compute.flow_directions: 1140.85 ms
+[WorldPerf] WorldPrePass.compute.flow_accumulation: 1563.34 ms
+[WorldPerf] WorldPrePass.compute.drainage_grid: 9.50 ms
+[WorldPerf] WorldPrePass.compute.river_extraction.native_total: 8.40 ms
+[WorldPerf] WorldPrePass.compute.river_extraction: 9.23 ms
+[WorldPerf] WorldPrePass.compute.floodplain_strength: 22.16 ms
+[WorldPerf] WorldPrePass.compute.erosion_proxy: 590.18 ms
+[WorldPerf] WorldPrePass.compute.slope_grid: 670.18 ms
+[WorldPerf] WorldPrePass.compute.rain_shadow: 1543.80 ms
+[WorldPerf] WorldPrePass.compute.continentalness.seed_water_sources: 41.37 ms
+[WorldPerf] WorldPrePass.compute.continentalness: 55.49 ms
+SEED=12345 STEP=64
+COARSE_SAMPLES=8192
+COARSE_TERRAIN_MISMATCHES=5844
+COARSE_BIOME_MISMATCHES=0
+HOTSPOT_CENTER=(288, -352) HOTSPOT_RADIUS=16 HOTSPOT_SAMPLES=1089
+HOTSPOT_TERRAIN_MISMATCHES=1089
+HOTSPOT_BIOME_MISMATCHES=0
+Terrain mismatch buckets:
+0->1: 552
+0->2: 1169
+0->3: 3686
+1->0: 129
+1->2: 48
+1->3: 247
+2->0: 8
+2->1: 2
+2->3: 3
+Biome mismatch buckets:
+Terrain mismatch examples:
+{ "tile": (0, -4096), "gd": 2, "native": 0 }
+{ "tile": (128, -4096), "gd": 0, "native": 3 }
+{ "tile": (192, -4096), "gd": 0, "native": 2 }
+{ "tile": (256, -4096), "gd": 0, "native": 3 }
+{ "tile": (320, -4096), "gd": 0, "native": 3 }
+{ "tile": (384, -4096), "gd": 0, "native": 2 }
+{ "tile": (576, -4096), "gd": 1, "native": 2 }
+{ "tile": (1152, -4096), "gd": 0, "native": 3 }
+{ "tile": (1216, -4096), "gd": 0, "native": 2 }
+{ "tile": (1280, -4096), "gd": 0, "native": 2 }
+{ "tile": (1344, -4096), "gd": 0, "native": 3 }
+{ "tile": (1408, -4096), "gd": 0, "native": 2 }
+{ "tile": (1472, -4096), "gd": 0, "native": 3 }
+{ "tile": (1536, -4096), "gd": 0, "native": 3 }
+{ "tile": (1600, -4096), "gd": 0, "native": 2 }
+{ "tile": (1664, -4096), "gd": 0, "native": 2 }
+{ "tile": (1728, -4096), "gd": 0, "native": 2 }
+{ "tile": (1792, -4096), "gd": 0, "native": 3 }
+{ "tile": (1856, -4096), "gd": 0, "native": 2 }
+{ "tile": (1920, -4096), "gd": 0, "native": 3 }
+Biome mismatch examples:
+WARNING: 1 RID of type "CanvasItem" was leaked.
+   at: _free_rids (servers/rendering/renderer_canvas_cull.cpp:2690)
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 10 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

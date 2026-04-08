@@ -9,6 +9,7 @@ const MAX_CAPTURED_LINES: int = 24
 var _startup_metric_regex: RegEx = RegEx.new()
 var _frame_time_regex: RegEx = RegEx.new()
 var _world_perf_timing_regex: RegEx = RegEx.new()
+var _budget_overrun_warning_regex: RegEx = RegEx.new()
 var _route_prepared_regex: RegEx = RegEx.new()
 var _route_start_regex: RegEx = RegEx.new()
 var _route_complete_regex: RegEx = RegEx.new()
@@ -49,6 +50,7 @@ func _compile_regexes() -> bool:
 	return _compile_regex(_startup_metric_regex, "^\\[WorldPerf\\] (Startup\\.[^:]+): ([0-9]+(?:\\.[0-9]+)?) ms$") \
 		and _compile_regex(_frame_time_regex, "^\\[WorldPerf\\] Frame time: avg=([0-9]+(?:\\.[0-9]+)?) ms, p99=([0-9]+(?:\\.[0-9]+)?) ms, hitches=(\\d+)$") \
 		and _compile_regex(_world_perf_timing_regex, "^\\[WorldPerf\\] ([^:]+): ([0-9]+(?:\\.[0-9]+)?) ms$") \
+		and _compile_regex(_budget_overrun_warning_regex, "\\[WorldPerf\\] WARNING: FrameBudget overrun job_id=([^\\s]+) category=([^\\s]+) used_ms=([0-9]+(?:\\.[0-9]+)?) budget_ms=([0-9]+(?:\\.[0-9]+)?) over_budget_pct=([0-9]+(?:\\.[0-9]+)?)") \
 		and _compile_regex(_route_prepared_regex, "^\\[CodexValidation\\] route prepared: preset=([a-z_]+) waypoints=(\\d+) start=(.+) chunk_pixels=([0-9]+(?:\\.[0-9]+)?)$") \
 		and _compile_regex(_route_start_regex, "^\\[CodexValidation\\] route start: preset=([a-z_]+) waypoints=(\\d+)$") \
 		and _compile_regex(_route_complete_regex, "^\\[CodexValidation\\] route complete: preset=([a-z_]+) reached=(\\d+)/(\\d+) draining_background_work=true$") \
@@ -71,6 +73,9 @@ func _build_summary(log_text: String, log_path: String) -> Dictionary:
 		"warning_count": 0,
 		"errors": [],
 		"warnings": [],
+		"budget_overrun_warning_count": 0,
+		"budget_overrun_offenders": {},
+		"budget_overrun_lines": [],
 		"world_perf_line_count": 0,
 		"codex_validation_line_count": 0,
 		"boot_metrics_ms": {},
@@ -116,6 +121,37 @@ func _parse_error_and_warning_lines(summary: Dictionary, line: String) -> void:
 	if line.contains("WARNING"):
 		summary["warning_count"] = int(summary.get("warning_count", 0)) + 1
 		_capture_latest_line(summary, "warnings", line)
+		_parse_budget_overrun_warning(summary, line)
+
+func _parse_budget_overrun_warning(summary: Dictionary, line: String) -> void:
+	var warning_match: RegExMatch = _budget_overrun_warning_regex.search(line)
+	if warning_match == null:
+		return
+	var category: String = warning_match.get_string(2)
+	var job_id: String = warning_match.get_string(1)
+	var used_ms: float = warning_match.get_string(3).to_float()
+	var budget_ms: float = warning_match.get_string(4).to_float()
+	var over_budget_pct: float = warning_match.get_string(5).to_float()
+	var offenders: Dictionary = summary.get("budget_overrun_offenders", {}) as Dictionary
+	var offender_key: String = "%s|%s" % [category, job_id]
+	var offender: Dictionary = offenders.get(offender_key, {
+		"category": category,
+		"job_id": job_id,
+		"count": 0,
+		"budget_ms": budget_ms,
+		"max_used_ms": 0.0,
+		"max_over_budget_pct": 0.0,
+		"latest_line": "",
+	}) as Dictionary
+	offender["count"] = int(offender.get("count", 0)) + 1
+	offender["budget_ms"] = budget_ms
+	offender["max_used_ms"] = maxf(float(offender.get("max_used_ms", 0.0)), used_ms)
+	offender["max_over_budget_pct"] = maxf(float(offender.get("max_over_budget_pct", 0.0)), over_budget_pct)
+	offender["latest_line"] = line
+	offenders[offender_key] = offender
+	summary["budget_overrun_offenders"] = offenders
+	summary["budget_overrun_warning_count"] = int(summary.get("budget_overrun_warning_count", 0)) + 1
+	_capture_latest_line(summary, "budget_overrun_lines", line)
 
 func _parse_world_perf_line(summary: Dictionary, line: String) -> void:
 	var startup_match: RegExMatch = _startup_metric_regex.search(line)
@@ -261,10 +297,46 @@ func _build_markdown_summary(summary: Dictionary) -> String:
 		var latest_catch_up_status: String = String(summary.get("latest_catch_up_status", ""))
 		if not latest_catch_up_status.is_empty():
 			lines.append("- Latest catch-up status: `%s`" % latest_catch_up_status)
+	var budget_overrun_count: int = int(summary.get("budget_overrun_warning_count", 0))
+	if budget_overrun_count > 0:
+		lines.append("")
+		lines.append("## Budget overrun offenders")
+		lines.append("- Warning count: `%d`" % budget_overrun_count)
+		var offenders: Dictionary = summary.get("budget_overrun_offenders", {}) as Dictionary
+		var offender_keys: Array[String] = []
+		for offender_key: Variant in offenders.keys():
+			offender_keys.append(String(offender_key))
+		offender_keys.sort_custom(func(a: String, b: String) -> bool:
+			var offender_a: Dictionary = offenders.get(a, {}) as Dictionary
+			var offender_b: Dictionary = offenders.get(b, {}) as Dictionary
+			var count_a: int = int(offender_a.get("count", 0))
+			var count_b: int = int(offender_b.get("count", 0))
+			if count_a != count_b:
+				return count_a > count_b
+			var pct_a: float = float(offender_a.get("max_over_budget_pct", 0.0))
+			var pct_b: float = float(offender_b.get("max_over_budget_pct", 0.0))
+			if absf(pct_a - pct_b) > 0.001:
+				return pct_a > pct_b
+			return a < b
+		)
+		for offender_key: String in offender_keys:
+			var offender: Dictionary = offenders.get(offender_key, {}) as Dictionary
+			lines.append(
+				"- `%s / %s`: count=`%d`, budget=`%.2f ms`, max_used=`%.2f ms`, max_over=`%.1f%%`"
+				% [
+					String(offender.get("category", "")),
+					String(offender.get("job_id", "")),
+					int(offender.get("count", 0)),
+					float(offender.get("budget_ms", 0.0)),
+					float(offender.get("max_used_ms", 0.0)),
+					float(offender.get("max_over_budget_pct", 0.0)),
+				]
+			)
 	_append_sorted_timing_section(lines, "WorldPrePass phases", summary.get("world_prepass_phase_ms", {}) as Dictionary, 12)
 	_append_sorted_timing_section(lines, "WorldPrePass subphases", summary.get("world_prepass_subphase_ms", {}) as Dictionary, 16)
 	_append_line_section(lines, "Recent errors", summary.get("errors", []) as Array)
 	_append_line_section(lines, "Recent warnings", summary.get("warnings", []) as Array)
+	_append_line_section(lines, "Recent budget overrun warnings", summary.get("budget_overrun_lines", []) as Array)
 	_append_line_section(lines, "Recent WorldPerf lines", summary.get("latest_world_perf_lines", []) as Array)
 	_append_line_section(lines, "Recent CodexValidation lines", summary.get("latest_codex_validation_lines", []) as Array)
 	return "\n".join(lines) + "\n"

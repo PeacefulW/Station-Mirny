@@ -32,6 +32,9 @@ const _PRINT_COOLDOWN_OVERRIDES: Array[Dictionary] = [
 	{"prefix": "FrameBudgetDispatcher.total", "cooldown_ms": 1000.0, "delta_ms": 6.0},
 	{"prefix": "Boot.loop_step_ms", "cooldown_ms": 1000.0, "delta_ms": 10.0},
 ]
+const _BUDGET_OVERRUN_MIN_DELTA_MS: float = 0.05
+const _BUDGET_OVERRUN_COOLDOWN_MS: float = 1000.0
+const _BUDGET_OVERRUN_DELTA_MS: float = 1.0
 
 ## Контракты на интерактивные операции (максимально допустимое время в мс).
 const _CONTRACTS: Dictionary = {
@@ -52,6 +55,8 @@ static var _frame_operations: Dictionary = {}
 static var _milestones_usec: Dictionary = {}
 static var _print_gate_last_usec: Dictionary = {}
 static var _print_gate_last_value_ms: Dictionary = {}
+static var _budget_overrun_last_usec: Dictionary = {}
+static var _budget_overrun_last_used_ms: Dictionary = {}
 static var _mutex: Mutex = Mutex.new()
 
 ## Суммарные hitches за сессию.
@@ -73,6 +78,29 @@ static func end(label: String, started_usec: int) -> void:
 
 static func record(label: String, elapsed_ms: float) -> void:
 	_record(label, elapsed_ms)
+
+static func report_budget_overrun(
+	job_id: StringName,
+	category: StringName,
+	used_ms: float,
+	budget_ms: float
+) -> void:
+	if budget_ms <= 0.0 or used_ms <= budget_ms:
+		return
+	var over_budget_ms: float = used_ms - budget_ms
+	if over_budget_ms < _BUDGET_OVERRUN_MIN_DELTA_MS:
+		return
+	var offender_key: String = "%s.%s" % [String(category), String(job_id)]
+	var over_budget_pct: float = (over_budget_ms / budget_ms) * 100.0
+	var should_warn: bool = false
+	_mutex.lock()
+	should_warn = _passes_budget_overrun_cooldown_locked(offender_key, used_ms)
+	_mutex.unlock()
+	if should_warn:
+		push_warning(
+			"[WorldPerf] WARNING: FrameBudget overrun job_id=%s category=%s used_ms=%.2f budget_ms=%.2f over_budget_pct=%.1f"
+			% [String(job_id), String(category), used_ms, budget_ms, over_budget_pct]
+		)
 
 ## Zero-cost marker for milestones or other state transitions that should be
 ## visible in summaries without pretending to be timing data.
@@ -169,6 +197,20 @@ static func _passes_print_cooldown_locked(label: String, elapsed_ms: float) -> b
 			_print_gate_last_value_ms[gate_key] = elapsed_ms
 		return should_print
 	return true
+
+static func _passes_budget_overrun_cooldown_locked(offender_key: String, used_ms: float) -> bool:
+	var now_usec: int = Time.get_ticks_usec()
+	var last_usec: int = int(_budget_overrun_last_usec.get(offender_key, 0))
+	var last_used_ms: float = float(_budget_overrun_last_used_ms.get(offender_key, -1.0))
+	var should_warn: bool = last_usec <= 0
+	if not should_warn:
+		should_warn = float(now_usec - last_usec) / 1000.0 >= _BUDGET_OVERRUN_COOLDOWN_MS
+	if not should_warn and last_used_ms >= 0.0:
+		should_warn = used_ms >= last_used_ms + _BUDGET_OVERRUN_DELTA_MS
+	if should_warn:
+		_budget_overrun_last_usec[offender_key] = now_usec
+		_budget_overrun_last_used_ms[offender_key] = used_ms
+	return should_warn
 
 ## Извлекает ключ контракта из label (отбрасывает параметры вроде chunk coord).
 static func _extract_contract_key(label: String) -> String:

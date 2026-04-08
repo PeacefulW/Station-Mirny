@@ -1,0 +1,1092 @@
+Godot Engine v4.6.1.stable.official.14d19694e - https://godotengine.org
+
+[WorldPerf] Startup.start_to_loading_screen_visible_ms: 13.84 ms
+[WorldPerf] WorldPrePass.compute.sample_height_grid: 123.86 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] WorldPrePass.compute.spine_seeds: 372.09 ms
+[WorldPerf] WorldPrePass.compute.ridge_graph: 45.93 ms
+[WorldPerf] WorldPrePass.compute.ridge_strength_grid.native_total: 0.79 ms
+[WorldPerf] WorldPrePass.compute.mountain_mass_grid: 23.35 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] WorldPrePass.compute.lake_aware_fill.extract_lake_records: 519.60 ms
+[WorldPerf] WorldPrePass.compute.lake_aware_fill: 525.05 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] WorldPrePass.compute.flow_directions: 647.07 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.4 ms, p99=6.9 ms, hitches=1
+[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.1ms/6.0ms
+[WorldPerf] Observability: Startup.loading_screen_visible=0.0ms, Startup.start_pressed=0.0ms, Startup.start_to_loading_screen_visible_ms=13.8ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] WorldPrePass.compute.flow_accumulation: 813.11 ms
+[WorldPerf] WorldPrePass.compute.floodplain_strength: 11.59 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] WorldPrePass.compute.erosion_proxy: 317.25 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] WorldPrePass.compute.slope_grid: 391.82 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.1ms/6.0ms
+[WorldPerf] WorldPrePass.compute.rain_shadow: 962.08 ms
+[WorldPerf] WorldPrePass.compute.continentalness.seed_water_sources: 27.31 ms
+[WorldPerf] WorldPrePass.compute.continentalness: 37.56 ms
+[WorldPerf] WorldGenerator._setup_world_pre_pass.configure: 56.78 ms
+[WorldPerf] WorldGenerator._setup_world_pre_pass.compute: 4289.89 ms
+[WorldPerf] WorldGenerator.initialize_world.setup_world_pre_pass: 4346.67 ms
+[WorldGenerator] Native ChunkGenerator initialized (6 biomes, 5 flora sets, 1 decor sets)
+[WorldPerf] WorldGenerator.complete_pending_initialize_world.pending_age_ms: 4347.56 ms
+[WorldPerf] _init_world_generator: 4350.14 ms
+[CodexValidation] runtime validation driver enabled; route_preset=local_ring
+[WorldPerf] GameWorld._setup_after_loading_screen: 4404.73 ms
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,load_queued,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=true staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.streaming_load=0.0ms(28) chunk_manager.topology_rebuild=0.0ms(28) underground.fog_update=0.0ms(28) chunk_manager.streaming_redraw=0.0ms(28) mountain_shadow.visual_rebuild=0.0ms(28)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.1ms spawn=0.0ms total=0.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.1ms(60)
+[WorldPerf] Shadow.edge_cache_compute (0, 0): 333.36 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.1ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.1ms(60)
+[WorldPerf] Shadow.edge_cache_compute (0, -1): 278.23 ms
+[WorldPerf] stream.chunk_first_pass_ms (0, 0)@z0: 907.18 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=1.07 budget_ms=1.00 over_budget_pct=7.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.2ms spawn=0.0ms total=0.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.2ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.4 ms, p99=9.3 ms, hitches=1
+[WorldPerf] Frame budget: dispatcher=0.3ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=2.2ms spawn=0.0ms total=2.9ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=0.3ms | peaks: compute=0.0ms apply=2.9ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=2.8ms stream_redraw=0.0ms
+[WorldPerf] Shadow.edge_cache_compute (1, -1): 181.63 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=2.62 budget_ms=1.00 over_budget_pct=162.0
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=1.2ms spawn=0.0ms total=1.3ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=1.2ms(60)
+[WorldPerf] Shadow.edge_cache_compute (63, -1): 223.51 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.5ms spawn=0.0ms total=0.6ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.5ms(60)
+[WorldPerf] Shadow.edge_cache_compute (1, 1): 178.83 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.1ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.1ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.1 ms, p99=8.3 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.6ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=2.7ms spawn=0.0ms total=3.9ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=0.6ms | peaks: compute=0.0ms apply=3.1ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.0ms stream_redraw=0.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] stream.chunk_first_pass_ms (0, -1)@z0: 4033.00 ms
+[WorldPerf] FPS: 142.0
+[WorldPerf] stream.chunk_first_pass_ms (1, 0)@z0: 3783.13 ms
+[WorldPerf] stream.chunk_first_pass_ms (63, 0)@z0: 3781.13 ms
+[WorldPerf] stream.chunk_first_pass_ms (0, 1)@z0: 3633.13 ms
+[WorldPerf] stream.chunk_first_pass_ms (1, -1)@z0: 3592.60 ms
+[WorldPerf] stream.chunk_full_redraw_ms (0, 0)@z0: 4420.06 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] stream.chunk_first_pass_ms (63, -1)@z0: 3472.66 ms
+[WorldPerf] stream.chunk_first_pass_ms (1, 1)@z0: 3407.58 ms
+[WorldPerf] stream.chunk_first_pass_ms (63, 1)@z0: 3381.38 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] stream.chunk_full_redraw_ms (0, -1)@z0: 4931.94 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, 0)@z0: 4683.35 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, 0)@z0: 4681.66 ms
+[WorldPerf] stream.chunk_full_redraw_ms (0, 1)@z0: 4533.57 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=7.1 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.3ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=0.2ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.0ms stream_redraw=0.0ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, -1)@z0: 4493.21 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, -1)@z0: 4366.13 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, 1)@z0: 4301.13 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, 1)@z0: 4274.04 ms
+[Boot] first_playable reached (6203.2 ms) | queue_wait=55485.0ms compute=9442.7ms (25 chunks) apply=17.4ms (9 chunks) redraw=0.0ms
+[WorldPerf] Startup.loading_screen_visible_to_startup_bubble_ready_ms: 18158.23 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=5.32 budget_ms=3.00 over_budget_pct=77.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_ready phase=done first_pass=true full_ready=true issues=healthy ages(first=-ms full=-ms border=-ms apply=5487ms converge=5487ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=1.21 budget_ms=1.00 over_budget_pct=21.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=5.49 budget_ms=4.00 over_budget_pct=37.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.topology_rebuild category=topology used_ms=2.68 budget_ms=2.00 over_budget_pct=34.1
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=7.32 budget_ms=4.00 over_budget_pct=83.0
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=2.29 budget_ms=1.00 over_budget_pct=128.7
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Shadow.edge_cache_compute (0, -2): 229.15 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=8.54 budget_ms=4.00 over_budget_pct=113.6
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=1.0ms topology=0.1ms visual=2.9ms spawn=0.0ms total=3.9ms/6.0ms chunk_manager.streaming_load=1.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=2.3ms(60) mountain_shadow.visual_rebuild=0.5ms(48)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=3.47 budget_ms=1.00 over_budget_pct=246.7
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Shadow.edge_cache_compute (0, -2): 61.59 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.0ms spawn=0.0ms total=5.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=4.7ms(60) mountain_shadow.visual_rebuild=0.3ms(31)
+[WorldPerf] Shadow.edge_cache_compute (1, -2): 64.37 ms
+[WorldPerf] Shadow.edge_cache_compute (2, -1): 76.05 ms
+[WorldPerf] Shadow.edge_cache_compute (2, 1): 87.29 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=4.77 budget_ms=1.00 over_budget_pct=377.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Shadow.edge_cache_compute (62, 1): 70.39 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.4ms spawn=0.0ms total=5.5ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=4.6ms(60) mountain_shadow.visual_rebuild=0.9ms(43)
+[WorldPerf] Shadow.edge_cache_compute (1, 2): 67.91 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.78 budget_ms=4.00 over_budget_pct=19.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=7.53 budget_ms=4.00 over_budget_pct=88.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Shadow.edge_cache_compute (2, -2): 140.86 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=4.9ms spawn=0.0ms total=4.9ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=4.7ms(60) mountain_shadow.visual_rebuild=0.2ms(39)
+[WorldPerf] Shadow.stale_age_ms: 1807.17 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=4.7ms spawn=0.0ms total=4.8ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=4.7ms(60) mountain_shadow.visual_rebuild=0.1ms(32)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.2 ms, p99=13.0 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=5.0ms streaming=0.0ms streaming_load=0.2ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=13.6ms spawn=0.0ms total=18.8ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=1 other=0.0ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=5.3ms stream_redraw=0.0ms
+[WorldPerf] Observability: Shadow.stale_age_ms=1807.2ms, Startup.loading_screen_visible_to_startup_bubble_ready_ms=18158.2ms, Startup.startup_bubble_ready=0.0ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=6.26 budget_ms=4.00 over_budget_pct=56.6
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=4.6ms spawn=0.0ms total=4.6ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=4.6ms(60) mountain_shadow.visual_rebuild=0.0ms(39)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=7.30 budget_ms=4.00 over_budget_pct=82.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=4.8ms spawn=0.0ms total=4.8ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=4.7ms(60) mountain_shadow.visual_rebuild=0.0ms(39)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=4.9ms spawn=0.0ms total=4.9ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=4.8ms(60) mountain_shadow.visual_rebuild=0.0ms(40)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=9.09 budget_ms=4.00 over_budget_pct=127.1
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] stream.chunk_border_fix_ms (0, -1)@z0: 3590.89 ms
+[WorldPerf] stream.chunk_full_redraw_ms (0, -1)@z0: 3591.02 ms
+[WorldPerf] stream.chunk_border_fix_ms (1, 0)@z0: 3577.59 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, 0)@z0: 3577.70 ms
+[WorldPerf] stream.chunk_border_fix_ms (63, 0)@z0: 3577.48 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, 0)@z0: 3577.64 ms
+[WorldPerf] stream.chunk_border_fix_ms (0, 1)@z0: 3576.87 ms
+[WorldPerf] stream.chunk_full_redraw_ms (0, 1)@z0: 3577.02 ms
+[WorldPerf] FPS: 142.0
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=4.0ms spawn=0.0ms total=4.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=4.0ms(60) mountain_shadow.visual_rebuild=0.0ms(55)
+[WorldPerf] stream.chunk_border_fix_ms (1, -1)@z0: 3683.29 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, -1)@z0: 3661.51 ms
+[WorldPerf] stream.chunk_border_fix_ms (63, -1)@z0: 3675.24 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, -1)@z0: 3646.76 ms
+[WorldPerf] stream.chunk_border_fix_ms (1, 1)@z0: 3650.61 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, 1)@z0: 3640.97 ms
+[WorldPerf] stream.chunk_border_fix_ms (63, 1)@z0: 3654.76 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, 1)@z0: 3646.35 ms
+[Boot] first_playable reached (10009.6 ms) | queue_wait=55485.0ms compute=9442.7ms (25 chunks) apply=17.4ms (9 chunks) redraw=0.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=3.4ms spawn=0.0ms total=3.5ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.4ms(60) mountain_shadow.visual_rebuild=0.0ms(58)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.0 ms, p99=8.3 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=4.5ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=4.3ms spawn=0.0ms total=8.9ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=1 other=0.0ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.1ms stream_redraw=1.1ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=3.3ms spawn=0.0ms total=3.3ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.3ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=3.3ms spawn=0.0ms total=3.3ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.3ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] stream.chunk_first_pass_ms (0, -2)@z0: 4914.55 ms
+[WorldPerf] stream.chunk_first_pass_ms (2, 0)@z0: 4927.35 ms
+[WorldPerf] stream.chunk_first_pass_ms (62, 0)@z0: 4938.76 ms
+[WorldPerf] stream.chunk_first_pass_ms (0, 2)@z0: 4929.41 ms
+[WorldPerf] stream.chunk_first_pass_ms (1, -2)@z0: 4937.22 ms
+[WorldPerf] stream.chunk_first_pass_ms (63, -2)@z0: 4928.52 ms
+[WorldPerf] stream.chunk_first_pass_ms (2, -1)@z0: 4916.10 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.72 budget_ms=4.00 over_budget_pct=17.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] stream.chunk_first_pass_ms (62, -1)@z0: 4914.36 ms
+[WorldPerf] stream.chunk_first_pass_ms (2, 1)@z0: 4905.80 ms
+[WorldPerf] stream.chunk_first_pass_ms (62, 1)@z0: 4902.88 ms
+[WorldPerf] stream.chunk_first_pass_ms (1, 2)@z0: 4902.13 ms
+[WorldPerf] stream.chunk_first_pass_ms (63, 2)@z0: 4900.42 ms
+[WorldPerf] stream.chunk_first_pass_ms (2, 2)@z0: 4861.23 ms
+[WorldPerf] stream.chunk_first_pass_ms (2, -2)@z0: 4896.15 ms
+[WorldPerf] stream.chunk_first_pass_ms (62, -2)@z0: 4879.10 ms
+[WorldPerf] stream.chunk_first_pass_ms (62, 2)@z0: 4858.90 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=3.3ms spawn=0.0ms total=3.3ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.3ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=3.2ms spawn=0.0ms total=3.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.2ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=3.2ms spawn=0.0ms total=3.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.2ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=3.4ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=3.2ms spawn=0.0ms total=6.7ms/6.0ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=5.21 budget_ms=4.00 over_budget_pct=30.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=3.3ms spawn=0.0ms total=3.3ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.3ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] stream.chunk_full_redraw_ms (0, -2)@z0: 6626.18 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, 0)@z0: 6634.09 ms
+[WorldPerf] stream.chunk_full_redraw_ms (62, 0)@z0: 6638.33 ms
+[WorldPerf] stream.chunk_full_redraw_ms (0, 2)@z0: 6643.45 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, -2)@z0: 6639.05 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, -2)@z0: 6643.27 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, -1)@z0: 6632.29 ms
+[WorldPerf] stream.chunk_full_redraw_ms (62, -1)@z0: 6640.15 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, 1)@z0: 6642.66 ms
+[WorldPerf] stream.chunk_full_redraw_ms (62, 1)@z0: 6636.08 ms
+[WorldPerf] stream.chunk_full_redraw_ms (1, 2)@z0: 6656.92 ms
+[WorldPerf] stream.chunk_full_redraw_ms (63, 2)@z0: 6650.16 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, 2)@z0: 6611.27 ms
+[WorldPerf] stream.chunk_full_redraw_ms (2, -2)@z0: 6671.25 ms
+[WorldPerf] stream.chunk_full_redraw_ms (62, -2)@z0: 6655.68 ms
+[WorldPerf] stream.chunk_full_redraw_ms (62, 2)@z0: 6661.14 ms
+[Boot] boot_complete reached (13078.9 ms) | queue_wait=55485.0ms compute=9442.7ms (25 chunks) apply=17.4ms (9 chunks) redraw=0.0ms
+[WorldPerf] Startup.startup_bubble_ready_to_boot_complete_ms: 6859.01 ms
+[CodexValidation] route prepared: preset=local_ring waypoints=6 start=(0.0, 0.0) chunk_pixels=4096.0
+[CodexValidation] room validation prepared at (4, 4)
+[CodexValidation] power validation prepared at (8, 4)
+[CodexValidation] mining validation prepared at (59, 0)
+[CodexValidation] boot complete; route prepared
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=1.6ms spawn=0.0ms total=1.6ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=1.6ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[CodexValidation] built validation room
+[CodexValidation] removed validation room wall (5, 4)
+[CodexValidation] re-placed validation room wall (5, 4)
+[FrameBudget] streaming=0.0ms topology=0.1ms visual=0.1ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.1ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[CodexValidation] destroyed validation room wall (4, 5)
+[CodexValidation] room validation complete
+[CodexValidation] placed validation battery (8, 4)
+[CodexValidation] removed validation battery (8, 4)
+[CodexValidation] power validation complete
+[CodexValidation] mined entry tile (59, 0)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_pending phase=done first_pass=true full_ready=false issues=border_fix_pending ages(first=-ms full=-ms border=1ms apply=13361ms converge=1ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.63ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_ready phase=done first_pass=true full_ready=true issues=healthy ages(first=-ms full=-ms border=-ms apply=13361ms converge=2ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.16ms exhausted=false)
+[FrameBudget] streaming=0.0ms topology=0.1ms visual=0.1ms spawn=0.0ms total=0.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.1ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[CodexValidation] mined interior tile (60, 0)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_pending phase=done first_pass=true full_ready=false issues=border_fix_pending ages(first=-ms full=-ms border=1ms apply=13506ms converge=1ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.64ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_ready phase=done first_pass=true full_ready=true issues=healthy ages(first=-ms full=-ms border=-ms apply=13506ms converge=2ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.15ms exhausted=false)
+[CodexValidation] mined deeper tile (61, 0)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_pending phase=done first_pass=true full_ready=false issues=border_fix_pending ages(first=-ms full=-ms border=1ms apply=13652ms converge=1ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.62ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=true state=full_ready phase=done first_pass=true full_ready=true issues=healthy ages(first=-ms full=-ms border=-ms apply=13652ms converge=2ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.16ms exhausted=false)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.2ms spawn=0.0ms total=0.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.1ms(60) mountain_shadow.visual_rebuild=0.1ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.3 ms, p99=27.6 ms, hitches=4
+[WorldPerf] Frame budget: dispatcher=1.2ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=1.1ms spawn=0.0ms total=2.3ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=1 other=0.0ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.0ms stream_redraw=0.0ms
+[WorldPerf] Observability: Startup.boot_complete=0.0ms, Startup.startup_bubble_ready_to_boot_complete_ms=6859.0ms
+[CodexValidation] moved player back to exterior tile (58, 0)
+[CodexValidation] mining + persistence validation complete
+[CodexValidation] route start: preset=local_ring waypoints=6
+[WorldPerf] PlayerChunk coord=(1, 0) z=0 trigger=scheduler loaded=true visible=true state=full_ready phase=done first_pass=true full_ready=true issues=healthy ages(first=-ms full=-ms border=-ms apply=13640ms converge=8502ms) queues(fast=0 urgent=0 near=0 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=3.06 budget_ms=3.00 over_budget_pct=2.0
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] FPS: 145.0
+[FrameBudget] streaming=1.4ms topology=0.0ms visual=0.1ms spawn=0.0ms total=1.5ms/6.0ms chunk_manager.streaming_load=1.4ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.1ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=8.31 budget_ms=3.00 over_budget_pct=176.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=10.26 budget_ms=3.00 over_budget_pct=242.0
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.27 budget_ms=4.00 over_budget_pct=6.7
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(2, 0) z=0 trigger=entered_chunk loaded=true visible=true state=full_pending phase=done first_pass=true full_ready=false issues=border_fix_pending ages(first=-ms full=-ms border=88ms apply=9008ms converge=88ms) queues(fast=1 urgent=0 near=2 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (3, -1): 178.51 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=1.93 budget_ms=1.00 over_budget_pct=92.6
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.2ms topology=0.0ms visual=1.8ms spawn=0.0ms total=5.0ms/6.0ms chunk_manager.streaming_load=3.2ms(60) building.room_recompute=0.0ms(57) power.balance_recompute=0.0ms(57) chunk_manager.topology_rebuild=0.0ms(57) underground.fog_update=0.0ms(57) chunk_manager.streaming_redraw=1.6ms(57) mountain_shadow.visual_rebuild=0.2ms(49)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=13.31 budget_ms=3.00 over_budget_pct=343.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(3, 0) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=519ms full=-ms border=-ms apply=605ms converge=605ms) queues(fast=1 urgent=0 near=4 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (3, 1): 88.08 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=3.37 budget_ms=1.00 over_budget_pct=236.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=5.83 budget_ms=4.00 over_budget_pct=45.6
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.5ms topology=0.0ms visual=3.3ms spawn=0.0ms total=6.8ms/6.0ms chunk_manager.streaming_load=3.5ms(60) building.room_recompute=0.0ms(55) power.balance_recompute=0.0ms(55) chunk_manager.topology_rebuild=0.0ms(55) underground.fog_update=0.0ms(55) chunk_manager.streaming_redraw=2.8ms(55) mountain_shadow.visual_rebuild=0.4ms(34)
+[WorldPerf] PlayerChunk coord=(4, 0) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=427ms full=-ms border=-ms apply=427ms converge=427ms) queues(fast=1 urgent=0 near=8 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(4, 0) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=670ms full=-ms border=-ms apply=670ms converge=670ms) queues(fast=2 urgent=0 near=9 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.65ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (4, 0): 82.07 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=10.45 budget_ms=4.00 over_budget_pct=161.2
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=9.38 budget_ms=3.00 over_budget_pct=212.7
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=15.25 budget_ms=3.00 over_budget_pct=408.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.7ms topology=0.0ms visual=3.8ms spawn=0.0ms total=7.5ms/6.0ms chunk_manager.streaming_load=3.7ms(60) building.room_recompute=0.0ms(54) power.balance_recompute=0.0ms(54) chunk_manager.topology_rebuild=0.0ms(54) underground.fog_update=0.0ms(54) chunk_manager.streaming_redraw=3.5ms(54) mountain_shadow.visual_rebuild=0.3ms(27)
+[WorldPerf] PlayerChunk coord=(5, 0) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=431ms full=-ms border=-ms apply=431ms converge=431ms) queues(fast=1 urgent=0 near=13 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(5, 0) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=622ms full=-ms border=-ms apply=622ms converge=622ms) queues(fast=1 urgent=0 near=14 full_near=0 full_far=0) requests(load=false staged=false generating=false) scheduler(step=2.22ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=2.25 budget_ms=1.00 over_budget_pct=125.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Shadow.edge_cache_compute (5, 0): 91.24 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=3.26 budget_ms=1.00 over_budget_pct=225.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[CodexValidation] reached waypoint 1/6 at (24576.0, 0.0)
+[WorldPerf] PlayerChunk coord=(6, 0) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=160ms full=-ms border=-ms apply=160ms converge=160ms) queues(fast=1 urgent=0 near=11 full_near=0 full_far=5) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[FrameBudget] streaming=3.4ms topology=0.0ms visual=4.2ms spawn=0.0ms total=7.6ms/6.0ms chunk_manager.streaming_load=3.4ms(60) building.room_recompute=0.0ms(56) power.balance_recompute=0.0ms(56) chunk_manager.topology_rebuild=0.0ms(56) underground.fog_update=0.0ms(56) chunk_manager.streaming_redraw=3.1ms(56) mountain_shadow.visual_rebuild=1.0ms(39)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=9.7 ms, p99=50.3 ms, hitches=5
+[WorldPerf] Frame budget: dispatcher=5.8ms streaming=0.0ms streaming_load=3.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=4.4ms spawn=0.0ms total=13.4ms/6.0ms
+[WorldPerf] Observability: Scheduler.urgent_visual_wait_ms=2.3ms, scheduler.max_urgent_wait_ms=2.3ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=4.38 budget_ms=1.00 over_budget_pct=338.1
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(6, 0) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=536ms full=-ms border=-ms apply=536ms converge=536ms) queues(fast=1 urgent=0 near=14 full_near=0 full_far=5) requests(load=false staged=false generating=false) scheduler(step=2.19ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=6.17 budget_ms=4.00 over_budget_pct=54.1
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=3.13 budget_ms=3.00 over_budget_pct=4.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=8.89 budget_ms=3.00 over_budget_pct=196.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Shadow.edge_cache_compute (6, 0): 106.98 ms
+[FrameBudget] streaming=3.5ms topology=0.0ms visual=4.1ms spawn=0.0ms total=7.7ms/6.0ms chunk_manager.streaming_load=3.5ms(60) building.room_recompute=0.0ms(55) power.balance_recompute=0.0ms(55) chunk_manager.topology_rebuild=0.0ms(55) underground.fog_update=0.0ms(55) chunk_manager.streaming_redraw=2.9ms(55) mountain_shadow.visual_rebuild=1.2ms(35)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=10.42 budget_ms=3.00 over_budget_pct=247.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(6, 1) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=4ms full=-ms border=-ms apply=773ms converge=773ms) queues(fast=2 urgent=0 near=13 full_near=0 full_far=9) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 8.48 ms
+[WorldPerf] Scheduler.fast_visual_wait_ms: 9.06 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=11.87 budget_ms=3.00 over_budget_pct=295.8
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=7.34 budget_ms=4.00 over_budget_pct=83.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=17.44 budget_ms=3.00 over_budget_pct=481.2
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(6, 2) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=496ms full=-ms border=-ms apply=1040ms converge=1040ms) queues(fast=1 urgent=0 near=12 full_near=0 full_far=14) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=3.21 budget_ms=1.00 over_budget_pct=220.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.5ms topology=0.0ms visual=4.2ms spawn=0.0ms total=7.7ms/6.0ms chunk_manager.streaming_load=3.5ms(60) building.room_recompute=0.0ms(56) power.balance_recompute=0.0ms(56) chunk_manager.topology_rebuild=0.0ms(56) underground.fog_update=0.0ms(56) chunk_manager.streaming_redraw=3.7ms(56) mountain_shadow.visual_rebuild=0.5ms(13)
+[WorldPerf] PlayerChunk coord=(6, 2) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=643ms full=-ms border=-ms apply=1188ms converge=1188ms) queues(fast=1 urgent=0 near=12 full_near=0 full_far=14) requests(load=false staged=false generating=false) scheduler(step=2.67ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (6, 2): 98.39 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=5.69 budget_ms=1.00 over_budget_pct=469.1
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(6, 3) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=243ms full=-ms border=-ms apply=243ms converge=243ms) queues(fast=1 urgent=0 near=10 full_near=0 full_far=19) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (5, 2): 91.56 ms
+[FrameBudget] streaming=3.8ms topology=0.0ms visual=4.3ms spawn=0.0ms total=8.2ms/6.0ms chunk_manager.streaming_load=3.8ms(60) building.room_recompute=0.0ms(54) power.balance_recompute=0.0ms(54) chunk_manager.topology_rebuild=0.0ms(54) underground.fog_update=0.0ms(54) chunk_manager.streaming_redraw=3.0ms(54) mountain_shadow.visual_rebuild=1.3ms(29)
+[WorldPerf] PlayerChunk coord=(6, 3) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=593ms full=-ms border=-ms apply=593ms converge=593ms) queues(fast=1 urgent=0 near=13 full_near=0 full_far=19) requests(load=false staged=false generating=false) scheduler(step=1.84ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.99 budget_ms=4.00 over_budget_pct=24.7
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=12.59 budget_ms=3.00 over_budget_pct=319.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=6.90 budget_ms=4.00 over_budget_pct=72.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(6, 4) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=10 full_near=0 full_far=24) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(6, 4) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=5ms full=-ms border=-ms apply=5ms converge=5ms) queues(fast=1 urgent=0 near=10 full_near=0 full_far=24) requests(load=false staged=false generating=false) scheduler(step=3.10ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (6, 3): 99.02 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=7.32 budget_ms=1.00 over_budget_pct=631.7
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] FPS: 90.0
+[FrameBudget] streaming=3.5ms topology=0.0ms visual=4.6ms spawn=0.0ms total=8.1ms/6.0ms chunk_manager.streaming_load=3.5ms(60) building.room_recompute=0.0ms(56) power.balance_recompute=0.0ms(56) chunk_manager.topology_rebuild=0.0ms(56) underground.fog_update=0.0ms(56) chunk_manager.streaming_redraw=3.0ms(56) mountain_shadow.visual_rebuild=1.6ms(35)
+[CodexValidation] reached waypoint 2/6 at (24576.0, 20480.0)
+[WorldPerf] PlayerChunk coord=(6, 5) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=8 full_near=0 full_far=29) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(6, 5) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=8 full_near=0 full_far=29) requests(load=false staged=false generating=false) scheduler(step=1.06ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(6, 5) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,staged_apply,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=9 full_near=0 full_far=29) requests(load=false staged=true generating=false) scheduler(step=0.44ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(6, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=5ms full=-ms border=-ms apply=5ms converge=5ms) queues(fast=1 urgent=0 near=9 full_near=0 full_far=29) requests(load=false staged=false generating=false) scheduler(step=2.60ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (6, 4): 166.28 ms
+[WorldPerf] PlayerChunk coord=(5, 5) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=5ms full=-ms border=-ms apply=224ms converge=224ms) queues(fast=1 urgent=0 near=9 full_near=0 full_far=30) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 8.35 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=11.21 budget_ms=3.00 over_budget_pct=273.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.6ms topology=0.0ms visual=4.3ms spawn=0.0ms total=8.0ms/6.0ms chunk_manager.streaming_load=3.6ms(60) building.room_recompute=0.0ms(54) power.balance_recompute=0.0ms(54) chunk_manager.topology_rebuild=0.0ms(54) underground.fog_update=0.0ms(54) chunk_manager.streaming_redraw=2.8ms(54) mountain_shadow.visual_rebuild=1.5ms(30)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=10.9 ms, p99=19.7 ms, hitches=2
+[WorldPerf] Frame budget: dispatcher=8.1ms streaming=0.0ms streaming_load=3.6ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=7.4ms spawn=0.0ms total=19.1ms/6.0ms
+[WorldPerf] Observability: Scheduler.urgent_visual_wait_ms=8.4ms, scheduler.max_urgent_wait_ms=8.4ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=2.93 budget_ms=1.00 over_budget_pct=192.8
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Shadow.edge_cache_compute (5, 5): 171.06 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=4.34 budget_ms=1.00 over_budget_pct=334.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.06 budget_ms=4.00 over_budget_pct=1.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(4, 5) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=10 full_near=0 full_far=34) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=5.88 budget_ms=4.00 over_budget_pct=47.0
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=14.34 budget_ms=3.00 over_budget_pct=377.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(4, 5) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,staged_apply,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=10 full_near=0 full_far=34) requests(load=false staged=true generating=false) scheduler(step=0.56ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(4, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=7ms full=-ms border=-ms apply=7ms converge=7ms) queues(fast=1 urgent=0 near=10 full_near=0 full_far=34) requests(load=false staged=false generating=false) scheduler(step=4.18ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=5.84 budget_ms=1.00 over_budget_pct=484.2
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.6ms topology=0.0ms visual=4.5ms spawn=0.0ms total=8.1ms/6.0ms chunk_manager.streaming_load=3.6ms(60) building.room_recompute=0.0ms(56) power.balance_recompute=0.0ms(56) chunk_manager.topology_rebuild=0.0ms(56) underground.fog_update=0.0ms(56) chunk_manager.streaming_redraw=3.4ms(56) mountain_shadow.visual_rebuild=1.0ms(18)
+[WorldPerf] PlayerChunk coord=(3, 5) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=9 full_near=0 full_far=38) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(3, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=4ms full=-ms border=-ms apply=4ms converge=4ms) queues(fast=1 urgent=0 near=10 full_near=0 full_far=38) requests(load=false staged=false generating=false) scheduler(step=2.55ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (4, 6): 169.90 ms
+[WorldPerf] PlayerChunk coord=(2, 5) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=7 full_near=0 full_far=43) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=15.46 budget_ms=3.00 over_budget_pct=415.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(2, 5) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,staged_apply,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=8 full_near=0 full_far=43) requests(load=false staged=true generating=false) scheduler(step=2.39ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(2, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=5ms full=-ms border=-ms apply=5ms converge=5ms) queues(fast=1 urgent=0 near=8 full_near=0 full_far=43) requests(load=false staged=false generating=false) scheduler(step=2.86ms exhausted=false)
+[FrameBudget] streaming=3.8ms topology=0.0ms visual=4.8ms spawn=0.0ms total=8.6ms/6.0ms chunk_manager.streaming_load=3.8ms(60) building.room_recompute=0.0ms(55) power.balance_recompute=0.0ms(55) chunk_manager.topology_rebuild=0.0ms(55) underground.fog_update=0.0ms(55) chunk_manager.streaming_redraw=2.7ms(55) mountain_shadow.visual_rebuild=2.0ms(35)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.10 budget_ms=4.00 over_budget_pct=2.6
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Shadow.edge_cache_compute (3, 5): 246.73 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=1.06 budget_ms=1.00 over_budget_pct=6.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(1, 5) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=5 full_near=0 full_far=48) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=3.41 budget_ms=1.00 over_budget_pct=240.6
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=5.07 budget_ms=1.00 over_budget_pct=406.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(1, 5) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,staged_apply,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=6 full_near=0 full_far=48) requests(load=false staged=true generating=false) scheduler(step=1.27ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(1, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=7ms full=-ms border=-ms apply=7ms converge=7ms) queues(fast=1 urgent=0 near=6 full_near=0 full_far=48) requests(load=false staged=false generating=false) scheduler(step=3.95ms exhausted=false)
+[FrameBudget] streaming=3.5ms topology=0.0ms visual=4.0ms spawn=0.0ms total=7.5ms/6.0ms chunk_manager.streaming_load=3.5ms(60) building.room_recompute=0.0ms(56) power.balance_recompute=0.0ms(56) chunk_manager.topology_rebuild=0.0ms(56) underground.fog_update=0.0ms(56) chunk_manager.streaming_redraw=2.8ms(56) mountain_shadow.visual_rebuild=1.1ms(32)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=17.15 budget_ms=3.00 over_budget_pct=471.8
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=5.42 budget_ms=4.00 over_budget_pct=35.6
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(0, 5) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=6 full_near=0 full_far=51) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (2, 6): 175.07 ms
+[WorldPerf] PlayerChunk coord=(0, 5) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,staged_apply,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=6 full_near=0 full_far=51) requests(load=false staged=true generating=false) scheduler(step=0.39ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(0, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=5ms full=-ms border=-ms apply=5ms converge=5ms) queues(fast=1 urgent=0 near=6 full_near=0 full_far=51) requests(load=false staged=false generating=false) scheduler(step=2.73ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (3, 4): 88.83 ms
+[WorldPerf] PlayerChunk coord=(63, 5) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=10 full_near=0 full_far=51) requests(load=false staged=false generating=true) scheduler(step=3.80ms exhausted=false)
+[FrameBudget] streaming=3.6ms topology=0.0ms visual=3.7ms spawn=0.0ms total=7.4ms/6.0ms chunk_manager.streaming_load=3.6ms(60) building.room_recompute=0.0ms(55) power.balance_recompute=0.0ms(55) chunk_manager.topology_rebuild=0.0ms(55) underground.fog_update=0.0ms(55) chunk_manager.streaming_redraw=3.1ms(55) mountain_shadow.visual_rebuild=0.6ms(23)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=7.52 budget_ms=4.00 over_budget_pct=88.1
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=4.43 budget_ms=1.00 over_budget_pct=343.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=6.38 budget_ms=1.00 over_budget_pct=538.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(63, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=5ms full=-ms border=-ms apply=5ms converge=5ms) queues(fast=1 urgent=0 near=7 full_near=0 full_far=54) requests(load=false staged=false generating=false) scheduler(step=2.61ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(62, 5) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=6 full_near=0 full_far=58) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (0, 4): 176.78 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=9.51 budget_ms=3.00 over_budget_pct=217.0
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.4ms topology=0.0ms visual=5.2ms spawn=0.0ms total=8.6ms/6.0ms chunk_manager.streaming_load=3.4ms(60) building.room_recompute=0.0ms(56) power.balance_recompute=0.0ms(56) chunk_manager.topology_rebuild=0.0ms(56) underground.fog_update=0.0ms(56) chunk_manager.streaming_redraw=3.3ms(56) mountain_shadow.visual_rebuild=1.9ms(28)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=11.5 ms, p99=21.8 ms, hitches=2
+[WorldPerf] Frame budget: dispatcher=8.2ms streaming=0.0ms streaming_load=3.6ms streaming_redraw=0.1ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=9.2ms spawn=0.0ms total=21.1ms/6.0ms
+[WorldPerf] Observability: Scheduler.urgent_visual_wait_ms=2.2ms, scheduler.max_urgent_wait_ms=2.2ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=11.83 budget_ms=3.00 over_budget_pct=294.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(62, 5) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,staged_apply,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=7 full_near=0 full_far=58) requests(load=false staged=true generating=false) scheduler(step=0.39ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(62, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=6ms full=-ms border=-ms apply=6ms converge=6ms) queues(fast=1 urgent=0 near=7 full_near=0 full_far=58) requests(load=false staged=false generating=false) scheduler(step=3.72ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (63, 5): 91.50 ms
+[WorldPerf] PlayerChunk coord=(61, 5) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=6 full_near=0 full_far=62) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.22 budget_ms=4.00 over_budget_pct=5.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=5.07 budget_ms=1.00 over_budget_pct=406.6
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Shadow.edge_cache_compute (62, 5): 266.63 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=7.56 budget_ms=1.00 over_budget_pct=656.1
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(61, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=6ms full=-ms border=-ms apply=6ms converge=6ms) queues(fast=1 urgent=0 near=6 full_near=0 full_far=62) requests(load=false staged=false generating=false) scheduler(step=3.68ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=13.38 budget_ms=3.00 over_budget_pct=346.0
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.6ms topology=0.0ms visual=5.5ms spawn=0.0ms total=9.2ms/6.0ms chunk_manager.streaming_load=3.6ms(60) building.room_recompute=0.0ms(55) power.balance_recompute=0.0ms(55) chunk_manager.topology_rebuild=0.0ms(55) underground.fog_update=0.0ms(55) chunk_manager.streaming_redraw=2.6ms(55) mountain_shadow.visual_rebuild=2.9ms(37)
+[WorldPerf] FPS: 88.0
+[WorldPerf] Shadow.edge_cache_compute (62, 4): 178.13 ms
+[WorldPerf] PlayerChunk coord=(60, 5) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=5 full_near=0 full_far=65) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (61, 5): 156.62 ms
+[WorldPerf] PlayerChunk coord=(60, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=5ms full=-ms border=-ms apply=5ms converge=5ms) queues(fast=1 urgent=0 near=7 full_near=0 full_far=65) requests(load=false staged=false generating=false) scheduler(step=2.75ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(59, 5) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=5 full_near=0 full_far=69) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (61, 4): 186.24 ms
+[WorldPerf] PlayerChunk coord=(59, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=4ms full=-ms border=-ms apply=4ms converge=4ms) queues(fast=1 urgent=0 near=5 full_near=0 full_far=69) requests(load=false staged=false generating=false) scheduler(step=2.67ms exhausted=false)
+[FrameBudget] streaming=3.6ms topology=0.0ms visual=5.8ms spawn=0.0ms total=9.5ms/6.0ms chunk_manager.streaming_load=3.6ms(60) building.room_recompute=0.0ms(55) power.balance_recompute=0.0ms(55) chunk_manager.topology_rebuild=0.0ms(55) underground.fog_update=0.0ms(55) chunk_manager.streaming_redraw=2.6ms(55) mountain_shadow.visual_rebuild=3.2ms(40)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=3.94 budget_ms=1.00 over_budget_pct=293.7
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=5.52 budget_ms=1.00 over_budget_pct=452.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.18 budget_ms=4.00 over_budget_pct=4.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[CodexValidation] reached waypoint 3/6 at (241664.0, 20480.0)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=11.59 budget_ms=3.00 over_budget_pct=286.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=13.04 budget_ms=3.00 over_budget_pct=334.8
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=6.44 budget_ms=4.00 over_budget_pct=60.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(59, 5) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=557ms full=-ms border=-ms apply=557ms converge=557ms) queues(fast=2 urgent=0 near=8 full_near=0 full_far=69) requests(load=false staged=false generating=false) scheduler(step=0.90ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (59, 5): 253.56 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=10.41 budget_ms=1.00 over_budget_pct=941.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(59, 4) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=8ms full=-ms border=-ms apply=255ms converge=255ms) queues(fast=1 urgent=0 near=9 full_near=0 full_far=69) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 12.25 ms
+[FrameBudget] streaming=3.4ms topology=0.0ms visual=5.4ms spawn=0.0ms total=8.8ms/6.0ms chunk_manager.streaming_load=3.4ms(60) building.room_recompute=0.0ms(56) power.balance_recompute=0.0ms(56) chunk_manager.topology_rebuild=0.0ms(56) underground.fog_update=0.0ms(56) chunk_manager.streaming_redraw=3.4ms(56) mountain_shadow.visual_rebuild=2.0ms(23)
+[WorldPerf] Shadow.edge_cache_compute (59, 4): 182.25 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=12.40 budget_ms=1.00 over_budget_pct=1140.1
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(59, 3) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=129ms full=-ms border=-ms apply=129ms converge=129ms) queues(fast=1 urgent=0 near=8 full_near=0 full_far=73) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=13.18 budget_ms=4.00 over_budget_pct=229.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.3ms topology=0.0ms visual=5.0ms spawn=0.0ms total=8.3ms/6.0ms chunk_manager.streaming_load=3.3ms(60) building.room_recompute=0.0ms(57) power.balance_recompute=0.0ms(57) chunk_manager.topology_rebuild=0.0ms(57) underground.fog_update=0.0ms(57) chunk_manager.streaming_redraw=3.8ms(57) mountain_shadow.visual_rebuild=1.2ms(16)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=13.95 budget_ms=3.00 over_budget_pct=364.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(59, 3) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=576ms full=-ms border=-ms apply=576ms converge=576ms) queues(fast=1 urgent=0 near=10 full_near=0 full_far=73) requests(load=false staged=false generating=false) scheduler(step=2.62ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(59, 2) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=7 full_near=0 full_far=77) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(59, 2) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,staged_apply,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=8 full_near=0 full_far=77) requests(load=false staged=true generating=false) scheduler(step=2.86ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(59, 2) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=7ms full=-ms border=-ms apply=7ms converge=7ms) queues(fast=1 urgent=0 near=8 full_near=0 full_far=77) requests(load=false staged=false generating=false) scheduler(step=3.98ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (60, 3): 196.70 ms
+[FrameBudget] streaming=3.8ms topology=0.0ms visual=4.2ms spawn=0.0ms total=8.0ms/6.0ms chunk_manager.streaming_load=3.8ms(60) building.room_recompute=0.0ms(54) power.balance_recompute=0.0ms(54) chunk_manager.topology_rebuild=0.0ms(54) underground.fog_update=0.0ms(54) chunk_manager.streaming_redraw=3.1ms(54) mountain_shadow.visual_rebuild=1.1ms(17)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=11.9 ms, p99=18.0 ms, hitches=1
+[WorldPerf] Frame budget: dispatcher=8.9ms streaming=0.0ms streaming_load=3.5ms streaming_redraw=0.1ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=12.2ms spawn=0.0ms total=24.8ms/6.0ms
+[WorldPerf] Observability: Scheduler.urgent_visual_wait_ms=2.7ms, scheduler.max_urgent_wait_ms=2.7ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=5.43 budget_ms=1.00 over_budget_pct=443.2
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(59, 1) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=6 full_near=0 full_far=82) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.15 budget_ms=4.00 over_budget_pct=3.7
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(59, 1) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,staged_apply,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=6 full_near=0 full_far=82) requests(load=false staged=true generating=false) scheduler(step=2.77ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(59, 1) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=7ms full=-ms border=-ms apply=7ms converge=7ms) queues(fast=1 urgent=0 near=6 full_near=0 full_far=82) requests(load=false staged=false generating=false) scheduler(step=4.08ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=3.16 budget_ms=3.00 over_budget_pct=5.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=14.33 budget_ms=3.00 over_budget_pct=377.8
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(59, 0) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=6 full_near=0 full_far=85) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=6.56 budget_ms=1.00 over_budget_pct=555.6
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.4ms topology=0.0ms visual=3.7ms spawn=0.0ms total=7.1ms/6.0ms chunk_manager.streaming_load=3.4ms(60) building.room_recompute=0.0ms(57) power.balance_recompute=0.0ms(57) chunk_manager.topology_rebuild=0.0ms(57) underground.fog_update=0.0ms(57) chunk_manager.streaming_redraw=3.2ms(57) mountain_shadow.visual_rebuild=0.5ms(25)
+[WorldPerf] Shadow.try_shadow_step start=none deferred=3: 8.03 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=8.22 budget_ms=1.00 over_budget_pct=721.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(59, 0) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,staged_apply,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=7 full_near=0 full_far=85) requests(load=false staged=true generating=false) scheduler(step=0.43ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 14.11 ms
+[WorldPerf] PlayerChunk coord=(59, 0) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=18ms full=-ms border=-ms apply=18ms converge=18ms) queues(fast=1 urgent=0 near=7 full_near=0 full_far=85) requests(load=false staged=false generating=false) scheduler(step=4.01ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(59, -1) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=5 full_near=0 full_far=89) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (60, 1): 178.09 ms
+[WorldPerf] PlayerChunk coord=(59, -1) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,staged_apply,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=6 full_near=0 full_far=89) requests(load=false staged=true generating=false) scheduler(step=0.42ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(59, -1) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=5ms full=-ms border=-ms apply=5ms converge=5ms) queues(fast=1 urgent=0 near=6 full_near=0 full_far=89) requests(load=false staged=false generating=false) scheduler(step=2.57ms exhausted=false)
+[FrameBudget] streaming=3.6ms topology=0.0ms visual=4.1ms spawn=0.0ms total=7.7ms/6.0ms chunk_manager.streaming_load=3.6ms(60) building.room_recompute=0.0ms(55) power.balance_recompute=0.0ms(55) chunk_manager.topology_rebuild=0.0ms(55) underground.fog_update=0.0ms(55) chunk_manager.streaming_redraw=2.5ms(55) mountain_shadow.visual_rebuild=1.5ms(44)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.20 budget_ms=4.00 over_budget_pct=5.1
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(59, -2) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=5 full_near=0 full_far=92) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=9.59 budget_ms=3.00 over_budget_pct=219.7
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=14.07 budget_ms=3.00 over_budget_pct=369.0
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(59, -2) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,staged_apply,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=6 full_near=0 full_far=92) requests(load=false staged=true generating=false) scheduler(step=2.75ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (60, 2): 88.05 ms
+[WorldPerf] PlayerChunk coord=(59, -2) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=6ms full=-ms border=-ms apply=6ms converge=6ms) queues(fast=1 urgent=0 near=6 full_near=0 full_far=92) requests(load=false staged=false generating=false) scheduler(step=3.03ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=1.57 budget_ms=1.00 over_budget_pct=56.7
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=5.67 budget_ms=1.00 over_budget_pct=466.8
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.5ms topology=0.0ms visual=3.5ms spawn=0.0ms total=6.9ms/6.0ms chunk_manager.streaming_load=3.5ms(60) building.room_recompute=0.0ms(56) power.balance_recompute=0.0ms(56) chunk_manager.topology_rebuild=0.0ms(56) underground.fog_update=0.0ms(56) chunk_manager.streaming_redraw=2.9ms(56) mountain_shadow.visual_rebuild=0.6ms(30)
+[WorldPerf] PlayerChunk coord=(59, -3) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,generating,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=5 full_near=0 full_far=95) requests(load=false staged=false generating=true) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(59, -3) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=5 full_near=0 full_far=95) requests(load=false staged=false generating=false) scheduler(step=3.03ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(59, -3) z=0 trigger=scheduler loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,staged_apply,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=6 full_near=0 full_far=95) requests(load=false staged=true generating=false) scheduler(step=1.24ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(59, -3) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=5ms full=-ms border=-ms apply=5ms converge=5ms) queues(fast=1 urgent=0 near=6 full_near=0 full_far=95) requests(load=false staged=false generating=false) scheduler(step=2.66ms exhausted=false)
+[WorldPerf] FPS: 90.0
+[WorldPerf] PlayerChunk coord=(59, -4) z=0 trigger=entered_chunk loaded=false visible=false state=not_loaded phase=none first_pass=false full_ready=false issues=not_loaded,staged_apply,first_pass_not_ready ages(first=-ms full=-ms border=-ms apply=-ms converge=-ms) queues(fast=0 urgent=0 near=6 full_near=0 full_far=98) requests(load=false staged=true generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(59, -4) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=6ms full=-ms border=-ms apply=6ms converge=6ms) queues(fast=1 urgent=0 near=6 full_near=0 full_far=98) requests(load=false staged=false generating=false) scheduler(step=3.73ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.09 budget_ms=4.00 over_budget_pct=2.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.7ms topology=0.0ms visual=3.4ms spawn=0.0ms total=7.1ms/6.0ms chunk_manager.streaming_load=3.7ms(60) building.room_recompute=0.0ms(55) power.balance_recompute=0.0ms(55) chunk_manager.topology_rebuild=0.0ms(55) underground.fog_update=0.0ms(55) chunk_manager.streaming_redraw=2.8ms(55) mountain_shadow.visual_rebuild=0.6ms(34)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=2.60 budget_ms=1.00 over_budget_pct=160.0
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=3.83 budget_ms=1.00 over_budget_pct=283.2
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=10.31 budget_ms=3.00 over_budget_pct=243.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=12.35 budget_ms=3.00 over_budget_pct=311.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=5.57 budget_ms=4.00 over_budget_pct=39.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[CodexValidation] reached waypoint 4/6 at (241664.0, -16384.0)
+[WorldPerf] PlayerChunk coord=(59, -4) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=503ms full=-ms border=-ms apply=503ms converge=503ms) queues(fast=2 urgent=0 near=9 full_near=0 full_far=98) requests(load=false staged=false generating=false) scheduler(step=3.66ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=5.85 budget_ms=1.00 over_budget_pct=485.1
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.4ms topology=0.0ms visual=3.8ms spawn=0.0ms total=7.2ms/6.0ms chunk_manager.streaming_load=3.4ms(60) building.room_recompute=0.0ms(56) power.balance_recompute=0.0ms(56) chunk_manager.topology_rebuild=0.0ms(56) underground.fog_update=0.0ms(56) chunk_manager.streaming_redraw=3.1ms(56) mountain_shadow.visual_rebuild=0.7ms(30)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=10.5 ms, p99=17.6 ms, hitches=1
+[WorldPerf] Frame budget: dispatcher=7.4ms streaming=0.0ms streaming_load=3.5ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=5.3ms spawn=0.0ms total=16.3ms/6.0ms
+[WorldPerf] Observability: Scheduler.urgent_visual_wait_ms=4.6ms, scheduler.max_urgent_wait_ms=4.6ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=14.28 budget_ms=3.00 over_budget_pct=375.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=16.23 budget_ms=3.00 over_budget_pct=440.8
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=7.86 budget_ms=4.00 over_budget_pct=96.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.8ms topology=0.0ms visual=4.9ms spawn=0.0ms total=8.8ms/6.0ms chunk_manager.streaming_load=3.8ms(60) building.room_recompute=0.0ms(54) power.balance_recompute=0.0ms(54) chunk_manager.topology_rebuild=0.0ms(54) underground.fog_update=0.0ms(54) chunk_manager.streaming_redraw=3.2ms(54) mountain_shadow.visual_rebuild=1.7ms(33)
+[WorldPerf] PlayerChunk coord=(60, -4) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=6ms full=-ms border=-ms apply=970ms converge=970ms) queues(fast=2 urgent=0 near=12 full_near=0 full_far=101) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 11.50 ms
+[WorldPerf] Scheduler.fast_visual_wait_ms: 11.77 ms
+[WorldPerf] Shadow.edge_cache_compute (57, -4): 189.73 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=2.01 budget_ms=1.00 over_budget_pct=100.6
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(61, -4) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=511ms full=-ms border=-ms apply=724ms converge=724ms) queues(fast=1 urgent=0 near=10 full_near=0 full_far=105) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=3.12 budget_ms=1.00 over_budget_pct=212.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(61, -4) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=646ms full=-ms border=-ms apply=859ms converge=859ms) queues(fast=1 urgent=0 near=12 full_near=0 full_far=105) requests(load=false staged=false generating=false) scheduler(step=1.74ms exhausted=false)
+[FrameBudget] streaming=3.6ms topology=0.0ms visual=4.2ms spawn=0.0ms total=7.8ms/6.0ms chunk_manager.streaming_load=3.6ms(60) building.room_recompute=0.0ms(56) power.balance_recompute=0.0ms(56) chunk_manager.topology_rebuild=0.0ms(56) underground.fog_update=0.0ms(56) chunk_manager.streaming_redraw=4.0ms(56) mountain_shadow.visual_rebuild=0.2ms(10)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=5.11 budget_ms=1.00 over_budget_pct=410.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=15.04 budget_ms=3.00 over_budget_pct=401.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.15 budget_ms=4.00 over_budget_pct=3.8
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(62, -4) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=51ms full=-ms border=-ms apply=51ms converge=51ms) queues(fast=1 urgent=0 near=11 full_near=0 full_far=110) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (57, -5): 160.16 ms
+[FrameBudget] streaming=3.3ms topology=0.0ms visual=4.3ms spawn=0.0ms total=7.6ms/6.0ms chunk_manager.streaming_load=3.3ms(60) building.room_recompute=0.0ms(57) power.balance_recompute=0.0ms(57) chunk_manager.topology_rebuild=0.0ms(57) underground.fog_update=0.0ms(57) chunk_manager.streaming_redraw=3.6ms(57) mountain_shadow.visual_rebuild=0.7ms(24)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=6.66 budget_ms=1.00 over_budget_pct=566.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(62, -4) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=511ms full=-ms border=-ms apply=511ms converge=511ms) queues(fast=1 urgent=0 near=13 full_near=0 full_far=110) requests(load=false staged=false generating=false) scheduler(step=3.20ms exhausted=false)
+[WorldPerf] PlayerChunk coord=(63, -4) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=24ms full=-ms border=-ms apply=24ms converge=24ms) queues(fast=1 urgent=0 near=9 full_near=0 full_far=115) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 48.61 ms
+[WorldPerf] Shadow.edge_cache_compute (62, -3): 113.00 ms
+[FrameBudget] streaming=3.8ms topology=0.0ms visual=3.4ms spawn=0.0ms total=7.2ms/6.0ms chunk_manager.streaming_load=3.8ms(60) building.room_recompute=0.0ms(54) power.balance_recompute=0.0ms(54) chunk_manager.topology_rebuild=0.0ms(54) underground.fog_update=0.0ms(54) chunk_manager.streaming_redraw=3.0ms(54) mountain_shadow.visual_rebuild=0.4ms(21)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=10.99 budget_ms=3.00 over_budget_pct=266.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(63, -4) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=490ms full=-ms border=-ms apply=490ms converge=490ms) queues(fast=1 urgent=0 near=12 full_near=0 full_far=115) requests(load=false staged=false generating=false) scheduler(step=1.76ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=8.15 budget_ms=4.00 over_budget_pct=103.7
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[CodexValidation] reached waypoint 5/6 at (0.0, -16384.0)
+[WorldPerf] PlayerChunk coord=(0, -4) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=10ms full=-ms border=-ms apply=31ms converge=31ms) queues(fast=1 urgent=0 near=8 full_near=0 full_far=120) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 15.31 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=16.28 budget_ms=3.00 over_budget_pct=442.7
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Shadow.edge_cache_compute (63, -3): 158.88 ms
+[WorldPerf] PlayerChunk coord=(0, -4) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=511ms full=-ms border=-ms apply=533ms converge=533ms) queues(fast=1 urgent=0 near=12 full_near=0 full_far=120) requests(load=false staged=false generating=false) scheduler(step=0.93ms exhausted=false)
+[FrameBudget] streaming=3.5ms topology=0.0ms visual=3.9ms spawn=0.0ms total=7.4ms/6.0ms chunk_manager.streaming_load=3.5ms(60) building.room_recompute=0.0ms(56) power.balance_recompute=0.0ms(56) chunk_manager.topology_rebuild=0.0ms(56) underground.fog_update=0.0ms(56) chunk_manager.streaming_redraw=3.1ms(56) mountain_shadow.visual_rebuild=0.8ms(33)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=10.9 ms, p99=20.8 ms, hitches=2
+[WorldPerf] Frame budget: dispatcher=7.9ms streaming=0.0ms streaming_load=3.6ms streaming_redraw=0.1ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=6.9ms spawn=0.0ms total=18.6ms/6.0ms
+[WorldPerf] Observability: Scheduler.urgent_visual_wait_ms=15.3ms, scheduler.max_urgent_wait_ms=15.3ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=4.75 budget_ms=1.00 over_budget_pct=375.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=6.72 budget_ms=1.00 over_budget_pct=572.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=9.45 budget_ms=4.00 over_budget_pct=136.1
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=13.31 budget_ms=4.00 over_budget_pct=232.6
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(0, -3) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=9ms full=-ms border=-ms apply=595ms converge=595ms) queues(fast=2 urgent=0 near=14 full_near=0 full_far=122) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 15.35 ms
+[WorldPerf] Scheduler.fast_visual_wait_ms: 16.65 ms
+[WorldPerf] Shadow.try_shadow_step start=none deferred=4: 9.89 ms
+[WorldPerf] Shadow.edge_cache_compute (0, -3): 158.94 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=12.40 budget_ms=1.00 over_budget_pct=1139.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=3.66 budget_ms=3.00 over_budget_pct=21.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=3.3ms topology=0.0ms visual=5.1ms spawn=0.0ms total=8.4ms/6.0ms chunk_manager.streaming_load=3.3ms(60) building.room_recompute=0.0ms(57) power.balance_recompute=0.0ms(57) chunk_manager.topology_rebuild=0.0ms(57) underground.fog_update=0.0ms(57) chunk_manager.streaming_redraw=4.4ms(57) mountain_shadow.visual_rebuild=0.7ms(22)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=5.94 budget_ms=3.00 over_budget_pct=97.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] FPS: 98.0
+[WorldPerf] PlayerChunk coord=(0, -2) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=503ms full=-ms border=-ms apply=706ms converge=706ms) queues(fast=2 urgent=0 near=16 full_near=0 full_far=126) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=11.53 budget_ms=3.00 over_budget_pct=284.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 36.85 ms
+[WorldPerf] Shadow.try_shadow_step start=none deferred=4: 8.78 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.topology_rebuild category=topology used_ms=2.77 budget_ms=2.00 over_budget_pct=38.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(0, -2) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=771ms full=-ms border=-ms apply=975ms converge=975ms) queues(fast=2 urgent=0 near=23 full_near=0 full_far=126) requests(load=false staged=false generating=false) scheduler(step=3.34ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=10.53 budget_ms=4.00 over_budget_pct=163.2
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(0, -1) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=499ms full=-ms border=-ms apply=565ms converge=565ms) queues(fast=2 urgent=0 near=18 full_near=0 full_far=131) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 11.61 ms
+[FrameBudget] streaming=1.8ms topology=0.1ms visual=4.9ms spawn=0.0ms total=6.8ms/6.0ms chunk_manager.streaming_load=1.8ms(60) building.room_recompute=0.0ms(58) power.balance_recompute=0.0ms(58) chunk_manager.topology_rebuild=0.1ms(58) underground.fog_update=0.0ms(58) chunk_manager.streaming_redraw=3.8ms(58) mountain_shadow.visual_rebuild=1.1ms(28)
+[WorldPerf] Shadow.edge_cache_compute (2, -2): 68.87 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=5.56 budget_ms=1.00 over_budget_pct=455.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(0, -1) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=564ms full=-ms border=-ms apply=630ms converge=630ms) queues(fast=2 urgent=0 near=22 full_near=0 full_far=131) requests(load=false staged=false generating=false) scheduler(step=0.60ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=12.94 budget_ms=4.00 over_budget_pct=223.5
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Shadow.edge_cache_compute (1, 1): 60.86 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=15.07 budget_ms=4.00 over_budget_pct=276.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Shadow.edge_cache_compute (2, -3): 76.69 ms
+[CodexValidation] reached waypoint 6/6 at (0.0, 0.0)
+[FrameBudget] streaming=0.1ms topology=0.1ms visual=4.7ms spawn=0.0ms total=4.9ms/6.0ms chunk_manager.streaming_load=0.1ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.1ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=4.0ms(60) mountain_shadow.visual_rebuild=0.8ms(53)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=entered_chunk loaded=true visible=false state=native_ready phase=terrain first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=508ms full=-ms border=-ms apply=955ms converge=955ms) queues(fast=2 urgent=0 near=18 full_near=0 full_far=136) requests(load=false staged=false generating=false) scheduler(step=0.00ms exhausted=false)
+[WorldPerf] Scheduler.fast_visual_wait_ms: 14.64 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.topology_rebuild category=topology used_ms=4.02 budget_ms=2.00 over_budget_pct=100.8
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Shadow.edge_cache_compute (2, 1): 137.12 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=6.70 budget_ms=1.00 over_budget_pct=570.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=false state=native_ready phase=cover first_pass=false full_ready=false issues=first_pass_not_ready,first_pass_pending ages(first=690ms full=-ms border=-ms apply=1137ms converge=1137ms) queues(fast=2 urgent=0 near=23 full_near=0 full_far=136) requests(load=false staged=false generating=false) scheduler(step=1.68ms exhausted=false)
+[WorldPerf] Shadow.edge_cache_compute (62, 1): 61.66 ms
+[CodexValidation] route complete: preset=local_ring reached=6/6 draining_background_work=true
+[WorldPerf] Shadow.edge_cache_compute (1, 2): 62.45 ms
+[FrameBudget] streaming=0.2ms topology=0.1ms visual=4.9ms spawn=0.0ms total=5.2ms/6.0ms chunk_manager.streaming_load=0.2ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.1ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=4.1ms(60) mountain_shadow.visual_rebuild=0.7ms(55)
+[WorldPerf] Shadow.edge_cache_compute (2, -4): 123.19 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.6ms spawn=0.0ms total=5.7ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=5.2ms(60) mountain_shadow.visual_rebuild=0.4ms(49)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=8.8 ms, p99=20.1 ms, hitches=2
+[WorldPerf] Frame budget: dispatcher=6.4ms streaming=0.0ms streaming_load=1.1ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=8.5ms spawn=0.0ms total=16.0ms/6.0ms
+[WorldPerf] Observability: Scheduler.urgent_visual_wait_ms=14.6ms, scheduler.max_urgent_wait_ms=14.6ms
+[WorldPerf] stream.chunk_first_pass_ms (0, 0)@z0: 1806.99 ms
+[WorldPerf] PlayerChunk coord=(0, 0) z=0 trigger=scheduler loaded=true visible=false state=full_pending phase=cliff first_pass=true full_ready=false issues=full_redraw_pending ages(first=-ms full=0ms border=-ms apply=1807ms converge=1807ms) queues(fast=1 urgent=0 near=23 full_near=1 full_far=136) requests(load=false staged=false generating=false) scheduler(step=0.18ms exhausted=false)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.68 budget_ms=4.00 over_budget_pct=17.1
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=9.54 budget_ms=4.00 over_budget_pct=138.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] stream.chunk_first_pass_ms (0, 1)@z0: 1409.70 ms
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=3.33 budget_ms=1.00 over_budget_pct=233.0
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:100)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=5.1ms spawn=0.0ms total=5.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=4.5ms(60) mountain_shadow.visual_rebuild=0.6ms(47)
+[CodexValidation] route drain complete; preset=local_ring reached=6/6 redraw_backlog=false
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 16 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

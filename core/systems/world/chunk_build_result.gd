@@ -40,9 +40,10 @@ func initialize(coord: Vector2i, size: int, chunk_base_tile: Vector2i = Vector2i
 	flora_density_values.resize(tile_count)
 	flora_modulation_values.resize(tile_count)
 	if tile_count > 0:
+		var default_palette_index: int = BiomeRegistry.get_default_palette_index() if BiomeRegistry else 0
 		variation.fill(0)
-		biome.fill(0)
-		secondary_biome.fill(0)
+		biome.fill(default_palette_index)
+		secondary_biome.fill(default_palette_index)
 	return self
 
 func set_tile(

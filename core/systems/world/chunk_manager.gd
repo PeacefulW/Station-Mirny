@@ -137,6 +137,8 @@ var _native_topology_builder: RefCounted = null
 var _native_topology_active: bool = false
 var _native_topology_dirty: bool = false
 var _flora_builder: ChunkFloraBuilderScript = null
+var _flora_texture_path_by_entry_id: Dictionary = {}
+var _flora_texture_path_cache_ready: bool = false
 var _is_topology_build_in_progress: bool = false
 var _is_boot_in_progress: bool = false
 
@@ -241,6 +243,7 @@ var _topology_retired_dicts: Array[Dictionary] = []
 var _topology_task_id: int = -1
 var _topology_task_generation: int = -1
 var _topology_build_generation: int = 0
+var _topology_rebuild_restart_pending: bool = false
 var _topology_result_mutex: Mutex = Mutex.new()
 var _topology_result: Dictionary = {}
 
@@ -1041,6 +1044,8 @@ func _setup_native_topology_builder() -> void:
 		_native_topology_builder = null
 
 func _setup_flora_builder() -> void:
+	_flora_texture_path_by_entry_id.clear()
+	_flora_texture_path_cache_ready = false
 	if WorldGenerator and WorldGenerator._is_initialized:
 		_flora_builder = ChunkFloraBuilderScript.new()
 		_flora_builder.initialize(WorldGenerator.world_seed)
@@ -1132,12 +1137,16 @@ func _build_flora_payload_for_native_data(
 func _flora_result_from_payload(flora_payload: Dictionary) -> ChunkFloraResultScript:
 	if flora_payload.is_empty():
 		return null
-	return ChunkFloraResultScript.from_serialized_payload(flora_payload)
+	return ChunkFloraResultScript.from_serialized_payload(
+		_hydrate_flora_payload_texture_paths(flora_payload)
+	)
 
 func _build_native_flora_payload_from_placements(chunk_coord: Vector2i, native_data: Dictionary) -> Dictionary:
 	if native_data.is_empty():
 		return {}
-	var placements: Array = native_data.get("flora_placements", []) as Array
+	var placements: Array = _hydrate_flora_placements_with_texture_paths(
+		native_data.get("flora_placements", []) as Array
+	)
 	if placements.is_empty():
 		return {}
 	return ChunkFloraResultScript.build_serialized_payload_from_placements(
@@ -1237,6 +1246,87 @@ func _compute_flora_payload(
 		secondary_biome_bytes,
 		ecotone_values
 	)
+
+func _hydrate_flora_placements_with_texture_paths(serialized_placements: Array) -> Array:
+	if serialized_placements.is_empty():
+		return serialized_placements
+	var hydrated_placements: Array = []
+	var changed: bool = false
+	for placement_variant: Variant in serialized_placements:
+		var placement: Dictionary = placement_variant as Dictionary
+		if placement.is_empty():
+			hydrated_placements.append(placement)
+			continue
+		if not bool(placement.get("is_flora", true)):
+			hydrated_placements.append(placement)
+			continue
+		var texture_path: String = String(placement.get("texture_path", ""))
+		if not texture_path.is_empty():
+			hydrated_placements.append(placement)
+			continue
+		var entry_id: StringName = placement.get("entry_id", &"") as StringName
+		var resolved_texture_path: String = _get_flora_texture_path_for_entry(entry_id)
+		if resolved_texture_path.is_empty():
+			hydrated_placements.append(placement)
+			continue
+		var hydrated_placement: Dictionary = placement.duplicate(true)
+		hydrated_placement["texture_path"] = resolved_texture_path
+		hydrated_placements.append(hydrated_placement)
+		changed = true
+	if not changed:
+		return serialized_placements
+	return hydrated_placements
+
+func _hydrate_flora_payload_texture_paths(flora_payload: Dictionary) -> Dictionary:
+	if flora_payload.is_empty():
+		return flora_payload
+	var placements: Array = flora_payload.get("placements", []) as Array
+	if placements.is_empty():
+		return flora_payload
+	var hydrated_placements: Array = _hydrate_flora_placements_with_texture_paths(placements)
+	if hydrated_placements == placements:
+		return flora_payload
+	var tile_size: int = int(flora_payload.get("render_packet_tile_size", 0))
+	if tile_size <= 0:
+		tile_size = _resolve_flora_tile_size()
+	return ChunkFloraResultScript.build_serialized_payload_from_placements(
+		flora_payload.get("chunk_coord", Vector2i.ZERO) as Vector2i,
+		int(flora_payload.get("chunk_size", 0)),
+		hydrated_placements,
+		tile_size
+	)
+
+func _get_flora_texture_path_for_entry(entry_id: StringName) -> String:
+	if entry_id == &"":
+		return ""
+	_ensure_flora_texture_path_cache()
+	return String(_flora_texture_path_by_entry_id.get(entry_id, ""))
+
+func _ensure_flora_texture_path_cache() -> void:
+	if _flora_texture_path_cache_ready:
+		return
+	_flora_texture_path_cache_ready = true
+	_flora_texture_path_by_entry_id.clear()
+	if not WorldGenerator or not WorldGenerator.has_method("get_registered_biomes") or not FloraDecorRegistry:
+		return
+	var seen_flora_set_ids: Dictionary = {}
+	var registered_biomes: Array[BiomeData] = WorldGenerator.get_registered_biomes()
+	for biome: BiomeData in registered_biomes:
+		if biome == null:
+			continue
+		for flora_set_id: StringName in biome.flora_set_ids:
+			if seen_flora_set_ids.has(flora_set_id):
+				continue
+			seen_flora_set_ids[flora_set_id] = true
+			var flora_set: FloraSetData = FloraDecorRegistry.get_flora_set(flora_set_id) as FloraSetData
+			if flora_set == null:
+				continue
+			for entry_resource: Resource in flora_set.entries:
+				var entry: FloraEntry = entry_resource as FloraEntry
+				if entry == null or entry.id == &"" or _flora_texture_path_by_entry_id.has(entry.id):
+					continue
+				var texture_path: String = entry.texture.resource_path if entry.texture != null else ""
+				_flora_texture_path_by_entry_id[entry.id] = texture_path
 
 func _is_native_topology_enabled() -> bool:
 	return _native_topology_active
@@ -2887,17 +2977,28 @@ func _cache_surface_chunk_flora_payload(coord: Vector2i, z_level: int, flora_pay
 	var entry: Dictionary = _surface_payload_cache.get(cache_key, {}) as Dictionary
 	if entry.is_empty():
 		return
-	entry["flora_payload"] = flora_payload
+	var hydrated_payload: Dictionary = _hydrate_flora_payload_texture_paths(flora_payload)
+	entry["flora_payload"] = hydrated_payload if not hydrated_payload.is_empty() else flora_payload
 	_surface_payload_cache[cache_key] = entry
 	_touch_surface_payload_cache_key(cache_key)
 
 func _get_cached_surface_chunk_flora_payload(coord: Vector2i, z_level: int) -> Dictionary:
 	if z_level != 0:
 		return {}
-	var entry: Dictionary = _surface_payload_cache.get(_make_surface_payload_cache_key(coord, z_level), {}) as Dictionary
+	var cache_key: Vector3i = _make_surface_payload_cache_key(coord, z_level)
+	var entry: Dictionary = _surface_payload_cache.get(cache_key, {}) as Dictionary
 	if entry.is_empty():
 		return {}
-	return entry.get("flora_payload", {}) as Dictionary
+	var flora_payload: Dictionary = entry.get("flora_payload", {}) as Dictionary
+	if flora_payload.is_empty():
+		return {}
+	var hydrated_payload: Dictionary = _hydrate_flora_payload_texture_paths(flora_payload)
+	if hydrated_payload != flora_payload and not hydrated_payload.is_empty():
+		entry["flora_payload"] = hydrated_payload
+		_surface_payload_cache[cache_key] = entry
+		_touch_surface_payload_cache_key(cache_key)
+		return hydrated_payload
+	return flora_payload
 
 func _get_cached_surface_chunk_flora_result(coord: Vector2i, z_level: int) -> ChunkFloraResultScript:
 	if z_level != 0:
@@ -3375,8 +3476,16 @@ func _to_chunk_coord_set(chunk_coords: Array) -> Dictionary:
 	return result
 
 func _mark_topology_dirty() -> void:
-	_topology_build_generation += 1
 	_is_topology_dirty = true
+	if _topology_task_id >= 0 \
+		or _topology_build_commit_phase != TOPOLOGY_COMMIT_NONE \
+		or _is_topology_build_in_progress:
+		_topology_rebuild_restart_pending = true
+		return
+	if _topology_build_start_phase == TOPOLOGY_START_NONE \
+		and _topology_start_chunk_keys.is_empty() \
+		and _topology_start_chunk_index == 0:
+		return
 	_topology_build_start_phase = TOPOLOGY_START_NONE
 	_topology_start_chunk_keys = []
 	_topology_start_chunk_index = 0
@@ -3420,6 +3529,7 @@ func _start_topology_build() -> void:
 	var snapshot: Dictionary = _capture_topology_build_snapshot()
 	WorldPerfProbe.end("Topology.runtime.snapshot", snapshot_usec)
 	_is_topology_build_in_progress = true
+	_topology_rebuild_restart_pending = false
 	_topology_build_commit_phase = TOPOLOGY_COMMIT_NONE
 	_topology_build_start_phase = TOPOLOGY_START_NONE
 	_topology_start_chunk_keys = []
@@ -3429,6 +3539,7 @@ func _start_topology_build() -> void:
 	_topology_scan_local_x = 0
 	_topology_scan_local_y = 0
 	_clear_topology_component_state()
+	_topology_build_generation += 1
 	_topology_task_generation = _topology_build_generation
 	_topology_task_id = WorkerThreadPool.add_task(_worker_rebuild_topology.bind(snapshot, _topology_task_generation))
 
@@ -3478,15 +3589,14 @@ func _advance_topology_build_start_step() -> void:
 
 func _process_topology_build_step() -> bool:
 	if _topology_build_commit_phase != TOPOLOGY_COMMIT_NONE:
+		if _topology_rebuild_restart_pending:
+			_discard_pending_topology_build()
+			return false
 		var commit_usec: int = WorldPerfProbe.begin()
 		_process_topology_build_commit_step()
 		WorldPerfProbe.end("Topology.runtime.commit", commit_usec)
 		return false
-	_collect_completed_topology_build()
-	if _topology_build_commit_phase != TOPOLOGY_COMMIT_NONE:
-		var commit_ready_usec: int = WorldPerfProbe.begin()
-		_process_topology_build_commit_step()
-		WorldPerfProbe.end("Topology.runtime.commit", commit_ready_usec)
+	if _collect_completed_topology_build():
 		return false
 	if not _is_topology_dirty:
 		return false
@@ -3758,11 +3868,11 @@ func _topology_snapshot_tile_from_chunk(chunk_coord: Vector2i, local_tile: Vecto
 		chunk_coord.y * chunk_size + local_tile.y
 	)
 
-func _collect_completed_topology_build() -> void:
+func _collect_completed_topology_build() -> bool:
 	if _topology_task_id < 0:
-		return
+		return false
 	if not WorkerThreadPool.is_task_completed(_topology_task_id):
-		return
+		return false
 	WorkerThreadPool.wait_for_task_completion(_topology_task_id)
 	var completed_generation: int = _topology_task_generation
 	_topology_task_id = -1
@@ -3773,19 +3883,22 @@ func _collect_completed_topology_build() -> void:
 	_topology_result_mutex.unlock()
 	if completed_entry.is_empty():
 		_is_topology_build_in_progress = false
-		return
+		return true
 	var compute_ms: float = float(completed_entry.get("compute_ms", 0.0))
 	if compute_ms > 0.0:
 		WorldPerfProbe.record("Topology.runtime.worker_compute", compute_ms)
-	if completed_generation != _topology_build_generation or not _is_topology_dirty:
-		_is_topology_build_in_progress = false
-		return
+	if completed_generation != _topology_build_generation \
+		or not _is_topology_dirty \
+		or _topology_rebuild_restart_pending:
+		_discard_pending_topology_build()
+		return true
 	_topology_build_key_by_tile = completed_entry.get("key_by_tile", {}) as Dictionary
 	_topology_build_tiles_by_key = completed_entry.get("tiles_by_key", {}) as Dictionary
 	_topology_build_open_tiles_by_key = completed_entry.get("open_tiles_by_key", {}) as Dictionary
 	_topology_build_tiles_by_key_by_chunk = completed_entry.get("tiles_by_key_by_chunk", {}) as Dictionary
 	_topology_build_open_tiles_by_key_by_chunk = completed_entry.get("open_tiles_by_key_by_chunk", {}) as Dictionary
 	_begin_topology_build_commit()
+	return true
 
 func _find_next_topology_seed() -> Dictionary:
 	var scan_budget: int = _resolve_topology_scan_tile_budget()
@@ -3987,7 +4100,25 @@ func _finish_topology_build() -> void:
 	_topology_build_start_phase = TOPOLOGY_START_NONE
 	_topology_start_chunk_keys = []
 	_topology_start_chunk_index = 0
+	_topology_rebuild_restart_pending = false
 	_is_topology_dirty = false
+	_is_topology_build_in_progress = false
+
+func _discard_pending_topology_build() -> void:
+	_topology_build_commit_phase = TOPOLOGY_COMMIT_NONE
+	_topology_build_start_phase = TOPOLOGY_START_NONE
+	_topology_start_chunk_keys = []
+	_topology_start_chunk_index = 0
+	_topology_scan_chunk_coords = []
+	_topology_scan_chunk_index = 0
+	_topology_scan_local_x = 0
+	_topology_scan_local_y = 0
+	_topology_build_key_by_tile = {}
+	_topology_build_tiles_by_key = {}
+	_topology_build_open_tiles_by_key = {}
+	_topology_build_tiles_by_key_by_chunk = {}
+	_topology_build_open_tiles_by_key_by_chunk = {}
+	_clear_topology_component_state()
 	_is_topology_build_in_progress = false
 
 func _rebuild_loaded_mountain_topology() -> void:

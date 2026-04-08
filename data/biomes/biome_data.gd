@@ -65,16 +65,8 @@ const _EPSILON: float = 0.00001
 @export var flora_set_ids: Array[StringName] = []
 @export var decor_set_ids: Array[StringName] = []
 
-@export_group("Tiles")
-@export var ground_tile_id: int = 0
-@export var rock_tile_id: int = 1
-@export var water_tile_id: int = 2
-@export var sand_tile_id: int = 3
-@export var grass_tile_id: int = 4
-
 @export_group("Placeholder Colors")
 @export var ground_color: Color = Color(0.22, 0.18, 0.12)
-@export var rock_color: Color = Color(0.35, 0.33, 0.30)
 @export var water_color: Color = Color(0.10, 0.15, 0.28)
 @export var sand_color: Color = Color(0.45, 0.38, 0.25)
 @export var grass_color: Color = Color(0.35, 0.28, 0.10)

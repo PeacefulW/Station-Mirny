@@ -14,7 +14,15 @@ var _render_groups_by_key: Dictionary = {}
 var _render_groups_cache: Array[Dictionary] = []
 var _render_packet_cache_by_tile_size: Dictionary = {}
 
-func add_placement(local_pos: Vector2i, entry_id: StringName, is_flora: bool, color: Color, size: Vector2i, z_offset: int) -> void:
+func add_placement(
+	local_pos: Vector2i,
+	entry_id: StringName,
+	is_flora: bool,
+	color: Color,
+	size: Vector2i,
+	z_offset: int,
+	texture_path: String = ""
+) -> void:
 	var placement: Dictionary = {
 		"local_pos": local_pos,
 		"entry_id": entry_id,
@@ -22,6 +30,7 @@ func add_placement(local_pos: Vector2i, entry_id: StringName, is_flora: bool, co
 		"color": color,
 		"size": size,
 		"z_offset": z_offset,
+		"texture_path": texture_path,
 	}
 	placements.append(placement)
 	var placements_for_tile: Array = _placements_by_local_pos.get(local_pos, [])
@@ -112,7 +121,8 @@ static func from_serialized_payload(payload: Dictionary) -> ChunkFloraResult:
 			bool(placement.get("is_flora", true)),
 			placement.get("color", Color.WHITE) as Color,
 			placement.get("size", Vector2i.ZERO) as Vector2i,
-			int(placement.get("z_offset", 0))
+			int(placement.get("z_offset", 0)),
+			String(placement.get("texture_path", ""))
 		)
 	result.finalize_render_groups()
 	var render_packet: Dictionary = payload.get("render_packet", {}) as Dictionary
@@ -160,12 +170,14 @@ func _append_render_group(placement: Dictionary) -> void:
 	var color: Color = placement.get("color", Color.WHITE) as Color
 	var size: Vector2i = placement.get("size", Vector2i.ZERO) as Vector2i
 	var layer: int = int(placement.get("z_offset", 0))
-	var group_key: String = "%d|%s|%s|%d|%d|%s" % [
+	var texture_path: String = String(placement.get("texture_path", ""))
+	var group_key: String = "%d|%s|%s|%d|%d|%s|%s" % [
 		layer,
 		String(kind),
 		String(entry_id),
 		size.x,
 		size.y,
+		texture_path,
 		color.to_html(),
 	]
 	var render_group: Dictionary = _render_groups_by_key.get(group_key, {
@@ -174,6 +186,7 @@ func _append_render_group(placement: Dictionary) -> void:
 		"entry_id": entry_id,
 		"color": color,
 		"size": size,
+		"texture_path": texture_path,
 		"local_tiles": [],
 	})
 	var local_tiles: Array = render_group.get("local_tiles", []) as Array
@@ -192,6 +205,7 @@ static func _build_render_packet_from_groups(render_groups: Array, tile_size: in
 		var color: Color = group.get("color", Color.WHITE) as Color
 		var size_pixels_i: Vector2i = group.get("size", Vector2i.ZERO) as Vector2i
 		var size_pixels: Vector2 = Vector2(size_pixels_i.x, size_pixels_i.y)
+		var texture_path: String = String(group.get("texture_path", ""))
 		var local_tiles: Array = group.get("local_tiles", []) as Array
 		var items: Array = items_by_layer.get(layer, []) as Array
 		for tile_variant: Variant in local_tiles:
@@ -205,12 +219,14 @@ static func _build_render_packet_from_groups(render_groups: Array, tile_size: in
 				),
 				"size": size_pixels,
 				"color": color,
+				"texture_path": texture_path,
 			})
 		items_by_layer[layer] = items
 		group_summaries.append({
 			"layer": layer,
 			"kind": group.get("kind", RENDER_KIND_FLORA),
 			"entry_id": group.get("entry_id", &""),
+			"texture_path": texture_path,
 			"placement_count": int(group.get("placement_count", local_tiles.size())),
 		})
 	var layer_keys: Array = items_by_layer.keys()

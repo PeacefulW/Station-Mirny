@@ -236,8 +236,8 @@ func resolve_biome(world_pos: Vector2i, channels: WorldChannels = null, structur
 	var sampled_structure_context: WorldStructureContext = structure_context
 	if sampled_structure_context == null:
 		sampled_structure_context = sample_structure_context(canonical_tile, sampled_channels)
-	if _biome_resolver:
-		return _biome_resolver.resolve_biome(canonical_tile, sampled_channels, sampled_structure_context)
+	if _compute_context != null:
+		return _compute_context.resolve_biome(canonical_tile, sampled_channels, sampled_structure_context)
 	return null
 
 func get_tile_biome(tile_pos: Vector2i) -> BiomeData:
@@ -549,6 +549,17 @@ func _setup_native_chunk_generator(palette_index_by_id: Dictionary) -> void:
 	var gen: RefCounted = ClassDB.instantiate(&"ChunkGenerator")
 	if gen == null:
 		return
+	var params: Dictionary = _build_generator_params(palette_index_by_id)
+	var native_generator_initialize_usec: int = WorldPerfProbe.begin()
+	gen.initialize(world_seed, params)
+	WorldPerfProbe.end("WorldGenerator._setup_native_chunk_generator.initialize", native_generator_initialize_usec)
+	_native_chunk_generator = gen
+	var biome_defs: Array = params.get("biomes", []) as Array
+	var flora_set_defs: Array = params.get("flora_sets", []) as Array
+	var decor_set_defs: Array = params.get("decor_sets", []) as Array
+	print("[WorldGenerator] Native ChunkGenerator initialized (%d biomes, %d flora sets, %d decor sets)" % [biome_defs.size(), flora_set_defs.size(), decor_set_defs.size()])
+
+func _build_generator_params(palette_index_by_id: Dictionary) -> Dictionary:
 	var wrap: int = WorldNoiseUtilsScript.resolve_wrap_width_tiles(balance)
 	var params: Dictionary = {
 		"chunk_size": balance.chunk_size_tiles,
@@ -609,8 +620,13 @@ func _setup_native_chunk_generator(palette_index_by_id: Dictionary) -> void:
 		"hot_pole_temperature": balance.hot_pole_temperature,
 		"hot_pole_transition_width": balance.hot_pole_transition_width,
 		"hot_evaporation_rate": balance.hot_evaporation_rate,
+		"biome_continental_drying_factor": balance.biome_continental_drying_factor,
+		"biome_drainage_moisture_bonus": balance.biome_drainage_moisture_bonus,
 	}
-	# Biome definitions
+	var pre_pass: WorldPrePass = _world_pre_pass as WorldPrePass
+	if pre_pass != null:
+		params.merge(_build_native_prepass_params(pre_pass), true)
+
 	var biome_defs: Array = []
 	var palette_order: Array[BiomeData] = BiomeRegistry.get_palette_order()
 	for index: int in range(palette_order.size()):
@@ -621,31 +637,51 @@ func _setup_native_chunk_generator(palette_index_by_id: Dictionary) -> void:
 			"id": biome.id,
 			"priority": biome.priority,
 			"palette_index": int(palette_index_by_id.get(biome.id, index)),
-			"min_height": biome.min_height, "max_height": biome.max_height,
-			"min_temperature": biome.min_temperature, "max_temperature": biome.max_temperature,
-			"min_moisture": biome.min_moisture, "max_moisture": biome.max_moisture,
-			"min_ruggedness": biome.min_ruggedness, "max_ruggedness": biome.max_ruggedness,
-			"min_flora_density": biome.min_flora_density, "max_flora_density": biome.max_flora_density,
-			"min_latitude": biome.min_latitude, "max_latitude": biome.max_latitude,
-			"min_ridge_strength": biome.min_ridge_strength, "max_ridge_strength": biome.max_ridge_strength,
-			"min_river_strength": biome.min_river_strength, "max_river_strength": biome.max_river_strength,
-			"min_floodplain_strength": biome.min_floodplain_strength, "max_floodplain_strength": biome.max_floodplain_strength,
+			"min_height": biome.min_height,
+			"max_height": biome.max_height,
+			"min_temperature": biome.min_temperature,
+			"max_temperature": biome.max_temperature,
+			"min_moisture": biome.min_moisture,
+			"max_moisture": biome.max_moisture,
+			"min_ruggedness": biome.min_ruggedness,
+			"max_ruggedness": biome.max_ruggedness,
+			"min_flora_density": biome.min_flora_density,
+			"max_flora_density": biome.max_flora_density,
+			"min_latitude": biome.min_latitude,
+			"max_latitude": biome.max_latitude,
+			"min_drainage": biome.min_drainage,
+			"max_drainage": biome.max_drainage,
+			"min_slope": biome.min_slope,
+			"max_slope": biome.max_slope,
+			"min_rain_shadow": biome.min_rain_shadow,
+			"max_rain_shadow": biome.max_rain_shadow,
+			"min_continentalness": biome.min_continentalness,
+			"max_continentalness": biome.max_continentalness,
+			"min_ridge_strength": biome.min_ridge_strength,
+			"max_ridge_strength": biome.max_ridge_strength,
+			"min_river_strength": biome.min_river_strength,
+			"max_river_strength": biome.max_river_strength,
+			"min_floodplain_strength": biome.min_floodplain_strength,
+			"max_floodplain_strength": biome.max_floodplain_strength,
 			"height_weight": biome.height_weight,
 			"temperature_weight": biome.temperature_weight,
 			"moisture_weight": biome.moisture_weight,
 			"ruggedness_weight": biome.ruggedness_weight,
 			"flora_density_weight": biome.flora_density_weight,
 			"latitude_weight": biome.latitude_weight,
+			"drainage_weight": biome.drainage_weight,
+			"slope_weight": biome.slope_weight,
+			"rain_shadow_weight": biome.rain_shadow_weight,
+			"continentalness_weight": biome.continentalness_weight,
 			"ridge_strength_weight": biome.ridge_strength_weight,
 			"river_strength_weight": biome.river_strength_weight,
 			"floodplain_strength_weight": biome.floodplain_strength_weight,
-			"tags": biome.tags.duplicate(),
+			"tags": biome.tags.duplicate() if biome.tags else [],
 			"flora_set_ids": biome.flora_set_ids.duplicate() if biome.flora_set_ids else [],
 			"decor_set_ids": biome.decor_set_ids.duplicate() if biome.decor_set_ids else [],
 		})
 	params["biomes"] = biome_defs
-	# Flora/decor set definitions for native flora computation
-	# Collect unique flora/decor sets referenced by biomes
+
 	var flora_set_defs: Array = []
 	var decor_set_defs: Array = []
 	var seen_flora_ids: Dictionary = {}
@@ -715,11 +751,28 @@ func _setup_native_chunk_generator(palette_index_by_id: Dictionary) -> void:
 				decor_set_defs.append(ds_dict)
 	params["flora_sets"] = flora_set_defs
 	params["decor_sets"] = decor_set_defs
-	var native_generator_initialize_usec: int = WorldPerfProbe.begin()
-	gen.initialize(world_seed, params)
-	WorldPerfProbe.end("WorldGenerator._setup_native_chunk_generator.initialize", native_generator_initialize_usec)
-	_native_chunk_generator = gen
-	print("[WorldGenerator] Native ChunkGenerator initialized (%d biomes, %d flora sets, %d decor sets)" % [biome_defs.size(), flora_set_defs.size(), decor_set_defs.size()])
+	return params
+
+func _build_native_prepass_params(pre_pass: WorldPrePass) -> Dictionary:
+	if pre_pass == null:
+		return {}
+	return {
+		"prepass_grid_width": pre_pass._grid_width,
+		"prepass_grid_height": pre_pass._grid_height,
+		"prepass_min_y": pre_pass._prepass_min_y,
+		"prepass_max_y": pre_pass._prepass_max_y,
+		"prepass_grid_span_x": pre_pass._grid_span_x,
+		"prepass_grid_span_y": pre_pass._grid_span_y,
+		"prepass_drainage_grid": pre_pass._drainage_grid.duplicate(),
+		"prepass_slope_grid": pre_pass._slope_grid.duplicate(),
+		"prepass_rain_shadow_grid": pre_pass._rain_shadow_grid.duplicate(),
+		"prepass_continentalness_grid": pre_pass._continentalness_grid.duplicate(),
+		"prepass_ridge_strength_grid": pre_pass._ridge_strength_grid.duplicate(),
+		"prepass_river_width_grid": pre_pass._river_width_grid.duplicate(),
+		"prepass_river_distance_grid": pre_pass._river_distance_grid.duplicate(),
+		"prepass_floodplain_strength_grid": pre_pass._floodplain_strength_grid.duplicate(),
+		"prepass_mountain_mass_grid": pre_pass._mountain_mass_grid.duplicate(),
+	}
 
 func get_native_chunk_generator() -> RefCounted:
 	return _native_chunk_generator

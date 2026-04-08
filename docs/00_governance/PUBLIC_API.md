@@ -631,7 +631,7 @@ related_docs:
 `WorldGenerator.get_native_chunk_generator() -> RefCounted`
 - Что возвращает: C++ `ChunkGenerator` instance или `null` если native generation отключена / DLL недоступна.
 - Когда использовать: `ChunkContentBuilder.initialize()` получает native generator для use в `build_chunk_native_data()`.
-- Особенности: controlled by `balance.use_native_chunk_generation` flag. `ChunkGenerator.initialize()` called once during `_setup_compute_context()`. Receives full balance params + biome definitions + flora/decor set definitions. Native `generate_chunk()` returns terrain arrays + optional `flora_placements` Array. When flora_placements present, worker paths skip GDScript flora computation (×200 speedup).
+- Особенности: controlled by `balance.use_native_chunk_generation` flag. `ChunkGenerator.initialize()` called once during `_setup_compute_context()`. Receives full balance params, causal biome balance knobs (`biome_continental_drying_factor`, `biome_drainage_moisture_bonus`), biome definitions, flora/decor set definitions, and an immutable serialized `WorldPrePass` snapshot for native biome parity with the authoritative GDScript path. Native `generate_chunk()` returns terrain arrays + optional `flora_placements` Array. When flora_placements present, worker paths skip GDScript flora computation (×200 speedup).
 
 `WorldGenerator.build_tile_data(tile_pos: Vector2i) -> TileGenData`
 - Когда вызывать: когда нужен full generated surface tile description, а не только terrain type.

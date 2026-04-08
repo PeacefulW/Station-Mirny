@@ -100,7 +100,7 @@ func populate_chunk_build_data(canonical_tile: Vector2i, spawn_tile: Vector2i, d
 			data.biome_palette_index = _world_context.get_biome_palette_index(resolved_biome.id)
 		if biome_result.has_secondary_biome():
 			data.secondary_biome_palette_index = _world_context.get_biome_palette_index(biome_result.secondary_biome_id)
-	elif _current_biome_palette_index > 0:
+	else:
 		data.biome_palette_index = _current_biome_palette_index
 	if data.terrain == TileGenData.TerrainType.GROUND and local_variation:
 		data.local_variation_id = LocalVariationContext.kind_to_variation_id(local_variation.variation_kind)
@@ -235,8 +235,8 @@ func _reset_tile_data(data: TileGenData) -> void:
 	data.river_strength = 0.0
 	data.floodplain_strength = 0.0
 	data.biome_id = &""
-	data.biome_palette_index = 0
-	data.secondary_biome_palette_index = 0
+	data.biome_palette_index = _current_biome_palette_index
+	data.secondary_biome_palette_index = _current_biome_palette_index
 	data.biome_score = -1.0
 	data.ecotone_factor = 0.0
 	data.local_variation_id = 0
@@ -252,8 +252,8 @@ func _reset_chunk_build_data(data: TileGenData) -> void:
 	data.terrain = TileGenData.TerrainType.GROUND
 	data.height = 0.5
 	data.local_variation_id = 0
-	data.biome_palette_index = 0
-	data.secondary_biome_palette_index = 0
+	data.biome_palette_index = _current_biome_palette_index
+	data.secondary_biome_palette_index = _current_biome_palette_index
 	data.ecotone_factor = 0.0
 	data.flora_density = 0.5
 	data.flora_modulation = 0.0

@@ -21,10 +21,14 @@ func register_biome(biome: BiomeData, biome_namespace: StringName = BASE_NAMESPA
 	if biome == null or str(biome.id).is_empty():
 		return
 	var namespaced_id: StringName = _make_namespaced_id(biome.id, biome_namespace)
-	_biomes_by_id[namespaced_id] = biome
-	if not _biomes_ordered.has(biome):
-		_palette_index_by_id[namespaced_id] = _biomes_ordered.size()
-		_biomes_ordered.append(biome)
+	var runtime_biome: BiomeData = _duplicate_runtime_biome(biome, namespaced_id)
+	var existing_index: int = int(_palette_index_by_id.get(namespaced_id, -1))
+	_biomes_by_id[namespaced_id] = runtime_biome
+	if existing_index >= 0 and existing_index < _biomes_ordered.size():
+		_biomes_ordered[existing_index] = runtime_biome
+		return
+	_palette_index_by_id[namespaced_id] = _biomes_ordered.size()
+	_biomes_ordered.append(runtime_biome)
 
 ## Возвращает BiomeData по namespaced ID (например "base:plains").
 func get_biome(id: StringName) -> BiomeData:
@@ -45,7 +49,7 @@ func get_all_biomes() -> Array[BiomeData]:
 ## Возвращает palette index по namespaced или short ID.
 func get_palette_index(biome_id: StringName) -> int:
 	if biome_id == &"":
-		return 0
+		return get_default_palette_index()
 	var idx: Variant = _palette_index_by_id.get(biome_id, null)
 	if idx != null:
 		return int(idx)
@@ -53,7 +57,7 @@ func get_palette_index(biome_id: StringName) -> int:
 	idx = _palette_index_by_id.get(namespaced, null)
 	if idx != null:
 		return int(idx)
-	return 0
+	return get_default_palette_index()
 
 ## Возвращает palette-отсортированный список биомов.
 func get_palette_order() -> Array[BiomeData]:
@@ -70,6 +74,12 @@ func get_default_biome() -> BiomeData:
 	if not _biomes_ordered.is_empty():
 		return _biomes_ordered[0]
 	return null
+
+func get_default_palette_index() -> int:
+	var default_biome: BiomeData = get_default_biome()
+	if default_biome == null or str(default_biome.id).is_empty():
+		return 0
+	return int(_palette_index_by_id.get(default_biome.id, 0))
 
 ## Проверяет наличие биома по ID.
 func has_biome(id: StringName) -> bool:
@@ -103,3 +113,10 @@ func _make_namespaced_id(short_id: StringName, biome_namespace: StringName) -> S
 	if id_str.contains(":"):
 		return short_id
 	return StringName("%s:%s" % [str(biome_namespace), id_str])
+
+func _duplicate_runtime_biome(biome: BiomeData, namespaced_id: StringName) -> BiomeData:
+	var runtime_biome: BiomeData = biome.duplicate(true) as BiomeData
+	if runtime_biome == null:
+		runtime_biome = biome
+	runtime_biome.id = namespaced_id
+	return runtime_biome

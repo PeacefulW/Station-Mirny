@@ -381,7 +381,7 @@ static func _build_surface_terrain_tileset(balance: WorldGenBalance, biomes: Arr
 	var ordered_biomes: Array[BiomeData] = biomes.duplicate()
 	if ordered_biomes.is_empty():
 		ordered_biomes.append(BiomeData.new())
-	var default_biome: BiomeData = ordered_biomes[0]
+	var default_biome: BiomeData = _resolve_surface_default_biome(ordered_biomes)
 	var ts: int = balance.tile_size
 	var faces_tex: Texture2D = load(ROCK_FACES_PATH) as Texture2D
 	var atlas_tiles: int = 0
@@ -755,8 +755,27 @@ static func _rect_for_linear_index(index: int, tile_size: int) -> Rect2i:
 static func _get_surface_palette(biome_palette_index: int) -> Dictionary:
 	if _surface_palette_tiles.is_empty():
 		return {}
-	var clamped_index: int = clampi(biome_palette_index, 0, _surface_palette_tiles.size() - 1)
-	return _surface_palette_tiles[clamped_index] as Dictionary
+	var fallback_index: int = _resolve_surface_default_palette_index(_surface_palette_tiles.size())
+	if biome_palette_index < 0 or biome_palette_index >= _surface_palette_tiles.size():
+		return _surface_palette_tiles[fallback_index] as Dictionary
+	return _surface_palette_tiles[biome_palette_index] as Dictionary
+
+static func _resolve_surface_default_biome(ordered_biomes: Array[BiomeData]) -> BiomeData:
+	if ordered_biomes.is_empty():
+		return BiomeData.new()
+	var default_biome: BiomeData = BiomeRegistry.get_default_biome() if BiomeRegistry else null
+	if default_biome == null or str(default_biome.id).is_empty():
+		return ordered_biomes[0]
+	for biome: BiomeData in ordered_biomes:
+		if biome != null and biome.id == default_biome.id:
+			return biome
+	return ordered_biomes[0]
+
+static func _resolve_surface_default_palette_index(palette_count: int) -> int:
+	if palette_count <= 0:
+		return 0
+	var default_index: int = BiomeRegistry.get_default_palette_index() if BiomeRegistry else 0
+	return clampi(default_index, 0, palette_count - 1)
 
 static func _build_overlay_tileset(balance: WorldGenBalance, _biome: BiomeData) -> TileSet:
 	var tileset := TileSet.new()

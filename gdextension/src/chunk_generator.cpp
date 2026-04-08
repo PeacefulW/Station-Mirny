@@ -137,12 +137,44 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
     hot_pole_temperature = (float)(double)p_params.get("hot_pole_temperature", 0.82);
     hot_pole_transition_width = (float)(double)p_params.get("hot_pole_transition_width", 0.15);
     hot_evaporation_rate = (float)(double)p_params.get("hot_evaporation_rate", 0.25);
+    biome_continental_drying_factor = (float)(double)p_params.get("biome_continental_drying_factor", 0.35);
+    biome_drainage_moisture_bonus = (float)(double)p_params.get("biome_drainage_moisture_bonus", 0.28);
     // Pre-compute mountain weights (matches surface_terrain_resolver.gd lines 24-32)
     float chain = clampf(mountain_chaininess, 0.0f, 1.0f);
     mountain_threshold_value = clampf(mountain_base_threshold - mountain_density, 0.0f, 1.0f);
     ridge_backbone_weight = lerpf(0.76f, 0.92f, chain);
     massif_fill_weight = lerpf(0.30f, 0.38f, chain);
     core_bonus_weight = lerpf(0.16f, 0.28f, chain);
+
+    // --- Pre-pass-backed biome sampling config ---
+    prepass_grid_width = (int)p_params.get("prepass_grid_width", 0);
+    prepass_grid_height = (int)p_params.get("prepass_grid_height", 0);
+    prepass_min_y = (int)p_params.get("prepass_min_y", 0);
+    prepass_max_y = (int)p_params.get("prepass_max_y", 0);
+    prepass_grid_span_x = (float)(double)p_params.get("prepass_grid_span_x", 1.0);
+    prepass_grid_span_y = (float)(double)p_params.get("prepass_grid_span_y", 1.0);
+    prepass_drainage_grid = p_params.get("prepass_drainage_grid", PackedFloat32Array());
+    prepass_slope_grid = p_params.get("prepass_slope_grid", PackedFloat32Array());
+    prepass_rain_shadow_grid = p_params.get("prepass_rain_shadow_grid", PackedFloat32Array());
+    prepass_continentalness_grid = p_params.get("prepass_continentalness_grid", PackedFloat32Array());
+    prepass_ridge_strength_grid = p_params.get("prepass_ridge_strength_grid", PackedFloat32Array());
+    prepass_river_width_grid = p_params.get("prepass_river_width_grid", PackedFloat32Array());
+    prepass_river_distance_grid = p_params.get("prepass_river_distance_grid", PackedFloat32Array());
+    prepass_floodplain_strength_grid = p_params.get("prepass_floodplain_strength_grid", PackedFloat32Array());
+    prepass_mountain_mass_grid = p_params.get("prepass_mountain_mass_grid", PackedFloat32Array());
+    int expected_prepass_size = prepass_grid_width * prepass_grid_height;
+    has_biome_prepass = expected_prepass_size > 0
+        && prepass_grid_span_x > 0.0f
+        && prepass_grid_span_y > 0.0f
+        && prepass_drainage_grid.size() == expected_prepass_size
+        && prepass_slope_grid.size() == expected_prepass_size
+        && prepass_rain_shadow_grid.size() == expected_prepass_size
+        && prepass_continentalness_grid.size() == expected_prepass_size
+        && prepass_ridge_strength_grid.size() == expected_prepass_size
+        && prepass_river_width_grid.size() == expected_prepass_size
+        && prepass_river_distance_grid.size() == expected_prepass_size
+        && prepass_floodplain_strength_grid.size() == expected_prepass_size
+        && prepass_mountain_mass_grid.size() == expected_prepass_size;
 
     // --- Local variation params ---
     local_variation_min_score = (float)(double)p_params.get("local_variation_min_score", 0.22);
@@ -516,13 +548,112 @@ float ChunkGenerator::score_range(float value, float min_v, float max_v, bool so
     return clampf(1.0f - fabsf(value - center) / half, 0.0f, 1.0f);
 }
 
-bool ChunkGenerator::biome_matches(const BiomeDef& b, const Channels& ch, const StructureContext& sc) const {
+float ChunkGenerator::sample_prepass_grid(const PackedFloat32Array& grid, int world_x, int world_y) const {
+    if (!has_biome_prepass || grid.is_empty() || prepass_grid_width <= 0 || prepass_grid_height <= 0) {
+        return 0.0f;
+    }
+
+    int wrapped_x = wrap_x(world_x, wrap_width);
+    int x0 = 0;
+    int x1 = 0;
+    float tx = 0.0f;
+    if (prepass_grid_width > 1) {
+        float x_coord = (float)wrapped_x / prepass_grid_span_x;
+        int x_floor = (int)std::floor(x_coord);
+        x0 = wrap_x(x_floor, prepass_grid_width);
+        x1 = wrap_x(x0 + 1, prepass_grid_width);
+        tx = x_coord - (float)x_floor;
+    }
+
+    int y0 = 0;
+    int y1 = 0;
+    float ty = 0.0f;
+    if (prepass_grid_height > 1) {
+        if (world_y <= prepass_min_y) {
+            y0 = 0;
+            y1 = 0;
+        } else if (world_y >= prepass_max_y) {
+            y0 = prepass_grid_height - 1;
+            y1 = y0;
+        } else {
+            float y_coord = (float)(world_y - prepass_min_y) / prepass_grid_span_y;
+            int y_floor = (int)std::floor(y_coord);
+            y0 = std::clamp(y_floor, 0, prepass_grid_height - 1);
+            if (y0 >= prepass_grid_height - 1) {
+                y1 = y0;
+            } else {
+                y1 = y0 + 1;
+                ty = y_coord - (float)y_floor;
+            }
+        }
+    }
+
+    auto flat_index = [this](int gx, int gy) {
+        return gy * prepass_grid_width + gx;
+    };
+
+    float v00 = grid[flat_index(x0, y0)];
+    if (x0 == x1 && y0 == y1) {
+        return v00;
+    }
+    float v10 = grid[flat_index(x1, y0)];
+    float v01 = grid[flat_index(x0, y1)];
+    float v11 = grid[flat_index(x1, y1)];
+    float top = lerpf(v00, v10, tx);
+    float bottom = lerpf(v01, v11, tx);
+    return lerpf(top, bottom, ty);
+}
+
+BiomePrePassSample ChunkGenerator::sample_biome_prepass(int wx, int wy) const {
+    BiomePrePassSample sample;
+    if (!has_biome_prepass) {
+        return sample;
+    }
+    sample.drainage = clampf(sample_prepass_grid(prepass_drainage_grid, wx, wy), 0.0f, 1.0f);
+    sample.slope = clampf(sample_prepass_grid(prepass_slope_grid, wx, wy), 0.0f, 1.0f);
+    sample.rain_shadow = clampf(sample_prepass_grid(prepass_rain_shadow_grid, wx, wy), 0.0f, 1.0f);
+    sample.continentalness = clampf(sample_prepass_grid(prepass_continentalness_grid, wx, wy), 0.0f, 1.0f);
+    sample.ridge_strength = clampf(sample_prepass_grid(prepass_ridge_strength_grid, wx, wy), 0.0f, 1.0f);
+    sample.river_width = std::max(0.0f, sample_prepass_grid(prepass_river_width_grid, wx, wy));
+    sample.river_distance = std::max(0.0f, sample_prepass_grid(prepass_river_distance_grid, wx, wy));
+    sample.floodplain_strength = clampf(sample_prepass_grid(prepass_floodplain_strength_grid, wx, wy), 0.0f, 1.0f);
+    sample.mountain_mass = clampf(sample_prepass_grid(prepass_mountain_mass_grid, wx, wy), 0.0f, 1.0f);
+    return sample;
+}
+
+float ChunkGenerator::derive_river_strength_from_prepass(float river_width, float river_distance) const {
+    float width_strength = clampf((std::max(0.0f, river_width) + 1.0f) / 6.0f, 0.0f, 1.0f);
+    if (river_distance <= 0.001f && river_width > 0.0f) {
+        return std::max(width_strength, 0.55f);
+    }
+    return width_strength;
+}
+
+bool ChunkGenerator::biome_uses_causal_moisture(const BiomeDef& b) const {
+    return b.drainage_weight > 0.0f || b.rain_shadow_weight > 0.0f || b.continentalness_weight > 0.0f;
+}
+
+bool ChunkGenerator::matches_weighted_range(float value, float min_v, float max_v, float weight) const {
+    if (weight <= 0.0f) {
+        return true;
+    }
+    constexpr float E = 0.00001f;
+    float lo = std::min(min_v, max_v);
+    float hi = std::max(min_v, max_v);
+    return value >= lo - E && value <= hi + E;
+}
+
+bool ChunkGenerator::biome_matches(
+        const BiomeDef& b,
+        const Channels& ch,
+        const StructureContext& sc,
+        const BiomePrePassSample* prepass) const {
     constexpr float E = 0.00001f;
     auto in_range = [E](float v, float lo, float hi) {
         float l = std::min(lo, hi), u = std::max(lo, hi);
         return v >= l - E && v <= u + E;
     };
-    return in_range(ch.height, b.min_height, b.max_height)
+    bool matches = in_range(ch.height, b.min_height, b.max_height)
         && in_range(ch.temperature, b.min_temperature, b.max_temperature)
         && in_range(ch.moisture, b.min_moisture, b.max_moisture)
         && in_range(ch.ruggedness, b.min_ruggedness, b.max_ruggedness)
@@ -531,10 +662,22 @@ bool ChunkGenerator::biome_matches(const BiomeDef& b, const Channels& ch, const 
         && in_range(sc.ridge_strength, b.min_ridge_strength, b.max_ridge_strength)
         && in_range(sc.river_strength, b.min_river_strength, b.max_river_strength)
         && in_range(sc.floodplain_strength, b.min_floodplain_strength, b.max_floodplain_strength);
+    if (!matches || prepass == nullptr) {
+        return matches;
+    }
+    return matches_weighted_range(prepass->drainage, b.min_drainage, b.max_drainage, b.drainage_weight)
+        && matches_weighted_range(prepass->slope, b.min_slope, b.max_slope, b.slope_weight)
+        && matches_weighted_range(prepass->rain_shadow, b.min_rain_shadow, b.max_rain_shadow, b.rain_shadow_weight)
+        && matches_weighted_range(prepass->continentalness, b.min_continentalness, b.max_continentalness, b.continentalness_weight);
 }
 
-float ChunkGenerator::biome_weighted_score(const BiomeDef& b, const Channels& ch,
-                                           const StructureContext& sc, bool soft) const {
+float ChunkGenerator::biome_weighted_score(
+        const BiomeDef& b,
+        const Channels& ch,
+        const StructureContext& sc,
+        const BiomePrePassSample* prepass,
+        float effective_moisture,
+        bool soft) const {
     float tw = 0.0f, ts = 0.0f;
     auto add = [&](float w, float val, float lo, float hi) {
         if (w <= 0.0f) return;
@@ -543,40 +686,94 @@ float ChunkGenerator::biome_weighted_score(const BiomeDef& b, const Channels& ch
     };
     add(b.height_weight, ch.height, b.min_height, b.max_height);
     add(b.temperature_weight, ch.temperature, b.min_temperature, b.max_temperature);
-    add(b.moisture_weight, ch.moisture, b.min_moisture, b.max_moisture);
+    add(
+        b.moisture_weight,
+        (prepass != nullptr && biome_uses_causal_moisture(b)) ? effective_moisture : ch.moisture,
+        b.min_moisture,
+        b.max_moisture
+    );
     add(b.ruggedness_weight, ch.ruggedness, b.min_ruggedness, b.max_ruggedness);
     add(b.flora_density_weight, ch.flora_density, b.min_flora_density, b.max_flora_density);
     add(b.latitude_weight, ch.latitude, b.min_latitude, b.max_latitude);
     add(b.ridge_strength_weight, sc.ridge_strength, b.min_ridge_strength, b.max_ridge_strength);
     add(b.river_strength_weight, sc.river_strength, b.min_river_strength, b.max_river_strength);
     add(b.floodplain_strength_weight, sc.floodplain_strength, b.min_floodplain_strength, b.max_floodplain_strength);
+    if (prepass != nullptr) {
+        add(b.drainage_weight, prepass->drainage, b.min_drainage, b.max_drainage);
+        add(b.slope_weight, prepass->slope, b.min_slope, b.max_slope);
+        add(b.rain_shadow_weight, prepass->rain_shadow, b.min_rain_shadow, b.max_rain_shadow);
+        add(b.continentalness_weight, prepass->continentalness, b.min_continentalness, b.max_continentalness);
+    }
     return tw > 0.0f ? ts / tw : 0.0f;
 }
 
-int ChunkGenerator::resolve_biome(const Channels& ch, const StructureContext& sc) const {
+bool ChunkGenerator::is_better_biome_candidate(
+        float score,
+        const BiomeDef& biome,
+        int incumbent_idx,
+        float incumbent_score) const {
     constexpr float SCORE_EPS = 0.0001f;
+    if (incumbent_idx < 0) {
+        return true;
+    }
+    if (score > incumbent_score + SCORE_EPS) {
+        return true;
+    }
+    if (score < incumbent_score - SCORE_EPS) {
+        return false;
+    }
+    const BiomeDef& incumbent = biomes[incumbent_idx];
+    if (biome.priority != incumbent.priority) {
+        return biome.priority > incumbent.priority;
+    }
+    return String(biome.id) < String(incumbent.id);
+}
+
+int ChunkGenerator::resolve_biome(int wx, int wy, const Channels& ch, const StructureContext& fallback_sc) const {
+    BiomePrePassSample prepass = sample_biome_prepass(wx, wy);
+    const BiomePrePassSample* prepass_ptr = has_biome_prepass ? &prepass : nullptr;
+    StructureContext biome_sc = fallback_sc;
+    if (prepass_ptr != nullptr) {
+        biome_sc.ridge_strength = prepass.ridge_strength;
+        biome_sc.river_strength = derive_river_strength_from_prepass(prepass.river_width, prepass.river_distance);
+        biome_sc.floodplain_strength = prepass.floodplain_strength;
+        biome_sc.mountain_mass = prepass.mountain_mass;
+    }
+
+    float effective_moisture = clampf(ch.moisture, 0.0f, 1.0f);
+    if (prepass_ptr != nullptr) {
+        float moisture_retention = clampf(1.0f - prepass.rain_shadow, 0.0f, 1.0f);
+        float continental_retention = clampf(
+            1.0f - prepass.continentalness * biome_continental_drying_factor,
+            0.0f,
+            1.0f
+        );
+        effective_moisture = clampf(
+            effective_moisture * moisture_retention * continental_retention
+                + prepass.drainage * biome_drainage_moisture_bonus,
+            0.0f,
+            1.0f
+        );
+    }
+
     int best_valid_idx = -1;
     float best_valid_score = -1.0f;
     int best_fallback_idx = -1;
     float best_fallback_score = -1.0f;
     for (int i = 0; i < (int)biomes.size(); i++) {
         const BiomeDef& b = biomes[i];
-        bool valid = biome_matches(b, ch, sc);
+        bool valid = biome_matches(b, ch, biome_sc, prepass_ptr);
         if (valid) {
-            float s = biome_weighted_score(b, ch, sc, false);
-            bool better = (best_valid_idx < 0) || (s > best_valid_score + SCORE_EPS)
-                || (s >= best_valid_score - SCORE_EPS && b.priority > biomes[best_valid_idx].priority)
-                || (s >= best_valid_score - SCORE_EPS && b.priority == biomes[best_valid_idx].priority
-                    && String(b.id) < String(biomes[best_valid_idx].id));
-            if (better) { best_valid_idx = i; best_valid_score = s; }
+            float s = biome_weighted_score(b, ch, biome_sc, prepass_ptr, effective_moisture, false);
+            if (is_better_biome_candidate(s, b, best_valid_idx, best_valid_score)) {
+                best_valid_idx = i;
+                best_valid_score = s;
+            }
         }
-        if (best_valid_idx < 0) {
-            float fs = biome_weighted_score(b, ch, sc, true);
-            bool fb_better = (best_fallback_idx < 0) || (fs > best_fallback_score + SCORE_EPS)
-                || (fs >= best_fallback_score - SCORE_EPS && b.priority > biomes[best_fallback_idx].priority)
-                || (fs >= best_fallback_score - SCORE_EPS && b.priority == biomes[best_fallback_idx].priority
-                    && String(b.id) < String(biomes[best_fallback_idx].id));
-            if (fb_better) { best_fallback_idx = i; best_fallback_score = fs; }
+        float fs = biome_weighted_score(b, ch, biome_sc, prepass_ptr, effective_moisture, true);
+        if (is_better_biome_candidate(fs, b, best_fallback_idx, best_fallback_score)) {
+            best_fallback_idx = i;
+            best_fallback_score = fs;
         }
     }
     int idx = best_valid_idx >= 0 ? best_valid_idx : best_fallback_idx;
@@ -1036,7 +1233,7 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
             StructureContext sc = sample_structure(wx, wy, ch);
 
             // 3. Biome (returns palette_index)
-            int biome_idx = resolve_biome(ch, sc);
+            int biome_idx = resolve_biome(wx, wy, ch, sc);
             const BiomeDef* biome_ptr = nullptr;
             for (int bi = 0; bi < (int)biomes.size(); bi++) {
                 if (biomes[bi].palette_index == biome_idx) { biome_ptr = &biomes[bi]; break; }

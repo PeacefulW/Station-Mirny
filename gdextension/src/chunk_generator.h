@@ -55,6 +55,18 @@ struct BiomeDef {
     std::vector<StringName> tags;
 };
 
+struct BiomePrePassSample {
+    float drainage = 0.0f;
+    float slope = 0.0f;
+    float rain_shadow = 0.0f;
+    float continentalness = 0.0f;
+    float ridge_strength = 0.0f;
+    float river_width = 0.0f;
+    float river_distance = 0.0f;
+    float floodplain_strength = 0.0f;
+    float mountain_mass = 0.0f;
+};
+
 class ChunkGenerator : public RefCounted {
     GDCLASS(ChunkGenerator, RefCounted)
 
@@ -121,11 +133,31 @@ private:
     float hot_pole_temperature = 0.82f;
     float hot_pole_transition_width = 0.15f;
     float hot_evaporation_rate = 0.25f;
+    float biome_continental_drying_factor = 0.35f;
+    float biome_drainage_moisture_bonus = 0.28f;
     // Pre-computed from balance
     float mountain_threshold_value = 0.0f;
     float ridge_backbone_weight = 0.76f;
     float massif_fill_weight = 0.30f;
     float core_bonus_weight = 0.16f;
+
+    // --- Pre-pass-backed biome sampling params ---
+    int prepass_grid_width = 0;
+    int prepass_grid_height = 0;
+    int prepass_min_y = 0;
+    int prepass_max_y = 0;
+    float prepass_grid_span_x = 1.0f;
+    float prepass_grid_span_y = 1.0f;
+    bool has_biome_prepass = false;
+    PackedFloat32Array prepass_drainage_grid;
+    PackedFloat32Array prepass_slope_grid;
+    PackedFloat32Array prepass_rain_shadow_grid;
+    PackedFloat32Array prepass_continentalness_grid;
+    PackedFloat32Array prepass_ridge_strength_grid;
+    PackedFloat32Array prepass_river_width_grid;
+    PackedFloat32Array prepass_river_distance_grid;
+    PackedFloat32Array prepass_floodplain_strength_grid;
+    PackedFloat32Array prepass_mountain_mass_grid;
 
     // --- Local variation params ---
     float local_variation_min_score = 0.22f;
@@ -234,10 +266,28 @@ private:
     static float repeating_band(float coord, float spacing, float core_half_width, float feather_width);
 
     // Biome resolver
-    int resolve_biome(const Channels& ch, const StructureContext& sc) const;
+    int resolve_biome(int wx, int wy, const Channels& ch, const StructureContext& fallback_sc) const;
     static float score_range(float value, float min_v, float max_v, bool soft);
-    float biome_weighted_score(const BiomeDef& b, const Channels& ch, const StructureContext& sc, bool soft) const;
-    bool biome_matches(const BiomeDef& b, const Channels& ch, const StructureContext& sc) const;
+    float biome_weighted_score(
+        const BiomeDef& b,
+        const Channels& ch,
+        const StructureContext& sc,
+        const BiomePrePassSample* prepass,
+        float effective_moisture,
+        bool soft
+    ) const;
+    bool biome_matches(
+        const BiomeDef& b,
+        const Channels& ch,
+        const StructureContext& sc,
+        const BiomePrePassSample* prepass
+    ) const;
+    float sample_prepass_grid(const PackedFloat32Array& grid, int world_x, int world_y) const;
+    BiomePrePassSample sample_biome_prepass(int wx, int wy) const;
+    float derive_river_strength_from_prepass(float river_width, float river_distance) const;
+    bool biome_uses_causal_moisture(const BiomeDef& b) const;
+    bool matches_weighted_range(float value, float min_v, float max_v, float weight) const;
+    bool is_better_biome_candidate(float score, const BiomeDef& biome, int incumbent_idx, float incumbent_score) const;
 
     // Variation resolver
     VariationResult resolve_variation(int wx, int wy, const Channels& ch,

@@ -1,14 +1,22 @@
-[gd_resource type="Resource" script_class="FloraSetData" load_steps=4 format=3]
+[gd_resource type="Resource" script_class="FloraSetData" load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://data/flora/flora_set_data.gd" id="1"]
 [ext_resource type="Resource" path="res://data/flora/entries/sporestalk.tres" id="2"]
-[ext_resource type="Resource" path="res://data/flora/entries/spore_cluster.tres" id="3"]
+[ext_resource type="Resource" path="res://data/flora/entries/sporestalk_variant_02.tres" id="3"]
+[ext_resource type="Resource" path="res://data/flora/entries/sporestalk_variant_03.tres" id="4"]
+[ext_resource type="Resource" path="res://data/flora/entries/sporestalk_variant_04.tres" id="5"]
+[ext_resource type="Resource" path="res://data/flora/entries/sporestalk_variant_05.tres" id="6"]
+[ext_resource type="Resource" path="res://data/flora/entries/sporestalk_variant_06.tres" id="7"]
+[ext_resource type="Resource" path="res://data/flora/entries/sporestalk_variant_07.tres" id="8"]
+[ext_resource type="Resource" path="res://data/flora/entries/sporestalk_variant_08.tres" id="9"]
+[ext_resource type="Resource" path="res://data/flora/entries/sporestalk_variant_09.tres" id="10"]
+[ext_resource type="Resource" path="res://data/flora/entries/spore_cluster.tres" id="11"]
 
 [resource]
 script = ExtResource("1")
 id = &"plains_flora"
 display_name_key = "FLORA_SET_PLAINS_NAME"
-entries = [ExtResource("2"), ExtResource("3")]
+entries = [ExtResource("2"), ExtResource("3"), ExtResource("4"), ExtResource("5"), ExtResource("6"), ExtResource("7"), ExtResource("8"), ExtResource("9"), ExtResource("10"), ExtResource("11")]
 base_density = 0.08
 flora_channel_weight = 1.0
 flora_modulation_weight = 0.5

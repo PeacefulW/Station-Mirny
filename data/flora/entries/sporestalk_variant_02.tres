@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="FloraEntry" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://data/flora/flora_entry.gd" id="1"]
+[ext_resource type="Texture2D" path="res://assets/sprites/flora/sporestalk_tree_02.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"sporestalk_variant_02"
+display_name_key = "FLORA_SPORESTALK_NAME"
+tags = Array[StringName]([&"tall", &"fungal"])
+texture = ExtResource("2")
+placeholder_color = Color(0.86, 0.46, 0.08, 1)
+placeholder_size = Vector2i(100, 96)
+z_index_offset = 1
+min_density_threshold = 0.3
+max_density_threshold = 1.0
+weight = 0.111111

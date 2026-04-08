@@ -244,7 +244,8 @@ func _try_place_flora(
 			true,
 			entry.placeholder_color,
 			entry.placeholder_size,
-			entry.z_index_offset
+			entry.z_index_offset,
+			_get_flora_texture_path(entry)
 		)
 		return true
 	return false
@@ -294,7 +295,8 @@ func _try_place_mixed_flora(
 		true,
 		entry.placeholder_color,
 		entry.placeholder_size,
-		entry.z_index_offset
+		entry.z_index_offset,
+		_get_flora_texture_path(entry)
 	)
 	return true
 
@@ -498,6 +500,11 @@ func _pick_weighted_candidate(candidates: Array, total_weight: float, hash_value
 
 func _remap_hash(hash_value: float, salt: float) -> float:
 	return fposmod(hash_value + salt, 1.0)
+
+func _get_flora_texture_path(entry: FloraEntryScript) -> String:
+	if entry == null or entry.texture == null:
+		return ""
+	return entry.texture.resource_path
 
 func _tile_hash_xy(world_x: int, world_y: int, channel: int) -> float:
 	var h: int = _world_seed * 374761393
