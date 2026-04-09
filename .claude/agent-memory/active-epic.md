@@ -3,7 +3,7 @@
 **Spec**: `docs/02_system_specs/world/natural_world_generation_overhaul.md`
 **Active constructive replacement**: `docs/02_system_specs/world/natural_world_constructive_runtime_spec.md`
 **Started**: 2026-04-02
-**Current iteration**: Constructive Iteration 8 biome-parity fix completed on 2026-04-08. Updated native GDExtension rebuilt successfully, authoritative script-side proof was refreshed for seed `12345`, and an existing `WorldLabSampler`-based compare confirmed `0` biome mismatches between script and native on both a coarse fixed-seed sweep and the saved hotspot window. Broader terrain parity remains a separate Iteration 8 concern.
+**Current iteration**: Constructive Iteration 9 in progress on 2026-04-09. Scope: finish native terrain/variation migration to `WorldPrePass`, remove the remaining directed-band structure system, delete legacy balance knobs/bridge params, and close docs/proof so runtime has one authoritative world-truth path.
 **Total iterations**: Phase 1 steps 1.1-1.17 + constructive runtime activation Iterations 1-9
 
 ## 2026-04-04 Direction reset (critical)
@@ -119,6 +119,38 @@ Implemented Iteration 1 code and doc work for the curated pre-pass read surface 
 
 ---
 
+### 2026-04-09 — Native world-generation de-legacy migration
+**Status**: completed
+
+#### What changed
+- Removed the old directed-band native structure stage from `gdextension/src/chunk_generator.{h,cpp}` and kept only pre-pass-backed structure semantics.
+- `WorldPrePass` now exports the authoritative native snapshot for initialization, and runtime `ChunkGenerator.generate_chunk(...)` now fails closed unless it receives a chunk-local authoritative input snapshot from the published `WorldComputeContext` pipeline.
+- `ChunkContentBuilder.build_chunk_native_data()` now assembles authoritative chunk-local inputs (`sample_world_channels` + `sample_prepass_channels` + `sample_structure_context`), passes them into native generation, tags payload provenance via `generation_source`, and keeps payload-shape validation.
+- `WorldLabSampler` uses the same authoritative chunk-local snapshot path for native preview chunks.
+- Removed legacy-only world balance knobs from `world_gen_balance.gd/.tres`.
+- Updated public/API/contracts/spec docs so the native runtime contract explicitly requires immutable `WorldPrePass` init snapshot plus per-chunk authoritative inputs.
+
+#### Verification
+- `python -m SCons -Q --debug=stacktrace platform=windows target=template_debug` in `gdextension/` — PASS
+- `.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_verify_native_world_truth codex_native_truth_chunk_radius=2 codex_world_seed=12345` — PASS
+  - `compared_chunks=25`
+  - `compared_tiles=102400`
+  - `terrain_mismatches=0`
+  - `biome_mismatches=0`
+  - `secondary_biome_mismatches=0`
+  - `ecotone_mismatches=0`
+  - `variation_mismatches=0`
+  - `flora_density_mismatches=0`
+  - `flora_modulation_mismatches=0`
+  - `native_truth_status=PASS`
+- Grep audit for legacy native helpers / balance knobs:
+  - `rg -n "directed_coordinate|repeating_band\\(|sample_structure\\(|ridge_dir|ridge_secondary_dir|river_dir|ridge_spacing_tiles|ridge_core_width_tiles|ridge_feather_tiles|ridge_warp_frequency|ridge_warp_amplitude_tiles|ridge_cluster_frequency|ridge_secondary_spacing_tiles|ridge_secondary_core_width_tiles|ridge_secondary_feather_tiles|ridge_secondary_warp_frequency|ridge_secondary_warp_amplitude_tiles|ridge_secondary_weight|river_spacing_tiles|river_core_width_tiles|river_floodplain_width_tiles|river_warp_frequency|river_warp_amplitude_tiles|hot_evaporation_rate" gdextension/src/chunk_generator.cpp gdextension/src/chunk_generator.h core/autoloads/world_generator.gd scenes/ui/world_lab.gd data/world/world_gen_balance.gd data/world/world_gen_balance.tres` — no matches
+
+#### Remaining blockers
+- none
+
+---
+
 ### Constructive Iteration 8 — Native Path Parity
 **Status**: completed
 **Started**: 2026-04-08
@@ -150,6 +182,40 @@ completed for the biome-parity scope: implementation, canonical doc updates, aut
 
 #### Blockers
 - none for the biome-resolution task. Separate broader Iteration 8 terrain parity work remains open.
+
+---
+
+### Constructive Iteration 9 — Legacy Band Cleanup And Balance Closure
+**Status**: in_progress
+**Started**: 2026-04-09
+**Completed**: —
+
+#### Acceptance tests
+- [ ] `generate_chunk()` no longer calls the legacy structure stage and native terrain/variation no longer depend on directed-band formulas.
+- [ ] `gdextension/src/chunk_generator.{h,cpp}` no longer contain active `directed_coordinate`, `repeating_band`, `sample_structure`, `ridge_dir`, `ridge_secondary_dir`, or `river_dir` structure plumbing.
+- [ ] `WorldGenerator` / `WorldLab` native bridge no longer exports legacy-only ridge/river band params, and `WorldGenBalance(.tres)` no longer carry dead knobs for the removed structure system.
+- [ ] Fixed-seed script/native proof shows the same authoritative terrain/structure world truth after the cleanup.
+- [ ] Canonical docs describe `WorldPrePass` as the single runtime source of truth with no active dual-path legacy notes.
+
+#### Doc check
+- [ ] Grep `DATA_CONTRACTS.md` for the final changed names and update ownership/read semantics where they drift.
+- [ ] Grep `PUBLIC_API.md` for the final changed names and remove legacy native bridge surface if it is no longer sanctioned.
+- [ ] Documentation debt section reviewed — Iteration 9 requires updates to both canonical docs.
+
+#### Files touched
+- `gdextension/src/chunk_generator.h` — audit confirms legacy directed-band helpers, directions, and params still exist and must be removed after pre-pass migration lands.
+- `gdextension/src/chunk_generator.cpp` — audit confirms `generate_chunk()` still runs `sample_channels() -> sample_structure() -> resolve_biome() -> resolve_variation() -> resolve_terrain()`.
+- `core/autoloads/world_generator.gd` — audit confirms native init still exports legacy ridge/river band params alongside the pre-pass snapshot.
+- `scenes/ui/world_lab.gd` — audit confirms native proof bridge still forwards the same legacy param set into standalone native generator requests.
+- `data/world/world_gen_balance.gd` / `data/world/world_gen_balance.tres` — audit confirms legacy-only ridge/river band knobs still exist.
+- `docs/02_system_specs/world/native_chunk_generation_spec.md` — audit confirms canonical native spec still documents the legacy directed-band structure stage as active architecture.
+- `.claude/agent-memory/active-epic.md` — Iteration 9 tracking started.
+
+#### Closure report
+pending
+
+#### Blockers
+- none
 ### Constructive Iteration 2 — Switch Structure Truth To `WorldPrePass`
 **Status**: completed
 **Started**: 2026-04-04
@@ -1902,3 +1968,44 @@ Not reconstructed; present in repository history only.
 
 #### Blockers
 - none
+
+## 2026-04-09 — Post-closure cleanup follow-up
+
+### Status
+- Removed local generated build artifacts after the native world-generation migration proof pass:
+  - `gdextension/.sconsign.dblite`
+  - `gdextension/src/chunk_generator.windows.template_debug.x86_64.obj`
+  - `gdextension/src/register_types.windows.template_debug.x86_64.obj`
+  - `gdextension/bin/~station_mirny.windows.template_debug.x86_64.dll~RF*.TMP`
+- Cleanup stopped on the two tracked debug DLL outputs because they are currently locked by active local Godot editor processes.
+
+### Blocker
+- `Godot_v4.6.1-stable_win64.exe --editor` holds `gdextension/bin/~station_mirny.windows.template_debug.x86_64.dll`
+- child play session process holds `gdextension/bin/station_mirny.windows.template_debug.x86_64.dll`
+
+### Resolution
+- After the user closed the editor and child play session, the remaining tracked debug DLL outputs were deleted:
+  - `gdextension/bin/station_mirny.windows.template_debug.x86_64.dll`
+  - `gdextension/bin/~station_mirny.windows.template_debug.x86_64.dll`
+- Removed leftover preview proof images from `debug_exports/world_previews/` so the working tree no longer carries untracked verification artifacts from this migration.
+
+## 2026-04-09 — Post-migration review: missing rivers / mountains
+
+### Findings snapshot
+- River runtime classification now appears vulnerable to a unit mismatch:
+  - `WorldPrePass` stores `river_distance` on the coarse pre-pass grid (`prepass_grid_step = 32`) and samples it bilinearly per tile.
+  - `SurfaceTerrainResolver` compares that sampled distance against tile-scale radii derived from `river_width` defaults (`~0.9..1.3` for the river core on base-width rivers).
+  - This can make most tiles inside a coarse river source cell read as too far from the river core, collapsing visible runtime water/bank tiles even when the pre-pass says a river exists.
+- Hydrology also has an apparent glacial-melt inversion:
+  - `_resolve_base_accumulation()` gives the largest melt bonus near the melt threshold and removes it again in colder cells.
+  - That weakens cold-source runoff and compounds river scarcity when river seeding already depends on a high accumulation threshold.
+- Mountain coverage in the new authoritative system is likely much sparser than the legacy band world:
+  - default `prepass_target_spine_count = 4`
+  - default `prepass_min_spine_distance_grid = 80`
+  - ridge graph growth only originates from those seeds
+- Mountain terrain classification appears to double-discount non-peak ridges:
+  - `mountain_mass` already multiplies ridge by height and ruggedness in `WorldPrePass`
+  - `SurfaceTerrainResolver` then multiplies the mountain decision by another height/ruggedness/slope terrain gate
+
+### Status
+- Review only; no code changes applied for this follow-up yet.

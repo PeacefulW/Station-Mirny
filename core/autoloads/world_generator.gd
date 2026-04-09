@@ -555,9 +555,7 @@ func _setup_native_chunk_generator(palette_index_by_id: Dictionary) -> void:
 	WorldPerfProbe.end("WorldGenerator._setup_native_chunk_generator.initialize", native_generator_initialize_usec)
 	_native_chunk_generator = gen
 	var biome_defs: Array = params.get("biomes", []) as Array
-	var flora_set_defs: Array = params.get("flora_sets", []) as Array
-	var decor_set_defs: Array = params.get("decor_sets", []) as Array
-	print("[WorldGenerator] Native ChunkGenerator initialized (%d biomes, %d flora sets, %d decor sets)" % [biome_defs.size(), flora_set_defs.size(), decor_set_defs.size()])
+	print("[WorldGenerator] Native ChunkGenerator initialized (%d biomes, authoritative WorldPrePass snapshot)" % [biome_defs.size()])
 
 func _build_generator_params(palette_index_by_id: Dictionary) -> Dictionary:
 	var wrap: int = WorldNoiseUtilsScript.resolve_wrap_width_tiles(balance)
@@ -579,23 +577,6 @@ func _build_generator_params(palette_index_by_id: Dictionary) -> Dictionary:
 		"ruggedness_octaves": balance.ruggedness_octaves,
 		"flora_density_frequency": balance.flora_density_frequency,
 		"flora_density_octaves": balance.flora_density_octaves,
-		"ridge_warp_frequency": balance.ridge_warp_frequency,
-		"ridge_warp_amplitude_tiles": balance.ridge_warp_amplitude_tiles,
-		"ridge_cluster_frequency": balance.ridge_cluster_frequency,
-		"ridge_spacing_tiles": balance.ridge_spacing_tiles,
-		"ridge_core_width_tiles": balance.ridge_core_width_tiles,
-		"ridge_feather_tiles": balance.ridge_feather_tiles,
-		"ridge_secondary_warp_frequency": balance.ridge_secondary_warp_frequency,
-		"ridge_secondary_weight": balance.get("ridge_secondary_weight") if balance.get("ridge_secondary_weight") != null else 0.0,
-		"ridge_secondary_warp_amplitude_tiles": balance.get("ridge_secondary_warp_amplitude_tiles") if balance.get("ridge_secondary_warp_amplitude_tiles") != null else 0.0,
-		"ridge_secondary_spacing_tiles": balance.get("ridge_secondary_spacing_tiles") if balance.get("ridge_secondary_spacing_tiles") != null else 0.0,
-		"ridge_secondary_core_width_tiles": balance.get("ridge_secondary_core_width_tiles") if balance.get("ridge_secondary_core_width_tiles") != null else 0.0,
-		"ridge_secondary_feather_tiles": balance.get("ridge_secondary_feather_tiles") if balance.get("ridge_secondary_feather_tiles") != null else 0.0,
-		"river_spacing_tiles": balance.river_spacing_tiles,
-		"river_core_width_tiles": balance.river_core_width_tiles,
-		"river_floodplain_width_tiles": balance.river_floodplain_width_tiles,
-		"river_warp_frequency": balance.river_warp_frequency,
-		"river_warp_amplitude_tiles": balance.river_warp_amplitude_tiles,
 		"mountain_density": balance.mountain_density,
 		"mountain_chaininess": balance.mountain_chaininess,
 		"mountain_base_threshold": balance.mountain_base_threshold,
@@ -619,7 +600,6 @@ func _build_generator_params(palette_index_by_id: Dictionary) -> Dictionary:
 		"ice_cap_max_height": balance.ice_cap_max_height,
 		"hot_pole_temperature": balance.hot_pole_temperature,
 		"hot_pole_transition_width": balance.hot_pole_transition_width,
-		"hot_evaporation_rate": balance.hot_evaporation_rate,
 		"biome_continental_drying_factor": balance.biome_continental_drying_factor,
 		"biome_drainage_moisture_bonus": balance.biome_drainage_moisture_bonus,
 	}
@@ -677,102 +657,19 @@ func _build_generator_params(palette_index_by_id: Dictionary) -> Dictionary:
 			"river_strength_weight": biome.river_strength_weight,
 			"floodplain_strength_weight": biome.floodplain_strength_weight,
 			"tags": biome.tags.duplicate() if biome.tags else [],
-			"flora_set_ids": biome.flora_set_ids.duplicate() if biome.flora_set_ids else [],
-			"decor_set_ids": biome.decor_set_ids.duplicate() if biome.decor_set_ids else [],
 		})
 	params["biomes"] = biome_defs
 
-	var flora_set_defs: Array = []
-	var decor_set_defs: Array = []
-	var seen_flora_ids: Dictionary = {}
-	var seen_decor_ids: Dictionary = {}
-	if FloraDecorRegistry:
-		for biome_data: BiomeData in palette_order:
-			if biome_data == null:
-				continue
-			for fs_id: StringName in biome_data.flora_set_ids:
-				if seen_flora_ids.has(fs_id):
-					continue
-				var fs: Resource = FloraDecorRegistry.get_flora_set(fs_id)
-				if fs == null:
-					continue
-				seen_flora_ids[fs_id] = true
-				var fs_dict: Dictionary = {
-					"id": fs.id,
-					"base_density": fs.base_density,
-					"flora_channel_weight": fs.flora_channel_weight,
-					"flora_modulation_weight": fs.flora_modulation_weight,
-					"subzone_filters": fs.subzone_filters.duplicate() if fs.subzone_filters else [],
-					"excluded_subzones": fs.excluded_subzones.duplicate() if fs.excluded_subzones else [],
-				}
-				var entries_arr: Array = []
-				for entry_res: Resource in fs.entries:
-					if entry_res == null:
-						continue
-					entries_arr.append({
-						"id": entry_res.id,
-						"color": entry_res.placeholder_color,
-						"size": entry_res.placeholder_size,
-						"z_offset": entry_res.z_index_offset,
-						"weight": entry_res.weight,
-						"min_density_threshold": entry_res.min_density_threshold,
-						"max_density_threshold": entry_res.max_density_threshold,
-					})
-				fs_dict["entries"] = entries_arr
-				flora_set_defs.append(fs_dict)
-		for biome_data2: BiomeData in palette_order:
-			if biome_data2 == null:
-				continue
-			for ds_id: StringName in biome_data2.decor_set_ids:
-				if seen_decor_ids.has(ds_id):
-					continue
-				var ds: Resource = FloraDecorRegistry.get_decor_set(ds_id)
-				if ds == null:
-					continue
-				seen_decor_ids[ds_id] = true
-				var ds_dict: Dictionary = {
-					"id": ds.id,
-					"base_density": ds.base_density,
-					"entries": [],
-					"subzone_density_modifiers": ds.subzone_density_modifiers.duplicate() if ds.subzone_density_modifiers else {},
-				}
-				var entries_arr: Array = []
-				for entry_res: Resource in ds.entries:
-					if entry_res == null:
-						continue
-					entries_arr.append({
-						"id": entry_res.id,
-						"color": entry_res.placeholder_color,
-						"size": entry_res.placeholder_size,
-						"z_offset": entry_res.z_index_offset,
-						"weight": entry_res.weight,
-					})
-				ds_dict["entries"] = entries_arr
-				decor_set_defs.append(ds_dict)
-	params["flora_sets"] = flora_set_defs
-	params["decor_sets"] = decor_set_defs
 	return params
 
 func _build_native_prepass_params(pre_pass: WorldPrePass) -> Dictionary:
 	if pre_pass == null:
 		return {}
-	return {
-		"prepass_grid_width": pre_pass._grid_width,
-		"prepass_grid_height": pre_pass._grid_height,
-		"prepass_min_y": pre_pass._prepass_min_y,
-		"prepass_max_y": pre_pass._prepass_max_y,
-		"prepass_grid_span_x": pre_pass._grid_span_x,
-		"prepass_grid_span_y": pre_pass._grid_span_y,
-		"prepass_drainage_grid": pre_pass._drainage_grid.duplicate(),
-		"prepass_slope_grid": pre_pass._slope_grid.duplicate(),
-		"prepass_rain_shadow_grid": pre_pass._rain_shadow_grid.duplicate(),
-		"prepass_continentalness_grid": pre_pass._continentalness_grid.duplicate(),
-		"prepass_ridge_strength_grid": pre_pass._ridge_strength_grid.duplicate(),
-		"prepass_river_width_grid": pre_pass._river_width_grid.duplicate(),
-		"prepass_river_distance_grid": pre_pass._river_distance_grid.duplicate(),
-		"prepass_floodplain_strength_grid": pre_pass._floodplain_strength_grid.duplicate(),
-		"prepass_mountain_mass_grid": pre_pass._mountain_mass_grid.duplicate(),
-	}
+	var snapshot: Dictionary = pre_pass.build_native_chunk_generator_snapshot()
+	if snapshot.is_empty():
+		return {}
+	snapshot["prepass_seed"] = world_seed
+	return snapshot
 
 func get_native_chunk_generator() -> RefCounted:
 	return _native_chunk_generator

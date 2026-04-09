@@ -35,6 +35,7 @@ const MOUNTAIN_MASS_CHANNEL: StringName = &"mountain_mass"
 const SLOPE_CHANNEL: StringName = &"slope"
 const RAIN_SHADOW_CHANNEL: StringName = &"rain_shadow"
 const CONTINENTALNESS_CHANNEL: StringName = &"continentalness"
+const NATIVE_CHUNK_GENERATOR_SNAPSHOT_KIND: StringName = &"world_pre_pass_chunk_generator_v2"
 const NATIVE_PREPASS_KERNELS_CLASS: StringName = &"WorldPrePassKernels"
 const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_utils.gd")
 const FLOAT_EPSILON: float = 0.00001
@@ -498,6 +499,48 @@ func get_grid_value(channel: StringName, grid_x: int, grid_y: int) -> float:
 			return _continentalness_grid[_flatten_index(grid_x, grid_y)]
 		_:
 			return 0.0
+
+func build_native_chunk_generator_snapshot() -> Dictionary:
+	var expected_size: int = _grid_width * _grid_height
+	var required_grids: Dictionary = {
+		"prepass_drainage_grid": _drainage_grid,
+		"prepass_slope_grid": _slope_grid,
+		"prepass_rain_shadow_grid": _rain_shadow_grid,
+		"prepass_continentalness_grid": _continentalness_grid,
+		"prepass_ridge_strength_grid": _ridge_strength_grid,
+		"prepass_river_width_grid": _river_width_grid,
+		"prepass_river_distance_grid": _river_distance_grid,
+		"prepass_floodplain_strength_grid": _floodplain_strength_grid,
+		"prepass_mountain_mass_grid": _mountain_mass_grid,
+	}
+	if expected_size <= 0 or _grid_span_x <= 0.0 or _grid_span_y <= 0.0:
+		push_error("WorldPrePass.build_native_chunk_generator_snapshot() requires a computed grid layout")
+		assert(false, "WorldPrePass native chunk snapshot requires a computed grid layout")
+		return {}
+	for key: String in required_grids.keys():
+		var grid: PackedFloat32Array = required_grids[key] as PackedFloat32Array
+		if grid.size() != expected_size:
+			push_error("WorldPrePass native chunk snapshot missing authoritative grid `%s` (%d != %d)" % [key, grid.size(), expected_size])
+			assert(false, "WorldPrePass native chunk snapshot requires every authoritative structure grid")
+			return {}
+	return {
+		"prepass_snapshot_kind": NATIVE_CHUNK_GENERATOR_SNAPSHOT_KIND,
+		"prepass_grid_width": _grid_width,
+		"prepass_grid_height": _grid_height,
+		"prepass_min_y": _prepass_min_y,
+		"prepass_max_y": _prepass_max_y,
+		"prepass_grid_span_x": _grid_span_x,
+		"prepass_grid_span_y": _grid_span_y,
+		"prepass_drainage_grid": _drainage_grid.duplicate(),
+		"prepass_slope_grid": _slope_grid.duplicate(),
+		"prepass_rain_shadow_grid": _rain_shadow_grid.duplicate(),
+		"prepass_continentalness_grid": _continentalness_grid.duplicate(),
+		"prepass_ridge_strength_grid": _ridge_strength_grid.duplicate(),
+		"prepass_river_width_grid": _river_width_grid.duplicate(),
+		"prepass_river_distance_grid": _river_distance_grid.duplicate(),
+		"prepass_floodplain_strength_grid": _floodplain_strength_grid.duplicate(),
+		"prepass_mountain_mass_grid": _mountain_mass_grid.duplicate(),
+	}
 
 func _sample_grid(grid: PackedFloat32Array, world_pos: Vector2i) -> float:
 	var wrapped_x: int = _wrap_x(world_pos.x)

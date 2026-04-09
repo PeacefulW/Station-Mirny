@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 
 using namespace godot;
 
@@ -15,7 +16,8 @@ ChunkGenerator::~ChunkGenerator() {}
 
 void ChunkGenerator::_bind_methods() {
     ClassDB::bind_method(D_METHOD("initialize", "seed", "params"), &ChunkGenerator::initialize);
-    ClassDB::bind_method(D_METHOD("generate_chunk", "chunk_coord", "spawn_tile"), &ChunkGenerator::generate_chunk);
+    ClassDB::bind_method(D_METHOD("generate_chunk", "chunk_coord", "spawn_tile", "authoritative_inputs"), &ChunkGenerator::generate_chunk);
+    ClassDB::bind_method(D_METHOD("sample_tile", "world_pos", "spawn_tile"), &ChunkGenerator::sample_tile);
 }
 
 // ============================================================
@@ -97,23 +99,8 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
     temperature_latitude_weight = (float)(double)p_params.get("temperature_latitude_weight", 0.72);
     latitude_temperature_curve = (float)(double)p_params.get("latitude_temperature_curve", 1.35);
 
-    // --- Structure sampler params ---
     mountain_density = (float)(double)p_params.get("mountain_density", 0.3);
     mountain_chaininess = (float)(double)p_params.get("mountain_chaininess", 0.6);
-    ridge_spacing_tiles = (float)(double)p_params.get("ridge_spacing_tiles", 640.0);
-    ridge_core_width_tiles = (float)(double)p_params.get("ridge_core_width_tiles", 104.0);
-    ridge_feather_tiles = (float)(double)p_params.get("ridge_feather_tiles", 224.0);
-    ridge_warp_amplitude_tiles = (float)(double)p_params.get("ridge_warp_amplitude_tiles", 260.0);
-    ridge_secondary_warp_frequency = (float)(double)p_params.get("ridge_secondary_warp_frequency", 0.0014);
-    ridge_secondary_warp_amplitude_tiles = (float)(double)p_params.get("ridge_secondary_warp_amplitude_tiles", 0.0);
-    ridge_secondary_spacing_tiles = (float)(double)p_params.get("ridge_secondary_spacing_tiles", 0.0);
-    ridge_secondary_core_width_tiles = (float)(double)p_params.get("ridge_secondary_core_width_tiles", 0.0);
-    ridge_secondary_feather_tiles = (float)(double)p_params.get("ridge_secondary_feather_tiles", 0.0);
-    ridge_secondary_weight = (float)(double)p_params.get("ridge_secondary_weight", 0.0);
-    river_spacing_tiles = (float)(double)p_params.get("river_spacing_tiles", 480.0);
-    river_core_width_tiles = (float)(double)p_params.get("river_core_width_tiles", 42.0);
-    river_floodplain_width_tiles = (float)(double)p_params.get("river_floodplain_width_tiles", 224.0);
-    river_warp_amplitude_tiles = (float)(double)p_params.get("river_warp_amplitude_tiles", 300.0);
 
     // --- Terrain resolver params ---
     safe_zone_radius = (int)p_params.get("safe_zone_radius", 12);
@@ -136,7 +123,6 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
     ice_cap_max_height = (float)(double)p_params.get("ice_cap_max_height", 0.55);
     hot_pole_temperature = (float)(double)p_params.get("hot_pole_temperature", 0.82);
     hot_pole_transition_width = (float)(double)p_params.get("hot_pole_transition_width", 0.15);
-    hot_evaporation_rate = (float)(double)p_params.get("hot_evaporation_rate", 0.25);
     biome_continental_drying_factor = (float)(double)p_params.get("biome_continental_drying_factor", 0.35);
     biome_drainage_moisture_bonus = (float)(double)p_params.get("biome_drainage_moisture_bonus", 0.28);
     // Pre-compute mountain weights (matches surface_terrain_resolver.gd lines 24-32)
@@ -153,6 +139,8 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
     prepass_max_y = (int)p_params.get("prepass_max_y", 0);
     prepass_grid_span_x = (float)(double)p_params.get("prepass_grid_span_x", 1.0);
     prepass_grid_span_y = (float)(double)p_params.get("prepass_grid_span_y", 1.0);
+    String snapshot_kind = p_params.get("prepass_snapshot_kind", String());
+    int snapshot_seed = (int)p_params.get("prepass_seed", p_seed);
     prepass_drainage_grid = p_params.get("prepass_drainage_grid", PackedFloat32Array());
     prepass_slope_grid = p_params.get("prepass_slope_grid", PackedFloat32Array());
     prepass_rain_shadow_grid = p_params.get("prepass_rain_shadow_grid", PackedFloat32Array());
@@ -163,7 +151,9 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
     prepass_floodplain_strength_grid = p_params.get("prepass_floodplain_strength_grid", PackedFloat32Array());
     prepass_mountain_mass_grid = p_params.get("prepass_mountain_mass_grid", PackedFloat32Array());
     int expected_prepass_size = prepass_grid_width * prepass_grid_height;
-    has_biome_prepass = expected_prepass_size > 0
+    has_authoritative_prepass = snapshot_kind == "world_pre_pass_chunk_generator_v2"
+        && snapshot_seed == p_seed
+        && expected_prepass_size > 0
         && prepass_grid_span_x > 0.0f
         && prepass_grid_span_y > 0.0f
         && prepass_drainage_grid.size() == expected_prepass_size
@@ -175,6 +165,13 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
         && prepass_river_distance_grid.size() == expected_prepass_size
         && prepass_floodplain_strength_grid.size() == expected_prepass_size
         && prepass_mountain_mass_grid.size() == expected_prepass_size;
+    if (!has_authoritative_prepass) {
+        UtilityFunctions::push_error(
+            "[ChunkGenerator] initialize requires a valid authoritative WorldPrePass snapshot; native generation will not fall back to legacy structure formulas."
+        );
+        initialized = false;
+        return;
+    }
 
     // --- Local variation params ---
     local_variation_min_score = (float)(double)p_params.get("local_variation_min_score", 0.22);
@@ -190,22 +187,15 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
     int ruggedness_oct = (int)p_params.get("ruggedness_octaves", 2);
     float flora_density_freq = (float)(double)p_params.get("flora_density_frequency", 0.02);
     int flora_density_oct = (int)p_params.get("flora_density_octaves", 2);
-    float ridge_warp_freq = (float)(double)p_params.get("ridge_warp_frequency", 0.0018);
-    float ridge_cluster_freq = (float)(double)p_params.get("ridge_cluster_frequency", 0.00075);
-    float river_warp_freq = (float)(double)p_params.get("river_warp_frequency", 0.0016);
     float local_var_freq = (float)(double)p_params.get("local_variation_frequency", 0.018);
     int local_var_oct = (int)p_params.get("local_variation_octaves", 2);
 
-    // --- Configure 12 noise instances (spec table) ---
+    // --- Configure native noise instances ---
     setup_noise(noise_height,                  seed + 11,  height_freq, height_oct);
     setup_noise(noise_temperature,             seed + 101, temperature_freq, temperature_oct);
     setup_noise(noise_moisture,                seed + 131, moisture_freq, moisture_oct);
     setup_noise(noise_ruggedness,              seed + 151, ruggedness_freq, ruggedness_oct);
     setup_noise(noise_flora_density,           seed + 181, flora_density_freq, flora_density_oct);
-    setup_noise(noise_ridge_warp,              seed + 211, ridge_warp_freq, 2);
-    setup_noise(noise_ridge_secondary_warp,    seed + 217, ridge_secondary_warp_frequency, 2);
-    setup_noise(noise_ridge_cluster,           seed + 223, ridge_cluster_freq, 3);
-    setup_noise(noise_river_warp,              seed + 241, river_warp_freq, 2);
     setup_noise(noise_field,                   seed + 311, local_var_freq, local_var_oct);
     setup_noise(noise_patch,                   seed + 353, local_var_freq * 1.85f,
                 std::min(local_var_oct + 1, 6));
@@ -279,114 +269,7 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
         return String(a.id) < String(b.id);
     });
 
-    // --- Parse flora/decor set definitions ---
-    flora_sets.clear();
-    decor_sets.clear();
-    biome_flora_configs.clear();
-    Array flora_sets_arr = p_params.get("flora_sets", Array());
-    for (int i = 0; i < flora_sets_arr.size(); i++) {
-        Dictionary fsd = flora_sets_arr[i];
-        FloraSetDef fs;
-        fs.id = (StringName)fsd.get("id", StringName());
-        fs.base_density = (float)(double)fsd.get("base_density", 0.10);
-        fs.flora_channel_weight = (float)(double)fsd.get("flora_channel_weight", 1.0);
-        fs.flora_modulation_weight = (float)(double)fsd.get("flora_modulation_weight", 0.5);
-        Array sf = fsd.get("subzone_filters", Array());
-        for (int j = 0; j < sf.size(); j++) fs.subzone_filters.push_back((StringName)sf[j]);
-        Array es = fsd.get("excluded_subzones", Array());
-        for (int j = 0; j < es.size(); j++) fs.excluded_subzones.push_back((StringName)es[j]);
-        Array entries_arr = fsd.get("entries", Array());
-        for (int j = 0; j < entries_arr.size(); j++) {
-            Dictionary ed = entries_arr[j];
-            FloraEntryDef fe;
-            fe.id = (StringName)ed.get("id", StringName());
-            fe.color = (Color)ed.get("color", Color(0.3f, 0.5f, 0.2f, 1.0f));
-            fe.size = (Vector2i)ed.get("size", Vector2i(12, 24));
-            fe.z_offset = (int)ed.get("z_offset", 0);
-            fe.weight = (float)(double)ed.get("weight", 1.0);
-            fe.min_density_threshold = (float)(double)ed.get("min_density_threshold", 0.0);
-            fe.max_density_threshold = (float)(double)ed.get("max_density_threshold", 1.0);
-            fs.entries.push_back(fe);
-        }
-        flora_sets.push_back(fs);
-    }
-    Array decor_sets_arr = p_params.get("decor_sets", Array());
-    for (int i = 0; i < decor_sets_arr.size(); i++) {
-        Dictionary dsd = decor_sets_arr[i];
-        DecorSetDef ds;
-        ds.id = (StringName)dsd.get("id", StringName());
-        ds.base_density = (float)(double)dsd.get("base_density", 0.06);
-        Array entries_arr = dsd.get("entries", Array());
-        for (int j = 0; j < entries_arr.size(); j++) {
-            Dictionary ed = entries_arr[j];
-            DecorEntryDef de;
-            de.id = (StringName)ed.get("id", StringName());
-            de.color = (Color)ed.get("color", Color(0.4f, 0.35f, 0.3f, 1.0f));
-            de.size = (Vector2i)ed.get("size", Vector2i(10, 10));
-            de.z_offset = (int)ed.get("z_offset", -1);
-            de.weight = (float)(double)ed.get("weight", 1.0);
-            ds.entries.push_back(de);
-        }
-        Dictionary sdm = dsd.get("subzone_density_modifiers", Dictionary());
-        Array sdm_keys = sdm.keys();
-        for (int j = 0; j < sdm_keys.size(); j++) {
-            ds.subzone_density_modifiers.push_back({(StringName)sdm_keys[j], (float)(double)sdm[sdm_keys[j]]});
-        }
-        decor_sets.push_back(ds);
-    }
-    // Per-biome flora/decor config (maps biome → set indices by id)
-    biome_flora_configs.resize(biomes.size());
-    for (int bi = 0; bi < (int)biomes.size(); bi++) {
-        // Flora set IDs are passed per-biome in biome def
-        Dictionary bd_flora = biome_array.size() > 0 ? (Dictionary)biome_array[0] : Dictionary(); // need per-biome
-    }
-    // Actually, biome flora/decor set ids are in biome definitions. Parse them:
-    for (int i = 0; i < biome_array.size(); i++) {
-        Dictionary bd = biome_array[i];
-        // Find which biome index this maps to after sorting
-        StringName bid = (StringName)bd.get("id", StringName());
-        int palette_idx = (int)bd.get("palette_index", i);
-        // Build flora config for this biome
-        BiomeFloraConfig bfc;
-        Array fids = bd.get("flora_set_ids", Array());
-        for (int j = 0; j < fids.size(); j++) {
-            StringName fsid = (StringName)fids[j];
-            for (int k = 0; k < (int)flora_sets.size(); k++) {
-                if (flora_sets[k].id == fsid) { bfc.flora_set_indices.push_back(k); break; }
-            }
-        }
-        Array dids = bd.get("decor_set_ids", Array());
-        for (int j = 0; j < dids.size(); j++) {
-            StringName dsid = (StringName)dids[j];
-            for (int k = 0; k < (int)decor_sets.size(); k++) {
-                if (decor_sets[k].id == dsid) { bfc.decor_set_indices.push_back(k); break; }
-            }
-        }
-        // Store by palette_index for direct lookup from biome_arr byte
-        if (palette_idx >= (int)biome_flora_configs.size())
-            biome_flora_configs.resize(palette_idx + 1);
-        biome_flora_configs[palette_idx] = bfc;
-    }
-
-    // Normalize direction vectors (matches GDScript .normalized())
-    {
-        float raw_ridge[] = { 0.82f, 0.53f, 0.21f };
-        float raw_ridge_sec[] = { 0.35f, -0.48f, 0.80f };
-        float raw_river[] = { -0.31f, 0.90f, 0.30f };
-        normalize_vec3(raw_ridge, ridge_dir);
-        normalize_vec3(raw_ridge_sec, ridge_secondary_dir);
-        normalize_vec3(raw_river, river_dir);
-    }
-
     initialized = true;
-}
-
-void ChunkGenerator::normalize_vec3(const float in[3], float out[3]) {
-    float len = sqrtf(in[0] * in[0] + in[1] * in[1] + in[2] * in[2]);
-    if (len < 1e-9f) { out[0] = out[1] = out[2] = 0.0f; return; }
-    out[0] = in[0] / len;
-    out[1] = in[1] / len;
-    out[2] = in[2] / len;
 }
 
 // ============================================================
@@ -427,98 +310,17 @@ ChunkGenerator::Channels ChunkGenerator::sample_channels(int wx, int wy) const {
 }
 
 // ============================================================
-// Legacy structure stage — sample_structure()  (matches the removed GDScript directed-band sampler formulas)
+// Authoritative structure context — derived only from WorldPrePass snapshot
 // ============================================================
 
-float ChunkGenerator::directed_coordinate(int wx, int wy, const float dir[3]) const {
-    // Cylindrical point (matches _cylindrical_point)
-    int wrapped = wrap_x(wx, wrap_width);
-    float angle = TAU_F * (float)wrapped / (float)std::max(1, wrap_width);
-    float radius = std::max(1.0f, (float)wrap_width / TAU_F);
-    float px = cosf(angle) * radius;
-    float py = (float)wy;
-    float pz = sinf(angle) * radius;
-    return px * dir[0] + py * dir[1] + pz * dir[2];
-}
-
-float ChunkGenerator::repeating_band(float coord, float spacing, float core_half_width, float feather_width) {
-    if (spacing <= 0.001f) return 0.0f;
-    float wrapped = fmodf(coord + spacing * 0.5f, spacing);
-    if (wrapped < 0.0f) wrapped += spacing;
-    wrapped -= spacing * 0.5f;
-    float dist = fabsf(wrapped);
-    if (dist <= core_half_width) return 1.0f;
-    if (feather_width <= 0.001f) return 0.0f;
-    return clampf(1.0f - ((dist - core_half_width) / feather_width), 0.0f, 1.0f);
-}
-
-ChunkGenerator::StructureContext ChunkGenerator::sample_structure(int wx, int wy, const Channels& ch) const {
-    StructureContext sc;
-    float h = ch.height;
-    float r = ch.ruggedness;
-    float m = ch.moisture;
-
-    // --- Mountain mass (matches _sample_mountain_mass) ---
-    float cluster_noise = sample_noise_01(const_cast<FastNoiseLite&>(noise_ridge_cluster), wx, wy);
-    float density_floor = clampf(0.44f - mountain_density * 0.30f, 0.20f, 0.38f);
-    float cluster_gate = clampf((cluster_noise - density_floor) / 0.44f, 0.0f, 1.0f);
-    float terrain_gate_mm = clampf(h * 0.58f + r * 0.92f - 0.24f, 0.0f, 1.0f);
-    sc.mountain_mass = clampf(cluster_gate * terrain_gate_mm, 0.0f, 1.0f);
-
-    // --- Ridge strength (matches _sample_ridge_strength) ---
-    float ridge_coord = directed_coordinate(wx, wy, ridge_dir);
-    ridge_coord += sample_noise_signed(const_cast<FastNoiseLite&>(noise_ridge_warp), wx, wy) * ridge_warp_amplitude_tiles;
-    float band = repeating_band(ridge_coord, ridge_spacing_tiles, ridge_core_width_tiles, ridge_feather_tiles);
-
-    // Secondary cross-ridge
-    if (ridge_secondary_weight > 0.001f) {
-        float sec_coord = directed_coordinate(wx, wy, ridge_secondary_dir);
-        sec_coord += sample_noise_signed(const_cast<FastNoiseLite&>(noise_ridge_secondary_warp), wx, wy) * ridge_secondary_warp_amplitude_tiles;
-        float sec_band = repeating_band(sec_coord, ridge_secondary_spacing_tiles,
-                                        ridge_secondary_core_width_tiles, ridge_secondary_feather_tiles);
-        band = std::max(band, sec_band * ridge_secondary_weight);
-    }
-
-    float band_profile = smoothstep(band);
-    float cluster_support = clampf(cluster_noise * 1.15f - 0.18f, 0.0f, 1.0f);
-    float chain = clampf(mountain_chaininess, 0.0f, 1.0f);
-    float terrain_gate_rs = clampf(h * 0.50f + r * 1.02f - 0.18f, 0.08f, 1.0f);
-    float mass_floor = lerpf(0.24f, 0.46f, chain);
-    float mass_gate = lerpf(mass_floor, 1.0f, sc.mountain_mass);
-    float ridge_bias = lerpf(0.94f, 1.14f, chain);
-    float ridge_backbone = std::max(band_profile, band * cluster_support);
-    float massif_fill = sc.mountain_mass * lerpf(0.18f, 0.30f, chain);
-    float core_bonus = std::max(0.0f, band_profile - 0.72f) * lerpf(0.18f, 0.28f, chain);
-    sc.ridge_strength = clampf((ridge_backbone * ridge_bias + massif_fill + core_bonus) * terrain_gate_rs * mass_gate, 0.0f, 1.0f);
-
-    // --- River strength (matches _sample_river_strength) ---
-    float river_coord = directed_coordinate(wx, wy, river_dir);
-    river_coord += sample_noise_signed(const_cast<FastNoiseLite&>(noise_river_warp), wx, wy) * river_warp_amplitude_tiles;
-    float river_band = repeating_band(river_coord, river_spacing_tiles,
-                                      river_core_width_tiles, river_floodplain_width_tiles * 0.70f);
-    float river_profile = smoothstep(river_band);
-    float lowland_gate_rv = clampf(1.0f - (h * 0.70f + r * 0.42f), 0.08f, 1.0f);
-    float moisture_gate_rv = clampf(0.58f + m * 0.42f, 0.0f, 1.0f);
-    float valley_gate = clampf(1.0f - (h * 0.62f + r * 0.48f + sc.ridge_strength * 0.22f), 0.0f, 1.0f);
-    float mountain_penalty_rv = clampf(1.0f - sc.ridge_strength * 0.34f - sc.mountain_mass * 0.18f, 0.22f, 1.0f);
-    float drainage_bonus = std::max(0.0f, m - 0.42f) * 0.12f;
-    sc.river_strength = clampf(
-        (river_profile * lowland_gate_rv * moisture_gate_rv * mountain_penalty_rv)
-        + (river_band * valley_gate * drainage_bonus), 0.0f, 1.0f);
-
-    // --- Floodplain strength (matches _sample_floodplain_strength) ---
-    // Re-uses river_coord (same directed coordinate + warp)
-    float fp_band = repeating_band(river_coord, river_spacing_tiles,
-                                   river_core_width_tiles * 2.5f, river_floodplain_width_tiles);
-    float fp_profile = smoothstep(fp_band);
-    float lowland_gate_fp = clampf(1.0f - (h * 0.60f + r * 0.25f), 0.10f, 1.0f);
-    float moisture_gate_fp = clampf(0.45f + m * 0.55f, 0.0f, 1.0f);
-    float mountain_penalty_fp = clampf(1.0f - sc.mountain_mass * 0.36f, 0.28f, 1.0f);
-    float river_support = std::max(sc.river_strength * 0.82f, fp_band * 0.46f);
-    sc.floodplain_strength = clampf(
-        std::max(river_support, fp_profile * lowland_gate_fp * moisture_gate_fp * mountain_penalty_fp),
-        0.0f, 1.0f);
-
+ChunkGenerator::StructureContext ChunkGenerator::build_structure_context_from_prepass(const BiomePrePassSample& prepass) const {
+    StructureContext sc{};
+    sc.mountain_mass = clampf(prepass.mountain_mass, 0.0f, 1.0f);
+    sc.ridge_strength = clampf(prepass.ridge_strength, 0.0f, 1.0f);
+    sc.floodplain_strength = clampf(prepass.floodplain_strength, 0.0f, 1.0f);
+    sc.river_distance = std::max(0.0f, prepass.river_distance);
+    sc.river_width = std::max(0.0f, prepass.river_width);
+    sc.river_strength = derive_river_strength_from_prepass(sc.river_width, sc.river_distance);
     return sc;
 }
 
@@ -527,19 +329,19 @@ ChunkGenerator::StructureContext ChunkGenerator::sample_structure(int wx, int wy
 // ============================================================
 
 float ChunkGenerator::score_range(float value, float min_v, float max_v, bool soft) {
+    constexpr float EPS = 0.00001f;
     float lo = std::min(min_v, max_v);
     float hi = std::max(min_v, max_v);
-    constexpr float EPS = 0.00001f;
     if (fabsf(hi - lo) < EPS) {
         if (fabsf(value - lo) < EPS) return 1.0f;
         if (!soft) return 0.0f;
         return 1.0f / (1.0f + fabsf(value - lo) * 8.0f);
     }
-    if (value < lo) {
+    if (value < lo - EPS) {
         if (!soft) return 0.0f;
         return 1.0f / (1.0f + ((lo - value) / std::max(hi - lo, EPS)) * 4.0f);
     }
-    if (value > hi) {
+    if (value > hi + EPS) {
         if (!soft) return 0.0f;
         return 1.0f / (1.0f + ((value - hi) / std::max(hi - lo, EPS)) * 4.0f);
     }
@@ -549,7 +351,7 @@ float ChunkGenerator::score_range(float value, float min_v, float max_v, bool so
 }
 
 float ChunkGenerator::sample_prepass_grid(const PackedFloat32Array& grid, int world_x, int world_y) const {
-    if (!has_biome_prepass || grid.is_empty() || prepass_grid_width <= 0 || prepass_grid_height <= 0) {
+    if (!has_authoritative_prepass || grid.is_empty() || prepass_grid_width <= 0 || prepass_grid_height <= 0) {
         return 0.0f;
     }
 
@@ -606,7 +408,7 @@ float ChunkGenerator::sample_prepass_grid(const PackedFloat32Array& grid, int wo
 
 BiomePrePassSample ChunkGenerator::sample_biome_prepass(int wx, int wy) const {
     BiomePrePassSample sample;
-    if (!has_biome_prepass) {
+    if (!has_authoritative_prepass) {
         return sample;
     }
     sample.drainage = clampf(sample_prepass_grid(prepass_drainage_grid, wx, wy), 0.0f, 1.0f);
@@ -650,7 +452,8 @@ bool ChunkGenerator::biome_matches(
         const BiomePrePassSample* prepass) const {
     constexpr float E = 0.00001f;
     auto in_range = [E](float v, float lo, float hi) {
-        float l = std::min(lo, hi), u = std::max(lo, hi);
+        float l = std::min(lo, hi);
+        float u = std::max(lo, hi);
         return v >= l - E && v <= u + E;
     };
     bool matches = in_range(ch.height, b.min_height, b.max_height)
@@ -729,17 +532,11 @@ bool ChunkGenerator::is_better_biome_candidate(
     return String(biome.id) < String(incumbent.id);
 }
 
-int ChunkGenerator::resolve_biome(int wx, int wy, const Channels& ch, const StructureContext& fallback_sc) const {
-    BiomePrePassSample prepass = sample_biome_prepass(wx, wy);
-    const BiomePrePassSample* prepass_ptr = has_biome_prepass ? &prepass : nullptr;
-    StructureContext biome_sc = fallback_sc;
-    if (prepass_ptr != nullptr) {
-        biome_sc.ridge_strength = prepass.ridge_strength;
-        biome_sc.river_strength = derive_river_strength_from_prepass(prepass.river_width, prepass.river_distance);
-        biome_sc.floodplain_strength = prepass.floodplain_strength;
-        biome_sc.mountain_mass = prepass.mountain_mass;
-    }
-
+ChunkGenerator::BiomeSelection ChunkGenerator::resolve_biome_selection(
+        int wx, int wy, const Channels& ch, const StructureContext& sc, const BiomePrePassSample& prepass) const {
+    BiomeSelection resolved;
+    const BiomePrePassSample* prepass_ptr = has_authoritative_prepass ? &prepass : nullptr;
+    StructureContext biome_sc = sc;
     float effective_moisture = clampf(ch.moisture, 0.0f, 1.0f);
     if (prepass_ptr != nullptr) {
         float moisture_retention = clampf(1.0f - prepass.rain_shadow, 0.0f, 1.0f);
@@ -758,26 +555,79 @@ int ChunkGenerator::resolve_biome(int wx, int wy, const Channels& ch, const Stru
 
     int best_valid_idx = -1;
     float best_valid_score = -1.0f;
+    int second_valid_idx = -1;
+    float second_valid_score = -1.0f;
     int best_fallback_idx = -1;
     float best_fallback_score = -1.0f;
+    int second_fallback_idx = -1;
+    float second_fallback_score = -1.0f;
+    auto insert_ranked_candidate = [&](int candidate_idx, float candidate_score, int& best_idx, float& best_score, int& second_idx, float& second_score) {
+        const BiomeDef& candidate = biomes[candidate_idx];
+        if (is_better_biome_candidate(candidate_score, candidate, best_idx, best_score)) {
+            if (best_idx >= 0 && biomes[best_idx].id != candidate.id) {
+                second_idx = best_idx;
+                second_score = best_score;
+            }
+            best_idx = candidate_idx;
+            best_score = candidate_score;
+            return;
+        }
+        if (best_idx >= 0 && biomes[best_idx].id == candidate.id) {
+            return;
+        }
+        if (second_idx < 0 || is_better_biome_candidate(candidate_score, candidate, second_idx, second_score)) {
+            second_idx = candidate_idx;
+            second_score = candidate_score;
+        }
+    };
     for (int i = 0; i < (int)biomes.size(); i++) {
         const BiomeDef& b = biomes[i];
         bool valid = biome_matches(b, ch, biome_sc, prepass_ptr);
         if (valid) {
             float s = biome_weighted_score(b, ch, biome_sc, prepass_ptr, effective_moisture, false);
-            if (is_better_biome_candidate(s, b, best_valid_idx, best_valid_score)) {
-                best_valid_idx = i;
-                best_valid_score = s;
-            }
+            insert_ranked_candidate(i, s, best_valid_idx, best_valid_score, second_valid_idx, second_valid_score);
         }
         float fs = biome_weighted_score(b, ch, biome_sc, prepass_ptr, effective_moisture, true);
-        if (is_better_biome_candidate(fs, b, best_fallback_idx, best_fallback_score)) {
-            best_fallback_idx = i;
-            best_fallback_score = fs;
-        }
+        insert_ranked_candidate(i, fs, best_fallback_idx, best_fallback_score, second_fallback_idx, second_fallback_score);
     }
-    int idx = best_valid_idx >= 0 ? best_valid_idx : best_fallback_idx;
-    return idx >= 0 ? biomes[idx].palette_index : 0;
+
+    int primary_idx = best_valid_idx >= 0 ? best_valid_idx : best_fallback_idx;
+    if (primary_idx < 0) {
+        return resolved;
+    }
+    resolved.primary = &biomes[primary_idx];
+    resolved.primary_palette_index = biomes[primary_idx].palette_index;
+    resolved.secondary_palette_index = resolved.primary_palette_index;
+    resolved.primary_score = best_valid_idx >= 0 ? best_valid_score : best_fallback_score;
+
+    int secondary_idx = -1;
+    float secondary_score = 0.0f;
+    auto try_select_secondary = [&](int candidate_idx, float candidate_score) -> bool {
+        if (candidate_idx < 0 || candidate_idx == primary_idx) {
+            return false;
+        }
+        secondary_idx = candidate_idx;
+        secondary_score = candidate_score;
+        return true;
+    };
+    if (best_valid_idx >= 0) {
+        if (!try_select_secondary(second_valid_idx, second_valid_score)) {
+            if (!try_select_secondary(best_fallback_idx, best_fallback_score)) {
+                try_select_secondary(second_fallback_idx, second_fallback_score);
+            }
+        }
+    } else {
+        try_select_secondary(second_fallback_idx, second_fallback_score);
+    }
+    if (secondary_idx >= 0) {
+        resolved.secondary = &biomes[secondary_idx];
+        resolved.secondary_palette_index = biomes[secondary_idx].palette_index;
+        resolved.secondary_score = secondary_score;
+        float score_gap = clampf(resolved.primary_score - resolved.secondary_score, 0.0f, 1.0f);
+        resolved.dominance = score_gap;
+        resolved.ecotone_factor = clampf(1.0f - score_gap, 0.0f, 1.0f);
+    }
+    return resolved;
 }
 
 // ============================================================
@@ -804,7 +654,7 @@ float ChunkGenerator::tag_bias(const std::vector<StringName>& tags,
 
 ChunkGenerator::VariationResult ChunkGenerator::resolve_variation(
         int wx, int wy, const Channels& ch, const StructureContext& sc,
-        const BiomeDef* biome) const {
+        const BiomeDef* biome, const BiomeDef* secondary_biome, float ecotone_factor) const {
     VariationResult vr;
     vr.kind = VAR_NONE; vr.score = 0.0f;
     vr.flora_mod = vr.wetness_mod = vr.rockiness_mod = vr.openness_mod = 0.0f;
@@ -816,10 +666,24 @@ ChunkGenerator::VariationResult ChunkGenerator::resolve_variation(
 
     float fd = ch.flora_density, mo = ch.moisture, ru = ch.ruggedness;
     float rs = sc.ridge_strength, rv = sc.river_strength, fp = sc.floodplain_strength, mm = sc.mountain_mass;
-    const std::vector<StringName>& tags = biome ? biome->tags : std::vector<StringName>();
+    const std::vector<StringName>& primary_tags = biome ? biome->tags : std::vector<StringName>();
+    const std::vector<StringName>* secondary_tags = secondary_biome ? &secondary_biome->tags : nullptr;
 
     auto blend = [](float a, float b, float w) { return a * w + b * (1.0f - w); };
     auto norm = [](float v) { return clampf(v - 0.18f, 0.0f, 1.0f); };
+    auto blended_tag_bias = [&](const StringName* pos, int pos_count, const StringName* neg, int neg_count) {
+        float primary_bias = tag_bias(primary_tags, pos, pos_count, neg, neg_count);
+        if (secondary_tags == nullptr || secondary_tags->empty()) {
+            return primary_bias;
+        }
+        float secondary_bias = tag_bias(*secondary_tags, pos, pos_count, neg, neg_count);
+        float secondary_weight = clampf(ecotone_factor * 0.65f, 0.0f, 0.55f);
+        return clampf(
+            primary_bias * (1.0f - secondary_weight) + secondary_bias * secondary_weight,
+            -0.12f,
+            0.12f
+        );
+    };
 
     // Score 5 variation types (matches GDScript scoring functions)
     float scores[5];
@@ -828,32 +692,32 @@ ChunkGenerator::VariationResult ChunkGenerator::resolve_variation(
       float ns = blend(band_score(ln,0.24f,0.24f), band_score(pn,0.34f,0.20f), 0.65f);
       StringName p[] = {StringName("dry"),StringName("upland"),StringName("mountain"),StringName("cold")};
       StringName n[] = {StringName("wet"),StringName("lowland")};
-      scores[0] = norm(bs*0.74f + ns*0.18f + tag_bias(tags,p,4,n,2)); }
+      scores[0] = norm(bs*0.74f + ns*0.18f + blended_tag_bias(p,4,n,2)); }
     // dense_flora
     { float bs = fd*0.42f + mo*0.24f + fp*0.12f + (1.0f-ru)*0.08f + (1.0f-rs)*0.08f + (1.0f-mm)*0.06f;
       float ns = blend(band_score(ln,0.78f,0.22f), band_score(dn,0.62f,0.20f), 0.70f);
       StringName p[] = {StringName("wet"),StringName("temperate"),StringName("baseline"),StringName("lowland")};
       StringName n[] = {StringName("dry"),StringName("mountain")};
-      scores[1] = norm(bs*0.74f + ns*0.18f + tag_bias(tags,p,4,n,2)); }
+      scores[1] = norm(bs*0.74f + ns*0.18f + blended_tag_bias(p,4,n,2)); }
     // clearing
     { float vg = clampf(fd*1.35f - 0.18f, 0.0f, 1.0f);
       float bs = fd*0.28f + mo*0.10f + (1.0f-ru)*0.18f + (1.0f-rs)*0.08f + (1.0f-rv)*0.06f;
       float ns = blend(band_score(ln,0.50f,0.16f), band_score(pn,0.48f,0.14f), 0.55f);
       StringName p[] = {StringName("temperate"),StringName("baseline"),StringName("wet")};
       StringName n[] = {StringName("mountain"),StringName("dry")};
-      scores[2] = norm(vg * (bs*0.72f + ns*0.22f + tag_bias(tags,p,3,n,2))); }
+      scores[2] = norm(vg * (bs*0.72f + ns*0.22f + blended_tag_bias(p,3,n,2))); }
     // rocky_patch
     { float bs = ru*0.38f + rs*0.22f + mm*0.18f + (1.0f-fd)*0.10f + (1.0f-mo)*0.06f + (1.0f-fp)*0.06f;
       float ns = blend(band_score(ln,0.86f,0.18f), band_score(dn,0.82f,0.18f), 0.65f);
       StringName p[] = {StringName("mountain"),StringName("highland"),StringName("upland")};
       StringName n[] = {StringName("wet"),StringName("lowland")};
-      scores[3] = norm(bs*0.76f + ns*0.16f + tag_bias(tags,p,3,n,2)); }
+      scores[3] = norm(bs*0.76f + ns*0.16f + blended_tag_bias(p,3,n,2)); }
     // wet_patch
     { float bs = mo*0.34f + fp*0.26f + rv*0.18f + (1.0f-ru)*0.08f + fd*0.06f + (1.0f-mm)*0.04f;
       float ns = blend(band_score(ln,0.12f,0.18f), band_score(pn,0.70f,0.20f), 0.70f);
       StringName p[] = {StringName("wet"),StringName("lowland"),StringName("temperate")};
       StringName n[] = {StringName("dry"),StringName("mountain"),StringName("highland")};
-      scores[4] = norm(bs*0.76f + ns*0.16f + tag_bias(tags,p,3,n,3)); }
+      scores[4] = norm(bs*0.76f + ns*0.16f + blended_tag_bias(p,3,n,3)); }
 
     // Best selection (matches GDScript kind order)
     constexpr float VAR_EPS = 0.00001f;
@@ -865,39 +729,46 @@ ChunkGenerator::VariationResult ChunkGenerator::resolve_variation(
     if (vr.kind == VAR_NONE) return vr;
 
     // Modulations (matches _apply_modulations)
-    float in_ = vr.score;
+    float intensity = vr.score * lerpf(1.0f, 0.72f, clampf(ecotone_factor, 0.0f, 1.0f));
+    float neutral_pull = clampf(ecotone_factor, 0.0f, 1.0f) * 0.28f;
     switch (vr.kind) {
         case VAR_SPARSE_FLORA:
-            vr.flora_mod = -(0.16f + in_*0.34f);
-            vr.wetness_mod = -(0.06f + in_*0.14f) + (0.04f - mo*0.04f);
-            vr.rockiness_mod = 0.06f + in_*0.18f + ru*0.08f;
-            vr.openness_mod = 0.16f + in_*0.34f;
+            vr.flora_mod = -(0.16f + intensity*0.34f);
+            vr.wetness_mod = -(0.06f + intensity*0.14f) + (0.04f - mo*0.04f);
+            vr.rockiness_mod = 0.06f + intensity*0.18f + ru*0.08f;
+            vr.openness_mod = 0.16f + intensity*0.34f;
             break;
         case VAR_DENSE_FLORA:
-            vr.flora_mod = 0.18f + in_*0.38f;
-            vr.wetness_mod = 0.06f + in_*0.16f + fp*0.08f;
-            vr.rockiness_mod = -(0.04f + in_*0.16f);
-            vr.openness_mod = -(0.10f + in_*0.30f);
+            vr.flora_mod = 0.18f + intensity*0.38f;
+            vr.wetness_mod = 0.06f + intensity*0.16f + fp*0.08f;
+            vr.rockiness_mod = -(0.04f + intensity*0.16f);
+            vr.openness_mod = -(0.10f + intensity*0.30f);
             break;
         case VAR_CLEARING:
-            vr.flora_mod = -(0.10f + in_*0.26f);
-            vr.wetness_mod = -(0.02f + in_*0.08f);
-            vr.rockiness_mod = -(0.04f + in_*0.08f);
-            vr.openness_mod = 0.18f + in_*0.40f;
+            vr.flora_mod = -(0.10f + intensity*0.26f);
+            vr.wetness_mod = -(0.02f + intensity*0.08f);
+            vr.rockiness_mod = -(0.04f + intensity*0.08f);
+            vr.openness_mod = 0.18f + intensity*0.40f;
             break;
         case VAR_ROCKY_PATCH:
-            vr.flora_mod = -(0.08f + in_*0.22f);
-            vr.wetness_mod = -(0.04f + in_*0.14f);
-            vr.rockiness_mod = 0.18f + in_*0.42f + rs*0.10f + ru*0.08f;
-            vr.openness_mod = 0.06f + in_*0.16f;
+            vr.flora_mod = -(0.08f + intensity*0.22f);
+            vr.wetness_mod = -(0.04f + intensity*0.14f);
+            vr.rockiness_mod = 0.18f + intensity*0.42f + rs*0.10f + ru*0.08f;
+            vr.openness_mod = 0.06f + intensity*0.16f;
             break;
         case VAR_WET_PATCH:
-            vr.flora_mod = 0.04f + in_*0.16f;
-            vr.wetness_mod = 0.18f + in_*0.40f + std::max(fp, rv)*0.10f;
-            vr.rockiness_mod = -(0.06f + in_*0.12f);
-            vr.openness_mod = -(0.04f + in_*0.12f);
+            vr.flora_mod = 0.04f + intensity*0.16f;
+            vr.wetness_mod = 0.18f + intensity*0.40f + std::max(fp, rv)*0.10f;
+            vr.rockiness_mod = -(0.06f + intensity*0.12f);
+            vr.openness_mod = -(0.04f + intensity*0.12f);
             break;
         default: break;
+    }
+    if (neutral_pull > 0.0f) {
+        vr.flora_mod = lerpf(vr.flora_mod, 0.0f, neutral_pull);
+        vr.wetness_mod = lerpf(vr.wetness_mod, 0.0f, neutral_pull);
+        vr.rockiness_mod = lerpf(vr.rockiness_mod, 0.0f, neutral_pull);
+        vr.openness_mod = lerpf(vr.openness_mod, 0.0f, neutral_pull);
     }
     return vr;
 }
@@ -908,49 +779,116 @@ ChunkGenerator::VariationResult ChunkGenerator::resolve_variation(
 
 ChunkGenerator::TerrainType ChunkGenerator::resolve_terrain(
         float dist_sq, const Channels& ch, const StructureContext& sc,
-        const VariationResult& vr) const {
+        const BiomePrePassSample& prepass, const VariationResult& vr) const {
     float safe_sq = (float)(safe_zone_radius * safe_zone_radius);
     float land_sq = (float)(land_guarantee_radius * land_guarantee_radius);
+    float slope_value = clampf(prepass.slope, 0.0f, 1.0f);
+    auto river_core_radius = [&]() {
+        if (sc.river_width <= 0.0f) {
+            return 0.0f;
+        }
+        float width_scale = lerpf(0.62f, 0.38f, slope_value);
+        return std::max(0.9f, sc.river_width * width_scale);
+    };
+    auto bank_outer_radius = [&]() {
+        if (sc.river_width <= 0.0f && sc.floodplain_strength <= 0.0f) {
+            return 0.0f;
+        }
+        float river_radius = river_core_radius();
+        float bank_reach = std::max(
+            1.0f,
+            sc.river_width * 0.55f + sc.floodplain_strength * lerpf(3.4f, 1.6f, slope_value)
+        );
+        return river_radius + bank_reach;
+    };
+    auto valley_carve_pressure = [&]() {
+        if (sc.river_width <= 0.0f && sc.floodplain_strength <= 0.0f) {
+            return 0.0f;
+        }
+        float carve_radius = std::max(
+            2.0f,
+            sc.river_width * lerpf(1.0f, 1.45f, slope_value)
+                + sc.floodplain_strength * lerpf(2.6f, 1.8f, slope_value)
+        );
+        float t = clampf(1.0f - sc.river_distance / carve_radius, 0.0f, 1.0f);
+        float proximity_pressure = t * t * (3.0f - 2.0f * t);
+        return std::max(proximity_pressure, sc.floodplain_strength * 0.85f);
+    };
 
     // Safe zone
     if (dist_sq <= safe_sq) return GROUND;
 
     // River
     if (dist_sq > land_sq) {
-        float wb = vr.wetness_mod, rb = vr.rockiness_mod;
-        float eff_rv = sc.river_strength + wb * 0.10f - rb * 0.05f;
-        if (eff_rv >= river_min_strength
-            && sc.ridge_strength <= river_ridge_exclusion
-            && ch.height <= river_max_height + wb * 0.05f) {
+        float river_radius = river_core_radius();
+        float effective_river_strength = sc.river_strength + sc.floodplain_strength * 0.10f
+            + vr.wetness_mod * 0.10f - vr.rockiness_mod * 0.04f;
+        float allowed_height = river_max_height + sc.river_width * 0.08f + (1.0f - slope_value) * 0.08f;
+        if (river_radius > 0.0f
+            && sc.river_distance <= river_radius
+            && effective_river_strength >= river_min_strength * 0.75f
+            && ch.height <= allowed_height) {
             return WATER;
         }
     }
 
     // River bank
     if (dist_sq > land_sq) {
-        float wb = vr.wetness_mod;
-        float eff_fp = sc.floodplain_strength + wb * 0.10f;
-        float eff_rv = sc.river_strength + wb * 0.08f;
-        // Not a river tile (already checked above)
-        if (eff_fp >= bank_min_floodplain && sc.ridge_strength <= bank_ridge_exclusion) {
-            if (eff_rv >= bank_min_river) return SAND;
-            if (ch.moisture + wb * 0.10f > bank_min_moisture
-                && ch.height - wb * 0.04f < bank_max_height) return SAND;
+        float outer_radius = bank_outer_radius();
+        float effective_floodplain = sc.floodplain_strength + vr.wetness_mod * 0.08f - vr.rockiness_mod * 0.02f;
+        float effective_river_strength = sc.river_strength + vr.wetness_mod * 0.08f;
+        float allowed_height = bank_max_height + sc.river_width * 0.05f + (1.0f - slope_value) * 0.06f;
+        if (outer_radius > 0.0f
+            && sc.river_distance <= outer_radius
+            && effective_floodplain >= bank_min_floodplain * 0.55f
+            && !(sc.ridge_strength > (bank_ridge_exclusion + 0.16f) && slope_value > 0.60f)
+            && ch.height <= allowed_height
+            && (
+                effective_river_strength >= bank_min_river * 0.75f
+                || ch.moisture + vr.wetness_mod * 0.10f > bank_min_moisture * 0.90f
+            )
+            && sc.river_distance > river_core_radius()) {
+            return SAND;
         }
     }
 
-    // Mountain
+    // Mountain core
     if (dist_sq > land_sq) {
-        float terrain_gate = clampf(ch.height * 0.42f + ch.ruggedness * 1.08f - 0.16f, 0.22f, 1.0f);
-        float ruggedness_gate = clampf(ch.ruggedness * 0.72f + ch.height * 0.28f, 0.0f, 1.0f);
-        float rb = sc.ridge_strength * ridge_backbone_weight;
-        float mf = sc.mountain_mass * massif_fill_weight;
-        float cb = std::max(0.0f, sc.ridge_strength - 0.58f) * core_bonus_weight;
-        float fs = ruggedness_gate * 0.10f + std::max(0.0f, sc.mountain_mass - 0.36f) * 0.10f;
-        float rc = std::max(0.0f, sc.river_strength - 0.22f) * 0.20f + sc.floodplain_strength * 0.08f;
-        float vs = vr.rockiness_mod * 0.08f - vr.wetness_mod * 0.04f - vr.openness_mod * 0.05f;
-        float combined = (rb + mf + cb + fs - rc + vs) * terrain_gate;
-        if (combined >= mountain_threshold_value) return ROCK;
+        if (!(sc.ridge_strength < 0.20f && sc.mountain_mass < 0.18f)) {
+            float ruggedness_gate = clampf(ch.ruggedness * 0.55f + slope_value * 0.45f, 0.0f, 1.0f);
+            float terrain_gate = clampf(ch.height * 0.34f + ruggedness_gate * 0.42f + slope_value * 0.28f, 0.18f, 1.0f);
+            float combined = sc.ridge_strength * ridge_backbone_weight;
+            combined += sc.mountain_mass * (massif_fill_weight + 0.12f);
+            combined += std::max(0.0f, sc.ridge_strength - 0.58f) * core_bonus_weight;
+            combined += std::max(0.0f, slope_value - 0.34f) * 0.18f;
+            combined += ruggedness_gate * 0.10f;
+            combined -= valley_carve_pressure() * 0.30f;
+            combined -= sc.floodplain_strength * 0.08f;
+            combined += vr.rockiness_mod * 0.08f;
+            combined -= vr.wetness_mod * 0.05f;
+            combined -= vr.openness_mod * 0.05f;
+            combined *= terrain_gate;
+            if (combined >= mountain_threshold_value) return ROCK;
+        }
+    }
+
+    // Foothills
+    if (dist_sq > land_sq) {
+        float primary_mass = std::max(sc.ridge_strength * 0.75f, sc.mountain_mass);
+        if (!(primary_mass < 0.18f && slope_value < 0.32f)) {
+            float ruggedness_gate = clampf(ch.ruggedness * 0.60f + slope_value * 0.40f, 0.0f, 1.0f);
+            float combined = sc.ridge_strength * 0.26f;
+            combined += sc.mountain_mass * 0.28f;
+            combined += slope_value * 0.26f;
+            combined += ruggedness_gate * 0.12f;
+            combined += std::max(0.0f, ch.height - 0.42f) * 0.12f;
+            combined -= valley_carve_pressure() * 0.38f;
+            combined -= sc.floodplain_strength * 0.10f;
+            combined += vr.rockiness_mod * 0.06f;
+            combined -= vr.wetness_mod * 0.03f;
+            combined -= vr.openness_mod * 0.05f;
+            if (combined >= mountain_threshold_value * 0.72f) return ROCK;
+        }
     }
 
     return GROUND;
@@ -958,6 +896,7 @@ ChunkGenerator::TerrainType ChunkGenerator::resolve_terrain(
 
 void ChunkGenerator::apply_polar_surface_modifiers(
         TerrainType terrain, const Channels& ch, const StructureContext& sc,
+        const BiomePrePassSample& prepass,
         int& io_variation_id, float& io_height, float& io_flora_density) const {
     if (terrain == ROCK) return;
 
@@ -966,14 +905,11 @@ void ChunkGenerator::apply_polar_surface_modifiers(
     if (cold_factor <= 0.0f && hot_factor <= 0.0f) return;
 
     int overlay_id = io_variation_id;
-    bool flat_surface = is_flat_polar_surface(ch);
-    float evaporation_strength = hot_factor * std::max(0.0f, hot_evaporation_rate);
+    bool flat_surface = is_flat_polar_surface(prepass);
 
     if (terrain == WATER) {
         if (ch.temperature < prepass_frozen_river_threshold && cold_factor > 0.0f) {
             overlay_id = VAR_ICE;
-        } else if (evaporation_strength >= 0.125f) {
-            overlay_id = VAR_DRY_RIVERBED;
         }
     } else if (flat_surface) {
         if (cold_factor > 0.0f && io_height < ice_cap_max_height) {
@@ -1011,197 +947,65 @@ float ChunkGenerator::resolve_hot_factor(float temperature) const {
     );
 }
 
-bool ChunkGenerator::is_flat_polar_surface(const Channels& ch) const {
-    return ch.ruggedness <= 0.28f;
+bool ChunkGenerator::is_flat_polar_surface(const BiomePrePassSample& prepass) const {
+    return clampf(prepass.slope, 0.0f, 1.0f) <= 0.15f;
 }
 
 // ============================================================
-// Flora computation (matches chunk_flora_builder.gd)
+// generate_chunk() — authoritative pre-pass-backed pipeline
 // ============================================================
 
-float ChunkGenerator::tile_hash(int wx, int wy, int channel) const {
-    // Must use 64-bit arithmetic to match GDScript int (which is 64-bit)
-    int64_t h = (int64_t)seed * 374761393LL;
-    h = h + (int64_t)wx * 668265263LL;
-    h = h + (int64_t)wy * 2147483647LL;
-    h = h + (int64_t)channel * 1013904223LL;
-    h = (h ^ (h >> 13)) * 1274126177LL;
-    h = h ^ (h >> 16);
-    int64_t m = h % 100000LL;
-    if (m < 0) m = -m;
-    return (float)m * 0.00001f;
-}
-
-bool ChunkGenerator::flora_set_allowed_in_subzone(const FloraSetDef& fs, int var_id) const {
-    // Map var_id to StringName for comparison
-    static const StringName VAR_NAMES[] = {
-        StringName("none"), StringName("sparse_flora"), StringName("dense_flora"),
-        StringName("clearing"), StringName("rocky_patch"), StringName("wet_patch"),
-        StringName("polar_ice"), StringName("polar_scorched"), StringName("polar_salt_flat"),
-        StringName("polar_dry_riverbed")
-    };
-    constexpr int VAR_NAME_COUNT = sizeof(VAR_NAMES) / sizeof(VAR_NAMES[0]);
-    StringName sz = (var_id >= 0 && var_id < VAR_NAME_COUNT) ? VAR_NAMES[var_id] : VAR_NAMES[0];
-    if (!fs.excluded_subzones.empty()) {
-        for (const auto& e : fs.excluded_subzones) { if (e == sz) return false; }
-    }
-    if (!fs.subzone_filters.empty()) {
-        bool found = false;
-        for (const auto& f : fs.subzone_filters) { if (f == sz) { found = true; break; } }
-        if (!found) return false;
-    }
-    return true;
-}
-
-float ChunkGenerator::decor_set_subzone_density(const DecorSetDef& ds, int var_id) const {
-    static const StringName VAR_NAMES[] = {
-        StringName("none"), StringName("sparse_flora"), StringName("dense_flora"),
-        StringName("clearing"), StringName("rocky_patch"), StringName("wet_patch"),
-        StringName("polar_ice"), StringName("polar_scorched"), StringName("polar_salt_flat"),
-        StringName("polar_dry_riverbed")
-    };
-    constexpr int VAR_NAME_COUNT = sizeof(VAR_NAMES) / sizeof(VAR_NAMES[0]);
-    StringName sz = (var_id >= 0 && var_id < VAR_NAME_COUNT) ? VAR_NAMES[var_id] : VAR_NAMES[0];
-    for (const auto& p : ds.subzone_density_modifiers) {
-        if (p.first == sz) return ds.base_density * p.second;
-    }
-    return ds.base_density;
-}
-
-struct FloraZoneCache {
-    std::vector<int> flora_indices;
-    std::vector<int> decor_indices;
-    std::vector<float> decor_densities;
-};
-
-Array ChunkGenerator::compute_flora_placements(int cs, int base_x, int base_y,
-        const uint8_t* terrain_p, const uint8_t* biome_p, const uint8_t* variation_p,
-        const float* flora_dens_p, const float* flora_mod_p) const {
-    Array placements;
-    std::unordered_map<int, FloraZoneCache> zone_cache;
-
-    for (int ly = 0; ly < cs; ly++) {
-        int wy = base_y + ly;
-        for (int lx = 0; lx < cs; lx++) {
-            int idx = ly * cs + lx;
-            if (terrain_p[idx] != 0) continue; // GROUND only
-            int biome_idx = biome_p[idx];
-            int var_id = variation_p[idx];
-            if (biome_idx >= (int)biome_flora_configs.size()) continue;
-            int zone_key = biome_idx * 16 + var_id;
-
-            auto it = zone_cache.find(zone_key);
-            if (it == zone_cache.end()) {
-                FloraZoneCache zc;
-                const BiomeFloraConfig& bfc = biome_flora_configs[biome_idx];
-                for (int fi : bfc.flora_set_indices) {
-                    if (fi < (int)flora_sets.size() && flora_set_allowed_in_subzone(flora_sets[fi], var_id))
-                        zc.flora_indices.push_back(fi);
-                }
-                for (int di : bfc.decor_set_indices) {
-                    if (di < (int)decor_sets.size()) {
-                        zc.decor_indices.push_back(di);
-                        zc.decor_densities.push_back(decor_set_subzone_density(decor_sets[di], var_id));
-                    }
-                }
-                it = zone_cache.insert({zone_key, zc}).first;
-            }
-            const FloraZoneCache& zc = it->second;
-            int wx = base_x + lx;
-            float h1 = tile_hash(wx, wy, 0);
-            float h2 = tile_hash(wx, wy, 1);
-            float h3 = tile_hash(wx, wy, 2);
-            float fd = flora_dens_p[idx];
-            float fm = flora_mod_p[idx];
-            bool placed = false;
-
-            // Try flora sets
-            for (int fi : zc.flora_indices) {
-                const FloraSetDef& fs = flora_sets[fi];
-                float eff = fs.base_density * (1.0f + fd * fs.flora_channel_weight) * (1.0f + fm * fs.flora_modulation_weight);
-                eff = clampf(eff, 0.0f, 0.6f);
-                if (h1 >= eff) continue;
-                // Pick entry (weighted by density threshold)
-                float tw = 0.0f;
-                int best_entry = -1;
-                for (int ei = 0; ei < (int)fs.entries.size(); ei++) {
-                    const FloraEntryDef& fe = fs.entries[ei];
-                    if (fd >= fe.min_density_threshold && fd <= fe.max_density_threshold)
-                        tw += fe.weight;
-                }
-                if (tw <= 0.0f) continue;
-                float target = h2 * tw;
-                float acc = 0.0f;
-                for (int ei = 0; ei < (int)fs.entries.size(); ei++) {
-                    const FloraEntryDef& fe = fs.entries[ei];
-                    if (fd >= fe.min_density_threshold && fd <= fe.max_density_threshold) {
-                        acc += fe.weight;
-                        if (target <= acc) { best_entry = ei; break; }
-                    }
-                }
-                if (best_entry < 0) best_entry = (int)fs.entries.size() - 1;
-                const FloraEntryDef& chosen = fs.entries[best_entry];
-                Dictionary p;
-                p["local_pos"] = Vector2i(lx, ly);
-                p["entry_id"] = chosen.id;
-                p["is_flora"] = true;
-                p["color"] = chosen.color;
-                p["size"] = chosen.size;
-                p["z_offset"] = chosen.z_offset;
-                placements.append(p);
-                placed = true;
-                break;
-            }
-            if (placed) continue;
-
-            // Try decor sets
-            for (int di = 0; di < (int)zc.decor_indices.size(); di++) {
-                float density = zc.decor_densities[di];
-                if (h1 >= density) continue;
-                const DecorSetDef& ds = decor_sets[zc.decor_indices[di]];
-                if (ds.entries.empty()) continue;
-                float tw = 0.0f;
-                for (const auto& de : ds.entries) tw += de.weight;
-                if (tw <= 0.0f) continue;
-                float target = h3 * tw;
-                float acc = 0.0f;
-                int best = (int)ds.entries.size() - 1;
-                for (int ei = 0; ei < (int)ds.entries.size(); ei++) {
-                    acc += ds.entries[ei].weight;
-                    if (target <= acc) { best = ei; break; }
-                }
-                const DecorEntryDef& chosen = ds.entries[best];
-                Dictionary p;
-                p["local_pos"] = Vector2i(lx, ly);
-                p["entry_id"] = chosen.id;
-                p["is_flora"] = false;
-                p["color"] = chosen.color;
-                p["size"] = chosen.size;
-                p["z_offset"] = chosen.z_offset;
-                placements.append(p);
-                break;
-            }
-        }
-    }
-    return placements;
-}
-
-// ============================================================
-// generate_chunk() — full pipeline
-// ============================================================
-
-Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_tile) {
-    if (!initialized) return Dictionary();
+Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_tile, Dictionary authoritative_inputs) {
+    if (!initialized || !has_authoritative_prepass) return Dictionary();
 
     int cs = chunk_size;
     int total = cs * cs;
 
-    // Canonical chunk coord (wrap x)
     int canonical_cx = wrap_x(chunk_coord.x, wrap_width / std::max(cs, 1));
     int base_x = canonical_cx * cs;
     int base_y = chunk_coord.y * cs;
 
-    // Output arrays
+    String snapshot_kind = authoritative_inputs.get("snapshot_kind", String());
+    int snapshot_chunk_size = (int)authoritative_inputs.get("chunk_size", 0);
+    PackedFloat32Array height_inputs = authoritative_inputs.get("height_values", PackedFloat32Array());
+    PackedFloat32Array temperature_inputs = authoritative_inputs.get("temperature_values", PackedFloat32Array());
+    PackedFloat32Array moisture_inputs = authoritative_inputs.get("moisture_values", PackedFloat32Array());
+    PackedFloat32Array ruggedness_inputs = authoritative_inputs.get("ruggedness_values", PackedFloat32Array());
+    PackedFloat32Array flora_density_inputs = authoritative_inputs.get("flora_density_values", PackedFloat32Array());
+    PackedFloat32Array latitude_inputs = authoritative_inputs.get("latitude_values", PackedFloat32Array());
+    PackedFloat32Array drainage_inputs = authoritative_inputs.get("drainage_values", PackedFloat32Array());
+    PackedFloat32Array slope_inputs = authoritative_inputs.get("slope_values", PackedFloat32Array());
+    PackedFloat32Array rain_shadow_inputs = authoritative_inputs.get("rain_shadow_values", PackedFloat32Array());
+    PackedFloat32Array continentalness_inputs = authoritative_inputs.get("continentalness_values", PackedFloat32Array());
+    PackedFloat32Array ridge_strength_inputs = authoritative_inputs.get("ridge_strength_values", PackedFloat32Array());
+    PackedFloat32Array river_width_inputs = authoritative_inputs.get("river_width_values", PackedFloat32Array());
+    PackedFloat32Array river_distance_inputs = authoritative_inputs.get("river_distance_values", PackedFloat32Array());
+    PackedFloat32Array floodplain_strength_inputs = authoritative_inputs.get("floodplain_strength_values", PackedFloat32Array());
+    PackedFloat32Array mountain_mass_inputs = authoritative_inputs.get("mountain_mass_values", PackedFloat32Array());
+    bool valid_authoritative_inputs = snapshot_kind == "world_chunk_authoritative_inputs_v1"
+        && snapshot_chunk_size == cs
+        && height_inputs.size() == total
+        && temperature_inputs.size() == total
+        && moisture_inputs.size() == total
+        && ruggedness_inputs.size() == total
+        && flora_density_inputs.size() == total
+        && latitude_inputs.size() == total
+        && drainage_inputs.size() == total
+        && slope_inputs.size() == total
+        && rain_shadow_inputs.size() == total
+        && continentalness_inputs.size() == total
+        && ridge_strength_inputs.size() == total
+        && river_width_inputs.size() == total
+        && river_distance_inputs.size() == total
+        && floodplain_strength_inputs.size() == total
+        && mountain_mass_inputs.size() == total;
+    if (!valid_authoritative_inputs) {
+        UtilityFunctions::push_error(
+            "[ChunkGenerator] generate_chunk requires authoritative chunk-local inputs from the WorldComputeContext pipeline; runtime native generation will not self-sample a divergent channel source."
+        );
+        return Dictionary();
+    }
+
     PackedByteArray terrain;
     terrain.resize(total);
     PackedFloat32Array height_arr;
@@ -1210,69 +1014,99 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
     variation.resize(total);
     PackedByteArray biome_arr;
     biome_arr.resize(total);
+    PackedByteArray secondary_biome_arr;
+    secondary_biome_arr.resize(total);
+    PackedFloat32Array ecotone_values;
+    ecotone_values.resize(total);
     PackedFloat32Array flora_density_values;
     flora_density_values.resize(total);
     PackedFloat32Array flora_modulation_values;
     flora_modulation_values.resize(total);
 
-    // Distance from spawn helper
     float spawn_x = (float)spawn_tile.x;
     float spawn_y = (float)spawn_tile.y;
 
-    // Full per-tile pipeline: channels → structure → biome → variation → terrain
     for (int ly = 0; ly < cs; ly++) {
         for (int lx = 0; lx < cs; lx++) {
             int wx = base_x + lx;
             int wy = base_y + ly;
             int idx = ly * cs + lx;
 
-            // 1. Planet channels
-            Channels ch = sample_channels(wx, wy);
+            Channels ch{};
+            ch.height = clampf(height_inputs[idx], 0.0f, 1.0f);
+            ch.temperature = clampf(temperature_inputs[idx], 0.0f, 1.0f);
+            ch.moisture = clampf(moisture_inputs[idx], 0.0f, 1.0f);
+            ch.ruggedness = clampf(ruggedness_inputs[idx], 0.0f, 1.0f);
+            ch.flora_density = clampf(flora_density_inputs[idx], 0.0f, 1.0f);
+            ch.latitude = clampf(latitude_inputs[idx], 0.0f, 1.0f);
+            BiomePrePassSample prepass{};
+            prepass.drainage = clampf(drainage_inputs[idx], 0.0f, 1.0f);
+            prepass.slope = clampf(slope_inputs[idx], 0.0f, 1.0f);
+            prepass.rain_shadow = clampf(rain_shadow_inputs[idx], 0.0f, 1.0f);
+            prepass.continentalness = clampf(continentalness_inputs[idx], 0.0f, 1.0f);
+            prepass.ridge_strength = clampf(ridge_strength_inputs[idx], 0.0f, 1.0f);
+            prepass.river_width = std::max(0.0f, river_width_inputs[idx]);
+            prepass.river_distance = std::max(0.0f, river_distance_inputs[idx]);
+            prepass.floodplain_strength = clampf(floodplain_strength_inputs[idx], 0.0f, 1.0f);
+            prepass.mountain_mass = clampf(mountain_mass_inputs[idx], 0.0f, 1.0f);
+            StructureContext sc = build_structure_context_from_prepass(prepass);
+            BiomeSelection biome_selection = resolve_biome_selection(wx, wy, ch, sc, prepass);
+            VariationResult vr = resolve_variation(
+                wx,
+                wy,
+                ch,
+                sc,
+                biome_selection.primary,
+                biome_selection.secondary,
+                biome_selection.ecotone_factor
+            );
 
-            // 2. Structure context
-            StructureContext sc = sample_structure(wx, wy, ch);
-
-            // 3. Biome (returns palette_index)
-            int biome_idx = resolve_biome(wx, wy, ch, sc);
-            const BiomeDef* biome_ptr = nullptr;
-            for (int bi = 0; bi < (int)biomes.size(); bi++) {
-                if (biomes[bi].palette_index == biome_idx) { biome_ptr = &biomes[bi]; break; }
-            }
-
-            // 4. Local variation
-            VariationResult vr = resolve_variation(wx, wy, ch, sc, biome_ptr);
-
-            // 5. Terrain type
             float dx_s = (float)(wrap_x(wx, wrap_width) - wrap_x((int)spawn_x, wrap_width));
-            // Handle wrap distance
             if (wrap_width > 0) {
                 if (dx_s > wrap_width / 2) dx_s -= wrap_width;
                 else if (dx_s < -wrap_width / 2) dx_s += wrap_width;
             }
             float dy_s = (float)(wy - (int)spawn_y);
             float dist_sq = dx_s * dx_s + dy_s * dy_s;
-            TerrainType tt = resolve_terrain(dist_sq, ch, sc, vr);
-            int variation_id = (int)vr.kind;
+            TerrainType tt = resolve_terrain(dist_sq, ch, sc, prepass, vr);
+
+            int variation_id = 0;
+            float flora_modulation_value = 0.0f;
+            if (tt == GROUND && vr.kind != VAR_NONE) {
+                variation_id = (int)vr.kind;
+                flora_modulation_value = vr.flora_mod;
+            }
+
             float height_value = ch.height;
             float flora_density_value = ch.flora_density;
-            apply_polar_surface_modifiers(tt, ch, sc, variation_id, height_value, flora_density_value);
+            apply_polar_surface_modifiers(
+                tt,
+                ch,
+                sc,
+                prepass,
+                variation_id,
+                height_value,
+                flora_density_value
+            );
 
-            // Pack output
+            int primary_biome_idx = std::max(0, biome_selection.primary_palette_index);
+            int secondary_biome_idx = primary_biome_idx;
+            float ecotone_value = 0.0f;
+            if (biome_selection.secondary != nullptr && biome_selection.secondary_palette_index != primary_biome_idx) {
+                secondary_biome_idx = std::max(0, biome_selection.secondary_palette_index);
+                ecotone_value = clampf(biome_selection.ecotone_factor, 0.0f, 1.0f);
+            }
+
             terrain[idx] = (uint8_t)tt;
             height_arr[idx] = height_value;
             variation[idx] = (uint8_t)variation_id;
-            biome_arr[idx] = (uint8_t)biome_idx;
+            biome_arr[idx] = (uint8_t)primary_biome_idx;
+            secondary_biome_arr[idx] = (uint8_t)secondary_biome_idx;
+            ecotone_values[idx] = ecotone_value;
             flora_density_values[idx] = flora_density_value;
-            flora_modulation_values[idx] = vr.flora_mod;
+            flora_modulation_values[idx] = flora_modulation_value;
         }
     }
-
-    // Flora computation pass
-    Array flora_placements = compute_flora_placements(
-        cs, base_x, base_y,
-        terrain.ptr(), biome_arr.ptr(), variation.ptr(),
-        flora_density_values.ptr(), flora_modulation_values.ptr()
-    );
 
     Dictionary result;
     result["chunk_coord"] = chunk_coord;
@@ -1283,8 +1117,96 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
     result["height"] = height_arr;
     result["variation"] = variation;
     result["biome"] = biome_arr;
+    result["secondary_biome"] = secondary_biome_arr;
+    result["ecotone_values"] = ecotone_values;
     result["flora_density_values"] = flora_density_values;
     result["flora_modulation_values"] = flora_modulation_values;
-    result["flora_placements"] = flora_placements;
+    return result;
+}
+
+Dictionary ChunkGenerator::sample_tile(Vector2i world_pos, Vector2i spawn_tile) {
+    if (!initialized || !has_authoritative_prepass) {
+        return Dictionary();
+    }
+
+    int wx = wrap_x(world_pos.x, wrap_width);
+    int wy = world_pos.y;
+    Channels ch = sample_channels(wx, wy);
+    BiomePrePassSample prepass = sample_biome_prepass(wx, wy);
+    StructureContext sc = build_structure_context_from_prepass(prepass);
+    BiomeSelection biome_selection = resolve_biome_selection(wx, wy, ch, sc, prepass);
+    VariationResult vr = resolve_variation(
+        wx,
+        wy,
+        ch,
+        sc,
+        biome_selection.primary,
+        biome_selection.secondary,
+        biome_selection.ecotone_factor
+    );
+
+    float dx_s = (float)(wrap_x(wx, wrap_width) - wrap_x(spawn_tile.x, wrap_width));
+    if (wrap_width > 0) {
+        if (dx_s > wrap_width / 2) dx_s -= wrap_width;
+        else if (dx_s < -wrap_width / 2) dx_s += wrap_width;
+    }
+    float dy_s = (float)(wy - spawn_tile.y);
+    float dist_sq = dx_s * dx_s + dy_s * dy_s;
+    TerrainType tt = resolve_terrain(dist_sq, ch, sc, prepass, vr);
+
+    int variation_id = 0;
+    float flora_modulation_value = 0.0f;
+    if (tt == GROUND && vr.kind != VAR_NONE) {
+        variation_id = (int)vr.kind;
+        flora_modulation_value = vr.flora_mod;
+    }
+
+    float height_value = ch.height;
+    float flora_density_value = ch.flora_density;
+    apply_polar_surface_modifiers(
+        tt,
+        ch,
+        sc,
+        prepass,
+        variation_id,
+        height_value,
+        flora_density_value
+    );
+
+    Dictionary result;
+    result["world_pos"] = Vector2i(wx, wy);
+    result["terrain"] = (int)tt;
+    result["height"] = height_value;
+    result["variation"] = variation_id;
+    result["biome"] = std::max(0, biome_selection.primary_palette_index);
+    result["secondary_biome"] = biome_selection.secondary != nullptr
+        ? std::max(0, biome_selection.secondary_palette_index)
+        : std::max(0, biome_selection.primary_palette_index);
+    result["primary_biome_id"] = biome_selection.primary != nullptr ? String(biome_selection.primary->id) : String();
+    result["secondary_biome_id"] = biome_selection.secondary != nullptr
+        ? String(biome_selection.secondary->id)
+        : (biome_selection.primary != nullptr ? String(biome_selection.primary->id) : String());
+    result["primary_score"] = biome_selection.primary_score;
+    result["secondary_score"] = biome_selection.secondary_score;
+    result["dominance"] = biome_selection.dominance;
+    result["ecotone_factor"] = biome_selection.ecotone_factor;
+    result["flora_density"] = flora_density_value;
+    result["flora_modulation"] = flora_modulation_value;
+    result["channel_height"] = ch.height;
+    result["channel_temperature"] = ch.temperature;
+    result["channel_moisture"] = ch.moisture;
+    result["channel_ruggedness"] = ch.ruggedness;
+    result["channel_flora_density"] = ch.flora_density;
+    result["channel_latitude"] = ch.latitude;
+    result["ridge_strength"] = sc.ridge_strength;
+    result["river_strength"] = sc.river_strength;
+    result["floodplain_strength"] = sc.floodplain_strength;
+    result["mountain_mass"] = sc.mountain_mass;
+    result["river_distance"] = sc.river_distance;
+    result["river_width"] = sc.river_width;
+    result["drainage"] = prepass.drainage;
+    result["slope"] = prepass.slope;
+    result["rain_shadow"] = prepass.rain_shadow;
+    result["continentalness"] = prepass.continentalness;
     return result;
 }

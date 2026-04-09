@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.3
-last_updated: 2026-03-30
+version: 0.5
+last_updated: 2026-04-09
 depends_on:
   - DATA_CONTRACTS.md
   - ../../00_governance/PUBLIC_API.md
@@ -22,67 +22,88 @@ related_docs:
 
 ## Design Intent
 
-Chunk generation is the single largest performance bottleneck in the project. A 64×64 chunk takes ~7.5 seconds to generate in GDScript due to 65,536 FastNoiseLite evaluations + biome/variation scoring per tile. This makes boot take ~25 seconds and runtime streaming unable to keep up with player movement.
+Native chunk generation exists to accelerate chunk payload builds without introducing a second world model.
 
-The existing `ChunkGenerator` C++ class in `gdextension/src/` is a stub (~30% complete). `MountainTopologyBuilder` proves the GDExtension pipeline works in production.
+As of 2026-04-09, the native `ChunkGenerator` is no longer allowed to compute rivers, floodplains, ridges, or mountain mass from its own directed-band formulas. `WorldPrePass` is the only runtime source of truth for large-scale world structure. The native path must consume the same published pre-pass snapshot that powers the authoritative GDScript runtime and then reproduce the same biome / variation / terrain semantics from that snapshot.
 
-This spec defines the port of the full per-tile generation pipeline to C++:
-- PlanetSampler (5 noise channels)
-- legacy directed-band structure stage (4 noise + ridge/river/floodplain math)
-- BiomeResolver (scoring across registered biomes)
-- LocalVariationResolver (3 noise + 5 variation types)
-- SurfaceTerrainResolver (terrain type decision tree)
-
-Expected speedup: ×5–10 (eliminates GDScript overhead, all noise inline, cache-friendly single loop over 4096 tiles).
+The goal of this spec is therefore:
+- one authoritative world structure model (`WorldPrePass`)
+- one semantic pipeline across GDScript and C++
+- one wire-compatible chunk payload shape
+- no hybrid or fallback legacy structure stage in native runtime
 
 ## Current State
 
 ### What exists in C++
-- `gdextension/src/chunk_generator.{h,cpp}` — stub with 5 noise layers, returns terrain + height only
+- `gdextension/src/chunk_generator.{h,cpp}` — production native chunk payload generator
 - `gdextension/src/mountain_topology_builder.{h,cpp}` — production, used by ChunkManager
 - `gdextension/src/FastNoiseLite.h` — vendored noise library
 - Build system (SCons) functional, DLL compiles
 
-### What exists in GDScript (to be ported)
-- `core/systems/world/planet_sampler.gd` — 5 noise instances, latitude, temperature, moisture, ruggedness, flora_density
-- removed legacy GDScript directed-band structure sampler — historical predecessor of the current native `sample_structure()` formulas
-- `core/systems/world/biome_resolver.gd` — iterate biomes, score by channels + structure, select best
-- `core/systems/world/local_variation_resolver.gd` — 3 noise instances, score 5 variation types, modulations
-- `core/systems/world/surface_terrain_resolver.gd` — decision tree: safe zone → river → bank → mountain → ground
-- `core/systems/world/chunk_content_builder.gd` — orchestrator: loop over tiles, call resolvers, pack arrays
+### What exists in GDScript (authoritative semantics)
+- `core/systems/world/world_pre_pass.gd` — authoritative coarse-grid world structure snapshot
+- `core/systems/world/world_compute_context.gd` — curated runtime facade over published pre-pass truth
+- `core/systems/world/biome_resolver.gd` — causal biome scoring using typed pre-pass channels
+- `core/systems/world/local_variation_resolver.gd` — top-2 biome-aware local variation scoring and ecotone dampening
+- `core/systems/world/surface_terrain_resolver.gd` — authoritative terrain decision tree using pre-pass-backed structure context
+- `core/systems/world/chunk_content_builder.gd` — authoritative GDScript payload builder and native payload validator
+
+### Removed from active runtime architecture
+- native directed-band structure helpers (`directed_coordinate`, `repeating_band`, `sample_structure`, direction vectors, ridge/river warp bands)
+- legacy ridge/river spacing and warp balance knobs
+- native flora-placement generation inside `ChunkGenerator`
+
+Those items may still appear below in historical rollout notes, but they are no longer valid source-of-truth architecture.
 
 ## Public API impact
 
 Current public APIs affected semantically:
 - `ChunkGenerator.initialize(seed: int, params: Dictionary) -> void`
-- `ChunkGenerator.generate_chunk(chunk_coord: Vector2i, spawn_tile: Vector2i) -> Dictionary`
+- `ChunkGenerator.generate_chunk(chunk_coord: Vector2i, spawn_tile: Vector2i, authoritative_inputs: Dictionary) -> Dictionary`
 - `WorldGenerator.create_detached_chunk_content_builder() -> ChunkContentBuilder` (integration point)
 
 Required API/documentation outcome:
-- `PUBLIC_API.md` must document native generation as an alternative to GDScript `ChunkContentBuilder`
-- `ChunkGenerator` output Dictionary must be wire-compatible with GDScript `build_chunk_native_data()` output
+- `PUBLIC_API.md` must document native generation as a pre-pass-backed accelerator for `ChunkContentBuilder`, not as a separate structure pipeline
+- `ChunkGenerator.initialize()` must require an immutable serialized `WorldPrePass` snapshot for the requested seed and fail closed otherwise
+- `ChunkGenerator.generate_chunk()` must require a chunk-local authoritative input snapshot assembled from the published `WorldComputeContext` pipeline and fail closed otherwise
+- `ChunkGenerator` output Dictionary must be wire-compatible with GDScript `build_chunk_native_data()` output, including `secondary_biome` and `ecotone_values`
 - GDScript fallback must remain functional when native DLL is unavailable
 
 ## Data Contracts — new and affected
 
 ### New layer: Native Generation Config
-- What: balance parameters + biome definitions passed to C++ at initialization
+- What: balance parameters + biome definitions + immutable `WorldPrePass` snapshot passed to C++ at initialization
 - Where: `ChunkGenerator.initialize()` receives Dictionary from `WorldGenerator`
 - Owner (WRITE): `WorldGenerator` (passes config), `ChunkGenerator` (stores internally)
 - Readers (READ): internal C++ generation pipeline only
 - Invariants:
   - config must be passed BEFORE any `generate_chunk()` call
   - biome definitions must include all fields required for scoring (ranges, weights, tags)
-  - noise parameters must match GDScript balance values exactly for deterministic parity
+  - balance and biome parameters must match GDScript values exactly for deterministic parity
+  - `WorldPrePass` snapshot must match the active seed and contain every required authoritative structure grid
+  - native generation must not synthesize alternate ridge/river/floodplain/mountain truth outside that snapshot
 - Forbidden:
   - C++ code must not read Godot resources at runtime (no `load()`)
   - C++ code must not access scene tree, nodes, or autoloads
+  - C++ code must not fall back to legacy directed-band structure formulas if the snapshot is absent or malformed
+
+### New layer: Native Chunk Authoritative Inputs
+- What: chunk-local tile arrays for `height`, `temperature`, `moisture`, `ruggedness`, `flora_density`, `latitude`, `drainage`, `slope`, `rain_shadow`, `continentalness`, `ridge_strength`, `river_width`, `river_distance`, `floodplain_strength`, `mountain_mass`
+- Where: `ChunkContentBuilder._build_native_chunk_authoritative_inputs()` and `WorldLabSampler._build_native_chunk_authoritative_inputs()` assemble the Dictionary and pass it to `ChunkGenerator.generate_chunk(...)`
+- Owner (WRITE): authoritative GDScript world pipeline only (`WorldComputeContext.sample_world_channels()`, `sample_prepass_channels()`, `sample_structure_context()`)
+- Readers (READ): `ChunkGenerator.generate_chunk()` only
+- Invariants:
+  - chunk-local snapshot must be built against canonical chunk origin and row-major tile indexing
+  - native runtime must use this snapshot instead of self-sampling base climate channels or structure context
+  - missing / malformed chunk-local snapshot is a hard runtime error for native generation, not a reason to synthesize alternate truth
+  - proof tooling must be able to detect when runtime falls back to GDScript instead of using the native chunk generator
 
 ### Affected layer: World (canonical terrain)
 - What changes: terrain bytes generated by C++ instead of GDScript (same output format)
 - New invariants:
-  - native output must be byte-identical to GDScript output for same seed + params
-  - output Dictionary keys: `terrain`, `height`, `variation`, `biome`, `flora_density_values`, `flora_modulation_values`, `chunk_size`, `chunk_coord`, `canonical_chunk_coord`, `base_tile`
+  - native output must be semantically identical to GDScript output for same seed + params + published pre-pass snapshot
+  - runtime native build path must be semantically identical to authoritative GDScript output for same seed + chunk-local authoritative inputs
+  - output Dictionary keys: `terrain`, `height`, `variation`, `biome`, `secondary_biome`, `ecotone_values`, `flora_density_values`, `flora_modulation_values`, `chunk_size`, `chunk_coord`, `canonical_chunk_coord`, `base_tile`
 - Who adapts: `WorldGenerator`, `ChunkContentBuilder` (integration path)
 - What does NOT change: downstream consumers (Chunk.populate_native, redraw, topology)
 
@@ -97,11 +118,12 @@ Required API/documentation outcome:
   "chunk_size": int,
   "terrain": PackedByteArray[chunk_size²],           # TerrainType 0-6
   "height": PackedFloat32Array[chunk_size²],          # [0.0, 1.0]
-  "variation": PackedByteArray[chunk_size²],          # LocalVariationId 0-5
+  "variation": PackedByteArray[chunk_size²],          # LocalVariationId / polar overlay markers
   "biome": PackedByteArray[chunk_size²],              # palette index
+  "secondary_biome": PackedByteArray[chunk_size²],    # palette index, defaults to biome when no ecotone
+  "ecotone_values": PackedFloat32Array[chunk_size²],  # [0.0, 1.0]
   "flora_density_values": PackedFloat32Array[chunk_size²],    # [0.0, 1.0]
   "flora_modulation_values": PackedFloat32Array[chunk_size²], # [-1.0, 1.0]
-  "flora_placements": Array[Dictionary],                      # optional, per-tile flora/decor placements
 }
 ```
 
@@ -112,21 +134,22 @@ Index: `y * chunk_size + x` (row-major).
 ```
 canonical_tile
     │
-    ├─→ PlanetSampler: 5 noise → channels (height, temp, moisture, ruggedness, flora_density)
-    │     └─ cylindrical wrapping: 3D simplex via cos/sin projection
+    ├─→ authoritative chunk-local input snapshot
+    │     └─ height / temp / moisture / ruggedness / flora_density / latitude /
+    │        drainage / slope / rain_shadow / continentalness /
+    │        ridge_strength / river_width / river_distance /
+    │        floodplain_strength / mountain_mass
     │
-    ├─→ StructureSampler: 4 noise → structure (mountain_mass, ridge, river, floodplain)
-    │     └─ directed coordinates, repeating bands, warp
+    ├─→ BiomeResolver parity path: channels + structure + typed pre-pass channels
+    │     └─ primary biome + secondary biome + dominance + ecotone_factor
     │
-    ├─→ BiomeResolver: channels + structure → best biome (scoring, no noise)
+    ├─→ VariationResolver: 3 noise + ecotone-aware tag blending → variation_kind + modulations
     │
-    ├─→ VariationResolver: 3 noise → variation_kind + modulations
-    │
-    └─→ TerrainResolver: channels + structure + variation → TerrainType
-          └─ safe_zone > river > bank > mountain > ground
+    └─→ TerrainResolver: channels + structure + pre-pass + variation → TerrainType
+          └─ safe_zone > river > bank > mountain > ground, then polar overlays
 ```
 
-## Noise Configuration (12 instances total)
+## Noise Configuration (8 instances total)
 
 | Instance | Seed Offset | Frequency Source | Octaves Source |
 |----------|------------|-----------------|---------------|
@@ -135,17 +158,26 @@ canonical_tile
 | moisture | +131 | `moisture_frequency` | `moisture_octaves` |
 | ruggedness | +151 | `ruggedness_frequency` | `ruggedness_octaves` |
 | flora_density | +181 | `flora_density_frequency` | `flora_density_octaves` |
-| ridge_warp | +211 | `ridge_warp_frequency` | 2 (hardcoded) |
-| ridge_secondary_warp | +217 | `ridge_secondary_warp_frequency` | 2 (hardcoded) |
-| ridge_cluster | +223 | `ridge_cluster_frequency` | 3 (hardcoded) |
-| river_warp | +241 | `river_warp_frequency` | 2 (hardcoded) |
 | field | +311 | `local_variation_frequency` | `local_variation_octaves` |
 | patch | +353 | frequency × 1.85 | octaves + 1 |
 | detail | +389 | frequency × 3.2 | min(octaves + 1, 6) |
 
-All noise: OpenSimplex2 type (Godot `TYPE_SIMPLEX`), cylindrical 3D wrapping. **Note:** GDScript `WorldNoiseUtils.setup_noise_instance()` sets `fractal_octaves/gain/lacunarity` but does NOT set `fractal_type` — Godot default = `TYPE_NONE`, meaning **single octave evaluation only**. The octave/gain/lacunarity settings are dead code in GDScript. C++ must match this behavior (`FractalType_None`).
+All noise: OpenSimplex2 type with cylindrical 3D wrapping. Current native and GDScript helpers both use FBM-compatible setup for these channel and local-variation noises; large-scale structure is not produced by extra native warp noises anymore and must come from `WorldPrePass`.
 
-## Iterations
+## Current authoritative rules
+
+- `ChunkGenerator.initialize()` must reject missing / malformed / wrong-seed pre-pass snapshots.
+- `ChunkGenerator.generate_chunk()` must not call a legacy structure sampling stage.
+- `ChunkGenerator.generate_chunk()` must not self-sample a second runtime channel source when authoritative chunk-local inputs are missing.
+- Native payload validation in `ChunkContentBuilder` is part of the runtime contract; malformed native arrays must not be consumed silently.
+- `ChunkContentBuilder.build_chunk_native_data()` must attach `generation_source` so proof tooling can fail when native silently falls back to GDScript.
+- Native flora placement is not part of the current authoritative native payload; GDScript flora build remains downstream of the authoritative terrain/biome/ecotone output.
+
+## Historical rollout notes
+
+The iteration log below is kept as implementation history. Where it describes directed-band structure sampling, native flora-placement generation, or legacy ridge/river warp parameters as active architecture, treat that text as historical only. The sections above are the current source of truth.
+
+## Historical Rollout Log
 
 ### Iteration 1 — Expand ChunkGenerator.initialize() with full config ✅
 
