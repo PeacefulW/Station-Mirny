@@ -2135,7 +2135,7 @@ func _resolve_base_accumulation(temperature: float) -> float:
 	if temperature >= glacial_melt_temperature:
 		return 1.0
 	var glacial_proximity: float = clampf((glacial_melt_temperature - temperature) / 0.15, 0.0, 1.0)
-	return 1.0 + _resolve_glacial_melt_bonus() * (1.0 - glacial_proximity)
+	return 1.0 + _resolve_glacial_melt_bonus() * glacial_proximity
 
 func _resolve_downstream_transfer(accumulation: float, temperature: float) -> float:
 	var evaporation_loss: float = accumulation * _resolve_latitude_evaporation_rate() * temperature * temperature

@@ -208,22 +208,20 @@ Files that must NOT be touched:
 - `core/systems/world/chunk_content_builder.gd`
 - Any GDScript resolver files
 
-### Iteration 2 — Implement noise pipeline (PlanetSampler + StructureSampler) ✅
+### Iteration 2 — Implement noise pipeline (PlanetSampler + authoritative structure inputs) ✅
 
-Goal: generate channels + structure context per tile in C++.
+Goal: generate per-tile world channels in C++ while consuming structure truth from the authoritative GDScript snapshot.
 
 What is done:
 - `sample_channels(wx, wy)` — port of `planet_sampler.gd:sample_world_channels()`: latitude from equator distance, height noise, temperature (noise+latitude+curve), moisture noise, ruggedness noise, flora_density (noise+moisture blend)
-- `sample_structure(wx, wy, channels)` — port of the removed legacy GDScript directed-band structure sampler: mountain_mass (cluster noise + terrain gate), ridge_strength (directed coord + warp + band + profile + chain), river_strength (directed coord + warp + band + gates), floodplain_strength (wider band + river support)
-- `directed_coordinate(wx, wy, dir)` — cylindrical point dot normalized direction
-- `repeating_band(coord, spacing, core, feather)` — fmod-wrapped distance band with feather falloff
-- Direction vectors `_RIDGE_DIR`, `_RIDGE_SECONDARY_DIR`, `_RIVER_DIR` normalized at init time
-- `generate_chunk()` loop calls `sample_channels()` per tile, fills height + flora_density arrays
+- `generate_chunk()` consumes chunk-local authoritative structure inputs assembled upstream from `WorldComputeContext.sample_structure_context()` rather than evaluating a second native structure sampler
+- Those authoritative per-tile inputs currently include `ridge_strength`, `river_width`, `river_distance`, `floodplain_strength`, and `mountain_mass`
+- `generate_chunk()` loop calls `sample_channels()` per tile, reads the authoritative structure values for the same tile, and fills height + flora_density arrays
 - DLL compiles clean
 
 Acceptance tests:
 - [x] `assert(channels output matches GDScript)` — line-by-line port of planet_sampler.gd formulas, same noise instances, same cylindrical wrapping, same clamp/lerp/pow logic
-- [x] `assert(structure output matches the removed legacy GDScript structure sampler)` — same band/profile/gate formulas, same direction vectors
+- [x] `assert(native chunk generation requires authoritative structure inputs instead of a legacy native structure sampler)` — runtime structure truth now comes only from the published `WorldPrePass` snapshot bridged through `sample_structure_context()`
 - [x] `assert(generate_chunk returns valid channels data)` — height and flora_density arrays populated from sample_channels in the per-tile loop
 
 Files that may be touched:
@@ -241,12 +239,12 @@ Goal: complete the per-tile pipeline in C++.
 What is done:
 - `resolve_biome(channels, structure)` — iterates sorted biomes, `biome_matches()` hard range check, `biome_weighted_score()` with 9 weighted channels, best selection with priority tiebreaking. `score_range()` with soft fallback scoring.
 - `resolve_variation(wx, wy, channels, structure, biome)` — 3 noise samples (field/patch/detail), 5 variation scorers (sparse_flora, dense_flora, clearing, rocky_patch, wet_patch), `band_score()`, `tag_bias()`, best selection with min_score threshold, modulation computation per kind.
-- `resolve_terrain(dist_sq, channels, structure, variation)` — safe_zone → river (with variation wetness/rockiness bonuses) → bank → mountain (with ridge_backbone/massif/core/foothill/river_cut/variation_shift) → ground.
+- `resolve_terrain(dist_sq, channels, structure, variation)` — safe_zone → river core/bank from authoritative `river_distance` + `river_width` + `floodplain_strength` → mountain/foothill from authoritative `ridge_strength` + `mountain_mass` with the same terrain-support weighting used by `SurfaceTerrainResolver` → ground.
 - `generate_chunk()` full loop: channels → structure → biome → variation → terrain → pack all 6 arrays. Distance from spawn with wrap-aware delta.
 - DLL compiles clean.
 
 Acceptance tests:
-- [x] `assert(terrain output matches GDScript)` — line-by-line port of all resolver formulas, same thresholds, same scoring, same decision tree order.
+- [x] `assert(terrain output matches GDScript)` — line-by-line port of all resolver formulas, same thresholds, same scoring, same decision tree order, including the authoritative river-bank interpretation and mountain terrain-support weighting.
 - [x] `assert(biome + variation arrays match GDScript)` — biome scoring matches biome_data.gd, variation scoring matches local_variation_resolver.gd, modulations match _apply_modulations.
 - [ ] `assert(generate_chunk() time < 1.5 seconds for 64x64 chunk)` — requires integration test (iteration 4). Expected ~0.5-1.5s based on native noise evaluation.
 

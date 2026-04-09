@@ -2009,3 +2009,82 @@ Not reconstructed; present in repository history only.
 
 ### Status
 - Review only; no code changes applied for this follow-up yet.
+
+## 2026-04-09 — Authoritative structure visibility proof (pre-fix)
+
+### Status
+- Reproduction step completed on fixed seed `12345` through `core/debug/world_preview_proof_driver.gd` with new `codex_verify_structure_visibility` mode.
+
+### Proof
+- Log: `debug_exports/world_previews/structure_visibility_seed12345_pre_fix.log`
+- River preview artifacts:
+  - `debug_exports/world_previews/seed_12345_local_0_-4064_r24_1775725662_x4_biomes.png`
+  - `debug_exports/world_previews/seed_12345_local_0_-4064_r24_1775725662_x4_terrain.png`
+  - `debug_exports/world_previews/seed_12345_local_0_-4064_r24_1775725662_x4_structures.png`
+- Mountain preview artifacts:
+  - `debug_exports/world_previews/seed_12345_local_3328_-3840_r24_1775725717_x4_biomes.png`
+  - `debug_exports/world_previews/seed_12345_local_3328_-3840_r24_1775725717_x4_terrain.png`
+  - `debug_exports/world_previews/seed_12345_local_3328_-3840_r24_1775725717_x4_structures.png`
+
+### Findings
+- Strongest authoritative river hotspot on seed `12345` is at coarse grid `(0, 1)` / tile `(0, -4064)` with `river_width=28.195`, `floodplain_strength=1.000`; the new guard reported sampled `authoritative_tiles=625`, `visible_tiles=203` (`water=88`, `bank=115`).
+- Strongest authoritative mountain hotspot on seed `12345` is at coarse grid `(104, 8)` / tile `(3328, -3840)` with `ridge_strength=1.000`, `mountain_mass=1.000`; the guard reported sampled `authoritative_tiles=625`, `visible_tiles=611`.
+- Both strongest hotspots sit very close to the polar rows of the pre-pass grid, which supports the current suspicion that the remaining problem is not a total runtime disappearance but a world-scale coverage bias toward polar/glacial extremes.
+- Static audit also disproved the original “coarse-grid units” suspicion for `river_distance`: `_resolve_neighbor_distance_tiles()` already scales propagation by `_grid_span_x/_grid_span_y`, so the stored distance field is tile-scale before runtime sampling.
+
+## 2026-04-09 — Native parity pre-check
+
+### Status
+- Native mirror rebuild completed after the mountain-gating parity change.
+
+### Proof
+- Built artifact: `gdextension/bin/station_mirny.windows.template_debug.x86_64.dll` (`LastWriteTime: 2026-04-09 16:17:52`, `Length: 601600`)
+- Legacy grep: `rg -n "sample_structure\\(|directed_coordinate|repeating_band\\(" gdextension/src/chunk_generator.cpp gdextension/src/chunk_generator.h` returned 0 matches
+
+### Notes
+- The native parity check is ready to proceed against the rebuilt DLL; no legacy world-generation symbols were reintroduced while mirroring the GDScript mountain-core change.
+
+## 2026-04-09 — Authoritative structure visibility proof (post-fix)
+
+### Status
+- Fixed-seed validation on `12345` passed after the hydrology + ridge-density + mountain-gating adjustments.
+
+### Proof
+- Log: `debug_exports/world_previews/structure_visibility_seed12345_post_fix.log`
+- River preview artifacts:
+  - `debug_exports/world_previews/seed_12345_local_0_-4064_r24_1775725949_x4_biomes.png`
+  - `debug_exports/world_previews/seed_12345_local_0_-4064_r24_1775725949_x4_terrain.png`
+  - `debug_exports/world_previews/seed_12345_local_0_-4064_r24_1775725949_x4_structures.png`
+- Mountain preview artifacts:
+  - `debug_exports/world_previews/seed_12345_local_2464_-3648_r24_1775725979_x4_biomes.png`
+  - `debug_exports/world_previews/seed_12345_local_2464_-3648_r24_1775725979_x4_terrain.png`
+  - `debug_exports/world_previews/seed_12345_local_2464_-3648_r24_1775725979_x4_structures.png`
+
+### Findings
+- River guard still found an authoritative hotspot at coarse grid `(0, 1)` / tile `(0, -4064)`, but runtime visibility remained non-zero and stable: `authoritative_tiles=625`, `visible_tiles=203`, `water=88`, `bank=115`, `structure_visibility_status=PASS`.
+- Mountain guard moved the strongest visible mountain candidate away from the previous polar hotspot to coarse grid `(77, 14)` / tile `(2464, -3648)` with `ridge_strength=1.000`, `mountain_mass=1.000`, and `visible_tiles=615`.
+- The proof guard now fails closed if authoritative river or mountain candidates exist but sampled runtime terrain produces zero visible structure tiles in the measured window.
+
+## 2026-04-09 — Native truth parity and spec sync
+
+### Status
+- Native/GDScript parity check passed on rebuilt DLL for seed `12345`, and the native generation spec now reflects the authoritative structure-input contract.
+
+### Proof
+- Log: `debug_exports/world_previews/native_truth_seed12345.log`
+- `codex_verify_native_world_truth` result: `compared_chunks=25`, `compared_tiles=102400`, `terrain_mismatches=0`, `biome_mismatches=0`, `secondary_biome_mismatches=0`, `ecotone_mismatches=0`, `variation_mismatches=0`, `flora_density_mismatches=0`, `flora_modulation_mismatches=0`, `native_truth_status=PASS`
+
+### Notes
+- Headless Godot still reported the pre-existing `ObjectDB instances leaked at exit` / `resources still in use at exit` warnings after proof shutdown, but the verify command itself exited successfully and recorded a PASS result.
+- `docs/02_system_specs/world/native_chunk_generation_spec.md` no longer describes `sample_structure(...)` as the native structure source of truth; the spec now points to authoritative inputs from `sample_structure_context()` and records the current terrain-support weighting parity for mountain classification.
+
+## 2026-04-09 — Native build command verification
+
+### Status
+- The exact native build command requested by the task completed successfully after the parity fix.
+
+### Proof
+- Command: `python -m SCons -Q --debug=stacktrace platform=windows target=template_debug`
+- Working directory: `gdextension/`
+- Log: `debug_exports/world_previews/scons_native_build_20260409.log`
+- Result: `godot-cpp` static library and `bin/station_mirny.windows.template_debug.x86_64.dll` both reported `is up to date`

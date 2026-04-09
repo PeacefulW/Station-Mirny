@@ -51,8 +51,8 @@ extends Resource
 @export_range(1.5, 8.0) var prepass_floodplain_multiplier: float = 3.0
 
 @export_group("Ridge Skeleton")
-@export_range(2, 12) var prepass_target_spine_count: int = 4
-@export_range(20, 200) var prepass_min_spine_distance_grid: int = 80
+@export_range(2, 12) var prepass_target_spine_count: int = 8
+@export_range(20, 200) var prepass_min_spine_distance_grid: int = 48
 @export_range(50, 500) var prepass_max_ridge_length_grid: int = 200
 @export_range(10, 200) var prepass_max_branch_length_grid: int = 60
 @export_range(0.0, 0.5) var prepass_branch_probability: float = 0.15

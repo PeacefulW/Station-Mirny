@@ -867,7 +867,8 @@ ChunkGenerator::TerrainType ChunkGenerator::resolve_terrain(
             combined += vr.rockiness_mod * 0.08f;
             combined -= vr.wetness_mod * 0.05f;
             combined -= vr.openness_mod * 0.05f;
-            combined *= terrain_gate;
+            float terrain_support = lerpf(0.60f, 1.0f, terrain_gate);
+            combined *= terrain_support;
             if (combined >= mountain_threshold_value) return ROCK;
         }
     }

@@ -557,7 +557,8 @@ func _is_mountain_core_tile_sq(
 		combined += local_variation.rockiness_modulation * 0.08
 		combined -= local_variation.wetness_modulation * 0.05
 		combined -= local_variation.openness_modulation * 0.05
-	combined *= terrain_gate
+	var terrain_support: float = lerpf(0.60, 1.0, terrain_gate)
+	combined *= terrain_support
 	return combined >= _mountain_threshold_value
 
 func _is_foothill_tile_sq(

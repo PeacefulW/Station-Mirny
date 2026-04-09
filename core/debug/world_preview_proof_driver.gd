@@ -6,14 +6,18 @@ extends Node
 
 const ENABLE_ARG: String = "codex_export_ecotone_proof"
 const VERIFY_NATIVE_TRUTH_ARG: String = "codex_verify_native_world_truth"
+const VERIFY_STRUCTURE_VISIBILITY_ARG: String = "codex_verify_structure_visibility"
 const EXPORT_COUNT_ARG_PREFIX: String = "codex_ecotone_proof_count="
 const EXPORT_RADIUS_ARG_PREFIX: String = "codex_ecotone_radius="
 const VERIFY_CHUNK_RADIUS_ARG_PREFIX: String = "codex_native_truth_chunk_radius="
+const STRUCTURE_RADIUS_ARG_PREFIX: String = "codex_structure_radius="
 const WorldPreviewExporterScript = preload("res://core/debug/world_preview_exporter.gd")
 const MIN_ECOTONE_FACTOR: float = 0.22
 const DEFAULT_EXPORT_COUNT: int = 3
 const DEFAULT_RADIUS_TILES: int = 56
 const DEFAULT_VERIFY_CHUNK_RADIUS: int = 2
+const DEFAULT_STRUCTURE_RADIUS_TILES: int = 48
+const STRUCTURE_SAMPLE_STEP_TILES: int = 4
 const MAX_MISMATCH_LOGS: int = 12
 const FLOAT_COMPARE_EPSILON: float = 0.01
 const MIN_CENTER_DISTANCE_TILES: int = 48
@@ -30,6 +34,8 @@ func _ready() -> void:
 		return
 	if VERIFY_NATIVE_TRUTH_ARG in OS.get_cmdline_user_args():
 		print("[CodexProof] native world-truth proof driver enabled")
+	elif VERIFY_STRUCTURE_VISIBILITY_ARG in OS.get_cmdline_user_args():
+		print("[CodexProof] authoritative structure-visibility proof driver enabled")
 	else:
 		print("[CodexProof] ecotone preview proof driver enabled")
 
@@ -43,11 +49,14 @@ func _process(_delta: float) -> void:
 	if VERIFY_NATIVE_TRUTH_ARG in OS.get_cmdline_user_args():
 		_run_native_truth_verify()
 		return
+	if VERIFY_STRUCTURE_VISIBILITY_ARG in OS.get_cmdline_user_args():
+		_run_structure_visibility_verify()
+		return
 	_run_export()
 
 func _is_enabled() -> bool:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
-	return ENABLE_ARG in args or VERIFY_NATIVE_TRUTH_ARG in args
+	return ENABLE_ARG in args or VERIFY_NATIVE_TRUTH_ARG in args or VERIFY_STRUCTURE_VISIBILITY_ARG in args
 
 func _run_export() -> void:
 	var world_generator: WorldGeneratorSingleton = _resolve_world_generator()
@@ -315,6 +324,48 @@ func _run_native_truth_verify() -> void:
 	print("[CodexProof] native_truth_status=%s" % ["FAIL" if has_failures else "PASS"])
 	get_tree().quit()
 
+func _run_structure_visibility_verify() -> void:
+	var world_generator: WorldGeneratorSingleton = _resolve_world_generator()
+	if world_generator == null:
+		print("[CodexProof] structure visibility verify aborted: world generator unavailable")
+		get_tree().quit(1)
+		return
+	var pre_pass: RefCounted = null
+	var compute_context: RefCounted = world_generator.get("_compute_context") as RefCounted
+	if compute_context != null and compute_context.has_method("get_world_pre_pass"):
+		pre_pass = compute_context.get_world_pre_pass()
+	if pre_pass == null or not pre_pass.has_method("build_native_chunk_generator_snapshot"):
+		print("[CodexProof] structure visibility verify aborted: authoritative WorldPrePass snapshot unavailable")
+		get_tree().quit(1)
+		return
+	var snapshot: Dictionary = pre_pass.build_native_chunk_generator_snapshot() as Dictionary
+	if snapshot.is_empty():
+		print("[CodexProof] structure visibility verify aborted: empty authoritative pre-pass snapshot")
+		get_tree().quit(1)
+		return
+	var exporter: WorldPreviewExporter = WorldPreviewExporterScript.new().initialize(world_generator)
+	var radius_tiles: int = _get_int_arg(STRUCTURE_RADIUS_ARG_PREFIX, DEFAULT_STRUCTURE_RADIUS_TILES)
+	var river_candidate: Dictionary = _find_best_river_candidate(snapshot, world_generator)
+	var mountain_candidate: Dictionary = _find_best_mountain_candidate(snapshot, world_generator)
+	var has_failures: bool = false
+	print("[CodexProof] structure visibility verify radius=%d" % [radius_tiles])
+	has_failures = _report_structure_visibility(
+		"river",
+		world_generator,
+		exporter,
+		river_candidate,
+		radius_tiles
+	) or has_failures
+	has_failures = _report_structure_visibility(
+		"mountain",
+		world_generator,
+		exporter,
+		mountain_candidate,
+		radius_tiles
+	) or has_failures
+	print("[CodexProof] structure_visibility_status=%s" % ["FAIL" if has_failures else "PASS"])
+	get_tree().quit(1 if has_failures else 0)
+
 func _find_hotspot_candidates() -> Array:
 	var world_generator: WorldGeneratorSingleton = _resolve_world_generator()
 	if world_generator == null or world_generator.balance == null:
@@ -404,6 +455,201 @@ func _get_int_arg(prefix: String, fallback: int) -> int:
 		if parsed > 0:
 			return parsed
 	return fallback
+
+func _find_best_river_candidate(snapshot: Dictionary, world_generator: WorldGeneratorSingleton) -> Dictionary:
+	var river_width_grid: PackedFloat32Array = snapshot.get("prepass_river_width_grid", PackedFloat32Array()) as PackedFloat32Array
+	var floodplain_grid: PackedFloat32Array = snapshot.get("prepass_floodplain_strength_grid", PackedFloat32Array()) as PackedFloat32Array
+	return _find_best_snapshot_candidate(snapshot, world_generator, river_width_grid, floodplain_grid, &"river")
+
+func _find_best_mountain_candidate(snapshot: Dictionary, world_generator: WorldGeneratorSingleton) -> Dictionary:
+	var ridge_grid: PackedFloat32Array = snapshot.get("prepass_ridge_strength_grid", PackedFloat32Array()) as PackedFloat32Array
+	var mountain_grid: PackedFloat32Array = snapshot.get("prepass_mountain_mass_grid", PackedFloat32Array()) as PackedFloat32Array
+	return _find_best_snapshot_candidate(snapshot, world_generator, ridge_grid, mountain_grid, &"mountain")
+
+func _find_best_snapshot_candidate(
+	snapshot: Dictionary,
+	world_generator: WorldGeneratorSingleton,
+	primary_grid: PackedFloat32Array,
+	secondary_grid: PackedFloat32Array,
+	kind: StringName
+) -> Dictionary:
+	var grid_width: int = int(snapshot.get("prepass_grid_width", 0))
+	var grid_height: int = int(snapshot.get("prepass_grid_height", 0))
+	if grid_width <= 0 or grid_height <= 0:
+		return {}
+	var expected_size: int = grid_width * grid_height
+	if primary_grid.size() != expected_size or secondary_grid.size() != expected_size:
+		return {}
+	var best_candidate: Dictionary = {}
+	var best_score: float = -INF
+	for grid_y: int in range(grid_height):
+		for grid_x: int in range(grid_width):
+			var index: int = grid_y * grid_width + grid_x
+			var primary_value: float = float(primary_grid[index])
+			var secondary_value: float = float(secondary_grid[index])
+			if kind == &"river":
+				if primary_value <= FLOAT_COMPARE_EPSILON:
+					continue
+			elif primary_value <= FLOAT_COMPARE_EPSILON and secondary_value <= FLOAT_COMPARE_EPSILON:
+				continue
+			var world_pos: Vector2i = _prepass_grid_to_world_tile(snapshot, world_generator, grid_x, grid_y)
+			if _distance_from_spawn_sq(world_generator, world_pos) <= _land_guarantee_radius_sq(world_generator):
+				continue
+			var score: float = primary_value * 1.15 + secondary_value * 0.75
+			if score <= best_score:
+				continue
+			best_score = score
+			best_candidate = {
+				"kind": kind,
+				"grid_pos": Vector2i(grid_x, grid_y),
+				"world_pos": world_pos,
+				"primary_value": primary_value,
+				"secondary_value": secondary_value,
+				"score": score,
+			}
+	return best_candidate
+
+func _prepass_grid_to_world_tile(
+	snapshot: Dictionary,
+	world_generator: WorldGeneratorSingleton,
+	grid_x: int,
+	grid_y: int
+) -> Vector2i:
+	var grid_width: int = int(snapshot.get("prepass_grid_width", 1))
+	var grid_height: int = int(snapshot.get("prepass_grid_height", 1))
+	var wrap_width: int = world_generator.get_world_wrap_width_tiles() if world_generator.has_method("get_world_wrap_width_tiles") else world_generator.balance.world_wrap_width_tiles
+	var min_y: int = int(snapshot.get("prepass_min_y", 0))
+	var max_y: int = int(snapshot.get("prepass_max_y", min_y + 1))
+	var y_span_tiles: int = maxi(1, max_y - min_y)
+	var world_x: int = int(floor(float(grid_x) * float(wrap_width) / float(maxi(1, grid_width))))
+	var world_y: int = min_y + int(floor(float(grid_y) * float(y_span_tiles) / float(maxi(1, grid_height))))
+	return world_generator.canonicalize_tile(Vector2i(world_x, world_y))
+
+func _distance_from_spawn_sq(world_generator: WorldGeneratorSingleton, tile_pos: Vector2i) -> float:
+	var spawn_tile: Vector2i = world_generator.spawn_tile
+	var dx: float = float(world_generator.tile_wrap_delta_x(tile_pos.x, spawn_tile.x))
+	var dy: float = float(tile_pos.y - spawn_tile.y)
+	return dx * dx + dy * dy
+
+func _land_guarantee_radius_sq(world_generator: WorldGeneratorSingleton) -> float:
+	if world_generator == null or world_generator.balance == null:
+		return 0.0
+	var radius: float = float(world_generator.balance.land_guarantee_radius)
+	return radius * radius
+
+func _report_structure_visibility(
+	kind: StringName,
+	world_generator: WorldGeneratorSingleton,
+	exporter: WorldPreviewExporter,
+	candidate: Dictionary,
+	radius_tiles: int
+) -> bool:
+	if candidate.is_empty():
+		print("[CodexProof] %s candidate missing in authoritative pre-pass snapshot" % [kind])
+		return true
+	var center_tile: Vector2i = candidate.get("world_pos", Vector2i.ZERO) as Vector2i
+	print("[CodexProof] measuring %s candidate window around %s" % [kind, center_tile])
+	var metrics: Dictionary = _measure_structure_visibility_window(world_generator, center_tile, radius_tiles)
+	var primary_label: String = "river_width" if kind == &"river" else "ridge_strength"
+	var secondary_label: String = "floodplain_strength" if kind == &"river" else "mountain_mass"
+	print("[CodexProof] %s candidate center=%s grid=%s %s=%.3f %s=%.3f score=%.3f" % [
+		kind,
+		center_tile,
+		candidate.get("grid_pos", Vector2i.ZERO),
+		primary_label,
+		float(candidate.get("primary_value", 0.0)),
+		secondary_label,
+		float(candidate.get("secondary_value", 0.0)),
+		float(candidate.get("score", 0.0)),
+	])
+	print("[CodexProof] %s metrics authoritative_tiles=%d visible_tiles=%d water=%d bank=%d rock=%d max_river_strength=%.3f max_floodplain=%.3f max_ridge=%.3f max_mass=%.3f" % [
+		kind,
+		int(metrics.get("%s_authoritative_tiles" % kind, 0)),
+		int(metrics.get("%s_visible_tiles" % kind, 0)),
+		int(metrics.get("water_tiles", 0)),
+		int(metrics.get("bank_tiles", 0)),
+		int(metrics.get("rock_tiles", 0)),
+		float(metrics.get("max_river_strength", 0.0)),
+		float(metrics.get("max_floodplain_strength", 0.0)),
+		float(metrics.get("max_ridge_strength", 0.0)),
+		float(metrics.get("max_mountain_mass", 0.0)),
+	])
+	var preview_radius: int = mini(radius_tiles, 24)
+	print("[CodexProof] exporting %s proof preview around %s (radius=%d)" % [kind, center_tile, preview_radius])
+	var preview: Dictionary = exporter.build_local_preview(center_tile, preview_radius)
+	var saved: Dictionary = exporter.save_local_preview(preview) if not preview.is_empty() else {}
+	if saved.is_empty():
+		print("[CodexProof] %s preview export failed for %s" % [kind, center_tile])
+	else:
+		for key: String in ["biomes", "terrain", "structures", "ecotone", "vegetation"]:
+			var path: String = String(saved.get(key, ""))
+			if not path.is_empty():
+				print("  %s_%s: %s" % [kind, key, path])
+	var authoritative_key: String = "%s_authoritative_tiles" % kind
+	var visible_key: String = "%s_visible_tiles" % kind
+	var authoritative_tiles: int = int(metrics.get(authoritative_key, 0))
+	var visible_tiles: int = int(metrics.get(visible_key, 0))
+	return authoritative_tiles <= 0 or visible_tiles <= 0
+
+func _measure_structure_visibility_window(
+	world_generator: WorldGeneratorSingleton,
+	center_tile: Vector2i,
+	radius_tiles: int
+) -> Dictionary:
+	var river_authoritative_tiles: int = 0
+	var river_visible_tiles: int = 0
+	var mountain_authoritative_tiles: int = 0
+	var mountain_visible_tiles: int = 0
+	var water_tiles: int = 0
+	var bank_tiles: int = 0
+	var rock_tiles: int = 0
+	var max_river_strength: float = 0.0
+	var max_floodplain_strength: float = 0.0
+	var max_ridge_strength: float = 0.0
+	var max_mountain_mass: float = 0.0
+	var land_guarantee_radius_sq: float = _land_guarantee_radius_sq(world_generator)
+	for offset_y: int in range(-radius_tiles, radius_tiles + 1, STRUCTURE_SAMPLE_STEP_TILES):
+		for offset_x: int in range(-radius_tiles, radius_tiles + 1, STRUCTURE_SAMPLE_STEP_TILES):
+			var tile_pos: Vector2i = world_generator.offset_tile(center_tile, Vector2i(offset_x, offset_y))
+			if _distance_from_spawn_sq(world_generator, tile_pos) <= land_guarantee_radius_sq:
+				continue
+			var channels: WorldChannels = world_generator.sample_world_channels(tile_pos)
+			var structure_context: WorldStructureContext = world_generator.sample_structure_context(tile_pos, channels)
+			if structure_context == null:
+				continue
+			var terrain: int = int(world_generator.get_terrain_type_fast(tile_pos))
+			max_river_strength = maxf(max_river_strength, structure_context.river_strength)
+			max_floodplain_strength = maxf(max_floodplain_strength, structure_context.floodplain_strength)
+			max_ridge_strength = maxf(max_ridge_strength, structure_context.ridge_strength)
+			max_mountain_mass = maxf(max_mountain_mass, structure_context.mountain_mass)
+			var is_authoritative_river: bool = structure_context.river_strength >= 0.12 or structure_context.floodplain_strength >= 0.18
+			if is_authoritative_river:
+				river_authoritative_tiles += 1
+				if terrain == TileGenData.TerrainType.WATER:
+					river_visible_tiles += 1
+					water_tiles += 1
+				elif terrain == TileGenData.TerrainType.SAND:
+					river_visible_tiles += 1
+					bank_tiles += 1
+			var is_authoritative_mountain: bool = structure_context.ridge_strength >= 0.20 or structure_context.mountain_mass >= 0.18
+			if is_authoritative_mountain:
+				mountain_authoritative_tiles += 1
+				if terrain == TileGenData.TerrainType.ROCK:
+					mountain_visible_tiles += 1
+					rock_tiles += 1
+	return {
+		"river_authoritative_tiles": river_authoritative_tiles,
+		"river_visible_tiles": river_visible_tiles,
+		"mountain_authoritative_tiles": mountain_authoritative_tiles,
+		"mountain_visible_tiles": mountain_visible_tiles,
+		"water_tiles": water_tiles,
+		"bank_tiles": bank_tiles,
+		"rock_tiles": rock_tiles,
+		"max_river_strength": max_river_strength,
+		"max_floodplain_strength": max_floodplain_strength,
+		"max_ridge_strength": max_ridge_strength,
+		"max_mountain_mass": max_mountain_mass,
+	}
 
 func _compare_native_field(log_count: int, label: String, tile_pos: Vector2i, native_value: int, script_value: int) -> int:
 	if native_value == script_value:
