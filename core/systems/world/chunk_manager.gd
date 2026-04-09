@@ -59,7 +59,7 @@ enum VisualTaskRunState {
 	COMPLETED,
 }
 
-const BORDER_FIX_REDRAW_MICRO_BATCH_TILES: int = 16
+const BORDER_FIX_REDRAW_MICRO_BATCH_TILES: int = 8
 const PLAYER_CHUNK_DIAG_LOG_INTERVAL_MSEC: int = 2000
 const PLAYER_CHUNK_DIAG_BLOCKED_AGE_MS: float = 250.0
 const PLAYER_CHUNK_DIAG_SPIKE_MS: float = 12.0
@@ -67,7 +67,7 @@ const VISUAL_ADAPTIVE_APPLY_MIN_MS: float = 0.75
 const VISUAL_ADAPTIVE_APPLY_MAX_MS: float = 4.0
 const VISUAL_ADAPTIVE_FEEDBACK_BLEND: float = 0.55
 const VISUAL_ADAPTIVE_MIN_TILES: int = 8
-const VISUAL_ADAPTIVE_MIN_BORDER_TILES: int = 4
+const VISUAL_ADAPTIVE_MIN_BORDER_TILES: int = 2
 const VISUAL_ADAPTIVE_FAST_SAFETY: float = 0.55
 const VISUAL_ADAPTIVE_URGENT_SAFETY: float = 0.65
 const VISUAL_ADAPTIVE_NEAR_SAFETY: float = 0.72
@@ -78,6 +78,11 @@ const VISUAL_FAST_PHASE_TILE_CAP_CLIFF: int = 96
 const VISUAL_URGENT_PHASE_TILE_CAP_TERRAIN: int = 128
 const VISUAL_URGENT_PHASE_TILE_CAP_COVER: int = 80
 const VISUAL_URGENT_PHASE_TILE_CAP_CLIFF: int = 128
+const VISUAL_BOOTSTRAP_FULL_TERRAIN_TILES: int = 24
+const VISUAL_BOOTSTRAP_FULL_COVER_TILES: int = 12
+const VISUAL_BOOTSTRAP_FULL_CLIFF_TILES: int = 16
+const VISUAL_BOOTSTRAP_BORDER_TILES: int = 4
+const VISUAL_COMPLETED_COMPUTE_MAX_INTAKE_PER_STEP: int = 2
 
 var _loaded_chunks: Dictionary = {}
 var _player_chunk: Vector2i = Vector2i(99999, 99999)
@@ -682,8 +687,8 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 		return {}
 	# Same-chunk neighbor re-normalization (MINED_FLOOR <-> MOUNTAIN_ENTRANCE)
 	chunk._refresh_open_neighbors(local_tile)
-	chunk.redraw_mining_patch(local_tile)
-	_ensure_chunk_border_fix_task(chunk, _active_z, true)
+	if chunk.redraw_mining_patch(local_tile):
+		_ensure_chunk_border_fix_task(chunk, _active_z, true)
 	# Cross-chunk seam: normalize + redraw affected neighbor chunks
 	_seam_normalize_and_redraw(tile_pos, local_tile, chunk)
 	_on_mountain_tile_changed(tile_pos, int(result["old_type"]), int(result["new_type"]))
@@ -730,6 +735,9 @@ func _redraw_neighbor_borders(coord: Vector2i) -> void:
 				dirty[Vector2i(x, 0)] = true
 		neighbor_chunk._redraw_dirty_tiles(dirty)
 
+func _make_border_fix_reason_key(source_coord: Vector2i, z_level: int, tag: StringName = &"seam") -> String:
+	return "%d:%d:%d:%s" % [source_coord.x, source_coord.y, z_level, String(tag)]
+
 ## Instead of synchronously redrawing all border tiles of 4 neighbors (256
 ## tiles, 20-49ms), mark dirty tiles and add neighbors to the progressive
 ## redraw queue. Border tiles will be processed by _tick_redraws() over
@@ -737,6 +745,9 @@ func _redraw_neighbor_borders(coord: Vector2i) -> void:
 ## (boot_fast_first_playable_spec Iteration 3, change 3A)
 func _enqueue_neighbor_border_redraws(coord: Vector2i) -> void:
 	var chunk_size: int = WorldGenerator.balance.chunk_size_tiles
+	var source_chunk: Chunk = _loaded_chunks.get(coord) as Chunk
+	var source_version: int = source_chunk.get_visual_invalidation_version() if source_chunk != null else -1
+	var reason_key: String = _make_border_fix_reason_key(coord, _active_z, &"stream_load")
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
 		var neighbor_coord: Vector2i = _offset_chunk_coord(coord, dir)
 		var neighbor_chunk: Chunk = _loaded_chunks.get(neighbor_coord) as Chunk
@@ -757,11 +768,17 @@ func _enqueue_neighbor_border_redraws(coord: Vector2i) -> void:
 		elif dir == Vector2i.DOWN:
 			for x: int in range(chunk_size):
 				dirty[Vector2i(x, 0)] = true
-		neighbor_chunk.enqueue_dirty_border_redraw(dirty)
-		_ensure_chunk_border_fix_task(neighbor_chunk, _active_z, true)
+		if neighbor_chunk.enqueue_dirty_border_redraw(dirty, reason_key, source_version):
+			_ensure_chunk_border_fix_task(neighbor_chunk, _active_z, true)
 
 func _seam_normalize_and_redraw(tile_pos: Vector2i, local_tile: Vector2i, source_chunk: Chunk) -> void:
 	var chunk_size: int = WorldGenerator.balance.chunk_size_tiles
+	var source_version: int = source_chunk.get_visual_invalidation_version() if source_chunk != null else -1
+	var reason_key: String = _make_border_fix_reason_key(
+		source_chunk.chunk_coord if source_chunk != null else Vector2i.ZERO,
+		_active_z,
+		&"seam_mining"
+	)
 	var on_left: bool = local_tile.x == 0
 	var on_right: bool = local_tile.x == chunk_size - 1
 	var on_top: bool = local_tile.y == 0
@@ -796,8 +813,8 @@ func _seam_normalize_and_redraw(tile_pos: Vector2i, local_tile: Vector2i, source
 			if neighbor_chunk._is_inside(t):
 				cross_dirty[t] = true
 		if not cross_dirty.is_empty():
-			neighbor_chunk.enqueue_dirty_border_redraw(cross_dirty)
-			_ensure_chunk_border_fix_task(neighbor_chunk, _active_z, true)
+			if neighbor_chunk.enqueue_dirty_border_redraw(cross_dirty, reason_key, source_version):
+				_ensure_chunk_border_fix_task(neighbor_chunk, _active_z, true)
 
 func has_resource_at_world(world_pos: Vector2) -> bool:
 	var tile_pos: Vector2i = WorldGenerator.world_to_tile(world_pos)
@@ -1363,7 +1380,6 @@ func _clear_visual_task_state() -> void:
 	_visual_chunks_processed_frame = -1
 
 func _begin_visual_scheduler_step() -> void:
-	_collect_completed_visual_compute()
 	var frame_index: int = Engine.get_process_frames()
 	if _visual_chunks_processed_frame != frame_index:
 		_visual_chunks_processed_this_tick.clear()
@@ -1418,6 +1434,21 @@ func _resolve_visual_apply_safety_factor(kind: int, band: int) -> float:
 		_:
 			return VISUAL_ADAPTIVE_NEAR_SAFETY if kind == VisualTaskKind.TASK_FIRST_PASS else VISUAL_ADAPTIVE_FAR_SAFETY
 
+func _resolve_visual_bootstrap_tile_budget(kind: int, phase_name: StringName, max_tiles: int) -> int:
+	if kind == VisualTaskKind.TASK_BORDER_FIX:
+		return mini(max_tiles, VISUAL_BOOTSTRAP_BORDER_TILES)
+	if kind != VisualTaskKind.TASK_FULL_REDRAW:
+		return max_tiles
+	match phase_name:
+		&"terrain":
+			return mini(max_tiles, VISUAL_BOOTSTRAP_FULL_TERRAIN_TILES)
+		&"cover":
+			return mini(max_tiles, VISUAL_BOOTSTRAP_FULL_COVER_TILES)
+		&"cliff":
+			return mini(max_tiles, VISUAL_BOOTSTRAP_FULL_CLIFF_TILES)
+		_:
+			return mini(max_tiles, VISUAL_BOOTSTRAP_FULL_COVER_TILES)
+
 func _resolve_visual_apply_tile_cap(kind: int, band: int, phase_name: StringName, base_tile_budget: int) -> int:
 	if kind != VisualTaskKind.TASK_FIRST_PASS:
 		return maxi(1, base_tile_budget)
@@ -1454,11 +1485,11 @@ func _resolve_visual_apply_tile_budget(
 	var feedback_key: String = _make_visual_apply_feedback_key(kind, band, phase_name)
 	var feedback: Dictionary = _visual_apply_feedback.get(feedback_key, {}) as Dictionary
 	if feedback.is_empty():
-		return max_tiles
+		return clampi(_resolve_visual_bootstrap_tile_budget(kind, phase_name, max_tiles), min_tiles, max_tiles)
 	var ms_per_command: float = float(feedback.get("ms_per_command", 0.0))
 	var commands_per_tile: float = float(feedback.get("commands_per_tile", 0.0))
 	if ms_per_command <= 0.0 or commands_per_tile <= 0.0:
-		return max_tiles
+		return clampi(_resolve_visual_bootstrap_tile_budget(kind, phase_name, max_tiles), min_tiles, max_tiles)
 	var scheduler_budget_ms: float = _resolve_visual_scheduler_budget_ms()
 	var target_apply_ms: float = _resolve_visual_target_apply_ms(kind, band, scheduler_budget_ms)
 	var safety_factor: float = _resolve_visual_apply_safety_factor(kind, band)
@@ -1672,6 +1703,46 @@ func _get_visual_queue_for_band(band: int) -> Array[Dictionary]:
 			return _visual_q_full_far
 		_:
 			return _visual_q_cosmetic
+
+func _resolve_visual_band_order(band: int) -> int:
+	match band:
+		VisualPriorityBand.TERRAIN_FAST:
+			return 0
+		VisualPriorityBand.TERRAIN_URGENT:
+			return 1
+		VisualPriorityBand.TERRAIN_NEAR:
+			return 2
+		VisualPriorityBand.FULL_NEAR:
+			return 3
+		VisualPriorityBand.BORDER_FIX_NEAR:
+			return 4
+		VisualPriorityBand.FULL_FAR:
+			return 5
+		VisualPriorityBand.BORDER_FIX_FAR:
+			return 6
+		_:
+			return 7
+
+func _is_completed_visual_compute_higher_priority(a: Dictionary, b: Dictionary) -> bool:
+	var a_task: Dictionary = a.get("task", {}) as Dictionary
+	var b_task: Dictionary = b.get("task", {}) as Dictionary
+	var a_band_order: int = _resolve_visual_band_order(
+		int(a_task.get("priority_band", VisualPriorityBand.COSMETIC))
+	)
+	var b_band_order: int = _resolve_visual_band_order(
+		int(b_task.get("priority_band", VisualPriorityBand.COSMETIC))
+	)
+	if a_band_order != b_band_order:
+		return a_band_order < b_band_order
+	var a_camera_score: float = float(a_task.get("camera_score", 999999.0))
+	var b_camera_score: float = float(b_task.get("camera_score", 999999.0))
+	if not is_equal_approx(a_camera_score, b_camera_score):
+		return a_camera_score < b_camera_score
+	var a_enqueued_usec: int = int(_visual_task_enqueued_usec.get(str(a.get("key", "")), 0))
+	var b_enqueued_usec: int = int(_visual_task_enqueued_usec.get(str(b.get("key", "")), 0))
+	if a_enqueued_usec != b_enqueued_usec:
+		return a_enqueued_usec < b_enqueued_usec
+	return str(a.get("key", "")) < str(b.get("key", ""))
 
 func _push_visual_task(task: Dictionary) -> void:
 	var band: int = int(task.get("priority_band", VisualPriorityBand.COSMETIC))
@@ -1891,7 +1962,9 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 	request["requested_tile_budget"] = requested_tile_budget
 	request["requested_visual_budget_ms"] = requested_visual_budget_ms
 	request["requested_target_apply_ms"] = _resolve_visual_target_apply_ms(kind, band, requested_visual_budget_ms)
-	if bool(request.get("skip_worker_compute", false)):
+	var can_prepare_immediately: bool = bool(request.get("skip_worker_compute", false)) \
+		and int(request.get("phase", Chunk.REDRAW_PHASE_DONE)) == Chunk.REDRAW_PHASE_FLORA
+	if can_prepare_immediately:
 		var immediate_task: Dictionary = task.duplicate(true)
 		var prepared_batch: Dictionary = Chunk.compute_visual_batch(request)
 		prepared_batch["tile_count"] = int(request.get("tile_count", prepared_batch.get("tile_count", 0)))
@@ -1909,17 +1982,37 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 	_visual_compute_waiting_tasks[key] = task
 	return true
 
-func _collect_completed_visual_compute() -> void:
-	if _visual_compute_active.is_empty():
-		return
-	var completed_keys: Array[String] = []
+func _collect_completed_visual_compute(max_results: int = VISUAL_COMPLETED_COMPUTE_MAX_INTAKE_PER_STEP, deadline_usec: int = 0) -> int:
+	if _visual_compute_active.is_empty() or max_results <= 0:
+		return 0
+	var completed_entries: Array[Dictionary] = []
 	for key_variant: Variant in _visual_compute_active.keys():
 		var key: String = str(key_variant)
 		var task_id: int = int(_visual_compute_active.get(key, -1))
-		if task_id >= 0 and WorkerThreadPool.is_task_completed(task_id):
-			WorkerThreadPool.wait_for_task_completion(task_id)
-			completed_keys.append(key)
-	for key: String in completed_keys:
+		if task_id < 0 or not WorkerThreadPool.is_task_completed(task_id):
+			continue
+		var waiting_task: Dictionary = _visual_compute_waiting_tasks.get(key, {}) as Dictionary
+		if not waiting_task.is_empty():
+			_retag_visual_task(waiting_task)
+		completed_entries.append({
+			"key": key,
+			"task_id": task_id,
+			"task": waiting_task,
+		})
+	if completed_entries.is_empty():
+		return 0
+	completed_entries.sort_custom(_is_completed_visual_compute_higher_priority)
+	var collected_count: int = 0
+	for entry: Dictionary in completed_entries:
+		if collected_count >= max_results:
+			break
+		if deadline_usec > 0 and Time.get_ticks_usec() >= deadline_usec:
+			break
+		var key: String = str(entry.get("key", ""))
+		var task_id: int = int(entry.get("task_id", -1))
+		if key.is_empty() or task_id < 0:
+			continue
+		WorkerThreadPool.wait_for_task_completion(task_id)
 		_visual_compute_active.erase(key)
 		_visual_compute_mutex.lock()
 		var batch: Dictionary = _visual_compute_results.get(key, {}) as Dictionary
@@ -1928,8 +2021,10 @@ func _collect_completed_visual_compute() -> void:
 		var waiting_task: Dictionary = _visual_compute_waiting_tasks.get(key, {}) as Dictionary
 		_visual_compute_waiting_tasks.erase(key)
 		if batch.is_empty() or waiting_task.is_empty():
+			collected_count += 1
 			continue
 		if int(_visual_task_pending.get(key, -1)) != int(batch.get("invalidation_version", -1)):
+			collected_count += 1
 			continue
 		var prepare_ms: float = float(batch.get("prepare_ms", 0.0))
 		if prepare_ms >= 2.0:
@@ -1939,6 +2034,8 @@ func _collect_completed_visual_compute() -> void:
 			)
 		waiting_task["prepared_batch"] = batch
 		_push_visual_task(waiting_task)
+		collected_count += 1
+	return collected_count
 
 func _has_pending_visual_tasks() -> bool:
 	return not _visual_q_terrain_fast.is_empty() \
@@ -2237,6 +2334,7 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 				if _visual_task_enqueued_usec.has(key):
 					var latency_ms: float = float(Time.get_ticks_usec() - int(_visual_task_enqueued_usec[key])) / 1000.0
 					WorldPerfProbe.record("stream.chunk_border_fix_ms %s@z%d" % [coord, z_level], latency_ms)
+				chunk._mark_border_fix_reasons_applied()
 				_clear_visual_task(task)
 				_try_finalize_chunk_visual_convergence(chunk, z_level)
 				return VisualTaskRunState.COMPLETED
@@ -2270,6 +2368,7 @@ func _run_visual_scheduler(max_usec: int, stop_after_processed_task: bool) -> bo
 	_begin_visual_scheduler_step()
 	var started_usec: int = Time.get_ticks_usec()
 	var deadline_usec: int = started_usec + budget_usec if budget_usec > 0 else 0
+	_collect_completed_visual_compute(VISUAL_COMPLETED_COMPUTE_MAX_INTAKE_PER_STEP, deadline_usec)
 	var processed_by_kind: Dictionary = {}
 	var processed_count: int = 0
 	var budget_exhausted: bool = false

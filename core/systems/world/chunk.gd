@@ -169,6 +169,8 @@ var _has_mountain: bool = false
 var _redraw_phase: int = REDRAW_PHASE_DONE
 var _redraw_tile_index: int = 0
 var _pending_border_dirty: Dictionary = {}
+var _border_fix_pending_reason_versions: Dictionary = {}
+var _border_fix_applied_reason_versions: Dictionary = {}
 var _revealed_local_cover_tiles: Dictionary = {}
 var _is_underground: bool = false
 var _use_operation_global_terrain_cache: bool = false
@@ -176,6 +178,7 @@ var _operation_global_terrain_cache: Dictionary = {}
 var _mining_write_authorized: bool = false
 var _visual_state: int = ChunkVisualState.UNINITIALIZED
 var _has_full_publication_once: bool = false
+var _visual_invalidation_version: int = 0
 var _interior_macro_dirty: bool = false
 
 static var _native_visual_kernels: RefCounted = null
@@ -225,6 +228,7 @@ func sync_display_position(reference_chunk: Vector2i) -> void:
 
 func populate_native(native_data: Dictionary, saved_modifications: Dictionary, instant: bool = false) -> void:
 	_modified_tiles = saved_modifications.duplicate()
+	_reset_border_fix_dedupe_state()
 	_terrain_bytes = native_data.get("terrain", PackedByteArray())
 	_height_bytes = native_data.get("height", PackedFloat32Array())
 	_variation_bytes = native_data.get("variation", PackedByteArray())
@@ -259,6 +263,8 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 	if not saved_modifications.is_empty():
 		_invalidate_prebaked_visual_payload()
 	_cache_has_mountain()
+	_visual_invalidation_version = 0
+	_bump_visual_invalidation_version()
 	_reset_cover_visual_state()
 	if instant:
 		_redraw_all()
@@ -315,6 +321,26 @@ func get_terrain_bytes() -> PackedByteArray:
 
 func get_modifications() -> Dictionary:
 	return _modified_tiles.duplicate()
+
+func get_visual_invalidation_version() -> int:
+	return _visual_invalidation_version
+
+func _bump_visual_invalidation_version() -> int:
+	_visual_invalidation_version += 1
+	if _visual_invalidation_version <= 0:
+		_visual_invalidation_version = 1
+	return _visual_invalidation_version
+
+func _reset_border_fix_dedupe_state() -> void:
+	_pending_border_dirty.clear()
+	_border_fix_pending_reason_versions.clear()
+	_border_fix_applied_reason_versions.clear()
+
+func _mark_border_fix_reasons_applied() -> void:
+	for reason_variant: Variant in _border_fix_pending_reason_versions.keys():
+		var reason_key: String = str(reason_variant)
+		_border_fix_applied_reason_versions[reason_key] = int(_border_fix_pending_reason_versions[reason_key])
+	_border_fix_pending_reason_versions.clear()
 
 func _load_prebaked_visual_payload(native_data: Dictionary) -> void:
 	var tile_count: int = _terrain_bytes.size()
@@ -465,11 +491,11 @@ func try_mine_at(local: Vector2i) -> Dictionary:
 	WorldPerfProbe.end("Chunk.try_mine_at %s" % [chunk_coord], started_usec)
 	return {"old_type": old_type, "new_type": new_type}
 
-func redraw_mining_patch(local_tile: Vector2i) -> void:
+func redraw_mining_patch(local_tile: Vector2i) -> bool:
 	var dirty_tiles: Dictionary = _collect_mining_dirty_tiles(local_tile)
 	if dirty_tiles.is_empty():
-		return
-	enqueue_dirty_border_redraw(dirty_tiles)
+		return false
+	return enqueue_dirty_border_redraw(dirty_tiles, "local_patch", get_visual_invalidation_version())
 
 func cleanup() -> void:
 	is_loaded = false
@@ -484,6 +510,8 @@ func cleanup() -> void:
 	_clear_interior_macro_layer()
 	_visual_state = ChunkVisualState.UNINITIALIZED
 	_has_full_publication_once = false
+	_visual_invalidation_version = 0
+	_reset_border_fix_dedupe_state()
 
 func _create_layer(layer_name: String, tileset: TileSet, z_index_value: int) -> TileMapLayer:
 	var layer := TileMapLayer.new()
@@ -680,8 +708,32 @@ func _redraw_dynamic_visibility(_dirty_tiles: Dictionary) -> void:
 ## new neighbor chunk is loaded and border seam tiles need updating.
 ## The actual redraw happens during the next progressive redraw tick.
 ## (boot_fast_first_playable_spec Iteration 3, change 3A)
-func enqueue_dirty_border_redraw(dirty_tiles: Dictionary) -> void:
-	_pending_border_dirty.merge(dirty_tiles, true)
+func enqueue_dirty_border_redraw(
+	dirty_tiles: Dictionary,
+	reason_key: String = "",
+	reason_version: int = -1
+) -> bool:
+	var normalized_dirty: Dictionary = {}
+	var added_new_tiles: bool = false
+	for tile_variant: Variant in dirty_tiles.keys():
+		var local_tile: Vector2i = tile_variant as Vector2i
+		if not _is_inside(local_tile):
+			continue
+		normalized_dirty[local_tile] = true
+		if not _pending_border_dirty.has(local_tile):
+			added_new_tiles = true
+	if normalized_dirty.is_empty():
+		return false
+	if not reason_key.is_empty() and reason_version >= 0:
+		var pending_version: int = int(_border_fix_pending_reason_versions.get(reason_key, -1))
+		var applied_version: int = int(_border_fix_applied_reason_versions.get(reason_key, -1))
+		if pending_version == reason_version or applied_version == reason_version:
+			return false
+		_border_fix_pending_reason_versions[reason_key] = reason_version
+	elif not added_new_tiles:
+		return false
+	_pending_border_dirty.merge(normalized_dirty, true)
+	return true
 
 func _redraw_dirty_tiles(dirty_tiles: Dictionary) -> void:
 	var batch: Dictionary = build_visual_dirty_batch(dirty_tiles)
@@ -2376,8 +2428,11 @@ func _set_terrain_type(local_tile: Vector2i, terrain_type: int, mark_modified: b
 	var idx: int = local_tile.y * _chunk_size + local_tile.x
 	if idx < 0 or idx >= _terrain_bytes.size():
 		return
+	var previous_type: int = _terrain_bytes[idx]
 	_terrain_bytes[idx] = terrain_type
-	_invalidate_prebaked_visual_payload()
+	if previous_type != terrain_type:
+		_invalidate_prebaked_visual_payload()
+		_bump_visual_invalidation_version()
 	if not _has_mountain and _is_mountain_terrain(terrain_type):
 		_has_mountain = true
 	if mark_modified:
