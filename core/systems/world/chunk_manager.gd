@@ -59,6 +59,12 @@ enum VisualTaskRunState {
 	COMPLETED,
 }
 
+enum VisualComputeSubmitState {
+	UNAVAILABLE,
+	SUBMITTED,
+	BLOCKED,
+}
+
 const BORDER_FIX_REDRAW_MICRO_BATCH_TILES: int = 8
 const PLAYER_CHUNK_DIAG_LOG_INTERVAL_MSEC: int = 2000
 const PLAYER_CHUNK_DIAG_BLOCKED_AGE_MS: float = 250.0
@@ -83,6 +89,8 @@ const VISUAL_BOOTSTRAP_FULL_COVER_TILES: int = 12
 const VISUAL_BOOTSTRAP_FULL_CLIFF_TILES: int = 16
 const VISUAL_BOOTSTRAP_BORDER_TILES: int = 4
 const VISUAL_COMPLETED_COMPUTE_MAX_INTAKE_PER_STEP: int = 2
+const VISUAL_MAX_CONCURRENT_COMPUTE: int = 2
+const VISUAL_MAX_FAR_CONCURRENT_COMPUTE: int = 1
 
 var _loaded_chunks: Dictionary = {}
 var _player_chunk: Vector2i = Vector2i(99999, 99999)
@@ -1723,6 +1731,28 @@ func _resolve_visual_band_order(band: int) -> int:
 		_:
 			return 7
 
+func _is_far_visual_band(band: int) -> bool:
+	return band == VisualPriorityBand.FULL_FAR \
+		or band == VisualPriorityBand.BORDER_FIX_FAR \
+		or band == VisualPriorityBand.COSMETIC
+
+func _count_far_active_visual_compute() -> int:
+	var active_count: int = 0
+	for task_variant: Variant in _visual_compute_waiting_tasks.values():
+		var task: Dictionary = task_variant as Dictionary
+		if _is_far_visual_band(int(task.get("priority_band", VisualPriorityBand.COSMETIC))):
+			active_count += 1
+	return active_count
+
+func _can_submit_visual_compute_now(band: int) -> bool:
+	if _visual_compute_active.size() >= VISUAL_MAX_CONCURRENT_COMPUTE:
+		return false
+	if _is_far_visual_band(band):
+		var far_active_count: int = _count_far_active_visual_compute()
+		if far_active_count >= VISUAL_MAX_FAR_CONCURRENT_COMPUTE:
+			return false
+	return true
+
 func _is_completed_visual_compute_higher_priority(a: Dictionary, b: Dictionary) -> bool:
 	var a_task: Dictionary = a.get("task", {}) as Dictionary
 	var b_task: Dictionary = b.get("task", {}) as Dictionary
@@ -1931,16 +1961,16 @@ func _worker_prepare_visual_batch(task_key: String, request: Dictionary) -> void
 	_visual_compute_results[task_key] = batch
 	_visual_compute_mutex.unlock()
 
-func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) -> bool:
+func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) -> int:
 	if chunk == null or not is_instance_valid(chunk):
-		return false
+		return VisualComputeSubmitState.UNAVAILABLE
 	var coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
 	var z_level: int = int(task.get("z", _active_z))
 	var kind: int = int(task.get("kind", VisualTaskKind.TASK_COSMETIC))
 	var band: int = int(task.get("priority_band", VisualPriorityBand.COSMETIC))
 	var key: String = _make_visual_task_key(coord, z_level, kind)
 	if _visual_compute_active.has(key) or _visual_compute_waiting_tasks.has(key):
-		return true
+		return VisualComputeSubmitState.SUBMITTED
 	var request: Dictionary = {}
 	var requested_tile_budget: int = maxi(1, tile_budget)
 	match kind:
@@ -1954,9 +1984,9 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 			requested_tile_budget = _resolve_visual_apply_tile_budget(kind, band, &"dirty", dirty_tile_budget)
 			request = chunk.build_visual_dirty_batch(chunk._pending_border_dirty, requested_tile_budget)
 		_:
-			return false
+			return VisualComputeSubmitState.UNAVAILABLE
 	if request.is_empty():
-		return false
+		return VisualComputeSubmitState.UNAVAILABLE
 	var requested_visual_budget_ms: float = _resolve_visual_scheduler_budget_ms()
 	request["tile_count"] = int((request.get("tiles", []) as Array).size())
 	request["requested_tile_budget"] = requested_tile_budget
@@ -1973,14 +2003,16 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 		prepared_batch["target_apply_ms"] = float(request.get("requested_target_apply_ms", 0.0))
 		immediate_task["prepared_batch"] = prepared_batch
 		_push_visual_task(immediate_task)
-		return true
+		return VisualComputeSubmitState.SUBMITTED
+	if not _can_submit_visual_compute_now(band):
+		return VisualComputeSubmitState.BLOCKED
 	request["chunk_coord"] = coord
 	request["z"] = z_level
 	request["invalidation_version"] = int(task.get("invalidation_version", -1))
 	var task_id: int = WorkerThreadPool.add_task(_worker_prepare_visual_batch.bind(key, request))
 	_visual_compute_active[key] = task_id
 	_visual_compute_waiting_tasks[key] = task
-	return true
+	return VisualComputeSubmitState.SUBMITTED
 
 func _collect_completed_visual_compute(max_results: int = VISUAL_COMPLETED_COMPUTE_MAX_INTAKE_PER_STEP, deadline_usec: int = 0) -> int:
 	if _visual_compute_active.is_empty() or max_results <= 0:
@@ -2214,8 +2246,12 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 	var prepared_batch: Dictionary = task.get("prepared_batch", {}) as Dictionary
 	match kind:
 		VisualTaskKind.TASK_FIRST_PASS:
-			if prepared_batch.is_empty() and _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band)):
-				return VisualTaskRunState.DROPPED
+			if prepared_batch.is_empty():
+				var first_pass_submit_state: int = _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band))
+				if first_pass_submit_state == VisualComputeSubmitState.SUBMITTED:
+					return VisualTaskRunState.DROPPED
+				if first_pass_submit_state == VisualComputeSubmitState.BLOCKED:
+					return VisualTaskRunState.REQUEUE
 			var first_pass_did_apply: bool = false
 			if not prepared_batch.is_empty():
 				var apply_started_usec: int = Time.get_ticks_usec()
@@ -2258,8 +2294,12 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 			return VisualTaskRunState.REQUEUE
 		VisualTaskKind.TASK_FULL_REDRAW:
 			chunk._mark_visual_full_redraw_pending()
-			if prepared_batch.is_empty() and _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band)):
-				return VisualTaskRunState.DROPPED
+			if prepared_batch.is_empty():
+				var full_submit_state: int = _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band))
+				if full_submit_state == VisualComputeSubmitState.SUBMITTED:
+					return VisualTaskRunState.DROPPED
+				if full_submit_state == VisualComputeSubmitState.BLOCKED:
+					return VisualTaskRunState.REQUEUE
 			var full_has_more: bool = true
 			var full_redraw_did_apply: bool = false
 			if not prepared_batch.is_empty():
@@ -2300,8 +2340,12 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 			task.erase("prepared_batch")
 			return VisualTaskRunState.REQUEUE
 		VisualTaskKind.TASK_BORDER_FIX:
-			if prepared_batch.is_empty() and _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band)):
-				return VisualTaskRunState.DROPPED
+			if prepared_batch.is_empty():
+				var border_submit_state: int = _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band))
+				if border_submit_state == VisualComputeSubmitState.SUBMITTED:
+					return VisualTaskRunState.DROPPED
+				if border_submit_state == VisualComputeSubmitState.BLOCKED:
+					return VisualTaskRunState.REQUEUE
 			var border_has_more: bool = true
 			var border_fix_did_apply: bool = false
 			if not prepared_batch.is_empty():
