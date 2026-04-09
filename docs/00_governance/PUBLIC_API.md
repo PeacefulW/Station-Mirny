@@ -371,12 +371,12 @@ related_docs:
 `ChunkManager.try_harvest_at_world(world_pos: Vector2) -> Dictionary`
 - Когда вызывать: когда successful underground mining должен сразу открыть newly mined tile и соседний halo в fog.
 - Что делает: на underground success вызывает `UndergroundFogState.force_reveal()` для mined tile + 8 neighbors и сразу applies visible fog erase to loaded revealable tiles.
-- Гарантии: immediate underground reveal side-effects из `Postconditions: mine tile`; canonical terrain semantics не меняются вне mining contract.
+- Гарантии: immediate underground reveal side-effects из `Postconditions: mine tile`; canonical terrain semantics не меняются вне mining contract. На surface downstream `MountainRoofSystem` обязан запланировать reveal refresh и cover apply по mining event even when the player is still standing outside the newly opened pocket.
 - Пример вызова: `var result := chunk_manager.try_harvest_at_world(hit_world_pos)`
 
 Примечание: z-switch reveal side-effects достигаются через canonical owner-path `ZLevelManager.change_level()`. `ChunkManager.set_active_z_level()` остаётся downstream sink и не является public z-switch API.
 
-Примечание: public surface reveal refresh API сейчас нет. `MountainRoofSystem` владеет refresh internally и сам реагирует на player movement, chunk load/unload и mining events.
+Примечание: public surface reveal refresh API сейчас нет. `MountainRoofSystem` владеет refresh internally и сам реагирует на player movement, chunk load/unload и mining events. Mining-triggered surface refresh no longer depends on the player already standing on an opened mountain tile: system first tries the active zone seed when the mined tile touches it, otherwise seeds refresh from the mined open tile itself, and only then falls back to the player tile if the player is already inside an opened pocket.
 
 ### Чтение
 
@@ -646,7 +646,7 @@ related_docs:
 
 `WorldComputeContext.sample_structure_context(world_pos: Vector2i, channels: WorldChannels = null) -> WorldStructureContext`
 - Когда вызывать: когда runtime/tooling consumer уже держит `WorldComputeContext` и ему нужен тот же structural context, который читает текущий GDScript world runtime.
-- Что делает: canonicalizes tile и собирает `WorldStructureContext` из опубликованного `WorldPrePass`: `ridge_strength`, `mountain_mass`, `floodplain_strength`, `river_distance`, `river_width`; `river_strength` derives from river-width / river-distance metrics instead of legacy band/noise sampling. Legacy `channels` parameter retained only for consumer compatibility.
+- Что делает: canonicalizes tile и собирает `WorldStructureContext` из опубликованного `WorldPrePass`: `ridge_strength`, `mountain_mass`, `floodplain_strength`, `river_distance`, `river_width`; `mountain_mass` is the broader massif-fill companion to `ridge_strength` around local ridge neighborhoods, while `river_strength` derives as a continuous width-and-proximity semantic from `river_width` / `river_distance`, clamps to `0` when sampled `river_width` is absent, and is the same sanctioned river handoff used by both GDScript and native terrain consumers instead of legacy band/noise sampling. Legacy `channels` parameter retained only for consumer compatibility.
 - Гарантии: sanctioned structure-truth sampler for GDScript runtime. Не вызывает legacy band/noise structure sampling; при отсутствии pre-pass reference возвращает нулевой context вместо альтернативной "второй правды".
 
 `WorldPrePass.sample(channel: StringName, world_pos: Vector2i) -> float`

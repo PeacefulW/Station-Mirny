@@ -91,6 +91,7 @@ const VISUAL_BOOTSTRAP_BORDER_TILES: int = 4
 const VISUAL_COMPLETED_COMPUTE_MAX_INTAKE_PER_STEP: int = 2
 const VISUAL_MAX_CONCURRENT_COMPUTE: int = 2
 const VISUAL_MAX_FAR_CONCURRENT_COMPUTE: int = 1
+const SEAM_REFRESH_MAX_TILES_PER_STEP: int = 4
 
 var _loaded_chunks: Dictionary = {}
 var _player_chunk: Vector2i = Vector2i(99999, 99999)
@@ -128,6 +129,8 @@ var _visual_compute_active: Dictionary = {}  ## String task_key -> int task_id
 var _visual_compute_waiting_tasks: Dictionary = {}  ## String task_key -> queued task payload
 var _visual_compute_results: Dictionary = {}  ## String task_key -> prepared batch
 var _visual_compute_mutex: Mutex = Mutex.new()
+var _pending_seam_refresh_tiles: Array[Vector2i] = []
+var _pending_seam_refresh_lookup: Dictionary = {}
 var _saved_chunk_data: Dictionary = {}
 var _terrain_tileset: TileSet = null
 var _overlay_tileset: TileSet = null
@@ -694,7 +697,7 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	if result.is_empty():
 		return {}
 	# Same-chunk neighbor re-normalization (MINED_FLOOR <-> MOUNTAIN_ENTRANCE)
-	chunk._refresh_open_neighbors(local_tile)
+	chunk.refresh_open_neighbors_with_operation_cache(local_tile)
 	if chunk.redraw_mining_patch(local_tile):
 		_ensure_chunk_border_fix_task(chunk, _active_z, true)
 	# Cross-chunk seam: normalize + redraw affected neighbor chunks
@@ -781,12 +784,6 @@ func _enqueue_neighbor_border_redraws(coord: Vector2i) -> void:
 
 func _seam_normalize_and_redraw(tile_pos: Vector2i, local_tile: Vector2i, source_chunk: Chunk) -> void:
 	var chunk_size: int = WorldGenerator.balance.chunk_size_tiles
-	var source_version: int = source_chunk.get_visual_invalidation_version() if source_chunk != null else -1
-	var reason_key: String = _make_border_fix_reason_key(
-		source_chunk.chunk_coord if source_chunk != null else Vector2i.ZERO,
-		_active_z,
-		&"seam_mining"
-	)
 	var on_left: bool = local_tile.x == 0
 	var on_right: bool = local_tile.x == chunk_size - 1
 	var on_top: bool = local_tile.y == 0
@@ -808,21 +805,52 @@ func _seam_normalize_and_redraw(tile_pos: Vector2i, local_tile: Vector2i, source
 		var neighbor_chunk: Chunk = get_chunk_at_tile(neighbor_global)
 		if not neighbor_chunk or neighbor_chunk == source_chunk:
 			continue
-		var n_local: Vector2i = neighbor_chunk.global_to_local(neighbor_global)
-		# Re-normalize the direct cardinal neighbor (MINED_FLOOR <-> MOUNTAIN_ENTRANCE)
-		neighbor_chunk._refresh_open_tile(n_local)
-		neighbor_chunk.is_dirty = true
-		# Redraw a border strip: the neighbor tile + tiles along the seam edge
-		# (covers cardinal + diagonal visual dependencies)
-		var perp: Vector2i = Vector2i(abs(dir.y), abs(dir.x))
-		var cross_dirty: Dictionary = {}
-		for p_offset: int in range(-1, 2):
-			var t: Vector2i = n_local + perp * p_offset
-			if neighbor_chunk._is_inside(t):
-				cross_dirty[t] = true
-		if not cross_dirty.is_empty():
-			if neighbor_chunk.enqueue_dirty_border_redraw(cross_dirty, reason_key, source_version):
-				_ensure_chunk_border_fix_task(neighbor_chunk, _active_z, true)
+		_enqueue_seam_refresh_tile(neighbor_global)
+
+func _enqueue_seam_refresh_tile(tile_pos: Vector2i) -> void:
+	var canonical_tile: Vector2i = _canonical_tile(tile_pos)
+	if _pending_seam_refresh_lookup.has(canonical_tile):
+		return
+	_pending_seam_refresh_lookup[canonical_tile] = true
+	_pending_seam_refresh_tiles.append(canonical_tile)
+
+func _process_seam_refresh_queue_step() -> bool:
+	if _pending_seam_refresh_tiles.is_empty():
+		return false
+	var processed_tiles: int = 0
+	while processed_tiles < SEAM_REFRESH_MAX_TILES_PER_STEP and not _pending_seam_refresh_tiles.is_empty():
+		var tile_pos: Vector2i = _pending_seam_refresh_tiles.pop_front()
+		_pending_seam_refresh_lookup.erase(tile_pos)
+		_apply_seam_refresh_tile(tile_pos)
+		processed_tiles += 1
+	return not _pending_seam_refresh_tiles.is_empty()
+
+func _apply_seam_refresh_tile(tile_pos: Vector2i) -> void:
+	var neighbor_chunk: Chunk = get_chunk_at_tile(tile_pos)
+	if not neighbor_chunk:
+		return
+	var n_local: Vector2i = neighbor_chunk.global_to_local(tile_pos)
+	neighbor_chunk.refresh_open_tile_with_operation_cache(n_local)
+	neighbor_chunk.is_dirty = true
+	if not neighbor_chunk.is_first_pass_ready():
+		return
+	var chunk_size: int = neighbor_chunk.get_chunk_size()
+	var reason_key: String = _make_border_fix_reason_key(neighbor_chunk.chunk_coord, _active_z, &"seam_mining_async")
+	var reason_version: int = neighbor_chunk.get_visual_invalidation_version()
+	var cross_dirty: Dictionary = {n_local: true}
+	if n_local.x == 0 or n_local.x == chunk_size - 1:
+		for offset_y: int in range(-1, 2):
+			var seam_tile: Vector2i = n_local + Vector2i(0, offset_y)
+			if neighbor_chunk._is_inside(seam_tile):
+				cross_dirty[seam_tile] = true
+	if n_local.y == 0 or n_local.y == chunk_size - 1:
+		for offset_x: int in range(-1, 2):
+			var seam_tile: Vector2i = n_local + Vector2i(offset_x, 0)
+			if neighbor_chunk._is_inside(seam_tile):
+				cross_dirty[seam_tile] = true
+	if not cross_dirty.is_empty() \
+		and neighbor_chunk.enqueue_dirty_border_redraw(cross_dirty, reason_key, reason_version):
+		_ensure_chunk_border_fix_task(neighbor_chunk, _active_z, true)
 
 func has_resource_at_world(world_pos: Vector2) -> bool:
 	var tile_pos: Vector2i = WorldGenerator.world_to_tile(world_pos)
@@ -1379,6 +1407,8 @@ func _clear_visual_task_state() -> void:
 	_visual_compute_mutex.lock()
 	_visual_compute_results.clear()
 	_visual_compute_mutex.unlock()
+	_pending_seam_refresh_tiles.clear()
+	_pending_seam_refresh_lookup.clear()
 	_visual_scheduler_budget_exhausted_count = 0
 	_visual_scheduler_starvation_incident_count = 0
 	_visual_scheduler_max_urgent_wait_ms = 0.0
@@ -3469,6 +3499,9 @@ func _tick_topology() -> bool:
 		return false
 	if _active_z != 0:
 		return false
+	var seam_has_more: bool = _process_seam_refresh_queue_step()
+	if seam_has_more:
+		return true
 	if _is_native_topology_enabled():
 		if _native_topology_dirty and _is_streaming_generation_idle():
 			_native_topology_builder.call("ensure_built")

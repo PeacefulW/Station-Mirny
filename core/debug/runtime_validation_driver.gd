@@ -621,6 +621,14 @@ func _process_mining_validation() -> void:
 			_mining_validation_stage = 1
 			_mining_wait_frames_remaining = MINING_SETTLE_FRAMES
 		1:
+			if not _mountain_roof_system.has_active_local_zone():
+				_fail_validation("local reveal zone did not activate after mining first entrance from exterior")
+				return
+			var first_entrance_zone_count: int = _mountain_roof_system.get_active_local_zone_tile_count()
+			if first_entrance_zone_count <= 0:
+				_fail_validation("active local zone tile count is zero after mining first entrance from exterior")
+				return
+			print("[CodexValidation] first entrance reveal activated from exterior; zone_tiles=%d" % [first_entrance_zone_count])
 			if not _mine_tile(_mining_case.get("interior_tile", INVALID_TILE)):
 				_fail_validation("failed to mine interior tile")
 				return
@@ -636,6 +644,7 @@ func _process_mining_validation() -> void:
 			if _mining_zone_tile_count_before_extension <= 0:
 				_fail_validation("active local zone tile count is zero after entering mined pocket")
 				return
+			print("[CodexValidation] entered mined pocket; zone_tiles=%d" % [_mining_zone_tile_count_before_extension])
 			var deeper_tile: Vector2i = _mining_case.get("deeper_tile", INVALID_TILE)
 			if deeper_tile == INVALID_TILE:
 				print("[CodexValidation] mining validation has no deeper tile; skipping extension step")

@@ -17,7 +17,11 @@ const DEFAULT_EXPORT_COUNT: int = 3
 const DEFAULT_RADIUS_TILES: int = 56
 const DEFAULT_VERIFY_CHUNK_RADIUS: int = 2
 const DEFAULT_STRUCTURE_RADIUS_TILES: int = 48
+const STRUCTURE_OUTPUT_ROOT: String = "res://debug_exports/world_previews"
 const STRUCTURE_SAMPLE_STEP_TILES: int = 4
+const STRUCTURE_BAND_COUNT: int = 8
+const STRUCTURE_BAND_SAMPLE_STRIDE_CELLS: int = 2
+const STRUCTURE_NATIVE_TERRAIN_TOLERANCE: int = 0
 const MAX_MISMATCH_LOGS: int = 12
 const FLOAT_COMPARE_EPSILON: float = 0.01
 const MIN_CENTER_DISTANCE_TILES: int = 48
@@ -330,6 +334,11 @@ func _run_structure_visibility_verify() -> void:
 		print("[CodexProof] structure visibility verify aborted: world generator unavailable")
 		get_tree().quit(1)
 		return
+	var native_generator: RefCounted = world_generator.get_native_chunk_generator()
+	if native_generator == null:
+		print("[CodexProof] structure visibility verify aborted: native chunk generator unavailable")
+		get_tree().quit(1)
+		return
 	var pre_pass: RefCounted = null
 	var compute_context: RefCounted = world_generator.get("_compute_context") as RefCounted
 	if compute_context != null and compute_context.has_method("get_world_pre_pass"):
@@ -347,22 +356,54 @@ func _run_structure_visibility_verify() -> void:
 	var radius_tiles: int = _get_int_arg(STRUCTURE_RADIUS_ARG_PREFIX, DEFAULT_STRUCTURE_RADIUS_TILES)
 	var river_candidate: Dictionary = _find_best_river_candidate(snapshot, world_generator)
 	var mountain_candidate: Dictionary = _find_best_mountain_candidate(snapshot, world_generator)
+	var coverage: Dictionary = _scan_structure_coverage(snapshot, world_generator, native_generator)
 	var has_failures: bool = false
 	print("[CodexProof] structure visibility verify radius=%d" % [radius_tiles])
-	has_failures = _report_structure_visibility(
+	if coverage.is_empty():
+		print("[CodexProof] structure coverage scan failed: authoritative snapshot metrics unavailable")
+		has_failures = true
+	else:
+		_print_structure_band_summary(coverage)
+		_print_structure_nearest_summary(coverage)
+		var sampled_tiles: int = int(coverage.get("sampled_tiles", 0))
+		var native_sample_failures: int = int(coverage.get("native_sample_failures", 0))
+		var terrain_mismatches: int = int(coverage.get("terrain_mismatches", 0))
+		print("[CodexProof] structure coverage parity sampled_tiles=%d native_sample_failures=%d terrain_mismatches=%d tolerance=%d" % [
+			sampled_tiles,
+			native_sample_failures,
+			terrain_mismatches,
+			STRUCTURE_NATIVE_TERRAIN_TOLERANCE,
+		])
+		if native_sample_failures > 0 or terrain_mismatches > STRUCTURE_NATIVE_TERRAIN_TOLERANCE:
+			has_failures = true
+	var river_report: Dictionary = _report_structure_visibility(
 		"river",
 		world_generator,
 		exporter,
 		river_candidate,
 		radius_tiles
-	) or has_failures
-	has_failures = _report_structure_visibility(
+	)
+	has_failures = bool(river_report.get("has_failure", true)) or has_failures
+	var mountain_report: Dictionary = _report_structure_visibility(
 		"mountain",
 		world_generator,
 		exporter,
 		mountain_candidate,
 		radius_tiles
-	) or has_failures
+	)
+	has_failures = bool(mountain_report.get("has_failure", true)) or has_failures
+	var summary_artifact_path: String = _write_structure_coverage_summary_artifact(
+		world_generator,
+		coverage,
+		river_report,
+		mountain_report,
+		radius_tiles
+	)
+	if summary_artifact_path.is_empty():
+		print("[CodexProof] structure coverage summary artifact save failed")
+		has_failures = true
+	else:
+		print("[CodexProof] structure_coverage_artifact=%s" % [summary_artifact_path])
 	print("[CodexProof] structure_visibility_status=%s" % ["FAIL" if has_failures else "PASS"])
 	get_tree().quit(1 if has_failures else 0)
 
@@ -537,16 +578,425 @@ func _land_guarantee_radius_sq(world_generator: WorldGeneratorSingleton) -> floa
 	var radius: float = float(world_generator.balance.land_guarantee_radius)
 	return radius * radius
 
+func _is_authoritative_river_context(structure_context: WorldStructureContext) -> bool:
+	return structure_context != null \
+		and (structure_context.river_strength >= 0.12 or structure_context.floodplain_strength >= 0.18)
+
+func _is_authoritative_mountain_context(structure_context: WorldStructureContext) -> bool:
+	return structure_context != null \
+		and (structure_context.ridge_strength >= 0.20 or structure_context.mountain_mass >= 0.18)
+
+func _is_authoritative_river_cell(river_width: float, floodplain_strength: float) -> bool:
+	return river_width > FLOAT_COMPARE_EPSILON or floodplain_strength > FLOAT_COMPARE_EPSILON
+
+func _is_authoritative_mountain_cell(ridge_strength: float, mountain_mass: float) -> bool:
+	return ridge_strength > FLOAT_COMPARE_EPSILON or mountain_mass > FLOAT_COMPARE_EPSILON
+
+func _resolve_structure_band_index(grid_y: int, grid_height: int, band_count: int = STRUCTURE_BAND_COUNT) -> int:
+	if grid_height <= 0 or band_count <= 1:
+		return 0
+	return clampi(
+		int(floor(float(grid_y) * float(band_count) / float(grid_height))),
+		0,
+		band_count - 1
+	)
+
+func _resolve_structure_band_zone_label(band_index: int, band_count: int) -> String:
+	if band_count <= 0:
+		return "all"
+	var center_fraction: float = (float(band_index) + 0.5) / float(band_count)
+	return "central_50" if center_fraction >= 0.25 and center_fraction <= 0.75 else "extreme_25"
+
+func _resolve_structure_band_world_y_range(snapshot: Dictionary, band_index: int, band_count: int) -> Vector2i:
+	var min_y: int = int(snapshot.get("prepass_min_y", 0))
+	var max_y: int = int(snapshot.get("prepass_max_y", min_y + 1))
+	var y_span_tiles: int = maxi(1, max_y - min_y)
+	var band_start: int = int(floor(float(band_index) * float(y_span_tiles) / float(maxi(1, band_count))))
+	var band_end_offset: int = int(floor(float(band_index + 1) * float(y_span_tiles) / float(maxi(1, band_count)))) - 1
+	band_end_offset = clampi(band_end_offset, band_start, y_span_tiles - 1)
+	return Vector2i(min_y + band_start, min_y + band_end_offset)
+
+func _prepass_grid_cell_center_to_world_tile(
+	snapshot: Dictionary,
+	world_generator: WorldGeneratorSingleton,
+	grid_x: int,
+	grid_y: int
+) -> Vector2i:
+	var span_x: float = maxf(1.0, float(snapshot.get("prepass_grid_span_x", 1.0)))
+	var span_y: float = maxf(1.0, float(snapshot.get("prepass_grid_span_y", 1.0)))
+	var min_y: int = int(snapshot.get("prepass_min_y", 0))
+	var world_x: int = int(floor((float(grid_x) + 0.5) * span_x))
+	var world_y: int = min_y + int(floor((float(grid_y) + 0.5) * span_y))
+	return world_generator.canonicalize_tile(Vector2i(world_x, world_y))
+
+func _update_nearest_hit(nearest_hits: Dictionary, key: String, distance_sq: float, tile_pos: Vector2i) -> void:
+	var current_best: Dictionary = nearest_hits.get(key, {}) as Dictionary
+	var best_distance_sq: float = float(current_best.get("distance_sq", INF))
+	if distance_sq >= best_distance_sq:
+		return
+	nearest_hits[key] = {
+		"distance_sq": distance_sq,
+		"distance_tiles": sqrt(distance_sq),
+		"tile": tile_pos,
+	}
+
+func _format_nearest_hit(nearest_hits: Dictionary, key: String) -> String:
+	if not nearest_hits.has(key):
+		return "none"
+	var entry: Dictionary = nearest_hits.get(key, {}) as Dictionary
+	var tile_pos: Vector2i = entry.get("tile", Vector2i.ZERO) as Vector2i
+	return "%.1f tiles @ %s" % [
+		float(entry.get("distance_tiles", 0.0)),
+		tile_pos,
+	]
+
+func _scan_structure_coverage(
+	snapshot: Dictionary,
+	world_generator: WorldGeneratorSingleton,
+	native_generator: RefCounted
+) -> Dictionary:
+	var grid_width: int = int(snapshot.get("prepass_grid_width", 0))
+	var grid_height: int = int(snapshot.get("prepass_grid_height", 0))
+	if grid_width <= 0 or grid_height <= 0:
+		return {}
+	var expected_size: int = grid_width * grid_height
+	var river_width_grid: PackedFloat32Array = snapshot.get("prepass_river_width_grid", PackedFloat32Array()) as PackedFloat32Array
+	var floodplain_grid: PackedFloat32Array = snapshot.get("prepass_floodplain_strength_grid", PackedFloat32Array()) as PackedFloat32Array
+	var ridge_grid: PackedFloat32Array = snapshot.get("prepass_ridge_strength_grid", PackedFloat32Array()) as PackedFloat32Array
+	var mountain_grid: PackedFloat32Array = snapshot.get("prepass_mountain_mass_grid", PackedFloat32Array()) as PackedFloat32Array
+	if river_width_grid.size() != expected_size \
+		or floodplain_grid.size() != expected_size \
+		or ridge_grid.size() != expected_size \
+		or mountain_grid.size() != expected_size:
+		return {}
+	var band_stats: Array = []
+	for band_index: int in range(STRUCTURE_BAND_COUNT):
+		var band_y_range: Vector2i = _resolve_structure_band_world_y_range(snapshot, band_index, STRUCTURE_BAND_COUNT)
+		band_stats.append({
+			"band_index": band_index,
+			"zone": _resolve_structure_band_zone_label(band_index, STRUCTURE_BAND_COUNT),
+			"min_y": band_y_range.x,
+			"max_y": band_y_range.y,
+			"authoritative_river_cells": 0,
+			"authoritative_mountain_cells": 0,
+			"sampled_tiles": 0,
+			"sampled_authoritative_river_tiles": 0,
+			"sampled_authoritative_mountain_tiles": 0,
+			"visible_river_tiles": 0,
+			"visible_mountain_tiles": 0,
+			"script_water_tiles": 0,
+			"script_bank_tiles": 0,
+			"script_rock_tiles": 0,
+			"native_water_tiles": 0,
+			"native_bank_tiles": 0,
+			"native_rock_tiles": 0,
+			"native_sample_failures": 0,
+			"terrain_mismatches": 0,
+		})
+	var nearest_hits: Dictionary = {}
+	var land_guarantee_radius_sq: float = _land_guarantee_radius_sq(world_generator)
+	var total_authoritative_river_cells: int = 0
+	var total_authoritative_mountain_cells: int = 0
+	var total_sampled_tiles: int = 0
+	var total_sampled_authoritative_river_tiles: int = 0
+	var total_sampled_authoritative_mountain_tiles: int = 0
+	var total_visible_river_tiles: int = 0
+	var total_visible_mountain_tiles: int = 0
+	var total_script_water_tiles: int = 0
+	var total_script_bank_tiles: int = 0
+	var total_script_rock_tiles: int = 0
+	var total_native_water_tiles: int = 0
+	var total_native_bank_tiles: int = 0
+	var total_native_rock_tiles: int = 0
+	var total_native_sample_failures: int = 0
+	var total_terrain_mismatches: int = 0
+	for grid_y: int in range(grid_height):
+		for grid_x: int in range(grid_width):
+			var band_index: int = _resolve_structure_band_index(grid_y, grid_height)
+			var band: Dictionary = band_stats[band_index] as Dictionary
+			var index: int = grid_y * grid_width + grid_x
+			var center_tile: Vector2i = _prepass_grid_cell_center_to_world_tile(snapshot, world_generator, grid_x, grid_y)
+			var distance_sq: float = _distance_from_spawn_sq(world_generator, center_tile)
+			if distance_sq <= land_guarantee_radius_sq:
+				continue
+			var river_width: float = float(river_width_grid[index])
+			var floodplain_strength: float = float(floodplain_grid[index])
+			var ridge_strength: float = float(ridge_grid[index])
+			var mountain_mass: float = float(mountain_grid[index])
+			if _is_authoritative_river_cell(river_width, floodplain_strength):
+				band["authoritative_river_cells"] = int(band.get("authoritative_river_cells", 0)) + 1
+				total_authoritative_river_cells += 1
+				_update_nearest_hit(nearest_hits, "authoritative_river", distance_sq, center_tile)
+			if _is_authoritative_mountain_cell(ridge_strength, mountain_mass):
+				band["authoritative_mountain_cells"] = int(band.get("authoritative_mountain_cells", 0)) + 1
+				total_authoritative_mountain_cells += 1
+				_update_nearest_hit(nearest_hits, "authoritative_mountain", distance_sq, center_tile)
+			if grid_x % STRUCTURE_BAND_SAMPLE_STRIDE_CELLS != 0 or grid_y % STRUCTURE_BAND_SAMPLE_STRIDE_CELLS != 0:
+				band_stats[band_index] = band
+				continue
+			band["sampled_tiles"] = int(band.get("sampled_tiles", 0)) + 1
+			total_sampled_tiles += 1
+			var channels: WorldChannels = world_generator.sample_world_channels(center_tile)
+			var structure_context: WorldStructureContext = world_generator.sample_structure_context(center_tile, channels)
+			if structure_context == null:
+				band_stats[band_index] = band
+				continue
+			var script_terrain: int = int(world_generator.get_terrain_type_fast(center_tile))
+			var is_authoritative_river: bool = _is_authoritative_river_context(structure_context)
+			var is_authoritative_mountain: bool = _is_authoritative_mountain_context(structure_context)
+			if is_authoritative_river:
+				band["sampled_authoritative_river_tiles"] = int(band.get("sampled_authoritative_river_tiles", 0)) + 1
+				total_sampled_authoritative_river_tiles += 1
+			if is_authoritative_mountain:
+				band["sampled_authoritative_mountain_tiles"] = int(band.get("sampled_authoritative_mountain_tiles", 0)) + 1
+				total_sampled_authoritative_mountain_tiles += 1
+			if script_terrain == TileGenData.TerrainType.WATER:
+				band["script_water_tiles"] = int(band.get("script_water_tiles", 0)) + 1
+				total_script_water_tiles += 1
+				_update_nearest_hit(nearest_hits, "visible_water", distance_sq, center_tile)
+			elif script_terrain == TileGenData.TerrainType.SAND:
+				band["script_bank_tiles"] = int(band.get("script_bank_tiles", 0)) + 1
+				total_script_bank_tiles += 1
+				_update_nearest_hit(nearest_hits, "visible_bank", distance_sq, center_tile)
+			elif script_terrain == TileGenData.TerrainType.ROCK:
+				band["script_rock_tiles"] = int(band.get("script_rock_tiles", 0)) + 1
+				total_script_rock_tiles += 1
+				_update_nearest_hit(nearest_hits, "visible_rock", distance_sq, center_tile)
+			if is_authoritative_river and (
+				script_terrain == TileGenData.TerrainType.WATER or script_terrain == TileGenData.TerrainType.SAND
+			):
+				band["visible_river_tiles"] = int(band.get("visible_river_tiles", 0)) + 1
+				total_visible_river_tiles += 1
+				_update_nearest_hit(nearest_hits, "visible_river", distance_sq, center_tile)
+			if is_authoritative_mountain and script_terrain == TileGenData.TerrainType.ROCK:
+				band["visible_mountain_tiles"] = int(band.get("visible_mountain_tiles", 0)) + 1
+				total_visible_mountain_tiles += 1
+				_update_nearest_hit(nearest_hits, "visible_mountain", distance_sq, center_tile)
+			var native_tile: Dictionary = native_generator.sample_tile(center_tile, world_generator.spawn_tile) as Dictionary
+			if native_tile.is_empty():
+				band["native_sample_failures"] = int(band.get("native_sample_failures", 0)) + 1
+				total_native_sample_failures += 1
+				if total_native_sample_failures <= MAX_MISMATCH_LOGS:
+					print("[CodexProof] native structure coverage sample failed at %s" % [center_tile])
+				band_stats[band_index] = band
+				continue
+			var native_terrain: int = int(native_tile.get("terrain", -1))
+			if native_terrain == TileGenData.TerrainType.WATER:
+				band["native_water_tiles"] = int(band.get("native_water_tiles", 0)) + 1
+				total_native_water_tiles += 1
+			elif native_terrain == TileGenData.TerrainType.SAND:
+				band["native_bank_tiles"] = int(band.get("native_bank_tiles", 0)) + 1
+				total_native_bank_tiles += 1
+			elif native_terrain == TileGenData.TerrainType.ROCK:
+				band["native_rock_tiles"] = int(band.get("native_rock_tiles", 0)) + 1
+				total_native_rock_tiles += 1
+			if native_terrain != script_terrain:
+				band["terrain_mismatches"] = int(band.get("terrain_mismatches", 0)) + 1
+				total_terrain_mismatches += 1
+				if total_terrain_mismatches <= MAX_MISMATCH_LOGS:
+					print("[CodexProof] structure coverage terrain mismatch at %s script=%d native=%d band=%d" % [
+						center_tile,
+						script_terrain,
+						native_terrain,
+						band_index,
+					])
+			band_stats[band_index] = band
+	return {
+		"band_count": STRUCTURE_BAND_COUNT,
+		"sample_stride_cells": STRUCTURE_BAND_SAMPLE_STRIDE_CELLS,
+		"authoritative_river_cells": total_authoritative_river_cells,
+		"authoritative_mountain_cells": total_authoritative_mountain_cells,
+		"sampled_tiles": total_sampled_tiles,
+		"sampled_authoritative_river_tiles": total_sampled_authoritative_river_tiles,
+		"sampled_authoritative_mountain_tiles": total_sampled_authoritative_mountain_tiles,
+		"visible_river_tiles": total_visible_river_tiles,
+		"visible_mountain_tiles": total_visible_mountain_tiles,
+		"script_water_tiles": total_script_water_tiles,
+		"script_bank_tiles": total_script_bank_tiles,
+		"script_rock_tiles": total_script_rock_tiles,
+		"native_water_tiles": total_native_water_tiles,
+		"native_bank_tiles": total_native_bank_tiles,
+		"native_rock_tiles": total_native_rock_tiles,
+		"native_sample_failures": total_native_sample_failures,
+		"terrain_mismatches": total_terrain_mismatches,
+		"bands": band_stats,
+		"nearest_hits": nearest_hits,
+	}
+
+func _print_structure_band_summary(coverage: Dictionary) -> void:
+	if coverage.is_empty():
+		return
+	var band_stats: Array = coverage.get("bands", []) as Array
+	print("[CodexProof] structure coverage band table (auth_*_cells = exact pre-pass cells, sampled_* = sparse tile centers, band_count=%d, stride=%d cells)" % [
+		int(coverage.get("band_count", 0)),
+		int(coverage.get("sample_stride_cells", 0)),
+	])
+	print("[CodexProof] band|zone|y_range|auth_river_cells|auth_mountain_cells|sampled_tiles|auth_river_samples|auth_mountain_samples|visible_river_samples|visible_mountain_samples|script_water|script_sand|script_rock|native_water|native_sand|native_rock|native_failures|terrain_mismatches")
+	for band_variant: Variant in band_stats:
+		var band: Dictionary = band_variant as Dictionary
+		print("[CodexProof] %d|%s|%d..%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d" % [
+			int(band.get("band_index", 0)),
+			String(band.get("zone", "")),
+			int(band.get("min_y", 0)),
+			int(band.get("max_y", 0)),
+			int(band.get("authoritative_river_cells", 0)),
+			int(band.get("authoritative_mountain_cells", 0)),
+			int(band.get("sampled_tiles", 0)),
+			int(band.get("sampled_authoritative_river_tiles", 0)),
+			int(band.get("sampled_authoritative_mountain_tiles", 0)),
+			int(band.get("visible_river_tiles", 0)),
+			int(band.get("visible_mountain_tiles", 0)),
+			int(band.get("script_water_tiles", 0)),
+			int(band.get("script_bank_tiles", 0)),
+			int(band.get("script_rock_tiles", 0)),
+			int(band.get("native_water_tiles", 0)),
+			int(band.get("native_bank_tiles", 0)),
+			int(band.get("native_rock_tiles", 0)),
+			int(band.get("native_sample_failures", 0)),
+			int(band.get("terrain_mismatches", 0)),
+		])
+
+func _print_structure_nearest_summary(coverage: Dictionary) -> void:
+	if coverage.is_empty():
+		return
+	var nearest_hits: Dictionary = coverage.get("nearest_hits", {}) as Dictionary
+	for label: String in [
+		"authoritative_river",
+		"authoritative_mountain",
+		"visible_river",
+		"visible_mountain",
+		"visible_water",
+		"visible_bank",
+		"visible_rock",
+	]:
+		print("[CodexProof] nearest_%s=%s" % [label, _format_nearest_hit(nearest_hits, label)])
+
+func _append_structure_report_lines(lines: PackedStringArray, kind: String, report: Dictionary) -> PackedStringArray:
+	var candidate: Dictionary = report.get("candidate", {}) as Dictionary
+	var metrics: Dictionary = report.get("metrics", {}) as Dictionary
+	var saved: Dictionary = report.get("saved", {}) as Dictionary
+	lines.append("%s_failure=%s" % [kind, str(bool(report.get("has_failure", true)))])
+	lines.append("%s_center=%s" % [kind, str(report.get("center_tile", Vector2i.ZERO))])
+	lines.append("%s_grid=%s" % [kind, str(candidate.get("grid_pos", Vector2i.ZERO))])
+	lines.append("%s_primary=%.3f" % [kind, float(candidate.get("primary_value", 0.0))])
+	lines.append("%s_secondary=%.3f" % [kind, float(candidate.get("secondary_value", 0.0))])
+	lines.append("%s_score=%.3f" % [kind, float(candidate.get("score", 0.0))])
+	lines.append("%s_authoritative_tiles=%d" % [kind, int(metrics.get("%s_authoritative_tiles" % kind, 0))])
+	lines.append("%s_visible_tiles=%d" % [kind, int(metrics.get("%s_visible_tiles" % kind, 0))])
+	for preview_key: String in ["biomes", "terrain", "structures", "ecotone", "vegetation"]:
+		var path: String = String(saved.get(preview_key, ""))
+		if not path.is_empty():
+			lines.append("%s_%s=%s" % [kind, preview_key, path])
+	return lines
+
+func _write_structure_coverage_summary_artifact(
+	world_generator: WorldGeneratorSingleton,
+	coverage: Dictionary,
+	river_report: Dictionary,
+	mountain_report: Dictionary,
+	radius_tiles: int
+) -> String:
+	if world_generator == null or coverage.is_empty():
+		return ""
+	var output_dir: String = ProjectSettings.globalize_path(STRUCTURE_OUTPUT_ROOT)
+	var dir_result: Error = DirAccess.make_dir_recursive_absolute(output_dir)
+	if dir_result != OK and not DirAccess.dir_exists_absolute(output_dir):
+		return ""
+	var timestamp: int = Time.get_unix_time_from_system()
+	var artifact_path: String = output_dir.path_join("structure_coverage_seed%d_%d.txt" % [
+		world_generator.world_seed,
+		timestamp,
+	])
+	var nearest_hits: Dictionary = coverage.get("nearest_hits", {}) as Dictionary
+	var lines := PackedStringArray()
+	lines.append("# Structure coverage proof")
+	lines.append("seed=%d" % [world_generator.world_seed])
+	lines.append("radius_tiles=%d" % [radius_tiles])
+	lines.append("band_count=%d" % [int(coverage.get("band_count", 0))])
+	lines.append("sample_stride_cells=%d" % [int(coverage.get("sample_stride_cells", 0))])
+	lines.append("sampled_tiles=%d" % [int(coverage.get("sampled_tiles", 0))])
+	lines.append("authoritative_river_cells=%d" % [int(coverage.get("authoritative_river_cells", 0))])
+	lines.append("authoritative_mountain_cells=%d" % [int(coverage.get("authoritative_mountain_cells", 0))])
+	lines.append("sampled_authoritative_river_tiles=%d" % [int(coverage.get("sampled_authoritative_river_tiles", 0))])
+	lines.append("sampled_authoritative_mountain_tiles=%d" % [int(coverage.get("sampled_authoritative_mountain_tiles", 0))])
+	lines.append("visible_river_tiles=%d" % [int(coverage.get("visible_river_tiles", 0))])
+	lines.append("visible_mountain_tiles=%d" % [int(coverage.get("visible_mountain_tiles", 0))])
+	lines.append("script_water_tiles=%d" % [int(coverage.get("script_water_tiles", 0))])
+	lines.append("script_bank_tiles=%d" % [int(coverage.get("script_bank_tiles", 0))])
+	lines.append("script_rock_tiles=%d" % [int(coverage.get("script_rock_tiles", 0))])
+	lines.append("native_water_tiles=%d" % [int(coverage.get("native_water_tiles", 0))])
+	lines.append("native_bank_tiles=%d" % [int(coverage.get("native_bank_tiles", 0))])
+	lines.append("native_rock_tiles=%d" % [int(coverage.get("native_rock_tiles", 0))])
+	lines.append("native_sample_failures=%d" % [int(coverage.get("native_sample_failures", 0))])
+	lines.append("terrain_mismatches=%d" % [int(coverage.get("terrain_mismatches", 0))])
+	lines.append("native_terrain_tolerance=%d" % [STRUCTURE_NATIVE_TERRAIN_TOLERANCE])
+	lines.append("")
+	lines.append("## Nearest distances")
+	for label: String in [
+		"authoritative_river",
+		"authoritative_mountain",
+		"visible_river",
+		"visible_mountain",
+		"visible_water",
+		"visible_bank",
+		"visible_rock",
+	]:
+		lines.append("%s=%s" % [label, _format_nearest_hit(nearest_hits, label)])
+	lines.append("")
+	lines.append("## Candidate windows")
+	lines = _append_structure_report_lines(lines, "river", river_report)
+	lines.append("")
+	lines = _append_structure_report_lines(lines, "mountain", mountain_report)
+	lines.append("")
+	lines.append("## Band table")
+	lines.append("band|zone|y_range|auth_river_cells|auth_mountain_cells|sampled_tiles|auth_river_samples|auth_mountain_samples|visible_river_samples|visible_mountain_samples|script_water|script_sand|script_rock|native_water|native_sand|native_rock|native_failures|terrain_mismatches")
+	for band_variant: Variant in coverage.get("bands", []) as Array:
+		var band: Dictionary = band_variant as Dictionary
+		lines.append("%d|%s|%d..%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d" % [
+			int(band.get("band_index", 0)),
+			String(band.get("zone", "")),
+			int(band.get("min_y", 0)),
+			int(band.get("max_y", 0)),
+			int(band.get("authoritative_river_cells", 0)),
+			int(band.get("authoritative_mountain_cells", 0)),
+			int(band.get("sampled_tiles", 0)),
+			int(band.get("sampled_authoritative_river_tiles", 0)),
+			int(band.get("sampled_authoritative_mountain_tiles", 0)),
+			int(band.get("visible_river_tiles", 0)),
+			int(band.get("visible_mountain_tiles", 0)),
+			int(band.get("script_water_tiles", 0)),
+			int(band.get("script_bank_tiles", 0)),
+			int(band.get("script_rock_tiles", 0)),
+			int(band.get("native_water_tiles", 0)),
+			int(band.get("native_bank_tiles", 0)),
+			int(band.get("native_rock_tiles", 0)),
+			int(band.get("native_sample_failures", 0)),
+			int(band.get("terrain_mismatches", 0)),
+		])
+	var file: FileAccess = FileAccess.open(artifact_path, FileAccess.WRITE)
+	if file == null:
+		return ""
+	file.store_string("\n".join(lines) + "\n")
+	file.close()
+	return artifact_path
+
 func _report_structure_visibility(
 	kind: StringName,
 	world_generator: WorldGeneratorSingleton,
 	exporter: WorldPreviewExporter,
 	candidate: Dictionary,
 	radius_tiles: int
-) -> bool:
+) -> Dictionary:
 	if candidate.is_empty():
 		print("[CodexProof] %s candidate missing in authoritative pre-pass snapshot" % [kind])
-		return true
+		return {
+			"kind": String(kind),
+			"has_failure": true,
+			"candidate": {},
+			"metrics": {},
+			"saved": {},
+			"center_tile": Vector2i.ZERO,
+		}
 	var center_tile: Vector2i = candidate.get("world_pos", Vector2i.ZERO) as Vector2i
 	print("[CodexProof] measuring %s candidate window around %s" % [kind, center_tile])
 	var metrics: Dictionary = _measure_structure_visibility_window(world_generator, center_tile, radius_tiles)
@@ -589,7 +1039,14 @@ func _report_structure_visibility(
 	var visible_key: String = "%s_visible_tiles" % kind
 	var authoritative_tiles: int = int(metrics.get(authoritative_key, 0))
 	var visible_tiles: int = int(metrics.get(visible_key, 0))
-	return authoritative_tiles <= 0 or visible_tiles <= 0
+	return {
+		"kind": String(kind),
+		"has_failure": authoritative_tiles <= 0 or visible_tiles <= 0,
+		"candidate": candidate.duplicate(true),
+		"metrics": metrics.duplicate(true),
+		"saved": saved.duplicate(true),
+		"center_tile": center_tile,
+	}
 
 func _measure_structure_visibility_window(
 	world_generator: WorldGeneratorSingleton,
@@ -622,7 +1079,7 @@ func _measure_structure_visibility_window(
 			max_floodplain_strength = maxf(max_floodplain_strength, structure_context.floodplain_strength)
 			max_ridge_strength = maxf(max_ridge_strength, structure_context.ridge_strength)
 			max_mountain_mass = maxf(max_mountain_mass, structure_context.mountain_mass)
-			var is_authoritative_river: bool = structure_context.river_strength >= 0.12 or structure_context.floodplain_strength >= 0.18
+			var is_authoritative_river: bool = _is_authoritative_river_context(structure_context)
 			if is_authoritative_river:
 				river_authoritative_tiles += 1
 				if terrain == TileGenData.TerrainType.WATER:
@@ -631,7 +1088,7 @@ func _measure_structure_visibility_window(
 				elif terrain == TileGenData.TerrainType.SAND:
 					river_visible_tiles += 1
 					bank_tiles += 1
-			var is_authoritative_mountain: bool = structure_context.ridge_strength >= 0.20 or structure_context.mountain_mass >= 0.18
+			var is_authoritative_mountain: bool = _is_authoritative_mountain_context(structure_context)
 			if is_authoritative_mountain:
 				mountain_authoritative_tiles += 1
 				if terrain == TileGenData.TerrainType.ROCK:

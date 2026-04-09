@@ -4,8 +4,8 @@ doc_type: governance
 status: approved
 owner: engineering
 source_of_truth: true
-version: 2.0
-last_updated: 2026-03-25
+version: 2.1
+last_updated: 2026-04-09
 depends_on:
   - DOCUMENT_PRECEDENCE.md
 ---
@@ -112,6 +112,24 @@ Forbidden synchronously:
 
 If an operation is ambiguous, treat it as forbidden until profiled and justified.
 
+### 1.5 Scale horizon rule
+
+Runtime architecture is judged against intended scale, not today's tiny sample size.
+
+Invalid reasoning:
+- "it is only one tree right now"
+- "currently there are only a few objects in the chunk"
+- "we can keep it synchronous until content grows"
+
+Required reasoning for every new runtime-sensitive or extensible feature:
+- what density/fan-out it must tolerate in intended gameplay
+- what data is authoritative truth and who is the single write owner
+- what the local dirty unit is
+- what work is allowed to stay synchronous
+- what work escalates to queue, worker-thread compute, native cache, or C++
+
+If those answers are missing, the design is not performance-safe yet.
+
 ## 2. Frame and operation budgets
 
 ### 2.1 Frame budget model
@@ -212,6 +230,8 @@ Rules:
 - base data is generated or restored once
 - runtime saves store diffs, not redundant full state
 - rendering and logic should read `base + diff`, not rebuild base every time
+- every mutable or cached layer must name one authoritative source of truth and one write owner
+- derived caches/mirrors must declare invalidation/rebuild rules; duplicated mutable truth without ownership is forbidden
 
 ## 6. Precompute / Native Cache
 
@@ -230,6 +250,18 @@ Good candidates:
 Important:
 - moving code to C++ alone is not enough
 - the optimization only counts if heavy state stays native-side or bridge payload shrinks materially
+
+### 6.1 Escalation path requirement
+
+For new runtime-sensitive/extensible work, the author must explicitly decide whether the heavy part should be:
+- local synchronous GDScript
+- budgeted background queue work
+- worker-thread compute plus bounded main-thread apply
+- native cache / C++ ownership
+
+Staying on the main thread in pure GDScript is acceptable only when the synchronous work is truly local and remains bounded by the declared dirty unit, not by total content count in the loaded area.
+
+If the workload is grid-heavy, repeated across many entities/tiles, or likely to grow with mod/content density, you must seriously evaluate worker/native ownership instead of defaulting to "leave it in script for now".
 
 ## 7. Staged Loading
 
@@ -296,14 +328,18 @@ Good native usage:
 Before implementation:
 - classify the work
 - define the contract
+- define the intended scale / density
+- define the authoritative truth and write owner
 - define base vs diff
 - define dirty units
+- define escalation path (`queue`, worker, native cache, C++, etc.)
 - define degraded mode if needed
 
 After implementation:
 - instrument the hot path
 - stress test gameplay scenarios
 - verify no hidden full rebuild remains
+- verify the design is not justified only by today's tiny content count
 - verify the player does not feel hitch even if logs look clean
 
 ## 12. Standard performance proof recipe
@@ -480,5 +516,6 @@ Performance in this project is not something we “optimize later”.
 The architectural goal is:
 - heavy work should structurally avoid the gameplay path
 - expensive systems should default to incremental, budgeted, cache-aware behavior
+- scalable systems should declare authoritative truth, dirty units, and escalation paths before code lands
 
 If a feature requires a full rebuild or sync cache wait during gameplay, redesign the feature before shipping the code.

@@ -16,6 +16,16 @@
 3. Feature spec текущей задачи (если есть)
 4. Только после этого — конкретные файлы, указанные в задаче или контракте
 
+Если задача добавляет или меняет runtime-sensitive, loading-sensitive, streaming,
+world, AI, building, flora, pathfinding, simulation, или другую потенциально
+масштабируемую систему, до открытия кода также обязательно прочитай:
+- `docs/00_governance/PERFORMANCE_CONTRACTS.md`
+- `docs/00_governance/ENGINEERING_STANDARDS.md`
+
+Запрещено оправдывать синхронное решение формулировками вроде
+"сейчас объектов мало", "пока это только одно дерево" или
+"многопоточность пока не нужна, потому что контента мало".
+
 **Код используется ТОЛЬКО для:**
 - нахождения конкретной строки, которую надо изменить
 - проверки точного синтаксиса / сигнатуры функции
@@ -49,9 +59,16 @@
 
 1. Прочитай `DATA_CONTRACTS.md` — пойми, какие слои данных существуют, кто их владелец, какие инварианты действуют.
 2. Прочитай `PUBLIC_API.md` — пойми, какие функции вызывать, какие запрещено.
-3. Прочитай spec текущей фичи (если есть) — пойми acceptance tests для своей итерации.
-4. Определи, какие слои данных затрагивает твоя задача.
-5. Определи, какие конкретные файлы и функции указаны в задаче и контракте. Работай ТОЛЬКО с ними.
+3. Если задача runtime-sensitive или потенциально масштабируемая — прочитай `PERFORMANCE_CONTRACTS.md` и `ENGINEERING_STANDARDS.md`.
+4. Прочитай spec текущей фичи (если есть) — пойми acceptance tests для своей итерации.
+5. Определи, какие слои данных затрагивает твоя задача.
+6. Для runtime-sensitive/extensible изменения зафиксируй до кода:
+   - authoritative source of truth
+   - single write owner
+   - что является derived/cache state
+   - local dirty unit
+   - что остаётся в sync path, а что обязано уходить в queue/worker/native
+7. Определи, какие конкретные файлы и функции указаны в задаче и контракте. Работай ТОЛЬКО с ними.
 
 Если spec фичи не существует — **НЕ НАЧИНАЙ КОДИТЬ**. Сначала создай spec (см. "Порядок добавления новой фичи" ниже).
 
@@ -73,6 +90,18 @@
 ## Design Intent
 Что фича делает для игрока. Краткое изложение видения.
 
+## Performance / Scalability Contract
+- Runtime class: (`boot`, `background`, `interactive`, или `not runtime-sensitive`)
+- Target scale / density: (какой масштаб обязан выдерживать дизайн, а не только текущий sample size)
+- Authoritative source of truth: (какой слой/структура является истиной)
+- Write owner: (кто единственный пишет в authoritative state)
+- Derived/cache state: (какие кэши/зеркала допустимы и как они инвалидируются)
+- Dirty unit: (минимальная локальная единица синхронного обновления)
+- Allowed synchronous work: (что разрешено сделать сразу)
+- Escalation path: (что уходит в queue / worker / native cache / C++ и при каком trigger)
+- Degraded mode: (что можно временно отложить или показать упрощённо)
+- Forbidden shortcuts: (явно перечислить недопустимые "быстрые" решения)
+
 ## Data Contracts — новые и затронутые
 
 ### Новый слой: <название> (если фича создаёт новый слой данных)
@@ -89,6 +118,11 @@
 - Новые инварианты (если есть):
 - Кто адаптируется:
 - Что НЕ меняется: (явно указать, чтобы агент-кодер не трогал лишнего)
+
+## Required contract and API updates
+- `DATA_CONTRACTS.md`: (что должно быть обновлено / `not required` с причиной)
+- `PUBLIC_API.md`: (что должно быть обновлено / `not required` с причиной)
+- Другие canonical docs: (если нужны)
 
 ## Iterations
 
@@ -118,6 +152,9 @@ Acceptance tests:
 - Acceptance tests — конкретные, проверяемые (assert или "запусти и увидишь X")
 - Никаких субъективных критериев типа "should read as natural" без конкретного теста рядом
 - Контракты данных пишутся ДО кода, привязаны к конкретной фиче
+- Для каждой runtime-sensitive или extensible фичи spec обязан назвать target scale, source of truth, single writer, dirty unit и escalation path до кода
+- "Сейчас объект один/редкий/маленький" — невалидное perf-обоснование для spec
+- Если фича создаёт derived caches или mutable mirrors, spec обязан явно описать их owner и invalidation path
 
 ### Фаза C: Ревью spec (делает человек)
 
@@ -135,14 +172,18 @@ Acceptance tests:
 
 Правила реализации:
 - Перед началом — прочитай DATA_CONTRACTS.md
+- Для runtime-sensitive/extensible изменений — перечитай PERFORMANCE_CONTRACTS.md и ENGINEERING_STANDARDS.md
 - Делай ТОЛЬКО свою итерацию, не забегай вперёд
 - Открывай ТОЛЬКО файлы, перечисленные в "Файлы, которые будут затронуты"
+- Если spec не объясняет source of truth, dirty unit и escalation path, остановись и сначала уточни spec
 - После завершения — проверь ВСЕ acceptance tests своей итерации
 - Если acceptance test не проходит — чини, не сдавай
 - НЕ оптимизируй код, который не относится к задаче
 - НЕ рефакторь код, который не относится к задаче
 - НЕ трогай файлы из списка "НЕ ДОЛЖНЫ быть затронуты"
 - НЕ запускай explore-агентов и параллельные сканирования
+- НЕ оправдывай sync/main-thread решение тем, что текущая нагрузка пока маленькая
+- НЕ добавляй mutable cache/mirror без явного owner и invalidation path
 
 ## Правила валидации и acceptance tests
 
@@ -327,12 +368,17 @@ godot.exe --headless --path . --script res://tools/perf_log_summary.gd -- codex_
 
 ## Порядок оптимизации
 
-1. Прочитай DATA_CONTRACTS.md
-2. Определи: какие инварианты затрагивает оптимизация?
-3. Реализуй оптимизацию
-4. Проверь ВСЕ инварианты затронутых слоёв
-5. Если хоть один инвариант нарушен — откати оптимизацию, она невалидна
-6. Оптимизация, нарушающая контракт, не является оптимизацией
+1. Прочитай `DATA_CONTRACTS.md`, а для runtime-sensitive задач ещё и `PERFORMANCE_CONTRACTS.md` + `ENGINEERING_STANDARDS.md`
+2. Определи: какие инварианты и owner boundaries затрагивает оптимизация?
+3. Классифицируй работу: `boot`, `background`, `interactive`
+4. Зафиксируй target scale / density, на котором решение обязано оставаться валидным
+5. Назови authoritative source of truth, single write owner и все derived/cache layers
+6. Определи local dirty unit и что именно разрешено выполнить синхронно
+7. Определи escalation path: что уходит в queue / worker / native cache / C++ вместо интерактивного пути
+8. Реализуй оптимизацию
+9. Проверь ВСЕ инварианты затронутых слоёв и perf contract
+10. Если хоть один инвариант нарушен — откати оптимизацию, она невалидна
+11. Оптимизация, нарушающая контракт или живущая только на аргументе "сейчас объектов мало", не является оптимизацией
 
 ---
 
@@ -427,6 +473,14 @@ godot.exe --headless --path . --script res://tools/perf_log_summary.gd -- codex_
 ## Контекст
 [Почему это нужно. Какая проблема решается. Ссылка на нарушение из DATA_CONTRACTS.md, если это багфикс]
 
+## Performance / scalability guardrails
+- Runtime class: [interactive / background / boot / not runtime-sensitive]
+- Target scale / density: [какой реальный масштаб обязан выдерживать дизайн]
+- Source of truth + write owner: [кто хранит истину и кто один имеет право писать]
+- Dirty unit: [какая минимальная локальная единица обновляется синхронно]
+- Escalation path: [что уходит в queue / worker / native cache / C++]
+- Why sync path stays bounded: [короткое объяснение]
+
 ## Scope — что делать
 - [Конкретный пункт 1]
 - [Конкретный пункт 2]
@@ -437,6 +491,7 @@ godot.exe --headless --path . --script res://tools/perf_log_summary.gd -- codex_
 - Не рефакторить код за пределами задачи
 - Не трогать [конкретные файлы/системы]
 - Не запускать explore-агентов и параллельные сканирования
+- Не оправдывать sync/main-thread решение тем, что сейчас объектов мало
 - [Другие ограничения]
 
 ## Файлы, которые можно трогать
@@ -468,6 +523,9 @@ godot.exe --headless --path . --script res://tools/perf_log_summary.gd -- codex_
 
 **"Чего не делать" важнее чем "что делать":**
 Агент по умолчанию расширяет scope. Без явных ограничений он найдёт в коде "ещё вот это надо бы починить" и потратит 70% токенов на то, о чём ты не просил. Секция "чего НЕ делать" — это забор, без которого агент разбредается.
+
+**Для runtime-sensitive задач пиши scale guardrails явно:**
+Если промпт не называет target scale, source of truth, dirty unit и escalation path, агент слишком легко скатится в решение, которое "нормально пока объектов мало", а потом разнесёт производительность при росте контента.
 
 **Один промпт = одна задача:**
 - ❌ "Почини wall atlas, neighbor normalization, cross-chunk redraw и debug paths"
@@ -503,6 +561,7 @@ godot.exe --headless --path . --script res://tools/perf_log_summary.gd -- codex_
 - [ ] Feature spec существует и одобрен?
 - [ ] Acceptance tests конкретные и проверяемые?
 - [ ] Понятно, какие слои данных затрагиваются?
+- [ ] Для runtime-sensitive/extensible задачи названы target scale, source of truth, dirty unit и escalation path?
 - [ ] Понятно, какие файлы можно трогать, а какие нет?
 - [ ] Конкретные файлы и функции определены из контракта / задачи (НЕ из сканирования)?
 
@@ -522,6 +581,8 @@ godot.exe --headless --path . --script res://tools/perf_log_summary.gd -- codex_
 - ❌ Рефакторить то, что не относится к текущей задаче
 - ❌ Менять слой данных без обновления DATA_CONTRACTS.md
 - ❌ Добавлять нового writer в слой данных без обновления DATA_CONTRACTS.md
+- ❌ Оправдывать sync/main-thread путь тем, что "пока это только один объект / одно дерево / один чанк"
+- ❌ Добавлять mutable cache/mirror без явного source of truth, owner и invalidation path
 - ❌ Сдавать итерацию с непройденными acceptance tests
 - ❌ Забегать на следующую итерацию, не закрыв текущую
 - ❌ Молча чинить то, что обнаружил в коде, но что не входит в задачу

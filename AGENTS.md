@@ -4,8 +4,8 @@ doc_type: agent_entrypoint
 status: draft
 owner: engineering
 source_of_truth: false
-version: 1.2
-last_updated: 2026-04-02
+version: 1.3
+last_updated: 2026-04-09
 related_docs:
   - docs/00_governance/DOCUMENT_PRECEDENCE.md
   - docs/00_governance/WORKFLOW.md
@@ -50,6 +50,15 @@ Do not use it as a replacement for contracts, APIs, specs, or ADRs.
 5. the relevant feature spec for the task
 6. the relevant contract document for the affected subsystem
 7. only then the exact code files listed in the task/spec
+
+If the task adds or changes runtime-sensitive, loading-sensitive, streaming, world,
+AI, building, flora, or otherwise extensible gameplay behavior, also read before
+opening code:
+- `docs/00_governance/PERFORMANCE_CONTRACTS.md`
+- `docs/00_governance/ENGINEERING_STANDARDS.md`
+
+For those tasks, "it is only one tree/chunk/object right now" is not a valid
+reason to skip scale-safe architecture.
 
 ### Skills — read before starting and before closing
 
@@ -120,14 +129,30 @@ If the user asks for a bug fix, do not redesign the subsystem.
 Prefer the smallest change that satisfies the spec, contract, and acceptance tests.
 Do not introduce a new manager, service, pipeline, or architecture layer unless the task explicitly requires it.
 
-### 5. No silent contract or API drift
+Smallest valid change does **not** mean "smallest code that works at today's tiny
+content count". It means the smallest change that remains correct at the feature's
+intended scale and does not knowingly push large future cost into the interactive path.
+
+### 5. Performance law beats local convenience
+For any runtime-sensitive or extensible change, explicitly determine before coding:
+- runtime work class (`boot`, `background`, or `interactive`)
+- intended growth case, not just the current sample size
+- authoritative source of truth and single write owner
+- what data is derived/cache versus authoritative
+- the local dirty unit that is allowed to update synchronously
+- the escalation path for larger work (`queue`, `worker`, `native cache`, `C++`, or another approved path)
+
+If you cannot explain why the synchronous path stays bounded when content density grows,
+the design is not ready to implement.
+
+### 6. No silent contract or API drift
 If the implementation changes a data contract, owner boundary, invariant, safe entry point, or API semantics, update the canonical docs in the same task.
 
 At minimum, check whether the task requires updates to:
 - `docs/02_system_specs/world/DATA_CONTRACTS.md`
 - `docs/00_governance/PUBLIC_API.md`
 
-### 6. Stop when done
+### 7. Stop when done
 If the requested step is complete, the acceptance tests pass, and no blocker remains, stop.
 Do not continue because there are nearby improvements, possible refactors, or architectural cleanup ideas.
 
@@ -142,6 +167,8 @@ Unless the task explicitly asks for it, do **not**:
 - change public boundaries casually
 - implement future iterations early
 - replace the requested step with a bigger "ideal" solution
+- justify synchronous runtime work with "currently there are only a few instances"
+- add a new mutable mirror/cache without naming its authoritative owner and invalidation path
 
 Anything noticed outside scope goes into:
 - `Out-of-scope observations`
@@ -153,6 +180,10 @@ Before changing code, determine:
 - who owns write access to those layers
 - which safe entry points are allowed
 - whether the current task changes API semantics or only implementation details
+- what runtime work class the change belongs to
+- what the authoritative source of truth is, and what is only derived/cache state
+- what dirty unit is allowed to execute synchronously
+- what work must escalate to queue/worker/native instead of staying in the interactive path
 
 If the task changes any of the following, update canonical docs before considering the task complete:
 - layer ownership
@@ -196,6 +227,8 @@ Treat the task as incomplete if any of the following is true:
 - a public contract or safe entry point is broken
 - save/load behavior breaks in the touched path
 - the task requires a performance constraint and the result clearly violates it
+- a runtime-sensitive change has no credible scale path beyond today's tiny content count
+- a new mutable cache/mirror was introduced without an explicit source of truth and write owner
 
 ## What does not justify continuing forever
 

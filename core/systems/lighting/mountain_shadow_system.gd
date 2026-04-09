@@ -40,6 +40,8 @@ var _retired_shadow_builds: Array[Dictionary] = []
 var _shadow_compute_results: Dictionary = {}
 var _shadow_compute_mutex: Mutex = Mutex.new()
 var _prefer_shadow_step: bool = true
+var _pending_mined_tile_updates: Array[Vector2i] = []
+var _pending_mined_tile_update_lookup: Dictionary = {}
 var _current_z: int = 0
 var _boot_shadow_work_started: bool = false
 var _boot_shadow_work_drained: bool = false
@@ -228,9 +230,9 @@ func _on_mountain_tile_mined(tile_pos: Vector2i, _old_type: int, _new_type: int)
 	if not _is_surface_context():
 		return
 	tile_pos = WorldGenerator.canonicalize_tile(tile_pos)
-	var dirty_targets: Array[Vector2i] = _update_edges_at(tile_pos)
-	for dirty_coord: Vector2i in dirty_targets:
-		_mark_dirty(dirty_coord)
+	if not _pending_mined_tile_update_lookup.has(tile_pos):
+		_pending_mined_tile_update_lookup[tile_pos] = true
+		_pending_mined_tile_updates.append(tile_pos)
 	_refresh_boot_shadow_completion_state()
 
 func _mark_dirty(coord: Vector2i) -> void:
@@ -253,6 +255,9 @@ func _tick_shadows() -> bool:
 	_drain_retired_shadow_builds()
 	if not _is_surface_context():
 		_tick_suspended_shadow_runtime()
+		_refresh_boot_shadow_completion_state()
+		return false
+	if _try_mined_tile_update_step():
 		_refresh_boot_shadow_completion_state()
 		return false
 	if not _active_build.is_empty():
@@ -296,6 +301,21 @@ func _tick_shadows() -> bool:
 	_refresh_boot_shadow_completion_state()
 	return false
 
+func _try_mined_tile_update_step() -> bool:
+	if _pending_mined_tile_updates.is_empty():
+		return false
+	var tile_pos: Vector2i = _pending_mined_tile_updates[0]
+	_pending_mined_tile_updates.remove_at(0)
+	_pending_mined_tile_update_lookup.erase(tile_pos)
+	var update_payload: Dictionary = _collect_mined_tile_shadow_update_payload(tile_pos)
+	var edge_dirty_coords: Array[Vector2i] = update_payload.get("edge_dirty_coords", []) as Array[Vector2i]
+	for edge_coord: Vector2i in edge_dirty_coords:
+		_enqueue_edge_cache_build(edge_coord)
+	var dirty_targets: Array[Vector2i] = update_payload.get("dirty_targets", []) as Array[Vector2i]
+	for dirty_coord: Vector2i in dirty_targets:
+		_mark_dirty(dirty_coord)
+	return true
+
 func _try_shadow_step() -> bool:
 	var step_usec: int = WorldPerfProbe.begin()
 	var deferred: Array[Vector2i] = []
@@ -327,6 +347,45 @@ func _try_edge_step() -> bool:
 		_start_edge_cache_build(coord)
 		return true
 	return false
+
+func _collect_mined_tile_shadow_update_payload(tile_pos: Vector2i) -> Dictionary:
+	if not _chunk_manager:
+		return {
+			"edge_dirty_coords": [],
+			"dirty_targets": [],
+		}
+	var edge_dirty_coords: Dictionary = {}
+	var dirty_targets: Dictionary = {}
+	var boundary_reach: int = _resolve_shadow_cross_chunk_reach()
+	for offset_y: int in range(-1, 2):
+		for offset_x: int in range(-1, 2):
+			var check_tile: Vector2i = WorldGenerator.offset_tile(tile_pos, Vector2i(offset_x, offset_y))
+			var coord: Vector2i = _canonical_chunk_coord(WorldGenerator.tile_to_chunk(check_tile))
+			var chunk: Chunk = _chunk_manager.get_chunk(coord)
+			if not chunk:
+				continue
+			edge_dirty_coords[coord] = true
+			_maybe_mark_shadow_target(dirty_targets, coord)
+			var chunk_size: int = chunk.get_chunk_size()
+			var local_tile: Vector2i = chunk.global_to_local(check_tile)
+			if local_tile.x < boundary_reach:
+				_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, Vector2i.LEFT))
+			if local_tile.x >= chunk_size - boundary_reach:
+				_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, Vector2i.RIGHT))
+			if local_tile.y < boundary_reach:
+				_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, Vector2i.UP))
+			if local_tile.y >= chunk_size - boundary_reach:
+				_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, Vector2i.DOWN))
+	var edge_coord_list: Array[Vector2i] = []
+	for coord_variant: Variant in edge_dirty_coords.keys():
+		edge_coord_list.append(coord_variant as Vector2i)
+	var dirty_target_list: Array[Vector2i] = []
+	for target_variant: Variant in dirty_targets.keys():
+		dirty_target_list.append(target_variant as Vector2i)
+	return {
+		"edge_dirty_coords": edge_coord_list,
+		"dirty_targets": dirty_target_list,
+	}
 
 ## Инкрементальное обновление edge-кеша для 1 тайла и 8 соседей. O(9) вместо O(4096).
 func _update_edges_at(tile_pos: Vector2i) -> Array[Vector2i]:
@@ -1204,6 +1263,8 @@ func _remove_shadow(coord: Vector2i) -> void:
 func _suspend_surface_shadow_runtime(hide_container: bool) -> void:
 	_dirty_queue.clear()
 	_edge_build_queue.clear()
+	_pending_mined_tile_updates.clear()
+	_pending_mined_tile_update_lookup.clear()
 	if not _active_edge_cache_build.is_empty():
 		_active_edge_cache_build["cancelled"] = true
 	if not _active_build.is_empty():

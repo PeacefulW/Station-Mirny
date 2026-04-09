@@ -424,11 +424,23 @@ BiomePrePassSample ChunkGenerator::sample_biome_prepass(int wx, int wy) const {
 }
 
 float ChunkGenerator::derive_river_strength_from_prepass(float river_width, float river_distance) const {
-    float width_strength = clampf((std::max(0.0f, river_width) + 1.0f) / 6.0f, 0.0f, 1.0f);
-    if (river_distance <= 0.001f && river_width > 0.0f) {
-        return std::max(width_strength, 0.55f);
+    float resolved_width = std::max(0.0f, river_width);
+    if (resolved_width <= 0.001f) {
+        return 0.0f;
     }
-    return width_strength;
+    float width_presence = clampf(resolved_width, 0.0f, 1.0f);
+    float width_strength = clampf(resolved_width / 4.0f, 0.0f, 1.0f);
+    float core_radius = std::max(1.0f, resolved_width * 0.55f);
+    float bank_radius = core_radius + std::max(1.25f, resolved_width * 0.85f);
+    float distance_to_river = std::max(0.0f, river_distance);
+    float proximity = clampf(1.0f - distance_to_river / bank_radius, 0.0f, 1.0f);
+    proximity = proximity * proximity * (3.0f - 2.0f * proximity);
+    float core_proximity = clampf(1.0f - distance_to_river / core_radius, 0.0f, 1.0f);
+    core_proximity = core_proximity * core_proximity * (3.0f - 2.0f * core_proximity);
+    float combined_strength = width_strength * (0.10f + proximity * 0.70f);
+    combined_strength += proximity * 0.18f;
+    combined_strength += core_proximity * 0.12f;
+    return clampf(combined_strength * width_presence, 0.0f, 1.0f);
 }
 
 bool ChunkGenerator::biome_uses_causal_moisture(const BiomeDef& b) const {
@@ -787,8 +799,8 @@ ChunkGenerator::TerrainType ChunkGenerator::resolve_terrain(
         if (sc.river_width <= 0.0f) {
             return 0.0f;
         }
-        float width_scale = lerpf(0.62f, 0.38f, slope_value);
-        return std::max(0.9f, sc.river_width * width_scale);
+        float width_scale = lerpf(0.70f, 0.44f, slope_value);
+        return std::max(1.2f, sc.river_width * width_scale);
     };
     auto bank_outer_radius = [&]() {
         if (sc.river_width <= 0.0f && sc.floodplain_strength <= 0.0f) {
@@ -796,8 +808,8 @@ ChunkGenerator::TerrainType ChunkGenerator::resolve_terrain(
         }
         float river_radius = river_core_radius();
         float bank_reach = std::max(
-            1.0f,
-            sc.river_width * 0.55f + sc.floodplain_strength * lerpf(3.4f, 1.6f, slope_value)
+            1.6f,
+            sc.river_width * 0.72f + sc.floodplain_strength * lerpf(5.2f, 2.4f, slope_value)
         );
         return river_radius + bank_reach;
     };
@@ -823,9 +835,13 @@ ChunkGenerator::TerrainType ChunkGenerator::resolve_terrain(
         float river_radius = river_core_radius();
         float effective_river_strength = sc.river_strength + sc.floodplain_strength * 0.10f
             + vr.wetness_mod * 0.10f - vr.rockiness_mod * 0.04f;
-        float allowed_height = river_max_height + sc.river_width * 0.08f + (1.0f - slope_value) * 0.08f;
-        if (river_radius > 0.0f
-            && sc.river_distance <= river_radius
+        float visible_radius = river_radius
+            + std::max(0.0f, effective_river_strength - river_min_strength * 0.75f) * 3.0f
+            + std::max(0.0f, sc.floodplain_strength - 0.30f) * 1.6f;
+        float allowed_height = river_max_height + sc.river_width * 0.09f + (1.0f - slope_value) * 0.10f
+            + sc.river_strength * 0.10f + sc.floodplain_strength * 0.05f;
+        if (visible_radius > 0.0f
+            && sc.river_distance <= visible_radius
             && effective_river_strength >= river_min_strength * 0.75f
             && ch.height <= allowed_height) {
             return WATER;
@@ -837,12 +853,23 @@ ChunkGenerator::TerrainType ChunkGenerator::resolve_terrain(
         float outer_radius = bank_outer_radius();
         float effective_floodplain = sc.floodplain_strength + vr.wetness_mod * 0.08f - vr.rockiness_mod * 0.02f;
         float effective_river_strength = sc.river_strength + vr.wetness_mod * 0.08f;
-        float allowed_height = bank_max_height + sc.river_width * 0.05f + (1.0f - slope_value) * 0.06f;
-        if (outer_radius > 0.0f
-            && sc.river_distance <= outer_radius
+        bool semantic_bank_override = effective_floodplain >= 0.18f && effective_river_strength >= 0.10f;
+        float visible_bank_radius = outer_radius
+            + std::max(0.0f, effective_floodplain - bank_min_floodplain * 0.55f) * 4.0f
+            + std::max(0.0f, effective_river_strength - bank_min_river * 0.75f) * 2.0f;
+        visible_bank_radius += std::max(0.0f, effective_floodplain - 0.18f) * 10.0f
+            + std::max(0.0f, effective_river_strength - 0.10f) * 6.0f;
+        float allowed_height = bank_max_height + sc.river_width * 0.06f + (1.0f - slope_value) * 0.08f
+            + effective_floodplain * 0.10f
+            + effective_river_strength * 0.10f
+            + std::max(0.0f, effective_floodplain - 0.18f) * 0.18f;
+        if ((semantic_bank_override || (visible_bank_radius > 0.0f && sc.river_distance <= visible_bank_radius))
             && effective_floodplain >= bank_min_floodplain * 0.55f
-            && !(sc.ridge_strength > (bank_ridge_exclusion + 0.16f) && slope_value > 0.60f)
-            && ch.height <= allowed_height
+            && !(sc.ridge_strength > (bank_ridge_exclusion + 0.16f)
+                && slope_value > 0.60f
+                && effective_floodplain < 0.45f
+                && !semantic_bank_override)
+            && (ch.height <= allowed_height || (semantic_bank_override && ch.height <= allowed_height + 0.16f))
             && (
                 effective_river_strength >= bank_min_river * 0.75f
                 || ch.moisture + vr.wetness_mod * 0.10f > bank_min_moisture * 0.90f
@@ -854,41 +881,43 @@ ChunkGenerator::TerrainType ChunkGenerator::resolve_terrain(
 
     // Mountain core
     if (dist_sq > land_sq) {
-        if (!(sc.ridge_strength < 0.20f && sc.mountain_mass < 0.18f)) {
-            float ruggedness_gate = clampf(ch.ruggedness * 0.55f + slope_value * 0.45f, 0.0f, 1.0f);
-            float terrain_gate = clampf(ch.height * 0.34f + ruggedness_gate * 0.42f + slope_value * 0.28f, 0.18f, 1.0f);
+        if (!(sc.ridge_strength < 0.18f && sc.mountain_mass < 0.16f)) {
+            float ruggedness_gate = clampf(ch.ruggedness * 0.52f + slope_value * 0.48f, 0.0f, 1.0f);
+            float terrain_gate = clampf(ch.height * 0.32f + ruggedness_gate * 0.40f + slope_value * 0.28f, 0.22f, 1.0f);
             float combined = sc.ridge_strength * ridge_backbone_weight;
-            combined += sc.mountain_mass * (massif_fill_weight + 0.12f);
-            combined += std::max(0.0f, sc.ridge_strength - 0.58f) * core_bonus_weight;
-            combined += std::max(0.0f, slope_value - 0.34f) * 0.18f;
-            combined += ruggedness_gate * 0.10f;
-            combined -= valley_carve_pressure() * 0.30f;
-            combined -= sc.floodplain_strength * 0.08f;
+            combined += sc.mountain_mass * (massif_fill_weight + 0.20f);
+            combined += std::max(0.0f, sc.ridge_strength - 0.50f) * (core_bonus_weight * 0.92f);
+            combined += std::max(0.0f, sc.mountain_mass - 0.32f) * 0.16f;
+            combined += std::max(0.0f, slope_value - 0.28f) * 0.20f;
+            combined += ruggedness_gate * 0.12f;
+            combined -= valley_carve_pressure() * 0.24f;
+            combined -= sc.floodplain_strength * 0.06f;
             combined += vr.rockiness_mod * 0.08f;
             combined -= vr.wetness_mod * 0.05f;
             combined -= vr.openness_mod * 0.05f;
-            float terrain_support = lerpf(0.60f, 1.0f, terrain_gate);
+            float terrain_support = lerpf(0.70f, 1.0f, terrain_gate);
             combined *= terrain_support;
-            if (combined >= mountain_threshold_value) return ROCK;
+            if (combined >= mountain_threshold_value * 0.94f) return ROCK;
         }
     }
 
     // Foothills
     if (dist_sq > land_sq) {
-        float primary_mass = std::max(sc.ridge_strength * 0.75f, sc.mountain_mass);
-        if (!(primary_mass < 0.18f && slope_value < 0.32f)) {
-            float ruggedness_gate = clampf(ch.ruggedness * 0.60f + slope_value * 0.40f, 0.0f, 1.0f);
-            float combined = sc.ridge_strength * 0.26f;
-            combined += sc.mountain_mass * 0.28f;
-            combined += slope_value * 0.26f;
-            combined += ruggedness_gate * 0.12f;
-            combined += std::max(0.0f, ch.height - 0.42f) * 0.12f;
-            combined -= valley_carve_pressure() * 0.38f;
-            combined -= sc.floodplain_strength * 0.10f;
+        float primary_mass = std::max(sc.ridge_strength * 0.68f, sc.mountain_mass);
+        if (!(primary_mass < 0.16f && slope_value < 0.28f)) {
+            float ruggedness_gate = clampf(ch.ruggedness * 0.58f + slope_value * 0.42f, 0.0f, 1.0f);
+            float combined = sc.ridge_strength * 0.22f;
+            combined += sc.mountain_mass * 0.38f;
+            combined += std::max(0.0f, sc.mountain_mass - 0.24f) * 0.12f;
+            combined += slope_value * 0.24f;
+            combined += ruggedness_gate * 0.14f;
+            combined += std::max(0.0f, ch.height - 0.36f) * 0.14f;
+            combined -= valley_carve_pressure() * 0.28f;
+            combined -= sc.floodplain_strength * 0.08f;
             combined += vr.rockiness_mod * 0.06f;
             combined -= vr.wetness_mod * 0.03f;
             combined -= vr.openness_mod * 0.05f;
-            if (combined >= mountain_threshold_value * 0.72f) return ROCK;
+            if (combined >= mountain_threshold_value * 0.62f) return ROCK;
         }
     }
 
@@ -1089,6 +1118,9 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
                 height_value,
                 flora_density_value
             );
+            if (variation_id == VAR_ICE || variation_id == VAR_SCORCHED || variation_id == VAR_SALT_FLAT) {
+                flora_modulation_value = 0.0f;
+            }
 
             int primary_biome_idx = std::max(0, biome_selection.primary_palette_index);
             int secondary_biome_idx = primary_biome_idx;
@@ -1173,6 +1205,9 @@ Dictionary ChunkGenerator::sample_tile(Vector2i world_pos, Vector2i spawn_tile) 
         height_value,
         flora_density_value
     );
+    if (variation_id == VAR_ICE || variation_id == VAR_SCORCHED || variation_id == VAR_SALT_FLAT) {
+        flora_modulation_value = 0.0f;
+    }
 
     Dictionary result;
     result["world_pos"] = Vector2i(wx, wy);
