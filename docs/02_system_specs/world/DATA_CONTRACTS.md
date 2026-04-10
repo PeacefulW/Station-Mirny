@@ -55,7 +55,10 @@ Until superseded, this document is mandatory reading for any iteration that touc
 | Topology | `derived` | `ChunkManager`, with native `MountainTopologyBuilder` behind it when enabled | surface topology caches | `MountainRoofSystem` and topology getters | surface-only, loaded-bubble scoped, incremental patch + deferred dirty rebuild |
 | Reveal | `derived` | `MountainRoofSystem`, `UndergroundFogState`, `ChunkManager` fog applier | local cover reveal and underground fog state | chunk cover/fog presentation and reveal getters | active-z dependent, loaded-bubble scoped, immediate/deferred hybrid |
 | Visual Task Scheduling | `derived` | `ChunkManager` | per-chunk visual task queues, dedupe/version state, scheduler telemetry | `ChunkManager` boot/runtime loops, instrumentation | loaded-bubble scoped, per-tick budgeted, not persisted |
-| Presentation | `presentation-only` | `Chunk`, `MountainShadowSystem`, `WorldFeatureDebugOverlay` | TileMap, shadow sprite, and debug anchor-marker output | Godot renderer, debug inspection | loaded-only, redraw-driven, surface shadow build is sun-angle dependent |
+| Chunk Debug Overlay Snapshot | `derived` | `ChunkManager` | bounded per-player debug snapshot assembled from existing chunk/queue/readiness state | `WorldChunkDebugOverlay`, debug inspection | active-z, bounded debug radius, read-only, not persisted |
+| Runtime Diagnostic Timeline Buffer | `derived` | `WorldRuntimeDiagnosticLog` | bounded diagnostic event ring buffer with dedupe metadata | `WorldChunkDebugOverlay`, debug inspection, validation tooling | transient, cooldown-deduped, not gameplay truth |
+| F11 Chunk Debug Overlay Log File | `derived` / `debug-only` | `WorldChunkDebugOverlay` | per-process diagnostic `.log` artifact serialized from the bounded F11 snapshot | humans, agents, debug inspection | writes only while overlay is visible, overwritten on first F11 open per process, not save/load truth |
+| Presentation | `presentation-only` | `Chunk`, `MountainShadowSystem`, `WorldFeatureDebugOverlay`, `WorldChunkDebugOverlay` | TileMap, shadow sprite, debug anchor-marker output, and debug chunk overlay drawing | Godot renderer, debug inspection | loaded-only/redraw-driven for world presentation; read-only snapshot-driven for debug overlay |
 | Boot Readiness | `derived` | `ChunkManager` | per-chunk boot state tracking and aggregate gate flags | `GameWorld`, boot progress UI, instrumentation | boot-time only, not persisted |
 
 ## Scope
@@ -77,6 +80,9 @@ Observed files for this version:
 - `core/systems/world/chunk_manager.gd`
 - `core/systems/world/chunk.gd`
 - `core/systems/world/world_feature_debug_overlay.gd`
+- `core/debug/world_chunk_debug_overlay.gd`
+- `core/debug/world_runtime_diagnostic_log.gd`
+- `core/autoloads/world_perf_monitor.gd`
 - `core/systems/world/surface_terrain_resolver.gd`
 - `core/systems/world/underground_fog_state.gd`
 - `core/systems/world/mountain_roof_system.gd`
@@ -110,6 +116,9 @@ Observed files for this version:
 - Surface local mountain reveal state is derived from the current loaded open pocket around the player.
 - Underground fog state is transient reveal state, shared by the active underground runtime, and not persisted.
 - Visual task queues, queue latency metrics, and invalidation versions live in `ChunkManager` and are runtime-only scheduling state rather than canonical world truth.
+- `ChunkManager.get_chunk_debug_overlay_snapshot()` assembles a bounded active-z diagnostic snapshot around `_player_chunk`; it reads chunk lifecycle/queue/readiness state but never requests, unloads, generates, or publishes chunks.
+- `WorldRuntimeDiagnosticLog` owns a transient bounded timeline buffer for human-readable Russian diagnostic summaries plus structured technical event records; it is not gameplay state and is not persisted.
+- `WorldChunkDebugOverlay` owns the derived `user://debug/f11_chunk_overlay.log` artifact; it serializes the already-built overlay snapshot only while F11 is visible and never becomes save/load or gameplay truth.
 - Rock atlas selection is explicit code in `Chunk`; current rendering does not rely on Godot TileSet terrain peering or autotile rules.
 - TileMap layers, ground elevation face overlays, fog cells, cover erasures, cliff overlays, and mountain shadow sprites are presentation outputs, not world truth.
 
@@ -398,7 +407,7 @@ Observed files for this version:
 - `owner`: `MountainRoofSystem` owns surface local-zone reveal derivation, `UndergroundFogState` owns underground reveal state, and `ChunkManager` owns application of underground fog deltas to loaded chunks.
 - `writers`: `MountainRoofSystem` writes the active local-zone derived state, `Chunk.set_revealed_local_cover_tiles()` writes per-chunk applied cover reveal, and `UndergroundFogState` plus `ChunkManager` write underground fog state and chunk fog application.
 - `readers`: `Chunk` cover-layer and fog-layer presentation code; `MountainRoofSystem` public zone getters; no other in-scope gameplay reader was found for these reveal sets.
-- `rebuild policy`: active-z dependent; surface reveal is loaded-bubble scoped and refresh-driven; underground fog is updated on fog ticks and immediately on successful underground mining; there is no unloaded fallback reveal path.
+- `rebuild policy`: active-z dependent; surface reveal is loaded-bubble scoped, may apply a bounded immediate local cover patch on successful surface mining when the active zone can be incrementally extended or single-tile-bootstrapped, and otherwise falls back to refresh-driven reconciliation; underground fog is updated on fog ticks and immediately on successful underground mining; there is no unloaded fallback reveal path.
 - `invariants`:
 - `assert(ChunkManager.get_active_z_level() == 0 or not surface_local_reveal_running, "surface local mountain reveal only runs on z == 0")`
 - `assert(seed_terrain == TileGenData.TerrainType.MINED_FLOOR or seed_terrain == TileGenData.TerrainType.MOUNTAIN_ENTRANCE, "surface local-zone seeding requires an open mountain tile")`
@@ -425,7 +434,7 @@ Observed files for this version:
 - `emitted events / invalidation signals`:
 - There is currently no dedicated reveal-state-changed event.
 - Surface reveal invalidation is driven by player tile movement, `EventBus.mountain_tile_mined`, `EventBus.chunk_loaded`, and `EventBus.chunk_unloaded`.
-- On `EventBus.mountain_tile_mined`, `MountainRoofSystem` first reuses the active local-zone seed when the newly opened tile touches the active zone; otherwise it seeds refresh from the mined open tile itself, and only falls back to the player tile when the player is already inside an opened pocket.
+- On `EventBus.mountain_tile_mined`, `MountainRoofSystem` first attempts a bounded immediate local cover patch by reusing the active local-zone seed when the newly opened tile touches the active zone or by bootstrapping a one-tile zone when that is sufficient; if that fast path cannot prove correctness, it seeds refresh from the mined open tile itself and only falls back to the player tile when the player is already inside an opened pocket.
 - Underground fog invalidation is driven by z-level entry, fog update ticks, and immediate successful underground mining.
 - `current violations / ambiguities / contract gaps`:
 - `MountainRoofSystem` tracks `zone_kind` and `truncated`, but current runtime behavior does not branch on `zone_kind`, and `truncated` is only exposed as a getter.
@@ -467,12 +476,84 @@ Observed files for this version:
 - `current violations / ambiguities / contract gaps`:
 - `Chunk.continue_redraw()` still provides the compatibility executor behind debug and any unsupported phase; terrain / cover / cliff / flora plus dirty border-fix preparation now prefer worker-computed prepared batches (including per-layer native apply buffers where available) or flora render packets with bounded main-thread apply.
 
+## Layer: Chunk Debug Overlay Snapshot
+
+- `classification`: `derived`
+- `owner`: `ChunkManager` owns assembly of the F11 chunk debug snapshot because it already owns chunk lifecycle, queue, stage-age, and visual scheduler state.
+- `writers`: `ChunkManager.get_chunk_debug_overlay_snapshot()` assembles the returned dictionary; `_enqueue_load_request()`, `_submit_async_generate()`, `_collect_completed_runtime_generates()`, `_stage_prepared_chunk_install()`, `_finalize_chunk_install()`, `_try_finalize_chunk_visual_convergence()`, and `_unload_chunk()` update transient diagnostic timestamps/recent-event rows as part of existing owner transitions.
+- `readers`: `WorldChunkDebugOverlay` and debug/validation tools.
+- `rebuild policy`: transient read snapshot, active-z only, bounded around `_player_chunk` by `DEBUG_OVERLAY_MAX_RADIUS`, queue rows capped/grouped, not persisted and not consumed by gameplay.
+- `invariants`:
+- `assert(chunk_debug_overlay_snapshot_is_read_only, "F11 overlay snapshot must not request, unload, generate, publish, or mutate chunks")`
+- `assert(chunk_debug_overlay_snapshot_radius_is_clamped, "F11 overlay snapshot must stay bounded around the player and must not scan the whole world")`
+- `assert(chunk_debug_queue_rows_are_capped_or_grouped, "debug queue output must expose active work without printing thousands of identical rows")`
+- `assert(stalled_chunk_state_is_observational, "stalled state in the overlay is an observed delay and must not be reported as a proven root cause unless an owner record says so")`
+- `write operations`:
+- `ChunkManager.get_chunk_debug_overlay_snapshot()`
+- internal diagnostic timestamp/recent-event writes in the `ChunkManager` lifecycle transition methods listed above
+- `forbidden writes`:
+- `WorldChunkDebugOverlay` must not mutate `ChunkManager`, `Chunk`, terrain, topology, reveal, save data, visual task queues, or worker/apply lifecycle state.
+- Snapshot consumers must not treat `chunks`, `queue_rows`, `metrics`, or `timeline_events` as authoritative gameplay truth.
+- Snapshot data must not be persisted.
+- `emitted events / invalidation signals`:
+- none; the overlay polls the bounded snapshot on a throttled cadence.
+- `current violations / ambiguities / contract gaps`:
+- The current `simulation_radius` shown in the overlay is a diagnostic label for the active loaded/simulated relevance band, not a separate authoritative simulation owner. If a future gameplay simulation radius becomes canonical, this layer must be updated to read that owner instead of deriving the label from load relevance.
+
+## Layer: Runtime Diagnostic Timeline Buffer
+
+- `classification`: `derived`
+- `owner`: `WorldRuntimeDiagnosticLog` owns bounded diagnostic event buffering and Russian human-readable summary formatting for runtime diagnostics.
+- `writers`: `WorldRuntimeDiagnosticLog.emit_summary()`, `emit_detail()`, and `emit_record()` update the transient ring buffer while preserving existing console log emission.
+- `readers`: `WorldChunkDebugOverlay`, debug inspection, validation tooling, and humans reading console logs.
+- `rebuild policy`: bounded in-memory ring buffer, cooldown-deduped by `actor + action + target + reason + impact + state + code`, not persisted and not replayed into gameplay.
+- `invariants`:
+- `assert(timeline_event_has_human_summary_and_structured_record, "diagnostic timeline events must keep both Russian summary text and structured technical fields")`
+- `assert(timeline_event_history_is_bounded, "diagnostic timeline must not grow unbounded during traversal")`
+- `assert(timeline_dedupe_updates_repeat_count, "unchanged diagnostic events inside cooldown must update repeat_count instead of appending spam")`
+- `write operations`:
+- `WorldRuntimeDiagnosticLog.emit_summary()`
+- `WorldRuntimeDiagnosticLog.emit_detail()`
+- `WorldRuntimeDiagnosticLog.emit_record()`
+- `forbidden writes`:
+- Timeline events must not be used as gameplay state, save/load state, or scheduler input.
+- Debug timeline formatting must not scan all loaded chunks or perform world work just to phrase a message.
+- `emitted events / invalidation signals`:
+- none; readers pull `WorldRuntimeDiagnosticLog.get_timeline_snapshot()`.
+- `current violations / ambiguities / contract gaps`:
+- Dynamic runtime diagnostic summaries are Russian-first debug text rather than fully localized gameplay UI text. Static overlay chrome uses localization keys; future shipping-facing diagnostics must define a localized message-key contract before leaving debug scope.
+
+## Layer: F11 Chunk Debug Overlay Log File
+
+- `classification`: `derived` / `debug-only`
+- `owner`: `WorldChunkDebugOverlay` owns the per-process `.log` artifact at `user://debug/f11_chunk_overlay.log`.
+- `writers`: `WorldChunkDebugOverlay._ensure_log_file()`, `_write_log_snapshot()`, and `_close_log_file()`.
+- `readers`: humans and agents inspecting local debug output after an in-game F11 session.
+- `rebuild policy`: overwritten on the first F11 open in a new game process; subsequent F11 opens in the same process append below the existing session header; writes occur only while the overlay is visible and only from the already-bounded overlay snapshot.
+- `invariants`:
+- `assert(f11_overlay_log_is_debug_only, "F11 overlay log must not be save/load data, gameplay truth, or scheduler input")`
+- `assert(f11_overlay_log_writes_only_when_visible, "F11 overlay log must only append snapshots while F11 overlay is open")`
+- `assert(f11_overlay_log_serializes_existing_snapshot, "F11 overlay log must not trigger additional world scans or new ChunkManager lifecycle work")`
+- `assert(f11_overlay_log_is_overwritten_per_process, "F11 overlay log must be reset on the first F11 open after a fresh game process starts")`
+- `write operations`:
+- `WorldChunkDebugOverlay._ensure_log_file()`
+- `WorldChunkDebugOverlay._write_log_snapshot()`
+- `WorldChunkDebugOverlay._close_log_file()`
+- `forbidden writes`:
+- `ChunkManager`, `WorldRuntimeDiagnosticLog`, `WorldPerfMonitor`, save/load systems, and gameplay systems must not write directly to `user://debug/f11_chunk_overlay.log`.
+- The log file must not be parsed back into runtime state or treated as a source of truth.
+- Log writing must not perform unbounded chunk/world iteration; it may only serialize the bounded snapshot already requested for the visible overlay.
+- `emitted events / invalidation signals`:
+- none; the artifact is a local debug file, not an event source.
+- `current violations / ambiguities / contract gaps`:
+- The log path is a Godot `user://` path; on Windows it resolves under Godot app user data for the project name. The exact OS path is written in the log header through `ProjectSettings.globalize_path(LOG_PATH)`.
+
 ## Layer: Presentation
 
 - `classification`: `presentation-only`
-- `owner`: `Chunk` owns loaded chunk visual layers, `MountainShadowSystem` owns surface mountain-shadow presentation state, and `WorldFeatureDebugOverlay` owns debug-only anchor-marker presentation sourced from serialized chunk payloads.
-- `writers`: `Chunk` redraw and fog-application methods write TileMap state; `ChunkManager` schedules redraw and applies underground fog deltas; `MountainRoofSystem` drives cover erasure through chunk APIs; `MountainShadowSystem` owns shadow-local caches plus the main-thread texture/sprite apply path while detached shadow/edge compute stays pure-data only; `WorldFeatureDebugOverlay` writes its chunk-local anchor-marker cache and redraw state.
-- `readers`: Godot rendering is the effective consumer; developer-facing debug inspection can read `WorldFeatureDebugOverlay` marker snapshots. No in-scope simulation system was found that treats these presentation nodes as authority.
+- `owner`: `Chunk` owns loaded chunk visual layers, `MountainShadowSystem` owns surface mountain-shadow presentation state, `WorldFeatureDebugOverlay` owns debug-only anchor-marker presentation sourced from serialized chunk payloads, and `WorldChunkDebugOverlay` owns F11 debug overlay UI/drawing state sourced from bounded diagnostics snapshots.
+- `writers`: `Chunk` redraw and fog-application methods write TileMap state; `ChunkManager` schedules redraw and applies underground fog deltas; `MountainRoofSystem` drives cover erasure through chunk APIs; `MountainShadowSystem` owns shadow-local caches plus the main-thread texture/sprite apply path while detached shadow/edge compute stays pure-data only; `WorldFeatureDebugOverlay` writes its chunk-local anchor-marker cache and redraw state; `WorldChunkDebugOverlay` writes only its own Control/Node2D presentation state.
+- `readers`: Godot rendering is the effective consumer; developer-facing debug inspection can read `WorldFeatureDebugOverlay` marker snapshots and `WorldChunkDebugOverlay` output. No in-scope simulation system was found that treats these presentation nodes as authority.
 - `rebuild policy`: loaded-only and redraw-driven; underground fog presentation is applied to loaded chunks only; surface shadow presentation is surface-only and rebuilt when edge cache or sun-angle thresholds require it.
 - `invariants`:
 - `assert(terrain_layer_is_derived_from_chunk_data and ground_face_layer_is_derived_from_chunk_data and cover_layer_is_derived_from_chunk_data and cliff_layer_is_derived_from_chunk_data, "terrain, ground-face, cover, and cliff TileMap layers are derived outputs, not source of truth")`
@@ -711,7 +792,7 @@ Observed files for this version:
 - If the mined tile is on a chunk edge, loaded neighbor chunks receive cross-chunk normalization for the direct cardinal neighbor and a 3-tile border strip redraw through `_seam_normalize_and_redraw()`. Cross-chunk normalization for tiles in unloaded neighbor chunks is not performed.
 - Surface topology is updated immediately through `_on_mountain_tile_changed()` and may additionally be marked dirty for a background rebuild if split suspicion is detected.
 - `EventBus.mountain_tile_mined` is emitted after the immediate topology patch path runs.
-- On surface, that mining event must schedule one sanctioned `MountainRoofSystem` refresh/apply consequence chain even if the player remains outside the newly opened entrance; stale roof correctness must not depend on `_is_player_on_opened_mountain_tile()`.
+- On surface, that mining event must run one sanctioned `MountainRoofSystem` reveal/apply consequence chain even if the player remains outside the newly opened entrance: use a bounded immediate local cover patch when incremental or bootstrap reveal is sufficient, otherwise fall back to the refresh/apply path; stale roof correctness must not depend on `_is_player_on_opened_mountain_tile()`.
 - If the active z-level is underground, the mined tile plus its 8-neighbor halo are force-revealed in `UndergroundFogState`, and revealable loaded tiles in that set have fog removed immediately.
 - The operation returns `{ "item_id": ..., "amount": ... }` from world balance.
 

@@ -24,7 +24,8 @@
       "Bash(grep -rn ChunkGenerator '/m/dev/Station Peaceful/Station Peaceful/' --include=*.gd --include=*.cpp --include=*.h)",
       "Bash(grep \"\\\\.gd$\")",
       "Bash(stat /m/dev/Station Peaceful/Station Peaceful/gdextension/src/*.cpp)",
-      "Bash(scons platform=windows target=template_debug)"
+      "Bash(scons platform=windows target=template_debug)",
+      "Bash(git:*)"
     ]
   }
 }

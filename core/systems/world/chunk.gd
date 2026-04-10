@@ -153,6 +153,8 @@ var _chunk_manager: ChunkManager = null
 var _modified_tiles: Dictionary = {}
 var _biome: BiomeData = null
 var _terrain_bytes: PackedByteArray = PackedByteArray()
+var _cover_edge_set: Dictionary = {}
+var _cover_edge_set_valid: bool = false
 var _height_bytes: PackedFloat32Array = PackedFloat32Array()
 var _variation_bytes: PackedByteArray = PackedByteArray()
 var _biome_bytes: PackedByteArray = PackedByteArray()
@@ -514,6 +516,23 @@ func is_revealable_cover_edge(local_tile: Vector2i) -> bool:
 		return false
 	return _is_cave_edge_rock(local_tile)
 
+## Возвращает кешированный set тайлов чанка, которые являются revealable cover edges.
+## Первый вызов вычисляет set за O(chunk_size²). Последующие — O(1).
+## Инвалидируется при каждом изменении террейна (майнинг).
+func get_cover_edge_set() -> Dictionary:
+	if not _cover_edge_set_valid:
+		_rebuild_cover_edge_set()
+	return _cover_edge_set
+
+func _rebuild_cover_edge_set() -> void:
+	_cover_edge_set.clear()
+	for y: int in range(_chunk_size):
+		for x: int in range(_chunk_size):
+			var local := Vector2i(x, y)
+			if is_revealable_cover_edge(local):
+				_cover_edge_set[local] = true
+	_cover_edge_set_valid = true
+
 func try_mine_at(local: Vector2i) -> Dictionary:
 	var started_usec: int = WorldPerfProbe.begin()
 	if not _mining_write_authorized:
@@ -567,6 +586,8 @@ func cleanup() -> void:
 	_biome_bytes = PackedByteArray()
 	_secondary_biome_bytes = PackedByteArray()
 	_ecotone_values = PackedFloat32Array()
+	_cover_edge_set = {}
+	_cover_edge_set_valid = false
 	_revealed_local_cover_tiles = {}
 	_interior_macro_dirty = false
 	_clear_interior_macro_layer()
@@ -789,7 +810,8 @@ func enqueue_dirty_border_redraw(
 	if not reason_key.is_empty() and reason_version >= 0:
 		var pending_version: int = int(_border_fix_pending_reason_versions.get(reason_key, -1))
 		var applied_version: int = int(_border_fix_applied_reason_versions.get(reason_key, -1))
-		if pending_version == reason_version or applied_version == reason_version:
+		var duplicate_reason_version: bool = pending_version == reason_version or applied_version == reason_version
+		if duplicate_reason_version and not added_new_tiles:
 			return false
 		_border_fix_pending_reason_versions[reason_key] = reason_version
 	elif not added_new_tiles:
@@ -2504,6 +2526,7 @@ func _refresh_open_tile(local_tile: Vector2i) -> void:
 	_set_terrain_type(local_tile, _resolve_open_tile_type_for_neighbor_refresh(local_tile), false)
 
 func _set_terrain_type(local_tile: Vector2i, terrain_type: int, mark_modified: bool = true) -> void:
+	_cover_edge_set_valid = false
 	var idx: int = local_tile.y * _chunk_size + local_tile.x
 	if idx < 0 or idx >= _terrain_bytes.size():
 		return

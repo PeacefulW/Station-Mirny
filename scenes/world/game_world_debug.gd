@@ -7,6 +7,7 @@ extends Node
 const RuntimeValidationDriverScript = preload("res://core/debug/runtime_validation_driver.gd")
 const WorldPreviewExporterScript = preload("res://core/debug/world_preview_exporter.gd")
 const WorldPreviewProofDriverScript = preload("res://core/debug/world_preview_proof_driver.gd")
+const WorldChunkDebugOverlayScript = preload("res://core/debug/world_chunk_debug_overlay.gd")
 const LOCAL_PREVIEW_TEXTURE_SIZE: Vector2 = Vector2(300, 300)
 
 var _chunk_manager: ChunkManager = null
@@ -20,6 +21,7 @@ var _last_highlighted_tile: Vector2i = Vector2i(999999, 999999)
 var _last_tile_data: TileGenData = null
 var _stairs_container: Node2D = null
 var _world_preview_exporter: WorldPreviewExporter = null
+var _chunk_debug_overlay: Node = null
 var _local_preview_panel: PanelContainer = null
 var _local_preview_header_label: Label = null
 var _local_preview_hint_label: Label = null
@@ -39,16 +41,25 @@ func setup(chunk_manager: ChunkManager, ui_layer: CanvasLayer, game_world: GameW
 	_setup_world_preview_exporter()
 	_setup_world_preview_proof_driver()
 	_setup_local_preview_panel()
+	_setup_chunk_debug_overlay()
 
 func _process(delta: float) -> void:
 	_update_fps(delta)
-	_update_tile_highlight()
+	if _chunk_debug_overlay == null or not _chunk_debug_overlay.is_overlay_visible():
+		_update_tile_highlight()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not _chunk_manager or not WorldGenerator:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_G:
+		if event.keycode == KEY_F11:
+			if _chunk_debug_overlay:
+				if event.shift_pressed:
+					_chunk_debug_overlay.cycle_mode()
+				else:
+					_chunk_debug_overlay.toggle_overlay()
+				get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_G:
 			_debug_toggle_rock(true)
 		elif event.keycode == KEY_H:
 			_debug_toggle_rock(false)
@@ -129,6 +140,14 @@ func _setup_world_preview_proof_driver() -> void:
 	var driver := WorldPreviewProofDriverScript.new()
 	driver.name = "WorldPreviewProofDriver"
 	get_parent().add_child(driver)
+
+func _setup_chunk_debug_overlay() -> void:
+	if _chunk_debug_overlay != null or _chunk_manager == null:
+		return
+	_chunk_debug_overlay = WorldChunkDebugOverlayScript.new()
+	_chunk_debug_overlay.name = "WorldChunkDebugOverlay"
+	get_parent().add_child(_chunk_debug_overlay)
+	_chunk_debug_overlay.setup(_chunk_manager, _ui_layer, _game_world)
 
 func _setup_local_preview_panel() -> void:
 	_local_preview_panel = PanelContainer.new()

@@ -863,3 +863,24 @@ msgstr "Level {z}"
 
 msgid "UI_INVENTORY_SLOT_TOOLTIP"
 msgstr "{name}\n{amount} / {max_stack}"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_TITLE"
+msgstr "F11 chunk debug"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_QUEUE"
+msgstr "Live pipeline queue"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_TIMELINE"
+msgstr "Recent event timeline"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_TOGGLE_HINT"
+msgstr "toggle"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_MODE_HINT"
+msgstr "mode"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_NO_QUEUE"
+msgstr "Queue is empty."
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_NO_EVENTS"
+msgstr "No events yet."

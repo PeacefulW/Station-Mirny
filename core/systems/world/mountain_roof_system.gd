@@ -4,6 +4,7 @@ extends Node
 ## Координирует player-local mountain shell reveal state.
 ## R1: canonical exterior shell is `cover_layer`; legacy roof cache is no longer reveal authority.
 
+const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
 const INVALID_MOUNTAIN_KEY: Vector2i = Vector2i(999999, 999999)
 const _CARDINAL_ZONE_OFFSETS := [
 	Vector2i.LEFT,
@@ -142,6 +143,50 @@ func _request_refresh(force_refresh: bool = false) -> void:
 		return
 	_queue_reveal_state_apply(affected_chunks, changed_cover_tiles_by_chunk)
 
+func _try_apply_immediate_mining_reveal_patch() -> bool:
+	var started_usec: int = WorldPerfProbe.begin()
+	var applied: bool = false
+	if _pending_incremental_mined_tile != INVALID_MOUNTAIN_KEY:
+		var start_tile: Vector2i = _find_mining_refresh_start()
+		if start_tile != INVALID_MOUNTAIN_KEY:
+			_pending_incremental_affected_chunks = []
+			_pending_incremental_changed_cover_tiles_by_chunk = {}
+			if _try_apply_incremental_zone_refresh(start_tile) \
+				or _try_bootstrap_single_tile_zone(start_tile):
+				var affected_chunks: Array[Vector2i] = _pending_incremental_affected_chunks
+				var changed_cover_tiles_by_chunk: Dictionary = _pending_incremental_changed_cover_tiles_by_chunk
+				_pending_incremental_affected_chunks = []
+				_pending_incremental_changed_cover_tiles_by_chunk = {}
+				if affected_chunks.is_empty() and not changed_cover_tiles_by_chunk.is_empty():
+					affected_chunks = _collect_chunk_coords_from_changed_cover_tiles(
+						changed_cover_tiles_by_chunk
+					)
+				_apply_cover_state_immediately(affected_chunks, changed_cover_tiles_by_chunk)
+				if _active_local_zone_truncated:
+					_emit_roof_local_patch_diag(start_tile, affected_chunks, changed_cover_tiles_by_chunk)
+				applied = true
+	WorldPerfProbe.end("MountainRoofSystem._try_apply_immediate_mining_reveal_patch", started_usec)
+	return applied
+
+func _apply_cover_state_immediately(
+	affected_chunks: Array[Vector2i],
+	changed_cover_tiles_by_chunk: Dictionary
+) -> void:
+	for coord: Vector2i in affected_chunks:
+		var chunk: Chunk = _chunk_manager.get_chunk(coord)
+		if not chunk:
+			_remove_pending_cover_apply_coord(coord)
+			continue
+		var next_cover_tiles: Dictionary = _active_local_cover_tiles_by_chunk.get(coord, {}) as Dictionary
+		var changed_tiles: Dictionary = changed_cover_tiles_by_chunk.get(coord, {}) as Dictionary
+		if not chunk.is_first_pass_ready():
+			chunk.prime_revealed_local_cover_tiles(next_cover_tiles)
+		elif not changed_tiles.is_empty():
+			var apply_usec: int = WorldPerfProbe.begin()
+			chunk.apply_revealed_local_cover_tiles_batch(next_cover_tiles, changed_tiles)
+			WorldPerfProbe.end("MountainRoofSystem._apply_immediate_cover_patch %s" % [coord], apply_usec)
+		_enqueue_cover_apply_coord(coord, next_cover_tiles)
+
 func _queue_reveal_state_apply(
 	affected_chunks: Array[Vector2i],
 	changed_cover_tiles_by_chunk: Dictionary = {}
@@ -228,6 +273,116 @@ func _cover_apply_priority_score(coord: Vector2i) -> int:
 	var player_chunk: Vector2i = WorldGenerator.world_to_chunk(_player.global_position)
 	return absi(coord.x - player_chunk.x) + absi(coord.y - player_chunk.y)
 
+func _resolve_roof_diag_scope(coord: Vector2i) -> StringName:
+	if not _player or not WorldGenerator:
+		return &"far_runtime_backlog"
+	var player_chunk: Vector2i = WorldGenerator.world_to_chunk(_player.global_position)
+	if coord == player_chunk:
+		return &"player_chunk"
+	var dx: int = coord.x - player_chunk.x
+	if WorldGenerator.has_method("chunk_wrap_delta_x"):
+		dx = WorldGenerator.chunk_wrap_delta_x(coord.x, player_chunk.x)
+	var dy: int = coord.y - player_chunk.y
+	if maxi(absi(dx), absi(dy)) <= 1:
+		return &"adjacent_loaded_chunk"
+	return &"far_runtime_backlog"
+
+func _resolve_roof_diag_impact(scope: StringName) -> StringName:
+	if scope == &"far_runtime_backlog":
+		return WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT
+	return WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE
+
+func _pick_roof_diag_target_coord(coords: Array[Vector2i]) -> Vector2i:
+	if coords.is_empty():
+		return WorldGenerator.world_to_chunk(_player.global_position) if _player and WorldGenerator else Vector2i.ZERO
+	var best_coord: Vector2i = coords[0]
+	var best_score: int = 1_000_000
+	for coord: Vector2i in coords:
+		var score: int = _cover_apply_priority_score(coord)
+		if score < best_score:
+			best_score = score
+			best_coord = coord
+	return best_coord
+
+func _count_cover_tiles_by_chunk(tile_map: Dictionary) -> int:
+	var tile_count: int = 0
+	for coord_variant: Variant in tile_map.keys():
+		tile_count += (tile_map.get(coord_variant, {}) as Dictionary).size()
+	return tile_count
+
+func _emit_roof_local_patch_diag(
+	start_tile: Vector2i,
+	affected_chunks: Array[Vector2i],
+	changed_cover_tiles_by_chunk: Dictionary
+) -> void:
+	var target_coord: Vector2i = _pick_roof_diag_target_coord(affected_chunks)
+	var scope: StringName = _resolve_roof_diag_scope(target_coord)
+	var impact_key: StringName = _resolve_roof_diag_impact(scope)
+	var severity_key: StringName = WorldRuntimeDiagnosticLog.SEVERITY_FOLLOW_UP
+	if impact_key == WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE:
+		severity_key = WorldRuntimeDiagnosticLog.SEVERITY_ROOT_CAUSE
+	var record: Dictionary = {
+		"actor": "local_patch",
+		"actor_human": "Локальная правка после изменения тайла",
+		"action": "recalculate_roof_state",
+		"action_human": "пересчитала крышу вокруг изменённого тайла",
+		"target": String(scope),
+		"target_human": WorldRuntimeDiagnosticLog.describe_chunk_scope(scope, target_coord),
+		"reason": "wrong_state_calculated",
+		"reason_human": "зона уткнулась в незагруженную границу, поэтому часть состояния пока может быть неполной",
+		"impact": String(impact_key),
+		"impact_human": WorldRuntimeDiagnosticLog.humanize_impact(impact_key),
+		"state": "applied",
+		"state_human": "локальный патч уже применён, но итог ещё может измениться",
+		"severity": String(severity_key),
+		"severity_human": WorldRuntimeDiagnosticLog.humanize_severity(severity_key),
+		"code": "local_patch",
+	}
+	var detail_fields: Dictionary = {
+		"affected_chunks": WorldRuntimeDiagnosticLog.format_coord_list(affected_chunks),
+		"affected_count": affected_chunks.size(),
+		"changed_cover_tiles": _count_cover_tiles_by_chunk(changed_cover_tiles_by_chunk),
+		"start_tile": str(start_tile),
+		"target_chunk": str(target_coord),
+		"truncated": _active_local_zone_truncated,
+		"zone_kind": String(_active_local_zone_kind),
+		"zone_seed": str(_active_local_zone_seed),
+	}
+	WorldRuntimeDiagnosticLog.emit_record(record, detail_fields)
+
+func _emit_roof_restore_overwrite_diag(
+	coord: Vector2i,
+	restore_tile_count: int,
+	next_cover_tiles: Dictionary
+) -> void:
+	var scope: StringName = _resolve_roof_diag_scope(coord)
+	var impact_key: StringName = _resolve_roof_diag_impact(scope)
+	var record: Dictionary = {
+		"actor": "roof_restore",
+		"actor_human": "Восстановление крыши",
+		"action": "queue_follow_up",
+		"action_human": "передало восстановление в очередь правки границы",
+		"target": String(scope),
+		"target_human": WorldRuntimeDiagnosticLog.describe_chunk_scope(scope, coord),
+		"reason": "later_overwrite",
+		"reason_human": "сначала вернулось промежуточное состояние восстановления, а финальную картинку позже перезапишет owner чанка",
+		"impact": String(impact_key),
+		"impact_human": WorldRuntimeDiagnosticLog.humanize_impact(impact_key),
+		"state": "queued",
+		"state_human": "ожидает позднее переопределение owner-путём",
+		"severity": String(WorldRuntimeDiagnosticLog.SEVERITY_FOLLOW_UP),
+		"severity_human": WorldRuntimeDiagnosticLog.humanize_severity(WorldRuntimeDiagnosticLog.SEVERITY_FOLLOW_UP),
+		"code": "border_fix",
+	}
+	var detail_fields: Dictionary = {
+		"chunk": str(coord),
+		"follow_up": "border_fix",
+		"next_cover_tiles": next_cover_tiles.size(),
+		"restore_tiles": restore_tile_count,
+		"target_scope": String(scope),
+	}
+	WorldRuntimeDiagnosticLog.emit_record(record, detail_fields)
+
 func _apply_cover_state_to_chunk(coord: Vector2i) -> void:
 	var chunk: Chunk = _chunk_manager.get_chunk(coord)
 	if not chunk:
@@ -245,9 +400,11 @@ func _apply_cover_state_to_chunk(coord: Vector2i) -> void:
 		if chunk.defer_revealed_local_cover_tiles_restore(restore_tiles):
 			_chunk_manager._ensure_chunk_border_fix_task(
 				chunk,
-				_chunk_manager.get_active_z_level(),
-				true
+				_chunk_manager.get_active_z_level()
 			)
+			_emit_roof_restore_overwrite_diag(coord, restore_tiles.size(), next_cover_tiles)
+		elif not restore_tiles.is_empty():
+			chunk.apply_revealed_local_cover_tiles_batch(next_cover_tiles, restore_tiles)
 		_pending_cover_apply_payloads.erase(coord)
 		return
 	var apply_tiles: Dictionary = _consume_cover_apply_step_tiles(payload)
@@ -265,9 +422,11 @@ func _apply_cover_state_to_chunk(coord: Vector2i) -> void:
 		if chunk.defer_revealed_local_cover_tiles_restore(restore_step_tiles):
 			_chunk_manager._ensure_chunk_border_fix_task(
 				chunk,
-				_chunk_manager.get_active_z_level(),
-				true
+				_chunk_manager.get_active_z_level()
 			)
+			_emit_roof_restore_overwrite_diag(coord, restore_step_tiles.size(), next_cover_tiles)
+		else:
+			chunk.apply_revealed_local_cover_tiles_batch(next_cover_tiles, restore_step_tiles)
 	if not reveal_step_tiles.is_empty():
 		var cover_step_usec: int = WorldPerfProbe.begin()
 		chunk.apply_revealed_local_cover_tiles_batch(next_cover_tiles, reveal_step_tiles)
@@ -423,9 +582,12 @@ func _on_mountain_tile_mined(tile_pos: Vector2i, _old_type: int, new_type: int) 
 		_pending_incremental_mined_tile = WorldGenerator.canonicalize_tile(tile_pos)
 	else:
 		_pending_incremental_mined_tile = INVALID_MOUNTAIN_KEY
+	var applied_immediate_patch: bool = _try_apply_immediate_mining_reveal_patch()
 	var player_tile: Vector2i = WorldGenerator.world_to_tile(_player.global_position)
-	_needs_zone_refresh = _pending_incremental_mined_tile != INVALID_MOUNTAIN_KEY \
+	_needs_zone_refresh = not applied_immediate_patch and (
+		_pending_incremental_mined_tile != INVALID_MOUNTAIN_KEY \
 		or _is_player_on_opened_mountain_tile(player_tile)
+	)
 
 func _on_chunk_loaded(coord: Vector2i) -> void:
 	if coord == Vector2i(999999, 999999):
@@ -842,8 +1004,12 @@ func _build_local_cover_tiles_by_chunk(zone_tiles: Dictionary) -> Dictionary:
 	var cover_tiles_by_chunk: Dictionary = {}
 	if zone_tiles.is_empty() or not _chunk_manager:
 		return cover_tiles_by_chunk
-	var candidate_cache: Dictionary = {}
 	var chunk_cache: Dictionary = {}
+	## cover_set_cache: chunk_coord → chunk.get_cover_edge_set()
+	## Кешируем per-chunk set чтобы не пересчитывать is_revealable_cover_edge для каждого тайла.
+	## get_cover_edge_set() стоит O(chunk²) только при первом вызове (или после майнинга),
+	## последующие обращения — O(1). Это заменяет O(n×9×8) вызовы is_revealable_cover_edge.
+	var cover_set_cache: Dictionary = {}
 	var chunk_size: int = 0
 	for global_tile: Vector2i in zone_tiles:
 		var zone_chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(global_tile)
@@ -876,22 +1042,16 @@ func _build_local_cover_tiles_by_chunk(zone_tiles: Dictionary) -> Dictionary:
 				candidate_chunk = _resolve_cached_chunk(candidate_chunk_coord, chunk_cache)
 				if candidate_chunk != null:
 					candidate_local = _chunk_local_from_global(candidate_tile, candidate_chunk_coord, chunk_size)
-			if candidate_cache.has(candidate_tile):
-				if bool(candidate_cache[candidate_tile]):
-					var cached_cover_tiles: Dictionary
-					if cover_tiles_by_chunk.has(candidate_chunk_coord):
-						cached_cover_tiles = cover_tiles_by_chunk[candidate_chunk_coord] as Dictionary
-					else:
-						cached_cover_tiles = {}
-						cover_tiles_by_chunk[candidate_chunk_coord] = cached_cover_tiles
-					cached_cover_tiles[candidate_local] = true
-				continue
 			if not candidate_chunk:
-				candidate_cache[candidate_tile] = false
 				continue
-			var should_reveal: bool = candidate_chunk.is_revealable_cover_edge(candidate_local)
-			candidate_cache[candidate_tile] = should_reveal
-			if should_reveal:
+			## Получаем cover_edge_set для чанка (O(1) если уже кешировано в чанке)
+			var cover_edge_set: Dictionary
+			if cover_set_cache.has(candidate_chunk_coord):
+				cover_edge_set = cover_set_cache[candidate_chunk_coord] as Dictionary
+			else:
+				cover_edge_set = candidate_chunk.get_cover_edge_set()
+				cover_set_cache[candidate_chunk_coord] = cover_edge_set
+			if cover_edge_set.has(candidate_local):
 				var candidate_cover_tiles: Dictionary
 				if cover_tiles_by_chunk.has(candidate_chunk_coord):
 					candidate_cover_tiles = cover_tiles_by_chunk[candidate_chunk_coord] as Dictionary

@@ -1,5 +1,5 @@
 ---
-title: Agent Entry Contract
+title: Контракт входа для агента
 doc_type: agent_entrypoint
 status: draft
 owner: engineering
@@ -17,176 +17,172 @@ related_docs:
 
 # AGENTS.md
 
-This file is the operational entrypoint for agents working in this repository.
+Этот файл является операционной точкой входа для агентов, работающих в этом репозитории.
 
-It is **not** the architectural source of truth.
-If this file conflicts with canonical documentation, follow:
+Он **не** является архитектурным источником истины.
+Если этот файл конфликтует с канонической документацией, следуй:
 - `docs/00_governance/DOCUMENT_PRECEDENCE.md`
 
-## Purpose
+## Назначение
 
-This file exists to keep agents from:
-- expanding the scope without approval
-- scanning large parts of the repository "for context"
-- turning a small task into a subsystem rewrite
-- changing contracts or APIs silently
-- continuing after the requested step is already complete
+Этот файл нужен для того, чтобы агент:
+- не расширял scope без одобрения
+- не сканировал большие части репозитория "для контекста"
+- не превращал маленькую задачу в переписывание подсистемы
+- не менял контракты или API молча
+- не продолжал работу после того, как запрошенный шаг уже завершен
 
-## Canonical rule
+## Каноническое правило
 
-This file tells the agent **how to work**.
-The canonical documents tell the agent **what is true**.
+Этот файл говорит агенту, **как работать**.
+Канонические документы говорят агенту, **что является истиной**.
 
-Use this file as a guardrail and routing layer.
-Do not use it as a replacement for contracts, APIs, specs, or ADRs.
+Используй этот файл как направляющий и маршрутизирующий слой.
+Не используй его как замену контрактам, API, спекам или ADR.
 
-## Required reading order
+## Обязательный порядок чтения
 
-### For every task
+### Для любой задачи
 1. `AGENTS.md`
-2. the user prompt or task brief
+2. пользовательский промпт или task brief
 3. `docs/00_governance/WORKFLOW.md`
 4. `docs/00_governance/PUBLIC_API.md`
-5. the relevant feature spec for the task
-6. the relevant contract document for the affected subsystem
-7. only then the exact code files listed in the task/spec
+5. релевантная feature spec для задачи
+6. релевантный контрактный документ для затронутой подсистемы
+7. только после этого точные файлы кода, перечисленные в задаче или спеке
 
-If the task adds or changes runtime-sensitive, loading-sensitive, streaming, world,
-AI, building, flora, or otherwise extensible gameplay behavior, also read before
-opening code:
+Если задача добавляет или меняет runtime-sensitive, loading-sensitive, streaming, world,
+AI, building, flora или иное расширяемое игровое поведение, то перед открытием кода также прочитай:
 - `docs/00_governance/PERFORMANCE_CONTRACTS.md`
 - `docs/00_governance/ENGINEERING_STANDARDS.md`
 
-For those tasks, "it is only one tree/chunk/object right now" is not a valid
-reason to skip scale-safe architecture.
+Для таких задач фраза "сейчас это всего одно дерево/чанк/объект" не является допустимой причиной пропускать архитектуру, безопасную по масштабу.
 
-### Skills — read before starting and before closing
+### Skills — читать до начала и перед завершением
 
-This project uses three distinct skill locations:
-- project-specific Station Mirny skills in `.agents/skills/`
-- compatibility mirrors in `.claude/skills/`
-- global/system Codex skills in `$CODEX_HOME/skills/` (or `~/.codex/skills/` when `CODEX_HOME` is unset)
+Этот проект использует три разные группы skills:
+- project-specific skills Station Mirny в `.agents/skills/`
+- compatibility mirrors в `.claude/skills/`
+- global/system Codex skills в `$CODEX_HOME/skills/` или `~/.codex/skills/`, если `CODEX_HOME` не задан
 
-**Do not treat all three locations as simultaneously mandatory.**
-Pick the relevant skill source by concern and use the smallest valid set.
+**Не считай все три расположения одновременно обязательными.**
+Выбирай релевантный источник skills по типу задачи и используй минимально достаточный набор.
 
-**For project-specific Station Mirny behavior in Codex:**
-- use the relevant skills in `.agents/skills/`
-- do not additionally load `.claude/skills/` for the same purpose unless the task explicitly involves mirror sync or legacy compatibility
+**Для project-specific поведения Station Mirny в Codex:**
+- используй релевантные skills из `.agents/skills/`
+- не подгружай дополнительно `.claude/skills/` для той же цели, если задача явно не связана с синхронизацией зеркала или legacy compatibility
 
-**For Claude or legacy compatibility behavior:**
-- `.claude/skills/` remains a mirror for tooling that still expects it
-- the mirror is compatibility state, not a second source of truth
+**Для Claude или legacy compatibility поведения:**
+- `.claude/skills/` остается зеркалом для инструментов, которые его все еще ожидают
+- это зеркало совместимости, а не второй источник истины
 
-**For global/system behavior:**
-- use relevant skills from `$CODEX_HOME/skills/` only for cross-repository workflows that are not owned by the Station Mirny project skill pack
-- do not let a global skill override repo-specific guidance from `.agents/skills/`
+**Для global/system поведения:**
+- используй релевантные skills из `$CODEX_HOME/skills/` только для cross-repository workflow, которые не принадлежат пакету project-specific skills Station Mirny
+- не позволяй global skill переопределять repo-specific правила из `.agents/skills/`
 
-**Project skill routing for this repository:**
-- `.agents/skills/mirny-task-router/SKILL.md` — broad Station Mirny task routing and multi-skill composition
-- `.agents/skills/persistent-tasks/SKILL.md` — multi-iteration or resume-sensitive work
-- `.agents/skills/verification-before-completion/SKILL.md` — proof-based closure and documentation checks
-- use the relevant domain specialist skill in `.agents/skills/` for performance, lore, UI, content, balance, localization, playtest, or prompt-shaping tasks
+**Маршрутизация project skills для этого репозитория:**
+- `.agents/skills/mirny-task-router/SKILL.md` — широкая маршрутизация задач Station Mirny и композиция нескольких skills
+- `.agents/skills/persistent-tasks/SKILL.md` — многоитерационная работа или работа, чувствительная к возобновлению
+- `.agents/skills/verification-before-completion/SKILL.md` — доказательное завершение и проверки документации
+- используй релевантный domain specialist skill в `.agents/skills/` для performance, lore, UI, content, balance, localization, playtest или prompt-shaping задач
 
-**Global Codex skill routing when installed in the active runtime:**
-- `$CODEX_HOME/skills/spec-first-feature-work/SKILL.md` — if the task is a new feature idea or structural change without an approved spec
-- `$CODEX_HOME/skills/world-contract-discipline/SKILL.md` — for world / chunk / mining / topology / reveal / presentation tasks
-- `$CODEX_HOME/skills/save-load-change-check/SKILL.md` — for save/load and persistence-impact tasks
-- `$CODEX_HOME/skills/docs-impact-check/SKILL.md` — before writing the closure report for any non-trivial change, and whenever semantics or docs may have changed
+**Маршрутизация global Codex skills, если они установлены в активной среде:**
+- `$CODEX_HOME/skills/spec-first-feature-work/SKILL.md` — если задача является новой feature idea или структурным изменением без утвержденной спеки
+- `$CODEX_HOME/skills/world-contract-discipline/SKILL.md` — для задач world / chunk / mining / topology / reveal / presentation
+- `$CODEX_HOME/skills/save-load-change-check/SKILL.md` — для задач, влияющих на save/load и persistence
+- `$CODEX_HOME/skills/docs-impact-check/SKILL.md` — перед написанием closure report для любой нетривиальной правки и всегда, когда могли измениться semantics или docs
 
-**Shared project memory for multi-iteration work:**
-- use `.claude/agent-memory/active-epic.md` as the persistent task tracker regardless of runtime
-- the tracker file is shared project state; it is not a reason to load both skill families
+**Общая память проекта для многоитерационной работы:**
+- используй `.claude/agent-memory/active-epic.md` как persistent task tracker независимо от runtime
+- tracker-файл является общим состоянием проекта; это не причина загружать оба семейства skills
 
-If you skip a skill that was relevant inside the active runtime's skill family, the closure report is incomplete.
+Если ты пропускаешь skill, который был релевантен внутри активного семейства skills для текущего runtime, closure report считается неполным.
 
-### For world / chunk / mining / topology / reveal / presentation tasks
-Required contract document:
+### Для задач world / chunk / mining / topology / reveal / presentation
+Обязательный контрактный документ:
 - `docs/02_system_specs/world/DATA_CONTRACTS.md`
 
-### For architecture conflicts
-Required decision document:
+### Для архитектурных конфликтов
+Обязательный документ принятия решения:
 - `docs/00_governance/DOCUMENT_PRECEDENCE.md`
 
-## Non-negotiable working rules
+## Непереговорные правила работы
 
-### 1. Documentation before code
-Do not build the architecture from code.
-Read the governing docs first.
-Open code only after the relevant contract, API, and spec are known.
+### 1. Документация до кода
+Не строй понимание архитектуры по коду.
+Сначала читай governing docs.
+Открывай код только после того, как тебе известны релевантные contract, API и spec.
 
-### 2. No broad exploration by default
-Do not run broad repository audits, multi-file fishing expeditions, or parallel exploration unless the task explicitly asks for them.
+### 2. Без широкого исследования по умолчанию
+Не запускай широкие аудиты репозитория, многосессионные поисковые экспедиции по файлам или параллельное исследование, если задача явно этого не требует.
 
-If the task names a spec, a contract, an API surface, or a file list, stay inside that boundary.
+Если задача называет spec, contract, API surface или список файлов, оставайся в этих границах.
 
-### 3. One task, one step
-Do only the requested step.
-If the spec says "Iteration 1", do not implement Iteration 2 or 3.
-If the user asks for a bug fix, do not redesign the subsystem.
+### 3. Одна задача, один шаг
+Делай только запрошенный шаг.
+Если spec говорит "Iteration 1", не реализуй Iteration 2 или 3.
+Если пользователь просит bug fix, не переделывай подсистему заново.
 
-### 4. Smallest valid change wins
-Prefer the smallest change that satisfies the spec, contract, and acceptance tests.
-Do not introduce a new manager, service, pipeline, or architecture layer unless the task explicitly requires it.
+### 4. Побеждает минимально достаточное изменение
+Предпочитай самое маленькое изменение, которое удовлетворяет spec, contract и acceptance tests.
+Не вводи новый manager, service, pipeline или архитектурный слой, если задача этого явно не требует.
 
-Smallest valid change does **not** mean "smallest code that works at today's tiny
-content count". It means the smallest change that remains correct at the feature's
-intended scale and does not knowingly push large future cost into the interactive path.
+Минимально достаточное изменение **не** означает "самый маленький кусок кода, который работает при сегодняшнем крошечном количестве контента".
+Это означает минимальное изменение, которое остается корректным при целевом масштабе фичи и осознанно не перекладывает большую будущую цену в interactive path.
 
-### 5. Performance law beats local convenience
-For any runtime-sensitive or extensible change, explicitly determine before coding:
-- runtime work class (`boot`, `background`, or `interactive`)
-- intended growth case, not just the current sample size
-- authoritative source of truth and single write owner
-- what data is derived/cache versus authoritative
-- the local dirty unit that is allowed to update synchronously
-- the escalation path for larger work (`queue`, `worker`, `native cache`, `C++`, or another approved path)
+### 5. Закон производительности важнее локального удобства
+Для любого runtime-sensitive или extensible изменения до начала кодинга явно определи:
+- runtime work class: `boot`, `background` или `interactive`
+- сценарий целевого роста, а не только текущий sample size
+- authoritative source of truth и единственного write owner
+- какие данные являются derived/cache, а какие authoritative
+- локальную dirty unit, которую разрешено обновлять синхронно
+- escalation path для более крупной работы: `queue`, `worker`, `native cache`, `C++` или другой утвержденный путь
 
-If you cannot explain why the synchronous path stays bounded when content density grows,
-the design is not ready to implement.
+Если ты не можешь объяснить, почему синхронный путь остается ограниченным при росте плотности контента, значит дизайн еще не готов к реализации.
 
-### 6. No silent contract or API drift
-If the implementation changes a data contract, owner boundary, invariant, safe entry point, or API semantics, update the canonical docs in the same task.
+### 6. Никакого тихого drift контракта или API
+Если реализация меняет data contract, owner boundary, invariant, safe entry point или API semantics, обнови канонические docs в рамках той же задачи.
 
-At minimum, check whether the task requires updates to:
+Как минимум проверь, требует ли задача обновления:
 - `docs/02_system_specs/world/DATA_CONTRACTS.md`
 - `docs/00_governance/PUBLIC_API.md`
 
-### 7. Stop when done
-If the requested step is complete, the acceptance tests pass, and no blocker remains, stop.
-Do not continue because there are nearby improvements, possible refactors, or architectural cleanup ideas.
+### 7. Остановись, когда закончил
+Если запрошенный шаг завершен, acceptance tests проходят и blocker'ов не осталось, остановись.
+Не продолжай только потому, что рядом есть улучшения, возможные refactor'ы или идеи архитектурной чистки.
 
-## Default forbidden behavior
+## Запрещенное поведение по умолчанию
 
-Unless the task explicitly asks for it, do **not**:
-- fix adjacent issues
-- do opportunistic refactors
-- run a wide architecture re-audit
-- run a perf audit just because the area looks hot
-- open or modify files outside the allowed task/spec scope
-- change public boundaries casually
-- implement future iterations early
-- replace the requested step with a bigger "ideal" solution
-- justify synchronous runtime work with "currently there are only a few instances"
-- add a new mutable mirror/cache without naming its authoritative owner and invalidation path
+Если задача явно этого не просит, **не**:
+- чини соседние проблемы
+- делай opportunistic refactor'ы
+- запускай широкий повторный аудит архитектуры
+- делай perf audit только потому, что участок выглядит горячим
+- открывай или меняй файлы вне разрешенного task/spec scope
+- небрежно меняй public boundaries
+- реализуй будущие итерации заранее
+- подменяй запрошенный шаг более крупным "идеальным" решением
+- оправдывай синхронную runtime-работу фразой "сейчас экземпляров все равно мало"
+- добавляй новый mutable mirror/cache без явного authoritative owner и invalidation path
 
-Anything noticed outside scope goes into:
+Все, что замечено вне scope, идет в:
 - `Out-of-scope observations`
 
-## Contract and API discipline
+## Дисциплина контрактов и API
 
-Before changing code, determine:
-- which data layers are affected
-- who owns write access to those layers
-- which safe entry points are allowed
-- whether the current task changes API semantics or only implementation details
-- what runtime work class the change belongs to
-- what the authoritative source of truth is, and what is only derived/cache state
-- what dirty unit is allowed to execute synchronously
-- what work must escalate to queue/worker/native instead of staying in the interactive path
+Перед изменением кода определи:
+- какие data layers затронуты
+- кто владеет правом записи в эти слои
+- какие safe entry points разрешены
+- меняет ли текущая задача API semantics или только детали реализации
+- к какому runtime work class относится изменение
+- что является authoritative source of truth, а что только derived/cache state
+- какая dirty unit может исполняться синхронно
+- какая работа обязана эскалироваться в queue/worker/native, а не оставаться в interactive path
 
-If the task changes any of the following, update canonical docs before considering the task complete:
-- layer ownership
+Если задача меняет что-либо из следующего, обнови канонические docs до того, как считать задачу завершенной:
+- ownership слоев
 - invariants
 - mutation paths
 - lifecycle semantics
@@ -194,112 +190,129 @@ If the task changes any of the following, update canonical docs before consideri
 - public read semantics
 - boot/readiness semantics
 
-## Allowed code reading model
+## Допустимая модель чтения кода
 
-Read only what is needed to complete the current step:
-- the files named in the task
-- the files named in the feature spec
-- the files named in the relevant contracts or API docs
+Читай только то, что нужно для завершения текущего шага:
+- файлы, названные в задаче
+- файлы, названные в feature spec
+- файлы, названные в релевантных contracts или API docs
 
-Do **not** read half the repository for context.
-The documentation should provide the context.
+**Не** читай половину репозитория для контекста.
+Контекст должна давать документация.
 
-## Spec-first rule for feature work
+## Правило spec-first для feature work
 
-If the task is a new feature or a structural change and there is no approved feature spec yet:
-- do not start coding
-- create or refine the spec first
+Если задача является новой фичей или структурным изменением, а утвержденной feature spec еще нет:
+- не начинай кодить
+- сначала создай или уточни spec
 
-Feature work should be implemented from a spec with:
+Feature work должно реализовываться по spec, в которой есть:
 - design intent
-- affected contracts
-- allowed files
-- forbidden files
+- затронутые contracts
+- разрешенные файлы
+- запрещенные файлы
 - acceptance tests
-- explicit iteration boundaries
+- явные границы итераций
 
-## What counts as a blocker
+## Что считается blocker'ом
 
-Treat the task as incomplete if any of the following is true:
-- an acceptance test fails
-- a crash, assert, or obvious regression appears in the touched path
-- a documented owner boundary is violated
-- a public contract or safe entry point is broken
-- save/load behavior breaks in the touched path
-- the task requires a performance constraint and the result clearly violates it
-- a runtime-sensitive change has no credible scale path beyond today's tiny content count
-- a new mutable cache/mirror was introduced without an explicit source of truth and write owner
+Считай задачу незавершенной, если выполняется хотя бы одно из следующих условий:
+- acceptance test падает
+- в затронутом пути появляется crash, assert или очевидная регрессия
+- нарушена документированная owner boundary
+- сломан public contract или safe entry point
+- save/load behavior ломается в затронутом пути
+- задача требует performance-ограничения, а результат явно его нарушает
+- runtime-sensitive изменение не имеет правдоподобного scale path за пределами сегодняшнего крошечного количества контента
+- введен новый mutable cache/mirror без явного source of truth и write owner
 
-## What does not justify continuing forever
+## Что не оправдывает бесконечное продолжение работы
 
-These are **not** sufficient reasons to keep working once the requested step is done:
-- "the API could be prettier"
-- "the surrounding code could be cleaner"
-- "there is another likely refactor nearby"
-- "I found another contract gap"
-- "I can imagine a more ideal architecture"
+Это **не** является достаточной причиной продолжать после завершения запрошенного шага:
+- "API могло бы быть красивее"
+- "окружающий код можно было бы сделать чище"
+- "рядом напрашивается еще один refactor"
+- "я нашел еще один contract gap"
+- "я могу представить более идеальную архитектуру"
 
-Record them as out-of-scope observations and stop.
+Запиши это в out-of-scope observations и остановись.
 
-## Minimal expected task output
+## Минимально ожидаемый результат задачи
 
-Every completed task must end with a closure report.
+Каждая завершенная задача должна заканчиваться user-facing closure report.
+`User-facing reports are written in Russian with canonical English terms in parentheses.`
+Ключевые секции оформляй как `Русский текст (English term)`, а при первом упоминании важного технического термина используй формат `русский термин (english term)`, чтобы отчёт был понятен человеку без глубокого технического бэкграунда.
+Если упоминается внутренний debug-name, job-name или jargon вроде `border_fix` или `stream_load`, рядом дай простое русское пояснение, например `правка границы чанка (border_fix)` или `фоновая догрузка чанков рядом с игроком (stream_load)`.
 
-Use this structure:
+Для runtime / visual / perf acceptance tests, которые человек или spec не поручили агенту прогонять самостоятельно, допустим честный статус `требуется ручная проверка пользователем (manual human verification required)` / `ожидается подтверждение пользователем (pending human validation)` с конкретным human handoff по правилам `docs/00_governance/WORKFLOW.md`.
+Запрещено подменять такой случай на `passed`.
+
+Используй такую структуру:
 
 ```md
-## Closure Report
+## Отчёт о выполнении (Closure Report)
 
-### Implemented
+### Что сделано (Implemented)
 - ...
 
-### Root cause
+### Корневая причина (Root cause)
 - ...
 
-### Files changed
+### Изменённые файлы (Files changed)
 - ...
 
-### Acceptance tests
-- [ ] ... passed / failed (метод верификации)
+### Проверки приёмки (Acceptance tests)
+- [ ] ... прошло (passed) / не прошло (failed) / требуется ручная проверка пользователем (manual human verification required) (метод верификации)
 
-### Contract/API documentation check
+### Артефакты доказательства (Proof artifacts)
+- Статическая проверка (Static verification): ...
+- Ручная проверка пользователем (Manual human verification): [требуется / не требуется]
+- Рекомендованная проверка пользователем (Suggested human check): ...
+
+### Артефакты производительности (Performance artifacts)
+- Статическая проверка (Static verification): ...
+- Явный runtime-прогон агентом (Explicit agent-run runtime verification): ... / не запускался в этой задаче по policy
+- Ручная проверка пользователем (Manual human verification): [требуется / не требуется]
+- Рекомендованная проверка пользователем (Suggested human check): ...
+
+### Проверка документации контрактов и API (Contract/API documentation check)
 - Grep DATA_CONTRACTS.md для `changed_name`: [результат]
 - Grep PUBLIC_API.md для `changed_name`: [результат]
 - Секция "Required updates" в спеке: [есть/нет] — [статус]
 
-### Out-of-scope observations
+### Наблюдения вне задачи (Out-of-scope observations)
 - ...
 
-### Remaining blockers
+### Оставшиеся блокеры (Remaining blockers)
 - ...
 
-### DATA_CONTRACTS.md updated
-- ... / not required (с grep-доказательством)
+### Обновление DATA_CONTRACTS.md (DATA_CONTRACTS.md updated)
+- ... / не требовалось (not required) (с grep-доказательством)
 
-### PUBLIC_API.md updated
-- ... / not required (с grep-доказательством)
+### Обновление PUBLIC_API.md (PUBLIC_API.md updated)
+- ... / не требовалось (not required) (с grep-доказательством)
 ```
 
-**Правило**: "not required" без grep-доказательства = невалидный closure report.
+**Правило**: `not required` без grep-доказательства = невалидный closure report.
 См. полный формат и процедуру в `docs/00_governance/WORKFLOW.md`.
 
-## Practical prompt discipline
+## Практическая дисциплина промптов
 
-A good implementation prompt should specify:
-- what to read first
-- exact task scope
-- what not to do
-- allowed files
-- forbidden files
+Хороший implementation prompt должен задавать:
+- что прочитать сначала
+- точный scope задачи
+- что нельзя делать
+- разрешенные файлы
+- запрещенные файлы
 - acceptance tests
-- required closure report
-- whether `DATA_CONTRACTS.md` and `PUBLIC_API.md` must be updated
+- обязательный closure report
+- нужно ли обновлять `DATA_CONTRACTS.md` и `PUBLIC_API.md`
 
-If those constraints are missing, assume the narrower interpretation, not the broader one.
+Если этих ограничений не хватает, выбирай более узкую интерпретацию, а не более широкую.
 
-## Final principle
+## Финальный принцип
 
-This repository already has enough governance to support disciplined execution.
+В этом репозитории уже достаточно governance, чтобы поддерживать дисциплинированное исполнение.
 
-The agent's job is not to improve everything.
-The agent's job is to complete the current step cleanly, update the canonical docs when required, and stop.
+Задача агента не в том, чтобы улучшить все вокруг.
+Задача агента в том, чтобы аккуратно завершить текущий шаг, обновить канонические docs при необходимости и остановиться.

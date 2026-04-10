@@ -863,3 +863,24 @@ msgstr "Уровень {z}"
 
 msgid "UI_INVENTORY_SLOT_TOOLTIP"
 msgstr "{name}\n{amount} / {max_stack}"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_TITLE"
+msgstr "F11 отладка чанков"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_QUEUE"
+msgstr "Живая очередь pipeline"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_TIMELINE"
+msgstr "Таймлайн последних событий"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_TOGGLE_HINT"
+msgstr "вкл/выкл"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_MODE_HINT"
+msgstr "режим"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_NO_QUEUE"
+msgstr "Очередь пуста."
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_NO_EVENTS"
+msgstr "Событий пока нет."

@@ -32,6 +32,11 @@ because the human eventually discovers that "passed" was a guess, not a fact.
 
 Before writing ANY acceptance test result as "passed" in a closure report, you must have
 executed a concrete verification command and seen its output in this session.
+The closure report is user-facing: write it in Russian, add the canonical English term in
+parentheses for every key section, and introduce important technical terms on first mention
+as `русский термин (english term)`. The wording should be understandable to a human without
+deep technical background.
+User-facing reports are written in Russian with canonical English terms in parentheses.
 
 "Verification command" means one of:
 
@@ -50,6 +55,22 @@ What does NOT count as verification:
 
 ## How to apply this
 
+### Choose the verification mode first
+
+Use one of these three modes before you decide how to verify an acceptance test:
+
+1. `статическая проверка (static verification)`
+   - grep, file reads, parse/syntax checks, static analysis, and contract/API grep
+   - mandatory for every task
+   - sufficient when the acceptance test is fully statically checkable
+2. `ручная проверка пользователем (manual human verification)`
+   - visual/runtime/perf/world checks that require Godot, headless scenes, play sessions, profiler work, or runtime log review
+   - this is the default path unless the human, task spec, or acceptance test explicitly asks you to run them yourself
+   - in the closure report, use the bilingual labels `Ручная проверка пользователем (Manual human verification)` and `Рекомендованная проверка пользователем (Suggested human check)`, and explicitly say when `явный runtime-прогон агентом (explicit agent-run runtime verification)` did not run by policy
+3. `явный runtime-прогон агентом (explicit agent-run runtime verification)`
+   - only when the human, task spec, or acceptance test explicitly requires the agent to run Godot/headless/log tooling
+   - if you run it, you must cite the exact command/harness/log output you actually saw
+
 ### Step 1: Before writing the closure report, stop
 
 Do not start writing the closure report yet. First, list the acceptance tests from the
@@ -67,6 +88,7 @@ Map each test to a concrete command:
 | "No hardcoded paths" | `grep -rn 'load("res://' <file>` should return nothing |
 | "Localization key used" | `grep -n 'Localization.t' <file>` |
 | "Performance: no full rebuild" | Read the function, confirm it operates on dirty region only |
+| "Visual/runtime/perf result requires Godot or logs" | Default: mark `требуется ручная проверка пользователем (manual human verification required)` + give a concrete human check; run Godot/headless/logs only if explicitly requested |
 | "DATA_CONTRACTS.md updated" | Read the file, show the new/changed section |
 | "EventBus signal defined" | `grep -n "signal_name" core/autoloads/event_bus.gd` |
 
@@ -113,7 +135,7 @@ and this is the last iteration — the updates are part of THIS task, not a futu
 **4e. Record evidence in the closure report.**
 
 ```
-### Contract/API documentation check
+### Проверка документации контрактов и API (Contract/API documentation check)
 - Grep DATA_CONTRACTS.md for `changed_function`: [N matches found, lines X, Y — updated/still accurate]
 - Grep PUBLIC_API.md for `changed_function`: [N matches found, lines X, Y — updated/still accurate]
 - Spec "Required updates" section: [exists/not exists] — [done/not applicable/deferred to iteration N]
@@ -123,7 +145,7 @@ If grep returns 0 matches and the spec has no required updates section, write:
 ```
 - Grep DATA_CONTRACTS.md for `changed_function`: 0 matches — not referenced
 - Grep PUBLIC_API.md for `changed_function`: 0 matches — not referenced
-- No documentation updates required (verified by grep)
+- Обновления документации не требуются (No documentation updates required) — проверено grep
 ```
 
 **Never write "not required" without running grep first.** "Not required" based on opinion is
@@ -132,16 +154,18 @@ the same failure mode as "passed" based on confidence. Prove it.
 ### Step 5: Write the closure report with evidence references
 
 In the closure report, after each acceptance test, briefly note what verified it:
+When you mention key technical terms, introduce them on first use as `русский термин (english term)`, for example `статическая проверка (static verification)`, `основной поток (main thread)`, `правка границы чанка (border_fix)`, or `фоновая догрузка чанков рядом с игроком (stream_load)`.
+If you mention an internal debug marker, job name, or jargon such as `stream_load`, `seam_mining_async`, or `roof_restore`, add a plain-Russian explanation for a novice reader right next to it.
 
 ```
-### Acceptance tests
-- [x] BuildCommand has execute() and undo() — verified: grep shows both methods at lines 34, 52
-- [x] No hardcoded load() paths — verified: grep returns 0 matches
-- [ ] Smoke test passes — BLOCKED: requires Godot editor runtime
+### Проверки приёмки (Acceptance tests)
+- [x] У `BuildCommand` есть `execute()` и `undo()` — прошло (passed); проверено: grep показывает обе функции на строках 34 и 52
+- [x] Нет захардкоженных путей загрузки (`load()` paths) — прошло (passed); проверено: grep вернул 0 совпадений
+- [ ] Smoke test — блокировано (BLOCKED): нужен runtime редактора Godot
 ```
 
 For tests that cannot be verified in the current environment (like "run the game and see X"),
-mark them honestly as BLOCKED with the reason, not as passed.
+mark them honestly as `блокировано (BLOCKED)` with the reason, not as passed.
 
 ## Station Mirny specific verification patterns
 
@@ -163,30 +187,37 @@ mark them honestly as BLOCKED with the reason, not as passed.
 - Show the `.po` file entry exists
 - Verify code uses `Localization.t("KEY")` not raw strings
 
-## What to do when verification is genuinely impossible
+## What to do when runtime verification is not part of your default scope
 
-Some acceptance tests require running the Godot editor or game. In a CLI/Cowork environment
-you cannot do this. That's fine — but be honest about it:
+Some acceptance tests require running the Godot editor/game, headless scenes, or reading
+runtime logs. Do not auto-escalate into that work "just to be safe". Unless the human,
+task spec, or acceptance test explicitly tells you to run it yourself, treat it as
+`ручная проверка пользователем (manual human verification)` and hand it off honestly:
 
 ```
-### Acceptance tests
-- [x] Code structure matches spec — verified: file read confirms pattern
-- [ ] Visual result correct in-game — BLOCKED: requires Godot editor runtime
-- [x] No performance regression in code path — verified: function reads only dirty tiles, no full loop
+### Проверки приёмки (Acceptance tests)
+- [x] Структура кода соответствует спецификации (spec) — прошло (passed); проверено: чтение файла подтверждает ожидаемый паттерн
+- [ ] Визуальный результат корректен в игре — требуется ручная проверка пользователем (manual human verification required); рекомендованная проверка пользователем (Suggested human check): открыть нужную сцену и проверить изменённую подачу на экране (presentation)
+- [ ] Runtime/perf результат подтверждён в Godot/logs — требуется ручная проверка пользователем (manual human verification required); явный runtime-прогон агентом (explicit agent-run runtime verification): не запускался в этой задаче по policy; рекомендованная проверка пользователем (Suggested human check): запустить указанный сценарий и проверить ожидаемые метки в логе (markers)
+- [x] В изменённом пути выполнения (code path) нет регрессии производительности — прошло (passed); проверено: функция читает только dirty tiles, без full loop
 ```
 
-The human will run the game and check visual/runtime tests. Your job is to verify everything
-that CAN be verified statically, and mark the rest honestly.
+The human will run the game and check visual/runtime tests when needed. Your job is to verify
+everything that CAN be verified statically, and leave a concrete human handoff for the rest.
+If explicit agent-run runtime verification was requested but the environment blocks it, then
+mark that test as `блокировано (BLOCKED)` and explain why. `Требуется ручная проверка пользователем (manual human verification required)` is the honest
+default when runtime proof was not requested; `BLOCKED` is for requested proof you could not execute.
 
 ## The contract
 
 By using this skill, you commit to:
 1. Never writing "passed" without showing evidence in the same session
-2. Never marking a test as passed when it's actually blocked by environment limitations
+2. Never marking a test as passed when it's actually pending manual human verification or blocked by environment limitations
 3. Always running at least one concrete verification command before the closure report
 4. If all tests are trivially passable without commands (e.g., "I created file X" — then show `ls` output confirming the file exists)
 5. Always running grep on DATA_CONTRACTS.md and PUBLIC_API.md for every changed function/constant/signal before writing the closure report
 6. Never writing "DATA_CONTRACTS.md updated — not required" without grep evidence showing 0 relevant matches
 7. If the feature spec has a "Required contract and API updates" section, checking it and acting on it — especially on the last iteration
+8. Never auto-escalating into Godot/headless/log review unless the human, task spec, or acceptance test explicitly requests it; otherwise leave a concrete manual handoff
 
 This is not bureaucracy. This is how trust is built between the agent and the human.

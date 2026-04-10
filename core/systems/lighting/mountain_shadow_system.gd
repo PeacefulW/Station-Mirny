@@ -6,6 +6,7 @@ extends Node
 ## Edge-тайлы кешируются при загрузке чанка. Rebuild бюджетирован.
 
 const RuntimeWorkTypes = preload("res://core/runtime/runtime_work_types.gd")
+const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
 const JOB_SHADOWS: StringName = &"mountain_shadow.visual_rebuild"
 const NATIVE_SHADOW_KERNELS_CLASS: StringName = &"MountainShadowKernels"
 const INVALID_COORD: Vector2i = Vector2i(999999, 999999)
@@ -88,7 +89,7 @@ func _resolve_dependencies() -> void:
 	_cache_native_shadow_kernels_support()
 	FrameBudgetDispatcher.register_job(
 		RuntimeWorkTypes.CATEGORY_VISUAL,
-		1.0,
+		3.5,
 		_tick_shadows,
 		JOB_SHADOWS,
 		RuntimeWorkTypes.CadenceKind.PRESENTATION,
@@ -314,6 +315,8 @@ func _try_mined_tile_update_step() -> bool:
 	var dirty_targets: Array[Vector2i] = update_payload.get("dirty_targets", []) as Array[Vector2i]
 	for dirty_coord: Vector2i in dirty_targets:
 		_mark_dirty(dirty_coord)
+	if not edge_dirty_coords.is_empty() or not dirty_targets.is_empty():
+		_emit_shadow_refresh_diag(tile_pos, edge_dirty_coords, dirty_targets)
 	return true
 
 func _try_shadow_step() -> bool:
@@ -647,6 +650,80 @@ func _chunk_priority_score(coord: Vector2i, player_chunk: Vector2i) -> int:
 	var dx: int = WorldGenerator.chunk_wrap_delta_x(coord.x, player_chunk.x) if WorldGenerator and WorldGenerator.has_method("chunk_wrap_delta_x") else coord.x - player_chunk.x
 	var dy: int = coord.y - player_chunk.y
 	return dx * dx + dy * dy
+
+func _resolve_shadow_diag_scope(coord: Vector2i) -> StringName:
+	var player_chunk: Vector2i = _get_player_chunk_coord()
+	if player_chunk == INVALID_COORD:
+		return &"far_runtime_backlog"
+	if coord == player_chunk:
+		return &"player_chunk"
+	var dx: int = coord.x - player_chunk.x
+	if WorldGenerator and WorldGenerator.has_method("chunk_wrap_delta_x"):
+		dx = WorldGenerator.chunk_wrap_delta_x(coord.x, player_chunk.x)
+	var dy: int = coord.y - player_chunk.y
+	if maxi(absi(dx), absi(dy)) <= 1:
+		return &"adjacent_loaded_chunk"
+	return &"far_runtime_backlog"
+
+func _resolve_shadow_diag_impact(scope: StringName) -> StringName:
+	if scope == &"far_runtime_backlog":
+		return WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT
+	return WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE
+
+func _pick_shadow_diag_target_coord(coords: Array[Vector2i]) -> Vector2i:
+	if coords.is_empty():
+		return INVALID_COORD
+	var player_chunk: Vector2i = _get_player_chunk_coord()
+	if player_chunk == INVALID_COORD:
+		return coords[0]
+	var best_coord: Vector2i = coords[0]
+	var best_score: int = _chunk_priority_score(best_coord, player_chunk)
+	for coord: Vector2i in coords:
+		var score: int = _chunk_priority_score(coord, player_chunk)
+		if score < best_score:
+			best_coord = coord
+			best_score = score
+	return best_coord
+
+func _emit_shadow_refresh_diag(
+	tile_pos: Vector2i,
+	edge_dirty_coords: Array[Vector2i],
+	dirty_targets: Array[Vector2i]
+) -> void:
+	var target_coord: Vector2i = _pick_shadow_diag_target_coord(
+		dirty_targets if not dirty_targets.is_empty() else edge_dirty_coords
+	)
+	if target_coord == INVALID_COORD:
+		return
+	var scope: StringName = _resolve_shadow_diag_scope(target_coord)
+	var impact_key: StringName = _resolve_shadow_diag_impact(scope)
+	var record: Dictionary = {
+		"actor": "shadow_refresh",
+		"actor_human": "Обновление теней горы",
+		"action": "queue_follow_up",
+		"action_human": "поставило в очередь пересчёт теней",
+		"target": String(scope),
+		"target_human": WorldRuntimeDiagnosticLog.describe_chunk_scope(scope, target_coord),
+		"reason": "queued_not_applied",
+		"reason_human": "после изменения края горы нужно пересчитать кеш внешней кромки (edge cache) и теневую маску",
+		"impact": String(impact_key),
+		"impact_human": WorldRuntimeDiagnosticLog.humanize_impact(impact_key),
+		"state": "queued",
+		"state_human": "очередь ещё не применена",
+		"severity": String(WorldRuntimeDiagnosticLog.SEVERITY_FOLLOW_UP),
+		"severity_human": WorldRuntimeDiagnosticLog.humanize_severity(WorldRuntimeDiagnosticLog.SEVERITY_FOLLOW_UP),
+		"code": "shadow_refresh",
+	}
+	var detail_fields: Dictionary = {
+		"dirty_targets": WorldRuntimeDiagnosticLog.format_coord_list(dirty_targets),
+		"dirty_targets_count": dirty_targets.size(),
+		"edge_dirty_coords": WorldRuntimeDiagnosticLog.format_coord_list(edge_dirty_coords),
+		"edge_dirty_count": edge_dirty_coords.size(),
+		"source_tile": str(tile_pos),
+		"target_chunk": str(target_coord),
+		"target_scope": String(scope),
+	}
+	WorldRuntimeDiagnosticLog.emit_record(record, detail_fields)
 
 func _chunk_or_neighbors_have_mountain(coord: Vector2i) -> bool:
 	if not _chunk_manager:

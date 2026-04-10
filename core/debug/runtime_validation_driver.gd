@@ -4,6 +4,7 @@ extends Node
 ## Small debug-only driver for reproducible runtime perf validation.
 ## Activates only when launched with the user arg `codex_validate_runtime`.
 
+const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
 const ENABLE_ARG: String = "codex_validate_runtime"
 const ROUTE_ARG_PREFIX: String = "codex_validate_route="
 const DEFAULT_ROUTE_PRESET: StringName = &"local_ring"
@@ -47,6 +48,7 @@ const ROUTE_PRESETS := {
 	],
 }
 const INVALID_TILE: Vector2i = Vector2i(999999, 999999)
+const INVALID_CHUNK_COORD: Vector2i = Vector2i(999999, 999999)
 const _CARDINAL_DIRS := [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
 const _ALLOWED_CHUNK_STATE_KEYS := {
 	&"terrain": true,
@@ -137,18 +139,9 @@ func _process(delta: float) -> void:
 			return
 		if _is_runtime_caught_up():
 			if _has_redraw_backlog():
-				print("[CodexValidation] route drain complete: preset=%s reached=%d/%d redraw_backlog=true state=%s" % [
-					_route_preset_name,
-					_target_index,
-					_targets.size(),
-					_describe_chunk_manager_catch_up_state(),
-				])
+				_emit_validation_outcome("not_converged", "redraw_only")
 			else:
-				print("[CodexValidation] route drain complete; preset=%s reached=%d/%d redraw_backlog=false" % [
-					_route_preset_name,
-					_target_index,
-					_targets.size(),
-				])
+				_emit_validation_outcome("finished", "none")
 			get_tree().quit()
 			return
 		if _topology_wait_frames_remaining < 0:
@@ -156,11 +149,7 @@ func _process(delta: float) -> void:
 			_catch_up_status_frames_remaining = 0
 			_last_catch_up_signature = ""
 			_unchanged_catch_up_status_count = 0
-			print("[CodexValidation] waiting for world catch-up: preset=%s reached=%d/%d" % [
-				_route_preset_name,
-				_target_index,
-				_targets.size(),
-			])
+			_emit_validation_wait_status(_describe_catch_up_blocker())
 		if _catch_up_status_frames_remaining <= 0:
 			var catch_up_signature: String = _build_catch_up_signature()
 			if catch_up_signature == _last_catch_up_signature:
@@ -168,21 +157,21 @@ func _process(delta: float) -> void:
 			else:
 				_last_catch_up_signature = catch_up_signature
 				_unchanged_catch_up_status_count = 0
-			print("[CodexValidation] catch-up status: blocker=%s stalled_intervals=%d %s" % [
+			_emit_validation_wait_status(
 				_describe_catch_up_blocker(),
-				_unchanged_catch_up_status_count,
-				_describe_chunk_manager_catch_up_state(),
-			])
+				_unchanged_catch_up_status_count
+			)
 			_catch_up_status_frames_remaining = CATCH_UP_STATUS_LOG_INTERVAL_FRAMES
 		if _topology_wait_frames_remaining > 0:
 			_topology_wait_frames_remaining -= 1
 			_catch_up_status_frames_remaining -= 1
 			return
-		_fail_validation("world catch-up timeout: blocker=%s stalled_intervals=%d %s" % [
+		_emit_validation_outcome(
+			"blocked",
 			_describe_catch_up_blocker(),
-			_unchanged_catch_up_status_count,
-			_describe_chunk_manager_catch_up_state(),
-		])
+			_unchanged_catch_up_status_count
+		)
+		get_tree().quit(1)
 		return
 	if _target_index >= _targets.size():
 		_tail_frames_remaining = TAIL_SETTLE_FRAMES
@@ -384,6 +373,338 @@ func _describe_chunk_manager_catch_up_state() -> String:
 		bool(_chunk_manager.get("_is_topology_dirty")),
 		bool(_chunk_manager.get("_is_topology_build_in_progress")),
 	]
+
+func _emit_validation_wait_status(blocker: String, stalled_intervals: int = -1) -> void:
+	var snapshot: Dictionary = _build_validation_snapshot(blocker)
+	var record: Dictionary = _build_validation_record(
+		"await_convergence",
+		"ждёт, пока мир сойдётся после маршрута",
+		"blocked",
+		"ждёт сходимость",
+		_resolve_validation_reason_key(blocker),
+		_resolve_validation_reason_human(blocker),
+		blocker,
+		snapshot
+	)
+	_emit_validation_diag(record, _build_validation_detail_fields(snapshot, blocker, stalled_intervals))
+
+func _emit_validation_outcome(
+	outcome: String,
+	blocker: String,
+	stalled_intervals: int = -1,
+	failure_message: String = ""
+) -> void:
+	var snapshot: Dictionary = _build_validation_snapshot(blocker)
+	var action_human: String = "подвёл итог маршрута проверки"
+	var state_human: String = "завершён"
+	match outcome:
+		"finished":
+			action_human = "завершил маршрут и подтвердил готовность мира"
+			state_human = "завершён"
+		"not_converged":
+			action_human = "завершил маршрут, но мир ещё не сошёлся"
+			state_human = "не сошёлся"
+		"blocked":
+			action_human = "остановился на блокере сходимости"
+			state_human = "заблокирован"
+		_:
+			state_human = WorldRuntimeDiagnosticLog.humanize_known_term(outcome)
+	var record: Dictionary = _build_validation_record(
+		"reported_validation_outcome",
+		action_human,
+		outcome,
+		state_human,
+		_resolve_validation_reason_key(blocker),
+		_resolve_validation_reason_human(blocker, failure_message),
+		blocker,
+		snapshot
+	)
+	_emit_validation_diag(
+		record,
+		_build_validation_detail_fields(snapshot, blocker, stalled_intervals, failure_message)
+	)
+
+func _emit_validation_failure(message: String) -> void:
+	_emit_validation_outcome("blocked", "validation_step_failed", -1, message)
+
+func _emit_validation_diag(record: Dictionary, detail_fields: Dictionary) -> void:
+	WorldRuntimeDiagnosticLog.emit_record(
+		record,
+		detail_fields,
+		WorldRuntimeDiagnosticLog.VALIDATION_PREFIX,
+		WorldRuntimeDiagnosticLog.VALIDATION_PREFIX
+	)
+
+func _build_validation_record(
+	action_key: String,
+	action_human: String,
+	state_key: String,
+	state_human: String,
+	reason_key: String,
+	reason_human: String,
+	blocker: String,
+	snapshot: Dictionary
+) -> Dictionary:
+	var target_scope: String = str(snapshot.get("target_scope", "player_chunk"))
+	var impact_key: StringName = _resolve_validation_impact(StringName(target_scope), blocker, state_key)
+	var severity_key: StringName = _resolve_validation_severity(action_key, state_key)
+	return {
+		"actor": "manual_validation_route",
+		"actor_human": "Маршрут ручной проверки",
+		"action": action_key,
+		"action_human": action_human,
+		"target": target_scope,
+		"target_human": _resolve_validation_target_human(
+			target_scope,
+			_get_snapshot_chunk_coord(snapshot, "target_chunk")
+		),
+		"reason": reason_key,
+		"reason_human": reason_human,
+		"impact": String(impact_key),
+		"impact_human": WorldRuntimeDiagnosticLog.humanize_impact(impact_key),
+		"state": state_key,
+		"state_human": state_human,
+		"severity": String(severity_key),
+		"severity_human": WorldRuntimeDiagnosticLog.humanize_severity(severity_key),
+		"code": "" if blocker == "none" else blocker,
+	}
+
+func _resolve_validation_severity(action_key: String, state_key: String) -> StringName:
+	if action_key == "await_convergence":
+		return WorldRuntimeDiagnosticLog.SEVERITY_DIAGNOSTIC
+	if state_key == "finished":
+		return WorldRuntimeDiagnosticLog.SEVERITY_INFORMATIONAL
+	if state_key == "blocked" or state_key == "not_converged":
+		return WorldRuntimeDiagnosticLog.SEVERITY_ROOT_CAUSE
+	return WorldRuntimeDiagnosticLog.SEVERITY_DIAGNOSTIC
+
+func _build_validation_snapshot(blocker: String) -> Dictionary:
+	var player_chunk: Vector2i = _get_current_player_chunk_coord()
+	var target_chunk: Vector2i = _resolve_validation_target_chunk(blocker, player_chunk)
+	var target_scope: StringName = _resolve_validation_target_scope(target_chunk, player_chunk)
+	var load_queue_preview: Array[String] = _build_load_queue_preview()
+	return {
+		"player_chunk": player_chunk,
+		"target_chunk": target_chunk,
+		"target_scope": String(target_scope),
+		"load_queue": _get_chunk_manager_array_size("_load_queue"),
+		"load_queue_preview": ",".join(load_queue_preview) if not load_queue_preview.is_empty() else "-",
+		"redraw_backlog": _get_chunk_manager_array_size("_redrawing_chunks"),
+		"staged_chunk": _chunk_manager != null and _chunk_manager.get("_staged_chunk") != null,
+		"staged_coord": _get_chunk_manager_coord("_staged_coord"),
+		"staged_data": _get_chunk_manager_array_size("_staged_data"),
+		"gen_task_id": -1 if _chunk_manager == null else int(_chunk_manager.get("_gen_task_id")),
+		"gen_coord": _get_chunk_manager_coord("_gen_coord"),
+		"topology_ready": _is_topology_caught_up(),
+		"native_topology": _chunk_manager != null and bool(_chunk_manager.get("_native_topology_active")),
+		"native_dirty": _chunk_manager != null and bool(_chunk_manager.get("_native_topology_dirty")),
+		"topology_dirty": _chunk_manager != null and bool(_chunk_manager.get("_is_topology_dirty")),
+		"topology_build_in_progress": _chunk_manager != null and bool(_chunk_manager.get("_is_topology_build_in_progress")),
+	}
+
+func _build_validation_detail_fields(
+	snapshot: Dictionary,
+	blocker: String,
+	stalled_intervals: int = -1,
+	failure_message: String = ""
+) -> Dictionary:
+	var detail_fields: Dictionary = {
+		"blocker": blocker,
+		"gen_coord": _format_chunk_coord(_get_snapshot_chunk_coord(snapshot, "gen_coord")),
+		"gen_task_id": int(snapshot.get("gen_task_id", -1)),
+		"load_queue": int(snapshot.get("load_queue", 0)),
+		"load_queue_preview": str(snapshot.get("load_queue_preview", "-")),
+		"native_dirty": bool(snapshot.get("native_dirty", false)),
+		"native_topology": bool(snapshot.get("native_topology", false)),
+		"player_chunk": _format_chunk_coord(_get_snapshot_chunk_coord(snapshot, "player_chunk")),
+		"reached_waypoints": "%d/%d" % [_target_index, _targets.size()],
+		"redraw_backlog": int(snapshot.get("redraw_backlog", 0)),
+		"route": String(_route_preset_name),
+		"scope": str(snapshot.get("target_scope", "player_chunk")),
+		"staged_chunk": bool(snapshot.get("staged_chunk", false)),
+		"staged_coord": _format_chunk_coord(_get_snapshot_chunk_coord(snapshot, "staged_coord")),
+		"staged_data": int(snapshot.get("staged_data", 0)),
+		"target_chunk": _format_chunk_coord(_get_snapshot_chunk_coord(snapshot, "target_chunk")),
+		"topology_build_in_progress": bool(snapshot.get("topology_build_in_progress", false)),
+		"topology_dirty": bool(snapshot.get("topology_dirty", false)),
+		"topology_ready": bool(snapshot.get("topology_ready", false)),
+	}
+	if stalled_intervals >= 0:
+		detail_fields["stalled_intervals"] = stalled_intervals
+	if failure_message != "":
+		detail_fields["failure_message"] = failure_message
+	return detail_fields
+
+func _resolve_validation_reason_key(blocker: String) -> String:
+	match blocker:
+		"topology":
+			return "topology_rebuild_not_complete"
+		"streaming_truth":
+			return "streaming_truth_not_caught_up"
+		"redraw_only":
+			return "redraw_backlog_remaining"
+		"validation_step_failed":
+			return "validation_step_failed"
+		"none":
+			return "no_blocker"
+		_:
+			return blocker
+
+func _resolve_validation_reason_human(blocker: String, failure_message: String = "") -> String:
+	match blocker:
+		"topology":
+			return "перестройка топологии ещё не завершена"
+		"streaming_truth":
+			return "очередь догрузки мира ещё не довела данные до актуального состояния"
+		"redraw_only":
+			return "после маршрута осталась очередь фоновой перерисовки"
+		"validation_step_failed":
+			if failure_message != "":
+				return "встроенная проверка сценария остановилась на ошибке; подробность сохранена в technical detail"
+			return "встроенная проверка сценария остановилась на ошибке"
+		"none":
+			return "критичных блокеров после маршрута не осталось"
+		_:
+			return WorldRuntimeDiagnosticLog.humanize_known_term(blocker)
+
+func _resolve_validation_target_scope(target_chunk: Vector2i, player_chunk: Vector2i) -> StringName:
+	if not _is_valid_chunk_coord(target_chunk) or not _is_valid_chunk_coord(player_chunk):
+		return &"far_runtime_backlog"
+	if target_chunk == player_chunk:
+		return &"player_chunk"
+	var dx: int = absi(target_chunk.x - player_chunk.x)
+	var dy: int = absi(target_chunk.y - player_chunk.y)
+	if maxi(dx, dy) <= 1:
+		return &"adjacent_loaded_chunk"
+	return &"far_runtime_backlog"
+
+func _resolve_validation_target_human(target_scope: String, target_chunk: Vector2i) -> String:
+	var scope_human: String = WorldRuntimeDiagnosticLog.humanize_known_term(target_scope)
+	if _is_valid_chunk_coord(target_chunk):
+		return "%s %s" % [scope_human, _format_chunk_coord(target_chunk)]
+	return scope_human
+
+func _resolve_validation_impact(
+	target_scope: StringName,
+	blocker: String,
+	state_key: String
+) -> StringName:
+	if blocker == "none" and state_key == "finished":
+		return WorldRuntimeDiagnosticLog.IMPACT_INFORMATIONAL
+	if target_scope == &"player_chunk" or target_scope == &"adjacent_loaded_chunk":
+		return WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE
+	return WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT
+
+func _resolve_validation_target_chunk(blocker: String, player_chunk: Vector2i) -> Vector2i:
+	match blocker:
+		"streaming_truth":
+			var streaming_coord: Vector2i = _resolve_streaming_target_chunk(player_chunk)
+			if _is_valid_chunk_coord(streaming_coord):
+				return streaming_coord
+		"redraw_only":
+			var redraw_coord: Vector2i = _resolve_redraw_target_chunk(player_chunk)
+			if _is_valid_chunk_coord(redraw_coord):
+				return redraw_coord
+		"topology":
+			var topology_coord: Vector2i = _resolve_redraw_target_chunk(player_chunk)
+			if _is_valid_chunk_coord(topology_coord):
+				return topology_coord
+		_:
+			pass
+	if _is_valid_chunk_coord(player_chunk):
+		return player_chunk
+	return INVALID_CHUNK_COORD
+
+func _resolve_streaming_target_chunk(player_chunk: Vector2i) -> Vector2i:
+	var candidate_coords: Array[Vector2i] = []
+	for request_coord: Vector2i in _get_load_queue_coords():
+		candidate_coords.append(request_coord)
+	_append_candidate_coord(candidate_coords, _get_chunk_manager_coord("_staged_coord"))
+	if _chunk_manager != null and int(_chunk_manager.get("_gen_task_id")) >= 0:
+		_append_candidate_coord(candidate_coords, _get_chunk_manager_coord("_gen_coord"))
+	return _pick_nearest_chunk_coord(candidate_coords, player_chunk)
+
+func _resolve_redraw_target_chunk(player_chunk: Vector2i) -> Vector2i:
+	var candidate_coords: Array[Vector2i] = []
+	if _chunk_manager != null:
+		var redrawing_variant: Variant = _chunk_manager.get("_redrawing_chunks")
+		if redrawing_variant is Array:
+			for chunk_variant: Variant in redrawing_variant:
+				var chunk: Chunk = chunk_variant as Chunk
+				if chunk == null or not is_instance_valid(chunk):
+					continue
+				_append_candidate_coord(candidate_coords, chunk.chunk_coord)
+	return _pick_nearest_chunk_coord(candidate_coords, player_chunk)
+
+func _get_current_player_chunk_coord() -> Vector2i:
+	if _player == null or WorldGenerator == null:
+		return INVALID_CHUNK_COORD
+	return WorldGenerator.world_to_chunk(_player.global_position)
+
+func _build_load_queue_preview() -> Array[String]:
+	var preview: Array[String] = []
+	for request_coord: Vector2i in _get_load_queue_coords().slice(0, 3):
+		preview.append(_format_chunk_coord(request_coord))
+	return preview
+
+func _get_load_queue_coords() -> Array[Vector2i]:
+	var coords: Array[Vector2i] = []
+	if _chunk_manager == null:
+		return coords
+	var load_queue_variant: Variant = _chunk_manager.get("_load_queue")
+	if load_queue_variant is Array:
+		for request_variant: Variant in load_queue_variant:
+			var request: Dictionary = request_variant as Dictionary
+			var coord_variant: Variant = request.get("coord", INVALID_CHUNK_COORD)
+			if coord_variant is Vector2i:
+				_append_candidate_coord(coords, coord_variant as Vector2i)
+	return coords
+
+func _pick_nearest_chunk_coord(candidate_coords: Array[Vector2i], player_chunk: Vector2i) -> Vector2i:
+	var best_coord: Vector2i = INVALID_CHUNK_COORD
+	var best_distance: int = 1 << 30
+	for coord: Vector2i in candidate_coords:
+		if not _is_valid_chunk_coord(coord):
+			continue
+		if not _is_valid_chunk_coord(player_chunk):
+			return coord
+		var distance: int = maxi(absi(coord.x - player_chunk.x), absi(coord.y - player_chunk.y))
+		if distance < best_distance:
+			best_distance = distance
+			best_coord = coord
+	return best_coord
+
+func _append_candidate_coord(candidate_coords: Array[Vector2i], coord: Vector2i) -> void:
+	if _is_valid_chunk_coord(coord):
+		candidate_coords.append(coord)
+
+func _is_valid_chunk_coord(coord: Vector2i) -> bool:
+	return coord != INVALID_CHUNK_COORD
+
+func _get_chunk_manager_coord(field_name: String) -> Vector2i:
+	if _chunk_manager == null:
+		return INVALID_CHUNK_COORD
+	var value: Variant = _chunk_manager.get(field_name)
+	if value is Vector2i:
+		return value as Vector2i
+	return INVALID_CHUNK_COORD
+
+func _get_chunk_manager_array_size(field_name: String) -> int:
+	if _chunk_manager == null:
+		return 0
+	var value: Variant = _chunk_manager.get(field_name)
+	return _get_variant_size(value)
+
+func _get_snapshot_chunk_coord(snapshot: Dictionary, field_name: String) -> Vector2i:
+	var value: Variant = snapshot.get(field_name, INVALID_CHUNK_COORD)
+	if value is Vector2i:
+		return value as Vector2i
+	return INVALID_CHUNK_COORD
+
+func _format_chunk_coord(coord: Vector2i) -> String:
+	if not _is_valid_chunk_coord(coord):
+		return "-"
+	return "(%d,%d)" % [coord.x, coord.y]
 
 func _get_variant_size(value: Variant) -> int:
 	if value is Array:
@@ -770,5 +1091,5 @@ func _validate_chunk_save_payload(chunk_save_data: Dictionary) -> bool:
 
 func _fail_validation(message: String) -> void:
 	push_error(message)
-	print("[CodexValidation] validation failed: %s" % [message])
+	_emit_validation_failure(message)
 	get_tree().quit(1)

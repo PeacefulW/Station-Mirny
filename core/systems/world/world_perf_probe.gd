@@ -5,6 +5,8 @@ extends RefCounted
 ## Статические методы — не требует autoload.
 ## Проверяет контракты из docs/00_governance/PERFORMANCE_CONTRACTS.md.
 
+const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
+
 const _DEFAULT_PRINT_THRESHOLD_MS: float = 8.0
 const _SUPPRESSED_PRINT_PREFIXES: Array[String] = [
 	"scheduler.visual_tasks_processed",
@@ -35,6 +37,7 @@ const _PRINT_COOLDOWN_OVERRIDES: Array[Dictionary] = [
 const _BUDGET_OVERRUN_MIN_DELTA_MS: float = 0.05
 const _BUDGET_OVERRUN_COOLDOWN_MS: float = 1000.0
 const _BUDGET_OVERRUN_DELTA_MS: float = 1.0
+const _PERF_HUMAN_SUMMARY_COOLDOWN_MS: float = 1000.0
 
 ## Контракты на интерактивные операции (максимально допустимое время в мс).
 const _CONTRACTS: Dictionary = {
@@ -97,10 +100,11 @@ static func report_budget_overrun(
 	should_warn = _passes_budget_overrun_cooldown_locked(offender_key, used_ms)
 	_mutex.unlock()
 	if should_warn:
-		push_warning(
-			"[WorldPerf] WARNING: FrameBudget overrun job_id=%s category=%s used_ms=%.2f budget_ms=%.2f over_budget_pct=%.1f"
-			% [String(job_id), String(category), used_ms, budget_ms, over_budget_pct]
-		)
+		if _emit_budget_overrun_summary(job_id, category, used_ms, budget_ms, over_budget_pct):
+			push_warning(
+				"[WorldPerf] WARNING: FrameBudget overrun job_id=%s category=%s used_ms=%.2f budget_ms=%.2f over_budget_pct=%.1f"
+				% [String(job_id), String(category), used_ms, budget_ms, over_budget_pct]
+			)
 
 ## Zero-cost marker for milestones or other state transitions that should be
 ## visible in summaries without pretending to be timing data.
@@ -152,12 +156,110 @@ static func _record(label: String, elapsed_ms: float) -> void:
 	should_print = _should_print_record_locked(label, elapsed_ms)
 	_frame_operations[label] = _frame_operations.get(label, 0.0) + elapsed_ms
 	_mutex.unlock()
+	var emitted_summary: bool = false
 	if _CONTRACTS.has(contract_key):
 		var limit: float = _CONTRACTS[contract_key]
 		if elapsed_ms > limit:
-			push_warning("[WorldPerf] WARNING: %s took %.2f ms (contract: %.1f ms)" % [label, elapsed_ms, limit])
+			emitted_summary = _emit_contract_overrun_summary(label, elapsed_ms, limit)
+			if emitted_summary:
+				push_warning("[WorldPerf] WARNING: %s took %.2f ms (contract: %.1f ms)" % [label, elapsed_ms, limit])
 	if should_print:
+		if not emitted_summary:
+			_emit_threshold_timing_summary(label, elapsed_ms)
 		print("[WorldPerf] %s: %.2f ms" % [label, elapsed_ms])
+
+static func _emit_budget_overrun_summary(
+	job_id: StringName,
+	category: StringName,
+	used_ms: float,
+	budget_ms: float,
+	over_budget_pct: float
+) -> bool:
+	var record: Dictionary = {
+		"actor": "world_perf_probe",
+		"actor_human": "Мировой перф-зонд",
+		"action": "budget_overrun",
+		"action_human": "зафиксировал перерасход фонового бюджета",
+		"target": "%s.%s" % [String(category), String(job_id)],
+		"target_human": "фоновая задача %s в категории %s" % [String(job_id), String(category)],
+		"reason": "budget_exceeded",
+		"reason_human": "шаг занял %.2f ms при лимите %.2f ms, перерасход %.1f%%" % [used_ms, budget_ms, over_budget_pct],
+		"impact": String(WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT),
+		"impact_human": WorldRuntimeDiagnosticLog.humanize_impact(WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT),
+		"state": "over_budget",
+		"state_human": "вышел за бюджет",
+		"severity": String(WorldRuntimeDiagnosticLog.SEVERITY_DIAGNOSTIC),
+		"severity_human": WorldRuntimeDiagnosticLog.humanize_severity(WorldRuntimeDiagnosticLog.SEVERITY_DIAGNOSTIC),
+	}
+	return WorldRuntimeDiagnosticLog.emit_summary(
+		record,
+		WorldRuntimeDiagnosticLog.PERF_PREFIX,
+		{"cooldown_ms": _PERF_HUMAN_SUMMARY_COOLDOWN_MS}
+	)
+
+static func _emit_contract_overrun_summary(label: String, elapsed_ms: float, limit: float) -> bool:
+	var impact_key: StringName = _resolve_perf_impact_key(label)
+	var record: Dictionary = {
+		"actor": "world_perf_probe",
+		"actor_human": "Мировой перф-зонд",
+		"action": "contract_overrun",
+		"action_human": "зафиксировал превышение временного контракта",
+		"target": _extract_contract_key(label),
+		"target_human": WorldRuntimeDiagnosticLog.describe_perf_label(label),
+		"reason": "contract_exceeded",
+		"reason_human": "операция заняла %.2f ms при согласованном лимите %.1f ms" % [elapsed_ms, limit],
+		"impact": String(impact_key),
+		"impact_human": WorldRuntimeDiagnosticLog.humanize_impact(impact_key),
+		"state": "slow",
+		"state_human": "идёт медленнее контракта",
+		"severity": String(WorldRuntimeDiagnosticLog.SEVERITY_DIAGNOSTIC),
+		"severity_human": WorldRuntimeDiagnosticLog.humanize_severity(WorldRuntimeDiagnosticLog.SEVERITY_DIAGNOSTIC),
+	}
+	return WorldRuntimeDiagnosticLog.emit_summary(
+		record,
+		WorldRuntimeDiagnosticLog.PERF_PREFIX,
+		{"cooldown_ms": _PERF_HUMAN_SUMMARY_COOLDOWN_MS}
+	)
+
+static func _emit_threshold_timing_summary(label: String, elapsed_ms: float) -> bool:
+	var impact_key: StringName = _resolve_perf_impact_key(label)
+	var record: Dictionary = {
+		"actor": "world_perf_probe",
+		"actor_human": "Мировой перф-зонд",
+		"action": "timing_threshold",
+		"action_human": "зафиксировал заметный по времени шаг",
+		"target": label,
+		"target_human": WorldRuntimeDiagnosticLog.describe_perf_label(label),
+		"reason": "print_threshold_exceeded",
+		"reason_human": "замер превысил порог вывода в лог и требует внимания: %.2f ms" % elapsed_ms,
+		"impact": String(impact_key),
+		"impact_human": WorldRuntimeDiagnosticLog.humanize_impact(impact_key),
+		"state": "observed",
+		"state_human": "наблюдается всплеск",
+		"severity": String(WorldRuntimeDiagnosticLog.SEVERITY_DIAGNOSTIC),
+		"severity_human": WorldRuntimeDiagnosticLog.humanize_severity(WorldRuntimeDiagnosticLog.SEVERITY_DIAGNOSTIC),
+	}
+	return WorldRuntimeDiagnosticLog.emit_summary(
+		record,
+		WorldRuntimeDiagnosticLog.PERF_PREFIX,
+		{"cooldown_ms": _PERF_HUMAN_SUMMARY_COOLDOWN_MS}
+	)
+
+static func _resolve_perf_impact_key(label: String) -> StringName:
+	var contract_key: String = _extract_contract_key(label)
+	if contract_key == "ChunkManager.try_harvest_at_world" \
+		or contract_key == "Chunk.try_mine_at" \
+		or contract_key.begins_with("BuildingSystem."):
+		return WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE
+	if contract_key.begins_with("MountainRoofSystem.") \
+		or contract_key.begins_with("FrameBudgetDispatcher.") \
+		or contract_key.begins_with("ChunkManager.streaming_redraw") \
+		or contract_key.begins_with("ChunkStreaming.") \
+		or contract_key.begins_with("stream.") \
+		or contract_key.begins_with("Scheduler.") \
+		or contract_key.begins_with("scheduler."):
+		return WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT
+	return WorldRuntimeDiagnosticLog.IMPACT_INFORMATIONAL
 
 static func _should_print_record_locked(label: String, elapsed_ms: float) -> bool:
 	if elapsed_ms <= 0.0:
