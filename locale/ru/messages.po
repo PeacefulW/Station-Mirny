@@ -484,7 +484,7 @@ msgid "UI_WORLD_CREATE_RIDGE_LABEL"
 msgstr "Площадь гор:"
 
 msgid "UI_WORLD_CREATE_HINT"
-msgstr "Одинаковый seed = одинаковая планета. Меняй только число гор, площадь и цепочки."
+msgstr "Одинаковый seed и одинаковые настройки дают один и тот же мир. Реками, озёрами и горами можно задать характер планеты до высадки."
 
 msgid "UI_WORLD_CREATE_START_BUTTON"
 msgstr "▶  ВЫСАДКА НА ПЛАНЕТУ"
@@ -828,6 +828,15 @@ msgstr "Площадь гор:"
 msgid "UI_WORLD_CREATE_MOUNTAIN_CHAINS_LABEL"
 msgstr "Цепочки гор:"
 
+msgid "UI_WORLD_CREATE_RIVER_AMOUNT_LABEL"
+msgstr "Реки:"
+
+msgid "UI_WORLD_CREATE_RIVER_WIDTH_LABEL"
+msgstr "Ширина рек:"
+
+msgid "UI_WORLD_CREATE_LAKE_AMOUNT_LABEL"
+msgstr "Озёра:"
+
 msgid "UI_WORLD_CREATE_TREE_DENSITY_LABEL"
 msgstr "Плотность деревьев:"
 
@@ -884,3 +893,24 @@ msgstr "Очередь пуста."
 
 msgid "UI_DEBUG_CHUNK_OVERLAY_NO_EVENTS"
 msgstr "Событий пока нет."
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_MODE_FORENSICS"
+msgstr "forensics"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_DUMP_HINT"
+msgstr "дамп инцидента"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_NO_INCIDENT"
+msgstr "Активный инцидент не найден."
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_SUSPICIONS"
+msgstr "Подозрения"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_TRACE_EVENTS"
+msgstr "Trace-события инцидента"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_CHUNK_CAUSALITY"
+msgstr "Causality по чанкам"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_TASK_CAUSALITY"
+msgstr "Causality по visual task"

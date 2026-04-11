@@ -275,12 +275,20 @@ static func _build_summary_dedupe_key(record: Dictionary) -> String:
 	var parts: Array[String] = []
 	for field_name: String in ["actor", "action", "target", "reason", "impact", "state"]:
 		parts.append(_dedupe_field(record, field_name))
+	if record.has("trace_id"):
+		parts.append("trace=%s" % str(record.get("trace_id", "")))
+	if record.has("incident_id"):
+		parts.append("incident=%s" % str(record.get("incident_id", "")))
 	return "|".join(parts)
 
 static func _build_timeline_dedupe_key(record: Dictionary) -> String:
 	var parts: Array[String] = []
 	for field_name: String in ["actor", "action", "target", "reason", "impact", "state", "code"]:
 		parts.append(_dedupe_field(record, field_name))
+	if record.has("trace_id"):
+		parts.append("trace=%s" % str(record.get("trace_id", "")))
+	if record.has("incident_id"):
+		parts.append("incident=%s" % str(record.get("incident_id", "")))
 	return "|".join(parts)
 
 static func _record_timeline_event(record: Dictionary, prefix: String, summary: String) -> void:
@@ -320,6 +328,8 @@ static func _record_timeline_event(record: Dictionary, prefix: String, summary: 
 			"state": _resolve_code_field(record, "state"),
 			"severity": _resolve_code_field(record, "severity"),
 			"technical_code": _resolve_code_field(record, "code"),
+			"trace_id": str(record.get("trace_id", "")),
+			"incident_id": int(record.get("incident_id", -1)),
 		}
 		_timeline_events.append(event)
 		while _timeline_events.size() > EVENT_HISTORY_LIMIT:

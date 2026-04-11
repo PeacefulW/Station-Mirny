@@ -214,9 +214,9 @@ related_docs:
 - Особенности: loaded-only snapshot; не описывает unloaded world.
 
 `ChunkManager.get_chunk_debug_overlay_snapshot(max_queue_rows: int = 14, debug_radius: int = -1) -> Dictionary`
-- Что возвращает: read-only diagnostic snapshot для F11 overlay: `player_chunk`, `active_z`, factual radii, bounded chunk entries, capped/grouped `queue_rows`, timeline events, and compact metrics.
+- Что возвращает: read-only diagnostic snapshot для F11 overlay: `player_chunk`, `active_z`, factual radii, bounded chunk entries, capped/grouped `queue_rows`, timeline events, compact metrics, plus bounded debug-only `incident_summary`, `trace_events`, `chunk_causality_rows`, `task_debug_rows`, and `suspicion_flags`.
 - Когда использовать: только для in-game debug overlay / diagnostics, когда нужно понять pipeline order `request -> queue -> generate -> apply -> build visual -> visible -> unload` во время движения игрока.
-- Особенности: active-z scoped, bounded around player and clamped by `DEBUG_OVERLAY_MAX_RADIUS`; не public load/unload API, не gameplay truth, не persistence data. Snapshot rows may label `stalled` only as observed delay unless an owner diagnostic record proves root cause.
+- Особенности: active-z scoped, bounded around player and clamped by `DEBUG_OVERLAY_MAX_RADIUS`; не public load/unload API, не gameplay truth, не persistence data. Snapshot rows may label `stalled` only as observed delay unless an owner diagnostic record proves root cause; `suspicion_flags` are observational hints, not proof.
 
 `ChunkManager.is_tile_loaded(gt: Vector2i) -> bool`
 - Что возвращает: загружен ли tile сейчас.
@@ -652,12 +652,12 @@ related_docs:
 
 `WorldComputeContext.sample_structure_context(world_pos: Vector2i, channels: WorldChannels = null) -> WorldStructureContext`
 - Когда вызывать: когда runtime/tooling consumer уже держит `WorldComputeContext` и ему нужен тот же structural context, который читает текущий GDScript world runtime.
-- Что делает: canonicalizes tile и собирает `WorldStructureContext` из опубликованного `WorldPrePass`: `ridge_strength`, `mountain_mass`, `floodplain_strength`, `river_distance`, `river_width`; `mountain_mass` is the broader massif-fill companion to `ridge_strength` around local ridge neighborhoods, while `river_strength` derives as a continuous width-and-proximity semantic from `river_width` / `river_distance`, clamps to `0` when sampled `river_width` is absent, and is the same sanctioned river handoff used by both GDScript and native terrain consumers instead of legacy band/noise sampling. Legacy `channels` parameter retained only for consumer compatibility.
+- Что делает: canonicalizes tile и собирает `WorldStructureContext` из опубликованного `WorldPrePass`: `ridge_strength`, `mountain_mass`, `floodplain_strength`, `river_distance`, `river_width`; `mountain_mass` is the broader massif-fill companion to `ridge_strength` around local ridge neighborhoods, while `river_strength` derives as a continuous width-and-proximity semantic from the published `river_width` / `river_distance` pair, including qualifying lake basins that are folded into the same hydrology handoff, clamps to `0` when sampled `river_width` is absent, and is the same sanctioned river handoff used by both GDScript and native terrain consumers instead of legacy band/noise sampling. Legacy `channels` parameter retained only for consumer compatibility.
 - Гарантии: sanctioned structure-truth sampler for GDScript runtime. Не вызывает legacy band/noise structure sampling; при отсутствии pre-pass reference возвращает нулевой context вместо альтернативной "второй правды".
 
 `WorldPrePass.sample(channel: StringName, world_pos: Vector2i) -> float`
 - Когда вызывать: когда owner-side generator consumer уже держит опубликованный `WorldPrePass` reference и нужен интерполированный coarse-grid канал по мировым координатам.
-- Что делает: читает curated pre-pass channel (`height`, `drainage`, `river_width`, `river_distance`, `floodplain_strength`, `ridge_strength`, `mountain_mass`, `slope`, `rain_shadow`, `continentalness`) seam-safe по X-wrap и clamp-safe по latitude band.
+- Что делает: читает curated pre-pass channel (`height`, `drainage`, `river_width`, `river_distance`, `floodplain_strength`, `ridge_strength`, `mountain_mass`, `slope`, `rain_shadow`, `continentalness`) seam-safe по X-wrap и clamp-safe по latitude band. Published `river_width` / `river_distance` remain the sanctioned visible hydrology handoff for both river corridors and qualifying lake basins; raw `lake_mask` / `lake_records` stay internal.
 - Гарантии: read-only API над опубликованным pre-pass snapshot; не публикует raw mutable grid access и не триггерит recompute.
 
 `WorldPrePass.get_grid_value(channel: StringName, grid_x: int, grid_y: int) -> float`
@@ -1761,7 +1761,7 @@ Current commands in scope:
 - Особенности: read-only, transient, not persistence data, not proof by itself for acceptance-level runtime performance. Runtime/perf acceptance still requires explicit runtime proof or manual human verification per `PERFORMANCE_CONTRACTS.md`.
 
 `WorldRuntimeDiagnosticLog.get_timeline_snapshot(limit: int = 24) -> Array[Dictionary]`
-- Что возвращает: bounded structured timeline events with Russian `summary`, technical `record`, `detail_fields`, `timestamp_label`, `repeat_count`, and dedupe metadata.
+- Что возвращает: bounded structured timeline events with Russian `summary`, technical `record`, `detail_fields`, `timestamp_label`, `repeat_count`, and dedupe metadata. When present, debug-only `trace_id` / `incident_id` survive into the snapshot for correlation with overlay forensics.
 - Когда использовать: debug overlays and validation tooling that need the recent causal sequence without parsing console text.
 - Особенности: debug-only, cooldown-deduped, not gameplay truth, not persistence data. Human summaries remain Russian-first diagnostic text; structured fields keep `actor/action/target/reason/impact/state/code` for engineer/agent inspection.
 
@@ -1771,7 +1771,13 @@ Current commands in scope:
 - Что содержит: full F11 overlay session snapshots while the overlay is visible: top HUD metrics, player/radii, capped/grouped queue rows, error/stalled chunk summary, timeline events, bounded chunk rows, and raw metrics.
 - Кто пишет: only `WorldChunkDebugOverlay`.
 - Когда пишется: file is overwritten on the first F11 open in a fresh game process; later F11 opens in the same process append; no snapshots are written while F11 is hidden.
-- Особенности: debug-only derived artifact, not gameplay truth, not save/load data, and not an API for reconstructing world state. The log header includes `ProjectSettings.globalize_path(LOG_PATH)` so humans can find the OS path.
+- Особенности: debug-only derived artifact, not gameplay truth, not save/load data, and not an API for reconstructing world state. `Shift+F11` cycles overlay modes, including `forensics`; the log header includes `ProjectSettings.globalize_path(LOG_PATH)` so humans can find the OS path.
+
+`user://debug/f11_chunk_incident_<timestamp>.log`
+- Что содержит: explicit incident capture from one bounded F11-style snapshot: `incident_summary`, `suspicion_flags`, `trace_events`, `chunk_causality_rows`, `task_debug_rows`, timeline excerpts, and raw snapshot payload. May legitimately contain `no_active_incident`.
+- Кто пишет: only `WorldChunkDebugOverlay`.
+- Когда пишется: only on explicit `Ctrl+F11` manual capture; capture works even if the overlay is hidden.
+- Особенности: debug-only derived artifact, not gameplay truth, not save/load data, and not a second diagnostics bus. The dump serializes existing bounded debug state and must not enqueue/load/generate/publish chunks.
 
 ### Внутренние методы (НЕ вызывать)
 
@@ -1780,6 +1786,7 @@ Current commands in scope:
 | Direct writes to `WorldRuntimeDiagnosticLog._timeline_events` or `WorldPerfMonitor._latest_debug_snapshot` | Bypasses bounded/deduped owner paths and may desync overlay diagnostics from emitted logs. |
 | Direct calls to `WorldPerfProbe.flush_frame()` from overlay code | `WorldPerfMonitor` is the single frame-level consumer; a second consumer would steal metrics from the monitor. |
 | Direct writes to `user://debug/f11_chunk_overlay.log` from systems other than `WorldChunkDebugOverlay` | The artifact must stay a serialized F11 snapshot, not a second diagnostics bus or gameplay log sink. |
+| Direct writes to `user://debug/f11_chunk_incident_<timestamp>.log` from systems other than `WorldChunkDebugOverlay` | Incident dumps must stay explicit bounded captures owned by the overlay, not ad-hoc gameplay/system logs. |
 
 ---
 

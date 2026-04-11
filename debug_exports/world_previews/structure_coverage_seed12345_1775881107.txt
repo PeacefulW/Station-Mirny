@@ -1,0 +1,70 @@
+# Structure coverage proof
+seed=12345
+radius_tiles=64
+band_count=8
+sample_stride_cells=2
+sampled_tiles=8191
+authoritative_river_cells=13976
+authoritative_mountain_cells=7390
+sampled_authoritative_river_tiles=6363
+sampled_authoritative_mountain_tiles=1726
+visible_river_tiles=5140
+visible_mountain_tiles=671
+script_water_tiles=2066
+script_bank_tiles=3074
+script_rock_tiles=672
+native_water_tiles=2066
+native_bank_tiles=3074
+native_rock_tiles=672
+native_sample_failures=0
+terrain_mismatches=0
+native_terrain_tolerance=0
+
+## Nearest distances
+authoritative_river=50.6 tiles @ (4048, -16)
+authoritative_mountain=208.6 tiles @ (208, -16)
+visible_river=50.6 tiles @ (16, -48)
+visible_mountain=213.5 tiles @ (208, -48)
+visible_water=81.6 tiles @ (80, 16)
+visible_bank=50.6 tiles @ (16, -48)
+visible_rock=213.5 tiles @ (208, -48)
+
+## Candidate windows
+river_failure=false
+river_center=(4032, -4000)
+river_grid=(126, 3)
+river_primary=32.734
+river_secondary=1.000
+river_score=38.394
+river_authoritative_tiles=1089
+river_visible_tiles=435
+river_biomes=C:/Users/peaceful/Station Peaceful/Station Peaceful/debug_exports/world_previews/seed_12345_local_4032_-4000_r24_1775881074_x4_biomes.png
+river_terrain=C:/Users/peaceful/Station Peaceful/Station Peaceful/debug_exports/world_previews/seed_12345_local_4032_-4000_r24_1775881074_x4_terrain.png
+river_structures=C:/Users/peaceful/Station Peaceful/Station Peaceful/debug_exports/world_previews/seed_12345_local_4032_-4000_r24_1775881074_x4_structures.png
+river_ecotone=C:/Users/peaceful/Station Peaceful/Station Peaceful/debug_exports/world_previews/seed_12345_local_4032_-4000_r24_1775881074_x4_ecotone.png
+river_vegetation=C:/Users/peaceful/Station Peaceful/Station Peaceful/debug_exports/world_previews/seed_12345_local_4032_-4000_r24_1775881074_x4_vegetation.png
+
+mountain_failure=false
+mountain_center=(1408, -4064)
+mountain_grid=(44, 1)
+mountain_primary=1.000
+mountain_secondary=1.000
+mountain_score=1.900
+mountain_authoritative_tiles=1089
+mountain_visible_tiles=1025
+mountain_biomes=C:/Users/peaceful/Station Peaceful/Station Peaceful/debug_exports/world_previews/seed_12345_local_1408_-4064_r24_1775881107_x4_biomes.png
+mountain_terrain=C:/Users/peaceful/Station Peaceful/Station Peaceful/debug_exports/world_previews/seed_12345_local_1408_-4064_r24_1775881107_x4_terrain.png
+mountain_structures=C:/Users/peaceful/Station Peaceful/Station Peaceful/debug_exports/world_previews/seed_12345_local_1408_-4064_r24_1775881107_x4_structures.png
+mountain_ecotone=C:/Users/peaceful/Station Peaceful/Station Peaceful/debug_exports/world_previews/seed_12345_local_1408_-4064_r24_1775881107_x4_ecotone.png
+mountain_vegetation=C:/Users/peaceful/Station Peaceful/Station Peaceful/debug_exports/world_previews/seed_12345_local_1408_-4064_r24_1775881107_x4_vegetation.png
+
+## Band table
+band|zone|y_range|auth_river_cells|auth_mountain_cells|sampled_tiles|auth_river_samples|auth_mountain_samples|visible_river_samples|visible_mountain_samples|script_water|script_sand|script_rock|native_water|native_sand|native_rock|native_failures|terrain_mismatches
+0|extreme_25|-4096..-3073|1656|398|1024|738|88|580|42|213|367|42|213|367|42|0|0
+1|extreme_25|-3072..-2049|1753|376|1024|807|81|681|26|264|417|26|264|417|26|0|0
+2|central_50|-2048..-1025|1771|1261|1024|822|291|672|105|285|387|106|285|387|106|0|0
+3|central_50|-1024..-1|1769|1275|1024|824|301|669|122|276|393|122|276|393|122|0|0
+4|central_50|0..1023|1796|1473|1023|829|345|669|132|293|376|132|293|376|132|0|0
+5|central_50|1024..2047|1806|1123|1024|832|272|688|98|291|397|98|291|397|98|0|0
+6|extreme_25|2048..3071|1762|1032|1024|805|239|664|96|287|377|96|287|377|96|0|0
+7|extreme_25|3072..4095|1663|452|1024|706|109|517|50|157|360|50|157|360|50|0|0

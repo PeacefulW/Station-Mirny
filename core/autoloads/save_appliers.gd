@@ -22,6 +22,11 @@ static func apply_world(tree: SceneTree, data: Dictionary) -> bool:
 		balance.mountain_density = float(generation.get("mountain_density", balance.mountain_density))
 		balance.mountain_area = int(generation.get("mountain_area", balance.mountain_area))
 		balance.mountain_chaininess = float(generation.get("mountain_chaininess", balance.mountain_chaininess))
+		balance.prepass_river_accumulation_threshold = int(generation.get("prepass_river_accumulation_threshold", balance.prepass_river_accumulation_threshold))
+		balance.prepass_river_base_width = float(generation.get("prepass_river_base_width", balance.prepass_river_base_width))
+		balance.prepass_river_width_scale = float(generation.get("prepass_river_width_scale", balance.prepass_river_width_scale))
+		balance.prepass_lake_min_area = int(generation.get("prepass_lake_min_area", balance.prepass_lake_min_area))
+		balance.prepass_lake_min_depth = float(generation.get("prepass_lake_min_depth", balance.prepass_lake_min_depth))
 
 	WorldGenerator.initialize_world(int(data.get("seed", 0)))
 	WorldGenerator.spawn_tile = WorldGenerator.canonicalize_tile(WorldGenerator.spawn_tile)

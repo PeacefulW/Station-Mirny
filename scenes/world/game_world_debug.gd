@@ -54,7 +54,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_F11:
 			if _chunk_debug_overlay:
-				if event.shift_pressed:
+				if event.ctrl_pressed:
+					_chunk_debug_overlay.request_incident_dump()
+				elif event.shift_pressed:
 					_chunk_debug_overlay.cycle_mode()
 				else:
 					_chunk_debug_overlay.toggle_overlay()

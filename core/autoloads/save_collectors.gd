@@ -67,6 +67,11 @@ static func collect_world(tree: SceneTree) -> Dictionary:
 			"mountain_density": balance.mountain_density,
 			"mountain_area": balance.mountain_area,
 			"mountain_chaininess": balance.mountain_chaininess,
+			"prepass_river_accumulation_threshold": balance.prepass_river_accumulation_threshold,
+			"prepass_river_base_width": balance.prepass_river_base_width,
+			"prepass_river_width_scale": balance.prepass_river_width_scale,
+			"prepass_lake_min_area": balance.prepass_lake_min_area,
+			"prepass_lake_min_depth": balance.prepass_lake_min_depth,
 		}
 	var spawn_orchestrators: Array[Node] = _find_nodes_by_class(tree, "SpawnOrchestrator")
 	if not spawn_orchestrators.is_empty():

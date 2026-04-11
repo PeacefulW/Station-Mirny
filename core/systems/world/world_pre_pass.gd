@@ -799,6 +799,17 @@ func _compute_river_extraction() -> void:
 			_river_mask_grid = native_river_data["river_mask_grid"]
 			_river_width_grid = native_river_data["river_width_grid"]
 			_river_distance_grid = native_river_data["river_distance_grid"]
+			phase_started_usec = WorldPerfProbe.begin()
+			source_indices = _collect_existing_river_sources(heap_indices, heap_priorities)
+			source_indices = _seed_lake_hydrology_sources(source_indices, heap_indices, heap_priorities)
+			var augmented_river_distance := PackedFloat32Array()
+			if _native_prepass_kernels != null:
+				augmented_river_distance = _compute_native_wrapped_distance_field(source_indices, max_distance)
+			if not augmented_river_distance.is_empty():
+				_river_distance_grid = augmented_river_distance
+			else:
+				_propagate_river_distance_field(heap_indices, heap_priorities, neighbor_distances)
+			WorldPerfProbe.end("WorldPrePass.compute.river_extraction.lake_augmentation", phase_started_usec)
 			return
 	phase_started_usec = WorldPerfProbe.begin()
 	for cell_index: int in range(_accumulation_grid.size()):
@@ -809,6 +820,7 @@ func _compute_river_extraction() -> void:
 		_river_distance_grid[cell_index] = 0.0
 		source_indices.append(cell_index)
 		_numeric_heap_push(heap_indices, heap_priorities, cell_index, 0.0)
+	source_indices = _seed_lake_hydrology_sources(source_indices, heap_indices, heap_priorities)
 	WorldPerfProbe.end("WorldPrePass.compute.river_extraction.seed_river_sources", phase_started_usec)
 	var native_river_distance := PackedFloat32Array()
 	phase_started_usec = WorldPerfProbe.begin()
@@ -819,6 +831,66 @@ func _compute_river_extraction() -> void:
 		WorldPerfProbe.end("WorldPrePass.compute.river_extraction.distance_propagation", phase_started_usec)
 		return
 	phase_started_usec = WorldPerfProbe.begin()
+	_propagate_river_distance_field(heap_indices, heap_priorities, neighbor_distances)
+	WorldPerfProbe.end("WorldPrePass.compute.river_extraction.distance_propagation", phase_started_usec)
+
+func _collect_existing_river_sources(
+	heap_indices: Array[int],
+	heap_priorities: Array[float]
+) -> PackedInt32Array:
+	var source_indices := PackedInt32Array()
+	for cell_index: int in range(_river_mask_grid.size()):
+		if int(_river_mask_grid[cell_index]) != 1:
+			continue
+		if _river_width_grid[cell_index] <= FLOAT_EPSILON:
+			continue
+		_river_distance_grid[cell_index] = 0.0
+		source_indices.append(cell_index)
+		_numeric_heap_push(heap_indices, heap_priorities, cell_index, 0.0)
+	return source_indices
+
+func _seed_lake_hydrology_sources(
+	source_indices: PackedInt32Array,
+	heap_indices: Array[int],
+	heap_priorities: Array[float]
+) -> PackedInt32Array:
+	if _lake_records.is_empty() or _lake_mask.is_empty():
+		return source_indices
+	var hydrology_width_by_lake_id := PackedFloat32Array()
+	hydrology_width_by_lake_id.resize(_lake_records.size() + 1)
+	hydrology_width_by_lake_id.fill(0.0)
+	for lake_record: LakeRecord in _lake_records:
+		if lake_record == null:
+			continue
+		if lake_record.id <= 0 or lake_record.id >= hydrology_width_by_lake_id.size():
+			continue
+		hydrology_width_by_lake_id[lake_record.id] = _resolve_lake_hydrology_width_tiles(lake_record)
+	for cell_index: int in range(_lake_mask.size()):
+		var lake_id: int = int(_lake_mask[cell_index])
+		if lake_id <= 0 or lake_id >= hydrology_width_by_lake_id.size():
+			continue
+		var lake_width_tiles: float = hydrology_width_by_lake_id[lake_id]
+		if lake_width_tiles <= FLOAT_EPSILON:
+			continue
+		var already_seeded: bool = (
+			_river_distance_grid[cell_index] <= FLOAT_EPSILON
+			and int(_river_mask_grid[cell_index]) == 1
+		)
+		_river_mask_grid[cell_index] = 1
+		_river_width_grid[cell_index] = maxf(_river_width_grid[cell_index], lake_width_tiles)
+		if _river_distance_grid[cell_index] > FLOAT_EPSILON:
+			_river_distance_grid[cell_index] = 0.0
+		if already_seeded:
+			continue
+		source_indices.append(cell_index)
+		_numeric_heap_push(heap_indices, heap_priorities, cell_index, 0.0)
+	return source_indices
+
+func _propagate_river_distance_field(
+	heap_indices: Array[int],
+	heap_priorities: Array[float],
+	neighbor_distances: PackedFloat32Array
+) -> void:
 	while not heap_indices.is_empty():
 		var cell_index: int = _numeric_heap_pop(heap_indices, heap_priorities)
 		if cell_index < 0:
@@ -835,7 +907,6 @@ func _compute_river_extraction() -> void:
 				continue
 			_river_distance_grid[neighbor_index] = next_distance
 			_numeric_heap_push(heap_indices, heap_priorities, neighbor_index, next_distance)
-	WorldPerfProbe.end("WorldPrePass.compute.river_extraction.distance_propagation", phase_started_usec)
 
 func _compute_floodplain_strength() -> void:
 	_floodplain_strength_grid.resize(_river_mask_grid.size())
@@ -846,7 +917,8 @@ func _compute_floodplain_strength() -> void:
 	for cell_index: int in range(_river_mask_grid.size()):
 		if _river_mask_grid[cell_index] != 1:
 			continue
-		var floodplain_width: float = _resolve_floodplain_width_tiles(_river_width_grid[cell_index])
+		var floodplain_source_width: float = _resolve_floodplain_source_width_tiles(cell_index)
+		var floodplain_width: float = _resolve_floodplain_width_tiles(floodplain_source_width)
 		if floodplain_width <= FLOAT_EPSILON:
 			continue
 		_floodplain_strength_grid[cell_index] = 1.0
@@ -1975,6 +2047,44 @@ func _resolve_floodplain_width_tiles(river_width_tiles: float) -> float:
 	if river_width_tiles <= FLOAT_EPSILON:
 		return 0.0
 	return maxf(0.0, river_width_tiles * _resolve_floodplain_multiplier())
+
+func _resolve_floodplain_source_width_tiles(cell_index: int) -> float:
+	if cell_index < 0 or cell_index >= _river_width_grid.size():
+		return 0.0
+	var source_width: float = maxf(0.0, _river_width_grid[cell_index])
+	if source_width <= FLOAT_EPSILON:
+		return 0.0
+	if int(_lake_mask[cell_index]) <= 0:
+		return source_width
+	var lake_floodplain_cap: float = maxf(
+		_resolve_river_base_width() * 1.10,
+		float(maxi(4, _grid_step)) * 0.14
+	)
+	return minf(source_width, lake_floodplain_cap)
+
+func _resolve_lake_hydrology_width_tiles(lake_record: LakeRecord) -> float:
+	if lake_record == null:
+		return 0.0
+	var area_cells: float = maxf(1.0, float(lake_record.area_grid_cells))
+	var equivalent_radius_cells: float = sqrt(area_cells / PI)
+	var min_depth: float = maxf(0.01, _resolve_lake_min_depth())
+	var area_factor: float = clampf((equivalent_radius_cells - 0.75) / 4.5, 0.0, 1.0)
+	var depth_factor: float = clampf(
+		(lake_record.max_depth - min_depth) / maxf(0.02, min_depth * 3.0),
+		0.0,
+		1.0
+	)
+	var min_visible_width: float = maxf(
+		_resolve_river_base_width() * 1.50,
+		float(maxi(4, _grid_step)) * 0.18
+	)
+	var max_visible_width: float = maxf(
+		min_visible_width,
+		float(maxi(8, _grid_step)) * 0.55
+	)
+	var hydrology_width: float = lerpf(min_visible_width, max_visible_width, area_factor)
+	hydrology_width += depth_factor * _resolve_river_base_width() * 1.20
+	return minf(maxf(min_visible_width, hydrology_width), max_visible_width)
 
 func _resolve_max_ridge_length_grid() -> int:
 	if _balance == null:

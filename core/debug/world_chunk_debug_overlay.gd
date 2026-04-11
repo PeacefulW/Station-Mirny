@@ -10,10 +10,11 @@ const SNAPSHOT_INTERVAL_SEC: float = 0.10
 const LOG_INTERVAL_SEC: float = 0.25
 const LOG_DIR: String = "user://debug"
 const LOG_PATH: String = "user://debug/f11_chunk_overlay.log"
+const INCIDENT_LOG_PREFIX: String = "user://debug/f11_chunk_incident_"
 const DEFAULT_QUEUE_ROWS: int = 16
 const FONT_SIZE_CHUNK: int = 12
 const FONT_SIZE_CHUNK_EXPANDED: int = 11
-const MODES: Array[String] = ["compact", "expanded", "queue", "timeline", "perf"]
+const MODES: Array[String] = ["compact", "expanded", "queue", "timeline", "perf", "forensics"]
 
 var _chunk_manager: Node = null
 var _ui_layer: CanvasLayer = null
@@ -56,6 +57,14 @@ func cycle_mode() -> void:
 	_apply_mode_layout()
 	if _overlay_visible:
 		_refresh_snapshot()
+
+func request_incident_dump() -> String:
+	if _chunk_manager == null or not is_instance_valid(_chunk_manager):
+		return ""
+	if not _chunk_manager.has_method("get_chunk_debug_overlay_snapshot"):
+		return ""
+	var snapshot: Dictionary = _chunk_manager.get_chunk_debug_overlay_snapshot(DEFAULT_QUEUE_ROWS)
+	return _write_incident_dump(snapshot)
 
 func set_overlay_visible(value: bool) -> void:
 	_overlay_visible = value
@@ -204,11 +213,12 @@ func _make_label(font_size: int, font_color: Color) -> Label:
 
 func _apply_mode_layout() -> void:
 	if _legend_label != null:
-		_legend_label.text = "%s: %s | F11: %s | Shift+F11: %s" % [
+		_legend_label.text = "%s: %s | F11: %s | Shift+F11: %s | Ctrl+F11: %s" % [
 			_tr("UI_DEBUG_CHUNK_OVERLAY_TITLE"),
-			MODES[_mode_index],
+			_current_mode_label(),
 			_tr("UI_DEBUG_CHUNK_OVERLAY_TOGGLE_HINT"),
 			_tr("UI_DEBUG_CHUNK_OVERLAY_MODE_HINT"),
+			_tr("UI_DEBUG_CHUNK_OVERLAY_DUMP_HINT"),
 		]
 
 func _update_ui() -> void:
@@ -218,11 +228,19 @@ func _update_ui() -> void:
 	if _top_label != null:
 		_top_label.text = _format_top_summary(metrics)
 	if _queue_label != null:
-		_queue_label.text = _format_queue(_snapshot)
+		_queue_label.text = _format_forensics_summary(_snapshot) if _current_mode() == "forensics" else _format_queue(_snapshot)
 	if _timeline_label != null:
-		_timeline_label.text = _format_timeline(_snapshot)
+		_timeline_label.text = _format_forensics_timeline(_snapshot) if _current_mode() == "forensics" else _format_timeline(_snapshot)
 	if _legend_label != null:
 		_apply_mode_layout()
+
+func _current_mode() -> String:
+	return MODES[_mode_index]
+
+func _current_mode_label() -> String:
+	if _current_mode() == "forensics":
+		return _tr("UI_DEBUG_CHUNK_OVERLAY_MODE_FORENSICS")
+	return _current_mode()
 
 func _format_top_summary(metrics: Dictionary) -> String:
 	var queue_sizes: Dictionary = metrics.get("queue_sizes", {}) as Dictionary
@@ -293,6 +311,114 @@ func _format_timeline(snapshot: Dictionary) -> String:
 		])
 	return "\n".join(lines)
 
+func _format_forensics_summary(snapshot: Dictionary) -> String:
+	var summary: Dictionary = snapshot.get("incident_summary", {}) as Dictionary
+	var suspicion_flags: Array = snapshot.get("suspicion_flags", []) as Array
+	var chunk_rows: Array = snapshot.get("chunk_causality_rows", []) as Array
+	var task_rows: Array = snapshot.get("task_debug_rows", []) as Array
+	var lines: Array[String] = [_tr("UI_DEBUG_CHUNK_OVERLAY_MODE_FORENSICS")]
+	if str(summary.get("status", "no_active_incident")) == "no_active_incident":
+		lines.append(_tr("UI_DEBUG_CHUNK_OVERLAY_NO_INCIDENT"))
+	else:
+		lines.append("trace=%s | incident=%s | source=%s | stage=%s | age=%s" % [
+			str(summary.get("trace_id", "")),
+			str(summary.get("incident_id", "")),
+			str(summary.get("source_system", "")),
+			str(summary.get("stage", "")),
+			_fmt_ms(float(summary.get("age_ms", -1.0))),
+		])
+		lines.append("primary=%s | player=%s | chunks=%d | events=%d | full_far=%d | border_fix_near=%d | shadow=%s" % [
+			str(summary.get("primary_chunk", Vector2i.ZERO)),
+			str(summary.get("player_chunk", Vector2i.ZERO)),
+			int(summary.get("chunk_count", 0)),
+			int(summary.get("event_count", 0)),
+			int(summary.get("queue_full_far", 0)),
+			int(summary.get("queue_border_fix_near", 0)),
+			_fmt_ms(float(summary.get("shadow_ms", 0.0))),
+		])
+	lines.append(_tr("UI_DEBUG_CHUNK_OVERLAY_SUSPICIONS"))
+	if suspicion_flags.is_empty():
+		lines.append("-")
+	else:
+		for raw_flag: Variant in suspicion_flags:
+			var flag: Dictionary = raw_flag as Dictionary
+			lines.append("- %s | %s" % [str(flag.get("label", "")), str(flag.get("detail", ""))])
+	lines.append(_tr("UI_DEBUG_CHUNK_OVERLAY_CHUNK_CAUSALITY"))
+	if chunk_rows.is_empty():
+		lines.append("-")
+	else:
+		for raw_row: Variant in chunk_rows:
+			lines.append(_format_forensics_chunk_row(raw_row as Dictionary))
+	lines.append(_tr("UI_DEBUG_CHUNK_OVERLAY_TASK_CAUSALITY"))
+	if task_rows.is_empty():
+		lines.append("-")
+	else:
+		for raw_task: Variant in task_rows:
+			lines.append(_format_forensics_task_row(raw_task as Dictionary))
+	return "\n".join(lines)
+
+func _format_forensics_timeline(snapshot: Dictionary) -> String:
+	var lines: Array[String] = [_tr("UI_DEBUG_CHUNK_OVERLAY_TRACE_EVENTS")]
+	var events: Array = snapshot.get("trace_events", []) as Array
+	if events.is_empty():
+		lines.append(_tr("UI_DEBUG_CHUNK_OVERLAY_NO_INCIDENT"))
+	else:
+		for raw_event: Variant in events:
+			lines.append(_format_forensics_trace_event(raw_event as Dictionary))
+	lines.append("")
+	lines.append(_tr("UI_DEBUG_CHUNK_OVERLAY_TIMELINE"))
+	var timeline_events: Array = snapshot.get("timeline_events", []) as Array
+	if timeline_events.is_empty():
+		lines.append(_tr("UI_DEBUG_CHUNK_OVERLAY_NO_EVENTS"))
+	else:
+		var start_index: int = maxi(0, timeline_events.size() - 5)
+		for idx: int in range(start_index, timeline_events.size()):
+			var event: Dictionary = timeline_events[idx] as Dictionary
+			lines.append("[%s] %s" % [
+				str(event.get("timestamp_label", "--:--:--.---")),
+				str(event.get("summary", "")),
+			])
+	return "\n".join(lines)
+
+func _format_forensics_chunk_row(row: Dictionary) -> String:
+	var pending_tasks: Array = row.get("pending_tasks", []) as Array
+	var pending_text: String = ",".join(pending_tasks) if not pending_tasks.is_empty() else "-"
+	return "%s%s | %s | phase=%s | age=%s | trace_age=%s | pending=%s | last=%s/%s" % [
+		"[P] " if bool(row.get("is_player_chunk", false)) else "",
+		str(row.get("coord", Vector2i.ZERO)),
+		str(row.get("state_human", row.get("state", ""))),
+		str(row.get("visual_phase", "")),
+		_fmt_ms(float(row.get("stage_age_ms", -1.0))),
+		_fmt_ms(float(row.get("trace_age_ms", -1.0))),
+		pending_text,
+		str(row.get("last_source_system", "")),
+		str(row.get("last_event", "")),
+	]
+
+func _format_forensics_task_row(row: Dictionary) -> String:
+	return "%s %s | %s | age=%s | requeue=%d | status=%s | skip=%s | budget=%s" % [
+		str(row.get("kind", "")),
+		str(row.get("coord", Vector2i.ZERO)),
+		str(row.get("band", "")),
+		_fmt_ms(float(row.get("age_ms", -1.0))),
+		int(row.get("requeue_count", 0)),
+		str(row.get("status", "")),
+		str(row.get("last_skip_reason", "")),
+		str(row.get("last_budget_state", "")),
+	]
+
+func _format_forensics_trace_event(event: Dictionary) -> String:
+	var repeat_count: int = int(event.get("repeat_count", 1))
+	var repeat_text: String = " x%d" % repeat_count if repeat_count > 1 else ""
+	return "[%s] %s | %s | %s | %s%s" % [
+		str(event.get("timestamp_label", "--:--:--.---")),
+		str(event.get("source_system", "")),
+		str(event.get("label", event.get("event_key", ""))),
+		str(event.get("coord", Vector2i.ZERO)),
+		var_to_str(event.get("detail_fields", {})),
+		repeat_text,
+	]
+
 func _ensure_log_file() -> void:
 	if _log_file != null:
 		return
@@ -345,6 +471,11 @@ func _write_log_snapshot() -> void:
 	var queue_rows: Array = _snapshot.get("queue_rows", []) as Array
 	var timeline_events: Array = _snapshot.get("timeline_events", []) as Array
 	var chunks: Array = _snapshot.get("chunks", []) as Array
+	var incident_summary: Dictionary = _snapshot.get("incident_summary", {}) as Dictionary
+	var suspicion_flags: Array = _snapshot.get("suspicion_flags", []) as Array
+	var trace_events: Array = _snapshot.get("trace_events", []) as Array
+	var chunk_rows: Array = _snapshot.get("chunk_causality_rows", []) as Array
+	var task_rows: Array = _snapshot.get("task_debug_rows", []) as Array
 	_store_log_line("")
 	_store_log_line("===== snapshot #%d | %s | frame=%d | mode=%s =====" % [
 		_log_write_index,
@@ -384,6 +515,32 @@ func _write_log_snapshot() -> void:
 	else:
 		for raw_event: Variant in timeline_events:
 			_store_log_line(_format_log_timeline_event(raw_event as Dictionary))
+	_store_log_line("[Forensics incident]")
+	_store_log_line(var_to_str(incident_summary))
+	_store_log_line("[Forensics suspicions]")
+	if suspicion_flags.is_empty():
+		_store_log_line("- Нет активных подозрений.")
+	else:
+		for raw_flag: Variant in suspicion_flags:
+			_store_log_line("- %s" % var_to_str(raw_flag))
+	_store_log_line("[Forensics trace]")
+	if trace_events.is_empty():
+		_store_log_line("- Trace events отсутствуют.")
+	else:
+		for raw_trace: Variant in trace_events:
+			_store_log_line("- %s" % var_to_str(raw_trace))
+	_store_log_line("[Forensics chunk causality]")
+	if chunk_rows.is_empty():
+		_store_log_line("- Chunk causality rows отсутствуют.")
+	else:
+		for raw_chunk_row: Variant in chunk_rows:
+			_store_log_line("- %s" % var_to_str(raw_chunk_row))
+	_store_log_line("[Forensics task debug]")
+	if task_rows.is_empty():
+		_store_log_line("- Task debug rows отсутствуют.")
+	else:
+		for raw_task_row: Variant in task_rows:
+			_store_log_line("- %s" % var_to_str(raw_task_row))
 	_store_log_line("[Чанки в bounded snapshot]")
 	for raw_chunk: Variant in chunks:
 		_store_log_line(_format_log_chunk_entry(raw_chunk as Dictionary))
@@ -391,14 +548,87 @@ func _write_log_snapshot() -> void:
 	_store_log_line("metrics=%s" % var_to_str(metrics))
 	_log_file.flush()
 
+func _write_incident_dump(snapshot: Dictionary) -> String:
+	if not DirAccess.dir_exists_absolute(LOG_DIR):
+		var dir_result: Error = DirAccess.make_dir_recursive_absolute(LOG_DIR)
+		if dir_result != OK and not DirAccess.dir_exists_absolute(LOG_DIR):
+			push_warning("не удалось создать папку incident dump: %s" % error_string(dir_result))
+			return ""
+	var date_info: Dictionary = Time.get_datetime_dict_from_system()
+	var suffix: String = "%04d%02d%02d_%02d%02d%02d" % [
+		int(date_info.get("year", 0)),
+		int(date_info.get("month", 0)),
+		int(date_info.get("day", 0)),
+		int(date_info.get("hour", 0)),
+		int(date_info.get("minute", 0)),
+		int(date_info.get("second", 0)),
+	]
+	suffix += "_%03d" % int(Time.get_ticks_msec() % 1000)
+	var log_path: String = "%s%s.log" % [INCIDENT_LOG_PREFIX, suffix]
+	var dump_file: FileAccess = FileAccess.open(log_path, FileAccess.WRITE)
+	if dump_file == null:
+		push_warning("не удалось открыть incident dump %s: %s" % [log_path, error_string(FileAccess.get_open_error())])
+		return ""
+	var incident_summary: Dictionary = snapshot.get("incident_summary", {}) as Dictionary
+	var suspicion_flags: Array = snapshot.get("suspicion_flags", []) as Array
+	var trace_events: Array = snapshot.get("trace_events", []) as Array
+	var chunk_rows: Array = snapshot.get("chunk_causality_rows", []) as Array
+	var task_rows: Array = snapshot.get("task_debug_rows", []) as Array
+	var timeline_events: Array = snapshot.get("timeline_events", []) as Array
+	dump_file.store_line("F11 Chunk Incident Dump")
+	dump_file.store_line("Создан: %s" % _system_timestamp())
+	dump_file.store_line("Godot path: %s" % log_path)
+	dump_file.store_line("OS path: %s" % ProjectSettings.globalize_path(log_path))
+	dump_file.store_line("[Summary]")
+	dump_file.store_line(var_to_str(incident_summary))
+	if str(incident_summary.get("status", "no_active_incident")) == "no_active_incident":
+		dump_file.store_line("no_active_incident")
+	dump_file.store_line("[Suspicion Flags]")
+	if suspicion_flags.is_empty():
+		dump_file.store_line("-")
+	else:
+		for raw_flag: Variant in suspicion_flags:
+			dump_file.store_line(var_to_str(raw_flag as Dictionary))
+	dump_file.store_line("[Trace Events]")
+	if trace_events.is_empty():
+		dump_file.store_line("-")
+	else:
+		for raw_event: Variant in trace_events:
+			dump_file.store_line(var_to_str(raw_event as Dictionary))
+	dump_file.store_line("[Chunk Causality]")
+	if chunk_rows.is_empty():
+		dump_file.store_line("-")
+	else:
+		for raw_chunk: Variant in chunk_rows:
+			dump_file.store_line(var_to_str(raw_chunk as Dictionary))
+	dump_file.store_line("[Task Debug]")
+	if task_rows.is_empty():
+		dump_file.store_line("-")
+	else:
+		for raw_task: Variant in task_rows:
+			dump_file.store_line(var_to_str(raw_task as Dictionary))
+	dump_file.store_line("[Timeline]")
+	if timeline_events.is_empty():
+		dump_file.store_line("-")
+	else:
+		for raw_timeline: Variant in timeline_events:
+			dump_file.store_line(_format_log_timeline_event(raw_timeline as Dictionary))
+	dump_file.store_line("[Raw Snapshot]")
+	dump_file.store_line(var_to_str(snapshot))
+	dump_file.flush()
+	dump_file.close()
+	return ProjectSettings.globalize_path(log_path)
+
 func _store_log_line(line: String) -> void:
 	if _log_file == null:
 		return
 	_log_file.store_line(line)
 
 func _format_log_queue_row(row: Dictionary) -> String:
-	return "- id=%s | task=%s | coord=%s | stage=%s | status=%s | age=%s | priority=%s | impact=%s | count=%d | depth=%d | completed_recently=%s | reason=%s" % [
+	return "- id=%s | trace=%s incident=%s | task=%s | coord=%s | stage=%s | status=%s | age=%s | priority=%s | impact=%s | count=%d | depth=%d | completed_recently=%s | reason=%s" % [
 		str(row.get("task_id", "")),
+		str(row.get("trace_id", "")),
+		str(row.get("incident_id", "")),
 		str(row.get("task_type_human", row.get("task_type", ""))),
 		str(row.get("chunk_coord", "-")) if str(row.get("scope", "")) == "chunk" else str(row.get("scope", "")),
 		str(row.get("stage_human", row.get("stage", ""))),
@@ -413,10 +643,12 @@ func _format_log_queue_row(row: Dictionary) -> String:
 	]
 
 func _format_log_timeline_event(event: Dictionary) -> String:
-	return "- [%s] id=%s repeat=%d actor=%s action=%s state=%s impact=%s severity=%s code=%s | %s | details=%s" % [
+	return "- [%s] id=%s repeat=%d trace=%s incident=%s actor=%s action=%s state=%s impact=%s severity=%s code=%s | %s | details=%s" % [
 		str(event.get("timestamp_label", "--:--:--.---")),
 		str(event.get("event_id", "")),
 		int(event.get("repeat_count", 1)),
+		str(event.get("trace_id", "")),
+		str(event.get("incident_id", "")),
 		str(event.get("actor", "")),
 		str(event.get("action", "")),
 		str(event.get("state", "")),

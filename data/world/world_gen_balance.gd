@@ -34,20 +34,20 @@ extends Resource
 @export_range(8, 512) var prepass_grid_step: int = 32
 
 @export_group("Lakes")
-@export_range(3, 100) var prepass_lake_min_area: int = 8
-@export_range(0.01, 0.3) var prepass_lake_min_depth: float = 0.04
+@export_range(3, 100) var prepass_lake_min_area: int = 7
+@export_range(0.01, 0.3) var prepass_lake_min_depth: float = 0.035
 @export_range(0.0, 0.5) var prepass_frozen_lake_temperature: float = 0.15
 
 @export_group("Latitude Hydrology")
 @export_range(0.0, 0.5) var prepass_glacial_melt_temperature: float = 0.22
-@export_range(0.0, 5.0) var prepass_glacial_melt_bonus: float = 1.0
+@export_range(0.0, 5.0) var prepass_glacial_melt_bonus: float = 0.75
 @export_range(0.0, 0.3) var prepass_latitude_evaporation_rate: float = 0.08
 @export_range(0.0, 0.3) var prepass_frozen_river_threshold: float = 0.18
 
 @export_group("Rivers")
-@export_range(50, 5000) var prepass_river_accumulation_threshold: int = 90
-@export_range(1.0, 20.0) var prepass_river_base_width: float = 2.0
-@export_range(1.0, 20.0) var prepass_river_width_scale: float = 6.0
+@export_range(50, 5000) var prepass_river_accumulation_threshold: int = 72
+@export_range(1.0, 20.0) var prepass_river_base_width: float = 2.35
+@export_range(1.0, 20.0) var prepass_river_width_scale: float = 6.6
 @export_range(1.5, 8.0) var prepass_floodplain_multiplier: float = 4.0
 
 @export_group("Ridge Skeleton")
@@ -144,14 +144,14 @@ extends Resource
 @export_range(1, 64) var mountain_shadow_edges_per_step: int = 8
 
 @export_group("Terrain Classification")
-@export_range(0.0, 1.0, 0.01) var river_min_strength: float = 0.26
+@export_range(0.0, 1.0, 0.01) var river_min_strength: float = 0.22
 @export_range(0.0, 1.0, 0.01) var river_ridge_exclusion: float = 0.70
-@export_range(0.0, 1.0, 0.01) var river_max_height: float = 0.82
-@export_range(0.0, 1.0, 0.01) var bank_min_floodplain: float = 0.20
+@export_range(0.0, 1.0, 0.01) var river_max_height: float = 0.86
+@export_range(0.0, 1.0, 0.01) var bank_min_floodplain: float = 0.16
 @export_range(0.0, 1.0, 0.01) var bank_ridge_exclusion: float = 0.64
-@export_range(0.0, 1.0, 0.01) var bank_min_river: float = 0.10
+@export_range(0.0, 1.0, 0.01) var bank_min_river: float = 0.08
 @export_range(0.0, 1.0, 0.01) var bank_min_moisture: float = 0.50
-@export_range(0.0, 1.0, 0.01) var bank_max_height: float = 0.70
+@export_range(0.0, 1.0, 0.01) var bank_max_height: float = 0.78
 @export_range(0.0, 1.0, 0.01) var mountain_base_threshold: float = 0.64
 @export_range(0.0, 1.0, 0.01) var mountain_threshold_min: float = 0.28
 @export_range(0.0, 1.0, 0.01) var mountain_threshold_max: float = 0.74
