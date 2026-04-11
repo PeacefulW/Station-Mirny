@@ -5,6 +5,7 @@ extends Node2D
 ## Presentation-only: reads ChunkManager snapshots and never mutates world state.
 
 const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
+const WorldPerfGraphUI = preload("res://core/debug/world_perf_graph_ui.gd")
 
 const SNAPSHOT_INTERVAL_SEC: float = 0.10
 const LOG_INTERVAL_SEC: float = 0.25
@@ -34,6 +35,8 @@ var _top_label: Label = null
 var _queue_label: Label = null
 var _timeline_label: Label = null
 var _legend_label: Label = null
+var _perf_graph_panel: PanelContainer = null
+var _perf_graph: WorldPerfGraphUI = null
 
 func setup(chunk_manager: Node, ui_layer: CanvasLayer, game_world: Node2D = null) -> void:
 	_chunk_manager = chunk_manager
@@ -183,6 +186,22 @@ func _build_ui() -> void:
 	_ui_root.add_child(legend_panel)
 	_legend_label = _make_label(11, Color(0.78, 0.84, 0.84, 1.0))
 	legend_panel.add_child(_legend_label)
+
+	_perf_graph_panel = _make_panel("PerfGraphPanel", Color(0.02, 0.02, 0.02, 0.90), Color(0.20, 0.80, 0.40, 0.80))
+	_perf_graph_panel.anchor_left = 0.0
+	_perf_graph_panel.anchor_right = 1.0
+	_perf_graph_panel.anchor_top = 1.0
+	_perf_graph_panel.anchor_bottom = 1.0
+	_perf_graph_panel.offset_left = 8.0
+	_perf_graph_panel.offset_right = -438.0
+	_perf_graph_panel.offset_top = -250.0
+	_perf_graph_panel.offset_bottom = -8.0
+	_perf_graph_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ui_root.add_child(_perf_graph_panel)
+	
+	_perf_graph = WorldPerfGraphUI.new()
+	_perf_graph_panel.add_child(_perf_graph)
+
 	_apply_mode_layout()
 
 func _make_panel(node_name: String, bg_color: Color, border_color: Color) -> PanelContainer:
@@ -220,6 +239,18 @@ func _apply_mode_layout() -> void:
 			_tr("UI_DEBUG_CHUNK_OVERLAY_MODE_HINT"),
 			_tr("UI_DEBUG_CHUNK_OVERLAY_DUMP_HINT"),
 		]
+	
+	var mode: String = _current_mode()
+	var show_queue: bool = mode in ["queue", "expanded", "forensics"]
+	var show_timeline: bool = mode in ["timeline", "forensics"]
+	var show_perf: bool = mode == "perf"
+	
+	if _queue_label != null and _queue_label.get_parent() != null:
+		_queue_label.get_parent().visible = show_queue
+	if _timeline_label != null and _timeline_label.get_parent() != null:
+		_timeline_label.get_parent().visible = show_timeline
+	if _perf_graph_panel != null:
+		_perf_graph_panel.visible = show_perf
 
 func _update_ui() -> void:
 	if _snapshot.is_empty():
