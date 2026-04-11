@@ -6,22 +6,48 @@ const MS_PER_PIXEL: float = 5.0 # 10ms = 50 pixels
 
 var _history: Array[Dictionary] = []
 var _monitor: Node = null
+var _paused: bool = false
+var _hovered_index: int = -1
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(0, 200)
-	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	clip_contents = true
+
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		_paused = !_paused
+		queue_redraw()
 
 func _process(_delta: float) -> void:
 	if _monitor == null:
 		_monitor = get_node_or_null("/root/WorldPerfMonitor")
-	if _monitor != null and _monitor.has_method("get_debug_snapshot"):
-		var snapshot: Dictionary = _monitor.call("get_debug_snapshot") as Dictionary
-		if _history.is_empty() or _history.back().get("timestamp_usec", 0) != snapshot.get("timestamp_usec", 0):
-			_history.append(snapshot)
-			if _history.size() > HISTORY_SIZE:
-				_history.pop_front()
-			if is_visible_in_tree():
-				queue_redraw()
+		
+	var needs_redraw: bool = false
+	if _paused:
+		var local_mouse: Vector2 = get_local_mouse_position()
+		var rect: Rect2 = get_rect()
+		var w: float = rect.size.x
+		var bar_w: float = w / float(HISTORY_SIZE)
+		var new_hover: int = -1
+		if rect.has_point(local_mouse):
+			new_hover = clampi(int(local_mouse.x / bar_w), 0, _history.size() - 1)
+		
+		if new_hover != _hovered_index:
+			_hovered_index = new_hover
+			needs_redraw = true
+	else:
+		_hovered_index = -1
+		if _monitor != null and _monitor.has_method("get_debug_snapshot"):
+			var snapshot: Dictionary = _monitor.call("get_debug_snapshot") as Dictionary
+			if _history.is_empty() or _history.back().get("timestamp_usec", 0) != snapshot.get("timestamp_usec", 0):
+				_history.append(snapshot)
+				if _history.size() > HISTORY_SIZE:
+					_history.pop_front()
+				needs_redraw = true
+				
+	if needs_redraw and is_visible_in_tree():
+		queue_redraw()
 
 func _draw() -> void:
 	if _history.is_empty():
@@ -86,22 +112,94 @@ func _draw() -> void:
 					heaviest_op = op
 			# Only show label if the heaviest op took a noticeable chunk
 			if max_op_ms > 1.5:
-				labels_to_draw.append({"x": x, "y": current_y, "text": "%s (%.1fms)" % [heaviest_op.replace("ChunkManager.", "").replace("MountainRoofSystem.", ""), max_op_ms], "color": Color(1.0, 0.8, 0.8)})
+				labels_to_draw.append({
+					"x": x, 
+					"y": current_y, 
+					"text": "%s (%.1fms)" % [heaviest_op.replace("ChunkManager.", "").replace("MountainRoofSystem.", ""), max_op_ms], 
+					"color": Color(1.0, 0.8, 0.8),
+					"ms": max_op_ms
+				})
 		
 		x += bar_w
 		
-	# Draw labels last so they are on top
-	var last_label_y: float = -100.0
+	# Filter labels to only show local maxima to prevent clutter
+	var filtered_labels: Array[Dictionary] = []
 	for lbl: Dictionary in labels_to_draw:
-		var ly: float = maxf(20.0, float(lbl.get("y", 0.0)) - 5.0)
-		if abs(ly - last_label_y) < 12.0:
-			ly -= 12.0 # Push it up to avoid overlap
+		var is_local_max: bool = true
+		for other: Dictionary in labels_to_draw:
+			if lbl == other:
+				continue
+			if abs(float(lbl.get("x", 0.0)) - float(other.get("x", 0.0))) < 15.0:
+				var ms_other: float = float(other.get("ms", 0.0))
+				var ms_lbl: float = float(lbl.get("ms", 0.0))
+				if ms_other > ms_lbl or (ms_other == ms_lbl and float(other.get("x", 0.0)) < float(lbl.get("x", 0.0))):
+					is_local_max = false
+					break
+		if is_local_max:
+			filtered_labels.append(lbl)
+			
+	# Draw labels rotated 90 degrees upwards so they don't overlap horizontally
+	for lbl: Dictionary in filtered_labels:
+		var lx: float = float(lbl.get("x", 0.0)) + (bar_w / 2.0) + 4.0
+		var ly: float = float(lbl.get("y", 0.0)) - 5.0
+		if ly > h - 10.0:
+			ly = h - 10.0 # anchor near bottom if no bars
+			
+		draw_set_transform(Vector2(lx, ly), -PI / 2.0, Vector2.ONE)
 		if font != null:
-			draw_string(font, Vector2(float(lbl.get("x", 0.0)) + 2.0, ly), str(lbl.get("text", "")), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 11, lbl.get("color", Color.WHITE) as Color)
-		last_label_y = ly
+			draw_string(font, Vector2.ZERO, str(lbl.get("text", "")), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 11, lbl.get("color", Color.WHITE) as Color)
+			
+	# Reset transform for legend and other drawing
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		
 	# Legend
 	_draw_legend()
+	
+	# Paused state and Tooltip
+	if _paused:
+		if font != null:
+			draw_string(font, Vector2(10, 20), "PAUSED (Click to resume)", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color(1, 0.2, 0.2))
+		
+		if _hovered_index >= 0 and _hovered_index < _history.size():
+			var hover_x: float = _hovered_index * bar_w
+			draw_rect(Rect2(hover_x, 0, bar_w, h), Color(1, 1, 1, 0.15))
+			
+			var snapshot: Dictionary = _history[_hovered_index]
+			var frame_ms: float = float(snapshot.get("frame_time_ms", 0.0))
+			var ops: Dictionary = snapshot.get("ops", {}) as Dictionary
+			
+			var tooltip_text: String = "Frame: %.2fms\n" % frame_ms
+			var ops_array: Array = []
+			for op: String in ops:
+				ops_array.append({"op": op, "ms": float(ops[op])})
+			ops_array.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a.get("ms", 0.0) > b.get("ms", 0.0))
+			
+			for i in range(mini(ops_array.size(), 12)):
+				var item = ops_array[i]
+				tooltip_text += "%s: %.2fms\n" % [item.get("op", ""), item.get("ms", 0.0)]
+				
+			var lines = tooltip_text.split("\n")
+			var longest_line = 0.0
+			for line in lines:
+				var str_w = font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
+				if str_w > longest_line:
+					longest_line = str_w
+					
+			var tt_w = longest_line + 16.0
+			var tt_h = lines.size() * 14.0 + 8.0
+			var tt_x = minf(hover_x + bar_w + 10, w - tt_w - 5)
+			var tt_y = get_local_mouse_position().y + 15.0
+			if tt_y + tt_h > h:
+				tt_y = h - tt_h - 5
+				
+			draw_rect(Rect2(tt_x, tt_y, tt_w, tt_h), Color(0.1, 0.1, 0.1, 0.95))
+			draw_rect(Rect2(tt_x, tt_y, tt_w, tt_h), Color(0.4, 0.4, 0.4, 0.8), false, 1.0)
+			
+			var line_y = tt_y + 14.0
+			for line in lines:
+				if line.strip_edges() != "":
+					draw_string(font, Vector2(tt_x + 8, line_y), line, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 11, Color.WHITE)
+				line_y += 14.0
 
 func _draw_line(h: float, ms: float, color: Color, text: String) -> void:
 	var y: float = h - (ms * MS_PER_PIXEL)

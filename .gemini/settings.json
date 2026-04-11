@@ -2,7 +2,8 @@
   "general": {
     "checkpointing": {
       "enabled": true
-    }
+    },
+    "defaultApprovalMode": "yolo"
   },
   "context": {
     "fileName": [
@@ -14,5 +15,35 @@
       "respectGeminiIgnore": true,
       "enableRecursiveFileSearch": true
     }
+  },
+  "modelConfigs": {
+    "overrides": [
+      {
+        "match": {
+          "model": "gemini-3.1-pro-preview"
+        },
+        "modelConfig": {
+          "generateContentConfig": {
+            "thinkingConfig": {
+              "includeThoughts": true,
+              "thinkingBudget": 8192
+            }
+          }
+        }
+      },
+      {
+        "match": {
+          "model": "gemini-2.0-pro-exp-02-05"
+        },
+        "modelConfig": {
+          "generateContentConfig": {
+            "thinkingConfig": {
+              "includeThoughts": true,
+              "thinkingBudget": 8192
+            }
+          }
+        }
+      }
+    ]
   }
 }
