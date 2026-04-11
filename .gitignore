@@ -16,3 +16,11 @@ Thumbs.db
 *.code-workspace
 Godot_v4.6.1-stable_win64.exe
 gdextension/godot-cpp/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+.gemini/.env
+.gemini/.env.*
+!.gemini/.env.example

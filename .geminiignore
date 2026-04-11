@@ -1,0 +1,32 @@
+# Gemini CLI context and @-file search exclusions.
+# Keep generated/cache/heavy artifacts out of automatic context.
+
+.git/
+.godot/
+.Codex/
+.tmp_appdata/
+artifacts_appdata/
+debug_exports/
+temp/
+export/
+gdextension/godot-cpp/
+
+.env
+.env.*
+!.env.example
+.gemini/.env
+.gemini/.env.*
+!.gemini/.env.example
+
+*.import
+*.log
+*.pck
+*.tmp
+*.zip
+*.lnk
+Godot_v*_win64*.exe
+Godot_v*_win64_console.exe
+
+discussion
+discussion-export.txt
+discussion.html
