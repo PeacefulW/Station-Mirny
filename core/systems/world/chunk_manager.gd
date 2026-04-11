@@ -2314,6 +2314,7 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	chunk.set_mining_write_authorized(false)
 	if result.is_empty():
 		return {}
+	_invalidate_cover_edge_set_around_world_tile(tile_pos, chunk)
 	# Same-chunk neighbor re-normalization (MINED_FLOOR <-> MOUNTAIN_ENTRANCE)
 	chunk.refresh_open_neighbors_with_operation_cache(local_tile)
 	if chunk.redraw_mining_patch(local_tile):
@@ -2370,6 +2371,51 @@ func _make_border_fix_reason_key(source_coord: Vector2i, z_level: int, tag: Stri
 func _append_unique_chunk_coord(coords: Array[Vector2i], coord: Vector2i) -> void:
 	if coord not in coords:
 		coords.append(coord)
+
+func _border_dirty_tiles_for_edge(chunk_size: int, edge_dir: Vector2i) -> Dictionary:
+	var dirty: Dictionary = {}
+	if edge_dir == Vector2i.LEFT:
+		for y: int in range(chunk_size):
+			dirty[Vector2i(0, y)] = true
+	elif edge_dir == Vector2i.RIGHT:
+		for y: int in range(chunk_size):
+			dirty[Vector2i(chunk_size - 1, y)] = true
+	elif edge_dir == Vector2i.UP:
+		for x: int in range(chunk_size):
+			dirty[Vector2i(x, 0)] = true
+	elif edge_dir == Vector2i.DOWN:
+		for x: int in range(chunk_size):
+			dirty[Vector2i(x, chunk_size - 1)] = true
+	return dirty
+
+func _invalidate_cover_edge_set_around_world_tile(tile_pos: Vector2i, source_chunk: Chunk) -> void:
+	var dirty_by_chunk: Dictionary = {}
+	for offset_y: int in range(-1, 2):
+		for offset_x: int in range(-1, 2):
+			var affected_tile: Vector2i = _offset_tile(tile_pos, Vector2i(offset_x, offset_y))
+			var affected_chunk: Chunk = get_chunk_at_tile(affected_tile)
+			if not affected_chunk or affected_chunk == source_chunk:
+				continue
+			var chunk_coord: Vector2i = affected_chunk.chunk_coord
+			var chunk_entry: Dictionary
+			if dirty_by_chunk.has(chunk_coord):
+				chunk_entry = dirty_by_chunk[chunk_coord] as Dictionary
+			else:
+				chunk_entry = {
+					"chunk": affected_chunk,
+					"dirty_tiles": {},
+				}
+				dirty_by_chunk[chunk_coord] = chunk_entry
+			var dirty_tiles: Dictionary = chunk_entry.get("dirty_tiles", {}) as Dictionary
+			dirty_tiles[affected_chunk.global_to_local(affected_tile)] = true
+			chunk_entry["dirty_tiles"] = dirty_tiles
+			dirty_by_chunk[chunk_coord] = chunk_entry
+	for entry_variant: Variant in dirty_by_chunk.values():
+		var entry: Dictionary = entry_variant as Dictionary
+		var affected_chunk: Chunk = entry.get("chunk") as Chunk
+		var dirty_tiles: Dictionary = entry.get("dirty_tiles", {}) as Dictionary
+		if affected_chunk:
+			affected_chunk._mark_cover_edge_set_dirty_tiles(dirty_tiles)
 
 func _resolve_runtime_diag_scope(coord: Vector2i) -> StringName:
 	if _player_chunk == Vector2i(99999, 99999):
@@ -2506,38 +2552,36 @@ func _emit_border_fix_queue_diag(
 func _enqueue_neighbor_border_redraws(coord: Vector2i) -> void:
 	var chunk_size: int = WorldGenerator.balance.chunk_size_tiles
 	var source_chunk: Chunk = _loaded_chunks.get(coord) as Chunk
-	var source_version: int = source_chunk.get_visual_invalidation_version() if source_chunk != null else -1
+	if source_chunk == null:
+		return
+	var source_version: int = source_chunk.get_visual_invalidation_version()
 	var reason_key: String = _make_border_fix_reason_key(coord, _active_z, &"stream_load")
 	var queued_coords: Array[Vector2i] = []
+	var source_dirty_tiles: Dictionary = {}
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
 		var neighbor_coord: Vector2i = _offset_chunk_coord(coord, dir)
 		var neighbor_chunk: Chunk = _loaded_chunks.get(neighbor_coord) as Chunk
 		if not neighbor_chunk:
 			continue
+		source_dirty_tiles.merge(_border_dirty_tiles_for_edge(chunk_size, dir), true)
+		var neighbor_dirty_tiles: Dictionary = _border_dirty_tiles_for_edge(chunk_size, -dir)
+		neighbor_chunk._mark_cover_edge_set_dirty_tiles(neighbor_dirty_tiles)
 		if not neighbor_chunk.is_first_pass_ready():
 			continue  # Neighbor hasn't drawn terrain yet, border will be drawn naturally
-		var dirty: Dictionary = {}
-		if dir == Vector2i.LEFT:
-			for y: int in range(chunk_size):
-				dirty[Vector2i(chunk_size - 1, y)] = true
-		elif dir == Vector2i.RIGHT:
-			for y: int in range(chunk_size):
-				dirty[Vector2i(0, y)] = true
-		elif dir == Vector2i.UP:
-			for x: int in range(chunk_size):
-				dirty[Vector2i(x, chunk_size - 1)] = true
-		elif dir == Vector2i.DOWN:
-			for x: int in range(chunk_size):
-				dirty[Vector2i(x, 0)] = true
-		if neighbor_chunk.enqueue_dirty_border_redraw(dirty, reason_key, source_version):
+		if neighbor_chunk.enqueue_dirty_border_redraw(neighbor_dirty_tiles, reason_key, source_version):
 			_ensure_chunk_border_fix_task(neighbor_chunk, _active_z, true)
 			_append_unique_chunk_coord(queued_coords, neighbor_coord)
+	source_chunk._mark_cover_edge_set_dirty_tiles(source_dirty_tiles)
+	if source_chunk.is_first_pass_ready() \
+		and source_chunk.enqueue_dirty_border_redraw(source_dirty_tiles, reason_key, source_version):
+		_ensure_chunk_border_fix_task(source_chunk, _active_z, true)
+		_append_unique_chunk_coord(queued_coords, coord)
 	if not queued_coords.is_empty():
 		_emit_border_fix_queue_diag(
 			&"stream_load",
 			coord,
 			queued_coords,
-			"после появления нового чанка нужно выровнять границу уже загруженных соседей",
+			"после появления нового чанка нужно выровнять seam-границу и сбросить cover edge cache по обе стороны",
 			["border_fix"]
 		)
 
@@ -5209,8 +5253,8 @@ func _load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
 			_native_topology_dirty = true
 		else:
 			_mark_topology_dirty()
-	EventBus.chunk_loaded.emit(coord)
 	_enqueue_neighbor_border_redraws(coord)
+	EventBus.chunk_loaded.emit(coord)
 	_debug_record_recent_lifecycle_event(
 		"loaded",
 		coord,
@@ -5906,8 +5950,8 @@ func _finalize_chunk_install(coord: Vector2i, z_level: int, chunk: Chunk) -> voi
 			_native_topology_dirty = true
 		else:
 			_mark_topology_dirty()
-	EventBus.chunk_loaded.emit(coord)
 	_enqueue_neighbor_border_redraws(coord)
+	EventBus.chunk_loaded.emit(coord)
 	_debug_record_recent_lifecycle_event(
 		"loaded",
 		coord,

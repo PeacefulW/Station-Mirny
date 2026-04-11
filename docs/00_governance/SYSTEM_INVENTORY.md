@@ -4,8 +4,8 @@ doc_type: governance
 status: draft
 owner: engineering
 source_of_truth: false
-version: 0.1
-last_updated: 2026-03-28
+version: 0.2
+last_updated: 2026-04-11
 depends_on:
   - WORKFLOW.md
   - PUBLIC_API.md
@@ -30,11 +30,11 @@ related_docs:
 | 5 | Settings / app config | `core/autoloads/settings_manager.gd` | canonical | no | no | no | App-level settings, not gameplay/session/save state contract in this pass |
 | 6 | Input mapping / bootstrap | `core/autoloads/game_manager.gd` | canonical | no | no | no | Input/bootstrap glue, not standalone gameplay truth layer |
 | 7 | Player authority lookup | `core/autoloads/player_authority.gd` | derived | no | no | no | Cache/service only; no owned gameplay state |
-| 8 | Global event bus | `core/autoloads/event_bus.gd` | derived | no | no | no | Transport layer, no owned gameplay state |
+| 8 | Global event bus | `core/autoloads/event_bus.gd` | derived | no | yes (scope) | no | Transport layer, no owned gameplay state |
 | 9 | Localization | `core/autoloads/localization_service.gd` | presentation-only | no | no | no | Presentation/service layer, no gameplay state |
 | 10 | Runtime frame-budget scheduling | `core/autoloads/frame_budget_dispatcher.gd`<br>`core/runtime/runtime_budget_job.gd`<br>`core/runtime/runtime_dirty_queue.gd`<br>`core/runtime/runtime_work_types.gd` | derived | no | no | no | Infrastructure only |
-| 11 | Performance monitoring / probe | `core/autoloads/world_perf_monitor.gd`<br>`core/systems/world/world_perf_probe.gd` | derived | no | no | no | Debug/perf infrastructure only |
-| 12 | GameWorld boot / orchestration | `scenes/world/game_world.gd` | canonical | yes | no | no | Root scene glue/orchestration; not documented as отдельный domain contract in this pass |
+| 11 | Performance monitoring / probe | `core/autoloads/world_perf_monitor.gd`<br>`core/systems/world/world_perf_probe.gd` | derived | no | yes (scope) | no | Debug/perf infrastructure only |
+| 12 | GameWorld boot / orchestration | `scenes/world/game_world.gd` | canonical | yes | yes (scope) | no | Root scene glue/orchestration; listed in DATA_CONTRACTS scope |
 | 13 | Spawn / pickup orchestration | `scenes/world/spawn_orchestrator.gd` | canonical | yes | yes (added) | yes (added) | — |
 | 14 | Building placement / building runtime | `core/systems/building/building_system.gd`<br>`core/systems/building/building_placement_service.gd` | canonical | yes | yes (added) | yes (added) | — |
 | 15 | Indoor room topology | `core/systems/building/building_indoor_solver.gd`<br>`core/systems/building/building_system.gd` | derived | yes | yes (added) | yes (added) | — |
@@ -65,3 +65,6 @@ related_docs:
 | 40 | UI: save/load / pause / loading / death / main menu / world creation | `scenes/ui/save_load_tab.gd`<br>`scenes/ui/pause_menu.gd`<br>`scenes/ui/loading_screen.gd`<br>`scenes/ui/death_screen.gd`<br>`scenes/ui/main_menu.gd`<br>`scenes/ui/world_creation_screen.gd` | presentation-only | no | no | no | Presentation only; save orchestration documented in `SaveManager` layer instead |
 | 41 | Debug / dev tooling | `scenes/world/game_world_debug.gd`<br>`core/debug/runtime_validation_driver.gd`<br>`core/debug/world_preview_exporter.gd` | derived | no | no | no | Debug-only, not production gameplay contract |
 | 42 | Temperature worldgen channel | `core/systems/world/planet_sampler.gd`<br>`core/systems/world/world_channels.gd`<br>`core/systems/world/tile_gen_data.gd` | derived | no | no | no | Not a standalone runtime system; already part of world-generation stack |
+| 43 | World feature / POI registry | `core/autoloads/world_feature_registry.gd` | canonical | no | yes (existing) | yes (existing) | Immutable after boot |
+| 44 | World Pre-pass | `core/systems/world/world_pre_pass.gd` | canonical | yes | yes (existing) | no | Boot-time compute, deterministic rebuild |
+| 45 | World Compute Context | `core/systems/world/world_compute_context.gd` | derived | no | yes (existing) | no | Generated runtime facade for world pre-pass |

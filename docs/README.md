@@ -4,8 +4,8 @@ doc_type: docs_index
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.3
-last_updated: 2026-03-28
+version: 1.4
+last_updated: 2026-04-11
 related_docs:
   - 00_governance/DOCUMENT_PRECEDENCE.md
   - 00_governance/DOCUMENTATION_MIGRATION_PLAN.md
@@ -17,8 +17,8 @@ This folder is the new structured entrypoint for project documentation.
 
 Current policy:
 - new canonical navigation lives under `docs/`
-- legacy source documents in project root remain in place during migration
-- do not treat root markdown files as equal peers anymore; use the map below
+- migration is complete: legacy root docs have been removed; only `README.md` remains as entrypoint
+- do not treat root markdown files as equal peers; use the map below
 
 ## Layers
 
@@ -53,6 +53,7 @@ Deprecated or migrated legacy versions.
 - [Workflow](00_governance/WORKFLOW.md)
 - [Engineering Standards](00_governance/ENGINEERING_STANDARDS.md)
 - [Performance Contracts](00_governance/PERFORMANCE_CONTRACTS.md)
+- [Public API](00_governance/PUBLIC_API.md)
 - [Simulation and Threading Model](00_governance/SIMULATION_AND_THREADING_MODEL.md)
 - [Document Precedence](00_governance/DOCUMENT_PRECEDENCE.md)
 - [System Inventory](00_governance/SYSTEM_INVENTORY.md)
@@ -70,6 +71,27 @@ Deprecated or migrated legacy versions.
 - [Lighting, Visibility, and Darkness](02_system_specs/world/lighting_visibility_and_darkness.md)
 - [Subsurface and Verticality Foundation](02_system_specs/world/subsurface_and_verticality_foundation.md)
 - [World Data Contracts](02_system_specs/world/DATA_CONTRACTS.md)
+- [World Feature and POI Hooks](02_system_specs/world/world_feature_and_poi_hooks.md)
+- [Natural World Generation Overhaul](02_system_specs/world/natural_world_generation_overhaul.md)
+- [Natural World Constructive Runtime](02_system_specs/world/natural_world_constructive_runtime_spec.md)
+- [Native Chunk Generation](02_system_specs/world/native_chunk_generation_spec.md)
+- [Hydrology and World Settings](02_system_specs/world/hydrology_world_settings_spec.md)
+- [Ground Elevation Faces](02_system_specs/world/ground_elevation_faces_spec.md)
+- [Interior Wall Variation](02_system_specs/world/interior_wall_variation_spec.md)
+- [Chunk Visual Pipeline Rework](02_system_specs/world/chunk_visual_pipeline_rework_spec.md)
+- [Chunk Debug Overlay](02_system_specs/world/chunk_debug_overlay_spec.md)
+- [Streaming Redraw Budget](02_system_specs/world/streaming_redraw_budget_spec.md)
+- [Mountain Reveal and World Perf Recovery](02_system_specs/world/mountain_reveal_and_world_perf_recovery_spec.md)
+- [Reachable Structure Coverage](02_system_specs/world/reachable_structure_coverage_spec.md)
+- [World Lab](02_system_specs/world/world_lab_spec.md)
+- [Human-Readable Runtime Logging](02_system_specs/world/human_readable_runtime_logging_spec.md)
+- [Boot — Chunk Compute Pipeline](02_system_specs/world/boot_chunk_compute_pipeline_spec.md)
+- [Boot — Chunk Apply Budget](02_system_specs/world/boot_chunk_apply_budget_spec.md)
+- [Boot — Chunk Readiness](02_system_specs/world/boot_chunk_readiness_spec.md)
+- [Boot — Topology Integration](02_system_specs/world/boot_topology_integration_spec.md)
+- [Boot — Visual Completion](02_system_specs/world/boot_visual_completion_spec.md)
+- [Boot — Performance Instrumentation](02_system_specs/world/boot_performance_instrumentation_spec.md)
+- [Boot — Fast First Playable](02_system_specs/world/boot_fast_first_playable_spec.md)
 - [Engineering Networks](02_system_specs/base/engineering_networks.md)
 - [Resource Progression](02_system_specs/progression/resource_progression.md)
 - [Survival Core](02_system_specs/survival/survival_core.md)
@@ -102,6 +124,8 @@ Deprecated or migrated legacy versions.
 - [World Layer Runtime Gap Closure Plan](04_execution/world_layer_runtime_gap_closure_plan.md)
 - [World Generation Rollout](04_execution/world_generation_rollout.md)
 - [Mountain Roof System Refactor Plan](04_execution/mountain_roof_system_refactor_plan.md)
+
+> **Note:** `04_execution/OPTIMIZATION_REVIEW.docx` is a binary file and is not navigable via markdown. Convert to `.md` if it needs to be part of canonical docs.
 
 ## Recommended entrypoints by topic
 

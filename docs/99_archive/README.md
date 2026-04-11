@@ -16,3 +16,8 @@ Rule:
 - do not delete old source material immediately
 - move deprecated versions here only after a canonical replacement exists and precedence is clear
 - archived files must be marked as deprecated
+
+## Contents
+
+- `docs_integrity_report_2026-03-31.md` — docs audit snapshot from 2026-03-31 (superseded by 2026-04-03 report)
+- `docs_integrity_report_2026-04-03.md` — docs audit snapshot from 2026-04-03 (superseded by 2026-04-11 review)

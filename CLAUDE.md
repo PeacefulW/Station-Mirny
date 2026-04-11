@@ -46,7 +46,7 @@ Document precedence when conflicts arise: `ENGINEERING_STANDARDS.md` > `PERFORMA
 
 ```
 core/autoloads/      — singleton scripts (registered in project.godot)
-core/systems/        — game systems: world/, building/, power/, survival/, crafting/, commands/, daylight/, lighting/, state_machine/
+core/systems/        — game systems: world/, building/, power/, survival/, crafting/, commands/, daylight/, lighting/, state_machine/, game_stats.gd
 core/entities/       — entity scripts: components/, player/, structures/, items/, fauna/, factories/, recipes/, resources/
 core/runtime/        — runtime budget/dirty queue infrastructure
 core/debug/          — debug utilities
@@ -66,7 +66,7 @@ tools/               — validation scripts, asset generators
 
 3. **Data-driven registries** — gameplay content defined as `.tres` Resources with stable IDs. All lookups via registry autoloads, never `load("res://data/...")`.
 
-4. **Deterministic hashing** — visual/content variation by world position uses deterministic hash (`pos.x * PRIME_A + pos.y * PRIME_B`), never `randf()`/`randi()`.
+4. **Deterministic hashing** — visual/content variation by world position uses deterministic hash (`_hash32_xy()` in `chunk.gd`: `(tile_x * 374761393 + tile_y * 668265263 + seed * 1442695041) & _HASH32_MASK`), never `randf()`/`randi()`.
 
 5. **EventBus** — systems emit domain events instead of direct coupling. UI subscribes/dispatches but doesn't own game-state mutation.
 
@@ -84,7 +84,7 @@ Reusable cross-entity behaviors: `HealthComponent`, `InventoryComponent`, `Equip
 - Explicit typing on every variable, parameter, and return value
 - Script order: class_name > extends > docs > signals > enums > constants > exports > public vars > private vars > Godot builtins > public methods > private methods
 - No user-facing text in code — use `Localization.t("KEY")` with keys from `locale/` .po files
-- Localization key families: `UI_*`, `ITEM_*`, `BUILD_*`, `FAUNA_*`, `FLORA_*`, `RECIPE_*`, `LORE_*`, `SYSTEM_*` (suffix `_DESC` for descriptions)
+- Localization key families: `UI_*`, `ITEM_*`, `BUILD_*`, `FAUNA_*`, `FLORA_*`, `RECIPE_*`, `LORE_*`, `TUTORIAL_*`, `SYSTEM_*` (suffix `_DESC` for descriptions)
 - Data resources store localization keys (`display_name_key`), not translated text
 - Commit style: `feat(system):`, `fix(system):`, `refactor(system):`, `docs:`, `data(scope):`
 
@@ -111,11 +111,34 @@ Every completed task requires a closure report (format in `AGENTS.md` and `docs/
 
 The project includes custom skills that enforce workflow discipline. Use them:
 
+**Workflow discipline:**
 - **`verification-before-completion`** — activates before writing a closure report. Requires running a concrete verification command (grep, file read, validation script) for each acceptance test before marking it "passed." Never write "passed" without evidence.
-
 - **`brainstorming`** — activates when the user proposes a new feature or asks "как лучше сделать...". Guides a structured exploration phase (understand intent → map to architecture → explore alternatives → identify risks → produce design brief) BEFORE creating a formal spec.
-
 - **`persistent-tasks`** — activates when working on multi-iteration features or resuming previous work. Maintains `.claude/agent-memory/active-epic.md` with iteration status, acceptance test progress, and blockers. Read this file at session start to know where things were left off.
+- **`mirny-task-router`** — broad routing for Station Mirny requests; delegates to the right specialist skill.
+- **`bugfix-prompt-smith`** — converts a vague bug report into a narrow, contract-aware implementation prompt following WORKFLOW.md.
+- **`playtest-triage`** — converts raw playtest notes into prioritized actionable tasks with root cause and routing hints.
+
+**Performance & architecture:**
+- **`frame-budget-guardian`** — enforces frame-budget discipline; blocks proposals that risk full rebuilds or interactive-path violations.
+- **`world-perf-doctor`** — diagnoses hitchy world interactions: mining, building placement, chunk seam redraws, topology churn.
+- **`loading-lag-hunter`** — diagnoses long boot, loading-screen drag, streaming spikes, and first-playable delays.
+- **`save-load-regression-guard`** — guards save/load boundaries and runtime diff ownership; catches restore regressions.
+
+**Content & lore:**
+- **`content-pipeline-author`** — adds/changes items, buildings, recipes, flora, POIs through registry/data/localization/mod path.
+- **`balance-simulator`** — reasons about balance, progression pacing, resource pressure, expedition cost, and strategic tradeoffs.
+- **`lore-bible-architect`** — expands or reorganizes lore while preserving locked canon.
+- **`faction-voice-keeper`** — maintains distinct voice, ideology, and terminology for factions and diegetic text.
+- **`poi-story-seeder`** — generates place-based story hooks, ruin history, and environmental storytelling for locations.
+
+**UI & copy:**
+- **`ui-experience-composer`** — shapes UI work as game-feel, readability, and atmosphere.
+- **`ui-copy-tone-keeper`** — keeps player-facing copy consistent with tone and the localization-ready UI model.
+- **`localization-pipeline-keeper`** — enforces the localization pipeline when a task adds or changes player-facing text.
+
+**Experience contracts:**
+- **`sanctuary-contrast-guardian`** — enforces the non-negotiable inside-safe / outside-hostile contrast.
 
 ## Agents (`.claude/agents/`)
 

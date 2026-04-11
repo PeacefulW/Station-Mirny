@@ -1,3 +1,19 @@
+---
+title: Workflow — Порядок работы над задачей
+doc_type: governance
+status: approved
+owner: engineering
+source_of_truth: true
+version: 1.0
+last_updated: 2026-04-11
+depends_on:
+  - DOCUMENT_PRECEDENCE.md
+related_docs:
+  - ENGINEERING_STANDARDS.md
+  - PUBLIC_API.md
+  - ../02_system_specs/world/DATA_CONTRACTS.md
+---
+
 # WORKFLOW — Порядок работы над любой задачей
 
 > **Этот документ обязателен для любого агента и разработчика.**

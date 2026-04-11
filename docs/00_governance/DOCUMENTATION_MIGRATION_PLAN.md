@@ -47,7 +47,7 @@ Current progress:
 2. product bible — completed (Game Vision GDD, Non-Negotiable Experience)
 3. lore canon — completed (canon, open questions)
 4. execution layer — completed (Master Roadmap, World Generation Rollout, Mountain Roof System Refactor Plan)
-5. system specs — completed for current scope (21 specs across world, base, combat, progression, survival, UI, meta)
+5. system specs — in progress; 21 baseline specs completed; additional 21 world-layer specs added (boot pipeline, streaming, chunk visual, native generation, hydrology, etc.) bringing world/ total to 28 files
 6. content/resource split — completed (flora/resources, fauna catalog, art direction, audio direction)
 7. ADRs — ADR-0001 (Runtime Work and Dirty Update Foundation) approved at v1.1; recommended ADRs for grid/camera, room engineering, wrap-world, z-levels still pending
 

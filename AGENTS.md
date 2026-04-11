@@ -1,7 +1,7 @@
 ---
 title: Контракт входа для агента
 doc_type: agent_entrypoint
-status: draft
+status: approved
 owner: engineering
 source_of_truth: false
 version: 1.3

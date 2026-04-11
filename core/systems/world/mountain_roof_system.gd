@@ -25,8 +25,10 @@ const _ZONE_REVEAL_TILE_OFFSETS := [
 ]
 const _COVER_APPLY_TIME_BUDGET_USEC: int = 1200
 const _COVER_APPLY_MAX_CHUNKS_PER_FRAME: int = 4
-const _COVER_APPLY_MAX_REVEAL_TILES_PER_STEP: int = 2
+const _COVER_APPLY_MIN_REVEAL_TILES_PER_STEP: int = 2
+const _COVER_APPLY_MAX_REVEAL_TILES_PER_STEP: int = 16
 const _INCREMENTAL_ZONE_DELTA_TILE_CAP: int = 256
+const _INCREMENTAL_ZONE_DELTA_TIME_BUDGET_USEC: int = 500
 
 var _chunk_manager: ChunkManager = null
 var _player: Player = null
@@ -37,12 +39,14 @@ var _active_local_zone_seed: Vector2i = INVALID_MOUNTAIN_KEY
 var _active_local_zone_kind: StringName = &""
 var _active_local_zone_tiles: Dictionary = {}
 var _active_local_cover_tiles_by_chunk: Dictionary = {}
+var _active_local_cover_versions_by_chunk: Dictionary = {}
 var _active_local_reveal_chunk_coords: Dictionary = {}
 var _active_local_zone_truncated: bool = false
 var _cached_zone_seed: Vector2i = INVALID_MOUNTAIN_KEY
 var _cached_zone_kind: StringName = &""
 var _cached_zone_tiles: Dictionary = {}
 var _cached_cover_tiles_by_chunk: Dictionary = {}
+var _cached_cover_versions_by_chunk: Dictionary = {}
 var _cached_zone_truncated: bool = false
 var _cached_zone_valid: bool = false
 var _pending_incremental_mined_tile: Vector2i = INVALID_MOUNTAIN_KEY
@@ -152,6 +156,7 @@ func _request_refresh(force_refresh: bool = false) -> void:
 	if _chunk_manager.get_active_z_level() != 0:
 		return
 	var previous_cover_tiles_by_chunk: Dictionary = _active_local_cover_tiles_by_chunk
+	var previous_cover_versions_by_chunk: Dictionary = _active_local_cover_versions_by_chunk
 	_pending_incremental_changed_cover_tiles_by_chunk = {}
 	var player_tile: Vector2i = WorldGenerator.world_to_tile(_player.global_position)
 	var start_tile: Vector2i = _find_reveal_start(player_tile)
@@ -182,7 +187,9 @@ func _request_refresh(force_refresh: bool = false) -> void:
 		var diff_usec: int = WorldPerfProbe.begin()
 		changed_cover_tiles_by_chunk = _collect_changed_cover_tiles_by_chunk(
 			previous_cover_tiles_by_chunk,
-			_active_local_cover_tiles_by_chunk
+			_active_local_cover_tiles_by_chunk,
+			previous_cover_versions_by_chunk,
+			_active_local_cover_versions_by_chunk
 		)
 		WorldPerfProbe.end("MountainRoofSystem._collect_changed_cover_tiles_by_chunk", diff_usec)
 	if affected_chunks.is_empty():
@@ -190,7 +197,10 @@ func _request_refresh(force_refresh: bool = false) -> void:
 			affected_chunks = _collect_chunk_coords_from_changed_cover_tiles(changed_cover_tiles_by_chunk)
 		else:
 			var affected_usec: int = WorldPerfProbe.begin()
-			affected_chunks = _collect_affected_chunk_coords(previous_cover_tiles_by_chunk)
+			affected_chunks = _collect_affected_chunk_coords(
+				previous_cover_tiles_by_chunk,
+				previous_cover_versions_by_chunk
+			)
 			WorldPerfProbe.end("MountainRoofSystem._collect_affected_chunk_coords", affected_usec)
 	_pending_incremental_affected_chunks = []
 	_pending_incremental_changed_cover_tiles_by_chunk = {}
@@ -296,10 +306,17 @@ func _enqueue_cover_apply_coord(
 	var existing_payload: Dictionary = _pending_cover_apply_payloads.get(coord, {}) as Dictionary
 	var target_cover_tiles: Dictionary = _duplicate_tile_set(next_cover_tiles)
 	var effective_changed_tiles: Dictionary = _duplicate_tile_set(changed_tiles)
+	var target_cover_version: int = int(_active_local_cover_versions_by_chunk.get(coord, 0))
+	var chunk: Chunk = _chunk_manager.get_chunk(coord) if _chunk_manager else null
 	if effective_changed_tiles.is_empty() or not existing_payload.is_empty():
-		var chunk: Chunk = _chunk_manager.get_chunk(coord) if _chunk_manager else null
-		var live_cover_tiles: Dictionary = chunk.get_revealed_local_cover_tiles() if chunk else {}
-		effective_changed_tiles = _collect_changed_cover_tiles(live_cover_tiles, target_cover_tiles)
+		var live_cover_version: int = chunk.get_cover_tile_version() if chunk else -1
+		var existing_source_version: int = int(existing_payload.get("source_cover_tile_version", -1))
+		var existing_target_version: int = int(existing_payload.get("target_cover_version", -1))
+		if existing_payload.is_empty() \
+			or existing_source_version != live_cover_version \
+			or existing_target_version != target_cover_version:
+			var live_cover_tiles: Dictionary = chunk.get_revealed_local_cover_tiles() if chunk else {}
+			effective_changed_tiles = _collect_changed_cover_tiles(live_cover_tiles, target_cover_tiles)
 	if effective_changed_tiles.is_empty():
 		_remove_pending_cover_apply_coord(coord)
 		return
@@ -308,6 +325,8 @@ func _enqueue_cover_apply_coord(
 		"next_cover_tiles": target_cover_tiles,
 		"changed_tiles": effective_changed_tiles,
 		"is_full_apply": false,
+		"source_cover_tile_version": chunk.get_cover_tile_version() if chunk else -1,
+		"target_cover_version": target_cover_version,
 	}
 	_initialize_cover_apply_tile_queue(payload)
 	_pending_cover_apply_payloads[coord] = payload
@@ -337,7 +356,9 @@ func _drain_cover_apply_queue() -> void:
 		var coord: Vector2i = _pop_next_cover_apply_coord()
 		if coord == INVALID_MOUNTAIN_KEY:
 			return
-		_apply_cover_state_to_chunk(coord)
+		var elapsed_usec: int = Time.get_ticks_usec() - started_usec
+		var remaining_budget_usec: int = _COVER_APPLY_TIME_BUDGET_USEC - elapsed_usec
+		_apply_cover_state_to_chunk(coord, remaining_budget_usec)
 		processed_chunks += 1
 
 func _pop_next_cover_apply_coord() -> Vector2i:
@@ -487,7 +508,7 @@ func _emit_roof_restore_overwrite_diag(
 		)
 	WorldRuntimeDiagnosticLog.emit_record(record, detail_fields)
 
-func _apply_cover_state_to_chunk(coord: Vector2i) -> void:
+func _apply_cover_state_to_chunk(coord: Vector2i, remaining_budget_usec: int) -> void:
 	var chunk: Chunk = _chunk_manager.get_chunk(coord)
 	if not chunk:
 		return
@@ -542,7 +563,7 @@ func _apply_cover_state_to_chunk(coord: Vector2i) -> void:
 			)
 		_pending_cover_apply_payloads.erase(coord)
 		return
-	var apply_tiles: Dictionary = _consume_cover_apply_step_tiles(payload)
+	var apply_tiles: Dictionary = _consume_cover_apply_step_tiles(payload, remaining_budget_usec)
 	if apply_tiles.is_empty():
 		_pending_cover_apply_payloads.erase(coord)
 		return
@@ -600,19 +621,25 @@ func _apply_cover_state_to_chunk(coord: Vector2i) -> void:
 	if (payload.get("changed_tiles", {}) as Dictionary).is_empty():
 		_pending_cover_apply_payloads.erase(coord)
 		return
+	payload["source_cover_tile_version"] = chunk.get_cover_tile_version()
 	_pending_cover_apply_payloads[coord] = payload
 	_requeue_cover_apply_coord(coord)
 
-func _consume_cover_apply_step_tiles(payload: Dictionary) -> Dictionary:
+func _consume_cover_apply_step_tiles(payload: Dictionary, remaining_budget_usec: int) -> Dictionary:
 	var remaining_changed_tiles: Dictionary = payload.get("changed_tiles", {}) as Dictionary
 	if remaining_changed_tiles.is_empty():
 		return {}
 	var step_tiles: Dictionary = {}
+	var reveal_tile_budget: int = clampi(
+		remaining_budget_usec / 200,
+		_COVER_APPLY_MIN_REVEAL_TILES_PER_STEP,
+		_COVER_APPLY_MAX_REVEAL_TILES_PER_STEP
+	)
 	_consume_cover_apply_tile_queue(
 		payload,
 		"reveal_tiles",
 		"reveal_index",
-		_COVER_APPLY_MAX_REVEAL_TILES_PER_STEP,
+		reveal_tile_budget,
 		step_tiles,
 		remaining_changed_tiles
 	)
@@ -633,10 +660,8 @@ func _initialize_cover_apply_tile_queue(payload: Dictionary) -> void:
 			reveal_tiles.append(local_tile)
 		else:
 			restore_tiles.append(local_tile)
-	if reveal_tiles.size() <= 32:
-		reveal_tiles.sort_custom(_sort_cover_apply_tiles.bind(payload))
-	if restore_tiles.size() <= 32:
-		restore_tiles.sort_custom(_sort_cover_apply_tiles.bind(payload))
+	reveal_tiles.sort_custom(_sort_cover_apply_tiles.bind(payload))
+	restore_tiles.sort_custom(_sort_cover_apply_tiles.bind(payload))
 	payload["reveal_tiles"] = reveal_tiles
 	payload["restore_tiles"] = restore_tiles
 	payload["reveal_index"] = 0
@@ -909,10 +934,23 @@ func _refresh_active_local_zone(seed_tile: Vector2i) -> void:
 	_active_local_zone_seed = zone.get("seed_tile", INVALID_MOUNTAIN_KEY)
 	_active_local_zone_kind = zone.get("zone_kind", &"") as StringName
 	_active_local_zone_tiles = zone.get("tiles", {}) as Dictionary
+	var previous_cover_tiles_by_chunk: Dictionary = _active_local_cover_tiles_by_chunk
+	var previous_cover_versions_by_chunk: Dictionary = _active_local_cover_versions_by_chunk
 	var cover_build_usec: int = WorldPerfProbe.begin()
-	_active_local_cover_tiles_by_chunk = _build_local_cover_tiles_by_chunk(_active_local_zone_tiles)
-	_active_local_reveal_chunk_coords = _active_local_cover_tiles_by_chunk
+	var next_cover_tiles_by_chunk: Dictionary = _build_local_cover_tiles_by_chunk(_active_local_zone_tiles)
 	WorldPerfProbe.end("MountainRoofSystem._build_cover_tiles_by_chunk", cover_build_usec)
+	_pending_incremental_changed_cover_tiles_by_chunk = _collect_changed_cover_tiles_by_chunk(
+		previous_cover_tiles_by_chunk,
+		next_cover_tiles_by_chunk,
+		previous_cover_versions_by_chunk
+	)
+	_pending_incremental_affected_chunks = _collect_chunk_coords_from_changed_cover_tiles(
+		_pending_incremental_changed_cover_tiles_by_chunk
+	)
+	_apply_active_cover_tiles_state(
+		next_cover_tiles_by_chunk,
+		_pending_incremental_changed_cover_tiles_by_chunk
+	)
 	_active_local_zone_truncated = bool(zone.get("truncated", false))
 	_pending_incremental_mined_tile = INVALID_MOUNTAIN_KEY
 	_cache_active_zone_state()
@@ -976,10 +1014,14 @@ func _clear_active_local_zone() -> void:
 	_active_local_zone_kind = &""
 	_active_local_zone_tiles = {}
 	_active_local_cover_tiles_by_chunk = {}
+	_active_local_cover_versions_by_chunk = {}
 	_active_local_reveal_chunk_coords = {}
 	_active_local_zone_truncated = false
 
-func _collect_affected_chunk_coords(previous_cover_tiles_by_chunk: Dictionary) -> Array[Vector2i]:
+func _collect_affected_chunk_coords(
+	previous_cover_tiles_by_chunk: Dictionary,
+	previous_cover_versions_by_chunk: Dictionary = {}
+) -> Array[Vector2i]:
 	var affected_chunks: Array[Vector2i] = []
 	var seen_coords: Dictionary = {}
 	for coord: Vector2i in previous_cover_tiles_by_chunk:
@@ -987,9 +1029,9 @@ func _collect_affected_chunk_coords(previous_cover_tiles_by_chunk: Dictionary) -
 	for coord: Vector2i in _active_local_cover_tiles_by_chunk:
 		seen_coords[coord] = true
 	for coord: Vector2i in seen_coords:
-		var previous_cover_tiles: Dictionary = previous_cover_tiles_by_chunk.get(coord, {}) as Dictionary
-		var next_cover_tiles: Dictionary = _active_local_cover_tiles_by_chunk.get(coord, {}) as Dictionary
-		if previous_cover_tiles != next_cover_tiles:
+		var previous_version: int = int(previous_cover_versions_by_chunk.get(coord, 0))
+		var next_version: int = int(_active_local_cover_versions_by_chunk.get(coord, 0))
+		if previous_version != next_version:
 			affected_chunks.append(coord)
 	return affected_chunks
 
@@ -1004,7 +1046,9 @@ func _collect_chunk_coords_from_changed_cover_tiles(changed_cover_tiles_by_chunk
 
 func _collect_changed_cover_tiles_by_chunk(
 	previous_cover_tiles_by_chunk: Dictionary,
-	next_cover_tiles_by_chunk: Dictionary
+	next_cover_tiles_by_chunk: Dictionary,
+	previous_cover_versions_by_chunk: Dictionary = {},
+	next_cover_versions_by_chunk: Dictionary = {}
 ) -> Dictionary:
 	var changed_tiles_by_chunk: Dictionary = {}
 	var seen_coords: Dictionary = {}
@@ -1013,6 +1057,10 @@ func _collect_changed_cover_tiles_by_chunk(
 	for coord: Vector2i in next_cover_tiles_by_chunk:
 		seen_coords[coord] = true
 	for coord: Vector2i in seen_coords:
+		var previous_version: int = int(previous_cover_versions_by_chunk.get(coord, -1))
+		var next_version: int = int(next_cover_versions_by_chunk.get(coord, -1))
+		if previous_version >= 0 and next_version >= 0 and previous_version == next_version:
+			continue
 		var previous_cover_tiles: Dictionary = previous_cover_tiles_by_chunk.get(coord, {}) as Dictionary
 		var next_cover_tiles: Dictionary = next_cover_tiles_by_chunk.get(coord, {}) as Dictionary
 		var chunk_changed_tiles: Dictionary = _collect_changed_cover_tiles(
@@ -1044,15 +1092,44 @@ func _collect_changed_cover_tiles(
 
 func _collect_changed_chunk_coords(
 	previous_cover_tiles_by_chunk: Dictionary,
-	chunk_coords: Dictionary
+	chunk_coords: Dictionary,
+	previous_cover_versions_by_chunk: Dictionary = {}
 ) -> Array[Vector2i]:
 	var affected_chunks: Array[Vector2i] = []
 	for coord: Vector2i in chunk_coords:
-		var previous_cover_tiles: Dictionary = previous_cover_tiles_by_chunk.get(coord, {}) as Dictionary
-		var next_cover_tiles: Dictionary = _active_local_cover_tiles_by_chunk.get(coord, {}) as Dictionary
-		if previous_cover_tiles != next_cover_tiles:
+		var previous_version: int = int(previous_cover_versions_by_chunk.get(coord, 0))
+		var next_version: int = int(_active_local_cover_versions_by_chunk.get(coord, 0))
+		if previous_version != next_version:
 			affected_chunks.append(coord)
 	return affected_chunks
+
+func _apply_active_cover_tiles_state(
+	next_cover_tiles_by_chunk: Dictionary,
+	changed_tiles_by_chunk: Dictionary
+) -> void:
+	_active_local_cover_tiles_by_chunk = next_cover_tiles_by_chunk
+	_active_local_cover_versions_by_chunk = _build_cover_versions_by_chunk(
+		_active_local_cover_versions_by_chunk,
+		next_cover_tiles_by_chunk,
+		changed_tiles_by_chunk
+	)
+	_active_local_reveal_chunk_coords = _active_local_cover_tiles_by_chunk
+
+func _build_cover_versions_by_chunk(
+	previous_versions_by_chunk: Dictionary,
+	next_cover_tiles_by_chunk: Dictionary,
+	changed_tiles_by_chunk: Dictionary
+) -> Dictionary:
+	var next_versions_by_chunk: Dictionary = {}
+	for coord_variant: Variant in next_cover_tiles_by_chunk.keys():
+		var coord: Vector2i = coord_variant as Vector2i
+		var previous_version: int = int(previous_versions_by_chunk.get(coord, 0))
+		var changed_tiles: Dictionary = changed_tiles_by_chunk.get(coord, {}) as Dictionary
+		if changed_tiles.is_empty():
+			next_versions_by_chunk[coord] = maxi(1, previous_version)
+			continue
+		next_versions_by_chunk[coord] = maxi(1, previous_version + 1)
+	return next_versions_by_chunk
 
 func _has_active_local_zone() -> bool:
 	return _active_local_zone_seed != INVALID_MOUNTAIN_KEY and not _active_local_zone_tiles.is_empty()
@@ -1076,12 +1153,14 @@ func _try_apply_incremental_zone_refresh(start_tile: Vector2i) -> bool:
 		previous_cover_tiles_by_chunk,
 		mined_tile
 	)
-	_active_local_cover_tiles_by_chunk = incremental_result.get("cover_tiles_by_chunk", {}) as Dictionary
-	_active_local_reveal_chunk_coords = _active_local_cover_tiles_by_chunk
 	_pending_incremental_changed_cover_tiles_by_chunk = incremental_result.get(
 		"changed_tiles_by_chunk",
 		{}
 	) as Dictionary
+	_apply_active_cover_tiles_state(
+		incremental_result.get("cover_tiles_by_chunk", {}) as Dictionary,
+		_pending_incremental_changed_cover_tiles_by_chunk
+	)
 	_pending_incremental_affected_chunks = _collect_chunk_coords_from_changed_cover_tiles(
 		_pending_incremental_changed_cover_tiles_by_chunk
 	)
@@ -1115,12 +1194,14 @@ func _try_apply_delta_zone_refresh(start_tile: Vector2i) -> bool:
 		previous_cover_tiles_by_chunk,
 		delta_tiles
 	)
-	_active_local_cover_tiles_by_chunk = incremental_result.get("cover_tiles_by_chunk", {}) as Dictionary
-	_active_local_reveal_chunk_coords = _active_local_cover_tiles_by_chunk
 	_pending_incremental_changed_cover_tiles_by_chunk = incremental_result.get(
 		"changed_tiles_by_chunk",
 		{}
 	) as Dictionary
+	_apply_active_cover_tiles_state(
+		incremental_result.get("cover_tiles_by_chunk", {}) as Dictionary,
+		_pending_incremental_changed_cover_tiles_by_chunk
+	)
 	_pending_incremental_affected_chunks = _collect_chunk_coords_from_changed_cover_tiles(
 		_pending_incremental_changed_cover_tiles_by_chunk
 	)
@@ -1148,12 +1229,14 @@ func _try_bootstrap_single_tile_zone(start_tile: Vector2i) -> bool:
 	_active_local_zone_kind = &"mined_tile_bootstrap"
 	_active_local_zone_tiles = {start_tile: true}
 	var bootstrap_result: Dictionary = _build_incremental_cover_tiles_by_chunk({}, start_tile)
-	_active_local_cover_tiles_by_chunk = bootstrap_result.get("cover_tiles_by_chunk", {}) as Dictionary
-	_active_local_reveal_chunk_coords = _active_local_cover_tiles_by_chunk
 	_pending_incremental_changed_cover_tiles_by_chunk = bootstrap_result.get(
 		"changed_tiles_by_chunk",
 		{}
 	) as Dictionary
+	_apply_active_cover_tiles_state(
+		bootstrap_result.get("cover_tiles_by_chunk", {}) as Dictionary,
+		_pending_incremental_changed_cover_tiles_by_chunk
+	)
 	_pending_incremental_affected_chunks = _collect_chunk_coords_from_changed_cover_tiles(
 		_pending_incremental_changed_cover_tiles_by_chunk
 	)
@@ -1169,6 +1252,7 @@ func _try_restore_cached_zone(start_tile: Vector2i) -> bool:
 	_active_local_zone_kind = _cached_zone_kind
 	_active_local_zone_tiles = _cached_zone_tiles
 	_active_local_cover_tiles_by_chunk = _cached_cover_tiles_by_chunk
+	_active_local_cover_versions_by_chunk = _cached_cover_versions_by_chunk
 	_active_local_reveal_chunk_coords = _active_local_cover_tiles_by_chunk
 	_active_local_zone_truncated = _cached_zone_truncated
 	_pending_incremental_mined_tile = INVALID_MOUNTAIN_KEY
@@ -1212,6 +1296,7 @@ func _cache_active_zone_state() -> void:
 	_cached_zone_kind = _active_local_zone_kind
 	_cached_zone_tiles = _active_local_zone_tiles
 	_cached_cover_tiles_by_chunk = _active_local_cover_tiles_by_chunk
+	_cached_cover_versions_by_chunk = _active_local_cover_versions_by_chunk
 	_cached_zone_truncated = _active_local_zone_truncated
 	_cached_zone_valid = _has_active_local_zone()
 
@@ -1220,6 +1305,7 @@ func _invalidate_cached_zone() -> void:
 	_cached_zone_kind = &""
 	_cached_zone_tiles = {}
 	_cached_cover_tiles_by_chunk = {}
+	_cached_cover_versions_by_chunk = {}
 	_cached_zone_truncated = false
 	_cached_zone_valid = false
 
@@ -1363,7 +1449,14 @@ func _query_incremental_zone_delta(mined_tile: Vector2i) -> Dictionary:
 	var delta_tiles: Dictionary = {}
 	var touches_active_zone: bool = false
 	var truncated: bool = false
+	var start_usec: int = Time.get_ticks_usec()
 	while queue_index < queue.size():
+		if delta_tiles.size() >= _INCREMENTAL_ZONE_DELTA_TILE_CAP:
+			truncated = true
+			break
+		if Time.get_ticks_usec() - start_usec > _INCREMENTAL_ZONE_DELTA_TIME_BUDGET_USEC:
+			truncated = true
+			break
 		var current_tile: Vector2i = queue[queue_index]
 		queue_index += 1
 		if visited.has(current_tile):
@@ -1378,8 +1471,9 @@ func _query_incremental_zone_delta(mined_tile: Vector2i) -> Dictionary:
 		if not _is_open_mountain_tile(current_tile):
 			continue
 		delta_tiles[current_tile] = true
-		if delta_tiles.size() > _INCREMENTAL_ZONE_DELTA_TILE_CAP:
-			return {}
+		if delta_tiles.size() >= _INCREMENTAL_ZONE_DELTA_TILE_CAP:
+			truncated = true
+			break
 		for offset: Vector2i in _CARDINAL_ZONE_OFFSETS:
 			var next_tile: Vector2i = WorldGenerator.offset_tile(current_tile, offset)
 			if _active_local_zone_tiles.has(next_tile):
@@ -1400,8 +1494,9 @@ func _build_local_cover_tiles_by_chunk(zone_tiles: Dictionary) -> Dictionary:
 	var chunk_cache: Dictionary = {}
 	## cover_set_cache: chunk_coord → chunk.get_cover_edge_set()
 	## Кешируем per-chunk set чтобы не пересчитывать is_revealable_cover_edge для каждого тайла.
-	## get_cover_edge_set() стоит O(chunk²) только при первом вызове (или после майнинга),
-	## последующие обращения — O(1). Это заменяет O(n×9×8) вызовы is_revealable_cover_edge.
+	## get_cover_edge_set() стоит O(chunk²) только при первом прогреве чанка; после
+	## майнинга rebuild ограничен dirty tiles вокруг добытого, а последующие обращения — O(1).
+	## Это заменяет O(n×9×8) вызовы is_revealable_cover_edge.
 	var cover_set_cache: Dictionary = {}
 	var chunk_size: int = 0
 	for global_tile: Vector2i in zone_tiles:

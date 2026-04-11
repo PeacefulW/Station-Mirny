@@ -1,31 +1,59 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
       "WebSearch",
       "WebFetch(domain:docs.godotengine.org)",
       "Bash(xargs grep:*)",
       "Bash(grep -c 'M:\\\\\\\\dev' docs/README.md docs/00_governance/AI_PLAYBOOK.md docs/02_system_specs/README.md)",
-      "Bash(find /m/dev/Station Peaceful/Station Peaceful/docs -type f -name *.md)",
-      "Bash(grep -n \"add_to_group\\\\|PowerSourceComponent\\\\|PowerConsumerComponent\" /m/dev/Station Peaceful/Station Peaceful/core/entities/structures/*.gd)",
-      "Bash(ls -la /m/dev/Station Peaceful/Station Peaceful/*.md)",
+      "Bash(find \"C:/Users/peaceful/Station Peaceful/Station Peaceful/docs\" -type f -name *.md)",
+      "Bash(grep -n \"add_to_group\\\\|PowerSourceComponent\\\\|PowerConsumerComponent\" \"C:/Users/peaceful/Station Peaceful/Station Peaceful/core/entities/structures\"/*.gd)",
+      "Bash(ls -la \"C:/Users/peaceful/Station Peaceful/Station Peaceful\"/*.md)",
       "Bash(grep -E \"\\\\.gd$|^d\")",
       "Bash(for f:*)",
       "Bash(do echo:*)",
-      "Read(//m/dev/Station Peaceful/Station Peaceful/**)",
+      "Read(C:/Users/peaceful/Station Peaceful/Station Peaceful/**)",
       "Bash(done)",
-      "Bash(wc -l \"M:/dev/Station Peaceful/Station Peaceful/core/entities/components\"/*.gd)",
-      "Bash(wc -l \"M:/dev/Station Peaceful/Station Peaceful/core/entities/player/states\"/*.gd)",
-      "Bash(find \"M:/dev/Station Peaceful/Station Peaceful/core/autoloads\" -name \"*.gd\" -exec wc -l {} +)",
-      "Bash(find \"M:/dev/Station Peaceful/Station Peaceful/core/systems\" -name \"*.gd\" -exec wc -l {} +)",
-      "Bash(find \"M:/dev/Station Peaceful/Station Peaceful/core/entities\" -name \"*.gd\" -exec wc -l {} +)",
+      "Bash(wc -l \"C:/Users/peaceful/Station Peaceful/Station Peaceful/core/entities/components\"/*.gd)",
+      "Bash(wc -l \"C:/Users/peaceful/Station Peaceful/Station Peaceful/core/entities/player/states\"/*.gd)",
+      "Bash(find \"C:/Users/peaceful/Station Peaceful/Station Peaceful/core/autoloads\" -name \"*.gd\" -exec wc -l {} +)",
+      "Bash(find \"C:/Users/peaceful/Station Peaceful/Station Peaceful/core/systems\" -name \"*.gd\" -exec wc -l {} +)",
+      "Bash(find \"C:/Users/peaceful/Station Peaceful/Station Peaceful/core/entities\" -name \"*.gd\" -exec wc -l {} +)",
       "Bash(wc -l core/systems/world/*.gd)",
-      "Bash(find /m/dev/Station Peaceful -type f -name *.gdextension -o -name *.so -o -name *.dll)",
+      "Bash(find \"C:/Users/peaceful/Station Peaceful/Station Peaceful\" -type f -name *.gdextension -o -name *.so -o -name *.dll)",
       "Bash(grep -E \"\\\\.\\(gd|gdscript\\)$\")",
-      "Bash(grep -rn ChunkGenerator '/m/dev/Station Peaceful/Station Peaceful/' --include=*.gd --include=*.cpp --include=*.h)",
+      "Bash(grep -rn ChunkGenerator \"C:/Users/peaceful/Station Peaceful/Station Peaceful\" --include=*.gd --include=*.cpp --include=*.h)",
       "Bash(grep \"\\\\.gd$\")",
-      "Bash(stat /m/dev/Station Peaceful/Station Peaceful/gdextension/src/*.cpp)",
+      "Bash(stat \"C:/Users/peaceful/Station Peaceful/Station Peaceful/gdextension/src\"/*.cpp)",
       "Bash(scons platform=windows target=template_debug)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash([ -f \"C:/Users/peaceful/Station Peaceful/Station Peaceful/$f\" ])",
+      "Bash(grep -r \"ROCK\\\\|RockLayer\\\\|mountain\\\\|roof\" core/systems/world/*.gd --include=\"*.gd\")",
+      "Bash(grep -E \"\\\\.gd$\")"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "& (Join-Path \"$env:CLAUDE_PROJECT_DIR\" '.claude\\hooks\\docs-preflight-context.ps1')",
+            "shell": "powershell"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "& (Join-Path \"$env:CLAUDE_PROJECT_DIR\" '.claude\\hooks\\docs-preflight-context.ps1')",
+            "shell": "powershell"
+          }
+        ]
+      }
     ]
   }
 }

@@ -168,7 +168,7 @@ The following four patterns are not suggestions — they are required wherever a
 **Why:** ADR-0003 (immutable base) requires that the same seed + coordinates produce the same result always. Multiplayer requires all clients to see the same world without synchronizing random state. Save/load requires that visual variation reconstructs identically from seed.
 
 **Shape:**
-- Hash function: `pos.x * PRIME_A + pos.y * PRIME_B`, XOR-shifted (see `Chunk._tile_hash()`)
+- Hash function: `_hash32_xy()` in `chunk.gd` — `(tile_x * 374761393 + tile_y * 668265263 + seed * 1442695041) & _HASH32_MASK` (see `Chunk._tile_hash()` for full XOR-shift pipeline)
 - Use for: rock wall variant selection, flora placement, terrain detail variation, POI eligibility, resource node distribution
 - Never use `randf()` or `randi()` for anything that depends on world position
 - Per-frame randomness (particles, sound variation) is exempt — it's client-local presentation

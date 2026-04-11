@@ -10,12 +10,12 @@
 - [docs/README.md](docs/README.md)
 
 Для правил разработки и архитектуры см.:
-- [AI Playbook](docs/00_governance\AI_PLAYBOOK.md)
-- [Engineering Standards](docs/00_governance\ENGINEERING_STANDARDS.md)
-- [Performance Contracts](docs/00_governance\PERFORMANCE_CONTRACTS.md)
+- [AI Playbook](docs/00_governance/AI_PLAYBOOK.md)
+- [Engineering Standards](docs/00_governance/ENGINEERING_STANDARDS.md)
+- [Performance Contracts](docs/00_governance/PERFORMANCE_CONTRACTS.md)
 
 Для продуктового контекста см.:
-- [Game Vision GDD](docs/01_product\GAME_VISION_GDD.md)
+- [Game Vision GDD](docs/01_product/GAME_VISION_GDD.md)
 
 ## Текущее состояние
 
@@ -63,5 +63,5 @@ docs/         — каноническая карта документации
 
 ## Примечание о legacy-документах
 
-Старые markdown-файлы в корне ещё существуют, но больше не должны рассматриваться как равноправные источники.
+Миграция документации завершена. Legacy markdown-файлы из корня удалены; в корне остался только этот `README.md` как точка входа.
 Если нужен актуальный маршрут по документации, начинай с [docs/README.md](docs/README.md).

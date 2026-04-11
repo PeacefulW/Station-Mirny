@@ -78,6 +78,7 @@ const PREBAKED_CLIFF_SOUTH: int = 1
 const PREBAKED_CLIFF_WEST: int = 2
 const PREBAKED_CLIFF_EAST: int = 3
 const PREBAKED_CLIFF_TOP: int = 4
+const PREBAKED_CLIFF_SURFACE_NORTH: int = 5
 const PREBAKED_MASK_ALT_SHIFT: int = 8
 
 class FloraBatchRenderer:
@@ -154,7 +155,9 @@ var _modified_tiles: Dictionary = {}
 var _biome: BiomeData = null
 var _terrain_bytes: PackedByteArray = PackedByteArray()
 var _cover_edge_set: Dictionary = {}
+var _cover_edge_set_dirty_tiles: Dictionary = {}
 var _cover_edge_set_valid: bool = false
+var _cover_edge_set_requires_full_rebuild: bool = true
 var _height_bytes: PackedFloat32Array = PackedFloat32Array()
 var _variation_bytes: PackedByteArray = PackedByteArray()
 var _biome_bytes: PackedByteArray = PackedByteArray()
@@ -174,6 +177,7 @@ var _pending_border_dirty: Dictionary = {}
 var _border_fix_pending_reason_versions: Dictionary = {}
 var _border_fix_applied_reason_versions: Dictionary = {}
 var _revealed_local_cover_tiles: Dictionary = {}
+var _cover_tile_version: int = 0
 var _is_underground: bool = false
 var _use_operation_global_terrain_cache: bool = false
 var _operation_global_terrain_cache: Dictionary = {}
@@ -231,6 +235,10 @@ func sync_display_position(reference_chunk: Vector2i) -> void:
 func populate_native(native_data: Dictionary, saved_modifications: Dictionary, instant: bool = false) -> void:
 	_modified_tiles = saved_modifications.duplicate()
 	_reset_border_fix_dedupe_state()
+	_cover_edge_set = {}
+	_cover_edge_set_dirty_tiles = {}
+	_cover_edge_set_valid = false
+	_cover_edge_set_requires_full_rebuild = true
 	_terrain_bytes = native_data.get("terrain", PackedByteArray())
 	_height_bytes = native_data.get("height", PackedFloat32Array())
 	_variation_bytes = native_data.get("variation", PackedByteArray())
@@ -266,6 +274,7 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 		_invalidate_prebaked_visual_payload()
 	_cache_has_mountain()
 	_visual_invalidation_version = 0
+	_cover_tile_version = 0
 	_bump_visual_invalidation_version()
 	_reset_cover_visual_state()
 	if instant:
@@ -327,11 +336,20 @@ func get_modifications() -> Dictionary:
 func get_visual_invalidation_version() -> int:
 	return _visual_invalidation_version
 
+func get_cover_tile_version() -> int:
+	return _cover_tile_version
+
 func _bump_visual_invalidation_version() -> int:
 	_visual_invalidation_version += 1
 	if _visual_invalidation_version <= 0:
 		_visual_invalidation_version = 1
 	return _visual_invalidation_version
+
+func _bump_cover_tile_version() -> int:
+	_cover_tile_version += 1
+	if _cover_tile_version <= 0:
+		_cover_tile_version = 1
+	return _cover_tile_version
 
 func _reset_border_fix_dedupe_state() -> void:
 	_pending_border_dirty.clear()
@@ -391,10 +409,17 @@ func set_revealed_local_cover_tiles(
 	changed_tiles: Dictionary = {},
 	commit_full_state: bool = true
 ) -> void:
+	var cover_state_changed: bool = false
 	if changed_tiles.is_empty():
-		_apply_local_zone_cover_state(cover_tiles)
-		return
-	_apply_local_zone_cover_state_delta(cover_tiles, changed_tiles, commit_full_state)
+		cover_state_changed = _apply_local_zone_cover_state(cover_tiles)
+	else:
+		cover_state_changed = _apply_local_zone_cover_state_delta(
+			cover_tiles,
+			changed_tiles,
+			commit_full_state
+		)
+	if cover_state_changed:
+		_bump_cover_tile_version()
 
 func apply_revealed_local_cover_tiles_batch(
 	target_cover_tiles: Dictionary,
@@ -402,12 +427,18 @@ func apply_revealed_local_cover_tiles_batch(
 ) -> void:
 	if changed_tiles.is_empty():
 		return
+	var cover_state_changed: bool = false
 	if not _cover_layer:
 		for local_tile: Vector2i in changed_tiles:
+			var was_revealed: bool = _revealed_local_cover_tiles.has(local_tile)
 			if target_cover_tiles.has(local_tile):
 				_revealed_local_cover_tiles[local_tile] = true
 			else:
 				_revealed_local_cover_tiles.erase(local_tile)
+			if was_revealed != target_cover_tiles.has(local_tile):
+				cover_state_changed = true
+		if cover_state_changed:
+			_bump_cover_tile_version()
 		return
 	var previous_cache_enabled: bool = _use_operation_global_terrain_cache
 	var previous_global_terrain_cache: Dictionary = _operation_global_terrain_cache
@@ -418,6 +449,7 @@ func apply_revealed_local_cover_tiles_batch(
 		var should_be_revealed: bool = target_cover_tiles.has(local_tile)
 		if was_revealed == should_be_revealed:
 			continue
+		cover_state_changed = true
 		if should_be_revealed:
 			_cover_layer.erase_cell(local_tile)
 			_revealed_local_cover_tiles[local_tile] = true
@@ -426,18 +458,27 @@ func apply_revealed_local_cover_tiles_batch(
 			_revealed_local_cover_tiles.erase(local_tile)
 	_use_operation_global_terrain_cache = previous_cache_enabled
 	_operation_global_terrain_cache = previous_global_terrain_cache
+	if cover_state_changed:
+		_bump_cover_tile_version()
 
 func defer_revealed_local_cover_tiles_restore(changed_tiles: Dictionary) -> bool:
 	if changed_tiles.is_empty():
 		return false
+	var cover_state_changed: bool = false
 	for local_tile: Vector2i in changed_tiles:
-		_revealed_local_cover_tiles.erase(local_tile)
+		if _revealed_local_cover_tiles.erase(local_tile):
+			cover_state_changed = true
+	if cover_state_changed:
+		_bump_cover_tile_version()
 	if not is_first_pass_ready():
 		return false
 	return enqueue_dirty_border_redraw(changed_tiles, "roof_restore", get_visual_invalidation_version())
 
 func prime_revealed_local_cover_tiles(cover_tiles: Dictionary) -> void:
+	var cover_state_changed: bool = not _cover_tile_sets_equal(_revealed_local_cover_tiles, cover_tiles)
 	_revealed_local_cover_tiles = cover_tiles.duplicate()
+	if cover_state_changed:
+		_bump_cover_tile_version()
 
 func get_revealed_local_cover_tiles() -> Dictionary:
 	return _revealed_local_cover_tiles.duplicate()
@@ -517,21 +558,50 @@ func is_revealable_cover_edge(local_tile: Vector2i) -> bool:
 	return _is_cave_edge_rock(local_tile)
 
 ## Возвращает кешированный set тайлов чанка, которые являются revealable cover edges.
-## Первый вызов вычисляет set за O(chunk_size²). Последующие — O(1).
-## Инвалидируется при каждом изменении террейна (майнинг).
+## Первый вызов вычисляет set за O(chunk_size²). После майнинга rebuild
+## ограничен dirty tiles вокруг изменённого места, а последующие чтения снова O(1).
 func get_cover_edge_set() -> Dictionary:
 	if not _cover_edge_set_valid:
 		_rebuild_cover_edge_set()
 	return _cover_edge_set
 
 func _rebuild_cover_edge_set() -> void:
-	_cover_edge_set.clear()
-	for y: int in range(_chunk_size):
-		for x: int in range(_chunk_size):
-			var local := Vector2i(x, y)
+	if _cover_edge_set_requires_full_rebuild:
+		_cover_edge_set.clear()
+		for y: int in range(_chunk_size):
+			for x: int in range(_chunk_size):
+				var full_local := Vector2i(x, y)
+				if is_revealable_cover_edge(full_local):
+					_cover_edge_set[full_local] = true
+	else:
+		for local_variant: Variant in _cover_edge_set_dirty_tiles.keys():
+			var local: Vector2i = local_variant as Vector2i
+			_cover_edge_set.erase(local)
 			if is_revealable_cover_edge(local):
 				_cover_edge_set[local] = true
+	_cover_edge_set_dirty_tiles.clear()
+	_cover_edge_set_requires_full_rebuild = false
 	_cover_edge_set_valid = true
+
+func _mark_cover_edge_set_dirty_tiles(dirty_tiles: Dictionary) -> void:
+	if dirty_tiles.is_empty():
+		return
+	_cover_edge_set_valid = false
+	if _cover_edge_set_requires_full_rebuild:
+		return
+	for local_variant: Variant in dirty_tiles.keys():
+		var local_tile: Vector2i = local_variant as Vector2i
+		if _is_inside(local_tile):
+			_cover_edge_set_dirty_tiles[local_tile] = true
+
+func _invalidate_cover_edge_set_around(local_tile: Vector2i) -> void:
+	var dirty_tiles: Dictionary = {}
+	for dy: int in range(-1, 2):
+		for dx: int in range(-1, 2):
+			var dirty_tile: Vector2i = local_tile + Vector2i(dx, dy)
+			if _is_inside(dirty_tile):
+				dirty_tiles[dirty_tile] = true
+	_mark_cover_edge_set_dirty_tiles(dirty_tiles)
 
 func try_mine_at(local: Vector2i) -> Dictionary:
 	var started_usec: int = WorldPerfProbe.begin()
@@ -587,13 +657,16 @@ func cleanup() -> void:
 	_secondary_biome_bytes = PackedByteArray()
 	_ecotone_values = PackedFloat32Array()
 	_cover_edge_set = {}
+	_cover_edge_set_dirty_tiles = {}
 	_cover_edge_set_valid = false
+	_cover_edge_set_requires_full_rebuild = true
 	_revealed_local_cover_tiles = {}
 	_interior_macro_dirty = false
 	_clear_interior_macro_layer()
 	_visual_state = ChunkVisualState.UNINITIALIZED
 	_has_full_publication_once = false
 	_visual_invalidation_version = 0
+	_cover_tile_version = 0
 	_reset_border_fix_dedupe_state()
 
 func _create_layer(layer_name: String, tileset: TileSet, z_index_value: int) -> TileMapLayer:
@@ -1042,12 +1115,13 @@ func _apply_visual_prepared_batch(batch: Dictionary) -> int:
 	var rock_buffer: PackedInt32Array = batch.get("rock_buffer", PackedInt32Array())
 	var cover_buffer: PackedInt32Array = batch.get("cover_buffer", PackedInt32Array())
 	var cliff_buffer: PackedInt32Array = batch.get("cliff_buffer", PackedInt32Array())
+	var applied_commands: int = 0
 	if not terrain_buffer.is_empty() \
 		or not ground_face_buffer.is_empty() \
 		or not rock_buffer.is_empty() \
 		or not cover_buffer.is_empty() \
 		or not cliff_buffer.is_empty():
-		return _apply_visual_layer_buffers(
+		applied_commands += _apply_visual_layer_buffers(
 			terrain_buffer,
 			ground_face_buffer,
 			rock_buffer,
@@ -1055,7 +1129,7 @@ func _apply_visual_prepared_batch(batch: Dictionary) -> int:
 			cliff_buffer,
 			int(batch.get("buffer_stride", VISUAL_APPLY_BUFFER_STRIDE))
 		)
-	return _apply_visual_commands(
+	return applied_commands + _apply_visual_commands(
 		batch.get("commands", []) as Array,
 		batch.get("command_buffer", PackedInt32Array()),
 		int(batch.get("command_stride", VISUAL_COMMAND_BUFFER_STRIDE))
@@ -1239,13 +1313,30 @@ static func _try_compute_visual_batch_native(request: Dictionary) -> Dictionary:
 		var phase: int = int(request.get("phase", REDRAW_PHASE_DONE))
 		if phase != REDRAW_PHASE_TERRAIN and phase != REDRAW_PHASE_COVER and phase != REDRAW_PHASE_CLIFF:
 			return {}
+		if phase == REDRAW_PHASE_CLIFF:
+			return {}
 	if not request.has("native_visual_tables"):
 		return {}
 	var helper: RefCounted = Chunk._get_native_visual_kernels()
 	if helper == null or not helper.has_method("compute_visual_batch"):
 		return {}
 	var batch: Dictionary = helper.call("compute_visual_batch", request) as Dictionary
-	return batch if not batch.is_empty() else {}
+	if batch.is_empty():
+		return {}
+	if mode == VISUAL_BATCH_MODE_DIRTY:
+		var cliff_commands: Array[Dictionary] = []
+		for tile_variant: Variant in request.get("tiles", []):
+			var local_tile: Vector2i = tile_variant as Vector2i
+			Chunk._append_cliff_visual_command(request, local_tile, cliff_commands, true)
+		if not cliff_commands.is_empty():
+			batch["cliff_buffer"] = PackedInt32Array()
+			var commands: Array = []
+			if batch.has("commands"):
+				commands = (batch.get("commands", []) as Array).duplicate()
+			commands.append_array(cliff_commands)
+			batch["commands"] = commands
+			batch["command_count"] = int(batch.get("command_count", 0)) + cliff_commands.size()
+	return batch
 
 static func _get_native_visual_kernels() -> RefCounted:
 	if not Chunk._has_native_visual_kernels():
@@ -1295,6 +1386,7 @@ static func _build_native_visual_tables() -> Dictionary:
 		"tile_salt_flat": ChunkTilesetFactory.tile_salt_flat,
 		"tile_dry_riverbed": ChunkTilesetFactory.tile_dry_riverbed,
 		"tile_shadow_south": ChunkTilesetFactory.TILE_SHADOW_SOUTH,
+		"tile_shadow_north": ChunkTilesetFactory.TILE_SHADOW_NORTH,
 		"tile_shadow_west": ChunkTilesetFactory.TILE_SHADOW_WEST,
 		"tile_shadow_east": ChunkTilesetFactory.TILE_SHADOW_EAST,
 		"tile_top_edge": ChunkTilesetFactory.TILE_TOP_EDGE,
@@ -1343,6 +1435,8 @@ static func _prebaked_cliff_overlay_coords(kind: int) -> Vector2i:
 			return ChunkTilesetFactory.TILE_SHADOW_EAST
 		PREBAKED_CLIFF_TOP:
 			return ChunkTilesetFactory.TILE_TOP_EDGE
+		PREBAKED_CLIFF_SURFACE_NORTH:
+			return ChunkTilesetFactory.TILE_SHADOW_NORTH
 		_:
 			return Vector2i(-1, -1)
 
@@ -1468,17 +1562,7 @@ static func build_prebaked_visual_payload(request: Dictionary) -> Dictionary:
 					cover_atlas.y * maxi(1, ChunkTilesetFactory.terrain_tiles_per_row) + cover_atlas.x,
 					cover_alt
 				)
-			if terrain_type == TileGenData.TerrainType.ROCK:
-				var overlay_kind: int = PREBAKED_CLIFF_NONE
-				if Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(visual_request, local_tile + _CARDINAL_DIRS[3])):
-					overlay_kind = PREBAKED_CLIFF_SOUTH
-				elif Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(visual_request, local_tile + _CARDINAL_DIRS[0])):
-					overlay_kind = PREBAKED_CLIFF_WEST
-				elif Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(visual_request, local_tile + _CARDINAL_DIRS[1])):
-					overlay_kind = PREBAKED_CLIFF_EAST
-				elif Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(visual_request, local_tile + _CARDINAL_DIRS[2])):
-					overlay_kind = PREBAKED_CLIFF_TOP
-				cliff_overlay[idx] = overlay_kind
+			cliff_overlay[idx] = Chunk._visual_request_cliff_overlay_kind(visual_request, local_tile)
 			if shared_base.x >= 0:
 				if shared_has_interior:
 					variant_id[idx] = shared_variant.x
@@ -1765,23 +1849,9 @@ static func _append_cliff_visual_command(
 		if explicit_clear:
 			commands.append(Chunk._make_visual_erase_command(VISUAL_LAYER_CLIFF, local_tile))
 		return
-	if Chunk._visual_request_terrain(request, local_tile) != TileGenData.TerrainType.ROCK:
-		if explicit_clear:
-			commands.append(Chunk._make_visual_erase_command(VISUAL_LAYER_CLIFF, local_tile))
-		return
-	var south_open: bool = Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(request, local_tile + _CARDINAL_DIRS[3]))
-	var west_open: bool = Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(request, local_tile + _CARDINAL_DIRS[0]))
-	var east_open: bool = Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(request, local_tile + _CARDINAL_DIRS[1]))
-	var north_open: bool = Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(request, local_tile + _CARDINAL_DIRS[2]))
-	var overlay: Vector2i = Vector2i(-1, -1)
-	if south_open:
-		overlay = ChunkTilesetFactory.TILE_SHADOW_SOUTH
-	elif west_open:
-		overlay = ChunkTilesetFactory.TILE_SHADOW_WEST
-	elif east_open:
-		overlay = ChunkTilesetFactory.TILE_SHADOW_EAST
-	elif north_open:
-		overlay = ChunkTilesetFactory.TILE_TOP_EDGE
+	var overlay: Vector2i = Chunk._prebaked_cliff_overlay_coords(
+		Chunk._visual_request_cliff_overlay_kind(request, local_tile)
+	)
 	if overlay.x >= 0:
 		commands.append(Chunk._make_visual_set_command(
 			VISUAL_LAYER_CLIFF,
@@ -2150,6 +2220,30 @@ static func _visual_request_variant_atlas(base: Vector2i, global_x: int, global_
 		var interior_variant: Vector2i = Chunk._visual_request_interior_variant(global_x, global_y)
 		return ChunkTilesetFactory.get_wall_variant_coords(base, interior_variant.x)
 	return ChunkTilesetFactory.get_wall_variant_coords(base, 0)
+
+static func _visual_request_cliff_overlay_kind(request: Dictionary, local_tile: Vector2i) -> int:
+	var terrain_type: int = Chunk._visual_request_terrain(request, local_tile)
+	if terrain_type == TileGenData.TerrainType.ROCK:
+		if Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(request, local_tile + _CARDINAL_DIRS[3])):
+			return PREBAKED_CLIFF_SOUTH
+		if Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(request, local_tile + _CARDINAL_DIRS[0])):
+			return PREBAKED_CLIFF_WEST
+		if Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(request, local_tile + _CARDINAL_DIRS[1])):
+			return PREBAKED_CLIFF_EAST
+		if Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(request, local_tile + _CARDINAL_DIRS[2])):
+			return PREBAKED_CLIFF_TOP
+		return PREBAKED_CLIFF_NONE
+	if not Chunk._visual_request_is_surface_face_terrain(terrain_type):
+		return PREBAKED_CLIFF_NONE
+	if Chunk._visual_request_terrain(request, local_tile + Vector2i.UP) == TileGenData.TerrainType.ROCK:
+		return PREBAKED_CLIFF_SURFACE_NORTH
+	if Chunk._visual_request_terrain(request, local_tile + Vector2i.LEFT) == TileGenData.TerrainType.ROCK:
+		return PREBAKED_CLIFF_WEST
+	if Chunk._visual_request_terrain(request, local_tile + Vector2i.RIGHT) == TileGenData.TerrainType.ROCK:
+		return PREBAKED_CLIFF_EAST
+	if Chunk._visual_request_terrain(request, local_tile + Vector2i.DOWN) == TileGenData.TerrainType.ROCK:
+		return PREBAKED_CLIFF_SOUTH
+	return PREBAKED_CLIFF_NONE
 
 static func _visual_request_variant_alt_id(base: Vector2i, global_x: int, global_y: int, allow_flip: bool) -> int:
 	if base == ChunkTilesetFactory.WALL_INTERIOR:
@@ -2526,11 +2620,12 @@ func _refresh_open_tile(local_tile: Vector2i) -> void:
 	_set_terrain_type(local_tile, _resolve_open_tile_type_for_neighbor_refresh(local_tile), false)
 
 func _set_terrain_type(local_tile: Vector2i, terrain_type: int, mark_modified: bool = true) -> void:
-	_cover_edge_set_valid = false
 	var idx: int = local_tile.y * _chunk_size + local_tile.x
 	if idx < 0 or idx >= _terrain_bytes.size():
 		return
 	var previous_type: int = _terrain_bytes[idx]
+	if _cover_edge_class(previous_type) != _cover_edge_class(terrain_type):
+		_invalidate_cover_edge_set_around(local_tile)
 	_terrain_bytes[idx] = terrain_type
 	if previous_type != terrain_type:
 		_invalidate_prebaked_visual_payload()
@@ -2571,6 +2666,14 @@ func _is_open_for_surface_visual(terrain_type: int, water_only: bool) -> bool:
 	if water_only:
 		return _is_water_for_face_visual(terrain_type)
 	return _is_open_for_surface_rock_visual(terrain_type)
+
+func _cover_edge_class(terrain_type: int) -> int:
+	if terrain_type == TileGenData.TerrainType.ROCK:
+		return 0
+	if terrain_type == TileGenData.TerrainType.MINED_FLOOR \
+		or terrain_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
+		return 1
+	return 2
 
 func _is_water_for_face_visual(terrain_type: int) -> bool:
 	return terrain_type == TileGenData.TerrainType.WATER
@@ -2623,23 +2726,11 @@ func _is_cliff_exposed_to_surface(local_tile: Vector2i) -> bool:
 func _redraw_cliff_tile(local_tile: Vector2i) -> void:
 	if not _cliff_layer or _is_underground:
 		return
-	if get_terrain_type_at(local_tile) != TileGenData.TerrainType.ROCK:
-		return
-	var south_open: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + _CARDINAL_DIRS[3]))
-	var west_open: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + _CARDINAL_DIRS[0]))
-	var east_open: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + _CARDINAL_DIRS[1]))
-	var north_open: bool = _is_open_exterior(_get_neighbor_terrain(local_tile + _CARDINAL_DIRS[2]))
-	var overlay: Vector2i = Vector2i(-1, -1)
-	if south_open:
-		overlay = ChunkTilesetFactory.TILE_SHADOW_SOUTH
-	elif west_open:
-		overlay = ChunkTilesetFactory.TILE_SHADOW_WEST
-	elif east_open:
-		overlay = ChunkTilesetFactory.TILE_SHADOW_EAST
-	elif north_open:
-		overlay = ChunkTilesetFactory.TILE_TOP_EDGE
+	var overlay: Vector2i = _prebaked_cliff_overlay_coords(_cliff_overlay_kind(local_tile))
 	if overlay.x >= 0:
 		_cliff_layer.set_cell(local_tile, ChunkTilesetFactory.OVERLAY_SOURCE_ID, overlay)
+	else:
+		_cliff_layer.erase_cell(local_tile)
 
 func _redraw_cover_tile(local_tile: Vector2i) -> void:
 	# Underground z-levels don't use roof/cover system (ADR-0006).
@@ -2657,6 +2748,30 @@ func _redraw_cover_tile(local_tile: Vector2i) -> void:
 	var atlas: Vector2i = _resolve_variant_atlas(base, global_tile.x, global_tile.y)
 	var alt_id: int = _resolve_variant_alt_id(base, global_tile.x, global_tile.y, false)
 	_cover_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, alt_id)
+
+func _cliff_overlay_kind(local_tile: Vector2i) -> int:
+	var terrain_type: int = get_terrain_type_at(local_tile)
+	if terrain_type == TileGenData.TerrainType.ROCK:
+		if _is_open_exterior(_get_neighbor_terrain(local_tile + _CARDINAL_DIRS[3])):
+			return PREBAKED_CLIFF_SOUTH
+		if _is_open_exterior(_get_neighbor_terrain(local_tile + _CARDINAL_DIRS[0])):
+			return PREBAKED_CLIFF_WEST
+		if _is_open_exterior(_get_neighbor_terrain(local_tile + _CARDINAL_DIRS[1])):
+			return PREBAKED_CLIFF_EAST
+		if _is_open_exterior(_get_neighbor_terrain(local_tile + _CARDINAL_DIRS[2])):
+			return PREBAKED_CLIFF_TOP
+		return PREBAKED_CLIFF_NONE
+	if not _is_surface_face_terrain(terrain_type):
+		return PREBAKED_CLIFF_NONE
+	if _get_neighbor_terrain(local_tile + Vector2i.UP) == TileGenData.TerrainType.ROCK:
+		return PREBAKED_CLIFF_SURFACE_NORTH
+	if _get_neighbor_terrain(local_tile + Vector2i.LEFT) == TileGenData.TerrainType.ROCK:
+		return PREBAKED_CLIFF_WEST
+	if _get_neighbor_terrain(local_tile + Vector2i.RIGHT) == TileGenData.TerrainType.ROCK:
+		return PREBAKED_CLIFF_EAST
+	if _get_neighbor_terrain(local_tile + Vector2i.DOWN) == TileGenData.TerrainType.ROCK:
+		return PREBAKED_CLIFF_SOUTH
+	return PREBAKED_CLIFF_NONE
 
 static func _resolve_effective_surface_palette_index(
 	primary_biome_palette_index: int,
@@ -3236,52 +3351,73 @@ func _build_revealed_local_cover_tiles(zone_tiles: Dictionary) -> Dictionary:
 					break
 	return reveal_tiles
 
-func _apply_local_zone_cover_state(next_cover_tiles: Dictionary) -> void:
+func _apply_local_zone_cover_state(next_cover_tiles: Dictionary) -> bool:
+	var cover_state_changed: bool = false
 	if not _cover_layer:
+		cover_state_changed = not _cover_tile_sets_equal(_revealed_local_cover_tiles, next_cover_tiles)
 		_revealed_local_cover_tiles = next_cover_tiles.duplicate()
-		return
+		return cover_state_changed
 	for local_tile: Vector2i in _revealed_local_cover_tiles:
 		if next_cover_tiles.has(local_tile):
 			continue
 		_redraw_cover_tile(local_tile)
+		cover_state_changed = true
 	for local_tile: Vector2i in next_cover_tiles:
 		if _revealed_local_cover_tiles.has(local_tile):
 			continue
 		_cover_layer.erase_cell(local_tile)
+		cover_state_changed = true
 	_revealed_local_cover_tiles = next_cover_tiles.duplicate()
+	return cover_state_changed
 
 func _apply_local_zone_cover_state_delta(
 	next_cover_tiles: Dictionary,
 	changed_tiles: Dictionary,
 	commit_full_state: bool = true
-) -> void:
+) -> bool:
 	if not _cover_layer:
-		_commit_local_zone_cover_state_delta(next_cover_tiles, changed_tiles, commit_full_state)
-		return
+		return _commit_local_zone_cover_state_delta(next_cover_tiles, changed_tiles, commit_full_state)
+	var cover_state_changed: bool = false
 	for local_tile: Vector2i in changed_tiles:
 		var was_revealed: bool = _revealed_local_cover_tiles.has(local_tile)
 		var should_be_revealed: bool = next_cover_tiles.has(local_tile)
 		if was_revealed == should_be_revealed:
 			continue
+		cover_state_changed = true
 		if should_be_revealed:
 			_cover_layer.erase_cell(local_tile)
 		else:
 			_redraw_cover_tile(local_tile)
-	_commit_local_zone_cover_state_delta(next_cover_tiles, changed_tiles, commit_full_state)
+	return _commit_local_zone_cover_state_delta(next_cover_tiles, changed_tiles, commit_full_state) \
+		or cover_state_changed
 
 func _commit_local_zone_cover_state_delta(
 	next_cover_tiles: Dictionary,
 	changed_tiles: Dictionary,
 	commit_full_state: bool
-) -> void:
+) -> bool:
 	if commit_full_state:
+		var cover_state_changed: bool = not _cover_tile_sets_equal(_revealed_local_cover_tiles, next_cover_tiles)
 		_revealed_local_cover_tiles = next_cover_tiles.duplicate()
-		return
+		return cover_state_changed
+	var cover_state_changed: bool = false
 	for local_tile: Vector2i in changed_tiles:
+		var was_revealed: bool = _revealed_local_cover_tiles.has(local_tile)
 		if next_cover_tiles.has(local_tile):
 			_revealed_local_cover_tiles[local_tile] = true
 		else:
 			_revealed_local_cover_tiles.erase(local_tile)
+		if was_revealed != next_cover_tiles.has(local_tile):
+			cover_state_changed = true
+	return cover_state_changed
+
+func _cover_tile_sets_equal(left: Dictionary, right: Dictionary) -> bool:
+	if left.size() != right.size():
+		return false
+	for local_tile: Vector2i in left:
+		if not right.has(local_tile):
+			return false
+	return true
 
 func _reapply_local_zone_cover_state() -> void:
 	if not _cover_layer or _revealed_local_cover_tiles.is_empty():
@@ -3342,6 +3478,13 @@ func _process_redraw_phase_tiles(tile_budget: int) -> int:
 	var end_index: int = mini(_redraw_tile_index + tile_budget, total_tiles)
 	var processed_end_index: int = start_index
 	var started_usec: int = Time.get_ticks_usec()
+	var use_phase_global_terrain_cache: bool = _redraw_phase == REDRAW_PHASE_TERRAIN \
+		or _redraw_phase == REDRAW_PHASE_COVER
+	var previous_cache_enabled: bool = _use_operation_global_terrain_cache
+	var previous_global_terrain_cache: Dictionary = _operation_global_terrain_cache
+	if use_phase_global_terrain_cache:
+		_use_operation_global_terrain_cache = true
+		_operation_global_terrain_cache = {}
 	for tile_index: int in range(start_index, end_index):
 		var local_tile: Vector2i = _tile_from_index(tile_index)
 		match _redraw_phase:
@@ -3366,6 +3509,9 @@ func _process_redraw_phase_tiles(tile_budget: int) -> int:
 			if Time.get_ticks_usec() - started_usec >= REDRAW_TIME_BUDGET_USEC:
 				break
 	var processed: int = processed_end_index - start_index
+	if use_phase_global_terrain_cache:
+		_use_operation_global_terrain_cache = previous_cache_enabled
+		_operation_global_terrain_cache = previous_global_terrain_cache
 	_redraw_tile_index = processed_end_index
 	return processed
 
