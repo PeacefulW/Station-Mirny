@@ -54,7 +54,7 @@ section. This section is filled in at epic creation and checked at every iterati
 **Started**: [date]
 **Completed**: [date or —]
 
-#### Acceptance tests
+#### Проверки приёмки (Acceptance tests)
 - [ ] [test 1 from spec]
 - [ ] [test 2 from spec]
 
@@ -66,8 +66,8 @@ section. This section is filled in at epic creation and checked at every iterati
 #### Files touched
 - [file 1] — [what changed]
 
-#### Closure report
-[paste the closure report here when done, or "pending"]
+#### Отчёт о выполнении (Closure Report)
+[paste the user-facing bilingual closure report here when done, or "pending"]
 
 #### Blockers
 - [any blockers, or "none"]
@@ -96,7 +96,7 @@ Current iteration: 2 of 4 — "Тепловые источники"
 Previous iteration 1 completed on [date]:
   - [x] TemperatureLayer exists in DATA_CONTRACTS.md
   - [x] BaseTemperatureResource created
-  Closure report: filed
+  Отчёт о выполнении (Closure Report): добавлен
 
 This iteration's scope:
   - Add HeatSourceComponent

@@ -153,6 +153,8 @@ var _chunk_manager: ChunkManager = null
 var _modified_tiles: Dictionary = {}
 var _biome: BiomeData = null
 var _terrain_bytes: PackedByteArray = PackedByteArray()
+var _cover_edge_set: Dictionary = {}
+var _cover_edge_set_valid: bool = false
 var _height_bytes: PackedFloat32Array = PackedFloat32Array()
 var _variation_bytes: PackedByteArray = PackedByteArray()
 var _biome_bytes: PackedByteArray = PackedByteArray()
@@ -386,12 +388,59 @@ func mark_tile_modified(tile_pos: Vector2i, state: Dictionary) -> void:
 
 func set_revealed_local_cover_tiles(
 	cover_tiles: Dictionary,
-	changed_tiles: Dictionary = {}
+	changed_tiles: Dictionary = {},
+	commit_full_state: bool = true
 ) -> void:
 	if changed_tiles.is_empty():
 		_apply_local_zone_cover_state(cover_tiles)
 		return
-	_apply_local_zone_cover_state_delta(cover_tiles, changed_tiles)
+	_apply_local_zone_cover_state_delta(cover_tiles, changed_tiles, commit_full_state)
+
+func apply_revealed_local_cover_tiles_batch(
+	target_cover_tiles: Dictionary,
+	changed_tiles: Dictionary
+) -> void:
+	if changed_tiles.is_empty():
+		return
+	if not _cover_layer:
+		for local_tile: Vector2i in changed_tiles:
+			if target_cover_tiles.has(local_tile):
+				_revealed_local_cover_tiles[local_tile] = true
+			else:
+				_revealed_local_cover_tiles.erase(local_tile)
+		return
+	var previous_cache_enabled: bool = _use_operation_global_terrain_cache
+	var previous_global_terrain_cache: Dictionary = _operation_global_terrain_cache
+	_use_operation_global_terrain_cache = true
+	_operation_global_terrain_cache = {}
+	for local_tile: Vector2i in changed_tiles:
+		var was_revealed: bool = _revealed_local_cover_tiles.has(local_tile)
+		var should_be_revealed: bool = target_cover_tiles.has(local_tile)
+		if was_revealed == should_be_revealed:
+			continue
+		if should_be_revealed:
+			_cover_layer.erase_cell(local_tile)
+			_revealed_local_cover_tiles[local_tile] = true
+		else:
+			_redraw_cover_tile(local_tile)
+			_revealed_local_cover_tiles.erase(local_tile)
+	_use_operation_global_terrain_cache = previous_cache_enabled
+	_operation_global_terrain_cache = previous_global_terrain_cache
+
+func defer_revealed_local_cover_tiles_restore(changed_tiles: Dictionary) -> bool:
+	if changed_tiles.is_empty():
+		return false
+	for local_tile: Vector2i in changed_tiles:
+		_revealed_local_cover_tiles.erase(local_tile)
+	if not is_first_pass_ready():
+		return false
+	return enqueue_dirty_border_redraw(changed_tiles, "roof_restore", get_visual_invalidation_version())
+
+func prime_revealed_local_cover_tiles(cover_tiles: Dictionary) -> void:
+	_revealed_local_cover_tiles = cover_tiles.duplicate()
+
+func get_revealed_local_cover_tiles() -> Dictionary:
+	return _revealed_local_cover_tiles.duplicate()
 
 func set_mining_write_authorized(value: bool) -> void:
 	_mining_write_authorized = value
@@ -467,6 +516,23 @@ func is_revealable_cover_edge(local_tile: Vector2i) -> bool:
 		return false
 	return _is_cave_edge_rock(local_tile)
 
+## Возвращает кешированный set тайлов чанка, которые являются revealable cover edges.
+## Первый вызов вычисляет set за O(chunk_size²). Последующие — O(1).
+## Инвалидируется при каждом изменении террейна (майнинг).
+func get_cover_edge_set() -> Dictionary:
+	if not _cover_edge_set_valid:
+		_rebuild_cover_edge_set()
+	return _cover_edge_set
+
+func _rebuild_cover_edge_set() -> void:
+	_cover_edge_set.clear()
+	for y: int in range(_chunk_size):
+		for x: int in range(_chunk_size):
+			var local := Vector2i(x, y)
+			if is_revealable_cover_edge(local):
+				_cover_edge_set[local] = true
+	_cover_edge_set_valid = true
+
 func try_mine_at(local: Vector2i) -> Dictionary:
 	var started_usec: int = WorldPerfProbe.begin()
 	if not _mining_write_authorized:
@@ -478,24 +544,39 @@ func try_mine_at(local: Vector2i) -> Dictionary:
 	var old_type: int = get_terrain_type_at(local)
 	if old_type != TileGenData.TerrainType.ROCK:
 		return {}
-	var previous_cache_enabled: bool = _use_operation_global_terrain_cache
-	var previous_global_terrain_cache: Dictionary = _operation_global_terrain_cache
-	_use_operation_global_terrain_cache = true
-	_operation_global_terrain_cache = {}
-	var new_type: int = _resolve_open_tile_type(local)
+	var new_type: int = _resolve_open_tile_type_for_neighbor_refresh(local)
 	_set_terrain_type(local, new_type)
 	# ChunkManager redraws the local patch after neighbor normalization so mining
 	# does not pay for two overlapping same-chunk redraw passes.
-	_use_operation_global_terrain_cache = previous_cache_enabled
-	_operation_global_terrain_cache = previous_global_terrain_cache
 	WorldPerfProbe.end("Chunk.try_mine_at %s" % [chunk_coord], started_usec)
 	return {"old_type": old_type, "new_type": new_type}
 
 func redraw_mining_patch(local_tile: Vector2i) -> bool:
+	if not is_first_pass_ready():
+		return false
 	var dirty_tiles: Dictionary = _collect_mining_dirty_tiles(local_tile)
 	if dirty_tiles.is_empty():
 		return false
 	return enqueue_dirty_border_redraw(dirty_tiles, "local_patch", get_visual_invalidation_version())
+
+func refresh_open_neighbors_with_operation_cache(local_tile: Vector2i) -> void:
+	var previous_cache_enabled: bool = _use_operation_global_terrain_cache
+	var previous_global_terrain_cache: Dictionary = _operation_global_terrain_cache
+	_use_operation_global_terrain_cache = true
+	_operation_global_terrain_cache = {}
+	for dir: Vector2i in _CARDINAL_DIRS:
+		_refresh_open_tile(local_tile + dir)
+	_use_operation_global_terrain_cache = previous_cache_enabled
+	_operation_global_terrain_cache = previous_global_terrain_cache
+
+func refresh_open_tile_with_operation_cache(local_tile: Vector2i) -> void:
+	var previous_cache_enabled: bool = _use_operation_global_terrain_cache
+	var previous_global_terrain_cache: Dictionary = _operation_global_terrain_cache
+	_use_operation_global_terrain_cache = true
+	_operation_global_terrain_cache = {}
+	_refresh_open_tile(local_tile)
+	_use_operation_global_terrain_cache = previous_cache_enabled
+	_operation_global_terrain_cache = previous_global_terrain_cache
 
 func cleanup() -> void:
 	is_loaded = false
@@ -505,6 +586,8 @@ func cleanup() -> void:
 	_biome_bytes = PackedByteArray()
 	_secondary_biome_bytes = PackedByteArray()
 	_ecotone_values = PackedFloat32Array()
+	_cover_edge_set = {}
+	_cover_edge_set_valid = false
 	_revealed_local_cover_tiles = {}
 	_interior_macro_dirty = false
 	_clear_interior_macro_layer()
@@ -727,7 +810,8 @@ func enqueue_dirty_border_redraw(
 	if not reason_key.is_empty() and reason_version >= 0:
 		var pending_version: int = int(_border_fix_pending_reason_versions.get(reason_key, -1))
 		var applied_version: int = int(_border_fix_applied_reason_versions.get(reason_key, -1))
-		if pending_version == reason_version or applied_version == reason_version:
+		var duplicate_reason_version: bool = pending_version == reason_version or applied_version == reason_version
+		if duplicate_reason_version and not added_new_tiles:
 			return false
 		_border_fix_pending_reason_versions[reason_key] = reason_version
 	elif not added_new_tiles:
@@ -2411,6 +2495,23 @@ func _resolve_open_tile_type(local_tile: Vector2i) -> int:
 			return TileGenData.TerrainType.MOUNTAIN_ENTRANCE
 	return TileGenData.TerrainType.MINED_FLOOR
 
+func _resolve_open_tile_type_for_neighbor_refresh(local_tile: Vector2i) -> int:
+	for dir: Vector2i in _CARDINAL_DIRS:
+		if _is_open_exterior(_get_neighbor_terrain_for_neighbor_refresh(local_tile, dir)):
+			return TileGenData.TerrainType.MOUNTAIN_ENTRANCE
+	return TileGenData.TerrainType.MINED_FLOOR
+
+func _get_neighbor_terrain_for_neighbor_refresh(local_tile: Vector2i, dir: Vector2i) -> int:
+	var neighbor_local: Vector2i = local_tile + dir
+	if _is_inside(neighbor_local):
+		return get_terrain_type_at(neighbor_local)
+	var global_tile: Vector2i = _to_global_tile(neighbor_local)
+	if _chunk_manager:
+		var neighbor_chunk: Chunk = _chunk_manager.get_chunk_at_tile(global_tile)
+		if neighbor_chunk:
+			return neighbor_chunk.get_terrain_type_at(neighbor_chunk.global_to_local(global_tile))
+	return _get_global_terrain(global_tile)
+
 func _refresh_open_neighbors(local_tile: Vector2i) -> void:
 	_refresh_open_tile(local_tile)
 	for dir: Vector2i in _CARDINAL_DIRS:
@@ -2422,9 +2523,10 @@ func _refresh_open_tile(local_tile: Vector2i) -> void:
 	var terrain_type: int = get_terrain_type_at(local_tile)
 	if terrain_type != TileGenData.TerrainType.MINED_FLOOR and terrain_type != TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
 		return
-	_set_terrain_type(local_tile, _resolve_open_tile_type(local_tile), false)
+	_set_terrain_type(local_tile, _resolve_open_tile_type_for_neighbor_refresh(local_tile), false)
 
 func _set_terrain_type(local_tile: Vector2i, terrain_type: int, mark_modified: bool = true) -> void:
+	_cover_edge_set_valid = false
 	var idx: int = local_tile.y * _chunk_size + local_tile.x
 	if idx < 0 or idx >= _terrain_bytes.size():
 		return
@@ -3136,7 +3238,7 @@ func _build_revealed_local_cover_tiles(zone_tiles: Dictionary) -> Dictionary:
 
 func _apply_local_zone_cover_state(next_cover_tiles: Dictionary) -> void:
 	if not _cover_layer:
-		_revealed_local_cover_tiles = next_cover_tiles
+		_revealed_local_cover_tiles = next_cover_tiles.duplicate()
 		return
 	for local_tile: Vector2i in _revealed_local_cover_tiles:
 		if next_cover_tiles.has(local_tile):
@@ -3146,14 +3248,15 @@ func _apply_local_zone_cover_state(next_cover_tiles: Dictionary) -> void:
 		if _revealed_local_cover_tiles.has(local_tile):
 			continue
 		_cover_layer.erase_cell(local_tile)
-	_revealed_local_cover_tiles = next_cover_tiles
+	_revealed_local_cover_tiles = next_cover_tiles.duplicate()
 
 func _apply_local_zone_cover_state_delta(
 	next_cover_tiles: Dictionary,
-	changed_tiles: Dictionary
+	changed_tiles: Dictionary,
+	commit_full_state: bool = true
 ) -> void:
 	if not _cover_layer:
-		_revealed_local_cover_tiles = next_cover_tiles
+		_commit_local_zone_cover_state_delta(next_cover_tiles, changed_tiles, commit_full_state)
 		return
 	for local_tile: Vector2i in changed_tiles:
 		var was_revealed: bool = _revealed_local_cover_tiles.has(local_tile)
@@ -3164,7 +3267,21 @@ func _apply_local_zone_cover_state_delta(
 			_cover_layer.erase_cell(local_tile)
 		else:
 			_redraw_cover_tile(local_tile)
-	_revealed_local_cover_tiles = next_cover_tiles
+	_commit_local_zone_cover_state_delta(next_cover_tiles, changed_tiles, commit_full_state)
+
+func _commit_local_zone_cover_state_delta(
+	next_cover_tiles: Dictionary,
+	changed_tiles: Dictionary,
+	commit_full_state: bool
+) -> void:
+	if commit_full_state:
+		_revealed_local_cover_tiles = next_cover_tiles.duplicate()
+		return
+	for local_tile: Vector2i in changed_tiles:
+		if next_cover_tiles.has(local_tile):
+			_revealed_local_cover_tiles[local_tile] = true
+		else:
+			_revealed_local_cover_tiles.erase(local_tile)
 
 func _reapply_local_zone_cover_state() -> void:
 	if not _cover_layer or _revealed_local_cover_tiles.is_empty():

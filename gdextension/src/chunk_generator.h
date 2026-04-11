@@ -2,7 +2,6 @@
 #define CHUNK_GENERATOR_H
 
 #include <vector>
-#include <unordered_map>
 #include <cmath>
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
@@ -75,7 +74,7 @@ public:
     ~ChunkGenerator();
 
     void initialize(int p_seed, Dictionary p_params);
-    Dictionary generate_chunk(Vector2i chunk_coord, Vector2i spawn_tile);
+    Dictionary generate_chunk(Vector2i chunk_coord, Vector2i spawn_tile, Dictionary authoritative_inputs = Dictionary());
     /// Fast single-tile sample: returns {terrain: int, biome: int}. No array allocations.
     Dictionary sample_tile(Vector2i world_pos, Vector2i spawn_tile);
 
@@ -87,6 +86,7 @@ private:
     int chunk_size = 64;
     int wrap_width = 4096;
     bool initialized = false;
+    bool has_authoritative_prepass = false;
 
     // --- Planet sampler params ---
     int equator_tile_y = 0;
@@ -95,27 +95,11 @@ private:
     float temperature_latitude_weight = 0.72f;
     float latitude_temperature_curve = 1.35f;
 
-    // --- Structure sampler params ---
-    float mountain_density = 0.3f;
-    float mountain_chaininess = 0.6f;
-    float ridge_spacing_tiles = 640.0f;
-    float ridge_core_width_tiles = 104.0f;
-    float ridge_feather_tiles = 224.0f;
-    float ridge_warp_amplitude_tiles = 260.0f;
-    float ridge_secondary_warp_frequency = 0.0014f;
-    float ridge_secondary_warp_amplitude_tiles = 0.0f;
-    float ridge_secondary_spacing_tiles = 0.0f;
-    float ridge_secondary_core_width_tiles = 0.0f;
-    float ridge_secondary_feather_tiles = 0.0f;
-    float ridge_secondary_weight = 0.0f;
-    float river_spacing_tiles = 480.0f;
-    float river_core_width_tiles = 42.0f;
-    float river_floodplain_width_tiles = 224.0f;
-    float river_warp_amplitude_tiles = 300.0f;
-
     // --- Terrain resolver params ---
     int safe_zone_radius = 12;
     int land_guarantee_radius = 24;
+    float mountain_density = 0.30f;
+    float mountain_chaininess = 0.60f;
     float mountain_base_threshold = 0.74f;
     float river_min_strength = 0.40f;
     float river_ridge_exclusion = 0.70f;
@@ -132,7 +116,6 @@ private:
     float ice_cap_max_height = 0.55f;
     float hot_pole_temperature = 0.82f;
     float hot_pole_transition_width = 0.15f;
-    float hot_evaporation_rate = 0.25f;
     float biome_continental_drying_factor = 0.35f;
     float biome_drainage_moisture_bonus = 0.28f;
     // Pre-computed from balance
@@ -148,7 +131,6 @@ private:
     int prepass_max_y = 0;
     float prepass_grid_span_x = 1.0f;
     float prepass_grid_span_y = 1.0f;
-    bool has_biome_prepass = false;
     PackedFloat32Array prepass_drainage_grid;
     PackedFloat32Array prepass_slope_grid;
     PackedFloat32Array prepass_rain_shadow_grid;
@@ -168,59 +150,12 @@ private:
     FastNoiseLite noise_moisture;         // +131
     FastNoiseLite noise_ruggedness;       // +151
     FastNoiseLite noise_flora_density;    // +181
-    FastNoiseLite noise_ridge_warp;       // +211
-    FastNoiseLite noise_ridge_secondary_warp; // +217
-    FastNoiseLite noise_ridge_cluster;    // +223
-    FastNoiseLite noise_river_warp;       // +241
     FastNoiseLite noise_field;            // +311
     FastNoiseLite noise_patch;            // +353
     FastNoiseLite noise_detail;           // +389
 
     // --- Biome definitions ---
     std::vector<BiomeDef> biomes; // sorted by priority desc, then id asc
-
-    // --- Flora entry (for weighted selection) ---
-    struct FloraEntryDef {
-        StringName id;
-        Color color;
-        Vector2i size;
-        int z_offset = 0;
-        float weight = 1.0f;
-        float min_density_threshold = 0.0f;
-        float max_density_threshold = 1.0f;
-    };
-    struct DecorEntryDef {
-        StringName id;
-        Color color;
-        Vector2i size;
-        int z_offset = -1;
-        float weight = 1.0f;
-    };
-    struct FloraSetDef {
-        StringName id;
-        float base_density = 0.10f;
-        float flora_channel_weight = 1.0f;
-        float flora_modulation_weight = 0.5f;
-        std::vector<StringName> subzone_filters;
-        std::vector<StringName> excluded_subzones;
-        std::vector<FloraEntryDef> entries;
-        // Pre-computed cumulative weights for each entry (optimization)
-    };
-    struct DecorSetDef {
-        StringName id;
-        float base_density = 0.06f;
-        std::vector<DecorEntryDef> entries;
-        // subzone_kind → density modifier
-        std::vector<std::pair<StringName, float>> subzone_density_modifiers;
-    };
-    // Per-biome flora/decor set indices
-    struct BiomeFloraConfig {
-        std::vector<int> flora_set_indices; // into flora_sets
-        std::vector<int> decor_set_indices; // into decor_sets
-    };
-    std::vector<FloraSetDef> flora_sets;
-    std::vector<DecorSetDef> decor_sets;
-    std::vector<BiomeFloraConfig> biome_flora_configs; // parallel to biomes
 
     // --- Terrain types (matches TileGenData.TerrainType) ---
     enum TerrainType { GROUND = 0, ROCK = 1, WATER = 2, SAND = 3 };
@@ -235,6 +170,17 @@ private:
     };
     struct StructureContext {
         float mountain_mass, ridge_strength, river_strength, floodplain_strength;
+        float river_distance, river_width;
+    };
+    struct BiomeSelection {
+        int primary_palette_index = 0;
+        int secondary_palette_index = 0;
+        float primary_score = -1.0f;
+        float secondary_score = 0.0f;
+        float dominance = 1.0f;
+        float ecotone_factor = 0.0f;
+        const BiomeDef* primary = nullptr;
+        const BiomeDef* secondary = nullptr;
     };
     struct VariationResult {
         VarKind kind;
@@ -247,26 +193,16 @@ private:
     static constexpr float FRACTAL_LACUNARITY = 2.1f;
     static constexpr float TAU_F = 6.283185307179586f;
 
-    // Direction vectors for structure sampling (normalized at init)
-    float ridge_dir[3];
-    float ridge_secondary_dir[3];
-    float river_dir[3];
-
     void setup_noise(FastNoiseLite& n, int s, float freq, int octaves);
     float sample_noise_01(FastNoiseLite& n, int world_x, int world_y) const;
     float sample_noise_signed(FastNoiseLite& n, int world_x, int world_y) const;
 
     // Planet sampler
     Channels sample_channels(int wx, int wy) const;
-    // Structure sampler
-    StructureContext sample_structure(int wx, int wy, const Channels& ch) const;
-
-    // Structure helpers
-    float directed_coordinate(int wx, int wy, const float dir[3]) const;
-    static float repeating_band(float coord, float spacing, float core_half_width, float feather_width);
+    StructureContext build_structure_context_from_prepass(const BiomePrePassSample& prepass) const;
 
     // Biome resolver
-    int resolve_biome(int wx, int wy, const Channels& ch, const StructureContext& fallback_sc) const;
+    BiomeSelection resolve_biome_selection(int wx, int wy, const Channels& ch, const StructureContext& sc, const BiomePrePassSample& prepass) const;
     static float score_range(float value, float min_v, float max_v, bool soft);
     float biome_weighted_score(
         const BiomeDef& b,
@@ -291,7 +227,8 @@ private:
 
     // Variation resolver
     VariationResult resolve_variation(int wx, int wy, const Channels& ch,
-                                      const StructureContext& sc, const BiomeDef* biome) const;
+                                      const StructureContext& sc, const BiomeDef* biome,
+                                      const BiomeDef* secondary_biome, float ecotone_factor) const;
     static float band_score(float value, float center, float half_width);
     static float tag_bias(const std::vector<StringName>& tags,
                           const StringName* pos, int pos_count,
@@ -299,27 +236,19 @@ private:
 
     // Terrain resolver
     TerrainType resolve_terrain(float dist_sq, const Channels& ch, const StructureContext& sc,
-                                const VariationResult& var_r) const;
+                                const BiomePrePassSample& prepass, const VariationResult& var_r) const;
     void apply_polar_surface_modifiers(TerrainType terrain, const Channels& ch, const StructureContext& sc,
+                                       const BiomePrePassSample& prepass,
                                        int& io_variation_id, float& io_height, float& io_flora_density) const;
     float resolve_cold_factor(float temperature) const;
     float resolve_hot_factor(float temperature) const;
-    bool is_flat_polar_surface(const Channels& ch) const;
-
-    // Flora computation
-    Array compute_flora_placements(int cs, int base_x, int base_y,
-        const uint8_t* terrain, const uint8_t* biome_arr, const uint8_t* variation,
-        const float* flora_density, const float* flora_mod) const;
-    float tile_hash(int wx, int wy, int channel) const;
-    bool flora_set_allowed_in_subzone(const FloraSetDef& fs, int var_id) const;
-    float decor_set_subzone_density(const DecorSetDef& ds, int var_id) const;
+    bool is_flat_polar_surface(const BiomePrePassSample& prepass) const;
 
     // Math
     static float clampf(float v, float lo, float hi);
     static float lerpf(float a, float b, float t);
     static float smoothstep(float t);
     static int wrap_x(int world_x, int w);
-    static void normalize_vec3(const float in[3], float out[3]);
 };
 
 } // namespace godot

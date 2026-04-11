@@ -11,6 +11,7 @@ const FEATURE_KIND: StringName = &"feature"
 const POI_KIND: StringName = &"poi"
 const CHUNK_GEN_SLOW_LOG_THRESHOLD_MS: float = 80.0
 const NATIVE_VISUAL_KERNELS_CLASS: StringName = &"ChunkVisualKernels"
+const NATIVE_CHUNK_INPUTS_SNAPSHOT_KIND: StringName = &"world_chunk_authoritative_inputs_v1"
 
 var _world_context: RefCounted = null
 var _terrain_resolver: RefCounted = null
@@ -84,14 +85,17 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 	# Feature/POI payload is deferred to main-thread cache population.
 	if _native_generator != null and _native_generator.has_method("generate_chunk"):
 		var native_start_usec: int = Time.get_ticks_usec()
-		var native_result: Dictionary = _native_generator.generate_chunk(canonical_chunk, spawn_tile)
+		var authoritative_inputs: Dictionary = _build_native_chunk_authoritative_inputs(base_tile, chunk_size)
+		var native_result: Dictionary = _native_generator.generate_chunk(canonical_chunk, spawn_tile, authoritative_inputs)
 		var native_ms: float = float(Time.get_ticks_usec() - native_start_usec) / 1000.0
 		if not native_result.is_empty():
-			native_result[FEATURE_AND_POI_PAYLOAD_KEY] = _empty_feature_and_poi_payload()
-			native_result.merge(_build_prebaked_visual_payload(native_result, canonical_chunk, base_tile, chunk_size), true)
-			if native_ms >= CHUNK_GEN_SLOW_LOG_THRESHOLD_MS:
-				print("[ChunkGen] slow native generate_chunk %s: %.1f ms" % [canonical_chunk, native_ms])
-			return native_result
+			if _validate_native_chunk_payload(native_result, canonical_chunk, chunk_size):
+				native_result["generation_source"] = "native_chunk_generator"
+				native_result[FEATURE_AND_POI_PAYLOAD_KEY] = _empty_feature_and_poi_payload()
+				native_result.merge(_build_prebaked_visual_payload(native_result, canonical_chunk, base_tile, chunk_size), true)
+				if native_ms >= CHUNK_GEN_SLOW_LOG_THRESHOLD_MS:
+					print("[ChunkGen] slow native generate_chunk %s: %.1f ms" % [canonical_chunk, native_ms])
+				return native_result
 	# GDScript fallback — compute feature/POI here
 	var feature_and_poi_payload: Dictionary = _build_feature_and_poi_payload(canonical_chunk, base_tile, chunk_size)
 	_publish_feature_and_poi_payload(canonical_chunk, feature_and_poi_payload)
@@ -137,6 +141,7 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 		"canonical_chunk_coord": canonical_chunk,
 		"base_tile": base_tile,
 		"chunk_size": chunk_size,
+		"generation_source": "gdscript_fallback",
 		"terrain": terrain,
 		"height": height,
 		"variation": variation,
@@ -149,6 +154,85 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 	}
 	native_data.merge(_build_prebaked_visual_payload(native_data, canonical_chunk, base_tile, chunk_size), true)
 	return native_data
+
+func _build_native_chunk_authoritative_inputs(base_tile: Vector2i, chunk_size: int) -> Dictionary:
+	var tile_count: int = chunk_size * chunk_size
+	var height_values := PackedFloat32Array()
+	var temperature_values := PackedFloat32Array()
+	var moisture_values := PackedFloat32Array()
+	var ruggedness_values := PackedFloat32Array()
+	var flora_density_values := PackedFloat32Array()
+	var latitude_values := PackedFloat32Array()
+	var drainage_values := PackedFloat32Array()
+	var slope_values := PackedFloat32Array()
+	var rain_shadow_values := PackedFloat32Array()
+	var continentalness_values := PackedFloat32Array()
+	var ridge_strength_values := PackedFloat32Array()
+	var river_width_values := PackedFloat32Array()
+	var river_distance_values := PackedFloat32Array()
+	var floodplain_strength_values := PackedFloat32Array()
+	var mountain_mass_values := PackedFloat32Array()
+	height_values.resize(tile_count)
+	temperature_values.resize(tile_count)
+	moisture_values.resize(tile_count)
+	ruggedness_values.resize(tile_count)
+	flora_density_values.resize(tile_count)
+	latitude_values.resize(tile_count)
+	drainage_values.resize(tile_count)
+	slope_values.resize(tile_count)
+	rain_shadow_values.resize(tile_count)
+	continentalness_values.resize(tile_count)
+	ridge_strength_values.resize(tile_count)
+	river_width_values.resize(tile_count)
+	river_distance_values.resize(tile_count)
+	floodplain_strength_values.resize(tile_count)
+	mountain_mass_values.resize(tile_count)
+	var canonical_tile: Vector2i = base_tile
+	var row_index: int = 0
+	for local_y: int in range(chunk_size):
+		canonical_tile.x = base_tile.x
+		canonical_tile.y = base_tile.y + local_y
+		for local_x: int in range(chunk_size):
+			var index: int = row_index + local_x
+			var channels: WorldChannels = _world_context.sample_world_channels(canonical_tile)
+			var prepass_channels: WorldPrePassChannels = _world_context.sample_prepass_channels(canonical_tile)
+			var structure_context: WorldStructureContext = _world_context.sample_structure_context(canonical_tile, channels)
+			height_values[index] = channels.height
+			temperature_values[index] = channels.temperature
+			moisture_values[index] = channels.moisture
+			ruggedness_values[index] = channels.ruggedness
+			flora_density_values[index] = channels.flora_density
+			latitude_values[index] = channels.latitude
+			drainage_values[index] = prepass_channels.drainage
+			slope_values[index] = prepass_channels.slope
+			rain_shadow_values[index] = prepass_channels.rain_shadow
+			continentalness_values[index] = prepass_channels.continentalness
+			ridge_strength_values[index] = structure_context.ridge_strength if structure_context != null else 0.0
+			river_width_values[index] = structure_context.river_width if structure_context != null else 0.0
+			river_distance_values[index] = structure_context.river_distance if structure_context != null else 0.0
+			floodplain_strength_values[index] = structure_context.floodplain_strength if structure_context != null else 0.0
+			mountain_mass_values[index] = structure_context.mountain_mass if structure_context != null else 0.0
+			canonical_tile.x += 1
+		row_index += chunk_size
+	return {
+		"snapshot_kind": NATIVE_CHUNK_INPUTS_SNAPSHOT_KIND,
+		"chunk_size": chunk_size,
+		"height_values": height_values,
+		"temperature_values": temperature_values,
+		"moisture_values": moisture_values,
+		"ruggedness_values": ruggedness_values,
+		"flora_density_values": flora_density_values,
+		"latitude_values": latitude_values,
+		"drainage_values": drainage_values,
+		"slope_values": slope_values,
+		"rain_shadow_values": rain_shadow_values,
+		"continentalness_values": continentalness_values,
+		"ridge_strength_values": ridge_strength_values,
+		"river_width_values": river_width_values,
+		"river_distance_values": river_distance_values,
+		"floodplain_strength_values": floodplain_strength_values,
+		"mountain_mass_values": mountain_mass_values,
+	}
 
 func build_tile_data(tile_x: int, tile_y: int) -> TileGenData:
 	if _terrain_resolver == null:
@@ -231,6 +315,34 @@ func _requires_gdscript_prebaked_visual_payload(request: Dictionary, chunk_size:
 		if secondary_biome_bytes[idx] != biome_bytes[idx] and ecotone_values[idx] > 0.05:
 			return true
 	return false
+
+func _validate_native_chunk_payload(native_result: Dictionary, canonical_chunk: Vector2i, chunk_size: int) -> bool:
+	var tile_count: int = chunk_size * chunk_size
+	var required_arrays: Dictionary = {
+		"terrain": native_result.get("terrain", PackedByteArray()) as PackedByteArray,
+		"height": native_result.get("height", PackedFloat32Array()) as PackedFloat32Array,
+		"variation": native_result.get("variation", PackedByteArray()) as PackedByteArray,
+		"biome": native_result.get("biome", PackedByteArray()) as PackedByteArray,
+		"secondary_biome": native_result.get("secondary_biome", PackedByteArray()) as PackedByteArray,
+		"ecotone_values": native_result.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array,
+		"flora_density_values": native_result.get("flora_density_values", PackedFloat32Array()) as PackedFloat32Array,
+		"flora_modulation_values": native_result.get("flora_modulation_values", PackedFloat32Array()) as PackedFloat32Array,
+	}
+	for key: String in required_arrays.keys():
+		var packed: Variant = required_arrays[key]
+		if packed.size() == tile_count:
+			continue
+		push_error(
+			"ChunkContentBuilder.build_chunk_native_data(): native payload field `%s` size mismatch for %s (expected %d, got %d)" % [
+				key,
+				canonical_chunk,
+				tile_count,
+				packed.size(),
+			]
+		)
+		assert(false, "native chunk payload must stay wire-compatible with the authoritative GDScript shape")
+		return false
+	return true
 
 func _chunk_size() -> int:
 	return _balance.chunk_size_tiles if _balance else 0

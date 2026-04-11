@@ -304,6 +304,10 @@ func _apply_polar_surface_modifiers(
 		data.local_variation_id = overlay_id
 		data.local_variation_kind = overlay_kind
 		data.local_variation_score = overlay_score
+		data.flora_modulation = 0.0
+		data.wetness_modulation = 0.0
+		data.rockiness_modulation = 0.0
+		data.openness_modulation = 0.0
 	var cold_suppression: float = maxf(0.0, 1.0 - cold_factor * 0.9)
 	var hot_suppression: float = maxf(0.0, 1.0 - hot_factor * 0.95)
 	data.flora_density = clampf(data.flora_density * cold_suppression * hot_suppression, 0.0, 1.0)
@@ -365,8 +369,8 @@ func _resolve_river_core_radius_tiles(
 	if river_width <= 0.0:
 		return 0.0
 	var slope_value: float = _resolve_slope_value(prepass_channels, channels)
-	var width_scale: float = lerpf(0.62, 0.38, slope_value)
-	return maxf(0.9, river_width * width_scale)
+	var width_scale: float = lerpf(0.70, 0.44, slope_value)
+	return maxf(1.2, river_width * width_scale)
 
 func _resolve_bank_outer_radius_tiles(
 	structure_context: WorldStructureContext,
@@ -382,8 +386,8 @@ func _resolve_bank_outer_radius_tiles(
 	var slope_value: float = _resolve_slope_value(prepass_channels, channels)
 	var river_core_radius: float = _resolve_river_core_radius_tiles(structure_context, prepass_channels, channels)
 	var bank_reach: float = maxf(
-		1.0,
-		river_width * 0.55 + floodplain_strength * lerpf(3.4, 1.6, slope_value)
+		1.6,
+		river_width * 0.72 + floodplain_strength * lerpf(5.2, 2.4, slope_value)
 	)
 	return river_core_radius + bank_reach
 
@@ -468,18 +472,22 @@ func _is_river_core_tile_sq(
 		return false
 	var distance_to_river: float = maxf(0.0, structure_context.river_distance)
 	var river_core_radius: float = _resolve_river_core_radius_tiles(structure_context, prepass_channels, channels)
-	if river_core_radius <= 0.0 or distance_to_river > river_core_radius:
-		return false
 	var wetness_bonus: float = local_variation.wetness_modulation if local_variation != null else 0.0
 	var rockiness_penalty: float = local_variation.rockiness_modulation if local_variation != null else 0.0
 	var effective_river_strength: float = structure_context.river_strength + structure_context.floodplain_strength * 0.10
 	effective_river_strength += wetness_bonus * 0.10 - rockiness_penalty * 0.04
+	var visible_radius: float = river_core_radius
+	visible_radius += maxf(0.0, effective_river_strength - _balance.river_min_strength * 0.75) * 3.0
+	visible_radius += maxf(0.0, structure_context.floodplain_strength - 0.30) * 1.6
+	if visible_radius <= 0.0 or distance_to_river > visible_radius:
+		return false
 	if effective_river_strength < _balance.river_min_strength * 0.75:
 		return false
 	if channels == null:
 		return true
 	var slope_value: float = _resolve_slope_value(prepass_channels, channels)
-	var allowed_height: float = _balance.river_max_height + river_width * 0.08 + (1.0 - slope_value) * 0.08
+	var allowed_height: float = _balance.river_max_height + river_width * 0.09 + (1.0 - slope_value) * 0.10
+	allowed_height += structure_context.river_strength * 0.10 + structure_context.floodplain_strength * 0.05
 	if channels.height > allowed_height:
 		return false
 	return true
@@ -505,22 +513,33 @@ func _is_bank_floodplain_tile_sq(
 		return false
 	var distance_to_river: float = maxf(0.0, structure_context.river_distance)
 	var bank_outer_radius: float = _resolve_bank_outer_radius_tiles(structure_context, prepass_channels, channels)
-	if bank_outer_radius <= 0.0 or distance_to_river > bank_outer_radius:
-		return false
 	var wetness_bonus: float = local_variation.wetness_modulation if local_variation != null else 0.0
 	var rockiness_penalty: float = local_variation.rockiness_modulation if local_variation != null else 0.0
 	var slope_value: float = _resolve_slope_value(prepass_channels, channels)
 	var effective_floodplain: float = structure_context.floodplain_strength + wetness_bonus * 0.08 - rockiness_penalty * 0.02
+	var effective_river_strength: float = structure_context.river_strength + wetness_bonus * 0.08
+	var semantic_bank_override: bool = effective_floodplain >= 0.18 and effective_river_strength >= 0.10
+	var visible_bank_radius: float = bank_outer_radius
+	visible_bank_radius += maxf(0.0, effective_floodplain - _balance.bank_min_floodplain * 0.55) * 4.0
+	visible_bank_radius += maxf(0.0, effective_river_strength - _balance.bank_min_river * 0.75) * 2.0
+	visible_bank_radius += maxf(0.0, effective_floodplain - 0.18) * 10.0
+	visible_bank_radius += maxf(0.0, effective_river_strength - 0.10) * 6.0
+	if not semantic_bank_override and (visible_bank_radius <= 0.0 or distance_to_river > visible_bank_radius):
+		return false
 	if effective_floodplain < _balance.bank_min_floodplain * 0.55:
 		return false
-	if structure_context.ridge_strength > (_balance.bank_ridge_exclusion + 0.16) and slope_value > 0.60:
+	if structure_context.ridge_strength > (_balance.bank_ridge_exclusion + 0.16) \
+		and slope_value > 0.60 \
+		and effective_floodplain < 0.45 \
+		and not semantic_bank_override:
 		return false
 	if channels == null:
 		return true
-	var allowed_height: float = _balance.bank_max_height + structure_context.river_width * 0.05 + (1.0 - slope_value) * 0.06
-	if channels.height > allowed_height:
+	var allowed_height: float = _balance.bank_max_height + structure_context.river_width * 0.06 + (1.0 - slope_value) * 0.08
+	allowed_height += effective_floodplain * 0.10
+	allowed_height += effective_river_strength * 0.10 + maxf(0.0, effective_floodplain - 0.18) * 0.18
+	if channels.height > allowed_height and (not semantic_bank_override or channels.height > allowed_height + 0.16):
 		return false
-	var effective_river_strength: float = structure_context.river_strength + wetness_bonus * 0.08
 	return effective_river_strength >= _balance.bank_min_river * 0.75 \
 		or channels.moisture + wetness_bonus * 0.10 > _balance.bank_min_moisture * 0.90
 
@@ -537,28 +556,30 @@ func _is_mountain_core_tile_sq(
 		return false
 	var ridge_strength: float = structure_context.ridge_strength
 	var mountain_mass: float = structure_context.mountain_mass
-	if ridge_strength < 0.20 and mountain_mass < 0.18:
+	if ridge_strength < 0.18 and mountain_mass < 0.16:
 		return false
 	var slope_value: float = _resolve_slope_value(prepass_channels, channels)
 	var ruggedness_gate: float = slope_value
 	var terrain_gate: float = 1.0
 	if channels != null:
-		ruggedness_gate = clampf(channels.ruggedness * 0.55 + slope_value * 0.45, 0.0, 1.0)
-		terrain_gate = clampf(channels.height * 0.34 + ruggedness_gate * 0.42 + slope_value * 0.28, 0.18, 1.0)
+		ruggedness_gate = clampf(channels.ruggedness * 0.52 + slope_value * 0.48, 0.0, 1.0)
+		terrain_gate = clampf(channels.height * 0.32 + ruggedness_gate * 0.40 + slope_value * 0.28, 0.22, 1.0)
 	var valley_carve: float = _resolve_valley_carve_pressure(structure_context, prepass_channels, channels)
 	var combined: float = ridge_strength * _ridge_backbone_weight
-	combined += mountain_mass * (_massif_fill_weight + 0.12)
-	combined += maxf(0.0, ridge_strength - 0.58) * _core_bonus_weight
-	combined += maxf(0.0, slope_value - 0.34) * 0.18
-	combined += ruggedness_gate * 0.10
-	combined -= valley_carve * 0.30
-	combined -= structure_context.floodplain_strength * 0.08
+	combined += mountain_mass * (_massif_fill_weight + 0.20)
+	combined += maxf(0.0, ridge_strength - 0.50) * (_core_bonus_weight * 0.92)
+	combined += maxf(0.0, mountain_mass - 0.32) * 0.16
+	combined += maxf(0.0, slope_value - 0.28) * 0.20
+	combined += ruggedness_gate * 0.12
+	combined -= valley_carve * 0.24
+	combined -= structure_context.floodplain_strength * 0.06
 	if local_variation != null:
 		combined += local_variation.rockiness_modulation * 0.08
 		combined -= local_variation.wetness_modulation * 0.05
 		combined -= local_variation.openness_modulation * 0.05
-	combined *= terrain_gate
-	return combined >= _mountain_threshold_value
+	var terrain_support: float = lerpf(0.70, 1.0, terrain_gate)
+	combined *= terrain_support
+	return combined >= _mountain_threshold_value * 0.94
 
 func _is_foothill_tile_sq(
 	distance_from_spawn_sq: float,
@@ -574,24 +595,25 @@ func _is_foothill_tile_sq(
 	var slope_value: float = _resolve_slope_value(prepass_channels, channels)
 	var ridge_strength: float = structure_context.ridge_strength
 	var mountain_mass: float = structure_context.mountain_mass
-	if maxf(ridge_strength * 0.75, mountain_mass) < 0.18 and slope_value < 0.32:
+	if maxf(ridge_strength * 0.68, mountain_mass) < 0.16 and slope_value < 0.28:
 		return false
 	var ruggedness_gate: float = slope_value
 	if channels != null:
-		ruggedness_gate = clampf(channels.ruggedness * 0.60 + slope_value * 0.40, 0.0, 1.0)
-	var combined: float = ridge_strength * 0.26
-	combined += mountain_mass * 0.28
-	combined += slope_value * 0.26
-	combined += ruggedness_gate * 0.12
+		ruggedness_gate = clampf(channels.ruggedness * 0.58 + slope_value * 0.42, 0.0, 1.0)
+	var combined: float = ridge_strength * 0.22
+	combined += mountain_mass * 0.38
+	combined += maxf(0.0, mountain_mass - 0.24) * 0.12
+	combined += slope_value * 0.24
+	combined += ruggedness_gate * 0.14
 	if channels != null:
-		combined += maxf(0.0, channels.height - 0.42) * 0.12
-	combined -= _resolve_valley_carve_pressure(structure_context, prepass_channels, channels) * 0.38
-	combined -= structure_context.floodplain_strength * 0.10
+		combined += maxf(0.0, channels.height - 0.36) * 0.14
+	combined -= _resolve_valley_carve_pressure(structure_context, prepass_channels, channels) * 0.28
+	combined -= structure_context.floodplain_strength * 0.08
 	if local_variation != null:
 		combined += local_variation.rockiness_modulation * 0.06
 		combined -= local_variation.wetness_modulation * 0.03
 		combined -= local_variation.openness_modulation * 0.05
-	return combined >= _mountain_threshold_value * 0.72
+	return combined >= _mountain_threshold_value * 0.62
 
 func _distance_from_spawn_sq(canonical_tile: Vector2i, spawn_tile: Vector2i) -> float:
 	var dx: float = float(_world_context.tile_wrap_delta_x(canonical_tile.x, spawn_tile.x))

@@ -2,19 +2,35 @@ class_name WorldCreationScreen
 extends Control
 
 ## Экран создания нового мира.
-## Даёт seed и три параметра горной генерации: плотность, площадь и цепочки.
+## Даёт seed и параметры гор, рек и озёр для генерации мира.
 
 const GAME_SCENE_PATH: String = "res://scenes/world/game_world.tscn"
 const BALANCE_PATH: String = "res://data/world/world_gen_balance.tres"
+const RIVER_THRESHOLD_DRY: float = 160.0
+const RIVER_THRESHOLD_WET: float = 36.0
+const RIVER_BASE_WIDTH_MIN: float = 1.5
+const RIVER_BASE_WIDTH_MAX: float = 5.5
+const RIVER_WIDTH_SCALE_MIN: float = 4.0
+const RIVER_WIDTH_SCALE_MAX: float = 12.0
+const LAKE_MIN_AREA_DRY: float = 20.0
+const LAKE_MIN_AREA_WET: float = 4.0
+const LAKE_MIN_DEPTH_DRY: float = 0.08
+const LAKE_MIN_DEPTH_WET: float = 0.02
 
 var _balance: WorldGenBalance = null
 var _seed_input: LineEdit = null
 var _mountain_count_slider: HSlider = null
 var _mountain_area_slider: HSlider = null
 var _mountain_chains_slider: HSlider = null
+var _river_amount_slider: HSlider = null
+var _river_width_slider: HSlider = null
+var _lake_amount_slider: HSlider = null
 var _mountain_count_value_label: Label = null
 var _mountain_area_value_label: Label = null
 var _mountain_chains_value_label: Label = null
+var _river_amount_value_label: Label = null
+var _river_width_value_label: Label = null
+var _lake_amount_value_label: Label = null
 var _title_label: Label = null
 var _subtitle_label: Label = null
 var _seed_label: Label = null
@@ -24,6 +40,9 @@ var _random_button: Button = null
 var _mountain_count_name_label: Label = null
 var _mountain_area_name_label: Label = null
 var _mountain_chains_name_label: Label = null
+var _river_amount_name_label: Label = null
+var _river_width_name_label: Label = null
+var _lake_amount_name_label: Label = null
 var _loading_screen: LoadingScreen = null
 var _is_starting: bool = false
 
@@ -45,7 +64,7 @@ func _build_ui() -> void:
 	var center := VBoxContainer.new()
 	center.set_anchors_preset(PRESET_CENTER)
 	center.custom_minimum_size = Vector2(420, 0)
-	center.position = Vector2(-210, -220)
+	center.position = Vector2(-210, -280)
 	add_child(center)
 	_title_label = Label.new()
 	_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -76,8 +95,8 @@ func _build_ui() -> void:
 	_mountain_count_slider = count_row[0]
 	_mountain_count_value_label = count_row[1]
 	_mountain_count_name_label = count_row[2]
-	_mountain_count_slider.value_changed.connect(func(v: float) -> void:
-		_mountain_count_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(v)})
+	_mountain_count_slider.value_changed.connect(func(_v: float) -> void:
+		_update_generation_value_labels()
 	)
 	center.add_child(count_row[3])
 	var area_row: Array = _create_slider_row(1, 3, _balance.mountain_area, false)
@@ -85,19 +104,42 @@ func _build_ui() -> void:
 	_mountain_area_slider.step = 1.0
 	_mountain_area_value_label = area_row[1]
 	_mountain_area_name_label = area_row[2]
-	_mountain_area_value_label.text = _mountain_size_text(_balance.mountain_area)
-	_mountain_area_slider.value_changed.connect(func(v: float) -> void:
-		_mountain_area_value_label.text = _mountain_size_text(int(v))
+	_mountain_area_slider.value_changed.connect(func(_v: float) -> void:
+		_update_generation_value_labels()
 	)
 	center.add_child(area_row[3])
 	var chain_row: Array = _create_slider_row(0, 100, int(round(_balance.mountain_chaininess * 100.0)), true)
 	_mountain_chains_slider = chain_row[0]
 	_mountain_chains_value_label = chain_row[1]
 	_mountain_chains_name_label = chain_row[2]
-	_mountain_chains_slider.value_changed.connect(func(v: float) -> void:
-		_mountain_chains_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(v)})
+	_mountain_chains_slider.value_changed.connect(func(_v: float) -> void:
+		_update_generation_value_labels()
 	)
 	center.add_child(chain_row[3])
+	var river_amount_row: Array = _create_slider_row(0, 100, _threshold_to_river_amount_percent(float(_balance.prepass_river_accumulation_threshold)), true)
+	_river_amount_slider = river_amount_row[0]
+	_river_amount_value_label = river_amount_row[1]
+	_river_amount_name_label = river_amount_row[2]
+	_river_amount_slider.value_changed.connect(func(_v: float) -> void:
+		_update_generation_value_labels()
+	)
+	center.add_child(river_amount_row[3])
+	var river_width_row: Array = _create_slider_row(0, 100, _balance_to_river_width_percent(_balance.prepass_river_base_width, _balance.prepass_river_width_scale), true)
+	_river_width_slider = river_width_row[0]
+	_river_width_value_label = river_width_row[1]
+	_river_width_name_label = river_width_row[2]
+	_river_width_slider.value_changed.connect(func(_v: float) -> void:
+		_update_generation_value_labels()
+	)
+	center.add_child(river_width_row[3])
+	var lake_amount_row: Array = _create_slider_row(0, 100, _balance_to_lake_amount_percent(_balance.prepass_lake_min_area, _balance.prepass_lake_min_depth), true)
+	_lake_amount_slider = lake_amount_row[0]
+	_lake_amount_value_label = lake_amount_row[1]
+	_lake_amount_name_label = lake_amount_row[2]
+	_lake_amount_slider.value_changed.connect(func(_v: float) -> void:
+		_update_generation_value_labels()
+	)
+	center.add_child(lake_amount_row[3])
 	center.add_child(_spacer(6))
 	_hint_label = Label.new()
 	_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -125,9 +167,7 @@ func _on_start_pressed() -> void:
 	WorldPerfProbe.mark_milestone("Startup.start_pressed")
 	_is_starting = true
 	_set_start_controls_enabled(false)
-	_balance.mountain_density = _mountain_count_slider.value / 100.0
-	_balance.mountain_area = int(_mountain_area_slider.value)
-	_balance.mountain_chaininess = _mountain_chains_slider.value / 100.0
+	_apply_generation_settings_to_balance()
 	var seed_text: String = _seed_input.text.strip_edges()
 	var seed_val: int = 0
 	if seed_text.is_valid_int():
@@ -165,6 +205,18 @@ func _begin_world_start(seed_val: int) -> void:
 func _set_start_controls_enabled(enabled: bool) -> void:
 	if _seed_input:
 		_seed_input.editable = enabled
+	if _mountain_count_slider:
+		_mountain_count_slider.editable = enabled
+	if _mountain_area_slider:
+		_mountain_area_slider.editable = enabled
+	if _mountain_chains_slider:
+		_mountain_chains_slider.editable = enabled
+	if _river_amount_slider:
+		_river_amount_slider.editable = enabled
+	if _river_width_slider:
+		_river_width_slider.editable = enabled
+	if _lake_amount_slider:
+		_lake_amount_slider.editable = enabled
 	if _random_button:
 		_random_button.disabled = not enabled
 	if _start_button:
@@ -201,6 +253,85 @@ func _create_slider_row(min_val: float, max_val: float, default_val: float, is_p
 	row.add_child(value_label)
 	return [slider, value_label, label, row]
 
+func _apply_generation_settings_to_balance() -> void:
+	if _balance == null:
+		return
+	_balance.mountain_density = _mountain_count_slider.value / 100.0
+	_balance.mountain_area = int(_mountain_area_slider.value)
+	_balance.mountain_chaininess = _mountain_chains_slider.value / 100.0
+	_balance.prepass_river_accumulation_threshold = _river_amount_to_threshold(_river_amount_slider.value)
+	_balance.prepass_river_base_width = _river_width_to_base_width(_river_width_slider.value)
+	_balance.prepass_river_width_scale = _river_width_to_width_scale(_river_width_slider.value)
+	_balance.prepass_lake_min_area = _lake_amount_to_min_area(_lake_amount_slider.value)
+	_balance.prepass_lake_min_depth = _lake_amount_to_min_depth(_lake_amount_slider.value)
+
+func _update_generation_value_labels() -> void:
+	if _mountain_count_value_label:
+		_mountain_count_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(_mountain_count_slider.value)})
+	if _mountain_area_value_label:
+		_mountain_area_value_label.text = _mountain_size_text(int(_mountain_area_slider.value))
+	if _mountain_chains_value_label:
+		_mountain_chains_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(_mountain_chains_slider.value)})
+	if _river_amount_value_label:
+		_river_amount_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(_river_amount_slider.value)})
+	if _river_width_value_label:
+		_river_width_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(_river_width_slider.value)})
+	if _lake_amount_value_label:
+		_lake_amount_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(_lake_amount_slider.value)})
+
+func _slider_percent_to_t(percent_value: float) -> float:
+	return clampf(percent_value / 100.0, 0.0, 1.0)
+
+func _river_amount_to_threshold(percent_value: float) -> int:
+	var t: float = _slider_percent_to_t(percent_value)
+	return int(round(lerpf(RIVER_THRESHOLD_DRY, RIVER_THRESHOLD_WET, t)))
+
+func _threshold_to_river_amount_percent(threshold: float) -> int:
+	var clamped_threshold: float = clampf(threshold, RIVER_THRESHOLD_WET, RIVER_THRESHOLD_DRY)
+	var range_span: float = RIVER_THRESHOLD_DRY - RIVER_THRESHOLD_WET
+	if range_span <= 0.0:
+		return 0
+	var t: float = clampf((RIVER_THRESHOLD_DRY - clamped_threshold) / range_span, 0.0, 1.0)
+	return int(round(t * 100.0))
+
+func _river_width_to_base_width(percent_value: float) -> float:
+	var t: float = _slider_percent_to_t(percent_value)
+	return lerpf(RIVER_BASE_WIDTH_MIN, RIVER_BASE_WIDTH_MAX, t)
+
+func _river_width_to_width_scale(percent_value: float) -> float:
+	var t: float = _slider_percent_to_t(percent_value)
+	return lerpf(RIVER_WIDTH_SCALE_MIN, RIVER_WIDTH_SCALE_MAX, t)
+
+func _balance_to_river_width_percent(base_width: float, width_scale: float) -> int:
+	var base_t_span: float = RIVER_BASE_WIDTH_MAX - RIVER_BASE_WIDTH_MIN
+	var scale_t_span: float = RIVER_WIDTH_SCALE_MAX - RIVER_WIDTH_SCALE_MIN
+	var base_t: float = 0.0
+	var scale_t: float = 0.0
+	if base_t_span > 0.0:
+		base_t = clampf((clampf(base_width, RIVER_BASE_WIDTH_MIN, RIVER_BASE_WIDTH_MAX) - RIVER_BASE_WIDTH_MIN) / base_t_span, 0.0, 1.0)
+	if scale_t_span > 0.0:
+		scale_t = clampf((clampf(width_scale, RIVER_WIDTH_SCALE_MIN, RIVER_WIDTH_SCALE_MAX) - RIVER_WIDTH_SCALE_MIN) / scale_t_span, 0.0, 1.0)
+	return int(round(((base_t + scale_t) * 0.5) * 100.0))
+
+func _lake_amount_to_min_area(percent_value: float) -> int:
+	var t: float = _slider_percent_to_t(percent_value)
+	return int(round(lerpf(LAKE_MIN_AREA_DRY, LAKE_MIN_AREA_WET, t)))
+
+func _lake_amount_to_min_depth(percent_value: float) -> float:
+	var t: float = _slider_percent_to_t(percent_value)
+	return lerpf(LAKE_MIN_DEPTH_DRY, LAKE_MIN_DEPTH_WET, t)
+
+func _balance_to_lake_amount_percent(min_area: int, min_depth: float) -> int:
+	var area_span: float = LAKE_MIN_AREA_DRY - LAKE_MIN_AREA_WET
+	var depth_span: float = LAKE_MIN_DEPTH_DRY - LAKE_MIN_DEPTH_WET
+	var area_t: float = 0.0
+	var depth_t: float = 0.0
+	if area_span > 0.0:
+		area_t = clampf((LAKE_MIN_AREA_DRY - clampf(float(min_area), LAKE_MIN_AREA_WET, LAKE_MIN_AREA_DRY)) / area_span, 0.0, 1.0)
+	if depth_span > 0.0:
+		depth_t = clampf((LAKE_MIN_DEPTH_DRY - clampf(min_depth, LAKE_MIN_DEPTH_WET, LAKE_MIN_DEPTH_DRY)) / depth_span, 0.0, 1.0)
+	return int(round(((area_t + depth_t) * 0.5) * 100.0))
+
 func _spacer(height: float) -> Control:
 	var spacer := Control.new()
 	spacer.custom_minimum_size.y = height
@@ -215,11 +346,12 @@ func _apply_localization() -> void:
 	_mountain_count_name_label.text = Localization.t("UI_WORLD_CREATE_MOUNTAIN_COUNT_LABEL")
 	_mountain_area_name_label.text = Localization.t("UI_WORLD_CREATE_MOUNTAIN_AREA_LABEL")
 	_mountain_chains_name_label.text = Localization.t("UI_WORLD_CREATE_MOUNTAIN_CHAINS_LABEL")
+	_river_amount_name_label.text = Localization.t("UI_WORLD_CREATE_RIVER_AMOUNT_LABEL")
+	_river_width_name_label.text = Localization.t("UI_WORLD_CREATE_RIVER_WIDTH_LABEL")
+	_lake_amount_name_label.text = Localization.t("UI_WORLD_CREATE_LAKE_AMOUNT_LABEL")
 	_hint_label.text = Localization.t("UI_WORLD_CREATE_HINT")
 	_start_button.text = Localization.t("UI_WORLD_CREATE_START_BUTTON")
-	_mountain_count_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(_mountain_count_slider.value)})
-	_mountain_area_value_label.text = _mountain_size_text(int(_mountain_area_slider.value))
-	_mountain_chains_value_label.text = Localization.t("UI_WORLD_CREATE_PERCENT", {"value": int(_mountain_chains_slider.value)})
+	_update_generation_value_labels()
 
 func _on_language_changed(_locale_code: String) -> void:
 	_apply_localization()

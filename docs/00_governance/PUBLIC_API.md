@@ -68,6 +68,7 @@ related_docs:
 | Получить read-only content data | `ItemRegistry.get_item()` / `BiomeRegistry.get_biome()` / `FloraDecorRegistry.get_flora_set()` / `WorldFeatureRegistry.get_feature_by_id()` / `WorldFeatureRegistry.get_poi_by_id()` |
 | Проверить boot first-playable | `ChunkManager.is_boot_first_playable()` |
 | Проверить boot complete | `ChunkManager.is_boot_complete()` |
+| Показать F11 chunk debug overlay | `ChunkManager.get_chunk_debug_overlay_snapshot()` / `WorldPerfMonitor.get_debug_snapshot()` |
 
 ---
 
@@ -212,6 +213,11 @@ related_docs:
 - Когда использовать: если owner-system должен итерировать только по already-loaded chunks.
 - Особенности: loaded-only snapshot; не описывает unloaded world.
 
+`ChunkManager.get_chunk_debug_overlay_snapshot(max_queue_rows: int = 14, debug_radius: int = -1) -> Dictionary`
+- Что возвращает: read-only diagnostic snapshot для F11 overlay: `player_chunk`, `active_z`, factual radii, bounded chunk entries, capped/grouped `queue_rows`, timeline events, compact metrics, plus bounded debug-only `incident_summary`, `trace_events`, `chunk_causality_rows`, `task_debug_rows`, and `suspicion_flags`.
+- Когда использовать: только для in-game debug overlay / diagnostics, когда нужно понять pipeline order `request -> queue -> generate -> apply -> build visual -> visible -> unload` во время движения игрока.
+- Особенности: active-z scoped, bounded around player and clamped by `DEBUG_OVERLAY_MAX_RADIUS`; не public load/unload API, не gameplay truth, не persistence data. Snapshot rows may label `stalled` only as observed delay unless an owner diagnostic record proves root cause; `suspicion_flags` are observational hints, not proof.
+
 `ChunkManager.is_tile_loaded(gt: Vector2i) -> bool`
 - Что возвращает: загружен ли tile сейчас.
 - Когда использовать: как guard перед loaded-only operations.
@@ -348,7 +354,7 @@ related_docs:
 |-------|-------------------------------|
 | `ChunkManager._mark_topology_dirty() -> void` | Dirty flag helper, не topology API. |
 | `ChunkManager._ensure_topology_current() -> void` | Synchronous owner-only rebuild gate. Может форсить full rebuild. |
-| `ChunkManager._process_topology_build() -> void` | Owner-side topology scheduler. Для managed GDScript path запускает `snapshot -> worker compute -> main-thread commit`; не caller-facing API. |
+| `ChunkManager._process_topology_build() -> bool` | Owner-side topology scheduler. Для managed GDScript path запускает `snapshot -> worker compute -> main-thread commit` и возвращает, осталась ли topology work debt; не caller-facing API. |
 | `ChunkManager._rebuild_loaded_mountain_topology() -> void` | Synchronous owner-only fallback implementation, loaded-bubble scoped only. |
 | `ChunkManager._incremental_topology_patch(tile_pos: Vector2i, new_type: int) -> void` | Low-level derived patch helper; caller не должен поддерживать topology вручную. |
 | Native builder calls `set_chunk`, `remove_chunk`, `update_tile`, `ensure_built` | Internal backend contract behind `ChunkManager`; direct callers рискуют разойтись с managed topology state. |
@@ -371,12 +377,12 @@ related_docs:
 `ChunkManager.try_harvest_at_world(world_pos: Vector2) -> Dictionary`
 - Когда вызывать: когда successful underground mining должен сразу открыть newly mined tile и соседний halo в fog.
 - Что делает: на underground success вызывает `UndergroundFogState.force_reveal()` для mined tile + 8 neighbors и сразу applies visible fog erase to loaded revealable tiles.
-- Гарантии: immediate underground reveal side-effects из `Postconditions: mine tile`; canonical terrain semantics не меняются вне mining contract.
+- Гарантии: immediate underground reveal side-effects из `Postconditions: mine tile`; canonical terrain semantics не меняются вне mining contract. На surface downstream `MountainRoofSystem` сначала пытается применить bounded local cover patch для incremental/bootstrap reveal case и только если этого недостаточно, уходит в reveal refresh + cover apply fallback even when the player is still standing outside the newly opened pocket.
 - Пример вызова: `var result := chunk_manager.try_harvest_at_world(hit_world_pos)`
 
 Примечание: z-switch reveal side-effects достигаются через canonical owner-path `ZLevelManager.change_level()`. `ChunkManager.set_active_z_level()` остаётся downstream sink и не является public z-switch API.
 
-Примечание: public surface reveal refresh API сейчас нет. `MountainRoofSystem` владеет refresh internally и сам реагирует на player movement, chunk load/unload и mining events.
+Примечание: public surface reveal refresh API сейчас нет. `MountainRoofSystem` владеет refresh internally и сам реагирует на player movement, chunk load/unload и mining events. Mining-triggered surface reveal no longer depends on the player already standing on an opened mountain tile: system first tries a bounded immediate local patch by reusing the active zone seed when the mined tile touches it or by bootstrapping a one-tile zone, otherwise it seeds refresh from the mined open tile itself and only then falls back to the player tile if the player is already inside an opened pocket.
 
 ### Чтение
 
@@ -624,14 +630,14 @@ related_docs:
 
 `WorldGenerator.build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary`
 - Когда вызывать: когда lifecycle/worker path нужен native payload dictionary для `Chunk.populate_native()`.
-- Что делает: canonicalizes chunk coord и возвращает packed arrays for `terrain` / `height` / `variation` / `biome` / flora plus тот же `feature_and_poi_payload`, что и structured build path. Для surface chunks также прикладывает presentation-only derived arrays `rock_visual_class`, `ground_face_atlas`, `cover_mask`, `cliff_overlay`, `variant_id`, и `alt_id`.
-- Гарантии: payload fields соответствуют `ChunkBuildResult.to_native_data()` contract из `DATA_CONTRACTS.md`; sync и worker/native build paths обязаны выдавать один и тот же `feature_and_poi_payload`. `variation` в payload остаётся presentation-only overlay metadata, включая polar markers; canonical terrain semantics по-прежнему живут в `terrain`. Surface derived arrays are computed against a one-tile seam halo and are meant only for terrain/cover/cliff visual fast-path reuse inside `Chunk.populate_native()` / `Chunk.build_visual_phase_batch()` / `Chunk.compute_visual_batch()`; they do not become public terrain truth and may be invalidated after saved or runtime terrain mutations. When `use_native_chunk_generation` enabled, terrain/height/variation/biome/flora arrays generated by C++ `ChunkGenerator.generate_chunk()` (×5-10 faster), and the same build step appends the derived surface payload before the dictionary returns. Falls back to GDScript if native DLL unavailable. Any debug presentation proof must stay downstream of this built payload instead of recomputing feature / POI decisions.
+- Что делает: canonicalizes chunk coord, собирает authoritative chunk-local inputs (`WorldComputeContext.sample_world_channels()` + `sample_prepass_channels()` + `sample_structure_context()` на каждый tile), передаёт их в native `ChunkGenerator.generate_chunk(...)`, и возвращает packed arrays for `terrain` / `height` / `variation` / `biome` / `secondary_biome` / `ecotone_values` / `flora_density_values` / `flora_modulation_values` plus тот же `feature_and_poi_payload`, что и structured build path. Для surface chunks также прикладывает presentation-only derived arrays `rock_visual_class`, `ground_face_atlas`, `cover_mask`, `cliff_overlay`, `variant_id`, и `alt_id`.
+- Гарантии: payload fields соответствуют `ChunkBuildResult.to_native_data()` contract из `DATA_CONTRACTS.md`; sync и worker/native build paths обязаны выдавать один и тот же `feature_and_poi_payload`. `variation` в payload остаётся presentation-only overlay metadata, включая polar markers; canonical terrain semantics по-прежнему живут в `terrain`. Surface derived arrays are computed against a one-tile seam halo and are meant only for terrain/cover/cliff visual fast-path reuse inside `Chunk.populate_native()` / `Chunk.build_visual_phase_batch()` / `Chunk.compute_visual_batch()`; they do not become public terrain truth and may be invalidated after saved or runtime terrain mutations. When `use_native_chunk_generation` enabled, C++ `ChunkGenerator.generate_chunk()` must read the immutable `WorldPrePass` snapshot exported during initialization and a per-chunk authoritative input snapshot exported by `ChunkContentBuilder`; it must not self-sample an alternate runtime channel source. `generation_source` is attached for proof/debug provenance (`native_chunk_generator` vs `gdscript_fallback`). Falls back to GDScript if native DLL unavailable or payload validation fails. Any debug presentation proof must stay downstream of this built payload instead of recomputing feature / POI decisions.
 - Пример вызова: `var native_data: Dictionary = WorldGenerator.build_chunk_native_data(coord)`
 
 `WorldGenerator.get_native_chunk_generator() -> RefCounted`
 - Что возвращает: C++ `ChunkGenerator` instance или `null` если native generation отключена / DLL недоступна.
 - Когда использовать: `ChunkContentBuilder.initialize()` получает native generator для use в `build_chunk_native_data()`.
-- Особенности: controlled by `balance.use_native_chunk_generation` flag. `ChunkGenerator.initialize()` called once during `_setup_compute_context()`. Receives full balance params, causal biome balance knobs (`biome_continental_drying_factor`, `biome_drainage_moisture_bonus`), biome definitions, flora/decor set definitions, and an immutable serialized `WorldPrePass` snapshot for native biome parity with the authoritative GDScript path. Native `generate_chunk()` returns terrain arrays + optional `flora_placements` Array. When flora_placements present, worker paths skip GDScript flora computation (×200 speedup).
+- Особенности: controlled by `balance.use_native_chunk_generation` flag. `ChunkGenerator.initialize()` called once during `_setup_compute_context()`. Receives full balance params, causal biome balance knobs (`biome_continental_drying_factor`, `biome_drainage_moisture_bonus`), biome definitions, and an immutable serialized `WorldPrePass` snapshot. Native structure truth is required to come only from that snapshot; initialization fails closed if the snapshot is missing or malformed. Runtime `generate_chunk()` additionally requires a chunk-local authoritative input snapshot from the published `WorldComputeContext` pipeline and fails closed instead of re-sampling divergent climate / structure inputs. Current native `generate_chunk()` returns terrain/biome/ecotone payload arrays only; flora placement remains authored by the existing GDScript builder path.
 
 `WorldGenerator.build_tile_data(tile_pos: Vector2i) -> TileGenData`
 - Когда вызывать: когда нужен full generated surface tile description, а не только terrain type.
@@ -646,12 +652,12 @@ related_docs:
 
 `WorldComputeContext.sample_structure_context(world_pos: Vector2i, channels: WorldChannels = null) -> WorldStructureContext`
 - Когда вызывать: когда runtime/tooling consumer уже держит `WorldComputeContext` и ему нужен тот же structural context, который читает текущий GDScript world runtime.
-- Что делает: canonicalizes tile и собирает `WorldStructureContext` из опубликованного `WorldPrePass`: `ridge_strength`, `mountain_mass`, `floodplain_strength`, `river_distance`, `river_width`; `river_strength` derives from river-width / river-distance metrics instead of legacy band/noise sampling. Legacy `channels` parameter retained only for consumer compatibility.
+- Что делает: canonicalizes tile и собирает `WorldStructureContext` из опубликованного `WorldPrePass`: `ridge_strength`, `mountain_mass`, `floodplain_strength`, `river_distance`, `river_width`; `mountain_mass` is the broader massif-fill companion to `ridge_strength` around local ridge neighborhoods, while `river_strength` derives as a continuous width-and-proximity semantic from the published `river_width` / `river_distance` pair, including qualifying lake basins that are folded into the same hydrology handoff, clamps to `0` when sampled `river_width` is absent, and is the same sanctioned river handoff used by both GDScript and native terrain consumers instead of legacy band/noise sampling. Legacy `channels` parameter retained only for consumer compatibility.
 - Гарантии: sanctioned structure-truth sampler for GDScript runtime. Не вызывает legacy band/noise structure sampling; при отсутствии pre-pass reference возвращает нулевой context вместо альтернативной "второй правды".
 
 `WorldPrePass.sample(channel: StringName, world_pos: Vector2i) -> float`
 - Когда вызывать: когда owner-side generator consumer уже держит опубликованный `WorldPrePass` reference и нужен интерполированный coarse-grid канал по мировым координатам.
-- Что делает: читает curated pre-pass channel (`height`, `drainage`, `river_width`, `river_distance`, `floodplain_strength`, `ridge_strength`, `mountain_mass`, `slope`, `rain_shadow`, `continentalness`) seam-safe по X-wrap и clamp-safe по latitude band.
+- Что делает: читает curated pre-pass channel (`height`, `drainage`, `river_width`, `river_distance`, `floodplain_strength`, `ridge_strength`, `mountain_mass`, `slope`, `rain_shadow`, `continentalness`) seam-safe по X-wrap и clamp-safe по latitude band. Published `river_width` / `river_distance` remain the sanctioned visible hydrology handoff for both river corridors and qualifying lake basins; raw `lake_mask` / `lake_records` stay internal.
 - Гарантии: read-only API над опубликованным pre-pass snapshot; не публикует raw mutable grid access и не триггерит recompute.
 
 `WorldPrePass.get_grid_value(channel: StringName, grid_x: int, grid_y: int) -> float`
@@ -1743,6 +1749,47 @@ Current commands in scope:
 
 ---
 
+## Runtime diagnostics
+
+`classification`: `derived` / `debug-only`
+
+### Чтение
+
+`WorldPerfMonitor.get_debug_snapshot() -> Dictionary`
+- Что возвращает: last-frame debug snapshot with `fps`, `frame_time_ms`, `world_update_ms`, `chunk_generation_ms`, `visual_build_ms`, `dispatcher_ms`, raw category totals, and raw op labels captured after `WorldPerfProbe.flush_frame()`.
+- Когда использовать: debug overlays and diagnostics that need compact performance metrics without consuming `WorldPerfProbe` directly.
+- Особенности: read-only, transient, not persistence data, not proof by itself for acceptance-level runtime performance. Runtime/perf acceptance still requires explicit runtime proof or manual human verification per `PERFORMANCE_CONTRACTS.md`.
+
+`WorldRuntimeDiagnosticLog.get_timeline_snapshot(limit: int = 24) -> Array[Dictionary]`
+- Что возвращает: bounded structured timeline events with Russian `summary`, technical `record`, `detail_fields`, `timestamp_label`, `repeat_count`, and dedupe metadata. When present, debug-only `trace_id` / `incident_id` survive into the snapshot for correlation with overlay forensics.
+- Когда использовать: debug overlays and validation tooling that need the recent causal sequence without parsing console text.
+- Особенности: debug-only, cooldown-deduped, not gameplay truth, not persistence data. Human summaries remain Russian-first diagnostic text; structured fields keep `actor/action/target/reason/impact/state/code` for engineer/agent inspection.
+
+### Debug artifacts
+
+`user://debug/f11_chunk_overlay.log`
+- Что содержит: full F11 overlay session snapshots while the overlay is visible: top HUD metrics, player/radii, capped/grouped queue rows, error/stalled chunk summary, timeline events, bounded chunk rows, and raw metrics.
+- Кто пишет: only `WorldChunkDebugOverlay`.
+- Когда пишется: file is overwritten on the first F11 open in a fresh game process; later F11 opens in the same process append; no snapshots are written while F11 is hidden.
+- Особенности: debug-only derived artifact, not gameplay truth, not save/load data, and not an API for reconstructing world state. `Shift+F11` cycles overlay modes, including `forensics`; the log header includes `ProjectSettings.globalize_path(LOG_PATH)` so humans can find the OS path.
+
+`user://debug/f11_chunk_incident_<timestamp>.log`
+- Что содержит: explicit incident capture from one bounded F11-style snapshot: `incident_summary`, `suspicion_flags`, `trace_events`, `chunk_causality_rows`, `task_debug_rows`, timeline excerpts, and raw snapshot payload. May legitimately contain `no_active_incident`.
+- Кто пишет: only `WorldChunkDebugOverlay`.
+- Когда пишется: only on explicit `Ctrl+F11` manual capture; capture works even if the overlay is hidden.
+- Особенности: debug-only derived artifact, not gameplay truth, not save/load data, and not a second diagnostics bus. The dump serializes existing bounded debug state and must not enqueue/load/generate/publish chunks.
+
+### Внутренние методы (НЕ вызывать)
+
+| Метод | Почему нельзя вызывать напрямую |
+|-------|-------------------------------|
+| Direct writes to `WorldRuntimeDiagnosticLog._timeline_events` or `WorldPerfMonitor._latest_debug_snapshot` | Bypasses bounded/deduped owner paths and may desync overlay diagnostics from emitted logs. |
+| Direct calls to `WorldPerfProbe.flush_frame()` from overlay code | `WorldPerfMonitor` is the single frame-level consumer; a second consumer would steal metrics from the monitor. |
+| Direct writes to `user://debug/f11_chunk_overlay.log` from systems other than `WorldChunkDebugOverlay` | The artifact must stay a serialized F11 snapshot, not a second diagnostics bus or gameplay log sink. |
+| Direct writes to `user://debug/f11_chunk_incident_<timestamp>.log` from systems other than `WorldChunkDebugOverlay` | Incident dumps must stay explicit bounded captures owned by the overlay, not ad-hoc gameplay/system logs. |
+
+---
+
 ## Current API Gaps
 
 - У `Topology` нет dedicated `topology_changed` или `topology_ready` signal. Сейчас readiness читается только через `ChunkManager.is_topology_ready()`.
@@ -1751,7 +1798,7 @@ Current commands in scope:
 - У `Chunk Lifecycle` нет public per-chunk load/unload API в scope. Есть только boot-load orchestration и internal streaming paths. Boot compute queue (`_boot_submit_pending_tasks`, `_boot_worker_compute`, `_boot_collect_completed`) остаётся internal; public surface — только read-only: `get_boot_compute_active_count()`, `get_boot_compute_pending_count()`, `get_boot_failed_coords()`.
 - У `Presentation` нет generic public redraw API. Безопасный путь к redraw идёт через higher-level world/mining/lifecycle entrypoints.
 - Feature-hook and POI resolver APIs are intentionally not public in the current iteration; runtime callers get only read-only definition-registry access plus the existing `WorldGenerator` build entrypoints.
-- `WorldFeatureDebugOverlay` remains an internal debug-only payload consumer. There is no public `ChunkManager` / `Chunk` placement-generation API and no public overlay API that recomputes feature or POI truth.
+- `WorldFeatureDebugOverlay` remains an internal debug-only payload consumer. `WorldChunkDebugOverlay` has a read-only diagnostic snapshot API, but there is still no public `ChunkManager` / `Chunk` placement-generation API and no public overlay API that recomputes feature or POI truth.
 - `EventBus.z_level_changed` используется внутри scope, но source emission находится вне текущего scope.
 - У `Spawn / pickup orchestration` нет public generic enemy-spawn API; spawn loop остаётся owner-only even though enable/save-load ownership уже оформлены.
 - У `Enemy AI / fauna runtime` нет public behavior-driving API. Это допустимо, но важно явно понимать, что поведение автономно после spawn.

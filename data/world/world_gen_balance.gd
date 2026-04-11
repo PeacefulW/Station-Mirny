@@ -34,25 +34,25 @@ extends Resource
 @export_range(8, 512) var prepass_grid_step: int = 32
 
 @export_group("Lakes")
-@export_range(3, 100) var prepass_lake_min_area: int = 8
-@export_range(0.01, 0.3) var prepass_lake_min_depth: float = 0.04
+@export_range(3, 100) var prepass_lake_min_area: int = 7
+@export_range(0.01, 0.3) var prepass_lake_min_depth: float = 0.035
 @export_range(0.0, 0.5) var prepass_frozen_lake_temperature: float = 0.15
 
 @export_group("Latitude Hydrology")
 @export_range(0.0, 0.5) var prepass_glacial_melt_temperature: float = 0.22
-@export_range(0.0, 5.0) var prepass_glacial_melt_bonus: float = 2.5
+@export_range(0.0, 5.0) var prepass_glacial_melt_bonus: float = 0.75
 @export_range(0.0, 0.3) var prepass_latitude_evaporation_rate: float = 0.08
 @export_range(0.0, 0.3) var prepass_frozen_river_threshold: float = 0.18
 
 @export_group("Rivers")
-@export_range(50, 5000) var prepass_river_accumulation_threshold: int = 200
-@export_range(1.0, 20.0) var prepass_river_base_width: float = 2.0
-@export_range(1.0, 20.0) var prepass_river_width_scale: float = 6.0
-@export_range(1.5, 8.0) var prepass_floodplain_multiplier: float = 3.0
+@export_range(50, 5000) var prepass_river_accumulation_threshold: int = 72
+@export_range(1.0, 20.0) var prepass_river_base_width: float = 2.35
+@export_range(1.0, 20.0) var prepass_river_width_scale: float = 6.6
+@export_range(1.5, 8.0) var prepass_floodplain_multiplier: float = 4.0
 
 @export_group("Ridge Skeleton")
-@export_range(2, 12) var prepass_target_spine_count: int = 4
-@export_range(20, 200) var prepass_min_spine_distance_grid: int = 80
+@export_range(2, 12) var prepass_target_spine_count: int = 8
+@export_range(20, 200) var prepass_min_spine_distance_grid: int = 48
 @export_range(50, 500) var prepass_max_ridge_length_grid: int = 200
 @export_range(10, 200) var prepass_max_branch_length_grid: int = 60
 @export_range(0.0, 0.5) var prepass_branch_probability: float = 0.15
@@ -83,7 +83,6 @@ extends Resource
 @export_group("Hot Pole")
 @export_range(0.6, 1.0) var hot_pole_temperature: float = 0.82
 @export_range(0.05, 0.3) var hot_pole_transition_width: float = 0.15
-@export_range(0.0, 0.5) var hot_evaporation_rate: float = 0.25
 
 @export_group("World Channels")
 @export var height_frequency: float = 0.01
@@ -103,25 +102,6 @@ extends Resource
 @export_group("Biome Causal Scoring")
 @export_range(0.0, 1.0, 0.01) var biome_continental_drying_factor: float = 0.35
 @export_range(0.0, 1.0, 0.01) var biome_drainage_moisture_bonus: float = 0.28
-
-@export_group("Large Structures")
-@export_range(128, 8192) var ridge_spacing_tiles: int = 640
-@export_range(8.0, 512.0, 1.0) var ridge_core_width_tiles: float = 104.0
-@export_range(8.0, 512.0, 1.0) var ridge_feather_tiles: float = 224.0
-@export var ridge_warp_frequency: float = 0.0018
-@export_range(0.0, 1024.0, 1.0) var ridge_warp_amplitude_tiles: float = 260.0
-@export var ridge_cluster_frequency: float = 0.00075
-@export_range(128, 8192) var ridge_secondary_spacing_tiles: int = 880
-@export_range(8.0, 512.0, 1.0) var ridge_secondary_core_width_tiles: float = 72.0
-@export_range(8.0, 512.0, 1.0) var ridge_secondary_feather_tiles: float = 192.0
-@export var ridge_secondary_warp_frequency: float = 0.0014
-@export_range(0.0, 1024.0, 1.0) var ridge_secondary_warp_amplitude_tiles: float = 220.0
-@export_range(0.0, 1.0, 0.01) var ridge_secondary_weight: float = 0.60
-@export_range(128, 8192) var river_spacing_tiles: int = 480
-@export_range(4.0, 128.0, 1.0) var river_core_width_tiles: float = 42.0
-@export_range(8.0, 512.0, 1.0) var river_floodplain_width_tiles: float = 224.0
-@export var river_warp_frequency: float = 0.0016
-@export_range(0.0, 1024.0, 1.0) var river_warp_amplitude_tiles: float = 300.0
 
 @export_group("Local Variation")
 @export var local_variation_frequency: float = 0.018
@@ -164,15 +144,15 @@ extends Resource
 @export_range(1, 64) var mountain_shadow_edges_per_step: int = 8
 
 @export_group("Terrain Classification")
-@export_range(0.0, 1.0, 0.01) var river_min_strength: float = 0.34
+@export_range(0.0, 1.0, 0.01) var river_min_strength: float = 0.22
 @export_range(0.0, 1.0, 0.01) var river_ridge_exclusion: float = 0.70
-@export_range(0.0, 1.0, 0.01) var river_max_height: float = 0.78
-@export_range(0.0, 1.0, 0.01) var bank_min_floodplain: float = 0.28
+@export_range(0.0, 1.0, 0.01) var river_max_height: float = 0.86
+@export_range(0.0, 1.0, 0.01) var bank_min_floodplain: float = 0.16
 @export_range(0.0, 1.0, 0.01) var bank_ridge_exclusion: float = 0.64
-@export_range(0.0, 1.0, 0.01) var bank_min_river: float = 0.14
+@export_range(0.0, 1.0, 0.01) var bank_min_river: float = 0.08
 @export_range(0.0, 1.0, 0.01) var bank_min_moisture: float = 0.50
-@export_range(0.0, 1.0, 0.01) var bank_max_height: float = 0.64
-@export_range(0.0, 1.0, 0.01) var mountain_base_threshold: float = 0.68
+@export_range(0.0, 1.0, 0.01) var bank_max_height: float = 0.78
+@export_range(0.0, 1.0, 0.01) var mountain_base_threshold: float = 0.64
 @export_range(0.0, 1.0, 0.01) var mountain_threshold_min: float = 0.28
 @export_range(0.0, 1.0, 0.01) var mountain_threshold_max: float = 0.74
 

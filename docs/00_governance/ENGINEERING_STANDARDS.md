@@ -4,8 +4,8 @@ doc_type: governance
 status: approved
 owner: engineering
 source_of_truth: true
-version: 2.1
-last_updated: 2026-03-26
+version: 2.2
+last_updated: 2026-04-09
 depends_on:
   - DOCUMENT_PRECEDENCE.md
 related_docs:
@@ -36,6 +36,7 @@ These rules are not optional.
 4. Explicit typing is mandatory.
 5. Mod compatibility is a first-class requirement.
 6. No user-facing text in code.
+7. Every runtime-sensitive or extensible system must declare one authoritative source of truth, one write owner, and explicit derived/cache boundaries.
 
 ## 2. Naming and style
 
@@ -174,7 +175,31 @@ The following four patterns are not suggestions — they are required wherever a
 
 **Applies to:** terrain tile variants, mountain wall faces, future: flora distribution, POI placement, resource vein patterns, biome transition noise.
 
-### 9.5 Other approved patterns
+### 9.5 Authoritative owner + scalable path
+
+**Rule:** Every new runtime-sensitive or extensible feature MUST document:
+- authoritative source of truth
+- single write owner
+- any derived/cache mirrors and their invalidation path
+- local dirty unit
+- what work is allowed synchronously
+- what escalates to queue / worker / native cache / C++
+
+**Why:** Small local features accumulate into systemic hitching when ownership and scale path are left implicit. The project must remain safe not only for today's tiny content count, but for future density, mods, and expanded simulation.
+
+**Shape:**
+- one mutable truth, not several competing mirrors
+- one owner writes authoritative state
+- readers consume authoritative state or clearly derived read models
+- derived data has explicit rebuild/invalidation triggers
+- synchronous work is bounded by local dirty unit, not by "how many objects happened to exist today"
+
+**Forbidden reasoning:**
+- "right now there is only one tree"
+- "this chunk usually has only a few objects"
+- "we can keep it synchronous until it becomes a problem"
+
+### 9.6 Other approved patterns
 
 #### State Machine
 Use for entities or flows with explicit modes:
@@ -302,6 +327,9 @@ Before considering implementation done:
 - no direct forbidden system coupling
 - all public APIs are typed
 - script size remains responsible
+- authoritative source of truth and write owner are explicit for new mutable/runtime-sensitive work
+- derived/cache layers have an invalidation path
+- runtime-sensitive changes define dirty unit and escalation path beyond today's tiny content count
 - registry/event updates exist if a new content/system surface was introduced
 - localization is complete for new user-facing content
 - save/load boundary is understood
@@ -314,6 +342,8 @@ When an AI assistant writes code for this project, it must:
 - follow this file first for engineering law
 - follow [Performance Contracts](PERFORMANCE_CONTRACTS.md) for runtime-sensitive systems
 - preserve approved patterns instead of inventing parallel ones
+- challenge designs that are only justified by current low object counts
+- name the authoritative truth, write owner, dirty unit, and escalation path when adding runtime-sensitive behavior
 - explain architecture choices clearly when tradeoffs matter
 
 ## 18. Final principle

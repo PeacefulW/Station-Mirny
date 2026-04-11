@@ -35,6 +35,7 @@ const MOUNTAIN_MASS_CHANNEL: StringName = &"mountain_mass"
 const SLOPE_CHANNEL: StringName = &"slope"
 const RAIN_SHADOW_CHANNEL: StringName = &"rain_shadow"
 const CONTINENTALNESS_CHANNEL: StringName = &"continentalness"
+const NATIVE_CHUNK_GENERATOR_SNAPSHOT_KIND: StringName = &"world_pre_pass_chunk_generator_v2"
 const NATIVE_PREPASS_KERNELS_CLASS: StringName = &"WorldPrePassKernels"
 const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_utils.gd")
 const FLOAT_EPSILON: float = 0.00001
@@ -48,6 +49,8 @@ const LAKE_TYPE_TECTONIC: StringName = &"tectonic"
 const SPINE_STRENGTH_MIN: float = 0.5
 const SPINE_STRENGTH_MAX: float = 1.0
 const SPINE_SELECTION_JITTER_WEIGHT: float = 0.12
+const SPINE_SELECTION_LATITUDE_BAND_COUNT: int = 4
+const SPINE_SELECTION_EXTREME_LATITUDE_PENALTY: float = 0.14
 const RIDGE_HEIGHT_WEIGHT: float = 0.45
 const RIDGE_RUGGEDNESS_WEIGHT: float = 0.30
 const RIDGE_INERTIA_WEIGHT: float = 0.18
@@ -499,6 +502,48 @@ func get_grid_value(channel: StringName, grid_x: int, grid_y: int) -> float:
 		_:
 			return 0.0
 
+func build_native_chunk_generator_snapshot() -> Dictionary:
+	var expected_size: int = _grid_width * _grid_height
+	var required_grids: Dictionary = {
+		"prepass_drainage_grid": _drainage_grid,
+		"prepass_slope_grid": _slope_grid,
+		"prepass_rain_shadow_grid": _rain_shadow_grid,
+		"prepass_continentalness_grid": _continentalness_grid,
+		"prepass_ridge_strength_grid": _ridge_strength_grid,
+		"prepass_river_width_grid": _river_width_grid,
+		"prepass_river_distance_grid": _river_distance_grid,
+		"prepass_floodplain_strength_grid": _floodplain_strength_grid,
+		"prepass_mountain_mass_grid": _mountain_mass_grid,
+	}
+	if expected_size <= 0 or _grid_span_x <= 0.0 or _grid_span_y <= 0.0:
+		push_error("WorldPrePass.build_native_chunk_generator_snapshot() requires a computed grid layout")
+		assert(false, "WorldPrePass native chunk snapshot requires a computed grid layout")
+		return {}
+	for key: String in required_grids.keys():
+		var grid: PackedFloat32Array = required_grids[key] as PackedFloat32Array
+		if grid.size() != expected_size:
+			push_error("WorldPrePass native chunk snapshot missing authoritative grid `%s` (%d != %d)" % [key, grid.size(), expected_size])
+			assert(false, "WorldPrePass native chunk snapshot requires every authoritative structure grid")
+			return {}
+	return {
+		"prepass_snapshot_kind": NATIVE_CHUNK_GENERATOR_SNAPSHOT_KIND,
+		"prepass_grid_width": _grid_width,
+		"prepass_grid_height": _grid_height,
+		"prepass_min_y": _prepass_min_y,
+		"prepass_max_y": _prepass_max_y,
+		"prepass_grid_span_x": _grid_span_x,
+		"prepass_grid_span_y": _grid_span_y,
+		"prepass_drainage_grid": _drainage_grid.duplicate(),
+		"prepass_slope_grid": _slope_grid.duplicate(),
+		"prepass_rain_shadow_grid": _rain_shadow_grid.duplicate(),
+		"prepass_continentalness_grid": _continentalness_grid.duplicate(),
+		"prepass_ridge_strength_grid": _ridge_strength_grid.duplicate(),
+		"prepass_river_width_grid": _river_width_grid.duplicate(),
+		"prepass_river_distance_grid": _river_distance_grid.duplicate(),
+		"prepass_floodplain_strength_grid": _floodplain_strength_grid.duplicate(),
+		"prepass_mountain_mass_grid": _mountain_mass_grid.duplicate(),
+	}
+
 func _sample_grid(grid: PackedFloat32Array, world_pos: Vector2i) -> float:
 	var wrapped_x: int = _wrap_x(world_pos.x)
 	var x0: int = 0
@@ -754,6 +799,17 @@ func _compute_river_extraction() -> void:
 			_river_mask_grid = native_river_data["river_mask_grid"]
 			_river_width_grid = native_river_data["river_width_grid"]
 			_river_distance_grid = native_river_data["river_distance_grid"]
+			phase_started_usec = WorldPerfProbe.begin()
+			source_indices = _collect_existing_river_sources(heap_indices, heap_priorities)
+			source_indices = _seed_lake_hydrology_sources(source_indices, heap_indices, heap_priorities)
+			var augmented_river_distance := PackedFloat32Array()
+			if _native_prepass_kernels != null:
+				augmented_river_distance = _compute_native_wrapped_distance_field(source_indices, max_distance)
+			if not augmented_river_distance.is_empty():
+				_river_distance_grid = augmented_river_distance
+			else:
+				_propagate_river_distance_field(heap_indices, heap_priorities, neighbor_distances)
+			WorldPerfProbe.end("WorldPrePass.compute.river_extraction.lake_augmentation", phase_started_usec)
 			return
 	phase_started_usec = WorldPerfProbe.begin()
 	for cell_index: int in range(_accumulation_grid.size()):
@@ -764,6 +820,7 @@ func _compute_river_extraction() -> void:
 		_river_distance_grid[cell_index] = 0.0
 		source_indices.append(cell_index)
 		_numeric_heap_push(heap_indices, heap_priorities, cell_index, 0.0)
+	source_indices = _seed_lake_hydrology_sources(source_indices, heap_indices, heap_priorities)
 	WorldPerfProbe.end("WorldPrePass.compute.river_extraction.seed_river_sources", phase_started_usec)
 	var native_river_distance := PackedFloat32Array()
 	phase_started_usec = WorldPerfProbe.begin()
@@ -774,6 +831,66 @@ func _compute_river_extraction() -> void:
 		WorldPerfProbe.end("WorldPrePass.compute.river_extraction.distance_propagation", phase_started_usec)
 		return
 	phase_started_usec = WorldPerfProbe.begin()
+	_propagate_river_distance_field(heap_indices, heap_priorities, neighbor_distances)
+	WorldPerfProbe.end("WorldPrePass.compute.river_extraction.distance_propagation", phase_started_usec)
+
+func _collect_existing_river_sources(
+	heap_indices: Array[int],
+	heap_priorities: Array[float]
+) -> PackedInt32Array:
+	var source_indices := PackedInt32Array()
+	for cell_index: int in range(_river_mask_grid.size()):
+		if int(_river_mask_grid[cell_index]) != 1:
+			continue
+		if _river_width_grid[cell_index] <= FLOAT_EPSILON:
+			continue
+		_river_distance_grid[cell_index] = 0.0
+		source_indices.append(cell_index)
+		_numeric_heap_push(heap_indices, heap_priorities, cell_index, 0.0)
+	return source_indices
+
+func _seed_lake_hydrology_sources(
+	source_indices: PackedInt32Array,
+	heap_indices: Array[int],
+	heap_priorities: Array[float]
+) -> PackedInt32Array:
+	if _lake_records.is_empty() or _lake_mask.is_empty():
+		return source_indices
+	var hydrology_width_by_lake_id := PackedFloat32Array()
+	hydrology_width_by_lake_id.resize(_lake_records.size() + 1)
+	hydrology_width_by_lake_id.fill(0.0)
+	for lake_record: LakeRecord in _lake_records:
+		if lake_record == null:
+			continue
+		if lake_record.id <= 0 or lake_record.id >= hydrology_width_by_lake_id.size():
+			continue
+		hydrology_width_by_lake_id[lake_record.id] = _resolve_lake_hydrology_width_tiles(lake_record)
+	for cell_index: int in range(_lake_mask.size()):
+		var lake_id: int = int(_lake_mask[cell_index])
+		if lake_id <= 0 or lake_id >= hydrology_width_by_lake_id.size():
+			continue
+		var lake_width_tiles: float = hydrology_width_by_lake_id[lake_id]
+		if lake_width_tiles <= FLOAT_EPSILON:
+			continue
+		var already_seeded: bool = (
+			_river_distance_grid[cell_index] <= FLOAT_EPSILON
+			and int(_river_mask_grid[cell_index]) == 1
+		)
+		_river_mask_grid[cell_index] = 1
+		_river_width_grid[cell_index] = maxf(_river_width_grid[cell_index], lake_width_tiles)
+		if _river_distance_grid[cell_index] > FLOAT_EPSILON:
+			_river_distance_grid[cell_index] = 0.0
+		if already_seeded:
+			continue
+		source_indices.append(cell_index)
+		_numeric_heap_push(heap_indices, heap_priorities, cell_index, 0.0)
+	return source_indices
+
+func _propagate_river_distance_field(
+	heap_indices: Array[int],
+	heap_priorities: Array[float],
+	neighbor_distances: PackedFloat32Array
+) -> void:
 	while not heap_indices.is_empty():
 		var cell_index: int = _numeric_heap_pop(heap_indices, heap_priorities)
 		if cell_index < 0:
@@ -790,7 +907,6 @@ func _compute_river_extraction() -> void:
 				continue
 			_river_distance_grid[neighbor_index] = next_distance
 			_numeric_heap_push(heap_indices, heap_priorities, neighbor_index, next_distance)
-	WorldPerfProbe.end("WorldPrePass.compute.river_extraction.distance_propagation", phase_started_usec)
 
 func _compute_floodplain_strength() -> void:
 	_floodplain_strength_grid.resize(_river_mask_grid.size())
@@ -801,7 +917,8 @@ func _compute_floodplain_strength() -> void:
 	for cell_index: int in range(_river_mask_grid.size()):
 		if _river_mask_grid[cell_index] != 1:
 			continue
-		var floodplain_width: float = _resolve_floodplain_width_tiles(_river_width_grid[cell_index])
+		var floodplain_source_width: float = _resolve_floodplain_source_width_tiles(cell_index)
+		var floodplain_width: float = _resolve_floodplain_width_tiles(floodplain_source_width)
 		if floodplain_width <= FLOAT_EPSILON:
 			continue
 		_floodplain_strength_grid[cell_index] = 1.0
@@ -1083,9 +1200,10 @@ func _compute_mountain_mass_grid() -> void:
 		return
 	for cell_index: int in range(_height_grid.size()):
 		var ridge_strength: float = _ridge_strength_grid[cell_index]
-		if ridge_strength <= FLOAT_EPSILON:
-			continue
 		var grid_pos: Vector2i = _index_to_grid(cell_index)
+		var local_ridge_support: float = _resolve_local_mountain_ridge_support(cell_index, ridge_strength)
+		if local_ridge_support <= FLOAT_EPSILON:
+			continue
 		var height_factor: float = clampf(
 			(_height_grid[cell_index] - MOUNTAIN_MASS_HEIGHT_MIN) / MOUNTAIN_MASS_HEIGHT_RANGE,
 			0.0,
@@ -1096,7 +1214,36 @@ func _compute_mountain_mass_grid() -> void:
 			0.0,
 			1.0
 		)
-		_mountain_mass_grid[cell_index] = clampf(ridge_strength * height_factor * ruggedness_factor, 0.0, 1.0)
+		var massif_support: float = clampf(height_factor * 0.58 + ruggedness_factor * 0.42, 0.0, 1.0)
+		var ridge_plateau: float = sqrt(local_ridge_support)
+		var ridge_backfill: float = maxf(ridge_strength * 0.64, local_ridge_support * 0.34)
+		var mountain_mass: float = ridge_plateau * (0.30 + massif_support * 0.70)
+		mountain_mass = maxf(
+			mountain_mass,
+			ridge_backfill * (0.18 + height_factor * 0.30 + ruggedness_factor * 0.16)
+		)
+		_mountain_mass_grid[cell_index] = clampf(mountain_mass, 0.0, 1.0)
+
+func _resolve_local_mountain_ridge_support(cell_index: int, ridge_strength: float) -> float:
+	if cell_index < 0 or cell_index >= _ridge_strength_grid.size():
+		return 0.0
+	var ridge_sum: float = ridge_strength
+	var contributing_weight: float = 1.0
+	var ridge_max: float = ridge_strength
+	for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
+		var neighbor_index: int = _get_neighbor_index(cell_index, direction_index)
+		if neighbor_index < 0:
+			continue
+		var neighbor_strength: float = _ridge_strength_grid[neighbor_index]
+		if neighbor_strength <= FLOAT_EPSILON:
+			continue
+		var offset: Vector2i = GRID_NEIGHBOR_OFFSETS_8[direction_index]
+		var weight: float = 1.0 if offset.x == 0 or offset.y == 0 else 0.78
+		ridge_sum += neighbor_strength * weight
+		contributing_weight += weight
+		ridge_max = maxf(ridge_max, neighbor_strength)
+	var ridge_average: float = ridge_sum / maxf(1.0, contributing_weight)
+	return clampf(maxf(ridge_strength, maxf(ridge_average * 1.35, ridge_max * 0.82)), 0.0, 1.0)
 
 func _sample_ridge_strength_at_grid(grid_pos: Vector2) -> float:
 	var best_strength: float = 0.0
@@ -1256,25 +1403,55 @@ func _compute_spine_seeds() -> void:
 		return
 	var candidate_heap_indices: Array[int] = []
 	var candidate_heap_priorities: Array[float] = []
+	var latitude_band_count: int = mini(SPINE_SELECTION_LATITUDE_BAND_COUNT, target_seed_count)
+	var latitude_band_winners: Array[Dictionary] = []
+	for _band_index: int in range(latitude_band_count):
+		latitude_band_winners.append({
+			"cell_index": -1,
+			"score": -INF,
+		})
 	for cell_index: int in range(_height_grid.size()):
 		var grid_pos: Vector2i = _index_to_grid(cell_index)
 		var ruggedness: float = _sample_ruggedness_at_grid(grid_pos.x, grid_pos.y)
 		var selection_score: float = _resolve_spine_selection_score(_height_grid[cell_index], ruggedness, grid_pos)
 		_numeric_heap_push(candidate_heap_indices, candidate_heap_priorities, cell_index, -selection_score)
+		if latitude_band_count > 0:
+			var latitude_band_index: int = _resolve_spine_selection_band_index(grid_pos.y, latitude_band_count)
+			var band_winner: Dictionary = latitude_band_winners[latitude_band_index] as Dictionary
+			if selection_score > float(band_winner.get("score", -INF)) + FLOAT_EPSILON:
+				latitude_band_winners[latitude_band_index] = {
+					"cell_index": cell_index,
+					"score": selection_score,
+				}
 	var min_distance_grid: int = _resolve_min_spine_distance_grid()
+	for band_winner_variant: Variant in latitude_band_winners:
+		var band_winner: Dictionary = band_winner_variant as Dictionary
+		var winner_index: int = int(band_winner.get("cell_index", -1))
+		if winner_index < 0:
+			continue
+		if _try_append_spine_seed_from_candidate(winner_index, min_distance_grid):
+			if _spine_seeds.size() >= target_seed_count:
+				return
 	while not candidate_heap_indices.is_empty() and _spine_seeds.size() < target_seed_count:
 		var cell_index: int = _numeric_heap_pop(candidate_heap_indices, candidate_heap_priorities)
-		if cell_index < 0:
-			continue
-		var grid_pos: Vector2i = _index_to_grid(cell_index)
-		if not _is_spine_seed_far_enough(grid_pos, min_distance_grid):
-			continue
-		var ruggedness: float = _sample_ruggedness_at_grid(grid_pos.x, grid_pos.y)
-		var spine_seed := SpineSeed.new()
-		spine_seed.position = grid_pos
-		spine_seed.strength = _resolve_spine_strength(_height_grid[cell_index], ruggedness)
-		spine_seed.direction_bias = _resolve_spine_direction_bias(grid_pos)
-		_spine_seeds.append(spine_seed)
+		_try_append_spine_seed_from_candidate(cell_index, min_distance_grid)
+
+func _try_append_spine_seed_from_candidate(cell_index: int, min_distance_grid: int) -> bool:
+	if cell_index < 0 or cell_index >= _height_grid.size():
+		return false
+	var grid_pos: Vector2i = _index_to_grid(cell_index)
+	if not _is_spine_seed_far_enough(grid_pos, min_distance_grid):
+		return false
+	for spine_seed: SpineSeed in _spine_seeds:
+		if spine_seed.position == grid_pos:
+			return false
+	var ruggedness: float = _sample_ruggedness_at_grid(grid_pos.x, grid_pos.y)
+	var spine_seed := SpineSeed.new()
+	spine_seed.position = grid_pos
+	spine_seed.strength = _resolve_spine_strength(_height_grid[cell_index], ruggedness)
+	spine_seed.direction_bias = _resolve_spine_direction_bias(grid_pos)
+	_spine_seeds.append(spine_seed)
+	return true
 
 func _compute_ridge_graph() -> void:
 	_ridge_paths.clear()
@@ -1753,7 +1930,21 @@ func _get_direction_vector(direction_index: int) -> Vector2:
 
 func _resolve_spine_selection_score(height_value: float, ruggedness: float, grid_pos: Vector2i) -> float:
 	var terrain_bias: float = clampf(height_value * 0.6 + ruggedness * 0.4, 0.0, 1.0)
-	return terrain_bias + _hash01_for_grid(grid_pos.x, grid_pos.y, 11) * SPINE_SELECTION_JITTER_WEIGHT
+	var latitude_bias: float = _resolve_spine_selection_latitude_bias(grid_pos.y)
+	return terrain_bias * latitude_bias + _hash01_for_grid(grid_pos.x, grid_pos.y, 11) * SPINE_SELECTION_JITTER_WEIGHT
+
+func _resolve_spine_selection_band_index(grid_y: int, band_count: int) -> int:
+	if _grid_height <= 0 or band_count <= 1:
+		return 0
+	return clampi(int(floor(float(grid_y) * float(band_count) / float(_grid_height))), 0, band_count - 1)
+
+func _resolve_spine_selection_latitude_bias(grid_y: int) -> float:
+	if _grid_height <= 1:
+		return 1.0
+	var center_y: float = float(_grid_height - 1) * 0.5
+	var latitude_distance: float = absf(float(grid_y) - center_y) / maxf(1.0, center_y)
+	var temperate_bias: float = 1.0 - latitude_distance * latitude_distance
+	return lerpf(1.0 - SPINE_SELECTION_EXTREME_LATITUDE_PENALTY, 1.0, clampf(temperate_bias, 0.0, 1.0))
 
 func _resolve_spine_strength(height_value: float, ruggedness: float) -> float:
 	var terrain_bias: float = clampf(height_value * 0.5 + ruggedness * 0.5, 0.0, 1.0)
@@ -1856,6 +2047,44 @@ func _resolve_floodplain_width_tiles(river_width_tiles: float) -> float:
 	if river_width_tiles <= FLOAT_EPSILON:
 		return 0.0
 	return maxf(0.0, river_width_tiles * _resolve_floodplain_multiplier())
+
+func _resolve_floodplain_source_width_tiles(cell_index: int) -> float:
+	if cell_index < 0 or cell_index >= _river_width_grid.size():
+		return 0.0
+	var source_width: float = maxf(0.0, _river_width_grid[cell_index])
+	if source_width <= FLOAT_EPSILON:
+		return 0.0
+	if int(_lake_mask[cell_index]) <= 0:
+		return source_width
+	var lake_floodplain_cap: float = maxf(
+		_resolve_river_base_width() * 1.10,
+		float(maxi(4, _grid_step)) * 0.14
+	)
+	return minf(source_width, lake_floodplain_cap)
+
+func _resolve_lake_hydrology_width_tiles(lake_record: LakeRecord) -> float:
+	if lake_record == null:
+		return 0.0
+	var area_cells: float = maxf(1.0, float(lake_record.area_grid_cells))
+	var equivalent_radius_cells: float = sqrt(area_cells / PI)
+	var min_depth: float = maxf(0.01, _resolve_lake_min_depth())
+	var area_factor: float = clampf((equivalent_radius_cells - 0.75) / 4.5, 0.0, 1.0)
+	var depth_factor: float = clampf(
+		(lake_record.max_depth - min_depth) / maxf(0.02, min_depth * 3.0),
+		0.0,
+		1.0
+	)
+	var min_visible_width: float = maxf(
+		_resolve_river_base_width() * 1.50,
+		float(maxi(4, _grid_step)) * 0.18
+	)
+	var max_visible_width: float = maxf(
+		min_visible_width,
+		float(maxi(8, _grid_step)) * 0.55
+	)
+	var hydrology_width: float = lerpf(min_visible_width, max_visible_width, area_factor)
+	hydrology_width += depth_factor * _resolve_river_base_width() * 1.20
+	return minf(maxf(min_visible_width, hydrology_width), max_visible_width)
 
 func _resolve_max_ridge_length_grid() -> int:
 	if _balance == null:
@@ -2091,11 +2320,19 @@ func _resolve_base_accumulation(temperature: float) -> float:
 	var glacial_melt_temperature: float = _resolve_glacial_melt_temperature()
 	if temperature >= glacial_melt_temperature:
 		return 1.0
-	var glacial_proximity: float = clampf((glacial_melt_temperature - temperature) / 0.15, 0.0, 1.0)
-	return 1.0 + _resolve_glacial_melt_bonus() * (1.0 - glacial_proximity)
+	var deep_cold_start: float = maxf(0.0, _resolve_frozen_river_threshold() - 0.08)
+	var thaw_span: float = maxf(0.06, glacial_melt_temperature - deep_cold_start)
+	var thaw_t: float = clampf((temperature - deep_cold_start) / thaw_span, 0.0, 1.0)
+	thaw_t = thaw_t * thaw_t * (3.0 - 2.0 * thaw_t)
+	var glacial_melt_strength: float = lerpf(0.18, 1.0, thaw_t)
+	return 1.0 + _resolve_glacial_melt_bonus() * glacial_melt_strength
 
 func _resolve_downstream_transfer(accumulation: float, temperature: float) -> float:
-	var evaporation_loss: float = accumulation * _resolve_latitude_evaporation_rate() * temperature * temperature
+	var frozen_threshold: float = _resolve_frozen_river_threshold()
+	var heat_span: float = maxf(0.12, 1.0 - frozen_threshold)
+	var heat_t: float = clampf((temperature - frozen_threshold) / heat_span, 0.0, 1.0)
+	var evaporation_factor: float = lerpf(0.32, 1.0, heat_t * heat_t)
+	var evaporation_loss: float = accumulation * _resolve_latitude_evaporation_rate() * evaporation_factor
 	return maxf(0.0, accumulation - evaporation_loss)
 
 func _reset_lake_inflow_accumulation() -> void:
@@ -2447,6 +2684,11 @@ func _resolve_frozen_lake_temperature() -> float:
 	if _balance == null:
 		return 0.15
 	return clampf(_balance.prepass_frozen_lake_temperature, 0.0, 0.5)
+
+func _resolve_frozen_river_threshold() -> float:
+	if _balance == null:
+		return 0.18
+	return clampf(_balance.prepass_frozen_river_threshold, 0.0, 0.3)
 
 func _resolve_glacial_melt_temperature() -> float:
 	if _balance == null:

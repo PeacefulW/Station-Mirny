@@ -300,8 +300,20 @@ func _sample_prepass_value(channel: StringName, canonical_world_pos: Vector2i) -
 	return float(_world_pre_pass.call("sample", channel, canonical_world_pos))
 
 func _derive_river_strength_from_prepass(river_width: float, river_distance: float) -> float:
-	var width_strength: float = clampf((maxf(0.0, river_width) + 1.0) / 6.0, 0.0, 1.0)
-	if river_distance <= 0.001 and river_width > 0.0:
-		return maxf(width_strength, 0.55)
-	return width_strength
+	var resolved_width: float = maxf(0.0, river_width)
+	if resolved_width <= 0.001:
+		return 0.0
+	var width_presence: float = clampf(resolved_width, 0.0, 1.0)
+	var width_strength: float = clampf(resolved_width / 4.0, 0.0, 1.0)
+	var core_radius: float = maxf(1.0, resolved_width * 0.55)
+	var bank_radius: float = core_radius + maxf(1.25, resolved_width * 0.85)
+	var distance_to_river: float = maxf(0.0, river_distance)
+	var proximity: float = clampf(1.0 - distance_to_river / bank_radius, 0.0, 1.0)
+	proximity = proximity * proximity * (3.0 - 2.0 * proximity)
+	var core_proximity: float = clampf(1.0 - distance_to_river / core_radius, 0.0, 1.0)
+	core_proximity = core_proximity * core_proximity * (3.0 - 2.0 * core_proximity)
+	var combined_strength: float = width_strength * (0.10 + proximity * 0.70)
+	combined_strength += proximity * 0.18
+	combined_strength += core_proximity * 0.12
+	return clampf(combined_strength * width_presence, 0.0, 1.0)
 

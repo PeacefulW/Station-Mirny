@@ -1,0 +1,42 @@
+{
+	"boot_detail_lines": [],
+	"boot_metrics_ms": {
+
+	},
+	"budget_overrun_lines": [],
+	"budget_overrun_offenders": {
+
+	},
+	"budget_overrun_warning_count": 0,
+	"catch_up_timeout": false,
+	"codex_validation_line_count": 0,
+	"drain_completed": false,
+	"error_count": 0,
+	"errors": [],
+	"frame_budget_lines": [],
+	"frame_time_summary": {
+
+	},
+	"latest_catch_up_status": "",
+	"latest_codex_validation_lines": [],
+	"latest_world_perf_lines": [],
+	"line_count": 3,
+	"log_file_name": "godot.log",
+	"log_path": "C:/Users/peaceful/AppData/Roaming/Godot/app_userdata/Станция Мирный/logs/godot.log",
+	"observability_lines": [],
+	"route_completed": false,
+	"route_preset": "",
+	"route_started": false,
+	"route_waypoints": 0,
+	"validation_failed": false,
+	"warning_count": 0,
+	"warnings": [],
+	"waypoints_reached": 0,
+	"world_perf_line_count": 0,
+	"world_prepass_phase_ms": {
+
+	},
+	"world_prepass_subphase_ms": {
+
+	}
+}

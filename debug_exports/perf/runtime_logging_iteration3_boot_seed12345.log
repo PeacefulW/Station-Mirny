@@ -1,0 +1,542 @@
+Godot Engine v4.6.1.stable.official.14d19694e - https://godotengine.org
+
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: Startup start to loading screen visible ms (Startup.start_to_loading_screen_visible_ms); причина — замер превысил порог вывода в лог и требует внимания: 15.94 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] Startup.start_to_loading_screen_visible_ms: 15.94 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldPrePass compute sample height grid (WorldPrePass.compute.sample_height_grid); причина — замер превысил порог вывода в лог и требует внимания: 166.41 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldPrePass.compute.sample_height_grid: 166.41 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldPrePass compute spine seeds (WorldPrePass.compute.spine_seeds); причина — замер превысил порог вывода в лог и требует внимания: 588.98 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldPrePass.compute.spine_seeds: 588.98 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldPrePass compute ridge graph (WorldPrePass.compute.ridge_graph); причина — замер превысил порог вывода в лог и требует внимания: 77.06 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldPrePass.compute.ridge_graph: 77.06 ms
+[WorldPerf] WorldPrePass.compute.ridge_strength_grid.native_total: 1.43 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldPrePass compute mountain mass grid (WorldPrePass.compute.mountain_mass_grid); причина — замер превысил порог вывода в лог и требует внимания: 355.35 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldPrePass.compute.mountain_mass_grid: 355.35 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldPrePass compute lake aware fill extract lake records (WorldPrePass.compute.lake_aware_fill.extract_lake_records); причина — замер превысил порог вывода в лог и требует внимания: 627.89 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldPrePass.compute.lake_aware_fill.extract_lake_records: 627.89 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldPrePass compute lake aware fill (WorldPrePass.compute.lake_aware_fill); причина — замер превысил порог вывода в лог и требует внимания: 633.95 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldPrePass.compute.lake_aware_fill: 633.95 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.4 ms, p99=6.9 ms, hitches=1
+[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.1ms/6.0ms
+[WorldPerf] Observability: Startup.loading_screen_visible=0.0ms, Startup.start_pressed=0.0ms, Startup.start_to_loading_screen_visible_ms=15.9ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldPrePass compute flow directions (WorldPrePass.compute.flow_directions); причина — замер превысил порог вывода в лог и требует внимания: 743.43 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldPrePass.compute.flow_directions: 743.43 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldPrePass compute flow accumulation (WorldPrePass.compute.flow_accumulation); причина — замер превысил порог вывода в лог и требует внимания: 957.41 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldPrePass.compute.flow_accumulation: 957.41 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldPrePass compute floodplain strength (WorldPrePass.compute.floodplain_strength); причина — замер превысил порог вывода в лог и требует внимания: 19.76 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldPrePass.compute.floodplain_strength: 19.76 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldPrePass compute erosion proxy (WorldPrePass.compute.erosion_proxy); причина — замер превысил порог вывода в лог и требует внимания: 392.91 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldPrePass.compute.erosion_proxy: 392.91 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.1ms/6.0ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldPrePass compute slope grid (WorldPrePass.compute.slope_grid); причина — замер превысил порог вывода в лог и требует внимания: 450.71 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldPrePass.compute.slope_grid: 450.71 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldPrePass compute rain shadow (WorldPrePass.compute.rain_shadow); причина — замер превысил порог вывода в лог и требует внимания: 1120.74 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldPrePass.compute.rain_shadow: 1120.74 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldPrePass compute continentalness seed water sources (WorldPrePass.compute.continentalness.seed_water_sources); причина — замер превысил порог вывода в лог и требует внимания: 35.11 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldPrePass.compute.continentalness.seed_water_sources: 35.11 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldPrePass compute continentalness (WorldPrePass.compute.continentalness); причина — замер превысил порог вывода в лог и требует внимания: 46.29 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldPrePass.compute.continentalness: 46.29 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldGenerator setup world pre pass configure (WorldGenerator._setup_world_pre_pass.configure); причина — замер превысил порог вывода в лог и требует внимания: 71.26 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldGenerator._setup_world_pre_pass.configure: 71.26 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldGenerator setup world pre pass compute (WorldGenerator._setup_world_pre_pass.compute); причина — замер превысил порог вывода в лог и требует внимания: 5579.29 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldGenerator._setup_world_pre_pass.compute: 5579.29 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldGenerator initialize world setup world pre pass (WorldGenerator.initialize_world.setup_world_pre_pass); причина — замер превысил порог вывода в лог и требует внимания: 5650.55 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldGenerator.initialize_world.setup_world_pre_pass: 5650.55 ms
+[WorldGenerator] Native ChunkGenerator initialized (6 biomes, authoritative WorldPrePass snapshot)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: WorldGenerator complete pending initialize world pending age ms (WorldGenerator.complete_pending_initialize_world.pending_age_ms); причина — замер превысил порог вывода в лог и требует внимания: 5651.79 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] WorldGenerator.complete_pending_initialize_world.pending_age_ms: 5651.79 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: init world generator (_init_world_generator); причина — замер превысил порог вывода в лог и требует внимания: 5655.48 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] _init_world_generator: 5655.48 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: GameWorld setup after loading screen (GameWorld._setup_after_loading_screen); причина — замер превысил порог вывода в лог и требует внимания: 5729.01 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] GameWorld._setup_after_loading_screen: 5729.01 ms
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[ChunkTilesetFactory] rock_atlas=240, wall_base=47, variants=5
+[ChunkTilesetFactory] ground_faces: start=259 count=47
+[WorldDiag] Менеджер чанков мира сообщил о задержке визуальной сходимости: текущий чанк игрока; причина — очередь догрузки мира ещё не довела текущий чанк до готового состояния; важность — заметно игроку сейчас; состояние — ждёт догрузку или применение.
+[WorldDiagDetail] actor=chunk_manager action=reported_visual_blocker target=player_chunk reason=queued_not_applied impact=player_visible_issue state=queued code=streaming_truth apply_age_ms=- border_fix_age_ms=- budget_exhausted=false chunk=(0, 0) chunk_loaded=false chunk_visible=false convergence_age_ms=- dispatcher_step_ms=0.00 first_pass_age_ms=- first_pass_ready=false full_ready=false full_redraw_age_ms=- issues_internal=not_loaded,load_queued,first_pass_not_ready phase=none queue_border_fix_far=0 queue_border_fix_near=0 queue_full_far=0 queue_full_near=0 queue_terrain_fast=0 queue_terrain_near=0 queue_terrain_urgent=0 requests_generating=false requests_load=true requests_staged=false state_name=not_loaded trigger=entered_chunk z=0
+[WorldDiag] Менеджер чанков мира сообщил о задержке визуальной сходимости: текущий чанк игрока; причина — очередь догрузки мира ещё не довела текущий чанк до готового состояния; важность — заметно игроку сейчас; состояние — ждёт догрузку или применение.
+[WorldDiagDetail] actor=chunk_manager action=reported_visual_blocker target=player_chunk reason=queued_not_applied impact=player_visible_issue state=queued code=streaming_truth apply_age_ms=- border_fix_age_ms=- budget_exhausted=false chunk=(0, 0) chunk_loaded=false chunk_visible=false convergence_age_ms=- dispatcher_step_ms=0.01 first_pass_age_ms=- first_pass_ready=false full_ready=false full_redraw_age_ms=- issues_internal=not_loaded,generating,first_pass_not_ready phase=none queue_border_fix_far=0 queue_border_fix_near=0 queue_full_far=0 queue_full_near=0 queue_terrain_fast=0 queue_terrain_near=0 queue_terrain_urgent=0 requests_generating=true requests_load=false requests_staged=false state_name=not_loaded trigger=scheduler z=0
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.streaming_load=0.0ms(19) chunk_manager.topology_rebuild=0.0ms(19) underground.fog_update=0.0ms(19) chunk_manager.streaming_redraw=0.0ms(19) mountain_shadow.visual_rebuild=0.0ms(19)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.4 ms, p99=10.5 ms, hitches=1
+[WorldPerf] Frame budget: dispatcher=0.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.2ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[ChunkGen] slow native generate_chunk (1, 0): 791.8 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[ChunkGen] slow native generate_chunk (0, 0): 816.3 ms
+[ChunkGen] slow native generate_chunk (0, -1): 817.4 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.3ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.4ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[ChunkGen] slow native generate_chunk (63, 0): 685.0 ms
+[ChunkGen] slow native generate_chunk (0, -1): 667.7 ms
+[ChunkGen] slow native generate_chunk (0, 0): 706.4 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.0 ms, p99=11.1 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.2ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.5ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=0.1ms | peaks: compute=0.0ms apply=3.7ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.0ms stream_redraw=1.1ms
+[WorldPerf] FPS: 145.0
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[ChunkGen] slow native generate_chunk (1, 0): 716.4 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[ChunkGen] slow native generate_chunk (0, 1): 840.0 ms
+[ChunkGen] slow native generate_chunk (63, 0): 842.0 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.1ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.1ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.2 ms, p99=17.0 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.3ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.7ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=0.3ms | peaks: compute=0.0ms apply=3.7ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.1ms stream_redraw=0.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[ChunkGen] slow native generate_chunk (1, -1): 728.2 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[ChunkGen] slow native generate_chunk (63, -1): 734.5 ms
+[ChunkGen] slow native generate_chunk (1, 1): 720.9 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.1ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.1ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.1 ms, p99=12.5 ms, hitches=1
+[WorldPerf] Frame budget: dispatcher=0.3ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.7ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=0.3ms | peaks: compute=0.0ms apply=7.3ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.8ms stream_redraw=1.1ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] FPS: 136.0
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[ChunkGen] slow native generate_chunk (63, 1): 815.6 ms
+[WorldPerf] Мировой перф-зонд зафиксировал перерасход фонового бюджета: фоновая задача mountain_shadow.visual_rebuild в категории visual; причина — шаг занял 4.04 ms при лимите 3.50 ms, перерасход 15.3%; важность — только фоновый долг сходимости; состояние — вышел за бюджет.
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=4.04 budget_ms=3.50 over_budget_pct=15.3
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:103)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[ChunkGen] slow native generate_chunk (0, -2): 767.9 ms
+[ChunkGen] slow native generate_chunk (2, 0): 785.5 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.3ms spawn=0.0ms total=0.3ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.3ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.0 ms, p99=8.3 ms, hitches=1
+[WorldPerf] Frame budget: dispatcher=0.3ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.1ms spawn=0.0ms total=0.6ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=0.1ms | peaks: compute=0.0ms apply=3.6ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.2ms stream_redraw=0.0ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: Shadow edge cache compute (63, 1) (Shadow.edge_cache_compute (63, 1)); причина — замер превысил порог вывода в лог и требует внимания: 390.94 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] Shadow.edge_cache_compute (63, 1): 390.94 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.2ms spawn=0.0ms total=0.3ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.2ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.0 ms, p99=13.0 ms, hitches=1
+[WorldPerf] Frame budget: dispatcher=0.3ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=1.4ms spawn=0.0ms total=1.9ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=0.2ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.1ms stream_redraw=1.1ms
+[ChunkGen] slow native generate_chunk (62, 0): 808.2 ms
+[ChunkGen] slow native generate_chunk (0, 2): 804.1 ms
+[ChunkGen] slow native generate_chunk (1, -2): 821.5 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] FPS: 139.0
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[ChunkGen] slow native generate_chunk (63, -2): 697.8 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.0 ms, p99=9.1 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.2ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.6ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=0.3ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.1ms stream_redraw=0.0ms
+[ChunkGen] slow native generate_chunk (2, -1): 732.8 ms
+[ChunkGen] slow native generate_chunk (62, -1): 718.2 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[ChunkGen] slow native generate_chunk (2, 1): 672.3 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.0 ms, p99=7.4 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.2ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.5ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=0.3ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.0ms stream_redraw=1.1ms
+[ChunkGen] slow native generate_chunk (62, 1): 693.2 ms
+[ChunkGen] slow native generate_chunk (1, 2): 675.9 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[ChunkGen] slow native generate_chunk (63, 2): 634.9 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[ChunkGen] slow native generate_chunk (2, -2): 691.3 ms
+[ChunkGen] slow native generate_chunk (62, -2): 651.1 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.0 ms, p99=10.7 ms, hitches=1
+[WorldPerf] Frame budget: dispatcher=0.2ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.5ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=0.2ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.1ms stream_redraw=0.0ms
+[WorldPerf] FPS: 144.0
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[ChunkGen] slow native generate_chunk (2, 2): 613.3 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (0, 0)@z0); причина — замер превысил порог вывода в лог и требует внимания: 16761.58 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (0, 0)@z0: 16761.58 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[ChunkGen] slow native generate_chunk (62, 2): 591.6 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.0 ms, p99=9.7 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.2ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.5ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0 other=0.3ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=0.0ms stream_redraw=1.1ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.2ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.2ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] FPS: 145.0
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.2ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.2ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (63, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 15874.68 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (63, 1)@z0: 15874.68 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (1, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 17920.56 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (1, 1)@z0: 17920.56 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (0, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 20084.65 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (0, 1)@z0: 20084.65 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (63, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 18017.44 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (63, -1)@z0: 18017.44 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (0, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 22514.85 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (0, -1)@z0: 22514.85 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (1, 0)@z0); причина — замер превысил порог вывода в лог и требует внимания: 20381.72 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (1, 0)@z0: 20381.72 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (63, 0)@z0); причина — замер превысил порог вывода в лог и требует внимания: 20123.29 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (63, 0)@z0: 20123.29 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (1, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 18363.28 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (1, -1)@z0: 18363.28 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.2ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.2ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.2ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.2ms/6.0ms
+[WorldPerf] FPS: 145.0
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=6.9 ms, p99=6.9 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=0.2ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=0.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=0.0ms spawn=0.0ms total=0.2ms/6.0ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (0, 0)@z0); причина — замер превысил порог вывода в лог и требует внимания: 28753.31 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (0, 0)@z0: 28753.31 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (63, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 22258.73 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (63, 1)@z0: 22258.73 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (0, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 26443.32 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (0, 1)@z0: 26443.32 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (1, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 24306.14 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (1, 1)@z0: 24306.14 ms
+[FrameBudget] streaming=0.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.0ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=0.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=0.0ms(60) mountain_shadow.visual_rebuild=0.0ms(60)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (0, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 28918.22 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (0, -1)@z0: 28918.22 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (63, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 24487.92 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (63, -1)@z0: 24487.92 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (63, 0)@z0); причина — замер превысил порог вывода в лог и требует внимания: 26536.81 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (63, 0)@z0: 26536.81 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (1, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 24788.44 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (1, -1)@z0: 24788.44 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (1, 0)@z0); причина — замер превысил порог вывода в лог и требует внимания: 26836.33 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (1, 0)@z0: 26836.33 ms
+[Boot] first_playable reached (33292.6 ms) | queue_wait=275101.7ms compute=48707.4ms (25 chunks) apply=36.2ms (9 chunks) redraw=0.0ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: Startup loading screen visible to startup bubble ready ms (Startup.loading_screen_visible_to_startup_bubble_ready_ms); причина — замер превысил порог вывода в лог и требует внимания: 47430.83 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] Startup.loading_screen_visible_to_startup_bubble_ready_ms: 47430.83 ms
+[WorldPerf] Мировой перф-зонд зафиксировал перерасход фонового бюджета: фоновая задача chunk_manager.streaming_load в категории streaming; причина — шаг занял 7.53 ms при лимите 3.00 ms, перерасход 151.0%; важность — только фоновый долг сходимости; состояние — вышел за бюджет.
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_load category=streaming used_ms=7.53 budget_ms=3.00 over_budget_pct=151.0
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:103)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldDiag] Менеджер чанков мира подтвердил стабильное визуальное состояние: текущий чанк игрока; причина — ключевые визуальные очереди для текущего чанка пусты; важность — информационно, без текущего риска игроку; состояние — сошёлся.
+[WorldDiagDetail] actor=chunk_manager action=reported_visual_health target=player_chunk reason=healthy impact=informational_only state=converged apply_age_ms=29018 border_fix_age_ms=- budget_exhausted=false chunk=(0, 0) chunk_loaded=true chunk_visible=true convergence_age_ms=29018 dispatcher_step_ms=0.01 first_pass_age_ms=- first_pass_ready=true full_ready=true full_redraw_age_ms=- issues_internal=healthy phase=done queue_border_fix_far=0 queue_border_fix_near=0 queue_full_far=0 queue_full_near=0 queue_terrain_fast=0 queue_terrain_near=0 queue_terrain_urgent=0 requests_generating=false requests_load=false requests_staged=false state_name=full_ready trigger=scheduler z=0
+[WorldDiag] Потоковая догрузка мира поставила в очередь правка границы чанка: соседний загруженный чанк ((0, -1)); причина — после появления нового чанка нужно выровнять границу уже загруженных соседей; важность — заметно игроку сейчас; состояние — очередь ещё не применена.
+[WorldDiagDetail] actor=stream_load action=queue_follow_up target=adjacent_loaded_chunk reason=queued_not_applied impact=player_visible_issue state=queued code=border_fix follow_up=border_fix queue_border_fix_far=0 queue_border_fix_near=1 queued_chunks=(0, -1) queued_count=1 source_chunk=(0, -2) target_scope=adjacent_loaded_chunk z=0
+[WorldDiag] Потоковая догрузка мира поставила в очередь правка границы чанка: соседний загруженный чанк ((1, 0)); причина — после появления нового чанка нужно выровнять границу уже загруженных соседей; важность — заметно игроку сейчас; состояние — очередь ещё не применена.
+[WorldDiagDetail] actor=stream_load action=queue_follow_up target=adjacent_loaded_chunk reason=queued_not_applied impact=player_visible_issue state=queued code=border_fix follow_up=border_fix queue_border_fix_far=0 queue_border_fix_near=2 queued_chunks=(1, 0) queued_count=1 source_chunk=(2, 0) target_scope=adjacent_loaded_chunk z=0
+[WorldPerf] Мировой перф-зонд зафиксировал перерасход фонового бюджета: фоновая задача chunk_manager.streaming_redraw в категории visual; причина — шаг занял 4.53 ms при лимите 4.00 ms, перерасход 13.2%; важность — только фоновый долг сходимости; состояние — вышел за бюджет.
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.53 budget_ms=4.00 over_budget_pct=13.2
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:103)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldDiag] Потоковая догрузка мира поставила в очередь правка границы чанка: соседний загруженный чанк ((63, 0)); причина — после появления нового чанка нужно выровнять границу уже загруженных соседей; важность — заметно игроку сейчас; состояние — очередь ещё не применена.
+[WorldDiagDetail] actor=stream_load action=queue_follow_up target=adjacent_loaded_chunk reason=queued_not_applied impact=player_visible_issue state=queued code=border_fix follow_up=border_fix queue_border_fix_far=0 queue_border_fix_near=3 queued_chunks=(63, 0) queued_count=1 source_chunk=(62, 0) target_scope=adjacent_loaded_chunk z=0
+[WorldDiag] Потоковая догрузка мира поставила в очередь правка границы чанка: соседний загруженный чанк ((0, 1)); причина — после появления нового чанка нужно выровнять границу уже загруженных соседей; важность — заметно игроку сейчас; состояние — очередь ещё не применена.
+[WorldDiagDetail] actor=stream_load action=queue_follow_up target=adjacent_loaded_chunk reason=queued_not_applied impact=player_visible_issue state=queued code=border_fix follow_up=border_fix queue_border_fix_far=0 queue_border_fix_near=2 queued_chunks=(0, 1) queued_count=1 source_chunk=(0, 2) target_scope=adjacent_loaded_chunk z=0
+[WorldDiag] Потоковая догрузка мира поставила в очередь правка границы чанка: соседний загруженный чанк ((1, -1)); причина — после появления нового чанка нужно выровнять границу уже загруженных соседей; важность — заметно игроку сейчас; состояние — очередь ещё не применена.
+[WorldDiagDetail] actor=stream_load action=queue_follow_up target=adjacent_loaded_chunk reason=queued_not_applied impact=player_visible_issue state=queued code=border_fix follow_up=border_fix queue_border_fix_far=0 queue_border_fix_near=3 queued_chunks=(1, -1) queued_count=1 source_chunk=(1, -2) target_scope=adjacent_loaded_chunk z=0
+[WorldDiag] Потоковая догрузка мира поставила в очередь правка границы чанка: соседний загруженный чанк ((63, -1)); причина — после появления нового чанка нужно выровнять границу уже загруженных соседей; важность — заметно игроку сейчас; состояние — очередь ещё не применена.
+[WorldDiagDetail] actor=stream_load action=queue_follow_up target=adjacent_loaded_chunk reason=queued_not_applied impact=player_visible_issue state=queued code=border_fix follow_up=border_fix queue_border_fix_far=0 queue_border_fix_near=5 queued_chunks=(63, -1) queued_count=1 source_chunk=(63, -2) target_scope=adjacent_loaded_chunk z=0
+[WorldDiag] Потоковая догрузка мира поставила в очередь правка границы чанка: соседний загруженный чанк ((1, -1)); причина — после появления нового чанка нужно выровнять границу уже загруженных соседей; важность — заметно игроку сейчас; состояние — очередь ещё не применена.
+[WorldDiagDetail] actor=stream_load action=queue_follow_up target=adjacent_loaded_chunk reason=queued_not_applied impact=player_visible_issue state=queued code=border_fix follow_up=border_fix queue_border_fix_far=0 queue_border_fix_near=5 queued_chunks=(1, -1) queued_count=1 source_chunk=(2, -1) target_scope=adjacent_loaded_chunk z=0
+[WorldPerf] Мировой перф-зонд зафиксировал перерасход фонового бюджета: фоновая задача chunk_manager.streaming_redraw в категории visual; причина — шаг занял 7.66 ms при лимите 4.00 ms, перерасход 91.4%; важность — только фоновый долг сходимости; состояние — вышел за бюджет.
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=7.66 budget_ms=4.00 over_budget_pct=91.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:103)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldDiag] Потоковая догрузка мира поставила в очередь правка границы чанка: соседний загруженный чанк ((63, -1)); причина — после появления нового чанка нужно выровнять границу уже загруженных соседей; важность — заметно игроку сейчас; состояние — очередь ещё не применена.
+[WorldDiagDetail] actor=stream_load action=queue_follow_up target=adjacent_loaded_chunk reason=queued_not_applied impact=player_visible_issue state=queued code=border_fix follow_up=border_fix queue_border_fix_far=0 queue_border_fix_near=4 queued_chunks=(63, -1) queued_count=1 source_chunk=(62, -1) target_scope=adjacent_loaded_chunk z=0
+[WorldDiag] Потоковая догрузка мира поставила в очередь правка границы чанка: соседний загруженный чанк ((1, 1)); причина — после появления нового чанка нужно выровнять границу уже загруженных соседей; важность — заметно игроку сейчас; состояние — очередь ещё не применена.
+[WorldDiagDetail] actor=stream_load action=queue_follow_up target=adjacent_loaded_chunk reason=queued_not_applied impact=player_visible_issue state=queued code=border_fix follow_up=border_fix queue_border_fix_far=0 queue_border_fix_near=7 queued_chunks=(1, 1) queued_count=1 source_chunk=(2, 1) target_scope=adjacent_loaded_chunk z=0
+[WorldDiag] Потоковая догрузка мира поставила в очередь правка границы чанка: соседний загруженный чанк ((63, 1)); причина — после появления нового чанка нужно выровнять границу уже загруженных соседей; важность — заметно игроку сейчас; состояние — очередь ещё не применена.
+[WorldDiagDetail] actor=stream_load action=queue_follow_up target=adjacent_loaded_chunk reason=queued_not_applied impact=player_visible_issue state=queued code=border_fix follow_up=border_fix queue_border_fix_far=0 queue_border_fix_near=7 queued_chunks=(63, 1) queued_count=1 source_chunk=(62, 1) target_scope=adjacent_loaded_chunk z=0
+[WorldDiag] Потоковая догрузка мира поставила в очередь правка границы чанка: соседний загруженный чанк ((1, 1)); причина — после появления нового чанка нужно выровнять границу уже загруженных соседей; важность — заметно игроку сейчас; состояние — очередь ещё не применена.
+[WorldDiagDetail] actor=stream_load action=queue_follow_up target=adjacent_loaded_chunk reason=queued_not_applied impact=player_visible_issue state=queued code=border_fix follow_up=border_fix queue_border_fix_far=0 queue_border_fix_near=7 queued_chunks=(1, 1) queued_count=1 source_chunk=(1, 2) target_scope=adjacent_loaded_chunk z=0
+[WorldDiag] Потоковая догрузка мира поставила в очередь правка границы чанка: соседний загруженный чанк ((63, 1)); причина — после появления нового чанка нужно выровнять границу уже загруженных соседей; важность — заметно игроку сейчас; состояние — очередь ещё не применена.
+[WorldDiagDetail] actor=stream_load action=queue_follow_up target=adjacent_loaded_chunk reason=queued_not_applied impact=player_visible_issue state=queued code=border_fix follow_up=border_fix queue_border_fix_far=0 queue_border_fix_near=7 queued_chunks=(63, 1) queued_count=1 source_chunk=(63, 2) target_scope=adjacent_loaded_chunk z=0
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: Shadow edge cache compute (63, 1) (Shadow.edge_cache_compute (63, 1)); причина — замер превысил порог вывода в лог и требует внимания: 259.23 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] Shadow.edge_cache_compute (63, 1): 259.23 ms
+[WorldPerf] Мировой перф-зонд зафиксировал перерасход фонового бюджета: фоновая задача mountain_shadow.visual_rebuild в категории visual; причина — шаг занял 3.85 ms при лимите 3.50 ms, перерасход 9.9%; важность — только фоновый долг сходимости; состояние — вышел за бюджет.
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=mountain_shadow.visual_rebuild category=visual used_ms=3.85 budget_ms=3.50 over_budget_pct=9.9
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:103)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время правки границы чанка (stream.chunk_border_fix_ms (0, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 289.98 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_border_fix_ms (0, -1)@z0: 289.98 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (0, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 290.21 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (0, -1)@z0: 290.21 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время правки границы чанка (stream.chunk_border_fix_ms (1, 0)@z0); причина — замер превысил порог вывода в лог и требует внимания: 301.24 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_border_fix_ms (1, 0)@z0: 301.24 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (1, 0)@z0); причина — замер превысил порог вывода в лог и требует внимания: 301.50 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (1, 0)@z0: 301.50 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время правки границы чанка (stream.chunk_border_fix_ms (63, 0)@z0); причина — замер превысил порог вывода в лог и требует внимания: 282.67 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_border_fix_ms (63, 0)@z0: 282.67 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (63, 0)@z0); причина — замер превысил порог вывода в лог и требует внимания: 282.91 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (63, 0)@z0: 282.91 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время правки границы чанка (stream.chunk_border_fix_ms (0, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 282.60 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_border_fix_ms (0, 1)@z0: 282.60 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (0, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 282.88 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (0, 1)@z0: 282.88 ms
+[FrameBudget] streaming=1.6ms topology=1.7ms visual=2.6ms spawn=0.0ms total=5.8ms/6.0ms chunk_manager.streaming_load=1.6ms(60) building.room_recompute=0.0ms(59) power.balance_recompute=0.0ms(59) chunk_manager.topology_rebuild=1.6ms(59) underground.fog_update=0.0ms(58) chunk_manager.streaming_redraw=2.1ms(57) mountain_shadow.visual_rebuild=0.4ms(37)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: Shadow edge cache compute (2, 1) (Shadow.edge_cache_compute (2, 1)); причина — замер превысил порог вывода в лог и требует внимания: 133.05 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] Shadow.edge_cache_compute (2, 1): 133.05 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время правки границы чанка (stream.chunk_border_fix_ms (1, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 348.36 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_border_fix_ms (1, 1)@z0: 348.36 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (1, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 318.89 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (1, 1)@z0: 318.89 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время правки границы чанка (stream.chunk_border_fix_ms (63, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 410.78 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_border_fix_ms (63, -1)@z0: 410.78 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (63, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 370.09 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (63, -1)@z0: 370.09 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время правки границы чанка (stream.chunk_border_fix_ms (1, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 427.42 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_border_fix_ms (1, -1)@z0: 427.42 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (1, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 393.43 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (1, -1)@z0: 393.43 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время правки границы чанка (stream.chunk_border_fix_ms (63, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 363.39 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_border_fix_ms (63, 1)@z0: 363.39 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (63, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 340.56 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (63, 1)@z0: 340.56 ms
+[Boot] first_playable reached (33882.9 ms) | queue_wait=275101.7ms compute=48707.4ms (25 chunks) apply=36.2ms (9 chunks) redraw=0.0ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: Shadow edge cache compute (62, 1) (Shadow.edge_cache_compute (62, 1)); причина — замер превысил порог вывода в лог и требует внимания: 139.36 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] Shadow.edge_cache_compute (62, 1): 139.36 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: Shadow edge cache compute (63, 2) (Shadow.edge_cache_compute (63, 2)); причина — замер превысил порог вывода в лог и требует внимания: 130.84 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] Shadow.edge_cache_compute (63, 2): 130.84 ms
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=4.2ms spawn=0.0ms total=6.2ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.6ms(60) mountain_shadow.visual_rebuild=0.5ms(41)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.7 ms, p99=16.7 ms, hitches=1
+[WorldPerf] Frame budget: dispatcher=2.6ms streaming=0.0ms streaming_load=0.3ms streaming_redraw=0.0ms topology=0.7ms building=0.0ms power=0.0ms visual=0.1ms shadow=3.7ms spawn=0.0ms total=7.5ms/6.0ms
+[WorldPerf] Boot detail: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=2 other=0.0ms | peaks: compute=0.0ms apply=0.0ms redraw=0.0ms topology=0.0ms shadow=0.0ms milestones=0.0ms stream_load=7.5ms stream_redraw=1.2ms
+[WorldPerf] Observability: Startup.loading_screen_visible_to_startup_bubble_ready_ms=47430.8ms, Startup.startup_bubble_ready=0.0ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: Shadow edge cache compute (62, 2) (Shadow.edge_cache_compute (62, 2)); причина — замер превысил порог вывода в лог и требует внимания: 250.48 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] Shadow.edge_cache_compute (62, 2): 250.48 ms
+[WorldPerf] Мировой перф-зонд зафиксировал перерасход фонового бюджета: фоновая задача chunk_manager.streaming_redraw в категории visual; причина — шаг занял 4.34 ms при лимите 4.00 ms, перерасход 8.4%; важность — только фоновый долг сходимости; состояние — вышел за бюджет.
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.34 budget_ms=4.00 over_budget_pct=8.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:103)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Мировой перф-зонд зафиксировал перерасход фонового бюджета: фоновая задача chunk_manager.topology_rebuild в категории topology; причина — шаг занял 2.12 ms при лимите 2.00 ms, перерасход 6.0%; важность — только фоновый долг сходимости; состояние — вышел за бюджет.
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.topology_rebuild category=topology used_ms=2.12 budget_ms=2.00 over_budget_pct=6.0
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:103)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: Shadow stale age ms (Shadow.stale_age_ms); причина — замер превысил порог вывода в лог и требует внимания: 1300.32 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] Shadow.stale_age_ms: 1300.32 ms
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=4.0ms spawn=0.0ms total=6.1ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.7ms(60) mountain_shadow.visual_rebuild=0.3ms(48)
+[WorldPerf] FPS: 115.0
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=3.9ms spawn=0.0ms total=5.9ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.8ms(60) mountain_shadow.visual_rebuild=0.0ms(39)
+[WorldPerf] Мировой перф-зонд зафиксировал перерасход фонового бюджета: фоновая задача chunk_manager.streaming_redraw в категории visual; причина — шаг занял 4.07 ms при лимите 4.00 ms, перерасход 1.8%; важность — только фоновый долг сходимости; состояние — вышел за бюджет.
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.07 budget_ms=4.00 over_budget_pct=1.8
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:103)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=3.8ms spawn=0.0ms total=5.8ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.8ms(60) mountain_shadow.visual_rebuild=0.0ms(45)
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=3.8ms spawn=0.0ms total=5.8ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.8ms(60) mountain_shadow.visual_rebuild=0.0ms(42)
+[WorldPerf] Мировой перф-зонд зафиксировал перерасход фонового бюджета: фоновая задача chunk_manager.streaming_redraw в категории visual; причина — шаг занял 4.31 ms при лимите 4.00 ms, перерасход 7.7%; важность — только фоновый долг сходимости; состояние — вышел за бюджет.
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.31 budget_ms=4.00 over_budget_pct=7.7
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:103)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=3.9ms spawn=0.0ms total=5.9ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.9ms(60) mountain_shadow.visual_rebuild=0.0ms(41)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.7 ms, p99=8.3 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=6.1ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=2.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=9.1ms spawn=0.0ms total=17.2ms/6.0ms
+[WorldPerf] Observability: Shadow.stale_age_ms=1300.3ms
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=3.9ms spawn=0.0ms total=5.9ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.8ms(60) mountain_shadow.visual_rebuild=0.0ms(41)
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=3.8ms spawn=0.0ms total=5.9ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.8ms(60) mountain_shadow.visual_rebuild=0.0ms(37)
+[WorldPerf] Мировой перф-зонд зафиксировал перерасход фонового бюджета: фоновая задача chunk_manager.streaming_redraw в категории visual; причина — шаг занял 4.55 ms при лимите 4.00 ms, перерасход 13.8%; важность — только фоновый долг сходимости; состояние — вышел за бюджет.
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.55 budget_ms=4.00 over_budget_pct=13.8
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:103)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=3.8ms spawn=0.0ms total=5.9ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.8ms(60) mountain_shadow.visual_rebuild=0.0ms(46)
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=3.8ms spawn=0.0ms total=5.9ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.8ms(60) mountain_shadow.visual_rebuild=0.0ms(50)
+[WorldPerf] Мировой перф-зонд зафиксировал перерасход фонового бюджета: фоновая задача chunk_manager.streaming_redraw в категории visual; причина — шаг занял 4.18 ms при лимите 4.00 ms, перерасход 4.4%; важность — только фоновый долг сходимости; состояние — вышел за бюджет.
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.18 budget_ms=4.00 over_budget_pct=4.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:103)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=3.8ms spawn=0.0ms total=5.9ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.8ms(60) mountain_shadow.visual_rebuild=0.0ms(50)
+[WorldPerf] === Frame Summary (300 frames) ===
+[WorldPerf] Frame time: avg=7.6 ms, p99=8.3 ms, hitches=0
+[WorldPerf] Frame budget: dispatcher=6.0ms streaming=0.0ms streaming_load=0.0ms streaming_redraw=0.0ms topology=2.0ms building=0.0ms power=0.0ms visual=0.0ms shadow=3.8ms spawn=0.0ms total=11.9ms/6.0ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (62, 2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 5614.90 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (62, 2)@z0: 5614.90 ms
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=3.9ms spawn=0.0ms total=5.9ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.8ms(60) mountain_shadow.visual_rebuild=0.0ms(51)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (62, 0)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6090.18 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (62, 0)@z0: 6090.18 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (62, 2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 5888.17 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (62, 2)@z0: 5888.17 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (0, -2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6164.83 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (0, -2)@z0: 6164.83 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (1, 2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 5999.89 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (1, 2)@z0: 5999.89 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (62, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6139.15 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (62, -1)@z0: 6139.15 ms
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=3.8ms spawn=0.0ms total=5.9ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.8ms(60) mountain_shadow.visual_rebuild=0.0ms(50)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (2, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6265.55 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (2, -1)@z0: 6265.55 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (62, 0)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6397.27 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (62, 0)@z0: 6397.27 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (2, -2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6279.49 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (2, -2)@z0: 6279.49 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (0, -2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6495.23 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (0, -2)@z0: 6495.23 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (1, 2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6347.22 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (1, 2)@z0: 6347.22 ms
+[WorldPerf] FPS: 135.0
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (2, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6445.33 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (2, 1)@z0: 6445.33 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (62, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6497.91 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (62, -1)@z0: 6497.91 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (2, -1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6618.89 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (2, -1)@z0: 6618.89 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (62, -2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6576.10 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (62, -2)@z0: 6576.10 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (2, -2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6612.32 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (2, -2)@z0: 6612.32 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (63, -2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6746.97 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (63, -2)@z0: 6746.97 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (2, 2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6615.09 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (2, 2)@z0: 6615.09 ms
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=3.7ms spawn=0.0ms total=5.8ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.7ms(60) mountain_shadow.visual_rebuild=0.0ms(57)
+[WorldPerf] Мировой перф-зонд зафиксировал перерасход фонового бюджета: фоновая задача chunk_manager.streaming_redraw в категории visual; причина — шаг занял 4.10 ms при лимите 4.00 ms, перерасход 2.4%; важность — только фоновый долг сходимости; состояние — вышел за бюджет.
+WARNING: [WorldPerf] WARNING: FrameBudget overrun job_id=chunk_manager.streaming_redraw category=visual used_ms=4.10 budget_ms=4.00 over_budget_pct=2.4
+   at: push_warning (core/variant/variant_utility.cpp:1034)
+   GDScript backtrace (most recent call first):
+       [0] report_budget_overrun (res://core/systems/world/world_perf_probe.gd:103)
+       [1] _process (res://core/autoloads/frame_budget_dispatcher.gd:76)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (2, 0)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6884.05 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (2, 0)@z0: 6884.05 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (1, -2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6855.85 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (1, -2)@z0: 6855.85 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (2, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6797.73 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (2, 1)@z0: 6797.73 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (62, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6943.08 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (62, 1)@z0: 6943.08 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (62, -2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 6946.04 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (62, -2)@z0: 6946.04 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (0, 2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 7140.79 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (0, 2)@z0: 7140.79 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (63, -2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 7119.59 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (63, -2)@z0: 7119.59 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (2, 2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 7003.99 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (2, 2)@z0: 7003.99 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время первого визуального прохода чанка (stream.chunk_first_pass_ms (63, 2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 7098.33 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_first_pass_ms (63, 2)@z0: 7098.33 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (2, 0)@z0); причина — замер превысил порог вывода в лог и требует внимания: 7298.15 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (2, 0)@z0: 7298.15 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (1, -2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 7294.82 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (1, -2)@z0: 7294.82 ms
+[FrameBudget] streaming=0.0ms topology=2.0ms visual=3.8ms spawn=0.0ms total=5.8ms/6.0ms chunk_manager.streaming_load=0.0ms(60) building.room_recompute=0.0ms(60) power.balance_recompute=0.0ms(60) chunk_manager.topology_rebuild=2.0ms(60) underground.fog_update=0.0ms(60) chunk_manager.streaming_redraw=3.8ms(60) mountain_shadow.visual_rebuild=0.0ms(55)
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (62, 1)@z0); причина — замер превысил порог вывода в лог и требует внимания: 7360.98 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (62, 1)@z0: 7360.98 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (0, 2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 7523.00 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (0, 2)@z0: 7523.00 ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: время полной перерисовки чанка (stream.chunk_full_redraw_ms (63, 2)@z0); причина — замер превысил порог вывода в лог и требует внимания: 7445.89 ms; важность — только фоновый долг сходимости; состояние — наблюдается всплеск.
+[WorldPerf] stream.chunk_full_redraw_ms (63, 2)@z0: 7445.89 ms
+[Boot] boot_complete reached (41009.9 ms) | queue_wait=275101.7ms compute=48707.4ms (25 chunks) apply=36.2ms (9 chunks) redraw=0.0ms
+[WorldPerf] Мировой перф-зонд зафиксировал заметный по времени шаг: Startup startup bubble ready to boot complete ms (Startup.startup_bubble_ready_to_boot_complete_ms); причина — замер превысил порог вывода в лог и требует внимания: 7692.32 ms; важность — информационно, без текущего риска игроку; состояние — наблюдается всплеск.
+[WorldPerf] Startup.startup_bubble_ready_to_boot_complete_ms: 7692.32 ms
+[CodexValidation] boot proof complete; quitting
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 16 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

@@ -29,6 +29,11 @@ related_docs:
 
 Runtime landmark validation, soft-fix remediation, wow-region boot checks, and any form of lucky-seed search are rejected and removed from the active direction of this spec.
 
+Historical note as of 2026-04-09:
+- this document is `source_of_truth: false` and must not be used to justify the old native directed-band structure stage;
+- current runtime/native source of truth is the `WorldPrePass` pipeline documented in `DATA_CONTRACTS.md`, `native_chunk_generation_spec.md`, and `natural_world_constructive_runtime_spec.md`;
+- any remaining mentions below of `hot_evaporation_rate`, `DRY_RIVERBED` as an active runtime terrain path, native `flora_placements`, or directed-band native structure sampling are historical design notes, not the shipped architecture.
+
 Новый принцип:
 - мир должен становиться выразительным по конструкции, а не через post-hoc проверку «достаточно ли красиво»
 - seed задаёт макро-скелет мира, а не становится кандидатом на отбраковку

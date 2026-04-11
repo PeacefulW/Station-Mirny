@@ -746,7 +746,7 @@ Required updates:
 - `BiomeResult` отдаёт top-2 + `ecotone_factor`;
 - flora/local variation/terrain consumers реально используют экотоны;
 - native path не расходится со script path;
-- legacy band path удалён или превращён в пустой accessor;
+- legacy band path удалён физически, без compatibility accessor и dual-path runtime;
 - fixed-seed screenshots через `WorldLab` показывают видимый прогресс по Terrain, Biome, Climate и Ecotone без reroll.
 
 ## Transition Note

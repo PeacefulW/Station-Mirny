@@ -55,7 +55,11 @@ Until superseded, this document is mandatory reading for any iteration that touc
 | Topology | `derived` | `ChunkManager`, with native `MountainTopologyBuilder` behind it when enabled | surface topology caches | `MountainRoofSystem` and topology getters | surface-only, loaded-bubble scoped, incremental patch + deferred dirty rebuild |
 | Reveal | `derived` | `MountainRoofSystem`, `UndergroundFogState`, `ChunkManager` fog applier | local cover reveal and underground fog state | chunk cover/fog presentation and reveal getters | active-z dependent, loaded-bubble scoped, immediate/deferred hybrid |
 | Visual Task Scheduling | `derived` | `ChunkManager` | per-chunk visual task queues, dedupe/version state, scheduler telemetry | `ChunkManager` boot/runtime loops, instrumentation | loaded-bubble scoped, per-tick budgeted, not persisted |
-| Presentation | `presentation-only` | `Chunk`, `MountainShadowSystem`, `WorldFeatureDebugOverlay` | TileMap, shadow sprite, and debug anchor-marker output | Godot renderer, debug inspection | loaded-only, redraw-driven, surface shadow build is sun-angle dependent |
+| Chunk Debug Overlay Snapshot | `derived` | `ChunkManager` | bounded per-player debug snapshot assembled from existing chunk/queue/readiness state plus bounded incident/trace correlations | `WorldChunkDebugOverlay`, debug inspection | active-z, bounded debug radius, read-only, not persisted |
+| Runtime Diagnostic Timeline Buffer | `derived` | `WorldRuntimeDiagnosticLog` | bounded diagnostic event ring buffer with dedupe metadata and optional `trace_id` / `incident_id` correlation | `WorldChunkDebugOverlay`, debug inspection, validation tooling | transient, cooldown-deduped, not gameplay truth |
+| F11 Chunk Debug Overlay Log File | `derived` / `debug-only` | `WorldChunkDebugOverlay` | per-process diagnostic `.log` artifact serialized from the bounded F11 snapshot | humans, agents, debug inspection | writes only while overlay is visible, overwritten on first F11 open per process, not save/load truth |
+| F11 Chunk Incident Dump File | `derived` / `debug-only` | `WorldChunkDebugOverlay` | explicit on-demand incident dump serialized from one bounded snapshot and bounded trace buffers | humans, agents, debug inspection | written only on manual `Ctrl+F11`, may say `no_active_incident`, not save/load truth |
+| Presentation | `presentation-only` | `Chunk`, `MountainShadowSystem`, `WorldFeatureDebugOverlay`, `WorldChunkDebugOverlay` | TileMap, shadow sprite, debug anchor-marker output, and debug chunk overlay drawing | Godot renderer, debug inspection | loaded-only/redraw-driven for world presentation; read-only snapshot-driven for debug overlay |
 | Boot Readiness | `derived` | `ChunkManager` | per-chunk boot state tracking and aggregate gate flags | `GameWorld`, boot progress UI, instrumentation | boot-time only, not persisted |
 
 ## Scope
@@ -77,6 +81,9 @@ Observed files for this version:
 - `core/systems/world/chunk_manager.gd`
 - `core/systems/world/chunk.gd`
 - `core/systems/world/world_feature_debug_overlay.gd`
+- `core/debug/world_chunk_debug_overlay.gd`
+- `core/debug/world_runtime_diagnostic_log.gd`
+- `core/autoloads/world_perf_monitor.gd`
 - `core/systems/world/surface_terrain_resolver.gd`
 - `core/systems/world/underground_fog_state.gd`
 - `core/systems/world/mountain_roof_system.gd`
@@ -94,8 +101,8 @@ Observed files for this version:
 - `WorldFeatureDebugOverlay` consumes cached copies of already-built `feature_and_poi_payload` records as a debug-only presentation proof; disabling that overlay does not change placement truth.
 - `WorldPrePass` owns boot-time coarse-grid prepass state (`_height_grid`, `_filled_height_grid`, `_flow_dir_grid`, `_accumulation_grid`, `_drainage_grid`, `_river_mask_grid`, `_river_width_grid`, `_river_distance_grid`, `_floodplain_strength_grid`, `_ridge_strength_grid`, `_mountain_mass_grid`, `_eroded_height_grid`, `_slope_grid`, `_rain_shadow_grid`, `_continentalness_grid`, `_spine_seeds`, `_ridge_paths`, `_lake_mask`, `_lake_records`) derived from the initialized `PlanetSampler` plus `WorldGenBalance`; each `RidgePath` now carries the raw coarse-grid polyline plus internal `spline_samples` (stored in wrap-local continuous X space for seam-safe smoothing) and `spline_half_widths`.
 - `WorldGenerator.initialize_world()` or the staged `begin_initialize_world_async()` -> `complete_pending_initialize_world()` flow computes `WorldPrePass` before `WorldComputeContext` creation and publishes one read-only snapshot for the requested seed into runtime state.
-- `WorldPrePass.sample()` / `get_grid_value()` expose `height`, normalized `drainage`, `river_width`, `river_distance`, normalized `floodplain_strength`, normalized `ridge_strength`, normalized `mountain_mass`, normalized `slope`, normalized `rain_shadow`, and normalized `continentalness`. `WorldComputeContext.sample_prepass_channels()` packages the normalized `drainage`, `slope`, `rain_shadow`, and `continentalness` subset into a lightweight runtime-safe container for consumers that should not traffic in channel-name strings. Filled-height, eroded-height, flow-direction, accumulation internals, river mask, spine-seed, ridge-graph, raw ridge spline data, and lake data remain internal-only outside those curated APIs.
-- `WorldComputeContext.sample_structure_context()` now builds `WorldStructureContext` from that published pre-pass snapshot: `ridge_strength`, `mountain_mass`, `floodplain_strength`, `river_distance`, and `river_width` come directly from `WorldPrePass`, while runtime `river_strength` is derived from the sampled river metrics rather than legacy band/noise structure sampling.
+- `WorldPrePass.sample()` / `get_grid_value()` expose `height`, normalized `drainage`, `river_width`, `river_distance`, normalized `floodplain_strength`, normalized `ridge_strength`, normalized `mountain_mass`, normalized `slope`, normalized `rain_shadow`, and normalized `continentalness`. The published `river_width` / `river_distance` pair is the single visible hydrology handoff for both river corridors and qualifying lake basins; raw lake records and `lake_mask` remain internal-only outside those curated APIs. `WorldComputeContext.sample_prepass_channels()` packages the normalized `drainage`, `slope`, `rain_shadow`, and `continentalness` subset into a lightweight runtime-safe container for consumers that should not traffic in channel-name strings. Filled-height, eroded-height, flow-direction, accumulation internals, river mask, spine-seed, ridge-graph, raw ridge spline data, and lake data remain internal-only outside those curated APIs.
+- `WorldComputeContext.sample_structure_context()` now builds `WorldStructureContext` from that published pre-pass snapshot: `ridge_strength`, `mountain_mass`, `floodplain_strength`, `river_distance`, and `river_width` come directly from `WorldPrePass`, while runtime `river_strength` is derived as a continuous width-and-proximity semantic from those sampled hydrology metrics, including lake-fed basins that were folded into the same published river channels. `mountain_mass` is the broader massif-fill companion to `ridge_strength`, not just a second copy of the ridge core; `river_strength` must clamp to zero when sampled `river_width` is absent; runtime terrain consumers read the same pre-pass-driven river corridor and mountain-support semantics instead of legacy band/noise structure sampling.
 - `WorldComputeContext.resolve_biome()` now samples typed `WorldPrePassChannels` and passes them into `BiomeResolver`, so causal biome scoring consumes the curated pre-pass facade rather than reading `WorldPrePass` internals directly.
 - Public `WorldGenerator.resolve_biome()` preserves its caller-facing signature but delegates to `WorldComputeContext.resolve_biome()`, so runtime biome reads no longer bypass the pre-pass-powered authoritative path.
 - Surface base terrain for unloaded tiles comes from `WorldGenerator` through `build_chunk_native_data()`, `build_chunk_content()`, and `get_terrain_type_fast()`.
@@ -110,6 +117,10 @@ Observed files for this version:
 - Surface local mountain reveal state is derived from the current loaded open pocket around the player.
 - Underground fog state is transient reveal state, shared by the active underground runtime, and not persisted.
 - Visual task queues, queue latency metrics, and invalidation versions live in `ChunkManager` and are runtime-only scheduling state rather than canonical world truth.
+- `ChunkManager.get_chunk_debug_overlay_snapshot()` assembles a bounded active-z diagnostic snapshot around `_player_chunk`; it reads chunk lifecycle/queue/readiness state plus owner-side bounded incident/trace metadata, but never requests, unloads, generates, or publishes chunks.
+- `WorldRuntimeDiagnosticLog` owns a transient bounded timeline buffer for human-readable Russian diagnostic summaries plus structured technical event records; optional `trace_id` / `incident_id` correlation remains diagnostic-only and is not gameplay state or persistence.
+- `WorldChunkDebugOverlay` owns the derived `user://debug/f11_chunk_overlay.log` artifact; it serializes the already-built overlay snapshot only while F11 is visible and never becomes save/load or gameplay truth.
+- `WorldChunkDebugOverlay` also owns explicit incident dump artifacts under `user://debug/f11_chunk_incident_<timestamp>.log`; the dump serializes one already-built bounded snapshot plus bounded trace buffers and must not trigger world work.
 - Rock atlas selection is explicit code in `Chunk`; current rendering does not rely on Godot TileSet terrain peering or autotile rules.
 - TileMap layers, ground elevation face overlays, fog cells, cover erasures, cliff overlays, and mountain shadow sprites are presentation outputs, not world truth.
 
@@ -197,7 +208,7 @@ Observed files for this version:
 
 - `classification`: `canonical`
 - `owner`: `WorldPrePass` owns the deterministic coarse-grid prepass channels built at boot; `WorldGenerator` is responsible only for lifecycle/orchestration (`initialize_world()` synchronous path or `begin_initialize_world_async()` -> `complete_pending_initialize_world()` staged path computes it, then hands the read-only reference into `WorldComputeContext`).
-- `writers`: `WorldPrePass.compute()` samples canonical height from `PlanetSampler`, runs Y-boundary priority flood over the coarse grid, derives D8 flow directions over the filled surface, computes latitude-shaped flow accumulation, normalizes a drainage read channel from accumulation, extracts thresholded river cells and river widths, propagates a nearest-river distance field, expands river reach into a normalized floodplain-strength field, selects deterministic tectonic spine seed records from coarse height plus ruggedness, grows deterministic main and branch ridge polylines from those seeds, smooths each ridge into wrap-aware spline samples with per-sample half-width profile, rasterizes those splines into a normalized ridge-strength field, derives a normalized `mountain_mass` field from ridge-strength plus height/ruggedness gates, applies the internal erosion proxy over filled / accumulation / ridge / river inputs, derives a normalized `slope` field from the maximum 8-neighbor gradient over `eroded-height`, transports sampler moisture along the prevailing wind direction to derive a normalized `rain_shadow` field from positive eroded-height gradients, derives a normalized `continentalness` field from the distance to sea-level coarse cells and Y-edge water boundaries, and authors `_height_grid`, `_filled_height_grid`, `_flow_dir_grid`, `_accumulation_grid`, `_drainage_grid`, `_river_mask_grid`, `_river_width_grid`, `_river_distance_grid`, `_floodplain_strength_grid`, `_ridge_strength_grid`, `_mountain_mass_grid`, `_eroded_height_grid`, `_slope_grid`, `_rain_shadow_grid`, `_continentalness_grid`, `_spine_seeds`, `_ridge_paths`, `_lake_mask`, and `_lake_records`.
+- `writers`: `WorldPrePass.compute()` samples canonical height from `PlanetSampler`, runs Y-boundary priority flood over the coarse grid, derives D8 flow directions over the filled surface, computes latitude-shaped flow accumulation with thaw-banded glacial melt and temperature-scaled downstream evaporation, normalizes a drainage read channel from accumulation, extracts thresholded river cells and river widths, integrates qualifying lake basins back into the same published hydrology handoff by seeding `_river_mask_grid`, `_river_width_grid`, and `_river_distance_grid` for those basins, propagates a nearest-river distance field, expands river reach into a normalized floodplain-strength field, selects deterministic tectonic spine seed records from coarse height plus ruggedness with a latitude-band distribution guard before global heap fill, grows deterministic main and branch ridge polylines from those seeds, smooths each ridge into wrap-aware spline samples with per-sample half-width profile, rasterizes those splines into a normalized ridge-strength field, derives a normalized `mountain_mass` field as broader massif-fill support from local ridge neighborhood strength plus height/ruggedness gates, applies the internal erosion proxy over filled / accumulation / ridge / river inputs, derives a normalized `slope` field from the maximum 8-neighbor gradient over `eroded-height`, transports sampler moisture along the prevailing wind direction to derive a normalized `rain_shadow` field from positive eroded-height gradients, derives a normalized `continentalness` field from the distance to sea-level coarse cells and Y-edge water boundaries, and authors `_height_grid`, `_filled_height_grid`, `_flow_dir_grid`, `_accumulation_grid`, `_drainage_grid`, `_river_mask_grid`, `_river_width_grid`, `_river_distance_grid`, `_floodplain_strength_grid`, `_ridge_strength_grid`, `_mountain_mass_grid`, `_eroded_height_grid`, `_slope_grid`, `_rain_shadow_grid`, `_continentalness_grid`, `_spine_seeds`, `_ridge_paths`, `_lake_mask`, and `_lake_records`.
 - `readers`: `WorldGenerator.initialize_world()` boot sequence or the staged `begin_initialize_world_async()` / `complete_pending_initialize_world()` publish path, `WorldComputeContext.get_world_pre_pass()`, `WorldComputeContext.sample_prepass_channels()`, `WorldComputeContext.sample_structure_context()`, `WorldComputeContext.resolve_biome()` / `BiomeResolver` via typed `WorldPrePassChannels`, public `WorldGenerator.resolve_biome()` through that same compute-context path, `WorldLab`, and the native chunk-generation bridge via the immutable pre-pass snapshot serialized into `ChunkGenerator.initialize()`. Runtime world/chunk/mining/topology/reveal/presentation systems still do not read mutable `WorldPrePass` internals directly.
 - `rebuild policy`: computed during `initialize_world()` or detached during `begin_initialize_world_async()` and published during `complete_pending_initialize_world()` before compute-context publication; deterministic from seed + canonical coarse-grid coordinates + the runtime `WorldGenBalance` snapshot. Runtime initialization does not validate landmarks, mutate thresholds, or search neighboring seeds before publication. The layer is not persisted to save data.
 - `invariants`:
@@ -227,6 +238,7 @@ Observed files for this version:
 - `assert(for_all_cell in coarse_grid: _river_mask_grid[cell] in [0, 1], "river mask uses binary coarse-grid membership")`
 - `assert(for_all_cell in coarse_grid where _river_mask_grid[cell] == 1: _river_width_grid[cell] >= prepass_river_base_width, "river cells must resolve to at least the configured base width")`
 - `assert(for_all_cell in coarse_grid: _river_distance_grid[cell] >= 0.0, "nearest-river distance field must stay non-negative")`
+- `assert(for_all_cell in coarse_grid where _lake_mask[cell] > 0: _river_width_grid[cell] >= prepass_river_base_width, "qualifying lake basins must seed visible hydrology width through the published river channels")`
 - `assert(for_all_cell in coarse_grid: _floodplain_strength_grid[cell] >= 0.0 and _floodplain_strength_grid[cell] <= 1.0, "floodplain strength must stay normalized to [0,1]")`
 - `assert(for_all_cell in coarse_grid where _river_mask_grid[cell] == 1: _floodplain_strength_grid[cell] == 1.0, "river cells must seed floodplain strength at full intensity")`
 - `assert(for_all_cell in coarse_grid: _ridge_strength_grid[cell] >= 0.0 and _ridge_strength_grid[cell] <= 1.0, "ridge strength field must stay normalized to [0,1]")`
@@ -243,6 +255,7 @@ Observed files for this version:
 - `assert(for_all_seed in _spine_seeds: seed.strength >= 0.5 and seed.strength <= 1.0, "spine seed strength must stay normalized to the [0.5, 1.0] ridge seed range")`
 - `assert(for_all_seed in _spine_seeds where seed.direction_bias != Vector2.ZERO: absf(seed.direction_bias.length() - 1.0) <= 0.001, "non-zero spine seed direction bias must stay normalized")`
 - `assert(for_all_distinct_seed_pairs in _spine_seeds: wrapped_grid_distance(seed_a.position, seed_b.position) >= prepass_min_spine_distance_grid, "spine seeds must respect the configured coarse-grid Poisson spacing")`
+- `assert(prepass_target_spine_count >= configured_latitude_band_count implies spine selection reserves the strongest still-valid candidate from each latitude band before unrestricted global fill, "spine seed selection must not let a few extreme-latitude maxima monopolize all seed slots")`
 - `assert(for_all_main_path in _ridge_paths where not main_path.is_branch: main_path.points.size() <= prepass_max_ridge_length_grid + 1, "main ridge paths must respect the configured max coarse-grid length")`
 - `assert(for_all_branch_path in _ridge_paths where branch_path.is_branch: branch_path.points.size() <= prepass_max_branch_length_grid + 1, "branch ridge paths must respect the configured branch max coarse-grid length")`
 - `assert(for_all_point in _ridge_paths: point.x >= 0 and point.x < grid_width and point.y >= 0 and point.y < grid_height, "ridge path points must stay inside the coarse grid")`
@@ -253,6 +266,8 @@ Observed files for this version:
 - `assert(X-neighbors-wrap and Y-neighbors-clamp_to_prepass_band, "prepass connectivity keeps cylindrical X wrap and latitude-bounded Y domain")`
 - `assert(WorldGenerator.initialize_world() or WorldGenerator.complete_pending_initialize_world() publishes only one computed pre-pass snapshot into runtime state for the requested seed, "runtime boot must not leak partial or alternate-seed pre-pass truth into runtime readers")`
 - `assert(WorldComputeContext.sample_structure_context() derives structure truth only from the published pre-pass snapshot, "runtime structure context must not reintroduce legacy band/noise world truth beside WorldPrePass")`
+- `assert(WorldComputeContext.sample_structure_context() emits river_strength > 0 only when sampled river_width > 0, "river semantics must not inflate dry tiles into authoritative river context")`
+- `assert(WorldComputeContext.sample_structure_context() exposes mountain_mass as broader massif-fill support around local ridge neighborhoods rather than only ridge-core overlap, "runtime mountain semantics must preserve the pre-pass massif-fill signal consumed by script/native terrain classification")`
 - `write operations`:
 - `WorldPrePass.compute()`
 - `forbidden writes`:
@@ -279,11 +294,13 @@ Observed files for this version:
 - `assert(loaded_chunk or saved_tile_state.has("terrain") or active_z == 0 or resolved_terrain == TileGenData.TerrainType.ROCK, "unloaded underground fallback must be ROCK")`
 - `assert(native_data.keys().has_all(["chunk_coord", "canonical_chunk_coord", "base_tile", "chunk_size", "terrain", "height", "variation", "biome", "secondary_biome", "ecotone_values", "flora_density_values", "flora_modulation_values", "rock_visual_class", "ground_face_atlas", "cover_mask", "cliff_overlay", "variant_id", "alt_id", "feature_and_poi_payload"]), "ChunkBuildResult.to_native_data() must export the current payload fields")`
 - `assert(native_data["feature_and_poi_payload"] == {"placements": []} or native_data["feature_and_poi_payload"].has("placements"), "feature_and_poi_payload must always use the explicit baseline shape")`
-- `assert(native_cpp_output_format_matches_gdscript, "ChunkGenerator C++ generate_chunk() output Dictionary must be wire-compatible with GDScript ChunkContentBuilder.build_chunk_native_data() — same keys, same array types, same index order. Additional key 'flora_placements' (Array of Dictionary) is optional native extension.")`
+- `assert(native_cpp_output_format_matches_gdscript, "ChunkGenerator C++ generate_chunk() output Dictionary must be wire-compatible with GDScript ChunkContentBuilder.build_chunk_native_data() — same keys, same array types, same index order, including secondary_biome and ecotone_values.")`
 - `assert(surface_native_visual_payload_arrays_are_aligned_when_present, "rock_visual_class, ground_face_atlas, cover_mask, cliff_overlay, variant_id, and alt_id must either all match tile_count or be treated as unavailable presentation cache")`
 - `assert(native_fallback_graceful, "if ChunkGenerator C++ class unavailable, ChunkContentBuilder falls back to GDScript generation without error")`
-- `assert(native_flora_placements_optional, "flora_placements key in native output is optional. If present and non-empty, worker paths skip GDScript flora computation. If absent, GDScript flora builder runs as fallback.")`
-- `assert(native_flora_hash_uses_int64, "tile_hash in C++ uses int64_t arithmetic to match GDScript 64-bit int for deterministic flora placement parity")`
+- `assert(native_chunk_generator_requires_authoritative_prepass_snapshot, "ChunkGenerator.initialize() must fail closed when the serialized WorldPrePass snapshot is missing, malformed, or from a different seed; native generation must not fall back to legacy structure formulas or alternate world truth")`
+- `assert(native_chunk_generator_requires_authoritative_chunk_inputs, "ChunkGenerator.generate_chunk() must fail closed when ChunkContentBuilder does not provide a chunk-local authoritative input snapshot from WorldComputeContext; native runtime must not self-sample divergent channel or structure inputs")`
+- `assert(native_chunk_payload_shape_validated_before_use, "ChunkContentBuilder validates native terrain/biome/ecotone array sizes before treating native payload as authoritative worker input")`
+- `assert(native_chunk_payload_has_generation_source_provenance, "ChunkContentBuilder.build_chunk_native_data() tags runtime payloads with generation_source so proof tooling can detect silent fallback to gdscript_fallback")`
 - `write operations`:
 - `WorldGenerator.build_chunk_native_data()`
 - `WorldGenerator.build_chunk_content()`
@@ -393,10 +410,11 @@ Observed files for this version:
 - `owner`: `MountainRoofSystem` owns surface local-zone reveal derivation, `UndergroundFogState` owns underground reveal state, and `ChunkManager` owns application of underground fog deltas to loaded chunks.
 - `writers`: `MountainRoofSystem` writes the active local-zone derived state, `Chunk.set_revealed_local_cover_tiles()` writes per-chunk applied cover reveal, and `UndergroundFogState` plus `ChunkManager` write underground fog state and chunk fog application.
 - `readers`: `Chunk` cover-layer and fog-layer presentation code; `MountainRoofSystem` public zone getters; no other in-scope gameplay reader was found for these reveal sets.
-- `rebuild policy`: active-z dependent; surface reveal is loaded-bubble scoped and refresh-driven; underground fog is updated on fog ticks and immediately on successful underground mining; there is no unloaded fallback reveal path.
+- `rebuild policy`: active-z dependent; surface reveal is loaded-bubble scoped, may apply a bounded immediate local cover patch on successful surface mining when the active zone can be incrementally extended or single-tile-bootstrapped, and otherwise falls back to refresh-driven reconciliation; underground fog is updated on fog ticks and immediately on successful underground mining; there is no unloaded fallback reveal path.
 - `invariants`:
 - `assert(ChunkManager.get_active_z_level() == 0 or not surface_local_reveal_running, "surface local mountain reveal only runs on z == 0")`
 - `assert(seed_terrain == TileGenData.TerrainType.MINED_FLOOR or seed_terrain == TileGenData.TerrainType.MOUNTAIN_ENTRANCE, "surface local-zone seeding requires an open mountain tile")`
+- `assert(surface_mining_refresh_is_not_gated_only_on_player_open_tile, "surface mining-triggered reveal refresh must stay correct even when the player is still outside the newly opened pocket")`
 - `assert(revealed_cover_tiles == zone_tiles_plus_revealable_rock_halo, "surface revealed cover is derived from the loaded local zone plus revealable rock halo")`
 - `assert(all_revealed_cover_tiles_are_local_to_chunk and cover_cells_are_erased_for_them, "Chunk._revealed_local_cover_tiles is a chunk-local erase mask for cover_layer")`
 - `assert(shared_fog_state_instance_is_owned_by_chunk_manager, "underground fog uses one shared UndergroundFogState instance in ChunkManager")`
@@ -419,6 +437,7 @@ Observed files for this version:
 - `emitted events / invalidation signals`:
 - There is currently no dedicated reveal-state-changed event.
 - Surface reveal invalidation is driven by player tile movement, `EventBus.mountain_tile_mined`, `EventBus.chunk_loaded`, and `EventBus.chunk_unloaded`.
+- On `EventBus.mountain_tile_mined`, `MountainRoofSystem` first attempts a bounded immediate local cover patch by reusing the active local-zone seed when the newly opened tile touches the active zone or by bootstrapping a one-tile zone when that is sufficient; if that fast path cannot prove correctness, it seeds refresh from the mined open tile itself and only falls back to the player tile when the player is already inside an opened pocket.
 - Underground fog invalidation is driven by z-level entry, fog update ticks, and immediate successful underground mining.
 - `current violations / ambiguities / contract gaps`:
 - `MountainRoofSystem` tracks `zone_kind` and `truncated`, but current runtime behavior does not branch on `zone_kind`, and `truncated` is only exposed as a getter.
@@ -460,12 +479,107 @@ Observed files for this version:
 - `current violations / ambiguities / contract gaps`:
 - `Chunk.continue_redraw()` still provides the compatibility executor behind debug and any unsupported phase; terrain / cover / cliff / flora plus dirty border-fix preparation now prefer worker-computed prepared batches (including per-layer native apply buffers where available) or flora render packets with bounded main-thread apply.
 
+## Layer: Chunk Debug Overlay Snapshot
+
+- `classification`: `derived`
+- `owner`: `ChunkManager` owns assembly of the F11 chunk debug snapshot because it already owns chunk lifecycle, queue, stage-age, and visual scheduler state.
+- `writers`: `ChunkManager.get_chunk_debug_overlay_snapshot()` assembles the returned dictionary; `_enqueue_load_request()`, `_submit_async_generate()`, `_collect_completed_runtime_generates()`, `_stage_prepared_chunk_install()`, `_finalize_chunk_install()`, `_try_finalize_chunk_visual_convergence()`, `_unload_chunk()`, `_debug_begin_forensics_trace()`, `_debug_record_forensics_event()`, and visual-task owner transitions update bounded diagnostic timestamps/recent-event rows / trace metadata as part of existing owner transitions.
+- `readers`: `WorldChunkDebugOverlay` and debug/validation tools.
+- `rebuild policy`: transient read snapshot, active-z only, bounded around `_player_chunk` by `DEBUG_OVERLAY_MAX_RADIUS`, queue rows capped/grouped, incident / trace / causality sections capped separately, not persisted and not consumed by gameplay.
+- `invariants`:
+- `assert(chunk_debug_overlay_snapshot_is_read_only, "F11 overlay snapshot must not request, unload, generate, publish, or mutate chunks")`
+- `assert(chunk_debug_overlay_snapshot_radius_is_clamped, "F11 overlay snapshot must stay bounded around the player and must not scan the whole world")`
+- `assert(chunk_debug_queue_rows_are_capped_or_grouped, "debug queue output must expose active work without printing thousands of identical rows")`
+- `assert(stalled_chunk_state_is_observational, "stalled state in the overlay is an observed delay and must not be reported as a proven root cause unless an owner record says so")`
+- `assert(forensics_sections_are_bounded, "incident_summary, trace_events, chunk_causality_rows, task_debug_rows, and suspicion_flags must remain bounded and derived from owner-side debug state")`
+- `write operations`:
+- `ChunkManager.get_chunk_debug_overlay_snapshot()`
+- internal diagnostic timestamp/recent-event writes in the `ChunkManager` lifecycle transition methods listed above
+- `forbidden writes`:
+- `WorldChunkDebugOverlay` must not mutate `ChunkManager`, `Chunk`, terrain, topology, reveal, save data, visual task queues, or worker/apply lifecycle state.
+- Snapshot consumers must not treat `chunks`, `queue_rows`, `metrics`, `timeline_events`, `incident_summary`, `trace_events`, `chunk_causality_rows`, `task_debug_rows`, or `suspicion_flags` as authoritative gameplay truth.
+- Snapshot data must not be persisted.
+- `emitted events / invalidation signals`:
+- none; the overlay polls the bounded snapshot on a throttled cadence.
+- `current violations / ambiguities / contract gaps`:
+- The current `simulation_radius` shown in the overlay is a diagnostic label for the active loaded/simulated relevance band, not a separate authoritative simulation owner. If a future gameplay simulation radius becomes canonical, this layer must be updated to read that owner instead of deriving the label from load relevance.
+
+## Layer: Runtime Diagnostic Timeline Buffer
+
+- `classification`: `derived`
+- `owner`: `WorldRuntimeDiagnosticLog` owns bounded diagnostic event buffering and Russian human-readable summary formatting for runtime diagnostics.
+- `writers`: `WorldRuntimeDiagnosticLog.emit_summary()`, `emit_detail()`, and `emit_record()` update the transient ring buffer while preserving existing console log emission.
+- `readers`: `WorldChunkDebugOverlay`, debug inspection, validation tooling, and humans reading console logs.
+- `rebuild policy`: bounded in-memory ring buffer, cooldown-deduped by `actor + action + target + reason + impact + state + code`, with `trace_id` / `incident_id` folded into dedupe when present, not persisted and not replayed into gameplay.
+- `invariants`:
+- `assert(timeline_event_has_human_summary_and_structured_record, "diagnostic timeline events must keep both Russian summary text and structured technical fields")`
+- `assert(timeline_event_history_is_bounded, "diagnostic timeline must not grow unbounded during traversal")`
+- `assert(timeline_dedupe_updates_repeat_count, "unchanged diagnostic events inside cooldown must update repeat_count instead of appending spam")`
+- `write operations`:
+- `WorldRuntimeDiagnosticLog.emit_summary()`
+- `WorldRuntimeDiagnosticLog.emit_detail()`
+- `WorldRuntimeDiagnosticLog.emit_record()`
+- `forbidden writes`:
+- Timeline events must not be used as gameplay state, save/load state, or scheduler input.
+- Debug timeline formatting must not scan all loaded chunks or perform world work just to phrase a message.
+- `emitted events / invalidation signals`:
+- none; readers pull `WorldRuntimeDiagnosticLog.get_timeline_snapshot()`.
+- `current violations / ambiguities / contract gaps`:
+- Dynamic runtime diagnostic summaries are Russian-first debug text rather than fully localized gameplay UI text. Static overlay chrome uses localization keys; future shipping-facing diagnostics must define a localized message-key contract before leaving debug scope.
+
+## Layer: F11 Chunk Debug Overlay Log File
+
+- `classification`: `derived` / `debug-only`
+- `owner`: `WorldChunkDebugOverlay` owns the per-process `.log` artifact at `user://debug/f11_chunk_overlay.log`.
+- `writers`: `WorldChunkDebugOverlay._ensure_log_file()`, `_write_log_snapshot()`, and `_close_log_file()`.
+- `readers`: humans and agents inspecting local debug output after an in-game F11 session.
+- `rebuild policy`: overwritten on the first F11 open in a new game process; subsequent F11 opens in the same process append below the existing session header; writes occur only while the overlay is visible and only from the already-bounded overlay snapshot.
+- `invariants`:
+- `assert(f11_overlay_log_is_debug_only, "F11 overlay log must not be save/load data, gameplay truth, or scheduler input")`
+- `assert(f11_overlay_log_writes_only_when_visible, "F11 overlay log must only append snapshots while F11 overlay is open")`
+- `assert(f11_overlay_log_serializes_existing_snapshot, "F11 overlay log must not trigger additional world scans or new ChunkManager lifecycle work")`
+- `assert(f11_overlay_log_is_overwritten_per_process, "F11 overlay log must be reset on the first F11 open after a fresh game process starts")`
+- `write operations`:
+- `WorldChunkDebugOverlay._ensure_log_file()`
+- `WorldChunkDebugOverlay._write_log_snapshot()`
+- `WorldChunkDebugOverlay._close_log_file()`
+- `forbidden writes`:
+- `ChunkManager`, `WorldRuntimeDiagnosticLog`, `WorldPerfMonitor`, save/load systems, and gameplay systems must not write directly to `user://debug/f11_chunk_overlay.log`.
+- The log file must not be parsed back into runtime state or treated as a source of truth.
+- Log writing must not perform unbounded chunk/world iteration; it may only serialize the bounded snapshot already requested for the visible overlay.
+- `emitted events / invalidation signals`:
+- none; the artifact is a local debug file, not an event source.
+- `current violations / ambiguities / contract gaps`:
+- The log path is a Godot `user://` path; on Windows it resolves under Godot app user data for the project name. The exact OS path is written in the log header through `ProjectSettings.globalize_path(LOG_PATH)`.
+
+## Layer: F11 Chunk Incident Dump File
+
+- `classification`: `derived` / `debug-only`
+- `owner`: `WorldChunkDebugOverlay` owns explicit incident dump artifacts at `user://debug/f11_chunk_incident_<timestamp>.log`.
+- `writers`: `WorldChunkDebugOverlay.request_incident_dump()` and `_write_incident_dump()`.
+- `readers`: humans and agents inspecting one captured incident snapshot after manual `Ctrl+F11`.
+- `rebuild policy`: created only on explicit manual capture; serializes one already-built bounded snapshot plus bounded incident/trace sections; may legitimately serialize `no_active_incident`.
+- `invariants`:
+- `assert(incident_dump_is_manual_only, "incident dump must be produced only on explicit Ctrl+F11/manual capture in this iteration")`
+- `assert(incident_dump_serializes_existing_bounded_debug_state, "incident dump must not enqueue, load, generate, publish, or scan the world")`
+- `assert(incident_dump_remains_debug_only, "incident dump artifact must not become gameplay truth or persistence data")`
+- `write operations`:
+- `WorldChunkDebugOverlay.request_incident_dump()`
+- `WorldChunkDebugOverlay._write_incident_dump()`
+- `forbidden writes`:
+- `ChunkManager`, `WorldRuntimeDiagnosticLog`, `MountainRoofSystem`, and gameplay systems must not write directly to `user://debug/f11_chunk_incident_<timestamp>.log`.
+- Incident dump generation must not create a second world debug bus or recompute world state outside the bounded snapshot request.
+- `emitted events / invalidation signals`:
+- none; the artifact is an explicit local capture.
+- `current violations / ambiguities / contract gaps`:
+- `forensics` remains debug-only overlay behavior; it is not a public runtime support workflow and should not be parsed back into engine state.
+
 ## Layer: Presentation
 
 - `classification`: `presentation-only`
-- `owner`: `Chunk` owns loaded chunk visual layers, `MountainShadowSystem` owns surface mountain-shadow presentation state, and `WorldFeatureDebugOverlay` owns debug-only anchor-marker presentation sourced from serialized chunk payloads.
-- `writers`: `Chunk` redraw and fog-application methods write TileMap state; `ChunkManager` schedules redraw and applies underground fog deltas; `MountainRoofSystem` drives cover erasure through chunk APIs; `MountainShadowSystem` owns shadow-local caches plus the main-thread texture/sprite apply path while detached shadow/edge compute stays pure-data only; `WorldFeatureDebugOverlay` writes its chunk-local anchor-marker cache and redraw state.
-- `readers`: Godot rendering is the effective consumer; developer-facing debug inspection can read `WorldFeatureDebugOverlay` marker snapshots. No in-scope simulation system was found that treats these presentation nodes as authority.
+- `owner`: `Chunk` owns loaded chunk visual layers, `MountainShadowSystem` owns surface mountain-shadow presentation state, `WorldFeatureDebugOverlay` owns debug-only anchor-marker presentation sourced from serialized chunk payloads, and `WorldChunkDebugOverlay` owns F11 debug overlay UI/drawing state sourced from bounded diagnostics snapshots.
+- `writers`: `Chunk` redraw and fog-application methods write TileMap state; `ChunkManager` schedules redraw and applies underground fog deltas; `MountainRoofSystem` drives cover erasure through chunk APIs; `MountainShadowSystem` owns shadow-local caches plus the main-thread texture/sprite apply path while detached shadow/edge compute stays pure-data only; `WorldFeatureDebugOverlay` writes its chunk-local anchor-marker cache and redraw state; `WorldChunkDebugOverlay` writes only its own Control/Node2D presentation state.
+- `readers`: Godot rendering is the effective consumer; developer-facing debug inspection can read `WorldFeatureDebugOverlay` marker snapshots and `WorldChunkDebugOverlay` output. No in-scope simulation system was found that treats these presentation nodes as authority.
 - `rebuild policy`: loaded-only and redraw-driven; underground fog presentation is applied to loaded chunks only; surface shadow presentation is surface-only and rebuilt when edge cache or sun-angle thresholds require it.
 - `invariants`:
 - `assert(terrain_layer_is_derived_from_chunk_data and ground_face_layer_is_derived_from_chunk_data and cover_layer_is_derived_from_chunk_data and cliff_layer_is_derived_from_chunk_data, "terrain, ground-face, cover, and cliff TileMap layers are derived outputs, not source of truth")`
@@ -704,6 +818,7 @@ Observed files for this version:
 - If the mined tile is on a chunk edge, loaded neighbor chunks receive cross-chunk normalization for the direct cardinal neighbor and a 3-tile border strip redraw through `_seam_normalize_and_redraw()`. Cross-chunk normalization for tiles in unloaded neighbor chunks is not performed.
 - Surface topology is updated immediately through `_on_mountain_tile_changed()` and may additionally be marked dirty for a background rebuild if split suspicion is detected.
 - `EventBus.mountain_tile_mined` is emitted after the immediate topology patch path runs.
+- On surface, that mining event must run one sanctioned `MountainRoofSystem` reveal/apply consequence chain even if the player remains outside the newly opened entrance: use a bounded immediate local cover patch when incremental or bootstrap reveal is sufficient, otherwise fall back to the refresh/apply path; stale roof correctness must not depend on `_is_player_on_opened_mountain_tile()`.
 - If the active z-level is underground, the mined tile plus its 8-neighbor halo are force-revealed in `UndergroundFogState`, and revealable loaded tiles in that set have fog removed immediately.
 - The operation returns `{ "item_id": ..., "amount": ... }` from world balance.
 

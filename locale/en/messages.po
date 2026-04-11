@@ -484,7 +484,7 @@ msgid "UI_WORLD_CREATE_RIDGE_LABEL"
 msgstr "Mountain area:"
 
 msgid "UI_WORLD_CREATE_HINT"
-msgstr "Same seed = same planet. Adjust only mountain count, area and chains."
+msgstr "The same seed and the same settings give the same world. Rivers, lakes, and mountains let you shape the planet before landing."
 
 msgid "UI_WORLD_CREATE_START_BUTTON"
 msgstr "▶  LAND ON THE PLANET"
@@ -828,6 +828,15 @@ msgstr "Mountain area:"
 msgid "UI_WORLD_CREATE_MOUNTAIN_CHAINS_LABEL"
 msgstr "Mountain chains:"
 
+msgid "UI_WORLD_CREATE_RIVER_AMOUNT_LABEL"
+msgstr "Rivers:"
+
+msgid "UI_WORLD_CREATE_RIVER_WIDTH_LABEL"
+msgstr "River width:"
+
+msgid "UI_WORLD_CREATE_LAKE_AMOUNT_LABEL"
+msgstr "Lakes:"
+
 msgid "UI_WORLD_CREATE_TREE_DENSITY_LABEL"
 msgstr "Tree density:"
 
@@ -863,3 +872,45 @@ msgstr "Level {z}"
 
 msgid "UI_INVENTORY_SLOT_TOOLTIP"
 msgstr "{name}\n{amount} / {max_stack}"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_TITLE"
+msgstr "F11 chunk debug"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_QUEUE"
+msgstr "Live pipeline queue"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_TIMELINE"
+msgstr "Recent event timeline"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_TOGGLE_HINT"
+msgstr "toggle"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_MODE_HINT"
+msgstr "mode"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_NO_QUEUE"
+msgstr "Queue is empty."
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_NO_EVENTS"
+msgstr "No events yet."
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_MODE_FORENSICS"
+msgstr "forensics"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_DUMP_HINT"
+msgstr "incident dump"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_NO_INCIDENT"
+msgstr "No active incident."
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_SUSPICIONS"
+msgstr "Suspicion flags"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_TRACE_EVENTS"
+msgstr "Incident trace events"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_CHUNK_CAUSALITY"
+msgstr "Chunk causality"
+
+msgid "UI_DEBUG_CHUNK_OVERLAY_TASK_CAUSALITY"
+msgstr "Visual task causality"

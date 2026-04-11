@@ -18,6 +18,10 @@ var _category_counts: Dictionary = {}
 var _category_peaks: Dictionary = {}
 var _observation_latest: Dictionary = {}
 var _summary_frame_count: int = 0
+var _latest_frame_ms: float = 0.0
+var _latest_frame_ops: Dictionary = {}
+var _latest_frame_categories: Dictionary = {}
+var _latest_debug_snapshot: Dictionary = {}
 
 func _ready() -> void:
 	name = "WorldPerfMonitor"
@@ -29,6 +33,11 @@ func _process(delta: float) -> void:
 	_summary_frame_count += 1
 	_frame_times.append(frame_ms)
 	var frame_ops: Dictionary = WorldPerfProbe.flush_frame()
+	var frame_categories: Dictionary = _build_frame_categories(frame_ops)
+	_latest_frame_ms = frame_ms
+	_latest_frame_ops = frame_ops.duplicate()
+	_latest_frame_categories = frame_categories
+	_update_debug_snapshot(frame_categories)
 	_capture_observations(frame_ops)
 	_accumulate_categories(frame_ops)
 	if frame_ms > HITCH_THRESHOLD_MS:
@@ -36,6 +45,37 @@ func _process(delta: float) -> void:
 	if _summary_frame_count >= SUMMARY_INTERVAL_FRAMES:
 		_print_summary()
 		_reset_summary()
+
+func get_debug_snapshot() -> Dictionary:
+	return _latest_debug_snapshot.duplicate(true)
+
+func _build_frame_categories(ops: Dictionary) -> Dictionary:
+	var categories: Dictionary = {}
+	for key: String in ops:
+		var category: String = _categorize(key)
+		var value: float = ops[key] as float
+		categories[category] = float(categories.get(category, 0.0)) + value
+	return categories
+
+func _update_debug_snapshot(frame_categories: Dictionary) -> void:
+	var streaming_load_ms: float = float(frame_categories.get("streaming_load", 0.0))
+	var streaming_redraw_ms: float = float(frame_categories.get("streaming_redraw", 0.0))
+	var streaming_ms: float = float(frame_categories.get("streaming", 0.0))
+	var topology_ms: float = float(frame_categories.get("topology", 0.0))
+	var visual_ms: float = float(frame_categories.get("visual", 0.0))
+	var shadow_ms: float = float(frame_categories.get("shadow", 0.0))
+	var dispatcher_ms: float = float(frame_categories.get("dispatcher", 0.0))
+	_latest_debug_snapshot = {
+		"timestamp_usec": Time.get_ticks_usec(),
+		"fps": Engine.get_frames_per_second(),
+		"frame_time_ms": _latest_frame_ms,
+		"world_update_ms": streaming_ms + streaming_load_ms + streaming_redraw_ms + topology_ms + visual_ms + shadow_ms + dispatcher_ms,
+		"chunk_generation_ms": streaming_load_ms,
+		"visual_build_ms": streaming_redraw_ms + visual_ms + shadow_ms,
+		"dispatcher_ms": dispatcher_ms,
+		"categories": frame_categories.duplicate(),
+		"ops": _latest_frame_ops.duplicate(),
+	}
 
 func _accumulate_categories(ops: Dictionary) -> void:
 	for key: String in ops:

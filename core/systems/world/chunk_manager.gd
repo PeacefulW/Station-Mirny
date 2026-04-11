@@ -7,6 +7,7 @@ extends Node2D
 const RuntimeWorkTypes = preload("res://core/runtime/runtime_work_types.gd")
 const ChunkFloraBuilderScript = preload("res://core/systems/world/chunk_flora_builder.gd")
 const ChunkFloraResultScript = preload("res://core/systems/world/chunk_flora_result.gd")
+const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
 const JOB_STREAMING_LOAD: StringName = &"chunk_manager.streaming_load"
 const JOB_STREAMING_REDRAW: StringName = &"chunk_manager.streaming_redraw"
 const JOB_TOPOLOGY: StringName = &"chunk_manager.topology_rebuild"
@@ -59,6 +60,12 @@ enum VisualTaskRunState {
 	COMPLETED,
 }
 
+enum VisualComputeSubmitState {
+	UNAVAILABLE,
+	SUBMITTED,
+	BLOCKED,
+}
+
 const BORDER_FIX_REDRAW_MICRO_BATCH_TILES: int = 8
 const PLAYER_CHUNK_DIAG_LOG_INTERVAL_MSEC: int = 2000
 const PLAYER_CHUNK_DIAG_BLOCKED_AGE_MS: float = 250.0
@@ -83,6 +90,26 @@ const VISUAL_BOOTSTRAP_FULL_COVER_TILES: int = 12
 const VISUAL_BOOTSTRAP_FULL_CLIFF_TILES: int = 16
 const VISUAL_BOOTSTRAP_BORDER_TILES: int = 4
 const VISUAL_COMPLETED_COMPUTE_MAX_INTAKE_PER_STEP: int = 2
+const VISUAL_MAX_CONCURRENT_COMPUTE: int = 2
+const VISUAL_MAX_FAR_CONCURRENT_COMPUTE: int = 1
+const SEAM_REFRESH_MAX_TILES_PER_STEP: int = 4
+const DEBUG_OVERLAY_MAX_RADIUS: int = 8
+const DEBUG_OVERLAY_STALL_MS: float = 750.0
+const DEBUG_OVERLAY_RECENT_MS: float = 2000.0
+const DEBUG_OVERLAY_RATE_WINDOW_MS: float = 1000.0
+const DEBUG_OVERLAY_RECENT_EVENT_LIMIT: int = 64
+const DEBUG_OVERLAY_DEFAULT_QUEUE_ROWS: int = 14
+const DEBUG_FORENSICS_INCIDENT_LIMIT: int = 6
+const DEBUG_FORENSICS_TRACE_EVENT_LIMIT: int = 24
+const DEBUG_FORENSICS_TRACE_UI_LIMIT: int = 12
+const DEBUG_FORENSICS_TASK_ROW_LIMIT: int = 10
+const DEBUG_FORENSICS_CHUNK_ROW_LIMIT: int = 8
+const DEBUG_FORENSICS_ACTIVE_TTL_MS: float = 15000.0
+const DEBUG_FORENSICS_CONTEXT_TTL_MS: float = 12000.0
+const DEBUG_FORENSICS_EVENT_DEDUPE_MS: float = 220.0
+const DEBUG_FORENSICS_ACTIVE_REUSE_MS: float = 4000.0
+const DEBUG_FORENSICS_FULL_FAR_PRESSURE_THRESHOLD: int = 12
+const DEBUG_FORENSICS_OWNER_STUCK_MS: float = 1500.0
 
 var _loaded_chunks: Dictionary = {}
 var _player_chunk: Vector2i = Vector2i(99999, 99999)
@@ -120,6 +147,8 @@ var _visual_compute_active: Dictionary = {}  ## String task_key -> int task_id
 var _visual_compute_waiting_tasks: Dictionary = {}  ## String task_key -> queued task payload
 var _visual_compute_results: Dictionary = {}  ## String task_key -> prepared batch
 var _visual_compute_mutex: Mutex = Mutex.new()
+var _pending_seam_refresh_tiles: Array[Vector2i] = []
+var _pending_seam_refresh_lookup: Dictionary = {}
 var _saved_chunk_data: Dictionary = {}
 var _terrain_tileset: TileSet = null
 var _overlay_tileset: TileSet = null
@@ -141,6 +170,7 @@ var _is_topology_dirty: bool = false
 var _native_topology_builder: RefCounted = null
 var _native_topology_active: bool = false
 var _native_topology_dirty: bool = false
+var _native_topology_worker_available: bool = false
 var _flora_builder: ChunkFloraBuilderScript = null
 var _flora_texture_path_by_entry_id: Dictionary = {}
 var _flora_texture_path_cache_ready: bool = false
@@ -218,6 +248,16 @@ var _gen_active_tasks: Dictionary = {}  ## Vector2i -> int task_id
 var _gen_active_z_levels: Dictionary = {}  ## Vector2i -> int z_level
 var _gen_builders: Dictionary = {}  ## Vector2i -> ChunkContentBuilder
 var _gen_ready_queue: Array[Dictionary] = []  ## [{coord, z, native_data, flora_payload}]
+var _debug_generate_started_usec: Dictionary = {}  ## Vector3i -> usec
+var _debug_recent_lifecycle_events: Array[Dictionary] = []
+var _debug_recent_unloads: Dictionary = {}  ## Vector3i -> usec
+var _debug_next_incident_id: int = 0
+var _debug_next_trace_id: int = 0
+var _debug_forensics_incidents: Dictionary = {}  ## int incident_id -> Dictionary
+var _debug_forensics_incident_order: Array[int] = []
+var _debug_active_incident_id: int = -1
+var _debug_chunk_trace_contexts: Dictionary = {}  ## String chunk_key -> Dictionary
+var _debug_visual_task_meta: Dictionary = {}  ## String task_key -> Dictionary
 var _shutdown_in_progress: bool = false
 var _surface_payload_cache: Dictionary = {}
 var _surface_payload_cache_lru: Array[Vector3i] = []
@@ -246,11 +286,13 @@ var _topology_component_finalize_index: int = 0
 var _topology_build_commit_phase: int = TOPOLOGY_COMMIT_NONE
 var _topology_retired_dicts: Array[Dictionary] = []
 var _topology_task_id: int = -1
+var _topology_task_builder: RefCounted = null
 var _topology_task_generation: int = -1
 var _topology_build_generation: int = 0
 var _topology_rebuild_restart_pending: bool = false
 var _topology_result_mutex: Mutex = Mutex.new()
 var _topology_result: Dictionary = {}
+var _topology_snapshot_chunks: Dictionary = {}
 
 func _ready() -> void:
 	add_to_group("chunk_manager")
@@ -284,6 +326,7 @@ func _exit_tree() -> void:
 	if _topology_task_id >= 0:
 		WorkerThreadPool.wait_for_task_completion(_topology_task_id)
 	_topology_task_id = -1
+	_topology_task_builder = null
 	_topology_task_generation = -1
 	_topology_result_mutex.lock()
 	_topology_result = {}
@@ -431,6 +474,815 @@ func get_terrain_type_at_global(tile_pos: Vector2i) -> int:
 func get_loaded_chunks() -> Dictionary:
 	return _loaded_chunks
 
+func get_chunk_debug_overlay_snapshot(max_queue_rows: int = DEBUG_OVERLAY_DEFAULT_QUEUE_ROWS, debug_radius: int = -1) -> Dictionary:
+	var now_usec: int = Time.get_ticks_usec()
+	_debug_prune_recent_lifecycle_events(now_usec)
+	_debug_prune_forensics_state(now_usec)
+	if not _initialized or not WorldGenerator or not WorldGenerator.balance:
+		return {
+			"timestamp_usec": now_usec,
+			"active_z": _active_z,
+			"player_chunk": _player_chunk,
+			"player_motion": _player_chunk_motion,
+			"radii": {},
+			"chunks": [],
+			"queue_rows": [],
+			"queue_hidden_count": 0,
+			"metrics": {},
+			"timeline_events": WorldRuntimeDiagnosticLog.get_timeline_snapshot(16),
+			"incident_summary": _debug_build_incident_summary({}, now_usec),
+			"trace_events": [],
+			"chunk_causality_rows": [],
+			"task_debug_rows": [],
+			"suspicion_flags": [],
+			"mode_hint": "unavailable",
+		}
+	var center: Vector2i = _canonical_chunk_coord(_player_chunk)
+	var radii: Dictionary = _debug_build_radii()
+	var resolved_radius: int = debug_radius
+	if resolved_radius < 0:
+		resolved_radius = maxi(
+			int(radii.get("render_radius", 0)),
+			maxi(int(radii.get("preload_radius", 0)), int(radii.get("retention_radius", 0)))
+		)
+	resolved_radius = clampi(resolved_radius, 0, DEBUG_OVERLAY_MAX_RADIUS)
+	var lookups: Dictionary = _debug_build_snapshot_lookups(now_usec)
+	var chunks: Array[Dictionary] = []
+	for dy: int in range(-resolved_radius, resolved_radius + 1):
+		for dx: int in range(-resolved_radius, resolved_radius + 1):
+			var coord: Vector2i = _offset_chunk_coord(center, Vector2i(dx, dy))
+			var chunk: Chunk = _loaded_chunks.get(coord) as Chunk
+			chunks.append(_debug_build_chunk_entry(coord, _active_z, chunk, lookups, now_usec))
+	var queue_snapshot: Dictionary = _debug_collect_queue_rows(max_queue_rows, now_usec)
+	var metrics: Dictionary = _debug_build_overlay_metrics(chunks, queue_snapshot, now_usec)
+	var incident_summary: Dictionary = _debug_build_incident_summary(metrics, now_usec)
+	var trace_events: Array[Dictionary] = _debug_build_trace_events(incident_summary)
+	var chunk_causality_rows: Array[Dictionary] = _debug_build_chunk_causality_rows(incident_summary, lookups, now_usec)
+	var task_debug_rows: Array[Dictionary] = _debug_build_task_debug_rows(incident_summary, now_usec)
+	var suspicion_flags: Array[Dictionary] = _debug_build_suspicion_flags(
+		incident_summary,
+		trace_events,
+		chunk_causality_rows,
+		task_debug_rows,
+		metrics,
+		now_usec
+	)
+	return {
+		"timestamp_usec": now_usec,
+		"active_z": _active_z,
+		"player_chunk": center,
+		"player_motion": _player_chunk_motion,
+		"radii": radii,
+		"debug_radius": resolved_radius,
+		"chunks": chunks,
+		"queue_rows": queue_snapshot.get("rows", []),
+		"queue_hidden_count": int(queue_snapshot.get("hidden_count", 0)),
+		"metrics": metrics,
+		"timeline_events": WorldRuntimeDiagnosticLog.get_timeline_snapshot(16),
+		"incident_summary": incident_summary,
+		"trace_events": trace_events,
+		"chunk_causality_rows": chunk_causality_rows,
+		"task_debug_rows": task_debug_rows,
+		"suspicion_flags": suspicion_flags,
+		"mode_hint": "compact",
+	}
+
+func _debug_make_forensics_trace_id() -> String:
+	_debug_next_trace_id += 1
+	return "trace-%04d" % _debug_next_trace_id
+
+func _debug_forensics_timestamp_label(timestamp_usec: int) -> String:
+	var time_info: Dictionary = Time.get_time_dict_from_system()
+	var msec: int = int((timestamp_usec / 1000) % 1000)
+	return "%02d:%02d:%02d.%03d" % [
+		int(time_info.get("hour", 0)),
+		int(time_info.get("minute", 0)),
+		int(time_info.get("second", 0)),
+		msec,
+	]
+
+func _debug_visual_kind_name(kind: int) -> String:
+	match kind:
+		VisualTaskKind.TASK_FIRST_PASS:
+			return "first_pass"
+		VisualTaskKind.TASK_FULL_REDRAW:
+			return "full_redraw"
+		VisualTaskKind.TASK_BORDER_FIX:
+			return "border_fix"
+		_:
+			return "cosmetic"
+
+func _debug_visual_band_name(band: int) -> String:
+	match band:
+		VisualPriorityBand.TERRAIN_FAST:
+			return "terrain_fast"
+		VisualPriorityBand.TERRAIN_URGENT:
+			return "terrain_urgent"
+		VisualPriorityBand.TERRAIN_NEAR:
+			return "terrain_near"
+		VisualPriorityBand.FULL_NEAR:
+			return "full_near"
+		VisualPriorityBand.BORDER_FIX_NEAR:
+			return "border_fix_near"
+		VisualPriorityBand.BORDER_FIX_FAR:
+			return "border_fix_far"
+		VisualPriorityBand.FULL_FAR:
+			return "full_far"
+		_:
+			return "cosmetic"
+
+func _debug_forensics_event_label(event_key: String) -> String:
+	match event_key:
+		"trace_started":
+			return "trace запущен"
+		"mining_event":
+			return "копание создало trace инцидента"
+		"player_chunk_visual_issue":
+			return "чанк игрока сообщил о проблеме визуала"
+		"roof_immediate_patch_applied":
+			return "быстрый roof patch применён сразу"
+		"roof_immediate_patch_skipped":
+			return "быстрый roof patch не сработал"
+		"roof_chunk_load_eager_refresh":
+			return "загрузка чанка принудила ранний refresh roof-зоны"
+		"roof_refresh_requested":
+			return "поставлен полный refresh локальной зоны"
+		"roof_refresh_completed":
+			return "локальная roof-зона пересчитана"
+		"roof_restore_deferred":
+			return "restore передан в owner border_fix"
+		"roof_restore_visible_guard":
+			return "restore для видимого чанка временно удержан"
+		"roof_restore_immediate":
+			return "restore применён сразу"
+		"visual_task_enqueued":
+			return "visual задача поставлена в очередь"
+		"visual_task_selected":
+			return "scheduler выбрал visual задачу"
+		"visual_task_requeued":
+			return "visual задача переотложена"
+		"visual_task_cleared":
+			return "visual задача очищена"
+		"visual_task_skipped_kind_cap":
+			return "задача пропущена из-за kind cap"
+		"visual_task_skipped_budget":
+			return "задача пропущена из-за бюджета"
+		"visual_task_compute_blocked":
+			return "worker-подготовка заблокирована лимитом"
+		"chunk_visual_published":
+			return "чанк опубликовал финальный визуал"
+		"player_chunk_owner_stuck":
+			return "owner-метаданные чанка игрока зависли"
+		_:
+			return WorldRuntimeDiagnosticLog.humanize_known_term(event_key)
+
+func _debug_duplicate_trace_context(trace_context: Dictionary) -> Dictionary:
+	if trace_context.is_empty():
+		return {}
+	return trace_context.duplicate(true)
+
+func _debug_is_valid_trace_context(trace_context: Dictionary, now_usec: int = -1) -> bool:
+	if trace_context.is_empty():
+		return false
+	if now_usec < 0:
+		now_usec = Time.get_ticks_usec()
+	var incident_id: int = int(trace_context.get("incident_id", -1))
+	if incident_id < 0:
+		return false
+	var incident: Dictionary = _debug_forensics_incidents.get(incident_id, {}) as Dictionary
+	if incident.is_empty():
+		return false
+	var updated_usec: int = int(trace_context.get("updated_usec", incident.get("updated_usec", 0)))
+	if _debug_age_ms(updated_usec, now_usec) > DEBUG_FORENSICS_CONTEXT_TTL_MS \
+		and incident_id != _debug_active_incident_id:
+		return false
+	return true
+
+func _debug_resolve_chunk_trace_context(coord: Vector2i, z_level: int, now_usec: int = -1) -> Dictionary:
+	if now_usec < 0:
+		now_usec = Time.get_ticks_usec()
+	var key: String = _make_visual_chunk_key(_canonical_chunk_coord(coord), z_level)
+	var trace_context: Dictionary = _debug_chunk_trace_contexts.get(key, {}) as Dictionary
+	if not _debug_is_valid_trace_context(trace_context, now_usec):
+		_debug_chunk_trace_contexts.erase(key)
+		return {}
+	return _debug_duplicate_trace_context(trace_context)
+
+func _debug_attach_trace_context_to_chunks(
+	trace_context: Dictionary,
+	coords: Array[Vector2i],
+	z_level: int,
+	now_usec: int
+) -> void:
+	if trace_context.is_empty():
+		return
+	var incident_id: int = int(trace_context.get("incident_id", -1))
+	if incident_id < 0:
+		return
+	var incident: Dictionary = _debug_forensics_incidents.get(incident_id, {}) as Dictionary
+	if incident.is_empty():
+		return
+	var touched_chunks: Dictionary = incident.get("chunks", {}) as Dictionary
+	var target_chunks: Array = incident.get("target_chunks", []) as Array
+	for coord: Vector2i in coords:
+		var canonical_coord: Vector2i = _canonical_chunk_coord(coord)
+		var chunk_key: String = _make_visual_chunk_key(canonical_coord, z_level)
+		var context_copy: Dictionary = _debug_duplicate_trace_context(trace_context)
+		context_copy["coord"] = canonical_coord
+		context_copy["z"] = z_level
+		context_copy["updated_usec"] = now_usec
+		_debug_chunk_trace_contexts[chunk_key] = context_copy
+		var chunk_entry: Dictionary = touched_chunks.get(chunk_key, {}) as Dictionary
+		chunk_entry["coord"] = canonical_coord
+		chunk_entry["z"] = z_level
+		chunk_entry["updated_usec"] = now_usec
+		chunk_entry["distance"] = _chunk_chebyshev_distance(canonical_coord, _player_chunk)
+		chunk_entry["is_player_visible_scope"] = _debug_is_incident_worthy_coord(canonical_coord, z_level)
+		touched_chunks[chunk_key] = chunk_entry
+		if canonical_coord not in target_chunks:
+			target_chunks.append(canonical_coord)
+		for kind: int in [
+			VisualTaskKind.TASK_FIRST_PASS,
+			VisualTaskKind.TASK_FULL_REDRAW,
+			VisualTaskKind.TASK_BORDER_FIX,
+		]:
+			var task_key: String = _make_visual_task_key(canonical_coord, z_level, kind)
+			if not _visual_task_pending.has(task_key) \
+				and not _visual_compute_active.has(task_key) \
+				and not _visual_compute_waiting_tasks.has(task_key):
+				continue
+			var meta: Dictionary = _debug_visual_task_meta.get(task_key, {}) as Dictionary
+			if meta.is_empty():
+				meta = {
+					"task_key": task_key,
+					"coord": canonical_coord,
+					"z": z_level,
+					"kind": kind,
+					"kind_name": _debug_visual_kind_name(kind),
+					"band": VisualPriorityBand.COSMETIC,
+					"version": int(_visual_task_pending.get(task_key, -1)),
+					"enqueue_reason": "",
+					"enqueue_usec": int(_visual_task_enqueued_usec.get(task_key, now_usec)),
+					"requeue_count": 0,
+					"selected_frame": -1,
+				}
+			meta["trace_id"] = str(trace_context.get("trace_id", ""))
+			meta["incident_id"] = incident_id
+			meta["source_system"] = str(trace_context.get("source_system", meta.get("source_system", "chunk_scheduler")))
+			_debug_visual_task_meta[task_key] = meta
+	incident["chunks"] = touched_chunks
+	incident["target_chunks"] = target_chunks
+	incident["updated_usec"] = now_usec
+	_debug_forensics_incidents[incident_id] = incident
+
+func _debug_register_forensics_event(
+	trace_context: Dictionary,
+	source_system: String,
+	event_key: String,
+	coord: Vector2i,
+	z_level: int,
+	detail_fields: Dictionary = {},
+	target_chunks: Array[Vector2i] = []
+) -> Dictionary:
+	var now_usec: int = Time.get_ticks_usec()
+	if not _debug_is_valid_trace_context(trace_context, now_usec):
+		return {}
+	var incident_id: int = int(trace_context.get("incident_id", -1))
+	var incident: Dictionary = _debug_forensics_incidents.get(incident_id, {}) as Dictionary
+	if incident.is_empty():
+		return {}
+	var coords: Array[Vector2i] = []
+	_append_unique_chunk_coord(coords, _canonical_chunk_coord(coord))
+	for target_coord: Vector2i in target_chunks:
+		_append_unique_chunk_coord(coords, _canonical_chunk_coord(target_coord))
+	_debug_attach_trace_context_to_chunks(trace_context, coords, z_level, now_usec)
+	var detail_copy: Dictionary = detail_fields.duplicate(true)
+	detail_copy["trace_id"] = str(trace_context.get("trace_id", ""))
+	detail_copy["incident_id"] = incident_id
+	detail_copy["coord"] = str(_canonical_chunk_coord(coord))
+	detail_copy["z"] = z_level
+	var state_key: String = str(detail_copy.get("state_key", "observed"))
+	var signature: String = "%s|%s|%s|%s|%s" % [
+		source_system,
+		event_key,
+		str(_canonical_chunk_coord(coord)),
+		state_key,
+		var_to_str(detail_copy),
+	]
+	var events: Array = incident.get("events", []) as Array
+	if not events.is_empty() \
+		and str(incident.get("last_event_signature", "")) == signature \
+		and _debug_age_ms(incident.get("last_event_usec", 0), now_usec) <= DEBUG_FORENSICS_EVENT_DEDUPE_MS:
+		var last_event: Dictionary = events[events.size() - 1] as Dictionary
+		last_event["repeat_count"] = int(last_event.get("repeat_count", 1)) + 1
+		last_event["timestamp_usec"] = now_usec
+		last_event["timestamp_label"] = _debug_forensics_timestamp_label(now_usec)
+		last_event["detail_fields"] = detail_copy
+		events[events.size() - 1] = last_event
+	else:
+		events.append({
+			"timestamp_usec": now_usec,
+			"timestamp_label": _debug_forensics_timestamp_label(now_usec),
+			"trace_id": str(trace_context.get("trace_id", "")),
+			"incident_id": incident_id,
+			"source_system": source_system,
+			"event_key": event_key,
+			"label": _debug_forensics_event_label(event_key),
+			"coord": _canonical_chunk_coord(coord),
+			"z": z_level,
+			"repeat_count": 1,
+			"state": state_key,
+			"detail_fields": detail_copy,
+		})
+		while events.size() > DEBUG_FORENSICS_TRACE_EVENT_LIMIT:
+			events.pop_front()
+	incident["events"] = events
+	var touched_chunks: Dictionary = incident.get("chunks", {}) as Dictionary
+	for affected_coord: Vector2i in coords:
+		var chunk_key: String = _make_visual_chunk_key(affected_coord, z_level)
+		var chunk_entry: Dictionary = touched_chunks.get(chunk_key, {}) as Dictionary
+		chunk_entry["coord"] = affected_coord
+		chunk_entry["z"] = z_level
+		chunk_entry["updated_usec"] = now_usec
+		chunk_entry["last_event"] = event_key
+		chunk_entry["last_source_system"] = source_system
+		chunk_entry["last_state"] = state_key
+		touched_chunks[chunk_key] = chunk_entry
+	incident["chunks"] = touched_chunks
+	incident["updated_usec"] = now_usec
+	incident["last_stage"] = event_key
+	incident["last_source_system"] = source_system
+	incident["last_event_signature"] = signature
+	incident["last_event_usec"] = now_usec
+	_debug_forensics_incidents[incident_id] = incident
+	var refreshed_context: Dictionary = _debug_duplicate_trace_context(trace_context)
+	refreshed_context["updated_usec"] = now_usec
+	refreshed_context["last_stage"] = event_key
+	return refreshed_context
+
+func _debug_begin_forensics_trace(
+	source_system: String,
+	event_key: String,
+	primary_coord: Vector2i,
+	z_level: int,
+	target_chunks: Array[Vector2i] = [],
+	detail_fields: Dictionary = {}
+) -> Dictionary:
+	var now_usec: int = Time.get_ticks_usec()
+	_debug_prune_forensics_state(now_usec)
+	_debug_next_incident_id += 1
+	var incident_id: int = _debug_next_incident_id
+	var canonical_primary: Vector2i = _canonical_chunk_coord(primary_coord)
+	var trace_context: Dictionary = {
+		"incident_id": incident_id,
+		"trace_id": _debug_make_forensics_trace_id(),
+		"source_system": source_system,
+		"coord": canonical_primary,
+		"z": z_level,
+		"updated_usec": now_usec,
+		"last_stage": event_key,
+	}
+	var incident: Dictionary = {
+		"incident_id": incident_id,
+		"trace_id": str(trace_context.get("trace_id", "")),
+		"source_system": source_system,
+		"primary_chunk": canonical_primary,
+		"player_chunk": _canonical_chunk_coord(_player_chunk),
+		"started_usec": now_usec,
+		"updated_usec": now_usec,
+		"state": "active",
+		"last_stage": event_key,
+		"events": [],
+		"chunks": {},
+		"target_chunks": [],
+		"last_event_signature": "",
+		"last_event_usec": 0,
+	}
+	_debug_forensics_incidents[incident_id] = incident
+	_debug_forensics_incident_order.append(incident_id)
+	while _debug_forensics_incident_order.size() > DEBUG_FORENSICS_INCIDENT_LIMIT:
+		var retired_id: int = _debug_forensics_incident_order.pop_front()
+		if retired_id == incident_id:
+			continue
+		_debug_forensics_incidents.erase(retired_id)
+	_debug_active_incident_id = incident_id
+	var coords: Array[Vector2i] = []
+	_append_unique_chunk_coord(coords, canonical_primary)
+	for target_coord: Vector2i in target_chunks:
+		_append_unique_chunk_coord(coords, _canonical_chunk_coord(target_coord))
+	if _player_chunk != Vector2i(99999, 99999) and z_level == _active_z:
+		_append_unique_chunk_coord(coords, _canonical_chunk_coord(_player_chunk))
+	_debug_attach_trace_context_to_chunks(trace_context, coords, z_level, now_usec)
+	return _debug_register_forensics_event(
+		trace_context,
+		source_system,
+		event_key,
+		canonical_primary,
+		z_level,
+		detail_fields,
+		coords
+	)
+
+func _debug_record_forensics_event(
+	trace_context: Dictionary,
+	source_system: String,
+	event_key: String,
+	coord: Vector2i,
+	z_level: int,
+	detail_fields: Dictionary = {},
+	target_chunks: Array[Vector2i] = []
+) -> Dictionary:
+	var canonical_coord: Vector2i = _canonical_chunk_coord(coord)
+	if trace_context.is_empty():
+		return _debug_begin_forensics_trace(
+			source_system,
+			event_key,
+			canonical_coord,
+			z_level,
+			target_chunks,
+			detail_fields
+		)
+	return _debug_register_forensics_event(
+		trace_context,
+		source_system,
+		event_key,
+		canonical_coord,
+		z_level,
+		detail_fields,
+		target_chunks
+	)
+
+func _debug_is_incident_worthy_coord(coord: Vector2i, z_level: int) -> bool:
+	if z_level != _active_z or _player_chunk == Vector2i(99999, 99999):
+		return false
+	return _chunk_chebyshev_distance(_canonical_chunk_coord(coord), _player_chunk) <= 1
+
+func _debug_ensure_forensics_context(
+	coord: Vector2i,
+	z_level: int,
+	source_system: String,
+	event_key: String,
+	detail_fields: Dictionary = {},
+	target_chunks: Array[Vector2i] = []
+) -> Dictionary:
+	var now_usec: int = Time.get_ticks_usec()
+	var existing_context: Dictionary = _debug_resolve_chunk_trace_context(coord, z_level, now_usec)
+	if not existing_context.is_empty():
+		return existing_context
+	if not _debug_is_incident_worthy_coord(coord, z_level):
+		return {}
+	return _debug_begin_forensics_trace(
+		source_system,
+		event_key,
+		coord,
+		z_level,
+		target_chunks,
+		detail_fields
+	)
+
+func _debug_enrich_record_with_trace(
+	record: Dictionary,
+	detail_fields: Dictionary,
+	coord: Vector2i,
+	z_level: int,
+	trace_context: Dictionary = {}
+) -> Dictionary:
+	var resolved_context: Dictionary = trace_context
+	if resolved_context.is_empty():
+		resolved_context = _debug_resolve_chunk_trace_context(coord, z_level)
+	if resolved_context.is_empty():
+		return {}
+	var trace_id: String = str(resolved_context.get("trace_id", ""))
+	var incident_id: int = int(resolved_context.get("incident_id", -1))
+	if trace_id.is_empty() or incident_id < 0:
+		return {}
+	record["trace_id"] = trace_id
+	record["incident_id"] = incident_id
+	detail_fields["trace_id"] = trace_id
+	detail_fields["incident_id"] = incident_id
+	detail_fields["trace_source"] = str(resolved_context.get("source_system", ""))
+	return resolved_context
+
+func _debug_prune_forensics_state(now_usec: int) -> void:
+	if _debug_active_incident_id >= 0:
+		var active_incident: Dictionary = _debug_forensics_incidents.get(_debug_active_incident_id, {}) as Dictionary
+		if active_incident.is_empty() \
+			or _debug_age_ms(active_incident.get("updated_usec", 0), now_usec) > DEBUG_FORENSICS_ACTIVE_TTL_MS:
+			_debug_active_incident_id = -1
+		else:
+			active_incident["state"] = "active"
+			_debug_forensics_incidents[_debug_active_incident_id] = active_incident
+	for chunk_key_variant: Variant in _debug_chunk_trace_contexts.keys():
+		var chunk_key: String = str(chunk_key_variant)
+		var trace_context: Dictionary = _debug_chunk_trace_contexts.get(chunk_key, {}) as Dictionary
+		if _debug_is_valid_trace_context(trace_context, now_usec):
+			continue
+		_debug_chunk_trace_contexts.erase(chunk_key)
+	var retained_ids: Array[int] = []
+	for incident_id: int in _debug_forensics_incident_order:
+		var incident: Dictionary = _debug_forensics_incidents.get(incident_id, {}) as Dictionary
+		if incident.is_empty():
+			continue
+		var age_ms: float = _debug_age_ms(incident.get("updated_usec", 0), now_usec)
+		if incident_id != _debug_active_incident_id and age_ms > DEBUG_FORENSICS_ACTIVE_TTL_MS * 3.0:
+			_debug_forensics_incidents.erase(incident_id)
+			continue
+		if incident_id != _debug_active_incident_id and age_ms > DEBUG_FORENSICS_ACTIVE_TTL_MS:
+			incident["state"] = "recent"
+			_debug_forensics_incidents[incident_id] = incident
+		retained_ids.append(incident_id)
+	while retained_ids.size() > DEBUG_FORENSICS_INCIDENT_LIMIT:
+		var retired_id: int = retained_ids.pop_front()
+		if retired_id == _debug_active_incident_id:
+			retained_ids.append(retired_id)
+			break
+		_debug_forensics_incidents.erase(retired_id)
+	_debug_forensics_incident_order = retained_ids
+
+func _debug_get_active_incident(now_usec: int) -> Dictionary:
+	_debug_prune_forensics_state(now_usec)
+	if _debug_active_incident_id >= 0:
+		return (_debug_forensics_incidents.get(_debug_active_incident_id, {}) as Dictionary).duplicate(true)
+	return {}
+
+func _debug_build_incident_summary(metrics: Dictionary, now_usec: int) -> Dictionary:
+	var incident: Dictionary = _debug_get_active_incident(now_usec)
+	if incident.is_empty():
+		return {
+			"status": "no_active_incident",
+			"state_label": "no_active_incident",
+			"trace_id": "",
+			"incident_id": -1,
+			"age_ms": -1.0,
+			"updated_age_ms": -1.0,
+			"source_system": "",
+			"stage": "",
+			"player_chunk": _canonical_chunk_coord(_player_chunk),
+			"primary_chunk": Vector2i(999999, 999999),
+			"target_chunks": [],
+			"event_count": 0,
+			"chunk_count": 0,
+			"queue_full_far": _visual_q_full_far.size(),
+			"queue_border_fix_near": _visual_q_border_fix_near.size(),
+			"queue_full_near": _visual_q_full_near.size(),
+			"shadow_ms": float(((metrics.get("perf", {}) as Dictionary).get("categories", {}) as Dictionary).get("shadow", 0.0)),
+		}
+	var touched_chunks: Dictionary = incident.get("chunks", {}) as Dictionary
+	var target_chunks: Array = incident.get("target_chunks", []) as Array
+	return {
+		"status": str(incident.get("state", "active")),
+		"state_label": "active",
+		"trace_id": str(incident.get("trace_id", "")),
+		"incident_id": int(incident.get("incident_id", -1)),
+		"age_ms": _debug_age_ms(incident.get("started_usec", 0), now_usec),
+		"updated_age_ms": _debug_age_ms(incident.get("updated_usec", 0), now_usec),
+		"source_system": str(incident.get("source_system", "")),
+		"stage": str(incident.get("last_stage", "")),
+		"player_chunk": incident.get("player_chunk", _canonical_chunk_coord(_player_chunk)),
+		"primary_chunk": incident.get("primary_chunk", Vector2i(999999, 999999)),
+		"target_chunks": target_chunks.duplicate(),
+		"event_count": (incident.get("events", []) as Array).size(),
+		"chunk_count": touched_chunks.size(),
+		"queue_full_far": _visual_q_full_far.size(),
+		"queue_border_fix_near": _visual_q_border_fix_near.size(),
+		"queue_full_near": _visual_q_full_near.size(),
+		"shadow_ms": float(((metrics.get("perf", {}) as Dictionary).get("categories", {}) as Dictionary).get("shadow", 0.0)),
+	}
+
+func _debug_build_trace_events(incident_summary: Dictionary) -> Array[Dictionary]:
+	var incident_id: int = int(incident_summary.get("incident_id", -1))
+	if incident_id < 0:
+		return []
+	var incident: Dictionary = _debug_forensics_incidents.get(incident_id, {}) as Dictionary
+	if incident.is_empty():
+		return []
+	var events: Array = incident.get("events", []) as Array
+	var result: Array[Dictionary] = []
+	var start_index: int = maxi(0, events.size() - DEBUG_FORENSICS_TRACE_UI_LIMIT)
+	for idx: int in range(start_index, events.size()):
+		result.append((events[idx] as Dictionary).duplicate(true))
+	return result
+
+func _debug_collect_incident_chunk_keys(incident_id: int) -> Array[String]:
+	var incident: Dictionary = _debug_forensics_incidents.get(incident_id, {}) as Dictionary
+	if incident.is_empty():
+		return []
+	var touched_chunks: Dictionary = incident.get("chunks", {}) as Dictionary
+	var chunk_keys: Array[String] = []
+	for chunk_key_variant: Variant in touched_chunks.keys():
+		chunk_keys.append(str(chunk_key_variant))
+	chunk_keys.sort_custom(func(a: String, b: String) -> bool:
+		var a_entry: Dictionary = touched_chunks.get(a, {}) as Dictionary
+		var b_entry: Dictionary = touched_chunks.get(b, {}) as Dictionary
+		var a_coord: Vector2i = a_entry.get("coord", Vector2i.ZERO) as Vector2i
+		var b_coord: Vector2i = b_entry.get("coord", Vector2i.ZERO) as Vector2i
+		return _chunk_priority_less(a_coord, b_coord, _player_chunk)
+	)
+	return chunk_keys
+
+func _debug_build_chunk_causality_rows(
+	incident_summary: Dictionary,
+	lookups: Dictionary,
+	now_usec: int
+) -> Array[Dictionary]:
+	var incident_id: int = int(incident_summary.get("incident_id", -1))
+	var rows: Array[Dictionary] = []
+	var seen_coords: Dictionary = {}
+	var player_coord: Vector2i = _canonical_chunk_coord(_player_chunk)
+	if player_coord != Vector2i(99999, 99999):
+		seen_coords[_make_visual_chunk_key(player_coord, _active_z)] = {
+			"coord": player_coord,
+			"z": _active_z,
+		}
+	if incident_id >= 0:
+		var incident: Dictionary = _debug_forensics_incidents.get(incident_id, {}) as Dictionary
+		var touched_chunks: Dictionary = incident.get("chunks", {}) as Dictionary
+		for chunk_key_variant: Variant in touched_chunks.keys():
+			var chunk_key: String = str(chunk_key_variant)
+			seen_coords[chunk_key] = (touched_chunks.get(chunk_key, {}) as Dictionary).duplicate(true)
+	var keys: Array[String] = []
+	for chunk_key_variant: Variant in seen_coords.keys():
+		keys.append(str(chunk_key_variant))
+	keys.sort_custom(func(a: String, b: String) -> bool:
+		var a_entry: Dictionary = seen_coords.get(a, {}) as Dictionary
+		var b_entry: Dictionary = seen_coords.get(b, {}) as Dictionary
+		var a_coord: Vector2i = a_entry.get("coord", Vector2i.ZERO) as Vector2i
+		var b_coord: Vector2i = b_entry.get("coord", Vector2i.ZERO) as Vector2i
+		return _chunk_priority_less(a_coord, b_coord, _player_chunk)
+	)
+	for chunk_key: String in keys:
+		if rows.size() >= DEBUG_FORENSICS_CHUNK_ROW_LIMIT:
+			break
+		var trace_entry: Dictionary = seen_coords.get(chunk_key, {}) as Dictionary
+		var coord: Vector2i = trace_entry.get("coord", Vector2i.ZERO) as Vector2i
+		var z_level: int = int(trace_entry.get("z", _active_z))
+		var loaded_for_z: Dictionary = _z_chunks.get(z_level, {}) as Dictionary
+		var chunk: Chunk = loaded_for_z.get(coord) as Chunk
+		var base_entry: Dictionary = _debug_build_chunk_entry(coord, z_level, chunk, lookups, now_usec)
+		var pending_tasks: Array[String] = []
+		for kind: int in [
+			VisualTaskKind.TASK_FIRST_PASS,
+			VisualTaskKind.TASK_FULL_REDRAW,
+			VisualTaskKind.TASK_BORDER_FIX,
+		]:
+			if _get_visual_task_age_ms(coord, z_level, kind) >= 0.0:
+				pending_tasks.append(_debug_visual_kind_name(kind))
+		rows.append({
+			"coord": coord,
+			"z": z_level,
+			"is_player_chunk": bool(base_entry.get("is_player_chunk", false)),
+			"distance": int(base_entry.get("distance", -1)),
+			"state": str(base_entry.get("state", "")),
+			"state_human": str(base_entry.get("state_human", "")),
+			"is_visible": bool(base_entry.get("is_visible", false)),
+			"is_simulating": bool(base_entry.get("is_simulating", false)),
+			"is_stalled": bool(base_entry.get("is_stalled", false)),
+			"stage_age_ms": float(base_entry.get("stage_age_ms", -1.0)),
+			"visual_phase": str(base_entry.get("visual_phase", "")),
+			"pending_tasks": pending_tasks,
+			"trace_age_ms": _debug_age_ms(trace_entry.get("updated_usec", 0), now_usec),
+			"last_event": str(trace_entry.get("last_event", "")),
+			"last_source_system": str(trace_entry.get("last_source_system", "")),
+			"last_state": str(trace_entry.get("last_state", "")),
+		})
+	return rows
+
+func _debug_build_task_debug_rows(incident_summary: Dictionary, now_usec: int) -> Array[Dictionary]:
+	var incident_id: int = int(incident_summary.get("incident_id", -1))
+	if incident_id < 0:
+		return []
+	var rows: Array[Dictionary] = []
+	for meta_variant: Variant in _debug_visual_task_meta.values():
+		var meta: Dictionary = meta_variant as Dictionary
+		if int(meta.get("incident_id", -1)) != incident_id:
+			continue
+		var task_key: String = str(meta.get("task_key", ""))
+		if task_key.is_empty():
+			continue
+		if not _visual_task_pending.has(task_key) \
+			and not _visual_compute_active.has(task_key) \
+			and not _visual_compute_waiting_tasks.has(task_key):
+			continue
+		var band: int = int(meta.get("band", VisualPriorityBand.COSMETIC))
+		rows.append({
+			"task_key": task_key,
+			"coord": meta.get("coord", Vector2i.ZERO),
+			"z": int(meta.get("z", _active_z)),
+			"kind": str(meta.get("kind_name", "")),
+			"kind_human": _debug_visual_task_type_human(int(meta.get("kind", VisualTaskKind.TASK_COSMETIC))),
+			"band": _debug_visual_band_name(band),
+			"band_human": _debug_visual_band_human(band),
+			"version": int(meta.get("version", 0)),
+			"enqueue_reason": str(meta.get("enqueue_reason", "")),
+			"trace_id": str(meta.get("trace_id", "")),
+			"age_ms": _debug_age_ms(meta.get("enqueue_usec", 0), now_usec),
+			"selected_last_tick": int(meta.get("selected_frame", -1)) == Engine.get_process_frames(),
+			"requeue_count": int(meta.get("requeue_count", 0)),
+			"last_skip_reason": str(meta.get("last_skip_reason", "")),
+			"last_budget_state": str(meta.get("last_budget_state", "")),
+			"status": "worker_active" if _visual_compute_active.has(task_key) else (
+				"worker_waiting" if _visual_compute_waiting_tasks.has(task_key) else "queued"
+			),
+			"source_system": str(meta.get("source_system", "")),
+		})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_selected: bool = bool(a.get("selected_last_tick", false))
+		var b_selected: bool = bool(b.get("selected_last_tick", false))
+		if a_selected != b_selected:
+			return a_selected and not b_selected
+		var a_coord: Vector2i = a.get("coord", Vector2i.ZERO) as Vector2i
+		var b_coord: Vector2i = b.get("coord", Vector2i.ZERO) as Vector2i
+		return _chunk_priority_less(a_coord, b_coord, _player_chunk)
+	)
+	if rows.size() > DEBUG_FORENSICS_TASK_ROW_LIMIT:
+		rows.resize(DEBUG_FORENSICS_TASK_ROW_LIMIT)
+	return rows
+
+func _debug_build_suspicion_flags(
+	incident_summary: Dictionary,
+	trace_events: Array[Dictionary],
+	chunk_causality_rows: Array[Dictionary],
+	task_debug_rows: Array[Dictionary],
+	metrics: Dictionary,
+	now_usec: int
+) -> Array[Dictionary]:
+	var flags: Array[Dictionary] = []
+	var player_coord: Vector2i = _canonical_chunk_coord(_player_chunk)
+	var immediate_patch_by_chunk: Dictionary = {}
+	for event: Dictionary in trace_events:
+		var event_key: String = str(event.get("event_key", ""))
+		var coord: Vector2i = event.get("coord", Vector2i.ZERO) as Vector2i
+		var chunk_key: String = _make_visual_chunk_key(coord, int(event.get("z", _active_z)))
+		if event_key == "roof_immediate_patch_applied":
+			immediate_patch_by_chunk[chunk_key] = true
+		elif event_key == "roof_restore_deferred" and _debug_is_incident_worthy_coord(coord, int(event.get("z", _active_z))):
+			flags.append({
+				"flag": "restore_waiting_on_border_fix",
+				"label": "restore ждёт owner border_fix рядом с игроком",
+				"detail": "coord=%s" % [coord],
+			})
+			if immediate_patch_by_chunk.has(chunk_key):
+				flags.append({
+					"flag": "restore_overwrites_immediate_patch",
+					"label": "same trace сначала сделал immediate patch, затем ушёл в restore defer",
+					"detail": "coord=%s" % [coord],
+				})
+	var player_pending_age_ms: float = -1.0
+	for row: Dictionary in chunk_causality_rows:
+		if not bool(row.get("is_player_chunk", false)):
+			continue
+		if not bool(row.get("is_visible", false)) or not bool(row.get("is_simulating", false)):
+			continue
+		if str(row.get("visual_phase", "")) != "done":
+			continue
+		if (row.get("pending_tasks", []) as Array).is_empty():
+			continue
+		for task_row: Dictionary in task_debug_rows:
+			if task_row.get("coord", Vector2i.ZERO) == player_coord:
+				player_pending_age_ms = maxf(player_pending_age_ms, float(task_row.get("age_ms", -1.0)))
+		if player_pending_age_ms >= DEBUG_FORENSICS_OWNER_STUCK_MS:
+			flags.append({
+				"flag": "player_chunk_visual_owner_stuck",
+				"label": "player chunk видим и в phase=done, но owner-task metadata не очищена",
+				"detail": "age=%.1f ms" % player_pending_age_ms,
+			})
+	if _visual_q_full_far.size() >= DEBUG_FORENSICS_FULL_FAR_PRESSURE_THRESHOLD \
+		and (_visual_q_border_fix_near.size() > 0 or _visual_q_full_near.size() > 0):
+		flags.append({
+			"flag": "far_full_backlog_pressure",
+			"label": "full_far backlog давит на near servicing",
+			"detail": "full_far=%d border_fix_near=%d full_near=%d" % [
+				_visual_q_full_far.size(),
+				_visual_q_border_fix_near.size(),
+				_visual_q_full_near.size(),
+			],
+		})
+	var perf_snapshot: Dictionary = metrics.get("perf", {}) as Dictionary
+	var frame_categories: Dictionary = perf_snapshot.get("categories", {}) as Dictionary
+	var frame_ops: Dictionary = perf_snapshot.get("ops", {}) as Dictionary
+	var shadow_ms: float = float(frame_categories.get("shadow", 0.0))
+	if shadow_ms >= 0.75:
+		var heavy_shadow_ops: Array[String] = []
+		for label_variant: Variant in frame_ops.keys():
+			var label: String = str(label_variant)
+			if not label.contains("Shadow") and not label.contains("mountain_shadow"):
+				continue
+			var op_ms: float = float(frame_ops.get(label, 0.0))
+			if op_ms < 0.5:
+				continue
+			heavy_shadow_ops.append("%s=%.2f" % [label, op_ms])
+			if heavy_shadow_ops.size() >= 2:
+				break
+		flags.append({
+			"flag": "shadow_budget_competition",
+			"label": "shadow rebuild конкурирует за visual budget",
+			"detail": "shadow=%s%s" % [
+				"%.1f ms" % shadow_ms,
+				" | " + ", ".join(heavy_shadow_ops) if not heavy_shadow_ops.is_empty() else "",
+			],
+		})
+	return flags
+
 func sync_display_to_player() -> void:
 	if not _initialized or not _player or not WorldGenerator:
 		return
@@ -546,14 +1398,791 @@ func _has_load_request(coord: Vector2i, z_level: int) -> bool:
 			return true
 	return false
 
+func _debug_build_radii() -> Dictionary:
+	var load_radius: int = WorldGenerator.balance.load_radius if WorldGenerator and WorldGenerator.balance else 0
+	var unload_radius: int = WorldGenerator.balance.unload_radius if WorldGenerator and WorldGenerator.balance else load_radius
+	var near_visual_radius: int = WorldGenerator.balance.near_visible_chunk_radius if WorldGenerator and WorldGenerator.balance else load_radius
+	var far_visual_radius: int = WorldGenerator.balance.far_visible_chunk_radius if WorldGenerator and WorldGenerator.balance else unload_radius
+	return {
+		"shape": "square_chebyshev",
+		"render_radius": far_visual_radius,
+		"preload_radius": load_radius,
+		"simulation_radius": load_radius,
+		"retention_radius": unload_radius,
+		"near_visual_radius": near_visual_radius,
+		"far_visual_radius": far_visual_radius,
+		"max_debug_radius": DEBUG_OVERLAY_MAX_RADIUS,
+	}
+
+func _debug_build_snapshot_lookups(now_usec: int) -> Dictionary:
+	var load_requests: Dictionary = {}
+	for request: Dictionary in _load_queue:
+		var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
+		var z_level: int = int(request.get("z", INVALID_Z_LEVEL))
+		load_requests[_make_chunk_state_key(z_level, coord)] = request
+	var ready_entries: Dictionary = {}
+	for ready_entry: Dictionary in _gen_ready_queue:
+		var coord: Vector2i = _canonical_chunk_coord(ready_entry.get("coord", Vector2i.ZERO) as Vector2i)
+		var z_level: int = int(ready_entry.get("z", INVALID_Z_LEVEL))
+		ready_entries[_make_chunk_state_key(z_level, coord)] = ready_entry
+	return {
+		"now_usec": now_usec,
+		"load_requests": load_requests,
+		"ready_entries": ready_entries,
+		"recent_unloads": _debug_recent_unloads.duplicate(),
+	}
+
+func _debug_build_chunk_entry(
+	coord: Vector2i,
+	z_level: int,
+	chunk: Chunk,
+	lookups: Dictionary,
+	now_usec: int
+) -> Dictionary:
+	var key: Vector3i = _make_chunk_state_key(z_level, coord)
+	var load_requests: Dictionary = lookups.get("load_requests", {}) as Dictionary
+	var ready_entries: Dictionary = lookups.get("ready_entries", {}) as Dictionary
+	var recent_unloads: Dictionary = lookups.get("recent_unloads", {}) as Dictionary
+	var distance: int = _chunk_chebyshev_distance(coord, _player_chunk)
+	var load_radius: int = WorldGenerator.balance.load_radius if WorldGenerator and WorldGenerator.balance else 0
+	var unload_radius: int = WorldGenerator.balance.unload_radius if WorldGenerator and WorldGenerator.balance else load_radius
+	var state: String = "absent"
+	var state_age_ms: float = -1.0
+	var requested_usec: int = 0
+	var requested_frame: int = -1
+	var reason: String = _debug_reason_for_chunk(coord, distance, "absent")
+	var technical_code: String = "chunk_absent"
+	var is_visible: bool = false
+	var is_simulating: bool = false
+	var visual_phase: String = ""
+	if chunk != null and is_instance_valid(chunk):
+		is_visible = chunk.visible
+		is_simulating = distance <= load_radius
+		visual_phase = chunk.get_redraw_phase_name()
+		state = _debug_resolve_loaded_chunk_state(chunk, coord, z_level)
+		state_age_ms = _debug_resolve_loaded_chunk_age_ms(coord, z_level, state, now_usec)
+		reason = _debug_reason_for_chunk(coord, distance, state)
+		technical_code = _describe_chunk_visual_state(chunk)
+		if state == "visible" and is_simulating:
+			state = "simulating"
+			reason = "чанк видим и входит в активную область симуляции вокруг игрока"
+			technical_code = "simulation_active"
+	elif _is_generating_request(coord, z_level):
+		state = "generating"
+		state_age_ms = _debug_age_ms(_debug_generate_started_usec.get(key, 0), now_usec)
+		reason = "задача генерации уже взята worker thread"
+		technical_code = "stream_load"
+	elif ready_entries.has(key):
+		var ready_entry: Dictionary = ready_entries.get(key, {}) as Dictionary
+		state = "data_ready"
+		state_age_ms = _debug_age_ms(ready_entry.get("ready_usec", 0), now_usec)
+		reason = "данные чанка готовы и ждут применения на основном потоке"
+		technical_code = "queued_not_applied"
+	elif _is_staged_request(coord, z_level) and (not _staged_data.is_empty() or _staged_chunk != null or not _staged_install_entry.is_empty()):
+		state = "data_ready" if _staged_chunk == null else "building_visual"
+		state_age_ms = _debug_age_ms(_staged_install_entry.get("staged_usec", 0), now_usec)
+		reason = "подготовленный результат ждёт поэтапной установки в сцену"
+		technical_code = "queued_not_applied"
+	elif load_requests.has(key):
+		var request: Dictionary = load_requests.get(key, {}) as Dictionary
+		requested_usec = int(request.get("requested_usec", 0))
+		requested_frame = int(request.get("requested_frame", -1))
+		state_age_ms = _debug_age_ms(requested_usec, now_usec)
+		state = "requested" if state_age_ms >= 0.0 and state_age_ms < 180.0 else "queued"
+		reason = str(request.get("reason", _debug_reason_for_chunk(coord, distance, state)))
+		technical_code = "stream_load"
+	elif recent_unloads.has(key):
+		state = "unloading"
+		state_age_ms = _debug_age_ms(recent_unloads.get(key, 0), now_usec)
+		reason = "чанк недавно вышел из области удержания и был выгружен"
+		technical_code = "stream_unload"
+	var stalled_stage: String = ""
+	var is_stalled: bool = _debug_is_stalled_state(state, state_age_ms)
+	if is_stalled:
+		stalled_stage = state
+		state = "stalled"
+		technical_code = "observed_stall"
+		reason = "%s; это наблюдаемая задержка, а не доказанная корневая причина" % reason
+	return {
+		"coord": coord,
+		"z": z_level,
+		"state": state,
+		"state_human": _debug_chunk_state_human(state),
+		"stalled_stage": stalled_stage,
+		"stage_age_ms": state_age_ms,
+		"priority": _debug_priority_label(coord),
+		"priority_rank": _debug_priority_rank(coord),
+		"distance": distance,
+		"requested_frame": requested_frame,
+		"requested_timestamp_usec": requested_usec,
+		"reason": reason,
+		"impact": _debug_impact_for_chunk(distance, state),
+		"is_player_chunk": coord == _player_chunk,
+		"is_visible": is_visible,
+		"is_simulating": is_simulating,
+		"is_stalled": is_stalled,
+		"visual_phase": visual_phase,
+		"source_system": "ChunkManager",
+		"technical_code": technical_code,
+		"within_load_radius": distance <= load_radius,
+		"within_unload_radius": distance <= unload_radius,
+	}
+
+func _debug_resolve_loaded_chunk_state(chunk: Chunk, coord: Vector2i, z_level: int) -> String:
+	if chunk == null or not is_instance_valid(chunk):
+		return "absent"
+	var has_visual_task: bool = false
+	for kind: int in [
+		VisualTaskKind.TASK_FIRST_PASS,
+		VisualTaskKind.TASK_FULL_REDRAW,
+		VisualTaskKind.TASK_BORDER_FIX,
+		VisualTaskKind.TASK_COSMETIC,
+	]:
+		if _visual_task_pending.has(_make_visual_task_key(coord, z_level, kind)):
+			has_visual_task = true
+			break
+	if has_visual_task or not chunk.is_redraw_complete() or not chunk.is_full_redraw_ready():
+		return "building_visual"
+	if chunk.visible:
+		return "visible"
+	return "ready"
+
+func _debug_resolve_loaded_chunk_age_ms(coord: Vector2i, z_level: int, state: String, now_usec: int) -> float:
+	var chunk_key: String = _make_visual_chunk_key(coord, z_level)
+	var age_ms: float = -1.0
+	if state == "building_visual":
+		age_ms = maxf(age_ms, _debug_age_ms(_visual_apply_started_usec.get(chunk_key, 0), now_usec))
+		age_ms = maxf(age_ms, _debug_age_ms(_visual_convergence_started_usec.get(chunk_key, 0), now_usec))
+		for kind: int in [
+			VisualTaskKind.TASK_FIRST_PASS,
+			VisualTaskKind.TASK_FULL_REDRAW,
+			VisualTaskKind.TASK_BORDER_FIX,
+			VisualTaskKind.TASK_COSMETIC,
+		]:
+			age_ms = maxf(age_ms, _get_visual_task_age_ms(coord, z_level, kind))
+	elif state == "visible" or state == "ready":
+		age_ms = _debug_age_ms(_visual_full_ready_usec.get(chunk_key, 0), now_usec)
+	return age_ms
+
+func _debug_is_stalled_state(state: String, age_ms: float) -> bool:
+	if age_ms < DEBUG_OVERLAY_STALL_MS:
+		return false
+	return state == "requested" \
+		or state == "queued" \
+		or state == "generating" \
+		or state == "data_ready" \
+		or state == "building_visual"
+
+func _debug_reason_for_chunk(coord: Vector2i, distance: int, state: String) -> String:
+	if coord == _player_chunk:
+		return "это текущий чанк игрока"
+	var load_radius: int = WorldGenerator.balance.load_radius if WorldGenerator and WorldGenerator.balance else 0
+	var unload_radius: int = WorldGenerator.balance.unload_radius if WorldGenerator and WorldGenerator.balance else load_radius
+	if state == "absent" and distance > unload_radius:
+		return "чанк вне области удержания"
+	if distance <= load_radius:
+		return "чанк входит в фактическую область загрузки вокруг игрока"
+	if distance <= unload_radius:
+		return "чанк удерживается как хвост после движения игрока"
+	return "чанк вне текущей рабочей области"
+
+func _debug_chunk_state_human(state: String) -> String:
+	match state:
+		"absent":
+			return "отсутствует"
+		"requested":
+			return "запрошен"
+		"queued":
+			return "стоит в очереди"
+		"generating":
+			return "генерируются данные"
+		"data_ready":
+			return "данные готовы"
+		"building_visual":
+			return "строится визуал"
+		"ready":
+			return "готов"
+		"visible":
+			return "видим"
+		"simulating":
+			return "участвует в симуляции"
+		"unloading":
+			return "выгружается"
+		"error":
+			return "ошибка"
+		"stalled":
+			return "подозрительно долго висит"
+		_:
+			return state
+
+func _debug_priority_rank(coord: Vector2i) -> int:
+	var distance: int = _chunk_chebyshev_distance(coord, _player_chunk)
+	var load_radius: int = WorldGenerator.balance.load_radius if WorldGenerator and WorldGenerator.balance else 0
+	if coord == _player_chunk:
+		return 0
+	if distance <= 1:
+		return 1
+	if distance <= load_radius:
+		return 2
+	return 3
+
+func _debug_priority_label(coord: Vector2i) -> String:
+	match _debug_priority_rank(coord):
+		0:
+			return "немедленный"
+		1:
+			return "высокий"
+		2:
+			return "средний"
+		_:
+			return "низкий"
+
+func _debug_impact_for_chunk(distance: int, state: String) -> String:
+	if state == "stalled" and distance <= 1:
+		return String(WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE)
+	if distance <= 1 and (state == "generating" or state == "building_visual" or state == "data_ready"):
+		return String(WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE)
+	var load_radius: int = WorldGenerator.balance.load_radius if WorldGenerator and WorldGenerator.balance else 0
+	if distance <= load_radius:
+		return String(WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT)
+	return String(WorldRuntimeDiagnosticLog.IMPACT_INFORMATIONAL)
+
+func _debug_age_ms(raw_start_usec: Variant, now_usec: int) -> float:
+	var start_usec: int = int(raw_start_usec)
+	if start_usec <= 0:
+		return -1.0
+	return float(now_usec - start_usec) / 1000.0
+
+func _debug_visual_queue_depth() -> int:
+	return _visual_q_terrain_fast.size() \
+		+ _visual_q_terrain_urgent.size() \
+		+ _visual_q_terrain_near.size() \
+		+ _visual_q_full_near.size() \
+		+ _visual_q_border_fix_near.size() \
+		+ _visual_q_border_fix_far.size() \
+		+ _visual_q_full_far.size() \
+		+ _visual_q_cosmetic.size() \
+		+ _visual_compute_active.size() \
+		+ _visual_compute_waiting_tasks.size()
+
+func _debug_queue_sizes() -> Dictionary:
+	return {
+		"load": _load_queue.size(),
+		"generate_active": _gen_active_tasks.size(),
+		"data_ready": _gen_ready_queue.size(),
+		"visual": _debug_visual_queue_depth(),
+		"seam_refresh": _pending_seam_refresh_tiles.size(),
+		"topology_dirty": 1 if (_is_topology_dirty or _is_topology_build_in_progress or _native_topology_dirty) else 0,
+	}
+
+func _debug_count_recent_events(kind: String, window_ms: float, now_usec: int) -> int:
+	var count: int = 0
+	for event: Dictionary in _debug_recent_lifecycle_events:
+		if str(event.get("kind", "")) != kind:
+			continue
+		var age_ms: float = _debug_age_ms(event.get("timestamp_usec", 0), now_usec)
+		if age_ms >= 0.0 and age_ms <= window_ms:
+			count += 1
+	return count
+
+func _debug_record_recent_lifecycle_event(
+	kind: String,
+	coord: Vector2i,
+	z_level: int,
+	task_type_human: String,
+	reason: String,
+	duration_ms: float = -1.0,
+	show_in_queue: bool = true
+) -> void:
+	var now_usec: int = Time.get_ticks_usec()
+	var canonical_coord: Vector2i = _canonical_chunk_coord(coord)
+	var entry: Dictionary = {
+		"kind": kind,
+		"coord": canonical_coord,
+		"z": z_level,
+		"timestamp_usec": now_usec,
+		"duration_ms": duration_ms,
+		"task_type_human": task_type_human,
+		"reason": reason,
+		"priority": _debug_priority_label(canonical_coord),
+		"impact": _debug_impact_for_chunk(_chunk_chebyshev_distance(canonical_coord, _player_chunk), "ready"),
+		"show_in_queue": show_in_queue,
+	}
+	_debug_recent_lifecycle_events.append(entry)
+	if kind == "unloaded":
+		_debug_recent_unloads[_make_chunk_state_key(z_level, canonical_coord)] = now_usec
+	_debug_prune_recent_lifecycle_events(now_usec)
+
+func _debug_prune_recent_lifecycle_events(now_usec: int) -> void:
+	while _debug_recent_lifecycle_events.size() > DEBUG_OVERLAY_RECENT_EVENT_LIMIT:
+		_debug_recent_lifecycle_events.pop_front()
+	while not _debug_recent_lifecycle_events.is_empty():
+		var first: Dictionary = _debug_recent_lifecycle_events[0] as Dictionary
+		if _debug_age_ms(first.get("timestamp_usec", 0), now_usec) <= DEBUG_OVERLAY_RECENT_MS:
+			break
+		_debug_recent_lifecycle_events.pop_front()
+	for key_variant: Variant in _debug_recent_unloads.keys():
+		if _debug_age_ms(_debug_recent_unloads.get(key_variant, 0), now_usec) > DEBUG_OVERLAY_RECENT_MS:
+			_debug_recent_unloads.erase(key_variant)
+
+func _debug_collect_queue_rows(max_queue_rows: int, now_usec: int) -> Dictionary:
+	var rows: Array[Dictionary] = []
+	var hidden_count: int = 0
+	var resolved_limit: int = clampi(max_queue_rows, 1, 48)
+	var active_coords: Array[Vector2i] = []
+	for coord_variant: Variant in _gen_active_tasks.keys():
+		active_coords.append(coord_variant as Vector2i)
+	active_coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return _chunk_priority_less(a, b, _player_chunk)
+	)
+	for coord: Vector2i in active_coords:
+		var z_level: int = int(_gen_active_z_levels.get(coord, _active_z))
+		hidden_count += _debug_append_queue_row(rows, _debug_make_generation_queue_row(coord, z_level, "active", now_usec), resolved_limit)
+	if _staged_chunk != null or not _staged_data.is_empty() or not _staged_install_entry.is_empty():
+		hidden_count += _debug_append_queue_row(rows, _debug_make_staged_queue_row(now_usec), resolved_limit)
+	var active_visual_keys: Array[String] = []
+	for key_variant: Variant in _visual_compute_active.keys():
+		active_visual_keys.append(str(key_variant))
+	active_visual_keys.sort()
+	for key: String in active_visual_keys:
+		var task: Dictionary = _visual_compute_waiting_tasks.get(key, {}) as Dictionary
+		if not task.is_empty():
+			hidden_count += _debug_append_queue_row(rows, _debug_make_visual_queue_row(task, "active", now_usec), resolved_limit)
+	hidden_count += _debug_append_load_queue_rows(rows, resolved_limit, now_usec)
+	if not _gen_ready_queue.is_empty():
+		hidden_count += _debug_append_queue_row(
+			rows,
+			_debug_make_group_queue_row(
+				"data_ready",
+				"Загрузка представления в мир",
+				"Ожидает применения",
+				_gen_ready_queue.size(),
+				"сгенерированные данные ждут main-thread apply",
+				"средний"
+			),
+			resolved_limit
+		)
+	for queue: Array[Dictionary] in [
+		_visual_q_terrain_fast,
+		_visual_q_terrain_urgent,
+		_visual_q_border_fix_near,
+		_visual_q_terrain_near,
+		_visual_q_full_near,
+		_visual_q_border_fix_far,
+		_visual_q_full_far,
+		_visual_q_cosmetic,
+	]:
+		hidden_count += _debug_append_visual_queue_group(rows, resolved_limit, queue, "waiting", now_usec)
+	if not _pending_seam_refresh_tiles.is_empty():
+		hidden_count += _debug_append_queue_row(
+			rows,
+			_debug_make_group_queue_row(
+				"seam_refresh",
+				"Перестройка границы чанков",
+				"Ожидает",
+				_pending_seam_refresh_tiles.size(),
+				"есть локальные seam-tile правки после изменения соседей",
+				"средний"
+			),
+			resolved_limit
+		)
+	for idx: int in range(_debug_recent_lifecycle_events.size() - 1, -1, -1):
+		var event: Dictionary = _debug_recent_lifecycle_events[idx] as Dictionary
+		if bool(event.get("show_in_queue", false)):
+			hidden_count += _debug_append_queue_row(rows, _debug_make_completed_queue_row(event, now_usec), resolved_limit)
+	return {
+		"rows": rows,
+		"hidden_count": hidden_count,
+	}
+
+func _debug_append_queue_row(rows: Array[Dictionary], row: Dictionary, max_rows: int) -> int:
+	if row.is_empty():
+		return 0
+	if rows.size() < max_rows:
+		rows.append(row)
+		return 0
+	return maxi(1, int(row.get("count", 1)))
+
+func _debug_append_load_queue_rows(rows: Array[Dictionary], max_rows: int, now_usec: int) -> int:
+	if _load_queue.is_empty():
+		return 0
+	var hidden_count: int = 0
+	if _load_queue.size() <= 3:
+		for request: Dictionary in _load_queue:
+			hidden_count += _debug_append_queue_row(rows, _debug_make_load_queue_row(request, now_usec), max_rows)
+		return hidden_count
+	var first_request: Dictionary = _load_queue[0] as Dictionary
+	hidden_count += _debug_append_queue_row(rows, _debug_make_load_queue_row(first_request, now_usec), max_rows)
+	hidden_count += _debug_append_queue_row(
+		rows,
+		_debug_make_group_queue_row(
+			"load_queue_group",
+			"Запрос чанка",
+			"Ожидает",
+			_load_queue.size() - 1,
+			"однотипные запросы догрузки сгруппированы, чтобы не засорять экран",
+			"средний"
+		),
+		max_rows
+	)
+	return hidden_count
+
+func _debug_append_visual_queue_group(
+	rows: Array[Dictionary],
+	max_rows: int,
+	queue: Array[Dictionary],
+	status: String,
+	now_usec: int
+) -> int:
+	if queue.is_empty():
+		return 0
+	var hidden_count: int = 0
+	if queue.size() <= 2:
+		for task: Dictionary in queue:
+			hidden_count += _debug_append_queue_row(rows, _debug_make_visual_queue_row(task, status, now_usec), max_rows)
+		return hidden_count
+	var first_task: Dictionary = queue[0] as Dictionary
+	hidden_count += _debug_append_queue_row(rows, _debug_make_visual_queue_row(first_task, status, now_usec), max_rows)
+	hidden_count += _debug_append_queue_row(
+		rows,
+		_debug_make_group_queue_row(
+			"visual_group_%s_%s" % [int(first_task.get("kind", VisualTaskKind.TASK_COSMETIC)), int(first_task.get("priority_band", VisualPriorityBand.COSMETIC))],
+			_debug_visual_task_type_human(int(first_task.get("kind", VisualTaskKind.TASK_COSMETIC))),
+			_debug_status_human(status),
+			queue.size() - 1,
+			"однотипная очередь визуала сгруппирована",
+			_debug_visual_band_human(int(first_task.get("priority_band", VisualPriorityBand.COSMETIC)))
+		),
+		max_rows
+	)
+	return hidden_count
+
+func _debug_make_load_queue_row(request: Dictionary, now_usec: int) -> Dictionary:
+	var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
+	var z_level: int = int(request.get("z", _active_z))
+	var distance: int = _chunk_chebyshev_distance(coord, _player_chunk)
+	return {
+		"task_id": "load:%s:%d" % [coord, z_level],
+		"group_key": "load_request",
+		"status": "waiting",
+		"task_type": "chunk_request",
+		"task_type_human": "Запрос чанка",
+		"chunk_coord": coord,
+		"scope": "chunk",
+		"stage": "queued",
+		"stage_human": "Ожидает",
+		"age_ms": _debug_age_ms(request.get("requested_usec", 0), now_usec),
+		"priority": str(request.get("priority", _debug_priority_label(coord))),
+		"reason": str(request.get("reason", _debug_reason_for_chunk(coord, distance, "queued"))),
+		"impact": _debug_impact_for_chunk(distance, "queued"),
+		"state": "queued",
+		"queue_depth": _load_queue.size(),
+		"count": 1,
+		"hidden_count": 0,
+		"completed_recently": false,
+		"correlation_id": "chunk:%s:%d" % [coord, z_level],
+		"predecessor_id": "",
+	}
+
+func _debug_make_generation_queue_row(coord: Vector2i, z_level: int, status: String, now_usec: int) -> Dictionary:
+	var key: Vector3i = _make_chunk_state_key(z_level, coord)
+	return {
+		"task_id": "generate:%s:%d" % [coord, z_level],
+		"group_key": "chunk_generation",
+		"status": status,
+		"task_type": "chunk_generation",
+		"task_type_human": "Генерация данных чанка",
+		"chunk_coord": coord,
+		"scope": "chunk",
+		"stage": "generating",
+		"stage_human": "Выполняется",
+		"age_ms": _debug_age_ms(_debug_generate_started_usec.get(key, 0), now_usec),
+		"priority": _debug_priority_label(coord),
+		"reason": "worker thread готовит данные чанка для текущего load bubble",
+		"impact": _debug_impact_for_chunk(_chunk_chebyshev_distance(coord, _player_chunk), "generating"),
+		"state": "generating",
+		"queue_depth": _gen_active_tasks.size(),
+		"count": 1,
+		"hidden_count": 0,
+		"completed_recently": false,
+		"correlation_id": "chunk:%s:%d" % [coord, z_level],
+		"predecessor_id": "",
+	}
+
+func _debug_make_staged_queue_row(now_usec: int) -> Dictionary:
+	var coord: Vector2i = _canonical_chunk_coord(_staged_coord)
+	return {
+		"task_id": "stage:%s:%d" % [coord, _staged_z],
+		"group_key": "chunk_apply",
+		"status": "active",
+		"task_type": "chunk_apply",
+		"task_type_human": "Загрузка представления в мир",
+		"chunk_coord": coord,
+		"scope": "chunk",
+		"stage": "apply",
+		"stage_human": "Применяется",
+		"age_ms": _debug_age_ms(_staged_install_entry.get("staged_usec", 0), now_usec),
+		"priority": _debug_priority_label(coord),
+		"reason": "подготовленные данные устанавливаются в scene tree поэтапно",
+		"impact": _debug_impact_for_chunk(_chunk_chebyshev_distance(coord, _player_chunk), "data_ready"),
+		"state": "data_ready",
+		"queue_depth": _gen_ready_queue.size(),
+		"count": 1,
+		"hidden_count": 0,
+		"completed_recently": false,
+		"correlation_id": "chunk:%s:%d" % [coord, _staged_z],
+		"predecessor_id": "",
+	}
+
+func _debug_make_visual_queue_row(task: Dictionary, status: String, now_usec: int) -> Dictionary:
+	var coord: Vector2i = _canonical_chunk_coord(task.get("chunk_coord", Vector2i.ZERO) as Vector2i)
+	var z_level: int = int(task.get("z", _active_z))
+	var kind: int = int(task.get("kind", VisualTaskKind.TASK_COSMETIC))
+	var band: int = int(task.get("priority_band", VisualPriorityBand.COSMETIC))
+	var key: String = _make_visual_task_key(coord, z_level, kind)
+	var meta: Dictionary = _debug_visual_task_meta.get(key, {}) as Dictionary
+	return {
+		"task_id": key,
+		"group_key": "visual:%d:%d" % [kind, band],
+		"status": status,
+		"task_type": "visual_task",
+		"task_type_human": _debug_visual_task_type_human(kind),
+		"chunk_coord": coord,
+		"scope": "chunk",
+		"stage": "building_visual",
+		"stage_human": _debug_status_human(status),
+		"age_ms": _debug_age_ms(_visual_task_enqueued_usec.get(key, 0), now_usec),
+		"priority": _debug_visual_band_human(band),
+		"reason": _debug_visual_reason_human(kind, band),
+		"impact": _debug_impact_for_chunk(_chunk_chebyshev_distance(coord, _player_chunk), "building_visual"),
+		"state": "building_visual",
+		"queue_depth": _debug_visual_queue_depth(),
+		"count": 1,
+		"hidden_count": 0,
+		"completed_recently": false,
+		"correlation_id": "chunk:%s:%d" % [coord, z_level],
+		"predecessor_id": "",
+		"trace_id": str(meta.get("trace_id", "")),
+		"incident_id": int(meta.get("incident_id", -1)),
+	}
+
+func _debug_make_group_queue_row(
+	group_key: String,
+	task_type_human: String,
+	stage_human: String,
+	count: int,
+	reason: String,
+	priority: String
+) -> Dictionary:
+	return {
+		"task_id": "group:%s" % group_key,
+		"group_key": group_key,
+		"status": "waiting",
+		"task_type": group_key,
+		"task_type_human": task_type_human,
+		"chunk_coord": Vector2i(999999, 999999),
+		"scope": "group",
+		"stage": "grouped",
+		"stage_human": stage_human,
+		"age_ms": -1.0,
+		"priority": priority,
+		"reason": reason,
+		"impact": String(WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT),
+		"state": "queued",
+		"queue_depth": count,
+		"count": count,
+		"hidden_count": maxi(0, count),
+		"completed_recently": false,
+		"correlation_id": "",
+		"predecessor_id": "",
+	}
+
+func _debug_make_completed_queue_row(event: Dictionary, now_usec: int) -> Dictionary:
+	var coord: Vector2i = event.get("coord", Vector2i.ZERO) as Vector2i
+	var z_level: int = int(event.get("z", _active_z))
+	return {
+		"task_id": "recent:%s:%d:%s" % [coord, z_level, str(event.get("kind", ""))],
+		"group_key": "recent_completion",
+		"status": "completed",
+		"task_type": str(event.get("kind", "completed")),
+		"task_type_human": str(event.get("task_type_human", "Недавно завершено")),
+		"chunk_coord": coord,
+		"scope": "chunk",
+		"stage": "completed",
+		"stage_human": "Только что завершено",
+		"age_ms": _debug_age_ms(event.get("timestamp_usec", 0), now_usec),
+		"priority": str(event.get("priority", _debug_priority_label(coord))),
+		"reason": str(event.get("reason", "строка скоро исчезнет из очереди")),
+		"impact": str(event.get("impact", String(WorldRuntimeDiagnosticLog.IMPACT_INFORMATIONAL))),
+		"state": "completed",
+		"queue_depth": 0,
+		"count": 1,
+		"hidden_count": 0,
+		"completed_recently": true,
+		"correlation_id": "chunk:%s:%d" % [coord, z_level],
+		"predecessor_id": "",
+	}
+
+func _debug_status_human(status: String) -> String:
+	match status:
+		"active":
+			return "Выполняется"
+		"completed":
+			return "Завершено"
+		_:
+			return "Ожидает"
+
+func _debug_visual_task_type_human(kind: int) -> String:
+	match kind:
+		VisualTaskKind.TASK_FIRST_PASS:
+			return "Подготовка первого визуала чанка"
+		VisualTaskKind.TASK_FULL_REDRAW:
+			return "Подготовка визуала чанка"
+		VisualTaskKind.TASK_BORDER_FIX:
+			return "Перестройка границы чанков"
+		_:
+			return "Косметическое обновление чанка"
+
+func _debug_visual_band_human(band: int) -> String:
+	match band:
+		VisualPriorityBand.TERRAIN_FAST:
+			return "немедленный"
+		VisualPriorityBand.TERRAIN_URGENT:
+			return "высокий"
+		VisualPriorityBand.TERRAIN_NEAR, VisualPriorityBand.FULL_NEAR, VisualPriorityBand.BORDER_FIX_NEAR:
+			return "средний"
+		_:
+			return "низкий"
+
+func _debug_visual_reason_human(kind: int, band: int) -> String:
+	var priority_text: String = _debug_visual_band_human(band)
+	match kind:
+		VisualTaskKind.TASK_FIRST_PASS:
+			return "чанку нужен первый читаемый визуал; приоритет %s" % priority_text
+		VisualTaskKind.TASK_FULL_REDRAW:
+			return "чанку нужно довести визуал до полной публикации; приоритет %s" % priority_text
+		VisualTaskKind.TASK_BORDER_FIX:
+			return "после соседних изменений нужно закрыть seam-границу; приоритет %s" % priority_text
+		_:
+			return "фоновое косметическое обновление; приоритет %s" % priority_text
+
+func _debug_build_overlay_metrics(chunks: Array[Dictionary], queue_snapshot: Dictionary, now_usec: int) -> Dictionary:
+	var loaded_count: int = 0
+	var visible_count: int = 0
+	var simulating_count: int = 0
+	var unloading_count: int = 0
+	var stalled_count: int = 0
+	var worst_stage_ms: float = 0.0
+	var total_stage_ms: float = 0.0
+	var stage_count: int = 0
+	for entry: Dictionary in chunks:
+		var state: String = str(entry.get("state", ""))
+		if state != "absent" and state != "unloading":
+			loaded_count += 1
+		if bool(entry.get("is_visible", false)):
+			visible_count += 1
+		if bool(entry.get("is_simulating", false)):
+			simulating_count += 1
+		if state == "unloading":
+			unloading_count += 1
+		if bool(entry.get("is_stalled", false)):
+			stalled_count += 1
+		var age_ms: float = float(entry.get("stage_age_ms", -1.0))
+		if age_ms >= 0.0:
+			worst_stage_ms = maxf(worst_stage_ms, age_ms)
+			total_stage_ms += age_ms
+			stage_count += 1
+	var perf_snapshot: Dictionary = {}
+	if WorldPerfMonitor and WorldPerfMonitor.has_method("get_debug_snapshot"):
+		perf_snapshot = WorldPerfMonitor.get_debug_snapshot()
+	var avg_stage_ms: float = total_stage_ms / float(stage_count) if stage_count > 0 else 0.0
+	return {
+		"fps": float(perf_snapshot.get("fps", Engine.get_frames_per_second())),
+		"frame_time_ms": float(perf_snapshot.get("frame_time_ms", 0.0)),
+		"world_update_ms": float(perf_snapshot.get("world_update_ms", 0.0)),
+		"chunk_generation_ms": float(perf_snapshot.get("chunk_generation_ms", 0.0)),
+		"visual_build_ms": float(perf_snapshot.get("visual_build_ms", 0.0)),
+		"queue_sizes": _debug_queue_sizes(),
+		"loaded_chunks": loaded_count,
+		"visible_chunks": visible_count,
+		"simulating_chunks": simulating_count,
+		"unloading_chunks": unloading_count,
+		"stalled_chunks": stalled_count,
+		"worst_chunk_stage_time_ms": worst_stage_ms,
+		"average_chunk_processing_time_ms": avg_stage_ms,
+		"load_per_sec": _debug_count_recent_events("loaded", DEBUG_OVERLAY_RATE_WINDOW_MS, now_usec),
+		"unload_per_sec": _debug_count_recent_events("unloaded", DEBUG_OVERLAY_RATE_WINDOW_MS, now_usec),
+		"queue_hidden_count": int(queue_snapshot.get("hidden_count", 0)),
+		"perf": perf_snapshot,
+	}
+
+func _debug_emit_chunk_event(
+	action: String,
+	action_human: String,
+	coord: Vector2i,
+	z_level: int,
+	reason: String,
+	impact: StringName,
+	state: String,
+	state_human: String,
+	code_term: String,
+	detail_fields: Dictionary = {}
+) -> void:
+	var target_human: String = "чанк %s" % [coord]
+	var record: Dictionary = {
+		"actor": "chunk_manager",
+		"actor_human": "Система чанков",
+		"action": action,
+		"action_human": action_human,
+		"target": "chunk",
+		"target_human": target_human,
+		"reason": action,
+		"reason_human": reason,
+		"impact": String(impact),
+		"impact_human": WorldRuntimeDiagnosticLog.humanize_impact(impact),
+		"state": state,
+		"state_human": state_human,
+		"code": code_term,
+	}
+	var details: Dictionary = detail_fields.duplicate()
+	details["chunk_coord"] = coord
+	details["z"] = z_level
+	details["distance"] = _chunk_chebyshev_distance(coord, _player_chunk)
+	details["priority"] = _debug_priority_label(coord)
+	_debug_enrich_record_with_trace(record, details, coord, z_level)
+	WorldRuntimeDiagnosticLog.emit_record(
+		record,
+		details,
+		WorldRuntimeDiagnosticLog.SUMMARY_PREFIX,
+		WorldRuntimeDiagnosticLog.DETAIL_PREFIX,
+		{"cooldown_ms": 700.0}
+	)
+
 func _enqueue_load_request(coord: Vector2i, z_level: int) -> void:
 	var canonical_coord: Vector2i = _canonical_chunk_coord(coord)
 	if _has_load_request(canonical_coord, z_level):
 		return
+	var now_usec: int = Time.get_ticks_usec()
 	_load_queue.append({
 		"coord": canonical_coord,
 		"z": z_level,
+		"requested_usec": now_usec,
+		"requested_frame": Engine.get_process_frames(),
+		"reason": _debug_reason_for_chunk(canonical_coord, _chunk_chebyshev_distance(canonical_coord, _player_chunk), "requested"),
+		"priority": _debug_priority_label(canonical_coord),
 	})
+	_debug_emit_chunk_event(
+		"chunk_requested",
+		"запросила загрузку",
+		canonical_coord,
+		z_level,
+		"игрок приблизился к фактической области загрузки",
+		StringName(_debug_impact_for_chunk(_chunk_chebyshev_distance(canonical_coord, _player_chunk), "requested")),
+		"queued",
+		"поставлен в очередь",
+		"stream_load",
+		{"queue_depth": _load_queue.size()}
+	)
 
 func _is_staged_request(coord: Vector2i, z_level: int) -> bool:
 	return _staged_coord == _canonical_chunk_coord(coord) and _staged_z == z_level
@@ -686,7 +2315,7 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	if result.is_empty():
 		return {}
 	# Same-chunk neighbor re-normalization (MINED_FLOOR <-> MOUNTAIN_ENTRANCE)
-	chunk._refresh_open_neighbors(local_tile)
+	chunk.refresh_open_neighbors_with_operation_cache(local_tile)
 	if chunk.redraw_mining_patch(local_tile):
 		_ensure_chunk_border_fix_task(chunk, _active_z, true)
 	# Cross-chunk seam: normalize + redraw affected neighbor chunks
@@ -738,6 +2367,137 @@ func _redraw_neighbor_borders(coord: Vector2i) -> void:
 func _make_border_fix_reason_key(source_coord: Vector2i, z_level: int, tag: StringName = &"seam") -> String:
 	return "%d:%d:%d:%s" % [source_coord.x, source_coord.y, z_level, String(tag)]
 
+func _append_unique_chunk_coord(coords: Array[Vector2i], coord: Vector2i) -> void:
+	if coord not in coords:
+		coords.append(coord)
+
+func _resolve_runtime_diag_scope(coord: Vector2i) -> StringName:
+	if _player_chunk == Vector2i(99999, 99999):
+		return &"far_runtime_backlog"
+	var player_coord: Vector2i = _canonical_chunk_coord(_player_chunk)
+	if coord == player_coord:
+		return &"player_chunk"
+	var dx: int = coord.x - player_coord.x
+	if WorldGenerator and WorldGenerator.has_method("chunk_wrap_delta_x"):
+		dx = WorldGenerator.chunk_wrap_delta_x(coord.x, player_coord.x)
+	var dy: int = coord.y - player_coord.y
+	if maxi(absi(dx), absi(dy)) <= 1:
+		return &"adjacent_loaded_chunk"
+	return &"far_runtime_backlog"
+
+func _resolve_runtime_diag_impact(scope: StringName) -> StringName:
+	if scope == &"far_runtime_backlog":
+		return WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT
+	return WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE
+
+func _pick_runtime_diag_target_coord(coords: Array[Vector2i]) -> Vector2i:
+	if coords.is_empty():
+		return Vector2i.ZERO
+	var player_coord: Vector2i = _canonical_chunk_coord(_player_chunk)
+	var best_coord: Vector2i = coords[0]
+	var best_score: int = 1_000_000
+	for coord: Vector2i in coords:
+		var dx: int = coord.x - player_coord.x
+		if WorldGenerator and WorldGenerator.has_method("chunk_wrap_delta_x"):
+			dx = WorldGenerator.chunk_wrap_delta_x(coord.x, player_coord.x)
+		var dy: int = coord.y - player_coord.y
+		var score: int = dx * dx + dy * dy
+		if score < best_score:
+			best_score = score
+			best_coord = coord
+	return best_coord
+
+func _describe_runtime_diag_actor(actor_key: StringName) -> String:
+	match String(actor_key):
+		"stream_load":
+			return "Потоковая догрузка мира"
+		"seam_mining_async":
+			return "Добыча на границе чанка"
+		_:
+			var human_text: String = WorldRuntimeDiagnosticLog.humanize_known_term(String(actor_key))
+			if human_text.is_empty():
+				return "Диагностика мира"
+			return human_text.substr(0, 1).to_upper() + human_text.substr(1)
+
+func _emit_border_fix_queue_diag(
+	actor_key: StringName,
+	source_coord: Vector2i,
+	queued_coords: Array[Vector2i],
+	reason_human: String,
+	follow_up_terms: Array[String],
+	source_tile: Vector2i = Vector2i(999999, 999999)
+) -> void:
+	if queued_coords.is_empty():
+		return
+	var target_coord: Vector2i = _pick_runtime_diag_target_coord(queued_coords)
+	var trace_context: Dictionary = _debug_ensure_forensics_context(
+		target_coord,
+		_active_z,
+		String(actor_key),
+		"visual_task_enqueued",
+		{
+			"queue_reason": reason_human,
+			"follow_up": ",".join(follow_up_terms),
+		},
+		queued_coords
+	)
+	var scope: StringName = _resolve_runtime_diag_scope(target_coord)
+	var impact_key: StringName = _resolve_runtime_diag_impact(scope)
+	var code_term: String = "border_fix" if "border_fix" in follow_up_terms else (
+		follow_up_terms[0] if not follow_up_terms.is_empty() else ""
+	)
+	var action_human: String = "поставила в очередь %s" % [
+		WorldRuntimeDiagnosticLog.describe_term_list(follow_up_terms)
+	]
+	if follow_up_terms == ["border_fix"]:
+		action_human = "поставила в очередь правку границы чанка"
+	elif follow_up_terms == ["local_patch", "border_fix"]:
+		action_human = "поставила в очередь локальную правку и правку границы чанка"
+	var record: Dictionary = {
+		"actor": String(actor_key),
+		"actor_human": _describe_runtime_diag_actor(actor_key),
+		"action": "queue_follow_up",
+		"action_human": action_human,
+		"target": String(scope),
+		"target_human": WorldRuntimeDiagnosticLog.describe_chunk_scope(scope, target_coord),
+		"reason": "queued_not_applied",
+		"reason_human": reason_human,
+		"impact": String(impact_key),
+		"impact_human": WorldRuntimeDiagnosticLog.humanize_impact(impact_key),
+		"state": "queued",
+		"state_human": "очередь ещё не применена",
+		"severity": String(WorldRuntimeDiagnosticLog.SEVERITY_FOLLOW_UP),
+		"severity_human": WorldRuntimeDiagnosticLog.humanize_severity(WorldRuntimeDiagnosticLog.SEVERITY_FOLLOW_UP),
+		"code": code_term,
+	}
+	var detail_fields: Dictionary = {
+		"follow_up": ",".join(follow_up_terms),
+		"queued_chunks": WorldRuntimeDiagnosticLog.format_coord_list(queued_coords),
+		"queued_count": queued_coords.size(),
+		"queue_border_fix_far": _visual_q_border_fix_far.size(),
+		"queue_border_fix_near": _visual_q_border_fix_near.size(),
+		"source_chunk": str(source_coord),
+		"target_scope": String(scope),
+		"z": _active_z,
+	}
+	if source_tile != Vector2i(999999, 999999):
+		detail_fields["source_tile"] = str(source_tile)
+	_debug_enrich_record_with_trace(record, detail_fields, target_coord, _active_z, trace_context)
+	WorldRuntimeDiagnosticLog.emit_record(record, detail_fields)
+	_debug_record_forensics_event(
+		trace_context,
+		String(actor_key),
+		"visual_task_enqueued",
+		target_coord,
+		_active_z,
+		{
+			"follow_up": ",".join(follow_up_terms),
+			"queued_count": queued_coords.size(),
+			"reason_human": reason_human,
+		},
+		queued_coords
+	)
+
 ## Instead of synchronously redrawing all border tiles of 4 neighbors (256
 ## tiles, 20-49ms), mark dirty tiles and add neighbors to the progressive
 ## redraw queue. Border tiles will be processed by _tick_redraws() over
@@ -748,6 +2508,7 @@ func _enqueue_neighbor_border_redraws(coord: Vector2i) -> void:
 	var source_chunk: Chunk = _loaded_chunks.get(coord) as Chunk
 	var source_version: int = source_chunk.get_visual_invalidation_version() if source_chunk != null else -1
 	var reason_key: String = _make_border_fix_reason_key(coord, _active_z, &"stream_load")
+	var queued_coords: Array[Vector2i] = []
 	for dir: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
 		var neighbor_coord: Vector2i = _offset_chunk_coord(coord, dir)
 		var neighbor_chunk: Chunk = _loaded_chunks.get(neighbor_coord) as Chunk
@@ -770,15 +2531,18 @@ func _enqueue_neighbor_border_redraws(coord: Vector2i) -> void:
 				dirty[Vector2i(x, 0)] = true
 		if neighbor_chunk.enqueue_dirty_border_redraw(dirty, reason_key, source_version):
 			_ensure_chunk_border_fix_task(neighbor_chunk, _active_z, true)
+			_append_unique_chunk_coord(queued_coords, neighbor_coord)
+	if not queued_coords.is_empty():
+		_emit_border_fix_queue_diag(
+			&"stream_load",
+			coord,
+			queued_coords,
+			"после появления нового чанка нужно выровнять границу уже загруженных соседей",
+			["border_fix"]
+		)
 
 func _seam_normalize_and_redraw(tile_pos: Vector2i, local_tile: Vector2i, source_chunk: Chunk) -> void:
 	var chunk_size: int = WorldGenerator.balance.chunk_size_tiles
-	var source_version: int = source_chunk.get_visual_invalidation_version() if source_chunk != null else -1
-	var reason_key: String = _make_border_fix_reason_key(
-		source_chunk.chunk_coord if source_chunk != null else Vector2i.ZERO,
-		_active_z,
-		&"seam_mining"
-	)
 	var on_left: bool = local_tile.x == 0
 	var on_right: bool = local_tile.x == chunk_size - 1
 	var on_top: bool = local_tile.y == 0
@@ -800,21 +2564,60 @@ func _seam_normalize_and_redraw(tile_pos: Vector2i, local_tile: Vector2i, source
 		var neighbor_chunk: Chunk = get_chunk_at_tile(neighbor_global)
 		if not neighbor_chunk or neighbor_chunk == source_chunk:
 			continue
-		var n_local: Vector2i = neighbor_chunk.global_to_local(neighbor_global)
-		# Re-normalize the direct cardinal neighbor (MINED_FLOOR <-> MOUNTAIN_ENTRANCE)
-		neighbor_chunk._refresh_open_tile(n_local)
-		neighbor_chunk.is_dirty = true
-		# Redraw a border strip: the neighbor tile + tiles along the seam edge
-		# (covers cardinal + diagonal visual dependencies)
-		var perp: Vector2i = Vector2i(abs(dir.y), abs(dir.x))
-		var cross_dirty: Dictionary = {}
-		for p_offset: int in range(-1, 2):
-			var t: Vector2i = n_local + perp * p_offset
-			if neighbor_chunk._is_inside(t):
-				cross_dirty[t] = true
-		if not cross_dirty.is_empty():
-			if neighbor_chunk.enqueue_dirty_border_redraw(cross_dirty, reason_key, source_version):
-				_ensure_chunk_border_fix_task(neighbor_chunk, _active_z, true)
+		_enqueue_seam_refresh_tile(neighbor_global)
+
+func _enqueue_seam_refresh_tile(tile_pos: Vector2i) -> void:
+	var canonical_tile: Vector2i = _canonical_tile(tile_pos)
+	if _pending_seam_refresh_lookup.has(canonical_tile):
+		return
+	_pending_seam_refresh_lookup[canonical_tile] = true
+	_pending_seam_refresh_tiles.append(canonical_tile)
+
+func _process_seam_refresh_queue_step() -> bool:
+	if _pending_seam_refresh_tiles.is_empty():
+		return false
+	var processed_tiles: int = 0
+	while processed_tiles < SEAM_REFRESH_MAX_TILES_PER_STEP and not _pending_seam_refresh_tiles.is_empty():
+		var tile_pos: Vector2i = _pending_seam_refresh_tiles.pop_front()
+		_pending_seam_refresh_lookup.erase(tile_pos)
+		_apply_seam_refresh_tile(tile_pos)
+		processed_tiles += 1
+	return not _pending_seam_refresh_tiles.is_empty()
+
+func _apply_seam_refresh_tile(tile_pos: Vector2i) -> void:
+	var neighbor_chunk: Chunk = get_chunk_at_tile(tile_pos)
+	if not neighbor_chunk:
+		return
+	var n_local: Vector2i = neighbor_chunk.global_to_local(tile_pos)
+	neighbor_chunk.refresh_open_tile_with_operation_cache(n_local)
+	neighbor_chunk.is_dirty = true
+	if not neighbor_chunk.is_first_pass_ready():
+		return
+	var chunk_size: int = neighbor_chunk.get_chunk_size()
+	var reason_key: String = _make_border_fix_reason_key(neighbor_chunk.chunk_coord, _active_z, &"seam_mining_async")
+	var reason_version: int = neighbor_chunk.get_visual_invalidation_version()
+	var cross_dirty: Dictionary = {n_local: true}
+	if n_local.x == 0 or n_local.x == chunk_size - 1:
+		for offset_y: int in range(-1, 2):
+			var seam_tile: Vector2i = n_local + Vector2i(0, offset_y)
+			if neighbor_chunk._is_inside(seam_tile):
+				cross_dirty[seam_tile] = true
+	if n_local.y == 0 or n_local.y == chunk_size - 1:
+		for offset_x: int in range(-1, 2):
+			var seam_tile: Vector2i = n_local + Vector2i(offset_x, 0)
+			if neighbor_chunk._is_inside(seam_tile):
+				cross_dirty[seam_tile] = true
+	if not cross_dirty.is_empty() \
+		and neighbor_chunk.enqueue_dirty_border_redraw(cross_dirty, reason_key, reason_version):
+		_ensure_chunk_border_fix_task(neighbor_chunk, _active_z, true)
+		_emit_border_fix_queue_diag(
+			&"seam_mining_async",
+			neighbor_chunk.chunk_coord,
+			[neighbor_chunk.chunk_coord],
+			"добыча на шве изменила открытую границу, поэтому соседнему чанку нужна последующая перерисовка",
+			["local_patch", "border_fix"],
+			tile_pos
+		)
 
 func has_resource_at_world(world_pos: Vector2) -> bool:
 	var tile_pos: Vector2i = WorldGenerator.world_to_tile(world_pos)
@@ -1045,20 +2848,14 @@ func _expand_underground_wall_halo(global_tile: Vector2i, candidate_tiles: Dicti
 
 func _setup_native_topology_builder() -> void:
 	_native_topology_active = false
+	_native_topology_builder = null
+	_native_topology_dirty = false
+	_native_topology_worker_available = false
 	if not WorldGenerator or not WorldGenerator.balance or not WorldGenerator.balance.use_native_mountain_topology:
-		_native_topology_builder = null
 		return
-	if ClassDB.class_exists("MountainTopologyBuilder"):
-		_native_topology_builder = ClassDB.instantiate("MountainTopologyBuilder") as RefCounted
-		if _native_topology_builder \
-			and _native_topology_builder.has_method("set_chunk") \
-			and _native_topology_builder.has_method("ensure_built") \
-			and _native_topology_builder.has_method("get_mountain_chunk_coords"):
-			_native_topology_active = true
-		else:
-			_native_topology_builder = null
-	else:
-		_native_topology_builder = null
+	# Native topology remains worker-only until it has a budgeted runtime path.
+	# The direct ensure_built() branch caused multi-frame freezes during streaming.
+	_native_topology_worker_available = ClassDB.class_exists("MountainTopologyBuilder")
 
 func _setup_flora_builder() -> void:
 	_flora_texture_path_by_entry_id.clear()
@@ -1371,6 +3168,9 @@ func _clear_visual_task_state() -> void:
 	_visual_compute_mutex.lock()
 	_visual_compute_results.clear()
 	_visual_compute_mutex.unlock()
+	_pending_seam_refresh_tiles.clear()
+	_pending_seam_refresh_lookup.clear()
+	_debug_visual_task_meta.clear()
 	_visual_scheduler_budget_exhausted_count = 0
 	_visual_scheduler_starvation_incident_count = 0
 	_visual_scheduler_max_urgent_wait_ms = 0.0
@@ -1511,6 +3311,120 @@ func _resolve_visual_apply_tile_budget(
 		adaptive_tiles = mini(adaptive_tiles, recent_tiles)
 	return clampi(adaptive_tiles, min_tiles, max_tiles)
 
+func _is_player_near_visual_chunk(coord: Vector2i, z_level: int) -> bool:
+	if z_level != _active_z or _player_chunk == Vector2i(99999, 99999):
+		return false
+	return _chunk_chebyshev_distance(_canonical_chunk_coord(coord), _player_chunk) <= 1
+
+func _should_prepare_border_fix_inline(task: Dictionary, chunk: Chunk, requested_tile_budget: int) -> bool:
+	if chunk == null or not is_instance_valid(chunk):
+		return false
+	if bool(task.get("force_inline_prepare", false)):
+		return true
+	if int(task.get("kind", VisualTaskKind.TASK_COSMETIC)) != VisualTaskKind.TASK_BORDER_FIX:
+		return false
+	if int(task.get("priority_band", VisualPriorityBand.COSMETIC)) != VisualPriorityBand.BORDER_FIX_NEAR:
+		return false
+	var coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
+	var z_level: int = int(task.get("z", _active_z))
+	if not _is_player_near_visual_chunk(coord, z_level):
+		return false
+	var dirty_count: int = chunk._pending_border_dirty.size()
+	if dirty_count <= 0:
+		return false
+	return dirty_count <= maxi(BORDER_FIX_REDRAW_MICRO_BATCH_TILES, requested_tile_budget)
+
+func _enqueue_player_near_border_fix_relief_task(
+	chunk: Chunk,
+	z_level: int,
+	task_version: int,
+	relief_reason: String = "player_near_sync_relief"
+) -> bool:
+	if chunk == null or not is_instance_valid(chunk):
+		return false
+	if task_version < 0:
+		return false
+	if not _is_player_near_visual_chunk(chunk.chunk_coord, z_level):
+		return false
+	if _promote_existing_visual_task_to_front(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX):
+		return true
+	var task: Dictionary = _build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, task_version)
+	task["force_sync_border_fix"] = true
+	_debug_upsert_visual_task_meta(task)
+	_push_visual_task_front(task)
+	_debug_note_visual_task_event(
+		task,
+		"visual_task_requeued",
+		{
+			"relief_reason": relief_reason,
+		},
+		"",
+		"player_near_sync_relief"
+	)
+	return true
+
+func _try_force_complete_stuck_player_border_fix(
+	chunk: Chunk,
+	z_level: int,
+	border_fix_age_ms: float,
+	min_age_ms: float = DEBUG_FORENSICS_OWNER_STUCK_MS
+) -> Dictionary:
+	var relief: Dictionary = {
+		"recovered_inline_border_fix": false,
+		"forced_border_fix_progress": false,
+		"promoted_border_fix_task": false,
+		"remaining_dirty_tiles": 0,
+	}
+	if chunk == null or not is_instance_valid(chunk):
+		return relief
+	if border_fix_age_ms < min_age_ms:
+		return relief
+	if not chunk.visible or chunk.get_redraw_phase_name() != "done":
+		return relief
+	if not _is_player_near_visual_chunk(chunk.chunk_coord, z_level):
+		return relief
+	var task_key: String = _make_visual_task_key(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
+	if not _visual_task_pending.has(task_key):
+		return relief
+	var task_version: int = int(_visual_task_pending.get(task_key, 0))
+	var dirty_count: int = chunk._pending_border_dirty.size()
+	if dirty_count <= 0:
+		chunk._mark_border_fix_reasons_applied()
+		_clear_visual_task(_build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, task_version))
+		_try_finalize_chunk_visual_convergence(chunk, z_level)
+		relief["recovered_inline_border_fix"] = true
+		return relief
+	var border_has_more: bool = _process_border_fix_task(chunk, BORDER_FIX_REDRAW_MICRO_BATCH_TILES, 0)
+	var remaining_dirty_tiles: int = chunk._pending_border_dirty.size()
+	relief["remaining_dirty_tiles"] = remaining_dirty_tiles
+	if remaining_dirty_tiles < dirty_count:
+		relief["forced_border_fix_progress"] = true
+	if border_has_more or remaining_dirty_tiles > 0:
+		relief["promoted_border_fix_task"] = _enqueue_player_near_border_fix_relief_task(
+			chunk,
+			z_level,
+			task_version,
+			"player_near_relief"
+		)
+		if bool(relief.get("forced_border_fix_progress", false)) or bool(relief.get("promoted_border_fix_task", false)):
+			_debug_note_visual_task_event(
+				_build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, task_version),
+				"visual_task_requeued",
+				{
+					"progress_tiles": dirty_count - remaining_dirty_tiles,
+					"remaining_dirty_tiles": remaining_dirty_tiles,
+					"relief_reason": "player_near_relief",
+				},
+				"",
+				"owner_stuck_partial_relief"
+			)
+		return relief
+	chunk._mark_border_fix_reasons_applied()
+	_clear_visual_task(_build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, task_version))
+	_try_finalize_chunk_visual_convergence(chunk, z_level)
+	relief["recovered_inline_border_fix"] = true
+	return relief
+
 func _record_visual_apply_feedback(
 	kind: int,
 	band: int,
@@ -1564,9 +3478,9 @@ func _resolve_visual_tiles_per_step(kind: int, band: int = VisualPriorityBand.CO
 			VisualTaskKind.TASK_FULL_REDRAW:
 				var full_redraw_tiles: int = WorldGenerator.balance.visual_full_redraw_tiles_per_step
 				if band == VisualPriorityBand.FULL_FAR:
-					return maxi(16, full_redraw_tiles / 4)
-				if band == VisualPriorityBand.FULL_NEAR:
 					return maxi(16, full_redraw_tiles / 2)
+				if band == VisualPriorityBand.FULL_NEAR:
+					return maxi(32, full_redraw_tiles * 2)
 				return full_redraw_tiles
 			VisualTaskKind.TASK_BORDER_FIX:
 				var border_fix_tiles: int = WorldGenerator.balance.visual_border_fix_tiles_per_step
@@ -1588,12 +3502,15 @@ func _resolve_visual_max_tasks_per_tick(kind: int, band: int = VisualPriorityBan
 					return maxi(1, mini(2, first_pass_max))
 				return first_pass_max
 			VisualTaskKind.TASK_FULL_REDRAW:
-				return maxi(1, WorldGenerator.balance.visual_full_redraw_max_tasks_per_tick)
+				var full_redraw_max: int = maxi(1, WorldGenerator.balance.visual_full_redraw_max_tasks_per_tick)
+				if band == VisualPriorityBand.FULL_FAR:
+					return 1
+				return mini(2, full_redraw_max)
 			VisualTaskKind.TASK_BORDER_FIX:
 				var border_fix_max: int = maxi(1, WorldGenerator.balance.visual_full_redraw_max_tasks_per_tick)
 				if band == VisualPriorityBand.BORDER_FIX_FAR:
-					return maxi(1, border_fix_max / 2)
-				return border_fix_max
+					return 1
+				return mini(2, border_fix_max)
 	return 999999
 
 func _resolve_visual_urgent_queue_cap() -> int:
@@ -1612,6 +3529,155 @@ func _make_visual_task_key(coord: Vector2i, z_level: int, kind: int) -> String:
 
 func _make_visual_chunk_key(coord: Vector2i, z_level: int) -> String:
 	return "%d:%d:%d" % [coord.x, coord.y, z_level]
+
+func _debug_make_visual_task_meta(
+	task_key: String,
+	coord: Vector2i,
+	z_level: int,
+	kind: int,
+	band: int,
+	version: int,
+	trace_context: Dictionary,
+	enqueue_reason: String
+) -> Dictionary:
+	var meta: Dictionary = {
+		"task_key": task_key,
+		"coord": coord,
+		"z": z_level,
+		"kind": kind,
+		"kind_name": _debug_visual_kind_name(kind),
+		"band": band,
+		"version": version,
+		"enqueue_reason": enqueue_reason,
+		"source_system": str(trace_context.get("source_system", "chunk_scheduler")),
+		"trace_id": str(trace_context.get("trace_id", "")),
+		"incident_id": int(trace_context.get("incident_id", -1)),
+		"enqueue_usec": Time.get_ticks_usec(),
+		"last_pick_usec": 0,
+		"last_skip_reason": "",
+		"last_budget_state": "",
+		"selected_frame": -1,
+		"requeue_count": 0,
+	}
+	return meta
+
+func _debug_upsert_visual_task_meta(task: Dictionary, enqueue_reason: String = "") -> Dictionary:
+	var coord: Vector2i = _canonical_chunk_coord(task.get("chunk_coord", Vector2i.ZERO) as Vector2i)
+	var z_level: int = int(task.get("z", _active_z))
+	var kind: int = int(task.get("kind", VisualTaskKind.TASK_COSMETIC))
+	var band: int = int(task.get("priority_band", VisualPriorityBand.COSMETIC))
+	var version: int = int(task.get("invalidation_version", -1))
+	var task_key: String = _make_visual_task_key(coord, z_level, kind)
+	var trace_context: Dictionary = _debug_resolve_chunk_trace_context(coord, z_level)
+	var reason_text: String = enqueue_reason if not enqueue_reason.is_empty() else _debug_visual_reason_human(kind, band)
+	var meta: Dictionary = _debug_make_visual_task_meta(
+		task_key,
+		coord,
+		z_level,
+		kind,
+		band,
+		version,
+		trace_context,
+		reason_text
+	)
+	_debug_visual_task_meta[task_key] = meta
+	task["trace_id"] = str(meta.get("trace_id", ""))
+	task["incident_id"] = int(meta.get("incident_id", -1))
+	return meta
+
+func _debug_note_visual_task_event(
+	task: Dictionary,
+	event_key: String,
+	detail_fields: Dictionary = {},
+	skip_reason: String = "",
+	budget_state: String = ""
+) -> void:
+	var coord: Vector2i = _canonical_chunk_coord(task.get("chunk_coord", Vector2i.ZERO) as Vector2i)
+	var z_level: int = int(task.get("z", _active_z))
+	var kind: int = int(task.get("kind", VisualTaskKind.TASK_COSMETIC))
+	var band: int = int(task.get("priority_band", VisualPriorityBand.COSMETIC))
+	var task_key: String = _make_visual_task_key(coord, z_level, kind)
+	var meta: Dictionary = _debug_visual_task_meta.get(task_key, {}) as Dictionary
+	if meta.is_empty():
+		meta = _debug_upsert_visual_task_meta(task)
+	if meta.is_empty():
+		return
+	meta["band"] = band
+	meta["kind"] = kind
+	meta["kind_name"] = _debug_visual_kind_name(kind)
+	meta["version"] = int(task.get("invalidation_version", meta.get("version", -1)))
+	meta["last_event"] = event_key
+	meta["updated_usec"] = Time.get_ticks_usec()
+	if event_key == "visual_task_selected":
+		meta["last_pick_usec"] = Time.get_ticks_usec()
+		meta["selected_frame"] = Engine.get_process_frames()
+	if event_key == "visual_task_requeued":
+		meta["requeue_count"] = int(meta.get("requeue_count", 0)) + 1
+	if not skip_reason.is_empty():
+		meta["last_skip_reason"] = skip_reason
+	if not budget_state.is_empty():
+		meta["last_budget_state"] = budget_state
+	_debug_visual_task_meta[task_key] = meta
+	if str(meta.get("trace_id", "")).is_empty() or int(meta.get("incident_id", -1)) < 0:
+		return
+	var trace_context: Dictionary = {
+		"trace_id": str(meta.get("trace_id", "")),
+		"incident_id": int(meta.get("incident_id", -1)),
+		"source_system": str(meta.get("source_system", "chunk_scheduler")),
+		"coord": coord,
+		"z": z_level,
+		"updated_usec": int(meta.get("updated_usec", 0)),
+	}
+	var detail_copy: Dictionary = detail_fields.duplicate(true)
+	detail_copy["kind"] = _debug_visual_kind_name(kind)
+	detail_copy["band"] = _debug_visual_band_name(band)
+	detail_copy["version"] = int(meta.get("version", -1))
+	detail_copy["task_key"] = task_key
+	if not skip_reason.is_empty():
+		detail_copy["skip_reason"] = skip_reason
+	if not budget_state.is_empty():
+		detail_copy["budget_state"] = budget_state
+	_debug_record_forensics_event(
+		trace_context,
+		"chunk_scheduler",
+		event_key,
+		coord,
+		z_level,
+		detail_copy,
+		[coord]
+	)
+
+func _debug_drop_visual_task_meta(task: Dictionary) -> void:
+	var coord: Vector2i = _canonical_chunk_coord(task.get("chunk_coord", Vector2i.ZERO) as Vector2i)
+	var z_level: int = int(task.get("z", _active_z))
+	var kind: int = int(task.get("kind", VisualTaskKind.TASK_COSMETIC))
+	var task_key: String = _make_visual_task_key(coord, z_level, kind)
+	_debug_visual_task_meta.erase(task_key)
+
+func _debug_note_budget_exhausted_trace_task() -> void:
+	for queue: Array[Dictionary] in [
+		_visual_q_terrain_fast,
+		_visual_q_terrain_urgent,
+		_visual_q_border_fix_near,
+		_visual_q_terrain_near,
+		_visual_q_full_near,
+		_visual_q_border_fix_far,
+		_visual_q_full_far,
+		_visual_q_cosmetic,
+	]:
+		for queued_task: Dictionary in queue:
+			var coord: Vector2i = queued_task.get("chunk_coord", Vector2i.ZERO) as Vector2i
+			var z_level: int = int(queued_task.get("z", _active_z))
+			if _debug_resolve_chunk_trace_context(coord, z_level).is_empty():
+				continue
+			_debug_note_visual_task_event(
+				queued_task,
+				"visual_task_skipped_budget",
+				{},
+				"",
+				"scheduler_budget_exhausted"
+			)
+			return
 
 func _is_forward_ring1_visual_chunk(coord: Vector2i) -> bool:
 	if _player_chunk_motion == Vector2i.ZERO:
@@ -1650,8 +3716,6 @@ func _resolve_visual_band(coord: Vector2i, z_level: int, kind: int) -> int:
 			return VisualPriorityBand.TERRAIN_FAST
 		if ring == 1:
 			return VisualPriorityBand.TERRAIN_NEAR
-		if ring == 2:
-			return VisualPriorityBand.TERRAIN_NEAR
 		return VisualPriorityBand.FULL_FAR
 	if ring <= 2:
 		return VisualPriorityBand.FULL_NEAR
@@ -1684,6 +3748,11 @@ func _retag_visual_task(task: Dictionary) -> void:
 		var key: String = _make_visual_task_key(coord, z_level, kind)
 		_visual_task_enqueued_usec[key] = Time.get_ticks_usec()
 		task["wait_recorded"] = false
+	var task_key: String = _make_visual_task_key(coord, z_level, kind)
+	var meta: Dictionary = _debug_visual_task_meta.get(task_key, {}) as Dictionary
+	if not meta.is_empty():
+		meta["band"] = new_band
+		_debug_visual_task_meta[task_key] = meta
 
 func _get_visual_queue_for_band(band: int) -> Array[Dictionary]:
 	match band:
@@ -1710,18 +3779,40 @@ func _resolve_visual_band_order(band: int) -> int:
 			return 0
 		VisualPriorityBand.TERRAIN_URGENT:
 			return 1
-		VisualPriorityBand.TERRAIN_NEAR:
-			return 2
-		VisualPriorityBand.FULL_NEAR:
-			return 3
 		VisualPriorityBand.BORDER_FIX_NEAR:
+			return 2
+		VisualPriorityBand.TERRAIN_NEAR:
+			return 3
+		VisualPriorityBand.FULL_NEAR:
 			return 4
-		VisualPriorityBand.FULL_FAR:
-			return 5
 		VisualPriorityBand.BORDER_FIX_FAR:
+			return 5
+		VisualPriorityBand.FULL_FAR:
 			return 6
 		_:
 			return 7
+
+func _is_far_visual_band(band: int) -> bool:
+	return band == VisualPriorityBand.FULL_FAR \
+		or band == VisualPriorityBand.BORDER_FIX_FAR \
+		or band == VisualPriorityBand.COSMETIC
+
+func _count_far_active_visual_compute() -> int:
+	var active_count: int = 0
+	for task_variant: Variant in _visual_compute_waiting_tasks.values():
+		var task: Dictionary = task_variant as Dictionary
+		if _is_far_visual_band(int(task.get("priority_band", VisualPriorityBand.COSMETIC))):
+			active_count += 1
+	return active_count
+
+func _can_submit_visual_compute_now(band: int) -> bool:
+	if _visual_compute_active.size() >= VISUAL_MAX_CONCURRENT_COMPUTE:
+		return false
+	if _is_far_visual_band(band):
+		var far_active_count: int = _count_far_active_visual_compute()
+		if far_active_count >= VISUAL_MAX_FAR_CONCURRENT_COMPUTE:
+			return false
+	return true
 
 func _is_completed_visual_compute_higher_priority(a: Dictionary, b: Dictionary) -> bool:
 	var a_task: Dictionary = a.get("task", {}) as Dictionary
@@ -1752,10 +3843,50 @@ func _push_visual_task(task: Dictionary) -> void:
 		and _visual_q_terrain_urgent.size() >= _resolve_visual_urgent_queue_cap():
 		band = VisualPriorityBand.TERRAIN_NEAR
 		task["priority_band"] = band
+		var task_key: String = _make_visual_task_key(
+			task.get("chunk_coord", Vector2i.ZERO) as Vector2i,
+			int(task.get("z", _active_z)),
+			kind
+		)
+		var meta: Dictionary = _debug_visual_task_meta.get(task_key, {}) as Dictionary
+		if not meta.is_empty():
+			meta["band"] = band
+			_debug_visual_task_meta[task_key] = meta
 	var queue: Array[Dictionary] = _get_visual_queue_for_band(band)
 	queue.append(task)
 	if kind == VisualTaskKind.TASK_FIRST_PASS:
 		_enforce_visual_urgent_queue_cap()
+
+func _push_visual_task_front(task: Dictionary) -> void:
+	var band: int = int(task.get("priority_band", VisualPriorityBand.COSMETIC))
+	var queue: Array[Dictionary] = _get_visual_queue_for_band(band)
+	queue.insert(0, task)
+
+func _promote_existing_visual_task_to_front(coord: Vector2i, z_level: int, kind: int) -> bool:
+	var task_key: String = _make_visual_task_key(coord, z_level, kind)
+	for queue: Array[Dictionary] in [
+		_visual_q_terrain_fast,
+		_visual_q_terrain_urgent,
+		_visual_q_border_fix_near,
+		_visual_q_terrain_near,
+		_visual_q_full_near,
+		_visual_q_border_fix_far,
+		_visual_q_full_far,
+		_visual_q_cosmetic,
+	]:
+		for index: int in range(queue.size()):
+			var queued_task: Dictionary = queue[index]
+			var queued_coord: Vector2i = queued_task.get("chunk_coord", Vector2i.ZERO) as Vector2i
+			var queued_z: int = int(queued_task.get("z", _active_z))
+			var queued_kind: int = int(queued_task.get("kind", VisualTaskKind.TASK_COSMETIC))
+			if _make_visual_task_key(queued_coord, queued_z, queued_kind) != task_key:
+				continue
+			var promoted_task: Dictionary = queue[index]
+			queue.remove_at(index)
+			_retag_visual_task(promoted_task)
+			_push_visual_task_front(promoted_task)
+			return true
+	return false
 
 func _refresh_visual_task_priorities() -> void:
 	var all_tasks: Array[Dictionary] = []
@@ -1837,9 +3968,44 @@ func _try_finalize_chunk_visual_convergence(chunk: Chunk, z_level: int) -> bool:
 		_mark_visual_first_pass_ready(chunk.chunk_coord, z_level)
 	if not chunk._can_publish_full_redraw_ready():
 		return false
+	var chunk_key: String = _make_visual_chunk_key(chunk.chunk_coord, z_level)
+	var was_full_ready: bool = _visual_full_ready_usec.has(chunk_key)
 	chunk._mark_visual_full_redraw_ready()
 	_sync_chunk_visibility_for_publication(chunk)
 	_mark_visual_full_ready(chunk.chunk_coord, z_level)
+	if not was_full_ready:
+		_debug_record_recent_lifecycle_event(
+			"visible",
+			chunk.chunk_coord,
+			z_level,
+			"Подготовка визуала чанка",
+			"визуал готов и чанк опубликован",
+			_debug_age_ms(_visual_apply_started_usec.get(chunk_key, 0), Time.get_ticks_usec())
+		)
+		_debug_emit_chunk_event(
+			"chunk_visible",
+			"опубликовала визуал",
+			chunk.chunk_coord,
+			z_level,
+			"полный визуал чанка готов, игрок не должен видеть сырой build-up",
+			StringName(_debug_impact_for_chunk(_chunk_chebyshev_distance(chunk.chunk_coord, _player_chunk), "visible")),
+			"visible",
+			"видим",
+			"visual_published",
+			{"visual_queue_depth": _debug_visual_queue_depth()}
+		)
+		_debug_record_forensics_event(
+			_debug_resolve_chunk_trace_context(chunk.chunk_coord, z_level),
+			"chunk_scheduler",
+			"chunk_visual_published",
+			chunk.chunk_coord,
+			z_level,
+			{
+				"visual_queue_depth": _debug_visual_queue_depth(),
+				"phase": String(chunk.get_redraw_phase_name()),
+			},
+			[chunk.chunk_coord]
+		)
 	if not _boot_complete_flag and _boot_chunk_states.has(chunk.chunk_coord):
 		_boot_on_chunk_redraw_progress(chunk)
 	return true
@@ -1881,6 +4047,13 @@ func _ensure_chunk_border_fix_task(chunk: Chunk, z_level: int, invalidate: bool 
 		_ensure_visual_task(chunk, z_level, VisualTaskKind.TASK_FULL_REDRAW, invalidate)
 	var border_fix_key: String = _make_visual_task_key(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
 	if _visual_task_pending.has(border_fix_key):
+		if _is_player_near_visual_chunk(chunk.chunk_coord, z_level):
+			_enqueue_player_near_border_fix_relief_task(
+				chunk,
+				z_level,
+				int(_visual_task_pending.get(border_fix_key, 0)),
+				"pending_player_near_relief"
+			)
 		return
 	_ensure_visual_task(chunk, z_level, VisualTaskKind.TASK_BORDER_FIX)
 
@@ -1894,7 +4067,19 @@ func _ensure_visual_task(chunk: Chunk, z_level: int, kind: int, invalidate: bool
 	_visual_task_versions[key] = version
 	_visual_task_pending[key] = version
 	_visual_task_enqueued_usec[key] = Time.get_ticks_usec()
-	_push_visual_task(_build_visual_task(chunk.chunk_coord, z_level, kind, version))
+	var task: Dictionary = _build_visual_task(chunk.chunk_coord, z_level, kind, version)
+	_debug_upsert_visual_task_meta(task)
+	_push_visual_task(task)
+	_debug_note_visual_task_event(
+		task,
+		"visual_task_enqueued",
+		{
+			"reason_human": _debug_visual_reason_human(
+				kind,
+				int(task.get("priority_band", VisualPriorityBand.COSMETIC))
+			),
+		}
+	)
 
 func _schedule_chunk_visual_work(chunk: Chunk, z_level: int) -> void:
 	if chunk == null or not is_instance_valid(chunk):
@@ -1931,16 +4116,14 @@ func _worker_prepare_visual_batch(task_key: String, request: Dictionary) -> void
 	_visual_compute_results[task_key] = batch
 	_visual_compute_mutex.unlock()
 
-func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) -> bool:
+func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) -> int:
 	if chunk == null or not is_instance_valid(chunk):
-		return false
+		return VisualComputeSubmitState.UNAVAILABLE
 	var coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
 	var z_level: int = int(task.get("z", _active_z))
 	var kind: int = int(task.get("kind", VisualTaskKind.TASK_COSMETIC))
 	var band: int = int(task.get("priority_band", VisualPriorityBand.COSMETIC))
 	var key: String = _make_visual_task_key(coord, z_level, kind)
-	if _visual_compute_active.has(key) or _visual_compute_waiting_tasks.has(key):
-		return true
 	var request: Dictionary = {}
 	var requested_tile_budget: int = maxi(1, tile_budget)
 	match kind:
@@ -1954,33 +4137,75 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 			requested_tile_budget = _resolve_visual_apply_tile_budget(kind, band, &"dirty", dirty_tile_budget)
 			request = chunk.build_visual_dirty_batch(chunk._pending_border_dirty, requested_tile_budget)
 		_:
-			return false
+			return VisualComputeSubmitState.UNAVAILABLE
 	if request.is_empty():
-		return false
+		return VisualComputeSubmitState.UNAVAILABLE
 	var requested_visual_budget_ms: float = _resolve_visual_scheduler_budget_ms()
 	request["tile_count"] = int((request.get("tiles", []) as Array).size())
 	request["requested_tile_budget"] = requested_tile_budget
 	request["requested_visual_budget_ms"] = requested_visual_budget_ms
 	request["requested_target_apply_ms"] = _resolve_visual_target_apply_ms(kind, band, requested_visual_budget_ms)
+	var inline_border_fix: bool = _should_prepare_border_fix_inline(task, chunk, requested_tile_budget)
+	var player_near_border_fix: bool = kind == VisualTaskKind.TASK_BORDER_FIX \
+		and band == VisualPriorityBand.BORDER_FIX_NEAR \
+		and _is_player_near_visual_chunk(coord, z_level)
+	var prefer_sync_player_near_border_fix: bool = player_near_border_fix \
+		and band == VisualPriorityBand.BORDER_FIX_NEAR \
+		and not inline_border_fix
+	var force_sync_border_fix: bool = bool(task.get("force_sync_border_fix", false))
+	if _visual_compute_active.has(key) or _visual_compute_waiting_tasks.has(key):
+		if player_near_border_fix or force_sync_border_fix:
+			return VisualComputeSubmitState.UNAVAILABLE
+		return VisualComputeSubmitState.SUBMITTED
 	var can_prepare_immediately: bool = bool(request.get("skip_worker_compute", false)) \
 		and int(request.get("phase", Chunk.REDRAW_PHASE_DONE)) == Chunk.REDRAW_PHASE_FLORA
+	if inline_border_fix:
+		can_prepare_immediately = true
 	if can_prepare_immediately:
 		var immediate_task: Dictionary = task.duplicate(true)
 		var prepared_batch: Dictionary = Chunk.compute_visual_batch(request)
+		if prepared_batch.is_empty():
+			return VisualComputeSubmitState.UNAVAILABLE
 		prepared_batch["tile_count"] = int(request.get("tile_count", prepared_batch.get("tile_count", 0)))
 		prepared_batch["requested_tile_budget"] = requested_tile_budget
 		prepared_batch["visual_budget_ms"] = requested_visual_budget_ms
 		prepared_batch["target_apply_ms"] = float(request.get("requested_target_apply_ms", 0.0))
 		immediate_task["prepared_batch"] = prepared_batch
-		_push_visual_task(immediate_task)
-		return true
+		immediate_task.erase("force_inline_prepare")
+		if inline_border_fix:
+			_push_visual_task_front(immediate_task)
+		else:
+			_push_visual_task(immediate_task)
+		return VisualComputeSubmitState.SUBMITTED
+	if prefer_sync_player_near_border_fix or force_sync_border_fix:
+		return VisualComputeSubmitState.UNAVAILABLE
+	if not _can_submit_visual_compute_now(band):
+		if kind == VisualTaskKind.TASK_BORDER_FIX \
+			and band == VisualPriorityBand.BORDER_FIX_NEAR \
+			and _is_player_near_visual_chunk(coord, z_level):
+			_debug_note_visual_task_event(
+				task,
+				"visual_task_compute_blocked",
+				{},
+				"compute_cap",
+				"worker_capacity_sync_fallback"
+			)
+			return VisualComputeSubmitState.UNAVAILABLE
+		_debug_note_visual_task_event(
+			task,
+			"visual_task_compute_blocked",
+			{},
+			"compute_cap",
+			"worker_capacity"
+		)
+		return VisualComputeSubmitState.BLOCKED
 	request["chunk_coord"] = coord
 	request["z"] = z_level
 	request["invalidation_version"] = int(task.get("invalidation_version", -1))
 	var task_id: int = WorkerThreadPool.add_task(_worker_prepare_visual_batch.bind(key, request))
 	_visual_compute_active[key] = task_id
 	_visual_compute_waiting_tasks[key] = task
-	return true
+	return VisualComputeSubmitState.SUBMITTED
 
 func _collect_completed_visual_compute(max_results: int = VISUAL_COMPLETED_COMPUTE_MAX_INTAKE_PER_STEP, deadline_usec: int = 0) -> int:
 	if _visual_compute_active.is_empty() or max_results <= 0:
@@ -2026,6 +4251,21 @@ func _collect_completed_visual_compute(max_results: int = VISUAL_COMPLETED_COMPU
 		if int(_visual_task_pending.get(key, -1)) != int(batch.get("invalidation_version", -1)):
 			collected_count += 1
 			continue
+		if int(waiting_task.get("kind", VisualTaskKind.TASK_COSMETIC)) == VisualTaskKind.TASK_BORDER_FIX \
+			and _is_player_near_visual_chunk(
+				waiting_task.get("chunk_coord", Vector2i.ZERO) as Vector2i,
+				int(waiting_task.get("z", _active_z))
+			):
+			var waiting_chunk: Chunk = _get_visual_task_chunk(waiting_task)
+			if waiting_chunk != null and is_instance_valid(waiting_chunk) and not waiting_chunk._pending_border_dirty.is_empty():
+				_enqueue_player_near_border_fix_relief_task(
+					waiting_chunk,
+					int(waiting_task.get("z", _active_z)),
+					int(waiting_task.get("invalidation_version", -1)),
+					"worker_result_replaced_by_sync"
+				)
+			collected_count += 1
+			continue
 		var prepare_ms: float = float(batch.get("prepare_ms", 0.0))
 		if prepare_ms >= 2.0:
 			WorldPerfProbe.record(
@@ -2033,7 +4273,14 @@ func _collect_completed_visual_compute(max_results: int = VISUAL_COMPLETED_COMPU
 				prepare_ms
 			)
 		waiting_task["prepared_batch"] = batch
-		_push_visual_task(waiting_task)
+		if int(waiting_task.get("kind", VisualTaskKind.TASK_COSMETIC)) == VisualTaskKind.TASK_BORDER_FIX \
+			and _is_player_near_visual_chunk(
+				waiting_task.get("chunk_coord", Vector2i.ZERO) as Vector2i,
+				int(waiting_task.get("z", _active_z))
+			):
+			_push_visual_task_front(waiting_task)
+		else:
+			_push_visual_task(waiting_task)
 		collected_count += 1
 	return collected_count
 
@@ -2067,6 +4314,7 @@ func _pop_allowed_visual_task_from_queue(queue: Array[Dictionary], processed_by_
 		var processed_count: int = int(processed_by_kind.get(kind, 0))
 		if processed_count < _resolve_visual_max_tasks_per_tick(kind, band):
 			return task
+		_debug_note_visual_task_event(task, "visual_task_skipped_kind_cap", {}, "kind_cap")
 		queue.append(task)
 	return {}
 
@@ -2074,11 +4322,11 @@ func _pop_next_visual_task(processed_by_kind: Dictionary) -> Dictionary:
 	for queue: Array[Dictionary] in [
 		_visual_q_terrain_fast,
 		_visual_q_terrain_urgent,
+		_visual_q_border_fix_near,
 		_visual_q_terrain_near,
 		_visual_q_full_near,
-		_visual_q_border_fix_near,
-		_visual_q_full_far,
 		_visual_q_border_fix_far,
+		_visual_q_full_far,
 		_visual_q_cosmetic,
 	]:
 		var task: Dictionary = _pop_allowed_visual_task_from_queue(queue, processed_by_kind)
@@ -2094,6 +4342,11 @@ func _get_visual_task_chunk(task: Dictionary) -> Chunk:
 
 func _requeue_visual_task(task: Dictionary) -> void:
 	_retag_visual_task(task)
+	_debug_note_visual_task_event(task, "visual_task_requeued")
+	var kind: int = int(task.get("kind", VisualTaskKind.TASK_COSMETIC))
+	if kind == VisualTaskKind.TASK_BORDER_FIX:
+		_push_visual_task_front(task)
+		return
 	_push_visual_task(task)
 
 func _clear_visual_task(task: Dictionary) -> void:
@@ -2101,8 +4354,10 @@ func _clear_visual_task(task: Dictionary) -> void:
 	var z_level: int = int(task.get("z", _active_z))
 	var kind: int = int(task.get("kind", VisualTaskKind.TASK_COSMETIC))
 	var key: String = _make_visual_task_key(coord, z_level, kind)
+	_debug_note_visual_task_event(task, "visual_task_cleared")
 	_visual_task_pending.erase(key)
 	_visual_task_enqueued_usec.erase(key)
+	_debug_drop_visual_task_meta(task)
 
 func _record_visual_task_wait(task: Dictionary) -> void:
 	var band: int = int(task.get("priority_band", VisualPriorityBand.COSMETIC))
@@ -2214,8 +4469,12 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 	var prepared_batch: Dictionary = task.get("prepared_batch", {}) as Dictionary
 	match kind:
 		VisualTaskKind.TASK_FIRST_PASS:
-			if prepared_batch.is_empty() and _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band)):
-				return VisualTaskRunState.DROPPED
+			if prepared_batch.is_empty():
+				var first_pass_submit_state: int = _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band))
+				if first_pass_submit_state == VisualComputeSubmitState.SUBMITTED:
+					return VisualTaskRunState.DROPPED
+				if first_pass_submit_state == VisualComputeSubmitState.BLOCKED:
+					return VisualTaskRunState.REQUEUE
 			var first_pass_did_apply: bool = false
 			if not prepared_batch.is_empty():
 				var apply_started_usec: int = Time.get_ticks_usec()
@@ -2258,8 +4517,12 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 			return VisualTaskRunState.REQUEUE
 		VisualTaskKind.TASK_FULL_REDRAW:
 			chunk._mark_visual_full_redraw_pending()
-			if prepared_batch.is_empty() and _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band)):
-				return VisualTaskRunState.DROPPED
+			if prepared_batch.is_empty():
+				var full_submit_state: int = _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band))
+				if full_submit_state == VisualComputeSubmitState.SUBMITTED:
+					return VisualTaskRunState.DROPPED
+				if full_submit_state == VisualComputeSubmitState.BLOCKED:
+					return VisualTaskRunState.REQUEUE
 			var full_has_more: bool = true
 			var full_redraw_did_apply: bool = false
 			if not prepared_batch.is_empty():
@@ -2300,8 +4563,12 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 			task.erase("prepared_batch")
 			return VisualTaskRunState.REQUEUE
 		VisualTaskKind.TASK_BORDER_FIX:
-			if prepared_batch.is_empty() and _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band)):
-				return VisualTaskRunState.DROPPED
+			if prepared_batch.is_empty():
+				var border_submit_state: int = _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band))
+				if border_submit_state == VisualComputeSubmitState.SUBMITTED:
+					return VisualTaskRunState.DROPPED
+				if border_submit_state == VisualComputeSubmitState.BLOCKED:
+					return VisualTaskRunState.REQUEUE
 			var border_has_more: bool = true
 			var border_fix_did_apply: bool = false
 			if not prepared_batch.is_empty():
@@ -2348,6 +4615,7 @@ func _process_one_visual_task(deadline_usec: int, processed_by_kind: Dictionary)
 	var task: Dictionary = _pop_next_visual_task(processed_by_kind)
 	if task.is_empty():
 		return -1
+	_debug_note_visual_task_event(task, "visual_task_selected")
 	var kind: int = int(task.get("kind", VisualTaskKind.TASK_COSMETIC))
 	var run_state: int = _process_visual_task(task, deadline_usec)
 	match run_state:
@@ -2382,10 +4650,25 @@ func _run_visual_scheduler(max_usec: int, stop_after_processed_task: bool) -> bo
 		processed_count += processed_delta
 		if stop_after_processed_task and processed_delta > 0:
 			break
+	if budget_exhausted and _player_chunk != Vector2i(99999, 99999):
+		var loaded_for_z: Dictionary = _z_chunks.get(_active_z, {})
+		var player_chunk: Chunk = loaded_for_z.get(_player_chunk) as Chunk
+		if player_chunk != null and is_instance_valid(player_chunk):
+			var budget_relief: Dictionary = _try_force_complete_stuck_player_border_fix(
+				player_chunk,
+				_active_z,
+				_get_visual_task_age_ms(_player_chunk, _active_z, VisualTaskKind.TASK_BORDER_FIX),
+				0.0
+			)
+			if bool(budget_relief.get("recovered_inline_border_fix", false)) \
+				or bool(budget_relief.get("forced_border_fix_progress", false)):
+				processed_count += 1
+				WorldPerfProbe.record("scheduler.player_border_fix_budget_relief_count", 1.0)
 	var used_ms: float = float(Time.get_ticks_usec() - started_usec) / 1000.0
 	if budget_exhausted:
 		_visual_scheduler_budget_exhausted_count += 1
 		WorldPerfProbe.record("scheduler.visual_budget_exhausted_count", 1.0)
+		_debug_note_budget_exhausted_trace_task()
 	_emit_visual_scheduler_tick_log(processed_count, budget_exhausted)
 	_maybe_log_player_chunk_visual_status("scheduler", used_ms, budget_exhausted)
 	return _has_pending_visual_tasks()
@@ -2448,6 +4731,232 @@ func _format_diag_age_ms(value_ms: float) -> String:
 	if value_ms < 0.0:
 		return "-"
 	return "%.0f" % value_ms
+
+func _emit_player_chunk_visual_status_diag(
+	coord: Vector2i,
+	z_level: int,
+	trigger: String,
+	chunk: Chunk,
+	state_name: String,
+	phase_name: String,
+	issues: Array[String],
+	load_queued: bool,
+	staged: bool,
+	generating: bool,
+	first_pass_ready: bool,
+	full_ready: bool,
+	dispatcher_step_ms: float,
+	budget_exhausted: bool,
+	first_pass_age_ms: float,
+	full_redraw_age_ms: float,
+	border_fix_age_ms: float,
+	apply_age_ms: float,
+	convergence_age_ms: float
+) -> void:
+	var load_radius: int = WorldGenerator.balance.load_radius if WorldGenerator and WorldGenerator.balance else 0
+	var chunk_is_simulating: bool = _chunk_chebyshev_distance(coord, _player_chunk) <= load_radius
+	var diag_record: Dictionary = _build_player_chunk_visual_diag_record(
+		issues,
+		chunk,
+		load_queued,
+		staged,
+		generating,
+		first_pass_ready,
+		full_ready,
+		dispatcher_step_ms,
+		budget_exhausted
+	)
+	var should_track_incident: bool = not issues.is_empty() or budget_exhausted
+	var trace_context: Dictionary = {}
+	if should_track_incident:
+		trace_context = _debug_ensure_forensics_context(
+			coord,
+			z_level,
+			"chunk_manager",
+			"player_chunk_visual_issue",
+			{
+				"issues_internal": ",".join(issues) if not issues.is_empty() else "healthy",
+				"trigger": trigger,
+			},
+			[coord]
+		)
+	var detail_fields: Dictionary = {
+		"apply_age_ms": _format_diag_age_ms(apply_age_ms),
+		"border_fix_age_ms": _format_diag_age_ms(border_fix_age_ms),
+		"budget_exhausted": budget_exhausted,
+		"chunk": str(coord),
+		"chunk_loaded": chunk != null and is_instance_valid(chunk),
+		"chunk_visible": chunk != null and is_instance_valid(chunk) and chunk.visible,
+		"convergence_age_ms": _format_diag_age_ms(convergence_age_ms),
+		"dispatcher_step_ms": "%.2f" % dispatcher_step_ms,
+		"first_pass_age_ms": _format_diag_age_ms(first_pass_age_ms),
+		"first_pass_ready": first_pass_ready,
+		"full_redraw_age_ms": _format_diag_age_ms(full_redraw_age_ms),
+		"full_ready": full_ready,
+		"issues_internal": ",".join(issues) if not issues.is_empty() else "healthy",
+		"phase": phase_name,
+		"queue_border_fix_far": _visual_q_border_fix_far.size(),
+		"queue_border_fix_near": _visual_q_border_fix_near.size(),
+		"queue_full_far": _visual_q_full_far.size(),
+		"queue_full_near": _visual_q_full_near.size(),
+		"queue_terrain_fast": _visual_q_terrain_fast.size(),
+		"queue_terrain_near": _visual_q_terrain_near.size(),
+		"queue_terrain_urgent": _visual_q_terrain_urgent.size(),
+		"requests_generating": generating,
+		"requests_load": load_queued,
+		"requests_staged": staged,
+		"state_name": state_name,
+		"trigger": trigger,
+		"z": z_level,
+	}
+	_debug_enrich_record_with_trace(diag_record, detail_fields, coord, z_level, trace_context)
+	WorldRuntimeDiagnosticLog.emit_record(diag_record, detail_fields)
+	if should_track_incident:
+		_debug_record_forensics_event(
+			trace_context,
+			"chunk_manager",
+			"player_chunk_visual_issue",
+			coord,
+			z_level,
+			{
+				"issues_internal": detail_fields.get("issues_internal", "healthy"),
+				"phase": phase_name,
+				"full_ready": full_ready,
+				"border_fix_age_ms": border_fix_age_ms,
+				"full_redraw_age_ms": full_redraw_age_ms,
+			},
+			[coord]
+		)
+	if chunk != null and is_instance_valid(chunk) \
+		and chunk.visible \
+		and chunk_is_simulating \
+		and phase_name == "done" \
+		and (border_fix_age_ms >= DEBUG_FORENSICS_OWNER_STUCK_MS or full_redraw_age_ms >= DEBUG_FORENSICS_OWNER_STUCK_MS):
+		var border_fix_relief: Dictionary = _try_force_complete_stuck_player_border_fix(chunk, z_level, border_fix_age_ms)
+		var owner_stuck_context: Dictionary = trace_context
+		if owner_stuck_context.is_empty():
+			owner_stuck_context = _debug_ensure_forensics_context(
+				coord,
+				z_level,
+				"chunk_manager",
+				"player_chunk_owner_stuck",
+				{"phase": phase_name},
+				[coord]
+			)
+		_debug_record_forensics_event(
+			owner_stuck_context,
+			"chunk_manager",
+			"player_chunk_owner_stuck",
+			coord,
+			z_level,
+			{
+				"phase": phase_name,
+				"border_fix_age_ms": border_fix_age_ms,
+				"full_redraw_age_ms": full_redraw_age_ms,
+				"recovered_inline_border_fix": bool(border_fix_relief.get("recovered_inline_border_fix", false)),
+				"forced_border_fix_progress": bool(border_fix_relief.get("forced_border_fix_progress", false)),
+				"promoted_border_fix_task": bool(border_fix_relief.get("promoted_border_fix_task", false)),
+				"remaining_dirty_tiles": int(border_fix_relief.get("remaining_dirty_tiles", 0)),
+			},
+			[coord]
+		)
+
+func _build_player_chunk_visual_diag_record(
+	issues: Array[String],
+	chunk: Chunk,
+	load_queued: bool,
+	staged: bool,
+	generating: bool,
+	first_pass_ready: bool,
+	full_ready: bool,
+	dispatcher_step_ms: float,
+	budget_exhausted: bool
+) -> Dictionary:
+	var chunk_visible: bool = chunk != null and is_instance_valid(chunk) and chunk.visible
+	var action_key: String = "reported_visual_health"
+	var action_human: String = "подтвердил стабильное визуальное состояние"
+	var reason_key: String = "healthy"
+	var reason_human: String = "ключевые визуальные очереди для текущего чанка пусты"
+	var impact_key: StringName = WorldRuntimeDiagnosticLog.IMPACT_INFORMATIONAL
+	var state_key: String = "converged"
+	var state_human: String = "сошёлся"
+	var code_term: String = ""
+	if issues.has("visible_before_first_pass"):
+		action_key = "reported_visual_blocker"
+		action_human = "сообщил о риске ранней публикации"
+		reason_key = "queued_not_applied"
+		reason_human = "чанк уже виден, хотя первый визуальный проход ещё не завершён"
+		impact_key = WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE
+		state_key = "blocked"
+		state_human = "публикация опережает готовность"
+	elif issues.has("not_loaded") or load_queued or staged or generating:
+		action_key = "reported_visual_blocker"
+		action_human = "сообщил о задержке визуальной сходимости"
+		reason_key = "queued_not_applied"
+		reason_human = "очередь догрузки мира ещё не довела текущий чанк до готового состояния"
+		impact_key = WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE
+		state_key = "queued"
+		state_human = "ждёт догрузку или применение"
+		code_term = "streaming_truth"
+	elif issues.has("first_pass_pending") or issues.has("first_pass_not_ready"):
+		action_key = "reported_visual_blocker"
+		action_human = "сообщил о задержке первого визуального прохода"
+		reason_key = "queued_not_applied"
+		reason_human = "первый визуальный проход ещё не завершён"
+		impact_key = WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE
+		state_key = "queued"
+		state_human = "первый проход ещё в работе"
+		code_term = "stream_load"
+	elif issues.has("full_redraw_pending"):
+		action_key = "reported_visual_blocker"
+		action_human = "сообщил о незавершённой полной перерисовке"
+		reason_key = "applied_not_converged"
+		reason_human = "базовая картинка уже применена, но полная перерисовка ещё не завершена"
+		impact_key = WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE
+		state_key = "blocked"
+		state_human = "ещё не сошёлся"
+	elif issues.has("border_fix_pending"):
+		action_key = "reported_visual_blocker"
+		action_human = "сообщил о хвосте после правки границы"
+		reason_key = "queued_not_applied"
+		reason_human = "правка границы чанка всё ещё ждёт применения"
+		impact_key = WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE
+		if chunk_visible and first_pass_ready and full_ready:
+			impact_key = WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT
+		state_key = "queued"
+		state_human = "очередь ещё не применена"
+		code_term = "border_fix"
+	elif not full_ready:
+		action_key = "reported_visual_blocker"
+		action_human = "сообщил о незавершённой визуальной сходимости"
+		reason_key = "applied_not_converged"
+		reason_human = "чанк ещё не дошёл до полной визуальной готовности"
+		impact_key = WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE
+		state_key = "blocked"
+		state_human = "ожидает сходимость"
+	elif dispatcher_step_ms >= PLAYER_CHUNK_DIAG_SPIKE_MS or budget_exhausted:
+		action_key = "reported_visual_snapshot"
+		action_human = "зафиксировал диагностический снимок очередей"
+		reason_key = "timing_watch"
+		reason_human = "в этом кадре был заметный всплеск нагрузки диспетчера, хотя текущий чанк уже готов"
+		impact_key = WorldRuntimeDiagnosticLog.IMPACT_INFORMATIONAL
+		state_key = "observed"
+		state_human = "требует наблюдения"
+	return {
+		"actor": "chunk_manager",
+		"actor_human": "Менеджер чанков мира",
+		"action": action_key,
+		"action_human": action_human,
+		"target": "player_chunk",
+		"target_human": "текущий чанк игрока",
+		"reason": reason_key,
+		"reason_human": reason_human,
+		"impact": String(impact_key),
+		"impact_human": WorldRuntimeDiagnosticLog.humanize_impact(impact_key),
+		"state": state_key,
+		"state_human": state_human,
+		"code": code_term,
+	}
 
 func _maybe_log_player_chunk_visual_status(
 	trigger: String,
@@ -2530,35 +5039,26 @@ func _maybe_log_player_chunk_visual_status(
 		return
 	_player_chunk_diag_last_signature = signature
 	_player_chunk_diag_last_usec = now_usec
-	print(
-		"[WorldPerf] PlayerChunk coord=%s z=%d trigger=%s loaded=%s visible=%s state=%s phase=%s first_pass=%s full_ready=%s issues=%s ages(first=%sms full=%sms border=%sms apply=%sms converge=%sms) queues(fast=%d urgent=%d near=%d full_near=%d full_far=%d) requests(load=%s staged=%s generating=%s) scheduler(step=%.2fms exhausted=%s)"
-		% [
-			coord,
-			z_level,
-			trigger,
-			str(chunk != null and is_instance_valid(chunk)),
-			str(chunk != null and is_instance_valid(chunk) and chunk.visible),
-			state_name,
-			phase_name,
-			str(first_pass_ready),
-			str(full_ready),
-			issues_text if issues_text != "" else "healthy",
-			_format_diag_age_ms(first_pass_age_ms),
-			_format_diag_age_ms(full_redraw_age_ms),
-			_format_diag_age_ms(border_fix_age_ms),
-			_format_diag_age_ms(apply_age_ms),
-			_format_diag_age_ms(convergence_age_ms),
-			_visual_q_terrain_fast.size(),
-			_visual_q_terrain_urgent.size(),
-			_visual_q_terrain_near.size(),
-			_visual_q_full_near.size(),
-			_visual_q_full_far.size(),
-			str(load_queued),
-			str(staged),
-			str(generating),
-			dispatcher_step_ms,
-			str(budget_exhausted),
-		]
+	_emit_player_chunk_visual_status_diag(
+		coord,
+		z_level,
+		trigger,
+		chunk,
+		state_name,
+		phase_name,
+		issues,
+		load_queued,
+		staged,
+		generating,
+		first_pass_ready,
+		full_ready,
+		dispatcher_step_ms,
+		budget_exhausted,
+		first_pass_age_ms,
+		full_redraw_age_ms,
+		border_fix_age_ms,
+		apply_age_ms,
+		convergence_age_ms
 	)
 
 func _check_player_chunk() -> void:
@@ -2567,6 +5067,18 @@ func _check_player_chunk() -> void:
 		_player_chunk_motion = cur - _player_chunk if _player_chunk.x != 99999 else Vector2i.ZERO
 		_last_player_chunk_for_priority = _player_chunk
 		_player_chunk = cur
+		_debug_emit_chunk_event(
+			"player_entered_chunk",
+			"зафиксировала вход игрока",
+			_player_chunk,
+			_active_z,
+			"игрок пересёк границу чанка, приоритеты загрузки и визуала пересчитаны",
+			WorldRuntimeDiagnosticLog.IMPACT_INFORMATIONAL,
+			"observed",
+			"наблюдается",
+			"player_chunk",
+			{"motion": _player_chunk_motion}
+		)
 		_refresh_visual_task_priorities()
 		_sync_loaded_chunk_display_positions(cur)
 		_update_chunks(cur)
@@ -2699,6 +5211,26 @@ func _load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
 			_mark_topology_dirty()
 	EventBus.chunk_loaded.emit(coord)
 	_enqueue_neighbor_border_redraws(coord)
+	_debug_record_recent_lifecycle_event(
+		"loaded",
+		coord,
+		z_level,
+		"Загрузка представления в мир",
+		"чанк установлен в мир, визуал продолжает сходиться через scheduler",
+		-1.0
+	)
+	_debug_emit_chunk_event(
+		"chunk_installed",
+		"установила чанк в мир",
+		coord,
+		z_level,
+		"чанк получил node и поставлен в очередь визуальной публикации",
+		StringName(_debug_impact_for_chunk(_chunk_chebyshev_distance(coord, _player_chunk), "building_visual")),
+		"building_visual",
+		"строится визуал",
+		"queued_not_applied",
+		{"visual_queue_depth": _debug_visual_queue_depth()}
+	)
 	WorldPerfProbe.end("ChunkManager._load_chunk %s" % [coord], started_usec)
 
 func _unload_chunk(coord: Vector2i) -> void:
@@ -2736,6 +5268,26 @@ func _unload_chunk(coord: Vector2i) -> void:
 		else:
 			_mark_topology_dirty()
 	EventBus.chunk_unloaded.emit(coord)
+	_debug_record_recent_lifecycle_event(
+		"unloaded",
+		coord,
+		_active_z,
+		"Выгрузка чанка",
+		"чанк вышел из области удержания",
+		-1.0
+	)
+	_debug_emit_chunk_event(
+		"chunk_unloaded",
+		"выгрузила чанк",
+		coord,
+		_active_z,
+		"чанк вышел из фактической области удержания после движения игрока",
+		WorldRuntimeDiagnosticLog.IMPACT_INFORMATIONAL,
+		"completed",
+		"завершено",
+		"stream_unload",
+		{"loaded_chunks": _loaded_chunks.size()}
+	)
 
 func _register_budget_jobs() -> void:
 	FrameBudgetDispatcher.register_job(
@@ -2841,6 +5393,19 @@ func _submit_async_generate(coord: Vector2i, z_level: int) -> void:
 	_gen_active_tasks[coord] = task_id
 	_gen_active_z_levels[coord] = z_level
 	_gen_builders[coord] = builder
+	_debug_generate_started_usec[_make_chunk_state_key(z_level, coord)] = Time.get_ticks_usec()
+	_debug_emit_chunk_event(
+		"chunk_generation_started",
+		"начала генерацию данных",
+		coord,
+		z_level,
+		"запрос чанка взят из очереди потоковой догрузки",
+		StringName(_debug_impact_for_chunk(_chunk_chebyshev_distance(coord, _player_chunk), "generating")),
+		"running",
+		"выполняется",
+		"stream_load",
+		{"active_generators": _gen_active_tasks.size()}
+	)
 	_sync_runtime_generation_status()
 
 ## Выполняется в worker thread. Только чистые данные, никаких Node/scene tree.
@@ -2903,6 +5468,9 @@ func _collect_completed_runtime_generates(load_radius: int) -> void:
 		var request_z: int = int(_gen_active_z_levels.get(coord, INVALID_Z_LEVEL))
 		_gen_active_z_levels.erase(coord)
 		_gen_builders.erase(coord)
+		var debug_key: Vector3i = _make_chunk_state_key(request_z, coord)
+		var generation_ms: float = _debug_age_ms(_debug_generate_started_usec.get(debug_key, 0), Time.get_ticks_usec())
+		_debug_generate_started_usec.erase(debug_key)
 		_gen_mutex.lock()
 		var completed_entry: Dictionary = _gen_result.get(coord, {}) as Dictionary
 		_gen_result.erase(coord)
@@ -2922,7 +5490,28 @@ func _collect_completed_runtime_generates(load_radius: int) -> void:
 			"z": request_z,
 			"native_data": completed_data,
 			"flora_payload": completed_flora_payload,
+			"ready_usec": Time.get_ticks_usec(),
 		})
+		_debug_record_recent_lifecycle_event(
+			"generated",
+			coord,
+			request_z,
+			"Генерация данных чанка",
+			"данные готовы и ждут применения",
+			generation_ms
+		)
+		_debug_emit_chunk_event(
+			"chunk_generation_completed",
+			"завершила генерацию данных",
+			coord,
+			request_z,
+			"данные чанка готовы и будут применены на основном потоке",
+			StringName(_debug_impact_for_chunk(_chunk_chebyshev_distance(coord, _player_chunk), "data_ready")),
+			"ready",
+			"данные готовы",
+			"queued_not_applied",
+			{"duration_ms": generation_ms, "ready_queue_depth": _gen_ready_queue.size()}
+		)
 	_sort_runtime_ready_queue()
 	_sync_runtime_generation_status()
 
@@ -3008,10 +5597,18 @@ func _prune_load_queue(center: Vector2i, active_z_level: int, load_radius: int) 
 		if seen_requests.has(request_key):
 			continue
 		seen_requests[request_key] = true
-		filtered_queue.append({
-			"coord": coord,
-			"z": request_z,
-		})
+		var filtered_request: Dictionary = request.duplicate()
+		filtered_request["coord"] = coord
+		filtered_request["z"] = request_z
+		if not filtered_request.has("requested_usec"):
+			filtered_request["requested_usec"] = Time.get_ticks_usec()
+		if not filtered_request.has("requested_frame"):
+			filtered_request["requested_frame"] = Engine.get_process_frames()
+		if not filtered_request.has("priority"):
+			filtered_request["priority"] = _debug_priority_label(coord)
+		if not filtered_request.has("reason"):
+			filtered_request["reason"] = _debug_reason_for_chunk(coord, _chunk_chebyshev_distance(coord, center), "queued")
+		filtered_queue.append(filtered_request)
 	filtered_queue.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		var coord_a: Vector2i = _canonical_chunk_coord(a.get("coord", Vector2i.ZERO) as Vector2i)
 		var coord_b: Vector2i = _canonical_chunk_coord(b.get("coord", Vector2i.ZERO) as Vector2i)
@@ -3311,6 +5908,26 @@ func _finalize_chunk_install(coord: Vector2i, z_level: int, chunk: Chunk) -> voi
 			_mark_topology_dirty()
 	EventBus.chunk_loaded.emit(coord)
 	_enqueue_neighbor_border_redraws(coord)
+	_debug_record_recent_lifecycle_event(
+		"loaded",
+		coord,
+		z_level,
+		"Загрузка представления в мир",
+		"чанк установлен в мир, визуал продолжает сходиться через scheduler",
+		-1.0
+	)
+	_debug_emit_chunk_event(
+		"chunk_installed",
+		"установила чанк в мир",
+		coord,
+		z_level,
+		"чанк получил node и поставлен в очередь визуальной публикации",
+		StringName(_debug_impact_for_chunk(_chunk_chebyshev_distance(coord, _player_chunk), "building_visual")),
+		"building_visual",
+		"строится визуал",
+		"queued_not_applied",
+		{"visual_queue_depth": _debug_visual_queue_depth()}
+	)
 
 func _stage_prepared_chunk_install(
 	coord: Vector2i,
@@ -3336,7 +5953,20 @@ func _stage_prepared_chunk_install(
 	_staged_data = native_data
 	_staged_flora_result = install_entry.get("flora_result", prepared_flora_result) as ChunkFloraResultScript
 	_staged_flora_payload = install_entry.get("flora_payload", prepared_flora_payload) as Dictionary
+	install_entry["staged_usec"] = Time.get_ticks_usec()
 	_staged_install_entry = install_entry
+	_debug_emit_chunk_event(
+		"chunk_apply_waiting",
+		"подготовила чанк к применению",
+		_staged_coord,
+		z_level,
+		"данные готовы, следующий шаг - bounded main-thread установка",
+		StringName(_debug_impact_for_chunk(_chunk_chebyshev_distance(_staged_coord, _player_chunk), "data_ready")),
+		"waiting_apply",
+		"ожидает применения",
+		"queued_not_applied",
+		{"ready_queue_depth": _gen_ready_queue.size()}
+	)
 	return true
 
 func _cache_chunk_install_handoff_entry(entry: Dictionary, z_level: int) -> void:
@@ -3425,6 +6055,9 @@ func _tick_topology() -> bool:
 		return false
 	if _active_z != 0:
 		return false
+	var seam_has_more: bool = _process_seam_refresh_queue_step()
+	if seam_has_more:
+		return true
 	if _is_native_topology_enabled():
 		if _native_topology_dirty and _is_streaming_generation_idle():
 			_native_topology_builder.call("ensure_built")
@@ -3437,7 +6070,7 @@ func _tick_topology() -> bool:
 			WorldPerfProbe.end("Topology.runtime.cleanup", cleanup_usec)
 			if has_more_cleanup or not _is_topology_dirty:
 				return has_more_cleanup
-	return _process_topology_build_step()
+	return _process_topology_build()
 
 func _process_chunk_redraws() -> void:
 	_process_one_visual_task(0, {})
@@ -3603,44 +6236,75 @@ func _ensure_topology_current() -> void:
 	_is_topology_dirty = false
 	_is_topology_build_in_progress = false
 
-func _process_topology_build() -> void:
+func _process_topology_build() -> bool:
 	if _is_native_topology_enabled():
 		if _native_topology_dirty and _load_queue.is_empty() and not _has_pending_visual_tasks():
 			_native_topology_builder.call("ensure_built")
 			_native_topology_dirty = false
-		return
-	if not _is_topology_dirty:
-		return
-	if not _is_topology_build_in_progress:
-		_start_topology_build()
+		return _native_topology_dirty
+	var has_pending_work: bool = _is_topology_dirty \
+		or _topology_task_id >= 0 \
+		or _topology_build_commit_phase != TOPOLOGY_COMMIT_NONE \
+		or _topology_build_start_phase != TOPOLOGY_START_NONE
+	if not has_pending_work:
+		return false
 	var started_usec: int = Time.get_ticks_usec()
 	var budget_ms: float = 2.0
 	if WorldGenerator and WorldGenerator.balance:
 		budget_ms = WorldGenerator.balance.mountain_topology_build_budget_ms
 	while float(Time.get_ticks_usec() - started_usec) / 1000.0 < budget_ms:
-		if not _process_topology_build_step():
+		var can_continue_now: bool = _process_topology_build_step()
+		if not can_continue_now:
 			break
+	return _is_topology_dirty \
+		or _topology_task_id >= 0 \
+		or _topology_build_commit_phase != TOPOLOGY_COMMIT_NONE \
+		or _topology_build_start_phase != TOPOLOGY_START_NONE
 
 func _start_topology_build() -> void:
-	if _topology_task_id >= 0:
+	if _topology_task_id >= 0 or _topology_build_start_phase != TOPOLOGY_START_NONE:
 		return
-	var snapshot_usec: int = WorldPerfProbe.begin()
-	var snapshot: Dictionary = _capture_topology_build_snapshot()
-	WorldPerfProbe.end("Topology.runtime.snapshot", snapshot_usec)
 	_is_topology_build_in_progress = true
 	_topology_rebuild_restart_pending = false
 	_topology_build_commit_phase = TOPOLOGY_COMMIT_NONE
-	_topology_build_start_phase = TOPOLOGY_START_NONE
-	_topology_start_chunk_keys = []
+	_topology_build_start_phase = TOPOLOGY_START_RESET_SCAN_COORDS
+	_topology_start_chunk_keys = _get_sorted_loaded_chunk_coords()
 	_topology_start_chunk_index = 0
 	_topology_scan_chunk_coords = []
+	_topology_snapshot_chunks = {}
 	_topology_scan_chunk_index = 0
 	_topology_scan_local_x = 0
 	_topology_scan_local_y = 0
-	_clear_topology_component_state()
+
+func _submit_topology_build_worker(snapshot: Dictionary) -> void:
+	if _topology_task_id >= 0:
+		return
 	_topology_build_generation += 1
 	_topology_task_generation = _topology_build_generation
-	_topology_task_id = WorkerThreadPool.add_task(_worker_rebuild_topology.bind(snapshot, _topology_task_generation))
+	_topology_task_builder = _create_topology_worker_builder()
+	_topology_task_id = WorkerThreadPool.add_task(
+		_worker_rebuild_topology.bind(snapshot, _topology_task_generation, _topology_task_builder)
+	)
+
+func _get_sorted_loaded_chunk_coords() -> Array[Vector2i]:
+	var chunk_coords: Array[Vector2i] = []
+	for coord_variant: Variant in _loaded_chunks.keys():
+		chunk_coords.append(coord_variant as Vector2i)
+	if chunk_coords.size() > 1:
+		chunk_coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+			if a.y != b.y:
+				return a.y < b.y
+			return a.x < b.x
+		)
+	return chunk_coords
+
+func _create_topology_worker_builder() -> RefCounted:
+	if not _native_topology_worker_available:
+		return null
+	var builder: RefCounted = ClassDB.instantiate("MountainTopologyBuilder") as RefCounted
+	if builder == null or not builder.has_method("rebuild_topology"):
+		return null
+	return builder
 
 func _advance_topology_build_start_step() -> void:
 	match _topology_build_start_phase:
@@ -3653,7 +6317,21 @@ func _advance_topology_build_start_step() -> void:
 				_topology_start_chunk_keys.size()
 			)
 			for chunk_index: int in range(_topology_start_chunk_index, end_index):
-				_topology_scan_chunk_coords.append(_topology_start_chunk_keys[chunk_index])
+				var chunk_coord: Vector2i = _topology_start_chunk_keys[chunk_index]
+				var chunk: Chunk = _loaded_chunks.get(chunk_coord)
+				if chunk == null:
+					continue
+				_topology_scan_chunk_coords.append(chunk_coord)
+				_topology_snapshot_chunks[chunk_coord] = {
+					"chunk_size": chunk.get_chunk_size(),
+					"terrain_bytes": chunk.get_terrain_bytes().duplicate(),
+					"neighbors": {
+						Vector2i.LEFT: _offset_chunk_coord(chunk_coord, Vector2i.LEFT),
+						Vector2i.RIGHT: _offset_chunk_coord(chunk_coord, Vector2i.RIGHT),
+						Vector2i.UP: _offset_chunk_coord(chunk_coord, Vector2i.UP),
+						Vector2i.DOWN: _offset_chunk_coord(chunk_coord, Vector2i.DOWN),
+					},
+				}
 			_topology_start_chunk_index = end_index
 			if _topology_start_chunk_index >= _topology_start_chunk_keys.size():
 				_topology_build_start_phase = TOPOLOGY_START_RESET_VISITED
@@ -3701,10 +6379,24 @@ func _process_topology_build_step() -> bool:
 		return false
 	if _topology_task_id >= 0:
 		return false
-	if _has_streaming_work():
+	if _topology_build_start_phase != TOPOLOGY_START_NONE:
+		var snapshot_step_usec: int = WorldPerfProbe.begin()
+		_advance_topology_build_start_step()
+		WorldPerfProbe.end("Topology.runtime.snapshot_step", snapshot_step_usec)
+		if _topology_build_start_phase != TOPOLOGY_START_NONE:
+			return true
+		var snapshot_chunks: Dictionary = _topology_snapshot_chunks
+		_topology_snapshot_chunks = {}
+		var snapshot: Dictionary = {
+			"scan_chunk_coords": _topology_scan_chunk_coords.duplicate(),
+			"chunks": snapshot_chunks,
+		}
+		_submit_topology_build_worker(snapshot)
+		return false
+	if _has_streaming_work() or _has_pending_visual_tasks():
 		return false
 	_start_topology_build()
-	return false
+	return _topology_build_start_phase != TOPOLOGY_START_NONE
 
 func _capture_topology_build_snapshot() -> Dictionary:
 	var chunk_coords: Array[Vector2i] = []
@@ -3736,11 +6428,15 @@ func _capture_topology_build_snapshot() -> Dictionary:
 		"chunks": chunks,
 	}
 
-func _worker_rebuild_topology(snapshot: Dictionary, generation: int) -> void:
+func _worker_rebuild_topology(
+	snapshot: Dictionary,
+	generation: int,
+	native_builder: RefCounted = null
+) -> void:
 	if _shutdown_in_progress:
 		return
 	var started_usec: int = Time.get_ticks_usec()
-	var built_snapshot: Dictionary = _worker_build_topology_snapshot(snapshot)
+	var built_snapshot: Dictionary = _worker_build_topology_snapshot(snapshot, native_builder)
 	if _shutdown_in_progress:
 		return
 	built_snapshot["generation"] = generation
@@ -3749,7 +6445,13 @@ func _worker_rebuild_topology(snapshot: Dictionary, generation: int) -> void:
 	_topology_result = built_snapshot
 	_topology_result_mutex.unlock()
 
-func _worker_build_topology_snapshot(snapshot: Dictionary) -> Dictionary:
+func _worker_build_topology_snapshot(
+	snapshot: Dictionary,
+	native_builder: RefCounted = null
+) -> Dictionary:
+	var native_snapshot: Dictionary = _build_native_topology_snapshot(snapshot, native_builder)
+	if not native_snapshot.is_empty():
+		return native_snapshot
 	var state: Dictionary = {
 		"scan_chunk_coords": snapshot.get("scan_chunk_coords", []) as Array,
 		"scan_chunk_index": 0,
@@ -3792,6 +6494,47 @@ func _worker_build_topology_snapshot(snapshot: Dictionary) -> Dictionary:
 		"open_tiles_by_key": state.get("build_open_tiles_by_key", {}) as Dictionary,
 		"tiles_by_key_by_chunk": state.get("build_tiles_by_key_by_chunk", {}) as Dictionary,
 		"open_tiles_by_key_by_chunk": state.get("build_open_tiles_by_key_by_chunk", {}) as Dictionary,
+	}
+
+func _build_native_topology_snapshot(
+	snapshot: Dictionary,
+	native_builder: RefCounted = null
+) -> Dictionary:
+	if native_builder == null or not native_builder.has_method("rebuild_topology"):
+		return {}
+	var chunks: Dictionary = snapshot.get("chunks", {}) as Dictionary
+	var chunk_terrain_by_coord: Dictionary = {}
+	var chunk_size: int = 0
+	for coord_variant: Variant in chunks.keys():
+		var chunk_coord: Vector2i = coord_variant as Vector2i
+		var chunk_entry: Dictionary = chunks.get(chunk_coord, {}) as Dictionary
+		var terrain_bytes: PackedByteArray = chunk_entry.get("terrain_bytes", PackedByteArray()) as PackedByteArray
+		if terrain_bytes.is_empty():
+			continue
+		chunk_terrain_by_coord[chunk_coord] = terrain_bytes
+		if chunk_size <= 0:
+			chunk_size = int(chunk_entry.get("chunk_size", 0))
+	if chunk_terrain_by_coord.is_empty() or chunk_size <= 0:
+		return {
+			"key_by_tile": {},
+			"tiles_by_key": {},
+			"open_tiles_by_key": {},
+			"tiles_by_key_by_chunk": {},
+			"open_tiles_by_key_by_chunk": {},
+		}
+	var native_result: Dictionary = native_builder.call(
+		"rebuild_topology",
+		chunk_terrain_by_coord,
+		chunk_size
+	) as Dictionary
+	if native_result.is_empty():
+		return {}
+	return {
+		"key_by_tile": native_result.get("mountain_key_by_tile", {}) as Dictionary,
+		"tiles_by_key": native_result.get("mountain_tiles_by_key", {}) as Dictionary,
+		"open_tiles_by_key": native_result.get("mountain_open_tiles_by_key", {}) as Dictionary,
+		"tiles_by_key_by_chunk": native_result.get("mountain_tiles_by_key_by_chunk", {}) as Dictionary,
+		"open_tiles_by_key_by_chunk": native_result.get("mountain_open_tiles_by_key_by_chunk", {}) as Dictionary,
 	}
 
 func _worker_find_next_topology_seed(snapshot: Dictionary, state: Dictionary) -> Dictionary:
@@ -3975,6 +6718,7 @@ func _collect_completed_topology_build() -> bool:
 	WorkerThreadPool.wait_for_task_completion(_topology_task_id)
 	var completed_generation: int = _topology_task_generation
 	_topology_task_id = -1
+	_topology_task_builder = null
 	_topology_task_generation = -1
 	_topology_result_mutex.lock()
 	var completed_entry: Dictionary = _topology_result
@@ -4133,6 +6877,7 @@ func _clear_topology_component_state() -> void:
 	_topology_component_finalize_index = 0
 
 func _begin_topology_build_commit() -> void:
+	_topology_snapshot_chunks = {}
 	_topology_build_commit_phase = TOPOLOGY_COMMIT_KEY_BY_TILE
 
 func _process_topology_build_commit_step() -> bool:
@@ -4199,6 +6944,7 @@ func _finish_topology_build() -> void:
 	_topology_build_start_phase = TOPOLOGY_START_NONE
 	_topology_start_chunk_keys = []
 	_topology_start_chunk_index = 0
+	_topology_snapshot_chunks = {}
 	_topology_rebuild_restart_pending = false
 	_is_topology_dirty = false
 	_is_topology_build_in_progress = false
@@ -4208,6 +6954,7 @@ func _discard_pending_topology_build() -> void:
 	_topology_build_start_phase = TOPOLOGY_START_NONE
 	_topology_start_chunk_keys = []
 	_topology_start_chunk_index = 0
+	_topology_snapshot_chunks = {}
 	_topology_scan_chunk_coords = []
 	_topology_scan_chunk_index = 0
 	_topology_scan_local_x = 0
@@ -4219,6 +6966,7 @@ func _discard_pending_topology_build() -> void:
 	_topology_build_open_tiles_by_key_by_chunk = {}
 	_clear_topology_component_state()
 	_is_topology_build_in_progress = false
+	_topology_task_builder = null
 
 func _rebuild_loaded_mountain_topology() -> void:
 	var started_usec: int = WorldPerfProbe.begin()
@@ -4611,10 +7359,10 @@ func _boot_worker_compute(
 	## If native generated flora_placements, use them directly.
 	## Otherwise fall back to GDScript flora computation.
 	if z_level == 0 and not data.is_empty():
+		## C++ generate_chunk не генерирует flora_placements — GDScript-путь является штатным.
 		if data.has("flora_placements") and not (data["flora_placements"] as Array).is_empty():
 			result_entry["flora_payload"] = _build_native_flora_payload_from_placements(coord, data)
 		else:
-			push_warning("[Boot] native flora empty for %s — GDScript flora fallback in worker" % [coord])
 			var flora_builder: ChunkFloraBuilderScript = _create_detached_flora_builder()
 			result_entry["flora_payload"] = _build_flora_payload_for_native_data(coord, data, flora_builder)
 	_boot_compute_mutex.lock()

@@ -181,27 +181,33 @@ func _get_structure_value(structure_context: WorldStructureContext, key: StringN
 	return default_value
 
 func _is_in_range(value: float, min_value: float, max_value: float) -> bool:
-	var lower: float = minf(min_value, max_value)
-	var upper: float = maxf(min_value, max_value)
+	var lower: float = _canonicalize_score_input(minf(min_value, max_value))
+	var upper: float = _canonicalize_score_input(maxf(min_value, max_value))
+	value = _canonicalize_score_input(value)
 	return value >= lower - _EPSILON and value <= upper + _EPSILON
 
 func _score_range(value: float, min_value: float, max_value: float, soft: bool) -> float:
-	var lower: float = minf(min_value, max_value)
-	var upper: float = maxf(min_value, max_value)
+	var lower: float = _canonicalize_score_input(minf(min_value, max_value))
+	var upper: float = _canonicalize_score_input(maxf(min_value, max_value))
+	value = _canonicalize_score_input(value)
 	if is_equal_approx(lower, upper):
 		if is_equal_approx(value, lower):
 			return 1.0
 		if not soft:
 			return 0.0
 		return 1.0 / (1.0 + absf(value - lower) * 8.0)
-	if value < lower:
+	if value < lower - _EPSILON:
 		if not soft:
 			return 0.0
 		return 1.0 / (1.0 + ((lower - value) / maxf(upper - lower, _EPSILON)) * 4.0)
-	if value > upper:
+	if value > upper + _EPSILON:
 		if not soft:
 			return 0.0
 		return 1.0 / (1.0 + ((value - upper) / maxf(upper - lower, _EPSILON)) * 4.0)
 	var center: float = (lower + upper) * 0.5
 	var half_span: float = maxf((upper - lower) * 0.5, _EPSILON)
 	return clampf(1.0 - absf(value - center) / half_span, 0.0, 1.0)
+
+func _canonicalize_score_input(value: float) -> float:
+	var packed := PackedFloat32Array([value])
+	return float(packed[0])
