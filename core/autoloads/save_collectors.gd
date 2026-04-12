@@ -67,11 +67,21 @@ static func collect_world(tree: SceneTree) -> Dictionary:
 			"mountain_density": balance.mountain_density,
 			"mountain_area": balance.mountain_area,
 			"mountain_chaininess": balance.mountain_chaininess,
+			"prepass_frozen_lake_temperature": balance.prepass_frozen_lake_temperature,
+			"prepass_glacial_melt_temperature": balance.prepass_glacial_melt_temperature,
+			"prepass_glacial_melt_bonus": balance.prepass_glacial_melt_bonus,
+			"prepass_latitude_evaporation_rate": balance.prepass_latitude_evaporation_rate,
+			"prepass_frozen_river_threshold": balance.prepass_frozen_river_threshold,
 			"prepass_river_accumulation_threshold": balance.prepass_river_accumulation_threshold,
 			"prepass_river_base_width": balance.prepass_river_base_width,
 			"prepass_river_width_scale": balance.prepass_river_width_scale,
+			"prepass_floodplain_multiplier": balance.prepass_floodplain_multiplier,
 			"prepass_lake_min_area": balance.prepass_lake_min_area,
 			"prepass_lake_min_depth": balance.prepass_lake_min_depth,
+			"prepass_erosion_valley_strength": balance.prepass_erosion_valley_strength,
+			"prepass_thermal_iterations": balance.prepass_thermal_iterations,
+			"prepass_thermal_rate": balance.prepass_thermal_rate,
+			"prepass_deposit_rate": balance.prepass_deposit_rate,
 		}
 	var spawn_orchestrators: Array[Node] = _find_nodes_by_class(tree, "SpawnOrchestrator")
 	if not spawn_orchestrators.is_empty():

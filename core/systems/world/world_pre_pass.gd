@@ -39,7 +39,8 @@ const NATIVE_CHUNK_GENERATOR_SNAPSHOT_KIND: StringName = &"world_pre_pass_chunk_
 const NATIVE_PREPASS_KERNELS_CLASS: StringName = &"WorldPrePassKernels"
 const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_utils.gd")
 const FLOAT_EPSILON: float = 0.00001
-const MAX_LAKE_MASK_ID: int = 255
+const MAX_LAKE_MASK_ID: int = 32767
+const MAX_LAKE_CLASSIFY_SAMPLES: int = 30
 const FLOW_DIRECTION_NONE: int = 255
 const DIAGONAL_DIRECTION_DISTANCE: float = 1.41421356237
 const LAKE_TYPE_MOUNTAIN: StringName = &"mountain"
@@ -117,7 +118,7 @@ var _eroded_height_grid: PackedFloat32Array = PackedFloat32Array()
 var _slope_grid: PackedFloat32Array = PackedFloat32Array()
 var _rain_shadow_grid: PackedFloat32Array = PackedFloat32Array()
 var _continentalness_grid: PackedFloat32Array = PackedFloat32Array()
-var _lake_mask: PackedByteArray = PackedByteArray()
+var _lake_mask: PackedInt32Array = PackedInt32Array()
 var _lake_records: Array[LakeRecord] = []
 var _spine_seeds: Array[SpineSeed] = []
 var _ridge_paths: Array[RidgePath] = []
@@ -125,6 +126,9 @@ var _native_prepass_kernels: RefCounted = null
 var _numeric_heap_last_priority: float = 0.0
 var _numeric_heap_last_payload_a: float = 0.0
 var _numeric_heap_last_payload_b: float = 0.0
+var _temperature_grid_cache: PackedFloat32Array = PackedFloat32Array()
+var _moisture_grid_cache: PackedFloat32Array = PackedFloat32Array()
+var _ruggedness_grid_cache: PackedFloat32Array = PackedFloat32Array()
 
 func configure(balance_resource: WorldGenBalance, planet_sampler: PlanetSampler) -> WorldPrePass:
 	_balance = balance_resource
@@ -159,10 +163,13 @@ func configure(balance_resource: WorldGenBalance, planet_sampler: PlanetSampler)
 	_slope_grid = PackedFloat32Array()
 	_rain_shadow_grid = PackedFloat32Array()
 	_continentalness_grid = PackedFloat32Array()
-	_lake_mask = PackedByteArray()
+	_lake_mask = PackedInt32Array()
 	_lake_records.clear()
 	_spine_seeds.clear()
 	_ridge_paths.clear()
+	_temperature_grid_cache = PackedFloat32Array()
+	_moisture_grid_cache = PackedFloat32Array()
+	_ruggedness_grid_cache = PackedFloat32Array()
 	return self
 
 func _setup_native_prepass_kernels() -> void:
@@ -271,6 +278,173 @@ func _compute_native_flow_accumulation(temperature_grid: PackedFloat32Array) -> 
 	result["accumulation_grid"] = accumulation_grid
 	result["drainage_grid"] = drainage_grid
 	result["lake_inflow_totals"] = lake_inflow_totals
+	return result
+
+func _compute_native_lake_records() -> Dictionary:
+	if _native_prepass_kernels == null or not _native_prepass_kernels.has_method("compute_lake_records"):
+		return {}
+	if (
+		_temperature_grid_cache.size() != _height_grid.size()
+		or _ruggedness_grid_cache.size() != _height_grid.size()
+	):
+		return {}
+	var result: Dictionary = _native_prepass_kernels.compute_lake_records(
+		_grid_width,
+		_grid_height,
+		_height_grid,
+		_filled_height_grid,
+		_temperature_grid_cache,
+		_ruggedness_grid_cache,
+		MAX_LAKE_MASK_ID,
+		_resolve_lake_min_area(),
+		_resolve_lake_min_depth(),
+		_resolve_frozen_lake_temperature(),
+		_resolve_max_lake_classify_samples()
+	)
+	var lake_mask: PackedInt32Array = result.get("lake_mask", PackedInt32Array())
+	if lake_mask.size() != _height_grid.size():
+		return {}
+	var lake_cell_offsets: PackedInt32Array = result.get("lake_cell_offsets", PackedInt32Array())
+	var lake_cell_counts: PackedInt32Array = result.get("lake_cell_counts", PackedInt32Array())
+	var lake_cell_indices: PackedInt32Array = result.get("lake_cell_indices", PackedInt32Array())
+	var spill_indices: PackedInt32Array = result.get("spill_indices", PackedInt32Array())
+	var surface_heights: PackedFloat32Array = result.get("surface_heights", PackedFloat32Array())
+	var max_depths: PackedFloat32Array = result.get("max_depths", PackedFloat32Array())
+	var area_grid_cells: PackedInt32Array = result.get("area_grid_cells", PackedInt32Array())
+	var lake_type_codes: PackedByteArray = result.get("lake_type_codes", PackedByteArray())
+	var lake_count: int = lake_cell_offsets.size()
+	if (
+		lake_cell_counts.size() != lake_count
+		or spill_indices.size() != lake_count
+		or surface_heights.size() != lake_count
+		or max_depths.size() != lake_count
+		or area_grid_cells.size() != lake_count
+		or lake_type_codes.size() != lake_count
+	):
+		return {}
+	var expected_cell_total: int = 0
+	for lake_index: int in range(lake_count):
+		var cell_offset: int = lake_cell_offsets[lake_index]
+		var cell_count: int = lake_cell_counts[lake_index]
+		if cell_offset < 0 or cell_count < 0 or cell_offset + cell_count > lake_cell_indices.size():
+			return {}
+		expected_cell_total = maxi(expected_cell_total, cell_offset + cell_count)
+	if expected_cell_total > lake_cell_indices.size():
+		return {}
+	result["lake_mask"] = lake_mask
+	result["lake_cell_offsets"] = lake_cell_offsets
+	result["lake_cell_counts"] = lake_cell_counts
+	result["lake_cell_indices"] = lake_cell_indices
+	result["spill_indices"] = spill_indices
+	result["surface_heights"] = surface_heights
+	result["max_depths"] = max_depths
+	result["area_grid_cells"] = area_grid_cells
+	result["lake_type_codes"] = lake_type_codes
+	return result
+
+func _compute_native_floodplain_strength(
+	floodplain_source_widths: PackedFloat32Array,
+	neighbor_distances: PackedFloat32Array
+) -> PackedFloat32Array:
+	if _native_prepass_kernels == null or not _native_prepass_kernels.has_method("compute_floodplain_strength"):
+		return PackedFloat32Array()
+	if (
+		floodplain_source_widths.size() != _river_mask_grid.size()
+		or neighbor_distances.size() < GRID_NEIGHBOR_OFFSETS_8.size()
+	):
+		return PackedFloat32Array()
+	var result: PackedFloat32Array = _native_prepass_kernels.compute_floodplain_strength(
+		_grid_width,
+		_grid_height,
+		_river_mask_grid,
+		_lake_mask,
+		floodplain_source_widths,
+		neighbor_distances,
+		_resolve_floodplain_multiplier()
+	)
+	if result.size() != _river_mask_grid.size():
+		return PackedFloat32Array()
+	return result
+
+func _compute_native_floodplain_deposition(
+	deposition_source_widths: PackedFloat32Array,
+	neighbor_distances: PackedFloat32Array
+) -> PackedFloat32Array:
+	if _native_prepass_kernels == null or not _native_prepass_kernels.has_method("compute_floodplain_deposition"):
+		return PackedFloat32Array()
+	if (
+		deposition_source_widths.size() != _eroded_height_grid.size()
+		or neighbor_distances.size() < GRID_NEIGHBOR_OFFSETS_8.size()
+	):
+		return PackedFloat32Array()
+	var result: PackedFloat32Array = _native_prepass_kernels.compute_floodplain_deposition(
+		_grid_width,
+		_grid_height,
+		_eroded_height_grid,
+		_river_mask_grid,
+		_lake_mask,
+		deposition_source_widths,
+		neighbor_distances,
+		_resolve_floodplain_multiplier(),
+		_resolve_deposit_rate()
+	)
+	if result.size() != _eroded_height_grid.size():
+		return PackedFloat32Array()
+	return result
+
+func _compute_native_slope_grid(
+	neighbor_distances: PackedFloat32Array,
+	max_possible_gradient: float
+) -> PackedFloat32Array:
+	if _native_prepass_kernels == null or not _native_prepass_kernels.has_method("compute_slope_grid"):
+		return PackedFloat32Array()
+	if neighbor_distances.size() < GRID_NEIGHBOR_OFFSETS_8.size():
+		return PackedFloat32Array()
+	var result: PackedFloat32Array = _native_prepass_kernels.compute_slope_grid(
+		_grid_width,
+		_grid_height,
+		_eroded_height_grid,
+		neighbor_distances,
+		max_possible_gradient
+	)
+	if result.size() != _eroded_height_grid.size():
+		return PackedFloat32Array()
+	return result
+
+func _compute_native_rain_shadow(
+	moisture_grid: PackedFloat32Array,
+	wind_direction: Vector2,
+	max_possible_gradient: float,
+	precipitation_rate: float,
+	lift_factor: float
+) -> PackedFloat32Array:
+	if _native_prepass_kernels == null or not _native_prepass_kernels.has_method("compute_rain_shadow"):
+		return PackedFloat32Array()
+	if (
+		moisture_grid.size() != _eroded_height_grid.size()
+		or _grid_world_x_cache.size() != _eroded_height_grid.size()
+		or _grid_world_y_cache.size() != _eroded_height_grid.size()
+	):
+		return PackedFloat32Array()
+	var result: PackedFloat32Array = _native_prepass_kernels.compute_rain_shadow(
+		_grid_width,
+		_grid_height,
+		_eroded_height_grid,
+		moisture_grid,
+		_grid_world_x_cache,
+		_grid_world_y_cache,
+		_grid_span_x,
+		_grid_span_y,
+		_wrap_width_tiles,
+		wind_direction,
+		max_possible_gradient,
+		precipitation_rate,
+		lift_factor,
+		_resolve_evaporation_rate(),
+		_resolve_rain_shadow_column_scale()
+	)
+	if result.size() != _eroded_height_grid.size():
+		return PackedFloat32Array()
 	return result
 
 func _compute_native_river_extraction(
@@ -399,11 +573,7 @@ func compute() -> WorldPrePass:
 		_continentalness_grid.fill(0.0)
 		return self
 	stage_started_usec = WorldPerfProbe.begin()
-	for grid_y: int in range(_grid_height):
-		var world_y: int = _grid_to_world_y(grid_y)
-		for grid_x: int in range(_grid_width):
-			var world_pos := Vector2i(_grid_to_world_x(grid_x), world_y)
-			_height_grid[_flatten_index(grid_x, grid_y)] = _planet_sampler.sample_height(world_pos)
+	_build_channel_grids()
 	WorldPerfProbe.end("WorldPrePass.compute.sample_height_grid", stage_started_usec)
 	stage_started_usec = WorldPerfProbe.begin()
 	_compute_spine_seeds()
@@ -744,21 +914,25 @@ func _compute_flow_directions() -> void:
 		if not native_flow_dir_grid.is_empty():
 			_flow_dir_grid = native_flow_dir_grid
 			return
-	var unresolved_plateau_cells := PackedByteArray()
-	unresolved_plateau_cells.resize(_filled_height_grid.size())
-	unresolved_plateau_cells.fill(0)
+	var plateau_visit_state := PackedByteArray()
+	plateau_visit_state.resize(_filled_height_grid.size())
+	plateau_visit_state.fill(0)
+	var direct_flow_cache := PackedInt32Array()
+	direct_flow_cache.resize(_filled_height_grid.size())
+	direct_flow_cache.fill(-2)
 	for cell_index: int in range(_filled_height_grid.size()):
 		if _is_y_edge_cell(cell_index):
+			plateau_visit_state[cell_index] = 2
+			direct_flow_cache[cell_index] = -1
 			continue
-		var direct_direction: int = _find_direct_flow_direction(cell_index)
+		if plateau_visit_state[cell_index] != 0:
+			continue
+		var direct_direction: int = _resolve_cached_direct_flow_direction(cell_index, direct_flow_cache)
 		if direct_direction >= 0:
 			_flow_dir_grid[cell_index] = direct_direction
+			plateau_visit_state[cell_index] = 2
 			continue
-		unresolved_plateau_cells[cell_index] = 1
-	for cell_index: int in range(_filled_height_grid.size()):
-		if unresolved_plateau_cells[cell_index] != 1:
-			continue
-		_resolve_flat_plateau_flow(cell_index, unresolved_plateau_cells)
+		_resolve_flat_plateau_flow(cell_index, plateau_visit_state, direct_flow_cache)
 
 func _compute_flow_accumulation() -> void:
 	if _flow_dir_grid.is_empty():
@@ -982,13 +1156,25 @@ func _compute_floodplain_strength() -> void:
 	if _river_mask_grid.is_empty():
 		return
 	var neighbor_distances: PackedFloat32Array = _build_neighbor_distance_cache()
+	var floodplain_source_widths: PackedFloat32Array = _build_floodplain_source_width_grid()
+	if _native_prepass_kernels != null and _native_prepass_kernels.has_method("compute_floodplain_strength"):
+		var native_stage_started_usec: int = Time.get_ticks_usec()
+		var native_floodplain_grid: PackedFloat32Array = _compute_native_floodplain_strength(
+			floodplain_source_widths,
+			neighbor_distances
+		)
+		var native_stage_elapsed_ms: float = float(Time.get_ticks_usec() - native_stage_started_usec) / 1000.0
+		WorldPerfProbe.record("WorldPrePass.compute.floodplain_strength.native_total", native_stage_elapsed_ms)
+		if not native_floodplain_grid.is_empty():
+			_floodplain_strength_grid = native_floodplain_grid
+			return
 	var heap_indices: Array[int] = []
 	var heap_priorities: Array[float] = []
 	var heap_source_widths: Array[float] = []
 	for cell_index: int in range(_river_mask_grid.size()):
 		if _river_mask_grid[cell_index] != 1:
 			continue
-		var floodplain_source_width: float = _resolve_floodplain_source_width_tiles(cell_index)
+		var floodplain_source_width: float = floodplain_source_widths[cell_index]
 		var floodplain_width: float = _resolve_floodplain_width_tiles(floodplain_source_width)
 		if floodplain_width <= FLOAT_EPSILON:
 			continue
@@ -1054,6 +1240,18 @@ func _compute_slope_grid() -> void:
 	var max_possible_gradient: float = _resolve_max_possible_neighbor_gradient()
 	if max_possible_gradient <= FLOAT_EPSILON:
 		return
+	var neighbor_distances: PackedFloat32Array = _build_neighbor_distance_cache()
+	if _native_prepass_kernels != null and _native_prepass_kernels.has_method("compute_slope_grid"):
+		var native_stage_started_usec: int = Time.get_ticks_usec()
+		var native_slope_grid: PackedFloat32Array = _compute_native_slope_grid(
+			neighbor_distances,
+			max_possible_gradient
+		)
+		var native_stage_elapsed_ms: float = float(Time.get_ticks_usec() - native_stage_started_usec) / 1000.0
+		WorldPerfProbe.record("WorldPrePass.compute.slope_grid.native_total", native_stage_elapsed_ms)
+		if not native_slope_grid.is_empty():
+			_slope_grid = native_slope_grid
+			return
 	for cell_index: int in range(_eroded_height_grid.size()):
 		var raw_gradient: float = _compute_max_neighbor_gradient(_eroded_height_grid, cell_index)
 		if raw_gradient <= FLOAT_EPSILON:
@@ -1067,12 +1265,26 @@ func _compute_rain_shadow() -> void:
 		return
 	var wind_direction: Vector2 = _resolve_prevailing_wind_direction()
 	var moisture_grid: PackedFloat32Array = _build_moisture_grid()
-	var column_entries: Array = _build_rain_shadow_columns(wind_direction)
-	if column_entries.is_empty():
-		return
 	var max_possible_gradient: float = _resolve_max_possible_neighbor_gradient()
 	var precipitation_rate: float = _resolve_precipitation_rate()
 	var lift_factor: float = _resolve_orographic_lift_factor()
+	if _native_prepass_kernels != null and _native_prepass_kernels.has_method("compute_rain_shadow"):
+		var native_stage_started_usec: int = Time.get_ticks_usec()
+		var native_rain_shadow_grid: PackedFloat32Array = _compute_native_rain_shadow(
+			moisture_grid,
+			wind_direction,
+			max_possible_gradient,
+			precipitation_rate,
+			lift_factor
+		)
+		var native_stage_elapsed_ms: float = float(Time.get_ticks_usec() - native_stage_started_usec) / 1000.0
+		WorldPerfProbe.record("WorldPrePass.compute.rain_shadow.native_total", native_stage_elapsed_ms)
+		if not native_rain_shadow_grid.is_empty():
+			_rain_shadow_grid = native_rain_shadow_grid
+			return
+	var column_entries: Array = _build_rain_shadow_columns(wind_direction)
+	if column_entries.is_empty():
+		return
 	var wrap_stabilization: bool = absf(wind_direction.y) <= FLOAT_EPSILON and _grid_width > 1
 	for column_entry: Variant in column_entries:
 		var column_cells: Array[int] = column_entry
@@ -1179,20 +1391,28 @@ func _apply_thermal_smoothing() -> void:
 	if thermal_iterations <= 0 or thermal_rate <= FLOAT_EPSILON:
 		return
 	var current_grid: PackedFloat32Array = _eroded_height_grid
+	var next_grid := PackedFloat32Array()
+	next_grid.resize(current_grid.size())
 	for _iteration_index: int in range(thermal_iterations):
-		var next_grid: PackedFloat32Array = current_grid.duplicate()
 		for cell_index: int in range(current_grid.size()):
+			var next_value: float = current_grid[cell_index]
 			var ridge_strength: float = _ridge_strength_grid[cell_index]
 			if ridge_strength <= THERMAL_SMOOTHING_RIDGE_THRESHOLD:
+				next_grid[cell_index] = next_value
 				continue
 			if int(_lake_mask[cell_index]) > 0:
+				next_grid[cell_index] = next_value
 				continue
 			var average_neighbor_height_diff: float = _compute_average_neighbor_height_diff(current_grid, cell_index)
 			if absf(average_neighbor_height_diff) <= FLOAT_EPSILON:
+				next_grid[cell_index] = next_value
 				continue
 			var thermal_delta: float = average_neighbor_height_diff * thermal_rate * (1.0 - ridge_strength)
-			next_grid[cell_index] = _clamp_prepass_height(current_grid[cell_index] + thermal_delta)
+			next_value = _clamp_prepass_height(current_grid[cell_index] + thermal_delta)
+			next_grid[cell_index] = next_value
+		var swap_grid: PackedFloat32Array = current_grid
 		current_grid = next_grid
+		next_grid = swap_grid
 	_eroded_height_grid = current_grid
 
 func _apply_floodplain_deposition() -> void:
@@ -1202,6 +1422,17 @@ func _apply_floodplain_deposition() -> void:
 	if deposit_rate <= FLOAT_EPSILON:
 		return
 	var neighbor_distances: PackedFloat32Array = _build_neighbor_distance_cache()
+	if _native_prepass_kernels != null and _native_prepass_kernels.has_method("compute_floodplain_deposition"):
+		var native_stage_started_usec: int = Time.get_ticks_usec()
+		var native_eroded_height_grid: PackedFloat32Array = _compute_native_floodplain_deposition(
+			_river_width_grid,
+			neighbor_distances
+		)
+		var native_stage_elapsed_ms: float = float(Time.get_ticks_usec() - native_stage_started_usec) / 1000.0
+		WorldPerfProbe.record("WorldPrePass.compute.erosion_proxy.floodplain_deposition.native_total", native_stage_elapsed_ms)
+		if not native_eroded_height_grid.is_empty():
+			_eroded_height_grid = native_eroded_height_grid
+			return
 	var strongest_deposition := PackedFloat32Array()
 	strongest_deposition.resize(_eroded_height_grid.size())
 	strongest_deposition.fill(0.0)
@@ -2067,6 +2298,10 @@ func _resolve_spine_direction_bias(grid_pos: Vector2i) -> Vector2:
 	return gradient.normalized()
 
 func _sample_ruggedness_at_grid(grid_x: int, grid_y: int) -> float:
+	if _ruggedness_grid_cache.size() == _grid_width * _grid_height:
+		var wrapped_grid_x: int = int(posmod(grid_x, _grid_width))
+		var clamped_grid_y: int = clampi(grid_y, 0, _grid_height - 1)
+		return _ruggedness_grid_cache[_flatten_index(wrapped_grid_x, clamped_grid_y)]
 	if _planet_sampler == null:
 		return 0.0
 	var wrapped_grid_x: int = int(posmod(grid_x, _grid_width))
@@ -2288,6 +2523,8 @@ func _clamp_prepass_height(height_value: float) -> float:
 	return clampf(height_value, 0.0, 1.0)
 
 func _build_temperature_grid() -> PackedFloat32Array:
+	if _temperature_grid_cache.size() == _flow_dir_grid.size():
+		return _temperature_grid_cache.duplicate()
 	var temperature_grid := PackedFloat32Array()
 	temperature_grid.resize(_flow_dir_grid.size())
 	for cell_index: int in range(_flow_dir_grid.size()):
@@ -2297,6 +2534,8 @@ func _build_temperature_grid() -> PackedFloat32Array:
 	return temperature_grid
 
 func _build_moisture_grid() -> PackedFloat32Array:
+	if _moisture_grid_cache.size() == _eroded_height_grid.size():
+		return _moisture_grid_cache.duplicate()
 	var moisture_grid := PackedFloat32Array()
 	moisture_grid.resize(_eroded_height_grid.size())
 	for cell_index: int in range(_eroded_height_grid.size()):
@@ -2496,12 +2735,46 @@ func _find_direct_flow_direction(cell_index: int) -> int:
 			best_neighbor_index = neighbor_index
 	return best_direction
 
-func _resolve_flat_plateau_flow(start_index: int, unresolved_plateau_cells: PackedByteArray) -> void:
+func _resolve_cached_direct_flow_direction(
+	cell_index: int,
+	direct_flow_cache: PackedInt32Array
+) -> int:
+	if cell_index < 0 or cell_index >= direct_flow_cache.size():
+		return -1
+	var cached_direction: int = direct_flow_cache[cell_index]
+	if cached_direction != -2:
+		return cached_direction
+	var resolved_direction: int = -1
+	if not _is_y_edge_cell(cell_index):
+		resolved_direction = _find_direct_flow_direction(cell_index)
+	direct_flow_cache[cell_index] = resolved_direction
+	return resolved_direction
+
+func _try_seed_plateau_exit_direction(
+	seed_directions: Dictionary,
+	seed_neighbors: Dictionary,
+	cell_index: int,
+	direction_index: int,
+	neighbor_index: int
+) -> void:
+	var current_best_neighbor: int = int(seed_neighbors.get(cell_index, -1))
+	if current_best_neighbor >= 0 and not _is_index_lexicographically_less(neighbor_index, current_best_neighbor):
+		return
+	seed_neighbors[cell_index] = neighbor_index
+	seed_directions[cell_index] = direction_index
+
+func _resolve_flat_plateau_flow(
+	start_index: int,
+	plateau_visit_state: PackedByteArray,
+	direct_flow_cache: PackedInt32Array
+) -> void:
 	var plateau_height: float = _filled_height_grid[start_index]
 	var plateau_cells: Array[int] = []
 	var queue: Array[int] = [start_index]
 	var queue_index: int = 0
-	unresolved_plateau_cells[start_index] = 2
+	var seed_directions: Dictionary = {}
+	var seed_neighbors: Dictionary = {}
+	plateau_visit_state[start_index] = 1
 	while queue_index < queue.size():
 		var current_index: int = queue[queue_index]
 		queue_index += 1
@@ -2510,25 +2783,51 @@ func _resolve_flat_plateau_flow(start_index: int, unresolved_plateau_cells: Pack
 			var neighbor_index: int = _get_neighbor_index(current_index, direction_index)
 			if neighbor_index < 0:
 				continue
-			if unresolved_plateau_cells[neighbor_index] != 1:
-				continue
 			if not _heights_match(_filled_height_grid[neighbor_index], plateau_height):
 				continue
-			unresolved_plateau_cells[neighbor_index] = 2
+			if plateau_visit_state[neighbor_index] == 1:
+				continue
+			if _is_y_edge_cell(neighbor_index):
+				_try_seed_plateau_exit_direction(
+					seed_directions,
+					seed_neighbors,
+					current_index,
+					direction_index,
+					neighbor_index
+				)
+				continue
+			if _flow_dir_grid[neighbor_index] != FLOW_DIRECTION_NONE:
+				_try_seed_plateau_exit_direction(
+					seed_directions,
+					seed_neighbors,
+					current_index,
+					direction_index,
+					neighbor_index
+				)
+				continue
+			var neighbor_direct_direction: int = _resolve_cached_direct_flow_direction(neighbor_index, direct_flow_cache)
+			if neighbor_direct_direction >= 0:
+				_flow_dir_grid[neighbor_index] = neighbor_direct_direction
+				plateau_visit_state[neighbor_index] = 2
+				_try_seed_plateau_exit_direction(
+					seed_directions,
+					seed_neighbors,
+					current_index,
+					direction_index,
+					neighbor_index
+				)
+				continue
+			if plateau_visit_state[neighbor_index] == 2:
+				continue
+			plateau_visit_state[neighbor_index] = 1
 			queue.append(neighbor_index)
 	plateau_cells.sort()
-	var seed_directions: Dictionary = {}
 	var propagation_queue: Array[int] = []
-	for cell_index: int in plateau_cells:
-		var exit_direction: int = _find_flat_exit_direction(cell_index, plateau_height, unresolved_plateau_cells)
-		if exit_direction < 0:
-			continue
-		seed_directions[cell_index] = exit_direction
 	for cell_index: int in plateau_cells:
 		if not seed_directions.has(cell_index):
 			continue
 		_flow_dir_grid[cell_index] = int(seed_directions[cell_index])
-		unresolved_plateau_cells[cell_index] = 0
+		plateau_visit_state[cell_index] = 2
 		propagation_queue.append(cell_index)
 	var propagation_index: int = 0
 	while propagation_index < propagation_queue.size():
@@ -2538,7 +2837,7 @@ func _resolve_flat_plateau_flow(start_index: int, unresolved_plateau_cells: Pack
 			var neighbor_index: int = _get_neighbor_index(resolved_index, direction_index)
 			if neighbor_index < 0:
 				continue
-			if unresolved_plateau_cells[neighbor_index] != 2:
+			if plateau_visit_state[neighbor_index] != 1:
 				continue
 			if not _heights_match(_filled_height_grid[neighbor_index], plateau_height):
 				continue
@@ -2546,33 +2845,11 @@ func _resolve_flat_plateau_flow(start_index: int, unresolved_plateau_cells: Pack
 			if toward_resolved_direction < 0:
 				continue
 			_flow_dir_grid[neighbor_index] = toward_resolved_direction
-			unresolved_plateau_cells[neighbor_index] = 0
+			plateau_visit_state[neighbor_index] = 2
 			propagation_queue.append(neighbor_index)
 	for cell_index: int in plateau_cells:
-		if unresolved_plateau_cells[cell_index] != 0:
-			unresolved_plateau_cells[cell_index] = 0
-
-func _find_flat_exit_direction(
-	cell_index: int,
-	plateau_height: float,
-	unresolved_plateau_cells: PackedByteArray
-) -> int:
-	var best_direction: int = -1
-	var best_neighbor_index: int = -1
-	for direction_index: int in range(GRID_NEIGHBOR_OFFSETS_8.size()):
-		var neighbor_index: int = _get_neighbor_index(cell_index, direction_index)
-		if neighbor_index < 0:
-			continue
-		if not _heights_match(_filled_height_grid[neighbor_index], plateau_height):
-			continue
-		if unresolved_plateau_cells[neighbor_index] == 2:
-			continue
-		if not _is_y_edge_cell(neighbor_index) and _flow_dir_grid[neighbor_index] == FLOW_DIRECTION_NONE:
-			continue
-		if best_direction < 0 or _is_index_lexicographically_less(neighbor_index, best_neighbor_index):
-			best_direction = direction_index
-			best_neighbor_index = neighbor_index
-	return best_direction
+		if plateau_visit_state[cell_index] != 2:
+			plateau_visit_state[cell_index] = 2
 
 func _get_neighbor_index(cell_index: int, direction_index: int) -> int:
 	if cell_index < 0 or direction_index < 0 or direction_index >= GRID_NEIGHBOR_OFFSETS_8.size():
@@ -2641,6 +2918,16 @@ func _extract_lake_records() -> void:
 	_lake_records.clear()
 	if _height_grid.is_empty():
 		return
+	if _native_prepass_kernels != null and _native_prepass_kernels.has_method("compute_lake_records"):
+		var native_stage_started_usec: int = Time.get_ticks_usec()
+		var native_lake_records: Dictionary = _compute_native_lake_records()
+		var native_stage_elapsed_ms: float = float(Time.get_ticks_usec() - native_stage_started_usec) / 1000.0
+		WorldPerfProbe.record("WorldPrePass.compute.lake_aware_fill.extract_lake_records.native_total", native_stage_elapsed_ms)
+		if not native_lake_records.is_empty():
+			if bool(native_lake_records.get("overflowed", false)):
+				push_error("WorldPrePass lake mask overflow: more than %d lakes detected" % MAX_LAKE_MASK_ID)
+			_apply_native_lake_records(native_lake_records)
+			return
 	var component_id_by_cell: Array[int] = []
 	component_id_by_cell.resize(_height_grid.size())
 	component_id_by_cell.fill(-1)
@@ -2757,21 +3044,41 @@ func _find_component_spill_index(
 	return best_index
 
 func _classify_lake_type(component_cells: Array[int], max_depth: float) -> StringName:
-	if _planet_sampler == null:
+	if _temperature_grid_cache.is_empty() or _ruggedness_grid_cache.is_empty():
+		if _planet_sampler == null:
+			if component_cells.size() >= 50 and max_depth > 0.15:
+				return LAKE_TYPE_TECTONIC
+			return LAKE_TYPE_FLOODPLAIN
+		var total_temperature_fallback: float = 0.0
+		var total_height_fallback: float = 0.0
+		var total_ruggedness_fallback: float = 0.0
+		for cell_index: int in component_cells:
+			var cell_grid: Vector2i = _index_to_grid(cell_index)
+			var world_pos := Vector2i(_grid_to_world_x(cell_grid.x), _grid_to_world_y(cell_grid.y))
+			var channels: WorldChannels = _planet_sampler.sample_world_channels(world_pos)
+			total_temperature_fallback += channels.temperature
+			total_height_fallback += channels.height
+			total_ruggedness_fallback += channels.ruggedness
+		var fallback_sample_count: float = float(maxi(1, component_cells.size()))
+		var fallback_average_temperature: float = total_temperature_fallback / fallback_sample_count
+		if fallback_average_temperature <= _resolve_frozen_lake_temperature():
+			return LAKE_TYPE_GLACIAL
 		if component_cells.size() >= 50 and max_depth > 0.15:
 			return LAKE_TYPE_TECTONIC
+		var fallback_average_height: float = total_height_fallback / fallback_sample_count
+		var fallback_average_ruggedness: float = total_ruggedness_fallback / fallback_sample_count
+		if fallback_average_height >= 0.58 or fallback_average_ruggedness >= 0.45:
+			return LAKE_TYPE_MOUNTAIN
 		return LAKE_TYPE_FLOODPLAIN
 	var total_temperature: float = 0.0
 	var total_height: float = 0.0
 	var total_ruggedness: float = 0.0
-	for cell_index: int in component_cells:
-		var cell_grid: Vector2i = _index_to_grid(cell_index)
-		var world_pos := Vector2i(_grid_to_world_x(cell_grid.x), _grid_to_world_y(cell_grid.y))
-		var channels: WorldChannels = _planet_sampler.sample_world_channels(world_pos)
-		total_temperature += channels.temperature
-		total_height += channels.height
-		total_ruggedness += channels.ruggedness
-	var sample_count: float = float(maxi(1, component_cells.size()))
+	var sample_count_int: int = mini(component_cells.size(), _resolve_max_lake_classify_samples())
+	for cell_index: int in _select_lake_classification_samples(component_cells, sample_count_int):
+		total_temperature += _temperature_grid_cache[cell_index]
+		total_height += _height_grid[cell_index]
+		total_ruggedness += _ruggedness_grid_cache[cell_index]
+	var sample_count: float = float(maxi(1, sample_count_int))
 	var average_temperature: float = total_temperature / sample_count
 	if average_temperature <= _resolve_frozen_lake_temperature():
 		return LAKE_TYPE_GLACIAL
@@ -2781,6 +3088,87 @@ func _classify_lake_type(component_cells: Array[int], max_depth: float) -> Strin
 	var average_ruggedness: float = total_ruggedness / sample_count
 	if average_height >= 0.58 or average_ruggedness >= 0.45:
 		return LAKE_TYPE_MOUNTAIN
+	return LAKE_TYPE_FLOODPLAIN
+
+func _build_channel_grids() -> void:
+	var cell_count: int = _grid_width * _grid_height
+	_temperature_grid_cache.resize(cell_count)
+	_moisture_grid_cache.resize(cell_count)
+	_ruggedness_grid_cache.resize(cell_count)
+	for cell_index: int in range(cell_count):
+		var world_pos := Vector2i(_grid_world_x_cache[cell_index], _grid_world_y_cache[cell_index])
+		var channels: WorldChannels = _planet_sampler.sample_world_channels(world_pos)
+		_height_grid[cell_index] = channels.height
+		_temperature_grid_cache[cell_index] = clampf(channels.temperature, 0.0, 1.0)
+		_moisture_grid_cache[cell_index] = clampf(channels.moisture, 0.0, 1.0)
+		_ruggedness_grid_cache[cell_index] = clampf(channels.ruggedness, 0.0, 1.0)
+
+func _build_floodplain_source_width_grid() -> PackedFloat32Array:
+	var source_widths := PackedFloat32Array()
+	source_widths.resize(_river_width_grid.size())
+	source_widths.fill(0.0)
+	for cell_index: int in range(_river_width_grid.size()):
+		if _river_mask_grid[cell_index] != 1:
+			continue
+		source_widths[cell_index] = _resolve_floodplain_source_width_tiles(cell_index)
+	return source_widths
+
+func _select_lake_classification_samples(component_cells: Array[int], sample_count: int) -> Array[int]:
+	var selected: Array[int] = []
+	if component_cells.is_empty() or sample_count <= 0:
+		return selected
+	if component_cells.size() <= sample_count:
+		for cell_index: int in component_cells:
+			selected.append(cell_index)
+		return selected
+	var max_offset: int = component_cells.size() - 1
+	for sample_index: int in range(sample_count):
+		var offset: int = int(round(float(sample_index) * float(max_offset) / float(maxi(1, sample_count - 1))))
+		offset = clampi(offset, 0, max_offset)
+		selected.append(component_cells[offset])
+	return selected
+
+func _resolve_max_lake_classify_samples() -> int:
+	return MAX_LAKE_CLASSIFY_SAMPLES
+
+func _apply_native_lake_records(native_lake_data: Dictionary) -> void:
+	_lake_mask = native_lake_data.get("lake_mask", PackedInt32Array())
+	var lake_cell_offsets: PackedInt32Array = native_lake_data.get("lake_cell_offsets", PackedInt32Array())
+	var lake_cell_counts: PackedInt32Array = native_lake_data.get("lake_cell_counts", PackedInt32Array())
+	var lake_cell_indices: PackedInt32Array = native_lake_data.get("lake_cell_indices", PackedInt32Array())
+	var spill_indices: PackedInt32Array = native_lake_data.get("spill_indices", PackedInt32Array())
+	var surface_heights: PackedFloat32Array = native_lake_data.get("surface_heights", PackedFloat32Array())
+	var max_depths: PackedFloat32Array = native_lake_data.get("max_depths", PackedFloat32Array())
+	var area_grid_cells: PackedInt32Array = native_lake_data.get("area_grid_cells", PackedInt32Array())
+	var lake_type_codes: PackedByteArray = native_lake_data.get("lake_type_codes", PackedByteArray())
+	for lake_index: int in range(lake_cell_offsets.size()):
+		var record := LakeRecord.new()
+		record.id = lake_index + 1
+		record.area_grid_cells = area_grid_cells[lake_index]
+		record.surface_height = surface_heights[lake_index]
+		record.max_depth = max_depths[lake_index]
+		record.spill_point = _index_to_grid(spill_indices[lake_index]) if spill_indices[lake_index] >= 0 else Vector2i.ZERO
+		record.lake_type = _decode_lake_type_code(int(lake_type_codes[lake_index]))
+		record.inflow_accumulation = 0.0
+		var cell_offset: int = lake_cell_offsets[lake_index]
+		var cell_count: int = lake_cell_counts[lake_index]
+		var record_cells := PackedInt32Array()
+		record_cells.resize(cell_count)
+		for local_index: int in range(cell_count):
+			record_cells[local_index] = lake_cell_indices[cell_offset + local_index]
+		record.grid_cells = record_cells
+		_lake_records.append(record)
+
+func _decode_lake_type_code(lake_type_code: int) -> StringName:
+	match lake_type_code:
+		0:
+			return LAKE_TYPE_MOUNTAIN
+		1:
+			return LAKE_TYPE_GLACIAL
+		2:
+			return LAKE_TYPE_FLOODPLAIN
+		3:
+			return LAKE_TYPE_TECTONIC
 	return LAKE_TYPE_FLOODPLAIN
 
 func _resolve_lake_min_area() -> int:
