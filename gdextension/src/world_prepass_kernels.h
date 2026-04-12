@@ -43,6 +43,24 @@ public:
         PackedFloat32Array spline_half_widths
     ) const;
 
+    PackedByteArray compute_flow_directions(
+        int grid_width,
+        int grid_height,
+        PackedFloat32Array filled_height_grid
+    ) const;
+
+    Dictionary compute_flow_accumulation(
+        int grid_width,
+        int grid_height,
+        PackedByteArray flow_dir_grid,
+        PackedFloat32Array temperature_grid,
+        PackedByteArray lake_mask,
+        float frozen_threshold,
+        float glacial_melt_temperature,
+        float glacial_melt_bonus,
+        float evaporation_rate
+    ) const;
+
     Dictionary compute_river_extraction(
         int grid_width,
         int grid_height,

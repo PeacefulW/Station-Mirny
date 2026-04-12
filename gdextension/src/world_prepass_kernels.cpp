@@ -39,6 +39,30 @@ void WorldPrePassKernels::_bind_methods() {
     );
     ClassDB::bind_method(
         D_METHOD(
+            "compute_flow_directions",
+            "grid_width",
+            "grid_height",
+            "filled_height_grid"
+        ),
+        &WorldPrePassKernels::compute_flow_directions
+    );
+    ClassDB::bind_method(
+        D_METHOD(
+            "compute_flow_accumulation",
+            "grid_width",
+            "grid_height",
+            "flow_dir_grid",
+            "temperature_grid",
+            "lake_mask",
+            "frozen_threshold",
+            "glacial_melt_temperature",
+            "glacial_melt_bonus",
+            "evaporation_rate"
+        ),
+        &WorldPrePassKernels::compute_flow_accumulation
+    );
+    ClassDB::bind_method(
+        D_METHOD(
             "compute_river_extraction",
             "grid_width",
             "grid_height",
@@ -440,6 +464,356 @@ PackedFloat32Array WorldPrePassKernels::compute_ridge_strength_grid(
     }
 
     return ridge_strength_grid;
+}
+
+PackedByteArray WorldPrePassKernels::compute_flow_directions(
+    int grid_width,
+    int grid_height,
+    PackedFloat32Array filled_height_grid
+) const {
+    const int cell_count = grid_width * grid_height;
+    PackedByteArray flow_dir_grid;
+    if (grid_width <= 0 || grid_height <= 0 || cell_count <= 0 || filled_height_grid.size() != cell_count) {
+        return flow_dir_grid;
+    }
+
+    flow_dir_grid.resize(cell_count);
+    const float *filled_height_read = filled_height_grid.ptr();
+    uint8_t *flow_dir_write = flow_dir_grid.ptrw();
+    std::vector<uint8_t> unresolved_plateau_cells(static_cast<size_t>(cell_count), 0);
+    constexpr uint8_t FLOW_DIRECTION_NONE = 255;
+    constexpr float DIAGONAL_DIRECTION_DISTANCE = 1.41421356237f;
+    const float neighbor_distances[NEIGHBOR_COUNT] = {
+        DIAGONAL_DIRECTION_DISTANCE,
+        1.0f,
+        DIAGONAL_DIRECTION_DISTANCE,
+        1.0f,
+        1.0f,
+        DIAGONAL_DIRECTION_DISTANCE,
+        1.0f,
+        DIAGONAL_DIRECTION_DISTANCE
+    };
+
+    auto heights_match = [&](float left_height, float right_height) -> bool {
+        return std::abs(left_height - right_height) <= FLOAT_EPSILON;
+    };
+    auto is_index_lexicographically_less = [&](int left_index, int right_index) -> bool {
+        if (right_index < 0) {
+            return true;
+        }
+        int left_x = 0;
+        int left_y = 0;
+        int right_x = 0;
+        int right_y = 0;
+        decode_index(left_index, grid_width, left_x, left_y);
+        decode_index(right_index, grid_width, right_x, right_y);
+        if (left_y != right_y) {
+            return left_y < right_y;
+        }
+        return left_x < right_x;
+    };
+    auto get_direction_between_indices = [&](int from_index, int to_index) -> int {
+        if (from_index < 0 || to_index < 0) {
+            return -1;
+        }
+        int from_x = 0;
+        int from_y = 0;
+        int to_x = 0;
+        int to_y = 0;
+        decode_index(from_index, grid_width, from_x, from_y);
+        decode_index(to_index, grid_width, to_x, to_y);
+        int delta_x = to_x - from_x;
+        if (delta_x > 1) {
+            delta_x -= grid_width;
+        } else if (delta_x < -1) {
+            delta_x += grid_width;
+        }
+        const int delta_y = to_y - from_y;
+        for (int direction_index = 0; direction_index < NEIGHBOR_COUNT; ++direction_index) {
+            if (DX[direction_index] == delta_x && DY[direction_index] == delta_y) {
+                return direction_index;
+            }
+        }
+        return -1;
+    };
+    auto find_direct_flow_direction = [&](int cell_index) -> int {
+        const float current_height = filled_height_read[cell_index];
+        int best_direction = -1;
+        float best_gradient = 0.0f;
+        int best_neighbor_index = -1;
+        for (int direction_index = 0; direction_index < NEIGHBOR_COUNT; ++direction_index) {
+            const int neighbor_index = get_neighbor_index(cell_index, direction_index, grid_width, grid_height);
+            if (neighbor_index < 0) {
+                continue;
+            }
+            const float height_drop = current_height - filled_height_read[neighbor_index];
+            if (height_drop <= FLOAT_EPSILON) {
+                continue;
+            }
+            const float gradient = height_drop / neighbor_distances[direction_index];
+            if (gradient > best_gradient + FLOAT_EPSILON) {
+                best_direction = direction_index;
+                best_gradient = gradient;
+                best_neighbor_index = neighbor_index;
+                continue;
+            }
+            if (std::abs(gradient - best_gradient) <= FLOAT_EPSILON &&
+                is_index_lexicographically_less(neighbor_index, best_neighbor_index)) {
+                best_direction = direction_index;
+                best_neighbor_index = neighbor_index;
+            }
+        }
+        return best_direction;
+    };
+    auto find_flat_exit_direction = [&](int cell_index, float plateau_height) -> int {
+        int best_direction = -1;
+        int best_neighbor_index = -1;
+        for (int direction_index = 0; direction_index < NEIGHBOR_COUNT; ++direction_index) {
+            const int neighbor_index = get_neighbor_index(cell_index, direction_index, grid_width, grid_height);
+            if (neighbor_index < 0) {
+                continue;
+            }
+            if (!heights_match(filled_height_read[neighbor_index], plateau_height)) {
+                continue;
+            }
+            if (unresolved_plateau_cells[static_cast<size_t>(neighbor_index)] == 2) {
+                continue;
+            }
+            if (!is_y_edge_cell(neighbor_index, grid_width, grid_height) && flow_dir_write[neighbor_index] == FLOW_DIRECTION_NONE) {
+                continue;
+            }
+            if (best_direction < 0 || is_index_lexicographically_less(neighbor_index, best_neighbor_index)) {
+                best_direction = direction_index;
+                best_neighbor_index = neighbor_index;
+            }
+        }
+        return best_direction;
+    };
+    auto resolve_flat_plateau_flow = [&](int start_index) -> void {
+        const float plateau_height = filled_height_read[start_index];
+        std::vector<int> plateau_cells;
+        std::vector<int> queue;
+        queue.push_back(start_index);
+        size_t queue_index = 0;
+        unresolved_plateau_cells[static_cast<size_t>(start_index)] = 2;
+        while (queue_index < queue.size()) {
+            const int current_index = queue[queue_index++];
+            plateau_cells.push_back(current_index);
+            for (int direction_index = 0; direction_index < NEIGHBOR_COUNT; ++direction_index) {
+                const int neighbor_index = get_neighbor_index(current_index, direction_index, grid_width, grid_height);
+                if (neighbor_index < 0) {
+                    continue;
+                }
+                if (unresolved_plateau_cells[static_cast<size_t>(neighbor_index)] != 1) {
+                    continue;
+                }
+                if (!heights_match(filled_height_read[neighbor_index], plateau_height)) {
+                    continue;
+                }
+                unresolved_plateau_cells[static_cast<size_t>(neighbor_index)] = 2;
+                queue.push_back(neighbor_index);
+            }
+        }
+
+        std::sort(plateau_cells.begin(), plateau_cells.end());
+        std::vector<int> propagation_queue;
+        for (int cell_index : plateau_cells) {
+            const int exit_direction = find_flat_exit_direction(cell_index, plateau_height);
+            if (exit_direction < 0) {
+                continue;
+            }
+            flow_dir_write[cell_index] = static_cast<uint8_t>(exit_direction);
+            unresolved_plateau_cells[static_cast<size_t>(cell_index)] = 0;
+            propagation_queue.push_back(cell_index);
+        }
+
+        size_t propagation_index = 0;
+        while (propagation_index < propagation_queue.size()) {
+            const int resolved_index = propagation_queue[propagation_index++];
+            for (int direction_index = 0; direction_index < NEIGHBOR_COUNT; ++direction_index) {
+                const int neighbor_index = get_neighbor_index(resolved_index, direction_index, grid_width, grid_height);
+                if (neighbor_index < 0) {
+                    continue;
+                }
+                if (unresolved_plateau_cells[static_cast<size_t>(neighbor_index)] != 2) {
+                    continue;
+                }
+                if (!heights_match(filled_height_read[neighbor_index], plateau_height)) {
+                    continue;
+                }
+                const int toward_resolved_direction = get_direction_between_indices(neighbor_index, resolved_index);
+                if (toward_resolved_direction < 0) {
+                    continue;
+                }
+                flow_dir_write[neighbor_index] = static_cast<uint8_t>(toward_resolved_direction);
+                unresolved_plateau_cells[static_cast<size_t>(neighbor_index)] = 0;
+                propagation_queue.push_back(neighbor_index);
+            }
+        }
+
+        for (int cell_index : plateau_cells) {
+            if (unresolved_plateau_cells[static_cast<size_t>(cell_index)] != 0) {
+                unresolved_plateau_cells[static_cast<size_t>(cell_index)] = 0;
+            }
+        }
+    };
+
+    for (int cell_index = 0; cell_index < cell_count; ++cell_index) {
+        flow_dir_write[cell_index] = FLOW_DIRECTION_NONE;
+        if (is_y_edge_cell(cell_index, grid_width, grid_height)) {
+            continue;
+        }
+        const int direct_direction = find_direct_flow_direction(cell_index);
+        if (direct_direction >= 0) {
+            flow_dir_write[cell_index] = static_cast<uint8_t>(direct_direction);
+            continue;
+        }
+        unresolved_plateau_cells[static_cast<size_t>(cell_index)] = 1;
+    }
+
+    for (int cell_index = 0; cell_index < cell_count; ++cell_index) {
+        if (unresolved_plateau_cells[static_cast<size_t>(cell_index)] != 1) {
+            continue;
+        }
+        resolve_flat_plateau_flow(cell_index);
+    }
+
+    return flow_dir_grid;
+}
+
+Dictionary WorldPrePassKernels::compute_flow_accumulation(
+    int grid_width,
+    int grid_height,
+    PackedByteArray flow_dir_grid,
+    PackedFloat32Array temperature_grid,
+    PackedByteArray lake_mask,
+    float frozen_threshold,
+    float glacial_melt_temperature,
+    float glacial_melt_bonus,
+    float evaporation_rate
+) const {
+    Dictionary result;
+    const int cell_count = grid_width * grid_height;
+    if (
+        grid_width <= 0 ||
+        grid_height <= 0 ||
+        cell_count <= 0 ||
+        flow_dir_grid.size() != cell_count ||
+        temperature_grid.size() != cell_count ||
+        lake_mask.size() != cell_count
+    ) {
+        return result;
+    }
+
+    PackedFloat32Array accumulation_grid;
+    PackedFloat32Array drainage_grid;
+    PackedFloat32Array lake_inflow_totals;
+    PackedInt32Array indegree;
+    accumulation_grid.resize(cell_count);
+    drainage_grid.resize(cell_count);
+    indegree.resize(cell_count);
+
+    const uint8_t *flow_dir_read = flow_dir_grid.ptr();
+    const float *temperature_read = temperature_grid.ptr();
+    const uint8_t *lake_mask_read = lake_mask.ptr();
+    float *accumulation_write = accumulation_grid.ptrw();
+    float *drainage_write = drainage_grid.ptrw();
+    int32_t *indegree_write = indegree.ptrw();
+    int max_lake_id = 0;
+    for (int cell_index = 0; cell_index < cell_count; ++cell_index) {
+        max_lake_id = std::max(max_lake_id, static_cast<int>(lake_mask_read[cell_index]));
+    }
+    if (max_lake_id > 0) {
+        lake_inflow_totals.resize(max_lake_id + 1);
+        float *lake_inflow_write = lake_inflow_totals.ptrw();
+        for (int lake_index = 0; lake_index < max_lake_id + 1; ++lake_index) {
+            lake_inflow_write[lake_index] = 0.0f;
+        }
+    }
+
+    auto resolve_base_accumulation = [&](float temperature) -> float {
+        if (temperature >= glacial_melt_temperature) {
+            return 1.0f;
+        }
+        const float thaw_span = std::max(0.05f, glacial_melt_temperature);
+        const float thaw_t = std::clamp(temperature / thaw_span, 0.0f, 1.0f);
+        const float glacial_melt_strength = 0.18f + (1.0f - 0.18f) * thaw_t;
+        return 1.0f + std::max(0.0f, glacial_melt_bonus) * glacial_melt_strength;
+    };
+    auto resolve_downstream_transfer = [&](float accumulation, float temperature) -> float {
+        const float heat_span = std::max(0.12f, 1.0f - frozen_threshold);
+        const float heat_t = std::clamp((temperature - frozen_threshold) / heat_span, 0.0f, 1.0f);
+        const float evaporation_factor = 1.0f - heat_t;
+        const float evaporation_loss = accumulation * std::max(0.0f, evaporation_rate) * evaporation_factor;
+        return std::max(0.0f, accumulation - evaporation_loss);
+    };
+
+    for (int cell_index = 0; cell_index < cell_count; ++cell_index) {
+        accumulation_write[cell_index] = resolve_base_accumulation(temperature_read[cell_index]);
+        drainage_write[cell_index] = 0.0f;
+        indegree_write[cell_index] = 0;
+    }
+
+    for (int cell_index = 0; cell_index < cell_count; ++cell_index) {
+        const int target_index = get_flow_target_index(cell_index, flow_dir_read[cell_index], grid_width, grid_height);
+        if (target_index >= 0) {
+            indegree_write[target_index] += 1;
+        }
+    }
+
+    std::vector<int> queue;
+    queue.reserve(static_cast<size_t>(cell_count));
+    for (int cell_index = 0; cell_index < cell_count; ++cell_index) {
+        if (indegree_write[cell_index] == 0) {
+            queue.push_back(cell_index);
+        }
+    }
+
+    int processed_count = 0;
+    size_t queue_index = 0;
+    while (queue_index < queue.size()) {
+        const int cell_index = queue[queue_index++];
+        processed_count += 1;
+        const int target_index = get_flow_target_index(cell_index, flow_dir_read[cell_index], grid_width, grid_height);
+        if (target_index >= 0) {
+            const float transfer = resolve_downstream_transfer(accumulation_write[cell_index], temperature_read[cell_index]);
+            accumulation_write[target_index] += transfer;
+            if (transfer > 0.0f && max_lake_id > 0) {
+                const int target_lake_id = static_cast<int>(lake_mask_read[target_index]);
+                const int source_lake_id = static_cast<int>(lake_mask_read[cell_index]);
+                if (target_lake_id > 0 && source_lake_id != target_lake_id && target_lake_id < lake_inflow_totals.size()) {
+                    float *lake_inflow_write = lake_inflow_totals.ptrw();
+                    lake_inflow_write[target_lake_id] += transfer;
+                }
+            }
+            indegree_write[target_index] -= 1;
+            if (indegree_write[target_index] == 0) {
+                queue.push_back(target_index);
+            }
+        }
+    }
+
+    float max_accumulation = 0.0f;
+    for (int cell_index = 0; cell_index < cell_count; ++cell_index) {
+        max_accumulation = std::max(max_accumulation, accumulation_write[cell_index]);
+    }
+    if (max_accumulation > 1.0f + FLOAT_EPSILON) {
+        const float log2_divisor = std::log(2.0f);
+        const float max_log_accumulation = std::log(max_accumulation) / log2_divisor;
+        if (max_log_accumulation > FLOAT_EPSILON) {
+            for (int cell_index = 0; cell_index < cell_count; ++cell_index) {
+                const float accumulation = std::max(1.0f, accumulation_write[cell_index]);
+                const float drainage = (std::log(accumulation) / log2_divisor) / max_log_accumulation;
+                drainage_write[cell_index] = std::clamp(drainage, 0.0f, 1.0f);
+            }
+        }
+    }
+
+    result["accumulation_grid"] = accumulation_grid;
+    result["drainage_grid"] = drainage_grid;
+    result["processed_count"] = processed_count;
+    result["lake_inflow_totals"] = lake_inflow_totals;
+    return result;
 }
 
 Dictionary WorldPrePassKernels::compute_river_extraction(

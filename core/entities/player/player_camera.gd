@@ -4,6 +4,8 @@ extends Camera2D
 ## Камера игрока с плавным зумом.
 ## Параметры зума берёт из PlayerBalance.
 
+const MIN_SAFE_ZOOM: float = 0.01
+
 var _target_zoom: float = 2.5
 var _balance: PlayerBalance = null
 
@@ -35,9 +37,9 @@ func handle_zoom_input(event: InputEvent) -> bool:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
 		if mb.pressed:
 			if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
-				_target_zoom = clampf(_target_zoom + _balance.zoom_step, _balance.zoom_min, _balance.zoom_max)
+				_target_zoom = minf(_target_zoom + _balance.zoom_step, _balance.zoom_max)
 				return true
 			elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-				_target_zoom = clampf(_target_zoom - _balance.zoom_step, _balance.zoom_min, _balance.zoom_max)
+				_target_zoom = maxf(_target_zoom - _balance.zoom_step, MIN_SAFE_ZOOM)
 				return true
 	return false

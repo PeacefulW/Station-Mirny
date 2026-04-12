@@ -235,6 +235,44 @@ func _compute_native_ridge_strength_grid() -> PackedFloat32Array:
 		return PackedFloat32Array()
 	return result
 
+func _compute_native_flow_directions() -> PackedByteArray:
+	if _native_prepass_kernels == null or not _native_prepass_kernels.has_method("compute_flow_directions"):
+		return PackedByteArray()
+	var result: PackedByteArray = _native_prepass_kernels.compute_flow_directions(
+		_grid_width,
+		_grid_height,
+		_filled_height_grid
+	)
+	if result.size() != _filled_height_grid.size():
+		return PackedByteArray()
+	return result
+
+func _compute_native_flow_accumulation(temperature_grid: PackedFloat32Array) -> Dictionary:
+	if _native_prepass_kernels == null or not _native_prepass_kernels.has_method("compute_flow_accumulation"):
+		return {}
+	var result: Dictionary = _native_prepass_kernels.compute_flow_accumulation(
+		_grid_width,
+		_grid_height,
+		_flow_dir_grid,
+		temperature_grid,
+		_lake_mask,
+		_resolve_frozen_river_threshold(),
+		_resolve_glacial_melt_temperature(),
+		_resolve_glacial_melt_bonus(),
+		_resolve_latitude_evaporation_rate()
+	)
+	var accumulation_grid: PackedFloat32Array = result.get("accumulation_grid", PackedFloat32Array())
+	if accumulation_grid.size() != _flow_dir_grid.size():
+		return {}
+	var drainage_grid: PackedFloat32Array = result.get("drainage_grid", PackedFloat32Array())
+	if not drainage_grid.is_empty() and drainage_grid.size() != _flow_dir_grid.size():
+		return {}
+	var lake_inflow_totals: PackedFloat32Array = result.get("lake_inflow_totals", PackedFloat32Array())
+	result["accumulation_grid"] = accumulation_grid
+	result["drainage_grid"] = drainage_grid
+	result["lake_inflow_totals"] = lake_inflow_totals
+	return result
+
 func _compute_native_river_extraction(
 	river_threshold: float,
 	neighbor_distances: PackedFloat32Array,
@@ -698,6 +736,14 @@ func _compute_flow_directions() -> void:
 		return
 	_flow_dir_grid.resize(_filled_height_grid.size())
 	_flow_dir_grid.fill(FLOW_DIRECTION_NONE)
+	if _native_prepass_kernels != null and _native_prepass_kernels.has_method("compute_flow_directions"):
+		var native_stage_started_usec: int = Time.get_ticks_usec()
+		var native_flow_dir_grid: PackedByteArray = _compute_native_flow_directions()
+		var native_stage_elapsed_ms: float = float(Time.get_ticks_usec() - native_stage_started_usec) / 1000.0
+		WorldPerfProbe.record("WorldPrePass.compute.flow_directions.native_total", native_stage_elapsed_ms)
+		if not native_flow_dir_grid.is_empty():
+			_flow_dir_grid = native_flow_dir_grid
+			return
 	var unresolved_plateau_cells := PackedByteArray()
 	unresolved_plateau_cells.resize(_filled_height_grid.size())
 	unresolved_plateau_cells.fill(0)
@@ -723,6 +769,24 @@ func _compute_flow_accumulation() -> void:
 	if _planet_sampler == null:
 		return
 	var temperature_grid: PackedFloat32Array = _build_temperature_grid()
+	if _native_prepass_kernels != null and _native_prepass_kernels.has_method("compute_flow_accumulation"):
+		var native_stage_started_usec: int = Time.get_ticks_usec()
+		var native_accumulation_data: Dictionary = _compute_native_flow_accumulation(temperature_grid)
+		var native_stage_elapsed_ms: float = float(Time.get_ticks_usec() - native_stage_started_usec) / 1000.0
+		WorldPerfProbe.record("WorldPrePass.compute.flow_accumulation.native_total", native_stage_elapsed_ms)
+		if not native_accumulation_data.is_empty():
+			_accumulation_grid = native_accumulation_data.get("accumulation_grid", PackedFloat32Array())
+			var native_drainage_grid: PackedFloat32Array = native_accumulation_data.get("drainage_grid", PackedFloat32Array())
+			if native_drainage_grid.size() == _flow_dir_grid.size():
+				_drainage_grid = native_drainage_grid
+			_apply_lake_inflow_totals(native_accumulation_data.get("lake_inflow_totals", PackedFloat32Array()))
+			var processed_count: int = int(native_accumulation_data.get("processed_count", _flow_dir_grid.size()))
+			if processed_count != _flow_dir_grid.size():
+				push_error(
+					"WorldPrePass accumulation graph processed %d/%d cells; unresolved flow cycle detected"
+					% [processed_count, _flow_dir_grid.size()]
+				)
+			return
 	var indegree := PackedInt32Array()
 	indegree.resize(_flow_dir_grid.size())
 	indegree.fill(0)
@@ -2393,6 +2457,15 @@ func _record_lake_inflow(source_index: int, target_index: int, transfer: float) 
 		return
 	var lake_record: LakeRecord = _lake_records[lake_record_index]
 	lake_record.inflow_accumulation += transfer
+
+func _apply_lake_inflow_totals(lake_inflow_totals: PackedFloat32Array) -> void:
+	for lake_record: LakeRecord in _lake_records:
+		if lake_record == null:
+			continue
+		lake_record.inflow_accumulation = 0.0
+		if lake_record.id <= 0 or lake_record.id >= lake_inflow_totals.size():
+			continue
+		lake_record.inflow_accumulation = lake_inflow_totals[lake_record.id]
 
 func _get_flow_target_index(cell_index: int) -> int:
 	var direction_index: int = int(_flow_dir_grid[cell_index])
