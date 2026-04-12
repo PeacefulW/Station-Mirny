@@ -123,6 +123,8 @@ var _spine_seeds: Array[SpineSeed] = []
 var _ridge_paths: Array[RidgePath] = []
 var _native_prepass_kernels: RefCounted = null
 var _numeric_heap_last_priority: float = 0.0
+var _numeric_heap_last_payload_a: float = 0.0
+var _numeric_heap_last_payload_b: float = 0.0
 
 func configure(balance_resource: WorldGenBalance, planet_sampler: PlanetSampler) -> WorldPrePass:
 	_balance = balance_resource
@@ -139,6 +141,8 @@ func configure(balance_resource: WorldGenBalance, planet_sampler: PlanetSampler)
 	_setup_native_prepass_kernels()
 	_neighbor_distance_cache = PackedFloat32Array()
 	_numeric_heap_last_priority = 0.0
+	_numeric_heap_last_payload_a = 0.0
+	_numeric_heap_last_payload_b = 0.0
 	_rebuild_cell_caches()
 	_height_grid = PackedFloat32Array()
 	_filled_height_grid = PackedFloat32Array()
@@ -913,7 +917,10 @@ func _compute_floodplain_strength() -> void:
 	_floodplain_strength_grid.fill(0.0)
 	if _river_mask_grid.is_empty():
 		return
-	var heap: Array[Dictionary] = []
+	var neighbor_distances: PackedFloat32Array = _build_neighbor_distance_cache()
+	var heap_indices: Array[int] = []
+	var heap_priorities: Array[float] = []
+	var heap_source_widths: Array[float] = []
 	for cell_index: int in range(_river_mask_grid.size()):
 		if _river_mask_grid[cell_index] != 1:
 			continue
@@ -922,14 +929,22 @@ func _compute_floodplain_strength() -> void:
 		if floodplain_width <= FLOAT_EPSILON:
 			continue
 		_floodplain_strength_grid[cell_index] = 1.0
-		_heap_push(heap, cell_index, 0.0, {
-			"source_width": floodplain_width,
-		})
-	while not heap.is_empty():
-		var current: Dictionary = _heap_pop(heap)
-		var cell_index: int = int(current.get("index", -1))
-		var current_distance: float = float(current.get("priority", 0.0))
-		var source_width: float = float(current.get("source_width", 0.0))
+		_numeric_heap_push_with_float_payload(
+			heap_indices,
+			heap_priorities,
+			heap_source_widths,
+			cell_index,
+			0.0,
+			floodplain_width
+		)
+	while not heap_indices.is_empty():
+		var cell_index: int = _numeric_heap_pop_with_float_payload(
+			heap_indices,
+			heap_priorities,
+			heap_source_widths
+		)
+		var current_distance: float = _numeric_heap_last_priority
+		var source_width: float = _numeric_heap_last_payload_a
 		if cell_index < 0 or source_width <= FLOAT_EPSILON:
 			continue
 		var current_strength: float = _resolve_floodplain_strength(current_distance, source_width)
@@ -941,16 +956,21 @@ func _compute_floodplain_strength() -> void:
 				continue
 			if int(_lake_mask[neighbor_index]) > 0:
 				continue
-			var next_distance: float = current_distance + _resolve_neighbor_distance_tiles(direction_index)
+			var next_distance: float = current_distance + neighbor_distances[direction_index]
 			var next_strength: float = _resolve_floodplain_strength(next_distance, source_width)
 			if next_strength <= FLOAT_EPSILON:
 				continue
 			if next_strength + FLOAT_EPSILON <= _floodplain_strength_grid[neighbor_index]:
 				continue
 			_floodplain_strength_grid[neighbor_index] = next_strength
-			_heap_push(heap, neighbor_index, next_distance, {
-				"source_width": source_width,
-			})
+			_numeric_heap_push_with_float_payload(
+				heap_indices,
+				heap_priorities,
+				heap_source_widths,
+				neighbor_index,
+				next_distance,
+				source_width
+			)
 
 func _compute_erosion_proxy() -> void:
 	_eroded_height_grid.resize(_filled_height_grid.size())
@@ -1117,13 +1137,17 @@ func _apply_floodplain_deposition() -> void:
 	var deposit_rate: float = _resolve_deposit_rate()
 	if deposit_rate <= FLOAT_EPSILON:
 		return
+	var neighbor_distances: PackedFloat32Array = _build_neighbor_distance_cache()
 	var strongest_deposition := PackedFloat32Array()
 	strongest_deposition.resize(_eroded_height_grid.size())
 	strongest_deposition.fill(0.0)
 	var river_height_targets := PackedFloat32Array()
 	river_height_targets.resize(_eroded_height_grid.size())
 	river_height_targets.fill(0.0)
-	var heap: Array[Dictionary] = []
+	var heap_indices: Array[int] = []
+	var heap_priorities: Array[float] = []
+	var heap_source_widths: Array[float] = []
+	var heap_source_heights: Array[float] = []
 	for cell_index: int in range(_river_mask_grid.size()):
 		if _river_mask_grid[cell_index] != 1:
 			continue
@@ -1132,16 +1156,26 @@ func _apply_floodplain_deposition() -> void:
 			continue
 		strongest_deposition[cell_index] = 1.0
 		river_height_targets[cell_index] = _eroded_height_grid[cell_index]
-		_heap_push(heap, cell_index, 0.0, {
-			"source_width": floodplain_width,
-			"source_height": _eroded_height_grid[cell_index],
-		})
-	while not heap.is_empty():
-		var current: Dictionary = _heap_pop(heap)
-		var cell_index: int = int(current.get("index", -1))
-		var current_distance: float = float(current.get("priority", 0.0))
-		var source_width: float = float(current.get("source_width", 0.0))
-		var source_height: float = float(current.get("source_height", 0.0))
+		_numeric_heap_push_with_two_float_payloads(
+			heap_indices,
+			heap_priorities,
+			heap_source_widths,
+			heap_source_heights,
+			cell_index,
+			0.0,
+			floodplain_width,
+			_eroded_height_grid[cell_index]
+		)
+	while not heap_indices.is_empty():
+		var cell_index: int = _numeric_heap_pop_with_two_float_payloads(
+			heap_indices,
+			heap_priorities,
+			heap_source_widths,
+			heap_source_heights
+		)
+		var current_distance: float = _numeric_heap_last_priority
+		var source_width: float = _numeric_heap_last_payload_a
+		var source_height: float = _numeric_heap_last_payload_b
 		if cell_index < 0 or source_width <= FLOAT_EPSILON:
 			continue
 		var current_strength: float = _resolve_floodplain_strength(current_distance, source_width)
@@ -1153,7 +1187,7 @@ func _apply_floodplain_deposition() -> void:
 				continue
 			if int(_lake_mask[neighbor_index]) > 0:
 				continue
-			var next_distance: float = current_distance + _resolve_neighbor_distance_tiles(direction_index)
+			var next_distance: float = current_distance + neighbor_distances[direction_index]
 			var next_strength: float = _resolve_floodplain_strength(next_distance, source_width)
 			if next_strength <= FLOAT_EPSILON:
 				continue
@@ -1161,10 +1195,16 @@ func _apply_floodplain_deposition() -> void:
 				continue
 			strongest_deposition[neighbor_index] = next_strength
 			river_height_targets[neighbor_index] = source_height
-			_heap_push(heap, neighbor_index, next_distance, {
-				"source_width": source_width,
-				"source_height": source_height,
-			})
+			_numeric_heap_push_with_two_float_payloads(
+				heap_indices,
+				heap_priorities,
+				heap_source_widths,
+				heap_source_heights,
+				neighbor_index,
+				next_distance,
+				source_width,
+				source_height
+			)
 	for cell_index: int in range(_eroded_height_grid.size()):
 		if int(_lake_mask[cell_index]) > 0:
 			continue
@@ -2812,55 +2852,200 @@ func _get_wrapped_world_vector(from_world: Vector2, to_world: Vector2) -> Vector
 		delta_x += wrap_width
 	return Vector2(delta_x, to_world.y - from_world.y)
 
-func _heap_push(
-	heap: Array[Dictionary],
+func _numeric_heap_push_with_float_payload(
+	heap_indices: Array[int],
+	heap_priorities: Array[float],
+	heap_payloads: Array[float],
 	cell_index: int,
 	priority: float,
-	extra_fields: Dictionary = {}
+	payload: float
 ) -> void:
-	var entry: Dictionary = {
-		"index": cell_index,
-		"priority": priority,
-	}
-	for field_name: Variant in extra_fields.keys():
-		entry[field_name] = extra_fields[field_name]
-	heap.append(entry)
-	var child_index: int = heap.size() - 1
+	heap_indices.append(cell_index)
+	heap_priorities.append(priority)
+	heap_payloads.append(payload)
+	var child_index: int = heap_indices.size() - 1
 	while child_index > 0:
 		var parent_index: int = int((child_index - 1) / 2)
-		if not _is_heap_entry_less(heap[child_index], heap[parent_index]):
+		if not _is_numeric_heap_entry_less(
+			heap_priorities[child_index],
+			heap_indices[child_index],
+			heap_priorities[parent_index],
+			heap_indices[parent_index]
+		):
 			break
-		var temp: Dictionary = heap[parent_index]
-		heap[parent_index] = heap[child_index]
-		heap[child_index] = temp
+		var temp_index: int = heap_indices[parent_index]
+		var temp_priority: float = heap_priorities[parent_index]
+		var temp_payload: float = heap_payloads[parent_index]
+		heap_indices[parent_index] = heap_indices[child_index]
+		heap_priorities[parent_index] = heap_priorities[child_index]
+		heap_payloads[parent_index] = heap_payloads[child_index]
+		heap_indices[child_index] = temp_index
+		heap_priorities[child_index] = temp_priority
+		heap_payloads[child_index] = temp_payload
 		child_index = parent_index
 
-func _heap_pop(heap: Array[Dictionary]) -> Dictionary:
-	if heap.is_empty():
-		return {}
-	var result: Dictionary = heap[0]
-	var last_index: int = heap.size() - 1
+func _numeric_heap_pop_with_float_payload(
+	heap_indices: Array[int],
+	heap_priorities: Array[float],
+	heap_payloads: Array[float]
+) -> int:
+	if heap_indices.is_empty():
+		_numeric_heap_last_priority = INF
+		_numeric_heap_last_payload_a = 0.0
+		_numeric_heap_last_payload_b = 0.0
+		return -1
+	var result_index: int = heap_indices[0]
+	_numeric_heap_last_priority = heap_priorities[0]
+	_numeric_heap_last_payload_a = heap_payloads[0]
+	_numeric_heap_last_payload_b = 0.0
+	var last_index: int = heap_indices.size() - 1
 	if last_index == 0:
-		heap.pop_back()
-		return result
-	heap[0] = heap[last_index]
-	heap.pop_back()
+		heap_indices.pop_back()
+		heap_priorities.pop_back()
+		heap_payloads.pop_back()
+		return result_index
+	heap_indices[0] = heap_indices[last_index]
+	heap_priorities[0] = heap_priorities[last_index]
+	heap_payloads[0] = heap_payloads[last_index]
+	heap_indices.pop_back()
+	heap_priorities.pop_back()
+	heap_payloads.pop_back()
 	var parent_index: int = 0
 	while true:
 		var left_index: int = parent_index * 2 + 1
-		if left_index >= heap.size():
+		if left_index >= heap_indices.size():
 			break
 		var smallest_index: int = left_index
 		var right_index: int = left_index + 1
-		if right_index < heap.size() and _is_heap_entry_less(heap[right_index], heap[left_index]):
+		if right_index < heap_indices.size() and _is_numeric_heap_entry_less(
+			heap_priorities[right_index],
+			heap_indices[right_index],
+			heap_priorities[left_index],
+			heap_indices[left_index]
+		):
 			smallest_index = right_index
-		if not _is_heap_entry_less(heap[smallest_index], heap[parent_index]):
+		if not _is_numeric_heap_entry_less(
+			heap_priorities[smallest_index],
+			heap_indices[smallest_index],
+			heap_priorities[parent_index],
+			heap_indices[parent_index]
+		):
 			break
-		var temp: Dictionary = heap[parent_index]
-		heap[parent_index] = heap[smallest_index]
-		heap[smallest_index] = temp
+		var temp_index: int = heap_indices[parent_index]
+		var temp_priority: float = heap_priorities[parent_index]
+		var temp_payload: float = heap_payloads[parent_index]
+		heap_indices[parent_index] = heap_indices[smallest_index]
+		heap_priorities[parent_index] = heap_priorities[smallest_index]
+		heap_payloads[parent_index] = heap_payloads[smallest_index]
+		heap_indices[smallest_index] = temp_index
+		heap_priorities[smallest_index] = temp_priority
+		heap_payloads[smallest_index] = temp_payload
 		parent_index = smallest_index
-	return result
+	return result_index
+
+func _numeric_heap_push_with_two_float_payloads(
+	heap_indices: Array[int],
+	heap_priorities: Array[float],
+	heap_payload_a: Array[float],
+	heap_payload_b: Array[float],
+	cell_index: int,
+	priority: float,
+	payload_a: float,
+	payload_b: float
+) -> void:
+	heap_indices.append(cell_index)
+	heap_priorities.append(priority)
+	heap_payload_a.append(payload_a)
+	heap_payload_b.append(payload_b)
+	var child_index: int = heap_indices.size() - 1
+	while child_index > 0:
+		var parent_index: int = int((child_index - 1) / 2)
+		if not _is_numeric_heap_entry_less(
+			heap_priorities[child_index],
+			heap_indices[child_index],
+			heap_priorities[parent_index],
+			heap_indices[parent_index]
+		):
+			break
+		var temp_index: int = heap_indices[parent_index]
+		var temp_priority: float = heap_priorities[parent_index]
+		var temp_payload_a: float = heap_payload_a[parent_index]
+		var temp_payload_b: float = heap_payload_b[parent_index]
+		heap_indices[parent_index] = heap_indices[child_index]
+		heap_priorities[parent_index] = heap_priorities[child_index]
+		heap_payload_a[parent_index] = heap_payload_a[child_index]
+		heap_payload_b[parent_index] = heap_payload_b[child_index]
+		heap_indices[child_index] = temp_index
+		heap_priorities[child_index] = temp_priority
+		heap_payload_a[child_index] = temp_payload_a
+		heap_payload_b[child_index] = temp_payload_b
+		child_index = parent_index
+
+func _numeric_heap_pop_with_two_float_payloads(
+	heap_indices: Array[int],
+	heap_priorities: Array[float],
+	heap_payload_a: Array[float],
+	heap_payload_b: Array[float]
+) -> int:
+	if heap_indices.is_empty():
+		_numeric_heap_last_priority = INF
+		_numeric_heap_last_payload_a = 0.0
+		_numeric_heap_last_payload_b = 0.0
+		return -1
+	var result_index: int = heap_indices[0]
+	_numeric_heap_last_priority = heap_priorities[0]
+	_numeric_heap_last_payload_a = heap_payload_a[0]
+	_numeric_heap_last_payload_b = heap_payload_b[0]
+	var last_index: int = heap_indices.size() - 1
+	if last_index == 0:
+		heap_indices.pop_back()
+		heap_priorities.pop_back()
+		heap_payload_a.pop_back()
+		heap_payload_b.pop_back()
+		return result_index
+	heap_indices[0] = heap_indices[last_index]
+	heap_priorities[0] = heap_priorities[last_index]
+	heap_payload_a[0] = heap_payload_a[last_index]
+	heap_payload_b[0] = heap_payload_b[last_index]
+	heap_indices.pop_back()
+	heap_priorities.pop_back()
+	heap_payload_a.pop_back()
+	heap_payload_b.pop_back()
+	var parent_index: int = 0
+	while true:
+		var left_index: int = parent_index * 2 + 1
+		if left_index >= heap_indices.size():
+			break
+		var smallest_index: int = left_index
+		var right_index: int = left_index + 1
+		if right_index < heap_indices.size() and _is_numeric_heap_entry_less(
+			heap_priorities[right_index],
+			heap_indices[right_index],
+			heap_priorities[left_index],
+			heap_indices[left_index]
+		):
+			smallest_index = right_index
+		if not _is_numeric_heap_entry_less(
+			heap_priorities[smallest_index],
+			heap_indices[smallest_index],
+			heap_priorities[parent_index],
+			heap_indices[parent_index]
+		):
+			break
+		var temp_index: int = heap_indices[parent_index]
+		var temp_priority: float = heap_priorities[parent_index]
+		var temp_payload_left: float = heap_payload_a[parent_index]
+		var temp_payload_right: float = heap_payload_b[parent_index]
+		heap_indices[parent_index] = heap_indices[smallest_index]
+		heap_priorities[parent_index] = heap_priorities[smallest_index]
+		heap_payload_a[parent_index] = heap_payload_a[smallest_index]
+		heap_payload_b[parent_index] = heap_payload_b[smallest_index]
+		heap_indices[smallest_index] = temp_index
+		heap_priorities[smallest_index] = temp_priority
+		heap_payload_a[smallest_index] = temp_payload_left
+		heap_payload_b[smallest_index] = temp_payload_right
+		parent_index = smallest_index
+	return result_index
 
 func _numeric_heap_push(heap_indices: Array[int], heap_priorities: Array[float], cell_index: int, priority: float) -> void:
 	heap_indices.append(cell_index)
@@ -2927,15 +3112,6 @@ func _numeric_heap_pop(heap_indices: Array[int], heap_priorities: Array[float]) 
 		heap_priorities[smallest_index] = temp_priority
 		parent_index = smallest_index
 	return result_index
-
-func _is_heap_entry_less(left_entry: Dictionary, right_entry: Dictionary) -> bool:
-	var left_priority: float = float(left_entry.get("priority", 0.0))
-	var right_priority: float = float(right_entry.get("priority", 0.0))
-	if left_priority < right_priority - FLOAT_EPSILON:
-		return true
-	if left_priority > right_priority + FLOAT_EPSILON:
-		return false
-	return int(left_entry.get("index", 0)) < int(right_entry.get("index", 0))
 
 func _is_numeric_heap_entry_less(
 	left_priority: float,
