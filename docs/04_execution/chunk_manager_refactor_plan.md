@@ -4,7 +4,7 @@ doc_type: execution
 status: proposed
 owner: engineering
 source_of_truth: false
-version: 1.0
+version: 1.1
 last_updated: 2026-04-12
 related_docs:
   - ../00_governance/PERFORMANCE_CONTRACTS.md
@@ -25,7 +25,15 @@ related_docs:
 
 ## Контекст проблемы
 
+Исходно ревью охватывало только `chunk_manager.gd`. После сравнения с независимым ревью
+(2026-04-12) был добавлен анализ `chunk.gd` — второй монолит в той же связке.
+Проблема системная: не в одном файле, а в паре `chunk_manager + chunk`.
+
 `chunk_manager.gd` вырос в монолитный файл с 8+ несвязанными ответственностями.
+`chunk.gd` несёт не меньше: хранение состояния тайлов, 5 слоёв TileMapLayer, fog of war,
+cover/reveal логику, progressive redraw, flora renderer, native bridge, interior macro,
+debug markers через реальные Polygon2D ноды.
+
 Часть проблем критична для runtime-производительности (O(n) в горячем пути),
 часть — структурная (невозможность изолированного тестирования, debug-код в hot path).
 
@@ -64,6 +72,34 @@ related_docs:
 | P-12 | Дублирование кода: `_load_chunk_for_z` и `_finalize_chunk_install` | строки 5180, 5929 |
 | P-13 | `_z_chunks` + `_loaded_chunks` алиас переназначается вручную | множественные места |
 | P-14 | Два параллельных механизма staging (boot `_staged_*` vs runtime `_gen_*`) | переменные 212–248 |
+
+---
+
+## Проблемы chunk.gd (дополнение от 2026-04-12)
+
+Обнаружены при анализе `core/systems/world/chunk.gd` (158 КБ).
+
+### Критические
+
+| ID | Проблема | Строки | Runtime class |
+|----|----------|--------|---------------|
+| C-01 | Дублирование visual logic: instance-path (`_redraw_terrain_tile`) vs request-path (`_append_terrain_visual_commands`) — риск рассинхрона правил | множественные | interactive |
+
+### Серьёзные
+
+| ID | Проблема | Строки | Runtime class |
+|----|----------|--------|---------------|
+| C-02 | `Dict<Vector2i>` в hot path: `_pending_border_dirty`, `_revealed_local_cover_tiles`, `_cover_edge_set`, `_operation_global_terrain_cache` — boxing+хеширование Vector2i | 153–187 | interactive |
+| C-03 | `_build_visual_compute_request`: вложенный цикл строит `terrain_lookup`/`height_lookup`/`variation_lookup`/`biome_lookup` как Dictionary (tiles × 3×3 соседей = N² boxing) | 1035–1084 | background |
+| C-04 | `_rebuild_debug_markers()` создаёт реальные `Polygon2D` дочерние ноды при каждом вызове — дорогое создание + обход scene tree | 1029–1032 | debug path |
+
+### Умеренные
+
+| ID | Проблема | Строки | Runtime class |
+|----|----------|--------|---------------|
+| C-05 | `FloraBatchRenderer`: chunk-level texture cache (100 чанков = 100 независимых кэшей); `ResourceLoader.load()` вызывается в `_get_cached_texture()` как fallback внутри `_draw()` | 83–131 | background |
+| C-06 | `_refresh_interior_macro_layer()`: GDScript создаёт `Image`, итерирует пиксели через `set_pixel()`, вычисляет шум — сильный native-кандидат | chunk.gd | background |
+| C-07 | `global_to_local()` в `chunk.gd` вызывает `WorldGenerator.has_method()` при каждом обращении — та же рефлексия что в `chunk_manager.gd`, но в chunk-контексте | 317–322 | interactive |
 
 ---
 
@@ -651,6 +687,331 @@ Dictionary — heap allocation на каждую задачу. При интен
 
 ---
 
+## Итерация 12А — Выделение chunk debug renderer (C-04)
+
+**Проблема**: `_rebuild_debug_markers()` создаёт реальные `Polygon2D` дочерние ноды в scene tree
+при каждом вызове `apply_visual_dirty_batch` когда включена debug-визуализация гор.
+Добавление нод в scene tree дорого: traversal, dirty propagation, draw calls.
+
+**Изменение**: Выделить debug-визуализацию в отдельный класс `ChunkDebugRenderer`.
+Переключить с реальных нод на `draw_*` вызовы через `CanvasItem._draw()` или `draw_line/polygon`
+в отдельном `CanvasLayer` с включением только в debug-режиме.
+
+**Разрешённые файлы**:
+- `core/systems/world/chunk.gd`
+- `core/systems/world/chunk_debug_renderer.gd` (новый файл)
+
+**Задачи**:
+
+1. Создать `core/systems/world/chunk_debug_renderer.gd`:
+   ```gdscript
+   class_name ChunkDebugRenderer
+   extends Node2D
+
+   ## Debug overlay для одного чанка. Активен только при OS.is_debug_build().
+   ## Использует _draw() вместо создания Polygon2D дочерних нод.
+
+   var _debug_polygon_data: Array[PackedVector2Array] = []
+   var _debug_colors: Array[Color] = []
+
+   func set_mountain_markers(polygons: Array[PackedVector2Array], colors: Array[Color]) -> void:
+       _debug_polygon_data = polygons
+       _debug_colors = colors
+       queue_redraw()
+
+   func _draw() -> void:
+       for i: int in _debug_polygon_data.size():
+           draw_colored_polygon(_debug_polygon_data[i], _debug_colors[i])
+   ```
+
+2. В `chunk.gd` в `setup()`:
+   ```gdscript
+   if OS.is_debug_build():
+       _debug_renderer = ChunkDebugRenderer.new()
+       add_child(_debug_renderer)
+   ```
+
+3. Заменить `_rebuild_debug_markers()` — вместо создания `Polygon2D` нод
+   накапливать данные в `PackedVector2Array[]` и передавать в `_debug_renderer.set_mountain_markers()`.
+
+4. Убрать `_debug_root: Node2D` и связанный lifecycle (add_child, queue_free дочерних Polygon2D).
+
+5. В `apply_visual_dirty_batch` обернуть вызов в:
+   ```gdscript
+   if _debug_renderer != null:
+       _rebuild_debug_markers()
+   ```
+
+**Acceptance tests**:
+- [ ] При `mountain_debug_visualization == false` ни одного `Polygon2D` в scene tree чанка.
+- [ ] При `mountain_debug_visualization == true` debug overlay отображает горные маркеры.
+- [ ] В release-сборке `_debug_renderer == null`, никакого overhead.
+- [ ] Mining, border fix, cover reveal работают без регрессий.
+
+**DATA_CONTRACTS.md / PUBLIC_API.md**: обновление не требуется.
+
+---
+
+## Итерация 12Б — Глобальный texture cache для FloraBatchRenderer (C-05)
+
+**Проблема**: `FloraBatchRenderer._get_cached_texture()` держит локальный кэш текстур
+на каждый экземпляр (per-chunk). При 100 загруженных чанках — 100 независимых кэшей
+с дублированием. Fallback вызывает `ResourceLoader.load()` внутри `_draw()` при cache miss.
+
+**Изменение**: Вынести кэш текстур в статический словарь (class-level, один на все чанки).
+
+**Разрешённые файлы**:
+- `core/systems/world/chunk.gd`
+
+**Задачи**:
+
+1. В классе `FloraBatchRenderer` заменить instance-кэш на static:
+   ```gdscript
+   ## Глобальный кэш текстур флоры — один на все чанки.
+   static var _flora_texture_cache: Dictionary = {}  ## String path -> Texture2D
+
+   func _get_cached_texture(path: String) -> Texture2D:
+       if FloraBatchRenderer._flora_texture_cache.has(path):
+           return FloraBatchRenderer._flora_texture_cache[path]
+       var tex: Texture2D = ResourceLoader.load(path)
+       if tex != null:
+           FloraBatchRenderer._flora_texture_cache[path] = tex
+       return tex
+   ```
+
+2. Добавить статический метод для очистки кэша (вызывать при unload сцены):
+   ```gdscript
+   static func clear_global_texture_cache() -> void:
+       _flora_texture_cache.clear()
+   ```
+
+3. Убедиться что `ResourceLoader.load()` **не вызывается** в `_draw()` при нормальной работе —
+   текстуры должны быть предзагружены до первого кадра отрисовки.
+
+**Acceptance tests**:
+- [ ] При 50+ загруженных чанках с флорой — один экземпляр каждой текстуры в памяти.
+- [ ] `ResourceLoader.load()` не вызывается в `_draw()` (grep по вызову в hot path).
+- [ ] Флора отображается корректно при загрузке/выгрузке чанков.
+
+**DATA_CONTRACTS.md / PUBLIC_API.md**: обновление не требуется.
+
+---
+
+## Итерация 12В — Кэш has_method() в chunk.gd (C-07)
+
+**Проблема**: `global_to_local()` в `chunk.gd` вызывает `WorldGenerator.has_method()`
+при каждом обращении — та же проблема что в chunk_manager.gd (P-03), но в контексте Chunk.
+
+**Изменение**: Закэшировать флаги `has_method()` при инициализации чанка.
+
+**Разрешённые файлы**:
+- `core/systems/world/chunk.gd`
+
+**Задачи**:
+
+1. Добавить в private vars Chunk:
+   ```gdscript
+   var _wg_has_global_to_local: bool = false
+   ```
+
+2. В `setup()` инициализировать флаг:
+   ```gdscript
+   if WorldGenerator:
+       _wg_has_global_to_local = WorldGenerator.has_method("global_to_local_in_chunk")
+   ```
+
+3. Заменить в `global_to_local()`:
+   ```gdscript
+   func global_to_local(tile_pos: Vector2i) -> Vector2i:
+       if WorldGenerator and _wg_has_global_to_local:
+           return WorldGenerator.global_to_local_in_chunk(tile_pos, chunk_coord)
+       return tile_pos - chunk_coord * CHUNK_SIZE
+   ```
+
+**Acceptance tests**:
+- [ ] `has_method()` не вызывается в `global_to_local()` во время игры.
+- [ ] Координаты тайлов корректны при навигации.
+
+**DATA_CONTRACTS.md / PUBLIC_API.md**: обновление не требуется.
+
+---
+
+## Итерация 13 — Dict<Vector2i> → BitSet в hot path chunk.gd (C-02, C-03)
+
+**Проблема**:
+- `_pending_border_dirty`, `_revealed_local_cover_tiles`, `_cover_edge_set`,
+  `_operation_global_terrain_cache` — все используют `Dictionary` с `Vector2i` ключами.
+  Каждый доступ: boxing Vector2i → Variant + хеширование вектора.
+- `_build_visual_compute_request`: вложенный цикл (tiles × 3×3 соседей) строит
+  lookup-таблицы как Dictionary (N² boxing-операций на каждый visual request).
+
+**Изменение**: Заменить `_pending_border_dirty` и `_revealed_local_cover_tiles`
+на `PackedByteArray` (битсет, 1 бит на тайл в чанке 16×16 = 32 байта).
+Для `_build_visual_compute_request` — перейти на `PackedInt32Array`-буфер с фиксированной
+раскладкой (offset = y * stride + x).
+
+**Разрешённые файлы**:
+- `core/systems/world/chunk.gd`
+- `docs/02_system_specs/world/DATA_CONTRACTS.md` (обновить если меняется контракт dirty-sets)
+
+**Задачи**:
+
+1. Добавить helper-методы для битсет-операций над `PackedByteArray`:
+   ```gdscript
+   const CHUNK_SIZE: int = 16
+   const BITSET_BYTE_COUNT: int = (CHUNK_SIZE * CHUNK_SIZE + 7) / 8  # 32 байта
+
+   static func _bitset_set(bitset: PackedByteArray, local_x: int, local_y: int) -> void:
+       var idx: int = local_y * CHUNK_SIZE + local_x
+       bitset[idx >> 3] |= (1 << (idx & 7))
+
+   static func _bitset_clear(bitset: PackedByteArray, local_x: int, local_y: int) -> void:
+       var idx: int = local_y * CHUNK_SIZE + local_x
+       bitset[idx >> 3] &= ~(1 << (idx & 7))
+
+   static func _bitset_get(bitset: PackedByteArray, local_x: int, local_y: int) -> bool:
+       var idx: int = local_y * CHUNK_SIZE + local_x
+       return (bitset[idx >> 3] & (1 << (idx & 7))) != 0
+   ```
+
+2. Заменить `_pending_border_dirty: Dictionary` на `_pending_border_dirty: PackedByteArray`
+   инициализированный `PackedByteArray.filled(0, BITSET_BYTE_COUNT)`.
+
+3. Заменить `_revealed_local_cover_tiles: Dictionary` аналогично.
+
+4. Обновить все места записи/чтения этих переменных на вызовы helper-методов.
+
+5. Для `_build_visual_compute_request` — заменить построение terrain_lookup Dictionary
+   на `PackedInt32Array terrain_buf` с раскладкой `buf[y * stride + x]` (stride = 3, область 3×3 соседей).
+
+6. Обновить `DATA_CONTRACTS.md` если dirty-set API виден снаружи чанка.
+
+**Acceptance tests**:
+- [ ] `_pending_border_dirty` и `_revealed_local_cover_tiles` — не словари (grep).
+- [ ] Border seam fix работает корректно после замены.
+- [ ] Cover reveal (fog of war) работает корректно.
+- [ ] `_build_visual_compute_request` не создаёт Dictionary в вложенном цикле.
+- [ ] Profiler показывает уменьшение allocation при интенсивном mining.
+
+**DATA_CONTRACTS.md**: обновить описание формата dirty-sets если они передаются в chunk_manager.
+**PUBLIC_API.md**: проверить если `get_pending_border_dirty()` публичный.
+
+---
+
+## Итерация 14 — Консолидация visual kernel (C-01)
+
+**Проблема**: Два параллельных пути описания визуального правила "как выглядит тайл":
+- Instance path: `_redraw_terrain_tile` → `_surface_visual_class`, `_rock_visual_class`, `_resolve_interior_variant`
+- Request path: `_append_terrain_visual_commands` → `_visual_request_surface_visual_class`, `_visual_request_rock_visual_class`, `_visual_request_interior_variant`
+
+Обновление правила в одном месте не гарантирует синхронизации в другом — активный источник визуальных багов.
+
+**Предусловие**: Выполнить итерации 12А, 12Б, 12В — chunk.gd должен быть компактнее
+перед этим структурным изменением.
+
+**Изменение**: Извлечь единственный источник истины для visual-правил в
+`_resolve_tile_visual(local_pos: Vector2i, context: TileVisualContext) -> TileVisualResult`.
+Оба пути вызывают один метод.
+
+**Разрешённые файлы**:
+- `core/systems/world/chunk.gd`
+
+**Задачи**:
+
+1. Определить `TileVisualContext` (inner class или структура):
+   ```gdscript
+   class TileVisualContext:
+       var terrain_type: int
+       var height: int
+       var biome_id: StringName
+       var variation_hash: int
+       var neighbor_terrain: PackedInt32Array  # 3×3
+       var neighbor_height: PackedInt32Array   # 3×3
+   ```
+
+2. Определить `TileVisualResult` (inner class):
+   ```gdscript
+   class TileVisualResult:
+       var surface_class: int
+       var rock_class: int
+       var interior_variant: int
+       var tile_set_coords: Vector2i
+       var cliff_source_id: int
+   ```
+
+3. Реализовать `_resolve_tile_visual(ctx: TileVisualContext) -> TileVisualResult`
+   на основе логики instance-пути (как более зрелой).
+
+4. Заменить тела `_redraw_terrain_tile` и `_append_terrain_visual_commands` на
+   вызов `_resolve_tile_visual` — убрать дублирующиеся вычисления.
+
+5. Удалить `_visual_request_surface_visual_class`, `_visual_request_rock_visual_class`,
+   `_visual_request_interior_variant` — они становятся мёртвым кодом.
+
+**Важно**: Перед этим шагом сделать screenshot-тесты seam cases и mining edges —
+см. раздел "Предплейтест" ниже.
+
+**Acceptance tests** (подтвердить вручную):
+- [ ] Seam между чанками выглядит идентично до и после.
+- [ ] Mining edge (открытый тайл рядом с закрытым) — та же визуальная логика.
+- [ ] Cover reveal — граница видимости без артефактов.
+- [ ] Underground fog — корректное отображение.
+- [ ] `_visual_request_*` методы не вызываются (grep).
+
+**DATA_CONTRACTS.md / PUBLIC_API.md**: обновление не требуется.
+
+---
+
+## Итерация 15 — native interior macro (C-06)
+
+**Проблема**: `_refresh_interior_macro_layer()` в `chunk.gd`:
+- Создаёт `Image` в GDScript
+- Итерирует пиксели через `Image.set_pixel()` (медленный GDScript loop)
+- Вычисляет noise-значения на GDScript
+Это один из сильнейших кандидатов для переноса в C++.
+
+**Изменение**: Перенести в `WorldPrepassKernels` как `compute_interior_macro(chunk_data) -> PackedByteArray`.
+
+**Разрешённые файлы**:
+- `gdextension/src/world_prepass_kernels.h`
+- `gdextension/src/world_prepass_kernels.cpp`
+- `core/systems/world/chunk.gd`
+
+**Задачи**:
+
+1. В C++ реализовать `compute_interior_macro_layer`:
+   - Вход: terrain_bytes (PackedByteArray), chunk_coord (Vector2i), seed (int), chunk_size (int)
+   - Выход: PackedByteArray (Image data в формате Image.FORMAT_RGBA8)
+   - Логика: воспроизвести noise + color mapping из GDScript-версии
+
+2. Зарегистрировать метод в `register_types.cpp`.
+
+3. В `chunk.gd` добавить native-path:
+   ```gdscript
+   func _refresh_interior_macro_layer() -> void:
+       if _native_visual_kernels != null:
+           var img_data: PackedByteArray = _native_visual_kernels.call(
+               "compute_interior_macro_layer", _terrain_bytes, chunk_coord, _world_seed, CHUNK_SIZE
+           )
+           _interior_macro_image.set_data(CHUNK_SIZE, CHUNK_SIZE, false, Image.FORMAT_RGBA8, img_data)
+           _interior_macro_texture.update(_interior_macro_image)
+           return
+       # GDScript fallback (с предупреждением)
+       push_warning("ChunkManager: native interior macro not available, using slow GDScript path")
+       _refresh_interior_macro_layer_gdscript()
+   ```
+
+4. Переименовать текущую реализацию в `_refresh_interior_macro_layer_gdscript()`.
+
+**Acceptance tests**:
+- [ ] Interior macro layer визуально идентичен GDScript-версии.
+- [ ] `_refresh_interior_macro_layer` не итерирует пиксели в GDScript при наличии native.
+- [ ] Profiler: время выполнения < 0.2 мс для чанка 16×16.
+
+**DATA_CONTRACTS.md / PUBLIC_API.md**: обновление не требуется.
+
+---
+
 ## Порядок выполнения итераций
 
 ```
@@ -668,13 +1029,25 @@ Dictionary — heap allocation на каждую задачу. При интен
 Фаза 3 — Native переносы (требует C++ работы):
   Итерация 8  — native query_local_pocket     [P-09]
 
-Фаза 4 — Структурный рефакторинг (требует стабильной Фазы 1+2):
+Фаза 4 — Структурный рефакторинг chunk_manager (требует стабильной Фазы 1+2):
   Итерация 9А — Debug system separation       [P-11]
   Итерация 9Б — Stream cache separation       [P-11]
   Итерация 9В — Seam manager separation       [P-11]
   Итерация 9Г — Visual scheduler separation   [P-11]
   Итерация 10 — Typed task structs            [P-10]
   Итерация 11 — Устранение дублирования       [P-12, P-13]
+
+Фаза 5 — Быстрые фиксы chunk.gd (независимы от Фазы 1-4):
+  Итерация 12А — Debug renderer (Polygon2D → _draw)    [C-04]
+  Итерация 12Б — Глобальный texture cache для flora    [C-05]
+  Итерация 12В — Кэш has_method() в chunk.gd          [C-07]
+
+Фаза 6 — Серьёзные изменения chunk.gd (после Фазы 5):
+  Итерация 13  — Dict<Vector2i> → BitSet               [C-02, C-03]
+  Итерация 14  — Консолидация visual kernel            [C-01]
+
+Фаза 7 — Native для chunk.gd (требует C++ работы):
+  Итерация 15  — native interior macro                  [C-06]
 ```
 
 ---
@@ -688,6 +1061,24 @@ Dictionary — heap allocation на каждую задачу. При интен
 | Регрессия topology при удалении GDScript пути | 6 | Убедиться что gdextension доступен |
 | Потеря связей при декомпозиции файла | 9 | Шаг за шагом, тест после каждого шага |
 | Typed structs ломают debug-метаданные | 10 | Выполнять после Итерации 9А |
+| BitSet-замена ломает API dirty-sets между chunk и chunk_manager | 13 | Проверить DATA_CONTRACTS, обновить до кода |
+| Неправильная консолидация visual kernel вводит визуальные баги | 14 | Скриншоты seam/mining/fog до начала |
+| Расхождение interior macro между C++ и GDScript | 15 | Pixel-level сравнение на тестовом чанке |
+
+---
+
+## Плейтест-сценарии для Итерации 14
+
+Перед консолидацией visual kernel (C-01) зафиксировать поведение скриншотами:
+
+| Сценарий | Что проверять |
+|----------|--------------|
+| Seam между двумя чанками | Граница не видна, тайлы состыкованы |
+| Mining edge (тайл рядом с открытым) | Корректный rock/cliff вариант |
+| Cover reveal граница | Fog of war без артефактов |
+| Underground fog | Подземный туман не проникает наверх |
+| Flora visibility | Флора появляется/исчезает корректно |
+| Debug mountain overlay | Маркеры вершин на правильных тайлах |
 
 ---
 
@@ -696,11 +1087,15 @@ Dictionary — heap allocation на каждую задачу. При интен
 | Метрика | До | Цель |
 |---------|-----|------|
 | Размер `chunk_manager.gd` | 316 КБ | < 120 КБ (после Фазы 4) |
+| Размер `chunk.gd` | 158 КБ | < 80 КБ (после Фаз 5–6) |
 | `_has_load_request` сложность | O(n) | O(1) |
 | LRU cache hit сложность | O(n) | O(1) |
 | Debug код в release | исполняется | не исполняется |
 | GDScript topology BFS | активен | удалён |
 | `query_local_underground_zone` | GDScript BFS | native C++ |
+| Flora texture instances (100 чанков) | 100 × N текстур | 1 × N текстур |
+| Visual rule definition | 2 параллельных пути | 1 источник истины |
+| `_refresh_interior_macro_layer` | GDScript Image loop | native C++ |
 
 ---
 
@@ -709,3 +1104,5 @@ Dictionary — heap allocation на каждую задачу. При интен
 - Итерация 6 требует рабочего `MountainTopologyBuilder` в gdextension.
 - Итерация 8 требует создания нового C++ метода (scope уточнить с командой).
 - Итерации 9Г и 10 зависят от завершения Итерации 4 (debug guard должен быть на месте).
+- Итерация 14 зависит от завершения Итераций 12А, 12Б, 12В (chunk.gd должен быть компактнее).
+- Итерация 15 зависит от наличия `WorldPrepassKernels` в gdextension (уже есть базовый класс).
