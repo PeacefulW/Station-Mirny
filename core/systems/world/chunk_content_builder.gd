@@ -12,6 +12,7 @@ const POI_KIND: StringName = &"poi"
 const CHUNK_GEN_SLOW_LOG_THRESHOLD_MS: float = 80.0
 const NATIVE_VISUAL_KERNELS_CLASS: StringName = &"ChunkVisualKernels"
 const NATIVE_CHUNK_INPUTS_SNAPSHOT_KIND: StringName = &"world_chunk_authoritative_inputs_v1"
+const NATIVE_CHUNK_GENERATION_REQUEST_KIND: StringName = &"native_chunk_generation_request_v1"
 
 var _world_context: RefCounted = null
 var _terrain_resolver: RefCounted = null
@@ -85,11 +86,11 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 	# Feature/POI payload is deferred to main-thread cache population.
 	if _native_generator != null and _native_generator.has_method("generate_chunk"):
 		var native_total_start_usec: int = Time.get_ticks_usec()
-		var inputs_start_usec: int = Time.get_ticks_usec()
-		var authoritative_inputs: Dictionary = _build_native_chunk_authoritative_inputs(base_tile, chunk_size)
-		var inputs_ms: float = float(Time.get_ticks_usec() - inputs_start_usec) / 1000.0
+		var request_start_usec: int = Time.get_ticks_usec()
+		var native_request: Dictionary = _build_native_chunk_generation_request(canonical_chunk, base_tile, chunk_size)
+		var request_ms: float = float(Time.get_ticks_usec() - request_start_usec) / 1000.0
 		var native_call_start_usec: int = Time.get_ticks_usec()
-		var native_result: Dictionary = _native_generator.generate_chunk(canonical_chunk, spawn_tile, authoritative_inputs)
+		var native_result: Dictionary = _native_generator.generate_chunk(canonical_chunk, spawn_tile, native_request)
 		var native_call_ms: float = float(Time.get_ticks_usec() - native_call_start_usec) / 1000.0
 		if not native_result.is_empty():
 			var validate_start_usec: int = Time.get_ticks_usec()
@@ -103,12 +104,12 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 				var prebaked_ms: float = float(Time.get_ticks_usec() - prebaked_start_usec) / 1000.0
 				native_result.merge(prebaked_visual_payload, true)
 				var native_total_ms: float = float(Time.get_ticks_usec() - native_total_start_usec) / 1000.0
-				_record_native_chunk_generation_metrics(canonical_chunk, inputs_ms, native_call_ms, validate_ms, prebaked_ms, native_total_ms)
+				_record_native_chunk_generation_metrics(canonical_chunk, request_ms, native_call_ms, validate_ms, prebaked_ms, native_total_ms)
 				if native_total_ms >= CHUNK_GEN_SLOW_LOG_THRESHOLD_MS:
-					print("[ChunkGen] slow native generate_chunk %s: %.1f ms (inputs=%.1f native=%.1f validate=%.1f prebaked=%.1f)" % [
+					print("[ChunkGen] slow native generate_chunk %s: %.1f ms (request=%.1f native=%.1f validate=%.1f prebaked=%.1f)" % [
 						canonical_chunk,
 						native_total_ms,
-						inputs_ms,
+						request_ms,
 						native_call_ms,
 						validate_ms,
 						prebaked_ms,
@@ -172,6 +173,14 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 	}
 	native_data.merge(_build_prebaked_visual_payload(native_data, canonical_chunk, base_tile, chunk_size), true)
 	return native_data
+
+func _build_native_chunk_generation_request(canonical_chunk: Vector2i, base_tile: Vector2i, chunk_size: int) -> Dictionary:
+	return {
+		"snapshot_kind": NATIVE_CHUNK_GENERATION_REQUEST_KIND,
+		"chunk_coord": canonical_chunk,
+		"base_tile": base_tile,
+		"chunk_size": chunk_size,
+	}
 
 func _build_native_chunk_authoritative_inputs(base_tile: Vector2i, chunk_size: int) -> Dictionary:
 	var tile_count: int = chunk_size * chunk_size
@@ -254,13 +263,13 @@ func _build_native_chunk_authoritative_inputs(base_tile: Vector2i, chunk_size: i
 
 func _record_native_chunk_generation_metrics(
 	canonical_chunk: Vector2i,
-	inputs_ms: float,
+	request_ms: float,
 	native_call_ms: float,
 	validate_ms: float,
 	prebaked_ms: float,
 	total_ms: float
 ) -> void:
-	WorldPerfProbe.record("ChunkGen.authoritative_inputs_ms %s" % [canonical_chunk], inputs_ms)
+	WorldPerfProbe.record("ChunkGen.native_request_ms %s" % [canonical_chunk], request_ms)
 	WorldPerfProbe.record("ChunkGen.native_call_ms %s" % [canonical_chunk], native_call_ms)
 	WorldPerfProbe.record("ChunkGen.native_validate_ms %s" % [canonical_chunk], validate_ms)
 	WorldPerfProbe.record("ChunkGen.prebaked_visual_payload_ms %s" % [canonical_chunk], prebaked_ms)

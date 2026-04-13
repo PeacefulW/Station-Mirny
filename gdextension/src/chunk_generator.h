@@ -74,7 +74,7 @@ public:
     ~ChunkGenerator();
 
     void initialize(int p_seed, Dictionary p_params);
-    Dictionary generate_chunk(Vector2i chunk_coord, Vector2i spawn_tile, Dictionary authoritative_inputs = Dictionary());
+    Dictionary generate_chunk(Vector2i chunk_coord, Vector2i spawn_tile, Dictionary generation_request = Dictionary());
     /// Fast single-tile sample: returns {terrain: int, biome: int}. No array allocations.
     Dictionary sample_tile(Vector2i world_pos, Vector2i spawn_tile);
 

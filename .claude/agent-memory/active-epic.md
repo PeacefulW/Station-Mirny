@@ -126,3 +126,32 @@
 
 #### Remaining validation
 - Manual F11 streaming run required to confirm `FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw` no longer spikes into hundreds of ms and that near chunks converge without visible raw build-up.
+
+---
+
+### Native chunk input bridge reduction — 2026-04-13
+**Status**: completed
+**Completed**: 2026-04-13
+
+#### Scope
+- Move runtime native chunk generation input sampling out of GDScript per-tile arrays and into `ChunkGenerator` C++.
+- Preserve the existing native output dictionary consumed by `Chunk.populate_native()`.
+
+#### Runtime contract
+- Runtime work class: background streaming generation.
+- Dirty unit: one chunk generation worker job.
+- Authoritative source: initialized native `WorldPrePass` snapshot plus native noise/biome params.
+- GDScript sync path: compact request dictionary only.
+- Escalation path: C++ `ChunkGenerator.generate_chunk()` owns per-tile channel/prepass/structure sampling.
+
+#### Acceptance tests
+- [x] GDScript runtime native path no longer calls `_build_native_chunk_authoritative_inputs()` before `generate_chunk()`.
+- [x] C++ native generation still accepts/validates compact request and returns the same payload shape.
+- [x] GDExtension build passes.
+- [x] Godot headless smoke check passes.
+
+#### Verification
+- `rg -n "_build_native_chunk_authoritative_inputs\\(|generate_chunk\\(" core/systems/world/chunk_content_builder.gd` shows runtime `generate_chunk(...)` now receives `native_request`, while `_build_native_chunk_authoritative_inputs()` remains only as a legacy/debug helper.
+- `python -m SCons platform=windows target=template_release` — passed.
+- `python -m SCons platform=windows target=template_debug` — passed after the locked Godot DLL was released.
+- `godot.exe --headless --path "C:\Users\peaceful\Station Peaceful\Station Peaceful" --quit-after 1` — passed.

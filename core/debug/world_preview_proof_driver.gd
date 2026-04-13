@@ -1219,38 +1219,30 @@ func _print_script_candidate_scores(world_generator: WorldGeneratorSingleton, ti
 func _print_native_authoritative_input_debug(world_generator: WorldGeneratorSingleton, tile_pos: Vector2i) -> void:
 	if world_generator == null:
 		return
-	var chunk_builder: ChunkContentBuilder = world_generator.get("_chunk_content_builder") as ChunkContentBuilder
-	if chunk_builder == null:
+	var native_generator: RefCounted = world_generator.get_native_chunk_generator()
+	if native_generator == null or not native_generator.has_method("sample_tile"):
 		return
-	var canonical_chunk: Vector2i = world_generator.canonicalize_chunk_coord(world_generator.tile_to_chunk(tile_pos))
-	var base_tile: Vector2i = world_generator.chunk_to_tile_origin(canonical_chunk)
-	var chunk_size: int = int(world_generator.balance.chunk_size_tiles) if world_generator.balance != null else 0
-	if chunk_size <= 0:
+	var spawn_tile: Vector2i = world_generator.spawn_tile
+	var native_sample: Dictionary = native_generator.sample_tile(tile_pos, spawn_tile) as Dictionary
+	if native_sample.is_empty():
 		return
-	var authoritative_inputs: Dictionary = chunk_builder.call("_build_native_chunk_authoritative_inputs", base_tile, chunk_size) as Dictionary
-	if authoritative_inputs.is_empty():
-		return
-	var local_x: int = tile_pos.x - base_tile.x
-	var local_y: int = tile_pos.y - base_tile.y
-	var idx: int = local_y * chunk_size + local_x
 	var debug_snapshot: Dictionary = {
-		"height": _float_value_at(authoritative_inputs.get("height_values", PackedFloat32Array()) as PackedFloat32Array, idx),
-		"temperature": _float_value_at(authoritative_inputs.get("temperature_values", PackedFloat32Array()) as PackedFloat32Array, idx),
-		"moisture": _float_value_at(authoritative_inputs.get("moisture_values", PackedFloat32Array()) as PackedFloat32Array, idx),
-		"ruggedness": _float_value_at(authoritative_inputs.get("ruggedness_values", PackedFloat32Array()) as PackedFloat32Array, idx),
-		"flora_density": _float_value_at(authoritative_inputs.get("flora_density_values", PackedFloat32Array()) as PackedFloat32Array, idx),
-		"latitude": _float_value_at(authoritative_inputs.get("latitude_values", PackedFloat32Array()) as PackedFloat32Array, idx),
-		"drainage": _float_value_at(authoritative_inputs.get("drainage_values", PackedFloat32Array()) as PackedFloat32Array, idx),
-		"slope": _float_value_at(authoritative_inputs.get("slope_values", PackedFloat32Array()) as PackedFloat32Array, idx),
-		"rain_shadow": _float_value_at(authoritative_inputs.get("rain_shadow_values", PackedFloat32Array()) as PackedFloat32Array, idx),
-		"continentalness": _float_value_at(authoritative_inputs.get("continentalness_values", PackedFloat32Array()) as PackedFloat32Array, idx),
-		"ridge_strength": _float_value_at(authoritative_inputs.get("ridge_strength_values", PackedFloat32Array()) as PackedFloat32Array, idx),
-		"river_width": _float_value_at(authoritative_inputs.get("river_width_values", PackedFloat32Array()) as PackedFloat32Array, idx),
-		"river_distance": _float_value_at(authoritative_inputs.get("river_distance_values", PackedFloat32Array()) as PackedFloat32Array, idx),
-		"floodplain_strength": _float_value_at(authoritative_inputs.get("floodplain_strength_values", PackedFloat32Array()) as PackedFloat32Array, idx),
-		"mountain_mass": _float_value_at(authoritative_inputs.get("mountain_mass_values", PackedFloat32Array()) as PackedFloat32Array, idx),
+		"height": float(native_sample.get("channel_height", 0.0)),
+		"temperature": float(native_sample.get("channel_temperature", 0.0)),
+		"moisture": float(native_sample.get("channel_moisture", 0.0)),
+		"ruggedness": float(native_sample.get("channel_ruggedness", 0.0)),
+		"flora_density": float(native_sample.get("channel_flora_density", 0.0)),
+		"latitude": float(native_sample.get("channel_latitude", 0.0)),
+		"drainage": float(native_sample.get("drainage", 0.0)),
+		"slope": float(native_sample.get("slope", 0.0)),
+		"rain_shadow": float(native_sample.get("rain_shadow", 0.0)),
+		"continentalness": float(native_sample.get("continentalness", 0.0)),
+		"ridge_strength": float(native_sample.get("ridge_strength", 0.0)),
+		"river_strength": float(native_sample.get("river_strength", 0.0)),
+		"floodplain_strength": float(native_sample.get("floodplain_strength", 0.0)),
+		"mountain_mass": float(native_sample.get("mountain_mass", 0.0)),
 	}
-	print("[CodexProof] authoritative chunk-input debug %s => %s" % [tile_pos, debug_snapshot])
+	print("[CodexProof] native authoritative sample debug %s => %s" % [tile_pos, debug_snapshot])
 
 func _sort_candidate_scores_desc(left: Dictionary, right: Dictionary) -> bool:
 	var left_score: float = float(left.get("score", -1.0))
@@ -1262,11 +1254,6 @@ func _sort_candidate_scores_desc(left: Dictionary, right: Dictionary) -> bool:
 	if left_priority != right_priority:
 		return left_priority > right_priority
 	return String(left.get("biome_id", &"")) < String(right.get("biome_id", &""))
-
-func _float_value_at(values: PackedFloat32Array, idx: int) -> float:
-	if idx < 0 or idx >= values.size():
-		return 0.0
-	return float(values[idx])
 
 func _resolve_world_generator() -> WorldGeneratorSingleton:
 	if _world_generator == null:

@@ -16,7 +16,7 @@ ChunkGenerator::~ChunkGenerator() {}
 
 void ChunkGenerator::_bind_methods() {
     ClassDB::bind_method(D_METHOD("initialize", "seed", "params"), &ChunkGenerator::initialize);
-    ClassDB::bind_method(D_METHOD("generate_chunk", "chunk_coord", "spawn_tile", "authoritative_inputs"), &ChunkGenerator::generate_chunk);
+    ClassDB::bind_method(D_METHOD("generate_chunk", "chunk_coord", "spawn_tile", "generation_request"), &ChunkGenerator::generate_chunk);
     ClassDB::bind_method(D_METHOD("sample_tile", "world_pos", "spawn_tile"), &ChunkGenerator::sample_tile);
 }
 
@@ -985,7 +985,7 @@ bool ChunkGenerator::is_flat_polar_surface(const BiomePrePassSample& prepass) co
 // generate_chunk() — authoritative pre-pass-backed pipeline
 // ============================================================
 
-Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_tile, Dictionary authoritative_inputs) {
+Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_tile, Dictionary generation_request) {
     if (!initialized || !has_authoritative_prepass) return Dictionary();
 
     int cs = chunk_size;
@@ -995,43 +995,63 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
     int base_x = canonical_cx * cs;
     int base_y = chunk_coord.y * cs;
 
-    String snapshot_kind = authoritative_inputs.get("snapshot_kind", String());
-    int snapshot_chunk_size = (int)authoritative_inputs.get("chunk_size", 0);
-    PackedFloat32Array height_inputs = authoritative_inputs.get("height_values", PackedFloat32Array());
-    PackedFloat32Array temperature_inputs = authoritative_inputs.get("temperature_values", PackedFloat32Array());
-    PackedFloat32Array moisture_inputs = authoritative_inputs.get("moisture_values", PackedFloat32Array());
-    PackedFloat32Array ruggedness_inputs = authoritative_inputs.get("ruggedness_values", PackedFloat32Array());
-    PackedFloat32Array flora_density_inputs = authoritative_inputs.get("flora_density_values", PackedFloat32Array());
-    PackedFloat32Array latitude_inputs = authoritative_inputs.get("latitude_values", PackedFloat32Array());
-    PackedFloat32Array drainage_inputs = authoritative_inputs.get("drainage_values", PackedFloat32Array());
-    PackedFloat32Array slope_inputs = authoritative_inputs.get("slope_values", PackedFloat32Array());
-    PackedFloat32Array rain_shadow_inputs = authoritative_inputs.get("rain_shadow_values", PackedFloat32Array());
-    PackedFloat32Array continentalness_inputs = authoritative_inputs.get("continentalness_values", PackedFloat32Array());
-    PackedFloat32Array ridge_strength_inputs = authoritative_inputs.get("ridge_strength_values", PackedFloat32Array());
-    PackedFloat32Array river_width_inputs = authoritative_inputs.get("river_width_values", PackedFloat32Array());
-    PackedFloat32Array river_distance_inputs = authoritative_inputs.get("river_distance_values", PackedFloat32Array());
-    PackedFloat32Array floodplain_strength_inputs = authoritative_inputs.get("floodplain_strength_values", PackedFloat32Array());
-    PackedFloat32Array mountain_mass_inputs = authoritative_inputs.get("mountain_mass_values", PackedFloat32Array());
-    bool valid_authoritative_inputs = snapshot_kind == "world_chunk_authoritative_inputs_v1"
-        && snapshot_chunk_size == cs
-        && height_inputs.size() == total
-        && temperature_inputs.size() == total
-        && moisture_inputs.size() == total
-        && ruggedness_inputs.size() == total
-        && flora_density_inputs.size() == total
-        && latitude_inputs.size() == total
-        && drainage_inputs.size() == total
-        && slope_inputs.size() == total
-        && rain_shadow_inputs.size() == total
-        && continentalness_inputs.size() == total
-        && ridge_strength_inputs.size() == total
-        && river_width_inputs.size() == total
-        && river_distance_inputs.size() == total
-        && floodplain_strength_inputs.size() == total
-        && mountain_mass_inputs.size() == total;
-    if (!valid_authoritative_inputs) {
+    String snapshot_kind = generation_request.get("snapshot_kind", String());
+    int snapshot_chunk_size = (int)generation_request.get("chunk_size", 0);
+    bool valid_native_request = snapshot_kind == "native_chunk_generation_request_v1"
+        && snapshot_chunk_size == cs;
+    PackedFloat32Array height_inputs;
+    PackedFloat32Array temperature_inputs;
+    PackedFloat32Array moisture_inputs;
+    PackedFloat32Array ruggedness_inputs;
+    PackedFloat32Array flora_density_inputs;
+    PackedFloat32Array latitude_inputs;
+    PackedFloat32Array drainage_inputs;
+    PackedFloat32Array slope_inputs;
+    PackedFloat32Array rain_shadow_inputs;
+    PackedFloat32Array continentalness_inputs;
+    PackedFloat32Array ridge_strength_inputs;
+    PackedFloat32Array river_width_inputs;
+    PackedFloat32Array river_distance_inputs;
+    PackedFloat32Array floodplain_strength_inputs;
+    PackedFloat32Array mountain_mass_inputs;
+    bool valid_authoritative_inputs = false;
+    if (!valid_native_request) {
+        height_inputs = generation_request.get("height_values", PackedFloat32Array());
+        temperature_inputs = generation_request.get("temperature_values", PackedFloat32Array());
+        moisture_inputs = generation_request.get("moisture_values", PackedFloat32Array());
+        ruggedness_inputs = generation_request.get("ruggedness_values", PackedFloat32Array());
+        flora_density_inputs = generation_request.get("flora_density_values", PackedFloat32Array());
+        latitude_inputs = generation_request.get("latitude_values", PackedFloat32Array());
+        drainage_inputs = generation_request.get("drainage_values", PackedFloat32Array());
+        slope_inputs = generation_request.get("slope_values", PackedFloat32Array());
+        rain_shadow_inputs = generation_request.get("rain_shadow_values", PackedFloat32Array());
+        continentalness_inputs = generation_request.get("continentalness_values", PackedFloat32Array());
+        ridge_strength_inputs = generation_request.get("ridge_strength_values", PackedFloat32Array());
+        river_width_inputs = generation_request.get("river_width_values", PackedFloat32Array());
+        river_distance_inputs = generation_request.get("river_distance_values", PackedFloat32Array());
+        floodplain_strength_inputs = generation_request.get("floodplain_strength_values", PackedFloat32Array());
+        mountain_mass_inputs = generation_request.get("mountain_mass_values", PackedFloat32Array());
+        valid_authoritative_inputs = snapshot_kind == "world_chunk_authoritative_inputs_v1"
+            && snapshot_chunk_size == cs
+            && height_inputs.size() == total
+            && temperature_inputs.size() == total
+            && moisture_inputs.size() == total
+            && ruggedness_inputs.size() == total
+            && flora_density_inputs.size() == total
+            && latitude_inputs.size() == total
+            && drainage_inputs.size() == total
+            && slope_inputs.size() == total
+            && rain_shadow_inputs.size() == total
+            && continentalness_inputs.size() == total
+            && ridge_strength_inputs.size() == total
+            && river_width_inputs.size() == total
+            && river_distance_inputs.size() == total
+            && floodplain_strength_inputs.size() == total
+            && mountain_mass_inputs.size() == total;
+    }
+    if (!valid_authoritative_inputs && !valid_native_request) {
         UtilityFunctions::push_error(
-            "[ChunkGenerator] generate_chunk requires authoritative chunk-local inputs from the WorldComputeContext pipeline; runtime native generation will not self-sample a divergent channel source."
+            "[ChunkGenerator] generate_chunk requires native_chunk_generation_request_v1 or legacy authoritative chunk inputs; native generation samples channels from its authoritative WorldPrePass snapshot."
         );
         return Dictionary();
     }
@@ -1062,23 +1082,28 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
             int wy = base_y + ly;
             int idx = ly * cs + lx;
 
-            Channels ch{};
-            ch.height = clampf(height_inputs[idx], 0.0f, 1.0f);
-            ch.temperature = clampf(temperature_inputs[idx], 0.0f, 1.0f);
-            ch.moisture = clampf(moisture_inputs[idx], 0.0f, 1.0f);
-            ch.ruggedness = clampf(ruggedness_inputs[idx], 0.0f, 1.0f);
-            ch.flora_density = clampf(flora_density_inputs[idx], 0.0f, 1.0f);
-            ch.latitude = clampf(latitude_inputs[idx], 0.0f, 1.0f);
             BiomePrePassSample prepass{};
-            prepass.drainage = clampf(drainage_inputs[idx], 0.0f, 1.0f);
-            prepass.slope = clampf(slope_inputs[idx], 0.0f, 1.0f);
-            prepass.rain_shadow = clampf(rain_shadow_inputs[idx], 0.0f, 1.0f);
-            prepass.continentalness = clampf(continentalness_inputs[idx], 0.0f, 1.0f);
-            prepass.ridge_strength = clampf(ridge_strength_inputs[idx], 0.0f, 1.0f);
-            prepass.river_width = std::max(0.0f, river_width_inputs[idx]);
-            prepass.river_distance = std::max(0.0f, river_distance_inputs[idx]);
-            prepass.floodplain_strength = clampf(floodplain_strength_inputs[idx], 0.0f, 1.0f);
-            prepass.mountain_mass = clampf(mountain_mass_inputs[idx], 0.0f, 1.0f);
+            Channels ch{};
+            if (valid_authoritative_inputs) {
+                ch.height = clampf(height_inputs[idx], 0.0f, 1.0f);
+                ch.temperature = clampf(temperature_inputs[idx], 0.0f, 1.0f);
+                ch.moisture = clampf(moisture_inputs[idx], 0.0f, 1.0f);
+                ch.ruggedness = clampf(ruggedness_inputs[idx], 0.0f, 1.0f);
+                ch.flora_density = clampf(flora_density_inputs[idx], 0.0f, 1.0f);
+                ch.latitude = clampf(latitude_inputs[idx], 0.0f, 1.0f);
+                prepass.drainage = clampf(drainage_inputs[idx], 0.0f, 1.0f);
+                prepass.slope = clampf(slope_inputs[idx], 0.0f, 1.0f);
+                prepass.rain_shadow = clampf(rain_shadow_inputs[idx], 0.0f, 1.0f);
+                prepass.continentalness = clampf(continentalness_inputs[idx], 0.0f, 1.0f);
+                prepass.ridge_strength = clampf(ridge_strength_inputs[idx], 0.0f, 1.0f);
+                prepass.river_width = std::max(0.0f, river_width_inputs[idx]);
+                prepass.river_distance = std::max(0.0f, river_distance_inputs[idx]);
+                prepass.floodplain_strength = clampf(floodplain_strength_inputs[idx], 0.0f, 1.0f);
+                prepass.mountain_mass = clampf(mountain_mass_inputs[idx], 0.0f, 1.0f);
+            } else {
+                ch = sample_channels(wx, wy);
+                prepass = sample_biome_prepass(wx, wy);
+            }
             StructureContext sc = build_structure_context_from_prepass(prepass);
             BiomeSelection biome_selection = resolve_biome_selection(wx, wy, ch, sc, prepass);
             VariationResult vr = resolve_variation(
