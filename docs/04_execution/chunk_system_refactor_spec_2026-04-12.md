@@ -310,6 +310,28 @@ Responsibility:
 
 ---
 
+## Stable ownership freeze after Iteration 10
+
+This is the stable implemented ownership map at the end of the refactor. Future chunk-system work should extend these owners instead of reintroducing monolithic state in `chunk_manager.gd` or `chunk.gd`.
+
+- `chunk_manager.gd`: public world API, active z/player coordination, service wiring, mining/topology orchestration, final chunk install commit facade.
+- `chunk_streaming_service.gd`: runtime load queue, request relevance/pruning, async generation handoff, staged create/finalize routing, unload routing.
+- `chunk_visual_scheduler.gd`: visual task queues, task versions, worker visual-compute maps, scheduler telemetry, and budgeted tick facades.
+- `chunk_surface_payload_cache.gd`: bounded z=0 native surface payload cache, flora payload/result cache, duplicated-array reuse, LRU bookkeeping.
+- `chunk_seam_service.gd`: seam refresh queue, duplicate suppression, loaded-neighbor border repair enqueueing, mining-side seam follow-up repair.
+- `chunk_debug_system.gd`: forensic incidents, trace contexts, bounded queue/task/debug snapshot data, optional diagnostics only.
+- `chunk.gd`: loaded chunk terrain storage, runtime diff storage, chunk-local visual state, and thin facades to extracted fog/flora/debug/kernel helpers.
+- `chunk_visual_kernel.gd` plus native `ChunkVisualKernels`: shared visual classification and command/payload generation rules.
+- `chunk_fog_presenter.gd`, `chunk_flora_presenter.gd`, and `chunk_debug_renderer.gd`: chunk-local presentation delegates for fog, flora, and debug markers.
+- Native `MountainTopologyBuilder`: mandatory production full topology rebuild compute; removed GDScript full-rebuild helpers must not be restored as production fallback.
+- Native `LoadedOpenPocketQuery`: mandatory production loaded open-pocket traversal; GDScript flood-fill fallback must not be restored.
+
+Allowed synchronous dirty unit after the freeze:
+- mining may mutate one loaded tile, update small same-chunk/cross-chunk seam state, and enqueue visual/topology consequences.
+- larger topology, visual, seam, streaming, flora, and debug work stays native-backed, queued, budgeted, or diagnostic-only according to the owner above.
+
+---
+
 ## Mandatory native contract
 
 ## Required native classes after this refactor

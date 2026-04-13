@@ -1,18 +1,22 @@
 class_name Chunk
 extends Node2D
 
+const ChunkDebugRendererScript = preload("res://core/systems/world/chunk_debug_renderer.gd")
+const ChunkFogPresenterScript = preload("res://core/systems/world/chunk_fog_presenter.gd")
+const ChunkFloraPresenterScript = preload("res://core/systems/world/chunk_flora_presenter.gd")
 const ChunkFloraResultScript = preload("res://core/systems/world/chunk_flora_result.gd")
+const ChunkVisualKernelScript = preload("res://core/systems/world/chunk_visual_kernel.gd")
 
 ## Один чанк мира.
 ## Хранит terrain-данные, exterior shell cover и локальные модификации.
 
-const REDRAW_PHASE_TERRAIN: int = 0
-const REDRAW_PHASE_COVER: int = 1
-const REDRAW_PHASE_CLIFF: int = 2
-const REDRAW_PHASE_FLORA: int = 3
-const REDRAW_PHASE_DEBUG_INTERIOR: int = 4
-const REDRAW_PHASE_DEBUG_COLLISION: int = 5
-const REDRAW_PHASE_DONE: int = 6
+const REDRAW_PHASE_TERRAIN: int = ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN
+const REDRAW_PHASE_COVER: int = ChunkVisualKernelScript.REDRAW_PHASE_COVER
+const REDRAW_PHASE_CLIFF: int = ChunkVisualKernelScript.REDRAW_PHASE_CLIFF
+const REDRAW_PHASE_FLORA: int = ChunkVisualKernelScript.REDRAW_PHASE_FLORA
+const REDRAW_PHASE_DEBUG_INTERIOR: int = ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_INTERIOR
+const REDRAW_PHASE_DEBUG_COLLISION: int = ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_COLLISION
+const REDRAW_PHASE_DONE: int = ChunkVisualKernelScript.REDRAW_PHASE_DONE
 
 enum ChunkVisualState {
 	UNINITIALIZED,
@@ -24,112 +28,47 @@ enum ChunkVisualState {
 }
 
 const REDRAW_TIME_BUDGET_USEC: int = 2500
-const _CARDINAL_DIRS := [
-	Vector2i.LEFT,
-	Vector2i.RIGHT,
-	Vector2i.UP,
-	Vector2i.DOWN,
-]
-const _INTERIOR_FAMILY_TARGET_COUNT: int = 3
-const _INTERIOR_FAMILY_WINDOW_SIZE: int = 3
-const _INTERIOR_FAMILY_SCALE: float = 18.0
-const _INTERIOR_FAMILY_DETAIL_SCALE: float = 9.0
-const _INTERIOR_FAMILY_SEED: int = 13183
-const _INTERIOR_VARIATION_SEED: int = 12345
-const _INTERIOR_REHASH_SEED: int = 12442
-const _INTERIOR_MACRO_ENABLED: bool = false
+const _CARDINAL_DIRS := ChunkVisualKernelScript._CARDINAL_DIRS
+const _INTERIOR_FAMILY_TARGET_COUNT: int = ChunkVisualKernelScript._INTERIOR_FAMILY_TARGET_COUNT
+const _INTERIOR_FAMILY_WINDOW_SIZE: int = ChunkVisualKernelScript._INTERIOR_FAMILY_WINDOW_SIZE
+const _INTERIOR_FAMILY_SCALE: float = ChunkVisualKernelScript._INTERIOR_FAMILY_SCALE
+const _INTERIOR_FAMILY_DETAIL_SCALE: float = ChunkVisualKernelScript._INTERIOR_FAMILY_DETAIL_SCALE
+const _INTERIOR_FAMILY_SEED: int = ChunkVisualKernelScript._INTERIOR_FAMILY_SEED
+const _INTERIOR_VARIATION_SEED: int = ChunkVisualKernelScript._INTERIOR_VARIATION_SEED
+const _INTERIOR_REHASH_SEED: int = ChunkVisualKernelScript._INTERIOR_REHASH_SEED
+const _INTERIOR_MACRO_ENABLED: bool = true
 const _INTERIOR_MACRO_SAMPLES_PER_TILE: int = 1
 const _INTERIOR_MACRO_DUST_SEED: int = 16001
 const _INTERIOR_MACRO_MOSS_SEED: int = 16057
 const _INTERIOR_MACRO_CRACK_SEED: int = 16111
 const _INTERIOR_MACRO_PEBBLE_SEED: int = 16183
-const _ECOTONE_BLEND_SEED: int = 18257
-const _ECOTONE_BLEND_SCALE: float = 6.0
-const _ECOTONE_BLEND_START: float = 0.18
-const _HASH32_MASK: int = 0xffffffff
-const _COVER_REVEAL_DIRS := [
-	Vector2i.LEFT,
-	Vector2i.RIGHT,
-	Vector2i.UP,
-	Vector2i.DOWN,
-	Vector2i(-1, -1),
-	Vector2i(1, -1),
-	Vector2i(-1, 1),
-	Vector2i(1, 1),
-]
-const VISUAL_BATCH_MODE_PHASE: StringName = &"phase"
-const VISUAL_BATCH_MODE_DIRTY: StringName = &"dirty"
-const VISUAL_COMMAND_OP_SET: int = 0
-const VISUAL_COMMAND_OP_ERASE: int = 1
-const VISUAL_APPLY_BUFFER_STRIDE: int = 7
-const VISUAL_LAYER_TERRAIN: int = 0
-const VISUAL_LAYER_GROUND_FACE: int = 1
-const VISUAL_LAYER_ROCK: int = 2
-const VISUAL_LAYER_COVER: int = 3
-const VISUAL_LAYER_CLIFF: int = 4
-const VISUAL_COMMAND_BUFFER_STRIDE: int = 8
-const FLORA_PUBLISH_LOG_ARG: String = "codex_flora_publish_log"
+const _ECOTONE_BLEND_SEED: int = ChunkVisualKernelScript._ECOTONE_BLEND_SEED
+const _ECOTONE_BLEND_SCALE: float = ChunkVisualKernelScript._ECOTONE_BLEND_SCALE
+const _ECOTONE_BLEND_START: float = ChunkVisualKernelScript._ECOTONE_BLEND_START
+const _HASH32_MASK: int = ChunkVisualKernelScript._HASH32_MASK
+const _COVER_REVEAL_DIRS := ChunkVisualKernelScript._COVER_REVEAL_DIRS
+const VISUAL_BATCH_MODE_PHASE: StringName = ChunkVisualKernelScript.VISUAL_BATCH_MODE_PHASE
+const VISUAL_BATCH_MODE_DIRTY: StringName = ChunkVisualKernelScript.VISUAL_BATCH_MODE_DIRTY
+const VISUAL_COMMAND_OP_SET: int = ChunkVisualKernelScript.VISUAL_COMMAND_OP_SET
+const VISUAL_COMMAND_OP_ERASE: int = ChunkVisualKernelScript.VISUAL_COMMAND_OP_ERASE
+const VISUAL_APPLY_BUFFER_STRIDE: int = ChunkVisualKernelScript.VISUAL_APPLY_BUFFER_STRIDE
+const VISUAL_LAYER_TERRAIN: int = ChunkVisualKernelScript.VISUAL_LAYER_TERRAIN
+const VISUAL_LAYER_GROUND_FACE: int = ChunkVisualKernelScript.VISUAL_LAYER_GROUND_FACE
+const VISUAL_LAYER_ROCK: int = ChunkVisualKernelScript.VISUAL_LAYER_ROCK
+const VISUAL_LAYER_COVER: int = ChunkVisualKernelScript.VISUAL_LAYER_COVER
+const VISUAL_LAYER_CLIFF: int = ChunkVisualKernelScript.VISUAL_LAYER_CLIFF
+const VISUAL_COMMAND_BUFFER_STRIDE: int = ChunkVisualKernelScript.VISUAL_COMMAND_BUFFER_STRIDE
 const NATIVE_VISUAL_KERNELS_CLASS: StringName = &"ChunkVisualKernels"
-const PREBAKED_ROCK_VISUAL_NONE: int = 255
-const PREBAKED_GROUND_FACE_NONE: int = -1
-const PREBAKED_COVER_NONE: int = -1
-const PREBAKED_CLIFF_NONE: int = 0
-const PREBAKED_CLIFF_SOUTH: int = 1
-const PREBAKED_CLIFF_WEST: int = 2
-const PREBAKED_CLIFF_EAST: int = 3
-const PREBAKED_CLIFF_TOP: int = 4
-const PREBAKED_CLIFF_SURFACE_NORTH: int = 5
-const PREBAKED_MASK_ALT_SHIFT: int = 8
-
-class FloraBatchRenderer:
-	extends Node2D
-
-	var _layers: Array = []
-	var _texture_cache: Dictionary = {}
-
-	func clear_render_packet() -> void:
-		_layers.clear()
-		visible = false
-		queue_redraw()
-
-	func set_render_packet(packet: Dictionary) -> void:
-		_layers = (packet.get("layers", []) as Array).duplicate(true)
-		_cache_packet_textures()
-		visible = not _layers.is_empty()
-		queue_redraw()
-
-	func _draw() -> void:
-		for layer_variant: Variant in _layers:
-			var layer: Dictionary = layer_variant as Dictionary
-			for item_variant: Variant in layer.get("items", []):
-				var item: Dictionary = item_variant as Dictionary
-				var draw_rect_data := Rect2(
-					item.get("position", Vector2.ZERO) as Vector2,
-					item.get("size", Vector2.ZERO) as Vector2
-				)
-				var texture_path: String = String(item.get("texture_path", ""))
-				var texture: Texture2D = _get_cached_texture(texture_path)
-				if texture != null:
-					draw_texture_rect(texture, draw_rect_data, false, Color.WHITE)
-					continue
-				draw_rect(draw_rect_data, item.get("color", Color.WHITE) as Color, true)
-
-	func _cache_packet_textures() -> void:
-		for layer_variant: Variant in _layers:
-			var layer: Dictionary = layer_variant as Dictionary
-			for item_variant: Variant in layer.get("items", []):
-				var item: Dictionary = item_variant as Dictionary
-				var texture_path: String = String(item.get("texture_path", ""))
-				if texture_path.is_empty() or _texture_cache.has(texture_path):
-					continue
-				_texture_cache[texture_path] = ResourceLoader.load(texture_path, "Texture2D")
-
-	func _get_cached_texture(texture_path: String) -> Texture2D:
-		if texture_path.is_empty():
-			return null
-		if not _texture_cache.has(texture_path):
-			_texture_cache[texture_path] = ResourceLoader.load(texture_path, "Texture2D")
-		return _texture_cache.get(texture_path, null) as Texture2D
+const PREBAKED_ROCK_VISUAL_NONE: int = ChunkVisualKernelScript.PREBAKED_ROCK_VISUAL_NONE
+const PREBAKED_GROUND_FACE_NONE: int = ChunkVisualKernelScript.PREBAKED_GROUND_FACE_NONE
+const PREBAKED_COVER_NONE: int = ChunkVisualKernelScript.PREBAKED_COVER_NONE
+const PREBAKED_CLIFF_NONE: int = ChunkVisualKernelScript.PREBAKED_CLIFF_NONE
+const PREBAKED_CLIFF_SOUTH: int = ChunkVisualKernelScript.PREBAKED_CLIFF_SOUTH
+const PREBAKED_CLIFF_WEST: int = ChunkVisualKernelScript.PREBAKED_CLIFF_WEST
+const PREBAKED_CLIFF_EAST: int = ChunkVisualKernelScript.PREBAKED_CLIFF_EAST
+const PREBAKED_CLIFF_TOP: int = ChunkVisualKernelScript.PREBAKED_CLIFF_TOP
+const PREBAKED_CLIFF_SURFACE_NORTH: int = ChunkVisualKernelScript.PREBAKED_CLIFF_SURFACE_NORTH
+const PREBAKED_MASK_ALT_SHIFT: int = ChunkVisualKernelScript.PREBAKED_MASK_ALT_SHIFT
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 var is_loaded: bool = false
@@ -141,21 +80,24 @@ var _rock_layer: TileMapLayer = null
 var _interior_macro_layer: Sprite2D = null
 var _cover_layer: TileMapLayer = null
 var _cliff_layer: TileMapLayer = null
-var _fog_layer: TileMapLayer = null
-var _flora_renderer: FloraBatchRenderer = null
-var _flora_result: ChunkFloraResultScript = null
-var _flora_payload: Dictionary = {}
-var _debug_root: Node2D = null
+var _fog_presenter = null
+var _flora_presenter = null
+var _debug_renderer = null
 var _tile_size: int = 64
 var _chunk_size: int = 64
 var _terrain_tileset: TileSet = null
 var _overlay_tileset: TileSet = null
 var _chunk_manager: ChunkManager = null
+var _wg_has_tile_to_local_in_chunk: bool = false
+var _wg_has_chunk_local_to_tile: bool = false
 var _modified_tiles: Dictionary = {}
 var _biome: BiomeData = null
 var _terrain_bytes: PackedByteArray = PackedByteArray()
-var _cover_edge_set: Dictionary = {}
-var _cover_edge_set_dirty_tiles: Dictionary = {}
+var _cover_edge_set: PackedByteArray = PackedByteArray()
+var _cover_edge_set_cache: Dictionary = {}
+var _cover_edge_set_cache_valid: bool = false
+var _cover_edge_set_dirty_tiles: PackedByteArray = PackedByteArray()
+var _cover_edge_set_dirty_tile_queue: Array[int] = []
 var _cover_edge_set_valid: bool = false
 var _cover_edge_set_requires_full_rebuild: bool = true
 var _height_bytes: PackedFloat32Array = PackedFloat32Array()
@@ -173,10 +115,14 @@ var _prebaked_visual_payload_valid: bool = false
 var _has_mountain: bool = false
 var _redraw_phase: int = REDRAW_PHASE_DONE
 var _redraw_tile_index: int = 0
-var _pending_border_dirty: Dictionary = {}
+var _pending_border_dirty: PackedByteArray = PackedByteArray()
+var _pending_border_dirty_queue: Array[int] = []
+var _pending_border_dirty_queue_head: int = 0
+var _pending_border_dirty_count: int = 0
 var _border_fix_pending_reason_versions: Dictionary = {}
 var _border_fix_applied_reason_versions: Dictionary = {}
-var _revealed_local_cover_tiles: Dictionary = {}
+var _revealed_local_cover_tiles: PackedByteArray = PackedByteArray()
+var _revealed_local_cover_tile_count: int = 0
 var _cover_tile_version: int = 0
 var _is_underground: bool = false
 var _use_operation_global_terrain_cache: bool = false
@@ -207,6 +153,7 @@ func setup(
 	_terrain_tileset = p_terrain_tileset
 	_overlay_tileset = p_overlay_tileset
 	_chunk_manager = p_chunk_manager
+	_cache_world_generator_capabilities()
 	name = "Chunk_%d_%d" % [chunk_coord.x, chunk_coord.y]
 	sync_display_position(chunk_coord)
 	_terrain_layer = _create_layer("Terrain", _terrain_tileset, -12)
@@ -216,14 +163,23 @@ func setup(
 		_interior_macro_layer = _create_interior_macro_layer("InteriorMacro", -9)
 	_cliff_layer = _create_layer("Cliffs", _overlay_tileset, -9)
 	_cover_layer = _create_layer("MountainCover", _terrain_tileset, 6)
-	_flora_renderer = FloraBatchRenderer.new()
-	_flora_renderer.name = "Flora"
-	_flora_renderer.z_index = -5
-	add_child(_flora_renderer)
-	_debug_root = Node2D.new()
-	_debug_root.name = "DebugRoot"
-	_debug_root.z_index = 50
-	add_child(_debug_root)
+	_fog_presenter = ChunkFogPresenterScript.new()
+	_fog_presenter.setup(self, _chunk_size)
+	_flora_presenter = ChunkFloraPresenterScript.new()
+	_flora_presenter.name = "Flora"
+	_flora_presenter.z_index = -5
+	_flora_presenter.setup(_tile_size)
+	add_child(_flora_presenter)
+	if OS.is_debug_build():
+		_debug_renderer = ChunkDebugRendererScript.new()
+		_debug_renderer.name = "DebugRenderer"
+		_debug_renderer.z_index = 50
+		add_child(_debug_renderer)
+	_ensure_chunk_local_hot_storage()
+
+func _cache_world_generator_capabilities() -> void:
+	_wg_has_tile_to_local_in_chunk = WorldGenerator != null and WorldGenerator.has_method("tile_to_local_in_chunk")
+	_wg_has_chunk_local_to_tile = WorldGenerator != null and WorldGenerator.has_method("chunk_local_to_tile")
 
 func sync_display_position(reference_chunk: Vector2i) -> void:
 	var display_chunk: Vector2i = chunk_coord
@@ -234,11 +190,8 @@ func sync_display_position(reference_chunk: Vector2i) -> void:
 
 func populate_native(native_data: Dictionary, saved_modifications: Dictionary, instant: bool = false) -> void:
 	_modified_tiles = saved_modifications.duplicate()
+	_ensure_chunk_local_hot_storage()
 	_reset_border_fix_dedupe_state()
-	_cover_edge_set = {}
-	_cover_edge_set_dirty_tiles = {}
-	_cover_edge_set_valid = false
-	_cover_edge_set_requires_full_rebuild = true
 	_terrain_bytes = native_data.get("terrain", PackedByteArray())
 	_height_bytes = native_data.get("height", PackedFloat32Array())
 	_variation_bytes = native_data.get("variation", PackedByteArray())
@@ -246,8 +199,12 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 	_secondary_biome_bytes = native_data.get("secondary_biome", PackedByteArray()) as PackedByteArray
 	_ecotone_values = native_data.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array
 	_load_prebaked_visual_payload(native_data)
-	_flora_result = null
-	_flora_payload = {}
+	if _fog_presenter != null:
+		_fog_presenter.reset_runtime_state()
+	if _flora_presenter != null:
+		_flora_presenter.reset_runtime_state()
+	if _debug_renderer != null:
+		_debug_renderer.clear_markers()
 	_has_full_publication_once = false
 	_interior_macro_dirty = _INTERIOR_MACRO_ENABLED
 	if _variation_bytes.size() != _terrain_bytes.size():
@@ -314,7 +271,7 @@ func complete_terrain_phase_now() -> void:
 	apply_visual_phase_batch(computed_batch)
 
 func global_to_local(global_tile: Vector2i) -> Vector2i:
-	if WorldGenerator and WorldGenerator.has_method("tile_to_local_in_chunk"):
+	if _wg_has_tile_to_local_in_chunk and WorldGenerator:
 		return WorldGenerator.tile_to_local_in_chunk(global_tile, chunk_coord)
 	return Vector2i(
 		global_tile.x - chunk_coord.x * _chunk_size,
@@ -351,8 +308,165 @@ func _bump_cover_tile_version() -> int:
 		_cover_tile_version = 1
 	return _cover_tile_version
 
+func _resize_zero_byte_array(array: PackedByteArray, size: int) -> PackedByteArray:
+	if array.size() != size:
+		array.resize(size)
+	if size > 0:
+		array.fill(0)
+	return array
+
+func _ensure_chunk_local_hot_storage() -> void:
+	var tile_count: int = maxi(0, _chunk_size * _chunk_size)
+	_cover_edge_set = _resize_zero_byte_array(_cover_edge_set, tile_count)
+	_cover_edge_set_cache.clear()
+	_cover_edge_set_cache_valid = false
+	_cover_edge_set_dirty_tiles = _resize_zero_byte_array(_cover_edge_set_dirty_tiles, tile_count)
+	_cover_edge_set_dirty_tile_queue.clear()
+	_cover_edge_set_valid = false
+	_cover_edge_set_requires_full_rebuild = true
+	_pending_border_dirty = _resize_zero_byte_array(_pending_border_dirty, tile_count)
+	_pending_border_dirty_queue.clear()
+	_pending_border_dirty_queue_head = 0
+	_pending_border_dirty_count = 0
+	_revealed_local_cover_tiles = _resize_zero_byte_array(_revealed_local_cover_tiles, tile_count)
+	_revealed_local_cover_tile_count = 0
+
+func _local_tile_index(local_tile: Vector2i) -> int:
+	if not _is_inside(local_tile):
+		return -1
+	return local_tile.y * _chunk_size + local_tile.x
+
+func _has_revealed_local_cover_tile(local_tile: Vector2i) -> bool:
+	var tile_index: int = _local_tile_index(local_tile)
+	return tile_index >= 0 \
+		and tile_index < _revealed_local_cover_tiles.size() \
+		and _revealed_local_cover_tiles[tile_index] != 0
+
+func _set_revealed_local_cover_tile(local_tile: Vector2i, revealed: bool) -> bool:
+	var tile_index: int = _local_tile_index(local_tile)
+	if tile_index < 0 or tile_index >= _revealed_local_cover_tiles.size():
+		return false
+	var next_value: int = 1 if revealed else 0
+	if _revealed_local_cover_tiles[tile_index] == next_value:
+		return false
+	_revealed_local_cover_tiles[tile_index] = next_value
+	if revealed:
+		_revealed_local_cover_tile_count += 1
+	else:
+		_revealed_local_cover_tile_count = maxi(0, _revealed_local_cover_tile_count - 1)
+	return true
+
+func _revealed_local_cover_tiles_equal(cover_tiles: Dictionary) -> bool:
+	if _revealed_local_cover_tile_count != cover_tiles.size():
+		return false
+	for local_tile: Vector2i in cover_tiles:
+		if not _has_revealed_local_cover_tile(local_tile):
+			return false
+	return true
+
+func _replace_revealed_local_cover_tiles(cover_tiles: Dictionary) -> bool:
+	var cover_state_changed: bool = not _revealed_local_cover_tiles_equal(cover_tiles)
+	if not cover_state_changed:
+		return false
+	if not _revealed_local_cover_tiles.is_empty():
+		_revealed_local_cover_tiles.fill(0)
+	_revealed_local_cover_tile_count = 0
+	for local_tile: Vector2i in cover_tiles:
+		_set_revealed_local_cover_tile(local_tile, true)
+	return true
+
+func _revealed_local_cover_tiles_to_dictionary() -> Dictionary:
+	var cover_tiles: Dictionary = {}
+	if _revealed_local_cover_tile_count <= 0:
+		return cover_tiles
+	for tile_index: int in range(_revealed_local_cover_tiles.size()):
+		if _revealed_local_cover_tiles[tile_index] == 0:
+			continue
+		cover_tiles[_tile_from_index(tile_index)] = true
+	return cover_tiles
+
+func _queue_cover_edge_set_dirty_tile(local_tile: Vector2i) -> void:
+	var tile_index: int = _local_tile_index(local_tile)
+	if tile_index < 0 or tile_index >= _cover_edge_set_dirty_tiles.size():
+		return
+	if _cover_edge_set_dirty_tiles[tile_index] != 0:
+		return
+	_cover_edge_set_dirty_tiles[tile_index] = 1
+	_cover_edge_set_dirty_tile_queue.append(tile_index)
+
+func _add_pending_border_dirty_tile(local_tile: Vector2i) -> bool:
+	var tile_index: int = _local_tile_index(local_tile)
+	if tile_index < 0 or tile_index >= _pending_border_dirty.size():
+		return false
+	if _pending_border_dirty[tile_index] != 0:
+		return false
+	_pending_border_dirty[tile_index] = 1
+	_pending_border_dirty_queue.append(tile_index)
+	_pending_border_dirty_count += 1
+	return true
+
+func _trim_pending_border_dirty_queue() -> void:
+	while _pending_border_dirty_queue_head < _pending_border_dirty_queue.size():
+		var tile_index: int = int(_pending_border_dirty_queue[_pending_border_dirty_queue_head])
+		if tile_index >= 0 \
+			and tile_index < _pending_border_dirty.size() \
+			and _pending_border_dirty[tile_index] != 0:
+			break
+		_pending_border_dirty_queue_head += 1
+	if _pending_border_dirty_queue_head <= 0:
+		return
+	if _pending_border_dirty_queue_head >= _pending_border_dirty_queue.size():
+		_pending_border_dirty_queue.clear()
+		_pending_border_dirty_queue_head = 0
+		return
+	if _pending_border_dirty_queue_head < 64 \
+		and _pending_border_dirty_queue_head * 2 < _pending_border_dirty_queue.size():
+		return
+	var remaining_queue: Array[int] = []
+	for queue_index: int in range(_pending_border_dirty_queue_head, _pending_border_dirty_queue.size()):
+		remaining_queue.append(int(_pending_border_dirty_queue[queue_index]))
+	_pending_border_dirty_queue = remaining_queue
+	_pending_border_dirty_queue_head = 0
+
+func has_pending_border_dirty() -> bool:
+	return _pending_border_dirty_count > 0
+
+func get_pending_border_dirty_count() -> int:
+	return _pending_border_dirty_count
+
+func collect_pending_border_dirty_tiles(limit: int = -1) -> Array[Vector2i]:
+	var tiles: Array[Vector2i] = []
+	if _pending_border_dirty_count <= 0:
+		return tiles
+	var target_count: int = _pending_border_dirty_count if limit <= 0 else mini(_pending_border_dirty_count, limit)
+	var queue_index: int = _pending_border_dirty_queue_head
+	while queue_index < _pending_border_dirty_queue.size() and tiles.size() < target_count:
+		var tile_index: int = int(_pending_border_dirty_queue[queue_index])
+		if tile_index >= 0 and tile_index < _pending_border_dirty.size() and _pending_border_dirty[tile_index] != 0:
+			tiles.append(_tile_from_index(tile_index))
+		queue_index += 1
+	return tiles
+
+func discard_pending_border_dirty_tiles(tiles: Array) -> void:
+	if tiles.is_empty() or _pending_border_dirty_count <= 0:
+		return
+	for tile_variant: Variant in tiles:
+		var local_tile: Vector2i = tile_variant as Vector2i
+		var tile_index: int = _local_tile_index(local_tile)
+		if tile_index < 0 or tile_index >= _pending_border_dirty.size():
+			continue
+		if _pending_border_dirty[tile_index] == 0:
+			continue
+		_pending_border_dirty[tile_index] = 0
+		_pending_border_dirty_count = maxi(0, _pending_border_dirty_count - 1)
+	_trim_pending_border_dirty_queue()
+
 func _reset_border_fix_dedupe_state() -> void:
-	_pending_border_dirty.clear()
+	if not _pending_border_dirty.is_empty():
+		_pending_border_dirty.fill(0)
+	_pending_border_dirty_queue.clear()
+	_pending_border_dirty_queue_head = 0
+	_pending_border_dirty_count = 0
 	_border_fix_pending_reason_versions.clear()
 	_border_fix_applied_reason_versions.clear()
 
@@ -430,11 +544,11 @@ func apply_revealed_local_cover_tiles_batch(
 	var cover_state_changed: bool = false
 	if not _cover_layer:
 		for local_tile: Vector2i in changed_tiles:
-			var was_revealed: bool = _revealed_local_cover_tiles.has(local_tile)
+			var was_revealed: bool = _has_revealed_local_cover_tile(local_tile)
 			if target_cover_tiles.has(local_tile):
-				_revealed_local_cover_tiles[local_tile] = true
+				cover_state_changed = _set_revealed_local_cover_tile(local_tile, true) or cover_state_changed
 			else:
-				_revealed_local_cover_tiles.erase(local_tile)
+				cover_state_changed = _set_revealed_local_cover_tile(local_tile, false) or cover_state_changed
 			if was_revealed != target_cover_tiles.has(local_tile):
 				cover_state_changed = true
 		if cover_state_changed:
@@ -445,17 +559,17 @@ func apply_revealed_local_cover_tiles_batch(
 	_use_operation_global_terrain_cache = true
 	_operation_global_terrain_cache = {}
 	for local_tile: Vector2i in changed_tiles:
-		var was_revealed: bool = _revealed_local_cover_tiles.has(local_tile)
+		var was_revealed: bool = _has_revealed_local_cover_tile(local_tile)
 		var should_be_revealed: bool = target_cover_tiles.has(local_tile)
 		if was_revealed == should_be_revealed:
 			continue
 		cover_state_changed = true
 		if should_be_revealed:
 			_cover_layer.erase_cell(local_tile)
-			_revealed_local_cover_tiles[local_tile] = true
+			_set_revealed_local_cover_tile(local_tile, true)
 		else:
 			_redraw_cover_tile(local_tile)
-			_revealed_local_cover_tiles.erase(local_tile)
+			_set_revealed_local_cover_tile(local_tile, false)
 	_use_operation_global_terrain_cache = previous_cache_enabled
 	_operation_global_terrain_cache = previous_global_terrain_cache
 	if cover_state_changed:
@@ -466,7 +580,7 @@ func defer_revealed_local_cover_tiles_restore(changed_tiles: Dictionary) -> bool
 		return false
 	var cover_state_changed: bool = false
 	for local_tile: Vector2i in changed_tiles:
-		if _revealed_local_cover_tiles.erase(local_tile):
+		if _set_revealed_local_cover_tile(local_tile, false):
 			cover_state_changed = true
 	if cover_state_changed:
 		_bump_cover_tile_version()
@@ -475,13 +589,11 @@ func defer_revealed_local_cover_tiles_restore(changed_tiles: Dictionary) -> bool
 	return enqueue_dirty_border_redraw(changed_tiles, "roof_restore", get_visual_invalidation_version())
 
 func prime_revealed_local_cover_tiles(cover_tiles: Dictionary) -> void:
-	var cover_state_changed: bool = not _cover_tile_sets_equal(_revealed_local_cover_tiles, cover_tiles)
-	_revealed_local_cover_tiles = cover_tiles.duplicate()
-	if cover_state_changed:
+	if _replace_revealed_local_cover_tiles(cover_tiles):
 		_bump_cover_tile_version()
 
 func get_revealed_local_cover_tiles() -> Dictionary:
-	return _revealed_local_cover_tiles.duplicate()
+	return _revealed_local_cover_tiles_to_dictionary()
 
 func set_mining_write_authorized(value: bool) -> void:
 	_mining_write_authorized = value
@@ -494,43 +606,26 @@ func set_underground(value: bool) -> void:
 
 ## Initialize fog layer for underground chunks. Fills all tiles with UNSEEN.
 func init_fog_layer(fog_tileset: TileSet) -> void:
-	if _fog_layer:
+	if _fog_presenter == null:
 		return
-	_fog_layer = TileMapLayer.new()
-	_fog_layer.name = "FogLayer"
-	_fog_layer.tile_set = fog_tileset
-	_fog_layer.z_index = 7  # Above cover_layer(6), below debug(50)
-	add_child(_fog_layer)
-	# Fill with UNSEEN
-	for y: int in range(_chunk_size):
-		for x: int in range(_chunk_size):
-			_fog_layer.set_cell(
-				Vector2i(x, y),
-				ChunkTilesetFactory.FOG_SOURCE_ID,
-				ChunkTilesetFactory.TILE_FOG_UNSEEN
-			)
+	_fog_presenter.ensure_layer(fog_tileset)
 
 ## Erase fog for tiles that are currently visible (player nearby).
 ## Also redraws terrain to update wall variants with current neighbor data.
 func apply_fog_visible(visible_locals: Dictionary) -> void:
-	if not _fog_layer:
+	if _fog_presenter == null:
 		return
-	for local: Vector2i in visible_locals:
-		if _is_inside(local):
-			_fog_layer.erase_cell(local)
-			_redraw_terrain_tile(local)
+	_fog_presenter.apply_visible(
+		visible_locals,
+		Callable(self, "_is_inside"),
+		Callable(self, "_redraw_terrain_tile")
+	)
 
 ## Set DISCOVERED fog tile for tiles that were visible but player moved away.
 func apply_fog_discovered(discovered_locals: Dictionary) -> void:
-	if not _fog_layer:
+	if _fog_presenter == null:
 		return
-	for local: Vector2i in discovered_locals:
-		if _is_inside(local):
-			_fog_layer.set_cell(
-				local,
-				ChunkTilesetFactory.FOG_SOURCE_ID,
-				ChunkTilesetFactory.TILE_FOG_DISCOVERED
-			)
+	_fog_presenter.apply_discovered(discovered_locals, Callable(self, "_is_inside"))
 
 ## Returns true if this tile should have fog removed when in reveal radius.
 ## - MINED_FLOOR / MOUNTAIN_ENTRANCE: always (open space)
@@ -563,23 +658,44 @@ func is_revealable_cover_edge(local_tile: Vector2i) -> bool:
 func get_cover_edge_set() -> Dictionary:
 	if not _cover_edge_set_valid:
 		_rebuild_cover_edge_set()
-	return _cover_edge_set
+	if not _cover_edge_set_cache_valid:
+		_cover_edge_set_cache = {}
+		for tile_index: int in range(_cover_edge_set.size()):
+			if _cover_edge_set[tile_index] == 0:
+				continue
+			_cover_edge_set_cache[_tile_from_index(tile_index)] = true
+		_cover_edge_set_cache_valid = true
+	return _cover_edge_set_cache
+
+func has_cover_edge_cached(local_tile: Vector2i) -> bool:
+	if not _cover_edge_set_valid:
+		_rebuild_cover_edge_set()
+	var tile_index: int = _local_tile_index(local_tile)
+	return tile_index >= 0 and tile_index < _cover_edge_set.size() and _cover_edge_set[tile_index] != 0
 
 func _rebuild_cover_edge_set() -> void:
 	if _cover_edge_set_requires_full_rebuild:
-		_cover_edge_set.clear()
+		if not _cover_edge_set.is_empty():
+			_cover_edge_set.fill(0)
 		for y: int in range(_chunk_size):
 			for x: int in range(_chunk_size):
 				var full_local := Vector2i(x, y)
 				if is_revealable_cover_edge(full_local):
-					_cover_edge_set[full_local] = true
+					_cover_edge_set[_local_tile_index(full_local)] = 1
 	else:
-		for local_variant: Variant in _cover_edge_set_dirty_tiles.keys():
-			var local: Vector2i = local_variant as Vector2i
-			_cover_edge_set.erase(local)
+		for tile_index: int in _cover_edge_set_dirty_tile_queue:
+			if tile_index < 0 or tile_index >= _cover_edge_set_dirty_tiles.size():
+				continue
+			if _cover_edge_set_dirty_tiles[tile_index] == 0:
+				continue
+			_cover_edge_set_dirty_tiles[tile_index] = 0
+			var local: Vector2i = _tile_from_index(tile_index)
+			_cover_edge_set[tile_index] = 0
 			if is_revealable_cover_edge(local):
-				_cover_edge_set[local] = true
-	_cover_edge_set_dirty_tiles.clear()
+				_cover_edge_set[tile_index] = 1
+	_cover_edge_set_dirty_tile_queue.clear()
+	_cover_edge_set_cache.clear()
+	_cover_edge_set_cache_valid = false
 	_cover_edge_set_requires_full_rebuild = false
 	_cover_edge_set_valid = true
 
@@ -589,10 +705,8 @@ func _mark_cover_edge_set_dirty_tiles(dirty_tiles: Dictionary) -> void:
 	_cover_edge_set_valid = false
 	if _cover_edge_set_requires_full_rebuild:
 		return
-	for local_variant: Variant in dirty_tiles.keys():
-		var local_tile: Vector2i = local_variant as Vector2i
-		if _is_inside(local_tile):
-			_cover_edge_set_dirty_tiles[local_tile] = true
+	for local_tile: Vector2i in dirty_tiles:
+		_queue_cover_edge_set_dirty_tile(local_tile)
 
 func _invalidate_cover_edge_set_around(local_tile: Vector2i) -> void:
 	var dirty_tiles: Dictionary = {}
@@ -656,13 +770,13 @@ func cleanup() -> void:
 	_biome_bytes = PackedByteArray()
 	_secondary_biome_bytes = PackedByteArray()
 	_ecotone_values = PackedFloat32Array()
-	_cover_edge_set = {}
-	_cover_edge_set_dirty_tiles = {}
-	_cover_edge_set_valid = false
-	_cover_edge_set_requires_full_rebuild = true
-	_revealed_local_cover_tiles = {}
+	_ensure_chunk_local_hot_storage()
 	_interior_macro_dirty = false
 	_clear_interior_macro_layer()
+	if _fog_presenter != null:
+		_fog_presenter.reset_runtime_state()
+	_clear_flora_renderer()
+	_clear_debug_markers()
 	_visual_state = ChunkVisualState.UNINITIALIZED
 	_has_full_publication_once = false
 	_visual_invalidation_version = 0
@@ -715,6 +829,21 @@ func _normalize_saved_open_tiles_after_load() -> void:
 	_use_operation_global_terrain_cache = previous_cache_enabled
 	_operation_global_terrain_cache = previous_global_terrain_cache
 
+func _run_immediate_visual_phase_batches() -> void:
+	var total_tiles: int = _chunk_size * _chunk_size
+	_redraw_phase = REDRAW_PHASE_TERRAIN
+	_redraw_tile_index = 0
+	while _redraw_phase == REDRAW_PHASE_TERRAIN \
+		or _redraw_phase == REDRAW_PHASE_COVER \
+		or _redraw_phase == REDRAW_PHASE_CLIFF:
+		var batch: Dictionary = build_visual_phase_batch(total_tiles)
+		if batch.is_empty():
+			_advance_redraw_phase()
+			continue
+		var computed_batch: Dictionary = Chunk.compute_visual_batch(batch)
+		if not apply_visual_phase_batch(computed_batch):
+			break
+
 func _redraw_all(include_flora: bool = false) -> void:
 	var started_usec: int = WorldPerfProbe.begin()
 	_terrain_layer.clear()
@@ -725,14 +854,8 @@ func _redraw_all(include_flora: bool = false) -> void:
 	_cliff_layer.clear()
 	_clear_flora_renderer()
 	_reset_cover_visual_state()
-	for child: Node in _debug_root.get_children():
-		child.queue_free()
-	for local_y: int in range(_chunk_size):
-		for local_x: int in range(_chunk_size):
-			var tile := Vector2i(local_x, local_y)
-			_redraw_terrain_tile(tile)
-			_redraw_cover_tile(tile)
-			_redraw_cliff_tile(tile)
+	_clear_debug_markers()
+	_run_immediate_visual_phase_batches()
 	_refresh_interior_macro_layer()
 	_rebuild_debug_markers()
 	if include_flora:
@@ -755,8 +878,7 @@ func _begin_progressive_redraw() -> void:
 	_cliff_layer.clear()
 	_clear_flora_renderer()
 	_reset_cover_visual_state()
-	for child: Node in _debug_root.get_children():
-		child.queue_free()
+	_clear_debug_markers()
 	_redraw_phase = REDRAW_PHASE_TERRAIN
 	_redraw_tile_index = 0
 	_mark_visual_native_ready()
@@ -846,7 +968,7 @@ func _mark_visual_full_redraw_ready() -> void:
 func _can_publish_full_redraw_ready() -> bool:
 	return is_first_pass_ready() \
 		and _redraw_phase == REDRAW_PHASE_DONE \
-		and _pending_border_dirty.is_empty()
+		and not has_pending_border_dirty()
 
 func _sync_visual_state_after_redraw_mutation() -> void:
 	if _redraw_phase > REDRAW_PHASE_COVER:
@@ -856,8 +978,7 @@ func _redraw_dynamic_visibility(_dirty_tiles: Dictionary) -> void:
 	_rebuild_cover_layer()
 	_reapply_local_zone_cover_state()
 	if WorldGenerator and WorldGenerator.balance and WorldGenerator.balance.mountain_debug_visualization:
-		for child: Node in _debug_root.get_children():
-			child.queue_free()
+		_clear_debug_markers()
 		_rebuild_debug_markers()
 
 ## Enqueue border tiles for deferred redraw. Called by ChunkManager when a
@@ -869,16 +990,11 @@ func enqueue_dirty_border_redraw(
 	reason_key: String = "",
 	reason_version: int = -1
 ) -> bool:
-	var normalized_dirty: Dictionary = {}
 	var added_new_tiles: bool = false
-	for tile_variant: Variant in dirty_tiles.keys():
-		var local_tile: Vector2i = tile_variant as Vector2i
-		if not _is_inside(local_tile):
-			continue
-		normalized_dirty[local_tile] = true
-		if not _pending_border_dirty.has(local_tile):
+	for local_tile: Vector2i in dirty_tiles:
+		if _add_pending_border_dirty_tile(local_tile):
 			added_new_tiles = true
-	if normalized_dirty.is_empty():
+	if not added_new_tiles and dirty_tiles.is_empty():
 		return false
 	if not reason_key.is_empty() and reason_version >= 0:
 		var pending_version: int = int(_border_fix_pending_reason_versions.get(reason_key, -1))
@@ -889,8 +1005,7 @@ func enqueue_dirty_border_redraw(
 		_border_fix_pending_reason_versions[reason_key] = reason_version
 	elif not added_new_tiles:
 		return false
-	_pending_border_dirty.merge(normalized_dirty, true)
-	return true
+	return added_new_tiles
 
 func _redraw_dirty_tiles(dirty_tiles: Dictionary) -> void:
 	var batch: Dictionary = build_visual_dirty_batch(dirty_tiles)
@@ -946,15 +1061,15 @@ func build_visual_phase_batch(tile_budget: int) -> Dictionary:
 		tiles.append(_tile_from_index(tile_index))
 	return _build_visual_compute_request(VISUAL_BATCH_MODE_PHASE, tiles, _redraw_phase, start_index, end_index)
 
-func build_visual_dirty_batch(dirty_tiles: Dictionary, limit: int = -1) -> Dictionary:
+func _normalize_dirty_tile_list(dirty_tiles: Array, limit: int = -1) -> Array[Vector2i]:
 	var tiles: Array[Vector2i] = []
-	for tile_variant: Variant in dirty_tiles.keys():
+	for tile_variant: Variant in dirty_tiles:
 		var local_tile: Vector2i = tile_variant as Vector2i
 		if not _is_inside(local_tile):
 			continue
 		tiles.append(local_tile)
 	if tiles.is_empty():
-		return {}
+		return tiles
 	tiles.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		if a.y == b.y:
 			return a.x < b.x
@@ -962,6 +1077,15 @@ func build_visual_dirty_batch(dirty_tiles: Dictionary, limit: int = -1) -> Dicti
 	)
 	if limit > 0 and tiles.size() > limit:
 		tiles.resize(limit)
+	return tiles
+
+func build_visual_dirty_batch(dirty_tiles: Dictionary, limit: int = -1) -> Dictionary:
+	return build_visual_dirty_batch_from_tiles(dirty_tiles.keys(), limit)
+
+func build_visual_dirty_batch_from_tiles(dirty_tiles: Array, limit: int = -1) -> Dictionary:
+	var tiles: Array[Vector2i] = _normalize_dirty_tile_list(dirty_tiles, limit)
+	if tiles.is_empty():
+		return {}
 	return _build_visual_compute_request(VISUAL_BATCH_MODE_DIRTY, tiles)
 
 func _build_prebaked_visual_phase_batch(tile_budget: int) -> Dictionary:
@@ -1021,14 +1145,9 @@ func apply_visual_dirty_batch(batch: Dictionary) -> bool:
 		return false
 	_apply_visual_prepared_batch(batch)
 	_mark_interior_macro_dirty()
-	var dirty_tiles: Dictionary = {}
-	for tile_variant: Variant in batch.get("tiles", []):
-		var local_tile: Vector2i = tile_variant as Vector2i
-		dirty_tiles[local_tile] = true
-	_reapply_local_zone_cover_state_for_tiles(dirty_tiles)
+	_reapply_local_zone_cover_state_for_tile_list(batch.get("tiles", []) as Array)
 	if WorldGenerator and WorldGenerator.balance and WorldGenerator.balance.mountain_debug_visualization:
-		for child: Node in _debug_root.get_children():
-			child.queue_free()
+		_clear_debug_markers()
 		_rebuild_debug_markers()
 	return true
 
@@ -1042,10 +1161,6 @@ func _build_visual_compute_request(
 	if tiles.is_empty():
 		return {}
 	var terrain_lookup: Dictionary = {}
-	var need_surface_meta: bool = phase == REDRAW_PHASE_TERRAIN or mode == VISUAL_BATCH_MODE_DIRTY
-	var height_lookup: Dictionary = {}
-	var variation_lookup: Dictionary = {}
-	var biome_lookup: Dictionary = {}
 	var previous_cache_enabled: bool = _use_operation_global_terrain_cache
 	var previous_global_terrain_cache: Dictionary = _operation_global_terrain_cache
 	_use_operation_global_terrain_cache = true
@@ -1054,14 +1169,11 @@ func _build_visual_compute_request(
 		for offset_y: int in range(-1, 2):
 			for offset_x: int in range(-1, 2):
 				var neighbor_tile: Vector2i = local_tile + Vector2i(offset_x, offset_y)
+				if _is_inside(neighbor_tile):
+					continue
 				if terrain_lookup.has(neighbor_tile):
 					continue
 				terrain_lookup[neighbor_tile] = _get_neighbor_terrain(neighbor_tile)
-		if not need_surface_meta:
-			continue
-		height_lookup[local_tile] = _height_at(local_tile)
-		variation_lookup[local_tile] = _variation_at(local_tile)
-		biome_lookup[local_tile] = _biome_palette_index_at(local_tile)
 	_use_operation_global_terrain_cache = previous_cache_enabled
 	_operation_global_terrain_cache = previous_global_terrain_cache
 	var request: Dictionary = {
@@ -1075,13 +1187,50 @@ func _build_visual_compute_request(
 		"end_index": end_index,
 		"tiles": tiles,
 		"terrain_lookup": terrain_lookup,
-		"height_lookup": height_lookup,
-		"variation_lookup": variation_lookup,
-		"biome_lookup": biome_lookup,
+		"terrain_bytes": _terrain_bytes,
+		"height_bytes": _height_bytes,
+		"variation_bytes": _variation_bytes,
+		"biome_bytes": _biome_bytes,
+		"secondary_biome_bytes": _secondary_biome_bytes,
+		"ecotone_values": _ecotone_values,
 	}
 	if Chunk._has_native_visual_kernels():
 		request["native_visual_tables"] = Chunk._build_native_visual_tables()
 	return request
+
+func _build_single_tile_visual_request(local_tile: Vector2i) -> Dictionary:
+	var tiles: Array[Vector2i] = [local_tile]
+	return _build_visual_compute_request(VISUAL_BATCH_MODE_DIRTY, tiles)
+
+func _build_all_chunk_tiles() -> Array[Vector2i]:
+	var tiles: Array[Vector2i] = []
+	for local_y: int in range(_chunk_size):
+		for local_x: int in range(_chunk_size):
+			tiles.append(Vector2i(local_x, local_y))
+	return tiles
+
+func _apply_visual_phase_for_tiles_now(phase: int, tiles: Array[Vector2i]) -> void:
+	if tiles.is_empty():
+		return
+	var request: Dictionary = _build_visual_compute_request(
+		VISUAL_BATCH_MODE_PHASE,
+		tiles,
+		phase,
+		0,
+		tiles.size()
+	)
+	var batch: Dictionary = Chunk.compute_visual_batch(request)
+	_apply_visual_prepared_batch(batch)
+
+func _apply_single_tile_visual_phase(local_tile: Vector2i, phase: int, explicit_clear: bool = true) -> void:
+	var request: Dictionary = _build_single_tile_visual_request(local_tile)
+	var commands: Array[Dictionary] = ChunkVisualKernelScript.compute_tile_phase_commands(
+		request,
+		local_tile,
+		phase,
+		explicit_clear
+	)
+	_apply_visual_commands(commands)
 
 func _apply_visual_commands(
 	commands: Array,
@@ -1252,7 +1401,7 @@ func _visual_layer_for_command(layer_id: int) -> TileMapLayer:
 
 static func compute_visual_batch(request: Dictionary) -> Dictionary:
 	if bool(request.get("skip_worker_compute", false)) and request.has("rock_visual_class"):
-		return Chunk._compute_prebaked_visual_batch(request)
+		return ChunkVisualKernelScript.compute_prebaked_visual_batch(request)
 	var native_batch: Dictionary = Chunk._try_compute_visual_batch_native(request)
 	if not native_batch.is_empty():
 		return native_batch
@@ -1282,21 +1431,15 @@ static func compute_visual_batch(request: Dictionary) -> Dictionary:
 						)
 					result["flora_packet"] = prebuilt_packet
 				_:
-					for tile_variant: Variant in tiles:
-						var local_tile: Vector2i = tile_variant as Vector2i
-						match phase:
-							REDRAW_PHASE_TERRAIN:
-								Chunk._append_terrain_visual_commands(request, local_tile, commands, false)
-							REDRAW_PHASE_COVER:
-								Chunk._append_cover_visual_command(request, local_tile, commands, false)
-							REDRAW_PHASE_CLIFF:
-								Chunk._append_cliff_visual_command(request, local_tile, commands, false)
+					var fallback_batch: Dictionary = ChunkVisualKernelScript.compute_visual_batch_fallback(request)
+					result["commands"] = fallback_batch.get("commands", [])
+					result["command_count"] = int(fallback_batch.get("command_count", 0))
+					return result
 		VISUAL_BATCH_MODE_DIRTY:
-			for tile_variant: Variant in tiles:
-				var local_tile: Vector2i = tile_variant as Vector2i
-				Chunk._append_terrain_visual_commands(request, local_tile, commands, true)
-				Chunk._append_cover_visual_command(request, local_tile, commands, true)
-				Chunk._append_cliff_visual_command(request, local_tile, commands, true)
+			var dirty_batch: Dictionary = ChunkVisualKernelScript.compute_visual_batch_fallback(request)
+			result["commands"] = dirty_batch.get("commands", [])
+			result["command_count"] = int(dirty_batch.get("command_count", 0))
+			return result
 		_:
 			pass
 	result["commands"] = commands
@@ -1327,7 +1470,7 @@ static func _try_compute_visual_batch_native(request: Dictionary) -> Dictionary:
 		var cliff_commands: Array[Dictionary] = []
 		for tile_variant: Variant in request.get("tiles", []):
 			var local_tile: Vector2i = tile_variant as Vector2i
-			Chunk._append_cliff_visual_command(request, local_tile, cliff_commands, true)
+			ChunkVisualKernelScript.append_cliff_visual_command(request, local_tile, cliff_commands, true)
 		if not cliff_commands.is_empty():
 			batch["cliff_buffer"] = PackedInt32Array()
 			var commands: Array = []
@@ -1441,266 +1584,10 @@ static func _prebaked_cliff_overlay_coords(kind: int) -> Vector2i:
 			return Vector2i(-1, -1)
 
 static func build_prebaked_visual_payload(request: Dictionary) -> Dictionary:
-	var terrain_bytes: PackedByteArray = request.get("terrain_bytes", PackedByteArray()) as PackedByteArray
-	var height_bytes: PackedFloat32Array = request.get("height_bytes", PackedFloat32Array()) as PackedFloat32Array
-	var variation_bytes: PackedByteArray = request.get("variation_bytes", PackedByteArray()) as PackedByteArray
-	var biome_bytes: PackedByteArray = request.get("biome_bytes", PackedByteArray()) as PackedByteArray
-	var secondary_biome_bytes: PackedByteArray = request.get("secondary_biome_bytes", PackedByteArray()) as PackedByteArray
-	var ecotone_values: PackedFloat32Array = request.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array
-	var terrain_halo: PackedByteArray = request.get("terrain_halo", PackedByteArray()) as PackedByteArray
-	var chunk_coord: Vector2i = request.get("chunk_coord", Vector2i.ZERO) as Vector2i
-	var chunk_size: int = int(request.get("chunk_size", 0))
-	if chunk_size <= 0:
-		return {}
-	var tile_count: int = chunk_size * chunk_size
-	if terrain_bytes.size() != tile_count \
-		or height_bytes.size() != tile_count \
-		or variation_bytes.size() != tile_count \
-		or biome_bytes.size() != tile_count \
-		or terrain_halo.size() != (chunk_size + 2) * (chunk_size + 2):
-		return {}
-	var terrain_lookup: Dictionary = {}
-	var halo_stride: int = chunk_size + 2
-	for local_y: int in range(-1, chunk_size + 1):
-		for local_x: int in range(-1, chunk_size + 1):
-			terrain_lookup[Vector2i(local_x, local_y)] = int(terrain_halo[(local_y + 1) * halo_stride + (local_x + 1)])
-	var height_lookup: Dictionary = {}
-	var variation_lookup: Dictionary = {}
-	var biome_lookup: Dictionary = {}
-	var secondary_biome_lookup: Dictionary = {}
-	var ecotone_lookup: Dictionary = {}
-	var has_secondary_biome: bool = secondary_biome_bytes.size() == tile_count
-	var has_ecotone_values: bool = ecotone_values.size() == tile_count
-	for local_y: int in range(chunk_size):
-		for local_x: int in range(chunk_size):
-			var idx: int = local_y * chunk_size + local_x
-			var local_tile: Vector2i = Vector2i(local_x, local_y)
-			height_lookup[local_tile] = float(height_bytes[idx])
-			variation_lookup[local_tile] = int(variation_bytes[idx])
-			biome_lookup[local_tile] = int(biome_bytes[idx])
-			secondary_biome_lookup[local_tile] = int(secondary_biome_bytes[idx]) if has_secondary_biome else int(biome_bytes[idx])
-			ecotone_lookup[local_tile] = float(ecotone_values[idx]) if has_ecotone_values else 0.0
-	var visual_request: Dictionary = {
-		"chunk_coord": chunk_coord,
-		"chunk_size": chunk_size,
-		"is_underground": bool(request.get("is_underground", false)),
-		"terrain_lookup": terrain_lookup,
-		"height_lookup": height_lookup,
-		"variation_lookup": variation_lookup,
-		"biome_lookup": biome_lookup,
-		"secondary_biome_lookup": secondary_biome_lookup,
-		"ecotone_lookup": ecotone_lookup,
-	}
-	var rock_visual_class := PackedByteArray()
-	var ground_face_atlas := PackedInt32Array()
-	var cover_mask := PackedInt32Array()
-	var cliff_overlay := PackedByteArray()
-	var variant_id := PackedByteArray()
-	var alt_id := PackedInt32Array()
-	rock_visual_class.resize(tile_count)
-	ground_face_atlas.resize(tile_count)
-	cover_mask.resize(tile_count)
-	cliff_overlay.resize(tile_count)
-	variant_id.resize(tile_count)
-	alt_id.resize(tile_count)
-	for idx: int in range(tile_count):
-		rock_visual_class[idx] = PREBAKED_ROCK_VISUAL_NONE
-		ground_face_atlas[idx] = PREBAKED_GROUND_FACE_NONE
-		cover_mask[idx] = PREBAKED_COVER_NONE
-		cliff_overlay[idx] = PREBAKED_CLIFF_NONE
-		variant_id[idx] = 0
-		alt_id[idx] = 0
-	for local_y: int in range(chunk_size):
-		for local_x: int in range(chunk_size):
-			var idx: int = local_y * chunk_size + local_x
-			var local_tile := Vector2i(local_x, local_y)
-			var terrain_type: int = terrain_bytes[idx]
-			var global_tile: Vector2i = Chunk._visual_request_to_global_tile(visual_request, local_tile)
-			var shared_base: Vector2i = Vector2i(-1, -1)
-			var shared_variant: Vector2i = Vector2i.ZERO
-			var shared_has_interior: bool = false
-			if Chunk._visual_request_is_surface_face_terrain(terrain_type):
-				var face_wall: Vector2i = ChunkTilesetFactory.WALL_INTERIOR
-				var interior_variant: Vector2i = Vector2i.ZERO
-				if Chunk._visual_request_has_water_face_neighbor(visual_request, local_tile):
-					face_wall = Chunk._visual_request_water_face_visual_class(visual_request, local_tile)
-				else:
-					interior_variant = Chunk._visual_request_interior_variant(global_tile.x, global_tile.y)
-				var face_atlas: Vector2i = Vector2i(-1, -1)
-				var biome_palette_index: int = Chunk._visual_request_biome(visual_request, local_tile)
-				match terrain_type:
-					TileGenData.TerrainType.GROUND, TileGenData.TerrainType.GRASS:
-						face_atlas = ChunkTilesetFactory.get_ground_face_coords(face_wall, biome_palette_index, interior_variant.x)
-					TileGenData.TerrainType.SAND:
-						face_atlas = ChunkTilesetFactory.get_sand_face_coords(face_wall, biome_palette_index, interior_variant.x)
-				if face_atlas.x >= 0:
-					ground_face_atlas[idx] = face_atlas.y * maxi(1, ChunkTilesetFactory.terrain_tiles_per_row) + face_atlas.x
-				shared_base = face_wall
-				shared_variant = interior_variant
-				shared_has_interior = face_wall == ChunkTilesetFactory.WALL_INTERIOR
-			if terrain_type == TileGenData.TerrainType.ROCK:
-				var rock_visual: Vector2i = Chunk._visual_request_surface_rock_visual_class(visual_request, local_tile)
-				rock_visual_class[idx] = maxi(0, rock_visual.x - 7)
-				shared_base = rock_visual
-				shared_has_interior = rock_visual == ChunkTilesetFactory.WALL_INTERIOR
-				if shared_has_interior:
-					shared_variant = Chunk._visual_request_interior_variant(global_tile.x, global_tile.y)
-			if terrain_type == TileGenData.TerrainType.MINED_FLOOR or Chunk._visual_request_is_cave_edge_rock(visual_request, local_tile):
-				var cover_base: Vector2i = Chunk._visual_request_cover_rock_atlas(visual_request, local_tile)
-				var cover_variant: Vector2i = Vector2i.ZERO
-				var cover_atlas: Vector2i = Vector2i(-1, -1)
-				var cover_alt: int = 0
-				if cover_base == ChunkTilesetFactory.WALL_INTERIOR:
-					cover_variant = Chunk._visual_request_interior_variant(global_tile.x, global_tile.y)
-					cover_alt = cover_variant.y
-					if shared_base.x < 0:
-						shared_base = cover_base
-						shared_variant = cover_variant
-						shared_has_interior = true
-				cover_atlas = ChunkTilesetFactory.get_wall_variant_coords(cover_base, cover_variant.x if cover_base == ChunkTilesetFactory.WALL_INTERIOR else 0)
-				cover_mask[idx] = Chunk._pack_prebaked_mask(
-					cover_atlas.y * maxi(1, ChunkTilesetFactory.terrain_tiles_per_row) + cover_atlas.x,
-					cover_alt
-				)
-			cliff_overlay[idx] = Chunk._visual_request_cliff_overlay_kind(visual_request, local_tile)
-			if shared_base.x >= 0:
-				if shared_has_interior:
-					variant_id[idx] = shared_variant.x
-					alt_id[idx] = shared_variant.y
-				else:
-					alt_id[idx] = Chunk._visual_request_variant_alt_id(shared_base, global_tile.x, global_tile.y, false)
-	return {
-		"rock_visual_class": rock_visual_class,
-		"ground_face_atlas": ground_face_atlas,
-		"cover_mask": cover_mask,
-		"cliff_overlay": cliff_overlay,
-		"variant_id": variant_id,
-		"alt_id": alt_id,
-	}
+	return ChunkVisualKernelScript.build_prebaked_visual_payload(request)
 
 static func _compute_prebaked_visual_batch(request: Dictionary) -> Dictionary:
-	var tiles: Array = request.get("tiles", [])
-	var chunk_size: int = int(request.get("chunk_size", 0))
-	var terrain_bytes: PackedByteArray = request.get("terrain_bytes", PackedByteArray()) as PackedByteArray
-	var height_bytes: PackedFloat32Array = request.get("height_bytes", PackedFloat32Array()) as PackedFloat32Array
-	var variation_bytes: PackedByteArray = request.get("variation_bytes", PackedByteArray()) as PackedByteArray
-	var biome_bytes: PackedByteArray = request.get("biome_bytes", PackedByteArray()) as PackedByteArray
-	var secondary_biome_bytes: PackedByteArray = request.get("secondary_biome_bytes", PackedByteArray()) as PackedByteArray
-	var ecotone_values: PackedFloat32Array = request.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array
-	var rock_visual_class: PackedByteArray = request.get("rock_visual_class", PackedByteArray()) as PackedByteArray
-	var ground_face_atlas: PackedInt32Array = request.get("ground_face_atlas", PackedInt32Array()) as PackedInt32Array
-	var cover_mask: PackedInt32Array = request.get("cover_mask", PackedInt32Array()) as PackedInt32Array
-	var cliff_overlay: PackedByteArray = request.get("cliff_overlay", PackedByteArray()) as PackedByteArray
-	var variant_id: PackedByteArray = request.get("variant_id", PackedByteArray()) as PackedByteArray
-	var alt_id: PackedInt32Array = request.get("alt_id", PackedInt32Array()) as PackedInt32Array
-	var result: Dictionary = {
-		"mode": request.get("mode", &""),
-		"phase": int(request.get("phase", REDRAW_PHASE_DONE)),
-		"phase_name": request.get("phase_name", &"done"),
-		"start_index": int(request.get("start_index", -1)),
-		"end_index": int(request.get("end_index", -1)),
-		"tiles": tiles,
-		"tile_count": tiles.size(),
-		"commands": [],
-	}
-	if chunk_size <= 0:
-		return result
-	var commands: Array[Dictionary] = []
-	var phase: int = int(request.get("phase", REDRAW_PHASE_DONE))
-	var is_underground: bool = bool(request.get("is_underground", false))
-	var has_secondary_biome: bool = secondary_biome_bytes.size() == terrain_bytes.size()
-	var has_ecotone_values: bool = ecotone_values.size() == terrain_bytes.size()
-	for tile_variant: Variant in tiles:
-		var local_tile: Vector2i = tile_variant as Vector2i
-		var idx: int = local_tile.y * chunk_size + local_tile.x
-		if idx < 0 or idx >= terrain_bytes.size():
-			continue
-		var terrain_type: int = terrain_bytes[idx]
-		var global_tile: Vector2i = request.get("chunk_coord", Vector2i.ZERO) as Vector2i
-		global_tile = Vector2i(global_tile.x * chunk_size + local_tile.x, global_tile.y * chunk_size + local_tile.y)
-		var primary_biome_palette_index: int = int(biome_bytes[idx]) if idx < biome_bytes.size() else Chunk._default_biome_palette_index()
-		var secondary_biome_palette_index: int = int(secondary_biome_bytes[idx]) if has_secondary_biome else primary_biome_palette_index
-		var ecotone_factor: float = float(ecotone_values[idx]) if has_ecotone_values else 0.0
-		var biome_palette_index: int = Chunk._resolve_effective_surface_palette_index(
-			primary_biome_palette_index,
-			secondary_biome_palette_index,
-			ecotone_factor,
-			global_tile.x,
-			global_tile.y
-		)
-		match phase:
-			REDRAW_PHASE_TERRAIN:
-				var atlas: Vector2i = ChunkTilesetFactory.TILE_GROUND
-				var variation_id: int = int(variation_bytes[idx]) if idx < variation_bytes.size() else ChunkTilesetFactory.SURFACE_VARIATION_NONE
-				var variation_tile: Vector2i = Vector2i(-1, -1)
-				if not is_underground:
-					variation_tile = ChunkTilesetFactory.get_surface_variation_tile(variation_id, biome_palette_index)
-				match terrain_type:
-					TileGenData.TerrainType.ROCK:
-						if variation_tile.x >= 0 and not is_underground:
-							atlas = variation_tile
-						else:
-							atlas = ChunkTilesetFactory.get_surface_ground_tile(
-								biome_palette_index,
-								float(height_bytes[idx]) if idx < height_bytes.size() else 0.5
-							)
-					TileGenData.TerrainType.WATER:
-						atlas = variation_tile if variation_id == ChunkTilesetFactory.SURFACE_VARIATION_ICE and variation_tile.x >= 0 else ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, biome_palette_index)
-					TileGenData.TerrainType.SAND, TileGenData.TerrainType.GRASS:
-						atlas = variation_tile if variation_tile.x >= 0 else ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, biome_palette_index)
-					TileGenData.TerrainType.MINED_FLOOR:
-						atlas = ChunkTilesetFactory.TILE_MINED_FLOOR
-					TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
-						atlas = ChunkTilesetFactory.TILE_MOUNTAIN_ENTRANCE
-					_:
-						atlas = variation_tile if variation_tile.x >= 0 else ChunkTilesetFactory.get_surface_ground_tile(
-							biome_palette_index,
-							float(height_bytes[idx]) if idx < height_bytes.size() else 0.5
-						)
-				commands.append(Chunk._make_visual_set_command(VISUAL_LAYER_TERRAIN, local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, 0))
-				var face_index: int = int(ground_face_atlas[idx]) if idx < ground_face_atlas.size() else PREBAKED_GROUND_FACE_NONE
-				if face_index >= 0:
-					commands.append(Chunk._make_visual_set_command(
-						VISUAL_LAYER_GROUND_FACE,
-						local_tile,
-						ChunkTilesetFactory.TERRAIN_SOURCE_ID,
-						Chunk._prebaked_linear_index_to_coords(face_index),
-						int(alt_id[idx]) if idx < alt_id.size() else 0
-					))
-				var rock_def: int = int(rock_visual_class[idx]) if idx < rock_visual_class.size() else PREBAKED_ROCK_VISUAL_NONE
-				if rock_def != PREBAKED_ROCK_VISUAL_NONE:
-					var rock_base: Vector2i = Chunk._prebaked_wall_def_from_index(rock_def)
-					commands.append(Chunk._make_visual_set_command(
-						VISUAL_LAYER_ROCK,
-						local_tile,
-						ChunkTilesetFactory.TERRAIN_SOURCE_ID,
-						ChunkTilesetFactory.get_wall_variant_coords(rock_base, int(variant_id[idx]) if idx < variant_id.size() else 0),
-						int(alt_id[idx]) if idx < alt_id.size() else 0
-					))
-			REDRAW_PHASE_COVER:
-				var cover_value: int = int(cover_mask[idx]) if idx < cover_mask.size() else PREBAKED_COVER_NONE
-				if cover_value >= 0:
-					commands.append(Chunk._make_visual_set_command(
-						VISUAL_LAYER_COVER,
-						local_tile,
-						ChunkTilesetFactory.TERRAIN_SOURCE_ID,
-						Chunk._prebaked_linear_index_to_coords(Chunk._unpack_prebaked_mask_atlas(cover_value)),
-						Chunk._unpack_prebaked_mask_alt(cover_value)
-					))
-			REDRAW_PHASE_CLIFF:
-				var cliff_kind: int = int(cliff_overlay[idx]) if idx < cliff_overlay.size() else PREBAKED_CLIFF_NONE
-				var overlay_coords: Vector2i = Chunk._prebaked_cliff_overlay_coords(cliff_kind)
-				if overlay_coords.x >= 0:
-					commands.append(Chunk._make_visual_set_command(
-						VISUAL_LAYER_CLIFF,
-						local_tile,
-						ChunkTilesetFactory.OVERLAY_SOURCE_ID,
-						overlay_coords,
-						0
-					))
-	result["commands"] = commands
-	result["command_count"] = commands.size()
-	return result
+	return ChunkVisualKernelScript.compute_prebaked_visual_batch(request)
 
 static func _append_terrain_visual_commands(
 	request: Dictionary,
@@ -1708,68 +1595,7 @@ static func _append_terrain_visual_commands(
 	commands: Array[Dictionary],
 	explicit_clear: bool
 ) -> void:
-	var terrain_type: int = Chunk._visual_request_terrain(request, local_tile)
-	var atlas: Vector2i = ChunkTilesetFactory.TILE_GROUND
-	var rock_atlas: Vector2i = Vector2i(-1, -1)
-	var rock_alt_id: int = 0
-	var biome_palette_index: int = Chunk._visual_request_biome(request, local_tile)
-	var variation_id: int = ChunkTilesetFactory.SURFACE_VARIATION_NONE
-	var variation_tile: Vector2i = Vector2i(-1, -1)
-	var is_underground: bool = bool(request.get("is_underground", false))
-	if not is_underground:
-		variation_id = Chunk._visual_request_variation(request, local_tile)
-		variation_tile = ChunkTilesetFactory.get_surface_variation_tile(variation_id, biome_palette_index)
-	match terrain_type:
-		TileGenData.TerrainType.ROCK:
-			atlas = Chunk._visual_request_surface_ground_atlas(request, local_tile)
-			var rock_visual: Vector2i = Chunk._visual_request_rock_visual_class(request, local_tile)
-			if not is_underground:
-				rock_visual = Chunk._visual_request_surface_rock_visual_class(request, local_tile)
-			var global_tile: Vector2i = Chunk._visual_request_to_global_tile(request, local_tile)
-			rock_atlas = Chunk._visual_request_variant_atlas(rock_visual, global_tile.x, global_tile.y)
-			rock_alt_id = Chunk._visual_request_variant_alt_id(rock_visual, global_tile.x, global_tile.y, is_underground)
-		TileGenData.TerrainType.WATER:
-			if variation_id == ChunkTilesetFactory.SURFACE_VARIATION_ICE and variation_tile.x >= 0:
-				atlas = variation_tile
-			else:
-				atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, biome_palette_index)
-		TileGenData.TerrainType.SAND:
-			if variation_tile.x >= 0:
-				atlas = variation_tile
-			else:
-				atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, biome_palette_index)
-		TileGenData.TerrainType.GRASS:
-			if variation_tile.x >= 0:
-				atlas = variation_tile
-			else:
-				atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, biome_palette_index)
-		TileGenData.TerrainType.MINED_FLOOR:
-			atlas = ChunkTilesetFactory.TILE_MINED_FLOOR
-		TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
-			atlas = ChunkTilesetFactory.TILE_MOUNTAIN_ENTRANCE
-		_:
-			if variation_tile.x >= 0:
-				atlas = variation_tile
-			else:
-				atlas = Chunk._visual_request_surface_ground_atlas(request, local_tile)
-	commands.append(Chunk._make_visual_set_command(
-		VISUAL_LAYER_TERRAIN,
-		local_tile,
-		ChunkTilesetFactory.TERRAIN_SOURCE_ID,
-		atlas,
-		0
-	))
-	Chunk._append_ground_face_visual_command(request, local_tile, terrain_type, commands, explicit_clear)
-	if rock_atlas.x >= 0:
-		commands.append(Chunk._make_visual_set_command(
-			VISUAL_LAYER_ROCK,
-			local_tile,
-			ChunkTilesetFactory.TERRAIN_SOURCE_ID,
-			rock_atlas,
-			rock_alt_id
-		))
-	elif explicit_clear:
-		commands.append(Chunk._make_visual_erase_command(VISUAL_LAYER_ROCK, local_tile))
+	ChunkVisualKernelScript.append_terrain_visual_commands(request, local_tile, commands, explicit_clear)
 
 static func _append_ground_face_visual_command(
 	request: Dictionary,
@@ -1778,37 +1604,13 @@ static func _append_ground_face_visual_command(
 	commands: Array[Dictionary],
 	explicit_clear: bool
 ) -> void:
-	if bool(request.get("is_underground", false)):
-		if explicit_clear:
-			commands.append(Chunk._make_visual_erase_command(VISUAL_LAYER_GROUND_FACE, local_tile))
-		return
-	var atlas: Vector2i = Vector2i(-1, -1)
-	var alt_id: int = 0
-	if Chunk._visual_request_is_surface_face_terrain(terrain_type):
-		var wall_def: Vector2i = ChunkTilesetFactory.WALL_INTERIOR
-		var interior_variant: Vector2i = Vector2i.ZERO
-		var global_tile: Vector2i = Chunk._visual_request_to_global_tile(request, local_tile)
-		if Chunk._visual_request_has_water_face_neighbor(request, local_tile):
-			wall_def = Chunk._visual_request_water_face_visual_class(request, local_tile)
-		else:
-			interior_variant = Chunk._visual_request_interior_variant(global_tile.x, global_tile.y)
-			alt_id = interior_variant.y
-		var biome_palette_index: int = Chunk._visual_request_biome(request, local_tile)
-		match terrain_type:
-			TileGenData.TerrainType.GROUND, TileGenData.TerrainType.GRASS:
-				atlas = ChunkTilesetFactory.get_ground_face_coords(wall_def, biome_palette_index, interior_variant.x)
-			TileGenData.TerrainType.SAND:
-				atlas = ChunkTilesetFactory.get_sand_face_coords(wall_def, biome_palette_index, interior_variant.x)
-	if atlas.x >= 0:
-		commands.append(Chunk._make_visual_set_command(
-			VISUAL_LAYER_GROUND_FACE,
-			local_tile,
-			ChunkTilesetFactory.TERRAIN_SOURCE_ID,
-			atlas,
-			alt_id
-		))
-	elif explicit_clear:
-		commands.append(Chunk._make_visual_erase_command(VISUAL_LAYER_GROUND_FACE, local_tile))
+	ChunkVisualKernelScript.append_ground_face_visual_command(
+		request,
+		local_tile,
+		terrain_type,
+		commands,
+		explicit_clear
+	)
 
 static func _append_cover_visual_command(
 	request: Dictionary,
@@ -1816,28 +1618,7 @@ static func _append_cover_visual_command(
 	commands: Array[Dictionary],
 	explicit_clear: bool
 ) -> void:
-	if bool(request.get("is_underground", false)):
-		if explicit_clear:
-			commands.append(Chunk._make_visual_erase_command(VISUAL_LAYER_COVER, local_tile))
-		return
-	var terrain_type: int = Chunk._visual_request_terrain(request, local_tile)
-	var need_cover: bool = terrain_type == TileGenData.TerrainType.MINED_FLOOR \
-		or Chunk._visual_request_is_cave_edge_rock(request, local_tile)
-	if not need_cover:
-		if explicit_clear:
-			commands.append(Chunk._make_visual_erase_command(VISUAL_LAYER_COVER, local_tile))
-		return
-	var base: Vector2i = Chunk._visual_request_cover_rock_atlas(request, local_tile)
-	var global_tile: Vector2i = Chunk._visual_request_to_global_tile(request, local_tile)
-	var atlas: Vector2i = Chunk._visual_request_variant_atlas(base, global_tile.x, global_tile.y)
-	var alt_id: int = Chunk._visual_request_variant_alt_id(base, global_tile.x, global_tile.y, false)
-	commands.append(Chunk._make_visual_set_command(
-		VISUAL_LAYER_COVER,
-		local_tile,
-		ChunkTilesetFactory.TERRAIN_SOURCE_ID,
-		atlas,
-		alt_id
-	))
+	ChunkVisualKernelScript.append_cover_visual_command(request, local_tile, commands, explicit_clear)
 
 static func _append_cliff_visual_command(
 	request: Dictionary,
@@ -1845,23 +1626,7 @@ static func _append_cliff_visual_command(
 	commands: Array[Dictionary],
 	explicit_clear: bool
 ) -> void:
-	if bool(request.get("is_underground", false)):
-		if explicit_clear:
-			commands.append(Chunk._make_visual_erase_command(VISUAL_LAYER_CLIFF, local_tile))
-		return
-	var overlay: Vector2i = Chunk._prebaked_cliff_overlay_coords(
-		Chunk._visual_request_cliff_overlay_kind(request, local_tile)
-	)
-	if overlay.x >= 0:
-		commands.append(Chunk._make_visual_set_command(
-			VISUAL_LAYER_CLIFF,
-			local_tile,
-			ChunkTilesetFactory.OVERLAY_SOURCE_ID,
-			overlay,
-			0
-		))
-	elif explicit_clear:
-		commands.append(Chunk._make_visual_erase_command(VISUAL_LAYER_CLIFF, local_tile))
+	ChunkVisualKernelScript.append_cliff_visual_command(request, local_tile, commands, explicit_clear)
 
 static func _make_visual_set_command(layer: int, local_tile: Vector2i, source_id: int, atlas: Vector2i, alt_id: int) -> Dictionary:
 	return {
@@ -1881,481 +1646,88 @@ static func _make_visual_erase_command(layer: int, local_tile: Vector2i) -> Dict
 	}
 
 static func _visual_request_terrain(request: Dictionary, local_tile: Vector2i) -> int:
-	var terrain_lookup: Dictionary = request.get("terrain_lookup", {}) as Dictionary
-	return int(terrain_lookup.get(local_tile, TileGenData.TerrainType.ROCK))
+	return ChunkVisualKernelScript.request_terrain(request, local_tile)
 
 static func _visual_request_height(request: Dictionary, local_tile: Vector2i) -> float:
-	var height_lookup: Dictionary = request.get("height_lookup", {}) as Dictionary
-	return float(height_lookup.get(local_tile, 0.5))
+	return ChunkVisualKernelScript.request_height(request, local_tile)
 
 static func _visual_request_variation(request: Dictionary, local_tile: Vector2i) -> int:
-	var variation_lookup: Dictionary = request.get("variation_lookup", {}) as Dictionary
-	return int(variation_lookup.get(local_tile, ChunkTilesetFactory.SURFACE_VARIATION_NONE))
+	return ChunkVisualKernelScript.request_variation(request, local_tile)
 
 static func _visual_request_biome(request: Dictionary, local_tile: Vector2i) -> int:
-	var biome_lookup: Dictionary = request.get("biome_lookup", {}) as Dictionary
-	var primary_biome_palette_index: int = int(biome_lookup.get(local_tile, Chunk._default_biome_palette_index()))
-	var secondary_biome_lookup: Dictionary = request.get("secondary_biome_lookup", {}) as Dictionary
-	var secondary_biome_palette_index: int = int(secondary_biome_lookup.get(local_tile, primary_biome_palette_index))
-	var ecotone_lookup: Dictionary = request.get("ecotone_lookup", {}) as Dictionary
-	var ecotone_factor: float = float(ecotone_lookup.get(local_tile, 0.0))
-	var global_tile: Vector2i = Chunk._visual_request_to_global_tile(request, local_tile)
-	return Chunk._resolve_effective_surface_palette_index(
-		primary_biome_palette_index,
-		secondary_biome_palette_index,
-		ecotone_factor,
-		global_tile.x,
-		global_tile.y
-	)
+	return ChunkVisualKernelScript.request_biome(request, local_tile)
 
 static func _visual_request_to_global_tile(request: Dictionary, local_tile: Vector2i) -> Vector2i:
-	var chunk_coord: Vector2i = request.get("chunk_coord", Vector2i.ZERO) as Vector2i
-	var chunk_size: int = int(request.get("chunk_size", 64))
-	return Vector2i(
-		chunk_coord.x * chunk_size + local_tile.x,
-		chunk_coord.y * chunk_size + local_tile.y
-	)
+	return ChunkVisualKernelScript.request_to_global_tile(request, local_tile)
 
 static func _visual_request_is_open_for_visual(terrain_type: int) -> bool:
-	return terrain_type != TileGenData.TerrainType.ROCK
+	return ChunkVisualKernelScript.is_open_for_visual(terrain_type)
 
 static func _visual_request_is_open_exterior(terrain_type: int) -> bool:
-	return terrain_type == TileGenData.TerrainType.GROUND \
-		or terrain_type == TileGenData.TerrainType.WATER \
-		or terrain_type == TileGenData.TerrainType.SAND \
-		or terrain_type == TileGenData.TerrainType.GRASS
+	return ChunkVisualKernelScript.is_open_exterior(terrain_type)
 
 static func _visual_request_is_open_for_surface_rock_visual(terrain_type: int) -> bool:
-	return Chunk._visual_request_is_open_exterior(terrain_type) \
-		or terrain_type == TileGenData.TerrainType.MINED_FLOOR \
-		or terrain_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE
+	return ChunkVisualKernelScript.is_open_for_surface_rock_visual(terrain_type)
 
 static func _visual_request_is_open_for_surface_visual(terrain_type: int, water_only: bool) -> bool:
-	if water_only:
-		return terrain_type == TileGenData.TerrainType.WATER
-	return Chunk._visual_request_is_open_for_surface_rock_visual(terrain_type)
+	return ChunkVisualKernelScript.is_open_for_surface_visual(terrain_type, water_only)
 
 static func _visual_request_has_water_face_neighbor(request: Dictionary, local_tile: Vector2i) -> bool:
-	for dir: Vector2i in _COVER_REVEAL_DIRS:
-		if Chunk._visual_request_terrain(request, local_tile + dir) == TileGenData.TerrainType.WATER:
-			return true
-	return false
+	return ChunkVisualKernelScript.has_water_face_neighbor(request, local_tile)
 
 static func _visual_request_is_surface_face_terrain(terrain_type: int) -> bool:
-	return terrain_type == TileGenData.TerrainType.GROUND \
-		or terrain_type == TileGenData.TerrainType.GRASS \
-		or terrain_type == TileGenData.TerrainType.SAND
+	return ChunkVisualKernelScript.is_surface_face_terrain(terrain_type)
 
 static func _visual_request_ground_atlas_for_height(height_value: float) -> Vector2i:
-	if height_value < 0.38:
-		return ChunkTilesetFactory.TILE_GROUND_DARK
-	if height_value > 0.62:
-		return ChunkTilesetFactory.TILE_GROUND_LIGHT
-	return ChunkTilesetFactory.TILE_GROUND
+	return ChunkVisualKernelScript.request_ground_atlas_for_height(height_value)
 
 static func _visual_request_surface_ground_atlas(request: Dictionary, local_tile: Vector2i) -> Vector2i:
-	if bool(request.get("is_underground", false)):
-		return Chunk._visual_request_ground_atlas_for_height(Chunk._visual_request_height(request, local_tile))
-	var biome_palette_index: int = Chunk._visual_request_biome(request, local_tile)
-	var variation_tile: Vector2i = ChunkTilesetFactory.get_surface_variation_tile(
-		Chunk._visual_request_variation(request, local_tile),
-		biome_palette_index
-	)
-	if variation_tile.x >= 0:
-		return variation_tile
-	return ChunkTilesetFactory.get_surface_ground_tile(
-		biome_palette_index,
-		Chunk._visual_request_height(request, local_tile)
-	)
+	return ChunkVisualKernelScript.request_surface_ground_atlas(request, local_tile)
 
 static func _visual_request_surface_rock_visual_class(request: Dictionary, local_tile: Vector2i) -> Vector2i:
-	return Chunk._visual_request_surface_visual_class(request, local_tile, false)
+	return ChunkVisualKernelScript.surface_rock_visual_class(request, local_tile)
 
 static func _visual_request_water_face_visual_class(request: Dictionary, local_tile: Vector2i) -> Vector2i:
-	return Chunk._visual_request_surface_visual_class(request, local_tile, true)
+	return ChunkVisualKernelScript.water_face_visual_class(request, local_tile)
 
 static func _visual_request_surface_visual_class(request: Dictionary, local_tile: Vector2i, water_only: bool) -> Vector2i:
-	var s: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i.DOWN), water_only)
-	var n: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i.UP), water_only)
-	var w: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i.LEFT), water_only)
-	var e: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i.RIGHT), water_only)
-	var count: int = int(s) + int(n) + int(w) + int(e)
-	if count == 4:
-		return ChunkTilesetFactory.WALL_PILLAR
-	if count == 3:
-		if not n:
-			return ChunkTilesetFactory.WALL_PENINSULA_S
-		if not s:
-			return ChunkTilesetFactory.WALL_PENINSULA_N
-		if not w:
-			return ChunkTilesetFactory.WALL_PENINSULA_E
-		return ChunkTilesetFactory.WALL_PENINSULA_W
-	if count == 2:
-		if s and w:
-			return ChunkTilesetFactory.WALL_CORNER_SW
-		if s and e:
-			return ChunkTilesetFactory.WALL_CORNER_SE
-		if n and w:
-			return ChunkTilesetFactory.WALL_CORNER_NW
-		if n and e:
-			return ChunkTilesetFactory.WALL_CORNER_NE
-		if w and e:
-			return ChunkTilesetFactory.WALL_CORRIDOR_EW
-		return ChunkTilesetFactory.WALL_CORRIDOR_NS
-	if count == 1:
-		if s:
-			var s_ne: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(1, -1)), water_only)
-			var s_nw: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(-1, -1)), water_only)
-			if s_ne and s_nw:
-				return ChunkTilesetFactory.WALL_T_SOUTH
-			if s_ne:
-				return ChunkTilesetFactory.WALL_SOUTH_NE
-			if s_nw:
-				return ChunkTilesetFactory.WALL_SOUTH_NW
-			return ChunkTilesetFactory.WALL_SOUTH
-		if n:
-			var n_se: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(1, 1)), water_only)
-			var n_sw: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(-1, 1)), water_only)
-			if n_se and n_sw:
-				return ChunkTilesetFactory.WALL_T_NORTH
-			if n_se:
-				return ChunkTilesetFactory.WALL_NORTH_SE
-			if n_sw:
-				return ChunkTilesetFactory.WALL_NORTH_SW
-			return ChunkTilesetFactory.WALL_NORTH
-		if w:
-			var w_ne: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(1, -1)), water_only)
-			var w_se: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(1, 1)), water_only)
-			if w_ne and w_se:
-				return ChunkTilesetFactory.WALL_T_WEST
-			if w_ne:
-				return ChunkTilesetFactory.WALL_WEST_NE
-			if w_se:
-				return ChunkTilesetFactory.WALL_WEST_SE
-			return ChunkTilesetFactory.WALL_WEST
-		var e_nw: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(-1, -1)), water_only)
-		var e_sw: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(-1, 1)), water_only)
-		if e_nw and e_sw:
-			return ChunkTilesetFactory.WALL_T_EAST
-		if e_nw:
-			return ChunkTilesetFactory.WALL_EAST_NW
-		if e_sw:
-			return ChunkTilesetFactory.WALL_EAST_SW
-		return ChunkTilesetFactory.WALL_EAST
-	var d_sw: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(-1, 1)), water_only)
-	var d_se: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(1, 1)), water_only)
-	var d_ne: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(1, -1)), water_only)
-	var d_nw: bool = Chunk._visual_request_is_open_for_surface_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(-1, -1)), water_only)
-	var d_count: int = int(d_sw) + int(d_se) + int(d_ne) + int(d_nw)
-	if d_count == 4:
-		return ChunkTilesetFactory.WALL_CROSS
-	if d_count == 3:
-		if not d_sw:
-			return ChunkTilesetFactory.WALL_DIAG3_NO_SW
-		if not d_se:
-			return ChunkTilesetFactory.WALL_DIAG3_NO_SE
-		if not d_nw:
-			return ChunkTilesetFactory.WALL_DIAG3_NO_NW
-		return ChunkTilesetFactory.WALL_DIAG3_NO_NE
-	if d_count == 2:
-		if d_sw and d_se:
-			return ChunkTilesetFactory.WALL_EDGE_EW
-		if d_ne and d_nw:
-			return ChunkTilesetFactory.WALL_DIAG_NE_NW
-		if d_ne and d_se:
-			return ChunkTilesetFactory.WALL_DIAG_NE_SE
-		if d_nw and d_sw:
-			return ChunkTilesetFactory.WALL_DIAG_NW_SW
-		if d_ne and d_sw:
-			return ChunkTilesetFactory.WALL_DIAG_NE_SW
-		return ChunkTilesetFactory.WALL_DIAG_NW_SE
-	if d_sw:
-		return ChunkTilesetFactory.WALL_NOTCH_SW
-	if d_se:
-		return ChunkTilesetFactory.WALL_NOTCH_SE
-	if d_ne:
-		return ChunkTilesetFactory.WALL_NOTCH_NE
-	if d_nw:
-		return ChunkTilesetFactory.WALL_NOTCH_NW
-	return ChunkTilesetFactory.WALL_INTERIOR
+	return ChunkVisualKernelScript.surface_visual_class(request, local_tile, water_only)
 
 static func _visual_request_rock_visual_class(request: Dictionary, local_tile: Vector2i) -> Vector2i:
-	var s: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i.DOWN))
-	var n: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i.UP))
-	var w: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i.LEFT))
-	var e: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i.RIGHT))
-	var count: int = int(s) + int(n) + int(w) + int(e)
-	if count == 4:
-		return ChunkTilesetFactory.WALL_PILLAR
-	if count == 3:
-		if not n:
-			return ChunkTilesetFactory.WALL_PENINSULA_S
-		if not s:
-			return ChunkTilesetFactory.WALL_PENINSULA_N
-		if not w:
-			return ChunkTilesetFactory.WALL_PENINSULA_E
-		return ChunkTilesetFactory.WALL_PENINSULA_W
-	if count == 2:
-		if s and w:
-			if Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(1, -1))):
-				return ChunkTilesetFactory.WALL_CORNER_SW_T
-			return ChunkTilesetFactory.WALL_CORNER_SW
-		if s and e:
-			if Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(-1, -1))):
-				return ChunkTilesetFactory.WALL_CORNER_SE_T
-			return ChunkTilesetFactory.WALL_CORNER_SE
-		if n and w:
-			if Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(1, 1))):
-				return ChunkTilesetFactory.WALL_CORNER_NW_T
-			return ChunkTilesetFactory.WALL_CORNER_NW
-		if n and e:
-			if Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(-1, 1))):
-				return ChunkTilesetFactory.WALL_CORNER_NE_T
-			return ChunkTilesetFactory.WALL_CORNER_NE
-		if e and w:
-			return ChunkTilesetFactory.WALL_CORRIDOR_EW
-		return ChunkTilesetFactory.WALL_CORRIDOR_NS
-	if count == 1:
-		if s:
-			var s_ne: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(1, -1)))
-			var s_nw: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(-1, -1)))
-			if s_ne and s_nw:
-				return ChunkTilesetFactory.WALL_T_SOUTH
-			if s_ne:
-				return ChunkTilesetFactory.WALL_SOUTH_NE
-			if s_nw:
-				return ChunkTilesetFactory.WALL_SOUTH_NW
-			return ChunkTilesetFactory.WALL_SOUTH
-		if n:
-			var n_se: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(1, 1)))
-			var n_sw: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(-1, 1)))
-			if n_se and n_sw:
-				return ChunkTilesetFactory.WALL_T_NORTH
-			if n_se:
-				return ChunkTilesetFactory.WALL_NORTH_SE
-			if n_sw:
-				return ChunkTilesetFactory.WALL_NORTH_SW
-			return ChunkTilesetFactory.WALL_NORTH
-		if w:
-			var w_ne: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(1, -1)))
-			var w_se: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(1, 1)))
-			if w_ne and w_se:
-				return ChunkTilesetFactory.WALL_T_WEST
-			if w_ne:
-				return ChunkTilesetFactory.WALL_WEST_NE
-			if w_se:
-				return ChunkTilesetFactory.WALL_WEST_SE
-			return ChunkTilesetFactory.WALL_WEST
-		var e_nw: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(-1, -1)))
-		var e_sw: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(-1, 1)))
-		if e_nw and e_sw:
-			return ChunkTilesetFactory.WALL_T_EAST
-		if e_nw:
-			return ChunkTilesetFactory.WALL_EAST_NW
-		if e_sw:
-			return ChunkTilesetFactory.WALL_EAST_SW
-		return ChunkTilesetFactory.WALL_EAST
-	var d_sw: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(-1, 1)))
-	var d_se: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(1, 1)))
-	var d_ne: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(1, -1)))
-	var d_nw: bool = Chunk._visual_request_is_open_for_visual(Chunk._visual_request_terrain(request, local_tile + Vector2i(-1, -1)))
-	var d_count: int = int(d_sw) + int(d_se) + int(d_ne) + int(d_nw)
-	if d_count == 4:
-		return ChunkTilesetFactory.WALL_CROSS
-	if d_count == 3:
-		if not d_sw:
-			return ChunkTilesetFactory.WALL_DIAG3_NO_SW
-		if not d_se:
-			return ChunkTilesetFactory.WALL_DIAG3_NO_SE
-		if not d_nw:
-			return ChunkTilesetFactory.WALL_DIAG3_NO_NW
-		return ChunkTilesetFactory.WALL_DIAG3_NO_NE
-	if d_count == 2:
-		if d_sw and d_se:
-			return ChunkTilesetFactory.WALL_EDGE_EW
-		if d_ne and d_nw:
-			return ChunkTilesetFactory.WALL_DIAG_NE_NW
-		if d_ne and d_se:
-			return ChunkTilesetFactory.WALL_DIAG_NE_SE
-		if d_nw and d_sw:
-			return ChunkTilesetFactory.WALL_DIAG_NW_SW
-		if d_ne and d_sw:
-			return ChunkTilesetFactory.WALL_DIAG_NE_SW
-		return ChunkTilesetFactory.WALL_DIAG_NW_SE
-	if d_sw:
-		return ChunkTilesetFactory.WALL_NOTCH_SW
-	if d_se:
-		return ChunkTilesetFactory.WALL_NOTCH_SE
-	if d_ne:
-		return ChunkTilesetFactory.WALL_NOTCH_NE
-	if d_nw:
-		return ChunkTilesetFactory.WALL_NOTCH_NW
-	return ChunkTilesetFactory.WALL_INTERIOR
+	return ChunkVisualKernelScript.rock_visual_class(request, local_tile)
 
 static func _visual_request_is_cave_edge_rock(request: Dictionary, local_tile: Vector2i) -> bool:
-	if Chunk._visual_request_terrain(request, local_tile) != TileGenData.TerrainType.ROCK:
-		return false
-	var has_open_neighbor: bool = false
-	for dir: Vector2i in _COVER_REVEAL_DIRS:
-		var neighbor_type: int = Chunk._visual_request_terrain(request, local_tile + dir)
-		if Chunk._visual_request_is_open_exterior(neighbor_type):
-			return false
-		if neighbor_type == TileGenData.TerrainType.MINED_FLOOR or neighbor_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
-			has_open_neighbor = true
-	return has_open_neighbor
+	return ChunkVisualKernelScript.is_cave_edge_rock(request, local_tile)
 
 static func _visual_request_is_exterior_surface_rock(request: Dictionary, local_tile: Vector2i) -> bool:
-	for dir: Vector2i in _COVER_REVEAL_DIRS:
-		if Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(request, local_tile + dir)):
-			return true
-	return false
+	return ChunkVisualKernelScript.is_exterior_surface_rock(request, local_tile)
 
 static func _visual_request_cover_rock_atlas(request: Dictionary, local_tile: Vector2i) -> Vector2i:
-	if Chunk._visual_request_is_exterior_surface_rock(request, local_tile):
-		return ChunkTilesetFactory.WALL_SOUTH
-	return ChunkTilesetFactory.WALL_INTERIOR
+	return ChunkVisualKernelScript.cover_rock_atlas(request, local_tile)
 
 static func _visual_request_variant_atlas(base: Vector2i, global_x: int, global_y: int) -> Vector2i:
-	if base == ChunkTilesetFactory.WALL_INTERIOR:
-		var interior_variant: Vector2i = Chunk._visual_request_interior_variant(global_x, global_y)
-		return ChunkTilesetFactory.get_wall_variant_coords(base, interior_variant.x)
-	return ChunkTilesetFactory.get_wall_variant_coords(base, 0)
+	return ChunkVisualKernelScript.resolve_variant_atlas(base, global_x, global_y)
 
 static func _visual_request_cliff_overlay_kind(request: Dictionary, local_tile: Vector2i) -> int:
-	var terrain_type: int = Chunk._visual_request_terrain(request, local_tile)
-	if terrain_type == TileGenData.TerrainType.ROCK:
-		if Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(request, local_tile + _CARDINAL_DIRS[3])):
-			return PREBAKED_CLIFF_SOUTH
-		if Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(request, local_tile + _CARDINAL_DIRS[0])):
-			return PREBAKED_CLIFF_WEST
-		if Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(request, local_tile + _CARDINAL_DIRS[1])):
-			return PREBAKED_CLIFF_EAST
-		if Chunk._visual_request_is_open_exterior(Chunk._visual_request_terrain(request, local_tile + _CARDINAL_DIRS[2])):
-			return PREBAKED_CLIFF_TOP
-		return PREBAKED_CLIFF_NONE
-	if not Chunk._visual_request_is_surface_face_terrain(terrain_type):
-		return PREBAKED_CLIFF_NONE
-	if Chunk._visual_request_terrain(request, local_tile + Vector2i.UP) == TileGenData.TerrainType.ROCK:
-		return PREBAKED_CLIFF_SURFACE_NORTH
-	if Chunk._visual_request_terrain(request, local_tile + Vector2i.LEFT) == TileGenData.TerrainType.ROCK:
-		return PREBAKED_CLIFF_WEST
-	if Chunk._visual_request_terrain(request, local_tile + Vector2i.RIGHT) == TileGenData.TerrainType.ROCK:
-		return PREBAKED_CLIFF_EAST
-	if Chunk._visual_request_terrain(request, local_tile + Vector2i.DOWN) == TileGenData.TerrainType.ROCK:
-		return PREBAKED_CLIFF_SOUTH
-	return PREBAKED_CLIFF_NONE
+	return ChunkVisualKernelScript.cliff_overlay_kind(request, local_tile)
 
 static func _visual_request_variant_alt_id(base: Vector2i, global_x: int, global_y: int, allow_flip: bool) -> int:
-	if base == ChunkTilesetFactory.WALL_INTERIOR:
-		return Chunk._visual_request_interior_variant(global_x, global_y).y
-	if not allow_flip:
-		return 0
-	var def_index: int = base.x - 7
-	if def_index < 0 or def_index >= ChunkTilesetFactory._WALL_FLIP_CLASS.size():
-		return 0
-	var flip_class: int = ChunkTilesetFactory._WALL_FLIP_CLASS[def_index]
-	if flip_class <= 0:
-		return 0
-	var alt_count: int = ChunkTilesetFactory.wall_flip_alt_count[flip_class]
-	if alt_count <= 0:
-		return 0
-	return _tile_hash_xy(global_x + 17, global_y + 31) % alt_count
+	return ChunkVisualKernelScript.resolve_variant_alt_id(base, global_x, global_y, allow_flip)
 
 static func _visual_request_resolve_interior_family(global_x: int, global_y: int, base_count: int) -> int:
-	var family_count: int = _interior_family_count(base_count)
-	if family_count <= 1:
-		return 0
-	var macro_noise: float = Chunk._visual_request_sample_interior_family_noise(global_x, global_y, _INTERIOR_FAMILY_SCALE, _INTERIOR_FAMILY_SEED)
-	var detail_noise: float = Chunk._visual_request_sample_interior_family_noise(
-		global_x,
-		global_y,
-		_INTERIOR_FAMILY_DETAIL_SCALE,
-		_INTERIOR_FAMILY_SEED + 53
-	)
-	var blended_noise: float = clampf(macro_noise * 0.82 + detail_noise * 0.18, 0.0, 0.999999)
-	return mini(family_count - 1, int(floor(blended_noise * family_count)))
+	return ChunkVisualKernelScript.resolve_interior_family(global_x, global_y, base_count)
 
 static func _visual_request_sample_interior_family_noise(global_x: int, global_y: int, scale: float, seed: int) -> float:
-	var scaled_x: float = float(global_x) / scale
-	var scaled_y: float = float(global_y) / scale
-	var cell_x: int = floori(scaled_x)
-	var cell_y: int = floori(scaled_y)
-	var frac_x: float = _smoothstep01(scaled_x - float(cell_x))
-	var frac_y: float = _smoothstep01(scaled_y - float(cell_y))
-	var v00: float = _hash32_to_unit_float(_hash32_xy(cell_x, cell_y, seed))
-	var v10: float = _hash32_to_unit_float(_hash32_xy(cell_x + 1, cell_y, seed))
-	var v01: float = _hash32_to_unit_float(_hash32_xy(cell_x, cell_y + 1, seed))
-	var v11: float = _hash32_to_unit_float(_hash32_xy(cell_x + 1, cell_y + 1, seed))
-	var nx0: float = lerpf(v00, v10, frac_x)
-	var nx1: float = lerpf(v01, v11, frac_x)
-	return lerpf(nx0, nx1, frac_y)
+	return ChunkVisualKernelScript.sample_interior_family_noise(global_x, global_y, scale, seed)
 
 static func _visual_request_raw_interior_variant(global_x: int, global_y: int, family_index: int, seed: int = _INTERIOR_VARIATION_SEED) -> Vector2i:
-	var base_count: int = ChunkTilesetFactory.get_interior_base_variant_count()
-	if base_count <= 0:
-		return Vector2i.ZERO
-	var family_window: Vector2i = _interior_family_window(base_count, family_index)
-	var h: int = _hash32_xy(global_x, global_y, seed)
-	return Vector2i(
-		family_window.x + (h % family_window.y),
-		(h >> 8) & (ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT - 1)
-	)
+	return ChunkVisualKernelScript.raw_interior_variant(global_x, global_y, family_index, seed)
 
 static func _visual_request_interior_variant(global_x: int, global_y: int) -> Vector2i:
-	var base_count: int = ChunkTilesetFactory.get_interior_base_variant_count()
-	if base_count <= 0:
-		return Vector2i.ZERO
-	var resolved_family: int = Chunk._visual_request_resolve_interior_family(global_x, global_y, base_count)
-	var family_window: Vector2i = _interior_family_window(base_count, resolved_family)
-	var resolved: Vector2i = Chunk._visual_request_raw_interior_variant(global_x, global_y, resolved_family)
-	var left_variant: Vector2i = Chunk._visual_request_raw_interior_variant(
-		global_x - 1,
-		global_y,
-		Chunk._visual_request_resolve_interior_family(global_x - 1, global_y, base_count)
-	)
-	var top_variant: Vector2i = Chunk._visual_request_raw_interior_variant(
-		global_x,
-		global_y - 1,
-		Chunk._visual_request_resolve_interior_family(global_x, global_y - 1, base_count)
-	)
-	var left_conflict: bool = _interior_variant_matches(resolved, left_variant)
-	var top_conflict: bool = _interior_variant_matches(resolved, top_variant)
-	if left_conflict and top_conflict:
-		resolved = Chunk._visual_request_raw_interior_variant(global_x, global_y, resolved_family, _INTERIOR_REHASH_SEED)
-	if _interior_variant_matches(resolved, left_variant):
-		resolved.y = (resolved.y + 1) % ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT
-	if _interior_variant_matches(resolved, top_variant):
-		if family_window.y > 1:
-			resolved.x = _shift_interior_family_base(resolved.x, family_window, 1)
-		else:
-			resolved.y = (resolved.y + 3) % ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT
-	if _interior_variant_matches(resolved, left_variant) or _interior_variant_matches(resolved, top_variant):
-		resolved = Chunk._visual_request_raw_interior_variant(global_x, global_y, resolved_family, _INTERIOR_REHASH_SEED + 97)
-		if _interior_variant_matches(resolved, left_variant):
-			resolved.y = (resolved.y + 5) % ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT
-		if _interior_variant_matches(resolved, top_variant):
-			if family_window.y > 1:
-				resolved.x = _shift_interior_family_base(resolved.x, family_window, 2)
-			else:
-				resolved.y = (resolved.y + 2) % ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT
-	return resolved
+	return ChunkVisualKernelScript.resolve_interior_variant(global_x, global_y)
 
 static func _visual_phase_name(phase: int) -> StringName:
-	match phase:
-		REDRAW_PHASE_TERRAIN:
-			return &"terrain"
-		REDRAW_PHASE_COVER:
-			return &"cover"
-		REDRAW_PHASE_CLIFF:
-			return &"cliff"
-		REDRAW_PHASE_FLORA:
-			return &"flora"
-		REDRAW_PHASE_DEBUG_INTERIOR:
-			return &"debug_interior"
-		REDRAW_PHASE_DEBUG_COLLISION:
-			return &"debug_collision"
-		_:
-			return &"done"
+	return ChunkVisualKernelScript.visual_phase_name(phase)
 
 func _reset_cover_visual_state() -> void:
 	if _cover_layer:
@@ -2363,204 +1735,31 @@ func _reset_cover_visual_state() -> void:
 	_reapply_local_zone_cover_state()
 
 func _redraw_terrain_tile(local_tile: Vector2i) -> void:
-	var terrain_type: int = get_terrain_type_at(local_tile)
-	var atlas: Vector2i = ChunkTilesetFactory.TILE_GROUND
-	var alt_id: int = 0
-	var rock_atlas: Vector2i = Vector2i(-1, -1)
-	var rock_alt_id: int = 0
-	var biome_palette_index: int = _biome_palette_index_at(local_tile)
-	var variation_id: int = ChunkTilesetFactory.SURFACE_VARIATION_NONE
-	var variation_tile: Vector2i = Vector2i(-1, -1)
-	if not _is_underground:
-		variation_id = _variation_at(local_tile)
-		variation_tile = ChunkTilesetFactory.get_surface_variation_tile(variation_id, biome_palette_index)
-	match terrain_type:
-		TileGenData.TerrainType.ROCK:
-			# Base terrain under mountain: biome ground tile (always visible through rock alpha)
-			atlas = _resolve_surface_ground_atlas(local_tile)
-			# Rock wall form goes to separate rock_layer (alpha-blended over terrain)
-			var rock_visual: Vector2i = _rock_visual_class(local_tile)
-			if not _is_underground:
-				rock_visual = _surface_rock_visual_class(local_tile)
-			var global_tile: Vector2i = _to_global_tile(local_tile)
-			rock_atlas = _resolve_variant_atlas(rock_visual, global_tile.x, global_tile.y)
-			rock_alt_id = _resolve_variant_alt_id(rock_visual, global_tile.x, global_tile.y, _is_underground)
-		TileGenData.TerrainType.WATER:
-			if variation_id == ChunkTilesetFactory.SURFACE_VARIATION_ICE and variation_tile.x >= 0:
-				atlas = variation_tile
-			else:
-				atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, biome_palette_index)
-		TileGenData.TerrainType.SAND:
-			if variation_tile.x >= 0:
-				atlas = variation_tile
-			else:
-				atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, biome_palette_index)
-		TileGenData.TerrainType.GRASS:
-			if variation_tile.x >= 0:
-				atlas = variation_tile
-			else:
-				atlas = ChunkTilesetFactory.get_surface_terrain_tile(terrain_type, biome_palette_index)
-		TileGenData.TerrainType.MINED_FLOOR:
-			atlas = ChunkTilesetFactory.TILE_MINED_FLOOR
-		TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
-			atlas = ChunkTilesetFactory.TILE_MOUNTAIN_ENTRANCE
-		_:
-			if variation_tile.x >= 0:
-				atlas = variation_tile
-			else:
-				atlas = _resolve_surface_ground_atlas(local_tile)
-	_terrain_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, alt_id)
-	_redraw_ground_face_tile(local_tile, terrain_type)
-	# Rock layer: set wall form if ROCK, erase otherwise
-	if rock_atlas.x >= 0:
-		_rock_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, rock_atlas, rock_alt_id)
-	else:
-		_rock_layer.erase_cell(local_tile)
+	_apply_single_tile_visual_phase(local_tile, REDRAW_PHASE_TERRAIN)
 
 func _redraw_ground_face_tile(local_tile: Vector2i, terrain_type: int) -> void:
-	if not _ground_face_layer:
-		return
-	if _is_underground:
-		_ground_face_layer.erase_cell(local_tile)
-		return
-	var atlas: Vector2i = Vector2i(-1, -1)
-	var alt_id: int = 0
-	if _is_surface_face_terrain(terrain_type):
-		var wall_def: Vector2i = ChunkTilesetFactory.WALL_INTERIOR
-		var interior_variant: Vector2i = Vector2i.ZERO
-		var global_tile: Vector2i = _to_global_tile(local_tile)
-		if _has_water_face_neighbor(local_tile):
-			wall_def = _water_face_visual_class(local_tile)
-		else:
-			interior_variant = _resolve_interior_variant(global_tile.x, global_tile.y)
-			alt_id = interior_variant.y
-		var biome_palette_index: int = _biome_palette_index_at(local_tile)
-		match terrain_type:
-			TileGenData.TerrainType.GROUND, TileGenData.TerrainType.GRASS:
-				atlas = ChunkTilesetFactory.get_ground_face_coords(wall_def, biome_palette_index, interior_variant.x)
-			TileGenData.TerrainType.SAND:
-				atlas = ChunkTilesetFactory.get_sand_face_coords(wall_def, biome_palette_index, interior_variant.x)
-	if atlas.x >= 0:
-		_ground_face_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, alt_id)
-	else:
-		_ground_face_layer.erase_cell(local_tile)
+	var request: Dictionary = _build_single_tile_visual_request(local_tile)
+	var commands: Array[Dictionary] = []
+	ChunkVisualKernelScript.append_ground_face_visual_command(
+		request,
+		local_tile,
+		terrain_type,
+		commands,
+		true
+	)
+	_apply_visual_commands(commands)
 
 func _surface_rock_visual_class(local_tile: Vector2i) -> Vector2i:
-	return _surface_visual_class(local_tile, false)
+	return ChunkVisualKernelScript.surface_rock_visual_class(_build_single_tile_visual_request(local_tile), local_tile)
 
 func _water_face_visual_class(local_tile: Vector2i) -> Vector2i:
-	return _surface_visual_class(local_tile, true)
+	return ChunkVisualKernelScript.water_face_visual_class(_build_single_tile_visual_request(local_tile), local_tile)
 
 func _surface_visual_class(local_tile: Vector2i, water_only: bool) -> Vector2i:
-	var s: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i.DOWN), water_only)
-	var n: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i.UP), water_only)
-	var w: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i.LEFT), water_only)
-	var e: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i.RIGHT), water_only)
-	var count: int = int(s) + int(n) + int(w) + int(e)
-	if count == 4:
-		return ChunkTilesetFactory.WALL_PILLAR
-	if count == 3:
-		if not n:
-			return ChunkTilesetFactory.WALL_PENINSULA_S
-		if not s:
-			return ChunkTilesetFactory.WALL_PENINSULA_N
-		if not w:
-			return ChunkTilesetFactory.WALL_PENINSULA_E
-		return ChunkTilesetFactory.WALL_PENINSULA_W
-	if count == 2:
-		if s and w:
-			return ChunkTilesetFactory.WALL_CORNER_SW
-		if s and e:
-			return ChunkTilesetFactory.WALL_CORNER_SE
-		if n and w:
-			return ChunkTilesetFactory.WALL_CORNER_NW
-		if n and e:
-			return ChunkTilesetFactory.WALL_CORNER_NE
-		if w and e:
-			return ChunkTilesetFactory.WALL_CORRIDOR_EW
-		return ChunkTilesetFactory.WALL_CORRIDOR_NS
-	if count == 1:
-		if s:
-			var s_ne: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1)), water_only)
-			var s_nw: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)), water_only)
-			if s_ne and s_nw:
-				return ChunkTilesetFactory.WALL_T_SOUTH
-			if s_ne:
-				return ChunkTilesetFactory.WALL_SOUTH_NE
-			if s_nw:
-				return ChunkTilesetFactory.WALL_SOUTH_NW
-			return ChunkTilesetFactory.WALL_SOUTH
-		if n:
-			var n_se: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1)), water_only)
-			var n_sw: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)), water_only)
-			if n_se and n_sw:
-				return ChunkTilesetFactory.WALL_T_NORTH
-			if n_se:
-				return ChunkTilesetFactory.WALL_NORTH_SE
-			if n_sw:
-				return ChunkTilesetFactory.WALL_NORTH_SW
-			return ChunkTilesetFactory.WALL_NORTH
-		if w:
-			var w_ne: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1)), water_only)
-			var w_se: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1)), water_only)
-			if w_ne and w_se:
-				return ChunkTilesetFactory.WALL_T_WEST
-			if w_ne:
-				return ChunkTilesetFactory.WALL_WEST_NE
-			if w_se:
-				return ChunkTilesetFactory.WALL_WEST_SE
-			return ChunkTilesetFactory.WALL_WEST
-		var e_nw: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)), water_only)
-		var e_sw: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)), water_only)
-		if e_nw and e_sw:
-			return ChunkTilesetFactory.WALL_T_EAST
-		if e_nw:
-			return ChunkTilesetFactory.WALL_EAST_NW
-		if e_sw:
-			return ChunkTilesetFactory.WALL_EAST_SW
-		return ChunkTilesetFactory.WALL_EAST
-	var d_sw: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)), water_only)
-	var d_se: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1)), water_only)
-	var d_ne: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1)), water_only)
-	var d_nw: bool = _is_open_for_surface_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)), water_only)
-	var d_count: int = int(d_sw) + int(d_se) + int(d_ne) + int(d_nw)
-	if d_count == 4:
-		return ChunkTilesetFactory.WALL_CROSS
-	if d_count == 3:
-		if not d_sw:
-			return ChunkTilesetFactory.WALL_DIAG3_NO_SW
-		if not d_se:
-			return ChunkTilesetFactory.WALL_DIAG3_NO_SE
-		if not d_nw:
-			return ChunkTilesetFactory.WALL_DIAG3_NO_NW
-		return ChunkTilesetFactory.WALL_DIAG3_NO_NE
-	if d_count == 2:
-		if d_sw and d_se:
-			return ChunkTilesetFactory.WALL_EDGE_EW
-		if d_ne and d_nw:
-			return ChunkTilesetFactory.WALL_DIAG_NE_NW
-		if d_ne and d_se:
-			return ChunkTilesetFactory.WALL_DIAG_NE_SE
-		if d_nw and d_sw:
-			return ChunkTilesetFactory.WALL_DIAG_NW_SW
-		if d_ne and d_sw:
-			return ChunkTilesetFactory.WALL_DIAG_NE_SW
-		return ChunkTilesetFactory.WALL_DIAG_NW_SE
-	if d_sw:
-		return ChunkTilesetFactory.WALL_NOTCH_SW
-	if d_se:
-		return ChunkTilesetFactory.WALL_NOTCH_SE
-	if d_ne:
-		return ChunkTilesetFactory.WALL_NOTCH_NE
-	if d_nw:
-		return ChunkTilesetFactory.WALL_NOTCH_NW
-	return ChunkTilesetFactory.WALL_INTERIOR
+	return ChunkVisualKernelScript.surface_visual_class(_build_single_tile_visual_request(local_tile), local_tile, water_only)
 
 func _has_water_face_neighbor(local_tile: Vector2i) -> bool:
-	for dir: Vector2i in _COVER_REVEAL_DIRS:
-		if _is_water_for_face_visual(_get_neighbor_terrain(local_tile + dir)):
-			return true
-	return false
+	return ChunkVisualKernelScript.has_water_face_neighbor(_build_single_tile_visual_request(local_tile), local_tile)
 
 func _is_surface_face_terrain(terrain_type: int) -> bool:
 	return terrain_type == TileGenData.TerrainType.GROUND \
@@ -2568,20 +1767,10 @@ func _is_surface_face_terrain(terrain_type: int) -> bool:
 		or terrain_type == TileGenData.TerrainType.SAND
 
 func _resolve_surface_ground_atlas(local_tile: Vector2i) -> Vector2i:
-	if _is_underground:
-		return _ground_atlas_for_height(_height_at(local_tile))
-	var biome_palette_index: int = _biome_palette_index_at(local_tile)
-	var variation_tile: Vector2i = ChunkTilesetFactory.get_surface_variation_tile(_variation_at(local_tile), biome_palette_index)
-	if variation_tile.x >= 0:
-		return variation_tile
-	return ChunkTilesetFactory.get_surface_ground_tile(biome_palette_index, _height_at(local_tile))
+	return ChunkVisualKernelScript.request_surface_ground_atlas(_build_single_tile_visual_request(local_tile), local_tile)
 
 func _ground_atlas_for_height(height_value: float) -> Vector2i:
-	if height_value < 0.38:
-		return ChunkTilesetFactory.TILE_GROUND_DARK
-	if height_value > 0.62:
-		return ChunkTilesetFactory.TILE_GROUND_LIGHT
-	return ChunkTilesetFactory.TILE_GROUND
+	return ChunkVisualKernelScript.request_ground_atlas_for_height(height_value)
 
 func _resolve_open_tile_type(local_tile: Vector2i) -> int:
 	for dir: Vector2i in _CARDINAL_DIRS:
@@ -2701,18 +1890,14 @@ func _rebuild_cover_layer() -> void:
 	if not _cover_layer:
 		return
 	_cover_layer.clear()
-	for local_y: int in range(_chunk_size):
-		for local_x: int in range(_chunk_size):
-			_redraw_cover_tile(Vector2i(local_x, local_y))
+	_apply_visual_phase_for_tiles_now(REDRAW_PHASE_COVER, _build_all_chunk_tiles())
 	_reapply_local_zone_cover_state()
 
 func refresh_cliffs() -> void:
 	if not _cliff_layer:
 		return
 	_cliff_layer.clear()
-	for local_y: int in range(_chunk_size):
-		for local_x: int in range(_chunk_size):
-			_redraw_cliff_tile(Vector2i(local_x, local_y))
+	_apply_visual_phase_for_tiles_now(REDRAW_PHASE_CLIFF, _build_all_chunk_tiles())
 
 func _get_sun_direction() -> Vector2:
 	if not TimeManager:
@@ -2726,52 +1911,17 @@ func _is_cliff_exposed_to_surface(local_tile: Vector2i) -> bool:
 func _redraw_cliff_tile(local_tile: Vector2i) -> void:
 	if not _cliff_layer or _is_underground:
 		return
-	var overlay: Vector2i = _prebaked_cliff_overlay_coords(_cliff_overlay_kind(local_tile))
-	if overlay.x >= 0:
-		_cliff_layer.set_cell(local_tile, ChunkTilesetFactory.OVERLAY_SOURCE_ID, overlay)
-	else:
-		_cliff_layer.erase_cell(local_tile)
+	_apply_single_tile_visual_phase(local_tile, REDRAW_PHASE_CLIFF)
 
 func _redraw_cover_tile(local_tile: Vector2i) -> void:
 	# Underground z-levels don't use roof/cover system (ADR-0006).
 	# Visibility handled by fog layer instead.
-	if _is_underground:
+	if _is_underground or _cover_layer == null:
 		return
-	var terrain: int = get_terrain_type_at(local_tile)
-	var need_cover: bool = terrain == TileGenData.TerrainType.MINED_FLOOR \
-		or _is_cave_edge_rock(local_tile)
-	if not need_cover:
-		return
-	# Use the same variant hash as terrain layer — mountain looks identical before/after mining
-	var base: Vector2i = _cover_rock_atlas(local_tile)
-	var global_tile: Vector2i = _to_global_tile(local_tile)
-	var atlas: Vector2i = _resolve_variant_atlas(base, global_tile.x, global_tile.y)
-	var alt_id: int = _resolve_variant_alt_id(base, global_tile.x, global_tile.y, false)
-	_cover_layer.set_cell(local_tile, ChunkTilesetFactory.TERRAIN_SOURCE_ID, atlas, alt_id)
+	_apply_single_tile_visual_phase(local_tile, REDRAW_PHASE_COVER)
 
 func _cliff_overlay_kind(local_tile: Vector2i) -> int:
-	var terrain_type: int = get_terrain_type_at(local_tile)
-	if terrain_type == TileGenData.TerrainType.ROCK:
-		if _is_open_exterior(_get_neighbor_terrain(local_tile + _CARDINAL_DIRS[3])):
-			return PREBAKED_CLIFF_SOUTH
-		if _is_open_exterior(_get_neighbor_terrain(local_tile + _CARDINAL_DIRS[0])):
-			return PREBAKED_CLIFF_WEST
-		if _is_open_exterior(_get_neighbor_terrain(local_tile + _CARDINAL_DIRS[1])):
-			return PREBAKED_CLIFF_EAST
-		if _is_open_exterior(_get_neighbor_terrain(local_tile + _CARDINAL_DIRS[2])):
-			return PREBAKED_CLIFF_TOP
-		return PREBAKED_CLIFF_NONE
-	if not _is_surface_face_terrain(terrain_type):
-		return PREBAKED_CLIFF_NONE
-	if _get_neighbor_terrain(local_tile + Vector2i.UP) == TileGenData.TerrainType.ROCK:
-		return PREBAKED_CLIFF_SURFACE_NORTH
-	if _get_neighbor_terrain(local_tile + Vector2i.LEFT) == TileGenData.TerrainType.ROCK:
-		return PREBAKED_CLIFF_WEST
-	if _get_neighbor_terrain(local_tile + Vector2i.RIGHT) == TileGenData.TerrainType.ROCK:
-		return PREBAKED_CLIFF_EAST
-	if _get_neighbor_terrain(local_tile + Vector2i.DOWN) == TileGenData.TerrainType.ROCK:
-		return PREBAKED_CLIFF_SOUTH
-	return PREBAKED_CLIFF_NONE
+	return ChunkVisualKernelScript.cliff_overlay_kind(_build_single_tile_visual_request(local_tile), local_tile)
 
 static func _resolve_effective_surface_palette_index(
 	primary_biome_palette_index: int,
@@ -2845,33 +1995,10 @@ static func _smoothstep01(t: float) -> float:
 	return clamped_t * clamped_t * (3.0 - 2.0 * clamped_t)
 
 func _sample_interior_family_noise(global_x: int, global_y: int, scale: float, seed: int) -> float:
-	var scaled_x: float = float(global_x) / scale
-	var scaled_y: float = float(global_y) / scale
-	var cell_x: int = floori(scaled_x)
-	var cell_y: int = floori(scaled_y)
-	var frac_x: float = _smoothstep01(scaled_x - float(cell_x))
-	var frac_y: float = _smoothstep01(scaled_y - float(cell_y))
-	var v00: float = _hash32_to_unit_float(_hash32_xy(cell_x, cell_y, seed))
-	var v10: float = _hash32_to_unit_float(_hash32_xy(cell_x + 1, cell_y, seed))
-	var v01: float = _hash32_to_unit_float(_hash32_xy(cell_x, cell_y + 1, seed))
-	var v11: float = _hash32_to_unit_float(_hash32_xy(cell_x + 1, cell_y + 1, seed))
-	var nx0: float = lerpf(v00, v10, frac_x)
-	var nx1: float = lerpf(v01, v11, frac_x)
-	return lerpf(nx0, nx1, frac_y)
+	return ChunkVisualKernelScript.sample_interior_family_noise(global_x, global_y, scale, seed)
 
 func _resolve_interior_family(global_x: int, global_y: int, base_count: int) -> int:
-	var family_count: int = _interior_family_count(base_count)
-	if family_count <= 1:
-		return 0
-	var macro_noise: float = _sample_interior_family_noise(global_x, global_y, _INTERIOR_FAMILY_SCALE, _INTERIOR_FAMILY_SEED)
-	var detail_noise: float = _sample_interior_family_noise(
-		global_x,
-		global_y,
-		_INTERIOR_FAMILY_DETAIL_SCALE,
-		_INTERIOR_FAMILY_SEED + 53
-	)
-	var blended_noise: float = clampf(macro_noise * 0.82 + detail_noise * 0.18, 0.0, 0.999999)
-	return mini(family_count - 1, int(floor(blended_noise * family_count)))
+	return ChunkVisualKernelScript.resolve_interior_family(global_x, global_y, base_count)
 
 static func _shift_interior_family_base(base_index: int, family_window: Vector2i, step: int) -> int:
 	if family_window.y <= 1:
@@ -2893,43 +2020,7 @@ static func _interior_variant_matches(a: Vector2i, b: Vector2i) -> bool:
 	return a.x == b.x and a.y == b.y
 
 func _resolve_interior_variant(global_x: int, global_y: int) -> Vector2i:
-	var base_count: int = ChunkTilesetFactory.get_interior_base_variant_count()
-	if base_count <= 0:
-		return Vector2i.ZERO
-	var resolved_family: int = _resolve_interior_family(global_x, global_y, base_count)
-	var family_window: Vector2i = _interior_family_window(base_count, resolved_family)
-	var resolved: Vector2i = _raw_interior_variant(global_x, global_y, resolved_family)
-	var left_variant: Vector2i = _raw_interior_variant(
-		global_x - 1,
-		global_y,
-		_resolve_interior_family(global_x - 1, global_y, base_count)
-	)
-	var top_variant: Vector2i = _raw_interior_variant(
-		global_x,
-		global_y - 1,
-		_resolve_interior_family(global_x, global_y - 1, base_count)
-	)
-	var left_conflict: bool = _interior_variant_matches(resolved, left_variant)
-	var top_conflict: bool = _interior_variant_matches(resolved, top_variant)
-	if left_conflict and top_conflict:
-		resolved = _raw_interior_variant(global_x, global_y, resolved_family, _INTERIOR_REHASH_SEED)
-	if _interior_variant_matches(resolved, left_variant):
-		resolved.y = (resolved.y + 1) % ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT
-	if _interior_variant_matches(resolved, top_variant):
-		if family_window.y > 1:
-			resolved.x = _shift_interior_family_base(resolved.x, family_window, 1)
-		else:
-			resolved.y = (resolved.y + 3) % ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT
-	if _interior_variant_matches(resolved, left_variant) or _interior_variant_matches(resolved, top_variant):
-		resolved = _raw_interior_variant(global_x, global_y, resolved_family, _INTERIOR_REHASH_SEED + 97)
-		if _interior_variant_matches(resolved, left_variant):
-			resolved.y = (resolved.y + 5) % ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT
-		if _interior_variant_matches(resolved, top_variant):
-			if family_window.y > 1:
-				resolved.x = _shift_interior_family_base(resolved.x, family_window, 2)
-			else:
-				resolved.y = (resolved.y + 2) % ChunkTilesetFactory.INTERIOR_TRANSFORM_COUNT
-	return resolved
+	return ChunkVisualKernelScript.resolve_interior_variant(global_x, global_y)
 
 func _clear_interior_macro_layer() -> void:
 	if _interior_macro_layer == null:
@@ -2951,32 +2042,35 @@ func _refresh_interior_macro_layer_if_dirty() -> void:
 func _refresh_interior_macro_layer() -> void:
 	if not _INTERIOR_MACRO_ENABLED or _interior_macro_layer == null:
 		return
-	var interior_tiles: Dictionary = _collect_interior_macro_tiles()
-	if interior_tiles.is_empty():
+	var tile_count: int = _chunk_size * _chunk_size
+	var target_mask: PackedByteArray = PackedByteArray()
+	target_mask.resize(tile_count)
+	var has_targets: bool = false
+	for local_y: int in range(_chunk_size):
+		for local_x: int in range(_chunk_size):
+			var local_tile: Vector2i = Vector2i(local_x, local_y)
+			if not _is_interior_macro_target(local_tile):
+				continue
+			target_mask[local_y * _chunk_size + local_x] = 1
+			has_targets = true
+	if not has_targets:
 		_clear_interior_macro_layer()
 		return
-	var sample_size: int = _chunk_size * _INTERIOR_MACRO_SAMPLES_PER_TILE
-	var image := Image.create(sample_size, sample_size, false, Image.FORMAT_RGBA8)
-	image.fill(Color(0.0, 0.0, 0.0, 0.0))
-	var world_sample_origin: Vector2i = Vector2i(
-		chunk_coord.x * sample_size,
-		chunk_coord.y * sample_size
-	)
-	for sample_y: int in range(sample_size):
-		var local_tile_y: int = sample_y / _INTERIOR_MACRO_SAMPLES_PER_TILE
-		for sample_x: int in range(sample_size):
-			var local_tile: Vector2i = Vector2i(
-				sample_x / _INTERIOR_MACRO_SAMPLES_PER_TILE,
-				local_tile_y
-			)
-			if not interior_tiles.has(local_tile):
-				continue
-			var world_sample_x: int = world_sample_origin.x + sample_x
-			var world_sample_y: int = world_sample_origin.y + sample_y
-			var overlay_color: Color = _resolve_interior_macro_color(world_sample_x, world_sample_y, local_tile)
-			if overlay_color.a <= 0.0:
-				continue
-			image.set_pixel(sample_x, sample_y, overlay_color)
+	var overlay: Dictionary = _build_interior_macro_overlay_native(target_mask)
+	if overlay.is_empty():
+		return
+	if not bool(overlay.get("has_visible_pixels", false)):
+		_clear_interior_macro_layer()
+		return
+	var sample_size: int = int(overlay.get("sample_size", 0))
+	var pixels: PackedByteArray = overlay.get("pixels", PackedByteArray()) as PackedByteArray
+	if sample_size <= 0 or pixels.size() != sample_size * sample_size * 4:
+		var error_message: String = "Chunk._refresh_interior_macro_layer(): native interior macro overlay returned invalid RGBA payload for %s" % [chunk_coord]
+		push_error(error_message)
+		assert(false, error_message)
+		_clear_interior_macro_layer()
+		return
+	var image: Image = Image.create_from_data(sample_size, sample_size, false, Image.FORMAT_RGBA8, pixels)
 	var texture: ImageTexture = ImageTexture.create_from_image(image)
 	_interior_macro_layer.texture = texture
 	_interior_macro_layer.scale = Vector2(
@@ -2986,14 +2080,35 @@ func _refresh_interior_macro_layer() -> void:
 	_interior_macro_layer.visible = true
 	_interior_macro_dirty = false
 
-func _collect_interior_macro_tiles() -> Dictionary:
-	var interior_tiles: Dictionary = {}
-	for local_y: int in range(_chunk_size):
-		for local_x: int in range(_chunk_size):
-			var local_tile: Vector2i = Vector2i(local_x, local_y)
-			if _is_interior_macro_target(local_tile):
-				interior_tiles[local_tile] = true
-	return interior_tiles
+func _build_interior_macro_overlay_native(target_mask: PackedByteArray) -> Dictionary:
+	if not Chunk._has_native_visual_kernels():
+		var missing_class_message: String = "Chunk runtime requires %s.build_interior_macro_overlay() for interior macro overlay. Build or load the world GDExtension before running the game." % [String(NATIVE_VISUAL_KERNELS_CLASS)]
+		push_error(missing_class_message)
+		assert(false, missing_class_message)
+		return {}
+	var helper: RefCounted = Chunk._get_native_visual_kernels()
+	if helper == null or not helper.has_method("build_interior_macro_overlay"):
+		var missing_method_message: String = "Chunk runtime requires %s.build_interior_macro_overlay() for interior macro overlay. Rebuild or reload the world GDExtension before running the game." % [String(NATIVE_VISUAL_KERNELS_CLASS)]
+		push_error(missing_method_message)
+		assert(false, missing_method_message)
+		return {}
+	var sand_color: Color = Color(1.0, 1.0, 1.0, 1.0)
+	var grass_color: Color = Color(1.0, 1.0, 1.0, 1.0)
+	var ground_color: Color = Color(1.0, 1.0, 1.0, 1.0)
+	if _biome != null:
+		sand_color = _biome.sand_color
+		grass_color = _biome.grass_color
+		ground_color = _biome.ground_color
+	return helper.call("build_interior_macro_overlay", {
+		"chunk_coord": chunk_coord,
+		"chunk_size": _chunk_size,
+		"samples_per_tile": _INTERIOR_MACRO_SAMPLES_PER_TILE,
+		"interior_base_variant_count": ChunkTilesetFactory.get_interior_base_variant_count(),
+		"interior_target_mask": target_mask,
+		"sand_color": sand_color,
+		"grass_color": grass_color,
+		"ground_color": ground_color,
+	}) as Dictionary
 
 func _is_interior_macro_target(local_tile: Vector2i) -> bool:
 	var terrain_type: int = get_terrain_type_at(local_tile)
@@ -3087,112 +2202,13 @@ func _apply_variant(base: Vector2i, local_tile: Vector2i) -> Vector2i:
 	return _apply_variant_full(base, local_tile)[0]
 
 func _resolve_variant_atlas(base: Vector2i, global_x: int, global_y: int) -> Vector2i:
-	if base == ChunkTilesetFactory.WALL_INTERIOR:
-		var interior_variant: Vector2i = _resolve_interior_variant(global_x, global_y)
-		return ChunkTilesetFactory.get_wall_variant_coords(base, interior_variant.x)
-	## Atlas variant selection disabled — always use variant 0 (base sprite set).
-	return ChunkTilesetFactory.get_wall_variant_coords(base, 0)
+	return ChunkVisualKernelScript.resolve_variant_atlas(base, global_x, global_y)
 
 func _resolve_variant_alt_id(base: Vector2i, global_x: int, global_y: int, allow_flip: bool) -> int:
-	if base == ChunkTilesetFactory.WALL_INTERIOR:
-		return _resolve_interior_variant(global_x, global_y).y
-	if not allow_flip:
-		return 0
-	var def_index: int = base.x - 7
-	if def_index < 0 or def_index >= ChunkTilesetFactory._WALL_FLIP_CLASS.size():
-		return 0
-	var flip_class: int = ChunkTilesetFactory._WALL_FLIP_CLASS[def_index]
-	if flip_class <= 0:
-		return 0
-	var alt_count: int = ChunkTilesetFactory.wall_flip_alt_count[flip_class]
-	if alt_count <= 0:
-		return 0
-	return _tile_hash_xy(global_x + 17, global_y + 31) % alt_count
+	return ChunkVisualKernelScript.resolve_variant_alt_id(base, global_x, global_y, allow_flip)
 
 func _rock_visual_class(local_tile: Vector2i) -> Vector2i:
-	var s: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i.DOWN))
-	var n: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i.UP))
-	var w: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i.LEFT))
-	var e: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i.RIGHT))
-	var count: int = int(s) + int(n) + int(w) + int(e)
-	if count == 4:
-		return ChunkTilesetFactory.WALL_PILLAR
-	if count == 3:
-		if not n: return ChunkTilesetFactory.WALL_PENINSULA_S
-		if not s: return ChunkTilesetFactory.WALL_PENINSULA_N
-		if not w: return ChunkTilesetFactory.WALL_PENINSULA_E
-		return ChunkTilesetFactory.WALL_PENINSULA_W
-	if count == 2:
-		if s and w:
-			if _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1))):
-				return ChunkTilesetFactory.WALL_CORNER_SW_T
-			return ChunkTilesetFactory.WALL_CORNER_SW
-		if s and e:
-			if _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1))):
-				return ChunkTilesetFactory.WALL_CORNER_SE_T
-			return ChunkTilesetFactory.WALL_CORNER_SE
-		if n and w:
-			if _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1))):
-				return ChunkTilesetFactory.WALL_CORNER_NW_T
-			return ChunkTilesetFactory.WALL_CORNER_NW
-		if n and e:
-			if _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1))):
-				return ChunkTilesetFactory.WALL_CORNER_NE_T
-			return ChunkTilesetFactory.WALL_CORNER_NE
-		if e and w: return ChunkTilesetFactory.WALL_CORRIDOR_EW
-		return ChunkTilesetFactory.WALL_CORRIDOR_NS
-	if count == 1:
-		if s:
-			var s_ne: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1)))
-			var s_nw: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)))
-			if s_ne and s_nw: return ChunkTilesetFactory.WALL_T_SOUTH
-			if s_ne: return ChunkTilesetFactory.WALL_SOUTH_NE
-			if s_nw: return ChunkTilesetFactory.WALL_SOUTH_NW
-			return ChunkTilesetFactory.WALL_SOUTH
-		if n:
-			var n_se: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1)))
-			var n_sw: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)))
-			if n_se and n_sw: return ChunkTilesetFactory.WALL_T_NORTH
-			if n_se: return ChunkTilesetFactory.WALL_NORTH_SE
-			if n_sw: return ChunkTilesetFactory.WALL_NORTH_SW
-			return ChunkTilesetFactory.WALL_NORTH
-		if w:
-			var w_ne: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1)))
-			var w_se: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1)))
-			if w_ne and w_se: return ChunkTilesetFactory.WALL_T_WEST
-			if w_ne: return ChunkTilesetFactory.WALL_WEST_NE
-			if w_se: return ChunkTilesetFactory.WALL_WEST_SE
-			return ChunkTilesetFactory.WALL_WEST
-		var e_nw: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)))
-		var e_sw: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)))
-		if e_nw and e_sw: return ChunkTilesetFactory.WALL_T_EAST
-		if e_nw: return ChunkTilesetFactory.WALL_EAST_NW
-		if e_sw: return ChunkTilesetFactory.WALL_EAST_SW
-		return ChunkTilesetFactory.WALL_EAST
-	var d_sw: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, 1)))
-	var d_se: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, 1)))
-	var d_ne: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(1, -1)))
-	var d_nw: bool = _is_open_for_visual(_get_neighbor_terrain(local_tile + Vector2i(-1, -1)))
-	var d_count: int = int(d_sw) + int(d_se) + int(d_ne) + int(d_nw)
-	if d_count == 4:
-		return ChunkTilesetFactory.WALL_CROSS
-	if d_count == 3:
-		if not d_sw: return ChunkTilesetFactory.WALL_DIAG3_NO_SW
-		if not d_se: return ChunkTilesetFactory.WALL_DIAG3_NO_SE
-		if not d_nw: return ChunkTilesetFactory.WALL_DIAG3_NO_NW
-		return ChunkTilesetFactory.WALL_DIAG3_NO_NE
-	if d_count == 2:
-		if d_sw and d_se: return ChunkTilesetFactory.WALL_EDGE_EW
-		if d_ne and d_nw: return ChunkTilesetFactory.WALL_DIAG_NE_NW
-		if d_ne and d_se: return ChunkTilesetFactory.WALL_DIAG_NE_SE
-		if d_nw and d_sw: return ChunkTilesetFactory.WALL_DIAG_NW_SW
-		if d_ne and d_sw: return ChunkTilesetFactory.WALL_DIAG_NE_SW
-		return ChunkTilesetFactory.WALL_DIAG_NW_SE
-	if d_sw: return ChunkTilesetFactory.WALL_NOTCH_SW
-	if d_se: return ChunkTilesetFactory.WALL_NOTCH_SE
-	if d_ne: return ChunkTilesetFactory.WALL_NOTCH_NE
-	if d_nw: return ChunkTilesetFactory.WALL_NOTCH_NW
-	return ChunkTilesetFactory.WALL_INTERIOR
+	return ChunkVisualKernelScript.rock_visual_class(_build_single_tile_visual_request(local_tile), local_tile)
 
 func _rock_atlas(local_tile: Vector2i) -> Vector2i:
 	if _is_surface_rock(local_tile):
@@ -3200,27 +2216,13 @@ func _rock_atlas(local_tile: Vector2i) -> Vector2i:
 	return ChunkTilesetFactory.TILE_ROCK_INTERIOR
 
 func _cover_rock_atlas(local_tile: Vector2i) -> Vector2i:
-	if _is_exterior_surface_rock(local_tile):
-		return ChunkTilesetFactory.WALL_SOUTH
-	return ChunkTilesetFactory.WALL_INTERIOR
+	return ChunkVisualKernelScript.cover_rock_atlas(_build_single_tile_visual_request(local_tile), local_tile)
 
 func _is_cave_edge_rock(local_tile: Vector2i) -> bool:
-	if get_terrain_type_at(local_tile) != TileGenData.TerrainType.ROCK:
-		return false
-	var has_open_neighbor: bool = false
-	for dir: Vector2i in _COVER_REVEAL_DIRS:
-		var neighbor_type: int = _get_neighbor_terrain(local_tile + dir)
-		if _is_open_exterior(neighbor_type):
-			return false
-		if neighbor_type == TileGenData.TerrainType.MINED_FLOOR or neighbor_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE:
-			has_open_neighbor = true
-	return has_open_neighbor
+	return ChunkVisualKernelScript.is_cave_edge_rock(_build_single_tile_visual_request(local_tile), local_tile)
 
 func _is_exterior_surface_rock(local_tile: Vector2i) -> bool:
-	for dir: Vector2i in _COVER_REVEAL_DIRS:
-		if _is_open_exterior(_get_neighbor_terrain(local_tile + dir)):
-			return true
-	return false
+	return ChunkVisualKernelScript.is_exterior_surface_rock(_build_single_tile_visual_request(local_tile), local_tile)
 
 func _is_surface_rock(local_tile: Vector2i) -> bool:
 	for dir: Vector2i in _COVER_REVEAL_DIRS:
@@ -3290,7 +2292,7 @@ func _is_inside(local_tile: Vector2i) -> bool:
 	return local_tile.x >= 0 and local_tile.y >= 0 and local_tile.x < _chunk_size and local_tile.y < _chunk_size
 
 func _to_global_tile(local_tile: Vector2i) -> Vector2i:
-	if WorldGenerator and WorldGenerator.has_method("chunk_local_to_tile"):
+	if _wg_has_chunk_local_to_tile and WorldGenerator:
 		return WorldGenerator.chunk_local_to_tile(chunk_coord, local_tile)
 	return Vector2i(
 		chunk_coord.x * _chunk_size + local_tile.x,
@@ -3354,20 +2356,21 @@ func _build_revealed_local_cover_tiles(zone_tiles: Dictionary) -> Dictionary:
 func _apply_local_zone_cover_state(next_cover_tiles: Dictionary) -> bool:
 	var cover_state_changed: bool = false
 	if not _cover_layer:
-		cover_state_changed = not _cover_tile_sets_equal(_revealed_local_cover_tiles, next_cover_tiles)
-		_revealed_local_cover_tiles = next_cover_tiles.duplicate()
-		return cover_state_changed
-	for local_tile: Vector2i in _revealed_local_cover_tiles:
+		return _replace_revealed_local_cover_tiles(next_cover_tiles)
+	for tile_index: int in range(_revealed_local_cover_tiles.size()):
+		if _revealed_local_cover_tiles[tile_index] == 0:
+			continue
+		var local_tile: Vector2i = _tile_from_index(tile_index)
 		if next_cover_tiles.has(local_tile):
 			continue
 		_redraw_cover_tile(local_tile)
 		cover_state_changed = true
 	for local_tile: Vector2i in next_cover_tiles:
-		if _revealed_local_cover_tiles.has(local_tile):
+		if _has_revealed_local_cover_tile(local_tile):
 			continue
 		_cover_layer.erase_cell(local_tile)
 		cover_state_changed = true
-	_revealed_local_cover_tiles = next_cover_tiles.duplicate()
+	cover_state_changed = _replace_revealed_local_cover_tiles(next_cover_tiles) or cover_state_changed
 	return cover_state_changed
 
 func _apply_local_zone_cover_state_delta(
@@ -3379,7 +2382,7 @@ func _apply_local_zone_cover_state_delta(
 		return _commit_local_zone_cover_state_delta(next_cover_tiles, changed_tiles, commit_full_state)
 	var cover_state_changed: bool = false
 	for local_tile: Vector2i in changed_tiles:
-		var was_revealed: bool = _revealed_local_cover_tiles.has(local_tile)
+		var was_revealed: bool = _has_revealed_local_cover_tile(local_tile)
 		var should_be_revealed: bool = next_cover_tiles.has(local_tile)
 		if was_revealed == should_be_revealed:
 			continue
@@ -3397,59 +2400,57 @@ func _commit_local_zone_cover_state_delta(
 	commit_full_state: bool
 ) -> bool:
 	if commit_full_state:
-		var cover_state_changed: bool = not _cover_tile_sets_equal(_revealed_local_cover_tiles, next_cover_tiles)
-		_revealed_local_cover_tiles = next_cover_tiles.duplicate()
-		return cover_state_changed
+		return _replace_revealed_local_cover_tiles(next_cover_tiles)
 	var cover_state_changed: bool = false
 	for local_tile: Vector2i in changed_tiles:
-		var was_revealed: bool = _revealed_local_cover_tiles.has(local_tile)
-		if next_cover_tiles.has(local_tile):
-			_revealed_local_cover_tiles[local_tile] = true
-		else:
-			_revealed_local_cover_tiles.erase(local_tile)
+		var was_revealed: bool = _has_revealed_local_cover_tile(local_tile)
+		_set_revealed_local_cover_tile(local_tile, next_cover_tiles.has(local_tile))
 		if was_revealed != next_cover_tiles.has(local_tile):
 			cover_state_changed = true
 	return cover_state_changed
 
-func _cover_tile_sets_equal(left: Dictionary, right: Dictionary) -> bool:
-	if left.size() != right.size():
-		return false
-	for local_tile: Vector2i in left:
-		if not right.has(local_tile):
-			return false
-	return true
-
 func _reapply_local_zone_cover_state() -> void:
-	if not _cover_layer or _revealed_local_cover_tiles.is_empty():
+	if not _cover_layer or _revealed_local_cover_tile_count <= 0:
 		return
-	for local_tile: Vector2i in _revealed_local_cover_tiles:
-		_cover_layer.erase_cell(local_tile)
+	for tile_index: int in range(_revealed_local_cover_tiles.size()):
+		if _revealed_local_cover_tiles[tile_index] == 0:
+			continue
+		_cover_layer.erase_cell(_tile_from_index(tile_index))
 
 func _reapply_local_zone_cover_state_for_tiles(tile_map: Dictionary) -> void:
-	if not _cover_layer or _revealed_local_cover_tiles.is_empty() or tile_map.is_empty():
+	if not _cover_layer or _revealed_local_cover_tile_count <= 0 or tile_map.is_empty():
 		return
 	for local_tile: Vector2i in tile_map:
-		if _revealed_local_cover_tiles.has(local_tile):
+		if _has_revealed_local_cover_tile(local_tile):
+			_cover_layer.erase_cell(local_tile)
+
+func _reapply_local_zone_cover_state_for_tile_list(tiles: Array) -> void:
+	if not _cover_layer or _revealed_local_cover_tile_count <= 0 or tiles.is_empty():
+		return
+	for tile_variant: Variant in tiles:
+		var local_tile: Vector2i = tile_variant as Vector2i
+		if _has_revealed_local_cover_tile(local_tile):
 			_cover_layer.erase_cell(local_tile)
 
 func _reapply_local_zone_cover_state_for_mining_patch(center_tile: Vector2i) -> void:
-	if not _cover_layer or _revealed_local_cover_tiles.is_empty():
+	if not _cover_layer or _revealed_local_cover_tile_count <= 0:
 		return
 	for offset_y: int in range(-1, 2):
 		for offset_x: int in range(-1, 2):
 			var local_tile: Vector2i = center_tile + Vector2i(offset_x, offset_y)
 			if not _is_inside(local_tile):
 				continue
-			if _revealed_local_cover_tiles.has(local_tile):
+			if _has_revealed_local_cover_tile(local_tile):
 				_cover_layer.erase_cell(local_tile)
 
 func _reapply_local_zone_cover_state_for_index_range(start_index: int, end_index: int) -> void:
-	if not _cover_layer or _revealed_local_cover_tiles.is_empty():
+	if not _cover_layer or _revealed_local_cover_tile_count <= 0:
 		return
 	for tile_index: int in range(start_index, end_index):
-		var local_tile: Vector2i = _tile_from_index(tile_index)
-		if _revealed_local_cover_tiles.has(local_tile):
-			_cover_layer.erase_cell(local_tile)
+		if tile_index < 0 or tile_index >= _revealed_local_cover_tiles.size():
+			continue
+		if _revealed_local_cover_tiles[tile_index] != 0:
+			_cover_layer.erase_cell(_tile_from_index(tile_index))
 
 func get_redraw_phase_name() -> StringName:
 	match _redraw_phase:
@@ -3475,25 +2476,30 @@ func _process_redraw_phase_tiles(tile_budget: int) -> int:
 		_apply_flora_render_packet(_build_flora_render_packet(), &"batched_renderer")
 		_redraw_tile_index = total_tiles
 		return total_tiles - start_index
+	if _redraw_phase == REDRAW_PHASE_TERRAIN \
+		or _redraw_phase == REDRAW_PHASE_COVER \
+		or _redraw_phase == REDRAW_PHASE_CLIFF:
+		var processed: int = 0
+		var phase_started_usec: int = Time.get_ticks_usec()
+		while processed < tile_budget and _redraw_tile_index < total_tiles:
+			var remaining: int = tile_budget - processed
+			var batch: Dictionary = build_visual_phase_batch(remaining)
+			if batch.is_empty():
+				break
+			var computed_batch: Dictionary = Chunk.compute_visual_batch(batch)
+			var applied_start: int = _redraw_tile_index
+			if not apply_visual_phase_batch(computed_batch):
+				break
+			processed += _redraw_tile_index - applied_start
+			if Time.get_ticks_usec() - phase_started_usec >= REDRAW_TIME_BUDGET_USEC:
+				break
+		return processed
 	var end_index: int = mini(_redraw_tile_index + tile_budget, total_tiles)
 	var processed_end_index: int = start_index
 	var started_usec: int = Time.get_ticks_usec()
-	var use_phase_global_terrain_cache: bool = _redraw_phase == REDRAW_PHASE_TERRAIN \
-		or _redraw_phase == REDRAW_PHASE_COVER
-	var previous_cache_enabled: bool = _use_operation_global_terrain_cache
-	var previous_global_terrain_cache: Dictionary = _operation_global_terrain_cache
-	if use_phase_global_terrain_cache:
-		_use_operation_global_terrain_cache = true
-		_operation_global_terrain_cache = {}
 	for tile_index: int in range(start_index, end_index):
 		var local_tile: Vector2i = _tile_from_index(tile_index)
 		match _redraw_phase:
-			REDRAW_PHASE_TERRAIN:
-				_redraw_terrain_tile(local_tile)
-			REDRAW_PHASE_COVER:
-				_redraw_cover_tile(local_tile)
-			REDRAW_PHASE_CLIFF:
-				_redraw_cliff_tile(local_tile)
 			REDRAW_PHASE_DEBUG_INTERIOR:
 				_process_debug_marker_tile(local_tile, false)
 			REDRAW_PHASE_DEBUG_COLLISION:
@@ -3509,88 +2515,33 @@ func _process_redraw_phase_tiles(tile_budget: int) -> int:
 			if Time.get_ticks_usec() - started_usec >= REDRAW_TIME_BUDGET_USEC:
 				break
 	var processed: int = processed_end_index - start_index
-	if use_phase_global_terrain_cache:
-		_use_operation_global_terrain_cache = previous_cache_enabled
-		_operation_global_terrain_cache = previous_global_terrain_cache
 	_redraw_tile_index = processed_end_index
 	return processed
 
 func set_flora_result(result: ChunkFloraResultScript) -> void:
-	_flora_result = result
-	_flora_payload = result.to_serialized_payload(_tile_size) if result != null else {}
+	if _flora_presenter != null:
+		_flora_presenter.set_flora_result(result)
 
 func set_flora_payload(payload: Dictionary) -> void:
-	_flora_payload = payload if not payload.is_empty() else {}
-	_flora_result = null
-
-func _flora_publish_logging_enabled() -> bool:
-	return FLORA_PUBLISH_LOG_ARG in OS.get_cmdline_user_args()
-
-func _log_flora_publish_summary(mode: StringName, renderer_nodes: int) -> void:
-	if not _flora_publish_logging_enabled():
-		return
-	var flora_payload: Dictionary = _ensure_flora_payload()
-	var placement_count: int = int(flora_payload.get(
-		"placement_count",
-		_flora_result.get_placement_count() if _flora_result != null else 0
-	))
-	var group_count: int = int(flora_payload.get(
-		"group_count",
-		_flora_result.get_render_group_count() if _flora_result != null else 0
-	))
-	var layer_count: int = int(flora_payload.get(
-		"layer_count",
-		_flora_result.get_render_layer_count() if _flora_result != null else 0
-	))
-	var textured_placement_count: int = 0
-	var placements: Array = flora_payload.get("placements", []) as Array
-	for placement_variant: Variant in placements:
-		var placement: Dictionary = placement_variant as Dictionary
-		if not String(placement.get("texture_path", "")).is_empty():
-			textured_placement_count += 1
-	print("[FloraPublish] chunk=%s mode=%s placements=%d textured=%d groups=%d layers=%d renderer_nodes=%d" % [
-		chunk_coord,
-		String(mode),
-		placement_count,
-		textured_placement_count,
-		group_count,
-		layer_count,
-		renderer_nodes,
-	])
+	if _flora_presenter != null:
+		_flora_presenter.set_flora_payload(payload)
 
 func _build_flora_render_packet() -> Dictionary:
-	var flora_payload: Dictionary = _ensure_flora_payload()
-	if not flora_payload.is_empty():
-		return ChunkFloraResultScript.build_render_packet_from_payload(flora_payload, _tile_size)
-	if _flora_result == null:
-		return {}
-	return _flora_result.build_render_packet(_tile_size)
+	return _flora_presenter.build_render_packet() if _flora_presenter != null else {}
 
 func _clear_flora_renderer() -> void:
-	if _flora_renderer != null:
-		_flora_renderer.clear_render_packet()
+	if _flora_presenter != null:
+		_flora_presenter.clear_render_packet()
 
 func _apply_flora_render_packet(packet: Dictionary, mode: StringName) -> void:
-	if _flora_renderer == null:
-		return
-	if packet.is_empty():
-		_clear_flora_renderer()
-	else:
-		_flora_renderer.set_render_packet(packet)
-	_log_flora_publish_summary(mode, 1 if not packet.is_empty() else 0)
+	if _flora_presenter != null:
+		_flora_presenter.apply_render_packet(packet, mode, chunk_coord)
 
 func _ensure_flora_payload() -> Dictionary:
-	if _flora_payload.is_empty() and _flora_result != null:
-		_flora_payload = _flora_result.to_serialized_payload(_tile_size)
-	return _flora_payload
+	return _flora_presenter.ensure_payload() if _flora_presenter != null else {}
 
 func _get_prebuilt_flora_render_packet(payload: Dictionary) -> Dictionary:
-	if payload.is_empty():
-		return {}
-	var tile_size: int = int(payload.get("render_packet_tile_size", 0))
-	if tile_size > 0 and tile_size != _tile_size:
-		return {}
-	return payload.get("render_packet", {}) as Dictionary
+	return _flora_presenter.get_prebuilt_render_packet(payload) if _flora_presenter != null else {}
 
 func _advance_redraw_phase() -> void:
 	match _redraw_phase:
@@ -3613,6 +2564,10 @@ func _advance_redraw_phase() -> void:
 		_:
 			_redraw_phase = REDRAW_PHASE_DONE
 	_redraw_tile_index = 0
+
+func _clear_debug_markers() -> void:
+	if _debug_renderer != null:
+		_debug_renderer.clear_markers()
 
 func _should_build_debug_markers() -> bool:
 	return WorldGenerator != null \
@@ -3674,14 +2629,5 @@ func _add_debug_rect(local_tile: Vector2i, offset: Vector2, size: Vector2, color
 	_add_debug_world_rect(center, size, color)
 
 func _add_debug_world_rect(center: Vector2, size: Vector2, color: Color) -> void:
-	var poly := Polygon2D.new()
-	poly.color = color
-	var half: Vector2 = size * 0.5
-	poly.position = center
-	poly.polygon = PackedVector2Array([
-		Vector2(-half.x, -half.y),
-		Vector2(half.x, -half.y),
-		Vector2(half.x, half.y),
-		Vector2(-half.x, half.y),
-	])
-	_debug_root.add_child(poly)
+	if _debug_renderer != null:
+		_debug_renderer.add_world_rect(center, size, color)

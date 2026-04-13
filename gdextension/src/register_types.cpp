@@ -1,6 +1,7 @@
 #include "register_types.h"
 #include "chunk_visual_kernels.h"
 #include "chunk_generator.h"
+#include "loaded_open_pocket_query.h"
 #include "mountain_topology_builder.h"
 #include "world_prepass_kernels.h"
 #include <gdextension_interface.h>
@@ -13,6 +14,7 @@ void initialize_station_mirny(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) return;
     ClassDB::register_class<ChunkVisualKernels>();
     ClassDB::register_class<ChunkGenerator>();
+    ClassDB::register_class<LoadedOpenPocketQuery>();
     ClassDB::register_class<MountainTopologyBuilder>();
     ClassDB::register_class<WorldPrePassKernels>();
 }

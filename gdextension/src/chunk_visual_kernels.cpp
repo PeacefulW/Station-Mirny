@@ -7,6 +7,7 @@
 #include <godot_cpp/classes/tile_map_layer.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
@@ -41,6 +42,13 @@ constexpr double INTERIOR_FAMILY_DETAIL_SCALE = 9.0;
 constexpr int INTERIOR_FAMILY_SEED = 13183;
 constexpr int INTERIOR_VARIATION_SEED = 12345;
 constexpr int INTERIOR_REHASH_SEED = 12442;
+constexpr int INTERIOR_MACRO_DUST_SEED = 16001;
+constexpr int INTERIOR_MACRO_MOSS_SEED = 16057;
+constexpr int INTERIOR_MACRO_CRACK_SEED = 16111;
+constexpr int INTERIOR_MACRO_PEBBLE_SEED = 16183;
+constexpr int ECOTONE_BLEND_SEED = 18257;
+constexpr double ECOTONE_BLEND_SCALE = 6.0;
+constexpr double ECOTONE_BLEND_START = 0.18;
 constexpr uint32_t HASH32_MASK = 0xffffffffu;
 
 const Vector2i COVER_REVEAL_DIRS[8] = {
@@ -96,16 +104,31 @@ struct VisualRequestContext {
 	Dictionary height_lookup;
 	Dictionary variation_lookup;
 	Dictionary biome_lookup;
+	Dictionary secondary_biome_lookup;
+	Dictionary ecotone_lookup;
 	PackedByteArray terrain_bytes;
 	PackedFloat32Array height_bytes;
 	PackedByteArray variation_bytes;
 	PackedByteArray biome_bytes;
+	PackedByteArray secondary_biome_bytes;
+	PackedFloat32Array ecotone_values;
 	PackedByteArray terrain_halo;
 	Vector2i chunk_coord = Vector2i();
 	int chunk_size = 64;
 	bool is_underground = false;
 	bool uses_native_arrays = false;
 	VisualTables tables;
+};
+
+struct InteriorMacroContext {
+	Vector2i chunk_coord = Vector2i();
+	int chunk_size = 0;
+	int samples_per_tile = 1;
+	int interior_base_variant_count = 1;
+	PackedByteArray interior_target_mask;
+	Color sand_color = Color(1.0, 1.0, 1.0, 1.0);
+	Color grass_color = Color(1.0, 1.0, 1.0, 1.0);
+	Color ground_color = Color(1.0, 1.0, 1.0, 1.0);
 };
 
 struct LayeredCommandBuffers {
@@ -128,6 +151,14 @@ inline double clampf_local(double value, double min_value, double max_value) {
 inline double lerpf_local(double a, double b, double t) {
 	return a + (b - a) * t;
 }
+
+uint32_t hash32_xy(int tile_x, int tile_y, int seed);
+double hash32_to_unit_float(uint32_t h);
+double smoothstep01(double t);
+double sample_interior_family_noise(int global_x, int global_y, double scale, int seed);
+int resolve_interior_family(int global_x, int global_y, int base_count);
+bool load_interior_macro_context(const Dictionary &request, InteriorMacroContext &ctx);
+Dictionary build_interior_macro_overlay_internal(const InteriorMacroContext &ctx);
 
 inline Vector2i wall_def(int index) {
 	return Vector2i(7 + index, 0);
@@ -158,10 +189,14 @@ bool load_tables(const Dictionary &request, VisualRequestContext &ctx) {
 	ctx.height_lookup = request.get("height_lookup", Dictionary());
 	ctx.variation_lookup = request.get("variation_lookup", Dictionary());
 	ctx.biome_lookup = request.get("biome_lookup", Dictionary());
+	ctx.secondary_biome_lookup = request.get("secondary_biome_lookup", Dictionary());
+	ctx.ecotone_lookup = request.get("ecotone_lookup", Dictionary());
 	ctx.terrain_bytes = request.get("terrain_bytes", PackedByteArray());
 	ctx.height_bytes = request.get("height_bytes", PackedFloat32Array());
 	ctx.variation_bytes = request.get("variation_bytes", PackedByteArray());
 	ctx.biome_bytes = request.get("biome_bytes", PackedByteArray());
+	ctx.secondary_biome_bytes = request.get("secondary_biome_bytes", PackedByteArray());
+	ctx.ecotone_values = request.get("ecotone_values", PackedFloat32Array());
 	ctx.terrain_halo = request.get("terrain_halo", PackedByteArray());
 	ctx.chunk_coord = request.get("chunk_coord", Vector2i());
 	ctx.chunk_size = int(request.get("chunk_size", 64));
@@ -209,6 +244,149 @@ bool load_tables(const Dictionary &request, VisualRequestContext &ctx) {
 	ctx.tables.terrain_mined_floor = int(tables.get("terrain_mined_floor", ctx.tables.terrain_mined_floor));
 	ctx.tables.terrain_mountain_entrance = int(tables.get("terrain_mountain_entrance", ctx.tables.terrain_mountain_entrance));
 	return true;
+}
+
+bool load_interior_macro_context(const Dictionary &request, InteriorMacroContext &ctx) {
+	ctx.chunk_coord = request.get("chunk_coord", Vector2i());
+	ctx.chunk_size = int(request.get("chunk_size", 0));
+	ctx.samples_per_tile = int(request.get("samples_per_tile", 1));
+	ctx.interior_base_variant_count = int(request.get("interior_base_variant_count", 1));
+	ctx.interior_target_mask = request.get("interior_target_mask", PackedByteArray());
+	ctx.sand_color = request.get("sand_color", Color(1.0, 1.0, 1.0, 1.0));
+	ctx.grass_color = request.get("grass_color", Color(1.0, 1.0, 1.0, 1.0));
+	ctx.ground_color = request.get("ground_color", Color(1.0, 1.0, 1.0, 1.0));
+	const int tile_count = ctx.chunk_size * ctx.chunk_size;
+	return ctx.chunk_size > 0
+		&& ctx.samples_per_tile > 0
+		&& tile_count > 0
+		&& ctx.interior_target_mask.size() == tile_count;
+}
+
+inline Color darkened_color(const Color &color, double amount) {
+	const double factor = clampf_local(1.0 - amount, 0.0, 1.0);
+	return Color(color.r * factor, color.g * factor, color.b * factor, color.a);
+}
+
+inline Color alpha_blend_colors(const Color &base, const Color &over) {
+	if (over.a <= 0.0) {
+		return base;
+	}
+	const double out_alpha = over.a + base.a * (1.0 - over.a);
+	if (out_alpha <= 0.0) {
+		return Color(0.0, 0.0, 0.0, 0.0);
+	}
+	return Color(
+		(over.r * over.a + base.r * base.a * (1.0 - over.a)) / out_alpha,
+		(over.g * over.a + base.g * base.a * (1.0 - over.a)) / out_alpha,
+		(over.b * over.a + base.b * base.a * (1.0 - over.a)) / out_alpha,
+		out_alpha
+	);
+}
+
+inline uint8_t encode_color_channel(double value) {
+	return static_cast<uint8_t>(clampi_local(static_cast<int>(std::round(clampf_local(value, 0.0, 1.0) * 255.0)), 0, 255));
+}
+
+Dictionary build_interior_macro_overlay_internal(const InteriorMacroContext &ctx) {
+	Dictionary result;
+	const int sample_size = ctx.chunk_size * ctx.samples_per_tile;
+	result["sample_size"] = sample_size;
+	result["has_visible_pixels"] = false;
+	if (sample_size <= 0) {
+		return result;
+	}
+	PackedByteArray pixels;
+	pixels.resize(sample_size * sample_size * 4);
+	uint8_t *pixel_data = pixels.ptrw();
+	const Vector2i world_sample_origin(
+		ctx.chunk_coord.x * sample_size,
+		ctx.chunk_coord.y * sample_size
+	);
+	bool has_visible_pixels = false;
+	for (int sample_y = 0; sample_y < sample_size; ++sample_y) {
+		const int local_tile_y = sample_y / ctx.samples_per_tile;
+		for (int sample_x = 0; sample_x < sample_size; ++sample_x) {
+			const int local_tile_x = sample_x / ctx.samples_per_tile;
+			const int local_index = local_tile_y * ctx.chunk_size + local_tile_x;
+			if (ctx.interior_target_mask[local_index] == 0) {
+				continue;
+			}
+			const int global_tile_x = ctx.chunk_coord.x * ctx.chunk_size + local_tile_x;
+			const int global_tile_y = ctx.chunk_coord.y * ctx.chunk_size + local_tile_y;
+			const int family_index = resolve_interior_family(global_tile_x, global_tile_y, ctx.interior_base_variant_count);
+			double dust_bias = 1.0;
+			double moss_bias = 1.0;
+			double crack_bias = 1.0;
+			switch (family_index) {
+				case 0:
+					dust_bias = 1.25;
+					moss_bias = 0.70;
+					break;
+				case 1:
+					dust_bias = 0.90;
+					crack_bias = 1.25;
+					break;
+				case 2:
+					moss_bias = 1.35;
+					dust_bias = 0.75;
+					break;
+				default:
+					break;
+			}
+			const int world_sample_x = world_sample_origin.x + sample_x;
+			const int world_sample_y = world_sample_origin.y + sample_y;
+			Color blended(0.0, 0.0, 0.0, 0.0);
+			const double dust_field = sample_interior_family_noise(world_sample_x, world_sample_y, 44.0, INTERIOR_MACRO_DUST_SEED);
+			const double dust_detail = sample_interior_family_noise(world_sample_x, world_sample_y, 17.0, INTERIOR_MACRO_DUST_SEED + 7);
+			const double dust_alpha = clampf_local((dust_field - 0.58) * 0.30 + std::max(0.0, dust_detail - 0.72) * 0.18, 0.0, 0.18) * dust_bias;
+			if (dust_alpha > 0.01) {
+				blended = alpha_blend_colors(
+					blended,
+					Color(ctx.sand_color.r, ctx.sand_color.g, ctx.sand_color.b, std::min(0.22, dust_alpha))
+				);
+			}
+			const double moss_field = sample_interior_family_noise(world_sample_x, world_sample_y, 31.0, INTERIOR_MACRO_MOSS_SEED);
+			const double moss_detail = sample_interior_family_noise(world_sample_x, world_sample_y, 12.0, INTERIOR_MACRO_MOSS_SEED + 9);
+			const double moss_alpha = clampf_local((moss_field - 0.66) * 0.34 + std::max(0.0, moss_detail - 0.74) * 0.10, 0.0, 0.16) * moss_bias;
+			if (moss_alpha > 0.01) {
+				const Color moss_color = darkened_color(ctx.grass_color, 0.42);
+				blended = alpha_blend_colors(
+					blended,
+					Color(moss_color.r, moss_color.g, moss_color.b, std::min(0.18, moss_alpha))
+				);
+			}
+			const double crack_distance = std::abs(sample_interior_family_noise(world_sample_x, world_sample_y, 14.0, INTERIOR_MACRO_CRACK_SEED) - 0.5);
+			const double crack_support = sample_interior_family_noise(world_sample_x, world_sample_y, 28.0, INTERIOR_MACRO_CRACK_SEED + 13);
+			if (crack_support > 0.54 && crack_distance < 0.035) {
+				const double crack_alpha = (0.035 - crack_distance) * 2.9 * crack_bias;
+				const Color crack_color = darkened_color(ctx.ground_color, 0.58);
+				blended = alpha_blend_colors(
+					blended,
+					Color(crack_color.r, crack_color.g, crack_color.b, std::min(0.16, crack_alpha))
+				);
+			}
+			const double pebble_gate = sample_interior_family_noise(world_sample_x, world_sample_y, 9.0, INTERIOR_MACRO_PEBBLE_SEED);
+			if (pebble_gate > 0.62 && (hash32_xy(world_sample_x, world_sample_y, INTERIOR_MACRO_PEBBLE_SEED + 19) & 7u) == 0u) {
+				const Color pebble_color = darkened_color(ctx.ground_color, 0.45);
+				blended = alpha_blend_colors(
+					blended,
+					Color(pebble_color.r, pebble_color.g, pebble_color.b, 0.12)
+				);
+			}
+			if (blended.a <= 0.0) {
+				continue;
+			}
+			has_visible_pixels = true;
+			const int pixel_index = (sample_y * sample_size + sample_x) * 4;
+			pixel_data[pixel_index] = encode_color_channel(blended.r);
+			pixel_data[pixel_index + 1] = encode_color_channel(blended.g);
+			pixel_data[pixel_index + 2] = encode_color_channel(blended.b);
+			pixel_data[pixel_index + 3] = encode_color_channel(blended.a);
+		}
+	}
+	result["has_visible_pixels"] = has_visible_pixels;
+	result["pixels"] = has_visible_pixels ? pixels : PackedByteArray();
+	return result;
 }
 
 bool has_valid_center_arrays(const VisualRequestContext &ctx) {
@@ -269,11 +447,33 @@ int variation_at(const VisualRequestContext &ctx, const Vector2i &local_tile) {
 	return int(ctx.variation_lookup.get(local_tile, ctx.tables.surface_variation_none));
 }
 
-int biome_at(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+int primary_biome_at(const VisualRequestContext &ctx, const Vector2i &local_tile) {
 	if (ctx.uses_native_arrays && local_tile.x >= 0 && local_tile.y >= 0 && local_tile.x < ctx.chunk_size && local_tile.y < ctx.chunk_size && has_valid_center_arrays(ctx)) {
 		return ctx.biome_bytes[local_tile.y * ctx.chunk_size + local_tile.x];
 	}
 	return int(ctx.biome_lookup.get(local_tile, 0));
+}
+
+int secondary_biome_at(const VisualRequestContext &ctx, const Vector2i &local_tile, int fallback_value) {
+	if (ctx.uses_native_arrays
+		&& local_tile.x >= 0 && local_tile.y >= 0
+		&& local_tile.x < ctx.chunk_size && local_tile.y < ctx.chunk_size
+		&& has_valid_center_arrays(ctx)
+		&& ctx.secondary_biome_bytes.size() == ctx.biome_bytes.size()) {
+		return ctx.secondary_biome_bytes[local_tile.y * ctx.chunk_size + local_tile.x];
+	}
+	return int(ctx.secondary_biome_lookup.get(local_tile, fallback_value));
+}
+
+double ecotone_factor_at(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	if (ctx.uses_native_arrays
+		&& local_tile.x >= 0 && local_tile.y >= 0
+		&& local_tile.x < ctx.chunk_size && local_tile.y < ctx.chunk_size
+		&& has_valid_center_arrays(ctx)
+		&& ctx.ecotone_values.size() == ctx.biome_bytes.size()) {
+		return ctx.ecotone_values[local_tile.y * ctx.chunk_size + local_tile.x];
+	}
+	return double(ctx.ecotone_lookup.get(local_tile, 0.0));
 }
 
 Vector2i to_global_tile(const VisualRequestContext &ctx, const Vector2i &local_tile) {
@@ -281,6 +481,45 @@ Vector2i to_global_tile(const VisualRequestContext &ctx, const Vector2i &local_t
 		ctx.chunk_coord.x * ctx.chunk_size + local_tile.x,
 		ctx.chunk_coord.y * ctx.chunk_size + local_tile.y
 	);
+}
+
+double resolve_ecotone_secondary_weight(double ecotone_factor) {
+	const double normalized_factor = clampf_local(
+		(ecotone_factor - ECOTONE_BLEND_START) / std::max(0.001, 1.0 - ECOTONE_BLEND_START),
+		0.0,
+		1.0
+	);
+	return 0.5 * smoothstep01(normalized_factor);
+}
+
+double sample_ecotone_blend_noise(int global_x, int global_y, double scale, int seed) {
+	const double resolved_scale = std::max(1.0, scale);
+	const double scaled_x = static_cast<double>(global_x) / resolved_scale;
+	const double scaled_y = static_cast<double>(global_y) / resolved_scale;
+	const int cell_x = static_cast<int>(std::floor(scaled_x));
+	const int cell_y = static_cast<int>(std::floor(scaled_y));
+	const double frac_x = smoothstep01(scaled_x - static_cast<double>(cell_x));
+	const double frac_y = smoothstep01(scaled_y - static_cast<double>(cell_y));
+	const double v00 = hash32_to_unit_float(hash32_xy(cell_x, cell_y, seed));
+	const double v10 = hash32_to_unit_float(hash32_xy(cell_x + 1, cell_y, seed));
+	const double v01 = hash32_to_unit_float(hash32_xy(cell_x, cell_y + 1, seed));
+	const double v11 = hash32_to_unit_float(hash32_xy(cell_x + 1, cell_y + 1, seed));
+	return lerpf_local(lerpf_local(v00, v10, frac_x), lerpf_local(v01, v11, frac_x), frac_y);
+}
+
+int biome_at(const VisualRequestContext &ctx, const Vector2i &local_tile) {
+	const int primary_biome_palette_index = primary_biome_at(ctx, local_tile);
+	const int secondary_biome_palette_index = secondary_biome_at(ctx, local_tile, primary_biome_palette_index);
+	if (secondary_biome_palette_index == primary_biome_palette_index) {
+		return primary_biome_palette_index;
+	}
+	const double secondary_weight = resolve_ecotone_secondary_weight(ecotone_factor_at(ctx, local_tile));
+	if (secondary_weight <= 0.0) {
+		return primary_biome_palette_index;
+	}
+	const Vector2i global_tile = to_global_tile(ctx, local_tile);
+	const double blend_noise = sample_ecotone_blend_noise(global_tile.x, global_tile.y, ECOTONE_BLEND_SCALE, ECOTONE_BLEND_SEED);
+	return blend_noise < secondary_weight ? secondary_biome_palette_index : primary_biome_palette_index;
 }
 
 bool is_open_for_visual(const VisualRequestContext &ctx, int terrain_type) {
@@ -993,6 +1232,7 @@ ChunkVisualKernels::~ChunkVisualKernels() {}
 
 void ChunkVisualKernels::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("build_prebaked_visual_payload", "request"), &ChunkVisualKernels::build_prebaked_visual_payload);
+	ClassDB::bind_method(D_METHOD("build_interior_macro_overlay", "request"), &ChunkVisualKernels::build_interior_macro_overlay);
 	ClassDB::bind_method(D_METHOD("compute_visual_batch", "request"), &ChunkVisualKernels::compute_visual_batch);
 	ClassDB::bind_method(
 		D_METHOD(
@@ -1015,6 +1255,14 @@ Dictionary ChunkVisualKernels::build_prebaked_visual_payload(Dictionary p_reques
 		return Dictionary();
 	}
 	return build_prebaked_visual_payload_internal(ctx);
+}
+
+Dictionary ChunkVisualKernels::build_interior_macro_overlay(Dictionary p_request) const {
+	InteriorMacroContext ctx;
+	if (!load_interior_macro_context(p_request, ctx)) {
+		return Dictionary();
+	}
+	return build_interior_macro_overlay_internal(ctx);
 }
 
 Dictionary ChunkVisualKernels::compute_visual_batch(Dictionary p_request) const {

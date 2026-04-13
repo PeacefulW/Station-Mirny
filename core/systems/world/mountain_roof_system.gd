@@ -29,6 +29,11 @@ const _COVER_APPLY_MIN_REVEAL_TILES_PER_STEP: int = 2
 const _COVER_APPLY_MAX_REVEAL_TILES_PER_STEP: int = 16
 const _INCREMENTAL_ZONE_DELTA_TILE_CAP: int = 256
 const _INCREMENTAL_ZONE_DELTA_TIME_BUDGET_USEC: int = 500
+const _FULL_ZONE_REFRESH_TIME_BUDGET_USEC: int = 1200
+const _FULL_ZONE_REFRESH_MIN_TILES_PER_STEP: int = 8
+const _FULL_ZONE_REFRESH_MAX_TILES_PER_STEP: int = 96
+const _IMMEDIATE_MINING_REVEAL_INLINE_TILE_CAP: int = 12
+const _IMMEDIATE_MINING_REVEAL_INLINE_CHUNK_CAP: int = 1
 
 var _chunk_manager: ChunkManager = null
 var _player: Player = null
@@ -55,6 +60,7 @@ var _pending_incremental_changed_cover_tiles_by_chunk: Dictionary = {}
 var _pending_cover_apply_coords: Array[Vector2i] = []
 var _pending_cover_apply_lookup: Dictionary = {}
 var _pending_cover_apply_payloads: Dictionary = {}
+var _pending_full_zone_refresh: Dictionary = {}
 var _active_debug_trace_context: Dictionary = {}
 var _last_chunk_load_eager_refresh_process_frame: int = -1
 
@@ -115,6 +121,7 @@ func _exit_tree() -> void:
 	_pending_cover_apply_lookup.clear()
 	_pending_cover_apply_payloads.clear()
 	_pending_incremental_changed_cover_tiles_by_chunk.clear()
+	_pending_full_zone_refresh = {}
 	_active_debug_trace_context = {}
 	_chunk_manager = null
 	_player = null
@@ -125,6 +132,7 @@ func _process(_delta: float) -> void:
 	if _needs_zone_refresh:
 		_needs_zone_refresh = false
 		_request_refresh(true)
+	_advance_full_zone_refresh()
 	_check_player_mountain_state()
 	_drain_cover_apply_queue()
 
@@ -141,9 +149,13 @@ func _check_player_mountain_state() -> void:
 		return
 	_last_tile = player_tile
 	var is_on_mined_floor: bool = _is_player_on_opened_mountain_tile(player_tile)
+	if is_on_mined_floor and not _pending_full_zone_refresh.is_empty():
+		_is_player_on_mined_floor = true
+		return
 	if is_on_mined_floor == _is_player_on_mined_floor and (not is_on_mined_floor or _has_active_local_zone()):
 		if is_on_mined_floor and not _active_local_zone_tiles.has(player_tile):
-			_request_refresh(true)
+			if _pending_full_zone_refresh.is_empty():
+				_request_refresh(true)
 		return
 	_is_player_on_mined_floor = is_on_mined_floor
 	_request_refresh()
@@ -158,6 +170,7 @@ func _request_refresh(force_refresh: bool = false) -> void:
 	var previous_cover_tiles_by_chunk: Dictionary = _active_local_cover_tiles_by_chunk
 	var previous_cover_versions_by_chunk: Dictionary = _active_local_cover_versions_by_chunk
 	_pending_incremental_changed_cover_tiles_by_chunk = {}
+	var refresh_applied_without_staging: bool = false
 	var player_tile: Vector2i = WorldGenerator.world_to_tile(_player.global_position)
 	var start_tile: Vector2i = _find_reveal_start(player_tile)
 	if start_tile != INVALID_MOUNTAIN_KEY:
@@ -171,6 +184,7 @@ func _request_refresh(force_refresh: bool = false) -> void:
 			}
 		)
 	if start_tile == INVALID_MOUNTAIN_KEY:
+		_pending_full_zone_refresh = {}
 		_pending_incremental_mined_tile = INVALID_MOUNTAIN_KEY
 		_pending_incremental_affected_chunks = []
 		_clear_active_local_zone()
@@ -178,9 +192,25 @@ func _request_refresh(force_refresh: bool = false) -> void:
 		if not _try_apply_incremental_zone_refresh(start_tile) \
 			and not _try_apply_delta_zone_refresh(start_tile) \
 			and not _try_bootstrap_single_tile_zone(start_tile) \
-			and not _try_restore_cached_zone(start_tile):
-			_refresh_active_local_zone(start_tile)
+			and not _try_restore_cached_zone(start_tile) \
+			and _schedule_full_zone_refresh(
+				start_tile,
+				previous_cover_tiles_by_chunk,
+				previous_cover_versions_by_chunk,
+				force_refresh
+			):
+			WorldPerfProbe.end("MountainRoofSystem._request_refresh", started_usec)
+			return
+		refresh_applied_without_staging = true
+	if refresh_applied_without_staging:
+		_pending_full_zone_refresh = {}
 	WorldPerfProbe.end("MountainRoofSystem._request_refresh", started_usec)
+	_finalize_refresh_apply(previous_cover_tiles_by_chunk, previous_cover_versions_by_chunk)
+
+func _finalize_refresh_apply(
+	previous_cover_tiles_by_chunk: Dictionary,
+	previous_cover_versions_by_chunk: Dictionary
+) -> void:
 	var affected_chunks: Array[Vector2i] = _pending_incremental_affected_chunks
 	var changed_cover_tiles_by_chunk: Dictionary = _pending_incremental_changed_cover_tiles_by_chunk
 	if changed_cover_tiles_by_chunk.is_empty():
@@ -220,6 +250,151 @@ func _request_refresh(force_refresh: bool = false) -> void:
 	)
 	_queue_reveal_state_apply(affected_chunks, changed_cover_tiles_by_chunk)
 
+func _schedule_full_zone_refresh(
+	start_tile: Vector2i,
+	previous_cover_tiles_by_chunk: Dictionary,
+	previous_cover_versions_by_chunk: Dictionary,
+	force_refresh: bool = false
+) -> bool:
+	if not _chunk_manager or not WorldGenerator:
+		return false
+	start_tile = WorldGenerator.canonicalize_tile(start_tile)
+	if not force_refresh and not _pending_full_zone_refresh.is_empty():
+		var pending_seed: Vector2i = _pending_full_zone_refresh.get("seed_tile", INVALID_MOUNTAIN_KEY) as Vector2i
+		if pending_seed == start_tile:
+			return true
+	var refresh_started_usec: int = WorldPerfProbe.begin()
+	var zone: Dictionary = _query_surface_reveal_zone(start_tile)
+	if zone.is_empty():
+		_pending_full_zone_refresh = {}
+		_pending_incremental_mined_tile = INVALID_MOUNTAIN_KEY
+		_clear_active_local_zone()
+		WorldPerfProbe.end("MountainRoofSystem._query_full_local_zone", refresh_started_usec)
+		return false
+	var zone_tiles: Dictionary = zone.get("tiles", {}) as Dictionary
+	if zone_tiles.is_empty():
+		_pending_full_zone_refresh = {}
+		_pending_incremental_mined_tile = INVALID_MOUNTAIN_KEY
+		_clear_active_local_zone()
+		WorldPerfProbe.end("MountainRoofSystem._query_full_local_zone", refresh_started_usec)
+		return false
+	var zone_tile_queue: Array[Vector2i] = []
+	for tile_variant: Variant in zone_tiles.keys():
+		zone_tile_queue.append(tile_variant as Vector2i)
+	if _player:
+		var player_tile: Vector2i = WorldGenerator.world_to_tile(_player.global_position)
+		zone_tile_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+			var a_score: int = absi(a.x - player_tile.x) + absi(a.y - player_tile.y)
+			var b_score: int = absi(b.x - player_tile.x) + absi(b.y - player_tile.y)
+			if a_score != b_score:
+				return a_score < b_score
+			if a.y != b.y:
+				return a.y < b.y
+			return a.x < b.x
+		)
+	_pending_full_zone_refresh = {
+		"seed_tile": zone.get("seed_tile", start_tile),
+		"zone_kind": zone.get("zone_kind", &""),
+		"zone_tiles": zone_tiles.duplicate(),
+		"zone_tile_queue": zone_tile_queue,
+		"tile_index": 0,
+		"cover_tiles_by_chunk": {},
+		"chunk_cache": {},
+		"cover_edge_chunk_cache": {},
+		"chunk_size": 0,
+		"truncated": bool(zone.get("truncated", false)),
+		"previous_cover_tiles_by_chunk": _duplicate_cover_tiles_by_chunk(previous_cover_tiles_by_chunk),
+		"previous_cover_versions_by_chunk": previous_cover_versions_by_chunk.duplicate(),
+		"started_usec": refresh_started_usec,
+	}
+	_debug_record_roof_trace(
+		"roof_refresh_staged",
+		_debug_trace_chunk_coord_for_tile(start_tile),
+		{
+			"start_tile": str(start_tile),
+			"zone_tiles": zone_tile_queue.size(),
+			"zone_kind": String(zone.get("zone_kind", &"")),
+			"force_refresh": force_refresh,
+		}
+	)
+	return true
+
+func _advance_full_zone_refresh() -> void:
+	if _pending_full_zone_refresh.is_empty() or not _chunk_manager or not WorldGenerator:
+		return
+	var refresh: Dictionary = _pending_full_zone_refresh
+	var zone_tile_queue: Array[Vector2i] = refresh.get("zone_tile_queue", []) as Array[Vector2i]
+	var tile_index: int = int(refresh.get("tile_index", 0))
+	if tile_index >= zone_tile_queue.size():
+		_complete_full_zone_refresh(refresh)
+		return
+	var started_usec: int = Time.get_ticks_usec()
+	var processed_tiles: int = 0
+	while tile_index < zone_tile_queue.size() and processed_tiles < _FULL_ZONE_REFRESH_MAX_TILES_PER_STEP:
+		if processed_tiles >= _FULL_ZONE_REFRESH_MIN_TILES_PER_STEP \
+			and Time.get_ticks_usec() - started_usec >= _FULL_ZONE_REFRESH_TIME_BUDGET_USEC:
+			break
+		var global_tile: Vector2i = zone_tile_queue[tile_index]
+		tile_index += 1
+		processed_tiles += 1
+		refresh["chunk_size"] = _append_local_cover_tiles_for_zone_tile(
+			global_tile,
+			refresh.get("cover_tiles_by_chunk", {}) as Dictionary,
+			refresh.get("chunk_cache", {}) as Dictionary,
+			refresh.get("cover_edge_chunk_cache", {}) as Dictionary,
+			int(refresh.get("chunk_size", 0))
+		)
+	refresh["tile_index"] = tile_index
+	_pending_full_zone_refresh = refresh
+	if tile_index >= zone_tile_queue.size():
+		_complete_full_zone_refresh(refresh)
+
+func _complete_full_zone_refresh(refresh: Dictionary) -> void:
+	if refresh.is_empty():
+		return
+	_active_local_zone_seed = refresh.get("seed_tile", INVALID_MOUNTAIN_KEY) as Vector2i
+	_active_local_zone_kind = refresh.get("zone_kind", &"") as StringName
+	_active_local_zone_tiles = (refresh.get("zone_tiles", {}) as Dictionary).duplicate()
+	var next_cover_tiles_by_chunk: Dictionary = _duplicate_cover_tiles_by_chunk(
+		refresh.get("cover_tiles_by_chunk", {}) as Dictionary
+	)
+	var previous_cover_tiles_by_chunk: Dictionary = refresh.get(
+		"previous_cover_tiles_by_chunk",
+		{}
+	) as Dictionary
+	var previous_cover_versions_by_chunk: Dictionary = refresh.get(
+		"previous_cover_versions_by_chunk",
+		{}
+	) as Dictionary
+	_pending_incremental_changed_cover_tiles_by_chunk = _collect_changed_cover_tiles_by_chunk(
+		previous_cover_tiles_by_chunk,
+		next_cover_tiles_by_chunk,
+		previous_cover_versions_by_chunk
+	)
+	_pending_incremental_affected_chunks = _collect_chunk_coords_from_changed_cover_tiles(
+		_pending_incremental_changed_cover_tiles_by_chunk
+	)
+	_apply_active_cover_tiles_state(
+		next_cover_tiles_by_chunk,
+		_pending_incremental_changed_cover_tiles_by_chunk
+	)
+	_active_local_zone_truncated = bool(refresh.get("truncated", false))
+	_pending_incremental_mined_tile = INVALID_MOUNTAIN_KEY
+	_cache_active_zone_state()
+	var refresh_started_usec: int = int(refresh.get("started_usec", 0))
+	_pending_full_zone_refresh = {}
+	if refresh_started_usec > 0:
+		WorldPerfProbe.end("MountainRoofSystem._refresh_local_zone_staged", refresh_started_usec)
+	_finalize_refresh_apply(previous_cover_tiles_by_chunk, previous_cover_versions_by_chunk)
+
+func _should_inline_immediate_mining_reveal_patch(
+	affected_chunks: Array[Vector2i],
+	changed_cover_tiles_by_chunk: Dictionary
+) -> bool:
+	if affected_chunks.size() > _IMMEDIATE_MINING_REVEAL_INLINE_CHUNK_CAP:
+		return false
+	return _count_cover_tiles_by_chunk(changed_cover_tiles_by_chunk) <= _IMMEDIATE_MINING_REVEAL_INLINE_TILE_CAP
+
 func _try_apply_immediate_mining_reveal_patch() -> bool:
 	var started_usec: int = WorldPerfProbe.begin()
 	var applied: bool = false
@@ -238,7 +413,14 @@ func _try_apply_immediate_mining_reveal_patch() -> bool:
 					affected_chunks = _collect_chunk_coords_from_changed_cover_tiles(
 						changed_cover_tiles_by_chunk
 					)
-				_apply_cover_state_immediately(affected_chunks, changed_cover_tiles_by_chunk)
+				var inline_apply: bool = _should_inline_immediate_mining_reveal_patch(
+					affected_chunks,
+					changed_cover_tiles_by_chunk
+				)
+				if inline_apply:
+					_apply_cover_state_immediately(affected_chunks, changed_cover_tiles_by_chunk)
+				else:
+					_queue_reveal_state_apply(affected_chunks, changed_cover_tiles_by_chunk)
 				_debug_record_roof_trace(
 					"roof_immediate_patch_applied",
 					_pick_roof_diag_target_coord(affected_chunks),
@@ -247,12 +429,14 @@ func _try_apply_immediate_mining_reveal_patch() -> bool:
 						"affected_chunks": WorldRuntimeDiagnosticLog.format_coord_list(affected_chunks),
 						"affected_count": affected_chunks.size(),
 						"changed_cover_tiles": _count_cover_tiles_by_chunk(changed_cover_tiles_by_chunk),
+						"inline_apply": inline_apply,
 						"zone_truncated": _active_local_zone_truncated,
 					},
 					affected_chunks
 				)
 				if _active_local_zone_truncated:
 					_emit_roof_local_patch_diag(start_tile, affected_chunks, changed_cover_tiles_by_chunk)
+				_pending_full_zone_refresh = {}
 				applied = true
 			else:
 				_debug_record_roof_trace(
@@ -1492,62 +1676,77 @@ func _build_local_cover_tiles_by_chunk(zone_tiles: Dictionary) -> Dictionary:
 	if zone_tiles.is_empty() or not _chunk_manager:
 		return cover_tiles_by_chunk
 	var chunk_cache: Dictionary = {}
-	## cover_set_cache: chunk_coord → chunk.get_cover_edge_set()
-	## Кешируем per-chunk set чтобы не пересчитывать is_revealable_cover_edge для каждого тайла.
-	## get_cover_edge_set() стоит O(chunk²) только при первом прогреве чанка; после
-	## майнинга rebuild ограничен dirty tiles вокруг добытого, а последующие обращения — O(1).
-	## Это заменяет O(n×9×8) вызовы is_revealable_cover_edge.
-	var cover_set_cache: Dictionary = {}
+	## cover_edge_chunk_cache: chunk_coord → chunk with warmed cached cover-edge mask
+	## Внутри chunk cover-edge state теперь хранится как packed local mask; здесь кешируем
+	## только resolved chunk reference, а точечная проверка идёт через O(1)
+	## `has_cover_edge_cached()` без materialize Dictionary<Vector2i, ...>.
+	var cover_edge_chunk_cache: Dictionary = {}
 	var chunk_size: int = 0
 	for global_tile: Vector2i in zone_tiles:
-		var zone_chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(global_tile)
-		var zone_chunk: Chunk = _resolve_cached_chunk(zone_chunk_coord, chunk_cache)
-		if zone_chunk == null:
-			continue
-		if chunk_size <= 0:
-			chunk_size = zone_chunk.get_chunk_size()
-		var zone_local: Vector2i = _chunk_local_from_global(global_tile, zone_chunk_coord, chunk_size)
-		var zone_cover_tiles: Dictionary
-		if cover_tiles_by_chunk.has(zone_chunk_coord):
-			zone_cover_tiles = cover_tiles_by_chunk[zone_chunk_coord] as Dictionary
-		else:
-			zone_cover_tiles = {}
-			cover_tiles_by_chunk[zone_chunk_coord] = zone_cover_tiles
-		zone_cover_tiles[zone_local] = true
-		for offset: Vector2i in _ZONE_REVEAL_TILE_OFFSETS:
-			if offset == Vector2i.ZERO:
-				continue
-			var candidate_local: Vector2i = zone_local + offset
-			var candidate_tile: Vector2i = global_tile + offset
-			var candidate_chunk_coord: Vector2i = zone_chunk_coord
-			var candidate_chunk: Chunk = zone_chunk
-			if candidate_local.x < 0 \
-				or candidate_local.y < 0 \
-				or candidate_local.x >= chunk_size \
-				or candidate_local.y >= chunk_size:
-				candidate_tile = WorldGenerator.offset_tile(global_tile, offset)
-				candidate_chunk_coord = WorldGenerator.tile_to_chunk(candidate_tile)
-				candidate_chunk = _resolve_cached_chunk(candidate_chunk_coord, chunk_cache)
-				if candidate_chunk != null:
-					candidate_local = _chunk_local_from_global(candidate_tile, candidate_chunk_coord, chunk_size)
-			if not candidate_chunk:
-				continue
-			## Получаем cover_edge_set для чанка (O(1) если уже кешировано в чанке)
-			var cover_edge_set: Dictionary
-			if cover_set_cache.has(candidate_chunk_coord):
-				cover_edge_set = cover_set_cache[candidate_chunk_coord] as Dictionary
-			else:
-				cover_edge_set = candidate_chunk.get_cover_edge_set()
-				cover_set_cache[candidate_chunk_coord] = cover_edge_set
-			if cover_edge_set.has(candidate_local):
-				var candidate_cover_tiles: Dictionary
-				if cover_tiles_by_chunk.has(candidate_chunk_coord):
-					candidate_cover_tiles = cover_tiles_by_chunk[candidate_chunk_coord] as Dictionary
-				else:
-					candidate_cover_tiles = {}
-					cover_tiles_by_chunk[candidate_chunk_coord] = candidate_cover_tiles
-				candidate_cover_tiles[candidate_local] = true
+		chunk_size = _append_local_cover_tiles_for_zone_tile(
+			global_tile,
+			cover_tiles_by_chunk,
+			chunk_cache,
+			cover_edge_chunk_cache,
+			chunk_size
+		)
 	return cover_tiles_by_chunk
+
+func _append_local_cover_tiles_for_zone_tile(
+	global_tile: Vector2i,
+	cover_tiles_by_chunk: Dictionary,
+	chunk_cache: Dictionary,
+	cover_edge_chunk_cache: Dictionary,
+	chunk_size_hint: int
+) -> int:
+	var zone_chunk_coord: Vector2i = WorldGenerator.tile_to_chunk(global_tile)
+	var zone_chunk: Chunk = _resolve_cached_chunk(zone_chunk_coord, chunk_cache)
+	if zone_chunk == null:
+		return chunk_size_hint
+	var chunk_size: int = chunk_size_hint
+	if chunk_size <= 0:
+		chunk_size = zone_chunk.get_chunk_size()
+	var zone_local: Vector2i = _chunk_local_from_global(global_tile, zone_chunk_coord, chunk_size)
+	var zone_cover_tiles: Dictionary
+	if cover_tiles_by_chunk.has(zone_chunk_coord):
+		zone_cover_tiles = cover_tiles_by_chunk[zone_chunk_coord] as Dictionary
+	else:
+		zone_cover_tiles = {}
+		cover_tiles_by_chunk[zone_chunk_coord] = zone_cover_tiles
+	zone_cover_tiles[zone_local] = true
+	for offset: Vector2i in _ZONE_REVEAL_TILE_OFFSETS:
+		if offset == Vector2i.ZERO:
+			continue
+		var candidate_local: Vector2i = zone_local + offset
+		var candidate_tile: Vector2i = global_tile + offset
+		var candidate_chunk_coord: Vector2i = zone_chunk_coord
+		var candidate_chunk: Chunk = zone_chunk
+		if candidate_local.x < 0 \
+			or candidate_local.y < 0 \
+			or candidate_local.x >= chunk_size \
+			or candidate_local.y >= chunk_size:
+			candidate_tile = WorldGenerator.offset_tile(global_tile, offset)
+			candidate_chunk_coord = WorldGenerator.tile_to_chunk(candidate_tile)
+			candidate_chunk = _resolve_cached_chunk(candidate_chunk_coord, chunk_cache)
+			if candidate_chunk != null:
+				candidate_local = _chunk_local_from_global(candidate_tile, candidate_chunk_coord, chunk_size)
+		if not candidate_chunk:
+			continue
+		var cover_edge_chunk: Chunk = null
+		if cover_edge_chunk_cache.has(candidate_chunk_coord):
+			cover_edge_chunk = cover_edge_chunk_cache[candidate_chunk_coord] as Chunk
+		else:
+			cover_edge_chunk = candidate_chunk
+			cover_edge_chunk_cache[candidate_chunk_coord] = candidate_chunk
+		if cover_edge_chunk != null and cover_edge_chunk.has_cover_edge_cached(candidate_local):
+			var candidate_cover_tiles: Dictionary
+			if cover_tiles_by_chunk.has(candidate_chunk_coord):
+				candidate_cover_tiles = cover_tiles_by_chunk[candidate_chunk_coord] as Dictionary
+			else:
+				candidate_cover_tiles = {}
+				cover_tiles_by_chunk[candidate_chunk_coord] = candidate_cover_tiles
+			candidate_cover_tiles[candidate_local] = true
+	return chunk_size
 
 func _resolve_cached_chunk(chunk_coord: Vector2i, chunk_cache: Dictionary) -> Chunk:
 	if chunk_cache.has(chunk_coord):

@@ -205,6 +205,8 @@ related_docs:
 - Пример вызова: `chunk_manager.sync_display_to_player()`
 
 Примечание: public per-chunk `load/unload` request API в scope сейчас нет. Runtime streaming paths остаются internal.
+После Iteration 4 runtime streaming internals routed through `ChunkStreamingService`, а `ChunkManager` остаётся world-facing facade и final install entry facade.
+После Iteration 9 visual scheduler state routed through internal `ChunkVisualScheduler`, surface payload reuse through internal `ChunkSurfacePayloadCache`, and seam/border follow-up ownership through internal `ChunkSeamService`. These services are not public gameplay APIs; callers still use the `ChunkManager` entrypoints listed here.
 
 ### Чтение
 
@@ -288,8 +290,8 @@ related_docs:
 | Метод | Почему нельзя вызывать напрямую |
 |-------|-------------------------------|
 | `ChunkManager._load_chunk(coord: Vector2i) -> void` | Internal streaming primitive for current active z only. |
-| `ChunkManager._load_chunk_for_z(coord: Vector2i, z_level: int) -> void` | Full load/install path with cache/native/flora/topology coupling. Нельзя дёргать как ad-hoc API. |
-| `ChunkManager._unload_chunk(coord: Vector2i) -> void` | Internal unload/save boundary. Сам сохраняет dirty diffs и invalidates topology. |
+| `ChunkManager._load_chunk_for_z(coord: Vector2i, z_level: int) -> void` | Thin facade over `ChunkStreamingService.load_chunk_for_z()` + final install commit. Нельзя дёргать как ad-hoc API. |
+| `ChunkManager._unload_chunk(coord: Vector2i) -> void` | Thin facade over `ChunkStreamingService.unload_chunk()`; internal unload/save boundary с dirty diff save + topology invalidation. |
 | `Chunk.setup(...) -> void` | Constructor-phase install only. Требует lifecycle owner и valid tilesets/manager wiring. |
 | `Chunk.cleanup() -> void` | Unload-only cleanup path. |
 
@@ -326,7 +328,7 @@ related_docs:
 `ChunkManager.is_topology_ready() -> bool`
 - Что возвращает: готова ли surface topology для active runtime.
 - Когда использовать: если код должен дождаться readiness before reading topology. Also used by `_tick_boot_remaining()` to poll topology completion for `boot_complete` gate.
-- Особенности: authoritative only for currently loaded surface bubble; нет dedicated ready event. **Not part of `first_playable` gate** — topology is decoupled from first_playable. Part of `boot_complete` gate. Для managed GDScript path возвращает `false`, пока active dirty rebuild ещё находится в одном из owner-owned этапов `snapshot capture -> worker compute -> ready-snapshot commit`.
+- Особенности: authoritative only for currently loaded surface bubble; нет dedicated ready event. **Not part of `first_playable` gate** — topology is decoupled from first_playable. Part of `boot_complete` gate. Для managed scheduler path возвращает `false`, пока active dirty rebuild ещё находится в одном из owner-owned этапов `snapshot capture -> native worker compute -> ready-snapshot commit`.
 
 `ChunkManager.get_mountain_key_at_tile(tile_pos: Vector2i) -> Vector2i`
 - Что возвращает: component key for mountain topology tile.
@@ -346,17 +348,15 @@ related_docs:
 `ChunkManager.query_local_underground_zone(seed_tile: Vector2i) -> Dictionary`
 - Что возвращает: local loaded open-pocket product `{ zone_kind, seed_tile, tiles, chunk_coords, truncated }`.
 - Когда использовать: reveal-layer queries around already-open mined zone.
-- Особенности: loaded-only; если traversal упирается в unloaded continuation, `truncated = true`.
+- Особенности: loaded-only; запрос идёт через native `LoadedOpenPocketQuery`, который читает active-z loaded mirror, а `truncated = true`, если traversal упирается в unloaded continuation или достигает hard cap native query.
 
 ### Внутренние методы (НЕ вызывать)
 
 | Метод | Почему нельзя вызывать напрямую |
 |-------|-------------------------------|
-| `ChunkManager._mark_topology_dirty() -> void` | Dirty flag helper, не topology API. |
-| `ChunkManager._ensure_topology_current() -> void` | Synchronous owner-only rebuild gate. Может форсить full rebuild. |
-| `ChunkManager._process_topology_build() -> bool` | Owner-side topology scheduler. Для managed GDScript path запускает `snapshot -> worker compute -> main-thread commit` и возвращает, осталась ли topology work debt; не caller-facing API. |
-| `ChunkManager._rebuild_loaded_mountain_topology() -> void` | Synchronous owner-only fallback implementation, loaded-bubble scoped only. |
-| `ChunkManager._incremental_topology_patch(tile_pos: Vector2i, new_type: int) -> void` | Low-level derived patch helper; caller не должен поддерживать topology вручную. |
+| `ChunkManager._tick_topology() -> bool` | Owner-side budget job that lets mandatory native `MountainTopologyBuilder.ensure_built()` converge dirty topology after streaming is idle; не caller-facing API. |
+| `ChunkManager._setup_native_topology_builder() -> void` | Startup-only native topology activation; callers must not toggle topology backend policy manually. |
+| `ChunkManager._on_mountain_tile_changed(tile_pos: Vector2i, old_type: int, new_type: int) -> void` | Internal mining follow-up that updates native topology mirror and loaded open-pocket mirror; caller не должен поддерживать topology вручную. |
 | Native builder calls `set_chunk`, `remove_chunk`, `update_tile`, `ensure_built` | Internal backend contract behind `ChunkManager`; direct callers рискуют разойтись с managed topology state. |
 
 ### События
@@ -377,12 +377,12 @@ related_docs:
 `ChunkManager.try_harvest_at_world(world_pos: Vector2) -> Dictionary`
 - Когда вызывать: когда successful underground mining должен сразу открыть newly mined tile и соседний halo в fog.
 - Что делает: на underground success вызывает `UndergroundFogState.force_reveal()` для mined tile + 8 neighbors и сразу applies visible fog erase to loaded revealable tiles.
-- Гарантии: immediate underground reveal side-effects из `Postconditions: mine tile`; canonical terrain semantics не меняются вне mining contract. На surface downstream `MountainRoofSystem` сначала пытается применить bounded local cover patch для incremental/bootstrap reveal case и только если этого недостаточно, уходит в reveal refresh + cover apply fallback even when the player is still standing outside the newly opened pocket.
+- Гарантии: immediate underground reveal side-effects из `Postconditions: mine tile`; canonical terrain semantics не меняются вне mining contract. На surface downstream `MountainRoofSystem` сначала пытается применить bounded local cover patch для incremental/bootstrap reveal case, более крупные cover deltas переводит в queued cover-apply path, а полный local-zone refresh теперь идёт staged multi-frame rebuild even when the player is still standing outside the newly opened pocket.
 - Пример вызова: `var result := chunk_manager.try_harvest_at_world(hit_world_pos)`
 
 Примечание: z-switch reveal side-effects достигаются через canonical owner-path `ZLevelManager.change_level()`. `ChunkManager.set_active_z_level()` остаётся downstream sink и не является public z-switch API.
 
-Примечание: public surface reveal refresh API сейчас нет. `MountainRoofSystem` владеет refresh internally и сам реагирует на player movement, chunk load/unload и mining events. Mining-triggered surface reveal no longer depends on the player already standing on an opened mountain tile: system first tries a bounded immediate local patch by reusing the active zone seed when the mined tile touches it or by bootstrapping a one-tile zone, otherwise it seeds refresh from the mined open tile itself and only then falls back to the player tile if the player is already inside an opened pocket.
+Примечание: public surface reveal refresh API сейчас нет. `MountainRoofSystem` владеет refresh internally и сам реагирует на player movement, chunk load/unload и mining events. Mining-triggered surface reveal no longer depends on the player already standing on an opened mountain tile: system first tries a bounded immediate local patch by reusing the active zone seed when the mined tile touches it or by bootstrapping a one-tile zone, escalates larger cover apply work into the queued apply path, and runs full local-zone cover rebuild through a staged multi-frame refresh instead of a monolithic `_process()` rebuild.
 
 ### Чтение
 
@@ -507,9 +507,10 @@ related_docs:
 |-------|-------------------------------|
 | `Chunk._redraw_all() -> void` | Full redraw implementation detail. Используется lifecycle owner path, не external API. |
 | `Chunk._redraw_dirty_tiles(dirty_tiles: Dictionary) -> void` | Dirty redraw primitive without higher-level world/reveal orchestration. |
-| `Chunk.build_visual_phase_batch(tile_budget: int) -> Dictionary` | Scheduler helper for serializable worker payload prep; may emit lookup-based work or ready prebaked phase payload (`skip_worker_compute = true`) for pristine generated surface chunks, but remains не caller-facing redraw API. |
+| `Chunk.build_visual_phase_batch(tile_budget: int) -> Dictionary` | Scheduler helper for serializable worker payload prep owned by the internal `ChunkVisualScheduler` / `ChunkManager` scheduler path; phase names come from the shared `ChunkVisualKernel.visual_phase_name()` contract, and pristine generated surface chunks may emit ready prebaked phase payload (`skip_worker_compute = true`), but this remains не caller-facing redraw API. |
 | `Chunk.build_visual_dirty_batch(dirty_tiles: Dictionary, limit: int = -1) -> Dictionary` | Internal dirty-redraw payload builder for scheduler/border-fix work. |
-| `Chunk.compute_visual_batch(request: Dictionary) -> Dictionary` | Pure-data prepared-batch computation helper for worker paths; may derive commands from neighbor lookup tables or decode ready prebaked surface payload arrays into prepared commands / native-ready buffers, but never scene-tree writes. |
+| `Chunk.build_visual_dirty_batch_from_tiles(dirty_tiles: Array, limit: int = -1) -> Dictionary` | Internal dirty-redraw payload builder for scheduler/border-fix work when the dirty source already lives as an explicit tile list / queue instead of a `Dictionary<Vector2i, ...>` set. |
+| `Chunk.compute_visual_batch(request: Dictionary) -> Dictionary` | Pure-data prepared-batch computation helper for worker paths; consumes the shared visual-kernel request contract (dense center arrays for terrain/surface meta plus sparse out-of-chunk `terrain_lookup`, or full `terrain_halo` in prebaked derivation), may derive commands from neighbor lookup tables or decode ready prebaked surface payload arrays into prepared commands / native-ready buffers, but never scene-tree writes. |
 | `Chunk.apply_visual_phase_batch(batch: Dictionary) -> bool` | Owner-only prepared-batch apply helper; caller bypass risks redraw state drift. |
 | `Chunk.apply_visual_dirty_batch(batch: Dictionary) -> bool` | Owner-only dirty prepared-batch apply helper; не external mutation entrypoint. |
 | `Chunk._redraw_terrain_tile(local_tile: Vector2i) -> void` | Single-tile terrain draw helper. |
@@ -520,15 +521,20 @@ related_docs:
 | `MountainShadowSystem._mark_dirty(coord: Vector2i) -> void` | Internal invalidation queue helper. |
 | `MountainShadowSystem._update_edges_at(tile_pos: Vector2i) -> Array[Vector2i]` | Low-level shadow edge cache patch helper. Returns only the actually affected shadow target coords after the edge delta is patched. |
 | `MountainShadowSystem._start_shadow_build(coord: Vector2i) -> void` | Internal detached shadow-compute kickoff. Produces versioned pure-data job state only; renderer mutation stays in `_finalize_shadow_texture()` / `_finalize_shadow_apply()`. |
+| `ChunkVisualScheduler.*` | Internal visual scheduler state owner. Not a gameplay or redraw API; external callers must not enqueue visual work or mutate scheduler queues directly. |
+| `ChunkSurfacePayloadCache.*` | Internal generated surface payload reuse cache. Not terrain truth, not persistence API, and not safe for external reads/writes. |
+| `ChunkSeamService.*` | Internal seam repair queue owner behind mining/streaming follow-up paths. External callers must not enqueue seam work directly; use `ChunkManager.try_harvest_at_world()` or lifecycle owner paths. |
 
 ### Wall Atlas
 
 - Surface wall-form selection идёт через `Chunk._surface_rock_visual_class(local_tile: Vector2i) -> Vector2i`.
+- Эти helper methods in `chunk.gd` are thin facades over `core/systems/world/chunk_visual_kernel.gd`; direct redraw and prepared batch paths must not keep a second copy of the same wall/cover/cliff rules.
 - Surface openness contract идёт через `Chunk._is_open_for_surface_rock_visual(terrain_type: int) -> bool`.
 - В текущем коде surface visual-open = `GROUND`, `WATER`, `SAND`, `GRASS`, `MINED_FLOOR`, `MOUNTAIN_ENTRANCE`.
-- Для pristine surface chunks generation-time `rock_visual_class`, `ground_face_atlas`, `variant_id`, `alt_id`, `cover_mask`, и `cliff_overlay` — это кэшированные outputs тех же presentation rules inside `build_chunk_native_data()` / `Chunk.populate_native()`. После terrain mutation этот cache invalidates and redraw returns to live neighbor reads.
+- Для pristine surface chunks generation-time `rock_visual_class`, `ground_face_atlas`, `variant_id`, `alt_id`, `cover_mask`, и `cliff_overlay` — это кэшированные outputs тех же `ChunkVisualKernel` presentation rules inside `build_chunk_native_data()` / `Chunk.populate_native()`. После terrain mutation этот cache invalidates and redraw returns to live neighbor reads through the same kernel contract.
 - Underground wall-form selection идёт через `Chunk._rock_visual_class(local_tile: Vector2i) -> Vector2i`.
 - Underground openness contract идёт через `Chunk._is_open_for_visual(terrain_type: int) -> bool`, то есть любой non-`ROCK` считается visual-open.
+- Border fix / dirty redraw may narrow the explicit tile list, but still use the same visual-kernel request/command contract as full redraw and first-pass batch compute.
 - Эти методы и контракты presentation-only. Их нельзя использовать как substitute для canonical terrain semantics, mining semantics или topology truth.
 
 ### События

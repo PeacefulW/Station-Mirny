@@ -261,6 +261,9 @@ func _tick_shadows() -> bool:
 	if _try_mined_tile_update_step():
 		_refresh_boot_shadow_completion_state()
 		return false
+	if _should_yield_to_chunk_visual_pressure():
+		_refresh_boot_shadow_completion_state()
+		return false
 	if not _active_build.is_empty():
 		var phase: String = str(_active_build.get("phase", "compute"))
 		match phase:
@@ -301,6 +304,11 @@ func _tick_shadows() -> bool:
 		return false
 	_refresh_boot_shadow_completion_state()
 	return false
+
+func _should_yield_to_chunk_visual_pressure() -> bool:
+	if _chunk_manager == null or not _chunk_manager.has_method("_has_player_visible_visual_pressure"):
+		return false
+	return bool(_chunk_manager._has_player_visible_visual_pressure())
 
 func _try_mined_tile_update_step() -> bool:
 	if _pending_mined_tile_updates.is_empty():
@@ -900,7 +908,18 @@ func _finalize_shadow_texture() -> void:
 		WorldPerfProbe.end("Shadow.finalize_texture %s" % [coord], finalize_usec)
 		_refresh_boot_shadow_completion_state()
 		return
-	b["texture"] = ImageTexture.create_from_image(img)
+	var reusable_texture: ImageTexture = null
+	if _shadow_sprites.has(coord):
+		var existing_sprite: Sprite2D = _shadow_sprites[coord] as Sprite2D
+		if existing_sprite != null:
+			reusable_texture = existing_sprite.texture as ImageTexture
+	if reusable_texture != null \
+		and reusable_texture.get_width() == img.get_width() \
+		and reusable_texture.get_height() == img.get_height():
+		reusable_texture.update(img)
+		b["texture"] = reusable_texture
+	else:
+		b["texture"] = ImageTexture.create_from_image(img)
 	b["phase"] = "finalize_apply"
 	WorldPerfProbe.end("Shadow.finalize_texture %s" % [coord], finalize_usec)
 
