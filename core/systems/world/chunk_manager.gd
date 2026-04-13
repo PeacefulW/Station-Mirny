@@ -234,12 +234,26 @@ func _process(_delta: float) -> void:
 		return
 	_check_player_chunk()
 
+func _await_boot_entrypoint_ready() -> bool:
+	if _chunk_boot_pipeline != null and _initialized and _player != null:
+		return true
+	var wait_frames: int = 0
+	while wait_frames < 8 and (_chunk_boot_pipeline == null or not _initialized or _player == null):
+		if _shutdown_in_progress:
+			return false
+		await get_tree().process_frame
+		wait_frames += 1
+	return _chunk_boot_pipeline != null and _initialized and _player != null
+
 ## Boot-time загрузка стартового пузыря. Вызывается из GameWorld под loading screen.
 ## progress_callback: func(percent: float, text: String) -> void
 func boot_load_initial_chunks(progress_callback: Callable) -> void:
-	if not _initialized or not _player or _chunk_boot_pipeline == null:
-		return
 	_is_boot_in_progress = true
+	var boot_entry_ready: bool = await _await_boot_entrypoint_ready()
+	if not boot_entry_ready:
+		_is_boot_in_progress = false
+		push_error("ChunkManager.boot_load_initial_chunks(): boot entrypoint was called before deferred init became ready.")
+		return
 	await _chunk_boot_pipeline.boot_load_initial_chunks(progress_callback)
 	_is_boot_in_progress = false
 
