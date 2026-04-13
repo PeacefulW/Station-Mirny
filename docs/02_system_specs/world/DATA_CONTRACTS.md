@@ -541,7 +541,7 @@ Observed files for this version:
 - `ChunkSurfacePayloadCache.cache_flora_result()`
 - `ChunkSurfacePayloadCache.clear()`
 - `forbidden writes`:
-- Code outside `ChunkSurfacePayloadCache` must not mutate its entries, touch order, or LRU serial directly.
+- Code outside `ChunkSurfacePayloadCache` must not mutate its entries or private LRU-link state directly.
 - Cached payloads must not be used as a substitute for loaded terrain bytes, saved runtime diffs, or unloaded terrain read arbitration.
 - `emitted events / invalidation signals`:
 - none; cache state is private runtime reuse state.

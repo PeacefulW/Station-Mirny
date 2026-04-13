@@ -5,8 +5,11 @@ const ChunkFloraResultScript = preload("res://core/systems/world/chunk_flora_res
 
 var _limit: int = 192
 var _entries: Dictionary = {}
-var _touch_order: Dictionary = {}  ## Vector3i -> monotonic touch serial
-var _touch_serial: int = 0
+var _lru_prev: Dictionary = {}  ## Vector3i -> previous key in LRU list
+var _lru_next: Dictionary = {}  ## Vector3i -> next key in LRU list
+var _lru_head_key: Vector3i = Vector3i.ZERO
+var _lru_tail_key: Vector3i = Vector3i.ZERO
+var _lru_has_head: bool = false
 var _canonicalize_chunk_coord: Callable
 var _duplicate_native_data_fn: Callable
 var _resolve_flora_tile_size_fn: Callable
@@ -23,8 +26,11 @@ func setup(owner: Node, limit: int) -> void:
 
 func clear() -> void:
 	_entries.clear()
-	_touch_order.clear()
-	_touch_serial = 0
+	_lru_prev.clear()
+	_lru_next.clear()
+	_lru_head_key = Vector3i.ZERO
+	_lru_tail_key = Vector3i.ZERO
+	_lru_has_head = false
 
 func make_key(coord: Vector2i, z_level: int) -> Vector3i:
 	var canonical_coord: Vector2i = _canonicalize_chunk_coord.call(coord) as Vector2i
@@ -124,22 +130,68 @@ func try_get_native_data(coord: Vector2i, z_level: int, out_native_data: Diction
 	return true
 
 func _touch_key(cache_key: Vector3i) -> void:
-	_touch_serial += 1
-	_touch_order[cache_key] = _touch_serial
+	if _is_lru_tail(cache_key):
+		return
+	if _is_lru_linked(cache_key):
+		_unlink_lru_key(cache_key)
+	_append_lru_key(cache_key)
 
 func _trim() -> void:
 	while _entries.size() > _limit:
-		var has_oldest: bool = false
-		var oldest_key: Vector3i = Vector3i.ZERO
-		var oldest_serial: int = 0
-		for key_variant: Variant in _entries.keys():
-			var cache_key: Vector3i = key_variant as Vector3i
-			var access_serial: int = int(_touch_order.get(cache_key, 0))
-			if not has_oldest or access_serial < oldest_serial:
-				has_oldest = true
-				oldest_key = cache_key
-				oldest_serial = access_serial
-		if not has_oldest:
+		if not _lru_has_head:
 			break
+		var oldest_key: Vector3i = _lru_head_key
+		_unlink_lru_key(oldest_key)
 		_entries.erase(oldest_key)
-		_touch_order.erase(oldest_key)
+
+func _is_lru_linked(cache_key: Vector3i) -> bool:
+	return _lru_has_head and (
+		cache_key == _lru_head_key
+		or _lru_prev.has(cache_key)
+		or _lru_next.has(cache_key)
+	)
+
+func _is_lru_tail(cache_key: Vector3i) -> bool:
+	return _lru_has_head and cache_key == _lru_tail_key
+
+func _append_lru_key(cache_key: Vector3i) -> void:
+	if not _lru_has_head:
+		_lru_head_key = cache_key
+		_lru_tail_key = cache_key
+		_lru_has_head = true
+		_lru_prev.erase(cache_key)
+		_lru_next.erase(cache_key)
+		return
+	_lru_prev[cache_key] = _lru_tail_key
+	_lru_next.erase(cache_key)
+	_lru_next[_lru_tail_key] = cache_key
+	_lru_tail_key = cache_key
+
+func _unlink_lru_key(cache_key: Vector3i) -> void:
+	if not _is_lru_linked(cache_key):
+		return
+	var has_prev: bool = _lru_prev.has(cache_key)
+	var has_next: bool = _lru_next.has(cache_key)
+	var prev_key: Vector3i = _lru_prev.get(cache_key, Vector3i.ZERO) as Vector3i
+	var next_key: Vector3i = _lru_next.get(cache_key, Vector3i.ZERO) as Vector3i
+	if has_prev:
+		if has_next:
+			_lru_next[prev_key] = next_key
+		else:
+			_lru_next.erase(prev_key)
+	if has_next:
+		if has_prev:
+			_lru_prev[next_key] = prev_key
+		else:
+			_lru_prev.erase(next_key)
+	if _lru_head_key == cache_key:
+		if has_next:
+			_lru_head_key = next_key
+		else:
+			_lru_head_key = Vector3i.ZERO
+			_lru_tail_key = Vector3i.ZERO
+			_lru_has_head = false
+	if _lru_has_head and _lru_tail_key == cache_key:
+		_lru_tail_key = prev_key if has_prev else _lru_head_key
+	_lru_prev.erase(cache_key)
+	_lru_next.erase(cache_key)

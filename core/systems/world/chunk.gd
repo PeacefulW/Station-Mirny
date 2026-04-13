@@ -10,14 +10,6 @@ const ChunkVisualKernelScript = preload("res://core/systems/world/chunk_visual_k
 ## Один чанк мира.
 ## Хранит terrain-данные, exterior shell cover и локальные модификации.
 
-const REDRAW_PHASE_TERRAIN: int = ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN
-const REDRAW_PHASE_COVER: int = ChunkVisualKernelScript.REDRAW_PHASE_COVER
-const REDRAW_PHASE_CLIFF: int = ChunkVisualKernelScript.REDRAW_PHASE_CLIFF
-const REDRAW_PHASE_FLORA: int = ChunkVisualKernelScript.REDRAW_PHASE_FLORA
-const REDRAW_PHASE_DEBUG_INTERIOR: int = ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_INTERIOR
-const REDRAW_PHASE_DEBUG_COLLISION: int = ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_COLLISION
-const REDRAW_PHASE_DONE: int = ChunkVisualKernelScript.REDRAW_PHASE_DONE
-
 enum ChunkVisualState {
 	UNINITIALIZED,
 	NATIVE_READY,
@@ -28,47 +20,13 @@ enum ChunkVisualState {
 }
 
 const REDRAW_TIME_BUDGET_USEC: int = 2500
-const _CARDINAL_DIRS := ChunkVisualKernelScript._CARDINAL_DIRS
-const _INTERIOR_FAMILY_TARGET_COUNT: int = ChunkVisualKernelScript._INTERIOR_FAMILY_TARGET_COUNT
-const _INTERIOR_FAMILY_WINDOW_SIZE: int = ChunkVisualKernelScript._INTERIOR_FAMILY_WINDOW_SIZE
-const _INTERIOR_FAMILY_SCALE: float = ChunkVisualKernelScript._INTERIOR_FAMILY_SCALE
-const _INTERIOR_FAMILY_DETAIL_SCALE: float = ChunkVisualKernelScript._INTERIOR_FAMILY_DETAIL_SCALE
-const _INTERIOR_FAMILY_SEED: int = ChunkVisualKernelScript._INTERIOR_FAMILY_SEED
-const _INTERIOR_VARIATION_SEED: int = ChunkVisualKernelScript._INTERIOR_VARIATION_SEED
-const _INTERIOR_REHASH_SEED: int = ChunkVisualKernelScript._INTERIOR_REHASH_SEED
 const _INTERIOR_MACRO_ENABLED: bool = true
 const _INTERIOR_MACRO_SAMPLES_PER_TILE: int = 1
 const _INTERIOR_MACRO_DUST_SEED: int = 16001
 const _INTERIOR_MACRO_MOSS_SEED: int = 16057
 const _INTERIOR_MACRO_CRACK_SEED: int = 16111
 const _INTERIOR_MACRO_PEBBLE_SEED: int = 16183
-const _ECOTONE_BLEND_SEED: int = ChunkVisualKernelScript._ECOTONE_BLEND_SEED
-const _ECOTONE_BLEND_SCALE: float = ChunkVisualKernelScript._ECOTONE_BLEND_SCALE
-const _ECOTONE_BLEND_START: float = ChunkVisualKernelScript._ECOTONE_BLEND_START
-const _HASH32_MASK: int = ChunkVisualKernelScript._HASH32_MASK
-const _COVER_REVEAL_DIRS := ChunkVisualKernelScript._COVER_REVEAL_DIRS
-const VISUAL_BATCH_MODE_PHASE: StringName = ChunkVisualKernelScript.VISUAL_BATCH_MODE_PHASE
-const VISUAL_BATCH_MODE_DIRTY: StringName = ChunkVisualKernelScript.VISUAL_BATCH_MODE_DIRTY
-const VISUAL_COMMAND_OP_SET: int = ChunkVisualKernelScript.VISUAL_COMMAND_OP_SET
-const VISUAL_COMMAND_OP_ERASE: int = ChunkVisualKernelScript.VISUAL_COMMAND_OP_ERASE
-const VISUAL_APPLY_BUFFER_STRIDE: int = ChunkVisualKernelScript.VISUAL_APPLY_BUFFER_STRIDE
-const VISUAL_LAYER_TERRAIN: int = ChunkVisualKernelScript.VISUAL_LAYER_TERRAIN
-const VISUAL_LAYER_GROUND_FACE: int = ChunkVisualKernelScript.VISUAL_LAYER_GROUND_FACE
-const VISUAL_LAYER_ROCK: int = ChunkVisualKernelScript.VISUAL_LAYER_ROCK
-const VISUAL_LAYER_COVER: int = ChunkVisualKernelScript.VISUAL_LAYER_COVER
-const VISUAL_LAYER_CLIFF: int = ChunkVisualKernelScript.VISUAL_LAYER_CLIFF
-const VISUAL_COMMAND_BUFFER_STRIDE: int = ChunkVisualKernelScript.VISUAL_COMMAND_BUFFER_STRIDE
 const NATIVE_VISUAL_KERNELS_CLASS: StringName = &"ChunkVisualKernels"
-const PREBAKED_ROCK_VISUAL_NONE: int = ChunkVisualKernelScript.PREBAKED_ROCK_VISUAL_NONE
-const PREBAKED_GROUND_FACE_NONE: int = ChunkVisualKernelScript.PREBAKED_GROUND_FACE_NONE
-const PREBAKED_COVER_NONE: int = ChunkVisualKernelScript.PREBAKED_COVER_NONE
-const PREBAKED_CLIFF_NONE: int = ChunkVisualKernelScript.PREBAKED_CLIFF_NONE
-const PREBAKED_CLIFF_SOUTH: int = ChunkVisualKernelScript.PREBAKED_CLIFF_SOUTH
-const PREBAKED_CLIFF_WEST: int = ChunkVisualKernelScript.PREBAKED_CLIFF_WEST
-const PREBAKED_CLIFF_EAST: int = ChunkVisualKernelScript.PREBAKED_CLIFF_EAST
-const PREBAKED_CLIFF_TOP: int = ChunkVisualKernelScript.PREBAKED_CLIFF_TOP
-const PREBAKED_CLIFF_SURFACE_NORTH: int = ChunkVisualKernelScript.PREBAKED_CLIFF_SURFACE_NORTH
-const PREBAKED_MASK_ALT_SHIFT: int = ChunkVisualKernelScript.PREBAKED_MASK_ALT_SHIFT
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 var is_loaded: bool = false
@@ -113,7 +71,7 @@ var _variant_id_bytes: PackedByteArray = PackedByteArray()
 var _alt_id_bytes: PackedInt32Array = PackedInt32Array()
 var _prebaked_visual_payload_valid: bool = false
 var _has_mountain: bool = false
-var _redraw_phase: int = REDRAW_PHASE_DONE
+var _redraw_phase: int = ChunkVisualKernelScript.REDRAW_PHASE_DONE
 var _redraw_tile_index: int = 0
 var _pending_border_dirty: PackedByteArray = PackedByteArray()
 var _pending_border_dirty_queue: Array[int] = []
@@ -262,7 +220,7 @@ func warmup_tile_layers() -> void:
 		layer.erase_cell(dummy_coord)
 
 func complete_terrain_phase_now() -> void:
-	if _redraw_phase != REDRAW_PHASE_TERRAIN:
+	if _redraw_phase != ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN:
 		return
 	var batch: Dictionary = build_visual_phase_batch(_chunk_size * _chunk_size)
 	if batch.is_empty():
@@ -498,9 +456,9 @@ func _invalidate_prebaked_visual_payload() -> void:
 func _has_prebaked_visual_phase_data() -> bool:
 	if not _prebaked_visual_payload_valid or _is_underground or not _modified_tiles.is_empty():
 		return false
-	return _redraw_phase == REDRAW_PHASE_TERRAIN \
-		or _redraw_phase == REDRAW_PHASE_COVER \
-		or _redraw_phase == REDRAW_PHASE_CLIFF
+	return _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN \
+		or _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_COVER \
+		or _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_CLIFF
 
 func get_terrain_type_at(local: Vector2i) -> int:
 	if not _is_inside(local):
@@ -748,7 +706,7 @@ func refresh_open_neighbors_with_operation_cache(local_tile: Vector2i) -> void:
 	var previous_global_terrain_cache: Dictionary = _operation_global_terrain_cache
 	_use_operation_global_terrain_cache = true
 	_operation_global_terrain_cache = {}
-	for dir: Vector2i in _CARDINAL_DIRS:
+	for dir: Vector2i in ChunkVisualKernelScript._CARDINAL_DIRS:
 		_refresh_open_tile(local_tile + dir)
 	_use_operation_global_terrain_cache = previous_cache_enabled
 	_operation_global_terrain_cache = previous_global_terrain_cache
@@ -820,7 +778,7 @@ func _normalize_saved_open_tiles_after_load() -> void:
 		if not _is_inside(tile_pos):
 			continue
 		tiles_to_refresh[tile_pos] = true
-		for dir: Vector2i in _CARDINAL_DIRS:
+		for dir: Vector2i in ChunkVisualKernelScript._CARDINAL_DIRS:
 			var neighbor_tile: Vector2i = tile_pos + dir
 			if _is_inside(neighbor_tile):
 				tiles_to_refresh[neighbor_tile] = true
@@ -831,11 +789,11 @@ func _normalize_saved_open_tiles_after_load() -> void:
 
 func _run_immediate_visual_phase_batches() -> void:
 	var total_tiles: int = _chunk_size * _chunk_size
-	_redraw_phase = REDRAW_PHASE_TERRAIN
+	_redraw_phase = ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN
 	_redraw_tile_index = 0
-	while _redraw_phase == REDRAW_PHASE_TERRAIN \
-		or _redraw_phase == REDRAW_PHASE_COVER \
-		or _redraw_phase == REDRAW_PHASE_CLIFF:
+	while _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN \
+		or _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_COVER \
+		or _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_CLIFF:
 		var batch: Dictionary = build_visual_phase_batch(total_tiles)
 		if batch.is_empty():
 			_advance_redraw_phase()
@@ -860,11 +818,11 @@ func _redraw_all(include_flora: bool = false) -> void:
 	_rebuild_debug_markers()
 	if include_flora:
 		_apply_flora_render_packet(_build_flora_render_packet(), &"batched_renderer")
-		_redraw_phase = REDRAW_PHASE_DONE
+		_redraw_phase = ChunkVisualKernelScript.REDRAW_PHASE_DONE
 	else:
 		## Flora is deferred to progressive redraw. Set phase to FLORA so
 		## progressive path can draw flora without re-doing terrain/cover/cliff.
-		_redraw_phase = REDRAW_PHASE_FLORA
+		_redraw_phase = ChunkVisualKernelScript.REDRAW_PHASE_FLORA
 	_redraw_tile_index = 0
 	_sync_visual_state_after_redraw_mutation()
 	WorldPerfProbe.end("Chunk._redraw_all %s" % [chunk_coord], started_usec)
@@ -879,12 +837,12 @@ func _begin_progressive_redraw() -> void:
 	_clear_flora_renderer()
 	_reset_cover_visual_state()
 	_clear_debug_markers()
-	_redraw_phase = REDRAW_PHASE_TERRAIN
+	_redraw_phase = ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN
 	_redraw_tile_index = 0
 	_mark_visual_native_ready()
 
 func is_redraw_complete() -> bool:
-	return _redraw_phase == REDRAW_PHASE_DONE
+	return _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_DONE
 
 func is_first_pass_ready() -> bool:
 	return _visual_state == ChunkVisualState.TERRAIN_READY \
@@ -902,22 +860,22 @@ func needs_full_redraw() -> bool:
 		or _visual_state == ChunkVisualState.FULL_PENDING
 
 func is_terrain_phase_done() -> bool:
-	return _redraw_phase > REDRAW_PHASE_TERRAIN
+	return _redraw_phase > ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN
 
 ## True when terrain + cover + cliff are complete. Flora and debug phases
 ## are NOT required — they are cosmetic/debug and must not block boot gates.
 func is_gameplay_redraw_complete() -> bool:
-	return _redraw_phase >= REDRAW_PHASE_FLORA
+	return _redraw_phase >= ChunkVisualKernelScript.REDRAW_PHASE_FLORA
 
 func is_flora_phase_done() -> bool:
-	return _redraw_phase > REDRAW_PHASE_FLORA
+	return _redraw_phase > ChunkVisualKernelScript.REDRAW_PHASE_FLORA
 
 func continue_redraw(max_rows: int) -> bool:
-	if _redraw_phase == REDRAW_PHASE_DONE:
+	if _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_DONE:
 		_sync_visual_state_after_redraw_mutation()
 		return true
-	while _redraw_phase != REDRAW_PHASE_DONE:
-		if _redraw_phase == REDRAW_PHASE_DEBUG_INTERIOR or _redraw_phase == REDRAW_PHASE_DEBUG_COLLISION:
+	while _redraw_phase != ChunkVisualKernelScript.REDRAW_PHASE_DONE:
+		if _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_INTERIOR or _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_COLLISION:
 			if not _should_build_debug_markers():
 				_advance_redraw_phase()
 				continue
@@ -927,12 +885,12 @@ func continue_redraw(max_rows: int) -> bool:
 		if processed <= 0:
 			_advance_redraw_phase()
 			continue
-		if processed_phase == REDRAW_PHASE_COVER:
+		if processed_phase == ChunkVisualKernelScript.REDRAW_PHASE_COVER:
 			_reapply_local_zone_cover_state_for_index_range(phase_start_index, _redraw_tile_index)
 		if _redraw_tile_index >= _chunk_size * _chunk_size:
 			_advance_redraw_phase()
 		_sync_visual_state_after_redraw_mutation()
-		return _redraw_phase == REDRAW_PHASE_DONE
+		return _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_DONE
 	_sync_visual_state_after_redraw_mutation()
 	return true
 
@@ -967,11 +925,11 @@ func _mark_visual_full_redraw_ready() -> void:
 
 func _can_publish_full_redraw_ready() -> bool:
 	return is_first_pass_ready() \
-		and _redraw_phase == REDRAW_PHASE_DONE \
+		and _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_DONE \
 		and not has_pending_border_dirty()
 
 func _sync_visual_state_after_redraw_mutation() -> void:
-	if _redraw_phase > REDRAW_PHASE_COVER:
+	if _redraw_phase > ChunkVisualKernelScript.REDRAW_PHASE_COVER:
 		_mark_visual_first_pass_ready()
 
 func _redraw_dynamic_visibility(_dirty_tiles: Dictionary) -> void:
@@ -1023,10 +981,10 @@ func _redraw_cover_tiles(dirty_tiles: Dictionary) -> void:
 	_reapply_local_zone_cover_state_for_tiles(dirty_tiles)
 
 func supports_worker_visual_phase() -> bool:
-	return _redraw_phase == REDRAW_PHASE_TERRAIN \
-		or _redraw_phase == REDRAW_PHASE_COVER \
-		or _redraw_phase == REDRAW_PHASE_CLIFF \
-		or _redraw_phase == REDRAW_PHASE_FLORA
+	return _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN \
+		or _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_COVER \
+		or _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_CLIFF \
+		or _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_FLORA
 
 func build_visual_phase_batch(tile_budget: int) -> Dictionary:
 	if not supports_worker_visual_phase():
@@ -1034,12 +992,12 @@ func build_visual_phase_batch(tile_budget: int) -> Dictionary:
 	var total_tiles: int = _chunk_size * _chunk_size
 	if _redraw_tile_index >= total_tiles:
 		return {}
-	if _redraw_phase == REDRAW_PHASE_FLORA:
+	if _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_FLORA:
 		var flora_payload: Dictionary = _ensure_flora_payload()
 		var prebuilt_packet: Dictionary = _get_prebuilt_flora_render_packet(flora_payload)
 		return {
-			"mode": VISUAL_BATCH_MODE_PHASE,
-			"phase": REDRAW_PHASE_FLORA,
+			"mode": ChunkVisualKernelScript.VISUAL_BATCH_MODE_PHASE,
+			"phase": ChunkVisualKernelScript.REDRAW_PHASE_FLORA,
 			"phase_name": &"flora_batch",
 			"chunk_coord": chunk_coord,
 			"chunk_size": _chunk_size,
@@ -1059,7 +1017,7 @@ func build_visual_phase_batch(tile_budget: int) -> Dictionary:
 	var tiles: Array[Vector2i] = []
 	for tile_index: int in range(start_index, end_index):
 		tiles.append(_tile_from_index(tile_index))
-	return _build_visual_compute_request(VISUAL_BATCH_MODE_PHASE, tiles, _redraw_phase, start_index, end_index)
+	return _build_visual_compute_request(ChunkVisualKernelScript.VISUAL_BATCH_MODE_PHASE, tiles, _redraw_phase, start_index, end_index)
 
 func _normalize_dirty_tile_list(dirty_tiles: Array, limit: int = -1) -> Array[Vector2i]:
 	var tiles: Array[Vector2i] = []
@@ -1086,7 +1044,7 @@ func build_visual_dirty_batch_from_tiles(dirty_tiles: Array, limit: int = -1) ->
 	var tiles: Array[Vector2i] = _normalize_dirty_tile_list(dirty_tiles, limit)
 	if tiles.is_empty():
 		return {}
-	return _build_visual_compute_request(VISUAL_BATCH_MODE_DIRTY, tiles)
+	return _build_visual_compute_request(ChunkVisualKernelScript.VISUAL_BATCH_MODE_DIRTY, tiles)
 
 func _build_prebaked_visual_phase_batch(tile_budget: int) -> Dictionary:
 	var total_tiles: int = _chunk_size * _chunk_size
@@ -1096,7 +1054,7 @@ func _build_prebaked_visual_phase_batch(tile_budget: int) -> Dictionary:
 	for tile_index: int in range(start_index, end_index):
 		tiles.append(_tile_from_index(tile_index))
 	return {
-		"mode": VISUAL_BATCH_MODE_PHASE,
+		"mode": ChunkVisualKernelScript.VISUAL_BATCH_MODE_PHASE,
 		"phase": _redraw_phase,
 		"phase_name": Chunk._visual_phase_name(_redraw_phase),
 		"chunk_coord": chunk_coord,
@@ -1121,19 +1079,19 @@ func _build_prebaked_visual_phase_batch(tile_budget: int) -> Dictionary:
 	}
 
 func apply_visual_phase_batch(batch: Dictionary) -> bool:
-	if StringName(batch.get("mode", &"")) != VISUAL_BATCH_MODE_PHASE:
+	if StringName(batch.get("mode", &"")) != ChunkVisualKernelScript.VISUAL_BATCH_MODE_PHASE:
 		return false
-	var phase: int = int(batch.get("phase", REDRAW_PHASE_DONE))
+	var phase: int = int(batch.get("phase", ChunkVisualKernelScript.REDRAW_PHASE_DONE))
 	var start_index: int = int(batch.get("start_index", -1))
 	var end_index: int = int(batch.get("end_index", -1))
 	if phase != _redraw_phase or start_index != _redraw_tile_index:
 		return false
-	if phase == REDRAW_PHASE_FLORA:
+	if phase == ChunkVisualKernelScript.REDRAW_PHASE_FLORA:
 		_apply_flora_render_packet(batch.get("flora_packet", {}) as Dictionary, &"batched_renderer")
 	else:
 		_apply_visual_prepared_batch(batch)
 	_redraw_tile_index = end_index
-	if phase == REDRAW_PHASE_COVER:
+	if phase == ChunkVisualKernelScript.REDRAW_PHASE_COVER:
 		_reapply_local_zone_cover_state_for_index_range(start_index, end_index)
 	if _redraw_tile_index >= _chunk_size * _chunk_size:
 		_advance_redraw_phase()
@@ -1141,7 +1099,7 @@ func apply_visual_phase_batch(batch: Dictionary) -> bool:
 	return true
 
 func apply_visual_dirty_batch(batch: Dictionary) -> bool:
-	if StringName(batch.get("mode", &"")) != VISUAL_BATCH_MODE_DIRTY:
+	if StringName(batch.get("mode", &"")) != ChunkVisualKernelScript.VISUAL_BATCH_MODE_DIRTY:
 		return false
 	_apply_visual_prepared_batch(batch)
 	_mark_interior_macro_dirty()
@@ -1154,7 +1112,7 @@ func apply_visual_dirty_batch(batch: Dictionary) -> bool:
 func _build_visual_compute_request(
 	mode: StringName,
 	tiles: Array[Vector2i],
-	phase: int = REDRAW_PHASE_DONE,
+	phase: int = ChunkVisualKernelScript.REDRAW_PHASE_DONE,
 	start_index: int = -1,
 	end_index: int = -1
 ) -> Dictionary:
@@ -1179,7 +1137,7 @@ func _build_visual_compute_request(
 	var request: Dictionary = {
 		"mode": mode,
 		"phase": phase,
-		"phase_name": &"dirty" if mode == VISUAL_BATCH_MODE_DIRTY else Chunk._visual_phase_name(phase),
+		"phase_name": &"dirty" if mode == ChunkVisualKernelScript.VISUAL_BATCH_MODE_DIRTY else Chunk._visual_phase_name(phase),
 		"chunk_coord": chunk_coord,
 		"chunk_size": _chunk_size,
 		"is_underground": _is_underground,
@@ -1200,7 +1158,7 @@ func _build_visual_compute_request(
 
 func _build_single_tile_visual_request(local_tile: Vector2i) -> Dictionary:
 	var tiles: Array[Vector2i] = [local_tile]
-	return _build_visual_compute_request(VISUAL_BATCH_MODE_DIRTY, tiles)
+	return _build_visual_compute_request(ChunkVisualKernelScript.VISUAL_BATCH_MODE_DIRTY, tiles)
 
 func _build_all_chunk_tiles() -> Array[Vector2i]:
 	var tiles: Array[Vector2i] = []
@@ -1213,7 +1171,7 @@ func _apply_visual_phase_for_tiles_now(phase: int, tiles: Array[Vector2i]) -> vo
 	if tiles.is_empty():
 		return
 	var request: Dictionary = _build_visual_compute_request(
-		VISUAL_BATCH_MODE_PHASE,
+		ChunkVisualKernelScript.VISUAL_BATCH_MODE_PHASE,
 		tiles,
 		phase,
 		0,
@@ -1235,7 +1193,7 @@ func _apply_single_tile_visual_phase(local_tile: Vector2i, phase: int, explicit_
 func _apply_visual_commands(
 	commands: Array,
 	command_buffer: PackedInt32Array = PackedInt32Array(),
-	command_stride: int = VISUAL_COMMAND_BUFFER_STRIDE
+	command_stride: int = ChunkVisualKernelScript.VISUAL_COMMAND_BUFFER_STRIDE
 ) -> int:
 	if not command_buffer.is_empty():
 		return _apply_visual_command_buffer(command_buffer, command_stride)
@@ -1246,7 +1204,7 @@ func _apply_visual_commands(
 		if layer == null:
 			continue
 		var local_tile: Vector2i = command.get("tile", Vector2i.ZERO) as Vector2i
-		if int(command.get("op", VISUAL_COMMAND_OP_SET)) == VISUAL_COMMAND_OP_SET:
+		if int(command.get("op", ChunkVisualKernelScript.VISUAL_COMMAND_OP_SET)) == ChunkVisualKernelScript.VISUAL_COMMAND_OP_SET:
 			layer.set_cell(
 				local_tile,
 				int(command.get("source_id", 0)),
@@ -1276,12 +1234,12 @@ func _apply_visual_prepared_batch(batch: Dictionary) -> int:
 			rock_buffer,
 			cover_buffer,
 			cliff_buffer,
-			int(batch.get("buffer_stride", VISUAL_APPLY_BUFFER_STRIDE))
+			int(batch.get("buffer_stride", ChunkVisualKernelScript.VISUAL_APPLY_BUFFER_STRIDE))
 		)
 	return applied_commands + _apply_visual_commands(
 		batch.get("commands", []) as Array,
 		batch.get("command_buffer", PackedInt32Array()),
-		int(batch.get("command_stride", VISUAL_COMMAND_BUFFER_STRIDE))
+		int(batch.get("command_stride", ChunkVisualKernelScript.VISUAL_COMMAND_BUFFER_STRIDE))
 	)
 
 func _apply_visual_layer_buffers(
@@ -1290,7 +1248,7 @@ func _apply_visual_layer_buffers(
 	rock_buffer: PackedInt32Array,
 	cover_buffer: PackedInt32Array,
 	cliff_buffer: PackedInt32Array,
-	buffer_stride: int = VISUAL_APPLY_BUFFER_STRIDE
+	buffer_stride: int = ChunkVisualKernelScript.VISUAL_APPLY_BUFFER_STRIDE
 ) -> int:
 	var native_applied: int = _try_apply_visual_buffers_native(
 		terrain_buffer,
@@ -1310,7 +1268,7 @@ func _apply_visual_layer_buffers(
 	applied_commands += _apply_visual_layer_buffer(_cliff_layer, cliff_buffer, buffer_stride)
 	return applied_commands
 
-func _apply_visual_command_buffer(command_buffer: PackedInt32Array, command_stride: int = VISUAL_COMMAND_BUFFER_STRIDE) -> int:
+func _apply_visual_command_buffer(command_buffer: PackedInt32Array, command_stride: int = ChunkVisualKernelScript.VISUAL_COMMAND_BUFFER_STRIDE) -> int:
 	if command_stride <= 0:
 		return 0
 	var applied_commands: int = 0
@@ -1320,7 +1278,7 @@ func _apply_visual_command_buffer(command_buffer: PackedInt32Array, command_stri
 		var layer: TileMapLayer = _visual_layer_for_command(command_buffer[index])
 		if layer != null:
 			var local_tile: Vector2i = Vector2i(command_buffer[index + 1], command_buffer[index + 2])
-			if command_buffer[index + 3] == VISUAL_COMMAND_OP_SET:
+			if command_buffer[index + 3] == ChunkVisualKernelScript.VISUAL_COMMAND_OP_SET:
 				layer.set_cell(
 					local_tile,
 					command_buffer[index + 4],
@@ -1336,7 +1294,7 @@ func _apply_visual_command_buffer(command_buffer: PackedInt32Array, command_stri
 func _apply_visual_layer_buffer(
 	layer: TileMapLayer,
 	buffer: PackedInt32Array,
-	buffer_stride: int = VISUAL_APPLY_BUFFER_STRIDE
+	buffer_stride: int = ChunkVisualKernelScript.VISUAL_APPLY_BUFFER_STRIDE
 ) -> int:
 	if layer == null or buffer.is_empty() or buffer_stride <= 0:
 		return 0
@@ -1345,7 +1303,7 @@ func _apply_visual_layer_buffer(
 	var index: int = 0
 	while index < command_limit:
 		var local_tile: Vector2i = Vector2i(buffer[index], buffer[index + 1])
-		if buffer[index + 2] == VISUAL_COMMAND_OP_SET:
+		if buffer[index + 2] == ChunkVisualKernelScript.VISUAL_COMMAND_OP_SET:
 			layer.set_cell(
 				local_tile,
 				buffer[index + 3],
@@ -1364,7 +1322,7 @@ func _try_apply_visual_buffers_native(
 	rock_buffer: PackedInt32Array,
 	cover_buffer: PackedInt32Array,
 	cliff_buffer: PackedInt32Array,
-	buffer_stride: int = VISUAL_APPLY_BUFFER_STRIDE
+	buffer_stride: int = ChunkVisualKernelScript.VISUAL_APPLY_BUFFER_STRIDE
 ) -> int:
 	var helper: RefCounted = Chunk._get_native_visual_kernels()
 	if helper == null or not helper.has_method("apply_chunk_visual_buffers"):
@@ -1386,15 +1344,15 @@ func _try_apply_visual_buffers_native(
 
 func _visual_layer_for_command(layer_id: int) -> TileMapLayer:
 	match layer_id:
-		VISUAL_LAYER_TERRAIN:
+		ChunkVisualKernelScript.VISUAL_LAYER_TERRAIN:
 			return _terrain_layer
-		VISUAL_LAYER_GROUND_FACE:
+		ChunkVisualKernelScript.VISUAL_LAYER_GROUND_FACE:
 			return _ground_face_layer
-		VISUAL_LAYER_ROCK:
+		ChunkVisualKernelScript.VISUAL_LAYER_ROCK:
 			return _rock_layer
-		VISUAL_LAYER_COVER:
+		ChunkVisualKernelScript.VISUAL_LAYER_COVER:
 			return _cover_layer
-		VISUAL_LAYER_CLIFF:
+		ChunkVisualKernelScript.VISUAL_LAYER_CLIFF:
 			return _cliff_layer
 		_:
 			return null
@@ -1408,7 +1366,7 @@ static func compute_visual_batch(request: Dictionary) -> Dictionary:
 	var tiles: Array = request.get("tiles", [])
 	var result: Dictionary = {
 		"mode": request.get("mode", &""),
-		"phase": int(request.get("phase", REDRAW_PHASE_DONE)),
+		"phase": int(request.get("phase", ChunkVisualKernelScript.REDRAW_PHASE_DONE)),
 		"phase_name": request.get("phase_name", &"done"),
 		"start_index": int(request.get("start_index", -1)),
 		"end_index": int(request.get("end_index", -1)),
@@ -1419,10 +1377,10 @@ static func compute_visual_batch(request: Dictionary) -> Dictionary:
 	var commands: Array[Dictionary] = []
 	var mode: StringName = StringName(request.get("mode", &""))
 	match mode:
-		VISUAL_BATCH_MODE_PHASE:
-			var phase: int = int(request.get("phase", REDRAW_PHASE_DONE))
+		ChunkVisualKernelScript.VISUAL_BATCH_MODE_PHASE:
+			var phase: int = int(request.get("phase", ChunkVisualKernelScript.REDRAW_PHASE_DONE))
 			match phase:
-				REDRAW_PHASE_FLORA:
+				ChunkVisualKernelScript.REDRAW_PHASE_FLORA:
 					var prebuilt_packet: Dictionary = request.get("flora_packet", {}) as Dictionary
 					if prebuilt_packet.is_empty():
 						prebuilt_packet = ChunkFloraResultScript.build_render_packet_from_payload(
@@ -1435,7 +1393,7 @@ static func compute_visual_batch(request: Dictionary) -> Dictionary:
 					result["commands"] = fallback_batch.get("commands", [])
 					result["command_count"] = int(fallback_batch.get("command_count", 0))
 					return result
-		VISUAL_BATCH_MODE_DIRTY:
+		ChunkVisualKernelScript.VISUAL_BATCH_MODE_DIRTY:
 			var dirty_batch: Dictionary = ChunkVisualKernelScript.compute_visual_batch_fallback(request)
 			result["commands"] = dirty_batch.get("commands", [])
 			result["command_count"] = int(dirty_batch.get("command_count", 0))
@@ -1450,13 +1408,13 @@ static func _try_compute_visual_batch_native(request: Dictionary) -> Dictionary:
 	if not Chunk._has_native_visual_kernels():
 		return {}
 	var mode: StringName = StringName(request.get("mode", &""))
-	if mode != VISUAL_BATCH_MODE_DIRTY and mode != VISUAL_BATCH_MODE_PHASE:
+	if mode != ChunkVisualKernelScript.VISUAL_BATCH_MODE_DIRTY and mode != ChunkVisualKernelScript.VISUAL_BATCH_MODE_PHASE:
 		return {}
-	if mode == VISUAL_BATCH_MODE_PHASE:
-		var phase: int = int(request.get("phase", REDRAW_PHASE_DONE))
-		if phase != REDRAW_PHASE_TERRAIN and phase != REDRAW_PHASE_COVER and phase != REDRAW_PHASE_CLIFF:
+	if mode == ChunkVisualKernelScript.VISUAL_BATCH_MODE_PHASE:
+		var phase: int = int(request.get("phase", ChunkVisualKernelScript.REDRAW_PHASE_DONE))
+		if phase != ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN and phase != ChunkVisualKernelScript.REDRAW_PHASE_COVER and phase != ChunkVisualKernelScript.REDRAW_PHASE_CLIFF:
 			return {}
-		if phase == REDRAW_PHASE_CLIFF:
+		if phase == ChunkVisualKernelScript.REDRAW_PHASE_CLIFF:
 			return {}
 	if not request.has("native_visual_tables"):
 		return {}
@@ -1466,7 +1424,7 @@ static func _try_compute_visual_batch_native(request: Dictionary) -> Dictionary:
 	var batch: Dictionary = helper.call("compute_visual_batch", request) as Dictionary
 	if batch.is_empty():
 		return {}
-	if mode == VISUAL_BATCH_MODE_DIRTY:
+	if mode == ChunkVisualKernelScript.VISUAL_BATCH_MODE_DIRTY:
 		var cliff_commands: Array[Dictionary] = []
 		for tile_variant: Variant in request.get("tiles", []):
 			var local_tile: Vector2i = tile_variant as Vector2i
@@ -1555,13 +1513,13 @@ static func _prebaked_linear_index_to_coords(linear_index: int) -> Vector2i:
 
 static func _pack_prebaked_mask(atlas_index: int, alt_id: int) -> int:
 	if atlas_index < 0:
-		return PREBAKED_COVER_NONE
-	return (atlas_index << PREBAKED_MASK_ALT_SHIFT) | (alt_id & 0xff)
+		return ChunkVisualKernelScript.PREBAKED_COVER_NONE
+	return (atlas_index << ChunkVisualKernelScript.PREBAKED_MASK_ALT_SHIFT) | (alt_id & 0xff)
 
 static func _unpack_prebaked_mask_atlas(mask_value: int) -> int:
 	if mask_value < 0:
 		return -1
-	return mask_value >> PREBAKED_MASK_ALT_SHIFT
+	return mask_value >> ChunkVisualKernelScript.PREBAKED_MASK_ALT_SHIFT
 
 static func _unpack_prebaked_mask_alt(mask_value: int) -> int:
 	if mask_value < 0:
@@ -1570,15 +1528,15 @@ static func _unpack_prebaked_mask_alt(mask_value: int) -> int:
 
 static func _prebaked_cliff_overlay_coords(kind: int) -> Vector2i:
 	match kind:
-		PREBAKED_CLIFF_SOUTH:
+		ChunkVisualKernelScript.PREBAKED_CLIFF_SOUTH:
 			return ChunkTilesetFactory.TILE_SHADOW_SOUTH
-		PREBAKED_CLIFF_WEST:
+		ChunkVisualKernelScript.PREBAKED_CLIFF_WEST:
 			return ChunkTilesetFactory.TILE_SHADOW_WEST
-		PREBAKED_CLIFF_EAST:
+		ChunkVisualKernelScript.PREBAKED_CLIFF_EAST:
 			return ChunkTilesetFactory.TILE_SHADOW_EAST
-		PREBAKED_CLIFF_TOP:
+		ChunkVisualKernelScript.PREBAKED_CLIFF_TOP:
 			return ChunkTilesetFactory.TILE_TOP_EDGE
-		PREBAKED_CLIFF_SURFACE_NORTH:
+		ChunkVisualKernelScript.PREBAKED_CLIFF_SURFACE_NORTH:
 			return ChunkTilesetFactory.TILE_SHADOW_NORTH
 		_:
 			return Vector2i(-1, -1)
@@ -1632,7 +1590,7 @@ static func _make_visual_set_command(layer: int, local_tile: Vector2i, source_id
 	return {
 		"layer": layer,
 		"tile": local_tile,
-		"op": VISUAL_COMMAND_OP_SET,
+		"op": ChunkVisualKernelScript.VISUAL_COMMAND_OP_SET,
 		"source_id": source_id,
 		"atlas": atlas,
 		"alt_id": alt_id,
@@ -1642,7 +1600,7 @@ static func _make_visual_erase_command(layer: int, local_tile: Vector2i) -> Dict
 	return {
 		"layer": layer,
 		"tile": local_tile,
-		"op": VISUAL_COMMAND_OP_ERASE,
+		"op": ChunkVisualKernelScript.VISUAL_COMMAND_OP_ERASE,
 	}
 
 static func _visual_request_terrain(request: Dictionary, local_tile: Vector2i) -> int:
@@ -1720,7 +1678,7 @@ static func _visual_request_resolve_interior_family(global_x: int, global_y: int
 static func _visual_request_sample_interior_family_noise(global_x: int, global_y: int, scale: float, seed: int) -> float:
 	return ChunkVisualKernelScript.sample_interior_family_noise(global_x, global_y, scale, seed)
 
-static func _visual_request_raw_interior_variant(global_x: int, global_y: int, family_index: int, seed: int = _INTERIOR_VARIATION_SEED) -> Vector2i:
+static func _visual_request_raw_interior_variant(global_x: int, global_y: int, family_index: int, seed: int = ChunkVisualKernelScript._INTERIOR_VARIATION_SEED) -> Vector2i:
 	return ChunkVisualKernelScript.raw_interior_variant(global_x, global_y, family_index, seed)
 
 static func _visual_request_interior_variant(global_x: int, global_y: int) -> Vector2i:
@@ -1735,7 +1693,7 @@ func _reset_cover_visual_state() -> void:
 	_reapply_local_zone_cover_state()
 
 func _redraw_terrain_tile(local_tile: Vector2i) -> void:
-	_apply_single_tile_visual_phase(local_tile, REDRAW_PHASE_TERRAIN)
+	_apply_single_tile_visual_phase(local_tile, ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN)
 
 func _redraw_ground_face_tile(local_tile: Vector2i, terrain_type: int) -> void:
 	var request: Dictionary = _build_single_tile_visual_request(local_tile)
@@ -1773,13 +1731,13 @@ func _ground_atlas_for_height(height_value: float) -> Vector2i:
 	return ChunkVisualKernelScript.request_ground_atlas_for_height(height_value)
 
 func _resolve_open_tile_type(local_tile: Vector2i) -> int:
-	for dir: Vector2i in _CARDINAL_DIRS:
+	for dir: Vector2i in ChunkVisualKernelScript._CARDINAL_DIRS:
 		if _is_open_exterior(_get_neighbor_terrain(local_tile + dir)):
 			return TileGenData.TerrainType.MOUNTAIN_ENTRANCE
 	return TileGenData.TerrainType.MINED_FLOOR
 
 func _resolve_open_tile_type_for_neighbor_refresh(local_tile: Vector2i) -> int:
-	for dir: Vector2i in _CARDINAL_DIRS:
+	for dir: Vector2i in ChunkVisualKernelScript._CARDINAL_DIRS:
 		if _is_open_exterior(_get_neighbor_terrain_for_neighbor_refresh(local_tile, dir)):
 			return TileGenData.TerrainType.MOUNTAIN_ENTRANCE
 	return TileGenData.TerrainType.MINED_FLOOR
@@ -1797,7 +1755,7 @@ func _get_neighbor_terrain_for_neighbor_refresh(local_tile: Vector2i, dir: Vecto
 
 func _refresh_open_neighbors(local_tile: Vector2i) -> void:
 	_refresh_open_tile(local_tile)
-	for dir: Vector2i in _CARDINAL_DIRS:
+	for dir: Vector2i in ChunkVisualKernelScript._CARDINAL_DIRS:
 		_refresh_open_tile(local_tile + dir)
 
 func _refresh_open_tile(local_tile: Vector2i) -> void:
@@ -1877,7 +1835,7 @@ func _is_rock_at(local_tile: Vector2i) -> bool:
 	return _is_inside(local_tile) and get_terrain_type_at(local_tile) == TileGenData.TerrainType.ROCK
 
 func _should_blacken_rock(local_tile: Vector2i) -> bool:
-	for dir: Vector2i in _COVER_REVEAL_DIRS:
+	for dir: Vector2i in ChunkVisualKernelScript._COVER_REVEAL_DIRS:
 		var neighbor_type: int = _get_neighbor_terrain(local_tile + dir)
 		if _is_open_exterior(neighbor_type):
 			return false
@@ -1890,14 +1848,14 @@ func _rebuild_cover_layer() -> void:
 	if not _cover_layer:
 		return
 	_cover_layer.clear()
-	_apply_visual_phase_for_tiles_now(REDRAW_PHASE_COVER, _build_all_chunk_tiles())
+	_apply_visual_phase_for_tiles_now(ChunkVisualKernelScript.REDRAW_PHASE_COVER, _build_all_chunk_tiles())
 	_reapply_local_zone_cover_state()
 
 func refresh_cliffs() -> void:
 	if not _cliff_layer:
 		return
 	_cliff_layer.clear()
-	_apply_visual_phase_for_tiles_now(REDRAW_PHASE_CLIFF, _build_all_chunk_tiles())
+	_apply_visual_phase_for_tiles_now(ChunkVisualKernelScript.REDRAW_PHASE_CLIFF, _build_all_chunk_tiles())
 
 func _get_sun_direction() -> Vector2:
 	if not TimeManager:
@@ -1911,14 +1869,14 @@ func _is_cliff_exposed_to_surface(local_tile: Vector2i) -> bool:
 func _redraw_cliff_tile(local_tile: Vector2i) -> void:
 	if not _cliff_layer or _is_underground:
 		return
-	_apply_single_tile_visual_phase(local_tile, REDRAW_PHASE_CLIFF)
+	_apply_single_tile_visual_phase(local_tile, ChunkVisualKernelScript.REDRAW_PHASE_CLIFF)
 
 func _redraw_cover_tile(local_tile: Vector2i) -> void:
 	# Underground z-levels don't use roof/cover system (ADR-0006).
 	# Visibility handled by fog layer instead.
 	if _is_underground or _cover_layer == null:
 		return
-	_apply_single_tile_visual_phase(local_tile, REDRAW_PHASE_COVER)
+	_apply_single_tile_visual_phase(local_tile, ChunkVisualKernelScript.REDRAW_PHASE_COVER)
 
 func _cliff_overlay_kind(local_tile: Vector2i) -> int:
 	return ChunkVisualKernelScript.cliff_overlay_kind(_build_single_tile_visual_request(local_tile), local_tile)
@@ -1935,12 +1893,12 @@ static func _resolve_effective_surface_palette_index(
 	var secondary_weight: float = _resolve_ecotone_secondary_weight(ecotone_factor)
 	if secondary_weight <= 0.0:
 		return primary_biome_palette_index
-	var blend_noise: float = _sample_ecotone_blend_noise(global_x, global_y, _ECOTONE_BLEND_SCALE, _ECOTONE_BLEND_SEED)
+	var blend_noise: float = _sample_ecotone_blend_noise(global_x, global_y, ChunkVisualKernelScript._ECOTONE_BLEND_SCALE, ChunkVisualKernelScript._ECOTONE_BLEND_SEED)
 	return secondary_biome_palette_index if blend_noise < secondary_weight else primary_biome_palette_index
 
 static func _resolve_ecotone_secondary_weight(ecotone_factor: float) -> float:
 	var normalized_factor: float = clampf(
-		(ecotone_factor - _ECOTONE_BLEND_START) / maxf(0.001, 1.0 - _ECOTONE_BLEND_START),
+		(ecotone_factor - ChunkVisualKernelScript._ECOTONE_BLEND_START) / maxf(0.001, 1.0 - ChunkVisualKernelScript._ECOTONE_BLEND_START),
 		0.0,
 		1.0
 	)
@@ -1968,19 +1926,19 @@ static func _tile_hash(pos: Vector2i) -> int:
 	return _tile_hash_xy(pos.x, pos.y)
 
 static func _hash32_xy(tile_x: int, tile_y: int, seed: int) -> int:
-	var h: int = (tile_x * 374761393 + tile_y * 668265263 + seed * 1442695041) & _HASH32_MASK
-	h = (h ^ (h >> 13)) & _HASH32_MASK
-	h = (h * 1274126177) & _HASH32_MASK
-	h = (h ^ (h >> 16)) & _HASH32_MASK
+	var h: int = (tile_x * 374761393 + tile_y * 668265263 + seed * 1442695041) & ChunkVisualKernelScript._HASH32_MASK
+	h = (h ^ (h >> 13)) & ChunkVisualKernelScript._HASH32_MASK
+	h = (h * 1274126177) & ChunkVisualKernelScript._HASH32_MASK
+	h = (h ^ (h >> 16)) & ChunkVisualKernelScript._HASH32_MASK
 	return h
 
 static func _interior_family_count(base_count: int) -> int:
-	return maxi(1, mini(_INTERIOR_FAMILY_TARGET_COUNT, base_count))
+	return maxi(1, mini(ChunkVisualKernelScript._INTERIOR_FAMILY_TARGET_COUNT, base_count))
 
 static func _interior_family_window(base_count: int, family_index: int) -> Vector2i:
 	var family_count: int = _interior_family_count(base_count)
 	var clamped_family_index: int = clampi(family_index, 0, family_count - 1)
-	var window_size: int = maxi(1, mini(base_count, _INTERIOR_FAMILY_WINDOW_SIZE))
+	var window_size: int = maxi(1, mini(base_count, ChunkVisualKernelScript._INTERIOR_FAMILY_WINDOW_SIZE))
 	if base_count <= window_size or family_count <= 1:
 		return Vector2i(0, base_count)
 	var max_start: int = base_count - window_size
@@ -1988,7 +1946,7 @@ static func _interior_family_window(base_count: int, family_index: int) -> Vecto
 	return Vector2i(start, window_size)
 
 static func _hash32_to_unit_float(h: int) -> float:
-	return float(h & _HASH32_MASK) / float(_HASH32_MASK)
+	return float(h & ChunkVisualKernelScript._HASH32_MASK) / float(ChunkVisualKernelScript._HASH32_MASK)
 
 static func _smoothstep01(t: float) -> float:
 	var clamped_t: float = clampf(t, 0.0, 1.0)
@@ -2005,7 +1963,7 @@ static func _shift_interior_family_base(base_index: int, family_window: Vector2i
 		return family_window.x
 	return family_window.x + ((base_index - family_window.x + step) % family_window.y)
 
-func _raw_interior_variant(global_x: int, global_y: int, family_index: int, seed: int = _INTERIOR_VARIATION_SEED) -> Vector2i:
+func _raw_interior_variant(global_x: int, global_y: int, family_index: int, seed: int = ChunkVisualKernelScript._INTERIOR_VARIATION_SEED) -> Vector2i:
 	var base_count: int = ChunkTilesetFactory.get_interior_base_variant_count()
 	if base_count <= 0:
 		return Vector2i.ZERO
@@ -2225,7 +2183,7 @@ func _is_exterior_surface_rock(local_tile: Vector2i) -> bool:
 	return ChunkVisualKernelScript.is_exterior_surface_rock(_build_single_tile_visual_request(local_tile), local_tile)
 
 func _is_surface_rock(local_tile: Vector2i) -> bool:
-	for dir: Vector2i in _COVER_REVEAL_DIRS:
+	for dir: Vector2i in ChunkVisualKernelScript._COVER_REVEAL_DIRS:
 		var neighbor_type: int = _get_neighbor_terrain(local_tile + dir)
 		if _is_open_exterior(neighbor_type):
 			return true
@@ -2324,9 +2282,9 @@ func _resolve_redraw_tile_budget(max_rows: int) -> int:
 func _resolve_redraw_phase_tile_budget(max_rows: int) -> int:
 	var base_budget: int = _resolve_redraw_tile_budget(max_rows)
 	match _redraw_phase:
-		REDRAW_PHASE_TERRAIN:
+		ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN:
 			return maxi(1, base_budget / 2)
-		REDRAW_PHASE_COVER, REDRAW_PHASE_FLORA, REDRAW_PHASE_DEBUG_INTERIOR, REDRAW_PHASE_DEBUG_COLLISION:
+		ChunkVisualKernelScript.REDRAW_PHASE_COVER, ChunkVisualKernelScript.REDRAW_PHASE_FLORA, ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_INTERIOR, ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_COLLISION:
 			return maxi(1, base_budget / 2)
 		_:
 			return base_budget
@@ -2346,7 +2304,7 @@ func _build_revealed_local_cover_tiles(zone_tiles: Dictionary) -> Dictionary:
 				continue
 			if not _is_cave_edge_rock(local_tile):
 				continue
-			for dir: Vector2i in _COVER_REVEAL_DIRS:
+			for dir: Vector2i in ChunkVisualKernelScript._COVER_REVEAL_DIRS:
 				var neighbor_tile: Vector2i = WorldGenerator.offset_tile(global_tile, dir) if WorldGenerator else global_tile + dir
 				if zone_tiles.has(neighbor_tile):
 					reveal_tiles[local_tile] = true
@@ -2454,17 +2412,17 @@ func _reapply_local_zone_cover_state_for_index_range(start_index: int, end_index
 
 func get_redraw_phase_name() -> StringName:
 	match _redraw_phase:
-		REDRAW_PHASE_TERRAIN:
+		ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN:
 			return &"terrain"
-		REDRAW_PHASE_COVER:
+		ChunkVisualKernelScript.REDRAW_PHASE_COVER:
 			return &"cover"
-		REDRAW_PHASE_CLIFF:
+		ChunkVisualKernelScript.REDRAW_PHASE_CLIFF:
 			return &"cliff"
-		REDRAW_PHASE_FLORA:
+		ChunkVisualKernelScript.REDRAW_PHASE_FLORA:
 			return &"flora"
-		REDRAW_PHASE_DEBUG_INTERIOR:
+		ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_INTERIOR:
 			return &"debug_interior"
-		REDRAW_PHASE_DEBUG_COLLISION:
+		ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_COLLISION:
 			return &"debug_collision"
 		_:
 			return &"done"
@@ -2472,13 +2430,13 @@ func get_redraw_phase_name() -> StringName:
 func _process_redraw_phase_tiles(tile_budget: int) -> int:
 	var total_tiles: int = _chunk_size * _chunk_size
 	var start_index: int = _redraw_tile_index
-	if _redraw_phase == REDRAW_PHASE_FLORA:
+	if _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_FLORA:
 		_apply_flora_render_packet(_build_flora_render_packet(), &"batched_renderer")
 		_redraw_tile_index = total_tiles
 		return total_tiles - start_index
-	if _redraw_phase == REDRAW_PHASE_TERRAIN \
-		or _redraw_phase == REDRAW_PHASE_COVER \
-		or _redraw_phase == REDRAW_PHASE_CLIFF:
+	if _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN \
+		or _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_COVER \
+		or _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_CLIFF:
 		var processed: int = 0
 		var phase_started_usec: int = Time.get_ticks_usec()
 		while processed < tile_budget and _redraw_tile_index < total_tiles:
@@ -2500,9 +2458,9 @@ func _process_redraw_phase_tiles(tile_budget: int) -> int:
 	for tile_index: int in range(start_index, end_index):
 		var local_tile: Vector2i = _tile_from_index(tile_index)
 		match _redraw_phase:
-			REDRAW_PHASE_DEBUG_INTERIOR:
+			ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_INTERIOR:
 				_process_debug_marker_tile(local_tile, false)
-			REDRAW_PHASE_DEBUG_COLLISION:
+			ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_COLLISION:
 				_process_debug_marker_tile(local_tile, true)
 			_:
 				break
@@ -2545,24 +2503,24 @@ func _get_prebuilt_flora_render_packet(payload: Dictionary) -> Dictionary:
 
 func _advance_redraw_phase() -> void:
 	match _redraw_phase:
-		REDRAW_PHASE_TERRAIN:
+		ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN:
 			_mark_interior_macro_dirty()
-			_redraw_phase = REDRAW_PHASE_COVER
-		REDRAW_PHASE_COVER:
-			_redraw_phase = REDRAW_PHASE_CLIFF
-		REDRAW_PHASE_CLIFF:
-			_redraw_phase = REDRAW_PHASE_FLORA
-		REDRAW_PHASE_FLORA:
+			_redraw_phase = ChunkVisualKernelScript.REDRAW_PHASE_COVER
+		ChunkVisualKernelScript.REDRAW_PHASE_COVER:
+			_redraw_phase = ChunkVisualKernelScript.REDRAW_PHASE_CLIFF
+		ChunkVisualKernelScript.REDRAW_PHASE_CLIFF:
+			_redraw_phase = ChunkVisualKernelScript.REDRAW_PHASE_FLORA
+		ChunkVisualKernelScript.REDRAW_PHASE_FLORA:
 			if _should_build_debug_markers():
-				_redraw_phase = REDRAW_PHASE_DEBUG_INTERIOR
+				_redraw_phase = ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_INTERIOR
 			else:
-				_redraw_phase = REDRAW_PHASE_DONE
-		REDRAW_PHASE_DEBUG_INTERIOR:
-			_redraw_phase = REDRAW_PHASE_DEBUG_COLLISION
-		REDRAW_PHASE_DEBUG_COLLISION:
-			_redraw_phase = REDRAW_PHASE_DONE
+				_redraw_phase = ChunkVisualKernelScript.REDRAW_PHASE_DONE
+		ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_INTERIOR:
+			_redraw_phase = ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_COLLISION
+		ChunkVisualKernelScript.REDRAW_PHASE_DEBUG_COLLISION:
+			_redraw_phase = ChunkVisualKernelScript.REDRAW_PHASE_DONE
 		_:
-			_redraw_phase = REDRAW_PHASE_DONE
+			_redraw_phase = ChunkVisualKernelScript.REDRAW_PHASE_DONE
 	_redraw_tile_index = 0
 
 func _clear_debug_markers() -> void:
