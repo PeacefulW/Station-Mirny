@@ -85,7 +85,6 @@ var _use_operation_global_terrain_cache: bool = false
 var _operation_global_terrain_cache: Dictionary = {}
 var _mining_write_authorized: bool = false
 var _visual_state: int = ChunkVisualState.UNINITIALIZED
-var _has_full_publication_once: bool = false
 var _visual_invalidation_version: int = 0
 var _interior_macro_dirty: bool = false
 
@@ -161,7 +160,6 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 		_flora_presenter.reset_runtime_state()
 	if _debug_renderer != null:
 		_debug_renderer.clear_markers()
-	_has_full_publication_once = false
 	_interior_macro_dirty = _INTERIOR_MACRO_ENABLED
 	if _variation_bytes.size() != _terrain_bytes.size():
 		push_error("Chunk.populate_native(): variation array size mismatch for %s" % [chunk_coord])
@@ -718,7 +716,6 @@ func cleanup() -> void:
 	_clear_flora_renderer()
 	_clear_debug_markers()
 	_visual_state = ChunkVisualState.UNINITIALIZED
-	_has_full_publication_once = false
 	_visual_invalidation_version = 0
 	_cover_tile_version = 0
 	_reset_border_fix_dedupe_state()
@@ -835,7 +832,7 @@ func is_full_redraw_ready() -> bool:
 	return _visual_state == ChunkVisualState.FULL_READY
 
 func _is_visibility_publication_ready() -> bool:
-	return _has_full_publication_once or is_full_redraw_ready()
+	return is_full_redraw_ready()
 
 func needs_full_redraw() -> bool:
 	return _visual_state == ChunkVisualState.TERRAIN_READY \
@@ -844,8 +841,8 @@ func needs_full_redraw() -> bool:
 func is_terrain_phase_done() -> bool:
 	return _redraw_phase > ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN
 
-## True when terrain + cover + cliff are complete. Flora and debug phases
-## are NOT required — they are cosmetic/debug and must not block boot gates.
+## Internal non-terminal helper: terrain + cover + cliff are complete.
+## This must not be used as a player-visible/full_ready publication gate.
 func is_gameplay_redraw_complete() -> bool:
 	return _redraw_phase >= ChunkVisualKernelScript.REDRAW_PHASE_FLORA
 
@@ -903,7 +900,6 @@ func _mark_visual_full_redraw_ready() -> void:
 	assert(_can_publish_full_redraw_ready(),
 		"chunk visual state must not publish FULL_READY before redraw is complete and no border fix is pending")
 	_visual_state = ChunkVisualState.FULL_READY
-	_has_full_publication_once = true
 
 func _can_publish_full_redraw_ready() -> bool:
 	return is_first_pass_ready() \
@@ -1345,46 +1341,48 @@ static func compute_visual_batch(request: Dictionary) -> Dictionary:
 	var native_batch: Dictionary = Chunk._try_compute_visual_batch_native(request)
 	if not native_batch.is_empty():
 		return native_batch
-	var tiles: Array = request.get("tiles", [])
-	var result: Dictionary = {
-		"mode": request.get("mode", &""),
-		"phase": int(request.get("phase", ChunkVisualKernelScript.REDRAW_PHASE_DONE)),
-		"phase_name": request.get("phase_name", &"done"),
-		"start_index": int(request.get("start_index", -1)),
-		"end_index": int(request.get("end_index", -1)),
-		"tiles": tiles,
-		"tile_count": tiles.size(),
-		"commands": [],
-	}
-	var commands: Array[Dictionary] = []
 	var mode: StringName = StringName(request.get("mode", &""))
 	match mode:
 		ChunkVisualKernelScript.VISUAL_BATCH_MODE_PHASE:
 			var phase: int = int(request.get("phase", ChunkVisualKernelScript.REDRAW_PHASE_DONE))
-			match phase:
-				ChunkVisualKernelScript.REDRAW_PHASE_FLORA:
-					var prebuilt_packet: Dictionary = request.get("flora_packet", {}) as Dictionary
-					if prebuilt_packet.is_empty():
-						prebuilt_packet = ChunkFloraResultScript.build_render_packet_from_payload(
-							request.get("flora_payload", {}) as Dictionary,
-							int(request.get("tile_size", 0))
-						)
-					result["flora_packet"] = prebuilt_packet
-				_:
-					var fallback_batch: Dictionary = ChunkVisualKernelScript.compute_visual_batch_fallback(request)
-					result["commands"] = fallback_batch.get("commands", [])
-					result["command_count"] = int(fallback_batch.get("command_count", 0))
-					return result
+			if phase == ChunkVisualKernelScript.REDRAW_PHASE_FLORA:
+				var prebuilt_packet: Dictionary = request.get("flora_packet", {}) as Dictionary
+				if prebuilt_packet.is_empty():
+					prebuilt_packet = ChunkFloraResultScript.build_render_packet_from_payload(
+						request.get("flora_payload", {}) as Dictionary,
+						int(request.get("tile_size", 0))
+					)
+				return {
+					"mode": request.get("mode", &""),
+					"phase": phase,
+					"phase_name": request.get("phase_name", &"done"),
+					"start_index": int(request.get("start_index", -1)),
+					"end_index": int(request.get("end_index", -1)),
+					"tiles": request.get("tiles", []),
+					"tile_count": int((request.get("tiles", []) as Array).size()),
+					"commands": [],
+					"command_count": 0,
+					"flora_packet": prebuilt_packet,
+				}
+			return _block_legacy_visual_batch_fallback(request, "missing_native_phase_batch")
 		ChunkVisualKernelScript.VISUAL_BATCH_MODE_DIRTY:
-			var dirty_batch: Dictionary = ChunkVisualKernelScript.compute_visual_batch_fallback(request)
-			result["commands"] = dirty_batch.get("commands", [])
-			result["command_count"] = int(dirty_batch.get("command_count", 0))
-			return result
+			return _block_legacy_visual_batch_fallback(request, "missing_native_dirty_batch")
 		_:
-			pass
-	result["commands"] = commands
-	result["command_count"] = commands.size()
-	return result
+			return _block_legacy_visual_batch_fallback(request, "unsupported_visual_batch_mode")
+
+static func _block_legacy_visual_batch_fallback(request: Dictionary, reason: String) -> Dictionary:
+	var coord: Vector2i = request.get("chunk_coord", Vector2i.ZERO) as Vector2i
+	var mode: StringName = StringName(request.get("mode", &""))
+	var phase_name: StringName = StringName(request.get("phase_name", &""))
+	var message: String = "Zero-Tolerance Chunk Readiness R1 blocked legacy visual fallback for %s mode=%s phase=%s (%s). Critical player-reachable visual convergence must stay native-only." % [
+		coord,
+		String(mode),
+		String(phase_name),
+		reason,
+	]
+	push_error(message)
+	assert(false, message)
+	return {}
 
 static func _try_compute_visual_batch_native(request: Dictionary) -> Dictionary:
 	if not Chunk._has_native_visual_kernels():

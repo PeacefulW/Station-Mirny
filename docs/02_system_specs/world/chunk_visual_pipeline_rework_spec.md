@@ -5,7 +5,7 @@ status: draft
 owner: engineering
 source_of_truth: true
 version: 0.1
-last_updated: 2026-03-31
+last_updated: 2026-04-13
 depends_on:
   - DATA_CONTRACTS.md
   - boot_fast_first_playable_spec.md
@@ -19,6 +19,18 @@ related_docs:
 ---
 
 # Feature: Chunk Visual Pipeline Rework
+
+## Legacy Status
+
+This spec documents a legacy interim rollout for the hybrid chunk runtime.
+
+It is no longer the active architecture target for player-reachable chunk readiness or seamless traversal. Active target selection now lives in:
+
+- `zero_tolerance_chunk_readiness_spec.md`
+- `frontier_native_runtime_architecture_spec.md`
+- `../../04_execution/frontier_native_runtime_execution_plan.md`
+
+New work must not extend `first_pass`, publish-now / finish-later, or other hybrid progressive-convergence semantics as acceptable player behavior.
 
 ## Design Intent
 

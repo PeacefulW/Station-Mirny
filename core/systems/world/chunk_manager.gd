@@ -1419,6 +1419,36 @@ func _debug_emit_chunk_event(
 		{"cooldown_ms": 700.0}
 	)
 
+func _report_zero_tolerance_contract_breach(
+	event_key: String,
+	coord: Vector2i,
+	z_level: int,
+	action_human: String,
+	reason_human: String,
+	code_term: String,
+	detail_fields: Dictionary = {}
+) -> void:
+	_debug_emit_chunk_event(
+		event_key,
+		action_human,
+		coord,
+		z_level,
+		reason_human,
+		WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE,
+		"breached",
+		"контракт нарушен",
+		code_term,
+		detail_fields
+	)
+	var message: String = "[ZeroToleranceReadiness] %s %s@z%d: %s" % [
+		event_key,
+		coord,
+		z_level,
+		reason_human,
+	]
+	push_error(message)
+	assert(false, message)
+
 func _is_staged_request(coord: Vector2i, z_level: int) -> bool:
 	return _chunk_streaming_service != null \
 		and _chunk_streaming_service.staged_coord == _canonical_chunk_coord(coord) \
@@ -1753,6 +1783,15 @@ func _block_runtime_startup() -> void:
 	set_process(false)
 	set_physics_process(false)
 	push_error("ChunkManager startup blocked: required native runtime capabilities are unavailable.")
+
+func _block_legacy_chunk_runtime_fallback(coord: Vector2i, z_level: int, reason: String) -> void:
+	var message: String = "Zero-Tolerance Chunk Readiness R1 blocked legacy chunk runtime fallback for %s@z%d (%s). Player-reachable chunks must not rely on fallback generation/publication paths." % [
+		coord,
+		z_level,
+		reason,
+	]
+	push_error(message)
+	assert(false, message)
 
 func _get(property: StringName) -> Variant:
 	match property:
@@ -2621,7 +2660,21 @@ func _invalidate_boot_visual_complete(coord: Vector2i, z_level: int) -> void:
 func _sync_chunk_visibility_for_publication(chunk: Chunk) -> void:
 	if chunk == null or not is_instance_valid(chunk):
 		return
-	chunk.visible = chunk._is_visibility_publication_ready()
+	var should_be_visible: bool = chunk._is_visibility_publication_ready()
+	if chunk.visible and not should_be_visible:
+		_report_zero_tolerance_contract_breach(
+			"chunk_visible_before_full_ready",
+			chunk.chunk_coord,
+			_active_z,
+			"Запретила видимость неполного чанка",
+			"видимый чанк потерял terminal full_ready; publish-now / finish-later semantics больше не разрешены",
+			"publish_later",
+			{
+				"visual_state": _describe_chunk_visual_state(chunk),
+				"redraw_phase": String(chunk.get_redraw_phase_name()),
+			}
+		)
+	chunk.visible = should_be_visible
 
 func _try_finalize_chunk_visual_convergence(chunk: Chunk, z_level: int) -> bool:
 	if chunk == null or not is_instance_valid(chunk):
@@ -2962,14 +3015,14 @@ func _build_player_chunk_visual_diag_record(
 	var state_key: String = "converged"
 	var state_human: String = "сошёлся"
 	var code_term: String = ""
-	if issues.has("visible_before_first_pass"):
+	if issues.has("visible_before_full_ready"):
 		action_key = "reported_visual_blocker"
-		action_human = "сообщил о риске ранней публикации"
-		reason_key = "queued_not_applied"
-		reason_human = "чанк уже виден, хотя первый визуальный проход ещё не завершён"
+		action_human = "сообщил о запрещённой ранней публикации"
+		reason_key = "applied_not_converged"
+		reason_human = "чанк уже виден, хотя terminal full_ready ещё не достигнут"
 		impact_key = WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE
 		state_key = "blocked"
-		state_human = "публикация опережает готовность"
+		state_human = "видимость опережает полную готовность"
 	elif issues.has("not_loaded") or load_queued or staged or generating:
 		action_key = "reported_visual_blocker"
 		action_human = "сообщил о задержке визуальной сходимости"
@@ -3079,8 +3132,8 @@ func _maybe_log_player_chunk_visual_status(
 		issues.append("full_redraw_pending")
 	if border_fix_age_ms >= 0.0:
 		issues.append("border_fix_pending")
-	if chunk != null and is_instance_valid(chunk) and chunk.visible and not first_pass_ready:
-		issues.append("visible_before_first_pass")
+	if chunk != null and is_instance_valid(chunk) and chunk.visible and not full_ready:
+		issues.append("visible_before_full_ready")
 	var blocked_age_ms: float = maxf(
 		first_pass_age_ms,
 		maxf(full_redraw_age_ms, maxf(border_fix_age_ms, maxf(apply_age_ms, convergence_age_ms)))
@@ -3142,6 +3195,28 @@ func _maybe_log_player_chunk_visual_status(
 		convergence_age_ms
 	)
 
+func _enforce_player_chunk_full_ready(trigger: String) -> void:
+	if _player_chunk == Vector2i(99999, 99999):
+		return
+	var coord: Vector2i = _canonical_chunk_coord(_player_chunk)
+	var chunk: Chunk = get_chunk(coord)
+	if chunk != null and is_instance_valid(chunk) and chunk.is_full_redraw_ready():
+		return
+	_report_zero_tolerance_contract_breach(
+		"player_occupied_non_full_ready_chunk",
+		coord,
+		_active_z,
+		"Обнаружила игрока в неполном чанке",
+		"игрок оказался в чанке без terminal full_ready; first-pass и deferred convergence не дают права на occupancy",
+		"occupancy_not_full_ready",
+		{
+			"trigger": trigger,
+			"chunk_loaded": chunk != null and is_instance_valid(chunk),
+			"visual_state": _describe_chunk_visual_state(chunk),
+			"redraw_phase": String(chunk.get_redraw_phase_name()) if chunk != null and is_instance_valid(chunk) else "none",
+		}
+	)
+
 func _check_player_chunk() -> void:
 	var cur: Vector2i = WorldGenerator.world_to_chunk(_player.global_position)
 	if cur != _player_chunk:
@@ -3165,6 +3240,7 @@ func _check_player_chunk() -> void:
 		_sync_loaded_chunk_display_positions(cur)
 		_update_chunks(cur)
 		_maybe_log_player_chunk_visual_status("entered_chunk")
+	_enforce_player_chunk_full_ready("player_chunk_check")
 
 func _update_chunks(center: Vector2i) -> void:
 	if _chunk_streaming_service != null:
@@ -3250,15 +3326,13 @@ func _worker_generate(coord: Vector2i, z_level: int, builder: ChunkContentBuilde
 		data = _build_surface_chunk_native_data(coord, builder)
 	native_data_ms = float(Time.get_ticks_usec() - native_data_start_usec) / 1000.0
 	if z_level == 0:
-		## Use native flora_placements if available, else GDScript fallback
+		if not data.is_empty() and not data.has("flora_placements"):
+			_block_legacy_chunk_runtime_fallback(coord, z_level, "missing_native_flora_placements")
+			data = {}
 		var flora_payload_start_usec: int = Time.get_ticks_usec()
-		if data.has("flora_placements") and not (data["flora_placements"] as Array).is_empty():
+		if data.has("flora_placements"):
 			result_entry["flora_payload"] = _build_native_flora_payload_from_placements(coord, data)
-		else:
-			var flora_builder: ChunkFloraBuilderScript = _create_detached_flora_builder()
-			var flora_payload: Dictionary = _build_flora_payload_for_native_data(coord, data, flora_builder)
-			result_entry["flora_payload"] = flora_payload
-		flora_payload_ms = float(Time.get_ticks_usec() - flora_payload_start_usec) / 1000.0
+			flora_payload_ms = float(Time.get_ticks_usec() - flora_payload_start_usec) / 1000.0
 	if _shutdown_in_progress:
 		return
 	var worker_total_ms: float = float(Time.get_ticks_usec() - worker_start_usec) / 1000.0
@@ -3708,7 +3782,7 @@ func _tick_boot_remaining() -> void:
 
 ## --- Boot compute/apply helpers (boot_chunk_compute_pipeline_spec) ---
 
-## Pure-data compute (sync fallback): generates native_data without scene tree.
+## Pure-data boot compute helper. R1 blocks legacy sync fallback semantics.
 func _boot_compute_chunk_native_data(coord: Vector2i, z_level: int) -> Dictionary:
 	return _chunk_boot_pipeline.compute_chunk_native_data(coord, z_level) if _chunk_boot_pipeline != null else {}
 
@@ -3743,7 +3817,7 @@ func _boot_prepare_apply_entries() -> int:
 
 ## Apply up to BOOT_MAX_APPLY_PER_STEP chunks from the sorted apply queue.
 ## Startup chunks publish through the visual scheduler and stay hidden until
-## first-pass readiness is reached.
+## terminal full-ready publication is reached.
 func _boot_apply_from_queue() -> int:
 	return _chunk_boot_pipeline.apply_from_queue() if _chunk_boot_pipeline != null else 0
 

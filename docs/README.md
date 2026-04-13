@@ -5,7 +5,7 @@ status: approved
 owner: design+engineering
 source_of_truth: true
 version: 1.4
-last_updated: 2026-04-11
+last_updated: 2026-04-13
 related_docs:
   - 00_governance/DOCUMENT_PRECEDENCE.md
   - 00_governance/DOCUMENTATION_MIGRATION_PLAN.md
@@ -78,20 +78,22 @@ Deprecated or migrated legacy versions.
 - [Hydrology and World Settings](02_system_specs/world/hydrology_world_settings_spec.md)
 - [Ground Elevation Faces](02_system_specs/world/ground_elevation_faces_spec.md)
 - [Interior Wall Variation](02_system_specs/world/interior_wall_variation_spec.md)
-- [Chunk Visual Pipeline Rework](02_system_specs/world/chunk_visual_pipeline_rework_spec.md)
+- [Zero-Tolerance Chunk Readiness](02_system_specs/world/zero_tolerance_chunk_readiness_spec.md)
+- [Frontier Native Runtime Architecture](02_system_specs/world/frontier_native_runtime_architecture_spec.md)
+- [Chunk Visual Pipeline Rework (Legacy rollout)](02_system_specs/world/chunk_visual_pipeline_rework_spec.md)
 - [Chunk Debug Overlay](02_system_specs/world/chunk_debug_overlay_spec.md)
-- [Streaming Redraw Budget](02_system_specs/world/streaming_redraw_budget_spec.md)
+- [Streaming Redraw Budget (Legacy rollout)](02_system_specs/world/streaming_redraw_budget_spec.md)
 - [Mountain Reveal and World Perf Recovery](02_system_specs/world/mountain_reveal_and_world_perf_recovery_spec.md)
 - [Reachable Structure Coverage](02_system_specs/world/reachable_structure_coverage_spec.md)
 - [World Lab](02_system_specs/world/world_lab_spec.md)
 - [Human-Readable Runtime Logging](02_system_specs/world/human_readable_runtime_logging_spec.md)
 - [Boot — Chunk Compute Pipeline](02_system_specs/world/boot_chunk_compute_pipeline_spec.md)
 - [Boot — Chunk Apply Budget](02_system_specs/world/boot_chunk_apply_budget_spec.md)
-- [Boot — Chunk Readiness](02_system_specs/world/boot_chunk_readiness_spec.md)
+- [Boot — Chunk Readiness (Legacy rollout)](02_system_specs/world/boot_chunk_readiness_spec.md)
 - [Boot — Topology Integration](02_system_specs/world/boot_topology_integration_spec.md)
-- [Boot — Visual Completion](02_system_specs/world/boot_visual_completion_spec.md)
+- [Boot — Visual Completion (Legacy rollout)](02_system_specs/world/boot_visual_completion_spec.md)
 - [Boot — Performance Instrumentation](02_system_specs/world/boot_performance_instrumentation_spec.md)
-- [Boot — Fast First Playable](02_system_specs/world/boot_fast_first_playable_spec.md)
+- [Boot — Fast First Playable (Legacy rollout)](02_system_specs/world/boot_fast_first_playable_spec.md)
 - [Engineering Networks](02_system_specs/base/engineering_networks.md)
 - [Resource Progression](02_system_specs/progression/resource_progression.md)
 - [Survival Core](02_system_specs/survival/survival_core.md)
@@ -120,6 +122,7 @@ Deprecated or migrated legacy versions.
 
 ### Execution
 - [Master Roadmap](04_execution/MASTER_ROADMAP.md)
+- [Frontier Native Runtime Execution Plan](04_execution/frontier_native_runtime_execution_plan.md)
 - [Runtime Integrity Gap Closure Plan](04_execution/runtime_integrity_gap_closure_plan.md)
 - [World Layer Runtime Gap Closure Plan](04_execution/world_layer_runtime_gap_closure_plan.md)
 - [World Generation Rollout](04_execution/world_generation_rollout.md)
@@ -144,6 +147,11 @@ Deprecated or migrated legacy versions.
 
 ### "In what order should world generation be implemented?"
 - [World Generation Rollout](04_execution/world_generation_rollout.md)
+
+### "What is the active target for chunk runtime and seamless traversal?"
+- [Zero-Tolerance Chunk Readiness](02_system_specs/world/zero_tolerance_chunk_readiness_spec.md)
+- [Frontier Native Runtime Architecture](02_system_specs/world/frontier_native_runtime_architecture_spec.md)
+- [Frontier Native Runtime Execution Plan](04_execution/frontier_native_runtime_execution_plan.md)
 
 ### "How should the current mountain roof system be refactored?"
 - [Mountain Roof System Refactor Plan](04_execution/mountain_roof_system_refactor_plan.md)

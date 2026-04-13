@@ -328,14 +328,14 @@ func worker_compute(
 		data = builder.build_chunk_native_data(coord)
 	if _owner._shutdown_in_progress:
 		return
+	if z_level == 0 and not data.is_empty():
+		if not data.has("flora_placements"):
+			_owner._block_legacy_chunk_runtime_fallback(coord, z_level, "boot_missing_native_flora_placements")
+			data = {}
+		elif data.has("flora_placements"):
+			result_entry["flora_payload"] = _build_native_flora_payload_from_placements(coord, data)
 	result_entry["native_data"] = data
 	result_entry["compute_ms"] = float(Time.get_ticks_usec() - started_usec_local) / 1000.0
-	if z_level == 0 and not data.is_empty():
-		if data.has("flora_placements") and not (data["flora_placements"] as Array).is_empty():
-			result_entry["flora_payload"] = _build_native_flora_payload_from_placements(coord, data)
-		else:
-			var flora_builder: ChunkFloraBuilder = _create_detached_flora_builder()
-			result_entry["flora_payload"] = _build_flora_payload_for_native_data(coord, data, flora_builder)
 	compute_mutex.lock()
 	compute_results[coord] = result_entry
 	compute_mutex.unlock()
@@ -352,23 +352,15 @@ func submit_pending_tasks() -> void:
 		if WorldGenerator and _owner._wg_has_create_detached_chunk_content_builder:
 			builder = WorldGenerator.create_detached_chunk_content_builder()
 		if builder == null:
-			print("[Boot] WARN: builder is null for %s — using sync fallback" % [coord])
-			var compute_usec: int = Time.get_ticks_usec()
-			var native_data: Dictionary = compute_chunk_native_data(coord, compute_z)
-			var compute_ms_local: float = float(Time.get_ticks_usec() - compute_usec) / 1000.0
-			var result_entry: Dictionary = {
-				"native_data": native_data,
-				"generation": compute_generation,
-				"queue_wait_ms": float(compute_usec - requested_usec) / 1000.0,
-				"compute_ms": compute_ms_local,
-			}
-			if compute_z == 0 and not native_data.is_empty():
-				if native_data.has("flora_placements") and not (native_data["flora_placements"] as Array).is_empty():
-					result_entry["flora_payload"] = _build_native_flora_payload_from_placements(coord, native_data)
-				else:
-					result_entry["flora_payload"] = _build_flora_payload_for_native_data(coord, native_data)
+			_owner._block_legacy_chunk_runtime_fallback(coord, compute_z, "boot_missing_detached_builder")
+			var blocked_usec: int = Time.get_ticks_usec()
 			compute_mutex.lock()
-			compute_results[coord] = result_entry
+			compute_results[coord] = {
+				"native_data": {},
+				"generation": compute_generation,
+				"queue_wait_ms": float(blocked_usec - requested_usec) / 1000.0,
+				"compute_ms": 0.0,
+			}
 			compute_mutex.unlock()
 			continue
 		compute_started_usec[coord] = Time.get_ticks_usec()

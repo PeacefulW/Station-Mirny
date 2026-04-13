@@ -5,7 +5,7 @@ status: approved
 owner: design+engineering
 source_of_truth: true
 version: 1.1
-last_updated: 2026-03-25
+last_updated: 2026-04-13
 related_docs:
   - ../01_product/GAME_VISION_GDD.md
   - ../00_governance/ENGINEERING_STANDARDS.md
@@ -37,6 +37,9 @@ Those belong in:
 - [Performance Contracts](../00_governance/PERFORMANCE_CONTRACTS.md)
 - `docs/02_system_specs/*`
 - `docs/03_content_bible/*`
+- [Zero-Tolerance Chunk Readiness](../02_system_specs/world/zero_tolerance_chunk_readiness_spec.md)
+- [Frontier Native Runtime Architecture](../02_system_specs/world/frontier_native_runtime_architecture_spec.md)
+- [Frontier Native Runtime Execution Plan](frontier_native_runtime_execution_plan.md)
 
 ## Execution philosophy
 
@@ -58,6 +61,10 @@ This order exists to protect the core fantasy:
 - then make the base meaningful
 - then make the outside dangerous
 - then scale the game outward
+
+Current chunk-runtime rewrite note:
+- the active low-level runtime target is the frontier-native stack
+- older first-pass / publish-later chunk-runtime specs are legacy rollout history, not the active architecture target
 
 ## Phase model
 

@@ -5,7 +5,7 @@ status: draft
 owner: engineering
 source_of_truth: true
 version: 0.3
-last_updated: 2026-03-30
+last_updated: 2026-04-13
 depends_on:
   - chunk_boot_streaming_rollout.md
   - DATA_CONTRACTS.md
@@ -18,6 +18,18 @@ related_docs:
 ---
 
 # Feature: Boot Chunk Readiness
+
+## Legacy Status
+
+This spec documents a legacy boot-readiness rollout for the hybrid chunk runtime.
+
+It is not the active architecture target for player-reachable chunk readiness. Active target selection now lives in:
+
+- `zero_tolerance_chunk_readiness_spec.md`
+- `frontier_native_runtime_architecture_spec.md`
+- `../../04_execution/frontier_native_runtime_execution_plan.md`
+
+Any rule below that permits player handoff before final seamless `full_ready` traversal must be treated as superseded by the frontier-native runtime stack.
 
 ## Design Intent
 

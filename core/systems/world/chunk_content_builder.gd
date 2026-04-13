@@ -115,64 +115,20 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 						prebaked_ms,
 					])
 				return native_result
-	# GDScript fallback — compute feature/POI here
-	var feature_and_poi_payload: Dictionary = _build_feature_and_poi_payload(canonical_chunk, base_tile, chunk_size)
-	_publish_feature_and_poi_payload(canonical_chunk, feature_and_poi_payload)
-	# GDScript fallback
-	var tile_count: int = chunk_size * chunk_size
-	var terrain := PackedByteArray()
-	var height := PackedFloat32Array()
-	var variation := PackedByteArray()
-	var biome := PackedByteArray()
-	var secondary_biome := PackedByteArray()
-	var ecotone_values := PackedFloat32Array()
-	var flora_density_values := PackedFloat32Array()
-	var flora_modulation_values := PackedFloat32Array()
-	terrain.resize(tile_count)
-	height.resize(tile_count)
-	variation.resize(tile_count)
-	biome.resize(tile_count)
-	secondary_biome.resize(tile_count)
-	ecotone_values.resize(tile_count)
-	flora_density_values.resize(tile_count)
-	flora_modulation_values.resize(tile_count)
-	var tile_data: TileGenData = TileGenData.new()
-	var canonical_tile: Vector2i = base_tile
-	var row_index: int = 0
-	for local_y: int in range(chunk_size):
-		canonical_tile.x = base_tile.x
-		canonical_tile.y = base_tile.y + local_y
-		for local_x: int in range(chunk_size):
-			var index: int = row_index + local_x
-			_terrain_resolver.populate_chunk_build_data(canonical_tile, spawn_tile, tile_data)
-			terrain[index] = tile_data.terrain
-			height[index] = tile_data.height
-			variation[index] = tile_data.local_variation_id
-			biome[index] = tile_data.biome_palette_index
-			secondary_biome[index] = tile_data.secondary_biome_palette_index
-			ecotone_values[index] = tile_data.ecotone_factor
-			flora_density_values[index] = tile_data.flora_density
-			flora_modulation_values[index] = tile_data.flora_modulation
-			canonical_tile.x += 1
-		row_index += chunk_size
-	var native_data: Dictionary = {
-		"chunk_coord": canonical_chunk,
-		"canonical_chunk_coord": canonical_chunk,
-		"base_tile": base_tile,
-		"chunk_size": chunk_size,
-		"generation_source": "gdscript_fallback",
-		"terrain": terrain,
-		"height": height,
-		"variation": variation,
-		"biome": biome,
-		"secondary_biome": secondary_biome,
-		"ecotone_values": ecotone_values,
-		"flora_density_values": flora_density_values,
-		"flora_modulation_values": flora_modulation_values,
-		FEATURE_AND_POI_PAYLOAD_KEY: feature_and_poi_payload,
-	}
-	native_data.merge(_build_prebaked_visual_payload(native_data, canonical_chunk, base_tile, chunk_size), true)
-	return native_data
+	# Legacy GDScript fallback is forbidden in R1; missing native output is a hard failure.
+	return _block_legacy_surface_generation_fallback(
+		canonical_chunk,
+		"missing_or_invalid_native_chunk_generator"
+	)
+
+func _block_legacy_surface_generation_fallback(canonical_chunk: Vector2i, reason: String) -> Dictionary:
+	var message: String = "Zero-Tolerance Chunk Readiness R1 blocked legacy surface generation fallback for %s (%s). Player-reachable chunks must use native-only generation." % [
+		canonical_chunk,
+		reason,
+	]
+	push_error(message)
+	assert(false, message)
+	return {}
 
 func _build_native_chunk_generation_request(canonical_chunk: Vector2i, base_tile: Vector2i, chunk_size: int) -> Dictionary:
 	return {

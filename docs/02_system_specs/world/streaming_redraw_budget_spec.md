@@ -5,7 +5,7 @@ status: draft
 owner: engineering
 source_of_truth: true
 version: 0.1
-last_updated: 2026-03-31
+last_updated: 2026-04-13
 depends_on:
   - DATA_CONTRACTS.md
   - boot_chunk_apply_budget_spec.md
@@ -19,6 +19,18 @@ related_docs:
 ---
 
 # Feature: Streaming & Boot Redraw Budget
+
+## Legacy Status
+
+This spec documents a legacy streaming/boot redraw mitigation pass for the hybrid chunk runtime.
+
+It is not the active architecture target for player-reachable readiness. Active target selection now lives in:
+
+- `zero_tolerance_chunk_readiness_spec.md`
+- `frontier_native_runtime_architecture_spec.md`
+- `../../04_execution/frontier_native_runtime_execution_plan.md`
+
+The terrain-only / deferred-convergence allowances described below must not be extended as acceptable end-state player behavior.
 
 ## Design Intent
 

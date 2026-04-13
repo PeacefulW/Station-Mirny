@@ -728,7 +728,7 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 				"visual_task_compute_blocked",
 				{},
 				"compute_cap",
-				"worker_capacity_sync_fallback"
+				"worker_capacity_blocked"
 			)
 			return _owner.VisualComputeSubmitState.UNAVAILABLE
 		_owner._debug_note_visual_task_event(
@@ -919,32 +919,27 @@ func _record_visual_task_wait(task: Dictionary) -> void:
 		starvation_incident_count += 1
 		WorldPerfProbe.record("scheduler.starvation_incident_count", 1.0)
 
-func _run_chunk_redraw_compat(chunk: Chunk, desired_tiles: int, deadline_usec: int, stop_at_terrain_ready: bool) -> bool:
-	if chunk == null or not is_instance_valid(chunk):
-		return false
-	var chunk_size: int = WorldGenerator.balance.chunk_size_tiles if WorldGenerator and WorldGenerator.balance else 64
-	var legacy_tiles_per_call: int = WorldGenerator.balance.chunk_redraw_tiles_per_step if WorldGenerator and WorldGenerator.balance else chunk_size
-	var rows_per_call: int = maxi(1, ceili(float(legacy_tiles_per_call) / float(chunk_size)))
-	var compatibility_calls: int = maxi(1, ceili(float(maxi(1, desired_tiles)) / float(maxi(1, legacy_tiles_per_call))))
-	var phase_name: StringName = chunk.get_redraw_phase_name()
-	var step_started_usec: int = Time.get_ticks_usec()
-	var is_complete: bool = false
-	for _i: int in range(compatibility_calls):
-		is_complete = chunk.continue_redraw(rows_per_call)
-		_owner._sync_chunk_visibility_for_publication(chunk)
-		_owner._boot_on_chunk_redraw_progress(chunk)
-		if is_complete:
-			break
-		if stop_at_terrain_ready and chunk.is_first_pass_ready():
-			break
-		if deadline_usec > 0 and Time.get_ticks_usec() >= deadline_usec:
-			break
-	var step_ms: float = float(Time.get_ticks_usec() - step_started_usec) / 1000.0
-	if step_ms >= 2.0:
-		WorldPerfProbe.record("ChunkManager.streaming_redraw_step.%s" % [String(phase_name)], step_ms)
-	if stop_at_terrain_ready:
-		return not chunk.is_first_pass_ready() and not is_complete
-	return not is_complete
+func _drop_legacy_visual_fallback_task(task: Dictionary, reason: String) -> int:
+	var coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
+	var z_level: int = int(task.get("z", _active_z()))
+	var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
+	clear_task(task)
+	_owner._report_zero_tolerance_contract_breach(
+		"legacy_visual_fallback_blocked",
+		coord,
+		z_level,
+		"Заблокировала legacy visual fallback",
+		"critical visual task `%s` попытался уйти в запрещённый compatibility/sync fallback (%s)" % [
+			_owner._debug_visual_kind_name(kind),
+			reason,
+		],
+		"legacy_visual_fallback",
+		{
+			"task_kind": _owner._debug_visual_kind_name(kind),
+			"priority_band": int(task.get("priority_band", _owner.VisualPriorityBand.COSMETIC)),
+		}
+	)
+	return _owner.VisualTaskRunState.DROPPED
 
 func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 	var coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
@@ -992,8 +987,7 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 					)
 				_owner._boot_on_chunk_redraw_progress(chunk)
 			else:
-				_run_chunk_redraw_compat(chunk, _resolve_visual_tiles_per_step(kind, band), deadline_usec, true)
-				first_pass_did_apply = true
+				return _drop_legacy_visual_fallback_task(task, "first_pass_sync_compat_executor")
 			if first_pass_did_apply:
 				chunks_processed_this_tick[_make_visual_chunk_key(coord, z_level)] = true
 			_owner._sync_chunk_visibility_for_publication(chunk)
@@ -1041,8 +1035,7 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 					)
 				full_has_more = not chunk.is_redraw_complete()
 			else:
-				full_has_more = _run_chunk_redraw_compat(chunk, _resolve_visual_tiles_per_step(kind, band), deadline_usec, false)
-				full_redraw_did_apply = true
+				return _drop_legacy_visual_fallback_task(task, "full_redraw_sync_compat_executor")
 			if full_redraw_did_apply:
 				chunks_processed_this_tick[_make_visual_chunk_key(coord, z_level)] = true
 			_owner._sync_chunk_visibility_for_publication(chunk)

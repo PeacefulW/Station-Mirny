@@ -5,7 +5,7 @@ status: approved
 owner: engineering+design
 source_of_truth: true
 version: 1.1
-last_updated: 2026-04-11
+last_updated: 2026-04-13
 ---
 
 # System Specs
@@ -70,20 +70,24 @@ Current transition strategy:
 - [Hydrology and World Settings](world/hydrology_world_settings_spec.md)
 - [Ground Elevation Faces](world/ground_elevation_faces_spec.md)
 - [Interior Wall Variation](world/interior_wall_variation_spec.md)
-- [Chunk Visual Pipeline Rework](world/chunk_visual_pipeline_rework_spec.md)
+- [Zero-Tolerance Chunk Readiness](world/zero_tolerance_chunk_readiness_spec.md)
+- [Frontier Native Runtime Architecture](world/frontier_native_runtime_architecture_spec.md)
+- [Chunk Visual Pipeline Rework (Legacy rollout)](world/chunk_visual_pipeline_rework_spec.md)
 - [Chunk Debug Overlay](world/chunk_debug_overlay_spec.md)
-- [Streaming Redraw Budget](world/streaming_redraw_budget_spec.md)
+- [Streaming Redraw Budget (Legacy rollout)](world/streaming_redraw_budget_spec.md)
 - [Mountain Reveal and World Perf Recovery](world/mountain_reveal_and_world_perf_recovery_spec.md)
 - [Reachable Structure Coverage](world/reachable_structure_coverage_spec.md)
 - [World Lab](world/world_lab_spec.md)
 - [Human-Readable Runtime Logging](world/human_readable_runtime_logging_spec.md)
 - [Boot — Chunk Compute Pipeline](world/boot_chunk_compute_pipeline_spec.md)
 - [Boot — Chunk Apply Budget](world/boot_chunk_apply_budget_spec.md)
-- [Boot — Chunk Readiness](world/boot_chunk_readiness_spec.md)
+- [Boot — Chunk Readiness (Legacy rollout)](world/boot_chunk_readiness_spec.md)
 - [Boot — Topology Integration](world/boot_topology_integration_spec.md)
-- [Boot — Visual Completion](world/boot_visual_completion_spec.md)
+- [Boot — Visual Completion (Legacy rollout)](world/boot_visual_completion_spec.md)
 - [Boot — Performance Instrumentation](world/boot_performance_instrumentation_spec.md)
-- [Boot — Fast First Playable](world/boot_fast_first_playable_spec.md)
+- [Boot — Fast First Playable (Legacy rollout)](world/boot_fast_first_playable_spec.md)
+
+> Active player-reachable chunk runtime target: `zero_tolerance_chunk_readiness_spec.md` plus `frontier_native_runtime_architecture_spec.md`. Older first-pass / terrain-first / publish-later world-runtime specs remain legacy rollout records and must not be extended as the active target architecture.
 
 ### Meta constraints
 - [Multiplayer and Modding Constraints](meta/multiplayer_and_modding.md)
