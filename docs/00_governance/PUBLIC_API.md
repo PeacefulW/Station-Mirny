@@ -5,7 +5,7 @@ status: draft
 owner: engineering
 source_of_truth: true
 version: 0.7
-last_updated: 2026-03-31
+last_updated: 2026-04-13
 depends_on:
   - WORKFLOW.md
   - ../02_system_specs/world/DATA_CONTRACTS.md
@@ -194,8 +194,8 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: в boot sequence, когда initial world bubble должен быть загружен и доведён до gameplay-ready state.
-- Что делает: staged boot with bounded-parallel compute and split apply. Boot apply path only installs chunk nodes and attaches cached native/flora payloads; visual publication then goes through the budgeted chunk visual scheduler plus chunk-local `ChunkVisualState`. Fresh startup chunks stay `visible=false` until their first `Chunk.is_full_redraw_ready()` publication closes; first-pass work may still progress internally, but it no longer authorizes player-visible publication of a raw chunk. Returns after the near slice reaches the internal `first_playable` milestone, then unfinished startup coords continue through budgeted runtime scheduling and boot finalization until real completion.
-- Гарантии: `first_playable` = ring 0..1 chunks are loaded, applied, and fully converged to `Chunk.is_full_redraw_ready()` under Chebyshev distance (`max(abs(dx), abs(dy))`); topology is NOT part of the `ChunkManager` gate. `boot_complete` = all tracked startup chunks terminal (`VISUAL_COMPLETE`, meaning `Chunk.is_full_redraw_ready()`) + topology ready. Player-visible handoff must not rely on raw first-pass readiness; loading/UI handoff happens only after the full boot-ready milestone in `GameWorld` (startup chunks terminal + boot shadow work drained). Chunk visibility is gated on full publication for fresh loads, and perf wins do not count if the player can still see green/raw chunk build-up. См. `Boot Readiness State` и `Boot Compute Queue` layers в `DATA_CONTRACTS.md`.
+- Что делает: staged boot with bounded-parallel compute and split apply owned internally by `ChunkBootPipeline`. Boot apply path only installs chunk nodes and attaches cached native/flora payloads; visual publication then goes through the budgeted chunk visual scheduler plus chunk-local `ChunkVisualState`. Fresh startup chunks stay `visible=false` until their first `Chunk.is_full_redraw_ready()` publication closes; first-pass work may still progress internally, but it no longer authorizes player-visible publication of a raw chunk. Returns after the near slice reaches the internal `first_playable` milestone, then unfinished startup coords continue through budgeted runtime scheduling and boot finalization until real completion. Surface topology convergence remains a separate boot-tracked dependency owned internally by `ChunkTopologyService`.
+- Гарантии: `first_playable` = ring 0..1 chunks are loaded, applied, and fully converged to `Chunk.is_full_redraw_ready()` under Chebyshev distance (`max(abs(dx), abs(dy))`); topology is NOT part of the internal `ChunkBootPipeline` `first_playable` gate. `boot_complete` = all tracked startup chunks terminal (`VISUAL_COMPLETE`, meaning `Chunk.is_full_redraw_ready()`) + topology ready. Player-visible handoff must not rely on raw first-pass readiness; loading/UI handoff happens only after the full boot-ready milestone in `GameWorld` (startup chunks terminal + boot shadow work drained). Chunk visibility is gated on full publication for fresh loads, and perf wins do not count if the player can still see green/raw chunk build-up. См. `Boot Readiness State` и `Boot Compute Queue` layers в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.sync_display_to_player() -> void`
@@ -206,7 +206,7 @@ related_docs:
 
 Примечание: public per-chunk `load/unload` request API в scope сейчас нет. Runtime streaming paths остаются internal.
 После Iteration 4 runtime streaming internals routed through `ChunkStreamingService`, а `ChunkManager` остаётся world-facing facade и final install entry facade.
-После Iteration 9 visual scheduler state routed through internal `ChunkVisualScheduler`, surface payload reuse through internal `ChunkSurfacePayloadCache`, and seam/border follow-up ownership through internal `ChunkSeamService`. These services are not public gameplay APIs; callers still use the `ChunkManager` entrypoints listed here.
+После Iteration 9 visual scheduler state routed through internal `ChunkVisualScheduler`, surface payload reuse through internal `ChunkSurfacePayloadCache`, seam/border follow-up ownership through internal `ChunkSeamService`, boot readiness/compute ownership through internal `ChunkBootPipeline`, and topology runtime ownership through internal `ChunkTopologyService`. These services are not public gameplay APIs; callers still use the `ChunkManager` entrypoints listed here.
 
 ### Чтение
 
@@ -238,7 +238,7 @@ related_docs:
 `Chunk.is_full_redraw_ready() -> bool`
 - Что возвращает: достиг ли chunk терминального full-redraw состояния (`ChunkVisualState.FULL_READY`).
 - Когда использовать: initial chunk publication gates, boot/readiness gates, и owner-side проверки, где игрок уже может видеть chunk.
-- Особенности: это canonical publication/terminal query. Fresh chunk load не должен становиться visible раньше этого состояния; perf-оптимизация не считается принятой, если игрок всё ещё видит достройку cliff/flora/near-world presentation на глазах. Значение может снова стать `false`, если seam/mutation/approximation инвалидирует terminal convergence и owner path ещё не закрыл owed follow-up work.
+- Особенности: это canonical publication/terminal query. Fresh chunk load не должен становиться visible раньше этого состояния; perf-оптимизация не считается принятой, если игрок всё ещё видит достройку cliff/flora/near-world presentation на глазах. Flora render packets count as published when the chunk-local presenter has the packet, but texture priming is non-blocking and may temporarily use packet fallback colors instead of stalling the visual scheduler. Значение может снова стать `false`, если seam/mutation/approximation инвалидирует terminal convergence и owner path ещё не закрыл owed follow-up work.
 
 `Chunk.needs_full_redraw() -> bool`
 - Что возвращает: опубликован ли chunk на first-pass, но ещё ли должен дойти до canonical full redraw.
@@ -313,13 +313,13 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: когда surface topology должна быть готова до старта gameplay.
-- Что делает: инициализирует startup bubble и boot gates, после чего topology остается отдельной boot-tracked зависимостью. Topology work может завершиться во время boot loop или продолжиться через budgeted topology pipeline после `first_playable`, без подмены visual/readiness semantics.
-- Гарантии: topology ready is part of `boot_complete` gate but NOT part of `first_playable` gate. Rings use Chebyshev distance. См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
+- Что делает: инициализирует `ChunkBootPipeline` startup bubble и boot gates, после чего topology остается отдельной boot-tracked зависимостью, owned internally by `ChunkTopologyService`. Topology work может завершиться во время boot loop или продолжиться через budgeted topology pipeline после `first_playable`, без подмены visual/readiness semantics.
+- Гарантии: topology ready is part of the internal `ChunkBootPipeline` `boot_complete` gate but NOT part of the internal `ChunkBootPipeline` `first_playable` gate. Rings use Chebyshev distance. См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.try_harvest_at_world(world_pos: Vector2) -> Dictionary`
 - Когда вызывать: когда topology должна обновиться после mining.
-- Что делает: после successful mining вызывает `_on_mountain_tile_changed()` до emission `EventBus.mountain_tile_mined`.
+- Что делает: после successful mining вызывает manager-owned facade `_on_mountain_tile_changed()`, который обновляет loaded open-pocket mirror и прокидывает topology mutation в internal `ChunkTopologyService` до emission `EventBus.mountain_tile_mined`.
 - Гарантии: immediate incremental topology patch runs before downstream listeners react; см. `Postconditions: mine tile`.
 - Пример вызова: `var result := chunk_manager.try_harvest_at_world(hit_world_pos)`
 
@@ -354,10 +354,10 @@ related_docs:
 
 | Метод | Почему нельзя вызывать напрямую |
 |-------|-------------------------------|
-| `ChunkManager._tick_topology() -> bool` | Owner-side budget job that lets mandatory native `MountainTopologyBuilder.ensure_built()` converge dirty topology after streaming is idle; не caller-facing API. |
-| `ChunkManager._setup_native_topology_builder() -> void` | Startup-only native topology activation; callers must not toggle topology backend policy manually. |
-| `ChunkManager._on_mountain_tile_changed(tile_pos: Vector2i, old_type: int, new_type: int) -> void` | Internal mining follow-up that updates native topology mirror and loaded open-pocket mirror; caller не должен поддерживать topology вручную. |
-| Native builder calls `set_chunk`, `remove_chunk`, `update_tile`, `ensure_built` | Internal backend contract behind `ChunkManager`; direct callers рискуют разойтись с managed topology state. |
+| `ChunkManager._tick_topology() -> bool` | Owner-side budget job that delegates dirty topology convergence to internal `ChunkTopologyService.tick()` after streaming is idle; не caller-facing API. |
+| `ChunkManager._setup_native_topology_builder() -> void` | Startup-only facade that activates the validated native topology backend through internal `ChunkTopologyService`; callers must not toggle topology backend policy manually. |
+| `ChunkManager._on_mountain_tile_changed(tile_pos: Vector2i, old_type: int, new_type: int) -> void` | Internal mining follow-up that updates the loaded open-pocket mirror and forwards topology mutation into internal `ChunkTopologyService`; caller не должен поддерживать topology вручную. |
+| Native builder calls `set_chunk`, `remove_chunk`, `update_tile`, `ensure_built` | Internal backend contract behind `ChunkTopologyService` / `ChunkManager`; direct callers рискуют разойтись с managed topology state. |
 
 ### События
 
@@ -451,7 +451,7 @@ related_docs:
 
 `ChunkManager.boot_load_initial_chunks(progress_callback: Callable) -> void`
 - Когда вызывать: когда initial chunk visuals должны быть готовы в boot sequence.
-- Что делает: loads chunks with per-chunk readiness tracking and honest post-handoff continuation. Startup visual work is scheduled through the budgeted chunk visual scheduler, compatibility redraw tasks, and chunk-local `ChunkVisualState`; fresh chunks stay hidden until their first `Chunk.is_full_redraw_ready()` publication closes. Unfinished startup coords after internal `first_playable` remain boot-tracked and continue through runtime scheduling until real completion.
+- Что делает: loads chunks with per-chunk readiness tracking and honest post-handoff continuation owned internally by `ChunkBootPipeline`. Startup visual work is scheduled through the budgeted chunk visual scheduler, compatibility redraw tasks, and chunk-local `ChunkVisualState`; fresh chunks stay hidden until their first `Chunk.is_full_redraw_ready()` publication closes. Unfinished startup coords after internal `first_playable` remain boot-tracked and continue through runtime scheduling until real completion.
 - Гарантии: canonical terrain authoritative после load; presentation строится через scheduler-owned redraw paths. Near slice full visual convergence (`Chunk.is_full_redraw_ready()`) is mandatory for `first_playable`; full startup bubble visual completion (`Chunk.is_full_redraw_ready()`) is still mandatory for `boot_complete`. `GameWorld` now uses full boot-ready handoff for player control/loading-screen dismissal; internal `first_playable` only starts post-ready finalization work. См. `Boot Readiness State` layer в `DATA_CONTRACTS.md`.
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
@@ -464,13 +464,13 @@ related_docs:
 `MountainShadowSystem.prepare_boot_shadows(progress_callback: Callable) -> void`
 - Когда вызывать: только если осознанно нужен blocking/progress-callback shadow bootstrap.
 - Что делает: строит edge cache и shadow sprites для текущих loaded mountain chunks с прогресс-коллбеком.
-- Гарантии: presentation-only; canonical terrain и topology не меняются.
+- Гарантии: presentation-only; canonical terrain и topology не меняются. Runtime calls after `Boot.first_playable` are diagnostic warnings because this API intentionally blocks; normal runtime must use the budgeted `schedule_boot_shadows()` / `_tick_shadows()` path.
 - Пример вызова: `_mountain_shadow_system.prepare_boot_shadows(_on_boot_progress)`
 
 `MountainShadowSystem.build_boot_shadows() -> void`
 - Когда вызывать: только если осознанно нужен synchronous boot shadow build без progress callback.
 - Что делает: immediately builds edge cache и shadow sprites для current loaded surface chunks.
-- Гарантии: presentation-only; same shadow contract as `prepare_boot_shadows()`.
+- Гарантии: presentation-only; same shadow contract as `prepare_boot_shadows()`. Runtime calls after `Boot.first_playable` are diagnostic warnings because this API intentionally blocks; normal runtime must use the budgeted `schedule_boot_shadows()` / `_tick_shadows()` path.
 - Пример вызова: `_mountain_shadow_system.build_boot_shadows()`
 
 `Chunk.complete_redraw_now(include_flora: bool = false) -> void`  `(owner-only safe entrypoint)`
@@ -524,6 +524,8 @@ related_docs:
 | `ChunkVisualScheduler.*` | Internal visual scheduler state owner. Not a gameplay or redraw API; external callers must not enqueue visual work or mutate scheduler queues directly. |
 | `ChunkSurfacePayloadCache.*` | Internal generated surface payload reuse cache. Not terrain truth, not persistence API, and not safe for external reads/writes. |
 | `ChunkSeamService.*` | Internal seam repair queue owner behind mining/streaming follow-up paths. External callers must not enqueue seam work directly; use `ChunkManager.try_harvest_at_world()` or lifecycle owner paths. |
+| `ChunkTopologyService.*` | Internal topology runtime owner behind `ChunkManager` topology facades. External callers must not mutate dirty state, native builder handles, or chunk install/unload topology mirrors directly. |
+| `ChunkBootPipeline.*` | Internal boot readiness, compute/apply queue, and runtime-handoff owner behind `ChunkManager.boot_load_initial_chunks()` and `_boot_*` facades. External callers must not mutate boot states, worker queues, or boot metrics directly. |
 
 ### Wall Atlas
 

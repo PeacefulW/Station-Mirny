@@ -2,6 +2,10 @@
 name: arch-check
 description: "Use this agent to verify code or implementation plans against the project's architectural contracts before writing or committing code. Checks compliance with PERFORMANCE_CONTRACTS, ENGINEERING_STANDARDS, ADR-0001 (dirty/bounded runtime), and SIMULATION_AND_THREADING_MODEL. Also use when reviewing PRs or validating that a proposed change respects governance rules.\n\nExamples:\n\n- User: \"Проверь этот код на соответствие архитектуре\"\n  (Launch arch-check agent)\n\n- User: \"Можно ли так сделать?\"\n  (Launch arch-check agent if the question involves runtime, performance, or architecture)\n\n- User: \"Проверь что изменения не нарушают контракты\"\n  (Launch arch-check agent)"
 model: opus
+tools: Read, Grep, Glob, Bash
+permissionMode: plan
+skills:
+  - frame-budget-guardian
 color: red
 memory: project
 ---
@@ -10,7 +14,7 @@ memory: project
 
 ## Обязательное чтение перед любой проверкой
 
-Перед проверкой ВСЕГДА прочитай следующие документы (используй Read tool):
+Перед проверкой ВСЕГДА прочитай следующие документы:
 
 1. `docs/00_governance/ENGINEERING_STANDARDS.md` — инженерные стандарты
 2. `docs/00_governance/PERFORMANCE_CONTRACTS.md` — runtime/performance закон

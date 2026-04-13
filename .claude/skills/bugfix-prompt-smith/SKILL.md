@@ -6,6 +6,7 @@ description: >
   the user says "составь промпт для фикса", "преврати это в задачу для агента",
   "оформи баг в нормальный промпт", or when a bug report is too fuzzy to safely
   implement without first tightening scope, files, acceptance tests, and doc checks.
+disable-model-invocation: true
 ---
 
 # Bugfix Prompt Smith

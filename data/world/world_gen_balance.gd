@@ -8,16 +8,16 @@ extends Resource
 @export var unload_radius: int = 4
 @export_range(1, 8) var chunk_loads_per_frame: int = 1
 @export_range(4, 64) var chunk_redraw_rows_per_frame: int = 8
-@export_range(16, 1024) var chunk_redraw_tiles_per_step: int = 64
+@export_range(16, 1024) var chunk_redraw_tiles_per_step: int = 32
 
 @export_group("Chunk Visual Scheduler")
-@export_range(0.5, 16.0) var visual_scheduler_budget_ms: float = 4.0
-@export_range(16, 4096) var visual_first_pass_tiles_per_step: int = 64
-@export_range(16, 4096) var visual_full_redraw_tiles_per_step: int = 64
-@export_range(16, 4096) var visual_border_fix_tiles_per_step: int = 64
-@export_range(16, 4096) var visual_cosmetic_tiles_per_step: int = 32
-@export_range(1, 8) var visual_first_pass_max_tasks_per_tick: int = 8
-@export_range(1, 16) var visual_full_redraw_max_tasks_per_tick: int = 8
+@export_range(0.5, 16.0) var visual_scheduler_budget_ms: float = 2.0
+@export_range(16, 4096) var visual_first_pass_tiles_per_step: int = 48
+@export_range(16, 4096) var visual_full_redraw_tiles_per_step: int = 32
+@export_range(16, 4096) var visual_border_fix_tiles_per_step: int = 16
+@export_range(16, 4096) var visual_cosmetic_tiles_per_step: int = 16
+@export_range(1, 8) var visual_first_pass_max_tasks_per_tick: int = 2
+@export_range(1, 16) var visual_full_redraw_max_tasks_per_tick: int = 2
 
 @export_group("Quality Zones")
 @export_range(0, 8) var startup_bubble_chunk_radius: int = 1

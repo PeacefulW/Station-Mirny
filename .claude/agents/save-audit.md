@@ -2,6 +2,10 @@
 name: save-audit
 description: "Use this agent to audit save/load system integrity: verify that all persistent state is serialized, check for missing save boundaries, detect implicit scene state leaks, and validate save/load round-trip correctness. Also use when adding new persistent data to ensure it integrates with SaveManager.\n\nExamples:\n\n- User: \"Проверь что новая система правильно сохраняется\"\n  (Launch save-audit agent)\n\n- User: \"Какие данные мы теряем при save/load?\"\n  (Launch save-audit agent)\n\n- User: \"Аудит save системы\"\n  (Launch save-audit agent)\n\n- User: \"Добавил новое поле, оно сохранится?\"\n  (Launch save-audit agent)"
 model: sonnet
+tools: Read, Grep, Glob
+permissionMode: plan
+skills:
+  - save-load-regression-guard
 color: yellow
 memory: project
 ---
@@ -16,10 +20,10 @@ memory: project
 2. `docs/00_governance/ENGINEERING_STANDARDS.md` §13 — save/load правила
 3. `docs/02_system_specs/save_persistence.md` — спецификация save системы (если есть)
 
-Также найди и прочитай все файлы связанные с save:
-- `save_appliers/`
-- `save_collectors/`
-- `save_io/`
+Также прочитай только релевантные save/load файлы, связанные с текущим scope:
+- нужные collector/applier files
+- нужный save IO path
+- релевантную feature spec, если она есть
 
 ## Методика аудита
 
@@ -117,7 +121,7 @@ FRAGILE: строковые ключи в save
 
 ## Правила работы
 
-- Читай код save/load системы полностью перед аудитом
+- Читай весь save/load path только для полного save audit. Для локального изменения ограничивайся task-scoped collector/applier/owner path.
 - Трассируй каждый runtime-mutable field до save collector
 - Если поле мутабельно в runtime но не в save — это LEAK
 - Отвечай на русском языке

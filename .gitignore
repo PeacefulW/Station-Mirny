@@ -24,3 +24,8 @@ gdextension/godot-cpp/
 .gemini/.env
 .gemini/.env.*
 !.gemini/.env.example
+
+# Claude Code local overrides
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/agent-memory-local/

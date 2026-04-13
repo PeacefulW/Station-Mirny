@@ -7,6 +7,7 @@ description: >
   "environmental storytelling", "ruin history", "discovery beat", or wants
   diaries, notes, logs, or terminals tied to a specific place while staying
   consistent with `docs/03_content_bible/lore/canon.md`.
+disable-model-invocation: true
 ---
 
 # Poi Story Seeder

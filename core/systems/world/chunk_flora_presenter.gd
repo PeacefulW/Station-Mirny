@@ -6,15 +6,19 @@ const ChunkFloraResultScript = preload("res://core/systems/world/chunk_flora_res
 const FLORA_PUBLISH_LOG_ARG: String = "codex_flora_publish_log"
 
 static var _shared_texture_cache: Dictionary = {}
+static var _pending_texture_loads: Dictionary = {}
+static var _failed_texture_loads: Dictionary = {}
 
 var _tile_size: int = 0
 var _layers: Array = []
 var _flora_result: ChunkFloraResultScript = null
 var _flora_payload: Dictionary = {}
+var _local_pending_texture_paths: Dictionary = {}
 
 func setup(tile_size: int) -> void:
 	_tile_size = tile_size
 	visible = false
+	set_process(false)
 
 func reset_runtime_state() -> void:
 	_flora_result = null
@@ -52,7 +56,9 @@ func get_prebuilt_render_packet(payload: Dictionary) -> Dictionary:
 
 func clear_render_packet() -> void:
 	_layers.clear()
+	_local_pending_texture_paths.clear()
 	visible = false
+	set_process(false)
 	queue_redraw()
 
 func apply_render_packet(packet: Dictionary, mode: StringName, chunk_coord: Vector2i) -> void:
@@ -60,10 +66,30 @@ func apply_render_packet(packet: Dictionary, mode: StringName, chunk_coord: Vect
 		clear_render_packet()
 	else:
 		_layers = (packet.get("layers", []) as Array).duplicate(true)
+		_local_pending_texture_paths.clear()
 		_prime_packet_textures()
 		visible = not _layers.is_empty()
+		set_process(not _local_pending_texture_paths.is_empty())
 		queue_redraw()
 	_log_flora_publish_summary(mode, 1 if not packet.is_empty() else 0, chunk_coord)
+
+func _process(_delta: float) -> void:
+	if _local_pending_texture_paths.is_empty():
+		set_process(false)
+		return
+	var should_redraw: bool = false
+	for texture_path_variant: Variant in _local_pending_texture_paths.keys():
+		var texture_path: String = String(texture_path_variant)
+		var texture: Texture2D = _get_shared_texture(texture_path, false)
+		if texture != null:
+			_local_pending_texture_paths.erase(texture_path)
+			should_redraw = true
+		elif _failed_texture_loads.has(texture_path):
+			_local_pending_texture_paths.erase(texture_path)
+	if should_redraw:
+		queue_redraw()
+	if _local_pending_texture_paths.is_empty():
+		set_process(false)
 
 func _draw() -> void:
 	for layer_variant: Variant in _layers:
@@ -89,16 +115,40 @@ func _prime_packet_textures() -> void:
 			var texture_path: String = String(item.get("texture_path", ""))
 			if texture_path.is_empty():
 				continue
-			_get_shared_texture(texture_path, true)
+			var texture: Texture2D = _get_shared_texture(texture_path, true)
+			if texture == null and _pending_texture_loads.has(texture_path):
+				_local_pending_texture_paths[texture_path] = true
 
 static func _get_shared_texture(texture_path: String, allow_load: bool = true) -> Texture2D:
 	if texture_path.is_empty():
 		return null
-	if not _shared_texture_cache.has(texture_path):
-		if not allow_load:
+	var cached_texture: Texture2D = _shared_texture_cache.get(texture_path, null) as Texture2D
+	if cached_texture != null:
+		return cached_texture
+	if _pending_texture_loads.has(texture_path):
+		var status: int = ResourceLoader.load_threaded_get_status(texture_path)
+		if status == ResourceLoader.THREAD_LOAD_LOADED:
+			var loaded_resource: Resource = ResourceLoader.load_threaded_get(texture_path)
+			_pending_texture_loads.erase(texture_path)
+			if loaded_resource is Texture2D:
+				_shared_texture_cache[texture_path] = loaded_resource
+				_failed_texture_loads.erase(texture_path)
+				return loaded_resource as Texture2D
+			_failed_texture_loads[texture_path] = true
 			return null
-		_shared_texture_cache[texture_path] = ResourceLoader.load(texture_path, "Texture2D")
-	return _shared_texture_cache.get(texture_path, null) as Texture2D
+		if status == ResourceLoader.THREAD_LOAD_FAILED or status == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+			_pending_texture_loads.erase(texture_path)
+			_failed_texture_loads[texture_path] = true
+			return null
+		return null
+	if not allow_load or _failed_texture_loads.has(texture_path):
+		return null
+	var load_error: int = ResourceLoader.load_threaded_request(texture_path, "Texture2D")
+	if load_error == OK or load_error == ERR_BUSY:
+		_pending_texture_loads[texture_path] = true
+	else:
+		_failed_texture_loads[texture_path] = true
+	return null
 
 func _flora_publish_logging_enabled() -> bool:
 	return OS.is_debug_build() and FLORA_PUBLISH_LOG_ARG in OS.get_cmdline_user_args()

@@ -2,6 +2,10 @@
 name: perf-audit
 description: "Use this agent to audit GDScript code for performance issues, runtime violations, and main-thread hazards. Checks for full rebuilds in interactive paths, missing FrameBudgetDispatcher usage, main-thread heavy operations, and violation of the dirty/bounded runtime contract.\n\nExamples:\n\n- User: \"Проверь производительность этого кода\"\n  (Launch perf-audit agent)\n\n- User: \"Нет ли проблем с перфомансом?\"\n  (Launch perf-audit agent)\n\n- User: \"Аудит runtime путей\"\n  (Launch perf-audit agent)"
 model: opus
+tools: Read, Grep, Glob, Bash
+permissionMode: plan
+skills:
+  - frame-budget-guardian
 color: purple
 memory: project
 ---

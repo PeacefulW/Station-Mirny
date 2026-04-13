@@ -2,6 +2,8 @@
 name: gdscript-review
 description: "Use this agent to review GDScript code for quality, style compliance, and correctness according to the project's engineering standards. Checks naming, typing, script ordering, localization, save/load boundaries, anti-patterns, and mod compatibility.\n\nExamples:\n\n- User: \"Сделай ревью этого скрипта\"\n  (Launch gdscript-review agent)\n\n- User: \"Проверь код на качество\"\n  (Launch gdscript-review agent)\n\n- User: \"Нет ли проблем в этом файле?\"\n  (Launch gdscript-review agent if about GDScript code)"
 model: opus
+tools: Read, Grep, Glob
+permissionMode: plan
 color: blue
 memory: project
 ---

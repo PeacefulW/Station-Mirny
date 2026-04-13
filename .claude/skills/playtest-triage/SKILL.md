@@ -6,6 +6,7 @@ description: >
   user shares "заметки плейтеста", "playtest feedback", "bug list cleanup",
   "что из этого важнее", or a mixed pile of complaints about feel, bugs,
   pacing, UI clarity, or content confusion that needs to be turned into clean work.
+disable-model-invocation: true
 ---
 
 # Playtest Triage

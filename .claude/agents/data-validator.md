@@ -2,6 +2,11 @@
 name: data-validator
 description: "Use this agent to validate game data resources: balance files, item/recipe/building definitions, biome configs, and cross-references between them. Finds missing references, orphaned data, invalid values, and inconsistencies in the data-driven content layer.\n\nExamples:\n\n- User: \"Проверь что все рецепты ссылаются на существующие предметы\"\n  (Launch data-validator agent)\n\n- User: \"Нет ли битых ссылок в data ресурсах?\"\n  (Launch data-validator agent)\n\n- User: \"Валидация баланса\"\n  (Launch data-validator agent)\n\n- User: \"Добавил новый предмет, всё ли подключено?\"\n  (Launch data-validator agent)"
 model: sonnet
+tools: Read, Grep, Glob, Bash
+permissionMode: plan
+skills:
+  - content-pipeline-author
+  - localization-pipeline-keeper
 color: orange
 memory: project
 ---
@@ -15,10 +20,10 @@ memory: project
 1. `docs/00_governance/ENGINEERING_STANDARDS.md` §6-7 — правила data-driven architecture
 2. `core/autoloads/item_registry.gd` — как регистрируются предметы
 
-Затем изучи структуру данных:
-- `data/` — все поддиректории
-- `core/entities/items/` — item скрипты
-- `core/entities/recipes/` — recipe скрипты
+Затем изучи только task-scoped структуру данных:
+- конкретные `data/` поддиректории, связанные с запросом
+- конкретные Resource-скрипты, определяющие проверяемую schema
+- конкретные registries, которые загружают проверяемые assets
 
 ## Методика валидации
 
@@ -119,7 +124,7 @@ MISSING_LOCALE: item "new_item"
 
 ## Правила работы
 
-- Проверяй ВСЕ data файлы, не выборочно
+- Проверяй все data файлы только если пользователь явно попросил полный data audit. Иначе ограничивайся scope задачи.
 - Используй Glob для поиска `.tres` файлов, Grep для поиска ссылок
 - При BROKEN — это блокер, остальное — по severity
 - Отвечай на русском языке

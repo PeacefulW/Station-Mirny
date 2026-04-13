@@ -2,6 +2,10 @@
 name: worldgen-debug
 description: "Use this agent to debug, analyze, and validate the world generation system: chunk building, biome resolution, noise sampling, structure placement, and terrain layers. Use when world gen produces unexpected results or when modifying generation logic.\n\nExamples:\n\n- User: \"Почему биом генерируется неправильно?\"\n  (Launch worldgen-debug agent)\n\n- User: \"Проанализируй пайплайн генерации чанков\"\n  (Launch worldgen-debug agent)\n\n- User: \"Структуры не спавнятся, помоги разобраться\"\n  (Launch worldgen-debug agent)\n\n- User: \"Как работает noise sampling для гор?\"\n  (Launch worldgen-debug agent)"
 model: opus
+tools: Read, Grep, Glob, Bash
+permissionMode: plan
+skills:
+  - frame-budget-guardian
 color: white
 memory: project
 ---
@@ -19,7 +23,7 @@ memory: project
 5. `docs/05_adrs/0006-surface-subsurface-separation.md` — разделение поверхности и подземелья
 6. `docs/05_adrs/0007-environment-runtime-layered.md` — слоистый environment
 
-Также изучи ключевые файлы генерации в `core/systems/world/`:
+Также изучи только релевантные файлы генерации в `core/systems/world/`:
 - `biome_resolver.gd` — разрешение биомов
 - `chunk_content_builder.gd` — построение содержимого чанков
 - `planet_sampler.gd` — noise sampling

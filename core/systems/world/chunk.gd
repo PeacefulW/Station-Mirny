@@ -52,8 +52,6 @@ var _modified_tiles: Dictionary = {}
 var _biome: BiomeData = null
 var _terrain_bytes: PackedByteArray = PackedByteArray()
 var _cover_edge_set: PackedByteArray = PackedByteArray()
-var _cover_edge_set_cache: Dictionary = {}
-var _cover_edge_set_cache_valid: bool = false
 var _cover_edge_set_dirty_tiles: PackedByteArray = PackedByteArray()
 var _cover_edge_set_dirty_tile_queue: Array[int] = []
 var _cover_edge_set_valid: bool = false
@@ -276,8 +274,6 @@ func _resize_zero_byte_array(array: PackedByteArray, size: int) -> PackedByteArr
 func _ensure_chunk_local_hot_storage() -> void:
 	var tile_count: int = maxi(0, _chunk_size * _chunk_size)
 	_cover_edge_set = _resize_zero_byte_array(_cover_edge_set, tile_count)
-	_cover_edge_set_cache.clear()
-	_cover_edge_set_cache_valid = false
 	_cover_edge_set_dirty_tiles = _resize_zero_byte_array(_cover_edge_set_dirty_tiles, tile_count)
 	_cover_edge_set_dirty_tile_queue.clear()
 	_cover_edge_set_valid = false
@@ -610,21 +606,9 @@ func is_revealable_cover_edge(local_tile: Vector2i) -> bool:
 		return false
 	return _is_cave_edge_rock(local_tile)
 
-## Возвращает кешированный set тайлов чанка, которые являются revealable cover edges.
-## Первый вызов вычисляет set за O(chunk_size²). После майнинга rebuild
-## ограничен dirty tiles вокруг изменённого места, а последующие чтения снова O(1).
-func get_cover_edge_set() -> Dictionary:
-	if not _cover_edge_set_valid:
-		_rebuild_cover_edge_set()
-	if not _cover_edge_set_cache_valid:
-		_cover_edge_set_cache = {}
-		for tile_index: int in range(_cover_edge_set.size()):
-			if _cover_edge_set[tile_index] == 0:
-				continue
-			_cover_edge_set_cache[_tile_from_index(tile_index)] = true
-		_cover_edge_set_cache_valid = true
-	return _cover_edge_set_cache
-
+## Возвращает O(1) packed lookup для тайлов чанка, которые являются
+## revealable cover edges. Первый rebuild может стоить O(chunk_size²), но после
+## майнинга обновление ограничено dirty tiles вокруг изменённого места.
 func has_cover_edge_cached(local_tile: Vector2i) -> bool:
 	if not _cover_edge_set_valid:
 		_rebuild_cover_edge_set()
@@ -652,8 +636,6 @@ func _rebuild_cover_edge_set() -> void:
 			if is_revealable_cover_edge(local):
 				_cover_edge_set[tile_index] = 1
 	_cover_edge_set_dirty_tile_queue.clear()
-	_cover_edge_set_cache.clear()
-	_cover_edge_set_cache_valid = false
 	_cover_edge_set_requires_full_rebuild = false
 	_cover_edge_set_valid = true
 

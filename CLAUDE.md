@@ -17,6 +17,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This project has a doc-driven governance model. **Read docs before code.**
 
+Claude Code project settings in `.claude/settings.json` default to `plan` mode and run guard hooks. Treat hook feedback as part of the project workflow, not as optional advice.
+
 Reading order for every task:
 1. `AGENTS.md` — agent discipline rules (scope, forbidden behaviors, closure report format)
 2. `docs/00_governance/WORKFLOW.md` — task execution procedure
@@ -106,6 +108,13 @@ Reusable cross-entity behaviors: `HealthComponent`, `InventoryComponent`, `Equip
 ## Task Completion
 
 Every completed task requires a closure report (format in `AGENTS.md` and `docs/00_governance/WORKFLOW.md`). Update `DATA_CONTRACTS.md` and `PUBLIC_API.md` if data layers or API surfaces changed.
+
+Useful project commands:
+- `/mirny-plan` — scoped plan-mode analysis before implementation
+- `/mirny-spec` — create or refine a feature spec before code
+- `/mirny-fix-prompt` — convert a vague bug into a bounded implementation prompt
+- `/mirny-closure` — prepare closure report with verification evidence
+- `/mirny-resume` — resume the active epic from `.claude/agent-memory/active-epic.md`
 
 ## Skills (`.claude/skills/`)
 

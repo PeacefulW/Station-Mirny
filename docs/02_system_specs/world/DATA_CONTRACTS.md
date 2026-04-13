@@ -5,7 +5,7 @@ status: draft
 owner: engineering
 source_of_truth: true
 version: 0.9
-last_updated: 2026-04-02
+last_updated: 2026-04-13
 depends_on:
   - world_generation_foundation.md
   - subsurface_and_verticality_foundation.md
@@ -52,7 +52,7 @@ Until superseded, this document is mandatory reading for any iteration that touc
 | World Pre-pass | `canonical` | `WorldPrePass`, bootstrapped by `WorldGenerator` | boot-time coarse height / filled-height / eroded-height / flow-direction / accumulation / drainage / river-mask / river-width / river-distance / floodplain-strength / ridge-strength / mountain-mass / slope / rain-shadow / continentalness / tectonic spine-seed records / ridge-path graph / ridge spline samples + half-width profile / lake-mask / lake-record grids derived from seed + balance + planet sampler | `WorldGenerator` initialization, `WorldComputeContext` holder, future generator-side resolvers and samplers | boot-time compute only, deterministic rebuild, not persisted |
 | World | `canonical` | `ChunkManager` runtime arbitration, `Chunk` loaded storage, `WorldGenerator` unloaded surface base | canonical terrain bytes and unloaded overlay | terrain/resource/walkability/presentation consumers | loaded + unloaded reads, immediate writes, generator fallback |
 | Mining | `canonical` | `ChunkManager` orchestration, `Chunk` loaded mutation storage | loaded terrain mutation and mining-side invalidation entrypoint | topology, reveal, presentation, save collection | loaded-only mutation, immediate |
-| Topology | `derived` | `ChunkManager`, with mandatory native `MountainTopologyBuilder` worker compute for full rebuild snapshots | surface topology caches | `MountainRoofSystem` and topology getters | surface-only, loaded-bubble scoped, incremental patch + deferred dirty rebuild |
+| Topology | `derived` | `ChunkTopologyService`, with mandatory native `MountainTopologyBuilder` worker compute for full rebuild snapshots | surface topology caches | `MountainRoofSystem` and topology getters | surface-only, loaded-bubble scoped, incremental patch + deferred dirty rebuild |
 | Loaded Open-Pocket Query | `derived` | `ChunkManager`, with native `LoadedOpenPocketQuery` as the active-z loaded terrain mirror | active-z loaded-chunk terrain mirror for capped open-pocket queries | `ChunkManager.query_local_underground_zone()`, `MountainRoofSystem` | active-z loaded-only, rebuilt on z switch, incrementally updated on load/unload/mining, not persisted |
 | Reveal | `derived` | `MountainRoofSystem`, `UndergroundFogState`, `ChunkManager` fog applier | local cover reveal and underground fog state | chunk cover/fog presentation and reveal getters | active-z dependent, loaded-bubble scoped, immediate/deferred hybrid |
 | Visual Task Scheduling | `derived` | `ChunkVisualScheduler` | per-chunk visual task queues, dedupe/version state, worker-prepare state, scheduler telemetry containers | `ChunkManager` boot/runtime loops, instrumentation, `ChunkDebugSystem` snapshot assembly | loaded-bubble scoped, per-tick budgeted, not persisted |
@@ -63,7 +63,7 @@ Until superseded, this document is mandatory reading for any iteration that touc
 | F11 Chunk Debug Overlay Log File | `derived` / `debug-only` | `WorldChunkDebugOverlay` | per-process diagnostic `.log` artifact serialized from the bounded F11 snapshot | humans, agents, debug inspection | writes only while overlay is visible, overwritten on first F11 open per process, not save/load truth |
 | F11 Chunk Incident Dump File | `derived` / `debug-only` | `WorldChunkDebugOverlay` | explicit on-demand incident dump serialized from one bounded snapshot and bounded trace buffers | humans, agents, debug inspection | written only on manual `Ctrl+F11`, may say `no_active_incident`, not save/load truth |
 | Presentation | `presentation-only` | `Chunk`, `MountainShadowSystem`, `WorldFeatureDebugOverlay`, `WorldChunkDebugOverlay` | TileMap, shadow sprite, debug anchor-marker output, and debug chunk overlay drawing | Godot renderer, debug inspection | loaded-only/redraw-driven for world presentation; read-only snapshot-driven for debug overlay |
-| Boot Readiness | `derived` | `ChunkManager` | per-chunk boot state tracking and aggregate gate flags | `GameWorld`, boot progress UI, instrumentation | boot-time only, not persisted |
+| Boot Readiness | `derived` | `ChunkBootPipeline` | per-chunk boot state tracking and aggregate gate flags | `GameWorld`, boot progress UI, instrumentation | boot-time only, not persisted |
 
 ## Scope
 
@@ -124,8 +124,10 @@ Observed files for this version:
 - Current surface chunk generation resolves canonical terrain as `GROUND`, `WATER`, `SAND`, or `ROCK`. `MINED_FLOOR` and `MOUNTAIN_ENTRANCE` are runtime mutation results, not generator outputs.
 - Surface chunk payload `variation` bytes are presentation-only overlay markers. In addition to biome-local subzones, they may now carry polar overlay ids (`polar_ice`, `polar_scorched`, `polar_salt_flat`, `polar_dry_riverbed`) without mutating canonical terrain ownership or unloaded walkability truth.
 - Mountain topology caches are derived from currently loaded surface chunks only.
+- `ChunkTopologyService` owns the validated native topology builder handle, dirty/converged runtime state, and the load/unload/mining mutation bridge into `MountainTopologyBuilder`; `ChunkManager` remains the public facade plus lifecycle/mutation coordinator that forwards into that service.
 - Surface local mountain reveal state is derived from the current loaded open pocket around the player.
 - Underground fog state is transient reveal state, shared by the active underground runtime, and not persisted.
+- `ChunkBootPipeline` owns boot readiness flags, boot compute/apply queues, boot metrics, and runtime handoff state for the startup bubble; `ChunkManager.boot_load_initial_chunks()` remains the public boot entrypoint and lifecycle coordinator around that internal owner.
 - Visual task queues, queue latency metrics, invalidation versions, worker visual-compute state, and the bounded scheduler drain loop are runtime-only state owned by `ChunkVisualScheduler`; `ChunkManager` remains the public/lifecycle coordinator, enqueue/invalidation source, and bounded tick caller.
 - Runtime streaming queue relevance/pruning, worker generation handoff, staged install handoff, and unload routing are owned by `ChunkStreamingService`; `ChunkManager` remains the world-facing facade plus the single final install commit/save/topology coordination path via `_finalize_chunk_install()` and related owner helpers.
 - Surface payload reuse for generated surface chunks is owned by `ChunkSurfacePayloadCache`; it stores duplicated native payload arrays plus flora payload/result cache entries and is cleared on teardown, not persisted.
@@ -379,10 +381,10 @@ Observed files for this version:
 ## Layer: Topology
 
 - `classification`: `derived`
-- `owner`: `ChunkManager` owns the surface topology contract; native `MountainTopologyBuilder` is the mandatory topology backend and the only production owner of derived topology caches.
-- `writers`: `ChunkManager` routes loaded surface chunk load/unload and mountain-tile mutations into `MountainTopologyBuilder.set_chunk()`, `remove_chunk()`, and `update_tile()`. `_tick_topology()` calls `MountainTopologyBuilder.ensure_built()` after streaming is idle; there is no production GDScript topology rebuild scheduler or `_mountain_*` dictionary commit path.
+- `owner`: `ChunkTopologyService` owns the surface topology runtime contract and the validated native builder state; native `MountainTopologyBuilder` remains the mandatory topology backend and the only production owner of derived topology caches. `ChunkManager` stays the public facade, lifecycle coordinator, and mining/load/unload orchestration owner that forwards into the service.
+- `writers`: `ChunkTopologyService.setup_native_builder()`, `install_surface_chunk()`, `remove_surface_chunk()`, `note_mountain_tile_changed()`, and `tick()`. `ChunkManager._finalize_chunk_install()`, `ChunkStreamingService.unload_chunk()`, `ChunkManager._on_mountain_tile_changed()`, and `ChunkManager._tick_topology()` may request topology work only through those service-owned entrypoints.
 - `readers`: `MountainRoofSystem` surface local-zone queries read `ChunkManager.get_mountain_key_at_tile()` and `get_mountain_open_tiles()`. No other direct in-scope runtime reader was found for `get_mountain_tiles()`.
-- `rebuild policy`: surface-only, loaded-bubble scoped; chunk load/unload and successful mountain-tile mutation update the native builder mirror immediately and mark native topology dirty; `_tick_topology()` performs deferred native convergence through `ensure_built()`. Full rebuild has no production GDScript fallback.
+- `rebuild policy`: surface-only, loaded-bubble scoped; chunk load/unload update the service-owned native builder mirror immediately and mark native topology dirty, successful mountain-tile mutation updates the mirror on the spot, and deferred convergence stays behind `ChunkTopologyService.tick()` / `MountainTopologyBuilder.ensure_built()`. Full rebuild has no production GDScript fallback.
 - `invariants`:
 - `assert(_active_z == 0 or get_mountain_key_at_tile(tile_pos) == Vector2i(999999, 999999), "surface mountain topology must not be exposed on underground z levels")`
 - `assert(terrain_type == TileGenData.TerrainType.ROCK or terrain_type == TileGenData.TerrainType.MINED_FLOOR or terrain_type == TileGenData.TerrainType.MOUNTAIN_ENTRANCE, "topology domain is ROCK + open mountain terrain")`
@@ -393,9 +395,16 @@ Observed files for this version:
 - `assert(no_gdscript_topology_scheduler, "production topology must not use GDScript rebuild snapshots, worker commits, or _mountain_* dictionary fallback")`
 - `assert(not ClassDB.class_exists("MountainTopologyBuilder") => chunk_runtime_boot_fails, "surface topology rebuild must fail fast when the required native builder is missing")`
 - `write operations`:
-- `ChunkManager._tick_topology()`
-- `ChunkManager._setup_native_topology_builder()`
-- `ChunkManager._on_mountain_tile_changed()`
+- `ChunkTopologyService.setup_native_builder()`
+- `ChunkTopologyService.install_surface_chunk()`
+- `ChunkTopologyService.remove_surface_chunk()`
+- `ChunkTopologyService.note_mountain_tile_changed()`
+- `ChunkTopologyService.tick()`
+- `ChunkManager._setup_native_topology_builder()` facade forwarding to `ChunkTopologyService.setup_native_builder()`
+- `ChunkManager._tick_topology()` facade forwarding to `ChunkTopologyService.tick()`
+- `ChunkManager._on_mountain_tile_changed()` facade forwarding topology writes through `ChunkTopologyService.note_mountain_tile_changed()`
+- `ChunkManager._install_surface_chunk_into_topology()` facade forwarding to `ChunkTopologyService.install_surface_chunk()`
+- `ChunkManager._remove_surface_chunk_from_topology()` facade forwarding to `ChunkTopologyService.remove_surface_chunk()`
 - Native builder calls: `set_chunk`, `remove_chunk`, `update_tile`, `ensure_built`
 - `forbidden writes`:
 - Topology code must not mutate canonical terrain bytes, loaded modification diffs, or unloaded saved overlays.
@@ -810,8 +819,8 @@ Observed files for this version:
 ## Layer: Boot Readiness
 
 - `classification`: `derived`
-- `owner`: `ChunkManager` owns all boot readiness state for the startup chunk bubble.
-- `writers`: `ChunkManager.boot_load_initial_chunks()` and internal `_boot_*` helpers.
+- `owner`: `ChunkBootPipeline` owns all boot readiness state for the startup chunk bubble; `ChunkManager` remains the public boot entrypoint and lifecycle coordinator that wraps the service with `_is_boot_in_progress`.
+- `writers`: `ChunkBootPipeline.boot_load_initial_chunks()`, `on_chunk_applied()`, `on_chunk_redraw_progress()`, `invalidate_visual_complete()`, `update_gates()`, `promote_redrawn_chunks()`, `init_readiness()`, and `set_chunk_state()`. `ChunkManager.boot_load_initial_chunks()` and the existing `_boot_*` facade helpers may request boot-readiness mutations only through the service-owned entrypoints.
 - `readers`: `GameWorld` boot sequence, boot progress UI, instrumentation/logging.
 - `rebuild policy`: boot-time only; state is initialized at boot start, updated during boot, and remains static after boot completes. Not persisted across save/load.
 - `invariants`:
@@ -842,10 +851,17 @@ Observed files for this version:
 - `assert(boot_progressive_redraw_prioritizes_near_ring, "_boot_process_redraw_budget() processes only ring 0-1 chunks during boot, deferring ring 2+ to end of queue (boot_fast_first_playable_spec)")`
 - `assert(diagnostics_only_sync_visual_helpers_do_not_define_boot_readiness, "compatibility helpers such as complete_terrain_phase_now() may still exist for diagnostics/fallback use, but normal boot readiness no longer depends on them")`
 - `write operations`:
-- `ChunkManager._boot_init_readiness()`
-- `ChunkManager._boot_set_chunk_state()`
-- `ChunkManager._boot_update_gates()`
-- `ChunkManager._boot_promote_redrawn_chunks()`
+- `ChunkBootPipeline.init_readiness()`
+- `ChunkBootPipeline.set_chunk_state()`
+- `ChunkBootPipeline.update_gates()`
+- `ChunkBootPipeline.promote_redrawn_chunks()`
+- `ChunkBootPipeline.on_chunk_applied()`
+- `ChunkBootPipeline.on_chunk_redraw_progress()`
+- `ChunkBootPipeline.invalidate_visual_complete()`
+- `ChunkManager._boot_init_readiness()` facade forwarding to `ChunkBootPipeline.init_readiness()`
+- `ChunkManager._boot_set_chunk_state()` facade forwarding to `ChunkBootPipeline.set_chunk_state()`
+- `ChunkManager._boot_update_gates()` facade forwarding to `ChunkBootPipeline.update_gates()`
+- `ChunkManager._boot_promote_redrawn_chunks()` facade forwarding to `ChunkBootPipeline.promote_redrawn_chunks()`
 - `forbidden writes`:
 - UI, scene code, or non-owner systems must not write boot readiness state.
 - Boot readiness must not be inferred from `_load_queue.is_empty()` alone.
@@ -858,8 +874,8 @@ Observed files for this version:
 ## Layer: Boot Compute Queue
 
 - `classification`: `derived`
-- `owner`: `ChunkManager` owns the bounded boot compute queue and its worker lifecycle.
-- `writers`: `ChunkManager._boot_submit_pending_tasks()`, `_boot_collect_completed()`, `_boot_drain_computed_to_apply_queue()`, `_boot_apply_from_queue()`, `_boot_worker_compute()` (via mutex), `_tick_boot_remaining()`.
+- `owner`: `ChunkBootPipeline` owns the bounded boot compute queue, worker lifecycle, prepare/apply queues, and runtime handoff state.
+- `writers`: `ChunkBootPipeline.submit_pending_tasks()`, `collect_completed()`, `drain_computed_to_apply_queue()`, `prepare_apply_entries()`, `apply_from_queue()`, `worker_compute()` (via mutex), `tick_remaining()`, `start_runtime_handoff()`, `cleanup_compute_pipeline()`, and `wait_all_compute()`. `ChunkManager` boot facades may request compute/apply progress only through those service-owned entrypoints.
 - `readers`: boot progress loop, instrumentation (`get_boot_compute_active_count()`, `get_boot_compute_pending_count()`, `get_boot_failed_coords()`).
 - `rebuild policy`: initialized at boot start; driven during boot loop until `first_playable`, then unfinished startup coords are handed off to runtime streaming while stale boot worker results are discarded. Not persisted.
 - `invariants`:
@@ -874,10 +890,20 @@ Observed files for this version:
 - `assert(ring_0_first_playable_waits_for_scheduler_owned_full_publication, "player-adjacent startup chunks reach first_playable only after scheduler-owned full publication convergence; boot apply does not call complete_terrain_phase_now() as a visibility shortcut")`
 - `assert(non_player_startup_apply_is_install_only, "non-player boot apply step is install/attach + cache hookup without synchronous terrain/full redraw")`
 - `write operations`:
-- `ChunkManager._boot_submit_pending_tasks()`
-- `ChunkManager._boot_worker_compute()` (mutex-protected result write)
-- `ChunkManager._boot_collect_completed()`
-- `ChunkManager._boot_drain_computed_to_apply_queue()`
+- `ChunkBootPipeline.submit_pending_tasks()`
+- `ChunkBootPipeline.worker_compute()` (mutex-protected result write)
+- `ChunkBootPipeline.collect_completed()`
+- `ChunkBootPipeline.drain_computed_to_apply_queue()`
+- `ChunkBootPipeline.prepare_apply_entries()`
+- `ChunkBootPipeline.apply_from_queue()`
+- `ChunkBootPipeline.start_runtime_handoff()`
+- `ChunkBootPipeline.tick_remaining()`
+- `ChunkBootPipeline.cleanup_compute_pipeline()`
+- `ChunkBootPipeline.wait_all_compute()`
+- `ChunkManager._boot_submit_pending_tasks()` facade forwarding to `ChunkBootPipeline.submit_pending_tasks()`
+- `ChunkManager._boot_worker_compute()` facade forwarding to `ChunkBootPipeline.worker_compute()`
+- `ChunkManager._boot_collect_completed()` facade forwarding to `ChunkBootPipeline.collect_completed()`
+- `ChunkManager._boot_drain_computed_to_apply_queue()` facade forwarding to `ChunkBootPipeline.drain_computed_to_apply_queue()`
 - `forbidden writes`:
 - Worker threads must not create `Chunk` nodes, `TileMapLayer` objects, or any scene-tree references.
 - Boot compute submission must remain internal to `ChunkManager`; no public gameplay API for submitting boot compute.
@@ -908,7 +934,7 @@ Observed files for this version:
 - Streamed chunks begin progressive redraw through `_begin_progressive_redraw()`, enter `ChunkVisualState.NATIVE_READY`, and remain hidden until their first `Chunk.is_full_redraw_ready()` publication closes. Internal first-pass milestones may still advance the scheduler, but first-pass completion does not authorize player-visible publication. When the surface presentation payload cache is valid, terrain/cover/cliff phase batches may skip neighbor derivation and only apply ready buffers; once the cache is missing or invalidated, existing lookup-based worker compute remains the fallback. Once a chunk has been fully published once, later local convergence debt may keep it visible while owner-side follow-up work restores terminal `FULL_READY`.
 - Boot loading tracks per-chunk readiness through `BootChunkState` transitions `QUEUED_COMPUTE -> COMPUTED -> QUEUED_APPLY -> APPLIED`, with `APPLIED <-> VISUAL_COMPLETE` remaining revocable until final convergence settles. Aggregate gates `first_playable` (ring 0..1 honest full-ready publication, topology NOT required inside `ChunkManager`) and `boot_complete` (all startup chunks currently terminal/full-ready + topology ready) are updated after each chunk. Ring distance uses Chebyshev metric (`max(abs(dx), abs(dy))`), so diagonal chunks at offset (1,1) are ring 1 — critical for 4-chunk junction spawns. `first_playable` is now an internal boot-finalization milestone: `GameWorld` may start shadow/topology completion there, but player input/physics/loading-screen dismissal wait for the full boot-ready handoff after shadows are drained. See `Layer: Boot Readiness`.
 - Boot loading does not fake terminal state for unfinished startup coords after handoff. Remaining startup coords are enqueued into runtime streaming, stay boot-tracked, and only contribute to `boot_complete` after real apply/redraw progress. Topology readiness is part of `boot_complete` but not the internal `first_playable` gate; player-visible handoff additionally waits for boot shadow completion.
-- Surface flora presentation is derived after `populate_native()`: from cached flora, from `ChunkBuildResult`, or from native data, depending on load path and whether saved modifications exist. Publication of that flora is presentation-only and now routes through worker-prepared pure-data render packets plus a single chunk-local `ChunkFloraPresenter` on the main thread, backed by a shared texture cache rather than per-chunk texture ownership or per-placement scene-tree churn.
+- Surface flora presentation is derived after `populate_native()`: from cached flora, from `ChunkBuildResult`, or from native data, depending on load path and whether saved modifications exist. Publication of that flora is presentation-only and now routes through worker-prepared pure-data render packets plus a single chunk-local `ChunkFloraPresenter` on the main thread, backed by a shared texture cache rather than per-chunk texture ownership or per-placement scene-tree churn. Runtime flora texture priming must use non-blocking threaded resource requests; if a texture is not yet cached, the presenter may draw the packet's fallback color until the threaded load resolves, but it must not call synchronous `ResourceLoader.load()` from visual apply or draw paths.
 - Underground chunks are marked with `set_underground(true)` before `populate_native()` and then receive a fog layer through `init_fog_layer()` after population.
 - Once the chunk is inserted into `_loaded_chunks`, terrain reads and interaction paths use its loaded data even if progressive redraw is still in progress for that chunk.
 - Surface topology is not built inside `Chunk.populate_native()`. After the chunk is attached and registered, `ChunkManager` invalidates topology through native `set_chunk(...); _native_topology_dirty = true`; there is no GDScript topology dirty fallback.

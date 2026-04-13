@@ -1,6 +1,27 @@
 class_name ChunkVisualKernel
 extends RefCounted
 
+## Shared visual kernel contract for chunk redraw and worker-prepared visual batches.
+## Required inputs: request dictionaries provide dense center-chunk arrays
+## `terrain_bytes`, `height_bytes`, `variation_bytes`, `biome_bytes`,
+## `secondary_biome_bytes`, and `ecotone_values`; border reads may additionally
+## supply one-tile `terrain_lookup`, while generation-time prebaked paths may
+## provide full `terrain_halo`.
+## Phase names are owned here via `visual_phase_name()`:
+## `terrain`, `cover`, `cliff`, `flora`, `debug_interior`,
+## `debug_collision`, `done`.
+## Command structure is shared across direct and batch paths:
+## `set` commands carry `layer`, `tile`, `op`, `source_id`, `atlas`, `alt_id`;
+## `erase` commands carry `layer`, `tile`, `op`.
+## Atlas, variant, cover-mask, and cliff-overlay decisions are owned only by
+## this kernel and the matching native `ChunkVisualKernels` implementation.
+## Callers may build requests and apply prepared commands, but must not
+## re-implement presentation rules locally.
+## `TASK_FIRST_PASS` may stop after the terrain/cover/cliff publication path,
+## `TASK_FULL_REDRAW` continues through the later phases to `done`, and dirty
+## redraw / border-fix work must reuse the same request/command contract with
+## an explicit dirty-tile set instead of a second local rule implementation.
+
 const REDRAW_PHASE_TERRAIN: int = 0
 const REDRAW_PHASE_COVER: int = 1
 const REDRAW_PHASE_CLIFF: int = 2

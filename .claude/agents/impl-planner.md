@@ -2,6 +2,11 @@
 name: impl-planner
 description: "Use this agent to plan feature implementation that respects all project governance rules. Takes a feature request and produces an implementation plan with file changes, new files needed, affected systems, EventBus signals, save/load impact, and performance classification. Use BEFORE writing code for any non-trivial feature.\n\nExamples:\n\n- User: \"Спланируй реализацию системы температуры\"\n  (Launch impl-planner agent)\n\n- User: \"Как лучше добавить новый тип врага?\"\n  (Launch impl-planner agent)\n\n- User: \"Продумай архитектуру системы торговли\"\n  (Launch impl-planner agent)\n\n- User: \"Что нужно сделать чтобы добавить новый биом?\"\n  (Launch impl-planner agent)"
 model: opus
+tools: Read, Grep, Glob
+permissionMode: plan
+skills:
+  - mirny-task-router
+  - brainstorming
 color: green
 memory: project
 ---
@@ -16,7 +21,7 @@ memory: project
 2. `docs/00_governance/PERFORMANCE_CONTRACTS.md` — runtime контракты
 3. `docs/05_adrs/0001-runtime-work-and-dirty-update-foundation.md` — dirty/bounded runtime
 4. `docs/00_governance/SIMULATION_AND_THREADING_MODEL.md` — модель симуляции
-5. `TASK.md` — текущий iteration brief (если есть)
+5. Релевантный feature spec или пользовательский brief текущей задачи (если есть)
 
 Если фича затрагивает конкретную подсистему, также прочитай релевантный system spec из `docs/02_system_specs/`.
 
@@ -160,7 +165,7 @@ memory: project
 
 ## Правила работы
 
-- Изучи существующий код перед планированием — не дублируй то, что уже есть
+- Используй документацию как источник архитектуры. Код открывай только точечно для проверки существования конкретных файлов, сигнатур или уже утверждённых extension points.
 - Каждое решение должно быть обосновано ссылкой на governance doc или ADR
 - Если фича не укладывается в текущую архитектуру — скажи прямо и предложи ADR
 - Не начинай писать код — только план

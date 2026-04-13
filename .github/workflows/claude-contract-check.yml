@@ -1,0 +1,58 @@
+name: Claude Contract Check
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  contract-check:
+    name: Contract/API drift check
+    runs-on: windows-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      STRICT_CONTRACT_CHECK: "0"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Static Station Mirny contract/API precheck
+        shell: pwsh
+        run: .\.claude\hooks\check-contract-api-drift.ps1 -BaseRef "${{ github.base_ref || 'main' }}"
+
+      - name: Install Claude Code
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        shell: pwsh
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Headless Claude contract/API review
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        shell: pwsh
+        run: |
+          $base = "origin/${{ github.base_ref || 'main' }}"
+          $diff = git diff --unified=0 "$base...HEAD"
+          $prompt = @"
+          Review this Station Mirny PR diff for contract/API drift only.
+
+          Required reading model:
+          - AGENTS.md
+          - docs/00_governance/WORKFLOW.md
+          - docs/00_governance/PUBLIC_API.md
+          - docs/02_system_specs/world/DATA_CONTRACTS.md when world/runtime/data paths are touched
+
+          Return only:
+          - BLOCKER findings where DATA_CONTRACTS.md or PUBLIC_API.md must be updated
+          - WARNING findings where the diff likely needs human review
+          - OK summary if no drift is visible
+
+          Diff:
+          $diff
+          "@
+          claude -p $prompt --permission-mode plan
+
+      - name: Claude review skipped
+        if: ${{ env.ANTHROPIC_API_KEY == '' }}
+        shell: pwsh
+        run: Write-Host "Headless Claude review skipped because ANTHROPIC_API_KEY is not configured. Static precheck still ran."

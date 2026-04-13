@@ -84,17 +84,35 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 	# Try native C++ path — skip expensive feature/POI computation on worker threads.
 	# Feature/POI payload is deferred to main-thread cache population.
 	if _native_generator != null and _native_generator.has_method("generate_chunk"):
-		var native_start_usec: int = Time.get_ticks_usec()
+		var native_total_start_usec: int = Time.get_ticks_usec()
+		var inputs_start_usec: int = Time.get_ticks_usec()
 		var authoritative_inputs: Dictionary = _build_native_chunk_authoritative_inputs(base_tile, chunk_size)
+		var inputs_ms: float = float(Time.get_ticks_usec() - inputs_start_usec) / 1000.0
+		var native_call_start_usec: int = Time.get_ticks_usec()
 		var native_result: Dictionary = _native_generator.generate_chunk(canonical_chunk, spawn_tile, authoritative_inputs)
-		var native_ms: float = float(Time.get_ticks_usec() - native_start_usec) / 1000.0
+		var native_call_ms: float = float(Time.get_ticks_usec() - native_call_start_usec) / 1000.0
 		if not native_result.is_empty():
-			if _validate_native_chunk_payload(native_result, canonical_chunk, chunk_size):
+			var validate_start_usec: int = Time.get_ticks_usec()
+			var native_payload_valid: bool = _validate_native_chunk_payload(native_result, canonical_chunk, chunk_size)
+			var validate_ms: float = float(Time.get_ticks_usec() - validate_start_usec) / 1000.0
+			if native_payload_valid:
 				native_result["generation_source"] = "native_chunk_generator"
 				native_result[FEATURE_AND_POI_PAYLOAD_KEY] = _empty_feature_and_poi_payload()
-				native_result.merge(_build_prebaked_visual_payload(native_result, canonical_chunk, base_tile, chunk_size), true)
-				if native_ms >= CHUNK_GEN_SLOW_LOG_THRESHOLD_MS:
-					print("[ChunkGen] slow native generate_chunk %s: %.1f ms" % [canonical_chunk, native_ms])
+				var prebaked_start_usec: int = Time.get_ticks_usec()
+				var prebaked_visual_payload: Dictionary = _build_prebaked_visual_payload(native_result, canonical_chunk, base_tile, chunk_size)
+				var prebaked_ms: float = float(Time.get_ticks_usec() - prebaked_start_usec) / 1000.0
+				native_result.merge(prebaked_visual_payload, true)
+				var native_total_ms: float = float(Time.get_ticks_usec() - native_total_start_usec) / 1000.0
+				_record_native_chunk_generation_metrics(canonical_chunk, inputs_ms, native_call_ms, validate_ms, prebaked_ms, native_total_ms)
+				if native_total_ms >= CHUNK_GEN_SLOW_LOG_THRESHOLD_MS:
+					print("[ChunkGen] slow native generate_chunk %s: %.1f ms (inputs=%.1f native=%.1f validate=%.1f prebaked=%.1f)" % [
+						canonical_chunk,
+						native_total_ms,
+						inputs_ms,
+						native_call_ms,
+						validate_ms,
+						prebaked_ms,
+					])
 				return native_result
 	# GDScript fallback — compute feature/POI here
 	var feature_and_poi_payload: Dictionary = _build_feature_and_poi_payload(canonical_chunk, base_tile, chunk_size)
@@ -233,6 +251,20 @@ func _build_native_chunk_authoritative_inputs(base_tile: Vector2i, chunk_size: i
 		"floodplain_strength_values": floodplain_strength_values,
 		"mountain_mass_values": mountain_mass_values,
 	}
+
+func _record_native_chunk_generation_metrics(
+	canonical_chunk: Vector2i,
+	inputs_ms: float,
+	native_call_ms: float,
+	validate_ms: float,
+	prebaked_ms: float,
+	total_ms: float
+) -> void:
+	WorldPerfProbe.record("ChunkGen.authoritative_inputs_ms %s" % [canonical_chunk], inputs_ms)
+	WorldPerfProbe.record("ChunkGen.native_call_ms %s" % [canonical_chunk], native_call_ms)
+	WorldPerfProbe.record("ChunkGen.native_validate_ms %s" % [canonical_chunk], validate_ms)
+	WorldPerfProbe.record("ChunkGen.prebaked_visual_payload_ms %s" % [canonical_chunk], prebaked_ms)
+	WorldPerfProbe.record("ChunkGen.native_total_ms %s" % [canonical_chunk], total_ms)
 
 func build_tile_data(tile_x: int, tile_y: int) -> TileGenData:
 	if _terrain_resolver == null:

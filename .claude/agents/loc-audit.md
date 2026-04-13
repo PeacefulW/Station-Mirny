@@ -2,6 +2,10 @@
 name: loc-audit
 description: "Use this agent to audit localization completeness and correctness. Finds missing translation keys, hardcoded user-facing strings in code, inconsistencies between locale files, and unused translation keys.\n\nExamples:\n\n- User: \"Проверь локализацию\"\n  (Launch loc-audit agent)\n\n- User: \"Какие строки не переведены?\"\n  (Launch loc-audit agent)\n\n- User: \"Найди хардкод строки в коде\"\n  (Launch loc-audit agent)\n\n- User: \"Синхронизированы ли ru и en переводы?\"\n  (Launch loc-audit agent)"
 model: sonnet
+tools: Read, Grep, Glob
+permissionMode: plan
+skills:
+  - localization-pipeline-keeper
 color: pink
 memory: project
 ---
@@ -13,7 +17,7 @@ memory: project
 Перед аудитом прочитай:
 
 1. `docs/00_governance/ENGINEERING_STANDARDS.md` §12 — правила локализации
-2. Все файлы в `locale/` — CSV/PO файлы переводов
+2. Релевантные файлы в `locale/` — CSV/PO файлы переводов, связанные с текущим scope
 
 ## Методика аудита
 

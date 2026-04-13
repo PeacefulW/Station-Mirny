@@ -1,6 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
+    "defaultMode": "plan",
     "allow": [
       "WebSearch",
       "WebFetch(domain:docs.godotengine.org)",
@@ -30,6 +31,14 @@
       "Bash([ -f \"C:/Users/peaceful/Station Peaceful/Station Peaceful/$f\" ])",
       "Bash(grep -r \"ROCK\\\\|RockLayer\\\\|mountain\\\\|roof\" core/systems/world/*.gd --include=\"*.gd\")",
       "Bash(grep -E \"\\\\.gd$\")"
+    ],
+    "deny": [
+      "Bash(git reset --hard*)",
+      "Bash(git checkout --*)",
+      "Bash(git clean*)",
+      "Bash(rm -rf*)",
+      "Bash(del /s*)",
+      "Bash(Remove-Item * -Recurse*)"
     ]
   },
   "hooks": {
@@ -51,6 +60,31 @@
             "type": "command",
             "command": "& (Join-Path \"$env:CLAUDE_PROJECT_DIR\" '.claude\\hooks\\docs-preflight-context.ps1')",
             "shell": "powershell"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "& (Join-Path \"$env:CLAUDE_PROJECT_DIR\" '.claude\\hooks\\guard-pretooluse.ps1')",
+            "shell": "powershell",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "& (Join-Path \"$env:CLAUDE_PROJECT_DIR\" '.claude\\hooks\\guard-stop.ps1')",
+            "shell": "powershell",
+            "timeout": 10
           }
         ]
       }

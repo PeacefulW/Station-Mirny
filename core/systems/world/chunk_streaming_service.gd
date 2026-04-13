@@ -317,8 +317,7 @@ func _save_dirty_chunk_data(chunk: Chunk, coord: Vector2i, z_level: int) -> void
 	_owner._saved_chunk_data[_make_chunk_state_key(z_level, coord)] = chunk.get_modifications()
 
 func _remove_surface_chunk_from_topology(coord: Vector2i) -> void:
-	_owner._native_topology_builder.call("remove_chunk", coord)
-	_owner._native_topology_dirty = true
+	_owner._remove_surface_chunk_from_topology(coord)
 
 func _has_relevant_runtime_generate_task() -> bool:
 	var load_radius: int = WorldGenerator.balance.load_radius if WorldGenerator and WorldGenerator.balance else 0
@@ -647,6 +646,13 @@ func collect_completed_runtime_generates(load_radius: int) -> void:
 		gen_mutex.unlock()
 		var completed_data: Dictionary = completed_entry.get("native_data", {}) as Dictionary
 		var completed_flora_payload: Dictionary = completed_entry.get("flora_payload", {}) as Dictionary
+		var worker_total_ms: float = float(completed_entry.get("worker_total_ms", 0.0))
+		var worker_native_data_ms: float = float(completed_entry.get("worker_native_data_ms", 0.0))
+		var worker_flora_payload_ms: float = float(completed_entry.get("worker_flora_payload_ms", 0.0))
+		var submit_to_collect_overhead_ms: float = maxf(0.0, generation_ms - worker_total_ms) if worker_total_ms > 0.0 else generation_ms
+		WorldPerfProbe.record("ChunkGen.submit_to_collect_ms %s@z%d" % [coord, request_z], generation_ms)
+		if submit_to_collect_overhead_ms > 0.0:
+			WorldPerfProbe.record("ChunkGen.submit_to_collect_overhead_ms %s@z%d" % [coord, request_z], submit_to_collect_overhead_ms)
 		if not completed_data.is_empty():
 			_cache_surface_chunk_payload(coord, request_z, completed_data)
 			if request_z == 0 and not completed_flora_payload.is_empty():
@@ -680,7 +686,15 @@ func collect_completed_runtime_generates(load_radius: int) -> void:
 			"ready",
 			"данные готовы",
 			"queued_not_applied",
-			{"duration_ms": generation_ms, "ready_queue_depth": gen_ready_queue.size()}
+			{
+				"duration_ms": generation_ms,
+				"worker_total_ms": worker_total_ms,
+				"worker_native_data_ms": worker_native_data_ms,
+				"worker_flora_payload_ms": worker_flora_payload_ms,
+				"submit_to_collect_overhead_ms": submit_to_collect_overhead_ms,
+				"active_generators": gen_active_tasks.size(),
+				"ready_queue_depth": gen_ready_queue.size(),
+			}
 		)
 	sort_runtime_ready_queue()
 	sync_runtime_generation_status()
@@ -911,4 +925,3 @@ func clear_staged_request() -> void:
 	staged_flora_result = null
 	staged_flora_payload = {}
 	staged_install_entry = {}
-

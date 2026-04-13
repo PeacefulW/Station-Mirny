@@ -10,6 +10,8 @@ const BAND_BORDER_FIX_FAR: int = 5
 const BAND_FULL_FAR: int = 6
 
 var _owner: Node = null
+var _hot_path_debug_system = null
+var _hot_path_forensics_enabled: bool = false
 
 var q_terrain_fast: Array[Dictionary] = []
 var q_terrain_urgent: Array[Dictionary] = []
@@ -40,6 +42,9 @@ var log_ticks: int = 0
 
 func setup(owner: Node) -> void:
 	_owner = owner
+	_hot_path_debug_system = owner._chunk_debug_system if owner != null else null
+	_hot_path_forensics_enabled = _hot_path_debug_system != null \
+		and _hot_path_debug_system.is_hot_path_forensics_enabled()
 
 func clear_runtime_state() -> void:
 	for task_variant: Variant in compute_active.values():
@@ -693,7 +698,7 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 			return _owner.VisualComputeSubmitState.UNAVAILABLE
 		return _owner.VisualComputeSubmitState.SUBMITTED
 	var can_prepare_immediately: bool = bool(request.get("skip_worker_compute", false)) \
-		and int(request.get("phase", Chunk.REDRAW_PHASE_DONE)) == Chunk.REDRAW_PHASE_FLORA
+		and int(request.get("phase", ChunkVisualKernel.REDRAW_PHASE_DONE)) == ChunkVisualKernel.REDRAW_PHASE_FLORA
 	if inline_border_fix:
 		can_prepare_immediately = true
 	if can_prepare_immediately:
@@ -845,7 +850,13 @@ func _pop_allowed_task_from_queue(queue: Array[Dictionary], processed_by_kind: D
 		var processed_count: int = int(processed_by_kind.get(kind, 0))
 		if processed_count < _resolve_visual_max_tasks_per_tick(kind, band):
 			return task
-		_owner._debug_note_visual_task_event(task, "visual_task_skipped_kind_cap", {}, "kind_cap")
+		if _hot_path_forensics_enabled and _hot_path_debug_system != null:
+			_hot_path_debug_system.note_visual_task_event(
+				task,
+				"visual_task_skipped_kind_cap",
+				{},
+				"kind_cap"
+			)
 		queue.append(task)
 	return {}
 
@@ -860,7 +871,8 @@ func _process_one_task(deadline_usec: int, processed_by_kind: Dictionary) -> int
 	var task: Dictionary = _pop_next_task(processed_by_kind)
 	if task.is_empty():
 		return -1
-	_owner._debug_note_visual_task_event(task, "visual_task_selected")
+	if _hot_path_forensics_enabled and _hot_path_debug_system != null:
+		_hot_path_debug_system.note_visual_task_event(task, "visual_task_selected")
 	var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
 	var run_state: int = _process_visual_task(task, deadline_usec)
 	if run_state == _owner.VisualTaskRunState.REQUEUE:

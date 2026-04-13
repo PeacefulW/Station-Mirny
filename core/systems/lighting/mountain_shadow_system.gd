@@ -50,6 +50,8 @@ var _boot_shadow_completion_emitted: bool = false
 var _worker_task_serial: int = 0
 var _native_shadow_kernels_checked: bool = false
 var _native_shadow_kernels_available: bool = false
+var _native_shadow_kernel_instance_warning_emitted: bool = false
+var _sync_boot_shadow_runtime_warning_emitted: bool = false
 
 signal boot_shadow_work_drained
 
@@ -99,6 +101,7 @@ func _resolve_dependencies() -> void:
 	)
 
 func build_boot_shadows() -> void:
+	_warn_if_sync_boot_shadow_after_handoff(&"build_boot_shadows")
 	if not _chunk_manager:
 		_resolve_dependencies()
 	if not _is_surface_context() or not _chunk_manager:
@@ -151,6 +154,7 @@ func schedule_boot_shadows() -> void:
 	_refresh_boot_shadow_completion_state()
 
 func prepare_boot_shadows(progress_callback: Callable) -> void:
+	_warn_if_sync_boot_shadow_after_handoff(&"prepare_boot_shadows")
 	if not _chunk_manager:
 		_resolve_dependencies()
 	if not _is_surface_context() or not _chunk_manager:
@@ -1503,6 +1507,11 @@ func _cache_native_shadow_kernels_support() -> void:
 	_native_shadow_kernels_checked = true
 	_native_shadow_kernels_available = ClassDB.class_exists(NATIVE_SHADOW_KERNELS_CLASS) \
 		and ClassDB.can_instantiate(NATIVE_SHADOW_KERNELS_CLASS)
+	if _native_shadow_kernels_available:
+		WorldPerfProbe.mark("Shadow.native_kernels_available")
+	else:
+		WorldPerfProbe.mark("Shadow.native_kernels_unavailable")
+	print("[Shadow] MountainShadowKernels available=%s" % [str(_native_shadow_kernels_available)])
 
 func _create_shadow_kernels() -> RefCounted:
 	_cache_native_shadow_kernels_support()
@@ -1510,10 +1519,28 @@ func _create_shadow_kernels() -> RefCounted:
 		return null
 	var instance: Object = ClassDB.instantiate(NATIVE_SHADOW_KERNELS_CLASS)
 	if instance == null:
+		_warn_native_shadow_kernel_instance(&"instantiate_failed")
 		return null
 	if not instance.has_method("compute_edge_cache") or not instance.has_method("rasterize_shadow_image"):
+		_warn_native_shadow_kernel_instance(&"missing_required_methods")
 		return null
 	return instance as RefCounted
+
+func _warn_native_shadow_kernel_instance(reason: StringName) -> void:
+	if _native_shadow_kernel_instance_warning_emitted:
+		return
+	_native_shadow_kernel_instance_warning_emitted = true
+	WorldPerfProbe.mark("Shadow.native_kernels_fallback.%s" % [String(reason)])
+	push_warning("[Shadow] MountainShadowKernels fallback: %s" % [String(reason)])
+
+func _warn_if_sync_boot_shadow_after_handoff(api_name: StringName) -> void:
+	if _sync_boot_shadow_runtime_warning_emitted:
+		return
+	if not WorldPerfProbe.has_milestone("Boot.first_playable"):
+		return
+	_sync_boot_shadow_runtime_warning_emitted = true
+	WorldPerfProbe.mark("Shadow.sync_boot_after_first_playable")
+	push_warning("[Shadow] synchronous %s() called after Boot.first_playable; use budgeted schedule_boot_shadows() outside boot." % [String(api_name)])
 
 func _wait_for_active_compute_tasks() -> void:
 	if not _active_edge_cache_build.is_empty():

@@ -2,6 +2,8 @@
 name: signal-tracer
 description: "Use this agent to trace EventBus signal flows, find disconnected or orphaned signals, detect circular dependencies, and verify that inter-system communication follows the EventBus pattern. Also use to understand how a specific event propagates through the codebase.\n\nExamples:\n\n- User: \"Какие сигналы EventBus не используются?\"\n  (Launch signal-tracer agent)\n\n- User: \"Проследи цепочку от building_placed до обновления power grid\"\n  (Launch signal-tracer agent)\n\n- User: \"Нет ли прямых связей между системами в обход EventBus?\"\n  (Launch signal-tracer agent)\n\n- User: \"Покажи граф сигналов для системы крафта\"\n  (Launch signal-tracer agent)"
 model: sonnet
+tools: Read, Grep, Glob
+permissionMode: plan
 color: cyan
 memory: project
 ---
@@ -91,7 +93,7 @@ A.emit(x) -> B.on_x() -> B.emit(y) -> A.on_y() -> A.emit(x) — потенциа
 
 ## Правила работы
 
-- Используй Grep для поиска `.connect(`, `.emit(`, `signal ` по всей кодовой базе
+- Используй Grep для поиска `.connect(`, `.emit(`, `signal ` в task-scoped paths. Полный repo-wide trace делай только по явному запросу пользователя.
 - Трассируй call chains полностью — не останавливайся на первом уровне
 - Если пользователь просит про конкретный сигнал — покажи полный граф
 - Отвечай на русском языке
