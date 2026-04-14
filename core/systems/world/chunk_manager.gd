@@ -140,7 +140,7 @@ var _chunk_seam_service: ChunkSeamService = null
 var _chunk_visual_scheduler: ChunkVisualScheduler = null
 var _chunk_topology_service: ChunkTopologyService = null
 var _chunk_boot_pipeline: ChunkBootPipeline = null
-var _is_boot_in_progress: bool = false
+var _is_boot_in_progress: bool = true  ## Fail-closed: block runtime player-chunk checks until boot entrypoint really runs.
 
 ## --- Boot readiness state (boot_chunk_readiness_spec) ---
 enum BootChunkState {
@@ -251,7 +251,6 @@ func boot_load_initial_chunks(progress_callback: Callable) -> void:
 	_is_boot_in_progress = true
 	var boot_entry_ready: bool = await _await_boot_entrypoint_ready()
 	if not boot_entry_ready:
-		_is_boot_in_progress = false
 		push_error("ChunkManager.boot_load_initial_chunks(): boot entrypoint was called before deferred init became ready.")
 		return
 	await _chunk_boot_pipeline.boot_load_initial_chunks(progress_callback)

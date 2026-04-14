@@ -271,7 +271,7 @@ func _run_boot_sequence() -> void:
 	if _chunk_manager and _chunk_manager.is_boot_first_playable():
 		_on_boot_first_playable()
 	else:
-		_finish_boot_sequence()
+		push_error("GameWorld._run_boot_sequence(): boot entry returned before first_playable; keeping loading screen active.")
 
 # --- Z-уровни ---
 
