@@ -162,14 +162,15 @@ func _apply_refresh_tile(tile_pos: Vector2i) -> void:
 				cross_dirty[seam_tile] = true
 	if not cross_dirty.is_empty() \
 		and neighbor_chunk.enqueue_dirty_border_redraw(cross_dirty, reason_key, reason_version):
-		_ensure_chunk_border_fix_task(neighbor_chunk, active_z, true)
-		var queued_coords: Array[Vector2i] = [neighbor_chunk.chunk_coord]
-		var follow_up_terms: Array[String] = ["local_patch", "border_fix"]
-		_emit_border_fix_queue_diag(
-			&"seam_mining_async",
-			neighbor_chunk.chunk_coord,
-			queued_coords,
-			"добыча на шве изменила открытую границу, поэтому соседнему чанку нужна последующая перерисовка",
-			follow_up_terms,
-			tile_pos
-		)
+		if not _try_complete_visible_border_fix_inline(neighbor_chunk, active_z):
+			_ensure_chunk_border_fix_task(neighbor_chunk, active_z, true)
+			var queued_coords: Array[Vector2i] = [neighbor_chunk.chunk_coord]
+			var follow_up_terms: Array[String] = ["local_patch", "border_fix"]
+			_emit_border_fix_queue_diag(
+				&"seam_mining_async",
+				neighbor_chunk.chunk_coord,
+				queued_coords,
+				"добыча на шве изменила открытую границу, поэтому соседнему чанку нужна последующая перерисовка",
+				follow_up_terms,
+				tile_pos
+			)

@@ -25,7 +25,7 @@ extends Resource
 @export var zoom_min: float = 1.0
 ## Максимальный зум (приближение).
 @export var zoom_max: float = 4.0
-## Чувствительность зума при скролле.
+## Шаг зума при скролле.
 @export var zoom_step: float = 0.25
 ## Скорость интерполяции зума.
 @export var zoom_speed: float = 8.0

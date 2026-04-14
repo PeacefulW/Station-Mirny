@@ -9,6 +9,7 @@
 
 - 2026-04-14: user clarified that runtime streaming must ignore debug zoom / raw camera-visible expansion. Target gameplay envelope is fixed `3x3` hot around the player plus `5x5` warm follow-up; the current camera-visible-driven runtime behavior now requires follow-up implementation against the updated specs.
 - 2026-04-14: `feature_and_poi_payload` assembly moved into native `ChunkGenerator`, the GDScript resolver/fallback path was deleted, and `build_chunk_content()` now hydrates from the same authoritative packet as `build_chunk_native_data()`. Remaining perf hotspot has shifted to native visual payload generation / streaming redraw rather than feature/POI payload assembly.
+- 2026-04-14: post-R4 follow-up fixed two regressions outside the spec body: player camera zoom returned to additive stepping with the correct `zoom_min` clamp so the full `5x5` debug bubble is reachable again, and mining/seam local border-fix paths now attempt immediate player-near completion before deferred invalidation so harvesting on the occupied chunk does not demote it to `full_pending` and trip zero-tolerance readiness.
 
 ## Documentation debt
 

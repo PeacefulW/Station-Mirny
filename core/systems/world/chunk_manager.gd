@@ -1574,7 +1574,11 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	# Same-chunk neighbor re-normalization (MINED_FLOOR <-> MOUNTAIN_ENTRANCE)
 	chunk.refresh_open_neighbors_with_operation_cache(local_tile)
 	if chunk.redraw_mining_patch(local_tile):
-		_ensure_chunk_border_fix_task(chunk, _active_z, true)
+		# Keep the occupied/near chunk converged if the local dirty patch can be
+		# repaired immediately; only fall back to deferred invalidation when it
+		# truly cannot be finished inline.
+		if not _try_complete_visible_border_fix_inline(chunk, _active_z):
+			_ensure_chunk_border_fix_task(chunk, _active_z, true)
 	# Cross-chunk seam: normalize + redraw affected neighbor chunks
 	_seam_normalize_and_redraw(tile_pos, local_tile, chunk)
 	_on_mountain_tile_changed(tile_pos, int(result["old_type"]), int(result["new_type"]))

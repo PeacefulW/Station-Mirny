@@ -45,17 +45,17 @@ func handle_zoom_input(event: InputEvent) -> bool:
 	return false
 
 func _apply_zoom_step(direction: int, wheel_factor: float = 1.0) -> void:
-	var safe_wheel_factor: float = maxf(1.0, absf(wheel_factor))
-	var zoom_factor: float = pow(_resolve_zoom_step_factor(), safe_wheel_factor)
+	var zoom_delta: float = _resolve_zoom_step_delta(wheel_factor)
 	if direction > 0:
-		_target_zoom = _clamp_zoom_value(_target_zoom * zoom_factor)
+		_target_zoom = _clamp_zoom_value(_target_zoom + zoom_delta)
 	else:
-		_target_zoom = _clamp_zoom_value(_target_zoom / zoom_factor)
+		_target_zoom = _clamp_zoom_value(_target_zoom - zoom_delta)
 
-func _resolve_zoom_step_factor() -> float:
+func _resolve_zoom_step_delta(wheel_factor: float = 1.0) -> float:
+	var safe_wheel_factor: float = maxf(1.0, absf(wheel_factor))
 	if _balance == null:
-		return 1.05
-	return 1.0 + clampf(_balance.zoom_step * 0.4, 0.02, 0.12)
+		return 0.1 * safe_wheel_factor
+	return maxf(0.01, _balance.zoom_step * safe_wheel_factor)
 
 func _clamp_zoom_value(value: float) -> float:
 	return clampf(value, _zoom_min_limit(), _zoom_max_limit())
