@@ -2,14 +2,30 @@
 
 **Spec**: docs/04_execution/frontier_native_runtime_execution_plan.md
 **Started**: 2026-04-13
-**Current iteration**: R4
+**Current iteration**: R4 stabilization
 **Total iterations**: 10
 
 ## Spec revision log
 
+- 2026-04-14: runtime log review reopened `R4` as a stabilization gate before `R5`. Do not advance to `R5` (`Vehicles and Trains`) until the `P0/P1` blockers below are resolved; `R4` frontier scheduling is not considered progression-ready while these main-thread/publication/perf violations remain.
 - 2026-04-14: user clarified that runtime streaming must ignore debug zoom / raw camera-visible expansion. Target gameplay envelope is fixed `3x3` hot around the player plus `5x5` warm follow-up; the current camera-visible-driven runtime behavior now requires follow-up implementation against the updated specs.
 - 2026-04-14: `feature_and_poi_payload` assembly moved into native `ChunkGenerator`, the GDScript resolver/fallback path was deleted, and `build_chunk_content()` now hydrates from the same authoritative packet as `build_chunk_native_data()`. Remaining perf hotspot has shifted to native visual payload generation / streaming redraw rather than feature/POI payload assembly.
-- 2026-04-14: post-R4 follow-up fixed two regressions outside the spec body: player camera zoom returned to additive stepping with the correct `zoom_min` clamp so the full `5x5` debug bubble is reachable again, and mining/seam local border-fix paths now attempt immediate player-near completion before deferred invalidation so harvesting on the occupied chunk does not demote it to `full_pending` and trip zero-tolerance readiness.
+- 2026-04-14: post-R4 follow-up fixed two regressions outside the spec body: player camera zoom returned to additive stepping and the shipped balance resource now extends the debug zoom-out range to `zoom_min = 0.2` with `zoom_step = 0.1`, so the full `5x5` debug bubble is reachable again; mining/seam local border-fix paths also now attempt immediate player-near completion before deferred invalidation so harvesting on the occupied chunk does not demote it to `full_pending` and trip zero-tolerance readiness.
+
+## Runtime blockers before R5
+
+- [ ] `[P0]` Интерактивный фриз при добыче: `ChunkManager.try_harvest_at_world` срабатывает 51 раз, среднее `190.0 ms`, пик `225.2 ms` при контракте `2.0 ms` в `godot.log:2981` и `godot.log:2996`. Это уже прямой `player-visible freeze`.
+- [ ] `[P0]` Самый тяжёлый стоп-кадр в runtime сейчас — `visual dispatcher`: `FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw` имеет среднее `330 ms`, пик `735 ms` при бюджете `2 ms`; вместе с ним `FrameBudgetDispatcher.total` дошёл до `735.8 ms` в `godot.log:962` и `godot.log:965`.
+- [ ] `[P0]` `streaming install/finalize` всё ещё делает слишком много работы в `main thread`: `ChunkStreaming.phase2_finalize` доходит до `587.9 ms`, а `streaming_load` budget-step до `589.6 ms` при лимите `3 ms` в `godot.log:526` и `godot.log:531`. Для frontier-native runtime это один из главных нарушителей.
+- [ ] `[P1]` В логе всё ещё виден legacy `publish-then-finish-later`: near/player chunks ставятся в мир со статусом `building_visual` и `impact=player_visible_issue` в `godot.log:94` и `godot.log:100`, а потом десятки секунд добираются до публикации: `stream.chunk_first_pass_ms` в среднем `38.7 s`, `stream.chunk_full_redraw_ms` в среднем `33.7 s`, пики `51.2-53.7 s` в `godot.log:3356` и `godot.log:3397`. Это конфликтует с `zero_tolerance_chunk_readiness_spec.md:27` и `frontier_native_runtime_architecture_spec.md:270`.
+- [ ] `[P1]` Boot тормозит в основном очередями и `convergence debt`, не только generation: `Startup.loading_screen_visible_to_startup_bubble_ready_ms = 51.9 s` в `godot.log:469`, `boot_complete reached = 95.2 s` с `queue_wait=71575 ms`, `compute=15411 ms`, `apply=20.3 ms` в `godot.log:1145`. Wall-clock убивает не `apply`, а ожидание и поздняя публикация.
+- [ ] `[P2]` Самый дорогой compute внутри chunk build — `visual payload`: по всему логу `ChunkGen.native_total_ms` в среднем `636.6 ms`, из них `native_visual_payload_ms = 568.0 ms`, а сам `native_call_ms = 66.8 ms`; worst case `831.4 ms = native 111.6 + prebaked/visual 719.6` в `godot.log:2493` и `godot.log:2497`.
+- [ ] `[P2]` `shadow/seam` follow-up тоже дорогие: `Shadow.edge_cache_compute` до `488.5 ms` в `godot.log:101`, `stream.chunk_border_fix_ms` до `7.56 s age` в `godot.log:2056`. После mining ещё остаётся queued `shadow_refresh` на текущем чанке в `godot.log:2997`.
+
+### 2026-04-14 P0 pass 1 status
+
+- Приземлён узкий runtime fix: synchronous `border_fix` completion убран из mining frame, `stream_load` seam follow-up и player-near relief path; `player-near border_fix` worker-prepared batches больше не заменяются намеренно на main-thread fallback.
+- Следующий шаг: снять свежий `godot.log` и проверить, насколько именно просели `ChunkManager.try_harvest_at_world`, `FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw` и `ChunkStreaming.phase2_finalize`.
 
 ## Documentation debt
 

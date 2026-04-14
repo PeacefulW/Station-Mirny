@@ -689,13 +689,7 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 	var player_near_border_fix: bool = kind == _owner.VisualTaskKind.TASK_BORDER_FIX \
 		and band == _owner.VisualPriorityBand.BORDER_FIX_NEAR \
 		and _owner._is_player_near_visual_chunk(coord, z_level)
-	var prefer_sync_player_near_border_fix: bool = player_near_border_fix \
-		and band == _owner.VisualPriorityBand.BORDER_FIX_NEAR \
-		and not inline_border_fix
-	var force_sync_border_fix: bool = bool(task.get("force_sync_border_fix", false))
 	if compute_active.has(key) or compute_waiting_tasks.has(key):
-		if player_near_border_fix or force_sync_border_fix:
-			return _owner.VisualComputeSubmitState.UNAVAILABLE
 		return _owner.VisualComputeSubmitState.SUBMITTED
 	var can_prepare_immediately: bool = bool(request.get("skip_worker_compute", false)) \
 		and int(request.get("phase", ChunkVisualKernel.REDRAW_PHASE_DONE)) == ChunkVisualKernel.REDRAW_PHASE_FLORA
@@ -717,8 +711,6 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 		else:
 			push_task(immediate_task)
 		return _owner.VisualComputeSubmitState.SUBMITTED
-	if prefer_sync_player_near_border_fix or force_sync_border_fix:
-		return _owner.VisualComputeSubmitState.UNAVAILABLE
 	if not _can_submit_visual_compute_now(band):
 		if kind == _owner.VisualTaskKind.TASK_BORDER_FIX \
 			and band == _owner.VisualPriorityBand.BORDER_FIX_NEAR \
@@ -730,7 +722,7 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 				"compute_cap",
 				"worker_capacity_blocked"
 			)
-			return _owner.VisualComputeSubmitState.UNAVAILABLE
+			return _owner.VisualComputeSubmitState.BLOCKED
 		_owner._debug_note_visual_task_event(
 			task,
 			"visual_task_compute_blocked",
@@ -789,21 +781,6 @@ func _collect_completed_visual_compute(deadline_usec: int) -> void:
 			collected_count += 1
 			continue
 		if int(task_pending.get(key, -1)) != int(batch.get("invalidation_version", -1)):
-			collected_count += 1
-			continue
-		if int(waiting_task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC)) == _owner.VisualTaskKind.TASK_BORDER_FIX \
-			and _owner._is_player_near_visual_chunk(
-				waiting_task.get("chunk_coord", Vector2i.ZERO) as Vector2i,
-				int(waiting_task.get("z", _active_z()))
-			):
-			var waiting_chunk: Chunk = _get_visual_task_chunk(waiting_task)
-			if waiting_chunk != null and is_instance_valid(waiting_chunk) and waiting_chunk.has_pending_border_dirty():
-				_owner._enqueue_player_near_border_fix_relief_task(
-					waiting_chunk,
-					int(waiting_task.get("z", _active_z())),
-					int(waiting_task.get("invalidation_version", -1)),
-					"worker_result_replaced_by_sync"
-				)
 			collected_count += 1
 			continue
 		var prepare_ms: float = float(batch.get("prepare_ms", 0.0))

@@ -461,9 +461,9 @@ related_docs:
 - Пример вызова: `await chunk_manager.boot_load_initial_chunks(_on_boot_progress)`
 
 `ChunkManager.try_harvest_at_world(world_pos: Vector2) -> Dictionary`
-- Когда вызывать: когда mining должен immediately обновить terrain/cover/cliff visuals и wall-form selection.
-- Что делает: immediately patch-redraws локальный dirty set и same-chunk normalized neighbors для отзывчивости, затем переводит affected chunks в non-terminal convergence state и ставит explicit follow-up work через scheduler-owned `TASK_FULL_REDRAW` / `TASK_BORDER_FIX` для seam repair и terminal full-ready reconciliation; потом downstream reveal/shadow listeners обновляются через event.
-- Гарантии: соблюдает `Postconditions: mine tile` и current `Wall Atlas Selection` contract. Immediate local redraw не считается сам по себе восстановлением terminal `FULL_READY`, если ещё остался owed seam/border convergence work.
+- Когда вызывать: когда mining должен сразу зафиксировать authoritative terrain mutation и передать локальный/seam visual repair в sanctioned runtime path без прямого обхода scheduler owner.
+- Что делает: выполняет sanctioned local terrain mutation, same-chunk neighbor normalization и downstream topology/event invalidation, затем переводит affected chunks в non-terminal convergence state и ставит explicit follow-up work через scheduler-owned `TASK_FULL_REDRAW` / `TASK_BORDER_FIX` для local patch repair, seam repair и terminal full-ready reconciliation.
+- Гарантии: соблюдает `Postconditions: mine tile` и current `Wall Atlas Selection` contract. Interactive path не форсит synchronous border-fix completion; terminal `FULL_READY` восстанавливается только через owner-controlled queued convergence work.
 - Пример вызова: `var result := chunk_manager.try_harvest_at_world(hit_world_pos)`
 
 `MountainShadowSystem.prepare_boot_shadows(progress_callback: Callable) -> void`

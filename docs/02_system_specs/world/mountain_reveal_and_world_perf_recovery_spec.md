@@ -103,7 +103,7 @@ The synchronous part of mining is limited to:
 - mutate one terrain tile through the sanctioned path
 - renormalize the immediate same-chunk / seam-local neighbors already owned by the mining orchestration
 - enqueue topology, reveal, and shadow dirty work
-- publish the immediate local response that keeps the action feeling responsive
+- hand off the local visual response into the highest-priority scheduler-owned dirty-unit path without forcing synchronous border-fix completion in the mining frame
 
 Forbidden in the synchronous mining chain:
 
@@ -294,7 +294,7 @@ Goal: keep the synchronous mining path within contract by moving the heavy revea
 
 What is done:
 
-- `ChunkManager.try_harvest_at_world()` is reduced to local mutation, local neighbor normalization, immediate local patch response, and dirty work enqueue.
+- `ChunkManager.try_harvest_at_world()` is reduced to local mutation, local neighbor normalization, and dirty work enqueue; local patch repair now stays scheduler-owned instead of forcing synchronous border-fix completion in the interactive frame.
 - reveal no longer recomputes opened pockets through `query_local_underground_zone()` as the default runtime path after every mine. The default runtime path becomes topology/open-component driven.
 - topology processing becomes dirty-unit based:
   - changed tiles and touched seams are queued

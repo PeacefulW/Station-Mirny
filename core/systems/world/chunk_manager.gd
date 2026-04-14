@@ -1574,11 +1574,9 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	# Same-chunk neighbor re-normalization (MINED_FLOOR <-> MOUNTAIN_ENTRANCE)
 	chunk.refresh_open_neighbors_with_operation_cache(local_tile)
 	if chunk.redraw_mining_patch(local_tile):
-		# Keep the occupied/near chunk converged if the local dirty patch can be
-		# repaired immediately; only fall back to deferred invalidation when it
-		# truly cannot be finished inline.
-		if not _try_complete_visible_border_fix_inline(chunk, _active_z):
-			_ensure_chunk_border_fix_task(chunk, _active_z, true)
+		# Interactive mining must stay on the authoritative mutation path only.
+		# Visual repair escalates to the queued border-fix owner path.
+		_ensure_chunk_border_fix_task(chunk, _active_z, true)
 	# Cross-chunk seam: normalize + redraw affected neighbor chunks
 	_seam_normalize_and_redraw(tile_pos, local_tile, chunk)
 	_on_mountain_tile_changed(tile_pos, int(result["old_type"]), int(result["new_type"]))
@@ -2451,7 +2449,7 @@ func _stabilize_player_near_border_fix_chunks(z_level: int) -> void:
 			continue
 		if not chunk.has_pending_border_dirty():
 			continue
-		_try_complete_visible_border_fix_inline(chunk, z_level)
+		_ensure_chunk_border_fix_task(chunk, z_level)
 
 func _enqueue_player_near_border_fix_relief_task(
 	chunk: Chunk,
@@ -2469,7 +2467,6 @@ func _enqueue_player_near_border_fix_relief_task(
 		and _chunk_visual_scheduler.promote_existing_task_to_front(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX):
 		return true
 	var task: Dictionary = _build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, task_version)
-	task["force_sync_border_fix"] = true
 	_debug_upsert_visual_task_meta(task)
 	if _chunk_visual_scheduler != null:
 		_chunk_visual_scheduler.push_task_front(task)
@@ -2505,10 +2502,14 @@ func _try_force_complete_stuck_player_border_fix(
 	if not _is_player_near_visual_chunk(chunk.chunk_coord, z_level):
 		return relief
 	var task_key: Vector4i = _make_visual_task_key(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
+	var dirty_count: int = chunk.get_pending_border_dirty_count()
 	if not _chunk_visual_scheduler.task_pending.has(task_key):
+		if dirty_count > 0:
+			_ensure_chunk_border_fix_task(chunk, z_level)
+			relief["promoted_border_fix_task"] = true
+			relief["remaining_dirty_tiles"] = dirty_count
 		return relief
 	var task_version: int = int(_chunk_visual_scheduler.task_pending.get(task_key, 0))
-	var dirty_count: int = chunk.get_pending_border_dirty_count()
 	if dirty_count <= 0:
 		chunk._mark_border_fix_reasons_applied()
 		if _chunk_visual_scheduler != null:
@@ -2516,36 +2517,24 @@ func _try_force_complete_stuck_player_border_fix(
 		_try_finalize_chunk_visual_convergence(chunk, z_level)
 		relief["recovered_inline_border_fix"] = true
 		return relief
-	var border_has_more: bool = _chunk_visual_scheduler.process_border_fix_task(chunk, BORDER_FIX_REDRAW_MICRO_BATCH_TILES, 0) if _chunk_visual_scheduler != null else false
-	var remaining_dirty_tiles: int = chunk.get_pending_border_dirty_count()
-	relief["remaining_dirty_tiles"] = remaining_dirty_tiles
-	if remaining_dirty_tiles < dirty_count:
-		relief["forced_border_fix_progress"] = true
-	if border_has_more or remaining_dirty_tiles > 0:
-		relief["promoted_border_fix_task"] = _enqueue_player_near_border_fix_relief_task(
-			chunk,
-			z_level,
-			task_version,
-			"player_near_relief"
+	relief["remaining_dirty_tiles"] = dirty_count
+	relief["promoted_border_fix_task"] = _enqueue_player_near_border_fix_relief_task(
+		chunk,
+		z_level,
+		task_version,
+		"player_near_relief"
+	)
+	if bool(relief.get("promoted_border_fix_task", false)):
+		_debug_note_visual_task_event(
+			_build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, task_version),
+			"visual_task_requeued",
+			{
+				"remaining_dirty_tiles": dirty_count,
+				"relief_reason": "player_near_relief",
+			},
+			"",
+			"owner_stuck_relief_queued"
 		)
-		if bool(relief.get("forced_border_fix_progress", false)) or bool(relief.get("promoted_border_fix_task", false)):
-			_debug_note_visual_task_event(
-				_build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, task_version),
-				"visual_task_requeued",
-				{
-					"progress_tiles": dirty_count - remaining_dirty_tiles,
-					"remaining_dirty_tiles": remaining_dirty_tiles,
-					"relief_reason": "player_near_relief",
-				},
-				"",
-				"owner_stuck_partial_relief"
-			)
-		return relief
-	chunk._mark_border_fix_reasons_applied()
-	if _chunk_visual_scheduler != null:
-		_chunk_visual_scheduler.clear_task(_build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, task_version))
-	_try_finalize_chunk_visual_convergence(chunk, z_level)
-	relief["recovered_inline_border_fix"] = true
 	return relief
 
 
