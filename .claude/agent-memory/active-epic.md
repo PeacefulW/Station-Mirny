@@ -10,7 +10,7 @@
 - [ ] DATA_CONTRACTS.md — update runtime ownership/readiness/publication semantics when an iteration changes canonical world/runtime contracts
 - [ ] PUBLIC_API.md — update safe/read-only readiness and publication semantics when an iteration changes public-facing behavior
 - **Deadline**: each iteration if semantics change
-- **Status**: completed for R3 on 2026-04-14; revisit on the next iteration if semantics change again
+- **Status**: R4 completed on 2026-04-14; `DATA_CONTRACTS.md` and `PUBLIC_API.md` updated because frontier scheduling semantics changed
 
 ## Iterations
 
@@ -121,6 +121,57 @@
 
 #### Out-of-scope observations
 - `Chunk.build_prebaked_visual_payload()` / generation-time prebaked visual derivation still remain GDScript-owned helper paths for surface payload build; R1 blocked critical player-reachable fallback/publication escape hatches, but native final-packet work and deeper payload hardening remain for later iterations
+
+#### Blockers
+- none
+
+---
+
+### Iteration R4 — Frontier planning and reserved scheduling
+**Status**: completed
+**Started**: 2026-04-14
+**Completed**: 2026-04-14
+
+#### Проверки приёмки (Acceptance tests)
+- [x] far/background work cannot occupy all critical worker capacity — passed (static verification: `FrontierScheduler.RESERVED_CRITICAL_WORKERS`, `noncritical_capacity_limit()`, and `ChunkStreamingService._pop_next_load_request_for_capacity()` keep one compute slot reserved for frontier-critical work)
+- [x] camera-visible chunks remain protected by frontier planning — passed (static verification: `FrontierPlanner.build_plan()` merges `camera_visible_set` into `frontier_critical_set` and `ChunkStreamingService.update_chunks()` uses `needed_set` for runtime enqueue/relevance)
+- [ ] sprint traversal does not show visible chunk catch-up in ordinary scenarios — manual human verification required (runtime visual/perf smoke was not requested as an agent-run playtest)
+
+#### Doc check
+- [x] Grep DATA_CONTRACTS.md for changed names — matches for `TravelStateResolver`, `ViewEnvelopeResolver`, `FrontierPlanner`, `FrontierScheduler`, `ChunkStreamingService.update_chunks()`, `ChunkStreamingService.submit_async_generate()`, `gen_active_lanes`, and `frontier.reserved_capacity_blocked`
+- [x] Grep PUBLIC_API.md for changed names — matches for `TravelStateResolver`, `ViewEnvelopeResolver`, `FrontierPlanner`, `FrontierScheduler`, `frontier_critical`, `camera_visible_support`, `frontier_reserved_capacity_blocks`, `ChunkStreamingService.update_chunks()`, and `submit_async_generate()`
+- [x] Documentation debt section reviewed — reviewed; `DATA_CONTRACTS.md`, `PUBLIC_API.md`, and `frontier_native_runtime_architecture_spec.md` updated for R4 owner/lane semantics
+
+#### Files touched
+- `.claude/agent-memory/active-epic.md`
+- `core/systems/world/travel_state_resolver.gd`
+- `core/systems/world/travel_state_resolver.gd.uid`
+- `core/systems/world/view_envelope_resolver.gd`
+- `core/systems/world/view_envelope_resolver.gd.uid`
+- `core/systems/world/frontier_planner.gd`
+- `core/systems/world/frontier_planner.gd.uid`
+- `core/systems/world/frontier_scheduler.gd`
+- `core/systems/world/frontier_scheduler.gd.uid`
+- `core/systems/world/chunk_manager.gd`
+- `core/systems/world/chunk_streaming_service.gd`
+- `docs/02_system_specs/world/DATA_CONTRACTS.md`
+- `docs/00_governance/PUBLIC_API.md`
+- `docs/02_system_specs/world/frontier_native_runtime_architecture_spec.md`
+
+#### Отчёт о выполнении (Closure Report)
+## Отчёт о выполнении (Closure Report)
+
+### Что сделано (Implemented)
+- Added explicit R4 runtime owners for travel state, view envelope, frontier planning, and reserved scheduling.
+- Routed runtime streaming queues through frontier-critical, camera-visible-support, and background lanes.
+- Added diagnostics for frontier lane state, plan summary, capacity snapshot, and reserved-capacity blocks.
+- Updated canonical contracts/API docs and architecture migration notes.
+
+### Проверки (Verification)
+- `git diff --check` passed.
+- `godot_console.exe --headless --path . --check-only --quit` passed.
+- `rg` checks confirmed code/doc ownership, lane queues, reserved capacity, and contract/API references.
+- Sprint traversal visual smoke remains manual human verification.
 
 #### Blockers
 - none

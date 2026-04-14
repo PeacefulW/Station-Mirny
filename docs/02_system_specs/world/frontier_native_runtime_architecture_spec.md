@@ -466,6 +466,7 @@ Migration note:
 
 - `R2` locks the packet header, versioning, and ownership vocabulary so runtime code can stop passing anonymous `native_data` dictionaries.
 - `R3` makes surface packet production terminal for native flora placement/render payloads, real feature/POI payloads, native visual packet buffers from `ChunkVisualKernels`, and install/cache validation through `ChunkFinalPacket.validate_terminal_surface_packet()`.
+- `R4` introduces explicit GDScript ownership for `TravelStateResolver`, `ViewEnvelopeResolver`, `FrontierPlanner`, and `FrontierScheduler`, then routes `ChunkStreamingService` runtime queues through frontier-critical, camera-visible-support, and background lanes. Vehicle/train and underground transition inputs remain scaffold-only until their dedicated iterations; R4's enforceable invariant is reserved frontier capacity for current surface runtime streaming.
 - `R5` is responsible for switching live publication to consume only that final packet.
 - Until `R5` lands, any live publication layer still outside final-packet-only apply must be named explicitly in the contracts; it must not reappear as hidden "later convergence" debt after reveal.
 
@@ -473,7 +474,11 @@ Migration note:
 
 Owner:
 
-- frontier planner
+- `TravelStateResolver` for travel-mode/speed-class planning inputs
+- `ViewEnvelopeResolver` for camera-visible and margin envelopes
+- `FrontierPlanner` for active-z `frontier_critical_set`, `frontier_high_set`, `background_set`, and `needed_set`
+- `FrontierScheduler` for lane classification and reserved-capacity policy
+- `ChunkStreamingService` for lane queue execution, active generation lane metadata, and diagnostics
 
 Readers:
 
@@ -486,6 +491,7 @@ Invariants:
 - `assert(visible_chunks_subset_of_full_ready_or_transition_hidden, "visible chunks must be full_ready unless hidden by controlled fade transition")`
 - `assert(frontier_critical_capacity_is_reserved, "critical frontier work must have protected capacity")`
 - `assert(background_work_never_blocks_visible_world_correctness, "background work must not block visible correctness")`
+- `assert(lane_metadata_tracks_active_runtime_generation, "active and ready runtime work must keep its frontier lane for diagnostics and strict ordering")`
 
 ## Forbidden Architecture Patterns
 

@@ -3,10 +3,14 @@ extends RefCounted
 
 const ChunkFinalPacketScript = preload("res://core/systems/world/chunk_final_packet.gd")
 const ChunkFloraResultScript = preload("res://core/systems/world/chunk_flora_result.gd")
+const FrontierSchedulerScript = preload("res://core/systems/world/frontier_scheduler.gd")
 const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
 
 var _owner: Node = null
 var load_queue: Array[Dictionary] = []
+var frontier_critical_queue: Array[Dictionary] = []
+var camera_visible_support_queue: Array[Dictionary] = []
+var background_queue: Array[Dictionary] = []
 var load_queue_set: Dictionary = {}
 var staged_chunk: Chunk = null
 var staged_coord: Vector2i = Vector2i(999999, 999999)
@@ -23,16 +27,30 @@ var gen_mutex: Mutex = Mutex.new()
 var worker_chunk_builder: RefCounted = null
 var gen_active_tasks: Dictionary = {}
 var gen_active_z_levels: Dictionary = {}
+var gen_active_lanes: Dictionary = {}
 var gen_builders: Dictionary = {}
 var gen_ready_queue: Array[Dictionary] = []
 var debug_generate_started_usec: Dictionary = {}
+var debug_frontier_reservation_block_count: int = 0
+var debug_last_frontier_reservation_block_usec: int = 0
 var _visual_scheduler_ref: ChunkVisualScheduler = null
 var _surface_payload_cache: ChunkSurfacePayloadCache = null
+var _frontier_planner = null
+var _frontier_scheduler = null
+var _last_frontier_plan: Dictionary = {}
 
-func setup(owner: Node, visual_scheduler: ChunkVisualScheduler, surface_payload_cache: ChunkSurfacePayloadCache) -> void:
+func setup(
+	owner: Node,
+	visual_scheduler: ChunkVisualScheduler,
+	surface_payload_cache: ChunkSurfacePayloadCache,
+	frontier_planner,
+	frontier_scheduler
+) -> void:
 	_owner = owner
 	_visual_scheduler_ref = visual_scheduler
 	_surface_payload_cache = surface_payload_cache
+	_frontier_planner = frontier_planner
+	_frontier_scheduler = frontier_scheduler
 
 func _invalid_z_level() -> int:
 	return _owner.INVALID_Z_LEVEL
@@ -61,6 +79,129 @@ func _is_chunk_within_radius(coord: Vector2i, center: Vector2i, radius: int) -> 
 func _has_load_request(coord: Vector2i, z_level: int) -> bool:
 	return load_queue_set.has(_make_load_request_key(coord, z_level))
 
+func _queue_for_lane(lane: int) -> Array[Dictionary]:
+	match lane:
+		FrontierSchedulerScript.LANE_FRONTIER_CRITICAL:
+			return frontier_critical_queue
+		FrontierSchedulerScript.LANE_CAMERA_VISIBLE_SUPPORT:
+			return camera_visible_support_queue
+		_:
+			return background_queue
+
+func _queue_depths_by_lane() -> Dictionary:
+	return {
+		"frontier_critical": frontier_critical_queue.size(),
+		"camera_visible_support": camera_visible_support_queue.size(),
+		"background": background_queue.size(),
+	}
+
+func _sync_load_queue_mirror() -> void:
+	load_queue.clear()
+	for request: Dictionary in frontier_critical_queue:
+		load_queue.append(request)
+	for request: Dictionary in camera_visible_support_queue:
+		load_queue.append(request)
+	for request: Dictionary in background_queue:
+		load_queue.append(request)
+
+func _clear_load_queues(clear_set: bool = true) -> void:
+	load_queue.clear()
+	frontier_critical_queue.clear()
+	camera_visible_support_queue.clear()
+	background_queue.clear()
+	if clear_set:
+		load_queue_set.clear()
+
+func _resolve_frontier_lane(coord: Vector2i) -> int:
+	if _frontier_scheduler == null or _last_frontier_plan.is_empty():
+		return FrontierSchedulerScript.LANE_BACKGROUND
+	return _frontier_scheduler.resolve_lane_for_coord(_canonical_chunk_coord(coord), _last_frontier_plan)
+
+func _decorate_frontier_request(request: Dictionary) -> Dictionary:
+	var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
+	var lane: int = _resolve_frontier_lane(coord)
+	request["coord"] = coord
+	request["frontier_lane"] = lane
+	request["frontier_lane_name"] = _frontier_lane_name(lane)
+	request["frontier_lane_human"] = _frontier_lane_human(lane)
+	request["frontier_plan_generation"] = int(_last_frontier_plan.get("generation", 0))
+	return request
+
+func _frontier_lane_name(lane: int) -> String:
+	return _frontier_scheduler.lane_name(lane) if _frontier_scheduler != null else "background"
+
+func _frontier_lane_human(lane: int) -> String:
+	return _frontier_scheduler.lane_human(lane) if _frontier_scheduler != null else "фон"
+
+func _frontier_lane_order(lane: int) -> int:
+	return _frontier_scheduler.lane_order(lane) if _frontier_scheduler != null else 2
+
+func _append_load_request_to_lane(request: Dictionary) -> void:
+	var lane: int = int(request.get("frontier_lane", FrontierSchedulerScript.LANE_BACKGROUND))
+	_queue_for_lane(lane).append(request)
+
+func _pop_from_lane(lane: int) -> Dictionary:
+	var queue: Array[Dictionary] = _queue_for_lane(lane)
+	if queue.is_empty():
+		return {}
+	var request: Dictionary = queue.pop_front()
+	var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
+	var request_z: int = int(request.get("z", _invalid_z_level()))
+	load_queue_set.erase(_make_load_request_key(coord, request_z))
+	_sync_load_queue_mirror()
+	return request
+
+func _pop_next_load_request_for_capacity() -> Dictionary:
+	var max_concurrent: int = _runtime_max_concurrent_compute()
+	if gen_active_tasks.size() >= max_concurrent:
+		return {}
+	if not frontier_critical_queue.is_empty():
+		return _pop_from_lane(FrontierSchedulerScript.LANE_FRONTIER_CRITICAL)
+	if _frontier_scheduler != null \
+		and gen_active_tasks.size() >= _frontier_scheduler.noncritical_capacity_limit(max_concurrent):
+		if not camera_visible_support_queue.is_empty() or not background_queue.is_empty():
+			_record_frontier_reservation_block()
+		return {}
+	if not camera_visible_support_queue.is_empty():
+		return _pop_from_lane(FrontierSchedulerScript.LANE_CAMERA_VISIBLE_SUPPORT)
+	if not background_queue.is_empty():
+		return _pop_from_lane(FrontierSchedulerScript.LANE_BACKGROUND)
+	return {}
+
+func _record_frontier_reservation_block() -> void:
+	debug_frontier_reservation_block_count += 1
+	WorldPerfProbe.record("frontier.reserved_capacity_blocked", 1.0)
+	var now_usec: int = Time.get_ticks_usec()
+	if now_usec - debug_last_frontier_reservation_block_usec < 1000000:
+		return
+	debug_last_frontier_reservation_block_usec = now_usec
+	_debug_emit_chunk_event(
+		"frontier_reserved_capacity_protected",
+		"оставила резерв frontier свободным",
+		_player_chunk(),
+		_active_z(),
+		"background/high work попытался занять последний reserved compute slot, но R4 scheduler оставил его под frontier-critical work",
+		WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT,
+		"reserved",
+		"резерв сохранён",
+		"frontier_reserved_capacity",
+		_get_frontier_capacity_snapshot()
+	)
+
+func _get_frontier_capacity_snapshot() -> Dictionary:
+	if _frontier_scheduler == null:
+		return {}
+	return _frontier_scheduler.build_capacity_snapshot(
+		gen_active_lanes,
+		_queue_depths_by_lane(),
+		_runtime_max_concurrent_compute()
+	)
+
+func _get_frontier_plan_summary() -> Dictionary:
+	if _frontier_planner == null or _last_frontier_plan.is_empty():
+		return {}
+	return _frontier_planner.build_debug_summary(_last_frontier_plan)
+
 func _is_staged_request(coord: Vector2i, z_level: int) -> bool:
 	return staged_coord == _canonical_chunk_coord(coord) and staged_z == z_level
 
@@ -85,8 +226,10 @@ func enqueue_load_request(coord: Vector2i, z_level: int) -> void:
 		"reason": _debug_reason_for_chunk(canonical_coord, _chunk_chebyshev_distance(canonical_coord, _player_chunk()), "requested"),
 		"priority": _debug_priority_label(canonical_coord),
 	}
-	load_queue.append(request)
+	request = _decorate_frontier_request(request)
+	_append_load_request_to_lane(request)
 	load_queue_set[_make_load_request_key(canonical_coord, z_level)] = true
+	_sync_load_queue_mirror()
 	_debug_emit_chunk_event(
 		"chunk_requested",
 		"запросила загрузку",
@@ -97,7 +240,13 @@ func enqueue_load_request(coord: Vector2i, z_level: int) -> void:
 		"queued",
 		"поставлен в очередь",
 		"stream_load",
-		{"queue_depth": load_queue.size()}
+		{
+			"queue_depth": load_queue.size(),
+			"frontier_lane": request.get("frontier_lane_name", "background"),
+			"frontier_lane_human": request.get("frontier_lane_human", "фон"),
+			"frontier_plan": _get_frontier_plan_summary(),
+			"frontier_capacity": _get_frontier_capacity_snapshot(),
+		}
 	)
 
 func _sync_loaded_chunk_display_positions(center: Vector2i) -> void:
@@ -330,7 +479,7 @@ func _has_relevant_runtime_generate_task() -> bool:
 	for coord_variant: Variant in gen_active_tasks.keys():
 		var coord: Vector2i = coord_variant as Vector2i
 		var z_level: int = int(gen_active_z_levels.get(coord, _invalid_z_level()))
-		if z_level == _active_z() and _is_chunk_within_radius(coord, _player_chunk(), load_radius):
+		if _is_coord_relevant_now(coord, z_level, load_radius):
 			return true
 	return false
 
@@ -342,13 +491,7 @@ func _rebuild_load_queue_set() -> void:
 		load_queue_set[_make_load_request_key(coord, request_z)] = true
 
 func _pop_load_request() -> Dictionary:
-	if load_queue.is_empty():
-		return {}
-	var request: Dictionary = load_queue.pop_front()
-	var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
-	var request_z: int = int(request.get("z", _invalid_z_level()))
-	load_queue_set.erase(_make_load_request_key(coord, request_z))
-	return request
+	return _pop_next_load_request_for_capacity()
 
 func _active_z() -> int:
 	return _owner.get_active_z_level()
@@ -363,8 +506,7 @@ func _visual_scheduler() -> ChunkVisualScheduler:
 	return _visual_scheduler_ref
 
 func clear_runtime_state() -> void:
-	load_queue.clear()
-	load_queue_set.clear()
+	_clear_load_queues()
 	if staged_chunk != null:
 		staged_chunk = null
 	staged_coord = Vector2i(999999, 999999)
@@ -377,6 +519,7 @@ func clear_runtime_state() -> void:
 		WorkerThreadPool.wait_for_task_completion(int(task_variant))
 	gen_active_tasks.clear()
 	gen_active_z_levels.clear()
+	gen_active_lanes.clear()
 	gen_builders.clear()
 	gen_ready_queue.clear()
 	gen_mutex.lock()
@@ -384,17 +527,24 @@ func clear_runtime_state() -> void:
 	gen_mutex.unlock()
 	sync_runtime_generation_status()
 	worker_chunk_builder = null
+	_last_frontier_plan = {}
 
 func sort_load_queue_by_priority(center: Vector2i) -> void:
-	_sort_load_request_entries_by_priority(load_queue, center)
+	_sort_load_request_entries_by_priority(frontier_critical_queue, center)
+	_sort_load_request_entries_by_priority(camera_visible_support_queue, center)
+	_sort_load_request_entries_by_priority(background_queue, center)
+	_sync_load_queue_mirror()
 
 func handle_active_z_changed(z_level: int) -> void:
-	var filtered_queue: Array[Dictionary] = []
-	for request: Dictionary in load_queue:
+	var existing_queue: Array[Dictionary] = load_queue.duplicate(true)
+	_clear_load_queues()
+	for request: Dictionary in existing_queue:
 		if int(request.get("z", _invalid_z_level())) == z_level:
-			filtered_queue.append(request)
-	load_queue = filtered_queue
-	_rebuild_load_queue_set()
+			var filtered_request: Dictionary = _decorate_frontier_request(request.duplicate(true))
+			_append_load_request_to_lane(filtered_request)
+			var coord: Vector2i = _canonical_chunk_coord(filtered_request.get("coord", Vector2i.ZERO) as Vector2i)
+			load_queue_set[_make_load_request_key(coord, z_level)] = true
+	_sync_load_queue_mirror()
 	if staged_z != z_level:
 		clear_staged_request()
 	sync_runtime_generation_status()
@@ -405,10 +555,12 @@ func update_chunks(center: Vector2i) -> void:
 	var loaded_chunks: Dictionary = _loaded_chunks()
 	var load_radius: int = WorldGenerator.balance.load_radius
 	var unload_radius: int = WorldGenerator.balance.unload_radius
-	var needed: Dictionary = {}
-	for dx: int in range(-load_radius, load_radius + 1):
-		for dy: int in range(-load_radius, load_radius + 1):
-			needed[_offset_chunk_coord(canonical_center, Vector2i(dx, dy))] = true
+	_last_frontier_plan = _frontier_planner.build_plan(canonical_center, active_z) if _frontier_planner != null else {}
+	var needed: Dictionary = _last_frontier_plan.get("needed_set", {}) as Dictionary
+	if needed.is_empty():
+		for dx: int in range(-load_radius, load_radius + 1):
+			for dy: int in range(-load_radius, load_radius + 1):
+				needed[_offset_chunk_coord(canonical_center, Vector2i(dx, dy))] = true
 	var to_unload: Array[Vector2i] = []
 	for coord: Vector2i in loaded_chunks:
 		if not _is_chunk_within_radius(coord, canonical_center, unload_radius):
@@ -417,7 +569,7 @@ func update_chunks(center: Vector2i) -> void:
 		unload_chunk(coord)
 	prune_load_queue(canonical_center, active_z, load_radius)
 	var to_load: Array[Vector2i] = []
-	for coord: Vector2i in needed:
+	for coord: Vector2i in needed.keys():
 		if not loaded_chunks.has(coord) \
 			and not _has_load_request(coord, active_z) \
 			and not _is_staged_request(coord, active_z) \
@@ -425,6 +577,10 @@ func update_chunks(center: Vector2i) -> void:
 			to_load.append(coord)
 	if to_load.size() > 1:
 		to_load.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+			var lane_a: int = _resolve_frontier_lane(a)
+			var lane_b: int = _resolve_frontier_lane(b)
+			if lane_a != lane_b:
+				return _frontier_lane_order(lane_a) < _frontier_lane_order(lane_b)
 			return _chunk_priority_less(a, b, canonical_center)
 		)
 	for coord: Vector2i in to_load:
@@ -438,7 +594,9 @@ func process_load_queue() -> void:
 		loads_per_frame = WorldGenerator.balance.chunk_loads_per_frame
 	var loaded_count: int = 0
 	while not load_queue.is_empty() and loaded_count < loads_per_frame:
-		var request: Dictionary = _pop_load_request()
+		var request: Dictionary = _pop_next_load_request_for_capacity()
+		if request.is_empty():
+			break
 		var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
 		var request_z: int = int(request.get("z", active_z))
 		if request_z != active_z:
@@ -547,13 +705,13 @@ func tick_loading() -> bool:
 		prune_load_queue(player_chunk, active_z, load_radius)
 	collect_completed_runtime_generates(load_radius)
 	if staged_chunk != null:
-		if staged_z != active_z or not _is_chunk_within_radius(staged_coord, player_chunk, load_radius):
+		if not _is_coord_relevant_now(staged_coord, staged_z, load_radius):
 			clear_staged_request()
 			return has_streaming_work()
 		staged_loading_finalize()
 		return has_streaming_work()
 	if not staged_install_entry.is_empty() or not staged_data.is_empty():
-		if staged_z != active_z or not _is_chunk_within_radius(staged_coord, player_chunk, load_radius):
+		if not _is_coord_relevant_now(staged_coord, staged_z, load_radius):
 			clear_staged_request()
 			return has_streaming_work()
 		staged_loading_create()
@@ -566,15 +724,17 @@ func tick_loading() -> bool:
 	while not load_queue.is_empty() \
 		and scanned_requests < _max_load_requests_scanned_per_tick() \
 		and gen_active_tasks.size() < _runtime_max_concurrent_compute():
+		var request: Dictionary = _pop_next_load_request_for_capacity()
+		if request.is_empty():
+			break
 		scanned_requests += 1
-		var request: Dictionary = _pop_load_request()
 		if not is_load_request_relevant(request, player_chunk, active_z, load_radius):
 			continue
 		var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
 		var request_z: int = int(request.get("z", active_z))
 		if try_stage_surface_chunk_from_cache(coord, request_z):
 			return true
-		submit_async_generate(coord, request_z)
+		submit_async_generate(coord, request_z, int(request.get("frontier_lane", FrontierSchedulerScript.LANE_BACKGROUND)))
 	if promote_runtime_ready_result_to_stage(load_radius):
 		return true
 	return has_streaming_work()
@@ -593,7 +753,7 @@ func is_streaming_generation_idle() -> bool:
 		and gen_ready_queue.is_empty() \
 		and not _has_relevant_runtime_generate_task()
 
-func submit_async_generate(coord: Vector2i, z_level: int) -> void:
+func submit_async_generate(coord: Vector2i, z_level: int, frontier_lane: int = FrontierSchedulerScript.LANE_BACKGROUND) -> void:
 	if _is_shutdown_in_progress():
 		return
 	coord = _canonical_chunk_coord(coord)
@@ -605,6 +765,7 @@ func submit_async_generate(coord: Vector2i, z_level: int) -> void:
 	var task_id: int = WorkerThreadPool.add_task(_worker_generate.bind(coord, z_level, builder))
 	gen_active_tasks[coord] = task_id
 	gen_active_z_levels[coord] = z_level
+	gen_active_lanes[coord] = frontier_lane
 	gen_builders[coord] = builder
 	debug_generate_started_usec[_make_chunk_state_key(z_level, coord)] = Time.get_ticks_usec()
 	_debug_emit_chunk_event(
@@ -617,7 +778,12 @@ func submit_async_generate(coord: Vector2i, z_level: int) -> void:
 		"running",
 		"выполняется",
 		"stream_load",
-		{"active_generators": gen_active_tasks.size()}
+		{
+			"active_generators": gen_active_tasks.size(),
+			"frontier_lane": _frontier_lane_name(frontier_lane),
+			"frontier_lane_human": _frontier_lane_human(frontier_lane),
+			"frontier_capacity": _get_frontier_capacity_snapshot(),
+		}
 	)
 	sync_runtime_generation_status()
 
@@ -641,6 +807,8 @@ func collect_completed_runtime_generates(load_radius: int) -> void:
 		gen_active_tasks.erase(coord)
 		var request_z: int = int(gen_active_z_levels.get(coord, _invalid_z_level()))
 		gen_active_z_levels.erase(coord)
+		var frontier_lane: int = int(gen_active_lanes.get(coord, FrontierSchedulerScript.LANE_BACKGROUND))
+		gen_active_lanes.erase(coord)
 		gen_builders.erase(coord)
 		var debug_key: Vector3i = _make_chunk_state_key(request_z, coord)
 		var generation_ms: float = _debug_age_ms(debug_generate_started_usec.get(debug_key, 0), Time.get_ticks_usec())
@@ -664,13 +832,14 @@ func collect_completed_runtime_generates(load_radius: int) -> void:
 				_cache_surface_chunk_flora_payload(coord, request_z, completed_flora_payload)
 		if request_z != _active_z() \
 			or _get_loaded_chunks_for_z(request_z).has(coord) \
-			or not _is_chunk_within_radius(coord, _player_chunk(), load_radius):
+			or not _is_coord_relevant_now(coord, request_z, load_radius):
 			continue
 		gen_ready_queue.append({
 			"coord": coord,
 			"z": request_z,
 			"native_data": completed_data,
 			"flora_payload": completed_flora_payload,
+			"frontier_lane": frontier_lane,
 			"ready_usec": Time.get_ticks_usec(),
 		})
 		_debug_record_recent_lifecycle_event(
@@ -699,6 +868,8 @@ func collect_completed_runtime_generates(load_radius: int) -> void:
 				"submit_to_collect_overhead_ms": submit_to_collect_overhead_ms,
 				"active_generators": gen_active_tasks.size(),
 				"ready_queue_depth": gen_ready_queue.size(),
+				"frontier_lane": _frontier_lane_name(frontier_lane),
+				"frontier_lane_human": _frontier_lane_human(frontier_lane),
 			}
 		)
 	sort_runtime_ready_queue()
@@ -715,7 +886,7 @@ func promote_runtime_ready_result_to_stage(load_radius: int) -> bool:
 			continue
 		if request_z != _active_z() \
 			or _get_loaded_chunks_for_z(request_z).has(coord) \
-			or not _is_chunk_within_radius(coord, _player_chunk(), load_radius):
+			or not _is_coord_relevant_now(coord, request_z, load_radius):
 			continue
 		if stage_prepared_chunk_install(coord, request_z, completed_data, null, completed_flora_payload):
 			return true
@@ -725,6 +896,10 @@ func sort_runtime_ready_queue() -> void:
 	if gen_ready_queue.size() <= 1:
 		return
 	gen_ready_queue.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var lane_a: int = int(a.get("frontier_lane", FrontierSchedulerScript.LANE_BACKGROUND))
+		var lane_b: int = int(b.get("frontier_lane", FrontierSchedulerScript.LANE_BACKGROUND))
+		if lane_a != lane_b:
+			return _frontier_lane_order(lane_a) < _frontier_lane_order(lane_b)
 		return _chunk_priority_less(
 			a.get("coord", Vector2i.ZERO) as Vector2i,
 			b.get("coord", Vector2i.ZERO) as Vector2i,
@@ -761,7 +936,18 @@ func is_load_request_relevant(
 	var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
 	if _get_loaded_chunks_for_z(request_z).has(coord):
 		return false
+	var needed_set: Dictionary = _last_frontier_plan.get("needed_set", {}) as Dictionary
+	if int(_last_frontier_plan.get("active_z", active_z_level)) == active_z_level and not needed_set.is_empty():
+		return needed_set.has(coord)
 	return _is_chunk_within_radius(coord, center, load_radius)
+
+func _is_coord_relevant_now(coord: Vector2i, z_level: int, load_radius: int) -> bool:
+	if z_level != _active_z():
+		return false
+	var needed_set: Dictionary = _last_frontier_plan.get("needed_set", {}) as Dictionary
+	if int(_last_frontier_plan.get("active_z", _active_z())) == _active_z() and not needed_set.is_empty():
+		return needed_set.has(_canonical_chunk_coord(coord))
+	return _is_chunk_within_radius(coord, _player_chunk(), load_radius)
 
 func prune_load_queue(center: Vector2i, active_z_level: int, load_radius: int) -> void:
 	if load_queue.is_empty():
@@ -788,10 +974,14 @@ func prune_load_queue(center: Vector2i, active_z_level: int, load_radius: int) -
 			filtered_request["priority"] = _debug_priority_label(coord)
 		if not filtered_request.has("reason"):
 			filtered_request["reason"] = _debug_reason_for_chunk(coord, _chunk_chebyshev_distance(coord, center), "queued")
-		filtered_queue.append(filtered_request)
-	_sort_load_request_entries_by_priority(filtered_queue, center)
-	load_queue = filtered_queue
-	_rebuild_load_queue_set()
+		filtered_queue.append(_decorate_frontier_request(filtered_request))
+	_clear_load_queues()
+	for queued_request: Dictionary in filtered_queue:
+		_append_load_request_to_lane(queued_request)
+		var filtered_coord: Vector2i = _canonical_chunk_coord(queued_request.get("coord", Vector2i.ZERO) as Vector2i)
+		var filtered_z: int = int(queued_request.get("z", _invalid_z_level()))
+		load_queue_set[_make_load_request_key(filtered_coord, filtered_z)] = true
+	sort_load_queue_by_priority(center)
 
 func should_compact_load_queue(center: Vector2i, active_z_level: int, load_radius: int) -> bool:
 	if load_queue.is_empty():

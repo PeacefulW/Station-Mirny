@@ -205,7 +205,7 @@ related_docs:
 - Пример вызова: `chunk_manager.sync_display_to_player()`
 
 Примечание: public per-chunk `load/unload` request API в scope сейчас нет. Runtime streaming paths остаются internal.
-После Iteration 4 runtime streaming internals routed through `ChunkStreamingService`, а `ChunkManager` остаётся world-facing facade и final install entry facade.
+После R4 frontier planning runtime streaming internals route through `TravelStateResolver`, `ViewEnvelopeResolver`, `FrontierPlanner`, `FrontierScheduler`, and lane-owned queues inside `ChunkStreamingService`; `ChunkManager` остаётся world-facing facade и final install entry facade. Frontier-critical work has a reserved worker slot, and callers must not submit gameplay load/unload requests directly into those internal lanes.
 После Iteration 9 visual scheduler state routed through internal `ChunkVisualScheduler`, surface payload reuse through internal `ChunkSurfacePayloadCache`, seam/border follow-up ownership through internal `ChunkSeamService`, boot readiness/compute ownership through internal `ChunkBootPipeline`, and topology runtime ownership through internal `ChunkTopologyService`. These services are not public gameplay APIs; callers still use the `ChunkManager` entrypoints listed here.
 
 ### Чтение
@@ -216,9 +216,9 @@ related_docs:
 - Особенности: loaded-only snapshot; не описывает unloaded world.
 
 `ChunkManager.get_chunk_debug_overlay_snapshot(max_queue_rows: int = 14, debug_radius: int = -1) -> Dictionary`
-- Что возвращает: read-only diagnostic snapshot для F11 overlay: `player_chunk`, `active_z`, factual radii, bounded chunk entries, capped/grouped `queue_rows`, timeline events, compact metrics, plus bounded debug-only `incident_summary`, `trace_events`, `chunk_causality_rows`, `task_debug_rows`, and `suspicion_flags`.
+- Что возвращает: read-only diagnostic snapshot для F11 overlay: `player_chunk`, `active_z`, factual radii, bounded chunk entries, capped/grouped `queue_rows`, timeline events, compact metrics, frontier plan/capacity/lane queue metrics, plus bounded debug-only `incident_summary`, `trace_events`, `chunk_causality_rows`, `task_debug_rows`, and `suspicion_flags`.
 - Когда использовать: только для in-game debug overlay / diagnostics, когда нужно понять pipeline order `request -> queue -> generate -> apply -> build visual -> visible -> unload` во время движения игрока.
-- Особенности: active-z scoped, bounded around player and clamped by `DEBUG_OVERLAY_MAX_RADIUS`; не public load/unload API, не gameplay truth, не persistence data. Snapshot rows may label `stalled` only as observed delay unless an owner diagnostic record proves root cause; `suspicion_flags` are observational hints, not proof.
+- Особенности: active-z scoped, bounded around player and clamped by `DEBUG_OVERLAY_MAX_RADIUS`; не public load/unload API, не gameplay truth, не persistence data. Frontier fields expose diagnostic labels such as `frontier_critical`, `camera_visible_support`, `background`, and `frontier_reserved_capacity_blocks`; they are read-only evidence of scheduler state, not caller commands. Snapshot rows may label `stalled` only as observed delay unless an owner diagnostic record proves root cause; `suspicion_flags` are observational hints, not proof.
 
 `ChunkManager.is_tile_loaded(gt: Vector2i) -> bool`
 - Что возвращает: загружен ли tile сейчас.
@@ -292,6 +292,11 @@ related_docs:
 | `ChunkManager._load_chunk(coord: Vector2i) -> void` | Internal streaming primitive for current active z only. |
 | `ChunkManager._load_chunk_for_z(coord: Vector2i, z_level: int) -> void` | Thin facade over `ChunkStreamingService.load_chunk_for_z()` + final install commit. Нельзя дёргать как ad-hoc API. |
 | `ChunkManager._unload_chunk(coord: Vector2i) -> void` | Thin facade over `ChunkStreamingService.unload_chunk()`; internal unload/save boundary с dirty diff save + topology invalidation. |
+| `TravelStateResolver.resolve(...) -> Dictionary` | Internal runtime planning input. Не gameplay API для движения, транспорта или prediction tuning. |
+| `ViewEnvelopeResolver.resolve(...) -> Dictionary` | Internal camera envelope derivation for streaming. Callers must not use it as visibility/gameplay truth. |
+| `FrontierPlanner.build_plan(...) -> Dictionary` | Internal active-z streaming plan. Нельзя использовать как external load request или readiness guarantee. |
+| `FrontierScheduler.resolve_lane_for_coord(...)` / `FrontierScheduler.build_capacity_snapshot(...)` | Internal lane classification and reservation policy. Bypassing it can starve frontier-critical work. |
+| `ChunkStreamingService.update_chunks()`, `enqueue_load_request()`, `tick_loading()`, `submit_async_generate()`, `collect_completed_runtime_generates()` | Internal streaming scheduler and worker handoff. Эти методы исполняют owner-owned runtime queues; caller-facing per-chunk load/unload API intentionally absent. |
 | `Chunk.setup(...) -> void` | Constructor-phase install only. Требует lifecycle owner и valid tilesets/manager wiring. |
 | `Chunk.cleanup() -> void` | Unload-only cleanup path. |
 

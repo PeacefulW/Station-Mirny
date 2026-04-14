@@ -15,6 +15,10 @@ const ChunkSeamService = preload("res://core/systems/world/chunk_seam_service.gd
 const ChunkVisualScheduler = preload("res://core/systems/world/chunk_visual_scheduler.gd")
 const ChunkTopologyService = preload("res://core/systems/world/chunk_topology_service.gd")
 const ChunkBootPipeline = preload("res://core/systems/world/chunk_boot_pipeline.gd")
+const TravelStateResolver = preload("res://core/systems/world/travel_state_resolver.gd")
+const ViewEnvelopeResolver = preload("res://core/systems/world/view_envelope_resolver.gd")
+const FrontierPlanner = preload("res://core/systems/world/frontier_planner.gd")
+const FrontierScheduler = preload("res://core/systems/world/frontier_scheduler.gd")
 const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
 const NATIVE_TOPOLOGY_BUILDER_CLASS: StringName = &"MountainTopologyBuilder"
 const NATIVE_LOADED_OPEN_POCKET_QUERY_CLASS: StringName = &"LoadedOpenPocketQuery"
@@ -141,6 +145,10 @@ var _chunk_seam_service: ChunkSeamService = null
 var _chunk_visual_scheduler: ChunkVisualScheduler = null
 var _chunk_topology_service: ChunkTopologyService = null
 var _chunk_boot_pipeline: ChunkBootPipeline = null
+var _travel_state_resolver: TravelStateResolver = null
+var _view_envelope_resolver: ViewEnvelopeResolver = null
+var _frontier_planner: FrontierPlanner = null
+var _frontier_scheduler: FrontierScheduler = null
 var _is_boot_in_progress: bool = true  ## Fail-closed: block runtime player-chunk checks until boot entrypoint really runs.
 
 ## --- Boot readiness state (boot_chunk_readiness_spec) ---
@@ -188,8 +196,23 @@ func _ready() -> void:
 	_chunk_visual_scheduler.setup(self)
 	_chunk_surface_payload_cache = ChunkSurfacePayloadCache.new()
 	_chunk_surface_payload_cache.setup(self, SURFACE_PAYLOAD_CACHE_LIMIT)
+	_travel_state_resolver = TravelStateResolver.new()
+	_travel_state_resolver.setup(self)
+	_view_envelope_resolver = ViewEnvelopeResolver.new()
+	_view_envelope_resolver.setup(self)
+	_frontier_planner = FrontierPlanner.new()
+	_frontier_planner.call("setup", self, _travel_state_resolver, _view_envelope_resolver)
+	_frontier_scheduler = FrontierScheduler.new()
+	_frontier_scheduler.setup(self)
 	_chunk_streaming_service = ChunkStreamingService.new()
-	_chunk_streaming_service.setup(self, _chunk_visual_scheduler, _chunk_surface_payload_cache)
+	_chunk_streaming_service.call(
+		"setup",
+		self,
+		_chunk_visual_scheduler,
+		_chunk_surface_payload_cache,
+		_frontier_planner,
+		_frontier_scheduler
+	)
 	_chunk_seam_service = ChunkSeamService.new()
 	_chunk_seam_service.setup(self, SEAM_REFRESH_MAX_TILES_PER_STEP)
 	_chunk_container = Node2D.new()
@@ -803,6 +826,7 @@ func _debug_build_chunk_entry(
 		"requested_timestamp_usec": requested_usec,
 		"reason": reason,
 		"impact": _debug_impact_for_chunk(distance, state),
+		"frontier_lane": _chunk_streaming_service._frontier_lane_name(_chunk_streaming_service._resolve_frontier_lane(coord)),
 		"is_player_chunk": coord == _player_chunk,
 		"is_visible": is_visible,
 		"is_simulating": is_simulating,
@@ -949,14 +973,21 @@ func _debug_seam_refresh_queue_depth() -> int:
 	return _chunk_seam_service.pending_count() if _chunk_seam_service != null else 0
 
 func _debug_queue_sizes() -> Dictionary:
-	return {
+	var sizes: Dictionary = {
 		"load": _chunk_streaming_service.load_queue.size(),
+		"frontier_critical": _chunk_streaming_service.frontier_critical_queue.size(),
+		"camera_visible_support": _chunk_streaming_service.camera_visible_support_queue.size(),
+		"background": _chunk_streaming_service.background_queue.size(),
 		"generate_active": _chunk_streaming_service.gen_active_tasks.size(),
 		"data_ready": _chunk_streaming_service.gen_ready_queue.size(),
 		"visual": _debug_visual_queue_depth(),
 		"seam_refresh": _debug_seam_refresh_queue_depth(),
 		"topology_dirty": 1 if _chunk_topology_service != null and _chunk_topology_service.is_dirty() else 0,
 	}
+	sizes["frontier_reserved_capacity_blocks"] = _chunk_streaming_service.debug_frontier_reservation_block_count
+	sizes["frontier_capacity"] = _chunk_streaming_service._get_frontier_capacity_snapshot()
+	sizes["frontier_plan"] = _chunk_streaming_service._get_frontier_plan_summary()
+	return sizes
 
 func _debug_count_recent_events(kind: String, window_ms: float, now_usec: int) -> int:
 	var count: int = 0
@@ -1147,8 +1178,11 @@ func _debug_make_load_queue_row(request: Dictionary, now_usec: int) -> Dictionar
 		"stage": "queued",
 		"stage_human": "Ожидает",
 		"age_ms": _debug_age_ms(request.get("requested_usec", 0), now_usec),
-		"priority": str(request.get("priority", _debug_priority_label(coord))),
-		"reason": str(request.get("reason", _debug_reason_for_chunk(coord, distance, "queued"))),
+		"priority": str(request.get("frontier_lane_human", request.get("priority", _debug_priority_label(coord)))),
+		"reason": "%s; lane=%s" % [
+			str(request.get("reason", _debug_reason_for_chunk(coord, distance, "queued"))),
+			str(request.get("frontier_lane_name", "background")),
+		],
 		"impact": _debug_impact_for_chunk(distance, "queued"),
 		"state": "queued",
 		"queue_depth": _chunk_streaming_service.load_queue.size(),
@@ -1161,6 +1195,7 @@ func _debug_make_load_queue_row(request: Dictionary, now_usec: int) -> Dictionar
 
 func _debug_make_generation_queue_row(coord: Vector2i, z_level: int, status: String, now_usec: int) -> Dictionary:
 	var key: Vector3i = _make_chunk_state_key(z_level, coord)
+	var frontier_lane: int = int(_chunk_streaming_service.gen_active_lanes.get(coord, FrontierScheduler.LANE_BACKGROUND))
 	return {
 		"task_id": "generate:%s:%d" % [coord, z_level],
 		"group_key": "chunk_generation",
@@ -1172,8 +1207,8 @@ func _debug_make_generation_queue_row(coord: Vector2i, z_level: int, status: Str
 		"stage": "generating",
 		"stage_human": "Выполняется",
 		"age_ms": _debug_age_ms(_chunk_streaming_service.debug_generate_started_usec.get(key, 0), now_usec),
-		"priority": _debug_priority_label(coord),
-		"reason": "worker thread готовит данные чанка для текущего load bubble",
+		"priority": _chunk_streaming_service._frontier_lane_human(frontier_lane),
+		"reason": "worker thread готовит данные чанка; frontier lane=%s" % _chunk_streaming_service._frontier_lane_name(frontier_lane),
 		"impact": _debug_impact_for_chunk(_chunk_chebyshev_distance(coord, _player_chunk), "generating"),
 		"state": "generating",
 		"queue_depth": _chunk_streaming_service.gen_active_tasks.size(),
@@ -3285,9 +3320,9 @@ func _is_streaming_generation_idle() -> bool:
 	return _chunk_streaming_service.is_streaming_generation_idle() if _chunk_streaming_service != null else true
 
 ## Отправляет генерацию чанка в WorkerThreadPool.
-func _submit_async_generate(coord: Vector2i, z_level: int) -> void:
+func _submit_async_generate(coord: Vector2i, z_level: int, frontier_lane: int = FrontierScheduler.LANE_BACKGROUND) -> void:
 	if _chunk_streaming_service != null:
-		_chunk_streaming_service.submit_async_generate(coord, z_level)
+		_chunk_streaming_service.submit_async_generate(coord, z_level, frontier_lane)
 
 ## Выполняется в worker thread. Только чистые данные, никаких Node/scene tree.
 func _worker_generate(coord: Vector2i, z_level: int, builder: ChunkContentBuilder = null) -> void:

@@ -52,6 +52,7 @@ Until superseded, this document is mandatory reading for any iteration that touc
 | World Pre-pass | `canonical` | `WorldPrePass`, bootstrapped by `WorldGenerator` | boot-time coarse height / filled-height / eroded-height / flow-direction / accumulation / drainage / river-mask / river-width / river-distance / floodplain-strength / ridge-strength / mountain-mass / slope / rain-shadow / continentalness / tectonic spine-seed records / ridge-path graph / ridge spline samples + half-width profile / lake-mask / lake-record grids derived from seed + balance + planet sampler | `WorldGenerator` initialization, `WorldComputeContext` holder, future generator-side resolvers and samplers | boot-time compute only, deterministic rebuild, not persisted |
 | World | `canonical` | `ChunkManager` runtime arbitration, `Chunk` loaded storage, `WorldGenerator` unloaded surface base | canonical terrain bytes and unloaded overlay | terrain/resource/walkability/presentation consumers | loaded + unloaded reads, immediate writes, generator fallback |
 | Surface Final Packet Envelope | `derived` / `publication-contract` | `ChunkContentBuilder` for emitted packet shape, `ChunkManager` publication-payload completion, `ChunkSurfacePayloadCache` for duplicated retained copies | build/stamp versioned terminal surface packet dictionaries, including publication-ready flora payloads, and cache validated duplicates | `WorldGenerator.build_chunk_native_data()`, `ChunkStreamingService`, `ChunkBootPipeline`, diagnostics | surface z=0 only, deterministic build output, cached runtime copies not persisted |
+| Frontier Planning / Reserved Scheduling | `derived` | `TravelStateResolver`, `ViewEnvelopeResolver`, `FrontierPlanner`, and `FrontierScheduler`, coordinated by `ChunkStreamingService` | per-update travel/view/frontier plan dictionaries, lane-tagged runtime load queues, active generation lane metadata, reserved-capacity diagnostics | `ChunkStreamingService`, `ChunkDebugSystem`, F11 overlay, perf diagnostics | runtime-only, active-z scoped, recalculated on player chunk updates, not persisted |
 | Mining | `canonical` | `ChunkManager` orchestration, `Chunk` loaded mutation storage | loaded terrain mutation and mining-side invalidation entrypoint | topology, reveal, presentation, save collection | loaded-only mutation, immediate |
 | Topology | `derived` | `ChunkTopologyService`, with mandatory native `MountainTopologyBuilder` worker compute for full rebuild snapshots | surface topology caches | `MountainRoofSystem` and topology getters | surface-only, loaded-bubble scoped, incremental patch + deferred dirty rebuild |
 | Loaded Open-Pocket Query | `derived` | `ChunkManager`, with native `LoadedOpenPocketQuery` as the active-z loaded terrain mirror | active-z loaded-chunk terrain mirror for capped open-pocket queries | `ChunkManager.query_local_underground_zone()`, `MountainRoofSystem` | active-z loaded-only, rebuilt on z switch, incrementally updated on load/unload/mining, not persisted |
@@ -84,6 +85,11 @@ Observed files for this version:
 - `core/systems/world/world_poi_resolver.gd`
 - `core/systems/world/chunk_tileset_factory.gd`
 - `core/systems/world/chunk_manager.gd`
+- `core/systems/world/travel_state_resolver.gd`
+- `core/systems/world/view_envelope_resolver.gd`
+- `core/systems/world/frontier_planner.gd`
+- `core/systems/world/frontier_scheduler.gd`
+- `core/systems/world/chunk_streaming_service.gd`
 - `core/systems/world/chunk_visual_scheduler.gd`
 - `core/systems/world/chunk_surface_payload_cache.gd`
 - `core/systems/world/chunk_seam_service.gd`
@@ -131,7 +137,7 @@ Observed files for this version:
 - Underground fog state is transient reveal state, shared by the active underground runtime, and not persisted.
 - `ChunkBootPipeline` owns boot readiness flags, boot compute/apply queues, boot metrics, and runtime handoff state for the startup bubble; `ChunkManager.boot_load_initial_chunks()` remains the public boot entrypoint and lifecycle coordinator around that internal owner.
 - Visual task queues, queue latency metrics, invalidation versions, worker visual-compute state, and the bounded scheduler drain loop are runtime-only state owned by `ChunkVisualScheduler`; `ChunkManager` remains the public/lifecycle coordinator, enqueue/invalidation source, and bounded tick caller.
-- Runtime streaming queue relevance/pruning, worker generation handoff, staged install handoff, and unload routing are owned by `ChunkStreamingService`; `ChunkManager` remains the world-facing facade plus the single final install commit/save/topology coordination path via `_finalize_chunk_install()` and related owner helpers.
+- Runtime streaming queue relevance/pruning, worker generation handoff, staged install handoff, and unload routing are owned by `ChunkStreamingService`; `ChunkManager` remains the world-facing facade plus the single final install commit/save/topology coordination path via `_finalize_chunk_install()` and related owner helpers. After R4, runtime streaming requests are built from `FrontierPlanner` output, tagged into `frontier_critical`, `camera_visible_support`, or `background` lanes by `FrontierScheduler`, and non-critical lanes cannot consume the reserved frontier worker slot.
 - Surface payload reuse for generated surface chunks is owned by `ChunkSurfacePayloadCache`; it stores duplicated native payload arrays plus flora payload/result cache entries and is cleared on teardown, not persisted.
 - Seam refresh queueing, neighbor border enqueue logic, and mining-side seam follow-up repair are owned by `ChunkSeamService`; `ChunkManager` keeps the mining entrypoint and topology tick orchestration but no longer owns the mutable seam refresh queue.
 - Bounded forensic incidents, trace contexts, visual-task debug metadata, and bounded overlay snapshot assembly are debug-only derived runtime behavior owned by `ChunkDebugSystem`; `ChunkManager` exposes the public entrypoint and forwards narrow debug API calls only.
@@ -524,6 +530,38 @@ Observed files for this version:
 - Surface reveal is loaded-bubble scoped. If the local open pocket continues into an unloaded chunk, reveal stops at the current load boundary.
 - ~~`Chunk` currently exposes both `set_revealed_local_zone()` and `set_revealed_local_cover_tiles()`. The active runtime path uses the cover-tile API directly.~~ **resolved 2026-03-28**: the unused `set_revealed_local_zone()` wrapper was removed; reveal writes now have one chunk-level entrypoint.
 - Underground fog state is shared across underground runtime and cleared on z change, so discovered-state continuity between underground floors is not currently represented.
+
+## Layer: Frontier Planning / Reserved Scheduling
+
+- `classification`: `derived`
+- `owner`: `TravelStateResolver` owns travel-mode/speed-class planning inputs, `ViewEnvelopeResolver` owns camera-visible and margin envelope derivation, `FrontierPlanner` owns the current active-z frontier plan sets, and `FrontierScheduler` owns lane classification/reserved-capacity policy. `ChunkStreamingService` stores the runtime lane queues and active generation lane metadata that execute that plan.
+- `writers`: `TravelStateResolver.resolve()`, `ViewEnvelopeResolver.resolve()`, `FrontierPlanner.build_plan()`, `FrontierScheduler.resolve_lane_for_coord()`, `FrontierScheduler.build_capacity_snapshot()`, `ChunkStreamingService.update_chunks()`, `enqueue_load_request()`, `prune_load_queue()`, `sort_load_queue_by_priority()`, `tick_loading()`, `submit_async_generate()`, and `collect_completed_runtime_generates()`.
+- `readers`: `ChunkStreamingService` load/generation selection, `ChunkDebugSystem` and `WorldChunkDebugOverlay` snapshots, `WorldRuntimeDiagnosticLog`, `WorldPerfProbe`, and runtime validation/manual inspection.
+- `rebuild policy`: runtime-only and active-z scoped. The plan is rebuilt when `ChunkStreamingService.update_chunks()` receives the current player chunk. Queue entries are reclassified against the latest plan on enqueue/prune. Active generation lane metadata is cleared when the worker result is collected. No frontier plan, lane queue, or active-lane metadata is persisted.
+- `invariants`:
+- `assert(camera_visible_chunks_are_frontier_critical, "camera-visible chunks must be classified into frontier-critical scheduling before background work")`
+- `assert(occupancy_chunk_is_frontier_critical, "the player occupancy chunk must always be in the frontier-critical set")`
+- `assert(motion_frontier_uses_travel_speed_class, "motion frontier width must come from travel mode and speed-class planning inputs, not only current load radius sorting")`
+- `assert(frontier_critical_capacity_is_reserved, "frontier-critical generation must have at least one reserved worker slot")`
+- `assert(noncritical_lanes_cannot_use_reserved_frontier_capacity, "camera-visible-support/background work must not occupy the reserved frontier slot")`
+- `assert(frontier_plan_is_derived_runtime_state, "frontier plan and lane metadata are transient scheduling state, not save/load or terrain truth")`
+- `write operations`:
+- `TravelStateResolver.resolve()`
+- `ViewEnvelopeResolver.resolve()`
+- `FrontierPlanner.build_plan()`
+- `FrontierScheduler.resolve_lane_for_coord()`
+- `ChunkStreamingService.enqueue_load_request()`
+- `ChunkStreamingService.prune_load_queue()`
+- `ChunkStreamingService.submit_async_generate()`
+- `ChunkStreamingService.collect_completed_runtime_generates()`
+- `forbidden writes`:
+- Code outside the frontier owners and `ChunkStreamingService` must not mutate frontier lane queues, `_last_frontier_plan`, `gen_active_lanes`, or reserved-capacity counters directly.
+- Background/far streaming policy must not submit work into the reserved frontier slot by bypassing `FrontierScheduler`.
+- Frontier planning must not become canonical terrain/readiness truth; `full_ready` remains chunk publication/readiness state.
+- `emitted events / invalidation signals`:
+- No gameplay event. Diagnostics use `WorldRuntimeDiagnosticLog` records and `WorldPerfProbe` metrics such as `frontier.reserved_capacity_blocked`.
+- `current violations / ambiguities / contract gaps`:
+- R4 reserves worker capacity and protects camera-visible/frontier load planning, but R5 still owns the final-packet-only publication switch. Until R5, live visibility still passes through the existing chunk-local publication state machine and must not be described as final-packet-only publication.
 
 ## Layer: Visual Task Scheduling
 
