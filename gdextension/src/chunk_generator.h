@@ -2,10 +2,12 @@
 #define CHUNK_GENERATOR_H
 
 #include <vector>
+#include <unordered_map>
 #include <cmath>
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/vector2i.hpp>
@@ -156,6 +158,44 @@ private:
 
     // --- Biome definitions ---
     std::vector<BiomeDef> biomes; // sorted by priority desc, then id asc
+    struct FloraEntryDef {
+        StringName id;
+        Color color;
+        Vector2i size;
+        int z_offset = 0;
+        float weight = 1.0f;
+        float min_density_threshold = 0.0f;
+        float max_density_threshold = 1.0f;
+    };
+    struct DecorEntryDef {
+        StringName id;
+        Color color;
+        Vector2i size;
+        int z_offset = -1;
+        float weight = 1.0f;
+    };
+    struct FloraSetDef {
+        StringName id;
+        float base_density = 0.10f;
+        float flora_channel_weight = 1.0f;
+        float flora_modulation_weight = 0.5f;
+        std::vector<StringName> subzone_filters;
+        std::vector<StringName> excluded_subzones;
+        std::vector<FloraEntryDef> entries;
+    };
+    struct DecorSetDef {
+        StringName id;
+        float base_density = 0.06f;
+        std::vector<DecorEntryDef> entries;
+        std::vector<std::pair<StringName, float>> subzone_density_modifiers;
+    };
+    struct BiomeFloraConfig {
+        std::vector<int> flora_set_indices;
+        std::vector<int> decor_set_indices;
+    };
+    std::vector<FloraSetDef> flora_sets;
+    std::vector<DecorSetDef> decor_sets;
+    std::vector<BiomeFloraConfig> biome_flora_configs;
 
     // --- Terrain types (matches TileGenData.TerrainType) ---
     enum TerrainType { GROUND = 0, ROCK = 1, WATER = 2, SAND = 3 };
@@ -243,6 +283,18 @@ private:
     float resolve_cold_factor(float temperature) const;
     float resolve_hot_factor(float temperature) const;
     bool is_flat_polar_surface(const BiomePrePassSample& prepass) const;
+    Array compute_flora_placements(
+        int cs,
+        int base_x,
+        int base_y,
+        const uint8_t* terrain,
+        const uint8_t* biome_arr,
+        const uint8_t* variation,
+        const float* flora_density,
+        const float* flora_mod) const;
+    float tile_hash(int wx, int wy, int channel) const;
+    bool flora_set_allowed_in_subzone(const FloraSetDef& fs, int var_id) const;
+    float decor_set_subzone_density(const DecorSetDef& ds, int var_id) const;
 
     // Math
     static float clampf(float v, float lo, float hi);

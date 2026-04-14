@@ -67,6 +67,8 @@ Required API/documentation outcome after implementation:
 - Invariants:
   - `first_playable == true` implies player chunk is applied and visually complete.
   - `first_playable == true` implies the defined near-player gameplay ring is applied.
+  - player-visible startup handoff anchors the player to the center tile of ring 0 rather than a seam or chunk junction.
+  - player-visible startup handoff requires ring 0 plus all eight Chebyshev ring-1 neighbors to be `full_ready`.
   - `boot_complete == true` implies all startup chunks reached the terminal boot state defined by this spec.
   - No chunk may be marked `visual_complete` before it is `applied`.
 - Event after change: none required in iteration 1; polling via owner is acceptable.
@@ -83,6 +85,7 @@ Required API/documentation outcome after implementation:
 - New invariants:
   - startup chunk state must distinguish at least `computed`, `applied`, and `visual_complete`.
   - `first_playable` implies player can move and interact; no re-blocking after this point.
+  - the startup/player spawn tile is centered inside ring 0; boot/handoff policy must not assume a seam-start or 4-chunk junction start.
   - diagonal chunks visible from a 4-chunk junction must be ready at `first_playable`.
 - Who adapts:
   - `ChunkManager`
@@ -129,7 +132,7 @@ The boot process must expose these aggregate gates:
 Ring distance metric: **Chebyshev** (`max(abs(dx), abs(dy))`), not Manhattan. This ensures diagonal chunks at offset (1,1) are ring 1, covering the case where the player/camera straddles a 4-chunk junction.
 
 Recommended ring policy:
-- ring 0: player chunk only, mandatory for first-playable. Full redraw (terrain + cover + cliff) at apply time.
+- ring 0: centered player-spawn chunk, mandatory for first-playable. Full redraw (terrain + cover + cliff) at apply time.
 - ring 1: immediate movement and readability ring (including diagonals), mandatory for first-playable. Terrain-only immediate redraw at apply time via `complete_terrain_phase_now()` — eliminates green placeholder zones. Cover/cliff/flora complete via progressive redraw.
 - outer startup rings: mandatory for boot-complete, not mandatory for first-playable. Pure progressive redraw.
 
@@ -147,6 +150,7 @@ What is done:
 Acceptance tests:
 - [ ] `assert(chunk_state != visual_complete or chunk_state_was_applied_first)` — visual completion never precedes apply.
 - [ ] `assert(not first_playable or player_chunk_visual_complete)` — player chunk visual readiness is part of the gate.
+- [ ] `assert(startup_spawn_tile_is_chunk_center)` — startup/player-visible handoff begins from the center tile of ring 0, not a seam or junction.
 - [ ] `assert(not boot_complete or all_startup_chunks_terminal)` — boot complete only after full startup bubble reaches terminal state.
 
 Files that may be touched:
@@ -171,6 +175,7 @@ What is done:
 Acceptance tests:
 - [ ] manual: boot does not wait for the whole startup bubble to become visually complete before reporting first-playable.
 - [ ] `assert(first_playable_requires_ring0_and_ring1_only)` — no outer ring requirement leaks into first-playable.
+- [ ] `assert(startup_handoff_requires_centered_ring0_plus_all_8_ring1_chunks_full_ready)` — the startup near envelope is the centered player chunk plus all eight Chebyshev neighbors.
 - [ ] `assert(boot_complete_implies_outer_rings_finished)` — full startup completion still covers the whole requested startup bubble.
 
 Files that may be touched:

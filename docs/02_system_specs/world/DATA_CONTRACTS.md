@@ -827,6 +827,8 @@ Observed files for this version:
 - `assert(boot_chunk_state != VISUAL_COMPLETE or boot_chunk_state_was_APPLIED_first, "visual completion must not precede apply for any boot chunk")`
 - `assert(not first_playable or player_chunk_full_ready, "first_playable requires the player chunk (ring 0) to reach Chunk.is_full_redraw_ready()")`
 - `assert(not first_playable or all_ring_0_and_ring_1_chunks_are_loaded_applied_and_full_ready, "first_playable requires ring 0..1 (Chebyshev distance) full visual convergence, not raw first-pass publication")`
+- `assert(startup_spawn_tile_is_center_tile_of_ring_0, "startup/player-visible handoff anchors the player to the center tile of ring 0 instead of a seam or 4-chunk junction")`
+- `assert(startup_near_envelope_is_ring_0_plus_all_8_chebyshev_neighbors, "startup near envelope is the player chunk plus all eight surrounding ring-1 chunks around the centered spawn chunk")`
 - `assert(boot_ring_uses_chebyshev_distance, "ring distance is max(abs(dx), abs(dy)), not Manhattan — diagonal chunk at (1,1) is ring 1")`
 - `assert(first_playable does not require topology_ready, "topology is decoupled from the internal ChunkManager first_playable gate")`
 - `assert(first_playable_starts_boot_finalization_but_not_player_handoff, "GameWorld may use first_playable to start boot finalization, but player input/physics/loading-screen dismissal must wait for the full boot-ready handoff")`

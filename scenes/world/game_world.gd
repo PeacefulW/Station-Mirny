@@ -150,7 +150,10 @@ func _init_world_generator() -> void:
 		push_error(Localization.t("SYSTEM_WORLD_GENERATOR_MISSING"))
 		return
 	if _player:
-		WorldGenerator.spawn_tile = WorldGenerator.world_to_tile(_player.global_position)
+		if _pending_load_slot.is_empty():
+			_align_player_to_centered_startup_chunk()
+		else:
+			WorldGenerator.spawn_tile = WorldGenerator.world_to_tile(_player.global_position)
 	if WorldGenerator._is_initialized:
 		WorldPerfProbe.end("_init_world_generator", started_usec)
 		return
@@ -179,6 +182,17 @@ func _init_world_generator() -> void:
 	elif not begin_ok:
 		push_warning("[GameWorld] async world initialization unavailable; used sync fallback")
 	WorldPerfProbe.end("_init_world_generator", started_usec)
+
+func _align_player_to_centered_startup_chunk() -> void:
+	if _player == null or WorldGenerator == null or WorldGenerator.balance == null:
+		return
+	var startup_chunk: Vector2i = WorldGenerator.world_to_chunk(_player.global_position)
+	var chunk_origin: Vector2i = WorldGenerator.chunk_to_tile_origin(startup_chunk)
+	var half_chunk: int = maxi(0, WorldGenerator.balance.chunk_size_tiles / 2)
+	var centered_spawn_tile: Vector2i = WorldGenerator.offset_tile(chunk_origin, Vector2i(half_chunk, half_chunk))
+	WorldGenerator.spawn_tile = centered_spawn_tile
+	_player.global_position = WorldGenerator.tile_to_world(centered_spawn_tile)
+	_player.reset_camera_smoothing()
 
 func _resolve_requested_world_seed() -> int:
 	for arg: String in OS.get_cmdline_user_args():

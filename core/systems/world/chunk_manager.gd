@@ -2449,6 +2449,27 @@ func _should_prepare_border_fix_inline(task: Dictionary, chunk: Chunk, requested
 		return false
 	return dirty_count <= maxi(BORDER_FIX_REDRAW_MICRO_BATCH_TILES, requested_tile_budget)
 
+func _try_complete_visible_border_fix_inline(chunk: Chunk, z_level: int) -> bool:
+	if chunk == null or not is_instance_valid(chunk) or _chunk_visual_scheduler == null:
+		return false
+	if not chunk.visible or not chunk.is_full_redraw_ready() or not chunk.is_redraw_complete():
+		return false
+	if not _is_player_near_visual_chunk(chunk.chunk_coord, z_level):
+		return false
+	var dirty_count: int = chunk.get_pending_border_dirty_count()
+	if dirty_count <= 0:
+		return false
+	if dirty_count > maxi(1, chunk.get_chunk_size()):
+		return false
+	var started_usec: int = WorldPerfProbe.begin()
+	var has_more: bool = _chunk_visual_scheduler.process_border_fix_task(chunk, dirty_count, 0)
+	WorldPerfProbe.end("ChunkManager.visible_border_fix_inline %s@z%d" % [chunk.chunk_coord, z_level], started_usec)
+	if has_more or chunk.has_pending_border_dirty():
+		return false
+	chunk._mark_border_fix_reasons_applied()
+	_chunk_visual_scheduler.mark_full_ready(chunk.chunk_coord, z_level)
+	return true
+
 func _enqueue_player_near_border_fix_relief_task(
 	chunk: Chunk,
 	z_level: int,
@@ -3467,6 +3488,7 @@ func _duplicate_native_data(native_data: Dictionary) -> Dictionary:
 		"cliff_overlay": (native_data.get("cliff_overlay", PackedByteArray()) as PackedByteArray).duplicate(),
 		"variant_id": (native_data.get("variant_id", PackedByteArray()) as PackedByteArray).duplicate(),
 		"alt_id": (native_data.get("alt_id", PackedInt32Array()) as PackedInt32Array).duplicate(),
+		"flora_placements": (native_data.get("flora_placements", []) as Array).duplicate(true),
 		"feature_and_poi_payload": (native_data.get("feature_and_poi_payload", {"placements": []}) as Dictionary).duplicate(true),
 	}
 
@@ -3487,6 +3509,8 @@ func _finalize_chunk_install(coord: Vector2i, z_level: int, chunk: Chunk) -> voi
 		chunk.queue_free()
 		return
 	_sync_chunk_display_position(chunk, _player_chunk)
+	# Fresh installs must enter the tree hidden; visibility is published only by the full_ready gate.
+	chunk.visible = false
 	var z_container: Node2D = _z_containers.get(z_level) as Node2D
 	if z_container:
 		z_container.add_child(chunk)

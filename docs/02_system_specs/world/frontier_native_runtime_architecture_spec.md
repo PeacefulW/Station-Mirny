@@ -358,7 +358,9 @@ Startup may be slower than the current startup if that is required to preserve t
 
 Player control may be handed off only when:
 
+- the startup/player spawn position is anchored to the center tile of the ring-0 chunk, so handoff does not begin on a seam or 4-chunk junction
 - all chunks intersecting the startup camera-visible envelope are `full_ready`
+- the startup near envelope is the centered ring-0 spawn chunk plus all eight Chebyshev ring-1 neighbors, and all nine chunks are `full_ready`
 - immediate motion frontier slices for initial movement are protected by frontier preparation
 - all required publication for the startup slice is complete
 

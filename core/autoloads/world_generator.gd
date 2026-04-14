@@ -555,7 +555,13 @@ func _setup_native_chunk_generator(palette_index_by_id: Dictionary) -> void:
 	WorldPerfProbe.end("WorldGenerator._setup_native_chunk_generator.initialize", native_generator_initialize_usec)
 	_native_chunk_generator = gen
 	var biome_defs: Array = params.get("biomes", []) as Array
-	print("[WorldGenerator] Native ChunkGenerator initialized (%d biomes, authoritative WorldPrePass snapshot)" % [biome_defs.size()])
+	var flora_set_defs: Array = params.get("flora_sets", []) as Array
+	var decor_set_defs: Array = params.get("decor_sets", []) as Array
+	print("[WorldGenerator] Native ChunkGenerator initialized (%d biomes, %d flora sets, %d decor sets, authoritative WorldPrePass snapshot)" % [
+		biome_defs.size(),
+		flora_set_defs.size(),
+		decor_set_defs.size(),
+	])
 
 func _build_generator_params(palette_index_by_id: Dictionary) -> Dictionary:
 	var wrap: int = WorldNoiseUtilsScript.resolve_wrap_width_tiles(balance)
@@ -657,8 +663,79 @@ func _build_generator_params(palette_index_by_id: Dictionary) -> Dictionary:
 			"river_strength_weight": biome.river_strength_weight,
 			"floodplain_strength_weight": biome.floodplain_strength_weight,
 			"tags": biome.tags.duplicate() if biome.tags else [],
+			"flora_set_ids": biome.flora_set_ids.duplicate() if biome.flora_set_ids else [],
+			"decor_set_ids": biome.decor_set_ids.duplicate() if biome.decor_set_ids else [],
 		})
 	params["biomes"] = biome_defs
+	var flora_set_defs: Array = []
+	var decor_set_defs: Array = []
+	var seen_flora_ids: Dictionary = {}
+	var seen_decor_ids: Dictionary = {}
+	if FloraDecorRegistry != null:
+		for biome_data: BiomeData in palette_order:
+			if biome_data == null:
+				continue
+			for flora_set_id: StringName in biome_data.flora_set_ids:
+				if seen_flora_ids.has(flora_set_id):
+					continue
+				var flora_set = FloraDecorRegistry.get_flora_set(flora_set_id)
+				if flora_set == null:
+					continue
+				seen_flora_ids[flora_set_id] = true
+				var flora_set_dict: Dictionary = {
+					"id": flora_set.id,
+					"base_density": flora_set.base_density,
+					"flora_channel_weight": flora_set.flora_channel_weight,
+					"flora_modulation_weight": flora_set.flora_modulation_weight,
+					"subzone_filters": flora_set.subzone_filters.duplicate() if flora_set.subzone_filters else [],
+					"excluded_subzones": flora_set.excluded_subzones.duplicate() if flora_set.excluded_subzones else [],
+				}
+				var flora_entries: Array = []
+				for entry_resource in flora_set.entries:
+					if entry_resource == null:
+						continue
+					flora_entries.append({
+						"id": entry_resource.id,
+						"color": entry_resource.placeholder_color,
+						"size": entry_resource.placeholder_size,
+						"z_offset": entry_resource.z_index_offset,
+						"weight": entry_resource.weight,
+						"min_density_threshold": entry_resource.min_density_threshold,
+						"max_density_threshold": entry_resource.max_density_threshold,
+					})
+				flora_set_dict["entries"] = flora_entries
+				flora_set_defs.append(flora_set_dict)
+		for biome_data: BiomeData in palette_order:
+			if biome_data == null:
+				continue
+			for decor_set_id: StringName in biome_data.decor_set_ids:
+				if seen_decor_ids.has(decor_set_id):
+					continue
+				var decor_set = FloraDecorRegistry.get_decor_set(decor_set_id)
+				if decor_set == null:
+					continue
+				seen_decor_ids[decor_set_id] = true
+				var decor_set_dict: Dictionary = {
+					"id": decor_set.id,
+					"base_density": decor_set.base_density,
+					"entries": [],
+					"subzone_density_modifiers": decor_set.subzone_density_modifiers.duplicate() if decor_set.subzone_density_modifiers else {},
+				}
+				var decor_entries: Array = []
+				for entry_resource in decor_set.entries:
+					if entry_resource == null:
+						continue
+					decor_entries.append({
+						"id": entry_resource.id,
+						"color": entry_resource.placeholder_color,
+						"size": entry_resource.placeholder_size,
+						"z_offset": entry_resource.z_index_offset,
+						"weight": entry_resource.weight,
+					})
+				decor_set_dict["entries"] = decor_entries
+				decor_set_defs.append(decor_set_dict)
+	params["flora_sets"] = flora_set_defs
+	params["decor_sets"] = decor_set_defs
 
 	return params
 

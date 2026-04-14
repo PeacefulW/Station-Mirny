@@ -1,5 +1,6 @@
 #include "chunk_generator.h"
 #include <cmath>
+#include <cstdint>
 #include <algorithm>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/string.hpp>
@@ -268,6 +269,109 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
         if (a.priority != b.priority) return a.priority > b.priority;
         return String(a.id) < String(b.id);
     });
+
+    flora_sets.clear();
+    decor_sets.clear();
+    biome_flora_configs.clear();
+
+    Array flora_sets_arr = p_params.get("flora_sets", Array());
+    for (int i = 0; i < flora_sets_arr.size(); i++) {
+        Dictionary fsd = flora_sets_arr[i];
+        FloraSetDef fs;
+        fs.id = (StringName)fsd.get("id", StringName());
+        fs.base_density = (float)(double)fsd.get("base_density", 0.10);
+        fs.flora_channel_weight = (float)(double)fsd.get("flora_channel_weight", 1.0);
+        fs.flora_modulation_weight = (float)(double)fsd.get("flora_modulation_weight", 0.5);
+
+        Array subzone_filters = fsd.get("subzone_filters", Array());
+        for (int j = 0; j < subzone_filters.size(); j++) {
+            fs.subzone_filters.push_back((StringName)subzone_filters[j]);
+        }
+        Array excluded_subzones = fsd.get("excluded_subzones", Array());
+        for (int j = 0; j < excluded_subzones.size(); j++) {
+            fs.excluded_subzones.push_back((StringName)excluded_subzones[j]);
+        }
+
+        Array entries_arr = fsd.get("entries", Array());
+        for (int j = 0; j < entries_arr.size(); j++) {
+            Dictionary ed = entries_arr[j];
+            FloraEntryDef fe;
+            fe.id = (StringName)ed.get("id", StringName());
+            fe.color = (Color)ed.get("color", Color(0.3f, 0.5f, 0.2f, 1.0f));
+            fe.size = (Vector2i)ed.get("size", Vector2i(12, 24));
+            fe.z_offset = (int)ed.get("z_offset", 0);
+            fe.weight = (float)(double)ed.get("weight", 1.0);
+            fe.min_density_threshold = (float)(double)ed.get("min_density_threshold", 0.0);
+            fe.max_density_threshold = (float)(double)ed.get("max_density_threshold", 1.0);
+            fs.entries.push_back(fe);
+        }
+        flora_sets.push_back(fs);
+    }
+
+    Array decor_sets_arr = p_params.get("decor_sets", Array());
+    for (int i = 0; i < decor_sets_arr.size(); i++) {
+        Dictionary dsd = decor_sets_arr[i];
+        DecorSetDef ds;
+        ds.id = (StringName)dsd.get("id", StringName());
+        ds.base_density = (float)(double)dsd.get("base_density", 0.06);
+
+        Array entries_arr = dsd.get("entries", Array());
+        for (int j = 0; j < entries_arr.size(); j++) {
+            Dictionary ed = entries_arr[j];
+            DecorEntryDef de;
+            de.id = (StringName)ed.get("id", StringName());
+            de.color = (Color)ed.get("color", Color(0.4f, 0.35f, 0.3f, 1.0f));
+            de.size = (Vector2i)ed.get("size", Vector2i(10, 10));
+            de.z_offset = (int)ed.get("z_offset", -1);
+            de.weight = (float)(double)ed.get("weight", 1.0);
+            ds.entries.push_back(de);
+        }
+
+        Dictionary subzone_density_modifiers = dsd.get("subzone_density_modifiers", Dictionary());
+        Array subzone_keys = subzone_density_modifiers.keys();
+        for (int j = 0; j < subzone_keys.size(); j++) {
+            Variant key_variant = subzone_keys[j];
+            ds.subzone_density_modifiers.push_back({
+                (StringName)key_variant,
+                (float)(double)subzone_density_modifiers[key_variant]
+            });
+        }
+        decor_sets.push_back(ds);
+    }
+
+    biome_flora_configs.resize(biomes.size());
+    for (int i = 0; i < biome_array.size(); i++) {
+        Dictionary bd = biome_array[i];
+        int palette_idx = (int)bd.get("palette_index", i);
+        BiomeFloraConfig bfc;
+
+        Array flora_set_ids = bd.get("flora_set_ids", Array());
+        for (int j = 0; j < flora_set_ids.size(); j++) {
+            StringName flora_set_id = (StringName)flora_set_ids[j];
+            for (int k = 0; k < (int)flora_sets.size(); k++) {
+                if (flora_sets[k].id == flora_set_id) {
+                    bfc.flora_set_indices.push_back(k);
+                    break;
+                }
+            }
+        }
+
+        Array decor_set_ids = bd.get("decor_set_ids", Array());
+        for (int j = 0; j < decor_set_ids.size(); j++) {
+            StringName decor_set_id = (StringName)decor_set_ids[j];
+            for (int k = 0; k < (int)decor_sets.size(); k++) {
+                if (decor_sets[k].id == decor_set_id) {
+                    bfc.decor_set_indices.push_back(k);
+                    break;
+                }
+            }
+        }
+
+        if (palette_idx >= (int)biome_flora_configs.size()) {
+            biome_flora_configs.resize(palette_idx + 1);
+        }
+        biome_flora_configs[palette_idx] = bfc;
+    }
 
     initialized = true;
 }
@@ -981,6 +1085,246 @@ bool ChunkGenerator::is_flat_polar_surface(const BiomePrePassSample& prepass) co
     return clampf(prepass.slope, 0.0f, 1.0f) <= 0.15f;
 }
 
+float ChunkGenerator::tile_hash(int wx, int wy, int channel) const {
+    int64_t h = (int64_t)seed * 374761393LL;
+    h += (int64_t)wx * 668265263LL;
+    h += (int64_t)wy * 2147483647LL;
+    h += (int64_t)channel * 1013904223LL;
+    h = (h ^ (h >> 13)) * 1274126177LL;
+    h ^= (h >> 16);
+    return (float)(h & 0xFFFFFF) / (float)0x1000000;
+}
+
+bool ChunkGenerator::flora_set_allowed_in_subzone(const FloraSetDef& fs, int var_id) const {
+    static const StringName VAR_NAMES[] = {
+        StringName("none"),
+        StringName("sparse_flora"),
+        StringName("dense_flora"),
+        StringName("clearing"),
+        StringName("rocky_patch"),
+        StringName("wet_patch"),
+        StringName("polar_ice"),
+        StringName("polar_scorched"),
+        StringName("polar_salt_flat"),
+        StringName("polar_dry_riverbed"),
+    };
+    constexpr int VAR_NAME_COUNT = sizeof(VAR_NAMES) / sizeof(VAR_NAMES[0]);
+    StringName subzone_name = (var_id >= 0 && var_id < VAR_NAME_COUNT) ? VAR_NAMES[var_id] : VAR_NAMES[0];
+    for (const auto& excluded_subzone : fs.excluded_subzones) {
+        if (excluded_subzone == subzone_name) {
+            return false;
+        }
+    }
+    if (fs.subzone_filters.empty()) {
+        return true;
+    }
+    for (const auto& allowed_subzone : fs.subzone_filters) {
+        if (allowed_subzone == subzone_name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+float ChunkGenerator::decor_set_subzone_density(const DecorSetDef& ds, int var_id) const {
+    static const StringName VAR_NAMES[] = {
+        StringName("none"),
+        StringName("sparse_flora"),
+        StringName("dense_flora"),
+        StringName("clearing"),
+        StringName("rocky_patch"),
+        StringName("wet_patch"),
+        StringName("polar_ice"),
+        StringName("polar_scorched"),
+        StringName("polar_salt_flat"),
+        StringName("polar_dry_riverbed"),
+    };
+    constexpr int VAR_NAME_COUNT = sizeof(VAR_NAMES) / sizeof(VAR_NAMES[0]);
+    StringName subzone_name = (var_id >= 0 && var_id < VAR_NAME_COUNT) ? VAR_NAMES[var_id] : VAR_NAMES[0];
+    for (const auto& density_modifier : ds.subzone_density_modifiers) {
+        if (density_modifier.first == subzone_name) {
+            return ds.base_density * density_modifier.second;
+        }
+    }
+    return ds.base_density;
+}
+
+struct FloraZoneCache {
+    std::vector<int> flora_indices;
+    std::vector<int> decor_indices;
+    std::vector<float> decor_densities;
+};
+
+Array ChunkGenerator::compute_flora_placements(
+        int cs,
+        int base_x,
+        int base_y,
+        const uint8_t* terrain_p,
+        const uint8_t* biome_p,
+        const uint8_t* variation_p,
+        const float* flora_dens_p,
+        const float* flora_mod_p) const {
+    Array placements;
+    if (cs <= 0 || terrain_p == nullptr || biome_p == nullptr || variation_p == nullptr
+            || flora_dens_p == nullptr || flora_mod_p == nullptr) {
+        return placements;
+    }
+
+    std::unordered_map<int, FloraZoneCache> zone_cache;
+    for (int ly = 0; ly < cs; ly++) {
+        int wy = base_y + ly;
+        for (int lx = 0; lx < cs; lx++) {
+            int idx = ly * cs + lx;
+            if (terrain_p[idx] != GROUND) {
+                continue;
+            }
+
+            int biome_idx = (int)biome_p[idx];
+            int var_id = (int)variation_p[idx];
+            int zone_key = biome_idx * 32 + var_id;
+            auto zone_cache_it = zone_cache.find(zone_key);
+            if (zone_cache_it == zone_cache.end()) {
+                FloraZoneCache zone_cache_entry;
+                if (biome_idx >= 0 && biome_idx < (int)biome_flora_configs.size()) {
+                    const BiomeFloraConfig& biome_flora_config = biome_flora_configs[biome_idx];
+                    for (int flora_index : biome_flora_config.flora_set_indices) {
+                        if (flora_index < 0 || flora_index >= (int)flora_sets.size()) {
+                            continue;
+                        }
+                        if (flora_set_allowed_in_subzone(flora_sets[flora_index], var_id)) {
+                            zone_cache_entry.flora_indices.push_back(flora_index);
+                        }
+                    }
+                    for (int decor_index : biome_flora_config.decor_set_indices) {
+                        if (decor_index < 0 || decor_index >= (int)decor_sets.size()) {
+                            continue;
+                        }
+                        zone_cache_entry.decor_indices.push_back(decor_index);
+                        zone_cache_entry.decor_densities.push_back(
+                            decor_set_subzone_density(decor_sets[decor_index], var_id)
+                        );
+                    }
+                }
+                zone_cache_it = zone_cache.insert({ zone_key, zone_cache_entry }).first;
+            }
+
+            const FloraZoneCache& zone_cache_entry = zone_cache_it->second;
+            int wx = base_x + lx;
+            float density_hash = tile_hash(wx, wy, 0);
+            float flora_pick_hash = tile_hash(wx, wy, 1);
+            float decor_pick_hash = tile_hash(wx, wy, 2);
+            float flora_density = flora_dens_p[idx];
+            float flora_modulation = flora_mod_p[idx];
+            bool placed = false;
+
+            for (int flora_index : zone_cache_entry.flora_indices) {
+                const FloraSetDef& flora_set = flora_sets[flora_index];
+                float effective_density = flora_set.base_density;
+                effective_density *= (1.0f + flora_density * flora_set.flora_channel_weight);
+                effective_density *= (1.0f + flora_modulation * flora_set.flora_modulation_weight);
+                effective_density = clampf(effective_density, 0.0f, 0.6f);
+                if (density_hash >= effective_density) {
+                    continue;
+                }
+
+                float total_weight = 0.0f;
+                for (const FloraEntryDef& flora_entry : flora_set.entries) {
+                    if (flora_density >= flora_entry.min_density_threshold
+                            && flora_density <= flora_entry.max_density_threshold) {
+                        total_weight += flora_entry.weight;
+                    }
+                }
+                if (total_weight <= 0.0f) {
+                    continue;
+                }
+
+                float target = flora_pick_hash * total_weight;
+                float accumulated = 0.0f;
+                int chosen_entry_index = -1;
+                for (int entry_index = 0; entry_index < (int)flora_set.entries.size(); entry_index++) {
+                    const FloraEntryDef& flora_entry = flora_set.entries[entry_index];
+                    if (flora_density < flora_entry.min_density_threshold
+                            || flora_density > flora_entry.max_density_threshold) {
+                        continue;
+                    }
+                    accumulated += flora_entry.weight;
+                    if (target <= accumulated) {
+                        chosen_entry_index = entry_index;
+                        break;
+                    }
+                }
+                if (chosen_entry_index < 0) {
+                    chosen_entry_index = (int)flora_set.entries.size() - 1;
+                }
+                if (chosen_entry_index < 0 || chosen_entry_index >= (int)flora_set.entries.size()) {
+                    continue;
+                }
+
+                const FloraEntryDef& chosen_entry = flora_set.entries[chosen_entry_index];
+                Dictionary placement;
+                placement["local_pos"] = Vector2i(lx, ly);
+                placement["entry_id"] = chosen_entry.id;
+                placement["is_flora"] = true;
+                placement["color"] = chosen_entry.color;
+                placement["size"] = chosen_entry.size;
+                placement["z_offset"] = chosen_entry.z_offset;
+                placements.append(placement);
+                placed = true;
+                break;
+            }
+            if (placed) {
+                continue;
+            }
+
+            for (int decor_idx = 0; decor_idx < (int)zone_cache_entry.decor_indices.size(); decor_idx++) {
+                float decor_density = zone_cache_entry.decor_densities[decor_idx];
+                if (density_hash >= decor_density) {
+                    continue;
+                }
+                const DecorSetDef& decor_set = decor_sets[zone_cache_entry.decor_indices[decor_idx]];
+                if (decor_set.entries.empty()) {
+                    continue;
+                }
+
+                float total_weight = 0.0f;
+                for (const DecorEntryDef& decor_entry : decor_set.entries) {
+                    total_weight += decor_entry.weight;
+                }
+                if (total_weight <= 0.0f) {
+                    continue;
+                }
+
+                float target = decor_pick_hash * total_weight;
+                float accumulated = 0.0f;
+                int chosen_entry_index = (int)decor_set.entries.size() - 1;
+                for (int entry_index = 0; entry_index < (int)decor_set.entries.size(); entry_index++) {
+                    accumulated += decor_set.entries[entry_index].weight;
+                    if (target <= accumulated) {
+                        chosen_entry_index = entry_index;
+                        break;
+                    }
+                }
+                if (chosen_entry_index < 0 || chosen_entry_index >= (int)decor_set.entries.size()) {
+                    continue;
+                }
+
+                const DecorEntryDef& chosen_entry = decor_set.entries[chosen_entry_index];
+                Dictionary placement;
+                placement["local_pos"] = Vector2i(lx, ly);
+                placement["entry_id"] = chosen_entry.id;
+                placement["is_flora"] = false;
+                placement["color"] = chosen_entry.color;
+                placement["size"] = chosen_entry.size;
+                placement["z_offset"] = chosen_entry.z_offset;
+                placements.append(placement);
+                break;
+            }
+        }
+    }
+
+    return placements;
+}
+
 // ============================================================
 // generate_chunk() — authoritative pre-pass-backed pipeline
 // ============================================================
@@ -1166,6 +1510,17 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
         }
     }
 
+    Array flora_placements = compute_flora_placements(
+        cs,
+        base_x,
+        base_y,
+        terrain.ptr(),
+        biome_arr.ptr(),
+        variation.ptr(),
+        flora_density_values.ptr(),
+        flora_modulation_values.ptr()
+    );
+
     Dictionary result;
     result["chunk_coord"] = chunk_coord;
     result["canonical_chunk_coord"] = Vector2i(canonical_cx, chunk_coord.y);
@@ -1179,6 +1534,7 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
     result["ecotone_values"] = ecotone_values;
     result["flora_density_values"] = flora_density_values;
     result["flora_modulation_values"] = flora_modulation_values;
+    result["flora_placements"] = flora_placements;
     return result;
 }
 
