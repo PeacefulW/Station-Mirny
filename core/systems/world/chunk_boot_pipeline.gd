@@ -1,6 +1,8 @@
 class_name ChunkBootPipeline
 extends RefCounted
 
+const ChunkFinalPacketScript = preload("res://core/systems/world/chunk_final_packet.gd")
+
 var _owner: Node = null
 
 var chunk_states: Dictionary = {}
@@ -325,15 +327,12 @@ func worker_compute(
 	if z_level != 0:
 		data = _generate_solid_rock_chunk()
 	else:
-		data = builder.build_chunk_native_data(coord)
+		data = _owner._build_surface_chunk_native_data(coord, builder)
 	if _owner._shutdown_in_progress:
 		return
 	if z_level == 0 and not data.is_empty():
-		if not data.has("flora_placements"):
-			_owner._block_legacy_chunk_runtime_fallback(coord, z_level, "boot_missing_native_flora_placements")
-			data = {}
-		elif data.has("flora_placements"):
-			result_entry["flora_payload"] = _build_native_flora_payload_from_placements(coord, data)
+		if data.has(ChunkFinalPacketScript.FLORA_PAYLOAD_KEY):
+			result_entry["flora_payload"] = (data.get(ChunkFinalPacketScript.FLORA_PAYLOAD_KEY, {}) as Dictionary).duplicate(true)
 	result_entry["native_data"] = data
 	result_entry["compute_ms"] = float(Time.get_ticks_usec() - started_usec_local) / 1000.0
 	compute_mutex.lock()
@@ -649,8 +648,8 @@ func _tick_visuals_budget(max_usec: int) -> bool:
 func _cache_chunk_install_handoff_entry(entry: Dictionary, z_level: int) -> void:
 	_owner._cache_chunk_install_handoff_entry(entry, z_level)
 
-func _build_surface_chunk_native_data(coord: Vector2i) -> Dictionary:
-	return _owner._build_surface_chunk_native_data(coord)
+func _build_surface_chunk_native_data(coord: Vector2i, builder: ChunkContentBuilder = null) -> Dictionary:
+	return _owner._build_surface_chunk_native_data(coord, builder)
 
 func _try_get_surface_payload_cache_native_data(coord: Vector2i, z_level: int, out_native_data: Dictionary) -> bool:
 	return _owner._try_get_surface_payload_cache_native_data(coord, z_level, out_native_data)
@@ -660,16 +659,6 @@ func _cache_surface_chunk_payload(coord: Vector2i, z_level: int, native_data: Di
 
 func _create_detached_flora_builder() -> ChunkFloraBuilder:
 	return _owner._create_detached_flora_builder()
-
-func _build_flora_payload_for_native_data(
-	chunk_coord: Vector2i,
-	native_data: Dictionary,
-	flora_builder: ChunkFloraBuilder = null
-) -> Dictionary:
-	return _owner._build_flora_payload_for_native_data(chunk_coord, native_data, flora_builder)
-
-func _build_native_flora_payload_from_placements(chunk_coord: Vector2i, native_data: Dictionary) -> Dictionary:
-	return _owner._build_native_flora_payload_from_placements(chunk_coord, native_data)
 
 func _generate_solid_rock_chunk() -> Dictionary:
 	return _owner._generate_solid_rock_chunk()

@@ -2,6 +2,7 @@ class_name ChunkContentBuilder
 extends RefCounted
 
 const ChunkScript = preload("res://core/systems/world/chunk.gd")
+const ChunkFinalPacketScript = preload("res://core/systems/world/chunk_final_packet.gd")
 const WorldFeatureHookResolverScript = preload("res://core/systems/world/world_feature_hook_resolver.gd")
 const WorldPoiResolverScript = preload("res://core/systems/world/world_poi_resolver.gd")
 
@@ -82,8 +83,7 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 	if chunk_size <= 0:
 		return {}
 	var spawn_tile: Vector2i = _world_context.spawn_tile if _world_context else Vector2i.ZERO
-	# Try native C++ path — skip expensive feature/POI computation on worker threads.
-	# Feature/POI payload is deferred to main-thread cache population.
+	# Player-reachable surface packets must be self-contained before install.
 	if _native_generator != null and _native_generator.has_method("generate_chunk"):
 		var native_total_start_usec: int = Time.get_ticks_usec()
 		var request_start_usec: int = Time.get_ticks_usec()
@@ -97,21 +97,47 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 			var native_payload_valid: bool = _validate_native_chunk_payload(native_result, canonical_chunk, chunk_size)
 			var validate_ms: float = float(Time.get_ticks_usec() - validate_start_usec) / 1000.0
 			if native_payload_valid:
-				native_result["generation_source"] = "native_chunk_generator"
-				native_result[FEATURE_AND_POI_PAYLOAD_KEY] = _empty_feature_and_poi_payload()
+				var feature_poi_start_usec: int = Time.get_ticks_usec()
+				native_result[FEATURE_AND_POI_PAYLOAD_KEY] = _build_feature_and_poi_payload(
+					canonical_chunk,
+					base_tile,
+					chunk_size,
+					false
+				)
+				var feature_poi_ms: float = float(Time.get_ticks_usec() - feature_poi_start_usec) / 1000.0
 				var prebaked_start_usec: int = Time.get_ticks_usec()
-				var prebaked_visual_payload: Dictionary = _build_prebaked_visual_payload(native_result, canonical_chunk, base_tile, chunk_size)
+				var prebaked_visual_payload: Dictionary = _build_native_prebaked_visual_payload(
+					native_result,
+					canonical_chunk,
+					base_tile,
+					chunk_size
+				)
 				var prebaked_ms: float = float(Time.get_ticks_usec() - prebaked_start_usec) / 1000.0
+				if prebaked_visual_payload.is_empty():
+					return _block_legacy_surface_generation_fallback(
+						canonical_chunk,
+						"missing_native_prebaked_visual_payload"
+					)
 				native_result.merge(prebaked_visual_payload, true)
+				ChunkFinalPacketScript.stamp_surface_packet_metadata(native_result, &"native_chunk_generator")
+				if not ChunkFinalPacketScript.validate_surface_packet(
+					native_result,
+					"ChunkContentBuilder.build_chunk_native_data(%s)" % [canonical_chunk]
+				):
+					return _block_legacy_surface_generation_fallback(
+						canonical_chunk,
+						"invalid_surface_final_packet_contract"
+					)
 				var native_total_ms: float = float(Time.get_ticks_usec() - native_total_start_usec) / 1000.0
-				_record_native_chunk_generation_metrics(canonical_chunk, request_ms, native_call_ms, validate_ms, prebaked_ms, native_total_ms)
+				_record_native_chunk_generation_metrics(canonical_chunk, request_ms, native_call_ms, validate_ms, feature_poi_ms, prebaked_ms, native_total_ms)
 				if native_total_ms >= CHUNK_GEN_SLOW_LOG_THRESHOLD_MS:
-					print("[ChunkGen] slow native generate_chunk %s: %.1f ms (request=%.1f native=%.1f validate=%.1f prebaked=%.1f)" % [
+					print("[ChunkGen] slow native generate_chunk %s: %.1f ms (request=%.1f native=%.1f validate=%.1f feature_poi=%.1f prebaked=%.1f)" % [
 						canonical_chunk,
 						native_total_ms,
 						request_ms,
 						native_call_ms,
 						validate_ms,
+						feature_poi_ms,
 						prebaked_ms,
 					])
 				return native_result
@@ -222,13 +248,15 @@ func _record_native_chunk_generation_metrics(
 	request_ms: float,
 	native_call_ms: float,
 	validate_ms: float,
+	feature_poi_ms: float,
 	prebaked_ms: float,
 	total_ms: float
 ) -> void:
 	WorldPerfProbe.record("ChunkGen.native_request_ms %s" % [canonical_chunk], request_ms)
 	WorldPerfProbe.record("ChunkGen.native_call_ms %s" % [canonical_chunk], native_call_ms)
 	WorldPerfProbe.record("ChunkGen.native_validate_ms %s" % [canonical_chunk], validate_ms)
-	WorldPerfProbe.record("ChunkGen.prebaked_visual_payload_ms %s" % [canonical_chunk], prebaked_ms)
+	WorldPerfProbe.record("ChunkGen.feature_poi_payload_ms %s" % [canonical_chunk], feature_poi_ms)
+	WorldPerfProbe.record("ChunkGen.native_visual_payload_ms %s" % [canonical_chunk], prebaked_ms)
 	WorldPerfProbe.record("ChunkGen.native_total_ms %s" % [canonical_chunk], total_ms)
 
 func build_tile_data(tile_x: int, tile_y: int) -> TileGenData:
@@ -247,9 +275,45 @@ func _build_prebaked_visual_payload(
 	base_tile: Vector2i,
 	chunk_size: int
 ) -> Dictionary:
+	var request: Dictionary = _build_prebaked_visual_request(native_data, canonical_chunk, base_tile, chunk_size)
+	if request.is_empty():
+		return {}
+	var helper: RefCounted = _get_native_visual_kernels()
+	if helper != null and helper.has_method("build_prebaked_visual_payload"):
+		var native_payload: Dictionary = helper.call("build_prebaked_visual_payload", request) as Dictionary
+		if not native_payload.is_empty():
+			return native_payload
+	return ChunkScript.build_prebaked_visual_payload(request)
+
+func _build_native_prebaked_visual_payload(
+	native_data: Dictionary,
+	canonical_chunk: Vector2i,
+	base_tile: Vector2i,
+	chunk_size: int
+) -> Dictionary:
+	var request: Dictionary = _build_prebaked_visual_request(native_data, canonical_chunk, base_tile, chunk_size)
+	if request.is_empty():
+		return {}
+	var helper: RefCounted = _get_native_visual_kernels()
+	if helper == null or not helper.has_method("build_prebaked_visual_payload"):
+		push_error("ChunkContentBuilder.build_chunk_native_data(): native visual packet builder is unavailable for %s" % [canonical_chunk])
+		assert(false, "surface final packet visual payload must be built by native ChunkVisualKernels")
+		return {}
+	var native_payload: Dictionary = helper.call("build_prebaked_visual_payload", request) as Dictionary
+	if native_payload.is_empty():
+		push_error("ChunkContentBuilder.build_chunk_native_data(): native visual packet builder returned an empty payload for %s" % [canonical_chunk])
+		assert(false, "surface final packet visual payload must be complete before validation")
+	return native_payload
+
+func _build_prebaked_visual_request(
+	native_data: Dictionary,
+	canonical_chunk: Vector2i,
+	base_tile: Vector2i,
+	chunk_size: int
+) -> Dictionary:
 	if native_data.is_empty() or chunk_size <= 0:
 		return {}
-	var request: Dictionary = {
+	return {
 		"chunk_coord": canonical_chunk,
 		"chunk_size": chunk_size,
 		"is_underground": false,
@@ -262,14 +326,6 @@ func _build_prebaked_visual_payload(
 		"terrain_halo": _build_terrain_halo(native_data.get("terrain", PackedByteArray()) as PackedByteArray, base_tile, chunk_size),
 		"native_visual_tables": ChunkScript.build_native_visual_tables(),
 	}
-	var helper: RefCounted = _get_native_visual_kernels()
-	if not _requires_gdscript_prebaked_visual_payload(request, chunk_size) \
-		and helper != null \
-		and helper.has_method("build_prebaked_visual_payload"):
-		var native_payload: Dictionary = helper.call("build_prebaked_visual_payload", request) as Dictionary
-		if not native_payload.is_empty():
-			return native_payload
-	return ChunkScript.build_prebaked_visual_payload(request)
 
 func _build_terrain_halo(terrain_bytes: PackedByteArray, base_tile: Vector2i, chunk_size: int) -> PackedByteArray:
 	var stride: int = chunk_size + 2
@@ -296,22 +352,6 @@ func _get_native_visual_kernels() -> RefCounted:
 		return null
 	_native_visual_kernels = ClassDB.instantiate(NATIVE_VISUAL_KERNELS_CLASS) as RefCounted
 	return _native_visual_kernels
-
-func _requires_gdscript_prebaked_visual_payload(request: Dictionary, chunk_size: int) -> bool:
-	if chunk_size <= 0:
-		return false
-	var tile_count: int = chunk_size * chunk_size
-	var biome_bytes: PackedByteArray = request.get("biome_bytes", PackedByteArray()) as PackedByteArray
-	var secondary_biome_bytes: PackedByteArray = request.get("secondary_biome_bytes", PackedByteArray()) as PackedByteArray
-	var ecotone_values: PackedFloat32Array = request.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array
-	if biome_bytes.size() != tile_count \
-		or secondary_biome_bytes.size() != tile_count \
-		or ecotone_values.size() != tile_count:
-		return false
-	for idx: int in range(tile_count):
-		if secondary_biome_bytes[idx] != biome_bytes[idx] and ecotone_values[idx] > 0.05:
-			return true
-	return false
 
 func _validate_native_chunk_payload(native_result: Dictionary, canonical_chunk: Vector2i, chunk_size: int) -> bool:
 	var tile_count: int = chunk_size * chunk_size
@@ -354,10 +394,16 @@ func _chunk_to_tile_origin(chunk_coord: Vector2i) -> Vector2i:
 		return _terrain_resolver.chunk_to_tile_origin(chunk_coord)
 	return Vector2i.ZERO
 
-func _build_feature_and_poi_payload(canonical_chunk: Vector2i, base_tile: Vector2i, chunk_size: int) -> Dictionary:
+func _build_feature_and_poi_payload(
+	canonical_chunk: Vector2i,
+	base_tile: Vector2i,
+	chunk_size: int,
+	use_shared_cache: bool = true
+) -> Dictionary:
 	if _world_context == null or chunk_size <= 0:
 		return _empty_feature_and_poi_payload()
-	if _feature_and_poi_payload_cache != null \
+	if use_shared_cache \
+		and _feature_and_poi_payload_cache != null \
 		and _feature_and_poi_payload_cache.has_method("has_payload") \
 		and _feature_and_poi_payload_cache.call("has_payload", canonical_chunk):
 		return _feature_and_poi_payload_cache.call("get_payload", canonical_chunk) as Dictionary
@@ -593,9 +639,7 @@ func _get_all_pois() -> Array[Resource]:
 	return _all_pois_snapshot
 
 func _empty_feature_and_poi_payload() -> Dictionary:
-	return {
-		PLACEMENTS_KEY: [],
-	}
+	return ChunkFinalPacketScript.empty_feature_and_poi_payload()
 
 func _publish_feature_and_poi_payload(canonical_chunk: Vector2i, payload: Dictionary) -> void:
 	if _feature_and_poi_payload_cache == null:

@@ -544,7 +544,7 @@ func _setup_native_chunk_generator(palette_index_by_id: Dictionary) -> void:
 	if not balance or not balance.use_native_chunk_generation:
 		return
 	if not ClassDB.class_exists(&"ChunkGenerator"):
-		push_warning("[WorldGenerator] ChunkGenerator C++ class not available — falling back to GDScript")
+		push_warning("[WorldGenerator] ChunkGenerator C++ class not available — surface runtime generation will fail closed")
 		return
 	var gen: RefCounted = ClassDB.instantiate(&"ChunkGenerator")
 	if gen == null:
@@ -699,6 +699,7 @@ func _build_generator_params(palette_index_by_id: Dictionary) -> Dictionary:
 						"color": entry_resource.placeholder_color,
 						"size": entry_resource.placeholder_size,
 						"z_offset": entry_resource.z_index_offset,
+						"texture_path": entry_resource.texture.resource_path if entry_resource.texture != null else "",
 						"weight": entry_resource.weight,
 						"min_density_threshold": entry_resource.min_density_threshold,
 						"max_density_threshold": entry_resource.max_density_threshold,
@@ -730,6 +731,7 @@ func _build_generator_params(palette_index_by_id: Dictionary) -> Dictionary:
 						"color": entry_resource.placeholder_color,
 						"size": entry_resource.placeholder_size,
 						"z_offset": entry_resource.z_index_offset,
+						"texture_path": entry_resource.texture.resource_path if entry_resource.texture != null else "",
 						"weight": entry_resource.weight,
 					})
 				decor_set_dict["entries"] = decor_entries

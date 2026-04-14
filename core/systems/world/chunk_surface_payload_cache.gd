@@ -1,6 +1,7 @@
 class_name ChunkSurfacePayloadCache
 extends RefCounted
 
+const ChunkFinalPacketScript = preload("res://core/systems/world/chunk_final_packet.gd")
 const ChunkFloraResultScript = preload("res://core/systems/world/chunk_flora_result.gd")
 
 var _limit: int = 192
@@ -43,6 +44,11 @@ func has_chunk(coord: Vector2i, z_level: int) -> bool:
 
 func cache_native_payload(coord: Vector2i, z_level: int, native_data: Dictionary) -> void:
 	if z_level != 0 or native_data.is_empty():
+		return
+	if not ChunkFinalPacketScript.validate_terminal_surface_packet(
+		native_data,
+		"ChunkSurfacePayloadCache.cache_native_payload(%s)" % [coord]
+	):
 		return
 	var cache_key: Vector3i = make_key(coord, z_level)
 	var entry: Dictionary = _entries.get(cache_key, {}) as Dictionary
@@ -125,7 +131,15 @@ func try_get_native_data(coord: Vector2i, z_level: int, out_native_data: Diction
 	var cached_native_data: Dictionary = entry.get("native_data", {}) as Dictionary
 	if cached_native_data.is_empty():
 		return false
-	out_native_data.assign(_duplicate_native_data_fn.call(cached_native_data) as Dictionary)
+	var duplicated_native_data: Dictionary = _duplicate_native_data_fn.call(cached_native_data) as Dictionary
+	if not ChunkFinalPacketScript.validate_terminal_surface_packet(
+		duplicated_native_data,
+		"ChunkSurfacePayloadCache.try_get_native_data(%s)" % [coord]
+	):
+		_entries.erase(cache_key)
+		_unlink_lru_key(cache_key)
+		return false
+	out_native_data.assign(duplicated_native_data)
 	_touch_key(cache_key)
 	return true
 

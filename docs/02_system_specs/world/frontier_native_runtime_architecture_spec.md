@@ -420,6 +420,55 @@ Invariants:
 - `assert(final_packet_is_versioned, "native packet schema must be versioned")`
 - `assert(final_packet_is_deterministic_for_same_inputs, "packet output must be deterministic for same generator version and inputs")`
 
+R2 schema lock:
+
+- surface packet contract name: `frontier_surface_final_packet`
+- `packet_version = 1`
+- `generator_version = 1`
+- `z_level = 0`
+- required provenance field: `generation_source`
+
+Field groups owned by `frontier_surface_final_packet v1`:
+
+1. Authoritative chunk base fields:
+   - `chunk_coord`
+   - `canonical_chunk_coord`
+   - `base_tile`
+   - `chunk_size`
+   - `terrain`
+   - `height`
+   - `variation`
+   - `biome`
+   - `secondary_biome`
+   - `ecotone_values`
+   - `flora_density_values`
+   - `flora_modulation_values`
+2. Deterministic placement fields:
+   - `flora_placements`
+   - `feature_and_poi_payload`
+3. Terminal publication payloads:
+   - `flora_payload` when `flora_placements` is non-empty; it must match the packet canonical chunk coord/chunk size, match placement count, and carry a prebuilt pure-data render packet.
+4. Publication-local derived buffers:
+   - `rock_visual_class`
+   - `ground_face_atlas`
+   - `cover_mask`
+   - `cliff_overlay`
+   - `variant_id`
+   - `alt_id`
+5. Final-publication ownership groups that may not remain undocumented outside the contract during migration:
+   - seam-complete edge correctness
+   - collision / navigation ownership
+   - roof / cover / fog visibility ownership
+   - lighting / shadow ownership
+   - overlay ownership
+
+Migration note:
+
+- `R2` locks the packet header, versioning, and ownership vocabulary so runtime code can stop passing anonymous `native_data` dictionaries.
+- `R3` makes surface packet production terminal for native flora placement/render payloads, real feature/POI payloads, native visual packet buffers from `ChunkVisualKernels`, and install/cache validation through `ChunkFinalPacket.validate_terminal_surface_packet()`.
+- `R5` is responsible for switching live publication to consume only that final packet.
+- Until `R5` lands, any live publication layer still outside final-packet-only apply must be named explicitly in the contracts; it must not reappear as hidden "later convergence" debt after reveal.
+
 ### Frontier planning state
 
 Owner:

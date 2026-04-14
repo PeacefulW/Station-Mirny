@@ -10,6 +10,7 @@
 #include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/vector2i.hpp>
 #include <godot_cpp/variant/string_name.hpp>
 
@@ -160,6 +161,7 @@ private:
     std::vector<BiomeDef> biomes; // sorted by priority desc, then id asc
     struct FloraEntryDef {
         StringName id;
+        String texture_path;
         Color color;
         Vector2i size;
         int z_offset = 0;
@@ -169,6 +171,7 @@ private:
     };
     struct DecorEntryDef {
         StringName id;
+        String texture_path;
         Color color;
         Vector2i size;
         int z_offset = -1;

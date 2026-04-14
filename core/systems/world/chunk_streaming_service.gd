@@ -1,6 +1,7 @@
 class_name ChunkStreamingService
 extends RefCounted
 
+const ChunkFinalPacketScript = preload("res://core/systems/world/chunk_final_packet.gd")
 const ChunkFloraResultScript = preload("res://core/systems/world/chunk_flora_result.gd")
 const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
 
@@ -136,6 +137,12 @@ func prepare_chunk_install_entry(
 	if native_data.is_empty():
 		return {}
 	coord = _canonical_chunk_coord(coord)
+	if z_level == 0 and not ChunkFinalPacketScript.validate_terminal_surface_packet(
+		native_data,
+		"ChunkStreamingService.prepare_chunk_install_entry(%s)" % [coord]
+	):
+		_owner._block_legacy_chunk_runtime_fallback(coord, z_level, "surface_terminal_packet_contract_invalid")
+		return {}
 	var chunk_biome: BiomeData = _owner._resolve_chunk_biome(coord, z_level)
 	var tileset_bundle: Dictionary = _owner._get_or_build_tileset_bundle(chunk_biome)
 	var terrain_tileset: TileSet = null
@@ -153,20 +160,19 @@ func prepare_chunk_install_entry(
 		if not _has_surface_chunk_cache(coord, z_level):
 			_cache_surface_chunk_payload(coord, z_level, native_data)
 		if saved_modifications.is_empty():
+			var packet_flora_payload: Dictionary = native_data.get(ChunkFinalPacketScript.FLORA_PAYLOAD_KEY, {}) as Dictionary
 			flora_payload = _get_cached_surface_chunk_flora_payload(coord, z_level)
 			if flora_payload.is_empty():
 				flora_payload = prepared_flora_payload
+			if flora_payload.is_empty():
+				flora_payload = packet_flora_payload
 			if flora_payload.is_empty() and prepared_flora_result != null:
 				flora_payload = prepared_flora_result.to_serialized_payload(_owner._resolve_flora_tile_size())
 				flora_result = prepared_flora_result
-			if flora_payload.is_empty():
-				flora_result = _owner._get_cached_surface_chunk_flora_result(coord, z_level)
-				if flora_result == null:
-					flora_result = prepared_flora_result
-				if flora_result == null:
-					flora_result = _owner._build_flora_result_for_native_data(coord, native_data)
-				if flora_result != null:
-					flora_payload = flora_result.to_serialized_payload(_owner._resolve_flora_tile_size())
+			var flora_placements: Array = native_data.get(ChunkFinalPacketScript.FLORA_PLACEMENTS_KEY, []) as Array
+			if flora_payload.is_empty() and not flora_placements.is_empty():
+				_owner._block_legacy_chunk_runtime_fallback(coord, z_level, "missing_terminal_flora_payload")
+				return {}
 			if not flora_payload.is_empty() and _get_cached_surface_chunk_flora_payload(coord, z_level).is_empty():
 				_cache_surface_chunk_flora_payload(coord, z_level, flora_payload)
 			if flora_result != null:
@@ -457,8 +463,7 @@ func load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
 		native_data = _generate_solid_rock_chunk()
 	else:
 		if not _try_get_surface_payload_cache_native_data(coord, z_level, native_data):
-			var build_result: ChunkBuildResult = WorldGenerator.build_chunk_content(coord) if WorldGenerator else null
-			native_data = build_result.to_native_data() if build_result and build_result.is_valid() else _build_surface_chunk_native_data(coord)
+			native_data = _build_surface_chunk_native_data(coord)
 			_cache_surface_chunk_payload(coord, z_level, native_data)
 	var install_entry: Dictionary = prepare_chunk_install_entry(coord, z_level, native_data)
 	if install_entry.is_empty():

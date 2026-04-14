@@ -297,6 +297,7 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
             Dictionary ed = entries_arr[j];
             FloraEntryDef fe;
             fe.id = (StringName)ed.get("id", StringName());
+            fe.texture_path = (String)ed.get("texture_path", String());
             fe.color = (Color)ed.get("color", Color(0.3f, 0.5f, 0.2f, 1.0f));
             fe.size = (Vector2i)ed.get("size", Vector2i(12, 24));
             fe.z_offset = (int)ed.get("z_offset", 0);
@@ -320,6 +321,7 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
             Dictionary ed = entries_arr[j];
             DecorEntryDef de;
             de.id = (StringName)ed.get("id", StringName());
+            de.texture_path = (String)ed.get("texture_path", String());
             de.color = (Color)ed.get("color", Color(0.4f, 0.35f, 0.3f, 1.0f));
             de.size = (Vector2i)ed.get("size", Vector2i(10, 10));
             de.z_offset = (int)ed.get("z_offset", -1);
@@ -1268,6 +1270,7 @@ Array ChunkGenerator::compute_flora_placements(
                 placement["color"] = chosen_entry.color;
                 placement["size"] = chosen_entry.size;
                 placement["z_offset"] = chosen_entry.z_offset;
+                placement["texture_path"] = chosen_entry.texture_path;
                 placements.append(placement);
                 placed = true;
                 break;
@@ -1316,6 +1319,7 @@ Array ChunkGenerator::compute_flora_placements(
                 placement["color"] = chosen_entry.color;
                 placement["size"] = chosen_entry.size;
                 placement["z_offset"] = chosen_entry.z_offset;
+                placement["texture_path"] = chosen_entry.texture_path;
                 placements.append(placement);
                 break;
             }

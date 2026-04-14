@@ -7,6 +7,7 @@ extends Node2D
 const RuntimeWorkTypes = preload("res://core/runtime/runtime_work_types.gd")
 const ChunkFloraBuilderScript = preload("res://core/systems/world/chunk_flora_builder.gd")
 const ChunkFloraResultScript = preload("res://core/systems/world/chunk_flora_result.gd")
+const ChunkFinalPacketScript = preload("res://core/systems/world/chunk_final_packet.gd")
 const ChunkDebugSystem = preload("res://core/systems/world/chunk_debug_system.gd")
 const ChunkStreamingService = preload("res://core/systems/world/chunk_streaming_service.gd")
 const ChunkSurfacePayloadCache = preload("res://core/systems/world/chunk_surface_payload_cache.gd")
@@ -2135,60 +2136,6 @@ func _compute_flora_for_chunk(chunk: Chunk, build_result: ChunkBuildResult) -> C
 		chunk.set_flora_result(flora_result)
 	return flora_result
 
-func _build_flora_result_for_native_data(
-	chunk_coord: Vector2i,
-	native_data: Dictionary,
-	flora_builder: ChunkFloraBuilderScript = null
-) -> ChunkFloraResultScript:
-	var active_flora_builder: ChunkFloraBuilderScript = flora_builder if flora_builder != null else _flora_builder
-	if active_flora_builder == null or native_data.is_empty():
-		return null
-	var chunk_size: int = int(native_data.get("chunk_size", 0))
-	var base_tile: Vector2i = native_data.get(
-		"base_tile",
-		WorldGenerator.chunk_to_tile_origin(chunk_coord) if WorldGenerator else Vector2i.ZERO
-	) as Vector2i
-	return _compute_flora_result(
-		active_flora_builder,
-		chunk_coord,
-		chunk_size,
-		base_tile,
-		native_data.get("biome", PackedByteArray()) as PackedByteArray,
-		native_data.get("variation", PackedByteArray()) as PackedByteArray,
-		native_data.get("terrain", PackedByteArray()) as PackedByteArray,
-		native_data.get("flora_density_values", PackedFloat32Array()) as PackedFloat32Array,
-		native_data.get("flora_modulation_values", PackedFloat32Array()) as PackedFloat32Array,
-		native_data.get("secondary_biome", PackedByteArray()) as PackedByteArray,
-		native_data.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array
-	)
-
-func _build_flora_payload_for_native_data(
-	chunk_coord: Vector2i,
-	native_data: Dictionary,
-	flora_builder: ChunkFloraBuilderScript = null
-) -> Dictionary:
-	var active_flora_builder: ChunkFloraBuilderScript = flora_builder if flora_builder != null else _flora_builder
-	if active_flora_builder == null or native_data.is_empty():
-		return {}
-	var chunk_size: int = int(native_data.get("chunk_size", 0))
-	var base_tile: Vector2i = native_data.get(
-		"base_tile",
-		WorldGenerator.chunk_to_tile_origin(chunk_coord) if WorldGenerator else Vector2i.ZERO
-	) as Vector2i
-	return _compute_flora_payload(
-		active_flora_builder,
-		chunk_coord,
-		chunk_size,
-		base_tile,
-		native_data.get("biome", PackedByteArray()) as PackedByteArray,
-		native_data.get("variation", PackedByteArray()) as PackedByteArray,
-		native_data.get("terrain", PackedByteArray()) as PackedByteArray,
-		native_data.get("flora_density_values", PackedFloat32Array()) as PackedFloat32Array,
-		native_data.get("flora_modulation_values", PackedFloat32Array()) as PackedFloat32Array,
-		native_data.get("secondary_biome", PackedByteArray()) as PackedByteArray,
-		native_data.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array
-	)
-
 func _flora_result_from_payload(flora_payload: Dictionary) -> ChunkFloraResultScript:
 	if flora_payload.is_empty():
 		return null
@@ -2199,9 +2146,7 @@ func _flora_result_from_payload(flora_payload: Dictionary) -> ChunkFloraResultSc
 func _build_native_flora_payload_from_placements(chunk_coord: Vector2i, native_data: Dictionary) -> Dictionary:
 	if native_data.is_empty():
 		return {}
-	var placements: Array = _hydrate_flora_placements_with_texture_paths(
-		native_data.get("flora_placements", []) as Array
-	)
+	var placements: Array = (native_data.get(ChunkFinalPacketScript.FLORA_PLACEMENTS_KEY, []) as Array).duplicate(true)
 	if placements.is_empty():
 		return {}
 	return ChunkFloraResultScript.build_serialized_payload_from_placements(
@@ -2211,13 +2156,28 @@ func _build_native_flora_payload_from_placements(chunk_coord: Vector2i, native_d
 		_resolve_flora_tile_size()
 	)
 
-func _compute_flora_for_native_data(chunk: Chunk, chunk_coord: Vector2i, native_data: Dictionary) -> ChunkFloraResultScript:
-	if _flora_builder == null or chunk == null or native_data.is_empty():
-		return null
-	var flora_result: ChunkFloraResultScript = _build_flora_result_for_native_data(chunk_coord, native_data)
-	if flora_result != null:
-		chunk.set_flora_result(flora_result)
-	return flora_result
+func _complete_surface_final_packet_publication_payload(chunk_coord: Vector2i, native_data: Dictionary) -> Dictionary:
+	if native_data.is_empty():
+		return {}
+	if not native_data.has(ChunkFinalPacketScript.FLORA_PLACEMENTS_KEY):
+		_block_legacy_chunk_runtime_fallback(chunk_coord, 0, "missing_native_flora_placements")
+		return {}
+	if not native_data.has(ChunkFinalPacketScript.FLORA_PAYLOAD_KEY):
+		var flora_placements: Array = native_data.get(ChunkFinalPacketScript.FLORA_PLACEMENTS_KEY, []) as Array
+		if not flora_placements.is_empty():
+			var canonical_chunk: Vector2i = native_data.get("canonical_chunk_coord", chunk_coord) as Vector2i
+			var flora_payload: Dictionary = _build_native_flora_payload_from_placements(canonical_chunk, native_data)
+			if flora_payload.is_empty():
+				_block_legacy_chunk_runtime_fallback(chunk_coord, 0, "missing_terminal_flora_payload")
+				return {}
+			native_data[ChunkFinalPacketScript.FLORA_PAYLOAD_KEY] = flora_payload
+	if not ChunkFinalPacketScript.validate_terminal_surface_packet(
+		native_data,
+		"ChunkManager._complete_surface_final_packet_publication_payload(%s)" % [chunk_coord]
+	):
+		_block_legacy_chunk_runtime_fallback(chunk_coord, 0, "surface_terminal_packet_contract_invalid")
+		return {}
+	return native_data
 
 func _compute_flora_result(
 	flora_builder: ChunkFloraBuilderScript,
@@ -2256,48 +2216,6 @@ func _compute_flora_result(
 		variation_bytes,
 		flora_density_values,
 		flora_modulation_values,
-		secondary_biome_bytes,
-		ecotone_values
-	)
-
-func _compute_flora_payload(
-	flora_builder: ChunkFloraBuilderScript,
-	chunk_coord: Vector2i,
-	chunk_size: int,
-	base_tile: Vector2i,
-	biome_bytes: PackedByteArray,
-	variation_bytes: PackedByteArray,
-	terrain_bytes: PackedByteArray,
-	flora_density_values: PackedFloat32Array,
-	flora_modulation_values: PackedFloat32Array,
-	secondary_biome_bytes: PackedByteArray = PackedByteArray(),
-	ecotone_values: PackedFloat32Array = PackedFloat32Array()
-) -> Dictionary:
-	if flora_builder == null or WorldGenerator == null or chunk_size <= 0:
-		return {}
-	var tile_count: int = chunk_size * chunk_size
-	var secondary_biome_ok: bool = secondary_biome_bytes.is_empty() or secondary_biome_bytes.size() == tile_count
-	var ecotone_values_ok: bool = ecotone_values.is_empty() or ecotone_values.size() == tile_count
-	if terrain_bytes.size() != tile_count \
-		or biome_bytes.size() != tile_count \
-		or variation_bytes.size() != tile_count \
-		or flora_density_values.size() != tile_count \
-		or flora_modulation_values.size() != tile_count \
-		or not secondary_biome_ok \
-		or not ecotone_values_ok:
-		return {}
-	var biome_palette: Array[BiomeData] = WorldGenerator.get_registered_biomes()
-	return flora_builder.compute_payload(
-		chunk_coord,
-		chunk_size,
-		base_tile,
-		terrain_bytes,
-		biome_palette,
-		biome_bytes,
-		variation_bytes,
-		flora_density_values,
-		flora_modulation_values,
-		_resolve_flora_tile_size(),
 		secondary_biome_bytes,
 		ecotone_values
 	)
@@ -2452,7 +2370,7 @@ func _should_prepare_border_fix_inline(task: Dictionary, chunk: Chunk, requested
 func _try_complete_visible_border_fix_inline(chunk: Chunk, z_level: int) -> bool:
 	if chunk == null or not is_instance_valid(chunk) or _chunk_visual_scheduler == null:
 		return false
-	if not chunk.visible or not chunk.is_full_redraw_ready() or not chunk.is_redraw_complete():
+	if not chunk.is_first_pass_ready() or not chunk.is_redraw_complete():
 		return false
 	if not _is_player_near_visual_chunk(chunk.chunk_coord, z_level):
 		return false
@@ -2461,14 +2379,40 @@ func _try_complete_visible_border_fix_inline(chunk: Chunk, z_level: int) -> bool
 		return false
 	if dirty_count > maxi(1, chunk.get_chunk_size()):
 		return false
+	var task_key: Vector4i = _make_visual_task_key(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
+	var task_version: int = int(_chunk_visual_scheduler.task_pending.get(task_key, -1))
 	var started_usec: int = WorldPerfProbe.begin()
 	var has_more: bool = _chunk_visual_scheduler.process_border_fix_task(chunk, dirty_count, 0)
 	WorldPerfProbe.end("ChunkManager.visible_border_fix_inline %s@z%d" % [chunk.chunk_coord, z_level], started_usec)
 	if has_more or chunk.has_pending_border_dirty():
+		if task_version >= 0:
+			_enqueue_player_near_border_fix_relief_task(
+				chunk,
+				z_level,
+				task_version,
+				"player_near_inline_partial"
+			)
 		return false
 	chunk._mark_border_fix_reasons_applied()
-	_chunk_visual_scheduler.mark_full_ready(chunk.chunk_coord, z_level)
-	return true
+	if task_version >= 0:
+		_chunk_visual_scheduler.clear_task(
+			_build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, task_version)
+		)
+	return _try_finalize_chunk_visual_convergence(chunk, z_level)
+
+func _stabilize_player_near_border_fix_chunks(z_level: int) -> void:
+	if _chunk_visual_scheduler == null or _player_chunk == Vector2i(99999, 99999):
+		return
+	var loaded_chunks_for_z: Dictionary = _get_loaded_chunks_for_z(z_level)
+	for chunk_variant: Variant in loaded_chunks_for_z.values():
+		var chunk: Chunk = chunk_variant as Chunk
+		if chunk == null or not is_instance_valid(chunk):
+			continue
+		if not _is_player_near_visual_chunk(chunk.chunk_coord, z_level):
+			continue
+		if not chunk.has_pending_border_dirty():
+			continue
+		_try_complete_visible_border_fix_inline(chunk, z_level)
 
 func _enqueue_player_near_border_fix_relief_task(
 	chunk: Chunk,
@@ -2714,11 +2658,11 @@ func _try_finalize_chunk_visual_convergence(chunk: Chunk, z_level: int) -> bool:
 	if chunk == null or not is_instance_valid(chunk):
 		return false
 	chunk._refresh_interior_macro_layer_if_dirty()
-	_sync_chunk_visibility_for_publication(chunk)
 	if chunk.is_first_pass_ready():
 		if _chunk_visual_scheduler != null:
 			_chunk_visual_scheduler.mark_first_pass_ready(chunk.chunk_coord, z_level)
 	if not chunk._can_publish_full_redraw_ready():
+		_sync_chunk_visibility_for_publication(chunk)
 		return false
 	var chunk_key: String = _make_visual_chunk_key(chunk.chunk_coord, z_level)
 	var was_full_ready: bool = _chunk_visual_scheduler.full_ready_usec.has(chunk_key)
@@ -3271,6 +3215,7 @@ func _check_player_chunk() -> void:
 		)
 		if _chunk_visual_scheduler != null:
 			_chunk_visual_scheduler.refresh_task_priorities()
+		_stabilize_player_near_border_fix_chunks(_active_z)
 		_sync_loaded_chunk_display_positions(cur)
 		_update_chunks(cur)
 		_maybe_log_player_chunk_visual_status("entered_chunk")
@@ -3360,12 +3305,9 @@ func _worker_generate(coord: Vector2i, z_level: int, builder: ChunkContentBuilde
 		data = _build_surface_chunk_native_data(coord, builder)
 	native_data_ms = float(Time.get_ticks_usec() - native_data_start_usec) / 1000.0
 	if z_level == 0:
-		if not data.is_empty() and not data.has("flora_placements"):
-			_block_legacy_chunk_runtime_fallback(coord, z_level, "missing_native_flora_placements")
-			data = {}
 		var flora_payload_start_usec: int = Time.get_ticks_usec()
-		if data.has("flora_placements"):
-			result_entry["flora_payload"] = _build_native_flora_payload_from_placements(coord, data)
+		if data.has(ChunkFinalPacketScript.FLORA_PAYLOAD_KEY):
+			result_entry["flora_payload"] = (data.get(ChunkFinalPacketScript.FLORA_PAYLOAD_KEY, {}) as Dictionary).duplicate(true)
 			flora_payload_ms = float(Time.get_ticks_usec() - flora_payload_start_usec) / 1000.0
 	if _shutdown_in_progress:
 		return
@@ -3383,13 +3325,16 @@ func _worker_generate(coord: Vector2i, z_level: int, builder: ChunkContentBuilde
 	_chunk_streaming_service.gen_mutex.unlock()
 
 func _build_surface_chunk_native_data(coord: Vector2i, builder: ChunkContentBuilder = null) -> Dictionary:
+	var native_data: Dictionary = {}
 	if builder != null:
-		return builder.build_chunk_native_data(coord)
-	if _chunk_streaming_service.worker_chunk_builder != null:
-		return _chunk_streaming_service.worker_chunk_builder.build_chunk_native_data(coord)
-	if not WorldGenerator:
+		native_data = builder.build_chunk_native_data(coord)
+	elif _chunk_streaming_service.worker_chunk_builder != null:
+		native_data = _chunk_streaming_service.worker_chunk_builder.build_chunk_native_data(coord)
+	elif WorldGenerator:
+		native_data = WorldGenerator.build_chunk_native_data(coord)
+	if native_data.is_empty():
 		return {}
-	return WorldGenerator.build_chunk_native_data(coord)
+	return _complete_surface_final_packet_publication_payload(coord, native_data)
 
 func _collect_completed_runtime_generates(load_radius: int) -> void:
 	if _chunk_streaming_service != null:
@@ -3467,30 +3412,7 @@ func _try_stage_surface_chunk_from_cache(coord: Vector2i, z_level: int) -> bool:
 	return _chunk_streaming_service.try_stage_surface_chunk_from_cache(coord, z_level) if _chunk_streaming_service != null else false
 
 func _duplicate_native_data(native_data: Dictionary) -> Dictionary:
-	if native_data.is_empty():
-		return {}
-	return {
-		"chunk_coord": native_data.get("chunk_coord", Vector2i.ZERO),
-		"canonical_chunk_coord": native_data.get("canonical_chunk_coord", Vector2i.ZERO),
-		"base_tile": native_data.get("base_tile", Vector2i.ZERO),
-		"chunk_size": int(native_data.get("chunk_size", 0)),
-		"terrain": (native_data.get("terrain", PackedByteArray()) as PackedByteArray).duplicate(),
-		"height": (native_data.get("height", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
-		"variation": (native_data.get("variation", PackedByteArray()) as PackedByteArray).duplicate(),
-		"biome": (native_data.get("biome", PackedByteArray()) as PackedByteArray).duplicate(),
-		"secondary_biome": (native_data.get("secondary_biome", PackedByteArray()) as PackedByteArray).duplicate(),
-		"ecotone_values": (native_data.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
-		"flora_density_values": (native_data.get("flora_density_values", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
-		"flora_modulation_values": (native_data.get("flora_modulation_values", PackedFloat32Array()) as PackedFloat32Array).duplicate(),
-		"rock_visual_class": (native_data.get("rock_visual_class", PackedByteArray()) as PackedByteArray).duplicate(),
-		"ground_face_atlas": (native_data.get("ground_face_atlas", PackedInt32Array()) as PackedInt32Array).duplicate(),
-		"cover_mask": (native_data.get("cover_mask", PackedInt32Array()) as PackedInt32Array).duplicate(),
-		"cliff_overlay": (native_data.get("cliff_overlay", PackedByteArray()) as PackedByteArray).duplicate(),
-		"variant_id": (native_data.get("variant_id", PackedByteArray()) as PackedByteArray).duplicate(),
-		"alt_id": (native_data.get("alt_id", PackedInt32Array()) as PackedInt32Array).duplicate(),
-		"flora_placements": (native_data.get("flora_placements", []) as Array).duplicate(true),
-		"feature_and_poi_payload": (native_data.get("feature_and_poi_payload", {"placements": []}) as Dictionary).duplicate(true),
-	}
+	return ChunkFinalPacketScript.duplicate_surface_packet(native_data)
 
 func _sort_chunk_entry_queue_by_priority(queue: Array[Dictionary], center: Vector2i) -> void:
 	if queue.size() <= 1:
