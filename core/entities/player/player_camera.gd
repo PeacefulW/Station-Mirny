@@ -13,7 +13,7 @@ var _balance: PlayerBalance = null
 func setup(balance: PlayerBalance) -> void:
 	_balance = balance
 	if _balance:
-		_target_zoom = _balance.zoom_default
+		_target_zoom = _clamp_zoom_value(_balance.zoom_default)
 		zoom = Vector2(_target_zoom, _target_zoom)
 	enabled = true
 	position_smoothing_enabled = true
@@ -37,9 +37,35 @@ func handle_zoom_input(event: InputEvent) -> bool:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
 		if mb.pressed:
 			if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
-				_target_zoom = minf(_target_zoom + _balance.zoom_step, _balance.zoom_max)
+				_apply_zoom_step(1, mb.factor)
 				return true
 			elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-				_target_zoom = maxf(_target_zoom - _balance.zoom_step, MIN_SAFE_ZOOM)
+				_apply_zoom_step(-1, mb.factor)
 				return true
 	return false
+
+func _apply_zoom_step(direction: int, wheel_factor: float = 1.0) -> void:
+	var safe_wheel_factor: float = maxf(1.0, absf(wheel_factor))
+	var zoom_factor: float = pow(_resolve_zoom_step_factor(), safe_wheel_factor)
+	if direction > 0:
+		_target_zoom = _clamp_zoom_value(_target_zoom * zoom_factor)
+	else:
+		_target_zoom = _clamp_zoom_value(_target_zoom / zoom_factor)
+
+func _resolve_zoom_step_factor() -> float:
+	if _balance == null:
+		return 1.05
+	return 1.0 + clampf(_balance.zoom_step * 0.4, 0.02, 0.12)
+
+func _clamp_zoom_value(value: float) -> float:
+	return clampf(value, _zoom_min_limit(), _zoom_max_limit())
+
+func _zoom_min_limit() -> float:
+	if _balance == null:
+		return MIN_SAFE_ZOOM
+	return maxf(MIN_SAFE_ZOOM, minf(_balance.zoom_min, _balance.zoom_max))
+
+func _zoom_max_limit() -> float:
+	if _balance == null:
+		return _zoom_min_limit()
+	return maxf(_zoom_min_limit(), _balance.zoom_max)

@@ -90,34 +90,41 @@ Optimization priority order:
 
 Memory may be spent to preserve the seamless contract, but only after the runtime is architecturally correct. Blind cache growth is forbidden as a substitute for a bad design.
 
-## World Visibility Contract
+## Gameplay Envelope Contract
 
-The runtime contract is stricter than just "player chunk must be ready".
+The runtime contract is stricter than just "player chunk must be ready", but the driving envelope is gameplay-owned, not raw camera-owned.
 
-### Required visible-world invariant
+### Required gameplay-envelope invariant
 
-Every chunk intersecting the active camera-visible world envelope must be `full_ready`.
+The runtime must keep a fixed player-centered gameplay bubble ready, independent of debug zoom, diagnostic camera distance, or other observability tooling.
 
-This means the runtime must guarantee not only occupancy correctness but also visible-world correctness.
+This means the runtime must guarantee occupancy correctness and the ordinary near-world reveal envelope without letting debug inspection widen runtime streaming scope.
 
 ### Envelope components
 
-The runtime must compute and maintain three distinct sets:
+The runtime must compute and maintain four distinct sets:
 
 1. `occupancy_chunk`
    - the chunk currently occupied by the player
 
-2. `camera_visible_set`
-   - all chunks intersecting the camera rectangle plus a small safety margin against sub-frame camera movement and screen-edge exposure
+2. `hot_near_set`
+   - the centered Chebyshev ring 0..1 around the player chunk
+   - this is the mandatory `3x3` always-hot runtime envelope
 
-3. `motion_frontier_set`
-   - all chunks that can become visible or occupiable within the prediction horizon for the current movement mode
+3. `warm_preload_set`
+   - the centered Chebyshev ring 0..2 around the player chunk
+   - this is the ordinary `5x5` preload envelope; the outer ring is warm follow-up work, not equal-priority hot work
+
+4. `motion_frontier_set`
+   - the subset of warm/follow-up chunks that ordinary movement can reach next within the prediction horizon for the current movement mode
 
 The runtime must guarantee:
 
 - `occupancy_chunk` is `full_ready`
-- every chunk in `camera_visible_set` is `full_ready`
-- every chunk in `motion_frontier_set` is scheduled and protected by frontier capacity before it becomes visible or occupiable
+- every chunk in `hot_near_set` is `full_ready`
+- chunks in `warm_preload_set` outside `hot_near_set` are scheduled only after hot work and remain protected from starvation by background debt
+- `motion_frontier_set` is scheduled and protected before it becomes occupiable during ordinary movement
+- raw debug zoom or diagnostic camera visibility must not expand `hot_near_set`, `warm_preload_set`, or `motion_frontier_set`
 
 ## New High-Level Architecture
 
@@ -155,23 +162,25 @@ Notes:
 
 Responsibility:
 
-- resolve which chunks are currently visible or imminently visible
+- resolve the gameplay-owned near and warm envelopes for runtime streaming
 
 Inputs:
 
-- camera transform
-- viewport size
-- zoom
-- display margin policy
+- player chunk
+- movement direction and speed class
+- fixed gameplay envelope policy
+- optional debug camera state for observability only
 
 Outputs:
 
-- `camera_visible_set`
-- `camera_margin_set`
+- `hot_near_set`
+- `warm_preload_set`
+- optional debug-only camera envelope snapshot for diagnostics
 
 Notes:
 
-- visible-world correctness depends on this set, not only on player chunk position
+- raw camera zoom is not a load-bearing runtime input
+- debug/diagnostic camera state may be displayed in overlay tooling, but it must not widen the gameplay streaming envelope
 
 ### 3. Frontier Planner
 
@@ -184,7 +193,8 @@ Inputs:
 - `travel_mode`
 - movement vector
 - braking window
-- `camera_visible_set`
+- `hot_near_set`
+- `warm_preload_set`
 - current z-level or transition target
 
 Outputs:
@@ -195,13 +205,14 @@ Outputs:
 
 Rules:
 
-- `frontier_critical_set` includes all chunks that can become visible or occupiable before the next safe planning update
-- `frontier_high_set` includes near-follow-up work that soon becomes visible after the critical slice
-- `background_set` includes all other preparation and retention work
+- `frontier_critical_set` includes all chunks in the fixed `3x3` hot envelope plus movement-critical lead chunks
+- `frontier_high_set` includes the warm `5x5` follow-up ring outside the hot envelope
+- `background_set` includes only preparation and retention work outside the warm gameplay envelope when such work is explicitly allowed by policy
 
 Hard rule:
 
-- no chunk may enter `camera_visible_set` or become occupiable unless it already graduated through the critical frontier path to `full_ready`
+- no raw camera-visible or debug-visible chunk may promote itself into runtime load scope
+- no chunk may become occupiable unless it already graduated through the critical frontier path to `full_ready`
 
 ### 4. Native Chunk Packet Builder
 
@@ -359,8 +370,8 @@ Startup may be slower than the current startup if that is required to preserve t
 Player control may be handed off only when:
 
 - the startup/player spawn position is anchored to the center tile of the ring-0 chunk, so handoff does not begin on a seam or 4-chunk junction
-- all chunks intersecting the startup camera-visible envelope are `full_ready`
 - the startup near envelope is the centered ring-0 spawn chunk plus all eight Chebyshev ring-1 neighbors, and all nine chunks are `full_ready`
+- the startup warm preload envelope is the centered Chebyshev ring 0..2 around the spawn chunk, and any unfinished outer-ring work remains strictly lower priority than the startup `3x3` hot slice
 - immediate motion frontier slices for initial movement are protected by frontier preparation
 - all required publication for the startup slice is complete
 
@@ -466,7 +477,7 @@ Migration note:
 
 - `R2` locks the packet header, versioning, and ownership vocabulary so runtime code can stop passing anonymous `native_data` dictionaries.
 - `R3` makes surface packet production terminal for native flora placement/render payloads, real feature/POI payloads, native visual packet buffers from `ChunkVisualKernels`, and install/cache validation through `ChunkFinalPacket.validate_terminal_surface_packet()`.
-- `R4` introduces explicit GDScript ownership for `TravelStateResolver`, `ViewEnvelopeResolver`, `FrontierPlanner`, and `FrontierScheduler`, then routes `ChunkStreamingService` runtime queues through frontier-critical, camera-visible-support, and background lanes. Vehicle/train and underground transition inputs remain scaffold-only until their dedicated iterations; R4's enforceable invariant is reserved frontier capacity for current surface runtime streaming.
+- `R4` introduces explicit GDScript ownership for `TravelStateResolver`, `ViewEnvelopeResolver`, `FrontierPlanner`, and `FrontierScheduler`, then routes `ChunkStreamingService` runtime queues through `3x3` frontier-critical, warm `5x5` follow-up, and background lanes. Raw camera visibility and debug zoom are no longer allowed to widen runtime load scope; R4's enforceable invariant is reserved frontier capacity for the fixed gameplay bubble.
 - `R5` is responsible for switching live publication to consume only that final packet.
 - Until `R5` lands, any live publication layer still outside final-packet-only apply must be named explicitly in the contracts; it must not reappear as hidden "later convergence" debt after reveal.
 
@@ -475,7 +486,7 @@ Migration note:
 Owner:
 
 - `TravelStateResolver` for travel-mode/speed-class planning inputs
-- `ViewEnvelopeResolver` for camera-visible and margin envelopes
+- `ViewEnvelopeResolver` for gameplay-owned hot/warm envelopes and optional debug-only camera diagnostics
 - `FrontierPlanner` for active-z `frontier_critical_set`, `frontier_high_set`, `background_set`, and `needed_set`
 - `FrontierScheduler` for lane classification and reserved-capacity policy
 - `ChunkStreamingService` for lane queue execution, active generation lane metadata, and diagnostics
@@ -618,7 +629,8 @@ Acceptance tests:
 The runtime must expose the following telemetry:
 
 - current travel mode and speed class
-- current camera-visible set size
+- current hot `3x3` envelope size and warm `5x5` envelope size
+- optional debug camera-visible set size as observability-only data, clearly marked as non-driving
 - current frontier-critical set size
 - current hot/warm/cold cache residency
 - native final packet build latency

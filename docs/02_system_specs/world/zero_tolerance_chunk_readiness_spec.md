@@ -124,6 +124,7 @@ This target is a design constraint. It is not optional and must shape architectu
 - preserving current internal file boundaries
 - preserving save compatibility solely to protect the old runtime design
 - debug freecam / noclip behavior as a product constraint
+- debug zoom / diagnostic camera distance as a driver of runtime streaming scope
 
 ## Architectural Consequence
 
@@ -136,6 +137,7 @@ A valid future runtime must satisfy the following:
 3. far/background work must never consume the capacity required to keep the frontier fully ready
 4. readiness must be defined in terms of final shipped content, not phased approximation
 5. any runtime path that can produce player-visible catch-up is architecturally incorrect and must be removed
+6. the ordinary runtime gameplay bubble is player-centered and fixed by gameplay policy; debug zoom must not widen it
 
 ## Required Runtime Model
 

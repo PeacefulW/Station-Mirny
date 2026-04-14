@@ -292,16 +292,21 @@ Make surface chunk final-packet production real.
 
 - surface chunk final publication no longer depends on progressive visible convergence
 
+### Current gap note
+
+- `R3` requires the final packet to carry real `feature_and_poi_payload`, but the plan does not currently allocate a separate migration iteration that moves feature/POI payload assembly itself into native ownership.
+- If `feature_and_poi_payload` remains a dominant chunk-generation hotspot in perf diagnostics, that native transfer must be scheduled explicitly as a future follow-up iteration instead of being assumed complete by packet-contract work alone.
+
 ## R4: Frontier planning and reserved scheduling
 
 ### Goal
 
-Ensure chunks are ready before visibility and before occupancy.
+Ensure the fixed gameplay bubble is ready before occupancy and ordinary near-world reveal.
 
 ### In scope
 
 - travel state resolver
-- view envelope resolver
+- gameplay envelope resolver for fixed hot/warm bubbles
 - frontier planner
 - reserved frontier scheduling
 
@@ -322,20 +327,22 @@ Ensure chunks are ready before visibility and before occupancy.
 ### Implementation steps
 
 1. Introduce travel mode and speed-class planning inputs.
-2. Resolve camera-visible set and motion frontier set explicitly.
-3. Build frontier-critical/high/background queue separation.
+2. Resolve a fixed `3x3` hot envelope and `5x5` warm preload envelope explicitly; raw camera zoom and debug visibility must not widen runtime streaming scope.
+3. Build frontier-critical/high/background queue separation around hot-first and warm-second priorities.
 4. Reserve critical capacity so background work cannot steal it.
-5. Add observability for frontier starvation attempts.
+5. Add observability for frontier starvation attempts and for any accidental debug-camera influence on runtime envelope size.
 
 ### Smoke tests
 
 - far/background work cannot occupy all critical worker capacity
-- camera-visible chunks remain protected by frontier planning
+- hot `3x3` chunks remain protected ahead of warm `5x5` follow-up work
+- debug zoom-out does not expand runtime `needed_set`
 - sprint traversal does not show visible chunk catch-up in ordinary scenarios
 
 ### Definition of done
 
-- the runtime has explicit frontier planning and strict reserved scheduling, not just reprioritized legacy queues
+- the runtime has explicit hot/warm frontier planning and strict reserved scheduling, not just reprioritized legacy queues
+- ordinary gameplay uses a fixed player-centered bubble; debug zoom is observability-only and does not widen runtime streaming scope
 
 ## R5: Final-packet-only publication switch
 
