@@ -39,8 +39,6 @@ const CHUNK_BIOME_SAMPLE_GRID: int = 3
 const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_utils.gd")
 const WorldComputeContextScript = preload("res://core/systems/world/world_compute_context.gd")
 const WorldPrePassScript = preload("res://core/systems/world/world_pre_pass.gd")
-const WorldFeatureHookResolverScript = preload("res://core/systems/world/world_feature_hook_resolver.gd")
-const WorldPoiResolverScript = preload("res://core/systems/world/world_poi_resolver.gd")
 const SurfaceTerrainResolverScript = preload("res://core/systems/world/surface_terrain_resolver.gd")
 
 var world_seed: int = 0
@@ -557,10 +555,14 @@ func _setup_native_chunk_generator(palette_index_by_id: Dictionary) -> void:
 	var biome_defs: Array = params.get("biomes", []) as Array
 	var flora_set_defs: Array = params.get("flora_sets", []) as Array
 	var decor_set_defs: Array = params.get("decor_sets", []) as Array
-	print("[WorldGenerator] Native ChunkGenerator initialized (%d biomes, %d flora sets, %d decor sets, authoritative WorldPrePass snapshot)" % [
+	var feature_hook_defs: Array = params.get("feature_hooks", []) as Array
+	var poi_defs: Array = params.get("pois", []) as Array
+	print("[WorldGenerator] Native ChunkGenerator initialized (%d biomes, %d flora sets, %d decor sets, %d feature hooks, %d pois, authoritative WorldPrePass snapshot)" % [
 		biome_defs.size(),
 		flora_set_defs.size(),
 		decor_set_defs.size(),
+		feature_hook_defs.size(),
+		poi_defs.size(),
 	])
 
 func _build_generator_params(palette_index_by_id: Dictionary) -> Dictionary:
@@ -738,6 +740,47 @@ func _build_generator_params(palette_index_by_id: Dictionary) -> Dictionary:
 				decor_set_defs.append(decor_set_dict)
 	params["flora_sets"] = flora_set_defs
 	params["decor_sets"] = decor_set_defs
+	var feature_hook_defs: Array = []
+	var poi_defs: Array = []
+	if WorldFeatureRegistry != null and WorldFeatureRegistry.is_ready():
+		for feature_hook: Resource in WorldFeatureRegistry.get_all_feature_hooks():
+			if feature_hook == null:
+				continue
+			var feature_hook_id: StringName = feature_hook.get("id") as StringName
+			if feature_hook_id == &"":
+				continue
+			feature_hook_defs.append({
+				"id": feature_hook_id,
+				"allowed_biome_ids": feature_hook.allowed_biome_ids.duplicate(),
+				"required_structure_tags": feature_hook.required_structure_tags.duplicate(),
+				"allowed_terrain_types": feature_hook.allowed_terrain_types.duplicate(),
+				"weight": feature_hook.weight,
+				"debug_marker_kind": feature_hook.debug_marker_kind,
+			})
+		for poi_resource: Resource in WorldFeatureRegistry.get_all_pois():
+			if poi_resource == null:
+				continue
+			var poi_id: StringName = poi_resource.get("id") as StringName
+			if poi_id == &"":
+				continue
+			var footprint_tiles: Array = []
+			if poi_resource.has_method("get_effective_footprint_offsets"):
+				footprint_tiles = (poi_resource.call("get_effective_footprint_offsets") as Array).duplicate()
+			else:
+				footprint_tiles = poi_resource.footprint_tiles.duplicate()
+			poi_defs.append({
+				"id": poi_id,
+				"required_feature_hook_ids": poi_resource.required_feature_hook_ids.duplicate(),
+				"allowed_biome_ids": poi_resource.allowed_biome_ids.duplicate(),
+				"required_structure_tags": poi_resource.required_structure_tags.duplicate(),
+				"allowed_terrain_types": poi_resource.allowed_terrain_types.duplicate(),
+				"footprint_tiles": footprint_tiles,
+				"anchor_offset": poi_resource.anchor_offset,
+				"priority": poi_resource.priority,
+				"debug_marker_kind": poi_resource.debug_marker_kind,
+			})
+	params["feature_hooks"] = feature_hook_defs
+	params["pois"] = poi_defs
 
 	return params
 
@@ -758,22 +801,6 @@ func _setup_chunk_content_builder() -> void:
 
 func create_detached_chunk_content_builder() -> ChunkContentBuilder:
 	return _create_chunk_content_builder(_compute_context)
-
-func _get_cached_feature_and_poi_payload(chunk_coord: Vector2i) -> Dictionary:
-	var canonical_chunk: Vector2i = canonicalize_chunk_coord(chunk_coord)
-	return _feature_and_poi_payload_cache.get_payload(canonical_chunk)
-
-func _resolve_feature_hook_decisions(candidate_origin: Vector2i) -> Array[Dictionary]:
-	if not _is_initialized or _compute_context == null:
-		return []
-	return WorldFeatureHookResolverScript.resolve_for_origin(candidate_origin, _compute_context)
-
-func _resolve_poi_placement_decisions(candidate_origin: Vector2i) -> Array[Dictionary]:
-	if not _is_initialized or _compute_context == null:
-		return []
-	var hook_decisions: Array[Dictionary] = _resolve_feature_hook_decisions(candidate_origin)
-	var all_pois: Array[Resource] = WorldFeatureRegistry.get_all_pois() if WorldFeatureRegistry and WorldFeatureRegistry.is_ready() else []
-	return WorldPoiResolverScript.resolve_for_origin(candidate_origin, hook_decisions, _compute_context, all_pois)
 
 func _ensure_world_feature_registry_ready() -> bool:
 	if not WorldFeatureRegistry or not WorldFeatureRegistry.is_ready():
@@ -854,16 +881,12 @@ func _clear_initialized_runtime_state() -> void:
 func _create_chunk_content_builder(world_context: RefCounted) -> ChunkContentBuilder:
 	if world_context == null:
 		return null
-	var all_pois: Array[Resource] = []
-	if WorldFeatureRegistry and WorldFeatureRegistry.is_ready():
-		all_pois = WorldFeatureRegistry.get_all_pois()
 	var builder := ChunkContentBuilder.new()
 	builder.initialize(
 		balance,
 		world_context,
 		_create_surface_terrain_resolver(world_context),
-		_feature_and_poi_payload_cache,
-		all_pois
+		_feature_and_poi_payload_cache
 	)
 	return builder
 

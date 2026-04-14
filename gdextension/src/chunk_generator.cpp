@@ -8,6 +8,80 @@
 
 using namespace godot;
 
+namespace {
+
+constexpr char FEATURE_AND_POI_PAYLOAD_KEY[] = "feature_and_poi_payload";
+constexpr char PLACEMENTS_KEY[] = "placements";
+
+const StringName& feature_kind_name() {
+    static const StringName name("feature");
+    return name;
+}
+
+const StringName& poi_kind_name() {
+    static const StringName name("poi");
+    return name;
+}
+
+const StringName& structure_tag_surface() {
+    static const StringName name("surface");
+    return name;
+}
+
+const StringName& structure_tag_ridge() {
+    static const StringName name("ridge");
+    return name;
+}
+
+const StringName& structure_tag_mountain() {
+    static const StringName name("mountain");
+    return name;
+}
+
+const StringName& structure_tag_river() {
+    static const StringName name("river");
+    return name;
+}
+
+const StringName& structure_tag_floodplain() {
+    static const StringName name("floodplain");
+    return name;
+}
+
+bool int_vec_contains(const std::vector<int>& values, int needle) {
+    return std::find(values.begin(), values.end(), needle) != values.end();
+}
+
+bool string_name_vec_contains(const std::vector<StringName>& values, const StringName& needle) {
+    return std::find(values.begin(), values.end(), needle) != values.end();
+}
+
+bool vector2i_less(const Vector2i& left, const Vector2i& right) {
+    if (left.y != right.y) {
+        return left.y < right.y;
+    }
+    return left.x < right.x;
+}
+
+bool vector2i_equal(const Vector2i& left, const Vector2i& right) {
+    return left.x == right.x && left.y == right.y;
+}
+
+Array to_vector2i_array(const std::vector<Vector2i>& values) {
+    Array result;
+    result.resize((int)values.size());
+    for (int i = 0; i < (int)values.size(); i++) {
+        result[i] = values[i];
+    }
+    return result;
+}
+
+double snap_micro(double value) {
+    return std::round(value * 1000000.0) / 1000000.0;
+}
+
+} // namespace
+
 // ============================================================
 // Lifecycle
 // ============================================================
@@ -80,6 +154,34 @@ int ChunkGenerator::wrap_x(int world_x, int w) {
     if (w <= 0) return world_x;
     int r = world_x % w;
     return r < 0 ? r + w : r;
+}
+
+int64_t ChunkGenerator::coord_key(const Vector2i& pos) {
+    return int64_t((uint64_t(uint32_t(pos.x)) << 32) | uint64_t(uint32_t(pos.y)));
+}
+
+Vector2i ChunkGenerator::canonicalize_tile(Vector2i tile_pos) const {
+    tile_pos.x = wrap_x(tile_pos.x, wrap_width);
+    return tile_pos;
+}
+
+Vector2i ChunkGenerator::canonicalize_chunk_coord(Vector2i chunk_coord) const {
+    int chunk_count = chunk_size > 0 ? wrap_width / std::max(chunk_size, 1) : 0;
+    if (chunk_count > 0) {
+        chunk_coord.x = wrap_x(chunk_coord.x, chunk_count);
+    }
+    return chunk_coord;
+}
+
+Vector2i ChunkGenerator::tile_to_chunk(Vector2i tile_pos) const {
+    Vector2i canonical_tile = canonicalize_tile(tile_pos);
+    if (chunk_size <= 0) {
+        return Vector2i();
+    }
+    return canonicalize_chunk_coord(Vector2i(
+        int(std::floor(double(canonical_tile.x) / double(chunk_size))),
+        int(std::floor(double(canonical_tile.y) / double(chunk_size)))
+    ));
 }
 
 // ============================================================
@@ -374,6 +476,82 @@ void ChunkGenerator::initialize(int p_seed, Dictionary p_params) {
         }
         biome_flora_configs[palette_idx] = bfc;
     }
+
+    feature_hooks.clear();
+    Array feature_hook_array = p_params.get("feature_hooks", Array());
+    for (int i = 0; i < feature_hook_array.size(); i++) {
+        Dictionary fd = feature_hook_array[i];
+        FeatureHookDef feature_hook;
+        feature_hook.id = (StringName)fd.get("id", StringName());
+        feature_hook.weight = (float)(double)fd.get("weight", 1.0);
+        feature_hook.debug_marker_kind = (StringName)fd.get("debug_marker_kind", StringName());
+        Array allowed_biome_ids = fd.get("allowed_biome_ids", Array());
+        for (int j = 0; j < allowed_biome_ids.size(); j++) {
+            feature_hook.allowed_biome_ids.push_back((StringName)allowed_biome_ids[j]);
+        }
+        Array required_structure_tags = fd.get("required_structure_tags", Array());
+        for (int j = 0; j < required_structure_tags.size(); j++) {
+            feature_hook.required_structure_tags.push_back((StringName)required_structure_tags[j]);
+        }
+        Array allowed_terrain_types = fd.get("allowed_terrain_types", Array());
+        for (int j = 0; j < allowed_terrain_types.size(); j++) {
+            feature_hook.allowed_terrain_types.push_back((int)allowed_terrain_types[j]);
+        }
+        if (String(feature_hook.id).is_empty()) {
+            continue;
+        }
+        feature_hooks.push_back(feature_hook);
+    }
+
+    pois.clear();
+    unique_poi_anchor_offsets.clear();
+    Array poi_array = p_params.get("pois", Array());
+    for (int i = 0; i < poi_array.size(); i++) {
+        Dictionary pd = poi_array[i];
+        PoiDef poi;
+        poi.id = (StringName)pd.get("id", StringName());
+        poi.anchor_offset = (Vector2i)pd.get("anchor_offset", Vector2i());
+        poi.priority = (int)pd.get("priority", 0);
+        poi.debug_marker_kind = (StringName)pd.get("debug_marker_kind", StringName());
+        Array required_hook_ids = pd.get("required_feature_hook_ids", Array());
+        for (int j = 0; j < required_hook_ids.size(); j++) {
+            poi.required_feature_hook_ids.push_back((StringName)required_hook_ids[j]);
+        }
+        Array allowed_biome_ids = pd.get("allowed_biome_ids", Array());
+        for (int j = 0; j < allowed_biome_ids.size(); j++) {
+            poi.allowed_biome_ids.push_back((StringName)allowed_biome_ids[j]);
+        }
+        Array required_structure_tags = pd.get("required_structure_tags", Array());
+        for (int j = 0; j < required_structure_tags.size(); j++) {
+            poi.required_structure_tags.push_back((StringName)required_structure_tags[j]);
+        }
+        Array allowed_terrain_types = pd.get("allowed_terrain_types", Array());
+        for (int j = 0; j < allowed_terrain_types.size(); j++) {
+            poi.allowed_terrain_types.push_back((int)allowed_terrain_types[j]);
+        }
+        Array footprint_tiles = pd.get("footprint_tiles", Array());
+        if (footprint_tiles.is_empty()) {
+            poi.footprint_tiles.push_back(poi.anchor_offset);
+        } else {
+            for (int j = 0; j < footprint_tiles.size(); j++) {
+                poi.footprint_tiles.push_back((Vector2i)footprint_tiles[j]);
+            }
+        }
+        std::sort(poi.footprint_tiles.begin(), poi.footprint_tiles.end(), vector2i_less);
+        poi.footprint_tiles.erase(std::unique(
+            poi.footprint_tiles.begin(),
+            poi.footprint_tiles.end(),
+            vector2i_equal
+        ), poi.footprint_tiles.end());
+        if (String(poi.id).is_empty()) {
+            continue;
+        }
+        pois.push_back(poi);
+        if (std::find(unique_poi_anchor_offsets.begin(), unique_poi_anchor_offsets.end(), poi.anchor_offset) == unique_poi_anchor_offsets.end()) {
+            unique_poi_anchor_offsets.push_back(poi.anchor_offset);
+        }
+    }
+    std::sort(unique_poi_anchor_offsets.begin(), unique_poi_anchor_offsets.end(), vector2i_less);
 
     initialized = true;
 }
@@ -1329,6 +1507,567 @@ Array ChunkGenerator::compute_flora_placements(
     return placements;
 }
 
+ChunkGenerator::TileAnalysis ChunkGenerator::resolve_tile_analysis(
+    Vector2i tile_pos,
+    Vector2i spawn_tile,
+    std::unordered_map<int64_t, TileAnalysis>& tile_cache
+) const {
+    Vector2i canonical_tile = canonicalize_tile(tile_pos);
+    int64_t tile_cache_key = coord_key(canonical_tile);
+    auto cached = tile_cache.find(tile_cache_key);
+    if (cached != tile_cache.end()) {
+        return cached->second;
+    }
+
+    TileAnalysis analysis{};
+    analysis.world_pos = canonical_tile;
+    int wx = canonical_tile.x;
+    int wy = canonical_tile.y;
+    analysis.channels = sample_channels(wx, wy);
+    analysis.prepass = sample_biome_prepass(wx, wy);
+    analysis.structure = build_structure_context_from_prepass(analysis.prepass);
+    analysis.biome_selection = resolve_biome_selection(wx, wy, analysis.channels, analysis.structure, analysis.prepass);
+    analysis.variation = resolve_variation(
+        wx,
+        wy,
+        analysis.channels,
+        analysis.structure,
+        analysis.biome_selection.primary,
+        analysis.biome_selection.secondary,
+        analysis.biome_selection.ecotone_factor
+    );
+
+    float dx_s = float(wrap_x(wx, wrap_width) - wrap_x(spawn_tile.x, wrap_width));
+    if (wrap_width > 0) {
+        if (dx_s > wrap_width / 2) {
+            dx_s -= wrap_width;
+        } else if (dx_s < -wrap_width / 2) {
+            dx_s += wrap_width;
+        }
+    }
+    float dy_s = float(wy - spawn_tile.y);
+    float dist_sq = dx_s * dx_s + dy_s * dy_s;
+    analysis.terrain = resolve_terrain(dist_sq, analysis.channels, analysis.structure, analysis.prepass, analysis.variation);
+    if (analysis.terrain == GROUND && analysis.variation.kind != VAR_NONE) {
+        analysis.variation_id = int(analysis.variation.kind);
+        analysis.flora_modulation = analysis.variation.flora_mod;
+    }
+
+    analysis.height = analysis.channels.height;
+    analysis.flora_density = analysis.channels.flora_density;
+    apply_polar_surface_modifiers(
+        analysis.terrain,
+        analysis.channels,
+        analysis.structure,
+        analysis.prepass,
+        analysis.variation_id,
+        analysis.height,
+        analysis.flora_density
+    );
+    if (analysis.variation_id == VAR_ICE || analysis.variation_id == VAR_SCORCHED || analysis.variation_id == VAR_SALT_FLAT) {
+        analysis.flora_modulation = 0.0f;
+    }
+    analysis.initialized = true;
+    tile_cache[tile_cache_key] = analysis;
+    return analysis;
+}
+
+std::vector<ChunkGenerator::FeatureHookDecision> ChunkGenerator::resolve_feature_hook_decisions(
+    Vector2i candidate_origin,
+    Vector2i spawn_tile,
+    std::unordered_map<int64_t, TileAnalysis>& tile_cache,
+    std::unordered_map<int64_t, std::vector<FeatureHookDecision>>& hook_cache
+) const {
+    Vector2i canonical_origin = canonicalize_tile(candidate_origin);
+    int64_t origin_key = coord_key(canonical_origin);
+    auto cached = hook_cache.find(origin_key);
+    if (cached != hook_cache.end()) {
+        return cached->second;
+    }
+
+    TileAnalysis analysis = resolve_tile_analysis(canonical_origin, spawn_tile, tile_cache);
+    auto structure_tag_present = [&](const StringName& tag) -> bool {
+        if (tag == structure_tag_surface()) {
+            return true;
+        }
+        if (tag == structure_tag_ridge()) {
+            return analysis.structure.ridge_strength >= 0.66f;
+        }
+        if (tag == structure_tag_mountain()) {
+            return analysis.structure.mountain_mass >= 0.5f;
+        }
+        if (tag == structure_tag_river()) {
+            return analysis.structure.river_strength >= 0.66f;
+        }
+        if (tag == structure_tag_floodplain()) {
+            return analysis.structure.floodplain_strength >= 0.45f;
+        }
+        return false;
+    };
+    auto structure_tag_strength = [&](const StringName& tag) -> float {
+        if (tag == structure_tag_surface()) {
+            return 1.0f;
+        }
+        if (tag == structure_tag_ridge()) {
+            return clampf(analysis.structure.ridge_strength, 0.0f, 1.0f);
+        }
+        if (tag == structure_tag_mountain()) {
+            return clampf(analysis.structure.mountain_mass, 0.0f, 1.0f);
+        }
+        if (tag == structure_tag_river()) {
+            return clampf(analysis.structure.river_strength, 0.0f, 1.0f);
+        }
+        if (tag == structure_tag_floodplain()) {
+            return clampf(analysis.structure.floodplain_strength, 0.0f, 1.0f);
+        }
+        return 0.0f;
+    };
+
+    std::vector<FeatureHookDecision> ordered_decisions;
+    ordered_decisions.reserve(feature_hooks.size());
+    for (const FeatureHookDef& feature_hook : feature_hooks) {
+        if (String(feature_hook.id).is_empty() || feature_hook.weight <= 0.0f) {
+            continue;
+        }
+        if (!feature_hook.allowed_biome_ids.empty()) {
+            if (analysis.biome_selection.primary == nullptr || !string_name_vec_contains(feature_hook.allowed_biome_ids, analysis.biome_selection.primary->id)) {
+                continue;
+            }
+        }
+        if (!feature_hook.allowed_terrain_types.empty() && !int_vec_contains(feature_hook.allowed_terrain_types, int(analysis.terrain))) {
+            continue;
+        }
+        bool has_required_tags = true;
+        for (const StringName& required_tag : feature_hook.required_structure_tags) {
+            if (!structure_tag_present(required_tag)) {
+                has_required_tags = false;
+                break;
+            }
+        }
+        if (!has_required_tags) {
+            continue;
+        }
+
+        float structure_factor = 0.0f;
+        if (!feature_hook.required_structure_tags.empty()) {
+            float structure_total = 0.0f;
+            for (const StringName& required_tag : feature_hook.required_structure_tags) {
+                structure_total += structure_tag_strength(required_tag);
+            }
+            structure_factor = clampf(
+                structure_total / float(feature_hook.required_structure_tags.size()),
+                0.0f,
+                1.0f
+            );
+        }
+        float biome_factor = clampf(analysis.biome_selection.primary_score, 0.0f, 1.0f);
+        float flora_factor = clampf(analysis.channels.flora_density, 0.0f, 1.0f);
+        float variation_factor = clampf(analysis.variation.score, 0.0f, 1.0f);
+        String hash_key = String::num_int64(seed) + "|" + String::num_int64(canonical_origin.x) + "|" + String::num_int64(canonical_origin.y) + "|" + String(feature_hook.id);
+        double hash_factor = double(hash_key.hash() % 1000000U) / 1000000.0;
+        double weighted_score = std::max(0.0f, feature_hook.weight) * (
+            1.0
+            + double(biome_factor) * 0.35
+            + double(structure_factor) * 0.25
+            + double(variation_factor) * 0.20
+            + double(flora_factor) * 0.20
+        );
+        FeatureHookDecision decision{};
+        decision.candidate_origin = canonical_origin;
+        decision.hook_id = feature_hook.id;
+        decision.score = float(snap_micro(weighted_score + hash_factor * 0.000001));
+        decision.debug_marker_kind = feature_hook.debug_marker_kind;
+        ordered_decisions.push_back(decision);
+    }
+
+    std::sort(ordered_decisions.begin(), ordered_decisions.end(), [](const FeatureHookDecision& left, const FeatureHookDecision& right) {
+        if (left.score != right.score) {
+            return left.score > right.score;
+        }
+        return String(left.hook_id) < String(right.hook_id);
+    });
+    hook_cache[origin_key] = ordered_decisions;
+    return ordered_decisions;
+}
+
+ChunkGenerator::PoiCandidate ChunkGenerator::resolve_poi_candidate(
+    int poi_index,
+    Vector2i candidate_origin,
+    Vector2i spawn_tile,
+    std::unordered_map<int64_t, TileAnalysis>& tile_cache,
+    std::vector<std::unordered_map<int64_t, PoiCandidate>>& candidate_cache
+) const {
+    PoiCandidate invalid_candidate{};
+    if (poi_index < 0 || poi_index >= (int)pois.size()) {
+        return invalid_candidate;
+    }
+
+    Vector2i canonical_origin = canonicalize_tile(candidate_origin);
+    int64_t origin_key = coord_key(canonical_origin);
+    if (poi_index < (int)candidate_cache.size()) {
+        auto cached = candidate_cache[poi_index].find(origin_key);
+        if (cached != candidate_cache[poi_index].end()) {
+            return cached->second;
+        }
+    }
+
+    const PoiDef& poi = pois[poi_index];
+    PoiCandidate candidate{};
+    candidate.poi_index = poi_index;
+    candidate.id = poi.id;
+    candidate.candidate_origin = canonical_origin;
+    candidate.anchor_tile = canonicalize_tile(canonical_origin + poi.anchor_offset);
+    candidate.owner_chunk = tile_to_chunk(candidate.anchor_tile);
+    candidate.debug_marker_kind = poi.debug_marker_kind;
+    candidate.priority = poi.priority;
+
+    std::vector<Vector2i> footprint_tiles;
+    footprint_tiles.reserve(poi.footprint_tiles.size());
+    for (const Vector2i& footprint_offset : poi.footprint_tiles) {
+        footprint_tiles.push_back(canonicalize_tile(canonical_origin + footprint_offset));
+    }
+    std::sort(footprint_tiles.begin(), footprint_tiles.end(), vector2i_less);
+    footprint_tiles.erase(std::unique(
+        footprint_tiles.begin(),
+        footprint_tiles.end(),
+        vector2i_equal
+    ), footprint_tiles.end());
+    if (footprint_tiles.empty()) {
+        if (poi_index < (int)candidate_cache.size()) {
+            candidate_cache[poi_index][origin_key] = candidate;
+        }
+        return candidate;
+    }
+
+    auto structure_tag_present = [](const TileAnalysis& analysis, const StringName& tag) -> bool {
+        if (tag == structure_tag_surface()) {
+            return true;
+        }
+        if (tag == structure_tag_ridge()) {
+            return analysis.structure.ridge_strength >= 0.66f;
+        }
+        if (tag == structure_tag_mountain()) {
+            return analysis.structure.mountain_mass >= 0.5f;
+        }
+        if (tag == structure_tag_river()) {
+            return analysis.structure.river_strength >= 0.66f;
+        }
+        if (tag == structure_tag_floodplain()) {
+            return analysis.structure.floodplain_strength >= 0.45f;
+        }
+        return false;
+    };
+
+    for (const Vector2i& footprint_tile : footprint_tiles) {
+        TileAnalysis analysis = resolve_tile_analysis(footprint_tile, spawn_tile, tile_cache);
+        if (!poi.allowed_biome_ids.empty()) {
+            if (analysis.biome_selection.primary == nullptr || !string_name_vec_contains(poi.allowed_biome_ids, analysis.biome_selection.primary->id)) {
+                if (poi_index < (int)candidate_cache.size()) {
+                    candidate_cache[poi_index][origin_key] = candidate;
+                }
+                return candidate;
+            }
+        }
+        if (!poi.required_structure_tags.empty()) {
+            bool has_required_tags = true;
+            for (const StringName& required_tag : poi.required_structure_tags) {
+                if (!structure_tag_present(analysis, required_tag)) {
+                    has_required_tags = false;
+                    break;
+                }
+            }
+            if (!has_required_tags) {
+                if (poi_index < (int)candidate_cache.size()) {
+                    candidate_cache[poi_index][origin_key] = candidate;
+                }
+                return candidate;
+            }
+        }
+        if (!poi.allowed_terrain_types.empty() && !int_vec_contains(poi.allowed_terrain_types, int(analysis.terrain))) {
+            if (poi_index < (int)candidate_cache.size()) {
+                candidate_cache[poi_index][origin_key] = candidate;
+            }
+            return candidate;
+        }
+    }
+
+    String hash_key = String::num_int64(seed) + "|" + String::num_int64(candidate.anchor_tile.x) + "|" + String::num_int64(candidate.anchor_tile.y) + "|" + String(candidate.id);
+    candidate.footprint_tiles = footprint_tiles;
+    candidate.tie_break_hash = int64_t(hash_key.hash());
+    candidate.valid = true;
+    if (poi_index < (int)candidate_cache.size()) {
+        candidate_cache[poi_index][origin_key] = candidate;
+    }
+    return candidate;
+}
+
+ChunkGenerator::PoiCandidate ChunkGenerator::resolve_anchor_winner(
+    Vector2i anchor_tile,
+    Vector2i spawn_tile,
+    std::unordered_map<int64_t, TileAnalysis>& tile_cache,
+    std::unordered_map<int64_t, std::vector<FeatureHookDecision>>& hook_cache,
+    std::unordered_map<int64_t, std::vector<StringName>>& hook_id_cache_by_origin,
+    std::vector<std::unordered_map<int64_t, PoiCandidate>>& candidate_cache
+) const {
+    PoiCandidate best_candidate{};
+    Vector2i canonical_anchor = canonicalize_tile(anchor_tile);
+    for (int poi_index = 0; poi_index < (int)pois.size(); poi_index++) {
+        const PoiDef& poi = pois[poi_index];
+        Vector2i candidate_origin = canonicalize_tile(canonical_anchor - poi.anchor_offset);
+        if (!poi.required_feature_hook_ids.empty()) {
+            int64_t origin_key = coord_key(candidate_origin);
+            auto hook_id_cached = hook_id_cache_by_origin.find(origin_key);
+            if (hook_id_cached == hook_id_cache_by_origin.end()) {
+                std::vector<FeatureHookDecision> hook_decisions = resolve_feature_hook_decisions(
+                    candidate_origin,
+                    spawn_tile,
+                    tile_cache,
+                    hook_cache
+                );
+                std::vector<StringName> resolved_hook_ids;
+                resolved_hook_ids.reserve(hook_decisions.size());
+                for (const FeatureHookDecision& decision : hook_decisions) {
+                    if (!string_name_vec_contains(resolved_hook_ids, decision.hook_id)) {
+                        resolved_hook_ids.push_back(decision.hook_id);
+                    }
+                }
+                hook_id_cache_by_origin[origin_key] = resolved_hook_ids;
+                hook_id_cached = hook_id_cache_by_origin.find(origin_key);
+            }
+            bool matches_required_hooks = true;
+            for (const StringName& required_hook_id : poi.required_feature_hook_ids) {
+                if (!string_name_vec_contains(hook_id_cached->second, required_hook_id)) {
+                    matches_required_hooks = false;
+                    break;
+                }
+            }
+            if (!matches_required_hooks) {
+                continue;
+            }
+        }
+
+        PoiCandidate candidate = resolve_poi_candidate(
+            poi_index,
+            candidate_origin,
+            spawn_tile,
+            tile_cache,
+            candidate_cache
+        );
+        if (!candidate.valid || candidate.anchor_tile != canonical_anchor) {
+            continue;
+        }
+        bool is_better = !best_candidate.valid;
+        if (!is_better) {
+            if (candidate.priority != best_candidate.priority) {
+                is_better = candidate.priority > best_candidate.priority;
+            } else if (candidate.tie_break_hash != best_candidate.tie_break_hash) {
+                is_better = candidate.tie_break_hash > best_candidate.tie_break_hash;
+            } else {
+                is_better = String(candidate.id) < String(best_candidate.id);
+            }
+        }
+        if (is_better) {
+            best_candidate = candidate;
+        }
+    }
+    return best_candidate;
+}
+
+std::vector<Vector2i> ChunkGenerator::collect_candidate_origins_for_chunk_anchors(int base_x, int base_y, int cs) const {
+    std::vector<Vector2i> candidate_origins;
+    if (pois.empty() || unique_poi_anchor_offsets.empty()) {
+        return candidate_origins;
+    }
+
+    std::unordered_map<int64_t, bool> seen_origins;
+    for (int ly = 0; ly < cs; ly++) {
+        for (int lx = 0; lx < cs; lx++) {
+            Vector2i anchor_tile = canonicalize_tile(Vector2i(base_x + lx, base_y + ly));
+            for (const Vector2i& anchor_offset : unique_poi_anchor_offsets) {
+                Vector2i candidate_origin = canonicalize_tile(anchor_tile - anchor_offset);
+                int64_t origin_key = coord_key(candidate_origin);
+                if (seen_origins.find(origin_key) != seen_origins.end()) {
+                    continue;
+                }
+                seen_origins[origin_key] = true;
+                candidate_origins.push_back(candidate_origin);
+            }
+        }
+    }
+
+    std::sort(candidate_origins.begin(), candidate_origins.end(), vector2i_less);
+    return candidate_origins;
+}
+
+Dictionary ChunkGenerator::build_feature_and_poi_payload(
+    Vector2i canonical_chunk_coord,
+    int base_x,
+    int base_y,
+    int cs,
+    Vector2i spawn_tile
+) const {
+    Array placements_array;
+    Dictionary payload;
+    if (cs <= 0) {
+        payload[PLACEMENTS_KEY] = placements_array;
+        return payload;
+    }
+
+    std::vector<PlacementRecord> placements;
+    placements.reserve(cs * cs);
+    std::unordered_map<int64_t, TileAnalysis> tile_cache;
+    std::unordered_map<int64_t, std::vector<FeatureHookDecision>> hook_cache;
+    std::unordered_map<int64_t, std::vector<StringName>> hook_id_cache_by_origin;
+    std::vector<std::unordered_map<int64_t, PoiCandidate>> candidate_cache;
+    candidate_cache.resize(pois.size());
+    std::unordered_map<int64_t, PoiCandidate> anchor_winner_cache;
+    std::vector<String> emitted_placement_keys;
+
+    for (int ly = 0; ly < cs; ly++) {
+        for (int lx = 0; lx < cs; lx++) {
+            Vector2i candidate_origin = canonicalize_tile(Vector2i(base_x + lx, base_y + ly));
+            std::vector<FeatureHookDecision> hook_decisions = resolve_feature_hook_decisions(
+                candidate_origin,
+                spawn_tile,
+                tile_cache,
+                hook_cache
+            );
+            for (const FeatureHookDecision& decision : hook_decisions) {
+                PlacementRecord record{};
+                record.kind = feature_kind_name();
+                record.id = decision.hook_id;
+                record.candidate_origin = candidate_origin;
+                record.anchor_tile = candidate_origin;
+                record.owner_chunk = tile_to_chunk(candidate_origin);
+                record.footprint_tiles.push_back(candidate_origin);
+                record.debug_marker_kind = decision.debug_marker_kind;
+                placements.push_back(record);
+            }
+        }
+    }
+
+    std::vector<Vector2i> candidate_origins = collect_candidate_origins_for_chunk_anchors(base_x, base_y, cs);
+    for (const Vector2i& candidate_origin : candidate_origins) {
+        std::vector<FeatureHookDecision> hook_decisions = resolve_feature_hook_decisions(
+            candidate_origin,
+            spawn_tile,
+            tile_cache,
+            hook_cache
+        );
+        int64_t origin_key = coord_key(candidate_origin);
+        std::vector<StringName> resolved_hook_ids;
+        resolved_hook_ids.reserve(hook_decisions.size());
+        for (const FeatureHookDecision& decision : hook_decisions) {
+            if (!string_name_vec_contains(resolved_hook_ids, decision.hook_id)) {
+                resolved_hook_ids.push_back(decision.hook_id);
+            }
+        }
+        hook_id_cache_by_origin[origin_key] = resolved_hook_ids;
+
+        for (int poi_index = 0; poi_index < (int)pois.size(); poi_index++) {
+            const PoiDef& poi = pois[poi_index];
+            bool matches_required_hooks = true;
+            for (const StringName& required_hook_id : poi.required_feature_hook_ids) {
+                if (!string_name_vec_contains(resolved_hook_ids, required_hook_id)) {
+                    matches_required_hooks = false;
+                    break;
+                }
+            }
+            if (!matches_required_hooks) {
+                continue;
+            }
+
+            PoiCandidate candidate = resolve_poi_candidate(
+                poi_index,
+                candidate_origin,
+                spawn_tile,
+                tile_cache,
+                candidate_cache
+            );
+            if (!candidate.valid) {
+                continue;
+            }
+
+            int64_t anchor_key = coord_key(candidate.anchor_tile);
+            auto winner_cached = anchor_winner_cache.find(anchor_key);
+            if (winner_cached == anchor_winner_cache.end()) {
+                anchor_winner_cache[anchor_key] = resolve_anchor_winner(
+                    candidate.anchor_tile,
+                    spawn_tile,
+                    tile_cache,
+                    hook_cache,
+                    hook_id_cache_by_origin,
+                    candidate_cache
+                );
+                winner_cached = anchor_winner_cache.find(anchor_key);
+            }
+            const PoiCandidate& winner = winner_cached->second;
+            if (!winner.valid) {
+                continue;
+            }
+            if (winner.id != candidate.id || winner.anchor_tile != candidate.anchor_tile || winner.candidate_origin != candidate.candidate_origin) {
+                continue;
+            }
+            if (winner.owner_chunk != canonical_chunk_coord) {
+                continue;
+            }
+
+            String placement_key = String(poi_kind_name()) + "|" + String(winner.id) + "|"
+                + String::num_int64(winner.anchor_tile.x) + "|" + String::num_int64(winner.anchor_tile.y) + "|"
+                + String::num_int64(winner.candidate_origin.x) + "|" + String::num_int64(winner.candidate_origin.y);
+            if (std::find(emitted_placement_keys.begin(), emitted_placement_keys.end(), placement_key) != emitted_placement_keys.end()) {
+                continue;
+            }
+            emitted_placement_keys.push_back(placement_key);
+
+            PlacementRecord record{};
+            record.kind = poi_kind_name();
+            record.id = winner.id;
+            record.candidate_origin = winner.candidate_origin;
+            record.anchor_tile = winner.anchor_tile;
+            record.owner_chunk = winner.owner_chunk;
+            record.footprint_tiles = winner.footprint_tiles;
+            record.debug_marker_kind = winner.debug_marker_kind;
+            placements.push_back(record);
+        }
+    }
+
+    std::sort(placements.begin(), placements.end(), [](const PlacementRecord& left, const PlacementRecord& right) {
+        if (left.anchor_tile.y != right.anchor_tile.y) {
+            return left.anchor_tile.y < right.anchor_tile.y;
+        }
+        if (left.anchor_tile.x != right.anchor_tile.x) {
+            return left.anchor_tile.x < right.anchor_tile.x;
+        }
+        if (left.kind != right.kind) {
+            return String(left.kind) < String(right.kind);
+        }
+        if (left.id != right.id) {
+            return String(left.id) < String(right.id);
+        }
+        if (left.candidate_origin.y != right.candidate_origin.y) {
+            return left.candidate_origin.y < right.candidate_origin.y;
+        }
+        return left.candidate_origin.x < right.candidate_origin.x;
+    });
+
+    placements_array.resize((int)placements.size());
+    for (int i = 0; i < (int)placements.size(); i++) {
+        Dictionary placement;
+        placement["kind"] = placements[i].kind;
+        placement["id"] = placements[i].id;
+        placement["candidate_origin"] = placements[i].candidate_origin;
+        placement["anchor_tile"] = placements[i].anchor_tile;
+        placement["owner_chunk"] = placements[i].owner_chunk;
+        placement["footprint_tiles"] = to_vector2i_array(placements[i].footprint_tiles);
+        placement["debug_marker_kind"] = placements[i].debug_marker_kind;
+        placements_array[i] = placement;
+    }
+
+    payload[PLACEMENTS_KEY] = placements_array;
+    return payload;
+}
+
 // ============================================================
 // generate_chunk() — authoritative pre-pass-backed pipeline
 // ============================================================
@@ -1338,68 +2077,17 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
 
     int cs = chunk_size;
     int total = cs * cs;
-
-    int canonical_cx = wrap_x(chunk_coord.x, wrap_width / std::max(cs, 1));
-    int base_x = canonical_cx * cs;
-    int base_y = chunk_coord.y * cs;
+    Vector2i canonical_chunk = canonicalize_chunk_coord(chunk_coord);
+    int base_x = canonical_chunk.x * cs;
+    int base_y = canonical_chunk.y * cs;
 
     String snapshot_kind = generation_request.get("snapshot_kind", String());
     int snapshot_chunk_size = (int)generation_request.get("chunk_size", 0);
     bool valid_native_request = snapshot_kind == "native_chunk_generation_request_v1"
         && snapshot_chunk_size == cs;
-    PackedFloat32Array height_inputs;
-    PackedFloat32Array temperature_inputs;
-    PackedFloat32Array moisture_inputs;
-    PackedFloat32Array ruggedness_inputs;
-    PackedFloat32Array flora_density_inputs;
-    PackedFloat32Array latitude_inputs;
-    PackedFloat32Array drainage_inputs;
-    PackedFloat32Array slope_inputs;
-    PackedFloat32Array rain_shadow_inputs;
-    PackedFloat32Array continentalness_inputs;
-    PackedFloat32Array ridge_strength_inputs;
-    PackedFloat32Array river_width_inputs;
-    PackedFloat32Array river_distance_inputs;
-    PackedFloat32Array floodplain_strength_inputs;
-    PackedFloat32Array mountain_mass_inputs;
-    bool valid_authoritative_inputs = false;
     if (!valid_native_request) {
-        height_inputs = generation_request.get("height_values", PackedFloat32Array());
-        temperature_inputs = generation_request.get("temperature_values", PackedFloat32Array());
-        moisture_inputs = generation_request.get("moisture_values", PackedFloat32Array());
-        ruggedness_inputs = generation_request.get("ruggedness_values", PackedFloat32Array());
-        flora_density_inputs = generation_request.get("flora_density_values", PackedFloat32Array());
-        latitude_inputs = generation_request.get("latitude_values", PackedFloat32Array());
-        drainage_inputs = generation_request.get("drainage_values", PackedFloat32Array());
-        slope_inputs = generation_request.get("slope_values", PackedFloat32Array());
-        rain_shadow_inputs = generation_request.get("rain_shadow_values", PackedFloat32Array());
-        continentalness_inputs = generation_request.get("continentalness_values", PackedFloat32Array());
-        ridge_strength_inputs = generation_request.get("ridge_strength_values", PackedFloat32Array());
-        river_width_inputs = generation_request.get("river_width_values", PackedFloat32Array());
-        river_distance_inputs = generation_request.get("river_distance_values", PackedFloat32Array());
-        floodplain_strength_inputs = generation_request.get("floodplain_strength_values", PackedFloat32Array());
-        mountain_mass_inputs = generation_request.get("mountain_mass_values", PackedFloat32Array());
-        valid_authoritative_inputs = snapshot_kind == "world_chunk_authoritative_inputs_v1"
-            && snapshot_chunk_size == cs
-            && height_inputs.size() == total
-            && temperature_inputs.size() == total
-            && moisture_inputs.size() == total
-            && ruggedness_inputs.size() == total
-            && flora_density_inputs.size() == total
-            && latitude_inputs.size() == total
-            && drainage_inputs.size() == total
-            && slope_inputs.size() == total
-            && rain_shadow_inputs.size() == total
-            && continentalness_inputs.size() == total
-            && ridge_strength_inputs.size() == total
-            && river_width_inputs.size() == total
-            && river_distance_inputs.size() == total
-            && floodplain_strength_inputs.size() == total
-            && mountain_mass_inputs.size() == total;
-    }
-    if (!valid_authoritative_inputs && !valid_native_request) {
         UtilityFunctions::push_error(
-            "[ChunkGenerator] generate_chunk requires native_chunk_generation_request_v1 or legacy authoritative chunk inputs; native generation samples channels from its authoritative WorldPrePass snapshot."
+            "[ChunkGenerator] generate_chunk requires native_chunk_generation_request_v1. Legacy authoritative chunk-input bridges are deleted; native generation samples channels and feature/POI truth from its authoritative WorldPrePass snapshot."
         );
         return Dictionary();
     }
@@ -1430,28 +2118,8 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
             int wy = base_y + ly;
             int idx = ly * cs + lx;
 
-            BiomePrePassSample prepass{};
-            Channels ch{};
-            if (valid_authoritative_inputs) {
-                ch.height = clampf(height_inputs[idx], 0.0f, 1.0f);
-                ch.temperature = clampf(temperature_inputs[idx], 0.0f, 1.0f);
-                ch.moisture = clampf(moisture_inputs[idx], 0.0f, 1.0f);
-                ch.ruggedness = clampf(ruggedness_inputs[idx], 0.0f, 1.0f);
-                ch.flora_density = clampf(flora_density_inputs[idx], 0.0f, 1.0f);
-                ch.latitude = clampf(latitude_inputs[idx], 0.0f, 1.0f);
-                prepass.drainage = clampf(drainage_inputs[idx], 0.0f, 1.0f);
-                prepass.slope = clampf(slope_inputs[idx], 0.0f, 1.0f);
-                prepass.rain_shadow = clampf(rain_shadow_inputs[idx], 0.0f, 1.0f);
-                prepass.continentalness = clampf(continentalness_inputs[idx], 0.0f, 1.0f);
-                prepass.ridge_strength = clampf(ridge_strength_inputs[idx], 0.0f, 1.0f);
-                prepass.river_width = std::max(0.0f, river_width_inputs[idx]);
-                prepass.river_distance = std::max(0.0f, river_distance_inputs[idx]);
-                prepass.floodplain_strength = clampf(floodplain_strength_inputs[idx], 0.0f, 1.0f);
-                prepass.mountain_mass = clampf(mountain_mass_inputs[idx], 0.0f, 1.0f);
-            } else {
-                ch = sample_channels(wx, wy);
-                prepass = sample_biome_prepass(wx, wy);
-            }
+            Channels ch = sample_channels(wx, wy);
+            BiomePrePassSample prepass = sample_biome_prepass(wx, wy);
             StructureContext sc = build_structure_context_from_prepass(prepass);
             BiomeSelection biome_selection = resolve_biome_selection(wx, wy, ch, sc, prepass);
             VariationResult vr = resolve_variation(
@@ -1525,9 +2193,17 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
         flora_modulation_values.ptr()
     );
 
+    Dictionary feature_and_poi_payload = build_feature_and_poi_payload(
+        canonical_chunk,
+        base_x,
+        base_y,
+        cs,
+        canonicalize_tile(spawn_tile)
+    );
+
     Dictionary result;
-    result["chunk_coord"] = chunk_coord;
-    result["canonical_chunk_coord"] = Vector2i(canonical_cx, chunk_coord.y);
+    result["chunk_coord"] = canonical_chunk;
+    result["canonical_chunk_coord"] = canonical_chunk;
     result["base_tile"] = Vector2i(base_x, base_y);
     result["chunk_size"] = cs;
     result["terrain"] = terrain;
@@ -1539,6 +2215,7 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
     result["flora_density_values"] = flora_density_values;
     result["flora_modulation_values"] = flora_modulation_values;
     result["flora_placements"] = flora_placements;
+    result[FEATURE_AND_POI_PAYLOAD_KEY] = feature_and_poi_payload;
     return result;
 }
 

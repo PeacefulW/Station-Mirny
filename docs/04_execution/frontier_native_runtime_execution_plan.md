@@ -294,8 +294,7 @@ Make surface chunk final-packet production real.
 
 ### Current gap note
 
-- `R3` requires the final packet to carry real `feature_and_poi_payload`, but the plan does not currently allocate a separate migration iteration that moves feature/POI payload assembly itself into native ownership.
-- If `feature_and_poi_payload` remains a dominant chunk-generation hotspot in perf diagnostics, that native transfer must be scheduled explicitly as a future follow-up iteration instead of being assumed complete by packet-contract work alone.
+- resolved 2026-04-14: `feature_and_poi_payload` assembly moved into native `ChunkGenerator`, the GDScript resolver/fallback path was deleted, and `build_chunk_content()` now hydrates from the same authoritative packet as `build_chunk_native_data()`.
 
 ## R4: Frontier planning and reserved scheduling
 

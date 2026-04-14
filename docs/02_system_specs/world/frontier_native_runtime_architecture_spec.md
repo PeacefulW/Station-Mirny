@@ -220,7 +220,7 @@ Responsibility:
 
 - produce the final authoritative chunk packet in native code
 
-This builder replaces the old hybrid model where chunk generation, visual payload generation, and late convergence were split across fallback paths.
+This builder replaces the old hybrid model where chunk generation, feature/POI payload generation, visual payload generation, and late convergence were split across fallback paths.
 
 The native chunk packet must include everything required for terminal publication of the chunk:
 
@@ -562,7 +562,7 @@ Goal:
 What is done:
 
 - implement native-only final packet generation for surface chunks
-- remove critical GDScript fallback from surface full-ready path
+- remove critical GDScript fallback from surface full-ready path, including feature/POI payload assembly
 - make publication consume final packet only
 
 Acceptance tests:

@@ -135,7 +135,7 @@ func _run_native_truth_verify() -> void:
 	var compared_chunks: int = 0
 	var compared_tiles: int = 0
 	var payload_errors: int = 0
-	var unexpected_flora_payloads: int = 0
+	var feature_payload_errors: int = 0
 	var terrain_mismatches: int = 0
 	var biome_mismatches: int = 0
 	var secondary_biome_mismatches: int = 0
@@ -200,9 +200,11 @@ func _run_native_truth_verify() -> void:
 					tile_count,
 				])
 				continue
-			if native_data.has("flora_placements") and not (native_data.get("flora_placements", []) as Array).is_empty():
-				unexpected_flora_payloads += 1
-				print("[CodexProof] unexpected native flora_placements payload for %s" % [canonical_chunk])
+			var feature_and_poi_payload: Dictionary = native_data.get("feature_and_poi_payload", {}) as Dictionary
+			if feature_and_poi_payload.is_empty() or not (feature_and_poi_payload.get("placements", []) is Array):
+				feature_payload_errors += 1
+				print("[CodexProof] invalid feature_and_poi_payload shape for %s" % [canonical_chunk])
+				continue
 			var base_tile: Vector2i = native_data.get("base_tile", world_generator.chunk_to_tile_origin(canonical_chunk)) as Vector2i
 			compared_chunks += 1
 			for local_y: int in range(chunk_size):
@@ -301,11 +303,11 @@ func _run_native_truth_verify() -> void:
 					if mismatch_delta > 0 and mismatch_logs < MAX_MISMATCH_LOGS:
 						mismatch_logs += 1
 
-	print("[CodexProof] compared_chunks=%d compared_tiles=%d payload_errors=%d unexpected_flora_payloads=%d" % [
+	print("[CodexProof] compared_chunks=%d compared_tiles=%d payload_errors=%d feature_payload_errors=%d" % [
 		compared_chunks,
 		compared_tiles,
 		payload_errors,
-		unexpected_flora_payloads,
+		feature_payload_errors,
 	])
 	print("[CodexProof] terrain_mismatches=%d biome_mismatches=%d secondary_biome_mismatches=%d ecotone_mismatches=%d variation_mismatches=%d flora_density_mismatches=%d flora_modulation_mismatches=%d" % [
 		terrain_mismatches,
@@ -317,7 +319,7 @@ func _run_native_truth_verify() -> void:
 		flora_modulation_mismatches,
 	])
 	var has_failures: bool = payload_errors > 0 \
-		or unexpected_flora_payloads > 0 \
+		or feature_payload_errors > 0 \
 		or terrain_mismatches > 0 \
 		or biome_mismatches > 0 \
 		or secondary_biome_mismatches > 0 \

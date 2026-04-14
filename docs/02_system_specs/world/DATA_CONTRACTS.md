@@ -46,9 +46,9 @@ Until superseded, this document is mandatory reading for any iteration that touc
 
 | Layer | Class | Owner | Writes | Reads | Scope / rebuild |
 | --- | --- | --- | --- | --- | --- |
-| Feature / POI Definitions | `canonical` | `WorldFeatureRegistry` | boot-time registry load of immutable definition resources | `WorldFeatureRegistry` read APIs, `WorldGenerator` readiness gate, future generator-side resolvers | boot-time load only, read-only during runtime |
-| Feature Hook Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic hook decision compute from canonical generator context + immutable definition snapshot | `WorldPoiResolver`, chunk payload generation, debug inspectors | per-origin deterministic compute, no persistence |
-| POI Placement Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic POI arbitration from hook decisions + immutable POI definitions | chunk payload generation, future debug/materialization consumers | per-origin deterministic compute, owner-only placement authority, no persistence |
+| Feature / POI Definitions | `canonical` | `WorldFeatureRegistry` | boot-time registry load of immutable definition resources | `WorldFeatureRegistry` read APIs, `WorldGenerator` readiness gate, native `ChunkGenerator` initialization snapshot | boot-time load only, read-only during runtime |
+| Feature Hook Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic native hook decision compute from canonical generator context + immutable definition snapshot | native POI arbitration, chunk payload generation, debug inspectors | per-origin deterministic compute inside native `ChunkGenerator`, no persistence |
+| POI Placement Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic native POI arbitration from hook decisions + immutable POI definitions | chunk payload generation, future debug/materialization consumers | per-origin deterministic compute inside native `ChunkGenerator`, owner-only placement authority, no persistence |
 | World Pre-pass | `canonical` | `WorldPrePass`, bootstrapped by `WorldGenerator` | boot-time coarse height / filled-height / eroded-height / flow-direction / accumulation / drainage / river-mask / river-width / river-distance / floodplain-strength / ridge-strength / mountain-mass / slope / rain-shadow / continentalness / tectonic spine-seed records / ridge-path graph / ridge spline samples + half-width profile / lake-mask / lake-record grids derived from seed + balance + planet sampler | `WorldGenerator` initialization, `WorldComputeContext` holder, future generator-side resolvers and samplers | boot-time compute only, deterministic rebuild, not persisted |
 | World | `canonical` | `ChunkManager` runtime arbitration, `Chunk` loaded storage, `WorldGenerator` unloaded surface base | canonical terrain bytes and unloaded overlay | terrain/resource/walkability/presentation consumers | loaded + unloaded reads, immediate writes, generator fallback |
 | Surface Final Packet Envelope | `derived` / `publication-contract` | `ChunkContentBuilder` for emitted packet shape, `ChunkManager` publication-payload completion, `ChunkSurfacePayloadCache` for duplicated retained copies | build/stamp versioned terminal surface packet dictionaries, including publication-ready flora payloads, and cache validated duplicates | `WorldGenerator.build_chunk_native_data()`, `ChunkStreamingService`, `ChunkBootPipeline`, diagnostics | surface z=0 only, deterministic build output, cached runtime copies not persisted |
@@ -113,9 +113,9 @@ Observed files for this version:
 ## Current Source Of Truth Summary
 
 - Feature hook and POI definition truth lives in `WorldFeatureRegistry` and is loaded from registry-backed resources before world initialization.
-- Feature hook decisions are derived on demand by `WorldFeatureHookResolver` from canonical generator context plus immutable registry-backed definitions; they are not loaded-world or presentation truth.
-- POI placement decisions are derived on demand by `WorldPoiResolver` from hook decisions plus immutable POI definitions; canonical anchor ownership and arbitration order are computed before any payload/materialization step.
-- `WorldGenerator.build_chunk_content()` and `build_chunk_native_data()` serialize deterministic `feature_and_poi_payload` records from those derived feature-hook and POI results; owner chunks carry the authoritative baseline placement records. Only `build_chunk_native_data()` stamps the versioned `frontier_surface_final_packet` envelope consumed by player-reachable surface runtime install/cache boundaries, and the native surface path must build the real payload before terminal validation instead of emitting an empty placeholder for later script completion.
+- Feature hook decisions are derived inside native `ChunkGenerator` from canonical generator context plus immutable registry-backed definitions exported during `WorldGenerator` initialization; they are not loaded-world or presentation truth.
+- POI placement decisions are derived inside native `ChunkGenerator` from hook decisions plus immutable POI definitions; canonical anchor ownership and arbitration order are computed before any payload/materialization step.
+- `WorldGenerator.build_chunk_native_data()` emits the deterministic `feature_and_poi_payload` directly from native chunk generation, and `WorldGenerator.build_chunk_content()` hydrates `ChunkBuildResult` from that same authoritative native packet. Owner chunks carry the authoritative baseline placement records. Only `build_chunk_native_data()` stamps the versioned `frontier_surface_final_packet` envelope consumed by player-reachable surface runtime install/cache boundaries, and the surface path must fail closed instead of emitting an empty placeholder or recomputing feature/POI truth in GDScript.
 - `WorldFeatureDebugOverlay` consumes cached copies of already-built `feature_and_poi_payload` records as a debug-only presentation proof; disabling that overlay does not change placement truth.
 - `WorldPrePass` owns boot-time coarse-grid prepass state (`_height_grid`, `_filled_height_grid`, `_flow_dir_grid`, `_accumulation_grid`, `_drainage_grid`, `_river_mask_grid`, `_river_width_grid`, `_river_distance_grid`, `_floodplain_strength_grid`, `_ridge_strength_grid`, `_mountain_mass_grid`, `_eroded_height_grid`, `_slope_grid`, `_rain_shadow_grid`, `_continentalness_grid`, `_spine_seeds`, `_ridge_paths`, `_lake_mask`, `_lake_records`) derived from the initialized `PlanetSampler` plus `WorldGenBalance`; each `RidgePath` now carries the raw coarse-grid polyline plus internal `spline_samples` (stored in wrap-local continuous X space for seam-safe smoothing) and `spline_half_widths`.
 - `WorldGenerator.initialize_world()` or the staged `begin_initialize_world_async()` -> `complete_pending_initialize_world()` flow computes `WorldPrePass` before `WorldComputeContext` creation and publishes one read-only snapshot for the requested seed into runtime state.
@@ -182,9 +182,9 @@ Observed files for this version:
 ## Layer: Feature Hook Decisions
 
 - `classification`: `derived`
-- `owner`: `WorldGenerator` generation pipeline owns feature-hook decision compute for Iteration 7.2; `WorldFeatureHookResolver` is the only writer path.
-- `writers`: `WorldFeatureHookResolver.resolve_for_origin(candidate_origin, ctx)` using canonical generator context plus immutable feature-hook definitions.
-- `readers`: `WorldPoiResolver`, chunk payload build integration, debug/validation tooling.
+- `owner`: `WorldGenerator` generation pipeline owns feature-hook decision compute; native `ChunkGenerator` is the only writer path.
+- `writers`: native `ChunkGenerator.generate_chunk()` internal feature-hook resolution using canonical generator context plus immutable feature-hook definitions exported at initialization.
+- `readers`: native POI arbitration, chunk payload build integration, debug/validation tooling.
 - `rebuild policy`: deterministic per-origin compute only; no persistence, no chunk-local authority, no presentation back-write.
 - `invariants`:
 - `assert(same_seed_and_candidate_origin => same hook decision set, "feature-hook resolution must be deterministic for a canonical origin")`
@@ -192,8 +192,8 @@ Observed files for this version:
 - `assert(feature_hook_decisions_are_sorted_by_explicit_stable_order, "hook decision ordering must not depend on resource load order")`
 - `assert(chunk_edge_evaluation_uses_canonical_origin_only, "neighboring chunk builds must resolve identical hook decisions for the same canonical origin")`
 - `write operations`:
-- `WorldFeatureHookResolver.resolve_for_origin()`
-- `WorldGenerator` internal generator-side compute paths that call the resolver
+- native `ChunkGenerator.generate_chunk()` internal feature-hook resolution helpers
+- `WorldGenerator.build_chunk_native_data()` / `build_chunk_content()` as packet/hydration consumers only
 - `forbidden writes`:
 - `Chunk`, `ChunkManager`, mining, topology, reveal, and presentation systems must not author or mutate feature-hook decisions.
 - Feature-hook compute must not mutate terrain answers, structure context, biome results, or local variation outputs while evaluating eligibility.
@@ -201,13 +201,13 @@ Observed files for this version:
 - `emitted events / invalidation signals`:
 - none; decisions are derived synchronously from canonical generator context when queried.
 - `current violations / ambiguities / contract gaps`:
-- Resolver output remains internal-only; external/runtime consumers read serialized feature records only through `feature_and_poi_payload` on existing chunk build outputs.
+- Feature-hook decision truth remains internal-only to native chunk generation; external/runtime consumers read serialized feature records only through `feature_and_poi_payload` on existing chunk build outputs.
 
 ## Layer: POI Placement Decisions
 
 - `classification`: `derived`
-- `owner`: `WorldGenerator` generation pipeline owns deterministic POI placement arbitration for Iteration 7.3; `WorldPoiResolver` is the only writer path.
-- `writers`: `WorldPoiResolver.resolve_for_origin(candidate_origin, hook_decisions, ctx)` using canonical hook decisions plus immutable POI definitions.
+- `owner`: `WorldGenerator` generation pipeline owns deterministic POI placement arbitration; native `ChunkGenerator` is the only writer path.
+- `writers`: native `ChunkGenerator.generate_chunk()` internal POI arbitration helpers using canonical hook decisions plus immutable POI definitions.
 - `readers`: chunk payload build integration, future debug/materialization consumers.
 - `rebuild policy`: deterministic per-origin compute only; no deferred queue, no second-pass arbitration, no persistence.
 - `invariants`:
@@ -217,8 +217,8 @@ Observed files for this version:
 - `assert(competing_valid_pois_at_same_anchor_are_resolved_by_priority_then_hash_then_lexicographic_id, "arbitration order must stay fixed")`
 - `assert(footprint_tiles_are_canonical_world_tiles_sorted_deterministically, "downstream payload export must not depend on load order")`
 - `write operations`:
-- `WorldPoiResolver.resolve_for_origin()`
-- `WorldGenerator` internal generator-side compute paths that call the resolver
+- native `ChunkGenerator.generate_chunk()` internal POI arbitration helpers
+- `WorldGenerator.build_chunk_native_data()` / `build_chunk_content()` as packet/hydration consumers only
 - `forbidden writes`:
 - `Chunk`, `ChunkManager`, mining, topology, reveal, and presentation systems must not author or mutate POI placement decisions.
 - POI placement compute must not use loaded runtime diffs, topology caches, reveal state, underground fog, or presentation objects as hidden inputs.
@@ -1006,7 +1006,7 @@ Observed files for this version:
 - Surface load/install boundaries now require the versioned terminal `frontier_surface_final_packet` envelope. Missing packet metadata, missing `flora_placements`, missing required `flora_payload` for non-empty flora placements, missing prebuilt flora render packet, or broken tiled-array alignment are contract failures for player-reachable runtime, not permission to fall back to an older structured export.
 - Surface chunk generation writes per-tile `terrain`, `height`, `variation`, and `biome` into native payload arrays. `flora_density_values` and `flora_modulation_values` are also generated in the payload for surface chunks. `variation` remains presentation-only metadata; polar overlays live there instead of expanding canonical terrain types.
 - Surface native payloads also carry serialized `flora_placements`; an empty Array is a valid "no flora" result, but a missing `flora_placements` key is a contract failure for player-reachable runtime. When `flora_placements` is non-empty, the packet must also carry `flora_payload` with matching canonical chunk coord/chunk size, matching placement count, and a prebuilt pure-data `render_packet`.
-- When native chunk generation is enabled, the normal runtime path passes only compact request metadata (`native_chunk_generation_request_v1`) to `ChunkGenerator.generate_chunk()`. Per-tile channel/prepass/structure sampling is owned by C++ and reads the immutable `WorldPrePass` snapshot plus native noise/biome params initialized at world setup; the old `world_chunk_authoritative_inputs_v1` bridge is legacy/debug-only.
+- The normal runtime path passes only compact request metadata (`native_chunk_generation_request_v1`) to `ChunkGenerator.generate_chunk()`. Per-tile channel/prepass/structure sampling and `feature_and_poi_payload` assembly are owned by C++ and read the immutable `WorldPrePass` snapshot plus native noise/biome/feature/POI params initialized at world setup; the old `world_chunk_authoritative_inputs_v1` bridge is deleted and any attempt to bypass the native request contract is a fail-closed error.
 - Surface chunk generation may additionally write presentation-only derived arrays `rock_visual_class`, `ground_face_atlas`, `cover_mask`, `cliff_overlay`, `variant_id`, and `alt_id`. In player-reachable native generation these arrays must come from native `ChunkVisualKernels.build_prebaked_visual_payload()`; missing native visual packet construction is a fail-closed error, not permission to use GDScript visual convergence. The arrays are computed from the current chunk arrays plus a one-tile seam halo so terrain/cover/cliff visual phases can reuse ready buffers instead of rebuilding neighbor lookup state for pristine chunks.
 - Current surface generation does not assign `MINED_FLOOR` or `MOUNTAIN_ENTRANCE`. Mountain boundary tiles generated by `SurfaceTerrainResolver._resolve_surface_terrain_sq()` remain `ROCK` even when adjacent to open exterior terrain.
 - Chunk generation does not publish a generic wall-neighbor mask or terrain-peering API as canonical chunk data. Any stored `rock_visual_class` / `ground_face_atlas` / `cover_mask` / `cliff_overlay` / `variant_id` / `alt_id` buffers remain presentation-only derived state.

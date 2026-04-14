@@ -1,6 +1,7 @@
 class_name ChunkBuildResult
 extends RefCounted
 
+const ChunkFinalPacketScript = preload("res://core/systems/world/chunk_final_packet.gd")
 const FEATURE_AND_POI_PAYLOAD_KEY: String = "feature_and_poi_payload"
 const PLACEMENTS_KEY: String = "placements"
 
@@ -87,6 +88,25 @@ func apply_prebaked_visual_payload(payload: Dictionary) -> void:
 	cliff_overlay = payload.get("cliff_overlay", PackedByteArray()) as PackedByteArray
 	variant_id = payload.get("variant_id", PackedByteArray()) as PackedByteArray
 	alt_id = payload.get("alt_id", PackedInt32Array()) as PackedInt32Array
+
+func populate_from_surface_packet(packet: Dictionary) -> ChunkBuildResult:
+	if not ChunkFinalPacketScript.validate_surface_packet(packet, "ChunkBuildResult.populate_from_surface_packet"):
+		return self
+	chunk_coord = packet.get("chunk_coord", Vector2i.ZERO) as Vector2i
+	canonical_chunk_coord = packet.get("canonical_chunk_coord", chunk_coord) as Vector2i
+	chunk_size = int(packet.get("chunk_size", 0))
+	base_tile = packet.get("base_tile", Vector2i.ZERO) as Vector2i
+	terrain = (packet.get("terrain", PackedByteArray()) as PackedByteArray).duplicate()
+	height = (packet.get("height", PackedFloat32Array()) as PackedFloat32Array).duplicate()
+	variation = (packet.get("variation", PackedByteArray()) as PackedByteArray).duplicate()
+	biome = (packet.get("biome", PackedByteArray()) as PackedByteArray).duplicate()
+	secondary_biome = (packet.get("secondary_biome", PackedByteArray()) as PackedByteArray).duplicate()
+	ecotone_values = (packet.get("ecotone_values", PackedFloat32Array()) as PackedFloat32Array).duplicate()
+	flora_density_values = (packet.get("flora_density_values", PackedFloat32Array()) as PackedFloat32Array).duplicate()
+	flora_modulation_values = (packet.get("flora_modulation_values", PackedFloat32Array()) as PackedFloat32Array).duplicate()
+	feature_and_poi_payload = (packet.get(FEATURE_AND_POI_PAYLOAD_KEY, _empty_feature_and_poi_payload()) as Dictionary).duplicate(true)
+	apply_prebaked_visual_payload(packet)
+	return self
 
 func to_native_data() -> Dictionary:
 	return {

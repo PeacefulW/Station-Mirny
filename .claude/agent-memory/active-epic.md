@@ -8,7 +8,7 @@
 ## Spec revision log
 
 - 2026-04-14: user clarified that runtime streaming must ignore debug zoom / raw camera-visible expansion. Target gameplay envelope is fixed `3x3` hot around the player plus `5x5` warm follow-up; the current camera-visible-driven runtime behavior now requires follow-up implementation against the updated specs.
-- 2026-04-14: current execution plan still has no dedicated iteration for moving `feature_and_poi_payload` assembly fully into native ownership; treat that as a future explicit follow-up if perf diagnostics continue to show it as the dominant chunk-generation hotspot.
+- 2026-04-14: `feature_and_poi_payload` assembly moved into native `ChunkGenerator`, the GDScript resolver/fallback path was deleted, and `build_chunk_content()` now hydrates from the same authoritative packet as `build_chunk_native_data()`. Remaining perf hotspot has shifted to native visual payload generation / streaming redraw rather than feature/POI payload assembly.
 
 ## Documentation debt
 

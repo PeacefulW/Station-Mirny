@@ -50,6 +50,54 @@ static func empty_feature_and_poi_payload() -> Dictionary:
 		PLACEMENTS_KEY: [],
 	}
 
+static func _validate_feature_and_poi_payload(payload: Dictionary, context: String) -> bool:
+	if payload.is_empty():
+		push_error("%s: `%s` must keep the explicit placements shape" % [context, FEATURE_AND_POI_PAYLOAD_KEY])
+		return false
+	if not payload.has(PLACEMENTS_KEY):
+		push_error("%s: `%s` is missing `%s`" % [context, FEATURE_AND_POI_PAYLOAD_KEY, PLACEMENTS_KEY])
+		return false
+	if not (payload.get(PLACEMENTS_KEY, []) is Array):
+		push_error("%s: `%s.%s` must stay an Array" % [context, FEATURE_AND_POI_PAYLOAD_KEY, PLACEMENTS_KEY])
+		return false
+	for placement_variant: Variant in payload.get(PLACEMENTS_KEY, []):
+		if not (placement_variant is Dictionary):
+			push_error("%s: `%s.%s` must contain Dictionaries" % [context, FEATURE_AND_POI_PAYLOAD_KEY, PLACEMENTS_KEY])
+			return false
+		var placement: Dictionary = placement_variant as Dictionary
+		for key: String in ["kind", "id", "candidate_origin", "anchor_tile", "owner_chunk", "footprint_tiles", "debug_marker_kind"]:
+			if placement.has(key):
+				continue
+			push_error("%s: `%s.%s` record is missing `%s`" % [context, FEATURE_AND_POI_PAYLOAD_KEY, PLACEMENTS_KEY, key])
+			return false
+		if not (placement.get("kind", &"") is StringName):
+			push_error("%s: `%s.%s.kind` must stay StringName" % [context, FEATURE_AND_POI_PAYLOAD_KEY, PLACEMENTS_KEY])
+			return false
+		if not (placement.get("id", &"") is StringName):
+			push_error("%s: `%s.%s.id` must stay StringName" % [context, FEATURE_AND_POI_PAYLOAD_KEY, PLACEMENTS_KEY])
+			return false
+		if not (placement.get("candidate_origin", Vector2i.ZERO) is Vector2i):
+			push_error("%s: `%s.%s.candidate_origin` must stay Vector2i" % [context, FEATURE_AND_POI_PAYLOAD_KEY, PLACEMENTS_KEY])
+			return false
+		if not (placement.get("anchor_tile", Vector2i.ZERO) is Vector2i):
+			push_error("%s: `%s.%s.anchor_tile` must stay Vector2i" % [context, FEATURE_AND_POI_PAYLOAD_KEY, PLACEMENTS_KEY])
+			return false
+		if not (placement.get("owner_chunk", Vector2i.ZERO) is Vector2i):
+			push_error("%s: `%s.%s.owner_chunk` must stay Vector2i" % [context, FEATURE_AND_POI_PAYLOAD_KEY, PLACEMENTS_KEY])
+			return false
+		if not (placement.get("footprint_tiles", []) is Array):
+			push_error("%s: `%s.%s.footprint_tiles` must stay an Array" % [context, FEATURE_AND_POI_PAYLOAD_KEY, PLACEMENTS_KEY])
+			return false
+		for footprint_tile: Variant in placement.get("footprint_tiles", []):
+			if footprint_tile is Vector2i:
+				continue
+			push_error("%s: `%s.%s.footprint_tiles` must contain Vector2i values" % [context, FEATURE_AND_POI_PAYLOAD_KEY, PLACEMENTS_KEY])
+			return false
+		if not (placement.get("debug_marker_kind", &"") is StringName):
+			push_error("%s: `%s.%s.debug_marker_kind` must stay StringName" % [context, FEATURE_AND_POI_PAYLOAD_KEY, PLACEMENTS_KEY])
+			return false
+	return true
+
 static func stamp_surface_packet_metadata(packet: Dictionary, generation_source: StringName) -> void:
 	packet[PACKET_KIND_KEY] = SURFACE_PACKET_KIND
 	packet[PACKET_VERSION_KEY] = SURFACE_PACKET_VERSION
@@ -113,14 +161,7 @@ static func validate_surface_packet(packet: Dictionary, context: String = "Chunk
 		push_error("%s: `%s` must stay an Array" % [context, FLORA_PLACEMENTS_KEY])
 		return false
 	var feature_and_poi_payload: Dictionary = packet.get(FEATURE_AND_POI_PAYLOAD_KEY, {}) as Dictionary
-	if feature_and_poi_payload.is_empty():
-		push_error("%s: `%s` must keep the explicit placements shape" % [context, FEATURE_AND_POI_PAYLOAD_KEY])
-		return false
-	if not feature_and_poi_payload.has(PLACEMENTS_KEY):
-		push_error("%s: `%s` is missing `%s`" % [context, FEATURE_AND_POI_PAYLOAD_KEY, PLACEMENTS_KEY])
-		return false
-	if not (feature_and_poi_payload.get(PLACEMENTS_KEY, []) is Array):
-		push_error("%s: `%s.%s` must stay an Array" % [context, FEATURE_AND_POI_PAYLOAD_KEY, PLACEMENTS_KEY])
+	if not _validate_feature_and_poi_payload(feature_and_poi_payload, context):
 		return false
 	return true
 

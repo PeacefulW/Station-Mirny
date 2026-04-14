@@ -4,6 +4,7 @@
 #include <vector>
 #include <unordered_map>
 #include <cmath>
+#include <cstdint>
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/array.hpp>
@@ -199,6 +200,28 @@ private:
     std::vector<FloraSetDef> flora_sets;
     std::vector<DecorSetDef> decor_sets;
     std::vector<BiomeFloraConfig> biome_flora_configs;
+    struct FeatureHookDef {
+        StringName id;
+        std::vector<StringName> allowed_biome_ids;
+        std::vector<StringName> required_structure_tags;
+        std::vector<int> allowed_terrain_types;
+        float weight = 1.0f;
+        StringName debug_marker_kind;
+    };
+    struct PoiDef {
+        StringName id;
+        std::vector<StringName> required_feature_hook_ids;
+        std::vector<StringName> allowed_biome_ids;
+        std::vector<StringName> required_structure_tags;
+        std::vector<int> allowed_terrain_types;
+        std::vector<Vector2i> footprint_tiles;
+        Vector2i anchor_offset = Vector2i(0, 0);
+        int priority = 0;
+        StringName debug_marker_kind;
+    };
+    std::vector<FeatureHookDef> feature_hooks;
+    std::vector<PoiDef> pois;
+    std::vector<Vector2i> unique_poi_anchor_offsets;
 
     // --- Terrain types (matches TileGenData.TerrainType) ---
     enum TerrainType { GROUND = 0, ROCK = 1, WATER = 2, SAND = 3 };
@@ -229,6 +252,47 @@ private:
         VarKind kind;
         float score;
         float flora_mod, wetness_mod, rockiness_mod, openness_mod;
+    };
+    struct TileAnalysis {
+        Vector2i world_pos;
+        Channels channels{};
+        BiomePrePassSample prepass{};
+        StructureContext structure{};
+        BiomeSelection biome_selection{};
+        VariationResult variation{};
+        TerrainType terrain = GROUND;
+        float height = 0.0f;
+        float flora_density = 0.0f;
+        float flora_modulation = 0.0f;
+        int variation_id = 0;
+        bool initialized = false;
+    };
+    struct FeatureHookDecision {
+        Vector2i candidate_origin;
+        StringName hook_id;
+        float score = 0.0f;
+        StringName debug_marker_kind;
+    };
+    struct PoiCandidate {
+        bool valid = false;
+        int poi_index = -1;
+        StringName id;
+        Vector2i candidate_origin;
+        Vector2i anchor_tile;
+        Vector2i owner_chunk;
+        std::vector<Vector2i> footprint_tiles;
+        StringName debug_marker_kind;
+        int priority = 0;
+        int64_t tie_break_hash = 0;
+    };
+    struct PlacementRecord {
+        StringName kind;
+        StringName id;
+        Vector2i candidate_origin;
+        Vector2i anchor_tile;
+        Vector2i owner_chunk;
+        std::vector<Vector2i> footprint_tiles;
+        StringName debug_marker_kind;
     };
 
     // --- Noise helpers ---
@@ -298,6 +362,38 @@ private:
     float tile_hash(int wx, int wy, int channel) const;
     bool flora_set_allowed_in_subzone(const FloraSetDef& fs, int var_id) const;
     float decor_set_subzone_density(const DecorSetDef& ds, int var_id) const;
+    Dictionary build_feature_and_poi_payload(Vector2i canonical_chunk_coord, int base_x, int base_y, int cs, Vector2i spawn_tile) const;
+    TileAnalysis resolve_tile_analysis(
+        Vector2i tile_pos,
+        Vector2i spawn_tile,
+        std::unordered_map<int64_t, TileAnalysis>& tile_cache
+    ) const;
+    std::vector<FeatureHookDecision> resolve_feature_hook_decisions(
+        Vector2i candidate_origin,
+        Vector2i spawn_tile,
+        std::unordered_map<int64_t, TileAnalysis>& tile_cache,
+        std::unordered_map<int64_t, std::vector<FeatureHookDecision>>& hook_cache
+    ) const;
+    PoiCandidate resolve_poi_candidate(
+        int poi_index,
+        Vector2i candidate_origin,
+        Vector2i spawn_tile,
+        std::unordered_map<int64_t, TileAnalysis>& tile_cache,
+        std::vector<std::unordered_map<int64_t, PoiCandidate>>& candidate_cache
+    ) const;
+    PoiCandidate resolve_anchor_winner(
+        Vector2i anchor_tile,
+        Vector2i spawn_tile,
+        std::unordered_map<int64_t, TileAnalysis>& tile_cache,
+        std::unordered_map<int64_t, std::vector<FeatureHookDecision>>& hook_cache,
+        std::unordered_map<int64_t, std::vector<StringName>>& hook_id_cache_by_origin,
+        std::vector<std::unordered_map<int64_t, PoiCandidate>>& candidate_cache
+    ) const;
+    std::vector<Vector2i> collect_candidate_origins_for_chunk_anchors(int base_x, int base_y, int cs) const;
+    static int64_t coord_key(const Vector2i& pos);
+    Vector2i canonicalize_tile(Vector2i tile_pos) const;
+    Vector2i canonicalize_chunk_coord(Vector2i chunk_coord) const;
+    Vector2i tile_to_chunk(Vector2i tile_pos) const;
 
     // Math
     static float clampf(float v, float lo, float hi);

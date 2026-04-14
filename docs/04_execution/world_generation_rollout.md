@@ -254,7 +254,7 @@ This section is a lightweight status overlay. Detailed audit and remaining gaps 
 | 4 — Local variation layer | done | `LocalVariationResolver` with 5 variation kinds; all modulation channels consumed by terrain classification and flora placement |
 | 5 — Chunk content builder stabilization | done | `ChunkContentBuilder` is pure materialization delegate; terrain truth lives in `SurfaceTerrainResolver`; `get_terrain_type_fast()` routes to resolver directly |
 | 6 — Flora and decor sets | done (MVP) | `FloraSetData`, `DecorSetData`, `FloraDecorRegistry`, `ChunkFloraBuilder` exist; sync/async load-path parity achieved; placeholder visuals. Flora terrain filter contract exists in data, but builder currently consumes only `GROUND`; full filter support deferred to content growth phase. |
-| 7 — Feature and POI hooks | done | `WorldFeatureRegistry`, `WorldFeatureHookResolver`, `WorldPoiResolver`, deterministic `feature_and_poi_payload`, and a debug-only downstream proof overlay are in place; public boundary stays on existing `WorldGenerator` build entrypoints. |
+| 7 — Feature and POI hooks | done | `WorldFeatureRegistry`, native `ChunkGenerator` feature-hook resolution + POI arbitration, deterministic `feature_and_poi_payload`, and a debug-only downstream proof overlay are in place; public boundary stays on existing `WorldGenerator` build entrypoints. |
 | 8+ | not started | — |
 
 ## Source note

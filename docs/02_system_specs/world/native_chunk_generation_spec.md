@@ -65,9 +65,9 @@ Current public APIs affected semantically:
 Required API/documentation outcome:
 - `PUBLIC_API.md` must document native generation as a pre-pass-backed accelerator for `ChunkContentBuilder`, not as a separate structure pipeline
 - `ChunkGenerator.initialize()` must require an immutable serialized `WorldPrePass` snapshot for the requested seed and fail closed otherwise
-- `ChunkGenerator.generate_chunk()` must require a compact `native_chunk_generation_request_v1` from `ChunkContentBuilder` and sample per-tile channels / pre-pass structure inside C++ from the initialized authoritative snapshot. Legacy `world_chunk_authoritative_inputs_v1` arrays may remain accepted for debug/parity tooling only, but production runtime must not build or bridge them.
+- `ChunkGenerator.generate_chunk()` must require a compact `native_chunk_generation_request_v1` from `ChunkContentBuilder` and sample per-tile channels / pre-pass structure inside C++ from the initialized authoritative snapshot. Legacy `world_chunk_authoritative_inputs_v1` arrays are deleted and production/runtime/tooling must not build or bridge them.
 - `ChunkGenerator` output Dictionary must be wire-compatible with GDScript `build_chunk_native_data()` output, including `secondary_biome` and `ecotone_values`
-- GDScript fallback must remain functional when native DLL is unavailable
+- Player-reachable surface runtime must fail closed when the native DLL or native payload is unavailable; no GDScript fallback is allowed in the critical path.
 
 ## Data Contracts — new and affected
 
@@ -217,7 +217,7 @@ Goal: establish native per-tile world channel sampling in C++ while keeping stru
 What is done:
 - `sample_channels(wx, wy)` — port of `planet_sampler.gd:sample_world_channels()`: latitude from equator distance, height noise, temperature (noise+latitude+curve), moisture noise, ruggedness noise, flora_density (noise+moisture blend)
 - `generate_chunk()` uses authoritative structure truth only; production runtime now derives per-tile pre-pass / structure context inside C++ from the initialized `WorldPrePass` snapshot instead of evaluating a second native structure sampler
-- The old `world_chunk_authoritative_inputs_v1` per-tile bridge remains accepted only for legacy debug/parity tooling
+- The old `world_chunk_authoritative_inputs_v1` per-tile bridge is deleted; iteration history below must not be read as permission to keep it alive in runtime or tooling
 - `generate_chunk()` loop calls `sample_channels()` per tile, then samples pre-pass / structure state for the same tile inside C++ and fills height + flora_density arrays
 - DLL compiles clean
 
@@ -264,17 +264,17 @@ Goal: wire native ChunkGenerator into the production pipeline.
 
 What is done:
 - `world_gen_balance.gd` + `.tres`: added `use_native_chunk_generation: bool` flag (default true)
-- `WorldGenerator._setup_native_chunk_generator()`: creates `ChunkGenerator` via `ClassDB.instantiate()`, passes full balance params Dictionary (50+ keys) + biome definitions Array, calls `initialize(seed, params)`. Graceful fallback with warning if class not available.
+- `WorldGenerator._setup_native_chunk_generator()`: creates `ChunkGenerator` via `ClassDB.instantiate()`, passes full balance params Dictionary (including biome/feature/POI immutable snapshots), and calls `initialize(seed, params)`. Missing class is a zero-tolerance breach for the supported surface runtime path.
 - `WorldGenerator.get_native_chunk_generator()`: public accessor for native generator instance
 - `ChunkContentBuilder._native_generator`: set at `initialize()` via `WorldGenerator.get_native_chunk_generator()`
-- `ChunkContentBuilder.build_chunk_native_data()`: tries `_native_generator.generate_chunk()` first, appends feature/POI payload, falls back to GDScript loop if native unavailable or returns empty
+- `ChunkContentBuilder.build_chunk_native_data()`: requires `_native_generator.generate_chunk()`, validates the returned authoritative tile arrays plus native-built `feature_and_poi_payload`, stamps the final packet, and fails closed if native generation is unavailable or invalid
 - Cleanup: `_native_chunk_generator = null` in `_clear_initialized_runtime_state()`
-- Feature/POI payload stays GDScript (separate pipeline, not part of terrain gen)
+- Feature/POI payload is built inside native chunk generation and is no longer a separate GDScript pipeline
 
 Acceptance tests:
 - [x] `assert(boot time < 10 seconds with native generation)` — first_playable=6.2s (editor), compute=1030ms for 25 chunks
 - [x] `assert(runtime streaming keeps up with walking speed)` — FPS=60, hitches=0, no green zones while running
-- [x] `assert(GDScript fallback works when DLL not present)` — `ClassDB.class_exists()` check + warning, `build_chunk_native_data()` checks `_native_generator != null`
+- [x] `assert(player-reachable runtime fails closed when DLL not present)` — supported surface path requires native generator and must not fall back to GDScript
 - [x] manual: world generates correctly, no visual artifacts. Near-player chunks instant, outer progressive.
 
 Files that may be touched:
@@ -338,6 +338,6 @@ Optimization is player-facing complete (FPS=60, hitches=0, no green zones). Rema
 
 1. **topology budget overrun**: 3.8ms peak at 2ms budget during active streaming. topology + streaming_redraw concurrent = total 10.6ms/6.0ms. FPS=60 holds.
 2. **phase1_create = 5-8ms**: populate_native + complete_redraw_now for near-player chunks on main thread. Single _staged_chunk bottleneck.
-3. **Feature/POI computation**: skipped in native path (empty payload). Not ported to C++. Will bottleneck if re-enabled.
-4. **3 flora fallback warnings**: some chunks return empty flora_placements from C++ → GDScript fallback. Edge case for chunks with no GROUND tiles matching biome flora sets.
+3. **Feature/POI computation**: resolved 2026-04-14. `feature_and_poi_payload` now comes from native `ChunkGenerator`; the old GDScript resolver path is deleted.
+4. **Flora fallback warnings**: historical note only. Critical runtime may not rely on GDScript flora fallback.
 5. **GDScript `fractal_type` not set**: WorldNoiseUtils.setup_noise_instance sets octaves/gain/lacunarity but NOT fractal_type → Godot default TYPE_NONE → single octave. C++ matches this. If fixed in GDScript, C++ must update too.

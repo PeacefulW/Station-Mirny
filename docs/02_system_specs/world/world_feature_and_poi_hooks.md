@@ -56,7 +56,7 @@ The implementation baseline is:
 - During implementation, every iteration that changes public safe entrypoints or public build-output contracts must update `PUBLIC_API.md` in the same iteration.
 - Iteration `7.5` is not the first contract-sync point. It is only the proof consumer pass plus final doc polish after the incremental syncs from `7.1` to `7.4`.
 - Registry reads are public read-only surface in the baseline.
-- `WorldFeatureHookResolver` and `WorldPoiResolver` remain internal implementation helpers in the baseline.
+- feature-hook resolution and POI arbitration remain internal native `ChunkGenerator` implementation details in the baseline.
 - `WorldGenerator.build_chunk_content()` and `WorldGenerator.build_chunk_native_data()` remain the existing public chunk-build entrypoints.
 - Iteration 7 baseline must not add new `ChunkManager` or `Chunk` public APIs for feature or POI truth generation.
 
@@ -150,12 +150,12 @@ This spec does not own:
 
 - `classification`: `derived`
 - `what`: deterministic hook eligibility/candidate results computed from canonical generator context
-- `where`: generator-side resolver output consumed during chunk build
+- `where`: generator-side native compute inside `ChunkGenerator.generate_chunk()` consumed during chunk build
 - `owner`: `WorldGenerator` generation pipeline
 - `writers`:
-  - `WorldFeatureHookResolver` compute path only
+  - native `ChunkGenerator` compute path only
 - `readers`:
-  - `WorldPoiResolver`
+  - native POI arbitration
   - `ChunkContentBuilder`
   - future debug inspectors
 - `invariants`:
@@ -180,10 +180,10 @@ This spec does not own:
 
 - `classification`: `derived`
 - `what`: deterministic final placement/arbitration results computed from feature hook decisions plus POI definitions
-- `where`: generator-side resolver output included in chunk build payload
+- `where`: generator-side native compute inside `ChunkGenerator.generate_chunk()` included in chunk build payload
 - `owner`: `WorldGenerator` generation pipeline
 - `writers`:
-  - `WorldPoiResolver` compute path only
+  - native `ChunkGenerator` compute path only
 - `readers`:
   - `ChunkContentBuilder`
   - future spawn/materialization or debug consumers
@@ -323,18 +323,14 @@ These are fixed internal implementation entry points for Iterations `7.2` and `7
 
 They are not public API.
 
-`WorldFeatureHookResolver.resolve_for_origin(candidate_origin: Vector2i, ctx: WorldComputeContext) -> Array[FeatureHookDecision]`
+Current internal shape:
 
-- Reads canonical generator context for one `candidate_origin`
-- Returns deterministic feature-hook decisions for that origin
+- feature-hook resolution is an internal native helper inside `ChunkGenerator.generate_chunk()`
+- POI arbitration is an internal native helper inside `ChunkGenerator.generate_chunk()`
+- `build_chunk_native_data()` is the single authoritative placement build path for player-reachable runtime
+- `build_chunk_content()` is a structured hydration wrapper over the already-built native packet
 
-`WorldPoiResolver.resolve_for_origin(candidate_origin: Vector2i, hook_decisions: Array[FeatureHookDecision], ctx: WorldComputeContext) -> Array[PoiPlacementDecision]`
-
-- Consumes hook decisions for one `candidate_origin`
-- Computes final placement decisions
-- Each returned placement must include `anchor_tile = candidate_origin + anchor_offset`
-
-These names should stay stable across the spec, implementation prompts, and acceptance tests unless this document is revised first.
+Only the payload contract is stable across spec, implementation prompts, and acceptance tests; internal helper names are implementation details unless this document is revised first.
 
 ## Anchor Ownership Rule
 
@@ -490,7 +486,7 @@ Acceptance tests:
 - [ ] `assert(WorldFeatureRegistry exposes no partial runtime snapshot when readiness fails)` — invalid boot content does not leak mixed valid/invalid data into runtime reads
 - [ ] `assert(WorldFeatureRegistry readiness is established before first feature/POI-aware chunk build call)` — no lazy load during generation
 - [ ] `assert(generator gameplay code and worker-side compute paths do not direct-load feature or POI resources outside WorldFeatureRegistry)` — registry is the only runtime read path
-- [ ] `assert(PUBLIC_API.md exposes registry reads but does not expose WorldFeatureHookResolver or WorldPoiResolver as public safe entrypoints)` — public/internal API boundary is fixed at baseline
+- [ ] `assert(PUBLIC_API.md exposes registry reads and keeps placement truth on existing WorldGenerator build entrypoints without adding resolver APIs)` — public/internal API boundary is fixed at baseline
 
 Files that will be touched:
 
@@ -509,36 +505,37 @@ Files that must not be touched:
 - `core/systems/world/chunk_build_result.gd`
 - mining/topology/reveal/presentation runtime files
 
-### Iteration 7.2 — Deterministic Feature Hook Resolver
+### Iteration 7.2 — Deterministic Native Feature Hook Resolution
 
 Goal:
 - derive feature-hook opportunities from canonical generator context only
 
 What is done:
 
-- add a generator-side resolver that reads existing channels, structure context, biome result, and local variation
+- add native feature-hook compute that reads existing channels, structure context, biome result, and local variation
 - compute deterministic feature-hook candidate results keyed by `candidate_origin`
-- use the fixed internal entrypoint `WorldFeatureHookResolver.resolve_for_origin(candidate_origin, ctx)`
+- keep the compute internal to `ChunkGenerator.generate_chunk()`
 - keep output detached from presentation and chunk-local identity
 - update `DATA_CONTRACTS.md` in the same iteration for the new derived `Feature Hook Decisions` layer
-- keep resolver APIs internal; do not add them to `PUBLIC_API.md`
+- keep placement truth behind existing `WorldGenerator` build entrypoints; do not add resolver APIs to `PUBLIC_API.md`
 - do not select final POIs yet
 
 Acceptance tests:
 
-- [ ] `assert(WorldFeatureHookResolver.resolve_for_origin(candidate_origin, ctx) == WorldFeatureHookResolver.resolve_for_origin(candidate_origin, ctx))` — repeated evaluation is stable
-- [ ] `assert(WorldFeatureHookResolver.resolve_for_origin(candidate_origin_on_chunk_edge, ctx) is identical when evaluated from neighboring chunk builds)` — chunk borders do not change the answer
+- [ ] `assert(repeated native build of the same canonical chunk yields the same feature records)` — repeated evaluation is stable
+- [ ] `assert(feature records for a border origin are identical when the owning chunk is rebuilt from neighboring chunk contexts)` — chunk borders do not change the answer
 - [ ] `assert(feature_hook_compute does not modify terrain, structure, biome, or local_variation outputs)` — canonical inputs remain read-only
 - [ ] `assert(feature_hook_compute does not read ChunkManager, Chunk, topology, reveal, or presentation state)` — inputs stay generator-side and unloaded-safe
 - [ ] `assert(returned hook decisions are in deterministic stable order)` — result ordering is explicit
 - [ ] `assert(same seed and same candidate origin produce the same hook ids and scores across repeated runs)` — hook resolution is deterministic
-- [ ] `assert(PUBLIC_API.md does not add WorldFeatureHookResolver as a public safe entrypoint)` — resolver stays internal
+- [ ] `assert(PUBLIC_API.md does not add any feature-hook resolver safe entrypoint)` — resolver stays internal
 
 Files that will be touched:
 
-- `core/systems/world/world_feature_hook_resolver.gd`
+- `gdextension/src/chunk_generator.cpp`
+- `gdextension/src/chunk_generator.h`
 - `core/autoloads/world_generator.gd`
-- `core/systems/world/world_compute_context.gd` only if feature-resolver wiring is needed
+- `core/systems/world/chunk_content_builder.gd`
 - `docs/02_system_specs/world/DATA_CONTRACTS.md`
 
 Files that must not be touched:
@@ -547,22 +544,22 @@ Files that must not be touched:
 - `core/systems/world/chunk_manager.gd`
 - mining/topology/reveal systems
 
-### Iteration 7.3 — POI Arbitration And Anchor Ownership
+### Iteration 7.3 — Native POI Arbitration And Anchor Ownership
 
 Goal:
 - deterministically select POI placements that respect geography and chunk borders
 
 What is done:
 
-- add a POI resolver consuming feature-hook candidates plus POI definitions
+- add native POI arbitration consuming feature-hook candidates plus POI definitions
 - define canonical anchor ownership
 - define spacing, conflict, and footprint eligibility rules
-- use the fixed internal entrypoint `WorldPoiResolver.resolve_for_origin(candidate_origin, hook_decisions, ctx)`
+- keep the compute internal to `ChunkGenerator.generate_chunk()`
 - enforce the fixed arbitration order from this spec
 - reject placements that fail biome, structure, terrain, or footprint constraints
 - reject placements only; do not add deferred placement queues or second-pass arbitration
 - update `DATA_CONTRACTS.md` in the same iteration for the new derived `POI Placement Decisions` layer and anchor/arbitration rules
-- keep resolver APIs internal; do not add them to `PUBLIC_API.md`
+- keep placement truth behind existing `WorldGenerator` build entrypoints; do not add resolver APIs to `PUBLIC_API.md`
 - keep result generator-side derived state
 
 Acceptance tests:
@@ -575,11 +572,12 @@ Acceptance tests:
 - [ ] `assert(competing valid POIs at the same canonical anchor are resolved by priority, then hash(seed, anchor_tile, poi_id), then lexicographic poi_id)` — deterministic arbitration order
 - [ ] `assert(returned placement decisions are sorted deterministically before payload export)` — downstream parity is stable
 - [ ] `assert(no deferred placement queue or second-pass arbitration path is introduced for unresolved footprints)` — baseline ownership stays single-pass
-- [ ] `assert(PUBLIC_API.md does not add WorldPoiResolver as a public safe entrypoint)` — resolver stays internal
+- [ ] `assert(PUBLIC_API.md does not add any POI resolver safe entrypoint)` — resolver stays internal
 
 Files that will be touched:
 
-- `core/systems/world/world_poi_resolver.gd`
+- `gdextension/src/chunk_generator.cpp`
+- `gdextension/src/chunk_generator.h`
 - `data/world/features/poi_definition.gd`
 - `core/autoloads/world_generator.gd`
 - `docs/02_system_specs/world/DATA_CONTRACTS.md`
@@ -600,9 +598,9 @@ What is done:
 - extend `ChunkBuildResult` payload with feature and POI placement records
 - fix the payload field name to `feature_and_poi_payload`
 - fix the baseline payload schema from this spec
-- extend `build_chunk_content()` and `build_chunk_native_data()` outputs to carry the same placement truth
+- make `build_chunk_native_data()` the authoritative placement source and make `build_chunk_content()` hydrate from the same native packet
 - wire `ChunkContentBuilder` and `WorldGenerator` to include the derived placement payload
-- maintain sync and worker/native parity for payload generation
+- keep one-source native payload ownership for sync/worker/runtime paths
 - use owner-only payload authority for multi-chunk placements
 - keep the empty payload shape explicit instead of omitting the field
 - update `DATA_CONTRACTS.md` in the same iteration for build postconditions and payload contract
@@ -610,17 +608,18 @@ What is done:
 - do not touch `ChunkManager` in Iteration 7.4
 - do not add new `ChunkManager` or `Chunk` placement-generation APIs
 - do not add full gameplay/entity materialization yet
+- delete legacy GDScript resolver/fallback paths instead of keeping them for parity
 
 Acceptance tests:
 
-- [ ] `assert(build_chunk_content(coord).feature_and_poi_payload == build_chunk_native_data(coord)["feature_and_poi_payload"])` — sync/native parity
+- [ ] `assert(build_chunk_content(coord).feature_and_poi_payload == build_chunk_native_data(coord)["feature_and_poi_payload"])` — structured hydration matches the authoritative native packet
 - [ ] `assert(build_chunk_content(coord).feature_and_poi_payload == {"placements": []} when no placements resolve)` — empty payload contract is explicit
 - [ ] `assert(each serialized placement contains kind, id, candidate_origin, anchor_tile, owner_chunk, footprint_tiles, debug_marker_kind)` — schema is stable
 - [ ] `assert(feature_and_poi payload is deterministic for the same seed and canonical chunk coord)` — stable build output
 - [ ] `assert(non-owner chunks do not receive duplicate secondary placement records for placements owned by another chunk)` — owner-only payload authority
 - [ ] `assert(base terrain, height, variation, and biome answers remain unchanged by feature_and_poi payload integration)` — canonical world semantics stay intact
 - [ ] `assert(payload records contain no node references, resources, or runtime-only handles)` — payload stays serializable and deterministic
-- [ ] `assert(a chunk containing a test anchor exposes the same placement payload whether built synchronously or through the worker/native path)` — runtime build mode does not change payload truth
+- [ ] `assert(a chunk containing a test anchor exposes the same placement payload whether built directly from native packet or through ChunkBuildResult hydration)` — runtime build mode does not change payload truth
 - [ ] `assert(PUBLIC_API.md does not add ChunkManager or Chunk placement-generation safe entrypoints)` — public API stays on existing generator build entrypoints
 
 Files that will be touched:
@@ -628,6 +627,8 @@ Files that will be touched:
 - `core/systems/world/chunk_build_result.gd`
 - `core/systems/world/chunk_content_builder.gd`
 - `core/autoloads/world_generator.gd`
+- `gdextension/src/chunk_generator.cpp`
+- `gdextension/src/chunk_generator.h`
 - `docs/02_system_specs/world/DATA_CONTRACTS.md`
 - `docs/00_governance/PUBLIC_API.md`
 
@@ -649,7 +650,7 @@ What is done:
 - draw anchor markers only for resolved placements
 - read placement truth only from already-built chunk payloads; the proof consumer must not recompute feature or POI decisions
 - read only `feature_and_poi_payload`; do not read registries, resolvers, world channels, or canonical terrain inputs directly
-- the proof consumer must not call `WorldFeatureHookResolver` or `WorldPoiResolver`
+- the proof consumer must not call internal native placement helpers or re-run placement compute by any other path
 - do not modify `Chunk` terrain rendering for this proof
 - do not spawn gameplay entities for this proof
 - perform only final doc polish and consistency review; required `DATA_CONTRACTS.md` and `PUBLIC_API.md` updates must already have been applied incrementally in `7.1` to `7.4`
@@ -661,11 +662,11 @@ Acceptance tests:
 - [ ] `assert(the proof consumer is a dedicated debug-only overlay that draws anchor markers only)` — proof path is fixed
 - [ ] `assert(the proof consumer reads only feature_and_poi_payload)` — overlay input contract is fixed
 - [ ] `assert(the proof consumer does not query registries, resolvers, world channels, ChunkManager, Chunk, topology, or reveal to recompute placement truth)` — debug path stays downstream-only
-- [ ] `assert(the proof consumer does not call WorldFeatureHookResolver or WorldPoiResolver)` — overlay cannot become a parallel truth path
+- [ ] `assert(the proof consumer does not call any placement recompute path)` — overlay cannot become a parallel truth path
 - [ ] `assert(disabling or delaying presentation does not change placement truth)` — presentation is not authoritative
 - [ ] `assert(DATA_CONTRACTS.md and PUBLIC_API.md document owner, writers, readers, invariants, forbidden writes, and safe entrypoints)` — contract sync complete
 - [ ] `assert(PUBLIC_API.md does not add ChunkManager or Chunk placement-generation API)` — no parallel public API path exists
-- [ ] `assert(PUBLIC_API.md does not expose WorldFeatureHookResolver or WorldPoiResolver as public safe entrypoints)` — resolvers remain internal
+- [ ] `assert(PUBLIC_API.md does not expose any placement recompute safe entrypoint)` — native compute remains internal
 
 Files that will be touched:
 
@@ -727,7 +728,7 @@ Preferred public API shape:
   - `WorldFeatureRegistry.get_all_feature_hooks() -> Array`
   - `WorldFeatureRegistry.get_poi_by_id(id: StringName) -> PoiDefinition`
   - `WorldFeatureRegistry.get_all_pois() -> Array`
-- keep `WorldFeatureHookResolver.resolve_for_origin(...)` and `WorldPoiResolver.resolve_for_origin(...)` internal, not public
+- keep all feature-hook / POI compute internal to native `ChunkGenerator`; do not publish resolver-style APIs
 - keep `WorldGenerator.build_chunk_content()` and `WorldGenerator.build_chunk_native_data()` as the canonical chunk-build entrypoints
 - do not add `ChunkManager` or `Chunk` public APIs for feature/POI truth generation
 - extend existing build outputs instead of adding a parallel `generate_feature_chunk()` or `generate_poi_chunk()` public API
