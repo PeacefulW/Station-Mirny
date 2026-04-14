@@ -8,6 +8,14 @@ const FEATURE_AND_POI_PAYLOAD_KEY: String = "feature_and_poi_payload"
 const CHUNK_GEN_SLOW_LOG_THRESHOLD_MS: float = 80.0
 const NATIVE_VISUAL_KERNELS_CLASS: StringName = &"ChunkVisualKernels"
 const NATIVE_CHUNK_GENERATION_REQUEST_KIND: StringName = &"native_chunk_generation_request_v1"
+const PREBAKED_VISUAL_PACKET_KEYS: Array[String] = [
+	"rock_visual_class",
+	"ground_face_atlas",
+	"cover_mask",
+	"cliff_overlay",
+	"variant_id",
+	"alt_id",
+]
 
 var _world_context: RefCounted = null
 var _terrain_resolver: RefCounted = null
@@ -64,19 +72,26 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 				) as Dictionary
 				_publish_feature_and_poi_payload(canonical_chunk, feature_and_poi_payload)
 				var prebaked_start_usec: int = Time.get_ticks_usec()
-				var prebaked_visual_payload: Dictionary = _build_native_prebaked_visual_payload(
+				var payload_has_embedded_prebaked_visual: bool = _surface_payload_has_complete_prebaked_visual_arrays(
 					native_result,
-					canonical_chunk,
-					base_tile,
 					chunk_size
 				)
+				var prebaked_visual_payload: Dictionary = {}
+				if not payload_has_embedded_prebaked_visual:
+					prebaked_visual_payload = _build_native_prebaked_visual_payload(
+						native_result,
+						canonical_chunk,
+						base_tile,
+						chunk_size
+					)
 				var prebaked_ms: float = float(Time.get_ticks_usec() - prebaked_start_usec) / 1000.0
-				if prebaked_visual_payload.is_empty():
+				if not payload_has_embedded_prebaked_visual and prebaked_visual_payload.is_empty():
 					return _block_legacy_surface_generation_fallback(
 						canonical_chunk,
 						"missing_native_prebaked_visual_payload"
 					)
-				native_result.merge(prebaked_visual_payload, true)
+				if not payload_has_embedded_prebaked_visual:
+					native_result.merge(prebaked_visual_payload, true)
 				ChunkFinalPacketScript.stamp_surface_packet_metadata(native_result, &"native_chunk_generator")
 				if not ChunkFinalPacketScript.validate_surface_packet(
 					native_result,
@@ -119,6 +134,7 @@ func _build_native_chunk_generation_request(canonical_chunk: Vector2i, base_tile
 		"chunk_coord": canonical_chunk,
 		"base_tile": base_tile,
 		"chunk_size": chunk_size,
+		"native_visual_tables": ChunkScript.build_native_visual_tables(),
 	}
 
 func _record_native_chunk_generation_metrics(
@@ -228,6 +244,46 @@ func _get_native_visual_kernels() -> RefCounted:
 		return null
 	_native_visual_kernels = ClassDB.instantiate(NATIVE_VISUAL_KERNELS_CLASS) as RefCounted
 	return _native_visual_kernels
+
+func _surface_payload_has_complete_prebaked_visual_arrays(packet: Dictionary, chunk_size: int) -> bool:
+	var tile_count: int = chunk_size * chunk_size
+	var present_fields: int = 0
+	for key: String in PREBAKED_VISUAL_PACKET_KEYS:
+		if not packet.has(key):
+			continue
+		present_fields += 1
+		var size: int = _prebaked_visual_field_size(packet, key)
+		if size == tile_count:
+			continue
+		push_error(
+			"ChunkContentBuilder.build_chunk_native_data(): embedded native visual field `%s` size mismatch (expected %d, got %d)" % [
+				key,
+				tile_count,
+				size,
+			]
+		)
+		assert(false, "embedded native visual payload must remain aligned with the terminal surface packet contract")
+		return false
+	if present_fields == 0:
+		return false
+	if present_fields == PREBAKED_VISUAL_PACKET_KEYS.size():
+		return true
+	push_error(
+		"ChunkContentBuilder.build_chunk_native_data(): embedded native visual payload is partial for %s (got %d of %d fields)" % [
+			str(packet.get("canonical_chunk_coord", packet.get("chunk_coord", Vector2i.ZERO))),
+			present_fields,
+			PREBAKED_VISUAL_PACKET_KEYS.size(),
+		]
+	)
+	assert(false, "embedded native visual payload must be complete when present")
+	return false
+
+func _prebaked_visual_field_size(packet: Dictionary, key: String) -> int:
+	match key:
+		"ground_face_atlas", "cover_mask", "alt_id":
+			return (packet.get(key, PackedInt32Array()) as PackedInt32Array).size()
+		_:
+			return (packet.get(key, PackedByteArray()) as PackedByteArray).size()
 
 func _validate_native_chunk_payload(native_result: Dictionary, canonical_chunk: Vector2i, chunk_size: int) -> bool:
 	var tile_count: int = chunk_size * chunk_size

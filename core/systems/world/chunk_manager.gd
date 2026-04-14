@@ -171,6 +171,9 @@ const BOOT_MAX_CONCURRENT_COMPUTE: int = 3
 const BOOT_MAX_PREPARE_PER_STEP: int = 2
 const BOOT_MAX_APPLY_PER_STEP: int = 1
 const BOOT_APPLY_WARNING_MS: float = 8.0
+const BOOT_FIRST_PLAYABLE_VISUAL_BUDGET_USEC: int = 8000
+const BOOT_FINALIZATION_STREAMING_STEPS_PER_FRAME: int = 2
+const BOOT_FINALIZATION_VISUAL_BUDGET_USEC: int = 6000
 const RUNTIME_MAX_CONCURRENT_COMPUTE: int = 4
 
 ## --- Boot apply queue (boot_chunk_apply_budget_spec) ---
@@ -2618,8 +2621,36 @@ func _is_protected_first_pass_chunk(coord: Vector2i, z_level: int) -> bool:
 		return true
 	return _is_forward_ring1_visual_chunk(coord)
 
+func _is_boot_tracked_chunk(coord: Vector2i, z_level: int) -> bool:
+	if _chunk_boot_pipeline == null:
+		return false
+	if z_level != _active_z:
+		return false
+	return _chunk_boot_pipeline.is_tracking_chunk(_canonical_chunk_coord(coord))
+
+func _boot_tracked_chunk_ring(coord: Vector2i) -> int:
+	if _chunk_boot_pipeline == null:
+		return 999999
+	return _chunk_boot_pipeline.get_chunk_ring(_canonical_chunk_coord(coord))
+
+func _resolve_boot_runtime_handoff_lane(coord: Vector2i, z_level: int) -> int:
+	if _chunk_boot_pipeline == null or _is_boot_in_progress:
+		return -1
+	if z_level != _active_z:
+		return -1
+	var canonical_coord: Vector2i = _canonical_chunk_coord(coord)
+	if not _chunk_boot_pipeline.is_tracking_chunk(canonical_coord):
+		return -1
+	if _chunk_boot_pipeline.get_chunk_state(canonical_coord) >= BootChunkState.APPLIED:
+		return -1
+	return FrontierScheduler.LANE_FRONTIER_CRITICAL
+
 func _resolve_visual_band(coord: Vector2i, z_level: int, kind: int) -> int:
+	var boot_tracked: bool = _is_boot_tracked_chunk(coord, z_level)
+	var boot_ring: int = _boot_tracked_chunk_ring(coord) if boot_tracked else 999999
 	if kind == VisualTaskKind.TASK_BORDER_FIX:
+		if boot_tracked and not is_boot_complete():
+			return VisualPriorityBand.BORDER_FIX_NEAR
 		if z_level != _active_z:
 			return VisualPriorityBand.BORDER_FIX_FAR
 		var border_ring: int = _chunk_chebyshev_distance(coord, _player_chunk)
@@ -2632,11 +2663,19 @@ func _resolve_visual_band(coord: Vector2i, z_level: int, kind: int) -> int:
 		return VisualPriorityBand.FULL_FAR
 	var ring: int = _chunk_chebyshev_distance(coord, _player_chunk)
 	if kind == VisualTaskKind.TASK_FIRST_PASS:
+		if boot_tracked and not is_boot_complete():
+			if coord == _player_chunk or boot_ring == 0:
+				return VisualPriorityBand.TERRAIN_FAST
+			if boot_ring <= BOOT_FIRST_PLAYABLE_MAX_RING:
+				return VisualPriorityBand.TERRAIN_URGENT
+			return VisualPriorityBand.TERRAIN_NEAR
 		if _is_protected_first_pass_chunk(coord, z_level):
 			return VisualPriorityBand.TERRAIN_FAST
 		if ring == 1:
 			return VisualPriorityBand.TERRAIN_NEAR
 		return VisualPriorityBand.FULL_FAR
+	if boot_tracked and not is_boot_complete():
+		return VisualPriorityBand.FULL_NEAR
 	if ring <= 2:
 		return VisualPriorityBand.FULL_NEAR
 	return VisualPriorityBand.FULL_FAR
@@ -2805,6 +2844,24 @@ func _schedule_chunk_visual_work(chunk: Chunk, z_level: int) -> void:
 		_ensure_chunk_border_fix_task(chunk, z_level)
 	else:
 		_try_finalize_chunk_visual_convergence(chunk, z_level)
+
+func _drive_boot_finalization_budget() -> void:
+	if _shutdown_in_progress or _is_boot_in_progress or is_boot_complete():
+		return
+	if _chunk_boot_pipeline == null or not _chunk_boot_pipeline.has_remaining_chunks():
+		return
+	if _chunk_streaming_service != null:
+		var streaming_steps: int = 0
+		while streaming_steps < BOOT_FINALIZATION_STREAMING_STEPS_PER_FRAME:
+			if not _chunk_streaming_service.has_streaming_work():
+				break
+			var has_more_streaming: bool = _chunk_streaming_service.tick_loading()
+			streaming_steps += 1
+			if not has_more_streaming:
+				break
+	if _chunk_visual_scheduler != null and _chunk_visual_scheduler.has_pending_tasks():
+		_chunk_visual_scheduler.tick_budget(BOOT_FINALIZATION_VISUAL_BUDGET_USEC)
+	_tick_topology()
 
 func _emit_visual_scheduler_tick_log(processed_count: int, budget_exhausted: bool) -> void:
 	if processed_count <= 0 and not budget_exhausted and (_chunk_visual_scheduler == null or not _chunk_visual_scheduler.has_pending_tasks()):
@@ -3487,15 +3544,15 @@ func _finalize_chunk_install(coord: Vector2i, z_level: int, chunk: Chunk) -> voi
 		-1.0
 	)
 	_debug_emit_chunk_event(
-		"chunk_installed",
-		"установила чанк в мир",
+		"chunk_installed_hidden",
+		"установила скрытый чанк",
 		coord,
 		z_level,
-		"чанк получил node и поставлен в очередь визуальной публикации",
-		StringName(_debug_impact_for_chunk(_chunk_chebyshev_distance(coord, _player_chunk), "building_visual")),
-		"building_visual",
-		"строится визуал",
-		"queued_not_applied",
+		"чанк получил node в scene tree, но остаётся скрытым до terminal full_ready publication",
+		WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT,
+		"queued",
+		"ожидает публикации",
+		"queued_publication",
 		{"visual_queue_depth": _debug_visual_queue_depth()}
 	)
 

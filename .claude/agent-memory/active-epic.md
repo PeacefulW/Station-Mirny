@@ -11,6 +11,7 @@
 - 2026-04-14: user clarified that runtime streaming must ignore debug zoom / raw camera-visible expansion. Target gameplay envelope is fixed `3x3` hot around the player plus `5x5` warm follow-up; the current camera-visible-driven runtime behavior now requires follow-up implementation against the updated specs.
 - 2026-04-14: `feature_and_poi_payload` assembly moved into native `ChunkGenerator`, the GDScript resolver/fallback path was deleted, and `build_chunk_content()` now hydrates from the same authoritative packet as `build_chunk_native_data()`. Remaining perf hotspot has shifted to native visual payload generation / streaming redraw rather than feature/POI payload assembly.
 - 2026-04-14: post-R4 follow-up fixed two regressions outside the spec body: player camera zoom returned to additive stepping and the shipped balance resource now extends the debug zoom-out range to `zoom_min = 0.2` with `zoom_step = 0.1`, so the full `5x5` debug bubble is reachable again; mining/seam local border-fix paths also now attempt immediate player-near completion before deferred invalidation so harvesting on the occupied chunk does not demote it to `full_pending` and trip zero-tolerance readiness.
+- 2026-04-14: `R4.2` diagnostic pass reviewed the latest `godot.log` + `F11` dumps. The old `ChunkManager.try_harvest_at_world` freeze did not reproduce in this run; residual dominant spikes shifted to `ChunkStreaming.phase2_finalize` (up to `519.5 ms`), `FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw` (up to `511.6 ms`), `FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild` (up to `214.9 ms`), and `FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild` (`45.1 ms`). Publication debt remains severe: `stream.chunk_first_pass_ms` sits around `25.8-46.7 s`, `stream.chunk_full_redraw_ms` around `26.3-48.6 s`, with `visual_queue_depth` climbing to `36` and incident snapshots showing `queue_full_far=29`. Key owner bug: `MountainShadowKernels` exists in `gdextension/src/` but is not registered in `gdextension/src/register_types.cpp`, so the run logs `MountainShadowKernels available=false` and shadows stay on the slow fallback path.
 
 ## Runtime blockers before R5
 
@@ -26,6 +27,42 @@
 
 - Приземлён узкий runtime fix: synchronous `border_fix` completion убран из mining frame, `stream_load` seam follow-up и player-near relief path; `player-near border_fix` worker-prepared batches больше не заменяются намеренно на main-thread fallback.
 - Следующий шаг: снять свежий `godot.log` и проверить, насколько именно просели `ChunkManager.try_harvest_at_world`, `FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw` и `ChunkStreaming.phase2_finalize`.
+
+### 2026-04-14 P1 pass 1 status
+
+- Boot/publication pass приземлён: boot loop получил больший visual budget до `first_playable`, post-`first_playable` boot finalization теперь даёт дополнительный bounded runtime boost для `streaming_load` / visual convergence / topology, а startup handoff requests больше не падают в обычный low-priority lane до `boot_complete`.
+- Hidden install logging больше не оформляется как будто near chunk уже опубликован игроку; install event теперь явно сообщает, что chunk остаётся скрытым до terminal publication.
+- Свежий runtime log после этих правок ещё не снят, поэтому `P1` blockers остаются открытыми до ручной проверки.
+
+### 2026-04-14 P2 pass 1 status
+
+- `ChunkContentBuilder` теперь сначала принимает embedded native visual payload из `ChunkGenerator.generate_chunk()` и вызывает второй native prebaked pass только если шесть derived arrays не пришли в пакете; compact request теперь включает `native_visual_tables`, а сам `ChunkVisualKernels` доступен из C++ без второго GDScript round-trip.
+- `MountainShadowSystem` переведён с wide mining follow-up на локальный `edge-delta` path: mining больше не enqueue'ит full edge rebuild для всех соседних чанков по умолчанию, а edge-cache worker получает компактный `(chunk_size + 2)^2` `terrain_snapshot` вместо девяти neighbor arrays + detached `ChunkContentBuilder`.
+- Локальный shadow refresh только на текущем чанке больше не засоряет runtime diagnostics как отдельный `queued shadow_refresh`; свежий `godot.log` всё ещё нужен, чтобы подтвердить реальное падение `ChunkGen.native_total_ms`, `Shadow.edge_cache_compute` и `stream.chunk_border_fix_ms`.
+
+### 2026-04-14 crash hotfix status
+
+- После `P2 pass 1` всплыл runtime assert `chunk_visible_before_full_ready`: скрытый `stream_load` install поздно ставил `border_fix` на уже опубликованный near chunk и демотировал его в `full_pending`.
+- Узкий hotfix в `ChunkSeamService`: player-near visible border fixes теперь сначала пытаются завершиться через bounded inline micro-patch в том же background step; только если это не удалось, чанк снова идёт в обычный invalidate + queued `border_fix` path.
+
+### Iteration R4.2 — Runtime perf forensics and native triage
+**Status**: completed
+**Started**: 2026-04-14
+**Completed**: 2026-04-14
+
+#### Проверки приёмки (Acceptance tests)
+- [x] latest runtime logs grouped into current boot / finalize / visual / shadow / topology culprits — passed (static verification: reviewed `godot.log`, `f11_chunk_overlay.log`, and `f11_chunk_incident_20260414_223657_333.log`)
+- [x] fresh blockers mapped to concrete owner code paths — passed (static verification: traced logs to `chunk_manager.gd`, `chunk_streaming_service.gd`, `chunk_visual_scheduler.gd`, `mountain_shadow_system.gd`, `chunk_topology_service.gd`, `world_pre_pass.gd`, and GDExtension registration files)
+- [x] current `R4` stabilization priorities re-ranked against the latest run — passed (static verification: harvest freeze no longer appears in the latest log; remaining `P0/P1` debt is dominated by install/finalize, visual publication, shadow, topology, and boot convergence)
+
+#### Files touched
+- `.claude/agent-memory/active-epic.md` — recorded `R4.2` diagnostic findings, current blocker ranking, and the missing `MountainShadowKernels` registration note
+
+#### Отчёт о выполнении (Closure Report)
+pending
+
+#### Blockers
+- `R4` remains blocked from progressing to `R5` until `phase2_finalize`, `streaming_redraw`, `mountain_shadow.visual_rebuild`, and long publication latency are reduced to contract-safe levels on a fresh runtime log
 
 ## Documentation debt
 

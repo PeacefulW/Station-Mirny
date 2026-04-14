@@ -1,4 +1,5 @@
 #include "chunk_generator.h"
+#include "chunk_visual_kernels.h"
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
@@ -2078,6 +2079,7 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
     int cs = chunk_size;
     int total = cs * cs;
     Vector2i canonical_chunk = canonicalize_chunk_coord(chunk_coord);
+    Vector2i canonical_spawn_tile = canonicalize_tile(spawn_tile);
     int base_x = canonical_chunk.x * cs;
     int base_y = canonical_chunk.y * cs;
 
@@ -2109,8 +2111,50 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
     PackedFloat32Array flora_modulation_values;
     flora_modulation_values.resize(total);
 
-    float spawn_x = (float)spawn_tile.x;
-    float spawn_y = (float)spawn_tile.y;
+    int spawn_x_wrapped = wrap_x(canonical_spawn_tile.x, wrap_width);
+    float spawn_y = (float)canonical_spawn_tile.y;
+
+    auto resolve_surface_terrain = [&](int world_x, int world_y) -> uint8_t {
+        int wrapped_x = wrap_x(world_x, wrap_width);
+        Channels ch = sample_channels(wrapped_x, world_y);
+        BiomePrePassSample prepass = sample_biome_prepass(wrapped_x, world_y);
+        StructureContext sc = build_structure_context_from_prepass(prepass);
+        BiomeSelection biome_selection = resolve_biome_selection(wrapped_x, world_y, ch, sc, prepass);
+        VariationResult vr = resolve_variation(
+            wrapped_x,
+            world_y,
+            ch,
+            sc,
+            biome_selection.primary,
+            biome_selection.secondary,
+            biome_selection.ecotone_factor
+        );
+        float dx_s = (float)(wrapped_x - spawn_x_wrapped);
+        if (wrap_width > 0) {
+            if (dx_s > wrap_width / 2) dx_s -= wrap_width;
+            else if (dx_s < -wrap_width / 2) dx_s += wrap_width;
+        }
+        float dy_s = (float)(world_y - canonical_spawn_tile.y);
+        float dist_sq = dx_s * dx_s + dy_s * dy_s;
+        return (uint8_t)resolve_terrain(dist_sq, ch, sc, prepass, vr);
+    };
+
+    auto build_surface_terrain_halo = [&]() -> PackedByteArray {
+        const int halo_stride = cs + 2;
+        PackedByteArray halo;
+        halo.resize(halo_stride * halo_stride);
+        for (int local_y = -1; local_y <= cs; ++local_y) {
+            for (int local_x = -1; local_x <= cs; ++local_x) {
+                const int halo_index = (local_y + 1) * halo_stride + (local_x + 1);
+                if (local_x >= 0 && local_y >= 0 && local_x < cs && local_y < cs) {
+                    halo[halo_index] = terrain[local_y * cs + local_x];
+                } else {
+                    halo[halo_index] = resolve_surface_terrain(base_x + local_x, base_y + local_y);
+                }
+            }
+        }
+        return halo;
+    };
 
     for (int ly = 0; ly < cs; ly++) {
         for (int lx = 0; lx < cs; lx++) {
@@ -2132,7 +2176,7 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
                 biome_selection.ecotone_factor
             );
 
-            float dx_s = (float)(wrap_x(wx, wrap_width) - wrap_x((int)spawn_x, wrap_width));
+            float dx_s = (float)(wrap_x(wx, wrap_width) - spawn_x_wrapped);
             if (wrap_width > 0) {
                 if (dx_s > wrap_width / 2) dx_s -= wrap_width;
                 else if (dx_s < -wrap_width / 2) dx_s += wrap_width;
@@ -2198,8 +2242,26 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
         base_x,
         base_y,
         cs,
-        canonicalize_tile(spawn_tile)
+        canonical_spawn_tile
     );
+
+    Dictionary prebaked_visual_payload;
+    Dictionary native_visual_tables = generation_request.get("native_visual_tables", Dictionary());
+    if (!native_visual_tables.is_empty()) {
+        Dictionary prebaked_request;
+        prebaked_request["chunk_coord"] = canonical_chunk;
+        prebaked_request["chunk_size"] = cs;
+        prebaked_request["is_underground"] = false;
+        prebaked_request["terrain_bytes"] = terrain;
+        prebaked_request["height_bytes"] = height_arr;
+        prebaked_request["variation_bytes"] = variation;
+        prebaked_request["biome_bytes"] = biome_arr;
+        prebaked_request["secondary_biome_bytes"] = secondary_biome_arr;
+        prebaked_request["ecotone_values"] = ecotone_values;
+        prebaked_request["terrain_halo"] = build_surface_terrain_halo();
+        prebaked_request["native_visual_tables"] = native_visual_tables;
+        prebaked_visual_payload = ChunkVisualKernels::build_prebaked_visual_payload_static(prebaked_request);
+    }
 
     Dictionary result;
     result["chunk_coord"] = canonical_chunk;
@@ -2216,6 +2278,13 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
     result["flora_modulation_values"] = flora_modulation_values;
     result["flora_placements"] = flora_placements;
     result[FEATURE_AND_POI_PAYLOAD_KEY] = feature_and_poi_payload;
+    if (!prebaked_visual_payload.is_empty()) {
+        Array prebaked_keys = prebaked_visual_payload.keys();
+        for (int i = 0; i < prebaked_keys.size(); i++) {
+            const Variant key = prebaked_keys[i];
+            result[key] = prebaked_visual_payload[key];
+        }
+    }
     return result;
 }
 

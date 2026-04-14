@@ -794,7 +794,7 @@ Observed files for this version:
 - `Chunk._refresh_interior_macro_layer()`
 - `Chunk.apply_fog_visible()`
 - `Chunk.apply_fog_discovered()`
-- `MountainShadowSystem._build_edge_cache_now()`  (shadow-local cache write; detached terrain snapshot + edge compute, no renderer mutation)
+- `MountainShadowSystem._build_edge_cache_now()`  (shadow-local cache write; compact detached `terrain_snapshot` + edge compute, no renderer mutation)
 - `MountainShadowSystem._advance_edge_cache_build()`  (shadow-local cache publication only)
 - `MountainShadowSystem._start_shadow_build()`  (detached shadow compute kickoff only)
 - `MountainShadowSystem._advance_shadow_build()`  (detached compute result polling/publication only)
@@ -867,11 +867,12 @@ Observed files for this version:
 ### Surface Prebaked Visual Payload (Presentation sublayer)
 
 - `Что`: generation-time surface presentation payload stored in `native_data` for pristine generated chunks: `rock_visual_class`, `ground_face_atlas`, `cover_mask`, `cliff_overlay`, `variant_id`, and `alt_id`. These buffers are derived-only; they are not canonical terrain truth.
-- `Где`: `core/systems/world/chunk_content_builder.gd` in `_build_prebaked_visual_payload()` and `_build_terrain_halo()`, owner-side rule selection in `core/systems/world/chunk_visual_kernel.gd`, native `gdextension/src/chunk_visual_kernels.cpp` in `build_prebaked_visual_payload()`, GDScript fallback `Chunk.build_prebaked_visual_payload()`, and runtime consumption in `Chunk.populate_native()`, `Chunk.build_visual_phase_batch()`, and `Chunk.compute_visual_batch()`.
+- `Где`: `core/systems/world/chunk_content_builder.gd` now passes `native_visual_tables` inside the compact native generation request and only backfills via `_build_prebaked_visual_payload()` / `_build_terrain_halo()` when the authoritative native packet arrives without embedded visual arrays; owner-side rule selection stays in `core/systems/world/chunk_visual_kernel.gd`, native derivation lives in `gdextension/src/chunk_generator.cpp` + `gdextension/src/chunk_visual_kernels.cpp`, GDScript fallback remains `Chunk.build_prebaked_visual_payload()`, and runtime consumption stays in `Chunk.populate_native()`, `Chunk.build_visual_phase_batch()`, and `Chunk.compute_visual_batch()`.
 - `Входные данные`: center-chunk `terrain` / `height` / `variation` / `biome` / `secondary_biome` / `ecotone_values` arrays, one-tile `terrain_halo` around the chunk, canonical chunk/global coordinates, and the same `ChunkVisualKernel` wall/ground-face/cover/cliff rules that direct redraw and dirty redraw use.
-- `Жизненный цикл`: payload is usable only for unmodified generated surface chunks. `Chunk.populate_native()` marks it valid only when every array matches `tile_count`. Any saved terrain replay during load or later `_set_terrain_type()` invalidates the cached payload; dirty/mutation redraw paths then fall back to live neighbor-based derivation.
+- `Жизненный цикл`: payload is usable only for unmodified generated surface chunks. `ChunkGenerator.generate_chunk()` may embed the six derived arrays directly into the authoritative native packet using the same one-tile seam halo contract that `ChunkVisualKernels.build_prebaked_visual_payload()` expects; `ChunkContentBuilder.build_chunk_native_data()` must validate the embedded arrays and only call the secondary native builder when they are absent. `Chunk.populate_native()` marks the payload valid only when every array matches `tile_count`. Any saved terrain replay during load or later `_set_terrain_type()` invalidates the cached payload; dirty/mutation redraw paths then fall back to live neighbor-based derivation.
 - `Инварианты`:
 - `assert(surface_prebaked_visual_halo_size == (chunk_size + 2) * (chunk_size + 2), "surface prebaked visual derivation must sample a one-tile halo to stay seam-safe at chunk borders")`
+- `assert(surface_native_packet_embeds_complete_prebaked_visual_arrays_or_builder_backfills_them_before_terminal_validation, "surface final packet may skip the second native visual builder call only when all six prebaked visual arrays are already embedded and tile-count aligned")`
 - `assert(prebaked_visual_phase_skips_neighbor_derivation_when_payload_valid, "terrain/cover/cliff phase batches may apply ready buffers directly when prebaked payload is valid")`
 - `assert(prebaked_payload_and_live_dirty_redraw_share_the_same_chunk_visual_kernel_rules, "prebaked surface visual buffers and live redraw fallback must stay visually equivalent because they come from one kernel contract")`
 - `assert(prebaked_visual_payload_never_authors_canonical_terrain, "prebaked visual payload may accelerate presentation only and must not become terrain/topology/reveal truth")`
@@ -922,6 +923,7 @@ Observed files for this version:
 - `assert(first_playable_handoff_is_honest, "after internal first_playable, unfinished startup coords are handed to runtime streaming but remain boot-tracked until real apply/redraw completion; player handoff still waits for full boot-ready")`
 - `assert(no_unbounded_apply_in_gameplay_frames, "post-first-playable does not call _boot_apply_from_queue(); outer chunks load via budgeted runtime streaming")`
 - `assert(shadow_edge_cache_compute_is_detached, "_build_edge_cache_now() / _start_edge_cache_build() prepare detached snapshot input, worker compute owns heavy edge detection, and _advance_edge_cache_build() only polls/publishes the completed cache")`
+- `assert(shadow_edge_cache_request_uses_compact_terrain_snapshot, "edge-cache worker input is a compact `(chunk_size + 2)^2` terrain snapshot; main thread must not bridge nine neighbor chunk arrays or a detached ChunkContentBuilder into the worker request")`
 - `assert(boot_promote_waits_for_chunk_full_redraw_ready, "_boot_promote_redrawn_chunks() promotes VISUAL_COMPLETE only after Chunk.is_full_redraw_ready()")`
 - `assert(boot_visual_complete_can_be_revoked_before_boot_complete, "startup chunk state may drop from VISUAL_COMPLETE back to APPLIED when late seam or convergence debt appears before boot_complete is finalized")`
 - `assert(first_playable_and_boot_complete_are_distinct_boot_milestones, "first_playable starts post-ready finalization, while player-visible handoff waits for GameWorld boot_complete after startup chunks, topology, and boot shadows are ready")`

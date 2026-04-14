@@ -1250,6 +1250,10 @@ void ChunkVisualKernels::_bind_methods() {
 }
 
 Dictionary ChunkVisualKernels::build_prebaked_visual_payload(Dictionary p_request) const {
+	return build_prebaked_visual_payload_static(p_request);
+}
+
+Dictionary ChunkVisualKernels::build_prebaked_visual_payload_static(Dictionary p_request) {
 	VisualRequestContext ctx;
 	if (!load_tables(p_request, ctx)) {
 		return Dictionary();

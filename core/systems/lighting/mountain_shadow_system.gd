@@ -322,12 +322,10 @@ func _try_mined_tile_update_step() -> bool:
 	_pending_mined_tile_update_lookup.erase(tile_pos)
 	var update_payload: Dictionary = _collect_mined_tile_shadow_update_payload(tile_pos)
 	var edge_dirty_coords: Array[Vector2i] = update_payload.get("edge_dirty_coords", []) as Array[Vector2i]
-	for edge_coord: Vector2i in edge_dirty_coords:
-		_enqueue_edge_cache_build(edge_coord)
 	var dirty_targets: Array[Vector2i] = update_payload.get("dirty_targets", []) as Array[Vector2i]
 	for dirty_coord: Vector2i in dirty_targets:
 		_mark_dirty(dirty_coord)
-	if not edge_dirty_coords.is_empty() or not dirty_targets.is_empty():
+	if _should_emit_mined_shadow_refresh_diag(tile_pos, edge_dirty_coords, dirty_targets):
 		_emit_shadow_refresh_diag(tile_pos, edge_dirty_coords, dirty_targets)
 	return true
 
@@ -364,52 +362,20 @@ func _try_edge_step() -> bool:
 	return false
 
 func _collect_mined_tile_shadow_update_payload(tile_pos: Vector2i) -> Dictionary:
+	return _update_edges_at(tile_pos)
+
+## Инкрементальное обновление edge-кеша для 1 тайла и 8 соседей. O(9) вместо O(4096).
+func _update_edges_at(tile_pos: Vector2i) -> Dictionary:
 	if not _chunk_manager:
 		return {
 			"edge_dirty_coords": [],
 			"dirty_targets": [],
 		}
+	var dirty_targets: Dictionary = {}
 	var edge_dirty_coords: Dictionary = {}
-	var dirty_targets: Dictionary = {}
 	var boundary_reach: int = _resolve_shadow_cross_chunk_reach()
-	for offset_y: int in range(-1, 2):
-		for offset_x: int in range(-1, 2):
-			var check_tile: Vector2i = WorldGenerator.offset_tile(tile_pos, Vector2i(offset_x, offset_y))
-			var coord: Vector2i = _canonical_chunk_coord(WorldGenerator.tile_to_chunk(check_tile))
-			var chunk: Chunk = _chunk_manager.get_chunk(coord)
-			if not chunk:
-				continue
-			edge_dirty_coords[coord] = true
-			_maybe_mark_shadow_target(dirty_targets, coord)
-			var chunk_size: int = chunk.get_chunk_size()
-			var local_tile: Vector2i = chunk.global_to_local(check_tile)
-			if local_tile.x < boundary_reach:
-				_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, Vector2i.LEFT))
-			if local_tile.x >= chunk_size - boundary_reach:
-				_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, Vector2i.RIGHT))
-			if local_tile.y < boundary_reach:
-				_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, Vector2i.UP))
-			if local_tile.y >= chunk_size - boundary_reach:
-				_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, Vector2i.DOWN))
-	var edge_coord_list: Array[Vector2i] = []
-	for coord_variant: Variant in edge_dirty_coords.keys():
-		edge_coord_list.append(coord_variant as Vector2i)
-	var dirty_target_list: Array[Vector2i] = []
-	for target_variant: Variant in dirty_targets.keys():
-		dirty_target_list.append(target_variant as Vector2i)
-	return {
-		"edge_dirty_coords": edge_coord_list,
-		"dirty_targets": dirty_target_list,
-	}
-
-## Инкрементальное обновление edge-кеша для 1 тайла и 8 соседей. O(9) вместо O(4096).
-func _update_edges_at(tile_pos: Vector2i) -> Array[Vector2i]:
-	if not _chunk_manager:
-		return []
-	var dirty_targets: Dictionary = {}
-	var changed_coords: Dictionary = {}
+	var ready_changed_coords: Dictionary = {}
 	var coords_needing_rebuild: Dictionary = {}
-	var boundary_reach: int = _resolve_shadow_cross_chunk_reach()
 	for offset_y: int in range(-1, 2):
 		for offset_x: int in range(-1, 2):
 			var check_tile: Vector2i = WorldGenerator.offset_tile(tile_pos, Vector2i(offset_x, offset_y))
@@ -439,7 +405,8 @@ func _update_edges_at(tile_pos: Vector2i) -> Array[Vector2i]:
 				edges.append(check_tile)
 			else:
 				edges.remove_at(edge_idx)
-			changed_coords[coord] = had_ready_cache
+			edge_dirty_coords[coord] = true
+			ready_changed_coords[coord] = had_ready_cache
 			if not had_ready_cache:
 				coords_needing_rebuild[coord] = true
 			_maybe_mark_shadow_target(dirty_targets, coord)
@@ -451,19 +418,43 @@ func _update_edges_at(tile_pos: Vector2i) -> Array[Vector2i]:
 				_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, Vector2i.UP))
 			if local_tile.y >= chunk_size - boundary_reach:
 				_maybe_mark_shadow_target(dirty_targets, _offset_chunk_coord(coord, Vector2i.DOWN))
-	for changed_coord_variant: Variant in changed_coords.keys():
+	for changed_coord_variant: Variant in edge_dirty_coords.keys():
 		var changed_coord: Vector2i = changed_coord_variant as Vector2i
 		var new_version: int = _bump_chunk_version(_edge_cache_versions, changed_coord)
-		if bool(changed_coords[changed_coord]):
+		if bool(ready_changed_coords.get(changed_coord, false)):
 			_edge_cache_ready_versions[changed_coord] = new_version
 		else:
 			_edge_cache_ready_versions.erase(changed_coord)
 		if coords_needing_rebuild.has(changed_coord) and changed_coord not in _edge_build_queue:
 			_edge_build_queue.append(changed_coord)
-	var result: Array[Vector2i] = []
+	var edge_coord_list: Array[Vector2i] = []
+	for coord_variant: Variant in edge_dirty_coords.keys():
+		edge_coord_list.append(coord_variant as Vector2i)
+	var dirty_target_list: Array[Vector2i] = []
 	for target_variant: Variant in dirty_targets.keys():
-		result.append(target_variant as Vector2i)
-	return result
+		dirty_target_list.append(target_variant as Vector2i)
+	return {
+		"edge_dirty_coords": edge_coord_list,
+		"dirty_targets": dirty_target_list,
+	}
+
+func _should_emit_mined_shadow_refresh_diag(
+	tile_pos: Vector2i,
+	edge_dirty_coords: Array[Vector2i],
+	dirty_targets: Array[Vector2i]
+) -> bool:
+	if edge_dirty_coords.is_empty() and dirty_targets.is_empty():
+		return false
+	if WorldGenerator == null:
+		return false
+	var source_chunk: Vector2i = _canonical_chunk_coord(WorldGenerator.tile_to_chunk(tile_pos))
+	for edge_coord: Vector2i in edge_dirty_coords:
+		if edge_coord != source_chunk:
+			return true
+	for dirty_coord: Vector2i in dirty_targets:
+		if dirty_coord != source_chunk:
+			return true
+	return false
 
 func _resolve_shadow_cross_chunk_reach() -> int:
 	if WorldGenerator and WorldGenerator.balance:
@@ -764,16 +755,14 @@ func _start_edge_cache_build(coord: Vector2i) -> void:
 	var version: int = _ensure_chunk_version(_edge_cache_versions, coord)
 	var request: Dictionary = _build_edge_cache_request(coord, chunk, version)
 	var task_key: String = _make_worker_task_key("edge", coord, version)
-	var builder: ChunkContentBuilder = _create_detached_edge_builder()
 	var kernels: RefCounted = _create_shadow_kernels()
-	var task_id: int = WorkerThreadPool.add_task(_worker_build_edge_cache.bind(task_key, request, builder, kernels))
+	var task_id: int = WorkerThreadPool.add_task(_worker_build_edge_cache.bind(task_key, request, kernels))
 	_active_edge_cache_build = {
 		"coord": coord,
 		"version": version,
 		"task_key": task_key,
 		"task_id": task_id,
 		"cancelled": false,
-		"builder": builder,
 	}
 
 func _advance_edge_cache_build() -> void:
@@ -1000,124 +989,98 @@ func _rebuild_shadow_now(coord: Vector2i) -> void:
 func _build_edge_cache_request(coord: Vector2i, chunk: Chunk, version: int) -> Dictionary:
 	var request_usec: int = WorldPerfProbe.begin()
 	var chunk_size: int = chunk.get_chunk_size()
+	var base_tile: Vector2i = WorldGenerator.chunk_to_tile_origin(coord)
 	var request: Dictionary = {
 		"coord": coord,
 		"version": version,
 		"chunk_size": chunk_size,
-		"base_x": WorldGenerator.chunk_to_tile_origin(coord).x,
-		"base_y": coord.y * chunk_size,
-		"terrain_bytes": chunk.get_terrain_bytes().duplicate(),
-		"north_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(coord, Vector2i.UP)),
-		"south_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(coord, Vector2i.DOWN)),
-		"west_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(coord, Vector2i.LEFT)),
-		"east_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(coord, Vector2i.RIGHT)),
-		"northwest_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(_offset_chunk_coord(coord, Vector2i.UP), Vector2i.LEFT)),
-		"northeast_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(_offset_chunk_coord(coord, Vector2i.UP), Vector2i.RIGHT)),
-		"southwest_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(_offset_chunk_coord(coord, Vector2i.DOWN), Vector2i.LEFT)),
-		"southeast_bytes": _get_loaded_chunk_terrain_bytes(_offset_chunk_coord(_offset_chunk_coord(coord, Vector2i.DOWN), Vector2i.RIGHT)),
+		"base_x": base_tile.x,
+		"base_y": base_tile.y,
+		"terrain_snapshot": _build_edge_terrain_snapshot(coord, chunk),
 	}
 	WorldPerfProbe.end("Shadow.edge_cache_request %s" % [coord], request_usec)
 	return request
 
-static func _build_edge_terrain_snapshot(request: Dictionary, builder: ChunkContentBuilder = null) -> PackedByteArray:
-	var chunk_size: int = int(request.get("chunk_size", 0))
+func _build_edge_terrain_snapshot(coord: Vector2i, chunk: Chunk) -> PackedByteArray:
+	var chunk_size: int = chunk.get_chunk_size()
 	var stride: int = chunk_size + 2
 	var snapshot: PackedByteArray = PackedByteArray()
 	snapshot.resize(stride * stride)
-	var terrain_bytes: PackedByteArray = request.get("terrain_bytes", PackedByteArray())
+	var terrain_bytes: PackedByteArray = chunk.get_terrain_bytes()
+	if terrain_bytes.size() < chunk_size * chunk_size:
+		return snapshot
 	for local_y: int in range(chunk_size):
 		for local_x: int in range(chunk_size):
 			var src_idx: int = local_y * chunk_size + local_x
 			var dst_idx: int = (local_y + 1) * stride + (local_x + 1)
 			snapshot[dst_idx] = terrain_bytes[src_idx]
-	var north_bytes: PackedByteArray = request.get("north_bytes", PackedByteArray())
-	var south_bytes: PackedByteArray = request.get("south_bytes", PackedByteArray())
-	var west_bytes: PackedByteArray = request.get("west_bytes", PackedByteArray())
-	var east_bytes: PackedByteArray = request.get("east_bytes", PackedByteArray())
-	var northwest_bytes: PackedByteArray = request.get("northwest_bytes", PackedByteArray())
-	var northeast_bytes: PackedByteArray = request.get("northeast_bytes", PackedByteArray())
-	var southwest_bytes: PackedByteArray = request.get("southwest_bytes", PackedByteArray())
-	var southeast_bytes: PackedByteArray = request.get("southeast_bytes", PackedByteArray())
-	var base_x: int = int(request.get("base_x", 0))
-	var base_y: int = int(request.get("base_y", 0))
+	var base_tile: Vector2i = WorldGenerator.chunk_to_tile_origin(coord)
 	for local_x: int in range(chunk_size):
 		var top_idx: int = local_x + 1
 		var bottom_idx: int = (stride - 1) * stride + local_x + 1
-		if north_bytes.size() >= chunk_size * chunk_size:
-			snapshot[top_idx] = north_bytes[(chunk_size - 1) * chunk_size + local_x]
-		else:
-			snapshot[top_idx] = _sample_edge_snapshot_terrain(builder, base_x + local_x, base_y - 1)
-		if south_bytes.size() >= chunk_size * chunk_size:
-			snapshot[bottom_idx] = south_bytes[local_x]
-		else:
-			snapshot[bottom_idx] = _sample_edge_snapshot_terrain(builder, base_x + local_x, base_y + chunk_size)
+		snapshot[top_idx] = _read_edge_snapshot_terrain(base_tile + Vector2i(local_x, -1), chunk, terrain_bytes)
+		snapshot[bottom_idx] = _read_edge_snapshot_terrain(base_tile + Vector2i(local_x, chunk_size), chunk, terrain_bytes)
 	for local_y: int in range(chunk_size):
 		var left_idx: int = (local_y + 1) * stride
 		var right_idx: int = (local_y + 1) * stride + (stride - 1)
-		if west_bytes.size() >= chunk_size * chunk_size:
-			snapshot[left_idx] = west_bytes[local_y * chunk_size + (chunk_size - 1)]
-		else:
-			snapshot[left_idx] = _sample_edge_snapshot_terrain(builder, base_x - 1, base_y + local_y)
-		if east_bytes.size() >= chunk_size * chunk_size:
-			snapshot[right_idx] = east_bytes[local_y * chunk_size]
-		else:
-			snapshot[right_idx] = _sample_edge_snapshot_terrain(builder, base_x + chunk_size, base_y + local_y)
-	snapshot[0] = _resolve_snapshot_corner(northwest_bytes, builder, base_x - 1, base_y - 1, chunk_size, chunk_size - 1, chunk_size - 1)
-	snapshot[stride - 1] = _resolve_snapshot_corner(northeast_bytes, builder, base_x + chunk_size, base_y - 1, chunk_size, 0, chunk_size - 1)
-	snapshot[(stride - 1) * stride] = _resolve_snapshot_corner(southwest_bytes, builder, base_x - 1, base_y + chunk_size, chunk_size, chunk_size - 1, 0)
-	snapshot[(stride * stride) - 1] = _resolve_snapshot_corner(southeast_bytes, builder, base_x + chunk_size, base_y + chunk_size, chunk_size, 0, 0)
+		snapshot[left_idx] = _read_edge_snapshot_terrain(base_tile + Vector2i(-1, local_y), chunk, terrain_bytes)
+		snapshot[right_idx] = _read_edge_snapshot_terrain(base_tile + Vector2i(chunk_size, local_y), chunk, terrain_bytes)
+	snapshot[0] = _read_edge_snapshot_terrain(base_tile + Vector2i(-1, -1), chunk, terrain_bytes)
+	snapshot[stride - 1] = _read_edge_snapshot_terrain(base_tile + Vector2i(chunk_size, -1), chunk, terrain_bytes)
+	snapshot[(stride - 1) * stride] = _read_edge_snapshot_terrain(base_tile + Vector2i(-1, chunk_size), chunk, terrain_bytes)
+	snapshot[(stride * stride) - 1] = _read_edge_snapshot_terrain(base_tile + Vector2i(chunk_size, chunk_size), chunk, terrain_bytes)
 	return snapshot
 
-func _get_loaded_chunk_terrain_bytes(coord: Vector2i) -> PackedByteArray:
-	if not _chunk_manager:
-		return PackedByteArray()
-	var chunk: Chunk = _chunk_manager.get_chunk(coord)
-	if not chunk:
-		return PackedByteArray()
-	return chunk.get_terrain_bytes().duplicate()
-
-static func _sample_edge_snapshot_terrain(builder: ChunkContentBuilder, global_x: int, global_y: int) -> int:
-	if builder == null:
-		return TileGenData.TerrainType.GROUND
-	return builder.sample_terrain_type(global_x, global_y)
-
-static func _resolve_snapshot_corner(
-	neighbor_bytes: PackedByteArray,
-	builder: ChunkContentBuilder,
-	global_x: int,
-	global_y: int,
-	chunk_size: int,
-	local_x: int,
-	local_y: int
+func _read_edge_snapshot_terrain(
+	world_tile: Vector2i,
+	center_chunk: Chunk,
+	center_bytes: PackedByteArray
 ) -> int:
-	if neighbor_bytes.size() >= chunk_size * chunk_size:
-		return neighbor_bytes[local_y * chunk_size + local_x]
-	return _sample_edge_snapshot_terrain(builder, global_x, global_y)
+	if WorldGenerator:
+		world_tile = WorldGenerator.canonicalize_tile(world_tile)
+	var chunk_size: int = center_chunk.get_chunk_size() if center_chunk else 0
+	if center_chunk and center_bytes.size() >= chunk_size * chunk_size:
+		var local_center_tile: Vector2i = center_chunk.global_to_local(world_tile)
+		if local_center_tile.x >= 0 and local_center_tile.y >= 0 and local_center_tile.x < chunk_size and local_center_tile.y < chunk_size:
+			return center_bytes[local_center_tile.y * chunk_size + local_center_tile.x]
+	if WorldGenerator == null:
+		return TileGenData.TerrainType.GROUND
+	var source_coord: Vector2i = _canonical_chunk_coord(WorldGenerator.tile_to_chunk(world_tile))
+	if _chunk_manager:
+		var source_chunk: Chunk = _chunk_manager.get_chunk(source_coord)
+		if source_chunk:
+			var source_chunk_size: int = source_chunk.get_chunk_size()
+			var source_bytes: PackedByteArray = source_chunk.get_terrain_bytes()
+			var local_tile: Vector2i = source_chunk.global_to_local(world_tile)
+			if source_bytes.size() >= source_chunk_size * source_chunk_size \
+				and local_tile.x >= 0 and local_tile.y >= 0 \
+				and local_tile.x < source_chunk_size and local_tile.y < source_chunk_size:
+				return source_bytes[local_tile.y * source_chunk_size + local_tile.x]
+	if WorldGenerator:
+		return int(WorldGenerator.get_terrain_type_fast(world_tile))
+	return TileGenData.TerrainType.GROUND
 
 func _run_edge_cache_request_blocking(request: Dictionary) -> Dictionary:
 	var coord: Vector2i = request.get("coord", INVALID_COORD)
 	var version: int = int(request.get("version", -1))
 	var task_key: String = _make_worker_task_key("edge_sync", coord, version)
-	var builder: ChunkContentBuilder = _create_detached_edge_builder()
 	var kernels: RefCounted = _create_shadow_kernels()
-	var task_id: int = WorkerThreadPool.add_task(_worker_build_edge_cache.bind(task_key, request, builder, kernels))
+	var task_id: int = WorkerThreadPool.add_task(_worker_build_edge_cache.bind(task_key, request, kernels))
 	WorkerThreadPool.wait_for_task_completion(task_id)
 	return _take_edge_cache_worker_result(task_key)
 
 func _worker_build_edge_cache(
 	task_key: String,
 	request: Dictionary,
-	builder: ChunkContentBuilder = null,
 	kernels: RefCounted = null
 ) -> void:
-	var result: Dictionary = _compute_edge_cache_request(request, builder, kernels)
+	var result: Dictionary = _compute_edge_cache_request(request, kernels)
 	_edge_cache_compute_mutex.lock()
 	_edge_cache_compute_results[task_key] = result
 	_edge_cache_compute_mutex.unlock()
 
 func _compute_edge_cache_request(
 	request: Dictionary,
-	builder: ChunkContentBuilder = null,
 	kernels: RefCounted = null
 ) -> Dictionary:
 	var started_usec: int = Time.get_ticks_usec()
@@ -1126,7 +1089,9 @@ func _compute_edge_cache_request(
 	var chunk_size: int = int(request.get("chunk_size", 0))
 	var base_x: int = int(request.get("base_x", 0))
 	var base_y: int = int(request.get("base_y", 0))
-	var snapshot: PackedByteArray = _build_edge_terrain_snapshot(request, builder)
+	var snapshot: PackedByteArray = request.get("terrain_snapshot", PackedByteArray()) as PackedByteArray
+	if snapshot.is_empty():
+		return {}
 	if kernels != null:
 		var native_edges_variant: Variant = kernels.call("compute_edge_cache", chunk_size, base_x, base_y, snapshot)
 		if typeof(native_edges_variant) == TYPE_ARRAY:
@@ -1153,11 +1118,6 @@ func _compute_edge_cache_request(
 		"edges": edges,
 		"compute_ms": float(Time.get_ticks_usec() - started_usec) / 1000.0,
 	}
-
-func _create_detached_edge_builder() -> ChunkContentBuilder:
-	if WorldGenerator and WorldGenerator.has_method("create_detached_chunk_content_builder"):
-		return WorldGenerator.create_detached_chunk_content_builder()
-	return null
 
 static func _is_external_edge_in_snapshot(
 	terrain_snapshot: PackedByteArray,

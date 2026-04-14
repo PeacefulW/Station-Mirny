@@ -117,9 +117,17 @@ func _resolve_frontier_lane(coord: Vector2i) -> int:
 		return FrontierSchedulerScript.LANE_BACKGROUND
 	return _frontier_scheduler.resolve_lane_for_coord(_canonical_chunk_coord(coord), _last_frontier_plan)
 
+func _resolve_frontier_lane_for_request(coord: Vector2i, z_level: int) -> int:
+	if _owner != null and _owner.has_method("_resolve_boot_runtime_handoff_lane"):
+		var override_lane: int = int(_owner._resolve_boot_runtime_handoff_lane(coord, z_level))
+		if override_lane >= 0:
+			return override_lane
+	return _resolve_frontier_lane(coord)
+
 func _decorate_frontier_request(request: Dictionary) -> Dictionary:
 	var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
-	var lane: int = _resolve_frontier_lane(coord)
+	var z_level: int = int(request.get("z", _invalid_z_level()))
+	var lane: int = _resolve_frontier_lane_for_request(coord, z_level)
 	request["coord"] = coord
 	request["frontier_lane"] = lane
 	request["frontier_lane_name"] = _frontier_lane_name(lane)

@@ -106,7 +106,7 @@ func boot_load_initial_chunks(progress_callback: Callable) -> void:
 		drain_computed_to_apply_queue()
 		prepare_apply_entries()
 		apply_from_queue()
-		process_redraw_budget(2500)
+		process_redraw_budget(int(_owner.BOOT_FIRST_PLAYABLE_VISUAL_BUDGET_USEC))
 		promote_redrawn_chunks()
 		if compute_active.is_empty() \
 			and compute_pending.is_empty() \
@@ -279,6 +279,7 @@ func tick_remaining() -> void:
 		drain_computed_to_apply_queue()
 		prepare_apply_entries()
 		apply_from_queue()
+	_owner._drive_boot_finalization_budget()
 	pipeline_drained = compute_active.is_empty() \
 		and compute_pending.is_empty() \
 		and prepare_queue.is_empty() \

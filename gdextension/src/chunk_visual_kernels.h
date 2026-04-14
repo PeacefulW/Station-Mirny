@@ -15,6 +15,7 @@ public:
 	ChunkVisualKernels();
 	~ChunkVisualKernels();
 
+	static Dictionary build_prebaked_visual_payload_static(Dictionary p_request);
 	Dictionary build_prebaked_visual_payload(Dictionary p_request) const;
 	Dictionary build_interior_macro_overlay(Dictionary p_request) const;
 	Dictionary compute_visual_batch(Dictionary p_request) const;
