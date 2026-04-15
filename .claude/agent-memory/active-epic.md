@@ -2,7 +2,7 @@
 
 **Spec**: docs/04_execution/frontier_native_runtime_execution_plan.md
 **Started**: 2026-04-13
-**Current iteration**: R4 stabilization
+**Current iteration**: R6 pending
 **Total iterations**: 10
 
 ## Spec revision log
@@ -12,6 +12,7 @@
 - 2026-04-14: `feature_and_poi_payload` assembly moved into native `ChunkGenerator`, the GDScript resolver/fallback path was deleted, and `build_chunk_content()` now hydrates from the same authoritative packet as `build_chunk_native_data()`. Remaining perf hotspot has shifted to native visual payload generation / streaming redraw rather than feature/POI payload assembly.
 - 2026-04-14: post-R4 follow-up fixed two regressions outside the spec body: player camera zoom returned to additive stepping and the shipped balance resource now extends the debug zoom-out range to `zoom_min = 0.2` with `zoom_step = 0.1`, so the full `5x5` debug bubble is reachable again; mining/seam local border-fix paths also now attempt immediate player-near completion before deferred invalidation so harvesting on the occupied chunk does not demote it to `full_pending` and trip zero-tolerance readiness.
 - 2026-04-14: `R4.2` diagnostic pass reviewed the latest `godot.log` + `F11` dumps. The old `ChunkManager.try_harvest_at_world` freeze did not reproduce in this run; residual dominant spikes shifted to `ChunkStreaming.phase2_finalize` (up to `519.5 ms`), `FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw` (up to `511.6 ms`), `FrameBudgetDispatcher.visual.mountain_shadow.visual_rebuild` (up to `214.9 ms`), and `FrameBudgetDispatcher.topology.chunk_manager.topology_rebuild` (`45.1 ms`). Publication debt remains severe: `stream.chunk_first_pass_ms` sits around `25.8-46.7 s`, `stream.chunk_full_redraw_ms` around `26.3-48.6 s`, with `visual_queue_depth` climbing to `36` and incident snapshots showing `queue_full_far=29`. Key owner bug: `MountainShadowKernels` exists in `gdextension/src/` but is not registered in `gdextension/src/register_types.cpp`, so the run logs `MountainShadowKernels available=false` and shadows stay on the slow fallback path.
+- 2026-04-15: user explicitly started execution-plan `R5` (`Final-packet-only publication switch`). This is not architecture-spec vehicle/train iteration; vehicle/train tuning remains execution-plan `R8`.
 
 ## Runtime blockers before R5
 
@@ -128,6 +129,55 @@
 
 #### Notes
 - This is an R4/R5 bridge patch, not the complete R5 final-packet-only publication coordinator. It removes a concrete slow-path violation found in the fresh log, where chunks remained stuck in `phase=cliff` / `full_redraw_pending` while final-packet visual payload data already existed.
+
+### Iteration R5 - Final-packet-only publication switch
+**Status**: completed
+**Started**: 2026-04-15
+**Completed**: 2026-04-15
+
+#### Scope
+- Switch live surface visibility/full-ready publication to require terminal `frontier_surface_final_packet` proof captured during `Chunk.populate_native()`.
+- Keep underground transition, vehicle/train tuning, movement stop-gates, and broad scheduler/cache policy out of scope.
+
+#### Проверки приёмки (Acceptance tests)
+- [x] publication no longer triggers later visible convergence debt — passed (static verification: `Chunk.is_full_redraw_ready()` and `_can_publish_full_redraw_ready()` now require `has_terminal_publication_packet()`)
+- [x] visible chunks are either absent or final, with no intermediate published soft states — passed (static verification: fresh install sets `chunk.visible = false`, and later visibility assignment goes only through `_sync_chunk_visibility_for_publication()` -> `_is_visibility_publication_ready()`)
+- [x] final packet application is the only visible-world publication path — passed (static verification: `Chunk.populate_native()` captures terminal `frontier_surface_final_packet` proof before any surface `FULL_READY`, and unused `_finalize_chunk_install_legacy()` was removed)
+
+#### Files touched
+- `core/systems/world/chunk.gd` — terminal packet proof capture and publication/full-ready gate.
+- `core/systems/world/chunk_manager.gd` — publication diagnostics include packet-proof snapshot; unused legacy finalize helper removed.
+- `docs/02_system_specs/world/DATA_CONTRACTS.md` — R5 publication-contract semantics.
+- `docs/00_governance/PUBLIC_API.md` — R5 lifecycle/API wording.
+- `docs/02_system_specs/world/frontier_native_runtime_architecture_spec.md` — R5 migration note.
+- `.claude/agent-memory/active-epic.md` — recorded R5 progress and closure.
+
+#### Doc check
+- [x] Grep DATA_CONTRACTS.md for changed names — matches for `Chunk.populate_native`, `Chunk.is_full_redraw_ready`, `_can_publish_full_redraw_ready`, and `frontier_surface_final_packet`; docs updated for R5 packet-proof gate.
+- [x] Grep PUBLIC_API.md for changed names — matches for `Chunk.populate_native`, `Chunk.is_full_redraw_ready`, and `frontier_surface_final_packet`; docs updated for R5 packet-proof gate.
+- [x] Documentation debt section reviewed — execution plan has no explicit "Required contract and API updates" section; R5 semantics changed contracts, so `DATA_CONTRACTS.md`, `PUBLIC_API.md`, and architecture spec were updated now.
+
+#### Verification
+- `git diff --check -- core/systems/world/chunk.gd core/systems/world/chunk_manager.gd docs/02_system_specs/world/DATA_CONTRACTS.md docs/00_governance/PUBLIC_API.md docs/02_system_specs/world/frontier_native_runtime_architecture_spec.md .claude/agent-memory/active-epic.md` passed.
+- `Godot_v4.6.1-stable_win64_console.exe --headless --path . --check-only --quit` passed.
+- `rg` confirmed `_finalize_chunk_install_legacy` has no remaining code/doc references in active runtime/docs and visibility writes stay limited to install-hidden + `_sync_chunk_visibility_for_publication()`.
+
+#### Отчёт о выполнении (Closure Report)
+## Отчёт о выполнении (Closure Report)
+
+### Что сделано (Implemented)
+- R5 live surface publication now requires terminal final-packet proof: `Chunk.populate_native()` validates and captures `frontier_surface_final_packet` before any surface chunk can become `FULL_READY`.
+- `Chunk.is_full_redraw_ready()` and `_can_publish_full_redraw_ready()` now require that packet proof in addition to completed redraw and no pending border debt.
+- Removed the unused `_finalize_chunk_install_legacy()` helper so there is no duplicate publish-then-finish install path next to the staged flow.
+- Updated `DATA_CONTRACTS.md`, `PUBLIC_API.md`, and the architecture spec migration note for R5 semantics.
+
+### Проверки приёмки (Acceptance tests)
+- [x] publication no longer triggers later visible convergence debt — прошло (passed); verified by `rg` + `--check-only`.
+- [x] visible chunks are either absent or final, with no intermediate published soft states — прошло (passed); verified by visibility write grep and packet-gated readiness.
+- [x] final packet application is the only visible-world publication path — прошло (passed); verified by packet-proof capture and removal of `_finalize_chunk_install_legacy()`.
+
+### Blockers
+- none
 
 ### Boot Startup Regression Triage — Iteration 1
 **Spec**: docs/02_system_specs/world/boot_startup_regression_triage_spec.md

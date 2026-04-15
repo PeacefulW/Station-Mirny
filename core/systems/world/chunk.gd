@@ -5,6 +5,7 @@ const ChunkDebugRendererScript = preload("res://core/systems/world/chunk_debug_r
 const ChunkFogPresenterScript = preload("res://core/systems/world/chunk_fog_presenter.gd")
 const ChunkFloraPresenterScript = preload("res://core/systems/world/chunk_flora_presenter.gd")
 const ChunkFloraResultScript = preload("res://core/systems/world/chunk_flora_result.gd")
+const ChunkFinalPacketScript = preload("res://core/systems/world/chunk_final_packet.gd")
 const ChunkVisualKernelScript = preload("res://core/systems/world/chunk_visual_kernel.gd")
 
 ## Один чанк мира.
@@ -81,6 +82,10 @@ var _revealed_local_cover_tiles: PackedByteArray = PackedByteArray()
 var _revealed_local_cover_tile_count: int = 0
 var _cover_tile_version: int = 0
 var _is_underground: bool = false
+var _terminal_surface_packet_installed: bool = false
+var _terminal_surface_packet_version: int = 0
+var _terminal_surface_generator_version: int = 0
+var _terminal_surface_generation_source: StringName = &""
 var _use_operation_global_terrain_cache: bool = false
 var _operation_global_terrain_cache: Dictionary = {}
 var _mining_write_authorized: bool = false
@@ -147,6 +152,7 @@ func populate_native(native_data: Dictionary, saved_modifications: Dictionary, i
 	_modified_tiles = saved_modifications.duplicate()
 	_ensure_chunk_local_hot_storage()
 	_reset_border_fix_dedupe_state()
+	_capture_publication_packet_contract(native_data)
 	_terrain_bytes = native_data.get("terrain", PackedByteArray())
 	_height_bytes = native_data.get("height", PackedFloat32Array())
 	_variation_bytes = native_data.get("variation", PackedByteArray())
@@ -443,6 +449,24 @@ func _load_prebaked_visual_payload(native_data: Dictionary) -> void:
 		and _cliff_overlay_bytes.size() == tile_count \
 		and _variant_id_bytes.size() == tile_count \
 		and _alt_id_bytes.size() == tile_count
+
+func _capture_publication_packet_contract(native_data: Dictionary) -> void:
+	_terminal_surface_packet_installed = _is_underground
+	_terminal_surface_packet_version = 0
+	_terminal_surface_generator_version = 0
+	_terminal_surface_generation_source = &""
+	if _is_underground:
+		return
+	_terminal_surface_packet_installed = ChunkFinalPacketScript.validate_terminal_surface_packet(
+		native_data,
+		"Chunk.populate_native(%s)" % [chunk_coord]
+	)
+	if not _terminal_surface_packet_installed:
+		assert(false, "surface chunks must be populated from terminal frontier_surface_final_packet")
+		return
+	_terminal_surface_packet_version = int(native_data.get(ChunkFinalPacketScript.PACKET_VERSION_KEY, 0))
+	_terminal_surface_generator_version = int(native_data.get(ChunkFinalPacketScript.GENERATOR_VERSION_KEY, 0))
+	_terminal_surface_generation_source = native_data.get(ChunkFinalPacketScript.GENERATION_SOURCE_KEY, &"") as StringName
 
 func _invalidate_prebaked_visual_payload() -> void:
 	_prebaked_visual_payload_valid = false
@@ -829,10 +853,22 @@ func is_first_pass_ready() -> bool:
 		or _visual_state == ChunkVisualState.FULL_READY
 
 func is_full_redraw_ready() -> bool:
-	return _visual_state == ChunkVisualState.FULL_READY
+	return _visual_state == ChunkVisualState.FULL_READY and has_terminal_publication_packet()
 
 func _is_visibility_publication_ready() -> bool:
-	return is_full_redraw_ready()
+	return is_full_redraw_ready() and has_terminal_publication_packet()
+
+func has_terminal_publication_packet() -> bool:
+	return _is_underground or _terminal_surface_packet_installed
+
+func get_publication_contract_snapshot() -> Dictionary:
+	return {
+		"is_underground": _is_underground,
+		"terminal_surface_packet_installed": _terminal_surface_packet_installed,
+		"terminal_surface_packet_version": _terminal_surface_packet_version,
+		"terminal_surface_generator_version": _terminal_surface_generator_version,
+		"terminal_surface_generation_source": _terminal_surface_generation_source,
+	}
 
 func needs_full_redraw() -> bool:
 	return _visual_state == ChunkVisualState.TERRAIN_READY \
@@ -902,7 +938,8 @@ func _mark_visual_full_redraw_ready() -> void:
 	_visual_state = ChunkVisualState.FULL_READY
 
 func _can_publish_full_redraw_ready() -> bool:
-	return is_first_pass_ready() \
+	return has_terminal_publication_packet() \
+		and is_first_pass_ready() \
 		and _redraw_phase == ChunkVisualKernelScript.REDRAW_PHASE_DONE \
 		and not has_pending_border_dirty()
 

@@ -2815,6 +2815,7 @@ func _sync_chunk_visibility_for_publication(chunk: Chunk) -> void:
 			{
 				"visual_state": _describe_chunk_visual_state(chunk),
 				"redraw_phase": String(chunk.get_redraw_phase_name()),
+				"publication_contract": chunk.get_publication_contract_snapshot(),
 			}
 		)
 	if should_be_visible:
@@ -3718,52 +3719,6 @@ func _finalize_chunk_install(coord: Vector2i, z_level: int, chunk: Chunk) -> voi
 			WorldPerfProbe.end("ChunkStreaming.phase2_finalize.direct_aborted %s" % [coord], total_usec)
 			return
 	WorldPerfProbe.end("ChunkStreaming.phase2_finalize.direct %s" % [coord], total_usec)
-
-func _finalize_chunk_install_legacy(coord: Vector2i, z_level: int, chunk: Chunk) -> void:
-	var loaded_chunks_for_z: Dictionary = _get_loaded_chunks_for_z(z_level)
-	if loaded_chunks_for_z.has(coord):
-		chunk.queue_free()
-		return
-	_sync_chunk_display_position(chunk, _player_chunk)
-	# Fresh installs must enter the tree hidden; visibility is published only by the full_ready gate.
-	chunk.visible = false
-	var z_container: Node2D = _z_containers.get(z_level) as Node2D
-	if z_container:
-		z_container.add_child(chunk)
-	else:
-		_chunk_container.add_child(chunk)
-	loaded_chunks_for_z[coord] = chunk
-	if z_level == _active_z:
-		_set_loaded_chunks_alias(z_level)
-	_sync_native_loaded_open_pocket_query_chunk(coord, chunk, z_level)
-	if not chunk.is_redraw_complete():
-		_schedule_chunk_visual_work(chunk, z_level)
-	_sync_chunk_visibility_for_publication(chunk)
-	_boot_on_chunk_applied(coord, chunk)
-	if _should_track_surface_topology(z_level):
-		_install_surface_chunk_into_topology(coord, chunk)
-	_enqueue_neighbor_border_redraws(coord)
-	EventBus.chunk_loaded.emit(coord)
-	_debug_record_recent_lifecycle_event(
-		"loaded",
-		coord,
-		z_level,
-		"Загрузка представления в мир",
-		"чанк установлен в мир, визуал продолжает сходиться через scheduler",
-		-1.0
-	)
-	_debug_emit_chunk_event(
-		"chunk_installed_hidden",
-		"установила скрытый чанк",
-		coord,
-		z_level,
-		"чанк получил node в scene tree, но остаётся скрытым до terminal full_ready publication",
-		WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT,
-		"queued",
-		"ожидает публикации",
-		"queued_publication",
-		{"visual_queue_depth": _debug_visual_queue_depth()}
-	)
 
 func _stage_prepared_chunk_install(
 	coord: Vector2i,

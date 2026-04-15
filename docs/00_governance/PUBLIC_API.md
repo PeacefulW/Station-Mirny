@@ -130,7 +130,7 @@ related_docs:
 |-------|-------------------------------|
 | `Chunk._set_terrain_type(local_tile: Vector2i, terrain_type: int, mark_modified: bool = true) -> void` | Raw canonical write. Не запускает mining/topology/reveal orchestration сам по себе. |
 | `Chunk.mark_tile_modified(tile_pos: Vector2i, state: Dictionary) -> void` | Пишет только diff и dirty-флаг; не обновляет topology, reveal, seam redraw. |
-| `Chunk.populate_native(native_data: Dictionary, saved_modifications: Dictionary, instant: bool = false) -> void` | Lifecycle-only install path. Одновременно ставит native arrays, replay save diff и стартует redraw. |
+| `Chunk.populate_native(native_data: Dictionary, saved_modifications: Dictionary, instant: bool = false) -> void` | Lifecycle-only install path. Одновременно ставит native arrays, replay save diff, captures terminal `frontier_surface_final_packet` proof for surface publication, and starts redraw. |
 | Direct access to `Chunk._terrain_bytes`, `Chunk._modified_tiles`, `ChunkManager._saved_chunk_data` | Ломает source-of-truth boundary из `DATA_CONTRACTS.md`; bypasses arbitration и invalidation chain. |
 
 ### События
@@ -206,6 +206,7 @@ related_docs:
 
 Примечание: public per-chunk `load/unload` request API в scope сейчас нет. Runtime streaming paths остаются internal.
 После R4 frontier planning runtime streaming internals route through `TravelStateResolver`, `ViewEnvelopeResolver`, `FrontierPlanner`, `FrontierScheduler`, and lane-owned queues inside `ChunkStreamingService`; `ChunkManager` остаётся world-facing facade и final install entry facade. Gameplay runtime scope is the fixed `3x3` hot / `5x5` warm player-centered envelope plus motion frontier; raw debug camera/zoom is diagnostic-only and must not widen streaming scope. Frontier-critical work has a reserved worker slot, and callers must not submit gameplay load/unload requests directly into those internal lanes.
+После R5 surface publication is final-packet-only: `Chunk.populate_native()` records terminal `frontier_surface_final_packet` proof at payload attach, and `Chunk.is_full_redraw_ready()` / visibility publication require that proof in addition to redraw completion and no pending border debt. First-pass/progressive state remains internal scheduler progress and never grants visibility or occupancy.
 После Iteration 9 visual scheduler state routed through internal `ChunkVisualScheduler`, surface payload reuse through internal `ChunkSurfacePayloadCache`, seam/border follow-up ownership through internal `ChunkSeamService`, boot readiness/compute ownership through internal `ChunkBootPipeline`, and topology runtime ownership through internal `ChunkTopologyService`. These services are not public gameplay APIs; callers still use the `ChunkManager` entrypoints listed here.
 
 ### Чтение

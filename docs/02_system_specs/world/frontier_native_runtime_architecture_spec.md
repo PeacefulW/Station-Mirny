@@ -478,8 +478,7 @@ Migration note:
 - `R2` locks the packet header, versioning, and ownership vocabulary so runtime code can stop passing anonymous `native_data` dictionaries.
 - `R3` makes surface packet production terminal for native flora placement/render payloads, real feature/POI payloads, native visual packet buffers from `ChunkVisualKernels`, and install/cache validation through `ChunkFinalPacket.validate_terminal_surface_packet()`.
 - `R4` introduces explicit GDScript ownership for `TravelStateResolver`, `ViewEnvelopeResolver`, `FrontierPlanner`, and `FrontierScheduler`, then routes `ChunkStreamingService` runtime queues through `3x3` frontier-critical, warm `5x5` follow-up, and background lanes. Raw camera visibility and debug zoom are no longer allowed to widen runtime load scope; R4's enforceable invariant is reserved frontier capacity for the fixed gameplay bubble.
-- `R5` is responsible for switching live publication to consume only that final packet.
-- Until `R5` lands, any live publication layer still outside final-packet-only apply must be named explicitly in the contracts; it must not reappear as hidden "later convergence" debt after reveal.
+- `R5` switches live surface publication to final-packet-only gating: `Chunk.populate_native()` captures terminal `frontier_surface_final_packet` proof, and `ChunkVisualState.FULL_READY` / visibility publication require that proof plus completed redraw and no border-fix debt.
 
 ### Frontier planning state
 
