@@ -1031,7 +1031,7 @@ func _build_prebaked_visual_phase_batch(tile_budget: int) -> Dictionary:
 	var tiles: Array[Vector2i] = []
 	for tile_index: int in range(start_index, end_index):
 		tiles.append(_tile_from_index(tile_index))
-	return {
+	var request: Dictionary = {
 		"mode": ChunkVisualKernelScript.VISUAL_BATCH_MODE_PHASE,
 		"phase": _redraw_phase,
 		"phase_name": Chunk._visual_phase_name(_redraw_phase),
@@ -1055,6 +1055,9 @@ func _build_prebaked_visual_phase_batch(tile_budget: int) -> Dictionary:
 		"alt_id": _alt_id_bytes,
 		"skip_worker_compute": true,
 	}
+	if Chunk._has_native_visual_kernels():
+		request["native_visual_tables"] = Chunk._build_native_visual_tables()
+	return request
 
 func apply_visual_phase_batch(batch: Dictionary) -> bool:
 	if StringName(batch.get("mode", &"")) != ChunkVisualKernelScript.VISUAL_BATCH_MODE_PHASE:
@@ -1337,6 +1340,9 @@ func _visual_layer_for_command(layer_id: int) -> TileMapLayer:
 
 static func compute_visual_batch(request: Dictionary) -> Dictionary:
 	if bool(request.get("skip_worker_compute", false)) and request.has("rock_visual_class"):
+		var native_prebaked_batch: Dictionary = Chunk._try_compute_visual_batch_native(request)
+		if not native_prebaked_batch.is_empty():
+			return native_prebaked_batch
 		return ChunkVisualKernelScript.compute_prebaked_visual_batch(request)
 	var native_batch: Dictionary = Chunk._try_compute_visual_batch_native(request)
 	if not native_batch.is_empty():
@@ -1394,8 +1400,6 @@ static func _try_compute_visual_batch_native(request: Dictionary) -> Dictionary:
 		var phase: int = int(request.get("phase", ChunkVisualKernelScript.REDRAW_PHASE_DONE))
 		if phase != ChunkVisualKernelScript.REDRAW_PHASE_TERRAIN and phase != ChunkVisualKernelScript.REDRAW_PHASE_COVER and phase != ChunkVisualKernelScript.REDRAW_PHASE_CLIFF:
 			return {}
-		if phase == ChunkVisualKernelScript.REDRAW_PHASE_CLIFF:
-			return {}
 	if not request.has("native_visual_tables"):
 		return {}
 	var helper: RefCounted = Chunk._get_native_visual_kernels()
@@ -1404,19 +1408,6 @@ static func _try_compute_visual_batch_native(request: Dictionary) -> Dictionary:
 	var batch: Dictionary = helper.call("compute_visual_batch", request) as Dictionary
 	if batch.is_empty():
 		return {}
-	if mode == ChunkVisualKernelScript.VISUAL_BATCH_MODE_DIRTY:
-		var cliff_commands: Array[Dictionary] = []
-		for tile_variant: Variant in request.get("tiles", []):
-			var local_tile: Vector2i = tile_variant as Vector2i
-			ChunkVisualKernelScript.append_cliff_visual_command(request, local_tile, cliff_commands, true)
-		if not cliff_commands.is_empty():
-			batch["cliff_buffer"] = PackedInt32Array()
-			var commands: Array = []
-			if batch.has("commands"):
-				commands = (batch.get("commands", []) as Array).duplicate()
-			commands.append_array(cliff_commands)
-			batch["commands"] = commands
-			batch["command_count"] = int(batch.get("command_count", 0)) + cliff_commands.size()
 	return batch
 
 static func _get_native_visual_kernels() -> RefCounted:

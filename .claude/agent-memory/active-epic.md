@@ -105,6 +105,30 @@
 - `DATA_CONTRACTS.md` and `PUBLIC_API.md` were updated to remove the old player-near inline micro-fix guarantee and document staged finalize substeps.
 - Static proof: `git diff --check -- core/systems/world/chunk_visual_scheduler.gd core/systems/world/chunk_seam_service.gd core/systems/world/chunk_streaming_service.gd core/systems/world/chunk_manager.gd docs/02_system_specs/world/DATA_CONTRACTS.md docs/00_governance/PUBLIC_API.md .claude/agent-memory/active-epic.md` passed. `Godot_v4.6.1-stable_win64_console.exe --headless --path . --check-only --quit` did not run because paired `Godot_v4.6.1-stable_win64.exe` is missing.
 
+### Iteration R4.5 - Native prebaked visual batch fast path
+**Status**: implemented; static proof passed, runtime proof pending
+**Source log**: `godot.log` captured 2026-04-15 after boot triage Iterations 1-3
+
+#### Scope
+- Keep the current scheduler/publication ownership intact.
+- Route prebaked final-packet visual phase batches through native `ChunkVisualKernels.compute_visual_batch()` when native kernels are available.
+- Remove the GDScript cliff fallback overlay from native dirty batches; native kernels already emit the cliff buffer.
+- Do not add movement stop-gates, UI waits, direct sync surface load, or R6/R8 travel modes.
+
+#### Проверки приёмки (Acceptance tests)
+- [x] prebaked `TASK_FIRST_PASS` / `TASK_FULL_REDRAW` phase batches include `native_visual_tables` — passed (static verification in `Chunk._build_prebaked_visual_phase_batch()`).
+- [x] `skip_worker_compute` no longer bypasses native batch compute when `ChunkVisualKernels` is available — passed (static verification in `Chunk.compute_visual_batch()`).
+- [x] native `REDRAW_PHASE_CLIFF` is no longer blocked by GDScript guard — passed (static verification in `Chunk._try_compute_visual_batch_native()`).
+- [x] dirty/border-fix batches no longer replace native `cliff_buffer` with GDScript commands — passed (static verification: removed post-native `append_cliff_visual_command()` path).
+- [ ] fresh traversal log should show lower `FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw`, lower `stream.chunk_full_redraw_ms`, and faster convergence for movement-frontier chunks — manual human verification required.
+
+#### Files touched
+- `core/systems/world/chunk.gd` — native fast path for prebaked phase batches and cliff/dirty batches.
+- `.claude/agent-memory/active-epic.md` — recorded this stabilization iteration.
+
+#### Notes
+- This is an R4/R5 bridge patch, not the complete R5 final-packet-only publication coordinator. It removes a concrete slow-path violation found in the fresh log, where chunks remained stuck in `phase=cliff` / `full_redraw_pending` while final-packet visual payload data already existed.
+
 ### Boot Startup Regression Triage — Iteration 1
 **Spec**: docs/02_system_specs/world/boot_startup_regression_triage_spec.md
 **Status**: completed
