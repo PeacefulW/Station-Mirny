@@ -45,6 +45,66 @@
 - После `P2 pass 1` всплыл runtime assert `chunk_visible_before_full_ready`: скрытый `stream_load` install поздно ставил `border_fix` на уже опубликованный near chunk и демотировал его в `full_pending`.
 - Узкий hotfix в `ChunkSeamService`: player-near visible border fixes теперь сначала пытаются завершиться через bounded inline micro-patch в том же background step; только если это не удалось, чанк снова идёт в обычный invalidate + queued `border_fix` path.
 
+### 2026-04-15 R4 stabilization continuation status
+
+- Приземлён follow-up по локальному mining/entered-chunk `border_fix`: `try_harvest_at_world()` и player-enter path теперь пытаются закрыть tiny player-near border micro-fix inline before zero-tolerance occupancy check; если micro-budget не подходит, остаётся scheduler-owned `TASK_BORDER_FIX`.
+- `ViewEnvelopeResolver` переведён на gameplay-fixed envelope: hot `3x3`, warm `5x5`, raw camera/debug zoom retained only as `debug_camera_visible_set` diagnostics. `FrontierPlanner` теперь строит runtime critical/high sets из `hot_near_set` / `warm_preload_set`, а debug camera больше не расширяет `needed_set`.
+- Добавлен bounded in-chunk motion refresh frontier plan и runtime validation velocity feed, чтобы `TravelStateResolver` видел sprint-class movement в headless route.
+- `runtime_validation_driver.gd` обновлён под `ChunkStreamingService`: old `_load_queue`, `_staged_chunk`, `_gen_task_id` и related state читаются через service-owned values, а boolean snapshot fields больше не используют unsafe `bool(...)`.
+- Proof 2026-04-15: `git diff --check -- core/debug/runtime_validation_driver.gd core/systems/world/chunk_manager.gd core/systems/world/view_envelope_resolver.gd core/systems/world/frontier_planner.gd` passed; `Godot_v4.6.1-stable_win64_console.exe --headless --path . --check-only --quit` passed.
+- Runtime proof 2026-04-15: `runtime_local_ring_seed12345_validation_bool_fix_20260415_001501.stdout.log` / `.stderr.log` exited `0`; validation harness reports `InvalidCallCount=0`, final `reported_validation_outcome ... blocker=none ... reached_waypoints=6/6`, and mining/room/power validations complete.
+- R4 remains blocked: the same fresh runtime log still records `ZeroToleranceReadiness` occupancy breaches during traversal (`651` assertion lines), starting with `(3,1)@z0` and continuing across route chunks. This is a real `full_ready` publication/frontier catch-up failure, not the previous validation harness crash.
+- Remaining perf blockers in the same proof log: `MountainShadowKernels available=false`; `FrameBudgetDispatcher.streaming.chunk_manager.streaming_load` peaks at `324.97 ms`, `ChunkStreaming.phase2_finalize` peaks at `320.22 ms`, and `stream.chunk_full_redraw_ms` still reaches `54887.09 ms`.
+- 2026-04-15 follow-up: `MountainShadowKernels` is now registered in `gdextension/src/register_types.cpp`; `MountainShadowSystem` no longer has GDScript full edge-cache scan or shadow raster fallback paths and now fails closed when native kernels are missing/invalid. Contract docs were updated because shadow presentation compute semantics changed to native-required.
+- 2026-04-15 follow-up: direct player-reachable surface runtime sync load is now hard-blocked in `ChunkStreamingService.load_chunk_for_z()`. Legacy `process_load_queue()` no longer builds native data / creates a chunk / finalizes install in one main-thread path; surface runtime must flow through async generate or validated cache stage -> staged create -> staged finalize -> visual scheduler.
+- Contract docs updated in this follow-up because runtime envelope semantics, mining border micro-fix semantics, and surface sync-load semantics changed: `DATA_CONTRACTS.md` now states fixed hot/warm envelope + debug-only camera diagnostics, bounded player-near inline border micro-fix, and no direct sync surface load path; `PUBLIC_API.md` mirrors those constraints.
+
+### Iteration R4.4 - Critical FPS stabilization targets
+**Status**: implemented; `git diff --check` passed, Godot check blocked by missing paired main exe, runtime proof pending
+**Source logs**: `godot.log` + `f11_chunk_overlay.log` captured 2026-04-15
+
+#### Two most critical current problems
+
+1. `[P0]` Visual dispatcher still performs over-budget chunk redraw/seam work in one frame.
+   - Evidence: latest `godot.log` has `FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw` count `16`, max `460.75 ms`, avg `238.22 ms` against the `2 ms` visual budget; `FrameBudgetDispatcher.total` peaks at `461.41 ms`.
+   - Evidence: `stream.chunk_border_fix_ms` count `14`, max `1439.70 ms`, avg `996.74 ms`; screenshot/F11 captures the same path with `stream.chunk_border_fix_ms (3, 2)@z0: 1368.89 ms` and `FrameBudgetDispatcher.total: 134.17 ms`.
+   - Evidence: publication/convergence debt remains large: `stream.chunk_full_redraw_ms` count `74`, max `38888.33 ms`, avg `21197.27 ms`; `stream.chunk_first_pass_ms` count `70`, max `17093.36 ms`, avg `9835.38 ms`.
+   - Why it matters: this is the direct visible stop-frame source during traversal even when queues are nearly drained; small `visual_queue_depth` does not help if one queue item monopolizes the visual dispatcher.
+
+2. `[P1]` Streaming install/finalize still has large main-thread budget spikes.
+   - Evidence: latest `godot.log` has `ChunkStreaming.phase2_finalize` count `30`, max `262.64 ms`, avg `100.53 ms`; `FrameBudgetDispatcher.streaming.chunk_manager.streaming_load` peaks at `262.91 ms` against the `3 ms` streaming budget.
+   - Evidence: current log has `try_harvest_at_world=0`, `ZeroToleranceReadiness=0`, and `chunk_visible_before_full_ready=0`, so the fresh perf focus should not be mining or readiness asserts first.
+   - Why it matters: even after direct sync surface loading was blocked, finalize/apply is still too monolithic for background runtime and can create traversal hitches before the visual queue even gets to redraw.
+
+#### Concrete fix steps
+
+1. `ChunkVisualScheduler` / `ChunkSeamService`: split `TASK_BORDER_FIX` and `TASK_FULL_REDRAW` into resumable micro-steps.
+   - Add or reuse per-task continuation state: chunk coord, phase, edge/row/tile cursor, version.
+   - Hard-stop the worker/apply drain when the per-frame visual budget is exhausted; requeue the unfinished task instead of completing the chunk/seam in the same dispatcher step.
+   - Player-near exceptions may only run bounded micro-patches; no full border/full redraw completion is allowed as a relief path.
+   - Add diagnostic counters for `visual_task_slice_count`, `visual_task_requeued_due_budget`, and max single-task apply time.
+
+2. `ChunkStreamingService` / `ChunkManager._finalize_chunk_install()`: split phase2 finalize into staged, budget-aware apply phases.
+   - Phase A: create/install lightweight chunk shell only.
+   - Phase B: attach validated native/cache payload and saved diff without TileMap publication work.
+   - Phase C: enqueue topology/visual/seam/shadow follow-ups only; do not drain them during finalize.
+   - Phase D: publish only after `Chunk.is_full_redraw_ready()` remains true.
+   - Add substep telemetry inside `ChunkStreaming.phase2_finalize`: shell create, `populate_native`, save diff replay, topology handoff, visual enqueue, EventBus emit, visibility/publication.
+
+3. Verification target for R4.4.
+   - Fresh runtime route should show `FrameBudgetDispatcher.visual.chunk_manager.streaming_redraw` no stop-frame spikes; temporary gate: max `< 8 ms`, target gate: max `<= 2 ms`.
+   - Fresh runtime route should show `ChunkStreaming.phase2_finalize` and `FrameBudgetDispatcher.streaming.chunk_manager.streaming_load` no stop-frame spikes; temporary gate: max `< 12 ms`, target gate: max `<= 3 ms`.
+   - Frame summary should not repeat the current bad windows: `p99=132-145 ms` and `hitches=37-104`.
+   - Keep grep checks for `try_harvest_at_world`, `ZeroToleranceReadiness`, and `chunk_visible_before_full_ready`; they are not the current lead blockers unless they reappear in the fresh proof log.
+
+#### Implementation notes 2026-04-15
+
+- `ChunkVisualScheduler` now stores per-slice `phase`, `cursor`, `slice_version`, `slice_count`, last apply time, and pending border dirty count on resumable visual tasks. It records slice count, requeue count, budget requeue count, and max single-task apply time through `WorldPerfProbe`.
+- Player-near inline border-fix completion and budget-exhaustion relief are suppressed; border/seam dirt is queued through scheduler-owned `TASK_BORDER_FIX` instead of completing sync in `try_harvest_at_world()`, `ChunkSeamService`, or the scheduler budget loop.
+- `ChunkStreamingService.staged_loading_create()` now creates only the chunk shell. `staged_loading_finalize()` advances one phase per tick through payload attach, scene attach, visual enqueue, topology handoff, seam/EventBus, and visibility/publish diagnostics.
+- `DATA_CONTRACTS.md` and `PUBLIC_API.md` were updated to remove the old player-near inline micro-fix guarantee and document staged finalize substeps.
+- Static proof: `git diff --check -- core/systems/world/chunk_visual_scheduler.gd core/systems/world/chunk_seam_service.gd core/systems/world/chunk_streaming_service.gd core/systems/world/chunk_manager.gd docs/02_system_specs/world/DATA_CONTRACTS.md docs/00_governance/PUBLIC_API.md .claude/agent-memory/active-epic.md` passed. `Godot_v4.6.1-stable_win64_console.exe --headless --path . --check-only --quit` did not run because paired `Godot_v4.6.1-stable_win64.exe` is missing.
+
 ### Iteration R4.2 — Runtime perf forensics and native triage
 **Status**: completed
 **Started**: 2026-04-14
@@ -69,7 +129,7 @@ pending
 - [ ] DATA_CONTRACTS.md — update runtime ownership/readiness/publication semantics when an iteration changes canonical world/runtime contracts
 - [ ] PUBLIC_API.md — update safe/read-only readiness and publication semantics when an iteration changes public-facing behavior
 - **Deadline**: each iteration if semantics change
-- **Status**: R4 completed on 2026-04-14; `DATA_CONTRACTS.md` and `PUBLIC_API.md` updated because frontier scheduling semantics changed
+- **Status**: R4 completed on 2026-04-14, reopened for stabilization; `DATA_CONTRACTS.md` and `PUBLIC_API.md` updated again on 2026-04-15 because fixed hot/warm runtime envelope, bounded player-near border micro-fix, and blocked sync surface-load semantics changed
 
 ## Iterations
 

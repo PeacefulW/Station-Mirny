@@ -23,13 +23,18 @@ func build_plan(center: Vector2i, active_z: int) -> Dictionary:
 		_owner._player,
 		active_z
 	) if _view_envelope_resolver != null else _build_fallback_view(canonical_center, active_z)
+	var hot_near_set: Dictionary = view_envelope.get("hot_near_set", {}) as Dictionary
+	if hot_near_set.is_empty():
+		hot_near_set = view_envelope.get("camera_visible_set", {}) as Dictionary
+	var warm_preload_set: Dictionary = view_envelope.get("warm_preload_set", {}) as Dictionary
+	if warm_preload_set.is_empty():
+		warm_preload_set = view_envelope.get("camera_margin_set", {}) as Dictionary
 	var frontier_critical_set: Dictionary = {}
-	frontier_critical_set[canonical_center] = true
-	_merge_set(frontier_critical_set, view_envelope.get("camera_visible_set", {}) as Dictionary)
+	_merge_set(frontier_critical_set, hot_near_set)
 	var motion_frontier_set: Dictionary = _build_motion_frontier_set(canonical_center, travel_state)
 	_merge_set(frontier_critical_set, motion_frontier_set)
 	var frontier_high_set: Dictionary = {}
-	_merge_set(frontier_high_set, view_envelope.get("camera_margin_set", {}) as Dictionary)
+	_merge_set(frontier_high_set, warm_preload_set)
 	_remove_existing(frontier_high_set, frontier_critical_set)
 	var background_set: Dictionary = _build_background_set(canonical_center, frontier_critical_set, frontier_high_set)
 	var needed_set: Dictionary = {}
@@ -58,12 +63,15 @@ func build_debug_summary(plan: Dictionary) -> Dictionary:
 		"speed_class": String(travel_state.get("speed_class", &"")),
 		"planning_speed_class": String(travel_state.get("planning_speed_class", &"")),
 		"prediction_horizon_ms": int(travel_state.get("prediction_horizon_ms", 0)),
-		"camera_visible_count": (view_envelope.get("camera_visible_set", {}) as Dictionary).size(),
+		"hot_near_count": (view_envelope.get("hot_near_set", {}) as Dictionary).size(),
+		"warm_preload_count": (view_envelope.get("warm_preload_set", {}) as Dictionary).size(),
+		"debug_camera_visible_count": (view_envelope.get("debug_camera_visible_set", {}) as Dictionary).size(),
 		"frontier_critical_count": (plan.get("frontier_critical_set", {}) as Dictionary).size(),
 		"frontier_high_count": (plan.get("frontier_high_set", {}) as Dictionary).size(),
 		"background_count": (plan.get("background_set", {}) as Dictionary).size(),
 		"needed_count": (plan.get("needed_set", {}) as Dictionary).size(),
 		"view_source": str(view_envelope.get("source", "")),
+		"debug_camera_source": str(view_envelope.get("debug_camera_source", "")),
 	}
 
 func _build_motion_frontier_set(center: Vector2i, travel_state: Dictionary) -> Dictionary:
@@ -98,14 +106,18 @@ func _build_background_set(center: Vector2i, critical_set: Dictionary, high_set:
 	return result
 
 func _build_fallback_view(center: Vector2i, active_z: int) -> Dictionary:
-	var camera_visible_set: Dictionary = {}
-	_append_square(camera_visible_set, center, 1)
+	var hot_near_set: Dictionary = {}
+	_append_square(hot_near_set, center, 1)
+	var warm_preload_set: Dictionary = {}
+	_append_square(warm_preload_set, center, 2)
 	return {
 		"active_z": active_z,
 		"camera_center": center,
-		"camera_visible_set": camera_visible_set,
-		"camera_margin_set": camera_visible_set.duplicate(),
-		"source": "fallback_radius",
+		"camera_visible_set": hot_near_set,
+		"camera_margin_set": warm_preload_set,
+		"hot_near_set": hot_near_set,
+		"warm_preload_set": warm_preload_set,
+		"source": "fallback_fixed_hot_warm",
 	}
 
 func _append_square(target: Dictionary, center: Vector2i, radius: int) -> void:

@@ -36,6 +36,10 @@ var compute_waiting_tasks: Dictionary = {}  ## Vector4i task_key -> queued task 
 var compute_results: Dictionary = {}  ## Vector4i task_key -> prepared batch
 var compute_mutex: Mutex = Mutex.new()
 var budget_exhausted_count: int = 0
+var visual_task_slice_count: int = 0
+var visual_task_requeue_count: int = 0
+var visual_task_requeue_due_budget_count: int = 0
+var max_single_task_apply_ms: float = 0.0
 var starvation_incident_count: int = 0
 var max_urgent_wait_ms: float = 0.0
 var log_ticks: int = 0
@@ -294,23 +298,10 @@ func clear_task(task: Dictionary) -> void:
 	task_enqueued_usec.erase(key)
 	_owner._debug_drop_visual_task_meta(task)
 
-func process_border_fix_task(chunk: Chunk, tile_budget: int, deadline_usec: int) -> bool:
+func process_border_fix_task(chunk: Chunk, _tile_budget: int, _deadline_usec: int) -> bool:
 	if chunk == null or not is_instance_valid(chunk) or not chunk.has_pending_border_dirty():
 		return false
-	var remaining_budget: int = maxi(1, tile_budget)
-	while remaining_budget > 0 and chunk.has_pending_border_dirty():
-		if deadline_usec > 0 and Time.get_ticks_usec() >= deadline_usec:
-			return true
-		var micro_batch_limit: int = mini(remaining_budget, _owner.BORDER_FIX_REDRAW_MICRO_BATCH_TILES)
-		var dirty_tiles: Array[Vector2i] = chunk.collect_pending_border_dirty_tiles(micro_batch_limit)
-		if dirty_tiles.is_empty():
-			return chunk.has_pending_border_dirty()
-		var dirty_batch: Dictionary = {}
-		for local_tile: Vector2i in dirty_tiles:
-			dirty_batch[local_tile] = true
-		chunk._redraw_dirty_tiles(dirty_batch)
-		chunk.discard_pending_border_dirty_tiles(dirty_tiles)
-		remaining_budget -= dirty_tiles.size()
+	WorldPerfProbe.record("scheduler.border_fix_sync_apply_blocked_count", 1.0)
 	return chunk.has_pending_border_dirty()
 
 func is_far_visual_band(band: int) -> bool:
@@ -616,23 +607,8 @@ func _record_visual_apply_feedback(
 		"target_apply_ms": target_apply_ms,
 	}
 
-func _should_prepare_border_fix_inline(task: Dictionary, chunk: Chunk, requested_tile_budget: int) -> bool:
-	if chunk == null or not is_instance_valid(chunk):
-		return false
-	if bool(task.get("force_inline_prepare", false)):
-		return true
-	if int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC)) != _owner.VisualTaskKind.TASK_BORDER_FIX:
-		return false
-	if int(task.get("priority_band", _owner.VisualPriorityBand.COSMETIC)) != _owner.VisualPriorityBand.BORDER_FIX_NEAR:
-		return false
-	var coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
-	var z_level: int = int(task.get("z", _active_z()))
-	if not _owner._is_player_near_visual_chunk(coord, z_level):
-		return false
-	var dirty_count: int = chunk.get_pending_border_dirty_count()
-	if dirty_count <= 0:
-		return false
-	return dirty_count <= maxi(_owner.BORDER_FIX_REDRAW_MICRO_BATCH_TILES, requested_tile_budget)
+func _should_prepare_border_fix_inline(_task: Dictionary, _chunk: Chunk, _requested_tile_budget: int) -> bool:
+	return false
 
 func _worker_prepare_visual_batch(task_key: Vector4i, request: Dictionary) -> void:
 	if _owner._shutdown_in_progress:
@@ -686,9 +662,6 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 	request["requested_visual_budget_ms"] = requested_visual_budget_ms
 	request["requested_target_apply_ms"] = _resolve_visual_target_apply_ms(kind, band, requested_visual_budget_ms)
 	var inline_border_fix: bool = _should_prepare_border_fix_inline(task, chunk, requested_tile_budget)
-	var player_near_border_fix: bool = kind == _owner.VisualTaskKind.TASK_BORDER_FIX \
-		and band == _owner.VisualPriorityBand.BORDER_FIX_NEAR \
-		and _owner._is_player_near_visual_chunk(coord, z_level)
 	if compute_active.has(key) or compute_waiting_tasks.has(key):
 		return _owner.VisualComputeSubmitState.SUBMITTED
 	var can_prepare_immediately: bool = bool(request.get("skip_worker_compute", false)) \
@@ -802,6 +775,10 @@ func _collect_completed_visual_compute(deadline_usec: int) -> void:
 
 func _reset_telemetry() -> void:
 	budget_exhausted_count = 0
+	visual_task_slice_count = 0
+	visual_task_requeue_count = 0
+	visual_task_requeue_due_budget_count = 0
+	max_single_task_apply_ms = 0.0
 	starvation_incident_count = 0
 	max_urgent_wait_ms = 0.0
 	log_ticks = 0
@@ -863,12 +840,52 @@ func _process_one_task(deadline_usec: int, processed_by_kind: Dictionary) -> int
 
 func _requeue_visual_task(task: Dictionary) -> void:
 	retag_task(task)
-	_owner._debug_note_visual_task_event(task, "visual_task_requeued")
+	visual_task_requeue_count += 1
+	var requeue_reason: String = String(task.get("last_requeue_reason", "resumable_slice"))
+	if requeue_reason == "budget_exhausted":
+		visual_task_requeue_due_budget_count += 1
+	_owner._debug_note_visual_task_event(
+		task,
+		"visual_task_requeued",
+		{
+			"requeue_reason": requeue_reason,
+			"phase": String(task.get("phase", &"unknown")),
+			"cursor": int(task.get("cursor", -1)),
+			"slice_count": int(task.get("slice_count", 0)),
+			"last_slice_apply_ms": float(task.get("last_slice_apply_ms", 0.0)),
+		}
+	)
 	var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
 	if kind == _owner.VisualTaskKind.TASK_BORDER_FIX:
 		push_task_front(task)
 		return
 	push_task(task)
+
+func _store_resumable_slice_state(
+	task: Dictionary,
+	chunk: Chunk,
+	phase_name: StringName,
+	cursor: int,
+	tile_count: int,
+	apply_ms: float,
+	deadline_usec: int
+) -> void:
+	visual_task_slice_count += 1
+	max_single_task_apply_ms = maxf(max_single_task_apply_ms, apply_ms)
+	task["phase"] = phase_name
+	task["cursor"] = cursor
+	task["slice_version"] = int(task.get("invalidation_version", -1))
+	task["slice_count"] = int(task.get("slice_count", 0)) + 1
+	task["last_slice_tile_count"] = tile_count
+	task["last_slice_apply_ms"] = apply_ms
+	if chunk != null and is_instance_valid(chunk):
+		task["pending_border_dirty_count"] = chunk.get_pending_border_dirty_count()
+	if deadline_usec > 0 and Time.get_ticks_usec() >= deadline_usec:
+		task["last_requeue_reason"] = "budget_exhausted"
+	else:
+		task["last_requeue_reason"] = "resumable_slice"
+	WorldPerfProbe.record("scheduler.visual_task_slice_count", 1.0)
+	WorldPerfProbe.record("scheduler.visual_task_slice_ms.%s" % [String(phase_name)], apply_ms)
 
 func _record_visual_task_wait(task: Dictionary) -> void:
 	var band: int = int(task.get("priority_band", _owner.VisualPriorityBand.COSMETIC))
@@ -948,6 +965,15 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 					return _owner.VisualTaskRunState.REQUEUE
 				first_pass_did_apply = true
 				var apply_ms: float = float(Time.get_ticks_usec() - apply_started_usec_now) / 1000.0
+				_store_resumable_slice_state(
+					task,
+					chunk,
+					StringName(prepared_batch.get("phase_name", &"done")),
+					int(prepared_batch.get("end_index", -1)),
+					int(prepared_batch.get("tile_count", 0)),
+					apply_ms,
+					deadline_usec
+				)
 				_record_visual_apply_feedback(
 					kind,
 					band,
@@ -996,6 +1022,15 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 					return _owner.VisualTaskRunState.REQUEUE
 				full_redraw_did_apply = true
 				var full_apply_ms: float = float(Time.get_ticks_usec() - full_apply_started_usec) / 1000.0
+				_store_resumable_slice_state(
+					task,
+					chunk,
+					StringName(prepared_batch.get("phase_name", &"done")),
+					int(prepared_batch.get("end_index", -1)),
+					int(prepared_batch.get("tile_count", 0)),
+					full_apply_ms,
+					deadline_usec
+				)
 				_record_visual_apply_feedback(
 					kind,
 					band,
@@ -1026,6 +1061,11 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 			task.erase("prepared_batch")
 			return _owner.VisualTaskRunState.REQUEUE
 		_owner.VisualTaskKind.TASK_BORDER_FIX:
+			if not chunk.has_pending_border_dirty():
+				chunk._mark_border_fix_reasons_applied()
+				clear_task(task)
+				_owner._try_finalize_chunk_visual_convergence(chunk, z_level)
+				return _owner.VisualTaskRunState.COMPLETED
 			if prepared_batch.is_empty():
 				var border_submit_state: int = _submit_visual_compute(task, chunk, _resolve_visual_tiles_per_step(kind, band))
 				if border_submit_state == _owner.VisualComputeSubmitState.SUBMITTED:
@@ -1042,6 +1082,15 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 				border_fix_did_apply = true
 				chunk.discard_pending_border_dirty_tiles(prepared_batch.get("tiles", []) as Array)
 				var border_apply_ms: float = float(Time.get_ticks_usec() - border_apply_started_usec) / 1000.0
+				_store_resumable_slice_state(
+					task,
+					chunk,
+					StringName(prepared_batch.get("phase_name", &"dirty")),
+					chunk.get_pending_border_dirty_count(),
+					int(prepared_batch.get("tile_count", 0)),
+					border_apply_ms,
+					deadline_usec
+				)
 				_record_visual_apply_feedback(
 					kind,
 					band,
@@ -1055,8 +1104,7 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 					WorldPerfProbe.record("ChunkManager.streaming_redraw_step.dirty", border_apply_ms)
 				border_has_more = chunk.has_pending_border_dirty()
 			else:
-				border_has_more = process_border_fix_task(chunk, _resolve_visual_tiles_per_step(kind, band), deadline_usec)
-				border_fix_did_apply = true
+				return _drop_legacy_visual_fallback_task(task, "border_fix_sync_dirty_executor")
 			if border_fix_did_apply:
 				chunks_processed_this_tick[_make_visual_chunk_key(coord, z_level)] = true
 			if not border_has_more:
@@ -1092,24 +1140,12 @@ func _run(max_usec: int, stop_after_processed_task: bool) -> bool:
 		processed_count += processed_delta
 		if stop_after_processed_task and processed_delta > 0:
 			break
-	var player_coord: Vector2i = _player_chunk_coord()
-	if budget_exhausted and player_coord != Vector2i(99999, 99999):
-		var player_chunk: Chunk = _owner.get_chunk(player_coord)
-		if player_chunk != null and is_instance_valid(player_chunk):
-			var budget_relief: Dictionary = _owner._try_force_complete_stuck_player_border_fix(
-				player_chunk,
-				_active_z(),
-				_owner._get_visual_task_age_ms(player_coord, _active_z(), _owner.VisualTaskKind.TASK_BORDER_FIX),
-				0.0
-			)
-			if bool(budget_relief.get("recovered_inline_border_fix", false)) \
-				or bool(budget_relief.get("forced_border_fix_progress", false)):
-				processed_count += 1
-				WorldPerfProbe.record("scheduler.player_border_fix_budget_relief_count", 1.0)
 	var used_ms: float = float(Time.get_ticks_usec() - started_usec) / 1000.0
 	if budget_exhausted:
 		budget_exhausted_count += 1
+		visual_task_requeue_due_budget_count += 1
 		WorldPerfProbe.record("scheduler.visual_budget_exhausted_count", 1.0)
+		WorldPerfProbe.record("scheduler.visual_task_requeue_due_budget_count", 1.0)
 		_owner._debug_note_budget_exhausted_trace_task()
 	_owner._emit_visual_scheduler_tick_log(processed_count, budget_exhausted)
 	_owner._maybe_log_player_chunk_visual_status("scheduler", used_ms, budget_exhausted)

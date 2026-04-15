@@ -66,6 +66,7 @@ const BORDER_FIX_REDRAW_MICRO_BATCH_TILES: int = 4
 const PLAYER_CHUNK_DIAG_LOG_INTERVAL_MSEC: int = 2000
 const PLAYER_CHUNK_DIAG_BLOCKED_AGE_MS: float = 250.0
 const PLAYER_CHUNK_DIAG_SPIKE_MS: float = 12.0
+const FRONTIER_MOTION_REFRESH_FRAMES: int = 10
 const VISUAL_ADAPTIVE_APPLY_MIN_MS: float = 0.25
 const VISUAL_ADAPTIVE_APPLY_MAX_MS: float = 1.25
 const VISUAL_ADAPTIVE_FEEDBACK_BLEND: float = 0.55
@@ -149,6 +150,7 @@ var _travel_state_resolver: TravelStateResolver = null
 var _view_envelope_resolver: ViewEnvelopeResolver = null
 var _frontier_planner: FrontierPlanner = null
 var _frontier_scheduler: FrontierScheduler = null
+var _last_frontier_motion_refresh_frame: int = -999999
 var _is_boot_in_progress: bool = true  ## Fail-closed: block runtime player-chunk checks until boot entrypoint really runs.
 
 ## --- Boot readiness state (boot_chunk_readiness_spec) ---
@@ -1577,8 +1579,7 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	# Same-chunk neighbor re-normalization (MINED_FLOOR <-> MOUNTAIN_ENTRANCE)
 	chunk.refresh_open_neighbors_with_operation_cache(local_tile)
 	if chunk.redraw_mining_patch(local_tile):
-		# Interactive mining must stay on the authoritative mutation path only.
-		# Visual repair escalates to the queued border-fix owner path.
+		# Interactive mining stays on the authoritative mutation path; visual repair resumes through the scheduler.
 		_ensure_chunk_border_fix_task(chunk, _active_z, true)
 	# Cross-chunk seam: normalize + redraw affected neighbor chunks
 	_seam_normalize_and_redraw(tile_pos, local_tile, chunk)
@@ -2389,56 +2390,18 @@ func _is_player_near_visual_chunk(coord: Vector2i, z_level: int) -> bool:
 		return false
 	return _chunk_chebyshev_distance(_canonical_chunk_coord(coord), _player_chunk) <= 1
 
-func _should_prepare_border_fix_inline(task: Dictionary, chunk: Chunk, requested_tile_budget: int) -> bool:
-	if chunk == null or not is_instance_valid(chunk):
-		return false
-	if bool(task.get("force_inline_prepare", false)):
-		return true
-	if int(task.get("kind", VisualTaskKind.TASK_COSMETIC)) != VisualTaskKind.TASK_BORDER_FIX:
-		return false
-	if int(task.get("priority_band", VisualPriorityBand.COSMETIC)) != VisualPriorityBand.BORDER_FIX_NEAR:
-		return false
-	var coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
-	var z_level: int = int(task.get("z", _active_z))
-	if not _is_player_near_visual_chunk(coord, z_level):
-		return false
-	var dirty_count: int = chunk.get_pending_border_dirty_count()
-	if dirty_count <= 0:
-		return false
-	return dirty_count <= maxi(BORDER_FIX_REDRAW_MICRO_BATCH_TILES, requested_tile_budget)
+func _should_prepare_border_fix_inline(_task: Dictionary, _chunk: Chunk, _requested_tile_budget: int) -> bool:
+	return false
 
-func _try_complete_visible_border_fix_inline(chunk: Chunk, z_level: int) -> bool:
+func _suppress_visible_border_fix_sync_path(chunk: Chunk, z_level: int) -> bool:
 	if chunk == null or not is_instance_valid(chunk) or _chunk_visual_scheduler == null:
 		return false
-	if not chunk.is_first_pass_ready() or not chunk.is_redraw_complete():
-		return false
-	if not _is_player_near_visual_chunk(chunk.chunk_coord, z_level):
-		return false
 	var dirty_count: int = chunk.get_pending_border_dirty_count()
 	if dirty_count <= 0:
 		return false
-	if dirty_count > maxi(1, chunk.get_chunk_size()):
-		return false
-	var task_key: Vector4i = _make_visual_task_key(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
-	var task_version: int = int(_chunk_visual_scheduler.task_pending.get(task_key, -1))
-	var started_usec: int = WorldPerfProbe.begin()
-	var has_more: bool = _chunk_visual_scheduler.process_border_fix_task(chunk, dirty_count, 0)
-	WorldPerfProbe.end("ChunkManager.visible_border_fix_inline %s@z%d" % [chunk.chunk_coord, z_level], started_usec)
-	if has_more or chunk.has_pending_border_dirty():
-		if task_version >= 0:
-			_enqueue_player_near_border_fix_relief_task(
-				chunk,
-				z_level,
-				task_version,
-				"player_near_inline_partial"
-			)
-		return false
-	chunk._mark_border_fix_reasons_applied()
-	if task_version >= 0:
-		_chunk_visual_scheduler.clear_task(
-			_build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, task_version)
-		)
-	return _try_finalize_chunk_visual_convergence(chunk, z_level)
+	WorldPerfProbe.record("scheduler.player_near_inline_border_fix_blocked_count", 1.0)
+	_ensure_chunk_border_fix_task(chunk, z_level)
+	return false
 
 func _stabilize_player_near_border_fix_chunks(z_level: int) -> void:
 	if _chunk_visual_scheduler == null or _player_chunk == Vector2i(99999, 99999):
@@ -2455,34 +2418,13 @@ func _stabilize_player_near_border_fix_chunks(z_level: int) -> void:
 		_ensure_chunk_border_fix_task(chunk, z_level)
 
 func _enqueue_player_near_border_fix_relief_task(
-	chunk: Chunk,
-	z_level: int,
-	task_version: int,
-	relief_reason: String = "player_near_sync_relief"
+	_chunk: Chunk,
+	_z_level: int,
+	_task_version: int,
+	_relief_reason: String = "player_near_relief_suppressed"
 ) -> bool:
-	if chunk == null or not is_instance_valid(chunk):
-		return false
-	if task_version < 0:
-		return false
-	if not _is_player_near_visual_chunk(chunk.chunk_coord, z_level):
-		return false
-	if _chunk_visual_scheduler != null \
-		and _chunk_visual_scheduler.promote_existing_task_to_front(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX):
-		return true
-	var task: Dictionary = _build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, task_version)
-	_debug_upsert_visual_task_meta(task)
-	if _chunk_visual_scheduler != null:
-		_chunk_visual_scheduler.push_task_front(task)
-	_debug_note_visual_task_event(
-		task,
-		"visual_task_requeued",
-		{
-			"relief_reason": relief_reason,
-		},
-		"",
-		"player_near_sync_relief"
-	)
-	return true
+	WorldPerfProbe.record("scheduler.player_near_border_fix_relief_suppressed_count", 1.0)
+	return false
 
 func _try_force_complete_stuck_player_border_fix(
 	chunk: Chunk,
@@ -2509,7 +2451,6 @@ func _try_force_complete_stuck_player_border_fix(
 	if not _chunk_visual_scheduler.task_pending.has(task_key):
 		if dirty_count > 0:
 			_ensure_chunk_border_fix_task(chunk, z_level)
-			relief["promoted_border_fix_task"] = true
 			relief["remaining_dirty_tiles"] = dirty_count
 		return relief
 	var task_version: int = int(_chunk_visual_scheduler.task_pending.get(task_key, 0))
@@ -2521,23 +2462,7 @@ func _try_force_complete_stuck_player_border_fix(
 		relief["recovered_inline_border_fix"] = true
 		return relief
 	relief["remaining_dirty_tiles"] = dirty_count
-	relief["promoted_border_fix_task"] = _enqueue_player_near_border_fix_relief_task(
-		chunk,
-		z_level,
-		task_version,
-		"player_near_relief"
-	)
-	if bool(relief.get("promoted_border_fix_task", false)):
-		_debug_note_visual_task_event(
-			_build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, task_version),
-			"visual_task_requeued",
-			{
-				"remaining_dirty_tiles": dirty_count,
-				"relief_reason": "player_near_relief",
-			},
-			"",
-			"owner_stuck_relief_queued"
-		)
+	WorldPerfProbe.record("scheduler.player_near_border_fix_relief_suppressed_count", 1.0)
 	return relief
 
 
@@ -2816,13 +2741,6 @@ func _ensure_chunk_border_fix_task(chunk: Chunk, z_level: int, invalidate: bool 
 			_chunk_visual_scheduler.ensure_task(chunk, z_level, VisualTaskKind.TASK_FULL_REDRAW, invalidate)
 	var border_fix_key: Vector4i = _make_visual_task_key(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
 	if _chunk_visual_scheduler.task_pending.has(border_fix_key):
-		if _is_player_near_visual_chunk(chunk.chunk_coord, z_level):
-			_enqueue_player_near_border_fix_relief_task(
-				chunk,
-				z_level,
-				int(_chunk_visual_scheduler.task_pending.get(border_fix_key, 0)),
-				"pending_player_near_relief"
-			)
 		return
 	if _chunk_visual_scheduler != null:
 		_chunk_visual_scheduler.ensure_task(chunk, z_level, VisualTaskKind.TASK_BORDER_FIX)
@@ -2875,6 +2793,10 @@ func _emit_visual_scheduler_tick_log(processed_count: int, budget_exhausted: boo
 	WorldPerfProbe.record("scheduler.visual_queue_depth.border_fix_far", float(_chunk_visual_scheduler.q_border_fix_far.size()))
 	WorldPerfProbe.record("scheduler.visual_queue_depth.full_far", float(_chunk_visual_scheduler.q_full_far.size()))
 	WorldPerfProbe.record("scheduler.visual_queue_depth.cosmetic", float(_chunk_visual_scheduler.q_cosmetic.size()))
+	WorldPerfProbe.record("scheduler.visual_task_slice_total", float(_chunk_visual_scheduler.visual_task_slice_count))
+	WorldPerfProbe.record("scheduler.visual_task_requeue_total", float(_chunk_visual_scheduler.visual_task_requeue_count))
+	WorldPerfProbe.record("scheduler.visual_task_budget_requeue_total", float(_chunk_visual_scheduler.visual_task_requeue_due_budget_count))
+	WorldPerfProbe.record("scheduler.visual_task_max_single_apply_ms", _chunk_visual_scheduler.max_single_task_apply_ms)
 	_chunk_visual_scheduler.log_ticks += 1
 
 func _tick_visuals_budget(max_usec: int) -> bool:
@@ -3300,11 +3222,37 @@ func _check_player_chunk() -> void:
 		)
 		if _chunk_visual_scheduler != null:
 			_chunk_visual_scheduler.refresh_task_priorities()
+		var entered_chunk: Chunk = get_chunk(_player_chunk)
+		if entered_chunk != null and is_instance_valid(entered_chunk) and entered_chunk.has_pending_border_dirty():
+			_ensure_chunk_border_fix_task(entered_chunk, _active_z)
 		_stabilize_player_near_border_fix_chunks(_active_z)
 		_sync_loaded_chunk_display_positions(cur)
 		_update_chunks(cur)
 		_maybe_log_player_chunk_visual_status("entered_chunk")
+	else:
+		_maybe_refresh_frontier_plan_for_motion(cur)
 	_enforce_player_chunk_full_ready("player_chunk_check")
+
+func _maybe_refresh_frontier_plan_for_motion(center: Vector2i) -> void:
+	if _chunk_streaming_service == null:
+		return
+	if _get_player_frontier_velocity().length_squared() <= 1.0:
+		return
+	var current_frame: int = Engine.get_process_frames()
+	if current_frame - _last_frontier_motion_refresh_frame < FRONTIER_MOTION_REFRESH_FRAMES:
+		return
+	_last_frontier_motion_refresh_frame = current_frame
+	_update_chunks(center)
+
+func _get_player_frontier_velocity() -> Vector2:
+	if _player == null:
+		return Vector2.ZERO
+	if _player is CharacterBody2D:
+		return (_player as CharacterBody2D).velocity
+	var velocity_value: Variant = _player.get("velocity")
+	if typeof(velocity_value) == TYPE_VECTOR2:
+		return velocity_value as Vector2
+	return Vector2.ZERO
 
 func _update_chunks(center: Vector2i) -> void:
 	if _chunk_streaming_service != null:
@@ -3510,7 +3458,85 @@ func _sort_chunk_entry_queue_by_priority(queue: Array[Dictionary], center: Vecto
 		)
 	)
 
+func _finalize_chunk_install_stage(coord: Vector2i, z_level: int, chunk: Chunk, stage: StringName) -> bool:
+	if chunk == null or not is_instance_valid(chunk):
+		return false
+	match stage:
+		&"scene_attach":
+			var loaded_chunks_for_z: Dictionary = _get_loaded_chunks_for_z(z_level)
+			if loaded_chunks_for_z.has(coord):
+				chunk.queue_free()
+				return false
+			_sync_chunk_display_position(chunk, _player_chunk)
+			# Fresh installs enter the tree hidden; visibility is published only by the full_ready gate.
+			chunk.visible = false
+			var z_container: Node2D = _z_containers.get(z_level) as Node2D
+			if z_container:
+				z_container.add_child(chunk)
+			else:
+				_chunk_container.add_child(chunk)
+			loaded_chunks_for_z[coord] = chunk
+			if z_level == _active_z:
+				_set_loaded_chunks_alias(z_level)
+			return true
+		&"visual_enqueue":
+			_sync_native_loaded_open_pocket_query_chunk(coord, chunk, z_level)
+			if not chunk.is_redraw_complete():
+				_schedule_chunk_visual_work(chunk, z_level)
+			_sync_chunk_visibility_for_publication(chunk)
+			_boot_on_chunk_applied(coord, chunk)
+			return true
+		&"topology":
+			if _should_track_surface_topology(z_level):
+				_install_surface_chunk_into_topology(coord, chunk)
+			return true
+		&"eventbus":
+			var seam_started_usec: int = WorldPerfProbe.begin()
+			_enqueue_neighbor_border_redraws(coord)
+			WorldPerfProbe.end("ChunkStreaming.phase2_finalize.seam_enqueue %s" % [coord], seam_started_usec)
+			var eventbus_started_usec: int = WorldPerfProbe.begin()
+			EventBus.chunk_loaded.emit(coord)
+			WorldPerfProbe.end("ChunkStreaming.phase2_finalize.EventBus %s" % [coord], eventbus_started_usec)
+			return true
+		&"visibility":
+			_sync_chunk_visibility_for_publication(chunk)
+			_debug_record_recent_lifecycle_event(
+				"loaded",
+				coord,
+				z_level,
+				"Р—Р°РіСЂСѓР·РєР° РїСЂРµРґСЃС‚Р°РІР»РµРЅРёСЏ РІ РјРёСЂ",
+				"С‡Р°РЅРє СѓСЃС‚Р°РЅРѕРІР»РµРЅ РІ РјРёСЂ, РІРёР·СѓР°Р» РїСЂРѕРґРѕР»Р¶Р°РµС‚ СЃС…РѕРґРёС‚СЊСЃСЏ С‡РµСЂРµР· scheduler",
+				-1.0
+			)
+			_debug_emit_chunk_event(
+				"chunk_installed_hidden",
+				"СѓСЃС‚Р°РЅРѕРІРёР»Р° СЃРєСЂС‹С‚С‹Р№ С‡Р°РЅРє",
+				coord,
+				z_level,
+				"С‡Р°РЅРє РїРѕР»СѓС‡РёР» node РІ scene tree, РЅРѕ РѕСЃС‚Р°С‘С‚СЃСЏ СЃРєСЂС‹С‚С‹Рј РґРѕ terminal full_ready publication",
+				WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT,
+				"queued",
+				"РѕР¶РёРґР°РµС‚ РїСѓР±Р»РёРєР°С†РёРё",
+				"queued_publication",
+				{"visual_queue_depth": _debug_visual_queue_depth()}
+			)
+			return true
+		_:
+			return false
+
 func _finalize_chunk_install(coord: Vector2i, z_level: int, chunk: Chunk) -> void:
+	var total_usec: int = WorldPerfProbe.begin()
+	for stage_variant: Variant in [&"scene_attach", &"visual_enqueue", &"topology", &"eventbus", &"visibility"]:
+		var stage: StringName = stage_variant as StringName
+		var step_started_usec: int = WorldPerfProbe.begin()
+		var should_continue: bool = _finalize_chunk_install_stage(coord, z_level, chunk, stage)
+		WorldPerfProbe.end("ChunkStreaming.phase2_finalize.%s %s" % [String(stage), coord], step_started_usec)
+		if not should_continue:
+			WorldPerfProbe.end("ChunkStreaming.phase2_finalize.direct_aborted %s" % [coord], total_usec)
+			return
+	WorldPerfProbe.end("ChunkStreaming.phase2_finalize.direct %s" % [coord], total_usec)
+
+func _finalize_chunk_install_legacy(coord: Vector2i, z_level: int, chunk: Chunk) -> void:
 	var loaded_chunks_for_z: Dictionary = _get_loaded_chunks_for_z(z_level)
 	if loaded_chunks_for_z.has(coord):
 		chunk.queue_free()

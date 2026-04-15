@@ -6,6 +6,14 @@ const ChunkFloraResultScript = preload("res://core/systems/world/chunk_flora_res
 const FrontierSchedulerScript = preload("res://core/systems/world/frontier_scheduler.gd")
 const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
 
+const FINALIZE_PHASE_PAYLOAD_ATTACH: int = 0
+const FINALIZE_PHASE_SCENE_ATTACH: int = 1
+const FINALIZE_PHASE_VISUAL_ENQUEUE: int = 2
+const FINALIZE_PHASE_TOPOLOGY_HANDOFF: int = 3
+const FINALIZE_PHASE_SEAM_EVENTBUS: int = 4
+const FINALIZE_PHASE_PUBLISH_GATE: int = 5
+const FINALIZE_PHASE_DONE: int = 6
+
 var _owner: Node = null
 var load_queue: Array[Dictionary] = []
 var frontier_critical_queue: Array[Dictionary] = []
@@ -19,6 +27,8 @@ var staged_data: Dictionary = {}
 var staged_flora_result: ChunkFloraResultScript = null
 var staged_flora_payload: Dictionary = {}
 var staged_install_entry: Dictionary = {}
+var staged_finalize_phase: int = FINALIZE_PHASE_PAYLOAD_ATTACH
+var staged_finalize_started_usec: int = 0
 var gen_task_id: int = -1
 var gen_coord: Vector2i = Vector2i(999999, 999999)
 var gen_z: int = 0
@@ -348,16 +358,14 @@ func prepare_chunk_install_entry(
 		"init_fog": z_level != 0 and _owner._fog_tileset != null,
 	}
 
-func create_chunk_from_install_entry(install_entry: Dictionary) -> Chunk:
+func create_chunk_from_install_entry(install_entry: Dictionary, attach_payload_now: bool = true) -> Chunk:
 	if install_entry.is_empty():
 		return null
 	var coord: Vector2i = install_entry.get("coord", Vector2i.ZERO) as Vector2i
-	var native_data: Dictionary = install_entry.get("native_data", {}) as Dictionary
-	var saved_modifications: Dictionary = install_entry.get("saved_modifications", {}) as Dictionary
 	var chunk_biome: BiomeData = install_entry.get("chunk_biome", null) as BiomeData
 	var terrain_tileset: TileSet = install_entry.get("terrain_tileset", null) as TileSet
 	var overlay_tileset: TileSet = install_entry.get("overlay_tileset", null) as TileSet
-	if native_data.is_empty() or terrain_tileset == null or overlay_tileset == null:
+	if terrain_tileset == null or overlay_tileset == null:
 		return null
 	var chunk := Chunk.new()
 	chunk.setup(
@@ -372,7 +380,23 @@ func create_chunk_from_install_entry(install_entry: Dictionary) -> Chunk:
 	_owner._sync_chunk_display_position(chunk, _owner._player_chunk)
 	if install_entry.get("underground", false):
 		chunk.set_underground(true)
+	if attach_payload_now and not attach_chunk_payload_from_install_entry(chunk, install_entry):
+		chunk.queue_free()
+		return null
+	return chunk
+
+func attach_chunk_payload_from_install_entry(chunk: Chunk, install_entry: Dictionary) -> bool:
+	if chunk == null or not is_instance_valid(chunk) or install_entry.is_empty():
+		return false
+	var native_data: Dictionary = install_entry.get("native_data", {}) as Dictionary
+	var saved_modifications: Dictionary = install_entry.get("saved_modifications", {}) as Dictionary
+	if native_data.is_empty():
+		return false
+	var coord: Vector2i = install_entry.get("coord", Vector2i.ZERO) as Vector2i
+	var populate_started_usec: int = WorldPerfProbe.begin()
 	chunk.populate_native(native_data, saved_modifications, false)
+	WorldPerfProbe.end("ChunkStreaming.phase2_finalize.populate_native %s" % [coord], populate_started_usec)
+	WorldPerfProbe.record("ChunkStreaming.phase2_finalize.diff_replay_entries", float(saved_modifications.size()))
 	var flora_payload: Dictionary = install_entry.get("flora_payload", {}) as Dictionary
 	if not flora_payload.is_empty():
 		chunk.set_flora_payload(flora_payload)
@@ -381,10 +405,13 @@ func create_chunk_from_install_entry(install_entry: Dictionary) -> Chunk:
 		chunk.set_flora_result(flora_result)
 	if install_entry.get("init_fog", false):
 		chunk.init_fog_layer(_owner._fog_tileset)
-	return chunk
+	return true
 
 func _finalize_chunk_install(coord: Vector2i, z_level: int, chunk: Chunk) -> void:
 	_owner._finalize_chunk_install(coord, z_level, chunk)
+
+func _finalize_chunk_install_stage(coord: Vector2i, z_level: int, chunk: Chunk, stage: StringName) -> bool:
+	return _owner._finalize_chunk_install_stage(coord, z_level, chunk, stage)
 
 func _make_visual_task_key(coord: Vector2i, z_level: int, kind: int) -> Vector4i:
 	return _owner._make_visual_task_key(coord, z_level, kind)
@@ -523,6 +550,8 @@ func clear_runtime_state() -> void:
 	staged_flora_result = null
 	staged_flora_payload = {}
 	staged_install_entry = {}
+	staged_finalize_phase = FINALIZE_PHASE_PAYLOAD_ATTACH
+	staged_finalize_started_usec = 0
 	for task_variant: Variant in gen_active_tasks.values():
 		WorkerThreadPool.wait_for_task_completion(int(task_variant))
 	gen_active_tasks.clear()
@@ -596,49 +625,24 @@ func update_chunks(center: Vector2i) -> void:
 	_sync_loaded_chunk_display_positions(canonical_center)
 
 func process_load_queue() -> void:
-	var active_z: int = _active_z()
-	var loads_per_frame: int = 1
-	if WorldGenerator and WorldGenerator.balance:
-		loads_per_frame = WorldGenerator.balance.chunk_loads_per_frame
-	var loaded_count: int = 0
-	while not load_queue.is_empty() and loaded_count < loads_per_frame:
-		var request: Dictionary = _pop_next_load_request_for_capacity()
-		if request.is_empty():
-			break
-		var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
-		var request_z: int = int(request.get("z", active_z))
-		if request_z != active_z:
-			continue
-		var load_radius: int = WorldGenerator.balance.load_radius
-		if not _is_chunk_within_radius(coord, _player_chunk(), load_radius):
-			continue
-		load_chunk_for_z(coord, request_z)
-		loaded_count += 1
+	tick_loading()
 
 func load_chunk(coord: Vector2i) -> void:
 	load_chunk_for_z(_canonical_chunk_coord(coord), _active_z())
 
 func load_chunk_for_z(coord: Vector2i, z_level: int) -> void:
 	coord = _canonical_chunk_coord(coord)
-	var started_usec: int = WorldPerfProbe.begin()
 	var loaded_chunks_for_z: Dictionary = _get_loaded_chunks_for_z(z_level)
 	if loaded_chunks_for_z.has(coord) or not _has_runtime_tilesets():
 		return
-	var native_data: Dictionary = {}
-	if z_level != 0:
-		native_data = _generate_solid_rock_chunk()
-	else:
-		if not _try_get_surface_payload_cache_native_data(coord, z_level, native_data):
-			native_data = _build_surface_chunk_native_data(coord)
-			_cache_surface_chunk_payload(coord, z_level, native_data)
-	var install_entry: Dictionary = prepare_chunk_install_entry(coord, z_level, native_data)
-	if install_entry.is_empty():
+	if z_level == 0:
+		_owner._block_legacy_chunk_runtime_fallback(coord, z_level, "sync_surface_load_forbidden")
 		return
-	var chunk: Chunk = create_chunk_from_install_entry(install_entry)
-	if chunk == null:
+	if _has_load_request(coord, z_level) \
+		or _is_staged_request(coord, z_level) \
+		or _is_generating_request(coord, z_level):
 		return
-	_finalize_chunk_install(coord, z_level, chunk)
-	WorldPerfProbe.end("ChunkManager._load_chunk %s" % [coord], started_usec)
+	enqueue_load_request(coord, z_level)
 
 func unload_chunk(coord: Vector2i) -> void:
 	var active_z: int = _active_z()
@@ -713,7 +717,8 @@ func tick_loading() -> bool:
 		prune_load_queue(player_chunk, active_z, load_radius)
 	collect_completed_runtime_generates(load_radius)
 	if staged_chunk != null:
-		if not _is_coord_relevant_now(staged_coord, staged_z, load_radius):
+		if staged_finalize_phase <= FINALIZE_PHASE_SCENE_ATTACH \
+			and not _is_coord_relevant_now(staged_coord, staged_z, load_radius):
 			clear_staged_request()
 			return has_streaming_work()
 		staged_loading_finalize()
@@ -1043,6 +1048,8 @@ func stage_prepared_chunk_install(
 	staged_data = native_data
 	staged_flora_result = install_entry.get("flora_result", prepared_flora_result) as ChunkFloraResultScript
 	staged_flora_payload = install_entry.get("flora_payload", prepared_flora_payload) as Dictionary
+	staged_finalize_phase = FINALIZE_PHASE_PAYLOAD_ATTACH
+	staged_finalize_started_usec = 0
 	install_entry["staged_usec"] = Time.get_ticks_usec()
 	staged_install_entry = install_entry
 	_debug_emit_chunk_event(
@@ -1097,26 +1104,77 @@ func staged_loading_create() -> void:
 		staged_z = 0
 		staged_install_entry = {}
 		return
-	var chunk: Chunk = create_chunk_from_install_entry(install_entry)
+	var shell_started_usec: int = WorldPerfProbe.begin()
+	var chunk: Chunk = create_chunk_from_install_entry(install_entry, false)
+	WorldPerfProbe.end("ChunkStreaming.phase2_finalize.shell %s" % [coord], shell_started_usec)
 	if chunk == null:
 		staged_coord = Vector2i(999999, 999999)
 		staged_z = 0
 		staged_install_entry = {}
 		return
-	staged_install_entry = {}
 	staged_chunk = chunk
+	staged_finalize_phase = FINALIZE_PHASE_PAYLOAD_ATTACH
+	staged_finalize_started_usec = 0
 	WorldPerfProbe.end("ChunkStreaming.phase1_create %s" % [coord], started_usec)
 
-func staged_loading_finalize() -> void:
-	var total_usec: int = WorldPerfProbe.begin()
-	var chunk: Chunk = staged_chunk
-	var coord: Vector2i = staged_coord
-	var z_level: int = staged_z
+func _finalize_phase_name(phase: int) -> StringName:
+	match phase:
+		FINALIZE_PHASE_PAYLOAD_ATTACH:
+			return &"payload_attach"
+		FINALIZE_PHASE_SCENE_ATTACH:
+			return &"scene_attach"
+		FINALIZE_PHASE_VISUAL_ENQUEUE:
+			return &"visual_enqueue"
+		FINALIZE_PHASE_TOPOLOGY_HANDOFF:
+			return &"topology"
+		FINALIZE_PHASE_SEAM_EVENTBUS:
+			return &"eventbus"
+		FINALIZE_PHASE_PUBLISH_GATE:
+			return &"visibility"
+		_:
+			return &"done"
+
+func _finish_staged_finalize() -> void:
+	if staged_finalize_started_usec > 0:
+		WorldPerfProbe.end("ChunkStreaming.phase2_finalize %s" % [staged_coord], staged_finalize_started_usec)
 	staged_chunk = null
 	staged_coord = Vector2i(999999, 999999)
 	staged_z = 0
-	_finalize_chunk_install(coord, z_level, chunk)
-	WorldPerfProbe.end("ChunkStreaming.phase2_finalize %s" % [coord], total_usec)
+	staged_install_entry = {}
+	staged_finalize_phase = FINALIZE_PHASE_PAYLOAD_ATTACH
+	staged_finalize_started_usec = 0
+
+func _abort_staged_finalize() -> void:
+	if staged_finalize_started_usec > 0:
+		WorldPerfProbe.end("ChunkStreaming.phase2_finalize_aborted %s" % [staged_coord], staged_finalize_started_usec)
+	clear_staged_request()
+
+func staged_loading_finalize() -> void:
+	var chunk: Chunk = staged_chunk
+	var coord: Vector2i = staged_coord
+	var z_level: int = staged_z
+	if chunk == null or not is_instance_valid(chunk):
+		_abort_staged_finalize()
+		return
+	if staged_finalize_started_usec <= 0:
+		staged_finalize_started_usec = WorldPerfProbe.begin()
+	var phase: int = staged_finalize_phase
+	var phase_name: StringName = _finalize_phase_name(phase)
+	var step_started_usec: int = WorldPerfProbe.begin()
+	var should_continue: bool = true
+	if phase == FINALIZE_PHASE_PAYLOAD_ATTACH:
+		should_continue = attach_chunk_payload_from_install_entry(chunk, staged_install_entry)
+		if should_continue:
+			staged_install_entry = {}
+	else:
+		should_continue = _finalize_chunk_install_stage(coord, z_level, chunk, phase_name)
+	WorldPerfProbe.end("ChunkStreaming.phase2_finalize.%s %s" % [String(phase_name), coord], step_started_usec)
+	if not should_continue:
+		_abort_staged_finalize()
+		return
+	staged_finalize_phase += 1
+	if staged_finalize_phase >= FINALIZE_PHASE_DONE:
+		_finish_staged_finalize()
 
 func clear_staged_request() -> void:
 	if staged_chunk != null:
@@ -1128,3 +1186,5 @@ func clear_staged_request() -> void:
 	staged_flora_result = null
 	staged_flora_payload = {}
 	staged_install_entry = {}
+	staged_finalize_phase = FINALIZE_PHASE_PAYLOAD_ATTACH
+	staged_finalize_started_usec = 0

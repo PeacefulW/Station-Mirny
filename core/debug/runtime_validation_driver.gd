@@ -174,6 +174,7 @@ func _process(delta: float) -> void:
 		get_tree().quit(1)
 		return
 	if _target_index >= _targets.size():
+		_set_validation_player_velocity(Vector2.ZERO)
 		_tail_frames_remaining = TAIL_SETTLE_FRAMES
 		_topology_wait_frames_remaining = -1
 		_catch_up_status_frames_remaining = -1
@@ -193,12 +194,15 @@ func _process(delta: float) -> void:
 		])
 	var target: Vector2 = _targets[_target_index]
 	var display_target: Vector2 = _resolve_route_display_target(target)
+	var move_direction: Vector2 = _player.global_position.direction_to(display_target)
+	_set_validation_player_velocity(move_direction * MOVE_SPEED_PX_PER_SEC)
 	_player.global_position = _player.global_position.move_toward(
 		display_target,
 		MOVE_SPEED_PX_PER_SEC * delta
 	)
 	if _player.global_position.distance_to(display_target) <= ARRIVE_DISTANCE_PX:
 		_player.global_position = _canonicalize_world_position(target)
+		_set_validation_player_velocity(Vector2.ZERO)
 		print("[CodexValidation] reached waypoint %d/%d at %s" % [
 			_target_index + 1,
 			_targets.size(),
@@ -293,6 +297,10 @@ func _resolve_route_display_target(canonical_target: Vector2) -> Vector2:
 		return canonical_target
 	return WorldGenerator.get_display_world_position(canonical_target, _player.global_position)
 
+func _set_validation_player_velocity(velocity: Vector2) -> void:
+	if _player is CharacterBody2D:
+		(_player as CharacterBody2D).velocity = velocity
+
 func _canonicalize_world_position(world_pos: Vector2) -> Vector2:
 	if WorldGenerator == null:
 		return world_pos
@@ -307,13 +315,12 @@ func _is_runtime_caught_up() -> bool:
 func _is_streaming_truth_caught_up() -> bool:
 	if _chunk_manager == null:
 		return true
-	if _get_variant_size(_chunk_manager.get("_load_queue")) > 0:
-		return false
-	if _chunk_manager.get("_staged_chunk") != null:
-		return false
-	if _get_variant_size(_chunk_manager.get("_staged_data")) > 0:
-		return false
-	return int(_chunk_manager.get("_gen_task_id")) < 0
+	if _chunk_manager.has_method("_has_streaming_work"):
+		return not _variant_to_bool(_chunk_manager.call("_has_streaming_work"))
+	return _get_chunk_manager_array_size("_load_queue") <= 0 \
+		and not _has_chunk_manager_object("_staged_chunk") \
+		and _get_chunk_manager_array_size("_staged_data") <= 0 \
+		and _get_chunk_manager_int("_gen_task_id", -1) < 0
 
 func _has_redraw_backlog() -> bool:
 	return _chunk_manager != null and _get_variant_size(_chunk_manager.get("_redrawing_chunks")) > 0
@@ -323,16 +330,16 @@ func _build_catch_up_signature() -> String:
 		return "chunk_manager=missing"
 	return "%s|%d|%d|%s|%d|%d|%s|%s|%s|%s|%s" % [
 		_describe_catch_up_blocker(),
-		_get_variant_size(_chunk_manager.get("_load_queue")),
+		_get_chunk_manager_array_size("_load_queue"),
 		_get_variant_size(_chunk_manager.get("_redrawing_chunks")),
-		"yes" if _chunk_manager.get("_staged_chunk") != null else "no",
-		_get_variant_size(_chunk_manager.get("_staged_data")),
-		int(_chunk_manager.get("_gen_task_id")),
+		"yes" if _has_chunk_manager_object("_staged_chunk") else "no",
+		_get_chunk_manager_array_size("_staged_data"),
+		_get_chunk_manager_int("_gen_task_id", -1),
 		str(_is_topology_caught_up()),
-		str(bool(_chunk_manager.get("_native_topology_active"))),
-		str(bool(_chunk_manager.get("_native_topology_dirty"))),
-		str(bool(_chunk_manager.get("_is_topology_dirty"))),
-		str(bool(_chunk_manager.get("_is_topology_build_in_progress"))),
+		str(_get_chunk_manager_bool("_native_topology_active")),
+		str(_get_chunk_manager_bool("_native_topology_dirty")),
+		str(_get_chunk_manager_bool("_is_topology_dirty")),
+		str(_get_chunk_manager_bool("_is_topology_build_in_progress")),
 	]
 
 func _describe_catch_up_blocker() -> String:
@@ -350,28 +357,26 @@ func _describe_chunk_manager_catch_up_state() -> String:
 	var streaming_truth_idle: bool = _is_streaming_truth_caught_up()
 	var topology_ready: bool = _is_topology_caught_up()
 	var load_queue_preview: Array[String] = []
-	var load_queue: Array = _chunk_manager.get("_load_queue") as Array
+	var load_queue: Array = _get_chunk_manager_array("_load_queue")
 	for request_variant: Variant in load_queue.slice(0, mini(3, load_queue.size())):
 		var request: Dictionary = request_variant as Dictionary
 		load_queue_preview.append(str(request.get("coord", Vector2i.ZERO)))
-	var gen_coord: Vector2i = _chunk_manager.get("_gen_coord") as Vector2i
-	if gen_coord == null:
-		gen_coord = Vector2i(999999, 999999)
+	var gen_coord: Vector2i = _get_chunk_manager_coord("_gen_coord")
 	return "streaming_truth_idle=%s redraw_idle=%s load_queue=%d load_queue_preview=%s redraw=%d staged_chunk=%s staged_data=%d gen_task_id=%d gen_coord=%s topology_ready=%s native_topology=%s native_dirty=%s dirty=%s build_in_progress=%s" % [
 		streaming_truth_idle,
 		not _has_redraw_backlog(),
-		_get_variant_size(_chunk_manager.get("_load_queue")),
+		_get_chunk_manager_array_size("_load_queue"),
 		str(load_queue_preview),
 		_get_variant_size(_chunk_manager.get("_redrawing_chunks")),
-		"yes" if _chunk_manager.get("_staged_chunk") != null else "no",
-		_get_variant_size(_chunk_manager.get("_staged_data")),
-		int(_chunk_manager.get("_gen_task_id")),
+		"yes" if _has_chunk_manager_object("_staged_chunk") else "no",
+		_get_chunk_manager_array_size("_staged_data"),
+		_get_chunk_manager_int("_gen_task_id", -1),
 		str(gen_coord),
 		topology_ready,
-		bool(_chunk_manager.get("_native_topology_active")),
-		bool(_chunk_manager.get("_native_topology_dirty")),
-		bool(_chunk_manager.get("_is_topology_dirty")),
-		bool(_chunk_manager.get("_is_topology_build_in_progress")),
+		_get_chunk_manager_bool("_native_topology_active"),
+		_get_chunk_manager_bool("_native_topology_dirty"),
+		_get_chunk_manager_bool("_is_topology_dirty"),
+		_get_chunk_manager_bool("_is_topology_build_in_progress"),
 	]
 
 func _emit_validation_wait_status(blocker: String, stalled_intervals: int = -1) -> void:
@@ -490,16 +495,16 @@ func _build_validation_snapshot(blocker: String) -> Dictionary:
 		"load_queue": _get_chunk_manager_array_size("_load_queue"),
 		"load_queue_preview": ",".join(load_queue_preview) if not load_queue_preview.is_empty() else "-",
 		"redraw_backlog": _get_chunk_manager_array_size("_redrawing_chunks"),
-		"staged_chunk": _chunk_manager != null and _chunk_manager.get("_staged_chunk") != null,
+		"staged_chunk": _has_chunk_manager_object("_staged_chunk"),
 		"staged_coord": _get_chunk_manager_coord("_staged_coord"),
 		"staged_data": _get_chunk_manager_array_size("_staged_data"),
-		"gen_task_id": -1 if _chunk_manager == null else int(_chunk_manager.get("_gen_task_id")),
+		"gen_task_id": _get_chunk_manager_int("_gen_task_id", -1),
 		"gen_coord": _get_chunk_manager_coord("_gen_coord"),
 		"topology_ready": _is_topology_caught_up(),
-		"native_topology": _chunk_manager != null and bool(_chunk_manager.get("_native_topology_active")),
-		"native_dirty": _chunk_manager != null and bool(_chunk_manager.get("_native_topology_dirty")),
-		"topology_dirty": _chunk_manager != null and bool(_chunk_manager.get("_is_topology_dirty")),
-		"topology_build_in_progress": _chunk_manager != null and bool(_chunk_manager.get("_is_topology_build_in_progress")),
+		"native_topology": _get_chunk_manager_bool("_native_topology_active"),
+		"native_dirty": _get_chunk_manager_bool("_native_topology_dirty"),
+		"topology_dirty": _get_chunk_manager_bool("_is_topology_dirty"),
+		"topology_build_in_progress": _get_chunk_manager_bool("_is_topology_build_in_progress"),
 	}
 
 func _build_validation_detail_fields(
@@ -514,20 +519,20 @@ func _build_validation_detail_fields(
 		"gen_task_id": int(snapshot.get("gen_task_id", -1)),
 		"load_queue": int(snapshot.get("load_queue", 0)),
 		"load_queue_preview": str(snapshot.get("load_queue_preview", "-")),
-		"native_dirty": bool(snapshot.get("native_dirty", false)),
-		"native_topology": bool(snapshot.get("native_topology", false)),
+		"native_dirty": _get_snapshot_bool(snapshot, "native_dirty"),
+		"native_topology": _get_snapshot_bool(snapshot, "native_topology"),
 		"player_chunk": _format_chunk_coord(_get_snapshot_chunk_coord(snapshot, "player_chunk")),
 		"reached_waypoints": "%d/%d" % [_target_index, _targets.size()],
 		"redraw_backlog": int(snapshot.get("redraw_backlog", 0)),
 		"route": String(_route_preset_name),
 		"scope": str(snapshot.get("target_scope", "player_chunk")),
-		"staged_chunk": bool(snapshot.get("staged_chunk", false)),
+		"staged_chunk": _get_snapshot_bool(snapshot, "staged_chunk"),
 		"staged_coord": _format_chunk_coord(_get_snapshot_chunk_coord(snapshot, "staged_coord")),
 		"staged_data": int(snapshot.get("staged_data", 0)),
 		"target_chunk": _format_chunk_coord(_get_snapshot_chunk_coord(snapshot, "target_chunk")),
-		"topology_build_in_progress": bool(snapshot.get("topology_build_in_progress", false)),
-		"topology_dirty": bool(snapshot.get("topology_dirty", false)),
-		"topology_ready": bool(snapshot.get("topology_ready", false)),
+		"topology_build_in_progress": _get_snapshot_bool(snapshot, "topology_build_in_progress"),
+		"topology_dirty": _get_snapshot_bool(snapshot, "topology_dirty"),
+		"topology_ready": _get_snapshot_bool(snapshot, "topology_ready"),
 	}
 	if stalled_intervals >= 0:
 		detail_fields["stalled_intervals"] = stalled_intervals
@@ -620,7 +625,7 @@ func _resolve_streaming_target_chunk(player_chunk: Vector2i) -> Vector2i:
 	for request_coord: Vector2i in _get_load_queue_coords():
 		candidate_coords.append(request_coord)
 	_append_candidate_coord(candidate_coords, _get_chunk_manager_coord("_staged_coord"))
-	if _chunk_manager != null and int(_chunk_manager.get("_gen_task_id")) >= 0:
+	if _get_chunk_manager_int("_gen_task_id", -1) >= 0:
 		_append_candidate_coord(candidate_coords, _get_chunk_manager_coord("_gen_coord"))
 	return _pick_nearest_chunk_coord(candidate_coords, player_chunk)
 
@@ -651,7 +656,7 @@ func _get_load_queue_coords() -> Array[Vector2i]:
 	var coords: Array[Vector2i] = []
 	if _chunk_manager == null:
 		return coords
-	var load_queue_variant: Variant = _chunk_manager.get("_load_queue")
+	var load_queue_variant: Variant = _get_chunk_manager_value("_load_queue")
 	if load_queue_variant is Array:
 		for request_variant: Variant in load_queue_variant:
 			var request: Dictionary = request_variant as Dictionary
@@ -684,7 +689,7 @@ func _is_valid_chunk_coord(coord: Vector2i) -> bool:
 func _get_chunk_manager_coord(field_name: String) -> Vector2i:
 	if _chunk_manager == null:
 		return INVALID_CHUNK_COORD
-	var value: Variant = _chunk_manager.get(field_name)
+	var value: Variant = _get_chunk_manager_value(field_name)
 	if value is Vector2i:
 		return value as Vector2i
 	return INVALID_CHUNK_COORD
@@ -692,8 +697,64 @@ func _get_chunk_manager_coord(field_name: String) -> Vector2i:
 func _get_chunk_manager_array_size(field_name: String) -> int:
 	if _chunk_manager == null:
 		return 0
-	var value: Variant = _chunk_manager.get(field_name)
+	var value: Variant = _get_chunk_manager_value(field_name)
 	return _get_variant_size(value)
+
+func _get_chunk_manager_array(field_name: String) -> Array:
+	if _chunk_manager == null:
+		return []
+	var value: Variant = _get_chunk_manager_value(field_name)
+	if value is Array:
+		return value as Array
+	return []
+
+func _get_chunk_manager_int(field_name: String, fallback: int = 0) -> int:
+	if _chunk_manager == null:
+		return fallback
+	var value: Variant = _get_chunk_manager_value(field_name)
+	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+		return int(value)
+	return fallback
+
+func _get_chunk_manager_bool(field_name: String, fallback: bool = false) -> bool:
+	if _chunk_manager == null:
+		return fallback
+	return _variant_to_bool(_get_chunk_manager_value(field_name), fallback)
+
+func _get_snapshot_bool(snapshot: Dictionary, field_name: String, fallback: bool = false) -> bool:
+	return _variant_to_bool(snapshot.get(field_name, fallback), fallback)
+
+func _variant_to_bool(value: Variant, fallback: bool = false) -> bool:
+	match typeof(value):
+		TYPE_BOOL:
+			return value
+		TYPE_INT:
+			return int(value) != 0
+		TYPE_FLOAT:
+			return not is_zero_approx(float(value))
+		_:
+			return fallback
+
+func _has_chunk_manager_object(field_name: String) -> bool:
+	return _chunk_manager != null and _get_chunk_manager_value(field_name) != null
+
+func _get_chunk_manager_value(field_name: String) -> Variant:
+	var streaming_service: Variant = _chunk_manager.get("_chunk_streaming_service") if _chunk_manager != null else null
+	match field_name:
+		"_load_queue":
+			return streaming_service.get("load_queue") if streaming_service != null else _chunk_manager.get(field_name)
+		"_staged_chunk":
+			return streaming_service.get("staged_chunk") if streaming_service != null else _chunk_manager.get(field_name)
+		"_staged_coord":
+			return streaming_service.get("staged_coord") if streaming_service != null else _chunk_manager.get(field_name)
+		"_staged_data":
+			return streaming_service.get("staged_data") if streaming_service != null else _chunk_manager.get(field_name)
+		"_gen_task_id":
+			return streaming_service.get("gen_task_id") if streaming_service != null else _chunk_manager.get(field_name)
+		"_gen_coord":
+			return streaming_service.get("gen_coord") if streaming_service != null else _chunk_manager.get(field_name)
+		_:
+			return _chunk_manager.get(field_name)
 
 func _get_snapshot_chunk_coord(snapshot: Dictionary, field_name: String) -> Vector2i:
 	var value: Variant = snapshot.get(field_name, INVALID_CHUNK_COORD)
@@ -864,7 +925,7 @@ func _process_power_validation() -> void:
 			if not is_equal_approx(_power_system.total_supply, float(_power_case.get("baseline_supply", 0.0))):
 				_fail_validation("power supply did not return to baseline after validation battery removal")
 				return
-			if _life_support.is_powered() != bool(_power_case.get("baseline_powered", false)):
+			if _life_support.is_powered() != _variant_to_bool(_power_case.get("baseline_powered", false)):
 				_fail_validation("life support power state did not return to baseline after battery removal")
 				return
 			print("[CodexValidation] power validation complete")
@@ -900,13 +961,13 @@ func _place_validation_building(building_id: String, tile_pos: Vector2i) -> bool
 		return false
 	_building_system.set_selected_building(building_data)
 	var result: Dictionary = _building_system.place_selected_building_at(_building_system.grid_to_world(tile_pos))
-	return bool(result.get("success", false))
+	return _variant_to_bool(result.get("success", false))
 
 func _remove_validation_building(tile_pos: Vector2i) -> bool:
 	if not _building_system:
 		return false
 	var result: Dictionary = _building_system.remove_building_at(_building_system.grid_to_world(tile_pos))
-	return bool(result.get("success", false))
+	return _variant_to_bool(result.get("success", false))
 
 func _destroy_validation_building(tile_pos: Vector2i) -> bool:
 	if not _building_system or not _building_system.has_building_at(tile_pos):

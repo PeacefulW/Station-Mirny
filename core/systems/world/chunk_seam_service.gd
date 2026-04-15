@@ -25,9 +25,6 @@ func _border_dirty_tiles_for_edge(chunk_size: int, edge_dir: Vector2i) -> Dictio
 func _ensure_chunk_border_fix_task(chunk: Chunk, z_level: int, invalidate: bool = false) -> void:
 	_owner._ensure_chunk_border_fix_task(chunk, z_level, invalidate)
 
-func _try_complete_visible_border_fix_inline(chunk: Chunk, z_level: int) -> bool:
-	return _owner._try_complete_visible_border_fix_inline(chunk, z_level)
-
 func _append_unique_chunk_coord(coords: Array[Vector2i], coord: Vector2i) -> void:
 	_owner._append_unique_chunk_coord(coords, coord)
 
@@ -75,15 +72,13 @@ func enqueue_neighbor_border_redraws(coord: Vector2i) -> void:
 		if not neighbor_chunk.is_first_pass_ready():
 			continue
 		if neighbor_chunk.enqueue_dirty_border_redraw(neighbor_dirty_tiles, reason_key, source_version):
-			if not _try_complete_visible_border_fix_inline(neighbor_chunk, active_z):
-				_ensure_chunk_border_fix_task(neighbor_chunk, active_z, true)
-				_append_unique_chunk_coord(queued_coords, neighbor_coord)
+			_ensure_chunk_border_fix_task(neighbor_chunk, active_z, true)
+			_append_unique_chunk_coord(queued_coords, neighbor_coord)
 	source_chunk._mark_cover_edge_set_dirty_tiles(source_dirty_tiles)
 	if source_chunk.is_first_pass_ready() \
 		and source_chunk.enqueue_dirty_border_redraw(source_dirty_tiles, reason_key, source_version):
-		if not _try_complete_visible_border_fix_inline(source_chunk, active_z):
-			_ensure_chunk_border_fix_task(source_chunk, active_z, true)
-			_append_unique_chunk_coord(queued_coords, coord)
+		_ensure_chunk_border_fix_task(source_chunk, active_z, true)
+		_append_unique_chunk_coord(queued_coords, coord)
 	if not queued_coords.is_empty():
 		var follow_up_terms: Array[String] = ["border_fix"]
 		_emit_border_fix_queue_diag(
@@ -162,15 +157,14 @@ func _apply_refresh_tile(tile_pos: Vector2i) -> void:
 				cross_dirty[seam_tile] = true
 	if not cross_dirty.is_empty() \
 		and neighbor_chunk.enqueue_dirty_border_redraw(cross_dirty, reason_key, reason_version):
-		if not _try_complete_visible_border_fix_inline(neighbor_chunk, active_z):
-			_ensure_chunk_border_fix_task(neighbor_chunk, active_z, true)
-			var queued_coords: Array[Vector2i] = [neighbor_chunk.chunk_coord]
-			var follow_up_terms: Array[String] = ["local_patch", "border_fix"]
-			_emit_border_fix_queue_diag(
+		_ensure_chunk_border_fix_task(neighbor_chunk, active_z, true)
+		var queued_coords: Array[Vector2i] = [neighbor_chunk.chunk_coord]
+		var follow_up_terms: Array[String] = ["local_patch", "border_fix"]
+		_emit_border_fix_queue_diag(
 				&"seam_mining_async",
 				neighbor_chunk.chunk_coord,
 				queued_coords,
 				"добыча на шве изменила открытую границу, поэтому соседнему чанку нужна последующая перерисовка",
-				follow_up_terms,
-				tile_pos
-			)
+			follow_up_terms,
+			tile_pos
+		)

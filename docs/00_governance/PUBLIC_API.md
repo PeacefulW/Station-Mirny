@@ -205,7 +205,7 @@ related_docs:
 - Пример вызова: `chunk_manager.sync_display_to_player()`
 
 Примечание: public per-chunk `load/unload` request API в scope сейчас нет. Runtime streaming paths остаются internal.
-После R4 frontier planning runtime streaming internals route through `TravelStateResolver`, `ViewEnvelopeResolver`, `FrontierPlanner`, `FrontierScheduler`, and lane-owned queues inside `ChunkStreamingService`; `ChunkManager` остаётся world-facing facade и final install entry facade. Frontier-critical work has a reserved worker slot, and callers must not submit gameplay load/unload requests directly into those internal lanes.
+После R4 frontier planning runtime streaming internals route through `TravelStateResolver`, `ViewEnvelopeResolver`, `FrontierPlanner`, `FrontierScheduler`, and lane-owned queues inside `ChunkStreamingService`; `ChunkManager` остаётся world-facing facade и final install entry facade. Gameplay runtime scope is the fixed `3x3` hot / `5x5` warm player-centered envelope plus motion frontier; raw debug camera/zoom is diagnostic-only and must not widen streaming scope. Frontier-critical work has a reserved worker slot, and callers must not submit gameplay load/unload requests directly into those internal lanes.
 После Iteration 9 visual scheduler state routed through internal `ChunkVisualScheduler`, surface payload reuse through internal `ChunkSurfacePayloadCache`, seam/border follow-up ownership through internal `ChunkSeamService`, boot readiness/compute ownership through internal `ChunkBootPipeline`, and topology runtime ownership through internal `ChunkTopologyService`. These services are not public gameplay APIs; callers still use the `ChunkManager` entrypoints listed here.
 
 ### Чтение
@@ -289,11 +289,11 @@ related_docs:
 
 | Метод | Почему нельзя вызывать напрямую |
 |-------|-------------------------------|
-| `ChunkManager._load_chunk(coord: Vector2i) -> void` | Internal streaming primitive for current active z only. |
-| `ChunkManager._load_chunk_for_z(coord: Vector2i, z_level: int) -> void` | Thin facade over `ChunkStreamingService.load_chunk_for_z()` + final install commit. Нельзя дёргать как ad-hoc API. |
+| `ChunkManager._load_chunk(coord: Vector2i) -> void` | Legacy internal primitive for current active z only. Surface runtime calls are hard-blocked; normal runtime loading must enter `ChunkStreamingService.update_chunks()` / `tick_loading()` queues. |
+| `ChunkManager._load_chunk_for_z(coord: Vector2i, z_level: int) -> void` | Legacy facade over `ChunkStreamingService.load_chunk_for_z()`. It no longer performs synchronous native-data build, chunk creation, or final install; player-reachable surface runtime (`z_level == 0`) is forbidden here and must use async generate -> staged create -> staged finalize -> visual scheduler. Нельзя дёргать как ad-hoc API. |
 | `ChunkManager._unload_chunk(coord: Vector2i) -> void` | Thin facade over `ChunkStreamingService.unload_chunk()`; internal unload/save boundary с dirty diff save + topology invalidation. |
 | `TravelStateResolver.resolve(...) -> Dictionary` | Internal runtime planning input. Не gameplay API для движения, транспорта или prediction tuning. |
-| `ViewEnvelopeResolver.resolve(...) -> Dictionary` | Internal camera envelope derivation for streaming. Callers must not use it as visibility/gameplay truth. |
+| `ViewEnvelopeResolver.resolve(...) -> Dictionary` | Internal fixed gameplay hot/warm envelope derivation for streaming, with raw camera envelope retained only as debug diagnostics. Callers must not use it as visibility/gameplay truth or widen runtime scope from debug zoom. |
 | `FrontierPlanner.build_plan(...) -> Dictionary` | Internal active-z streaming plan. Нельзя использовать как external load request или readiness guarantee. |
 | `FrontierScheduler.resolve_lane_for_coord(...)` / `FrontierScheduler.build_capacity_snapshot(...)` | Internal lane classification and reservation policy. Bypassing it can starve frontier-critical work. |
 | `ChunkStreamingService.update_chunks()`, `enqueue_load_request()`, `tick_loading()`, `submit_async_generate()`, `collect_completed_runtime_generates()` | Internal streaming scheduler and worker handoff. Эти методы исполняют owner-owned runtime queues; caller-facing per-chunk load/unload API intentionally absent. |
@@ -462,20 +462,20 @@ related_docs:
 
 `ChunkManager.try_harvest_at_world(world_pos: Vector2) -> Dictionary`
 - Когда вызывать: когда mining должен сразу зафиксировать authoritative terrain mutation и передать локальный/seam visual repair в sanctioned runtime path без прямого обхода scheduler owner.
-- Что делает: выполняет sanctioned local terrain mutation, same-chunk neighbor normalization и downstream topology/event invalidation, затем переводит affected chunks в non-terminal convergence state и ставит explicit follow-up work через scheduler-owned `TASK_FULL_REDRAW` / `TASK_BORDER_FIX` для local patch repair, seam repair и terminal full-ready reconciliation.
-- Гарантии: соблюдает `Postconditions: mine tile` и current `Wall Atlas Selection` contract. Interactive path не форсит synchronous border-fix completion; terminal `FULL_READY` восстанавливается только через owner-controlled queued convergence work.
+- Что делает: выполняет sanctioned local terrain mutation, same-chunk neighbor normalization и downstream topology/event invalidation, затем ставит explicit follow-up work через scheduler-owned `TASK_FULL_REDRAW` / `TASK_BORDER_FIX` для local patch repair, seam repair и terminal full-ready reconciliation.
+- Гарантии: соблюдает `Postconditions: mine tile` и current `Wall Atlas Selection` contract. Interactive path не форсит synchronous border-fix completion, including player-near micro relief; terminal `FULL_READY` for local-or-seam debt восстанавливается через owner-controlled queued convergence work.
 - Пример вызова: `var result := chunk_manager.try_harvest_at_world(hit_world_pos)`
 
 `MountainShadowSystem.prepare_boot_shadows(progress_callback: Callable) -> void`
 - Когда вызывать: только если осознанно нужен blocking/progress-callback shadow bootstrap.
-- Что делает: строит edge cache и shadow sprites для текущих loaded mountain chunks с прогресс-коллбеком.
-- Гарантии: presentation-only; canonical terrain и topology не меняются. Runtime calls after `Boot.first_playable` are diagnostic warnings because this API intentionally blocks; normal runtime must use the budgeted `schedule_boot_shadows()` / `_tick_shadows()` path.
+- Что делает: строит edge cache и shadow sprites для текущих loaded mountain chunks с прогресс-коллбеком через native `MountainShadowKernels`.
+- Гарантии: presentation-only; canonical terrain и topology не меняются. Full edge-cache и shadow raster compute require native `MountainShadowKernels` and fail closed if the native class is unavailable; there is no GDScript full-scan/raster compatibility path. Runtime calls after `Boot.first_playable` are diagnostic warnings because this API intentionally blocks; normal runtime must use the budgeted `schedule_boot_shadows()` / `_tick_shadows()` path.
 - Пример вызова: `_mountain_shadow_system.prepare_boot_shadows(_on_boot_progress)`
 
 `MountainShadowSystem.build_boot_shadows() -> void`
 - Когда вызывать: только если осознанно нужен synchronous boot shadow build без progress callback.
-- Что делает: immediately builds edge cache и shadow sprites для current loaded surface chunks.
-- Гарантии: presentation-only; same shadow contract as `prepare_boot_shadows()`. Runtime calls after `Boot.first_playable` are diagnostic warnings because this API intentionally blocks; normal runtime must use the budgeted `schedule_boot_shadows()` / `_tick_shadows()` path.
+- Что делает: immediately builds edge cache и shadow sprites для current loaded surface chunks через native `MountainShadowKernels`.
+- Гарантии: presentation-only; same native-required shadow contract as `prepare_boot_shadows()`. Runtime calls after `Boot.first_playable` are diagnostic warnings because this API intentionally blocks; normal runtime must use the budgeted `schedule_boot_shadows()` / `_tick_shadows()` path.
 - Пример вызова: `_mountain_shadow_system.build_boot_shadows()`
 
 `Chunk.complete_redraw_now(include_flora: bool = false) -> void`  `(owner-only safe entrypoint)`
@@ -525,7 +525,7 @@ related_docs:
 | `Chunk._rock_visual_class(local_tile: Vector2i) -> Vector2i` | Underground presentation-only wall-form helper; не topology/read API. |
 | `MountainShadowSystem._mark_dirty(coord: Vector2i) -> void` | Internal invalidation queue helper. |
 | `MountainShadowSystem._update_edges_at(tile_pos: Vector2i) -> Array[Vector2i]` | Low-level shadow edge cache patch helper. Returns only the actually affected shadow target coords after the edge delta is patched. |
-| `MountainShadowSystem._start_shadow_build(coord: Vector2i) -> void` | Internal detached shadow-compute kickoff. Produces versioned pure-data job state only; renderer mutation stays in `_finalize_shadow_texture()` / `_finalize_shadow_apply()`. |
+| `MountainShadowSystem._start_shadow_build(coord: Vector2i) -> void` | Internal detached native shadow-compute kickoff through `MountainShadowKernels`. Produces versioned pure-data job state only; renderer mutation stays in `_finalize_shadow_texture()` / `_finalize_shadow_apply()`. |
 | `ChunkVisualScheduler.*` | Internal visual scheduler state owner. Not a gameplay or redraw API; external callers must not enqueue visual work or mutate scheduler queues directly. |
 | `ChunkSurfacePayloadCache.*` | Internal generated terminal surface packet reuse cache. It validates `frontier_surface_final_packet` payloads with `ChunkFinalPacket.validate_terminal_surface_packet()` on write/read, is not terrain truth, is not persistence API, and is not safe for external reads/writes. |
 | `ChunkSeamService.*` | Internal seam repair queue owner behind mining/streaming follow-up paths. External callers must not enqueue seam work directly; use `ChunkManager.try_harvest_at_world()` or lifecycle owner paths. |

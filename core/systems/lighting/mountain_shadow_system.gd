@@ -50,7 +50,7 @@ var _boot_shadow_completion_emitted: bool = false
 var _worker_task_serial: int = 0
 var _native_shadow_kernels_checked: bool = false
 var _native_shadow_kernels_available: bool = false
-var _native_shadow_kernel_instance_warning_emitted: bool = false
+var _native_shadow_kernel_error_emitted: bool = false
 var _sync_boot_shadow_runtime_warning_emitted: bool = false
 
 signal boot_shadow_work_drained
@@ -756,6 +756,8 @@ func _start_edge_cache_build(coord: Vector2i) -> void:
 	var request: Dictionary = _build_edge_cache_request(coord, chunk, version)
 	var task_key: String = _make_worker_task_key("edge", coord, version)
 	var kernels: RefCounted = _create_shadow_kernels()
+	if kernels == null:
+		return
 	var task_id: int = WorkerThreadPool.add_task(_worker_build_edge_cache.bind(task_key, request, kernels))
 	_active_edge_cache_build = {
 		"coord": coord,
@@ -835,6 +837,8 @@ func _start_shadow_build(coord: Vector2i) -> void:
 	var version: int = int(request.get("version", -1))
 	var task_key: String = _make_worker_task_key("shadow", coord, version)
 	var kernels: RefCounted = _create_shadow_kernels()
+	if kernels == null:
+		return
 	var task_id: int = WorkerThreadPool.add_task(_worker_build_shadow.bind(task_key, request, kernels))
 	_active_build = {
 		"phase": "compute",
@@ -1065,6 +1069,8 @@ func _run_edge_cache_request_blocking(request: Dictionary) -> Dictionary:
 	var version: int = int(request.get("version", -1))
 	var task_key: String = _make_worker_task_key("edge_sync", coord, version)
 	var kernels: RefCounted = _create_shadow_kernels()
+	if kernels == null:
+		return {}
 	var task_id: int = WorkerThreadPool.add_task(_worker_build_edge_cache.bind(task_key, request, kernels))
 	WorkerThreadPool.wait_for_task_completion(task_id)
 	return _take_edge_cache_worker_result(task_key)
@@ -1092,46 +1098,17 @@ func _compute_edge_cache_request(
 	var snapshot: PackedByteArray = request.get("terrain_snapshot", PackedByteArray()) as PackedByteArray
 	if snapshot.is_empty():
 		return {}
-	if kernels != null:
-		var native_edges_variant: Variant = kernels.call("compute_edge_cache", chunk_size, base_x, base_y, snapshot)
-		if typeof(native_edges_variant) == TYPE_ARRAY:
-			return {
-				"coord": coord,
-				"version": version,
-				"edges": native_edges_variant,
-				"compute_ms": float(Time.get_ticks_usec() - started_usec) / 1000.0,
-			}
-	var stride: int = chunk_size + 2
-	var edges: Array[Vector2i] = []
-	if chunk_size > 0 and snapshot.size() >= stride * stride:
-		for tile_index: int in range(chunk_size * chunk_size):
-			var local_x: int = tile_index % chunk_size
-			var local_y: int = tile_index / chunk_size
-			var center_idx: int = (local_y + 1) * stride + (local_x + 1)
-			if snapshot[center_idx] != TileGenData.TerrainType.ROCK:
-				continue
-			if _is_external_edge_in_snapshot(snapshot, stride, local_x, local_y):
-				edges.append(Vector2i(base_x + local_x, base_y + local_y))
+	if kernels == null:
+		return {}
+	var native_edges_variant: Variant = kernels.call("compute_edge_cache", chunk_size, base_x, base_y, snapshot)
+	if typeof(native_edges_variant) != TYPE_ARRAY:
+		return {}
 	return {
 		"coord": coord,
 		"version": version,
-		"edges": edges,
+		"edges": native_edges_variant,
 		"compute_ms": float(Time.get_ticks_usec() - started_usec) / 1000.0,
 	}
-
-static func _is_external_edge_in_snapshot(
-	terrain_snapshot: PackedByteArray,
-	stride: int,
-	local_x: int,
-	local_y: int
-) -> bool:
-	var center_x: int = local_x + 1
-	var center_y: int = local_y + 1
-	for dir: Vector2i in EDGE_NEIGHBOR_OFFSETS:
-		var idx: int = (center_y + dir.y) * stride + (center_x + dir.x)
-		if _is_shadow_open_terrain_value(terrain_snapshot[idx]):
-			return true
-	return false
 
 func _take_edge_cache_worker_result(task_key: String) -> Dictionary:
 	_edge_cache_compute_mutex.lock()
@@ -1203,6 +1180,8 @@ func _run_shadow_request_blocking(request: Dictionary) -> Dictionary:
 	var version: int = int(request.get("version", -1))
 	var task_key: String = _make_worker_task_key("shadow_sync", coord, version)
 	var kernels: RefCounted = _create_shadow_kernels()
+	if kernels == null:
+		return {}
 	var task_id: int = WorkerThreadPool.add_task(_worker_build_shadow.bind(task_key, request, kernels))
 	WorkerThreadPool.wait_for_task_completion(task_id)
 	return _take_shadow_worker_result(task_key)
@@ -1225,54 +1204,27 @@ func _compute_shadow_request(request: Dictionary, kernels: RefCounted = null) ->
 	var terrain_bytes: PackedByteArray = request.get("terrain_bytes", PackedByteArray())
 	var edges: Array = request.get("edges", []) as Array
 	var shadow_points: Array = request.get("shadow_points", []) as Array
-	if kernels != null:
-		var native_result_variant: Variant = kernels.call(
-			"rasterize_shadow_image",
-			chunk_size,
-			base_x,
-			base_y,
-			shadow_color,
-			max_intensity,
-			terrain_bytes,
-			edges,
-			shadow_points
-		)
-		if typeof(native_result_variant) == TYPE_DICTIONARY:
-			var native_result: Dictionary = native_result_variant as Dictionary
-			return {
-				"coord": coord,
-				"version": version,
-				"img": native_result.get("img"),
-				"has_pixels": bool(native_result.get("has_pixels", false)),
-				"compute_ms": float(Time.get_ticks_usec() - started_usec) / 1000.0,
-			}
-	var img: Image = Image.create(maxi(1, chunk_size), maxi(1, chunk_size), false, Image.FORMAT_RGBA8)
-	var has_pixels: bool = false
-	if chunk_size > 0:
-		for edge_variant: Variant in edges:
-			var edge_global: Vector2i = edge_variant as Vector2i
-			for point_idx: int in range(shadow_points.size()):
-				var pt: Vector2i = shadow_points[point_idx] as Vector2i
-				var px: int = edge_global.x + pt.x - base_x
-				var py: int = edge_global.y + pt.y - base_y
-				if px < 0 or py < 0 or px >= chunk_size or py >= chunk_size:
-					continue
-				var terrain_idx: int = py * chunk_size + px
-				if terrain_idx < 0 or terrain_idx >= terrain_bytes.size():
-					continue
-				if terrain_bytes[terrain_idx] == TileGenData.TerrainType.ROCK:
-					continue
-				var fade: float = 1.0 - (float(point_idx + 1) / float(shadow_points.size() + 1))
-				var alpha: float = max_intensity * fade
-				var current: Color = img.get_pixel(px, py)
-				if alpha > current.a:
-					img.set_pixel(px, py, Color(shadow_color.r, shadow_color.g, shadow_color.b, alpha))
-					has_pixels = true
+	if kernels == null:
+		return {}
+	var native_result_variant: Variant = kernels.call(
+		"rasterize_shadow_image",
+		chunk_size,
+		base_x,
+		base_y,
+		shadow_color,
+		max_intensity,
+		terrain_bytes,
+		edges,
+		shadow_points
+	)
+	if typeof(native_result_variant) != TYPE_DICTIONARY:
+		return {}
+	var native_result: Dictionary = native_result_variant as Dictionary
 	return {
 		"coord": coord,
 		"version": version,
-		"img": img,
-		"has_pixels": has_pixels,
+		"img": native_result.get("img"),
+		"has_pixels": bool(native_result.get("has_pixels", false)),
 		"compute_ms": float(Time.get_ticks_usec() - started_usec) / 1000.0,
 	}
 
@@ -1476,22 +1428,27 @@ func _cache_native_shadow_kernels_support() -> void:
 func _create_shadow_kernels() -> RefCounted:
 	_cache_native_shadow_kernels_support()
 	if not _native_shadow_kernels_available:
+		_report_native_shadow_kernel_failure(&"class_unavailable")
 		return null
 	var instance: Object = ClassDB.instantiate(NATIVE_SHADOW_KERNELS_CLASS)
 	if instance == null:
-		_warn_native_shadow_kernel_instance(&"instantiate_failed")
+		_report_native_shadow_kernel_failure(&"instantiate_failed")
 		return null
 	if not instance.has_method("compute_edge_cache") or not instance.has_method("rasterize_shadow_image"):
-		_warn_native_shadow_kernel_instance(&"missing_required_methods")
+		_report_native_shadow_kernel_failure(&"missing_required_methods")
 		return null
-	return instance as RefCounted
+	var kernels: RefCounted = instance as RefCounted
+	if kernels == null:
+		_report_native_shadow_kernel_failure(&"not_ref_counted")
+		return null
+	return kernels
 
-func _warn_native_shadow_kernel_instance(reason: StringName) -> void:
-	if _native_shadow_kernel_instance_warning_emitted:
+func _report_native_shadow_kernel_failure(reason: StringName) -> void:
+	if _native_shadow_kernel_error_emitted:
 		return
-	_native_shadow_kernel_instance_warning_emitted = true
-	WorldPerfProbe.mark("Shadow.native_kernels_fallback.%s" % [String(reason)])
-	push_warning("[Shadow] MountainShadowKernels fallback: %s" % [String(reason)])
+	_native_shadow_kernel_error_emitted = true
+	WorldPerfProbe.mark("Shadow.native_kernels_required_missing.%s" % [String(reason)])
+	push_error("[Shadow] MountainShadowKernels required; GDScript shadow compute is not allowed (%s)." % [String(reason)])
 
 func _warn_if_sync_boot_shadow_after_handoff(api_name: StringName) -> void:
 	if _sync_boot_shadow_runtime_warning_emitted:
