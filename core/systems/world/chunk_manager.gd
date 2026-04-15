@@ -118,6 +118,7 @@ var _fog_state: UndergroundFogState = UndergroundFogState.new()
 var _fog_job_id: StringName = &""
 var _initialized: bool = false
 var _active_z: int = 0
+var _transition_hidden: bool = false
 var _z_containers: Dictionary = {}
 var _z_chunks: Dictionary = {}
 var _native_loaded_open_pocket_query_available: bool = false
@@ -2771,6 +2772,11 @@ func _sync_chunk_visibility_for_publication(chunk: Chunk) -> void:
 	if chunk == null or not is_instance_valid(chunk):
 		return
 	var should_be_visible: bool = chunk._is_visibility_publication_ready()
+	if _transition_hidden:
+		if should_be_visible:
+			_record_chunk_visibility_publication_baseline(chunk, _active_z)
+		chunk.visible = should_be_visible
+		return
 	if chunk.visible and not should_be_visible:
 		var pending_border_dirty_count: int = chunk.get_pending_border_dirty_count()
 		var has_new_border_fix_debt: bool = _neighbor_visibility_revoke_requires_new_pending_border_fix_debt(
@@ -3266,7 +3272,7 @@ func _maybe_log_player_chunk_visual_status(
 	dispatcher_step_ms: float = 0.0,
 	budget_exhausted: bool = false
 ) -> void:
-	if not _initialized or not _player or _is_boot_in_progress:
+	if not _initialized or not _player or _is_boot_in_progress or _transition_hidden:
 		return
 	var coord: Vector2i = _canonical_chunk_coord(_player_chunk)
 	var z_level: int = _active_z
@@ -3365,6 +3371,8 @@ func _maybe_log_player_chunk_visual_status(
 	)
 
 func _enforce_player_chunk_full_ready(trigger: String) -> void:
+	if _transition_hidden:
+		return
 	if _player_chunk == Vector2i(99999, 99999):
 		return
 	var coord: Vector2i = _canonical_chunk_coord(_player_chunk)
@@ -3828,6 +3836,31 @@ func set_active_z_level(z: int) -> void:
 
 func get_active_z_level() -> int:
 	return _active_z
+
+func set_transition_hidden(hidden: bool) -> void:
+	_transition_hidden = hidden
+	if _chunk_container != null:
+		_chunk_container.visible = not hidden
+
+func is_active_player_hot_envelope_full_ready() -> bool:
+	if not _initialized or _player == null or WorldGenerator == null or not WorldGenerator._is_initialized:
+		return false
+	var center: Vector2i = _canonical_chunk_coord(WorldGenerator.world_to_chunk(_player.global_position))
+	var hot_near_set: Dictionary = {}
+	if _view_envelope_resolver != null:
+		var view_envelope: Dictionary = _view_envelope_resolver.resolve(center, _player, _active_z)
+		hot_near_set = view_envelope.get("hot_near_set", {}) as Dictionary
+	if hot_near_set.is_empty():
+		for dx: int in range(-1, 2):
+			for dy: int in range(-1, 2):
+				hot_near_set[_offset_chunk_coord(center, Vector2i(dx, dy))] = true
+	var loaded_chunks_for_z: Dictionary = _get_loaded_chunks_for_z(_active_z)
+	for coord_variant: Variant in hot_near_set.keys():
+		var coord: Vector2i = _canonical_chunk_coord(coord_variant as Vector2i)
+		var chunk: Chunk = loaded_chunks_for_z.get(coord, null) as Chunk
+		if chunk == null or not is_instance_valid(chunk) or not chunk.is_full_redraw_ready():
+			return false
+	return true
 
 ## Generate a chunk filled entirely with ROCK (for underground z != 0).
 func _generate_solid_rock_chunk() -> Dictionary:

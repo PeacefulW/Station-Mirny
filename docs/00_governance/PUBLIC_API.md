@@ -1391,8 +1391,8 @@ related_docs:
 
 `GameWorld.request_z_transition(new_z: int) -> bool`
 - Когда вызывать: из scene/in-world trigger path, если переход должен пройти через overlay orchestration.
-- Что делает: запускает overlay transition, а затем вызывает `ZLevelManager.change_level(new_z)`.
-- Гарантии: sanctioned scene-level transition API for `ZStairs` and similar triggers.
+- Что делает: запускает controlled blackout через `UndergroundTransitionCoordinator`: fade-out до black screen, временно скрывает runtime publication, вызывает `ZLevelManager.change_level(new_z)`, ждёт пока active player hot `3x3` envelope станет `full_ready`, и только потом разрешает fade-in.
+- Гарантии: sanctioned scene-level transition API for `ZStairs` and similar triggers; blind `overlay -> change_level -> fade-in` semantics больше не разрешены.
 
 #### Чтение
 
@@ -1405,6 +1405,8 @@ related_docs:
 |-------|-------------------------------|
 | `ZStairs._trigger_transition() -> void` | Internal trigger path; sanctioned scene entrypoint lives in `GameWorld.request_z_transition()`. |
 | `ZStairs._on_body_entered(body: Node2D) -> void` | Collision-driven trigger path, не generic z-switch API. |
+| `UndergroundTransitionCoordinator.request_transition(new_z: int) -> bool` | Scene-owned helper behind `GameWorld.request_z_transition()`. Внешний код не должен обходить public scene entrypoint. |
+| `ChunkManager.set_transition_hidden(hidden: bool) -> void` | Internal visibility mask for controlled blackout. Bypassing `GameWorld.request_z_transition()` risks hiding/showing runtime without z-transition ownership. |
 | Direct writes to `ZLevelManager._current_z` | Обходят signal/event emission и downstream sync. |
 
 #### События

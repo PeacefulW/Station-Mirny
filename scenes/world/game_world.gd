@@ -2,6 +2,7 @@ class_name GameWorld
 extends Node2D
 
 const WorldFeatureDebugOverlayScript = preload("res://core/systems/world/world_feature_debug_overlay.gd")
+const UndergroundTransitionCoordinatorScript = preload("res://core/systems/world/underground_transition_coordinator.gd")
 const WORLD_SEED_OVERRIDE_ARG_PREFIX: String = "codex_world_seed="
 const BOOT_PROOF_QUIT_ARG: String = "codex_quit_on_boot_complete"
 
@@ -32,6 +33,7 @@ var _bg_rect: ColorRect = null
 var _mountain_roof_system: MountainRoofSystem = null
 var _mountain_shadow_system: MountainShadowSystem = null
 var _feature_debug_overlay: WorldFeatureDebugOverlay = null
+var _underground_transition_coordinator: UndergroundTransitionCoordinator = null
 var _loading_screen: LoadingScreen = null
 var _boot_complete: bool = false
 var _boot_first_playable_done: bool = false
@@ -297,6 +299,10 @@ func _setup_z_levels() -> void:
 	_z_overlay = ZTransitionOverlay.new()
 	_z_overlay.name = "ZTransitionOverlay"
 	add_child(_z_overlay)
+	_underground_transition_coordinator = UndergroundTransitionCoordinatorScript.new()
+	_underground_transition_coordinator.name = "UndergroundTransitionCoordinator"
+	add_child(_underground_transition_coordinator)
+	_underground_transition_coordinator.setup(_chunk_manager, _z_manager, _z_overlay, _player)
 	_setup_background()
 
 func _setup_background() -> void:
@@ -328,13 +334,9 @@ func _update_background_for_z(z: int) -> void:
 		1: _bg_rect.color = Color(0.02, 0.02, 0.04)
 
 func request_z_transition(new_z: int) -> bool:
-	if not _z_manager:
-		return false
-	if _z_overlay:
-		_z_overlay.do_transition(func() -> void: _z_manager.change_level(new_z))
-	else:
-		_z_manager.change_level(new_z)
-	return true
+	if _underground_transition_coordinator != null:
+		return _underground_transition_coordinator.request_transition(new_z)
+	return false
 
 # --- Утилиты ---
 

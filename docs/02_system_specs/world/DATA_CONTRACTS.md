@@ -90,6 +90,7 @@ Observed files for this version:
 - `core/systems/world/view_envelope_resolver.gd`
 - `core/systems/world/frontier_planner.gd`
 - `core/systems/world/frontier_scheduler.gd`
+- `core/systems/world/underground_transition_coordinator.gd`
 - `core/systems/world/chunk_streaming_service.gd`
 - `core/systems/world/chunk_visual_scheduler.gd`
 - `core/systems/world/chunk_surface_payload_cache.gd`
@@ -1666,10 +1667,12 @@ Observed files for this version:
 ### Layer: Z-level switching / stairs
 
 - `classification`: `canonical`
-- `owner`: `core/systems/world/z_level_manager.gd::ZLevelManager`, with `core/entities/structures/z_stairs.gd::ZStairs` as runtime trigger
+- `owner`: `core/systems/world/z_level_manager.gd::ZLevelManager` for canonical z state, with `core/systems/world/underground_transition_coordinator.gd::UndergroundTransitionCoordinator` as scene-level blackout/handoff owner and `core/entities/structures/z_stairs.gd::ZStairs` as runtime trigger
 - `writers`:
 - `core/systems/world/z_level_manager.gd::change_level()`
 - `core/autoloads/save_appliers.gd::apply_player()` via `change_level()`
+- `core/systems/world/underground_transition_coordinator.gd::request_transition()`
+- `core/systems/world/underground_transition_coordinator.gd::_run_transition()`
 - `core/entities/structures/z_stairs.gd::_on_body_entered()`
 - `core/entities/structures/z_stairs.gd::_trigger_transition()`
 - `readers`:
@@ -1677,19 +1680,25 @@ Observed files for this version:
 - `scenes/world/game_world.gd::_on_z_level_changed()`
 - `core/systems/daylight/daylight_system.gd::_resolve_current_z()`
 - `core/entities/structures/z_stairs.gd::_on_z_level_changed()`
-- `rebuild policy`: immediate; one authoritative z-change triggers downstream world/presentation sync
+- `core/systems/world/chunk_manager.gd::is_active_player_hot_envelope_full_ready()`
+- `rebuild policy`: controlled hidden transition; `GameWorld.request_z_transition()` fades to black, hides world publication through `ChunkManager.set_transition_hidden(true)`, performs the canonical `ZLevelManager.change_level()`, waits until the active player hot `3x3` envelope reports `full_ready`, then restores publication and allows fade-in
 - `invariants`:
 - `assert(_current_z >= Z_MIN and _current_z <= Z_MAX, "active z level must remain within declared bounds")`
 - `assert(new_z != current_z_before_emit, "z_level_changed must only emit on real z transitions")`
 - `assert(chunk_manager_active_z == _current_z after downstream_sync, "ChunkManager._active_z must mirror canonical z after signal-driven world sync")`
+- `assert(fade_in_waits_for_active_player_hot_envelope_full_ready, "controlled z transition may not reveal the target level before the active hot envelope is terminal full_ready")`
+- `assert(chunk_manager_transition_hidden_masks_runtime_publication_during_blackout, "controlled blackout must hide chunk publication while the target z-level is still converging")`
 - `assert(not monitoring or visible, "stairs monitoring must match current visible source_z context")`
 - `write operations`:
 - `ZLevelManager.change_level()`
 - `scenes/world/game_world.gd::request_z_transition()`
+- `UndergroundTransitionCoordinator.request_transition()`
+- `ChunkManager.set_transition_hidden()`
 - `ZStairs._trigger_transition()`
 - `forbidden writes`:
 - External systems must not assign `ZLevelManager._current_z` directly.
 - External systems must not call `ChunkManager.set_active_z_level()` as a primary z-switch API; it is a downstream world-stack sink driven by `scenes/world/game_world.gd::_on_z_level_changed()`.
+- External systems must not bypass `GameWorld.request_z_transition()` by calling `ZLevelManager.change_level()` directly for staircase traversal; that skips blackout/readiness gating owned by `UndergroundTransitionCoordinator`.
 - Callers must not treat `ChunkManager.get_active_z_level()` as global z source of truth when `ZLevelManager` is available.
 - `emitted events / invalidation signals`:
 - `ZLevelManager.z_level_changed`
@@ -1698,6 +1707,7 @@ Observed files for this version:
 - ~~`ZLevelManager.current_z` was a public mutable field, so external code could bypass `change_level()` and skip event emission.~~ **resolved 2026-03-28**: canonical z state is now private `_current_z`, readable only through `get_current_z()`.
 - `ChunkManager` still stores mirrored `_active_z`, but it is now a downstream sink updated from canonical `ZLevelManager` transitions rather than a competing owner path.
 - ~~`ZStairs` reached into `GameWorld`, `ZLevelManager`, and overlay internals directly.~~ **resolved 2026-03-28**: stairs now go through `GameWorld.request_z_transition()` as the scene-orchestration entrypoint.
+- **resolved 2026-04-15**: staircase transitions no longer use blind `overlay -> change_level -> fade-in`; `UndergroundTransitionCoordinator` now holds the runtime under controlled blackout until the target hot envelope reaches terminal `full_ready`.
 
 ### Layer: Time / calendar / day-night
 

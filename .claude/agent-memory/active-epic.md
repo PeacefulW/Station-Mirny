@@ -2,7 +2,7 @@
 
 **Spec**: docs/04_execution/frontier_native_runtime_execution_plan.md
 **Started**: 2026-04-13
-**Current iteration**: R6 pending
+**Current iteration**: R7 pending
 **Total iterations**: 10
 
 ## Spec revision log
@@ -178,6 +178,99 @@
 
 ### Blockers
 - none
+
+### Iteration R6 - Underground transition contract
+**Status**: completed
+**Started**: 2026-04-15
+**Completed**: 2026-04-15
+
+#### Scope
+- Bring staircase-driven z transitions under the same zero-tolerance handoff contract.
+- Use controlled blackout only for the layer switch itself; do not allow fade-in before the target hot envelope is `full_ready`.
+- Keep vehicle/train tuning, surface traversal tuning, and broad scheduler/cache redesign out of scope.
+
+#### Проверки приёмки (Acceptance tests)
+- [ ] staircase transition never reveals incomplete underground world — manual human verification required
+- [x] fade-in happens only after target hot envelope is `full_ready` — passed (static verification: `UndergroundTransitionCoordinator._run_transition()` calls `fade_from_black()` only after `ChunkManager.is_active_player_hot_envelope_full_ready()` returns true)
+- [x] `GameWorld.request_z_transition()` no longer performs blind `overlay -> change_level -> fade-in` without readiness gating — passed (static verification: `GameWorld.request_z_transition()` delegates to `UndergroundTransitionCoordinator.request_transition()`, and the direct callback path is gone)
+
+#### Files touched
+- `.claude/agent-memory/active-epic.md`
+- `core/systems/world/underground_transition_coordinator.gd`
+- `core/systems/world/chunk_manager.gd`
+- `scenes/ui/z_transition_overlay.gd`
+- `scenes/world/game_world.gd`
+- `docs/02_system_specs/world/DATA_CONTRACTS.md`
+- `docs/00_governance/PUBLIC_API.md`
+- `docs/02_system_specs/world/frontier_native_runtime_architecture_spec.md`
+
+#### Doc check
+- [x] Grep DATA_CONTRACTS.md for changed names — matches for `GameWorld.request_z_transition`, `UndergroundTransitionCoordinator`, `ChunkManager.set_transition_hidden`, `is_active_player_hot_envelope_full_ready`
+- [x] Grep PUBLIC_API.md for changed names — matches for `GameWorld.request_z_transition`, `UndergroundTransitionCoordinator`, `ChunkManager.set_transition_hidden`; `is_active_player_hot_envelope_full_ready` remains internal-only and has 0 public API matches
+- [x] Documentation debt section reviewed — execution plan has no explicit "Required contract and API updates" section; docs were updated in the same iteration because z-transition semantics changed
+
+#### Blockers
+- none
+
+#### Отчёт о выполнении (Closure Report)
+## Отчёт о выполнении (Closure Report)
+
+### Что сделано (Implemented)
+- Добавлен `UndergroundTransitionCoordinator`, который теперь владеет лестничным переходом как controlled blackout sequence: `fade-out -> hidden z switch -> wait for active hot envelope full_ready -> fade-in`.
+- `GameWorld.request_z_transition()` больше не делает blind callback в overlay; теперь это fail-closed scene entrypoint, который делегирует только в coordinator.
+- `ZTransitionOverlay` разбит на отдельные фазы `fade_to_black()` / `fade_from_black()`, чтобы fade-in можно было задержать до реальной готовности target envelope.
+- `ChunkManager` получил внутренний hidden-transition mask (`set_transition_hidden()`) и readiness probe `is_active_player_hot_envelope_full_ready()`, чтобы blackout честно скрывал runtime publication и release происходил только после terminal `full_ready`.
+- Обновлены `DATA_CONTRACTS.md`, `PUBLIC_API.md` и migration note в architecture spec под новую R6 semantics.
+
+### Корневая причина (Root cause)
+- Старый path `GameWorld.request_z_transition()` делал `overlay -> change_level -> fade-in` без участия world readiness. Из-за этого underground handoff полагался на надежду, что target z успеет догрузиться и дорисоваться до окончания fade, что конфликтовало с zero-tolerance readiness contract.
+
+### Изменённые файлы (Files changed)
+- `.claude/agent-memory/active-epic.md`
+- `core/systems/world/underground_transition_coordinator.gd`
+- `core/systems/world/chunk_manager.gd`
+- `scenes/ui/z_transition_overlay.gd`
+- `scenes/world/game_world.gd`
+- `docs/02_system_specs/world/DATA_CONTRACTS.md`
+- `docs/00_governance/PUBLIC_API.md`
+- `docs/02_system_specs/world/frontier_native_runtime_architecture_spec.md`
+
+### Проверки приёмки (Acceptance tests)
+- [ ] Переход по лестнице не показывает недогруженный underground мир — требуется ручная проверка пользователем (manual human verification required); рекомендованная проверка: зайти в `ZStairs`, убедиться, что black screen держится до полной готовности underground `3x3`, и после fade-in нет visible catch-up / pop-in.
+- [x] Fade-in происходит только после готовности active player hot envelope — прошло (passed); проверено: `UndergroundTransitionCoordinator._run_transition()` вызывает `ChunkManager.is_active_player_hot_envelope_full_ready()` в wait loop и только потом запускает `ZTransitionOverlay.fade_from_black()`.
+- [x] `GameWorld.request_z_transition()` больше не использует blind `overlay -> change_level -> fade-in` — прошло (passed); проверено: grep по `game_world.gd` показывает только delegation в coordinator, а `change_level()`/`do_transition()` теперь живут внутри coordinator/overlay phase methods.
+
+### Артефакты доказательства (Proof artifacts)
+- Статическая проверка (Static verification): `git diff --check` прошёл; grep подтвердил `request_z_transition` delegation, `UndergroundTransitionCoordinator.request_transition()`, `ChunkManager.set_transition_hidden()`, `ChunkManager.is_active_player_hot_envelope_full_ready()`, `ZTransitionOverlay.fade_to_black()` и `fade_from_black()`.
+- Явный runtime-прогон агентом (Explicit agent-run runtime verification): не запускался в этой задаче по policy.
+- Ручная проверка пользователем (Manual human verification): требуется.
+- Рекомендованная проверка пользователем (Suggested human check): сесть на лестницу между surface и underground, проверить, что fade-out заканчивается до reveal, fade-in начинается только когда underground `3x3` уже целиком готов, и после reveal нет incomplete chunk / delayed redraw.
+
+### Артефакты производительности (Performance artifacts)
+- не применимо (not applicable)
+
+### Проверка документации контрактов и API (Contract/API documentation check)
+- Grep DATA_CONTRACTS.md для `GameWorld.request_z_transition`: есть совпадения — rebuild policy, write operations и forbidden writes обновлены под controlled blackout semantics.
+- Grep DATA_CONTRACTS.md для `UndergroundTransitionCoordinator`: есть совпадения — owner/writers/current resolution добавлены.
+- Grep DATA_CONTRACTS.md для `ChunkManager.set_transition_hidden`: есть совпадения — rebuild policy и write operations обновлены.
+- Grep DATA_CONTRACTS.md для `is_active_player_hot_envelope_full_ready`: есть совпадения — reader path добавлен.
+- Grep PUBLIC_API.md для `GameWorld.request_z_transition`: есть совпадения — описание safe entrypoint переписано под wait-for-full-ready semantics.
+- Grep PUBLIC_API.md для `UndergroundTransitionCoordinator`: есть совпадения — helper добавлен в internal methods table.
+- Grep PUBLIC_API.md для `ChunkManager.set_transition_hidden`: есть совпадения — helper добавлен в internal methods table.
+- Grep PUBLIC_API.md для `is_active_player_hot_envelope_full_ready`: 0 совпадений — internal runtime probe, public API update не требовался.
+- Секция "Required updates" в спеке: нет явной секции в `frontier_native_runtime_execution_plan.md`; docs updated now because z-transition semantics changed.
+
+### Наблюдения вне задачи (Out-of-scope observations)
+- Отдельный off-active-z `lane_transition_target` queue всё ещё не введён; текущий `R6` handoff использует hidden blackout + active-z frontier-critical preparation после `change_level()`.
+
+### Оставшиеся блокеры (Remaining blockers)
+- нет
+
+### Обновление DATA_CONTRACTS.md (DATA_CONTRACTS.md updated)
+- обновлено: `Observed files` и `Layer: Z-level switching / stairs`; grep для `GameWorld.request_z_transition`, `UndergroundTransitionCoordinator`, `ChunkManager.set_transition_hidden`, `is_active_player_hot_envelope_full_ready` это подтверждает.
+
+### Обновление PUBLIC_API.md (PUBLIC_API.md updated)
+- обновлено: секция `Z-level switching / stairs`; grep для `GameWorld.request_z_transition`, `UndergroundTransitionCoordinator`, `ChunkManager.set_transition_hidden` это подтверждает.
 
 ### Boot Startup Regression Triage — Iteration 1
 **Spec**: docs/02_system_specs/world/boot_startup_regression_triage_spec.md
