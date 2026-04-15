@@ -22,7 +22,7 @@ extends Resource
 
 @export_group("Камера")
 ## Минимальный зум (отдаление).
-@export var zoom_min: float = 1.0
+@export var zoom_min: float = 0.1
 ## Максимальный зум (приближение).
 @export var zoom_max: float = 4.0
 ## Шаг зума при скролле.

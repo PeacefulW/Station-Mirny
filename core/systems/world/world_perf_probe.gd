@@ -38,6 +38,7 @@ const _BUDGET_OVERRUN_MIN_DELTA_MS: float = 0.05
 const _BUDGET_OVERRUN_COOLDOWN_MS: float = 1000.0
 const _BUDGET_OVERRUN_DELTA_MS: float = 1.0
 const _PERF_HUMAN_SUMMARY_COOLDOWN_MS: float = 1000.0
+const _COUNTER_PRINT_COOLDOWN_MS: float = 1000.0
 
 ## Контракты на интерактивные операции (максимально допустимое время в мс).
 const _CONTRACTS: Dictionary = {
@@ -60,6 +61,8 @@ static var _print_gate_last_usec: Dictionary = {}
 static var _print_gate_last_value_ms: Dictionary = {}
 static var _budget_overrun_last_usec: Dictionary = {}
 static var _budget_overrun_last_used_ms: Dictionary = {}
+static var _counter_totals: Dictionary = {}
+static var _counter_print_last_usec: Dictionary = {}
 static var _mutex: Mutex = Mutex.new()
 
 ## Суммарные hitches за сессию.
@@ -81,6 +84,19 @@ static func end(label: String, started_usec: int) -> void:
 
 static func record(label: String, elapsed_ms: float) -> void:
 	_record(label, elapsed_ms)
+
+static func record_counter(label: String, amount: float = 1.0) -> float:
+	var total: float = 0.0
+	var should_print: bool = false
+	_mutex.lock()
+	total = float(_counter_totals.get(label, 0.0)) + amount
+	_counter_totals[label] = total
+	_frame_operations[label] = total
+	should_print = _passes_counter_print_cooldown_locked(label)
+	_mutex.unlock()
+	if should_print:
+		print("[WorldPerf] %s: count=%.0f" % [label, total])
+	return total
 
 static func report_budget_overrun(
 	job_id: StringName,
@@ -313,6 +329,16 @@ static func _passes_budget_overrun_cooldown_locked(offender_key: String, used_ms
 		_budget_overrun_last_usec[offender_key] = now_usec
 		_budget_overrun_last_used_ms[offender_key] = used_ms
 	return should_warn
+
+static func _passes_counter_print_cooldown_locked(label: String) -> bool:
+	var now_usec: int = Time.get_ticks_usec()
+	var last_usec: int = int(_counter_print_last_usec.get(label, 0))
+	var should_print: bool = last_usec <= 0
+	if not should_print:
+		should_print = float(now_usec - last_usec) / 1000.0 >= _COUNTER_PRINT_COOLDOWN_MS
+	if should_print:
+		_counter_print_last_usec[label] = now_usec
+	return should_print
 
 ## Извлекает ключ контракта из label (отбрасывает параметры вроде chunk coord).
 static func _extract_contract_key(label: String) -> String:

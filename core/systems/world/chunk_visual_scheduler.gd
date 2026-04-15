@@ -39,6 +39,7 @@ var budget_exhausted_count: int = 0
 var visual_task_slice_count: int = 0
 var visual_task_requeue_count: int = 0
 var visual_task_requeue_due_budget_count: int = 0
+var duplicate_requeue_rejected_count: int = 0
 var max_single_task_apply_ms: float = 0.0
 var starvation_incident_count: int = 0
 var max_urgent_wait_ms: float = 0.0
@@ -208,17 +209,17 @@ func ensure_task(chunk: Chunk, z_level: int, kind: int, invalidate: bool = false
 	task_enqueued_usec[key] = Time.get_ticks_usec()
 	var task: Dictionary = _owner._build_visual_task(chunk.chunk_coord, z_level, kind, version)
 	_owner._debug_upsert_visual_task_meta(task)
-	push_task(task)
-	_owner._debug_note_visual_task_event(
-		task,
-		"visual_task_enqueued",
-		{
-			"reason_human": _owner._debug_visual_reason_human(
-				kind,
-				int(task.get("priority_band", _owner.VisualPriorityBand.COSMETIC))
-			),
-		}
-	)
+	if push_task(task):
+		_owner._debug_note_visual_task_event(
+			task,
+			"visual_task_enqueued",
+			{
+				"reason_human": _owner._debug_visual_reason_human(
+					kind,
+					int(task.get("priority_band", _owner.VisualPriorityBand.COSMETIC))
+				),
+			}
+		)
 
 func retag_task(task: Dictionary) -> void:
 	var coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
@@ -237,7 +238,9 @@ func retag_task(task: Dictionary) -> void:
 	var task_key: Vector4i = _make_visual_task_key(coord, z_level, kind)
 	_owner._debug_update_visual_task_meta_band(task_key, new_band)
 
-func push_task(task: Dictionary) -> void:
+func push_task(task: Dictionary) -> bool:
+	if not _try_accept_live_task(task, "queue_back"):
+		return false
 	var band: int = int(task.get("priority_band", _owner.VisualPriorityBand.COSMETIC))
 	var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
 	if band == _owner.VisualPriorityBand.TERRAIN_URGENT \
@@ -255,11 +258,15 @@ func push_task(task: Dictionary) -> void:
 	queue.append(task)
 	if kind == _owner.VisualTaskKind.TASK_FIRST_PASS:
 		_enforce_visual_urgent_queue_cap()
+	return true
 
-func push_task_front(task: Dictionary) -> void:
+func push_task_front(task: Dictionary) -> bool:
+	if not _try_accept_live_task(task, "queue_front"):
+		return false
 	var band: int = int(task.get("priority_band", _owner.VisualPriorityBand.COSMETIC))
 	var queue: Array[Dictionary] = queue_for_band(band)
 	queue.insert(0, task)
+	return true
 
 func promote_existing_task_to_front(coord: Vector2i, z_level: int, kind: int) -> bool:
 	var task_key: Vector4i = _make_visual_task_key(coord, z_level, kind)
@@ -297,6 +304,57 @@ func clear_task(task: Dictionary) -> void:
 	task_pending.erase(key)
 	task_enqueued_usec.erase(key)
 	_owner._debug_drop_visual_task_meta(task)
+
+func _try_accept_live_task(task: Dictionary, route: String) -> bool:
+	if _has_duplicate_live_task(task):
+		_record_duplicate_requeue_rejected(task, route)
+		return false
+	return true
+
+func _has_duplicate_live_task(task: Dictionary) -> bool:
+	var task_key: Vector4i = _task_key_from_payload(task)
+	var version: int = int(task.get("invalidation_version", -1))
+	if version < 0:
+		return false
+	for queue: Array[Dictionary] in ordered_queues():
+		for queued_task: Dictionary in queue:
+			if _task_payload_matches_key_version(queued_task, task_key, version):
+				return true
+	var waiting_task: Dictionary = compute_waiting_tasks.get(task_key, {}) as Dictionary
+	if not waiting_task.is_empty():
+		return _task_payload_matches_key_version(waiting_task, task_key, version)
+	return compute_active.has(task_key) and int(task_pending.get(task_key, -1)) == version
+
+func _append_existing_task_to_queue(queue: Array[Dictionary], task: Dictionary, route: String) -> bool:
+	if not _try_accept_live_task(task, route):
+		return false
+	queue.append(task)
+	return true
+
+func _task_key_from_payload(task: Dictionary) -> Vector4i:
+	return _make_visual_task_key(
+		task.get("chunk_coord", Vector2i.ZERO) as Vector2i,
+		int(task.get("z", _active_z())),
+		int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
+	)
+
+func _task_payload_matches_key_version(task: Dictionary, task_key: Vector4i, version: int) -> bool:
+	return _task_key_from_payload(task) == task_key \
+		and int(task.get("invalidation_version", -1)) == version
+
+func _record_duplicate_requeue_rejected(task: Dictionary, route: String) -> void:
+	duplicate_requeue_rejected_count += 1
+	WorldPerfProbe.record_counter("scheduler.duplicate_requeue_rejected_total", 1.0)
+	_owner._debug_note_visual_task_event(
+		task,
+		"visual_task_duplicate_requeue_rejected",
+		{
+			"route": route,
+			"version": int(task.get("invalidation_version", -1)),
+		},
+		"duplicate_live_task",
+		"dedup_rejected"
+	)
 
 func process_border_fix_task(chunk: Chunk, _tile_budget: int, _deadline_usec: int) -> bool:
 	if chunk == null or not is_instance_valid(chunk) or not chunk.has_pending_border_dirty():
@@ -472,13 +530,18 @@ func _resolve_visual_tiles_per_step(kind: int, band: int = BAND_FULL_FAR) -> int
 					return maxi(32, full_redraw_tiles * 2)
 				return full_redraw_tiles
 			_owner.VisualTaskKind.TASK_BORDER_FIX:
-				var border_fix_tiles: int = WorldGenerator.balance.visual_border_fix_tiles_per_step
+				var border_fix_tiles: int = _resolve_configured_border_fix_tiles_per_step()
 				if band == _owner.VisualPriorityBand.BORDER_FIX_FAR:
-					return maxi(8, border_fix_tiles / 2)
+					return maxi(1, border_fix_tiles / 2)
 				return border_fix_tiles
 			_:
 				return WorldGenerator.balance.visual_cosmetic_tiles_per_step
 	return 64
+
+func _resolve_configured_border_fix_tiles_per_step() -> int:
+	if WorldGenerator and WorldGenerator.balance:
+		return maxi(1, WorldGenerator.balance.visual_border_fix_tiles_per_step)
+	return 1
 
 func _resolve_visual_max_tasks_per_tick(kind: int, band: int) -> int:
 	if WorldGenerator and WorldGenerator.balance:
@@ -513,7 +576,7 @@ func _enforce_visual_urgent_queue_cap() -> void:
 	while q_terrain_urgent.size() > _resolve_visual_urgent_queue_cap():
 		var task: Dictionary = q_terrain_urgent.pop_back()
 		task["priority_band"] = _owner.VisualPriorityBand.TERRAIN_NEAR
-		q_terrain_near.append(task)
+		_append_existing_task_to_queue(q_terrain_near, task, "urgent_cap_demote")
 
 func _resolve_visual_band_order(band: int) -> int:
 	match band:
@@ -647,7 +710,10 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 				requested_tile_budget = _resolve_visual_apply_tile_budget(kind, band, phase_name, tile_budget)
 				request = chunk.build_visual_phase_batch(requested_tile_budget)
 		_owner.VisualTaskKind.TASK_BORDER_FIX:
-			var dirty_tile_budget: int = mini(tile_budget, _owner.BORDER_FIX_REDRAW_MICRO_BATCH_TILES)
+			var dirty_tile_budget: int = mini(
+				mini(tile_budget, _owner.BORDER_FIX_REDRAW_MICRO_BATCH_TILES),
+				_resolve_configured_border_fix_tiles_per_step()
+			)
 			requested_tile_budget = _resolve_visual_apply_tile_budget(kind, band, &"dirty", dirty_tile_budget)
 			request = chunk.build_visual_dirty_batch_from_tiles(
 				chunk.collect_pending_border_dirty_tiles(requested_tile_budget)
@@ -778,6 +844,7 @@ func _reset_telemetry() -> void:
 	visual_task_slice_count = 0
 	visual_task_requeue_count = 0
 	visual_task_requeue_due_budget_count = 0
+	duplicate_requeue_rejected_count = 0
 	max_single_task_apply_ms = 0.0
 	starvation_incident_count = 0
 	max_urgent_wait_ms = 0.0
@@ -797,7 +864,7 @@ func _pop_allowed_task_from_queue(queue: Array[Dictionary], processed_by_kind: D
 			int(task.get("z", _active_z()))
 		)
 		if chunks_processed_this_tick.has(chunk_key):
-			queue.append(task)
+			_append_existing_task_to_queue(queue, task, "processed_this_tick_rotation")
 			continue
 		var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
 		var band: int = int(task.get("priority_band", _owner.VisualPriorityBand.COSMETIC))
@@ -811,7 +878,7 @@ func _pop_allowed_task_from_queue(queue: Array[Dictionary], processed_by_kind: D
 				{},
 				"kind_cap"
 			)
-		queue.append(task)
+		_append_existing_task_to_queue(queue, task, "kind_cap_rotation")
 	return {}
 
 func _pop_next_task(processed_by_kind: Dictionary) -> Dictionary:
@@ -840,6 +907,14 @@ func _process_one_task(deadline_usec: int, processed_by_kind: Dictionary) -> int
 
 func _requeue_visual_task(task: Dictionary) -> void:
 	retag_task(task)
+	var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
+	var accepted: bool = false
+	if kind == _owner.VisualTaskKind.TASK_BORDER_FIX:
+		accepted = push_task_front(task)
+	else:
+		accepted = push_task(task)
+	if not accepted:
+		return
 	visual_task_requeue_count += 1
 	var requeue_reason: String = String(task.get("last_requeue_reason", "resumable_slice"))
 	if requeue_reason == "budget_exhausted":
@@ -855,11 +930,6 @@ func _requeue_visual_task(task: Dictionary) -> void:
 			"last_slice_apply_ms": float(task.get("last_slice_apply_ms", 0.0)),
 		}
 	)
-	var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
-	if kind == _owner.VisualTaskKind.TASK_BORDER_FIX:
-		push_task_front(task)
-		return
-	push_task(task)
 
 func _store_resumable_slice_state(
 	task: Dictionary,

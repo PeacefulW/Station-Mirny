@@ -105,6 +105,233 @@
 - `DATA_CONTRACTS.md` and `PUBLIC_API.md` were updated to remove the old player-near inline micro-fix guarantee and document staged finalize substeps.
 - Static proof: `git diff --check -- core/systems/world/chunk_visual_scheduler.gd core/systems/world/chunk_seam_service.gd core/systems/world/chunk_streaming_service.gd core/systems/world/chunk_manager.gd docs/02_system_specs/world/DATA_CONTRACTS.md docs/00_governance/PUBLIC_API.md .claude/agent-memory/active-epic.md` passed. `Godot_v4.6.1-stable_win64_console.exe --headless --path . --check-only --quit` did not run because paired `Godot_v4.6.1-stable_win64.exe` is missing.
 
+### Boot Startup Regression Triage — Iteration 1
+**Spec**: docs/02_system_specs/world/boot_startup_regression_triage_spec.md
+**Status**: completed
+**Started**: 2026-04-15
+**Completed**: 2026-04-15
+
+#### Scope
+- Requeue dedup on the `ChunkVisualScheduler` enqueue/requeue path only.
+- No seam drain slicing, no publish/revoke cycle changes, no R5 publication rewrite.
+
+#### Проверки приёмки (Acceptance tests)
+- [x] `assert(scheduler_rejects_duplicate_live_task_for_same_chunk_kind_version)` statically confirmed in scheduler code — passed (`rg` shows `_try_accept_live_task()`, `_has_duplicate_live_task()`, `_append_existing_task_to_queue()`, and `_requeue_visual_task()` routing through `push_task()` / `push_task_front()`)
+- [ ] fixed seed `codex_world_seed=12345` boot run has `visual_task_requeue_total <= 500` for startup bubble — manual human verification required
+- [ ] same fixed seed boot run has `scheduler.duplicate_requeue_rejected_total > 0` — manual human verification required
+- [x] grep `PUBLIC_API.md` confirms no new public API — passed (`NO_MATCH_PUBLIC_API`, `NO_MATCH_PUBLIC_METRICS`)
+
+#### Files touched
+- `core/systems/world/chunk_visual_scheduler.gd` — added unified live-task dedupe gate and duplicate rejection counter.
+- `core/systems/world/world_perf_probe.gd` — added counter output helper for non-timing observability.
+- `docs/02_system_specs/world/DATA_CONTRACTS.md` — updated Visual Task Scheduling invariant and metric contract.
+- `.claude/agent-memory/active-epic.md` — recorded this triage sub-iteration.
+
+#### Отчёт о выполнении (Closure Report)
+## Отчёт о выполнении (Closure Report)
+
+### Что сделано (Implemented)
+- В `ChunkVisualScheduler` добавлен единый dedup-гейт (dedupe gate) для live visual task перед постановкой в очередь: обычный enqueue, requeue, worker-compute return, priority refresh и queue rotation теперь проверяют `(chunk_coord, z_level, task_kind, invalidation_version)`.
+- Дублирующий requeue не увеличивает `visual_task_requeue_total`; вместо этого отклоняется и пишет счётчик (counter) `scheduler.duplicate_requeue_rejected_total`.
+- `DATA_CONTRACTS.md` обновлён для Visual Task Scheduling: добавлены invariant про reject дублей и правило, что requeue total должен расти примерно линейно, а не лавинообразно.
+
+### Корневая причина (Root cause)
+- `task_pending` защищал часть `ensure_task()`, но не был единым gate для всех путей, которые возвращают задачу в live scheduler queue. Requeue/rotation/worker-return могли снова положить task того же `(chunk, kind, version)` в живую очередь.
+
+### Изменённые файлы (Files changed)
+- `core/systems/world/chunk_visual_scheduler.gd`
+- `core/systems/world/world_perf_probe.gd`
+- `docs/02_system_specs/world/DATA_CONTRACTS.md`
+- `.claude/agent-memory/active-epic.md`
+
+### Проверки приёмки (Acceptance tests)
+- [x] `assert(scheduler_rejects_duplicate_live_task_for_same_chunk_kind_version)` — прошло (passed); `rg` подтвердил `_try_accept_live_task()` и `_has_duplicate_live_task()`, а `VisualTaskRunState.REQUEUE` возвращается через `push_task()` / `push_task_front()`.
+- [ ] `visual_task_requeue_total <= 500` на fixed seed `codex_world_seed=12345` — требуется ручная проверка пользователем (manual human verification required); runtime boot proof не запускался по policy.
+- [ ] `scheduler.duplicate_requeue_rejected_total > 0` на той же сессии — требуется ручная проверка пользователем (manual human verification required); статически подтверждён counter path, но значение `> 0` требует runtime log.
+- [x] grep `PUBLIC_API.md` для новых API — прошло (passed); `NO_MATCH_PUBLIC_API` / `NO_MATCH_PUBLIC_METRICS`, public API не расширялся.
+
+### Артефакты доказательства (Proof artifacts)
+- Статическая проверка (Static verification): `git diff --check -- core/systems/world/chunk_visual_scheduler.gd core/systems/world/world_perf_probe.gd docs/02_system_specs/world/DATA_CONTRACTS.md .claude/agent-memory/active-epic.md` прошёл.
+- Статическая проверка (Static verification): `Godot_v4.6.1-stable_win64_console.exe --headless --path . --check-only --quit` прошёл.
+- Ручная проверка пользователем (Manual human verification): требуется для perf counters.
+- Рекомендованная проверка пользователем (Suggested human check): `.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_quit_on_boot_complete codex_world_seed=12345 *>&1 | Tee-Object -FilePath debug_exports/perf/boot_triage_seed12345.log`.
+
+### Артефакты производительности (Performance artifacts)
+- Статическая проверка (Static verification): helper gate смотрит только текущие live queues / active compute maps; не добавляет full chunk redraw, full topology rebuild или broad loaded-chunk scan.
+- Явный runtime-прогон агентом (Explicit agent-run runtime verification): не запускался в этой задаче по policy.
+- Ручная проверка пользователем (Manual human verification): требуется.
+- Рекомендованная проверка пользователем (Suggested human check): после boot run grep log для `visual_task_requeue_total`, `scheduler.duplicate_requeue_rejected_total`, `ERROR`, `WARNING`, `WorldPerf`.
+
+### Проверка документации контрактов и API (Contract/API documentation check)
+- Grep DATA_CONTRACTS.md для `scheduler.duplicate_requeue_rejected_total`: совпадение на строке 574 — обновлено.
+- Grep DATA_CONTRACTS.md для `scheduler_rejects_duplicate_live_task_for_same_chunk_kind_version`: совпадение на строке 581 — обновлено.
+- Grep DATA_CONTRACTS.md для `scheduler_visual_task_requeue_total_grows_sublinearly_in_startup_bubble_chunks`: совпадение на строке 582 — обновлено.
+- Grep DATA_CONTRACTS.md для internal helpers `_try_accept_live_task|record_counter`: 0 совпадений — не публичный контракт, helper names не документировались.
+- Grep PUBLIC_API.md для `record_counter|scheduler.duplicate_requeue_rejected_total|_try_accept_live_task`: 0 совпадений — public API не менялся.
+- Секция "Required updates" в спеке: есть — `DATA_CONTRACTS.md` выполнено для Iteration 1; `PUBLIC_API.md` не требовалось, grep подтвердил 0 совпадений.
+
+### Наблюдения вне задачи (Out-of-scope observations)
+- В worktree уже были не относящиеся к этой итерации изменения: `core/systems/world/chunk_manager.gd`, `data/balance/player_balance.gd`, удаление `gdextension/bin/~station_mirny.windows.template_debug.x86_64.dll`, untracked spec file `docs/02_system_specs/world/boot_startup_regression_triage_spec.md`. Их не трогал.
+
+### Оставшиеся блокеры (Remaining blockers)
+- Runtime acceptance по boot counters остаётся за ручной проверкой пользователя (manual human verification), как требует спека.
+
+### Обновление DATA_CONTRACTS.md (DATA_CONTRACTS.md updated)
+- Обновлено (updated): Visual Task Scheduling, grep-доказательство строки 574, 581, 582.
+
+### Обновление PUBLIC_API.md (PUBLIC_API.md updated)
+- Не требовалось (not required): grep `record_counter|scheduler.duplicate_requeue_rejected_total|_try_accept_live_task` вернул 0 совпадений в `PUBLIC_API.md`.
+
+#### Blockers
+- Runtime boot proof pending manual human verification.
+
+### Boot Startup Regression Triage — Iteration 2
+**Spec**: docs/02_system_specs/world/boot_startup_regression_triage_spec.md
+**Status**: completed
+**Started**: 2026-04-15
+**Completed**: 2026-04-15
+
+#### Scope
+- Bound border-fix seam drain slices by `WorldGenBalance.visual_border_fix_tiles_per_step`.
+- Keep seam repair algorithm and `ChunkSeamService` ownership unchanged.
+- No publish/revoke cycle changes, no R5 publication rewrite.
+
+#### Проверки приёмки (Acceptance tests)
+- [x] `assert(border_fix_slice_processes_at_most_configured_tiles_per_step)` statically confirmed in scheduler code — passed (`rg` shows `_resolve_configured_border_fix_tiles_per_step()` and border-fix submit clamp before `collect_pending_border_dirty_tiles()`).
+- [ ] Boot run has no `FrameBudget overrun job_id=chunk_manager.streaming_redraw` with `over_budget_pct > 50` — manual human verification required.
+- [ ] `ChunkStreaming.phase2_finalize` peak `<= 4 ms` on baseline — manual human verification required.
+- [x] `world_gen_balance.tres` contains numeric default for `visual_border_fix_tiles_per_step` — passed (`visual_border_fix_tiles_per_step = 4`).
+
+#### Files touched
+- `data/world/world_gen_balance.gd` — set small exported border-fix slice range/default.
+- `data/world/world_gen_balance.tres` — set resource default.
+- `core/systems/world/chunk_visual_scheduler.gd` — bound border-fix tile resolver.
+- `docs/02_system_specs/world/DATA_CONTRACTS.md` — updated Seam Repair Queue invariants.
+
+#### Отчёт о выполнении (Closure Report)
+## Отчёт о выполнении (Closure Report)
+
+### Что сделано (Implemented)
+- `WorldGenBalance.visual_border_fix_tiles_per_step` теперь имеет малый дефолт `4` и editor range `1..64`, чтобы `border_fix` slice не мог стартовать с прежнего пакета на 16 тайлов.
+- `ChunkVisualScheduler` теперь разрешает `TASK_BORDER_FIX` tile budget через `_resolve_configured_border_fix_tiles_per_step()` и дополнительно clamps submit path перед `collect_pending_border_dirty_tiles()`.
+- `DATA_CONTRACTS.md` обновлён для `Seam Repair Queue`: добавлены invariants про максимум тайлов за slice и остановку по visual budget.
+
+### Корневая причина (Root cause)
+- Export для border-fix уже существовал, но его дефолт `16` и far-band resolver не соответствовали triage spec: один визуальный slice мог начинаться с пакета больше целевого `<= 4` тайлов.
+
+### Изменённые файлы (Files changed)
+- `data/world/world_gen_balance.gd`
+- `data/world/world_gen_balance.tres`
+- `core/systems/world/chunk_visual_scheduler.gd`
+- `docs/02_system_specs/world/DATA_CONTRACTS.md`
+- `.claude/agent-memory/active-epic.md`
+
+### Проверки приёмки (Acceptance tests)
+- [x] `assert(border_fix_slice_processes_at_most_configured_tiles_per_step)` — прошло (passed); `rg` подтвердил `_resolve_configured_border_fix_tiles_per_step()` и clamp в `TASK_BORDER_FIX` submit path.
+- [ ] `chunk_manager.streaming_redraw` без `over_budget_pct > 50` — требуется ручная проверка пользователем (manual human verification required); runtime boot proof не запускался по policy.
+- [ ] `ChunkStreaming.phase2_finalize` peak `<= 4 ms` — требуется ручная проверка пользователем (manual human verification required); baseline runtime log нужен отдельно.
+- [x] `world_gen_balance.tres` содержит numeric default — прошло (passed); `rg` показал `visual_border_fix_tiles_per_step = 4`.
+
+### Артефакты доказательства (Proof artifacts)
+- Статическая проверка (Static verification): `git diff --check -- data/world/world_gen_balance.gd data/world/world_gen_balance.tres core/systems/world/chunk_visual_scheduler.gd docs/02_system_specs/world/DATA_CONTRACTS.md .claude/agent-memory/active-epic.md` прошёл.
+- Статическая проверка (Static verification): `Godot_v4.6.1-stable_win64_console.exe --headless --path . --check-only --quit` прошёл.
+- Ручная проверка пользователем (Manual human verification): требуется для runtime perf counters.
+- Рекомендованная проверка пользователем (Suggested human check): `.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_quit_on_boot_complete codex_world_seed=12345 *>&1 | Tee-Object -FilePath debug_exports/perf/boot_triage_seed12345.log`.
+
+### Артефакты производительности (Performance artifacts)
+- Статическая проверка (Static verification): border-fix dirty tile batch теперь берёт не больше configured export, дополнительно ограничен `BORDER_FIX_REDRAW_MICRO_BATCH_TILES`; full chunk/edge drain в одном slice не добавлен.
+- Явный runtime-прогон агентом (Explicit agent-run runtime verification): не запускался в этой задаче по policy.
+- Ручная проверка пользователем (Manual human verification): требуется.
+- Рекомендованная проверка пользователем (Suggested human check): grep runtime log на `FrameBudget overrun job_id=chunk_manager.streaming_redraw`, `ChunkStreaming.phase2_finalize`, `ERROR`, `WARNING`, `WorldPerf`.
+
+### Проверка документации контрактов и API (Contract/API documentation check)
+- Grep DATA_CONTRACTS.md для `visual_border_fix_tiles_per_step`: совпадение на строке 646 — обновлено.
+- Grep DATA_CONTRACTS.md для `border_fix_slice_processes_at_most_configured_tiles_per_step`: совпадение на строке 651 — обновлено.
+- Grep DATA_CONTRACTS.md для `border_fix_slice_respects_visual_category_budget`: совпадение на строке 652 — обновлено.
+- Grep PUBLIC_API.md / PERFORMANCE_CONTRACTS.md для `visual_border_fix_tiles_per_step|border_fix_slice_processes_at_most_configured_tiles_per_step|border_fix_slice_respects_visual_category_budget`: 0 совпадений — новых public API/perf law updates не требовалось.
+- Секция "Required updates" в спеке: есть — `DATA_CONTRACTS.md` выполнено для Iteration 2; `PUBLIC_API.md` и `PERFORMANCE_CONTRACTS.md` не требовались, grep подтвердил 0 совпадений.
+
+### Наблюдения вне задачи (Out-of-scope observations)
+- В worktree остаются не относящиеся к Iteration 2 изменения: `core/systems/world/chunk_manager.gd`, `data/balance/player_balance.gd`, удаление `gdextension/bin/~station_mirny.windows.template_debug.x86_64.dll`, untracked `boot_startup_regression_triage_spec.md`.
+
+### Оставшиеся блокеры (Remaining blockers)
+- Runtime perf acceptance остаётся за ручной проверкой пользователя (manual human verification), как требует спека.
+
+### Обновление DATA_CONTRACTS.md (DATA_CONTRACTS.md updated)
+- Обновлено (updated): `Seam Repair Queue`, grep-доказательство строки 646, 651, 652.
+
+### Обновление PUBLIC_API.md (PUBLIC_API.md updated)
+- Не требовалось (not required): grep по новым names вернул 0 совпадений в `PUBLIC_API.md`.
+
+#### Blockers
+- Runtime boot proof pending manual human verification.
+
+### Boot Startup Regression Triage — Iteration 3
+**Spec**: docs/02_system_specs/world/boot_startup_regression_triage_spec.md
+**Status**: completed
+**Started**: 2026-04-15
+**Completed**: 2026-04-15
+
+#### Scope
+- Publish -> revoke cycle short-circuit in `ChunkManager` only.
+- Runtime diagnostic signal + counter for visibility revoke churn.
+- `DATA_CONTRACTS.md` Chunk Lifecycle contract update.
+- No `ChunkSeamService`, `Chunk`, `GameWorld`, worker/native generator, or UI changes.
+
+#### Отчёт о выполнении (Closure Report)
+## Отчёт о выполнении (Closure Report)
+
+### Что сделано (Implemented)
+- `ChunkManager` теперь хранит runtime-only базовую отметку публикации (publication baseline) для `pending_border_dirty_count` и разрешает `chunk_visibility_revoked` только если новый долг правки границы чанка (border-fix debt) вырос относительно предыдущей полной публикации.
+- Добавлен short-circuit: повторный revoke без нового border debt отклоняется, пишет `[WorldDiag]` с severity `diagnostic_signal` и инкрементит `chunk.visibility_revoke_without_new_border_debt_total`.
+- Добавлен repeat-diagnostic для случая, когда тот же chunk уходит в revoke повторно с той же сигнатурой visual state: counter `chunk.visibility_revoke_without_state_change_total`.
+- `DATA_CONTRACTS.md` получил слой `Chunk Lifecycle` с ownership, rebuild policy, invariants и diagnostic events/counters.
+
+### Корневая причина (Root cause)
+- Текущий revoke path принимал любой ожидаемый visual follow-up (`needs_full_redraw()` или pending border dirty) как достаточное основание скрыть уже опубликованный chunk. Для stream-load соседей это позволяло boilerplate invalidation превращаться в publish -> revoke -> republish cycle без доказанного нового `pending_border_dirty_count`.
+
+### Изменённые файлы (Files changed)
+- `core/systems/world/chunk_manager.gd`
+- `docs/02_system_specs/world/DATA_CONTRACTS.md`
+- `.claude/agent-memory/active-epic.md`
+
+### Проверки приёмки (Acceptance tests)
+- [x] `assert(neighbor_visibility_revoke_requires_new_pending_border_fix_debt)` — прошло (passed); `rg` подтвердил helper `_neighbor_visibility_revoke_requires_new_pending_border_fix_debt()` в `chunk_manager.gd` и invariant в `DATA_CONTRACTS.md`.
+- [ ] `chunk_visibility_revoked` для startup bubble chunks `<= 9` — требуется ручная проверка пользователем (manual human verification required); нужен fresh boot log на fixed seed.
+- [ ] `convergence_age_ms` для ring 0 chunk `<= 5000` — требуется ручная проверка пользователем (manual human verification required); требует runtime milestone log.
+- [ ] `Startup.loading_screen_visible_to_startup_bubble_ready_ms <= 15000` — требуется ручная проверка пользователем (manual human verification required); explicit agent-run runtime verification не запускался по policy.
+
+### Артефакты доказательства (Proof artifacts)
+- Статическая проверка (Static verification): `rg` показал `_record_chunk_visibility_publication_baseline()`, `_record_chunk_visibility_revoked()`, `WorldPerfProbe.record_counter()`, `SEVERITY_DIAGNOSTIC`, `chunk_visibility_revoke_short_circuited`, и новые counters в `core/systems/world/chunk_manager.gd`.
+- Статическая проверка (Static verification): `git diff --check -- core/systems/world/chunk_manager.gd docs/02_system_specs/world/DATA_CONTRACTS.md core/systems/world/world_perf_probe.gd` прошёл.
+- Синтаксическая проверка Godot (Godot syntax check): `.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --check-only --quit` прошёл exit 0.
+- Ручная проверка пользователем (Manual human verification): требуется для runtime/perf acceptance.
+- Рекомендованная проверка пользователем (Suggested human check): `.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_quit_on_boot_complete codex_world_seed=12345 *>&1 | Tee-Object -FilePath debug_exports/perf/boot_triage_seed12345.log`, затем grep по `chunk_visibility_revoked`, `convergence_age_ms`, `Startup.loading_screen_visible_to_startup_bubble_ready_ms`, `chunk.visibility_revoke_without_new_border_debt_total`.
+
+### Артефакты производительности (Performance artifacts)
+- Статическая проверка (Static verification): changed path не добавляет full chunk redraw или broad scan; sync work ограничен чтением одного chunk-local `pending_border_dirty_count`, сравнением с bounded lifecycle baseline и diagnostic emit с cooldown.
+- Явный runtime-прогон агентом (Explicit agent-run runtime verification): не запускался в этой задаче по policy; spec помечает runtime acceptance как manual human verification.
+- Ручная проверка пользователем (Manual human verification): требуется.
+- Рекомендованная проверка пользователем (Suggested human check): тот же fixed seed boot harness `codex_world_seed=12345`, проверить отсутствие double-revoke и startup timings.
+
+### Проверка документации контрактов и API (Contract/API documentation check)
+- Grep DATA_CONTRACTS.md для `neighbor_visibility_revoke_requires_new_pending_border_fix_debt|published_chunk_that_reaches_full_ready_does_not_re_enter_revoked_state_within_startup_bubble|chunk_visibility_revoke_short_circuited|chunk.visibility_revoke_without_new_border_debt_total|chunk.visibility_revoke_without_state_change_total`: совпадения есть в `Chunk Lifecycle` lines 362, 363, 378, 380 — обновлено.
+- Grep PUBLIC_API.md для тех же names: 0 совпадений — public API не менялся.
+- Секция "Required updates" в спеке: есть — `DATA_CONTRACTS.md` обновлён для Iteration 3; `PUBLIC_API.md` не требовался и подтверждён grep.
+
+### Наблюдения вне задачи (Out-of-scope observations)
+- В worktree остаются не относящиеся к Iteration 3 изменения: `data/balance/player_balance.gd`, удаление `gdextension/bin/~station_mirny.windows.template_debug.x86_64.dll`, untracked `boot_startup_regression_triage_spec.md`, а также изменения Iteration 1/2 в scheduler/perf/balance files.
+- `world_perf_probe.gd` уже имел generic `record_counter()` после Iteration 1, поэтому Iteration 3 использует его без дополнительного изменения файла.
+
+### Оставшиеся блокеры (Remaining blockers)
+- Runtime/perf acceptance остаётся за ручной проверкой пользователя (manual human verification): fresh boot log нужен для чисел `chunk_visibility_revoked`, `convergence_age_ms` и startup bubble timing.
+
+### Обновление DATA_CONTRACTS.md (DATA_CONTRACTS.md updated)
+- Обновлено (updated): добавлен `Layer: Chunk Lifecycle`, grep-доказательство lines 362, 363, 378, 380.
+
+### Обновление PUBLIC_API.md (PUBLIC_API.md updated)
+- Не требовалось (not required): grep новых helper/invariant/counter names по `PUBLIC_API.md` вернул 0 совпадений; новых public entry points не добавлено.
+
 ### Iteration R4.2 — Runtime perf forensics and native triage
 **Status**: completed
 **Started**: 2026-04-14

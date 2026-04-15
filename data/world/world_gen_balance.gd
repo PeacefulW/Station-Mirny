@@ -14,7 +14,7 @@ extends Resource
 @export_range(0.5, 16.0) var visual_scheduler_budget_ms: float = 2.0
 @export_range(16, 4096) var visual_first_pass_tiles_per_step: int = 48
 @export_range(16, 4096) var visual_full_redraw_tiles_per_step: int = 32
-@export_range(16, 4096) var visual_border_fix_tiles_per_step: int = 16
+@export_range(1, 64) var visual_border_fix_tiles_per_step: int = 4
 @export_range(16, 4096) var visual_cosmetic_tiles_per_step: int = 16
 @export_range(1, 8) var visual_first_pass_max_tasks_per_tick: int = 2
 @export_range(1, 16) var visual_full_redraw_max_tasks_per_tick: int = 2

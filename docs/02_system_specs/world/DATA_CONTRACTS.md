@@ -51,6 +51,7 @@ Until superseded, this document is mandatory reading for any iteration that touc
 | POI Placement Decisions | `derived` | `WorldGenerator` generation pipeline | deterministic native POI arbitration from hook decisions + immutable POI definitions | chunk payload generation, future debug/materialization consumers | per-origin deterministic compute inside native `ChunkGenerator`, owner-only placement authority, no persistence |
 | World Pre-pass | `canonical` | `WorldPrePass`, bootstrapped by `WorldGenerator` | boot-time coarse height / filled-height / eroded-height / flow-direction / accumulation / drainage / river-mask / river-width / river-distance / floodplain-strength / ridge-strength / mountain-mass / slope / rain-shadow / continentalness / tectonic spine-seed records / ridge-path graph / ridge spline samples + half-width profile / lake-mask / lake-record grids derived from seed + balance + planet sampler | `WorldGenerator` initialization, `WorldComputeContext` holder, future generator-side resolvers and samplers | boot-time compute only, deterministic rebuild, not persisted |
 | World | `canonical` | `ChunkManager` runtime arbitration, `Chunk` loaded storage, `WorldGenerator` unloaded surface base | canonical terrain bytes and unloaded overlay | terrain/resource/walkability/presentation consumers | loaded + unloaded reads, immediate writes, generator fallback |
+| Chunk Lifecycle | `canonical` / `publication-contract` | `ChunkManager` | loaded chunk install/unload, chunk visibility publication/revoke, publication-time pending border-debt baseline and diagnostic repeat signatures | `GameWorld`, `ChunkStreamingService`, `ChunkBootPipeline`, visual scheduler diagnostics | loaded-bubble scoped, runtime-only; publication diagnostics are cleared on unload/runtime clear and are not persisted |
 | Surface Final Packet Envelope | `derived` / `publication-contract` | `ChunkContentBuilder` for emitted packet shape, `ChunkManager` publication-payload completion, `ChunkSurfacePayloadCache` for duplicated retained copies | build/stamp versioned terminal surface packet dictionaries, including publication-ready flora payloads, and cache validated duplicates | `WorldGenerator.build_chunk_native_data()`, `ChunkStreamingService`, `ChunkBootPipeline`, diagnostics | surface z=0 only, deterministic build output, cached runtime copies not persisted |
 | Frontier Planning / Reserved Scheduling | `derived` | `TravelStateResolver`, `ViewEnvelopeResolver`, `FrontierPlanner`, and `FrontierScheduler`, coordinated by `ChunkStreamingService` | per-update travel/fixed hot-warm/frontier plan dictionaries, debug-only camera envelope diagnostics, lane-tagged runtime load queues, active generation lane metadata, reserved-capacity diagnostics | `ChunkStreamingService`, `ChunkDebugSystem`, F11 overlay, perf diagnostics | runtime-only, active-z scoped, recalculated on player chunk/motion updates, not persisted |
 | Mining | `canonical` | `ChunkManager` orchestration, `Chunk` loaded mutation storage | loaded terrain mutation and mining-side invalidation entrypoint | topology, reveal, presentation, save collection | loaded-only mutation, immediate |
@@ -349,6 +350,37 @@ Observed files for this version:
 - ~~`ChunkManager.has_resource_at_world()` has no unloaded fallback. For unloaded tiles it returns `false`, even though unloaded underground terrain is otherwise treated as solid rock by `get_terrain_type_at_global()`.~~ **resolved 2026-03-28**: `has_resource_at_world()` now delegates to `get_terrain_type_at_global()`, so unloaded underground reads observe the same `ROCK` fallback as the world-layer arbiter.
 - ~~`Chunk.populate_native()` reapplies saved terrain modifications tile-by-tile through `_apply_saved_modifications()` and does not recompute neighboring open-tile state during load.~~ **resolved 2026-03-28**: after replaying saved terrain diffs, `populate_native()` now re-normalizes affected open tiles and their cardinal neighbors inside the loaded chunk before redraw starts.
 
+## Layer: Chunk Lifecycle
+
+- `classification`: `canonical` / `publication-contract`
+- `owner`: `ChunkManager` owns loaded chunk install/unload orchestration, fresh-load hidden state, `Chunk.visible` publication/revoke decisions, boot progress notification for visual completion, and runtime diagnostics for publication churn. `Chunk` remains the chunk-local owner of `ChunkVisualState`, redraw phase, and `pending_border_dirty_count`; `ChunkSeamService` remains the owner that discovers and enqueues seam dirty tiles.
+- `writers`: `ChunkManager._finalize_chunk_install_stage()`, `ChunkManager._finalize_chunk_install_legacy()`, `ChunkManager._sync_chunk_visibility_for_publication()`, `ChunkManager._try_finalize_chunk_visual_convergence()`, `ChunkManager._invalidate_chunk_visual_convergence()`, `ChunkManager._ensure_chunk_full_redraw_task()`, and `ChunkManager._ensure_chunk_border_fix_task()`. The publication-time pending border-debt baseline and repeated-revoke signature are `ChunkManager` diagnostics only; they are updated on full publication/revoke and cleared on unload/runtime clear.
+- `readers`: `GameWorld` boot handoff, `ChunkBootPipeline` readiness gates, `ChunkStreamingService` install/unload flow, `ChunkVisualScheduler` readiness telemetry, `ChunkDebugSystem`, `WorldRuntimeDiagnosticLog`, and `WorldPerfProbe`.
+- `rebuild policy`: runtime-only and loaded-chunk scoped. Fresh chunks enter hidden and become visible only through terminal `FULL_READY`. A visible chunk may be revoked only when owner-observed `pending_border_dirty_count` has newly increased beyond the count captured at the previous full publication. Repeated revoke attempts without a changed chunk-local visual state emit diagnostic telemetry instead of silently expanding publication churn.
+- `invariants`:
+- `assert(fresh_loaded_chunks_enter_hidden_until_terminal_full_ready_publication, "fresh chunk nodes must not become visible before Chunk.is_full_redraw_ready()")`
+- `assert(neighbor_visibility_revoke_requires_new_pending_border_fix_debt, "revoke must be caused by newly discovered border debt, not by boilerplate invalidation")`
+- `assert(published_chunk_that_reaches_full_ready_does_not_re_enter_revoked_state_within_startup_bubble, "startup publication is terminal unless real new debt appears")`
+- `assert(repeated_visibility_revoke_without_state_change_is_diagnostic_signal_only, "repeat revoke for the same chunk/signature must emit diagnostic_signal telemetry and must not be treated as a new root cause")`
+- `write operations`:
+- `ChunkManager._sync_chunk_visibility_for_publication()`
+- `ChunkManager._try_finalize_chunk_visual_convergence()`
+- `ChunkManager._invalidate_chunk_visual_convergence()`
+- `ChunkManager._ensure_chunk_border_fix_task()`
+- `ChunkManager._remove_native_loaded_open_pocket_query_chunk()` for publication diagnostic cleanup on unload
+- `forbidden writes`:
+- `ChunkSeamService` must not mutate `Chunk.visible` or publication baselines.
+- `ChunkVisualScheduler` must not directly publish/revoke visibility; it may only expose readiness telemetry and task completion back to `ChunkManager`.
+- Debug overlays and `WorldPerfProbe` must not repair visibility or mutate lifecycle state.
+- `emitted events / invalidation signals`:
+- `chunk_visible`
+- `chunk_visibility_revoked`
+- `chunk_visibility_revoke_short_circuited`
+- `chunk_visibility_revoke_repeated_without_state_change`
+- counters `chunk.visibility_revoke_without_new_border_debt_total` and `chunk.visibility_revoke_without_state_change_total`
+- `current violations / ambiguities / contract gaps`:
+- none in current Iteration 3 scope.
+
 ## Layer: Surface Final Packet Envelope
 
 - `classification`: `derived` / `publication-contract`
@@ -568,16 +600,18 @@ Observed files for this version:
 ## Layer: Visual Task Scheduling
 
 - `classification`: `derived`
-- `owner`: `ChunkVisualScheduler` owns the visual scheduler queues, task versioning maps, worker visual-compute maps, apply-feedback state, queue latency telemetry containers, visual readiness timing maps, and the bounded queue-drain/task-processing policy for chunk visual work; `ChunkManager` remains the lifecycle coordinator, invalidation source, chunk/publication owner, and bounded tick caller.
+- `owner`: `ChunkVisualScheduler` owns the visual scheduler queues, task versioning maps, worker visual-compute maps, apply-feedback state, queue latency telemetry containers, duplicate requeue rejection counter, visual readiness timing maps, and the bounded queue-drain/task-processing policy for chunk visual work; `ChunkManager` remains the lifecycle coordinator, invalidation source, chunk/publication owner, and bounded tick caller.
 - `writers`: `ChunkVisualScheduler.clear_runtime_state()`, `begin_step()`, `queue_for_band()`, `ordered_queues()`, `tick_budget()`, `tick_once()`, `reset_runtime_telemetry()`, `ensure_task()`, `refresh_task_priorities()`, `clear_task()`, `push_task_front()`, `promote_existing_task_to_front()`, `mark_apply_started()`, `mark_convergence_started()`, `mark_first_pass_ready()`, `mark_full_ready()`, `clear_full_ready()`, and the internal scheduler drain helpers invoked by those tick entrypoints; `ChunkManager._schedule_chunk_visual_work()`, `_ensure_chunk_full_redraw_task()`, `_ensure_chunk_border_fix_task()`, `_invalidate_chunk_visual_convergence()`, and `_try_finalize_chunk_visual_convergence()` may request scheduler work only through those scheduler-owned entrypoints.
 - `readers`: `ChunkManager` boot/runtime work loops, worker-side visual batch preparation, `ChunkDebugSystem` snapshot assembly, `WorldPerfProbe`, and console/instrumentation consumers.
-- `rebuild policy`: runtime-only, per-tick, budgeted scheduler state. Task queues are repopulated from loaded chunk redraw state and dirty-border state; they are not persisted and are cleared on teardown through `ChunkVisualScheduler.clear_runtime_state()`. Terrain / cover / cliff / flora / border-fix work must resume through versioned scheduler tasks with stored slice phase/cursor telemetry and worker-prepared serializable command batches or flora render packets plus bounded main-thread apply. When the visual budget is exhausted, unfinished `TASK_FULL_REDRAW` / `TASK_BORDER_FIX` work is requeued; player-near relief paths must not complete full border/full redraw work inline. The scheduler-owned drain budget must stay aligned with `WorldGenBalance.visual_scheduler_budget_ms` instead of self-expanding past the registered dispatcher budget.
+- `rebuild policy`: runtime-only, per-tick, budgeted scheduler state. Task queues are repopulated from loaded chunk redraw state and dirty-border state; they are not persisted and are cleared on teardown through `ChunkVisualScheduler.clear_runtime_state()`. Terrain / cover / cliff / flora / border-fix work must resume through versioned scheduler tasks with stored slice phase/cursor telemetry and worker-prepared serializable command batches or flora render packets plus bounded main-thread apply. Enqueue, requeue, priority refresh, worker-compute return, and queue-rotation paths must pass through one scheduler-owned live-task dedupe gate for `(chunk_coord, z_level, task_kind, invalidation_version)`; rejected duplicates increment `scheduler.duplicate_requeue_rejected_total` through `WorldPerfProbe` and must not inflate `scheduler.visual_task_requeue_total`. When the visual budget is exhausted, unfinished `TASK_FULL_REDRAW` / `TASK_BORDER_FIX` work is requeued; player-near relief paths must not complete full border/full redraw work inline. The scheduler-owned drain budget must stay aligned with `WorldGenBalance.visual_scheduler_budget_ms` instead of self-expanding past the registered dispatcher budget.
 - `invariants`:
 - `assert(only_chunk_visual_scheduler_owned_containers_hold_visual_task_queues, "visual task queues, versions, and compute maps must live in the scheduler owner, not ad-hoc manager dictionaries")`
 - `assert(chunk_manager_executes_visual_policy_only_through_scheduler_owned_state, "ChunkManager may coordinate visual task policy but must not introduce a second mutable scheduler store")`
 - `assert(terrain_urgent_and_terrain_near_work_outrank_far_and_cosmetic_work, "near first-pass work must outrank far convergence work")`
 - `assert(visible_border_fix_work_outranks_far_full_redraw, "near-visible seam repair must run before far full convergence work")`
 - `assert(task_dedupe_and_versioning_prevent_duplicate_live_work_for_same_chunk_kind, "scheduler must not accumulate multiple live tasks for one chunk/kind/version")`
+- `assert(scheduler_rejects_duplicate_live_task_for_same_chunk_kind_version, "requeue must not resurrect a live task for an identical chunk/kind/version triple")`
+- `assert(scheduler_visual_task_requeue_total_grows_sublinearly_in_startup_bubble_chunks, "startup bubble requeue must scale roughly linearly with chunks, not quadratically")`
 - `assert(chunk_visual_state_transitions_follow_uninitialized_native_proxy_terrain_full_pending_full_ready, "ChunkVisualState is the chunk-local readiness contract for scheduler-owned publication")`
 - `assert(chunk_full_ready_is_revoked_on_visual_invalidation_until_followup_work_closes, "approximation, seam repair, and mining-side convergence debt must drop FULL_READY back to FULL_PENDING until the owed work is complete")`
 - `assert(visual_scheduler_work_stays_within_an_explicit_per_tick_budget, "visual queue draining is budgeted by WorldGenBalance.visual_scheduler_budget_ms")`
@@ -641,11 +675,13 @@ Observed files for this version:
 - `owner`: `ChunkSeamService` owns pending seam refresh tiles, duplicate suppression, neighbor border enqueue logic, and mining-side seam follow-up repair. `ChunkManager` remains the mining/topology coordinator and calls the service from sanctioned owner paths.
 - `writers`: `ChunkSeamService.enqueue_neighbor_border_redraws()`, `seam_normalize_and_redraw()`, `process_queue_step()`, and `clear()`.
 - `readers`: `ChunkManager._tick_topology()`, visual scheduler border-fix task creation, and debug queue-depth snapshot helpers.
-- `rebuild policy`: runtime-only queue, not persisted. Mining at a loaded chunk edge enqueues only loaded-neighbor seam tiles; topology tick drains at most `SEAM_REFRESH_MAX_TILES_PER_STEP` tiles per step and schedules visual border-fix work rather than synchronously redrawing all affected neighbors.
+- `rebuild policy`: runtime-only queue, not persisted. Mining at a loaded chunk edge enqueues only loaded-neighbor seam tiles; topology tick drains at most `SEAM_REFRESH_MAX_TILES_PER_STEP` tiles per step and schedules visual border-fix work rather than synchronously redrawing all affected neighbors. Visual border-fix apply is sliced by `WorldGenBalance.visual_border_fix_tiles_per_step`; one scheduler slice may process fewer tiles for far/background work, but must not process more than the configured export.
 - `invariants`:
 - `assert(seam_repair_queue_is_loaded_neighbor_only, "seam repair must not synthesize unloaded neighbor mutation or redraw work")`
 - `assert(seam_repair_queue_dedupes_tiles, "one seam tile should not accumulate duplicate pending refresh entries")`
 - `assert(seam_repair_drain_is_bounded_per_step, "seam refresh work must stay budgeted and must not redraw all neighbor borders in one interactive mining frame")`
+- `assert(border_fix_slice_processes_at_most_configured_tiles_per_step, "one border-fix slice must not exceed visual_border_fix_tiles_per_step")`
+- `assert(border_fix_slice_respects_visual_category_budget, "border-fix slice must stop when visual category budget is exhausted within the same tick")`
 - `assert(seam_border_fix_uses_visual_scheduler, "seam repair may enqueue border-fix work but must not bypass visual scheduler convergence ownership")`
 - `write operations`:
 - `ChunkSeamService.enqueue_neighbor_border_redraws()`

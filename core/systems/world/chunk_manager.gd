@@ -182,6 +182,8 @@ const RUNTIME_MAX_CONCURRENT_COMPUTE: int = 4
 ## --- Async generation (runtime only) ---
 var _debug_recent_lifecycle_events: Array[Dictionary] = []
 var _debug_recent_unloads: Dictionary = {}  ## Vector3i -> usec
+var _visibility_revoke_pending_border_baseline: Dictionary = {}
+var _visibility_revoke_last_signature_by_chunk: Dictionary = {}
 var _shutdown_in_progress: bool = false
 
 func _ready() -> void:
@@ -2372,6 +2374,7 @@ func _sync_native_loaded_open_pocket_query_chunk(coord: Vector2i, chunk: Chunk, 
 	)
 
 func _remove_native_loaded_open_pocket_query_chunk(coord: Vector2i, z_level: int) -> void:
+	_clear_chunk_visibility_revoke_state(coord, z_level)
 	if _native_loaded_open_pocket_query == null or z_level != _active_z:
 		return
 	_native_loaded_open_pocket_query.call("remove_chunk", coord)
@@ -2383,6 +2386,8 @@ func _clear_visual_task_state() -> void:
 		_chunk_seam_service.clear()
 	if _chunk_debug_system != null:
 		_chunk_debug_system.clear_visual_task_meta()
+	_visibility_revoke_pending_border_baseline.clear()
+	_visibility_revoke_last_signature_by_chunk.clear()
 
 
 func _is_player_near_visual_chunk(coord: Vector2i, z_level: int) -> bool:
@@ -2627,11 +2632,179 @@ func _invalidate_boot_visual_complete(coord: Vector2i, z_level: int) -> void:
 	if _chunk_boot_pipeline != null:
 		_chunk_boot_pipeline.invalidate_visual_complete(coord, z_level)
 
+func _get_visibility_revoke_state_key(chunk: Chunk, z_level: int) -> Vector3i:
+	return _make_chunk_state_key(z_level, chunk.chunk_coord)
+
+func _clear_chunk_visibility_revoke_state(coord: Vector2i, z_level: int) -> void:
+	var state_key: Vector3i = _make_chunk_state_key(z_level, coord)
+	_visibility_revoke_pending_border_baseline.erase(state_key)
+	_visibility_revoke_last_signature_by_chunk.erase(state_key)
+
+func _record_chunk_visibility_publication_baseline(chunk: Chunk, z_level: int) -> void:
+	if chunk == null or not is_instance_valid(chunk):
+		return
+	var state_key: Vector3i = _get_visibility_revoke_state_key(chunk, z_level)
+	_visibility_revoke_pending_border_baseline[state_key] = chunk.get_pending_border_dirty_count()
+	if chunk.get_pending_border_dirty_count() <= 0:
+		_visibility_revoke_last_signature_by_chunk.erase(state_key)
+
+func _neighbor_visibility_revoke_requires_new_pending_border_fix_debt(
+	chunk: Chunk,
+	z_level: int,
+	pending_border_dirty_count: int
+) -> bool:
+	if chunk == null or not is_instance_valid(chunk) or pending_border_dirty_count <= 0:
+		return false
+	var state_key: Vector3i = _get_visibility_revoke_state_key(chunk, z_level)
+	var published_baseline: int = int(_visibility_revoke_pending_border_baseline.get(state_key, 0))
+	return pending_border_dirty_count > published_baseline
+
+func _build_visibility_revoke_state_signature(
+	chunk: Chunk,
+	pending_border_dirty_count: int
+) -> String:
+	return "visual_state=%s|redraw_phase=%s|needs_full_redraw=%s|redraw_complete=%s|pending_border_dirty_count=%d|visual_invalidation_version=%d" % [
+		_describe_chunk_visual_state(chunk),
+		String(chunk.get_redraw_phase_name()),
+		str(chunk.needs_full_redraw()),
+		str(chunk.is_redraw_complete()),
+		pending_border_dirty_count,
+		chunk.get_visual_invalidation_version(),
+	]
+
+func _emit_visibility_revoke_diagnostic_signal(
+	action: String,
+	action_human: String,
+	chunk: Chunk,
+	z_level: int,
+	reason_human: String,
+	state_human: String,
+	counter_label: String,
+	detail_fields: Dictionary = {}
+) -> void:
+	if chunk == null or not is_instance_valid(chunk):
+		return
+	WorldPerfProbe.record_counter(counter_label)
+	var record: Dictionary = {
+		"actor": "chunk_manager",
+		"actor_human": "Система чанков",
+		"action": action,
+		"action_human": action_human,
+		"target": "chunk",
+		"target_human": "чанк %s" % [chunk.chunk_coord],
+		"reason": "no_new_border_debt",
+		"reason_human": reason_human,
+		"impact": String(WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT),
+		"impact_human": WorldRuntimeDiagnosticLog.humanize_impact(WorldRuntimeDiagnosticLog.IMPACT_BACKGROUND_DEBT),
+		"state": "diagnostic_signal",
+		"state_human": state_human,
+		"severity": String(WorldRuntimeDiagnosticLog.SEVERITY_DIAGNOSTIC),
+		"severity_human": WorldRuntimeDiagnosticLog.humanize_severity(WorldRuntimeDiagnosticLog.SEVERITY_DIAGNOSTIC),
+		"code": "visibility_revoke",
+	}
+	var details: Dictionary = detail_fields.duplicate()
+	details["chunk_coord"] = chunk.chunk_coord
+	details["z"] = z_level
+	details["distance"] = _chunk_chebyshev_distance(chunk.chunk_coord, _player_chunk)
+	details["priority"] = _debug_priority_label(chunk.chunk_coord)
+	_debug_enrich_record_with_trace(record, details, chunk.chunk_coord, z_level)
+	WorldRuntimeDiagnosticLog.emit_record(
+		record,
+		details,
+		WorldRuntimeDiagnosticLog.SUMMARY_PREFIX,
+		WorldRuntimeDiagnosticLog.DETAIL_PREFIX,
+		{"cooldown_ms": 700.0}
+	)
+
+func _record_chunk_visibility_revoked(
+	chunk: Chunk,
+	z_level: int,
+	pending_border_dirty_count: int
+) -> void:
+	if chunk == null or not is_instance_valid(chunk):
+		return
+	var state_key: Vector3i = _get_visibility_revoke_state_key(chunk, z_level)
+	var revoke_signature: String = _build_visibility_revoke_state_signature(chunk, pending_border_dirty_count)
+	var previous_signature: String = str(_visibility_revoke_last_signature_by_chunk.get(state_key, ""))
+	if previous_signature == revoke_signature:
+		_emit_visibility_revoke_diagnostic_signal(
+			"chunk_visibility_revoke_repeated_without_state_change",
+			"заметила повторный отзыв видимости",
+			chunk,
+			z_level,
+			"тот же чанк повторно ушёл в visibility revoke без изменения visual state или pending border debt",
+			"повтор без изменения состояния",
+			"chunk.visibility_revoke_without_state_change_total",
+			{
+				"visual_revoke_signature": revoke_signature,
+				"pending_border_dirty_count": pending_border_dirty_count,
+			}
+		)
+	_visibility_revoke_last_signature_by_chunk[state_key] = revoke_signature
+	_visibility_revoke_pending_border_baseline[state_key] = pending_border_dirty_count
+
+func _emit_visibility_revoke_without_new_debt(
+	chunk: Chunk,
+	z_level: int,
+	pending_border_dirty_count: int
+) -> void:
+	var state_key: Vector3i = _get_visibility_revoke_state_key(chunk, z_level)
+	var published_baseline: int = int(_visibility_revoke_pending_border_baseline.get(state_key, 0))
+	_emit_visibility_revoke_diagnostic_signal(
+		"chunk_visibility_revoke_short_circuited",
+		"отклонила отзыв видимости",
+		chunk,
+		z_level,
+		"visibility revoke не выполнен: pending_border_dirty_count не вырос после предыдущей полной публикации чанка",
+		"отклонён без нового долга",
+		"chunk.visibility_revoke_without_new_border_debt_total",
+		{
+			"visual_state": _describe_chunk_visual_state(chunk),
+			"redraw_phase": String(chunk.get_redraw_phase_name()),
+			"pending_border_dirty_count": pending_border_dirty_count,
+			"published_pending_border_dirty_baseline": published_baseline,
+			"visual_invalidation_version": chunk.get_visual_invalidation_version(),
+		}
+	)
+
 func _sync_chunk_visibility_for_publication(chunk: Chunk) -> void:
 	if chunk == null or not is_instance_valid(chunk):
 		return
 	var should_be_visible: bool = chunk._is_visibility_publication_ready()
 	if chunk.visible and not should_be_visible:
+		var pending_border_dirty_count: int = chunk.get_pending_border_dirty_count()
+		var has_new_border_fix_debt: bool = _neighbor_visibility_revoke_requires_new_pending_border_fix_debt(
+			chunk,
+			_active_z,
+			pending_border_dirty_count
+		)
+		var has_expected_visual_followup: bool = chunk.is_first_pass_ready() \
+			and (chunk.needs_full_redraw() or pending_border_dirty_count > 0)
+		if has_expected_visual_followup and has_new_border_fix_debt:
+			_record_chunk_visibility_revoked(chunk, _active_z, pending_border_dirty_count)
+			chunk.visible = false
+			_debug_emit_chunk_event(
+				"chunk_visibility_revoked",
+				"скрыла неполный чанк",
+				chunk.chunk_coord,
+				_active_z,
+				"terminal full_ready был отозван из-за ожидаемой визуальной follow-up работы; чанк скрыт до повторной публикации",
+				WorldRuntimeDiagnosticLog.IMPACT_PLAYER_VISIBLE,
+				"hidden",
+				"скрыт до готовности",
+				"visibility_revoked",
+				{
+					"visual_state": _describe_chunk_visual_state(chunk),
+					"redraw_phase": String(chunk.get_redraw_phase_name()),
+					"pending_border_dirty_count": pending_border_dirty_count,
+				}
+			)
+			return
+		if has_expected_visual_followup and (pending_border_dirty_count > 0 or chunk._can_publish_full_redraw_ready()):
+			_emit_visibility_revoke_without_new_debt(chunk, _active_z, pending_border_dirty_count)
+			if chunk._can_publish_full_redraw_ready():
+				_try_finalize_chunk_visual_convergence(chunk, _active_z)
+			return
 		_report_zero_tolerance_contract_breach(
 			"chunk_visible_before_full_ready",
 			chunk.chunk_coord,
@@ -2644,6 +2817,8 @@ func _sync_chunk_visibility_for_publication(chunk: Chunk) -> void:
 				"redraw_phase": String(chunk.get_redraw_phase_name()),
 			}
 		)
+	if should_be_visible:
+		_record_chunk_visibility_publication_baseline(chunk, _active_z)
 	chunk.visible = should_be_visible
 
 func _try_finalize_chunk_visual_convergence(chunk: Chunk, z_level: int) -> bool:
@@ -2734,8 +2909,16 @@ func _ensure_chunk_border_fix_task(chunk: Chunk, z_level: int, invalidate: bool 
 	if not chunk.has_pending_border_dirty():
 		_try_finalize_chunk_visual_convergence(chunk, z_level)
 		return
-	if invalidate:
+	var pending_border_dirty_count: int = chunk.get_pending_border_dirty_count()
+	var has_new_border_fix_debt: bool = _neighbor_visibility_revoke_requires_new_pending_border_fix_debt(
+		chunk,
+		z_level,
+		pending_border_dirty_count
+	)
+	if invalidate and has_new_border_fix_debt:
 		_invalidate_chunk_visual_convergence(chunk, z_level)
+	elif invalidate:
+		_emit_visibility_revoke_without_new_debt(chunk, z_level, pending_border_dirty_count)
 	if chunk.needs_full_redraw() and not chunk.is_redraw_complete():
 		if _chunk_visual_scheduler != null:
 			_chunk_visual_scheduler.ensure_task(chunk, z_level, VisualTaskKind.TASK_FULL_REDRAW, invalidate)
