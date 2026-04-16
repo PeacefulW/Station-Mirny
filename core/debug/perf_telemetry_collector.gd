@@ -27,9 +27,11 @@ static var _active_instance: PerfTelemetryCollector = null
 var _game_world: GameWorld = null
 var _chunk_manager: ChunkManager = null
 var _validation_driver: Node = null
+var _stress_driver: Node = null
 var _artifact_written: bool = false
 var _ready_to_finalize_frame: int = -1
 var _validation_completion_summary: Dictionary = {}
+var _stress_completion_summary: Dictionary = {}
 var _chunk_generator_profiles: Array[Dictionary] = []
 var _topology_builder_profiles: Array[Dictionary] = []
 var _output_path: String = DEFAULT_OUTPUT_PATH
@@ -59,14 +61,25 @@ func _ready() -> void:
 func setup(
 	game_world: GameWorld,
 	chunk_manager: ChunkManager,
-	validation_driver: Node = null
+	validation_driver: Node = null,
+	stress_driver: Node = null
 ) -> void:
 	_game_world = game_world
 	_chunk_manager = chunk_manager
 	_validation_driver = validation_driver
+	_stress_driver = stress_driver
 	_output_path = _resolve_output_path()
 	if _validation_driver != null and not _validation_driver.validation_run_completed.is_connected(_on_validation_run_completed):
 		_validation_driver.validation_run_completed.connect(_on_validation_run_completed)
+	if _stress_driver != null and _stress_driver.has_signal("stress_run_completed") and not _stress_driver.stress_run_completed.is_connected(_on_stress_run_completed):
+		_stress_driver.stress_run_completed.connect(_on_stress_run_completed)
+	if _stress_is_requested() and _stress_driver == null:
+		_stress_completion_summary = {
+			"mode": _resolve_requested_stress_mode(),
+			"state": "failed",
+			"message": "stress driver was requested but not initialized",
+			"exit_code": 1,
+		}
 
 func record_chunk_generator_profile(profile: Dictionary, context: Dictionary = {}) -> void:
 	if not is_enabled_for_current_run() or profile.is_empty():
@@ -87,23 +100,43 @@ func _process(_delta: float) -> void:
 		return
 	if _validation_is_requested() and _validation_completion_summary.is_empty():
 		return
+	if _stress_is_requested() and _stress_completion_summary.is_empty():
+		return
 	if Engine.get_process_frames() <= _ready_to_finalize_frame:
 		return
 	_finalize_and_optionally_quit(_resolve_exit_code())
 
 func _is_completion_gate_reached() -> bool:
-	if _validation_is_requested():
+	if _validation_is_requested() or _stress_is_requested():
 		return _game_world.is_boot_complete()
 	return _game_world.is_boot_complete() or _chunk_manager.is_boot_first_playable()
 
 func _on_validation_run_completed(summary: Dictionary) -> void:
 	_validation_completion_summary = summary.duplicate(true)
 
+func _on_stress_run_completed(summary: Dictionary) -> void:
+	_stress_completion_summary = summary.duplicate(true)
+
 func _validation_is_requested() -> bool:
 	return VALIDATE_ARG in OS.get_cmdline_user_args()
 
+func _stress_is_requested() -> bool:
+	for arg: String in OS.get_cmdline_user_args():
+		if arg.begins_with("codex_stress_mode="):
+			return true
+	return false
+
+func _resolve_requested_stress_mode() -> String:
+	for arg: String in OS.get_cmdline_user_args():
+		if arg.begins_with("codex_stress_mode="):
+			return arg.trim_prefix("codex_stress_mode=").strip_edges()
+	return ""
+
 func _resolve_exit_code() -> int:
-	return int(_validation_completion_summary.get("exit_code", 0))
+	return maxi(
+		int(_validation_completion_summary.get("exit_code", 0)),
+		int(_stress_completion_summary.get("exit_code", 0))
+	)
 
 func _should_quit_on_complete() -> bool:
 	return QUIT_ON_COMPLETE_ARG in OS.get_cmdline_user_args()
@@ -213,9 +246,11 @@ func _build_artifact() -> Dictionary:
 			"cmdline_args": OS.get_cmdline_user_args(),
 			"perf_test_enabled": true,
 			"runtime_validation_enabled": _validation_is_requested(),
+			"stress_enabled": _stress_is_requested(),
 			"output_path": _output_path,
 			"output_absolute_path": _to_absolute_path(_output_path),
 			"validation_completion": _validation_completion_summary,
+			"stress_completion": _stress_completion_summary,
 		}),
 		"boot": _jsonify_variant({
 			"game_world_boot_complete": _game_world.is_boot_complete() if _game_world != null else false,
@@ -236,6 +271,7 @@ func _build_artifact() -> Dictionary:
 		"frame_summary": _jsonify_variant(monitor_snapshot),
 		"contract_violations": _jsonify_variant(WorldPerfProbe.copy_contract_violation_snapshot()),
 		"scenarios": _jsonify_variant(_resolve_scenarios()),
+		"stress": _jsonify_variant(_resolve_stress_summary()),
 		"native_profiling": _jsonify_variant({
 			"chunk_generator": _summarize_native_profile_samples(_chunk_generator_profiles),
 			"topology_builder": _summarize_native_profile_samples(_topology_builder_profiles),
@@ -278,6 +314,11 @@ func _resolve_scenarios() -> Array[Dictionary]:
 	if _validation_driver.has_method("get_scenario_results"):
 		return _validation_driver.get_scenario_results()
 	return []
+
+func _resolve_stress_summary() -> Dictionary:
+	if not _stress_is_requested():
+		return {}
+	return _stress_completion_summary.duplicate(true)
 
 func _summarize_boot_states(chunk_states: Dictionary) -> Dictionary:
 	var counts: Dictionary = {}

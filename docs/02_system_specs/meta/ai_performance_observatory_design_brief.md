@@ -629,7 +629,7 @@ User: "Оптимизируй flora placement"
 ### 8.3 Skill файл
 
 ```yaml
-# .claude/skills/perf-observatory.md
+# .agents/skills/perf-observatory/SKILL.md
 name: perf-observatory
 description: >
   Запуск перф-тестов Station Mirny, чтение результатов,
@@ -640,6 +640,9 @@ triggers:
   - "perf test"
   - "benchmark"
 ```
+
+`.claude/skills/perf-observatory.md` допустим только как compatibility mirror;
+repo-specific source of truth должен жить в `.agents/skills/perf-observatory/`.
 
 **Оценка**: 1 день (поверх направления A).
 

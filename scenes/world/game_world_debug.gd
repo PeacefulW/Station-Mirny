@@ -5,6 +5,7 @@ extends Node
 ## Извлечён из GameWorld для изоляции debug-кода от runtime (Iteration 5, ADR-0001).
 
 const RuntimeValidationDriverScript = preload("res://core/debug/runtime_validation_driver.gd")
+const StressDriverScript = preload("res://core/debug/stress_driver.gd")
 const PerfTelemetryCollectorScript = preload("res://core/debug/perf_telemetry_collector.gd")
 const WorldPreviewExporterScript = preload("res://core/debug/world_preview_exporter.gd")
 const WorldPreviewProofDriverScript = preload("res://core/debug/world_preview_proof_driver.gd")
@@ -22,6 +23,7 @@ var _stairs_container: Node2D = null
 var _world_preview_exporter: WorldPreviewExporter = null
 var _chunk_debug_overlay: Node = null
 var _runtime_validation_driver: RuntimeValidationDriver = null
+var _stress_driver: Node = null
 var _perf_telemetry_collector: Node = null
 var _local_preview_panel: PanelContainer = null
 var _local_preview_header_label: Label = null
@@ -38,6 +40,7 @@ func setup(chunk_manager: ChunkManager, ui_layer: CanvasLayer, game_world: GameW
 	_game_world = game_world
 	_setup_tile_highlight()
 	_runtime_validation_driver = _setup_runtime_validation_driver()
+	_stress_driver = _setup_stress_driver()
 	_setup_perf_telemetry_collector()
 	_setup_world_preview_exporter()
 	_setup_world_preview_proof_driver()
@@ -124,7 +127,15 @@ func _setup_perf_telemetry_collector() -> void:
 	_perf_telemetry_collector = PerfTelemetryCollectorScript.new()
 	_perf_telemetry_collector.name = "PerfTelemetryCollector"
 	get_parent().add_child(_perf_telemetry_collector)
-	_perf_telemetry_collector.setup(_game_world, _chunk_manager, _runtime_validation_driver)
+	_perf_telemetry_collector.setup(_game_world, _chunk_manager, _runtime_validation_driver, _stress_driver)
+
+func _setup_stress_driver() -> Node:
+	if not StressDriverScript.is_enabled_for_current_run():
+		return null
+	var driver := StressDriverScript.new()
+	driver.name = "StressDriver"
+	get_parent().add_child(driver)
+	return driver
 
 func _setup_world_preview_exporter() -> void:
 	if WorldGenerator:

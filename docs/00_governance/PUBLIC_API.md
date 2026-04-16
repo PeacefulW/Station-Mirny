@@ -1784,7 +1784,7 @@ Current commands in scope:
 ### Debug artifacts
 
 `debug_exports/perf/result.json` (or the explicit `codex_perf_output` path)
-- Что содержит: explicit perf/debug JSON artifact from `PerfTelemetryCollector` during `codex_perf_test` runs. In addition to boot/frame/native profiling data, it carries `streaming.debug_diagnostics.queue_state`, `timeline_history`, `forensics`, and `perf_breakdown` so removed F11 overlay detail remains available offline.
+- Что содержит: explicit perf/debug JSON artifact from `PerfTelemetryCollector` during `codex_perf_test` runs. In addition to boot/frame/native profiling data, it carries `streaming.debug_diagnostics.queue_state`, `timeline_history`, `forensics`, `perf_breakdown`, and an optional `stress` block when an explicit `codex_stress_mode=...` run was requested, so removed F11 overlay detail and stress-proof output remain available offline.
 - Кто пишет: only `PerfTelemetryCollector`.
 - Когда пишется: once per explicit perf/debug run after the collector reaches its completion gate.
 - Особенности: debug-only derived artifact, not gameplay truth, not save/load data, and not an API for reconstructing runtime authority.

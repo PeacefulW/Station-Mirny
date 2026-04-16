@@ -63,7 +63,8 @@ Until superseded, this document is mandatory reading for any iteration that touc
 | Seam Repair Queue | `derived` | `ChunkSeamService`, coordinated by `ChunkManager` | pending seam refresh tile queue and neighbor border-fix enqueue decisions | topology tick, visual scheduler, mining seam follow-up | loaded-neighbor only, small per-step queue drain, not persisted |
 | Chunk Debug Overlay Snapshot | `derived` | `ChunkDebugSystem`, coordinated by `ChunkManager` | bounded per-player debug snapshot assembled from existing chunk/queue/readiness state plus bounded incident/trace correlations | `WorldChunkDebugOverlay`, `PerfTelemetryCollector`, debug inspection | active-z, bounded debug radius, read-only, not persisted |
 | Runtime Diagnostic Timeline Buffer | `derived` | `WorldRuntimeDiagnosticLog` | bounded diagnostic event ring buffer with dedupe metadata and optional `trace_id` / `incident_id` correlation | `PerfTelemetryCollector`, debug inspection, validation tooling | transient, cooldown-deduped, not gameplay truth |
-| Perf Telemetry Snapshot | `derived` / `debug-only` | `PerfTelemetryCollector` | one explicit per-run JSON artifact assembled from owner-fed boot, frame, timeline, scenario, contract-violation, and native profiling dictionaries | agents, manual perf review, baseline diff tooling | explicit `codex_perf_test` runs only, written once per run, not gameplay truth or persistence |
+| Perf Telemetry Snapshot | `derived` / `debug-only` | `PerfTelemetryCollector` | one explicit per-run JSON artifact assembled from owner-fed boot, frame, timeline, scenario, stress, contract-violation, and native profiling dictionaries | agents, manual perf review, baseline diff tooling | explicit `codex_perf_test` runs only, written once per run, not gameplay truth or persistence |
+| Stress Driver Proof Record | `derived` / `debug-only` | `StressDriver` | one explicit per-run stress result summary built from sanctioned scale presets and per-frame/per-action metrics | `PerfTelemetryCollector`, headless proof runs, debug inspection | explicit `codex_stress_mode=...` runs only, not gameplay truth or persistence |
 | Presentation | `presentation-only` | `Chunk`, `MountainShadowSystem`, `WorldFeatureDebugOverlay`, `WorldChunkDebugOverlay` | TileMap, shadow sprite, debug anchor-marker output, and debug chunk overlay drawing | Godot renderer, debug inspection | loaded-only/redraw-driven for world presentation; read-only snapshot-driven for debug overlay |
 | Boot Readiness | `derived` | `ChunkBootPipeline` | per-chunk boot state tracking and aggregate gate flags | `GameWorld`, boot progress UI, instrumentation | boot-time only, not persisted |
 
@@ -782,14 +783,15 @@ Observed files for this version:
 ## Layer: Perf Telemetry Snapshot
 
 - `classification`: `derived` / `debug-only`
-- `owner`: `PerfTelemetryCollector` owns one explicit per-run JSON artifact. Source owners stay unchanged: `WorldPerfProbe` owns raw timings and contract violations, `WorldPerfMonitor` owns frame aggregation, `WorldRuntimeDiagnosticLog` owns bounded timeline records, `RuntimeValidationDriver` owns validation run selection/final summary, concrete `ValidationScenario` records own per-scenario outcomes, and native `ChunkGenerator` / `MountainTopologyBuilder` own `_prof_*` payloads.
+- `owner`: `PerfTelemetryCollector` owns one explicit per-run JSON artifact. Source owners stay unchanged: `WorldPerfProbe` owns raw timings and contract violations, `WorldPerfMonitor` owns frame aggregation, `WorldRuntimeDiagnosticLog` owns bounded timeline records, `RuntimeValidationDriver` owns validation run selection/final summary, `StressDriver` owns explicit stress-run summary state, concrete `ValidationScenario` records own per-scenario outcomes, and native `ChunkGenerator` / `MountainTopologyBuilder` own `_prof_*` payloads.
 - `writers`: `PerfTelemetryCollector.setup()`, `record_chunk_generator_profile()`, `record_topology_builder_profile()`, `_build_artifact()`, and `_write_artifact()`; `ChunkBootPipeline` and `ChunkStreamingService` may forward owner-produced native profile dictionaries into the collector, but do not own the artifact schema.
 - `readers`: agents, manual perf review, fixed-seed baseline comparison, and optional offline diff tooling.
-- `rebuild policy`: written once per explicit `codex_perf_test` run to `codex_perf_output` or `debug_exports/perf/result.json`. Validation runs wait for `GameWorld.is_boot_complete()` before finalization; non-validation perf runs may finalize once either `ChunkManager.is_boot_first_playable()` or `GameWorld.is_boot_complete()` is reached, and the artifact must serialize both readiness booleans either way. The artifact is never loaded back into gameplay or persistence state. Removed F11 overlay detail now lives here under explicit `debug_diagnostics.queue_state`, `debug_diagnostics.timeline_history`, `debug_diagnostics.forensics`, and `debug_diagnostics.perf_breakdown`.
+- `rebuild policy`: written once per explicit `codex_perf_test` run to `codex_perf_output` or `debug_exports/perf/result.json`. Validation and stress runs wait for `GameWorld.is_boot_complete()` plus their own completion summary before finalization; non-validation/non-stress perf runs may finalize once either `ChunkManager.is_boot_first_playable()` or `GameWorld.is_boot_complete()` is reached, and the artifact must serialize both readiness booleans either way. The artifact is never loaded back into gameplay or persistence state. Removed F11 overlay detail now lives here under explicit `debug_diagnostics.queue_state`, `debug_diagnostics.timeline_history`, `debug_diagnostics.forensics`, and `debug_diagnostics.perf_breakdown`.
 - `invariants`:
 - `assert(perf_telemetry_snapshot_writes_only_when_codex_perf_test_is_present, "observatory JSON must stay disabled for normal gameplay and non-proof runs")`
 - `assert(perf_telemetry_snapshot_is_assembled_from_owner_fed_dictionaries, "collector must read structured owner data directly and must not parse console text")`
 - `assert(perf_telemetry_snapshot_records_first_playable_and_boot_complete_state, "artifact must preserve both readiness booleans so first-playable proofs do not masquerade as full boot convergence")`
+- `assert(perf_telemetry_snapshot_serializes_stress_summary_only_from_stress_driver, "stress block must stay a derived proof payload produced by StressDriver rather than reconstructed from unrelated runtime state or console output")`
 - `assert(perf_telemetry_snapshot_owns_removed_overlay_detail, "queue/timeline/forensics/perf breakdown removed from the live overlay must remain available in the JSON artifact")`
 - `assert(native_prof_payloads_remain_debug_only, "_prof_* payloads must not change chunk generation or topology semantics and missing payloads must fail open for gameplay")`
 - `assert(perf_telemetry_snapshot_is_not_gameplay_truth, "debug_exports/perf JSON must not become runtime authority, save data, or scheduler input")`
@@ -807,6 +809,35 @@ Observed files for this version:
 - none; explicit proof runners read the file artifact or optional local `artifact_written` signal after the single final write.
 - `current violations / ambiguities / contract gaps`:
 - If no runtime topology profile was produced during the run, the current collector may synthesize one fallback `_prof_topology_builder` sample from already loaded chunk terrain through `MountainTopologyBuilder.rebuild_topology()`. That fallback remains debug-only proof data and must not be treated as runtime topology ownership.
+
+## Layer: Stress Driver Proof Record
+
+- `classification`: `derived` / `debug-only`
+- `owner`: `StressDriver` owns explicit stress-mode selection, per-run scale execution, and final stress summary for `codex_stress_mode=...`; it may reuse existing sanctioned command/read entrypoints through `ValidationContext`, but it never becomes gameplay authority.
+- `writers`: `StressDriver._begin_mode()`, `_begin_mass_buildings()`, `_begin_route_traverse()`, `_begin_deep_mine()`, `_update_mass_buildings()`, `_update_route_traverse()`, `_update_deep_mine()`, and `_complete_run()`.
+- `readers`: `PerfTelemetryCollector`, headless proof runs, and debug inspection.
+- `rebuild policy`: transient per explicit `codex_stress_mode=...` run after `GameWorld.is_boot_complete()`. Stress presets may place/remove validation buildings, move the validation player, or mine tiles only through existing safe entrypoints and bounded debug adapters; resulting summary is serialized into observatory JSON `stress` and is never loaded into gameplay, scheduling, or save data.
+- `invariants`:
+- `assert(stress_driver_runs_only_when_codex_stress_mode_is_present, "stress execution must stay opt-in and disabled during normal gameplay or non-stress perf runs")`
+- `assert(stress_driver_uses_sanctioned_entrypoints_for_mutations, "mass_buildings and deep_mine stress presets must go through existing building/mining command paths instead of direct hidden mutations")`
+- `assert(stress_driver_refuses_missing_safe_entrypoints, "unsupported presets such as entity_swarm or dense_world must fail explicitly rather than bypass current ownership boundaries")`
+- `assert(stress_driver_summary_is_debug_proof_only, "stress summary must remain derived observability output and must not become gameplay truth or persistence authority")`
+- `write operations`:
+- `StressDriver._begin_mode()`
+- `StressDriver._begin_mass_buildings()`
+- `StressDriver._begin_route_traverse()`
+- `StressDriver._begin_deep_mine()`
+- `StressDriver._update_mass_buildings()`
+- `StressDriver._update_route_traverse()`
+- `StressDriver._update_deep_mine()`
+- `StressDriver._complete_run()`
+- `forbidden writes`:
+- Stress presets must not widen gameplay scope by mutating world generation, streaming scheduler state, spawn ownership, or save/load truth through hidden/private paths.
+- Stress summary must not become scheduler input, persistence data, or public gameplay truth.
+- `emitted events / invalidation signals`:
+- `StressDriver.stress_run_completed(summary: Dictionary)`
+- `current violations / ambiguities / contract gaps`:
+- `entity_swarm` and `dense_world` remain explicit unsupported presets in current scope because `PUBLIC_API.md` exposes no sanctioned runtime spawn swarm or world-density override entrypoint yet.
 
 ## Layer: Presentation
 

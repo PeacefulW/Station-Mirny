@@ -1,0 +1,172 @@
+{
+	"baseline_path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/debug_exports/perf/iteration3_clean_baseline_fixture.json",
+	"candidate_path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/debug_exports/perf/iteration3_clean_baseline_fixture.json",
+	"compared_metric_count": 35,
+	"contract_violations": {
+		"baseline_count": 0,
+		"candidate_count": 0,
+		"candidate_has_failure": false,
+		"carried_keys": [],
+		"details": [],
+		"new_keys": [],
+		"resolved_keys": []
+	},
+	"generated_at": "2026-04-16 14:10:45",
+	"improvement_count": 0,
+	"improvements": [],
+	"missing_metric_paths": [],
+	"overall_status": "stable",
+	"regression_count": 0,
+	"regressions": [],
+	"stable_metrics": [
+		{
+			"baseline": 0.0,
+			"candidate": 0.0,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "boot.observations.Startup.loading_screen_visible"
+		},
+		{
+			"baseline": 0.0,
+			"candidate": 0.0,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "boot.observations.Startup.start_pressed"
+		},
+		{
+			"baseline": 13.533,
+			"candidate": 13.533,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "boot.observations.Startup.start_to_loading_screen_visible_ms"
+		},
+		{
+			"baseline": 0.009,
+			"candidate": 0.009,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "frame_summary.category_peaks.building"
+		},
+		{
+			"baseline": 0.23,
+			"candidate": 0.23,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "frame_summary.category_peaks.dispatcher"
+		},
+		{
+			"baseline": 37113.483,
+			"candidate": 37113.483,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "frame_summary.category_peaks.other"
+		},
+		{
+			"baseline": 0.008,
+			"candidate": 0.008,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "frame_summary.category_peaks.power"
+		},
+		{
+			"baseline": 0.021,
+			"candidate": 0.021,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "frame_summary.category_peaks.shadow"
+		},
+		{
+			"baseline": 0.018,
+			"candidate": 0.018,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "frame_summary.category_peaks.streaming_load"
+		},
+		{
+			"baseline": 0.008,
+			"candidate": 0.008,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "frame_summary.category_peaks.topology"
+		},
+		{
+			"baseline": 0.055,
+			"candidate": 0.055,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "frame_summary.category_peaks.visual"
+		},
+		{
+			"baseline": 0.0,
+			"candidate": 0.0,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "frame_summary.hitch_count"
+		},
+		{
+			"baseline": 0.012,
+			"candidate": 0.012,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "frame_summary.latest_debug_snapshot.chunk_generation_ms"
+		},
+		{
+			"baseline": 0.165,
+			"candidate": 0.165,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "frame_summary.latest_debug_snapshot.dispatcher_ms"
+		},
+		{
+			"baseline": 141.0,
+			"candidate": 141.0,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "higher_is_better",
+			"path": "frame_summary.latest_debug_snapshot.fps"
+		},
+		{
+			"baseline": 11.3319259259259,
+			"candidate": 11.3319259259259,
+			"classification": "stable",
+			"delta_abs": 0.0,
+			"delta_pct": 0.0,
+			"direction": "lower_is_better",
+			"path": "frame_summary.latest_debug_snapshot.frame_time_ms"
+		}
+	],
+	"thresholds": {
+		"contract_violations_fail": true,
+		"improvement_progress_pct": 10.0,
+		"regression_fail_pct": 20.0
+	}
+}
