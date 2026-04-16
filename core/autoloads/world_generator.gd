@@ -40,6 +40,7 @@ const WorldNoiseUtilsScript = preload("res://core/systems/world/world_noise_util
 const WorldComputeContextScript = preload("res://core/systems/world/world_compute_context.gd")
 const WorldPrePassScript = preload("res://core/systems/world/world_pre_pass.gd")
 const SurfaceTerrainResolverScript = preload("res://core/systems/world/surface_terrain_resolver.gd")
+const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
 
 var world_seed: int = 0
 var balance: WorldGenBalance = null
@@ -557,13 +558,14 @@ func _setup_native_chunk_generator(palette_index_by_id: Dictionary) -> void:
 	var decor_set_defs: Array = params.get("decor_sets", []) as Array
 	var feature_hook_defs: Array = params.get("feature_hooks", []) as Array
 	var poi_defs: Array = params.get("pois", []) as Array
-	print("[WorldGenerator] Native ChunkGenerator initialized (%d biomes, %d flora sets, %d decor sets, %d feature hooks, %d pois, authoritative WorldPrePass snapshot)" % [
-		biome_defs.size(),
-		flora_set_defs.size(),
-		decor_set_defs.size(),
-		feature_hook_defs.size(),
-		poi_defs.size(),
-	])
+	if WorldRuntimeDiagnosticLog.should_print_human_debug_logs():
+		print("[WorldGenerator] Native ChunkGenerator initialized (%d biomes, %d flora sets, %d decor sets, %d feature hooks, %d pois, authoritative WorldPrePass snapshot)" % [
+			biome_defs.size(),
+			flora_set_defs.size(),
+			decor_set_defs.size(),
+			feature_hook_defs.size(),
+			poi_defs.size(),
+		])
 
 func _build_generator_params(palette_index_by_id: Dictionary) -> Dictionary:
 	var wrap: int = WorldNoiseUtilsScript.resolve_wrap_width_tiles(balance)

@@ -2,6 +2,8 @@ class_name ChunkBootPipeline
 extends RefCounted
 
 const ChunkFinalPacketScript = preload("res://core/systems/world/chunk_final_packet.gd")
+const PerfTelemetryCollectorScript = preload("res://core/debug/perf_telemetry_collector.gd")
+const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
 
 var _owner: Node = null
 
@@ -412,6 +414,7 @@ func drain_computed_to_apply_queue() -> void:
 				failed_coords.append(coord)
 			enqueue_runtime_load(coord)
 			continue
+		_record_chunk_generator_profile(native_data, coord, "boot", compute_z)
 		var flora_payload: Dictionary = result_entry.get("flora_payload", {}) as Dictionary
 		set_chunk_state(coord, _owner.BootChunkState.COMPUTED)
 		set_chunk_state(coord, _owner.BootChunkState.QUEUED_APPLY)
@@ -504,7 +507,7 @@ func cleanup_compute_pipeline() -> void:
 	apply_queue.clear()
 	applied_count = 0
 	total_count = 0
-	if not failed_coords.is_empty():
+	if not failed_coords.is_empty() and WorldRuntimeDiagnosticLog.should_print_human_debug_logs():
 		print("[Boot] %d chunk(s) failed compute: %s" % [failed_coords.size(), str(failed_coords)])
 
 func apply_chunk_from_native_data(
@@ -580,21 +583,23 @@ func update_gates() -> void:
 	if first_playable and not was_first_playable:
 		var elapsed_ms: float = float(Time.get_ticks_usec() - started_usec) / 1000.0 if started_usec > 0 else 0.0
 		WorldPerfProbe.mark_milestone("Boot.first_playable")
-		print("[Boot] first_playable reached (%.1f ms) | queue_wait=%.1fms compute=%.1fms (%d chunks) apply=%.1fms (%d chunks) redraw=%.1fms" % [
-			elapsed_ms, metric_queue_wait_ms, metric_compute_ms, metric_chunks_computed,
-			metric_apply_ms, metric_chunks_applied,
-			metric_terrain_redraw_ms
-		])
+		if WorldRuntimeDiagnosticLog.should_print_human_debug_logs():
+			print("[Boot] first_playable reached (%.1f ms) | queue_wait=%.1fms compute=%.1fms (%d chunks) apply=%.1fms (%d chunks) redraw=%.1fms" % [
+				elapsed_ms, metric_queue_wait_ms, metric_compute_ms, metric_chunks_computed,
+				metric_apply_ms, metric_chunks_applied,
+				metric_terrain_redraw_ms
+			])
 	var was_boot_complete: bool = complete_flag
 	complete_flag = all_chunks_terminal and topology_ready
 	if complete_flag and not was_boot_complete:
 		var elapsed_complete_ms: float = float(Time.get_ticks_usec() - started_usec) / 1000.0 if started_usec > 0 else 0.0
 		WorldPerfProbe.mark_milestone("Boot.boot_complete")
-		print("[Boot] boot_complete reached (%.1f ms) | queue_wait=%.1fms compute=%.1fms (%d chunks) apply=%.1fms (%d chunks) redraw=%.1fms" % [
-			elapsed_complete_ms, metric_queue_wait_ms, metric_compute_ms, metric_chunks_computed,
-			metric_apply_ms, metric_chunks_applied,
-			metric_terrain_redraw_ms
-		])
+		if WorldRuntimeDiagnosticLog.should_print_human_debug_logs():
+			print("[Boot] boot_complete reached (%.1f ms) | queue_wait=%.1fms compute=%.1fms (%d chunks) apply=%.1fms (%d chunks) redraw=%.1fms" % [
+				elapsed_complete_ms, metric_queue_wait_ms, metric_compute_ms, metric_chunks_computed,
+				metric_apply_ms, metric_chunks_applied,
+				metric_terrain_redraw_ms
+			])
 
 func promote_redrawn_chunks() -> void:
 	for coord: Vector2i in chunk_states:
@@ -684,3 +689,16 @@ func _sync_loaded_chunk_display_positions(current_center: Vector2i) -> void:
 
 func _reset_visual_runtime_telemetry() -> void:
 	_owner._reset_visual_runtime_telemetry()
+
+func _record_chunk_generator_profile(native_data: Dictionary, coord: Vector2i, source: String, z_level: int) -> void:
+	var collector: Node = PerfTelemetryCollectorScript.get_active()
+	if collector == null:
+		return
+	var profile: Dictionary = native_data.get("_prof_chunk_generator", {}) as Dictionary
+	if profile.is_empty():
+		return
+	collector.record_chunk_generator_profile(profile, {
+		"source": source,
+		"chunk_coord": coord,
+		"z_level": z_level,
+	})

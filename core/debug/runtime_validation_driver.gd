@@ -4,23 +4,24 @@ extends Node
 ## Small debug-only driver for reproducible runtime perf validation.
 ## Activates only when launched with the user arg `codex_validate_runtime`.
 
+signal validation_run_completed(summary: Dictionary)
+
 const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
+const ValidationContextScript = preload("res://core/debug/scenarios/validation_context.gd")
+const RouteValidationScenarioScript = preload("res://core/debug/scenarios/route_validation_scenario.gd")
+const RoomValidationScenarioScript = preload("res://core/debug/scenarios/room_validation_scenario.gd")
+const PowerValidationScenarioScript = preload("res://core/debug/scenarios/power_validation_scenario.gd")
+const MiningValidationScenarioScript = preload("res://core/debug/scenarios/mining_validation_scenario.gd")
+const MassPlacementValidationScenarioScript = preload("res://core/debug/scenarios/mass_placement_validation_scenario.gd")
+
 const ENABLE_ARG: String = "codex_validate_runtime"
+const PERF_TEST_ARG: String = "codex_perf_test"
+const SCENARIOS_ARG_PREFIX: String = "codex_validate_scenarios="
 const ROUTE_ARG_PREFIX: String = "codex_validate_route="
 const DEFAULT_ROUTE_PRESET: StringName = &"local_ring"
-const HarvestTileCommandScript = preload("res://core/systems/commands/harvest_tile_command.gd")
 const START_SETTLE_FRAMES: int = 60
-const SEGMENT_SETTLE_FRAMES: int = 30
-const TAIL_SETTLE_FRAMES: int = 180
-const TOPOLOGY_WAIT_TIMEOUT_FRAMES: int = 360
-const CATCH_UP_STATUS_LOG_INTERVAL_FRAMES: int = 60
-const MINING_SETTLE_FRAMES: int = 20
-const ROOM_SETTLE_FRAMES: int = 12
-const ROOM_WAIT_TIMEOUT_FRAMES: int = 180
-const POWER_SETTLE_FRAMES: int = 12
-const POWER_WAIT_TIMEOUT_FRAMES: int = 180
-const ARRIVE_DISTANCE_PX: float = 16.0
 const MOVE_SPEED_PX_PER_SEC: float = 8192.0
+const SPEED_TRAVERSE_MOVE_SPEED_PX_PER_SEC: float = 16384.0
 const ROUTE_PRESETS := {
 	&"local_ring": [
 		Vector2i(6, 0),
@@ -47,11 +48,23 @@ const ROUTE_PRESETS := {
 		Vector2i(0, 0),
 	],
 }
-const INVALID_TILE: Vector2i = Vector2i(999999, 999999)
+const CHUNK_REVISIT_OFFSETS := [
+	Vector2i(3, 0),
+	Vector2i(0, 0),
+	Vector2i(-3, 0),
+	Vector2i(0, 0),
+]
 const INVALID_CHUNK_COORD: Vector2i = Vector2i(999999, 999999)
-const _CARDINAL_DIRS := [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
-const _ALLOWED_CHUNK_STATE_KEYS := {
-	&"terrain": true,
+const DEFAULT_SCENARIO_NAMES: Array[StringName] = [&"room", &"power", &"mining", &"route"]
+const SCENARIO_ORDER := {
+	&"room": 10,
+	&"power": 20,
+	&"mining": 30,
+	&"deep_mine": 40,
+	&"mass_placement": 50,
+	&"route": 60,
+	&"speed_traverse": 70,
+	&"chunk_revisit": 80,
 }
 
 var _game_world: GameWorld = null
@@ -62,31 +75,18 @@ var _life_support: BaseLifeSupport = null
 var _chunk_manager: ChunkManager = null
 var _mountain_roof_system: MountainRoofSystem = null
 var _command_executor: CommandExecutor = null
+var _validation_context = null
+var _selected_scenario_names: Array[StringName] = []
+var _scenarios: Array = []
+var _active_scenario_index: int = -1
+var _active_scenario = null
 var _targets: Array[Vector2] = []
 var _route_preset_name: StringName = DEFAULT_ROUTE_PRESET
 var _target_index: int = 0
 var _start_frames_remaining: int = START_SETTLE_FRAMES
-var _segment_frames_remaining: int = 0
-var _tail_frames_remaining: int = -1
-var _topology_wait_frames_remaining: int = -1
-var _catch_up_status_frames_remaining: int = -1
-var _last_catch_up_signature: String = ""
-var _unchanged_catch_up_status_count: int = 0
 var _started: bool = false
-var _route_announced: bool = false
-var _room_validation_stage: int = -1
-var _room_wait_frames_remaining: int = 0
-var _room_wait_timeout_frames_remaining: int = -1
-var _room_case: Dictionary = {}
-var _power_validation_stage: int = -1
-var _power_wait_frames_remaining: int = 0
-var _power_wait_timeout_frames_remaining: int = -1
-var _power_case: Dictionary = {}
-var _mining_validation_stage: int = -1
-var _mining_wait_frames_remaining: int = 0
-var _mining_case: Dictionary = {}
-var _mining_zone_tile_count_before_extension: int = 0
-var _mining_save_snapshot: Dictionary = {}
+var _run_completion_summary: Dictionary = {}
+var _run_completed: bool = false
 
 func _ready() -> void:
 	_game_world = get_parent() as GameWorld
@@ -94,13 +94,18 @@ func _ready() -> void:
 		queue_free()
 		return
 	_route_preset_name = _resolve_route_preset_name()
-	print("[CodexValidation] runtime validation driver enabled; route_preset=%s" % [_route_preset_name])
+	_selected_scenario_names = _resolve_selected_scenario_names()
+	_scenarios = _build_selected_scenarios()
+	_log_validation_status("runtime validation driver enabled; route_preset=%s scenarios=%s" % [
+		_route_preset_name,
+		", ".join(_stringify_scenario_names(_selected_scenario_names)),
+	])
 
 func _process(delta: float) -> void:
-	if not _is_enabled():
+	if not _is_enabled() or _run_completed:
 		return
 	if not _started:
-		if not _game_world or not _game_world.is_boot_complete():
+		if _game_world == null or not _game_world.is_boot_complete():
 			return
 		_resolve_player()
 		_resolve_building_system()
@@ -109,110 +114,39 @@ func _process(delta: float) -> void:
 		_resolve_chunk_manager()
 		_resolve_mountain_roof_system()
 		_resolve_command_executor()
-		if not _player or not _building_system or not _power_system or not _life_support or not WorldGenerator or not WorldGenerator.balance or not _mountain_roof_system:
+		if _player == null or _chunk_manager == null or WorldGenerator == null or WorldGenerator.balance == null:
 			return
-		_build_route()
-		_prepare_room_validation()
-		_prepare_power_validation()
-		_prepare_mining_validation()
+		_validation_context = _build_validation_context()
 		_started = true
-		print("[CodexValidation] boot complete; route prepared")
+		_log_validation_status("boot complete; validation scenarios ready")
 		return
 	if _start_frames_remaining > 0:
 		_start_frames_remaining -= 1
 		return
-	if _room_validation_stage >= 0:
-		_process_room_validation()
+	if _active_scenario == null:
+		_start_next_scenario()
 		return
-	if _power_validation_stage >= 0:
-		_process_power_validation()
+	_active_scenario.update(_validation_context, delta)
+	if not _active_scenario.is_complete():
 		return
-	if _mining_validation_stage >= 0:
-		_process_mining_validation()
+	if _active_scenario.should_abort_run():
+		_complete_validation_run()
 		return
-	if _segment_frames_remaining > 0:
-		_segment_frames_remaining -= 1
-		return
-	if _tail_frames_remaining >= 0:
-		if _tail_frames_remaining > 0:
-			_tail_frames_remaining -= 1
-			return
-		if _is_runtime_caught_up():
-			if _has_redraw_backlog():
-				_emit_validation_outcome("not_converged", "redraw_only")
-			else:
-				_emit_validation_outcome("finished", "none")
-			get_tree().quit()
-			return
-		if _topology_wait_frames_remaining < 0:
-			_topology_wait_frames_remaining = TOPOLOGY_WAIT_TIMEOUT_FRAMES
-			_catch_up_status_frames_remaining = 0
-			_last_catch_up_signature = ""
-			_unchanged_catch_up_status_count = 0
-			_emit_validation_wait_status(_describe_catch_up_blocker())
-		if _catch_up_status_frames_remaining <= 0:
-			var catch_up_signature: String = _build_catch_up_signature()
-			if catch_up_signature == _last_catch_up_signature:
-				_unchanged_catch_up_status_count += 1
-			else:
-				_last_catch_up_signature = catch_up_signature
-				_unchanged_catch_up_status_count = 0
-			_emit_validation_wait_status(
-				_describe_catch_up_blocker(),
-				_unchanged_catch_up_status_count
-			)
-			_catch_up_status_frames_remaining = CATCH_UP_STATUS_LOG_INTERVAL_FRAMES
-		if _topology_wait_frames_remaining > 0:
-			_topology_wait_frames_remaining -= 1
-			_catch_up_status_frames_remaining -= 1
-			return
-		_emit_validation_outcome(
-			"blocked",
-			_describe_catch_up_blocker(),
-			_unchanged_catch_up_status_count
-		)
-		get_tree().quit(1)
-		return
-	if _target_index >= _targets.size():
-		_set_validation_player_velocity(Vector2.ZERO)
-		_tail_frames_remaining = TAIL_SETTLE_FRAMES
-		_topology_wait_frames_remaining = -1
-		_catch_up_status_frames_remaining = -1
-		_last_catch_up_signature = ""
-		_unchanged_catch_up_status_count = 0
-		print("[CodexValidation] route complete: preset=%s reached=%d/%d draining_background_work=true" % [
-			_route_preset_name,
-			_target_index,
-			_targets.size(),
-		])
-		return
-	if not _route_announced:
-		_route_announced = true
-		print("[CodexValidation] route start: preset=%s waypoints=%d" % [
-			_route_preset_name,
-			_targets.size(),
-		])
-	var target: Vector2 = _targets[_target_index]
-	var display_target: Vector2 = _resolve_route_display_target(target)
-	var move_direction: Vector2 = _player.global_position.direction_to(display_target)
-	_set_validation_player_velocity(move_direction * MOVE_SPEED_PX_PER_SEC)
-	_player.global_position = _player.global_position.move_toward(
-		display_target,
-		MOVE_SPEED_PX_PER_SEC * delta
-	)
-	if _player.global_position.distance_to(display_target) <= ARRIVE_DISTANCE_PX:
-		_player.global_position = _canonicalize_world_position(target)
-		_set_validation_player_velocity(Vector2.ZERO)
-		print("[CodexValidation] reached waypoint %d/%d at %s" % [
-			_target_index + 1,
-			_targets.size(),
-			target,
-		])
-		_target_index += 1
-		_segment_frames_remaining = SEGMENT_SETTLE_FRAMES
+	_active_scenario = null
+	_start_next_scenario()
 
 func _is_enabled() -> bool:
 	return ENABLE_ARG in OS.get_cmdline_user_args()
+
+func _log_validation_status(message: String) -> void:
+	if WorldRuntimeDiagnosticLog.should_print_prefix(WorldRuntimeDiagnosticLog.VALIDATION_PREFIX):
+		print("[CodexValidation] %s" % [message])
+
+func get_scenario_results() -> Array[Dictionary]:
+	var results: Array[Dictionary] = []
+	for scenario_variant: Variant in _scenarios:
+		results.append((scenario_variant as RefCounted).get_result())
+	return results
 
 func _resolve_player() -> void:
 	_player = PlayerAuthority.get_local_player()
@@ -243,21 +177,6 @@ func _resolve_command_executor() -> void:
 	if not executors.is_empty():
 		_command_executor = executors[0] as CommandExecutor
 
-func _build_route() -> void:
-	_targets.clear()
-	var chunk_pixels: float = float(WorldGenerator.balance.get_chunk_size_pixels())
-	var start: Vector2 = _canonicalize_world_position(_player.global_position)
-	for offset: Vector2i in _resolve_route_offsets():
-		_targets.append(_canonicalize_world_position(
-			start + Vector2(offset.x, offset.y) * chunk_pixels
-		))
-	print("[CodexValidation] route prepared: preset=%s waypoints=%d start=%s chunk_pixels=%.1f" % [
-		_route_preset_name,
-		_targets.size(),
-		start,
-		chunk_pixels,
-	])
-
 func _resolve_route_offsets() -> Array[Vector2i]:
 	var preset_offsets: Array = ROUTE_PRESETS.get(_route_preset_name, ROUTE_PRESETS.get(DEFAULT_ROUTE_PRESET, [])) as Array
 	var resolved: Array[Vector2i] = []
@@ -272,7 +191,7 @@ func _resolve_route_preset_name() -> StringName:
 	var normalized: StringName = StringName(requested.strip_edges().to_lower())
 	if ROUTE_PRESETS.has(normalized):
 		return normalized
-	print("[CodexValidation] unknown route preset '%s'; falling back to %s (available=%s)" % [
+	_log_validation_status("unknown route preset '%s'; falling back to %s (available=%s)" % [
 		requested,
 		DEFAULT_ROUTE_PRESET,
 		", ".join(_get_route_preset_names()),
@@ -292,19 +211,131 @@ func _get_user_arg_value(prefix: String) -> String:
 			return arg.trim_prefix(prefix)
 	return ""
 
-func _resolve_route_display_target(canonical_target: Vector2) -> Vector2:
-	if _player == null or WorldGenerator == null:
-		return canonical_target
-	return WorldGenerator.get_display_world_position(canonical_target, _player.global_position)
+func _resolve_selected_scenario_names() -> Array[StringName]:
+	var requested: String = _get_user_arg_value(SCENARIOS_ARG_PREFIX)
+	if requested.is_empty():
+		return DEFAULT_SCENARIO_NAMES.duplicate()
+	var resolved: Array[StringName] = []
+	var unknown: Array[String] = []
+	for raw_name: String in requested.split(","):
+		var trimmed: String = raw_name.strip_edges().to_lower()
+		if trimmed.is_empty():
+			continue
+		var scenario_name: StringName = StringName(trimmed)
+		if not SCENARIO_ORDER.has(scenario_name):
+			unknown.append(trimmed)
+			continue
+		if not resolved.has(scenario_name):
+			resolved.append(scenario_name)
+	if resolved.is_empty():
+		_log_validation_status("no known validation scenarios requested; falling back to default (%s)" % [
+			", ".join(_stringify_scenario_names(DEFAULT_SCENARIO_NAMES)),
+		])
+		return DEFAULT_SCENARIO_NAMES.duplicate()
+	if not unknown.is_empty():
+		_log_validation_status("unknown validation scenarios skipped: %s" % [", ".join(unknown)])
+	resolved.sort_custom(func(a: StringName, b: StringName) -> bool:
+		return int(SCENARIO_ORDER.get(a, 999)) < int(SCENARIO_ORDER.get(b, 999))
+	)
+	return resolved
 
-func _set_validation_player_velocity(velocity: Vector2) -> void:
-	if _player is CharacterBody2D:
-		(_player as CharacterBody2D).velocity = velocity
+func _stringify_scenario_names(names: Array[StringName]) -> Array[String]:
+	var string_names: Array[String] = []
+	for name: StringName in names:
+		string_names.append(String(name))
+	return string_names
 
-func _canonicalize_world_position(world_pos: Vector2) -> Vector2:
-	if WorldGenerator == null:
-		return world_pos
-	return WorldGenerator.canonicalize_world_position(world_pos)
+func _build_selected_scenarios() -> Array:
+	var scenarios: Array = []
+	var route_offsets: Array[Vector2i] = _resolve_route_offsets()
+	for scenario_name: StringName in _selected_scenario_names:
+		match scenario_name:
+			&"route":
+				scenarios.append(RouteValidationScenarioScript.new().configure(
+					&"route",
+					_route_preset_name,
+					route_offsets,
+					MOVE_SPEED_PX_PER_SEC
+				))
+			&"room":
+				scenarios.append(RoomValidationScenarioScript.new())
+			&"power":
+				scenarios.append(PowerValidationScenarioScript.new())
+			&"mining":
+				scenarios.append(MiningValidationScenarioScript.new().configure(
+					&"mining",
+					false,
+					true,
+					true
+				))
+			&"deep_mine":
+				scenarios.append(MiningValidationScenarioScript.new().configure(
+					&"deep_mine",
+					true,
+					false,
+					false
+				))
+			&"mass_placement":
+				scenarios.append(MassPlacementValidationScenarioScript.new())
+			&"speed_traverse":
+				scenarios.append(RouteValidationScenarioScript.new().configure(
+					&"speed_traverse",
+					_route_preset_name,
+					route_offsets,
+					SPEED_TRAVERSE_MOVE_SPEED_PX_PER_SEC
+				))
+			&"chunk_revisit":
+				scenarios.append(RouteValidationScenarioScript.new().configure(
+					&"chunk_revisit",
+					&"chunk_revisit",
+					CHUNK_REVISIT_OFFSETS,
+					MOVE_SPEED_PX_PER_SEC
+				))
+			_:
+				_log_validation_status("scenario factory skipped unsupported scenario '%s'" % [scenario_name])
+	return scenarios
+
+func _build_validation_context():
+	return ValidationContextScript.new().configure(
+		_game_world,
+		_player,
+		_building_system,
+		_power_system,
+		_life_support,
+		_chunk_manager,
+		_mountain_roof_system,
+		_command_executor,
+		ROUTE_PRESETS,
+		DEFAULT_ROUTE_PRESET,
+		Callable(self, "_log_validation_status"),
+		Callable(self, "_emit_validation_wait_status"),
+		Callable(self, "_emit_validation_outcome"),
+		Callable(self, "_set_route_progress"),
+		Callable(self, "_is_runtime_caught_up"),
+		Callable(self, "_describe_catch_up_blocker"),
+		Callable(self, "_build_catch_up_signature"),
+		Callable(self, "_has_redraw_backlog")
+	)
+
+func _start_next_scenario() -> void:
+	while true:
+		_active_scenario_index += 1
+		if _active_scenario_index >= _scenarios.size():
+			_complete_validation_run()
+			return
+		_active_scenario = _scenarios[_active_scenario_index]
+		_active_scenario.start(_validation_context)
+		if not _active_scenario.is_complete():
+			return
+		if _active_scenario.should_abort_run():
+			_complete_validation_run()
+			return
+		_active_scenario = null
+
+func _set_route_progress(route_preset_name: StringName, targets: Array[Vector2], target_index: int) -> void:
+	_route_preset_name = route_preset_name
+	_targets = targets.duplicate()
+	_target_index = target_index
 
 func _is_topology_caught_up() -> bool:
 	return _chunk_manager == null or _chunk_manager.is_topology_ready()
@@ -350,34 +381,6 @@ func _describe_catch_up_blocker() -> String:
 	if _has_redraw_backlog():
 		return "redraw_only"
 	return "none"
-
-func _describe_chunk_manager_catch_up_state() -> String:
-	if _chunk_manager == null:
-		return "chunk_manager=missing"
-	var streaming_truth_idle: bool = _is_streaming_truth_caught_up()
-	var topology_ready: bool = _is_topology_caught_up()
-	var load_queue_preview: Array[String] = []
-	var load_queue: Array = _get_chunk_manager_array("_load_queue")
-	for request_variant: Variant in load_queue.slice(0, mini(3, load_queue.size())):
-		var request: Dictionary = request_variant as Dictionary
-		load_queue_preview.append(str(request.get("coord", Vector2i.ZERO)))
-	var gen_coord: Vector2i = _get_chunk_manager_coord("_gen_coord")
-	return "streaming_truth_idle=%s redraw_idle=%s load_queue=%d load_queue_preview=%s redraw=%d staged_chunk=%s staged_data=%d gen_task_id=%d gen_coord=%s topology_ready=%s native_topology=%s native_dirty=%s dirty=%s build_in_progress=%s" % [
-		streaming_truth_idle,
-		not _has_redraw_backlog(),
-		_get_chunk_manager_array_size("_load_queue"),
-		str(load_queue_preview),
-		_get_variant_size(_chunk_manager.get("_redrawing_chunks")),
-		"yes" if _has_chunk_manager_object("_staged_chunk") else "no",
-		_get_chunk_manager_array_size("_staged_data"),
-		_get_chunk_manager_int("_gen_task_id", -1),
-		str(gen_coord),
-		topology_ready,
-		_get_chunk_manager_bool("_native_topology_active"),
-		_get_chunk_manager_bool("_native_topology_dirty"),
-		_get_chunk_manager_bool("_is_topology_dirty"),
-		_get_chunk_manager_bool("_is_topology_build_in_progress"),
-	]
 
 func _emit_validation_wait_status(blocker: String, stalled_intervals: int = -1) -> void:
 	var snapshot: Dictionary = _build_validation_snapshot(blocker)
@@ -428,9 +431,6 @@ func _emit_validation_outcome(
 		record,
 		_build_validation_detail_fields(snapshot, blocker, stalled_intervals, failure_message)
 	)
-
-func _emit_validation_failure(message: String) -> void:
-	_emit_validation_outcome("blocked", "validation_step_failed", -1, message)
 
 func _emit_validation_diag(record: Dictionary, detail_fields: Dictionary) -> void:
 	WorldRuntimeDiagnosticLog.emit_record(
@@ -700,14 +700,6 @@ func _get_chunk_manager_array_size(field_name: String) -> int:
 	var value: Variant = _get_chunk_manager_value(field_name)
 	return _get_variant_size(value)
 
-func _get_chunk_manager_array(field_name: String) -> Array:
-	if _chunk_manager == null:
-		return []
-	var value: Variant = _get_chunk_manager_value(field_name)
-	if value is Array:
-		return value as Array
-	return []
-
 func _get_chunk_manager_int(field_name: String, fallback: int = 0) -> int:
 	if _chunk_manager == null:
 		return fallback
@@ -774,383 +766,45 @@ func _get_variant_size(value: Variant) -> int:
 		return (value as Dictionary).size()
 	return 0
 
-func _prepare_room_validation() -> void:
-	if not _building_system or not _player:
-		print("[CodexValidation] room validation skipped; building system unavailable")
-		_room_validation_stage = -1
+func _complete_validation_run() -> void:
+	if _run_completed:
 		return
-	_player.collect_scrap(64)
-	var origin: Vector2i = _building_system.world_to_grid(_player.global_position) + Vector2i(4, 4)
-	_room_case = {
-		"wall_tiles": [
-			origin + Vector2i(0, 0),
-			origin + Vector2i(1, 0),
-			origin + Vector2i(2, 0),
-			origin + Vector2i(0, 1),
-			origin + Vector2i(2, 1),
-			origin + Vector2i(0, 2),
-			origin + Vector2i(1, 2),
-			origin + Vector2i(2, 2),
-		],
-		"interior_tile": origin + Vector2i(1, 1),
-		"removed_tile": origin + Vector2i(1, 0),
-		"destroyed_tile": origin + Vector2i(0, 1),
+	_run_completion_summary = _build_run_completion_summary()
+	_run_completed = true
+	if _validation_context != null:
+		_validation_context.set_validation_player_velocity(Vector2.ZERO)
+	set_process(false)
+	validation_run_completed.emit(_run_completion_summary.duplicate(true))
+	if _should_quit_immediately():
+		get_tree().quit(int(_run_completion_summary.get("exit_code", 0)))
+
+func _build_run_completion_summary() -> Dictionary:
+	var outcome: String = "finished"
+	var blocker: String = "none"
+	var exit_code: int = 0
+	var failure_message: String = ""
+	for scenario_variant: Variant in _scenarios:
+		var scenario: RefCounted = scenario_variant as RefCounted
+		var result: Dictionary = scenario.get_result()
+		var state: String = str(result.get("state", "pending"))
+		if state == "failed" or state == "blocked":
+			outcome = "blocked"
+			blocker = str(result.get("blocker", "validation_step_failed"))
+			failure_message = str(result.get("message", ""))
+			exit_code = 1
+			break
+		if state == "not_converged" and outcome != "blocked":
+			outcome = "not_converged"
+			blocker = str(result.get("blocker", "redraw_only"))
+			failure_message = str(result.get("message", ""))
+	return {
+		"outcome": outcome,
+		"blocker": blocker,
+		"exit_code": exit_code,
+		"failure_message": failure_message,
+		"route_preset": String(_route_preset_name),
+		"selected_scenarios": _stringify_scenario_names(_selected_scenario_names),
 	}
-	_room_validation_stage = 0
-	print("[CodexValidation] room validation prepared at %s" % [origin])
 
-func _process_room_validation() -> void:
-	if _process_room_wait_if_needed():
-		return
-	match _room_validation_stage:
-		0:
-			if not _build_validation_room():
-				_fail_validation("failed to place validation room walls")
-				return
-			print("[CodexValidation] built validation room")
-			_begin_room_wait()
-		1:
-			if not _building_system.is_cell_indoor(_room_case.get("interior_tile", Vector2i.ZERO)):
-				_fail_validation("closed validation room did not become indoor")
-				return
-			if not _remove_validation_building(_room_case.get("removed_tile", Vector2i.ZERO)):
-				_fail_validation("failed to remove validation room wall")
-				return
-			print("[CodexValidation] removed validation room wall %s" % [_room_case["removed_tile"]])
-			_begin_room_wait()
-		2:
-			if _building_system.is_cell_indoor(_room_case.get("interior_tile", Vector2i.ZERO)):
-				_fail_validation("breached validation room remained indoor")
-				return
-			if not _place_validation_building("wall", _room_case.get("removed_tile", Vector2i.ZERO)):
-				_fail_validation("failed to re-place validation room wall")
-				return
-			print("[CodexValidation] re-placed validation room wall %s" % [_room_case["removed_tile"]])
-			_begin_room_wait()
-		3:
-			if not _building_system.is_cell_indoor(_room_case.get("interior_tile", Vector2i.ZERO)):
-				_fail_validation("reclosed validation room did not become indoor")
-				return
-			if not _destroy_validation_building(_room_case.get("destroyed_tile", Vector2i.ZERO)):
-				_fail_validation("failed to destroy validation room wall")
-				return
-			print("[CodexValidation] destroyed validation room wall %s" % [_room_case["destroyed_tile"]])
-			_begin_room_wait()
-		4:
-			if _building_system.is_cell_indoor(_room_case.get("interior_tile", Vector2i.ZERO)):
-				_fail_validation("destroyed-wall validation room remained indoor")
-				return
-			print("[CodexValidation] room validation complete")
-			_room_validation_stage = -1
-		_:
-			_room_validation_stage = -1
-
-func _process_room_wait_if_needed() -> bool:
-	if _room_wait_timeout_frames_remaining < 0:
-		return false
-	if _building_system and _building_system.has_pending_room_recompute():
-		_room_wait_timeout_frames_remaining -= 1
-		_room_wait_frames_remaining = ROOM_SETTLE_FRAMES
-		if _room_wait_timeout_frames_remaining <= 0:
-			_fail_validation("room recompute did not settle within timeout")
-		return true
-	if _room_wait_frames_remaining > 0:
-		_room_wait_frames_remaining -= 1
-		return true
-	_room_wait_timeout_frames_remaining = -1
-	_room_validation_stage += 1
-	return true
-
-func _begin_room_wait() -> void:
-	_room_wait_frames_remaining = ROOM_SETTLE_FRAMES
-	_room_wait_timeout_frames_remaining = ROOM_WAIT_TIMEOUT_FRAMES
-
-func _build_validation_room() -> bool:
-	for tile: Vector2i in _room_case.get("wall_tiles", []):
-		if not _place_validation_building("wall", tile):
-			return false
-	return true
-
-func _prepare_power_validation() -> void:
-	if not _building_system or not _power_system or not _life_support or not _player:
-		print("[CodexValidation] power validation skipped; required systems unavailable")
-		_power_validation_stage = -1
-		return
-	_player.collect_scrap(64)
-	var battery_tile: Vector2i = _building_system.world_to_grid(_player.global_position) + Vector2i(8, 4)
-	_power_case = {
-		"battery_tile": battery_tile,
-		"baseline_source_count": _power_system.get_registered_source_count(),
-		"baseline_consumer_count": _power_system.get_registered_consumer_count(),
-		"baseline_supply": _power_system.total_supply,
-		"baseline_demand": _power_system.total_demand,
-		"baseline_powered": _life_support.is_powered(),
-	}
-	_power_validation_stage = 0
-	print("[CodexValidation] power validation prepared at %s" % [battery_tile])
-
-func _process_power_validation() -> void:
-	if _process_power_wait_if_needed():
-		return
-	match _power_validation_stage:
-		0:
-			if int(_power_case.get("baseline_consumer_count", 0)) <= 0:
-				_fail_validation("power validation found no registered consumers")
-				return
-			if not _place_validation_building("ark_battery", _power_case.get("battery_tile", Vector2i.ZERO)):
-				_fail_validation("failed to place validation battery")
-				return
-			print("[CodexValidation] placed validation battery %s" % [_power_case["battery_tile"]])
-			_begin_power_wait()
-		1:
-			var baseline_sources: int = int(_power_case.get("baseline_source_count", 0))
-			if _power_system.get_registered_source_count() != baseline_sources + 1:
-				_fail_validation("power registry did not add validation battery source")
-				return
-			if _power_system.total_supply <= float(_power_case.get("baseline_supply", 0.0)):
-				_fail_validation("power supply did not increase after validation battery placement")
-				return
-			if not _life_support.is_powered():
-				_fail_validation("life support did not become powered after validation battery placement")
-				return
-			if not _remove_validation_building(_power_case.get("battery_tile", Vector2i.ZERO)):
-				_fail_validation("failed to remove validation battery")
-				return
-			print("[CodexValidation] removed validation battery %s" % [_power_case["battery_tile"]])
-			_begin_power_wait()
-		2:
-			if _power_system.get_registered_source_count() != int(_power_case.get("baseline_source_count", 0)):
-				_fail_validation("power registry did not remove validation battery source")
-				return
-			if not is_equal_approx(_power_system.total_supply, float(_power_case.get("baseline_supply", 0.0))):
-				_fail_validation("power supply did not return to baseline after validation battery removal")
-				return
-			if _life_support.is_powered() != _variant_to_bool(_power_case.get("baseline_powered", false)):
-				_fail_validation("life support power state did not return to baseline after battery removal")
-				return
-			print("[CodexValidation] power validation complete")
-			_power_validation_stage = -1
-		_:
-			_power_validation_stage = -1
-
-func _process_power_wait_if_needed() -> bool:
-	if _power_wait_timeout_frames_remaining < 0:
-		return false
-	if _power_system and _power_system.has_pending_recompute():
-		_power_wait_timeout_frames_remaining -= 1
-		_power_wait_frames_remaining = POWER_SETTLE_FRAMES
-		if _power_wait_timeout_frames_remaining <= 0:
-			_fail_validation("power recompute did not settle within timeout")
-		return true
-	if _power_wait_frames_remaining > 0:
-		_power_wait_frames_remaining -= 1
-		return true
-	_power_wait_timeout_frames_remaining = -1
-	_power_validation_stage += 1
-	return true
-
-func _begin_power_wait() -> void:
-	_power_wait_frames_remaining = POWER_SETTLE_FRAMES
-	_power_wait_timeout_frames_remaining = POWER_WAIT_TIMEOUT_FRAMES
-
-func _place_validation_building(building_id: String, tile_pos: Vector2i) -> bool:
-	if not _building_system:
-		return false
-	var building_data: BuildingData = BuildingCatalog.get_default_building(building_id)
-	if not building_data:
-		return false
-	_building_system.set_selected_building(building_data)
-	var result: Dictionary = _building_system.place_selected_building_at(_building_system.grid_to_world(tile_pos))
-	return _variant_to_bool(result.get("success", false))
-
-func _remove_validation_building(tile_pos: Vector2i) -> bool:
-	if not _building_system:
-		return false
-	var result: Dictionary = _building_system.remove_building_at(_building_system.grid_to_world(tile_pos))
-	return _variant_to_bool(result.get("success", false))
-
-func _destroy_validation_building(tile_pos: Vector2i) -> bool:
-	if not _building_system or not _building_system.has_building_at(tile_pos):
-		return false
-	var building_node: Node2D = _building_system.get_building_node_at(tile_pos)
-	if not building_node:
-		return false
-	var health: HealthComponent = building_node.get_node_or_null("HealthComponent")
-	if not health:
-		return false
-	health.take_damage(health.current_health + health.max_health)
-	return true
-
-func _prepare_mining_validation() -> void:
-	_mining_case = _find_mining_validation_case()
-	if _mining_case.is_empty():
-		print("[CodexValidation] mining validation skipped; no suitable mountain edge found in loaded chunks")
-		_mining_validation_stage = -1
-		return
-	_mining_validation_stage = 0
-	print("[CodexValidation] mining validation prepared at %s" % [_mining_case.get("entry_tile", INVALID_TILE)])
-
-func _process_mining_validation() -> void:
-	if _mining_wait_frames_remaining > 0:
-		_mining_wait_frames_remaining -= 1
-		return
-	match _mining_validation_stage:
-		0:
-			if not _mine_tile(_mining_case.get("entry_tile", INVALID_TILE)):
-				_fail_validation("failed to mine entry tile")
-				return
-			print("[CodexValidation] mined entry tile %s" % [_mining_case["entry_tile"]])
-			_mining_validation_stage = 1
-			_mining_wait_frames_remaining = MINING_SETTLE_FRAMES
-		1:
-			if not _mountain_roof_system.has_active_local_zone():
-				_fail_validation("local reveal zone did not activate after mining first entrance from exterior")
-				return
-			var first_entrance_zone_count: int = _mountain_roof_system.get_active_local_zone_tile_count()
-			if first_entrance_zone_count <= 0:
-				_fail_validation("active local zone tile count is zero after mining first entrance from exterior")
-				return
-			print("[CodexValidation] first entrance reveal activated from exterior; zone_tiles=%d" % [first_entrance_zone_count])
-			if not _mine_tile(_mining_case.get("interior_tile", INVALID_TILE)):
-				_fail_validation("failed to mine interior tile")
-				return
-			print("[CodexValidation] mined interior tile %s" % [_mining_case["interior_tile"]])
-			_player.global_position = _tile_to_world_center(_mining_case["interior_tile"])
-			_mining_validation_stage = 2
-			_mining_wait_frames_remaining = MINING_SETTLE_FRAMES
-		2:
-			if not _mountain_roof_system.has_active_local_zone():
-				_fail_validation("local reveal zone did not activate after entering mined pocket")
-				return
-			_mining_zone_tile_count_before_extension = _mountain_roof_system.get_active_local_zone_tile_count()
-			if _mining_zone_tile_count_before_extension <= 0:
-				_fail_validation("active local zone tile count is zero after entering mined pocket")
-				return
-			print("[CodexValidation] entered mined pocket; zone_tiles=%d" % [_mining_zone_tile_count_before_extension])
-			var deeper_tile: Vector2i = _mining_case.get("deeper_tile", INVALID_TILE)
-			if deeper_tile == INVALID_TILE:
-				print("[CodexValidation] mining validation has no deeper tile; skipping extension step")
-				_mining_validation_stage = 4
-				return
-			if not _mine_tile(deeper_tile):
-				_fail_validation("failed to mine deeper tile for local-zone extension")
-				return
-			print("[CodexValidation] mined deeper tile %s" % [deeper_tile])
-			_mining_validation_stage = 3
-			_mining_wait_frames_remaining = MINING_SETTLE_FRAMES
-		3:
-			var extended_count: int = _mountain_roof_system.get_active_local_zone_tile_count()
-			if extended_count <= _mining_zone_tile_count_before_extension:
-				_fail_validation("local reveal zone did not expand after deeper mining")
-				return
-			_mining_validation_stage = 4
-		4:
-			_mining_save_snapshot = _chunk_manager.get_save_data().duplicate(true)
-			if not _validate_chunk_save_payload(_mining_save_snapshot):
-				_fail_validation("chunk save payload leaked local presentation state")
-				return
-			_player.global_position = _tile_to_world_center(_mining_case["exterior_tile"])
-			print("[CodexValidation] moved player back to exterior tile %s" % [_mining_case["exterior_tile"]])
-			_mining_validation_stage = 5
-			_mining_wait_frames_remaining = MINING_SETTLE_FRAMES
-		5:
-			if _mountain_roof_system.has_active_local_zone():
-				_fail_validation("local reveal zone remained active after returning to exterior")
-				return
-			var post_exit_save: Dictionary = _chunk_manager.get_save_data().duplicate(true)
-			if post_exit_save != _mining_save_snapshot:
-				_fail_validation("chunk save payload changed on reveal-only movement without new mining")
-				return
-			var collected_chunk_save: Dictionary = SaveCollectors.collect_chunk_data(get_tree()).duplicate(true)
-			if collected_chunk_save != _mining_save_snapshot:
-				_fail_validation("SaveCollectors chunk payload diverged from ChunkManager save snapshot")
-				return
-			print("[CodexValidation] mining + persistence validation complete")
-			_mining_validation_stage = -1
-		_:
-			_mining_validation_stage = -1
-
-func _find_mining_validation_case() -> Dictionary:
-	if not _chunk_manager or not _player or not WorldGenerator:
-		return {}
-	var player_chunk: Vector2i = WorldGenerator.world_to_chunk(_player.global_position)
-	var chunk_coords: Array[Vector2i] = []
-	for coord: Vector2i in _chunk_manager.get_loaded_chunks():
-		chunk_coords.append(coord)
-	chunk_coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		var da: int = absi(a.x - player_chunk.x) + absi(a.y - player_chunk.y)
-		var db: int = absi(b.x - player_chunk.x) + absi(b.y - player_chunk.y)
-		return da < db
-	)
-	for coord: Vector2i in chunk_coords:
-		var chunk: Chunk = _chunk_manager.get_chunk(coord)
-		if not chunk or not chunk.has_any_mountain():
-			continue
-		var chunk_size: int = chunk.get_chunk_size()
-		for local_y: int in range(chunk_size):
-			for local_x: int in range(chunk_size):
-				var local_tile: Vector2i = Vector2i(local_x, local_y)
-				if chunk.get_terrain_type_at(local_tile) != TileGenData.TerrainType.ROCK:
-					continue
-				var global_tile: Vector2i = Vector2i(
-					coord.x * chunk_size + local_x,
-					coord.y * chunk_size + local_y
-				)
-				for dir: Vector2i in _CARDINAL_DIRS:
-					var exterior_tile: Vector2i = global_tile - dir
-					var interior_tile: Vector2i = global_tile + dir
-					if not _chunk_manager.is_tile_loaded(exterior_tile) or not _chunk_manager.is_tile_loaded(interior_tile):
-						continue
-					if not _is_validation_exterior_tile(_chunk_manager.get_terrain_type_at_global(exterior_tile)):
-						continue
-					if _chunk_manager.get_terrain_type_at_global(interior_tile) != TileGenData.TerrainType.ROCK:
-						continue
-					var deeper_tile: Vector2i = interior_tile + dir
-					if not _chunk_manager.is_tile_loaded(deeper_tile) or _chunk_manager.get_terrain_type_at_global(deeper_tile) != TileGenData.TerrainType.ROCK:
-						deeper_tile = INVALID_TILE
-					return {
-						"exterior_tile": exterior_tile,
-						"entry_tile": global_tile,
-						"interior_tile": interior_tile,
-						"deeper_tile": deeper_tile,
-					}
-	return {}
-
-func _is_validation_exterior_tile(terrain_type: int) -> bool:
-	return terrain_type == TileGenData.TerrainType.GROUND \
-		or terrain_type == TileGenData.TerrainType.GRASS \
-		or terrain_type == TileGenData.TerrainType.SAND
-
-func _mine_tile(tile_pos: Vector2i) -> bool:
-	if tile_pos == INVALID_TILE or not _chunk_manager or not _command_executor:
-		return false
-	var command := HarvestTileCommandScript.new().setup(_chunk_manager, _tile_to_world_center(tile_pos))
-	var result: Dictionary = _command_executor.execute(command)
-	return not result.is_empty()
-
-func _tile_to_world_center(tile_pos: Vector2i) -> Vector2:
-	var tile_size: float = float(WorldGenerator.balance.tile_size)
-	return Vector2(
-		(float(tile_pos.x) + 0.5) * tile_size,
-		(float(tile_pos.y) + 0.5) * tile_size
-	)
-
-func _validate_chunk_save_payload(chunk_save_data: Dictionary) -> bool:
-	for chunk_key: Variant in chunk_save_data:
-		if not (chunk_key is Vector2i or chunk_key is Vector3i):
-			return false
-		var chunk_entry: Dictionary = chunk_save_data.get(chunk_key, {}) as Dictionary
-		for local_tile_key: Variant in chunk_entry:
-			if not (local_tile_key is Vector2i):
-				return false
-			var tile_state: Dictionary = chunk_entry.get(local_tile_key, {}) as Dictionary
-			for state_key in tile_state.keys():
-				var key_string: String = str(state_key).to_lower()
-				if not _ALLOWED_CHUNK_STATE_KEYS.has(StringName(key_string)):
-					return false
-	return true
-
-func _fail_validation(message: String) -> void:
-	push_error(message)
-	_emit_validation_failure(message)
-	get_tree().quit(1)
+func _should_quit_immediately() -> bool:
+	return PERF_TEST_ARG not in OS.get_cmdline_user_args()

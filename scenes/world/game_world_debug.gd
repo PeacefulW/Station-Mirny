@@ -5,6 +5,7 @@ extends Node
 ## Извлечён из GameWorld для изоляции debug-кода от runtime (Iteration 5, ADR-0001).
 
 const RuntimeValidationDriverScript = preload("res://core/debug/runtime_validation_driver.gd")
+const PerfTelemetryCollectorScript = preload("res://core/debug/perf_telemetry_collector.gd")
 const WorldPreviewExporterScript = preload("res://core/debug/world_preview_exporter.gd")
 const WorldPreviewProofDriverScript = preload("res://core/debug/world_preview_proof_driver.gd")
 const WorldChunkDebugOverlayScript = preload("res://core/debug/world_chunk_debug_overlay.gd")
@@ -13,8 +14,6 @@ const LOCAL_PREVIEW_TEXTURE_SIZE: Vector2 = Vector2(300, 300)
 var _chunk_manager: ChunkManager = null
 var _ui_layer: CanvasLayer = null
 var _game_world: GameWorld = null
-var _fps_label: Label = null
-var _fps_log_timer: float = 0.0
 var _tile_highlight: ColorRect = null
 var _tile_info_label: Label = null
 var _last_highlighted_tile: Vector2i = Vector2i(999999, 999999)
@@ -22,6 +21,8 @@ var _last_tile_data: TileGenData = null
 var _stairs_container: Node2D = null
 var _world_preview_exporter: WorldPreviewExporter = null
 var _chunk_debug_overlay: Node = null
+var _runtime_validation_driver: RuntimeValidationDriver = null
+var _perf_telemetry_collector: Node = null
 var _local_preview_panel: PanelContainer = null
 var _local_preview_header_label: Label = null
 var _local_preview_hint_label: Label = null
@@ -35,16 +36,15 @@ func setup(chunk_manager: ChunkManager, ui_layer: CanvasLayer, game_world: GameW
 	_chunk_manager = chunk_manager
 	_ui_layer = ui_layer
 	_game_world = game_world
-	_setup_fps_counter()
 	_setup_tile_highlight()
-	_setup_runtime_validation_driver()
+	_runtime_validation_driver = _setup_runtime_validation_driver()
+	_setup_perf_telemetry_collector()
 	_setup_world_preview_exporter()
 	_setup_world_preview_proof_driver()
 	_setup_local_preview_panel()
 	_setup_chunk_debug_overlay()
 
-func _process(delta: float) -> void:
-	_update_fps(delta)
+func _process(_delta: float) -> void:
 	if _chunk_debug_overlay == null or not _chunk_debug_overlay.is_overlay_visible():
 		_update_tile_highlight()
 
@@ -54,12 +54,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_F11:
 			if _chunk_debug_overlay:
-				if event.ctrl_pressed:
-					_chunk_debug_overlay.request_incident_dump()
-				elif event.shift_pressed:
-					_chunk_debug_overlay.cycle_mode()
-				else:
-					_chunk_debug_overlay.toggle_overlay()
+				_chunk_debug_overlay.toggle_overlay()
 				get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_G:
 			_debug_toggle_rock(true)
@@ -99,18 +94,6 @@ func _debug_toggle_rock(place: bool) -> void:
 			chunk._redraw_terrain_tile(neighbor)
 	_chunk_manager._on_mountain_tile_changed(tile_pos, current_type, TileGenData.TerrainType.ROCK)
 
-func _setup_fps_counter() -> void:
-	_fps_label = Label.new()
-	_fps_label.name = "FPSLabel"
-	_fps_label.add_theme_font_size_override("font_size", 14)
-	_fps_label.add_theme_color_override("font_color", Color(0.0, 1.0, 0.0, 0.8))
-	_fps_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.6))
-	_fps_label.add_theme_constant_override("shadow_offset_x", 1)
-	_fps_label.add_theme_constant_override("shadow_offset_y", 1)
-	_fps_label.position = Vector2(8, 8)
-	if _ui_layer:
-		_ui_layer.add_child(_fps_label)
-
 func _setup_tile_highlight() -> void:
 	_tile_highlight = ColorRect.new()
 	_tile_highlight.name = "TileHighlight"
@@ -129,10 +112,19 @@ func _setup_tile_highlight() -> void:
 	if _ui_layer:
 		_ui_layer.add_child(_tile_info_label)
 
-func _setup_runtime_validation_driver() -> void:
+func _setup_runtime_validation_driver() -> RuntimeValidationDriver:
 	var driver := RuntimeValidationDriverScript.new()
 	driver.name = "RuntimeValidationDriver"
 	get_parent().add_child(driver)
+	return driver
+
+func _setup_perf_telemetry_collector() -> void:
+	if not PerfTelemetryCollectorScript.is_enabled_for_current_run():
+		return
+	_perf_telemetry_collector = PerfTelemetryCollectorScript.new()
+	_perf_telemetry_collector.name = "PerfTelemetryCollector"
+	get_parent().add_child(_perf_telemetry_collector)
+	_perf_telemetry_collector.setup(_game_world, _chunk_manager, _runtime_validation_driver)
 
 func _setup_world_preview_exporter() -> void:
 	if WorldGenerator:
@@ -340,15 +332,6 @@ func _update_tile_highlight() -> void:
 			_tile_info_label.text += " | %s" % structure_text
 		else:
 			_tile_info_label.text = "Tile: %s | unloaded | %s | %s | %s" % [tile_pos, biome_text, variation_text, structure_text]
-
-func _update_fps(delta: float) -> void:
-	var fps: float = Engine.get_frames_per_second()
-	if _fps_label:
-		_fps_label.text = "FPS: %d" % int(fps)
-	_fps_log_timer += delta
-	if _fps_log_timer >= 5.0:
-		_fps_log_timer = 0.0
-		print("[WorldPerf] FPS: %.1f" % fps)
 
 func _debug_spawn_underground_pocket() -> void:
 	if not _game_world or not _chunk_manager:

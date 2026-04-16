@@ -1519,8 +1519,6 @@ func _compute_ridge_strength_grid() -> void:
 		var native_stage_started_usec: int = Time.get_ticks_usec()
 		var native_ridge_strength_grid: PackedFloat32Array = _compute_native_ridge_strength_grid()
 		var native_stage_elapsed_ms: float = float(Time.get_ticks_usec() - native_stage_started_usec) / 1000.0
-		if native_stage_elapsed_ms < 2.0:
-			print("[WorldPerf] WorldPrePass.compute.ridge_strength_grid.native_total: %.2f ms" % [native_stage_elapsed_ms])
 		WorldPerfProbe.record("WorldPrePass.compute.ridge_strength_grid.native_total", native_stage_elapsed_ms)
 		if not native_ridge_strength_grid.is_empty():
 			_ridge_strength_grid = native_ridge_strength_grid

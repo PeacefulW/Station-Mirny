@@ -39,6 +39,7 @@ const _BUDGET_OVERRUN_COOLDOWN_MS: float = 1000.0
 const _BUDGET_OVERRUN_DELTA_MS: float = 1.0
 const _PERF_HUMAN_SUMMARY_COOLDOWN_MS: float = 1000.0
 const _COUNTER_PRINT_COOLDOWN_MS: float = 1000.0
+const _CONTRACT_VIOLATION_LOG_LIMIT: int = 128
 
 ## Контракты на интерактивные операции (максимально допустимое время в мс).
 const _CONTRACTS: Dictionary = {
@@ -63,6 +64,7 @@ static var _budget_overrun_last_usec: Dictionary = {}
 static var _budget_overrun_last_used_ms: Dictionary = {}
 static var _counter_totals: Dictionary = {}
 static var _counter_print_last_usec: Dictionary = {}
+static var _contract_violations: Array[Dictionary] = []
 static var _mutex: Mutex = Mutex.new()
 
 ## Суммарные hitches за сессию.
@@ -87,16 +89,20 @@ static func record(label: String, elapsed_ms: float) -> void:
 
 static func record_counter(label: String, amount: float = 1.0) -> float:
 	var total: float = 0.0
-	var should_print: bool = false
 	_mutex.lock()
 	total = float(_counter_totals.get(label, 0.0)) + amount
 	_counter_totals[label] = total
 	_frame_operations[label] = total
-	should_print = _passes_counter_print_cooldown_locked(label)
 	_mutex.unlock()
-	if should_print:
-		print("[WorldPerf] %s: count=%.0f" % [label, total])
 	return total
+
+static func copy_contract_violation_snapshot() -> Array[Dictionary]:
+	var snapshot: Array[Dictionary] = []
+	_mutex.lock()
+	for entry_variant: Variant in _contract_violations:
+		snapshot.append((entry_variant as Dictionary).duplicate(true))
+	_mutex.unlock()
+	return snapshot
 
 static func report_budget_overrun(
 	job_id: StringName,
@@ -116,11 +122,16 @@ static func report_budget_overrun(
 	should_warn = _passes_budget_overrun_cooldown_locked(offender_key, used_ms)
 	_mutex.unlock()
 	if should_warn:
-		if _emit_budget_overrun_summary(job_id, category, used_ms, budget_ms, over_budget_pct):
-			push_warning(
-				"[WorldPerf] WARNING: FrameBudget overrun job_id=%s category=%s used_ms=%.2f budget_ms=%.2f over_budget_pct=%.1f"
-				% [String(job_id), String(category), used_ms, budget_ms, over_budget_pct]
-			)
+		_append_contract_violation({
+			"type": "budget_overrun",
+			"job_id": String(job_id),
+			"category": String(category),
+			"used_ms": used_ms,
+			"budget_ms": budget_ms,
+			"over_budget_pct": over_budget_pct,
+			"timestamp_usec": Time.get_ticks_usec(),
+		})
+		_emit_budget_overrun_summary(job_id, category, used_ms, budget_ms, over_budget_pct)
 
 ## Zero-cost marker for milestones or other state transitions that should be
 ## visible in summaries without pretending to be timing data.
@@ -176,13 +187,18 @@ static func _record(label: String, elapsed_ms: float) -> void:
 	if _CONTRACTS.has(contract_key):
 		var limit: float = _CONTRACTS[contract_key]
 		if elapsed_ms > limit:
+			_append_contract_violation({
+				"type": "contract_overrun",
+				"label": label,
+				"contract_key": contract_key,
+				"elapsed_ms": elapsed_ms,
+				"limit_ms": limit,
+				"timestamp_usec": Time.get_ticks_usec(),
+			})
 			emitted_summary = _emit_contract_overrun_summary(label, elapsed_ms, limit)
-			if emitted_summary:
-				push_warning("[WorldPerf] WARNING: %s took %.2f ms (contract: %.1f ms)" % [label, elapsed_ms, limit])
 	if should_print:
 		if not emitted_summary:
 			_emit_threshold_timing_summary(label, elapsed_ms)
-		print("[WorldPerf] %s: %.2f ms" % [label, elapsed_ms])
 
 static func _emit_budget_overrun_summary(
 	job_id: StringName,
@@ -354,3 +370,10 @@ static func flush_frame() -> Dictionary:
 	_frame_operations.clear()
 	_mutex.unlock()
 	return result
+
+static func _append_contract_violation(entry: Dictionary) -> void:
+	_mutex.lock()
+	_contract_violations.append(entry.duplicate(true))
+	while _contract_violations.size() > _CONTRACT_VIOLATION_LOG_LIMIT:
+		_contract_violations.remove_at(0)
+	_mutex.unlock()

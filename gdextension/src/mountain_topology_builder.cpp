@@ -1,10 +1,65 @@
 #include "mountain_topology_builder.h"
 
+#include <chrono>
+#include <cmath>
 #include <deque>
+#include <mutex>
 
+#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/core/class_db.hpp>
 
 using namespace godot;
+
+namespace {
+
+std::mutex g_last_profile_mutex;
+Dictionary *g_last_profile = nullptr;
+
+bool perf_observatory_enabled() {
+    static bool initialized = false;
+    static bool enabled = false;
+    if (!initialized) {
+        OS *os = OS::get_singleton();
+        if (os != nullptr) {
+            PackedStringArray args = os->get_cmdline_user_args();
+            for (int i = 0; i < args.size(); i++) {
+                if (String(args[i]) == "codex_perf_test") {
+                    enabled = true;
+                    break;
+                }
+            }
+        }
+        initialized = true;
+    }
+    return enabled;
+}
+
+double snap_micro(double value) {
+    return std::round(value * 1000000.0) / 1000000.0;
+}
+
+double elapsed_ms(const std::chrono::steady_clock::time_point &start_time) {
+    const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_time).count();
+    return snap_micro(elapsed);
+}
+
+void store_last_profile(const Dictionary &profile) {
+    std::lock_guard<std::mutex> lock(g_last_profile_mutex);
+    if (g_last_profile == nullptr) {
+        g_last_profile = new Dictionary();
+    }
+    *g_last_profile = profile.duplicate(true);
+}
+
+Dictionary copy_last_profile() {
+    std::lock_guard<std::mutex> lock(g_last_profile_mutex);
+    if (g_last_profile == nullptr) {
+        return Dictionary();
+    }
+    return g_last_profile->duplicate(true);
+}
+
+} // namespace
 
 MountainTopologyBuilder::MountainTopologyBuilder() {}
 MountainTopologyBuilder::~MountainTopologyBuilder() {}
@@ -22,6 +77,7 @@ void MountainTopologyBuilder::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_mountain_open_tiles_by_chunk", "mountain_key"), &MountainTopologyBuilder::get_mountain_open_tiles_by_chunk);
     ClassDB::bind_method(D_METHOD("get_mountain_chunk_coords", "mountain_key"), &MountainTopologyBuilder::get_mountain_chunk_coords);
     ClassDB::bind_method(D_METHOD("rebuild_topology", "chunk_terrain_by_coord", "chunk_size"), &MountainTopologyBuilder::rebuild_topology);
+    ClassDB::bind_method(D_METHOD("get_last_profile"), &MountainTopologyBuilder::get_last_profile);
 }
 
 void MountainTopologyBuilder::clear() {
@@ -257,13 +313,21 @@ Dictionary MountainTopologyBuilder::rebuild_topology(Dictionary p_chunk_terrain_
     return _rebuild_topology_internal();
 }
 
+Dictionary MountainTopologyBuilder::get_last_profile() {
+    return copy_last_profile();
+}
+
 Dictionary MountainTopologyBuilder::_rebuild_topology_internal() {
+    const bool perf_enabled = perf_observatory_enabled();
+    const auto total_start_time = std::chrono::steady_clock::now();
+    const auto component_scan_start_time = std::chrono::steady_clock::now();
     std::unordered_set<TilePos, TilePosHash> visited;
     Dictionary mountain_key_by_tile;
     Dictionary mountain_tiles_by_key;
     Dictionary mountain_open_tiles_by_key;
     Dictionary mountain_tiles_by_key_by_chunk;
     Dictionary mountain_open_tiles_by_key_by_chunk;
+    int component_count = 0;
 
     for (const auto &chunk_entry : chunk_map) {
         const TilePos &chunk_coord = chunk_entry.first;
@@ -351,15 +415,28 @@ Dictionary MountainTopologyBuilder::_rebuild_topology_internal() {
                 mountain_open_tiles_by_key[component_key_v] = _build_component_dictionary(component_open_tiles);
                 mountain_tiles_by_key_by_chunk[component_key_v] = _build_component_by_chunk_dictionary(component_tiles_by_chunk);
                 mountain_open_tiles_by_key_by_chunk[component_key_v] = _build_component_by_chunk_dictionary(component_open_tiles_by_chunk);
+                component_count += 1;
             }
         }
     }
 
+    const double component_scan_ms = perf_enabled ? elapsed_ms(component_scan_start_time) : 0.0;
+    const auto result_build_start_time = std::chrono::steady_clock::now();
     Dictionary result;
     result["mountain_key_by_tile"] = mountain_key_by_tile;
     result["mountain_tiles_by_key"] = mountain_tiles_by_key;
     result["mountain_open_tiles_by_key"] = mountain_open_tiles_by_key;
     result["mountain_tiles_by_key_by_chunk"] = mountain_tiles_by_key_by_chunk;
     result["mountain_open_tiles_by_key_by_chunk"] = mountain_open_tiles_by_key_by_chunk;
+    if (perf_enabled) {
+        Dictionary profile;
+        profile["component_scan_ms"] = component_scan_ms;
+        profile["result_build_ms"] = elapsed_ms(result_build_start_time);
+        profile["total_ms"] = elapsed_ms(total_start_time);
+        profile["chunk_count"] = static_cast<int>(chunk_map.size());
+        profile["mountain_components"] = component_count;
+        result["_prof_topology_builder"] = profile;
+        store_last_profile(profile);
+    }
     return result;
 }

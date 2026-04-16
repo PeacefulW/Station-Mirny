@@ -1423,7 +1423,8 @@ func _cache_native_shadow_kernels_support() -> void:
 		WorldPerfProbe.mark("Shadow.native_kernels_available")
 	else:
 		WorldPerfProbe.mark("Shadow.native_kernels_unavailable")
-	print("[Shadow] MountainShadowKernels available=%s" % [str(_native_shadow_kernels_available)])
+	if WorldRuntimeDiagnosticLog.should_print_human_debug_logs():
+		print("[Shadow] MountainShadowKernels available=%s" % [str(_native_shadow_kernels_available)])
 
 func _create_shadow_kernels() -> RefCounted:
 	_cache_native_shadow_kernels_support()

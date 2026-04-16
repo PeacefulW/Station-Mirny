@@ -1,8 +1,10 @@
 #include "chunk_generator.h"
 #include "chunk_visual_kernels.h"
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
+#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
@@ -79,6 +81,30 @@ Array to_vector2i_array(const std::vector<Vector2i>& values) {
 
 double snap_micro(double value) {
     return std::round(value * 1000000.0) / 1000000.0;
+}
+
+bool perf_observatory_enabled() {
+    static bool initialized = false;
+    static bool enabled = false;
+    if (!initialized) {
+        OS *os = OS::get_singleton();
+        if (os != nullptr) {
+            PackedStringArray args = os->get_cmdline_user_args();
+            for (int i = 0; i < args.size(); i++) {
+                if (String(args[i]) == "codex_perf_test") {
+                    enabled = true;
+                    break;
+                }
+            }
+        }
+        initialized = true;
+    }
+    return enabled;
+}
+
+double elapsed_ms(const std::chrono::steady_clock::time_point &start_time) {
+    const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_time).count();
+    return snap_micro(elapsed);
 }
 
 } // namespace
@@ -2076,6 +2102,8 @@ Dictionary ChunkGenerator::build_feature_and_poi_payload(
 Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_tile, Dictionary generation_request) {
     if (!initialized || !has_authoritative_prepass) return Dictionary();
 
+    const bool perf_enabled = perf_observatory_enabled();
+    const auto total_start_time = std::chrono::steady_clock::now();
     int cs = chunk_size;
     int total = cs * cs;
     Vector2i canonical_chunk = canonicalize_chunk_coord(chunk_coord);
@@ -2156,6 +2184,7 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
         return halo;
     };
 
+    const auto terrain_start_time = std::chrono::steady_clock::now();
     for (int ly = 0; ly < cs; ly++) {
         for (int lx = 0; lx < cs; lx++) {
             int wx = base_x + lx;
@@ -2225,7 +2254,9 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
             flora_modulation_values[idx] = flora_modulation_value;
         }
     }
+    const double terrain_resolve_ms = perf_enabled ? elapsed_ms(terrain_start_time) : 0.0;
 
+    const auto flora_start_time = std::chrono::steady_clock::now();
     Array flora_placements = compute_flora_placements(
         cs,
         base_x,
@@ -2236,7 +2267,9 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
         flora_density_values.ptr(),
         flora_modulation_values.ptr()
     );
+    const double flora_ms = perf_enabled ? elapsed_ms(flora_start_time) : 0.0;
 
+    const auto feature_and_poi_start_time = std::chrono::steady_clock::now();
     Dictionary feature_and_poi_payload = build_feature_and_poi_payload(
         canonical_chunk,
         base_x,
@@ -2244,10 +2277,14 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
         cs,
         canonical_spawn_tile
     );
+    const double feature_and_poi_ms = perf_enabled ? elapsed_ms(feature_and_poi_start_time) : 0.0;
+    const Array feature_placements = feature_and_poi_payload.get(PLACEMENTS_KEY, Array());
 
     Dictionary prebaked_visual_payload;
+    double prebaked_visual_ms = 0.0;
     Dictionary native_visual_tables = generation_request.get("native_visual_tables", Dictionary());
     if (!native_visual_tables.is_empty()) {
+        const auto prebaked_visual_start_time = std::chrono::steady_clock::now();
         Dictionary prebaked_request;
         prebaked_request["chunk_coord"] = canonical_chunk;
         prebaked_request["chunk_size"] = cs;
@@ -2261,6 +2298,9 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
         prebaked_request["terrain_halo"] = build_surface_terrain_halo();
         prebaked_request["native_visual_tables"] = native_visual_tables;
         prebaked_visual_payload = ChunkVisualKernels::build_prebaked_visual_payload_static(prebaked_request);
+        if (perf_enabled) {
+            prebaked_visual_ms = elapsed_ms(prebaked_visual_start_time);
+        }
     }
 
     Dictionary result;
@@ -2284,6 +2324,19 @@ Dictionary ChunkGenerator::generate_chunk(Vector2i chunk_coord, Vector2i spawn_t
             const Variant key = prebaked_keys[i];
             result[key] = prebaked_visual_payload[key];
         }
+    }
+    if (perf_enabled) {
+        Dictionary profile;
+        profile["terrain_resolve_ms"] = terrain_resolve_ms;
+        profile["flora_ms"] = flora_ms;
+        profile["feature_and_poi_ms"] = feature_and_poi_ms;
+        profile["prebaked_visual_ms"] = prebaked_visual_ms;
+        profile["total_ms"] = elapsed_ms(total_start_time);
+        profile["chunk_coord"] = canonical_chunk;
+        profile["chunk_size"] = cs;
+        profile["flora_placements"] = flora_placements.size();
+        profile["feature_placements"] = feature_placements.size();
+        result["_prof_chunk_generator"] = profile;
     }
     return result;
 }

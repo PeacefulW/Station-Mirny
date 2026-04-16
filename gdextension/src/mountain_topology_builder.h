@@ -33,6 +33,7 @@ public:
     Dictionary get_mountain_open_tiles_by_chunk(Vector2i p_mountain_key);
     Array get_mountain_chunk_coords(Vector2i p_mountain_key);
     Dictionary rebuild_topology(Dictionary p_chunk_terrain_by_coord, int p_chunk_size);
+    Dictionary get_last_profile();
 
 protected:
     static void _bind_methods();

@@ -78,6 +78,17 @@ static var _timeline_last_key_index: Dictionary = {}
 static var _timeline_event_id: int = 0
 static var _timeline_mutex: Mutex = Mutex.new()
 
+static func should_print_human_debug_logs() -> bool:
+	return false
+
+static func should_print_prefix(prefix: String) -> bool:
+	if not should_print_human_debug_logs():
+		return false
+	return prefix != SUMMARY_PREFIX \
+		and prefix != DETAIL_PREFIX \
+		and prefix != PERF_PREFIX \
+		and prefix != VALIDATION_PREFIX
+
 static func emit_summary(
 	record: Dictionary,
 	prefix: String = SUMMARY_PREFIX,
@@ -88,7 +99,8 @@ static func emit_summary(
 	_record_timeline_event(record, prefix, summary)
 	if not should_emit:
 		return false
-	print("%s %s" % [prefix, summary])
+	if should_print_prefix(prefix):
+		print("%s %s" % [prefix, summary])
 	return true
 
 static func emit_detail(
@@ -96,7 +108,8 @@ static func emit_detail(
 	detail_fields: Dictionary = {},
 	prefix: String = DETAIL_PREFIX
 ) -> void:
-	print("%s %s" % [prefix, format_detail(record, detail_fields)])
+	if should_print_prefix(prefix):
+		print("%s %s" % [prefix, format_detail(record, detail_fields)])
 	_attach_timeline_detail(record, detail_fields)
 
 static func emit_record(

@@ -1,6 +1,8 @@
 class_name ChunkTilesetFactory
 extends RefCounted
 
+const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
+
 ## Создаёт процедурные тайлсеты для мира.
 ## Это позволяет быстро менять визуал гор через balance-ресурс.
 
@@ -245,7 +247,8 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, f
 			atlas_tiles = atlas_cols * atlas_rows
 	wall_base_count = TILE_DEFS_COUNT
 	wall_variant_count = maxi(1, atlas_tiles / wall_base_count)
-	print("[ChunkTilesetFactory] rock_atlas=%d, wall_base=%d, variants=%d" % [atlas_tiles, wall_base_count, wall_variant_count])
+	if WorldRuntimeDiagnosticLog.should_print_human_debug_logs():
+		print("[ChunkTilesetFactory] rock_atlas=%d, wall_base=%d, variants=%d" % [atlas_tiles, wall_base_count, wall_variant_count])
 	var surface_extra_tiles: int = 12
 	var extras_start: int = 7 + atlas_tiles
 	var total: int = extras_start + surface_extra_tiles
@@ -319,7 +322,8 @@ static func _build_terrain_tileset(balance: WorldGenBalance, biome: BiomeData, f
 				var dst_coords: Vector2i = _coords_for_linear_index(ground_face_tiles_start + i)
 				img.blit_rect(src_gf, Rect2i(src_col * ts, src_row * ts, ts, ts), dst_coords * ts)
 			total = new_total
-			print("[ChunkTilesetFactory] ground_faces: start=%d count=%d" % [ground_face_tiles_start, gf_count])
+			if WorldRuntimeDiagnosticLog.should_print_human_debug_logs():
+				print("[ChunkTilesetFactory] ground_faces: start=%d count=%d" % [ground_face_tiles_start, gf_count])
 	## Sand elevation faces — same ground_faces atlas tinted with biome sand_color
 	sand_face_tiles_start = total
 	if ground_faces_tex and gf_count > 0:

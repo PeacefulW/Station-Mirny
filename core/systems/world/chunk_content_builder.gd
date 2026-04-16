@@ -3,6 +3,7 @@ extends RefCounted
 
 const ChunkScript = preload("res://core/systems/world/chunk.gd")
 const ChunkFinalPacketScript = preload("res://core/systems/world/chunk_final_packet.gd")
+const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
 
 const FEATURE_AND_POI_PAYLOAD_KEY: String = "feature_and_poi_payload"
 const CHUNK_GEN_SLOW_LOG_THRESHOLD_MS: float = 80.0
@@ -103,7 +104,8 @@ func build_chunk_native_data(chunk_coord: Vector2i) -> Dictionary:
 					)
 				var native_total_ms: float = float(Time.get_ticks_usec() - native_total_start_usec) / 1000.0
 				_record_native_chunk_generation_metrics(canonical_chunk, request_ms, native_call_ms, validate_ms, prebaked_ms, native_total_ms)
-				if native_total_ms >= CHUNK_GEN_SLOW_LOG_THRESHOLD_MS:
+				if native_total_ms >= CHUNK_GEN_SLOW_LOG_THRESHOLD_MS \
+					and WorldRuntimeDiagnosticLog.should_print_human_debug_logs():
 					print("[ChunkGen] slow native generate_chunk %s: %.1f ms (request=%.1f native=%.1f validate=%.1f prebaked=%.1f)" % [
 						canonical_chunk,
 						native_total_ms,

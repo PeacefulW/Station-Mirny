@@ -430,7 +430,6 @@ func _tick_boot_finalization() -> void:
 			)
 			_handoff_boot_to_player()
 			if _should_quit_on_boot_complete():
-				print("[CodexValidation] boot proof complete; quitting")
 				get_tree().quit()
 
 func _finish_boot_sequence() -> void:

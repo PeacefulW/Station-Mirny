@@ -5,7 +5,7 @@ status: draft
 owner: engineering
 source_of_truth: true
 version: 0.9
-last_updated: 2026-04-13
+last_updated: 2026-04-16
 depends_on:
   - world_generation_foundation.md
   - subsurface_and_verticality_foundation.md
@@ -61,10 +61,9 @@ Until superseded, this document is mandatory reading for any iteration that touc
 | Visual Task Scheduling | `derived` | `ChunkVisualScheduler` | per-chunk visual task queues, dedupe/version state, worker-prepare state, scheduler telemetry containers | `ChunkManager` boot/runtime loops, instrumentation, `ChunkDebugSystem` snapshot assembly | loaded-bubble scoped, per-tick budgeted, not persisted |
 | Surface Payload Cache | `derived` / `presentation-cache` | `ChunkSurfacePayloadCache` | duplicated generated terminal surface final packets plus flora payload/result cache entries | `ChunkStreamingService`, boot compute/apply helpers, chunk install preparation | surface z=0 only, bounded LRU, runtime cache only, not persisted |
 | Seam Repair Queue | `derived` | `ChunkSeamService`, coordinated by `ChunkManager` | pending seam refresh tile queue and neighbor border-fix enqueue decisions | topology tick, visual scheduler, mining seam follow-up | loaded-neighbor only, small per-step queue drain, not persisted |
-| Chunk Debug Overlay Snapshot | `derived` | `ChunkDebugSystem`, coordinated by `ChunkManager` | bounded per-player debug snapshot assembled from existing chunk/queue/readiness state plus bounded incident/trace correlations | `WorldChunkDebugOverlay`, debug inspection | active-z, bounded debug radius, read-only, not persisted |
-| Runtime Diagnostic Timeline Buffer | `derived` | `WorldRuntimeDiagnosticLog` | bounded diagnostic event ring buffer with dedupe metadata and optional `trace_id` / `incident_id` correlation | `WorldChunkDebugOverlay`, debug inspection, validation tooling | transient, cooldown-deduped, not gameplay truth |
-| F11 Chunk Debug Overlay Log File | `derived` / `debug-only` | `WorldChunkDebugOverlay` | per-process diagnostic `.log` artifact serialized from the bounded F11 snapshot | humans, agents, debug inspection | writes only while overlay is visible, overwritten on first F11 open per process, not save/load truth |
-| F11 Chunk Incident Dump File | `derived` / `debug-only` | `WorldChunkDebugOverlay` | explicit on-demand incident dump serialized from one bounded snapshot and bounded trace buffers | humans, agents, debug inspection | written only on manual `Ctrl+F11`, may say `no_active_incident`, not save/load truth |
+| Chunk Debug Overlay Snapshot | `derived` | `ChunkDebugSystem`, coordinated by `ChunkManager` | bounded per-player debug snapshot assembled from existing chunk/queue/readiness state plus bounded incident/trace correlations | `WorldChunkDebugOverlay`, `PerfTelemetryCollector`, debug inspection | active-z, bounded debug radius, read-only, not persisted |
+| Runtime Diagnostic Timeline Buffer | `derived` | `WorldRuntimeDiagnosticLog` | bounded diagnostic event ring buffer with dedupe metadata and optional `trace_id` / `incident_id` correlation | `PerfTelemetryCollector`, debug inspection, validation tooling | transient, cooldown-deduped, not gameplay truth |
+| Perf Telemetry Snapshot | `derived` / `debug-only` | `PerfTelemetryCollector` | one explicit per-run JSON artifact assembled from owner-fed boot, frame, timeline, scenario, contract-violation, and native profiling dictionaries | agents, manual perf review, baseline diff tooling | explicit `codex_perf_test` runs only, written once per run, not gameplay truth or persistence |
 | Presentation | `presentation-only` | `Chunk`, `MountainShadowSystem`, `WorldFeatureDebugOverlay`, `WorldChunkDebugOverlay` | TileMap, shadow sprite, debug anchor-marker output, and debug chunk overlay drawing | Godot renderer, debug inspection | loaded-only/redraw-driven for world presentation; read-only snapshot-driven for debug overlay |
 | Boot Readiness | `derived` | `ChunkBootPipeline` | per-chunk boot state tracking and aggregate gate flags | `GameWorld`, boot progress UI, instrumentation | boot-time only, not persisted |
 
@@ -103,7 +102,12 @@ Observed files for this version:
 - `core/systems/world/world_feature_debug_overlay.gd`
 - `core/debug/world_chunk_debug_overlay.gd`
 - `core/debug/world_runtime_diagnostic_log.gd`
+- `core/debug/perf_telemetry_collector.gd`
+- `core/debug/runtime_validation_driver.gd`
 - `core/autoloads/world_perf_monitor.gd`
+- `core/systems/world/world_perf_probe.gd`
+- `core/systems/world/chunk_boot_pipeline.gd`
+- `core/systems/world/chunk_streaming_service.gd`
 - `core/systems/world/surface_terrain_resolver.gd`
 - `core/systems/world/underground_fog_state.gd`
 - `core/systems/world/mountain_roof_system.gd`
@@ -145,8 +149,8 @@ Observed files for this version:
 - Bounded forensic incidents, trace contexts, visual-task debug metadata, and bounded overlay snapshot assembly are debug-only derived runtime behavior owned by `ChunkDebugSystem`; `ChunkManager` exposes the public entrypoint and forwards narrow debug API calls only.
 - `ChunkManager.get_chunk_debug_overlay_snapshot()` forwards to `ChunkDebugSystem.build_overlay_snapshot()`, which assembles a bounded active-z diagnostic snapshot around `_player_chunk` by reading chunk lifecycle/queue/readiness state plus bounded incident/trace/task metadata, but never requests, unloads, generates, or publishes chunks.
 - `WorldRuntimeDiagnosticLog` owns a transient bounded timeline buffer for human-readable Russian diagnostic summaries plus structured technical event records; optional `trace_id` / `incident_id` correlation remains diagnostic-only and is not gameplay state or persistence.
-- `WorldChunkDebugOverlay` owns the derived `user://debug/f11_chunk_overlay.log` artifact; it serializes the already-built overlay snapshot only while F11 is visible and never becomes save/load or gameplay truth.
-- `WorldChunkDebugOverlay` also owns explicit incident dump artifacts under `user://debug/f11_chunk_incident_<timestamp>.log`; the dump serializes one already-built bounded snapshot plus bounded trace buffers and must not trigger world work.
+- `RuntimeValidationDriver` owns debug-only validation scenario orchestration for explicit `codex_validate_runtime` runs; concrete `ValidationScenario` records own their per-scenario proof payloads, while `ValidationContext` stays a narrow safe adapter over existing command and read entrypoints.
+- `PerfTelemetryCollector` owns the debug-only `Perf Telemetry Snapshot` artifact for explicit `codex_perf_test` runs; it assembles one JSON proof from owner-fed `WorldPerfMonitor`, `WorldPerfProbe`, `WorldRuntimeDiagnosticLog`, `RuntimeValidationDriver` summary state, concrete `ValidationScenario` results, `ChunkBootPipeline` / `ChunkStreamingService`, and native `_prof_*` payloads, records both `first_playable` and `boot_complete` readiness booleans, serializes `debug_diagnostics.queue_state`, `timeline_history`, `forensics`, and `perf_breakdown`, and never becomes gameplay truth or a second runtime bus.
 - Rock atlas selection is explicit code in `Chunk`; current rendering does not rely on Godot TileSet terrain peering or autotile rules.
 - TileMap layers, ground elevation face overlays, fog cells, cover erasures, cliff overlays, and mountain shadow sprites are presentation outputs, not world truth.
 
@@ -704,14 +708,15 @@ Observed files for this version:
 - `classification`: `derived`
 - `owner`: `ChunkDebugSystem` owns assembly of the F11 chunk debug snapshot plus the bounded forensic incident / trace / task metadata that feeds it; `ChunkManager` remains the owner of chunk lifecycle, queue, stage-age, and visual scheduler state consumed during assembly.
 - `writers`: `ChunkManager.get_chunk_debug_overlay_snapshot()` is the public read entrypoint and forwards to `ChunkDebugSystem.build_overlay_snapshot()`; chunk lifecycle transitions (`_enqueue_load_request()`, `_submit_async_generate()`, `_collect_completed_runtime_generates()`, `_stage_prepared_chunk_install()`, `_finalize_chunk_install()`, `_try_finalize_chunk_visual_convergence()`, `_unload_chunk()`) and visual-task owner transitions feed the narrow `ChunkDebugSystem` API, which stores bounded diagnostic timestamps, trace metadata, task rows, and the returned overlay snapshot sections for debug reads.
-- `readers`: `WorldChunkDebugOverlay` and debug/validation tools.
-- `rebuild policy`: transient read snapshot, active-z only, bounded around `_player_chunk` by `DEBUG_OVERLAY_MAX_RADIUS`, queue rows capped/grouped, incident / trace / causality sections capped separately, not persisted and not consumed by gameplay. Release runtime must be able to select/process scheduler work without deep per-task forensic enrichment by default; detailed trace/task metadata remains behind the debug owner path.
+- `readers`: `WorldChunkDebugOverlay`, `PerfTelemetryCollector`, and debug/validation tools.
+- `rebuild policy`: transient read snapshot, active-z only, bounded around `_player_chunk` by `DEBUG_OVERLAY_MAX_RADIUS`, queue rows capped/grouped, incident / trace / causality sections capped separately, not persisted and not consumed by gameplay. The on-screen F11 overlay may render only the compact subset needed for chunk rectangles, load/unload rings, and the small FPS/player-chunk HUD; detailed queue/timeline/forensics data remains available to explicit telemetry/export tooling.
 - `invariants`:
 - `assert(chunk_debug_overlay_snapshot_is_read_only, "F11 overlay snapshot must not request, unload, generate, publish, or mutate chunks")`
 - `assert(chunk_debug_overlay_snapshot_radius_is_clamped, "F11 overlay snapshot must stay bounded around the player and must not scan the whole world")`
 - `assert(chunk_debug_queue_rows_are_capped_or_grouped, "debug queue output must expose active work without printing thousands of identical rows")`
 - `assert(stalled_chunk_state_is_observational, "stalled state in the overlay is an observed delay and must not be reported as a proven root cause unless an owner record says so")`
 - `assert(forensics_sections_are_bounded, "incident_summary, trace_events, chunk_causality_rows, task_debug_rows, and suspicion_flags must remain bounded and derived from `ChunkDebugSystem` debug state plus owner lifecycle state")`
+- `assert(f11_overlay_on_screen_mode_is_compact_only, "the live F11 overlay must not restore queue/timeline/perf/forensics text panels or mode cycling")`
 - `assert(release_scheduler_path_is_not_forensics_bound, "release scheduler path must not require deep per-task forensic enrichment to select, requeue, or skip visual work")`
 - `write operations`:
 - `ChunkManager.get_chunk_debug_overlay_snapshot()` forwarding to `ChunkDebugSystem.build_overlay_snapshot()`
@@ -729,8 +734,8 @@ Observed files for this version:
 
 - `classification`: `derived`
 - `owner`: `WorldRuntimeDiagnosticLog` owns bounded diagnostic event buffering and Russian human-readable summary formatting for runtime diagnostics.
-- `writers`: `WorldRuntimeDiagnosticLog.emit_summary()`, `emit_detail()`, and `emit_record()` update the transient ring buffer while preserving existing console log emission.
-- `readers`: `WorldChunkDebugOverlay`, debug inspection, validation tooling, and humans reading console logs.
+- `writers`: `WorldRuntimeDiagnosticLog.emit_summary()`, `emit_detail()`, and `emit_record()` update the transient ring buffer; human console emission is optional debug behavior and is currently suppressed by default for perf-proof noise control.
+- `readers`: `PerfTelemetryCollector`, debug inspection, validation tooling, and any local debug workflow that explicitly opts back into human console logs.
 - `rebuild policy`: bounded in-memory ring buffer, cooldown-deduped by `actor + action + target + reason + impact + state + code`, with `trace_id` / `incident_id` folded into dedupe when present, not persisted and not replayed into gameplay.
 - `invariants`:
 - `assert(timeline_event_has_human_summary_and_structured_record, "diagnostic timeline events must keep both Russian summary text and structured technical fields")`
@@ -748,58 +753,66 @@ Observed files for this version:
 - `current violations / ambiguities / contract gaps`:
 - Dynamic runtime diagnostic summaries are Russian-first debug text rather than fully localized gameplay UI text. Static overlay chrome uses localization keys; future shipping-facing diagnostics must define a localized message-key contract before leaving debug scope.
 
-## Layer: F11 Chunk Debug Overlay Log File
+## Layer: Validation Scenario Proof Records
 
 - `classification`: `derived` / `debug-only`
-- `owner`: `WorldChunkDebugOverlay` owns the per-process `.log` artifact at `user://debug/f11_chunk_overlay.log`.
-- `writers`: `WorldChunkDebugOverlay._ensure_log_file()`, `_write_log_snapshot()`, and `_close_log_file()`.
-- `readers`: humans and agents inspecting local debug output after an in-game F11 session.
-- `rebuild policy`: overwritten on the first F11 open in a new game process; subsequent F11 opens in the same process append below the existing session header; writes occur only while the overlay is visible and only from the already-bounded overlay snapshot.
+- `owner`: `RuntimeValidationDriver` owns explicit scenario selection, ordering, and run-completion summary for `codex_validate_runtime`; each concrete `ValidationScenario` owns the mutable proof record for its own scenario; `ValidationContext` owns only narrow safe adapters into existing sanctioned command/read paths and never becomes gameplay authority.
+- `writers`: `RuntimeValidationDriver._resolve_selected_scenario_names()`, `_build_selected_scenarios()`, `_start_next_scenario()`, and `_complete_validation_run()`; concrete `ValidationScenario.start()`, `update()`, and completion helpers mutate only their own proof record; `ValidationContext` helper methods forward scenario actions through existing safe command/read entrypoints.
+- `readers`: `PerfTelemetryCollector`, headless proof runs, and debug inspection.
+- `rebuild policy`: transient per explicit `codex_validate_runtime` run after boot gating. Scenario selection is opt-in via `codex_validate_scenarios=...`; per-scenario proof records are serialized into the observatory JSON `scenarios` payload and are never loaded into gameplay, scheduling, or save data.
 - `invariants`:
-- `assert(f11_overlay_log_is_debug_only, "F11 overlay log must not be save/load data, gameplay truth, or scheduler input")`
-- `assert(f11_overlay_log_writes_only_when_visible, "F11 overlay log must only append snapshots while F11 overlay is open")`
-- `assert(f11_overlay_log_serializes_existing_snapshot, "F11 overlay log must not trigger additional world scans or new ChunkManager lifecycle work")`
-- `assert(f11_overlay_log_is_overwritten_per_process, "F11 overlay log must be reset on the first F11 open after a fresh game process starts")`
+- `assert(validation_scenario_results_use_safe_entrypoints_only, "validation scenario code must go through sanctioned command/read paths via ValidationContext and must not mutate hidden world state directly")`
+- `assert(validation_scenario_results_are_debug_proof_only, "scenario proof records must remain derived observability output and must not become gameplay truth or persistence authority")`
+- `assert(validation_scenario_selection_is_explicit, "validation scenarios must run only when codex_validate_runtime is enabled and selection must stay CLI-driven rather than always-on")`
+- `assert(runtime_validation_driver_owns_cross_scenario_ordering, "cross-scenario sequencing and final summary remain centralized in RuntimeValidationDriver rather than duplicated inside scenario classes")`
 - `write operations`:
-- `WorldChunkDebugOverlay._ensure_log_file()`
-- `WorldChunkDebugOverlay._write_log_snapshot()`
-- `WorldChunkDebugOverlay._close_log_file()`
+- `RuntimeValidationDriver._resolve_selected_scenario_names()`
+- `RuntimeValidationDriver._build_selected_scenarios()`
+- `RuntimeValidationDriver._start_next_scenario()`
+- `RuntimeValidationDriver._complete_validation_run()`
+- concrete `ValidationScenario.start()` / `update()` / completion helpers
 - `forbidden writes`:
-- `ChunkManager`, `WorldRuntimeDiagnosticLog`, `WorldPerfMonitor`, save/load systems, and gameplay systems must not write directly to `user://debug/f11_chunk_overlay.log`.
-- The log file must not be parsed back into runtime state or treated as a source of truth.
-- Log writing must not perform unbounded chunk/world iteration; it may only serialize the bounded snapshot already requested for the visible overlay.
+- Scenario code must not bypass existing command/read entrypoints to mutate build, power, mining, chunk, topology, or save state directly.
+- Proof records must not become scheduler input, persistence data, or public gameplay truth.
 - `emitted events / invalidation signals`:
-- none; the artifact is a local debug file, not an event source.
+- `RuntimeValidationDriver.validation_run_completed(summary: Dictionary)`
 - `current violations / ambiguities / contract gaps`:
-- The log path is a Godot `user://` path; on Windows it resolves under Godot app user data for the project name. The exact OS path is written in the log header through `ProjectSettings.globalize_path(LOG_PATH)`.
+- none in current scope.
 
-## Layer: F11 Chunk Incident Dump File
+## Layer: Perf Telemetry Snapshot
 
 - `classification`: `derived` / `debug-only`
-- `owner`: `WorldChunkDebugOverlay` owns explicit incident dump artifacts at `user://debug/f11_chunk_incident_<timestamp>.log`.
-- `writers`: `WorldChunkDebugOverlay.request_incident_dump()` and `_write_incident_dump()`.
-- `readers`: humans and agents inspecting one captured incident snapshot after manual `Ctrl+F11`.
-- `rebuild policy`: created only on explicit manual capture; serializes one already-built bounded snapshot plus bounded incident/trace sections; may legitimately serialize `no_active_incident`.
+- `owner`: `PerfTelemetryCollector` owns one explicit per-run JSON artifact. Source owners stay unchanged: `WorldPerfProbe` owns raw timings and contract violations, `WorldPerfMonitor` owns frame aggregation, `WorldRuntimeDiagnosticLog` owns bounded timeline records, `RuntimeValidationDriver` owns validation run selection/final summary, concrete `ValidationScenario` records own per-scenario outcomes, and native `ChunkGenerator` / `MountainTopologyBuilder` own `_prof_*` payloads.
+- `writers`: `PerfTelemetryCollector.setup()`, `record_chunk_generator_profile()`, `record_topology_builder_profile()`, `_build_artifact()`, and `_write_artifact()`; `ChunkBootPipeline` and `ChunkStreamingService` may forward owner-produced native profile dictionaries into the collector, but do not own the artifact schema.
+- `readers`: agents, manual perf review, fixed-seed baseline comparison, and optional offline diff tooling.
+- `rebuild policy`: written once per explicit `codex_perf_test` run to `codex_perf_output` or `debug_exports/perf/result.json`. Validation runs wait for `GameWorld.is_boot_complete()` before finalization; non-validation perf runs may finalize once either `ChunkManager.is_boot_first_playable()` or `GameWorld.is_boot_complete()` is reached, and the artifact must serialize both readiness booleans either way. The artifact is never loaded back into gameplay or persistence state. Removed F11 overlay detail now lives here under explicit `debug_diagnostics.queue_state`, `debug_diagnostics.timeline_history`, `debug_diagnostics.forensics`, and `debug_diagnostics.perf_breakdown`.
 - `invariants`:
-- `assert(incident_dump_is_manual_only, "incident dump must be produced only on explicit Ctrl+F11/manual capture in this iteration")`
-- `assert(incident_dump_serializes_existing_bounded_debug_state, "incident dump must not enqueue, load, generate, publish, or scan the world")`
-- `assert(incident_dump_remains_debug_only, "incident dump artifact must not become gameplay truth or persistence data")`
+- `assert(perf_telemetry_snapshot_writes_only_when_codex_perf_test_is_present, "observatory JSON must stay disabled for normal gameplay and non-proof runs")`
+- `assert(perf_telemetry_snapshot_is_assembled_from_owner_fed_dictionaries, "collector must read structured owner data directly and must not parse console text")`
+- `assert(perf_telemetry_snapshot_records_first_playable_and_boot_complete_state, "artifact must preserve both readiness booleans so first-playable proofs do not masquerade as full boot convergence")`
+- `assert(perf_telemetry_snapshot_owns_removed_overlay_detail, "queue/timeline/forensics/perf breakdown removed from the live overlay must remain available in the JSON artifact")`
+- `assert(native_prof_payloads_remain_debug_only, "_prof_* payloads must not change chunk generation or topology semantics and missing payloads must fail open for gameplay")`
+- `assert(perf_telemetry_snapshot_is_not_gameplay_truth, "debug_exports/perf JSON must not become runtime authority, save data, or scheduler input")`
 - `write operations`:
-- `WorldChunkDebugOverlay.request_incident_dump()`
-- `WorldChunkDebugOverlay._write_incident_dump()`
+- `PerfTelemetryCollector.setup()`
+- `PerfTelemetryCollector.record_chunk_generator_profile()`
+- `PerfTelemetryCollector.record_topology_builder_profile()`
+- `PerfTelemetryCollector._build_artifact()`
+- `PerfTelemetryCollector._write_artifact()`
 - `forbidden writes`:
-- `ChunkManager`, `WorldRuntimeDiagnosticLog`, `MountainRoofSystem`, and gameplay systems must not write directly to `user://debug/f11_chunk_incident_<timestamp>.log`.
-- Incident dump generation must not create a second world debug bus or recompute world state outside the bounded snapshot request.
+- Gameplay systems, save/load, and runtime schedulers must not read or mutate `debug_exports/perf/*.json` as authority.
+- The collector must not become an always-on autoload, second diagnostics bus, or console-log parser.
+- Normal gameplay without `codex_perf_test` must not allocate or write observatory artifacts.
 - `emitted events / invalidation signals`:
-- none; the artifact is an explicit local capture.
+- none; explicit proof runners read the file artifact or optional local `artifact_written` signal after the single final write.
 - `current violations / ambiguities / contract gaps`:
-- `forensics` remains debug-only overlay behavior; it is not a public runtime support workflow and should not be parsed back into engine state.
+- If no runtime topology profile was produced during the run, the current collector may synthesize one fallback `_prof_topology_builder` sample from already loaded chunk terrain through `MountainTopologyBuilder.rebuild_topology()`. That fallback remains debug-only proof data and must not be treated as runtime topology ownership.
 
 ## Layer: Presentation
 
 - `classification`: `presentation-only`
 - `owner`: `Chunk` owns loaded chunk visual presentation and now delegates fog/flora/debug rendering internals to `ChunkFogPresenter`, `ChunkFloraPresenter`, and `ChunkDebugRenderer`; `MountainShadowSystem` owns surface mountain-shadow presentation state; `WorldFeatureDebugOverlay` owns debug-only anchor-marker presentation sourced from serialized chunk payloads; and `WorldChunkDebugOverlay` owns F11 debug overlay UI/drawing state sourced from bounded diagnostics snapshots.
-- `writers`: `Chunk` redraw methods still own terrain/ground-face/rock/cover/cliff publication, while `ChunkFogPresenter` owns fog-layer node creation/apply, `ChunkFloraPresenter` owns chunk-local flora packet publication plus shared texture-cache-backed draw calls, and `ChunkDebugRenderer` owns debug marker batching without per-marker scene nodes; `ChunkManager` schedules redraw and applies underground fog deltas; `MountainRoofSystem` drives cover erasure through chunk APIs; `MountainShadowSystem` owns shadow-local caches plus the main-thread texture/sprite apply path while detached shadow/edge compute stays pure-data only and requires native `MountainShadowKernels` for full edge-cache and shadow-raster work; `WorldFeatureDebugOverlay` writes its chunk-local anchor-marker cache and redraw state; `WorldChunkDebugOverlay` writes only its own Control/Node2D presentation state.
+- `writers`: `Chunk` redraw methods still own terrain/ground-face/rock/cover/cliff publication, while `ChunkFogPresenter` owns fog-layer node creation/apply, `ChunkFloraPresenter` owns chunk-local flora packet publication plus shared texture-cache-backed draw calls, and `ChunkDebugRenderer` owns debug marker batching without per-marker scene nodes; `ChunkManager` schedules redraw and applies underground fog deltas; `MountainRoofSystem` drives cover erasure through chunk APIs; `MountainShadowSystem` owns shadow-local caches plus the main-thread texture/sprite apply path while detached shadow/edge compute stays pure-data only and requires native `MountainShadowKernels` for full edge-cache and shadow-raster work; `WorldFeatureDebugOverlay` writes its chunk-local anchor-marker cache and redraw state; `WorldChunkDebugOverlay` writes only its own compact HUD label plus chunk-rectangle/ring drawing state.
 - `readers`: Godot rendering is the effective consumer; developer-facing debug inspection can read `WorldFeatureDebugOverlay` marker snapshots and `WorldChunkDebugOverlay` output. No in-scope simulation system was found that treats these presentation nodes as authority.
 - `rebuild policy`: loaded-only and redraw-driven; underground fog presentation is applied to loaded chunks only; surface shadow presentation is surface-only and rebuilt when edge cache or sun-angle thresholds require it, but shadow rebuild/finalize work must yield while player-visible chunk visual debt is pending so it does not compete with near streaming/border-fix publication in the same frame.
 - `invariants`:

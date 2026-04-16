@@ -4,6 +4,7 @@ extends RefCounted
 const ChunkFinalPacketScript = preload("res://core/systems/world/chunk_final_packet.gd")
 const ChunkFloraResultScript = preload("res://core/systems/world/chunk_flora_result.gd")
 const FrontierSchedulerScript = preload("res://core/systems/world/frontier_scheduler.gd")
+const PerfTelemetryCollectorScript = preload("res://core/debug/perf_telemetry_collector.gd")
 const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
 
 const FINALIZE_PHASE_PAYLOAD_ATTACH: int = 0
@@ -153,6 +154,19 @@ func _frontier_lane_human(lane: int) -> String:
 
 func _frontier_lane_order(lane: int) -> int:
 	return _frontier_scheduler.lane_order(lane) if _frontier_scheduler != null else 2
+
+func _record_chunk_generator_profile(native_data: Dictionary, coord: Vector2i, source: String, z_level: int) -> void:
+	var collector: Node = PerfTelemetryCollectorScript.get_active()
+	if collector == null:
+		return
+	var profile: Dictionary = native_data.get("_prof_chunk_generator", {}) as Dictionary
+	if profile.is_empty():
+		return
+	collector.record_chunk_generator_profile(profile, {
+		"source": source,
+		"chunk_coord": coord,
+		"z_level": z_level,
+	})
 
 func _append_load_request_to_lane(request: Dictionary) -> void:
 	var lane: int = int(request.get("frontier_lane", FrontierSchedulerScript.LANE_BACKGROUND))
@@ -832,6 +846,7 @@ func collect_completed_runtime_generates(load_radius: int) -> void:
 		gen_mutex.unlock()
 		var completed_data: Dictionary = completed_entry.get("native_data", {}) as Dictionary
 		var completed_flora_payload: Dictionary = completed_entry.get("flora_payload", {}) as Dictionary
+		_record_chunk_generator_profile(completed_data, coord, "runtime", request_z)
 		var worker_total_ms: float = float(completed_entry.get("worker_total_ms", 0.0))
 		var worker_native_data_ms: float = float(completed_entry.get("worker_native_data_ms", 0.0))
 		var worker_flora_payload_ms: float = float(completed_entry.get("worker_flora_payload_ms", 0.0))

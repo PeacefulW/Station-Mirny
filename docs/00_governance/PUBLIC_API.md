@@ -218,7 +218,7 @@ related_docs:
 
 `ChunkManager.get_chunk_debug_overlay_snapshot(max_queue_rows: int = 14, debug_radius: int = -1) -> Dictionary`
 - Что возвращает: read-only diagnostic snapshot для F11 overlay: `player_chunk`, `active_z`, factual radii, bounded chunk entries, capped/grouped `queue_rows`, timeline events, compact metrics, frontier plan/capacity/lane queue metrics, plus bounded debug-only `incident_summary`, `trace_events`, `chunk_causality_rows`, `task_debug_rows`, and `suspicion_flags`.
-- Когда использовать: только для in-game debug overlay / diagnostics, когда нужно понять pipeline order `request -> queue -> generate -> apply -> build visual -> visible -> unload` во время движения игрока.
+- Когда использовать: для in-game F11 overlay и explicit diagnostics, когда нужен bounded player-centered view of chunk state. Live overlay now renders only chunk rectangles, load/unload radii, compact FPS, and player chunk coordinates; detailed queue/timeline/forensics remain available to `PerfTelemetryCollector`.
 - Особенности: active-z scoped, bounded around player and clamped by `DEBUG_OVERLAY_MAX_RADIUS`; не public load/unload API, не gameplay truth, не persistence data. Frontier fields expose diagnostic labels such as `frontier_critical`, `camera_visible_support`, `background`, and `frontier_reserved_capacity_blocks`; they are read-only evidence of scheduler state, not caller commands. Snapshot rows may label `stalled` only as observed delay unless an owner diagnostic record proves root cause; `suspicion_flags` are observational hints, not proof.
 
 `ChunkManager.is_tile_loaded(gt: Vector2i) -> bool`
@@ -1783,17 +1783,11 @@ Current commands in scope:
 
 ### Debug artifacts
 
-`user://debug/f11_chunk_overlay.log`
-- Что содержит: full F11 overlay session snapshots while the overlay is visible: top HUD metrics, player/radii, capped/grouped queue rows, error/stalled chunk summary, timeline events, bounded chunk rows, and raw metrics.
-- Кто пишет: only `WorldChunkDebugOverlay`.
-- Когда пишется: file is overwritten on the first F11 open in a fresh game process; later F11 opens in the same process append; no snapshots are written while F11 is hidden.
-- Особенности: debug-only derived artifact, not gameplay truth, not save/load data, and not an API for reconstructing world state. `Shift+F11` cycles overlay modes, including `forensics`; the log header includes `ProjectSettings.globalize_path(LOG_PATH)` so humans can find the OS path.
-
-`user://debug/f11_chunk_incident_<timestamp>.log`
-- Что содержит: explicit incident capture from one bounded F11-style snapshot: `incident_summary`, `suspicion_flags`, `trace_events`, `chunk_causality_rows`, `task_debug_rows`, timeline excerpts, and raw snapshot payload. May legitimately contain `no_active_incident`.
-- Кто пишет: only `WorldChunkDebugOverlay`.
-- Когда пишется: only on explicit `Ctrl+F11` manual capture; capture works even if the overlay is hidden.
-- Особенности: debug-only derived artifact, not gameplay truth, not save/load data, and not a second diagnostics bus. The dump serializes existing bounded debug state and must not enqueue/load/generate/publish chunks.
+`debug_exports/perf/result.json` (or the explicit `codex_perf_output` path)
+- Что содержит: explicit perf/debug JSON artifact from `PerfTelemetryCollector` during `codex_perf_test` runs. In addition to boot/frame/native profiling data, it carries `streaming.debug_diagnostics.queue_state`, `timeline_history`, `forensics`, and `perf_breakdown` so removed F11 overlay detail remains available offline.
+- Кто пишет: only `PerfTelemetryCollector`.
+- Когда пишется: once per explicit perf/debug run after the collector reaches its completion gate.
+- Особенности: debug-only derived artifact, not gameplay truth, not save/load data, and not an API for reconstructing runtime authority.
 
 ### Внутренние методы (НЕ вызывать)
 
@@ -1801,8 +1795,6 @@ Current commands in scope:
 |-------|-------------------------------|
 | Direct writes to `WorldRuntimeDiagnosticLog._timeline_events` or `WorldPerfMonitor._latest_debug_snapshot` | Bypasses bounded/deduped owner paths and may desync overlay diagnostics from emitted logs. |
 | Direct calls to `WorldPerfProbe.flush_frame()` from overlay code | `WorldPerfMonitor` is the single frame-level consumer; a second consumer would steal metrics from the monitor. |
-| Direct writes to `user://debug/f11_chunk_overlay.log` from systems other than `WorldChunkDebugOverlay` | The artifact must stay a serialized F11 snapshot, not a second diagnostics bus or gameplay log sink. |
-| Direct writes to `user://debug/f11_chunk_incident_<timestamp>.log` from systems other than `WorldChunkDebugOverlay` | Incident dumps must stay explicit bounded captures owned by the overlay, not ad-hoc gameplay/system logs. |
 
 ---
 

@@ -5,6 +5,7 @@ extends Node
 ## Autoload — собирает frame time, детектит hitches, логирует budget usage.
 ## Работает совместно с WorldPerfProbe (статический инструмент измерений).
 
+const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
 const HITCH_THRESHOLD_MS: float = 22.0
 const LOW_FPS_THRESHOLD: float = 50.0
 const SUMMARY_INTERVAL_FRAMES: int = 300
@@ -17,6 +18,7 @@ var _category_totals: Dictionary = {}
 var _category_counts: Dictionary = {}
 var _category_peaks: Dictionary = {}
 var _observation_latest: Dictionary = {}
+var _session_observations: Dictionary = {}
 var _summary_frame_count: int = 0
 var _latest_frame_ms: float = 0.0
 var _latest_frame_ops: Dictionary = {}
@@ -48,6 +50,21 @@ func _process(delta: float) -> void:
 
 func get_debug_snapshot() -> Dictionary:
 	return _latest_debug_snapshot.duplicate(true)
+
+func build_perf_observatory_snapshot() -> Dictionary:
+	return {
+		"frame_count": _frame_count,
+		"summary_frame_count": _summary_frame_count,
+		"latest_debug_snapshot": _latest_debug_snapshot.duplicate(true),
+		"latest_frame_ms": _latest_frame_ms,
+		"latest_frame_ops": _latest_frame_ops.duplicate(true),
+		"latest_frame_categories": _latest_frame_categories.duplicate(true),
+		"hitch_count": _hitch_count,
+		"session_observations": _session_observations.duplicate(true),
+		"category_totals": _category_totals.duplicate(true),
+		"category_counts": _category_counts.duplicate(true),
+		"category_peaks": _category_peaks.duplicate(true),
+	}
 
 func _build_frame_categories(ops: Dictionary) -> Dictionary:
 	var categories: Dictionary = {}
@@ -90,6 +107,7 @@ func _capture_observations(ops: Dictionary) -> void:
 	for key: String in ops:
 		if _is_observation_metric(key):
 			_observation_latest[key] = float(ops[key])
+			_session_observations[key] = float(ops[key])
 
 func _is_observation_metric(label: String) -> bool:
 	return label.begins_with("Startup.") \
@@ -158,6 +176,8 @@ func _find_heaviest(ops: Dictionary) -> String:
 
 func _print_summary() -> void:
 	if _frame_times.is_empty():
+		return
+	if not WorldRuntimeDiagnosticLog.should_print_prefix(WorldRuntimeDiagnosticLog.PERF_PREFIX):
 		return
 	var avg_ms: float = _calc_average()
 	var p99_ms: float = _calc_percentile(99.0)
