@@ -2396,6 +2396,71 @@ func _is_player_near_visual_chunk(coord: Vector2i, z_level: int) -> bool:
 		return false
 	return _chunk_chebyshev_distance(_canonical_chunk_coord(coord), _player_chunk) <= 1
 
+func _collect_player_hot_visual_coords(z_level: int) -> Array[Vector2i]:
+	var coords: Array[Vector2i] = []
+	if z_level != _active_z or _player_chunk == Vector2i(99999, 99999):
+		return coords
+	for dy: int in range(-1, 2):
+		for dx: int in range(-1, 2):
+			coords.append(_offset_chunk_coord(_player_chunk, Vector2i(dx, dy)))
+	coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		var a_is_player: bool = a == _player_chunk
+		var b_is_player: bool = b == _player_chunk
+		if a_is_player != b_is_player:
+			return a_is_player
+		var a_is_forward: bool = _is_forward_ring1_visual_chunk(a)
+		var b_is_forward: bool = _is_forward_ring1_visual_chunk(b)
+		if a_is_forward != b_is_forward:
+			return a_is_forward
+		return _chunk_priority_less(a, b, _player_chunk)
+	)
+	return coords
+
+func _maybe_promote_hot_visual_task(coord: Vector2i, z_level: int, kind: int) -> void:
+	if _chunk_visual_scheduler == null:
+		return
+	if not _is_player_near_visual_chunk(coord, z_level):
+		return
+	_chunk_visual_scheduler.promote_existing_task_to_front(coord, z_level, kind)
+
+func _promote_player_hot_visual_tasks(z_level: int) -> void:
+	if _chunk_visual_scheduler == null:
+		return
+	var hot_coords: Array[Vector2i] = _collect_player_hot_visual_coords(z_level)
+	if hot_coords.is_empty():
+		return
+	for coord_index: int in range(hot_coords.size() - 1, -1, -1):
+		var coord: Vector2i = hot_coords[coord_index]
+		for kind: int in [
+			VisualTaskKind.TASK_BORDER_FIX,
+			VisualTaskKind.TASK_FULL_REDRAW,
+			VisualTaskKind.TASK_FIRST_PASS,
+		]:
+			_chunk_visual_scheduler.promote_existing_task_to_front(coord, z_level, kind)
+
+func _has_player_visible_visual_pressure() -> bool:
+	if not _initialized or _is_boot_in_progress or _transition_hidden:
+		return false
+	if _chunk_visual_scheduler == null or _player_chunk == Vector2i(99999, 99999):
+		return false
+	for coord: Vector2i in _collect_player_hot_visual_coords(_active_z):
+		var chunk: Chunk = get_chunk(coord)
+		if chunk == null or not is_instance_valid(chunk):
+			return true
+		if not chunk.is_full_redraw_ready():
+			return true
+		if chunk.has_pending_border_dirty():
+			return true
+		for kind: int in [
+			VisualTaskKind.TASK_FIRST_PASS,
+			VisualTaskKind.TASK_FULL_REDRAW,
+			VisualTaskKind.TASK_BORDER_FIX,
+		]:
+			var task_key: Vector4i = _make_visual_task_key(coord, _active_z, kind)
+			if _chunk_visual_scheduler.task_pending.has(task_key):
+				return true
+	return false
+
 func _should_prepare_border_fix_inline(_task: Dictionary, _chunk: Chunk, _requested_tile_budget: int) -> bool:
 	return false
 
@@ -2602,8 +2667,8 @@ func _resolve_visual_band(coord: Vector2i, z_level: int, kind: int) -> int:
 			return VisualPriorityBand.TERRAIN_NEAR
 		if _is_protected_first_pass_chunk(coord, z_level):
 			return VisualPriorityBand.TERRAIN_FAST
-		if ring == 1:
-			return VisualPriorityBand.TERRAIN_NEAR
+		if _is_player_near_visual_chunk(coord, z_level):
+			return VisualPriorityBand.TERRAIN_URGENT
 		return VisualPriorityBand.FULL_FAR
 	if boot_tracked and not is_boot_complete():
 		return VisualPriorityBand.FULL_NEAR
@@ -2909,6 +2974,7 @@ func _ensure_chunk_full_redraw_task(chunk: Chunk, z_level: int, invalidate: bool
 	chunk._mark_visual_full_redraw_pending()
 	if _chunk_visual_scheduler != null:
 		_chunk_visual_scheduler.ensure_task(chunk, z_level, VisualTaskKind.TASK_FULL_REDRAW, invalidate)
+	_maybe_promote_hot_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_FULL_REDRAW)
 
 func _ensure_chunk_border_fix_task(chunk: Chunk, z_level: int, invalidate: bool = false) -> void:
 	if chunk == null or not is_instance_valid(chunk):
@@ -2931,9 +2997,11 @@ func _ensure_chunk_border_fix_task(chunk: Chunk, z_level: int, invalidate: bool 
 			_chunk_visual_scheduler.ensure_task(chunk, z_level, VisualTaskKind.TASK_FULL_REDRAW, invalidate)
 	var border_fix_key: Vector4i = _make_visual_task_key(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
 	if _chunk_visual_scheduler.task_pending.has(border_fix_key):
+		_maybe_promote_hot_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
 		return
 	if _chunk_visual_scheduler != null:
 		_chunk_visual_scheduler.ensure_task(chunk, z_level, VisualTaskKind.TASK_BORDER_FIX)
+	_maybe_promote_hot_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
 
 func _schedule_chunk_visual_work(chunk: Chunk, z_level: int) -> void:
 	if chunk == null or not is_instance_valid(chunk):
@@ -2943,6 +3011,7 @@ func _schedule_chunk_visual_work(chunk: Chunk, z_level: int) -> void:
 	if not chunk.is_first_pass_ready():
 		if _chunk_visual_scheduler != null:
 			_chunk_visual_scheduler.ensure_task(chunk, z_level, VisualTaskKind.TASK_FIRST_PASS)
+		_maybe_promote_hot_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_FIRST_PASS)
 	else:
 		if _chunk_visual_scheduler != null:
 			_chunk_visual_scheduler.mark_first_pass_ready(chunk.chunk_coord, z_level)
@@ -3414,12 +3483,14 @@ func _check_player_chunk() -> void:
 		)
 		if _chunk_visual_scheduler != null:
 			_chunk_visual_scheduler.refresh_task_priorities()
+			_promote_player_hot_visual_tasks(_active_z)
 		var entered_chunk: Chunk = get_chunk(_player_chunk)
 		if entered_chunk != null and is_instance_valid(entered_chunk) and entered_chunk.has_pending_border_dirty():
 			_ensure_chunk_border_fix_task(entered_chunk, _active_z)
 		_stabilize_player_near_border_fix_chunks(_active_z)
 		_sync_loaded_chunk_display_positions(cur)
 		_update_chunks(cur)
+		_promote_player_hot_visual_tasks(_active_z)
 		_maybe_log_player_chunk_visual_status("entered_chunk")
 	else:
 		_maybe_refresh_frontier_plan_for_motion(cur)

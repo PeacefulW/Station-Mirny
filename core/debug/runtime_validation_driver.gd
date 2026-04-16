@@ -22,6 +22,8 @@ const DEFAULT_ROUTE_PRESET: StringName = &"local_ring"
 const START_SETTLE_FRAMES: int = 60
 const MOVE_SPEED_PX_PER_SEC: float = 8192.0
 const SPEED_TRAVERSE_MOVE_SPEED_PX_PER_SEC: float = 16384.0
+const FINAL_PROOF_FULL_NEAR_OP: StringName = &"scheduler.visual_queue_depth.full_near"
+const FINAL_PROOF_TERRAIN_NEAR_OP: StringName = &"scheduler.visual_queue_depth.terrain_near"
 const ROUTE_PRESETS := {
 	&"local_ring": [
 		Vector2i(6, 0),
@@ -797,6 +799,16 @@ func _build_run_completion_summary() -> Dictionary:
 			outcome = "not_converged"
 			blocker = str(result.get("blocker", "redraw_only"))
 			failure_message = str(result.get("message", ""))
+	if outcome == "finished":
+		var proof_audit: Dictionary = _audit_final_publication_proof(
+			_get_final_overlay_snapshot(),
+			_get_final_world_perf_snapshot()
+		)
+		if not proof_audit.is_empty():
+			outcome = str(proof_audit.get("outcome", "not_converged"))
+			blocker = str(proof_audit.get("blocker", "streaming_truth"))
+			exit_code = int(proof_audit.get("exit_code", 1))
+			failure_message = str(proof_audit.get("failure_message", ""))
 	return {
 		"outcome": outcome,
 		"blocker": blocker,
@@ -805,6 +817,80 @@ func _build_run_completion_summary() -> Dictionary:
 		"route_preset": String(_route_preset_name),
 		"selected_scenarios": _stringify_scenario_names(_selected_scenario_names),
 	}
+
+func _get_final_overlay_snapshot() -> Dictionary:
+	if _chunk_manager == null or not _chunk_manager.has_method("get_chunk_debug_overlay_snapshot"):
+		return {}
+	return _chunk_manager.get_chunk_debug_overlay_snapshot(0, 0)
+
+func _get_final_world_perf_snapshot() -> Dictionary:
+	var world_perf_monitor: Node = get_node_or_null("/root/WorldPerfMonitor")
+	if world_perf_monitor == null or not world_perf_monitor.has_method("get_debug_snapshot"):
+		return {}
+	return world_perf_monitor.call("get_debug_snapshot") as Dictionary
+
+func _audit_final_publication_proof(
+	overlay_snapshot: Dictionary,
+	perf_snapshot: Dictionary
+) -> Dictionary:
+	var player_hot_stall: Dictionary = _audit_player_hot_stall(overlay_snapshot)
+	if not player_hot_stall.is_empty():
+		return player_hot_stall
+	return _audit_final_near_queue_debt(perf_snapshot, overlay_snapshot)
+
+func _audit_player_hot_stall(overlay_snapshot: Dictionary) -> Dictionary:
+	var chunk_causality_rows: Array = overlay_snapshot.get("chunk_causality_rows", []) as Array
+	for row_variant: Variant in chunk_causality_rows:
+		var row: Dictionary = row_variant as Dictionary
+		if not bool(row.get("is_player_chunk", false)):
+			continue
+		if str(row.get("state", "")) != "stalled":
+			continue
+		var pending_tasks: Array = row.get("pending_tasks", []) as Array
+		return {
+			"outcome": "not_converged",
+			"blocker": "streaming_truth",
+			"exit_code": 1,
+			"failure_message": "final player-hot chunk stayed stalled; state=%s visible=%s phase=%s pending_tasks=%s stage_age_ms=%.3f" % [
+				str(row.get("state", "")),
+				str(bool(row.get("is_visible", false))),
+				str(row.get("visual_phase", "")),
+				",".join(_stringify_variants(pending_tasks)),
+				float(row.get("stage_age_ms", -1.0)),
+			],
+		}
+	return {}
+
+func _audit_final_near_queue_debt(
+	perf_snapshot: Dictionary,
+	overlay_snapshot: Dictionary
+) -> Dictionary:
+	var ops: Dictionary = perf_snapshot.get("ops", {}) as Dictionary
+	var full_near: float = float(ops.get(FINAL_PROOF_FULL_NEAR_OP, 0.0))
+	var terrain_near: float = float(ops.get(FINAL_PROOF_TERRAIN_NEAR_OP, 0.0))
+	if is_zero_approx(full_near) and is_zero_approx(terrain_near):
+		var overlay_metrics: Dictionary = overlay_snapshot.get("metrics", {}) as Dictionary
+		full_near = float(overlay_metrics.get("queue_full_near", 0.0))
+		terrain_near = float(overlay_metrics.get("queue_terrain_near", 0.0))
+	if full_near <= 0.0 and terrain_near <= 0.0:
+		return {}
+	return {
+		"outcome": "not_converged",
+		"blocker": "redraw_only",
+		"exit_code": 1,
+		"failure_message": "final near visual queue debt remained; %s=%.1f %s=%.1f" % [
+			String(FINAL_PROOF_FULL_NEAR_OP),
+			full_near,
+			String(FINAL_PROOF_TERRAIN_NEAR_OP),
+			terrain_near,
+		],
+	}
+
+func _stringify_variants(values: Array) -> Array[String]:
+	var result: Array[String] = []
+	for value: Variant in values:
+		result.append(str(value))
+	return result
 
 func _should_quit_immediately() -> bool:
 	return PERF_TEST_ARG not in OS.get_cmdline_user_args()

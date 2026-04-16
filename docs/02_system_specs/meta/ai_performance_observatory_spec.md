@@ -155,6 +155,7 @@ Those user args are debug/proof surfaces, not permission to mutate gameplay owne
   - scenario code uses existing safe entrypoints and command paths
   - scenario results are derived proof records, not gameplay truth
   - scenario selection is explicit by CLI arg, not always-on
+  - run-completion summary must fail closed when final player-hot chunk proof still reports `is_player_chunk == true` with `state == "stalled"` or when final near visual queue debt remains in `scheduler.visual_queue_depth.full_near` / `terrain_near`
 
 ## Required contract and API updates after implementation
 

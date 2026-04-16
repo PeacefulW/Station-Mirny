@@ -766,6 +766,7 @@ Observed files for this version:
 - `assert(validation_scenario_results_are_debug_proof_only, "scenario proof records must remain derived observability output and must not become gameplay truth or persistence authority")`
 - `assert(validation_scenario_selection_is_explicit, "validation scenarios must run only when codex_validate_runtime is enabled and selection must stay CLI-driven rather than always-on")`
 - `assert(runtime_validation_driver_owns_cross_scenario_ordering, "cross-scenario sequencing and final summary remain centralized in RuntimeValidationDriver rather than duplicated inside scenario classes")`
+- `assert(validation_completion_fails_closed_for_player_hot_publication_debt, "final validation_completion must not report finished when the final player-hot chunk remains stalled in chunk_causality_rows or when final near visual queue debt remains in full_near/terrain_near proof fields")`
 - `write operations`:
 - `RuntimeValidationDriver._resolve_selected_scenario_names()`
 - `RuntimeValidationDriver._build_selected_scenarios()`
