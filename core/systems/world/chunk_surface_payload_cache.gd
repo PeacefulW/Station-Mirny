@@ -52,7 +52,7 @@ func cache_native_payload(coord: Vector2i, z_level: int, native_data: Dictionary
 		return
 	var cache_key: Vector3i = make_key(coord, z_level)
 	var entry: Dictionary = _entries.get(cache_key, {}) as Dictionary
-	entry["native_data"] = _duplicate_native_data_fn.call(native_data) as Dictionary
+	entry["native_data"] = native_data
 	_entries[cache_key] = entry
 	_touch_key(cache_key)
 	_trim()

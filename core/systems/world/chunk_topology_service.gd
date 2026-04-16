@@ -1,12 +1,15 @@
 class_name ChunkTopologyService
 extends RefCounted
 
+const TOPOLOGY_REBUILD_IDLE_DEBOUNCE_USEC: int = 750000
+
 var _owner: Node = null
 var _native_builder_class_name: StringName = &""
 var _native_builder: RefCounted = null
 var _native_builder_available: bool = false
 var _native_builder_active: bool = false
 var _native_topology_dirty: bool = false
+var _native_topology_dirty_since_usec: int = 0
 
 func setup(owner: Node, native_builder_class_name: StringName) -> void:
 	_owner = owner
@@ -21,12 +24,14 @@ func set_validated_native_builder(native_builder: RefCounted) -> void:
 func clear_runtime_state() -> void:
 	_native_topology_dirty = false
 	_native_builder_active = false
+	_native_topology_dirty_since_usec = 0
 	if _native_builder != null and _native_builder.has_method("clear"):
 		_native_builder.call("clear")
 
 func deactivate() -> void:
 	_native_topology_dirty = false
 	_native_builder_active = false
+	_native_topology_dirty_since_usec = 0
 
 func is_available() -> bool:
 	return _native_builder_available
@@ -39,6 +44,7 @@ func is_dirty() -> bool:
 
 func setup_native_builder() -> void:
 	_native_topology_dirty = false
+	_native_topology_dirty_since_usec = 0
 	_native_builder_active = _native_builder_available and _native_builder != null
 	if not _native_builder_active:
 		push_error(
@@ -82,9 +88,19 @@ func tick(active_z: int, streaming_generation_idle: bool) -> bool:
 	if active_z != 0:
 		return false
 	if is_native_enabled():
-		if _native_topology_dirty and streaming_generation_idle:
+		if _native_topology_dirty:
+			if not streaming_generation_idle:
+				return true
+			if _owner != null \
+				and _owner.has_method("_has_player_visible_visual_pressure") \
+				and bool(_owner._has_player_visible_visual_pressure()):
+				return true
+			if _native_topology_dirty_since_usec > 0 \
+				and Time.get_ticks_usec() - _native_topology_dirty_since_usec < TOPOLOGY_REBUILD_IDLE_DEBOUNCE_USEC:
+				return true
 			_native_builder.call("ensure_built")
 			_native_topology_dirty = false
+			_native_topology_dirty_since_usec = 0
 		return false
 	push_error("Chunk runtime requires active native topology before topology tick.")
 	return false
@@ -95,6 +111,7 @@ func install_surface_chunk(coord: Vector2i, chunk: Chunk) -> void:
 		return
 	_native_builder.call("set_chunk", coord, chunk.get_terrain_bytes(), WorldGenerator.balance.chunk_size_tiles)
 	_native_topology_dirty = true
+	_native_topology_dirty_since_usec = Time.get_ticks_usec()
 
 func remove_surface_chunk(coord: Vector2i) -> void:
 	if not is_native_enabled():
@@ -102,6 +119,7 @@ func remove_surface_chunk(coord: Vector2i) -> void:
 		return
 	_native_builder.call("remove_chunk", coord)
 	_native_topology_dirty = true
+	_native_topology_dirty_since_usec = Time.get_ticks_usec()
 
 func note_mountain_tile_changed(active_z: int, tile_pos: Vector2i, old_type: int, new_type: int) -> void:
 	if active_z != 0:
@@ -113,6 +131,7 @@ func note_mountain_tile_changed(active_z: int, tile_pos: Vector2i, old_type: int
 	var started_usec: int = WorldPerfProbe.begin()
 	if is_native_enabled():
 		_native_builder.call("update_tile", tile_pos, new_type)
+		_native_topology_dirty_since_usec = Time.get_ticks_usec()
 		WorldPerfProbe.end("ChunkManager._on_mountain_tile_changed", started_usec)
 		return
 	push_error("Chunk runtime requires active native topology before mountain tile mutation %s." % [tile_pos])

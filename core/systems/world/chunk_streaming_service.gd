@@ -14,6 +14,7 @@ const FINALIZE_PHASE_TOPOLOGY_HANDOFF: int = 3
 const FINALIZE_PHASE_SEAM_EVENTBUS: int = 4
 const FINALIZE_PHASE_PUBLISH_GATE: int = 5
 const FINALIZE_PHASE_DONE: int = 6
+const MAX_RUNTIME_GENERATE_COMPLETIONS_COLLECTED_PER_TICK: int = 1
 
 var _owner: Node = null
 var load_queue: Array[Dictionary] = []
@@ -827,6 +828,8 @@ func collect_completed_runtime_generates(load_radius: int) -> void:
 		completed_coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 			return _chunk_priority_less(a, b, _player_chunk())
 		)
+	if completed_coords.size() > MAX_RUNTIME_GENERATE_COMPLETIONS_COLLECTED_PER_TICK:
+		completed_coords.resize(MAX_RUNTIME_GENERATE_COMPLETIONS_COLLECTED_PER_TICK)
 	for coord: Vector2i in completed_coords:
 		var task_id: int = int(gen_active_tasks.get(coord, -1))
 		if task_id >= 0:

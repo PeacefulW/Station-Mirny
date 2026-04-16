@@ -145,20 +145,27 @@
 #### Doc check
 - [ ] Grep `DATA_CONTRACTS.md` for changed names
 - [ ] Grep `PUBLIC_API.md` for changed names
-- [ ] Documentation debt section reviewed
+- [x] Documentation debt section reviewed — canonical docs not updated because no accepted semantic change landed
 
 #### Files touched
-- `core/systems/world/chunk_manager.gd` — pending
-- `core/systems/world/chunk_visual_scheduler.gd` — pending
-- `core/systems/lighting/mountain_shadow_system.gd` — pending
-- `docs/02_system_specs/world/DATA_CONTRACTS.md` — pending review
-- `docs/00_governance/PUBLIC_API.md` — pending review
+- `.claude/agent-memory/active-epic.md` — Iteration 2 opened, blocker recorded
+- `debug_exports/perf/player_hot_publication_candidate_seed12345.json` — fresh candidate proof on current runtime after Iteration 2 investigation
+- `debug_exports/perf/player_hot_publication_seed12345_diff_summary.json` — refreshed baseline diff summary
+- `debug_exports/perf/player_hot_publication_seed12345_diff_summary.md` — refreshed human-readable diff summary
+- `core/systems/world/chunk_manager.gd` — exploratory priority/yield patch was tested and then reverted because acceptance stayed red and candidate metrics regressed
+- `core/systems/world/chunk_visual_scheduler.gd` — retained narrow cover-phase cap experiment; later selector/full-redraw/near-throughput experiments were tested and reverted because proofs did not stay stable
 
 #### Отчёт о выполнении (Closure Report)
 pending
 
 #### Blockers
-- none
+- Fresh candidate proof still ends with `meta.validation_completion.outcome = not_converged`, blocker `streaming_truth`, player chunk stalled in `first_pass` phase `cover`
+- Final player-hot row shows `last_event = visual_task_skipped_budget`, `stage_age_ms ≈ 8604`, `is_visible = false`
+- Final queue depths after reverted exploratory patch: `terrain_fast = 1`, `terrain_urgent = 2`, `terrain_near = 6`, `full_near = 0`, `full_far = 183`
+- Diff vs dedicated before-state still fails: `Scheduler.urgent_visual_wait_ms` regressed to `784.566 ms`, `chunk_manager.streaming_redraw` contract violations increased from `40` to `53`, `chunk_manager.streaming_load` increased from `39` to `57`
+- Positive finding preserved for next attempt: `mountain_shadow.visual_rebuild` violations dropped from `39` to `0`, so shadow isolation hypothesis helped, but did not fix player-hot first-pass starvation on its own
+- New 2026-04-16 follow-up: retained `ChunkVisualScheduler` cover-cap patch moves the bottleneck, but later selector / larger `FULL_NEAR` slice / near-throughput experiments did not produce a stable green proof and were reverted
+- Latest explicit proof in this session still ended red with `ZeroToleranceReadiness` breaches, so Iteration 2 remains blocked and no new semantic/runtime contract was accepted
 
 ### Iteration 3 - Runtime Chunk Generation Cost Recovery
 **Status**: pending

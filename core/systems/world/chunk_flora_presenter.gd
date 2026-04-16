@@ -11,6 +11,8 @@ static var _failed_texture_loads: Dictionary = {}
 
 var _tile_size: int = 0
 var _layers: Array = []
+var _packet_texture_paths: Array[String] = []
+var _resolved_packet_textures: Dictionary = {}
 var _flora_result: ChunkFloraResultScript = null
 var _flora_payload: Dictionary = {}
 var _local_pending_texture_paths: Dictionary = {}
@@ -56,6 +58,8 @@ func get_prebuilt_render_packet(payload: Dictionary) -> Dictionary:
 
 func clear_render_packet() -> void:
 	_layers.clear()
+	_packet_texture_paths.clear()
+	_resolved_packet_textures.clear()
 	_local_pending_texture_paths.clear()
 	visible = false
 	set_process(false)
@@ -65,7 +69,9 @@ func apply_render_packet(packet: Dictionary, mode: StringName, chunk_coord: Vect
 	if packet.is_empty():
 		clear_render_packet()
 	else:
-		_layers = (packet.get("layers", []) as Array).duplicate(true)
+		_layers = (packet.get("layers", []) as Array).duplicate(false)
+		_packet_texture_paths = _extract_packet_texture_paths(packet)
+		_resolved_packet_textures.clear()
 		_local_pending_texture_paths.clear()
 		_prime_packet_textures()
 		visible = not _layers.is_empty()
@@ -82,6 +88,7 @@ func _process(_delta: float) -> void:
 		var texture_path: String = String(texture_path_variant)
 		var texture: Texture2D = _get_shared_texture(texture_path, false)
 		if texture != null:
+			_resolved_packet_textures[texture_path] = texture
 			_local_pending_texture_paths.erase(texture_path)
 			should_redraw = true
 		elif _failed_texture_loads.has(texture_path):
@@ -101,23 +108,57 @@ func _draw() -> void:
 				item.get("size", Vector2.ZERO) as Vector2
 			)
 			var texture_path: String = String(item.get("texture_path", ""))
-			var texture: Texture2D = _get_shared_texture(texture_path, false)
+			var texture: Texture2D = _resolved_packet_textures.get(texture_path, null) as Texture2D
+			if texture == null and not texture_path.is_empty() and not _local_pending_texture_paths.has(texture_path):
+				texture = _get_shared_texture(texture_path, false)
+				if texture != null:
+					_resolved_packet_textures[texture_path] = texture
 			if texture != null:
 				draw_texture_rect(texture, draw_rect_data, false, Color.WHITE)
 				continue
 			draw_rect(draw_rect_data, item.get("color", Color.WHITE) as Color, true)
 
 func _prime_packet_textures() -> void:
-	for layer_variant: Variant in _layers:
+	for texture_path: String in _packet_texture_paths:
+		var texture: Texture2D = _get_shared_texture(texture_path, true)
+		if texture != null:
+			_resolved_packet_textures[texture_path] = texture
+			continue
+		if _pending_texture_loads.has(texture_path):
+			_local_pending_texture_paths[texture_path] = true
+
+func _extract_packet_texture_paths(packet: Dictionary) -> Array[String]:
+	var texture_paths: Array[String] = []
+	var seen_paths: Dictionary = {}
+	var packet_texture_paths: Array = packet.get("texture_paths", []) as Array
+	for texture_path_variant: Variant in packet_texture_paths:
+		var texture_path: String = String(texture_path_variant)
+		if texture_path.is_empty() or seen_paths.has(texture_path):
+			continue
+		seen_paths[texture_path] = true
+		texture_paths.append(texture_path)
+	if not texture_paths.is_empty():
+		return texture_paths
+	var groups: Array = packet.get("groups", []) as Array
+	for group_variant: Variant in groups:
+		var group: Dictionary = group_variant as Dictionary
+		var texture_path: String = String(group.get("texture_path", ""))
+		if texture_path.is_empty() or seen_paths.has(texture_path):
+			continue
+		seen_paths[texture_path] = true
+		texture_paths.append(texture_path)
+	if not texture_paths.is_empty():
+		return texture_paths
+	for layer_variant: Variant in packet.get("layers", []) as Array:
 		var layer: Dictionary = layer_variant as Dictionary
 		for item_variant: Variant in layer.get("items", []):
 			var item: Dictionary = item_variant as Dictionary
 			var texture_path: String = String(item.get("texture_path", ""))
-			if texture_path.is_empty():
+			if texture_path.is_empty() or seen_paths.has(texture_path):
 				continue
-			var texture: Texture2D = _get_shared_texture(texture_path, true)
-			if texture == null and _pending_texture_loads.has(texture_path):
-				_local_pending_texture_paths[texture_path] = true
+			seen_paths[texture_path] = true
+			texture_paths.append(texture_path)
+	return texture_paths
 
 static func _get_shared_texture(texture_path: String, allow_load: bool = true) -> Texture2D:
 	if texture_path.is_empty():

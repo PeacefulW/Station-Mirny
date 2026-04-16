@@ -1,0 +1,153 @@
+WorkerThreadPool: 12 threads, 3 max low-priority.
+Godot Engine v4.6.1.stable.official.14d19694e - https://godotengine.org
+TextServer: Added interface "Dummy"
+TextServer: Added interface "ICU / HarfBuzz / Graphite (Built-in)"
+Unrecognized output string "misc2" in mapping:
+030000000d0f00000202000000000000,Horipad O Nintendo Switch 2 Controller,a:b1,b:b0,back:b8,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b12,leftshoulder:b4,leftstick:b10,lefttrigger:b6,leftx:a0,lefty:a1,misc1:b13,misc2:b14,rightshoulder:b5,rightstick:b11,righttrigger:b7,rightx:a2,righty:a3,start:b9,x:b3,y:b2,platform:Windows,
+Unrecognized output string "misc2" in mapping:
+030000000d0f00009601000000000000,Horipad Steam,a:b0,b:b1,back:b10,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b12,leftshoulder:b6,leftstick:b13,lefttrigger:b8,leftx:a0,lefty:a1,misc2:b2,paddle1:b5,paddle2:b15,paddle3:b18,paddle4:b19,rightshoulder:b7,rightstick:b14,righttrigger:b9,rightx:a3,righty:a4,start:b11,x:b3,y:b4,platform:Windows,
+Unrecognized output string "misc2" in mapping:
+030000007e0500006920000000000000,Nintendo Switch 2 Pro Controller,a:b0,b:b1,back:b14,dpdown:b8,dpleft:b10,dpright:b9,dpup:b11,guide:b16,leftshoulder:b12,leftstick:b15,lefttrigger:b13,leftx:a0,lefty:a1~,misc1:b17,misc2:b20,paddle1:b18,paddle2:b19,rightshoulder:b4,rightstick:b7,righttrigger:b5,rightx:a2,righty:a3~,start:b6,x:b2,y:b3,platform:Windows,
+Using "default" pen tablet driver...
+
+Loading resource: res://locale/ru/messages.po
+Loading resource: res://locale/en/messages.po
+TextServer: Primary interface set to: "ICU / HarfBuzz / Graphite (Built-in)".
+CORE API HASH: 75400357
+EDITOR API HASH: 3012763406
+SceneTreeFTI: traversal method DEFAULT
+Loading resource: res://core/autoloads/event_bus.gd
+Loading resource: res://core/autoloads/game_manager.gd
+Loading resource: res://core/autoloads/time_manager.gd
+Loading resource: res://core/autoloads/biome_registry.gd
+Loading resource: res://core/autoloads/flora_decor_registry.gd
+Loading resource: res://core/autoloads/world_feature_registry.gd
+Loading resource: res://core/autoloads/world_generator.gd
+Loading resource: res://data/balance/power_balance.tres
+Loading resource: res://data/balance/power_balance.gd
+Loading resource: res://assets/sprites/fauna/enemy_cleaner_32.png
+Loading resource: res://.godot/imported/enemy_cleaner_32.png-e8650dd82bf2e34d0c0a30327674fb29.ctex
+MbedTLS: Some X509 certificates could not be parsed (28 certificates skipped).
+Loaded system CA certificates
+Loading resource: res://scenes/world/game_world.tscn
+Loading resource: res://data/balance/building_balance.tres
+Loading resource: res://data/balance/enemy_balance.tres
+Loading resource: res://scenes/player/player.tscn
+Loading resource: res://assets/sprites/player_engineer.png
+Loading resource: res://.godot/imported/player_engineer.png-434a7bc774f04183c394949236bd6224.ctex
+Loading resource: res://data/balance/survival_balance.tres
+Loading resource: res://data/balance/player_balance.tres
+Loading resource: res://core/entities/player/player_visibility_indicator.gd
+Loading resource: res://scenes/ui/hud/hud_manager.gd
+Loading resource: res://core/systems/daylight/daylight_system.gd
+Loading resource: res://data/balance/time_balance.tres
+Loading resource: res://data/biomes/cold_zone_biome.tres
+Loading resource: res://data/biomes/foothills_biome.tres
+Loading resource: res://data/biomes/mountains_biome.tres
+Loading resource: res://data/biomes/plains_biome.tres
+Loading resource: res://data/biomes/scorched_biome.tres
+Loading resource: res://data/biomes/wet_lowland_biome.tres
+Loading resource: res://data/flora/cold_zone_flora.tres
+Loading resource: res://data/flora/entries/cold_scrub.tres
+Loading resource: res://data/flora/foothills_flora.tres
+Loading resource: res://data/flora/entries/spore_cluster.tres
+Loading resource: res://data/flora/plains_flora.tres
+Loading resource: res://data/flora/entries/sporestalk.tres
+Loading resource: res://assets/sprites/flora/sporestalk_tree_01.png
+Loading resource: res://.godot/imported/sporestalk_tree_01.png-9ad88e7ebac32b9b4d4b9e2dc5769e18.ctex
+Loading resource: res://data/flora/entries/sporestalk_variant_02.tres
+Loading resource: res://assets/sprites/flora/sporestalk_tree_02.png
+Loading resource: res://.godot/imported/sporestalk_tree_02.png-c5dae08d36c6e28c51e8dc43c169555a.ctex
+Loading resource: res://data/flora/entries/sporestalk_variant_03.tres
+Loading resource: res://assets/sprites/flora/sporestalk_tree_03.png
+Loading resource: res://.godot/imported/sporestalk_tree_03.png-58e25f4d1daa7ab2f45a5fd5a12f3ffc.ctex
+Loading resource: res://data/flora/entries/sporestalk_variant_04.tres
+Loading resource: res://assets/sprites/flora/sporestalk_tree_04.png
+Loading resource: res://.godot/imported/sporestalk_tree_04.png-cadd136d7f156e7e0e0617bca364baac.ctex
+Loading resource: res://data/flora/entries/sporestalk_variant_05.tres
+Loading resource: res://assets/sprites/flora/sporestalk_tree_05.png
+Loading resource: res://.godot/imported/sporestalk_tree_05.png-ac845cdabbafc08bc9d8e3d5bd8412db.ctex
+Loading resource: res://data/flora/entries/sporestalk_variant_06.tres
+Loading resource: res://assets/sprites/flora/sporestalk_tree_06.png
+Loading resource: res://.godot/imported/sporestalk_tree_06.png-b8a064d8cd3a21697f08d8a7876cc2dd.ctex
+Loading resource: res://data/flora/entries/sporestalk_variant_07.tres
+Loading resource: res://assets/sprites/flora/sporestalk_tree_07.png
+Loading resource: res://.godot/imported/sporestalk_tree_07.png-0272e0528c174f911a12df1b9beffd20.ctex
+Loading resource: res://data/flora/entries/sporestalk_variant_08.tres
+Loading resource: res://assets/sprites/flora/sporestalk_tree_08.png
+Loading resource: res://.godot/imported/sporestalk_tree_08.png-455a781861d2cb6e9be3b3d362b197c3.ctex
+Loading resource: res://data/flora/entries/sporestalk_variant_09.tres
+Loading resource: res://assets/sprites/flora/sporestalk_tree_09.png
+Loading resource: res://.godot/imported/sporestalk_tree_09.png-6016e69eb50a6a52f287bfa3a5bc7c06.ctex
+Loading resource: res://data/flora/scorched_flora.tres
+Loading resource: res://data/flora/entries/dry_thorn.tres
+Loading resource: res://data/flora/wet_lowland_flora.tres
+Loading resource: res://data/flora/entries/veinroot.tres
+Loading resource: res://data/flora/entries/glowmoss.tres
+Loading resource: res://data/decor/ground_decor.tres
+Loading resource: res://data/decor/entries/small_rocks.tres
+Loading resource: res://data/decor/entries/bone_fragment.tres
+Loading resource: res://data/decor/entries/spore_patch.tres
+Loading resource: res://data/world/features/test_feature.tres
+Loading resource: res://data/world/features/test_poi.tres
+Loading resource: res://data/world/world_gen_balance.tres
+Loading resource: res://data/items/copper_ore.tres
+Loading resource: res://assets/icons/items/copper_ore.png
+Loading resource: res://.godot/imported/copper_ore.png-7037406748db407fe948e979c5253faf.ctex
+Loading resource: res://data/items/iron_ingot.tres
+Loading resource: res://data/items/iron_ore.tres
+Loading resource: res://assets/icons/items/iron_ore.png
+Loading resource: res://.godot/imported/iron_ore.png-99e4ee983cf5ff2b4fe12ae650b61899.ctex
+Loading resource: res://data/items/scrap.tres
+Loading resource: res://assets/icons/items/scrap.png
+Loading resource: res://.godot/imported/scrap.png-eebda778b20f662d911f77971c0973eb.ctex
+Loading resource: res://data/items/stone.tres
+Loading resource: res://assets/icons/items/stone.png
+Loading resource: res://.godot/imported/stone.png-940869978e9a408f99c3839fc0455c9d.ctex
+Loading resource: res://data/items/water_dirty.tres
+Loading resource: res://assets/icons/items/water_dirty.png
+Loading resource: res://.godot/imported/water_dirty.png-7fffd9c69ccfd4e3be113c802978e6d1.ctex
+Loading resource: res://data/items/wood.tres
+Loading resource: res://assets/icons/items/wood.png
+Loading resource: res://.godot/imported/wood.png-978063e501ced5f247578c647912f786.ctex
+Loading resource: res://data/resources/copper_ore_node.tres
+Loading resource: res://data/resources/dead_tree_node.tres
+Loading resource: res://data/resources/iron_ore_node.tres
+Loading resource: res://data/resources/stone_node.tres
+Loading resource: res://data/resources/water_source_node.tres
+Loading resource: res://data/recipes/basic_recipes/iron_ore_to_iron_ingot.tres
+Loading resource: res://data/balance/z_level_balance.tres
+Loading resource: res://assets/sprites/terrain/rock_faces_atlas.png
+Loading resource: res://.godot/imported/rock_faces_atlas.png-4de51dc868f0dc1f35d4719cad8bee19.ctex
+Loading resource: res://assets/sprites/terrain/ground_faces_atlas.png
+Loading resource: res://.godot/imported/ground_faces_atlas.png-189f0ad68169197592a65b38edc711e2.ctex
+Loading resource: res://assets/sprites/terrain/sand_faces_atlas.png
+Loading resource: res://.godot/imported/sand_faces_atlas.png-0e4b77b4c399e08cc1e146cc623805e1.ctex
+Loading resource: res://assets/sprites/terrain/rock_faces_atlas_dungeon.png
+Loading resource: res://.godot/imported/rock_faces_atlas_dungeon.png-a51293f3c8dbd87e30997c45ac7a17d3.ctex
+Loading resource: res://assets/sprites/terrain/ground_faces_atlas.png
+Loading resource: res://.godot/imported/ground_faces_atlas.png-189f0ad68169197592a65b38edc711e2.ctex
+Loading resource: res://assets/sprites/terrain/rock_faces_atlas_dungeon.png
+Loading resource: res://.godot/imported/rock_faces_atlas_dungeon.png-a51293f3c8dbd87e30997c45ac7a17d3.ctex
+Loading resource: res://assets/sprites/terrain/ground_faces_atlas.png
+Loading resource: res://.godot/imported/ground_faces_atlas.png-189f0ad68169197592a65b38edc711e2.ctex
+Loading resource: res://assets/sprites/terrain/rock_faces_atlas_dungeon.png
+Loading resource: res://.godot/imported/rock_faces_atlas_dungeon.png-a51293f3c8dbd87e30997c45ac7a17d3.ctex
+Loading resource: res://assets/sprites/terrain/ground_faces_atlas.png
+Loading resource: res://.godot/imported/ground_faces_atlas.png-189f0ad68169197592a65b38edc711e2.ctex
+Loading resource: res://assets/sprites/terrain/rock_faces_atlas_dungeon.png
+Loading resource: res://.godot/imported/rock_faces_atlas_dungeon.png-a51293f3c8dbd87e30997c45ac7a17d3.ctex
+Loading resource: res://assets/sprites/terrain/ground_faces_atlas.png
+Loading resource: res://.godot/imported/ground_faces_atlas.png-189f0ad68169197592a65b38edc711e2.ctex
+Loading resource: res://assets/sprites/terrain/rock_faces_atlas_dungeon.png
+Loading resource: res://.godot/imported/rock_faces_atlas_dungeon.png-a51293f3c8dbd87e30997c45ac7a17d3.ctex
+Loading resource: res://assets/sprites/terrain/ground_faces_atlas.png
+Loading resource: res://.godot/imported/ground_faces_atlas.png-189f0ad68169197592a65b38edc711e2.ctex
+Loading resource: res://assets/sprites/terrain/rock_faces_atlas_dungeon.png
+Loading resource: res://.godot/imported/rock_faces_atlas_dungeon.png-a51293f3c8dbd87e30997c45ac7a17d3.ctex
+Loading resource: res://assets/sprites/terrain/ground_faces_atlas.png
+Loading resource: res://.godot/imported/ground_faces_atlas.png-189f0ad68169197592a65b38edc711e2.ctex
+Loading resource: res://assets/sprites/terrain/rock_faces_atlas_dungeon.png
+Loading resource: res://.godot/imported/rock_faces_atlas_dungeon.png-a51293f3c8dbd87e30997c45ac7a17d3.ctex
+Loading resource: res://assets/sprites/terrain/ground_faces_atlas.png
+Loading resource: res://.godot/imported/ground_faces_atlas.png-189f0ad68169197592a65b38edc711e2.ctex

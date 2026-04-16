@@ -310,9 +310,18 @@ func _tick_shadows() -> bool:
 	return false
 
 func _should_yield_to_chunk_visual_pressure() -> bool:
-	if _chunk_manager == null or not _chunk_manager.has_method("_has_player_visible_visual_pressure"):
+	if _chunk_manager == null:
 		return false
-	return bool(_chunk_manager._has_player_visible_visual_pressure())
+	if _chunk_manager.has_method("_has_player_visible_visual_pressure") \
+		and bool(_chunk_manager._has_player_visible_visual_pressure()):
+		return true
+	if _chunk_manager.has_method("_has_player_near_visual_queue_pressure") \
+		and bool(_chunk_manager._has_player_near_visual_queue_pressure()):
+		return true
+	if _chunk_manager.has_method("_has_recent_player_chunk_motion_pressure") \
+		and bool(_chunk_manager._has_recent_player_chunk_motion_pressure()):
+		return true
+	return false
 
 func _try_mined_tile_update_step() -> bool:
 	if _pending_mined_tile_updates.is_empty():

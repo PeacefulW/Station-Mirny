@@ -199,6 +199,7 @@ static func _build_render_packet_from_groups(render_groups: Array, tile_size: in
 		return {}
 	var items_by_layer: Dictionary = {}
 	var group_summaries: Array[Dictionary] = []
+	var texture_path_set: Dictionary = {}
 	for group_variant: Variant in render_groups:
 		var group: Dictionary = group_variant as Dictionary
 		var layer: int = int(group.get("layer", 0))
@@ -206,6 +207,8 @@ static func _build_render_packet_from_groups(render_groups: Array, tile_size: in
 		var size_pixels_i: Vector2i = group.get("size", Vector2i.ZERO) as Vector2i
 		var size_pixels: Vector2 = Vector2(size_pixels_i.x, size_pixels_i.y)
 		var texture_path: String = String(group.get("texture_path", ""))
+		if not texture_path.is_empty():
+			texture_path_set[texture_path] = true
 		var local_tiles: Array = group.get("local_tiles", []) as Array
 		var items: Array = items_by_layer.get(layer, []) as Array
 		for tile_variant: Variant in local_tiles:
@@ -232,6 +235,10 @@ static func _build_render_packet_from_groups(render_groups: Array, tile_size: in
 	var layer_keys: Array = items_by_layer.keys()
 	layer_keys.sort()
 	var layers: Array[Dictionary] = []
+	var texture_paths: Array[String] = []
+	for texture_path_variant: Variant in texture_path_set.keys():
+		texture_paths.append(String(texture_path_variant))
+	texture_paths.sort()
 	for layer_key_variant: Variant in layer_keys:
 		var layer: int = int(layer_key_variant)
 		var items: Array = items_by_layer.get(layer, []) as Array
@@ -258,4 +265,5 @@ static func _build_render_packet_from_groups(render_groups: Array, tile_size: in
 		"layer_count": layer_keys.size(),
 		"groups": group_summaries,
 		"layers": layers,
+		"texture_paths": texture_paths,
 	}
