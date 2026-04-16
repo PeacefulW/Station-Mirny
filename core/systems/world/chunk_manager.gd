@@ -67,7 +67,8 @@ const PLAYER_CHUNK_DIAG_LOG_INTERVAL_MSEC: int = 2000
 const PLAYER_CHUNK_DIAG_BLOCKED_AGE_MS: float = 250.0
 const PLAYER_CHUNK_DIAG_SPIKE_MS: float = 12.0
 const PLAYER_CHUNK_MOTION_PRESSURE_MSEC: int = 1500
-const PLAYER_FULL_READY_BREACH_HISTORY_LIMIT: int = 16
+const PLAYER_FULL_READY_BREACH_HISTORY_LIMIT: int = 256
+const HOT_VISUAL_SLICE_HISTORY_LIMIT: int = 2048
 const FRONTIER_MOTION_REFRESH_FRAMES: int = 10
 const VISUAL_ADAPTIVE_APPLY_MIN_MS: float = 0.25
 const VISUAL_ADAPTIVE_APPLY_MAX_MS: float = 1.25
@@ -78,18 +79,18 @@ const VISUAL_ADAPTIVE_FAST_SAFETY: float = 0.30
 const VISUAL_ADAPTIVE_URGENT_SAFETY: float = 0.35
 const VISUAL_ADAPTIVE_NEAR_SAFETY: float = 0.40
 const VISUAL_ADAPTIVE_FAR_SAFETY: float = 0.45
-const VISUAL_FAST_PHASE_TILE_CAP_TERRAIN: int = 256
-const VISUAL_FAST_PHASE_TILE_CAP_COVER: int = 192
-const VISUAL_FAST_PHASE_TILE_CAP_CLIFF: int = 256
-const VISUAL_URGENT_PHASE_TILE_CAP_TERRAIN: int = 192
-const VISUAL_URGENT_PHASE_TILE_CAP_COVER: int = 128
-const VISUAL_URGENT_PHASE_TILE_CAP_CLIFF: int = 192
+const VISUAL_FAST_PHASE_TILE_CAP_TERRAIN: int = 1024
+const VISUAL_FAST_PHASE_TILE_CAP_COVER: int = 768
+const VISUAL_FAST_PHASE_TILE_CAP_CLIFF: int = 1024
+const VISUAL_URGENT_PHASE_TILE_CAP_TERRAIN: int = 1024
+const VISUAL_URGENT_PHASE_TILE_CAP_COVER: int = 768
+const VISUAL_URGENT_PHASE_TILE_CAP_CLIFF: int = 1024
 const VISUAL_BOOTSTRAP_FULL_TERRAIN_TILES: int = 12
 const VISUAL_BOOTSTRAP_FULL_COVER_TILES: int = 6
 const VISUAL_BOOTSTRAP_FULL_CLIFF_TILES: int = 6
 const VISUAL_BOOTSTRAP_BORDER_TILES: int = 2
-const VISUAL_COMPLETED_COMPUTE_MAX_INTAKE_PER_STEP: int = 1
-const VISUAL_MAX_CONCURRENT_COMPUTE: int = 2
+const VISUAL_COMPLETED_COMPUTE_MAX_INTAKE_PER_STEP: int = 2
+const VISUAL_MAX_CONCURRENT_COMPUTE: int = 3
 const VISUAL_MAX_FAR_CONCURRENT_COMPUTE: int = 1
 const SEAM_REFRESH_MAX_TILES_PER_STEP: int = 4
 const DEBUG_OVERLAY_MAX_RADIUS: int = 8
@@ -112,6 +113,7 @@ var _player_chunk_diag_last_usec: int = 0
 var _player_chunk_diag_last_signature: String = ""
 var _last_player_chunk_change_usec: int = 0
 var _player_full_ready_breach_history: Array[Dictionary] = []
+var _hot_visual_slice_history: Array[Dictionary] = []
 var _saved_chunk_data: Dictionary = {}
 var _terrain_tileset: TileSet = null
 var _overlay_tileset: TileSet = null
@@ -2393,6 +2395,8 @@ func _clear_visual_task_state() -> void:
 		_chunk_debug_system.clear_visual_task_meta()
 	_visibility_revoke_pending_border_baseline.clear()
 	_visibility_revoke_last_signature_by_chunk.clear()
+	_player_full_ready_breach_history.clear()
+	_hot_visual_slice_history.clear()
 
 
 func _is_player_near_visual_chunk(coord: Vector2i, z_level: int) -> bool:
@@ -2476,8 +2480,23 @@ func _has_player_near_visual_queue_pressure() -> bool:
 		or not _chunk_visual_scheduler.q_full_near.is_empty() \
 		or not _chunk_visual_scheduler.q_border_fix_near.is_empty()
 
-func _should_prepare_border_fix_inline(_task: Dictionary, _chunk: Chunk, _requested_tile_budget: int) -> bool:
-	return false
+func _should_prepare_border_fix_inline(task: Dictionary, chunk: Chunk, requested_tile_budget: int) -> bool:
+	if chunk == null or not is_instance_valid(chunk):
+		return false
+	var coord: Vector2i = chunk.chunk_coord
+	var z_level: int = int(task.get("z", _active_z))
+	if coord != _player_chunk or z_level != _active_z:
+		return false
+	if not chunk.visible or chunk.get_redraw_phase_name() != "done":
+		return false
+	var dirty_count: int = chunk.get_pending_border_dirty_count()
+	if dirty_count <= 0:
+		return false
+	var inline_tile_limit: int = maxi(BORDER_FIX_REDRAW_MICRO_BATCH_TILES, requested_tile_budget)
+	if dirty_count > inline_tile_limit * 4:
+		return false
+	WorldPerfProbe.record("scheduler.player_hot_inline_border_fix_requested_count", 1.0)
+	return true
 
 func _suppress_visible_border_fix_sync_path(chunk: Chunk, z_level: int) -> bool:
 	if chunk == null or not is_instance_valid(chunk) or _chunk_visual_scheduler == null:
@@ -2619,6 +2638,12 @@ func get_recent_player_full_ready_breaches() -> Array[Dictionary]:
 		snapshots.append((snapshot_variant as Dictionary).duplicate(true))
 	return snapshots
 
+func get_recent_hot_visual_slices() -> Array[Dictionary]:
+	var snapshots: Array[Dictionary] = []
+	for snapshot_variant: Variant in _hot_visual_slice_history:
+		snapshots.append((snapshot_variant as Dictionary).duplicate(true))
+	return snapshots
+
 func _remember_player_full_ready_breach(snapshot: Dictionary) -> void:
 	if snapshot.is_empty():
 		return
@@ -2626,23 +2651,39 @@ func _remember_player_full_ready_breach(snapshot: Dictionary) -> void:
 	while _player_full_ready_breach_history.size() > PLAYER_FULL_READY_BREACH_HISTORY_LIMIT:
 		_player_full_ready_breach_history.pop_front()
 
+func _remember_hot_visual_slice(snapshot: Dictionary) -> void:
+	if snapshot.is_empty():
+		return
+	_hot_visual_slice_history.append(snapshot)
+	while _hot_visual_slice_history.size() > HOT_VISUAL_SLICE_HISTORY_LIMIT:
+		_hot_visual_slice_history.pop_front()
+
+func _get_player_visual_travel_direction() -> Vector2:
+	var velocity: Vector2 = _get_player_frontier_velocity()
+	if velocity.length_squared() > 1.0:
+		return velocity.normalized()
+	var chunk_motion: Vector2 = Vector2(float(_player_chunk_motion.x), float(_player_chunk_motion.y))
+	if chunk_motion.length_squared() > 0.0:
+		return chunk_motion.normalized()
+	return Vector2.ZERO
+
 func _forward_visual_lane_distance(coord: Vector2i) -> int:
-	if _player_chunk_motion == Vector2i.ZERO:
+	var travel_dir: Vector2 = _get_player_visual_travel_direction()
+	if travel_dir.length_squared() <= 0.0:
 		return -1
-	var delta: Vector2i = coord - _player_chunk
-	if delta == Vector2i.ZERO:
+	var delta_i: Vector2i = coord - _player_chunk
+	if delta_i == Vector2i.ZERO:
 		return 0
-	if _player_chunk_motion.x != 0:
-		if delta.y != 0:
-			return -1
-		var forward_x: int = delta.x * signi(_player_chunk_motion.x)
-		return forward_x if forward_x > 0 else -1
-	if _player_chunk_motion.y != 0:
-		if delta.x != 0:
-			return -1
-		var forward_y: int = delta.y * signi(_player_chunk_motion.y)
-		return forward_y if forward_y > 0 else -1
-	return -1
+	var delta: Vector2 = Vector2(float(delta_i.x), float(delta_i.y))
+	var forward_projection: float = delta.dot(travel_dir)
+	if forward_projection < 0.75:
+		return -1
+	var lateral_distance: float = absf(delta.cross(travel_dir))
+	var lateral_limit: float = 0.75 if forward_projection < 1.5 else 1.0
+	if lateral_distance > lateral_limit:
+		return -1
+	var lane_distance: int = int(round(forward_projection))
+	return lane_distance if lane_distance > 0 else -1
 
 func _is_forward_ring1_visual_chunk(coord: Vector2i) -> bool:
 	return _forward_visual_lane_distance(coord) == 1
@@ -2706,7 +2747,7 @@ func _resolve_visual_band(coord: Vector2i, z_level: int, kind: int) -> int:
 		if _is_protected_first_pass_chunk(coord, z_level):
 			return VisualPriorityBand.TERRAIN_FAST
 		if _is_forward_ring1_visual_chunk(coord):
-			return VisualPriorityBand.TERRAIN_FAST
+			return VisualPriorityBand.TERRAIN_FAST if _can_loan_fast_visual_lane_to_forward_chunk() else VisualPriorityBand.TERRAIN_URGENT
 		if _is_forward_ring2_visual_chunk(coord):
 			return VisualPriorityBand.TERRAIN_URGENT
 		if ring == 1:
@@ -2718,7 +2759,7 @@ func _resolve_visual_band(coord: Vector2i, z_level: int, kind: int) -> int:
 		if coord == _player_chunk:
 			return VisualPriorityBand.TERRAIN_FAST
 		if _is_forward_ring1_visual_chunk(coord):
-			return VisualPriorityBand.TERRAIN_FAST
+			return VisualPriorityBand.TERRAIN_FAST if _can_loan_fast_visual_lane_to_forward_chunk() else VisualPriorityBand.TERRAIN_URGENT
 		if _is_forward_ring2_visual_chunk(coord):
 			return VisualPriorityBand.FULL_NEAR
 		if ring <= 2:
@@ -3032,6 +3073,8 @@ func _ensure_chunk_full_redraw_task(chunk: Chunk, z_level: int, invalidate: bool
 func _ensure_chunk_border_fix_task(chunk: Chunk, z_level: int, invalidate: bool = false) -> void:
 	if chunk == null or not is_instance_valid(chunk):
 		return
+	if _chunk_visual_scheduler == null:
+		return
 	if not chunk.has_pending_border_dirty():
 		_try_finalize_chunk_visual_convergence(chunk, z_level)
 		return
@@ -3046,13 +3089,39 @@ func _ensure_chunk_border_fix_task(chunk: Chunk, z_level: int, invalidate: bool 
 	elif invalidate:
 		_emit_visibility_revoke_without_new_debt(chunk, z_level, pending_border_dirty_count)
 	if chunk.needs_full_redraw() and not chunk.is_redraw_complete():
-		if _chunk_visual_scheduler != null:
-			_chunk_visual_scheduler.ensure_task(chunk, z_level, VisualTaskKind.TASK_FULL_REDRAW, invalidate)
+		_chunk_visual_scheduler.ensure_task(chunk, z_level, VisualTaskKind.TASK_FULL_REDRAW, invalidate)
 	var border_fix_key: Vector4i = _make_visual_task_key(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
+	var player_near_border_fix: bool = chunk.chunk_coord == _player_chunk or _is_player_near_visual_chunk(chunk.chunk_coord, z_level)
+	var player_hot_border_fix: bool = chunk.chunk_coord == _player_chunk \
+		and chunk.visible \
+		and chunk.get_redraw_phase_name() == "done"
 	if _chunk_visual_scheduler.task_pending.has(border_fix_key):
-		return
-	if _chunk_visual_scheduler != null:
-		_chunk_visual_scheduler.ensure_task(chunk, z_level, VisualTaskKind.TASK_BORDER_FIX)
+		var border_fix_in_compute: bool = _chunk_visual_scheduler.compute_active.has(border_fix_key) \
+			or _chunk_visual_scheduler.compute_waiting_tasks.has(border_fix_key)
+		var border_fix_age_ms: float = _get_visual_task_age_ms(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
+		if player_hot_border_fix and border_fix_in_compute and border_fix_age_ms >= 16.0:
+			WorldPerfProbe.record("scheduler.player_hot_border_fix_compute_preempted_count", 1.0)
+			var existing_live_version: int = int(_chunk_visual_scheduler.task_pending.get(border_fix_key, 0))
+			_chunk_visual_scheduler.clear_task(
+				_build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, existing_live_version)
+			)
+			border_fix_in_compute = false
+		if player_near_border_fix:
+			var promoted: bool = _chunk_visual_scheduler.promote_existing_task_to_front(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
+			var border_fix_live: bool = promoted \
+				or border_fix_in_compute
+			if border_fix_live:
+				return
+			WorldPerfProbe.record("scheduler.player_near_stale_border_fix_rescued_count", 1.0)
+			var existing_version: int = int(_chunk_visual_scheduler.task_pending.get(border_fix_key, 0))
+			_chunk_visual_scheduler.clear_task(
+				_build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, existing_version)
+			)
+		else:
+			return
+	_chunk_visual_scheduler.ensure_task(chunk, z_level, VisualTaskKind.TASK_BORDER_FIX)
+	if player_near_border_fix:
+		_chunk_visual_scheduler.promote_existing_task_to_front(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
 
 func _schedule_chunk_visual_work(chunk: Chunk, z_level: int) -> void:
 	if chunk == null or not is_instance_valid(chunk):
@@ -3506,6 +3575,9 @@ func _enforce_player_chunk_full_ready(trigger: String) -> void:
 	var first_pass_age_ms: float = -1.0
 	var full_redraw_age_ms: float = -1.0
 	var border_fix_age_ms: float = -1.0
+	var border_fix_key: Vector4i = _make_visual_task_key(coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
+	var border_fix_compute_active: bool = false
+	var border_fix_compute_waiting: bool = false
 	if _chunk_visual_scheduler != null:
 		for kind: int in [
 			VisualTaskKind.TASK_FIRST_PASS,
@@ -3518,8 +3590,11 @@ func _enforce_player_chunk_full_ready(trigger: String) -> void:
 		first_pass_age_ms = _get_visual_task_age_ms(coord, z_level, VisualTaskKind.TASK_FIRST_PASS)
 		full_redraw_age_ms = _get_visual_task_age_ms(coord, z_level, VisualTaskKind.TASK_FULL_REDRAW)
 		border_fix_age_ms = _get_visual_task_age_ms(coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
+		border_fix_compute_active = _chunk_visual_scheduler.compute_active.has(border_fix_key)
+		border_fix_compute_waiting = _chunk_visual_scheduler.compute_waiting_tasks.has(border_fix_key)
 	var breach_snapshot: Dictionary = {
 		"trigger": trigger,
+		"chunk_coord": str(coord),
 		"chunk_loaded": chunk != null and is_instance_valid(chunk),
 		"chunk_visible": chunk != null and is_instance_valid(chunk) and chunk.visible,
 		"visual_state": _describe_chunk_visual_state(chunk),
@@ -3538,6 +3613,8 @@ func _enforce_player_chunk_full_ready(trigger: String) -> void:
 		"queue_full_near": _chunk_visual_scheduler.q_full_near.size() if _chunk_visual_scheduler != null else 0,
 		"queue_full_far": _chunk_visual_scheduler.q_full_far.size() if _chunk_visual_scheduler != null else 0,
 		"queue_border_fix_near": _chunk_visual_scheduler.q_border_fix_near.size() if _chunk_visual_scheduler != null else 0,
+		"border_fix_compute_active": border_fix_compute_active,
+		"border_fix_compute_waiting": border_fix_compute_waiting,
 	}
 	_remember_player_full_ready_breach(breach_snapshot)
 	_report_zero_tolerance_contract_breach(
@@ -3580,6 +3657,11 @@ func _check_player_chunk() -> void:
 		_maybe_log_player_chunk_visual_status("entered_chunk")
 	else:
 		_maybe_refresh_frontier_plan_for_motion(cur)
+		var current_chunk: Chunk = get_chunk(cur)
+		if current_chunk != null and is_instance_valid(current_chunk) and current_chunk.has_pending_border_dirty():
+			_ensure_chunk_border_fix_task(current_chunk, _active_z)
+		elif _has_player_near_visual_queue_pressure():
+			_stabilize_player_near_border_fix_chunks(_active_z)
 	_enforce_player_chunk_full_ready("player_chunk_check")
 
 func _maybe_refresh_frontier_plan_for_motion(center: Vector2i) -> void:

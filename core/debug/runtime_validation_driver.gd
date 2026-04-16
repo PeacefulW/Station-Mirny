@@ -33,6 +33,15 @@ const ROUTE_PRESETS := {
 		Vector2i(0, -4),
 		Vector2i(0, 0),
 	],
+	&"east_probe": [
+		Vector2i(6, 0),
+	],
+	&"east_entry": [
+		Vector2i(2, 1),
+	],
+	&"east_short": [
+		Vector2i(3, 0),
+	],
 	&"seam_cross": [
 		Vector2i(2, 0),
 		Vector2i(2, 2),

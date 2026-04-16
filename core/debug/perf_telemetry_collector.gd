@@ -239,6 +239,9 @@ func _build_artifact() -> Dictionary:
 	var player_full_ready_breaches: Array = []
 	if _chunk_manager.has_method("get_recent_player_full_ready_breaches"):
 		player_full_ready_breaches = _chunk_manager.get_recent_player_full_ready_breaches()
+	var hot_visual_slices: Array = []
+	if _chunk_manager.has_method("get_recent_hot_visual_slices"):
+		hot_visual_slices = _chunk_manager.get_recent_hot_visual_slices()
 	var debug_diagnostics: Dictionary = _build_debug_diagnostics(overlay_snapshot, timeline_snapshot, monitor_snapshot)
 	return {
 		"meta": _jsonify_variant({
@@ -271,6 +274,7 @@ func _build_artifact() -> Dictionary:
 			"timeline": timeline_snapshot,
 			"debug_diagnostics": debug_diagnostics,
 			"player_full_ready_breaches": player_full_ready_breaches,
+			"hot_visual_slices": hot_visual_slices,
 		}),
 		"frame_summary": _jsonify_variant(monitor_snapshot),
 		"contract_violations": _jsonify_variant(WorldPerfProbe.copy_contract_violation_snapshot()),

@@ -464,33 +464,33 @@ func _resolve_visual_apply_tile_cap(
 		if band == _owner.VisualPriorityBand.TERRAIN_FAST:
 			match phase_name:
 				&"terrain":
-					return mini(base_tile_budget, 192)
+					return mini(base_tile_budget, _owner.VISUAL_FAST_PHASE_TILE_CAP_TERRAIN)
 				&"cover":
-					return mini(base_tile_budget, 128)
+					return mini(base_tile_budget, _owner.VISUAL_FAST_PHASE_TILE_CAP_COVER)
 				&"cliff":
-					return mini(base_tile_budget, 192)
+					return mini(base_tile_budget, _owner.VISUAL_FAST_PHASE_TILE_CAP_CLIFF)
 				_:
-					return mini(base_tile_budget, 128)
+					return mini(base_tile_budget, _owner.VISUAL_FAST_PHASE_TILE_CAP_COVER)
 		if band == _owner.VisualPriorityBand.TERRAIN_URGENT:
 			match phase_name:
 				&"terrain":
-					return mini(base_tile_budget, 128)
+					return mini(base_tile_budget, _owner.VISUAL_URGENT_PHASE_TILE_CAP_TERRAIN)
 				&"cover":
-					return mini(base_tile_budget, 96)
+					return mini(base_tile_budget, _owner.VISUAL_URGENT_PHASE_TILE_CAP_COVER)
 				&"cliff":
-					return mini(base_tile_budget, 128)
+					return mini(base_tile_budget, _owner.VISUAL_URGENT_PHASE_TILE_CAP_CLIFF)
 				_:
-					return mini(base_tile_budget, 96)
+					return mini(base_tile_budget, _owner.VISUAL_URGENT_PHASE_TILE_CAP_COVER)
 		if band == _owner.VisualPriorityBand.FULL_NEAR:
 			match phase_name:
 				&"terrain":
-					return mini(base_tile_budget, 192)
+					return mini(base_tile_budget, _owner.VISUAL_URGENT_PHASE_TILE_CAP_TERRAIN)
 				&"cover":
-					return mini(base_tile_budget, 128)
+					return mini(base_tile_budget, _owner.VISUAL_URGENT_PHASE_TILE_CAP_COVER)
 				&"cliff":
-					return mini(base_tile_budget, 192)
+					return mini(base_tile_budget, _owner.VISUAL_URGENT_PHASE_TILE_CAP_CLIFF)
 				_:
-					return mini(base_tile_budget, 128)
+					return mini(base_tile_budget, _owner.VISUAL_URGENT_PHASE_TILE_CAP_COVER)
 		if band == _owner.VisualPriorityBand.FULL_FAR:
 			match phase_name:
 				&"terrain":
@@ -533,6 +533,17 @@ func _resolve_visual_apply_tile_budget(
 ) -> int:
 	var min_tiles: int = _owner.VISUAL_ADAPTIVE_MIN_BORDER_TILES if kind == _owner.VisualTaskKind.TASK_BORDER_FIX else _owner.VISUAL_ADAPTIVE_MIN_TILES
 	var max_tiles: int = maxi(min_tiles, _resolve_visual_apply_tile_cap(kind, band, phase_name, base_tile_budget))
+	if kind == _owner.VisualTaskKind.TASK_FIRST_PASS and (
+		band == _owner.VisualPriorityBand.TERRAIN_FAST \
+		or band == _owner.VisualPriorityBand.TERRAIN_URGENT
+	):
+		return max_tiles
+	if kind == _owner.VisualTaskKind.TASK_FULL_REDRAW and (
+		band == _owner.VisualPriorityBand.TERRAIN_FAST \
+		or band == _owner.VisualPriorityBand.TERRAIN_URGENT \
+		or band == _owner.VisualPriorityBand.FULL_NEAR
+	):
+		return max_tiles
 	var feedback_key: String = _make_visual_apply_feedback_key(kind, band, phase_name)
 	var feedback: Dictionary = apply_feedback.get(feedback_key, {}) as Dictionary
 	if feedback.is_empty():
@@ -575,20 +586,20 @@ func _resolve_visual_tiles_per_step(kind: int, band: int = BAND_FULL_FAR) -> int
 				if band == _owner.VisualPriorityBand.TERRAIN_FAST:
 					return mini(chunk_tiles, maxi(2048, first_pass_tiles * 16))
 				if band == _owner.VisualPriorityBand.TERRAIN_URGENT:
-					return mini(chunk_tiles, maxi(384, first_pass_tiles * 8))
+					return mini(chunk_tiles, maxi(1024, first_pass_tiles * 16))
 				if band == _owner.VisualPriorityBand.TERRAIN_NEAR:
 					return mini(chunk_tiles, maxi(192, first_pass_tiles * 4))
 				return first_pass_tiles
 			_owner.VisualTaskKind.TASK_FULL_REDRAW:
 				var full_redraw_tiles: int = WorldGenerator.balance.visual_full_redraw_tiles_per_step
 				if band == _owner.VisualPriorityBand.TERRAIN_FAST:
-					return maxi(192, full_redraw_tiles * 8)
+					return maxi(1024, full_redraw_tiles * 32)
 				if band == _owner.VisualPriorityBand.TERRAIN_URGENT:
-					return maxi(128, full_redraw_tiles * 6)
+					return maxi(1024, full_redraw_tiles * 32)
 				if band == _owner.VisualPriorityBand.FULL_FAR:
 					return maxi(16, full_redraw_tiles / 2)
 				if band == _owner.VisualPriorityBand.FULL_NEAR:
-					return maxi(128, full_redraw_tiles * 8)
+					return maxi(768, full_redraw_tiles * 24)
 				return full_redraw_tiles
 			_owner.VisualTaskKind.TASK_BORDER_FIX:
 				var border_fix_tiles: int = _resolve_configured_border_fix_tiles_per_step()
@@ -618,6 +629,10 @@ func _resolve_visual_max_tasks_per_tick(kind: int, band: int) -> int:
 				return first_pass_max
 			_owner.VisualTaskKind.TASK_FULL_REDRAW:
 				var full_redraw_max: int = maxi(1, WorldGenerator.balance.visual_full_redraw_max_tasks_per_tick)
+				if band == _owner.VisualPriorityBand.TERRAIN_FAST:
+					return maxi(3, full_redraw_max + 1)
+				if band == _owner.VisualPriorityBand.TERRAIN_URGENT or band == _owner.VisualPriorityBand.FULL_NEAR:
+					return maxi(2, full_redraw_max)
 				if band == _owner.VisualPriorityBand.FULL_FAR:
 					return 1
 				return mini(2, full_redraw_max)
@@ -747,6 +762,14 @@ func _can_submit_visual_compute_now(task: Dictionary, band: int) -> bool:
 func _is_completed_visual_compute_higher_priority(a: Dictionary, b: Dictionary) -> bool:
 	var a_task: Dictionary = a.get("task", {}) as Dictionary
 	var b_task: Dictionary = b.get("task", {}) as Dictionary
+	var a_pressure_critical: bool = _is_pressure_critical_visual_task(a_task)
+	var b_pressure_critical: bool = _is_pressure_critical_visual_task(b_task)
+	if a_pressure_critical != b_pressure_critical:
+		return a_pressure_critical
+	var a_forward_prefetch: bool = _is_forward_prefetch_visual_task(a_task)
+	var b_forward_prefetch: bool = _is_forward_prefetch_visual_task(b_task)
+	if a_forward_prefetch != b_forward_prefetch:
+		return a_forward_prefetch
 	var a_band_order: int = _resolve_visual_band_order(int(a_task.get("priority_band", _owner.VisualPriorityBand.COSMETIC)))
 	var b_band_order: int = _resolve_visual_band_order(int(b_task.get("priority_band", _owner.VisualPriorityBand.COSMETIC)))
 	if a_band_order != b_band_order:
@@ -873,10 +896,12 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 		and int(request.get("phase", ChunkVisualKernel.REDRAW_PHASE_DONE)) == ChunkVisualKernel.REDRAW_PHASE_FLORA
 	if inline_border_fix:
 		can_prepare_immediately = true
-	elif kind == _owner.VisualTaskKind.TASK_FULL_REDRAW and (pressure_critical_task or forward_prefetch_task):
+	elif kind == _owner.VisualTaskKind.TASK_FULL_REDRAW and pressure_critical_task:
 		can_prepare_immediately = true
 	elif compute_active.size() >= _owner.VISUAL_MAX_CONCURRENT_COMPUTE \
-		and (pressure_critical_task or forward_prefetch_task):
+		and (
+			kind == _owner.VisualTaskKind.TASK_FULL_REDRAW and pressure_critical_task
+		):
 		can_prepare_immediately = true
 	if can_prepare_immediately:
 		var immediate_task: Dictionary = task.duplicate(true)
@@ -1130,6 +1155,7 @@ func _store_resumable_slice_state(
 	else:
 		task["last_requeue_reason"] = "resumable_slice"
 	WorldPerfProbe.record("scheduler.visual_task_slice_count", 1.0)
+	WorldPerfProbe.record("scheduler.visual_task_slice_tiles.%s" % [String(phase_name)], float(tile_count))
 	WorldPerfProbe.record("scheduler.visual_task_slice_ms.%s" % [String(phase_name)], apply_ms)
 
 func _record_visual_task_wait(task: Dictionary) -> void:
@@ -1157,6 +1183,46 @@ func _record_visual_task_wait(task: Dictionary) -> void:
 	if wait_ms > 100.0:
 		starvation_incident_count += 1
 		WorldPerfProbe.record("scheduler.starvation_incident_count", 1.0)
+
+func _record_hot_visual_slice(
+	task: Dictionary,
+	chunk: Chunk,
+	phase_name: StringName,
+	tile_count: int,
+	requested_tile_budget: int,
+	apply_ms: float
+) -> void:
+	if _owner == null or not _owner.has_method("_remember_hot_visual_slice"):
+		return
+	var coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
+	var z_level: int = int(task.get("z", _active_z()))
+	var is_player_hot: bool = _is_player_hot_visual_task(task)
+	var is_forward_prefetch: bool = _is_forward_prefetch_visual_task(task)
+	var is_player_near: bool = _owner.has_method("_is_player_near_visual_chunk") \
+		and bool(_owner._is_player_near_visual_chunk(coord, z_level))
+	if not is_player_hot and not is_forward_prefetch and not is_player_near:
+		return
+	_owner._remember_hot_visual_slice({
+		"chunk_coord": coord,
+		"z": z_level,
+		"kind": _owner._debug_visual_kind_name(int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))),
+		"priority_band": int(task.get("priority_band", _owner.VisualPriorityBand.COSMETIC)),
+		"phase": String(phase_name),
+		"redraw_phase_after_apply": String(chunk.get_redraw_phase_name()) if chunk != null and is_instance_valid(chunk) else "none",
+		"tile_count": tile_count,
+		"requested_tile_budget": requested_tile_budget,
+		"apply_ms": apply_ms,
+		"is_player_hot": is_player_hot,
+		"is_forward_prefetch": is_forward_prefetch,
+		"is_player_near": is_player_near,
+		"player_motion": str(_owner._player_chunk_motion) if _owner != null else "(0, 0)",
+		"queue_terrain_fast": q_terrain_fast.size(),
+		"queue_terrain_urgent": q_terrain_urgent.size(),
+		"queue_terrain_near": q_terrain_near.size(),
+		"queue_full_near": q_full_near.size(),
+		"queue_full_far": q_full_far.size(),
+		"timestamp_usec": Time.get_ticks_usec(),
+	})
 
 func _drop_legacy_visual_fallback_task(task: Dictionary, reason: String) -> int:
 	var coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
@@ -1228,6 +1294,14 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 					apply_ms,
 					float(prepared_batch.get("visual_budget_ms", resolve_scheduler_budget_ms()))
 				)
+				_record_hot_visual_slice(
+					task,
+					chunk,
+					StringName(prepared_batch.get("phase_name", &"done")),
+					int(prepared_batch.get("tile_count", 0)),
+					int(prepared_batch.get("requested_tile_budget", 0)),
+					apply_ms
+				)
 				if apply_ms >= 1.0:
 					WorldPerfProbe.record(
 						"ChunkManager.streaming_redraw_step.%s" % [String(prepared_batch.get("phase_name", &"done"))],
@@ -1284,6 +1358,14 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 					int(prepared_batch.get("tile_count", 0)),
 					full_apply_ms,
 					float(prepared_batch.get("visual_budget_ms", resolve_scheduler_budget_ms()))
+				)
+				_record_hot_visual_slice(
+					task,
+					chunk,
+					StringName(prepared_batch.get("phase_name", &"done")),
+					int(prepared_batch.get("tile_count", 0)),
+					int(prepared_batch.get("requested_tile_budget", 0)),
+					full_apply_ms
 				)
 				if full_apply_ms >= 1.0:
 					WorldPerfProbe.record(
