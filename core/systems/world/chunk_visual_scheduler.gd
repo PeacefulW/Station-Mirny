@@ -8,6 +8,7 @@ const BAND_FULL_NEAR: int = 3
 const BAND_BORDER_FIX_NEAR: int = 4
 const BAND_BORDER_FIX_FAR: int = 5
 const BAND_FULL_FAR: int = 6
+const PLAYER_HOT_STALE_COMPUTE_RECLAIM_MS: float = 64.0
 
 var _owner: Node = null
 var _hot_path_debug_system = null
@@ -147,6 +148,11 @@ func tick_once(resolved_budget_usec: int) -> bool:
 		return false
 	return _run(resolved_budget_usec, true)
 
+func tick_near_relief_once(resolved_budget_usec: int) -> bool:
+	if _owner == null:
+		return false
+	return _run(resolved_budget_usec, true, true)
+
 func reset_runtime_telemetry() -> void:
 	var now_usec: int = Time.get_ticks_usec()
 	for task_key: Variant in task_pending.keys():
@@ -235,7 +241,8 @@ func _enqueue_task(
 	if not preserve_band \
 		and band == _owner.VisualPriorityBand.TERRAIN_URGENT \
 		and kind == _owner.VisualTaskKind.TASK_FIRST_PASS \
-		and q_terrain_urgent.size() >= _resolve_visual_urgent_queue_cap():
+		and q_terrain_urgent.size() >= _resolve_visual_urgent_queue_cap() \
+		and not _is_pressure_critical_visual_task(task):
 		band = _owner.VisualPriorityBand.TERRAIN_NEAR
 		task["priority_band"] = band
 		var task_key: Vector4i = _make_visual_task_key(
@@ -312,6 +319,54 @@ func clear_task(task: Dictionary) -> void:
 	task_pending.erase(key)
 	task_enqueued_usec.erase(key)
 	_owner._debug_drop_visual_task_meta(task)
+
+func drop_chunk_queued_tasks(coord: Vector2i, z_level: int) -> void:
+	var removed_count: int = 0
+	for queue: Array[Dictionary] in ordered_queues():
+		for index: int in range(queue.size() - 1, -1, -1):
+			var task: Dictionary = queue[index]
+			var task_coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
+			var task_z: int = int(task.get("z", _active_z()))
+			if task_coord != coord or task_z != z_level:
+				continue
+			queue.remove_at(index)
+			_owner._debug_drop_visual_task_meta(task)
+			removed_count += 1
+	for kind: int in [
+		_owner.VisualTaskKind.TASK_FIRST_PASS,
+		_owner.VisualTaskKind.TASK_FULL_REDRAW,
+		_owner.VisualTaskKind.TASK_BORDER_FIX,
+		_owner.VisualTaskKind.TASK_COSMETIC,
+	]:
+		var task_key: Vector4i = _make_visual_task_key(coord, z_level, kind)
+		task_pending.erase(task_key)
+		task_enqueued_usec.erase(task_key)
+		task_versions.erase(task_key)
+		compute_waiting_tasks.erase(task_key)
+		compute_mutex.lock()
+		compute_results.erase(task_key)
+		compute_mutex.unlock()
+	if removed_count > 0:
+		WorldPerfProbe.record("scheduler.unload_dropped_queued_tasks", float(removed_count))
+
+func has_live_task_instance(coord: Vector2i, z_level: int, kind: int) -> bool:
+	var key: Vector4i = _make_visual_task_key(coord, z_level, kind)
+	if not task_pending.has(key):
+		return false
+	var expected_version: int = int(task_pending.get(key, -1))
+	if expected_version < 0:
+		return false
+	if compute_active.has(key):
+		return true
+	if compute_waiting_tasks.has(key):
+		return true
+	for queue: Array[Dictionary] in ordered_queues():
+		for task: Dictionary in queue:
+			if _task_key_from_payload(task) != key:
+				continue
+			if int(task.get("invalidation_version", -1)) == expected_version:
+				return true
+	return false
 
 func _try_accept_live_task(task: Dictionary, route: String) -> bool:
 	if _has_duplicate_live_task(task):
@@ -651,8 +706,16 @@ func _resolve_visual_urgent_queue_cap() -> int:
 	return 4
 
 func _enforce_visual_urgent_queue_cap() -> void:
-	while q_terrain_urgent.size() > _resolve_visual_urgent_queue_cap():
-		var task: Dictionary = q_terrain_urgent.pop_back()
+	var urgent_cap: int = _resolve_visual_urgent_queue_cap()
+	if q_terrain_urgent.size() <= urgent_cap:
+		return
+	for index: int in range(q_terrain_urgent.size() - 1, -1, -1):
+		if q_terrain_urgent.size() <= urgent_cap:
+			break
+		var task: Dictionary = q_terrain_urgent[index]
+		if _is_pressure_critical_visual_task(task):
+			continue
+		q_terrain_urgent.remove_at(index)
 		task["priority_band"] = _owner.VisualPriorityBand.TERRAIN_NEAR
 		_append_existing_task_to_queue(q_terrain_near, task, "urgent_cap_demote")
 
@@ -693,6 +756,9 @@ func _owner_has_recent_motion_pressure() -> bool:
 		return false
 	return bool(_owner._has_recent_player_chunk_motion_pressure())
 
+func _owner_has_player_pressure() -> bool:
+	return _owner_has_player_visible_visual_pressure() or _owner_has_recent_motion_pressure()
+
 func _is_player_hot_visual_task(task: Dictionary) -> bool:
 	if _owner == null:
 		return false
@@ -706,10 +772,30 @@ func _is_pressure_critical_visual_task(task: Dictionary) -> bool:
 		and kind != _owner.VisualTaskKind.TASK_FULL_REDRAW \
 		and kind != _owner.VisualTaskKind.TASK_BORDER_FIX:
 		return false
-	return _is_player_hot_visual_task(task)
+	if _is_player_hot_visual_task(task):
+		return true
+	if _owner != null and _owner.has_method("_is_entry_critical_visual_chunk"):
+		var coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
+		var z_level: int = int(task.get("z", _active_z()))
+		if bool(_owner._is_entry_critical_visual_chunk(coord, z_level)):
+			return true
+	return false
+
+func _resolve_visual_task_age_ms(task: Dictionary) -> float:
+	var task_key: Vector4i = _task_key_from_payload(task)
+	if task_enqueued_usec.has(task_key):
+		var started_usec: int = int(task_enqueued_usec.get(task_key, 0))
+		if started_usec > 0:
+			return float(Time.get_ticks_usec() - started_usec) / 1000.0
+	if _owner == null or not _owner.has_method("_get_visual_task_age_ms"):
+		return -1.0
+	var coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
+	var z_level: int = int(task.get("z", _active_z()))
+	var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
+	return float(_owner._get_visual_task_age_ms(coord, z_level, kind))
 
 func _can_process_task_again_this_frame(task: Dictionary) -> bool:
-	return _owner_has_player_visible_visual_pressure() and _is_pressure_critical_visual_task(task)
+	return _owner_has_player_pressure() and _is_pressure_critical_visual_task(task)
 
 func _is_forward_prefetch_visual_task(task: Dictionary) -> bool:
 	if _owner == null or not _owner.has_method("_is_forward_ring1_visual_chunk"):
@@ -747,12 +833,18 @@ func _promote_player_pressure_tasks() -> void:
 			promote_existing_task_to_front(coord, active_z_level, kind)
 
 func _can_submit_visual_compute_now(task: Dictionary, band: int) -> bool:
-	if _owner_has_player_visible_visual_pressure() \
+	var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
+	if (_owner_has_player_visible_visual_pressure() or _owner_has_recent_motion_pressure()) \
 		and not _is_pressure_critical_visual_task(task) \
 		and not _is_forward_prefetch_visual_task(task):
 		return false
 	if compute_active.size() >= _owner.VISUAL_MAX_CONCURRENT_COMPUTE:
-		return false
+		if _is_pressure_critical_visual_task(task) and kind != _owner.VisualTaskKind.TASK_BORDER_FIX:
+			var reserved_cap: int = _owner.VISUAL_MAX_CONCURRENT_COMPUTE + 1
+			if compute_active.size() >= reserved_cap:
+				return false
+		else:
+			return false
 	if is_far_visual_band(band):
 		var far_active_count: int = _count_far_active_visual_compute()
 		if far_active_count >= _owner.VISUAL_MAX_FAR_CONCURRENT_COMPUTE:
@@ -824,7 +916,35 @@ func _record_visual_apply_feedback(
 	}
 
 func _should_prepare_border_fix_inline(_task: Dictionary, _chunk: Chunk, _requested_tile_budget: int) -> bool:
-	return false
+	if _owner == null or not _owner.has_method("_should_prepare_border_fix_inline"):
+		return false
+	return bool(_owner._should_prepare_border_fix_inline(_task, _chunk, _requested_tile_budget))
+
+func _resolve_player_hot_inline_full_redraw_tile_cap(phase_name: StringName) -> int:
+	if _owner != null and _owner.has_method("_resolve_player_hot_inline_full_redraw_tile_cap"):
+		return maxi(1, int(_owner._resolve_player_hot_inline_full_redraw_tile_cap(phase_name)))
+	match phase_name:
+		&"terrain":
+			return 96
+		&"cover":
+			return 64
+		&"cliff":
+			return 96
+		_:
+			return 64
+
+func _resolve_player_hot_inline_first_pass_tile_cap(phase_name: StringName) -> int:
+	if _owner != null and _owner.has_method("_resolve_player_hot_inline_first_pass_tile_cap"):
+		return maxi(1, int(_owner._resolve_player_hot_inline_first_pass_tile_cap(phase_name)))
+	match phase_name:
+		&"terrain":
+			return 128
+		&"cover":
+			return 96
+		&"cliff":
+			return 128
+		_:
+			return 96
 
 func _worker_prepare_visual_batch(task_key: Vector4i, request: Dictionary) -> void:
 	if _owner._shutdown_in_progress:
@@ -853,6 +973,7 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 	var z_level: int = int(task.get("z", _active_z()))
 	var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
 	var band: int = int(task.get("priority_band", _owner.VisualPriorityBand.COSMETIC))
+	var pressure_critical_task: bool = _is_pressure_critical_visual_task(task)
 	var key: Vector4i = _make_visual_task_key(coord, z_level, kind)
 	var request: Dictionary = {}
 	var requested_tile_budget: int = maxi(1, tile_budget)
@@ -862,12 +983,31 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 			if chunk.supports_worker_visual_phase():
 				var phase_name: StringName = chunk.get_redraw_phase_name()
 				requested_tile_budget = _resolve_visual_apply_tile_budget(kind, band, phase_name, tile_budget)
+				if pressure_critical_task:
+					if kind == _owner.VisualTaskKind.TASK_FULL_REDRAW:
+						requested_tile_budget = mini(
+							requested_tile_budget,
+							_resolve_player_hot_inline_full_redraw_tile_cap(phase_name)
+						)
+					elif kind == _owner.VisualTaskKind.TASK_FIRST_PASS:
+						requested_tile_budget = mini(
+							requested_tile_budget,
+							_resolve_player_hot_inline_first_pass_tile_cap(phase_name)
+						)
 				request = chunk.build_visual_phase_batch(requested_tile_budget)
 		_owner.VisualTaskKind.TASK_BORDER_FIX:
-			var dirty_tile_budget: int = mini(
-				mini(tile_budget, _owner.BORDER_FIX_REDRAW_MICRO_BATCH_TILES),
-				_resolve_configured_border_fix_tiles_per_step()
-			)
+			var border_fix_tile_cap: int = _owner.BORDER_FIX_REDRAW_MICRO_BATCH_TILES
+			if pressure_critical_task:
+				border_fix_tile_cap = maxi(border_fix_tile_cap, int(_owner.BORDER_FIX_REDRAW_PLAYER_HOT_BATCH_TILES))
+			var configured_border_fix_tiles: int = _resolve_configured_border_fix_tiles_per_step()
+			var dirty_tile_budget: int = mini(tile_budget, border_fix_tile_cap)
+			if pressure_critical_task:
+				dirty_tile_budget = maxi(
+					dirty_tile_budget,
+					maxi(configured_border_fix_tiles, border_fix_tile_cap)
+				)
+			else:
+				dirty_tile_budget = mini(dirty_tile_budget, configured_border_fix_tiles)
 			requested_tile_budget = _resolve_visual_apply_tile_budget(kind, band, &"dirty", dirty_tile_budget)
 			request = chunk.build_visual_dirty_batch_from_tiles(
 				chunk.collect_pending_border_dirty_tiles(requested_tile_budget)
@@ -888,23 +1028,31 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 	request["requested_visual_budget_ms"] = requested_visual_budget_ms
 	request["requested_target_apply_ms"] = _resolve_visual_target_apply_ms(kind, band, requested_visual_budget_ms)
 	var inline_border_fix: bool = _should_prepare_border_fix_inline(task, chunk, requested_tile_budget)
-	var pressure_critical_task: bool = _is_pressure_critical_visual_task(task)
-	var forward_prefetch_task: bool = _is_forward_prefetch_visual_task(task)
+	var force_inline_prepare: bool = bool(task.get("force_inline_prepare", false))
+	var force_player_hot_inline_takeover: bool = false
 	if compute_active.has(key) or compute_waiting_tasks.has(key):
-		return _owner.VisualComputeSubmitState.SUBMITTED
-	var can_prepare_immediately: bool = bool(request.get("skip_worker_compute", false)) \
-		and int(request.get("phase", ChunkVisualKernel.REDRAW_PHASE_DONE)) == ChunkVisualKernel.REDRAW_PHASE_FLORA
+		var can_takeover_player_hot_compute: bool = _is_player_hot_visual_task(task) and (
+			kind == _owner.VisualTaskKind.TASK_FIRST_PASS or kind == _owner.VisualTaskKind.TASK_FULL_REDRAW
+		)
+		if not can_takeover_player_hot_compute:
+			return _owner.VisualComputeSubmitState.SUBMITTED
+		var task_age_ms: float = _resolve_visual_task_age_ms(task)
+		if task_age_ms < 48.0:
+			return _owner.VisualComputeSubmitState.SUBMITTED
+		compute_active.erase(key)
+		compute_waiting_tasks.erase(key)
+		compute_mutex.lock()
+		compute_results.erase(key)
+		compute_mutex.unlock()
+		force_player_hot_inline_takeover = true
+		WorldPerfProbe.record("scheduler.player_hot_compute_takeover_count", 1.0)
+	var request_phase: int = int(request.get("phase", ChunkVisualKernel.REDRAW_PHASE_DONE))
+	var is_flora_phase: bool = request_phase == ChunkVisualKernel.REDRAW_PHASE_FLORA
+	var has_prebuilt_flora_packet: bool = bool(request.get("skip_worker_compute", false)) and is_flora_phase
+	var can_prepare_immediately: bool = has_prebuilt_flora_packet or force_player_hot_inline_takeover or force_inline_prepare
 	if inline_border_fix:
 		can_prepare_immediately = true
-	elif kind == _owner.VisualTaskKind.TASK_FULL_REDRAW and pressure_critical_task:
-		can_prepare_immediately = true
-	elif compute_active.size() >= _owner.VISUAL_MAX_CONCURRENT_COMPUTE \
-		and (
-			kind == _owner.VisualTaskKind.TASK_FULL_REDRAW and pressure_critical_task
-		):
-		can_prepare_immediately = true
 	if can_prepare_immediately:
-		var immediate_task: Dictionary = task.duplicate(true)
 		var immediate_prepare_started_usec: int = Time.get_ticks_usec()
 		var prepared_batch: Dictionary = Chunk.compute_visual_batch(request)
 		if prepared_batch.is_empty():
@@ -922,13 +1070,9 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 				],
 				immediate_prepare_ms
 			)
-		immediate_task["prepared_batch"] = prepared_batch
-		immediate_task.erase("force_inline_prepare")
-		if inline_border_fix:
-			push_task_front(immediate_task)
-		else:
-			push_task(immediate_task)
-		return _owner.VisualComputeSubmitState.SUBMITTED
+		task["prepared_batch"] = prepared_batch
+		task.erase("force_inline_prepare")
+		return _owner.VisualComputeSubmitState.UNAVAILABLE
 	if not _can_submit_visual_compute_now(task, band):
 		if kind == _owner.VisualTaskKind.TASK_BORDER_FIX \
 			and band == _owner.VisualPriorityBand.BORDER_FIX_NEAR \
@@ -960,6 +1104,9 @@ func _submit_visual_compute(task: Dictionary, chunk: Chunk, tile_budget: int) ->
 func _collect_completed_visual_compute(deadline_usec: int) -> int:
 	if compute_active.is_empty() or _owner.VISUAL_COMPLETED_COMPUTE_MAX_INTAKE_PER_STEP <= 0:
 		return 0
+	var intake_cap: int = _owner.VISUAL_COMPLETED_COMPUTE_MAX_INTAKE_PER_STEP
+	if _owner_has_player_pressure():
+		intake_cap = maxi(intake_cap, 6)
 	var intake_started_usec: int = Time.get_ticks_usec()
 	var completed_entries: Array[Dictionary] = []
 	for key_variant: Variant in compute_active.keys():
@@ -980,7 +1127,7 @@ func _collect_completed_visual_compute(deadline_usec: int) -> int:
 	completed_entries.sort_custom(_is_completed_visual_compute_higher_priority)
 	var collected_count: int = 0
 	for entry: Dictionary in completed_entries:
-		if collected_count >= _owner.VISUAL_COMPLETED_COMPUTE_MAX_INTAKE_PER_STEP:
+		if collected_count >= intake_cap:
 			break
 		if deadline_usec > 0 and Time.get_ticks_usec() >= deadline_usec:
 			break
@@ -1029,6 +1176,147 @@ func _collect_completed_visual_compute(deadline_usec: int) -> int:
 		WorldPerfProbe.record("scheduler.visual_completed_intake_ms", intake_ms)
 	return collected_count
 
+func _reclaim_stale_player_hot_compute_tasks() -> int:
+	if compute_waiting_tasks.is_empty():
+		return 0
+	var stale_keys: Array[Vector4i] = []
+	for key_variant: Variant in compute_waiting_tasks.keys():
+		var key: Vector4i = key_variant as Vector4i
+		var waiting_task: Dictionary = compute_waiting_tasks.get(key, {}) as Dictionary
+		if waiting_task.is_empty():
+			continue
+		var kind: int = int(waiting_task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
+		if kind != _owner.VisualTaskKind.TASK_FIRST_PASS \
+			and kind != _owner.VisualTaskKind.TASK_FULL_REDRAW:
+			continue
+		if not _is_player_hot_visual_task(waiting_task):
+			continue
+		var task_age_ms: float = _resolve_visual_task_age_ms(waiting_task)
+		if task_age_ms < PLAYER_HOT_STALE_COMPUTE_RECLAIM_MS:
+			continue
+		stale_keys.append(key)
+	var reclaimed_count: int = 0
+	for key: Vector4i in stale_keys:
+		var waiting_task: Dictionary = compute_waiting_tasks.get(key, {}) as Dictionary
+		if waiting_task.is_empty():
+			continue
+		compute_waiting_tasks.erase(key)
+		compute_active.erase(key)
+		compute_mutex.lock()
+		compute_results.erase(key)
+		compute_mutex.unlock()
+		var live_version: int = int(task_pending.get(key, int(waiting_task.get("invalidation_version", -1))))
+		if live_version >= 0:
+			waiting_task["invalidation_version"] = live_version
+		waiting_task["force_inline_prepare"] = true
+		_enqueue_task(waiting_task, true, "player_hot_stale_compute_reclaim", false, true)
+		reclaimed_count += 1
+	if reclaimed_count > 0:
+		WorldPerfProbe.record("scheduler.player_hot_stale_compute_reclaim_count", float(reclaimed_count))
+	return reclaimed_count
+
+func force_reclaim_compute_task(
+	coord: Vector2i,
+	z_level: int,
+	kind: int,
+	min_age_ms: float = 0.0,
+	reason: String = "explicit_compute_reclaim"
+) -> bool:
+	WorldPerfProbe.record("scheduler.explicit_compute_reclaim_attempt_count", 1.0)
+	var key: Vector4i = _make_visual_task_key(coord, z_level, kind)
+	if not task_pending.has(key):
+		WorldPerfProbe.record("scheduler.explicit_compute_reclaim_skip_no_pending_count", 1.0)
+		return false
+	var waiting_task: Dictionary = compute_waiting_tasks.get(key, {}) as Dictionary
+	if waiting_task.is_empty() and not compute_active.has(key):
+		WorldPerfProbe.record("scheduler.explicit_compute_reclaim_skip_no_compute_count", 1.0)
+		return false
+	if waiting_task.is_empty():
+		var version: int = int(task_pending.get(key, -1))
+		if version < 0:
+			WorldPerfProbe.record("scheduler.explicit_compute_reclaim_skip_bad_version_count", 1.0)
+			return false
+		waiting_task = _owner._build_visual_task(coord, z_level, kind, version)
+		waiting_task["invalidation_version"] = version
+	var live_version: int = int(task_pending.get(key, int(waiting_task.get("invalidation_version", -1))))
+	if live_version >= 0:
+		waiting_task["invalidation_version"] = live_version
+	var task_age_ms: float = _resolve_visual_task_age_ms(waiting_task)
+	if min_age_ms > 0.0 and task_age_ms >= 0.0 and task_age_ms < min_age_ms:
+		WorldPerfProbe.record("scheduler.explicit_compute_reclaim_skip_age_gate_count", 1.0)
+		return false
+	compute_waiting_tasks.erase(key)
+	compute_active.erase(key)
+	compute_mutex.lock()
+	compute_results.erase(key)
+	compute_mutex.unlock()
+	if kind == _owner.VisualTaskKind.TASK_FIRST_PASS \
+		or kind == _owner.VisualTaskKind.TASK_FULL_REDRAW:
+		waiting_task["force_inline_prepare"] = true
+	retag_task(waiting_task)
+	if not _enqueue_task(waiting_task, true, reason, false, true):
+		WorldPerfProbe.record("scheduler.explicit_compute_reclaim_skip_enqueue_fail_count", 1.0)
+		return false
+	WorldPerfProbe.record("scheduler.explicit_compute_reclaim_count", 1.0)
+	return true
+
+func _take_live_task_from_queues(task_key: Vector4i) -> Dictionary:
+	for queue: Array[Dictionary] in ordered_queues():
+		for index: int in range(queue.size()):
+			var queued_task: Dictionary = queue[index]
+			var queued_key: Vector4i = _make_visual_task_key(
+				queued_task.get("chunk_coord", Vector2i.ZERO) as Vector2i,
+				int(queued_task.get("z", _active_z())),
+				int(queued_task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
+			)
+			if queued_key != task_key:
+				continue
+			var task: Dictionary = queue[index]
+			queue.remove_at(index)
+			return task
+	return {}
+
+func force_process_task_once_inline(
+	coord: Vector2i,
+	z_level: int,
+	kind: int,
+	reason: String = "force_inline_once"
+) -> bool:
+	var key: Vector4i = _make_visual_task_key(coord, z_level, kind)
+	if not task_pending.has(key):
+		return false
+	var task: Dictionary = _take_live_task_from_queues(key)
+	if task.is_empty():
+		task = compute_waiting_tasks.get(key, {}) as Dictionary
+	if task.is_empty():
+		var version: int = int(task_pending.get(key, -1))
+		if version < 0:
+			return false
+		task = _owner._build_visual_task(coord, z_level, kind, version)
+		task["invalidation_version"] = version
+	var live_version: int = int(task_pending.get(key, int(task.get("invalidation_version", -1))))
+	if live_version >= 0:
+		task["invalidation_version"] = live_version
+	compute_waiting_tasks.erase(key)
+	compute_active.erase(key)
+	compute_mutex.lock()
+	compute_results.erase(key)
+	compute_mutex.unlock()
+	task["force_inline_prepare"] = true
+	retag_task(task)
+	var run_state: int = _process_visual_task(task, 0)
+	if run_state == _owner.VisualTaskRunState.REQUEUE:
+		_requeue_visual_task(task)
+		WorldPerfProbe.record("scheduler.force_inline_step_requeue_count", 1.0)
+		return true
+	if run_state == _owner.VisualTaskRunState.COMPLETED:
+		WorldPerfProbe.record("scheduler.force_inline_step_completed_count", 1.0)
+		return true
+	WorldPerfProbe.record("scheduler.force_inline_step_dropped_count", 1.0)
+	if reason != "":
+		_owner._debug_note_visual_task_event(task, "visual_task_force_inline_once", {"reason": reason})
+	return false
+
 func _reset_telemetry() -> void:
 	budget_exhausted_count = 0
 	visual_task_slice_count = 0
@@ -1043,6 +1331,46 @@ func _reset_telemetry() -> void:
 	chunks_processed_this_tick.clear()
 	chunks_processed_frame = -1
 
+func _resolve_effective_visual_kind_cap(task: Dictionary) -> int:
+	var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
+	var band: int = int(task.get("priority_band", _owner.VisualPriorityBand.COSMETIC))
+	var cap: int = _resolve_visual_max_tasks_per_tick(kind, band)
+	if _owner_has_player_pressure() and (
+		_is_pressure_critical_visual_task(task) or _is_forward_prefetch_visual_task(task)
+	):
+		return maxi(cap, 4)
+	return cap
+
+func _resolve_visual_cap_bucket(task: Dictionary) -> String:
+	var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
+	var band: int = int(task.get("priority_band", _owner.VisualPriorityBand.COSMETIC))
+	match kind:
+		_owner.VisualTaskKind.TASK_BORDER_FIX:
+			return "border_fix_far" if band == _owner.VisualPriorityBand.BORDER_FIX_FAR else "border_fix_near"
+		_owner.VisualTaskKind.TASK_FIRST_PASS:
+			if band == _owner.VisualPriorityBand.TERRAIN_FAST \
+				or band == _owner.VisualPriorityBand.TERRAIN_URGENT:
+				return "first_pass_fast"
+			if band == _owner.VisualPriorityBand.TERRAIN_NEAR:
+				return "first_pass_near"
+			return "first_pass_far"
+		_owner.VisualTaskKind.TASK_FULL_REDRAW:
+			if band == _owner.VisualPriorityBand.TERRAIN_FAST \
+				or band == _owner.VisualPriorityBand.TERRAIN_URGENT:
+				return "full_redraw_fast"
+			if band == _owner.VisualPriorityBand.FULL_NEAR:
+				return "full_redraw_near"
+			return "full_redraw_far"
+		_:
+			return "kind_%d" % [kind]
+
+func _resolve_visual_cap_processed_count(task: Dictionary, processed_by_kind: Dictionary) -> int:
+	return int(processed_by_kind.get(_resolve_visual_cap_bucket(task), 0))
+
+func _increment_visual_cap_processed_count(task: Dictionary, processed_by_kind: Dictionary) -> void:
+	var cap_bucket: String = _resolve_visual_cap_bucket(task)
+	processed_by_kind[cap_bucket] = int(processed_by_kind.get(cap_bucket, 0)) + 1
+
 func _pop_allowed_task_from_queue(queue: Array[Dictionary], processed_by_kind: Dictionary, player_pressure_only: bool = false) -> Dictionary:
 	for index: int in range(queue.size()):
 		var task: Dictionary = queue[index]
@@ -1054,10 +1382,8 @@ func _pop_allowed_task_from_queue(queue: Array[Dictionary], processed_by_kind: D
 		)
 		if chunks_processed_this_tick.has(chunk_key) and not _can_process_task_again_this_frame(task):
 			continue
-		var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
-		var band: int = int(task.get("priority_band", _owner.VisualPriorityBand.COSMETIC))
-		var processed_count: int = int(processed_by_kind.get(kind, 0))
-		if processed_count < _resolve_visual_max_tasks_per_tick(kind, band):
+		var processed_count: int = _resolve_visual_cap_processed_count(task, processed_by_kind)
+		if processed_count < _resolve_effective_visual_kind_cap(task):
 			queue.remove_at(index)
 			return task
 		if _hot_path_forensics_enabled and _hot_path_debug_system != null:
@@ -1069,17 +1395,195 @@ func _pop_allowed_task_from_queue(queue: Array[Dictionary], processed_by_kind: D
 			)
 	return {}
 
+func _pop_forward_prefetch_task_from_queue(queue: Array[Dictionary], processed_by_kind: Dictionary) -> Dictionary:
+	for index: int in range(queue.size()):
+		var task: Dictionary = queue[index]
+		if not _is_forward_prefetch_visual_task(task):
+			continue
+		var chunk_key: String = _make_visual_chunk_key(
+			task.get("chunk_coord", Vector2i.ZERO) as Vector2i,
+			int(task.get("z", _active_z()))
+		)
+		if chunks_processed_this_tick.has(chunk_key) and not _can_process_task_again_this_frame(task):
+			continue
+		var processed_count: int = _resolve_visual_cap_processed_count(task, processed_by_kind)
+		if processed_count < _resolve_effective_visual_kind_cap(task):
+			queue.remove_at(index)
+			return task
+	return {}
+
+func _pop_player_hot_border_fix_task_from_queue(
+	queue: Array[Dictionary],
+	processed_by_kind: Dictionary
+) -> Dictionary:
+	for index: int in range(queue.size()):
+		var task: Dictionary = queue[index]
+		if not _is_pressure_critical_visual_task(task):
+			continue
+		if int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC)) != _owner.VisualTaskKind.TASK_BORDER_FIX:
+			continue
+		var task_coord: Vector2i = task.get("chunk_coord", Vector2i.ZERO) as Vector2i
+		if task_coord != _player_chunk_coord():
+			continue
+		var chunk_key: String = _make_visual_chunk_key(
+			task_coord,
+			int(task.get("z", _active_z()))
+		)
+		if chunks_processed_this_tick.has(chunk_key) and not _can_process_task_again_this_frame(task):
+			continue
+		var processed_count: int = _resolve_visual_cap_processed_count(task, processed_by_kind)
+		if processed_count < _resolve_effective_visual_kind_cap(task):
+			queue.remove_at(index)
+			return task
+	return {}
+
+func _run_player_hot_border_fix_prepass(processed_by_kind: Dictionary) -> int:
+	if not _owner_has_player_visible_visual_pressure():
+		return 0
+	var task: Dictionary = _pop_player_hot_border_fix_task_from_queue(q_border_fix_near, processed_by_kind)
+	if task.is_empty():
+		return 0
+	if _hot_path_forensics_enabled and _hot_path_debug_system != null:
+		_hot_path_debug_system.note_visual_task_event(task, "visual_task_selected")
+	var run_state: int = _process_visual_task(task, 0)
+	if run_state == _owner.VisualTaskRunState.REQUEUE:
+		_increment_visual_cap_processed_count(task, processed_by_kind)
+		_requeue_visual_task(task)
+		return 1
+	if run_state == _owner.VisualTaskRunState.COMPLETED:
+		_increment_visual_cap_processed_count(task, processed_by_kind)
+		return 1
+	return 0
+
+func _pop_player_hot_redraw_task_from_queue(
+	queue: Array[Dictionary],
+	processed_by_kind: Dictionary
+) -> Dictionary:
+	for index: int in range(queue.size()):
+		var task: Dictionary = queue[index]
+		if not _is_player_hot_visual_task(task):
+			continue
+		var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
+		if kind != _owner.VisualTaskKind.TASK_FIRST_PASS \
+			and kind != _owner.VisualTaskKind.TASK_FULL_REDRAW:
+			continue
+		var chunk_key: String = _make_visual_chunk_key(
+			task.get("chunk_coord", Vector2i.ZERO) as Vector2i,
+			int(task.get("z", _active_z()))
+		)
+		if chunks_processed_this_tick.has(chunk_key) and not _can_process_task_again_this_frame(task):
+			continue
+		var processed_count: int = _resolve_visual_cap_processed_count(task, processed_by_kind)
+		if processed_count < _resolve_effective_visual_kind_cap(task):
+			queue.remove_at(index)
+			return task
+	return {}
+
+func _run_player_hot_redraw_prepass(processed_by_kind: Dictionary) -> int:
+	if not _owner_has_player_visible_visual_pressure():
+		return 0
+	for queue: Array[Dictionary] in [q_terrain_fast, q_terrain_urgent, q_terrain_near, q_full_near]:
+		var task: Dictionary = _pop_player_hot_redraw_task_from_queue(queue, processed_by_kind)
+		if task.is_empty():
+			continue
+		if _hot_path_forensics_enabled and _hot_path_debug_system != null:
+			_hot_path_debug_system.note_visual_task_event(task, "visual_task_selected")
+		var run_state: int = _process_visual_task(task, 0)
+		if run_state == _owner.VisualTaskRunState.REQUEUE:
+			_increment_visual_cap_processed_count(task, processed_by_kind)
+			_requeue_visual_task(task)
+			return 1
+		if run_state == _owner.VisualTaskRunState.COMPLETED:
+			_increment_visual_cap_processed_count(task, processed_by_kind)
+			return 1
+		return 0
+	return 0
+
+func _pop_pressure_compute_submission_task_from_queue(
+	queue: Array[Dictionary],
+	processed_by_kind: Dictionary
+) -> Dictionary:
+	for index: int in range(queue.size()):
+		var task: Dictionary = queue[index]
+		if not _is_pressure_critical_visual_task(task):
+			continue
+		var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
+		if kind != _owner.VisualTaskKind.TASK_FIRST_PASS \
+			and kind != _owner.VisualTaskKind.TASK_FULL_REDRAW:
+			continue
+		var prepared_batch: Dictionary = task.get("prepared_batch", {}) as Dictionary
+		if not prepared_batch.is_empty():
+			continue
+		var chunk_key: String = _make_visual_chunk_key(
+			task.get("chunk_coord", Vector2i.ZERO) as Vector2i,
+			int(task.get("z", _active_z()))
+		)
+		if chunks_processed_this_tick.has(chunk_key) and not _can_process_task_again_this_frame(task):
+			continue
+		var processed_count: int = _resolve_visual_cap_processed_count(task, processed_by_kind)
+		if processed_count < _resolve_effective_visual_kind_cap(task):
+			queue.remove_at(index)
+			return task
+	return {}
+
+func _run_player_pressure_submission_prepass(processed_by_kind: Dictionary) -> int:
+	if not _owner_has_player_pressure():
+		return 0
+	for queue: Array[Dictionary] in [q_terrain_fast, q_full_near]:
+		var task: Dictionary = _pop_pressure_compute_submission_task_from_queue(queue, processed_by_kind)
+		if task.is_empty():
+			continue
+		if _hot_path_forensics_enabled and _hot_path_debug_system != null:
+			_hot_path_debug_system.note_visual_task_event(task, "visual_task_selected")
+		var run_state: int = _process_visual_task(task, 0)
+		if run_state == _owner.VisualTaskRunState.REQUEUE:
+			_increment_visual_cap_processed_count(task, processed_by_kind)
+			_requeue_visual_task(task)
+			return 1
+		if run_state == _owner.VisualTaskRunState.COMPLETED:
+			_increment_visual_cap_processed_count(task, processed_by_kind)
+			return 1
+		return 0
+	return 0
+
 func _pop_next_task(processed_by_kind: Dictionary) -> Dictionary:
-	if _owner_has_player_visible_visual_pressure():
-		for queue: Array[Dictionary] in [q_terrain_fast, q_full_near, q_border_fix_near]:
+	if _owner_has_player_pressure():
+		for queue: Array[Dictionary] in [q_border_fix_near, q_terrain_fast, q_terrain_urgent, q_terrain_near, q_full_near]:
 			var pressure_task: Dictionary = _pop_allowed_task_from_queue(queue, processed_by_kind, true)
 			if not pressure_task.is_empty():
 				return pressure_task
+		for queue: Array[Dictionary] in [q_terrain_fast, q_terrain_urgent]:
+			var forward_task: Dictionary = _pop_forward_prefetch_task_from_queue(queue, processed_by_kind)
+			if not forward_task.is_empty():
+				return forward_task
 	for queue: Array[Dictionary] in ordered_queues():
 		var task: Dictionary = _pop_allowed_task_from_queue(queue, processed_by_kind)
 		if not task.is_empty():
 			return task
 	return {}
+
+func _pop_next_near_relief_task(processed_by_kind: Dictionary) -> Dictionary:
+	for queue: Array[Dictionary] in [q_border_fix_near, q_terrain_near, q_full_near]:
+		var task: Dictionary = _pop_allowed_task_from_queue(queue, processed_by_kind)
+		if not task.is_empty():
+			return task
+	return {}
+
+func _process_one_near_relief_task(deadline_usec: int, processed_by_kind: Dictionary) -> int:
+	var task: Dictionary = _pop_next_near_relief_task(processed_by_kind)
+	if task.is_empty():
+		return -1
+	if _hot_path_forensics_enabled and _hot_path_debug_system != null:
+		_hot_path_debug_system.note_visual_task_event(task, "visual_task_selected")
+	var run_state: int = _process_visual_task(task, deadline_usec)
+	if run_state == _owner.VisualTaskRunState.REQUEUE:
+		_increment_visual_cap_processed_count(task, processed_by_kind)
+		_requeue_visual_task(task)
+		return 1
+	if run_state == _owner.VisualTaskRunState.COMPLETED:
+		_increment_visual_cap_processed_count(task, processed_by_kind)
+		return 1
+	return 0
 
 func _process_one_task(deadline_usec: int, processed_by_kind: Dictionary) -> int:
 	var task: Dictionary = _pop_next_task(processed_by_kind)
@@ -1087,21 +1591,22 @@ func _process_one_task(deadline_usec: int, processed_by_kind: Dictionary) -> int
 		return -1
 	if _hot_path_forensics_enabled and _hot_path_debug_system != null:
 		_hot_path_debug_system.note_visual_task_event(task, "visual_task_selected")
-	var kind: int = int(task.get("kind", _owner.VisualTaskKind.TASK_COSMETIC))
 	var run_state: int = _process_visual_task(task, deadline_usec)
 	if run_state == _owner.VisualTaskRunState.REQUEUE:
-		processed_by_kind[kind] = int(processed_by_kind.get(kind, 0)) + 1
+		_increment_visual_cap_processed_count(task, processed_by_kind)
 		_requeue_visual_task(task)
 		return 1
 	if run_state == _owner.VisualTaskRunState.COMPLETED:
-		processed_by_kind[kind] = int(processed_by_kind.get(kind, 0)) + 1
+		_increment_visual_cap_processed_count(task, processed_by_kind)
 		return 1
 	return 0
 
 func _resolve_visual_max_tasks_per_run(stop_after_processed_task: bool) -> int:
 	if stop_after_processed_task:
 		return 1
-	if _owner_has_player_visible_visual_pressure() or _owner_has_recent_motion_pressure():
+	if _owner_has_player_visible_visual_pressure():
+		return 8 if _owner_has_recent_motion_pressure() else 6
+	if _owner_has_recent_motion_pressure():
 		return 6
 	return 8
 
@@ -1268,6 +1773,7 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 					return _owner.VisualTaskRunState.DROPPED
 				if first_pass_submit_state == _owner.VisualComputeSubmitState.BLOCKED:
 					return _owner.VisualTaskRunState.REQUEUE
+				prepared_batch = task.get("prepared_batch", {}) as Dictionary
 			var first_pass_did_apply: bool = false
 			if not prepared_batch.is_empty():
 				var apply_started_usec_now: int = Time.get_ticks_usec()
@@ -1323,6 +1829,8 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 					_owner._try_finalize_chunk_visual_convergence(chunk, z_level)
 				return _owner.VisualTaskRunState.COMPLETED
 			task.erase("prepared_batch")
+			if _is_pressure_critical_visual_task(task):
+				task["force_inline_prepare"] = true
 			return _owner.VisualTaskRunState.REQUEUE
 		_owner.VisualTaskKind.TASK_FULL_REDRAW:
 			chunk._mark_visual_full_redraw_pending()
@@ -1332,6 +1840,7 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 					return _owner.VisualTaskRunState.DROPPED
 				if full_submit_state == _owner.VisualComputeSubmitState.BLOCKED:
 					return _owner.VisualTaskRunState.REQUEUE
+				prepared_batch = task.get("prepared_batch", {}) as Dictionary
 			var full_has_more: bool = true
 			var full_redraw_did_apply: bool = false
 			if not prepared_batch.is_empty():
@@ -1386,6 +1895,8 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 					_owner._try_finalize_chunk_visual_convergence(chunk, z_level)
 				return _owner.VisualTaskRunState.COMPLETED
 			task.erase("prepared_batch")
+			if _is_pressure_critical_visual_task(task):
+				task["force_inline_prepare"] = true
 			return _owner.VisualTaskRunState.REQUEUE
 		_owner.VisualTaskKind.TASK_BORDER_FIX:
 			if not chunk.has_pending_border_dirty():
@@ -1399,6 +1910,7 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 					return _owner.VisualTaskRunState.DROPPED
 				if border_submit_state == _owner.VisualComputeSubmitState.BLOCKED:
 					return _owner.VisualTaskRunState.REQUEUE
+				prepared_batch = task.get("prepared_batch", {}) as Dictionary
 			var border_has_more: bool = true
 			var border_fix_did_apply: bool = false
 			if not prepared_batch.is_empty():
@@ -1448,27 +1960,36 @@ func _process_visual_task(task: Dictionary, deadline_usec: int) -> int:
 			clear_task(task)
 			return _owner.VisualTaskRunState.DROPPED
 
-func _run(max_usec: int, stop_after_processed_task: bool) -> bool:
+func _run(max_usec: int, stop_after_processed_task: bool, near_relief_only: bool = false) -> bool:
 	var budget_usec: int = _resolve_visual_scheduler_budget_usec(max_usec)
 	begin_step()
 	var started_usec: int = Time.get_ticks_usec()
 	var deadline_usec: int = started_usec + budget_usec if budget_usec > 0 else 0
-	var collected_count: int = _collect_completed_visual_compute(deadline_usec)
+	if not near_relief_only:
+		_reclaim_stale_player_hot_compute_tasks()
+	if not near_relief_only and _owner_has_player_pressure():
+		_promote_player_pressure_tasks()
 	var processed_by_kind: Dictionary = {}
 	var processed_count: int = 0
+	if not near_relief_only:
+		processed_count = _run_player_hot_border_fix_prepass(processed_by_kind)
+		processed_count += _run_player_hot_redraw_prepass(processed_by_kind)
+		processed_count += _run_player_pressure_submission_prepass(processed_by_kind)
+	var collected_count: int = _collect_completed_visual_compute(deadline_usec)
 	var budget_exhausted: bool = false
-	while has_pending_tasks():
-		if deadline_usec > 0 and Time.get_ticks_usec() >= deadline_usec:
-			budget_exhausted = true
-			break
-		var processed_delta: int = _process_one_task(deadline_usec, processed_by_kind)
-		if processed_delta < 0:
-			break
-		processed_count += processed_delta
-		if stop_after_processed_task and processed_delta > 0:
-			break
-		if processed_count >= _resolve_visual_max_tasks_per_run(stop_after_processed_task):
-			break
+	if not (stop_after_processed_task and processed_count > 0):
+		while has_pending_tasks():
+			if deadline_usec > 0 and Time.get_ticks_usec() >= deadline_usec:
+				budget_exhausted = true
+				break
+			var processed_delta: int = _process_one_near_relief_task(deadline_usec, processed_by_kind) if near_relief_only else _process_one_task(deadline_usec, processed_by_kind)
+			if processed_delta < 0:
+				break
+			processed_count += processed_delta
+			if stop_after_processed_task and processed_delta > 0:
+				break
+			if processed_count >= _resolve_visual_max_tasks_per_run(stop_after_processed_task):
+				break
 	var used_ms: float = float(Time.get_ticks_usec() - started_usec) / 1000.0
 	if collected_count > 0:
 		WorldPerfProbe.record("scheduler.visual_run_collected_count", float(collected_count))

@@ -134,6 +134,18 @@ func _resolve_frontier_lane_for_request(coord: Vector2i, z_level: int) -> int:
 		var override_lane: int = int(_owner._resolve_boot_runtime_handoff_lane(coord, z_level))
 		if override_lane >= 0:
 			return override_lane
+	if _owner != null and _owner.has_method("_is_forward_ring1_visual_chunk"):
+		if bool(_owner._is_forward_ring1_visual_chunk(coord)):
+			return FrontierSchedulerScript.LANE_FRONTIER_CRITICAL
+	if _owner != null and _owner.has_method("_is_forward_ring2_visual_chunk"):
+		if bool(_owner._is_forward_ring2_visual_chunk(coord)):
+			return FrontierSchedulerScript.LANE_FRONTIER_CRITICAL
+	if _owner != null and _owner.has_method("_is_forward_ring3_visual_chunk"):
+		if bool(_owner._is_forward_ring3_visual_chunk(coord)):
+			return FrontierSchedulerScript.LANE_FRONTIER_CRITICAL
+	if _owner != null and _owner.has_method("_is_forward_ring4_visual_chunk"):
+		if bool(_owner._is_forward_ring4_visual_chunk(coord)):
+			return FrontierSchedulerScript.LANE_FRONTIER_CRITICAL
 	return _resolve_frontier_lane(coord)
 
 func _decorate_frontier_request(request: Dictionary) -> Dictionary:
@@ -671,16 +683,8 @@ func unload_chunk(coord: Vector2i) -> void:
 	if not loaded_chunks.has(coord):
 		return
 	var chunk: Chunk = loaded_chunks[coord]
-	for kind: int in [
-		_owner.VisualTaskKind.TASK_FIRST_PASS,
-		_owner.VisualTaskKind.TASK_FULL_REDRAW,
-		_owner.VisualTaskKind.TASK_BORDER_FIX,
-		_owner.VisualTaskKind.TASK_COSMETIC,
-	]:
-		if scheduler != null:
-			var task_key: Vector4i = _make_visual_task_key(coord, active_z, kind)
-			scheduler.task_pending.erase(task_key)
-			scheduler.task_enqueued_usec.erase(task_key)
+	if scheduler != null:
+		scheduler.drop_chunk_queued_tasks(coord, active_z)
 	var chunk_key: String = _make_visual_chunk_key(coord, active_z)
 	if scheduler != null:
 		scheduler.apply_started_usec.erase(chunk_key)
@@ -967,6 +971,9 @@ func is_load_request_relevant(
 	var coord: Vector2i = _canonical_chunk_coord(request.get("coord", Vector2i.ZERO) as Vector2i)
 	if _get_loaded_chunks_for_z(request_z).has(coord):
 		return false
+	if _owner != null and _owner.has_method("_is_entry_critical_visual_chunk"):
+		if bool(_owner._is_entry_critical_visual_chunk(coord, active_z_level)):
+			return true
 	var needed_set: Dictionary = _last_frontier_plan.get("needed_set", {}) as Dictionary
 	if int(_last_frontier_plan.get("active_z", active_z_level)) == active_z_level and not needed_set.is_empty():
 		return needed_set.has(coord)
@@ -975,6 +982,9 @@ func is_load_request_relevant(
 func _is_coord_relevant_now(coord: Vector2i, z_level: int, load_radius: int) -> bool:
 	if z_level != _active_z():
 		return false
+	if _owner != null and _owner.has_method("_is_entry_critical_visual_chunk"):
+		if bool(_owner._is_entry_critical_visual_chunk(coord, z_level)):
+			return true
 	var needed_set: Dictionary = _last_frontier_plan.get("needed_set", {}) as Dictionary
 	if int(_last_frontier_plan.get("active_z", _active_z())) == _active_z() and not needed_set.is_empty():
 		return needed_set.has(_canonical_chunk_coord(coord))

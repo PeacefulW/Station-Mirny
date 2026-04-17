@@ -242,6 +242,9 @@ func _build_artifact() -> Dictionary:
 	var hot_visual_slices: Array = []
 	if _chunk_manager.has_method("get_recent_hot_visual_slices"):
 		hot_visual_slices = _chunk_manager.get_recent_hot_visual_slices()
+	var chunk_transition_snapshots: Array = []
+	if _chunk_manager.has_method("get_recent_chunk_transition_snapshots"):
+		chunk_transition_snapshots = _chunk_manager.get_recent_chunk_transition_snapshots()
 	var debug_diagnostics: Dictionary = _build_debug_diagnostics(overlay_snapshot, timeline_snapshot, monitor_snapshot)
 	return {
 		"meta": _jsonify_variant({
@@ -275,6 +278,7 @@ func _build_artifact() -> Dictionary:
 			"debug_diagnostics": debug_diagnostics,
 			"player_full_ready_breaches": player_full_ready_breaches,
 			"hot_visual_slices": hot_visual_slices,
+			"chunk_transition_snapshots": chunk_transition_snapshots,
 		}),
 		"frame_summary": _jsonify_variant(monitor_snapshot),
 		"contract_violations": _jsonify_variant(WorldPerfProbe.copy_contract_violation_snapshot()),

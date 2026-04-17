@@ -63,13 +63,28 @@ enum VisualComputeSubmitState {
 }
 
 const BORDER_FIX_REDRAW_MICRO_BATCH_TILES: int = 4
+const BORDER_FIX_REDRAW_PLAYER_HOT_BATCH_TILES: int = 16
 const PLAYER_CHUNK_DIAG_LOG_INTERVAL_MSEC: int = 2000
 const PLAYER_CHUNK_DIAG_BLOCKED_AGE_MS: float = 250.0
 const PLAYER_CHUNK_DIAG_SPIKE_MS: float = 12.0
 const PLAYER_CHUNK_MOTION_PRESSURE_MSEC: int = 1500
+const PLAYER_HOT_TASK_REFRESH_AGE_MS: float = 600.0
+const PLAYER_HOT_STUCK_BORDER_FIX_INLINE_TILES: int = 8
 const PLAYER_FULL_READY_BREACH_HISTORY_LIMIT: int = 256
 const HOT_VISUAL_SLICE_HISTORY_LIMIT: int = 2048
-const FRONTIER_MOTION_REFRESH_FRAMES: int = 10
+const CHUNK_TRANSITION_SNAPSHOT_HISTORY_LIMIT: int = 256
+const FRONTIER_MOTION_REFRESH_FRAMES: int = 2
+const PLAYER_HOT_INLINE_CATCHUP_BUDGET_ON_ENTER_USEC: int = 12000
+const PLAYER_HOT_INLINE_CATCHUP_BUDGET_STEADY_USEC: int = 4000
+const PLAYER_HOT_INLINE_CATCHUP_BUDGET_IDLE_NEAR_DEBT_USEC: int = 8000
+const PLAYER_HOT_INLINE_CATCHUP_MAX_STEPS_PER_FRAME: int = 3
+const PLAYER_NEAR_RELIEF_BUDGET_RECENT_MOTION_USEC: int = 1200
+const PLAYER_NEAR_RELIEF_BUDGET_IDLE_USEC: int = 5000
+const PLAYER_NEAR_RELIEF_MAX_STEPS_PER_FRAME: int = 2
+const ENTRY_CRITICAL_PREFETCH_CATCHUP_BUDGET_USEC: int = 4000
+const ENTRY_CRITICAL_PREFETCH_CATCHUP_MAX_STEPS_PER_FRAME: int = 4
+const PLAYER_HOT_COMPUTE_RECLAIM_AGE_MS: float = 0.0
+const ENTRY_CRITICAL_COMPUTE_RECLAIM_AGE_MS: float = 16.0
 const VISUAL_ADAPTIVE_APPLY_MIN_MS: float = 0.25
 const VISUAL_ADAPTIVE_APPLY_MAX_MS: float = 1.25
 const VISUAL_ADAPTIVE_FEEDBACK_BLEND: float = 0.55
@@ -89,6 +104,12 @@ const VISUAL_BOOTSTRAP_FULL_TERRAIN_TILES: int = 12
 const VISUAL_BOOTSTRAP_FULL_COVER_TILES: int = 6
 const VISUAL_BOOTSTRAP_FULL_CLIFF_TILES: int = 6
 const VISUAL_BOOTSTRAP_BORDER_TILES: int = 2
+const VISUAL_PLAYER_HOT_INLINE_FIRST_PASS_TILE_CAP_TERRAIN: int = 192
+const VISUAL_PLAYER_HOT_INLINE_FIRST_PASS_TILE_CAP_COVER: int = 128
+const VISUAL_PLAYER_HOT_INLINE_FIRST_PASS_TILE_CAP_CLIFF: int = 192
+const VISUAL_PLAYER_HOT_INLINE_FULL_REDRAW_TILE_CAP_TERRAIN: int = 128
+const VISUAL_PLAYER_HOT_INLINE_FULL_REDRAW_TILE_CAP_COVER: int = 96
+const VISUAL_PLAYER_HOT_INLINE_FULL_REDRAW_TILE_CAP_CLIFF: int = 128
 const VISUAL_COMPLETED_COMPUTE_MAX_INTAKE_PER_STEP: int = 2
 const VISUAL_MAX_CONCURRENT_COMPUTE: int = 3
 const VISUAL_MAX_FAR_CONCURRENT_COMPUTE: int = 1
@@ -114,6 +135,10 @@ var _player_chunk_diag_last_signature: String = ""
 var _last_player_chunk_change_usec: int = 0
 var _player_full_ready_breach_history: Array[Dictionary] = []
 var _hot_visual_slice_history: Array[Dictionary] = []
+var _chunk_transition_snapshot_history: Array[Dictionary] = []
+var _last_visual_task_slice_total_reported: int = 0
+var _last_visual_task_requeue_total_reported: int = 0
+var _last_visual_task_budget_requeue_total_reported: int = 0
 var _saved_chunk_data: Dictionary = {}
 var _terrain_tileset: TileSet = null
 var _overlay_tileset: TileSet = null
@@ -591,7 +616,7 @@ func _debug_build_suspicion_flags(
 func sync_display_to_player() -> void:
 	if not _initialized or not _player or not WorldGenerator:
 		return
-	var reference_chunk: Vector2i = WorldGenerator.world_to_chunk(_player.global_position)
+	var reference_chunk: Vector2i = _canonical_chunk_coord(WorldGenerator.world_to_chunk(_player.global_position))
 	var chunk_changed: bool = reference_chunk != _player_chunk
 	_player_chunk = reference_chunk
 	_sync_loaded_chunk_display_positions(reference_chunk)
@@ -2397,12 +2422,31 @@ func _clear_visual_task_state() -> void:
 	_visibility_revoke_last_signature_by_chunk.clear()
 	_player_full_ready_breach_history.clear()
 	_hot_visual_slice_history.clear()
+	_chunk_transition_snapshot_history.clear()
+	_last_visual_task_slice_total_reported = 0
+	_last_visual_task_requeue_total_reported = 0
+	_last_visual_task_budget_requeue_total_reported = 0
 
 
 func _is_player_near_visual_chunk(coord: Vector2i, z_level: int) -> bool:
 	if z_level != _active_z or _player_chunk == Vector2i(99999, 99999):
 		return false
 	return _chunk_chebyshev_distance(_canonical_chunk_coord(coord), _player_chunk) <= 1
+
+func _is_entry_critical_visual_chunk(coord: Vector2i, z_level: int) -> bool:
+	if z_level != _active_z or _player_chunk == Vector2i(99999, 99999):
+		return false
+	if _player_chunk_motion == Vector2i.ZERO:
+		return false
+	var canonical_coord: Vector2i = _canonical_chunk_coord(coord)
+	var next_coord: Vector2i = _offset_chunk_coord(_player_chunk, _player_chunk_motion)
+	if canonical_coord == next_coord:
+		return true
+	var next2_coord: Vector2i = _offset_chunk_coord(next_coord, _player_chunk_motion)
+	if canonical_coord == next2_coord:
+		return true
+	var next3_coord: Vector2i = _offset_chunk_coord(next2_coord, _player_chunk_motion)
+	return canonical_coord == next3_coord
 
 func _collect_player_hot_visual_coords(z_level: int) -> Array[Vector2i]:
 	var coords: Array[Vector2i] = []
@@ -2480,6 +2524,80 @@ func _has_player_near_visual_queue_pressure() -> bool:
 		or not _chunk_visual_scheduler.q_full_near.is_empty() \
 		or not _chunk_visual_scheduler.q_border_fix_near.is_empty()
 
+func _should_preserve_visible_player_near_full_ready_on_border_fix_invalidate(chunk: Chunk, z_level: int) -> bool:
+	if chunk == null or not is_instance_valid(chunk):
+		return false
+	if z_level != _active_z:
+		return false
+	if not chunk.visible:
+		return false
+	if not chunk.is_full_redraw_ready():
+		return false
+	return _is_player_near_visual_chunk(chunk.chunk_coord, z_level)
+
+func _is_transition_frame_duration_metric(label: String) -> bool:
+	if label.begins_with("FrameBudgetDispatcher."):
+		return true
+	if label == "scheduler.visual_run_ms":
+		return true
+	if label == "scheduler.visual_completed_intake_ms":
+		return true
+	if label.begins_with("Shadow.compute "):
+		return true
+	return false
+
+func _extract_heaviest_frame_op_label(frame_ops: Dictionary) -> String:
+	var heaviest_label: String = ""
+	var heaviest_ms: float = 0.0
+	for label_variant: Variant in frame_ops.keys():
+		var label: String = str(label_variant)
+		if not _is_transition_frame_duration_metric(label):
+			continue
+		var value_ms: float = float(frame_ops.get(label_variant, 0.0))
+		if value_ms <= heaviest_ms:
+			continue
+		heaviest_ms = value_ms
+		heaviest_label = label
+	if heaviest_label.is_empty():
+		return ""
+	return "%s (%.3f ms)" % [heaviest_label, heaviest_ms]
+
+func _build_chunk_transition_snapshot(previous_chunk: Vector2i, current_chunk: Vector2i) -> Dictionary:
+	var snapshot: Dictionary = {
+		"frame": Engine.get_process_frames(),
+		"timestamp_usec": Time.get_ticks_usec(),
+		"from_chunk": str(previous_chunk),
+		"current_chunk": str(current_chunk),
+		"motion": str(_player_chunk_motion),
+		"next_chunk": str(_offset_chunk_coord(current_chunk, _player_chunk_motion)) if _player_chunk_motion != Vector2i.ZERO else str(current_chunk),
+		"pending_border_fix_count": 0,
+		"pending_full_redraw_count": 0,
+		"processed_task_count": 0,
+		"visual_run_ms": 0.0,
+		"streaming_load_ms": 0.0,
+		"topology_ms": 0.0,
+		"shadow_ms": 0.0,
+		"completed_intake_ms": 0.0,
+		"visual_task_requeue_total": 0.0,
+		"frame_heaviest_op": "",
+	}
+	if _chunk_visual_scheduler != null:
+		snapshot["pending_border_fix_count"] = _chunk_visual_scheduler.q_border_fix_near.size() + _chunk_visual_scheduler.q_border_fix_far.size()
+		snapshot["pending_full_redraw_count"] = _chunk_visual_scheduler.q_full_near.size() + _chunk_visual_scheduler.q_full_far.size()
+	if WorldPerfMonitor and WorldPerfMonitor.has_method("get_debug_snapshot"):
+		var debug_snapshot: Dictionary = WorldPerfMonitor.get_debug_snapshot()
+		var categories: Dictionary = debug_snapshot.get("categories", {}) as Dictionary
+		var frame_ops: Dictionary = debug_snapshot.get("ops", {}) as Dictionary
+		snapshot["visual_run_ms"] = float(frame_ops.get("scheduler.visual_run_ms", 0.0))
+		snapshot["streaming_load_ms"] = float(categories.get("streaming_load", 0.0))
+		snapshot["topology_ms"] = float(categories.get("topology", 0.0))
+		snapshot["shadow_ms"] = float(categories.get("shadow", 0.0))
+		snapshot["completed_intake_ms"] = float(frame_ops.get("scheduler.visual_completed_intake_ms", 0.0))
+		snapshot["processed_task_count"] = int(round(float(frame_ops.get("scheduler.visual_run_processed_count", 0.0))))
+		snapshot["visual_task_requeue_total"] = float(frame_ops.get("scheduler.visual_task_requeue_total", 0.0))
+		snapshot["frame_heaviest_op"] = _extract_heaviest_frame_op_label(frame_ops)
+	return snapshot
+
 func _should_prepare_border_fix_inline(task: Dictionary, chunk: Chunk, requested_tile_budget: int) -> bool:
 	if chunk == null or not is_instance_valid(chunk):
 		return false
@@ -2492,11 +2610,30 @@ func _should_prepare_border_fix_inline(task: Dictionary, chunk: Chunk, requested
 	var dirty_count: int = chunk.get_pending_border_dirty_count()
 	if dirty_count <= 0:
 		return false
-	var inline_tile_limit: int = maxi(BORDER_FIX_REDRAW_MICRO_BATCH_TILES, requested_tile_budget)
-	if dirty_count > inline_tile_limit * 4:
-		return false
 	WorldPerfProbe.record("scheduler.player_hot_inline_border_fix_requested_count", 1.0)
 	return true
+
+func _resolve_player_hot_inline_full_redraw_tile_cap(phase_name: StringName) -> int:
+	match phase_name:
+		&"terrain":
+			return VISUAL_PLAYER_HOT_INLINE_FULL_REDRAW_TILE_CAP_TERRAIN
+		&"cover":
+			return VISUAL_PLAYER_HOT_INLINE_FULL_REDRAW_TILE_CAP_COVER
+		&"cliff":
+			return VISUAL_PLAYER_HOT_INLINE_FULL_REDRAW_TILE_CAP_CLIFF
+		_:
+			return VISUAL_PLAYER_HOT_INLINE_FULL_REDRAW_TILE_CAP_COVER
+
+func _resolve_player_hot_inline_first_pass_tile_cap(phase_name: StringName) -> int:
+	match phase_name:
+		&"terrain":
+			return VISUAL_PLAYER_HOT_INLINE_FIRST_PASS_TILE_CAP_TERRAIN
+		&"cover":
+			return VISUAL_PLAYER_HOT_INLINE_FIRST_PASS_TILE_CAP_COVER
+		&"cliff":
+			return VISUAL_PLAYER_HOT_INLINE_FIRST_PASS_TILE_CAP_CLIFF
+		_:
+			return VISUAL_PLAYER_HOT_INLINE_FIRST_PASS_TILE_CAP_COVER
 
 func _suppress_visible_border_fix_sync_path(chunk: Chunk, z_level: int) -> bool:
 	if chunk == null or not is_instance_valid(chunk) or _chunk_visual_scheduler == null:
@@ -2551,6 +2688,8 @@ func _try_force_complete_stuck_player_border_fix(
 		return relief
 	if not _is_player_near_visual_chunk(chunk.chunk_coord, z_level):
 		return relief
+	if _chunk_visual_scheduler == null:
+		return relief
 	var task_key: Vector4i = _make_visual_task_key(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
 	var dirty_count: int = chunk.get_pending_border_dirty_count()
 	if not _chunk_visual_scheduler.task_pending.has(task_key):
@@ -2567,7 +2706,41 @@ func _try_force_complete_stuck_player_border_fix(
 		relief["recovered_inline_border_fix"] = true
 		return relief
 	relief["remaining_dirty_tiles"] = dirty_count
-	WorldPerfProbe.record("scheduler.player_near_border_fix_relief_suppressed_count", 1.0)
+	relief["promoted_border_fix_task"] = _chunk_visual_scheduler.promote_existing_task_to_front(
+		chunk.chunk_coord,
+		z_level,
+		VisualTaskKind.TASK_BORDER_FIX
+	)
+	var inline_tile_budget: int = mini(dirty_count, PLAYER_HOT_STUCK_BORDER_FIX_INLINE_TILES)
+	if inline_tile_budget > 0:
+		var inline_request: Dictionary = chunk.build_visual_dirty_batch_from_tiles(
+			chunk.collect_pending_border_dirty_tiles(inline_tile_budget)
+		)
+		if not inline_request.is_empty():
+			var forced_prepare_started_usec: int = Time.get_ticks_usec()
+			var inline_batch: Dictionary = Chunk.compute_visual_batch(inline_request)
+			var forced_prepare_ms: float = float(Time.get_ticks_usec() - forced_prepare_started_usec) / 1000.0
+			if not inline_batch.is_empty():
+				var forced_apply_started_usec: int = Time.get_ticks_usec()
+				if chunk.apply_visual_dirty_batch(inline_batch):
+					chunk.discard_pending_border_dirty_tiles(inline_batch.get("tiles", []) as Array)
+					var forced_apply_ms: float = float(Time.get_ticks_usec() - forced_apply_started_usec) / 1000.0
+					relief["forced_border_fix_progress"] = true
+					WorldPerfProbe.record("scheduler.player_hot_border_fix_force_prepare_ms", forced_prepare_ms)
+					if forced_apply_ms >= 1.0:
+						WorldPerfProbe.record("ChunkManager.streaming_redraw_step.forced_border_fix", forced_apply_ms)
+					dirty_count = chunk.get_pending_border_dirty_count()
+					relief["remaining_dirty_tiles"] = dirty_count
+					if dirty_count <= 0:
+						chunk._mark_border_fix_reasons_applied()
+						_chunk_visual_scheduler.clear_task(
+							_build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, task_version)
+						)
+						_try_finalize_chunk_visual_convergence(chunk, z_level)
+						relief["recovered_inline_border_fix"] = true
+						return relief
+	if not bool(relief.get("forced_border_fix_progress", false)):
+		WorldPerfProbe.record("scheduler.player_near_border_fix_relief_suppressed_count", 1.0)
 	return relief
 
 
@@ -2644,6 +2817,12 @@ func get_recent_hot_visual_slices() -> Array[Dictionary]:
 		snapshots.append((snapshot_variant as Dictionary).duplicate(true))
 	return snapshots
 
+func get_recent_chunk_transition_snapshots() -> Array[Dictionary]:
+	var snapshots: Array[Dictionary] = []
+	for snapshot_variant: Variant in _chunk_transition_snapshot_history:
+		snapshots.append((snapshot_variant as Dictionary).duplicate(true))
+	return snapshots
+
 func _remember_player_full_ready_breach(snapshot: Dictionary) -> void:
 	if snapshot.is_empty():
 		return
@@ -2658,6 +2837,13 @@ func _remember_hot_visual_slice(snapshot: Dictionary) -> void:
 	while _hot_visual_slice_history.size() > HOT_VISUAL_SLICE_HISTORY_LIMIT:
 		_hot_visual_slice_history.pop_front()
 
+func _remember_chunk_transition_snapshot(snapshot: Dictionary) -> void:
+	if snapshot.is_empty():
+		return
+	_chunk_transition_snapshot_history.append(snapshot)
+	while _chunk_transition_snapshot_history.size() > CHUNK_TRANSITION_SNAPSHOT_HISTORY_LIMIT:
+		_chunk_transition_snapshot_history.pop_front()
+
 func _get_player_visual_travel_direction() -> Vector2:
 	var velocity: Vector2 = _get_player_frontier_velocity()
 	if velocity.length_squared() > 1.0:
@@ -2666,6 +2852,21 @@ func _get_player_visual_travel_direction() -> Vector2:
 	if chunk_motion.length_squared() > 0.0:
 		return chunk_motion.normalized()
 	return Vector2.ZERO
+
+func _resolve_player_chunk_motion_delta(previous_chunk: Vector2i, current_chunk: Vector2i) -> Vector2i:
+	if previous_chunk == Vector2i(99999, 99999):
+		return Vector2i.ZERO
+	var dx: int = _chunk_wrap_delta_x(current_chunk.x, previous_chunk.x)
+	var dy: int = current_chunk.y - previous_chunk.y
+	if dx > 1:
+		dx = 1
+	elif dx < -1:
+		dx = -1
+	if dy > 1:
+		dy = 1
+	elif dy < -1:
+		dy = -1
+	return Vector2i(dx, dy)
 
 func _forward_visual_lane_distance(coord: Vector2i) -> int:
 	var travel_dir: Vector2 = _get_player_visual_travel_direction()
@@ -2690,6 +2891,12 @@ func _is_forward_ring1_visual_chunk(coord: Vector2i) -> bool:
 
 func _is_forward_ring2_visual_chunk(coord: Vector2i) -> bool:
 	return _forward_visual_lane_distance(coord) == 2
+
+func _is_forward_ring3_visual_chunk(coord: Vector2i) -> bool:
+	return _forward_visual_lane_distance(coord) == 3
+
+func _is_forward_ring4_visual_chunk(coord: Vector2i) -> bool:
+	return _forward_visual_lane_distance(coord) == 4
 
 func _is_protected_first_pass_chunk(coord: Vector2i, z_level: int) -> bool:
 	if z_level != _active_z:
@@ -2747,11 +2954,15 @@ func _resolve_visual_band(coord: Vector2i, z_level: int, kind: int) -> int:
 		if _is_protected_first_pass_chunk(coord, z_level):
 			return VisualPriorityBand.TERRAIN_FAST
 		if _is_forward_ring1_visual_chunk(coord):
-			return VisualPriorityBand.TERRAIN_FAST if _can_loan_fast_visual_lane_to_forward_chunk() else VisualPriorityBand.TERRAIN_URGENT
+			return VisualPriorityBand.TERRAIN_FAST
 		if _is_forward_ring2_visual_chunk(coord):
+			return VisualPriorityBand.TERRAIN_FAST
+		if _is_forward_ring3_visual_chunk(coord):
+			return VisualPriorityBand.TERRAIN_URGENT
+		if _is_forward_ring4_visual_chunk(coord):
 			return VisualPriorityBand.TERRAIN_URGENT
 		if ring == 1:
-			return VisualPriorityBand.TERRAIN_NEAR
+			return VisualPriorityBand.TERRAIN_URGENT
 		return VisualPriorityBand.FULL_FAR
 	if kind == VisualTaskKind.TASK_FULL_REDRAW:
 		if boot_tracked and not is_boot_complete():
@@ -2759,8 +2970,12 @@ func _resolve_visual_band(coord: Vector2i, z_level: int, kind: int) -> int:
 		if coord == _player_chunk:
 			return VisualPriorityBand.TERRAIN_FAST
 		if _is_forward_ring1_visual_chunk(coord):
-			return VisualPriorityBand.TERRAIN_FAST if _can_loan_fast_visual_lane_to_forward_chunk() else VisualPriorityBand.TERRAIN_URGENT
+			return VisualPriorityBand.TERRAIN_FAST
 		if _is_forward_ring2_visual_chunk(coord):
+			return VisualPriorityBand.TERRAIN_FAST
+		if _is_forward_ring3_visual_chunk(coord):
+			return VisualPriorityBand.FULL_NEAR
+		if _is_forward_ring4_visual_chunk(coord):
 			return VisualPriorityBand.FULL_NEAR
 		if ring <= 2:
 			return VisualPriorityBand.FULL_NEAR
@@ -3084,8 +3299,11 @@ func _ensure_chunk_border_fix_task(chunk: Chunk, z_level: int, invalidate: bool 
 		z_level,
 		pending_border_dirty_count
 	)
-	if invalidate and has_new_border_fix_debt:
+	var preserve_visible_full_ready: bool = _should_preserve_visible_player_near_full_ready_on_border_fix_invalidate(chunk, z_level)
+	if invalidate and has_new_border_fix_debt and not preserve_visible_full_ready:
 		_invalidate_chunk_visual_convergence(chunk, z_level)
+	elif invalidate and has_new_border_fix_debt and preserve_visible_full_ready:
+		WorldPerfProbe.record("scheduler.player_near_border_fix_invalidate_suppressed_count", 1.0)
 	elif invalidate:
 		_emit_visibility_revoke_without_new_debt(chunk, z_level, pending_border_dirty_count)
 	if chunk.needs_full_redraw() and not chunk.is_redraw_complete():
@@ -3141,6 +3359,337 @@ func _schedule_chunk_visual_work(chunk: Chunk, z_level: int) -> void:
 	else:
 		_try_finalize_chunk_visual_convergence(chunk, z_level)
 
+func _rescue_stale_player_hot_visual_task(chunk: Chunk, z_level: int, kind: int) -> bool:
+	if chunk == null or not is_instance_valid(chunk) or _chunk_visual_scheduler == null:
+		return false
+	var coord: Vector2i = chunk.chunk_coord
+	var task_key: Vector4i = _make_visual_task_key(coord, z_level, kind)
+	if not _chunk_visual_scheduler.task_pending.has(task_key):
+		return false
+	if _chunk_visual_scheduler.has_live_task_instance(coord, z_level, kind):
+		return false
+	var stale_version: int = int(_chunk_visual_scheduler.task_pending.get(task_key, 0))
+	_chunk_visual_scheduler.clear_task(_build_visual_task(coord, z_level, kind, stale_version))
+	match kind:
+		VisualTaskKind.TASK_FIRST_PASS:
+			_chunk_visual_scheduler.ensure_task(chunk, z_level, VisualTaskKind.TASK_FIRST_PASS, true)
+		VisualTaskKind.TASK_FULL_REDRAW:
+			_ensure_chunk_full_redraw_task(chunk, z_level, true)
+		_:
+			return false
+	return true
+
+func _refresh_stuck_player_hot_visual_task(chunk: Chunk, z_level: int, kind: int) -> bool:
+	if chunk == null or not is_instance_valid(chunk) or _chunk_visual_scheduler == null:
+		return false
+	var coord: Vector2i = chunk.chunk_coord
+	var task_key: Vector4i = _make_visual_task_key(coord, z_level, kind)
+	if not _chunk_visual_scheduler.task_pending.has(task_key):
+		return false
+	if not _chunk_visual_scheduler.has_live_task_instance(coord, z_level, kind):
+		return false
+	if _chunk_visual_scheduler.compute_active.has(task_key) \
+		or _chunk_visual_scheduler.compute_waiting_tasks.has(task_key):
+		return false
+	var task_age_ms: float = _get_visual_task_age_ms(coord, z_level, kind)
+	if task_age_ms < PLAYER_HOT_TASK_REFRESH_AGE_MS:
+		return false
+	var stale_version: int = int(_chunk_visual_scheduler.task_pending.get(task_key, 0))
+	_chunk_visual_scheduler.clear_task(_build_visual_task(coord, z_level, kind, stale_version))
+	match kind:
+		VisualTaskKind.TASK_FIRST_PASS:
+			_chunk_visual_scheduler.ensure_task(chunk, z_level, VisualTaskKind.TASK_FIRST_PASS, true)
+		VisualTaskKind.TASK_FULL_REDRAW:
+			_ensure_chunk_full_redraw_task(chunk, z_level, true)
+		VisualTaskKind.TASK_BORDER_FIX:
+			_ensure_chunk_border_fix_task(chunk, z_level)
+		_:
+			return false
+	_chunk_visual_scheduler.promote_existing_task_to_front(coord, z_level, kind)
+	WorldPerfProbe.record("scheduler.player_hot_stuck_task_refreshed_count", 1.0)
+	WorldPerfProbe.record("Scheduler.player_hot_stuck_task_age_ms", task_age_ms)
+	return true
+
+func _rescue_stale_player_hot_visual_tasks(chunk: Chunk, z_level: int) -> void:
+	if chunk == null or not is_instance_valid(chunk) or _chunk_visual_scheduler == null:
+		return
+	if z_level != _active_z or chunk.chunk_coord != _player_chunk:
+		return
+	var rescued: int = 0
+	if not chunk.is_first_pass_ready():
+		if _rescue_stale_player_hot_visual_task(chunk, z_level, VisualTaskKind.TASK_FIRST_PASS):
+			rescued += 1
+		elif _refresh_stuck_player_hot_visual_task(chunk, z_level, VisualTaskKind.TASK_FIRST_PASS):
+			rescued += 1
+	if chunk.is_first_pass_ready() \
+		and not chunk.is_full_redraw_ready():
+		if _rescue_stale_player_hot_visual_task(chunk, z_level, VisualTaskKind.TASK_FULL_REDRAW):
+			rescued += 1
+		elif _refresh_stuck_player_hot_visual_task(chunk, z_level, VisualTaskKind.TASK_FULL_REDRAW):
+			rescued += 1
+	if rescued > 0:
+		WorldPerfProbe.record("scheduler.player_hot_stale_task_rescued_count", float(rescued))
+
+func _run_player_hot_border_fix_catchup_until(deadline_usec: int, chunk: Chunk, z_level: int) -> bool:
+	if deadline_usec <= 0:
+		return false
+	if chunk == null or not is_instance_valid(chunk):
+		return false
+	if _chunk_visual_scheduler == null:
+		return false
+	if z_level != _active_z:
+		return false
+	if chunk.chunk_coord != _player_chunk:
+		return false
+	if not chunk.visible or chunk.get_redraw_phase_name() != "done":
+		return false
+	if not chunk.has_pending_border_dirty():
+		return false
+	var progressed: bool = false
+	while Time.get_ticks_usec() < deadline_usec and chunk.has_pending_border_dirty():
+		var tiles: Array[Vector2i] = chunk.collect_pending_border_dirty_tiles(PLAYER_HOT_STUCK_BORDER_FIX_INLINE_TILES)
+		if tiles.is_empty():
+			break
+		var request: Dictionary = chunk.build_visual_dirty_batch_from_tiles(tiles)
+		if request.is_empty():
+			break
+		var prepare_started_usec: int = Time.get_ticks_usec()
+		var batch: Dictionary = Chunk.compute_visual_batch(request)
+		var prepare_ms: float = float(Time.get_ticks_usec() - prepare_started_usec) / 1000.0
+		if batch.is_empty():
+			break
+		var apply_started_usec: int = Time.get_ticks_usec()
+		if not chunk.apply_visual_dirty_batch(batch):
+			break
+		var apply_ms: float = float(Time.get_ticks_usec() - apply_started_usec) / 1000.0
+		chunk.discard_pending_border_dirty_tiles(batch.get("tiles", []) as Array)
+		WorldPerfProbe.record("scheduler.player_hot_border_fix_catchup_prepare_ms", prepare_ms)
+		if apply_ms >= 1.0:
+			WorldPerfProbe.record("ChunkManager.streaming_redraw_step.player_hot_border_fix_catchup", apply_ms)
+		progressed = true
+	if chunk.has_pending_border_dirty():
+		if progressed:
+			_ensure_chunk_border_fix_task(chunk, z_level)
+		return progressed
+	chunk._mark_border_fix_reasons_applied()
+	var border_fix_key: Vector4i = _make_visual_task_key(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
+	if _chunk_visual_scheduler.task_pending.has(border_fix_key):
+		var task_version: int = int(_chunk_visual_scheduler.task_pending.get(border_fix_key, 0))
+		_chunk_visual_scheduler.clear_task(
+			_build_visual_task(chunk.chunk_coord, z_level, VisualTaskKind.TASK_BORDER_FIX, task_version)
+		)
+	_try_finalize_chunk_visual_convergence(chunk, z_level)
+	return true
+
+func _force_reclaim_pressure_compute_task(
+	coord: Vector2i,
+	z_level: int,
+	kind: int,
+	min_age_ms: float,
+	reason: String
+) -> bool:
+	if _chunk_visual_scheduler == null:
+		return false
+	return bool(
+		_chunk_visual_scheduler.force_reclaim_compute_task(
+			coord,
+			z_level,
+			kind,
+			min_age_ms,
+			reason
+		)
+	)
+
+func _force_process_pressure_task_once_inline(
+	coord: Vector2i,
+	z_level: int,
+	kind: int,
+	reason: String
+) -> bool:
+	if _chunk_visual_scheduler == null:
+		return false
+	return bool(_chunk_visual_scheduler.force_process_task_once_inline(coord, z_level, kind, reason))
+
+func _run_player_hot_inline_visual_catchup(max_budget_usec: int) -> void:
+	if max_budget_usec <= 0 or _chunk_visual_scheduler == null:
+		return
+	if _player_chunk == Vector2i(99999, 99999):
+		return
+	var chunk: Chunk = get_chunk(_player_chunk)
+	if chunk == null or not is_instance_valid(chunk):
+		return
+	if chunk.is_full_redraw_ready() and not chunk.has_pending_border_dirty():
+		return
+	if not chunk.is_first_pass_ready():
+		_chunk_visual_scheduler.ensure_task(chunk, _active_z, VisualTaskKind.TASK_FIRST_PASS)
+	elif not chunk.is_full_redraw_ready():
+		_ensure_chunk_full_redraw_task(chunk, _active_z)
+	if chunk.has_pending_border_dirty():
+		_ensure_chunk_border_fix_task(chunk, _active_z)
+	var deadline_usec: int = Time.get_ticks_usec() + max_budget_usec
+	var force_inline_step_cap: int = clampi(max_budget_usec / 1500, 2, 10)
+	var forced_inline_steps: int = 0
+	while forced_inline_steps < force_inline_step_cap \
+		and Time.get_ticks_usec() < deadline_usec \
+		and (not chunk.is_full_redraw_ready() or chunk.has_pending_border_dirty()):
+		var forced_kind: int = -1
+		if not chunk.is_first_pass_ready():
+			forced_kind = VisualTaskKind.TASK_FIRST_PASS
+		elif not chunk.is_full_redraw_ready():
+			forced_kind = VisualTaskKind.TASK_FULL_REDRAW
+		if forced_kind < 0:
+			break
+		if not _force_process_pressure_task_once_inline(
+			chunk.chunk_coord,
+			_active_z,
+			forced_kind,
+			"player_hot_force_inline_step"
+		):
+			break
+		forced_inline_steps += 1
+	if forced_inline_steps > 0:
+		WorldPerfProbe.record("scheduler.player_hot_force_inline_step_count", float(forced_inline_steps))
+	if not chunk.is_first_pass_ready():
+		if _force_reclaim_pressure_compute_task(
+			chunk.chunk_coord,
+			_active_z,
+			VisualTaskKind.TASK_FIRST_PASS,
+			PLAYER_HOT_COMPUTE_RECLAIM_AGE_MS,
+			"player_hot_inline_reclaim_first_pass"
+		):
+			WorldPerfProbe.record("scheduler.player_hot_inline_compute_reclaim_count", 1.0)
+	elif not chunk.is_full_redraw_ready():
+		if _force_reclaim_pressure_compute_task(
+			chunk.chunk_coord,
+			_active_z,
+			VisualTaskKind.TASK_FULL_REDRAW,
+			PLAYER_HOT_COMPUTE_RECLAIM_AGE_MS,
+			"player_hot_inline_reclaim_full_redraw"
+		):
+			WorldPerfProbe.record("scheduler.player_hot_inline_compute_reclaim_count", 1.0)
+	_run_player_hot_border_fix_catchup_until(deadline_usec, chunk, _active_z)
+	if Time.get_ticks_usec() >= deadline_usec:
+		return
+	if chunk.is_full_redraw_ready() and not chunk.has_pending_border_dirty():
+		return
+	var remaining_budget_usec: int = maxi(0, deadline_usec - Time.get_ticks_usec())
+	var steps: int = 0
+	while remaining_budget_usec > 0 \
+		and steps < PLAYER_HOT_INLINE_CATCHUP_MAX_STEPS_PER_FRAME \
+		and (not chunk.is_full_redraw_ready() or chunk.has_pending_border_dirty()):
+		for kind: int in [
+			VisualTaskKind.TASK_BORDER_FIX,
+			VisualTaskKind.TASK_FULL_REDRAW,
+			VisualTaskKind.TASK_FIRST_PASS,
+		]:
+			_chunk_visual_scheduler.promote_existing_task_to_front(chunk.chunk_coord, _active_z, kind)
+		_chunk_visual_scheduler.tick_once(remaining_budget_usec)
+		steps += 1
+		remaining_budget_usec = maxi(0, deadline_usec - Time.get_ticks_usec())
+
+func _run_player_near_visual_relief(max_budget_usec: int, max_steps: int = PLAYER_NEAR_RELIEF_MAX_STEPS_PER_FRAME) -> void:
+	if max_budget_usec <= 0 or max_steps <= 0 or _chunk_visual_scheduler == null:
+		return
+	if not _has_player_near_visual_queue_pressure():
+		return
+	var deadline_usec: int = Time.get_ticks_usec() + max_budget_usec
+	var steps: int = 0
+	while steps < max_steps \
+		and Time.get_ticks_usec() < deadline_usec \
+		and _has_player_near_visual_queue_pressure():
+		var remaining_budget_usec: int = maxi(250, deadline_usec - Time.get_ticks_usec())
+		_chunk_visual_scheduler.tick_near_relief_once(remaining_budget_usec)
+		steps += 1
+
+func _run_entry_critical_visual_prefetch_catchup(
+	max_budget_usec: int,
+	max_steps: int = ENTRY_CRITICAL_PREFETCH_CATCHUP_MAX_STEPS_PER_FRAME
+) -> void:
+	if max_budget_usec <= 0 or max_steps <= 0 or _chunk_visual_scheduler == null:
+		return
+	if _player_chunk == Vector2i(99999, 99999) or _player_chunk_motion == Vector2i.ZERO:
+		return
+	var next_coord: Vector2i = _offset_chunk_coord(_player_chunk, _player_chunk_motion)
+	var next2_coord: Vector2i = _offset_chunk_coord(next_coord, _player_chunk_motion)
+	var next3_coord: Vector2i = _offset_chunk_coord(next2_coord, _player_chunk_motion)
+	var prefetch_coords: Array[Vector2i] = [next_coord, next2_coord, next3_coord]
+	var inline_deadline_usec: int = Time.get_ticks_usec() + max_budget_usec
+	var has_prefetch_work: bool = false
+	for coord: Vector2i in prefetch_coords:
+		var chunk: Chunk = get_chunk(coord)
+		if chunk == null or not is_instance_valid(chunk):
+			if _chunk_streaming_service != null:
+				_chunk_streaming_service.enqueue_load_request(coord, _active_z)
+			has_prefetch_work = true
+			continue
+		var chunk_needs_prefetch: bool = false
+		var inline_steps_for_coord: int = 0
+		var max_inline_steps_for_coord: int = 8 if coord == next_coord else 3
+		while inline_steps_for_coord < max_inline_steps_for_coord and Time.get_ticks_usec() < inline_deadline_usec:
+			var inline_progressed: bool = false
+			if not chunk.is_first_pass_ready():
+				_chunk_visual_scheduler.ensure_task(chunk, _active_z, VisualTaskKind.TASK_FIRST_PASS)
+				inline_progressed = _force_process_pressure_task_once_inline(
+					coord,
+					_active_z,
+					VisualTaskKind.TASK_FIRST_PASS,
+					"entry_critical_force_inline_first_pass"
+				)
+				if inline_progressed:
+					WorldPerfProbe.record("scheduler.entry_critical_force_inline_step_count", 1.0)
+				elif _force_reclaim_pressure_compute_task(
+					coord,
+					_active_z,
+					VisualTaskKind.TASK_FIRST_PASS,
+					ENTRY_CRITICAL_COMPUTE_RECLAIM_AGE_MS,
+					"entry_critical_reclaim_first_pass"
+				):
+					WorldPerfProbe.record("scheduler.entry_critical_compute_reclaim_count", 1.0)
+			elif not chunk.is_full_redraw_ready():
+				_ensure_chunk_full_redraw_task(chunk, _active_z)
+				inline_progressed = _force_process_pressure_task_once_inline(
+					coord,
+					_active_z,
+					VisualTaskKind.TASK_FULL_REDRAW,
+					"entry_critical_force_inline_full_redraw"
+				)
+				if inline_progressed:
+					WorldPerfProbe.record("scheduler.entry_critical_force_inline_step_count", 1.0)
+				elif _force_reclaim_pressure_compute_task(
+					coord,
+					_active_z,
+					VisualTaskKind.TASK_FULL_REDRAW,
+					ENTRY_CRITICAL_COMPUTE_RECLAIM_AGE_MS,
+					"entry_critical_reclaim_full_redraw"
+				):
+					WorldPerfProbe.record("scheduler.entry_critical_compute_reclaim_count", 1.0)
+			else:
+				break
+			chunk_needs_prefetch = true
+			if not inline_progressed:
+				break
+			inline_steps_for_coord += 1
+		if chunk.has_pending_border_dirty():
+			_ensure_chunk_border_fix_task(chunk, _active_z)
+			chunk_needs_prefetch = true
+		if not chunk_needs_prefetch:
+			continue
+		has_prefetch_work = true
+		for kind: int in [
+			VisualTaskKind.TASK_BORDER_FIX,
+			VisualTaskKind.TASK_FULL_REDRAW,
+			VisualTaskKind.TASK_FIRST_PASS,
+		]:
+			_chunk_visual_scheduler.promote_existing_task_to_front(coord, _active_z, kind)
+	if not has_prefetch_work:
+		return
+	var deadline_usec: int = Time.get_ticks_usec() + max_budget_usec
+	var steps: int = 0
+	while steps < max_steps and Time.get_ticks_usec() < deadline_usec:
+		var remaining_budget_usec: int = maxi(300, deadline_usec - Time.get_ticks_usec())
+		_chunk_visual_scheduler.tick_once(remaining_budget_usec)
+		steps += 1
+
 func _drive_boot_finalization_budget() -> void:
 	if _shutdown_in_progress or _is_boot_in_progress or is_boot_complete():
 		return
@@ -3160,7 +3709,20 @@ func _drive_boot_finalization_budget() -> void:
 	_tick_topology()
 
 func _emit_visual_scheduler_tick_log(processed_count: int, budget_exhausted: bool) -> void:
-	if processed_count <= 0 and not budget_exhausted and (_chunk_visual_scheduler == null or not _chunk_visual_scheduler.has_pending_tasks()):
+	if _chunk_visual_scheduler == null:
+		return
+	var has_pending_tasks: bool = _chunk_visual_scheduler.has_pending_tasks()
+	if processed_count <= 0 and not budget_exhausted and not has_pending_tasks:
+		# Keep queue-depth metrics fresh even on idle frames so final proofs do not
+		# read stale non-zero values after the near queues have already drained.
+		WorldPerfProbe.record("scheduler.visual_queue_depth.terrain_fast", 0.0)
+		WorldPerfProbe.record("scheduler.visual_queue_depth.terrain_urgent", 0.0)
+		WorldPerfProbe.record("scheduler.visual_queue_depth.terrain_near", 0.0)
+		WorldPerfProbe.record("scheduler.visual_queue_depth.full_near", 0.0)
+		WorldPerfProbe.record("scheduler.visual_queue_depth.border_fix_near", 0.0)
+		WorldPerfProbe.record("scheduler.visual_queue_depth.border_fix_far", 0.0)
+		WorldPerfProbe.record("scheduler.visual_queue_depth.full_far", 0.0)
+		WorldPerfProbe.record("scheduler.visual_queue_depth.cosmetic", 0.0)
 		return
 	WorldPerfProbe.record("scheduler.visual_tasks_processed", float(processed_count))
 	WorldPerfProbe.record("scheduler.visual_queue_depth.terrain_fast", float(_chunk_visual_scheduler.q_terrain_fast.size()))
@@ -3171,9 +3733,21 @@ func _emit_visual_scheduler_tick_log(processed_count: int, budget_exhausted: boo
 	WorldPerfProbe.record("scheduler.visual_queue_depth.border_fix_far", float(_chunk_visual_scheduler.q_border_fix_far.size()))
 	WorldPerfProbe.record("scheduler.visual_queue_depth.full_far", float(_chunk_visual_scheduler.q_full_far.size()))
 	WorldPerfProbe.record("scheduler.visual_queue_depth.cosmetic", float(_chunk_visual_scheduler.q_cosmetic.size()))
-	WorldPerfProbe.record("scheduler.visual_task_slice_total", float(_chunk_visual_scheduler.visual_task_slice_count))
-	WorldPerfProbe.record("scheduler.visual_task_requeue_total", float(_chunk_visual_scheduler.visual_task_requeue_count))
-	WorldPerfProbe.record("scheduler.visual_task_budget_requeue_total", float(_chunk_visual_scheduler.visual_task_requeue_due_budget_count))
+	var slice_total: int = _chunk_visual_scheduler.visual_task_slice_count
+	var requeue_total: int = _chunk_visual_scheduler.visual_task_requeue_count
+	var budget_requeue_total: int = _chunk_visual_scheduler.visual_task_requeue_due_budget_count
+	var slice_delta: int = maxi(0, slice_total - _last_visual_task_slice_total_reported)
+	var requeue_delta: int = maxi(0, requeue_total - _last_visual_task_requeue_total_reported)
+	var budget_requeue_delta: int = maxi(0, budget_requeue_total - _last_visual_task_budget_requeue_total_reported)
+	_last_visual_task_slice_total_reported = slice_total
+	_last_visual_task_requeue_total_reported = requeue_total
+	_last_visual_task_budget_requeue_total_reported = budget_requeue_total
+	if slice_delta > 0:
+		WorldPerfProbe.record("scheduler.visual_task_slice_total", float(slice_delta))
+	if requeue_delta > 0:
+		WorldPerfProbe.record("scheduler.visual_task_requeue_total", float(requeue_delta))
+	if budget_requeue_delta > 0:
+		WorldPerfProbe.record("scheduler.visual_task_budget_requeue_total", float(budget_requeue_delta))
 	WorldPerfProbe.record("scheduler.visual_task_max_single_apply_ms", _chunk_visual_scheduler.max_single_task_apply_ms)
 	_chunk_visual_scheduler.log_ticks += 1
 
@@ -3196,6 +3770,9 @@ func _reset_visual_runtime_telemetry() -> void:
 		_chunk_visual_scheduler.reset_runtime_telemetry()
 	_player_chunk_diag_last_usec = 0
 	_player_chunk_diag_last_signature = ""
+	_last_visual_task_slice_total_reported = 0
+	_last_visual_task_requeue_total_reported = 0
+	_last_visual_task_budget_requeue_total_reported = 0
 
 func _get_diag_age_ms(source: Dictionary, key: Variant) -> float:
 	if not source.has(key):
@@ -3575,7 +4152,15 @@ func _enforce_player_chunk_full_ready(trigger: String) -> void:
 	var first_pass_age_ms: float = -1.0
 	var full_redraw_age_ms: float = -1.0
 	var border_fix_age_ms: float = -1.0
+	var first_pass_key: Vector4i = _make_visual_task_key(coord, z_level, VisualTaskKind.TASK_FIRST_PASS)
+	var full_redraw_key: Vector4i = _make_visual_task_key(coord, z_level, VisualTaskKind.TASK_FULL_REDRAW)
 	var border_fix_key: Vector4i = _make_visual_task_key(coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
+	var first_pass_live: bool = false
+	var full_redraw_live: bool = false
+	var first_pass_compute_active: bool = false
+	var first_pass_compute_waiting: bool = false
+	var full_redraw_compute_active: bool = false
+	var full_redraw_compute_waiting: bool = false
 	var border_fix_compute_active: bool = false
 	var border_fix_compute_waiting: bool = false
 	if _chunk_visual_scheduler != null:
@@ -3590,6 +4175,12 @@ func _enforce_player_chunk_full_ready(trigger: String) -> void:
 		first_pass_age_ms = _get_visual_task_age_ms(coord, z_level, VisualTaskKind.TASK_FIRST_PASS)
 		full_redraw_age_ms = _get_visual_task_age_ms(coord, z_level, VisualTaskKind.TASK_FULL_REDRAW)
 		border_fix_age_ms = _get_visual_task_age_ms(coord, z_level, VisualTaskKind.TASK_BORDER_FIX)
+		first_pass_live = _chunk_visual_scheduler.has_live_task_instance(coord, z_level, VisualTaskKind.TASK_FIRST_PASS)
+		full_redraw_live = _chunk_visual_scheduler.has_live_task_instance(coord, z_level, VisualTaskKind.TASK_FULL_REDRAW)
+		first_pass_compute_active = _chunk_visual_scheduler.compute_active.has(first_pass_key)
+		first_pass_compute_waiting = _chunk_visual_scheduler.compute_waiting_tasks.has(first_pass_key)
+		full_redraw_compute_active = _chunk_visual_scheduler.compute_active.has(full_redraw_key)
+		full_redraw_compute_waiting = _chunk_visual_scheduler.compute_waiting_tasks.has(full_redraw_key)
 		border_fix_compute_active = _chunk_visual_scheduler.compute_active.has(border_fix_key)
 		border_fix_compute_waiting = _chunk_visual_scheduler.compute_waiting_tasks.has(border_fix_key)
 	var breach_snapshot: Dictionary = {
@@ -3613,6 +4204,12 @@ func _enforce_player_chunk_full_ready(trigger: String) -> void:
 		"queue_full_near": _chunk_visual_scheduler.q_full_near.size() if _chunk_visual_scheduler != null else 0,
 		"queue_full_far": _chunk_visual_scheduler.q_full_far.size() if _chunk_visual_scheduler != null else 0,
 		"queue_border_fix_near": _chunk_visual_scheduler.q_border_fix_near.size() if _chunk_visual_scheduler != null else 0,
+		"first_pass_live": first_pass_live,
+		"full_redraw_live": full_redraw_live,
+		"first_pass_compute_active": first_pass_compute_active,
+		"first_pass_compute_waiting": first_pass_compute_waiting,
+		"full_redraw_compute_active": full_redraw_compute_active,
+		"full_redraw_compute_waiting": full_redraw_compute_waiting,
 		"border_fix_compute_active": border_fix_compute_active,
 		"border_fix_compute_waiting": border_fix_compute_waiting,
 	}
@@ -3628,10 +4225,11 @@ func _enforce_player_chunk_full_ready(trigger: String) -> void:
 	)
 
 func _check_player_chunk() -> void:
-	var cur: Vector2i = WorldGenerator.world_to_chunk(_player.global_position)
+	var cur: Vector2i = _canonical_chunk_coord(WorldGenerator.world_to_chunk(_player.global_position))
 	if cur != _player_chunk:
+		var previous_player_chunk: Vector2i = _player_chunk
 		_last_player_chunk_change_usec = Time.get_ticks_usec()
-		_player_chunk_motion = cur - _player_chunk if _player_chunk.x != 99999 else Vector2i.ZERO
+		_player_chunk_motion = _resolve_player_chunk_motion_delta(_player_chunk, cur) if _player_chunk.x != 99999 else Vector2i.ZERO
 		_last_player_chunk_for_priority = _player_chunk
 		_player_chunk = cur
 		_debug_emit_chunk_event(
@@ -3654,7 +4252,13 @@ func _check_player_chunk() -> void:
 		_stabilize_player_near_border_fix_chunks(_active_z)
 		_sync_loaded_chunk_display_positions(cur)
 		_update_chunks(cur)
+		var entered_player_chunk: Chunk = get_chunk(_player_chunk)
+		_rescue_stale_player_hot_visual_tasks(entered_player_chunk, _active_z)
+		_run_player_hot_inline_visual_catchup(PLAYER_HOT_INLINE_CATCHUP_BUDGET_ON_ENTER_USEC)
+		_run_entry_critical_visual_prefetch_catchup(ENTRY_CRITICAL_PREFETCH_CATCHUP_BUDGET_USEC)
 		_maybe_log_player_chunk_visual_status("entered_chunk")
+		if previous_player_chunk.x != 99999:
+			_remember_chunk_transition_snapshot(_build_chunk_transition_snapshot(previous_player_chunk, cur))
 	else:
 		_maybe_refresh_frontier_plan_for_motion(cur)
 		var current_chunk: Chunk = get_chunk(cur)
@@ -3662,6 +4266,28 @@ func _check_player_chunk() -> void:
 			_ensure_chunk_border_fix_task(current_chunk, _active_z)
 		elif _has_player_near_visual_queue_pressure():
 			_stabilize_player_near_border_fix_chunks(_active_z)
+		var has_recent_motion_pressure: bool = _has_recent_player_chunk_motion_pressure()
+		var has_player_visible_pressure: bool = _has_player_visible_visual_pressure()
+		_rescue_stale_player_hot_visual_tasks(current_chunk, _active_z)
+		var steady_catchup_budget_usec: int = PLAYER_HOT_INLINE_CATCHUP_BUDGET_STEADY_USEC
+		if has_recent_motion_pressure and has_player_visible_pressure:
+			steady_catchup_budget_usec = maxi(steady_catchup_budget_usec, 6000)
+		if not has_recent_motion_pressure \
+			and not has_player_visible_pressure \
+				and _has_player_near_visual_queue_pressure():
+			steady_catchup_budget_usec = PLAYER_HOT_INLINE_CATCHUP_BUDGET_IDLE_NEAR_DEBT_USEC
+		_run_player_hot_inline_visual_catchup(steady_catchup_budget_usec)
+		if has_recent_motion_pressure:
+			var motion_prefetch_budget_usec: int = ENTRY_CRITICAL_PREFETCH_CATCHUP_BUDGET_USEC
+			var motion_prefetch_max_steps: int = ENTRY_CRITICAL_PREFETCH_CATCHUP_MAX_STEPS_PER_FRAME
+			if has_player_visible_pressure:
+				motion_prefetch_budget_usec = maxi(6000, ENTRY_CRITICAL_PREFETCH_CATCHUP_BUDGET_USEC)
+			_run_entry_critical_visual_prefetch_catchup(motion_prefetch_budget_usec, motion_prefetch_max_steps)
+		if not _has_player_visible_visual_pressure() and _has_player_near_visual_queue_pressure():
+			var near_relief_budget_usec: int = PLAYER_NEAR_RELIEF_BUDGET_RECENT_MOTION_USEC
+			if not has_recent_motion_pressure:
+				near_relief_budget_usec = PLAYER_NEAR_RELIEF_BUDGET_IDLE_USEC
+			_run_player_near_visual_relief(near_relief_budget_usec)
 	_enforce_player_chunk_full_ready("player_chunk_check")
 
 func _maybe_refresh_frontier_plan_for_motion(center: Vector2i) -> void:
