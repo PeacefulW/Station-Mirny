@@ -51,7 +51,7 @@ func _trigger_transition() -> void:
 func _find_game_world() -> Node:
 	var node: Node = get_parent()
 	while node:
-		if node is GameWorld:
+		if node.has_method("request_z_transition"):
 			return node
 		node = node.get_parent()
 	return null
@@ -82,6 +82,4 @@ func _create_visual() -> void:
 	add_child(cr)
 
 func _get_tile_size() -> int:
-	if WorldGenerator and WorldGenerator.balance:
-		return WorldGenerator.balance.tile_size
 	return 12

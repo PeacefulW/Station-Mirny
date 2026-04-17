@@ -3,6 +3,8 @@ extends Control
 
 ## Экран смерти. Статистика + кнопки (загрузить / новая игра / меню).
 
+const WORLD_REBUILD_SCENE_PATH: String = "res://scenes/ui/world_rebuild_notice.tscn"
+
 var _stats_container: VBoxContainer = null
 
 func _ready() -> void:
@@ -132,13 +134,13 @@ func _on_load_pressed() -> void:
 		_on_main_menu_pressed()
 		return
 	SaveManager.request_load_after_scene_change(latest)
-	get_tree().change_scene_to_file("res://scenes/world/game_world.tscn")
+	get_tree().change_scene_to_file(WORLD_REBUILD_SCENE_PATH)
 
 func _on_new_game_pressed() -> void:
 	get_tree().paused = false
 	if TimeManager and TimeManager.has_method("set_paused"):
 		TimeManager.set_paused(true)
-	get_tree().change_scene_to_file("res://scenes/ui/world_creation_screen.tscn")
+	get_tree().change_scene_to_file(WORLD_REBUILD_SCENE_PATH)
 
 func _on_main_menu_pressed() -> void:
 	get_tree().paused = false

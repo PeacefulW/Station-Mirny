@@ -5,6 +5,7 @@ extends VBoxContainer
 ## Показывает список слотов, позволяет сохранить/загрузить/удалить.
 
 const MAX_SLOTS: int = 5
+const WORLD_REBUILD_SCENE_PATH: String = "res://scenes/ui/world_rebuild_notice.tscn"
 var _slot_list: VBoxContainer = null
 var _status_label: Label = null
 var _selected_slot: String = ""
@@ -132,7 +133,7 @@ func _on_load_pressed() -> void:
 	if TimeManager and TimeManager.has_method("set_paused"):
 		TimeManager.set_paused(true)
 	SaveManager.request_load_after_scene_change(_selected_slot)
-	get_tree().change_scene_to_file("res://scenes/world/game_world.tscn")
+	get_tree().change_scene_to_file(WORLD_REBUILD_SCENE_PATH)
 
 func _on_delete_pressed() -> void:
 	if _selected_slot.is_empty():

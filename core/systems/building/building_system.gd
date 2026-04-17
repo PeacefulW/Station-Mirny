@@ -22,8 +22,8 @@ var _placement_service: BuildingPlacementService = BuildingPlacementService.new(
 var _indoor_solver: IndoorSolver = IndoorSolver.new()
 var _persistence: BuildingPersistence = BuildingPersistence.new()
 var _command_executor: CommandExecutor = null
-var _chunk_manager: ChunkManager = null
-var _z_level_manager: ZLevelManager = null
+var _chunk_manager: Node = null
+var _z_level_manager: Node = null
 var _dirty_room_regions: Array[Dictionary] = []
 var _full_room_rebuild_state: Dictionary = {}
 var _room_job_id: StringName = &""
@@ -432,17 +432,17 @@ func _find_command_executor() -> CommandExecutor:
 		return null
 	return executors[0] as CommandExecutor
 
-func _find_chunk_manager() -> ChunkManager:
+func _find_chunk_manager() -> Node:
 	var managers: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
 	if managers.is_empty():
 		return null
-	return managers[0] as ChunkManager
+	return managers[0]
 
-func _find_z_level_manager() -> ZLevelManager:
+func _find_z_level_manager() -> Node:
 	var managers: Array[Node] = get_tree().get_nodes_in_group("z_level_manager")
 	if managers.is_empty():
 		return null
-	return managers[0] as ZLevelManager
+	return managers[0]
 
 func _is_building_placement_allowed_on_active_z() -> bool:
 	if not _z_level_manager:
@@ -457,13 +457,9 @@ func _is_buildable_grid_cell(grid_pos: Vector2i) -> bool:
 	if not _chunk_manager:
 		return true
 	var world_pos: Vector2 = grid_to_world(grid_pos)
-	if not _chunk_manager.is_walkable_at_world(world_pos):
+	if _chunk_manager.has_method("is_walkable_at_world") and not _chunk_manager.is_walkable_at_world(world_pos):
 		return false
-	if not WorldGenerator:
-		return true
-	var tile_pos: Vector2i = WorldGenerator.world_to_tile(world_pos)
-	var terrain_type: int = _chunk_manager.get_terrain_type_at_global(tile_pos)
-	return terrain_type != TileGenData.TerrainType.ROCK and terrain_type != TileGenData.TerrainType.WATER
+	return true
 
 func _execute_place_command() -> void:
 	if not _command_executor:

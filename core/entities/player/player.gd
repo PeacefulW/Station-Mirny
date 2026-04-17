@@ -7,8 +7,6 @@ extends CharacterBody2D
 # --- Константы ---
 const SCRAP_ITEM_ID: String = "base:scrap"
 const WOOD_ITEM_ID: String = "base:wood"
-const HarvestTileCommandScript = preload("res://core/systems/commands/harvest_tile_command.gd")
-
 @export var balance: PlayerBalance = null
 
 var _speed_modifier: float = 1.0
@@ -20,7 +18,6 @@ var _health_component: HealthComponent = null
 var _attack_area: Area2D = null
 var _inventory: InventoryComponent = null
 var _chunk_manager: Node = null
-var _command_executor: CommandExecutor = null
 var _state_machine: StateMachine = StateMachine.new()
 var _camera: PlayerCamera = null
 
@@ -47,7 +44,6 @@ func _ready() -> void:
 	_setup_camera()
 	_setup_state_machine()
 	call_deferred("_find_chunk_manager")
-	call_deferred("_find_command_executor")
 	call_deferred("_emit_scrap_state")
 
 func _physics_process(delta: float) -> void:
@@ -75,13 +71,9 @@ func perform_harvest() -> bool:
 	var harvest_pos: Vector2 = _find_harvest_target_position()
 	if harvest_pos == Vector2.INF:
 		return false
-	if not _command_executor:
-		_find_command_executor()
-	if not _command_executor:
-		push_warning("Harvest command executor unavailable")
+	if not chunk_manager.has_method("try_harvest_at_world"):
 		return false
-	var command := HarvestTileCommandScript.new().setup(chunk_manager as ChunkManager, harvest_pos)
-	var result: Dictionary = _command_executor.execute(command)
+	var result: Dictionary = chunk_manager.try_harvest_at_world(harvest_pos)
 	if result.is_empty():
 		return false
 	if not bool(result.get("success", true)):
@@ -104,27 +96,16 @@ func _find_harvest_target_position() -> Vector2:
 	var chunk_manager: Node = _get_chunk_manager()
 	if chunk_manager == null:
 		return Vector2.INF
-	if not WorldGenerator or not WorldGenerator.balance:
-		var fallback_pos: Vector2 = _get_harvest_position()
-		if chunk_manager.has_resource_at_world(fallback_pos):
-			return fallback_pos
-		return global_position if chunk_manager.has_resource_at_world(global_position) else Vector2.INF
 	var dir: Vector2 = get_global_mouse_position() - global_position
 	if dir.length_squared() <= 0.0001:
 		return global_position if chunk_manager.has_resource_at_world(global_position) else Vector2.INF
 	dir = dir.normalized()
-	var step_size: float = maxf(8.0, float(WorldGenerator.balance.tile_size) * 0.25)
+	var step_size: float = maxf(8.0, balance.harvest_range / 6.0)
 	var max_steps: int = maxi(1, ceili(balance.harvest_range / step_size))
-	var visited_tiles: Dictionary = {}
 	for step: int in range(1, max_steps + 1):
 		var sample_pos: Vector2 = global_position + dir * minf(step * step_size, balance.harvest_range)
-		var sample_tile: Vector2i = WorldGenerator.world_to_tile(sample_pos)
-		if visited_tiles.has(sample_tile):
-			continue
-		visited_tiles[sample_tile] = true
-		var tile_center: Vector2 = WorldGenerator.tile_to_world(sample_tile)
-		if chunk_manager.has_resource_at_world(tile_center):
-			return tile_center
+		if chunk_manager.has_resource_at_world(sample_pos):
+			return sample_pos
 	return global_position if chunk_manager.has_resource_at_world(global_position) else Vector2.INF
 
 func tick_harvest_cooldown(delta: float) -> void:
@@ -201,11 +182,6 @@ func _get_chunk_manager() -> Node:
 	if _chunk_manager != null and is_instance_valid(_chunk_manager):
 		return _chunk_manager
 	return null
-
-func _find_command_executor() -> void:
-	var nodes: Array[Node] = get_tree().get_nodes_in_group("command_executor")
-	if not nodes.is_empty():
-		_command_executor = nodes[0] as CommandExecutor
 
 func _apply_terrain_blocking(delta: float) -> void:
 	if velocity == Vector2.ZERO:

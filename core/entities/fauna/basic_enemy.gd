@@ -28,7 +28,7 @@ var _wander_timer: float = 0.0
 var _wander_dir: Vector2 = Vector2.ZERO
 ## Множитель слуха (ночью × 1.5).
 var _hearing_multiplier: float = 1.0
-var _z_level_manager: ZLevelManager = null
+var _z_level_manager: Node = null
 
 func _ready() -> void:
 	add_to_group("enemies")
@@ -246,5 +246,5 @@ func _get_current_runtime_z() -> int:
 	var managers: Array[Node] = get_tree().get_nodes_in_group("z_level_manager")
 	if managers.is_empty():
 		return 0
-	_z_level_manager = managers[0] as ZLevelManager
+	_z_level_manager = managers[0]
 	return _z_level_manager.get_current_z()

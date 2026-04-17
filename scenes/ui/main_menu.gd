@@ -4,6 +4,8 @@ extends Control
 ## Главное меню при запуске игры.
 ## Кнопки: Новая игра, Продолжить, Загрузить, Настройки, Выход.
 
+const WORLD_REBUILD_SCENE_PATH: String = "res://scenes/ui/world_rebuild_notice.tscn"
+
 var _btn_continue: Button = null
 var _load_panel: Control = null
 var _settings_panel: Control = null
@@ -82,7 +84,7 @@ func _build_ui() -> void:
 	_build_settings_panel()
 
 func _on_new_game_pressed() -> void:
-	get_tree().change_scene_to_file("res://scenes/ui/world_creation_screen.tscn")
+	get_tree().change_scene_to_file(WORLD_REBUILD_SCENE_PATH)
 func _on_continue_pressed() -> void:
 	var latest: String = _find_latest_save()
 	if latest.is_empty(): return
@@ -94,7 +96,7 @@ func _on_settings_pressed() -> void:
 	_buttons_container.visible = false
 	_settings_panel.visible = true
 func _on_worldlab_pressed() -> void:
-	get_tree().change_scene_to_file("res://scenes/ui/world_lab.tscn")
+	get_tree().change_scene_to_file(WORLD_REBUILD_SCENE_PATH)
 func _on_quit_pressed() -> void:
 	get_tree().quit()
 
@@ -269,7 +271,7 @@ func _on_settings_back() -> void:
 func _start_game_from_save(slot_name: String) -> void:
 	WorldPerfProbe.mark_milestone("Startup.start_pressed")
 	SaveManager.request_load_after_scene_change(slot_name)
-	get_tree().change_scene_to_file("res://scenes/world/game_world.tscn")
+	get_tree().change_scene_to_file(WORLD_REBUILD_SCENE_PATH)
 
 func _find_latest_save() -> String:
 	var saves: Array[Dictionary] = SaveManager.get_save_list()

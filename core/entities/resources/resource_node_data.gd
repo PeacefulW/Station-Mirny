@@ -40,7 +40,7 @@ extends Resource
 @export var collision_radius: float = 12.0
 
 @export_group("Связь с генерацией")
-## Какому DepositType из TileGenData соответствует.
+## Какому внутреннему типу залежи соответствует.
 @export var deposit_type: int = 0
 
 func get_display_name() -> String:

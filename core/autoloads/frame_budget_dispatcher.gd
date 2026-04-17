@@ -8,7 +8,6 @@ extends Node
 
 const RuntimeBudgetJob = preload("res://core/runtime/runtime_budget_job.gd")
 const RuntimeWorkTypes = preload("res://core/runtime/runtime_work_types.gd")
-const WorldRuntimeDiagnosticLog = preload("res://core/debug/world_runtime_diagnostic_log.gd")
 
 const TOTAL_BUDGET_MS: float = 6.0
 const LOG_INTERVAL_FRAMES: int = 60
@@ -167,7 +166,7 @@ func describe_registered_jobs() -> Array[Dictionary]:
 	return result
 
 func _print_log() -> void:
-	if not WorldRuntimeDiagnosticLog.should_print_human_debug_logs():
+	if not OS.is_debug_build():
 		return
 	var parts: Array[String] = []
 	var total: float = 0.0

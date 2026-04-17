@@ -552,9 +552,6 @@ msgstr "Компонент инвентаря игрока не найден"
 msgid "SYSTEM_OXYGEN_BALANCE_MISSING"
 msgstr "Баланс кислорода не назначен"
 
-msgid "SYSTEM_WORLD_GENERATOR_MISSING"
-msgstr "WorldGenerator autoload не найден"
-
 msgid "SYSTEM_UI_LAYER_MISSING"
 msgstr "UILayer не найден, UI не будет создан"
 
@@ -854,6 +851,18 @@ msgstr "Подготовка..."
 
 msgid "UI_LOADING_INITIALIZING_WORLD"
 msgstr "Инициализация мира..."
+
+msgid "UI_WORLD_REBUILD_TITLE"
+msgstr "МИР ПЕРЕСОБИРАЕТСЯ"
+
+msgid "UI_WORLD_REBUILD_MESSAGE"
+msgstr "Старый runtime мира удалён. Генерация мира, запуск сцены мира и загрузка старого world-пайплайна временно отключены, пока стек собирается заново."
+
+msgid "UI_WORLD_REBUILD_PENDING_LOAD"
+msgstr "Запрошенный слот {slot} не применяется, пока мир находится в режиме пересборки."
+
+msgid "UI_WORLD_REBUILD_BACK"
+msgstr "Назад в меню"
 
 msgid "UI_LOADING_DONE"
 msgstr "Готово!"

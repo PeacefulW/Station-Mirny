@@ -9,7 +9,7 @@ static func collect_meta(save_version: int) -> Dictionary:
 		"save_version": save_version,
 		"save_format_version": 4,
 		"save_time": Time.get_datetime_string_from_system(),
-		"world_seed": WorldGenerator.world_seed if WorldGenerator else 0,
+		"world_seed": 0,
 		"game_day": TimeManager.current_day if TimeManager else 1,
 	}
 
@@ -51,46 +51,10 @@ static func collect_player(tree: SceneTree) -> Dictionary:
 	return data
 
 static func collect_world(tree: SceneTree) -> Dictionary:
-	if not WorldGenerator:
-		return {}
-	var data: Dictionary = {
-		"seed": WorldGenerator.world_seed,
-		"spawn_tile": {
-			"x": WorldGenerator.spawn_tile.x,
-			"y": WorldGenerator.spawn_tile.y,
-		},
-		"generation": {},
+	return {
+		"world_rebuild_frozen": true,
+		"world_scene_present": tree.current_scene != null,
 	}
-	if WorldGenerator.balance:
-		var balance: WorldGenBalance = WorldGenerator.balance
-		data["generation"] = {
-			"mountain_density": balance.mountain_density,
-			"mountain_area": balance.mountain_area,
-			"mountain_chaininess": balance.mountain_chaininess,
-			"prepass_frozen_lake_temperature": balance.prepass_frozen_lake_temperature,
-			"prepass_glacial_melt_temperature": balance.prepass_glacial_melt_temperature,
-			"prepass_glacial_melt_bonus": balance.prepass_glacial_melt_bonus,
-			"prepass_latitude_evaporation_rate": balance.prepass_latitude_evaporation_rate,
-			"prepass_frozen_river_threshold": balance.prepass_frozen_river_threshold,
-			"prepass_river_accumulation_threshold": balance.prepass_river_accumulation_threshold,
-			"prepass_river_base_width": balance.prepass_river_base_width,
-			"prepass_river_width_scale": balance.prepass_river_width_scale,
-			"prepass_floodplain_multiplier": balance.prepass_floodplain_multiplier,
-			"prepass_lake_min_area": balance.prepass_lake_min_area,
-			"prepass_lake_min_depth": balance.prepass_lake_min_depth,
-			"prepass_erosion_valley_strength": balance.prepass_erosion_valley_strength,
-			"prepass_thermal_iterations": balance.prepass_thermal_iterations,
-			"prepass_thermal_rate": balance.prepass_thermal_rate,
-			"prepass_deposit_rate": balance.prepass_deposit_rate,
-		}
-	var spawn_orchestrators: Array[Node] = _find_nodes_by_class(tree, "SpawnOrchestrator")
-	if not spawn_orchestrators.is_empty():
-		var spawn_orchestrator: Node = spawn_orchestrators[0]
-		if spawn_orchestrator.has_method("save_pickups"):
-			data["pickups"] = spawn_orchestrator.save_pickups()
-		if spawn_orchestrator.has_method("save_enemy_runtime"):
-			data["enemy_runtime"] = spawn_orchestrator.save_enemy_runtime()
-	return data
 
 static func collect_time() -> Dictionary:
 	if not TimeManager:
@@ -126,12 +90,6 @@ static func collect_buildings(tree: SceneTree) -> Dictionary:
 	return {"walls": wall_data}
 
 static func collect_chunk_data(tree: SceneTree) -> Dictionary:
-	var managers: Array[Node] = _find_nodes_by_class(tree, "ChunkManager")
-	if managers.is_empty():
-		return {}
-	var chunk_manager: Node = managers[0]
-	if chunk_manager.has_method("get_save_data"):
-		return chunk_manager.get_save_data()
 	return {}
 
 static func _find_nodes_by_class(tree: SceneTree, class_name_str: String) -> Array[Node]:

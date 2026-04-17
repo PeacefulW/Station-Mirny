@@ -552,9 +552,6 @@ msgstr "Player inventory component not found"
 msgid "SYSTEM_OXYGEN_BALANCE_MISSING"
 msgstr "Oxygen balance is not assigned"
 
-msgid "SYSTEM_WORLD_GENERATOR_MISSING"
-msgstr "WorldGenerator autoload not found"
-
 msgid "SYSTEM_UI_LAYER_MISSING"
 msgstr "UILayer not found, UI will not be created"
 
@@ -854,6 +851,18 @@ msgstr "Preparing..."
 
 msgid "UI_LOADING_INITIALIZING_WORLD"
 msgstr "Initializing world..."
+
+msgid "UI_WORLD_REBUILD_TITLE"
+msgstr "WORLD REBUILD IN PROGRESS"
+
+msgid "UI_WORLD_REBUILD_MESSAGE"
+msgstr "The old world runtime was deleted. World generation, world scene startup, and loading through the old world pipeline are temporarily disabled while the stack is rebuilt from scratch."
+
+msgid "UI_WORLD_REBUILD_PENDING_LOAD"
+msgstr "Requested slot {slot} is not being applied while the world is in rebuild mode."
+
+msgid "UI_WORLD_REBUILD_BACK"
+msgstr "Back to menu"
 
 msgid "UI_LOADING_DONE"
 msgstr "Done!"

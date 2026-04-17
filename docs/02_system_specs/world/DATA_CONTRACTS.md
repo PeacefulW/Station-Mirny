@@ -5,7 +5,7 @@ status: draft
 owner: engineering
 source_of_truth: true
 version: 0.9
-last_updated: 2026-04-16
+last_updated: 2026-04-17
 depends_on:
   - world_generation_foundation.md
   - subsurface_and_verticality_foundation.md
@@ -32,6 +32,16 @@ This is the first runtime contract baseline for this stack.
 `status: draft` here means the document may still expand in coverage. It does not make the document optional.
 
 Until superseded, this document is mandatory reading for any iteration that touches the `world / feature definitions / mining / topology / reveal / presentation` stack.
+
+## Temporary Freeze Notice (2026-04-17)
+
+The legacy runtime implementation under `core/systems/world`, `data/world`, `scenes/world`, and the native `gdextension` world-generation path has been removed pending a clean rebuild.
+
+During this freeze:
+
+- flora / fauna / biome content that still exists in the repository is treated as frozen content input, not proof that the removed world runtime is still active;
+- current runtime must not attempt to boot, load, or validate the removed world stack;
+- the sections below remain a historical rebuild reference for world work until the replacement stack is authored and the contracts are rewritten against the new implementation.
 
 ## How Agents Must Use This Document
 

@@ -5,7 +5,7 @@ status: draft
 owner: engineering
 source_of_truth: true
 version: 0.7
-last_updated: 2026-04-13
+last_updated: 2026-04-17
 depends_on:
   - WORKFLOW.md
   - ../02_system_specs/world/DATA_CONTRACTS.md
@@ -20,6 +20,16 @@ related_docs:
 >
 > Если функции нет в секции "Безопасные точки входа" — вызывать её запрещено.
 > Если нужной операции нет в этом документе — спроси человека, не ищи сам.
+
+## Temporary Freeze Notice (2026-04-17)
+
+The legacy world bootstrap/runtime stack (`GameWorld`, `ChunkManager`, `ZLevelManager`, `WorldGenerator`, `WorldFeatureRegistry`, `WorldPerfMonitor`, and the native `station_mirny.gdextension` path) has been removed pending a clean rebuild.
+
+Until the replacement world stack lands:
+
+- world bootstrap and load entrypoints must be treated as unavailable in the current runtime;
+- menu/load flows must not attempt to enter the removed world scenes directly;
+- the world-focused API sections below remain historical rebuild reference, not a claim that the removed runtime stack is still present in the executable today.
 
 ## Как пользоваться этим документом
 

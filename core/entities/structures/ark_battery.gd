@@ -5,6 +5,8 @@ extends StaticBody2D
 ## Конечный ресурс: заряд тратится, когда кончится — навсегда.
 ## Бесшумная, стабильная, надёжная. «Наша технология».
 
+const DEFAULT_TILE_SIZE_PX: int = 12
+
 # --- Публичные ---
 ## Оставшийся заряд (Вт⋅ч).
 var charge_remaining: float = 2000.0
@@ -31,7 +33,7 @@ func setup(p_grid_pos: Vector2i, world_pos: Vector2, balance: PowerBalance) -> v
 	charge_max = balance.ark_battery_capacity
 	charge_remaining = charge_max
 	# Визуал
-	var tile_px: int = WorldGenerator.balance.tile_size if WorldGenerator and WorldGenerator.balance else 12
+	var tile_px: int = DEFAULT_TILE_SIZE_PX
 	var size: int = balance.building_tile_size * tile_px
 	_visual = ColorRect.new()
 	_visual.size = Vector2(size, size)

@@ -17,7 +17,6 @@ var _is_indoor: bool = false
 var _is_depleting: bool = false
 var _is_base_powered: bool = false
 var _building_system: BuildingSystem = null
-var _chunk_manager: ChunkManager = null
 var _owner_body: Node2D = null
 
 func _ready() -> void:
@@ -133,14 +132,6 @@ func _refresh_indoor_state() -> void:
 	if building_system:
 		var grid_pos: Vector2i = building_system.world_to_grid(_owner_body.global_position)
 		is_indoor = building_system.is_cell_indoor(grid_pos)
-	if not is_indoor:
-		var chunk_manager: ChunkManager = _get_chunk_manager()
-		if chunk_manager and WorldGenerator:
-			var tile_pos: Vector2i = WorldGenerator.world_to_tile(_owner_body.global_position)
-			var chunk: Chunk = chunk_manager.get_chunk_at_tile(tile_pos)
-			if chunk:
-				var terrain_type: int = chunk.get_terrain_type_at(chunk.global_to_local(tile_pos))
-				is_indoor = terrain_type == TileGenData.TerrainType.MINED_FLOOR
 	set_indoor(is_indoor)
 
 func _get_building_system() -> BuildingSystem:
@@ -151,12 +142,3 @@ func _get_building_system() -> BuildingSystem:
 		return null
 	_building_system = nodes[0] as BuildingSystem
 	return _building_system
-
-func _get_chunk_manager() -> ChunkManager:
-	if _chunk_manager and is_instance_valid(_chunk_manager):
-		return _chunk_manager
-	var nodes: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
-	if nodes.is_empty():
-		return null
-	_chunk_manager = nodes[0] as ChunkManager
-	return _chunk_manager

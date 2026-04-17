@@ -67,9 +67,6 @@ func save_game(slot_name: String = "") -> bool:
 		SaveCollectors.collect_buildings(get_tree())
 	)
 
-	var chunk_data: Dictionary = SaveCollectors.collect_chunk_data(get_tree())
-	success = success and ChunkSaveSystem.save_chunks(save_path, chunk_data)
-
 	is_busy = false
 	if success:
 		EventBus.save_completed.emit()
@@ -90,12 +87,10 @@ func load_game(slot_name: String) -> bool:
 	current_slot = slot_name
 
 	var world_data: Dictionary = SaveIO.read_json(save_path.path_join(WORLD_FILE))
-	if world_data.is_empty() or not SaveAppliers.apply_world(get_tree(), world_data):
+	if not SaveAppliers.apply_world(get_tree(), world_data):
 		push_error(Localization.t("SYSTEM_SAVE_WORLD_INVALID", {"file": WORLD_FILE}))
 		is_busy = false
 		return false
-
-	SaveAppliers.apply_chunk_data(get_tree(), ChunkSaveSystem.load_chunks(save_path))
 
 	var time_data: Dictionary = SaveIO.read_json(save_path.path_join(TIME_FILE))
 	if not time_data.is_empty():
@@ -141,7 +136,6 @@ func delete_save(slot_name: String) -> bool:
 	var save_path: String = SAVES_ROOT.path_join(slot_name)
 	if not DirAccess.dir_exists_absolute(save_path):
 		return false
-	ChunkSaveSystem.delete_all_chunks(save_path)
 	return SaveIO.delete_save_slot(save_path)
 
 ## Существует ли сохранение?

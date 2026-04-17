@@ -5,57 +5,13 @@ extends RefCounted
 ## Не работает с файловой системой напрямую.
 
 static func apply_world(tree: SceneTree, data: Dictionary) -> bool:
-	if not WorldGenerator:
-		return false
-	if not data.has("seed") or not data.has("spawn_tile"):
-		return false
-
-	var spawn_tile: Dictionary = data.get("spawn_tile", {})
-	WorldGenerator.spawn_tile = Vector2i(
-		int(spawn_tile.get("x", 0)),
-		int(spawn_tile.get("y", 0))
-	)
-
-	if WorldGenerator.balance:
-		var generation: Dictionary = data.get("generation", {})
-		var balance: WorldGenBalance = WorldGenerator.balance
-		balance.mountain_density = float(generation.get("mountain_density", balance.mountain_density))
-		balance.mountain_area = int(generation.get("mountain_area", balance.mountain_area))
-		balance.mountain_chaininess = float(generation.get("mountain_chaininess", balance.mountain_chaininess))
-		balance.prepass_frozen_lake_temperature = float(generation.get("prepass_frozen_lake_temperature", balance.prepass_frozen_lake_temperature))
-		balance.prepass_glacial_melt_temperature = float(generation.get("prepass_glacial_melt_temperature", balance.prepass_glacial_melt_temperature))
-		balance.prepass_glacial_melt_bonus = float(generation.get("prepass_glacial_melt_bonus", balance.prepass_glacial_melt_bonus))
-		balance.prepass_latitude_evaporation_rate = float(generation.get("prepass_latitude_evaporation_rate", balance.prepass_latitude_evaporation_rate))
-		balance.prepass_frozen_river_threshold = float(generation.get("prepass_frozen_river_threshold", balance.prepass_frozen_river_threshold))
-		balance.prepass_river_accumulation_threshold = int(generation.get("prepass_river_accumulation_threshold", balance.prepass_river_accumulation_threshold))
-		balance.prepass_river_base_width = float(generation.get("prepass_river_base_width", balance.prepass_river_base_width))
-		balance.prepass_river_width_scale = float(generation.get("prepass_river_width_scale", balance.prepass_river_width_scale))
-		balance.prepass_floodplain_multiplier = float(generation.get("prepass_floodplain_multiplier", balance.prepass_floodplain_multiplier))
-		balance.prepass_lake_min_area = int(generation.get("prepass_lake_min_area", balance.prepass_lake_min_area))
-		balance.prepass_lake_min_depth = float(generation.get("prepass_lake_min_depth", balance.prepass_lake_min_depth))
-		balance.prepass_erosion_valley_strength = float(generation.get("prepass_erosion_valley_strength", balance.prepass_erosion_valley_strength))
-		balance.prepass_thermal_iterations = int(generation.get("prepass_thermal_iterations", balance.prepass_thermal_iterations))
-		balance.prepass_thermal_rate = float(generation.get("prepass_thermal_rate", balance.prepass_thermal_rate))
-		balance.prepass_deposit_rate = float(generation.get("prepass_deposit_rate", balance.prepass_deposit_rate))
-
-	WorldGenerator.initialize_world(int(data.get("seed", 0)))
-	WorldGenerator.spawn_tile = WorldGenerator.canonicalize_tile(WorldGenerator.spawn_tile)
-	var spawn_orchestrators: Array[Node] = _find_nodes_by_class(tree, "SpawnOrchestrator")
-	if not spawn_orchestrators.is_empty():
-		var spawn_orchestrator: Node = spawn_orchestrators[0]
-		if spawn_orchestrator.has_method("load_pickups"):
-			spawn_orchestrator.load_pickups(data.get("pickups", []))
-		if spawn_orchestrator.has_method("load_enemy_runtime"):
-			spawn_orchestrator.load_enemy_runtime(data.get("enemy_runtime", {}))
+	var _scene_tree: SceneTree = tree
+	var _data: Dictionary = data
 	return true
 
 static func apply_chunk_data(tree: SceneTree, data: Dictionary) -> void:
-	var managers: Array[Node] = _find_nodes_by_class(tree, "ChunkManager")
-	if managers.is_empty():
-		return
-	var chunk_manager: Node = managers[0]
-	if chunk_manager.has_method("set_saved_data"):
-		chunk_manager.set_saved_data(data)
+	var _scene_tree: SceneTree = tree
+	var _data: Dictionary = data
 
 static func apply_time(data: Dictionary) -> void:
 	if not TimeManager:
@@ -111,8 +67,6 @@ static func apply_player(tree: SceneTree, data: Dictionary) -> void:
 		float(position_data.get("x", 0.0)),
 		float(position_data.get("y", 0.0))
 	)
-	if WorldGenerator and WorldGenerator._is_initialized:
-		player_position = WorldGenerator.canonicalize_world_position(player_position)
 	player.global_position = player_position
 
 	var inventory: Node = player.get_node_or_null("InventoryComponent")
