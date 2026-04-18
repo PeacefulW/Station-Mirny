@@ -56,6 +56,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _camera and _camera.handle_zoom_input(event):
 		get_viewport().set_input_as_handled()
 		return
+	if event is InputEventKey:
+		var key_event: InputEventKey = event as InputEventKey
+		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_G:
+			var chunk_manager: Node = _get_chunk_manager()
+			if chunk_manager and chunk_manager.has_method("debug_place_rock_at_world"):
+				chunk_manager.debug_place_rock_at_world(get_global_mouse_position())
+				get_viewport().set_input_as_handled()
+				return
 	_state_machine.handle_input(event)
 
 # --- Добыча ресурсов ---

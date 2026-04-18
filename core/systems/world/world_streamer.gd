@@ -131,6 +131,29 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 		"local_coord": local_coord,
 	}
 
+func debug_place_rock_at_world(world_pos: Vector2) -> Dictionary:
+	var tile_coord: Vector2i = WorldRuntimeConstants.world_to_tile(world_pos)
+	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(tile_coord)
+	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(tile_coord)
+	_diff_store.set_tile_override(
+		chunk_coord,
+		local_coord,
+		WorldRuntimeConstants.TERRAIN_PLAINS_ROCK,
+		false
+	)
+	_apply_loaded_override(
+		chunk_coord,
+		local_coord,
+		WorldRuntimeConstants.TERRAIN_PLAINS_ROCK,
+		false
+	)
+	return {
+		"success": true,
+		"chunk_coord": chunk_coord,
+		"local_coord": local_coord,
+		"terrain_id": WorldRuntimeConstants.TERRAIN_PLAINS_ROCK,
+	}
+
 func _streaming_tick() -> bool:
 	_update_player_chunk_coord()
 	_enqueue_desired_chunks()

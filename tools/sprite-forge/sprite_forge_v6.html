@@ -62,7 +62,7 @@ button.sec{background:var(--panel2);border:1px solid var(--line);color:var(--tex
 <div class="sidebar">
 <div class="sidebar-head">
 <h1>Sprite <span>Forge</span></h1>
-<div class="ver">v4.1 — albedo + normal map · 47 blob tiles · for dynamic lighting engines</div>
+<div class="ver">v4.2 — sharp notch caps · no AO · 47 blob tiles · for dynamic lighting engines</div>
 </div>
 <div class="sidebar-scroll">
 
@@ -87,9 +87,7 @@ button.sec{background:var(--panel2);border:1px solid var(--line);color:var(--tex
 <div class="rs"><label>Кромка (px)</label><input type="range" id="edgeW" min="2" max="20" value="8"><span class="v" id="edgeWV">8</span></div>
 <div class="rs"><label>Крутизна</label><input type="range" id="steep" min="1" max="20" value="8"><span class="v" id="steepV">8</span></div>
 
-<h2>Ambient Occlusion</h2>
-<div class="tr"><label>Ambient Occlusion</label><label class="tg"><input type="checkbox" id="optAO" checked><span class="sl"></span></label></div>
-<div class="rs"><label>Сила AO</label><input type="range" id="aoStr" min="0" max="100" value="55"><span class="v" id="aoStrV">55</span></div>
+<h2>Освещение</h2>
 <div class="tr"><label>Rim (подсветка кромки)</label><label class="tg"><input type="checkbox" id="optRim" checked><span class="sl"></span></label></div>
 <div class="sub">Динамический свет рассчитывается движком по normal map</div>
 
@@ -145,7 +143,7 @@ button.sec{background:var(--panel2);border:1px solid var(--line);color:var(--tex
 <div class="tcont" id="t-normals"><div class="sub">Normal map для движка. R=X, G=Y, B=Z. Используй с динамическим освещением.</div><div class="grid" id="nmGrid"></div></div>
 <div class="tcont" id="t-atlas"><div class="atlas-wrap"><h2 style="margin-top:0">Albedo</h2><canvas id="atlasC"></canvas><h2>Normal Map</h2><canvas id="atlasNM"></canvas></div></div>
 <div class="tcont" id="t-demo"><div class="demo-wrap"><canvas id="demoC"></canvas></div><div class="sub">Terrain рисуется первым, горы поверх с прозрачностью. Рваные края кромок показывают землю под горой.</div></div>
-<div class="tcont" id="t-hm"><div class="sub">Heightmap debug: белый = высоко. Это основа объёма — нормали и AO считаются из этих данных.</div><div class="grid" id="hmGrid"></div></div>
+<div class="tcont" id="t-hm"><div class="sub">Heightmap debug: белый = высоко. Это основа объёма — нормали считаются из этих данных.</div><div class="grid" id="hmGrid"></div></div>
 </div>
 
 <script>
@@ -309,6 +307,7 @@ function genHeightmap(T,def,P,seed){
 
   const platH=30*sc;
   const southFaceH=wH+eW;
+  const notchSouthBound=T-southFaceH;
 
   for(let y=0;y<T;y++){
     for(let x=0;x<T;x++){
@@ -318,14 +317,48 @@ function genHeightmap(T,def,P,seed){
       const dS=hasS?(southBound-1-y-jS[x]):9999;
       const dE=hasE?(T-1-x-jE[y]):9999;
       const dW=hasW?(x-jW[y]):9999;
-      let dMin=Math.min(dN,dS,dE,dW);
+      const baseEdgeDist=Math.min(dN,dS,dE,dW);
+      let edgeDist=baseEdgeDist;
+      let edgeFactor=ss(0,eW,baseEdgeDist);
 
-      // No notch injection into dMin — notches are post-process below.
+      // Notches are rectangular continuations of the owning edge:
+      // upper notches inherit the north cap, lower notches inherit the south face.
+      // The side neighbor only clips the width, it does not introduce a diagonal blend.
+      if(cNE){
+        const dNotchN=y-jN[x];
+        const dNotchE=T-1-x-jE[y];
+        if(dNotchN<eW&&dNotchE<eW){
+          edgeDist=Math.min(edgeDist,dNotchN);
+          edgeFactor=Math.min(edgeFactor,ss(0,eW,dNotchN));
+        }
+      }
+      if(cNW){
+        const dNotchN=y-jN[x];
+        const dNotchW=x-jW[y];
+        if(dNotchN<eW&&dNotchW<eW){
+          edgeDist=Math.min(edgeDist,dNotchN);
+          edgeFactor=Math.min(edgeFactor,ss(0,eW,dNotchN));
+        }
+      }
+      if(cSE){
+        const dNotchS=notchSouthBound-1-y-jS[x];
+        const dNotchE=T-1-x-jE[y];
+        if(dNotchS<southFaceH&&dNotchE<eW){
+          edgeDist=Math.min(edgeDist,dNotchS);
+          edgeFactor=Math.min(edgeFactor,ss(0,eW,dNotchS));
+        }
+      }
+      if(cSW){
+        const dNotchS=notchSouthBound-1-y-jS[x];
+        const dNotchW=x-jW[y];
+        if(dNotchS<southFaceH&&dNotchW<eW){
+          edgeDist=Math.min(edgeDist,dNotchS);
+          edgeFactor=Math.min(edgeFactor,ss(0,eW,dNotchS));
+        }
+      }
 
-      if(dMin<-2){hm[y*T+x]=0;continue}
+      if(edgeDist<-2){hm[y*T+x]=0;continue}
 
-      // Edge falloff — cardinal edges only
-      const edgeFactor=ss(0,eW,dMin);
       const cliffPow=1.0/(steep*0.15+0.5);
       let h=platH*Math.pow(edgeFactor,cliffPow);
 
@@ -338,38 +371,8 @@ function genHeightmap(T,def,P,seed){
       }
 
       // Cliff texture detail
-      if(dMin<eW&&dMin>=0){
+      if(edgeDist<eW&&edgeDist>=0){
         h+=fbm(nf,x/T*.3+seed*.5,y/T*.3+seed*.6,3)*1.5*sc*(1-edgeFactor);
-      }
-
-      // === CORNER NOTCH POST-PROCESS ===
-      // h is fully computed. Now multiply to carve notch shapes.
-      // Same jE/jN/jW/jS jag → identical кромка texture.
-      //
-      // UPPER (NE/NW): edgeW×edgeW square with diagonal cut on outer corner.
-      // ss(0, eW, dE+dN) = 0 in outer corner, 1 far from corner.
-      // The diagonal naturally forms where dE+dN < eW.
-      //
-      // LOWER (SE/SW): vertical strip width=eW, height=southFaceH.
-      // vertCut = ss(0, eW, dE) = E кромка formula.
-      // isLower = ss(0, eW, y-notchTop) = 1 below notch top, 0 above.
-      // lerp(1, vertCut, isLower) = vertical cut only active in lower portion.
-      // Diagonal forms naturally at the top transition.
-      if(cNE){
-        h*=ss(0,eW,(T-1-x-jE[y])+(y-jN[x]));
-      }
-      if(cNW){
-        h*=ss(0,eW,(x-jW[y])+(y-jN[x]));
-      }
-      if(cSE){
-        const vertCut=ss(0,eW,T-1-x-jE[y]);
-        const isLower=ss(0,eW,y-(T-southFaceH-jS[x]));
-        h*=lerp(1,vertCut,isLower);
-      }
-      if(cSW){
-        const vertCut=ss(0,eW,x-jW[y]);
-        const isLower=ss(0,eW,y-(T-southFaceH-jS[x]));
-        h*=lerp(1,vertCut,isLower);
       }
 
       hm[y*T+x]=Math.max(0,h);
@@ -377,10 +380,6 @@ function genHeightmap(T,def,P,seed){
   }
   return hm;
 }
-
-// Upper notch heightmap patching removed — handled in genHeightmap post-process
-
-// Upper notch albedo retouch removed — handled via heightmap post-process
 
 // ═══════════════════════════════════════════
 // NORMALS FROM HEIGHTMAP
@@ -400,31 +399,6 @@ function calcNormals(hm,T){
     }
   }
   return nm;
-}
-
-// ═══════════════════════════════════════════
-// AMBIENT OCCLUSION
-// ═══════════════════════════════════════════
-function calcAO(hm,T){
-  const ao=new Float32Array(T*T);
-  const R=3;
-  for(let y=0;y<T;y++){
-    for(let x=0;x<T;x++){
-      const h=hm[y*T+x];
-      if(h<=0){ao[y*T+x]=0;continue}
-      let occ=0,samp=0;
-      for(let dy=-R;dy<=R;dy++){for(let dx=-R;dx<=R;dx++){
-        if(!dx&&!dy)continue;
-        const nx2=x+dx,ny2=y+dy;
-        if(nx2<0||nx2>=T||ny2<0||ny2>=T){occ+=Math.max(0,h)*.02;samp++;continue}
-        const nh=hm[ny2*T+nx2];
-        if(nh>h){const d=Math.sqrt(dx*dx+dy*dy);occ+=(nh-h)/(d+1)*.15}
-        samp++;
-      }}
-      ao[y*T+x]=1-clamp(occ/Math.max(samp*.03,1),0,1);
-    }
-  }
-  return ao;
 }
 
 // ═══════════════════════════════════════════
@@ -463,7 +437,6 @@ function isCrack(x,y,cracks,seed){
 function renderTile(T,def,P,seed){
   const hm=genHeightmap(T,def,P,seed);
   const normals=calcNormals(hm,T);
-  const ao=P.optAO?calcAO(hm,T):null;
   const nf=mkNoise(seed+999);
   const rng=mulberry32(seed+5555);
 
@@ -473,9 +446,6 @@ function renderTile(T,def,P,seed){
   const hasS=!!(def.e&0b0100);
   const southBound=T-wH;
   const platH=30*sc+P.reliefH*sc;
-
-  // No directional light — engine handles that via normal map
-  const aoS=P.aoStr/100;
 
   const cTop=hex2rgb(P.cTop),cCliff=hex2rgb(P.cCliff),cHL=hex2rgb(P.cHL);
 
@@ -576,12 +546,10 @@ function renderTile(T,def,P,seed){
         continue;
       }
 
-      // === TOP SURFACE: ALBEDO (material + AO, no directional light) ===
+      // === TOP SURFACE: ALBEDO (material only, no baked AO) ===
       const nx=normals[i*3],ny=normals[i*3+1],nz=normals[i*3+2];
 
-      // Albedo brightness: only AO, no directional light
       let albedoBr=1.0;
-      if(ao){albedoBr*=lerp(1,ao[i],aoS)}
 
       const slope=1-nz;
       const slopeFactor=ss(.1,.55,slope);
@@ -633,21 +601,21 @@ function renderTile(T,def,P,seed){
 // PRESETS
 // ═══════════════════════════════════════════
 const PRESETS={
-stone_wall:{wallHeight:22,reliefH:6,edgeW:8,steep:8,optAO:true,aoStr:55,optRim:true,cTop:'#7a7065',cCliff:'#544a42',cHL:'#c4b8a8',nScale:12,nOct:4,texStr:40,pxNoise:6,optJag:true,optLay:false,optCrk:false,crkN:3,varN:3,optFlip:true,optJit:true,optCJit:true},
-mountain:{wallHeight:30,reliefH:14,edgeW:12,steep:14,optAO:true,aoStr:70,optRim:true,cTop:'#6b6860',cCliff:'#4a4540',cHL:'#b5a890',nScale:8,nOct:5,texStr:55,pxNoise:8,optJag:true,optLay:true,optCrk:true,crkN:4,varN:3,optFlip:true,optJit:true,optCJit:true},
-grass:{wallHeight:14,reliefH:4,edgeW:7,steep:6,optAO:true,aoStr:45,optRim:true,cTop:'#5a7a48',cCliff:'#6b5e45',cHL:'#8cb470',nScale:15,nOct:3,texStr:35,pxNoise:5,optJag:true,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
-sand:{wallHeight:10,reliefH:3,edgeW:7,steep:5,optAO:true,aoStr:35,optRim:true,cTop:'#c4a86a',cCliff:'#9a7e50',cHL:'#e8d8a8',nScale:18,nOct:3,texStr:25,pxNoise:4,optJag:true,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
-snow:{wallHeight:16,reliefH:5,edgeW:9,steep:7,optAO:true,aoStr:40,optRim:true,cTop:'#c8cad0',cCliff:'#8a90a0',cHL:'#f0f2f8',nScale:14,nOct:4,texStr:20,pxNoise:3,optJag:false,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
-lava:{wallHeight:24,reliefH:10,edgeW:10,steep:12,optAO:true,aoStr:75,optRim:true,cTop:'#3a2a28',cCliff:'#2a1a18',cHL:'#e85030',nScale:10,nOct:5,texStr:60,pxNoise:10,optJag:true,optLay:true,optCrk:true,crkN:5,varN:3,optFlip:true,optJit:true,optCJit:true},
-water_edge:{wallHeight:12,reliefH:3,edgeW:8,steep:5,optAO:true,aoStr:40,optRim:true,cTop:'#5a8068',cCliff:'#4a6858',cHL:'#80b890',nScale:16,nOct:3,texStr:30,pxNoise:4,optJag:true,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
-dark:{wallHeight:26,reliefH:8,edgeW:10,steep:10,optAO:true,aoStr:80,optRim:true,cTop:'#3a3840',cCliff:'#28262e',cHL:'#7070a0',nScale:11,nOct:4,texStr:45,pxNoise:7,optJag:true,optLay:true,optCrk:true,crkN:3,varN:3,optFlip:true,optJit:true,optCJit:true},
+stone_wall:{wallHeight:22,reliefH:6,edgeW:8,steep:8,optRim:true,cTop:'#7a7065',cCliff:'#544a42',cHL:'#c4b8a8',nScale:12,nOct:4,texStr:40,pxNoise:6,optJag:true,optLay:false,optCrk:false,crkN:3,varN:3,optFlip:true,optJit:true,optCJit:true},
+mountain:{wallHeight:30,reliefH:14,edgeW:12,steep:14,optRim:true,cTop:'#6b6860',cCliff:'#4a4540',cHL:'#b5a890',nScale:8,nOct:5,texStr:55,pxNoise:8,optJag:true,optLay:true,optCrk:true,crkN:4,varN:3,optFlip:true,optJit:true,optCJit:true},
+grass:{wallHeight:14,reliefH:4,edgeW:7,steep:6,optRim:true,cTop:'#5a7a48',cCliff:'#6b5e45',cHL:'#8cb470',nScale:15,nOct:3,texStr:35,pxNoise:5,optJag:true,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
+sand:{wallHeight:10,reliefH:3,edgeW:7,steep:5,optRim:true,cTop:'#c4a86a',cCliff:'#9a7e50',cHL:'#e8d8a8',nScale:18,nOct:3,texStr:25,pxNoise:4,optJag:true,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
+snow:{wallHeight:16,reliefH:5,edgeW:9,steep:7,optRim:true,cTop:'#c8cad0',cCliff:'#8a90a0',cHL:'#f0f2f8',nScale:14,nOct:4,texStr:20,pxNoise:3,optJag:false,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
+lava:{wallHeight:24,reliefH:10,edgeW:10,steep:12,optRim:true,cTop:'#3a2a28',cCliff:'#2a1a18',cHL:'#e85030',nScale:10,nOct:5,texStr:60,pxNoise:10,optJag:true,optLay:true,optCrk:true,crkN:5,varN:3,optFlip:true,optJit:true,optCJit:true},
+water_edge:{wallHeight:12,reliefH:3,edgeW:8,steep:5,optRim:true,cTop:'#5a8068',cCliff:'#4a6858',cHL:'#80b890',nScale:16,nOct:3,texStr:30,pxNoise:4,optJag:true,optLay:false,optCrk:false,crkN:2,varN:3,optFlip:true,optJit:true,optCJit:true},
+dark:{wallHeight:26,reliefH:8,edgeW:10,steep:10,optRim:true,cTop:'#3a3840',cCliff:'#28262e',cHL:'#7070a0',nScale:11,nOct:4,texStr:45,pxNoise:7,optJag:true,optLay:true,optCrk:true,crkN:3,varN:3,optFlip:true,optJit:true,optCJit:true},
 };
 
 // ═══════════════════════════════════════════
 // READ PARAMS FROM UI
 // ═══════════════════════════════════════════
-const SLIDER_IDS=['wallHeight','reliefH','edgeW','steep','aoStr','nScale','nOct','texStr','pxNoise','crkN','varN'];
-const TOGGLE_IDS=['optAO','optRim','optJag','optLay','optCrk','optFlip','optJit','optCJit'];
+const SLIDER_IDS=['wallHeight','reliefH','edgeW','steep','nScale','nOct','texStr','pxNoise','crkN','varN'];
+const TOGGLE_IDS=['optRim','optJag','optLay','optCrk','optFlip','optJit','optCJit'];
 const COLOR_IDS=['cTop','cCliff','cHL'];
 
 function readP(){

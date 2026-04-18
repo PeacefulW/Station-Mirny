@@ -308,7 +308,7 @@ function genHeightmap(T,def,P,seed){
   }
 
   const platH=30*sc;
-  const southFaceH=wH+eW; // full south face = wall + edge
+  const southFaceH=wH+eW;
 
   for(let y=0;y<T;y++){
     for(let x=0;x<T;x++){
@@ -320,34 +320,11 @@ function genHeightmap(T,def,P,seed){
       const dW=hasW?(x-jW[y]):9999;
       let dMin=Math.min(dN,dS,dE,dW);
 
-      // === CORNER NOTCHES ===
-      // Notch = continuation of the SAME cardinal edges into the corner.
-      // Uses the SAME jag arrays, SAME edgeW, SAME jagged distances.
-      // The distances injected into dMin match the cardinal formulas exactly:
-      //   E-side: T-1-x - jE[y]   (same as dE)
-      //   W-side: x - jW[y]       (same as dW)
-      //   N-side: y - jN[x]       (same as dN)
-      //   S-bottom: T-1-y - jS[x] (jagged distance from bottom edge)
-      if(cNE){
-        const bx=eW+jE[y], by=eW+jN[x];
-        if(T-1-x<bx && y<by) dMin=Math.min(dMin, T-1-x-jE[y], y-jN[x]);
-      }
-      if(cNW){
-        const bx=eW+jW[y], by=eW+jN[x];
-        if(x<bx && y<by) dMin=Math.min(dMin, x-jW[y], y-jN[x]);
-      }
-      if(cSE){
-        const bx=eW+jE[y], by=southFaceH+jS[x];
-        if(T-1-x<bx && T-1-y<by) dMin=Math.min(dMin, T-1-x-jE[y], T-1-y-jS[x]);
-      }
-      if(cSW){
-        const bx=eW+jW[y], by=southFaceH+jS[x];
-        if(x<bx && T-1-y<by) dMin=Math.min(dMin, x-jW[y], T-1-y-jS[x]);
-      }
+      // No notch injection into dMin — notches are post-process below.
 
       if(dMin<-2){hm[y*T+x]=0;continue}
 
-      // Edge falloff — identical for cardinal edges and notch edges
+      // Edge falloff — cardinal edges only
       const edgeFactor=ss(0,eW,dMin);
       const cliffPow=1.0/(steep*0.15+0.5);
       let h=platH*Math.pow(edgeFactor,cliffPow);
@@ -365,11 +342,45 @@ function genHeightmap(T,def,P,seed){
         h+=fbm(nf,x/T*.3+seed*.5,y/T*.3+seed*.6,3)*1.5*sc*(1-edgeFactor);
       }
 
+      // === CORNER NOTCH POST-PROCESS ===
+      // h is fully computed. Now multiply to carve notch shapes.
+      // Same jE/jN/jW/jS jag → identical кромка texture.
+      //
+      // UPPER (NE/NW): edgeW×edgeW square with diagonal cut on outer corner.
+      // ss(0, eW, dE+dN) = 0 in outer corner, 1 far from corner.
+      // The diagonal naturally forms where dE+dN < eW.
+      //
+      // LOWER (SE/SW): vertical strip width=eW, height=southFaceH.
+      // vertCut = ss(0, eW, dE) = E кромка formula.
+      // isLower = ss(0, eW, y-notchTop) = 1 below notch top, 0 above.
+      // lerp(1, vertCut, isLower) = vertical cut only active in lower portion.
+      // Diagonal forms naturally at the top transition.
+      if(cNE){
+        h*=ss(0,eW,(T-1-x-jE[y])+(y-jN[x]));
+      }
+      if(cNW){
+        h*=ss(0,eW,(x-jW[y])+(y-jN[x]));
+      }
+      if(cSE){
+        const vertCut=ss(0,eW,T-1-x-jE[y]);
+        const isLower=ss(0,eW,y-(T-southFaceH-jS[x]));
+        h*=lerp(1,vertCut,isLower);
+      }
+      if(cSW){
+        const vertCut=ss(0,eW,x-jW[y]);
+        const isLower=ss(0,eW,y-(T-southFaceH-jS[x]));
+        h*=lerp(1,vertCut,isLower);
+      }
+
       hm[y*T+x]=Math.max(0,h);
     }
   }
   return hm;
 }
+
+// Upper notch heightmap patching removed — handled in genHeightmap post-process
+
+// Upper notch albedo retouch removed — handled via heightmap post-process
 
 // ═══════════════════════════════════════════
 // NORMALS FROM HEIGHTMAP

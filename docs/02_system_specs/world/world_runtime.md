@@ -185,6 +185,7 @@ provide the smallest compatibility surface already expected by gameplay code:
 is_walkable_at_world(world_pos: Vector2) -> bool
 has_resource_at_world(world_pos: Vector2) -> bool
 try_harvest_at_world(world_pos: Vector2) -> Dictionary
+debug_place_rock_at_world(world_pos: Vector2) -> Dictionary
 ```
 
 V0 interpretation:
@@ -193,6 +194,9 @@ V0 interpretation:
   the diggable plains tile class
 - `try_harvest_at_world` is allowed only to convert that one diggable tile into
   its post-mutation state and return the minimal harvest/mutation result payload
+- `debug_place_rock_at_world` is a debug-only helper that writes one local
+  `TERRAIN_PLAINS_ROCK` override at a world position and applies it immediately
+  if the chunk is already loaded
 
 This compatibility surface is not permission to reintroduce general resource
 streaming in V0.

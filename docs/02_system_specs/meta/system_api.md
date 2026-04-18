@@ -306,6 +306,7 @@ Confirmed mutation entrypoints:
 | `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version` and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
 | `try_harvest_at_world(world_pos: Vector2)` | V0 tile mutation proof; converts one rock tile into its dug state |
+| `debug_place_rock_at_world(world_pos: Vector2)` | Debug-only local terrain override; writes one `TERRAIN_PLAINS_ROCK` diff and applies it locally if loaded |
 
 Not documented here as safe entrypoints:
 - `_streaming_tick()`
