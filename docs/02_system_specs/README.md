@@ -4,8 +4,8 @@ doc_type: system_spec_index
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.2
-last_updated: 2026-04-17
+version: 1.3
+last_updated: 2026-04-18
 ---
 
 # System Specs
@@ -57,6 +57,10 @@ Current transition strategy:
 
 ### Meta constraints
 - [Agent Skill Pack](meta/agent_skill_pack.md)
+- [System API](meta/system_api.md)
+- [Event Contracts](meta/event_contracts.md)
+- [Packet Schemas](meta/packet_schemas.md)
+- [Commands](meta/commands.md)
 - [Multiplayer and Modding Constraints](meta/multiplayer_and_modding.md)
 - [Multiplayer Authority and Replication](meta/multiplayer_authority_and_replication.md)
 - [Modding Extension Contracts](meta/modding_extension_contracts.md)

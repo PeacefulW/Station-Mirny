@@ -4,8 +4,8 @@ doc_type: docs_index
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.5
-last_updated: 2026-04-17
+version: 1.6
+last_updated: 2026-04-18
 related_docs:
   - 00_governance/WORKFLOW.md
   - 00_governance/ENGINEERING_STANDARDS.md
@@ -72,6 +72,10 @@ Templates for future docs.
 - [Survival Core](02_system_specs/survival/survival_core.md)
 - [UI and UX Foundation](02_system_specs/ui/ui_ux_foundation.md)
 - [Agent Skill Pack](02_system_specs/meta/agent_skill_pack.md)
+- [System API](02_system_specs/meta/system_api.md)
+- [Event Contracts](02_system_specs/meta/event_contracts.md)
+- [Packet Schemas](02_system_specs/meta/packet_schemas.md)
+- [Commands](02_system_specs/meta/commands.md)
 - [Localization Pipeline](02_system_specs/meta/localization_pipeline.md)
 - [Modding Extension Contracts](02_system_specs/meta/modding_extension_contracts.md)
 - [Multiplayer and Modding Constraints](02_system_specs/meta/multiplayer_and_modding.md)

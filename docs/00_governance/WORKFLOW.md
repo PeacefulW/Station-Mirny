@@ -4,13 +4,17 @@ doc_type: governance
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.1
-last_updated: 2026-04-17
+version: 1.2
+last_updated: 2026-04-18
 related_docs:
   - ENGINEERING_STANDARDS.md
   - PROJECT_GLOSSARY.md
   - ../README.md
   - ../02_system_specs/README.md
+  - ../02_system_specs/meta/system_api.md
+  - ../02_system_specs/meta/event_contracts.md
+  - ../02_system_specs/meta/packet_schemas.md
+  - ../02_system_specs/meta/commands.md
   - ../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
 ---
 
@@ -42,6 +46,26 @@ simulation или другое масштабируемое поведение, 
 - `docs/05_adrs/0001-runtime-work-and-dirty-update-foundation.md`
 - relevant ADR из world/runtime стека, если он реально относится к задаче
 
+### Дополнительное чтение для feature / boundary-sensitive задач
+
+Если задача:
+- добавляет новую фичу
+- меняет public/system boundary
+- вводит новый safe entrypoint
+- вводит новое важное событие
+- меняет payload, save shape, command result или иной boundary schema
+- добавляет новый mutation path между системами, tools или модами
+
+то до кода также прочитай и сверяй:
+- `docs/02_system_specs/meta/system_api.md`
+- `docs/02_system_specs/meta/event_contracts.md`
+- `docs/02_system_specs/meta/packet_schemas.md`
+- `docs/02_system_specs/meta/commands.md`
+
+Если нужная граница там отсутствует:
+- нельзя молча обходить это через private/internal method, raw `Dictionary` или ad-hoc mutation path
+- нужно в рамках той же задачи явно решить, какой canonical boundary doc должен быть обновлён
+
 ## Правило #1: не запускай широкое исследование по умолчанию
 
 Запрещено сканировать репозиторий "для понимания контекста", если задача уже
@@ -64,8 +88,13 @@ simulation или другое масштабируемое поведение, 
    - dirty unit
    - runtime work class: `boot`, `background`, `interactive`
 2. Прочитай spec текущей фичи или bug brief, если он существует.
-3. Определи разрешенные файлы и запрещенные файлы.
-4. Только потом открывай код.
+3. Для feature / boundary-sensitive задачи зафиксируй:
+   - какой существующий safe path из `system_api.md`, `commands.md`,
+     `event_contracts.md` или `packet_schemas.md` ты обязан использовать
+   - какого surface не хватает и какой canonical doc должен быть обновлён
+   - что запрещено делать в обход documented API / command / event / schema
+4. Определи разрешенные файлы и запрещенные файлы.
+5. Только потом открывай код.
 
 Если approved feature spec не существует для новой фичи или структурного
 изменения — кодить нельзя. Сначала создается spec.
@@ -104,9 +133,19 @@ simulation или другое масштабируемое поведение, 
 - save/load semantics
 - safe entry points
 - public read semantics
+- command set
+- event names, payloads, emitters или listener-facing guarantees
+- packet / payload / save / result schemas на границах
 - extension seams
 
 то relevant canonical docs обновляются в рамках этой же задачи.
+
+Для boundary-sensitive задач по умолчанию это означает проверку и update при
+необходимости:
+- `system_api.md`
+- `event_contracts.md`
+- `packet_schemas.md`
+- `commands.md`
 
 ## Допустимая модель чтения кода
 
@@ -216,6 +255,8 @@ simulation или другое масштабируемое поведение, 
 - что прочитать сначала
 - что именно сделать
 - чего не делать
+- какие boundary docs (`system_api.md`, `event_contracts.md`,
+  `packet_schemas.md`, `commands.md`) нужно проверить перед кодом
 - разрешенные файлы
 - запрещенные файлы
 - acceptance tests
@@ -233,6 +274,11 @@ simulation или другое масштабируемое поведение, 
 
 ## Контекст
 - [какая проблема решается]
+
+## Boundary contract check
+- Existing safe path to use: [...]
+- Which of `system_api.md` / `event_contracts.md` / `packet_schemas.md` / `commands.md` must be checked: [...]
+- If new public API / event / schema / command appears: update the corresponding canonical doc in the same task
 
 ## Performance / scalability guardrails
 - Runtime class: [...]
@@ -270,6 +316,10 @@ simulation или другое масштабируемое поведение, 
 - писать субъективные acceptance criteria
 - чинить соседние проблемы
 - менять documented semantics без обновления docs
+- добавлять новый public API / command / event / boundary schema без обновления
+  соответствующего canonical meta-doc
+- использовать private/internal method другой системы, если у неё уже есть
+  documented safe path
 - писать `passed` без доказательства
 - писать `not required` по документации без grep-подтверждения
 
@@ -280,8 +330,13 @@ simulation или другое масштабируемое поведение, 
 - [ ] `WORKFLOW.md` прочитан?
 - [ ] `ENGINEERING_STANDARDS.md` и `PROJECT_GLOSSARY.md` прочитаны?
 - [ ] relevant spec/ADR прочитан?
+- [ ] relevant `system_api.md` / `event_contracts.md` /
+      `packet_schemas.md` / `commands.md` проверены, если задача feature /
+      boundary-sensitive?
 - [ ] acceptance tests конкретные и проверяемые?
 - [ ] target scale / dirty unit / escalation path определены для runtime-sensitive задачи?
+- [ ] если появляется новый API / event / schema / command, update
+      соответствующего canonical doc включен в scope?
 - [ ] разрешенные и запрещенные файлы названы?
 
 Если хотя бы один пункт — нет, кодить нельзя.

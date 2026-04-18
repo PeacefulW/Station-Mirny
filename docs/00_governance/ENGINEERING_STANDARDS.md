@@ -4,13 +4,17 @@ doc_type: governance
 status: approved
 owner: engineering
 source_of_truth: true
-version: 3.1
+version: 3.2
 lang: ru
 last_updated: 2026-04-18
 depends_on:
   - WORKFLOW.md
 related_docs:
   - PROJECT_GLOSSARY.md
+  - ../02_system_specs/meta/system_api.md
+  - ../02_system_specs/meta/event_contracts.md
+  - ../02_system_specs/meta/packet_schemas.md
+  - ../02_system_specs/meta/commands.md
 ---
 
 # РЎС‚Р°РЅРґР°СЂС‚С‹ СЂР°Р·СЂР°Р±РѕС‚РєРё Station Mirny
@@ -389,7 +393,30 @@ result = NativeChunkGen.generate(coord)
 - Factory Pattern вЂ” РґР»СЏ СЃРѕР·РґР°РЅРёСЏ СЃР»РѕР¶РЅС‹С… СЃСѓС‰РЅРѕСЃС‚РµР№ РёР· РґР°РЅРЅС‹С…
 - Services вЂ” РґР»СЏ РґРµРєРѕРјРїРѕР·РёС†РёРё РєСЂСѓРїРЅС‹С… СЃРёСЃС‚РµРј
 
+### Boundary Contract Docs
+
+Следующие canonical docs являются частью архитектуры, а не декоративным
+описанием:
+
+- `docs/02_system_specs/meta/system_api.md` — safe entrypoints и public reads
+- `docs/02_system_specs/meta/commands.md` — разрешённые mutation paths
+- `docs/02_system_specs/meta/event_contracts.md` — важные domain events и их payload
+- `docs/02_system_specs/meta/packet_schemas.md` — boundary data shapes, save/payload/result schemas
+
+Обязательные правила:
+
+- перед новой фичей или cross-system интеграцией сначала читать relevant boundary docs, потом код
+- если documented safe path уже существует, использовать его, а не private/internal method другой системы
+- если появляется новый public API, safe entrypoint или public read surface — обновить `system_api.md` в той же задаче
+- если появляется новая команда или новый разрешённый mutation path — обновить `commands.md` в той же задаче
+- если появляется новое важное событие или меняется его payload / emitter / listener-facing contract — обновить `event_contracts.md` в той же задаче
+- если меняется shape `Dictionary`, save payload, command result, event payload или другой boundary packet/schema — обновить `packet_schemas.md` в той же задаче
+- если нужного surface ещё нет, нельзя молча делать bypass через raw state; сначала нужно явно оформить и задокументировать новый safe path
+
 ### EventBus
+`docs/02_system_specs/meta/event_contracts.md` владеет документированной
+поверхностью важных domain events.
+
 Р“СЂР°РЅРёС†Р° РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ РґР»СЏ РєРѕРјРјСѓРЅРёРєР°С†РёРё РјРµР¶РґСѓ СЃРёСЃС‚РµРјР°РјРё.
 - СЃРёСЃС‚РµРјС‹ СЌРјРёС‚СЏС‚ domain events, РЅРµ РјСѓС‚РёСЂСѓСЋС‚ РґСЂСѓРіРёРµ СЃРёСЃС‚РµРјС‹ РЅР°РїСЂСЏРјСѓСЋ
 - UI РїРѕРґРїРёСЃС‹РІР°РµС‚СЃСЏ Рё РґРёСЃРїР°С‚С‡РёС‚, РЅРѕ РЅРµ РІР»Р°РґРµРµС‚ game-state
