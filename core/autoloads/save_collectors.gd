@@ -5,11 +5,16 @@ extends RefCounted
 ## Не пишет на диск и не меняет состояние мира.
 
 static func collect_meta(save_version: int) -> Dictionary:
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	var chunk_manager: Node = _find_chunk_manager(tree)
+	var world_seed: int = 0
+	if chunk_manager and chunk_manager.has_method("get_world_seed"):
+		world_seed = int(chunk_manager.get_world_seed())
 	return {
 		"save_version": save_version,
 		"save_format_version": 4,
 		"save_time": Time.get_datetime_string_from_system(),
-		"world_seed": 0,
+		"world_seed": world_seed,
 		"game_day": TimeManager.current_day if TimeManager else 1,
 	}
 
@@ -51,6 +56,9 @@ static func collect_player(tree: SceneTree) -> Dictionary:
 	return data
 
 static func collect_world(tree: SceneTree) -> Dictionary:
+	var chunk_manager: Node = _find_chunk_manager(tree)
+	if chunk_manager and chunk_manager.has_method("save_world_state"):
+		return chunk_manager.save_world_state()
 	return {
 		"world_rebuild_frozen": true,
 		"world_scene_present": tree.current_scene != null,
@@ -90,7 +98,20 @@ static func collect_buildings(tree: SceneTree) -> Dictionary:
 	return {"walls": wall_data}
 
 static func collect_chunk_data(tree: SceneTree) -> Dictionary:
+	var chunk_manager: Node = _find_chunk_manager(tree)
+	if chunk_manager and chunk_manager.has_method("collect_chunk_diffs"):
+		return {
+			"chunks": chunk_manager.collect_chunk_diffs(),
+		}
 	return {}
+
+static func _find_chunk_manager(tree: SceneTree) -> Node:
+	if tree == null:
+		return null
+	var chunk_managers: Array[Node] = tree.get_nodes_in_group("chunk_manager")
+	if chunk_managers.is_empty():
+		return null
+	return chunk_managers[0]
 
 static func _find_nodes_by_class(tree: SceneTree, class_name_str: String) -> Array[Node]:
 	var result: Array[Node] = []

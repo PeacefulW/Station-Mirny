@@ -167,6 +167,50 @@ Confirmed listeners:
 Current listener use:
 - increments `resources_gathered` by collected amount
 
+### `world_initialized(seed_value: int)`
+
+Emitter:
+- `WorldStreamer.reset_for_new_game()`
+- `WorldStreamer.load_world_state()`
+
+When it fires:
+- after the V0 world runtime resets for a new game
+- after persisted `world_seed` / `world_version` are restored on load
+
+Confirmed listeners:
+- `WorldRuntimeV0Scene._on_world_initialized()`
+
+Current listener use:
+- clears scene-local boot tracking for the active world runtime scene
+
+### `chunk_loaded(chunk_coord: Vector2i)`
+
+Emitter:
+- `WorldStreamer._publish_next_batch()`
+
+When it fires:
+- after one chunk finishes bounded TileMap publish and becomes visible
+
+Confirmed listeners:
+- `WorldRuntimeV0Scene._on_chunk_loaded()`
+
+Current listener use:
+- tracks which V0 chunks finished boot/publish in the active world runtime scene
+
+### `chunk_unloaded(chunk_coord: Vector2i)`
+
+Emitter:
+- `WorldStreamer._evict_outside_ring()`
+
+When it fires:
+- after one visible chunk is evicted outside the symmetric streaming ring
+
+Confirmed listeners:
+- `WorldRuntimeV0Scene._on_chunk_unloaded()`
+
+Current listener use:
+- removes the evicted chunk from scene-local boot tracking
+
 ## Not Included In This Minimal Pass
 
 The following signals exist in `EventBus` but are not documented here yet
@@ -179,4 +223,3 @@ because this pass did not confirm both an emitter and a listener:
 - `power_deficit`
 - `power_restored`
 - `building_removed`
-

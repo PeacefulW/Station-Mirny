@@ -41,6 +41,7 @@ It covers only the minimal core set confirmed in code during this pass:
 - `PlayerAuthority`
 - `CommandExecutor`
 - `BuildingSystem`
+- `WorldStreamer`
 
 ## Out of Scope
 
@@ -279,3 +280,35 @@ Not documented here as safe entrypoints:
 - `_walls`
 - direct mutation of `indoor_cells`
 
+### WorldStreamer
+
+Owner file: `core/systems/world/world_streamer.gd`
+
+Role:
+- V0 world runtime orchestrator and current `chunk_manager` compatibility surface
+
+Confirmed readable entrypoints:
+
+| Surface | Return | Notes |
+|---|---|---|
+| `get_world_seed()` | `int` | Current deterministic world seed |
+| `get_world_version()` | `int` | Current canonical world version |
+| `save_world_state()` | `Dictionary` | World save payload for `world.json` |
+| `collect_chunk_diffs()` | `Array[Dictionary]` | Serialized dirty chunk entries |
+| `is_walkable_at_world(world_pos: Vector2)` | `bool` | Reads `base + diff`; returns `false` while a chunk is not ready |
+| `has_resource_at_world(world_pos: Vector2)` | `bool` | V0 diggable-rock query only |
+
+Confirmed mutation entrypoints:
+
+| Surface | Notes |
+|---|---|
+| `reset_for_new_game(seed, version)` | Clears runtime state and emits `world_initialized` |
+| `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version` and clears runtime state |
+| `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
+| `try_harvest_at_world(world_pos: Vector2)` | V0 tile mutation proof; converts one rock tile into its dug state |
+
+Not documented here as safe entrypoints:
+- `_streaming_tick()`
+- `_worker_loop()`
+- direct access to `_chunk_packets`, `_chunk_views`, or `_diff_store`
+- direct mutation of native packet dictionaries outside the documented methods

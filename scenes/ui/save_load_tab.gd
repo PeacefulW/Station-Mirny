@@ -5,7 +5,7 @@ extends VBoxContainer
 ## Показывает список слотов, позволяет сохранить/загрузить/удалить.
 
 const MAX_SLOTS: int = 5
-const WORLD_REBUILD_SCENE_PATH: String = "res://scenes/ui/world_rebuild_notice.tscn"
+const WORLD_REBUILD_SCENE_PATH: String = "res://scenes/world/world_runtime_v0.tscn"
 var _slot_list: VBoxContainer = null
 var _status_label: Label = null
 var _selected_slot: String = ""

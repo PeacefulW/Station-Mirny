@@ -48,6 +48,20 @@ static func list_save_slots(saves_root: String) -> Array[String]:
 		name = dir.get_next()
 	return result
 
+static func list_json_files(dir_path: String) -> Array[String]:
+	var result: Array[String] = []
+	var dir := DirAccess.open(dir_path)
+	if not dir:
+		return result
+	dir.list_dir_begin()
+	var file_name: String = dir.get_next()
+	while file_name != "":
+		if not dir.current_is_dir() and file_name.ends_with(".json"):
+			result.append(file_name)
+		file_name = dir.get_next()
+	result.sort()
+	return result
+
 static func delete_save_slot(slot_path: String) -> bool:
 	if not DirAccess.dir_exists_absolute(slot_path):
 		return false
@@ -59,6 +73,15 @@ static func delete_save_slot(slot_path: String) -> bool:
 			if file_name.ends_with(".json"):
 				dir.remove(file_name)
 			file_name = dir.get_next()
-	DirAccess.remove_absolute(slot_path.path_join("chunks"))
+	var chunks_path: String = slot_path.path_join("chunks")
+	var chunks_dir := DirAccess.open(chunks_path)
+	if chunks_dir:
+		chunks_dir.list_dir_begin()
+		var chunk_file_name: String = chunks_dir.get_next()
+		while chunk_file_name != "":
+			if not chunks_dir.current_is_dir() and chunk_file_name.ends_with(".json"):
+				chunks_dir.remove(chunk_file_name)
+			chunk_file_name = chunks_dir.get_next()
+	DirAccess.remove_absolute(chunks_path)
 	DirAccess.remove_absolute(slot_path)
 	return true

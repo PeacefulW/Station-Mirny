@@ -69,6 +69,7 @@ Current transition strategy:
 
 ### World / Runtime foundation
 - [World Grid Rebuild Foundation](world/world_grid_rebuild_foundation.md)
+- [World Runtime V0](world/world_runtime.md)
 
 The removed pre-rebuild world stack now rebuilds from this living world-grid contract
 plus the approved ADR stack:

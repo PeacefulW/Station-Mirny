@@ -5,13 +5,20 @@ extends RefCounted
 ## Не работает с файловой системой напрямую.
 
 static func apply_world(tree: SceneTree, data: Dictionary) -> bool:
-	var _scene_tree: SceneTree = tree
-	var _data: Dictionary = data
+	var chunk_managers: Array[Node] = tree.get_nodes_in_group("chunk_manager")
+	if not chunk_managers.is_empty():
+		var chunk_manager: Node = chunk_managers[0]
+		if chunk_manager.has_method("load_world_state"):
+			chunk_manager.load_world_state(data)
 	return true
 
 static func apply_chunk_data(tree: SceneTree, data: Dictionary) -> void:
-	var _scene_tree: SceneTree = tree
-	var _data: Dictionary = data
+	var chunk_managers: Array[Node] = tree.get_nodes_in_group("chunk_manager")
+	if chunk_managers.is_empty():
+		return
+	var chunk_manager: Node = chunk_managers[0]
+	if chunk_manager.has_method("load_chunk_diffs"):
+		chunk_manager.load_chunk_diffs(data.get("chunks", []))
 
 static func apply_time(data: Dictionary) -> void:
 	if not TimeManager:

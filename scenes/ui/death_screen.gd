@@ -3,7 +3,7 @@ extends Control
 
 ## Экран смерти. Статистика + кнопки (загрузить / новая игра / меню).
 
-const WORLD_REBUILD_SCENE_PATH: String = "res://scenes/ui/world_rebuild_notice.tscn"
+const WORLD_REBUILD_SCENE_PATH: String = "res://scenes/world/world_runtime_v0.tscn"
 
 var _stats_container: VBoxContainer = null
 

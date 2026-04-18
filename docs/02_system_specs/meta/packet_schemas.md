@@ -47,6 +47,7 @@ Confirmed files:
 | `world.json` | `SaveCollectors.collect_world()` | `SaveAppliers.apply_world()` | `SaveCollectors` |
 | `time.json` | `SaveCollectors.collect_time()` | `SaveAppliers.apply_time()` | `TimeManager` |
 | `buildings.json` | `SaveCollectors.collect_buildings()` | `SaveAppliers.apply_buildings()` | `BuildingPersistence` |
+| `chunks/<x>_<y>.json` | `SaveCollectors.collect_chunk_data()` via `SaveManager._write_chunk_data()` | `SaveManager._read_chunk_data()` -> `SaveAppliers.apply_chunk_data()` | `WorldDiffStore` |
 
 ## Confirmed Save Payload Shapes
 
@@ -153,6 +154,37 @@ Current code note:
 {
   "world_rebuild_frozen": bool,
   "world_scene_present": bool,
+  "world_seed"?: int,
+  "world_version"?: int,
+}
+```
+
+Current code notes:
+- `world_seed` and `world_version` are present when a `chunk_manager` world runtime is active
+- legacy/frozen-world callers may still emit only the older boolean fields
+
+### `ChunkDiffFile`
+
+One JSON file per dirty chunk under `user://saves/<slot>/chunks/`.
+
+```text
+{
+  "chunk_coord": {
+    "x": int,
+    "y": int,
+  },
+  "tiles": Array[ChunkDiffTile],
+}
+```
+
+### `ChunkDiffTile`
+
+```text
+{
+  "local_x": int,
+  "local_y": int,
+  "terrain_id": int,
+  "walkable": bool,
 }
 ```
 
@@ -336,11 +368,27 @@ Failure shape:
 }
 ```
 
+## Confirmed Runtime Packet Shapes
+
+### `ChunkPacketV0`
+
+Returned by native `WorldCore.generate_chunk_packet(seed, coord, world_version)`.
+
+```text
+{
+  "chunk_coord": Vector2i,
+  "world_seed": int,
+  "world_version": int,
+  "terrain_ids": PackedInt32Array,   # length 1024
+  "walkable_flags": PackedByteArray, # length 1024
+}
+```
+
+Current code notes:
+- V0 intentionally omits climate bytes, river data, mountain data, placements, and decor
+- runtime mutations are not written back into `ChunkPacketV0`; they are persisted separately as `ChunkDiffFile`
+
 ## Not Currently Confirmed
 
-The current code does not confirm a runtime `ChunkPacket` schema yet.
-
-Current related stubs:
-- `SaveCollectors.collect_chunk_data()` returns `{}`
-- `SaveAppliers.apply_chunk_data()` is a no-op
-
+The current code still does not confirm any packet fields beyond `ChunkPacketV0`
+for future biome, river, mountain, placement, or environment layers.

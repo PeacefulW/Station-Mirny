@@ -37,6 +37,7 @@ The intended save layout is conceptually:
 - meta
 - player state
 - base state
+- world seed / `world_version`
 - world seed / generation parameters
 - changed chunks only
 - tech/decryption state
@@ -50,6 +51,11 @@ The world should not serialize every untouched chunk.
 Instead:
 - base terrain generation remains deterministic from seed
 - only modified chunk state is persisted as runtime diff
+
+Current V0 runtime implementation:
+- `world.json` stores `world_seed` and `world_version` alongside the existing world flags
+- changed terrain diffs are sharded as `chunks/<x>_<y>.json`
+- load order is deterministic base restore first, then per-chunk diff apply
 
 ## Dependencies
 

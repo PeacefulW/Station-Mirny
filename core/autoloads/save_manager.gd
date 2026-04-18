@@ -11,6 +11,7 @@ const PLAYER_FILE: String = "player.json"
 const WORLD_FILE: String = "world.json"
 const TIME_FILE: String = "time.json"
 const BUILDINGS_FILE: String = "buildings.json"
+const CHUNKS_DIR: String = "chunks"
 const SAVE_VERSION: int = 4
 
 # --- Публичные ---
@@ -66,6 +67,10 @@ func save_game(slot_name: String = "") -> bool:
 		save_path.path_join(BUILDINGS_FILE),
 		SaveCollectors.collect_buildings(get_tree())
 	)
+	success = success and _write_chunk_data(
+		save_path,
+		SaveCollectors.collect_chunk_data(get_tree())
+	)
 
 	is_busy = false
 	if success:
@@ -95,6 +100,10 @@ func load_game(slot_name: String) -> bool:
 	var time_data: Dictionary = SaveIO.read_json(save_path.path_join(TIME_FILE))
 	if not time_data.is_empty():
 		SaveAppliers.apply_time(time_data)
+
+	var chunk_data: Dictionary = _read_chunk_data(save_path)
+	if not chunk_data.is_empty():
+		SaveAppliers.apply_chunk_data(get_tree(), chunk_data)
 
 	var buildings_data: Dictionary = SaveIO.read_json(save_path.path_join(BUILDINGS_FILE))
 	if not buildings_data.is_empty():
@@ -161,3 +170,43 @@ func _resolve_slot_name(slot_name: String) -> String:
 	if not current_slot.is_empty():
 		return current_slot
 	return "save_001"
+
+func _write_chunk_data(save_path: String, chunk_data: Dictionary) -> bool:
+	var chunks_path: String = save_path.path_join(CHUNKS_DIR)
+	if DirAccess.dir_exists_absolute(chunks_path):
+		for file_name: String in SaveIO.list_json_files(chunks_path):
+			DirAccess.remove_absolute(chunks_path.path_join(file_name))
+	else:
+		if not SaveIO.ensure_directory(chunks_path):
+			return false
+
+	var chunks: Array = chunk_data.get("chunks", [])
+	if chunks.is_empty():
+		DirAccess.remove_absolute(chunks_path)
+		return true
+
+	var success: bool = true
+	for chunk_variant: Variant in chunks:
+		var chunk_entry: Dictionary = chunk_variant as Dictionary
+		if chunk_entry.is_empty():
+			continue
+		var chunk_coord_data: Dictionary = chunk_entry.get("chunk_coord", {}) as Dictionary
+		var file_name: String = "%d_%d.json" % [
+			int(chunk_coord_data.get("x", 0)),
+			int(chunk_coord_data.get("y", 0))
+		]
+		success = success and SaveIO.write_json(chunks_path.path_join(file_name), chunk_entry)
+	return success
+
+func _read_chunk_data(save_path: String) -> Dictionary:
+	var chunks_path: String = save_path.path_join(CHUNKS_DIR)
+	var chunks: Array[Dictionary] = []
+	for file_name: String in SaveIO.list_json_files(chunks_path):
+		var chunk_entry: Dictionary = SaveIO.read_json(chunks_path.path_join(file_name))
+		if not chunk_entry.is_empty():
+			chunks.append(chunk_entry)
+	if chunks.is_empty():
+		return {}
+	return {
+		"chunks": chunks,
+	}

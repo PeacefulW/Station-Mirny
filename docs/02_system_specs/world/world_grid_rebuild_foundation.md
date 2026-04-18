@@ -15,6 +15,7 @@ related_docs:
   - ../../05_adrs/0002-wrap-world-is-cylindrical.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
   - ../meta/save_and_persistence.md
+  - world_runtime.md
 ---
 
 # World Grid Rebuild Foundation
@@ -197,7 +198,13 @@ Files that must not be touched:
 Goal: reintroduce the smallest viable world runtime surfaces that consume this contract
 without restoring the deleted stack wholesale.
 
+Scope anchor:
+- `world/world_runtime.md`
+- only the V0 vertical slice from that spec is in scope for the first rebuilt
+  runtime implementation task
+
 ### Iteration 3 - Streaming, save, and rebuild implementation
 
 Goal: reintroduce chunked world generation, persistence, and streaming under the
-`32 px` / `32 x 32` contract.
+`32 px` / `32 x 32` contract after the V0 slice is proven and approved for
+extension.

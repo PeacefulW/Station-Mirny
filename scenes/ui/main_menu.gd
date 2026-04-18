@@ -4,7 +4,7 @@ extends Control
 ## Главное меню при запуске игры.
 ## Кнопки: Новая игра, Продолжить, Загрузить, Настройки, Выход.
 
-const WORLD_REBUILD_SCENE_PATH: String = "res://scenes/ui/world_rebuild_notice.tscn"
+const WORLD_REBUILD_SCENE_PATH: String = "res://scenes/world/world_runtime_v0.tscn"
 
 var _btn_continue: Button = null
 var _load_panel: Control = null

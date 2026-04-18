@@ -59,6 +59,7 @@ Templates for future docs.
 ### System Specs
 - [System Specs Index](02_system_specs/README.md)
 - [World Grid Rebuild Foundation](02_system_specs/world/world_grid_rebuild_foundation.md)
+- [World Runtime V0](02_system_specs/world/world_runtime.md)
 - [Engineering Networks](02_system_specs/base/engineering_networks.md)
 - [Building and Rooms](02_system_specs/base/building_and_rooms.md)
 - [Automation and Logistics](02_system_specs/base/automation_and_logistics.md)
@@ -144,6 +145,7 @@ Templates for future docs.
 
 ### "Where did the old world/runtime docs go?"
 - [World Grid Rebuild Foundation](02_system_specs/world/world_grid_rebuild_foundation.md)
+- [World Runtime V0](02_system_specs/world/world_runtime.md)
 - [ADR-0001 Runtime Work and Dirty Update Foundation](05_adrs/0001-runtime-work-and-dirty-update-foundation.md)
 - [ADR-0002 Wrap-World Is Cylindrical](05_adrs/0002-wrap-world-is-cylindrical.md)
 - [ADR-0003 Immutable Base + Runtime Diff](05_adrs/0003-immutable-base-plus-runtime-diff.md)
