@@ -36,7 +36,7 @@ These items are not locked canon yet:
 5. Final release platform framing and whether that affects in-fiction references.
 6. Language rollout expectations as a world-facing product consideration.
 7. Whether underwater biomes or equivalent submerged spaces belong in final world canon.
-8. Whether the title "Станция Мирный" is final in-universe/product naming or still a working name.
+8. Whether the title "Station Mirny" is final in-universe/product naming or still a working name.
 
 ## Working rule
 

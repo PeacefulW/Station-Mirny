@@ -1,13 +1,13 @@
 ---
-title: Неприкосновенный опыт (Non-Negotiable Experience)
+title: Non-Negotiable Experience (Legacy Mirror Path)
 doc_type: product_foundation
 status: draft
 owner: design
 source_of_truth: false
-translation_of: NON_NEGOTIABLE_EXPERIENCE.md
-language: ru
+legacy_mirror_of: NON_NEGOTIABLE_EXPERIENCE.md
+language: en
 version: 0.1
-last_updated: 2026-03-25
+last_updated: 2026-04-18
 depends_on:
   - GAME_VISION_GDD.md
 related_docs:
@@ -19,325 +19,326 @@ related_docs:
   - ../02_system_specs/meta/multiplayer_authority_and_replication.md
 ---
 
-# Неприкосновенный опыт (Non-Negotiable Experience)
+# Non-Negotiable Experience (Legacy Mirror Path)
 
-> Это русская переводная копия. Канонический оригинал остается в [NON_NEGOTIABLE_EXPERIENCE.md](./NON_NEGOTIABLE_EXPERIENCE.md).
+> This file is retained for legacy path compatibility. The canonical source
+> remains [NON_NEGOTIABLE_EXPERIENCE.md](./NON_NEGOTIABLE_EXPERIENCE.md).
 
-Этот документ определяет ключевые истины игрового опыта Station Mirny, которые должны оставаться нетронутыми при любых будущих дизайнерских, технических, контентных и решениях по реализации.
+This document defines the experience-level truths of Station Mirny that must remain intact across all future design, technical, content, and implementation decisions.
 
-Если предлагаемая фича, оптимизация, контент-пак, или системный рефактор ослабляет эти опоры, такое предложение нужно пересматривать.
+If a proposed feature, optimization, content pack, or system refactor weakens these pillars, that proposal should be reconsidered.
 
-Этот файл намеренно короткий, резкий и продуктового уровня.
-Это не низкоуровневая спецификация механик и не документ по технической архитектуре.
+This file is intentionally short, sharp, and product-level.
+It is not a low-level mechanics spec and not a technical architecture document.
 
-## Назначение
+## Purpose
 
-Этот документ нужен, чтобы защищать эмоциональную и игровую идентичность игры.
+This document exists to protect the emotional and experiential identity of the game.
 
-Он отвечает на вопросы:
+It answers:
 
-- что игрок должен стабильно чувствовать в игре
-- что игрок должен переживать стабильно
-- что нельзя потерять, даже если детали со временем меняются
+- what the game must *feel like*
+- what the player must consistently experience
+- what must never be lost, even if details evolve
 
-## Этот документ определяет
+## This document owns
 
-Этот файл определяет:
+This file owns:
 
-- несводимое эмоциональное ядро игры
-- самые приоритетные продуктовые столпы
-- опыт игрока, по которому не допускаются компромиссы
-- фильтр восприятия, через который нужно оценивать будущие системы и контент
+- the irreducible emotional core of the game
+- the highest-priority product pillars
+- the non-negotiable player experience
+- the experiential filter used to judge future systems and content
 
-## Этот документ не определяет
+## This document does not own
 
-Этот файл не определяет:
+This file does not own:
 
-- низкоуровневую runtime-архитектуру
-- правила производительности
-- контракты save/load
-- точные формулы
-- точную реализацию света, погоды, сезонов, фауны или генерации мира
-- полный канон лора
-- последовательность milestone-этапов
+- low-level runtime architecture
+- performance rules
+- save/load contracts
+- exact formulas
+- exact implementation of lighting, weather, seasons, fauna, or world generation
+- full lore canon
+- milestone sequencing
 
-Это находится в:
+Those belong in:
 
-- governance-документах
+- governance docs
 - system specs
 - content bible
-- дорожной карте и документах исполнения
+- roadmap / execution docs
 
-## Базовое утверждение об опыте
+## Core experience statement
 
-**Внутри безопасно. Снаружи враждебно.**
+**Inside feels safe. Outside feels hostile.**
 
-Station Mirny - это survival/base-builder про построение настоящей безопасности в мире, который красив, жив и глубоко опасен.
+Station Mirny is a survival/base-builder about building real safety in a world that is beautiful, alive, and deeply threatening.
 
-Эмоциональное сердце игры - это не просто "выжить".
+The emotional heart of the game is not simply "survive."
 
-Это:
+It is:
 
-**создать тепло, свет, порядок и укрытие в мире тьмы, ветра, холода, неопределенности и открытости опасности.**
+**create warmth, light, order, and shelter in a world of darkness, wind, cold, uncertainty, and exposure.**
 
-## Главный контраст
+## The primary contrast
 
-Самый важный контраст во всей игре:
+The single most important contrast in the entire game is:
 
-- внутри и снаружи
-- свет и тьма
-- тепло и открытая уязвимость
-- укрытие и дикая среда
-- контроль и безразличие мира
-- возвращение и риск
+- inside vs outside
+- light vs darkness
+- warmth vs exposure
+- shelter vs wilderness
+- control vs indifference
+- return vs risk
 
-Если этот контраст ослабевает, игра теряет свою идентичность.
+If this contrast becomes weak, the game loses its identity.
 
-## Непереговорные столпы
+## Non-negotiable pillars
 
-### 1. База должна ощущаться настоящим убежищем
+### 1. The base must feel like a true sanctuary
 
-База - это не просто контейнер для станков.
+The base is not just a container for crafting stations.
 
-Она должна ощущаться как:
+It must feel like:
 
-- тепло
-- свет
-- структура
-- пригодная для дыхания безопасность
-- эмоциональная точка сброса
-- видимое авторство игрока
-- человеческий порядок против враждебности планеты
+- warmth
+- light
+- structure
+- breathable safety
+- emotional reset
+- visible player authorship
+- human order against planetary hostility
 
-Возвращение домой должно приносить облегчение.
+Returning home should feel relieving.
 
-Улучшение базы должно ощущаться значимым не только механически, но и эмоционально.
+Improving the base should feel meaningful not only mechanically, but emotionally.
 
-### 2. Внешний мир должен быть опасным, даже когда никто не атакует
+### 2. The outside must feel dangerous even when nothing is attacking you
 
-Внешний мир должен угрожать через среду, а не только через бой.
+The outside world must be threatening through environment, not only combat.
 
-Угроза должна приходить из таких вещей, как:
+Threat should come from things like:
 
-- тьма
-- ветер
-- холод
-- расстояние до укрытия
-- погода
-- низкая видимость
-- рельеф
-- сезонная суровость
-- неопределенность среды
-- плохая подготовка
+- darkness
+- wind
+- cold
+- distance from shelter
+- weather
+- low visibility
+- terrain
+- seasonal severity
+- environmental uncertainty
+- being unprepared
 
-Игрок не должен надолго чувствовать себя полностью расслабленно снаружи.
+The player should never feel fully casual outside for long.
 
-### 3. Свет - это безопасность
+### 3. Light is safety
 
-Освещение - это базовый столп, а не декорация.
+Lighting is a core pillar, not decoration.
 
-Свет должен поддерживать:
+Light must support:
 
-- читаемость
-- навигацию
-- эмоциональный комфорт
-- контраст между интерьером и экстерьером
-- подготовку к экспедициям
-- подземное напряжение
-- страх провала, когда света нет
+- readability
+- navigation
+- emotional comfort
+- contrast between interior and exterior
+- preparation for expeditions
+- underground tension
+- fear of failure when light is absent
 
-Освещенный интерьер должен ощущаться обжитым и безопасным.
-Темный внешний мир или подземная зона должны ощущаться неопределенными и стрессовыми.
+A lit interior should feel inhabited and safe.
+A dark exterior or underground area should feel uncertain and stressful.
 
-### 4. Тьма должна пугать, а не просто быть тусклой
+### 4. Darkness must be frightening, not merely dim
 
-Тьма должна создавать:
+Darkness should create:
 
-- неполную информацию
-- колебание
-- уязвимость
-- зависимость от переносного или установленного света
-- эмоциональное давление
+- incomplete information
+- hesitation
+- vulnerability
+- reliance on carried or placed light
+- emotional pressure
 
-Ночь должна материально менять ощущение мира.
+Night should materially change how the world feels.
 
-Подземная тьма должна ощущаться еще более интимной и опасной.
+Underground darkness should feel even more intimate and dangerous.
 
-### 5. Планета должна казаться живой
+### 5. The planet must feel alive
 
-Мир не должен ощущаться статичным или мертвым.
+The world must not feel static or dead.
 
-Он должен ощущаться живым через:
+It should feel alive through:
 
-- движущуюся траву
-- движущуюся древоподобную флору
-- ветер, проходящий через растительность
-- штормы и сезонные сдвиги
-- присутствие фауны
-- движение вдалеке
-- реакцию среды на погоду и время
+- moving grass
+- moving tree-like flora
+- wind passing through vegetation
+- storms and seasonal shifts
+- fauna presence
+- distant motion
+- environmental response to weather and time
 
-Даже когда игрок один, мир должен ощущаться населенным процессами, организмами и силами.
+Even when the player is alone, the world should feel inhabited by processes, organisms, and forces.
 
-### 6. Красота и страх должны сосуществовать
+### 6. Beauty and fear must coexist
 
-Внешний мир должен быть достаточно красивым, чтобы игрок хотел его исследовать.
+The exterior should be beautiful enough that the player wants to explore it.
 
-Тот же внешний мир должен быть достаточно враждебным, чтобы исследование всегда сопровождалось напряжением.
+The same exterior should be hostile enough that exploration always carries tension.
 
-Мир никогда не должен стать:
+The world must never become:
 
-- визуально мертвым
-- механически стерильным
-- просто красивым
-- просто уродливым
-- только карающим без чувства чуда
-- только красивым без опасности
+- visually dead
+- mechanically sterile
+- merely pretty
+- merely ugly
+- only punishing without wonder
+- only beautiful without danger
 
-### 7. Сезоны имеют значение
+### 7. Seasons matter
 
-Сезонная смена обязательна.
+Seasonal change is mandatory.
 
-Мир должен проходить через крупные сезонные состояния, аналогичные:
+The world must pass through major seasonal states analogous to:
 
-- суровости зимы
-- переходу весны
-- относительной открытости лета
-- спаду осени
+- winter-like severity
+- spring-like transition
+- summer-like relative openness
+- autumn-like decline
 
-Они не обязаны буквально копировать Землю.
+These do not need to mimic Earth literally.
 
-Но они должны влиять на:
+But they must affect:
 
-- настроение
-- планирование
-- заметность безопасности
-- давление на путешествия
-- ценность инфраструктуры
-- идентичность среды
+- mood
+- planning
+- visibility of safety
+- travel pressure
+- infrastructure value
+- environmental identity
 
-Игрок должен чувствовать, что одни периоды суровее других.
+The player must feel that some times are harsher than others.
 
-### 8. Ветер имеет значение
+### 8. Wind matters
 
-Ветер - один из фирменных носителей атмосферы в игре.
+Wind is one of the signature carriers of atmosphere in the game.
 
-Ветер должен быть видимым, читаемым и эмоционально значимым через:
+Wind must be visible, readable, and emotionally important through:
 
-- движение растительности
-- звуковую и средовую атмосферу
-- эскалацию шторма
-- чувство открытой уязвимости
-- враждебность внешнего мира
+- vegetation motion
+- environmental ambience
+- storm escalation
+- sense of exposure
+- exterior hostility
 
-Ветер помогает сделать внешний мир живым и небезопасным.
+Wind helps make the outside feel alive and unsafe.
 
-### 9. Подземное пространство - это и убежище, и опасность
+### 9. Underground space is both refuge and danger
 
-Подземная игра должна поддерживать обе фантазии:
+Underground play must support both fantasies:
 
-- защищенное расширение и укрытие
-- рискованную раскопку и открытие
+- protected expansion and shelter
+- risky excavation and discovery
 
-Игрок должен иметь возможность создать:
+The player should be able to create:
 
-- погреб
-- подземное техническое пространство
-- более глубокие выкопанные структуры
+- a cellar
+- underground utility space
+- deeper excavated structures
 
-Но подземелье также должно оставаться напряженным из-за:
+But underground should also remain tense because of:
 
-- тьмы
-- тесноты
-- неопределенности
-- скрытых угроз
-- того, что лежит глубже
+- darkness
+- confinement
+- uncertainty
+- hidden threats
+- what lies deeper
 
-### 10. Подготовка должна иметь значение
+### 10. Preparation must matter
 
-Игровой цикл обязан сохранять ритм:
+The game loop must preserve the rhythm of:
 
-- подготовиться
-- выйти наружу
-- выдержать давление
-- вернуться
-- восстановиться
-- расширить контроль
+- prepare
+- go out
+- endure pressure
+- return
+- recover
+- expand control
 
-Успех должен приходить из планирования, инфраструктуры, света, логистики и знания.
+Success should come from planning, infrastructure, light, logistics, and knowledge.
 
-А не из небрежной грубой силы.
+Not from careless brute force.
 
-### 11. Кооператив должен усиливать фантазию, а не сглаживать ее
+### 11. Co-op must strengthen the fantasy, not flatten it
 
-Будущий multiplayer должен усиливать:
+Future multiplayer should amplify:
 
-- совместную подготовку
-- совместные экспедиции
-- моменты спасения
-- облегчение при возвращении на базу
-- разделение труда под давлением
+- shared preparation
+- shared expeditions
+- rescue moments
+- return-to-base relief
+- division of labor under pressure
 
-Он не должен разрушать базовый контраст внутри/снаружи.
-Он не должен превращать мир в шумный хаос без напряжения.
+It must not destroy the core inside/outside contrast.
+It must not turn the world into noise-heavy chaos with no tension.
 
-### 12. Игрок всегда должен чувствовать, что мир сопротивляется
+### 12. The player must always feel the world pushing back
 
-Каким бы сильным ни стал игрок, мир не должен становиться эмоционально тривиальным.
+No matter how strong the player becomes, the world should never become emotionally trivial.
 
-Игрок может стать более способным.
-Игрок может построить более сильную инфраструктуру.
-Игрок может заходить дальше.
+The player may become more capable.
+The player may build stronger infrastructure.
+The player may push farther.
 
-Но планета все равно должна ощущаться как нечто, что нужно уважать, сдерживать и переживать.
+But the planet should still feel like something that must be respected, managed, and survived.
 
-## Фильтры опыта для будущих решений
+## Experience filters for future decisions
 
-Когда оценивается любая новая фича, система, биом, контент-пак или рефактор, нужно спросить:
+When evaluating any new feature, system, biome, content pack, or refactor, ask:
 
-1. Усиливает ли это контраст между внутренним и внешним?
-2. Помогает ли это базе ощущаться более безопасной, теплой, понятной или созданной самим игроком?
-3. Сохраняет ли это страх, неопределенность и уязвимость внешнего мира?
-4. Поддерживает ли это идею, что свет - безопасность, а тьма - давление?
-5. Оставляет ли это мир живым, красивым и опасным?
-6. Сохраняет ли это цикл "подготовка -> риск -> возвращение -> облегчение"?
-7. Работает ли это вместе с будущими сезонами, подземельем и кооперативом?
+1. Does this strengthen the inside/outside contrast?
+2. Does this help the base feel safer, warmer, clearer, or more authored?
+3. Does this preserve the fear, uncertainty, or exposure of the outside?
+4. Does this support light as safety and darkness as pressure?
+5. Does this keep the world alive, beautiful, and threatening?
+6. Does this preserve the prepare -> risk -> return -> relief loop?
+7. Does this still work with future seasons, underground, and co-op?
 
-Если на несколько из этих вопросов ответ "нет", значит добавление, скорее всего, уводит проект не туда.
+If the answer is "no" to several of these, the addition is likely off-direction.
 
-## Антицели
+## Anti-goals
 
-Игра не должна превратиться в:
+The game must not drift into:
 
-- обычную farming-песочницу без тревоги
-- плоскую crafting-игру, где база - только утилитарный инструмент
-- combat-first игру, где враждебность среды перестает иметь значение
-- статичный мир без ветра, без сезонной идентичности и без движения среды
-- внешний мир, в котором постоянно слишком комфортно
-- игру, где есть только страдание и нет красоты, облегчения и убежища
-- суп из систем, где эмоциональный цикл уже не читается
+- a generic farming sandbox with no dread
+- a flat crafting game where the base is only utility
+- a combat-first game where environmental hostility stops mattering
+- a static world with no wind, no seasonal identity, and no environmental motion
+- a permanently comfortable outside world
+- a purely miserable game with no beauty, no relief, and no sanctuary
+- a systems soup where the emotional loop is no longer readable
 
-## Что может меняться
+## What is allowed to evolve
 
-Следующее может меняться без нарушения этого документа:
+The following may change without violating this document:
 
-- точные детали лора
-- точная таксономия флоры
-- точные семейства фауны
-- точные формулы погоды
-- точная сезонная ритмика
-- точная численная суровость холода или тьмы
-- точные правила подземных структур
-- точный темп прогрессии
-- точная финальная реализация идентичности Terraformer в поздней игре
+- exact lore details
+- exact flora taxonomy
+- exact fauna families
+- exact weather formulas
+- exact seasonal cadence
+- exact numerical severity of cold or darkness
+- exact underground structure rules
+- exact progression pacing
+- exact final implementation of the Terraformer late-game identity
 
-Эти детали могут меняться.
+These details may evolve.
 
-Но эмоциональные истины выше - нет.
+The emotional truths above should not.
 
-## Финальное продуктовое утверждение
+## Final product statement
 
-Station Mirny должна оставаться игрой, где игрок строит настоящее убежище света, тепла и порядка в живом мире ветра, тьмы, холода, красоты и страха.
+Station Mirny must remain a game where the player builds a true sanctuary of light, warmth, and order in a living world of wind, darkness, cold, beauty, and fear.
 
-Это фундамент.
-Все остальное строится поверх него.
+That is the foundation.
+Everything else is built on top of it.

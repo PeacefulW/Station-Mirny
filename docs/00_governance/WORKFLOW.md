@@ -1,5 +1,5 @@
 ---
-title: Workflow — Порядок работы над задачей
+title: Workflow - Task Execution Order
 doc_type: governance
 status: approved
 owner: engineering
@@ -18,114 +18,117 @@ related_docs:
   - ../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
 ---
 
-# WORKFLOW — Порядок работы над любой задачей
+# WORKFLOW - Order of Work for Any Task
 
-> Этот документ обязателен для любого агента и разработчика.
-> Нарушение порядка = работа считается недисциплинированной.
+> This document is mandatory for every agent and developer.
+> Breaking this order means the work is considered undisciplined.
 
-## Правило #0: документация — источник правды, не код
+## Rule #0: Documentation is the source of truth, not code
 
-Агент не строит понимание архитектуры по коду.
-Сначала читаются living canonical docs, потом открывается код.
+An agent must not build its understanding of the architecture from code.
+Read living canonical docs first, then open code.
 
-### Базовый порядок чтения
+### Base reading order
 
 1. `AGENTS.md`
-2. пользовательский промпт или task brief
+2. the user prompt or task brief
 3. `docs/README.md`
 4. `docs/00_governance/WORKFLOW.md`
 5. `docs/00_governance/ENGINEERING_STANDARDS.md`
 6. `docs/00_governance/PROJECT_GLOSSARY.md`
-7. relevant approved spec или ADR
-8. только после этого — конкретные файлы кода из задачи
+7. the relevant approved spec or ADR
+8. only after that, the concrete code files named by the task
 
-### Дополнительное чтение для runtime-sensitive задач
+### Additional reading for runtime-sensitive tasks
 
-Если задача затрагивает runtime, loading, streaming, save/load, world,
-simulation или другое масштабируемое поведение, до кода также прочитай:
+If the task touches runtime, loading, streaming, save/load, world,
+simulation, or any other scalable behavior, also read before code:
 - `docs/05_adrs/0001-runtime-work-and-dirty-update-foundation.md`
-- relevant ADR из world/runtime стека, если он реально относится к задаче
+- the relevant ADR from the world/runtime stack, if it actually applies
 
-### Дополнительное чтение для feature / boundary-sensitive задач
+### Additional reading for feature / boundary-sensitive tasks
 
-Если задача:
-- добавляет новую фичу
-- меняет public/system boundary
-- вводит новый safe entrypoint
-- вводит новое важное событие
-- меняет payload, save shape, command result или иной boundary schema
-- добавляет новый mutation path между системами, tools или модами
+If the task:
+- adds a new feature
+- changes a public/system boundary
+- introduces a new safe entrypoint
+- introduces a new important event
+- changes a payload, save shape, command result, or another boundary schema
+- adds a new mutation path between systems, tools, or mods
 
-то до кода также прочитай и сверяй:
+then, before opening code, also read and cross-check:
 - `docs/02_system_specs/meta/system_api.md`
 - `docs/02_system_specs/meta/event_contracts.md`
 - `docs/02_system_specs/meta/packet_schemas.md`
 - `docs/02_system_specs/meta/commands.md`
 
-Если нужная граница там отсутствует:
-- нельзя молча обходить это через private/internal method, raw `Dictionary` или ad-hoc mutation path
-- нужно в рамках той же задачи явно решить, какой canonical boundary doc должен быть обновлён
+If the required boundary is missing there:
+- you may not silently route around it through a private/internal method, raw
+  `Dictionary`, or ad-hoc mutation path
+- within the same task, you must explicitly decide which canonical boundary doc
+  needs to be updated
 
-## Правило #1: не запускай широкое исследование по умолчанию
+## Rule #1: Do not start broad repository exploration by default
 
-Запрещено сканировать репозиторий "для понимания контекста", если задача уже
-называет spec, ADR, subsystem surface или список файлов.
+It is forbidden to scan the repository "to understand context" if the task
+already names the spec, ADR, subsystem surface, or file list.
 
-Если задача не указывает файл:
-- найди relevant spec/ADR
-- определи owner boundary и safe path из живых canonical docs
-- только потом открывай минимально достаточный код
+If the task does not name a file:
+- find the relevant spec or ADR
+- determine the owner boundary and safe path from living canonical docs
+- only then open the minimum code needed
 
-Если ни задача, ни docs не позволяют локализовать файл без широкого сканирования,
-остановись и уточни задачу у человека.
+If neither the task nor the docs let you localize the file without a broad
+scan, stop and ask the human to clarify the task.
 
-## Перед любой работой с кодом
+## Before any code work
 
-1. Прочитай relevant docs и зафиксируй:
-   - authoritative source of truth
-   - single write owner
-   - derived/cache state
-   - dirty unit
-   - runtime work class: `boot`, `background`, `interactive`
-2. Прочитай spec текущей фичи или bug brief, если он существует.
-3. Для feature / boundary-sensitive задачи зафиксируй:
-   - какой существующий safe path из `system_api.md`, `commands.md`,
-     `event_contracts.md` или `packet_schemas.md` ты обязан использовать
-   - какого surface не хватает и какой canonical doc должен быть обновлён
-   - что запрещено делать в обход documented API / command / event / schema
-4. Определи разрешенные файлы и запрещенные файлы.
-5. Только потом открывай код.
+1. Read the relevant docs and record:
+   - the authoritative source of truth
+   - the single write owner
+   - the derived/cache state
+   - the dirty unit
+   - the runtime work class: `boot`, `background`, or `interactive`
+2. Read the current feature spec or bug brief, if one exists.
+3. For a feature / boundary-sensitive task, record:
+   - which existing safe path from `system_api.md`, `commands.md`,
+     `event_contracts.md`, or `packet_schemas.md` must be used
+   - which surface is missing and which canonical doc must be updated
+   - what is forbidden outside the documented API / command / event / schema
+4. Determine the allowed files and forbidden files.
+5. Only then open code.
 
-Если approved feature spec не существует для новой фичи или структурного
-изменения — кодить нельзя. Сначала создается spec.
+If an approved feature spec does not exist for a new feature or structural
+change, do not code. Create the spec first.
 
-## Правила реализации
+## Implementation rules
 
-### 1. Одна задача, один шаг
+### 1. One task, one step
 
-Не делай будущие итерации заранее.
-Не превращай bug fix в refactor всей подсистемы.
+Do not implement future iterations early.
+Do not turn a bug fix into a refactor of the whole subsystem.
 
-### 2. Минимально достаточное изменение
+### 2. Minimum sufficient change
 
-Предпочитай самое маленькое изменение, которое:
-- удовлетворяет spec
-- сохраняет owner boundaries
-- не ломает scale path
-- закрывает acceptance tests
+Prefer the smallest change that:
+- satisfies the spec
+- preserves owner boundaries
+- does not break the scale path
+- closes the acceptance tests
 
-### 3. Закон производительности
+### 3. Performance law
 
-Для runtime-sensitive и extensible изменений заранее определи:
-- target scale / density
-- почему sync path остается ограниченным
-- что обязано уйти в queue / worker / native path
+For runtime-sensitive and extensible changes, determine in advance:
+- the target scale / density
+- why the sync path remains bounded
+- what must move to a queue / worker / native path
 
-Фраза "пока объектов мало" никогда не считается допустимым perf-обоснованием.
+The phrase "the object count is still small" is never valid performance
+justification.
 
-### 4. Никакого тихого drift документации
+### 4. No silent documentation drift
 
-Если изменились:
+If any of the following changed:
 - ownership
 - invariants
 - mutation paths
@@ -134,146 +137,150 @@ simulation или другое масштабируемое поведение, 
 - safe entry points
 - public read semantics
 - command set
-- event names, payloads, emitters или listener-facing guarantees
-- packet / payload / save / result schemas на границах
+- event names, payloads, emitters, or listener-facing guarantees
+- packet / payload / save / result schemas at boundaries
 - extension seams
 
-то relevant canonical docs обновляются в рамках этой же задачи.
+then the relevant canonical docs must be updated in the same task.
 
-Для boundary-sensitive задач по умолчанию это означает проверку и update при
-необходимости:
+For boundary-sensitive tasks, this means checking and updating if needed:
 - `system_api.md`
 - `event_contracts.md`
 - `packet_schemas.md`
 - `commands.md`
 
-## Допустимая модель чтения кода
+## Allowed code-reading model
 
-Читай только то, что нужно для текущего шага:
-- файлы, названные в задаче
-- файлы, названные в spec
-- файлы, названные или логически выведенные из relevant spec / ADR
+Read only what the current step needs:
+- files named by the task
+- files named by the spec
+- files named by, or logically implied from, the relevant spec / ADR
 
-Не открывай половину репозитория "на всякий случай".
+Do not open half the repository "just in case."
 
-## Acceptance tests и верификация
+## Acceptance tests and verification
 
-### Главный принцип
+### Main principle
 
-`passed` можно писать только после реального verification command в этой сессии.
+You may write `passed` only after a real verification command in this session.
 
-Подходящие способы:
+Acceptable methods:
 - grep/search
-- file read final state
-- parse/syntax/static check
-- validation script
-- explicit runtime run, если он был явно поручен
+- reading the final file state
+- parse/syntax/static checks
+- a validation script
+- an explicit runtime run, if it was explicitly assigned
 
-Что не считается доказательством:
-- "логика выглядит правильной"
-- пересказ собственного diff без команды
-- память о прошлой сессии
+What does not count as proof:
+- "the logic looks correct"
+- retelling your own diff without a command
+- memory from a previous session
 
-### Режимы верификации
+### Verification modes
 
-1. `статическая проверка (static verification)`
-   - обязательна для каждой задачи
-2. `ручная проверка пользователем (manual human verification)`
-   - честный default для visual/runtime/perf результатов без явного поручения на runtime run
-3. `явный runtime-прогон агентом (explicit agent-run runtime verification)`
-   - только если это явно требуется задачей, человеком или acceptance test
+1. `static verification`
+   - mandatory for every task
+2. `manual human verification`
+   - the honest default for visual/runtime/perf outcomes when no runtime run
+     was explicitly requested
+3. `explicit agent-run runtime verification`
+   - only if the task, the human, or the acceptance test explicitly requires it
 
 ## Closure report
 
-Каждая завершенная задача заканчивается user-facing closure report на русском
-языке с canonical English terms в скобках.
+Every completed task ends with a user-facing closure report written in Russian,
+with canonical English terms in parentheses.
 
-Используй этот формат:
+Use this structure:
 
 ```md
-## Отчёт о выполнении (Closure Report)
+## Closure Report
 
-### Что сделано (Implemented)
+### Implemented
 - ...
 
-### Корневая причина (Root cause)
+### Root Cause
 - ...
 
-### Изменённые файлы (Files changed)
+### Files Changed
 - ...
 
-### Проверки приёмки (Acceptance tests)
-- [ ] ... прошло (passed) / не прошло (failed) / требуется ручная проверка пользователем (manual human verification required) (метод верификации)
+### Acceptance Tests
+- [ ] ... passed / failed / manual human verification required (verification method)
 
-### Артефакты доказательства (Proof artifacts)
-- Статическая проверка (Static verification): ...
-- Ручная проверка пользователем (Manual human verification): [требуется / не требуется]
-- Рекомендованная проверка пользователем (Suggested human check): ...
+### Proof Artifacts
+- Static verification: ...
+- Manual human verification: [required / not required]
+- Suggested human check: ...
 
-### Артефакты производительности (Performance artifacts)
-- Статическая проверка (Static verification): ...
-- Явный runtime-прогон агентом (Explicit agent-run runtime verification): ... / не запускался в этой задаче по policy
-- Ручная проверка пользователем (Manual human verification): [требуется / не требуется]
-- Рекомендованная проверка пользователем (Suggested human check): ...
+### Performance Artifacts
+- Static verification: ...
+- Explicit agent-run runtime verification: ... / not run in this task per policy
+- Manual human verification: [required / not required]
+- Suggested human check: ...
 
-### Проверка канонической документации (Canonical documentation check)
-- Grep `<doc path>` для `<changed_name или keyword>`: [N совпадений, строки X, Y — updated / still accurate / 0 matches]
-- Секция "Required updates" в spec/ADR: [есть / нет] — [выполнено / не применимо / отложено]
+### Canonical Documentation Check
+- Grep `<doc path>` for `<changed_name or keyword>`: [N matches, lines X, Y - updated / still accurate / 0 matches]
+- "Required updates" section in spec/ADR: [present / absent] - [completed / not applicable / deferred]
 
-### Наблюдения вне задачи (Out-of-scope observations)
+### Out-of-Scope Observations
 - ...
 
-### Оставшиеся блокеры (Remaining blockers)
+### Remaining Blockers
 - ...
 
-### Обновление канонических документов (Canonical docs updated)
-- `<doc path>` — updated / not required (с grep-доказательством)
+### Canonical Docs Updated
+- `<doc path>` - updated / not required (with grep proof)
 ```
 
-`not required` без grep-доказательства запрещено.
+You must still render the actual user-facing report in Russian. The template
+above defines the required structure in English only.
 
-## Порядок исправления бага
+Writing `not required` without grep proof is forbidden.
 
-1. Прочитай relevant spec/ADR и определи, какой invariant или safe path нарушен.
-2. Найди минимальный owner-boundary файл, который отвечает за проблему.
-3. Исправь только текущий шаг.
-4. Запусти acceptance checks.
-5. Обнови relevant canonical docs, если изменилась документированная семантика.
-6. Напиши closure report.
+## Bug-fix order
 
-## Порядок оптимизации
+1. Read the relevant spec/ADR and determine which invariant or safe path is
+   broken.
+2. Find the minimum owner-boundary file responsible for the problem.
+3. Fix only the current step.
+4. Run the acceptance checks.
+5. Update the relevant canonical docs if the documented semantics changed.
+6. Write the closure report.
 
-1. Прочитай relevant spec/ADR и ADR-0001.
-2. Классифицируй работу: `boot`, `background`, `interactive`.
-3. Зафиксируй target scale, dirty unit и escalation path.
-4. Докажи, что hot path остается ограниченным.
-5. Не подменяй отсутствие архитектурной границы профайлерным "сейчас быстро".
+## Optimization order
 
-## Порядок подготовки implementation prompt
+1. Read the relevant spec/ADR and ADR-0001.
+2. Classify the work as `boot`, `background`, or `interactive`.
+3. Record the target scale, dirty unit, and escalation path.
+4. Prove that the hot path remains bounded.
+5. Do not hide a missing architecture boundary behind "it is fast for now."
 
-Хороший prompt должен содержать:
-- что прочитать сначала
-- что именно сделать
-- чего не делать
-- какие boundary docs (`system_api.md`, `event_contracts.md`,
-  `packet_schemas.md`, `commands.md`) нужно проверить перед кодом
-- разрешенные файлы
-- запрещенные файлы
+## How to prepare an implementation prompt
+
+A good prompt must include:
+- what to read first
+- what exactly to do
+- what not to do
+- which boundary docs (`system_api.md`, `event_contracts.md`,
+  `packet_schemas.md`, `commands.md`) must be checked before code
+- allowed files
+- forbidden files
 - acceptance tests
-- требование closure report
-- требование doc-check для relevant canonical docs
+- the closure-report requirement
+- the doc-check requirement for relevant canonical docs
 
-Шаблон:
+Template:
 
 ```md
-## Обязательно прочитай перед началом
+## Required reading before you start
 - [governing docs]
 
-## Задача
-- [один конкретный шаг]
+## Task
+- [one concrete step]
 
-## Контекст
-- [какая проблема решается]
+## Context
+- [which problem this solves]
 
 ## Boundary contract check
 - Existing safe path to use: [...]
@@ -287,56 +294,57 @@ simulation или другое масштабируемое поведение, 
 - Dirty unit: [...]
 - Escalation path: [...]
 
-## Scope — что делать
+## Scope - what to do
 - [...]
 
-## Scope — чего НЕ делать
+## Scope - what NOT to do
 - [...]
 
-## Файлы, которые можно трогать
+## Files that may be touched
 - [...]
 
-## Файлы, которые НЕЛЬЗЯ трогать
+## Files that must NOT be touched
 - [...]
 
 ## Acceptance tests
 - [ ] [...]
 
-## Формат результата
-- Closure report по формату из WORKFLOW.md
-- Проверить и обновить relevant canonical docs при необходимости
+## Result format
+- Closure report following the format from WORKFLOW.md
+- Check and update relevant canonical docs when needed
 ```
 
-## Антипаттерны
+## Anti-patterns
 
-По умолчанию запрещено:
-- сканировать репозиторий вместо чтения docs
-- кодить без approved spec для новой фичи
-- делать несколько итераций подряд без закрытия текущей
-- писать субъективные acceptance criteria
-- чинить соседние проблемы
-- менять documented semantics без обновления docs
-- добавлять новый public API / command / event / boundary schema без обновления
-  соответствующего canonical meta-doc
-- использовать private/internal method другой системы, если у неё уже есть
-  documented safe path
-- писать `passed` без доказательства
-- писать `not required` по документации без grep-подтверждения
+Forbidden by default:
+- scanning the repository instead of reading docs
+- coding without an approved spec for a new feature
+- doing multiple iterations in a row without closing the current one
+- writing subjective acceptance criteria
+- fixing adjacent problems
+- changing documented semantics without updating docs
+- adding a new public API / command / event / boundary schema without updating
+  the corresponding canonical meta-doc
+- using another system's private/internal method when a documented safe path
+  already exists
+- writing `passed` without proof
+- writing `not required` about documentation without grep confirmation
 
-## Чеклист "можно ли начинать кодить?"
+## Checklist: "Can coding start?"
 
-- [ ] `AGENTS.md` прочитан?
-- [ ] `docs/README.md` прочитан?
-- [ ] `WORKFLOW.md` прочитан?
-- [ ] `ENGINEERING_STANDARDS.md` и `PROJECT_GLOSSARY.md` прочитаны?
-- [ ] relevant spec/ADR прочитан?
+- [ ] `AGENTS.md` read?
+- [ ] `docs/README.md` read?
+- [ ] `WORKFLOW.md` read?
+- [ ] `ENGINEERING_STANDARDS.md` and `PROJECT_GLOSSARY.md` read?
+- [ ] relevant spec/ADR read?
 - [ ] relevant `system_api.md` / `event_contracts.md` /
-      `packet_schemas.md` / `commands.md` проверены, если задача feature /
-      boundary-sensitive?
-- [ ] acceptance tests конкретные и проверяемые?
-- [ ] target scale / dirty unit / escalation path определены для runtime-sensitive задачи?
-- [ ] если появляется новый API / event / schema / command, update
-      соответствующего canonical doc включен в scope?
-- [ ] разрешенные и запрещенные файлы названы?
+      `packet_schemas.md` / `commands.md` checked for feature /
+      boundary-sensitive work?
+- [ ] acceptance tests concrete and verifiable?
+- [ ] target scale / dirty unit / escalation path defined for
+      runtime-sensitive work?
+- [ ] if a new API / event / schema / command appears, is the update to the
+      corresponding canonical doc included in scope?
+- [ ] allowed files and forbidden files named?
 
-Если хотя бы один пункт — нет, кодить нельзя.
+If even one answer is "no," coding may not start.

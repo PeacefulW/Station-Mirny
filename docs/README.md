@@ -54,9 +54,7 @@ Templates for future docs.
 
 ### Product
 - [Game Vision GDD](01_product/GAME_VISION_GDD.md)
-- [Game Vision GDD (RU translation)](01_product/GAME_VISION_GDD.ru.md)
 - [Non-Negotiable Experience](01_product/NON_NEGOTIABLE_EXPERIENCE.md)
-- [Non-Negotiable Experience (RU translation)](01_product/NON_NEGOTIABLE_EXPERIENCE.ru.md)
 
 ### System Specs
 - [System Specs Index](02_system_specs/README.md)

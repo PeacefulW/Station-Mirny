@@ -1,13 +1,13 @@
 ---
-title: Видение игры (Game Vision GDD)
+title: Game Vision GDD (Legacy Mirror Path)
 doc_type: product
 status: approved
 owner: design
 source_of_truth: false
-translation_of: GAME_VISION_GDD.md
-language: ru
+legacy_mirror_of: GAME_VISION_GDD.md
+language: en
 version: 1.1
-last_updated: 2026-03-25
+last_updated: 2026-04-18
 related_docs:
   - GAME_VISION_GDD.md
   - ../02_system_specs/README.md
@@ -15,257 +15,258 @@ related_docs:
   - ../05_adrs/README.md
 ---
 
-# Видение игры (Game Vision GDD)
+# Game Vision GDD (Legacy Mirror Path)
 
-> Это русская переводная копия. Канонический оригинал остается в [GAME_VISION_GDD.md](./GAME_VISION_GDD.md).
+> This file is retained for legacy path compatibility. The canonical source
+> remains [GAME_VISION_GDD.md](./GAME_VISION_GDD.md).
 
-Это канонический документ продуктового уровня для Station Mirny.
+This is the canonical product-layer document for Station Mirny.
 
-## Роль документа в продукте
+## Product role
 
-Этот файл определяет:
-- базовую фантазию игры
-- фантазию игрока
-- продуктовые столпы
-- уникальные сильные стороны
-- игровой цикл высокого уровня
-- дугу прогрессии высокого уровня
-- идентичность поздней игры на высоком уровне
-- высокоуровневую рамку мира и лора
+This file owns:
+- core fantasy
+- player fantasy
+- product pillars
+- unique selling points
+- high-level gameplay loop
+- high-level progression arc
+- high-level late-game identity
+- high-level world and lore framing
 
-Этот файл не определяет:
-- низкоуровневую runtime-архитектуру
-- правила производительности
-- детальные системные контракты
-- исчерпывающие каталоги контента
-- последовательность milestone-этапов
+This file does not own:
+- low-level runtime architecture
+- performance rules
+- detailed system contracts
+- exhaustive content catalogs
+- milestone sequencing
 
-Это находится в:
-- [Инженерные стандарты (Engineering Standards)](../00_governance/ENGINEERING_STANDARDS.md)
+Those belong in:
+- [Engineering Standards](../00_governance/ENGINEERING_STANDARDS.md)
 - [ADR-0001 Runtime Work and Dirty Update Foundation](../05_adrs/0001-runtime-work-and-dirty-update-foundation.md)
 - `docs/02_system_specs/*`
 - `docs/03_content_bible/*`
-- [Индекс ADR (ADR Index)](../05_adrs/README.md)
+- [ADR Index](../05_adrs/README.md)
 
-## Общая рамка проекта
+## Project framing
 
-- Жанр: 2D top-down survival / base-builder с автоматизацией и элементами RPG
-- Движок: Godot 4
-- Основная платформа: PC
-- Долгосрочная цель: глубокая одиночная survival/base-building игра с потенциалом будущего кооператива
-- Задуманный масштаб: длинная прогрессия, несколько стратегических дуг, сильная атмосфера, значимая фантазия дома/базы
+- Genre: 2D top-down survival / base-builder with automation and RPG elements
+- Engine: Godot 4
+- Primary platform: PC
+- Long-term target: a deep single-player survival/base-building game with future co-op potential
+- Intended scope: long-form progression, multiple strategic arcs, strong atmosphere, meaningful home/base fantasy
 
-## Базовая фантазия
+## Core fantasy
 
-**"Внутри базы безопасно. Снаружи враждебно."**
+**"Inside the base feels safe. Outside feels hostile."**
 
-Игрок - это Engineer, застрявший на враждебной планете.
+The player is an Engineer stranded on a hostile planet.
 
-Планета пригодна для дыхания только в самом слабом смысле: она полна спор, холодных ночей и постоянного давления среды. Безопасности по умолчанию не существует. Игрок должен построить ее сам.
+The planet is breathable only in the weakest sense, full of spores, cold nights, and constant environmental pressure. Safety does not exist by default. The player must build it.
 
-Эмоциональный цикл такой:
-- выйти наружу под давлением
-- рисковать, чтобы добыть ресурсы, провести разведку или просто выжить
-- вернуться домой к воздуху, свету, теплу и порядку
+The emotional loop is:
+- go outside under pressure
+- take risks to gather resources, scout, or survive
+- return home to air, light, warmth, and order
 
-База - это не просто кучка станков для крафта. Это вручную построенный игроком остров безопасности в мире, который постоянно пытается забрать его обратно.
+The base is not just a crafting station cluster. It is the player's manually built island of safety in a world that is always trying to reclaim it.
 
-## Фантазия игрока
+## Player fantasy
 
-Фантазия игрока объединяет:
-- выжившего
-- полевого инженера
-- архитектора базы
-- оператора экспедиций
-- преобразователя мира в поздней игре
+The player fantasy combines:
+- survivor
+- field engineer
+- base architect
+- expedition operator
+- late-game world shaper
 
-Игрок должен чувствовать себя:
-- уязвимым в начале
-- компетентным в середине игры
-- стратегически сильным в поздней игре
-- но всегда зависимым от инфраструктуры, подготовки и контроля над средой
+The player should feel:
+- vulnerable early
+- competent in midgame
+- strategically powerful late
+- but always dependent on infrastructure, preparation, and environment control
 
-## Продуктовые столпы
+## Product pillars
 
-1. **База как убежище**
-   Самый сильный эмоциональный контраст в игре - это разница между внешней угрозой и внутренней безопасностью.
+1. **Base as sanctuary**
+   The strongest emotional contrast in the game is between exterior threat and interior safety.
 
-2. **Враждебный мир, а не только враждебные враги**
-   Сама среда - это система давления: O2, споры, температура, штормы, рельеф, тьма и логистика.
+2. **Hostile world, not just hostile enemies**
+   The environment itself is a system of pressure: O2, spores, temperature, storms, terrain, darkness, and logistics.
 
-3. **Инфраструктура имеет значение**
-   Выживание решается не только характеристиками. Его обеспечивают комнаты, воздух, энергия, вода, тепло, маршруты и инженерные решения.
+3. **Infrastructure matters**
+   Survival is not solved by stats alone. It is solved by rooms, air, power, water, heat, routing, and engineering choices.
 
-4. **Экспедиции должны быть напряженными**
-   Каждый выход за стены должен требовать планирования, цены, риска и приносить облегчение при возвращении.
+4. **Expeditions have tension**
+   Every trip outside the walls should involve planning, cost, risk, and relief on return.
 
-5. **Идентичность поздней игры**
-   Игрок не просто становится сильнее. В итоге он принимает мировоззрение Terraformer: навязывает планете человеческий порядок через индустриальную инфраструктуру.
+5. **Late-game identity**
+   The player does not simply become stronger. They eventually commit to the Terraformer worldview: imposing human order on the planet through industrial infrastructure.
 
-6. **Лор усиливает механику**
-   Тайна планеты не должна ощущаться оторванной от геймплея. Биологическая враждебность мира, мутационное давление, руины и прогрессия должны поддерживать центральное раскрытие.
+6. **Lore reinforces mechanics**
+   The mystery of the planet should not feel detached from gameplay. The world's biological hostility, mutation pressure, ruins, and progression should all support the central reveal.
 
-## Уникальные сильные стороны
+## Unique selling points
 
-1. **Идентичность Terraformer в поздней игре с отдельной фантазией и эстетикой**
-   - индустриальный бункер, машины, подчинение среды, тяжелая инфраструктура
+1. **Terraformer late-game identity with distinct fantasy and aesthetics**
+   - industrial bunker, machinery, environmental domination, heavy infrastructure
 
-2. **Save/load встроены в художественную логику мира**
-   Сохранение - это не просто функция меню; у него есть внутриигровое объяснение и роль в прогрессии.
+2. **Save/load tied to fiction**
+   Persistence is not just a menu feature; it has an in-world explanation and progression role.
 
-3. **Вместо обычного исследования - расшифровка (decryption)**
-   Технологии не изобретаются с нуля. Они восстанавливаются из поврежденных человеческих архивов.
+3. **Decryption instead of traditional research**
+   Technology is not invented from scratch. It is recovered from damaged human archives.
 
-4. **Среда как живое давление**
-   Споры, загрязнение, засоры систем, пробоины и деградация окружения придают миру собственную волю.
+4. **Environment as living pressure**
+   Spores, contamination, system clogging, breaches, and environmental decay give the world its own agency.
 
-5. **Поздний лорный поворот с механическими последствиями**
-   Планета не просто чужая; она связана с происхождением человечества и меняет смысл прогрессии Terraformer.
+5. **Late lore twist with mechanical consequences**
+   The planet is not merely alien; it is bound to humanity's origin and reshapes the meaning of the Terraformer progression.
 
-## Эмоциональные ориентиры высокого уровня
+## High-level emotional references
 
-Использовать как ориентиры по ощущению, а не как закон реализации:
+Use these as feeling references, not as implementation law:
 
-- Атмосфера: Stalker, Interstellar
-- Владение базой и напряжение от строительства комнат: RimWorld
-- Прямой контроль и ясность производства: Factorio
-- Давление выживания и настроение экспедиций: Subnautica, Don't Starve
+- Atmosphere: Stalker, Interstellar
+- Base ownership and room-building tension: RimWorld
+- Direct control and production clarity: Factorio
+- Survival pressure and expedition mood: Subnautica, Don't Starve
 
-## Рамка мира
+## World framing
 
-Человечество пережило коллапс Земли, живя на Ark - огромном орбитальном городе-корабле. Engineers отправляют на пригодные миры-кандидаты вместе с архивами знаний, инструментами и снаряжением для выживания.
+Humanity survived Earth's collapse by living on the Ark, a giant orbital city-ship. Engineers are sent to candidate worlds with knowledge archives, tools, and survival equipment.
 
-Игрок - один из таких Engineers. Посадка провалилась. Модуль разбился. Архивы повреждены. Связи нет. Игрок должен выжить и строить в одиночку.
+The player is one such Engineer. The landing failed. The module crashed. The archives are damaged. Contact is gone. The player must survive and build alone.
 
-Планета красива, враждебна, продуваема ветрами, заражена спорами и полна следов более древней цивилизации.
+The planet is beautiful, hostile, windswept, spore-ridden, and full of traces of an older civilization.
 
-## Высокоуровневая истина лора
+## High-level lore truth
 
-Позднее раскрытие таково:
-- планета связана с происхождением человечества
-- споры - это не просто яд, а биологическое давление отката назад
-- прогрессия Terraformer становится не только механическим, но и идеологическим выбором
+The late reveal is:
+- the planet is tied to humanity's origin
+- the spores are not simply poison but a biological rollback pressure
+- the Terraformer progression becomes ideological as well as a mechanical choice
 
-Детальный канон и порядок раскрытия должны жить в content bible, а не в этом файле.
+Detailed canon and reveal sequencing should live in the content bible, not in this file.
 
-## Игровой цикл высокого уровня
+## High-level gameplay loop
 
-Задуманный повторяющийся цикл:
+The intended repeated loop is:
 
-1. Стабилизировать базу.
-2. Подготовиться к выходу наружу.
-3. Выйти за ресурсами, разведкой, добычей, боем или к точке интереса.
-4. Вернуться до того, как логистика или системы выживания откажут.
-5. Переработать добытое в более сильную инфраструктуру.
-6. Использовать эту инфраструктуру, чтобы уходить дальше, дольше выживать и открывать новые проблемы.
+1. Stabilize the base.
+2. Prepare for an exterior trip.
+3. Go outside to gather, scout, mine, fight, or reach a point of interest.
+4. Return before logistics or survival systems fail.
+5. Reprocess what was gained into stronger infrastructure.
+6. Use stronger infrastructure to go farther, survive longer, and unlock new problems.
 
-Ключевой эмоциональный ритм:
-- подготовка
-- напряжение
-- добыча
-- возвращение
-- облегчение
-- расширение
+The key emotional rhythm is:
+- preparation
+- tension
+- extraction
+- return
+- relief
+- expansion
 
-## Высокоуровневая дуга прогрессии
+## High-level progression arc
 
-### Ранняя игра
-- пережить крушение
-- обеспечить себе немедленное укрытие
-- стабилизировать воздух, тепло и базовые материалы
-- понять, что внешний мир опасен и дорог
+### Early game
+- survive the crash
+- secure immediate shelter
+- stabilize air, heat, and basic materials
+- learn that the exterior is dangerous and costly
 
-### Средняя игра
-- расширять инфраструктуру
-- оформлять производственные цепочки
-- делать экспедиции безопаснее
-- исследовать руины, подземные зоны и более редкие биомы
-- начать расшифровку и расширять территориальное присутствие
+### Midgame
+- expand infrastructure
+- formalize production chains
+- build safer expeditions
+- explore ruins, underground areas, and rarer biomes
+- start decryption and wider territorial presence
 
-### Поздняя игра
-- принять идентичность Terraformer
-- выразить ее через инфраструктуру и прогрессию
-- понять правду о планете
-- прийти к финальному состоянию, отражающему философию Terraformer
+### Late game
+- commit to Terraformer identity
+- express that identity through infrastructure and progression
+- understand the truth of the planet
+- reach an end-state that reflects the Terraformer philosophy
 
-## Идентичность поздней игры: Terraformer
+## Late-game identity: Terraformer
 
-Фантазия:
-- навязать порядок враждебному миру
-- индустриализировать выживание
-- превратить опасность в контролируемую инфраструктуру
+Fantasy:
+- impose order on a hostile world
+- industrialize survival
+- turn danger into controlled infrastructure
 
-Ожидаемая эстетика:
-- логика бункера
-- машины
-- твердые поверхности
-- доминирование над средой
-- тяжелая инфраструктура
-- зачистка фауны
-- изменение рельефа
+Expected aesthetic:
+- bunker logic
+- machinery
+- hard surfaces
+- environmental domination
+- heavy infrastructure
+- clearing fauna
+- reshaping terrain
 
-## Фантазия базы
+## Base fantasy
 
-База должна ощущаться как:
-- укрытие
-- логистический узел
-- эмоциональная точка сброса
-- видимое авторство игрока
+The base should feel like:
+- shelter
+- logistics hub
+- emotional reset point
+- player authorship made visible
 
-Возвращение на базу должно передавать:
-- воздух
-- тепло
-- свет
-- организованность
-- контроль
+Returning to the base should communicate:
+- air
+- warmth
+- light
+- organization
+- control
 
-Потеря целостности базы должна ощущаться серьезно, потому что напрямую бьет по базовой фантазии игры.
+Losing integrity in the base should feel serious because it attacks the game's core fantasy directly.
 
-## Фантазия внешнего мира
+## Exterior fantasy
 
-Снаружи должно быть:
-- дорого
-- открыто
-- неопределенно
-- красиво, но небезопасно
+The outside should feel:
+- costly
+- exposed
+- uncertain
+- beautiful but unsafe
 
-Угроза не обязана исходить только из боя. Она должна приходить из:
-- давления по кислороду
-- загрязнения
-- температуры
-- расстояния
-- видимости
-- навигации
-- шума
-- времени суток
+Threat does not need to come only from combat. It should come from:
+- oxygen pressure
+- contamination
+- temperature
+- distance
+- visibility
+- navigation
+- noise
+- time of day
 
-## День/ночь и сезоны на уровне продукта
+## Day/night and seasons at product level
 
-На уровне продукта:
-- день поддерживает путешествия и планирование
-- ночь усиливает напряжение и уязвимость
-- сезоны меняют стратегическую ценность инфраструктуры, исследований и доступа к ресурсам
+At the product level:
+- day supports travel and planning
+- night increases tension and vulnerability
+- seasons shift the strategic value of infrastructure, exploration, and resource access
 
-Подробный числовой баланс и правила реализации должны находиться в других документах.
+Detailed numerical balance and implementation rules belong elsewhere.
 
-## Границы содержания этого документа
+## Content boundaries for this document
 
-Этот файл должен описывать:
-- почему система важна
-- какой опыт она поддерживает
-- какую роль она играет в прогрессии
+This file should describe:
+- why a system matters
+- what experience it supports
+- what role it plays in progression
 
-Он не должен превращаться в:
-- стену из сырых рецептов
-- инженерную архитектурную спецификацию
-- руководство по производительности
-- полную лорную энциклопедию
-- чеклист milestone-этапов
+It should not become:
+- a wall of raw recipes
+- an engineering architecture spec
+- a performance manual
+- a full lore encyclopedia
+- a milestone checklist
 
-## Текущее каноническое продуктовое утверждение
+## Current canonical product statement
 
-Station Mirny - это survival/base-builder, где главная фантазия не просто "остаться в живых", а:
+Station Mirny is a survival/base-builder where the strongest fantasy is not simply "stay alive" but:
 
-**построить настоящее убежище в мире, который постоянно пытается отнять его обратно.**
+**build a real sanctuary in a world that is always trying to take it back.**
 
-Игрок выживает, конструируя безопасность, а затем берет курс на подчинение планеты через индустриальную инфраструктуру и навязанный порядок.
+The player survives by engineering safety, then commits to dominating the planet through industrial infrastructure and imposed order.

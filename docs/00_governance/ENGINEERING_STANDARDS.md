@@ -1,11 +1,11 @@
 ---
-title: РЎС‚Р°РЅРґР°СЂС‚С‹ СЂР°Р·СЂР°Р±РѕС‚РєРё Station Mirny
+title: Engineering Standards for Station Mirny
 doc_type: governance
 status: approved
 owner: engineering
 source_of_truth: true
 version: 3.2
-lang: ru
+lang: en
 last_updated: 2026-04-18
 depends_on:
   - WORKFLOW.md
@@ -17,498 +17,540 @@ related_docs:
   - ../02_system_specs/meta/commands.md
 ---
 
-# РЎС‚Р°РЅРґР°СЂС‚С‹ СЂР°Р·СЂР°Р±РѕС‚РєРё Station Mirny
+# Engineering Standards for Station Mirny
 
-Р­С‚РѕС‚ С„Р°Р№Р» вЂ” РµРґРёРЅСЃС‚РІРµРЅРЅС‹Р№ РєР°РЅРѕРЅРёС‡РµСЃРєРёР№ СЃС‚Р°РЅРґР°СЂС‚ РїСЂРѕРµРєС‚Р°.
-РћРЅ Р·Р°РјРµРЅСЏРµС‚ РІСЃРµ РїСЂРµРґС‹РґСѓС‰РёРµ РІРµСЂСЃРёРё ENGINEERING_STANDARDS.
-РР-Р°РіРµРЅС‚С‹ Рё СЂР°Р·СЂР°Р±РѕС‚С‡РёРєРё С‡РёС‚Р°СЋС‚ РµРіРѕ **РїРµСЂРµРґ РєРѕРґРѕРј**, Р° РЅРµ РїРѕСЃР»Рµ.
-
----
-
-## Р—РђРљРћРќ 0 вЂ” РљР»Р°СЃСЃРёС„РёРєР°С†РёСЏ РїРµСЂРµРґ РєРѕРґРѕРј
-
-**РџРµСЂРµРґ Р»СЋР±РѕР№ РЅРѕРІРѕР№ С„РёС‡РµР№ РёР»Рё РёР·РјРµРЅРµРЅРёРµРј СЃРёСЃС‚РµРјС‹ вЂ” РѕС‚РІРµС‚РёС‚СЊ РЅР° РІСЃРµ РІРѕРїСЂРѕСЃС‹ РЅРёР¶Рµ.**
-Р•СЃР»Рё С…РѕС‚СЏ Р±С‹ РѕРґРёРЅ РѕС‚РІРµС‚ РЅРµРёР·РІРµСЃС‚РµРЅ вЂ” СЃРЅР°С‡Р°Р»Р° СЂР°Р·РѕР±СЂР°С‚СЊСЃСЏ, РїРѕС‚РѕРј РєРѕРґ.
-
-```
-1.  Р­С‚Рѕ canonical world data, runtime overlay, РёР»Рё visual only?
-2.  РўСЂРµР±СѓРµС‚ Р»Рё save/load?
-3.  Р’Р»РёСЏРµС‚ Р»Рё РЅР° РґРµС‚РµСЂРјРёРЅРёР·Рј (РѕРґРёРЅР°РєРѕРІС‹Р№ СЂРµР·СѓР»СЊС‚Р°С‚ РЅР° Р»СЋР±РѕРј РєР»РёРµРЅС‚Рµ)?
-4.  РќСѓР¶РЅРѕ Р»Рё СЌС‚Рѕ РЅР° unloaded chunks?
-5.  Р­С‚Рѕ C++ compute РёР»Рё main-thread apply?
-6.  РљР°РєРѕР№ dirty unit (РјРёРЅРёРјР°Р»СЊРЅР°СЏ РµРґРёРЅРёС†Р° РїРµСЂРµСЃС‡С‘С‚Р°)?
-7.  РљС‚Рѕ РµРґРёРЅСЃС‚РІРµРЅРЅС‹Р№ С…РѕР·СЏРёРЅ СЌС‚РёС… РґР°РЅРЅС‹С…?
-8.  РњР°СЃС€С‚Р°Р±РёСЂСѓРµС‚СЃСЏ Р»Рё РїСЂРё 10x, 100x С‡РёСЃР»Рµ РѕР±СЉРµРєС‚РѕРІ?
-9.  Р‘Р»РѕРєРёСЂСѓРµС‚ Р»Рё main thread РїРѕРґ РЅР°РіСЂСѓР·РєРѕР№?
-10. Р•СЃС‚СЊ Р»Рё hidden fallback РІ GDScript РїСЂРё РѕС‚СЃСѓС‚СЃС‚РІРёРё native?
-11. РњРѕР¶РµС‚ Р»Рё РѕРїРµСЂР°С†РёСЏ СЃС‚Р°С‚СЊ С‚СЏР¶С‘Р»РѕР№ РІ Р±СѓРґСѓС‰РµРј?
-12. РќСѓР¶РµРЅ Р»Рё prepass РІСЃРµРіРѕ РјРёСЂР° РёР»Рё С‚РѕР»СЊРєРѕ Р»РѕРєР°Р»СЊРЅС‹Р№ compute?
-```
-
-Р•СЃР»Рё РѕРїРµСЂР°С†РёСЏ **РјРѕР¶РµС‚ СЃС‚Р°С‚СЊ С‚СЏР¶С‘Р»РѕР№ РІ Р±СѓРґСѓС‰РµРј** вЂ” РІС‹РЅРѕСЃРёС‚СЊ РІ РЅР°С‚РёРІРЅС‹Р№ РєРѕРґ **СЃСЂР°Р·Сѓ**, РЅРµ "РїРѕС‚РѕРј".
+This file is the only canonical engineering standard for the project.
+It supersedes all previous versions of `ENGINEERING_STANDARDS`.
+AI agents and developers read it before code, not after.
 
 ---
 
-## Р—РђРљРћРќ 1 вЂ” Р“СЂР°РЅРёС†Р° GDScript / C++
+## LAW 0 - Classification before code
 
-### GDScript вЂ” С‚РѕР»СЊРєРѕ РґР»СЏ:
-- РѕСЂРєРµСЃС‚СЂР°С†РёСЏ (orchestration) Рё РѕС‡РµСЂРµРґРё
-- СЃРѕСЃС‚РѕСЏРЅРёСЏ (state machines)
-- РІС‹Р·РѕРІС‹ native-СЃР»РѕСЏ
-- UI Рё РѕС‚РѕР±СЂР°Р¶РµРЅРёРµ
-- Р·Р°РіСЂСѓР·РєР° / СЃРѕС…СЂР°РЅРµРЅРёРµ
-- debug Рё dev tools
+**Before any new feature or system change, answer every question below.**
+If even one answer is unknown, stop and figure it out before coding.
 
-### РћР±СЏР·Р°С‚РµР»СЊРЅРѕ РІ C++ (GDExtension):
-- РіРµРЅРµСЂР°С†РёСЏ С‡Р°РЅРєРѕРІ (chunk generation)
+```
+1.  Is this canonical world data, a runtime overlay, or visual only?
+2.  Does it require save/load?
+3.  Does it affect determinism (the same result on every client)?
+4.  Must it work on unloaded chunks?
+5.  Is this C++ compute or main-thread apply?
+6.  What is the dirty unit (minimum recomputation unit)?
+7.  Who is the single owner of this data?
+8.  Does it scale at 10x or 100x the object count?
+9.  Does it block the main thread under load?
+10. Is there a hidden GDScript fallback when native code is unavailable?
+11. Could this operation become heavy in the future?
+12. Do we need a whole-world prepass or only local compute?
+```
+
+If an operation **could become heavy in the future**, move it into native code
+**immediately**, not "later."
+
+---
+
+## LAW 1 - GDScript / C++ boundary
+
+### GDScript is only for:
+- orchestration and queues
+- state machines
+- calls into the native layer
+- UI and presentation
+- loading / saving
+- debug and dev tools
+
+### Must be in C++ (GDExtension):
+- chunk generation
 - noise / field sampling
-- Р±РёРѕРјС‹, СЂРµРєРё, РіРѕСЂС‹ (biome / river / mountain solve)
+- biome / river / mountain solve
 - placement lists
 - tile mask / transition mask / atlas decisions
-- merge base chunk + diff
+- merging base chunk + diff
 - bulk packet prep
-- Р»СЋР±С‹Рµ РјР°СЃСЃРѕРІС‹Рµ СЂР°СЃС‡С‘С‚С‹ РїРѕ С‚Р°Р№Р»Р°Рј РёР»Рё РѕР±СЉРµРєС‚Р°Рј
+- any large-scale calculation over tiles or objects
 
-**РџСЂР°РІРёР»Рѕ:** Р•СЃР»Рё РѕРїРµСЂР°С†РёСЏ РІС‹РїРѕР»РЅСЏРµС‚СЃСЏ РІ С†РёРєР»Рµ РїРѕ С‚С‹СЃСЏС‡Р°Рј С‚Р°Р№Р»РѕРІ РёР»Рё РѕР±СЉРµРєС‚РѕРІ вЂ” СЌС‚Рѕ C++, РЅРµ GDScript.
-**РќР°СЂСѓС€РµРЅРёРµ:** GDScript-С†РёРєР» РїРѕ С‡Р°РЅРєСѓ / РїРѕ С‚Р°Р№Р»Р°Рј / РїРѕ placement list.
-
----
-
-## Р—РђРљРћРќ 2 вЂ” Main thread С‚РѕР»СЊРєРѕ РїСѓР±Р»РёРєСѓРµС‚
-
-Main thread **РЅРµ СЃС‡РёС‚Р°РµС‚ РјРёСЂ**. РћРЅ С‚РѕР»СЊРєРѕ РїСЂРёРјРµРЅСЏРµС‚ РіРѕС‚РѕРІС‹Р№ СЂРµР·СѓР»СЊС‚Р°С‚.
-
-### РќР° main thread СЂР°Р·СЂРµС€РµРЅРѕ:
-- СЃРѕР·РґР°С‚СЊ / РїРµСЂРµРёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ chunk view
-- РїСЂРёРјРµРЅРёС‚СЊ TileMap cells (apply)
-- РІРєР»СЋС‡РёС‚СЊ / РІС‹РєР»СЋС‡РёС‚СЊ РІРёРґРёРјРѕСЃС‚СЊ
-- Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°С‚СЊ РєРѕР»Р»РёР·РёРё
-- РїСЂРёРєСЂРµРїРёС‚СЊ / СЃРЅСЏС‚СЊ MultiMesh, particles, sound
-
-### РќР° main thread Р·Р°РїСЂРµС‰РµРЅРѕ:
-- РіРµРЅРµСЂРёСЂРѕРІР°С‚СЊ terrain
-- СЃС‡РёС‚Р°С‚СЊ Р±РёРѕРјС‹, POI, river masks
-- СЃС‚СЂРѕРёС‚СЊ tile transition / atlas arrays
-- РёС‚РµСЂРёСЂРѕРІР°С‚СЊ РїРѕ РІСЃРµРјСѓ С‡Р°РЅРєСѓ СЃРёРЅС…СЂРѕРЅРЅРѕ
-- РґРµР»Р°С‚СЊ С‡С‚Рѕ-Р»РёР±Рѕ, РјР°СЃС€С‚Р°Р±РёСЂСѓРµРјРѕСЃС‚СЊ С‡РµРіРѕ РЅРµ РѕРіСЂР°РЅРёС‡РµРЅР° С‡РёСЃР»РѕРј РѕР±СЉРµРєС‚РѕРІ
-
-**РџР°С‚С‚РµСЂРЅ:** Compute (worker / C++) в†’ Apply (main thread, bounded).
-Р¤СѓРЅРєС†РёСЏ, РєРѕС‚РѕСЂР°СЏ РѕРґРЅРѕРІСЂРµРјРµРЅРЅРѕ СЃС‡РёС‚Р°РµС‚ Р РјСѓС‚РёСЂСѓРµС‚ scene tree вЂ” РЅР°СЂСѓС€РµРЅРёРµ.
+**Rule:** If an operation runs in a loop over thousands of tiles or objects, it
+belongs in C++, not GDScript.
+**Violation:** a GDScript loop over a chunk / tiles / placement list.
 
 ---
 
-## Р—РђРљРћРќ 3 вЂ” Р“РµРЅРµСЂР°С‚РѕСЂ С‡Р°РЅРєР° вЂ” С‡РёСЃС‚Р°СЏ С„СѓРЅРєС†РёСЏ
+## LAW 2 - The main thread only publishes
 
-Р“РµРЅРµСЂР°С‚РѕСЂ С‡Р°РЅРєР° Р·Р°РІРёСЃРёС‚ **С‚РѕР»СЊРєРѕ** РѕС‚:
+The main thread **does not compute the world**. It only applies finished
+results.
+
+### Allowed on the main thread:
+- create / reuse a chunk view
+- apply TileMap cells
+- enable / disable visibility
+- register collisions
+- attach / detach MultiMesh, particles, and sound
+
+### Forbidden on the main thread:
+- generating terrain
+- resolving biomes, POIs, or river masks
+- building tile-transition / atlas arrays
+- iterating through the whole chunk synchronously
+- doing anything whose scale is not bounded by the number of local objects
+
+**Pattern:** Compute (worker / C++) -> Apply (main thread, bounded).
+A function that both computes and mutates the scene tree is a violation.
+
+---
+
+## LAW 3 - The chunk generator is a pure function
+
+The chunk generator depends **only** on:
 - `world_seed`
 - `chunk_coord`
 - `world_version`
 - `generation_settings`
 
-### Р“РµРЅРµСЂР°С‚РѕСЂСѓ Р·Р°РїСЂРµС‰РµРЅРѕ С‡РёС‚Р°С‚СЊ:
-- scene tree
+### The generator may not read:
+- the scene tree
 - loaded chunks
-- save-state
+- save state
 - player position
-- С‚РµРєСѓС‰СѓСЋ РєР°РјРµСЂСѓ
+- the current camera
 - visual state
-- Р»СЋР±РѕРµ runtime-СЃРѕСЃС‚РѕСЏРЅРёРµ РјРёСЂР°
+- any runtime state of the world
 
-**РџРѕС‡РµРјСѓ:** Р­С‚Рѕ РіР°СЂР°РЅС‚РёСЂСѓРµС‚ РґРµС‚РµСЂРјРёРЅРёР·Рј, РїР°СЂР°Р»Р»РµР»СЊРЅРѕСЃС‚СЊ РіРµРЅРµСЂР°С†РёРё Рё РєРѕСЂСЂРµРєС‚РЅРѕСЃС‚СЊ РЅР° РєР»РёРµРЅС‚Р°С….
+**Why:** This guarantees determinism, parallel generation, and correctness on
+clients.
 
 ---
 
-## Р—РђРљРћРќ 4 вЂ” Р’РµСЂСЃРёРѕРЅРёСЂРѕРІР°РЅРёРµ РјРёСЂР° (world_version)
+## LAW 4 - World versioning (`world_version`)
 
-Р›СЋР±РѕРµ РёР·РјРµРЅРµРЅРёРµ canonical world generation, РєРѕС‚РѕСЂРѕРµ РјРµРЅСЏРµС‚ СЂРµР·СѓР»СЊС‚Р°С‚ РґР»СЏ С‚РµС… Р¶Рµ `world_seed + chunk_coord`, **РѕР±СЏР·Р°РЅРѕ СѓРІРµР»РёС‡РёС‚СЊ `world_version`**.
+Any change to canonical world generation that changes the result for the same
+`world_seed + chunk_coord` **must bump `world_version`**.
 
-### Р‘РµР· СѓРІРµР»РёС‡РµРЅРёСЏ world_version РЅРµР»СЊР·СЏ РјРµРЅСЏС‚СЊ:
+### Without increasing `world_version`, you may not change:
 - terrain solve
 - rivers / lakes
 - mountains / cliffs
 - biome classification
-- placement rules (flora, POI, resources)
+- placement rules (flora, POIs, resources)
 
-### Р”РѕРїСѓСЃС‚РёРјРѕ Р±РµР· bumpa РІРµСЂСЃРёРё:
-- РІРёР·СѓР°Р»СЊРЅС‹Рµ РїР°СЂР°РјРµС‚СЂС‹, РЅРµ РІР»РёСЏСЋС‰РёРµ РЅР° tile type / walkability
-- performance-РѕРїС‚РёРјРёР·Р°С†РёРё СЃ РёРґРµРЅС‚РёС‡РЅС‹Рј output
-- РёСЃРїСЂР°РІР»РµРЅРёРµ Р±Р°РіРѕРІ, РЅРµ РјРµРЅСЏСЋС‰РёС… canonical СЂРµР·СѓР»СЊС‚Р°С‚
+### Allowed without a version bump:
+- visual parameters that do not affect tile type / walkability
+- performance optimizations with identical output
+- bug fixes that do not change the canonical result
 
-**РџРѕС‡РµРјСѓ:** РРЅР°С‡Рµ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёРµ СЃРµР№РІС‹ / С‡Р°РЅРєРё РїРµСЂРµСЃС‚Р°СЋС‚ СЃРѕРѕС‚РІРµС‚СЃС‚РІРѕРІР°С‚СЊ РіРµРЅРµСЂР°С‚РѕСЂСѓ Рё РјРёСЂ Р»РѕРјР°РµС‚СЃСЏ РЅРµРѕР±СЉСЏСЃРЅРёРјРѕ.
+**Why:** Otherwise existing saves / chunks stop matching the generator and the
+world breaks in ways that are hard to explain.
 
 ```gdscript
-# Р’ WorldGenerationSettings РёР»Рё Р°РЅР°Р»РѕРіРµ
-const WORLD_VERSION: int = 1  # bump РїСЂРё Р»СЋР±РѕРј РёР·РјРµРЅРµРЅРёРё canonical output
+# In WorldGenerationSettings or an equivalent location
+const WORLD_VERSION: int = 1  # Bump on any change to canonical output
 ```
 
 ---
 
-## Р—РђРљРћРќ 5 вЂ” Р‘Р°Р·РѕРІС‹Р№ РјРёСЂ РЅРµРёР·РјРµРЅСЏРµРј
+## LAW 5 - The base world is immutable
 
-Canonical world data **РЅРµ РјСѓС‚РёСЂСѓРµС‚СЃСЏ** РїРѕСЃР»Рµ РіРµРЅРµСЂР°С†РёРё С‡Р°РЅРєР°.
-Р›СЋР±С‹Рµ РёР·РјРµРЅРµРЅРёСЏ РёРіСЂРѕРєР° Рё СЃРёРјСѓР»СЏС†РёРё С…СЂР°РЅСЏС‚СЃСЏ РєР°Рє **runtime diff / overlay**, РѕС‚РґРµР»СЊРЅРѕ РѕС‚ base.
+Canonical world data **does not mutate** after chunk generation.
+All player and simulation changes are stored as a **runtime diff / overlay**,
+separate from the base.
 
-### Р—Р°РїСЂРµС‰РµРЅРѕ:
-- РїРµСЂРµРїРёСЃС‹РІР°С‚СЊ base terrain С‡Р°РЅРєР° РєР°Рє РЅРѕРІС‹Р№ РёСЃС‚РѕС‡РЅРёРє РёСЃС‚РёРЅС‹
-- СЃРјРµС€РёРІР°С‚СЊ generated data Рё player-made mutations РІ РѕРґРёРЅ СЃР»РѕР№ Р±РµР· СЏРІРЅРѕР№ РіСЂР°РЅРёС†С‹
-- СЃРѕС…СЂР°РЅСЏС‚СЊ base-РґР°РЅРЅС‹Рµ РІ save file (РѕРЅРё РґРµС‚РµСЂРјРёРЅРёСЂРѕРІР°РЅРЅРѕ РІРѕСЃСЃРѕР·РґР°СЋС‚СЃСЏ РёР· seed + version)
+### Forbidden:
+- rewriting a chunk's base terrain as a new source of truth
+- mixing generated data and player-made mutations into one layer without a
+  clear boundary
+- saving base data into the save file (it is deterministically recreated from
+  seed + version)
 
-### РђСЂС…РёС‚РµРєС‚СѓСЂР° СЃР»РѕС‘РІ:
+### Layer architecture:
 ```
-base layer   = f(world_seed, chunk_coord, world_version)  в†’  РЅРёРєРѕРіРґР° РЅРµ РјСѓС‚РёСЂСѓРµС‚СЃСЏ
-diff layer   = player mutations, excavations, placements   в†’  СЃРѕС…СЂР°РЅСЏРµС‚СЃСЏ
-overlay      = environmental simulation (snow, ice, fire)  в†’  РјРѕР¶РµС‚ РЅРµ СЃРѕС…СЂР°РЅСЏС‚СЊСЃСЏ
-visual layer = derived from base + diff + overlay          в†’  РЅРµ СЃРѕС…СЂР°РЅСЏРµС‚СЃСЏ
+base layer   = f(world_seed, chunk_coord, world_version)  -> never mutates
+diff layer   = player mutations, excavations, placements  -> persisted
+overlay      = environmental simulation (snow, ice, fire) -> may be transient
+visual layer = derived from base + diff + overlay         -> not persisted
 ```
 
-**РџРѕС‡РµРјСѓ:** Р Р°Р·РґРµР»РµРЅРёРµ base / diff вЂ” РµРґРёРЅСЃС‚РІРµРЅРЅР°СЏ РїСЂРёС‡РёРЅР°, РїРѕ РєРѕС‚РѕСЂРѕР№ save files РѕСЃС‚Р°СЋС‚СЃСЏ РјР°Р»РµРЅСЊРєРёРјРё Рё РєРѕСЂСЂРµРєС‚РЅС‹РјРё.
+**Why:** The base / diff split is the only reason save files stay small and
+correct.
 
 ---
 
-## Р—РђРљРћРќ 6 вЂ” Р“СЂР°РЅРёС†Р° native в†” script С‚РѕР»СЊРєРѕ С‡РµСЂРµР· chunk packet
+## LAW 6 - Native <-> script boundary only through a chunk packet
 
-Р”Р°РЅРЅС‹Рµ С‡Р°РЅРєР° РїРµСЂРµРґР°СЋС‚СЃСЏ РјРµР¶РґСѓ C++ (GDExtension) Рё GDScript **С‚РѕР»СЊРєРѕ РѕРґРЅРёРј РєРѕРјРїР°РєС‚РЅС‹Рј packet'РѕРј Р·Р° СЂР°Р·**.
+Chunk data moves between C++ (GDExtension) and GDScript **through one compact
+packet at a time**.
 
-### Р—Р°РїСЂРµС‰РµРЅРѕ:
-- СЃРѕС‚РЅРё РјРµР»РєРёС… РІС‹Р·РѕРІРѕРІ С‡РµСЂРµР· C++/GDScript РіСЂР°РЅРёС†Сѓ РЅР° РѕРґРёРЅ С‡Р°РЅРє
-- `Dictionary` РІРЅСѓС‚СЂРё `Dictionary` РІ hot path
-- РїРѕС€С‚СѓС‡РЅР°СЏ РїРµСЂРµРґР°С‡Р° С‚Р°Р№Р»РѕРІ, РѕР±СЉРµРєС‚РѕРІ, РјР°СЃРѕРє РѕС‚РґРµР»СЊРЅС‹РјРё РІС‹Р·РѕРІР°РјРё
+### Forbidden:
+- hundreds of tiny calls across the C++/GDScript boundary for one chunk
+- `Dictionary` inside `Dictionary` on a hot path
+- sending tiles, objects, or masks item by item in separate calls
 
-### Р Р°Р·СЂРµС€РµРЅРѕ:
+### Allowed:
 - `PackedInt32Array`, `PackedFloat32Array`, `PackedByteArray`
-- placement arrays (compact struct-like layout)
-- РѕРґРёРЅ РІС‹Р·РѕРІ РЅР° С‡Р°РЅРє, РІРѕР·РІСЂР°С‰Р°СЋС‰РёР№ РІРµСЃСЊ packet
+- placement arrays with a compact struct-like layout
+- one call per chunk that returns the whole packet
 
-**РџРѕС‡РµРјСѓ:** Overhead РЅР° РІС‹Р·РѕРІ С‡РµСЂРµР· C++/GDScript РіСЂР°РЅРёС†Сѓ РЅР°РєР°РїР»РёРІР°РµС‚СЃСЏ. РўС‹СЃСЏС‡Р° РІС‹Р·РѕРІРѕРІ РІРјРµСЃС‚Рѕ РѕРґРЅРѕРіРѕ РїР°РєРµС‚Р° СѓР±РёРІР°РµС‚ РїРµСЂС„РѕСЂРјР°РЅСЃ РґР°Р¶Рµ РїСЂРё Р»С‘РіРєРёС… РІС‹С‡РёСЃР»РµРЅРёСЏС….
+**Why:** C++/GDScript call overhead accumulates. A thousand calls instead of one
+packet destroys performance even when the underlying computation is light.
 
 ```gdscript
-# РџР›РћРҐРћ вЂ” С‚С‹СЃСЏС‡Р° РІС‹Р·РѕРІРѕРІ
+# BAD - a thousand calls
 for tile in chunk_tiles:
-    NativeGen.get_tile_type(tile.x, tile.y)  # РќРђР РЈРЁР•РќРР•
+    NativeGen.get_tile_type(tile.x, tile.y)  # VIOLATION
 
-# РҐРћР РћРЁРћ вЂ” РѕРґРёРЅ РїР°РєРµС‚
+# GOOD - one packet
 var packet: PackedInt32Array = NativeGen.generate_chunk_packet(chunk_coord)
 ```
 
 ---
 
-## Р—РђРљРћРќ 7 вЂ” РќРёРєР°РєРѕР№ sync resource loading РІ runtime path
+## LAW 7 - No sync resource loading on a runtime path
 
-Р’ runtime path Р·Р°РїСЂРµС‰РµРЅС‹:
-- `load()` РІРѕ РІСЂРµРјСЏ РіРµР№РјРїР»РµСЏ
-- `ResourceLoader.load()` Р±РµР· РїСЂРµРґРІР°СЂРёС‚РµР»СЊРЅРѕР№ РїРѕРґРіРѕС‚РѕРІРєРё
-- `PackedScene.instantiate()` РІ РјР°СЃСЃРѕРІС‹С… С†РёРєР»Р°С… (СЃРј. Р—РђРљРћРќ 9)
-- СЃРёРЅС…СЂРѕРЅРЅР°СЏ РїРѕРґРіСЂСѓР·РєР° С‚РµРєСЃС‚СѓСЂ, СЃС†РµРЅ, РјР°С‚РµСЂРёР°Р»РѕРІ РїСЂРё РІС…РѕРґРµ РІ РЅРѕРІС‹Р№ chunk
+Forbidden on a runtime path:
+- `load()` during gameplay
+- `ResourceLoader.load()` without prior preparation
+- `PackedScene.instantiate()` inside mass loops (see LAW 9)
+- synchronous loading of textures, scenes, or materials when entering a new
+  chunk
 
-### Р Р°Р·СЂРµС€РµРЅРѕ:
-- `preload()` РґР»СЏ РїРѕСЃС‚РѕСЏРЅРЅРѕ РёСЃРїРѕР»СЊР·СѓРµРјС‹С… СЂРµСЃСѓСЂСЃРѕРІ
-- С„РѕРЅРѕРІР°СЏ Р·Р°РіСЂСѓР·РєР° С‡РµСЂРµР· `ResourceLoader.load_threaded_*`
-- publish СѓР¶Рµ РіРѕС‚РѕРІС‹С… СЂРµСЃСѓСЂСЃРѕРІ РёР· РїСЂРµРґР·Р°РіСЂСѓР¶РµРЅРЅРѕРіРѕ РїСѓР»Р°
+### Allowed:
+- `preload()` for always-used resources
+- background loading through `ResourceLoader.load_threaded_*`
+- publishing already prepared resources from a preloaded pool
 
-**РџРѕС‡РµРјСѓ:** РЎРёРЅС…СЂРѕРЅРЅС‹Р№ `load()` РІ runtime Р±Р»РѕРєРёСЂСѓРµС‚ main thread РЅРµРїСЂРµРґСЃРєР°Р·СѓРµРјРѕ РґРѕР»РіРѕ вЂ” Р»Р°РіРё РїСЂРё СЃРјРµРЅРµ С‡Р°РЅРєРѕРІ С‡Р°СЃС‚Рѕ РёРјРµРЅРЅРѕ РѕС‚СЃСЋРґР°, РЅРµ РёР· worldgen.
+**Why:** Synchronous `load()` blocks the main thread unpredictably. Chunk-change
+hitches often come from this, not from world generation.
 
 ---
 
-## Р—РђРљРћРќ 8 вЂ” РћРґРёРЅ С…РѕР·СЏРёРЅ, РѕРґРЅР° РїСЂР°РІРґР°
+## LAW 8 - One owner, one truth
 
-РЈ РєР°Р¶РґРѕРіРѕ С‚РёРїР° РґР°РЅРЅС‹С… СЂРѕРІРЅРѕ **РѕРґРёРЅ РІР»Р°РґРµР»РµС† (write owner)**.
+Every data type has exactly **one write owner**.
 
-| Р”Р°РЅРЅС‹Рµ | Р’Р»Р°РґРµР»РµС† |
+| Data | Owner |
 |---|---|
-| Р‘Р°Р·РѕРІС‹Р№ terrain С‡Р°РЅРєР° | WorldCore / C++ generator |
-| РР·РјРµРЅРµРЅРёСЏ РёРіСЂРѕРєР° | WorldDiffStore |
-| Р’СЂРµРјСЏ СЃСѓС‚РѕРє | TimeSystem |
-| РЎРµР·РѕРЅРЅС‹Рµ overlays (СЃРЅРµРі, Р»С‘Рґ) | EnvironmentOverlay |
-| Р’РёР·СѓР°Р»СЊРЅС‹Рµ С‚РµРЅРё | WorldView |
-| РЎРѕСЃС‚РѕСЏРЅРёРµ РїРѕСЃС‚СЂРѕРµРє | BuildingRegistry |
+| Base chunk terrain | `WorldCore` / C++ generator |
+| Player changes | `WorldDiffStore` |
+| Time of day | `TimeSystem` |
+| Seasonal overlays (snow, ice) | `EnvironmentOverlay` |
+| Visual shadows | `WorldView` |
+| Building state | `BuildingRegistry` |
 
-### Р—Р°РїСЂРµС‰РµРЅРѕ:
-- ChunkView РІР»Р°РґРµРµС‚ terrain truth
-- visual system РІР»Р°РґРµРµС‚ gameplay truth
-- save system РіРµРЅРµСЂРёСЂСѓРµС‚ РјРёСЂ
-- streamer СЂРµС€Р°РµС‚ Р±РёРѕРјС‹
-- РЅРµСЃРєРѕР»СЊРєРѕ СЃРёСЃС‚РµРј РїРёС€СѓС‚ РѕРґРЅРё Рё С‚Рµ Р¶Рµ РґР°РЅРЅС‹Рµ
+### Forbidden:
+- `ChunkView` owning terrain truth
+- a visual system owning gameplay truth
+- the save system generating the world
+- the streamer deciding biomes
+- multiple systems writing the same data
 
 ---
 
-## Р—РђРљРћРќ 9 вЂ” РќРёРєР°РєРёС… СЃРєСЂС‹С‚С‹С… fallback
+## LAW 9 - No hidden fallbacks
 
-**РџСЂР°РІРёР»Рѕ:** Р•СЃР»Рё hot path С‚СЂРµР±СѓРµС‚ native compute вЂ” РїСЂРё РѕС‚СЃСѓС‚СЃС‚РІРёРё native РїСѓС‚СЊ **РїР°РґР°РµС‚** СЃ СЏРІРЅРѕР№ РѕС€РёР±РєРѕР№, Р° РЅРµ В«РІСЂРµРјРµРЅРЅРѕВ» РїРµСЂРµРєР»СЋС‡Р°РµС‚СЃСЏ РЅР° GDScript.
+**Rule:** If a hot path requires native compute, then when native code is
+unavailable, the path must **fail** with an explicit error. It must not
+"temporarily" switch to GDScript.
 
-"Р’СЂРµРјРµРЅРЅС‹Р№" GDScript-fallback СЃС‚Р°РЅРѕРІРёС‚СЃСЏ РїРѕСЃС‚РѕСЏРЅРЅРѕР№ Р°СЂС…РёС‚РµРєС‚СѓСЂРѕР№.
-Р­С‚Рѕ Р·Р°РїСЂРµС‰РµРЅРѕ.
+A "temporary" GDScript fallback becomes permanent architecture.
+That is forbidden.
 
 ```gdscript
-# РџР›РћРҐРћ
+# BAD
 if NativeChunkGen.is_available():
     result = NativeChunkGen.generate(coord)
 else:
-    result = _slow_gdscript_fallback(coord)  # РќРђР РЈРЁР•РќРР•
+    result = _slow_gdscript_fallback(coord)  # VIOLATION
 
-# РҐРћР РћРЁРћ
-assert(NativeChunkGen.is_available(), "NativeChunkGen required вЂ” build GDExtension first")
+# GOOD
+assert(NativeChunkGen.is_available(), "NativeChunkGen required - build GDExtension first")
 result = NativeChunkGen.generate(coord)
 ```
 
 ---
 
-## Р—РђРљРћРќ 10 вЂ” Р§Р°РЅРє РІРёРґРµРЅ С‚РѕР»СЊРєРѕ РєРѕРіРґР° gameplay-СЃР»РѕР№ РіРѕС‚РѕРІ
+## LAW 10 - A chunk is visible only when the gameplay layer is ready
 
-### РџРѕРєР°Р·С‹РІР°С‚СЊ С‡Р°РЅРє РјРѕР¶РЅРѕ С‚РѕР»СЊРєРѕ РєРѕРіРґР° РіРѕС‚РѕРІС‹:
+### You may show a chunk only when these are ready:
 - terrain
-- РІРѕРґР° / СЂРµРєР°
-- Р±Р»РѕРєРёСЂСѓСЋС‰РёРµ РєР»РµС‚РєРё
+- water / river
+- blocking cells
 - cliff / block masks
-- РІСЃС‘, С‡С‚Рѕ РІР»РёСЏРµС‚ РЅР° РґРІРёР¶РµРЅРёРµ Рё РєРѕР»Р»РёР·РёРё
+- everything that affects movement and collisions
 
-### РњРѕР¶РЅРѕ Р·Р°РіСЂСѓР¶Р°С‚СЊ РїРѕР·Р¶Рµ (РїРѕСЃР»Рµ РїРѕРєР°Р·Р°):
-- С‚СЂР°РІР°, РјРµР»РєРёР№ РґРµРєРѕСЂ
-- Р»РёСЃС‚СЊСЏ, СЃРЅРµРі, РїС‹Р»СЊ
-- РєРѕСЃРјРµС‚РёС‡РµСЃРєРёРµ С‚РµРЅРё
-- РЅРµРёРЅС‚РµСЂР°РєС‚РёРІРЅС‹Рµ СѓРєСЂР°С€РµРЅРёСЏ
+### These may load later (after reveal):
+- grass and small decor
+- leaves, snow, dust
+- cosmetic shadows
+- non-interactive decoration
 
-**РџСЂРёРЅС†РёРї:** `terrain now, cosmetics later`.
-РќРµРґРѕРїСѓСЃС‚РёРјРѕ: РїРѕРєР°Р·Р°С‚СЊ СЃС‹СЂРѕР№ С‡Р°РЅРє Рё "РґРѕСЂРёСЃРѕРІР°С‚СЊ РїРѕС‚РѕРј" gameplay-РєСЂРёС‚РёС‡РЅС‹Рµ СЃР»РѕРё.
+**Principle:** `terrain now, cosmetics later`.
+It is unacceptable to show a raw chunk and "draw in later" gameplay-critical
+layers.
 
 ---
 
-## Р—РђРљРћРќ 11 вЂ” РЈ РєР°Р¶РґРѕР№ runtime-С‡СѓРІСЃС‚РІРёС‚РµР»СЊРЅРѕР№ СЃРёСЃС‚РµРјС‹ РµСЃС‚СЊ dirty unit
+## LAW 11 - Every runtime-sensitive system has a dirty unit
 
-**РџСЂР°РІРёР»Рѕ:** Р›СЋР±Р°СЏ СЃРёСЃС‚РµРјР° РѕР±СЏР·Р°РЅР° СѓРєР°Р·Р°С‚СЊ СЃРІРѕСЋ **РјРёРЅРёРјР°Р»СЊРЅСѓСЋ РµРґРёРЅРёС†Сѓ РѕР±РЅРѕРІР»РµРЅРёСЏ (dirty unit)**.
+**Rule:** Every system must declare its **minimum update unit (dirty unit)**.
 
-| РЎРёСЃС‚РµРјР° | Dirty unit |
+| System | Dirty unit |
 |---|---|
-| Terrain redraw | subchunk 16Г—16 |
-| World generation | chunk 32Г—32 |
+| Terrain redraw | `16x16` subchunk |
+| World generation | `32x32` chunk |
 | Flora rebuild | chunk packet |
 | Ice / snow overlay | tile block / subchunk |
 | Save diff | tile / object mutation |
 | Power network | network segment |
 | Room flood-fill | room boundary |
 
-**Р—Р°РїСЂРµС‰РµРЅРѕ:** РѕР±РЅРѕРІР»СЏС‚СЊ В«РІСЃС‘ РІРѕРєСЂСѓРіВ», РµСЃР»Рё РјРѕР¶РЅРѕ РѕР±РЅРѕРІРёС‚СЊ dirty unit.
-**Р—Р°РїСЂРµС‰РµРЅРѕ:** РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ "СЃРµР№С‡Р°СЃ РѕР±СЉРµРєС‚РѕРІ РјР°Р»Рѕ" РєР°Рє РѕРїСЂР°РІРґР°РЅРёРµ РѕС‚СЃСѓС‚СЃС‚РІРёСЏ dirty unit.
+**Forbidden:** updating "everything around it" when a dirty unit is enough.
+**Forbidden:** using "the object count is still small" to justify having no
+dirty unit.
 
 ---
 
-## Р—РђРљРћРќ 12 вЂ” РќРёРєР°РєРѕРіРѕ global prepass РїР»Р°РЅРµС‚С‹
+## LAW 12 - No global planet prepass
 
-**РџСЂР°РІРёР»Рѕ:** РњРёСЂ РЅРµ С‚СЂРµР±СѓРµС‚ РіРµРЅРµСЂР°С†РёРё РІСЃРµР№ РїР»Р°РЅРµС‚С‹ РґРѕ СЃС‚Р°СЂС‚Р° РёРіСЂС‹.
+**Rule:** The game must not require generating the whole planet before startup.
 
-### Р Р°Р·СЂРµС€РµРЅРѕ:
+### Allowed:
 - local chunk generation
-- lazy macro-region cache
-- deterministic large-scale fields РїРѕ Р·Р°РїСЂРѕСЃСѓ
+- a lazy macro-region cache
+- deterministic large-scale fields on demand
 
-### Р—Р°РїСЂРµС‰РµРЅРѕ:
-- РѕР±СЏР·Р°С‚РµР»СЊРЅС‹Р№ global WorldPrePass РїСЂРё СЃС‚Р°СЂС‚Рµ
-- "СЃРЅР°С‡Р°Р»Р° РїРѕСЃС‡РёС‚Р°РµРј РІСЃСЋ РїР»Р°РЅРµС‚Сѓ, РїРѕС‚РѕРј РЅР°С‡РЅС‘Рј РёРіСЂСѓ"
-- СЃРёРЅС…СЂРѕРЅРЅС‹Р№ preload РІСЃРµС… Р±РёРѕРјРѕРІ
+### Forbidden:
+- a mandatory global `WorldPrePass` at startup
+- "first compute the entire planet, then start the game"
+- synchronous preloading of all biomes
 
 ---
 
-## Р—РђРљРћРќ 13 вЂ” РќРёРєР°РєРѕРіРѕ node-per-object РґР»СЏ РјР°СЃСЃРѕРІС‹С… РѕР±СЉРµРєС‚РѕРІ
+## LAW 13 - No node-per-object for mass objects
 
-**РџСЂР°РІРёР»Рѕ:** РњР°СЃСЃРѕРІР°СЏ С„Р»РѕСЂР°, РґРµРєРѕСЂ Рё debris РЅРµ СЃРѕР·РґР°СЋС‚СЃСЏ РєР°Рє РѕС‚РґРµР»СЊРЅС‹Рµ РЅРѕРґС‹ (Node) РїРѕ РѕРґРЅРѕРјСѓ РѕР±СЉРµРєС‚Сѓ.
+**Rule:** Mass flora, decor, and debris must not be instantiated as one `Node`
+per object.
 
-### РСЃРїРѕР»СЊР·РѕРІР°С‚СЊ:
-- `MultiMeshInstance2D` РґР»СЏ СЃС‚Р°С‚РёС‡РЅРѕР№ РјР°СЃСЃРѕРІРѕР№ С„Р»РѕСЂС‹
+### Use:
+- `MultiMeshInstance2D` for static mass flora
 - batch placement packets
-- Р°РєС‚РёРІР°С†РёСЋ В«РЅР°СЃС‚РѕСЏС‰РёС…В» РёРЅС‚РµСЂР°РєС‚РёРІРЅС‹С… РѕР±СЉРµРєС‚РѕРІ С‚РѕР»СЊРєРѕ СЂСЏРґРѕРј СЃ РёРіСЂРѕРєРѕРј (proximity activation)
+- activation of "real" interactive objects only near the player
+  (proximity activation)
 
-**РќР°СЂСѓС€РµРЅРёРµ:** С†РёРєР» `add_child(FlowerScene.instantiate())` РїРѕ С‚С‹СЃСЏС‡Р°Рј С‚Р°Р№Р»РѕРІ.
+**Violation:** a loop like `add_child(FlowerScene.instantiate())` across
+thousands of tiles.
 
 ---
 
-## Р—РђРљРћРќ 14 вЂ” Р Р°Р·РјРµСЂ СЃРєСЂРёРїС‚РѕРІ
+## LAW 14 - Script size
 
-| Р Р°Р·РјРµСЂ | РЎС‚Р°С‚СѓСЃ |
+| Size | Status |
 |---|---|
-| Р”Рѕ 500 СЃС‚СЂРѕРє | РќРѕСЂРјР° |
-| 500вЂ“800 СЃС‚СЂРѕРє | РџРѕРІРѕРґ СЂР°Р·РґРµР»РёС‚СЊ, РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ РѕР±СЉСЏСЃРЅРёС‚СЊ РїРѕС‡РµРјСѓ РЅРµ СЂР°Р·Р±РёС‚Рѕ |
-| РЎРІС‹С€Рµ 800 СЃС‚СЂРѕРє | **РќР°СЂСѓС€РµРЅРёРµ** вЂ” РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ СЂР°Р·Р±РёС‚СЊ |
+| Up to 500 lines | Normal |
+| 500-800 lines | Reason to split; must explain why it is still combined |
+| Over 800 lines | **Violation** - must be split |
 
-**РСЃРєР»СЋС‡РµРЅРёСЏ:** С‡РёСЃС‚С‹Рµ data tables, generated files.
+**Exceptions:** pure data tables, generated files.
 
-Р•СЃР»Рё С„Р°Р№Р» РѕРґРЅРѕРІСЂРµРјРµРЅРЅРѕ С…СЂР°РЅРёС‚ РґР°РЅРЅС‹Рµ, РіРµРЅРµСЂРёСЂСѓРµС‚ РґР°РЅРЅС‹Рµ, СЂРёСЃСѓРµС‚ РґР°РЅРЅС‹Рµ, СѓРїСЂР°РІР»СЏРµС‚ РѕС‡РµСЂРµРґСЏРјРё Рё СЃРѕРґРµСЂР¶РёС‚ РїР°С‚С‡Рё СЃРѕСЃС‚РѕСЏРЅРёСЏ вЂ” РѕРЅ РЅРµРїСЂР°РІРёР»СЊРЅС‹Р№ Рё РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ СЂР°Р·РґРµР»С‘РЅ РЅРµР·Р°РІРёСЃРёРјРѕ РѕС‚ С‡РёСЃР»Р° СЃС‚СЂРѕРє.
-
----
-
-## Р—РђРљРћРќ 15 вЂ” РћРґРёРЅ С„Р°Р№Р», РѕРґРЅР° РѕС‚РІРµС‚СЃС‚РІРµРЅРЅРѕСЃС‚СЊ
-
-РљР°Р¶РґС‹Р№ СЃРєСЂРёРїС‚ РґРµР»Р°РµС‚ СЂРѕРІРЅРѕ **РѕРґРЅСѓ РІРµС‰СЊ** РёР· СЃРїРёСЃРєР°:
-- С…СЂР°РЅРёС‚ РґР°РЅРЅС‹Рµ (data)
-- РіРµРЅРµСЂРёСЂСѓРµС‚ РґР°РЅРЅС‹Рµ (compute)
-- РѕС‚РѕР±СЂР°Р¶Р°РµС‚ РґР°РЅРЅС‹Рµ (view/render)
-- СѓРїСЂР°РІР»СЏРµС‚ РѕС‡РµСЂРµРґСЊСЋ (queue/scheduler)
-- РѕСЂРєРµСЃС‚СЂРёСЂСѓРµС‚ СЃРёСЃС‚РµРјС‹ (orchestrator)
-- СѓРїСЂР°РІР»СЏРµС‚ СЃРѕСЃС‚РѕСЏРЅРёРµРј (state machine)
-
-РЎРєСЂРёРїС‚, СЃРѕРІРјРµС‰Р°СЋС‰РёР№ РЅРµСЃРєРѕР»СЊРєРѕ СЂРѕР»РµР№ вЂ” РЅР°СЂСѓС€РµРЅРёРµ.
+If a file simultaneously stores data, generates data, renders data, manages
+queues, and contains state patches, it is wrong and must be split regardless of
+line count.
 
 ---
 
-## РЎС‚РёР»СЊ Рё СЃРѕРіР»Р°С€РµРЅРёСЏ
+## LAW 15 - One file, one responsibility
 
-### РРјРµРЅРѕРІР°РЅРёРµ (GDScript)
-- С„Р°Р№Р»С‹ / РїР°РїРєРё: `snake_case`
-- РєР»Р°СЃСЃС‹: `PascalCase`
-- РїРµСЂРµРјРµРЅРЅС‹Рµ / С„СѓРЅРєС†РёРё: `snake_case`
-- РєРѕРЅСЃС‚Р°РЅС‚С‹ / enum: `UPPER_SNAKE_CASE`
-- РїСЂРёРІР°С‚РЅС‹Рµ: `_private_name`
-- СЃРёРіРЅР°Р»С‹: РїСЂРѕС€РµРґС€РµРµ РІСЂРµРјСЏ (`tile_mined`, `chunk_loaded`)
-- Р±СѓР»РµРІС‹: `is_`, `has_`, `can_`
+Each script does exactly **one thing** from this list:
+- stores data (`data`)
+- computes data (`compute`)
+- presents data (`view/render`)
+- manages a queue (`queue/scheduler`)
+- orchestrates systems (`orchestrator`)
+- manages state (`state machine`)
 
-### РўРёРїРёР·Р°С†РёСЏ
-- РєР°Р¶РґР°СЏ РїРµСЂРµРјРµРЅРЅР°СЏ, РїР°СЂР°РјРµС‚СЂ Рё РІРѕР·РІСЂР°С‚ вЂ” С‚РёРїРёР·РёСЂРѕРІР°РЅС‹ СЏРІРЅРѕ
-- Р±РµР· РёСЃРєР»СЋС‡РµРЅРёР№, РґР°Р¶Рµ РІРѕ РІСЂРµРјРµРЅРЅРѕРј РєРѕРґРµ
-
-### РљРѕРјРјРµРЅС‚Р°СЂРёРё
-- РєРѕРјРјРµРЅС‚Р°СЂРёР№ С‚РѕР»СЊРєРѕ РµСЃР»Рё **WHY РЅРµ РѕС‡РµРІРёРґРµРЅ** РёР· РєРѕРґР°
-- РЅРµ РѕРїРёСЃС‹РІР°С‚СЊ С‡С‚Рѕ РґРµР»Р°РµС‚ РєРѕРґ вЂ” С‚РѕР»СЊРєРѕ РїРѕС‡РµРјСѓ РёРјРµРЅРЅРѕ С‚Р°Рє
-- РЅРµ РїРёСЃР°С‚СЊ РјРЅРѕРіРѕСЃС‚СЂР°РЅРёС‡РЅС‹Рµ docstring
+A script that combines multiple roles is a violation.
 
 ---
 
-## РђСЂС…РёС‚РµРєС‚СѓСЂРЅС‹Рµ РїР°С‚С‚РµСЂРЅС‹
+## Style and conventions
 
-### РћР±СЏР·Р°С‚РµР»СЊРЅС‹Рµ РїР°С‚С‚РµСЂРЅС‹
+### Naming (GDScript)
+- files / folders: `snake_case`
+- classes: `PascalCase`
+- variables / functions: `snake_case`
+- constants / enums: `UPPER_SNAKE_CASE`
+- private names: `_private_name`
+- signals: past tense (`tile_mined`, `chunk_loaded`)
+- booleans: `is_`, `has_`, `can_`
 
-**Command Pattern** вЂ” РґР»СЏ Р»СЋР±РѕР№ РјСѓС‚Р°С†РёРё РјРёСЂРѕРІРѕРіРѕ СЃРѕСЃС‚РѕСЏРЅРёСЏ (place building, mine tile, craft).
-РљРѕРјР°РЅРґР° РёРјРµРµС‚ `execute()`, РѕРїС†РёРѕРЅР°Р»СЊРЅРѕ `undo()`, СЃРѕРґРµСЂР¶РёС‚ РІСЃРµ РїР°СЂР°РјРµС‚СЂС‹, РёРґС‘С‚ С‡РµСЂРµР· CommandExecutor.
+### Typing
+- every variable, parameter, and return value must be typed explicitly
+- no exceptions, even in temporary code
 
-**Compute в†’ Apply** вЂ” СЃС‚Р°РЅРґР°СЂС‚РЅС‹Р№ РґРІСѓС…С„Р°Р·РЅС‹Р№ РїР°С‚С‚РµСЂРЅ.
-- Compute: С‡РёС‚Р°РµС‚ РІС…РѕРґРЅС‹Рµ РґР°РЅРЅС‹Рµ, РІРѕР·РІСЂР°С‰Р°РµС‚ С‡РёСЃС‚С‹Р№ СЂРµР·СѓР»СЊС‚Р°С‚ (Р±РµР· РјСѓС‚Р°С†РёРё scene tree)
-- Apply: Р·Р°РїРёСЃС‹РІР°РµС‚ СЂРµР·СѓР»СЊС‚Р°С‚ РІ scene tree / state (РѕРіСЂР°РЅРёС‡РµРЅРЅРѕ, main thread)
+### Comments
+- add a comment only when **WHY is not obvious** from the code
+- do not describe what the code does, only why it is done this way
+- do not write multi-page docstrings
 
-**Registry + namespaced IDs** вЂ” РІРµСЃСЊ РєРѕРЅС‚РµРЅС‚ РґРѕСЃС‚СѓРїРµРЅ С‡РµСЂРµР· СЂРµРµСЃС‚СЂ СЃРѕ СЃС‚Р°Р±РёР»СЊРЅС‹РјРё ID `"namespace:id"`.
-Р—Р°РїСЂРµС‰РµРЅРѕ РґРµР»Р°С‚СЊ `load("res://data/...")` РЅР°РїСЂСЏРјСѓСЋ РІ gameplay-Р»РѕРіРёРєРµ.
+---
 
-**Deterministic hashing** вЂ” РІРёР·СѓР°Р»СЊРЅР°СЏ РІР°СЂРёР°С†РёСЏ, Р·Р°РІРёСЃСЏС‰Р°СЏ РѕС‚ РїРѕР·РёС†РёРё РІ РјРёСЂРµ вЂ” С‚РѕР»СЊРєРѕ С‡РµСЂРµР· РґРµС‚РµСЂРјРёРЅРёСЂРѕРІР°РЅРЅС‹Р№ С…СЌС€ РѕС‚ РєРѕРѕСЂРґРёРЅР°С‚ Рё seed.
-Р—Р°РїСЂРµС‰РµРЅРѕ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ `randf()` / `randi()` РґР»СЏ С‡РµРіРѕ-Р»РёР±Рѕ, Р·Р°РІРёСЃСЏС‰РµРіРѕ РѕС‚ РїРѕР·РёС†РёРё.
+## Architectural patterns
 
-### Р РµРєРѕРјРµРЅРґСѓРµРјС‹Рµ РїР°С‚С‚РµСЂРЅС‹
-- State Machine вЂ” РґР»СЏ СЃСѓС‰РЅРѕСЃС‚РµР№ СЃ СЏРІРЅС‹РјРё СЂРµР¶РёРјР°РјРё
-- Component Pattern вЂ” РґР»СЏ РїРµСЂРµРёСЃРїРѕР»СЊР·СѓРµРјРѕРіРѕ РїРѕРІРµРґРµРЅРёСЏ (health, fuel, power)
-- Factory Pattern вЂ” РґР»СЏ СЃРѕР·РґР°РЅРёСЏ СЃР»РѕР¶РЅС‹С… СЃСѓС‰РЅРѕСЃС‚РµР№ РёР· РґР°РЅРЅС‹С…
-- Services вЂ” РґР»СЏ РґРµРєРѕРјРїРѕР·РёС†РёРё РєСЂСѓРїРЅС‹С… СЃРёСЃС‚РµРј
+### Required patterns
+
+**Command Pattern** - for any mutation of world state (`place building`,
+`mine tile`, `craft`).
+The command has `execute()`, optionally `undo()`, contains all parameters, and
+goes through `CommandExecutor`.
+
+**Compute -> Apply** - the standard two-phase pattern.
+- Compute: reads input data and returns a pure result (no scene-tree mutation)
+- Apply: writes the result into the scene tree / state in a bounded way on the
+  main thread
+
+**Registry + namespaced IDs** - all content is accessed through a registry with
+stable IDs such as `"namespace:id"`.
+It is forbidden to call `load("res://data/...")` directly inside gameplay
+logic.
+
+**Deterministic hashing** - visual variation that depends on world position must
+come only from a deterministic hash of coordinates and seed.
+It is forbidden to use `randf()` / `randi()` for anything position-dependent.
+
+### Recommended patterns
+- State Machine - for entities with explicit modes
+- Component Pattern - for reusable behavior (`health`, `fuel`, `power`)
+- Factory Pattern - for building complex entities from data
+- Services - for decomposing large systems
 
 ### Boundary Contract Docs
 
-Следующие canonical docs являются частью архитектуры, а не декоративным
-описанием:
+The following canonical docs are part of the architecture, not decorative
+description:
 
-- `docs/02_system_specs/meta/system_api.md` — safe entrypoints и public reads
-- `docs/02_system_specs/meta/commands.md` — разрешённые mutation paths
-- `docs/02_system_specs/meta/event_contracts.md` — важные domain events и их payload
-- `docs/02_system_specs/meta/packet_schemas.md` — boundary data shapes, save/payload/result schemas
+- `docs/02_system_specs/meta/system_api.md` - safe entrypoints and public reads
+- `docs/02_system_specs/meta/commands.md` - allowed mutation paths
+- `docs/02_system_specs/meta/event_contracts.md` - important domain events and
+  their payloads
+- `docs/02_system_specs/meta/packet_schemas.md` - boundary data shapes and
+  save/payload/result schemas
 
-Обязательные правила:
+Mandatory rules:
 
-- перед новой фичей или cross-system интеграцией сначала читать relevant boundary docs, потом код
-- если documented safe path уже существует, использовать его, а не private/internal method другой системы
-- если появляется новый public API, safe entrypoint или public read surface — обновить `system_api.md` в той же задаче
-- если появляется новая команда или новый разрешённый mutation path — обновить `commands.md` в той же задаче
-- если появляется новое важное событие или меняется его payload / emitter / listener-facing contract — обновить `event_contracts.md` в той же задаче
-- если меняется shape `Dictionary`, save payload, command result, event payload или другой boundary packet/schema — обновить `packet_schemas.md` в той же задаче
-- если нужного surface ещё нет, нельзя молча делать bypass через raw state; сначала нужно явно оформить и задокументировать новый safe path
+- before any new feature or cross-system integration, read the relevant
+  boundary docs first, then code
+- if a documented safe path already exists, use it instead of another system's
+  private/internal method
+- if a new public API, safe entrypoint, or public read surface appears, update
+  `system_api.md` in the same task
+- if a new command or allowed mutation path appears, update `commands.md` in
+  the same task
+- if an important event changes, or its payload / emitter / listener-facing
+  contract changes, update `event_contracts.md` in the same task
+- if the shape of a `Dictionary`, save payload, command result, event payload,
+  or any other boundary packet/schema changes, update `packet_schemas.md` in
+  the same task
+- if the needed surface does not exist yet, you may not silently bypass it
+  through raw state; first define and document the new safe path explicitly
 
 ### EventBus
-`docs/02_system_specs/meta/event_contracts.md` владеет документированной
-поверхностью важных domain events.
 
-Р“СЂР°РЅРёС†Р° РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ РґР»СЏ РєРѕРјРјСѓРЅРёРєР°С†РёРё РјРµР¶РґСѓ СЃРёСЃС‚РµРјР°РјРё.
-- СЃРёСЃС‚РµРјС‹ СЌРјРёС‚СЏС‚ domain events, РЅРµ РјСѓС‚РёСЂСѓСЋС‚ РґСЂСѓРіРёРµ СЃРёСЃС‚РµРјС‹ РЅР°РїСЂСЏРјСѓСЋ
-- UI РїРѕРґРїРёСЃС‹РІР°РµС‚СЃСЏ Рё РґРёСЃРїР°С‚С‡РёС‚, РЅРѕ РЅРµ РІР»Р°РґРµРµС‚ game-state
-- РјРѕРґС‹ РїРѕРґРїРёСЃС‹РІР°СЋС‚СЃСЏ РЅР° СЃРѕР±С‹С‚РёСЏ РІРјРµСЃС‚Рѕ РїР°С‚С‡РёРЅРіР° core
+`docs/02_system_specs/meta/event_contracts.md` owns the documented surface of
+important domain events.
 
----
-
-## Р”Р°РЅРЅС‹Рµ, Р»РѕРєР°Р»РёР·Р°С†РёСЏ, СЃРѕС…СЂР°РЅРµРЅРёСЏ
-
-### Р”Р°РЅРЅС‹Рµ
-- gameplay-РґР°РЅРЅС‹Рµ вЂ” РІ data assets (`.tres` Resource), РЅРµ РІ РєРѕРґРµ
-- РЅРѕРІС‹Р№ РєРѕРЅС‚РµРЅС‚ РґРѕР±Р°РІР»СЏРµС‚СЃСЏ С‡РµСЂРµР· РґР°РЅРЅС‹Рµ, РЅРµ С‡РµСЂРµР· РїСЂР°РІРєСѓ Р»РѕРіРёРєРё
-- identity РєРѕРЅС‚РµРЅС‚Р° вЂ” С‡РµСЂРµР· СЃС‚Р°Р±РёР»СЊРЅС‹Рµ string ID, РЅРµ С‡РµСЂРµР· РїСѓС‚Рё
-
-### Р›РѕРєР°Р»РёР·Р°С†РёСЏ
-- РЅРёРєР°РєРѕРіРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРѕРіРѕ С‚РµРєСЃС‚Р° РІ РєРѕРґРµ
-- РєР»СЋС‡Рё СЃРµРјРµР№СЃС‚РІ: `UI_*`, `ITEM_*`, `BUILD_*`, `LORE_*`, `SYSTEM_*`
-- data resources С…СЂР°РЅСЏС‚ РєР»СЋС‡Рё (`display_name_key`), РЅРµ РїРµСЂРµРІРµРґС‘РЅРЅС‹Р№ С‚РµРєСЃС‚
-- РЅРѕРІС‹Р№ РєРѕРЅС‚РµРЅС‚: РєР»СЋС‡Рё РґР»СЏ RU Рё EN РѕРґРЅРѕРІСЂРµРјРµРЅРЅРѕ
-
-### РЎРѕС…СЂР°РЅРµРЅРёСЏ
-- persistent СЃРёСЃС‚РµРјС‹ СЏРІРЅРѕ РѕРїСЂРµРґРµР»СЏСЋС‚ С‡С‚Рѕ РІС…РѕРґРёС‚ РІ save-state
-- base world data РЅРµ СЃРѕС…СЂР°РЅСЏРµС‚СЃСЏ вЂ” РІРѕСЃСЃРѕР·РґР°С‘С‚СЃСЏ РёР· seed + world_version
-- diff / overlay СЃРѕС…СЂР°РЅСЏСЋС‚СЃСЏ СЏРІРЅРѕ
-- СЃРѕСЃС‚РѕСЏРЅРёРµ СЃРµСЂРёР°Р»РёР·СѓРµС‚СЃСЏ РєР°Рє РґР°РЅРЅС‹Рµ, РЅРµ РєР°Рє implicit scene state
-
-### РњРѕРґС‹
-- РЅРѕРІС‹Рµ СЃРёСЃС‚РµРјС‹ РїСЂРѕРµРєС‚РёСЂСѓСЋС‚СЃСЏ С‚Р°Рє, С‡С‚РѕР±С‹ РєРѕРЅС‚РµРЅС‚ РјРѕР¶РЅРѕ Р±С‹Р»Рѕ РґРѕР±Р°РІРёС‚СЊ, РїРµСЂРµРѕРїСЂРµРґРµР»РёС‚СЊ, СЂР°СЃС€РёСЂРёС‚СЊ
-- РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ: ID, СЂРµРµСЃС‚СЂС‹, data resources, event hooks
-- Р·Р°РїСЂРµС‰РµРЅРѕ: РїСЂРµРґРїРѕР»РѕР¶РµРЅРёСЏ, Р·Р°РєСЂС‹РІР°СЋС‰РёРµ РЅР°Р±РѕСЂ РєРѕРЅС‚РµРЅС‚Р°
+Default boundary for communication between systems:
+- systems emit domain events; they do not mutate other systems directly
+- UI subscribes and dispatches, but does not own game state
+- mods subscribe to events instead of patching core
 
 ---
 
-## РђРЅС‚РёРїР°С‚С‚РµСЂРЅС‹ (Р·Р°РїСЂРµС‰РµРЅРѕ)
+## Data, localization, and saves
 
-- Magic numbers РІ gameplay-Р»РѕРіРёРєРµ
-- String-path node coupling (`$"../../../SomeNode"`)
-- God classes (РѕРґРёРЅ РєР»Р°СЃСЃ Р·РЅР°РµС‚ РІСЃС‘)
-- РџСЂСЏРјС‹Рµ СЃСЃС‹Р»РєРё РјРµР¶РґСѓ СЃРёСЃС‚РµРјР°РјРё РІ РѕР±С…РѕРґ EventBus / Command
-- Type-switching РїРѕ СЃС‚СЂРѕРєР°Рј РІРјРµСЃС‚Рѕ РїРѕР»РёРјРѕСЂС„РёР·РјР°
-- "РЎРµР№С‡Р°СЃ РѕР±СЉРµРєС‚РѕРІ РјР°Р»Рѕ" РєР°Рє Р°СЂРіСѓРјРµРЅС‚ РїСЂРѕС‚РёРІ dirty unit
-- "Р’СЂРµРјРµРЅРЅС‹Р№" GDScript-fallback РІРјРµСЃС‚Рѕ native
-- РЎРёРЅС…СЂРѕРЅРЅР°СЏ С‚СЏР¶С‘Р»Р°СЏ СЂР°Р±РѕС‚Р° РЅР° main thread
-- `load()` РІ runtime path Р±РµР· РїСЂРµРґР·Р°РіСЂСѓР·РєРё
-- РЎРѕС‚РЅРё РјРµР»РєРёС… C++/GDScript РІС‹Р·РѕРІРѕРІ РІРјРµСЃС‚Рѕ РѕРґРЅРѕРіРѕ chunk packet
-- `add_child` РІ С†РёРєР»Рµ РїРѕ РјР°СЃСЃРѕРІС‹Рј РѕР±СЉРµРєС‚Р°Рј
-- РќРµСЃРєРѕР»СЊРєРѕ СЃРёСЃС‚РµРј-С…РѕР·СЏРµРІ РѕРґРЅРёС… РґР°РЅРЅС‹С…
-- РњСѓС‚Р°С†РёСЏ base terrain РїРѕСЃР»Рµ РіРµРЅРµСЂР°С†РёРё С‡Р°РЅРєР°
-- РР·РјРµРЅРµРЅРёРµ canonical generation Р±РµР· bump world_version
+### Data
+- gameplay data belongs in data assets (`.tres` `Resource`), not in code
+- new content is added through data, not by editing logic
+- content identity uses stable string IDs, not paths
+
+### Localization
+- no user-facing text in code
+- key families: `UI_*`, `ITEM_*`, `BUILD_*`, `LORE_*`, `SYSTEM_*`
+- data resources store keys such as `display_name_key`, not translated text
+- new content must ship RU and EN keys together
+
+### Saves
+- persistent systems explicitly define what belongs in save state
+- base world data is not saved; it is recreated from seed + `world_version`
+- diff / overlay are persisted explicitly
+- state is serialized as data, not as implicit scene state
+
+### Mods
+- new systems must be designed so content can be added, overridden, and
+  extended
+- use IDs, registries, data resources, and event hooks
+- forbidden: assumptions that close off the content set
 
 ---
 
-## Р§РµРєР»РёСЃС‚ РїРµСЂРµРґ Р·Р°РІРµСЂС€РµРЅРёРµРј Р·Р°РґР°С‡Рё
+## Anti-patterns (forbidden)
+
+- magic numbers in gameplay logic
+- string-path node coupling (`$"../../../SomeNode"`)
+- God classes (one class knows everything)
+- direct system-to-system references that bypass `EventBus` / `Command`
+- type switching on strings instead of polymorphism
+- "the object count is still small" as an argument against a dirty unit
+- a "temporary" GDScript fallback instead of native code
+- synchronous heavy work on the main thread
+- `load()` on a runtime path without preloading
+- hundreds of tiny C++/GDScript calls instead of one chunk packet
+- `add_child` in a loop over mass objects
+- multiple systems acting as owners of the same data
+- mutating base terrain after chunk generation
+- changing canonical generation without bumping `world_version`
+
+---
+
+## Checklist before finishing a task
 
 ```
-[ ] Р—Р°РєРѕРЅ 0:  РІСЃРµ 12 РІРѕРїСЂРѕСЃРѕРІ РєР»Р°СЃСЃРёС„РёРєР°С†РёРё РѕС‚РІРµС‡РµРЅС‹
-[ ] Р—Р°РєРѕРЅ 1:  С‚СЏР¶С‘Р»С‹Рµ РѕРїРµСЂР°С†РёРё РІ C++ GDExtension, РЅРµ РІ GDScript
-[ ] Р—Р°РєРѕРЅ 2:  main thread РЅРµ Р±Р»РѕРєРёСЂСѓРµС‚СЃСЏ compute-СЂР°Р±РѕС‚РѕР№
-[ ] Р—Р°РєРѕРЅ 3:  РіРµРЅРµСЂР°С‚РѕСЂ С‡Р°РЅРєР° вЂ” С‡РёСЃС‚Р°СЏ С„СѓРЅРєС†РёСЏ Р±РµР· РІРЅРµС€РЅРёС… Р·Р°РІРёСЃРёРјРѕСЃС‚РµР№
-[ ] Р—Р°РєРѕРЅ 4:  world_version СѓРІРµР»РёС‡РµРЅ, РµСЃР»Рё canonical output РёР·РјРµРЅРёР»СЃСЏ
-[ ] Р—Р°РєРѕРЅ 5:  base terrain РЅРµ РјСѓС‚РёСЂСѓРµС‚СЃСЏ; diff / overlay РѕС‚РґРµР»РµРЅС‹
-[ ] Р—Р°РєРѕРЅ 6:  РґР°РЅРЅС‹Рµ С‡РµСЂРµР· C++/GDScript РіСЂР°РЅРёС†Сѓ вЂ” РѕРґРЅРёРј packet'РѕРј
-[ ] Р—Р°РєРѕРЅ 7:  РЅРµС‚ load() / ResourceLoader.load() РІ runtime path
-[ ] Р—Р°РєРѕРЅ 8:  РѕРґРёРЅ С…РѕР·СЏРёРЅ Сѓ РєР°Р¶РґРѕРіРѕ С‚РёРїР° РґР°РЅРЅС‹С…
-[ ] Р—Р°РєРѕРЅ 9:  РЅРµС‚ hidden GDScript-fallback РґР»СЏ native-Р·Р°РІРёСЃРёРјС‹С… РїСѓС‚РµР№
-[ ] Р—Р°РєРѕРЅ 10: С‡Р°РЅРє РїРѕРєР°Р·Р°РЅ С‚РѕР»СЊРєРѕ РїРѕСЃР»Рµ РіРѕС‚РѕРІРЅРѕСЃС‚Рё gameplay-СЃР»РѕСЏ
-[ ] Р—Р°РєРѕРЅ 11: dirty unit РѕРїСЂРµРґРµР»С‘РЅ РґР»СЏ runtime-С‡СѓРІСЃС‚РІРёС‚РµР»СЊРЅС‹С… СЃРёСЃС‚РµРј
-[ ] Р—Р°РєРѕРЅ 12: РЅРµС‚ global prepass РїСЂРё СЃС‚Р°СЂС‚Рµ
-[ ] Р—Р°РєРѕРЅ 13: РЅРµС‚ node-per-object РґР»СЏ РјР°СЃСЃРѕРІС‹С… РѕР±СЉРµРєС‚РѕРІ
-[ ] Р—Р°РєРѕРЅ 14: СЃРєСЂРёРїС‚ РґРѕ 500 СЃС‚СЂРѕРє (РёР»Рё РѕР±РѕСЃРЅРѕРІР°РЅРёРµ РґРѕ 800)
-[ ] Р—Р°РєРѕРЅ 15: РѕРґРёРЅ СЃРєСЂРёРїС‚ вЂ” РѕРґРЅР° РѕС‚РІРµС‚СЃС‚РІРµРЅРЅРѕСЃС‚СЊ
-[ ] Р’СЃРµ РїСѓР±Р»РёС‡РЅС‹Рµ API С‚РёРїРёР·РёСЂРѕРІР°РЅС‹
-[ ] РќРµС‚ hardcoded gameplay-РґР°РЅРЅС‹С…
-[ ] Р РµРіРёСЃС‚СЂС‹ / СЃРѕР±С‹С‚РёСЏ РѕР±РЅРѕРІР»РµРЅС‹ РїСЂРё РЅРѕРІС‹С… СЃРёСЃС‚РµРјР°С…/РєРѕРЅС‚РµРЅС‚Рµ
-[ ] Р›РѕРєР°Р»РёР·Р°С†РёСЏ РїРѕР»РЅР°СЏ РґР»СЏ РЅРѕРІРѕРіРѕ player-facing С‚РµРєСЃС‚Р°
-[ ] Save/load РіСЂР°РЅРёС†Р° РѕРїСЂРµРґРµР»РµРЅР°
-[ ] РџСѓС‚СЊ РґР»СЏ РјРѕРґРѕРІ РЅРµ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ
+[ ] Law 0:  all 12 classification questions answered
+[ ] Law 1:  heavy operations are in C++ GDExtension, not GDScript
+[ ] Law 2:  the main thread is not blocked by compute work
+[ ] Law 3:  the chunk generator is a pure function with no external dependencies
+[ ] Law 4:  world_version was increased if canonical output changed
+[ ] Law 5:  base terrain does not mutate; diff / overlay are separate
+[ ] Law 6:  data crosses the C++/GDScript boundary in one packet
+[ ] Law 7:  no load() / ResourceLoader.load() on the runtime path
+[ ] Law 8:  each data type has a single owner
+[ ] Law 9:  no hidden GDScript fallback for native-dependent paths
+[ ] Law 10: a chunk is shown only after the gameplay layer is ready
+[ ] Law 11: a dirty unit is defined for each runtime-sensitive system
+[ ] Law 12: no global prepass at startup
+[ ] Law 13: no node-per-object for mass objects
+[ ] Law 14: the script is under 500 lines (or justified up to 800)
+[ ] Law 15: one script - one responsibility
+[ ] All public APIs are typed
+[ ] No hardcoded gameplay data
+[ ] Registries / events updated for new systems or content
+[ ] Localization complete for new player-facing text
+[ ] Save/load boundary defined
+[ ] The mod path is not blocked
 ```
 
 ---
 
-## РџРѕРІРµРґРµРЅРёРµ РР-Р°РіРµРЅС‚РѕРІ
+## AI agent behavior
 
-РР-Р°РіРµРЅС‚, РїРёС€СѓС‰РёР№ РєРѕРґ РґР»СЏ СЌС‚РѕРіРѕ РїСЂРѕРµРєС‚Р°, РѕР±СЏР·Р°РЅ:
+An AI agent writing code for this project must:
 
-1. РџСЂРѕС‡РёС‚Р°С‚СЊ СЌС‚РѕС‚ С„Р°Р№Р» РїРµСЂРµРґ РЅР°РїРёСЃР°РЅРёРµРј РєРѕРґР°.
-2. РћС‚РІРµС‚РёС‚СЊ РЅР° РІСЃРµ 12 РІРѕРїСЂРѕСЃРѕРІ Р—Р°РєРѕРЅР° 0 РїРµСЂРµРґ РЅРѕРІРѕР№ С„РёС‡РµР№.
-3. РќРµ СЃРѕР·РґР°РІР°С‚СЊ GDScript-РєРѕРґ РґР»СЏ РѕРїРµСЂР°С†РёР№, РєРѕС‚РѕСЂС‹Рµ РјРѕРіСѓС‚ СЃС‚Р°С‚СЊ С‚СЏР¶С‘Р»С‹РјРё.
-4. РќРµ РґРѕР±Р°РІР»СЏС‚СЊ hidden fallback РЅР° GDScript РїСЂРё РѕС‚СЃСѓС‚СЃС‚РІРёРё native.
-5. РќР°Р·С‹РІР°С‚СЊ dirty unit, С…РѕР·СЏРёРЅР° РґР°РЅРЅС‹С… Рё РїСѓС‚СЊ СЌСЃРєР°Р»Р°С†РёРё РїСЂРё runtime-С‡СѓРІСЃС‚РІРёС‚РµР»СЊРЅС‹С… РёР·РјРµРЅРµРЅРёСЏС….
-6. РћСЃРїР°СЂРёРІР°С‚СЊ РґРёР·Р°Р№РЅ, РѕРїСЂР°РІРґР°РЅРЅС‹Р№ С‚РѕР»СЊРєРѕ "СЃРµР№С‡Р°СЃ РѕР±СЉРµРєС‚РѕРІ РјР°Р»Рѕ".
-7. РќРµ СЃРјРµС€РёРІР°С‚СЊ compute Рё apply РІ РѕРґРЅРѕР№ С„СѓРЅРєС†РёРё.
-8. РќРµ СЃРѕР·РґР°РІР°С‚СЊ РїР°СЂР°Р»Р»РµР»СЊРЅС‹Рµ Р°СЂС…РёС‚РµРєС‚СѓСЂС‹, РєРѕРіРґР° СѓР¶Рµ РµСЃС‚СЊ РѕРґРѕР±СЂРµРЅРЅС‹Р№ РїР°С‚С‚РµСЂРЅ.
-9. РџСЂРѕРІРµСЂСЏС‚СЊ world_version РїСЂРё Р»СЋР±РѕРј РёР·РјРµРЅРµРЅРёРё РіРµРЅРµСЂР°С†РёРё.
-10. РќРµ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ `load()` РІ runtime path.
+1. Read this file before writing code.
+2. Answer all 12 questions from Law 0 before a new feature.
+3. Not create GDScript code for operations that may become heavy.
+4. Not add a hidden GDScript fallback when native code is unavailable.
+5. Name the dirty unit, data owner, and escalation path for runtime-sensitive
+   changes.
+6. Challenge designs justified only by "the object count is still small."
+7. Not mix compute and apply inside one function.
+8. Not create parallel architectures when an approved pattern already exists.
+9. Check `world_version` on any generation change.
+10. Not use `load()` on a runtime path.
