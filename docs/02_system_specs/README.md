@@ -4,13 +4,13 @@ doc_type: system_spec_index
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.1
-last_updated: 2026-04-13
+version: 1.2
+last_updated: 2026-04-17
 ---
 
 # System Specs
 
-This layer owns runtime/system contracts.
+This layer owns subsystem contracts that are still versioned in the repository.
 
 Each serious system should eventually define:
 1. purpose
@@ -30,8 +30,8 @@ Each serious system should eventually define:
 15. implementation iterations
 
 Current transition strategy:
-- create canonical homes under `docs/02_system_specs/`
-- point them to existing detailed source files until each spec is fully migrated
+- keep canonical homes under `docs/02_system_specs/`
+- keep this index aligned only with files that are actually present in the repo
 
 ## Current canonical specs
 
@@ -55,43 +55,22 @@ Current transition strategy:
 ### UI
 - [UI and UX Foundation](ui/ui_ux_foundation.md)
 
-### World
-- [World Generation Foundation](world/world_generation_foundation.md)
-- [Environment Runtime Foundation](world/environment_runtime_foundation.md)
-- [Lighting, Visibility, and Darkness](world/lighting_visibility_and_darkness.md)
-- [Subsurface and Verticality Foundation](world/subsurface_and_verticality_foundation.md)
-- [Transport and Outposts](world/transport_and_outposts.md)
-- [Events and Precursor Complexes](world/events_and_precursor_complexes.md)
-- [World Data Contracts](world/DATA_CONTRACTS.md)
-- [World Feature and POI Hooks](world/world_feature_and_poi_hooks.md)
-- [Natural World Generation Overhaul](world/natural_world_generation_overhaul.md)
-- [Natural World Constructive Runtime](world/natural_world_constructive_runtime_spec.md)
-- [Native Chunk Generation](world/native_chunk_generation_spec.md)
-- [Hydrology and World Settings](world/hydrology_world_settings_spec.md)
-- [Ground Elevation Faces](world/ground_elevation_faces_spec.md)
-- [Interior Wall Variation](world/interior_wall_variation_spec.md)
-- [Zero-Tolerance Chunk Readiness](world/zero_tolerance_chunk_readiness_spec.md)
-- [Frontier Native Runtime Architecture](world/frontier_native_runtime_architecture_spec.md)
-- [Chunk Visual Pipeline Rework (Legacy rollout)](world/chunk_visual_pipeline_rework_spec.md)
-- [Chunk Debug Overlay](world/chunk_debug_overlay_spec.md)
-- [Streaming Redraw Budget (Legacy rollout)](world/streaming_redraw_budget_spec.md)
-- [Mountain Reveal and World Perf Recovery](world/mountain_reveal_and_world_perf_recovery_spec.md)
-- [Reachable Structure Coverage](world/reachable_structure_coverage_spec.md)
-- [World Lab](world/world_lab_spec.md)
-- [Human-Readable Runtime Logging](world/human_readable_runtime_logging_spec.md)
-- [Boot — Chunk Compute Pipeline](world/boot_chunk_compute_pipeline_spec.md)
-- [Boot — Chunk Apply Budget](world/boot_chunk_apply_budget_spec.md)
-- [Boot — Chunk Readiness (Legacy rollout)](world/boot_chunk_readiness_spec.md)
-- [Boot — Topology Integration](world/boot_topology_integration_spec.md)
-- [Boot — Visual Completion (Legacy rollout)](world/boot_visual_completion_spec.md)
-- [Boot — Performance Instrumentation](world/boot_performance_instrumentation_spec.md)
-- [Boot — Fast First Playable (Legacy rollout)](world/boot_fast_first_playable_spec.md)
-
-> Active player-reachable chunk runtime target: `zero_tolerance_chunk_readiness_spec.md` plus `frontier_native_runtime_architecture_spec.md`. Older first-pass / terrain-first / publish-later world-runtime specs remain legacy rollout records and must not be extended as the active target architecture.
-
 ### Meta constraints
+- [Agent Skill Pack](meta/agent_skill_pack.md)
 - [Multiplayer and Modding Constraints](meta/multiplayer_and_modding.md)
 - [Multiplayer Authority and Replication](meta/multiplayer_authority_and_replication.md)
 - [Modding Extension Contracts](meta/modding_extension_contracts.md)
 - [Localization Pipeline](meta/localization_pipeline.md)
 - [Save and Persistence](meta/save_and_persistence.md)
+
+### World / Runtime foundation
+- [World Grid Rebuild Foundation](world/world_grid_rebuild_foundation.md)
+
+The removed pre-rebuild world stack now rebuilds from this living world-grid contract
+plus the approved ADR stack:
+- [ADR-0001 Runtime Work and Dirty Update Foundation](../05_adrs/0001-runtime-work-and-dirty-update-foundation.md)
+- [ADR-0002 Wrap-World Is Cylindrical](../05_adrs/0002-wrap-world-is-cylindrical.md)
+- [ADR-0003 Immutable Base + Runtime Diff](../05_adrs/0003-immutable-base-plus-runtime-diff.md)
+- [ADR-0005 Light Is a Gameplay-Support System](../05_adrs/0005-light-is-gameplay-system.md)
+- [ADR-0006 Surface and Subsurface Are Separate but Linked](../05_adrs/0006-surface-and-subsurface-are-separate-but-linked.md)
+- [ADR-0007 Environment Runtime Is Layered and Distinct from Worldgen](../05_adrs/0007-environment-runtime-is-layered-and-distinct-from-worldgen.md)

@@ -17,9 +17,9 @@ reveal, or presentation work landing in the player's immediate action path.
 
 ## Read first
 
-- `docs/00_governance/PERFORMANCE_CONTRACTS.md`
-- `docs/02_system_specs/world/DATA_CONTRACTS.md`
-- `docs/00_governance/PUBLIC_API.md`
+- `docs/00_governance/ENGINEERING_STANDARDS.md`
+- the relevant world/runtime ADRs from `docs/05_adrs/`
+- the specific world/runtime spec that owns the affected path
 
 ## What this skill does
 
@@ -33,8 +33,8 @@ reveal, or presentation work landing in the player's immediate action path.
 ## Default workflow
 
 1. Confirm the trigger is an in-play world hitch, not a long boot or load.
-2. Map the symptom to the contract layer in `DATA_CONTRACTS.md`.
-3. Check the safe entry point in `PUBLIC_API.md` before proposing or making a fix.
+2. Map the symptom to the relevant contract layer in the current spec or ADR set.
+3. Check the sanctioned owner and mutation/readiness path before proposing or making a fix.
 4. Reject fixes that solve the hitch by bypassing ownership, contracts, or save/runtime diff rules.
 5. Prefer local dirty-region updates, queued follow-up work, and incremental rebuilds.
 6. Verify that no full-chunk, all-loaded-chunk, or mass-visual rebuild remains in the interactive path.

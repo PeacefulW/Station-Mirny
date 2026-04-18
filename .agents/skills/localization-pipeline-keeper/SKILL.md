@@ -20,7 +20,7 @@ gameplay messages inside the same localization contract.
 ## Read first
 
 - `docs/02_system_specs/meta/localization_pipeline.md`
-- `docs/00_governance/AI_PLAYBOOK.md`
+- `AGENTS.md`
 - `docs/00_governance/ENGINEERING_STANDARDS.md`
 
 ## What this skill does

@@ -18,7 +18,7 @@ instead of treating balance as isolated number tweaking.
 
 ## Read first
 
-- `docs/00_governance/AI_PLAYBOOK.md`
+- `AGENTS.md`
 - `docs/01_product/GAME_VISION_GDD.md`
 - `docs/01_product/NON_NEGOTIABLE_EXPERIENCE.md`
 - the relevant system spec or data surface for the affected economy loop

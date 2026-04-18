@@ -17,9 +17,9 @@ regressions. It protects stability first and performance second.
 
 ## Read first
 
-- `docs/00_governance/PERFORMANCE_CONTRACTS.md`
-- `docs/02_system_specs/world/DATA_CONTRACTS.md`
-- `docs/00_governance/PUBLIC_API.md`
+- `docs/00_governance/ENGINEERING_STANDARDS.md`
+- `docs/02_system_specs/meta/save_and_persistence.md`
+- the relevant runtime ADRs from `docs/05_adrs/`, especially `0001` and `0003`
 
 ## What this skill does
 
@@ -30,8 +30,8 @@ regressions. It protects stability first and performance second.
 
 ## Default workflow
 
-1. Find the owner of the affected state in the relevant contract document.
-2. Confirm the sanctioned save/load entry points in `PUBLIC_API.md`, especially `SaveManager` and any owner-specific restore helpers.
+1. Find the owner of the affected state in the relevant living canonical doc.
+2. Confirm the sanctioned save/load entry points in `save_and_persistence.md` and the active runtime docs, especially `SaveManager` and any owner-specific restore helpers.
 3. Check whether the change adds new runtime state that must be collected, serialized, applied, or explicitly reconstructed.
 4. Prefer diff-based persistence over redundant full-state snapshots when the contracts already define base + diff ownership.
 5. Flag any direct field writes or side-channel restore logic that bypass canonical load orchestration.

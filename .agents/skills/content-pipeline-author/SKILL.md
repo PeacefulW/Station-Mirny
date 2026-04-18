@@ -19,9 +19,9 @@ script edits or hidden one-off data islands.
 
 ## Read first
 
-- `docs/00_governance/AI_PLAYBOOK.md`
+- `AGENTS.md`
 - `docs/00_governance/ENGINEERING_STANDARDS.md`
-- `docs/00_governance/SYSTEM_INVENTORY.md`
+- `docs/README.md`
 - `docs/02_system_specs/meta/modding_extension_contracts.md`
 - `docs/02_system_specs/meta/localization_pipeline.md`
 - the relevant content bible or system spec for the content domain
@@ -39,7 +39,7 @@ script edits or hidden one-off data islands.
 
 1. Classify the content type: item, recipe, building, flora, POI, registry
    definition, or mixed content bundle.
-2. Read `SYSTEM_INVENTORY.md` and the relevant spec to confirm the canonical
+2. Read `docs/README.md` and the relevant spec to confirm the canonical
    registry/service path instead of inventing a new one.
 3. Add or update data/resources with stable IDs and the smallest required
    wiring through existing registries, factories, or content loaders.

@@ -9,10 +9,10 @@ last_updated: 2026-03-25
 related_docs:
   - multiplayer_and_modding.md
   - save_and_persistence.md
-  - ../world/world_generation_foundation.md
-  - ../world/environment_runtime_foundation.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
-  - ../../00_governance/PERFORMANCE_CONTRACTS.md
+  - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
+  - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
+  - ../../05_adrs/0007-environment-runtime-is-layered-and-distinct-from-worldgen.md
   - ../../01_product/GAME_VISION_GDD.md
   - ../../01_product/NON_NEGOTIABLE_EXPERIENCE.md
   - ../../03_content_bible/resources/flora_and_resources.md

@@ -55,9 +55,8 @@ if (-not $usedWriteTool) {
     exit 0
 }
 
-$hasClosure = $turnJson -match 'Отч[её]т о выполнении' -or $turnJson -match 'Closure Report'
-$hasDataContractsEvidence = $turnJson -match 'Grep DATA_CONTRACTS\.md'
-$hasPublicApiEvidence = $turnJson -match 'Grep PUBLIC_API\.md'
+$hasClosure = $turnJson -match 'РћС‚С‡[РµС‘]С‚ Рѕ РІС‹РїРѕР»РЅРµРЅРёРё' -or $turnJson -match 'Closure Report'
+$hasCanonicalDocEvidence = $turnJson -match 'Canonical documentation check' -or $turnJson -match 'Проверка канонической документации'
 
 if (-not $hasClosure) {
     @{
@@ -67,10 +66,10 @@ if (-not $hasClosure) {
     exit 0
 }
 
-if (-not ($hasDataContractsEvidence -and $hasPublicApiEvidence)) {
+if (-not $hasCanonicalDocEvidence) {
     @{
         decision = "block"
-        reason = "Station Mirny guard: Closure Report must include grep evidence for DATA_CONTRACTS.md and PUBLIC_API.md, even when updates are not required."
+        reason = "Station Mirny guard: Closure Report must include grep evidence for the relevant living canonical docs, even when updates are not required."
     } | ConvertTo-Json -Compress -Depth 4
     exit 0
 }

@@ -56,7 +56,7 @@ to you.
 After understanding intent, map the feature to the project's existing systems. Read the
 relevant docs (not code!) to understand what already exists:
 
-1. **Check if a similar system exists** — read `docs/00_governance/SYSTEM_INVENTORY.md`
+1. **Check if a similar system exists** — read `docs/README.md` and the relevant subsystem specs or ADRs
 2. **Check data-driven patterns** — does this fit as a new Registry entry? A new Resource type?
 3. **Check EventBus integration** — what existing signals does this feature need to listen to?
 4. **Check command pattern** — does this feature mutate world state? Then it needs a Command.

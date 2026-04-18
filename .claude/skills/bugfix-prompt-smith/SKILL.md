@@ -21,8 +21,8 @@ API, and iteration boundaries defined by project governance.
 ## Read first
 
 - `docs/00_governance/WORKFLOW.md`
-- `docs/00_governance/PUBLIC_API.md`
-- `docs/00_governance/AI_PLAYBOOK.md`
+- `AGENTS.md`
+- the relevant approved spec or ADR for the affected subsystem
 - the relevant contract or system spec for the affected subsystem
 
 ## What this skill does
@@ -66,7 +66,7 @@ Use this structure unless the user asks for a different format:
 
 ## Формат результата
 - Closure report по формату из WORKFLOW.md
-- grep-check для DATA_CONTRACTS.md и PUBLIC_API.md
+- grep-check для relevant living canonical docs and ADRs
 ```
 
 ## Default workflow

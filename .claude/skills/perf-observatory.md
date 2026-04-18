@@ -8,17 +8,15 @@ description: >
 
 # Perf Observatory
 
-Use `C:/Users/peaceful/Station Peaceful/Station Peaceful/.agents/skills/perf-observatory/SKILL.md`
+Use `.agents/skills/perf-observatory/SKILL.md`
 as the source of truth.
 
-Keep the workflow JSON-first:
+Keep the workflow artifact-first:
 
-1. Run or read a `codex_perf_test` artifact from `debug_exports/perf/*.json`.
-2. Treat non-empty `contract_violations` as a bug.
-3. Compare candidate versus baseline with `tools/perf_baseline_diff.gd`.
-4. Mark regressions worse than 20% as fail and improvements better than 10% as
-   progress.
-5. Point the report at `boot`, `frame_summary`, `native_profiling`,
-   `scenarios`, or `streaming` instead of free-form guesswork.
+1. Read the current task artifact, structured log, or repo-local perf note first.
+2. Treat explicit budget or contract violations as a bug.
+3. Compare candidate versus baseline only when both artifacts actually exist.
+4. Point the report at the exact metric or artifact section that moved.
+5. Do not quote deleted harness commands or removed scene paths as current truth.
 
 Do not maintain this mirror without updating the repo-local skill.

@@ -9,7 +9,8 @@ last_updated: 2026-03-25
 related_docs:
   - ../README.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
-  - ../../00_governance/PERFORMANCE_CONTRACTS.md
+  - ../../00_governance/PROJECT_GLOSSARY.md
+  - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
   - ../../01_product/GAME_VISION_GDD.md
 ---
 
@@ -57,7 +58,7 @@ This spec does not own:
 Those belong in:
 - progression specs
 - content docs
-- [Performance Contracts](../../00_governance/PERFORMANCE_CONTRACTS.md)
+- [ADR-0001 Runtime Work and Dirty Update Foundation](../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md)
 - [Game Vision GDD](../../01_product/GAME_VISION_GDD.md)
 
 ## Core architectural statement
@@ -276,7 +277,7 @@ They must follow runtime law:
 - visual overlays must remain decoupled from heavy gameplay recomputation
 
 See:
-- [Performance Contracts](../../00_governance/PERFORMANCE_CONTRACTS.md)
+- [ADR-0001 Runtime Work and Dirty Update Foundation](../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md)
 
 ## Save contract
 

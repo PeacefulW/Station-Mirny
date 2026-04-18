@@ -8,7 +8,7 @@ version: 1.0
 last_updated: 2026-03-25
 related_docs:
   - multiplayer_and_modding.md
-  - ../world/world_generation_foundation.md
+  - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
 ---
 
 # Save and Persistence

@@ -9,7 +9,7 @@ last_updated: 2026-03-25
 related_docs:
   - engineering_networks.md
   - building_and_rooms.md
-  - ../world/transport_and_outposts.md
+  - ../survival/survival_core.md
 ---
 
 # Automation and Logistics

@@ -8,7 +8,6 @@ version: 1.0
 last_updated: 2026-03-26
 related_docs:
   - ../02_system_specs/meta/save_and_persistence.md
-  - ../02_system_specs/world/world_generation_foundation.md
   - 0001-runtime-work-and-dirty-update-foundation.md
 ---
 

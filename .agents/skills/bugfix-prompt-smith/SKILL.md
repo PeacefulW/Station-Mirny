@@ -20,8 +20,8 @@ API, and iteration boundaries defined by project governance.
 ## Read first
 
 - `docs/00_governance/WORKFLOW.md`
-- `docs/00_governance/PUBLIC_API.md`
-- `docs/00_governance/AI_PLAYBOOK.md`
+- `AGENTS.md`
+- the relevant approved spec or ADR for the affected subsystem
 - the relevant contract or system spec for the affected subsystem
 
 ## What this skill does
@@ -65,13 +65,13 @@ Use this structure unless the user asks for a different format:
 
 ## Формат результата
 - Closure report по формату из WORKFLOW.md
-- grep-check для DATA_CONTRACTS.md и PUBLIC_API.md
+- grep-check для relevant living canonical docs and ADRs
 ```
 
 ## Default workflow
 
 1. Restate the bug as an observable failure, not a guessed fix.
-2. Find the relevant contract doc and safe entry point before naming files.
+2. Find the relevant contract doc or ADR and the sanctioned boundary before naming files.
 3. Reduce the task to one requested step or one spec iteration.
 4. Name allowed files and forbidden files explicitly.
 5. Write concrete acceptance tests and documentation-check requirements that the
@@ -83,7 +83,7 @@ Use this structure unless the user asks for a different format:
 - the prompt says "fix the subsystem" instead of naming one bug
 - no file boundaries are given, so the next agent will scan the repo
 - acceptance tests are subjective or impossible to verify
-- documentation updates are omitted even though contracts or APIs may drift
+- documentation updates are omitted even though living canonical docs may drift
 - the requested "fix" is really a feature or redesign and needs a spec first
 
 ## Compose with other skills

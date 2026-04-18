@@ -7,9 +7,8 @@ source_of_truth: true
 version: 1.0
 last_updated: 2026-03-26
 related_docs:
-  - ../02_system_specs/world/environment_runtime_foundation.md
-  - ../02_system_specs/world/world_generation_foundation.md
   - 0003-immutable-base-plus-runtime-diff.md
+  - 0005-light-is-gameplay-system.md
 ---
 
 # ADR-0007 Environment Runtime Is Layered and Distinct from Worldgen

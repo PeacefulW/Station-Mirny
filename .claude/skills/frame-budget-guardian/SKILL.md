@@ -17,8 +17,9 @@ whether a proposed solution is architecturally safe for runtime.
 
 ## Read first
 
-- `docs/00_governance/PERFORMANCE_CONTRACTS.md`
-- the relevant subsystem contract for the task
+- `docs/00_governance/ENGINEERING_STANDARDS.md`
+- `docs/05_adrs/0001-runtime-work-and-dirty-update-foundation.md`
+- the relevant subsystem spec or ADR for the task
 
 ## What this skill does
 
@@ -30,7 +31,7 @@ whether a proposed solution is architecturally safe for runtime.
 ## Default workflow
 
 1. Identify the trigger path and the exact frame where the work lands.
-2. Compare the proposal against the interactive whitelist and forbidden synchronous work in `PERFORMANCE_CONTRACTS.md`.
+2. Compare the proposal against the runtime-work classes, dirty-unit limits, and forbidden synchronous work in the living governance docs.
 3. Define the dirty unit: tile, chunk-edge patch, room, queue item, or another bounded unit.
 4. Require a budgeted background path for everything bigger than the local action itself.
 5. Require verification that heavy native/GDScript bridge payloads or mass scene operations are not hiding inside the proposed fix.

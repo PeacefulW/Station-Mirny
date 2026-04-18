@@ -9,12 +9,12 @@ last_updated: 2026-03-25
 related_docs:
   - multiplayer_and_modding.md
   - save_and_persistence.md
-  - ../world/environment_runtime_foundation.md
-  - ../world/lighting_visibility_and_darkness.md
-  - ../world/subsurface_and_verticality_foundation.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
-  - ../../00_governance/PERFORMANCE_CONTRACTS.md
-  - ../../00_governance/SIMULATION_AND_THREADING_MODEL.md
+  - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
+  - ../../05_adrs/0004-host-authoritative-multiplayer.md
+  - ../../05_adrs/0005-light-is-gameplay-system.md
+  - ../../05_adrs/0006-surface-and-subsurface-are-separate-but-linked.md
+  - ../../05_adrs/0007-environment-runtime-is-layered-and-distinct-from-worldgen.md
   - ../../01_product/GAME_VISION_GDD.md
   - ../../01_product/NON_NEGOTIABLE_EXPERIENCE.md
 ---
@@ -398,7 +398,7 @@ Typical direction:
 - reconstructible local caches: rebuildable per machine
 - client-local presentation: non-authoritative
 
-The exact cadence model belongs in `SIMULATION_AND_THREADING_MODEL.md`, but this document establishes the multiplayer relevance of that distinction.
+The exact cadence model belongs in ADR-0001 and related runtime docs, but this document establishes the multiplayer relevance of that distinction.
 
 ## Minimal architectural seams
 

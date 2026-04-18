@@ -4,16 +4,14 @@ doc_type: adr
 status: approved
 owner: engineering
 source_of_truth: true
-version: 2.4
-last_updated: 2026-03-26
+version: 2.5
+last_updated: 2026-04-17
 related_docs:
   - ../00_governance/ENGINEERING_STANDARDS.md
-  - ../00_governance/PERFORMANCE_CONTRACTS.md
-  - ../00_governance/SIMULATION_AND_THREADING_MODEL.md
+  - ../00_governance/PROJECT_GLOSSARY.md
   - ../02_system_specs/base/building_and_rooms.md
   - ../02_system_specs/base/engineering_networks.md
-  - ../04_execution/MASTER_ROADMAP.md
-  - ../04_execution/runtime_integrity_gap_closure_plan.md
+  - ../02_system_specs/meta/save_and_persistence.md
 ---
 
 # ADR-0001 Runtime Work and Dirty Update Foundation
@@ -121,19 +119,16 @@ The current code paths that define scope for this series are:
 - `force_recalculate`
 - `_recalculate_balance`
 
-4. Boot chunk loading
-- `scenes/world/game_world.gd`
-- `_start_boot_sequence`
-- `_run_boot_sequence`
-- `core/systems/world/chunk_manager.gd`
-- `boot_load_initial_chunks`
+4. Boot/load orchestration
+- current startup scene / restore flow
+- boot sequence entrypoints
+- chunk publication owner in the active runtime implementation
 
 5. Local terrain mutation hooks
-- `core/systems/world/chunk_manager.gd`
-- `try_harvest_at_world`
-- `_on_mountain_tile_changed`
-- `scenes/world/game_world.gd`
-- `_debug_toggle_rock`
+- current world mutation owner
+- terrain excavation entrypoint
+- mountain-tile change propagation hook
+- debug mutation hook, if the active implementation still exposes one
 
 ## Current Main-Thread Hazards
 
@@ -264,7 +259,7 @@ Remaining gaps:
 
 **Hazard E status: ACCEPTED.** Main-thread-heavy operations (TileMapLayer.clear(), mass set_cell(), add_child(), queue_free()) are architectural constraints of Godot's scene tree. The refactor series keeps them out of local interactive building/power actions, but this does not by itself close Hazards A or B.
 
-**Series not complete.** Building/power contract closure remains open and is now tracked by `docs/04_execution/runtime_integrity_gap_closure_plan.md`.
+**Series not complete.** Building/power contract closure remains open and must be tracked by the current task/spec backlog rather than by removed legacy execution plans.
 
 ### Gap Closure G3 - Local Room Patch (2026-03-26)
 
@@ -279,7 +274,7 @@ Remaining gaps:
 - `GameWorld` decomposed: debug overlay extracted to `GameWorldDebug` (FPS, tile highlight, rock toggle, validation driver), spawn logic extracted to `SpawnOrchestrator` (enemy spawning, item drops, pickup collection)
 - `GameWorld._process()` now only calls `_update_player_indoor_status()` — no debug or spawn updates
 - `GameWorld` no longer owns enemy count, spawn timer, pickup factory, or debug visualization
-- New files: `scenes/world/game_world_debug.gd`, `scenes/world/spawn_orchestrator.gd`
+- Debug and spawn helpers were split out during the refactor series; the legacy scene-file paths are no longer tracked in the repository.
 - Debug code can be disabled for release by not creating `GameWorldDebug` node
 
 ### Iteration 4 Changes (2026-03-26)
@@ -330,4 +325,4 @@ Remaining gaps:
 This ADR is approved because it does not invent new gameplay behavior.
 It records the runtime law already implied by governance docs and applies it explicitly to the current base/world refactor series.
 
-**v2.5**: Save/load integrity, excavation command closure, staged room patching, and explicit power registration are in place. A fresh live gameplay log no longer shows standalone `building.room_recompute` spikes, so Hazard A is now resolved for ordinary runtime contract closure. Hazard B remains PARTIAL because power is still registry-global rather than dirty-network or partition-local. Save/load code holes are closed, but fresh GUI save/load revalidation remains explicit backlog. Follow-up execution is tracked in `docs/04_execution/runtime_integrity_gap_closure_plan.md`.
+**v2.5**: Save/load integrity, excavation command closure, staged room patching, and explicit power registration are in place. A fresh live gameplay log no longer shows standalone `building.room_recompute` spikes, so Hazard A is now resolved for ordinary runtime contract closure. Hazard B remains PARTIAL because power is still registry-global rather than dirty-network or partition-local. Save/load code holes are closed, but fresh GUI save/load revalidation remains explicit backlog. Follow-up work should now live in the current task/spec backlog rather than in removed legacy execution plans.

@@ -7,7 +7,6 @@ source_of_truth: true
 version: 1.1
 last_updated: 2026-03-26
 related_docs:
-  - ../02_system_specs/world/subsurface_and_verticality_foundation.md
   - ../02_system_specs/base/building_and_rooms.md
 ---
 

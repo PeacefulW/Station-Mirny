@@ -1,82 +1,61 @@
 ---
 name: perf-observatory
 description: >
-  Run Station Mirny observatory proofs, read `codex_perf_test` JSON artifacts,
-  compare a candidate run against a baseline, and report contract violations,
-  regressions, and improvements. Use when the user asks "запусти перф-тест",
-  "сравни с baseline", "проверь регрессию", "benchmark", "perf test", or wants
-  machine-readable performance diagnosis from `debug_exports/perf/*.json`.
+  Inspect Station Mirny performance artifacts and compare candidate results
+  against a baseline when the task explicitly provides JSON exports, structured
+  logs, or a named perf harness.
 ---
 
 # Perf Observatory
 
-Use the repository-local observatory workflow. Treat the JSON artifact from
-`PerfTelemetryCollector` as the primary proof source, not the console log, F11
-overlay, or memory of a prior run.
+Use this skill for proof-based performance review.
+
+Treat repository artifacts as the source of truth: JSON exports, structured
+logs, existing perf notes, or the current task's named harness. Do not assume
+deleted observatory docs, removed scene paths, or retired harness commands
+still exist.
 
 ## Read first
 
-- `docs/02_system_specs/meta/ai_performance_observatory_spec.md`
-- `docs/00_governance/PERFORMANCE_CONTRACTS.md`
-- `docs/02_system_specs/world/DATA_CONTRACTS.md`
-- `docs/00_governance/PUBLIC_API.md`
+- `docs/00_governance/ENGINEERING_STANDARDS.md`
+- `docs/05_adrs/0001-runtime-work-and-dirty-update-foundation.md`
+- the relevant subsystem spec or ADR for the workload under review
+- the current task brief naming the artifact, baseline, or harness
 
 ## Default workflow
 
-1. Choose the proof source:
-   - explicit run: launch the headless scene with `codex_perf_test`
-   - existing artifact: inspect `debug_exports/perf/*.json`
-2. Prefer the fixed-seed baseline at `debug_exports/perf/baseline_seed12345.json`
-   unless the task explicitly names a different baseline.
-3. Read the candidate JSON first. Confirm the expected blocks exist:
-   `meta`, `boot`, `streaming`, `frame_summary`, `contract_violations`,
-   `scenarios`, and `native_profiling`.
-4. Treat non-empty `contract_violations` as a bug even if other metrics improve.
-5. Run `tools/perf_baseline_diff.gd` when baseline comparison is needed:
+1. Choose the proof source already available in the task: JSON artifact,
+   structured report, existing perf note, or repository probe output.
+2. If a baseline is provided, compare against that exact baseline. Do not invent
+   a default baseline unless the repository already ships one and the task
+   clearly uses it.
+3. Treat explicit contract or budget violations as failures even if averages
+   improve.
+4. Point the diagnosis at the exact section, metric, or artifact field that
+   moved.
+5. If the repository does not currently ship a runnable harness for the task, do
+   not fabricate a dead command. Report the missing harness and continue with
+   artifact-based analysis.
 
-```powershell
-.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --script res://tools/perf_baseline_diff.gd -- codex_perf_baseline=debug_exports/perf/baseline_seed12345.json codex_perf_candidate=debug_exports/perf/result.json
-```
+## Sanctioned checks
 
-6. Use simple heuristics in the report:
-   - regression worse than 20% = fail
-   - improvement better than 10% = progress
-   - non-empty `contract_violations` = fail
-7. Point diagnosis at the JSON section that moved:
-   - boot/readiness: `boot`
-   - frame and budget pressure: `frame_summary`
-   - native chunk/topology work: `native_profiling`
-   - scenario proof outcome: `scenarios`
-   - queue/timeline context: `streaming`
-8. If runtime proof was not explicitly requested, do not invent extra Godot
-   runs just to be exhaustive. Reuse the existing artifact and leave a manual
-   handoff when human validation is still required.
+- read the artifact directly
+- grep for the metric, marker, or harness name before citing it
+- inspect `core/runtime/world_perf_probe.gd` when the task is about the current
+  world perf probe path
+- use only commands and harnesses that are present in the repo or explicitly
+  supplied by the task
 
-## Sanctioned commands
+## Reporting guidance
 
-Headless perf run:
-
-```powershell
-.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_perf_test codex_world_seed=12345 codex_quit_on_perf_complete
-```
-
-Selective validation run:
-
-```powershell
-.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --scene res://scenes/world/game_world.tscn -- codex_perf_test codex_validate_runtime codex_validate_scenarios=route,room,power,mining codex_world_seed=12345 codex_quit_on_perf_complete
-```
-
-Baseline diff with explicit outputs:
-
-```powershell
-.\Godot_v4.6.1-stable_win64_console.exe --headless --path . --script res://tools/perf_baseline_diff.gd -- codex_perf_baseline=debug_exports/perf/baseline_seed12345.json codex_perf_candidate=debug_exports/perf/result.json codex_perf_output_prefix=observatory_diff
-```
+- name the baseline and candidate artifacts you actually compared
+- separate regressions, improvements, and unknowns
+- call out missing proof when the task asks for a comparison but only one
+  artifact exists
+- prefer exact metrics over narrative guesses
 
 ## Boundaries
 
-- Do not treat console text as the primary proof source when the JSON artifact
-  already contains the needed facts.
-- Do not add always-on diagnostics, new gameplay APIs, or new ownership paths as
-  part of observatory review.
-- Do not let `.claude/skills/perf-observatory.md` become the only maintained
-  copy of this workflow; it is a compatibility mirror at most.
+- Do not quote deleted docs or removed scene paths as current truth.
+- Do not treat console memory from a prior run as proof.
+- Do not add always-on diagnostics as part of observatory review.

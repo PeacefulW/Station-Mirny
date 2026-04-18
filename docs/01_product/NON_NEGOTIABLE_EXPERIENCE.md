@@ -10,9 +10,9 @@ depends_on:
   - GAME_VISION_GDD.md
 related_docs:
   - GAME_VISION_GDD.md
-  - ../02_system_specs/world/environment_runtime_foundation.md
-  - ../02_system_specs/world/lighting_visibility_and_darkness.md
-  - ../02_system_specs/world/subsurface_and_verticality_foundation.md
+  - ../05_adrs/0005-light-is-gameplay-system.md
+  - ../05_adrs/0006-surface-and-subsurface-are-separate-but-linked.md
+  - ../05_adrs/0007-environment-runtime-is-layered-and-distinct-from-worldgen.md
   - ../02_system_specs/meta/multiplayer_authority_and_replication.md
 ---
 

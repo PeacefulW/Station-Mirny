@@ -8,7 +8,7 @@ version: 0.1
 last_updated: 2026-03-25
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
-  - ../../00_governance/AI_PLAYBOOK.md
+  - ../../../AGENTS.md
   - modding_extension_contracts.md
   - save_and_persistence.md
   - ../../01_product/GAME_VISION_GDD.md

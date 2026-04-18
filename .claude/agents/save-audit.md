@@ -18,7 +18,7 @@ memory: project
 
 1. `core/autoloads/save_manager.gd` — основной save/load orchestrator
 2. `docs/00_governance/ENGINEERING_STANDARDS.md` §13 — save/load правила
-3. `docs/02_system_specs/save_persistence.md` — спецификация save системы (если есть)
+3. `docs/02_system_specs/meta/save_and_persistence.md` — спецификация save системы
 
 Также прочитай только релевантные save/load файлы, связанные с текущим scope:
 - нужные collector/applier files
@@ -72,7 +72,7 @@ runtime state -> collect -> serialize -> deserialize -> apply -> runtime state
 
 ### Шаг 6: Проверка immutable base vs runtime diff
 
-По ADR-0003 и PERFORMANCE_CONTRACTS §5:
+По ADR-0003 и живым save/runtime docs:
 - World data разделены на immutable base и runtime diff?
 - Save хранит только diff, а не полную копию base?
 - При load — base генерируется заново, diff применяется поверх?

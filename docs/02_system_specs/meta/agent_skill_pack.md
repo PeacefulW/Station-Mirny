@@ -7,11 +7,12 @@ source_of_truth: true
 version: 0.1
 last_updated: 2026-04-02
 related_docs:
-  - ../../00_governance/AI_PLAYBOOK.md
+  - ../../../AGENTS.md
   - ../../00_governance/WORKFLOW.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
-  - ../../00_governance/PERFORMANCE_CONTRACTS.md
-  - ../../00_governance/SYSTEM_INVENTORY.md
+  - ../../00_governance/PROJECT_GLOSSARY.md
+  - ../../README.md
+  - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
   - ../../01_product/GAME_VISION_GDD.md
   - ../../01_product/NON_NEGOTIABLE_EXPERIENCE.md
   - ../../03_content_bible/lore/canon.md
@@ -231,7 +232,7 @@ Role:
 Role:
 
 - diagnose hitchy world interactions
-- trace local hot paths against `PERFORMANCE_CONTRACTS.md`
+- trace local hot paths against `ENGINEERING_STANDARDS.md` and ADR-0001
 - propose smallest-valid fixes that preserve data and ownership contracts
 
 Target scenarios:
@@ -560,7 +561,7 @@ What is done:
 Acceptance tests:
 
 - [ ] each performance skill description contains concrete Russian and English trigger phrases
-- [ ] each skill references `PERFORMANCE_CONTRACTS.md` or the relevant Station Mirny contract documents
+- [ ] each skill references `ENGINEERING_STANDARDS.md`, ADR-0001, or the relevant Station Mirny contract documents
 - [ ] the skills remain narrow and do not duplicate each other
 
 Files that may be touched:
@@ -673,7 +674,7 @@ Files that may be touched:
 
 - implemented project skill folders
 - `AGENTS.md`
-- `docs/00_governance/AI_PLAYBOOK.md`
+- `AGENTS.md`
 - this spec
 
 ## Required contract and API updates
@@ -683,13 +684,13 @@ This effort is expected to touch agent workflow documentation, not gameplay APIs
 Expected documentation review at final implementation iteration:
 
 - verify whether `AGENTS.md` still points at the correct project skill path
-- verify whether `AI_PLAYBOOK.md` should mention the canonical project skill location or router model
-- verify that no update is required in `DATA_CONTRACTS.md`
-- verify that no update is required in `PUBLIC_API.md`
+- verify whether `AGENTS.md` should mention the canonical project skill location or router model
+- verify whether any living canonical doc requires an update
+- verify whether any relevant ADR requires an update
 
 Canonical rule:
 
-The final implementation iteration must include grep proof for any claim that `DATA_CONTRACTS.md` or `PUBLIC_API.md` updates are not required.
+The final implementation iteration must include grep proof for any claim that living canonical docs do not require updates.
 
 ## Failure signs
 

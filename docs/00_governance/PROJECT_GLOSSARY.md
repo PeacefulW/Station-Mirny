@@ -8,12 +8,11 @@ version: 1.2
 last_updated: 2026-03-28
 related_docs:
   - ENGINEERING_STANDARDS.md
-  - PERFORMANCE_CONTRACTS.md
-  - SIMULATION_AND_THREADING_MODEL.md
   - ../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
-  - ../02_system_specs/world/world_generation_foundation.md
-  - ../02_system_specs/world/subsurface_and_verticality_foundation.md
-  - ../02_system_specs/world/lighting_visibility_and_darkness.md
+  - ../05_adrs/0002-wrap-world-is-cylindrical.md
+  - ../05_adrs/0005-light-is-gameplay-system.md
+  - ../05_adrs/0006-surface-and-subsurface-are-separate-but-linked.md
+  - ../05_adrs/0007-environment-runtime-is-layered-and-distinct-from-worldgen.md
 ---
 
 # Project Glossary
@@ -26,13 +25,13 @@ If a term is used in specs, ADRs, or code comments — it must mean what this fi
 ## Runtime & Performance
 
 ### Interactive path
-Synchronous code that runs in direct response to a player action (click, keypress) within the same frame. Must complete in < 2 ms for building operations, < 1 ms for movement. Allowed to: mutate one local object, mark dirty regions, enqueue deferred work, emit signals. Forbidden to: trigger full rebuilds, scan all entities, do mass scene-tree mutations. See: PERFORMANCE_CONTRACTS.md.
+Synchronous code that runs in direct response to a player action (click, keypress) within the same frame. Must complete in < 2 ms for building operations, < 1 ms for movement. Allowed to: mutate one local object, mark dirty regions, enqueue deferred work, emit signals. Forbidden to: trigger full rebuilds, scan all entities, do mass scene-tree mutations. See: ADR-0001.
 
 ### Background work
 Deferred processing that runs during normal gameplay through FrameBudgetDispatcher within a per-frame time budget (~6 ms total). Shape: `event → dirty mark → queued work → bounded per-frame processing → completion`. Target for: room recomputation, power network recalculation, topology maintenance. See: ADR-0001.
 
 ### Boot-time work
-Expensive operations that run during initialization (behind a loading screen), not during interactive gameplay. Allowed to: load all initial chunks, run full topology rebuilds, do synchronous room/power recalculation after save restore. Must not: leak into runtime interactive or background paths. See: ADR-0001, SIMULATION_AND_THREADING_MODEL.md.
+Expensive operations that run during initialization (behind a loading screen), not during interactive gameplay. Allowed to: load all initial chunks, run full topology rebuilds, do synchronous room/power recalculation after save restore. Must not: leak into runtime interactive or background paths. See: ADR-0001.
 
 ### Dirty queue
 A FIFO data structure with deduplication (`RuntimeDirtyQueue`) used to track which regions or systems need deferred recomputation. When a player action changes state (e.g., places a wall), the affected position is enqueued. A background job later pops items and processes them within frame budget. Prevents duplicate work and decouples interactive response from heavy computation.
@@ -44,7 +43,7 @@ The total time allowed for background work per frame. Currently 6 ms out of ~16.
 A single frame that exceeds 22 ms (drops below ~45 FPS). Tracked by `WorldPerfMonitor`. Hitches in interactive paths indicate performance contract violations.
 
 ### Performance contract
-A documented maximum time for a specific interactive operation. Violations emit warnings via `WorldPerfProbe`. Contracts: building place/remove/destroy < 2 ms, mine tile < 2 ms, player step < 1 ms. See: PERFORMANCE_CONTRACTS.md.
+A documented maximum time for a specific interactive operation. Violations emit warnings via `WorldPerfProbe`. Contracts: building place/remove/destroy < 2 ms, mine tile < 2 ms, player step < 1 ms. See: ADR-0001 and ENGINEERING_STANDARDS.md.
 
 ---
 
@@ -70,7 +69,7 @@ A stable, unique identifier for a game entity that survives save/load, multiplay
 ## World & Generation
 
 ### World channel
-A continuous deterministic scalar field sampled by world coordinates. Channels define what the world IS at any point. Target channels: height, temperature, moisture, ruggedness, flora_density. Same seed + same coordinates = same value, always. No chunk-local randomness. See: world_generation_foundation.md.
+A continuous deterministic scalar field sampled by world coordinates. Channels define what the world IS at any point. Target channels: height, temperature, moisture, ruggedness, flora_density. Same seed + same coordinates = same value, always. No chunk-local randomness. See: ADR-0002 and ADR-0007.
 
 ### Biome resolver
 A data-driven system that takes world channel values at a position and returns the winning biome. Evaluates registered `BiomeData` candidates by score/conditions (channel ranges, structure context). Adding a biome = adding a `.tres` file, not editing generator code. Implemented: `BiomeResolver` resolves biomes deterministically from `PlanetSampler` channels and `WorldComputeContext.sample_structure_context()` backed by `WorldPrePass`; `BiomeRegistry` loads biome resources from `data/biomes/`.
@@ -94,10 +93,13 @@ World channel (0.0–1.0) representing elevation. Drives: mountain placement, bi
 World channel (0.0–1.0) representing water availability at a position. Drives: biome selection (high = wet lowland/floodplain, low = dry/scorched), flora density, river proximity influence, resource distribution. Correlates with proximity to rivers and low elevation.
 
 ### Cave
-An underground space inside a mountain, accessed by mining through rock. Distinct from cellar (player-built underground beneath base). Caves are discovered, not constructed. Environmental rules: no natural light, potential for unique resources, enclosed threat profile. Cave topology is generated from mountain structure + player excavation. See: subsurface_and_verticality_foundation.md.
+An underground space inside a mountain, accessed by mining through rock. Distinct from cellar (player-built underground beneath base). Caves are discovered, not constructed. Environmental rules: no natural light, potential for unique resources, enclosed threat profile. Cave topology is generated from mountain structure + player excavation. See: ADR-0006.
+
+### Tile
+A logical world cell used for gameplay coordinates, building placement, and world mutations. The current rebuild contract maps one world tile to `32x32` presentation pixels. Gameplay and save math stay tile-based; pixels are presentation scale only.
 
 ### Chunk
-A fixed-size tile grid (default 64x64 tiles) used as the streaming, rendering, and persistence unit. Chunks are loaded/unloaded based on player proximity. A chunk is a cache/materialization of world truth, not a source of identity. World truth comes from channels + resolver + structures; chunks just render it.
+A fixed-size tile grid (current rebuild contract: `32x32` tiles) used as the streaming, rendering, and persistence unit. Chunks are loaded/unloaded based on player proximity. A chunk is a cache/materialization of world truth, not a source of identity. World truth comes from channels + resolver + structures; chunks just render it.
 
 ---
 
@@ -107,7 +109,7 @@ The environment runtime is the layer that answers: **"what does this place feel 
 
 World generation defines what a place IS (biome, terrain, elevation). Environment runtime defines what state it is IN (time of day, weather, season, wind, temperature exposure, visibility). Generation is stable and deterministic. Environment runtime changes every frame.
 
-See: environment_runtime_foundation.md.
+See: ADR-0007.
 
 ### World generation vs Environment runtime
 - **Generation**: "this is a cold mountain biome at elevation 0.8 with low moisture" — permanent, from seed
@@ -154,10 +156,10 @@ A transitional structure between sealed interior and hostile exterior. Prevents 
 A shallow underground space directly beneath the base (z=-1). Built by the player for shelter, storage, or protected infrastructure. The safe underground fantasy: "bunker beneath the station."
 
 ### Subsurface
-Any underground layer (z < 0). Includes cellars, mines, and deeper excavated spaces. Has distinct environmental rules: no natural light, different threat profile, excavation-based traversal. See: subsurface_and_verticality_foundation.md.
+Any underground layer (z < 0). Includes cellars, mines, and deeper excavated spaces. Has distinct environmental rules: no natural light, different threat profile, excavation-based traversal. See: ADR-0006.
 
 ### Underground fog of war
-Per-tile visibility system for underground z-levels. Three states: **unseen** (opaque black — player has never been here), **discovered** (dimmed — player was here but moved away), **visible** (clear — within reveal radius). Fog is transient: not persisted to save, cleared on z-level entry. Implemented as a TileMapLayer (`_fog_layer`, z_index 7) on each underground chunk. See: underground_fog_of_war_mvp_rollout.md.
+Per-tile visibility system for underground z-levels. Three states: **unseen** (opaque black — player has never been here), **discovered** (dimmed — player was here but moved away), **visible** (clear — within reveal radius). Fog is transient: not persisted to save, cleared on z-level entry. Implemented as a TileMapLayer (`_fog_layer`, z_index 7) on each underground chunk. See: ADR-0006.
 
 ### Connector / Vertical connector
 A structure that links Z-levels: stairs, ladders, hatches. Has stable identity for persistence and streaming. Currently: `ZStairs` with source_z/target_z. Both ends must exist for the connection to work.
@@ -170,7 +172,7 @@ The process of converting solid rock mass into traversable space underground. So
 ## Survival & Pressure
 
 ### Visibility pressure
-The degree to which environmental conditions limit the player's ability to see and navigate. Sources: darkness (night, underground, power loss), weather (storms, fog), spore density. Light is safety; darkness is threat. Gameplay must expose explicit visibility state, not scrape the renderer. See: lighting_visibility_and_darkness.md.
+The degree to which environmental conditions limit the player's ability to see and navigate. Sources: darkness (night, underground, power loss), weather (storms, fog), spore density. Light is safety; darkness is threat. Gameplay must expose explicit visibility state, not scrape the renderer. See: ADR-0005.
 
 ### Sanctuary
 The emotional and mechanical state of being inside a sealed, powered base. Core fantasy of the game: "inside feels safe." Sanctuary means: O2 recovers, temperature is controlled, spores are filtered, light is stable, threats are outside. The contrast between sanctuary and exposure drives every gameplay decision. See: GAME_VISION_GDD.md, NON_NEGOTIABLE_EXPERIENCE.md.
@@ -189,7 +191,7 @@ The set of base systems that maintain habitable conditions inside sealed rooms: 
 ## Documents & Process
 
 ### Source of truth
-A document marked `source_of_truth: true` in frontmatter. When multiple documents discuss the same topic, the source of truth wins. See: DOCUMENT_PRECEDENCE.md.
+A document marked `source_of_truth: true` in frontmatter. When multiple documents discuss the same topic, the source of truth wins. Use `docs/README.md` as the navigation entrypoint for the current canonical set.
 
 ### Canon
 Locked lore or design facts that cannot be contradicted by future content. Maintained in `docs/03_content_bible/lore/canon.md`. Example: "the planet has pervasive spores" is canon; "spores are sentient" is an open question.
@@ -201,7 +203,7 @@ A technical specification in `docs/02_system_specs/` that defines how a game sys
 A document in `docs/05_adrs/` that records a significant architectural decision, its context, and consequences. Once approved, it governs implementation. Example: ADR-0001 defines the runtime work classification for the entire project.
 
 ### Iteration brief
-An execution-level document that defines scope, deliverables, and success criteria for a single iteration of work. Lives in `docs/04_execution/` or `TASK.md`.
+An execution-level document that defines scope, deliverables, and success criteria for a single iteration of work. Lives in the current approved spec, task brief, or another explicitly named task-local document.
 
 ---
 

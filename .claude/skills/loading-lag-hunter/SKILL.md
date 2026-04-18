@@ -17,9 +17,9 @@ become ready, rather than interactive hitches inside an already-playable frame.
 
 ## Read first
 
-- `docs/00_governance/PERFORMANCE_CONTRACTS.md`
-- `docs/02_system_specs/world/DATA_CONTRACTS.md`
-- `docs/00_governance/PUBLIC_API.md`
+- `docs/00_governance/ENGINEERING_STANDARDS.md`
+- `docs/02_system_specs/meta/save_and_persistence.md`
+- the relevant world/runtime ADRs from `docs/05_adrs/`
 
 ## What this skill does
 
@@ -32,8 +32,8 @@ become ready, rather than interactive hitches inside an already-playable frame.
 ## Default workflow
 
 1. Confirm the complaint is about loading, startup, restore, or streaming readiness.
-2. Read the boot/readiness and world-lifecycle sections in `DATA_CONTRACTS.md`.
-3. Use `PUBLIC_API.md` to confirm the sanctioned boot/readiness probes rather than inventing new ones.
+2. Read the boot/readiness and world-lifecycle sections in the relevant current spec or ADR.
+3. Use the living canonical docs to confirm sanctioned boot/readiness probes rather than inventing new ones.
 4. Check whether work that should be staged or budgeted is still happening as one blocking step.
 5. Prefer honest first-playable earlier, with noncritical work deferred behind budgets.
 6. Treat temporary degraded visuals as acceptable if they reduce blocking wait and preserve correctness.

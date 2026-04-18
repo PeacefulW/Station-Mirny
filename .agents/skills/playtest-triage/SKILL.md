@@ -18,7 +18,7 @@ of tasks instead of an undifferentiated wall of complaints.
 
 ## Read first
 
-- `docs/00_governance/AI_PLAYBOOK.md`
+- `AGENTS.md`
 - `docs/00_governance/WORKFLOW.md`
 - `docs/01_product/GAME_VISION_GDD.md`
 - `docs/01_product/NON_NEGOTIABLE_EXPERIENCE.md`

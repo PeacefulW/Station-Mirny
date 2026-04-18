@@ -7,8 +7,8 @@ source_of_truth: true
 version: 1.0
 last_updated: 2026-03-26
 related_docs:
-  - ../02_system_specs/world/world_generation_foundation.md
   - ../00_governance/PROJECT_GLOSSARY.md
+  - 0007-environment-runtime-is-layered-and-distinct-from-worldgen.md
 ---
 
 # ADR-0002 Wrap-World Is Cylindrical

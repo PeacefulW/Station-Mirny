@@ -8,7 +8,7 @@ version: 1.0
 last_updated: 2026-03-26
 related_docs:
   - ../02_system_specs/meta/multiplayer_authority_and_replication.md
-  - ../00_governance/SIMULATION_AND_THREADING_MODEL.md
+  - 0001-runtime-work-and-dirty-update-foundation.md
 ---
 
 # ADR-0004 Host-Authoritative Multiplayer

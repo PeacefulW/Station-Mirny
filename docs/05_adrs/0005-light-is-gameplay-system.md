@@ -7,7 +7,6 @@ source_of_truth: true
 version: 1.0
 last_updated: 2026-03-26
 related_docs:
-  - ../02_system_specs/world/lighting_visibility_and_darkness.md
   - ../01_product/GAME_VISION_GDD.md
   - ../01_product/NON_NEGOTIABLE_EXPERIENCE.md
 ---

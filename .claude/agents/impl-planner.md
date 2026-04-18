@@ -18,9 +18,9 @@ memory: project
 Перед планированием ВСЕГДА прочитай:
 
 1. `docs/00_governance/ENGINEERING_STANDARDS.md` — инженерные стандарты
-2. `docs/00_governance/PERFORMANCE_CONTRACTS.md` — runtime контракты
+2. `docs/05_adrs/0001-runtime-work-and-dirty-update-foundation.md` — runtime/bounded work ADR
 3. `docs/05_adrs/0001-runtime-work-and-dirty-update-foundation.md` — dirty/bounded runtime
-4. `docs/00_governance/SIMULATION_AND_THREADING_MODEL.md` — модель симуляции
+4. релевантный текущий ADR/spec для runtime/model boundaries
 5. Релевантный feature spec или пользовательский brief текущей задачи (если есть)
 
 Если фича затрагивает конкретную подсистему, также прочитай релевантный system spec из `docs/02_system_specs/`.

@@ -8,7 +8,7 @@ version: 1.0
 last_updated: 2026-03-25
 related_docs:
   - engineering_networks.md
-  - ../world/transport_and_outposts.md
+  - ../survival/survival_core.md
 ---
 
 # Building and Rooms

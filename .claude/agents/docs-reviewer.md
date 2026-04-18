@@ -23,17 +23,17 @@ memory: project
 
 1. `AGENTS.md`
 2. `docs/00_governance/WORKFLOW.md`
-3. `docs/00_governance/DOCUMENT_PRECEDENCE.md`
-4. `docs/00_governance/PUBLIC_API.md`
+3. `docs/00_governance/ENGINEERING_STANDARDS.md`
+4. `docs/README.md`
 
 Если проверка касается world/chunk/mining/topology/reveal/presentation, также прочитай:
 
-5. `docs/02_system_specs/world/DATA_CONTRACTS.md`
+5. релевантный текущий world/runtime spec или ADR
 
 Если проверка касается runtime-sensitive или extensible поведения, также прочитай:
 
-6. `docs/00_governance/PERFORMANCE_CONTRACTS.md`
-7. `docs/00_governance/ENGINEERING_STANDARDS.md`
+6. `docs/05_adrs/0001-runtime-work-and-dirty-update-foundation.md`
+7. релевантный subsystem spec или ADR
 
 ## Методика
 
@@ -45,19 +45,18 @@ memory: project
 
 ### 2. Проверь каноничность
 
-- Используй `DOCUMENT_PRECEDENCE.md`, если документы противоречат друг другу.
-- Не превращай `CLAUDE.md`, `AGENTS.md`, skills или agent prompts в source of truth для архитектуры.
+- Используй порядок и живые ссылки из `AGENTS.md`, если документы расходятся.
+- Не превращай `AGENTS.md`, skills или agent prompts в source of truth для архитектуры.
 - Если execution docs расходятся с canonical docs, пометь это как finding, а не исправляй молча.
 
-### 3. Проверь contract/API drift
+### 3. Проверь canonical-doc drift
 
 Для изменённых имён, entrypoints, signals, owner boundaries, lifecycle semantics или public reads:
 
-- Grep `docs/02_system_specs/world/DATA_CONTRACTS.md`.
-- Grep `docs/00_governance/PUBLIC_API.md`.
-- Проверь релевантную feature spec и её `Required contract and API updates`.
+- Grep релевантные living canonical docs и ADRs.
+- Проверь релевантную feature spec и её `Required updates`.
 
-`not required` допустимо только с grep evidence.
+`not required` допустимо только с grep evidence по living docs.
 
 ### 4. Проверь качество текста
 
@@ -69,7 +68,7 @@ memory: project
 
 ### BLOCKER
 
-Нарушает canonical docs, workflow, public API, data contract или closure proof rules.
+Нарушает canonical docs, workflow, living specs/ADRs или closure proof rules.
 
 ### WARNING
 

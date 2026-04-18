@@ -1,6 +1,8 @@
 class_name ZStairs
 extends Area2D
 
+const TILE_SIZE_PX: int = 32
+
 ## Лестница/люк для перехода между z-уровнями.
 ## Игрок наступает → автоматический переход с фейдом.
 
@@ -82,4 +84,4 @@ func _create_visual() -> void:
 	add_child(cr)
 
 func _get_tile_size() -> int:
-	return 12
+	return TILE_SIZE_PX

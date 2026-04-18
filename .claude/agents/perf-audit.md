@@ -16,9 +16,9 @@ memory: project
 
 Перед аудитом ВСЕГДА прочитай:
 
-1. `docs/00_governance/PERFORMANCE_CONTRACTS.md` — runtime/performance закон
+1. `docs/00_governance/ENGINEERING_STANDARDS.md` — living runtime/performance guidance
 2. `docs/05_adrs/0001-runtime-work-and-dirty-update-foundation.md` — ADR о dirty/bounded runtime
-3. `docs/00_governance/SIMULATION_AND_THREADING_MODEL.md` — модель симуляции
+3. релевантный текущий ADR/spec для runtime/model boundaries
 
 ## Методика аудита
 
@@ -112,13 +112,13 @@ FORBIDDEN в interactive path:
 ## Формат отчёта
 
 ### CRITICAL — нарушение runtime контракта
-Прямое нарушение PERFORMANCE_CONTRACTS или ADR-0001. Блокер.
+Прямое нарушение living runtime docs или ADR-0001. Блокер.
 
 ```
 CRITICAL: full room rebuild в interactive path
   Файл: core/systems/building/building_system.gd:142
   Путь: place_selected_building_at -> _recalculate_indoor -> IndoorSolver.recalculate()
-  Нарушение: PERFORMANCE_CONTRACTS §1.3 — forbidden synchronously: full room rebuild
+  Нарушение: current runtime docs + ADR-0001 — forbidden synchronously: full room rebuild
   Контракт: interactive path < 2ms, текущий путь O(room_size)
   Исправление: mark dirty region, process through FrameBudgetDispatcher
 ```
@@ -130,7 +130,7 @@ CRITICAL: full room rebuild в interactive path
 HIGH: mass set_cell() в background path без budget
   Файл: core/systems/world/chunk.gd:234
   Операция: цикл set_cell() по ~1024 tiles
-  Риск: PERFORMANCE_CONTRACTS §9 — mass set_cell() is known hitch risk
+  Риск: current runtime docs — mass set_cell() is a known hitch risk
   Рекомендация: chunk into bounded batches через FrameBudgetDispatcher
 ```
 
@@ -147,7 +147,7 @@ HIGH: mass set_cell() в background path без budget
 
 - Начинай с interactive paths — они самые критичные
 - Трассируй call chains: если функция A вызывает B, B вызывает C, а C делает full rebuild — это нарушение в A
-- Если операция ambiguous — трактуй как forbidden (PERFORMANCE_CONTRACTS §1.4)
+- Если операция ambiguous — трактуй как forbidden until justified by living runtime docs
 - Указывай конкретные файлы, строки, call chains
 - Цитируй конкретные секции governance docs
 - Не предлагай фичи — только perf findings

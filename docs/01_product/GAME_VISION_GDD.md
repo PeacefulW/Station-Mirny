@@ -9,7 +9,7 @@ last_updated: 2026-03-25
 related_docs:
   - ../02_system_specs/README.md
   - ../03_content_bible/lore/canon.md
-  - ../04_execution/MASTER_ROADMAP.md
+  - ../05_adrs/README.md
 ---
 
 # Game Vision GDD
@@ -37,10 +37,10 @@ This file does not own:
 
 Those belong in:
 - [Engineering Standards](../00_governance/ENGINEERING_STANDARDS.md)
-- [Performance Contracts](../00_governance/PERFORMANCE_CONTRACTS.md)
+- [ADR-0001 Runtime Work and Dirty Update Foundation](../05_adrs/0001-runtime-work-and-dirty-update-foundation.md)
 - `docs/02_system_specs/*`
 - `docs/03_content_bible/*`
-- [Master Roadmap](../04_execution/MASTER_ROADMAP.md)
+- [ADR Index](../05_adrs/README.md)
 
 ## Project framing
 

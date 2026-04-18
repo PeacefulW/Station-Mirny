@@ -17,7 +17,7 @@ memory: project
 1. `docs/00_governance/ENGINEERING_STANDARDS.md` — главный справочник по стилю и архитектуре
 
 Если код затрагивает runtime/world системы, также прочитай:
-2. `docs/00_governance/PERFORMANCE_CONTRACTS.md`
+2. `docs/05_adrs/0001-runtime-work-and-dirty-update-foundation.md`
 
 ## Чеклист проверки
 
