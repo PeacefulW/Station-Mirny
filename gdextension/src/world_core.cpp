@@ -1,4 +1,5 @@
 #include "world_core.h"
+#include "autotile_47.h"
 
 #include <cstdint>
 
@@ -31,11 +32,40 @@ uint64_t tile_hash(int64_t seed, int64_t world_version, int64_t world_x, int64_t
 	return h;
 }
 
-bool is_spawn_safety_area(const Vector2i &coord, int64_t local_x, int64_t local_y) {
-	if (coord.x != 0 || coord.y != 0) {
+bool is_spawn_safety_area_at_world(int64_t world_x, int64_t world_y) {
+	return world_x >= 12 && world_x <= 20 && world_y >= 12 && world_y <= 20;
+}
+
+bool is_base_rock_at_world(int64_t seed, int64_t world_version, int64_t world_x, int64_t world_y) {
+	if (is_spawn_safety_area_at_world(world_x, world_y)) {
 		return false;
 	}
-	return local_x >= 12 && local_x <= 20 && local_y >= 12 && local_y <= 20;
+	const uint64_t h = tile_hash(seed, world_version, world_x, world_y);
+	return (h % 29ULL) == 0ULL;
+}
+
+int64_t resolve_base_rock_atlas_index(int64_t seed, int64_t world_version, int64_t world_x, int64_t world_y) {
+	const bool north = is_base_rock_at_world(seed, world_version, world_x, world_y - 1);
+	const bool north_east = is_base_rock_at_world(seed, world_version, world_x + 1, world_y - 1);
+	const bool east = is_base_rock_at_world(seed, world_version, world_x + 1, world_y);
+	const bool south_east = is_base_rock_at_world(seed, world_version, world_x + 1, world_y + 1);
+	const bool south = is_base_rock_at_world(seed, world_version, world_x, world_y + 1);
+	const bool south_west = is_base_rock_at_world(seed, world_version, world_x - 1, world_y + 1);
+	const bool west = is_base_rock_at_world(seed, world_version, world_x - 1, world_y);
+	const bool north_west = is_base_rock_at_world(seed, world_version, world_x - 1, world_y - 1);
+	return autotile_47::resolve_atlas_index(
+		north,
+		north_east,
+		east,
+		south_east,
+		south,
+		south_west,
+		west,
+		north_west,
+		world_x,
+		world_y,
+		seed
+	);
 }
 
 } // namespace
@@ -47,6 +77,8 @@ void WorldCore::_bind_methods() {
 Dictionary WorldCore::generate_chunk_packet(int64_t p_seed, Vector2i p_coord, int64_t p_world_version) const {
 	PackedInt32Array terrain_ids;
 	terrain_ids.resize(CELL_COUNT);
+	PackedInt32Array terrain_atlas_indices;
+	terrain_atlas_indices.resize(CELL_COUNT);
 	PackedByteArray walkable_flags;
 	walkable_flags.resize(CELL_COUNT);
 
@@ -57,17 +89,17 @@ Dictionary WorldCore::generate_chunk_packet(int64_t p_seed, Vector2i p_coord, in
 			const int64_t world_y = static_cast<int64_t>(p_coord.y) * CHUNK_SIZE + local_y;
 
 			int64_t terrain_id = TERRAIN_PLAINS_GROUND;
+			int64_t terrain_atlas_index = 0;
 			uint8_t walkable = 1U;
 
-			if (!is_spawn_safety_area(p_coord, local_x, local_y)) {
-				const uint64_t h = tile_hash(p_seed, p_world_version, world_x, world_y);
-				if ((h % 29ULL) == 0ULL) {
-					terrain_id = TERRAIN_PLAINS_ROCK;
-					walkable = 0U;
-				}
+			if (is_base_rock_at_world(p_seed, p_world_version, world_x, world_y)) {
+				terrain_id = TERRAIN_PLAINS_ROCK;
+				terrain_atlas_index = resolve_base_rock_atlas_index(p_seed, p_world_version, world_x, world_y);
+				walkable = 0U;
 			}
 
 			terrain_ids.set(index, terrain_id);
+			terrain_atlas_indices.set(index, terrain_atlas_index);
 			walkable_flags.set(index, walkable);
 		}
 	}
@@ -77,6 +109,7 @@ Dictionary WorldCore::generate_chunk_packet(int64_t p_seed, Vector2i p_coord, in
 	packet["world_seed"] = p_seed;
 	packet["world_version"] = p_world_version;
 	packet["terrain_ids"] = terrain_ids;
+	packet["terrain_atlas_indices"] = terrain_atlas_indices;
 	packet["walkable_flags"] = walkable_flags;
 	return packet;
 }

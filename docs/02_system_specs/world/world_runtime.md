@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 0.2
-last_updated: 2026-04-18
+version: 0.3
+last_updated: 2026-04-19
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -85,7 +85,7 @@ V0 explicitly does not include:
 | Deterministic? | Yes, base packet is pure `f(seed, coord, world_version)` |
 | Must work on unloaded chunks? | Yes, diff store remains authoritative when a chunk is not loaded |
 | C++ compute or main-thread apply? | Generation in C++; publish/apply on main thread only |
-| Dirty unit | `32 x 32` chunk for generation, one tile for mutation, bounded cell batches for publish |
+| Dirty unit | `32 x 32` chunk for generation, one tile for authoritative mutation, bounded local visual patch for adjacency-dependent terrain presentation, bounded cell batches for publish |
 | Single owner | `WorldCore` owns canonical base output; `WorldDiffStore` owns persisted overrides; `ChunkView` owns only presentation |
 | 10x / 100x scale path | More chunks increase queued packet generation and sliced publish work; they do not expand the interactive mutation path |
 | Main-thread blocking risk | Allowed only for bounded apply slices; heavy generation stays off-thread |
@@ -115,7 +115,15 @@ Required fields:
 | `world_seed` | `int` | copied into the packet for validation/debug |
 | `world_version` | `int` | first V0 runtime value starts at `1` |
 | `terrain_ids` | `PackedInt32Array` | length `1024`, one terrain id per local tile |
+| `terrain_atlas_indices` | `PackedInt32Array` | length `1024`, derived presentation atlas index per local tile |
 | `walkable_flags` | `PackedByteArray` | length `1024`, `1 = walkable`, `0 = blocked` |
+
+`terrain_atlas_indices` rules:
+- it is derived presentation metadata, not authoritative terrain state
+- it may be computed in native code for base packets
+- runtime diff save files do not persist it
+- loaded mutation paths may recompute only a bounded local visual patch instead
+  of republishing a full chunk
 
 Forbidden packet fields in V0:
 - climate bytes
@@ -230,8 +238,10 @@ Main-thread publish rules:
 
 Single-tile mutation rules:
 - write one override into `WorldDiffStore`
-- apply one local cell update to the visible `ChunkView` if that chunk is loaded
 - update walkability locally
+- if adjacency-dependent terrain presentation needs neighbour correction,
+  recompute only the bounded local visual patch around the changed tile for
+  already-loaded chunks
 - do not regenerate the whole chunk packet
 - do not republish the entire chunk view
 
@@ -287,7 +297,7 @@ existing signal set is insufficient.
 - interactive:
   - one tile mutation
   - one local diff write
-  - one local visible-cell apply if loaded
+  - one bounded local visible patch apply if loaded
 - background compute:
   - native chunk generation off-thread
 - background apply:

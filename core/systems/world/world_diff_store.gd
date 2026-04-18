@@ -29,6 +29,16 @@ func get_tile_override_at_tile(tile_coord: Vector2i) -> Dictionary:
 		WorldRuntimeConstants.tile_to_local(tile_coord)
 	)
 
+func get_chunk_override_local_coords(chunk_coord: Vector2i) -> Array[Vector2i]:
+	var local_coords: Array[Vector2i] = []
+	var chunk_diffs: Dictionary = _diffs_by_chunk.get(chunk_coord, {}) as Dictionary
+	for local_coord_variant: Variant in chunk_diffs.keys():
+		local_coords.append(local_coord_variant as Vector2i)
+	local_coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return a.x < b.x if a.x != b.x else a.y < b.y
+	)
+	return local_coords
+
 func apply_to_packet(packet: Dictionary) -> Dictionary:
 	var chunk_coord: Vector2i = packet.get("chunk_coord", Vector2i.ZERO) as Vector2i
 	var chunk_diffs: Dictionary = _diffs_by_chunk.get(chunk_coord, {}) as Dictionary

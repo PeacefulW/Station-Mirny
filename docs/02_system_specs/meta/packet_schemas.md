@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.1
-last_updated: 2026-04-18
+version: 0.2
+last_updated: 2026-04-19
 related_docs:
   - ../README.md
   - system_api.md
@@ -187,6 +187,10 @@ One JSON file per dirty chunk under `user://saves/<slot>/chunks/`.
   "walkable": bool,
 }
 ```
+
+Current code note:
+- `ChunkDiffTile` intentionally does not persist any presentation-only atlas or
+  autotile metadata; runtime derives those values from `base + diff`
 
 ### `TimeSaveData`
 
@@ -379,14 +383,18 @@ Returned by native `WorldCore.generate_chunk_packet(seed, coord, world_version)`
   "chunk_coord": Vector2i,
   "world_seed": int,
   "world_version": int,
-  "terrain_ids": PackedInt32Array,   # length 1024
-  "walkable_flags": PackedByteArray, # length 1024
+  "terrain_ids": PackedInt32Array,           # length 1024
+  "terrain_atlas_indices": PackedInt32Array, # length 1024
+  "walkable_flags": PackedByteArray,         # length 1024
 }
 ```
 
 Current code notes:
 - V0 intentionally omits climate bytes, river data, mountain data, placements, and decor
+- `terrain_atlas_indices` is derived presentation metadata consumed by `ChunkView`
 - runtime mutations are not written back into `ChunkPacketV0`; they are persisted separately as `ChunkDiffFile`
+- `terrain_atlas_indices` is not part of `ChunkDiffFile` and is recomputed from
+  `base + diff` for loaded visual patches
 
 ## Not Currently Confirmed
 
