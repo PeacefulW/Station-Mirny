@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering+art
 source_of_truth: true
-version: 0.1
+version: 0.2
 last_updated: 2026-04-19
 related_docs:
   - ../../README.md
@@ -286,6 +286,12 @@ The profile answers:
 - which material set to use
 - which shared shader family renders them
 
+Notes:
+
+- `terrain_class_id` is a descriptive/category field for authoring and grouping.
+- `terrain_class_id` is not permission for a second hidden runtime resolution
+  path.
+
 ## Registry and ID Model
 
 Terrain presentation should be resolved through IDs and data resources, not
@@ -304,6 +310,36 @@ They must not own:
 - canonical terrain truth
 - save state
 - world mutation
+
+## Canonical Profile Resolution Path
+
+There must be exactly one canonical runtime resolution path for terrain
+presentation:
+
+```text
+terrain_id -> TerrainPresentationProfile
+```
+
+Rules:
+
+- `terrain_id` is the authoritative runtime input already present in chunk
+  packets and diff-applied terrain state.
+- `TerrainPresentationRegistry` is the single owner of the mapping from
+  `terrain_id` to `TerrainPresentationProfile`.
+- `WorldTileSetFactory`, `ChunkView`, and shader setup code may consume the
+  resolved profile, but they may not invent parallel profile-selection rules.
+- If multiple terrain ids intentionally share the same visuals, they do so by
+  pointing to the same `TerrainPresentationProfile` in the registry.
+- A future `terrain_class_id` abstraction is allowed only if it still resolves
+  through one explicit registry-owned path and does not create parallel lookup
+  logic in multiple systems.
+
+Forbidden:
+
+- resolving profiles partly in `WorldStreamer`
+- resolving profiles partly in `WorldTileSetFactory`
+- resolving profiles partly in shader code
+- "local inference" of the profile from texture availability or asset names
 
 ## Runtime Architecture
 
@@ -357,6 +393,41 @@ The shader does **not** own:
 - save state
 - topology-family selection
 
+## Validation Model
+
+Terrain presentation resources must be validated before gameplay hot paths use
+them.
+
+Required validation stage:
+
+- registry bootstrap
+- project startup preload phase
+- explicit editor/dev validation tools
+
+Validation must confirm:
+
+- the referenced shape set exists
+- the referenced material set exists
+- required textures exist and load successfully
+- the shape set's `topology_family_id` matches the topology family expected by
+  the runtime path that will consume it
+- `mask atlas` and `shape normal atlas` are structurally valid for the declared
+  case family
+- required material maps are present for the shader family being used
+
+Failure policy:
+
+- invalid presentation resources fail validation early
+- bootstrap/registry validation must report explicit errors
+- chunk publish/apply must not become the first place where missing or invalid
+  terrain resources are discovered
+
+Forbidden:
+
+- deferring topology-family mismatch detection to chunk publish
+- discovering missing textures during visible chunk publication
+- silent fallback to a "best effort" material on the runtime hot path
+
 ## Packet Contract Compatibility
 
 For material-only expansion, the current packet contract should remain valid:
@@ -371,10 +442,8 @@ This means:
 - no texture IDs in chunk packets for simple material expansion
 - no save payload changes for shape/material swaps
 
-The current `ChunkPacketV0` remains sufficient as long as:
-
-- the terrain class already identifies which presentation profile should be used
-- or the profile can be resolved locally from existing world/runtime context
+The current `ChunkPacketV0` remains sufficient as long as runtime presentation
+selection is registry-resolved from the existing authoritative terrain id.
 
 If a future design requires new presentation-selection data that is not locally
 derivable, then `packet_schemas.md` must be updated in the same task.
@@ -571,11 +640,24 @@ The terrain hybrid architecture is considered correctly implemented when:
 - keep current packet contract unchanged
 - no broad registry refactor yet
 
+### Iteration 1.5 - Transition bridge from current state
+
+- wrap current `plains` and `rock` terrain presentation assets into the first
+  `TerrainShapeSet`, `TerrainMaterialSet`, and `TerrainPresentationProfile`
+  resources
+- keep the current packet/apply contract unchanged
+- keep current topology solve native-owned
+- allow `WorldTileSetFactory` to act as a temporary consumer of registry-backed
+  resources instead of acting as the long-term owner of hardcoded paths
+- do not leave the codebase in a half-hardcoded / half-registry state where
+  multiple profile-selection mechanisms coexist
+
 ### Iteration 2 - Introduce data resources
 
 - add `TerrainShapeSet`
 - add `TerrainMaterialSet`
 - add `TerrainPresentationProfile`
+- move profile resolution to one registry-owned path
 - remove hardcoded per-material file lists from the presentation wiring
 
 ### Iteration 3 - Unify terrain material families
