@@ -44,15 +44,49 @@ bool is_base_rock_at_world(int64_t seed, int64_t world_version, int64_t world_x,
 	return (h % 29ULL) == 0ULL;
 }
 
-int64_t resolve_base_rock_atlas_index(int64_t seed, int64_t world_version, int64_t world_x, int64_t world_y) {
-	const bool north = is_base_rock_at_world(seed, world_version, world_x, world_y - 1);
-	const bool north_east = is_base_rock_at_world(seed, world_version, world_x + 1, world_y - 1);
-	const bool east = is_base_rock_at_world(seed, world_version, world_x + 1, world_y);
-	const bool south_east = is_base_rock_at_world(seed, world_version, world_x + 1, world_y + 1);
-	const bool south = is_base_rock_at_world(seed, world_version, world_x, world_y + 1);
-	const bool south_west = is_base_rock_at_world(seed, world_version, world_x - 1, world_y + 1);
-	const bool west = is_base_rock_at_world(seed, world_version, world_x - 1, world_y);
-	const bool north_west = is_base_rock_at_world(seed, world_version, world_x - 1, world_y - 1);
+int64_t resolve_base_terrain_id_at_world(int64_t seed, int64_t world_version, int64_t world_x, int64_t world_y) {
+	if (is_base_rock_at_world(seed, world_version, world_x, world_y)) {
+		return TERRAIN_PLAINS_ROCK;
+	}
+	return TERRAIN_PLAINS_GROUND;
+}
+
+bool is_base_rock_neighbor_at_world(int64_t seed, int64_t world_version, int64_t world_x, int64_t world_y) {
+	return resolve_base_terrain_id_at_world(seed, world_version, world_x, world_y) == TERRAIN_PLAINS_ROCK;
+}
+
+int64_t resolve_base_ground_atlas_index(int64_t world_x, int64_t world_y, int64_t seed) {
+	// TODO: switch plains-ground edge solving to water adjacency once water
+	// terrain exists. For now, ground always uses solid atlas variants only.
+	return autotile_47::resolve_atlas_index(
+		true,
+		true,
+		true,
+		true,
+		true,
+		true,
+		true,
+		true,
+		world_x,
+		world_y,
+		seed
+	);
+}
+
+int64_t resolve_base_rock_atlas_index(
+	int64_t seed,
+	int64_t world_version,
+	int64_t world_x,
+	int64_t world_y
+) {
+	const bool north = is_base_rock_neighbor_at_world(seed, world_version, world_x, world_y - 1);
+	const bool north_east = is_base_rock_neighbor_at_world(seed, world_version, world_x + 1, world_y - 1);
+	const bool east = is_base_rock_neighbor_at_world(seed, world_version, world_x + 1, world_y);
+	const bool south_east = is_base_rock_neighbor_at_world(seed, world_version, world_x + 1, world_y + 1);
+	const bool south = is_base_rock_neighbor_at_world(seed, world_version, world_x, world_y + 1);
+	const bool south_west = is_base_rock_neighbor_at_world(seed, world_version, world_x - 1, world_y + 1);
+	const bool west = is_base_rock_neighbor_at_world(seed, world_version, world_x - 1, world_y);
+	const bool north_west = is_base_rock_neighbor_at_world(seed, world_version, world_x - 1, world_y - 1);
 	return autotile_47::resolve_atlas_index(
 		north,
 		north_east,
@@ -88,14 +122,19 @@ Dictionary WorldCore::generate_chunk_packet(int64_t p_seed, Vector2i p_coord, in
 			const int64_t world_x = static_cast<int64_t>(p_coord.x) * CHUNK_SIZE + local_x;
 			const int64_t world_y = static_cast<int64_t>(p_coord.y) * CHUNK_SIZE + local_y;
 
-			int64_t terrain_id = TERRAIN_PLAINS_GROUND;
+			const int64_t terrain_id = resolve_base_terrain_id_at_world(p_seed, p_world_version, world_x, world_y);
 			int64_t terrain_atlas_index = 0;
-			uint8_t walkable = 1U;
+			uint8_t walkable = terrain_id == TERRAIN_PLAINS_ROCK ? 0U : 1U;
 
-			if (is_base_rock_at_world(p_seed, p_world_version, world_x, world_y)) {
-				terrain_id = TERRAIN_PLAINS_ROCK;
-				terrain_atlas_index = resolve_base_rock_atlas_index(p_seed, p_world_version, world_x, world_y);
-				walkable = 0U;
+			if (terrain_id == TERRAIN_PLAINS_GROUND) {
+				terrain_atlas_index = resolve_base_ground_atlas_index(world_x, world_y, p_seed);
+			} else if (terrain_id == TERRAIN_PLAINS_ROCK) {
+				terrain_atlas_index = resolve_base_rock_atlas_index(
+					p_seed,
+					p_world_version,
+					world_x,
+					world_y
+				);
 			}
 
 			terrain_ids.set(index, terrain_id);

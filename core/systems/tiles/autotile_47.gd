@@ -41,6 +41,18 @@ static func build_atlas_index(signature_code: int, variant_index: int) -> int:
 	var safe_variant: int = maxi(0, variant_index)
 	return safe_variant * CASE_COUNT + int(_base_index_by_signature_code.get(signature_code, 0))
 
+static func build_solid_atlas_index(
+	tile_coord: Vector2i,
+	seed: int,
+	variant_count: int = DEFAULT_VARIANT_COUNT
+) -> int:
+	# Solid means "no open edges / no inner cuts". Ground should stay on this
+	# until water-driven edge rules are introduced.
+	return build_atlas_index(
+		build_signature_code(true, true, true, true, true, true, true, true),
+		pick_variant(tile_coord, seed, variant_count)
+	)
+
 static func pick_variant(
 	tile_coord: Vector2i,
 	seed: int,

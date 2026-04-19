@@ -124,6 +124,8 @@ Required fields:
 - runtime diff save files do not persist it
 - loaded mutation paths may recompute only a bounded local visual patch instead
   of republishing a full chunk
+- plains-ground edge variants are reserved for water adjacency; until water
+  exists, plains ground uses solid atlas variants only
 
 Forbidden packet fields in V0:
 - climate bytes
@@ -138,7 +140,7 @@ Forbidden packet fields in V0:
 ### Terrain Palette
 
 V0 keeps the terrain palette intentionally tiny:
-- one plains walkable ground tile
+- one plains walkable ground tile class; presentation may use derived atlas indices
 - one plains blocked tile class if needed to prove a single-tile dig/modify path
 - one plains modified-result tile class if the mutation proof needs a distinct
   post-dig state

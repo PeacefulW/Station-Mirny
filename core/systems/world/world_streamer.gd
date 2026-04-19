@@ -442,7 +442,9 @@ func _build_loaded_visual_update(tile_coord: Vector2i) -> Dictionary:
 		return {}
 	var terrain_id: int = int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
 	var terrain_atlas_index: int = 0
-	if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK:
+	if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_GROUND:
+		terrain_atlas_index = _resolve_loaded_ground_atlas_index(tile_coord)
+	elif terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK:
 		var atlas_data: Dictionary = _try_resolve_loaded_rock_atlas_index(tile_coord)
 		if not bool(atlas_data.get("ready", false)):
 			return {}
@@ -454,6 +456,11 @@ func _build_loaded_visual_update(tile_coord: Vector2i) -> Dictionary:
 		"terrain_atlas_index": terrain_atlas_index,
 		"walkable": bool(tile_data.get("walkable", true)),
 	}
+
+func _resolve_loaded_ground_atlas_index(tile_coord: Vector2i) -> int:
+	# TODO: switch plains-ground edge solving to water adjacency once water
+	# terrain exists. For now, ground always uses solid atlas variants only.
+	return Autotile47.build_solid_atlas_index(tile_coord, world_seed)
 
 func _try_resolve_loaded_rock_atlas_index(tile_coord: Vector2i) -> Dictionary:
 	var north: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(0, -1))

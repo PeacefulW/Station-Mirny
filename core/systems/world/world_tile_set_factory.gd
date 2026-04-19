@@ -4,7 +4,7 @@ extends RefCounted
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
-const PLAINS_TEXTURE: Texture2D = preload("res://assets/textures/terrain/terrain_plains.png")
+const PLAINS_ATLAS_TEXTURE: Texture2D = preload("res://assets/sprites/terrain/plain_terrain_atlas.png")
 const ROCK_ATLAS_TEXTURE: Texture2D = preload("res://assets/sprites/terrain/plain_rock_atlas.png")
 const DUG_TEXTURE: Texture2D = preload("res://assets/textures/terrain/terrain_shore.png")
 
@@ -20,7 +20,7 @@ static func get_source_id(terrain_id: int) -> int:
 	return int(_source_ids.get(terrain_id, _source_ids[WorldRuntimeConstants.TERRAIN_PLAINS_GROUND]))
 
 static func get_atlas_coords(terrain_id: int, atlas_index: int = 0) -> Vector2i:
-	if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK:
+	if _uses_autotile_47(terrain_id):
 		return Autotile47.atlas_index_to_coords(atlas_index)
 	return Vector2i.ZERO
 
@@ -33,7 +33,12 @@ static func _ensure_tileset() -> void:
 		WorldRuntimeConstants.TILE_SIZE_PX
 	)
 	_source_ids = {
-		WorldRuntimeConstants.TERRAIN_PLAINS_GROUND: _tile_set.add_source(_build_single_tile_source(PLAINS_TEXTURE)),
+		WorldRuntimeConstants.TERRAIN_PLAINS_GROUND: _tile_set.add_source(
+			Autotile47.build_full_atlas_source(
+				PLAINS_ATLAS_TEXTURE,
+				WorldRuntimeConstants.TILE_SIZE_PX
+			)
+		),
 		WorldRuntimeConstants.TERRAIN_PLAINS_ROCK: _tile_set.add_source(
 			Autotile47.build_full_atlas_source(
 				ROCK_ATLAS_TEXTURE,
@@ -52,3 +57,7 @@ static func _build_single_tile_source(texture: Texture2D) -> TileSetAtlasSource:
 	)
 	source.create_tile(Vector2i.ZERO)
 	return source
+
+static func _uses_autotile_47(terrain_id: int) -> bool:
+	return terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_GROUND \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK
