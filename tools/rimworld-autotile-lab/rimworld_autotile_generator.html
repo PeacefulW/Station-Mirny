@@ -64,12 +64,14 @@ button{cursor:pointer}
 }
 .file-card input{width:100%}
 .texture-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.tiling-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
 .swatch{display:grid;gap:6px;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:10px}
 .swatch strong{font-size:12px;color:var(--muted);font-weight:600}
 .swatch canvas{
   width:100%;aspect-ratio:1;border-radius:10px;border:1px solid rgba(255,255,255,.08);
   image-rendering:pixelated;background:#111;
 }
+.swatch p{margin:0;color:var(--muted);font-size:12px;line-height:1.45}
 .actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .action-btn,.secondary-btn{border:none;border-radius:14px;padding:12px 14px;font-weight:700}
 .action-btn{background:linear-gradient(180deg,var(--accent),var(--accent-2));color:#22150e}
@@ -115,6 +117,7 @@ button{cursor:pointer}
 }
 .inline-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .inline-tools .select-input{width:auto;min-width:110px;padding:8px 10px}
+.inline-tools .line-label{font-size:12px}
 .gallery{padding:14px 18px 22px}
 .tile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px}
 .tile-card{display:grid;gap:8px;padding:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:18px}
@@ -158,7 +161,23 @@ button{cursor:pointer}
     </section>
 
     <section class="group">
-      <h2>Геометрия</h2>
+      <h2>Preview Mode</h2>
+      <div class="controls">
+        <div class="field">
+          <label for="previewMode"><span>Что показывать</span></label>
+          <select class="select-input" id="previewMode">
+            <option value="shaderComposite">Shader Composite</option>
+            <option value="albedo">Albedo</option>
+            <option value="mask">Mask</option>
+            <option value="shapeHeight">Shape Height</option>
+            <option value="shapeNormal">Shape Normal</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>Shape Authoring</h2>
       <div class="controls">
         <div class="field">
           <label for="tileSize"><span>Размер тайла</span><span class="value" id="tileSizeValue">64</span></label>
@@ -173,8 +192,30 @@ button{cursor:pointer}
           <input class="range" id="lipPx" type="range" min="2" max="14" step="1" value="6">
         </div>
         <div class="field">
+          <label for="backRimRatio"><span>Back rim ratio</span><span class="value" id="backRimRatioValue">0.5</span></label>
+          <input class="range" id="backRimRatio" type="range" min="0.2" max="1.2" step="0.05" value="0.5">
+        </div>
+        <div class="field">
+          <label for="northRimThickness"><span>North rim extra</span><span class="value" id="northRimThicknessValue">0</span></label>
+          <input class="range" id="northRimThickness" type="range" min="0" max="10" step="1" value="0">
+        </div>
+        <div class="field">
           <label for="roughness"><span>Рваность края</span><span class="value" id="roughnessValue">74</span></label>
           <input class="range" id="roughness" type="range" min="0" max="100" step="1" value="74">
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="faceSlope"><span>Face slope</span><span class="value" id="faceSlopeValue">100</span></label>
+            <input class="range" id="faceSlope" type="range" min="30" max="180" step="5" value="100">
+          </div>
+          <div class="field">
+            <label for="innerCornerMode"><span>Inner corner mode</span></label>
+            <select class="select-input" id="innerCornerMode">
+              <option value="caps">Caps</option>
+              <option value="box">Box</option>
+              <option value="bevel">Bevel</option>
+            </select>
+          </div>
         </div>
         <div class="field">
           <label for="normalStrength"><span>Сила нормалей</span><span class="value" id="normalStrengthValue">90</span></label>
@@ -243,6 +284,80 @@ button{cursor:pointer}
           <input class="range" id="tintJitter" type="range" min="0" max="30" step="1" value="10">
         </div>
       </div>
+      <div class="row">
+        <div class="field">
+          <label for="topTintOpacity"><span>Top tint opacity</span><span class="value" id="topTintOpacityValue">100</span></label>
+          <input class="range" id="topTintOpacity" type="range" min="0" max="100" step="1" value="100">
+        </div>
+        <div class="field">
+          <label for="faceTintOpacity"><span>Face tint opacity</span><span class="value" id="faceTintOpacityValue">100</span></label>
+          <input class="range" id="faceTintOpacity" type="range" min="0" max="100" step="1" value="100">
+        </div>
+      </div>
+      <div class="field">
+        <label for="baseTintOpacity"><span>Base tint opacity</span><span class="value" id="baseTintOpacityValue">100</span></label>
+        <input class="range" id="baseTintOpacity" type="range" min="0" max="100" step="1" value="100">
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>Material Authoring</h2>
+      <div class="controls">
+        <div class="row">
+          <div class="field">
+            <label for="topMacroScale"><span>Top macro scale</span><span class="value" id="topMacroScaleValue">160</span></label>
+            <input class="range" id="topMacroScale" type="range" min="48" max="320" step="8" value="160">
+          </div>
+          <div class="field">
+            <label for="topMacroStrength"><span>Top macro strength</span><span class="value" id="topMacroStrengthValue">42</span></label>
+            <input class="range" id="topMacroStrength" type="range" min="0" max="100" step="1" value="42">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="topPebbleDensity"><span>Top pebble density</span><span class="value" id="topPebbleDensityValue">12</span></label>
+            <input class="range" id="topPebbleDensity" type="range" min="2" max="24" step="1" value="12">
+          </div>
+          <div class="field">
+            <label for="topPebbleSize"><span>Top pebble size</span><span class="value" id="topPebbleSizeValue">3</span></label>
+            <input class="range" id="topPebbleSize" type="range" min="1" max="10" step="1" value="3">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="topMicroNoise"><span>Top micro noise</span><span class="value" id="topMicroNoiseValue">26</span></label>
+            <input class="range" id="topMicroNoise" type="range" min="0" max="100" step="1" value="26">
+          </div>
+          <div class="field">
+            <label for="topContrast"><span>Top contrast</span><span class="value" id="topContrastValue">112</span></label>
+            <input class="range" id="topContrast" type="range" min="50" max="200" step="1" value="112">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="faceStrataStrength"><span>Face strata</span><span class="value" id="faceStrataStrengthValue">30</span></label>
+            <input class="range" id="faceStrataStrength" type="range" min="0" max="100" step="1" value="30">
+          </div>
+          <div class="field">
+            <label for="faceVerticalFractures"><span>Vertical fractures</span><span class="value" id="faceVerticalFracturesValue">24</span></label>
+            <input class="range" id="faceVerticalFractures" type="range" min="0" max="100" step="1" value="24">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="faceChips"><span>Face chips</span><span class="value" id="faceChipsValue">18</span></label>
+            <input class="range" id="faceChips" type="range" min="0" max="100" step="1" value="18">
+          </div>
+          <div class="field">
+            <label for="faceErosion"><span>Face erosion</span><span class="value" id="faceErosionValue">28</span></label>
+            <input class="range" id="faceErosion" type="range" min="0" max="100" step="1" value="28">
+          </div>
+        </div>
+        <div class="field">
+          <label for="faceContrast"><span>Face contrast</span><span class="value" id="faceContrastValue">122</span></label>
+          <input class="range" id="faceContrast" type="range" min="50" max="200" step="1" value="122">
+        </div>
+      </div>
     </section>
 
     <section class="group">
@@ -265,10 +380,13 @@ button{cursor:pointer}
     <section class="group">
       <h2>Экспорт</h2>
       <div class="actions">
-        <button class="action-btn" id="downloadAtlas" type="button">PNG Atlas</button>
-        <button class="secondary-btn" id="downloadNormalAtlas" type="button">PNG Normal Atlas</button>
+        <button class="action-btn" id="downloadAtlas" type="button">PNG Albedo Atlas</button>
+        <button class="secondary-btn" id="downloadMaskAtlas" type="button">PNG Mask Atlas</button>
+        <button class="secondary-btn" id="downloadNormalAtlas" type="button">PNG Shape Normal Atlas</button>
+        <button class="secondary-btn" id="downloadTopModulation" type="button">PNG Top Modulation</button>
+        <button class="secondary-btn" id="downloadFaceModulation" type="button">PNG Face Modulation</button>
         <button class="secondary-btn" id="downloadPreview" type="button">PNG Preview</button>
-        <button class="secondary-btn" id="downloadJson" type="button">JSON Manifest</button>
+        <button class="secondary-btn" id="downloadJson" type="button">JSON Material Recipe</button>
         <button class="secondary-btn" id="regenerate" type="button">Пересобрать</button>
       </div>
       <div class="status" id="status">Собираю каталог 47 случаев...</div>
@@ -317,7 +435,7 @@ button{cursor:pointer}
         <div class="panel-head">
           <div>
             <div class="panel-title">Atlas</div>
-            <div class="panel-note">Albedo и normal map для всех случаев.</div>
+            <div class="panel-note">Окно atlas отражает текущий preview mode.</div>
           </div>
           <div class="inline-tools">
             <label class="panel-note" for="galleryVariant">Галерея показывает вариант</label>
@@ -328,11 +446,31 @@ button{cursor:pointer}
           <div class="canvas-shell">
             <canvas id="atlasCanvas" width="512" height="512"></canvas>
           </div>
-          <div class="canvas-shell" style="margin-top:14px">
-            <canvas id="normalAtlasCanvas" width="512" height="512"></canvas>
-          </div>
         </div>
       </article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">2x2 Tiling Check</div>
+          <div class="panel-note">Сразу видно, шьётся ли procedural top/face без явного квадрата повтора.</div>
+        </div>
+      </div>
+      <div class="gallery">
+        <div class="tiling-grid">
+          <div class="swatch">
+            <strong>Top Modulation 2x2</strong>
+            <canvas id="topTilingCanvas" width="256" height="256"></canvas>
+            <p>Смотрим только tileable breakup для верхней поверхности.</p>
+          </div>
+          <div class="swatch">
+            <strong>Face Modulation 2x2</strong>
+            <canvas id="faceTilingCanvas" width="256" height="256"></canvas>
+            <p>Смотрим шов повтора фасада отдельно от формы тайла.</p>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="panel">
@@ -351,6 +489,7 @@ button{cursor:pointer}
 </div>
 
 <script>
+/* legacy inline generator disabled; runtime-export pipeline lives in rimworld_autotile_generator_runtime_export.js
 const PRESETS = {
   mountain: {
     heightPx: 18, lipPx: 6, roughness: 74, normalStrength: 90,
@@ -1348,6 +1487,8 @@ function boot() {
 }
 
 boot();
+*/
 </script>
+<script src="./rimworld_autotile_generator_runtime_export.js"></script>
 </body>
 </html>

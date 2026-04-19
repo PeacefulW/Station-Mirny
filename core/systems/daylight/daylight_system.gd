@@ -7,11 +7,11 @@ extends CanvasModulate
 
 # --- Константы ---
 ## Цвета для каждой фазы дня (мягкие, атмосферные).
-const COLOR_NIGHT := Color(0.08, 0.09, 0.18)
-const COLOR_DAWN := Color(0.55, 0.45, 0.35)
+const COLOR_NIGHT := Color(1.0, 1.0, 1.0)
+const COLOR_DAWN := Color(1.0, 1.0, 1.0)
 const COLOR_DAY := Color(1.0, 1.0, 1.0)
-const COLOR_DUSK := Color(0.65, 0.40, 0.25)
-const COLOR_UNDERGROUND := Color(0.18, 0.16, 0.14)
+const COLOR_DUSK := Color(1.0, 1.0, 1.0)
+const COLOR_UNDERGROUND := Color(1.0, 1.0, 1.0)
 
 # --- Приватные ---
 var _target_color: Color = COLOR_DAY
