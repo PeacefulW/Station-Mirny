@@ -36,6 +36,10 @@ static func get_overlay_tile_set() -> TileSet:
 	_ensure_layer_tileset(TerrainPresentationRegistry.RENDER_LAYER_OVERLAY)
 	return _tile_sets_by_layer.get(TerrainPresentationRegistry.RENDER_LAYER_OVERLAY, null) as TileSet
 
+static func get_roof_tile_set() -> TileSet:
+	# Roof cells reuse the mountain-wall atlas so the outside silhouette stays seamless.
+	return get_base_tile_set()
+
 static func get_base_source_id(terrain_id: int) -> int:
 	return get_source_id(terrain_id)
 

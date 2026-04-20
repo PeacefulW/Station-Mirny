@@ -1,0 +1,8 @@
+core/target/
+exports/session/
+exports/smoke_*/
+exports/smoke_*.json
+exports/shell_export_smoke/
+exports/shell_recipe_smoke.json
+shell/__pycache__/
+shell/*.pyc

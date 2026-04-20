@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.1
-last_updated: 2026-04-18
+version: 0.2
+last_updated: 2026-04-20
 related_docs:
   - ../README.md
   - system_api.md
@@ -210,6 +210,41 @@ Confirmed listeners:
 
 Current listener use:
 - removes the evicted chunk from scene-local boot tracking
+
+### `mountain_revealed(mountain_id: int)`
+
+Emitter:
+- `MountainRevealRegistry._on_mountain_revealed()` relays the local
+  `MountainRevealRegistry.mountain_revealed` signal into `EventBus`
+
+When it fires:
+- when `MountainRevealRegistry.request_reveal(mountain_id)` flips the target
+  roof alpha for that `mountain_id` to `0.0`
+
+Confirmed listeners:
+- `ChunkView._on_mountain_visibility_changed()`
+
+Current listener use:
+- syncs any already-created per-mountain roof layer to the registry-owned
+  alpha at reveal lifecycle boundaries while `alpha_changed` handles
+  frame-by-frame fade updates
+
+### `mountain_concealed(mountain_id: int)`
+
+Emitter:
+- `MountainRevealRegistry._on_mountain_concealed()` relays the local
+  `MountainRevealRegistry.mountain_concealed` signal into `EventBus`
+
+When it fires:
+- after `EXIT_DEBOUNCE`, when `MountainRevealRegistry` flips the target roof
+  alpha for that `mountain_id` back to `1.0`
+
+Confirmed listeners:
+- `ChunkView._on_mountain_visibility_changed()`
+
+Current listener use:
+- keeps existing per-mountain roof layers aligned with conceal lifecycle
+  transitions while the registry-owned `alpha_changed` signal drives the fade
 
 ## Not Included In This Minimal Pass
 

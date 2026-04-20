@@ -372,7 +372,8 @@ Resolver does O(1) work per frame; no scene-tree queries, no raycasts.
   entrance flag:
   - a tile is an entrance iff it is `is_interior == 1` **and** its
     diff-resolved terrain is walkable **and** it has at least one
-    4-neighbor with `mountain_id == 0` or `is_foot == 1`
+    walkable 4-neighbor that exits the interior shell
+    (`mountain_id != self` or neighbor `is_interior == 0`)
 - the runtime entrance cache lives in `ChunkView._entrance_cache:
   PackedByteArray` (1024 bytes per chunk)
 - the cache is **never** persisted; it is always derivable from

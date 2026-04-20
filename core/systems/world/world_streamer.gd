@@ -2,6 +2,8 @@ class_name WorldStreamer
 extends Node2D
 
 const ChunkView = preload("res://core/systems/world/chunk_view.gd")
+const MountainEntrance = preload("res://core/systems/world/mountain_entrance.gd")
+const MountainRevealRegistry = preload("res://core/systems/world/mountain_reveal_registry.gd")
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const WorldDiffStore = preload("res://core/systems/world/world_diff_store.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
@@ -23,6 +25,7 @@ var _player_chunk_coord: Vector2i = INVALID_CHUNK_COORD
 var _stream_job_id: StringName = &""
 var _generation_epoch: int = 0
 var _settings_packed: PackedFloat32Array = PackedFloat32Array()
+var roof_layers_per_chunk_max: int = 0
 
 var _worker_thread: Thread = Thread.new()
 var _request_mutex: Mutex = Mutex.new()
@@ -31,6 +34,8 @@ var _request_semaphore: Semaphore = Semaphore.new()
 var _pending_requests: Array[Dictionary] = []
 var _completed_packets: Array[Dictionary] = []
 var _worker_should_exit: bool = false
+var _mountain_reveal_registry: MountainRevealRegistry = null
+var _did_warn_roof_layer_explosion: bool = false
 
 func _ready() -> void:
 	add_to_group("chunk_manager")
@@ -39,6 +44,7 @@ func _ready() -> void:
 	assert(_world_core != null, "WorldCore required - build GDExtension first")
 	_settings_packed = _build_m1_dev_default_settings_packed()
 	WorldTileSetFactory.bootstrap()
+	_ensure_mountain_reveal_registry()
 	_start_worker_thread()
 	_stream_job_id = FrameBudgetDispatcher.register_job(
 		RuntimeWorkTypes.CATEGORY_STREAMING,
@@ -96,6 +102,53 @@ func get_world_seed() -> int:
 func get_world_version() -> int:
 	return world_version
 
+func get_chunk_packet(chunk_coord: Vector2i) -> Dictionary:
+	return _chunk_packets.get(chunk_coord, {}) as Dictionary
+
+func get_mountain_reveal_registry() -> MountainRevealRegistry:
+	return _mountain_reveal_registry
+
+func recompute_entrance_for_tile(world_tile: Vector2i) -> void:
+	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(world_tile)
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+	if chunk_view == null:
+		return
+	if get_chunk_packet(chunk_coord).is_empty():
+		return
+	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(world_tile)
+	chunk_view.set_entrance_flag(
+		local_coord,
+		MountainEntrance.recompute_entrance_flag(world_tile, self)
+	)
+
+func recompute_entrance_for_neighborhood(world_tile: Vector2i) -> void:
+	recompute_entrance_for_tile(world_tile)
+	recompute_entrance_for_tile(world_tile + Vector2i.LEFT)
+	recompute_entrance_for_tile(world_tile + Vector2i.RIGHT)
+	recompute_entrance_for_tile(world_tile + Vector2i.UP)
+	recompute_entrance_for_tile(world_tile + Vector2i.DOWN)
+
+func recompute_entrance_for_chunk_load(chunk_coord: Vector2i) -> void:
+	var dirty_local_coords: Array[Vector2i] = _diff_store.get_chunk_override_local_coords(chunk_coord)
+	if dirty_local_coords.is_empty():
+		return
+	var dirty_world_tiles: Dictionary = {}
+	for local_coord: Vector2i in dirty_local_coords:
+		var world_tile: Vector2i = _chunk_local_to_tile(chunk_coord, local_coord)
+		dirty_world_tiles[world_tile] = true
+		dirty_world_tiles[world_tile + Vector2i.LEFT] = true
+		dirty_world_tiles[world_tile + Vector2i.RIGHT] = true
+		dirty_world_tiles[world_tile + Vector2i.UP] = true
+		dirty_world_tiles[world_tile + Vector2i.DOWN] = true
+	var tiles_to_recompute: Array[Vector2i] = []
+	for tile_variant: Variant in dirty_world_tiles.keys():
+		tiles_to_recompute.append(tile_variant as Vector2i)
+	tiles_to_recompute.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return a.x < b.x if a.x != b.x else a.y < b.y
+	)
+	for world_tile: Vector2i in tiles_to_recompute:
+		recompute_entrance_for_tile(world_tile)
+
 func is_walkable_at_world(world_pos: Vector2) -> bool:
 	var tile_data: Dictionary = _get_tile_data(world_pos)
 	if not bool(tile_data.get("ready", false)):
@@ -106,7 +159,7 @@ func has_resource_at_world(world_pos: Vector2) -> bool:
 	var tile_data: Dictionary = _get_tile_data(world_pos)
 	if not bool(tile_data.get("ready", false)):
 		return false
-	return int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)) == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK
+	return _is_diggable_surface_terrain(int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
 
 func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	var tile_data: Dictionary = _get_tile_data(world_pos)
@@ -115,7 +168,8 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 			"success": false,
 			"message_key": "SYSTEM_WORLD_CHUNK_NOT_READY",
 		}
-	if int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)) != WorldRuntimeConstants.TERRAIN_PLAINS_ROCK:
+	var terrain_id: int = int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
+	if not _is_diggable_surface_terrain(terrain_id):
 		return {
 			"success": false,
 			"message_key": "SYSTEM_WORLD_TILE_NOT_DIGGABLE",
@@ -130,6 +184,10 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 		true
 	)
 	_apply_loaded_override(chunk_coord, local_coord, WorldRuntimeConstants.TERRAIN_PLAINS_DUG, true)
+	recompute_entrance_for_neighborhood(_chunk_local_to_tile(chunk_coord, local_coord))
+	if terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+			or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
+		EventBus.mountain_tile_mined.emit(_chunk_local_to_tile(chunk_coord, local_coord), terrain_id, WorldRuntimeConstants.TERRAIN_PLAINS_DUG)
 	return {
 		"success": true,
 		"item_id": "base:scrap",
@@ -224,11 +282,9 @@ func _publish_next_batch() -> void:
 		if packet.is_empty():
 			_active_publish_chunk = INVALID_CHUNK_COORD
 			return
+		_track_roof_layer_metric(_active_publish_chunk, packet)
 		var chunk_view: ChunkView = _ensure_chunk_view(_active_publish_chunk)
-		chunk_view.begin_apply(
-			packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array,
-			packet.get("terrain_atlas_indices", PackedInt32Array()) as PackedInt32Array
-		)
+		chunk_view.begin_apply(packet)
 
 	var active_view: ChunkView = _chunk_views.get(_active_publish_chunk) as ChunkView
 	if active_view == null:
@@ -236,6 +292,7 @@ func _publish_next_batch() -> void:
 		return
 	var has_more: bool = active_view.apply_next_batch(WorldRuntimeConstants.PUBLISH_BATCH_SIZE)
 	if not has_more:
+		_recompute_entrance_after_chunk_publish(_active_publish_chunk)
 		EventBus.chunk_loaded.emit(_active_publish_chunk)
 		_active_publish_chunk = INVALID_CHUNK_COORD
 
@@ -322,6 +379,32 @@ func _get_tile_data(world_pos: Vector2) -> Dictionary:
 		"walkable": int(walkable_flags[index]) != 0,
 	}
 
+func _get_entrance_tile_state(world_tile: Vector2i) -> Dictionary:
+	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(world_tile)
+	var packet: Dictionary = get_chunk_packet(chunk_coord)
+	if packet.is_empty():
+		return {"ready": false}
+	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(world_tile)
+	var index: int = WorldRuntimeConstants.local_to_index(local_coord)
+	var mountain_ids: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
+	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
+	var walkable_flags: PackedByteArray = packet.get("walkable_flags", PackedByteArray()) as PackedByteArray
+	if index < 0 \
+			or index >= mountain_ids.size() \
+			or index >= mountain_flags.size() \
+			or index >= walkable_flags.size():
+		return {"ready": false}
+	var override_data: Dictionary = _diff_store.get_tile_override(chunk_coord, local_coord)
+	var walkable: bool = int(walkable_flags[index]) != 0
+	if not override_data.is_empty():
+		walkable = bool(override_data.get("walkable", walkable))
+	return {
+		"ready": true,
+		"mountain_id": int(mountain_ids[index]),
+		"mountain_flags": int(mountain_flags[index]),
+		"walkable": walkable,
+	}
+
 func _enqueue_chunk_if_needed(chunk_coord: Vector2i) -> void:
 	if _requested_chunks.has(chunk_coord) or _chunk_packets.has(chunk_coord):
 		return
@@ -370,10 +453,8 @@ func _refresh_loaded_packets_from_diffs() -> void:
 		_refresh_loaded_visuals_around_chunk_overrides(chunk_coord)
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
 		if chunk_view:
-			chunk_view.begin_apply(
-				(_chunk_packets[chunk_coord] as Dictionary).get("terrain_ids", PackedInt32Array()) as PackedInt32Array,
-				(_chunk_packets[chunk_coord] as Dictionary).get("terrain_atlas_indices", PackedInt32Array()) as PackedInt32Array
-			)
+			_track_roof_layer_metric(chunk_coord, _chunk_packets[chunk_coord] as Dictionary)
+			chunk_view.begin_apply(_chunk_packets[chunk_coord] as Dictionary)
 			if not _pending_publish_queue.has(chunk_coord):
 				_pending_publish_queue.append(chunk_coord)
 
@@ -457,6 +538,11 @@ func _build_loaded_visual_update(tile_coord: Vector2i) -> Dictionary:
 		if not bool(atlas_data.get("ready", false)):
 			return {}
 		terrain_atlas_index = int(atlas_data.get("terrain_atlas_index", 0))
+	elif _is_mountain_surface_terrain(terrain_id):
+		var mountain_atlas_data: Dictionary = _try_resolve_loaded_mountain_atlas_index(tile_coord)
+		if not bool(mountain_atlas_data.get("ready", false)):
+			return {}
+		terrain_atlas_index = int(mountain_atlas_data.get("terrain_atlas_index", 0))
 	return {
 		"chunk_coord": tile_data.get("chunk_coord", INVALID_CHUNK_COORD) as Vector2i,
 		"local_coord": tile_data.get("local_coord", Vector2i.ZERO) as Vector2i,
@@ -517,6 +603,60 @@ func _try_resolve_loaded_rock_atlas_index(tile_coord: Vector2i) -> Dictionary:
 		is_south_west_rock,
 		is_west_rock,
 		is_north_west_rock
+	)
+	var variant_index: int = Autotile47.pick_variant(tile_coord, world_seed)
+	return {
+		"ready": true,
+		"terrain_atlas_index": Autotile47.build_atlas_index(signature_code, variant_index),
+	}
+
+func _try_resolve_loaded_mountain_atlas_index(tile_coord: Vector2i) -> Dictionary:
+	var north: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(0, -1))
+	var east: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(1, 0))
+	var south: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(0, 1))
+	var west: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(-1, 0))
+	if not bool(north.get("ready", false)) \
+			or not bool(east.get("ready", false)) \
+			or not bool(south.get("ready", false)) \
+			or not bool(west.get("ready", false)):
+		return {"ready": false}
+	var is_north_mountain: bool = _is_mountain_surface_terrain(int(north.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	var is_east_mountain: bool = _is_mountain_surface_terrain(int(east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	var is_south_mountain: bool = _is_mountain_surface_terrain(int(south.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	var is_west_mountain: bool = _is_mountain_surface_terrain(int(west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	var is_north_east_mountain: bool = false
+	var is_south_east_mountain: bool = false
+	var is_south_west_mountain: bool = false
+	var is_north_west_mountain: bool = false
+	if is_north_mountain and is_east_mountain:
+		var north_east: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(1, -1))
+		if not bool(north_east.get("ready", false)):
+			return {"ready": false}
+		is_north_east_mountain = _is_mountain_surface_terrain(int(north_east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	if is_south_mountain and is_east_mountain:
+		var south_east: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(1, 1))
+		if not bool(south_east.get("ready", false)):
+			return {"ready": false}
+		is_south_east_mountain = _is_mountain_surface_terrain(int(south_east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	if is_south_mountain and is_west_mountain:
+		var south_west: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(-1, 1))
+		if not bool(south_west.get("ready", false)):
+			return {"ready": false}
+		is_south_west_mountain = _is_mountain_surface_terrain(int(south_west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	if is_north_mountain and is_west_mountain:
+		var north_west: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(-1, -1))
+		if not bool(north_west.get("ready", false)):
+			return {"ready": false}
+		is_north_west_mountain = _is_mountain_surface_terrain(int(north_west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	var signature_code: int = Autotile47.build_signature_code(
+		is_north_mountain,
+		is_north_east_mountain,
+		is_east_mountain,
+		is_south_east_mountain,
+		is_south_mountain,
+		is_south_west_mountain,
+		is_west_mountain,
+		is_north_west_mountain
 	)
 	var variant_index: int = Autotile47.pick_variant(tile_coord, world_seed)
 	return {
@@ -590,6 +730,10 @@ func _reset_runtime_state() -> void:
 			chunk_view.queue_free()
 	_chunk_views.clear()
 	_chunk_packets.clear()
+	roof_layers_per_chunk_max = 0
+	_did_warn_roof_layer_explosion = false
+	if _mountain_reveal_registry != null and is_instance_valid(_mountain_reveal_registry):
+		_mountain_reveal_registry.reset_state()
 
 func _clear_requested_chunks() -> void:
 	_request_mutex.lock()
@@ -621,10 +765,62 @@ func _is_chunk_desired(chunk_coord: Vector2i) -> bool:
 		absi(chunk_coord.y - _player_chunk_coord.y)
 	) <= WorldRuntimeConstants.STREAM_RADIUS_CHUNKS
 
+func _chunk_has_diff(chunk_coord: Vector2i) -> bool:
+	return not _diff_store.get_chunk_override_local_coords(chunk_coord).is_empty()
+
+func _recompute_entrance_after_chunk_publish(published_chunk_coord: Vector2i) -> void:
+	# Re-run adjacent diff-owned neighborhoods so chunk-edge entrances resolve
+	# correctly even when only one side of the seam owns the saved mutation.
+	for chunk_offset: Vector2i in [
+		Vector2i.ZERO,
+		Vector2i.LEFT,
+		Vector2i.RIGHT,
+		Vector2i.UP,
+		Vector2i.DOWN,
+	]:
+		var source_chunk_coord: Vector2i = published_chunk_coord + chunk_offset
+		if not _chunk_has_diff(source_chunk_coord):
+			continue
+		recompute_entrance_for_chunk_load(source_chunk_coord)
+
+func _ensure_mountain_reveal_registry() -> void:
+	if _mountain_reveal_registry != null and is_instance_valid(_mountain_reveal_registry):
+		return
+	_mountain_reveal_registry = MountainRevealRegistry.new()
+	add_child(_mountain_reveal_registry)
+
+func _track_roof_layer_metric(chunk_coord: Vector2i, packet: Dictionary) -> void:
+	var mountain_ids: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
+	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
+	if mountain_ids.is_empty() or mountain_flags.is_empty():
+		return
+	var present_mountains: Dictionary = {}
+	for index: int in range(mini(mountain_ids.size(), mountain_flags.size())):
+		var mountain_id: int = int(mountain_ids[index])
+		var flags: int = int(mountain_flags[index])
+		if mountain_id <= 0 or (flags & WorldRuntimeConstants.MOUNTAIN_FLAG_INTERIOR) == 0:
+			continue
+		present_mountains[mountain_id] = true
+	var mountain_count: int = present_mountains.size()
+	if mountain_count > roof_layers_per_chunk_max:
+		roof_layers_per_chunk_max = mountain_count
+	if mountain_count > 4 and not _did_warn_roof_layer_explosion:
+		_did_warn_roof_layer_explosion = true
+		push_warning("roof layer explosion: chunk %s has %d mountains" % [chunk_coord, mountain_count])
+
 func _distance_sq(a: Vector2i, b: Vector2i) -> int:
 	var dx: int = a.x - b.x
 	var dy: int = a.y - b.y
 	return dx * dx + dy * dy
+
+func _is_diggable_surface_terrain(terrain_id: int) -> bool:
+	return terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
+
+func _is_mountain_surface_terrain(terrain_id: int) -> bool:
+	return terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
 
 func _build_m1_dev_default_settings_packed() -> PackedFloat32Array:
 	var settings_packed: PackedFloat32Array = PackedFloat32Array()

@@ -5,6 +5,9 @@ extends CharacterBody2D
 ## сбором ресурсов. Компоненты (O₂, здоровье, инвентарь) — дочерние ноды.
 
 # --- Константы ---
+const MountainResolver = preload("res://core/systems/world/mountain_resolver.gd")
+const MountainRevealRegistry = preload("res://core/systems/world/mountain_reveal_registry.gd")
+const WorldStreamer = preload("res://core/systems/world/world_streamer.gd")
 const SCRAP_ITEM_ID: String = "base:scrap"
 const WOOD_ITEM_ID: String = "base:wood"
 @export var balance: PlayerBalance = null
@@ -18,6 +21,9 @@ var _health_component: HealthComponent = null
 var _attack_area: Area2D = null
 var _inventory: InventoryComponent = null
 var _chunk_manager: Node = null
+var _world_streamer: WorldStreamer = null
+var _mountain_reveal_registry: MountainRevealRegistry = null
+var _mountain_resolver: MountainResolver = null
 var _state_machine: StateMachine = StateMachine.new()
 var _camera: PlayerCamera = null
 
@@ -40,9 +46,11 @@ func _ready() -> void:
 		push_error(Localization.t("SYSTEM_PLAYER_INVENTORY_COMPONENT_MISSING"))
 	else:
 		EventBus.inventory_updated.connect(_on_inventory_updated)
+	EventBus.world_initialized.connect(_on_world_initialized)
 	_apply_attack_range()
 	_setup_camera()
 	_setup_state_machine()
+	_mountain_resolver = MountainResolver.new()
 	call_deferred("_find_chunk_manager")
 	call_deferred("_emit_scrap_state")
 
@@ -51,6 +59,10 @@ func _physics_process(delta: float) -> void:
 	_state_machine.physics_update(delta)
 	_apply_terrain_blocking(delta)
 	move_and_slide()
+	var streamer: WorldStreamer = _get_world_streamer()
+	var reveal_registry: MountainRevealRegistry = _get_mountain_reveal_registry()
+	if _mountain_resolver != null and streamer != null and reveal_registry != null:
+		_mountain_resolver.update_from_player_position(global_position, streamer, reveal_registry)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _camera and _camera.handle_zoom_input(event):
@@ -179,9 +191,10 @@ func spend_item(item_id: String, amount: int) -> bool:
 # --- Приватные ---
 
 func _find_chunk_manager() -> void:
-	var nodes: Array[Node] = get_tree().get_nodes_in_group("chunk_manager")
-	if not nodes.is_empty():
-		_chunk_manager = nodes[0]
+	_chunk_manager = get_tree().get_first_node_in_group("chunk_manager")
+	_world_streamer = _chunk_manager as WorldStreamer
+	if _world_streamer != null:
+		_mountain_reveal_registry = _world_streamer.get_mountain_reveal_registry()
 
 func _get_chunk_manager() -> Node:
 	if _chunk_manager != null and is_instance_valid(_chunk_manager):
@@ -190,6 +203,30 @@ func _get_chunk_manager() -> Node:
 	if _chunk_manager != null and is_instance_valid(_chunk_manager):
 		return _chunk_manager
 	return null
+
+func _get_world_streamer() -> WorldStreamer:
+	if _world_streamer != null and is_instance_valid(_world_streamer):
+		return _world_streamer
+	_find_chunk_manager()
+	if _world_streamer != null and is_instance_valid(_world_streamer):
+		return _world_streamer
+	return null
+
+func _get_mountain_reveal_registry() -> MountainRevealRegistry:
+	if _mountain_reveal_registry != null and is_instance_valid(_mountain_reveal_registry):
+		return _mountain_reveal_registry
+	var streamer: WorldStreamer = _get_world_streamer()
+	if streamer == null:
+		return null
+	_mountain_reveal_registry = streamer.get_mountain_reveal_registry()
+	return _mountain_reveal_registry
+
+func _on_world_initialized(_seed_value: int) -> void:
+	_mountain_resolver = MountainResolver.new()
+	_chunk_manager = null
+	_world_streamer = null
+	_mountain_reveal_registry = null
+	call_deferred("_find_chunk_manager")
 
 func _apply_terrain_blocking(delta: float) -> void:
 	if velocity == Vector2.ZERO:

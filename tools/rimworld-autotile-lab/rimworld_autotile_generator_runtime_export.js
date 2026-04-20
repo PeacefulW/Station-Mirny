@@ -4,9 +4,19 @@ const PRESETS = {
     lipPx: 6,
     backRimRatio: 0.55,
     northRimThickness: 0,
+    northHeightPx: 0,
+    eastHeightPx: 0,
+    westHeightPx: 0,
     roughness: 74,
     faceSlope: 100,
     innerCornerMode: "caps",
+    crownBevel: 2,
+    outerChamfer: 0,
+    baseErosion: 0,
+    cornerOverrideNE: "global",
+    cornerOverrideNW: "global",
+    cornerOverrideSE: "global",
+    cornerOverrideSW: "global",
     normalStrength: 90,
     textureScale: 100,
     variants: 4,
@@ -34,9 +44,19 @@ const PRESETS = {
     lipPx: 4,
     backRimRatio: 0.5,
     northRimThickness: 0,
+    northHeightPx: 0,
+    eastHeightPx: 0,
+    westHeightPx: 0,
     roughness: 18,
     faceSlope: 130,
     innerCornerMode: "box",
+    crownBevel: 1,
+    outerChamfer: 1,
+    baseErosion: 1,
+    cornerOverrideNE: "global",
+    cornerOverrideNW: "global",
+    cornerOverrideSE: "global",
+    cornerOverrideSW: "global",
     normalStrength: 75,
     textureScale: 90,
     variants: 3,
@@ -64,9 +84,19 @@ const PRESETS = {
     lipPx: 5,
     backRimRatio: 0.45,
     northRimThickness: 1,
+    northHeightPx: 0,
+    eastHeightPx: 0,
+    westHeightPx: 0,
     roughness: 54,
     faceSlope: 78,
     innerCornerMode: "bevel",
+    crownBevel: 2,
+    outerChamfer: 1,
+    baseErosion: 2,
+    cornerOverrideNE: "global",
+    cornerOverrideNW: "global",
+    cornerOverrideSE: "global",
+    cornerOverrideSW: "global",
     normalStrength: 70,
     textureScale: 120,
     variants: 4,
@@ -107,9 +137,19 @@ const refs = {
   lipPx: document.getElementById("lipPx"),
   backRimRatio: document.getElementById("backRimRatio"),
   northRimThickness: document.getElementById("northRimThickness"),
+  northHeightPx: document.getElementById("northHeightPx"),
+  eastHeightPx: document.getElementById("eastHeightPx"),
+  westHeightPx: document.getElementById("westHeightPx"),
   roughness: document.getElementById("roughness"),
   faceSlope: document.getElementById("faceSlope"),
   innerCornerMode: document.getElementById("innerCornerMode"),
+  crownBevel: document.getElementById("crownBevel"),
+  outerChamfer: document.getElementById("outerChamfer"),
+  baseErosion: document.getElementById("baseErosion"),
+  cornerOverrideNE: document.getElementById("cornerOverrideNE"),
+  cornerOverrideNW: document.getElementById("cornerOverrideNW"),
+  cornerOverrideSE: document.getElementById("cornerOverrideSE"),
+  cornerOverrideSW: document.getElementById("cornerOverrideSW"),
   normalStrength: document.getElementById("normalStrength"),
   textureScale: document.getElementById("textureScale"),
   variants: document.getElementById("variants"),
@@ -177,9 +217,18 @@ const refs = {
   downloadFaceAlbedo: document.getElementById("downloadFaceAlbedo"),
   downloadTopModulation: document.getElementById("downloadTopModulation"),
   downloadFaceModulation: document.getElementById("downloadFaceModulation"),
+  downloadTopNormal: document.getElementById("downloadTopNormal"),
+  downloadFaceNormal: document.getElementById("downloadFaceNormal"),
+  downloadHeightAtlas: document.getElementById("downloadHeightAtlas"),
+  downloadOrmAtlas: document.getElementById("downloadOrmAtlas"),
+  downloadEmissionAtlas: document.getElementById("downloadEmissionAtlas"),
+  downloadFlowAtlas: document.getElementById("downloadFlowAtlas"),
   downloadPreview: document.getElementById("downloadPreview"),
   downloadJson: document.getElementById("downloadJson"),
+  downloadShapeTres: document.getElementById("downloadShapeTres"),
+  downloadMaterialTres: document.getElementById("downloadMaterialTres"),
   downloadZip: document.getElementById("downloadZip"),
+  exportAudit: document.getElementById("exportAudit"),
   loadJson: document.getElementById("loadJson"),
   regenerate: document.getElementById("regenerate")
 };
@@ -190,8 +239,14 @@ const RANGE_IDS = [
   "lipPx",
   "backRimRatio",
   "northRimThickness",
+  "northHeightPx",
+  "eastHeightPx",
+  "westHeightPx",
   "roughness",
   "faceSlope",
+  "crownBevel",
+  "outerChamfer",
+  "baseErosion",
   "normalStrength",
   "textureScale",
   "variants",
@@ -215,9 +270,12 @@ const RANGE_IDS = [
 
 const COLOR_IDS = ["topTint", "faceTint", "baseTint"];
 const PREVIEW_MODES = ["albedo", "mask", "shapeHeight", "shapeNormal", "shaderComposite"];
+const ATLAS_EXPORT_MODES = [...PREVIEW_MODES, "height", "orm", "emission", "flow"];
 const MATERIAL_EXPORT_SIZE = 512;
 const LOCAL_STORAGE_PRESETS_KEY = "cliff_forge_47_custom_presets";
 const LOCAL_STORAGE_SESSION_KEY = "cliff_forge_47_last_session";
+const ATLAS_PADDING_PX = 2;
+const SEAM_LINT_WARN_THRESHOLD = 10;
 const NOISE_PRESETS = {
   organic: {
     topMacroScale: 160, topMacroStrength: 42, topPebbleDensity: 12, topPebbleSize: 3, topMicroNoise: 26, topContrast: 112,
@@ -348,7 +406,11 @@ function createGeneratedState() {
     atlasManifest: [],
     atlases: {},
     material: { top: null, face: null, topAlbedo: null, faceAlbedo: null },
-    previewCompositeCache: new Map()
+    previewCompositeCache: new Map(),
+    audit: {
+      seamLint: null,
+      deterministicProof: null
+    }
   };
 }
 
@@ -1059,12 +1121,22 @@ function bindControlSearch() {
 function applyTooltips() {
   const tooltips = {
     tileSize: "Размер одной ячейки набора. Больше пикселей — больше detail и тяжелее preview.",
-    heightPx: "Глубина южного фасада. Главный рычаг для cliff / wall silhouette.",
+    heightPx: "Глубина южного фасада. Это текущая south-side height.",
     lipPx: "Толщина верхней кромки, которая отделяет top surface от face.",
     backRimRatio: "Насколько толстым будет северный back rim относительно lip.",
     northRimThickness: "Дополнительная толщина северного rim поверх base ratio.",
+    northHeightPx: "Явный override высоты северной стороны. 0 = использовать legacy back rim controls.",
+    eastHeightPx: "Явный override высоты восточной стороны. 0 = использовать lipPx.",
+    westHeightPx: "Явный override высоты западной стороны. 0 = использовать lipPx.",
     roughness: "Сила зазубрин и drift в профилях граней.",
     faceSlope: "Кривая падения высоты на фасаде: ниже значение — мягче склон, выше — отвеснее.",
+    crownBevel: "Ширина bevel на верхней кромке top surface для более мягкой нормали.",
+    outerChamfer: "Срез внешних углов тайла, чтобы corner silhouettes не были полностью прямоугольными.",
+    baseErosion: "Подрезание нижней части face silhouettes у внешних краёв.",
+    cornerOverrideNE: "Локальный override для северо-восточного inner corner. Global = использовать общий режим.",
+    cornerOverrideNW: "Локальный override для северо-западного inner corner. Global = использовать общий режим.",
+    cornerOverrideSE: "Локальный override для юго-восточного inner corner. Global = использовать общий режим.",
+    cornerOverrideSW: "Локальный override для юго-западного inner corner. Global = использовать общий режим.",
     normalStrength: "Сила shape normals в shader composite preview.",
     textureScale: "Чем выше значение, тем мельче повторяется загруженная текстура.",
     variants: "Сколько вариаций генерировать на каждую из 47 сигнатур.",
@@ -1095,6 +1167,14 @@ function applyTooltips() {
     saveCustomPreset: "Сохранить текущие authoring settings как именованный custom preset в localStorage.",
     loadCustomPreset: "Загрузить выбранный custom preset из localStorage.",
     deleteCustomPreset: "Удалить выбранный custom preset из localStorage.",
+    downloadTopNormal: "Скачать tileable top normal texture для TerrainMaterialSet.",
+    downloadFaceNormal: "Скачать tileable face normal texture для TerrainMaterialSet.",
+    downloadHeightAtlas: "Скачать combined height atlas с bleed padding.",
+    downloadOrmAtlas: "Скачать ORM atlas: occlusion / roughness / metallic.",
+    downloadEmissionAtlas: "Скачать emission atlas для glow-aware материалов.",
+    downloadFlowAtlas: "Скачать flow atlas: encoded flow x/y и magnitude.",
+    downloadShapeTres: "Скачать Godot TerrainShapeSet.tres, совместимый с текущим runtime resource format.",
+    downloadMaterialTres: "Скачать Godot TerrainMaterialSet.tres, совместимый с текущим runtime resource format.",
     downloadZip: "Скачать весь текущий export bundle одним ZIP-файлом."
   };
   Object.entries(tooltips).forEach(([id, text]) => {
@@ -1405,6 +1485,22 @@ function buildScalarCanvas(values, alpha, width, height) {
   return canvas;
 }
 
+function buildRgbCanvas(redValues, greenValues, blueValues, alpha, width, height) {
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  const image = ctx.createImageData(width, height);
+  const count = width * height;
+  for (let index = 0; index < count; index += 1) {
+    const out = index * 4;
+    image.data[out] = clamp(Math.round(redValues[index] * 255), 0, 255);
+    image.data[out + 1] = clamp(Math.round(greenValues[index] * 255), 0, 255);
+    image.data[out + 2] = clamp(Math.round(blueValues[index] * 255), 0, 255);
+    image.data[out + 3] = alpha ? alpha[index] : 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas;
+}
+
 function sampleScalar(values, width, height, x, y) {
   const sx = mod(Math.floor(x), width);
   const sy = mod(Math.floor(y), height);
@@ -1664,6 +1760,57 @@ function sampleMaterialLayer(type, kind, x, y, params, width, height) {
   }
 }
 
+function directionVectorFromDegrees(angleDegrees) {
+  const radians = angleDegrees * (Math.PI / 180);
+  return {
+    x: Math.cos(radians),
+    y: Math.sin(radians)
+  };
+}
+
+function sampleMaterialLayerPbr(type, kind, sample, params) {
+  const coverage = clamp(sample.height * 0.65 + sample.value * 0.35, 0, 1);
+  const directional = directionVectorFromDegrees(params.sunAzimuth ?? 315);
+  const gravity = { x: 0, y: 1 };
+
+  switch (type) {
+    case "brick":
+      return { coverage, roughness: 0.82, metallic: 0, aoBias: 0.08, flowX: 0, flowY: 0, emission: 0, emissionColor: [0, 0, 0] };
+    case "plank":
+      return { coverage, roughness: 0.72, metallic: 0, aoBias: 0.05, flowX: 0, flowY: 0, emission: 0, emissionColor: [0, 0, 0] };
+    case "stoneCluster":
+      return { coverage, roughness: 0.86, metallic: 0, aoBias: 0.09, flowX: 0, flowY: 0, emission: 0, emissionColor: [0, 0, 0] };
+    case "snowDrift":
+      return { coverage, roughness: 0.18, metallic: 0, aoBias: 0.06, flowX: directional.x * 0.2, flowY: directional.y * 0.2, emission: 0, emissionColor: [0, 0, 0] };
+    case "cracks":
+      return { coverage, roughness: 0.92, metallic: 0, aoBias: 0.22, flowX: 0, flowY: 0, emission: 0, emissionColor: [0, 0, 0] };
+    case "moss":
+      return { coverage, roughness: 0.68, metallic: 0, aoBias: 0.12, flowX: directional.x * 0.08, flowY: directional.y * 0.08, emission: 0, emissionColor: [0, 0, 0] };
+    case "rivets":
+      return { coverage, roughness: 0.38, metallic: 0.72, aoBias: 0.08, flowX: 0, flowY: 0, emission: 0, emissionColor: [0, 0, 0] };
+    case "runes":
+      return { coverage, roughness: 0.16, metallic: 0, aoBias: 0.04, flowX: 0, flowY: 0, emission: coverage * 0.78, emissionColor: [0.42, 0.82, 1] };
+    case "puddles":
+      return { coverage, roughness: 0.05, metallic: 0, aoBias: 0.05, flowX: directional.x * 0.24, flowY: directional.y * 0.24, emission: 0, emissionColor: [0, 0, 0] };
+    case "debris":
+      return { coverage, roughness: 0.88, metallic: 0.12, aoBias: 0.14, flowX: gravity.x * 0.08, flowY: gravity.y * 0.08, emission: 0, emissionColor: [0, 0, 0] };
+    case "rust":
+      return { coverage, roughness: 0.76, metallic: 0.16, aoBias: 0.12, flowX: gravity.x * 0.18, flowY: gravity.y * 0.28, emission: 0, emissionColor: [0, 0, 0] };
+    case "sand":
+      return { coverage, roughness: 0.91, metallic: 0, aoBias: 0.07, flowX: directional.x * 0.34, flowY: directional.y * 0.34, emission: 0, emissionColor: [0, 0, 0] };
+    case "concrete":
+      return { coverage, roughness: 0.84, metallic: 0, aoBias: 0.08, flowX: 0, flowY: 0, emission: 0, emissionColor: [0, 0, 0] };
+    case "mud":
+      return { coverage, roughness: 0.62, metallic: 0, aoBias: 0.1, flowX: gravity.x * 0.14, flowY: gravity.y * 0.22, emission: 0, emissionColor: [0, 0, 0] };
+    case "hex":
+      return { coverage, roughness: 0.2, metallic: 0.88, aoBias: 0.06, flowX: 0, flowY: 0, emission: coverage * 0.34, emissionColor: [0.96, 0.74, 0.3] };
+    case "cobblestone":
+      return { coverage, roughness: 0.86, metallic: 0, aoBias: 0.1, flowX: 0, flowY: 0, emission: 0, emissionColor: [0, 0, 0] };
+    default:
+      return { coverage, roughness: kind === "top" ? 0.74 : 0.82, metallic: 0, aoBias: 0.05, flowX: 0, flowY: 0, emission: 0, emissionColor: [0, 0, 0] };
+  }
+}
+
 function buildLegacyMaterialBase(kind, params) {
   const width = MATERIAL_EXPORT_SIZE;
   const height = MATERIAL_EXPORT_SIZE;
@@ -1732,18 +1879,49 @@ function buildLegacyMaterialBase(kind, params) {
 function buildLayeredMaterialMap(kind, params) {
   const base = buildLegacyMaterialBase(kind, params);
   const { width, height, values, heightValues, alpha } = base;
+  const count = values.length;
+  const roughnessValues = new Float32Array(count);
+  const metallicValues = new Float32Array(count);
+  const aoBiasValues = new Float32Array(count);
+  const emissionRValues = new Float32Array(count);
+  const emissionGValues = new Float32Array(count);
+  const emissionBValues = new Float32Array(count);
+  const flowXValues = new Float32Array(count);
+  const flowYValues = new Float32Array(count);
+
+  for (let index = 0; index < count; index += 1) {
+    roughnessValues[index] = clamp((kind === "top" ? 0.74 : 0.84) + (0.5 - values[index]) * 0.18, 0, 1);
+    metallicValues[index] = 0;
+  }
+
   state.materialLayers.forEach((layer) => {
     if (!layer.enabled || !layerAppliesToKind(layer, kind)) return;
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
         const index = y * width + x;
         const sample = sampleMaterialLayer(layer.type, kind, x, y, params, width, height);
+        const pbr = sampleMaterialLayerPbr(layer.type, kind, sample, params);
+        const layerMix = clamp((layer.strength / 100) * pbr.coverage, 0, 1);
         values[index] = blendMaterialLayerValue(values[index], sample.value, layer.blend, layer.strength);
         const heightMix = clamp((layer.heightContribution / 100) * (layer.strength / 100), 0, 1);
         heightValues[index] = clamp(lerp(heightValues[index], sample.height, heightMix), 0, 1);
+        roughnessValues[index] = clamp(lerp(roughnessValues[index], pbr.roughness, layerMix), 0, 1);
+        metallicValues[index] = clamp(lerp(metallicValues[index], pbr.metallic, layerMix), 0, 1);
+        aoBiasValues[index] = clamp(aoBiasValues[index] + pbr.aoBias * layerMix, -0.45, 0.45);
+        emissionRValues[index] = clamp(emissionRValues[index] + pbr.emissionColor[0] * pbr.emission * layerMix, 0, 1);
+        emissionGValues[index] = clamp(emissionGValues[index] + pbr.emissionColor[1] * pbr.emission * layerMix, 0, 1);
+        emissionBValues[index] = clamp(emissionBValues[index] + pbr.emissionColor[2] * pbr.emission * layerMix, 0, 1);
+        flowXValues[index] = clamp(lerp(flowXValues[index], pbr.flowX, layerMix), -1, 1);
+        flowYValues[index] = clamp(lerp(flowYValues[index], pbr.flowY, layerMix), -1, 1);
       }
     }
   });
+
+  const occlusionValues = new Float32Array(count);
+  for (let index = 0; index < count; index += 1) {
+    const relief = Math.abs(heightValues[index] - 0.5) * 2;
+    occlusionValues[index] = clamp(0.92 - relief * 0.16 - aoBiasValues[index], 0, 1);
+  }
 
   const normalStrength = kind === "top" ? 0.95 : 0.9;
   return {
@@ -1751,9 +1929,27 @@ function buildLayeredMaterialMap(kind, params) {
     height,
     values,
     heightValues,
+    roughnessValues,
+    metallicValues,
+    occlusionValues,
+    emissionRValues,
+    emissionGValues,
+    emissionBValues,
+    flowXValues,
+    flowYValues,
     alpha,
     canvas: buildScalarCanvas(values, alpha, width, height),
-    normalCanvas: buildNormalCanvas(heightValues, alpha, width, height, normalStrength)
+    normalCanvas: buildNormalCanvas(heightValues, alpha, width, height, normalStrength),
+    ormCanvas: buildRgbCanvas(occlusionValues, roughnessValues, metallicValues, alpha, width, height),
+    emissionCanvas: buildRgbCanvas(emissionRValues, emissionGValues, emissionBValues, alpha, width, height),
+    flowCanvas: buildRgbCanvas(
+      Array.from(flowXValues, (value) => clamp(value * 0.5 + 0.5, 0, 1)),
+      Array.from(flowYValues, (value) => clamp(value * 0.5 + 0.5, 0, 1)),
+      Array.from(flowXValues, (value, index) => clamp(Math.hypot(value, flowYValues[index]), 0, 1)),
+      alpha,
+      width,
+      height
+    )
   };
 }
 
@@ -1797,9 +1993,19 @@ function getParams() {
     lipPx: Number(refs.lipPx.value),
     backRimRatio: Number(refs.backRimRatio.value),
     northRimThickness: Number(refs.northRimThickness.value),
+    northHeightPx: Number(refs.northHeightPx.value),
+    eastHeightPx: Number(refs.eastHeightPx.value),
+    westHeightPx: Number(refs.westHeightPx.value),
     roughness: Number(refs.roughness.value),
     faceSlope: Number(refs.faceSlope.value),
     innerCornerMode: refs.innerCornerMode.value,
+    crownBevel: Number(refs.crownBevel.value),
+    outerChamfer: Number(refs.outerChamfer.value),
+    baseErosion: Number(refs.baseErosion.value),
+    cornerOverrideNE: refs.cornerOverrideNE.value,
+    cornerOverrideNW: refs.cornerOverrideNW.value,
+    cornerOverrideSE: refs.cornerOverrideSE.value,
+    cornerOverrideSW: refs.cornerOverrideSW.value,
     normalStrength: Number(refs.normalStrength.value),
     textureScale: Number(refs.textureScale.value),
     variants: Number(refs.variants.value),
@@ -1947,10 +2153,25 @@ function smoothArray(array) {
 
 function backRimThickness(params) {
   return clamp(
-    Math.round(params.lipPx * params.backRimRatio + params.northRimThickness),
+    Math.round((params.northHeightPx ?? 0) || (params.lipPx * params.backRimRatio + params.northRimThickness)),
     1,
     Math.max(1, Math.floor(params.tileSize * 0.25))
   );
+}
+
+function sideHeightPx(params, side) {
+  if (side === "north") return backRimThickness(params);
+  if (side === "south") return clamp(params.heightPx, 1, Math.max(1, Math.floor(params.tileSize * 0.48)));
+  if (side === "east") return clamp((params.eastHeightPx ?? 0) || params.lipPx, 1, Math.max(1, Math.floor(params.tileSize * 0.3)));
+  if (side === "west") return clamp((params.westHeightPx ?? 0) || params.lipPx, 1, Math.max(1, Math.floor(params.tileSize * 0.3)));
+  return params.lipPx;
+}
+
+function resolveCornerMode(params, cornerId) {
+  const key = `cornerOverride${cornerId}`;
+  const value = params[key];
+  if (value && value !== "global") return value;
+  return params.innerCornerMode;
 }
 
 function buildProfiles(signature, variantSeed, params) {
@@ -1958,7 +2179,10 @@ function buildProfiles(signature, variantSeed, params) {
   const roughness = params.roughness / 100;
   const profileScale = state.preset === "wall" ? 1.2 : state.preset === "earth" ? 2 : 3.5;
   const driftStrength = roughness * profileScale;
-  const backLipPx = backRimThickness(params);
+  const northHeight = sideHeightPx(params, "north");
+  const southHeight = sideHeightPx(params, "south");
+  const westHeight = sideHeightPx(params, "west");
+  const eastHeight = sideHeightPx(params, "east");
   const north = new Float32Array(size);
   const south = new Float32Array(size);
   const west = new Float32Array(size);
@@ -1970,10 +2194,10 @@ function buildProfiles(signature, variantSeed, params) {
     const southNoise = (fbmPeriodic(t * 6.6, 3.1, 3, variantSeed + 23, 16, 16) - 0.5) * 2;
     const westNoise = (fbmPeriodic(4.2, t * 6.1, 3, variantSeed + 31, 16, 16) - 0.5) * 2;
     const eastNoise = (fbmPeriodic(6.8, t * 6.7, 3, variantSeed + 43, 16, 16) - 0.5) * 2;
-    north[index] = signature.openN ? clamp(backLipPx + northNoise * driftStrength, 1, size * 0.22) : 0;
-    south[index] = signature.openS ? clamp(params.heightPx + southNoise * driftStrength * 1.2, 2, size * 0.48) : 0;
-    west[index] = signature.openW ? clamp(params.lipPx + westNoise * driftStrength, 1, size * 0.24) : 0;
-    east[index] = signature.openE ? clamp(params.lipPx + eastNoise * driftStrength, 1, size * 0.24) : 0;
+    north[index] = signature.openN ? clamp(northHeight + northNoise * driftStrength, 1, size * 0.28) : 0;
+    south[index] = signature.openS ? clamp(southHeight + southNoise * driftStrength * 1.2, 2, size * 0.48) : 0;
+    west[index] = signature.openW ? clamp(westHeight + westNoise * driftStrength, 1, size * 0.3) : 0;
+    east[index] = signature.openE ? clamp(eastHeight + eastNoise * driftStrength, 1, size * 0.3) : 0;
   }
 
   for (let pass = 0; pass < 2; pass += 1) {
@@ -2019,6 +2243,46 @@ function classifyPixel(signature, profiles, params, x, y) {
   return { zone: "empty", left, right, top, bottom };
 }
 
+function isOuterChamferClipped(sample, params, x, y) {
+  const chamfer = Math.max(0, Math.round(params.outerChamfer || 0));
+  if (!chamfer) return false;
+  if (sample.zone === "northCornerBack") {
+    const distTop = y;
+    const distOuterX = x > sample.right ? (params.tileSize - 1 - x) : x;
+    return distTop < chamfer && distOuterX < chamfer && (distTop + distOuterX) < chamfer;
+  }
+  if (sample.zone === "southCornerFace") {
+    const distBottom = params.tileSize - 1 - y;
+    const distOuterX = x > sample.right ? (params.tileSize - 1 - x) : x;
+    return distBottom < chamfer && distOuterX < chamfer && (distBottom + distOuterX) < chamfer;
+  }
+  return false;
+}
+
+function isBaseEroded(sample, params, x, y) {
+  const erosion = Math.max(0, Math.round(params.baseErosion || 0));
+  if (!erosion) return false;
+  if (sample.zone === "southFace" || sample.zone === "southCornerFace") {
+    const distOuter = params.tileSize - 1 - y;
+    const noise = samplePeriodicNoisePx(x + 7, y + 13, 10, 2, params.seed + 1201, params.tileSize, params.tileSize);
+    const cut = clamp(Math.round(erosion * (0.5 + noise * 0.8)), 0, erosion * 2);
+    return distOuter < cut;
+  }
+  if (sample.zone === "eastFace") {
+    const distOuter = params.tileSize - 1 - x;
+    const noise = samplePeriodicNoisePx(x + 17, y + 5, 10, 2, params.seed + 1211, params.tileSize, params.tileSize);
+    const cut = clamp(Math.round(erosion * (0.5 + noise * 0.8)), 0, erosion * 2);
+    return distOuter < cut;
+  }
+  if (sample.zone === "westFace") {
+    const distOuter = x;
+    const noise = samplePeriodicNoisePx(x + 23, y + 9, 10, 2, params.seed + 1221, params.tileSize, params.tileSize);
+    const cut = clamp(Math.round(erosion * (0.5 + noise * 0.8)), 0, erosion * 2);
+    return distOuter < cut;
+  }
+  return false;
+}
+
 function jaggedSize(baseSize, axisCoord, crossCoord, params, salt) {
   const rough = params.roughness / 100;
   const amplitude = Math.max(0, Math.round(Math.max(1, baseSize * 0.45) * rough));
@@ -2036,11 +2300,12 @@ function overlayContains(mode, dx, dy, width, height) {
 }
 
 function classifyNotchOverlay(signature, sample, params, x, y) {
-  const topDimsBase = { width: Math.max(1, params.lipPx), height: Math.max(1, backRimThickness(params)) };
-  const bottomDimsBase = { width: Math.max(1, params.lipPx), height: Math.max(1, params.heightPx) };
-  const mode = params.innerCornerMode;
+  const topNorthBase = { width: Math.max(1, sideHeightPx(params, "east")), height: Math.max(1, sideHeightPx(params, "north")) };
+  const topWestBase = { width: Math.max(1, sideHeightPx(params, "west")), height: Math.max(1, sideHeightPx(params, "north")) };
+  const bottomEastBase = { width: Math.max(1, sideHeightPx(params, "east")), height: Math.max(1, sideHeightPx(params, "south")) };
+  const bottomWestBase = { width: Math.max(1, sideHeightPx(params, "west")), height: Math.max(1, sideHeightPx(params, "south")) };
 
-  function dims(base, saltW, saltH) {
+  function dims(base, saltW, saltH, mode) {
     const widthBase = mode === "box" ? Math.max(base.width, base.height) : base.width;
     const heightBase = mode === "box" ? Math.max(base.width, base.height) : base.height;
     return {
@@ -2050,25 +2315,29 @@ function classifyNotchOverlay(signature, sample, params, x, y) {
   }
 
   if (signature.notchNE) {
-    const current = dims(topDimsBase, 31, 37);
+    const mode = resolveCornerMode(params, "NE");
+    const current = dims(topNorthBase, 31, 37, mode);
     const dx = sample.right - x;
     const dy = y - sample.top;
     if (overlayContains(mode, dx, dy, current.width, current.height)) return { zone: "back", dx, dy, width: current.width, height: current.height };
   }
   if (signature.notchNW) {
-    const current = dims(topDimsBase, 41, 43);
+    const mode = resolveCornerMode(params, "NW");
+    const current = dims(topWestBase, 41, 43, mode);
     const dx = x - sample.left;
     const dy = y - sample.top;
     if (overlayContains(mode, dx, dy, current.width, current.height)) return { zone: "back", dx, dy, width: current.width, height: current.height };
   }
   if (signature.notchSE) {
-    const current = dims(bottomDimsBase, 47, 53);
+    const mode = resolveCornerMode(params, "SE");
+    const current = dims(bottomEastBase, 47, 53, mode);
     const dx = sample.right - x;
     const dy = sample.bottom - y;
     if (overlayContains(mode, dx, dy, current.width, current.height)) return { zone: "face", dx, dy, width: current.width, height: current.height };
   }
   if (signature.notchSW) {
-    const current = dims(bottomDimsBase, 59, 61);
+    const mode = resolveCornerMode(params, "SW");
+    const current = dims(bottomWestBase, 59, 61, mode);
     const dx = x - sample.left;
     const dy = sample.bottom - y;
     if (overlayContains(mode, dx, dy, current.width, current.height)) return { zone: "face", dx, dy, width: current.width, height: current.height };
@@ -2084,9 +2353,21 @@ function resolveZone(sample, overlay) {
   return "empty";
 }
 
-function computePixelHeight(zone, sample, overlay, params, x, y) {
+function computePixelHeight(zone, sample, overlay, params, x, y, signature) {
   if (zone === "empty") return 0;
-  if (zone === "top") return 1;
+  if (zone === "top") {
+    const bevel = Math.max(0, Math.round(params.crownBevel || 0));
+    if (!bevel) return 1;
+    const openDistances = [];
+    if (signature?.openN) openDistances.push(y - sample.top);
+    if (signature?.openS) openDistances.push(sample.bottom - y);
+    if (signature?.openW) openDistances.push(x - sample.left);
+    if (signature?.openE) openDistances.push(sample.right - x);
+    if (!openDistances.length) return 1;
+    const nearestEdge = Math.min(...openDistances);
+    const bevelT = smoothstep(0, Math.max(1, bevel), nearestEdge);
+    return clamp(0.84 + bevelT * 0.16, 0.82, 1);
+  }
 
   if (overlay) {
     const progressX = overlay.width <= 1 ? 0 : overlay.dx / (overlay.width - 1);
@@ -2220,6 +2501,62 @@ function paintLayeredTile(tile, params, offsets, compositeMode, originX = 0, ori
   return canvas;
 }
 
+function resolveTileZone(tile, index) {
+  return tile.topMask[index] ? "top" : tile.faceMask[index] ? "face" : "back";
+}
+
+function buildTileExportCanvas(tile, params, offsets, mode, originX = 0, originY = 0, materialSet = state.generated.material) {
+  const size = params.tileSize;
+  const canvas = createCanvas(size, size);
+  const ctx = canvas.getContext("2d");
+  const image = ctx.createImageData(size, size);
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const index = y * size + x;
+      const out = index * 4;
+      if (!tile.alpha[index]) {
+        image.data[out + 3] = 0;
+        continue;
+      }
+
+      const zone = resolveTileZone(tile, index);
+      const kind = zone === "face" ? "face" : "top";
+      const materialMap = kind === "face" ? materialSet.face : materialSet.top;
+      const sampleX = originX + x + offsets.ox;
+      const sampleY = originY + y + offsets.oy;
+
+      if (mode === "height") {
+        const materialHeight = sampleScalar(materialMap.heightValues, materialMap.width, materialMap.height, sampleX, sampleY);
+        const combinedHeight = clamp(tile.shapeHeight[index] * 0.78 + materialHeight * 0.22, 0, 1);
+        const value = clamp(Math.round(combinedHeight * 255), 0, 255);
+        image.data[out] = value;
+        image.data[out + 1] = value;
+        image.data[out + 2] = value;
+      } else if (mode === "orm") {
+        image.data[out] = clamp(Math.round(sampleScalar(materialMap.occlusionValues, materialMap.width, materialMap.height, sampleX, sampleY) * 255), 0, 255);
+        image.data[out + 1] = clamp(Math.round(sampleScalar(materialMap.roughnessValues, materialMap.width, materialMap.height, sampleX, sampleY) * 255), 0, 255);
+        image.data[out + 2] = clamp(Math.round(sampleScalar(materialMap.metallicValues, materialMap.width, materialMap.height, sampleX, sampleY) * 255), 0, 255);
+      } else if (mode === "emission") {
+        image.data[out] = clamp(Math.round(sampleScalar(materialMap.emissionRValues, materialMap.width, materialMap.height, sampleX, sampleY) * 255), 0, 255);
+        image.data[out + 1] = clamp(Math.round(sampleScalar(materialMap.emissionGValues, materialMap.width, materialMap.height, sampleX, sampleY) * 255), 0, 255);
+        image.data[out + 2] = clamp(Math.round(sampleScalar(materialMap.emissionBValues, materialMap.width, materialMap.height, sampleX, sampleY) * 255), 0, 255);
+      } else if (mode === "flow") {
+        const flowX = sampleScalar(materialMap.flowXValues, materialMap.width, materialMap.height, sampleX, sampleY);
+        const flowY = sampleScalar(materialMap.flowYValues, materialMap.width, materialMap.height, sampleX, sampleY);
+        image.data[out] = clamp(Math.round((flowX * 0.5 + 0.5) * 255), 0, 255);
+        image.data[out + 1] = clamp(Math.round((flowY * 0.5 + 0.5) * 255), 0, 255);
+        image.data[out + 2] = clamp(Math.round(Math.hypot(flowX, flowY) * 255), 0, 255);
+      }
+
+      image.data[out + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(image, 0, 0);
+  return canvas;
+}
+
 function getPreviewCompositeTile(generated, tile, signature, variantIndex, params, originX, originY, offsets) {
   const cacheKey = `${signature.key}|${variantIndex}|${originX}|${originY}|${params.tileSize}|${params.normalStrength}|${params.textureScale}|${params.topTint}|${params.faceTint}|${params.topTintOpacity}|${params.faceTintOpacity}|${params.seed}`;
   const cached = generated.previewCompositeCache.get(cacheKey);
@@ -2259,7 +2596,8 @@ function drawContinuousBasePreview(targetCanvas, params) {
   ctx.putImageData(image, 0, 0);
 }
 
-function renderTile(signature, variantIndex, params) {
+function renderTile(signature, variantIndex, params, materialSet = state.generated.material, options = {}) {
+  const includeExportChannels = options.includeExportChannels !== false;
   const size = params.tileSize;
   const variantSeed = params.seed + variantIndex * 97 + signature.index * 131;
   const profiles = buildProfiles(signature, variantSeed, params);
@@ -2272,7 +2610,13 @@ function renderTile(signature, variantIndex, params) {
 
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
-      const sample = classifyPixel(signature, profiles, params, x, y);
+      let sample = classifyPixel(signature, profiles, params, x, y);
+      if (sample.zone !== "empty" && isOuterChamferClipped(sample, params, x, y)) {
+        sample = { ...sample, zone: "empty" };
+      }
+      if (sample.zone !== "empty" && isBaseEroded(sample, params, x, y)) {
+        sample = { ...sample, zone: "empty" };
+      }
       const overlay = sample.zone === "empty" ? null : classifyNotchOverlay(signature, sample, params, x, y);
       const zone = resolveZone(sample, overlay);
       const index = y * size + x;
@@ -2281,12 +2625,12 @@ function renderTile(signature, variantIndex, params) {
       if (zone === "top") topMask[index] = 255;
       if (zone === "face") faceMask[index] = 255;
       if (zone === "back") backMask[index] = 255;
-      shapeHeight[index] = computePixelHeight(zone, sample, overlay, params, x, y);
+      shapeHeight[index] = computePixelHeight(zone, sample, overlay, params, x, y, signature);
     }
   }
 
   const shapeNormalCanvas = buildNormalCanvas(shapeHeight, alpha, size, size, params.normalStrength / 100);
-  return {
+  const tile = {
     signature,
     offsets,
     topMask,
@@ -2299,9 +2643,22 @@ function renderTile(signature, variantIndex, params) {
       shapeHeight: buildScalarCanvas(shapeHeight, alpha, size, size),
       shapeNormal: shapeNormalCanvas,
       albedo: null,
-      shaderComposite: null
+      shaderComposite: null,
+      height: null,
+      orm: null,
+      emission: null,
+      flow: null
     }
   };
+
+  if (includeExportChannels) {
+    tile.canvases.height = buildTileExportCanvas(tile, params, offsets, "height", 0, 0, materialSet);
+    tile.canvases.orm = buildTileExportCanvas(tile, params, offsets, "orm", 0, 0, materialSet);
+    tile.canvases.emission = buildTileExportCanvas(tile, params, offsets, "emission", 0, 0, materialSet);
+    tile.canvases.flow = buildTileExportCanvas(tile, params, offsets, "flow", 0, 0, materialSet);
+  }
+
+  return tile;
 }
 
 function renderBaseVariants(params) {
@@ -2332,13 +2689,13 @@ function renderBaseVariants(params) {
   return variants;
 }
 
-function rebuildTileSet(params, generated = state.generated) {
+function rebuildTileSet(params, generated = state.generated, options = {}) {
   generated.tiles = [];
   clearCompositeCache(generated);
   for (let variantIndex = 0; variantIndex < params.variants; variantIndex += 1) {
     const tileMap = new Map();
     state.catalog.forEach((signature) => {
-      const tile = renderTile(signature, variantIndex, params);
+      const tile = renderTile(signature, variantIndex, params, generated.material, options);
       tile.canvases.albedo = paintLayeredTile(tile, params, tile.offsets, false, 0, 0, generated.material);
       tile.canvases.shaderComposite = paintLayeredTile(tile, params, tile.offsets, true, 0, 0, generated.material);
       tileMap.set(signature.key, tile);
@@ -2347,17 +2704,34 @@ function rebuildTileSet(params, generated = state.generated) {
   }
 }
 
+function drawAtlasTileWithBleed(ctx, sourceCanvas, dx, dy, tileSize, paddingPx) {
+  if (!sourceCanvas) return;
+  const innerX = dx + paddingPx;
+  const innerY = dy + paddingPx;
+  ctx.drawImage(sourceCanvas, innerX, innerY);
+  if (!paddingPx) return;
+  ctx.drawImage(sourceCanvas, 0, 0, tileSize, 1, innerX, dy, tileSize, paddingPx);
+  ctx.drawImage(sourceCanvas, 0, tileSize - 1, tileSize, 1, innerX, innerY + tileSize, tileSize, paddingPx);
+  ctx.drawImage(sourceCanvas, 0, 0, 1, tileSize, dx, innerY, paddingPx, tileSize);
+  ctx.drawImage(sourceCanvas, tileSize - 1, 0, 1, tileSize, innerX + tileSize, innerY, paddingPx, tileSize);
+  ctx.drawImage(sourceCanvas, 0, 0, 1, 1, dx, dy, paddingPx, paddingPx);
+  ctx.drawImage(sourceCanvas, tileSize - 1, 0, 1, 1, innerX + tileSize, dy, paddingPx, paddingPx);
+  ctx.drawImage(sourceCanvas, 0, tileSize - 1, 1, 1, dx, innerY + tileSize, paddingPx, paddingPx);
+  ctx.drawImage(sourceCanvas, tileSize - 1, tileSize - 1, 1, 1, innerX + tileSize, innerY + tileSize, paddingPx, paddingPx);
+}
+
 function buildAtlases(params, generated = state.generated) {
   const columns = 8;
   const total = state.catalog.length * params.variants;
   const rows = Math.ceil(total / columns);
+  const cellSize = params.tileSize + ATLAS_PADDING_PX * 2;
   Object.values(generated.atlases).forEach(releaseCanvas);
   generated.atlases = {};
   generated.atlasManifest = [];
   const atlasContexts = {};
 
-  PREVIEW_MODES.forEach((mode) => {
-    const canvas = createCanvas(columns * params.tileSize, rows * params.tileSize);
+  ATLAS_EXPORT_MODES.forEach((mode) => {
+    const canvas = createCanvas(columns * cellSize, rows * cellSize);
     const ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = false;
     generated.atlases[mode] = canvas;
@@ -2370,12 +2744,24 @@ function buildAtlases(params, generated = state.generated) {
       const tile = generated.tiles[variantIndex].get(signature.key);
       const col = atlasIndex % columns;
       const row = Math.floor(atlasIndex / columns);
-      const dx = col * params.tileSize;
-      const dy = row * params.tileSize;
-      PREVIEW_MODES.forEach((mode) => {
-        atlasContexts[mode].drawImage(tile.canvases[mode], dx, dy);
+      const dx = col * cellSize;
+      const dy = row * cellSize;
+      ATLAS_EXPORT_MODES.forEach((mode) => {
+        drawAtlasTileWithBleed(atlasContexts[mode], tile.canvases[mode], dx, dy, params.tileSize, ATLAS_PADDING_PX);
       });
-      generated.atlasManifest.push({ atlasIndex, variant: variantIndex, key: signature.key, label: signature.label, column: col, row });
+      generated.atlasManifest.push({
+        atlasIndex,
+        variant: variantIndex,
+        key: signature.key,
+        label: signature.label,
+        column: col,
+        row,
+        pixelX: dx + ATLAS_PADDING_PX,
+        pixelY: dy + ATLAS_PADDING_PX,
+        tileSizePx: params.tileSize,
+        cellSizePx: cellSize,
+        paddingPx: ATLAS_PADDING_PX
+      });
       atlasIndex += 1;
     });
   }
@@ -2392,7 +2778,7 @@ function buildPreviewBundle(params) {
   const generated = createGeneratedState();
   generated.material.top = buildTopMaterialMap(params);
   generated.material.face = buildFaceMaterialMap(params);
-  rebuildTileSet(params, generated);
+  rebuildTileSet(params, generated, { includeExportChannels: false });
   generated.baseVariants = renderBaseVariants(params);
   return generated;
 }
@@ -2716,6 +3102,7 @@ function rebuildAll() {
   const rebuildTilesFlag = state.dirty.shape || rebuildMaterial || state.dirty.color || state.dirty.variants;
   const rebuildBase = state.dirty.color || state.dirty.variants;
   const rebuildAtlasFlag = rebuildTilesFlag;
+  const refreshAudit = rebuildMaterial || rebuildMaterialAlbedo || rebuildAtlasFlag;
   const refreshPreview = rebuildTilesFlag || rebuildBase || state.dirty.map || state.dirty.previewMode;
   const refreshGallery = rebuildTilesFlag || state.dirty.gallery;
   const refreshSwatches = rebuildMaterialAlbedo || state.dirty.swatches;
@@ -2752,6 +3139,10 @@ function rebuildAll() {
     drawSlotPreviewCanvas(refs.faceTexturePreview, "face", params);
     drawTilingPreview(refs.topTilingCanvas, state.generated.material.top.canvas);
     drawTilingPreview(refs.faceTilingCanvas, state.generated.material.face.canvas);
+  }
+  if (refreshAudit) {
+    state.generated.audit = buildExportAudit(params);
+    updateExportAuditStatus();
   }
   if (state.dirty.stats) {
     updateStats(params);
@@ -2808,18 +3199,250 @@ function downloadCanvas(canvas, fileName) {
   }, "image/png");
 }
 
+function downloadTextFile(content, fileName, mimeType = "text/plain;charset=utf-8") {
+  downloadBlob(new Blob([content], { type: mimeType }), fileName);
+}
+
+function getCanvasPixelBytes(canvas) {
+  if (!canvas) return new Uint8Array();
+  const ctx = canvas.getContext("2d");
+  return new Uint8Array(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
+}
+
+function toCrcHex(value) {
+  return `crc32:${value.toString(16).padStart(8, "0")}`;
+}
+
+function hashCanvasPixels(canvas) {
+  return toCrcHex(crc32(getCanvasPixelBytes(canvas)));
+}
+
+function measureCanvasSeamRms(canvas) {
+  if (!canvas || canvas.width < 2 || canvas.height < 2) return 0;
+  const { width, height } = canvas;
+  const data = getCanvasPixelBytes(canvas);
+  let sum = 0;
+  let count = 0;
+
+  for (let y = 0; y < height; y += 1) {
+    const left = (y * width) * 4;
+    const right = ((y * width) + (width - 1)) * 4;
+    for (let channel = 0; channel < 4; channel += 1) {
+      const diff = data[left + channel] - data[right + channel];
+      sum += diff * diff;
+      count += 1;
+    }
+  }
+
+  for (let x = 0; x < width; x += 1) {
+    const top = x * 4;
+    const bottom = (((height - 1) * width) + x) * 4;
+    for (let channel = 0; channel < 4; channel += 1) {
+      const diff = data[top + channel] - data[bottom + channel];
+      sum += diff * diff;
+      count += 1;
+    }
+  }
+
+  return Math.sqrt(sum / Math.max(1, count));
+}
+
+function buildExportAudit(params = getParams()) {
+  const seamTargets = {
+    topAlbedo: state.generated.material.topAlbedo,
+    faceAlbedo: state.generated.material.faceAlbedo,
+    topModulation: state.generated.material.top?.canvas,
+    faceModulation: state.generated.material.face?.canvas,
+    topNormal: state.generated.material.top?.normalCanvas,
+    faceNormal: state.generated.material.face?.normalCanvas,
+    topOrm: state.generated.material.top?.ormCanvas,
+    faceOrm: state.generated.material.face?.ormCanvas,
+    topEmission: state.generated.material.top?.emissionCanvas,
+    faceEmission: state.generated.material.face?.emissionCanvas,
+    topFlow: state.generated.material.top?.flowCanvas,
+    faceFlow: state.generated.material.face?.flowCanvas
+  };
+  const seamMetrics = {};
+  let worstKey = "";
+  let worstScore = 0;
+
+  Object.entries(seamTargets).forEach(([key, canvas]) => {
+    if (!canvas) return;
+    const score = Number(measureCanvasSeamRms(canvas).toFixed(2));
+    seamMetrics[key] = {
+      score,
+      status: score <= SEAM_LINT_WARN_THRESHOLD ? "ok" : "warn"
+    };
+    if (score >= worstScore) {
+      worstScore = score;
+      worstKey = key;
+    }
+  });
+
+  const proofArtifacts = {
+    albedoAtlas: hashCanvasPixels(state.generated.atlases.albedo),
+    maskAtlas: hashCanvasPixels(state.generated.atlases.mask),
+    shapeNormalAtlas: hashCanvasPixels(state.generated.atlases.shapeNormal),
+    heightAtlas: hashCanvasPixels(state.generated.atlases.height),
+    ormAtlas: hashCanvasPixels(state.generated.atlases.orm),
+    emissionAtlas: hashCanvasPixels(state.generated.atlases.emission),
+    flowAtlas: hashCanvasPixels(state.generated.atlases.flow),
+    topAlbedo: hashCanvasPixels(state.generated.material.topAlbedo),
+    faceAlbedo: hashCanvasPixels(state.generated.material.faceAlbedo),
+    topModulation: hashCanvasPixels(state.generated.material.top?.canvas),
+    faceModulation: hashCanvasPixels(state.generated.material.face?.canvas),
+    topNormal: hashCanvasPixels(state.generated.material.top?.normalCanvas),
+    faceNormal: hashCanvasPixels(state.generated.material.face?.normalCanvas)
+  };
+  const proofSeed = {
+    preset: state.preset,
+    customPresetName: state.customPresetName || null,
+    params,
+    materialLayers: serializeMaterialLayers(state.materialLayers),
+    textureNames: state.textureNames,
+    atlasManifest: state.generated.atlasManifest,
+    artifacts: proofArtifacts
+  };
+  const proofPayload = JSON.stringify(proofSeed);
+  const deterministicProof = {
+    mode: "raw_rgba_crc32",
+    combinedHash: toCrcHex(crc32(new TextEncoder().encode(proofPayload))),
+    artifacts: proofArtifacts
+  };
+
+  return {
+    seamLint: {
+      threshold: SEAM_LINT_WARN_THRESHOLD,
+      allOk: worstScore <= SEAM_LINT_WARN_THRESHOLD,
+      worstKey,
+      worstScore: Number(worstScore.toFixed(2)),
+      metrics: seamMetrics
+    },
+    deterministicProof
+  };
+}
+
+function updateExportAuditStatus() {
+  if (!refs.exportAudit) return;
+  const audit = state.generated.audit;
+  if (!audit?.deterministicProof) {
+    refs.exportAudit.textContent = "Export audit появится после полной пересборки.";
+    return;
+  }
+  const seamText = audit.seamLint?.allOk
+    ? `Seam lint OK, worst ${audit.seamLint.worstKey || "n/a"} = ${audit.seamLint.worstScore}.`
+    : `Seam lint предупреждает: worst ${audit.seamLint.worstKey || "n/a"} = ${audit.seamLint.worstScore} при threshold ${audit.seamLint.threshold}.`;
+  refs.exportAudit.innerHTML = `<span class="ok">Deterministic proof.</span> ${audit.deterministicProof.combinedHash}<br>${seamText}`;
+}
+
+function buildGodotExportInfo(params = getParams()) {
+  const stem = sanitizeFileStem(buildExportBaseName(params));
+  return {
+    assetDir: `res://assets/generated/terrain/${stem}`,
+    shapeId: `generated:${stem}_shape`,
+    materialId: `generated:${stem}_material`
+  };
+}
+
+function formatGodotVariant(value) {
+  if (typeof value === "number") {
+    if (Number.isInteger(value)) return String(value);
+    return Number(value).toFixed(4).replace(/0+$/g, "").replace(/\.$/, "");
+  }
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return JSON.stringify(String(value));
+}
+
+function formatGodotDictionary(dictionary) {
+  const entries = Object.entries(dictionary || {}).sort(([left], [right]) => left.localeCompare(right));
+  if (!entries.length) return "{}";
+  return `{\n${entries.map(([key, value]) => `"${key}": ${formatGodotVariant(value)}`).join(",\n")}\n}`;
+}
+
+function buildShapeSetTres() {
+  const params = getParams();
+  const fileNames = buildExportFileNames(params);
+  const exportInfo = buildGodotExportInfo(params);
+  return `[gd_resource type="Resource" script_class="TerrainShapeSet" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_shape_set.gd" id="1"]
+[ext_resource type="Texture2D" path="${exportInfo.assetDir}/${fileNames.maskAtlas}" id="2"]
+[ext_resource type="Texture2D" path="${exportInfo.assetDir}/${fileNames.shapeNormalAtlas}" id="3"]
+
+[resource]
+script = ExtResource("1")
+id = &"${exportInfo.shapeId}"
+topology_family_id = &"autotile_47"
+mask_atlas = ExtResource("2")
+shape_normal_atlas = ExtResource("3")
+tile_size_px = ${params.tileSize}
+case_count = ${state.catalog.length}
+variant_count = ${params.variants}
+`;
+}
+
+function buildMaterialSetTres() {
+  const params = getParams();
+  const fileNames = buildExportFileNames(params);
+  const exportInfo = buildGodotExportInfo(params);
+  const samplingParams = {
+    atlas_padding_px: ATLAS_PADDING_PX,
+    back_rim_ratio: params.backRimRatio,
+    deterministic_proof: state.generated.audit?.deterministicProof?.combinedHash || "",
+    face_slope: params.faceSlope,
+    generated_recipe: fileNames.recipe,
+    noise_preset: params.noisePreset,
+    normal_strength: params.normalStrength,
+    texture_scale: params.textureScale,
+    tint_jitter: params.tintJitter,
+    top_tint: params.topTint,
+    face_tint: params.faceTint,
+    base_tint: params.baseTint
+  };
+  return `[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_material_set.gd" id="1"]
+[ext_resource type="Texture2D" path="${exportInfo.assetDir}/${fileNames.topAlbedo}" id="2"]
+[ext_resource type="Texture2D" path="${exportInfo.assetDir}/${fileNames.faceAlbedo}" id="3"]
+[ext_resource type="Texture2D" path="${exportInfo.assetDir}/${fileNames.topModulation}" id="4"]
+[ext_resource type="Texture2D" path="${exportInfo.assetDir}/${fileNames.faceModulation}" id="5"]
+[ext_resource type="Texture2D" path="${exportInfo.assetDir}/${fileNames.topNormal}" id="6"]
+[ext_resource type="Texture2D" path="${exportInfo.assetDir}/${fileNames.faceNormal}" id="7"]
+
+[resource]
+script = ExtResource("1")
+id = &"${exportInfo.materialId}"
+shader_family_id = &"terrain.ground_hybrid"
+top_albedo = ExtResource("2")
+face_albedo = ExtResource("3")
+top_modulation = ExtResource("4")
+face_modulation = ExtResource("5")
+top_normal = ExtResource("6")
+face_normal = ExtResource("7")
+sampling_params = ${formatGodotDictionary(samplingParams)}
+`;
+}
+
 function buildExportFileNames(params = getParams()) {
   const base = buildExportBaseName(params);
   return {
     albedoAtlas: `${base}_albedo_atlas.png`,
     maskAtlas: `${base}_mask_atlas.png`,
     shapeNormalAtlas: `${base}_shape_normal_atlas.png`,
+    heightAtlas: `${base}_height_atlas.png`,
+    ormAtlas: `${base}_orm_atlas.png`,
+    emissionAtlas: `${base}_emission_atlas.png`,
+    flowAtlas: `${base}_flow_atlas.png`,
     topAlbedo: `${base}_top_albedo.png`,
     faceAlbedo: `${base}_face_albedo.png`,
     topModulation: `${base}_top_modulation.png`,
     faceModulation: `${base}_face_modulation.png`,
+    topNormal: `${base}_top_normal.png`,
+    faceNormal: `${base}_face_normal.png`,
     preview: `${base}_preview.png`,
     recipe: `${base}_material_recipe.json`,
+    shapeSetTres: `${base}_terrain_shape_set.tres`,
+    materialSetTres: `${base}_terrain_material_set.tres`,
     zip: `${base}_bundle.zip`
   };
 }
@@ -2829,7 +3452,7 @@ function buildMaterialRecipePayload() {
   const fileNames = buildExportFileNames(params);
   return {
     tool: "Cliff Forge 47",
-    version: 5,
+    version: 7,
     generatedAt: new Date().toISOString(),
     preset: state.preset,
     customPresetName: state.customPresetName || null,
@@ -2846,11 +3469,21 @@ function buildMaterialRecipePayload() {
       top: state.textureNames.top,
       face: state.textureNames.face
     },
+    atlasLayout: {
+      columns: 8,
+      paddingPx: ATLAS_PADDING_PX,
+      cellSizePx: params.tileSize + ATLAS_PADDING_PX * 2
+    },
     channelPacking: {
-      maskAtlas: { R: "top mask", G: "face mask", B: "back rim mask", A: "occupancy" }
+      maskAtlas: { R: "top mask", G: "face mask", B: "back rim mask", A: "occupancy" },
+      heightAtlas: { RGB: "combined shape + material height", A: "occupancy" },
+      ormAtlas: { R: "occlusion", G: "roughness", B: "metallic", A: "occupancy" },
+      emissionAtlas: { RGB: "emission color", A: "occupancy" },
+      flowAtlas: { R: "flow x encoded to 0..1", G: "flow y encoded to 0..1", B: "flow magnitude", A: "occupancy" }
     },
     exports: fileNames,
-    atlasManifest: state.generated.atlasManifest
+    atlasManifest: state.generated.atlasManifest,
+    audits: state.generated.audit
   };
 }
 
@@ -2959,16 +3592,26 @@ function buildZipBlob(files) {
 async function downloadBundleZip() {
   const fileNames = buildExportFileNames();
   const recipeBytes = new TextEncoder().encode(JSON.stringify(buildMaterialRecipePayload(), null, 2));
+  const shapeSetTresBytes = new TextEncoder().encode(buildShapeSetTres());
+  const materialSetTresBytes = new TextEncoder().encode(buildMaterialSetTres());
   const files = [
     { name: fileNames.albedoAtlas, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.atlases.albedo)).arrayBuffer()) },
     { name: fileNames.maskAtlas, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.atlases.mask)).arrayBuffer()) },
     { name: fileNames.shapeNormalAtlas, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.atlases.shapeNormal)).arrayBuffer()) },
+    { name: fileNames.heightAtlas, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.atlases.height)).arrayBuffer()) },
+    { name: fileNames.ormAtlas, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.atlases.orm)).arrayBuffer()) },
+    { name: fileNames.emissionAtlas, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.atlases.emission)).arrayBuffer()) },
+    { name: fileNames.flowAtlas, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.atlases.flow)).arrayBuffer()) },
     { name: fileNames.topAlbedo, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.material.topAlbedo)).arrayBuffer()) },
     { name: fileNames.faceAlbedo, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.material.faceAlbedo)).arrayBuffer()) },
     { name: fileNames.topModulation, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.material.top?.canvas)).arrayBuffer()) },
     { name: fileNames.faceModulation, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.material.face?.canvas)).arrayBuffer()) },
+    { name: fileNames.topNormal, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.material.top?.normalCanvas)).arrayBuffer()) },
+    { name: fileNames.faceNormal, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.material.face?.normalCanvas)).arrayBuffer()) },
     { name: fileNames.preview, bytes: new Uint8Array(await (await canvasToBlobAsync(state.preview.sourceCanvas || refs.previewCanvas)).arrayBuffer()) },
-    { name: fileNames.recipe, bytes: recipeBytes }
+    { name: fileNames.recipe, bytes: recipeBytes },
+    { name: fileNames.shapeSetTres, bytes: shapeSetTresBytes },
+    { name: fileNames.materialSetTres, bytes: materialSetTresBytes }
   ];
   downloadBlob(buildZipBlob(files), fileNames.zip);
 }
@@ -3230,7 +3873,22 @@ function bindUi() {
     });
   });
 
-  const shapeRangeIds = new Set(["tileSize", "heightPx", "lipPx", "backRimRatio", "northRimThickness", "roughness", "faceSlope", "normalStrength"]);
+  const shapeRangeIds = new Set([
+    "tileSize",
+    "heightPx",
+    "lipPx",
+    "backRimRatio",
+    "northRimThickness",
+    "northHeightPx",
+    "eastHeightPx",
+    "westHeightPx",
+    "roughness",
+    "faceSlope",
+    "crownBevel",
+    "outerChamfer",
+    "baseErosion",
+    "normalStrength"
+  ]);
   const materialRangeIds = new Set(["topMacroScale", "topMacroStrength", "topPebbleDensity", "topPebbleSize", "topMicroNoise", "topContrast", "faceStrataStrength", "faceVerticalFractures", "faceChips", "faceErosion", "faceContrast", "sunAzimuth"]);
   const colorRangeIds = new Set(["textureScale", "tintJitter", "topTintOpacity", "faceTintOpacity", "baseTintOpacity"]);
 
@@ -3257,6 +3915,12 @@ function bindUi() {
   refs.innerCornerMode.addEventListener("change", () => {
     markDirty("shape");
     scheduleRender("full");
+  });
+  ["cornerOverrideNE", "cornerOverrideNW", "cornerOverrideSE", "cornerOverrideSW"].forEach((id) => {
+    refs[id].addEventListener("change", () => {
+      markDirty("shape");
+      scheduleRender("full");
+    });
   });
   refs.seed.addEventListener("change", () => {
     markDirty("material");
@@ -3318,8 +3982,16 @@ function bindUi() {
   refs.downloadFaceAlbedo.addEventListener("click", () => downloadCanvas(state.generated.material.faceAlbedo, buildExportFileNames().faceAlbedo));
   refs.downloadTopModulation.addEventListener("click", () => downloadCanvas(state.generated.material.top?.canvas, buildExportFileNames().topModulation));
   refs.downloadFaceModulation.addEventListener("click", () => downloadCanvas(state.generated.material.face?.canvas, buildExportFileNames().faceModulation));
+  refs.downloadTopNormal.addEventListener("click", () => downloadCanvas(state.generated.material.top?.normalCanvas, buildExportFileNames().topNormal));
+  refs.downloadFaceNormal.addEventListener("click", () => downloadCanvas(state.generated.material.face?.normalCanvas, buildExportFileNames().faceNormal));
+  refs.downloadHeightAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.height, buildExportFileNames().heightAtlas));
+  refs.downloadOrmAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.orm, buildExportFileNames().ormAtlas));
+  refs.downloadEmissionAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.emission, buildExportFileNames().emissionAtlas));
+  refs.downloadFlowAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.flow, buildExportFileNames().flowAtlas));
   refs.downloadPreview.addEventListener("click", () => downloadCanvas(state.preview.sourceCanvas || refs.previewCanvas, buildExportFileNames().preview));
   refs.downloadJson.addEventListener("click", downloadMaterialRecipe);
+  refs.downloadShapeTres.addEventListener("click", () => downloadTextFile(buildShapeSetTres(), buildExportFileNames().shapeSetTres, "text/plain;charset=utf-8"));
+  refs.downloadMaterialTres.addEventListener("click", () => downloadTextFile(buildMaterialSetTres(), buildExportFileNames().materialSetTres, "text/plain;charset=utf-8"));
   refs.downloadZip.addEventListener("click", () => {
     downloadBundleZip().catch((error) => {
       refs.status.innerHTML = `<span class="warn">Ошибка ZIP.</span> ${error.message}`;
