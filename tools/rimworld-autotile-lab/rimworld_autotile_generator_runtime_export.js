@@ -151,6 +151,8 @@ const refs = {
   downloadAtlas: document.getElementById("downloadAtlas"),
   downloadMaskAtlas: document.getElementById("downloadMaskAtlas"),
   downloadNormalAtlas: document.getElementById("downloadNormalAtlas"),
+  downloadTopAlbedo: document.getElementById("downloadTopAlbedo"),
+  downloadFaceAlbedo: document.getElementById("downloadFaceAlbedo"),
   downloadTopModulation: document.getElementById("downloadTopModulation"),
   downloadFaceModulation: document.getElementById("downloadFaceModulation"),
   downloadPreview: document.getElementById("downloadPreview"),
@@ -188,7 +190,7 @@ const RANGE_IDS = [
 
 const COLOR_IDS = ["topTint", "faceTint", "baseTint"];
 const PREVIEW_MODES = ["albedo", "mask", "shapeHeight", "shapeNormal", "shaderComposite"];
-const MATERIAL_EXPORT_SIZE = 256;
+const MATERIAL_EXPORT_SIZE = 512;
 
 const state = {
   preset: "mountain",
@@ -202,7 +204,7 @@ const state = {
     baseVariants: [],
     atlasManifest: [],
     atlases: {},
-    material: { top: null, face: null }
+    material: { top: null, face: null, topAlbedo: null, faceAlbedo: null }
   },
   map: { width: 18, height: 12, cells: [] },
   pendingRender: null
@@ -538,6 +540,30 @@ function buildFaceMaterialMap(params) {
     canvas: buildScalarCanvas(values, alpha, width, height),
     normalCanvas: buildNormalCanvas(values, alpha, width, height, 0.75)
   };
+}
+
+function buildMaterialAlbedoCanvas(kind, params) {
+  const width = MATERIAL_EXPORT_SIZE;
+  const height = MATERIAL_EXPORT_SIZE;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  const image = ctx.createImageData(width, height);
+  const offsets = { ox: 0, oy: 0, brightness: 1 };
+  const zone = kind === "face" ? "face" : "top";
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const color = buildSurfaceColor(kind, zone, x, y, params, offsets);
+      const out = (y * width + x) * 4;
+      image.data[out] = color[0];
+      image.data[out + 1] = color[1];
+      image.data[out + 2] = color[2];
+      image.data[out + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(image, 0, 0);
+  return canvas;
 }
 
 function getParams() {
@@ -1342,6 +1368,8 @@ function rebuildAll() {
   state.previewMode = refs.previewMode.value;
   state.generated.material.top = buildTopMaterialMap(params);
   state.generated.material.face = buildFaceMaterialMap(params);
+  state.generated.material.topAlbedo = buildMaterialAlbedoCanvas("top", params);
+  state.generated.material.faceAlbedo = buildMaterialAlbedoCanvas("face", params);
 
   state.generated.tiles = [];
   for (let variantIndex = 0; variantIndex < params.variants; variantIndex += 1) {
@@ -1419,6 +1447,8 @@ function downloadMaterialRecipe() {
       albedoAtlas: "rimworld_47_albedo_atlas.png",
       maskAtlas: "rimworld_47_mask_atlas.png",
       shapeNormalAtlas: "rimworld_47_shape_normal_atlas.png",
+      topAlbedo: "rimworld_top_albedo.png",
+      faceAlbedo: "rimworld_face_albedo.png",
       topModulation: "rimworld_top_modulation.png",
       faceModulation: "rimworld_face_modulation.png",
       preview: "rimworld_preview.png",
@@ -1502,6 +1532,8 @@ function bindUi() {
   refs.downloadAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.albedo, "rimworld_47_albedo_atlas.png"));
   refs.downloadMaskAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.mask, "rimworld_47_mask_atlas.png"));
   refs.downloadNormalAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.shapeNormal, "rimworld_47_shape_normal_atlas.png"));
+  refs.downloadTopAlbedo.addEventListener("click", () => downloadCanvas(state.generated.material.topAlbedo, "rimworld_top_albedo.png"));
+  refs.downloadFaceAlbedo.addEventListener("click", () => downloadCanvas(state.generated.material.faceAlbedo, "rimworld_face_albedo.png"));
   refs.downloadTopModulation.addEventListener("click", () => downloadCanvas(state.generated.material.top?.canvas, "rimworld_top_modulation.png"));
   refs.downloadFaceModulation.addEventListener("click", () => downloadCanvas(state.generated.material.face?.canvas, "rimworld_face_modulation.png"));
   refs.downloadPreview.addEventListener("click", () => downloadCanvas(refs.previewCanvas, "rimworld_preview.png"));

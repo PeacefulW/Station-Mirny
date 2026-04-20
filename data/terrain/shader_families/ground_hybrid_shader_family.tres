@@ -8,8 +8,14 @@ script = ExtResource("1")
 id = &"terrain.ground_hybrid"
 render_layer_id = &"base"
 shader = ExtResource("2")
-shape_texture_params = {}
+shape_texture_params = {
+"shape_normal_atlas": &"shape_normal_atlas"
+}
 material_texture_params = {
-"ground_albedo_tex": &"top_albedo",
-"ground_modulation_tex": &"top_modulation"
+"face_albedo_tex": &"face_albedo",
+"face_modulation": &"face_modulation",
+"face_normal_tex": &"face_normal",
+"top_albedo_tex": &"top_albedo",
+"top_modulation": &"top_modulation",
+"top_normal_tex": &"top_normal"
 }

@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+art
 source_of_truth: true
-version: 0.2
+version: 0.4
 last_updated: 2026-04-20
 related_docs:
   - ../../README.md
@@ -263,6 +263,8 @@ Canonical fields:
 
 Notes:
 
+- `top_albedo` and `face_albedo` are authored textures supplied by the content
+  pipeline, typically exported from the terrain generator.
 - `sampling_params` may contain values such as UV scale, modulation strength,
   contrast, tint opacity, or material-specific shader tuning.
 - Missing required maps should fail validation; they should not silently

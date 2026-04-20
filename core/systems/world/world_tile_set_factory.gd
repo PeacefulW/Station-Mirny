@@ -18,15 +18,12 @@ static func get_tile_set() -> TileSet:
 static func get_source_id(terrain_id: int) -> int:
 	var layer_id: StringName = get_render_layer_id(terrain_id)
 	_ensure_layer_tileset(layer_id)
-	if _source_ids_by_terrain_id.has(terrain_id):
-		return int(_source_ids_by_terrain_id[terrain_id])
-	_ensure_layer_tileset(TerrainPresentationRegistry.RENDER_LAYER_BASE)
-	return int(_source_ids_by_terrain_id.get(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND, -1))
+	assert(_source_ids_by_terrain_id.has(terrain_id), "Missing TileSet source id for terrain_id=%d layer=%s" % [terrain_id, layer_id])
+	return int(_source_ids_by_terrain_id[terrain_id])
 
 static func get_atlas_coords(terrain_id: int, atlas_index: int = 0) -> Vector2i:
 	var shape_set: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set_for_terrain(terrain_id)
-	if shape_set == null:
-		return Vector2i.ZERO
+	assert(shape_set != null, "Missing TerrainShapeSet for terrain_id=%d" % terrain_id)
 	if shape_set.topology_family_id == TerrainPresentationRegistry.TOPOLOGY_AUTOTILE_47:
 		return Autotile47.atlas_index_to_coords(atlas_index)
 	return Vector2i.ZERO

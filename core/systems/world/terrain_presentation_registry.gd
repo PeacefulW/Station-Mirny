@@ -10,7 +10,6 @@ const TOPOLOGY_SINGLE_TILE: StringName = &"single_tile"
 const RENDER_LAYER_BASE: StringName = &"base"
 const RENDER_LAYER_OVERLAY: StringName = &"overlay"
 
-const DEFAULT_PROFILE_ID: StringName = &"base:plains_ground_profile"
 const SHAPE_SET_DIRECTORY: String = "res://data/terrain/shape_sets"
 const MATERIAL_SET_DIRECTORY: String = "res://data/terrain/material_sets"
 const PROFILE_DIRECTORY: String = "res://data/terrain/presentation_profiles"
@@ -89,8 +88,11 @@ static func get_terrain_ids_for_layer(layer_id: StringName) -> Array[int]:
 	return terrain_ids
 
 static func _resolve_profile_for_terrain(terrain_id: int) -> TerrainPresentationProfile:
-	var profile_id: StringName = _profile_id_by_terrain_id.get(terrain_id, DEFAULT_PROFILE_ID) as StringName
-	return _profiles_by_id.get(profile_id, _profiles_by_id.get(DEFAULT_PROFILE_ID, null)) as TerrainPresentationProfile
+	assert(_profile_id_by_terrain_id.has(terrain_id), "Missing terrain presentation profile mapping for terrain_id=%d" % terrain_id)
+	var profile_id: StringName = _profile_id_by_terrain_id[terrain_id] as StringName
+	var profile: TerrainPresentationProfile = _profiles_by_id.get(profile_id, null) as TerrainPresentationProfile
+	assert(profile != null, "Missing TerrainPresentationProfile resource for terrain_id=%d profile_id=%s" % [terrain_id, profile_id])
+	return profile
 
 static func _register_shader_family(shader_family_resource: Resource) -> void:
 	var shader_family: TerrainShaderFamily = shader_family_resource as TerrainShaderFamily
@@ -124,7 +126,7 @@ static func _register_profile(profile_resource: Resource) -> void:
 		_profile_id_by_terrain_id[terrain_id] = profile.id
 
 static func _validate_registered_resources() -> void:
-	assert(_profiles_by_id.has(DEFAULT_PROFILE_ID), "Missing default terrain presentation profile: %s" % [DEFAULT_PROFILE_ID])
+	assert(not _profiles_by_id.is_empty(), "TerrainPresentationRegistry requires at least one TerrainPresentationProfile")
 	for shader_family_variant: Variant in _shader_families_by_id.values():
 		_validate_shader_family(shader_family_variant as TerrainShaderFamily)
 	for shape_set_variant: Variant in _shape_sets_by_id.values():
@@ -174,6 +176,11 @@ static func _validate_shape_set(shape_set: TerrainShapeSet) -> void:
 	assert(shape_set.mask_atlas != null, "TerrainShapeSet %s is missing mask_atlas" % [shape_set.id])
 	if shape_set.topology_family_id == TOPOLOGY_AUTOTILE_47:
 		assert(shape_set.shape_normal_atlas != null, "TerrainShapeSet %s requires shape_normal_atlas for autotile_47" % [shape_set.id])
+		assert(
+			shape_set.shape_normal_atlas.get_width() == shape_set.mask_atlas.get_width()
+			and shape_set.shape_normal_atlas.get_height() == shape_set.mask_atlas.get_height(),
+			"TerrainShapeSet %s shape_normal_atlas must match mask_atlas dimensions" % [shape_set.id]
+		)
 		assert(shape_set.case_count == Autotile47.CASE_COUNT, "TerrainShapeSet %s must declare 47 autotile cases" % [shape_set.id])
 		assert(shape_set.variant_count >= 1, "TerrainShapeSet %s must declare at least one variant" % [shape_set.id])
 	elif shape_set.topology_family_id == TOPOLOGY_SINGLE_TILE:
@@ -207,3 +214,27 @@ static func _validate_profile(profile: TerrainPresentationProfile) -> void:
 			continue
 		validated_shape_slots[slot_id] = true
 		assert(shape_set.get_texture_slot(slot_id) != null, "TerrainPresentationProfile %s requires shape texture slot %s for shader family %s" % [profile.id, slot_id, shader_family.id])
+	for terrain_id: int in profile.terrain_ids:
+		var expected_topology_family_id: StringName = _expected_topology_family_for_terrain(terrain_id)
+		if not str(expected_topology_family_id).is_empty():
+			assert(
+				shape_set.topology_family_id == expected_topology_family_id,
+				"TerrainPresentationProfile %s terrain_id=%d expects topology_family_id=%s but shape_set=%s declares %s" % [
+					profile.id,
+					terrain_id,
+					expected_topology_family_id,
+					shape_set.id,
+					shape_set.topology_family_id,
+				]
+			)
+
+static func _expected_topology_family_for_terrain(terrain_id: int) -> StringName:
+	match terrain_id:
+		WorldRuntimeConstants.TERRAIN_PLAINS_GROUND:
+			return TOPOLOGY_AUTOTILE_47
+		WorldRuntimeConstants.TERRAIN_PLAINS_ROCK:
+			return TOPOLOGY_AUTOTILE_47
+		WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
+			return TOPOLOGY_SINGLE_TILE
+		_:
+			return &""
