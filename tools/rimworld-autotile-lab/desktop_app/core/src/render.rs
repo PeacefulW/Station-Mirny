@@ -6,7 +6,7 @@ use image::{Rgba, RgbaImage};
 use serde::Serialize;
 
 use crate::model::{AppRequest, GeneratedFiles, OutputManifest, RenderMode};
-use crate::noise::{clamp, fbm, hash2d, lerp};
+use crate::noise::{clamp, fbm_tiled, hash2d, lerp};
 use crate::signature::{canonical_signatures, signature_at, Signature};
 
 const ATLAS_COLUMNS: u32 = 8;
@@ -246,6 +246,7 @@ fn fill_empty_cell(target: &mut RgbaImage, textures: &TextureSet, request: &AppR
                 base_color,
                 textures.base.as_ref(),
                 request.texture_scale,
+                request.tile_size,
                 origin_x + local_x,
                 origin_y + local_y,
                 request.seed.wrapping_add(10_001),
@@ -270,21 +271,19 @@ fn render_tile(request: &AppRequest, textures: &TextureSet, signature: &Signatur
     let mut heights = vec![0.0_f32; pixel_count];
     let mut zones = vec![SurfaceZone::Top; pixel_count];
 
-    let seed = request
-        .seed
-        .wrapping_add(variant.wrapping_mul(4_091))
-        .wrapping_add(signature.index as u32 * 911);
+    let geometry_seed = request.seed.wrapping_add(variant.wrapping_mul(4_091));
+    let material_seed = geometry_seed.wrapping_add(17_371);
 
     for y in 0..size {
         for x in 0..size {
             let index = (y * size + x) as usize;
-            let (height, zone) = sample_height(request, signature, seed, x as f32, y as f32);
+            let (height, zone) = sample_height(request, signature, geometry_seed, x as f32, y as f32);
             heights[index] = height;
             zones[index] = zone;
         }
     }
 
-    apply_crown_bevel(request, signature, seed, &mut heights, &zones);
+    apply_crown_bevel(request, signature, geometry_seed, &mut heights, &zones);
 
     let mut albedo = RgbaImage::new(size, size);
     let mut mask = RgbaImage::new(size, size);
@@ -300,13 +299,14 @@ fn render_tile(request: &AppRequest, textures: &TextureSet, signature: &Signatur
             let index = (y * size + x) as usize;
             let zone = zones[index];
             let height_value = heights[index];
-            let sample_seed = seed.wrapping_add(index as u32 * 13);
+            let sample_seed = material_seed.wrapping_add(index as u32 * 13);
 
             let base = match zone {
                 SurfaceZone::Top => sample_material_color(
                     top_color,
                     textures.top.as_ref(),
                     request.texture_scale,
+                    request.tile_size,
                     x,
                     y,
                     sample_seed,
@@ -316,19 +316,21 @@ fn render_tile(request: &AppRequest, textures: &TextureSet, signature: &Signatur
                     face_color,
                     textures.face.as_ref(),
                     request.texture_scale,
+                    request.tile_size,
                     x,
                     y,
                     sample_seed,
-                    0.82 + height_value * 0.14,
+                    1.0,
                 ),
                 SurfaceZone::Back => sample_material_color(
                     back_color,
                     textures.face.as_ref(),
                     request.texture_scale,
+                    request.tile_size,
                     x,
                     y,
                     sample_seed,
-                    0.94 + height_value * 0.06,
+                    1.0,
                 ),
             };
 
@@ -368,53 +370,73 @@ fn choose_mode_image<'a>(tile: &'a TileBuffers, preview_mode: &str) -> &'a RgbaI
 
 fn sample_height(request: &AppRequest, signature: &Signature, seed: u32, x: f32, y: f32) -> (f32, SurfaceZone) {
     let size = request.tile_size as f32;
-    let south_depth = request.south_height as f32;
     let north_depth = request.north_height as f32;
     let side_depth = request.side_height as f32;
     let rough_px = (request.roughness / 100.0) * (request.tile_size as f32 * 0.085);
+    let north_open_boundary = signature
+        .open_n
+        .then(|| north_boundary(request, rough_px, seed.wrapping_add(11), x, y));
+    let south_open_boundary = signature
+        .open_s
+        .then(|| south_boundary(request, rough_px, seed.wrapping_add(23), x, y));
+    let east_open_boundary = signature
+        .open_e
+        .then(|| east_boundary(request, rough_px, seed.wrapping_add(37), x, y));
+    let west_open_boundary = signature
+        .open_w
+        .then(|| west_boundary(request, rough_px, seed.wrapping_add(41), x, y));
 
     let mut min_height = 1.0_f32;
     let mut min_zone = SurfaceZone::Top;
+    let overlap_ne = matches!((north_open_boundary, east_open_boundary), (Some(north), Some(east)) if y < north && x > east);
+    let overlap_nw = matches!((north_open_boundary, west_open_boundary), (Some(north), Some(west)) if y < north && x < west);
+    let overlap_se = matches!((south_open_boundary, east_open_boundary), (Some(south), Some(east)) if y > south && x > east);
+    let overlap_sw = matches!((south_open_boundary, west_open_boundary), (Some(south), Some(west)) if y > south && x < west);
 
     if signature.open_n {
-        let boundary = north_depth + edge_jitter(y, x, seed.wrapping_add(11), rough_px);
-        if y < boundary {
+        let boundary = north_open_boundary.expect("north boundary must exist when open_n");
+        if y < boundary && !overlap_ne && !overlap_nw {
             let progress = 1.0 - (y / boundary.max(1.0));
-            set_min_height(&mut min_height, &mut min_zone, 1.0 - progress * request.back_drop, SurfaceZone::Back);
+            set_min_height(
+                &mut min_height,
+                &mut min_zone,
+                back_height_for_progress(request, progress),
+                SurfaceZone::Back,
+            );
         }
     }
     if signature.open_s {
-        let boundary = (size - 1.0 - south_depth) + edge_jitter(y, x, seed.wrapping_add(23), rough_px);
+        let boundary = south_open_boundary.expect("south boundary must exist when open_s");
         if y > boundary {
             let progress = ((y - boundary) / (size - 1.0 - boundary).max(1.0)).clamp(0.0, 1.0);
             set_min_height(
                 &mut min_height,
                 &mut min_zone,
-                (1.0 - progress).powf(request.face_power),
+                face_height_for_progress(request, progress),
                 SurfaceZone::Face,
             );
         }
     }
     if signature.open_e {
-        let boundary = (size - 1.0 - side_depth) + edge_jitter(x, y, seed.wrapping_add(37), rough_px);
-        if x > boundary {
+        let boundary = east_open_boundary.expect("east boundary must exist when open_e");
+        if x > boundary && !overlap_se {
             let progress = ((x - boundary) / (size - 1.0 - boundary).max(1.0)).clamp(0.0, 1.0);
             set_min_height(
                 &mut min_height,
                 &mut min_zone,
-                (1.0 - progress).powf(request.face_power),
+                face_height_for_progress(request, progress),
                 SurfaceZone::Face,
             );
         }
     }
     if signature.open_w {
-        let boundary = side_depth + edge_jitter(x, y, seed.wrapping_add(41), rough_px);
-        if x < boundary {
+        let boundary = west_open_boundary.expect("west boundary must exist when open_w");
+        if x < boundary && !overlap_sw {
             let progress = 1.0 - (x / boundary.max(1.0));
             set_min_height(
                 &mut min_height,
                 &mut min_zone,
-                (1.0 - progress).powf(request.face_power),
+                face_height_for_progress(request, progress),
                 SurfaceZone::Face,
             );
         }
@@ -422,60 +444,95 @@ fn sample_height(request: &AppRequest, signature: &Signature, seed: u32, x: f32,
 
     let notch_side = side_depth.max(2.0);
     let notch_north = north_depth.max(2.0);
-    let notch_south = south_depth.max(2.0);
 
     if signature.notch_ne {
-        let x_start = size - notch_side + edge_jitter(y, x, seed.wrapping_add(53), rough_px * 0.8);
-        let y_end = notch_north + edge_jitter(x, y, seed.wrapping_add(59), rough_px * 0.8);
+        let x_start = size - notch_side
+            + edge_jitter(y, seed.wrapping_add(53), rough_px * 0.8, (request.tile_size.saturating_sub(1)).max(1) as f32);
+        let y_end = notch_north
+            + edge_jitter(x, seed.wrapping_add(59), rough_px * 0.8, (request.tile_size.saturating_sub(1)).max(1) as f32);
         if x > x_start && y < y_end {
-            let progress = ((x - x_start) / notch_side.max(1.0))
-                .clamp(0.0, 1.0)
-                .max((1.0 - y / y_end.max(1.0)).clamp(0.0, 1.0));
-            set_min_height(&mut min_height, &mut min_zone, 1.0 - progress * request.back_drop, SurfaceZone::Back);
-        }
-    }
-    if signature.notch_nw {
-        let x_end = notch_side + edge_jitter(y, x, seed.wrapping_add(61), rough_px * 0.8);
-        let y_end = notch_north + edge_jitter(x, y, seed.wrapping_add(67), rough_px * 0.8);
-        if x < x_end && y < y_end {
-            let progress = (1.0 - x / x_end.max(1.0))
-                .clamp(0.0, 1.0)
-                .max((1.0 - y / y_end.max(1.0)).clamp(0.0, 1.0));
-            set_min_height(&mut min_height, &mut min_zone, 1.0 - progress * request.back_drop, SurfaceZone::Back);
-        }
-    }
-    if signature.notch_se {
-        let x_start = size - notch_side + edge_jitter(y, x, seed.wrapping_add(71), rough_px * 0.8);
-        let y_start = size - notch_south + edge_jitter(x, y, seed.wrapping_add(73), rough_px * 0.8);
-        if x > x_start && y > y_start {
-            let progress = ((x - x_start) / notch_side.max(1.0))
-                .clamp(0.0, 1.0)
-                .max(((y - y_start) / notch_south.max(1.0)).clamp(0.0, 1.0));
+            let east_progress = ((x - x_start) / notch_side.max(1.0)).clamp(0.0, 1.0);
             set_min_height(
                 &mut min_height,
                 &mut min_zone,
-                (1.0 - progress).powf(request.face_power),
+                face_height_for_progress(request, east_progress),
+                SurfaceZone::Face,
+            );
+        }
+    }
+    if signature.notch_nw {
+        let x_end = notch_side
+            + edge_jitter(y, seed.wrapping_add(61), rough_px * 0.8, (request.tile_size.saturating_sub(1)).max(1) as f32);
+        let y_end = notch_north
+            + edge_jitter(x, seed.wrapping_add(67), rough_px * 0.8, (request.tile_size.saturating_sub(1)).max(1) as f32);
+        if x < x_end && y < y_end {
+            let west_progress = (1.0 - x / x_end.max(1.0)).clamp(0.0, 1.0);
+            set_min_height(
+                &mut min_height,
+                &mut min_zone,
+                face_height_for_progress(request, west_progress),
+                SurfaceZone::Face,
+            );
+        }
+    }
+    if signature.notch_se {
+        let x_start = east_boundary(request, rough_px, seed.wrapping_add(37), x, y);
+        let y_start = south_boundary(request, rough_px, seed.wrapping_add(23), x, y);
+        if x > x_start && y > y_start {
+            let progress = ((y - y_start) / (size - 1.0 - y_start).max(1.0)).clamp(0.0, 1.0);
+            set_min_height(
+                &mut min_height,
+                &mut min_zone,
+                face_height_for_progress(request, progress),
                 SurfaceZone::Face,
             );
         }
     }
     if signature.notch_sw {
-        let x_end = notch_side + edge_jitter(y, x, seed.wrapping_add(79), rough_px * 0.8);
-        let y_start = size - notch_south + edge_jitter(x, y, seed.wrapping_add(83), rough_px * 0.8);
+        let x_end = west_boundary(request, rough_px, seed.wrapping_add(41), x, y);
+        let y_start = south_boundary(request, rough_px, seed.wrapping_add(23), x, y);
         if x < x_end && y > y_start {
-            let progress = (1.0 - x / x_end.max(1.0))
-                .clamp(0.0, 1.0)
-                .max(((y - y_start) / notch_south.max(1.0)).clamp(0.0, 1.0));
+            let progress = ((y - y_start) / (size - 1.0 - y_start).max(1.0)).clamp(0.0, 1.0);
             set_min_height(
                 &mut min_height,
                 &mut min_zone,
-                (1.0 - progress).powf(request.face_power),
+                face_height_for_progress(request, progress),
                 SurfaceZone::Face,
             );
         }
     }
 
     (clamp(min_height, 0.0, 1.0), min_zone)
+}
+
+fn north_boundary(request: &AppRequest, rough_px: f32, seed: u32, x: f32, y: f32) -> f32 {
+    let _ = y;
+    request.north_height as f32 + edge_jitter(x, seed, rough_px, (request.tile_size.saturating_sub(1)).max(1) as f32)
+}
+
+fn south_boundary(request: &AppRequest, rough_px: f32, seed: u32, x: f32, y: f32) -> f32 {
+    let _ = y;
+    (request.tile_size as f32 - 1.0 - request.south_height as f32)
+        + edge_jitter(x, seed, rough_px, (request.tile_size.saturating_sub(1)).max(1) as f32)
+}
+
+fn east_boundary(request: &AppRequest, rough_px: f32, seed: u32, x: f32, y: f32) -> f32 {
+    let _ = x;
+    (request.tile_size as f32 - 1.0 - request.side_height as f32)
+        + edge_jitter(y, seed, rough_px, (request.tile_size.saturating_sub(1)).max(1) as f32)
+}
+
+fn west_boundary(request: &AppRequest, rough_px: f32, seed: u32, x: f32, y: f32) -> f32 {
+    let _ = x;
+    request.side_height as f32 + edge_jitter(y, seed, rough_px, (request.tile_size.saturating_sub(1)).max(1) as f32)
+}
+
+fn back_height_for_progress(request: &AppRequest, progress: f32) -> f32 {
+    1.0 - progress * request.back_drop
+}
+
+fn face_height_for_progress(request: &AppRequest, progress: f32) -> f32 {
+    (1.0 - progress).powf(request.face_power)
 }
 
 fn set_min_height(current_height: &mut f32, current_zone: &mut SurfaceZone, candidate: f32, zone: SurfaceZone) {
@@ -485,11 +542,27 @@ fn set_min_height(current_height: &mut f32, current_zone: &mut SurfaceZone, cand
     }
 }
 
-fn edge_jitter(axis: f32, cross: f32, seed: u32, amplitude: f32) -> f32 {
+fn edge_jitter(coord: f32, seed: u32, amplitude: f32, tile_period: f32) -> f32 {
     if amplitude <= 0.01 {
         return 0.0;
     }
-    let noise = fbm(axis * 0.12 + cross * 0.03, cross * 0.05 + axis * 0.01, 3, seed) - 0.5;
+    let primary = fbm_tiled(
+        coord * 0.12,
+        0.0,
+        (tile_period * 0.12).max(0.001),
+        1.0,
+        3,
+        seed,
+    );
+    let secondary = fbm_tiled(
+        coord * 0.31 + 17.0,
+        0.0,
+        (tile_period * 0.04).max(0.001),
+        1.0,
+        2,
+        seed.wrapping_add(131),
+    );
+    let noise = (primary * 0.72 + secondary * 0.28) - 0.5;
     noise * amplitude * 2.0
 }
 
@@ -500,9 +573,6 @@ fn apply_crown_bevel(request: &AppRequest, signature: &Signature, seed: u32, hei
     }
 
     let size = request.tile_size as usize;
-    let south_depth = request.south_height as f32;
-    let north_depth = request.north_height as f32;
-    let side_depth = request.side_height as f32;
     let rough_px = (request.roughness / 100.0) * (request.tile_size as f32 * 0.085);
 
     for y in 0..size {
@@ -517,24 +587,21 @@ fn apply_crown_bevel(request: &AppRequest, signature: &Signature, seed: u32, hei
             let mut nearest = f32::MAX;
 
             if signature.open_n {
-                let boundary = north_depth + edge_jitter(yf, xf, seed.wrapping_add(11), rough_px);
+                let boundary = north_boundary(request, rough_px, seed.wrapping_add(11), xf, yf);
                 nearest = nearest.min((yf - boundary).abs());
             }
             if signature.open_s {
-                let boundary = (request.tile_size as f32 - 1.0 - south_depth)
-                    + edge_jitter(yf, xf, seed.wrapping_add(23), rough_px);
+                let boundary = south_boundary(request, rough_px, seed.wrapping_add(23), xf, yf);
                 nearest = nearest.min((yf - boundary).abs());
             }
             if signature.open_e {
-                let boundary = (request.tile_size as f32 - 1.0 - side_depth)
-                    + edge_jitter(xf, yf, seed.wrapping_add(37), rough_px);
+                let boundary = east_boundary(request, rough_px, seed.wrapping_add(37), xf, yf);
                 nearest = nearest.min((xf - boundary).abs());
             }
             if signature.open_w {
-                let boundary = side_depth + edge_jitter(xf, yf, seed.wrapping_add(41), rough_px);
+                let boundary = west_boundary(request, rough_px, seed.wrapping_add(41), xf, yf);
                 nearest = nearest.min((xf - boundary).abs());
             }
-
             if nearest.is_finite() && nearest < bevel {
                 let t = (nearest / bevel).clamp(0.0, 1.0);
                 heights[index] = heights[index].min(lerp(0.86, 1.0, t));
@@ -547,6 +614,7 @@ fn sample_material_color(
     tint: [u8; 3],
     texture: Option<&LoadedTexture>,
     texture_scale: f32,
+    tile_size: u32,
     x: u32,
     y: u32,
     seed: u32,
@@ -556,7 +624,7 @@ fn sample_material_color(
         let source = texture.sample(x as f32 * texture_scale, y as f32 * texture_scale);
         [source[0], source[1], source[2]]
     } else {
-        procedural_material(seed, x as f32, y as f32, tint)
+        procedural_material(seed, x as f32, y as f32, tile_size as f32, tint)
     };
 
     [
@@ -566,9 +634,16 @@ fn sample_material_color(
     ]
 }
 
-fn procedural_material(seed: u32, x: f32, y: f32, tint: [u8; 3]) -> [u8; 3] {
-    let broad = fbm(x * 0.08, y * 0.08, 4, seed);
-    let fine = fbm(x * 0.24 + 13.0, y * 0.24 + 27.0, 3, seed.wrapping_add(177));
+fn procedural_material(seed: u32, x: f32, y: f32, tile_period: f32, tint: [u8; 3]) -> [u8; 3] {
+    let broad = fbm_tiled(x * 0.08, y * 0.08, tile_period * 0.08, tile_period * 0.08, 4, seed);
+    let fine = fbm_tiled(
+        x * 0.24 + 13.0,
+        y * 0.24 + 27.0,
+        tile_period * 0.24,
+        tile_period * 0.24,
+        3,
+        seed.wrapping_add(177),
+    );
     let speck = hash2d(x as i32 * 3, y as i32 * 3, seed.wrapping_add(991));
     let mix = clamp(0.62 + broad * 0.28 + fine * 0.14 + (speck - 0.5) * 0.08, 0.25, 1.18);
     [
@@ -580,9 +655,9 @@ fn procedural_material(seed: u32, x: f32, y: f32, tint: [u8; 3]) -> [u8; 3] {
 
 fn apply_height_shading(color: [u8; 3], height: f32, zone: SurfaceZone) -> [u8; 3] {
     let factor = match zone {
-        SurfaceZone::Top => 0.94 + height * 0.12,
-        SurfaceZone::Face => 0.74 + height * 0.2,
-        SurfaceZone::Back => 0.82 + height * 0.12,
+        SurfaceZone::Top => 0.96 + height * 0.08,
+        SurfaceZone::Face => 0.90 + height * 0.10,
+        SurfaceZone::Back => 0.94 + height * 0.08,
     };
     [
         ((color[0] as f32 * factor).round() as i32).clamp(0, 255) as u8,

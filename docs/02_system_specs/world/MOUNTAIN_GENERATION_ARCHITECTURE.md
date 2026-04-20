@@ -56,7 +56,7 @@ related_docs:
 
 | Компонент | Файл | Что делает |
 |---|---|---|
-| Нативная генерация чанка | `gdextension/src/world_core.cpp` | Возвращает `ChunkPacketV0` с `terrain_ids`, `terrain_atlas_indices`, `walkable_flags`. Пока производит только `PLAINS_GROUND` и случайные `PLAINS_ROCK` (h % 29). |
+| Нативная генерация чанка | `gdextension/src/world_core.cpp` | Возвращает `ChunkPacketV0` с `terrain_ids`, `terrain_atlas_indices`, `walkable_flags`. В текущем `world_version >= 4` базовый path производит `PLAINS_GROUND`, а blocked mountain terrain идёт только через mountain field. |
 | Autotile-47 | `gdextension/src/autotile_47.cpp` | Решает атлас-индекс для 8-соседнего rock-силуэта. Переиспользуется для гор 1-в-1. |
 | Streamer | `core/systems/world/world_streamer.gd` | Worker-thread + `FrameBudgetDispatcher.CATEGORY_STREAMING` + sliced publish. Готов принимать расширенный пакет. |
 | ChunkView | `core/systems/world/chunk_view.gd` | Уже имеет **два** слоя (`TerrainBaseLayer`, `TerrainOverlayLayer`). Добавить третий «roof» — естественное расширение. |
@@ -131,9 +131,11 @@ sample_elevation(wx, wy, seed, wv, settings) -> float:
 ```
 
 Пороговая классификация:
-- `elevation >= t_wall`  → `TERRAIN_MOUNTAIN_WALL` (непроходимая скала, интерьер)
-- `elevation >= t_edge`  → `TERRAIN_MOUNTAIN_FOOT` (подножье, видимый rock-face,
-  `walkable = 0`, но **не** interior — автоматически открыто)
+- `mountain_id > 0 && elevation >= t_wall`  → `TERRAIN_MOUNTAIN_WALL`
+  (непроходимая скала, интерьер)
+- `mountain_id > 0 && elevation >= t_edge`  → `TERRAIN_MOUNTAIN_FOOT`
+  (подножье, видимый rock-face, `walkable = 0`, но **не** interior —
+  автоматически открыто)
 - `elevation <  t_edge`  → ground (`TERRAIN_PLAINS_GROUND`)
 
 Полосы:
@@ -184,20 +186,20 @@ for each anchor-cell (ax, ay) in world:
 
 Для каждой rock-плитки `(wx, wy)`:
 ```
-nearest = argmin over anchors in 3x3 anchor-neighborhood:
+nearest = argmin over anchors in bounded local anchor-neighborhood:
     chebyshev_distance((wx, wy), anchor.position)
-mountain_id = nearest.anchor_id if distance <= gravity_radius else 0
+mountain_id = nearest.anchor_id
 ```
 
 **Ключевые свойства.**
-- Полностью детерминированно и локально (3×3 anchor-ячеек = макс 9 проверок на
-  тайл).
+- Полностью детерминированно и локально (bounded anchor-ячеек вокруг тайла,
+  без global prepass).
 - Бесконечно масштабируется — нет глобального списка гор.
 - Две близкие горы с разными anchor-ячейками получают разные `mountain_id`,
   даже если их силуэты визуально соприкасаются.
 - Сохраняется при любом размере чанка (anchor-ячейка независима от `32x32`).
-- `mountain_id = 0` — «не часть именованной горы» (подножье ниже `t_anchor`),
-  эти плитки не будут крыться крышей.
+- `mountain_id = 0` на elevated terrain в текущем `world_version >= 4` —
+  diagnostic miss, а не штатная presentation branch.
 
 **Хранение в пакете.** Новое поле `mountain_id_per_tile: PackedInt32Array`
 длины 1024. `0` — не интерьер. Остальные значения — идентификаторы гор.
@@ -345,7 +347,10 @@ func update_from_player_position(world_pos: Vector2) -> void:
 Если игрок в **проёме** (тайл с `mountain_id == 0`, но физически окружён
 интерьером выкопанной базы) — resolver смотрит на clamp-ed ближайшую
 interior-плитку в 1-тайловом радиусе, чтобы не сбрасывать reveal при стоянии
-в коридоре-входе. Это очень локальная проверка (5 тайлов).
+в коридоре-входе. Doorway fallback разрешён только когда interior одной и той
+же горы лежит на **противоположных** cardinal-соседях (`N+S` или `E+W`);
+corner adjacency не считается проходом. Это очень локальная проверка (5
+тайлов).
 
 ### 2.6. Копание — без изменения архитектуры
 
@@ -398,9 +403,10 @@ terrain_ids[1024], terrain_atlas_indices[1024], walkable_flags[1024]
   - `docs/02_system_specs/world/mountain_generation.md` (новый) — сам спек.
   - `docs/02_system_specs/meta/event_contracts.md` — `mountain_revealed`,
     `mountain_concealed`.
-- `WORLD_VERSION` **обязательно** поднимается с `1` на `2` при слиянии.
-  Иначе существующие save-файлы сломают детерминизм (тайлы, которые были
-  ground, станут rock-wall).
+- `WORLD_VERSION` **обязательно** поднимается при любом изменении
+  canonical mountain output. M1 поднял его с `1` на `2`; named-mountain
+  ownership fix поднимает с `2` на `3`.
+  Иначе существующие save-файлы сломают детерминизм.
 
 ---
 
@@ -648,7 +654,7 @@ ramp-текстуру (sdf от центра «входа» → постепен
 2. Добавить `gdextension/src/mountain_field.{h,cpp}` — чистые функции
    `sample_elevation`, `resolve_anchor_id`.
 3. Расширить `generate_chunk_packet` → возвращает V1 packet.
-4. Поднять `WORLD_VERSION: int = 2` в `world_runtime_constants.gd`.
+4. Поднять `WORLD_VERSION: int = 4` в `world_runtime_constants.gd`.
 5. `WorldStreamer` просто передаёт новые поля в `ChunkView` (пока
    roof-layer не включён — просто чтобы тайлы рисовались как
    mountain-wall).

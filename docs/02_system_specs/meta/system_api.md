@@ -299,7 +299,7 @@ Confirmed readable entrypoints:
 | `get_chunk_packet(chunk_coord: Vector2i)` | `Dictionary` | Loaded chunk packet or `{}`; read-only world-domain lookup for `MountainResolver` |
 | `get_mountain_reveal_registry()` | `MountainRevealRegistry` | Returns the world-domain owner of reveal alpha state |
 | `is_walkable_at_world(world_pos: Vector2)` | `bool` | Reads `base + diff`; returns `false` while a chunk is not ready |
-| `has_resource_at_world(world_pos: Vector2)` | `bool` | Diggable surface query for the current harvest path (`TERRAIN_PLAINS_ROCK` and `TERRAIN_MOUNTAIN_WALL`) |
+| `has_resource_at_world(world_pos: Vector2)` | `bool` | Diggable surface query for the current harvest path (`TERRAIN_MOUNTAIN_WALL` and `TERRAIN_MOUNTAIN_FOOT`) |
 
 Confirmed mutation entrypoints:
 
@@ -309,7 +309,6 @@ Confirmed mutation entrypoints:
 | `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version` and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
 | `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one diggable surface tile into its dug state |
-| `debug_place_rock_at_world(world_pos: Vector2)` | Debug-only local terrain override; writes one `TERRAIN_PLAINS_ROCK` diff and applies it locally if loaded |
 
 Not documented here as safe entrypoints:
 - `_streaming_tick()`

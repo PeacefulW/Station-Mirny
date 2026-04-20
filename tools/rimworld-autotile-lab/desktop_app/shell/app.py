@@ -17,12 +17,44 @@ from presets import PRESETS, clone_preset, make_blob_map, make_cave_map, make_ro
 
 SESSION_OUTPUT_DIR = DESKTOP_APP_DIR / "exports" / "session"
 RECIPE_SUFFIX = ".json"
+WINDOW_TITLE = "Cliff Forge Desktop"
+STATUS_BOOT = "Инициализация desktop-инструмента..."
+STATUS_IDLE = "Ожидание"
+STATS_EMPTY = "Сборка ещё не запускалась"
+LABEL_AUTO_VARIANT = "Авто"
+LABEL_VARIANT_PREFIX = "Вариант "
+TEXT_PROCEDURAL = "процедурно"
+TEXT_PREVIEW_EMPTY = "Превью ещё не собрано..."
+TEXT_PREVIEW_HINT = "Колесо мыши: зум | ЛКМ: двигать"
+
+PRESET_LABELS = {
+    "mountain": "Гора",
+    "wall": "Стена",
+    "earth": "Грунт",
+}
+PRESET_KEYS_BY_LABEL = {label: key for key, label in PRESET_LABELS.items()}
+
+PREVIEW_MODE_LABELS = {
+    "composite": "Композит",
+    "albedo": "Альбедо",
+    "mask": "Маска",
+    "height": "Высота",
+    "normal": "Нормали",
+}
+PREVIEW_MODE_KEYS_BY_LABEL = {label: key for key, label in PREVIEW_MODE_LABELS.items()}
+
+SLOT_LABELS = {
+    "top": "Верх",
+    "face": "Лицевая",
+    "back": "Тыл",
+    "base": "Основа",
+}
 
 
 class CliffForgeApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Cliff Forge Desktop")
+        self.root.title(WINDOW_TITLE)
         self.root.geometry("1560x980")
         self.root.minsize(1320, 860)
 
@@ -36,6 +68,12 @@ class CliffForgeApp:
         self.suspend_events = False
         self.current_map = make_blob_map()
         self.texture_paths = {"top": "", "face": "", "base": ""}
+        self.preview_source_image: Image.Image | None = None
+        self.preview_zoom = 1.0
+        self.preview_offset_x = 0.0
+        self.preview_offset_y = 0.0
+        self.preview_drag_last: tuple[int, int] | None = None
+        self.preview_render_size: tuple[int, int] | None = None
 
         self._build_variables()
         self._build_layout()
@@ -43,14 +81,14 @@ class CliffForgeApp:
         self._apply_preset("mountain", schedule=False)
         self._refresh_variant_selector()
         self._draw_map()
-        self._set_status("Инициализация нового desktop rewrite...")
+        self._set_status(STATUS_BOOT)
 
         self.root.after(120, self._poll_render_queue)
         self.request_render("full")
 
     def _build_variables(self) -> None:
-        self.preset_var = tk.StringVar(value="mountain")
-        self.preview_mode_var = tk.StringVar(value="composite")
+        self.preset_var = tk.StringVar(value=PRESET_LABELS["mountain"])
+        self.preview_mode_var = tk.StringVar(value=PREVIEW_MODE_LABELS["composite"])
         self.seed_var = tk.IntVar(value=240_518)
         self.tile_size_var = tk.IntVar(value=64)
         self.south_height_var = tk.IntVar(value=18)
@@ -62,13 +100,13 @@ class CliffForgeApp:
         self.crown_bevel_var = tk.IntVar(value=2)
         self.variants_var = tk.IntVar(value=4)
         self.texture_scale_var = tk.DoubleVar(value=1.0)
-        self.forced_variant_var = tk.StringVar(value="Auto")
+        self.forced_variant_var = tk.StringVar(value=LABEL_AUTO_VARIANT)
         self.top_color_var = tk.StringVar(value="#705940")
         self.face_color_var = tk.StringVar(value="#3e2f25")
         self.back_color_var = tk.StringVar(value="#564436")
         self.base_color_var = tk.StringVar(value="#b88d58")
-        self.stats_var = tk.StringVar(value="No build yet")
-        self.status_var = tk.StringVar(value="Idle")
+        self.stats_var = tk.StringVar(value=STATS_EMPTY)
+        self.status_var = tk.StringVar(value=STATUS_IDLE)
 
     def _build_layout(self) -> None:
         main = ttk.Frame(self.root, padding=12)
@@ -104,45 +142,51 @@ class CliffForgeApp:
             lambda _event: canvas.configure(scrollregion=canvas.bbox("all")),
         )
 
-        general = ttk.LabelFrame(self.sidebar_inner, text="General", padding=10)
+        general = ttk.LabelFrame(self.sidebar_inner, text="Общие настройки", padding=10)
         general.pack(fill="x", pady=(0, 10))
-        self._add_combo(general, "Preset", self.preset_var, list(PRESETS.keys()), self._on_preset_changed)
         self._add_combo(
             general,
-            "Preview Mode",
+            "Пресет",
+            self.preset_var,
+            [PRESET_LABELS[key] for key in PRESETS.keys()],
+            self._on_preset_changed,
+        )
+        self._add_combo(
+            general,
+            "Режим превью",
             self.preview_mode_var,
-            ["composite", "albedo", "mask", "height", "normal"],
+            [PREVIEW_MODE_LABELS[key] for key in PREVIEW_MODE_LABELS],
             lambda *_args: self.schedule_draft(),
         )
         self.variant_combo = self._add_combo(
             general,
-            "Forced Variant",
+            "Фиксированный вариант",
             self.forced_variant_var,
-            ["Auto", "v1", "v2", "v3", "v4"],
+            [LABEL_AUTO_VARIANT, f"{LABEL_VARIANT_PREFIX}1", f"{LABEL_VARIANT_PREFIX}2", f"{LABEL_VARIANT_PREFIX}3", f"{LABEL_VARIANT_PREFIX}4"],
             lambda *_args: self.schedule_draft(),
         )
 
         seed_row = ttk.Frame(general)
         seed_row.pack(fill="x", pady=(8, 0))
-        ttk.Label(seed_row, text="Seed").pack(side="left")
+        ttk.Label(seed_row, text="Сид").pack(side="left")
         seed_entry = ttk.Entry(seed_row, textvariable=self.seed_var, width=14)
         seed_entry.pack(side="left", padx=(8, 6))
         seed_entry.bind("<Return>", lambda _event: self.schedule_full())
-        ttk.Button(seed_row, text="Randomize", command=self._randomize_seed).pack(side="left")
+        ttk.Button(seed_row, text="Случайный", command=self._randomize_seed).pack(side="left")
 
-        shape = ttk.LabelFrame(self.sidebar_inner, text="Shape", padding=10)
+        shape = ttk.LabelFrame(self.sidebar_inner, text="Форма", padding=10)
         shape.pack(fill="x", pady=(0, 10))
-        self._add_scale(shape, "Tile Size", self.tile_size_var, 32, 96, 16, integer=True, full_on_release=True)
-        self._add_scale(shape, "South Height", self.south_height_var, 4, 32, 1, integer=True)
-        self._add_scale(shape, "North Height", self.north_height_var, 2, 24, 1, integer=True)
-        self._add_scale(shape, "Side Height", self.side_height_var, 2, 24, 1, integer=True)
-        self._add_scale(shape, "Roughness", self.roughness_var, 0, 100, 1)
-        self._add_scale(shape, "Face Power", self.face_power_var, 0.4, 2.8, 0.05)
-        self._add_scale(shape, "Back Drop", self.back_drop_var, 0.1, 0.8, 0.01)
-        self._add_scale(shape, "Crown Bevel", self.crown_bevel_var, 0, 12, 1, integer=True)
+        self._add_scale(shape, "Размер тайла", self.tile_size_var, 32, 96, 16, integer=True, full_on_release=True)
+        self._add_scale(shape, "Южная высота", self.south_height_var, 4, 32, 1, integer=True)
+        self._add_scale(shape, "Северная высота", self.north_height_var, 2, 24, 1, integer=True)
+        self._add_scale(shape, "Боковая высота", self.side_height_var, 2, 24, 1, integer=True)
+        self._add_scale(shape, "Шероховатость", self.roughness_var, 0, 100, 1)
+        self._add_scale(shape, "Сила фасада", self.face_power_var, 0.4, 2.8, 0.05)
+        self._add_scale(shape, "Задний спад", self.back_drop_var, 0.1, 0.8, 0.01)
+        self._add_scale(shape, "Скос гребня", self.crown_bevel_var, 0, 12, 1, integer=True)
         self._add_scale(
             shape,
-            "Variant Count",
+            "Число вариантов",
             self.variants_var,
             1,
             8,
@@ -151,68 +195,82 @@ class CliffForgeApp:
             callback=self._on_variant_count_changed,
             full_on_release=True,
         )
-        self._add_scale(shape, "Texture Scale", self.texture_scale_var, 0.25, 4.0, 0.05)
+        self._add_scale(shape, "Масштаб текстуры", self.texture_scale_var, 0.25, 4.0, 0.05)
 
-        colors = ttk.LabelFrame(self.sidebar_inner, text="Colors", padding=10)
+        colors = ttk.LabelFrame(self.sidebar_inner, text="Цвета", padding=10)
         colors.pack(fill="x", pady=(0, 10))
-        self._add_color_row(colors, "Top", self.top_color_var)
-        self._add_color_row(colors, "Face", self.face_color_var)
-        self._add_color_row(colors, "Back", self.back_color_var)
-        self._add_color_row(colors, "Base", self.base_color_var)
+        self._add_color_row(colors, SLOT_LABELS["top"], self.top_color_var)
+        self._add_color_row(colors, SLOT_LABELS["face"], self.face_color_var)
+        self._add_color_row(colors, SLOT_LABELS["back"], self.back_color_var)
+        self._add_color_row(colors, SLOT_LABELS["base"], self.base_color_var)
 
-        textures = ttk.LabelFrame(self.sidebar_inner, text="Textures", padding=10)
+        textures = ttk.LabelFrame(self.sidebar_inner, text="Текстуры", padding=10)
         textures.pack(fill="x", pady=(0, 10))
         self.texture_labels = {}
         for slot in ("top", "face", "base"):
             row = ttk.Frame(textures)
             row.pack(fill="x", pady=3)
-            ttk.Label(row, text=slot.title(), width=6).pack(side="left")
-            label = ttk.Label(row, text="procedural", width=24)
+            ttk.Label(row, text=SLOT_LABELS[slot], width=10).pack(side="left")
+            label = ttk.Label(row, text=TEXT_PROCEDURAL, width=24)
             label.pack(side="left", padx=(4, 6))
-            ttk.Button(row, text="Load", command=lambda s=slot: self._load_texture(s)).pack(side="left")
-            ttk.Button(row, text="Clear", command=lambda s=slot: self._clear_texture(s)).pack(side="left", padx=(4, 0))
+            ttk.Button(row, text="Загрузить", command=lambda s=slot: self._load_texture(s)).pack(side="left")
+            ttk.Button(row, text="Сбросить", command=lambda s=slot: self._clear_texture(s)).pack(side="left", padx=(4, 0))
             self.texture_labels[slot] = label
 
-        map_frame = ttk.LabelFrame(self.sidebar_inner, text="Map", padding=10)
+        map_frame = ttk.LabelFrame(self.sidebar_inner, text="Карта", padding=10)
         map_frame.pack(fill="x", pady=(0, 10))
         self.map_canvas = tk.Canvas(map_frame, width=324, height=216, background="#161311", highlightthickness=1)
         self.map_canvas.pack()
         button_row = ttk.Frame(map_frame)
         button_row.pack(fill="x", pady=(8, 0))
-        ttk.Button(button_row, text="Blob", command=self._make_blob_map).pack(side="left")
-        ttk.Button(button_row, text="Room", command=self._make_room_map).pack(side="left", padx=(6, 0))
-        ttk.Button(button_row, text="Cave", command=self._make_cave_map).pack(side="left", padx=(6, 0))
-        ttk.Button(button_row, text="Clear", command=self._clear_map).pack(side="left", padx=(6, 0))
+        ttk.Button(button_row, text="Пятно", command=self._make_blob_map).pack(side="left")
+        ttk.Button(button_row, text="Комната", command=self._make_room_map).pack(side="left", padx=(6, 0))
+        ttk.Button(button_row, text="Пещера", command=self._make_cave_map).pack(side="left", padx=(6, 0))
+        ttk.Button(button_row, text="Очистить", command=self._clear_map).pack(side="left", padx=(6, 0))
 
-        actions = ttk.LabelFrame(self.sidebar_inner, text="Actions", padding=10)
+        actions = ttk.LabelFrame(self.sidebar_inner, text="Действия", padding=10)
         actions.pack(fill="x", pady=(0, 10))
-        ttk.Button(actions, text="Draft Preview", command=self.schedule_draft).pack(fill="x")
-        ttk.Button(actions, text="Full Generate", command=self.schedule_full).pack(fill="x", pady=(6, 0))
-        ttk.Button(actions, text="Export Outputs", command=self._export_outputs).pack(fill="x", pady=(6, 0))
-        ttk.Button(actions, text="Save Recipe", command=self._save_recipe).pack(fill="x", pady=(6, 0))
-        ttk.Button(actions, text="Load Recipe", command=self._load_recipe).pack(fill="x", pady=(6, 0))
+        ttk.Button(actions, text="Черновое превью", command=self.schedule_draft).pack(fill="x")
+        ttk.Button(actions, text="Полная сборка", command=self.schedule_full).pack(fill="x", pady=(6, 0))
+        ttk.Button(actions, text="Экспорт файлов", command=self._export_outputs).pack(fill="x", pady=(6, 0))
+        ttk.Button(actions, text="Сохранить рецепт", command=self._save_recipe).pack(fill="x", pady=(6, 0))
+        ttk.Button(actions, text="Загрузить рецепт", command=self._load_recipe).pack(fill="x", pady=(6, 0))
 
         ttk.Label(self.sidebar_inner, textvariable=self.stats_var, justify="left").pack(fill="x", pady=(6, 0))
 
     def _build_content(self, parent: ttk.Frame) -> None:
-        preview_frame = ttk.LabelFrame(parent, text="Preview", padding=12)
+        preview_frame = ttk.LabelFrame(parent, text="Превью", padding=12)
         preview_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
         preview_frame.columnconfigure(0, weight=1)
         preview_frame.rowconfigure(0, weight=1)
-        self.preview_label = ttk.Label(preview_frame, anchor="center", text="Preview pending...")
-        self.preview_label.grid(row=0, column=0, sticky="nsew")
+        self.preview_canvas = tk.Canvas(
+            preview_frame,
+            background="#171311",
+            highlightthickness=0,
+            takefocus=1,
+        )
+        self.preview_canvas.grid(row=0, column=0, sticky="nsew")
+        self.preview_canvas.bind("<Configure>", lambda _event: self._render_preview_canvas())
+        self.preview_canvas.bind("<Enter>", lambda _event: self.preview_canvas.focus_set())
+        self.preview_canvas.bind("<MouseWheel>", self._on_preview_zoom)
+        self.preview_canvas.bind("<Button-4>", self._on_preview_zoom)
+        self.preview_canvas.bind("<Button-5>", self._on_preview_zoom)
+        self.preview_canvas.bind("<ButtonPress-1>", self._start_preview_pan)
+        self.preview_canvas.bind("<B1-Motion>", self._drag_preview_pan)
+        self.preview_canvas.bind("<ButtonRelease-1>", self._end_preview_pan)
+        self._render_preview_canvas()
 
-        atlas_frame = ttk.LabelFrame(parent, text="Atlas", padding=12)
+        atlas_frame = ttk.LabelFrame(parent, text="Атлас", padding=12)
         atlas_frame.grid(row=1, column=0, sticky="nsew")
         atlas_frame.columnconfigure(0, weight=1)
         atlas_frame.rowconfigure(0, weight=1)
-        self.atlas_label = ttk.Label(atlas_frame, anchor="center", text="Atlas pending...")
+        self.atlas_label = ttk.Label(atlas_frame, anchor="center", text="Атлас ещё не собран...")
         self.atlas_label.grid(row=0, column=0, sticky="nsew")
 
     def _add_combo(self, parent: ttk.Widget, label: str, variable: tk.StringVar, values: list[str], callback) -> ttk.Combobox:
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=(2, 6))
-        ttk.Label(row, text=label, width=14).pack(side="left")
+        ttk.Label(row, text=label, width=20).pack(side="left")
         combo = ttk.Combobox(row, textvariable=variable, values=values, state="readonly", width=18)
         combo.pack(side="left", fill="x", expand=True)
         combo.bind("<<ComboboxSelected>>", callback)
@@ -255,7 +313,7 @@ class CliffForgeApp:
     def _add_color_row(self, parent: ttk.Widget, label: str, variable: tk.StringVar) -> None:
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=3)
-        ttk.Label(row, text=label, width=6).pack(side="left")
+        ttk.Label(row, text=label, width=10).pack(side="left")
         entry = ttk.Entry(row, textvariable=variable, width=12)
         entry.pack(side="left", padx=(4, 6))
         entry.bind("<Return>", lambda _event: self.schedule_full())
@@ -332,13 +390,13 @@ class CliffForgeApp:
                 )
 
     def _on_preset_changed(self, *_args) -> None:
-        self._apply_preset(self.preset_var.get(), schedule=True)
+        self._apply_preset(self._selected_preset_key(), schedule=True)
 
     def _apply_preset(self, name: str, *, schedule: bool) -> None:
         preset = clone_preset(name)
         self.suspend_events = True
         try:
-            self.preset_var.set(name)
+            self.preset_var.set(PRESET_LABELS.get(name, PRESET_LABELS["mountain"]))
             self.tile_size_var.set(preset["tile_size"])
             self.south_height_var.set(preset["south_height"])
             self.north_height_var.set(preset["north_height"])
@@ -365,10 +423,16 @@ class CliffForgeApp:
 
     def _refresh_variant_selector(self) -> None:
         total = max(1, int(self.variants_var.get()))
-        values = ["Auto"] + [f"v{index + 1}" for index in range(total)]
+        values = [LABEL_AUTO_VARIANT] + [f"{LABEL_VARIANT_PREFIX}{index + 1}" for index in range(total)]
         self.variant_combo.configure(values=values)
         if self.forced_variant_var.get() not in values:
-            self.forced_variant_var.set("Auto")
+            self.forced_variant_var.set(LABEL_AUTO_VARIANT)
+
+    def _selected_preset_key(self) -> str:
+        return PRESET_KEYS_BY_LABEL.get(self.preset_var.get(), "mountain")
+
+    def _selected_preview_mode_key(self) -> str:
+        return PREVIEW_MODE_KEYS_BY_LABEL.get(self.preview_mode_var.get(), "composite")
 
     def _randomize_seed(self) -> None:
         self.seed_var.set(random.randint(1, 2_147_483_647))
@@ -376,8 +440,8 @@ class CliffForgeApp:
 
     def _load_texture(self, slot: str) -> None:
         file_path = filedialog.askopenfilename(
-            title=f"Load {slot} texture",
-            filetypes=[("Images", "*.png;*.jpg;*.jpeg;*.bmp;*.webp"), ("All files", "*.*")],
+            title=f"Загрузить текстуру: {SLOT_LABELS[slot]}",
+            filetypes=[("Изображения", "*.png;*.jpg;*.jpeg;*.bmp;*.webp"), ("Все файлы", "*.*")],
         )
         if not file_path:
             return
@@ -387,7 +451,7 @@ class CliffForgeApp:
 
     def _clear_texture(self, slot: str) -> None:
         self.texture_paths[slot] = ""
-        self.texture_labels[slot].configure(text="procedural")
+        self.texture_labels[slot].configure(text=TEXT_PROCEDURAL)
         self.schedule_full()
 
     def _make_blob_map(self) -> None:
@@ -412,11 +476,11 @@ class CliffForgeApp:
 
     def build_request(self) -> dict:
         forced_variant = None
-        if self.forced_variant_var.get().startswith("v"):
-            forced_variant = max(0, int(self.forced_variant_var.get()[1:]) - 1)
+        if self.forced_variant_var.get().startswith(LABEL_VARIANT_PREFIX):
+            forced_variant = max(0, int(self.forced_variant_var.get().replace(LABEL_VARIANT_PREFIX, "", 1)) - 1)
 
         return {
-            "preset": self.preset_var.get(),
+            "preset": self._selected_preset_key(),
             "tile_size": int(self.tile_size_var.get()),
             "south_height": int(self.south_height_var.get()),
             "north_height": int(self.north_height_var.get()),
@@ -429,7 +493,7 @@ class CliffForgeApp:
             "forced_variant": forced_variant,
             "seed": int(self.seed_var.get()),
             "texture_scale": float(self.texture_scale_var.get()),
-            "preview_mode": self.preview_mode_var.get(),
+            "preview_mode": self._selected_preview_mode_key(),
             "textures": {
                 "top": self.texture_paths["top"] or None,
                 "face": self.texture_paths["face"] or None,
@@ -462,7 +526,8 @@ class CliffForgeApp:
 
         self.draft_after_id = None
         request = self.build_request()
-        self._set_status(f"Running {mode} render...")
+        mode_label = "черновой" if mode == "draft" else "полный"
+        self._set_status(f"Идёт {mode_label} рендер...")
 
         def worker() -> None:
             try:
@@ -498,13 +563,15 @@ class CliffForgeApp:
         warning = ""
         warnings = manifest.get("warnings") or []
         if warnings:
-            warning = f" Warning: {warnings[0]}"
+            warning = f" Предупреждение: {warnings[0]}"
         self.stats_var.set(
-            f"Build: {manifest.get('build_ms', '?')} ms\n"
-            f"Signatures: {manifest.get('signature_count', '?')}\n"
-            f"Tiles: {manifest.get('total_tiles', '?')}"
+            f"Сборка: {manifest.get('build_ms', '?')} мс\n"
+            f"Сигнатуры: {manifest.get('signature_count', '?')}\n"
+            f"Тайлы: {manifest.get('total_tiles', '?')}"
         )
-        self._set_status(f"{manifest.get('mode', 'render')} render complete.{warning}")
+        mode_value = manifest.get("mode", "render")
+        mode_label = "Черновой" if mode_value == "draft" else "Полный" if mode_value == "full" else "Рендер"
+        self._set_status(f"{mode_label} рендер завершён.{warning}")
 
         if self.pending_export_dir and manifest.get("mode") == "full":
             export_dir = self.pending_export_dir
@@ -517,8 +584,8 @@ class CliffForgeApp:
             self.request_render(next_mode)
 
     def _handle_error(self, error: Exception) -> None:
-        self._set_status(f"Error: {error}")
-        messagebox.showerror("Cliff Forge Desktop", str(error))
+        self._set_status(f"Ошибка: {error}")
+        messagebox.showerror(WINDOW_TITLE, str(error))
         if self.pending_mode:
             next_mode = self.pending_mode
             self.pending_mode = None
@@ -528,10 +595,10 @@ class CliffForgeApp:
         files = manifest.get("files", {})
         preview_path = Path(files.get("preview_png", ""))
         if preview_path.exists():
-            self._set_image(self.preview_label, preview_path, "preview", (980, 430))
+            self._set_preview_image(preview_path)
 
         atlas_path = None
-        mode = self.preview_mode_var.get()
+        mode = self._selected_preview_mode_key()
         if mode in ("composite", "albedo"):
             atlas_value = files.get("atlas_albedo_png")
         elif mode == "mask":
@@ -546,18 +613,119 @@ class CliffForgeApp:
         if atlas_path and atlas_path.exists():
             self._set_image(self.atlas_label, atlas_path, "atlas", (980, 430))
         elif manifest.get("mode") == "draft":
-            self.atlas_label.configure(text="Draft complete. Run Full Generate to refresh atlases.")
+            self.atlas_label.configure(text="Черновой рендер готов. Запусти полную сборку, чтобы обновить атласы.")
+
+    def _set_preview_image(self, path: Path) -> None:
+        with Image.open(path) as image:
+            self.preview_source_image = image.copy()
+        self.preview_render_size = None
+        self.photo_refs.pop("preview", None)
+        self._render_preview_canvas()
+
+    def _render_preview_canvas(self) -> None:
+        if not hasattr(self, "preview_canvas"):
+            return
+
+        width = max(1, self.preview_canvas.winfo_width())
+        height = max(1, self.preview_canvas.winfo_height())
+        self.preview_canvas.delete("all")
+
+        if self.preview_source_image is None:
+            self.preview_canvas.create_text(
+                width // 2,
+                height // 2,
+                text=f"{TEXT_PREVIEW_EMPTY}\n{TEXT_PREVIEW_HINT}",
+                fill="#cdbca7",
+                font=("Segoe UI", 13),
+                justify="center",
+            )
+            return
+
+        fit_scale = min(width / self.preview_source_image.width, height / self.preview_source_image.height)
+        fit_scale = max(fit_scale, 0.01)
+        scale = fit_scale * self.preview_zoom
+        target_size = (
+            max(1, int(round(self.preview_source_image.width * scale))),
+            max(1, int(round(self.preview_source_image.height * scale))),
+        )
+        max_offset_x = max(0.0, (target_size[0] - width) / 2.0)
+        max_offset_y = max(0.0, (target_size[1] - height) / 2.0)
+        self.preview_offset_x = min(max(self.preview_offset_x, -max_offset_x), max_offset_x)
+        self.preview_offset_y = min(max(self.preview_offset_y, -max_offset_y), max_offset_y)
+
+        if self.preview_render_size != target_size or "preview" not in self.photo_refs:
+            render_image = self.preview_source_image.resize(target_size, Image.Resampling.NEAREST)
+            self.photo_refs["preview"] = ImageTk.PhotoImage(render_image)
+            self.preview_render_size = target_size
+
+        photo = self.photo_refs["preview"]
+        self.preview_canvas.create_image(
+            int(round(width / 2 + self.preview_offset_x)),
+            int(round(height / 2 + self.preview_offset_y)),
+            image=photo,
+            anchor="center",
+        )
+        self.preview_canvas.create_text(
+            12,
+            12,
+            text=f"Зум: {self.preview_zoom:.2f}x\nСмещение: {int(round(self.preview_offset_x))}, {int(round(self.preview_offset_y))}",
+            fill="#f2e9dc",
+            font=("Segoe UI", 10, "bold"),
+            anchor="nw",
+        )
+
+    def _on_preview_zoom(self, event: tk.Event) -> str:
+        if self.preview_source_image is None:
+            return "break"
+
+        delta = getattr(event, "delta", 0)
+        if delta == 0 and getattr(event, "num", None) == 4:
+            delta = 120
+        elif delta == 0 and getattr(event, "num", None) == 5:
+            delta = -120
+
+        if delta == 0:
+            return "break"
+
+        zoom_step = 1.15 if delta > 0 else 1.0 / 1.15
+        next_zoom = min(8.0, max(0.5, self.preview_zoom * zoom_step))
+        if abs(next_zoom - self.preview_zoom) > 1e-6:
+            self.preview_zoom = next_zoom
+            self._render_preview_canvas()
+        return "break"
+
+    def _start_preview_pan(self, event: tk.Event) -> None:
+        if self.preview_source_image is None:
+            return
+        self.preview_drag_last = (event.x, event.y)
+        self.preview_canvas.configure(cursor="fleur")
+
+    def _drag_preview_pan(self, event: tk.Event) -> str:
+        if self.preview_source_image is None or self.preview_drag_last is None:
+            return "break"
+
+        last_x, last_y = self.preview_drag_last
+        self.preview_offset_x += event.x - last_x
+        self.preview_offset_y += event.y - last_y
+        self.preview_drag_last = (event.x, event.y)
+        self._render_preview_canvas()
+        return "break"
+
+    def _end_preview_pan(self, _event: tk.Event) -> None:
+        self.preview_drag_last = None
+        self.preview_canvas.configure(cursor="")
 
     def _set_image(self, widget: ttk.Label, path: Path, key: str, max_size: tuple[int, int]) -> None:
-        image = Image.open(path)
-        image.thumbnail(max_size, Image.Resampling.NEAREST)
-        photo = ImageTk.PhotoImage(image)
+        with Image.open(path) as image:
+            render_image = image.copy()
+        render_image.thumbnail(max_size, Image.Resampling.NEAREST)
+        photo = ImageTk.PhotoImage(render_image)
         widget.configure(image=photo, text="")
         self.photo_refs[key] = photo
 
     def _save_recipe(self) -> None:
         file_path = filedialog.asksaveasfilename(
-            title="Save Recipe",
+            title="Сохранить рецепт",
             defaultextension=RECIPE_SUFFIX,
             filetypes=[("JSON", "*.json")],
         )
@@ -565,12 +733,12 @@ class CliffForgeApp:
             return
         with open(file_path, "w", encoding="utf-8") as handle:
             json.dump(self.build_request(), handle, indent=2)
-        self._set_status(f"Recipe saved to {file_path}")
+        self._set_status(f"Рецепт сохранён в {file_path}")
 
     def _load_recipe(self) -> None:
         file_path = filedialog.askopenfilename(
-            title="Load Recipe",
-            filetypes=[("JSON", "*.json"), ("All files", "*.*")],
+            title="Загрузить рецепт",
+            filetypes=[("JSON", "*.json"), ("Все файлы", "*.*")],
         )
         if not file_path:
             return
@@ -580,8 +748,9 @@ class CliffForgeApp:
         request = payload.get("request", payload)
         self.suspend_events = True
         try:
-            self.preset_var.set(request.get("preset", "mountain"))
-            self._apply_preset(self.preset_var.get(), schedule=False)
+            preset_key = request.get("preset", "mountain")
+            self.preset_var.set(PRESET_LABELS.get(preset_key, PRESET_LABELS["mountain"]))
+            self._apply_preset(preset_key, schedule=False)
             self.tile_size_var.set(int(request.get("tile_size", self.tile_size_var.get())))
             self.south_height_var.set(int(request.get("south_height", self.south_height_var.get())))
             self.north_height_var.set(int(request.get("north_height", self.north_height_var.get())))
@@ -593,11 +762,16 @@ class CliffForgeApp:
             self.variants_var.set(int(request.get("variants", self.variants_var.get())))
             self.seed_var.set(int(request.get("seed", self.seed_var.get())))
             self.texture_scale_var.set(float(request.get("texture_scale", self.texture_scale_var.get())))
-            self.preview_mode_var.set(request.get("preview_mode", self.preview_mode_var.get()))
+            preview_key = request.get("preview_mode", self._selected_preview_mode_key())
+            self.preview_mode_var.set(PREVIEW_MODE_LABELS.get(preview_key, PREVIEW_MODE_LABELS["composite"]))
             self._refresh_variant_selector()
 
             forced_variant = request.get("forced_variant")
-            self.forced_variant_var.set("Auto" if forced_variant is None else f"v{int(forced_variant) + 1}")
+            self.forced_variant_var.set(
+                LABEL_AUTO_VARIANT
+                if forced_variant is None
+                else f"{LABEL_VARIANT_PREFIX}{int(forced_variant) + 1}"
+            )
 
             colors = request.get("colors", {})
             self.top_color_var.set(colors.get("top", self.top_color_var.get()))
@@ -609,7 +783,7 @@ class CliffForgeApp:
             for slot in ("top", "face", "base"):
                 value = textures.get(slot) or ""
                 self.texture_paths[slot] = value
-                self.texture_labels[slot].configure(text=Path(value).name if value else "procedural")
+                self.texture_labels[slot].configure(text=Path(value).name if value else TEXT_PROCEDURAL)
 
             map_payload = request.get("map")
             if map_payload:
@@ -621,14 +795,14 @@ class CliffForgeApp:
         self.schedule_full()
 
     def _export_outputs(self) -> None:
-        target = filedialog.askdirectory(title="Export Outputs")
+        target = filedialog.askdirectory(title="Экспорт файлов")
         if not target:
             return
         export_dir = Path(target)
         if not self.last_manifest or self.last_manifest.get("mode") != "full":
             self.pending_export_dir = export_dir
             self.schedule_full()
-            self._set_status("Full generate queued before export...")
+            self._set_status("Перед экспортом поставлена в очередь полная сборка...")
             return
         self._copy_outputs_to(export_dir)
 
@@ -644,7 +818,7 @@ class CliffForgeApp:
                 destination = export_dir / source.name
                 shutil.copy2(source, destination)
                 copied.append(destination.name)
-        self._set_status(f"Exported {len(copied)} file(s) to {export_dir}")
+        self._set_status(f"Экспортировано {len(copied)} файл(ов) в {export_dir}")
 
     def _set_status(self, text: str) -> None:
         self.status_var.set(text)

@@ -20,7 +20,7 @@ constexpr int64_t CHUNK_SIZE = 32;
 constexpr int64_t CELL_COUNT = CHUNK_SIZE * CHUNK_SIZE;
 
 constexpr int64_t TERRAIN_PLAINS_GROUND = 0;
-constexpr int64_t TERRAIN_PLAINS_ROCK = 1;
+constexpr int64_t TERRAIN_LEGACY_BLOCKED = 1;
 constexpr int64_t TERRAIN_MOUNTAIN_WALL = 3;
 constexpr int64_t TERRAIN_MOUNTAIN_FOOT = 4;
 
@@ -57,7 +57,10 @@ bool is_spawn_safety_area_at_world(int64_t world_x, int64_t world_y) {
 	return world_x >= 12 && world_x <= 20 && world_y >= 12 && world_y <= 20;
 }
 
-bool is_base_rock_at_world(int64_t seed, int64_t world_version, int64_t world_x, int64_t world_y) {
+bool is_base_legacy_blocked_at_world(int64_t seed, int64_t world_version, int64_t world_x, int64_t world_y) {
+	if (world_version >= 4) {
+		return false;
+	}
 	if (is_spawn_safety_area_at_world(world_x, world_y)) {
 		return false;
 	}
@@ -66,14 +69,14 @@ bool is_base_rock_at_world(int64_t seed, int64_t world_version, int64_t world_x,
 }
 
 int64_t resolve_base_terrain_id_at_world(int64_t seed, int64_t world_version, int64_t world_x, int64_t world_y) {
-	if (is_base_rock_at_world(seed, world_version, world_x, world_y)) {
-		return TERRAIN_PLAINS_ROCK;
+	if (is_base_legacy_blocked_at_world(seed, world_version, world_x, world_y)) {
+		return TERRAIN_LEGACY_BLOCKED;
 	}
 	return TERRAIN_PLAINS_GROUND;
 }
 
-bool is_base_rock_neighbor_at_world(int64_t seed, int64_t world_version, int64_t world_x, int64_t world_y) {
-	return resolve_base_terrain_id_at_world(seed, world_version, world_x, world_y) == TERRAIN_PLAINS_ROCK;
+bool is_base_legacy_blocked_neighbor_at_world(int64_t seed, int64_t world_version, int64_t world_x, int64_t world_y) {
+	return resolve_base_terrain_id_at_world(seed, world_version, world_x, world_y) == TERRAIN_LEGACY_BLOCKED;
 }
 
 int64_t resolve_base_ground_atlas_index(int64_t world_x, int64_t world_y, int64_t seed) {
@@ -94,20 +97,20 @@ int64_t resolve_base_ground_atlas_index(int64_t world_x, int64_t world_y, int64_
 	);
 }
 
-int64_t resolve_base_rock_atlas_index(
+int64_t resolve_base_legacy_blocked_atlas_index(
 	int64_t seed,
 	int64_t world_version,
 	int64_t world_x,
 	int64_t world_y
 ) {
-	const bool north = is_base_rock_neighbor_at_world(seed, world_version, world_x, world_y - 1);
-	const bool north_east = is_base_rock_neighbor_at_world(seed, world_version, world_x + 1, world_y - 1);
-	const bool east = is_base_rock_neighbor_at_world(seed, world_version, world_x + 1, world_y);
-	const bool south_east = is_base_rock_neighbor_at_world(seed, world_version, world_x + 1, world_y + 1);
-	const bool south = is_base_rock_neighbor_at_world(seed, world_version, world_x, world_y + 1);
-	const bool south_west = is_base_rock_neighbor_at_world(seed, world_version, world_x - 1, world_y + 1);
-	const bool west = is_base_rock_neighbor_at_world(seed, world_version, world_x - 1, world_y);
-	const bool north_west = is_base_rock_neighbor_at_world(seed, world_version, world_x - 1, world_y - 1);
+	const bool north = is_base_legacy_blocked_neighbor_at_world(seed, world_version, world_x, world_y - 1);
+	const bool north_east = is_base_legacy_blocked_neighbor_at_world(seed, world_version, world_x + 1, world_y - 1);
+	const bool east = is_base_legacy_blocked_neighbor_at_world(seed, world_version, world_x + 1, world_y);
+	const bool south_east = is_base_legacy_blocked_neighbor_at_world(seed, world_version, world_x + 1, world_y + 1);
+	const bool south = is_base_legacy_blocked_neighbor_at_world(seed, world_version, world_x, world_y + 1);
+	const bool south_west = is_base_legacy_blocked_neighbor_at_world(seed, world_version, world_x - 1, world_y + 1);
+	const bool west = is_base_legacy_blocked_neighbor_at_world(seed, world_version, world_x - 1, world_y);
+	const bool north_west = is_base_legacy_blocked_neighbor_at_world(seed, world_version, world_x - 1, world_y - 1);
 	return autotile_47::resolve_atlas_index(
 		north,
 		north_east,
@@ -221,7 +224,7 @@ Dictionary WorldCore::generate_chunk_packet(int64_t p_seed, Vector2i p_coord, in
 
 			int64_t terrain_id = resolve_base_terrain_id_at_world(p_seed, p_world_version, world_x, world_y);
 			int64_t terrain_atlas_index = 0;
-			uint8_t walkable = terrain_id == TERRAIN_PLAINS_ROCK ? 0U : 1U;
+			uint8_t walkable = terrain_id == TERRAIN_LEGACY_BLOCKED ? 0U : 1U;
 			int32_t resolved_mountain_id = 0;
 			uint8_t resolved_mountain_flags = 0U;
 			int32_t resolved_mountain_atlas_index = 0;
@@ -232,91 +235,95 @@ Dictionary WorldCore::generate_chunk_packet(int64_t p_seed, Vector2i p_coord, in
 				const int64_t grid_index = grid_y * mountain_grid_side + grid_x;
 
 				const float elevation = mountain_elevations[static_cast<size_t>(grid_index)];
+				const mountain_field::Thresholds &thresholds = mountain_evaluator.get_thresholds();
 				resolved_mountain_id = mountain_ids[static_cast<size_t>(grid_index)];
-				const int32_t north_id = mountain_ids[static_cast<size_t>((grid_y - 1) * mountain_grid_side + grid_x)];
-				const int32_t north_east_id = mountain_ids[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x + 1))];
-				const int32_t east_id = mountain_ids[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x + 1))];
-				const int32_t south_east_id = mountain_ids[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x + 1))];
-				const int32_t south_id = mountain_ids[static_cast<size_t>((grid_y + 1) * mountain_grid_side + grid_x)];
-				const int32_t south_west_id = mountain_ids[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x - 1))];
-				const int32_t west_id = mountain_ids[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x - 1))];
-				const int32_t north_west_id = mountain_ids[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x - 1))];
+				if (resolved_mountain_id > 0 || p_world_version < 3) {
+					const int32_t north_id = mountain_ids[static_cast<size_t>((grid_y - 1) * mountain_grid_side + grid_x)];
+					const int32_t north_east_id = mountain_ids[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x + 1))];
+					const int32_t east_id = mountain_ids[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x + 1))];
+					const int32_t south_east_id = mountain_ids[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x + 1))];
+					const int32_t south_id = mountain_ids[static_cast<size_t>((grid_y + 1) * mountain_grid_side + grid_x)];
+					const int32_t south_west_id = mountain_ids[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x - 1))];
+					const int32_t west_id = mountain_ids[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x - 1))];
+					const int32_t north_west_id = mountain_ids[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x - 1))];
 
-				resolved_mountain_flags = mountain_evaluator.resolve_mountain_flags(
-					world_x,
-					world_y,
-					elevation,
-					resolved_mountain_id,
-					north_id,
-					east_id,
-					south_id,
-					west_id
-				);
-				resolved_mountain_atlas_index = mountain_evaluator.resolve_mountain_atlas_index(
-					world_x,
-					world_y,
-					resolved_mountain_id,
-					north_id,
-					north_east_id,
-					east_id,
-					south_east_id,
-					south_id,
-					south_west_id,
-					west_id,
-					north_west_id
-				);
-
-				if ((resolved_mountain_flags & MOUNTAIN_FLAG_WALL) != 0U) {
-					const mountain_field::Thresholds &thresholds = mountain_evaluator.get_thresholds();
-					const bool north_is_mountain = mountain_elevations[static_cast<size_t>((grid_y - 1) * mountain_grid_side + grid_x)] >= thresholds.t_edge;
-					const bool north_east_is_mountain = mountain_elevations[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x + 1))] >= thresholds.t_edge;
-					const bool east_is_mountain = mountain_elevations[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x + 1))] >= thresholds.t_edge;
-					const bool south_east_is_mountain = mountain_elevations[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x + 1))] >= thresholds.t_edge;
-					const bool south_is_mountain = mountain_elevations[static_cast<size_t>((grid_y + 1) * mountain_grid_side + grid_x)] >= thresholds.t_edge;
-					const bool south_west_is_mountain = mountain_elevations[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x - 1))] >= thresholds.t_edge;
-					const bool west_is_mountain = mountain_elevations[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x - 1))] >= thresholds.t_edge;
-					const bool north_west_is_mountain = mountain_elevations[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x - 1))] >= thresholds.t_edge;
-
-					terrain_id = TERRAIN_MOUNTAIN_WALL;
-					terrain_atlas_index = resolve_mountain_base_atlas_index(
-						p_seed,
+					resolved_mountain_flags = mountain_evaluator.resolve_mountain_flags(
 						world_x,
 						world_y,
-						north_is_mountain,
-						north_east_is_mountain,
-						east_is_mountain,
-						south_east_is_mountain,
-						south_is_mountain,
-						south_west_is_mountain,
-						west_is_mountain,
-						north_west_is_mountain
+						elevation,
+						resolved_mountain_id,
+						north_id,
+						east_id,
+						south_id,
+						west_id
 					);
-					walkable = 0U;
-				} else if ((resolved_mountain_flags & MOUNTAIN_FLAG_FOOT) != 0U) {
-					const mountain_field::Thresholds &thresholds = mountain_evaluator.get_thresholds();
-					const bool north_is_mountain = mountain_elevations[static_cast<size_t>((grid_y - 1) * mountain_grid_side + grid_x)] >= thresholds.t_edge;
-					const bool north_east_is_mountain = mountain_elevations[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x + 1))] >= thresholds.t_edge;
-					const bool east_is_mountain = mountain_elevations[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x + 1))] >= thresholds.t_edge;
-					const bool south_east_is_mountain = mountain_elevations[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x + 1))] >= thresholds.t_edge;
-					const bool south_is_mountain = mountain_elevations[static_cast<size_t>((grid_y + 1) * mountain_grid_side + grid_x)] >= thresholds.t_edge;
-					const bool south_west_is_mountain = mountain_elevations[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x - 1))] >= thresholds.t_edge;
-					const bool west_is_mountain = mountain_elevations[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x - 1))] >= thresholds.t_edge;
-					const bool north_west_is_mountain = mountain_elevations[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x - 1))] >= thresholds.t_edge;
-
-					terrain_id = TERRAIN_MOUNTAIN_FOOT;
-					terrain_atlas_index = resolve_mountain_base_atlas_index(
-						p_seed,
+					resolved_mountain_atlas_index = mountain_evaluator.resolve_mountain_atlas_index(
 						world_x,
 						world_y,
-						north_is_mountain,
-						north_east_is_mountain,
-						east_is_mountain,
-						south_east_is_mountain,
-						south_is_mountain,
-						south_west_is_mountain,
-						west_is_mountain,
-						north_west_is_mountain
+						resolved_mountain_id,
+						north_id,
+						north_east_id,
+						east_id,
+						south_east_id,
+						south_id,
+						south_west_id,
+						west_id,
+						north_west_id
 					);
+
+					if ((resolved_mountain_flags & MOUNTAIN_FLAG_WALL) != 0U) {
+						const bool north_is_mountain = mountain_elevations[static_cast<size_t>((grid_y - 1) * mountain_grid_side + grid_x)] >= thresholds.t_edge;
+						const bool north_east_is_mountain = mountain_elevations[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x + 1))] >= thresholds.t_edge;
+						const bool east_is_mountain = mountain_elevations[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x + 1))] >= thresholds.t_edge;
+						const bool south_east_is_mountain = mountain_elevations[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x + 1))] >= thresholds.t_edge;
+						const bool south_is_mountain = mountain_elevations[static_cast<size_t>((grid_y + 1) * mountain_grid_side + grid_x)] >= thresholds.t_edge;
+						const bool south_west_is_mountain = mountain_elevations[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x - 1))] >= thresholds.t_edge;
+						const bool west_is_mountain = mountain_elevations[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x - 1))] >= thresholds.t_edge;
+						const bool north_west_is_mountain = mountain_elevations[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x - 1))] >= thresholds.t_edge;
+
+						terrain_id = TERRAIN_MOUNTAIN_WALL;
+						terrain_atlas_index = resolve_mountain_base_atlas_index(
+							p_seed,
+							world_x,
+							world_y,
+							north_is_mountain,
+							north_east_is_mountain,
+							east_is_mountain,
+							south_east_is_mountain,
+							south_is_mountain,
+							south_west_is_mountain,
+							west_is_mountain,
+							north_west_is_mountain
+						);
+						walkable = 0U;
+					} else if ((resolved_mountain_flags & MOUNTAIN_FLAG_FOOT) != 0U) {
+						const bool north_is_mountain = mountain_elevations[static_cast<size_t>((grid_y - 1) * mountain_grid_side + grid_x)] >= thresholds.t_edge;
+						const bool north_east_is_mountain = mountain_elevations[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x + 1))] >= thresholds.t_edge;
+						const bool east_is_mountain = mountain_elevations[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x + 1))] >= thresholds.t_edge;
+						const bool south_east_is_mountain = mountain_elevations[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x + 1))] >= thresholds.t_edge;
+						const bool south_is_mountain = mountain_elevations[static_cast<size_t>((grid_y + 1) * mountain_grid_side + grid_x)] >= thresholds.t_edge;
+						const bool south_west_is_mountain = mountain_elevations[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x - 1))] >= thresholds.t_edge;
+						const bool west_is_mountain = mountain_elevations[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x - 1))] >= thresholds.t_edge;
+						const bool north_west_is_mountain = mountain_elevations[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x - 1))] >= thresholds.t_edge;
+
+						terrain_id = TERRAIN_MOUNTAIN_FOOT;
+						terrain_atlas_index = resolve_mountain_base_atlas_index(
+							p_seed,
+							world_x,
+							world_y,
+							north_is_mountain,
+							north_east_is_mountain,
+							east_is_mountain,
+							south_east_is_mountain,
+							south_is_mountain,
+							south_west_is_mountain,
+							west_is_mountain,
+							north_west_is_mountain
+						);
+						walkable = 0U;
+					}
+				} else if (p_world_version == 3 && elevation >= thresholds.t_edge) {
+					terrain_id = TERRAIN_LEGACY_BLOCKED;
 					walkable = 0U;
 				}
 			}
@@ -324,8 +331,8 @@ Dictionary WorldCore::generate_chunk_packet(int64_t p_seed, Vector2i p_coord, in
 			if (!mountains_enabled || ((resolved_mountain_flags & (MOUNTAIN_FLAG_WALL | MOUNTAIN_FLAG_FOOT)) == 0U)) {
 				if (terrain_id == TERRAIN_PLAINS_GROUND) {
 					terrain_atlas_index = resolve_base_ground_atlas_index(world_x, world_y, p_seed);
-				} else if (terrain_id == TERRAIN_PLAINS_ROCK) {
-					terrain_atlas_index = resolve_base_rock_atlas_index(
+				} else if (terrain_id == TERRAIN_LEGACY_BLOCKED) {
+					terrain_atlas_index = resolve_base_legacy_blocked_atlas_index(
 						p_seed,
 						p_world_version,
 						world_x,

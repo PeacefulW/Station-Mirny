@@ -1,0 +1,42 @@
+{
+  "tool": "Cliff Forge Desktop",
+  "version": 1,
+  "mode": "draft",
+  "request": {
+    "preset": "wall",
+    "tile_size": 64,
+    "south_height": 10,
+    "north_height": 6,
+    "side_height": 8,
+    "roughness": 18.0,
+    "face_power": 1.34,
+    "back_drop": 0.24,
+    "crown_bevel": 1,
+    "variants": 1,
+    "forced_variant": 0,
+    "seed": 240518,
+    "texture_scale": 1.0,
+    "preview_mode": "normal",
+    "textures": {
+      "top": null,
+      "face": null,
+      "base": null
+    },
+    "colors": {
+      "top": "#cfcfcf",
+      "face": "#cfcfcf",
+      "back": "#cfcfcf",
+      "base": "#8b5a2b"
+    },
+    "map": {
+      "width": 2,
+      "height": 2,
+      "cells": [
+        1,
+        0,
+        1,
+        1
+      ]
+    }
+  }
+}

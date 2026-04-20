@@ -137,7 +137,7 @@ static func _validate_registered_resources() -> void:
 		_validate_profile(profile_variant as TerrainPresentationProfile)
 	for terrain_id: int in [
 		WorldRuntimeConstants.TERRAIN_PLAINS_GROUND,
-		WorldRuntimeConstants.TERRAIN_PLAINS_ROCK,
+		WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED,
 		WorldRuntimeConstants.TERRAIN_PLAINS_DUG,
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL,
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT,
@@ -234,7 +234,7 @@ static func _expected_topology_family_for_terrain(terrain_id: int) -> StringName
 	match terrain_id:
 		WorldRuntimeConstants.TERRAIN_PLAINS_GROUND:
 			return TOPOLOGY_AUTOTILE_47
-		WorldRuntimeConstants.TERRAIN_PLAINS_ROCK:
+		WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED:
 			return TOPOLOGY_AUTOTILE_47
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL:
 			return TOPOLOGY_AUTOTILE_47

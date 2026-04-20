@@ -8,10 +8,10 @@ const STREAM_RADIUS_CHUNKS: int = 1
 const PUBLISH_BATCH_SIZE: int = 128
 
 const DEFAULT_WORLD_SEED: int = 131071
-const WORLD_VERSION: int = 2
+const WORLD_VERSION: int = 4
 
 const TERRAIN_PLAINS_GROUND: int = 0
-const TERRAIN_PLAINS_ROCK: int = 1
+const TERRAIN_LEGACY_BLOCKED: int = 1
 const TERRAIN_PLAINS_DUG: int = 2
 const TERRAIN_MOUNTAIN_WALL: int = 3
 const TERRAIN_MOUNTAIN_FOOT: int = 4

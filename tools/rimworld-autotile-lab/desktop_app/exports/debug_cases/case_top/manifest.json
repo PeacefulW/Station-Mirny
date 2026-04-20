@@ -1,0 +1,19 @@
+{
+  "mode": "draft",
+  "preset": "wall",
+  "tile_size": 64,
+  "variants": 1,
+  "signature_count": 47,
+  "total_tiles": 47,
+  "preview_mode": "albedo",
+  "files": {
+    "preview_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\tools\\rimworld-autotile-lab\\desktop_app\\exports\\debug_cases\\case_top\\preview.png",
+    "atlas_albedo_png": null,
+    "atlas_mask_png": null,
+    "atlas_height_png": null,
+    "atlas_normal_png": null,
+    "recipe_json": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\tools\\rimworld-autotile-lab\\desktop_app\\exports\\debug_cases\\case_top\\recipe.json"
+  },
+  "warnings": [],
+  "build_ms": 12
+}

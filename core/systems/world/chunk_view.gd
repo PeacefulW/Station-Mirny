@@ -55,7 +55,6 @@ func begin_apply(packet: Dictionary) -> void:
 
 func apply_next_batch(batch_size: int) -> bool:
 	if _pending_terrain_ids.is_empty():
-		visible = true
 		return false
 	var end_index: int = mini(_apply_index + batch_size, _pending_terrain_ids.size())
 	for index: int in range(_apply_index, end_index):
@@ -68,7 +67,6 @@ func apply_next_batch(batch_size: int) -> bool:
 		_apply_roof_cell(local_coord, index)
 	_apply_index = end_index
 	if _apply_index >= _pending_terrain_ids.size():
-		visible = true
 		return false
 	return true
 

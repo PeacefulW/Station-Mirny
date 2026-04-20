@@ -57,18 +57,20 @@ Current V0 runtime implementation:
 - changed terrain diffs are sharded as `chunks/<x>_<y>.json`
 - load order is deterministic base restore first, then per-chunk diff apply
 
-Current M1 extension:
-- `world.json` now records `world_version: 2` for the native mountain-field baseline
+Current mountain extension:
+- `world.json` now records `world_version: 4` for the current native mountain-field baseline
 - `worldgen_settings.mountains` persistence is still deferred to Mountain Generation M4; M1 keeps hard-coded dev defaults in `WorldStreamer`
+- legacy saves with `world_version < 2` keep `settings_packed = []`, so they
+  stay on the V0 no-mountains path during load
 
-Confirmed `world.json` shape in the current M1 code path:
+Confirmed `world.json` shape in the current mountain code path:
 
 ```json
 {
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 2
+  "world_version": 4
 }
 ```
 

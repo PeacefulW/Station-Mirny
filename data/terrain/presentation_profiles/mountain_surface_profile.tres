@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="TerrainPresentationProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_presentation_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"mountain:surface_profile"
+terrain_class_id = &"mountain:surface"
+terrain_ids = [1, 3, 4]
+shape_set_id = &"mountain:surface_shape"
+material_set_id = &"mountain:rock_material"
+shader_family_id = &"terrain.rock_shape"

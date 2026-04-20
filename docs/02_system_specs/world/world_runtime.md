@@ -141,7 +141,6 @@ Forbidden packet fields in V0:
 
 V0 keeps the terrain palette intentionally tiny:
 - one plains walkable ground tile class; presentation may use derived atlas indices
-- one plains blocked tile class if needed to prove a single-tile dig/modify path
 - one plains modified-result tile class if the mutation proof needs a distinct
   post-dig state
 
@@ -195,18 +194,14 @@ provide the smallest compatibility surface already expected by gameplay code:
 is_walkable_at_world(world_pos: Vector2) -> bool
 has_resource_at_world(world_pos: Vector2) -> bool
 try_harvest_at_world(world_pos: Vector2) -> Dictionary
-debug_place_rock_at_world(world_pos: Vector2) -> Dictionary
 ```
 
 V0 interpretation:
 - `is_walkable_at_world` reads `base + diff`
 - `has_resource_at_world` is allowed only as the single-tile mutation proof for
-  the diggable plains tile class
+  the current diggable surface class provided by the active world runtime
 - `try_harvest_at_world` is allowed only to convert that one diggable tile into
   its post-mutation state and return the minimal harvest/mutation result payload
-- `debug_place_rock_at_world` is a debug-only helper that writes one local
-  `TERRAIN_PLAINS_ROCK` override at a world position and applies it immediately
-  if the chunk is already loaded
 
 This compatibility surface is not permission to reintroduce general resource
 streaming in V0.

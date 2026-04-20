@@ -15,7 +15,7 @@ DEBUG_EXE = CORE_DIR / "target" / "debug" / "cliff_forge_core.exe"
 
 
 def ensure_core_binary() -> Path:
-    if RELEASE_EXE.exists():
+    if RELEASE_EXE.exists() and not core_sources_newer_than(RELEASE_EXE):
         return RELEASE_EXE
     if not BUILD_SCRIPT.exists():
         raise FileNotFoundError(f"Build script not found: {BUILD_SCRIPT}")
@@ -31,6 +31,21 @@ def ensure_core_binary() -> Path:
     if DEBUG_EXE.exists():
         return DEBUG_EXE
     raise FileNotFoundError("Rust core did not produce an executable.")
+
+
+def core_sources_newer_than(binary: Path) -> bool:
+    if not binary.exists():
+        return True
+
+    binary_mtime = binary.stat().st_mtime
+    watched = [BUILD_SCRIPT]
+    watched.extend(CORE_DIR.glob("src/*.rs"))
+    watched.append(CORE_DIR / "Cargo.toml")
+
+    for path in watched:
+        if path.exists() and path.stat().st_mtime > binary_mtime:
+            return True
+    return False
 
 
 def run_core(mode: str, request: dict[str, Any], output_dir: Path) -> dict[str, Any]:

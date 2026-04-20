@@ -74,7 +74,9 @@ V1 is an **additive** extension of V0. It adds:
 - derived `is_entrance` flag computed on mutation and on load
 - `MountainGenSettings` resource + `worldgen_settings.mountains` section
   in `world.json`
-- bump `WORLD_VERSION` from `1` to `2`
+- bump `WORLD_VERSION` from `1` to `2` for M1, then to `3` for the
+  named-mountain ownership fix, then to `4` for retirement of the
+  standalone plains-rock generation path
 
 ## Out of Scope
 
@@ -87,7 +89,7 @@ V1 does not include:
 - node-per-mountain debug visualization beyond a single debug metric
 - changes to building placement, power, combat, or room systems
 - Z-level linking beyond what V0 and ADR-0006 already define
-- modification of V0 plains terrain ids and their atlas pipeline
+- renumbering legacy terrain ids or changing `ChunkDiffV0` shape
 - changes to `BuildingSystem`, `PowerSystem`, `IndoorSolver`
 - migration from legacy pre-rebuild `64 x 64` saves
 
@@ -115,11 +117,11 @@ V1 does not include:
 | C++ compute or main-thread apply? | Field sample, anchor resolution, and atlas indices are C++ compute. Roof cell placement, reveal alpha, and entrance flag recompute are main-thread apply. |
 | Dirty unit | `32 x 32` chunk for generation; one tile for excavation mutation; 5-tile neighborhood for entrance recompute; one `mountain_id` for reveal alpha. |
 | Single owner | `WorldCore` for base field. `WorldDiffStore` for diff. `ChunkView` for roof presentation and runtime entrance cache. `MountainRevealRegistry` for reveal alpha. `world.json` for `worldgen_settings`. |
-| 10x / 100x scale path | Sparse anchors + local gravity lookup keep identity local. Publish inherits V0 slicing. No global tables; scale grows with number of loaded chunks only. |
+| 10x / 100x scale path | Sparse anchors + bounded local anchor lookup keep identity local. Publish inherits V0 slicing. No global tables; scale grows with number of loaded chunks only. |
 | Main-thread blocking? | No. Generation stays in the existing worker path. Apply remains sliced through `FrameBudgetDispatcher.CATEGORY_STREAMING`. |
 | Hidden GDScript fallback? | Forbidden. Native `WorldCore` is required; absence fails loudly per LAW 9. |
 | Could it become heavy later? | Yes. Noise octaves, anchor density, and reveal participants scale. All stay inside native generation or per-mountain (not per-tile) runtime work. |
-| Whole-world prepass? | Forbidden. All field and identity work is local to one chunk plus its 3x3 anchor neighborhood. |
+| Whole-world prepass? | Forbidden. All field and identity work is local to one chunk plus its bounded anchor neighborhood. |
 
 ## Core Contract
 
@@ -140,9 +142,9 @@ V1 adds two surface terrain ids:
 | `TERRAIN_MOUNTAIN_WALL` | 0 | Every tile with `mountain_id > 0` and `is_wall` bit set. Rendered on `_base_layer` with rock-face atlas. |
 | `TERRAIN_MOUNTAIN_FOOT` | 0 | Foot-band tiles visible from outside. `mountain_id > 0`, `is_foot` bit set, no `is_interior` bit. Never covered by roof. |
 
-`TERRAIN_PLAINS_ROCK` is retained for the V0 scattered-rock proof and is
-not shared with mountain classification. Mountain tiles never use
-`TERRAIN_PLAINS_ROCK`.
+Legacy terrain slot `1` remains reserved for backward numeric compatibility,
+but new mountain worlds do not generate a standalone plains-rock terrain
+class. Mountain tiles never use a separate scattered-rock fallback.
 
 Integer values are assigned in `world_runtime_constants.gd` as part of the
 M1 implementation task.
@@ -215,17 +217,16 @@ Anchor lattice:
 - for each `(ax, ay)` anchor cell, deterministic jitter produces a single
   candidate position inside that cell using splitmix64 on
   `(seed, ax, ay)`
-- anchor qualifies if `sample_elevation(candidate) >= t_anchor`, where
-  `t_anchor >= t_wall`
+- for current `world_version >= 4` owner assignment, an anchor candidate
+  participates when `sample_elevation(candidate) >= t_edge`
 
 Per-tile assignment:
-- for each tile `(wx, wy)` with `elevation >= t_edge`, examine the 3x3
-  anchor-cell neighborhood around the containing anchor cell
-- choose the qualifying anchor with smallest Chebyshev distance within
-  `settings.gravity_radius`
-- if no qualifying anchor within radius, `mountain_id = 0` (treated as
-  scattered rock; uses foot or wall bits but has no identity and never
-  participates in reveal)
+- for each tile `(wx, wy)` with `elevation >= t_edge`, examine a bounded
+  `5 x 5` anchor-cell neighborhood around the containing anchor cell
+- choose the qualifying anchor with smallest Chebyshev distance
+- active mountain worlds must not emit a standalone scattered-rock terrain
+  fallback for elevated tiles; `mountain_id = 0` on elevated terrain is a
+  diagnostic miss, not a gameplay presentation path
 
 `mountain_id` is a deterministic 32-bit hash of
 `(seed, world_version, ax, ay)`. It is stable for the life of the world.
@@ -243,6 +244,11 @@ For every tile with `mountain_id > 0`:
   into the wall region is `>= settings.interior_margin`
 - `is_anchor` = 1 iff the tile is the anchor's jittered position itself
 
+For every tile with `mountain_id == 0`:
+- `mountain_flags = 0`
+- `mountain_atlas_index = 0`
+- canonical terrain stays on the ground / non-mountain path
+
 Tiles with `is_interior == 1` are the **only** tiles that participate in
 the roof layer.
 
@@ -258,7 +264,7 @@ and ranges:
 | `continuity` | `0.0..1.0` | Domain warp strength; higher = more elongated ranges. |
 | `ruggedness` | `0.0..1.0` | Ridge weighting; higher = spikier silhouettes. |
 | `anchor_cell_size` | `32..512` | Tile-size of an anchor cell. |
-| `gravity_radius` | `32..256` | Max distance from a qualifying anchor at which a tile inherits its `mountain_id`. |
+| `gravity_radius` | `32..256` | Legacy owner-radius control for pre-`4` worlds; retained in the packed settings layout for versioned compatibility. |
 | `foot_band` | `0.02..0.3` | Elevation width of the foot band. |
 | `interior_margin` | `0..4` | Tiles of wall depth required before a tile counts as interior. |
 | `latitude_influence` | `-1.0..1.0` | Y-axis latitude bias. |
@@ -355,9 +361,10 @@ SDF/spatial reveal effects are forbidden in V1.
   3. if `current != _last_mountain_id`, call
      `MountainRevealRegistry.request_reveal(current)` and
      `request_conceal(_last_mountain_id)` as appropriate
-- when `current == 0` and the player is surrounded by interior tiles at
-  distance 1 (a narrow doorway case), the resolver falls back to the
-  nearest 5-tile cross neighbor's `mountain_id` to prevent thrash
+- when `current == 0` and opposite cardinal neighbors at distance 1 are
+  interior tiles of the same mountain (a narrow doorway case), the
+  resolver falls back to that 5-tile cross mountain to prevent thrash;
+  adjacent-cardinal corners must not trigger fallback
 
 Resolver does O(1) work per frame; no scene-tree queries, no raycasts.
 
@@ -405,7 +412,7 @@ remain as V0 defined them.
 ```json
 {
   "world_seed": 42,
-  "world_version": 2,
+  "world_version": 3,
   "worldgen_settings": {
     "mountains": {
       "density": 0.30,
@@ -425,8 +432,10 @@ remain as V0 defined them.
 Rules:
 - `worldgen_settings` is namespaced from the start
   (`mountains`, later `rivers`, `biomes`, `climate`)
-- on load, missing `worldgen_settings.mountains` → hard-coded defaults
-  in the save loader, **not** re-read from
+- on load, legacy saves with `world_version < 2` keep mountains disabled
+  (`settings_packed = []`) for V0-compatible generation
+- on load, for `world_version >= 2`, missing `worldgen_settings.mountains`
+  → hard-coded defaults in the save loader, **not** re-read from
   `data/balance/mountain_gen_settings.tres`
 - on new game, `WorldStreamer` writes the current resource's values
   exactly once into `world.json`, then never re-reads that resource for
@@ -444,9 +453,19 @@ Chunk diffs keep `ChunkDiffV0` shape. Forbidden additions:
 
 ### WORLD_VERSION
 
-- `WORLD_VERSION` bumps from `1` to `2` when M1 lands
-- bump is required by LAW 4 because the mountain field changes canonical
-  terrain distribution relative to V0
+- `WORLD_VERSION` bumped from `1` to `2` when M1 landed
+- `world_version == 1` stays on the V0 no-mountains path
+- `world_version == 2` preserves the original M1/M2 mountain output
+- `WORLD_VERSION` bumps from `2` to `3` for the named-mountain ownership
+  fix, because anonymous high-elevation shoulders now fall back to the V0
+  scattered-rock path instead of emitting mountain terrain without
+  `mountain_id`
+- `WORLD_VERSION` bumps from `3` to `4` for retirement of the active
+  plains-rock worldgen path: new worlds no longer emit a standalone
+  scattered blocked terrain class, and owner-anchor resolution widens so
+  elevated mountain terrain resolves into named mountain output
+- each bump is required by LAW 4 because canonical terrain / packet
+  output changes for the same `seed + coord`
 - `world_version` remains a plain integer; it is **not** a hash of
   `worldgen_settings`
 
@@ -585,7 +604,7 @@ contract.
 - `gdextension/src/world_core.h`
 - `gdextension/src/world_core.cpp`
 - `core/systems/world/world_runtime_constants.gd`
-  (bump `WORLD_VERSION` to `2`; add new terrain ids, flag bit constants,
+  (bump `WORLD_VERSION` to `3`; add new terrain ids, flag bit constants,
   `settings_packed` layout constants)
 - `core/systems/world/world_streamer.gd`
 - `core/systems/world/chunk_view.gd`
@@ -676,7 +695,7 @@ Changes:
 - add `mountain_field.{h,cpp}` with `sample_elevation`, anchor resolution,
   atlas index derivation
 - extend `world_core.cpp` to emit the three V1 packet fields
-- bump `WORLD_VERSION` to `2`
+- bump `WORLD_VERSION` to `3`
 - extend `WorldStreamer` to forward new fields; still publish through the
   base layer only
 - add new terrain ids and flag bit constants in

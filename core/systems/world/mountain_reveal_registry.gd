@@ -64,6 +64,17 @@ func get_alpha(mountain_id: int) -> float:
 		return 1.0
 	return clampf(float(_alpha_by_mountain.get(mountain_id, 1.0)), 0.0, 1.0)
 
+func get_debug_snapshot(mountain_id: int) -> Dictionary:
+	return {
+		"mountain_id": mountain_id,
+		"alpha": get_alpha(mountain_id),
+		"target_alpha": _get_effective_target(mountain_id),
+		"debounce_seconds": float(_conceal_delay_by_mountain.get(mountain_id, 0.0)),
+		"has_alpha": _alpha_by_mountain.has(mountain_id),
+		"has_target": _target_by_mountain.has(mountain_id),
+		"has_conceal_delay": _conceal_delay_by_mountain.has(mountain_id),
+	}
+
 func reset_state() -> void:
 	_alpha_by_mountain = {}
 	_target_by_mountain = {}
@@ -112,10 +123,14 @@ func _advance_alpha(delta: float) -> bool:
 		if absf(target_alpha - current_alpha) <= _ALPHA_EPSILON:
 			resolved_alpha = target_alpha
 		_alpha_by_mountain[mountain_id] = resolved_alpha
+		var did_emit_alpha_change: bool = false
 		if absf(resolved_alpha - current_alpha) > _ALPHA_EPSILON:
 			alpha_changed.emit(mountain_id, resolved_alpha)
+			did_emit_alpha_change = true
 		var reached_target: bool = absf(float(_alpha_by_mountain.get(mountain_id, resolved_alpha)) - target_alpha) <= _ALPHA_EPSILON
 		if reached_target:
+			if not did_emit_alpha_change and not is_equal_approx(target_alpha, current_alpha):
+				alpha_changed.emit(mountain_id, target_alpha)
 			if is_equal_approx(target_alpha, 0.0):
 				_alpha_by_mountain[mountain_id] = 0.0
 			else:

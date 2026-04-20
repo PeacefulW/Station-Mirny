@@ -1,0 +1,19 @@
+{
+  "mode": "draft",
+  "preset": "mountain",
+  "tile_size": 64,
+  "variants": 1,
+  "signature_count": 47,
+  "total_tiles": 47,
+  "preview_mode": "mask",
+  "files": {
+    "preview_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\tools\\rimworld-autotile-lab\\desktop_app\\exports\\south_overlap_probe_v3\\notch_se_mask\\preview.png",
+    "atlas_albedo_png": null,
+    "atlas_mask_png": null,
+    "atlas_height_png": null,
+    "atlas_normal_png": null,
+    "recipe_json": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\tools\\rimworld-autotile-lab\\desktop_app\\exports\\south_overlap_probe_v3\\notch_se_mask\\recipe.json"
+  },
+  "warnings": [],
+  "build_ms": 19
+}

@@ -38,14 +38,20 @@ pub fn value_noise(x: f32, y: f32, seed: u32) -> f32 {
     lerp(top, bottom, sy)
 }
 
-pub fn fbm(x: f32, y: f32, octaves: u32, seed: u32) -> f32 {
+pub fn fbm_tiled(x: f32, y: f32, period_x: f32, period_y: f32, octaves: u32, seed: u32) -> f32 {
     let mut amplitude = 1.0_f32;
     let mut frequency = 1.0_f32;
     let mut total = 0.0_f32;
     let mut weight = 0.0_f32;
 
     for octave in 0..octaves {
-        total += value_noise(x * frequency, y * frequency, seed.wrapping_add(octave * 97)) * amplitude;
+        total += value_noise_tiled(
+            x * frequency,
+            y * frequency,
+            period_x * frequency,
+            period_y * frequency,
+            seed.wrapping_add(octave * 97),
+        ) * amplitude;
         weight += amplitude;
         amplitude *= 0.5;
         frequency *= 2.0;
@@ -56,4 +62,28 @@ pub fn fbm(x: f32, y: f32, octaves: u32, seed: u32) -> f32 {
     } else {
         total / weight
     }
+}
+
+fn value_noise_tiled(x: f32, y: f32, period_x: f32, period_y: f32, seed: u32) -> f32 {
+    if period_x <= f32::EPSILON || period_y <= f32::EPSILON {
+        return value_noise(x, y, seed);
+    }
+
+    let wrapped_x = positive_mod(x, period_x);
+    let wrapped_y = positive_mod(y, period_y);
+    let tx = clamp(wrapped_x / period_x, 0.0, 1.0);
+    let ty = clamp(wrapped_y / period_y, 0.0, 1.0);
+
+    let v00 = value_noise(wrapped_x, wrapped_y, seed);
+    let v10 = value_noise(wrapped_x - period_x, wrapped_y, seed);
+    let v01 = value_noise(wrapped_x, wrapped_y - period_y, seed);
+    let v11 = value_noise(wrapped_x - period_x, wrapped_y - period_y, seed);
+
+    let top = lerp(v00, v10, tx);
+    let bottom = lerp(v01, v11, tx);
+    lerp(top, bottom, ty)
+}
+
+fn positive_mod(value: f32, size: f32) -> f32 {
+    ((value % size) + size) % size
 }

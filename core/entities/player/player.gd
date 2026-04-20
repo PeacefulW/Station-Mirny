@@ -7,6 +7,7 @@ extends CharacterBody2D
 # --- Константы ---
 const MountainResolver = preload("res://core/systems/world/mountain_resolver.gd")
 const MountainRevealRegistry = preload("res://core/systems/world/mountain_reveal_registry.gd")
+const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldStreamer = preload("res://core/systems/world/world_streamer.gd")
 const SCRAP_ITEM_ID: String = "base:scrap"
 const WOOD_ITEM_ID: String = "base:wood"
@@ -26,6 +27,9 @@ var _mountain_reveal_registry: MountainRevealRegistry = null
 var _mountain_resolver: MountainResolver = null
 var _state_machine: StateMachine = StateMachine.new()
 var _camera: PlayerCamera = null
+var _mountain_debug_layer: CanvasLayer = null
+var _mountain_debug_panel: PanelContainer = null
+var _mountain_debug_label: Label = null
 
 func _ready() -> void:
 	if not balance:
@@ -50,6 +54,7 @@ func _ready() -> void:
 	_apply_attack_range()
 	_setup_camera()
 	_setup_state_machine()
+	_ensure_mountain_debug_overlay()
 	_mountain_resolver = MountainResolver.new()
 	call_deferred("_find_chunk_manager")
 	call_deferred("_emit_scrap_state")
@@ -63,19 +68,12 @@ func _physics_process(delta: float) -> void:
 	var reveal_registry: MountainRevealRegistry = _get_mountain_reveal_registry()
 	if _mountain_resolver != null and streamer != null and reveal_registry != null:
 		_mountain_resolver.update_from_player_position(global_position, streamer, reveal_registry)
+	_update_mountain_debug_overlay(global_position, streamer, reveal_registry)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _camera and _camera.handle_zoom_input(event):
 		get_viewport().set_input_as_handled()
 		return
-	if event is InputEventKey:
-		var key_event: InputEventKey = event as InputEventKey
-		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_G:
-			var chunk_manager: Node = _get_chunk_manager()
-			if chunk_manager and chunk_manager.has_method("debug_place_rock_at_world"):
-				chunk_manager.debug_place_rock_at_world(get_global_mouse_position())
-				get_viewport().set_input_as_handled()
-				return
 	_state_machine.handle_input(event)
 
 # --- Добыча ресурсов ---
@@ -324,6 +322,135 @@ func _setup_camera() -> void:
 	_camera = get_node_or_null("Camera2D") as PlayerCamera
 	if _camera:
 		_camera.setup(balance)
+
+func _ensure_mountain_debug_overlay() -> void:
+	if _mountain_debug_label != null and is_instance_valid(_mountain_debug_label):
+		return
+	_mountain_debug_layer = CanvasLayer.new()
+	_mountain_debug_layer.name = "MountainDebugOverlay"
+	add_child(_mountain_debug_layer)
+
+	_mountain_debug_panel = PanelContainer.new()
+	_mountain_debug_panel.name = "MountainDebugPanel"
+	_mountain_debug_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_mountain_debug_panel.offset_left = 12.0
+	_mountain_debug_panel.offset_top = 12.0
+	_mountain_debug_panel.custom_minimum_size = Vector2(560.0, 150.0)
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.04, 0.06, 0.08, 0.86)
+	panel_style.border_color = Color(0.42, 0.74, 1.0, 0.95)
+	panel_style.set_border_width_all(2)
+	panel_style.content_margin_left = 10.0
+	panel_style.content_margin_top = 8.0
+	panel_style.content_margin_right = 10.0
+	panel_style.content_margin_bottom = 8.0
+	_mountain_debug_panel.add_theme_stylebox_override("panel", panel_style)
+	_mountain_debug_layer.add_child(_mountain_debug_panel)
+
+	_mountain_debug_label = Label.new()
+	_mountain_debug_label.name = "MountainDebugLabel"
+	_mountain_debug_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_mountain_debug_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	_mountain_debug_label.custom_minimum_size = Vector2(540.0, 134.0)
+	_mountain_debug_label.add_theme_font_size_override("font_size", 15)
+	_mountain_debug_label.add_theme_color_override("font_color", Color(0.96, 0.98, 1.0))
+	_mountain_debug_panel.add_child(_mountain_debug_label)
+
+func _update_mountain_debug_overlay(
+	world_pos: Vector2,
+	streamer: WorldStreamer,
+	reveal_registry: MountainRevealRegistry
+) -> void:
+	if _mountain_debug_label == null or not is_instance_valid(_mountain_debug_label):
+		return
+	if _mountain_resolver == null:
+		_mountain_debug_label.text = "Mountain debug: resolver missing"
+		return
+	var resolver_debug: Dictionary = _mountain_resolver.get_debug_snapshot()
+	if not bool(resolver_debug.get("ready", false)):
+		_mountain_debug_label.text = "Mountain debug: resolver not ready | reason=%s | last=%d" % [
+			String(resolver_debug.get("reason", "unknown")),
+			int(resolver_debug.get("last_mountain_id", 0)),
+		]
+		return
+	var tile_coord: Vector2i = resolver_debug.get("tile_coord", WorldRuntimeConstants.world_to_tile(world_pos)) as Vector2i
+	var sample_mountain_id: int = int(resolver_debug.get("sample_mountain_id", 0))
+	var sample_mountain_flags: int = int(resolver_debug.get("sample_mountain_flags", 0))
+	var sample_is_interior: bool = (sample_mountain_flags & WorldRuntimeConstants.MOUNTAIN_FLAG_INTERIOR) != 0
+	var resolved_mountain_id: int = int(resolver_debug.get("resolved_mountain_id", 0))
+	var last_before: int = int(resolver_debug.get("last_mountain_id_before_update", 0))
+	var last_after: int = int(resolver_debug.get("last_mountain_id_after_update", last_before))
+	var doorway_fallback_used: bool = bool(resolver_debug.get("doorway_fallback_used", false))
+	var tracked_mountain_id: int = resolved_mountain_id if resolved_mountain_id > 0 else last_after
+	var reveal_debug: Dictionary = {}
+	if reveal_registry != null:
+		reveal_debug = reveal_registry.get_debug_snapshot(tracked_mountain_id)
+	var reveal_alpha: float = float(reveal_debug.get("alpha", 1.0))
+	var reveal_target_alpha: float = float(reveal_debug.get("target_alpha", 1.0))
+	var reveal_debounce: float = float(reveal_debug.get("debounce_seconds", 0.0))
+	var reveal_has_target: bool = bool(reveal_debug.get("has_target", false))
+	var reveal_has_conceal_delay: bool = bool(reveal_debug.get("has_conceal_delay", false))
+	var terrain_debug: Dictionary = _get_mountain_debug_tile_state(tile_coord, streamer)
+	var terrain_id: int = int(terrain_debug.get("terrain_id", -1))
+	var terrain_name: String = _terrain_debug_name(terrain_id)
+	var terrain_ready: bool = bool(terrain_debug.get("ready", false))
+	var world_version: int = streamer.get_world_version() if streamer != null else -1
+	var state_text: String = "IN_MOUNTAIN" if resolved_mountain_id > 0 else "OUTSIDE"
+	_mountain_debug_label.text = "\n".join([
+		"Mountain debug: %s | tile=(%d,%d) | world_version=%d" % [state_text, tile_coord.x, tile_coord.y, world_version],
+		"terrain_id=%d (%s) | packet_ready=%s" % [terrain_id, terrain_name, str(terrain_ready)],
+		"sample_id=%d | sample_flags=%d | sample_interior=%s | doorway_fallback=%s" % [
+			sample_mountain_id,
+			sample_mountain_flags,
+			str(sample_is_interior),
+			str(doorway_fallback_used),
+		],
+		"resolved_id=%d | last_before=%d | last_after=%d" % [
+			resolved_mountain_id,
+			last_before,
+			last_after,
+		],
+		"reveal_track_id=%d | alpha=%.3f | target=%.3f | debounce=%.3f | has_target=%s | conceal_delay=%s" % [
+			tracked_mountain_id,
+			reveal_alpha,
+			reveal_target_alpha,
+			reveal_debounce,
+			str(reveal_has_target),
+			str(reveal_has_conceal_delay),
+		],
+	])
+
+func _get_mountain_debug_tile_state(tile_coord: Vector2i, streamer: WorldStreamer) -> Dictionary:
+	if streamer == null:
+		return {"ready": false}
+	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(tile_coord)
+	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(tile_coord)
+	var packet: Dictionary = streamer.get_chunk_packet(chunk_coord)
+	if packet.is_empty():
+		return {"ready": false}
+	var index: int = WorldRuntimeConstants.local_to_index(local_coord)
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	if index < 0 or index >= terrain_ids.size():
+		return {"ready": false}
+	return {
+		"ready": true,
+		"terrain_id": int(terrain_ids[index]),
+	}
+
+func _terrain_debug_name(terrain_id: int) -> String:
+	match terrain_id:
+		WorldRuntimeConstants.TERRAIN_PLAINS_GROUND:
+			return "PLAINS_GROUND"
+		WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED:
+			return "LEGACY_BLOCKED"
+		WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
+			return "PLAINS_DUG"
+		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL:
+			return "MOUNTAIN_WALL"
+		WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
+			return "MOUNTAIN_FOOT"
+		_:
+			return "UNKNOWN"
 
 func reset_camera_smoothing() -> void:
 	if _camera:

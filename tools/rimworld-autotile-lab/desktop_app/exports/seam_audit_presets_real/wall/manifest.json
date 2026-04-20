@@ -1,0 +1,19 @@
+{
+  "mode": "full",
+  "preset": "wall",
+  "tile_size": 64,
+  "variants": 3,
+  "signature_count": 47,
+  "total_tiles": 141,
+  "preview_mode": "composite",
+  "files": {
+    "preview_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\tools\\rimworld-autotile-lab\\desktop_app\\exports\\seam_audit_presets_real\\wall\\preview.png",
+    "atlas_albedo_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\tools\\rimworld-autotile-lab\\desktop_app\\exports\\seam_audit_presets_real\\wall\\atlas_albedo.png",
+    "atlas_mask_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\tools\\rimworld-autotile-lab\\desktop_app\\exports\\seam_audit_presets_real\\wall\\atlas_mask.png",
+    "atlas_height_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\tools\\rimworld-autotile-lab\\desktop_app\\exports\\seam_audit_presets_real\\wall\\atlas_height.png",
+    "atlas_normal_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\tools\\rimworld-autotile-lab\\desktop_app\\exports\\seam_audit_presets_real\\wall\\atlas_normal.png",
+    "recipe_json": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\tools\\rimworld-autotile-lab\\desktop_app\\exports\\seam_audit_presets_real\\wall\\recipe.json"
+  },
+  "warnings": [],
+  "build_ms": 1549
+}

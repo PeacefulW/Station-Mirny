@@ -407,7 +407,7 @@ Returned by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current M1 runtime value is `2` |
+| `world_version` | `int` | — | Current mountain runtime value is `4` |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
@@ -424,11 +424,18 @@ Returned by native
 | `1 << 2` | `is_foot` | `t_edge <= elevation < t_wall` |
 | `1 << 3` | `is_anchor` | Tile is the deterministic jittered anchor position for its `mountain_id` |
 
+For tiles with `mountain_id == 0`, current native contract is `mountain_flags = 0`
+and `mountain_atlas_indices = 0`.
+
 Current code notes:
 - `ChunkPacketV1` keeps one hot-path packet per chunk; no per-tile callbacks were added
 - `settings_packed.size() == 0` yields V0-compatible generation with all three mountain arrays zero-filled
+- `world_version == 2` keeps the original anonymous-shoulder mountain output
+- `world_version == 3` applies the named-mountain ownership fix while still allowing the scattered legacy blocked fallback
+- `world_version >= 4` removes the active plains-rock path for new worlds and widens owner-anchor resolution so elevated mountain terrain resolves to named mountain output instead of anonymous fallback
 - `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` are base packet fields only; they are not persisted in `ChunkDiffFile`
-- mountain tiles write canonical terrain through `terrain_ids` as `TERRAIN_MOUNTAIN_WALL` or `TERRAIN_MOUNTAIN_FOOT`
+- only tiles with `mountain_id > 0` write canonical mountain terrain through `terrain_ids` as `TERRAIN_MOUNTAIN_WALL` or `TERRAIN_MOUNTAIN_FOOT`
+- for `world_version >= 4`, active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain is expected to resolve into named mountain output
 - `mountain_atlas_indices` is reserved for later roof presentation, but is already confirmed at the packet boundary in M1
 
 ## Not Currently Confirmed

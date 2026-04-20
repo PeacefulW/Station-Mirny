@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace mountain_field {
 
@@ -106,6 +107,10 @@ Thresholds derive_thresholds_impl(const Settings &p_settings) {
 	return Thresholds{ t_edge, t_wall, std::max(t_wall, t_anchor) };
 }
 
+float resolve_owner_anchor_threshold(int64_t p_world_version, const Thresholds &p_thresholds) {
+	return p_world_version >= 4 ? p_thresholds.t_edge : p_thresholds.t_anchor;
+}
+
 int make_noise_seed(uint64_t p_value) {
 	return static_cast<int>(p_value & 0x7fffffffULL);
 }
@@ -201,12 +206,14 @@ int32_t Evaluator::resolve_mountain_id(int64_t p_world_x, int64_t p_world_y, flo
 
 	const int64_t anchor_cell_x = floor_div(p_world_x, settings_.anchor_cell_size);
 	const int64_t anchor_cell_y = floor_div(p_world_y, settings_.anchor_cell_size);
+	const int64_t anchor_search_radius = world_version_ >= 4 ? 2 : 1;
+	const float owner_anchor_threshold = resolve_owner_anchor_threshold(world_version_, thresholds_);
 
-	int32_t best_distance = settings_.gravity_radius + 1;
+	int32_t best_distance = world_version_ >= 4 ? std::numeric_limits<int32_t>::max() : settings_.gravity_radius + 1;
 	int32_t best_mountain_id = 0;
 
-	for (int64_t offset_y = -1; offset_y <= 1; ++offset_y) {
-		for (int64_t offset_x = -1; offset_x <= 1; ++offset_x) {
+	for (int64_t offset_y = -anchor_search_radius; offset_y <= anchor_search_radius; ++offset_y) {
+		for (int64_t offset_x = -anchor_search_radius; offset_x <= anchor_search_radius; ++offset_x) {
 			const int64_t candidate_cell_x = anchor_cell_x + offset_x;
 			const int64_t candidate_cell_y = anchor_cell_y + offset_y;
 
@@ -220,12 +227,15 @@ int32_t Evaluator::resolve_mountain_id(int64_t p_world_x, int64_t p_world_y, flo
 			const int64_t anchor_world_y = candidate_cell_y * settings_.anchor_cell_size + local_y;
 
 			const float anchor_elevation = sample_elevation(anchor_world_x, anchor_world_y);
-			if (anchor_elevation < thresholds_.t_anchor) {
+			if (anchor_elevation < owner_anchor_threshold) {
 				continue;
 			}
 
 			const int32_t distance = chebyshev_distance(anchor_world_x, anchor_world_y, p_world_x, p_world_y);
-			if (distance > settings_.gravity_radius || distance >= best_distance) {
+			if (world_version_ < 4 && distance > settings_.gravity_radius) {
+				continue;
+			}
+			if (distance >= best_distance) {
 				continue;
 			}
 
@@ -255,7 +265,7 @@ bool Evaluator::is_anchor_tile(int64_t p_world_x, int64_t p_world_y, int32_t p_m
 	if (anchor_world_x != p_world_x || anchor_world_y != p_world_y) {
 		return false;
 	}
-	if (sample_elevation(anchor_world_x, anchor_world_y) < thresholds_.t_anchor) {
+	if (sample_elevation(anchor_world_x, anchor_world_y) < resolve_owner_anchor_threshold(world_version_, thresholds_)) {
 		return false;
 	}
 	return make_anchor_mountain_id(seed_, world_version_, anchor_cell_x, anchor_cell_y) == p_mountain_id;
@@ -271,6 +281,10 @@ uint8_t Evaluator::resolve_mountain_flags(
 	int32_t p_south_mountain_id,
 	int32_t p_west_mountain_id
 ) const {
+	if (world_version_ >= 3 && p_center_mountain_id <= 0) {
+		return 0U;
+	}
+
 	uint8_t flags = 0U;
 	const bool is_wall = p_elevation >= thresholds_.t_wall;
 	const bool is_foot = p_elevation >= thresholds_.t_edge && p_elevation < thresholds_.t_wall;
@@ -281,7 +295,7 @@ uint8_t Evaluator::resolve_mountain_flags(
 		flags = static_cast<uint8_t>(flags | k_flag_foot);
 	}
 
-	if (p_center_mountain_id > 0 && is_wall) {
+	if (is_wall) {
 		bool is_interior = settings_.interior_margin == 0;
 		if (settings_.interior_margin > 0) {
 			is_interior = true;

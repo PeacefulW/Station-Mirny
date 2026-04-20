@@ -42,7 +42,7 @@ func _ready() -> void:
 	name = "WorldStreamer"
 	_world_core = ClassDB.instantiate("WorldCore")
 	assert(_world_core != null, "WorldCore required - build GDExtension first")
-	_settings_packed = _build_m1_dev_default_settings_packed()
+	_settings_packed = _resolve_settings_packed_for_world_version(world_version)
 	WorldTileSetFactory.bootstrap()
 	_ensure_mountain_reveal_registry()
 	_start_worker_thread()
@@ -68,7 +68,7 @@ func reset_for_new_game(
 ) -> void:
 	world_seed = seed
 	world_version = version
-	_settings_packed = _build_m1_dev_default_settings_packed()
+	_settings_packed = _resolve_settings_packed_for_world_version(world_version)
 	_diff_store.clear()
 	_reset_runtime_state()
 	EventBus.world_initialized.emit(world_seed)
@@ -76,7 +76,7 @@ func reset_for_new_game(
 func load_world_state(data: Dictionary) -> void:
 	world_seed = int(data.get("world_seed", WorldRuntimeConstants.DEFAULT_WORLD_SEED))
 	world_version = int(data.get("world_version", WorldRuntimeConstants.WORLD_VERSION))
-	_settings_packed = _build_m1_dev_default_settings_packed()
+	_settings_packed = _resolve_settings_packed_for_world_version(world_version)
 	_diff_store.clear()
 	_reset_runtime_state()
 	EventBus.world_initialized.emit(world_seed)
@@ -196,29 +196,6 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 		"local_coord": local_coord,
 	}
 
-func debug_place_rock_at_world(world_pos: Vector2) -> Dictionary:
-	var tile_coord: Vector2i = WorldRuntimeConstants.world_to_tile(world_pos)
-	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(tile_coord)
-	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(tile_coord)
-	_diff_store.set_tile_override(
-		chunk_coord,
-		local_coord,
-		WorldRuntimeConstants.TERRAIN_PLAINS_ROCK,
-		false
-	)
-	_apply_loaded_override(
-		chunk_coord,
-		local_coord,
-		WorldRuntimeConstants.TERRAIN_PLAINS_ROCK,
-		false
-	)
-	return {
-		"success": true,
-		"chunk_coord": chunk_coord,
-		"local_coord": local_coord,
-		"terrain_id": WorldRuntimeConstants.TERRAIN_PLAINS_ROCK,
-	}
-
 func _streaming_tick() -> bool:
 	_update_player_chunk_coord()
 	_enqueue_desired_chunks()
@@ -293,6 +270,7 @@ func _publish_next_batch() -> void:
 	var has_more: bool = active_view.apply_next_batch(WorldRuntimeConstants.PUBLISH_BATCH_SIZE)
 	if not has_more:
 		_recompute_entrance_after_chunk_publish(_active_publish_chunk)
+		active_view.visible = true
 		EventBus.chunk_loaded.emit(_active_publish_chunk)
 		_active_publish_chunk = INVALID_CHUNK_COORD
 
@@ -533,12 +511,7 @@ func _build_loaded_visual_update(tile_coord: Vector2i) -> Dictionary:
 	var terrain_atlas_index: int = 0
 	if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_GROUND:
 		terrain_atlas_index = _resolve_loaded_ground_atlas_index(tile_coord)
-	elif terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK:
-		var atlas_data: Dictionary = _try_resolve_loaded_rock_atlas_index(tile_coord)
-		if not bool(atlas_data.get("ready", false)):
-			return {}
-		terrain_atlas_index = int(atlas_data.get("terrain_atlas_index", 0))
-	elif _is_mountain_surface_terrain(terrain_id):
+	elif _uses_mountain_surface_presentation(terrain_id):
 		var mountain_atlas_data: Dictionary = _try_resolve_loaded_mountain_atlas_index(tile_coord)
 		if not bool(mountain_atlas_data.get("ready", false)):
 			return {}
@@ -556,60 +529,6 @@ func _resolve_loaded_ground_atlas_index(tile_coord: Vector2i) -> int:
 	# terrain exists. For now, ground always uses solid atlas variants only.
 	return Autotile47.build_solid_atlas_index(tile_coord, world_seed)
 
-func _try_resolve_loaded_rock_atlas_index(tile_coord: Vector2i) -> Dictionary:
-	var north: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(0, -1))
-	var east: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(1, 0))
-	var south: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(0, 1))
-	var west: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(-1, 0))
-	if not bool(north.get("ready", false)) \
-			or not bool(east.get("ready", false)) \
-			or not bool(south.get("ready", false)) \
-			or not bool(west.get("ready", false)):
-		return {"ready": false}
-	var is_north_rock: bool = int(north.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)) == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK
-	var is_east_rock: bool = int(east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)) == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK
-	var is_south_rock: bool = int(south.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)) == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK
-	var is_west_rock: bool = int(west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)) == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK
-	var is_north_east_rock: bool = false
-	var is_south_east_rock: bool = false
-	var is_south_west_rock: bool = false
-	var is_north_west_rock: bool = false
-	if is_north_rock and is_east_rock:
-		var north_east: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(1, -1))
-		if not bool(north_east.get("ready", false)):
-			return {"ready": false}
-		is_north_east_rock = int(north_east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)) == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK
-	if is_south_rock and is_east_rock:
-		var south_east: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(1, 1))
-		if not bool(south_east.get("ready", false)):
-			return {"ready": false}
-		is_south_east_rock = int(south_east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)) == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK
-	if is_south_rock and is_west_rock:
-		var south_west: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(-1, 1))
-		if not bool(south_west.get("ready", false)):
-			return {"ready": false}
-		is_south_west_rock = int(south_west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)) == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK
-	if is_north_rock and is_west_rock:
-		var north_west: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(-1, -1))
-		if not bool(north_west.get("ready", false)):
-			return {"ready": false}
-		is_north_west_rock = int(north_west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)) == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK
-	var signature_code: int = Autotile47.build_signature_code(
-		is_north_rock,
-		is_north_east_rock,
-		is_east_rock,
-		is_south_east_rock,
-		is_south_rock,
-		is_south_west_rock,
-		is_west_rock,
-		is_north_west_rock
-	)
-	var variant_index: int = Autotile47.pick_variant(tile_coord, world_seed)
-	return {
-		"ready": true,
-		"terrain_atlas_index": Autotile47.build_atlas_index(signature_code, variant_index),
-	}
-
 func _try_resolve_loaded_mountain_atlas_index(tile_coord: Vector2i) -> Dictionary:
 	var north: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(0, -1))
 	var east: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(1, 0))
@@ -620,10 +539,10 @@ func _try_resolve_loaded_mountain_atlas_index(tile_coord: Vector2i) -> Dictionar
 			or not bool(south.get("ready", false)) \
 			or not bool(west.get("ready", false)):
 		return {"ready": false}
-	var is_north_mountain: bool = _is_mountain_surface_terrain(int(north.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
-	var is_east_mountain: bool = _is_mountain_surface_terrain(int(east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
-	var is_south_mountain: bool = _is_mountain_surface_terrain(int(south.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
-	var is_west_mountain: bool = _is_mountain_surface_terrain(int(west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	var is_north_mountain: bool = _uses_mountain_surface_presentation(int(north.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	var is_east_mountain: bool = _uses_mountain_surface_presentation(int(east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	var is_south_mountain: bool = _uses_mountain_surface_presentation(int(south.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	var is_west_mountain: bool = _uses_mountain_surface_presentation(int(west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
 	var is_north_east_mountain: bool = false
 	var is_south_east_mountain: bool = false
 	var is_south_west_mountain: bool = false
@@ -632,22 +551,22 @@ func _try_resolve_loaded_mountain_atlas_index(tile_coord: Vector2i) -> Dictionar
 		var north_east: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(1, -1))
 		if not bool(north_east.get("ready", false)):
 			return {"ready": false}
-		is_north_east_mountain = _is_mountain_surface_terrain(int(north_east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+		is_north_east_mountain = _uses_mountain_surface_presentation(int(north_east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
 	if is_south_mountain and is_east_mountain:
 		var south_east: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(1, 1))
 		if not bool(south_east.get("ready", false)):
 			return {"ready": false}
-		is_south_east_mountain = _is_mountain_surface_terrain(int(south_east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+		is_south_east_mountain = _uses_mountain_surface_presentation(int(south_east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
 	if is_south_mountain and is_west_mountain:
 		var south_west: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(-1, 1))
 		if not bool(south_west.get("ready", false)):
 			return {"ready": false}
-		is_south_west_mountain = _is_mountain_surface_terrain(int(south_west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+		is_south_west_mountain = _uses_mountain_surface_presentation(int(south_west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
 	if is_north_mountain and is_west_mountain:
 		var north_west: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(-1, -1))
 		if not bool(north_west.get("ready", false)):
 			return {"ready": false}
-		is_north_west_mountain = _is_mountain_surface_terrain(int(north_west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+		is_north_west_mountain = _uses_mountain_surface_presentation(int(north_west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
 	var signature_code: int = Autotile47.build_signature_code(
 		is_north_mountain,
 		is_north_east_mountain,
@@ -814,12 +733,12 @@ func _distance_sq(a: Vector2i, b: Vector2i) -> int:
 	return dx * dx + dy * dy
 
 func _is_diggable_surface_terrain(terrain_id: int) -> bool:
-	return terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_ROCK \
-		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+	return terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
 		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
 
-func _is_mountain_surface_terrain(terrain_id: int) -> bool:
-	return terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+func _uses_mountain_surface_presentation(terrain_id: int) -> bool:
+	return terrain_id == WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
 		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
 
 func _build_m1_dev_default_settings_packed() -> PackedFloat32Array:
@@ -835,6 +754,11 @@ func _build_m1_dev_default_settings_packed() -> PackedFloat32Array:
 	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_INTERIOR_MARGIN] = 1.0
 	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_LATITUDE_INFLUENCE] = 0.0
 	return settings_packed
+
+func _resolve_settings_packed_for_world_version(version: int) -> PackedFloat32Array:
+	if version < 2:
+		return PackedFloat32Array()
+	return _build_m1_dev_default_settings_packed()
 
 func _start_worker_thread() -> void:
 	if _worker_thread.is_started():
