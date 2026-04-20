@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.0
-last_updated: 2026-03-25
+version: 1.1
+last_updated: 2026-04-20
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -56,6 +56,21 @@ Current V0 runtime implementation:
 - `world.json` stores `world_seed` and `world_version` alongside the existing world flags
 - changed terrain diffs are sharded as `chunks/<x>_<y>.json`
 - load order is deterministic base restore first, then per-chunk diff apply
+
+Current M1 extension:
+- `world.json` now records `world_version: 2` for the native mountain-field baseline
+- `worldgen_settings.mountains` persistence is still deferred to Mountain Generation M4; M1 keeps hard-coded dev defaults in `WorldStreamer`
+
+Confirmed `world.json` shape in the current M1 code path:
+
+```json
+{
+  "world_rebuild_frozen": false,
+  "world_scene_present": true,
+  "world_seed": 131071,
+  "world_version": 2
+}
+```
 
 ## Dependencies
 

@@ -5,7 +5,7 @@ Spec or source:
 - [rimworld_autotile_generator.html](/C:/Users/peaceful/Station%20Peaceful/Station%20Peaceful/tools/rimworld-autotile-lab/rimworld_autotile_generator.html)
 
 Current iteration:
-- Iteration 6 - Shader Composite world-space preview fix
+- Iteration 10 - Material Layer Stack (v2)
 
 Status:
 - completed
@@ -24,10 +24,18 @@ Done:
 - Iteration 5 completed: when a user texture is loaded, tint can now be blended from `0` to `100` instead of always fully recoloring the image.
 - Iteration 6 completed: `Shader Composite` preview on the map now renders from world-space sampling instead of drawing pre-baked per-tile composite canvases.
 - Iteration 6 completed: continuous base preview and continuous top/facade sampling were added so the map preview matches intended shader behavior more closely and no longer shows obvious tile-square reset artifacts by default.
+- Iteration 7 completed: staged rebuild, draft preview, cache, HiDPI presentation, Undo/Redo, JSON import, and pointer-capture stability were added.
+- Iteration 8 completed: collapsible groups, control search, tooltips, drag-drop textures, preview zoom/pan, hotkeys, custom presets, session restore, and ZIP export were added.
+- Iteration 9 completed: `state.materialLayers` is now the authoritative editor-side material layer stack for ordered material layering.
+- Iteration 9 completed: five starter layers (`brick`, `plank`, `stoneCluster`, `snowDrift`, `cracks`) are available through a reorderable UI with enable, strength, blend, mask, and height contribution controls.
+- Iteration 9 completed: layer stack state is now serialized through JSON recipe export/import, custom presets, and last-session restore.
+- Iteration 10 completed: the v2 layer library adds `moss`, `rivets`, `runes`, `puddles`, `debris`, `rust`, `sand`, `concrete`, `mud`, `hex`, and `cobblestone`.
+- Iteration 10 completed: the editor can now add and remove material layers from the stack through a library picker.
+- Iteration 10 completed: `noise presets`, `biome palettes`, lightweight texture-derived tint extraction, and directional weathering via `sun azimuth` are wired into the authoring flow.
 
 Remaining:
 - Manual browser-side visual verification is still recommended for final feel tuning.
-- If visual seams or shape edge-cases remain, the next pass is artistic tuning rather than missing wiring.
+- If visual seams, palette surprises, or performance edge-cases remain, the next pass is artistic tuning rather than missing wiring.
 
 Canonical docs to verify:
 - `C:/Users/peaceful/Station Peaceful/Station Peaceful/docs/README.md` - repo entrypoint already checked.
@@ -39,6 +47,10 @@ Latest proof:
 - grep verification on HTML + JS confirms requested controls, exports, and preview modes are present.
 - grep verification on HTML + JS confirms `topTintOpacity`, `faceTintOpacity`, `baseTintOpacity`, and tint blending logic are present.
 - grep verification on JS confirms `drawContinuousBasePreview`, `globalPreviewOffsets`, and world-space `paintLayeredTile(..., originX, originY)` preview path exist.
+- `git diff --check -- C:/Users/peaceful/Station Peaceful/Station Peaceful/tools/rimworld-autotile-lab/rimworld_autotile_generator_runtime_export.js C:/Users/peaceful/Station Peaceful/Station Peaceful/tools/rimworld-autotile-lab/rimworld_autotile_generator.html C:/Users/peaceful/Station Peaceful/Station Peaceful/tools/rimworld-autotile-lab/rimworld_autotile_generator_active_epic.md C:/Users/peaceful/Station Peaceful/Station Peaceful/tools/rimworld-autotile-lab/rimworld_autotile_generator_iteration_9_brief.md`
+- grep verification on HTML + JS confirms `materialLayers`, `renderMaterialLayerControls`, `buildLayeredMaterialMap`, `layerStack`, and recipe `version: 4` are present.
+- `git diff --check -- C:/Users/peaceful/Station Peaceful/Station Peaceful/tools/rimworld-autotile-lab/rimworld_autotile_generator_runtime_export.js C:/Users/peaceful/Station Peaceful/Station Peaceful/tools/rimworld-autotile-lab/rimworld_autotile_generator.html C:/Users/peaceful/Station Peaceful/Station Peaceful/tools/rimworld-autotile-lab/rimworld_autotile_generator_active_epic.md C:/Users/peaceful/Station Peaceful/Station Peaceful/tools/rimworld-autotile-lab/rimworld_autotile_generator_iteration_10_brief.md`
+- grep verification on HTML + JS confirms `layerLibraryType`, `addMaterialLayer`, `removeMaterialLayer`, `noisePreset`, `applyNoisePreset`, `extractPaletteFromTextures`, `sunAzimuth`, and recipe `version: 5` are present.
 
 Latest closure report:
-- pending
+- Iteration 10 completed in-thread with static verification; manual browser verification still pending.

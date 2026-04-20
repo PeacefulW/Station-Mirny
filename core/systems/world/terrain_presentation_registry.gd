@@ -139,6 +139,8 @@ static func _validate_registered_resources() -> void:
 		WorldRuntimeConstants.TERRAIN_PLAINS_GROUND,
 		WorldRuntimeConstants.TERRAIN_PLAINS_ROCK,
 		WorldRuntimeConstants.TERRAIN_PLAINS_DUG,
+		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL,
+		WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT,
 	]:
 		assert(_profile_id_by_terrain_id.has(terrain_id), "Missing terrain presentation profile mapping for terrain_id=%d" % terrain_id)
 		assert(_resolve_profile_for_terrain(terrain_id) != null, "TerrainPresentationRegistry failed to resolve terrain_id=%d" % terrain_id)
@@ -233,6 +235,10 @@ static func _expected_topology_family_for_terrain(terrain_id: int) -> StringName
 		WorldRuntimeConstants.TERRAIN_PLAINS_GROUND:
 			return TOPOLOGY_AUTOTILE_47
 		WorldRuntimeConstants.TERRAIN_PLAINS_ROCK:
+			return TOPOLOGY_AUTOTILE_47
+		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL:
+			return TOPOLOGY_AUTOTILE_47
+		WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
 			return TOPOLOGY_AUTOTILE_47
 		WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
 			return TOPOLOGY_SINGLE_TILE

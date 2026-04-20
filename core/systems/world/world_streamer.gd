@@ -22,6 +22,7 @@ var _active_publish_chunk: Vector2i = INVALID_CHUNK_COORD
 var _player_chunk_coord: Vector2i = INVALID_CHUNK_COORD
 var _stream_job_id: StringName = &""
 var _generation_epoch: int = 0
+var _settings_packed: PackedFloat32Array = PackedFloat32Array()
 
 var _worker_thread: Thread = Thread.new()
 var _request_mutex: Mutex = Mutex.new()
@@ -36,6 +37,7 @@ func _ready() -> void:
 	name = "WorldStreamer"
 	_world_core = ClassDB.instantiate("WorldCore")
 	assert(_world_core != null, "WorldCore required - build GDExtension first")
+	_settings_packed = _build_m1_dev_default_settings_packed()
 	WorldTileSetFactory.bootstrap()
 	_start_worker_thread()
 	_stream_job_id = FrameBudgetDispatcher.register_job(
@@ -60,6 +62,7 @@ func reset_for_new_game(
 ) -> void:
 	world_seed = seed
 	world_version = version
+	_settings_packed = _build_m1_dev_default_settings_packed()
 	_diff_store.clear()
 	_reset_runtime_state()
 	EventBus.world_initialized.emit(world_seed)
@@ -67,6 +70,7 @@ func reset_for_new_game(
 func load_world_state(data: Dictionary) -> void:
 	world_seed = int(data.get("world_seed", WorldRuntimeConstants.DEFAULT_WORLD_SEED))
 	world_version = int(data.get("world_version", WorldRuntimeConstants.WORLD_VERSION))
+	_settings_packed = _build_m1_dev_default_settings_packed()
 	_diff_store.clear()
 	_reset_runtime_state()
 	EventBus.world_initialized.emit(world_seed)
@@ -186,6 +190,7 @@ func _enqueue_desired_chunks() -> void:
 			"coord": desired_coord,
 			"seed": world_seed,
 			"world_version": world_version,
+			"settings_packed": _settings_packed,
 			"epoch": _generation_epoch,
 		})
 		_request_mutex.unlock()
@@ -326,6 +331,7 @@ func _enqueue_chunk_if_needed(chunk_coord: Vector2i) -> void:
 		"coord": chunk_coord,
 		"seed": world_seed,
 		"world_version": world_version,
+		"settings_packed": _settings_packed,
 		"epoch": _generation_epoch,
 	})
 	_request_mutex.unlock()
@@ -620,6 +626,20 @@ func _distance_sq(a: Vector2i, b: Vector2i) -> int:
 	var dy: int = a.y - b.y
 	return dx * dx + dy * dy
 
+func _build_m1_dev_default_settings_packed() -> PackedFloat32Array:
+	var settings_packed: PackedFloat32Array = PackedFloat32Array()
+	settings_packed.resize(WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_FIELD_COUNT)
+	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_DENSITY] = 0.30
+	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SCALE] = 512.0
+	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_CONTINUITY] = 0.65
+	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_RUGGEDNESS] = 0.55
+	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_ANCHOR_CELL_SIZE] = 128.0
+	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_GRAVITY_RADIUS] = 96.0
+	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_FOOT_BAND] = 0.08
+	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_INTERIOR_MARGIN] = 1.0
+	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_LATITUDE_INFLUENCE] = 0.0
+	return settings_packed
+
 func _start_worker_thread() -> void:
 	if _worker_thread.is_started():
 		return
@@ -652,7 +672,8 @@ func _worker_loop() -> void:
 			"generate_chunk_packet",
 			int(request.get("seed", world_seed)),
 			request.get("coord", Vector2i.ZERO) as Vector2i,
-			int(request.get("world_version", world_version))
+			int(request.get("world_version", world_version)),
+			request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array
 		) as Dictionary
 		packet["epoch"] = int(request.get("epoch", -1))
 		_result_mutex.lock()

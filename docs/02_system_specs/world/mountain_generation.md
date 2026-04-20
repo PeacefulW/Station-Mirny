@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.0
+version: 1.1
 last_updated: 2026-04-20
 related_docs:
   - ../../README.md
@@ -335,7 +335,7 @@ Guardrail (mandatory from M2 onward):
 - fade time constant `FADE_SECONDS` (0.25..0.35)
 - exit debounce constant `EXIT_DEBOUNCE` (0.5)
 - registry registers one job on `FrameBudgetDispatcher` under
-  `CATEGORY_PRESENTATION` with budget 0.2 ms
+  `CATEGORY_VISUAL` with budget 0.2 ms
 - signals:
   - `mountain_revealed(mountain_id: int)` fires when target flips to 0.0
   - `mountain_concealed(mountain_id: int)` fires when target flips to 1.0
@@ -390,7 +390,7 @@ Resolver does O(1) work per frame; no scene-tree queries, no raycasts.
   path unchanged
 - roof `TileMapLayer` population is part of the same sliced publish loop
 - no new `FrameBudgetDispatcher` category is introduced; reuse
-  `CATEGORY_STREAMING` for publish and `CATEGORY_PRESENTATION` for reveal
+  `CATEGORY_STREAMING` for publish and `CATEGORY_VISUAL` for reveal
   fade
 - `TileMapLayer.clear()` remains forbidden on runtime mutation paths
 
@@ -483,7 +483,7 @@ contract.
 | Anchor resolution | background (native worker) | 3x3 anchor cells per chunk | outside main thread |
 | Sliced mountain publish | background apply | batch of cells | shares V0 `CATEGORY_STREAMING` budget |
 | Resolver tile lookup | interactive | 1 tile | < 0.05 ms/frame |
-| Reveal alpha tween | background apply | 1 `mountain_id` | < 0.2 ms/frame inside `CATEGORY_PRESENTATION` |
+| Reveal alpha tween | background apply | 1 `mountain_id` | < 0.2 ms/frame inside `CATEGORY_VISUAL` |
 | Excavation mutation | interactive | 1 tile | V0 budget, unchanged |
 | Entrance recompute on mutation | interactive | 5 tiles | < 1.0 ms |
 | Entrance rebuild on load | boot/load | all dirty tiles in chunk | loading screen only |
@@ -696,7 +696,7 @@ Changes:
 - extend `ChunkView` with `roof_layers_by_mountain` dictionary and
   per-layer alpha handling
 - add `mountain_reveal_registry.gd` with the two signals and a
-  `CATEGORY_PRESENTATION` job
+  `CATEGORY_VISUAL` job
 - add `mountain_resolver.gd`; wire from `Player._physics_process`
 - add `roof_layers_per_chunk_max` debug metric with warning
 

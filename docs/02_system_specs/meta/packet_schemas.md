@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.2
-last_updated: 2026-04-19
+version: 0.3
+last_updated: 2026-04-20
 related_docs:
   - ../README.md
   - system_api.md
@@ -390,13 +390,49 @@ Returned by native `WorldCore.generate_chunk_packet(seed, coord, world_version)`
 ```
 
 Current code notes:
-- V0 intentionally omits climate bytes, river data, mountain data, placements, and decor
+- V0 intentionally omits climate bytes, river data, placements, and decor
 - `terrain_atlas_indices` is derived presentation metadata consumed by `ChunkView`
 - runtime mutations are not written back into `ChunkPacketV0`; they are persisted separately as `ChunkDiffFile`
 - `terrain_atlas_indices` is not part of `ChunkDiffFile` and is recomputed from
   `base + diff` for loaded visual patches
 
+### `ChunkPacketV1`
+
+Returned by native
+`WorldCore.generate_chunk_packet(seed, coord, world_version, settings_packed)`.
+
+`ChunkPacketV1` extends `ChunkPacketV0` additively. Current confirmed shape:
+
+| Field | Type | Length | Notes |
+|---|---|---|---|
+| `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
+| `world_seed` | `int` | — | Copied into the packet for validation/debug |
+| `world_version` | `int` | — | Current M1 runtime value is `2` |
+| `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
+| `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve |
+| `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
+| `mountain_id_per_tile` | `PackedInt32Array` | 1024 | `0 = no named mountain`; non-zero = deterministic `mountain_id` |
+| `mountain_flags` | `PackedByteArray` | 1024 | Per-tile mountain bit layout documented below |
+| `mountain_atlas_indices` | `PackedInt32Array` | 1024 | Roof-ready atlas indices derived from `mountain_id` adjacency via `autotile_47` |
+
+`mountain_flags` bit layout:
+
+| Bit | Name | Meaning |
+|---|---|---|
+| `1 << 0` | `is_interior` | Interior wall depth satisfies `interior_margin`; used later by M2 roof presentation |
+| `1 << 1` | `is_wall` | `elevation >= t_wall` |
+| `1 << 2` | `is_foot` | `t_edge <= elevation < t_wall` |
+| `1 << 3` | `is_anchor` | Tile is the deterministic jittered anchor position for its `mountain_id` |
+
+Current code notes:
+- `ChunkPacketV1` keeps one hot-path packet per chunk; no per-tile callbacks were added
+- `settings_packed.size() == 0` yields V0-compatible generation with all three mountain arrays zero-filled
+- `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` are base packet fields only; they are not persisted in `ChunkDiffFile`
+- mountain tiles write canonical terrain through `terrain_ids` as `TERRAIN_MOUNTAIN_WALL` or `TERRAIN_MOUNTAIN_FOOT`
+- `mountain_atlas_indices` is reserved for later roof presentation, but is already confirmed at the packet boundary in M1
+
 ## Not Currently Confirmed
 
-The current code still does not confirm any packet fields beyond `ChunkPacketV0`
-for future biome, river, mountain, placement, or environment layers.
+The current code still does not confirm any packet fields beyond `ChunkPacketV1`
+for future biome, river, placement, roof-runtime, entrance-runtime, or
+environment layers.

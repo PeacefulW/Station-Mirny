@@ -32,8 +32,13 @@ button{cursor:pointer}
 .brand h1{margin:0;font-size:32px;line-height:1;letter-spacing:-.04em}
 .brand p{margin:12px 0 0;color:var(--muted);line-height:1.5}
 .group{padding:16px 22px;border-top:1px solid rgba(255,255,255,.04)}
-.group h2{margin:0 0 12px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.group h2{margin:0 0 12px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);display:flex;justify-content:space-between;align-items:center;cursor:pointer}
+.group h2::after{content:"−";font-size:16px;line-height:1;color:var(--muted)}
+.group.is-collapsed h2{margin-bottom:0}
+.group.is-collapsed h2::after{content:"+"}
+.group.is-collapsed > :not(h2){display:none}
 .preset-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.sidebar-tools,.preset-tools{display:grid;gap:8px;margin-top:14px}
 .preset{
   border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,#3b2f25,#2b231d);
   color:var(--text);border-radius:14px;padding:10px 8px;font-size:14px;
@@ -62,6 +67,7 @@ button{cursor:pointer}
   display:grid;gap:10px;background:rgba(255,255,255,.03);
   border:1px dashed rgba(255,255,255,.14);border-radius:16px;padding:12px;
 }
+.file-card.is-dragover{border-color:var(--accent);background:rgba(240,180,92,.08)}
 .file-card input{width:100%}
 .texture-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .tiling-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
@@ -109,12 +115,43 @@ button{cursor:pointer}
   background:
     linear-gradient(180deg,rgba(255,255,255,.02),rgba(0,0,0,.14)),
     radial-gradient(circle at top, rgba(255,255,255,.05), transparent 50%);
-  border:1px solid rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.05);overflow:hidden;position:relative;
 }
 .canvas-shell canvas{
   display:block;max-width:100%;height:auto;margin:0 auto;
   image-rendering:pixelated;border-radius:20px;box-shadow:0 18px 40px rgba(0,0,0,.32);
 }
+.canvas-shell.is-pannable{cursor:grab;touch-action:none}
+.canvas-shell.is-pannable.is-panning{cursor:grabbing}
+.toolbar-btn{padding:8px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:var(--text);font-weight:700}
+.search-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.is-hidden{display:none!important}
+.preset-meta{font-size:12px;color:var(--muted)}
+.layer-stack{display:grid;gap:10px}
+.layer-card{
+  display:grid;gap:10px;padding:12px;border-radius:16px;
+  background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);
+}
+.layer-card.is-disabled{opacity:.62}
+.layer-card.is-dragging{border-color:var(--accent);box-shadow:0 0 0 1px rgba(240,180,92,.35)}
+.layer-card-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.layer-card-title{display:flex;align-items:center;gap:10px}
+.layer-chip{
+  display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;
+  background:rgba(240,180,92,.12);color:var(--accent);font-size:11px;letter-spacing:.06em;text-transform:uppercase
+}
+.layer-drag{color:var(--muted);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.layer-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.layer-toggle{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}
+.layer-note{margin:0;color:var(--muted);font-size:12px;line-height:1.45}
+.layer-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.layer-remove{padding:8px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:var(--text);font-weight:700}
+.palette-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.palette-btn{
+  padding:10px 12px;border-radius:14px;border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.04);color:var(--text);font-weight:700
+}
+.palette-btn.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(240,180,92,.28) inset}
 .inline-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .inline-tools .select-input{width:auto;min-width:110px;padding:8px 10px}
 .inline-tools .line-label{font-size:12px}
@@ -138,7 +175,7 @@ button{cursor:pointer}
   .brand h1{font-size:28px}
   .hero h2{font-size:30px}
   .stats{grid-template-columns:1fr}
-  .row,.actions,.preset-row,.texture-strip{grid-template-columns:1fr}
+  .row,.actions,.preset-row,.texture-strip,.palette-strip,.layer-toolbar{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -149,6 +186,12 @@ button{cursor:pointer}
       <p class="eyebrow">HTML Preview Generator</p>
       <h1>Cliff Forge 47</h1>
       <p>Один и тот же набор топологии можно крутить как гору, стену или земляной уступ. Меняешь высоту, текстуры и вариативность — и сразу видишь собранный результат в preview.</p>
+      <div class="sidebar-tools">
+        <div class="search-row">
+          <input class="num-input" id="controlSearch" type="search" placeholder="Поиск параметра...">
+          <button class="secondary-btn" id="clearSearch" type="button">Сбросить</button>
+        </div>
+      </div>
     </div>
 
     <section class="group">
@@ -157,6 +200,26 @@ button{cursor:pointer}
         <button class="preset active" data-preset="mountain" type="button">Гора</button>
         <button class="preset" data-preset="wall" type="button">Стена</button>
         <button class="preset" data-preset="earth" type="button">Земля</button>
+      </div>
+      <div class="preset-tools">
+        <div class="search-row">
+          <input class="num-input" id="customPresetName" type="text" placeholder="Имя custom preset">
+          <button class="secondary-btn" id="saveCustomPreset" type="button">Сохранить</button>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="customPresetSelect"><span>Custom presets</span></label>
+            <select class="select-input" id="customPresetSelect"></select>
+          </div>
+          <div class="field">
+            <label><span>Действия</span></label>
+            <div class="actions">
+              <button class="secondary-btn" id="loadCustomPreset" type="button">Загрузить</button>
+              <button class="secondary-btn" id="deleteCustomPreset" type="button">Удалить</button>
+            </div>
+          </div>
+        </div>
+        <div class="preset-meta" id="customPresetMeta">Custom presets хранятся в localStorage.</div>
       </div>
     </section>
 
@@ -357,6 +420,62 @@ button{cursor:pointer}
           <label for="faceContrast"><span>Face contrast</span><span class="value" id="faceContrastValue">122</span></label>
           <input class="range" id="faceContrast" type="range" min="50" max="200" step="1" value="122">
         </div>
+        <div class="field">
+          <label for="noisePreset"><span>Noise preset</span></label>
+          <div class="layer-toolbar">
+            <select class="select-input" id="noisePreset">
+              <option value="organic">Organic</option>
+              <option value="stratified">Stratified</option>
+              <option value="fractalRough">Fractal Rough</option>
+              <option value="quartz">Quartz</option>
+              <option value="volcanic">Volcanic</option>
+            </select>
+            <button class="secondary-btn" id="applyNoisePreset" type="button">Apply</button>
+          </div>
+        </div>
+        <div class="field">
+          <label><span>Biome palette</span></label>
+          <div class="palette-strip">
+            <button class="palette-btn" data-palette="alpine" type="button">Alpine</button>
+            <button class="palette-btn" data-palette="basalt" type="button">Basalt</button>
+            <button class="palette-btn" data-palette="rustbelt" type="button">Rustbelt</button>
+            <button class="palette-btn" data-palette="oasis" type="button">Oasis</button>
+            <button class="palette-btn" data-palette="tundra" type="button">Tundra</button>
+          </div>
+          <div class="actions" style="margin-top:8px">
+            <button class="secondary-btn" id="extractPalette" type="button">Extract Palette</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="sunAzimuth"><span>Sun azimuth</span><span class="value" id="sunAzimuthValue">315</span></label>
+          <input class="range" id="sunAzimuth" type="range" min="0" max="360" step="5" value="315">
+        </div>
+        <div class="field">
+          <label><span>Layer Stack (v2)</span><span class="value" id="layerStackSummary">0/0</span></label>
+          <div class="layer-toolbar">
+            <select class="select-input" id="layerLibraryType">
+              <option value="moss">Moss</option>
+              <option value="rivets">Rivets</option>
+              <option value="runes">Runes</option>
+              <option value="puddles">Puddles</option>
+              <option value="debris">Debris</option>
+              <option value="rust">Rust</option>
+              <option value="sand">Sand</option>
+              <option value="concrete">Concrete</option>
+              <option value="mud">Mud</option>
+              <option value="hex">Hex</option>
+              <option value="cobblestone">Cobblestone</option>
+              <option value="brick">Brick</option>
+              <option value="plank">Plank</option>
+              <option value="stoneCluster">Stone Cluster</option>
+              <option value="snowDrift">Snow Drift</option>
+              <option value="cracks">Cracks</option>
+            </select>
+            <button class="secondary-btn" id="addMaterialLayer" type="button">Add Layer</button>
+          </div>
+          <div class="layer-stack" id="layerStack"></div>
+          <p class="layer-note">Drag карточки, чтобы менять порядок слоёв. Каждый слой добавляет modulation и normal contribution поверх legacy base look; weathering-aware слои учитывают `sun azimuth`.</p>
+        </div>
       </div>
     </section>
 
@@ -391,6 +510,7 @@ button{cursor:pointer}
         <button class="secondary-btn" id="downloadFaceModulation" type="button">PNG Face Modulation</button>
         <button class="secondary-btn" id="downloadPreview" type="button">PNG Preview</button>
         <button class="secondary-btn" id="downloadJson" type="button">JSON Material Recipe</button>
+        <button class="secondary-btn" id="downloadZip" type="button">ZIP Bundle</button>
         <label class="secondary-btn" for="loadJson" style="display:inline-flex;align-items:center;justify-content:center">Загрузить JSON Recipe</label>
         <input id="loadJson" type="file" accept=".json,application/json" hidden>
         <button class="secondary-btn" id="regenerate" type="button">Пересобрать</button>
@@ -427,11 +547,15 @@ button{cursor:pointer}
         <div class="panel-head">
           <div>
             <div class="panel-title">Preview карта</div>
-            <div class="panel-note">Кликабельная сетка, чтобы смотреть реальную сборку формы.</div>
+            <div class="panel-note">Кликабельная сетка, чтобы смотреть реальную сборку формы. Колесо мыши — zoom, `Space + drag` или средняя кнопка — pan.</div>
+          </div>
+          <div class="inline-tools">
+            <span class="panel-note" id="previewZoomLabel">100%</span>
+            <button class="toolbar-btn" id="resetPreviewView" type="button">Reset View</button>
           </div>
         </div>
         <div class="canvas-wrap">
-          <div class="canvas-shell">
+          <div class="canvas-shell is-pannable" id="previewViewport">
             <canvas id="previewCanvas" width="1152" height="768"></canvas>
           </div>
         </div>

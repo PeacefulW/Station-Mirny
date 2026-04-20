@@ -93,6 +93,14 @@ const PRESETS = {
 
 const refs = {
   presetButtons: [...document.querySelectorAll("[data-preset]")],
+  controlSearch: document.getElementById("controlSearch"),
+  clearSearch: document.getElementById("clearSearch"),
+  customPresetName: document.getElementById("customPresetName"),
+  saveCustomPreset: document.getElementById("saveCustomPreset"),
+  customPresetSelect: document.getElementById("customPresetSelect"),
+  loadCustomPreset: document.getElementById("loadCustomPreset"),
+  deleteCustomPreset: document.getElementById("deleteCustomPreset"),
+  customPresetMeta: document.getElementById("customPresetMeta"),
   previewMode: document.getElementById("previewMode"),
   tileSize: document.getElementById("tileSize"),
   heightPx: document.getElementById("heightPx"),
@@ -124,6 +132,15 @@ const refs = {
   faceChips: document.getElementById("faceChips"),
   faceErosion: document.getElementById("faceErosion"),
   faceContrast: document.getElementById("faceContrast"),
+  noisePreset: document.getElementById("noisePreset"),
+  applyNoisePreset: document.getElementById("applyNoisePreset"),
+  extractPalette: document.getElementById("extractPalette"),
+  paletteButtons: [...document.querySelectorAll("[data-palette]")],
+  sunAzimuth: document.getElementById("sunAzimuth"),
+  layerStack: document.getElementById("layerStack"),
+  layerStackSummary: document.getElementById("layerStackSummary"),
+  layerLibraryType: document.getElementById("layerLibraryType"),
+  addMaterialLayer: document.getElementById("addMaterialLayer"),
   baseTexture: document.getElementById("baseTexture"),
   topTexture: document.getElementById("topTexture"),
   faceTexture: document.getElementById("faceTexture"),
@@ -133,7 +150,10 @@ const refs = {
   baseTexturePreview: document.getElementById("baseTexturePreview"),
   topTexturePreview: document.getElementById("topTexturePreview"),
   faceTexturePreview: document.getElementById("faceTexturePreview"),
+  previewViewport: document.getElementById("previewViewport"),
   previewCanvas: document.getElementById("previewCanvas"),
+  previewZoomLabel: document.getElementById("previewZoomLabel"),
+  resetPreviewView: document.getElementById("resetPreviewView"),
   atlasCanvas: document.getElementById("atlasCanvas"),
   topTilingCanvas: document.getElementById("topTilingCanvas"),
   faceTilingCanvas: document.getElementById("faceTilingCanvas"),
@@ -159,6 +179,7 @@ const refs = {
   downloadFaceModulation: document.getElementById("downloadFaceModulation"),
   downloadPreview: document.getElementById("downloadPreview"),
   downloadJson: document.getElementById("downloadJson"),
+  downloadZip: document.getElementById("downloadZip"),
   loadJson: document.getElementById("loadJson"),
   regenerate: document.getElementById("regenerate")
 };
@@ -188,12 +209,137 @@ const RANGE_IDS = [
   "faceVerticalFractures",
   "faceChips",
   "faceErosion",
-  "faceContrast"
+  "faceContrast",
+  "sunAzimuth"
 ];
 
 const COLOR_IDS = ["topTint", "faceTint", "baseTint"];
 const PREVIEW_MODES = ["albedo", "mask", "shapeHeight", "shapeNormal", "shaderComposite"];
 const MATERIAL_EXPORT_SIZE = 512;
+const LOCAL_STORAGE_PRESETS_KEY = "cliff_forge_47_custom_presets";
+const LOCAL_STORAGE_SESSION_KEY = "cliff_forge_47_last_session";
+const NOISE_PRESETS = {
+  organic: {
+    topMacroScale: 160, topMacroStrength: 42, topPebbleDensity: 12, topPebbleSize: 3, topMicroNoise: 26, topContrast: 112,
+    faceStrataStrength: 30, faceVerticalFractures: 24, faceChips: 18, faceErosion: 28, faceContrast: 122
+  },
+  stratified: {
+    topMacroScale: 188, topMacroStrength: 26, topPebbleDensity: 6, topPebbleSize: 2, topMicroNoise: 12, topContrast: 108,
+    faceStrataStrength: 62, faceVerticalFractures: 14, faceChips: 10, faceErosion: 18, faceContrast: 126
+  },
+  fractalRough: {
+    topMacroScale: 136, topMacroStrength: 58, topPebbleDensity: 14, topPebbleSize: 4, topMicroNoise: 38, topContrast: 120,
+    faceStrataStrength: 28, faceVerticalFractures: 42, faceChips: 34, faceErosion: 30, faceContrast: 130
+  },
+  quartz: {
+    topMacroScale: 208, topMacroStrength: 36, topPebbleDensity: 10, topPebbleSize: 2, topMicroNoise: 18, topContrast: 116,
+    faceStrataStrength: 20, faceVerticalFractures: 46, faceChips: 12, faceErosion: 12, faceContrast: 134
+  },
+  volcanic: {
+    topMacroScale: 120, topMacroStrength: 54, topPebbleDensity: 16, topPebbleSize: 5, topMicroNoise: 32, topContrast: 128,
+    faceStrataStrength: 18, faceVerticalFractures: 38, faceChips: 30, faceErosion: 42, faceContrast: 138
+  }
+};
+const PRESET_NOISE_PROFILES = {
+  mountain: "fractalRough",
+  wall: "stratified",
+  earth: "organic"
+};
+const BIOME_PALETTES = {
+  alpine: { topTint: "#9aaec1", faceTint: "#57616c", baseTint: "#d5cab5" },
+  basalt: { topTint: "#6c706f", faceTint: "#2f3337", baseTint: "#a6947f" },
+  rustbelt: { topTint: "#8f704e", faceTint: "#5a3426", baseTint: "#d2a06e" },
+  oasis: { topTint: "#6f8d63", faceTint: "#4e5c3b", baseTint: "#c9b07b" },
+  tundra: { topTint: "#b7c2c8", faceTint: "#5a6166", baseTint: "#d7d2c4" }
+};
+const MATERIAL_LAYER_BLEND_MODES = ["overlay", "add", "multiply", "replace", "softLight"];
+const MATERIAL_LAYER_MASKS = ["top", "face", "both"];
+const MATERIAL_LAYER_TYPES = {
+  brick: { label: "Brick", defaultBlend: "overlay", defaultMask: "face", defaultStrength: 56, defaultHeight: 78 },
+  plank: { label: "Plank", defaultBlend: "softLight", defaultMask: "top", defaultStrength: 38, defaultHeight: 62 },
+  stoneCluster: { label: "Stone Cluster", defaultBlend: "overlay", defaultMask: "both", defaultStrength: 44, defaultHeight: 70 },
+  snowDrift: { label: "Snow Drift", defaultBlend: "add", defaultMask: "top", defaultStrength: 26, defaultHeight: 58 },
+  cracks: { label: "Cracks", defaultBlend: "multiply", defaultMask: "face", defaultStrength: 34, defaultHeight: 82 },
+  moss: { label: "Moss", defaultBlend: "softLight", defaultMask: "both", defaultStrength: 30, defaultHeight: 42 },
+  rivets: { label: "Rivets", defaultBlend: "overlay", defaultMask: "face", defaultStrength: 32, defaultHeight: 76 },
+  runes: { label: "Runes", defaultBlend: "replace", defaultMask: "face", defaultStrength: 22, defaultHeight: 86 },
+  puddles: { label: "Puddles", defaultBlend: "replace", defaultMask: "top", defaultStrength: 24, defaultHeight: 30 },
+  debris: { label: "Debris", defaultBlend: "overlay", defaultMask: "top", defaultStrength: 28, defaultHeight: 66 },
+  rust: { label: "Rust", defaultBlend: "multiply", defaultMask: "face", defaultStrength: 34, defaultHeight: 40 },
+  sand: { label: "Sand", defaultBlend: "add", defaultMask: "top", defaultStrength: 26, defaultHeight: 54 },
+  concrete: { label: "Concrete", defaultBlend: "overlay", defaultMask: "both", defaultStrength: 28, defaultHeight: 48 },
+  mud: { label: "Mud", defaultBlend: "multiply", defaultMask: "both", defaultStrength: 30, defaultHeight: 52 },
+  hex: { label: "Hex", defaultBlend: "replace", defaultMask: "face", defaultStrength: 20, defaultHeight: 74 },
+  cobblestone: { label: "Cobblestone", defaultBlend: "overlay", defaultMask: "top", defaultStrength: 42, defaultHeight: 78 }
+};
+
+let materialLayerSequence = 1;
+
+function createMaterialLayer(type, overrides = {}) {
+  const definition = MATERIAL_LAYER_TYPES[type];
+  if (!definition) throw new Error(`Unknown material layer type: ${type}`);
+  return {
+    id: overrides.id || `layer_${materialLayerSequence++}`,
+    type,
+    enabled: overrides.enabled ?? true,
+    strength: clamp(Number(overrides.strength ?? definition.defaultStrength), 0, 100),
+    blend: MATERIAL_LAYER_BLEND_MODES.includes(overrides.blend) ? overrides.blend : definition.defaultBlend,
+    mask: MATERIAL_LAYER_MASKS.includes(overrides.mask) ? overrides.mask : definition.defaultMask,
+    heightContribution: clamp(Number(overrides.heightContribution ?? definition.defaultHeight), 0, 100)
+  };
+}
+
+function createDefaultMaterialLayers(preset) {
+  const presets = {
+    mountain: [
+      { type: "stoneCluster", strength: 58, blend: "overlay", mask: "both", heightContribution: 74 },
+      { type: "cracks", strength: 42, blend: "multiply", mask: "face", heightContribution: 88 },
+      { type: "snowDrift", strength: 18, blend: "add", mask: "top", heightContribution: 44 },
+      { type: "brick", strength: 0, blend: "overlay", mask: "face", heightContribution: 72, enabled: false },
+      { type: "plank", strength: 0, blend: "softLight", mask: "top", heightContribution: 54, enabled: false }
+    ],
+    wall: [
+      { type: "brick", strength: 62, blend: "overlay", mask: "face", heightContribution: 82 },
+      { type: "cracks", strength: 28, blend: "multiply", mask: "face", heightContribution: 84 },
+      { type: "plank", strength: 16, blend: "softLight", mask: "top", heightContribution: 40 },
+      { type: "stoneCluster", strength: 12, blend: "overlay", mask: "both", heightContribution: 34 },
+      { type: "snowDrift", strength: 0, blend: "add", mask: "top", heightContribution: 28, enabled: false }
+    ],
+    earth: [
+      { type: "stoneCluster", strength: 34, blend: "overlay", mask: "both", heightContribution: 56 },
+      { type: "plank", strength: 0, blend: "softLight", mask: "top", heightContribution: 48, enabled: false },
+      { type: "snowDrift", strength: 0, blend: "add", mask: "top", heightContribution: 36, enabled: false },
+      { type: "cracks", strength: 18, blend: "multiply", mask: "face", heightContribution: 72 },
+      { type: "brick", strength: 0, blend: "overlay", mask: "face", heightContribution: 80, enabled: false }
+    ]
+  };
+  const config = presets[preset] || presets.mountain;
+  return config.map((layer) => createMaterialLayer(layer.type, layer));
+}
+
+function serializeMaterialLayers(layers = state?.materialLayers || []) {
+  return layers.map((layer) => ({
+    type: layer.type,
+    enabled: Boolean(layer.enabled),
+    strength: clamp(Number(layer.strength), 0, 100),
+    blend: layer.blend,
+    mask: layer.mask,
+    heightContribution: clamp(Number(layer.heightContribution ?? 0), 0, 100)
+  }));
+}
+
+function normalizeMaterialLayers(layers, preset = state?.preset || "mountain") {
+  if (!Array.isArray(layers) || !layers.length) {
+    return createDefaultMaterialLayers(preset);
+  }
+  return layers
+    .filter((layer) => MATERIAL_LAYER_TYPES[layer.type])
+    .map((layer) => createMaterialLayer(layer.type, layer));
+}
+
+function resetMaterialLayersForPreset(preset) {
+  state.materialLayers = createDefaultMaterialLayers(preset);
+}
 
 function createGeneratedState() {
   return {
@@ -208,6 +354,9 @@ function createGeneratedState() {
 
 const state = {
   preset: "mountain",
+  customPresetName: "",
+  materialLayers: [],
+  dragLayerId: null,
   previewMode: "shaderComposite",
   catalog: [],
   catalogByKey: new Map(),
@@ -217,7 +366,18 @@ const state = {
   preview: {
     sourceCanvas: null,
     logicalTileSize: 64,
-    isDraft: false
+    isDraft: false,
+    view: {
+      scale: 1,
+      offsetX: 0,
+      offsetY: 0,
+      isPanning: false,
+      pointerId: null,
+      originX: 0,
+      originY: 0,
+      spaceHeld: false,
+      spaceUsedForPan: false
+    }
   },
   map: { width: 18, height: 12, cells: [] },
   pendingRenderTimer: null,
@@ -274,6 +434,10 @@ function hexToRgb(hex) {
   ];
 }
 
+function rgbToHex(color) {
+  return `#${color.map((value) => clamp(Math.round(value), 0, 255).toString(16).padStart(2, "0")).join("")}`;
+}
+
 function createCanvas(width, height) {
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -303,6 +467,672 @@ function presentCanvas(displayCanvas, sourceCanvas) {
   ctx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(sourceCanvas, 0, 0, displayCanvas.width, displayCanvas.height);
+  if (displayCanvas === refs.previewCanvas) applyPreviewTransform();
+}
+
+function sanitizeFileStem(value) {
+  return String(value || "preset")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/gi, "_")
+    .replace(/^_+|_+$/g, "") || "preset";
+}
+
+function getDisplayPresetName() {
+  return state.customPresetName || state.preset || "preset";
+}
+
+function buildExportBaseName(params = getParams()) {
+  return `${sanitizeFileStem(getDisplayPresetName())}_${params.seed}_${params.tileSize}`;
+}
+
+function updatePreviewZoomLabel() {
+  if (!refs.previewZoomLabel) return;
+  refs.previewZoomLabel.textContent = `${Math.round(state.preview.view.scale * 100)}%`;
+}
+
+function applyPreviewTransform() {
+  if (!refs.previewCanvas) return;
+  const { scale, offsetX, offsetY, isPanning } = state.preview.view;
+  refs.previewCanvas.style.transformOrigin = "0 0";
+  refs.previewCanvas.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+  refs.previewViewport?.classList.toggle("is-panning", isPanning);
+  updatePreviewZoomLabel();
+}
+
+function resetPreviewView() {
+  state.preview.view.scale = 1;
+  state.preview.view.offsetX = 0;
+  state.preview.view.offsetY = 0;
+  applyPreviewTransform();
+}
+
+function updateLayerStackSummary() {
+  if (!refs.layerStackSummary) return;
+  const total = state.materialLayers.length;
+  const enabled = state.materialLayers.filter((layer) => layer.enabled).length;
+  refs.layerStackSummary.textContent = `${enabled}/${total}`;
+}
+
+function matchingBiomePaletteName() {
+  const topTint = refs.topTint?.value?.toLowerCase();
+  const faceTint = refs.faceTint?.value?.toLowerCase();
+  const baseTint = refs.baseTint?.value?.toLowerCase();
+  const match = Object.entries(BIOME_PALETTES).find(([, palette]) => (
+    palette.topTint.toLowerCase() === topTint
+    && palette.faceTint.toLowerCase() === faceTint
+    && palette.baseTint.toLowerCase() === baseTint
+  ));
+  return match?.[0] || "";
+}
+
+function refreshPaletteButtons(activeName = matchingBiomePaletteName()) {
+  refs.paletteButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.palette === activeName);
+  });
+}
+
+function applyBiomePalette(name) {
+  const palette = BIOME_PALETTES[name];
+  if (!palette) return;
+  refs.topTint.value = palette.topTint;
+  refs.faceTint.value = palette.faceTint;
+  refs.baseTint.value = palette.baseTint;
+  refreshPaletteButtons(name);
+  markDirty("color");
+  scheduleRender("full");
+  refs.status.innerHTML = `<span class="ok">Palette applied.</span> ${name} palette обновила top/face/base tint.`;
+}
+
+function applyNoisePreset() {
+  const preset = NOISE_PRESETS[refs.noisePreset.value];
+  if (!preset) return;
+  Object.entries(preset).forEach(([key, value]) => {
+    if (refs[key]) refs[key].value = String(value);
+  });
+  updateRangeLabels();
+  markDirty("material");
+  scheduleRender("full");
+  refs.status.innerHTML = `<span class="ok">Noise preset applied.</span> ${refs.noisePreset.value} синхронизировал material sliders.`;
+}
+
+function samplePalettePixelsFromTexture(texture, maxSamples) {
+  if (!texture) return [];
+  const pixels = [];
+  const total = texture.width * texture.height;
+  const stride = Math.max(1, Math.floor(Math.sqrt(total / Math.max(1, maxSamples))));
+  for (let y = 0; y < texture.height; y += stride) {
+    for (let x = 0; x < texture.width; x += stride) {
+      const index = (y * texture.width + x) * 4;
+      if (texture.data[index + 3] < 128) continue;
+      pixels.push([texture.data[index], texture.data[index + 1], texture.data[index + 2]]);
+      if (pixels.length >= maxSamples) return pixels;
+    }
+  }
+  return pixels;
+}
+
+function clusterPaletteColors(samples, centroidCount = 5, iterations = 5) {
+  if (!samples.length) return [];
+  const centroids = [];
+  for (let index = 0; index < Math.min(centroidCount, samples.length); index += 1) {
+    const source = samples[Math.floor((index / Math.max(1, centroidCount - 1)) * (samples.length - 1))];
+    centroids.push(source.slice());
+  }
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    const buckets = centroids.map(() => ({ sum: [0, 0, 0], count: 0 }));
+    samples.forEach((sample) => {
+      let bestIndex = 0;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      centroids.forEach((centroid, index) => {
+        const distance = (
+          (sample[0] - centroid[0]) ** 2
+          + (sample[1] - centroid[1]) ** 2
+          + (sample[2] - centroid[2]) ** 2
+        );
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = index;
+        }
+      });
+      buckets[bestIndex].sum[0] += sample[0];
+      buckets[bestIndex].sum[1] += sample[1];
+      buckets[bestIndex].sum[2] += sample[2];
+      buckets[bestIndex].count += 1;
+    });
+    buckets.forEach((bucket, index) => {
+      if (!bucket.count) return;
+      centroids[index] = bucket.sum.map((sum) => sum / bucket.count);
+    });
+  }
+  return centroids;
+}
+
+function extractPaletteFromTextures() {
+  const samples = [
+    ...samplePalettePixelsFromTexture(state.textures.top, 160),
+    ...samplePalettePixelsFromTexture(state.textures.face, 160),
+    ...samplePalettePixelsFromTexture(state.textures.base, 120)
+  ];
+  if (!samples.length) {
+    refs.status.innerHTML = `<span class="warn">Palette unavailable.</span> Сначала загрузи хотя бы одну texture для анализа.`;
+    return;
+  }
+  const centroids = clusterPaletteColors(samples, 5, 6)
+    .sort((a, b) => (a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722) - (b[0] * 0.2126 + b[1] * 0.7152 + b[2] * 0.0722));
+  const faceTint = rgbToHex(centroids[0] || centroids[centroids.length - 1]);
+  const baseTint = rgbToHex(centroids[Math.floor((centroids.length - 1) / 2)] || centroids[0]);
+  const topTint = rgbToHex(centroids[centroids.length - 1] || centroids[0]);
+  refs.faceTint.value = faceTint;
+  refs.baseTint.value = baseTint;
+  refs.topTint.value = topTint;
+  refreshPaletteButtons("");
+  markDirty("color");
+  scheduleRender("full");
+  refs.status.innerHTML = `<span class="ok">Palette extracted.</span> Tints собраны из загруженных textures через lightweight k-means.`;
+}
+
+function addMaterialLayer(type = refs.layerLibraryType.value) {
+  if (!MATERIAL_LAYER_TYPES[type]) return;
+  state.materialLayers.push(createMaterialLayer(type));
+  renderMaterialLayerControls();
+  markDirty("material");
+  scheduleRender("full");
+}
+
+function removeMaterialLayer(layerId) {
+  const before = state.materialLayers.length;
+  state.materialLayers = state.materialLayers.filter((layer) => layer.id !== layerId);
+  if (state.materialLayers.length === before) return;
+  renderMaterialLayerControls();
+  markDirty("material");
+  scheduleRender("full");
+}
+
+function moveMaterialLayer(dragId, targetId) {
+  if (!dragId || !targetId || dragId === targetId) return;
+  const sourceIndex = state.materialLayers.findIndex((layer) => layer.id === dragId);
+  const targetIndex = state.materialLayers.findIndex((layer) => layer.id === targetId);
+  if (sourceIndex < 0 || targetIndex < 0) return;
+  const [moved] = state.materialLayers.splice(sourceIndex, 1);
+  const nextTargetIndex = state.materialLayers.findIndex((layer) => layer.id === targetId);
+  state.materialLayers.splice(nextTargetIndex < 0 ? state.materialLayers.length : nextTargetIndex, 0, moved);
+  renderMaterialLayerControls();
+  markDirty("material");
+  scheduleRender("full");
+}
+
+function renderMaterialLayerControls() {
+  if (!refs.layerStack) return;
+  refs.layerStack.innerHTML = "";
+  updateLayerStackSummary();
+
+  state.materialLayers.forEach((layer, index) => {
+    const definition = MATERIAL_LAYER_TYPES[layer.type];
+    const card = document.createElement("div");
+    card.className = `layer-card${layer.enabled ? "" : " is-disabled"}`;
+    card.draggable = true;
+    card.dataset.layerId = layer.id;
+
+    const head = document.createElement("div");
+    head.className = "layer-card-head";
+
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "layer-card-title";
+
+    const drag = document.createElement("span");
+    drag.className = "layer-drag";
+    drag.textContent = "drag";
+    drag.title = "Перетащи, чтобы поменять порядок слоя.";
+
+    const chip = document.createElement("span");
+    chip.className = "layer-chip";
+    chip.textContent = `#${index + 1}`;
+
+    const title = document.createElement("strong");
+    title.textContent = definition.label;
+
+    titleWrap.append(drag, chip, title);
+
+    const toggle = document.createElement("label");
+    toggle.className = "layer-toggle";
+    toggle.title = "Выключает или включает вклад слоя в material map.";
+    const toggleInput = document.createElement("input");
+    toggleInput.type = "checkbox";
+    toggleInput.checked = layer.enabled;
+    const toggleText = document.createElement("span");
+    toggleText.textContent = layer.enabled ? "Enabled" : "Disabled";
+    toggle.append(toggleInput, toggleText);
+    toggleInput.addEventListener("change", () => {
+      layer.enabled = toggleInput.checked;
+      toggleText.textContent = layer.enabled ? "Enabled" : "Disabled";
+      card.classList.toggle("is-disabled", !layer.enabled);
+      updateLayerStackSummary();
+      markDirty("material");
+      scheduleRender("full");
+    });
+
+    const headActions = document.createElement("div");
+    headActions.className = "inline-tools";
+    const removeButton = document.createElement("button");
+    removeButton.className = "layer-remove";
+    removeButton.type = "button";
+    removeButton.textContent = "Remove";
+    removeButton.title = "Удалить слой из stack.";
+    removeButton.addEventListener("click", () => removeMaterialLayer(layer.id));
+    headActions.append(toggle, removeButton);
+    head.append(titleWrap, headActions);
+
+    const controls = document.createElement("div");
+    controls.className = "layer-grid";
+
+    const maskField = document.createElement("div");
+    maskField.className = "field";
+    const maskLabel = document.createElement("label");
+    maskLabel.textContent = "Mask";
+    const maskSelect = document.createElement("select");
+    maskSelect.className = "select-input";
+    MATERIAL_LAYER_MASKS.forEach((mask) => {
+      const option = document.createElement("option");
+      option.value = mask;
+      option.textContent = mask === "both" ? "Top + Face" : mask === "top" ? "Top only" : "Face only";
+      maskSelect.appendChild(option);
+    });
+    maskSelect.value = layer.mask;
+    maskSelect.title = "Куда применять слой: только top, только face или в оба material maps.";
+    maskSelect.addEventListener("change", () => {
+      layer.mask = maskSelect.value;
+      markDirty("material");
+      scheduleRender("full");
+    });
+    maskField.append(maskLabel, maskSelect);
+
+    const blendField = document.createElement("div");
+    blendField.className = "field";
+    const blendLabel = document.createElement("label");
+    blendLabel.textContent = "Blend";
+    const blendSelect = document.createElement("select");
+    blendSelect.className = "select-input";
+    MATERIAL_LAYER_BLEND_MODES.forEach((blend) => {
+      const option = document.createElement("option");
+      option.value = blend;
+      option.textContent = blend;
+      blendSelect.appendChild(option);
+    });
+    blendSelect.value = layer.blend;
+    blendSelect.title = "Blend mode слоя поверх legacy base look и предыдущих слоёв.";
+    blendSelect.addEventListener("change", () => {
+      layer.blend = blendSelect.value;
+      markDirty("material");
+      scheduleRender("full");
+    });
+    blendField.append(blendLabel, blendSelect);
+
+    const strengthField = document.createElement("div");
+    strengthField.className = "field";
+    const strengthLabel = document.createElement("label");
+    const strengthValue = document.createElement("span");
+    strengthValue.className = "value";
+    strengthValue.textContent = String(layer.strength);
+    strengthLabel.append(document.createTextNode("Strength"), strengthValue);
+    const strengthInput = document.createElement("input");
+    strengthInput.className = "range";
+    strengthInput.type = "range";
+    strengthInput.min = "0";
+    strengthInput.max = "100";
+    strengthInput.step = "1";
+    strengthInput.value = String(layer.strength);
+    strengthInput.title = "Сила вклада слоя в modulation.";
+    strengthInput.addEventListener("input", () => {
+      layer.strength = Number(strengthInput.value);
+      strengthValue.textContent = strengthInput.value;
+      markDirty("material");
+      scheduleRender("draft");
+    });
+    strengthInput.addEventListener("change", () => {
+      layer.strength = Number(strengthInput.value);
+      markDirty("material");
+      scheduleRender("full");
+    });
+    strengthField.append(strengthLabel, strengthInput);
+
+    const heightField = document.createElement("div");
+    heightField.className = "field";
+    const heightLabel = document.createElement("label");
+    const heightValue = document.createElement("span");
+    heightValue.className = "value";
+    heightValue.textContent = String(layer.heightContribution);
+    heightLabel.append(document.createTextNode("Height"), heightValue);
+    const heightInput = document.createElement("input");
+    heightInput.className = "range";
+    heightInput.type = "range";
+    heightInput.min = "0";
+    heightInput.max = "100";
+    heightInput.step = "1";
+    heightInput.value = String(layer.heightContribution);
+    heightInput.title = "Насколько слой влияет на aggregated height для normal canvas.";
+    heightInput.addEventListener("input", () => {
+      layer.heightContribution = Number(heightInput.value);
+      heightValue.textContent = heightInput.value;
+      markDirty("material");
+      scheduleRender("draft");
+    });
+    heightInput.addEventListener("change", () => {
+      layer.heightContribution = Number(heightInput.value);
+      markDirty("material");
+      scheduleRender("full");
+    });
+    heightField.append(heightLabel, heightInput);
+
+    controls.append(maskField, blendField, strengthField, heightField);
+    card.append(head, controls);
+
+    card.addEventListener("dragstart", () => {
+      state.dragLayerId = layer.id;
+      card.classList.add("is-dragging");
+    });
+    card.addEventListener("dragend", () => {
+      state.dragLayerId = null;
+      card.classList.remove("is-dragging");
+    });
+    card.addEventListener("dragover", (event) => {
+      event.preventDefault();
+    });
+    card.addEventListener("drop", (event) => {
+      event.preventDefault();
+      moveMaterialLayer(state.dragLayerId, layer.id);
+    });
+
+    refs.layerStack.appendChild(card);
+  });
+}
+
+function readJsonStorage(key, fallback) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJsonStorage(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore storage quota failures in the tool UI.
+  }
+}
+
+function readCustomPresets() {
+  const value = readJsonStorage(LOCAL_STORAGE_PRESETS_KEY, []);
+  return Array.isArray(value) ? value : [];
+}
+
+function writeCustomPresets(presets) {
+  writeJsonStorage(LOCAL_STORAGE_PRESETS_KEY, presets);
+}
+
+function refreshCustomPresetOptions() {
+  const presets = readCustomPresets();
+  const preferred = refs.customPresetSelect.value || state.customPresetName;
+  refs.customPresetSelect.innerHTML = "";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = presets.length ? "Выбери preset" : "Список пуст";
+  refs.customPresetSelect.appendChild(placeholder);
+  presets.forEach((preset) => {
+    const option = document.createElement("option");
+    option.value = preset.name;
+    option.textContent = preset.name;
+    refs.customPresetSelect.appendChild(option);
+  });
+  refs.customPresetSelect.value = presets.some((preset) => preset.name === preferred) ? preferred : "";
+  refs.customPresetMeta.textContent = presets.length
+    ? `${presets.length} custom preset(ов) в localStorage.`
+    : "Custom presets хранятся в localStorage.";
+}
+
+function buildCustomPresetPayload(name) {
+  return {
+    name,
+    basePreset: state.preset,
+    previewMode: refs.previewMode.value,
+    params: getParams(),
+    materialLayers: serializeMaterialLayers(state.materialLayers)
+  };
+}
+
+function applyCustomPresetPayload(payload) {
+  Object.entries(payload.params || {}).forEach(([key, value]) => {
+    if (refs[key]) refs[key].value = String(value);
+  });
+  state.preset = payload.basePreset || "mountain";
+  state.customPresetName = payload.name || "";
+  state.materialLayers = normalizeMaterialLayers(payload.materialLayers, state.preset);
+  refs.previewMode.value = payload.previewMode && PREVIEW_MODES.includes(payload.previewMode)
+    ? payload.previewMode
+    : refs.previewMode.value;
+  refs.presetButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.preset === state.preset);
+  });
+  refs.customPresetName.value = state.customPresetName;
+  updateRangeLabels();
+  refreshGalleryOptions();
+  refreshPaletteButtons();
+  renderMaterialLayerControls();
+}
+
+function saveCurrentCustomPreset() {
+  const name = refs.customPresetName.value.trim();
+  if (!name) {
+    refs.status.innerHTML = `<span class="warn">Нужно имя preset.</span> Введите название перед сохранением.`;
+    return;
+  }
+  const presets = readCustomPresets().filter((preset) => preset.name !== name);
+  presets.push(buildCustomPresetPayload(name));
+  presets.sort((a, b) => a.name.localeCompare(b.name));
+  writeCustomPresets(presets);
+  state.customPresetName = name;
+  refreshCustomPresetOptions();
+  refs.customPresetSelect.value = name;
+  persistSessionState();
+  refs.status.innerHTML = `<span class="ok">Preset saved.</span> \`${name}\` сохранён в localStorage.`;
+}
+
+function loadSelectedCustomPreset() {
+  const name = refs.customPresetSelect.value;
+  if (!name) return;
+  const preset = readCustomPresets().find((item) => item.name === name);
+  if (!preset) return;
+  applyCustomPresetPayload(preset);
+  markDirty("all");
+  scheduleRender("full");
+}
+
+function deleteSelectedCustomPreset() {
+  const name = refs.customPresetSelect.value;
+  if (!name) return;
+  const presets = readCustomPresets().filter((preset) => preset.name !== name);
+  writeCustomPresets(presets);
+  if (state.customPresetName === name) {
+    state.customPresetName = "";
+    refs.customPresetName.value = "";
+  }
+  refreshCustomPresetOptions();
+  persistSessionState();
+  refs.status.innerHTML = `<span class="ok">Preset removed.</span> \`${name}\` удалён из localStorage.`;
+}
+
+function persistSessionState() {
+  writeJsonStorage(LOCAL_STORAGE_SESSION_KEY, {
+    preset: state.preset,
+    customPresetName: state.customPresetName,
+    previewMode: refs.previewMode.value,
+    params: getParams(),
+    materialLayers: serializeMaterialLayers(state.materialLayers),
+    map: {
+      width: state.map.width,
+      height: state.map.height,
+      cells: state.map.cells.slice()
+    }
+  });
+}
+
+function restoreSessionState() {
+  const payload = readJsonStorage(LOCAL_STORAGE_SESSION_KEY, null);
+  if (!payload || !payload.params) return false;
+  if (payload.map && Array.isArray(payload.map.cells) && payload.map.cells.length === state.map.width * state.map.height) {
+    restoreMapSnapshot(payload.map.cells);
+  }
+  if (payload.previewMode && PREVIEW_MODES.includes(payload.previewMode)) {
+    refs.previewMode.value = payload.previewMode;
+  }
+  Object.entries(payload.params).forEach(([key, value]) => {
+    if (refs[key]) refs[key].value = String(value);
+  });
+  state.preset = payload.preset || "mountain";
+  state.customPresetName = payload.customPresetName || "";
+  state.materialLayers = normalizeMaterialLayers(payload.materialLayers, state.preset);
+  refs.customPresetName.value = state.customPresetName;
+  refs.presetButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.preset === state.preset);
+  });
+  updateRangeLabels();
+  refreshGalleryOptions();
+  refreshPaletteButtons();
+  renderMaterialLayerControls();
+  refreshCustomPresetOptions();
+  if (state.customPresetName) refs.customPresetSelect.value = state.customPresetName;
+  return true;
+}
+
+function bindGroupCollapsers() {
+  document.querySelectorAll(".sidebar .group h2").forEach((heading) => {
+    heading.setAttribute("role", "button");
+    heading.setAttribute("tabindex", "0");
+    const group = heading.closest(".group");
+    const toggle = () => {
+      if (refs.controlSearch.value.trim()) return;
+      group.classList.toggle("is-collapsed");
+    };
+    heading.addEventListener("click", toggle);
+    heading.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        toggle();
+      }
+    });
+  });
+}
+
+function applyControlSearch(query) {
+  const normalized = query.trim().toLowerCase();
+  const groups = [...document.querySelectorAll(".sidebar .group")];
+  groups.forEach((group) => {
+    const titleText = group.querySelector("h2")?.textContent.toLowerCase() || "";
+    const fields = [...group.querySelectorAll(".field, .file-card, .preset-tools, .preset-row, .actions, .hint, .preset-meta, .layer-card, .layer-note")];
+    let visibleCount = 0;
+    fields.forEach((field) => {
+      const matches = !normalized || field.textContent.toLowerCase().includes(normalized) || titleText.includes(normalized);
+      field.classList.toggle("is-hidden", !matches);
+      if (matches) visibleCount += 1;
+    });
+    group.querySelectorAll(".row").forEach((row) => {
+      const visibleChildren = [...row.children].some((child) => !child.classList.contains("is-hidden"));
+      row.classList.toggle("is-hidden", !visibleChildren && Boolean(normalized));
+    });
+    const isVisible = !normalized || visibleCount > 0 || titleText.includes(normalized);
+    group.classList.toggle("is-hidden", !isVisible);
+    if (normalized && isVisible) group.classList.remove("is-collapsed");
+  });
+}
+
+function bindControlSearch() {
+  refs.controlSearch.addEventListener("input", () => applyControlSearch(refs.controlSearch.value));
+  refs.clearSearch.addEventListener("click", () => {
+    refs.controlSearch.value = "";
+    applyControlSearch("");
+  });
+}
+
+function applyTooltips() {
+  const tooltips = {
+    tileSize: "Размер одной ячейки набора. Больше пикселей — больше detail и тяжелее preview.",
+    heightPx: "Глубина южного фасада. Главный рычаг для cliff / wall silhouette.",
+    lipPx: "Толщина верхней кромки, которая отделяет top surface от face.",
+    backRimRatio: "Насколько толстым будет северный back rim относительно lip.",
+    northRimThickness: "Дополнительная толщина северного rim поверх base ratio.",
+    roughness: "Сила зазубрин и drift в профилях граней.",
+    faceSlope: "Кривая падения высоты на фасаде: ниже значение — мягче склон, выше — отвеснее.",
+    normalStrength: "Сила shape normals в shader composite preview.",
+    textureScale: "Чем выше значение, тем мельче повторяется загруженная текстура.",
+    variants: "Сколько вариаций генерировать на каждую из 47 сигнатур.",
+    seed: "Базовый deterministic seed для материалов, вариаций и map generators.",
+    topMacroScale: "Размер крупных пятен breakup на верхней поверхности.",
+    topMacroStrength: "Контраст и заметность macro breakup на top.",
+    topPebbleDensity: "Частота камешков / blobs на top material map.",
+    topPebbleSize: "Размер камешков / blob details на top.",
+    topMicroNoise: "Сила мелкого шума на top material.",
+    topContrast: "Контраст итоговой top modulation.",
+    faceStrataStrength: "Сила горизонтальной стратификации фасада.",
+    faceVerticalFractures: "Сила и частота вертикальных трещин на face.",
+    faceChips: "Количество выбоин и chipped areas на face.",
+    faceErosion: "Размыв и erosion toward lower face.",
+    faceContrast: "Контраст face modulation.",
+    noisePreset: "Готовый профиль шума, который согласованно крутит material sliders.",
+    applyNoisePreset: "Применить выбранный noise preset к текущим material sliders.",
+    extractPalette: "Собрать top/face/base tint из загруженных textures через lightweight k-means.",
+    sunAzimuth: "Глобальное направление weathering. Snow, moss, rust и sand ориентируются по этому углу.",
+    layerLibraryType: "Выбери тип слоя, который нужно добавить в текущий stack.",
+    addMaterialLayer: "Добавить новый слой выбранного типа в конец stack.",
+    randomBlob: "Заполнить preview карту blob-like формой для быстрой проверки связности.",
+    randomCave: "Собрать cave-like карту через cellular smoothing.",
+    roomMap: "Нарисовать прямоугольную комнату для проверки наружных/внутренних кейсов.",
+    clearMap: "Очистить preview карту.",
+    undoMap: "Откатить последнее изменение карты. Hotkey: Ctrl/Cmd+Z.",
+    redoMap: "Повторить откат. Hotkey: Ctrl/Cmd+Y.",
+    saveCustomPreset: "Сохранить текущие authoring settings как именованный custom preset в localStorage.",
+    loadCustomPreset: "Загрузить выбранный custom preset из localStorage.",
+    deleteCustomPreset: "Удалить выбранный custom preset из localStorage.",
+    downloadZip: "Скачать весь текущий export bundle одним ZIP-файлом."
+  };
+  Object.entries(tooltips).forEach(([id, text]) => {
+    const element = refs[id];
+    if (element) element.title = text;
+    const label = document.querySelector(`label[for="${id}"]`);
+    if (label) label.title = text;
+  });
+  refs.paletteButtons.forEach((button) => {
+    button.title = `Применить biome palette ${button.dataset.palette}.`;
+  });
+}
+
+function bindTextureDrop() {
+  document.querySelectorAll(".file-card").forEach((card) => {
+    const input = card.querySelector('input[type="file"]');
+    if (!input) return;
+    const activate = (event) => {
+      event.preventDefault();
+      card.classList.add("is-dragover");
+    };
+    const deactivate = () => {
+      card.classList.remove("is-dragover");
+    };
+    card.addEventListener("dragenter", activate);
+    card.addEventListener("dragover", activate);
+    card.addEventListener("dragleave", deactivate);
+    card.addEventListener("drop", (event) => {
+      event.preventDefault();
+      deactivate();
+      const [file] = [...(event.dataTransfer?.files || [])];
+      if (!file) return;
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      input.files = transfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  });
 }
 
 function createSnapshotFromMap() {
@@ -336,6 +1166,7 @@ function commitHistoryStroke() {
   const changed = snapshot.some((value, index) => value !== next[index]);
   if (!changed) return;
   pushHistorySnapshot(snapshot);
+  persistSessionState();
 }
 
 function recordMapMutation(mutator) {
@@ -404,6 +1235,7 @@ function markDirty(group) {
 
 function clearCompositeCache(target = state.generated) {
   if (!target?.previewCompositeCache) return;
+  target.previewCompositeCache.forEach(releaseCanvas);
   target.previewCompositeCache.clear();
 }
 
@@ -620,30 +1452,270 @@ function buildNormalCanvas(values, alpha, width, height, strength) {
   return canvas;
 }
 
-function buildTopMaterialMap(params) {
+function overlayBlend01(base, blend) {
+  return base < 0.5
+    ? 2 * base * blend
+    : 1 - 2 * (1 - base) * (1 - blend);
+}
+
+function softLightBlend01(base, blend) {
+  const g = base <= 0.25
+    ? ((16 * base - 12) * base + 4) * base
+    : Math.sqrt(base);
+  return blend <= 0.5
+    ? base - (1 - 2 * blend) * base * (1 - base)
+    : base + (2 * blend - 1) * (g - base);
+}
+
+function blendMaterialLayerValue(base, sample, blend, strength) {
+  const t = clamp(strength / 100, 0, 1);
+  if (!t) return base;
+  switch (blend) {
+    case "add":
+      return clamp(base + (sample - 0.5) * t * 1.15, 0, 1);
+    case "multiply":
+      return clamp(lerp(base, base * (0.52 + sample * 0.96), t), 0, 1);
+    case "replace":
+      return clamp(lerp(base, sample, t), 0, 1);
+    case "softLight":
+      return clamp(lerp(base, softLightBlend01(base, sample), t), 0, 1);
+    case "overlay":
+    default:
+      return clamp(lerp(base, overlayBlend01(base, sample), t), 0, 1);
+  }
+}
+
+function layerAppliesToKind(layer, kind) {
+  return layer.mask === "both" || layer.mask === kind;
+}
+
+function periodicDirectionalMask(x, y, params, width, height, phase = 0) {
+  const angle = (((params.sunAzimuth ?? 315) + phase) % 360) * (Math.PI / 180);
+  const dirX = Math.cos(angle);
+  const dirY = Math.sin(angle);
+  const waveX = Math.cos((x / Math.max(1, width)) * Math.PI * 2);
+  const waveY = Math.sin((y / Math.max(1, height)) * Math.PI * 2);
+  const directional = clamp((waveX * dirX + waveY * dirY + 1) * 0.5, 0, 1);
+  const breakup = samplePeriodicNoisePx(x, y, 56, 2, params.seed + 821 + Math.round(phase), width, height);
+  return clamp(lerp(directional, breakup, 0.24), 0, 1);
+}
+
+function sampleMaterialLayer(type, kind, x, y, params, width, height) {
+  switch (type) {
+    case "brick": {
+      const rows = kind === "face" ? 12 : 10;
+      const cols = kind === "face" ? 8 : 10;
+      const brickHeight = height / rows;
+      const brickWidth = width / cols;
+      const row = Math.floor(y / brickHeight);
+      const offset = row % 2 ? brickWidth * 0.5 : 0;
+      const localX = mod(x + offset, brickWidth);
+      const localY = mod(y, brickHeight);
+      const edge = Math.min(localX, brickWidth - localX, localY, brickHeight - localY);
+      const mortar = 1 - smoothstep(0.6, 2.6, edge);
+      const grain = samplePeriodicNoisePx(x, y, 18, 3, params.seed + 701, width, height);
+      const chips = samplePeriodicRidgePx(x, y, 26, 2, params.seed + 711, width, height);
+      const value = clamp(0.7 + (grain - 0.5) * 0.2 - mortar * 0.6 - (chips - 0.5) * 0.08, 0, 1);
+      const heightValue = clamp(0.82 - mortar * 0.78 - chips * 0.06, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "plank": {
+      const count = kind === "face" ? 11 : 7;
+      const axisSize = kind === "face" ? width : height;
+      const boardSize = axisSize / count;
+      const axis = kind === "face" ? x : y;
+      const cross = kind === "face" ? y : x;
+      const local = mod(axis, boardSize);
+      const seam = 1 - smoothstep(0.4, 2.2, Math.min(local, boardSize - local));
+      const grain = samplePeriodicNoisePx(axis, cross, 16, 3, params.seed + 721, axisSize, kind === "face" ? height : width);
+      const knots = circleFieldPeriodic(x, y, kind === "face" ? 5 : 4, 8, params.seed + 731, width, height);
+      const value = clamp(0.56 + (grain - 0.5) * 0.34 - seam * 0.44 + knots * 0.12, 0, 1);
+      const heightValue = clamp(0.62 + (grain - 0.5) * 0.14 - seam * 0.68 + knots * 0.16, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "stoneCluster": {
+      const stones = circleFieldPeriodic(x, y, 10, kind === "face" ? 7.5 : 6.5, params.seed + 741, width, height);
+      const ridge = samplePeriodicRidgePx(x, y, 24, 3, params.seed + 751, width, height);
+      const dust = samplePeriodicNoisePx(x, y, 22, 2, params.seed + 761, width, height);
+      const value = clamp(0.5 + stones * 0.28 + (ridge - 0.5) * 0.12 + (dust - 0.5) * 0.1, 0, 1);
+      const heightValue = clamp(0.54 + stones * 0.34 + (dust - 0.5) * 0.08, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "snowDrift": {
+      const drift = samplePeriodicNoisePx(x, y, 74, 4, params.seed + 771, width, height);
+      const sparkle = samplePeriodicRidgePx(x, y, 18, 2, params.seed + 781, width, height);
+      const northBias = periodicDirectionalMask(x, y, params, width, height, -90);
+      const value = clamp(0.66 + drift * 0.24 + northBias * 0.1 + sparkle * 0.04, 0, 1);
+      const heightValue = clamp(0.62 + drift * 0.26 + northBias * 0.16, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "cracks": {
+      const main = lineFieldPeriodic(x, y, kind === "face" ? 4 : 3, 1.4, params.seed + 791, width, height, kind === "face" ? "vertical" : "horizontal");
+      const branch = lineFieldPeriodic(x + 11, y + 7, kind === "face" ? 3 : 4, 1.1, params.seed + 801, width, height, kind === "face" ? "horizontal" : "vertical");
+      const warp = samplePeriodicNoisePx(x, y, 30, 3, params.seed + 811, width, height);
+      const crack = clamp(main * 0.82 + branch * 0.46 + Math.max(0, warp - 0.7) * 1.2, 0, 1);
+      const value = clamp(0.5 - crack * 0.82 + (warp - 0.5) * 0.06, 0, 1);
+      const heightValue = clamp(0.56 - crack * 0.96, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "moss": {
+      const patches = samplePeriodicNoisePx(x, y, 42, 4, params.seed + 831, width, height);
+      const humidity = periodicDirectionalMask(x, y, params, width, height, 135);
+      const fibrous = samplePeriodicRidgePx(x, y, 18, 3, params.seed + 841, width, height);
+      const growth = clamp(patches * 0.72 + humidity * 0.28, 0, 1);
+      const value = clamp(0.44 + growth * 0.24 + fibrous * 0.08, 0, 1);
+      const heightValue = clamp(0.46 + growth * 0.18 + fibrous * 0.12, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "rivets": {
+      const columns = kind === "face" ? 8 : 6;
+      const rows = kind === "face" ? 10 : 6;
+      const cellWidth = width / columns;
+      const cellHeight = height / rows;
+      const localX = mod(x, cellWidth) - cellWidth * 0.5;
+      const localY = mod(y, cellHeight) - cellHeight * 0.5;
+      const rivet = 1 - smoothstep(cellWidth * 0.08, cellWidth * 0.24, Math.hypot(localX, localY));
+      const panel = samplePeriodicRidgePx(x, y, 28, 2, params.seed + 851, width, height);
+      const value = clamp(0.54 + panel * 0.06 + rivet * 0.34, 0, 1);
+      const heightValue = clamp(0.48 + rivet * 0.46, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "runes": {
+      const vertical = lineFieldPeriodic(x, y, 5, 1.25, params.seed + 861, width, height, "vertical");
+      const horizontal = lineFieldPeriodic(x + 17, y + 9, 4, 1.05, params.seed + 871, width, height, "horizontal");
+      const diagonals = lineFieldPeriodic(x + y * 0.72, y + x * 0.18, 3, 1.15, params.seed + 881, width, height, "vertical");
+      const symbol = clamp(vertical * 0.55 + horizontal * 0.35 + diagonals * 0.4 - 0.2, 0, 1);
+      const glow = samplePeriodicNoisePx(x, y, 30, 2, params.seed + 891, width, height);
+      const value = clamp(0.42 + symbol * 0.42 + glow * 0.08, 0, 1);
+      const heightValue = clamp(0.36 + symbol * 0.5, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "puddles": {
+      const puddleMask = circleFieldPeriodic(x, y, 6, 16, params.seed + 901, width, height);
+      const ripple = samplePeriodicNoisePx(x, y, 20, 3, params.seed + 911, width, height);
+      const value = clamp(0.34 + puddleMask * 0.18 + (ripple - 0.5) * 0.06, 0, 1);
+      const heightValue = clamp(0.48 - puddleMask * 0.28 + ripple * 0.04, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "debris": {
+      const stones = circleFieldPeriodic(x, y, 12, 5, params.seed + 921, width, height);
+      const shards = lineFieldPeriodic(x + 13, y + 19, 8, 0.85, params.seed + 931, width, height, "horizontal");
+      const dust = samplePeriodicNoisePx(x, y, 22, 2, params.seed + 941, width, height);
+      const value = clamp(0.48 + stones * 0.18 + shards * 0.1 + (dust - 0.5) * 0.08, 0, 1);
+      const heightValue = clamp(0.5 + stones * 0.24 + shards * 0.14, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "rust": {
+      const drips = lineFieldPeriodic(x, y, 6, 1.2, params.seed + 951, width, height, "vertical");
+      const oxidation = samplePeriodicNoisePx(x, y, 28, 3, params.seed + 961, width, height);
+      const weathering = periodicDirectionalMask(x, y, params, width, height, 45);
+      const streaks = clamp(drips * 0.58 + weathering * 0.28 + Math.max(0, oxidation - 0.55) * 0.5, 0, 1);
+      const value = clamp(0.46 - streaks * 0.34 + oxidation * 0.1, 0, 1);
+      const heightValue = clamp(0.5 - streaks * 0.12 + oxidation * 0.04, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "sand": {
+      const phase = (((params.sunAzimuth ?? 315) % 360) * Math.PI) / 180;
+      const ripples = 0.5 + 0.5 * Math.sin((((x * Math.cos(phase)) + (y * Math.sin(phase))) / 18) * Math.PI * 2);
+      const drift = periodicDirectionalMask(x, y, params, width, height, 0);
+      const dust = samplePeriodicNoisePx(x, y, 36, 2, params.seed + 971, width, height);
+      const value = clamp(0.56 + (ripples - 0.5) * 0.18 + drift * 0.16 + (dust - 0.5) * 0.08, 0, 1);
+      const heightValue = clamp(0.52 + drift * 0.24 + (ripples - 0.5) * 0.12, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "concrete": {
+      const speckle = samplePeriodicNoisePx(x, y, 8, 1, params.seed + 981, width, height);
+      const macro = samplePeriodicNoisePx(x, y, 52, 3, params.seed + 991, width, height);
+      const pits = circleFieldPeriodic(x, y, 18, 2.8, params.seed + 1001, width, height);
+      const value = clamp(0.52 + (macro - 0.5) * 0.14 + (speckle - 0.5) * 0.24 - pits * 0.14, 0, 1);
+      const heightValue = clamp(0.5 + (macro - 0.5) * 0.08 - pits * 0.18, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "mud": {
+      const blobs = circleFieldPeriodic(x, y, 8, 11, params.seed + 1011, width, height);
+      const drips = lineFieldPeriodic(x + 9, y + 21, 5, 1.1, params.seed + 1021, width, height, "vertical");
+      const wetness = samplePeriodicNoisePx(x, y, 30, 3, params.seed + 1031, width, height);
+      const value = clamp(0.42 + blobs * 0.2 - drips * 0.18 + wetness * 0.06, 0, 1);
+      const heightValue = clamp(0.54 + blobs * 0.18 - drips * 0.08, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "hex": {
+      const scale = 12;
+      const a = Math.abs(Math.sin((x / scale) * Math.PI));
+      const b = Math.abs(Math.sin(((x * 0.5 + y * 0.8660254) / scale) * Math.PI));
+      const c = Math.abs(Math.sin(((-x * 0.5 + y * 0.8660254) / scale) * Math.PI));
+      const edge = Math.min(a, b, c);
+      const cell = 1 - smoothstep(0.02, 0.16, edge);
+      const fill = samplePeriodicNoisePx(x, y, 26, 2, params.seed + 1041, width, height);
+      const value = clamp(0.48 + fill * 0.08 - cell * 0.36, 0, 1);
+      const heightValue = clamp(0.5 + cell * 0.32, 0, 1);
+      return { value, height: heightValue };
+    }
+    case "cobblestone": {
+      const stones = circleFieldPeriodic(x, y, 11, 8, params.seed + 1051, width, height);
+      const grout = samplePeriodicRidgePx(x, y, 14, 2, params.seed + 1061, width, height);
+      const settle = samplePeriodicNoisePx(x, y, 28, 3, params.seed + 1071, width, height);
+      const value = clamp(0.5 + stones * 0.22 - grout * 0.14 + (settle - 0.5) * 0.08, 0, 1);
+      const heightValue = clamp(0.5 + stones * 0.28 - grout * 0.08, 0, 1);
+      return { value, height: heightValue };
+    }
+    default:
+      return { value: 0.5, height: 0.5 };
+  }
+}
+
+function buildLegacyMaterialBase(kind, params) {
   const width = MATERIAL_EXPORT_SIZE;
   const height = MATERIAL_EXPORT_SIZE;
   const values = new Float32Array(width * height);
-  const macroStrength = params.topMacroStrength / 100;
-  const microStrength = params.topMicroNoise / 100;
-  const pebbleDensity = Math.max(2, Math.round(params.topPebbleDensity));
-  const pebbleSize = Math.max(1, params.topPebbleSize);
+  if (kind === "top") {
+    const macroStrength = params.topMacroStrength / 100;
+    const microStrength = params.topMicroNoise / 100;
+    const pebbleDensity = Math.max(2, Math.round(params.topPebbleDensity));
+    const pebbleSize = Math.max(1, params.topPebbleSize);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const index = y * width + x;
+        const macro = samplePeriodicNoisePx(x, y, params.topMacroScale, 4, params.seed + 101, width, height);
+        const macroRidge = samplePeriodicRidgePx(x, y, Math.max(18, params.topMacroScale * 0.45), 3, params.seed + 111, width, height);
+        const micro = samplePeriodicNoisePx(x, y, 12, 3, params.seed + 121, width, height);
+        const pebbles = circleFieldPeriodic(x, y, pebbleDensity, pebbleSize * 1.4, params.seed + 131, width, height);
+        const dust = samplePeriodicNoisePx(x, y, 34, 2, params.seed + 141, width, height);
+        let value = 0.46;
+        value += (macro - 0.5) * (0.85 * macroStrength);
+        value += (macroRidge - 0.5) * 0.2;
+        value += (micro - 0.5) * (0.34 * microStrength);
+        value += pebbles * (0.08 + pebbleSize * 0.012);
+        value += (dust - 0.5) * 0.12;
+        values[index] = applyContrast01(clamp(value, 0, 1), params.topContrast);
+      }
+    }
+  } else {
+    const strataStrength = params.faceStrataStrength / 100;
+    const fractureStrength = params.faceVerticalFractures / 100;
+    const chipsStrength = params.faceChips / 100;
+    const erosionStrength = params.faceErosion / 100;
+    const strataCount = Math.max(2, Math.round(2 + strataStrength * 7));
+    const fractureCount = Math.max(1, Math.round(1 + fractureStrength * 10));
+    const chipCells = Math.max(3, Math.round(4 + chipsStrength * 14));
 
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = y * width + x;
-      const macro = samplePeriodicNoisePx(x, y, params.topMacroScale, 4, params.seed + 101, width, height);
-      const macroRidge = samplePeriodicRidgePx(x, y, Math.max(18, params.topMacroScale * 0.45), 3, params.seed + 111, width, height);
-      const micro = samplePeriodicNoisePx(x, y, 12, 3, params.seed + 121, width, height);
-      const pebbles = circleFieldPeriodic(x, y, pebbleDensity, pebbleSize * 1.4, params.seed + 131, width, height);
-      const dust = samplePeriodicNoisePx(x, y, 34, 2, params.seed + 141, width, height);
-      let value = 0.46;
-      value += (macro - 0.5) * (0.85 * macroStrength);
-      value += (macroRidge - 0.5) * 0.2;
-      value += (micro - 0.5) * (0.34 * microStrength);
-      value += pebbles * (0.08 + pebbleSize * 0.012);
-      value += (dust - 0.5) * 0.12;
-      values[index] = applyContrast01(clamp(value, 0, 1), params.topContrast);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const index = y * width + x;
+        const strataWarp = (samplePeriodicNoisePx(x, y, 56, 2, params.seed + 201, width, height) - 0.5) * 1.5;
+        const strata = 0.5 + 0.5 * Math.sin((y / height) * Math.PI * 2 * strataCount + strataWarp);
+        const fractures = lineFieldPeriodic(x, y, fractureCount, 2 + fractureStrength * 4, params.seed + 211, width, height, "vertical");
+        const chips = circleFieldPeriodic(x, y, chipCells, 2.6 + chipsStrength * 6, params.seed + 221, width, height);
+        const erosionNoise = samplePeriodicNoisePx(x, y, 40, 3, params.seed + 231, width, height);
+        const erosionGradient = smoothstep(0, 1, y / Math.max(1, height - 1));
+        let value = 0.5;
+        value += (strata - 0.5) * (0.62 * strataStrength);
+        value -= fractures * (0.42 * fractureStrength);
+        value -= chips * (0.24 * chipsStrength);
+        value += (erosionNoise - 0.5) * (0.34 * erosionStrength);
+        value -= erosionGradient * (0.08 * erosionStrength);
+        values[index] = applyContrast01(clamp(value, 0, 1), params.faceContrast);
+      }
     }
   }
 
@@ -652,52 +1724,45 @@ function buildTopMaterialMap(params) {
     width,
     height,
     values,
-    alpha,
-    canvas: buildScalarCanvas(values, alpha, width, height),
-    normalCanvas: buildNormalCanvas(values, alpha, width, height, 0.8)
+    heightValues: values.slice(),
+    alpha
   };
 }
 
-function buildFaceMaterialMap(params) {
-  const width = MATERIAL_EXPORT_SIZE;
-  const height = MATERIAL_EXPORT_SIZE;
-  const values = new Float32Array(width * height);
-  const strataStrength = params.faceStrataStrength / 100;
-  const fractureStrength = params.faceVerticalFractures / 100;
-  const chipsStrength = params.faceChips / 100;
-  const erosionStrength = params.faceErosion / 100;
-  const strataCount = Math.max(2, Math.round(2 + strataStrength * 7));
-  const fractureCount = Math.max(1, Math.round(1 + fractureStrength * 10));
-  const chipCells = Math.max(3, Math.round(4 + chipsStrength * 14));
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = y * width + x;
-      const strataWarp = (samplePeriodicNoisePx(x, y, 56, 2, params.seed + 201, width, height) - 0.5) * 1.5;
-      const strata = 0.5 + 0.5 * Math.sin((y / height) * Math.PI * 2 * strataCount + strataWarp);
-      const fractures = lineFieldPeriodic(x, y, fractureCount, 2 + fractureStrength * 4, params.seed + 211, width, height, "vertical");
-      const chips = circleFieldPeriodic(x, y, chipCells, 2.6 + chipsStrength * 6, params.seed + 221, width, height);
-      const erosionNoise = samplePeriodicNoisePx(x, y, 40, 3, params.seed + 231, width, height);
-      const erosionGradient = smoothstep(0, 1, y / Math.max(1, height - 1));
-      let value = 0.5;
-      value += (strata - 0.5) * (0.62 * strataStrength);
-      value -= fractures * (0.42 * fractureStrength);
-      value -= chips * (0.24 * chipsStrength);
-      value += (erosionNoise - 0.5) * (0.34 * erosionStrength);
-      value -= erosionGradient * (0.08 * erosionStrength);
-      values[index] = applyContrast01(clamp(value, 0, 1), params.faceContrast);
+function buildLayeredMaterialMap(kind, params) {
+  const base = buildLegacyMaterialBase(kind, params);
+  const { width, height, values, heightValues, alpha } = base;
+  state.materialLayers.forEach((layer) => {
+    if (!layer.enabled || !layerAppliesToKind(layer, kind)) return;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const index = y * width + x;
+        const sample = sampleMaterialLayer(layer.type, kind, x, y, params, width, height);
+        values[index] = blendMaterialLayerValue(values[index], sample.value, layer.blend, layer.strength);
+        const heightMix = clamp((layer.heightContribution / 100) * (layer.strength / 100), 0, 1);
+        heightValues[index] = clamp(lerp(heightValues[index], sample.height, heightMix), 0, 1);
+      }
     }
-  }
+  });
 
-  const alpha = arrayFilled(values.length, 255);
+  const normalStrength = kind === "top" ? 0.95 : 0.9;
   return {
     width,
     height,
     values,
+    heightValues,
     alpha,
     canvas: buildScalarCanvas(values, alpha, width, height),
-    normalCanvas: buildNormalCanvas(values, alpha, width, height, 0.75)
+    normalCanvas: buildNormalCanvas(heightValues, alpha, width, height, normalStrength)
   };
+}
+
+function buildTopMaterialMap(params) {
+  return buildLayeredMaterialMap("top", params);
+}
+
+function buildFaceMaterialMap(params) {
+  return buildLayeredMaterialMap("face", params);
 }
 
 function buildMaterialAlbedoCanvas(kind, params) {
@@ -726,6 +1791,7 @@ function buildMaterialAlbedoCanvas(kind, params) {
 
 function getParams() {
   return {
+    noisePreset: refs.noisePreset.value,
     tileSize: Number(refs.tileSize.value),
     heightPx: Number(refs.heightPx.value),
     lipPx: Number(refs.lipPx.value),
@@ -755,12 +1821,14 @@ function getParams() {
     faceVerticalFractures: Number(refs.faceVerticalFractures.value),
     faceChips: Number(refs.faceChips.value),
     faceErosion: Number(refs.faceErosion.value),
-    faceContrast: Number(refs.faceContrast.value)
+    faceContrast: Number(refs.faceContrast.value),
+    sunAzimuth: Number(refs.sunAzimuth.value)
   };
 }
 
 function formatRangeValue(id, value) {
   if (id === "backRimRatio") return Number(value).toFixed(2);
+  if (id === "sunAzimuth") return `${value}°`;
   return String(value);
 }
 
@@ -773,6 +1841,11 @@ function updateRangeLabels() {
 
 function applyPreset(name) {
   state.preset = name;
+  state.customPresetName = "";
+  resetMaterialLayersForPreset(name);
+  if (refs.noisePreset && PRESET_NOISE_PROFILES[name]) {
+    refs.noisePreset.value = PRESET_NOISE_PROFILES[name];
+  }
   const preset = PRESETS[name];
   Object.entries(preset).forEach(([key, value]) => {
     if (refs[key]) refs[key].value = String(value);
@@ -780,7 +1853,11 @@ function applyPreset(name) {
   refs.presetButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.preset === name);
   });
+  refs.customPresetName.value = "";
+  refs.customPresetSelect.value = "";
   updateRangeLabels();
+  refreshPaletteButtons();
+  renderMaterialLayerControls();
 }
 
 function initMap() {
@@ -1277,12 +2354,14 @@ function buildAtlases(params, generated = state.generated) {
   Object.values(generated.atlases).forEach(releaseCanvas);
   generated.atlases = {};
   generated.atlasManifest = [];
+  const atlasContexts = {};
 
   PREVIEW_MODES.forEach((mode) => {
     const canvas = createCanvas(columns * params.tileSize, rows * params.tileSize);
     const ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = false;
     generated.atlases[mode] = canvas;
+    atlasContexts[mode] = ctx;
   });
 
   let atlasIndex = 0;
@@ -1294,7 +2373,7 @@ function buildAtlases(params, generated = state.generated) {
       const dx = col * params.tileSize;
       const dy = row * params.tileSize;
       PREVIEW_MODES.forEach((mode) => {
-        generated.atlases[mode].getContext("2d").drawImage(tile.canvases[mode], dx, dy);
+        atlasContexts[mode].drawImage(tile.canvases[mode], dx, dy);
       });
       generated.atlasManifest.push({ atlasIndex, variant: variantIndex, key: signature.key, label: signature.label, column: col, row });
       atlasIndex += 1;
@@ -1431,6 +2510,9 @@ function drawPreview(params = getParams(), generated = state.generated, options 
     }
   }
 
+  if (state.preview.sourceCanvas && state.preview.sourceCanvas !== logicalCanvas) {
+    releaseCanvas(state.preview.sourceCanvas);
+  }
   state.preview.sourceCanvas = logicalCanvas;
   state.preview.logicalTileSize = params.tileSize;
   state.preview.isDraft = Boolean(options.draft);
@@ -1542,6 +2624,8 @@ function createRoomMap() {
   if (changed && state.generated.tiles.length) {
     markDirty("map");
     drawPreview();
+    state.dirty.map = false;
+    persistSessionState();
   }
 }
 
@@ -1564,6 +2648,8 @@ function createBlobMap() {
   if (changed && state.generated.tiles.length) {
     markDirty("map");
     drawPreview();
+    state.dirty.map = false;
+    persistSessionState();
   }
 }
 
@@ -1596,6 +2682,8 @@ function createCaveMap() {
   if (changed && state.generated.tiles.length) {
     markDirty("map");
     drawPreview();
+    state.dirty.map = false;
+    persistSessionState();
   }
 }
 
@@ -1606,6 +2694,8 @@ function clearMap() {
   if (changed && state.generated.tiles.length) {
     markDirty("map");
     drawPreview();
+    state.dirty.map = false;
+    persistSessionState();
   }
 }
 
@@ -1669,11 +2759,17 @@ function rebuildAll() {
   Object.keys(state.dirty).forEach((key) => {
     state.dirty[key] = false;
   });
+  persistSessionState();
   refs.status.innerHTML = `<span class="ok">Готово.</span> ${state.catalog.length} сигнатур × ${params.variants} вариантов = ${state.catalog.length * params.variants} тайлов.`;
 }
 
 function refreshVisibleOutputs() {
   if (!state.generated.tiles.length) return;
+  if (state.pendingRenderTimer) {
+    clearTimeout(state.pendingRenderTimer);
+    state.pendingRenderTimer = null;
+    state.pendingRenderMode = null;
+  }
   markDirty("previewMode");
   rebuildAll();
 }
@@ -1694,28 +2790,52 @@ function scheduleRender(mode = "full") {
   }, delay);
 }
 
+function downloadBlob(blob, fileName) {
+  if (!blob) return;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1200);
+}
+
 function downloadCanvas(canvas, fileName) {
   if (!canvas) return;
   canvas.toBlob((blob) => {
     if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1200);
+    downloadBlob(blob, fileName);
   }, "image/png");
 }
 
-function downloadMaterialRecipe() {
+function buildExportFileNames(params = getParams()) {
+  const base = buildExportBaseName(params);
+  return {
+    albedoAtlas: `${base}_albedo_atlas.png`,
+    maskAtlas: `${base}_mask_atlas.png`,
+    shapeNormalAtlas: `${base}_shape_normal_atlas.png`,
+    topAlbedo: `${base}_top_albedo.png`,
+    faceAlbedo: `${base}_face_albedo.png`,
+    topModulation: `${base}_top_modulation.png`,
+    faceModulation: `${base}_face_modulation.png`,
+    preview: `${base}_preview.png`,
+    recipe: `${base}_material_recipe.json`,
+    zip: `${base}_bundle.zip`
+  };
+}
+
+function buildMaterialRecipePayload() {
   const params = getParams();
-  const payload = {
+  const fileNames = buildExportFileNames(params);
+  return {
     tool: "Cliff Forge 47",
-    version: 3,
+    version: 5,
     generatedAt: new Date().toISOString(),
     preset: state.preset,
+    customPresetName: state.customPresetName || null,
     previewMode: state.previewMode,
     params,
+    materialLayers: serializeMaterialLayers(state.materialLayers),
     map: {
       width: state.map.width,
       height: state.map.height,
@@ -1729,26 +2849,155 @@ function downloadMaterialRecipe() {
     channelPacking: {
       maskAtlas: { R: "top mask", G: "face mask", B: "back rim mask", A: "occupancy" }
     },
-    exports: {
-      albedoAtlas: "rimworld_47_albedo_atlas.png",
-      maskAtlas: "rimworld_47_mask_atlas.png",
-      shapeNormalAtlas: "rimworld_47_shape_normal_atlas.png",
-      topAlbedo: "rimworld_top_albedo.png",
-      faceAlbedo: "rimworld_face_albedo.png",
-      topModulation: "rimworld_top_modulation.png",
-      faceModulation: "rimworld_face_modulation.png",
-      preview: "rimworld_preview.png",
-      recipe: "rimworld_material_recipe.json"
-    },
+    exports: fileNames,
     atlasManifest: state.generated.atlasManifest
   };
+}
+
+function downloadMaterialRecipe() {
+  const payload = buildMaterialRecipePayload();
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "rimworld_material_recipe.json";
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1200);
+  downloadBlob(blob, payload.exports.recipe);
+}
+
+function canvasToBlobAsync(canvas) {
+  return new Promise((resolve, reject) => {
+    if (!canvas) {
+      reject(new Error("Canvas missing"));
+      return;
+    }
+    canvas.toBlob((blob) => {
+      if (!blob) reject(new Error("Canvas export failed"));
+      else resolve(blob);
+    }, "image/png");
+  });
+}
+
+function crc32(bytes) {
+  if (!crc32.table) {
+    crc32.table = new Uint32Array(256);
+    for (let i = 0; i < 256; i += 1) {
+      let c = i;
+      for (let j = 0; j < 8; j += 1) {
+        c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      }
+      crc32.table[i] = c >>> 0;
+    }
+  }
+  let crc = 0xffffffff;
+  for (let i = 0; i < bytes.length; i += 1) {
+    crc = crc32.table[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function buildZipBlob(files) {
+  const encoder = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  files.forEach((file) => {
+    const nameBytes = encoder.encode(file.name);
+    const data = file.bytes;
+    const header = new Uint8Array(30 + nameBytes.length);
+    const headerView = new DataView(header.buffer);
+    headerView.setUint32(0, 0x04034b50, true);
+    headerView.setUint16(4, 20, true);
+    headerView.setUint16(6, 0, true);
+    headerView.setUint16(8, 0, true);
+    headerView.setUint16(10, 0, true);
+    headerView.setUint16(12, 0, true);
+    headerView.setUint32(14, crc32(data), true);
+    headerView.setUint32(18, data.length, true);
+    headerView.setUint32(22, data.length, true);
+    headerView.setUint16(26, nameBytes.length, true);
+    headerView.setUint16(28, 0, true);
+    header.set(nameBytes, 30);
+    localParts.push(header, data);
+
+    const central = new Uint8Array(46 + nameBytes.length);
+    const centralView = new DataView(central.buffer);
+    centralView.setUint32(0, 0x02014b50, true);
+    centralView.setUint16(4, 20, true);
+    centralView.setUint16(6, 20, true);
+    centralView.setUint16(8, 0, true);
+    centralView.setUint16(10, 0, true);
+    centralView.setUint16(12, 0, true);
+    centralView.setUint16(14, 0, true);
+    centralView.setUint32(16, crc32(data), true);
+    centralView.setUint32(20, data.length, true);
+    centralView.setUint32(24, data.length, true);
+    centralView.setUint16(28, nameBytes.length, true);
+    centralView.setUint16(30, 0, true);
+    centralView.setUint16(32, 0, true);
+    centralView.setUint16(34, 0, true);
+    centralView.setUint16(36, 0, true);
+    centralView.setUint32(38, 0, true);
+    centralView.setUint32(42, offset, true);
+    central.set(nameBytes, 46);
+    centralParts.push(central);
+
+    offset += header.length + data.length;
+  });
+
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = new Uint8Array(22);
+  const endView = new DataView(end.buffer);
+  endView.setUint32(0, 0x06054b50, true);
+  endView.setUint16(4, 0, true);
+  endView.setUint16(6, 0, true);
+  endView.setUint16(8, files.length, true);
+  endView.setUint16(10, files.length, true);
+  endView.setUint32(12, centralSize, true);
+  endView.setUint32(16, offset, true);
+  endView.setUint16(20, 0, true);
+
+  return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+}
+
+async function downloadBundleZip() {
+  const fileNames = buildExportFileNames();
+  const recipeBytes = new TextEncoder().encode(JSON.stringify(buildMaterialRecipePayload(), null, 2));
+  const files = [
+    { name: fileNames.albedoAtlas, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.atlases.albedo)).arrayBuffer()) },
+    { name: fileNames.maskAtlas, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.atlases.mask)).arrayBuffer()) },
+    { name: fileNames.shapeNormalAtlas, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.atlases.shapeNormal)).arrayBuffer()) },
+    { name: fileNames.topAlbedo, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.material.topAlbedo)).arrayBuffer()) },
+    { name: fileNames.faceAlbedo, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.material.faceAlbedo)).arrayBuffer()) },
+    { name: fileNames.topModulation, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.material.top?.canvas)).arrayBuffer()) },
+    { name: fileNames.faceModulation, bytes: new Uint8Array(await (await canvasToBlobAsync(state.generated.material.face?.canvas)).arrayBuffer()) },
+    { name: fileNames.preview, bytes: new Uint8Array(await (await canvasToBlobAsync(state.preview.sourceCanvas || refs.previewCanvas)).arrayBuffer()) },
+    { name: fileNames.recipe, bytes: recipeBytes }
+  ];
+  downloadBlob(buildZipBlob(files), fileNames.zip);
+}
+
+function zoomPreviewTo(nextScale, clientX, clientY) {
+  const view = state.preview.view;
+  const targetScale = clamp(nextScale, 0.5, 6);
+  if (!refs.previewViewport) {
+    view.scale = targetScale;
+    applyPreviewTransform();
+    return;
+  }
+  const rect = refs.previewViewport.getBoundingClientRect();
+  const localX = clientX - rect.left;
+  const localY = clientY - rect.top;
+  const worldX = (localX - view.offsetX) / view.scale;
+  const worldY = (localY - view.offsetY) / view.scale;
+  view.scale = targetScale;
+  view.offsetX = localX - worldX * view.scale;
+  view.offsetY = localY - worldY * view.scale;
+  applyPreviewTransform();
+}
+
+function shuffleSeed() {
+  refs.seed.value = String(Math.floor(Math.random() * 2147483647));
+  markDirty("material");
+  markDirty("color");
+  markDirty("variants");
+  scheduleRender("full");
 }
 
 function loadMaterialRecipe(file) {
@@ -1771,9 +3020,20 @@ function loadMaterialRecipe(file) {
         refs.previewMode.value = payload.previewMode;
         state.previewMode = payload.previewMode;
       }
+      state.customPresetName = payload.customPresetName || "";
+      state.materialLayers = normalizeMaterialLayers(payload.materialLayers, state.preset);
+      refs.customPresetName.value = state.customPresetName;
+      refreshPaletteButtons();
+      renderMaterialLayerControls();
+      refreshCustomPresetOptions();
+      if (state.customPresetName) refs.customPresetSelect.value = state.customPresetName;
       if (payload.map && Array.isArray(payload.map.cells) && payload.map.cells.length === state.map.width * state.map.height) {
         restoreMapSnapshot(payload.map.cells);
       }
+      state.history.past = [];
+      state.history.future = [];
+      state.history.strokeSnapshot = null;
+      updateHistoryButtons();
       updateRangeLabels();
       refreshGalleryOptions();
       markDirty("all");
@@ -1796,6 +3056,8 @@ function undoMap() {
   if (state.generated.tiles.length) {
     markDirty("map");
     drawPreview();
+    state.dirty.map = false;
+    persistSessionState();
   }
 }
 
@@ -1808,6 +3070,8 @@ function redoMap() {
   if (state.generated.tiles.length) {
     markDirty("map");
     drawPreview();
+    state.dirty.map = false;
+    persistSessionState();
   }
 }
 
@@ -1815,6 +3079,10 @@ function bindPreviewPainting() {
   const canvas = refs.previewCanvas;
   let painting = false;
   let paintValue = 1;
+
+  function isPanGesture(event) {
+    return event.button === 1 || (event.button === 0 && state.preview.view.spaceHeld);
+  }
 
   function applyPaint(event) {
     const rect = canvas.getBoundingClientRect();
@@ -1829,30 +3097,82 @@ function bindPreviewPainting() {
     setMapCell(x, y, paintValue);
     markDirty("map");
     drawPreview();
+    state.dirty.map = false;
   }
 
   canvas.addEventListener("pointerdown", (event) => {
+    if (isPanGesture(event)) {
+      if (event.button === 0 && state.preview.view.spaceHeld) {
+        state.preview.view.spaceUsedForPan = true;
+      }
+      state.preview.view.isPanning = true;
+      state.preview.view.pointerId = event.pointerId;
+      state.preview.view.originX = event.clientX - state.preview.view.offsetX;
+      state.preview.view.originY = event.clientY - state.preview.view.offsetY;
+      canvas.setPointerCapture?.(event.pointerId);
+      applyPreviewTransform();
+      return;
+    }
+    if (event.button !== 0 && event.button !== 2) return;
     painting = true;
     paintValue = event.button === 2 ? 0 : 1;
     beginHistoryStroke();
-    canvas.setPointerCapture(event.pointerId);
+    canvas.setPointerCapture?.(event.pointerId);
     applyPaint(event);
   });
   canvas.addEventListener("pointermove", (event) => {
+    if (state.preview.view.isPanning && state.preview.view.pointerId === event.pointerId) {
+      state.preview.view.offsetX = event.clientX - state.preview.view.originX;
+      state.preview.view.offsetY = event.clientY - state.preview.view.originY;
+      applyPreviewTransform();
+      return;
+    }
     if (painting) applyPaint(event);
   });
-  window.addEventListener("pointerup", (event) => {
+  function releasePointerInteraction(event) {
+    if (state.preview.view.isPanning && state.preview.view.pointerId === event.pointerId) {
+      state.preview.view.isPanning = false;
+      state.preview.view.pointerId = null;
+      if (canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      applyPreviewTransform();
+      return;
+    }
+    if (!painting) return;
     painting = false;
     if (canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     commitHistoryStroke();
-  });
+  }
+  window.addEventListener("pointerup", releasePointerInteraction);
+  window.addEventListener("pointercancel", releasePointerInteraction);
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 }
 
+function bindPreviewViewport() {
+  refs.previewViewport.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+    zoomPreviewTo(state.preview.view.scale * factor, event.clientX, event.clientY);
+  }, { passive: false });
+  refs.resetPreviewView.addEventListener("click", resetPreviewView);
+  updatePreviewZoomLabel();
+}
+
 function bindShortcuts() {
-  window.addEventListener("keydown", (event) => {
+  function isEditingElement() {
     const activeTag = document.activeElement?.tagName;
-    if (activeTag === "INPUT" || activeTag === "SELECT" || activeTag === "TEXTAREA") return;
+    return activeTag === "INPUT" || activeTag === "SELECT" || activeTag === "TEXTAREA";
+  }
+
+  window.addEventListener("keydown", (event) => {
+    const editing = isEditingElement();
+    if (event.code === "Space" && !editing) {
+      if (!state.preview.view.spaceHeld) {
+        state.preview.view.spaceHeld = true;
+        state.preview.view.spaceUsedForPan = false;
+      }
+      event.preventDefault();
+    }
+    if (editing) return;
     const key = event.key.toLowerCase();
     const isUndo = (event.ctrlKey || event.metaKey) && !event.shiftKey && key === "z";
     const isRedo = (event.ctrlKey || event.metaKey) && (key === "y" || (event.shiftKey && key === "z"));
@@ -1862,6 +3182,37 @@ function bindShortcuts() {
     } else if (isRedo) {
       event.preventDefault();
       redoMap();
+    } else if (!event.ctrlKey && !event.metaKey && key === "r") {
+      event.preventDefault();
+      shuffleSeed();
+    } else if (!event.ctrlKey && !event.metaKey && event.code === "Space") {
+      event.preventDefault();
+    } else if (!event.ctrlKey && !event.metaKey && ["1", "2", "3"].includes(event.key)) {
+      event.preventDefault();
+      const button = refs.presetButtons[Number(event.key) - 1];
+      button?.click();
+    }
+  });
+  window.addEventListener("keyup", (event) => {
+    if (event.code === "Space") {
+      const editing = isEditingElement();
+      const usedForPan = state.preview.view.spaceUsedForPan || state.preview.view.isPanning;
+      state.preview.view.spaceHeld = false;
+      state.preview.view.spaceUsedForPan = false;
+      if (editing) return;
+      event.preventDefault();
+      if (usedForPan) return;
+      markDirty("all");
+      scheduleRender("full");
+    }
+  });
+  window.addEventListener("blur", () => {
+    state.preview.view.spaceHeld = false;
+    state.preview.view.spaceUsedForPan = false;
+    if (state.preview.view.isPanning) {
+      state.preview.view.isPanning = false;
+      state.preview.view.pointerId = null;
+      applyPreviewTransform();
     }
   });
 }
@@ -1880,7 +3231,7 @@ function bindUi() {
   });
 
   const shapeRangeIds = new Set(["tileSize", "heightPx", "lipPx", "backRimRatio", "northRimThickness", "roughness", "faceSlope", "normalStrength"]);
-  const materialRangeIds = new Set(["topMacroScale", "topMacroStrength", "topPebbleDensity", "topPebbleSize", "topMicroNoise", "topContrast", "faceStrataStrength", "faceVerticalFractures", "faceChips", "faceErosion", "faceContrast"]);
+  const materialRangeIds = new Set(["topMacroScale", "topMacroStrength", "topPebbleDensity", "topPebbleSize", "topMicroNoise", "topContrast", "faceStrataStrength", "faceVerticalFractures", "faceChips", "faceErosion", "faceContrast", "sunAzimuth"]);
   const colorRangeIds = new Set(["textureScale", "tintJitter", "topTintOpacity", "faceTintOpacity", "baseTintOpacity"]);
 
   RANGE_IDS.forEach((id) => {
@@ -1916,6 +3267,7 @@ function bindUi() {
   refs.galleryVariant.addEventListener("change", () => {
     markDirty("gallery");
     buildGallery();
+    state.dirty.gallery = false;
   });
   refs.regenerate.addEventListener("click", () => {
     markDirty("all");
@@ -1923,18 +3275,34 @@ function bindUi() {
   });
   COLOR_IDS.forEach((id) => {
     refs[id].addEventListener("input", () => {
+      refreshPaletteButtons();
       markDirty("color");
       scheduleRender("draft");
     });
     refs[id].addEventListener("change", () => {
+      refreshPaletteButtons();
       markDirty("color");
       scheduleRender("full");
     });
   });
 
+  refs.applyNoisePreset.addEventListener("click", applyNoisePreset);
+  refs.extractPalette.addEventListener("click", extractPaletteFromTextures);
+  refs.addMaterialLayer.addEventListener("click", () => addMaterialLayer(refs.layerLibraryType.value));
+  refs.paletteButtons.forEach((button) => {
+    button.addEventListener("click", () => applyBiomePalette(button.dataset.palette));
+  });
+
   refs.baseTexture.addEventListener("change", () => readTexture(refs.baseTexture, "base"));
   refs.topTexture.addEventListener("change", () => readTexture(refs.topTexture, "top"));
   refs.faceTexture.addEventListener("change", () => readTexture(refs.faceTexture, "face"));
+  refs.saveCustomPreset.addEventListener("click", saveCurrentCustomPreset);
+  refs.loadCustomPreset.addEventListener("click", loadSelectedCustomPreset);
+  refs.deleteCustomPreset.addEventListener("click", deleteSelectedCustomPreset);
+  refs.customPresetSelect.addEventListener("change", () => {
+    const selected = refs.customPresetSelect.value;
+    if (selected) refs.customPresetName.value = selected;
+  });
 
   refs.randomBlob.addEventListener("click", createBlobMap);
   refs.randomCave.addEventListener("click", createCaveMap);
@@ -1943,15 +3311,20 @@ function bindUi() {
   refs.undoMap.addEventListener("click", undoMap);
   refs.redoMap.addEventListener("click", redoMap);
 
-  refs.downloadAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.albedo, "rimworld_47_albedo_atlas.png"));
-  refs.downloadMaskAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.mask, "rimworld_47_mask_atlas.png"));
-  refs.downloadNormalAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.shapeNormal, "rimworld_47_shape_normal_atlas.png"));
-  refs.downloadTopAlbedo.addEventListener("click", () => downloadCanvas(state.generated.material.topAlbedo, "rimworld_top_albedo.png"));
-  refs.downloadFaceAlbedo.addEventListener("click", () => downloadCanvas(state.generated.material.faceAlbedo, "rimworld_face_albedo.png"));
-  refs.downloadTopModulation.addEventListener("click", () => downloadCanvas(state.generated.material.top?.canvas, "rimworld_top_modulation.png"));
-  refs.downloadFaceModulation.addEventListener("click", () => downloadCanvas(state.generated.material.face?.canvas, "rimworld_face_modulation.png"));
-  refs.downloadPreview.addEventListener("click", () => downloadCanvas(state.preview.sourceCanvas || refs.previewCanvas, "rimworld_preview.png"));
+  refs.downloadAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.albedo, buildExportFileNames().albedoAtlas));
+  refs.downloadMaskAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.mask, buildExportFileNames().maskAtlas));
+  refs.downloadNormalAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.shapeNormal, buildExportFileNames().shapeNormalAtlas));
+  refs.downloadTopAlbedo.addEventListener("click", () => downloadCanvas(state.generated.material.topAlbedo, buildExportFileNames().topAlbedo));
+  refs.downloadFaceAlbedo.addEventListener("click", () => downloadCanvas(state.generated.material.faceAlbedo, buildExportFileNames().faceAlbedo));
+  refs.downloadTopModulation.addEventListener("click", () => downloadCanvas(state.generated.material.top?.canvas, buildExportFileNames().topModulation));
+  refs.downloadFaceModulation.addEventListener("click", () => downloadCanvas(state.generated.material.face?.canvas, buildExportFileNames().faceModulation));
+  refs.downloadPreview.addEventListener("click", () => downloadCanvas(state.preview.sourceCanvas || refs.previewCanvas, buildExportFileNames().preview));
   refs.downloadJson.addEventListener("click", downloadMaterialRecipe);
+  refs.downloadZip.addEventListener("click", () => {
+    downloadBundleZip().catch((error) => {
+      refs.status.innerHTML = `<span class="warn">Ошибка ZIP.</span> ${error.message}`;
+    });
+  });
   refs.loadJson.addEventListener("change", () => loadMaterialRecipe(refs.loadJson.files[0]));
 }
 
@@ -1959,14 +3332,19 @@ function boot() {
   buildCatalog();
   initMap();
   applyPreset("mountain");
-  refreshGalleryOptions();
-  updateRangeLabels();
+  refreshCustomPresetOptions();
+  bindGroupCollapsers();
+  bindControlSearch();
+  applyTooltips();
+  bindTextureDrop();
+  bindPreviewViewport();
+  const restoredSession = restoreSessionState();
   refs.catalogInfo.textContent = `${state.catalog.length}/47`;
   bindUi();
   bindPreviewPainting();
   bindShortcuts();
   updateHistoryButtons();
-  createBlobMap();
+  if (!restoredSession) createBlobMap();
   markDirty("all");
   scheduleRender("full");
 }
