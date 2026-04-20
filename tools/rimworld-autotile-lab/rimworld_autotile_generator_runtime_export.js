@@ -148,6 +148,8 @@ const refs = {
   randomCave: document.getElementById("randomCave"),
   roomMap: document.getElementById("roomMap"),
   clearMap: document.getElementById("clearMap"),
+  undoMap: document.getElementById("undoMap"),
+  redoMap: document.getElementById("redoMap"),
   downloadAtlas: document.getElementById("downloadAtlas"),
   downloadMaskAtlas: document.getElementById("downloadMaskAtlas"),
   downloadNormalAtlas: document.getElementById("downloadNormalAtlas"),
@@ -157,6 +159,7 @@ const refs = {
   downloadFaceModulation: document.getElementById("downloadFaceModulation"),
   downloadPreview: document.getElementById("downloadPreview"),
   downloadJson: document.getElementById("downloadJson"),
+  loadJson: document.getElementById("loadJson"),
   regenerate: document.getElementById("regenerate")
 };
 
@@ -192,6 +195,17 @@ const COLOR_IDS = ["topTint", "faceTint", "baseTint"];
 const PREVIEW_MODES = ["albedo", "mask", "shapeHeight", "shapeNormal", "shaderComposite"];
 const MATERIAL_EXPORT_SIZE = 512;
 
+function createGeneratedState() {
+  return {
+    tiles: [],
+    baseVariants: [],
+    atlasManifest: [],
+    atlases: {},
+    material: { top: null, face: null, topAlbedo: null, faceAlbedo: null },
+    previewCompositeCache: new Map()
+  };
+}
+
 const state = {
   preset: "mountain",
   previewMode: "shaderComposite",
@@ -199,15 +213,33 @@ const state = {
   catalogByKey: new Map(),
   textures: { base: null, top: null, face: null },
   textureNames: { base: "procedural", top: "procedural", face: "procedural" },
-  generated: {
-    tiles: [],
-    baseVariants: [],
-    atlasManifest: [],
-    atlases: {},
-    material: { top: null, face: null, topAlbedo: null, faceAlbedo: null }
+  generated: createGeneratedState(),
+  preview: {
+    sourceCanvas: null,
+    logicalTileSize: 64,
+    isDraft: false
   },
   map: { width: 18, height: 12, cells: [] },
-  pendingRender: null
+  pendingRenderTimer: null,
+  pendingRenderMode: null,
+  galleryCards: new Map(),
+  history: {
+    past: [],
+    future: [],
+    limit: 64,
+    strokeSnapshot: null
+  },
+  dirty: {
+    shape: true,
+    material: true,
+    color: true,
+    variants: true,
+    map: true,
+    previewMode: true,
+    gallery: true,
+    stats: true,
+    swatches: true
+  }
 };
 
 function clamp(value, min, max) {
@@ -247,6 +279,132 @@ function createCanvas(width, height) {
   canvas.width = width;
   canvas.height = height;
   return canvas;
+}
+
+function releaseCanvas(canvas) {
+  if (!canvas) return;
+  canvas.width = 0;
+  canvas.height = 0;
+}
+
+function presentCanvas(displayCanvas, sourceCanvas) {
+  if (!displayCanvas || !sourceCanvas) return;
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const logicalWidth = sourceCanvas.width;
+  const logicalHeight = sourceCanvas.height;
+  displayCanvas.width = Math.max(1, Math.round(logicalWidth * dpr));
+  displayCanvas.height = Math.max(1, Math.round(logicalHeight * dpr));
+  displayCanvas.style.width = `${logicalWidth}px`;
+  displayCanvas.style.height = `${logicalHeight}px`;
+  displayCanvas.dataset.logicalWidth = String(logicalWidth);
+  displayCanvas.dataset.logicalHeight = String(logicalHeight);
+  const ctx = displayCanvas.getContext("2d");
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(sourceCanvas, 0, 0, displayCanvas.width, displayCanvas.height);
+}
+
+function createSnapshotFromMap() {
+  return state.map.cells.slice();
+}
+
+function restoreMapSnapshot(snapshot) {
+  state.map.cells = snapshot.slice();
+}
+
+function pushHistorySnapshot(snapshot) {
+  state.history.past.push(snapshot);
+  if (state.history.past.length > state.history.limit) {
+    state.history.past.shift();
+  }
+  state.history.future = [];
+  updateHistoryButtons();
+}
+
+function beginHistoryStroke() {
+  if (!state.history.strokeSnapshot) {
+    state.history.strokeSnapshot = createSnapshotFromMap();
+  }
+}
+
+function commitHistoryStroke() {
+  const snapshot = state.history.strokeSnapshot;
+  state.history.strokeSnapshot = null;
+  if (!snapshot) return;
+  const next = createSnapshotFromMap();
+  const changed = snapshot.some((value, index) => value !== next[index]);
+  if (!changed) return;
+  pushHistorySnapshot(snapshot);
+}
+
+function recordMapMutation(mutator) {
+  const before = createSnapshotFromMap();
+  mutator();
+  const after = createSnapshotFromMap();
+  const changed = before.some((value, index) => value !== after[index]);
+  if (!changed) return false;
+  pushHistorySnapshot(before);
+  return true;
+}
+
+function updateHistoryButtons() {
+  if (refs.undoMap) refs.undoMap.disabled = state.history.past.length === 0;
+  if (refs.redoMap) refs.redoMap.disabled = state.history.future.length === 0;
+}
+
+function markDirty(group) {
+  switch (group) {
+    case "shape":
+      state.dirty.shape = true;
+      state.dirty.previewMode = true;
+      state.dirty.gallery = true;
+      break;
+    case "material":
+      state.dirty.material = true;
+      state.dirty.previewMode = true;
+      state.dirty.gallery = true;
+      state.dirty.swatches = true;
+      break;
+    case "color":
+      state.dirty.color = true;
+      state.dirty.previewMode = true;
+      state.dirty.gallery = true;
+      state.dirty.swatches = true;
+      break;
+    case "variants":
+      state.dirty.variants = true;
+      state.dirty.previewMode = true;
+      state.dirty.gallery = true;
+      state.dirty.stats = true;
+      state.dirty.swatches = true;
+      break;
+    case "map":
+      state.dirty.map = true;
+      break;
+    case "previewMode":
+      state.dirty.previewMode = true;
+      state.dirty.gallery = true;
+      break;
+    case "gallery":
+      state.dirty.gallery = true;
+      break;
+    case "swatches":
+      state.dirty.swatches = true;
+      break;
+    case "all":
+      Object.keys(state.dirty).forEach((key) => {
+        state.dirty[key] = true;
+      });
+      break;
+    default:
+      break;
+  }
+}
+
+function clearCompositeCache(target = state.generated) {
+  if (!target?.previewCompositeCache) return;
+  target.previewCompositeCache.clear();
 }
 
 function applyContrast01(value, contrastPercent) {
@@ -929,12 +1087,12 @@ function buildBaseColor(x, y, params, offsets) {
   return scaleColor(baseColor, gain);
 }
 
-function buildSurfaceColor(kind, zone, x, y, params, offsets) {
+function buildSurfaceColor(kind, zone, x, y, params, offsets, materialSet = state.generated.material) {
   const isTopLike = kind === "top";
   const tint = hexToRgb(isTopLike ? params.topTint : params.faceTint);
   const texture = isTopLike ? state.textures.top : state.textures.face;
   const tintOpacity = isTopLike ? params.topTintOpacity : params.faceTintOpacity;
-  const materialMap = isTopLike ? state.generated.material.top : state.generated.material.face;
+  const materialMap = isTopLike ? materialSet.top : materialSet.face;
   const sample = sampleTextureColor(texture, x, y, params, offsets);
   const modulation = sampleScalar(materialMap.values, materialMap.width, materialMap.height, x + offsets.ox, y + offsets.oy);
   const zoneBrightness = zone === "back" ? 0.84 : zone === "face" ? 0.7 : 1;
@@ -945,7 +1103,7 @@ function buildSurfaceColor(kind, zone, x, y, params, offsets) {
   return scaleColor(baseColor, gain);
 }
 
-function paintLayeredTile(tile, params, offsets, compositeMode, originX = 0, originY = 0) {
+function paintLayeredTile(tile, params, offsets, compositeMode, originX = 0, originY = 0, materialSet = state.generated.material) {
   const size = params.tileSize;
   const canvas = createCanvas(size, size);
   const ctx = canvas.getContext("2d");
@@ -964,7 +1122,7 @@ function paintLayeredTile(tile, params, offsets, compositeMode, originX = 0, ori
       const zone = tile.topMask[index] ? "top" : tile.faceMask[index] ? "face" : "back";
       const sampleX = originX + x;
       const sampleY = originY + y;
-      const color = buildSurfaceColor(zone === "face" ? "face" : "top", zone, sampleX, sampleY, params, offsets);
+      const color = buildSurfaceColor(zone === "face" ? "face" : "top", zone, sampleX, sampleY, params, offsets, materialSet);
       let finalColor = color;
 
       if (compositeMode) {
@@ -985,6 +1143,15 @@ function paintLayeredTile(tile, params, offsets, compositeMode, originX = 0, ori
   return canvas;
 }
 
+function getPreviewCompositeTile(generated, tile, signature, variantIndex, params, originX, originY, offsets) {
+  const cacheKey = `${signature.key}|${variantIndex}|${originX}|${originY}|${params.tileSize}|${params.normalStrength}|${params.textureScale}|${params.topTint}|${params.faceTint}|${params.topTintOpacity}|${params.faceTintOpacity}|${params.seed}`;
+  const cached = generated.previewCompositeCache.get(cacheKey);
+  if (cached) return cached;
+  const canvas = paintLayeredTile(tile, params, offsets, true, originX, originY, generated.material);
+  generated.previewCompositeCache.set(cacheKey, canvas);
+  return canvas;
+}
+
 function globalPreviewOffsets(params, slot) {
   const salt = slot === "base" ? 1709 : 2719;
   return {
@@ -994,9 +1161,10 @@ function globalPreviewOffsets(params, slot) {
   };
 }
 
-function drawContinuousBasePreview(ctx, params) {
+function drawContinuousBasePreview(targetCanvas, params) {
   const width = state.map.width * params.tileSize;
   const height = state.map.height * params.tileSize;
+  const ctx = targetCanvas.getContext("2d");
   const image = ctx.createImageData(width, height);
   const offsets = globalPreviewOffsets(params, "base");
 
@@ -1087,69 +1255,107 @@ function renderBaseVariants(params) {
   return variants;
 }
 
-function buildAtlases(params) {
+function rebuildTileSet(params, generated = state.generated) {
+  generated.tiles = [];
+  clearCompositeCache(generated);
+  for (let variantIndex = 0; variantIndex < params.variants; variantIndex += 1) {
+    const tileMap = new Map();
+    state.catalog.forEach((signature) => {
+      const tile = renderTile(signature, variantIndex, params);
+      tile.canvases.albedo = paintLayeredTile(tile, params, tile.offsets, false, 0, 0, generated.material);
+      tile.canvases.shaderComposite = paintLayeredTile(tile, params, tile.offsets, true, 0, 0, generated.material);
+      tileMap.set(signature.key, tile);
+    });
+    generated.tiles.push(tileMap);
+  }
+}
+
+function buildAtlases(params, generated = state.generated) {
   const columns = 8;
   const total = state.catalog.length * params.variants;
   const rows = Math.ceil(total / columns);
-  state.generated.atlases = {};
-  state.generated.atlasManifest = [];
+  Object.values(generated.atlases).forEach(releaseCanvas);
+  generated.atlases = {};
+  generated.atlasManifest = [];
 
   PREVIEW_MODES.forEach((mode) => {
     const canvas = createCanvas(columns * params.tileSize, rows * params.tileSize);
     const ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = false;
-    state.generated.atlases[mode] = canvas;
+    generated.atlases[mode] = canvas;
   });
 
   let atlasIndex = 0;
   for (let variantIndex = 0; variantIndex < params.variants; variantIndex += 1) {
     state.catalog.forEach((signature) => {
-      const tile = state.generated.tiles[variantIndex].get(signature.key);
+      const tile = generated.tiles[variantIndex].get(signature.key);
       const col = atlasIndex % columns;
       const row = Math.floor(atlasIndex / columns);
       const dx = col * params.tileSize;
       const dy = row * params.tileSize;
       PREVIEW_MODES.forEach((mode) => {
-        state.generated.atlases[mode].getContext("2d").drawImage(tile.canvases[mode], dx, dy);
+        generated.atlases[mode].getContext("2d").drawImage(tile.canvases[mode], dx, dy);
       });
-      state.generated.atlasManifest.push({ atlasIndex, variant: variantIndex, key: signature.key, label: signature.label, column: col, row });
+      generated.atlasManifest.push({ atlasIndex, variant: variantIndex, key: signature.key, label: signature.label, column: col, row });
       atlasIndex += 1;
     });
   }
 }
 
+function createDraftParams(params) {
+  return {
+    ...params,
+    tileSize: Math.max(16, Math.floor(params.tileSize / 2))
+  };
+}
+
+function buildPreviewBundle(params) {
+  const generated = createGeneratedState();
+  generated.material.top = buildTopMaterialMap(params);
+  generated.material.face = buildFaceMaterialMap(params);
+  rebuildTileSet(params, generated);
+  generated.baseVariants = renderBaseVariants(params);
+  return generated;
+}
+
 function refreshVisibleAtlas() {
   const source = state.generated.atlases[state.previewMode];
   if (!source) return;
-  refs.atlasCanvas.width = source.width;
-  refs.atlasCanvas.height = source.height;
-  const ctx = refs.atlasCanvas.getContext("2d");
-  ctx.clearRect(0, 0, source.width, source.height);
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(source, 0, 0);
+  presentCanvas(refs.atlasCanvas, source);
 }
 
 function buildGallery() {
   if (!state.generated.tiles.length) {
     refs.tileGrid.innerHTML = "";
+    state.galleryCards.clear();
     return;
   }
   const variantIndex = Number(refs.galleryVariant.value || 0);
-  refs.tileGrid.innerHTML = "";
+  if (state.galleryCards.size !== state.catalog.length) {
+    refs.tileGrid.innerHTML = "";
+    state.galleryCards.clear();
+    state.catalog.forEach((signature) => {
+      const card = document.createElement("div");
+      card.className = "tile-card";
+      const canvas = document.createElement("canvas");
+      const title = document.createElement("strong");
+      title.textContent = `${String(signature.index + 1).padStart(2, "0")} · ${signature.key}`;
+      const meta = document.createElement("span");
+      meta.textContent = signature.label;
+      card.append(canvas, title, meta);
+      refs.tileGrid.appendChild(card);
+      state.galleryCards.set(signature.key, { card, canvas });
+    });
+  }
   state.catalog.forEach((signature) => {
     const tile = state.generated.tiles[variantIndex].get(signature.key);
-    const card = document.createElement("div");
-    card.className = "tile-card";
-    const canvas = createCanvas(128, 128);
-    const ctx = canvas.getContext("2d");
+    const galleryCard = state.galleryCards.get(signature.key);
+    const source = createCanvas(128, 128);
+    const ctx = source.getContext("2d");
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(tile.canvases[state.previewMode], 0, 0, 128, 128);
-    const title = document.createElement("strong");
-    title.textContent = `${String(signature.index + 1).padStart(2, "0")} · ${signature.key}`;
-    const meta = document.createElement("span");
-    meta.textContent = signature.label;
-    card.append(canvas, title, meta);
-    refs.tileGrid.appendChild(card);
+    presentCanvas(galleryCard.canvas, source);
+    releaseCanvas(source);
   });
 }
 
@@ -1170,34 +1376,31 @@ function chooseVariantForCell(x, y, params) {
   return Math.floor(hash2D(x, y, params.seed + 907) * params.variants) % params.variants;
 }
 
-function chooseBaseVariantForCell(x, y, params) {
-  const total = state.generated.baseVariants.length;
+function chooseBaseVariantForCell(x, y, params, generated = state.generated) {
+  const total = generated.baseVariants.length;
   return Math.floor(hash2D(x + 11, y + 17, params.seed + 1907) * total) % total;
 }
 
-function drawPreview() {
-  if (!state.generated.tiles.length) return;
-  const params = getParams();
+function drawPreview(params = getParams(), generated = state.generated, options = {}) {
+  if (!generated.tiles.length) return;
   state.previewMode = refs.previewMode.value;
-  const canvas = refs.previewCanvas;
-  canvas.width = state.map.width * params.tileSize;
-  canvas.height = state.map.height * params.tileSize;
-  const ctx = canvas.getContext("2d");
+  const logicalCanvas = createCanvas(state.map.width * params.tileSize, state.map.height * params.tileSize);
+  const ctx = logicalCanvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.clearRect(0, 0, logicalCanvas.width, logicalCanvas.height);
 
   if (state.previewMode === "shaderComposite") {
-    drawContinuousBasePreview(ctx, params);
+    drawContinuousBasePreview(logicalCanvas, params);
   } else if (state.previewMode === "albedo") {
     for (let y = 0; y < state.map.height; y += 1) {
       for (let x = 0; x < state.map.width; x += 1) {
-        const baseTile = state.generated.baseVariants[chooseBaseVariantForCell(x, y, params)];
+        const baseTile = generated.baseVariants[chooseBaseVariantForCell(x, y, params, generated)];
         ctx.drawImage(baseTile, x * params.tileSize, y * params.tileSize);
       }
     }
   } else {
     ctx.fillStyle = "#0f0c0a";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, logicalCanvas.width, logicalCanvas.height);
   }
 
   const compositeOffsets = state.previewMode === "shaderComposite"
@@ -1209,15 +1412,17 @@ function drawPreview() {
       if (!getMapCell(x, y)) continue;
       const signature = signatureAt(x, y);
       const variantIndex = chooseVariantForCell(x, y, params);
-      const tile = state.generated.tiles[variantIndex].get(signature.key);
+      const tile = generated.tiles[variantIndex].get(signature.key);
       if (state.previewMode === "shaderComposite") {
-        const compositeTile = paintLayeredTile(
+        const compositeTile = getPreviewCompositeTile(
+          generated,
           tile,
+          signature,
+          variantIndex,
           params,
-          compositeOffsets,
-          true,
           x * params.tileSize,
-          y * params.tileSize
+          y * params.tileSize,
+          compositeOffsets
         );
         ctx.drawImage(compositeTile, x * params.tileSize, y * params.tileSize);
       } else {
@@ -1225,16 +1430,24 @@ function drawPreview() {
       }
     }
   }
+
+  state.preview.sourceCanvas = logicalCanvas;
+  state.preview.logicalTileSize = params.tileSize;
+  state.preview.isDraft = Boolean(options.draft);
+  presentCanvas(refs.previewCanvas, logicalCanvas);
 }
 
 function drawSlotPreviewCanvas(canvas, slot, params) {
-  const ctx = canvas.getContext("2d");
-  const image = ctx.createImageData(canvas.width, canvas.height);
-  const offsets = { ox: params.seed * 7 + canvas.width, oy: params.seed * 13 + canvas.height, brightness: 1 };
+  const logicalWidth = Number(canvas.dataset.logicalWidth || canvas.getAttribute("width") || 96);
+  const logicalHeight = Number(canvas.dataset.logicalHeight || canvas.getAttribute("height") || 96);
+  const source = createCanvas(logicalWidth, logicalHeight);
+  const ctx = source.getContext("2d");
+  const image = ctx.createImageData(logicalWidth, logicalHeight);
+  const offsets = { ox: params.seed * 7 + logicalWidth, oy: params.seed * 13 + logicalHeight, brightness: 1 };
 
-  for (let y = 0; y < canvas.height; y += 1) {
-    for (let x = 0; x < canvas.width; x += 1) {
-      const out = (y * canvas.width + x) * 4;
+  for (let y = 0; y < logicalHeight; y += 1) {
+    for (let x = 0; x < logicalWidth; x += 1) {
+      const out = (y * logicalWidth + x) * 4;
       const color = slot === "base"
         ? buildBaseColor(x, y, params, offsets)
         : buildSurfaceColor(slot, slot === "face" ? "face" : "top", x, y, params, offsets);
@@ -1246,19 +1459,26 @@ function drawSlotPreviewCanvas(canvas, slot, params) {
   }
 
   ctx.putImageData(image, 0, 0);
+  presentCanvas(canvas, source);
+  releaseCanvas(source);
 }
 
 function drawTilingPreview(targetCanvas, sourceCanvas) {
-  const ctx = targetCanvas.getContext("2d");
-  ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+  const logicalWidth = Number(targetCanvas.dataset.logicalWidth || targetCanvas.getAttribute("width") || 256);
+  const logicalHeight = Number(targetCanvas.dataset.logicalHeight || targetCanvas.getAttribute("height") || 256);
+  const target = createCanvas(logicalWidth, logicalHeight);
+  const ctx = target.getContext("2d");
+  ctx.clearRect(0, 0, logicalWidth, logicalHeight);
   ctx.imageSmoothingEnabled = false;
-  const halfWidth = Math.floor(targetCanvas.width / 2);
-  const halfHeight = Math.floor(targetCanvas.height / 2);
+  const halfWidth = Math.floor(logicalWidth / 2);
+  const halfHeight = Math.floor(logicalHeight / 2);
   for (let y = 0; y < 2; y += 1) {
     for (let x = 0; x < 2; x += 1) {
       ctx.drawImage(sourceCanvas, x * halfWidth, y * halfHeight, halfWidth, halfHeight);
     }
   }
+  presentCanvas(targetCanvas, target);
+  releaseCanvas(target);
 }
 
 function updateStats(params) {
@@ -1287,131 +1507,191 @@ async function readTexture(input, slot) {
     state.textures[slot] = null;
     state.textureNames[slot] = "procedural";
     refs[`${slot}FileName`].textContent = "procedural";
-    scheduleRender();
+    markDirty("color");
+    scheduleRender("full");
     return;
   }
 
-  const bitmap = await createImageBitmap(file);
-  const canvas = createCanvas(bitmap.width, bitmap.height);
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(bitmap, 0, 0);
-  if (typeof bitmap.close === "function") bitmap.close();
-  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  state.textures[slot] = { width: canvas.width, height: canvas.height, data: image.data };
-  state.textureNames[slot] = file.name;
-  refs[`${slot}FileName`].textContent = file.name;
-  scheduleRender();
+  try {
+    const bitmap = await createImageBitmap(file);
+    const canvas = createCanvas(bitmap.width, bitmap.height);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(bitmap, 0, 0);
+    if (typeof bitmap.close === "function") bitmap.close();
+    const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    state.textures[slot] = { width: canvas.width, height: canvas.height, data: image.data };
+    state.textureNames[slot] = file.name;
+    refs[`${slot}FileName`].textContent = file.name;
+    markDirty("color");
+    scheduleRender("full");
+  } catch (error) {
+    refs.status.innerHTML = `<span class="warn">Ошибка текстуры.</span> ${error.message}`;
+  }
 }
 
 function createRoomMap() {
-  initMap();
-  for (let y = 2; y < state.map.height - 2; y += 1) {
-    for (let x = 3; x < state.map.width - 3; x += 1) {
-      const border = x === 3 || y === 2 || x === state.map.width - 4 || y === state.map.height - 3;
-      setMapCell(x, y, border ? 1 : 0);
+  const changed = recordMapMutation(() => {
+    initMap();
+    for (let y = 2; y < state.map.height - 2; y += 1) {
+      for (let x = 3; x < state.map.width - 3; x += 1) {
+        const border = x === 3 || y === 2 || x === state.map.width - 4 || y === state.map.height - 3;
+        setMapCell(x, y, border ? 1 : 0);
+      }
     }
+  });
+  if (changed && state.generated.tiles.length) {
+    markDirty("map");
+    drawPreview();
   }
-  if (state.generated.tiles.length) drawPreview();
 }
 
 function createBlobMap() {
-  initMap();
-  const params = getParams();
-  const cx = state.map.width / 2;
-  const cy = state.map.height / 2;
-  for (let y = 0; y < state.map.height; y += 1) {
-    for (let x = 0; x < state.map.width; x += 1) {
-      const dx = (x - cx) / (state.map.width * 0.38);
-      const dy = (y - cy) / (state.map.height * 0.38);
-      const radial = 1 - Math.sqrt(dx * dx + dy * dy);
-      const noise = fbmPeriodic(x * 0.42, y * 0.42, 4, params.seed + 91, 32, 32);
-      setMapCell(x, y, radial + noise * 0.55 > 0.66);
+  const changed = recordMapMutation(() => {
+    initMap();
+    const params = getParams();
+    const cx = state.map.width / 2;
+    const cy = state.map.height / 2;
+    for (let y = 0; y < state.map.height; y += 1) {
+      for (let x = 0; x < state.map.width; x += 1) {
+        const dx = (x - cx) / (state.map.width * 0.38);
+        const dy = (y - cy) / (state.map.height * 0.38);
+        const radial = 1 - Math.sqrt(dx * dx + dy * dy);
+        const noise = fbmPeriodic(x * 0.42, y * 0.42, 4, params.seed + 91, 32, 32);
+        setMapCell(x, y, radial + noise * 0.55 > 0.66);
+      }
     }
+  });
+  if (changed && state.generated.tiles.length) {
+    markDirty("map");
+    drawPreview();
   }
-  if (state.generated.tiles.length) drawPreview();
 }
 
 function createCaveMap() {
-  initMap();
-  const params = getParams();
-  for (let y = 0; y < state.map.height; y += 1) {
-    for (let x = 0; x < state.map.width; x += 1) {
-      setMapCell(x, y, fbmPeriodic(x * 0.3, y * 0.3, 5, params.seed + 403, 24, 24) > 0.56 ? 1 : 0);
-    }
-  }
-  for (let pass = 0; pass < 3; pass += 1) {
-    const next = state.map.cells.slice();
+  const changed = recordMapMutation(() => {
+    initMap();
+    const params = getParams();
     for (let y = 0; y < state.map.height; y += 1) {
       for (let x = 0; x < state.map.width; x += 1) {
-        let count = 0;
-        for (let oy = -1; oy <= 1; oy += 1) {
-          for (let ox = -1; ox <= 1; ox += 1) {
-            if (!ox && !oy) continue;
-            count += getMapCell(x + ox, y + oy);
-          }
-        }
-        next[y * state.map.width + x] = count >= 4 ? 1 : 0;
+        setMapCell(x, y, fbmPeriodic(x * 0.3, y * 0.3, 5, params.seed + 403, 24, 24) > 0.56 ? 1 : 0);
       }
     }
-    state.map.cells = next;
+    for (let pass = 0; pass < 3; pass += 1) {
+      const next = state.map.cells.slice();
+      for (let y = 0; y < state.map.height; y += 1) {
+        for (let x = 0; x < state.map.width; x += 1) {
+          let count = 0;
+          for (let oy = -1; oy <= 1; oy += 1) {
+            for (let ox = -1; ox <= 1; ox += 1) {
+              if (!ox && !oy) continue;
+              count += getMapCell(x + ox, y + oy);
+            }
+          }
+          next[y * state.map.width + x] = count >= 4 ? 1 : 0;
+        }
+      }
+      state.map.cells = next;
+    }
+  });
+  if (changed && state.generated.tiles.length) {
+    markDirty("map");
+    drawPreview();
   }
-  if (state.generated.tiles.length) drawPreview();
 }
 
 function clearMap() {
-  initMap();
-  if (state.generated.tiles.length) drawPreview();
+  const changed = recordMapMutation(() => {
+    initMap();
+  });
+  if (changed && state.generated.tiles.length) {
+    markDirty("map");
+    drawPreview();
+  }
+}
+
+function rebuildDraftPreview() {
+  const params = getParams();
+  const draftParams = createDraftParams(params);
+  const generated = buildPreviewBundle(draftParams);
+  drawPreview(draftParams, generated, { draft: true });
+  refs.status.innerHTML = `<span class="ok">Draft preview.</span> ${state.catalog.length} сигнатур × ${params.variants} вариантов в ${draftParams.tileSize}px для плавного drag.`;
 }
 
 function rebuildAll() {
   const params = getParams();
   state.previewMode = refs.previewMode.value;
-  state.generated.material.top = buildTopMaterialMap(params);
-  state.generated.material.face = buildFaceMaterialMap(params);
-  state.generated.material.topAlbedo = buildMaterialAlbedoCanvas("top", params);
-  state.generated.material.faceAlbedo = buildMaterialAlbedoCanvas("face", params);
 
-  state.generated.tiles = [];
-  for (let variantIndex = 0; variantIndex < params.variants; variantIndex += 1) {
-    const tileMap = new Map();
-    state.catalog.forEach((signature) => {
-      const tile = renderTile(signature, variantIndex, params);
-      tile.canvases.albedo = paintLayeredTile(tile, params, tile.offsets, false);
-      tile.canvases.shaderComposite = paintLayeredTile(tile, params, tile.offsets, true);
-      tileMap.set(signature.key, tile);
-    });
-    state.generated.tiles.push(tileMap);
+  const rebuildMaterial = state.dirty.material || state.dirty.variants;
+  const rebuildMaterialAlbedo = rebuildMaterial || state.dirty.color;
+  const rebuildTilesFlag = state.dirty.shape || rebuildMaterial || state.dirty.color || state.dirty.variants;
+  const rebuildBase = state.dirty.color || state.dirty.variants;
+  const rebuildAtlasFlag = rebuildTilesFlag;
+  const refreshPreview = rebuildTilesFlag || rebuildBase || state.dirty.map || state.dirty.previewMode;
+  const refreshGallery = rebuildTilesFlag || state.dirty.gallery;
+  const refreshSwatches = rebuildMaterialAlbedo || state.dirty.swatches;
+
+  if (rebuildMaterial) {
+    state.generated.material.top = buildTopMaterialMap(params);
+    state.generated.material.face = buildFaceMaterialMap(params);
   }
-
-  state.generated.baseVariants = renderBaseVariants(params);
-  buildAtlases(params);
-  refreshVisibleAtlas();
-  buildGallery();
-  drawPreview();
-  drawSlotPreviewCanvas(refs.baseTexturePreview, "base", params);
-  drawSlotPreviewCanvas(refs.topTexturePreview, "top", params);
-  drawSlotPreviewCanvas(refs.faceTexturePreview, "face", params);
-  drawTilingPreview(refs.topTilingCanvas, state.generated.material.top.canvas);
-  drawTilingPreview(refs.faceTilingCanvas, state.generated.material.face.canvas);
-  updateStats(params);
+  if (rebuildMaterialAlbedo) {
+    state.generated.material.topAlbedo = buildMaterialAlbedoCanvas("top", params);
+    state.generated.material.faceAlbedo = buildMaterialAlbedoCanvas("face", params);
+  }
+  if (rebuildTilesFlag) {
+    rebuildTileSet(params, state.generated);
+  }
+  if (rebuildBase) {
+    state.generated.baseVariants = renderBaseVariants(params);
+  }
+  if (rebuildAtlasFlag) {
+    buildAtlases(params, state.generated);
+  }
+  if (rebuildAtlasFlag || state.dirty.previewMode) {
+    refreshVisibleAtlas();
+  }
+  if (refreshGallery) {
+    buildGallery();
+  }
+  if (refreshPreview) {
+    drawPreview(params, state.generated, { draft: false });
+  }
+  if (refreshSwatches) {
+    drawSlotPreviewCanvas(refs.baseTexturePreview, "base", params);
+    drawSlotPreviewCanvas(refs.topTexturePreview, "top", params);
+    drawSlotPreviewCanvas(refs.faceTexturePreview, "face", params);
+    drawTilingPreview(refs.topTilingCanvas, state.generated.material.top.canvas);
+    drawTilingPreview(refs.faceTilingCanvas, state.generated.material.face.canvas);
+  }
+  if (state.dirty.stats) {
+    updateStats(params);
+  }
+  Object.keys(state.dirty).forEach((key) => {
+    state.dirty[key] = false;
+  });
   refs.status.innerHTML = `<span class="ok">Готово.</span> ${state.catalog.length} сигнатур × ${params.variants} вариантов = ${state.catalog.length * params.variants} тайлов.`;
 }
 
 function refreshVisibleOutputs() {
   if (!state.generated.tiles.length) return;
-  state.previewMode = refs.previewMode.value;
-  refreshVisibleAtlas();
-  buildGallery();
-  drawPreview();
+  markDirty("previewMode");
+  rebuildAll();
 }
 
-function scheduleRender() {
-  if (state.pendingRender) cancelAnimationFrame(state.pendingRender);
-  refs.status.textContent = "Пересобираю тайлы...";
-  state.pendingRender = requestAnimationFrame(() => {
-    state.pendingRender = null;
-    rebuildAll();
-  });
+function scheduleRender(mode = "full") {
+  const delay = mode === "draft" ? 120 : 60;
+  if (state.pendingRenderTimer) clearTimeout(state.pendingRenderTimer);
+  state.pendingRenderMode = state.pendingRenderMode === "full" || mode === "full" ? "full" : "draft";
+  refs.status.textContent = state.pendingRenderMode === "full"
+    ? "Пересобираю тайлы..."
+    : "Обновляю draft preview...";
+  state.pendingRenderTimer = setTimeout(() => {
+    const nextMode = state.pendingRenderMode;
+    state.pendingRenderTimer = null;
+    state.pendingRenderMode = null;
+    if (nextMode === "draft") rebuildDraftPreview();
+    else rebuildAll();
+  }, delay);
 }
 
 function downloadCanvas(canvas, fileName) {
@@ -1431,10 +1711,16 @@ function downloadMaterialRecipe() {
   const params = getParams();
   const payload = {
     tool: "Cliff Forge 47",
-    version: 2,
+    version: 3,
+    generatedAt: new Date().toISOString(),
     preset: state.preset,
     previewMode: state.previewMode,
     params,
+    map: {
+      width: state.map.width,
+      height: state.map.height,
+      cells: state.map.cells.slice()
+    },
     textures: {
       base: state.textureNames.base,
       top: state.textureNames.top,
@@ -1465,6 +1751,66 @@ function downloadMaterialRecipe() {
   setTimeout(() => URL.revokeObjectURL(url), 1200);
 }
 
+function loadMaterialRecipe(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    try {
+      const payload = JSON.parse(event.target.result);
+      const params = payload.params ?? payload;
+      Object.entries(params).forEach(([key, value]) => {
+        if (refs[key]) refs[key].value = String(value);
+      });
+      if (payload.preset && PRESETS[payload.preset]) {
+        state.preset = payload.preset;
+        refs.presetButtons.forEach((button) => {
+          button.classList.toggle("active", button.dataset.preset === payload.preset);
+        });
+      }
+      if (payload.previewMode && PREVIEW_MODES.includes(payload.previewMode)) {
+        refs.previewMode.value = payload.previewMode;
+        state.previewMode = payload.previewMode;
+      }
+      if (payload.map && Array.isArray(payload.map.cells) && payload.map.cells.length === state.map.width * state.map.height) {
+        restoreMapSnapshot(payload.map.cells);
+      }
+      updateRangeLabels();
+      refreshGalleryOptions();
+      markDirty("all");
+      scheduleRender("full");
+    } catch (error) {
+      refs.status.innerHTML = `<span class="warn">Ошибка JSON.</span> ${error.message}`;
+    } finally {
+      refs.loadJson.value = "";
+    }
+  };
+  reader.readAsText(file);
+}
+
+function undoMap() {
+  if (!state.history.past.length) return;
+  const previous = state.history.past.pop();
+  state.history.future.push(createSnapshotFromMap());
+  restoreMapSnapshot(previous);
+  updateHistoryButtons();
+  if (state.generated.tiles.length) {
+    markDirty("map");
+    drawPreview();
+  }
+}
+
+function redoMap() {
+  if (!state.history.future.length) return;
+  const next = state.history.future.pop();
+  state.history.past.push(createSnapshotFromMap());
+  restoreMapSnapshot(next);
+  updateHistoryButtons();
+  if (state.generated.tiles.length) {
+    markDirty("map");
+    drawPreview();
+  }
+}
+
 function bindPreviewPainting() {
   const canvas = refs.previewCanvas;
   let painting = false;
@@ -1472,28 +1818,52 @@ function bindPreviewPainting() {
 
   function applyPaint(event) {
     const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const tileSize = getParams().tileSize;
+    const logicalWidth = Number(canvas.dataset.logicalWidth || canvas.width);
+    const logicalHeight = Number(canvas.dataset.logicalHeight || canvas.height);
+    const scaleX = logicalWidth / rect.width;
+    const scaleY = logicalHeight / rect.height;
+    const tileSize = state.preview.logicalTileSize || getParams().tileSize;
     const x = Math.floor(((event.clientX - rect.left) * scaleX) / tileSize);
     const y = Math.floor(((event.clientY - rect.top) * scaleY) / tileSize);
     if (x < 0 || y < 0 || x >= state.map.width || y >= state.map.height) return;
     setMapCell(x, y, paintValue);
+    markDirty("map");
     drawPreview();
   }
 
   canvas.addEventListener("pointerdown", (event) => {
     painting = true;
     paintValue = event.button === 2 ? 0 : 1;
+    beginHistoryStroke();
+    canvas.setPointerCapture(event.pointerId);
     applyPaint(event);
   });
   canvas.addEventListener("pointermove", (event) => {
     if (painting) applyPaint(event);
   });
-  window.addEventListener("pointerup", () => {
+  window.addEventListener("pointerup", (event) => {
     painting = false;
+    if (canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    commitHistoryStroke();
   });
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+}
+
+function bindShortcuts() {
+  window.addEventListener("keydown", (event) => {
+    const activeTag = document.activeElement?.tagName;
+    if (activeTag === "INPUT" || activeTag === "SELECT" || activeTag === "TEXTAREA") return;
+    const key = event.key.toLowerCase();
+    const isUndo = (event.ctrlKey || event.metaKey) && !event.shiftKey && key === "z";
+    const isRedo = (event.ctrlKey || event.metaKey) && (key === "y" || (event.shiftKey && key === "z"));
+    if (isUndo) {
+      event.preventDefault();
+      undoMap();
+    } else if (isRedo) {
+      event.preventDefault();
+      redoMap();
+    }
+  });
 }
 
 function bindUi() {
@@ -1501,24 +1871,66 @@ function bindUi() {
     button.addEventListener("click", () => {
       applyPreset(button.dataset.preset);
       refreshGalleryOptions();
-      scheduleRender();
+      markDirty("shape");
+      markDirty("material");
+      markDirty("color");
+      markDirty("variants");
+      scheduleRender("full");
     });
   });
+
+  const shapeRangeIds = new Set(["tileSize", "heightPx", "lipPx", "backRimRatio", "northRimThickness", "roughness", "faceSlope", "normalStrength"]);
+  const materialRangeIds = new Set(["topMacroScale", "topMacroStrength", "topPebbleDensity", "topPebbleSize", "topMicroNoise", "topContrast", "faceStrataStrength", "faceVerticalFractures", "faceChips", "faceErosion", "faceContrast"]);
+  const colorRangeIds = new Set(["textureScale", "tintJitter", "topTintOpacity", "faceTintOpacity", "baseTintOpacity"]);
 
   RANGE_IDS.forEach((id) => {
     refs[id].addEventListener("input", () => {
       updateRangeLabels();
       if (id === "variants") refreshGalleryOptions();
-      scheduleRender();
+      if (shapeRangeIds.has(id)) markDirty("shape");
+      else if (materialRangeIds.has(id)) markDirty("material");
+      else if (colorRangeIds.has(id)) markDirty("color");
+      if (id === "variants") markDirty("variants");
+      scheduleRender("draft");
+    });
+    refs[id].addEventListener("change", () => {
+      if (shapeRangeIds.has(id)) markDirty("shape");
+      else if (materialRangeIds.has(id)) markDirty("material");
+      else if (colorRangeIds.has(id)) markDirty("color");
+      if (id === "variants") markDirty("variants");
+      scheduleRender("full");
     });
   });
 
   refs.previewMode.addEventListener("change", refreshVisibleOutputs);
-  refs.innerCornerMode.addEventListener("change", scheduleRender);
-  refs.seed.addEventListener("change", scheduleRender);
-  refs.galleryVariant.addEventListener("change", buildGallery);
-  refs.regenerate.addEventListener("click", scheduleRender);
-  COLOR_IDS.forEach((id) => refs[id].addEventListener("input", scheduleRender));
+  refs.innerCornerMode.addEventListener("change", () => {
+    markDirty("shape");
+    scheduleRender("full");
+  });
+  refs.seed.addEventListener("change", () => {
+    markDirty("material");
+    markDirty("color");
+    markDirty("variants");
+    scheduleRender("full");
+  });
+  refs.galleryVariant.addEventListener("change", () => {
+    markDirty("gallery");
+    buildGallery();
+  });
+  refs.regenerate.addEventListener("click", () => {
+    markDirty("all");
+    scheduleRender("full");
+  });
+  COLOR_IDS.forEach((id) => {
+    refs[id].addEventListener("input", () => {
+      markDirty("color");
+      scheduleRender("draft");
+    });
+    refs[id].addEventListener("change", () => {
+      markDirty("color");
+      scheduleRender("full");
+    });
+  });
 
   refs.baseTexture.addEventListener("change", () => readTexture(refs.baseTexture, "base"));
   refs.topTexture.addEventListener("change", () => readTexture(refs.topTexture, "top"));
@@ -1528,6 +1940,8 @@ function bindUi() {
   refs.randomCave.addEventListener("click", createCaveMap);
   refs.roomMap.addEventListener("click", createRoomMap);
   refs.clearMap.addEventListener("click", clearMap);
+  refs.undoMap.addEventListener("click", undoMap);
+  refs.redoMap.addEventListener("click", redoMap);
 
   refs.downloadAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.albedo, "rimworld_47_albedo_atlas.png"));
   refs.downloadMaskAtlas.addEventListener("click", () => downloadCanvas(state.generated.atlases.mask, "rimworld_47_mask_atlas.png"));
@@ -1536,8 +1950,9 @@ function bindUi() {
   refs.downloadFaceAlbedo.addEventListener("click", () => downloadCanvas(state.generated.material.faceAlbedo, "rimworld_face_albedo.png"));
   refs.downloadTopModulation.addEventListener("click", () => downloadCanvas(state.generated.material.top?.canvas, "rimworld_top_modulation.png"));
   refs.downloadFaceModulation.addEventListener("click", () => downloadCanvas(state.generated.material.face?.canvas, "rimworld_face_modulation.png"));
-  refs.downloadPreview.addEventListener("click", () => downloadCanvas(refs.previewCanvas, "rimworld_preview.png"));
+  refs.downloadPreview.addEventListener("click", () => downloadCanvas(state.preview.sourceCanvas || refs.previewCanvas, "rimworld_preview.png"));
   refs.downloadJson.addEventListener("click", downloadMaterialRecipe);
+  refs.loadJson.addEventListener("change", () => loadMaterialRecipe(refs.loadJson.files[0]));
 }
 
 function boot() {
@@ -1549,8 +1964,11 @@ function boot() {
   refs.catalogInfo.textContent = `${state.catalog.length}/47`;
   bindUi();
   bindPreviewPainting();
+  bindShortcuts();
+  updateHistoryButtons();
   createBlobMap();
-  scheduleRender();
+  markDirty("all");
+  scheduleRender("full");
 }
 
 boot();

@@ -192,8 +192,8 @@ button{cursor:pointer}
           <input class="range" id="lipPx" type="range" min="2" max="14" step="1" value="6">
         </div>
         <div class="field">
-          <label for="backRimRatio"><span>Back rim ratio</span><span class="value" id="backRimRatioValue">0.55</span></label>
-          <input class="range" id="backRimRatio" type="range" min="0.2" max="1.2" step="0.05" value="0.55">
+          <label for="backRimRatio"><span>Back rim ratio</span><span class="value" id="backRimRatioValue">0.5</span></label>
+          <input class="range" id="backRimRatio" type="range" min="0.2" max="1.2" step="0.05" value="0.5">
         </div>
         <div class="field">
           <label for="northRimThickness"><span>North rim extra</span><span class="value" id="northRimThicknessValue">0</span></label>
@@ -373,8 +373,6 @@ button{cursor:pointer}
         <button class="secondary-btn" id="randomCave" type="button">Пещера</button>
         <button class="secondary-btn" id="roomMap" type="button">Комната</button>
         <button class="secondary-btn" id="clearMap" type="button">Очистить</button>
-        <button class="secondary-btn" id="undoMap" type="button">Undo</button>
-        <button class="secondary-btn" id="redoMap" type="button">Redo</button>
       </div>
       <p class="hint">ЛКМ по preview рисует заполненные клетки, ПКМ стирает. Карта нужна только для просмотра, какой случай автотайлинга подставится в живой форме.</p>
     </section>
@@ -391,8 +389,6 @@ button{cursor:pointer}
         <button class="secondary-btn" id="downloadFaceModulation" type="button">PNG Face Modulation</button>
         <button class="secondary-btn" id="downloadPreview" type="button">PNG Preview</button>
         <button class="secondary-btn" id="downloadJson" type="button">JSON Material Recipe</button>
-        <label class="secondary-btn" for="loadJson" style="display:inline-flex;align-items:center;justify-content:center">Загрузить JSON Recipe</label>
-        <input id="loadJson" type="file" accept=".json,application/json" hidden>
         <button class="secondary-btn" id="regenerate" type="button">Пересобрать</button>
       </div>
       <div class="status" id="status">Собираю каталог 47 случаев...</div>
