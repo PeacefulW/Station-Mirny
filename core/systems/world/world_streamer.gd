@@ -5,6 +5,7 @@ const ChunkView = preload("res://core/systems/world/chunk_view.gd")
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const WorldDiffStore = preload("res://core/systems/world/world_diff_store.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
 
 const INVALID_CHUNK_COORD: Vector2i = Vector2i(2147483647, 2147483647)
 
@@ -35,6 +36,7 @@ func _ready() -> void:
 	name = "WorldStreamer"
 	_world_core = ClassDB.instantiate("WorldCore")
 	assert(_world_core != null, "WorldCore required - build GDExtension first")
+	WorldTileSetFactory.bootstrap()
 	_start_worker_thread()
 	_stream_job_id = FrameBudgetDispatcher.register_job(
 		RuntimeWorkTypes.CATEGORY_STREAMING,

@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="TerrainShaderFamily" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_shader_family.gd" id="1"]
+[ext_resource type="Shader" path="res://assets/shaders/ground_hybrid_material.gdshader" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"terrain.ground_hybrid"
+render_layer_id = &"base"
+shader = ExtResource("2")
+shape_texture_params = {}
+material_texture_params = {
+"ground_albedo_tex": &"top_albedo",
+"ground_modulation_tex": &"top_modulation"
+}

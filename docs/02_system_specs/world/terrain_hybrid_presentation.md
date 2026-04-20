@@ -1,11 +1,11 @@
 ---
 title: Terrain Hybrid Presentation
 doc_type: system_spec
-status: draft
+status: approved
 owner: engineering+art
 source_of_truth: true
 version: 0.2
-last_updated: 2026-04-19
+last_updated: 2026-04-20
 related_docs:
   - ../../README.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -268,6 +268,27 @@ Notes:
 - Missing required maps should fail validation; they should not silently
   degrade on runtime hot paths.
 
+## `TerrainShaderFamily`
+
+Authoring/runtime data resource describing one shared shader family.
+
+Canonical fields:
+
+- `id: StringName`
+- `render_layer_id: StringName`
+- `shader: Shader`
+- `shape_texture_params: Dictionary`
+- `material_texture_params: Dictionary`
+
+Notes:
+
+- `TerrainShaderFamily` maps one shared shader to canonical texture-slot names
+  from `TerrainShapeSet` and `TerrainMaterialSet`.
+- `render_layer_id` is authored data, not a hardcoded `if terrain is rock`
+  branch in runtime code.
+- A shader family may intentionally omit `shader` only for presentation paths
+  such as `simple_tile` that do not instantiate a runtime shader material.
+
 ## `TerrainPresentationProfile`
 
 Runtime binding between gameplay terrain classification and authored visuals.
@@ -276,6 +297,7 @@ Canonical fields:
 
 - `id: StringName`
 - `terrain_class_id: StringName`
+- `terrain_ids: Array[int]`
 - `shape_set_id: StringName`
 - `material_set_id: StringName`
 - `shader_family_id: StringName`
@@ -288,7 +310,13 @@ The profile answers:
 
 Notes:
 
+- `terrain_ids` is the authored registry-binding list used to build the single
+  canonical `terrain_id -> TerrainPresentationProfile` mapping.
+- Multiple terrain ids may intentionally point to the same profile by sharing
+  one `terrain_ids` list.
 - `terrain_class_id` is a descriptive/category field for authoring and grouping.
+- `shader_family_id` must resolve through authored `TerrainShaderFamily` data,
+  not a hardcoded runtime switch in `WorldTileSetFactory`.
 - `terrain_class_id` is not permission for a second hidden runtime resolution
   path.
 
@@ -301,6 +329,7 @@ Recommended canonical runtime surfaces:
 
 - `TerrainShapeRegistry`
 - `TerrainMaterialRegistry`
+- authored `TerrainShaderFamily` resources resolved by `TerrainPresentationRegistry`
 - `TerrainPresentationRegistry`
 
 These registries are read-only lookup layers for presentation data.
@@ -517,6 +546,9 @@ data/
     material_sets/
       dirt.tres
       snow.tres
+    shader_families/
+      ground_hybrid.tres
+      rock_shape.tres
     presentation_profiles/
       plains_ground.tres
       snow_bank.tres

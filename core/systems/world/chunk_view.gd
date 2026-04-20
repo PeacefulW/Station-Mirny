@@ -7,7 +7,7 @@ const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_fac
 var chunk_coord: Vector2i = Vector2i.ZERO
 
 var _base_layer: TileMapLayer = null
-var _rock_layer: TileMapLayer = null
+var _overlay_layer: TileMapLayer = null
 var _pending_terrain_ids: PackedInt32Array = PackedInt32Array()
 var _pending_terrain_atlas_indices: PackedInt32Array = PackedInt32Array()
 var _apply_index: int = 0
@@ -47,7 +47,7 @@ func apply_runtime_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_in
 	_apply_cell(local_coord, terrain_id, terrain_atlas_index)
 
 func _ensure_layers() -> void:
-	if _base_layer != null and is_instance_valid(_base_layer) and _rock_layer != null and is_instance_valid(_rock_layer):
+	if _base_layer != null and is_instance_valid(_base_layer) and _overlay_layer != null and is_instance_valid(_overlay_layer):
 		return
 	if _base_layer == null or not is_instance_valid(_base_layer):
 		_base_layer = TileMapLayer.new()
@@ -55,30 +55,29 @@ func _ensure_layers() -> void:
 		_base_layer.tile_set = WorldTileSetFactory.get_base_tile_set()
 		_base_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		add_child(_base_layer)
-	if _rock_layer == null or not is_instance_valid(_rock_layer):
-		_rock_layer = TileMapLayer.new()
-		_rock_layer.name = "TerrainRockLayer"
-		_rock_layer.tile_set = WorldTileSetFactory.get_rock_tile_set()
-		_rock_layer.material = WorldTileSetFactory.get_rock_material()
-		_rock_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		_rock_layer.z_index = 1
-		add_child(_rock_layer)
+	if _overlay_layer == null or not is_instance_valid(_overlay_layer):
+		_overlay_layer = TileMapLayer.new()
+		_overlay_layer.name = "TerrainOverlayLayer"
+		_overlay_layer.tile_set = WorldTileSetFactory.get_overlay_tile_set()
+		_overlay_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		_overlay_layer.z_index = 1
+		add_child(_overlay_layer)
 
 func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: int) -> void:
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
 		return
-	if WorldTileSetFactory.is_rock_terrain(terrain_id):
+	if WorldTileSetFactory.uses_overlay_layer(terrain_id):
 		_clear_cell(_base_layer, local_coord)
-		_rock_layer.set_cell(
+		_overlay_layer.set_cell(
 			local_coord,
-			WorldTileSetFactory.get_rock_source_id(),
-			WorldTileSetFactory.get_rock_atlas_coords(terrain_atlas_index)
+			WorldTileSetFactory.get_source_id(terrain_id),
+			WorldTileSetFactory.get_atlas_coords(terrain_id, terrain_atlas_index)
 		)
 		return
-	_clear_cell(_rock_layer, local_coord)
+	_clear_cell(_overlay_layer, local_coord)
 	_base_layer.set_cell(
 		local_coord,
-		WorldTileSetFactory.get_base_source_id(terrain_id),
+		WorldTileSetFactory.get_source_id(terrain_id),
 		WorldTileSetFactory.get_atlas_coords(terrain_id, terrain_atlas_index)
 	)
 
