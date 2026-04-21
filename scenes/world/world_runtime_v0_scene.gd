@@ -41,6 +41,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _bootstrap_scene() -> void:
 	PlayerAuthority.clear_cache()
+	if _world_initialized:
+		return
 	var pending_slot: String = SaveManager.consume_pending_load_slot() if SaveManager else ""
 	if pending_slot.is_empty():
 		_world_streamer.reset_for_new_game()

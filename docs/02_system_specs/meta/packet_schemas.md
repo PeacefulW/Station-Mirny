@@ -156,11 +156,30 @@ Current code note:
   "world_scene_present": bool,
   "world_seed"?: int,
   "world_version"?: int,
+  "worldgen_settings"?: {
+    "mountains"?: {
+      "density": float,
+      "scale": float,
+      "continuity": float,
+      "ruggedness": float,
+      "anchor_cell_size": int,
+      "gravity_radius": int,
+      "foot_band": float,
+      "interior_margin": int,
+      "latitude_influence": float,
+    },
+  },
+  "worldgen_signature"?: String,
 }
 ```
 
 Current code notes:
 - `world_seed` and `world_version` are present when a `chunk_manager` world runtime is active
+- `worldgen_settings.mountains` is written once for new worlds and then loaded
+  from `world.json`, not from the repository `.tres`
+- missing `worldgen_settings.mountains` restores hard-coded loader defaults for
+  backward-compatible saves
+- `worldgen_signature` is diagnostic only and is never authoritative on load
 - legacy/frozen-world callers may still emit only the older boolean fields
 
 ### `ChunkDiffFile`

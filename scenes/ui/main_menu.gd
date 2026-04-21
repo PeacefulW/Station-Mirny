@@ -5,10 +5,12 @@ extends Control
 ## Кнопки: Новая игра, Продолжить, Загрузить, Настройки, Выход.
 
 const WORLD_REBUILD_SCENE_PATH: String = "res://scenes/world/world_runtime_v0.tscn"
+const NEW_GAME_PANEL_SCENE: PackedScene = preload("res://scenes/ui/new_game_panel.tscn")
 
 var _btn_continue: Button = null
 var _load_panel: Control = null
 var _settings_panel: Control = null
+var _new_game_panel: Control = null
 var _buttons_container: VBoxContainer = null
 
 func _ready() -> void:
@@ -82,9 +84,18 @@ func _build_ui() -> void:
 
 	_build_load_panel()
 	_build_settings_panel()
+	_build_new_game_panel()
 
 func _on_new_game_pressed() -> void:
-	get_tree().change_scene_to_file(WORLD_REBUILD_SCENE_PATH)
+	if _new_game_panel != null and _new_game_panel.has_method("reload_defaults"):
+		_new_game_panel.call("reload_defaults")
+	_buttons_container.visible = false
+	if _load_panel != null:
+		_load_panel.visible = false
+	if _settings_panel != null:
+		_settings_panel.visible = false
+	if _new_game_panel != null:
+		_new_game_panel.visible = true
 func _on_continue_pressed() -> void:
 	var latest: String = _find_latest_save()
 	if latest.is_empty(): return
@@ -185,6 +196,13 @@ func _build_settings_panel() -> void:
 	var btn_back := _make_button(Localization.t("UI_MAIN_SETTINGS_BACK"), _on_settings_back)
 	_settings_panel.add_child(btn_back)
 
+func _build_new_game_panel() -> void:
+	_new_game_panel = NEW_GAME_PANEL_SCENE.instantiate() as Control
+	_new_game_panel.visible = false
+	_new_game_panel.start_requested.connect(_on_new_game_start_requested)
+	_new_game_panel.back_requested.connect(_on_new_game_back_requested)
+	add_child(_new_game_panel)
+
 func _build_lang_tab() -> VBoxContainer:
 	var tab := VBoxContainer.new()
 	tab.name = Localization.t("UI_SETTINGS_TAB_GAME")
@@ -266,6 +284,28 @@ func _on_settings_back() -> void:
 	_settings_panel.visible = false
 	_buttons_container.visible = true
 
+func _on_new_game_back_requested() -> void:
+	if _new_game_panel != null:
+		_new_game_panel.visible = false
+	_buttons_container.visible = true
+
+func _on_new_game_start_requested(seed_value: int, settings: Resource) -> void:
+	WorldPerfProbe.mark_milestone("Startup.start_pressed")
+	var packed_scene: PackedScene = load(WORLD_REBUILD_SCENE_PATH) as PackedScene
+	assert(packed_scene != null, "World runtime scene missing: %s" % WORLD_REBUILD_SCENE_PATH)
+	var world_scene: Node = packed_scene.instantiate()
+	var current_scene: Node = get_tree().current_scene
+	get_tree().root.add_child(world_scene)
+	get_tree().current_scene = world_scene
+	PlayerAuthority.clear_cache()
+	if TimeManager and TimeManager.has_method("reset_for_new_game"):
+		TimeManager.reset_for_new_game()
+	var world_streamer: WorldStreamer = world_scene.get_node_or_null("WorldStreamer") as WorldStreamer
+	assert(world_streamer != null, "WorldStreamer missing in %s" % WORLD_REBUILD_SCENE_PATH)
+	world_streamer.initialize_new_world(seed_value, settings)
+	if current_scene != null and current_scene != world_scene:
+		current_scene.queue_free()
+
 # --- Утилиты ---
 
 func _start_game_from_save(slot_name: String) -> void:
@@ -295,6 +335,7 @@ func _on_language_changed(_locale: String) -> void:
 		child.queue_free()
 	_load_panel = null
 	_settings_panel = null
+	_new_game_panel = null
 	_buttons_container = null
 	_btn_continue = null
 	call_deferred("_build_ui")

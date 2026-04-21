@@ -46,6 +46,12 @@ static func world_to_tile(world_pos: Vector2) -> Vector2i:
 		floori(world_pos.y / float(TILE_SIZE_PX))
 	)
 
+static func tile_to_world_center(tile_coord: Vector2i) -> Vector2:
+	return Vector2(
+		(float(tile_coord.x) + 0.5) * float(TILE_SIZE_PX),
+		(float(tile_coord.y) + 0.5) * float(TILE_SIZE_PX)
+	)
+
 static func tile_to_chunk(tile_coord: Vector2i) -> Vector2i:
 	return Vector2i(
 		int(floor(float(tile_coord.x) / float(CHUNK_SIZE))),

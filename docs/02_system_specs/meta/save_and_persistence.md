@@ -59,9 +59,26 @@ Current V0 runtime implementation:
 
 Current mountain extension:
 - `world.json` now records `world_version: 5` for the current native mountain-field baseline
-- `worldgen_settings.mountains` persistence is still deferred to Mountain Generation M4; M1 keeps hard-coded dev defaults in `WorldStreamer`
-- legacy saves with `world_version < 2` keep `settings_packed = []`, so they
-  stay on the V0 no-mountains path during load
+- `world_version` remains a plain integer algorithm boundary; it is not a hash
+  of `worldgen_settings` and does not incorporate `worldgen_signature`
+- `worldgen_settings.mountains` stores the embedded per-save mountain input copy
+  with these fields:
+  - `density: float` (`0.0..1.0`)
+  - `scale: float` (`32.0..2048.0`)
+  - `continuity: float` (`0.0..1.0`)
+  - `ruggedness: float` (`0.0..1.0`)
+  - `anchor_cell_size: int` (`32..512`)
+  - `gravity_radius: int` (`32..256`)
+  - `foot_band: float` (`0.02..0.3`)
+  - `interior_margin: int` (`0..4`)
+  - `latitude_influence: float` (`-1.0..1.0`)
+- new worlds read defaults from `data/balance/mountain_gen_settings.tres` only
+  once during `new game`
+- load never re-reads the repository `.tres`; if
+  `worldgen_settings.mountains` is missing, the loader injects hard-coded
+  defaults in code for backward-compatible restore
+- optional `worldgen_signature: String` may be written for diagnostics only; it
+  is non-authoritative and load must ignore its absence
 
 Confirmed `world.json` shape in the current mountain code path:
 
@@ -70,7 +87,21 @@ Confirmed `world.json` shape in the current mountain code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 5
+  "world_version": 5,
+  "worldgen_settings": {
+    "mountains": {
+      "density": 0.3,
+      "scale": 512.0,
+      "continuity": 0.65,
+      "ruggedness": 0.55,
+      "anchor_cell_size": 128,
+      "gravity_radius": 96,
+      "foot_band": 0.08,
+      "interior_margin": 1,
+      "latitude_influence": 0.0
+    }
+  },
+  "worldgen_signature": "debug-only"
 }
 ```
 

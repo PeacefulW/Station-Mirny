@@ -6,6 +6,7 @@ extends CharacterBody2D
 
 # --- Константы ---
 const MountainResolver = preload("res://core/systems/world/mountain_resolver.gd")
+const HarvestQuery = preload("res://core/systems/world/harvest_query.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldStreamer = preload("res://core/systems/world/world_streamer.gd")
 const SCRAP_ITEM_ID: String = "base:scrap"
@@ -109,19 +110,19 @@ func _get_harvest_position() -> Vector2:
 
 func _find_harvest_target_position() -> Vector2:
 	var chunk_manager: Node = _get_chunk_manager()
-	if chunk_manager == null:
+	if chunk_manager == null \
+			or not chunk_manager.has_method("has_resource_at_world") \
+			or not chunk_manager.has_method("is_walkable_at_world"):
 		return Vector2.INF
 	var dir: Vector2 = get_global_mouse_position() - global_position
-	if dir.length_squared() <= 0.0001:
-		return global_position if chunk_manager.has_resource_at_world(global_position) else Vector2.INF
-	dir = dir.normalized()
-	var step_size: float = maxf(8.0, balance.harvest_range / 6.0)
-	var max_steps: int = maxi(1, ceili(balance.harvest_range / step_size))
-	for step: int in range(1, max_steps + 1):
-		var sample_pos: Vector2 = global_position + dir * minf(step * step_size, balance.harvest_range)
-		if chunk_manager.has_resource_at_world(sample_pos):
-			return sample_pos
-	return global_position if chunk_manager.has_resource_at_world(global_position) else Vector2.INF
+	var end_world: Vector2 = global_position if dir.length_squared() <= 0.0001 \
+		else global_position + dir.normalized() * balance.harvest_range
+	return HarvestQuery.find_target_on_ray(
+		global_position,
+		end_world,
+		Callable(chunk_manager, "has_resource_at_world"),
+		Callable(chunk_manager, "is_walkable_at_world")
+	)
 
 func tick_harvest_cooldown(delta: float) -> void:
 	if _harvest_timer > 0.0:

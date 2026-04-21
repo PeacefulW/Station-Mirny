@@ -293,22 +293,23 @@ Confirmed readable entrypoints:
 |---|---|---|
 | `get_world_seed()` | `int` | Current deterministic world seed |
 | `get_world_version()` | `int` | Current canonical world version |
-| `save_world_state()` | `Dictionary` | World save payload for `world.json` |
+| `save_world_state()` | `Dictionary` | World save payload for `world.json`, including embedded `worldgen_settings.mountains` and optional `worldgen_signature` |
 | `collect_chunk_diffs()` | `Array[Dictionary]` | Serialized dirty chunk entries |
 | `get_chunk_packet(chunk_coord: Vector2i)` | `Dictionary` | Loaded chunk packet or `{}`; read-only world-domain lookup for `MountainResolver` |
 | `get_mountain_cover_sample(world_tile: Vector2i)` | `Dictionary` | Read-only cover sample for one tile: `mountain_id`, `mountain_flags`, `component_id`, `is_opening`, `walkable` |
 | `get_mountain_cover_debug_snapshot(world_tile: Vector2i)` | `Dictionary` | Debug-only snapshot including `inside_outside_state`, active component ids, and `roof_layers_per_chunk_max` |
 | `is_walkable_at_world(world_pos: Vector2)` | `bool` | Reads `base + diff`; returns `false` while a chunk is not ready |
-| `has_resource_at_world(world_pos: Vector2)` | `bool` | Diggable surface query for the current harvest path (`TERRAIN_MOUNTAIN_WALL` and `TERRAIN_MOUNTAIN_FOOT`) |
+| `has_resource_at_world(world_pos: Vector2)` | `bool` | Diggable surface query for the current harvest path (`TERRAIN_MOUNTAIN_WALL` and `TERRAIN_MOUNTAIN_FOOT`); returns `true` only when the tile also has an orthogonally exposed walkable face |
 
 Confirmed mutation entrypoints:
 
 | Surface | Notes |
 |---|---|
+| `initialize_new_world(seed_value: int, settings: MountainGenSettings)` | New-game entrypoint; freezes the provided mountain settings into packed/native form and then delegates to `reset_for_new_game(...)` |
 | `reset_for_new_game(seed, version)` | Clears runtime state and emits `world_initialized` |
-| `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version` and clears runtime state |
+| `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version`, rebuilds `worldgen_settings.mountains` from `world.json` (or hard-coded defaults if missing), and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
-| `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one diggable surface tile into its dug state |
+| `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock |
 | `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver` to switch between outside state and one active cavity |
 
 Not documented here as safe entrypoints:

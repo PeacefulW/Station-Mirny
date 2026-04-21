@@ -2,6 +2,8 @@ class_name WorldStreamer
 extends Node2D
 
 const ChunkView = preload("res://core/systems/world/chunk_view.gd")
+const HarvestQuery = preload("res://core/systems/world/harvest_query.gd")
+const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
 const MountainCavityCache = preload("res://core/systems/world/mountain_cavity_cache.gd")
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const WorldDiffStore = preload("res://core/systems/world/world_diff_store.gd")
@@ -23,7 +25,9 @@ var _active_publish_chunk: Vector2i = INVALID_CHUNK_COORD
 var _player_chunk_coord: Vector2i = INVALID_CHUNK_COORD
 var _stream_job_id: StringName = &""
 var _generation_epoch: int = 0
-var _settings_packed: PackedFloat32Array = PackedFloat32Array()
+var _worldgen_settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
+var _worldgen_settings_packed: PackedFloat32Array = PackedFloat32Array()
+var _pending_new_world_settings: MountainGenSettings = null
 var roof_layers_per_chunk_max: int = 0
 
 var _worker_thread: Thread = Thread.new()
@@ -43,7 +47,7 @@ func _ready() -> void:
 	name = "WorldStreamer"
 	_world_core = ClassDB.instantiate("WorldCore")
 	assert(_world_core != null, "WorldCore required - build GDExtension first")
-	_settings_packed = _resolve_settings_packed_for_world_version(world_version)
+	_apply_worldgen_settings(MountainGenSettings.hard_coded_defaults())
 	WorldTileSetFactory.bootstrap()
 	_start_worker_thread()
 	_stream_job_id = FrameBudgetDispatcher.register_job(
@@ -62,13 +66,21 @@ func _exit_tree() -> void:
 		FrameBudgetDispatcher.unregister_job(_stream_job_id)
 	_stop_worker_thread()
 
+func initialize_new_world(seed_value: int, settings: MountainGenSettings) -> void:
+	_pending_new_world_settings = _clone_worldgen_settings(settings)
+	reset_for_new_game(seed_value, WorldRuntimeConstants.WORLD_VERSION)
+
 func reset_for_new_game(
 	seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED,
 	version: int = WorldRuntimeConstants.WORLD_VERSION
 ) -> void:
 	world_seed = seed
 	world_version = version
-	_settings_packed = _resolve_settings_packed_for_world_version(world_version)
+	if _pending_new_world_settings != null:
+		_apply_worldgen_settings(_pending_new_world_settings)
+	else:
+		_apply_worldgen_settings(MountainGenSettings.hard_coded_defaults())
+	_pending_new_world_settings = null
 	_diff_store.clear()
 	_reset_runtime_state()
 	EventBus.world_initialized.emit(world_seed)
@@ -76,17 +88,23 @@ func reset_for_new_game(
 func load_world_state(data: Dictionary) -> void:
 	world_seed = int(data.get("world_seed", WorldRuntimeConstants.DEFAULT_WORLD_SEED))
 	world_version = int(data.get("world_version", WorldRuntimeConstants.WORLD_VERSION))
-	_settings_packed = _resolve_settings_packed_for_world_version(world_version)
+	_pending_new_world_settings = null
+	_apply_worldgen_settings(_load_worldgen_settings_from_save(data))
 	_diff_store.clear()
 	_reset_runtime_state()
 	EventBus.world_initialized.emit(world_seed)
 
 func save_world_state() -> Dictionary:
+	var current_settings: MountainGenSettings = _worldgen_settings
 	return {
 		"world_rebuild_frozen": false,
 		"world_scene_present": true,
 		"world_seed": world_seed,
 		"world_version": world_version,
+		"worldgen_settings": {
+			"mountains": current_settings.to_save_dict(),
+		},
+		"worldgen_signature": current_settings.compute_signature(),
 	}
 
 func collect_chunk_diffs() -> Array[Dictionary]:
@@ -179,7 +197,16 @@ func has_resource_at_world(world_pos: Vector2) -> bool:
 	var tile_data: Dictionary = _get_tile_data(world_pos)
 	if not bool(tile_data.get("ready", false)):
 		return false
-	return _is_diggable_surface_terrain(int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	var terrain_id: int = int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
+	if not _is_diggable_surface_terrain(terrain_id):
+		return false
+	return HarvestQuery.is_tile_orthogonally_exposed(
+		_chunk_local_to_tile(
+			tile_data.get("chunk_coord", Vector2i.ZERO) as Vector2i,
+			tile_data.get("local_coord", Vector2i.ZERO) as Vector2i
+		),
+		Callable(self, "_sample_harvest_gate_tile")
+	)
 
 func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	var tile_data: Dictionary = _get_tile_data(world_pos)
@@ -190,6 +217,15 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 		}
 	var terrain_id: int = int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
 	if not _is_diggable_surface_terrain(terrain_id):
+		return {
+			"success": false,
+			"message_key": "SYSTEM_WORLD_TILE_NOT_DIGGABLE",
+		}
+	var world_tile: Vector2i = _chunk_local_to_tile(
+		tile_data.get("chunk_coord", Vector2i.ZERO) as Vector2i,
+		tile_data.get("local_coord", Vector2i.ZERO) as Vector2i
+	)
+	if not HarvestQuery.is_tile_orthogonally_exposed(world_tile, Callable(self, "_sample_harvest_gate_tile")):
 		return {
 			"success": false,
 			"message_key": "SYSTEM_WORLD_TILE_NOT_DIGGABLE",
@@ -245,7 +281,7 @@ func _enqueue_desired_chunks() -> void:
 			"coord": desired_coord,
 			"seed": world_seed,
 			"world_version": world_version,
-			"settings_packed": _settings_packed,
+			"settings_packed": _worldgen_settings_packed,
 			"epoch": _generation_epoch,
 		})
 		_request_mutex.unlock()
@@ -378,6 +414,9 @@ func _get_tile_data(world_pos: Vector2) -> Dictionary:
 		"walkable": int(walkable_flags[index]) != 0,
 	}
 
+func _sample_harvest_gate_tile(world_tile: Vector2i) -> Dictionary:
+	return _get_tile_data(WorldRuntimeConstants.tile_to_world_center(world_tile))
+
 func _sample_mountain_cover_tile(world_tile: Vector2i) -> Dictionary:
 	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(world_tile)
 	var packet: Dictionary = get_chunk_packet(chunk_coord)
@@ -437,7 +476,7 @@ func _enqueue_chunk_if_needed(chunk_coord: Vector2i) -> void:
 		"coord": chunk_coord,
 		"seed": world_seed,
 		"world_version": world_version,
-		"settings_packed": _settings_packed,
+		"settings_packed": _worldgen_settings_packed,
 		"epoch": _generation_epoch,
 	})
 	_request_mutex.unlock()
@@ -896,24 +935,23 @@ func _uses_mountain_surface_presentation(terrain_id: int) -> bool:
 		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
 		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
 
-func _build_m1_dev_default_settings_packed() -> PackedFloat32Array:
-	var settings_packed: PackedFloat32Array = PackedFloat32Array()
-	settings_packed.resize(WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_FIELD_COUNT)
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_DENSITY] = 0.30
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SCALE] = 512.0
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_CONTINUITY] = 0.65
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_RUGGEDNESS] = 0.55
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_ANCHOR_CELL_SIZE] = 128.0
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_GRAVITY_RADIUS] = 96.0
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_FOOT_BAND] = 0.08
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_INTERIOR_MARGIN] = 1.0
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_LATITUDE_INFLUENCE] = 0.0
-	return settings_packed
+func _apply_worldgen_settings(settings: MountainGenSettings) -> void:
+	_worldgen_settings = _clone_worldgen_settings(settings)
+	_worldgen_settings_packed = _worldgen_settings.flatten_to_packed()
 
-func _resolve_settings_packed_for_world_version(version: int) -> PackedFloat32Array:
-	if version < 2:
-		return PackedFloat32Array()
-	return _build_m1_dev_default_settings_packed()
+func _clone_worldgen_settings(settings: MountainGenSettings) -> MountainGenSettings:
+	if settings == null:
+		return MountainGenSettings.hard_coded_defaults()
+	return MountainGenSettings.from_save_dict(settings.to_save_dict())
+
+func _load_worldgen_settings_from_save(data: Dictionary) -> MountainGenSettings:
+	var worldgen_settings: Variant = data.get("worldgen_settings", {})
+	if worldgen_settings is not Dictionary:
+		return MountainGenSettings.hard_coded_defaults()
+	var mountains_settings: Variant = (worldgen_settings as Dictionary).get("mountains", {})
+	if mountains_settings is not Dictionary:
+		return MountainGenSettings.hard_coded_defaults()
+	return MountainGenSettings.from_save_dict(mountains_settings as Dictionary)
 
 func _start_worker_thread() -> void:
 	if _worker_thread.is_started():

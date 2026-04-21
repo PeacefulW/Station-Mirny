@@ -1,0 +1,12 @@
+SCRIPT ERROR: Compile Error: Identifier not found: Localization
+   at: GDScript::reload (res://core/entities/player/player.gd:34)
+SCRIPT ERROR: Compile Error: Identifier not found: FrameBudgetDispatcher
+   at: GDScript::reload (res://core/systems/world/world_streamer.gd:52)
+SCRIPT ERROR: Compile Error: Failed to compile depended scripts.
+   at: GDScript::reload (res://tools/harvest_gate_smoke_test.gd:0)
+ERROR: Failed to load script "res://tools/harvest_gate_smoke_test.gd" with error "Compilation failed".
+   at: load (modules/gdscript/gdscript.cpp:2907)
+SCRIPT ERROR: Invalid call. Nonexistent function 'is_harvest_tile_orthogonally_exposed' in base 'GDScript'.
+   at: _init (res://tools/harvest_gate_smoke_test.gd:16)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://tools/harvest_gate_smoke_test.gd:16)

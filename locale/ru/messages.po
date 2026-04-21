@@ -831,6 +831,69 @@ msgstr "Средние"
 msgid "UI_WORLD_CREATE_MTN_LARGE"
 msgstr "Крупные"
 
+msgid "UI_WORLDGEN_MOUNTAINS_PANEL_TITLE"
+msgstr "ПАРАМЕТРЫ ГОР"
+
+msgid "UI_WORLDGEN_MOUNTAINS_DENSITY"
+msgstr "Плотность гор:"
+
+msgid "UI_WORLDGEN_MOUNTAINS_DENSITY_DESC"
+msgstr "Определяет, как часто на карте появляются отдельные горные массивы. Ниже значение — гор меньше, выше — горные зоны встречаются чаще."
+
+msgid "UI_WORLDGEN_MOUNTAINS_SCALE"
+msgstr "Масштаб гор:"
+
+msgid "UI_WORLDGEN_MOUNTAINS_SCALE_DESC"
+msgstr "Определяет средний размер горных форм. Ниже значение — массивы мельче и дробнее, выше — горы крупнее и заметнее."
+
+msgid "UI_WORLDGEN_MOUNTAINS_CONTINUITY"
+msgstr "Цепочность хребтов:"
+
+msgid "UI_WORLDGEN_MOUNTAINS_CONTINUITY_DESC"
+msgstr "Влияет на то, собираются ли горы в длинные связанные хребты. Ниже значение — пятна и отдельные массивы, выше — вытянутые цепи."
+
+msgid "UI_WORLDGEN_MOUNTAINS_RUGGEDNESS"
+msgstr "Скалистость:"
+
+msgid "UI_WORLDGEN_MOUNTAINS_RUGGEDNESS_DESC"
+msgstr "Влияет на резкость и ломанный силуэт рельефа. Ниже значение — более плавные склоны, выше — острые гребни и выраженные пики."
+
+msgid "UI_WORLDGEN_MOUNTAINS_ADVANCED_TOGGLE"
+msgstr "Дополнительные параметры"
+
+msgid "UI_WORLDGEN_MOUNTAINS_ANCHOR_CELL_SIZE"
+msgstr "Размер опорной ячейки:"
+
+msgid "UI_WORLDGEN_MOUNTAINS_ANCHOR_CELL_SIZE_DESC"
+msgstr "Размер крупной сетки, по которой раскладываются опорные центры гор. Большее значение делает рисунок генерации спокойнее и реже."
+
+msgid "UI_WORLDGEN_MOUNTAINS_GRAVITY_RADIUS"
+msgstr "Радиус притяжения:"
+
+msgid "UI_WORLDGEN_MOUNTAINS_GRAVITY_RADIUS_DESC"
+msgstr "Радиус влияния каждого центра гор. Большее значение расширяет зону, в которой массив тянет рельеф к себе."
+
+msgid "UI_WORLDGEN_MOUNTAINS_FOOT_BAND"
+msgstr "Ширина подножья:"
+
+msgid "UI_WORLDGEN_MOUNTAINS_FOOT_BAND_DESC"
+msgstr "Ширина переходной полосы у подножья гор. Большее значение делает переход от равнины к склону мягче и шире."
+
+msgid "UI_WORLDGEN_MOUNTAINS_INTERIOR_MARGIN"
+msgstr "Глубина интерьера:"
+
+msgid "UI_WORLDGEN_MOUNTAINS_INTERIOR_MARGIN_DESC"
+msgstr "Насколько глубоко внутренняя часть хребта считается плотным массивом. Большее значение делает ядро гор толще."
+
+msgid "UI_WORLDGEN_MOUNTAINS_LATITUDE_INFLUENCE"
+msgstr "Влияние широты:"
+
+msgid "UI_WORLDGEN_MOUNTAINS_LATITUDE_INFLUENCE_DESC"
+msgstr "Насколько положение по широте влияет на распределение гор. Ноль отключает широтный уклон, положительные и отрицательные значения смещают зоны генерации по-разному."
+
+msgid "UI_WORLDGEN_MOUNTAINS_START_BUTTON"
+msgstr "▶  НАЧАТЬ ЭКСПЕДИЦИЮ"
+
 msgid "UI_LOADING_PREPARING"
 msgstr "Подготовка..."
 

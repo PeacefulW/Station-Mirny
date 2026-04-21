@@ -199,9 +199,13 @@ try_harvest_at_world(world_pos: Vector2) -> Dictionary
 V0 interpretation:
 - `is_walkable_at_world` reads `base + diff`
 - `has_resource_at_world` is allowed only as the single-tile mutation proof for
-  the current diggable surface class provided by the active world runtime
+  the current diggable surface class provided by the active world runtime;
+  diagonal-only sealed rock does not qualify, because the candidate tile must
+  have at least one orthogonally exposed walkable face
 - `try_harvest_at_world` is allowed only to convert that one diggable tile into
-  its post-mutation state and return the minimal harvest/mutation result payload
+  its post-mutation state and return the minimal harvest/mutation result payload;
+  the current harvest input path must resolve the nearest qualifying tile along
+  the player-to-cursor ray and must not skip through a nearer blocking solid
 
 This compatibility surface is not permission to reintroduce general resource
 streaming in V0.
