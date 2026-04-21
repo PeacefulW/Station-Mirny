@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.2
-last_updated: 2026-04-20
+version: 0.3
+last_updated: 2026-04-21
 related_docs:
   - ../README.md
   - commands.md
@@ -42,7 +42,6 @@ It covers only the minimal core set confirmed in code during this pass:
 - `CommandExecutor`
 - `BuildingSystem`
 - `WorldStreamer`
-- `MountainRevealRegistry`
 
 ## Out of Scope
 
@@ -297,7 +296,8 @@ Confirmed readable entrypoints:
 | `save_world_state()` | `Dictionary` | World save payload for `world.json` |
 | `collect_chunk_diffs()` | `Array[Dictionary]` | Serialized dirty chunk entries |
 | `get_chunk_packet(chunk_coord: Vector2i)` | `Dictionary` | Loaded chunk packet or `{}`; read-only world-domain lookup for `MountainResolver` |
-| `get_mountain_reveal_registry()` | `MountainRevealRegistry` | Returns the world-domain owner of reveal alpha state |
+| `get_mountain_cover_sample(world_tile: Vector2i)` | `Dictionary` | Read-only cover sample for one tile: `mountain_id`, `mountain_flags`, `component_id`, `is_opening`, `walkable` |
+| `get_mountain_cover_debug_snapshot(world_tile: Vector2i)` | `Dictionary` | Debug-only snapshot including `inside_outside_state`, active component ids, and `roof_layers_per_chunk_max` |
 | `is_walkable_at_world(world_pos: Vector2)` | `bool` | Reads `base + diff`; returns `false` while a chunk is not ready |
 | `has_resource_at_world(world_pos: Vector2)` | `bool` | Diggable surface query for the current harvest path (`TERRAIN_MOUNTAIN_WALL` and `TERRAIN_MOUNTAIN_FOOT`) |
 
@@ -309,6 +309,7 @@ Confirmed mutation entrypoints:
 | `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version` and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
 | `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one diggable surface tile into its dug state |
+| `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver` to switch between outside state and one active cavity |
 
 Not documented here as safe entrypoints:
 - `_streaming_tick()`
@@ -316,34 +317,3 @@ Not documented here as safe entrypoints:
 - direct access to `_chunk_packets`, `_chunk_views`, or `_diff_store`
 - direct mutation of native packet dictionaries outside the documented methods
 - mutation of dictionaries returned by `get_chunk_packet()`
-
-### MountainRevealRegistry
-
-Owner file: `core/systems/world/mountain_reveal_registry.gd`
-
-Role:
-- single writer for runtime-only per-`mountain_id` roof alpha and reveal /
-  conceal lifecycle
-
-Confirmed readable entrypoints:
-
-| Surface | Return | Notes |
-|---|---|---|
-| `get_alpha(mountain_id: int)` | `float` | Returns current roof alpha in `0.0..1.0`; defaults to `1.0` for unknown mountains |
-
-Confirmed mutation entrypoints:
-
-| Surface | Notes |
-|---|---|
-| `request_reveal(mountain_id: int)` | Flips the target roof alpha for one mountain to `0.0` |
-| `request_conceal(mountain_id: int)` | Starts debounce and later flips the target roof alpha for one mountain to `1.0` |
-| `reset_state()` | Clears transient alpha / target / debounce state on new game or load |
-
-Current consumer note:
-- current code exposes this owner through `WorldStreamer.get_mountain_reveal_registry()` for world-domain consumers only; `MountainResolver` itself remains player-local and is not a documented external read surface
-
-Not documented here as safe entrypoints:
-- `_alpha_by_mountain`
-- `_target_by_mountain`
-- `_conceal_delay_by_mountain`
-- `_tick()`

@@ -6,7 +6,6 @@ extends CharacterBody2D
 
 # --- Константы ---
 const MountainResolver = preload("res://core/systems/world/mountain_resolver.gd")
-const MountainRevealRegistry = preload("res://core/systems/world/mountain_reveal_registry.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldStreamer = preload("res://core/systems/world/world_streamer.gd")
 const SCRAP_ITEM_ID: String = "base:scrap"
@@ -23,7 +22,6 @@ var _attack_area: Area2D = null
 var _inventory: InventoryComponent = null
 var _chunk_manager: Node = null
 var _world_streamer: WorldStreamer = null
-var _mountain_reveal_registry: MountainRevealRegistry = null
 var _mountain_resolver: MountainResolver = null
 var _state_machine: StateMachine = StateMachine.new()
 var _camera: PlayerCamera = null
@@ -65,10 +63,9 @@ func _physics_process(delta: float) -> void:
 	_apply_terrain_blocking(delta)
 	move_and_slide()
 	var streamer: WorldStreamer = _get_world_streamer()
-	var reveal_registry: MountainRevealRegistry = _get_mountain_reveal_registry()
-	if _mountain_resolver != null and streamer != null and reveal_registry != null:
-		_mountain_resolver.update_from_player_position(global_position, streamer, reveal_registry)
-	_update_mountain_debug_overlay(global_position, streamer, reveal_registry)
+	if _mountain_resolver != null and streamer != null:
+		_mountain_resolver.update_from_player_position(global_position, streamer)
+	_update_mountain_debug_overlay(global_position, streamer)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _camera and _camera.handle_zoom_input(event):
@@ -191,8 +188,6 @@ func spend_item(item_id: String, amount: int) -> bool:
 func _find_chunk_manager() -> void:
 	_chunk_manager = get_tree().get_first_node_in_group("chunk_manager")
 	_world_streamer = _chunk_manager as WorldStreamer
-	if _world_streamer != null:
-		_mountain_reveal_registry = _world_streamer.get_mountain_reveal_registry()
 
 func _get_chunk_manager() -> Node:
 	if _chunk_manager != null and is_instance_valid(_chunk_manager):
@@ -210,20 +205,10 @@ func _get_world_streamer() -> WorldStreamer:
 		return _world_streamer
 	return null
 
-func _get_mountain_reveal_registry() -> MountainRevealRegistry:
-	if _mountain_reveal_registry != null and is_instance_valid(_mountain_reveal_registry):
-		return _mountain_reveal_registry
-	var streamer: WorldStreamer = _get_world_streamer()
-	if streamer == null:
-		return null
-	_mountain_reveal_registry = streamer.get_mountain_reveal_registry()
-	return _mountain_reveal_registry
-
 func _on_world_initialized(_seed_value: int) -> void:
 	_mountain_resolver = MountainResolver.new()
 	_chunk_manager = null
 	_world_streamer = null
-	_mountain_reveal_registry = null
 	call_deferred("_find_chunk_manager")
 
 func _apply_terrain_blocking(delta: float) -> void:
@@ -335,7 +320,7 @@ func _ensure_mountain_debug_overlay() -> void:
 	_mountain_debug_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	_mountain_debug_panel.offset_left = 12.0
 	_mountain_debug_panel.offset_top = 12.0
-	_mountain_debug_panel.custom_minimum_size = Vector2(560.0, 150.0)
+	_mountain_debug_panel.custom_minimum_size = Vector2(620.0, 192.0)
 	var panel_style := StyleBoxFlat.new()
 	panel_style.bg_color = Color(0.04, 0.06, 0.08, 0.86)
 	panel_style.border_color = Color(0.42, 0.74, 1.0, 0.95)
@@ -351,15 +336,14 @@ func _ensure_mountain_debug_overlay() -> void:
 	_mountain_debug_label.name = "MountainDebugLabel"
 	_mountain_debug_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_mountain_debug_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	_mountain_debug_label.custom_minimum_size = Vector2(540.0, 134.0)
+	_mountain_debug_label.custom_minimum_size = Vector2(600.0, 176.0)
 	_mountain_debug_label.add_theme_font_size_override("font_size", 15)
 	_mountain_debug_label.add_theme_color_override("font_color", Color(0.96, 0.98, 1.0))
 	_mountain_debug_panel.add_child(_mountain_debug_label)
 
 func _update_mountain_debug_overlay(
 	world_pos: Vector2,
-	streamer: WorldStreamer,
-	reveal_registry: MountainRevealRegistry
+	streamer: WorldStreamer
 ) -> void:
 	if _mountain_debug_label == null or not is_instance_valid(_mountain_debug_label):
 		return
@@ -377,46 +361,87 @@ func _update_mountain_debug_overlay(
 	var sample_mountain_id: int = int(resolver_debug.get("sample_mountain_id", 0))
 	var sample_mountain_flags: int = int(resolver_debug.get("sample_mountain_flags", 0))
 	var sample_is_interior: bool = (sample_mountain_flags & WorldRuntimeConstants.MOUNTAIN_FLAG_INTERIOR) != 0
+	var sample_component_id: int = int(resolver_debug.get("sample_component_id", 0))
+	var sample_is_opening: bool = bool(resolver_debug.get("sample_is_opening", false))
 	var resolved_mountain_id: int = int(resolver_debug.get("resolved_mountain_id", 0))
+	var resolved_component_id: int = int(resolver_debug.get("resolved_component_id", 0))
 	var last_before: int = int(resolver_debug.get("last_mountain_id_before_update", 0))
+	var last_component_before: int = int(resolver_debug.get("last_component_id_before_update", 0))
 	var last_after: int = int(resolver_debug.get("last_mountain_id_after_update", last_before))
-	var doorway_fallback_used: bool = bool(resolver_debug.get("doorway_fallback_used", false))
-	var tracked_mountain_id: int = resolved_mountain_id if resolved_mountain_id > 0 else last_after
-	var reveal_debug: Dictionary = {}
-	if reveal_registry != null:
-		reveal_debug = reveal_registry.get_debug_snapshot(tracked_mountain_id)
-	var reveal_alpha: float = float(reveal_debug.get("alpha", 1.0))
-	var reveal_target_alpha: float = float(reveal_debug.get("target_alpha", 1.0))
-	var reveal_debounce: float = float(reveal_debug.get("debounce_seconds", 0.0))
-	var reveal_has_target: bool = bool(reveal_debug.get("has_target", false))
-	var reveal_has_conceal_delay: bool = bool(reveal_debug.get("has_conceal_delay", false))
+	var last_component_after: int = int(resolver_debug.get("last_component_id_after_update", last_component_before))
+	var cover_debug: Dictionary = {}
+	if streamer != null:
+		cover_debug = streamer.get_mountain_cover_debug_snapshot(tile_coord)
+	var render_debug: Dictionary = {}
+	if streamer != null:
+		render_debug = streamer.get_mountain_cover_render_debug_snapshot(tile_coord)
 	var terrain_debug: Dictionary = _get_mountain_debug_tile_state(tile_coord, streamer)
 	var terrain_id: int = int(terrain_debug.get("terrain_id", -1))
 	var terrain_name: String = _terrain_debug_name(terrain_id)
 	var terrain_ready: bool = bool(terrain_debug.get("ready", false))
 	var world_version: int = streamer.get_world_version() if streamer != null else -1
-	var state_text: String = "IN_MOUNTAIN" if resolved_mountain_id > 0 else "OUTSIDE"
+	var state_text: String = String(cover_debug.get("inside_outside_state", "OUTSIDE"))
+	var active_mountain_id: int = int(cover_debug.get("active_mountain_id", 0))
+	var active_component_id: int = int(cover_debug.get("active_component_id", 0))
+	var cover_mountain_id: int = int(cover_debug.get("mountain_id", sample_mountain_id))
+	var cover_component_id: int = int(cover_debug.get("component_id", sample_component_id))
+	var cover_is_opening: bool = bool(cover_debug.get("is_opening", sample_is_opening))
+	var roof_layer_metric: int = int(cover_debug.get("roof_layers_per_chunk_max", 0))
+	var probe_tile: Vector2i = render_debug.get("probe_tile", tile_coord) as Vector2i
+	var probe_mountain_id: int = int(render_debug.get("probe_mountain_id", 0))
+	var probe_expected_open: int = int(render_debug.get("expected_open_bit", -1))
+	var probe_mask_value: float = float(render_debug.get("mask_value", -1.0))
+	var probe_pending_mountain_id: int = int(render_debug.get("pending_mountain_id", 0))
+	var probe_pending_flags: int = int(render_debug.get("pending_flags", 0))
+	var probe_has_roof_layer: bool = bool(render_debug.get("has_roof_layer", false))
+	var probe_layer_has_cover_material: bool = bool(render_debug.get("layer_has_cover_material", false))
+	var probe_roof_cell_source_id: int = int(render_debug.get("roof_cell_source_id", -1))
+	var probe_roof_cell_atlas: Vector2i = render_debug.get("roof_cell_atlas_coords", Vector2i(-1, -1)) as Vector2i
+	var probe_roof_tile_material_present: bool = bool(render_debug.get("roof_tile_material_present", false))
+	var probe_chunk_view_ready: bool = bool(render_debug.get("chunk_view_ready", false))
 	_mountain_debug_label.text = "\n".join([
 		"Mountain debug: %s | tile=(%d,%d) | world_version=%d" % [state_text, tile_coord.x, tile_coord.y, world_version],
 		"terrain_id=%d (%s) | packet_ready=%s" % [terrain_id, terrain_name, str(terrain_ready)],
-		"sample_id=%d | sample_flags=%d | sample_interior=%s | doorway_fallback=%s" % [
+		"sample_mountain_id=%d | sample_flags=%d | sample_interior=%s | sample_component_id=%d | sample_opening=%s" % [
 			sample_mountain_id,
 			sample_mountain_flags,
 			str(sample_is_interior),
-			str(doorway_fallback_used),
+			sample_component_id,
+			str(sample_is_opening),
 		],
-		"resolved_id=%d | last_before=%d | last_after=%d" % [
+		"resolved_mountain_id=%d | resolved_component_id=%d | last_before=(%d,%d) | last_after=(%d,%d)" % [
 			resolved_mountain_id,
+			resolved_component_id,
 			last_before,
+			last_component_before,
 			last_after,
+			last_component_after,
 		],
-		"reveal_track_id=%d | alpha=%.3f | target=%.3f | debounce=%.3f | has_target=%s | conceal_delay=%s" % [
-			tracked_mountain_id,
-			reveal_alpha,
-			reveal_target_alpha,
-			reveal_debounce,
-			str(reveal_has_target),
-			str(reveal_has_conceal_delay),
+		"cover_mountain_id=%d | cover_component_id=%d | cover_opening=%s | active=(%d,%d) | roof_layers_per_chunk_max=%d" % [
+			cover_mountain_id,
+			cover_component_id,
+			str(cover_is_opening),
+			active_mountain_id,
+			active_component_id,
+			roof_layer_metric,
+		],
+		"render_probe_tile=(%d,%d) | probe_mountain_id=%d | expected_open=%d | mask=%.2f | chunk_view_ready=%s" % [
+			probe_tile.x,
+			probe_tile.y,
+			probe_mountain_id,
+			probe_expected_open,
+			probe_mask_value,
+			str(probe_chunk_view_ready),
+		],
+		"roof_layer=%s | cover_material=%s | roof_cell_source=%d | roof_cell_atlas=(%d,%d) | tile_material=%s | pending=(%d,%d)" % [
+			str(probe_has_roof_layer),
+			str(probe_layer_has_cover_material),
+			probe_roof_cell_source_id,
+			probe_roof_cell_atlas.x,
+			probe_roof_cell_atlas.y,
+			str(probe_roof_tile_material_present),
+			probe_pending_mountain_id,
+			probe_pending_flags,
 		],
 	])
 

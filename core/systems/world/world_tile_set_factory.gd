@@ -8,6 +8,8 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 static var _tile_sets_by_layer: Dictionary = {}
 static var _source_ids_by_terrain_id: Dictionary = {}
 static var _materials_by_profile_id: Dictionary = {}
+static var _roof_tile_set: TileSet = null
+static var _roof_source_id: int = -1
 
 static func bootstrap() -> void:
 	TerrainPresentationRegistry.bootstrap()
@@ -37,8 +39,12 @@ static func get_overlay_tile_set() -> TileSet:
 	return _tile_sets_by_layer.get(TerrainPresentationRegistry.RENDER_LAYER_OVERLAY, null) as TileSet
 
 static func get_roof_tile_set() -> TileSet:
-	# Roof cells reuse the mountain-wall atlas so the outside silhouette stays seamless.
-	return get_base_tile_set()
+	_ensure_roof_tileset()
+	return _roof_tile_set
+
+static func get_roof_source_id() -> int:
+	_ensure_roof_tileset()
+	return _roof_source_id
 
 static func get_base_source_id(terrain_id: int) -> int:
 	return get_source_id(terrain_id)
@@ -63,6 +69,23 @@ static func _ensure_layer_tileset(layer_id: StringName) -> void:
 		var source_id: int = tile_set.add_source(source)
 		_source_ids_by_terrain_id[terrain_id] = source_id
 	_tile_sets_by_layer[layer_id] = tile_set
+
+static func _ensure_roof_tileset() -> void:
+	bootstrap()
+	if _roof_tile_set != null:
+		return
+	var shape_set: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set_for_terrain(
+		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
+	)
+	assert(shape_set != null, "Roof TileSet requires mountain surface shape set")
+	var tile_set := TileSet.new()
+	tile_set.tile_size = Vector2i(
+		WorldRuntimeConstants.TILE_SIZE_PX,
+		WorldRuntimeConstants.TILE_SIZE_PX
+	)
+	var source: TileSetAtlasSource = _build_source_for_shape_set(shape_set)
+	_roof_source_id = tile_set.add_source(source)
+	_roof_tile_set = tile_set
 
 static func _build_source_for_terrain(terrain_id: int) -> TileSetAtlasSource:
 	var shape_set: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set_for_terrain(terrain_id)

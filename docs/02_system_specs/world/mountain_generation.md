@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.2
+version: 1.3
 last_updated: 2026-04-21
 related_docs:
   - ../../README.md
@@ -28,14 +28,14 @@ related_docs:
 ## Purpose
 
 Define the first canonical extension of the chunked world runtime that
-introduces massive deterministic mountains and a mountain-interior reveal
-system on top of `World Runtime V0`.
+introduces massive deterministic mountains and a mountain-interior cover
+visibility system on top of `World Runtime V0`.
 
 This spec is the source of truth for:
 - mountain silhouette and elevation field
 - mountain identity (`mountain_id`)
-- roof presentation layer and reveal lifecycle
-- excavation and entrance derivation
+- roof presentation layer and cover visibility lifecycle
+- excavation and opening / cavity derivation
 - persistence of worldgen settings
 - runtime classification for all of the above
 
@@ -54,10 +54,13 @@ The player must be able to:
   mountain roof or wall packet
 - dig into a mountain with the existing single-tile mutation path, and have
   the excavation persist across save/load
-- when entering a mountain, have only that specific mountain's roof fade
-  out; adjacent mountains remain sealed
-- see only the entrance from outside; the rest of the interior stays hidden
-  behind the mountain's crown texture, even if a base is built inside
+- when standing on an entrance tile, count as inside immediately with no
+  extra step or reveal delay
+- from outside, see only real mouth / opening holes; the rest of the
+  interior stays hidden behind the mountain's crown texture
+- when inside, reveal only the current connected orthogonal cavity and its
+  canonical shell; foreign cavity interiors remain sealed, but real surface
+  mouths stay visible
 - tune mountain density, scale, continuity, and ruggedness at world
   creation; the settings travel with the save and cannot be retroactively
   changed by repository edits
@@ -71,10 +74,9 @@ V1 is an **additive** extension of V0. It adds:
 - new surface terrain ids: `TERRAIN_MOUNTAIN_WALL`, `TERRAIN_MOUNTAIN_FOOT`
 - roof presentation layer in `ChunkView`, one `TileMapLayer` per
   `mountain_id` inside a chunk
-- `MountainRevealRegistry` single-writer reveal lifecycle with time-based
-  alpha fade
-- `MountainResolver` per-frame point-in-mountain lookup from player tile
-- derived `is_entrance` flag computed on mutation and on load
+- `MountainCavityCache` runtime-derived opening / cavity component cache
+- `MountainResolver` O(1) per-step point-in-cavity lookup from player tile
+- mask-only roof reveal driven by current cavity or outside opening state
 - `MountainGenSettings` resource + `worldgen_settings.mountains` section
   in `world.json`
 - bump `WORLD_VERSION` from `1` to `2` for M1, then to `3` for the
@@ -113,17 +115,17 @@ V1 does not include:
 
 | Question | Answer |
 |---|---|
-| Canonical, runtime overlay, or visual only? | Field, identity, flags, and atlas indices are canonical. Entrance flag and reveal alpha are runtime overlay. Roof cells are visual only. |
-| Save/load required? | Yes, for `worldgen_settings.mountains` in `world.json`. No for reveal state or entrance cache. |
+| Canonical, runtime overlay, or visual only? | Field, identity, flags, and atlas indices are canonical. Cavity component membership, opening flags, and active viewer state are runtime-derived overlay. Roof cells are visual only. |
+| Save/load required? | Yes, for `worldgen_settings.mountains` in `world.json`. No for cavity cache, opening cache, or active cover state. |
 | Deterministic? | Yes. Field, identity, and atlas indices are pure `f(seed, world_version, coord, settings_packed)`. |
 | Must work on unloaded chunks? | Yes. All per-tile canonical data is recomputable from base + diff on demand. |
-| C++ compute or main-thread apply? | Field sample, anchor resolution, and atlas indices are C++ compute. Roof cell placement, reveal alpha, and entrance flag recompute are main-thread apply. |
-| Dirty unit | `32 x 32` chunk for generation; one tile for excavation mutation; 5-tile neighborhood for entrance recompute; one `mountain_id` for reveal alpha. |
-| Single owner | `WorldCore` for base field. `WorldDiffStore` for diff. `ChunkView` for roof presentation and runtime entrance cache. `MountainRevealRegistry` for reveal alpha. `world.json` for `worldgen_settings`. |
+| C++ compute or main-thread apply? | Field sample, anchor resolution, and atlas indices are C++ compute. Roof cell placement, chunk mask upload, and cavity/opening cache refresh are main-thread apply. |
+| Dirty unit | `32 x 32` chunk for generation; one tile for excavation mutation; one loaded chunk plus direct seam-neighbor diff participants for publish / unload; one current cavity component for inside reveal. |
+| Single owner | `WorldCore` for base field. `WorldDiffStore` for diff. `ChunkView` for static roof presentation and per-chunk mask material. `MountainCavityCache` for runtime-derived cavity/opening state. `WorldStreamer` for active cover selection. `world.json` for `worldgen_settings`. |
 | 10x / 100x scale path | Sparse anchors + bounded local anchor lookup keep identity local. Publish inherits V0 slicing. No global tables; scale grows with number of loaded chunks only. |
 | Main-thread blocking? | No. Generation stays in the existing worker path. Apply remains sliced through `FrameBudgetDispatcher.CATEGORY_STREAMING`. |
 | Hidden GDScript fallback? | Forbidden. Native `WorldCore` is required; absence fails loudly per LAW 9. |
-| Could it become heavy later? | Yes. Noise octaves, anchor density, and reveal participants scale. All stay inside native generation or per-mountain (not per-tile) runtime work. |
+| Could it become heavy later? | Yes. Noise octaves, anchor density, and revealed cavity size scale. All stay inside native generation or bounded cache refresh; movement-time work remains cached lookup only. |
 | Whole-world prepass? | Forbidden. All field and identity work is local to one chunk plus its bounded anchor neighborhood. |
 
 ## Core Contract
@@ -143,7 +145,7 @@ V1 adds two surface terrain ids:
 | Id constant | Walkable | Used for |
 |---|---|---|
 | `TERRAIN_MOUNTAIN_WALL` | 0 | Every tile with `mountain_id > 0` and `is_wall` bit set. Rendered on `_base_layer` with rock-face atlas. |
-| `TERRAIN_MOUNTAIN_FOOT` | 0 | Foot-band tiles visible from outside. `mountain_id > 0`, `is_foot` bit set, no `is_interior` bit. Never covered by roof. |
+| `TERRAIN_MOUNTAIN_FOOT` | 0 | Foot-band tiles visible from outside. `mountain_id > 0`, `is_foot` bit set, no `is_interior` bit. They still participate in the static roof overlay so dug foot-band tunnels stay hidden until cover visibility opens them. |
 
 Legacy terrain slot `1` remains reserved for backward numeric compatibility,
 but new mountain worlds do not generate a standalone plains-rock terrain
@@ -180,7 +182,7 @@ Forbidden packet fields in V1 (reserved for later specs):
 - climate bytes, river masks, biome blend data
 - placements, decor batches, connector requests
 - subsurface data
-- `is_entrance` (derived, runtime-only, see Entrance Rules)
+- `is_opening` / `component_id` (derived, runtime-only cover state)
 
 ### Mountain Field
 
@@ -252,8 +254,8 @@ For every tile with `mountain_id == 0`:
 - `mountain_atlas_index = 0`
 - canonical terrain stays on the ground / non-mountain path
 
-Tiles with `is_interior == 1` are the **only** tiles that participate in
-the roof layer.
+Tiles with `mountain_id > 0` and either `is_wall == 1` or `is_foot == 1`
+participate in the roof layer.
 
 ### Worldgen Settings
 
@@ -310,9 +312,9 @@ Rules:
 | Base field, identity, flags, atlas | `WorldCore` (native) | Emit V1 packet. |
 | Diff | `WorldDiffStore` | Unchanged from V0. |
 | Chunk orchestration | `WorldStreamer` | Forward new packet fields; flatten settings; persist settings in `world.json`. |
-| Presentation | `ChunkView` | Own base/overlay/roof layers; own runtime entrance cache. |
-| Reveal lifecycle | `MountainRevealRegistry` | Single writer of per-`mountain_id` alpha; emit reveal/conceal signals. |
-| Point-in-mountain lookup | `MountainResolver` | Per-frame derive `mountain_id` under player tile; request reveal/conceal. |
+| Presentation | `ChunkView` | Own base/overlay/roof layers and per-chunk cover mask textures. |
+| Runtime cover cache | `MountainCavityCache` | Derive cavity component membership, opening flags, opening shell, and current-cavity shell from canonical packet + diff geometry. |
+| Point-in-cavity lookup | `MountainResolver` | Per-frame derive current cavity component under the player tile; update active cover selection. |
 
 ### Roof Presentation
 
@@ -322,9 +324,12 @@ Rules:
 - roof layer `tile_set` is provided by
   `WorldTileSetFactory.get_roof_tile_set()` and shares the rock-top atlas
   with `TERRAIN_MOUNTAIN_WALL` so the outside silhouette is seamless
-- roof cells are placed only for tiles with
-  `mountain_id > 0 and is_interior == 1 and is_entrance == 0`
-- entrance tiles clear their roof cell via `set_cell(..., -1)`
+- roof cells are placed for every tile with
+  `mountain_id > 0 and (is_wall == 1 or is_foot == 1)`
+- after publish, roof cells remain static; runtime cover changes are
+  mask-only via shader/material state
+- runtime cover state must never mutate canonical terrain geometry or roof
+  tile placement
 - aggregated alpha per chunk is **forbidden**
 - on chunk unload, `ChunkView.queue_free` destroys all roof layers
 
@@ -333,25 +338,30 @@ Guardrail (mandatory from M2 onward):
 - when value exceeds `4`, emit one warning per session:
   `"roof layer explosion: chunk %s has %d mountains"`
 
-### Reveal Registry
+### Cover Cache and Visibility
 
-- `MountainRevealRegistry` is a single autoload or child of `WorldStreamer`
-- authoritative state:
-  - `Dictionary[int, float] _alpha_by_mountain` (0.0..1.0, where 1.0 =
-    roof fully visible)
-  - `Dictionary[int, float] _target_by_mountain`
-- reveal fade uses time-based interpolation only
-- fade time constant `FADE_SECONDS` (0.25..0.35)
-- exit debounce constant `EXIT_DEBOUNCE` (0.5)
-- registry registers one job on `FrameBudgetDispatcher` under
-  `CATEGORY_VISUAL` with budget 0.2 ms
-- signals:
-  - `mountain_revealed(mountain_id: int)` fires when target flips to 0.0
-  - `mountain_concealed(mountain_id: int)` fires when target flips to 1.0
-- `ChunkView` subscribes to these and updates only the layer matching
-  `mountain_id`
-
-SDF/spatial reveal effects are forbidden in V1.
+- `MountainCavityCache` is runtime-derived only; it never mutates canonical
+  packet fields
+- required runtime cache surfaces:
+  - tile -> `mountain_id`
+  - tile -> `component_id`
+  - tile -> `is_opening`
+  - component -> member tiles + canonical shell + opening shell
+- outside state:
+  - visible tiles are only `opening + opening_shell`
+  - interior floor tiles outside the mouth stay hidden
+- inside state:
+  - visible tiles are only `current_component.tiles +
+    current_component.shell + outside_visible(openings + opening_shell)`
+  - foreign cavity interiors stay hidden, but foreign real surface mouths
+    remain visible
+- shell data is derived from canonical `mountain_id + (is_wall|is_foot)`
+  geometry around the revealed cavity; it is not derived from a generic
+  walkable-only heuristic
+- diagonal-only contact never connects cavity components
+- adjacent mountains must remain independent because component membership is
+  constrained by stable canonical `mountain_id`
+- SDF / spatial reveal effects are forbidden in V1
 
 ### Mountain Resolver
 
@@ -359,41 +369,34 @@ SDF/spatial reveal effects are forbidden in V1.
   `Player._physics_process`
 - steps:
   1. convert player world position to tile, chunk, and local coord
-  2. read `mountain_id_per_tile` from the loaded chunk packet; if the
-     chunk is not loaded, do nothing
-  3. if `current != _last_mountain_id`, call
-     `MountainRevealRegistry.request_reveal(current)` and
-     `request_conceal(_last_mountain_id)` as appropriate
-- when `current == 0` and opposite cardinal neighbors at distance 1 are
-  interior tiles of the same mountain (a narrow doorway case), the
-  resolver falls back to that 5-tile cross mountain to prevent thrash;
-  adjacent-cardinal corners must not trigger fallback
+  2. query cached cover sample for that tile; if the chunk is not loaded, do
+     nothing
+  3. treat `component_id > 0` as inside immediately, including when standing
+     on an entrance tile
+  4. when active component changes, update `WorldStreamer` active cover
+     selection
 
-Resolver does O(1) work per frame; no scene-tree queries, no raycasts.
+Resolver does O(1) work per frame; no flood fill, scene-tree query, or
+raycast is allowed on the hot path.
 
-### Excavation and Entrance
+### Excavation and Opening Derivation
 
 - V0 interactive path (`try_harvest_at_world`) remains unchanged in
   structure
-- after a tile mutation, `ChunkView` calls
-  `recompute_entrance_flag(world_tile)` for the mutated tile and its 4
-  neighbors (5 tiles total)
-- `recompute_entrance_flag` is the **single** source of truth for the
-  entrance flag:
-  - a tile is an entrance iff it is `is_interior == 1` **and** its
-    diff-resolved terrain is walkable **and** it has at least one
-    walkable 4-neighbor that exits the interior shell
-    (`mountain_id != self` or neighbor `is_interior == 0`)
-- the runtime entrance cache lives in `ChunkView._entrance_cache:
-  PackedByteArray` (1024 bytes per chunk)
-- the cache is **never** persisted; it is always derivable from
-  `base + diff`
-- on load / cold chunk rebuild, `ChunkView` recomputes the cache for every
-  dirty tile in the chunk under the loading screen (boot/load class per
-  ADR-0001)
-- entrance transitions update the affected roof layer by
-  `set_cell(..., -1)` on newly-marked entrance tiles and re-placing a
-  roof cell when an entrance is closed again (diff removed or covered)
+- after a tile mutation, the runtime cover cache refreshes only the mutated
+  tile, its local cardinal neighborhood, and the affected cavity metadata
+- `is_opening` is a derived runtime flag:
+  - the tile must be `mountain_id > 0`, belong to canonical mountain
+    geometry (`is_wall == 1 or is_foot == 1`), and be walkable
+  - at least one walkable cardinal neighbor must exit the current mountain
+    cover domain (`mountain_id != self` or neighbor has neither
+    `is_wall` nor `is_foot`)
+- component membership is cached from walkable mountain-owned tiles only and is
+  never written back into packet or diff
+- orthogonal excavation that joins two cavity components merges them into one
+  visible cavity; diagonal-only contact does not
+- cover updates after mutation must not use mass `set_cell`, `TileMap.clear`,
+  or loaded-world global rebuilds
 
 ### Streaming and Apply
 
@@ -401,8 +404,9 @@ Resolver does O(1) work per frame; no scene-tree queries, no raycasts.
   path unchanged
 - roof `TileMapLayer` population is part of the same sliced publish loop
 - no new `FrameBudgetDispatcher` category is introduced; reuse
-  `CATEGORY_STREAMING` for publish and `CATEGORY_VISUAL` for reveal
-  fade
+  `CATEGORY_STREAMING` for publish and local cover-mask refresh
+- on chunk publish / unload, update only the published or unloaded chunk plus
+  direct seam-neighbor diff participants needed to refresh cavity metadata
 - `TileMapLayer.clear()` remains forbidden on runtime mutation paths
 
 ## Persistence Contract
@@ -449,7 +453,8 @@ Rules:
 ### chunks/*.json Unchanged
 
 Chunk diffs keep `ChunkDiffV0` shape. Forbidden additions:
-- `is_entrance`
+- `is_opening`
+- `component_id`
 - `mountain_id`
 - `mountain_flags`
 - any other derived presentation state
@@ -476,30 +481,23 @@ Chunk diffs keep `ChunkDiffV0` shape. Forbidden additions:
 - `world_version` remains a plain integer; it is **not** a hash of
   `worldgen_settings`
 
-### Reveal and Entrance State
+### Cover Runtime State
 
-- `MountainRevealRegistry` state is transient; not persisted
-- after load, the resolver populates the first reveal request on the
-  first post-load physics frame
-- `ChunkView._entrance_cache` is runtime-only; rebuilt on publish
+- `MountainCavityCache` state is transient; not persisted
+- active cover selection is transient; not persisted
+- after load, derived cavity / opening state is rebuilt from loaded packet +
+  diff data during publish
+- the resolver may update active component selection on the first post-load
+  physics frame, but no save payload stores reveal / cover state
 
 ## Event Contract
-
-New `EventBus` signals:
-- `mountain_revealed(mountain_id: int)`
-- `mountain_concealed(mountain_id: int)`
-
-Emitter: `MountainRevealRegistry`.
-Listeners: `ChunkView` instances that hold a layer for the affected
-`mountain_id`.
 
 Existing world signals are reused unchanged:
 - `world_initialized(seed_value: int)`
 - `chunk_loaded(chunk_coord: Vector2i)`
 - `chunk_unloaded(chunk_coord: Vector2i)`
 
-When V1 code lands, `event_contracts.md` is updated in the same task to
-register the two new signals with their payloads, emitter, and listener
+No mountain-specific `EventBus` reveal lifecycle is part of the current V1
 contract.
 
 ## Performance Class
@@ -510,20 +508,21 @@ contract.
 | Anchor resolution | background (native worker) | 3x3 anchor cells per chunk | outside main thread |
 | Sliced mountain publish | background apply | batch of cells | shares V0 `CATEGORY_STREAMING` budget |
 | Resolver tile lookup | interactive | 1 tile | < 0.05 ms/frame |
-| Reveal alpha tween | background apply | 1 `mountain_id` | < 0.2 ms/frame inside `CATEGORY_VISUAL` |
-| Excavation mutation | interactive | 1 tile | V0 budget, unchanged |
-| Entrance recompute on mutation | interactive | 5 tiles | < 1.0 ms |
-| Entrance rebuild on load | boot/load | all dirty tiles in chunk | loading screen only |
+| Cover mask upload on state switch | background apply | loaded chunks only | bounded by loaded ring; no topology rebuild |
+| Excavation mutation | interactive | 1 tile + affected cavity metadata | V0 budget, unchanged |
+| Cavity/opening cache refresh on mutation | interactive | local dirty neighborhood + affected component metadata | < 1.0 ms at normal scale |
+| Cavity/opening rebuild on publish / unload | boot/load | published/unloaded chunk plus direct seam participants | loading / streaming only |
 
 ### Forbidden Runtime Paths
 
 - per-tile `Tween` on reveal
-- per-tile `set_cell` during reveal (roof cells are static; only entrance
-  transitions mutate cells)
-- flood-fill over interior tiles on enter
+- per-tile `set_cell` during cover updates
+- flood-fill over interior tiles on enter / movement
+- chunk-wide rescan on every player step
+- global rebuild of loaded-world cavity visibility on every publish / unload
 - `mountain_id` recompute on mutation
-- reveal state in save payload
-- autotile-47 pass during reveal (atlas indices are precomputed at
+- cover state in save payload
+- autotile-47 pass during cover updates (atlas indices are precomputed at
   generation time)
 - direct scene-tree queries to decide current mountain
 
@@ -546,23 +545,29 @@ contract.
 - [ ] `mountain_id` does not change after initial generation, including
       after excavation that fully bisects a mountain
 
-### Reveal
+### Cover Visibility
 
-- [ ] entering a mountain interior fades only that mountain's roof
-      layers; adjacent mountains stay at full alpha
-- [ ] exiting restores roof alpha after `EXIT_DEBOUNCE`
-- [ ] rapid boundary crossing does not produce visible reveal/conceal
-      thrash
-- [ ] reveal alpha is not written to the save payload
+- [ ] outside mountain: only real mouth / opening holes are visible
+- [ ] outside mountain: no interior tunnel / cavity leaks through the cover
+- [ ] standing on an entrance tile counts as inside immediately
+- [ ] entering a cavity reveals the full connected orthogonal cavity
+      immediately
+- [ ] separate cavities remain isolated while inside one of them
+- [ ] foreign real surface mouths remain visible while inside a current cavity
+- [ ] foreign cavity interiors remain hidden while inside a current cavity
+- [ ] adjacent mountains behave independently
+- [ ] cover state is not written to the save payload
 
 ### Excavation
 
-- [ ] digging an interior tile adjacent to a non-mountain tile marks it
-      `is_entrance` and its roof cell clears immediately
+- [ ] digging a new mouth makes the opening visible from outside without
+      revealing the whole cavity
 - [ ] remaining interior tiles stay covered while the mountain is sealed
       from outside
-- [ ] tunneling through a mountain produces a second entrance on the
-      opposite side
+- [ ] orthogonal excavation that joins two cavities makes them reveal as one
+- [ ] diagonal-only contact does not merge passability or visibility
+- [ ] reveal never becomes the source of truth for wall geometry or
+      autotile-47 presentation
 
 ### Persistence
 
@@ -573,13 +578,15 @@ contract.
 - [ ] loading a V1 save after the repository's
       `mountain_gen_settings.tres` has been edited produces the original
       world, not the edited defaults
-- [ ] excavation diff survives save/load; entrance flags are recomputed
-      correctly after load
+- [ ] excavation diff survives save/load; cavity / opening runtime state is
+      reconstructed correctly after load
 
 ### Performance
 
 - [ ] native chunk packet generation stays off the main thread
-- [ ] interactive excavation including entrance recompute completes under
+- [ ] player movement does not trigger flood fill or broad rescan
+- [ ] chunk publish / evict do not trigger full loaded-world cover rebuild
+- [ ] interactive excavation including cover-cache refresh completes under
       `1.0 ms` at p95
 - [ ] `roof_layers_per_chunk_max > 4` emits exactly one warning per
       session, not per frame
@@ -602,7 +609,7 @@ contract.
 - `gdextension/src/mountain_field.cpp`
 - `core/resources/mountain_gen_settings.gd`
 - `data/balance/mountain_gen_settings.tres`
-- `core/systems/world/mountain_reveal_registry.gd`
+- `core/systems/world/mountain_cavity_cache.gd`
 - `core/systems/world/mountain_resolver.gd`
 
 ### Modified
@@ -645,12 +652,11 @@ feature.
 - `docs/02_system_specs/meta/save_and_persistence.md` — add
   `worldgen_settings.mountains` shape in `world.json`; note that
   `world_version` remains a plain integer boundary
-- `docs/02_system_specs/meta/event_contracts.md` — register
-  `mountain_revealed` and `mountain_concealed` with payload, emitter,
-  listener contract
-- `docs/02_system_specs/meta/system_api.md` — if `MountainResolver` or
-  `MountainRevealRegistry` exposes a public read surface to other systems,
-  document it here
+- `docs/02_system_specs/meta/event_contracts.md` — remove obsolete
+  mountain reveal lifecycle if code no longer emits it
+- `docs/02_system_specs/meta/system_api.md` — document public
+  `WorldStreamer` mountain cover surfaces if they are exposed to other
+  systems
 - `docs/02_system_specs/meta/commands.md` — only if excavation gains a
   new formal command object in M3
 
@@ -663,8 +669,8 @@ relevant doc at the time of landing.
   keeping M1 acceptance visual-only, not balance-final
 - `roof_layers_per_chunk_max` exceeding the guardrail at apparently
   reasonable defaults; mitigated by the debug metric
-- entrance derivation drifting between mutation and load paths;
-  mitigated by the single `recompute_entrance_flag` function contract
+- cavity/opening derivation drifting between mutation, publish, and load
+  paths; mitigated by the single runtime cache refresh path
 - `world.json` migration from V0 saves without `worldgen_settings`;
   mitigated by explicit hard-coded defaults in the loader
 - legacy `mountain_shadow_system.gd.uid` and shader files producing
@@ -678,9 +684,10 @@ All five open questions Q1–Q5 are resolved in
 Summary:
 
 - Q1. Roof presentation is per `mountain_id`, not per chunk.
-- Q2. Entrance is derived via a single shared function; not persisted.
-- Q3. First playable reveal uses time-based alpha fade only; SDF
-  deferred.
+- Q2. Cavity/opening visibility is runtime-derived from packet + diff;
+  not persisted.
+- Q3. First playable cover uses static roof + mask-only reveal; SDF and
+  time-based alpha fade are deferred.
 - Q4. Settings live in `world.json` under `worldgen_settings`;
   `world_version` is not a settings hash.
 - Q5. Subsurface stays a separate domain; surface `mountain_id` does not
@@ -714,43 +721,42 @@ Acceptance tests for M1:
 - [ ] V0 acceptance tests still pass at `density = 0.0`
 - [ ] no GDScript fallback path for native generation
 
-### M2 — Roof Overlay and Reveal
+### M2 — Static Roof and Cover Cache
 
-Goal: add `roof_layers_by_mountain` + `MountainRevealRegistry` +
-`MountainResolver`.
+Goal: add `roof_layers_by_mountain` + `MountainCavityCache` +
+`MountainResolver` with mask-only cover reveal.
 
 Changes:
-- extend `ChunkView` with `roof_layers_by_mountain` dictionary and
-  per-layer alpha handling
-- add `mountain_reveal_registry.gd` with the two signals and a
-  `CATEGORY_VISUAL` job
+- extend `ChunkView` with `roof_layers_by_mountain` and per-chunk mask
+  textures / materials
+- add `mountain_cavity_cache.gd` for derived cavity, opening, and shell
+  metadata
 - add `mountain_resolver.gd`; wire from `Player._physics_process`
 - add `roof_layers_per_chunk_max` debug metric with warning
 
 Acceptance tests for M2:
-- [ ] entering a mountain fades only its roof
-- [ ] exiting restores after debounce
+- [ ] outside shows only real openings
+- [ ] entrance tile counts as inside immediately
 - [ ] two adjacent mountains behave independently
-- [ ] narrow doorway fallback keeps reveal stable
+- [ ] separate cavities stay isolated until orthogonally connected
 
-### M3 — Excavation and Entrance
+### M3 — Local Mutation and Seam Refresh
 
-Goal: derived entrance flag; single `recompute_entrance_flag` function
-on both mutation and load paths.
+Goal: update openings, components, and cover masks only in bounded local
+paths on mutation, publish, unload, and save/load rebuild.
 
 Changes:
-- add `_entrance_cache: PackedByteArray` to `ChunkView`
-- add `recompute_entrance_flag(world_tile)` function
-- invoke from `try_harvest_at_world` for 5-tile neighborhood
-- invoke from load / cold chunk rebuild for every dirty tile in the
-  chunk under loading screen
-- update roof layers accordingly (`set_cell(..., -1)` on entrance)
+- invoke local cover-cache refresh from `try_harvest_at_world`
+- rebuild cover metadata on chunk publish / unload only for the published
+  or unloaded chunk plus seam-neighbor diff participants
+- keep roof cells static and update runtime visibility through masks only
 
 Acceptance tests for M3:
-- [ ] digging into a mountain produces an entrance
-- [ ] entrance tile renders no roof cell; neighbors stay covered
-- [ ] tunneling through produces two entrances
-- [ ] load restores entrance look without save-payload involvement
+- [ ] digging a new mouth reveals only the mouth from outside
+- [ ] orthogonal tunneling merges cavities; diagonal contact does not
+- [ ] chunk seam publish / unload keeps cover state stable
+- [ ] load restores derived cavity/opening behavior without save-payload
+      cover state
 
 ### M4 — Worldgen Settings Plumbing
 
