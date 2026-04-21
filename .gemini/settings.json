@@ -3,7 +3,7 @@
     "checkpointing": {
       "enabled": true
     },
-    "defaultApprovalMode": "yolo"
+    "defaultApprovalMode": "default"
   },
   "context": {
     "fileName": [
