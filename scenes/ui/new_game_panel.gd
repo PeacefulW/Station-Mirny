@@ -2,6 +2,8 @@ class_name NewGamePanel
 extends Control
 
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
+const WorldPreviewCanvas = preload("res://scenes/ui/world_preview_canvas.gd")
+const WorldPreviewController = preload("res://core/systems/world/world_preview_controller.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
 const DEFAULT_SETTINGS_PATH: String = "res://data/balance/mountain_gen_settings.tres"
@@ -22,24 +24,47 @@ const BUTTON_TEXT_DARK: Color = Color(0.13, 0.11, 0.08, 1.0)
 const FRAME_COLOR: Color = Color(0.19, 0.14, 0.10, 0.42)
 const HELP_BUTTON_COLOR: Color = Color(0.17, 0.17, 0.18, 0.92)
 const HELP_BUTTON_HOVER_COLOR: Color = Color(0.22, 0.20, 0.18, 0.96)
+
 const BACKDROP_SHADER_CODE: String = """
 shader_type canvas_item;
 
-uniform float blur_strength : hint_range(0.0, 3.0) = 1.2;
-uniform vec4 tint : source_color = vec4(0.08, 0.07, 0.06, 0.18);
+uniform float blur_strength : hint_range(0.0, 3.0) = 0.8;
+uniform vec4 tint : source_color = vec4(0.06, 0.05, 0.04, 0.12);
+uniform float scanline_count : hint_range(0.0, 1080.0) = 480.0;
+uniform float scanline_speed : hint_range(0.0, 5.0) = 1.0;
+uniform float sweep_speed : hint_range(0.0, 2.0) = 0.4;
 
 void fragment() {
 	vec2 texel = TEXTURE_PIXEL_SIZE * blur_strength;
-	vec4 color = texture(TEXTURE, UV) * 0.2;
-	color += texture(TEXTURE, UV + vec2(texel.x, 0.0)) * 0.1;
-	color += texture(TEXTURE, UV - vec2(texel.x, 0.0)) * 0.1;
-	color += texture(TEXTURE, UV + vec2(0.0, texel.y)) * 0.1;
-	color += texture(TEXTURE, UV - vec2(0.0, texel.y)) * 0.1;
-	color += texture(TEXTURE, UV + texel) * 0.05;
-	color += texture(TEXTURE, UV - texel) * 0.05;
-	color += texture(TEXTURE, UV + vec2(texel.x, -texel.y)) * 0.05;
-	color += texture(TEXTURE, UV + vec2(-texel.x, texel.y)) * 0.05;
+	vec4 color = texture(TEXTURE, UV) * 0.4;
+	color += texture(TEXTURE, UV + vec2(texel.x, 0.0)) * 0.15;
+	color += texture(TEXTURE, UV - vec2(texel.x, 0.0)) * 0.15;
+	color += texture(TEXTURE, UV + vec2(0.0, texel.y)) * 0.15;
+	color += texture(TEXTURE, UV - vec2(0.0, texel.y)) * 0.15;
+
+	// Scanlines
+	float scanline = sin(UV.y * scanline_count + TIME * scanline_speed) * 0.04 + 0.96;
+	color.rgb *= scanline;
+
+	// Radar Sweep
+	float sweep = mod(UV.y - TIME * sweep_speed, 1.0);
+	sweep = smoothstep(0.95, 1.0, sweep) * 0.08;
+	color.rgb += vec3(sweep);
+
 	COLOR = mix(color, tint, tint.a);
+}
+"""
+const RADAR_GRID_SHADER_CODE: String = """
+shader_type canvas_item;
+
+uniform vec4 grid_color : source_color = vec4(0.92, 0.73, 0.43, 0.05);
+uniform float cell_count : hint_range(1.0, 50.0) = 10.0;
+uniform float line_width : hint_range(0.001, 0.1) = 0.01;
+
+void fragment() {
+	vec2 grid = fract(UV * cell_count);
+	float line = step(1.0 - line_width, grid.x) + step(1.0 - line_width, grid.y);
+	COLOR = vec4(grid_color.rgb, clamp(line, 0.0, 1.0) * grid_color.a);
 }
 """
 const FRAME_OVERLAY_SHADER_CODE: String = """
@@ -61,6 +86,20 @@ void fragment() {
 	float dirt = (hash(floor(UV * vec2(260.0, 180.0))) - 0.5) * dirt_strength;
 	float alpha = clamp(vignette + vignette * dirt, 0.0, 1.0) * frame_color.a;
 	COLOR = vec4(frame_color.rgb, alpha);
+}
+"""
+const BUTTON_PULSE_SHADER_CODE: String = """
+shader_type canvas_item;
+
+uniform vec4 pulse_color : source_color = vec4(0.92, 0.73, 0.43, 0.15);
+uniform float speed : hint_range(0.1, 5.0) = 1.2;
+uniform float intensity : hint_range(0.0, 1.0) = 0.0;
+
+void fragment() {
+	vec4 color = texture(TEXTURE, UV);
+	// Pure additive glow on top of original color to keep text readable
+	float pulse = (sin(TIME * speed) * 0.5 + 0.5) * intensity;
+	COLOR = vec4(color.rgb + pulse_color.rgb * pulse, color.a);
 }
 """
 
@@ -168,29 +207,44 @@ var _settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
 var _seed_line_edit: LineEdit = null
 var _advanced_toggle: Button = null
 var _advanced_container: VBoxContainer = null
+var _preview_canvas: WorldPreviewCanvas = null
+var _preview_controller: WorldPreviewController = WorldPreviewController.new()
+var _preview_seed_value: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 
 func _ready() -> void:
 	_rng.randomize()
+	_preview_controller.start()
 	if EventBus and EventBus.has_signal("language_changed") and not EventBus.language_changed.is_connected(_on_language_changed):
 		EventBus.language_changed.connect(_on_language_changed)
 	reload_defaults()
 
+func _exit_tree() -> void:
+	_preview_controller.stop()
+
+func _process(delta: float) -> void:
+	_preview_controller.tick(delta)
+
 func reload_defaults() -> void:
 	_settings = _load_default_settings()
-	_rebuild_ui("", false)
+	_rebuild_ui("", 0)
 	_regenerate_seed_text()
 
-func _rebuild_ui(seed_text: String, advanced_visible: bool) -> void:
+func _rebuild_ui(seed_text: String, tab_index: int = 0) -> void:
+	_preview_canvas = null
+	_preview_controller.attach_canvas(null)
 	for child: Node in get_children():
 		child.queue_free()
 	_seed_line_edit = null
 	_advanced_toggle = null
 	_advanced_container = null
-	_build_ui(seed_text, advanced_visible)
+	_build_ui(seed_text, tab_index)
 
-func _build_ui(seed_text: String, advanced_visible: bool) -> void:
+func _build_ui(seed_text: String, active_tab: int) -> void:
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	mouse_filter = MOUSE_FILTER_STOP
+	modulate.a = 0.0
+	var entrance_tween := create_tween()
+	entrance_tween.tween_property(self, "modulate:a", 1.0, 0.4).set_trans(Tween.TRANS_SINE)
 
 	var backdrop := TextureRect.new()
 	backdrop.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
@@ -207,20 +261,19 @@ func _build_ui(seed_text: String, advanced_visible: bool) -> void:
 	backdrop.material = backdrop_material
 	add_child(backdrop)
 
+	var radar_grid := ColorRect.new()
+	radar_grid.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	var grid_shader := Shader.new()
+	grid_shader.code = RADAR_GRID_SHADER_CODE
+	var grid_material := ShaderMaterial.new()
+	grid_material.shader = grid_shader
+	radar_grid.material = grid_material
+	add_child(radar_grid)
+
 	var scrim := ColorRect.new()
 	scrim.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	scrim.color = BACKDROP_COLOR
 	add_child(scrim)
-
-	var warm_glow := ColorRect.new()
-	warm_glow.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
-	warm_glow.color = GLOW_WARM_COLOR
-	add_child(warm_glow)
-
-	var cold_glow := ColorRect.new()
-	cold_glow.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
-	cold_glow.color = GLOW_COLD_COLOR
-	add_child(cold_glow)
 
 	var frame_overlay := ColorRect.new()
 	frame_overlay.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
@@ -250,133 +303,249 @@ func _build_ui(seed_text: String, advanced_visible: bool) -> void:
 	safe_area.add_child(center)
 
 	var viewport_size: Vector2 = get_viewport_rect().size
-	var panel_height: float = maxf(340.0, minf(viewport_size.y - 40.0, 580.0))
+	var panel_height: float = maxf(420.0, minf(viewport_size.y - 40.0, 680.0))
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(PANEL_WIDTH, panel_height)
 	panel.add_theme_stylebox_override("panel", _make_surface_stylebox())
 	center.add_child(panel)
 
-	var panel_margin := MarginContainer.new()
-	panel_margin.add_theme_constant_override("margin_left", 18)
-	panel_margin.add_theme_constant_override("margin_top", 14)
-	panel_margin.add_theme_constant_override("margin_right", 18)
-	panel_margin.add_theme_constant_override("margin_bottom", 14)
-	panel.add_child(panel_margin)
+	var panel_layout := VBoxContainer.new()
+	panel_layout.add_theme_constant_override("separation", 0)
+	panel.add_child(panel_layout)
 
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_horizontal = SIZE_EXPAND_FILL
-	scroll.size_flags_vertical = SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	panel_margin.add_child(scroll)
+	var header_margin := MarginContainer.new()
+	header_margin.add_theme_constant_override("margin_left", 20)
+	header_margin.add_theme_constant_override("margin_top", 16)
+	header_margin.add_theme_constant_override("margin_right", 20)
+	header_margin.add_theme_constant_override("margin_bottom", 12)
+	panel_layout.add_child(header_margin)
 
-	var content := VBoxContainer.new()
-	content.size_flags_horizontal = SIZE_EXPAND_FILL
-	content.add_theme_constant_override("separation", 8)
-	scroll.add_child(content)
+	var header := HBoxContainer.new()
+	header_margin.add_child(header)
 
-	var header := VBoxContainer.new()
-	header.add_theme_constant_override("separation", 4)
-	content.add_child(header)
+	var title_box := VBoxContainer.new()
+	title_box.add_theme_constant_override("separation", 2)
+	header.add_child(title_box)
 
 	var title := Label.new()
 	title.text = Localization.t("UI_WORLDGEN_MOUNTAINS_PANEL_TITLE")
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_font_size_override("font_size", 18)
 	title.add_theme_color_override("font_color", TEXT_PRIMARY_COLOR)
-	header.add_child(title)
+	title_box.add_child(title)
 
-	var title_rule_wrap := CenterContainer.new()
-	header.add_child(title_rule_wrap)
+	var subtitle := Label.new()
+	subtitle.text = "STATION MIRNY // DEPLOYMENT PROTOCOL"
+	subtitle.add_theme_font_size_override("font_size", 9)
+	subtitle.add_theme_color_override("font_color", ACCENT_COLOR)
+	title_box.add_child(subtitle)
 
-	var title_rule := ColorRect.new()
-	title_rule.custom_minimum_size = Vector2(72, 2)
-	title_rule.color = ACCENT_COLOR
-	title_rule_wrap.add_child(title_rule)
+	var preview_margin := MarginContainer.new()
+	preview_margin.add_theme_constant_override("margin_left", 20)
+	preview_margin.add_theme_constant_override("margin_top", 0)
+	preview_margin.add_theme_constant_override("margin_right", 20)
+	preview_margin.add_theme_constant_override("margin_bottom", 14)
+	panel_layout.add_child(preview_margin)
 
-	var seed_section := PanelContainer.new()
-	seed_section.add_theme_stylebox_override("panel", _make_section_stylebox())
+	var preview_panel := PanelContainer.new()
+	preview_panel.custom_minimum_size = Vector2(0.0, 250.0)
+	preview_panel.add_theme_stylebox_override("panel", _make_section_stylebox())
+	preview_margin.add_child(preview_panel)
+
+	_preview_canvas = WorldPreviewCanvas.new()
+	_preview_canvas.size_flags_horizontal = SIZE_EXPAND_FILL
+	_preview_canvas.size_flags_vertical = SIZE_EXPAND_FILL
+	_preview_canvas.custom_minimum_size = Vector2(0.0, 250.0)
+	preview_panel.add_child(_preview_canvas)
+	_preview_controller.attach_canvas(_preview_canvas)
+
+	var tabs := TabContainer.new()
+	tabs.size_flags_vertical = SIZE_EXPAND_FILL
+	tabs.tab_alignment = TabBar.ALIGNMENT_LEFT
+	tabs.clip_tabs = false
+	tabs.current_tab = active_tab
+	_apply_tabs_style(tabs)
+	panel_layout.add_child(tabs)
+
+	_build_comms_tab(tabs, seed_text)
+	_build_geology_tab(tabs)
+
+	# Explicitly set titles AFTER adding children to avoid underscores from node names
+	tabs.set_tab_title(0, Localization.t("UI_NEW_GAME_TAB_COMMS"))
+	tabs.set_tab_title(1, Localization.t("UI_NEW_GAME_TAB_GEOLOGY"))
+
+	var footer_margin := MarginContainer.new()
+	footer_margin.add_theme_constant_override("margin_left", 20)
+	footer_margin.add_theme_constant_override("margin_top", 12)
+	footer_margin.add_theme_constant_override("margin_right", 20)
+	footer_margin.add_theme_constant_override("margin_bottom", 16)
+	panel_layout.add_child(footer_margin)
+
+	var footer := HBoxContainer.new()
+	footer.alignment = BoxContainer.ALIGNMENT_END
+	footer.add_theme_constant_override("separation", 12)
+	footer_margin.add_child(footer)
+
+	var back_button := Button.new()
+	back_button.text = Localization.t("UI_MAIN_LOAD_BACK")
+	back_button.custom_minimum_size = Vector2(110, 36)
+	_apply_secondary_button_style(back_button)
+	back_button.pressed.connect(func() -> void:
+		back_requested.emit()
+	)
+	footer.add_child(back_button)
+
+	var start_button := Button.new()
+	start_button.text = Localization.t("UI_WORLDGEN_MOUNTAINS_START_BUTTON")
+	start_button.custom_minimum_size = Vector2(210, 36)
+	_apply_primary_button_style(start_button)
+	var pulse_shader := Shader.new()
+	pulse_shader.code = BUTTON_PULSE_SHADER_CODE
+	var pulse_mat := ShaderMaterial.new()
+	pulse_mat.shader = pulse_shader
+	start_button.material = pulse_mat
+	# Set base intensity for the shader
+	start_button.material.set_shader_parameter("intensity", 0.1)
+	start_button.pressed.connect(_on_start_pressed)
+	footer.add_child(start_button)
+
+func _build_comms_tab(tabs: TabContainer, seed_text: String) -> void:
+	var margin := MarginContainer.new()
+	tabs.add_child(margin)
+
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 20)
+	margin.add_child(content)
+
+	var sector_label := _make_title_label(Localization.t("UI_NEW_GAME_SECTOR_LABEL") % Localization.t("UI_NEW_GAME_COMMS_TITLE"))
+	content.add_child(sector_label)
+
+	var seed_section := VBoxContainer.new()
+	seed_section.add_theme_constant_override("separation", 8)
 	content.add_child(seed_section)
-
-	var seed_margin := MarginContainer.new()
-	seed_margin.add_theme_constant_override("margin_left", 12)
-	seed_margin.add_theme_constant_override("margin_top", 10)
-	seed_margin.add_theme_constant_override("margin_right", 12)
-	seed_margin.add_theme_constant_override("margin_bottom", 10)
-	seed_section.add_child(seed_margin)
-
-	var seed_content := VBoxContainer.new()
-	seed_content.add_theme_constant_override("separation", 8)
-	seed_margin.add_child(seed_content)
 
 	var seed_label := Label.new()
 	seed_label.text = Localization.t("UI_WORLD_CREATE_SEED_LABEL")
 	seed_label.add_theme_color_override("font_color", TEXT_SECONDARY_COLOR)
 	seed_label.add_theme_font_size_override("font_size", 13)
-	seed_content.add_child(seed_label)
+	seed_section.add_child(seed_label)
 
 	var seed_row := HBoxContainer.new()
-	seed_row.add_theme_constant_override("separation", 8)
-	seed_content.add_child(seed_row)
+	seed_row.add_theme_constant_override("separation", 10)
+	seed_section.add_child(seed_row)
 
 	_seed_line_edit = LineEdit.new()
 	_seed_line_edit.size_flags_horizontal = SIZE_EXPAND_FILL
 	_seed_line_edit.placeholder_text = Localization.t("UI_WORLD_CREATE_SEED_PLACEHOLDER")
 	_seed_line_edit.text = seed_text
 	_apply_input_style(_seed_line_edit)
+	_seed_line_edit.text_changed.connect(_on_seed_text_changed)
 	seed_row.add_child(_seed_line_edit)
 
 	var random_button := Button.new()
 	random_button.text = Localization.t("UI_WORLD_CREATE_RANDOM_BUTTON")
-	random_button.custom_minimum_size = Vector2(116, 38)
+	random_button.custom_minimum_size = Vector2(130, 38)
 	_apply_secondary_button_style(random_button)
 	random_button.pressed.connect(_on_random_seed_pressed)
 	seed_row.add_child(random_button)
 
+	var info_box := PanelContainer.new()
+	info_box.add_theme_stylebox_override("panel", _make_section_stylebox())
+	content.add_child(info_box)
+
+	var info_margin := MarginContainer.new()
+	info_margin.add_theme_constant_override("margin_left", 14)
+	info_margin.add_theme_constant_override("margin_top", 12)
+	info_margin.add_theme_constant_override("margin_right", 14)
+	info_margin.add_theme_constant_override("margin_bottom", 12)
+	info_box.add_child(info_margin)
+
+	var info_text := Label.new()
+	info_text.text = "READY FOR INITIAL DEPLOYMENT. ALL SYSTEMS NOMINAL. SELECT TARGET PARAMETERS TO BEGIN SURFACE MAPPING."
+	info_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	info_text.add_theme_font_size_override("font_size", 11)
+	info_text.add_theme_color_override("font_color", TEXT_SECONDARY_COLOR)
+	info_margin.add_child(info_text)
+
+func _build_geology_tab(tabs: TabContainer) -> void:
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	tabs.add_child(scroll)
+
+	var margin := MarginContainer.new()
+	margin.size_flags_horizontal = SIZE_EXPAND_FILL
+	margin.add_theme_constant_override("margin_left", 20)
+	margin.add_theme_constant_override("margin_top", 16)
+	margin.add_theme_constant_override("margin_right", 20)
+	margin.add_theme_constant_override("margin_bottom", 16)
+	scroll.add_child(margin)
+
+	var content := VBoxContainer.new()
+	content.size_flags_horizontal = SIZE_EXPAND_FILL
+	content.add_theme_constant_override("separation", 14)
+	margin.add_child(content)
+
+	var sector_label := _make_title_label(Localization.t("UI_NEW_GAME_SECTOR_LABEL") % Localization.t("UI_NEW_GAME_GEOLOGY_TITLE"))
+	content.add_child(sector_label)
+
 	var primary_section := VBoxContainer.new()
-	primary_section.add_theme_constant_override("separation", 2)
+	primary_section.add_theme_constant_override("separation", 4)
 	content.add_child(primary_section)
 	for spec: Dictionary in PRIMARY_SLIDER_SPECS:
 		primary_section.add_child(_build_slider_row(spec))
 
+	var advanced_header := HBoxContainer.new()
+	advanced_header.add_theme_constant_override("separation", 10)
+	content.add_child(advanced_header)
+
+	var advanced_line := ColorRect.new()
+	advanced_line.size_flags_horizontal = SIZE_EXPAND_FILL
+	advanced_line.custom_minimum_size.y = 1
+	advanced_line.color = Color(1, 1, 1, 0.1)
+	advanced_line.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	advanced_header.add_child(advanced_line)
+
 	_advanced_toggle = Button.new()
 	_advanced_toggle.toggle_mode = true
 	_advanced_toggle.flat = true
-	_advanced_toggle.button_pressed = advanced_visible
-	_advanced_toggle.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_advanced_toggle.size_flags_horizontal = SIZE_EXPAND_FILL
-	_advanced_toggle.custom_minimum_size = Vector2(0, 28)
-	_advanced_toggle.text = _format_advanced_toggle_text(advanced_visible)
+	_advanced_toggle.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_advanced_toggle.text = Localization.t("UI_WORLDGEN_MOUNTAINS_ADVANCED_TOGGLE")
 	_apply_text_button_style(_advanced_toggle)
 	_advanced_toggle.toggled.connect(_on_advanced_toggled)
-	content.add_child(_advanced_toggle)
+	advanced_header.add_child(_advanced_toggle)
 
 	_advanced_container = VBoxContainer.new()
-	_advanced_container.visible = advanced_visible
-	_advanced_container.add_theme_constant_override("separation", 2)
+	_advanced_container.visible = false
+	_advanced_container.add_theme_constant_override("separation", 4)
 	content.add_child(_advanced_container)
 	for spec: Dictionary in ADVANCED_SLIDER_SPECS:
 		_advanced_container.add_child(_build_slider_row(spec))
 
-	var buttons := HBoxContainer.new()
-	buttons.alignment = BoxContainer.ALIGNMENT_END
-	buttons.add_theme_constant_override("separation", 8)
-	content.add_child(buttons)
+func _make_title_label(text: String) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", 11)
+	label.add_theme_color_override("font_color", TEXT_SECONDARY_COLOR)
+	return label
 
-	var back_button := Button.new()
-	back_button.text = Localization.t("UI_MAIN_LOAD_BACK")
-	back_button.custom_minimum_size = Vector2(96, 36)
-	_apply_secondary_button_style(back_button)
-	back_button.pressed.connect(func() -> void:
-		back_requested.emit()
-	)
-	buttons.add_child(back_button)
+func _apply_tabs_style(tabs: TabContainer) -> void:
+	tabs.add_theme_stylebox_override("panel", _make_stylebox(Color.TRANSPARENT, Color.TRANSPARENT, 0, 0))
+	tabs.add_theme_stylebox_override("tab_unselected", _make_tab_stylebox(Color(1, 1, 1, 0.05), false))
+	tabs.add_theme_stylebox_override("tab_selected", _make_tab_stylebox(ACCENT_COLOR, true))
+	tabs.add_theme_stylebox_override("tab_hovered", _make_tab_stylebox(Color(1, 1, 1, 0.1), false))
+	tabs.add_theme_color_override("font_selected_color", BUTTON_TEXT_DARK)
+	tabs.add_theme_color_override("font_unselected_color", TEXT_SECONDARY_COLOR)
+	tabs.add_theme_font_size_override("font_size", 11)
 
-	var start_button := Button.new()
-	start_button.text = Localization.t("UI_WORLDGEN_MOUNTAINS_START_BUTTON")
-	start_button.custom_minimum_size = Vector2(182, 36)
-	_apply_primary_button_style(start_button)
-	start_button.pressed.connect(_on_start_pressed)
-	buttons.add_child(start_button)
+func _make_tab_stylebox(color: Color, selected: bool) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = color if selected else Color(0.1, 0.1, 0.1, 0.4)
+	style.content_margin_left = 16
+	style.content_margin_right = 16
+	style.content_margin_top = 8
+	style.content_margin_bottom = 8
+	if selected:
+		style.border_width_bottom = 0
+	return style
 
 func _build_slider_row(spec: Dictionary) -> Control:
 	var row_margin := MarginContainer.new()
@@ -426,6 +595,7 @@ func _build_slider_row(spec: Dictionary) -> Control:
 	slider.value_changed.connect(func(new_value: float) -> void:
 		_apply_setting_value(spec, new_value)
 		_update_value_label(value_label, spec, new_value)
+		_schedule_preview_rebuild()
 	)
 	return row_margin
 
@@ -461,6 +631,38 @@ func _make_stylebox(fill: Color, border: Color, border_width: int, radius: int) 
 	style.set_corner_radius_all(radius)
 	return style
 
+func _setup_button_juice(button: Button) -> void:
+	button.pivot_offset = button.custom_minimum_size / 2.0
+	if not button.mouse_entered.is_connected(_on_button_hover):
+		button.mouse_entered.connect(_on_button_hover.bind(button))
+	if not button.mouse_exited.is_connected(_on_button_unhover):
+		button.mouse_exited.connect(_on_button_unhover.bind(button))
+
+	button.button_down.connect(func() -> void:
+		var tween := create_tween()
+		tween.tween_property(button, "scale", Vector2(0.95, 0.95), 0.05)
+	)
+	button.button_up.connect(func() -> void:
+		var tween := create_tween()
+		tween.tween_property(button, "scale", Vector2(1.05, 1.05), 0.1)
+	)
+
+func _on_button_hover(button: Button) -> void:
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(button, "scale", Vector2(1.05, 1.05), 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	if button.material is ShaderMaterial:
+		tween.tween_method(func(v: float) -> void:
+			button.material.set_shader_parameter("intensity", v), 0.1, 0.22, 0.2)
+
+func _on_button_unhover(button: Button) -> void:
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(button, "scale", Vector2(1.0, 1.0), 0.2).set_trans(Tween.TRANS_SINE)
+	if button.material is ShaderMaterial:
+		tween.tween_method(func(v: float) -> void:
+			button.material.set_shader_parameter("intensity", v), 0.22, 0.1, 0.2)
+
 func _apply_primary_button_style(button: Button) -> void:
 	button.add_theme_stylebox_override("normal", _make_button_stylebox(ACCENT_COLOR, ACCENT_COLOR))
 	button.add_theme_stylebox_override("hover", _make_button_stylebox(ACCENT_HOVER_COLOR, ACCENT_HOVER_COLOR))
@@ -472,6 +674,7 @@ func _apply_primary_button_style(button: Button) -> void:
 	button.add_theme_color_override("font_hover_color", BUTTON_TEXT_DARK)
 	button.add_theme_color_override("font_pressed_color", BUTTON_TEXT_DARK)
 	button.add_theme_color_override("font_focus_color", BUTTON_TEXT_DARK)
+	_setup_button_juice(button)
 
 func _apply_secondary_button_style(button: Button) -> void:
 	button.add_theme_stylebox_override("normal", _make_button_stylebox(SURFACE_ALT_COLOR, Color.TRANSPARENT))
@@ -484,6 +687,7 @@ func _apply_secondary_button_style(button: Button) -> void:
 	button.add_theme_color_override("font_hover_color", TEXT_PRIMARY_COLOR)
 	button.add_theme_color_override("font_pressed_color", TEXT_PRIMARY_COLOR)
 	button.add_theme_color_override("font_focus_color", TEXT_PRIMARY_COLOR)
+	_setup_button_juice(button)
 
 func _apply_text_button_style(button: Button) -> void:
 	button.add_theme_font_size_override("font_size", 13)
@@ -551,6 +755,9 @@ func _update_value_label(label: Label, spec: Dictionary, value: float) -> void:
 func _on_random_seed_pressed() -> void:
 	_regenerate_seed_text()
 
+func _on_seed_text_changed(_new_text: String) -> void:
+	_schedule_preview_rebuild()
+
 func _on_advanced_toggled(is_pressed: bool) -> void:
 	if _advanced_container != null:
 		_advanced_container.visible = is_pressed
@@ -565,11 +772,26 @@ func _on_start_pressed() -> void:
 
 func _resolve_seed_value() -> int:
 	if _seed_line_edit == null:
-		return WorldRuntimeConstants.DEFAULT_WORLD_SEED
+		return _preview_seed_value
 	var raw_value: String = _seed_line_edit.text.strip_edges()
 	if raw_value.is_empty():
-		_regenerate_seed_text()
-		raw_value = _seed_line_edit.text.strip_edges()
+		var generated_seed: int = _generate_seed_value()
+		_preview_seed_value = generated_seed
+		_seed_line_edit.text = str(generated_seed)
+		return generated_seed
+	_preview_seed_value = _coerce_seed_text(raw_value)
+	return _preview_seed_value
+
+func _resolve_preview_seed_value() -> int:
+	if _seed_line_edit == null:
+		return _preview_seed_value
+	var raw_value: String = _seed_line_edit.text.strip_edges()
+	if raw_value.is_empty():
+		return _preview_seed_value
+	_preview_seed_value = _coerce_seed_text(raw_value)
+	return _preview_seed_value
+
+func _coerce_seed_text(raw_value: String) -> int:
 	if raw_value.is_valid_int():
 		return int(raw_value)
 	return _hash_seed_text(raw_value)
@@ -577,7 +799,9 @@ func _resolve_seed_value() -> int:
 func _regenerate_seed_text() -> void:
 	if _seed_line_edit == null:
 		return
-	_seed_line_edit.text = str(_generate_seed_value())
+	_preview_seed_value = _generate_seed_value()
+	_seed_line_edit.text = str(_preview_seed_value)
+	_schedule_preview_rebuild()
 
 func _generate_seed_value() -> int:
 	var generated_seed: int = int(_rng.randi() & 0x7FFFFFFF)
@@ -614,5 +838,12 @@ func _load_backdrop_texture() -> Texture2D:
 
 func _on_language_changed(_locale: String) -> void:
 	var current_seed_text: String = _seed_line_edit.text if _seed_line_edit != null else ""
-	var advanced_visible: bool = _advanced_toggle.button_pressed if _advanced_toggle != null else false
-	_rebuild_ui(current_seed_text, advanced_visible)
+	# Find current tab if possible, or default to 0
+	_rebuild_ui(current_seed_text, 0)
+	_schedule_preview_rebuild()
+
+func _schedule_preview_rebuild() -> void:
+	_preview_controller.queue_preview_rebuild(
+		_resolve_preview_seed_value(),
+		MountainGenSettings.from_save_dict(_settings.to_save_dict())
+	)

@@ -832,34 +832,49 @@ msgid "UI_WORLD_CREATE_MTN_LARGE"
 msgstr "Large"
 
 msgid "UI_WORLDGEN_MOUNTAINS_PANEL_TITLE"
-msgstr "MOUNTAIN SETTINGS"
+msgstr "OBJECT CONFIGURATION"
+
+msgid "UI_NEW_GAME_TAB_COMMS"
+msgstr "SECTOR: COMMS"
+
+msgid "UI_NEW_GAME_TAB_GEOLOGY"
+msgstr "SECTOR: GEOLOGY"
+
+msgid "UI_NEW_GAME_COMMS_TITLE"
+msgstr "COMMS"
+
+msgid "UI_NEW_GAME_GEOLOGY_TITLE"
+msgstr "GEOLOGY"
+
+msgid "UI_NEW_GAME_SECTOR_LABEL"
+msgstr "SECTOR: %s"
 
 msgid "UI_WORLDGEN_MOUNTAINS_DENSITY"
-msgstr "Mountain density:"
+msgstr "DENSITY INDEX"
 
 msgid "UI_WORLDGEN_MOUNTAINS_DENSITY_DESC"
-msgstr "Controls how often separate mountain groups appear across the world. Lower values mean fewer mountain zones, higher values make them more common."
+msgstr "Frequency coefficient of isolated mountain masses. Affects overall region accessibility."
 
 msgid "UI_WORLDGEN_MOUNTAINS_SCALE"
-msgstr "Mountain scale:"
+msgstr "SCALE MULTIPLIER"
 
 msgid "UI_WORLDGEN_MOUNTAINS_SCALE_DESC"
-msgstr "Controls the average size of mountain forms. Lower values produce smaller, busier shapes, while higher values create larger, more dominant ranges."
+msgstr "Controls the average size of geomorphological units. Lower values produce fragmented terrain, higher values create massive ranges."
 
 msgid "UI_WORLDGEN_MOUNTAINS_CONTINUITY"
-msgstr "Range continuity:"
+msgstr "RANGE CONTINUITY"
 
 msgid "UI_WORLDGEN_MOUNTAINS_CONTINUITY_DESC"
-msgstr "Controls how strongly mountains connect into long continuous ridges. Lower values create isolated patches, higher values create stretched mountain chains."
+msgstr "Formation parameter for continuous mountain chains. Determines the degree of mass segmentation."
 
 msgid "UI_WORLDGEN_MOUNTAINS_RUGGEDNESS"
-msgstr "Ruggedness:"
+msgstr "RUGGEDNESS INDEX"
 
 msgid "UI_WORLDGEN_MOUNTAINS_RUGGEDNESS_DESC"
-msgstr "Controls how sharp and broken the mountain silhouette feels. Lower values give smoother slopes, higher values create harsher peaks and ridgelines."
+msgstr "Degree of silhouette chaos and sharpness. High values form difficult peaks and ridgelines."
 
 msgid "UI_WORLDGEN_MOUNTAINS_ADVANCED_TOGGLE"
-msgstr "Advanced parameters"
+msgstr "PRECISION TUNING MODE"
 
 msgid "UI_WORLDGEN_MOUNTAINS_ANCHOR_CELL_SIZE"
 msgstr "Anchor cell size:"

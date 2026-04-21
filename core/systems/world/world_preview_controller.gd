@@ -1,0 +1,297 @@
+class_name WorldPreviewController
+extends RefCounted
+
+const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
+const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
+const WorldPreviewCanvas = preload("res://scenes/ui/world_preview_canvas.gd")
+const WorldPreviewPalette = preload("res://core/systems/world/world_preview_palette.gd")
+const WorldPreviewPatchCache = preload("res://core/systems/world/world_preview_patch_cache.gd")
+const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const WorldSpawnResolver = preload("res://core/systems/world/world_spawn_resolver.gd")
+
+const STAGE_RADII_CHUNKS := [2, 6, 10, 16]
+const REBUILD_DEBOUNCE_SECONDS: float = 0.12
+const IN_FLIGHT_REQUEST_CAP: int = 8
+const MAX_RESULTS_PER_TICK: int = 4
+const MAX_PUBLISHES_PER_TICK: int = 4
+
+var _packet_backend: WorldChunkPacketBackend = WorldChunkPacketBackend.new()
+var _patch_cache: WorldPreviewPatchCache = WorldPreviewPatchCache.new()
+var _palette: WorldPreviewPalette = WorldPreviewPalette.new()
+var _canvas: WorldPreviewCanvas = null
+var _is_started: bool = false
+var _preview_epoch: int = 0
+var _debounce_remaining: float = -1.0
+var _pending_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
+var _pending_settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
+var _pending_settings_signature: String = ""
+var _active_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
+var _active_settings_signature: String = ""
+var _active_settings_packed: PackedFloat32Array = PackedFloat32Array()
+var _current_center_chunk: Vector2i = Vector2i.ZERO
+var _current_spawn_tile: Vector2i = Vector2i.ZERO
+var _stage_plans: Array[Dictionary] = []
+var _current_stage_index: int = -1
+var _current_stage_window: Array[Vector2i] = []
+var _current_stage_request_queue: Array[Vector2i] = []
+var _in_flight_requests: Dictionary = {}
+var _ready_patches: Dictionary = {}
+var _ready_publish_queue: Array[Vector2i] = []
+var _ready_publish_lookup: Dictionary = {}
+var _published_patches: Dictionary = {}
+
+func start() -> void:
+	if _is_started:
+		return
+	_packet_backend.start()
+	_is_started = true
+
+func stop() -> void:
+	if not _is_started:
+		return
+	_packet_backend.stop()
+	_is_started = false
+
+func attach_canvas(canvas: WorldPreviewCanvas) -> void:
+	_canvas = canvas
+	if _canvas == null:
+		return
+	_canvas.reset_preview(_current_center_chunk, _current_spawn_tile, _resolve_full_radius_chunks())
+	var chunk_coords: Array[Vector2i] = []
+	for chunk_coord_variant: Variant in _published_patches.keys():
+		chunk_coords.append(chunk_coord_variant as Vector2i)
+	chunk_coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return a.x < b.x if a.x != b.x else a.y < b.y
+	)
+	for chunk_coord: Vector2i in chunk_coords:
+		_canvas.publish_chunk_patch(
+			chunk_coord,
+			_published_patches.get(chunk_coord, null) as Texture2D
+		)
+	_update_canvas_progress()
+
+func queue_preview_rebuild(seed_value: int, settings: MountainGenSettings) -> void:
+	_pending_seed = seed_value
+	_pending_settings = _clone_settings(settings)
+	_pending_settings_signature = _pending_settings.compute_signature()
+	_preview_epoch += 1
+	_debounce_remaining = REBUILD_DEBOUNCE_SECONDS
+	_packet_backend.clear_queued_work()
+	_current_stage_request_queue.clear()
+	_in_flight_requests.clear()
+	_ready_patches.clear()
+	_ready_publish_queue.clear()
+	_ready_publish_lookup.clear()
+	_stage_plans.clear()
+	_current_stage_window.clear()
+	_current_stage_index = -1
+	_update_canvas_progress()
+
+func tick(delta: float) -> void:
+	if not _is_started:
+		return
+	if _debounce_remaining >= 0.0:
+		_debounce_remaining -= delta
+		if _debounce_remaining <= 0.0:
+			_debounce_remaining = -1.0
+			_start_rebuild_from_pending_snapshot()
+	_drain_ready_packets()
+	_advance_stage_if_needed()
+	_fill_request_window()
+	_publish_ready_patches()
+	_update_canvas_progress()
+
+func _start_rebuild_from_pending_snapshot() -> void:
+	_published_patches.clear()
+	_ready_patches.clear()
+	_ready_publish_queue.clear()
+	_ready_publish_lookup.clear()
+	_current_stage_request_queue.clear()
+	_in_flight_requests.clear()
+	_packet_backend.clear_queued_work()
+	_active_seed = _pending_seed
+	_active_settings_signature = _pending_settings_signature
+	_active_settings_packed = _pending_settings.flatten_to_packed()
+	_current_spawn_tile = WorldSpawnResolver.resolve_preview_spawn_tile(
+		_active_seed,
+		WorldRuntimeConstants.WORLD_VERSION,
+		_pending_settings
+	)
+	_current_center_chunk = WorldRuntimeConstants.tile_to_chunk(_current_spawn_tile)
+	_stage_plans = _build_stage_plans(_current_center_chunk)
+	_current_stage_window.clear()
+	_current_stage_index = -1
+	if _canvas != null:
+		_canvas.reset_preview(_current_center_chunk, _current_spawn_tile, _resolve_full_radius_chunks())
+	_advance_stage_if_needed()
+	_fill_request_window()
+	_publish_ready_patches()
+	_update_canvas_progress()
+
+func _drain_ready_packets() -> void:
+	var ready_packets: Array[Dictionary] = _packet_backend.drain_completed_packets(MAX_RESULTS_PER_TICK)
+	for packet: Dictionary in ready_packets:
+		if int(packet.get("epoch", -1)) != _preview_epoch:
+			continue
+		var chunk_coord: Vector2i = packet.get("chunk_coord", Vector2i.ZERO) as Vector2i
+		_in_flight_requests.erase(chunk_coord)
+		if _has_available_patch(chunk_coord):
+			continue
+		var patch_texture: Texture2D = _palette.build_patch_texture(packet)
+		_patch_cache.store_patch(_build_patch_cache_key(chunk_coord), patch_texture)
+		_store_ready_patch(chunk_coord, patch_texture)
+
+func _advance_stage_if_needed() -> void:
+	while true:
+		if _current_stage_index >= 0 and not _is_stage_complete(_current_stage_index):
+			return
+		if _current_stage_index + 1 >= _stage_plans.size():
+			return
+		_current_stage_index += 1
+		var stage_plan: Dictionary = _stage_plans[_current_stage_index] as Dictionary
+		_current_stage_window = _coerce_chunk_coords(stage_plan.get("window_coords", []))
+		_current_stage_request_queue.clear()
+		for chunk_coord: Vector2i in _coerce_chunk_coords(stage_plan.get("request_coords", [])):
+			if _has_available_patch(chunk_coord):
+				continue
+			var cached_patch: Texture2D = _patch_cache.get_patch(_build_patch_cache_key(chunk_coord))
+			if cached_patch != null:
+				_store_ready_patch(chunk_coord, cached_patch)
+				continue
+			_current_stage_request_queue.append(chunk_coord)
+
+func _fill_request_window() -> void:
+	if _current_stage_index < 0:
+		return
+	while _in_flight_requests.size() < IN_FLIGHT_REQUEST_CAP and not _current_stage_request_queue.is_empty():
+		var chunk_coord: Vector2i = _current_stage_request_queue.pop_front()
+		if _has_available_patch(chunk_coord) or _in_flight_requests.has(chunk_coord):
+			continue
+		_in_flight_requests[chunk_coord] = true
+		_packet_backend.queue_packet_request(
+			chunk_coord,
+			_active_seed,
+			WorldRuntimeConstants.WORLD_VERSION,
+			_active_settings_packed,
+			_preview_epoch
+		)
+
+func _publish_ready_patches() -> void:
+	var published_this_tick: int = 0
+	while published_this_tick < MAX_PUBLISHES_PER_TICK and not _ready_publish_queue.is_empty():
+		var chunk_coord: Vector2i = _ready_publish_queue.pop_front()
+		_ready_publish_lookup.erase(chunk_coord)
+		var patch_texture: Texture2D = _ready_patches.get(chunk_coord, null) as Texture2D
+		if patch_texture == null:
+			continue
+		_ready_patches.erase(chunk_coord)
+		_published_patches[chunk_coord] = patch_texture
+		if _canvas != null:
+			_canvas.publish_chunk_patch(chunk_coord, patch_texture)
+		published_this_tick += 1
+
+func _build_stage_plans(center_chunk: Vector2i) -> Array[Dictionary]:
+	var plans: Array[Dictionary] = []
+	var seen_chunks: Dictionary = {}
+	for radius: int in STAGE_RADII_CHUNKS:
+		var window_coords: Array[Vector2i] = _build_square_spiral(center_chunk, radius)
+		var request_coords: Array[Vector2i] = []
+		for chunk_coord: Vector2i in window_coords:
+			if seen_chunks.has(chunk_coord):
+				continue
+			seen_chunks[chunk_coord] = true
+			request_coords.append(chunk_coord)
+		plans.append({
+			"radius": radius,
+			"window_coords": window_coords,
+			"request_coords": request_coords,
+		})
+	return plans
+
+func _build_square_spiral(center_chunk: Vector2i, max_radius: int) -> Array[Vector2i]:
+	var order: Array[Vector2i] = [center_chunk]
+	for radius: int in range(1, max_radius + 1):
+		var min_x: int = center_chunk.x - radius
+		var max_x: int = center_chunk.x + radius
+		var min_y: int = center_chunk.y - radius
+		var max_y: int = center_chunk.y + radius
+		for x: int in range(min_x, max_x + 1):
+			order.append(Vector2i(x, min_y))
+		for y: int in range(min_y + 1, max_y + 1):
+			order.append(Vector2i(max_x, y))
+		for x: int in range(max_x - 1, min_x - 1, -1):
+			order.append(Vector2i(x, max_y))
+		for y: int in range(max_y - 1, min_y, -1):
+			order.append(Vector2i(min_x, y))
+	return order
+
+func _store_ready_patch(chunk_coord: Vector2i, patch_texture: Texture2D) -> void:
+	if patch_texture == null:
+		return
+	if _published_patches.has(chunk_coord) or _ready_patches.has(chunk_coord):
+		return
+	_ready_patches[chunk_coord] = patch_texture
+	if not _ready_publish_lookup.has(chunk_coord):
+		_ready_publish_lookup[chunk_coord] = true
+		_ready_publish_queue.append(chunk_coord)
+
+func _has_available_patch(chunk_coord: Vector2i) -> bool:
+	return _published_patches.has(chunk_coord) or _ready_patches.has(chunk_coord)
+
+func _is_stage_complete(stage_index: int) -> bool:
+	if stage_index < 0 or stage_index >= _stage_plans.size():
+		return false
+	for chunk_coord: Vector2i in _coerce_chunk_coords((_stage_plans[stage_index] as Dictionary).get("window_coords", [])):
+		if not _has_available_patch(chunk_coord):
+			return false
+	return true
+
+func _build_patch_cache_key(chunk_coord: Vector2i) -> String:
+	return _patch_cache.make_key(
+		_active_seed,
+		WorldRuntimeConstants.WORLD_VERSION,
+		_active_settings_signature,
+		chunk_coord,
+		_palette.get_palette_id()
+	)
+
+func _resolve_full_radius_chunks() -> int:
+	if STAGE_RADII_CHUNKS.is_empty():
+		return 0
+	return int(STAGE_RADII_CHUNKS[STAGE_RADII_CHUNKS.size() - 1])
+
+func _resolve_stage_span_chunks() -> int:
+	if _current_stage_index < 0 or _current_stage_index >= _stage_plans.size():
+		return 0
+	return int((_stage_plans[_current_stage_index] as Dictionary).get("radius", 0)) * 2 + 1
+
+func _resolve_total_target_count() -> int:
+	if _stage_plans.is_empty():
+		return 0
+	return _coerce_chunk_coords((_stage_plans[_stage_plans.size() - 1] as Dictionary).get("window_coords", [])).size()
+
+func _resolve_ready_chunk_count() -> int:
+	return _published_patches.size() + _ready_patches.size()
+
+func _update_canvas_progress() -> void:
+	if _canvas == null:
+		return
+	_canvas.set_progress(
+		_resolve_stage_span_chunks(),
+		_resolve_ready_chunk_count(),
+		_published_patches.size(),
+		_resolve_total_target_count()
+	)
+
+func _coerce_chunk_coords(value: Variant) -> Array[Vector2i]:
+	var coords: Array[Vector2i] = []
+	if value is not Array:
+		return coords
+	for coord_variant: Variant in value:
+		coords.append(coord_variant as Vector2i)
+	return coords
+
+func _clone_settings(settings: MountainGenSettings) -> MountainGenSettings:
+	if settings == null:
+		return MountainGenSettings.hard_coded_defaults()
+	return MountainGenSettings.from_save_dict(settings.to_save_dict())

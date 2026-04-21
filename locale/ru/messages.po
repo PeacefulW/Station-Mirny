@@ -832,34 +832,49 @@ msgid "UI_WORLD_CREATE_MTN_LARGE"
 msgstr "Крупные"
 
 msgid "UI_WORLDGEN_MOUNTAINS_PANEL_TITLE"
-msgstr "ПАРАМЕТРЫ ГОР"
+msgstr "КОНФИГУРАЦИЯ ОБЪЕКТА"
+
+msgid "UI_NEW_GAME_TAB_COMMS"
+msgstr "СЕКТОР: СВЯЗЬ"
+
+msgid "UI_NEW_GAME_TAB_GEOLOGY"
+msgstr "СЕКТОР: ГЕОЛОГИЯ"
+
+msgid "UI_NEW_GAME_COMMS_TITLE"
+msgstr "СВЯЗЬ"
+
+msgid "UI_NEW_GAME_GEOLOGY_TITLE"
+msgstr "ГЕОЛОГИЯ"
+
+msgid "UI_NEW_GAME_SECTOR_LABEL"
+msgstr "СЕКТОР: %s"
 
 msgid "UI_WORLDGEN_MOUNTAINS_DENSITY"
-msgstr "Плотность гор:"
+msgstr "ИНДЕКС ПЛОТНОСТИ"
 
 msgid "UI_WORLDGEN_MOUNTAINS_DENSITY_DESC"
-msgstr "Определяет, как часто на карте появляются отдельные горные массивы. Ниже значение — гор меньше, выше — горные зоны встречаются чаще."
+msgstr "Коэффициент частоты возникновения отдельных горных массивов. Влияет на общую проходимость региона."
 
 msgid "UI_WORLDGEN_MOUNTAINS_SCALE"
-msgstr "Масштаб гор:"
+msgstr "МАСШТАБНЫЙ МНОЖИТЕЛЬ"
 
 msgid "UI_WORLDGEN_MOUNTAINS_SCALE_DESC"
-msgstr "Определяет средний размер горных форм. Ниже значение — массивы мельче и дробнее, выше — горы крупнее и заметнее."
+msgstr "Регулирует средний размер геоморфологических единиц. Малые значения создают дробный рельеф, высокие — массивные хребты."
 
 msgid "UI_WORLDGEN_MOUNTAINS_CONTINUITY"
-msgstr "Цепочность хребтов:"
+msgstr "СВЯЗНОСТЬ ХРЕБТОВ"
 
 msgid "UI_WORLDGEN_MOUNTAINS_CONTINUITY_DESC"
-msgstr "Влияет на то, собираются ли горы в длинные связанные хребты. Ниже значение — пятна и отдельные массивы, выше — вытянутые цепи."
+msgstr "Параметр формирования непрерывных горных цепей. Определяет степень сегментации массивов."
 
 msgid "UI_WORLDGEN_MOUNTAINS_RUGGEDNESS"
-msgstr "Скалистость:"
+msgstr "ИНДЕКС ИЗРЕЗАННОСТИ"
 
 msgid "UI_WORLDGEN_MOUNTAINS_RUGGEDNESS_DESC"
-msgstr "Влияет на резкость и ломанный силуэт рельефа. Ниже значение — более плавные склоны, выше — острые гребни и выраженные пики."
+msgstr "Степень хаотичности и остроты силуэта. Высокие значения формируют труднопроходимые пики и гребни."
 
 msgid "UI_WORLDGEN_MOUNTAINS_ADVANCED_TOGGLE"
-msgstr "Дополнительные параметры"
+msgstr "РЕЖИМ ТОЧНОЙ НАСТРОЙКИ"
 
 msgid "UI_WORLDGEN_MOUNTAINS_ANCHOR_CELL_SIZE"
 msgstr "Размер опорной ячейки:"

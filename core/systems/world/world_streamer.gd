@@ -6,6 +6,7 @@ const HarvestQuery = preload("res://core/systems/world/harvest_query.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
 const MountainCavityCache = preload("res://core/systems/world/mountain_cavity_cache.gd")
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
+const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
 const WorldDiffStore = preload("res://core/systems/world/world_diff_store.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
@@ -15,7 +16,6 @@ const INVALID_CHUNK_COORD: Vector2i = Vector2i(2147483647, 2147483647)
 var world_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 var world_version: int = WorldRuntimeConstants.WORLD_VERSION
 
-var _world_core: Object = null
 var _diff_store: WorldDiffStore = WorldDiffStore.new()
 var _chunk_packets: Dictionary = {}
 var _chunk_views: Dictionary = {}
@@ -28,15 +28,9 @@ var _generation_epoch: int = 0
 var _worldgen_settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
 var _worldgen_settings_packed: PackedFloat32Array = PackedFloat32Array()
 var _pending_new_world_settings: MountainGenSettings = null
+var _packet_backend: WorldChunkPacketBackend = WorldChunkPacketBackend.new()
 var roof_layers_per_chunk_max: int = 0
 
-var _worker_thread: Thread = Thread.new()
-var _request_mutex: Mutex = Mutex.new()
-var _result_mutex: Mutex = Mutex.new()
-var _request_semaphore: Semaphore = Semaphore.new()
-var _pending_requests: Array[Dictionary] = []
-var _completed_packets: Array[Dictionary] = []
-var _worker_should_exit: bool = false
 var _mountain_cavity_cache: MountainCavityCache = MountainCavityCache.new()
 var _active_cover_mountain_id: int = 0
 var _active_cover_component_id: int = 0
@@ -45,11 +39,9 @@ var _did_warn_roof_layer_explosion: bool = false
 func _ready() -> void:
 	add_to_group("chunk_manager")
 	name = "WorldStreamer"
-	_world_core = ClassDB.instantiate("WorldCore")
-	assert(_world_core != null, "WorldCore required - build GDExtension first")
 	_apply_worldgen_settings(MountainGenSettings.hard_coded_defaults())
 	WorldTileSetFactory.bootstrap()
-	_start_worker_thread()
+	_packet_backend.start()
 	_stream_job_id = FrameBudgetDispatcher.register_job(
 		RuntimeWorkTypes.CATEGORY_STREAMING,
 		1.5,
@@ -64,7 +56,7 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if _stream_job_id and FrameBudgetDispatcher:
 		FrameBudgetDispatcher.unregister_job(_stream_job_id)
-	_stop_worker_thread()
+	_packet_backend.stop()
 
 func initialize_new_world(seed_value: int, settings: MountainGenSettings) -> void:
 	_pending_new_world_settings = _clone_worldgen_settings(settings)
@@ -276,25 +268,16 @@ func _enqueue_desired_chunks() -> void:
 		if _requested_chunks.has(desired_coord):
 			continue
 		_requested_chunks[desired_coord] = true
-		_request_mutex.lock()
-		_pending_requests.append({
-			"coord": desired_coord,
-			"seed": world_seed,
-			"world_version": world_version,
-			"settings_packed": _worldgen_settings_packed,
-			"epoch": _generation_epoch,
-		})
-		_request_mutex.unlock()
-		_request_semaphore.post()
+		_packet_backend.queue_packet_request(
+			desired_coord,
+			world_seed,
+			world_version,
+			_worldgen_settings_packed,
+			_generation_epoch
+		)
 
 func _drain_completed_packets(max_count: int) -> void:
-	var drained: Array[Dictionary] = []
-	_result_mutex.lock()
-	var drain_count: int = mini(max_count, _completed_packets.size())
-	for _i: int in range(drain_count):
-		drained.append(_completed_packets.pop_front() as Dictionary)
-	_result_mutex.unlock()
-
+	var drained: Array[Dictionary] = _packet_backend.drain_completed_packets(max_count)
 	for packet: Dictionary in drained:
 		if int(packet.get("epoch", -1)) != _generation_epoch:
 			continue
@@ -359,15 +342,9 @@ func _has_pending_streaming_work() -> bool:
 		return true
 	if _active_publish_chunk != INVALID_CHUNK_COORD:
 		return true
-	_request_mutex.lock()
-	var has_pending_requests: bool = not _pending_requests.is_empty()
-	_request_mutex.unlock()
-	if has_pending_requests:
+	if _packet_backend.has_pending_requests():
 		return true
-	_result_mutex.lock()
-	var has_completed_packets: bool = not _completed_packets.is_empty()
-	_result_mutex.unlock()
-	if has_completed_packets:
+	if _packet_backend.has_completed_packets():
 		return true
 	for chunk_coord_variant: Variant in _chunk_views.keys():
 		if not _is_chunk_desired(chunk_coord_variant as Vector2i):
@@ -471,16 +448,13 @@ func _enqueue_chunk_if_needed(chunk_coord: Vector2i) -> void:
 	if _requested_chunks.has(chunk_coord) or _chunk_packets.has(chunk_coord):
 		return
 	_requested_chunks[chunk_coord] = true
-	_request_mutex.lock()
-	_pending_requests.append({
-		"coord": chunk_coord,
-		"seed": world_seed,
-		"world_version": world_version,
-		"settings_packed": _worldgen_settings_packed,
-		"epoch": _generation_epoch,
-	})
-	_request_mutex.unlock()
-	_request_semaphore.post()
+	_packet_backend.queue_packet_request(
+		chunk_coord,
+		world_seed,
+		world_version,
+		_worldgen_settings_packed,
+		_generation_epoch
+	)
 
 func _apply_loaded_override(chunk_coord: Vector2i, local_coord: Vector2i, terrain_id: int, walkable: bool) -> void:
 	if not _chunk_packets.has(chunk_coord):
@@ -724,8 +698,7 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 
 func _reset_runtime_state() -> void:
 	_generation_epoch += 1
-	_clear_requested_chunks()
-	_clear_completed_packets()
+	_packet_backend.clear_queued_work()
 	_requested_chunks.clear()
 	_pending_publish_queue.clear()
 	_active_publish_chunk = INVALID_CHUNK_COORD
@@ -741,16 +714,6 @@ func _reset_runtime_state() -> void:
 	_active_cover_mountain_id = 0
 	_active_cover_component_id = 0
 	_did_warn_roof_layer_explosion = false
-
-func _clear_requested_chunks() -> void:
-	_request_mutex.lock()
-	_pending_requests.clear()
-	_request_mutex.unlock()
-
-func _clear_completed_packets() -> void:
-	_result_mutex.lock()
-	_completed_packets.clear()
-	_result_mutex.unlock()
 
 func _build_desired_chunk_coords(center_chunk: Vector2i) -> Array[Vector2i]:
 	var coords: Array[Vector2i] = []
@@ -952,43 +915,3 @@ func _load_worldgen_settings_from_save(data: Dictionary) -> MountainGenSettings:
 	if mountains_settings is not Dictionary:
 		return MountainGenSettings.hard_coded_defaults()
 	return MountainGenSettings.from_save_dict(mountains_settings as Dictionary)
-
-func _start_worker_thread() -> void:
-	if _worker_thread.is_started():
-		return
-	_worker_should_exit = false
-	var start_error: Error = _worker_thread.start(_worker_loop)
-	assert(start_error == OK, "Failed to start world runtime worker thread")
-
-func _stop_worker_thread() -> void:
-	if not _worker_thread.is_started():
-		return
-	_worker_should_exit = true
-	_request_semaphore.post()
-	_worker_thread.wait_to_finish()
-
-func _worker_loop() -> void:
-	var worker_world_core: Object = ClassDB.instantiate("WorldCore")
-	assert(worker_world_core != null, "WorldCore required inside worker thread")
-	while true:
-		_request_semaphore.wait()
-		if _worker_should_exit:
-			return
-		var request: Dictionary = {}
-		_request_mutex.lock()
-		if not _pending_requests.is_empty():
-			request = _pending_requests.pop_front() as Dictionary
-		_request_mutex.unlock()
-		if request.is_empty():
-			continue
-		var packet: Dictionary = worker_world_core.call(
-			"generate_chunk_packet",
-			int(request.get("seed", world_seed)),
-			request.get("coord", Vector2i.ZERO) as Vector2i,
-			int(request.get("world_version", world_version)),
-			request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array
-		) as Dictionary
-		packet["epoch"] = int(request.get("epoch", -1))
-		_result_mutex.lock()
-		_completed_packets.append(packet)
-		_result_mutex.unlock()
