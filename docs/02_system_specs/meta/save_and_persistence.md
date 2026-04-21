@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.1
-last_updated: 2026-04-20
+version: 1.2
+last_updated: 2026-04-21
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -59,9 +59,10 @@ Current V0 runtime implementation:
 
 Current mountain extension:
 - `world.json` now records `world_version: 4` for the current native mountain-field baseline
-- `worldgen_settings.mountains` persistence is still deferred to Mountain Generation M4; M1 keeps hard-coded dev defaults in `WorldStreamer`
+- `worldgen_settings.mountains` is persisted for `world_version >= 2`; the save-local copy becomes the authoritative mountain-generation input for that world
 - legacy saves with `world_version < 2` keep `settings_packed = []`, so they
   stay on the V0 no-mountains path during load
+- reveal alpha, entrance cache, cavity component membership, opening groups, and cover-open state remain derived runtime state and are rebuilt from `base + diff` on load / cold publish
 
 Confirmed `world.json` shape in the current mountain code path:
 
@@ -70,7 +71,20 @@ Confirmed `world.json` shape in the current mountain code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 4
+  "world_version": 4,
+  "worldgen_settings": {
+    "mountains": {
+      "density": 0.3,
+      "scale": 512.0,
+      "continuity": 0.65,
+      "ruggedness": 0.55,
+      "anchor_cell_size": 128,
+      "gravity_radius": 96,
+      "foot_band": 0.08,
+      "interior_margin": 1,
+      "latitude_influence": 0.0
+    }
+  }
 }
 ```
 

@@ -5,7 +5,7 @@ status: approved
 owner: engineering
 source_of_truth: true
 version: 1.1
-last_updated: 2026-04-20
+last_updated: 2026-04-21
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -140,7 +140,7 @@ V1 adds two surface terrain ids:
 | Id constant | Walkable | Used for |
 |---|---|---|
 | `TERRAIN_MOUNTAIN_WALL` | 0 | Every tile with `mountain_id > 0` and `is_wall` bit set. Rendered on `_base_layer` with rock-face atlas. |
-| `TERRAIN_MOUNTAIN_FOOT` | 0 | Foot-band tiles visible from outside. `mountain_id > 0`, `is_foot` bit set, no `is_interior` bit. Never covered by roof. |
+| `TERRAIN_MOUNTAIN_FOOT` | 0 | Foot-band surface tiles. `mountain_id > 0`, `is_foot` bit set, no `is_interior` bit. Geometry stays surface-owned, but cover presentation may still hide excavated mountain space under foot-band tiles when the viewer is outside. |
 
 Legacy terrain slot `1` remains reserved for backward numeric compatibility,
 but new mountain worlds do not generate a standalone plains-rock terrain
@@ -249,8 +249,9 @@ For every tile with `mountain_id == 0`:
 - `mountain_atlas_index = 0`
 - canonical terrain stays on the ground / non-mountain path
 
-Tiles with `is_interior == 1` are the **only** tiles that participate in
-the roof layer.
+Roof / cover presentation participates for mountain-owned tiles
+(`mountain_id > 0`), while viewer policy decides which non-opening tiles stay
+closed.
 
 ### Worldgen Settings
 
@@ -316,12 +317,11 @@ Rules:
 - `ChunkView` holds `Dictionary[int, TileMapLayer] roof_layers_by_mountain`
 - roof layers are created lazily on first tile assignment for a given
   `mountain_id`
-- roof layer `tile_set` is provided by
-  `WorldTileSetFactory.get_roof_tile_set()` and shares the rock-top atlas
-  with `TERRAIN_MOUNTAIN_WALL` so the outside silhouette is seamless
-- roof cells are placed only for tiles with
-  `mountain_id > 0 and is_interior == 1 and is_entrance == 0`
-- entrance tiles clear their roof cell via `set_cell(..., -1)`
+- each roof layer receives a dedicated roof `tile_set + ShaderMaterial`
+  bundle from `WorldTileSetFactory`, still sharing the mountain-wall atlas
+  and rock presentation inputs so the outside silhouette remains seamless
+- roof cells are placed for all mountain-owned tiles with `mountain_id > 0`
+- entrance tiles clear their roof cell via the runtime entrance cache
 - aggregated alpha per chunk is **forbidden**
 - on chunk unload, `ChunkView.queue_free` destroys all roof layers
 
@@ -340,6 +340,9 @@ Guardrail (mandatory from M2 onward):
 - reveal fade uses time-based interpolation only
 - fade time constant `FADE_SECONDS` (0.25..0.35)
 - exit debounce constant `EXIT_DEBOUNCE` (0.5)
+- after `EXIT_DEBOUNCE`, conceal uses the same alpha fade back to 1.0; the
+  visible cavity mask is cleared only after the conceal fade reaches full
+  opacity
 - registry registers one job on `FrameBudgetDispatcher` under
   `CATEGORY_VISUAL` with budget 0.2 ms
 - signals:
@@ -377,10 +380,9 @@ Resolver does O(1) work per frame; no scene-tree queries, no raycasts.
   neighbors (5 tiles total)
 - `recompute_entrance_flag` is the **single** source of truth for the
   entrance flag:
-  - a tile is an entrance iff it is `is_interior == 1` **and** its
-    diff-resolved terrain is walkable **and** it has at least one
-    walkable 4-neighbor that exits the interior shell
-    (`mountain_id != self` or neighbor `is_interior == 0`)
+  - a tile is an entrance iff it is a walkable mountain-owned tile
+    (`mountain_id > 0`) **and** it has at least one walkable 4-neighbor with
+    `neighbor_mountain_id == 0`
 - the runtime entrance cache lives in `ChunkView._entrance_cache:
   PackedByteArray` (1024 bytes per chunk)
 - the cache is **never** persisted; it is always derivable from

@@ -456,6 +456,9 @@ msgstr "Crafting is unavailable"
 msgid "SYSTEM_WORLD_BALANCE_MISSING"
 msgstr "World generation balance failed to load"
 
+msgid "SYSTEM_WORLD_TILE_NOT_EXPOSED"
+msgstr "That mountain tile is not exposed yet"
+
 msgid "UI_WORLD_CREATE_TITLE"
 msgstr "STATION MIRNY"
 

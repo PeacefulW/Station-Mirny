@@ -12,6 +12,10 @@ var _overlay_layer: TileMapLayer = null
 var roof_layers_by_mountain: Dictionary = {}
 var _mountain_reveal_registry: MountainRevealRegistry = null
 var _entrance_cache: PackedByteArray = PackedByteArray()
+var _cover_mask_bytes_by_mountain: Dictionary = {}
+var _cover_mask_textures_by_mountain: Dictionary = {}
+var _roof_materials_by_mountain: Dictionary = {}
+var _roof_source_ids_by_mountain: Dictionary = {}
 var _pending_terrain_ids: PackedInt32Array = PackedInt32Array()
 var _pending_terrain_atlas_indices: PackedInt32Array = PackedInt32Array()
 var _pending_mountain_ids: PackedInt32Array = PackedInt32Array()
@@ -50,6 +54,7 @@ func begin_apply(packet: Dictionary) -> void:
 	_apply_index = 0
 	visible = false
 	_ensure_layers()
+	_clear_roof_layers()
 	_entrance_cache = PackedByteArray()
 	_entrance_cache.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
 
@@ -88,13 +93,11 @@ func set_entrance_flag(local: Vector2i, is_entrance: bool) -> void:
 	if index >= _pending_mountain_ids.size() or index >= _pending_mountain_flags.size():
 		return
 	var mountain_id: int = int(_pending_mountain_ids[index])
-	var mountain_flags: int = int(_pending_mountain_flags[index])
-	if mountain_id <= 0 or (mountain_flags & WorldRuntimeConstants.MOUNTAIN_FLAG_INTERIOR) == 0:
+	if mountain_id <= 0:
 		return
 	if is_entrance:
 		var layer: TileMapLayer = roof_layers_by_mountain.get(mountain_id, null) as TileMapLayer
 		_clear_cell(layer, local)
-		return
 	_apply_roof_cell(local, index)
 
 func get_entrance_flag(local: Vector2i) -> bool:
@@ -102,6 +105,17 @@ func get_entrance_flag(local: Vector2i) -> bool:
 		return false
 	var index: int = WorldRuntimeConstants.local_to_index(local)
 	return index >= 0 and index < _entrance_cache.size() and _entrance_cache[index] != 0
+
+func sync_cover_masks(open_masks_by_mountain: Dictionary) -> void:
+	var all_mountain_ids: Dictionary = {}
+	for mountain_id_variant: Variant in roof_layers_by_mountain.keys():
+		all_mountain_ids[int(mountain_id_variant)] = true
+	for mountain_id_variant: Variant in open_masks_by_mountain.keys():
+		all_mountain_ids[int(mountain_id_variant)] = true
+	for mountain_id_variant: Variant in all_mountain_ids.keys():
+		var mountain_id: int = int(mountain_id_variant)
+		var open_mask: PackedByteArray = open_masks_by_mountain.get(mountain_id, PackedByteArray()) as PackedByteArray
+		_apply_cover_mask(mountain_id, open_mask)
 
 func _ensure_layers() -> void:
 	if _base_layer != null \
@@ -130,16 +144,22 @@ func _ensure_layers() -> void:
 func _ensure_roof_layer(mountain_id: int) -> TileMapLayer:
 	if roof_layers_by_mountain.has(mountain_id):
 		return roof_layers_by_mountain[mountain_id] as TileMapLayer
+	var roof_bundle: Dictionary = WorldTileSetFactory.create_roof_tile_set_bundle()
+	var roof_tile_set: TileSet = roof_bundle.get("tile_set", null) as TileSet
+	var roof_material: ShaderMaterial = roof_bundle.get("material", null) as ShaderMaterial
 	var layer := TileMapLayer.new()
 	layer.name = "RoofLayer_%d" % mountain_id
-	layer.tile_set = WorldTileSetFactory.get_roof_tile_set()
+	layer.tile_set = roof_tile_set
 	layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	layer.z_index = 10
-	var color: Color = layer.modulate
-	color.a = _get_reveal_alpha(mountain_id)
-	layer.modulate = color
+	if roof_material != null:
+		roof_material.set_shader_parameter("chunk_origin_px", WorldRuntimeConstants.chunk_origin_px(chunk_coord))
+		roof_material.set_shader_parameter("open_mask", _build_cover_mask_texture(_zero_cover_mask()))
+		roof_material.set_shader_parameter("open_alpha", _get_reveal_alpha(mountain_id))
 	add_child(layer)
 	roof_layers_by_mountain[mountain_id] = layer
+	_roof_materials_by_mountain[mountain_id] = roof_material
+	_roof_source_ids_by_mountain[mountain_id] = int(roof_bundle.get("source_id", 0))
 	return layer
 
 func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: int) -> void:
@@ -166,16 +186,16 @@ func _apply_roof_cell(local_coord: Vector2i, index: int) -> void:
 	if get_entrance_flag(local_coord):
 		return
 	var mountain_id: int = int(_pending_mountain_ids[index])
-	var mountain_flags: int = int(_pending_mountain_flags[index])
-	if mountain_id <= 0 or (mountain_flags & WorldRuntimeConstants.MOUNTAIN_FLAG_INTERIOR) == 0:
+	if mountain_id <= 0:
 		return
 	var terrain_atlas_index: int = 0
 	if index < _pending_mountain_atlas_indices.size():
 		terrain_atlas_index = int(_pending_mountain_atlas_indices[index])
 	var layer: TileMapLayer = _ensure_roof_layer(mountain_id)
+	var source_id: int = int(_roof_source_ids_by_mountain.get(mountain_id, 0))
 	layer.set_cell(
 		local_coord,
-		WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL),
+		source_id,
 		WorldTileSetFactory.get_atlas_coords(WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL, terrain_atlas_index)
 	)
 
@@ -183,6 +203,17 @@ func _clear_cell(layer: TileMapLayer, local_coord: Vector2i) -> void:
 	if layer == null or not is_instance_valid(layer):
 		return
 	layer.set_cell(local_coord, -1, Vector2i(-1, -1))
+
+func _clear_roof_layers() -> void:
+	for layer_variant: Variant in roof_layers_by_mountain.values():
+		var layer: TileMapLayer = layer_variant as TileMapLayer
+		if layer != null and is_instance_valid(layer):
+			layer.queue_free()
+	roof_layers_by_mountain.clear()
+	_cover_mask_bytes_by_mountain.clear()
+	_cover_mask_textures_by_mountain.clear()
+	_roof_materials_by_mountain.clear()
+	_roof_source_ids_by_mountain.clear()
 
 func _connect_reveal_registry() -> void:
 	var registry: MountainRevealRegistry = _get_reveal_registry()
@@ -209,12 +240,57 @@ func _get_reveal_alpha(mountain_id: int) -> float:
 	return registry.get_alpha(mountain_id)
 
 func _on_alpha_changed(mountain_id: int, alpha: float) -> void:
-	var layer: TileMapLayer = roof_layers_by_mountain.get(mountain_id, null) as TileMapLayer
-	if layer == null or not is_instance_valid(layer):
+	var material: ShaderMaterial = _roof_materials_by_mountain.get(mountain_id, null) as ShaderMaterial
+	if material == null:
 		return
-	var color: Color = layer.modulate
-	color.a = alpha
-	layer.modulate = color
+	material.set_shader_parameter("open_alpha", alpha)
 
 func _on_mountain_visibility_changed(mountain_id: int) -> void:
 	_on_alpha_changed(mountain_id, _get_reveal_alpha(mountain_id))
+
+func _apply_cover_mask(mountain_id: int, open_mask: PackedByteArray) -> void:
+	if not roof_layers_by_mountain.has(mountain_id) and open_mask.is_empty():
+		return
+	var layer: TileMapLayer = _ensure_roof_layer(mountain_id)
+	if layer == null or not is_instance_valid(layer):
+		return
+	var resolved_mask: PackedByteArray = open_mask.duplicate()
+	if resolved_mask.size() != WorldRuntimeConstants.CHUNK_CELL_COUNT:
+		resolved_mask = _zero_cover_mask()
+	var previous_mask: PackedByteArray = _cover_mask_bytes_by_mountain.get(mountain_id, PackedByteArray()) as PackedByteArray
+	if previous_mask == resolved_mask:
+		return
+	var texture: ImageTexture = _build_cover_mask_texture(resolved_mask)
+	_cover_mask_bytes_by_mountain[mountain_id] = resolved_mask
+	_cover_mask_textures_by_mountain[mountain_id] = texture
+	var material: ShaderMaterial = _roof_materials_by_mountain.get(mountain_id, null) as ShaderMaterial
+	if material != null:
+		material.set_shader_parameter("open_mask", texture)
+		material.set_shader_parameter("open_alpha", _get_reveal_alpha(mountain_id))
+
+func _build_cover_mask_texture(open_mask: PackedByteArray) -> ImageTexture:
+	var resolved_mask: PackedByteArray = open_mask
+	if resolved_mask.size() != WorldRuntimeConstants.CHUNK_CELL_COUNT:
+		resolved_mask = _zero_cover_mask()
+	var image_bytes := PackedByteArray()
+	image_bytes.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT * 4)
+	for index: int in range(WorldRuntimeConstants.CHUNK_CELL_COUNT):
+		var byte_index: int = index * 4
+		var mask_value: int = int(resolved_mask[index])
+		image_bytes[byte_index] = mask_value
+		image_bytes[byte_index + 1] = 0
+		image_bytes[byte_index + 2] = 0
+		image_bytes[byte_index + 3] = 255
+	var image: Image = Image.create_from_data(
+		WorldRuntimeConstants.CHUNK_SIZE,
+		WorldRuntimeConstants.CHUNK_SIZE,
+		false,
+		Image.FORMAT_RGBA8,
+		image_bytes
+	)
+	return ImageTexture.create_from_image(image)
+
+func _zero_cover_mask() -> PackedByteArray:
+	var mask := PackedByteArray()
+	mask.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	return mask

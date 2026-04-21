@@ -456,6 +456,9 @@ msgstr "Крафт недоступен"
 msgid "SYSTEM_WORLD_BALANCE_MISSING"
 msgstr "Баланс генерации мира не загружен"
 
+msgid "SYSTEM_WORLD_TILE_NOT_EXPOSED"
+msgstr "Этот горный тайл ещё не открыт"
+
 msgid "UI_WORLD_CREATE_TITLE"
 msgstr "СТАНЦИЯ «МИРНЫЙ»"
 

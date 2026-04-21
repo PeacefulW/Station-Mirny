@@ -2,12 +2,15 @@ class_name WorldStreamer
 extends Node2D
 
 const ChunkView = preload("res://core/systems/world/chunk_view.gd")
+const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
 const MountainEntrance = preload("res://core/systems/world/mountain_entrance.gd")
 const MountainRevealRegistry = preload("res://core/systems/world/mountain_reveal_registry.gd")
+const MountainVisibilityTopology = preload("res://core/systems/world/mountain_visibility_topology.gd")
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const WorldDiffStore = preload("res://core/systems/world/world_diff_store.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
+const DEFAULT_MOUNTAIN_SETTINGS_RESOURCE = preload("res://data/balance/mountain_gen_settings.tres")
 
 const INVALID_CHUNK_COORD: Vector2i = Vector2i(2147483647, 2147483647)
 
@@ -24,6 +27,7 @@ var _active_publish_chunk: Vector2i = INVALID_CHUNK_COORD
 var _player_chunk_coord: Vector2i = INVALID_CHUNK_COORD
 var _stream_job_id: StringName = &""
 var _generation_epoch: int = 0
+var _mountain_settings: MountainGenSettings = null
 var _settings_packed: PackedFloat32Array = PackedFloat32Array()
 var roof_layers_per_chunk_max: int = 0
 
@@ -35,6 +39,7 @@ var _pending_requests: Array[Dictionary] = []
 var _completed_packets: Array[Dictionary] = []
 var _worker_should_exit: bool = false
 var _mountain_reveal_registry: MountainRevealRegistry = null
+var _mountain_visibility_topology: MountainVisibilityTopology = MountainVisibilityTopology.new()
 var _did_warn_roof_layer_explosion: bool = false
 
 func _ready() -> void:
@@ -42,7 +47,8 @@ func _ready() -> void:
 	name = "WorldStreamer"
 	_world_core = ClassDB.instantiate("WorldCore")
 	assert(_world_core != null, "WorldCore required - build GDExtension first")
-	_settings_packed = _resolve_settings_packed_for_world_version(world_version)
+	_mountain_settings = _resolve_new_world_mountain_settings()
+	_settings_packed = _resolve_settings_packed(world_version, _mountain_settings)
 	WorldTileSetFactory.bootstrap()
 	_ensure_mountain_reveal_registry()
 	_start_worker_thread()
@@ -60,6 +66,10 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if _stream_job_id and FrameBudgetDispatcher:
 		FrameBudgetDispatcher.unregister_job(_stream_job_id)
+	if _mountain_reveal_registry != null \
+			and is_instance_valid(_mountain_reveal_registry) \
+			and _mountain_reveal_registry.alpha_changed.is_connected(_on_mountain_reveal_alpha_changed):
+		_mountain_reveal_registry.alpha_changed.disconnect(_on_mountain_reveal_alpha_changed)
 	_stop_worker_thread()
 
 func reset_for_new_game(
@@ -68,7 +78,8 @@ func reset_for_new_game(
 ) -> void:
 	world_seed = seed
 	world_version = version
-	_settings_packed = _resolve_settings_packed_for_world_version(world_version)
+	_mountain_settings = _resolve_new_world_mountain_settings()
+	_settings_packed = _resolve_settings_packed(world_version, _mountain_settings)
 	_diff_store.clear()
 	_reset_runtime_state()
 	EventBus.world_initialized.emit(world_seed)
@@ -76,18 +87,24 @@ func reset_for_new_game(
 func load_world_state(data: Dictionary) -> void:
 	world_seed = int(data.get("world_seed", WorldRuntimeConstants.DEFAULT_WORLD_SEED))
 	world_version = int(data.get("world_version", WorldRuntimeConstants.WORLD_VERSION))
-	_settings_packed = _resolve_settings_packed_for_world_version(world_version)
+	_mountain_settings = _resolve_loaded_mountain_settings(data)
+	_settings_packed = _resolve_settings_packed(world_version, _mountain_settings)
 	_diff_store.clear()
 	_reset_runtime_state()
 	EventBus.world_initialized.emit(world_seed)
 
 func save_world_state() -> Dictionary:
-	return {
+	var data: Dictionary = {
 		"world_rebuild_frozen": false,
 		"world_scene_present": true,
 		"world_seed": world_seed,
 		"world_version": world_version,
 	}
+	if world_version >= 2 and _mountain_settings != null:
+		data["worldgen_settings"] = {
+			"mountains": _mountain_settings.to_save_dictionary(),
+		}
+	return data
 
 func collect_chunk_diffs() -> Array[Dictionary]:
 	return _diff_store.serialize_dirty_chunks()
@@ -107,6 +124,45 @@ func get_chunk_packet(chunk_coord: Vector2i) -> Dictionary:
 
 func get_mountain_reveal_registry() -> MountainRevealRegistry:
 	return _mountain_reveal_registry
+
+func get_mountain_visibility_sample(tile_coord: Vector2i) -> Dictionary:
+	var base_state: Dictionary = _get_mountain_visibility_tile_state(tile_coord)
+	if not bool(base_state.get("ready", false)):
+		return {"ready": false}
+	var topology_state: Dictionary = _mountain_visibility_topology.get_tile_state(tile_coord)
+	var cavity_component_id: int = int(topology_state.get("component_id", 0))
+	var opening_id: int = int(topology_state.get("opening_id", 0))
+	var is_opening: bool = bool(topology_state.get("is_opening", base_state.get("is_opening", false)))
+	var cover_open: bool = bool(topology_state.get("cover_open", is_opening))
+	return {
+		"ready": true,
+		"tile_coord": tile_coord,
+		"chunk_coord": base_state.get("chunk_coord", Vector2i.ZERO) as Vector2i,
+		"local_coord": base_state.get("local_coord", Vector2i.ZERO) as Vector2i,
+		"terrain_id": int(base_state.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)),
+		"terrain_atlas_index": int(base_state.get("terrain_atlas_index", 0)),
+		"walkable": bool(base_state.get("walkable", false)),
+		"mountain_id": int(base_state.get("mountain_id", 0)),
+		"mountain_flags": int(base_state.get("mountain_flags", 0)),
+		"is_interior": bool(base_state.get("is_interior", false)),
+		"is_opening": is_opening,
+		"visible_opening": bool(topology_state.get("visible_opening", is_opening)),
+		"cavity_component_id": cavity_component_id,
+		"opening_id": opening_id,
+		"cover_open": cover_open,
+		"inside_outside_state": "inside" if cavity_component_id > 0 else "outside",
+	}
+
+func update_active_mountain_component(
+	mountain_id: int,
+	component_id: int,
+	viewer_tile: Vector2i = MountainVisibilityTopology.INVALID_TILE
+) -> void:
+	var change: Dictionary = _mountain_visibility_topology.set_active_component(mountain_id, component_id, viewer_tile)
+	if not bool(change.get("changed", false)):
+		return
+	_sync_cover_state_for_components(_variant_array_to_int_array(change.get("previous_presented_component_ids", [])))
+	_sync_cover_state_for_components(_variant_array_to_int_array(change.get("current_presented_component_ids", [])))
 
 func recompute_entrance_for_tile(world_tile: Vector2i) -> void:
 	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(world_tile)
@@ -159,7 +215,10 @@ func has_resource_at_world(world_pos: Vector2) -> bool:
 	var tile_data: Dictionary = _get_tile_data(world_pos)
 	if not bool(tile_data.get("ready", false)):
 		return false
-	return _is_diggable_surface_terrain(int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	var terrain_id: int = int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
+	if not _is_diggable_surface_terrain(terrain_id):
+		return false
+	return MountainEntrance.can_harvest_mountain_tile(WorldRuntimeConstants.world_to_tile(world_pos), self)
 
 func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	var tile_data: Dictionary = _get_tile_data(world_pos)
@@ -174,6 +233,12 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 			"success": false,
 			"message_key": "SYSTEM_WORLD_TILE_NOT_DIGGABLE",
 		}
+	var world_tile: Vector2i = WorldRuntimeConstants.world_to_tile(world_pos)
+	if not MountainEntrance.can_harvest_mountain_tile(world_tile, self):
+		return {
+			"success": false,
+			"message_key": "SYSTEM_WORLD_TILE_NOT_EXPOSED",
+		}
 
 	var chunk_coord: Vector2i = tile_data.get("chunk_coord", Vector2i.ZERO) as Vector2i
 	var local_coord: Vector2i = tile_data.get("local_coord", Vector2i.ZERO) as Vector2i
@@ -184,10 +249,11 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 		true
 	)
 	_apply_loaded_override(chunk_coord, local_coord, WorldRuntimeConstants.TERRAIN_PLAINS_DUG, true)
-	recompute_entrance_for_neighborhood(_chunk_local_to_tile(chunk_coord, local_coord))
+	recompute_entrance_for_neighborhood(world_tile)
+	_apply_interactive_mountain_topology_update(world_tile)
 	if terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
 			or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
-		EventBus.mountain_tile_mined.emit(_chunk_local_to_tile(chunk_coord, local_coord), terrain_id, WorldRuntimeConstants.TERRAIN_PLAINS_DUG)
+		EventBus.mountain_tile_mined.emit(world_tile, terrain_id, WorldRuntimeConstants.TERRAIN_PLAINS_DUG)
 	return {
 		"success": true,
 		"item_id": "base:scrap",
@@ -270,6 +336,7 @@ func _publish_next_batch() -> void:
 	var has_more: bool = active_view.apply_next_batch(WorldRuntimeConstants.PUBLISH_BATCH_SIZE)
 	if not has_more:
 		_recompute_entrance_after_chunk_publish(_active_publish_chunk)
+		_rebuild_loaded_mountain_visibility_cache()
 		active_view.visible = true
 		EventBus.chunk_loaded.emit(_active_publish_chunk)
 		_active_publish_chunk = INVALID_CHUNK_COORD
@@ -296,6 +363,8 @@ func _evict_outside_ring(max_count: int) -> void:
 		_pending_publish_queue.erase(chunk_coord)
 		EventBus.chunk_unloaded.emit(chunk_coord)
 		evicted += 1
+	if evicted > 0:
+		_rebuild_loaded_mountain_visibility_cache()
 
 func _has_pending_streaming_work() -> bool:
 	if not _pending_publish_queue.is_empty():
@@ -367,19 +436,31 @@ func _get_entrance_tile_state(world_tile: Vector2i) -> Dictionary:
 	var mountain_ids: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
 	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
 	var walkable_flags: PackedByteArray = packet.get("walkable_flags", PackedByteArray()) as PackedByteArray
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	var terrain_atlas_indices: PackedInt32Array = packet.get("terrain_atlas_indices", PackedInt32Array()) as PackedInt32Array
 	if index < 0 \
 			or index >= mountain_ids.size() \
 			or index >= mountain_flags.size() \
-			or index >= walkable_flags.size():
+			or index >= walkable_flags.size() \
+			or index >= terrain_ids.size():
 		return {"ready": false}
 	var override_data: Dictionary = _diff_store.get_tile_override(chunk_coord, local_coord)
+	var terrain_id: int = int(terrain_ids[index])
 	var walkable: bool = int(walkable_flags[index]) != 0
 	if not override_data.is_empty():
+		terrain_id = int(override_data.get("terrain_id", terrain_id))
 		walkable = bool(override_data.get("walkable", walkable))
+	var terrain_atlas_index: int = int(terrain_atlas_indices[index]) if index < terrain_atlas_indices.size() else 0
 	return {
 		"ready": true,
+		"tile_coord": world_tile,
+		"chunk_coord": chunk_coord,
+		"local_coord": local_coord,
+		"terrain_id": terrain_id,
+		"terrain_atlas_index": terrain_atlas_index,
 		"mountain_id": int(mountain_ids[index]),
 		"mountain_flags": int(mountain_flags[index]),
+		"is_interior": (int(mountain_flags[index]) & WorldRuntimeConstants.MOUNTAIN_FLAG_INTERIOR) != 0,
 		"walkable": walkable,
 	}
 
@@ -651,6 +732,7 @@ func _reset_runtime_state() -> void:
 	_chunk_packets.clear()
 	roof_layers_per_chunk_max = 0
 	_did_warn_roof_layer_explosion = false
+	_mountain_visibility_topology.reset()
 	if _mountain_reveal_registry != null and is_instance_valid(_mountain_reveal_registry):
 		_mountain_reveal_registry.reset_state()
 
@@ -707,6 +789,8 @@ func _ensure_mountain_reveal_registry() -> void:
 		return
 	_mountain_reveal_registry = MountainRevealRegistry.new()
 	add_child(_mountain_reveal_registry)
+	if not _mountain_reveal_registry.alpha_changed.is_connected(_on_mountain_reveal_alpha_changed):
+		_mountain_reveal_registry.alpha_changed.connect(_on_mountain_reveal_alpha_changed)
 
 func _track_roof_layer_metric(chunk_coord: Vector2i, packet: Dictionary) -> void:
 	var mountain_ids: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
@@ -716,8 +800,7 @@ func _track_roof_layer_metric(chunk_coord: Vector2i, packet: Dictionary) -> void
 	var present_mountains: Dictionary = {}
 	for index: int in range(mini(mountain_ids.size(), mountain_flags.size())):
 		var mountain_id: int = int(mountain_ids[index])
-		var flags: int = int(mountain_flags[index])
-		if mountain_id <= 0 or (flags & WorldRuntimeConstants.MOUNTAIN_FLAG_INTERIOR) == 0:
+		if mountain_id <= 0:
 			continue
 		present_mountains[mountain_id] = true
 	var mountain_count: int = present_mountains.size()
@@ -726,6 +809,123 @@ func _track_roof_layer_metric(chunk_coord: Vector2i, packet: Dictionary) -> void
 	if mountain_count > 4 and not _did_warn_roof_layer_explosion:
 		_did_warn_roof_layer_explosion = true
 		push_warning("roof layer explosion: chunk %s has %d mountains" % [chunk_coord, mountain_count])
+
+func _get_mountain_visibility_tile_state(world_tile: Vector2i) -> Dictionary:
+	var tile_state: Dictionary = _get_entrance_tile_state(world_tile)
+	if not bool(tile_state.get("ready", false)):
+		return {"ready": false}
+	var chunk_coord: Vector2i = tile_state.get("chunk_coord", Vector2i.ZERO) as Vector2i
+	var local_coord: Vector2i = tile_state.get("local_coord", Vector2i.ZERO) as Vector2i
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+	var is_opening: bool = chunk_view != null and chunk_view.get_entrance_flag(local_coord)
+	var result: Dictionary = tile_state.duplicate(true)
+	result["is_opening"] = is_opening
+	return result
+
+func _apply_interactive_mountain_topology_update(world_tile: Vector2i) -> void:
+	var touched_tiles: Array[Vector2i] = [
+		world_tile,
+		world_tile + Vector2i.LEFT,
+		world_tile + Vector2i.RIGHT,
+		world_tile + Vector2i.UP,
+		world_tile + Vector2i.DOWN,
+	]
+	var affected_component_ids: Dictionary = _collect_loaded_component_ids_for_tiles(touched_tiles)
+	var previous_active_component_id: int = _mountain_visibility_topology.get_active_component_id()
+	if previous_active_component_id > 0:
+		affected_component_ids[previous_active_component_id] = true
+	var tile_states: Array[Dictionary] = []
+	for tile_coord: Vector2i in touched_tiles:
+		tile_states.append(_get_mountain_visibility_tile_state(tile_coord))
+	_mountain_visibility_topology.apply_walkable_updates(tile_states)
+	for component_id_variant: Variant in _collect_loaded_component_ids_for_tiles(touched_tiles).keys():
+		affected_component_ids[int(component_id_variant)] = true
+	var active_component_id: int = _mountain_visibility_topology.get_active_component_id()
+	if active_component_id > 0:
+		affected_component_ids[active_component_id] = true
+	var affected_chunks: Dictionary = {}
+	for component_id_variant: Variant in affected_component_ids.keys():
+		var component_id: int = int(component_id_variant)
+		if component_id <= 0:
+			continue
+		for chunk_coord: Vector2i in _mountain_visibility_topology.collect_chunks_for_component(component_id):
+			affected_chunks[chunk_coord] = true
+	if not affected_chunks.is_empty():
+		_sync_cover_state_for_chunks(_sorted_chunk_list(affected_chunks))
+
+func _rebuild_loaded_mountain_visibility_cache() -> void:
+	_mountain_visibility_topology.rebuild_from_loaded_world(_chunk_packets, Callable(self, "_is_cached_opening_tile"))
+	_sync_all_loaded_cover_state()
+
+func _sync_all_loaded_cover_state() -> void:
+	var chunk_coords: Array[Vector2i] = []
+	for chunk_coord_variant: Variant in _chunk_views.keys():
+		chunk_coords.append(chunk_coord_variant as Vector2i)
+	chunk_coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return a.x < b.x if a.x != b.x else a.y < b.y
+	)
+	_sync_cover_state_for_chunks(chunk_coords)
+
+func _sync_cover_state_for_chunks(chunk_coords: Array[Vector2i]) -> void:
+	for chunk_coord: Vector2i in chunk_coords:
+		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+		if chunk_view == null:
+			continue
+		var packet: Dictionary = _chunk_packets.get(chunk_coord, {}) as Dictionary
+		if packet.is_empty():
+			continue
+		chunk_view.sync_cover_masks(
+			_mountain_visibility_topology.build_cover_masks_for_chunk(
+				chunk_coord,
+				packet,
+				Callable(self, "_is_cached_opening_tile")
+			)
+		)
+
+func _sync_cover_state_for_components(component_ids: Array[int]) -> void:
+	var unique_chunks: Dictionary = {}
+	for component_id: int in component_ids:
+		if component_id <= 0:
+			continue
+		for chunk_coord: Vector2i in _mountain_visibility_topology.collect_chunks_for_component(component_id):
+			unique_chunks[chunk_coord] = true
+	if unique_chunks.is_empty():
+		return
+	_sync_cover_state_for_chunks(_sorted_chunk_list(unique_chunks))
+
+func _on_mountain_reveal_alpha_changed(mountain_id: int, alpha: float) -> void:
+	if mountain_id <= 0:
+		return
+	if alpha < 1.0 - 0.001:
+		return
+	if _mountain_reveal_registry == null or not is_instance_valid(_mountain_reveal_registry):
+		return
+	var reveal_debug: Dictionary = _mountain_reveal_registry.get_debug_snapshot(mountain_id)
+	if bool(reveal_debug.get("has_conceal_delay", false)):
+		return
+	if float(reveal_debug.get("target_alpha", 1.0)) < 1.0 - 0.001:
+		return
+	var change: Dictionary = _mountain_visibility_topology.clear_lingering_component_for_mountain(mountain_id)
+	if not bool(change.get("changed", false)):
+		return
+	_sync_cover_state_for_components(_variant_array_to_int_array(change.get("previous_presented_component_ids", [])))
+	_sync_cover_state_for_components(_variant_array_to_int_array(change.get("current_presented_component_ids", [])))
+
+func _is_cached_opening_tile(world_tile: Vector2i) -> bool:
+	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(world_tile)
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+	if chunk_view == null:
+		return false
+	return chunk_view.get_entrance_flag(WorldRuntimeConstants.tile_to_local(world_tile))
+
+func _collect_loaded_component_ids_for_tiles(tile_coords: Array[Vector2i]) -> Dictionary:
+	var component_ids: Dictionary = {}
+	for tile_coord: Vector2i in tile_coords:
+		var tile_state: Dictionary = _mountain_visibility_topology.get_tile_state(tile_coord)
+		var component_id: int = int(tile_state.get("component_id", 0))
+		if component_id > 0:
+			component_ids[component_id] = true
+	return component_ids
 
 func _distance_sq(a: Vector2i, b: Vector2i) -> int:
 	var dx: int = a.x - b.x
@@ -741,24 +941,43 @@ func _uses_mountain_surface_presentation(terrain_id: int) -> bool:
 		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
 		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
 
-func _build_m1_dev_default_settings_packed() -> PackedFloat32Array:
-	var settings_packed: PackedFloat32Array = PackedFloat32Array()
-	settings_packed.resize(WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_FIELD_COUNT)
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_DENSITY] = 0.30
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SCALE] = 512.0
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_CONTINUITY] = 0.65
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_RUGGEDNESS] = 0.55
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_ANCHOR_CELL_SIZE] = 128.0
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_GRAVITY_RADIUS] = 96.0
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_FOOT_BAND] = 0.08
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_INTERIOR_MARGIN] = 1.0
-	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_LATITUDE_INFLUENCE] = 0.0
-	return settings_packed
+func _resolve_new_world_mountain_settings() -> MountainGenSettings:
+	var resource_settings: MountainGenSettings = DEFAULT_MOUNTAIN_SETTINGS_RESOURCE as MountainGenSettings
+	if resource_settings == null:
+		return MountainGenSettings.hard_coded_defaults()
+	return resource_settings.duplicate_settings()
 
-func _resolve_settings_packed_for_world_version(version: int) -> PackedFloat32Array:
+func _resolve_loaded_mountain_settings(data: Dictionary) -> MountainGenSettings:
+	if world_version < 2:
+		return MountainGenSettings.hard_coded_defaults()
+	var worldgen_settings: Dictionary = data.get("worldgen_settings", {}) as Dictionary
+	var mountains_data: Dictionary = worldgen_settings.get("mountains", {}) as Dictionary
+	return MountainGenSettings.from_save_dictionary(
+		mountains_data,
+		MountainGenSettings.hard_coded_defaults()
+	)
+
+func _resolve_settings_packed(version: int, settings: MountainGenSettings) -> PackedFloat32Array:
 	if version < 2:
 		return PackedFloat32Array()
-	return _build_m1_dev_default_settings_packed()
+	if settings == null:
+		return MountainGenSettings.hard_coded_defaults().to_packed_array()
+	return settings.to_packed_array()
+
+func _sorted_chunk_list(unique_chunks: Dictionary) -> Array[Vector2i]:
+	var chunk_coords: Array[Vector2i] = []
+	for chunk_coord_variant: Variant in unique_chunks.keys():
+		chunk_coords.append(chunk_coord_variant as Vector2i)
+	chunk_coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return a.x < b.x if a.x != b.x else a.y < b.y
+	)
+	return chunk_coords
+
+func _variant_array_to_int_array(source: Variant) -> Array[int]:
+	var values: Array[int] = []
+	for value_variant: Variant in source as Array:
+		values.append(int(value_variant))
+	return values
 
 func _start_worker_thread() -> void:
 	if _worker_thread.is_started():

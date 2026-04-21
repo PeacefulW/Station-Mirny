@@ -190,11 +190,15 @@ Rules:
 
 - outside:
   - all non-opening mountain cover remains closed
-  - all visible openings remain visible
+  - all visible openings remain visible, together with the one-tile geometry
+    shell needed to render their 47-tile edge silhouette
 - inside current cavity:
   - cover is open for the full connected cavity immediately on state change
+  - cover also opens the one-tile mountain geometry shell around that cavity
+    so interior 47-tile wall geometry, including diagonal corner notches, is
+    visible while inside
   - cover stays active outside that cavity
-- fade applies to cover-mask alpha only
+- fade applies to cover-mask alpha only, symmetrically on reveal and conceal
 - ordering must avoid one-frame artifacts where cave geometry is visible only
   after cover changes late
 

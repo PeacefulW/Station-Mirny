@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.2
-last_updated: 2026-04-20
+version: 0.3
+last_updated: 2026-04-21
 related_docs:
   - ../README.md
   - commands.md
@@ -294,21 +294,23 @@ Confirmed readable entrypoints:
 |---|---|---|
 | `get_world_seed()` | `int` | Current deterministic world seed |
 | `get_world_version()` | `int` | Current canonical world version |
-| `save_world_state()` | `Dictionary` | World save payload for `world.json` |
+| `save_world_state()` | `Dictionary` | World save payload for `world.json`, including `worldgen_settings.mountains` for `world_version >= 2` |
 | `collect_chunk_diffs()` | `Array[Dictionary]` | Serialized dirty chunk entries |
 | `get_chunk_packet(chunk_coord: Vector2i)` | `Dictionary` | Loaded chunk packet or `{}`; read-only world-domain lookup for `MountainResolver` |
 | `get_mountain_reveal_registry()` | `MountainRevealRegistry` | Returns the world-domain owner of reveal alpha state |
 | `is_walkable_at_world(world_pos: Vector2)` | `bool` | Reads `base + diff`; returns `false` while a chunk is not ready |
-| `has_resource_at_world(world_pos: Vector2)` | `bool` | Diggable surface query for the current harvest path (`TERRAIN_MOUNTAIN_WALL` and `TERRAIN_MOUNTAIN_FOOT`) |
+| `has_resource_at_world(world_pos: Vector2)` | `bool` | Diggable surface query for the current harvest path; mountain targets must have at least one exposed 4-neighbor face |
+| `get_mountain_visibility_sample(tile_coord: Vector2i)` | `Dictionary` | Debug/read surface for current mountain visibility state (`mountain_id`, `cavity_component_id`, `opening_id`, `visible_opening`, `cover_open`, `inside_outside_state`) |
 
 Confirmed mutation entrypoints:
 
 | Surface | Notes |
 |---|---|
 | `reset_for_new_game(seed, version)` | Clears runtime state and emits `world_initialized` |
-| `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version` and clears runtime state |
+| `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version` plus save-local `worldgen_settings.mountains`, then clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
-| `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one diggable surface tile into its dug state |
+| `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one exposed diggable surface tile into its dug state |
+| `update_active_mountain_component(mountain_id, component_id, viewer_tile)` | World-domain update for the active viewer cavity; syncs only the affected loaded cover masks |
 
 Not documented here as safe entrypoints:
 - `_streaming_tick()`
@@ -341,6 +343,7 @@ Confirmed mutation entrypoints:
 
 Current consumer note:
 - current code exposes this owner through `WorldStreamer.get_mountain_reveal_registry()` for world-domain consumers only; `MountainResolver` itself remains player-local and is not a documented external read surface
+- alpha animation applies to the current per-mountain cover mask state owned by `ChunkView`; visible openings still come from entrance-derived roof holes rather than from the alpha tween itself
 
 Not documented here as safe entrypoints:
 - `_alpha_by_mountain`
