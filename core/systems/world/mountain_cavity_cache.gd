@@ -426,7 +426,7 @@ func _should_tile_be_opening_shell(world_tile: Vector2i, component_id: int, samp
 	if int(geometry.get("mountain_id", 0)) != int(component.get("mountain_id", 0)):
 		return false
 	var openings: Dictionary = component.get("openings", {}) as Dictionary
-	for neighbor_tile: Vector2i in _expand_eight_neighbors(world_tile):
+	for neighbor_tile: Vector2i in [world_tile + Vector2i.LEFT, world_tile + Vector2i.RIGHT, world_tile + Vector2i.UP, world_tile + Vector2i.DOWN]:
 		if openings.has(neighbor_tile):
 			return true
 	return false

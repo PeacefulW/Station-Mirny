@@ -349,6 +349,8 @@ Guardrail (mandatory from M2 onward):
   - component -> member tiles + canonical shell + opening shell
 - outside state:
   - visible tiles are only `opening + opening_shell`
+  - `opening_shell` is only the orthogonal canonical shell that touches a
+    real mouth; it must not extend one tile deeper into the cavity
   - interior floor tiles outside the mouth stay hidden
 - inside state:
   - visible tiles are only `current_component.tiles +

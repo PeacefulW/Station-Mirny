@@ -45,6 +45,8 @@ func _init() -> void:
 	_assert(_mask_has_tile(outside_mask, Vector2i(1, 0)), "outside should show first opening")
 	_assert(_mask_has_tile(outside_mask, Vector2i(5, 0)), "outside should show second opening")
 	_assert(_mask_has_tile(outside_mask, Vector2i(11, 0)), "outside should show other mountain opening")
+	_assert(_mask_has_tile(outside_mask, Vector2i(0, 0)), "outside should show immediate opening shell")
+	_assert(not _mask_has_tile(outside_mask, Vector2i(0, 1)), "outside should hide next-cell shell beyond the mouth")
 	_assert(not _mask_has_tile(outside_mask, Vector2i(1, 1)), "outside should hide cavity interior")
 
 	var inside_first_mask: PackedByteArray = cache.build_chunk_visibility_mask(
