@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.1
-last_updated: 2026-04-20
+version: 1.2
+last_updated: 2026-04-21
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -49,6 +49,9 @@ here.
 The player must be able to:
 - see large continuous mountain ranges generated deterministically from
   `world_seed + world_version + worldgen_settings.mountains`
+- start a new world on a small plains-only spawn-safe patch around the
+  initial player tile so the first frame never places the player inside a
+  mountain roof or wall packet
 - dig into a mountain with the existing single-tile mutation path, and have
   the excavation persist across save/load
 - when entering a mountain, have only that specific mountain's roof fade
@@ -464,6 +467,10 @@ Chunk diffs keep `ChunkDiffV0` shape. Forbidden additions:
   plains-rock worldgen path: new worlds no longer emit a standalone
   scattered blocked terrain class, and owner-anchor resolution widens so
   elevated mountain terrain resolves into named mountain output
+- `WORLD_VERSION` bumps from `4` to `5` for the spawn-safe carveout:
+  tiles in the initial `12..20 x 12..20` start patch force
+  `sample_elevation = 0.0`, `mountain_id = 0`, and zero mountain flags so
+  the starting packet cannot place the player inside mountain output
 - each bump is required by LAW 4 because canonical terrain / packet
   output changes for the same `seed + coord`
 - `world_version` remains a plain integer; it is **not** a hash of

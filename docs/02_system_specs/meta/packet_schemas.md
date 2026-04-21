@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.3
-last_updated: 2026-04-20
+version: 0.4
+last_updated: 2026-04-21
 related_docs:
   - ../README.md
   - system_api.md
@@ -407,7 +407,7 @@ Returned by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current mountain runtime value is `4` |
+| `world_version` | `int` | — | Current mountain runtime value is `5` |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
@@ -433,6 +433,7 @@ Current code notes:
 - `world_version == 2` keeps the original anonymous-shoulder mountain output
 - `world_version == 3` applies the named-mountain ownership fix while still allowing the scattered legacy blocked fallback
 - `world_version >= 4` removes the active plains-rock path for new worlds and widens owner-anchor resolution so elevated mountain terrain resolves to named mountain output instead of anonymous fallback
+- `world_version >= 5` keeps the named-mountain output and also carves out the initial `12..20 x 12..20` spawn-safe patch so `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` stay zero under the starting area
 - `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` are base packet fields only; they are not persisted in `ChunkDiffFile`
 - only tiles with `mountain_id > 0` write canonical mountain terrain through `terrain_ids` as `TERRAIN_MOUNTAIN_WALL` or `TERRAIN_MOUNTAIN_FOOT`
 - for `world_version >= 4`, active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain is expected to resolve into named mountain output

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.1
-last_updated: 2026-04-20
+version: 1.2
+last_updated: 2026-04-21
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -58,7 +58,7 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current mountain extension:
-- `world.json` now records `world_version: 4` for the current native mountain-field baseline
+- `world.json` now records `world_version: 5` for the current native mountain-field baseline
 - `worldgen_settings.mountains` persistence is still deferred to Mountain Generation M4; M1 keeps hard-coded dev defaults in `WorldStreamer`
 - legacy saves with `world_version < 2` keep `settings_packed = []`, so they
   stay on the V0 no-mountains path during load
@@ -70,7 +70,7 @@ Confirmed `world.json` shape in the current mountain code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 4
+  "world_version": 5
 }
 ```
 

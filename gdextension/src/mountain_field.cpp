@@ -26,6 +26,21 @@ constexpr uint64_t k_seed_salt_ridge = 0xa2c6d11f74b93ce5ULL;
 constexpr uint64_t k_seed_salt_anchor_jitter = 0x4f9939c52dba41d1ULL;
 constexpr uint64_t k_seed_salt_anchor_id = 0x6f27d13a2b4c5e91ULL;
 
+bool is_spawn_safety_area_impl(int64_t p_world_version, int64_t p_world_x, int64_t p_world_y) {
+	if (p_world_version < 0) {
+		return false;
+	}
+	// Version 4 worlds keep their original mountain output. The spawn-safe patch
+	// returns in version 5 as part of the canonical base solve.
+	if (p_world_version < 4) {
+		return p_world_x >= 12 && p_world_x <= 20 && p_world_y >= 12 && p_world_y <= 20;
+	}
+	if (p_world_version < 5) {
+		return false;
+	}
+	return p_world_x >= 12 && p_world_x <= 20 && p_world_y >= 12 && p_world_y <= 20;
+}
+
 template <typename T>
 T clamp_value(T p_value, T p_min_value, T p_max_value) {
 	return std::max(p_min_value, std::min(p_max_value, p_value));
@@ -176,6 +191,9 @@ Evaluator::Evaluator(int64_t p_seed, int64_t p_world_version, const Settings &p_
 		ridge_noise_(make_ridge_noise(mix_seed(p_seed, p_world_version, k_seed_salt_ridge), settings_)) {}
 
 float Evaluator::sample_elevation(int64_t p_world_x, int64_t p_world_y) const {
+	if (is_spawn_safety_area_impl(world_version_, p_world_x, p_world_y)) {
+		return 0.0f;
+	}
 	float sample_x = 0.0f;
 	float sample_y = 0.0f;
 	float sample_z = 0.0f;
@@ -375,6 +393,10 @@ const Settings &Evaluator::get_settings() const {
 
 const Thresholds &Evaluator::get_thresholds() const {
 	return thresholds_;
+}
+
+bool is_spawn_safety_area_at_world(int64_t p_world_version, int64_t p_world_x, int64_t p_world_y) {
+	return is_spawn_safety_area_impl(p_world_version, p_world_x, p_world_y);
 }
 
 float sample_elevation(int64_t p_seed, int64_t p_world_version, int64_t p_world_x, int64_t p_world_y, const Settings &p_settings) {

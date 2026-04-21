@@ -7,6 +7,8 @@
 
 namespace mountain_field {
 
+bool is_spawn_safety_area_at_world(int64_t p_world_version, int64_t p_world_x, int64_t p_world_y);
+
 struct Settings {
 	float density = 0.0f;
 	float scale = 512.0f;

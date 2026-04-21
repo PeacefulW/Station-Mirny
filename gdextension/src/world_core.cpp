@@ -53,15 +53,11 @@ uint64_t tile_hash(int64_t seed, int64_t world_version, int64_t world_x, int64_t
 	return h;
 }
 
-bool is_spawn_safety_area_at_world(int64_t world_x, int64_t world_y) {
-	return world_x >= 12 && world_x <= 20 && world_y >= 12 && world_y <= 20;
-}
-
 bool is_base_legacy_blocked_at_world(int64_t seed, int64_t world_version, int64_t world_x, int64_t world_y) {
 	if (world_version >= 4) {
 		return false;
 	}
-	if (is_spawn_safety_area_at_world(world_x, world_y)) {
+	if (mountain_field::is_spawn_safety_area_at_world(world_version, world_x, world_y)) {
 		return false;
 	}
 	const uint64_t h = tile_hash(seed, world_version, world_x, world_y);
