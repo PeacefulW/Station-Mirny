@@ -376,10 +376,8 @@ func _update_mountain_debug_overlay(
 	var tile_coord: Vector2i = resolver_debug.get("tile_coord", WorldRuntimeConstants.world_to_tile(world_pos)) as Vector2i
 	var sample_mountain_id: int = int(resolver_debug.get("sample_mountain_id", 0))
 	var sample_mountain_flags: int = int(resolver_debug.get("sample_mountain_flags", 0))
-	var sample_component_id: int = int(resolver_debug.get("sample_cavity_component_id", 0))
 	var sample_is_interior: bool = (sample_mountain_flags & WorldRuntimeConstants.MOUNTAIN_FLAG_INTERIOR) != 0
 	var resolved_mountain_id: int = int(resolver_debug.get("resolved_mountain_id", 0))
-	var resolved_component_id: int = int(resolver_debug.get("resolved_cavity_component_id", 0))
 	var last_before: int = int(resolver_debug.get("last_mountain_id_before_update", 0))
 	var last_after: int = int(resolver_debug.get("last_mountain_id_after_update", last_before))
 	var doorway_fallback_used: bool = bool(resolver_debug.get("doorway_fallback_used", false))
@@ -396,42 +394,19 @@ func _update_mountain_debug_overlay(
 	var terrain_id: int = int(terrain_debug.get("terrain_id", -1))
 	var terrain_name: String = _terrain_debug_name(terrain_id)
 	var terrain_ready: bool = bool(terrain_debug.get("ready", false))
-	var cavity_component_id: int = int(terrain_debug.get("cavity_component_id", 0))
-	var opening_id: int = int(terrain_debug.get("opening_id", 0))
-	var is_opening: bool = bool(terrain_debug.get("is_opening", false))
-	var visible_opening: bool = bool(terrain_debug.get("visible_opening", false))
-	var cover_open: bool = bool(terrain_debug.get("cover_open", false))
-	var inside_outside_state: String = str(terrain_debug.get("inside_outside_state", "outside"))
-	var wall_signature: int = int(terrain_debug.get("terrain_atlas_index", 0))
 	var world_version: int = streamer.get_world_version() if streamer != null else -1
-	var roof_layers_metric: int = streamer.roof_layers_per_chunk_max if streamer != null else -1
-	var state_text: String = inside_outside_state.to_upper()
+	var state_text: String = "IN_MOUNTAIN" if resolved_mountain_id > 0 else "OUTSIDE"
 	_mountain_debug_label.text = "\n".join([
 		"Mountain debug: %s | tile=(%d,%d) | world_version=%d" % [state_text, tile_coord.x, tile_coord.y, world_version],
-		"terrain_id=%d (%s) | wall_signature=%d | packet_ready=%s | roof_layers_per_chunk_max=%d" % [
-			terrain_id,
-			terrain_name,
-			wall_signature,
-			str(terrain_ready),
-			roof_layers_metric,
-		],
-		"sample_id=%d | sample_flags=%d | sample_component=%d | sample_interior=%s | doorway_fallback=%s" % [
+		"terrain_id=%d (%s) | packet_ready=%s" % [terrain_id, terrain_name, str(terrain_ready)],
+		"sample_id=%d | sample_flags=%d | sample_interior=%s | doorway_fallback=%s" % [
 			sample_mountain_id,
 			sample_mountain_flags,
-			sample_component_id,
 			str(sample_is_interior),
 			str(doorway_fallback_used),
 		],
-		"resolved_id=%d | resolved_component=%d | opening_id=%d | is_opening=%s | visible_opening=%s | cover_open=%s" % [
+		"resolved_id=%d | last_before=%d | last_after=%d" % [
 			resolved_mountain_id,
-			resolved_component_id,
-			opening_id,
-			str(is_opening),
-			str(visible_opening),
-			str(cover_open),
-		],
-		"cavity_component_id=%d | last_before=%d | last_after=%d" % [
-			cavity_component_id,
 			last_before,
 			last_after,
 		],
@@ -448,7 +423,19 @@ func _update_mountain_debug_overlay(
 func _get_mountain_debug_tile_state(tile_coord: Vector2i, streamer: WorldStreamer) -> Dictionary:
 	if streamer == null:
 		return {"ready": false}
-	return streamer.get_mountain_visibility_sample(tile_coord)
+	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(tile_coord)
+	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(tile_coord)
+	var packet: Dictionary = streamer.get_chunk_packet(chunk_coord)
+	if packet.is_empty():
+		return {"ready": false}
+	var index: int = WorldRuntimeConstants.local_to_index(local_coord)
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	if index < 0 or index >= terrain_ids.size():
+		return {"ready": false}
+	return {
+		"ready": true,
+		"terrain_id": int(terrain_ids[index]),
+	}
 
 func _terrain_debug_name(terrain_id: int) -> String:
 	match terrain_id:

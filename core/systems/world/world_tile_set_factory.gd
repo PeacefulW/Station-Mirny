@@ -4,12 +4,10 @@ extends RefCounted
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const TerrainPresentationRegistry = preload("res://core/systems/world/terrain_presentation_registry.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
-const MOUNTAIN_COVER_SHADER = preload("res://assets/shaders/mountain_cover_overlay.gdshader")
 
 static var _tile_sets_by_layer: Dictionary = {}
 static var _source_ids_by_terrain_id: Dictionary = {}
 static var _materials_by_profile_id: Dictionary = {}
-static var _blank_roof_mask_texture: ImageTexture = null
 
 static func bootstrap() -> void:
 	TerrainPresentationRegistry.bootstrap()
@@ -39,29 +37,8 @@ static func get_overlay_tile_set() -> TileSet:
 	return _tile_sets_by_layer.get(TerrainPresentationRegistry.RENDER_LAYER_OVERLAY, null) as TileSet
 
 static func get_roof_tile_set() -> TileSet:
-	# Roof cells reuse the mountain-wall atlas on the same render layer so
-	# source ids stay valid for mountain surface profiles.
-	return get_overlay_tile_set()
-
-static func create_roof_tile_set_bundle() -> Dictionary:
-	bootstrap()
-	var tile_set := TileSet.new()
-	tile_set.tile_size = Vector2i(
-		WorldRuntimeConstants.TILE_SIZE_PX,
-		WorldRuntimeConstants.TILE_SIZE_PX
-	)
-	var shape_set: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set_for_terrain(
-		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
-	)
-	var source: TileSetAtlasSource = _build_source_for_shape_set(shape_set)
-	var material: ShaderMaterial = _build_roof_material()
-	_apply_material_to_source(source, material)
-	var source_id: int = tile_set.add_source(source)
-	return {
-		"tile_set": tile_set,
-		"material": material,
-		"source_id": source_id,
-	}
+	# Roof cells reuse the mountain-wall atlas so the outside silhouette stays seamless.
+	return get_base_tile_set()
 
 static func get_base_source_id(terrain_id: int) -> int:
 	return get_source_id(terrain_id)
@@ -132,30 +109,6 @@ static func _build_material(
 		material.set_shader_parameter(parameter_name, material_set.sampling_params[parameter_name_variant])
 	return material
 
-static func _build_roof_material() -> ShaderMaterial:
-	var profile: TerrainPresentationProfile = TerrainPresentationRegistry.get_profile_for_terrain(
-		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
-	)
-	var shader_family: TerrainShaderFamily = TerrainPresentationRegistry.get_shader_family(profile.shader_family_id)
-	var shape_set: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set(profile.shape_set_id)
-	var material_set: TerrainMaterialSet = TerrainPresentationRegistry.get_material_set(profile.material_set_id)
-	var material := ShaderMaterial.new()
-	material.shader = MOUNTAIN_COVER_SHADER
-	_apply_shape_texture_params(material, shader_family, shape_set)
-	_apply_material_texture_params(material, shader_family, material_set)
-	for parameter_name_variant: Variant in material_set.sampling_params.keys():
-		var parameter_name: Variant = parameter_name_variant
-		material.set_shader_parameter(parameter_name, material_set.sampling_params[parameter_name_variant])
-	material.set_shader_parameter("open_mask", _get_blank_roof_mask_texture())
-	material.set_shader_parameter("open_alpha", 1.0)
-	material.set_shader_parameter("chunk_origin_px", Vector2.ZERO)
-	material.set_shader_parameter("tile_size_px", float(WorldRuntimeConstants.TILE_SIZE_PX))
-	material.set_shader_parameter(
-		"chunk_size_tiles",
-		Vector2(WorldRuntimeConstants.CHUNK_SIZE, WorldRuntimeConstants.CHUNK_SIZE)
-	)
-	return material
-
 static func _apply_shape_texture_params(
 	material: ShaderMaterial,
 	shader_family: TerrainShaderFamily,
@@ -198,16 +151,3 @@ static func _build_single_tile_source(texture: Texture2D, tile_size_px: int) -> 
 	source.texture_region_size = Vector2i(tile_size_px, tile_size_px)
 	source.create_tile(Vector2i.ZERO)
 	return source
-
-static func _get_blank_roof_mask_texture() -> ImageTexture:
-	if _blank_roof_mask_texture != null:
-		return _blank_roof_mask_texture
-	var image: Image = Image.create_from_data(
-		1,
-		1,
-		false,
-		Image.FORMAT_RGBA8,
-		PackedByteArray([0, 0, 0, 255])
-	)
-	_blank_roof_mask_texture = ImageTexture.create_from_image(image)
-	return _blank_roof_mask_texture

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.3
-last_updated: 2026-04-21
+version: 0.2
+last_updated: 2026-04-20
 related_docs:
   - ../README.md
   - system_api.md
@@ -228,9 +228,6 @@ Current listener use:
 - syncs any already-created per-mountain roof layer to the registry-owned
   alpha at reveal lifecycle boundaries while `alpha_changed` handles
   frame-by-frame fade updates
-- current code applies that alpha only to the already-derived cover-open mask for
-  the active cavity; entrance-derived roof holes remain visible independently
-  from the reveal tween
 
 ### `mountain_concealed(mountain_id: int)`
 
@@ -248,8 +245,6 @@ Confirmed listeners:
 Current listener use:
 - keeps existing per-mountain roof layers aligned with conceal lifecycle
   transitions while the registry-owned `alpha_changed` signal drives the fade
-- conceal restores only the cover-masked cavity cells for that mountain; it does
-  not close the runtime-derived entrance holes that remain open while outside
 
 ## Not Included In This Minimal Pass
 

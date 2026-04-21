@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.4
-last_updated: 2026-04-21
+version: 0.3
+last_updated: 2026-04-20
 related_docs:
   - ../README.md
   - system_api.md
@@ -156,27 +156,12 @@ Current code note:
   "world_scene_present": bool,
   "world_seed"?: int,
   "world_version"?: int,
-  "worldgen_settings"?: {
-    "mountains"?: {
-      "density"?: float,
-      "scale"?: float,
-      "continuity"?: float,
-      "ruggedness"?: float,
-      "anchor_cell_size"?: int,
-      "gravity_radius"?: int,
-      "foot_band"?: float,
-      "interior_margin"?: int,
-      "latitude_influence"?: float,
-    }
-  },
 }
 ```
 
 Current code notes:
 - `world_seed` and `world_version` are present when a `chunk_manager` world runtime is active
-- `worldgen_settings.mountains` is written by `WorldStreamer.save_world_state()` for `world_version >= 2`
 - legacy/frozen-world callers may still emit only the older boolean fields
-- reveal alpha, entrance cache, cavity topology, opening groups, and cover masks are runtime-derived and are not part of `WorldSaveData`
 
 ### `ChunkDiffFile`
 
@@ -451,7 +436,7 @@ Current code notes:
 - `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` are base packet fields only; they are not persisted in `ChunkDiffFile`
 - only tiles with `mountain_id > 0` write canonical mountain terrain through `terrain_ids` as `TERRAIN_MOUNTAIN_WALL` or `TERRAIN_MOUNTAIN_FOOT`
 - for `world_version >= 4`, active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain is expected to resolve into named mountain output
-- `mountain_atlas_indices` is consumed by `ChunkView` roof presentation for per-mountain cover layers; runtime reveal still does not persist any extra roof packet fields
+- `mountain_atlas_indices` is reserved for later roof presentation, but is already confirmed at the packet boundary in M1
 
 ## Not Currently Confirmed
 

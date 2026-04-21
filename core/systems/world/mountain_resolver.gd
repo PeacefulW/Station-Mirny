@@ -31,33 +31,27 @@ func update_from_player_position(
 		}
 		return
 	var current_mountain_id: int = 0
-	var current_component_id: int = 0
 	var current_sample_mountain_id: int = int(current_sample.get("mountain_id", 0))
 	var current_sample_mountain_flags: int = int(current_sample.get("mountain_flags", 0))
-	var current_sample_component_id: int = int(current_sample.get("cavity_component_id", 0))
 	var doorway_fallback_used: bool = false
-	if current_sample_component_id > 0:
+	if current_sample_mountain_id > 0 \
+			and (current_sample_mountain_flags & WorldRuntimeConstants.MOUNTAIN_FLAG_INTERIOR) != 0:
 		current_mountain_id = current_sample_mountain_id
-		current_component_id = current_sample_component_id
-	if current_component_id == 0 \
+	if current_mountain_id == 0 \
+			and current_sample_mountain_id == 0 \
 			and _should_use_doorway_fallback(tile_coord, streamer):
-		var fallback_sample: Dictionary = _fallback_interior_cross(tile_coord, streamer)
-		current_mountain_id = int(fallback_sample.get("mountain_id", 0))
-		current_component_id = int(fallback_sample.get("cavity_component_id", 0))
-		doorway_fallback_used = current_component_id > 0
+		current_mountain_id = _fallback_interior_cross(tile_coord, streamer)
+		doorway_fallback_used = current_mountain_id > 0
 	var last_mountain_id_before_update: int = _last_mountain_id
 	_debug_snapshot = {
 		"ready": true,
 		"tile_coord": tile_coord,
 		"sample_mountain_id": current_sample_mountain_id,
 		"sample_mountain_flags": current_sample_mountain_flags,
-		"sample_cavity_component_id": current_sample_component_id,
 		"resolved_mountain_id": current_mountain_id,
-		"resolved_cavity_component_id": current_component_id,
 		"last_mountain_id_before_update": last_mountain_id_before_update,
 		"doorway_fallback_used": doorway_fallback_used,
 	}
-	streamer.update_active_mountain_component(current_mountain_id, current_component_id, tile_coord)
 	if current_mountain_id == _last_mountain_id:
 		_debug_snapshot["last_mountain_id_after_update"] = _last_mountain_id
 		return
@@ -74,36 +68,52 @@ func get_debug_snapshot() -> Dictionary:
 func _should_use_doorway_fallback(tile_coord: Vector2i, streamer: WorldStreamer) -> bool:
 	var north: Dictionary = _sample_mountain_tile(tile_coord + Vector2i.UP, streamer)
 	var south: Dictionary = _sample_mountain_tile(tile_coord + Vector2i.DOWN, streamer)
-	if _paired_cavity_sample(north, south).get("cavity_component_id", 0) > 0:
+	if _paired_interior_mountain_id(north, south) > 0:
 		return true
 	var east: Dictionary = _sample_mountain_tile(tile_coord + Vector2i.RIGHT, streamer)
 	var west: Dictionary = _sample_mountain_tile(tile_coord + Vector2i.LEFT, streamer)
-	return _paired_cavity_sample(east, west).get("cavity_component_id", 0) > 0
+	return _paired_interior_mountain_id(east, west) > 0
 
-func _fallback_interior_cross(tile_coord: Vector2i, streamer: WorldStreamer) -> Dictionary:
+func _fallback_interior_cross(tile_coord: Vector2i, streamer: WorldStreamer) -> int:
 	var north: Dictionary = _sample_mountain_tile(tile_coord + Vector2i.UP, streamer)
 	var south: Dictionary = _sample_mountain_tile(tile_coord + Vector2i.DOWN, streamer)
-	var ns_match: Dictionary = _paired_cavity_sample(north, south)
-	if int(ns_match.get("cavity_component_id", 0)) > 0:
+	var ns_match: int = _paired_interior_mountain_id(north, south)
+	if ns_match > 0:
 		return ns_match
 	var east: Dictionary = _sample_mountain_tile(tile_coord + Vector2i.RIGHT, streamer)
 	var west: Dictionary = _sample_mountain_tile(tile_coord + Vector2i.LEFT, streamer)
-	var ew_match: Dictionary = _paired_cavity_sample(east, west)
-	if int(ew_match.get("cavity_component_id", 0)) > 0:
+	var ew_match: int = _paired_interior_mountain_id(east, west)
+	if ew_match > 0:
 		return ew_match
-	return {}
+	return 0
 
-func _paired_cavity_sample(sample_a: Dictionary, sample_b: Dictionary) -> Dictionary:
+func _paired_interior_mountain_id(sample_a: Dictionary, sample_b: Dictionary) -> int:
 	if not bool(sample_a.get("ready", false)) or not bool(sample_b.get("ready", false)):
-		return {}
-	var component_id_a: int = int(sample_a.get("cavity_component_id", 0))
-	var component_id_b: int = int(sample_b.get("cavity_component_id", 0))
-	if component_id_a <= 0 or component_id_a != component_id_b:
-		return {}
-	return {
-		"mountain_id": int(sample_a.get("mountain_id", 0)),
-		"cavity_component_id": component_id_a,
-	}
+		return 0
+	var mountain_id_a: int = int(sample_a.get("mountain_id", 0))
+	var mountain_id_b: int = int(sample_b.get("mountain_id", 0))
+	if mountain_id_a <= 0 or mountain_id_a != mountain_id_b:
+		return 0
+	var interior_bit: int = WorldRuntimeConstants.MOUNTAIN_FLAG_INTERIOR
+	var is_a_interior: bool = (int(sample_a.get("mountain_flags", 0)) & interior_bit) != 0
+	var is_b_interior: bool = (int(sample_b.get("mountain_flags", 0)) & interior_bit) != 0
+	if not is_a_interior or not is_b_interior:
+		return 0
+	return mountain_id_a
 
 func _sample_mountain_tile(tile_coord: Vector2i, streamer: WorldStreamer) -> Dictionary:
-	return streamer.get_mountain_visibility_sample(tile_coord)
+	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(tile_coord)
+	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(tile_coord)
+	var packet: Dictionary = streamer.get_chunk_packet(chunk_coord)
+	if packet.is_empty():
+		return {"ready": false}
+	var index: int = WorldRuntimeConstants.local_to_index(local_coord)
+	var mountain_ids: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
+	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
+	if index < 0 or index >= mountain_ids.size() or index >= mountain_flags.size():
+		return {"ready": false}
+	return {
+		"ready": true,
+		"mountain_id": int(mountain_ids[index]),
+		"mountain_flags": int(mountain_flags[index]),
+	}
