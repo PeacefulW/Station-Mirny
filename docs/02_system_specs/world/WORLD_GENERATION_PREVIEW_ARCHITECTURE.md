@@ -216,3 +216,269 @@ If implementation introduces a new public runtime boundary, update in the same t
 
 Preferred MVP outcome:
 no new canonical packet schema and no new global event surface are needed.
+Главная мысль такая:
+
+превью должно использовать тот же канонический worldgen, что и игра, но другой apply/render path.
+
+Не “мини-генератор для меню”, не скриншот из реальной сцены, не отдельная упрощённая математика.
+Именно тот же seed + world_version + worldgen_settings -> chunk packet, только вместо игровых ChunkView/TileMap ты рисуешь лёгкое UI-превью. Это очень хорошо ложится на твой текущий стек, потому что:
+
+new_game_panel.gd уже живёт на копии MountainGenSettings и на старте просто эмитит seed + settings, то есть UI-шов уже есть
+WorldStreamer уже умеет инициализировать новый мир из seed + settings, хранит world_version, пакует worldgen-настройки и пишет их в world.json
+approved spec прямо требует детерминированный output от world_seed + world_version + worldgen_settings.mountains, плюс фиксированный 32x32 chunk contract и pure native generation через WorldCore
+
+То есть база уже почти готова.
+
+Как я бы сделал это архитектурно
+1. Не через WorldStreamer целиком, а через общий низкоуровневый compute-backend
+
+Сейчас в WorldStreamer уже сидят нужные кирпичи: WorldCore, worker thread, request/result queue, epoch, packed settings, sliced streaming job .
+Но сам WorldStreamer тащит за собой лишнее для меню:
+
+diff store
+cavity/cover runtime
+ChunkView
+roof presentation
+active cover state
+куски игрового runtime, которые в меню не нужны
+
+Поэтому правильно не “запускать реальный мир в меню”, а вытащить из WorldStreamer отдельный общий сервис, условно:
+
+WorldChunkPacketWorker
+или WorldChunkComputeService
+
+Его задача одна:
+по запросу seed + version + settings_packed + chunk_coord вернуть канонический ChunkPacket.
+
+Тогда:
+
+WorldStreamer использует его для игры
+WorldPreviewGenerator использует его для экрана новой игры
+
+Это лучший вариант, потому что логика compute будет одна, а apply-path разный.
+
+2. В меню нужен отдельный WorldPreviewController, а не жирный new_game_panel.gd
+
+new_game_panel.gd у тебя уже отвечает за seed, sliders, advanced settings и кнопку старта . Не надо превращать его в комбайн.
+
+Сделай рядом отдельный контрол, например:
+
+scenes/ui/world_preview_panel.gd
+scenes/ui/world_preview_canvas.gd
+
+Роли такие:
+
+NewGamePanel
+
+хранит editable settings
+шлёт сигнал “параметры изменились”
+
+WorldPreviewController
+
+дебаунсит изменения
+создаёт новый preview epoch
+отменяет старые задачи
+строит очередь чанков по спирали
+получает готовые preview patches
+отдаёт их в canvas
+
+WorldPreviewCanvas
+
+только рисует
+chunk grid
+spawn marker
+optional overlays/debug modes
+3. Рендер не через реальные TileMapLayer, а через лёгкие preview patches
+
+Вот тут очень важный момент.
+
+Для меню не надо создавать реальные игровые чанки, ChunkView, TileMapLayer, коллизии и т.д.
+Это будет жирно, шумно и со временем начнёт ломать UX.
+
+Правильнее так:
+
+worker генерит тот же ChunkPacket
+main thread превращает packet в маленький bitmap/texture patch
+canvas рисует patch в нужной позиции
+
+То есть один preview chunk = не игровой chunk view, а просто маленькая картинка.
+
+Например:
+
+игровой чанк = 32x32 тайла
+preview chunk можно рисовать как:
+32x32 px для 1 тайл = 1 px
+или 16x16 px для 2 тайла = 1 px
+
+Для меню это намного выгоднее.
+
+И ещё плюс: chunk-by-chunk отрисовка даст именно тот факторио-вайб, который ты хочешь — карта дорисовывается квадратиками от центра наружу.
+
+4. Спиральная очередь вокруг spawn, а не просто “все чанки разом”
+
+Тут прям надо делать так, как ты описал:
+центр -> кольца вокруг -> змейка/спираль.
+
+Алгоритм:
+
+Сначала вычисляешь точный spawn tile
+Преобразуешь его в spawn_chunk
+Строишь квадратную спираль chunk coords вокруг него
+Отправляешь их в worker queue в этом порядке
+Preview canvas дорисовывает патчи по мере готовности
+
+Это даст сразу три вещи:
+
+визуально приятно
+пользователь быстро видит центр и стартовую область
+не надо ждать весь радиус, чтобы получить пользу
+5. Spawn в превью должен быть не “центр картинки”, а реальный spawn resolver
+
+Это важно заложить сейчас, пока ещё не добавил реки/температуру.
+
+Сейчас approved mountain spec уже говорит, что новый мир должен стартовать на spawn-safe patch вокруг initial player tile, чтобы первый кадр не ставил игрока в гору/крышу .
+Значит превью уже должно уважать реальную логику старта, а не рисовать крестик “примерно в центре”.
+
+Я бы сразу выделил отдельную чистую функцию:
+
+WorldSpawnResolver.resolve(seed, version, settings) -> Vector2i
+
+Пока она может вернуть фиксированный стартовый тайл/центр safe patch.
+Позже, когда появятся реки, температура, биомы, ты просто усложнишь resolver — а превью останется тем же.
+
+Это очень важный архитектурный шов.
+
+Самое важное по производительности
+500 тайлов радиуса — можно, но не как первый обязательный pass
+
+Если чанк 32x32, то радиус 500 тайлов — это примерно 16 чанков в каждую сторону.
+То есть примерно 33 x 33 = 1089 чанков в окне превью.
+
+Это нормально как background progressive fill, но не как синхронный интерактивный rebuild на каждый чих ползунка.
+
+Я бы сделал двухступенчатую схему:
+
+Stage A — быстрый отклик
+
+сразу после изменения параметров показываешь центр
+генеришь первые 7x7 или 9x9 чанков
+пользователь почти мгновенно видит “куда всё идёт”
+
+Stage B — добивка дальнего радиуса
+
+потом докрашиваешь внешний ring до целевого окна
+хоть до ±500 тайлов, хоть дальше
+
+И ещё одно:
+пока пользователь тащит слайдер, не надо пытаться успеть дорисовать всё.
+Нужны:
+
+debounce примерно 100–150 ms
+preview epoch / cancellation
+отбрасывание результатов старых epoch
+
+Иначе ты гарантированно утонешь в просроченных задачах.
+
+Не перерисовывать всё заново на каждый чанк
+
+Нельзя делать так:
+
+получил 1 чанк
+пересобрал всю большую texture целиком
+загрузил заново весь preview image
+
+Это будет глупо и дорого.
+
+Лучше:
+
+либо один texture per preview chunk
+либо patch-based drawing в canvas
+либо чанковая сетка маленьких ImageTexture
+
+Для Godot-меню я бы реально выбрал чанковые текстуры.
+Это просто, наглядно и хорошо подходит под “рисуется по квадратикам”.
+
+Сохраняй packet cache отдельно от render mode
+
+Это прям очень сильный ход на будущее.
+
+Approved spec уже определяет, что в ChunkPacketV1 есть не только базовый terrain, но и mountain_id_per_tile, mountain_flags, mountain_atlas_indices .
+Это значит:
+
+packet можно сгенерить один раз
+а потом показывать его по-разному без регена
+
+Например режимы:
+
+обычный красивый terrain preview
+только mountains mask
+mountain_id debug color
+wall/foot/interior debug
+spawn-safe patch overlay
+позже rivers overlay
+позже climate/temperature heatmap
+позже biome overlay
+
+Вот это уже будет не просто “красивый экран”, а реальный worldgen-lab.
+
+Что я бы рекомендовал как конкретную структуру файлов
+
+Прямо так:
+
+core/systems/world/world_chunk_packet_worker.gd
+общий compute backend, вынесенный из WorldStreamer
+core/systems/world/worldgen_settings_packer.gd
+один канонический pack/unpack для settings_packed
+core/systems/world/world_spawn_resolver.gd
+единый расчёт стартовой точки
+scenes/ui/world_preview_controller.gd
+дебаунс, epoch, очередь, отмена, прогресс
+scenes/ui/world_preview_canvas.gd
+draw чанков, spawn marker, grid, overlays
+core/systems/world/world_preview_palette.gd
+packet -> colors/mini-bitmap
+
+Если делать ещё аккуратнее, WorldStreamer после этого должен перестать сам владеть низкоуровневой chunk compute логикой и просто использовать WorldChunkPacketWorker.
+
+Как должен выглядеть pipeline
+
+Очень коротко:
+
+slider change
+→ snapshot current settings
+→ debounce
+→ epoch += 1
+→ spawn = WorldSpawnResolver.resolve(...)
+→ build spiral chunk list around spawn
+→ worker generates ChunkPacket
+→ preview palette converts packet to tiny image
+→ main thread applies patch
+→ canvas redraw
+
+Это и есть твой “как в игре формируется”, но без тяжёлого игрового хвоста.
+
+Что нельзя делать
+
+Вот это прям запрещёнка, если не хочешь потом ненавидеть систему:
+
+Отдельная preview-математика, которая не совпадает с runtime worldgen.
+Иначе превью врёт.
+Инстанцировать реальный World scene в меню.
+Это будет жирно и грязно.
+Полностью пересобирать 500-тайловое окно синхронно на каждый шаг слайдера.
+Будут лаги.
+Писать preview state в save/world runtime до нажатия Start.
+Preview должен быть чисто временным.
+Смешивать compute и render.
+У тебя проект уже идёт по compute-then-apply логике, и preview должен жить так же
+Как я бы сделал MVP
+
+Если без расползания, то порядок такой:
+
+Вынести из WorldStreamer общий chunk worker.
+Подключить WorldPreviewCanvas в new_game_panel.
+Сделать preview только для surface/mountains.
+Сделать spiral queue + cancellation by epoch.
+Нарисовать spawn marker + chunk grid.
+Добавить debug mode mountain_id и interior/wall/foot.
+Потом уже расширять под rivers/climate.

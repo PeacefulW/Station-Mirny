@@ -11,6 +11,7 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 const WorldStreamer = preload("res://core/systems/world/world_streamer.gd")
 const SCRAP_ITEM_ID: String = "base:scrap"
 const WOOD_ITEM_ID: String = "base:wood"
+const SHOW_MOUNTAIN_DEBUG_OVERLAY: bool = false
 @export var balance: PlayerBalance = null
 
 var _speed_modifier: float = 1.0
@@ -53,7 +54,8 @@ func _ready() -> void:
 	_apply_attack_range()
 	_setup_camera()
 	_setup_state_machine()
-	_ensure_mountain_debug_overlay()
+	if SHOW_MOUNTAIN_DEBUG_OVERLAY:
+		_ensure_mountain_debug_overlay()
 	_mountain_resolver = MountainResolver.new()
 	call_deferred("_find_chunk_manager")
 	call_deferred("_emit_scrap_state")
@@ -66,7 +68,8 @@ func _physics_process(delta: float) -> void:
 	var streamer: WorldStreamer = _get_world_streamer()
 	if _mountain_resolver != null and streamer != null:
 		_mountain_resolver.update_from_player_position(global_position, streamer)
-	_update_mountain_debug_overlay(global_position, streamer)
+	if SHOW_MOUNTAIN_DEBUG_OVERLAY:
+		_update_mountain_debug_overlay(global_position, streamer)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _camera and _camera.handle_zoom_input(event):
