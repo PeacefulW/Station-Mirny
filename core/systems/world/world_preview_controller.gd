@@ -6,6 +6,7 @@ const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_pa
 const WorldPreviewCanvas = preload("res://scenes/ui/world_preview_canvas.gd")
 const WorldPreviewPalette = preload("res://core/systems/world/world_preview_palette.gd")
 const WorldPreviewPatchCache = preload("res://core/systems/world/world_preview_patch_cache.gd")
+const WorldPreviewRenderMode = preload("res://core/systems/world/world_preview_render_mode.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldSpawnResolver = preload("res://core/systems/world/world_spawn_resolver.gd")
 
@@ -28,8 +29,10 @@ var _pending_settings_signature: String = ""
 var _active_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 var _active_settings_signature: String = ""
 var _active_settings_packed: PackedFloat32Array = PackedFloat32Array()
+var _active_render_mode: StringName = WorldPreviewRenderMode.TERRAIN
 var _current_center_chunk: Vector2i = Vector2i.ZERO
 var _current_spawn_tile: Vector2i = Vector2i.ZERO
+var _current_spawn_safe_patch_rect: Rect2i = Rect2i()
 var _stage_plans: Array[Dictionary] = []
 var _current_stage_index: int = -1
 var _current_stage_window: Array[Vector2i] = []
@@ -56,7 +59,12 @@ func attach_canvas(canvas: WorldPreviewCanvas) -> void:
 	_canvas = canvas
 	if _canvas == null:
 		return
-	_canvas.reset_preview(_current_center_chunk, _current_spawn_tile, _resolve_full_radius_chunks())
+	_canvas.reset_preview(
+		_current_center_chunk,
+		_current_spawn_tile,
+		_resolve_full_radius_chunks()
+	)
+	_canvas.set_render_mode(_active_render_mode, _current_spawn_safe_patch_rect)
 	var chunk_coords: Array[Vector2i] = []
 	for chunk_coord_variant: Variant in _published_patches.keys():
 		chunk_coords.append(chunk_coord_variant as Vector2i)
@@ -69,6 +77,21 @@ func attach_canvas(canvas: WorldPreviewCanvas) -> void:
 			_published_patches.get(chunk_coord, null) as Texture2D
 		)
 	_update_canvas_progress()
+
+func get_render_mode() -> StringName:
+	return _active_render_mode
+
+func set_render_mode(render_mode: StringName) -> void:
+	var normalized_mode: StringName = WorldPreviewRenderMode.coerce(render_mode)
+	if normalized_mode == _active_render_mode:
+		return
+	var previous_patch_mode: StringName = _resolve_patch_render_mode()
+	_active_render_mode = normalized_mode
+	if _canvas != null:
+		_canvas.set_render_mode(_active_render_mode, _current_spawn_safe_patch_rect)
+	if previous_patch_mode == _resolve_patch_render_mode():
+		return
+	_republish_visible_patches_for_current_mode()
 
 func queue_preview_rebuild(seed_value: int, settings: MountainGenSettings) -> void:
 	_pending_seed = seed_value
@@ -117,12 +140,22 @@ func _start_rebuild_from_pending_snapshot() -> void:
 		WorldRuntimeConstants.WORLD_VERSION,
 		_pending_settings
 	)
+	_current_spawn_safe_patch_rect = WorldSpawnResolver.resolve_preview_spawn_safe_patch_rect(
+		_active_seed,
+		WorldRuntimeConstants.WORLD_VERSION,
+		_pending_settings
+	)
 	_current_center_chunk = WorldRuntimeConstants.tile_to_chunk(_current_spawn_tile)
 	_stage_plans = _build_stage_plans(_current_center_chunk)
 	_current_stage_window.clear()
 	_current_stage_index = -1
 	if _canvas != null:
-		_canvas.reset_preview(_current_center_chunk, _current_spawn_tile, _resolve_full_radius_chunks())
+		_canvas.reset_preview(
+			_current_center_chunk,
+			_current_spawn_tile,
+			_resolve_full_radius_chunks()
+		)
+		_canvas.set_render_mode(_active_render_mode, _current_spawn_safe_patch_rect)
 	_advance_stage_if_needed()
 	_fill_request_window()
 	_publish_ready_patches()
@@ -135,11 +168,12 @@ func _drain_ready_packets() -> void:
 			continue
 		var chunk_coord: Vector2i = packet.get("chunk_coord", Vector2i.ZERO) as Vector2i
 		_in_flight_requests.erase(chunk_coord)
+		_patch_cache.store_packet(_build_packet_cache_key(chunk_coord), packet)
 		if _has_available_patch(chunk_coord):
 			continue
-		var patch_texture: Texture2D = _palette.build_patch_texture(packet)
-		_patch_cache.store_patch(_build_patch_cache_key(chunk_coord), patch_texture)
-		_store_ready_patch(chunk_coord, patch_texture)
+		var patch_texture: Texture2D = _resolve_patch_texture(chunk_coord, packet)
+		if patch_texture != null:
+			_store_ready_patch(chunk_coord, patch_texture)
 
 func _advance_stage_if_needed() -> void:
 	while true:
@@ -154,7 +188,7 @@ func _advance_stage_if_needed() -> void:
 		for chunk_coord: Vector2i in _coerce_chunk_coords(stage_plan.get("request_coords", [])):
 			if _has_available_patch(chunk_coord):
 				continue
-			var cached_patch: Texture2D = _patch_cache.get_patch(_build_patch_cache_key(chunk_coord))
+			var cached_patch: Texture2D = _resolve_patch_texture(chunk_coord)
 			if cached_patch != null:
 				_store_ready_patch(chunk_coord, cached_patch)
 				continue
@@ -238,6 +272,51 @@ func _store_ready_patch(chunk_coord: Vector2i, patch_texture: Texture2D) -> void
 func _has_available_patch(chunk_coord: Vector2i) -> bool:
 	return _published_patches.has(chunk_coord) or _ready_patches.has(chunk_coord)
 
+func _resolve_patch_texture(
+	chunk_coord: Vector2i,
+	packet_override: Dictionary = {}
+) -> Texture2D:
+	var patch_cache_key: String = _build_patch_cache_key(chunk_coord)
+	var cached_patch: Texture2D = _patch_cache.get_patch(patch_cache_key)
+	if cached_patch != null:
+		return cached_patch
+	var source_packet: Dictionary = packet_override
+	if source_packet.is_empty():
+		source_packet = _patch_cache.get_packet(_build_packet_cache_key(chunk_coord))
+	if source_packet.is_empty():
+		return null
+	var patch_texture: Texture2D = _palette.build_patch_texture(
+		source_packet,
+		_resolve_patch_render_mode()
+	)
+	_patch_cache.store_patch(patch_cache_key, patch_texture)
+	return patch_texture
+
+func _republish_visible_patches_for_current_mode() -> void:
+	var visible_chunk_coords: Array[Vector2i] = []
+	for chunk_coord_variant: Variant in _published_patches.keys():
+		visible_chunk_coords.append(chunk_coord_variant as Vector2i)
+	for chunk_coord_variant: Variant in _ready_patches.keys():
+		var chunk_coord: Vector2i = chunk_coord_variant as Vector2i
+		if not visible_chunk_coords.has(chunk_coord):
+			visible_chunk_coords.append(chunk_coord)
+	visible_chunk_coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return a.x < b.x if a.x != b.x else a.y < b.y
+	)
+	_published_patches.clear()
+	_ready_patches.clear()
+	_ready_publish_queue.clear()
+	_ready_publish_lookup.clear()
+	if _canvas != null:
+		_canvas.set_render_mode(_active_render_mode, _current_spawn_safe_patch_rect)
+		_canvas.clear_patches()
+	for chunk_coord: Vector2i in visible_chunk_coords:
+		var patch_texture: Texture2D = _resolve_patch_texture(chunk_coord)
+		if patch_texture != null:
+			_store_ready_patch(chunk_coord, patch_texture)
+	_publish_ready_patches()
+	_update_canvas_progress()
+
 func _is_stage_complete(stage_index: int) -> bool:
 	if stage_index < 0 or stage_index >= _stage_plans.size():
 		return false
@@ -247,12 +326,20 @@ func _is_stage_complete(stage_index: int) -> bool:
 	return true
 
 func _build_patch_cache_key(chunk_coord: Vector2i) -> String:
-	return _patch_cache.make_key(
+	return _patch_cache.make_patch_key(
 		_active_seed,
 		WorldRuntimeConstants.WORLD_VERSION,
 		_active_settings_signature,
 		chunk_coord,
-		_palette.get_palette_id()
+		_palette.get_palette_id(_resolve_patch_render_mode())
+	)
+
+func _build_packet_cache_key(chunk_coord: Vector2i) -> String:
+	return _patch_cache.make_packet_key(
+		_active_seed,
+		WorldRuntimeConstants.WORLD_VERSION,
+		_active_settings_signature,
+		chunk_coord
 	)
 
 func _resolve_full_radius_chunks() -> int:
@@ -295,3 +382,8 @@ func _clone_settings(settings: MountainGenSettings) -> MountainGenSettings:
 	if settings == null:
 		return MountainGenSettings.hard_coded_defaults()
 	return MountainGenSettings.from_save_dict(settings.to_save_dict())
+
+func _resolve_patch_render_mode() -> StringName:
+	return WorldPreviewRenderMode.TERRAIN \
+		if _active_render_mode == WorldPreviewRenderMode.SPAWN_SAFE_PATCH \
+		else _active_render_mode

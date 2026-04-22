@@ -909,6 +909,33 @@ msgstr "Controls how strongly latitude affects mountain placement. Zero removes 
 msgid "UI_WORLDGEN_MOUNTAINS_START_BUTTON"
 msgstr "▶  START EXPEDITION"
 
+msgid "UI_WORLDGEN_MOUNTAINS_PANEL_SUBTITLE"
+msgstr "STATION MIRNY // DEPLOYMENT PROTOCOL // MAPPING ACTIVE"
+
+msgid "UI_WORLDGEN_PREVIEW_TITLE"
+msgstr "TARGET REGION PREVIEW"
+
+msgid "UI_WORLDGEN_PREVIEW_MODE_LABEL"
+msgstr "MODE:"
+
+msgid "UI_WORLDGEN_PREVIEW_MODE_TERRAIN"
+msgstr "Terrain"
+
+msgid "UI_WORLDGEN_PREVIEW_MODE_MOUNTAIN_ID"
+msgstr "Lab: Mountain IDs"
+
+msgid "UI_WORLDGEN_PREVIEW_MODE_MOUNTAIN_CLASSIFICATION"
+msgstr "Lab: Classification"
+
+msgid "UI_WORLDGEN_PREVIEW_MODE_SPAWN_SAFE_PATCH"
+msgstr "Lab: Spawn-Safe Patch"
+
+msgid "UI_WORLDGEN_PREVIEW_RESET_VIEW"
+msgstr "Recenter"
+
+msgid "UI_WORLDGEN_PREVIEW_CONTROLS_HINT"
+msgstr "Mouse wheel: zoom. Drag: pan. Recenter returns to the spawn-centered view."
+
 msgid "UI_LOADING_PREPARING"
 msgstr "Preparing..."
 

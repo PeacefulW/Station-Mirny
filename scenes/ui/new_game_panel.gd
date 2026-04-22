@@ -4,6 +4,7 @@ extends Control
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
 const WorldPreviewCanvas = preload("res://scenes/ui/world_preview_canvas.gd")
 const WorldPreviewController = preload("res://core/systems/world/world_preview_controller.gd")
+const WorldPreviewRenderMode = preload("res://core/systems/world/world_preview_render_mode.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
 const DEFAULT_SETTINGS_PATH: String = "res://data/balance/mountain_gen_settings.tres"
@@ -170,6 +171,7 @@ var _seed_line_edit: LineEdit = null
 var _advanced_toggle: Button = null
 var _advanced_container: VBoxContainer = null
 var _preview_canvas: WorldPreviewCanvas = null
+var _preview_mode_select: OptionButton = null
 var _preview_controller: WorldPreviewController = WorldPreviewController.new()
 var _preview_seed_value: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 
@@ -199,6 +201,7 @@ func _rebuild_ui(seed_text: String, tab_index: int = 0) -> void:
 	_seed_line_edit = null
 	_advanced_toggle = null
 	_advanced_container = null
+	_preview_mode_select = null
 	_build_ui(seed_text, tab_index)
 
 func _build_ui(seed_text: String, active_tab: int) -> void:
@@ -269,7 +272,7 @@ func _build_ui(seed_text: String, active_tab: int) -> void:
 	header.add_child(title)
 
 	var subtitle := Label.new()
-	subtitle.text = "STATION MIRNY // DEPLOYMENT PROTOCOL // MAPPING ACTIVE"
+	subtitle.text = Localization.t("UI_WORLDGEN_MOUNTAINS_PANEL_SUBTITLE")
 	subtitle.add_theme_font_size_override("font_size", 10)
 	subtitle.add_theme_color_override("font_color", ACCENT_COLOR)
 	header.add_child(subtitle)
@@ -309,17 +312,50 @@ func _build_ui(seed_text: String, active_tab: int) -> void:
 	preview_vbox.add_theme_constant_override("separation", 8)
 	right_column.add_child(preview_vbox)
 
-	var preview_label := _make_title_label("Target Region Preview")
+	var preview_label := _make_title_label(Localization.t("UI_WORLDGEN_PREVIEW_TITLE"))
 	preview_vbox.add_child(preview_label)
+
+	var preview_toolbar := HBoxContainer.new()
+	preview_toolbar.add_theme_constant_override("separation", 8)
+	preview_vbox.add_child(preview_toolbar)
+
+	var preview_mode_label := Label.new()
+	preview_mode_label.text = Localization.t("UI_WORLDGEN_PREVIEW_MODE_LABEL")
+	preview_mode_label.add_theme_color_override("font_color", TEXT_SECONDARY_COLOR)
+	preview_mode_label.add_theme_font_size_override("font_size", 11)
+	preview_toolbar.add_child(preview_mode_label)
+
+	_preview_mode_select = OptionButton.new()
+	_preview_mode_select.custom_minimum_size = Vector2(200, 34)
+	_apply_secondary_button_style(_preview_mode_select)
+	_populate_preview_mode_options()
+	_preview_mode_select.item_selected.connect(_on_preview_mode_selected)
+	preview_toolbar.add_child(_preview_mode_select)
+
+	var preview_toolbar_spacer := Control.new()
+	preview_toolbar_spacer.size_flags_horizontal = SIZE_EXPAND_FILL
+	preview_toolbar.add_child(preview_toolbar_spacer)
+
+	var preview_reset_button := Button.new()
+	preview_reset_button.text = Localization.t("UI_WORLDGEN_PREVIEW_RESET_VIEW")
+	preview_reset_button.custom_minimum_size = Vector2(116, 34)
+	_apply_secondary_button_style(preview_reset_button)
+	preview_reset_button.pressed.connect(func() -> void:
+		if _preview_canvas != null:
+			_preview_canvas.reset_view()
+	)
+	preview_toolbar.add_child(preview_reset_button)
 
 	var preview_frame := PanelContainer.new()
 	preview_frame.custom_minimum_size = Vector2(400, 400)
 	preview_frame.add_theme_stylebox_override("panel", _make_section_stylebox())
+	preview_frame.tooltip_text = Localization.t("UI_WORLDGEN_PREVIEW_CONTROLS_HINT")
 	preview_vbox.add_child(preview_frame)
 
 	_preview_canvas = WorldPreviewCanvas.new()
 	_preview_canvas.size_flags_horizontal = SIZE_EXPAND_FILL
 	_preview_canvas.size_flags_vertical = SIZE_EXPAND_FILL
+	_preview_canvas.tooltip_text = Localization.t("UI_WORLDGEN_PREVIEW_CONTROLS_HINT")
 	preview_frame.add_child(_preview_canvas)
 	_preview_controller.attach_canvas(_preview_canvas)
 	
@@ -724,3 +760,25 @@ func _on_language_changed(_locale: String) -> void:
 
 func _schedule_preview_rebuild() -> void:
 	_preview_controller.queue_preview_rebuild(_resolve_preview_seed_value(), MountainGenSettings.from_save_dict(_settings.to_save_dict()))
+
+func _populate_preview_mode_options() -> void:
+	if _preview_mode_select == null:
+		return
+	_preview_mode_select.clear()
+	var current_mode: StringName = _preview_controller.get_render_mode()
+	var available_modes: Array[StringName] = WorldPreviewRenderMode.all_modes()
+	for index: int in range(available_modes.size()):
+		var mode: StringName = available_modes[index]
+		_preview_mode_select.add_item(
+			Localization.t(WorldPreviewRenderMode.get_label_key(mode)),
+			index
+		)
+		_preview_mode_select.set_item_metadata(index, mode)
+		if mode == current_mode:
+			_preview_mode_select.select(index)
+
+func _on_preview_mode_selected(index: int) -> void:
+	if _preview_mode_select == null:
+		return
+	var selected_mode: StringName = _preview_mode_select.get_item_metadata(index) as StringName
+	_preview_controller.set_render_mode(selected_mode)
