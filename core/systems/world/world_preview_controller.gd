@@ -15,6 +15,7 @@ const REBUILD_DEBOUNCE_SECONDS: float = 0.12
 const IN_FLIGHT_REQUEST_CAP: int = 8
 const MAX_RESULTS_PER_TICK: int = 4
 const MAX_PUBLISHES_PER_TICK: int = 4
+const PACKET_BACKEND_MAX_BATCH_SIZE: int = 64
 
 var _packet_backend: WorldChunkPacketBackend = WorldChunkPacketBackend.new()
 var _patch_cache: WorldPreviewPatchCache = WorldPreviewPatchCache.new()
@@ -46,6 +47,7 @@ var _published_patches: Dictionary = {}
 func start() -> void:
 	if _is_started:
 		return
+	_packet_backend.set_max_batch_size(PACKET_BACKEND_MAX_BATCH_SIZE)
 	_packet_backend.start()
 	_is_started = true
 

@@ -11,6 +11,7 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 const WorldStreamer = preload("res://core/systems/world/world_streamer.gd")
 const SCRAP_ITEM_ID: String = "base:scrap"
 const WOOD_ITEM_ID: String = "base:wood"
+const SHOW_MOUNTAIN_DEBUG_OVERLAY: bool = false
 @export var balance: PlayerBalance = null
 
 var _speed_modifier: float = 1.0
@@ -310,6 +311,11 @@ func _setup_camera() -> void:
 		_camera.setup(balance)
 
 func _ensure_mountain_debug_overlay() -> void:
+	# Keep the overlay wiring available, but hide it until we need it again.
+	if not SHOW_MOUNTAIN_DEBUG_OVERLAY:
+		if _mountain_debug_layer != null and is_instance_valid(_mountain_debug_layer):
+			_mountain_debug_layer.visible = false
+		return
 	if _mountain_debug_label != null and is_instance_valid(_mountain_debug_label):
 		return
 	_mountain_debug_layer = CanvasLayer.new()
@@ -346,6 +352,10 @@ func _update_mountain_debug_overlay(
 	world_pos: Vector2,
 	streamer: WorldStreamer
 ) -> void:
+	if not SHOW_MOUNTAIN_DEBUG_OVERLAY:
+		if _mountain_debug_layer != null and is_instance_valid(_mountain_debug_layer):
+			_mountain_debug_layer.visible = false
+		return
 	if _mountain_debug_label == null or not is_instance_valid(_mountain_debug_label):
 		return
 	if _mountain_resolver == null:
