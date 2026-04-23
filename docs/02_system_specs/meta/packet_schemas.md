@@ -426,7 +426,7 @@ Returned by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current mountain runtime value is `5` |
+| `world_version` | `int` | — | Current mountain runtime value is `6` |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
@@ -441,7 +441,7 @@ Returned by native
 | `1 << 0` | `is_interior` | Interior wall depth satisfies `interior_margin`; used later by M2 roof presentation |
 | `1 << 1` | `is_wall` | `elevation >= t_wall` |
 | `1 << 2` | `is_foot` | `t_edge <= elevation < t_wall` |
-| `1 << 3` | `is_anchor` | Tile is the deterministic jittered anchor position for its `mountain_id` |
+| `1 << 3` | `is_anchor` | Tile is the deterministic representative tile for its `mountain_id`; in legacy worlds (`world_version < 6`) this remains the jittered anchor tile |
 
 For tiles with `mountain_id == 0`, current native contract is `mountain_flags = 0`
 and `mountain_atlas_indices = 0`.
@@ -453,6 +453,7 @@ Current code notes:
 - `world_version == 3` applies the named-mountain ownership fix while still allowing the scattered legacy blocked fallback
 - `world_version >= 4` removes the active plains-rock path for new worlds and widens owner-anchor resolution so elevated mountain terrain resolves to named mountain output instead of anonymous fallback
 - `world_version >= 5` keeps the named-mountain output and also carves out the initial `12..20 x 12..20` spawn-safe patch so `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` stay zero under the starting area
+- `world_version >= 6` switches new worlds to implicit-domain hierarchical labeling: aligned `1024 x 1024` macro solves recurse only through mixed cells, stop at versioned `min_label_cell_size = 8`, reuse a deterministic `1`-macro halo in native code, and hash `mountain_id` from the component representative leaf instead of the legacy raw anchor
 - `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` are base packet fields only; they are not persisted in `ChunkDiffFile`
 - only tiles with `mountain_id > 0` write canonical mountain terrain through `terrain_ids` as `TERRAIN_MOUNTAIN_WALL` or `TERRAIN_MOUNTAIN_FOOT`
 - for `world_version >= 4`, active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain is expected to resolve into named mountain output

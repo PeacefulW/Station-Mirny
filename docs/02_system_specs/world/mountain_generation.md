@@ -69,7 +69,9 @@ The player must be able to:
 
 V1 is an **additive** extension of V0. It adds:
 - native mountain field in `WorldCore` (elevation, ridge, domain warp)
-- anchor-based mountain identity with deterministic sparse anchors
+- versioned mountain identity:
+  deterministic sparse anchors for legacy worlds and implicit-domain
+  hierarchical labeling for `world_version >= 6`
 - `ChunkPacketV1` with three additive fields, no V0 field removed
 - new surface terrain ids: `TERRAIN_MOUNTAIN_WALL`, `TERRAIN_MOUNTAIN_FOOT`
 - roof presentation layer in `ChunkView`, one `TileMapLayer` per
@@ -81,7 +83,8 @@ V1 is an **additive** extension of V0. It adds:
   in `world.json`
 - bump `WORLD_VERSION` from `1` to `2` for M1, then to `3` for the
   named-mountain ownership fix, then to `4` for retirement of the
-  standalone plains-rock generation path
+  standalone plains-rock generation path, then to `5` for the spawn-safe
+  carveout, then to `6` for hierarchical mountain-domain labeling
 
 ## Out of Scope
 
@@ -119,14 +122,14 @@ V1 does not include:
 | Save/load required? | Yes, for `worldgen_settings.mountains` in `world.json`. No for cavity cache, opening cache, or active cover state. |
 | Deterministic? | Yes. Field, identity, and atlas indices are pure `f(seed, world_version, coord, settings_packed)`. |
 | Must work on unloaded chunks? | Yes. All per-tile canonical data is recomputable from base + diff on demand. |
-| C++ compute or main-thread apply? | Field sample, anchor resolution, and atlas indices are C++ compute. Roof cell placement, chunk mask upload, and cavity/opening cache refresh are main-thread apply. |
+| C++ compute or main-thread apply? | Field sample, hierarchical domain solve / legacy anchor fallback, and atlas indices are C++ compute. Roof cell placement, chunk mask upload, and cavity/opening cache refresh are main-thread apply. |
 | Dirty unit | `32 x 32` chunk for generation; one tile for excavation mutation; one loaded chunk plus direct seam-neighbor diff participants for publish / unload; one current cavity component for inside reveal. |
 | Single owner | `WorldCore` for base field. `WorldDiffStore` for diff. `ChunkView` for static roof presentation and per-chunk mask material. `MountainCavityCache` for runtime-derived cavity/opening state. `WorldStreamer` for active cover selection. `world.json` for `worldgen_settings`. |
-| 10x / 100x scale path | Sparse anchors + bounded local anchor lookup keep identity local. Publish inherits V0 slicing. No global tables; scale grows with number of loaded chunks only. |
+| 10x / 100x scale path | Version `6` keeps identity on aligned macro solves with reusable native cache, recursive subdivision only for mixed cells, and versioned `min_label_cell_size = 8`. Publish inherits V0 slicing. No whole-world scan is introduced. |
 | Main-thread blocking? | No. Generation stays in the existing worker path. Apply remains sliced through `FrameBudgetDispatcher.CATEGORY_STREAMING`. |
 | Hidden GDScript fallback? | Forbidden. Native `WorldCore` is required; absence fails loudly per LAW 9. |
-| Could it become heavy later? | Yes. Noise octaves, anchor density, and revealed cavity size scale. All stay inside native generation or bounded cache refresh; movement-time work remains cached lookup only. |
-| Whole-world prepass? | Forbidden. All field and identity work is local to one chunk plus its bounded anchor neighborhood. |
+| Could it become heavy later? | Yes. Noise octaves, hierarchical leaf count, and revealed cavity size scale. All stay inside native generation or bounded cache refresh; movement-time work remains cached lookup only. |
+| Whole-world prepass? | Forbidden. All field and identity work is local to one chunk plus a bounded aligned macro halo reused through `WorldCore`. |
 
 ## Core Contract
 
@@ -215,27 +218,44 @@ Classification per tile:
 
 ### Mountain Identity
 
-Mountain identity is assigned via **deterministic sparse anchors**.
+Mountain identity is **versioned**.
 
-Anchor lattice:
-- cell size `settings.anchor_cell_size` in tiles
-- for each `(ax, ay)` anchor cell, deterministic jitter produces a single
-  candidate position inside that cell using splitmix64 on
-  `(seed, ax, ay)`
-- for current `world_version >= 4` owner assignment, an anchor candidate
-  participates when `sample_elevation(candidate) >= t_edge`
+Legacy path (`world_version < 6`):
+- identity stays on the deterministic sparse-anchor solve documented for M1
+- raw nearest-anchor ownership is retained for backward-compatible restores
+  and as an internal fallback/helper in native code
 
-Per-tile assignment:
-- for each tile `(wx, wy)` with `elevation >= t_edge`, examine a bounded
-  `5 x 5` anchor-cell neighborhood around the containing anchor cell
-- choose the qualifying anchor with smallest Chebyshev distance
+Current path (`world_version >= 6`):
+- world space is divided into aligned power-of-two cells
+- `WorldCore` keeps a reusable native cache keyed by a central
+  `1024 x 1024` macro cell; each cache entry solves one interior macro cell
+  plus a deterministic `1`-macro halo on every side
+- each cell is classified by a bounded probe stencil as `empty`, `solid`,
+  or `mixed`
+- only `mixed` cells recurse
+- recursion stops at the versioned internal
+  `min_label_cell_size = 8`
+- on `min_label_cell_size`, a bounded `5 x 5` local ambiguity solve may
+  collapse local boundary/noise back to `empty` or `solid` without reading
+  outside the leaf
+- canonical mountain domains are the face-connected components of `solid`
+  leaves on that hierarchical solve; diagonal-only contact never connects
+- each component chooses a deterministic representative leaf by maximal
+  representative elevation, tie-break by lexicographic leaf cell
+  coordinate
+- `mountain_id` is a deterministic 32-bit hash of
+  `(seed, world_version, representative_cell_origin, representative_cell_size)`
+
+Per-tile assignment for `world_version >= 6`:
+- if `sample_elevation < t_edge`, `mountain_id = 0`
+- otherwise the tile inherits the domain of its resolved hierarchical leaf
+  cell inside the cached macro interior
+- sub-`8`-tile bridges, raw-anchor noise, and local irregularities that fail
+  the leaf ambiguity solve stay at `mountain_id = 0` instead of spawning a
+  separate canonical mountain
 - active mountain worlds must not emit a standalone scattered-rock terrain
-  fallback for elevated tiles; `mountain_id = 0` on elevated terrain is a
-  diagnostic miss, not a gameplay presentation path
-
-`mountain_id` is a deterministic 32-bit hash of
-`(seed, world_version, ax, ay)`. It is stable for the life of the world.
-Values are never reused.
+  fallback for elevated tiles; `mountain_id = 0` above `t_edge` is now the
+  explicit scale cutoff, not an anonymous-owner fallback
 
 Identity is base data. It never mutates in response to diff, excavation,
 or runtime events (LAW 5).
@@ -247,7 +267,11 @@ For every tile with `mountain_id > 0`:
 - `is_foot` = 1 iff `t_edge <= elevation < t_wall`
 - `is_interior` = 1 iff `is_wall` and the 4-neighbor Chebyshev distance
   into the wall region is `>= settings.interior_margin`
-- `is_anchor` = 1 iff the tile is the anchor's jittered position itself
+- `is_anchor` = 1 iff:
+  - `world_version < 6`: the tile is the anchor's jittered position itself
+  - `world_version >= 6`: the tile is the representative tile of the
+    component's deterministic representative leaf (field name retained for
+    packet compatibility)
 
 For every tile with `mountain_id == 0`:
 - `mountain_flags = 0`
@@ -478,6 +502,10 @@ Chunk diffs keep `ChunkDiffV0` shape. Forbidden additions:
   tiles in the initial `12..20 x 12..20` start patch force
   `sample_elevation = 0.0`, `mountain_id = 0`, and zero mountain flags so
   the starting packet cannot place the player inside mountain output
+- `WORLD_VERSION` bumps from `5` to `6` for implicit-domain hierarchical
+  labeling: new worlds no longer derive canonical `mountain_id` from raw
+  nearest-anchor ownership and instead hash the deterministic representative
+  leaf of a bounded hierarchical mountain domain solve
 - each bump is required by LAW 4 because canonical terrain / packet
   output changes for the same `seed + coord`
 - `world_version` remains a plain integer; it is **not** a hash of
@@ -507,7 +535,7 @@ contract.
 | Operation | Class | Dirty unit | Budget |
 |---|---|---|---|
 | Mountain field sample | background (native worker) | 32x32 chunk | outside main thread |
-| Anchor resolution | background (native worker) | 3x3 anchor cells per chunk | outside main thread |
+| Hierarchical mountain-domain solve | background (native worker) | aligned `1024 x 1024` macro cell interior with cached `1`-macro halo | outside main thread |
 | Sliced mountain publish | background apply | batch of cells | shares V0 `CATEGORY_STREAMING` budget |
 | Resolver tile lookup | interactive | 1 tile | < 0.05 ms/frame |
 | Cover mask upload on state switch | background apply | loaded chunks only | bounded by loaded ring; no topology rebuild |

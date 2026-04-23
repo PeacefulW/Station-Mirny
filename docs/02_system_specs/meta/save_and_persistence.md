@@ -58,9 +58,13 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current mountain extension:
-- `world.json` now records `world_version: 5` for the current native mountain-field baseline
+- `world.json` now records `world_version: 6` for the current native mountain-field baseline
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
+- `world_version >= 6` keeps the same save shape but changes canonical new-world
+  mountain identity to implicit-domain hierarchical labeling; save/load still
+  regenerates that base data from seed + `world_version` instead of persisting
+  `mountain_id_per_tile`
 - `worldgen_settings.mountains` stores the embedded per-save mountain input copy
   with these fields:
   - `density: float` (`0.0..1.0`)
@@ -87,7 +91,7 @@ Confirmed `world.json` shape in the current mountain code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 5,
+  "world_version": 6,
   "worldgen_settings": {
     "mountains": {
       "density": 0.3,

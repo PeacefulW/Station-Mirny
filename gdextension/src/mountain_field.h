@@ -4,6 +4,7 @@
 #include "third_party/FastNoiseLite.h"
 
 #include <cstdint>
+#include <vector>
 
 namespace mountain_field {
 
@@ -25,6 +26,31 @@ struct Thresholds {
 	float t_edge = 1.0f;
 	float t_wall = 1.0f;
 	float t_anchor = 1.0f;
+};
+
+struct HierarchicalRepresentative {
+	int64_t cell_origin_x = 0;
+	int64_t cell_origin_y = 0;
+	int32_t cell_size = 0;
+	int64_t representative_tile_x = 0;
+	int64_t representative_tile_y = 0;
+	float representative_elevation = 0.0f;
+	int32_t mountain_id = 0;
+};
+
+struct HierarchicalMacroSolve {
+	int64_t macro_cell_x = 0;
+	int64_t macro_cell_y = 0;
+	int64_t macro_origin_x = 0;
+	int64_t macro_origin_y = 0;
+	int32_t macro_cell_size = 0;
+	int32_t min_label_cell_size = 0;
+	int32_t min_cells_per_macro_axis = 0;
+	std::vector<int32_t> domain_index_per_min_cell;
+	std::vector<HierarchicalRepresentative> domains;
+
+	int32_t resolve_mountain_id(int64_t p_world_x, int64_t p_world_y, float p_elevation, float p_edge_threshold) const;
+	bool is_representative_tile(int64_t p_world_x, int64_t p_world_y, int32_t p_mountain_id) const;
 };
 
 class Evaluator {
@@ -76,6 +102,16 @@ float sample_elevation(int64_t p_seed, int64_t p_world_version, int64_t p_world_
 int32_t resolve_mountain_id(int64_t p_seed, int64_t p_world_version, int64_t p_world_x, int64_t p_world_y, const Settings &p_settings);
 uint8_t resolve_mountain_flags(int64_t p_seed, int64_t p_world_version, int64_t p_world_x, int64_t p_world_y, const Settings &p_settings);
 int32_t resolve_mountain_atlas_index(int64_t p_seed, int64_t p_world_version, int64_t p_world_x, int64_t p_world_y, const Settings &p_settings);
+bool uses_hierarchical_labeling(int64_t p_world_version);
+int32_t get_hierarchical_macro_cell_size(int64_t p_world_version);
+int32_t get_hierarchical_min_label_cell_size(int64_t p_world_version);
+HierarchicalMacroSolve solve_hierarchical_macro(
+	int64_t p_seed,
+	int64_t p_world_version,
+	int64_t p_macro_cell_x,
+	int64_t p_macro_cell_y,
+	const Settings &p_settings
+);
 
 } // namespace mountain_field
 
