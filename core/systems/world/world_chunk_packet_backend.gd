@@ -1,6 +1,8 @@
 class_name WorldChunkPacketBackend
 extends RefCounted
 
+const MAX_BATCH_SIZE: int = 32
+
 var _worker_thread: Thread = Thread.new()
 var _request_mutex: Mutex = Mutex.new()
 var _result_mutex: Mutex = Mutex.new()
@@ -72,6 +74,26 @@ func has_completed_packets() -> bool:
 	_result_mutex.unlock()
 	return has_completed
 
+func _requests_are_batch_compatible(base_request: Dictionary, candidate_request: Dictionary) -> bool:
+	if int(candidate_request.get("seed", 0)) != int(base_request.get("seed", 0)):
+		return false
+	if int(candidate_request.get("world_version", 0)) != int(base_request.get("world_version", 0)):
+		return false
+	if int(candidate_request.get("epoch", -1)) != int(base_request.get("epoch", -1)):
+		return false
+	return _settings_packed_equal(
+		candidate_request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array,
+		base_request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array
+	)
+
+func _settings_packed_equal(lhs: PackedFloat32Array, rhs: PackedFloat32Array) -> bool:
+	if lhs.size() != rhs.size():
+		return false
+	for index: int in range(lhs.size()):
+		if lhs[index] != rhs[index]:
+			return false
+	return true
+
 func _worker_loop() -> void:
 	var worker_world_core: Object = ClassDB.instantiate("WorldCore")
 	assert(worker_world_core != null, "WorldCore required inside worker thread")
@@ -79,21 +101,33 @@ func _worker_loop() -> void:
 		_request_semaphore.wait()
 		if _worker_should_exit:
 			return
-		var request: Dictionary = {}
+		var batch_requests: Array[Dictionary] = []
 		_request_mutex.lock()
 		if not _pending_requests.is_empty():
-			request = _pending_requests.pop_front() as Dictionary
+			var base_request: Dictionary = _pending_requests.pop_front() as Dictionary
+			batch_requests.append(base_request)
+			while batch_requests.size() < MAX_BATCH_SIZE and not _pending_requests.is_empty():
+				var candidate_request: Dictionary = _pending_requests[0] as Dictionary
+				if not _requests_are_batch_compatible(base_request, candidate_request):
+					break
+				batch_requests.append(_pending_requests.pop_front() as Dictionary)
 		_request_mutex.unlock()
-		if request.is_empty():
+		if batch_requests.is_empty():
 			continue
-		var packet: Dictionary = worker_world_core.call(
-			"generate_chunk_packet",
-			int(request.get("seed", 0)),
-			request.get("coord", Vector2i.ZERO) as Vector2i,
-			int(request.get("world_version", 0)),
-			request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array
-		) as Dictionary
-		packet["epoch"] = int(request.get("epoch", -1))
+		var base_request: Dictionary = batch_requests[0]
+		var coords: PackedVector2Array = PackedVector2Array()
+		for index: int in range(batch_requests.size()):
+			coords.append(batch_requests[index].get("coord", Vector2i.ZERO) as Vector2i)
+		var packets: Array = worker_world_core.call(
+			"generate_chunk_packets_batch",
+			int(base_request.get("seed", 0)),
+			coords,
+			int(base_request.get("world_version", 0)),
+			base_request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array
+		) as Array
 		_result_mutex.lock()
-		_completed_packets.append(packet)
+		for index: int in range(mini(batch_requests.size(), packets.size())):
+			var packet: Dictionary = packets[index] as Dictionary
+			packet["epoch"] = int(batch_requests[index].get("epoch", -1))
+			_completed_packets.append(packet)
 		_result_mutex.unlock()

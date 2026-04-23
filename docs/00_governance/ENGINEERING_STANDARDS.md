@@ -198,8 +198,8 @@ packet destroys performance even when the underlying computation is light.
 for tile in chunk_tiles:
     NativeGen.get_tile_type(tile.x, tile.y)  # VIOLATION
 
-# GOOD - one packet
-var packet: PackedInt32Array = NativeGen.generate_chunk_packet(chunk_coord)
+# GOOD - one batch boundary
+var packets: Array = world_core.generate_chunk_packets_batch(seed, coords, world_version, settings_packed)
 ```
 
 ---

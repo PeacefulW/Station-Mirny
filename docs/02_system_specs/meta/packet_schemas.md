@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.4
-last_updated: 2026-04-21
+version: 0.5
+last_updated: 2026-04-23
 related_docs:
   - ../README.md
   - system_api.md
@@ -395,7 +395,8 @@ Failure shape:
 
 ### `ChunkPacketV0`
 
-Returned by native `WorldCore.generate_chunk_packet(seed, coord, world_version)`.
+Historical base packet shape. In the current runtime, these fields are the
+subset carried by each element of `WorldCore.generate_chunk_packets_batch(...)`.
 
 ```text
 {
@@ -417,8 +418,8 @@ Current code notes:
 
 ### `ChunkPacketV1`
 
-Returned by native
-`WorldCore.generate_chunk_packet(seed, coord, world_version, settings_packed)`.
+Returned one-per-input-coord by native
+`WorldCore.generate_chunk_packets_batch(seed, coords, world_version, settings_packed)`.
 
 `ChunkPacketV1` extends `ChunkPacketV0` additively. Current confirmed shape:
 
@@ -441,22 +442,19 @@ Returned by native
 | `1 << 0` | `is_interior` | Interior wall depth satisfies `interior_margin`; used later by M2 roof presentation |
 | `1 << 1` | `is_wall` | `elevation >= t_wall` |
 | `1 << 2` | `is_foot` | `t_edge <= elevation < t_wall` |
-| `1 << 3` | `is_anchor` | Tile is the deterministic representative tile for its `mountain_id`; in legacy worlds (`world_version < 6`) this remains the jittered anchor tile |
+| `1 << 3` | `is_anchor` | Tile is the deterministic representative tile for its `mountain_id` |
 
 For tiles with `mountain_id == 0`, current native contract is `mountain_flags = 0`
 and `mountain_atlas_indices = 0`.
 
 Current code notes:
-- `ChunkPacketV1` keeps one hot-path packet per chunk; no per-tile callbacks were added
-- `settings_packed.size() == 0` yields V0-compatible generation with all three mountain arrays zero-filled
-- `world_version == 2` keeps the original anonymous-shoulder mountain output
-- `world_version == 3` applies the named-mountain ownership fix while still allowing the scattered legacy blocked fallback
-- `world_version >= 4` removes the active plains-rock path for new worlds and widens owner-anchor resolution so elevated mountain terrain resolves to named mountain output instead of anonymous fallback
-- `world_version >= 5` keeps the named-mountain output and also carves out the initial `12..20 x 12..20` spawn-safe patch so `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` stay zero under the starting area
-- `world_version >= 6` switches new worlds to implicit-domain hierarchical labeling: aligned `1024 x 1024` macro solves recurse only through mixed cells, stop at versioned `min_label_cell_size = 8`, reuse a deterministic `1`-macro halo in native code, and hash `mountain_id` from the component representative leaf instead of the legacy raw anchor
+- `ChunkPacketV1` keeps one hot-path packet per chunk; batch generation returns one packet per requested coord
+- the current native boundary requires the full `settings_packed` payload
+- the current native boundary requires `world_version >= 6`
+- `world_version >= 6` uses implicit-domain hierarchical labeling: aligned `1024 x 1024` macro solves recurse only through mixed cells, stop at versioned `min_label_cell_size = 8`, reuse a deterministic `1`-macro halo in native code, and hash `mountain_id` from the component representative leaf
 - `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` are base packet fields only; they are not persisted in `ChunkDiffFile`
 - only tiles with `mountain_id > 0` write canonical mountain terrain through `terrain_ids` as `TERRAIN_MOUNTAIN_WALL` or `TERRAIN_MOUNTAIN_FOOT`
-- for `world_version >= 4`, active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain is expected to resolve into named mountain output
+- active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain either resolves into named mountain output or stays on the ground path at the hierarchical scale cutoff
 - `mountain_atlas_indices` is reserved for later roof presentation, but is already confirmed at the packet boundary in M1
 
 ## Not Currently Confirmed

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.3
-last_updated: 2026-04-21
+version: 1.4
+last_updated: 2026-04-23
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -189,8 +189,8 @@ Forbidden packet fields in V1 (reserved for later specs):
 
 ### Mountain Field
 
-`WorldCore` exposes one logical function, inlined inside
-`generate_chunk_packet`:
+`WorldCore` exposes one logical field solve, executed inside
+`generate_chunk_packets_batch`:
 
 ```text
 sample_elevation(seed, world_version, wx, wy, settings_packed) -> float
@@ -218,14 +218,8 @@ Classification per tile:
 
 ### Mountain Identity
 
-Mountain identity is **versioned**.
-
-Legacy path (`world_version < 6`):
-- identity stays on the deterministic sparse-anchor solve documented for M1
-- raw nearest-anchor ownership is retained for backward-compatible restores
-  and as an internal fallback/helper in native code
-
-Current path (`world_version >= 6`):
+Mountain identity in the active packet runtime is hierarchical
+(`world_version >= 6`):
 - world space is divided into aligned power-of-two cells
 - `WorldCore` keeps a reusable native cache keyed by a central
   `1024 x 1024` macro cell; each cache entry solves one interior macro cell
@@ -267,11 +261,9 @@ For every tile with `mountain_id > 0`:
 - `is_foot` = 1 iff `t_edge <= elevation < t_wall`
 - `is_interior` = 1 iff `is_wall` and the 4-neighbor Chebyshev distance
   into the wall region is `>= settings.interior_margin`
-- `is_anchor` = 1 iff:
-  - `world_version < 6`: the tile is the anchor's jittered position itself
-  - `world_version >= 6`: the tile is the representative tile of the
-    component's deterministic representative leaf (field name retained for
-    packet compatibility)
+- `is_anchor` = 1 iff the tile is the representative tile of the
+  component's deterministic representative leaf (field name retained for
+  packet compatibility)
 
 For every tile with `mountain_id == 0`:
 - `mountain_flags = 0`
@@ -310,23 +302,25 @@ crossing the native boundary, in a fixed canonical order defined by
 
 ### Native Boundary
 
-V1 keeps one native class, `WorldCore`. Signature is extended:
+V1 keeps one native class, `WorldCore`. Active packet generation uses:
 
 ```text
-WorldCore.generate_chunk_packet(
+WorldCore.generate_chunk_packets_batch(
     seed: int,
-    coord: Vector2i,
+    coords: PackedVector2Array,
     world_version: int,
     settings_packed: PackedFloat32Array
-) -> Dictionary
+) -> Array
 ```
 
 Rules:
-- one chunk per call
+- one batch returns one `ChunkPacketV1` per input coord, in input order
 - no per-tile callbacks, no multiple Variant round-trips
-- settings read once per call, not per tile
-- absent `settings_packed` (size 0) → behave exactly as V0 (all-zero
-  mountain fields)
+- settings are read once per batch, not per tile
+- the active packet runtime requires the full `settings_packed` layout
+- the active packet runtime requires `world_version >= 6`
+- batch generation groups chunks by owning macro cell and reuses cached
+  `1024 x 1024` hierarchical solves through `WorldCore`
 - no second native class is introduced in V1
 
 ### Script Ownership
@@ -465,8 +459,6 @@ remain as V0 defined them.
 Rules:
 - `worldgen_settings` is namespaced from the start
   (`mountains`, later `rivers`, `biomes`, `climate`)
-- on load, legacy saves with `world_version < 2` keep mountains disabled
-  (`settings_packed = []`) for V0-compatible generation
 - on load, for `world_version >= 2`, missing `worldgen_settings.mountains`
   → hard-coded defaults in the save loader, **not** re-read from
   `data/balance/mountain_gen_settings.tres`

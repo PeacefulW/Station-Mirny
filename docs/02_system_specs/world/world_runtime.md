@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 0.3
-last_updated: 2026-04-19
+version: 0.4
+last_updated: 2026-04-23
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -44,7 +44,8 @@ V0 includes only:
 - one minimal deterministic base terrain palette for plains, including only the
   tile kinds required for walkability plus one single-tile mutation proof
 - one compact `ChunkPacketV0`
-- one native entrypoint: `WorldCore.generate_chunk_packet(seed, coord, world_version)`
+- one native packet batch entrypoint:
+  `WorldCore.generate_chunk_packets_batch(seed, coords, world_version, settings_packed)`
 - one GDScript streamer/orchestrator
 - one symmetric ring streaming policy with simple distance ordering
 - one `ChunkView` root per visible chunk
@@ -153,15 +154,21 @@ This does not authorize broader biome or terrain taxonomy work.
 V0 uses one native class only:
 
 ```text
-WorldCore.generate_chunk_packet(seed: int, coord: Vector2i, world_version: int) -> Dictionary
+WorldCore.generate_chunk_packets_batch(
+    seed: int,
+    coords: PackedVector2Array,
+    world_version: int,
+    settings_packed: PackedFloat32Array
+) -> Array
 ```
 
 Rules:
 - the method is synchronous
 - `WorldStreamer` owns async scheduling by calling it from worker tasks
-- one chunk request = one packet result
+- one batch request returns one packet per input coord, in input order
 - no per-tile callbacks
-- no second native helper API in V0
+- the live runtime uses one native packet boundary only; no single-chunk helper
+  API remains
 
 Implementation shape is intentionally flat:
 - keep native sources directly under `gdextension/src/`

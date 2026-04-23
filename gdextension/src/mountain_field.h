@@ -58,19 +58,6 @@ public:
 	Evaluator(int64_t p_seed, int64_t p_world_version, const Settings &p_settings);
 
 	float sample_elevation(int64_t p_world_x, int64_t p_world_y) const;
-	int32_t resolve_mountain_id(int64_t p_world_x, int64_t p_world_y) const;
-	int32_t resolve_mountain_id(int64_t p_world_x, int64_t p_world_y, float p_elevation) const;
-	bool is_anchor_tile(int64_t p_world_x, int64_t p_world_y, int32_t p_mountain_id) const;
-	uint8_t resolve_mountain_flags(
-		int64_t p_world_x,
-		int64_t p_world_y,
-		float p_elevation,
-		int32_t p_center_mountain_id,
-		int32_t p_north_mountain_id,
-		int32_t p_east_mountain_id,
-		int32_t p_south_mountain_id,
-		int32_t p_west_mountain_id
-	) const;
 	int32_t resolve_mountain_atlas_index(
 		int64_t p_world_x,
 		int64_t p_world_y,
@@ -98,10 +85,6 @@ private:
 	FastNoiseLite ridge_noise_;
 };
 
-float sample_elevation(int64_t p_seed, int64_t p_world_version, int64_t p_world_x, int64_t p_world_y, const Settings &p_settings);
-int32_t resolve_mountain_id(int64_t p_seed, int64_t p_world_version, int64_t p_world_x, int64_t p_world_y, const Settings &p_settings);
-uint8_t resolve_mountain_flags(int64_t p_seed, int64_t p_world_version, int64_t p_world_x, int64_t p_world_y, const Settings &p_settings);
-int32_t resolve_mountain_atlas_index(int64_t p_seed, int64_t p_world_version, int64_t p_world_x, int64_t p_world_y, const Settings &p_settings);
 bool uses_hierarchical_labeling(int64_t p_world_version);
 int32_t get_hierarchical_macro_cell_size(int64_t p_world_version);
 int32_t get_hierarchical_min_label_cell_size(int64_t p_world_version);
