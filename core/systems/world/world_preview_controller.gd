@@ -4,6 +4,8 @@ extends RefCounted
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
+const WorldFoundationPalette = preload("res://core/systems/world/world_foundation_palette.gd")
+const WorldOverviewCanvas = preload("res://scenes/ui/world_overview_canvas.gd")
 const WorldPreviewCanvas = preload("res://scenes/ui/world_preview_canvas.gd")
 const WorldPreviewPalette = preload("res://core/systems/world/world_preview_palette.gd")
 const WorldPreviewPatchCache = preload("res://core/systems/world/world_preview_patch_cache.gd")
@@ -17,12 +19,15 @@ const REBUILD_DEBOUNCE_SECONDS: float = 0.12
 const IN_FLIGHT_REQUEST_CAP: int = 8
 const MAX_RESULTS_PER_TICK: int = 4
 const MAX_SPAWN_RESULTS_PER_TICK: int = 2
+const MAX_OVERVIEW_RESULTS_PER_TICK: int = 2
 const MAX_PUBLISHES_PER_TICK: int = 4
 const PACKET_BACKEND_MAX_BATCH_SIZE: int = 64
 
 var _packet_backend: WorldChunkPacketBackend = WorldChunkPacketBackend.new()
 var _patch_cache: WorldPreviewPatchCache = WorldPreviewPatchCache.new()
+var _foundation_palette: WorldFoundationPalette = WorldFoundationPalette.new()
 var _palette: WorldPreviewPalette = WorldPreviewPalette.new()
+var _overview_canvas: WorldOverviewCanvas = null
 var _canvas: WorldPreviewCanvas = null
 var _is_started: bool = false
 var _preview_epoch: int = 0
@@ -33,6 +38,7 @@ var _pending_world_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_
 var _pending_foundation_settings: FoundationGenSettings = FoundationGenSettings.hard_coded_defaults()
 var _pending_settings_signature: String = ""
 var _active_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
+var _active_world_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
 var _active_settings_signature: String = ""
 var _active_settings_packed: PackedFloat32Array = PackedFloat32Array()
 var _active_render_mode: StringName = WorldPreviewRenderMode.TERRAIN
@@ -49,6 +55,8 @@ var _ready_publish_queue: Array[Vector2i] = []
 var _ready_publish_lookup: Dictionary = {}
 var _published_patches: Dictionary = {}
 var _awaiting_spawn_result: bool = false
+var _awaiting_overview_result: bool = false
+var _overview_texture: Texture2D = null
 
 func start() -> void:
 	if _is_started:
@@ -62,6 +70,16 @@ func stop() -> void:
 		return
 	_packet_backend.stop()
 	_is_started = false
+
+func attach_overview_canvas(canvas: WorldOverviewCanvas) -> void:
+	_overview_canvas = canvas
+	if _overview_canvas == null:
+		return
+	_overview_canvas.reset_overview(_active_world_bounds)
+	if _overview_texture != null:
+		_overview_canvas.publish_overview(_overview_texture)
+	else:
+		_overview_canvas.set_loading(_awaiting_overview_result)
 
 func attach_canvas(canvas: WorldPreviewCanvas) -> void:
 	_canvas = canvas
@@ -123,6 +141,8 @@ func queue_preview_rebuild(
 	_debounce_remaining = REBUILD_DEBOUNCE_SECONDS
 	_packet_backend.clear_queued_work()
 	_awaiting_spawn_result = false
+	_awaiting_overview_result = false
+	_overview_texture = null
 	_current_stage_request_queue.clear()
 	_in_flight_requests.clear()
 	_ready_patches.clear()
@@ -131,6 +151,9 @@ func queue_preview_rebuild(
 	_stage_plans.clear()
 	_current_stage_window.clear()
 	_current_stage_index = -1
+	if _overview_canvas != null:
+		_overview_canvas.reset_overview(_pending_world_bounds)
+		_overview_canvas.set_loading(true)
 	_update_canvas_progress()
 
 func tick(delta: float) -> void:
@@ -142,6 +165,7 @@ func tick(delta: float) -> void:
 			_debounce_remaining = -1.0
 			_start_rebuild_from_pending_snapshot()
 	_drain_ready_spawn_results()
+	_drain_ready_overview_results()
 	_drain_ready_packets()
 	_advance_stage_if_needed()
 	_fill_request_window()
@@ -157,6 +181,7 @@ func _start_rebuild_from_pending_snapshot() -> void:
 	_in_flight_requests.clear()
 	_packet_backend.clear_queued_work()
 	_active_seed = _pending_seed
+	_active_world_bounds = _clone_world_bounds(_pending_world_bounds)
 	_active_settings_signature = _pending_settings_signature
 	_active_settings_packed = _build_settings_packed(
 		_pending_settings,
@@ -170,6 +195,15 @@ func _start_rebuild_from_pending_snapshot() -> void:
 		_active_settings_packed,
 		_preview_epoch
 	)
+	_awaiting_overview_result = true
+	_overview_texture = null
+	_packet_backend.queue_overview_request(
+		_active_seed,
+		WorldRuntimeConstants.WORLD_VERSION,
+		_active_settings_packed,
+		_preview_epoch,
+		_foundation_palette.get_layer_mask()
+	)
 	_current_center_chunk = WorldRuntimeConstants.tile_to_chunk(_current_spawn_tile)
 	_stage_plans.clear()
 	_current_stage_window.clear()
@@ -181,6 +215,9 @@ func _start_rebuild_from_pending_snapshot() -> void:
 			_resolve_full_radius_chunks()
 		)
 		_canvas.set_render_mode(_active_render_mode, _current_spawn_safe_patch_rect)
+	if _overview_canvas != null:
+		_overview_canvas.reset_overview(_active_world_bounds)
+		_overview_canvas.set_loading(true)
 	_update_canvas_progress()
 
 func _drain_ready_spawn_results() -> void:
@@ -203,6 +240,31 @@ func _drain_ready_spawn_results() -> void:
 			_update_canvas_progress()
 			return
 		_begin_rebuild_from_spawn_result(spawn_result)
+		return
+
+func _drain_ready_overview_results() -> void:
+	if not _awaiting_overview_result:
+		return
+	var ready_results: Array[Dictionary] = _packet_backend.drain_completed_overviews(MAX_OVERVIEW_RESULTS_PER_TICK)
+	for overview_result: Dictionary in ready_results:
+		if int(overview_result.get("epoch", -1)) != _preview_epoch:
+			continue
+		_awaiting_overview_result = false
+		if not bool(overview_result.get("success", false)):
+			push_error(
+				"WorldPreviewController native overview generation failed: %s"
+				% str(overview_result.get("message", "unknown error"))
+			)
+			if _overview_canvas != null:
+				_overview_canvas.set_loading(false)
+			return
+		var snapshot: Dictionary = overview_result.get("snapshot", {}) as Dictionary
+		_overview_texture = _foundation_palette.build_overview_texture_from_snapshot(snapshot)
+		if _overview_canvas != null:
+			if _overview_texture != null:
+				_overview_canvas.publish_overview(_overview_texture)
+			else:
+				_overview_canvas.set_loading(false)
 		return
 
 func _begin_rebuild_from_spawn_result(spawn_result: Dictionary) -> void:

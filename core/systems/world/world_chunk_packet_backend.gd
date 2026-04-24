@@ -10,6 +10,7 @@ var _request_semaphore: Semaphore = Semaphore.new()
 var _pending_requests: Array[Dictionary] = []
 var _completed_packets: Array[Dictionary] = []
 var _completed_spawn_results: Array[Dictionary] = []
+var _completed_overviews: Array[Dictionary] = []
 var _worker_should_exit: bool = false
 var _max_batch_size: int = DEFAULT_MAX_BATCH_SIZE
 
@@ -76,6 +77,25 @@ func queue_spawn_request(
 	_request_mutex.unlock()
 	_request_semaphore.post()
 
+func queue_overview_request(
+	seed: int,
+	world_version: int,
+	settings_packed: PackedFloat32Array,
+	epoch: int,
+	layer_mask: int = 0
+) -> void:
+	_request_mutex.lock()
+	_pending_requests.append({
+		"kind": "overview",
+		"seed": seed,
+		"world_version": world_version,
+		"settings_packed": settings_packed.duplicate(),
+		"epoch": epoch,
+		"layer_mask": layer_mask,
+	})
+	_request_mutex.unlock()
+	_request_semaphore.post()
+
 func drain_completed_packets(max_count: int) -> Array[Dictionary]:
 	var drained: Array[Dictionary] = []
 	_result_mutex.lock()
@@ -94,6 +114,15 @@ func drain_completed_spawn_results(max_count: int) -> Array[Dictionary]:
 	_result_mutex.unlock()
 	return drained
 
+func drain_completed_overviews(max_count: int) -> Array[Dictionary]:
+	var drained: Array[Dictionary] = []
+	_result_mutex.lock()
+	var drain_count: int = mini(max_count, _completed_overviews.size())
+	for _i: int in range(drain_count):
+		drained.append(_completed_overviews.pop_front() as Dictionary)
+	_result_mutex.unlock()
+	return drained
+
 func clear_queued_work() -> void:
 	_request_mutex.lock()
 	_pending_requests.clear()
@@ -101,6 +130,7 @@ func clear_queued_work() -> void:
 	_result_mutex.lock()
 	_completed_packets.clear()
 	_completed_spawn_results.clear()
+	_completed_overviews.clear()
 	_result_mutex.unlock()
 
 func has_pending_requests() -> bool:
@@ -178,6 +208,34 @@ func _call_resolve_world_foundation_spawn_tile(worker_world_core: Object, reques
 		"message": "Native spawn resolver returned non-dictionary result.",
 	}
 
+func _call_get_world_foundation_overview_payload(worker_world_core: Object, request: Dictionary) -> Dictionary:
+	if not worker_world_core.has_method("get_world_foundation_snapshot"):
+		return {
+			"success": false,
+			"message": "Native foundation snapshot API is unavailable in this build.",
+		}
+
+	var spawn_probe: Dictionary = _call_resolve_world_foundation_spawn_tile(worker_world_core, request)
+	var snapshot_variant: Variant = worker_world_core.call(
+		"get_world_foundation_snapshot",
+		int(request.get("layer_mask", 0)),
+		1
+	)
+	if snapshot_variant is Dictionary:
+		var snapshot: Dictionary = snapshot_variant as Dictionary
+		if not snapshot.is_empty():
+			return {
+				"success": true,
+				"snapshot": snapshot,
+				"grid_width": int(snapshot.get("grid_width", 0)),
+				"grid_height": int(snapshot.get("grid_height", 0)),
+				"compute_time_ms": float(spawn_probe.get("compute_time_ms", 0.0)),
+			}
+	return {
+		"success": false,
+		"message": "Native foundation snapshot returned empty data.",
+	}
+
 func _append_completed_packets(batch_requests: Array[Dictionary], packets: Array) -> void:
 	_result_mutex.lock()
 	for index: int in range(batch_requests.size()):
@@ -233,6 +291,13 @@ func _process_spawn_request(worker_world_core: Object, request: Dictionary) -> v
 	_completed_spawn_results.append(spawn_result)
 	_result_mutex.unlock()
 
+func _process_overview_request(worker_world_core: Object, request: Dictionary) -> void:
+	var overview_result: Dictionary = _call_get_world_foundation_overview_payload(worker_world_core, request)
+	overview_result["epoch"] = int(request.get("epoch", -1))
+	_result_mutex.lock()
+	_completed_overviews.append(overview_result)
+	_result_mutex.unlock()
+
 func _worker_loop() -> void:
 	var worker_world_core: Object = ClassDB.instantiate("WorldCore")
 	assert(worker_world_core != null, "WorldCore required inside worker thread")
@@ -249,6 +314,9 @@ func _worker_loop() -> void:
 			continue
 		if str(base_request.get("kind", "packet")) == "spawn":
 			_process_spawn_request(worker_world_core, base_request)
+			continue
+		if str(base_request.get("kind", "packet")) == "overview":
+			_process_overview_request(worker_world_core, base_request)
 			continue
 		var batch_requests: Array[Dictionary] = [base_request]
 		_request_mutex.lock()

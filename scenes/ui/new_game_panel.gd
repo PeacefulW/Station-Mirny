@@ -3,6 +3,7 @@ extends Control
 
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
+const WorldOverviewCanvas = preload("res://scenes/ui/world_overview_canvas.gd")
 const WorldPreviewCanvas = preload("res://scenes/ui/world_preview_canvas.gd")
 const WorldPreviewController = preload("res://core/systems/world/world_preview_controller.gd")
 const WorldPreviewRenderMode = preload("res://core/systems/world/world_preview_render_mode.gd")
@@ -206,6 +207,7 @@ var _seed_line_edit: LineEdit = null
 var _size_preset_select: OptionButton = null
 var _advanced_toggle: Button = null
 var _advanced_container: VBoxContainer = null
+var _overview_canvas: WorldOverviewCanvas = null
 var _preview_canvas: WorldPreviewCanvas = null
 var _preview_mode_select: OptionButton = null
 var _preview_controller: WorldPreviewController = WorldPreviewController.new()
@@ -232,7 +234,9 @@ func reload_defaults() -> void:
 	_regenerate_seed_text()
 
 func _rebuild_ui(seed_text: String, tab_index: int = 0) -> void:
+	_overview_canvas = null
 	_preview_canvas = null
+	_preview_controller.attach_overview_canvas(null)
 	_preview_controller.attach_canvas(null)
 	for child: Node in get_children():
 		child.queue_free()
@@ -351,6 +355,20 @@ func _build_ui(seed_text: String, active_tab: int) -> void:
 	preview_vbox.add_theme_constant_override("separation", 8)
 	right_column.add_child(preview_vbox)
 
+	var overview_label := _make_title_label(Localization.t("UI_WORLDGEN_OVERVIEW_TITLE"))
+	preview_vbox.add_child(overview_label)
+
+	var overview_frame := PanelContainer.new()
+	overview_frame.custom_minimum_size = Vector2(400, 138)
+	overview_frame.add_theme_stylebox_override("panel", _make_section_stylebox())
+	preview_vbox.add_child(overview_frame)
+
+	_overview_canvas = WorldOverviewCanvas.new()
+	_overview_canvas.size_flags_horizontal = SIZE_EXPAND_FILL
+	_overview_canvas.size_flags_vertical = SIZE_EXPAND_FILL
+	overview_frame.add_child(_overview_canvas)
+	_preview_controller.attach_overview_canvas(_overview_canvas)
+
 	var preview_label := _make_title_label(Localization.t("UI_WORLDGEN_PREVIEW_TITLE"))
 	preview_vbox.add_child(preview_label)
 
@@ -386,7 +404,7 @@ func _build_ui(seed_text: String, active_tab: int) -> void:
 	preview_toolbar.add_child(preview_reset_button)
 
 	var preview_frame := PanelContainer.new()
-	preview_frame.custom_minimum_size = Vector2(400, 400)
+	preview_frame.custom_minimum_size = Vector2(400, 280)
 	preview_frame.add_theme_stylebox_override("panel", _make_section_stylebox())
 	preview_frame.tooltip_text = Localization.t("UI_WORLDGEN_PREVIEW_CONTROLS_HINT")
 	preview_vbox.add_child(preview_frame)

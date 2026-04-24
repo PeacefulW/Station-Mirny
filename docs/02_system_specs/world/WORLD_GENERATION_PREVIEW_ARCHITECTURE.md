@@ -185,6 +185,20 @@ Current V1-R1B note:
 - this does not ship the full-world overview canvas; that remains the
   `world_foundation_v1.md` V1-R1C task
 
+Current V1-R1C note:
+- the new-game panel shows a full-world overview canvas alongside the existing
+  progressive detail canvas
+- `WorldPreviewController` uses the same debounce and epoch as the detail
+  preview, then queues one overview request through `WorldChunkPacketBackend`
+- `WorldChunkPacketBackend` calls the native `WorldCore` foundation snapshot
+  surface on the worker path and returns raw substrate channels for
+  main-thread texture publication
+- `WorldFoundationPalette` maps only canonical substrate channels to the
+  overview image; it does not invent faux biome colours or a second generator
+- `WorldOverviewCanvas` draws a single texture snapshot with X-wrap edge hints;
+  it never boots `WorldRuntimeV0`, never creates `ChunkView`, and never writes
+  save data
+
 ## File scope for the first implementation task
 
 ### New files

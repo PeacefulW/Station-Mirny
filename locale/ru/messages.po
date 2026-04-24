@@ -936,6 +936,9 @@ msgstr "▶  НАЧАТЬ ЭКСПЕДИЦИЮ"
 msgid "UI_WORLDGEN_MOUNTAINS_PANEL_SUBTITLE"
 msgstr "STATION MIRNY // ПРОТОКОЛ РАЗВЁРТЫВАНИЯ // КАРТИРОВАНИЕ АКТИВНО"
 
+msgid "UI_WORLDGEN_OVERVIEW_TITLE"
+msgstr "ОБЗОР МИРА"
+
 msgid "UI_WORLDGEN_PREVIEW_TITLE"
 msgstr "ПРЕДПРОСМОТР РЕГИОНА"
 
