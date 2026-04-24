@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.5
-last_updated: 2026-04-23
+version: 0.7
+last_updated: 2026-04-24
 related_docs:
   - ../README.md
   - system_api.md
@@ -27,6 +27,7 @@ This pass covers only shapes confirmed in current code:
 - save-slot file layout
 - save payload dictionaries
 - command result dictionaries
+- runtime native packet/result dictionaries
 
 ## Out of Scope
 
@@ -157,6 +158,17 @@ Current code note:
   "world_seed"?: int,
   "world_version"?: int,
   "worldgen_settings"?: {
+    "world_bounds"?: {
+      "width_tiles": int,
+      "height_tiles": int,
+    },
+    "foundation"?: {
+      "ocean_band_tiles": int,
+      "burning_band_tiles": int,
+      "pole_orientation": int,
+      "slope_bias": float,
+      "river_amount": float,
+    },
     "mountains"?: {
       "density": float,
       "scale": float,
@@ -175,6 +187,12 @@ Current code note:
 
 Current code notes:
 - `world_seed` and `world_version` are present when a `chunk_manager` world runtime is active
+- `world_version >= 9` writes `worldgen_settings.world_bounds` and
+  `worldgen_settings.foundation`; loading version `>= 9` without
+  `world_bounds` fails loudly, while missing `foundation` restores V1 defaults
+- `world_version >= 10` uses `worldgen_settings.world_bounds.width_tiles` as
+  the native mountain sample width; version `9` keeps the legacy `65536`-tile
+  mountain sample-width compatibility path
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - missing `worldgen_settings.mountains` restores hard-coded loader defaults for
@@ -427,7 +445,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current mountain runtime value is `6` |
+| `world_version` | `int` | — | Current foundation runtime value is `10` |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
@@ -449,7 +467,11 @@ and `mountain_atlas_indices = 0`.
 
 Current code notes:
 - `ChunkPacketV1` keeps one hot-path packet per chunk; batch generation returns one packet per requested coord
-- the current native boundary requires the full `settings_packed` payload
+- the current native boundary requires the full `settings_packed` payload:
+  indices `0-8` are mountain settings, and for `world_version >= 9` indices
+  `9-15` are `world_width_tiles`, `world_height_tiles`, `ocean_band_tiles`,
+  `burning_band_tiles`, `pole_orientation`, `foundation_slope_bias`, and
+  `river_amount`
 - the current native boundary requires `world_version >= 6`
 - `world_version >= 6` uses implicit-domain hierarchical labeling: aligned `1024 x 1024` macro solves recurse only through mixed cells, stop at versioned `min_label_cell_size = 8`, reuse a deterministic `1`-macro halo in native code, and hash `mountain_id` from the component representative leaf
 - `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` are base packet fields only; they are not persisted in `ChunkDiffFile`
@@ -457,8 +479,92 @@ Current code notes:
 - active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain either resolves into named mountain output or stays on the ground path at the hierarchical scale cutoff
 - `mountain_atlas_indices` is reserved for later roof presentation, but is already confirmed at the packet boundary in M1
 
+### `WorldFoundationSpawnResult`
+
+Returned by native
+`WorldCore.resolve_world_foundation_spawn_tile(seed, world_version, settings_packed)`
+and drained by `WorldChunkPacketBackend.drain_completed_spawn_results(...)`.
+
+Success shape:
+
+```text
+{
+  "success": true,
+  "spawn_tile": Vector2i,
+  "spawn_safe_patch_rect": Rect2i,
+  "node_coord": Vector2i,
+  "score": float,
+  "coarse_valley_score": float,
+  "hydro_height": float,
+  "coarse_wall_density": float,
+  "grid_width": int,
+  "grid_height": int,
+  "coarse_cell_size_tiles": int,
+  "compute_time_ms": float,
+  "epoch"?: int, # added by the worker wrapper, not by native code
+}
+```
+
+Failure shape:
+
+```text
+{
+  "success": false,
+  "message": String,
+  "epoch"?: int,
+}
+```
+
+Current code notes:
+- success candidates reject ocean band, burning band, open-water continent mask,
+  high wall density, visible river trunk nodes, and terminal lake centres
+- the result is transient worker output, not save data
+
+### `WorldFoundationSnapshotDebug`
+
+Returned by dev-only native
+`WorldCore.get_world_foundation_snapshot(layer_mask, downscale_factor)` after a
+matching substrate has been built.
+
+```text
+{
+  "grid_width": int,
+  "grid_height": int,
+  "coarse_cell_size_tiles": int,
+  "world_width_tiles": int,
+  "world_height_tiles": int,
+  "seed": int,
+  "world_version": int,
+  "signature": int,
+  "compute_time_ms": float,
+  "cycle_free": bool,
+  "layer_mask": int,
+  "downscale_factor": int,
+  "latitude_t": PackedFloat32Array,
+  "ocean_band_mask": PackedByteArray,
+  "burning_band_mask": PackedByteArray,
+  "continent_mask": PackedByteArray,
+  "hydro_height": PackedFloat32Array,
+  "coarse_wall_density": PackedFloat32Array,
+  "coarse_foot_density": PackedFloat32Array,
+  "coarse_valley_score": PackedFloat32Array,
+  "source_score": PackedFloat32Array,
+  "biome_region_id": PackedInt32Array,
+  "downstream_index": PackedInt32Array,
+  "flow_accumulation": PackedFloat32Array,
+  "visible_trunk_mask": PackedByteArray,
+  "strahler_order": PackedInt32Array,
+  "is_terminal_lake_center": PackedByteArray,
+  "terminal_lake_polygons": Array[PackedVector2Array],
+}
+```
+
+Current code notes:
+- every array is indexed by coarse node index `y * grid_width + x`
+- this dictionary is debug/dev tooling only and must not be persisted
+
 ## Not Currently Confirmed
 
 The current code still does not confirm any packet fields beyond `ChunkPacketV1`
-for future biome, river, placement, roof-runtime, entrance-runtime, or
-environment layers.
+and `WorldFoundationSnapshotDebug` for future biome, river tile realization,
+placement, roof-runtime, entrance-runtime, or environment layers.

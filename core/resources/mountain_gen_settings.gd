@@ -34,7 +34,7 @@ const LATITUDE_INFLUENCE_MAX: float = 1.0
 
 func flatten_to_packed() -> PackedFloat32Array:
 	var settings_packed: PackedFloat32Array = PackedFloat32Array()
-	settings_packed.resize(WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_FIELD_COUNT)
+	settings_packed.resize(WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_MOUNTAIN_FIELD_COUNT)
 	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_DENSITY] = density
 	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SCALE] = scale
 	settings_packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_CONTINUITY] = continuity

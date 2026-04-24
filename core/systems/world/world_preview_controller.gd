@@ -2,18 +2,21 @@ class_name WorldPreviewController
 extends RefCounted
 
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
+const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
 const WorldPreviewCanvas = preload("res://scenes/ui/world_preview_canvas.gd")
 const WorldPreviewPalette = preload("res://core/systems/world/world_preview_palette.gd")
 const WorldPreviewPatchCache = preload("res://core/systems/world/world_preview_patch_cache.gd")
 const WorldPreviewRenderMode = preload("res://core/systems/world/world_preview_render_mode.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.gd")
 const WorldSpawnResolver = preload("res://core/systems/world/world_spawn_resolver.gd")
 
 const STAGE_RADII_CHUNKS := [2, 6, 10, 16]
 const REBUILD_DEBOUNCE_SECONDS: float = 0.12
 const IN_FLIGHT_REQUEST_CAP: int = 8
 const MAX_RESULTS_PER_TICK: int = 4
+const MAX_SPAWN_RESULTS_PER_TICK: int = 2
 const MAX_PUBLISHES_PER_TICK: int = 4
 const PACKET_BACKEND_MAX_BATCH_SIZE: int = 64
 
@@ -26,6 +29,8 @@ var _preview_epoch: int = 0
 var _debounce_remaining: float = -1.0
 var _pending_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 var _pending_settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
+var _pending_world_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
+var _pending_foundation_settings: FoundationGenSettings = FoundationGenSettings.hard_coded_defaults()
 var _pending_settings_signature: String = ""
 var _active_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 var _active_settings_signature: String = ""
@@ -43,6 +48,7 @@ var _ready_patches: Dictionary = {}
 var _ready_publish_queue: Array[Vector2i] = []
 var _ready_publish_lookup: Dictionary = {}
 var _published_patches: Dictionary = {}
+var _awaiting_spawn_result: bool = false
 
 func start() -> void:
 	if _is_started:
@@ -95,13 +101,28 @@ func set_render_mode(render_mode: StringName) -> void:
 		return
 	_republish_visible_patches_for_current_mode()
 
-func queue_preview_rebuild(seed_value: int, settings: MountainGenSettings) -> void:
+func queue_preview_rebuild(
+	seed_value: int,
+	settings: MountainGenSettings,
+	world_bounds: WorldBoundsSettings = null,
+	foundation_settings: FoundationGenSettings = null
+) -> void:
 	_pending_seed = seed_value
 	_pending_settings = _clone_settings(settings)
-	_pending_settings_signature = _pending_settings.compute_signature()
+	_pending_world_bounds = _clone_world_bounds(world_bounds)
+	_pending_foundation_settings = _clone_foundation_settings(
+		foundation_settings,
+		_pending_world_bounds
+	)
+	_pending_settings_signature = _compute_worldgen_signature(
+		_pending_settings,
+		_pending_world_bounds,
+		_pending_foundation_settings
+	)
 	_preview_epoch += 1
 	_debounce_remaining = REBUILD_DEBOUNCE_SECONDS
 	_packet_backend.clear_queued_work()
+	_awaiting_spawn_result = false
 	_current_stage_request_queue.clear()
 	_in_flight_requests.clear()
 	_ready_patches.clear()
@@ -120,6 +141,7 @@ func tick(delta: float) -> void:
 		if _debounce_remaining <= 0.0:
 			_debounce_remaining = -1.0
 			_start_rebuild_from_pending_snapshot()
+	_drain_ready_spawn_results()
 	_drain_ready_packets()
 	_advance_stage_if_needed()
 	_fill_request_window()
@@ -136,17 +158,56 @@ func _start_rebuild_from_pending_snapshot() -> void:
 	_packet_backend.clear_queued_work()
 	_active_seed = _pending_seed
 	_active_settings_signature = _pending_settings_signature
-	_active_settings_packed = _pending_settings.flatten_to_packed()
-	_current_spawn_tile = WorldSpawnResolver.resolve_preview_spawn_tile(
+	_active_settings_packed = _build_settings_packed(
+		_pending_settings,
+		_pending_world_bounds,
+		_pending_foundation_settings
+	)
+	_awaiting_spawn_result = true
+	_packet_backend.queue_spawn_request(
 		_active_seed,
 		WorldRuntimeConstants.WORLD_VERSION,
-		_pending_settings
+		_active_settings_packed,
+		_preview_epoch
 	)
-	_current_spawn_safe_patch_rect = WorldSpawnResolver.resolve_preview_spawn_safe_patch_rect(
-		_active_seed,
-		WorldRuntimeConstants.WORLD_VERSION,
-		_pending_settings
-	)
+	_current_center_chunk = WorldRuntimeConstants.tile_to_chunk(_current_spawn_tile)
+	_stage_plans.clear()
+	_current_stage_window.clear()
+	_current_stage_index = -1
+	if _canvas != null:
+		_canvas.reset_preview(
+			_current_center_chunk,
+			_current_spawn_tile,
+			_resolve_full_radius_chunks()
+		)
+		_canvas.set_render_mode(_active_render_mode, _current_spawn_safe_patch_rect)
+	_update_canvas_progress()
+
+func _drain_ready_spawn_results() -> void:
+	if not _awaiting_spawn_result:
+		return
+	var ready_results: Array[Dictionary] = _packet_backend.drain_completed_spawn_results(MAX_SPAWN_RESULTS_PER_TICK)
+	for spawn_result: Dictionary in ready_results:
+		if int(spawn_result.get("epoch", -1)) != _preview_epoch:
+			continue
+		_awaiting_spawn_result = false
+		if not bool(spawn_result.get("success", false)):
+			push_error(
+				"WorldPreviewController native spawn resolution failed: %s"
+				% str(spawn_result.get("message", "unknown error"))
+			)
+			_stage_plans.clear()
+			_current_stage_window.clear()
+			_current_stage_request_queue.clear()
+			_in_flight_requests.clear()
+			_update_canvas_progress()
+			return
+		_begin_rebuild_from_spawn_result(spawn_result)
+		return
+
+func _begin_rebuild_from_spawn_result(spawn_result: Dictionary) -> void:
+	_current_spawn_tile = WorldSpawnResolver.resolve_spawn_tile_from_native_result(spawn_result)
+	_current_spawn_safe_patch_rect = WorldSpawnResolver.resolve_spawn_safe_patch_rect_from_native_result(spawn_result)
 	_current_center_chunk = WorldRuntimeConstants.tile_to_chunk(_current_spawn_tile)
 	_stage_plans = _build_stage_plans(_current_center_chunk)
 	_current_stage_window.clear()
@@ -178,6 +239,8 @@ func _drain_ready_packets() -> void:
 			_store_ready_patch(chunk_coord, patch_texture)
 
 func _advance_stage_if_needed() -> void:
+	if _awaiting_spawn_result:
+		return
 	while true:
 		if _current_stage_index >= 0 and not _is_stage_complete(_current_stage_index):
 			return
@@ -197,6 +260,8 @@ func _advance_stage_if_needed() -> void:
 			_current_stage_request_queue.append(chunk_coord)
 
 func _fill_request_window() -> void:
+	if _awaiting_spawn_result:
+		return
 	if _current_stage_index < 0:
 		return
 	while _in_flight_requests.size() < IN_FLIGHT_REQUEST_CAP and not _current_stage_request_queue.is_empty():
@@ -350,11 +415,15 @@ func _resolve_full_radius_chunks() -> int:
 	return int(STAGE_RADII_CHUNKS[STAGE_RADII_CHUNKS.size() - 1])
 
 func _resolve_stage_span_chunks() -> int:
+	if _awaiting_spawn_result:
+		return 0
 	if _current_stage_index < 0 or _current_stage_index >= _stage_plans.size():
 		return 0
 	return int((_stage_plans[_current_stage_index] as Dictionary).get("radius", 0)) * 2 + 1
 
 func _resolve_total_target_count() -> int:
+	if _awaiting_spawn_result:
+		return 0
 	if _stage_plans.is_empty():
 		return 0
 	return _coerce_chunk_coords((_stage_plans[_stage_plans.size() - 1] as Dictionary).get("window_coords", [])).size()
@@ -384,6 +453,43 @@ func _clone_settings(settings: MountainGenSettings) -> MountainGenSettings:
 	if settings == null:
 		return MountainGenSettings.hard_coded_defaults()
 	return MountainGenSettings.from_save_dict(settings.to_save_dict())
+
+func _clone_world_bounds(settings: WorldBoundsSettings) -> WorldBoundsSettings:
+	if settings == null:
+		return WorldBoundsSettings.hard_coded_defaults()
+	return WorldBoundsSettings.from_save_dict(settings.to_save_dict())
+
+func _clone_foundation_settings(
+	settings: FoundationGenSettings,
+	world_bounds: WorldBoundsSettings
+) -> FoundationGenSettings:
+	if settings == null:
+		return FoundationGenSettings.for_bounds(world_bounds)
+	return FoundationGenSettings.from_save_dict(settings.to_save_dict(), world_bounds)
+
+func _build_settings_packed(
+	settings: MountainGenSettings,
+	world_bounds: WorldBoundsSettings,
+	foundation_settings: FoundationGenSettings
+) -> PackedFloat32Array:
+	var packed: PackedFloat32Array = settings.flatten_to_packed()
+	return foundation_settings.write_to_settings_packed(packed, world_bounds)
+
+func _compute_worldgen_signature(
+	settings: MountainGenSettings,
+	world_bounds: WorldBoundsSettings,
+	foundation_settings: FoundationGenSettings
+) -> String:
+	var hashing_context: HashingContext = HashingContext.new()
+	var start_error: Error = hashing_context.start(HashingContext.HASH_SHA1)
+	if start_error != OK:
+		return ""
+	hashing_context.update(JSON.stringify({
+		"mountains": settings.to_save_dict(),
+		"world_bounds": world_bounds.to_save_dict(),
+		"foundation": foundation_settings.to_save_dict(),
+	}).to_utf8_buffer())
+	return hashing_context.finish().hex_encode()
 
 func _resolve_patch_render_mode() -> StringName:
 	return WorldPreviewRenderMode.TERRAIN \

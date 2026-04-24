@@ -3,15 +3,19 @@ extends Node2D
 
 const ChunkView = preload("res://core/systems/world/chunk_view.gd")
 const HarvestQuery = preload("res://core/systems/world/harvest_query.gd")
+const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
 const MountainCavityCache = preload("res://core/systems/world/mountain_cavity_cache.gd")
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
 const WorldDiffStore = preload("res://core/systems/world/world_diff_store.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const WorldSpawnResolver = preload("res://core/systems/world/world_spawn_resolver.gd")
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
+const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.gd")
 
 const INVALID_CHUNK_COORD: Vector2i = Vector2i(2147483647, 2147483647)
+const MAX_SPAWN_RESULTS_PER_TICK: int = 1
 
 var world_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 var world_version: int = WorldRuntimeConstants.WORLD_VERSION
@@ -26,9 +30,15 @@ var _player_chunk_coord: Vector2i = INVALID_CHUNK_COORD
 var _stream_job_id: StringName = &""
 var _generation_epoch: int = 0
 var _worldgen_settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
+var _world_bounds_settings: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
+var _foundation_settings: FoundationGenSettings = FoundationGenSettings.hard_coded_defaults()
 var _worldgen_settings_packed: PackedFloat32Array = PackedFloat32Array()
 var _pending_new_world_settings: MountainGenSettings = null
+var _pending_new_world_bounds: WorldBoundsSettings = null
+var _pending_new_foundation_settings: FoundationGenSettings = null
 var _packet_backend: WorldChunkPacketBackend = WorldChunkPacketBackend.new()
+var _awaiting_new_game_spawn_result: bool = false
+var _new_game_spawn_failed: bool = false
 var roof_layers_per_chunk_max: int = 0
 
 var _mountain_cavity_cache: MountainCavityCache = MountainCavityCache.new()
@@ -39,7 +49,11 @@ var _did_warn_roof_layer_explosion: bool = false
 func _ready() -> void:
 	add_to_group("chunk_manager")
 	name = "WorldStreamer"
-	_apply_worldgen_settings(MountainGenSettings.hard_coded_defaults())
+	_apply_worldgen_settings(
+		MountainGenSettings.hard_coded_defaults(),
+		WorldBoundsSettings.hard_coded_defaults(),
+		FoundationGenSettings.hard_coded_defaults()
+	)
 	WorldTileSetFactory.bootstrap()
 	_packet_backend.start()
 	_stream_job_id = FrameBudgetDispatcher.register_job(
@@ -58,8 +72,18 @@ func _exit_tree() -> void:
 		FrameBudgetDispatcher.unregister_job(_stream_job_id)
 	_packet_backend.stop()
 
-func initialize_new_world(seed_value: int, settings: MountainGenSettings) -> void:
+func initialize_new_world(
+	seed_value: int,
+	settings: MountainGenSettings,
+	world_bounds: WorldBoundsSettings = null,
+	foundation_settings: FoundationGenSettings = null
+) -> void:
 	_pending_new_world_settings = _clone_worldgen_settings(settings)
+	_pending_new_world_bounds = _clone_world_bounds(world_bounds)
+	_pending_new_foundation_settings = _clone_foundation_settings(
+		foundation_settings,
+		_pending_new_world_bounds
+	)
 	reset_for_new_game(seed_value, WorldRuntimeConstants.WORLD_VERSION)
 
 func reset_for_new_game(
@@ -69,34 +93,59 @@ func reset_for_new_game(
 	world_seed = seed
 	world_version = version
 	if _pending_new_world_settings != null:
-		_apply_worldgen_settings(_pending_new_world_settings)
+		_apply_worldgen_settings(
+			_pending_new_world_settings,
+			_pending_new_world_bounds,
+			_pending_new_foundation_settings
+		)
 	else:
-		_apply_worldgen_settings(MountainGenSettings.hard_coded_defaults())
+		var default_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
+		_apply_worldgen_settings(
+			MountainGenSettings.hard_coded_defaults(),
+			default_bounds,
+			FoundationGenSettings.for_bounds(default_bounds)
+		)
 	_pending_new_world_settings = null
+	_pending_new_world_bounds = null
+	_pending_new_foundation_settings = null
 	_diff_store.clear()
 	_reset_runtime_state()
+	_queue_new_game_spawn_resolution()
 	EventBus.world_initialized.emit(world_seed)
 
 func load_world_state(data: Dictionary) -> void:
 	world_seed = int(data.get("world_seed", WorldRuntimeConstants.DEFAULT_WORLD_SEED))
 	world_version = int(data.get("world_version", WorldRuntimeConstants.WORLD_VERSION))
 	_pending_new_world_settings = null
-	_apply_worldgen_settings(_load_worldgen_settings_from_save(data))
+	_pending_new_world_bounds = null
+	_pending_new_foundation_settings = null
+	var loaded_bounds: WorldBoundsSettings = _load_world_bounds_from_save(data)
+	_apply_worldgen_settings(
+		_load_worldgen_settings_from_save(data),
+		loaded_bounds,
+		_load_foundation_settings_from_save(data, loaded_bounds)
+	)
 	_diff_store.clear()
 	_reset_runtime_state()
+	_awaiting_new_game_spawn_result = false
+	_new_game_spawn_failed = false
 	EventBus.world_initialized.emit(world_seed)
 
 func save_world_state() -> Dictionary:
 	var current_settings: MountainGenSettings = _worldgen_settings
+	var worldgen_settings: Dictionary = {
+		"mountains": current_settings.to_save_dict(),
+	}
+	if WorldRuntimeConstants.uses_world_foundation(world_version):
+		worldgen_settings["world_bounds"] = _world_bounds_settings.to_save_dict()
+		worldgen_settings["foundation"] = _foundation_settings.to_save_dict()
 	return {
 		"world_rebuild_frozen": false,
 		"world_scene_present": true,
 		"world_seed": world_seed,
 		"world_version": world_version,
-		"worldgen_settings": {
-			"mountains": current_settings.to_save_dict(),
-		},
-		"worldgen_signature": current_settings.compute_signature(),
+		"worldgen_settings": worldgen_settings,
+		"worldgen_signature": _compute_worldgen_signature(worldgen_settings),
 	}
 
 func collect_chunk_diffs() -> Array[Dictionary]:
@@ -133,7 +182,7 @@ func get_mountain_cover_debug_snapshot(world_tile: Vector2i) -> Dictionary:
 	return debug_snapshot
 
 func get_mountain_cover_render_debug_snapshot(world_tile: Vector2i) -> Dictionary:
-	var probe_tile: Vector2i = _resolve_cover_debug_probe_tile(world_tile)
+	var probe_tile: Vector2i = _canonicalize_tile_coord(_resolve_cover_debug_probe_tile(world_tile))
 	var probe_chunk: Vector2i = WorldRuntimeConstants.tile_to_chunk(probe_tile)
 	var probe_local: Vector2i = WorldRuntimeConstants.tile_to_local(probe_tile)
 	var probe_sample: Dictionary = get_mountain_cover_sample(probe_tile)
@@ -245,6 +294,10 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	}
 
 func _streaming_tick() -> bool:
+	_drain_new_game_spawn_result()
+	if _awaiting_new_game_spawn_result or _new_game_spawn_failed:
+		return false
+	_wrap_local_player_position_if_needed()
 	_update_player_chunk_coord()
 	_enqueue_desired_chunks()
 	_drain_completed_packets(1)
@@ -254,7 +307,7 @@ func _streaming_tick() -> bool:
 
 func _update_player_chunk_coord() -> void:
 	var player_pos: Vector2 = PlayerAuthority.get_local_player_position()
-	var tile_coord: Vector2i = WorldRuntimeConstants.world_to_tile(player_pos)
+	var tile_coord: Vector2i = _canonicalize_tile_coord(WorldRuntimeConstants.world_to_tile(player_pos))
 	_player_chunk_coord = WorldRuntimeConstants.tile_to_chunk(tile_coord)
 
 func _enqueue_desired_chunks() -> void:
@@ -281,7 +334,7 @@ func _drain_completed_packets(max_count: int) -> void:
 	for packet: Dictionary in drained:
 		if int(packet.get("epoch", -1)) != _generation_epoch:
 			continue
-		var chunk_coord: Vector2i = packet.get("chunk_coord", Vector2i.ZERO) as Vector2i
+		var chunk_coord: Vector2i = _canonicalize_chunk_coord(packet.get("chunk_coord", Vector2i.ZERO) as Vector2i)
 		_requested_chunks.erase(chunk_coord)
 		var merged_packet: Dictionary = _diff_store.apply_to_packet(packet)
 		_chunk_packets[chunk_coord] = merged_packet
@@ -338,6 +391,8 @@ func _evict_outside_ring(max_count: int) -> void:
 		evicted += 1
 
 func _has_pending_streaming_work() -> bool:
+	if _awaiting_new_game_spawn_result:
+		return true
 	if not _pending_publish_queue.is_empty():
 		return true
 	if _active_publish_chunk != INVALID_CHUNK_COORD:
@@ -352,7 +407,13 @@ func _has_pending_streaming_work() -> bool:
 	return false
 
 func _get_tile_data(world_pos: Vector2) -> Dictionary:
-	var tile_coord: Vector2i = WorldRuntimeConstants.world_to_tile(world_pos)
+	var tile_coord: Vector2i = _canonicalize_tile_coord(WorldRuntimeConstants.world_to_tile(world_pos))
+	if _uses_finite_world_bounds() and not _world_bounds_settings.is_tile_y_in_bounds(tile_coord.y):
+		return {
+			"ready": false,
+			"chunk_coord": WorldRuntimeConstants.tile_to_chunk(tile_coord),
+			"local_coord": WorldRuntimeConstants.tile_to_local(tile_coord),
+		}
 	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(tile_coord)
 	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(tile_coord)
 
@@ -395,15 +456,16 @@ func _sample_harvest_gate_tile(world_tile: Vector2i) -> Dictionary:
 	return _get_tile_data(WorldRuntimeConstants.tile_to_world_center(world_tile))
 
 func _sample_mountain_cover_tile(world_tile: Vector2i) -> Dictionary:
-	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(world_tile)
+	var canonical_tile: Vector2i = _canonicalize_tile_coord(world_tile)
+	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(canonical_tile)
 	var packet: Dictionary = get_chunk_packet(chunk_coord)
 	if packet.is_empty():
 		return {
 			"ready": false,
 			"chunk_coord": chunk_coord,
-			"local_coord": WorldRuntimeConstants.tile_to_local(world_tile),
+			"local_coord": WorldRuntimeConstants.tile_to_local(canonical_tile),
 		}
-	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(world_tile)
+	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(canonical_tile)
 	var index: int = WorldRuntimeConstants.local_to_index(local_coord)
 	var mountain_ids: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
 	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
@@ -445,6 +507,9 @@ func _resolve_cover_debug_probe_tile(world_tile: Vector2i) -> Vector2i:
 	return world_tile
 
 func _enqueue_chunk_if_needed(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if _uses_finite_world_bounds() and not _world_bounds_settings.is_chunk_y_in_bounds(chunk_coord.y):
+		return
 	if _requested_chunks.has(chunk_coord) or _chunk_packets.has(chunk_coord):
 		return
 	_requested_chunks[chunk_coord] = true
@@ -645,6 +710,13 @@ func _try_resolve_loaded_mountain_atlas_index(tile_coord: Vector2i) -> Dictionar
 	}
 
 func _get_loaded_tile_data_no_enqueue(tile_coord: Vector2i) -> Dictionary:
+	tile_coord = _canonicalize_tile_coord(tile_coord)
+	if _uses_finite_world_bounds() and not _world_bounds_settings.is_tile_y_in_bounds(tile_coord.y):
+		return {
+			"ready": false,
+			"chunk_coord": WorldRuntimeConstants.tile_to_chunk(tile_coord),
+			"local_coord": WorldRuntimeConstants.tile_to_local(tile_coord),
+		}
 	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(tile_coord)
 	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(tile_coord)
 	var override_data: Dictionary = _diff_store.get_tile_override(chunk_coord, local_coord)
@@ -681,9 +753,10 @@ func _get_loaded_tile_data_no_enqueue(tile_coord: Vector2i) -> Dictionary:
 	}
 
 func _chunk_local_to_tile(chunk_coord: Vector2i, local_coord: Vector2i) -> Vector2i:
+	var canonical_chunk: Vector2i = _canonicalize_chunk_coord(chunk_coord)
 	return Vector2i(
-		chunk_coord.x * WorldRuntimeConstants.CHUNK_SIZE + local_coord.x,
-		chunk_coord.y * WorldRuntimeConstants.CHUNK_SIZE + local_coord.y
+		canonical_chunk.x * WorldRuntimeConstants.CHUNK_SIZE + local_coord.x,
+		canonical_chunk.y * WorldRuntimeConstants.CHUNK_SIZE + local_coord.y
 	)
 
 func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
@@ -699,6 +772,8 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 func _reset_runtime_state() -> void:
 	_generation_epoch += 1
 	_packet_backend.clear_queued_work()
+	_awaiting_new_game_spawn_result = false
+	_new_game_spawn_failed = false
 	_requested_chunks.clear()
 	_pending_publish_queue.clear()
 	_active_publish_chunk = INVALID_CHUNK_COORD
@@ -715,14 +790,81 @@ func _reset_runtime_state() -> void:
 	_active_cover_component_id = 0
 	_did_warn_roof_layer_explosion = false
 
+func _queue_new_game_spawn_resolution() -> void:
+	if not WorldRuntimeConstants.uses_world_foundation(world_version):
+		var legacy_spawn_tile: Vector2i = WorldSpawnResolver.resolve_preview_spawn_tile(
+			world_seed,
+			world_version,
+			_worldgen_settings,
+			_world_bounds_settings,
+			_foundation_settings
+		)
+		_position_local_player_at_spawn_tile(legacy_spawn_tile)
+		return
+	_awaiting_new_game_spawn_result = true
+	_new_game_spawn_failed = false
+	_packet_backend.queue_spawn_request(
+		world_seed,
+		world_version,
+		_worldgen_settings_packed,
+		_generation_epoch
+	)
+
+func _drain_new_game_spawn_result() -> void:
+	if not _awaiting_new_game_spawn_result:
+		return
+	var ready_results: Array[Dictionary] = _packet_backend.drain_completed_spawn_results(MAX_SPAWN_RESULTS_PER_TICK)
+	for spawn_result: Dictionary in ready_results:
+		if int(spawn_result.get("epoch", -1)) != _generation_epoch:
+			continue
+		if not bool(spawn_result.get("success", false)):
+			var message: String = "WorldStreamer native spawn resolution failed: %s" \
+				% str(spawn_result.get("message", "unknown error"))
+			_fail_new_game_spawn_resolution(message)
+			return
+		var spawn_tile_variant: Variant = spawn_result.get("spawn_tile", null)
+		if spawn_tile_variant is not Vector2i:
+			_fail_new_game_spawn_resolution(
+				"WorldStreamer native spawn resolution returned no Vector2i spawn_tile."
+			)
+			return
+		_awaiting_new_game_spawn_result = false
+		_position_local_player_at_spawn_tile(spawn_tile_variant as Vector2i)
+		return
+
+func _fail_new_game_spawn_resolution(message: String) -> void:
+	push_error(message)
+	assert(false, message)
+	_awaiting_new_game_spawn_result = false
+	_new_game_spawn_failed = true
+
+func _position_local_player_at_spawn_tile(spawn_tile: Vector2i) -> void:
+	var player: Node2D = PlayerAuthority.get_local_player()
+	if player == null:
+		_fail_new_game_spawn_resolution(
+			"WorldStreamer could not apply new-game spawn because local player is missing."
+		)
+		return
+	var canonical_spawn_tile: Vector2i = _canonicalize_tile_coord(spawn_tile)
+	player.global_position = WorldRuntimeConstants.tile_to_world_center(canonical_spawn_tile)
+	_player_chunk_coord = WorldRuntimeConstants.tile_to_chunk(canonical_spawn_tile)
+	_new_game_spawn_failed = false
+
 func _build_desired_chunk_coords(center_chunk: Vector2i) -> Array[Vector2i]:
 	var coords: Array[Vector2i] = []
+	var seen: Dictionary = {}
 	for y: int in range(center_chunk.y - WorldRuntimeConstants.STREAM_RADIUS_CHUNKS, center_chunk.y + WorldRuntimeConstants.STREAM_RADIUS_CHUNKS + 1):
 		for x: int in range(center_chunk.x - WorldRuntimeConstants.STREAM_RADIUS_CHUNKS, center_chunk.x + WorldRuntimeConstants.STREAM_RADIUS_CHUNKS + 1):
-			coords.append(Vector2i(x, y))
+			var coord: Vector2i = _canonicalize_chunk_coord(Vector2i(x, y))
+			if _uses_finite_world_bounds() and not _world_bounds_settings.is_chunk_y_in_bounds(coord.y):
+				continue
+			if seen.has(coord):
+				continue
+			seen[coord] = true
+			coords.append(coord)
 	coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		var dist_a: int = _distance_sq(center_chunk, a)
-		var dist_b: int = _distance_sq(center_chunk, b)
+		var dist_a: int = _chunk_distance_sq(center_chunk, a)
+		var dist_b: int = _chunk_distance_sq(center_chunk, b)
 		return dist_a < dist_b if dist_a != dist_b else (a.x < b.x if a.x != b.x else a.y < b.y)
 	)
 	return coords
@@ -730,8 +872,10 @@ func _build_desired_chunk_coords(center_chunk: Vector2i) -> Array[Vector2i]:
 func _is_chunk_desired(chunk_coord: Vector2i) -> bool:
 	if _player_chunk_coord == INVALID_CHUNK_COORD:
 		return false
+	if _uses_finite_world_bounds() and not _world_bounds_settings.is_chunk_y_in_bounds(chunk_coord.y):
+		return false
 	return maxi(
-		absi(chunk_coord.x - _player_chunk_coord.x),
+		_wrapped_chunk_delta_abs(chunk_coord.x, _player_chunk_coord.x),
 		absi(chunk_coord.y - _player_chunk_coord.y)
 	) <= WorldRuntimeConstants.STREAM_RADIUS_CHUNKS
 
@@ -816,7 +960,7 @@ func _repair_active_cover_component_from_player_position() -> Dictionary:
 			"mountain_id": 0,
 			"component_id": 0,
 		}
-	var player_tile: Vector2i = WorldRuntimeConstants.world_to_tile(PlayerAuthority.get_local_player_position())
+	var player_tile: Vector2i = _canonicalize_tile_coord(WorldRuntimeConstants.world_to_tile(PlayerAuthority.get_local_player_position()))
 	var current_sample: Dictionary = get_mountain_cover_sample(player_tile)
 	var next_component_id: int = int(current_sample.get("component_id", 0))
 	if not _mountain_cavity_cache.has_component(next_component_id):
@@ -884,8 +1028,8 @@ func _track_roof_layer_metric(chunk_coord: Vector2i, packet: Dictionary) -> void
 		_did_warn_roof_layer_explosion = true
 		push_warning("roof layer explosion: chunk %s has %d mountains" % [chunk_coord, mountain_count])
 
-func _distance_sq(a: Vector2i, b: Vector2i) -> int:
-	var dx: int = a.x - b.x
+func _chunk_distance_sq(a: Vector2i, b: Vector2i) -> int:
+	var dx: int = _wrapped_chunk_delta_abs(a.x, b.x)
 	var dy: int = a.y - b.y
 	return dx * dx + dy * dy
 
@@ -898,14 +1042,81 @@ func _uses_mountain_surface_presentation(terrain_id: int) -> bool:
 		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
 		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
 
-func _apply_worldgen_settings(settings: MountainGenSettings) -> void:
+func _wrap_local_player_position_if_needed() -> void:
+	if not _uses_finite_world_bounds():
+		return
+	var player: Node2D = PlayerAuthority.get_local_player()
+	if player == null:
+		return
+	var width_px: float = float(_world_bounds_settings.width_tiles * WorldRuntimeConstants.TILE_SIZE_PX)
+	if width_px <= 0.0:
+		return
+	var wrapped_x: float = fposmod(player.global_position.x, width_px)
+	if is_equal_approx(wrapped_x, player.global_position.x):
+		return
+	player.global_position = Vector2(wrapped_x, player.global_position.y)
+
+func _uses_finite_world_bounds() -> bool:
+	return WorldRuntimeConstants.uses_world_foundation(world_version)
+
+func _canonicalize_tile_coord(tile_coord: Vector2i) -> Vector2i:
+	if not _uses_finite_world_bounds():
+		return tile_coord
+	return _world_bounds_settings.canonicalize_tile(tile_coord)
+
+func _canonicalize_chunk_coord(chunk_coord: Vector2i) -> Vector2i:
+	if not _uses_finite_world_bounds():
+		return chunk_coord
+	return _world_bounds_settings.canonicalize_chunk(chunk_coord)
+
+func _wrapped_chunk_delta_abs(a: int, b: int) -> int:
+	if not _uses_finite_world_bounds():
+		return absi(a - b)
+	var width_chunks: int = _world_bounds_settings.get_width_chunks()
+	var direct_delta: int = absi(posmod(a, width_chunks) - posmod(b, width_chunks))
+	return mini(direct_delta, width_chunks - direct_delta)
+
+func _apply_worldgen_settings(
+	settings: MountainGenSettings,
+	world_bounds: WorldBoundsSettings,
+	foundation_settings: FoundationGenSettings
+) -> void:
 	_worldgen_settings = _clone_worldgen_settings(settings)
-	_worldgen_settings_packed = _worldgen_settings.flatten_to_packed()
+	_world_bounds_settings = _clone_world_bounds(world_bounds)
+	_foundation_settings = _clone_foundation_settings(foundation_settings, _world_bounds_settings)
+	_worldgen_settings_packed = _build_worldgen_settings_packed()
 
 func _clone_worldgen_settings(settings: MountainGenSettings) -> MountainGenSettings:
 	if settings == null:
 		return MountainGenSettings.hard_coded_defaults()
 	return MountainGenSettings.from_save_dict(settings.to_save_dict())
+
+func _clone_world_bounds(settings: WorldBoundsSettings) -> WorldBoundsSettings:
+	if settings == null:
+		return WorldBoundsSettings.hard_coded_defaults()
+	return WorldBoundsSettings.from_save_dict(settings.to_save_dict())
+
+func _clone_foundation_settings(
+	settings: FoundationGenSettings,
+	world_bounds: WorldBoundsSettings
+) -> FoundationGenSettings:
+	if settings == null:
+		return FoundationGenSettings.for_bounds(world_bounds)
+	return FoundationGenSettings.from_save_dict(settings.to_save_dict(), world_bounds)
+
+func _build_worldgen_settings_packed() -> PackedFloat32Array:
+	var packed: PackedFloat32Array = _worldgen_settings.flatten_to_packed()
+	if WorldRuntimeConstants.uses_world_foundation(world_version):
+		return _foundation_settings.write_to_settings_packed(packed, _world_bounds_settings)
+	return packed
+
+func _compute_worldgen_signature(worldgen_settings: Dictionary) -> String:
+	var hashing_context: HashingContext = HashingContext.new()
+	var start_error: Error = hashing_context.start(HashingContext.HASH_SHA1)
+	if start_error != OK:
+		return ""
+	hashing_context.update(JSON.stringify(worldgen_settings).to_utf8_buffer())
+	return hashing_context.finish().hex_encode()
 
 func _load_worldgen_settings_from_save(data: Dictionary) -> MountainGenSettings:
 	var worldgen_settings: Variant = data.get("worldgen_settings", {})
@@ -915,3 +1126,34 @@ func _load_worldgen_settings_from_save(data: Dictionary) -> MountainGenSettings:
 	if mountains_settings is not Dictionary:
 		return MountainGenSettings.hard_coded_defaults()
 	return MountainGenSettings.from_save_dict(mountains_settings as Dictionary)
+
+func _load_world_bounds_from_save(data: Dictionary) -> WorldBoundsSettings:
+	var worldgen_settings: Variant = data.get("worldgen_settings", {})
+	if not WorldRuntimeConstants.uses_world_foundation(world_version):
+		return WorldBoundsSettings.hard_coded_defaults()
+	if worldgen_settings is not Dictionary or not (worldgen_settings as Dictionary).has("world_bounds"):
+		var message: String = "world_version >= 9 requires worldgen_settings.world_bounds in world.json"
+		push_error(message)
+		assert(false, message)
+		return WorldBoundsSettings.hard_coded_defaults()
+	var world_bounds: Variant = (worldgen_settings as Dictionary).get("world_bounds", {})
+	if world_bounds is not Dictionary:
+		var message: String = "worldgen_settings.world_bounds must be a Dictionary"
+		push_error(message)
+		assert(false, message)
+		return WorldBoundsSettings.hard_coded_defaults()
+	return WorldBoundsSettings.from_save_dict(world_bounds as Dictionary)
+
+func _load_foundation_settings_from_save(
+	data: Dictionary,
+	world_bounds: WorldBoundsSettings
+) -> FoundationGenSettings:
+	var worldgen_settings: Variant = data.get("worldgen_settings", {})
+	if not WorldRuntimeConstants.uses_world_foundation(world_version):
+		return FoundationGenSettings.for_bounds(world_bounds)
+	if worldgen_settings is not Dictionary:
+		return FoundationGenSettings.for_bounds(world_bounds)
+	var foundation_settings: Variant = (worldgen_settings as Dictionary).get("foundation", {})
+	if foundation_settings is not Dictionary:
+		return FoundationGenSettings.for_bounds(world_bounds)
+	return FoundationGenSettings.from_save_dict(foundation_settings as Dictionary, world_bounds)

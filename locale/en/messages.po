@@ -849,6 +849,30 @@ msgstr "GEOLOGY"
 msgid "UI_NEW_GAME_SECTOR_LABEL"
 msgstr "SECTOR: %s"
 
+msgid "UI_WORLDGEN_SIZE_LABEL"
+msgstr "World size"
+
+msgid "UI_WORLDGEN_SIZE_SMALL"
+msgstr "Small cylinder"
+
+msgid "UI_WORLDGEN_SIZE_MEDIUM"
+msgstr "Medium cylinder"
+
+msgid "UI_WORLDGEN_SIZE_LARGE"
+msgstr "Large cylinder"
+
+msgid "UI_WORLDGEN_FOUNDATION_OCEAN_BAND"
+msgstr "Ocean band"
+
+msgid "UI_WORLDGEN_FOUNDATION_OCEAN_BAND_DESC"
+msgstr "Thickness of the impassable top-Y ocean belt in tiles."
+
+msgid "UI_WORLDGEN_FOUNDATION_BURNING_BAND"
+msgstr "Burning band"
+
+msgid "UI_WORLDGEN_FOUNDATION_BURNING_BAND_DESC"
+msgstr "Thickness of the impassable bottom-Y burning-lands belt in tiles."
+
 msgid "UI_WORLDGEN_MOUNTAINS_DENSITY"
 msgstr "DENSITY INDEX"
 
@@ -968,6 +992,9 @@ msgstr "Landing..."
 
 msgid "UI_HUD_FLOOR_GENERIC"
 msgstr "Level {z}"
+
+msgid "UI_HUD_TILE_COORDS"
+msgstr "Tile: {x}, {y}"
 
 msgid "UI_INVENTORY_SLOT_TOOLTIP"
 msgstr "{name}\n{amount} / {max_stack}"

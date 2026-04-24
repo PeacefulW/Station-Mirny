@@ -9,6 +9,7 @@ var _result_mutex: Mutex = Mutex.new()
 var _request_semaphore: Semaphore = Semaphore.new()
 var _pending_requests: Array[Dictionary] = []
 var _completed_packets: Array[Dictionary] = []
+var _completed_spawn_results: Array[Dictionary] = []
 var _worker_should_exit: bool = false
 var _max_batch_size: int = DEFAULT_MAX_BATCH_SIZE
 
@@ -48,7 +49,25 @@ func queue_packet_request(
 ) -> void:
 	_request_mutex.lock()
 	_pending_requests.append({
+		"kind": "packet",
 		"coord": chunk_coord,
+		"seed": seed,
+		"world_version": world_version,
+		"settings_packed": settings_packed.duplicate(),
+		"epoch": epoch,
+	})
+	_request_mutex.unlock()
+	_request_semaphore.post()
+
+func queue_spawn_request(
+	seed: int,
+	world_version: int,
+	settings_packed: PackedFloat32Array,
+	epoch: int
+) -> void:
+	_request_mutex.lock()
+	_pending_requests.append({
+		"kind": "spawn",
 		"seed": seed,
 		"world_version": world_version,
 		"settings_packed": settings_packed.duplicate(),
@@ -66,12 +85,22 @@ func drain_completed_packets(max_count: int) -> Array[Dictionary]:
 	_result_mutex.unlock()
 	return drained
 
+func drain_completed_spawn_results(max_count: int) -> Array[Dictionary]:
+	var drained: Array[Dictionary] = []
+	_result_mutex.lock()
+	var drain_count: int = mini(max_count, _completed_spawn_results.size())
+	for _i: int in range(drain_count):
+		drained.append(_completed_spawn_results.pop_front() as Dictionary)
+	_result_mutex.unlock()
+	return drained
+
 func clear_queued_work() -> void:
 	_request_mutex.lock()
 	_pending_requests.clear()
 	_request_mutex.unlock()
 	_result_mutex.lock()
 	_completed_packets.clear()
+	_completed_spawn_results.clear()
 	_result_mutex.unlock()
 
 func has_pending_requests() -> bool:
@@ -87,6 +116,10 @@ func has_completed_packets() -> bool:
 	return has_completed
 
 func _requests_are_batch_compatible(base_request: Dictionary, candidate_request: Dictionary) -> bool:
+	if str(candidate_request.get("kind", "packet")) != "packet":
+		return false
+	if str(base_request.get("kind", "packet")) != "packet":
+		return false
 	if int(candidate_request.get("seed", 0)) != int(base_request.get("seed", 0)):
 		return false
 	if int(candidate_request.get("world_version", 0)) != int(base_request.get("world_version", 0)):
@@ -129,6 +162,21 @@ func _call_generate_chunk_packets_batch(
 		"WorldChunkPacketBackend.generate_chunk_packets_batch returned non-array result for %d request(s)." % batch_requests.size()
 	)
 	return []
+
+func _call_resolve_world_foundation_spawn_tile(worker_world_core: Object, request: Dictionary) -> Dictionary:
+	var result_variant: Variant = worker_world_core.call(
+		"resolve_world_foundation_spawn_tile",
+		int(request.get("seed", 0)),
+		int(request.get("world_version", 0)),
+		request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array
+	)
+	if result_variant is Dictionary:
+		return result_variant as Dictionary
+	push_error("WorldChunkPacketBackend.resolve_world_foundation_spawn_tile returned non-dictionary result.")
+	return {
+		"success": false,
+		"message": "Native spawn resolver returned non-dictionary result.",
+	}
 
 func _append_completed_packets(batch_requests: Array[Dictionary], packets: Array) -> void:
 	_result_mutex.lock()
@@ -178,6 +226,13 @@ func _process_batch_with_fallback(worker_world_core: Object, batch_requests: Arr
 	if not failed_requests.is_empty():
 		_requeue_requests_front(failed_requests)
 
+func _process_spawn_request(worker_world_core: Object, request: Dictionary) -> void:
+	var spawn_result: Dictionary = _call_resolve_world_foundation_spawn_tile(worker_world_core, request)
+	spawn_result["epoch"] = int(request.get("epoch", -1))
+	_result_mutex.lock()
+	_completed_spawn_results.append(spawn_result)
+	_result_mutex.unlock()
+
 func _worker_loop() -> void:
 	var worker_world_core: Object = ClassDB.instantiate("WorldCore")
 	assert(worker_world_core != null, "WorldCore required inside worker thread")
@@ -185,11 +240,19 @@ func _worker_loop() -> void:
 		_request_semaphore.wait()
 		if _worker_should_exit:
 			return
-		var batch_requests: Array[Dictionary] = []
+		var base_request: Dictionary = {}
 		_request_mutex.lock()
 		if not _pending_requests.is_empty():
-			var base_request: Dictionary = _pending_requests.pop_front() as Dictionary
-			batch_requests.append(base_request)
+			base_request = _pending_requests.pop_front() as Dictionary
+		_request_mutex.unlock()
+		if base_request.is_empty():
+			continue
+		if str(base_request.get("kind", "packet")) == "spawn":
+			_process_spawn_request(worker_world_core, base_request)
+			continue
+		var batch_requests: Array[Dictionary] = [base_request]
+		_request_mutex.lock()
+		if not _pending_requests.is_empty():
 			var max_batch_size: int = _max_batch_size
 			while batch_requests.size() < max_batch_size and not _pending_requests.is_empty():
 				var candidate_request: Dictionary = _pending_requests[0] as Dictionary
@@ -197,6 +260,4 @@ func _worker_loop() -> void:
 					break
 				batch_requests.append(_pending_requests.pop_front() as Dictionary)
 		_request_mutex.unlock()
-		if batch_requests.is_empty():
-			continue
 		_process_batch_with_fallback(worker_world_core, batch_requests)

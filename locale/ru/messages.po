@@ -849,6 +849,30 @@ msgstr "ГЕОЛОГИЯ"
 msgid "UI_NEW_GAME_SECTOR_LABEL"
 msgstr "СЕКТОР: %s"
 
+msgid "UI_WORLDGEN_SIZE_LABEL"
+msgstr "Размер мира"
+
+msgid "UI_WORLDGEN_SIZE_SMALL"
+msgstr "Малый цилиндр"
+
+msgid "UI_WORLDGEN_SIZE_MEDIUM"
+msgstr "Средний цилиндр"
+
+msgid "UI_WORLDGEN_SIZE_LARGE"
+msgstr "Большой цилиндр"
+
+msgid "UI_WORLDGEN_FOUNDATION_OCEAN_BAND"
+msgstr "Океанический пояс"
+
+msgid "UI_WORLDGEN_FOUNDATION_OCEAN_BAND_DESC"
+msgstr "Толщина непроходимого океанического пояса у верхней границы Y в тайлах."
+
+msgid "UI_WORLDGEN_FOUNDATION_BURNING_BAND"
+msgstr "Горящий пояс"
+
+msgid "UI_WORLDGEN_FOUNDATION_BURNING_BAND_DESC"
+msgstr "Толщина непроходимого пояса горящих земель у нижней границы Y в тайлах."
+
 msgid "UI_WORLDGEN_MOUNTAINS_DENSITY"
 msgstr "ИНДЕКС ПЛОТНОСТИ"
 
@@ -968,6 +992,9 @@ msgstr "Высадка..."
 
 msgid "UI_HUD_FLOOR_GENERIC"
 msgstr "Уровень {z}"
+
+msgid "UI_HUD_TILE_COORDS"
+msgstr "Тайл: {x}, {y}"
 
 msgid "UI_INVENTORY_SLOT_TOOLTIP"
 msgstr "{name}\n{amount} / {max_stack}"

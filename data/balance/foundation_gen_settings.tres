@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="FoundationGenSettings" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://core/resources/foundation_gen_settings.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+ocean_band_tiles = 128
+burning_band_tiles = 128
+pole_orientation = 0
+slope_bias = 0.0
+river_amount = 0.35

@@ -6,6 +6,9 @@ extends Control
 
 const WORLD_REBUILD_SCENE_PATH: String = "res://scenes/world/world_runtime_v0.tscn"
 const NEW_GAME_PANEL_SCENE: PackedScene = preload("res://scenes/ui/new_game_panel.tscn")
+const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
+const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
+const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.gd")
 
 var _btn_continue: Button = null
 var _load_panel: Control = null
@@ -289,7 +292,12 @@ func _on_new_game_back_requested() -> void:
 		_new_game_panel.visible = false
 	_buttons_container.visible = true
 
-func _on_new_game_start_requested(seed_value: int, settings: Resource) -> void:
+func _on_new_game_start_requested(
+	seed_value: int,
+	settings: Resource,
+	world_bounds: Resource = null,
+	foundation_settings: Resource = null
+) -> void:
 	WorldPerfProbe.mark_milestone("Startup.start_pressed")
 	var packed_scene: PackedScene = load(WORLD_REBUILD_SCENE_PATH) as PackedScene
 	assert(packed_scene != null, "World runtime scene missing: %s" % WORLD_REBUILD_SCENE_PATH)
@@ -302,7 +310,12 @@ func _on_new_game_start_requested(seed_value: int, settings: Resource) -> void:
 		TimeManager.reset_for_new_game()
 	var world_streamer: WorldStreamer = world_scene.get_node_or_null("WorldStreamer") as WorldStreamer
 	assert(world_streamer != null, "WorldStreamer missing in %s" % WORLD_REBUILD_SCENE_PATH)
-	world_streamer.initialize_new_world(seed_value, settings)
+	world_streamer.initialize_new_world(
+		seed_value,
+		settings as MountainGenSettings,
+		world_bounds as WorldBoundsSettings,
+		foundation_settings as FoundationGenSettings
+	)
 	if current_scene != null and current_scene != world_scene:
 		current_scene.queue_free()
 

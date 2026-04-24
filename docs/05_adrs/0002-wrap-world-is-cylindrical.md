@@ -31,3 +31,7 @@ The world is a cylinder:
 - Chunk coordinates on X are modular (wrap at world width).
 - Navigation and minimap must handle X-wrap correctly.
 - Save files store canonical coordinates that survive wrap arithmetic.
+- V1 finite worlds realize Y hardness through canonical impassable-biome bands
+  derived from latitude (`ocean_band_mask` at top Y, `burning_band_mask` at
+  bottom Y). This is not a literal wall terrain override and does not make Y
+  wrap.

@@ -20,6 +20,7 @@ struct Settings {
 	float foot_band = 0.08f;
 	int32_t interior_margin = 1;
 	float latitude_influence = 0.0f;
+	int64_t world_wrap_width_tiles = 65536;
 };
 
 struct Thresholds {
@@ -46,6 +47,7 @@ struct HierarchicalMacroSolve {
 	int32_t macro_cell_size = 0;
 	int32_t min_label_cell_size = 0;
 	int32_t min_cells_per_macro_axis = 0;
+	int64_t world_wrap_width_tiles = 65536;
 	std::vector<int32_t> domain_index_per_min_cell;
 	std::vector<HierarchicalRepresentative> domains;
 

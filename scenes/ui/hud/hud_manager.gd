@@ -31,7 +31,10 @@ func _create_zones() -> void:
 	_top_right = VBoxContainer.new()
 	_top_right.anchor_left = 1.0
 	_top_right.anchor_right = 1.0
-	_top_right.position = Vector2(-160, 12)
+	_top_right.offset_left = -220.0
+	_top_right.offset_top = 12.0
+	_top_right.offset_right = -12.0
+	_top_right.offset_bottom = 12.0
 	_top_right.add_theme_constant_override("separation", 4)
 	_top_right.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(_top_right)
@@ -73,6 +76,7 @@ func _create_widgets() -> void:
 	_top_left.add_child(HudStatusWidget.new())
 	_top_right.add_child(HudTimeWidget.new())
 	_top_right.add_child(HudFloorWidget.new())
+	_top_right.add_child(HudCoordinatesWidget.new())
 	_bottom_left.add_child(HudHintsWidget.new())
 
 	# === ЗАГЛУШКИ (раскомментировать когда появится механика) ===

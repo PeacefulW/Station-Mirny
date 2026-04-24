@@ -4,8 +4,8 @@ doc_type: design_proposal
 status: draft
 owner: engineering
 source_of_truth: false
-version: 0.1
-last_updated: 2026-04-21
+version: 0.2
+last_updated: 2026-04-24
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -54,7 +54,8 @@ Current code already gives the needed base:
   worker thread, request queue, result queue, packed settings, and `epoch`
 - `WorldCore.generate_chunk_packet(...)` already generates runtime chunk packets
 - `ChunkPacketV1` already carries mountain fields
-- `world.json` already persists `worldgen_settings.mountains`
+- `world.json` already persists `worldgen_settings.world_bounds`,
+  `worldgen_settings.foundation`, and `worldgen_settings.mountains`
 
 Because of this, preview should consume the same packet contract instead of
 inventing preview-only generation math.
@@ -71,13 +72,18 @@ Recommended split:
   - shared request/result worker wrapper
   - accepts `seed`, `coord`, `world_version`, `settings_packed`, `epoch`
   - returns full chunk packet
+  - also accepts a `spawn` request that resolves
+    `WorldCore.resolve_world_foundation_spawn_tile(...)` on the worker before
+    chunk staging begins
   - knows nothing about `ChunkView`, save/load, or menu UI
+  - for `world_version >= 9`, receives the same bounds/foundation indices
+    (`settings_packed[9..15]`) as the gameplay runtime
 
 - `WorldPreviewController`
   - preview orchestrator
   - debounce
   - epoch bump
-  - spawn resolution
+  - native spawn-result drain before spiral order build
   - spiral order build
   - packet cache
   - stale-result drop
@@ -167,10 +173,17 @@ Forbidden on the menu hot path:
 - per-tile native queries
 - hidden `WorldRuntimeV0` scene boot
 - real `ChunkView` / `TileMapLayer` generation
-- whole-world prepass
+- main-thread whole-world prepass
 
 Cancellation is mandatory:
 old results whose `epoch` does not match the current preview epoch are dropped.
+
+Current V1-R1B note:
+- preview spawn resolution queues one worker-side `WorldPrePass` substrate read
+  or build first, then starts the existing progressive chunk preview around the
+  returned spawn chunk
+- this does not ship the full-world overview canvas; that remains the
+  `world_foundation_v1.md` V1-R1C task
 
 ## File scope for the first implementation task
 

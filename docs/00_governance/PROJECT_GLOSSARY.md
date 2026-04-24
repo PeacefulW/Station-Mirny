@@ -4,8 +4,8 @@ doc_type: governance
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.2
-last_updated: 2026-03-28
+version: 1.3
+last_updated: 2026-04-24
 related_docs:
   - ENGINEERING_STANDARDS.md
   - ../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
@@ -71,17 +71,48 @@ A stable, unique identifier for a game entity that survives save/load, multiplay
 ### World channel
 A continuous deterministic scalar field sampled by world coordinates. Channels define what the world IS at any point. Target channels: height, temperature, moisture, ruggedness, flora_density. Same seed + same coordinates = same value, always. No chunk-local randomness. See: ADR-0002 and ADR-0007.
 
+### World bounds
+The finite size of a V1 cylindrical world in tiles: `width_tiles` wraps on X,
+`height_tiles` bounds Y. Stored in `worldgen_settings.world_bounds` for
+`world_version >= 9`.
+
+### WorldPrePass substrate
+The coarse world-foundation substrate defined by `world_foundation_v1.md`.
+It is native worldgen data, seed-derived, RAM-only, and owned by `WorldCore`.
+V1-R1A lands the settings/save boundary; V1-R1B lands the native substrate
+compute, cache, spawn-result read, and dev/debug snapshot surface.
+
+### Hard-band Y edge
+A finite-world Y boundary expressed as an impassable biome band derived from
+latitude, not as a literal wall terrain override.
+
+### Ocean band
+The top-Y hard band in V1 worlds. Its thickness is saved as
+`worldgen_settings.foundation.ocean_band_tiles`.
+
+### Burning band
+The bottom-Y hard band in V1 worlds. Its thickness is saved as
+`worldgen_settings.foundation.burning_band_tiles`.
+
+### Visible trunk
+A coarse river-skeleton node whose accumulated flow exceeds the visible-river
+threshold. It is substrate data, not a tile riverbed by itself.
+
+### Terminal lake
+A substrate basin outlet that becomes a future lake candidate. Its polygon is
+used by future river/biome work and is not persisted to save files.
+
 ### Biome resolver
 A data-driven system that takes world channel values at a position and returns the winning biome. Evaluates registered `BiomeData` candidates by score/conditions (channel ranges, structure context). Adding a biome = adding a `.tres` file, not editing generator code. Implemented: `BiomeResolver` resolves biomes deterministically from `PlanetSampler` channels and `WorldComputeContext.sample_structure_context()` backed by `WorldPrePass`; `BiomeRegistry` loads biome resources from `data/biomes/`.
 
 ### Large structure
-A world-scale geographic feature generated at Layer 2: mountain ridges, river systems, floodplains. Large structures influence biome resolution and provide world readability at distance. Implemented: `WorldPrePass` computes the authoritative macro-structure fields, and `WorldComputeContext.sample_structure_context()` exposes `mountain_mass`, `ridge_strength`, `river_strength`, and `floodplain_strength` to biome resolution and terrain classification in the GDScript runtime.
+A world-scale geographic feature generated at Layer 2: mountain ridges, river systems, floodplains. Large structures influence biome resolution and provide world readability at distance. Current V1-R1B code stores finite bounds/foundation settings and owns shared macro-structure fields through the native `WorldPrePass` substrate for future consumers.
 
 ### Local variation / Subzone
 A micro-region within a biome that modifies its character without replacing its identity. Types: sparse flora, dense flora, clearing, rocky edge, wet pocket. Reduces visual repetition without multiplying top-level biomes. Layer 4 of world generation. Implemented: `LocalVariationResolver` samples five variation kinds from seeded periodic noise; variation ids and modulation channels (`flora_modulation`, `wetness_modulation`, `rockiness_modulation`, `openness_modulation`) propagate into chunk output and downstream consumers.
 
 ### Wrap-world
-World topology where the X axis wraps seamlessly (cylindrical). Moving far enough east returns you to the west. Y axis carries latitude logic (temperature gradient). Sampling must be wrap-safe — no seams at wrap boundary. Enforced in code: `WorldNoiseUtils` projects noise sampling onto a 3D cylinder; `PlanetSampler` and the remaining native legacy structure code use cylindrical periodic sampling where still applicable; GDScript runtime structure truth now comes from wrap-safe `WorldPrePass` data via `WorldComputeContext`.
+World topology where the X axis wraps seamlessly (cylindrical). Moving far enough east returns you to the west. Y axis carries latitude logic (temperature gradient). Sampling must be wrap-safe - no seams at wrap boundary. For `world_version >= 9`, X wraps at the saved `world_bounds.width_tiles`; Y does not wrap and is bounded by biome bands.
 
 ### Biome
 A named world region with distinct environmental identity: terrain palette, flora set, resource distribution, threat profile, temperature range, spore density. Determined by the biome resolver from world channel values at a position. Biomes define what a place IS — its permanent geographic character. Examples: plains, foothills, mountains, wet lowland, dry/scorched zone, cold zone. Each biome is a `.tres` resource (BiomeData), not a code branch.

@@ -36,13 +36,26 @@ constexpr int64_t SETTINGS_PACKED_LAYOUT_GRAVITY_RADIUS = 5;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_FOOT_BAND = 6;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_INTERIOR_MARGIN = 7;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_LATITUDE_INFLUENCE = 8;
-constexpr int64_t SETTINGS_PACKED_LAYOUT_FIELD_COUNT = 9;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_MOUNTAIN_FIELD_COUNT = 9;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_WORLD_WIDTH_TILES = 9;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_WORLD_HEIGHT_TILES = 10;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_OCEAN_BAND_TILES = 11;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_BURNING_BAND_TILES = 12;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_POLE_ORIENTATION = 13;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_FOUNDATION_SLOPE_BIAS = 14;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_RIVER_AMOUNT = 15;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_FIELD_COUNT = 16;
 
 constexpr uint8_t MOUNTAIN_FLAG_WALL = 1U << 1U;
 constexpr uint8_t MOUNTAIN_FLAG_FOOT = 1U << 2U;
 constexpr uint8_t MOUNTAIN_FLAG_INTERIOR = 1U << 0U;
 constexpr uint8_t MOUNTAIN_FLAG_ANCHOR = 1U << 3U;
-constexpr int64_t WORLD_WRAP_WIDTH_TILES = 65536;
+constexpr int64_t LEGACY_WORLD_WRAP_WIDTH_TILES = 65536;
+constexpr int64_t WORLD_FOUNDATION_VERSION = 9;
+constexpr int64_t MOUNTAIN_FINITE_WIDTH_VERSION = 10;
+constexpr int64_t FOUNDATION_CHUNK_SIZE = 32;
+constexpr int64_t SPAWN_SAFE_PATCH_MIN_TILE = 12;
+constexpr int64_t SPAWN_SAFE_PATCH_MAX_TILE = 20;
 constexpr size_t HIERARCHICAL_CACHE_LIMIT = 64;
 
 uint64_t splitmix64(uint64_t x) {
@@ -52,12 +65,66 @@ uint64_t splitmix64(uint64_t x) {
 	return x ^ (x >> 31U);
 }
 
-int64_t wrap_world_x(int64_t p_world_x) {
-	int64_t wrapped = p_world_x % WORLD_WRAP_WIDTH_TILES;
-	if (wrapped < 0) {
-		wrapped += WORLD_WRAP_WIDTH_TILES;
+int64_t positive_mod(int64_t p_value, int64_t p_modulus) {
+	if (p_modulus <= 0) {
+		return p_value;
 	}
-	return wrapped;
+	int64_t result = p_value % p_modulus;
+	if (result < 0) {
+		result += p_modulus;
+	}
+	return result;
+}
+
+int64_t wrap_foundation_world_x(int64_t p_world_x, const FoundationSettings &p_foundation_settings) {
+	if (!p_foundation_settings.enabled) {
+		return p_world_x;
+	}
+	return positive_mod(p_world_x, p_foundation_settings.width_tiles);
+}
+
+int64_t clamp_foundation_world_y(int64_t p_world_y, const FoundationSettings &p_foundation_settings) {
+	if (!p_foundation_settings.enabled) {
+		return p_world_y;
+	}
+	return std::max<int64_t>(0, std::min<int64_t>(p_world_y, p_foundation_settings.height_tiles - 1));
+}
+
+int64_t map_foundation_x_to_legacy_sample(int64_t p_world_x, const FoundationSettings &p_foundation_settings) {
+	if (!p_foundation_settings.enabled) {
+		return p_world_x;
+	}
+	const int64_t wrapped_x = wrap_foundation_world_x(p_world_x, p_foundation_settings);
+	return static_cast<int64_t>(std::llround(
+		(static_cast<double>(wrapped_x) * static_cast<double>(LEGACY_WORLD_WRAP_WIDTH_TILES)) /
+		static_cast<double>(p_foundation_settings.width_tiles)
+	));
+}
+
+int64_t resolve_mountain_sample_x(
+	int64_t p_world_x,
+	int64_t p_world_version,
+	const FoundationSettings &p_foundation_settings
+) {
+	if (!p_foundation_settings.enabled) {
+		return p_world_x;
+	}
+	if (p_world_version < MOUNTAIN_FINITE_WIDTH_VERSION) {
+		return map_foundation_x_to_legacy_sample(p_world_x, p_foundation_settings);
+	}
+	return wrap_foundation_world_x(p_world_x, p_foundation_settings);
+}
+
+Vector2i canonicalize_chunk_coord(Vector2i p_coord, const FoundationSettings &p_foundation_settings) {
+	if (!p_foundation_settings.enabled) {
+		return p_coord;
+	}
+	const int64_t width_chunks = std::max<int64_t>(1, p_foundation_settings.width_tiles / FOUNDATION_CHUNK_SIZE);
+	const int64_t height_chunks = std::max<int64_t>(1, p_foundation_settings.height_tiles / FOUNDATION_CHUNK_SIZE);
+	return Vector2i(
+		static_cast<int32_t>(positive_mod(p_coord.x, width_chunks)),
+		static_cast<int32_t>(std::max<int64_t>(0, std::min<int64_t>(p_coord.y, height_chunks - 1)))
+	);
 }
 
 int64_t floor_div(int64_t p_value, int64_t p_divisor) {
@@ -69,8 +136,15 @@ int64_t floor_div(int64_t p_value, int64_t p_divisor) {
 	return quotient;
 }
 
-int64_t resolve_macro_cell_x_for_world(int64_t p_world_x, int32_t p_macro_cell_size) {
-	return floor_div(wrap_world_x(p_world_x), static_cast<int64_t>(p_macro_cell_size));
+int64_t resolve_macro_cell_x_for_world(
+	int64_t p_world_x,
+	int32_t p_macro_cell_size,
+	int64_t p_world_wrap_width_tiles
+) {
+	return floor_div(
+		positive_mod(p_world_x, p_world_wrap_width_tiles),
+		static_cast<int64_t>(p_macro_cell_size)
+	);
 }
 
 int64_t resolve_macro_cell_y_for_world(int64_t p_world_y, int32_t p_macro_cell_size) {
@@ -137,10 +211,84 @@ mountain_field::Settings unpack_mountain_settings(const PackedFloat32Array &p_se
 	return settings;
 }
 
+mountain_field::Settings make_effective_mountain_settings(
+	int64_t p_world_version,
+	mountain_field::Settings p_settings,
+	const FoundationSettings &p_foundation_settings
+) {
+	if (p_foundation_settings.enabled && p_world_version >= MOUNTAIN_FINITE_WIDTH_VERSION) {
+		p_settings.world_wrap_width_tiles = p_foundation_settings.width_tiles;
+	} else {
+		p_settings.world_wrap_width_tiles = LEGACY_WORLD_WRAP_WIDTH_TILES;
+	}
+	return p_settings;
+}
+
+FoundationSettings unpack_foundation_settings(int64_t p_world_version, const PackedFloat32Array &p_settings_packed) {
+	FoundationSettings settings;
+	if (p_world_version < WORLD_FOUNDATION_VERSION) {
+		return settings;
+	}
+	settings.enabled = true;
+	settings.width_tiles = std::max<int64_t>(
+		FOUNDATION_CHUNK_SIZE,
+		static_cast<int64_t>(std::llround(p_settings_packed[SETTINGS_PACKED_LAYOUT_WORLD_WIDTH_TILES]))
+	);
+	settings.height_tiles = std::max<int64_t>(
+		FOUNDATION_CHUNK_SIZE,
+		static_cast<int64_t>(std::llround(p_settings_packed[SETTINGS_PACKED_LAYOUT_WORLD_HEIGHT_TILES]))
+	);
+	settings.ocean_band_tiles = std::max<int64_t>(
+		0,
+		static_cast<int64_t>(std::llround(p_settings_packed[SETTINGS_PACKED_LAYOUT_OCEAN_BAND_TILES]))
+	);
+	settings.burning_band_tiles = std::max<int64_t>(
+		0,
+		static_cast<int64_t>(std::llround(p_settings_packed[SETTINGS_PACKED_LAYOUT_BURNING_BAND_TILES]))
+	);
+	settings.pole_orientation = static_cast<int64_t>(std::llround(p_settings_packed[SETTINGS_PACKED_LAYOUT_POLE_ORIENTATION]));
+	settings.slope_bias = p_settings_packed[SETTINGS_PACKED_LAYOUT_FOUNDATION_SLOPE_BIAS];
+	settings.river_amount = p_settings_packed[SETTINGS_PACKED_LAYOUT_RIVER_AMOUNT];
+	return settings;
+}
+
+int64_t expected_settings_count_for_version(int64_t p_world_version) {
+	return p_world_version >= WORLD_FOUNDATION_VERSION ?
+			SETTINGS_PACKED_LAYOUT_FIELD_COUNT :
+			SETTINGS_PACKED_LAYOUT_MOUNTAIN_FIELD_COUNT;
+}
+
+Dictionary make_failure_result(const char *p_message) {
+	Dictionary result;
+	result["success"] = false;
+	result["message"] = p_message;
+	return result;
+}
+
+bool is_foundation_spawn_safety_area_at_world(
+	int64_t p_world_x,
+	int64_t p_world_y,
+	const FoundationSettings &p_foundation_settings
+) {
+	if (!p_foundation_settings.enabled) {
+		return false;
+	}
+	const int64_t safe_patch_size = SPAWN_SAFE_PATCH_MAX_TILE - SPAWN_SAFE_PATCH_MIN_TILE + 1;
+	const int64_t habitable_min_y = p_foundation_settings.ocean_band_tiles;
+	const int64_t habitable_max_y = p_foundation_settings.height_tiles - p_foundation_settings.burning_band_tiles;
+	const int64_t habitable_height = std::max<int64_t>(safe_patch_size, habitable_max_y - habitable_min_y);
+	const int64_t start_x = std::max<int64_t>(0, p_foundation_settings.width_tiles / 2 - safe_patch_size / 2);
+	const int64_t start_y = habitable_min_y + std::max<int64_t>(0, (habitable_height - safe_patch_size) / 2);
+	const int64_t canonical_x = wrap_foundation_world_x(p_world_x, p_foundation_settings);
+	return canonical_x >= start_x && canonical_x < start_x + safe_patch_size &&
+			p_world_y >= start_y && p_world_y < start_y + safe_patch_size;
+}
+
 uint64_t make_cache_signature(
 	int64_t p_seed,
 	int64_t p_world_version,
-	const mountain_field::Settings &p_settings
+	const mountain_field::Settings &p_settings,
+	const FoundationSettings &p_foundation_settings
 ) {
 	uint64_t signature = splitmix64(static_cast<uint64_t>(p_seed));
 	signature = splitmix64(signature ^ static_cast<uint64_t>(p_world_version) * 0x9e3779b185ebca87ULL);
@@ -153,6 +301,16 @@ uint64_t make_cache_signature(
 	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_settings.foot_band * 1000000.0f)));
 	signature = splitmix64(signature ^ static_cast<uint64_t>(p_settings.interior_margin));
 	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround((p_settings.latitude_influence + 1.0f) * 1000000.0f)));
+	signature = splitmix64(signature ^ static_cast<uint64_t>(p_settings.world_wrap_width_tiles));
+	if (p_foundation_settings.enabled) {
+		signature = splitmix64(signature ^ static_cast<uint64_t>(p_foundation_settings.width_tiles));
+		signature = splitmix64(signature ^ static_cast<uint64_t>(p_foundation_settings.height_tiles));
+		signature = splitmix64(signature ^ static_cast<uint64_t>(p_foundation_settings.ocean_band_tiles));
+		signature = splitmix64(signature ^ static_cast<uint64_t>(p_foundation_settings.burning_band_tiles));
+		signature = splitmix64(signature ^ static_cast<uint64_t>(p_foundation_settings.pole_orientation));
+		signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround((p_foundation_settings.slope_bias + 1.0f) * 1000000.0f)));
+		signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_foundation_settings.river_amount * 1000000.0f)));
+	}
 	return signature;
 }
 
@@ -183,10 +341,16 @@ struct WorldCore::HierarchicalMacroCache {
 
 void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("generate_chunk_packets_batch", "seed", "coords", "world_version", "settings_packed"), &WorldCore::generate_chunk_packets_batch);
+	ClassDB::bind_method(D_METHOD("resolve_world_foundation_spawn_tile", "seed", "world_version", "settings_packed"), &WorldCore::resolve_world_foundation_spawn_tile);
+#ifdef DEBUG_ENABLED
+	ClassDB::bind_method(D_METHOD("get_world_foundation_snapshot", "layer_mask", "downscale_factor"), &WorldCore::get_world_foundation_snapshot);
+	ClassDB::bind_method(D_METHOD("get_world_foundation_overview", "layer_mask"), &WorldCore::get_world_foundation_overview);
+#endif
 }
 
 WorldCore::WorldCore() :
-		hierarchical_macro_cache_(std::make_unique<HierarchicalMacroCache>()) {}
+		hierarchical_macro_cache_(std::make_unique<HierarchicalMacroCache>()),
+		world_prepass_snapshot_(std::make_unique<world_prepass::Snapshot>()) {}
 
 WorldCore::~WorldCore() = default;
 
@@ -194,11 +358,12 @@ const mountain_field::HierarchicalMacroSolve &WorldCore::_get_or_build_hierarchi
 	int64_t p_seed,
 	int64_t p_world_version,
 	const mountain_field::Settings &p_settings,
+	const FoundationSettings &p_foundation_settings,
 	int64_t p_macro_cell_x,
 	int64_t p_macro_cell_y
 ) {
 	HierarchicalMacroCache &cache = *hierarchical_macro_cache_;
-	const uint64_t signature = make_cache_signature(p_seed, p_world_version, p_settings);
+	const uint64_t signature = make_cache_signature(p_seed, p_world_version, p_settings, p_foundation_settings);
 	if (cache.signature != signature) {
 		cache.signature = signature;
 		cache.tick = 0;
@@ -243,13 +408,42 @@ const mountain_field::HierarchicalMacroSolve &WorldCore::_get_or_build_hierarchi
 	return inserted->second.solve;
 }
 
+const world_prepass::Snapshot &WorldCore::_get_or_build_world_prepass(
+	int64_t p_seed,
+	int64_t p_world_version,
+	const mountain_field::Evaluator &p_mountain_evaluator,
+	const mountain_field::Settings &p_effective_mountain_settings,
+	const FoundationSettings &p_foundation_settings
+) {
+	const uint64_t signature = world_prepass::make_signature(
+		p_seed,
+		p_world_version,
+		p_effective_mountain_settings,
+		p_foundation_settings
+	);
+	if (world_prepass_snapshot_ == nullptr ||
+			!world_prepass_snapshot_->valid ||
+			world_prepass_snapshot_->signature != signature) {
+		world_prepass_snapshot_ = world_prepass::build_snapshot(
+			p_seed,
+			p_world_version,
+			p_mountain_evaluator,
+			p_effective_mountain_settings,
+			p_foundation_settings
+		);
+	}
+	return *world_prepass_snapshot_;
+}
+
 Dictionary WorldCore::_generate_chunk_packet(
 	int64_t p_seed,
 	Vector2i p_coord,
 	int64_t p_world_version,
 	const mountain_field::Evaluator &p_mountain_evaluator,
-	const mountain_field::Settings &p_effective_mountain_settings
+	const mountain_field::Settings &p_effective_mountain_settings,
+	const FoundationSettings &p_foundation_settings
 ) {
+	p_coord = canonicalize_chunk_coord(p_coord, p_foundation_settings);
 	PackedInt32Array terrain_ids;
 	terrain_ids.resize(CELL_COUNT);
 	PackedInt32Array terrain_atlas_indices;
@@ -278,13 +472,18 @@ Dictionary WorldCore::_generate_chunk_packet(
 		if (p_elevation < mountain_thresholds.t_edge) {
 			return 0;
 		}
-		const int64_t macro_cell_x = resolve_macro_cell_x_for_world(p_world_x, macro_cell_size);
+		const int64_t macro_cell_x = resolve_macro_cell_x_for_world(
+			p_world_x,
+			macro_cell_size,
+			p_effective_mountain_settings.world_wrap_width_tiles
+		);
 		const int64_t macro_cell_y = resolve_macro_cell_y_for_world(p_world_y, macro_cell_size);
 		if (cached_macro_solve == nullptr || macro_cell_x != cached_macro_cell_x || macro_cell_y != cached_macro_cell_y) {
 			cached_macro_solve = &_get_or_build_hierarchical_macro_solve(
 				p_seed,
 				p_world_version,
 				p_effective_mountain_settings,
+				p_foundation_settings,
 				macro_cell_x,
 				macro_cell_y
 			);
@@ -303,12 +502,17 @@ Dictionary WorldCore::_generate_chunk_packet(
 		if (p_mountain_id <= 0) {
 			return false;
 		}
-		const int64_t macro_cell_x = resolve_macro_cell_x_for_world(p_world_x, macro_cell_size);
+		const int64_t macro_cell_x = resolve_macro_cell_x_for_world(
+			p_world_x,
+			macro_cell_size,
+			p_effective_mountain_settings.world_wrap_width_tiles
+		);
 		const int64_t macro_cell_y = resolve_macro_cell_y_for_world(p_world_y, macro_cell_size);
 		const mountain_field::HierarchicalMacroSolve &solve = _get_or_build_hierarchical_macro_solve(
 			p_seed,
 			p_world_version,
 			p_effective_mountain_settings,
+			p_foundation_settings,
 			macro_cell_x,
 			macro_cell_y
 		);
@@ -318,11 +522,18 @@ Dictionary WorldCore::_generate_chunk_packet(
 	for (int64_t sample_y = 0; sample_y < mountain_grid_side; ++sample_y) {
 		for (int64_t sample_x = 0; sample_x < mountain_grid_side; ++sample_x) {
 			const int64_t world_x = static_cast<int64_t>(p_coord.x) * CHUNK_SIZE + sample_x - mountain_border;
-			const int64_t world_y = static_cast<int64_t>(p_coord.y) * CHUNK_SIZE + sample_y - mountain_border;
+			const int64_t world_y = clamp_foundation_world_y(
+				static_cast<int64_t>(p_coord.y) * CHUNK_SIZE + sample_y - mountain_border,
+				p_foundation_settings
+			);
+			const int64_t sample_world_x = resolve_mountain_sample_x(world_x, p_world_version, p_foundation_settings);
 			const int64_t sample_index = sample_y * mountain_grid_side + sample_x;
-			const float elevation = p_mountain_evaluator.sample_elevation(world_x, world_y);
+			float elevation = p_mountain_evaluator.sample_elevation(sample_world_x, world_y);
+			if (is_foundation_spawn_safety_area_at_world(world_x, world_y, p_foundation_settings)) {
+				elevation = 0.0f;
+			}
 			mountain_elevations[static_cast<size_t>(sample_index)] = elevation;
-			mountain_ids[static_cast<size_t>(sample_index)] = resolve_mountain_id_at_world(world_x, world_y, elevation);
+			mountain_ids[static_cast<size_t>(sample_index)] = resolve_mountain_id_at_world(sample_world_x, world_y, elevation);
 		}
 	}
 
@@ -330,7 +541,11 @@ Dictionary WorldCore::_generate_chunk_packet(
 		for (int64_t local_x = 0; local_x < CHUNK_SIZE; ++local_x) {
 			const int64_t index = local_y * CHUNK_SIZE + local_x;
 			const int64_t world_x = static_cast<int64_t>(p_coord.x) * CHUNK_SIZE + local_x;
-			const int64_t world_y = static_cast<int64_t>(p_coord.y) * CHUNK_SIZE + local_y;
+			const int64_t world_y = clamp_foundation_world_y(
+				static_cast<int64_t>(p_coord.y) * CHUNK_SIZE + local_y,
+				p_foundation_settings
+			);
+			const int64_t sample_world_x = resolve_mountain_sample_x(world_x, p_world_version, p_foundation_settings);
 			const int64_t grid_x = local_x + mountain_border;
 			const int64_t grid_y = local_y + mountain_border;
 			const int64_t grid_index = grid_y * mountain_grid_side + grid_x;
@@ -389,13 +604,13 @@ Dictionary WorldCore::_generate_chunk_packet(
 					if (is_interior) {
 						resolved_mountain_flags = static_cast<uint8_t>(resolved_mountain_flags | MOUNTAIN_FLAG_INTERIOR);
 					}
-					if (is_component_representative_tile(world_x, world_y, resolved_mountain_id)) {
+					if (is_component_representative_tile(sample_world_x, world_y, resolved_mountain_id)) {
 						resolved_mountain_flags = static_cast<uint8_t>(resolved_mountain_flags | MOUNTAIN_FLAG_ANCHOR);
 					}
 				}
 
 				resolved_mountain_atlas_index = p_mountain_evaluator.resolve_mountain_atlas_index(
-					world_x,
+					sample_world_x,
 					world_y,
 					resolved_mountain_id,
 					north_id,
@@ -421,7 +636,7 @@ Dictionary WorldCore::_generate_chunk_packet(
 					terrain_id = TERRAIN_MOUNTAIN_WALL;
 					terrain_atlas_index = resolve_mountain_base_atlas_index(
 						p_seed,
-						world_x,
+						sample_world_x,
 						world_y,
 						north_is_mountain,
 						north_east_is_mountain,
@@ -437,7 +652,7 @@ Dictionary WorldCore::_generate_chunk_packet(
 					terrain_id = TERRAIN_MOUNTAIN_FOOT;
 					terrain_atlas_index = resolve_mountain_base_atlas_index(
 						p_seed,
-						world_x,
+						sample_world_x,
 						world_y,
 						north_is_mountain,
 						north_east_is_mountain,
@@ -474,6 +689,65 @@ Dictionary WorldCore::_generate_chunk_packet(
 	return packet;
 }
 
+Dictionary WorldCore::resolve_world_foundation_spawn_tile(
+	int64_t p_seed,
+	int64_t p_world_version,
+	PackedFloat32Array p_settings_packed
+) {
+	if (p_world_version < WORLD_FOUNDATION_VERSION) {
+		return make_failure_result("World foundation spawn resolution requires world foundation version.");
+	}
+	const int64_t expected_settings_count = expected_settings_count_for_version(p_world_version);
+	if (p_settings_packed.size() != expected_settings_count) {
+		return make_failure_result("World foundation spawn resolution received an invalid settings payload size.");
+	}
+	if (!mountain_field::uses_hierarchical_labeling(p_world_version)) {
+		return make_failure_result("World foundation spawn resolution requires hierarchical mountain labeling.");
+	}
+
+	const FoundationSettings foundation_settings = unpack_foundation_settings(p_world_version, p_settings_packed);
+	const mountain_field::Settings mountain_settings = make_effective_mountain_settings(
+		p_world_version,
+		unpack_mountain_settings(p_settings_packed),
+		foundation_settings
+	);
+	if (!foundation_settings.enabled) {
+		return make_failure_result("World foundation settings are disabled.");
+	}
+
+	const mountain_field::Evaluator mountain_evaluator(p_seed, p_world_version, mountain_settings);
+	const mountain_field::Settings &effective_mountain_settings = mountain_evaluator.get_settings();
+	const world_prepass::Snapshot &snapshot = _get_or_build_world_prepass(
+		p_seed,
+		p_world_version,
+		mountain_evaluator,
+		effective_mountain_settings,
+		foundation_settings
+	);
+	Dictionary result = world_prepass::resolve_spawn_tile(snapshot);
+	result["grid_width"] = snapshot.grid_width;
+	result["grid_height"] = snapshot.grid_height;
+	result["coarse_cell_size_tiles"] = world_prepass::COARSE_CELL_SIZE_TILES;
+	result["compute_time_ms"] = snapshot.compute_time_ms;
+	return result;
+}
+
+#ifdef DEBUG_ENABLED
+Dictionary WorldCore::get_world_foundation_snapshot(int64_t p_layer_mask, int64_t p_downscale_factor) {
+	if (world_prepass_snapshot_ == nullptr || !world_prepass_snapshot_->valid) {
+		return Dictionary();
+	}
+	return world_prepass::make_debug_snapshot(*world_prepass_snapshot_, p_layer_mask, p_downscale_factor);
+}
+
+Ref<Image> WorldCore::get_world_foundation_overview(int64_t p_layer_mask) {
+	if (world_prepass_snapshot_ == nullptr || !world_prepass_snapshot_->valid) {
+		return Ref<Image>();
+	}
+	return world_prepass::make_overview_image(*world_prepass_snapshot_, p_layer_mask);
+}
+#endif
+
 Array WorldCore::generate_chunk_packets_batch(
 	int64_t p_seed,
 	PackedVector2Array p_coords,
@@ -486,10 +760,11 @@ Array WorldCore::generate_chunk_packets_batch(
 		return packets;
 	}
 
+	const int64_t expected_settings_count = expected_settings_count_for_version(p_world_version);
 	ERR_FAIL_COND_V_MSG(
-		p_settings_packed.size() != SETTINGS_PACKED_LAYOUT_FIELD_COUNT,
+		p_settings_packed.size() != expected_settings_count,
 		Array{},
-		"WorldCore.generate_chunk_packets_batch requires the full mountain settings payload."
+		"WorldCore.generate_chunk_packets_batch received an invalid settings payload size."
 	);
 	ERR_FAIL_COND_V_MSG(
 		!mountain_field::uses_hierarchical_labeling(p_world_version),
@@ -497,22 +772,47 @@ Array WorldCore::generate_chunk_packets_batch(
 		"WorldCore.generate_chunk_packets_batch requires hierarchical mountain labeling (world_version >= 6)."
 	);
 
-	const mountain_field::Settings mountain_settings = unpack_mountain_settings(p_settings_packed);
+	const FoundationSettings foundation_settings = unpack_foundation_settings(p_world_version, p_settings_packed);
+	const mountain_field::Settings mountain_settings = make_effective_mountain_settings(
+		p_world_version,
+		unpack_mountain_settings(p_settings_packed),
+		foundation_settings
+	);
 	const mountain_field::Evaluator mountain_evaluator(p_seed, p_world_version, mountain_settings);
 	const mountain_field::Settings &effective_mountain_settings = mountain_evaluator.get_settings();
 	const int32_t macro_cell_size = mountain_field::get_hierarchical_macro_cell_size(p_world_version);
+	if (foundation_settings.enabled) {
+		_get_or_build_world_prepass(
+			p_seed,
+			p_world_version,
+			mountain_evaluator,
+			effective_mountain_settings,
+			foundation_settings
+		);
+	}
 
 	std::vector<ChunkMacroGroup> macro_groups;
 	std::unordered_map<uint64_t, int32_t> group_index_by_key;
 	for (int32_t index = 0; index < p_coords.size(); ++index) {
 		const Vector2 coord_value = p_coords[index];
-		const Vector2i chunk_coord(
+		const Vector2i chunk_coord = canonicalize_chunk_coord(Vector2i(
 			static_cast<int32_t>(coord_value.x),
 			static_cast<int32_t>(coord_value.y)
+		), foundation_settings);
+		const int64_t chunk_origin_x = resolve_mountain_sample_x(
+			static_cast<int64_t>(chunk_coord.x) * CHUNK_SIZE,
+			p_world_version,
+			foundation_settings
 		);
-		const int64_t chunk_origin_x = static_cast<int64_t>(chunk_coord.x) * CHUNK_SIZE;
-		const int64_t chunk_origin_y = static_cast<int64_t>(chunk_coord.y) * CHUNK_SIZE;
-		const int64_t macro_cell_x = resolve_macro_cell_x_for_world(chunk_origin_x, macro_cell_size);
+		const int64_t chunk_origin_y = clamp_foundation_world_y(
+			static_cast<int64_t>(chunk_coord.y) * CHUNK_SIZE,
+			foundation_settings
+		);
+		const int64_t macro_cell_x = resolve_macro_cell_x_for_world(
+			chunk_origin_x,
+			macro_cell_size,
+			effective_mountain_settings.world_wrap_width_tiles
+		);
 		const int64_t macro_cell_y = resolve_macro_cell_y_for_world(chunk_origin_y, macro_cell_size);
 		const uint64_t macro_key = make_macro_key(macro_cell_x, macro_cell_y);
 
@@ -535,21 +835,23 @@ Array WorldCore::generate_chunk_packets_batch(
 			p_seed,
 			p_world_version,
 			effective_mountain_settings,
+			foundation_settings,
 			group.macro_cell_x,
 			group.macro_cell_y
 		);
 		for (int32_t packet_index : group.chunk_indices) {
 			const Vector2 coord_value = p_coords[packet_index];
-			const Vector2i chunk_coord(
+			const Vector2i chunk_coord = canonicalize_chunk_coord(Vector2i(
 				static_cast<int32_t>(coord_value.x),
 				static_cast<int32_t>(coord_value.y)
-			);
+			), foundation_settings);
 			packets[packet_index] = _generate_chunk_packet(
 				p_seed,
 				chunk_coord,
 				p_world_version,
 				mountain_evaluator,
-				effective_mountain_settings
+				effective_mountain_settings,
+				foundation_settings
 			);
 		}
 	}

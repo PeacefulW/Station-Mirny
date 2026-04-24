@@ -317,9 +317,12 @@ dirty unit.
 - local chunk generation
 - a lazy macro-region cache
 - deterministic large-scale fields on demand
+- `WorldPrePass` only when a spec explicitly classifies it as a bounded,
+  one-time world-load / new-game-preview worker task, RAM-only, cache-keyed by
+  seed/version/bounds/settings, and forbidden from interactive gameplay paths
 
 ### Forbidden:
-- a mandatory global `WorldPrePass` at startup
+- a mandatory interactive-path or main-thread global `WorldPrePass`
 - "first compute the entire planet, then start the game"
 - synchronous preloading of all biomes
 

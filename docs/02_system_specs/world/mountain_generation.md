@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.4
-last_updated: 2026-04-23
+version: 1.5
+last_updated: 2026-04-24
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -199,6 +199,9 @@ sample_elevation(seed, world_version, wx, wy, settings_packed) -> float
 Rules:
 - pure function; no state other than inputs
 - wrap-safe on X via `wrap_x(wx, world_width_tiles)`
+- for `world_version >= 10`, `world_width_tiles` is the saved finite
+  `worldgen_settings.world_bounds.width_tiles`; `world_version <= 9`
+  preserves the legacy `65536` mountain sample width for existing saves
 - combines:
   1. `domain warp` FBM on `(wx, wy)` using `settings.continuity`
   2. `macro FBM` on warped coordinates at wavelength `settings.scale`
@@ -498,6 +501,12 @@ Chunk diffs keep `ChunkDiffV0` shape. Forbidden additions:
   labeling: new worlds no longer derive canonical `mountain_id` from raw
   nearest-anchor ownership and instead hash the deterministic representative
   leaf of a bounded hierarchical mountain domain solve
+- `WORLD_VERSION` bumps from `9` to `10` for finite-cylinder mountain aspect
+  normalisation: new V1 worlds sample mountain elevation, hierarchical
+  identity, and mountain atlas coordinates in the saved finite world width
+  instead of remapping finite X into the legacy `65536`-tile sample width.
+  Existing `world_version == 9` saves keep the legacy remap so their generated
+  base does not drift under load.
 - each bump is required by LAW 4 because canonical terrain / packet
   output changes for the same `seed + coord`
 - `world_version` remains a plain integer; it is **not** a hash of
@@ -805,6 +814,52 @@ minimap icons, `under_mountain_strength` hint wiring for subsurface
 generator.
 
 M5 requires a spec amendment before implementation.
+
+### M6 — Finite-Cylinder Mountain Aspect Normalization
+
+Goal: make V1 finite-cylinder mountains keep their intended tile-space aspect
+ratio on `small`, `medium`, and `large` presets.
+
+Problem:
+- `world_version == 9` finite worlds saved explicit bounds, but the mountain
+  sample path still remapped finite X into the legacy `65536`-tile cylinder.
+- On the `large` preset (`8192` tiles wide), this compresses X-domain variation
+  by roughly `8x` relative to Y and produces tall needle-like mountain slices.
+
+Changes:
+- add `world_wrap_width_tiles` to the native mountain settings after unpacking
+  from `settings_packed`;
+- for `world_version >= 10`, derive that width from
+  `worldgen_settings.world_bounds.width_tiles`;
+- for `world_version <= 9`, keep the legacy `65536` width and legacy finite-X
+  remap to preserve existing saves;
+- keep the same `settings_packed` shape and `world.json` shape;
+- bump `WorldRuntimeConstants.WORLD_VERSION` to `10`.
+
+Files allowed:
+- `gdextension/src/mountain_field.h`
+- `gdextension/src/mountain_field.cpp`
+- `gdextension/src/world_core.cpp`
+- `gdextension/src/world_prepass.cpp`
+- `core/systems/world/world_runtime_constants.gd`
+- this spec and directly affected canonical docs.
+
+Files forbidden:
+- save collectors / appliers, unless verification finds a concrete schema bug;
+- `WorldStreamer` runtime state and chunk publish code;
+- UI preview canvas / palette files, because preview already reflects runtime.
+
+Acceptance tests for M6:
+- [ ] new worlds write and run as `world_version = 10`;
+- [ ] `world_version == 9` remains load-compatible and keeps the legacy
+      mountain sample-width path;
+- [ ] on the `large` preset, generated mountain output no longer appears as
+      vertically stretched one-tile-to-few-tile slices caused by finite-X
+      remapping;
+- [ ] X seam sampling remains wrap-safe at `x = -1 / 0 / width - 1 / width`;
+- [ ] no save payload shape changes are introduced;
+- [ ] native packet generation remains worker-side and introduces no
+      main-thread generation loop.
 
 ## Status Rationale
 

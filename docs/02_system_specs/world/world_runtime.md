@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 0.4
-last_updated: 2026-04-23
+version: 0.5
+last_updated: 2026-04-24
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -217,6 +217,33 @@ V0 interpretation:
 This compatibility surface is not permission to reintroduce general resource
 streaming in V0.
 
+### V1-R1B Spawn, Bounds, and Substrate Amendment
+
+For `world_version >= 9`, the active new-world path also carries
+`worldgen_settings.world_bounds` and `worldgen_settings.foundation` into the
+native `settings_packed` payload.
+
+Rules:
+- X chunk coordinates are canonicalized modulo `world_bounds.width_tiles`.
+- Y chunk requests outside `world_bounds.height_tiles` are filtered by the
+  streamer and clipped by native generation if a caller submits them anyway.
+- the preview/new-game spawn-safe patch must be resolved from the native
+  `WorldPrePass` substrate through
+  `WorldCore.resolve_world_foundation_spawn_tile(...)` on the worker path before
+  progressive preview chunks are queued.
+- the spawn resolver rejects candidates in ocean/burning masks, open-water
+  continent mask, high wall density, visible river trunks, and terminal lake
+  centres, then returns the selected `spawn_tile` plus `spawn_safe_patch_rect`.
+- `WorldCore` still mirrors the selected safe patch as mountain-safe output in
+  chunk packets so the first loaded area stays walkable.
+- runtime new-game start queues the same native spawn resolver on the world
+  packet worker, applies the returned `spawn_tile` to the local player through
+  `PlayerAuthority`, and only then allows the streaming ring to enqueue chunks.
+- save/load remains authoritative for persisted player position; `load_world_state`
+  does not apply new-game spawn placement.
+- script code may parse the native spawn result, but must not rederive substrate
+  channels or provide a hidden GDScript fallback for `world_version >= 9`.
+
 ### Streaming Policy V0
 
 V0 uses one streamer and one symmetric ring only.
@@ -259,6 +286,8 @@ Single-tile mutation rules:
 
 V0 save/load uses:
 - `world.json` for `world_seed` and `world_version`
+- `worldgen_settings.world_bounds` and `worldgen_settings.foundation` for
+  `world_version >= 9`
 - `chunks/<x>_<y>.json` for dirty chunk tile overrides only
 
 Rules:

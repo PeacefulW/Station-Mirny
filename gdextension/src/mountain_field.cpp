@@ -19,14 +19,13 @@ namespace {
 
 constexpr float k_pi = 3.14159265358979323846f;
 constexpr float k_two_pi = 2.0f * k_pi;
-constexpr float k_world_wrap_width_tiles = 65536.0f;
 
 constexpr uint64_t k_seed_salt_domain_warp = 0x5f8d6d2c0a7b91f3ULL;
 constexpr uint64_t k_seed_salt_macro = 0x3bd39e10cb0ef593ULL;
 constexpr uint64_t k_seed_salt_ridge = 0xa2c6d11f74b93ce5ULL;
 constexpr uint64_t k_seed_salt_hierarchical_id = 0x8d3c9b1f2746e5a1ULL;
 
-constexpr int64_t k_world_wrap_width_tiles_i64 = 65536;
+constexpr int64_t k_legacy_world_wrap_width_tiles = 65536;
 constexpr int64_t k_hierarchical_world_version = 6;
 constexpr int32_t k_hierarchical_macro_cell_size_v6 = 1024;
 constexpr int32_t k_hierarchical_macro_halo_v6 = 1;
@@ -86,16 +85,25 @@ int64_t floor_div(int64_t p_value, int64_t p_divisor) {
 	return quotient;
 }
 
-int64_t wrap_world_x(int64_t p_world_x) {
-	int64_t wrapped = p_world_x % k_world_wrap_width_tiles_i64;
+int64_t sanitize_world_wrap_width(int64_t p_width_tiles) {
+	return std::max<int64_t>(1, p_width_tiles);
+}
+
+int64_t wrap_world_x(int64_t p_world_x, int64_t p_world_wrap_width_tiles) {
+	const int64_t width = sanitize_world_wrap_width(p_world_wrap_width_tiles);
+	int64_t wrapped = p_world_x % width;
 	if (wrapped < 0) {
-		wrapped += k_world_wrap_width_tiles_i64;
+		wrapped += width;
 	}
 	return wrapped;
 }
 
-int64_t wrap_cell_coord_x(int64_t p_cell_x, int32_t p_cell_size) {
-	const int64_t cells_per_wrap = k_world_wrap_width_tiles_i64 / static_cast<int64_t>(p_cell_size);
+int64_t wrap_cell_coord_x(int64_t p_cell_x, int32_t p_cell_size, int64_t p_world_wrap_width_tiles) {
+	const int64_t width = sanitize_world_wrap_width(p_world_wrap_width_tiles);
+	const int64_t cells_per_wrap = std::max<int64_t>(
+		1,
+		(width + static_cast<int64_t>(p_cell_size) - 1) / static_cast<int64_t>(p_cell_size)
+	);
 	int64_t wrapped = p_cell_x % cells_per_wrap;
 	if (wrapped < 0) {
 		wrapped += cells_per_wrap;
@@ -103,21 +111,30 @@ int64_t wrap_cell_coord_x(int64_t p_cell_x, int32_t p_cell_size) {
 	return wrapped;
 }
 
-int64_t wrapped_delta_x(int64_t p_origin_x, int64_t p_world_x) {
-	int64_t delta = wrap_world_x(p_world_x) - wrap_world_x(p_origin_x);
+int64_t wrapped_delta_x(int64_t p_origin_x, int64_t p_world_x, int64_t p_world_wrap_width_tiles) {
+	const int64_t width = sanitize_world_wrap_width(p_world_wrap_width_tiles);
+	int64_t delta = wrap_world_x(p_world_x, width) - wrap_world_x(p_origin_x, width);
 	if (delta < 0) {
-		delta += k_world_wrap_width_tiles_i64;
+		delta += width;
 	}
 	return delta;
 }
 
-void project_wrapped_x_to_cylinder(int64_t p_world_x, int64_t p_world_y, float &r_out_x, float &r_out_y, float &r_out_z) {
-	float wrapped_x = std::fmod(static_cast<float>(p_world_x), k_world_wrap_width_tiles);
+void project_wrapped_x_to_cylinder(
+	int64_t p_world_x,
+	int64_t p_world_y,
+	int64_t p_world_wrap_width_tiles,
+	float &r_out_x,
+	float &r_out_y,
+	float &r_out_z
+) {
+	const float width = static_cast<float>(sanitize_world_wrap_width(p_world_wrap_width_tiles));
+	float wrapped_x = std::fmod(static_cast<float>(p_world_x), width);
 	if (wrapped_x < 0.0f) {
-		wrapped_x += k_world_wrap_width_tiles;
+		wrapped_x += width;
 	}
-	const float theta = (wrapped_x / k_world_wrap_width_tiles) * k_two_pi;
-	const float radius = k_world_wrap_width_tiles / k_two_pi;
+	const float theta = (wrapped_x / width) * k_two_pi;
+	const float radius = width / k_two_pi;
 	r_out_x = std::cos(theta) * radius;
 	r_out_y = std::sin(theta) * radius;
 	r_out_z = static_cast<float>(p_world_y);
@@ -134,6 +151,7 @@ Settings sanitize_settings(const Settings &p_settings) {
 	sanitized.foot_band = clamp_value(sanitized.foot_band, 0.02f, 0.3f);
 	sanitized.interior_margin = clamp_value(sanitized.interior_margin, 0, 4);
 	sanitized.latitude_influence = clamp_value(sanitized.latitude_influence, -1.0f, 1.0f);
+	sanitized.world_wrap_width_tiles = sanitize_world_wrap_width(sanitized.world_wrap_width_tiles);
 	return sanitized;
 }
 
@@ -197,10 +215,11 @@ int32_t make_hierarchical_mountain_id(
 	int64_t p_world_version,
 	int64_t p_cell_origin_x,
 	int64_t p_cell_origin_y,
-	int32_t p_cell_size
+	int32_t p_cell_size,
+	int64_t p_world_wrap_width_tiles
 ) {
 	uint64_t mixed = mix_seed(p_seed, p_world_version, k_seed_salt_hierarchical_id);
-	mixed = splitmix64(mixed ^ static_cast<uint64_t>(wrap_world_x(p_cell_origin_x)) * 0xc2b2ae3d27d4eb4fULL);
+	mixed = splitmix64(mixed ^ static_cast<uint64_t>(wrap_world_x(p_cell_origin_x, p_world_wrap_width_tiles)) * 0xc2b2ae3d27d4eb4fULL);
 	mixed = splitmix64(mixed ^ static_cast<uint64_t>(p_cell_origin_y) * 0x165667b19e3779f9ULL);
 	mixed = splitmix64(mixed ^ static_cast<uint64_t>(p_cell_size) * 0x94d049bb133111ebULL);
 	const int32_t id = static_cast<int32_t>(mixed & 0x7fffffffULL);
@@ -225,7 +244,14 @@ float Evaluator::sample_elevation(int64_t p_world_x, int64_t p_world_y) const {
 	float sample_x = 0.0f;
 	float sample_y = 0.0f;
 	float sample_z = 0.0f;
-	project_wrapped_x_to_cylinder(p_world_x, p_world_y, sample_x, sample_y, sample_z);
+	project_wrapped_x_to_cylinder(
+		p_world_x,
+		p_world_y,
+		settings_.world_wrap_width_tiles,
+		sample_x,
+		sample_y,
+		sample_z
+	);
 	domain_warp_noise_.DomainWarp(sample_x, sample_y, sample_z);
 
 	const float macro_raw = macro_noise_.GetNoise(sample_x, sample_y, sample_z);
@@ -347,6 +373,7 @@ public:
 			world_version_(p_world_version),
 			evaluator_(p_seed, p_world_version, p_settings),
 			thresholds_(evaluator_.get_thresholds()),
+			world_wrap_width_tiles_(evaluator_.get_settings().world_wrap_width_tiles),
 			macro_cell_size_(get_hierarchical_macro_cell_size(p_world_version)),
 			macro_halo_(k_hierarchical_macro_halo_v6),
 			min_label_cell_size_(get_hierarchical_min_label_cell_size(p_world_version)),
@@ -355,7 +382,7 @@ public:
 			region_leaf_index_(static_cast<size_t>(region_min_cells_per_axis_ * region_min_cells_per_axis_), -1) {}
 
 	HierarchicalMacroSolve build(int64_t p_macro_cell_x, int64_t p_macro_cell_y) {
-		macro_cell_x_ = wrap_cell_coord_x(p_macro_cell_x, macro_cell_size_);
+		macro_cell_x_ = wrap_cell_coord_x(p_macro_cell_x, macro_cell_size_, world_wrap_width_tiles_);
 		macro_cell_y_ = p_macro_cell_y;
 		macro_origin_x_ = macro_cell_x_ * static_cast<int64_t>(macro_cell_size_);
 		macro_origin_y_ = macro_cell_y_ * static_cast<int64_t>(macro_cell_size_);
@@ -379,7 +406,7 @@ private:
 	}
 
 	float sample_cached(int64_t p_world_x, int64_t p_world_y) {
-		const std::pair<int64_t, int64_t> key = { wrap_world_x(p_world_x), p_world_y };
+		const std::pair<int64_t, int64_t> key = { wrap_world_x(p_world_x, world_wrap_width_tiles_), p_world_y };
 		auto found = sample_cache_.find(key);
 		if (found != sample_cache_.end()) {
 			return found->second;
@@ -480,11 +507,11 @@ private:
 			return false;
 		}
 
-		r_out_leaf.canonical_origin_x = wrap_world_x(p_origin_x);
+		r_out_leaf.canonical_origin_x = wrap_world_x(p_origin_x, world_wrap_width_tiles_);
 		r_out_leaf.canonical_origin_y = p_origin_y;
 		r_out_leaf.cell_size = min_label_cell_size_;
 		r_out_leaf.representative_elevation = best_elevation;
-		r_out_leaf.representative_tile_x = wrap_world_x(best_tile_x);
+		r_out_leaf.representative_tile_x = wrap_world_x(best_tile_x, world_wrap_width_tiles_);
 		r_out_leaf.representative_tile_y = best_tile_y;
 		return true;
 	}
@@ -504,11 +531,11 @@ private:
 		}
 		if (summary.all_inside) {
 			HierarchicalLeafRecord leaf;
-			leaf.canonical_origin_x = wrap_world_x(p_origin_x);
+			leaf.canonical_origin_x = wrap_world_x(p_origin_x, world_wrap_width_tiles_);
 			leaf.canonical_origin_y = p_origin_y;
 			leaf.cell_size = p_cell_size;
 			leaf.representative_elevation = summary.representative_elevation;
-			leaf.representative_tile_x = wrap_world_x(summary.representative_tile_x);
+			leaf.representative_tile_x = wrap_world_x(summary.representative_tile_x, world_wrap_width_tiles_);
 			leaf.representative_tile_y = summary.representative_tile_y;
 			add_leaf(p_origin_x, p_origin_y, leaf);
 			return;
@@ -567,7 +594,8 @@ private:
 			world_version_,
 			p_leaf.canonical_origin_x,
 			p_leaf.canonical_origin_y,
-			p_leaf.cell_size
+			p_leaf.cell_size,
+			world_wrap_width_tiles_
 		);
 		return domain;
 	}
@@ -581,6 +609,7 @@ private:
 		solve.macro_cell_size = macro_cell_size_;
 		solve.min_label_cell_size = min_label_cell_size_;
 		solve.min_cells_per_macro_axis = min_cells_per_macro_axis_;
+		solve.world_wrap_width_tiles = world_wrap_width_tiles_;
 		solve.domain_index_per_min_cell.assign(static_cast<size_t>(min_cells_per_macro_axis_ * min_cells_per_macro_axis_), -1);
 
 		if (leaves_.empty()) {
@@ -647,6 +676,7 @@ private:
 	int64_t world_version_ = 0;
 	Evaluator evaluator_;
 	const Thresholds &thresholds_;
+	int64_t world_wrap_width_tiles_ = k_legacy_world_wrap_width_tiles;
 	int32_t macro_cell_size_ = 0;
 	int32_t macro_halo_ = 0;
 	int32_t min_label_cell_size_ = 0;
@@ -663,8 +693,8 @@ private:
 	std::vector<HierarchicalLeafRecord> leaves_;
 };
 
-int64_t resolve_macro_local_x(int64_t p_macro_origin_x, int64_t p_world_x) {
-	return wrapped_delta_x(p_macro_origin_x, p_world_x);
+int64_t resolve_macro_local_x(int64_t p_macro_origin_x, int64_t p_world_x, int64_t p_world_wrap_width_tiles) {
+	return wrapped_delta_x(p_macro_origin_x, p_world_x, p_world_wrap_width_tiles);
 }
 
 int32_t HierarchicalMacroSolve::resolve_mountain_id(int64_t p_world_x, int64_t p_world_y, float p_elevation, float p_edge_threshold) const {
@@ -674,7 +704,7 @@ int32_t HierarchicalMacroSolve::resolve_mountain_id(int64_t p_world_x, int64_t p
 	if (min_label_cell_size <= 0 || min_cells_per_macro_axis <= 0) {
 		return 0;
 	}
-	const int64_t local_x = resolve_macro_local_x(macro_origin_x, p_world_x);
+	const int64_t local_x = resolve_macro_local_x(macro_origin_x, p_world_x, world_wrap_width_tiles);
 	const int64_t local_y = p_world_y - macro_origin_y;
 	if (local_x < 0 || local_y < 0 ||
 			local_x >= static_cast<int64_t>(macro_cell_size) ||
@@ -691,7 +721,7 @@ int32_t HierarchicalMacroSolve::resolve_mountain_id(int64_t p_world_x, int64_t p
 }
 
 bool HierarchicalMacroSolve::is_representative_tile(int64_t p_world_x, int64_t p_world_y, int32_t p_mountain_id) const {
-	const int64_t canonical_world_x = wrap_world_x(p_world_x);
+	const int64_t canonical_world_x = wrap_world_x(p_world_x, world_wrap_width_tiles);
 	for (const HierarchicalRepresentative &domain : domains) {
 		if (domain.mountain_id != p_mountain_id) {
 			continue;

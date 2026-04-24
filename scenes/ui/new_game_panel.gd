@@ -1,13 +1,16 @@
 class_name NewGamePanel
 extends Control
 
+const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
 const WorldPreviewCanvas = preload("res://scenes/ui/world_preview_canvas.gd")
 const WorldPreviewController = preload("res://core/systems/world/world_preview_controller.gd")
 const WorldPreviewRenderMode = preload("res://core/systems/world/world_preview_render_mode.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.gd")
 
 const DEFAULT_SETTINGS_PATH: String = "res://data/balance/mountain_gen_settings.tres"
+const DEFAULT_FOUNDATION_SETTINGS_PATH: String = "res://data/balance/foundation_gen_settings.tres"
 const BACKDROP_IMAGE_PATH: String = "res://assets/ui/backgrounds/mountain_worldgen_backdrop.jpg"
 const PANEL_WIDTH: int = 960
 const SURFACE_COLOR: Color = Color(0.05, 0.06, 0.07, 0.94)
@@ -162,12 +165,45 @@ const ADVANCED_SLIDER_SPECS: Array[Dictionary] = [
 	},
 ]
 
+const FOUNDATION_SLIDER_SPECS: Array[Dictionary] = [
+	{
+		"target": "foundation",
+		"property": "ocean_band_tiles",
+		"label_key": "UI_WORLDGEN_FOUNDATION_OCEAN_BAND",
+		"tooltip_key": "UI_WORLDGEN_FOUNDATION_OCEAN_BAND_DESC",
+		"min": 64.0,
+		"max": 1024.0,
+		"step": 1.0,
+		"is_integer": true,
+		"decimals": 0,
+	},
+	{
+		"target": "foundation",
+		"property": "burning_band_tiles",
+		"label_key": "UI_WORLDGEN_FOUNDATION_BURNING_BAND",
+		"tooltip_key": "UI_WORLDGEN_FOUNDATION_BURNING_BAND_DESC",
+		"min": 64.0,
+		"max": 1024.0,
+		"step": 1.0,
+		"is_integer": true,
+		"decimals": 0,
+	},
+]
+
 signal back_requested
-signal start_requested(seed_value: int, settings: MountainGenSettings)
+signal start_requested(
+	seed_value: int,
+	settings: MountainGenSettings,
+	world_bounds: WorldBoundsSettings,
+	foundation_settings: FoundationGenSettings
+)
 
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
+var _world_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
+var _foundation_settings: FoundationGenSettings = FoundationGenSettings.hard_coded_defaults()
 var _seed_line_edit: LineEdit = null
+var _size_preset_select: OptionButton = null
 var _advanced_toggle: Button = null
 var _advanced_container: VBoxContainer = null
 var _preview_canvas: WorldPreviewCanvas = null
@@ -190,6 +226,8 @@ func _process(delta: float) -> void:
 
 func reload_defaults() -> void:
 	_settings = _load_default_settings()
+	_world_bounds = WorldBoundsSettings.hard_coded_defaults()
+	_foundation_settings = _load_default_foundation_settings(_world_bounds)
 	_rebuild_ui("", 0)
 	_regenerate_seed_text()
 
@@ -199,6 +237,7 @@ func _rebuild_ui(seed_text: String, tab_index: int = 0) -> void:
 	for child: Node in get_children():
 		child.queue_free()
 	_seed_line_edit = null
+	_size_preset_select = null
 	_advanced_toggle = null
 	_advanced_container = null
 	_preview_mode_select = null
@@ -451,6 +490,27 @@ func _build_comms_tab(tabs: TabContainer, seed_text: String) -> void:
 	random_button.pressed.connect(_on_random_seed_pressed)
 	seed_row.add_child(random_button)
 
+	var size_section := VBoxContainer.new()
+	size_section.add_theme_constant_override("separation", 8)
+	content.add_child(size_section)
+
+	var size_label := Label.new()
+	size_label.text = Localization.t("UI_WORLDGEN_SIZE_LABEL")
+	size_label.add_theme_color_override("font_color", TEXT_SECONDARY_COLOR)
+	size_label.add_theme_font_size_override("font_size", 13)
+	size_section.add_child(size_label)
+
+	_size_preset_select = OptionButton.new()
+	_size_preset_select.custom_minimum_size = Vector2(220, 38)
+	_apply_secondary_button_style(_size_preset_select)
+	for index: int in range(WorldBoundsSettings.preset_ids().size()):
+		var preset: StringName = WorldBoundsSettings.preset_ids()[index]
+		_size_preset_select.add_item(Localization.t(WorldBoundsSettings.preset_label_key(preset)), index)
+		if preset == _world_bounds.preset_id:
+			_size_preset_select.selected = index
+	_size_preset_select.item_selected.connect(_on_size_preset_selected)
+	size_section.add_child(_size_preset_select)
+
 func _build_geology_tab(tabs: TabContainer) -> void:
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -470,6 +530,12 @@ func _build_geology_tab(tabs: TabContainer) -> void:
 
 	var sector_label := _make_title_label(Localization.t("UI_NEW_GAME_SECTOR_LABEL") % Localization.t("UI_NEW_GAME_GEOLOGY_TITLE"))
 	content.add_child(sector_label)
+
+	var foundation_section := VBoxContainer.new()
+	foundation_section.add_theme_constant_override("separation", 6)
+	content.add_child(foundation_section)
+	for spec: Dictionary in FOUNDATION_SLIDER_SPECS:
+		foundation_section.add_child(_build_slider_row(spec))
 
 	var primary_section := VBoxContainer.new()
 	primary_section.add_theme_constant_override("separation", 6)
@@ -575,7 +641,10 @@ func _build_slider_row(spec: Dictionary) -> Control:
 
 	slider.value_changed.connect(func(new_value: float) -> void:
 		_apply_setting_value(spec, new_value)
-		_update_value_label(value_label, spec, new_value)
+		var resolved_value: float = _read_setting_value(spec)
+		if not is_equal_approx(slider.value, resolved_value):
+			slider.set_value_no_signal(resolved_value)
+		_update_value_label(value_label, spec, resolved_value)
 		_schedule_preview_rebuild()
 	)
 	return row_margin
@@ -677,14 +746,19 @@ func _format_advanced_toggle_text(is_pressed: bool) -> String:
 
 func _read_setting_value(spec: Dictionary) -> float:
 	var property_name: StringName = StringName(str(spec.get("property", "")))
+	if str(spec.get("target", "")) == "foundation":
+		return float(_foundation_settings.get(property_name))
 	return float(_settings.get(property_name))
 
 func _apply_setting_value(spec: Dictionary, value: float) -> void:
 	var property_name: StringName = StringName(str(spec.get("property", "")))
+	var target: Object = _foundation_settings if str(spec.get("target", "")) == "foundation" else _settings
 	if bool(spec.get("is_integer", false)):
-		_settings.set(property_name, int(round(value)))
+		target.set(property_name, int(round(value)))
 	else:
-		_settings.set(property_name, value)
+		target.set(property_name, value)
+	if str(spec.get("target", "")) == "foundation":
+		_foundation_settings = _foundation_settings.normalized_for_bounds(_world_bounds)
 
 func _update_value_label(label: Label, spec: Dictionary, value: float) -> void:
 	var decimals: int = int(spec.get("decimals", 0))
@@ -703,7 +777,21 @@ func _on_advanced_toggled(is_pressed: bool) -> void:
 	if _advanced_container: _advanced_container.visible = is_pressed
 
 func _on_start_pressed() -> void:
-	start_requested.emit(_resolve_seed_value(), MountainGenSettings.from_save_dict(_settings.to_save_dict()))
+	start_requested.emit(
+		_resolve_seed_value(),
+		MountainGenSettings.from_save_dict(_settings.to_save_dict()),
+		WorldBoundsSettings.from_save_dict(_world_bounds.to_save_dict()),
+		FoundationGenSettings.from_save_dict(_foundation_settings.to_save_dict(), _world_bounds)
+	)
+
+func _on_size_preset_selected(index: int) -> void:
+	var presets: Array[StringName] = WorldBoundsSettings.preset_ids()
+	if index < 0 or index >= presets.size():
+		return
+	_world_bounds = WorldBoundsSettings.for_preset(presets[index])
+	_foundation_settings = FoundationGenSettings.for_bounds(_world_bounds)
+	_rebuild_ui(_seed_line_edit.text if _seed_line_edit else "", 0)
+	_schedule_preview_rebuild()
 
 func _resolve_seed_value() -> int:
 	if _seed_line_edit == null: return _preview_seed_value
@@ -749,6 +837,15 @@ func _load_default_settings() -> MountainGenSettings:
 	var resource: MountainGenSettings = ResourceLoader.load(DEFAULT_SETTINGS_PATH, "MountainGenSettings") as MountainGenSettings
 	return MountainGenSettings.from_save_dict(resource.to_save_dict()) if resource else MountainGenSettings.hard_coded_defaults()
 
+func _load_default_foundation_settings(world_bounds: WorldBoundsSettings) -> FoundationGenSettings:
+	var resource: FoundationGenSettings = ResourceLoader.load(
+		DEFAULT_FOUNDATION_SETTINGS_PATH,
+		"FoundationGenSettings"
+	) as FoundationGenSettings
+	return FoundationGenSettings.from_save_dict(resource.to_save_dict(), world_bounds) \
+		if resource \
+		else FoundationGenSettings.for_bounds(world_bounds)
+
 func _load_backdrop_texture() -> Texture2D:
 	var image: Image = Image.load_from_file(ProjectSettings.globalize_path(BACKDROP_IMAGE_PATH))
 	return ImageTexture.create_from_image(image) if image && !image.is_empty() else null
@@ -759,7 +856,12 @@ func _on_language_changed(_locale: String) -> void:
 	_schedule_preview_rebuild()
 
 func _schedule_preview_rebuild() -> void:
-	_preview_controller.queue_preview_rebuild(_resolve_preview_seed_value(), MountainGenSettings.from_save_dict(_settings.to_save_dict()))
+	_preview_controller.queue_preview_rebuild(
+		_resolve_preview_seed_value(),
+		MountainGenSettings.from_save_dict(_settings.to_save_dict()),
+		WorldBoundsSettings.from_save_dict(_world_bounds.to_save_dict()),
+		FoundationGenSettings.from_save_dict(_foundation_settings.to_save_dict(), _world_bounds)
+	)
 
 func _populate_preview_mode_options() -> void:
 	if _preview_mode_select == null:

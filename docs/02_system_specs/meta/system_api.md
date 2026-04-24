@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.3
-last_updated: 2026-04-21
+version: 0.5
+last_updated: 2026-04-24
 related_docs:
   - ../README.md
   - commands.md
@@ -41,6 +41,7 @@ It covers only the minimal core set confirmed in code during this pass:
 - `PlayerAuthority`
 - `CommandExecutor`
 - `BuildingSystem`
+- `WorldCore`
 - `WorldStreamer`
 
 ## Out of Scope
@@ -280,6 +281,47 @@ Not documented here as safe entrypoints:
 - `_walls`
 - direct mutation of `indoor_cells`
 
+### WorldCore
+
+Owner files:
+- `gdextension/src/world_core.cpp`
+- `gdextension/src/world_prepass.cpp`
+
+Role:
+- native deterministic world-generation boundary and owner of the RAM-only
+  `WorldPrePass` substrate
+
+Confirmed public native surface:
+
+| Surface | Return | Notes |
+|---|---|---|
+| `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate; for `world_version >= 9`, it reads/builds the `WorldPrePass` cache on the worker path before chunk generation |
+| `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
+
+Dev-only native surface:
+
+| Surface | Return | Notes |
+|---|---|---|
+| `get_world_foundation_snapshot(layer_mask: int, downscale_factor: int)` | `Dictionary` | Debug build only; returns the current `WorldPrePass` channel snapshot |
+| `get_world_foundation_overview(layer_mask: int)` | `Image` | Debug build only; returns a pre-coloured substrate overview image |
+
+Current code notes:
+- `settings_packed` for `world_version >= 9` must include the mountain fields
+  plus V1 foundation indices `9-15`.
+- for `world_version >= 10`, native mountain sampling uses
+  `worldgen_settings.world_bounds.width_tiles` as its cylindrical X width;
+  `world_version == 9` keeps the legacy `65536`-tile mountain sample-width
+  compatibility path.
+- The substrate snapshot is a derived cache owned by `WorldCore`; it is not
+  persisted and must not be mutated by script code.
+- Preview spawn resolution uses the shared worker wrapper, not a main-thread
+  GDScript fallback.
+
+Not documented here as safe entrypoints:
+- direct calls to `world_prepass::*` helpers from script, because they are native
+  implementation details behind `WorldCore`
+- using dev-only substrate snapshot dictionaries as save data or gameplay state
+
 ### WorldStreamer
 
 Owner file: `core/systems/world/world_streamer.gd`
@@ -293,7 +335,7 @@ Confirmed readable entrypoints:
 |---|---|---|
 | `get_world_seed()` | `int` | Current deterministic world seed |
 | `get_world_version()` | `int` | Current canonical world version |
-| `save_world_state()` | `Dictionary` | World save payload for `world.json`, including embedded `worldgen_settings.mountains` and optional `worldgen_signature` |
+| `save_world_state()` | `Dictionary` | World save payload for `world.json`, including embedded `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, and optional `worldgen_signature` |
 | `collect_chunk_diffs()` | `Array[Dictionary]` | Serialized dirty chunk entries |
 | `get_chunk_packet(chunk_coord: Vector2i)` | `Dictionary` | Loaded chunk packet or `{}`; read-only world-domain lookup for `MountainResolver` |
 | `get_mountain_cover_sample(world_tile: Vector2i)` | `Dictionary` | Read-only cover sample for one tile: `mountain_id`, `mountain_flags`, `component_id`, `is_opening`, `walkable` |
@@ -305,9 +347,9 @@ Confirmed mutation entrypoints:
 
 | Surface | Notes |
 |---|---|
-| `initialize_new_world(seed_value: int, settings: MountainGenSettings)` | New-game entrypoint; freezes the provided mountain settings into packed/native form and then delegates to `reset_for_new_game(...)` |
-| `reset_for_new_game(seed, version)` | Clears runtime state and emits `world_initialized` |
-| `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version`, rebuilds `worldgen_settings.mountains` from `world.json` (or hard-coded defaults if missing), and clears runtime state |
+| `initialize_new_world(seed_value: int, settings: MountainGenSettings, world_bounds: WorldBoundsSettings = null, foundation_settings: FoundationGenSettings = null)` | New-game entrypoint; freezes mountain, finite-bounds, and foundation settings into packed/native form and then delegates to `reset_for_new_game(...)` |
+| `reset_for_new_game(seed, version)` | Clears runtime state, queues native foundation spawn resolution for `world_version >= 9`, applies the resolved new-game spawn tile to the local player before streaming chunks, and emits `world_initialized` |
+| `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, and `worldgen_settings.mountains` from `world.json` (or documented defaults where allowed), and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
 | `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock |
 | `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver` to switch between outside state and one active cavity |
@@ -318,3 +360,22 @@ Not documented here as safe entrypoints:
 - direct access to `_chunk_packets`, `_chunk_views`, or `_diff_store`
 - direct mutation of native packet dictionaries outside the documented methods
 - mutation of dictionaries returned by `get_chunk_packet()`
+
+### World Bounds and Foundation Settings
+
+Owner files:
+- `core/resources/world_bounds_settings.gd`
+- `core/resources/foundation_gen_settings.gd`
+
+Role:
+- data resources for finite cylindrical bounds and V1 foundation settings
+
+Confirmed readable entrypoints:
+
+| Surface | Return | Notes |
+|---|---|---|
+| `WorldBoundsSettings.for_preset(preset: StringName)` | `WorldBoundsSettings` | Returns `small`, `medium`, or `large` V1 bounds |
+| `WorldBoundsSettings.from_save_dict(data: Dictionary)` | `WorldBoundsSettings` | Rebuilds bounds from `world.json` |
+| `FoundationGenSettings.for_bounds(world_bounds: WorldBoundsSettings)` | `FoundationGenSettings` | Builds default band settings from saved bounds |
+| `FoundationGenSettings.from_save_dict(data: Dictionary, world_bounds: WorldBoundsSettings)` | `FoundationGenSettings` | Rebuilds foundation settings from `world.json` |
+| `FoundationGenSettings.write_to_settings_packed(settings_packed: PackedFloat32Array, world_bounds: WorldBoundsSettings)` | `PackedFloat32Array` | Appends V1 foundation indices `9-15` to the native settings packet |

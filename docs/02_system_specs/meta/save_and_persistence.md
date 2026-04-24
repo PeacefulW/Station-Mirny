@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.2
-last_updated: 2026-04-21
+version: 1.3
+last_updated: 2026-04-24
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -58,13 +58,29 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current mountain extension:
-- `world.json` now records `world_version: 6` for the current native mountain-field baseline
+- `world.json` now records `world_version: 10` for the current finite-world
+  foundation baseline with finite-cylinder mountain aspect normalization
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - `world_version >= 6` keeps the same save shape but changes canonical new-world
   mountain identity to implicit-domain hierarchical labeling; save/load still
   regenerates that base data from seed + `world_version` instead of persisting
   `mountain_id_per_tile`
+- `world_version >= 9` adds explicit finite-world state:
+  - `worldgen_settings.world_bounds.width_tiles`
+  - `worldgen_settings.world_bounds.height_tiles`
+  - `worldgen_settings.foundation.ocean_band_tiles`
+  - `worldgen_settings.foundation.burning_band_tiles`
+  - `worldgen_settings.foundation.pole_orientation`
+  - `worldgen_settings.foundation.slope_bias`
+  - `worldgen_settings.foundation.river_amount`
+- `world_version == 9` finite-foundation saves keep the legacy `65536`-tile
+  mountain sample-width compatibility path; `world_version >= 10` uses
+  `worldgen_settings.world_bounds.width_tiles` for mountain sampling
+- loading `world_version <= 8` preserves the legacy pre-foundation path without
+  injecting synthetic bounds into the save
+- loading `world_version >= 9` without `worldgen_settings.world_bounds` fails
+  loudly; missing `worldgen_settings.foundation` restores hard-coded V1 defaults
 - `worldgen_settings.mountains` stores the embedded per-save mountain input copy
   with these fields:
   - `density: float` (`0.0..1.0`)
@@ -91,8 +107,19 @@ Confirmed `world.json` shape in the current mountain code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 6,
+  "world_version": 10,
   "worldgen_settings": {
+    "world_bounds": {
+      "width_tiles": 4096,
+      "height_tiles": 2048
+    },
+    "foundation": {
+      "ocean_band_tiles": 128,
+      "burning_band_tiles": 128,
+      "pole_orientation": 0,
+      "slope_bias": 0.0,
+      "river_amount": 0.35
+    },
     "mountains": {
       "density": 0.3,
       "scale": 512.0,
