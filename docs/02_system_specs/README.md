@@ -4,8 +4,8 @@ doc_type: system_spec_index
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.4
-last_updated: 2026-04-20
+version: 1.5
+last_updated: 2026-04-23
 ---
 
 # System Specs
@@ -71,6 +71,7 @@ Current transition strategy:
 - [World Grid Rebuild Foundation](world/world_grid_rebuild_foundation.md)
 - [World Runtime V0](world/world_runtime.md)
 - [Mountain Generation V1](world/mountain_generation.md)
+- [River Generation V2](world/river_generation.md)
 - [Terrain Hybrid Presentation](world/terrain_hybrid_presentation.md)
 
 The removed pre-rebuild world stack now rebuilds from this living world-grid contract
