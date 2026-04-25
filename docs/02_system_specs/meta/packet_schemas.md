@@ -195,6 +195,9 @@ Current code notes:
   mountain sample-width compatibility path
 - `world_version >= 11` uses `foundation_coarse_cell_size_tiles = 64` for
   `WorldPrePass`; versions `9..10` used `128`-tile substrate cells
+- `world_version >= 14` adds native dry riverbed/lakebed realization to chunk
+  packets. Riverbed/lakebed packet arrays are regenerated from seed/settings and
+  are never written to save files.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - missing `worldgen_settings.mountains` restores hard-coded loader defaults for
@@ -450,7 +453,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current foundation runtime value is `10` |
+| `world_version` | `int` | — | Current foundation runtime value before river realization was `11` |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
@@ -483,6 +486,51 @@ Current code notes:
 - only tiles with `mountain_id > 0` write canonical mountain terrain through `terrain_ids` as `TERRAIN_MOUNTAIN_WALL` or `TERRAIN_MOUNTAIN_FOOT`
 - active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain either resolves into named mountain output or stays on the ground path at the hierarchical scale cutoff
 - `mountain_atlas_indices` is reserved for later roof presentation, but is already confirmed at the packet boundary in M1
+
+### `ChunkPacketV2`
+
+Returned one-per-input-coord by native
+`WorldCore.generate_chunk_packets_batch(seed, coords, world_version, settings_packed)`
+for `world_version >= 14`.
+
+`ChunkPacketV2` extends `ChunkPacketV1` additively. No V1 field is removed or
+reshaped.
+
+| Field | Type | Length | Notes |
+|---|---|---:|---|
+| `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
+| `world_seed` | `int` | — | Copied into the packet for validation/debug |
+| `world_version` | `int` | — | Current dry-river runtime value is `14` |
+| `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids, now including dry river/lake bed ids where not blocked by mountain terrain |
+| `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; ordinary ground solves `47`-tile banks against river/lake bed footprints natively |
+| `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked`; dry river/lake bed terrain remains walkable in R1B |
+| `mountain_id_per_tile` | `PackedInt32Array` | 1024 | Same semantics as `ChunkPacketV1` |
+| `mountain_flags` | `PackedByteArray` | 1024 | Same bit layout as `ChunkPacketV1` |
+| `mountain_atlas_indices` | `PackedInt32Array` | 1024 | Same semantics as `ChunkPacketV1` |
+| `riverbed_flags` | `PackedByteArray` | 1024 | Dry river/lake footprint flags; zero for non-bed tiles or older world versions |
+| `riverbed_depth` | `PackedByteArray` | 1024 | `0 none`, `1 shallow`, `2 deep` |
+
+`riverbed_flags` bit layout:
+
+| Bit | Name | Meaning |
+|---:|---|---|
+| `1 << 0` | `is_riverbed` | Tile belongs to a realized dry river channel footprint |
+| `1 << 1` | `is_lakebed` | Tile belongs to a dry terminal-lake scar footprint |
+| `1 << 2` | `is_ocean_directed` | River path drains into the top-Y ocean band |
+| `1 << 3` | `is_side_channel` | Reserved for R1D split/rejoin side channels; R1B writes `0` |
+| `1 << 4` | `is_mouth_or_delta` | Tile belongs to ocean mouth/delta widening |
+| `1 << 5` | `is_debug_orphan` | Reserved for dev-only rejected drainage debug; R1B release packets write `0` |
+
+Current code notes:
+- R1B does not add `riverbed_atlas_indices` or `river_flow_q8`; dry bed
+  terrain uses normal `terrain_ids` and `terrain_atlas_indices`.
+- R1B realizes only ocean-directed primary river trunks from `WorldPrePass`.
+  Split/rejoin side channels remain deferred to R1D.
+- Lakebed scars are dry terrain footprints. They are regenerated from
+  `WorldPrePass`; they are not persisted per tile.
+- `TERRAIN_RIVERBED_SHALLOW`, `TERRAIN_RIVERBED_DEEP`,
+  `TERRAIN_LAKEBED_SHALLOW`, and `TERRAIN_LAKEBED_DEEP` are dry base terrain
+  ids and remain walkable until a future water overlay changes movement.
 
 ### `WorldFoundationSpawnResult`
 
@@ -597,7 +645,6 @@ Current code notes:
 
 ## Not Currently Confirmed
 
-The current code still does not confirm any packet fields beyond `ChunkPacketV1`,
-`WorldFoundationSnapshotDebug`, and `WorldFoundationOverviewImage` for future
-biome, river tile realization, placement, roof-runtime, entrance-runtime, or
+The current code still does not confirm packet fields for future biome,
+placement, roof-runtime, entrance-runtime, water overlay, drought, or
 environment layers.

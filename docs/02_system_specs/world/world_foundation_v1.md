@@ -750,6 +750,14 @@ The high-resolution foundation overview pass advances new worlds to
 from `128` to `64`, changing substrate-derived spawn and future
 worldgen reads for the same seed/settings.
 
+River Generation R1B advances current new worlds to `world_version = 14` so
+dry riverbed/lakebed terrain is realized from the existing `WorldPrePass`
+river skeleton without changing the substrate field set. The same boundary also
+turns on the dry river/lake overlay in the overview image so the new-game map
+shows accepted ocean-directed trunks instead of hiding them inside the relief
+palette. `world_version == 11`, `world_version == 12`, and `world_version == 13` remain compatibility
+boundaries before the accepted dry river realization.
+
 ## Performance Class
 
 | Operation | Class | Dirty unit | Budget |

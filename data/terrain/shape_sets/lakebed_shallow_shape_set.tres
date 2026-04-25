@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="TerrainShapeSet" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_shape_set.gd" id="1"]
+[ext_resource type="Texture2D" path="res://assets/textures/terrain/terrain_shore.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"base:lakebed_shallow_shape"
+topology_family_id = &"single_tile"
+mask_atlas = ExtResource("2")
+tile_size_px = 32
+case_count = 1
+variant_count = 1

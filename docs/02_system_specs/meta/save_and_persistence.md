@@ -57,10 +57,10 @@ Current V0 runtime implementation:
 - changed terrain diffs are sharded as `chunks/<x>_<y>.json`
 - load order is deterministic base restore first, then per-chunk diff apply
 
-Current mountain extension:
-- `world.json` now records `world_version: 11` for the current finite-world
-  foundation baseline with `64`-tile substrate cells and the native
-  high-resolution overview pass
+Current world generation extension:
+- `world.json` now records `world_version: 14` for the current finite-world
+  foundation baseline with `64`-tile substrate cells, native high-resolution
+  overview, and native dry riverbed/lakebed realization
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - `world_version >= 6` keeps the same save shape but changes canonical new-world
@@ -80,6 +80,13 @@ Current mountain extension:
   `worldgen_settings.world_bounds.width_tiles` for mountain sampling
 - `world_version >= 11` uses `foundation_coarse_cell_size_tiles = 64` for
   `WorldPrePass`; versions `9..10` used `128`-tile substrate cells
+- `world_version >= 14` generates dry riverbed and lakebed base terrain from
+  the `WorldPrePass` river skeleton during chunk packet generation
+- dry river/lake fields are not persisted:
+  - `riverbed_flags` is not written to `world.json` or `chunks/*.json`
+  - `riverbed_depth` is not written to `world.json` or `chunks/*.json`
+  - dry river/lake terrain appears in regenerated base `terrain_ids`; only
+    player/runtime diffs continue to be saved as changed chunk tiles
 - loading `world_version <= 8` preserves the legacy pre-foundation path without
   injecting synthetic bounds into the save
 - loading `world_version >= 9` without `worldgen_settings.world_bounds` fails
@@ -110,7 +117,7 @@ Confirmed `world.json` shape in the current mountain code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 11,
+  "world_version": 14,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,

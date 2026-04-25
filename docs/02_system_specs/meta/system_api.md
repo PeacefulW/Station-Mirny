@@ -295,7 +295,7 @@ Confirmed public native surface:
 
 | Surface | Return | Notes |
 |---|---|---|
-| `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate; for `world_version >= 9`, it reads/builds the `WorldPrePass` cache on the worker path before chunk generation |
+| `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate; for `world_version >= 9`, it reads/builds the `WorldPrePass` cache on the worker path before chunk generation; for `world_version >= 14`, packets include dry river/lake bed fields documented as `ChunkPacketV2` |
 | `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
 
 Dev-only native surface:
@@ -315,6 +315,9 @@ Current code notes:
 - for `world_version >= 11`, the native `WorldPrePass` substrate uses
   `foundation_coarse_cell_size_tiles = 64`; earlier finite-foundation versions
   used `128`.
+- for `world_version >= 14`, native chunk generation realizes dry
+  riverbed/lakebed terrain from `WorldPrePass` and writes additive
+  `riverbed_flags` / `riverbed_depth` packet arrays.
 - The substrate snapshot is a derived cache owned by `WorldCore`; it is not
   persisted and must not be mutated by script code.
 - Preview spawn resolution uses the shared worker wrapper, not a main-thread

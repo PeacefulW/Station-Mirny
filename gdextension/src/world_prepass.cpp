@@ -42,6 +42,8 @@ constexpr uint64_t SEED_SALT_CONTINENT = 0xd1b54a32d192ed03ULL;
 constexpr uint64_t SEED_SALT_RELIEF = 0x8a5cd789635d2dffULL;
 constexpr uint64_t SEED_SALT_SOURCE = 0x9e3779b185ebca87ULL;
 constexpr uint64_t SEED_SALT_REGION = 0xc2b2ae3d27d4eb4fULL;
+constexpr int64_t DRY_RIVER_OVERVIEW_VERSION = 14;
+constexpr int32_t MAX_CHAIN_STEPS_MULTIPLIER = 2;
 
 struct QueueEntry {
 	float height = 0.0f;
@@ -61,6 +63,11 @@ struct OverviewMasks {
 	bool ocean_band = false;
 	bool burning_band = false;
 	bool continent = false;
+};
+
+struct LakeCandidateScore {
+	int32_t index = 0;
+	float score = 0.0f;
 };
 
 uint64_t mix_seed(int64_t p_seed, int64_t p_world_version, uint64_t p_salt) {
@@ -159,6 +166,7 @@ void build_flow_graph(Snapshot &r_snapshot, float p_river_amount) {
 	std::vector<int32_t> visit_order;
 	visit_order.reserve(static_cast<size_t>(node_count));
 	std::priority_queue<QueueEntry, std::vector<QueueEntry>, QueueEntryCompare> queue;
+	const bool uses_ocean_primary_routing = r_snapshot.world_version >= DRY_RIVER_OVERVIEW_VERSION;
 
 	for (int32_t y = 0; y < r_snapshot.grid_height; ++y) {
 		for (int32_t x = 0; x < r_snapshot.grid_width; ++x) {
@@ -166,11 +174,12 @@ void build_flow_graph(Snapshot &r_snapshot, float p_river_amount) {
 			if (is_blocked_for_routing(r_snapshot, index)) {
 				continue;
 			}
-			const bool is_outlet = r_snapshot.continent_mask[static_cast<size_t>(index)] == 0 ||
-					r_snapshot.ocean_band_mask[static_cast<size_t>(index)] != 0 ||
-					r_snapshot.burning_band_mask[static_cast<size_t>(index)] != 0 ||
+			const bool is_outlet = r_snapshot.ocean_band_mask[static_cast<size_t>(index)] != 0 ||
 					y == 0 ||
-					y == r_snapshot.grid_height - 1;
+					(!uses_ocean_primary_routing &&
+							(r_snapshot.continent_mask[static_cast<size_t>(index)] == 0 ||
+									r_snapshot.burning_band_mask[static_cast<size_t>(index)] != 0 ||
+									y == r_snapshot.grid_height - 1));
 			if (!is_outlet) {
 				continue;
 			}
@@ -281,17 +290,70 @@ void build_flow_graph(Snapshot &r_snapshot, float p_river_amount) {
 
 	const int32_t max_lake_radius_cells = 1;
 	r_snapshot.terminal_lake_near_node.assign(static_cast<size_t>(node_count), 0);
+	std::vector<LakeCandidateScore> lake_candidates;
+	lake_candidates.reserve(static_cast<size_t>(std::max(1, node_count / 16)));
 	for (int32_t index = 0; index < node_count; ++index) {
-		if (r_snapshot.downstream_index[static_cast<size_t>(index)] >= 0 ||
-				r_snapshot.flow_accumulation[static_cast<size_t>(index)] < FLOW_SEA_THRESHOLD ||
+		const bool is_legacy_terminal = r_snapshot.downstream_index[static_cast<size_t>(index)] < 0 &&
+				r_snapshot.flow_accumulation[static_cast<size_t>(index)] >= FLOW_SEA_THRESHOLD;
+		const bool is_ocean_primary_basin = uses_ocean_primary_routing &&
+				r_snapshot.visible_trunk_mask[static_cast<size_t>(index)] != 0 &&
+				r_snapshot.flow_accumulation[static_cast<size_t>(index)] >= 0.20f &&
+				r_snapshot.coarse_wall_density[static_cast<size_t>(index)] <= 0.38f;
+		if ((!is_legacy_terminal && !is_ocean_primary_basin) ||
 				r_snapshot.ocean_band_mask[static_cast<size_t>(index)] != 0 ||
-				r_snapshot.burning_band_mask[static_cast<size_t>(index)] != 0) {
+				r_snapshot.burning_band_mask[static_cast<size_t>(index)] != 0 ||
+				r_snapshot.continent_mask[static_cast<size_t>(index)] == 0 ||
+				is_blocked_for_routing(r_snapshot, index)) {
 			continue;
 		}
-		r_snapshot.is_terminal_lake_center[static_cast<size_t>(index)] = 1U;
-		const int32_t cx = index % r_snapshot.grid_width;
-		const int32_t cy = index / r_snapshot.grid_width;
-		// Mark all nodes within lake radius as near a terminal lake (for spawn rejection).
+		const int32_t node_y = index / r_snapshot.grid_width;
+		if (uses_ocean_primary_routing && (node_y <= 1 || node_y >= r_snapshot.grid_height - 2)) {
+			continue;
+		}
+		const float flow = r_snapshot.flow_accumulation[static_cast<size_t>(index)];
+		const float valley = r_snapshot.coarse_valley_score[static_cast<size_t>(index)];
+		const float wall = r_snapshot.coarse_wall_density[static_cast<size_t>(index)];
+		const float hydro = r_snapshot.hydro_height[static_cast<size_t>(index)];
+		const float hydro_mid = 1.0f - saturate(std::abs(hydro - 0.50f) / 0.50f);
+		const uint64_t jitter_hash = splitmix64(r_snapshot.signature ^ static_cast<uint64_t>(index) * 0x9e3779b185ebca87ULL);
+		const float jitter = static_cast<float>(jitter_hash & 0x3ffULL) / 1023.0f;
+		float score = flow * 1.20f + valley * 0.48f + hydro_mid * 0.22f - wall * 0.72f + jitter * 0.08f;
+		if (!uses_ocean_primary_routing && is_legacy_terminal) {
+			score += 0.75f;
+		}
+		if (score < (uses_ocean_primary_routing ? 0.74f : 0.0f)) {
+			continue;
+		}
+		lake_candidates.push_back(LakeCandidateScore{ index, score });
+	}
+	std::sort(lake_candidates.begin(), lake_candidates.end(), [](const LakeCandidateScore &p_a, const LakeCandidateScore &p_b) {
+		if (p_a.score != p_b.score) {
+			return p_a.score > p_b.score;
+		}
+		return p_a.index < p_b.index;
+	});
+
+	auto is_lake_spacing_clear = [&](int32_t p_index, const std::vector<int32_t> &p_accepted) -> bool {
+		constexpr int32_t spacing_radius_cells = 2;
+		const int32_t x = p_index % r_snapshot.grid_width;
+		const int32_t y = p_index / r_snapshot.grid_width;
+		for (int32_t accepted : p_accepted) {
+			const int32_t ax = accepted % r_snapshot.grid_width;
+			const int32_t ay = accepted / r_snapshot.grid_width;
+			const int32_t direct_dx = std::abs(x - ax);
+			const int32_t wrapped_dx = std::min(direct_dx, r_snapshot.grid_width - direct_dx);
+			const int32_t dy = std::abs(y - ay);
+			if (wrapped_dx <= spacing_radius_cells && dy <= spacing_radius_cells) {
+				return false;
+			}
+		}
+		return true;
+	};
+
+	auto mark_lake = [&](int32_t p_index) {
+		r_snapshot.is_terminal_lake_center[static_cast<size_t>(p_index)] = 1U;
+		const int32_t cx = p_index % r_snapshot.grid_width;
+		const int32_t cy = p_index / r_snapshot.grid_width;
 		const int32_t min_y = std::max(0, cy - max_lake_radius_cells);
 		const int32_t max_y = std::min(r_snapshot.grid_height - 1, cy + max_lake_radius_cells);
 		for (int32_t ly = min_y; ly <= max_y; ++ly) {
@@ -300,19 +362,39 @@ void build_flow_graph(Snapshot &r_snapshot, float p_river_amount) {
 				r_snapshot.terminal_lake_near_node[static_cast<size_t>(r_snapshot.index(lx, ly))] = 1U;
 			}
 		}
-		// Build polygon with X-wrap-safe coordinates.
 		const int32_t poly_min_y = std::max(0, cy - max_lake_radius_cells);
 		const int32_t poly_max_y = std::min(r_snapshot.grid_height - 1, cy + max_lake_radius_cells);
 		const int32_t poly_min_x = static_cast<int32_t>(positive_mod(cx - max_lake_radius_cells, r_snapshot.grid_width));
 		const int32_t poly_width = max_lake_radius_cells * 2 + 1;
-		// Store polygon in tile coordinates; use wrapped min_x as origin.
 		PackedVector2Array polygon;
 		polygon.append(Vector2(poly_min_x * COARSE_CELL_SIZE_TILES, poly_min_y * COARSE_CELL_SIZE_TILES));
 		polygon.append(Vector2((poly_min_x + poly_width) * COARSE_CELL_SIZE_TILES, poly_min_y * COARSE_CELL_SIZE_TILES));
 		polygon.append(Vector2((poly_min_x + poly_width) * COARSE_CELL_SIZE_TILES, (poly_max_y + 1) * COARSE_CELL_SIZE_TILES));
 		polygon.append(Vector2(poly_min_x * COARSE_CELL_SIZE_TILES, (poly_max_y + 1) * COARSE_CELL_SIZE_TILES));
 		r_snapshot.terminal_lake_polygons.push_back(polygon);
+	};
+
+	const int32_t target_lake_count = uses_ocean_primary_routing ?
+			clamp_value(node_count / 96 + 1, 1, 8) :
+			node_count;
+	std::vector<int32_t> accepted_lakes;
+	accepted_lakes.reserve(static_cast<size_t>(target_lake_count));
+	for (const LakeCandidateScore &candidate : lake_candidates) {
+		if (static_cast<int32_t>(accepted_lakes.size()) >= target_lake_count) {
+			break;
+		}
+		if (!is_lake_spacing_clear(candidate.index, accepted_lakes)) {
+			continue;
+		}
+		accepted_lakes.push_back(candidate.index);
+		mark_lake(candidate.index);
 	}
+
+	/*
+	 * Older versions kept only true graph terminals. For ocean-primary routing,
+	 * lake scars are selected above as sparse inline basins so accepted trunks
+	 * still reach the ocean while leaving visible dry lake bowls.
+	 */
 
 #ifdef DEBUG_ENABLED
 	// Cycle detection: walk every node's downstream chain and assert it terminates.
@@ -378,6 +460,200 @@ void write_rgba(PackedByteArray &r_bytes, int32_t p_offset, uint8_t p_r, uint8_t
 	r_bytes.set(p_offset + 1, p_g);
 	r_bytes.set(p_offset + 2, p_b);
 	r_bytes.set(p_offset + 3, p_a);
+}
+
+double hash_to_unit(uint64_t p_hash) {
+	return static_cast<double>(p_hash & 0xffffULL) / 65535.0;
+}
+
+double closest_wrapped_overview_x(double p_x, double p_reference_x, int32_t p_grid_width) {
+	if (p_grid_width <= 0) {
+		return p_x;
+	}
+	const double width = static_cast<double>(p_grid_width);
+	return p_x - std::round((p_x - p_reference_x) / width) * width;
+}
+
+double distance_to_overview_segment(
+	double p_x,
+	double p_y,
+	double p_ax,
+	double p_ay,
+	double p_bx,
+	double p_by
+) {
+	const double vx = p_bx - p_ax;
+	const double vy = p_by - p_ay;
+	const double wx = p_x - p_ax;
+	const double wy = p_y - p_ay;
+	const double length_sq = vx * vx + vy * vy;
+	if (length_sq <= std::numeric_limits<double>::epsilon()) {
+		const double dx = p_x - p_ax;
+		const double dy = p_y - p_ay;
+		return std::sqrt(dx * dx + dy * dy);
+	}
+	const double t = clamp_value((wx * vx + wy * vy) / length_sq, 0.0, 1.0);
+	const double sx = p_ax + t * vx;
+	const double sy = p_ay + t * vy;
+	const double dx = p_x - sx;
+	const double dy = p_y - sy;
+	return std::sqrt(dx * dx + dy * dy);
+}
+
+std::vector<uint8_t> build_ocean_directed_trunk_mask(const Snapshot &p_snapshot) {
+	const int32_t node_count = p_snapshot.grid_width * p_snapshot.grid_height;
+	std::vector<uint8_t> result(static_cast<size_t>(node_count), 0);
+	std::vector<uint8_t> resolved(static_cast<size_t>(node_count), 0);
+	std::vector<uint8_t> reaches_ocean(static_cast<size_t>(node_count), 0);
+	const int32_t max_steps = std::max(1, node_count * MAX_CHAIN_STEPS_MULTIPLIER);
+	std::vector<int32_t> chain;
+	chain.reserve(static_cast<size_t>(std::min(node_count, max_steps)));
+
+	for (int32_t start = 0; start < node_count; ++start) {
+		if (p_snapshot.visible_trunk_mask[static_cast<size_t>(start)] == 0) {
+			continue;
+		}
+		chain.clear();
+		int32_t current = start;
+		bool success = false;
+		for (int32_t step = 0; step < max_steps; ++step) {
+			if (current < 0 || current >= node_count) {
+				break;
+			}
+			if (resolved[static_cast<size_t>(current)] != 0) {
+				success = reaches_ocean[static_cast<size_t>(current)] != 0;
+				break;
+			}
+			chain.push_back(current);
+			if (p_snapshot.ocean_band_mask[static_cast<size_t>(current)] != 0) {
+				success = true;
+				break;
+			}
+			if (p_snapshot.burning_band_mask[static_cast<size_t>(current)] != 0) {
+				break;
+			}
+			current = p_snapshot.downstream_index[static_cast<size_t>(current)];
+		}
+		for (int32_t index : chain) {
+			resolved[static_cast<size_t>(index)] = 1U;
+			reaches_ocean[static_cast<size_t>(index)] = success ? 1U : 0U;
+			if (success && p_snapshot.visible_trunk_mask[static_cast<size_t>(index)] != 0) {
+				result[static_cast<size_t>(index)] = 1U;
+			}
+		}
+	}
+
+	return result;
+}
+
+int32_t resolve_dry_overview_overlay(
+	const Snapshot &p_snapshot,
+	const std::vector<uint8_t> &p_ocean_directed_trunk_mask,
+	float p_coarse_x,
+	float p_coarse_y
+) {
+	if (p_ocean_directed_trunk_mask.empty()) {
+		return 0;
+	}
+	const int32_t node_count = p_snapshot.grid_width * p_snapshot.grid_height;
+	int32_t overlay = 0;
+	const int32_t center_x = static_cast<int32_t>(std::floor(p_coarse_x + 0.5f));
+	const int32_t center_y = clamp_value(static_cast<int32_t>(std::floor(p_coarse_y + 0.5f)), 0, p_snapshot.grid_height - 1);
+	for (int32_t dy = -1; dy <= 1; ++dy) {
+		const int32_t node_y = center_y + dy;
+		if (node_y < 0 || node_y >= p_snapshot.grid_height) {
+			continue;
+		}
+		for (int32_t dx = -1; dx <= 1; ++dx) {
+			const int32_t raw_x = center_x + dx;
+			const int32_t node_x = static_cast<int32_t>(positive_mod(raw_x, p_snapshot.grid_width));
+			const int32_t index = p_snapshot.index(node_x, node_y);
+			if (p_snapshot.is_terminal_lake_center[static_cast<size_t>(index)] != 0) {
+				const double lx = closest_wrapped_overview_x(static_cast<double>(raw_x), p_coarse_x, p_snapshot.grid_width);
+				const double distance = std::sqrt(
+					(static_cast<double>(p_coarse_x) - lx) * (static_cast<double>(p_coarse_x) - lx) +
+					(static_cast<double>(p_coarse_y) - static_cast<double>(node_y)) *
+							(static_cast<double>(p_coarse_y) - static_cast<double>(node_y))
+				);
+				if (distance <= 0.42) {
+					overlay = std::max(overlay, 1);
+				}
+			}
+			if (p_ocean_directed_trunk_mask[static_cast<size_t>(index)] == 0) {
+				continue;
+			}
+			const int32_t downstream = p_snapshot.downstream_index[static_cast<size_t>(index)];
+			if (downstream < 0 || downstream >= node_count) {
+				continue;
+			}
+			const int32_t downstream_y = downstream / p_snapshot.grid_width;
+			const int32_t downstream_x_wrapped = downstream % p_snapshot.grid_width;
+			const double ax = closest_wrapped_overview_x(static_cast<double>(raw_x), p_coarse_x, p_snapshot.grid_width);
+			const double bx = closest_wrapped_overview_x(static_cast<double>(downstream_x_wrapped), ax, p_snapshot.grid_width);
+			const double ay = static_cast<double>(node_y);
+			const double by = static_cast<double>(downstream_y);
+			const double dx_segment = bx - ax;
+			const double dy_segment = by - ay;
+			const double length = std::sqrt(dx_segment * dx_segment + dy_segment * dy_segment);
+			double distance = distance_to_overview_segment(
+				static_cast<double>(p_coarse_x),
+				static_cast<double>(p_coarse_y),
+				ax,
+				ay,
+				bx,
+				by
+			);
+			const float flow = saturate(p_snapshot.flow_accumulation[static_cast<size_t>(index)]);
+			if (length > std::numeric_limits<double>::epsilon()) {
+				const float valley = saturate(p_snapshot.coarse_valley_score[static_cast<size_t>(index)]);
+				const uint64_t bend_hash = splitmix64(
+					p_snapshot.signature ^
+					static_cast<uint64_t>(index) * 0x9e3779b185ebca87ULL ^
+					static_cast<uint64_t>(downstream) * 0xc2b2ae3d27d4eb4fULL
+				);
+				const double bend_sign = hash_to_unit(bend_hash) * 2.0 - 1.0;
+				const double along_sign = hash_to_unit(splitmix64(bend_hash ^ 0x8a5cd789635d2dffULL)) * 2.0 - 1.0;
+				const double bend_magnitude = std::min(length * 0.22, 0.10 + static_cast<double>(flow) * 0.24 + static_cast<double>(valley) * 0.16);
+				const double along_magnitude = std::min(length * 0.10, 0.18);
+				const double tx = dx_segment / length;
+				const double ty = dy_segment / length;
+				const double nx = -ty;
+				const double ny = tx;
+				const double mx = (ax + bx) * 0.5 + nx * bend_sign * bend_magnitude + tx * along_sign * along_magnitude;
+				const double my = clamp_value(
+					(ay + by) * 0.5 + ny * bend_sign * bend_magnitude + ty * along_sign * along_magnitude,
+					0.0,
+					static_cast<double>(std::max(0, p_snapshot.grid_height - 1))
+				);
+				const double distance_a = distance_to_overview_segment(
+					static_cast<double>(p_coarse_x),
+					static_cast<double>(p_coarse_y),
+					ax,
+					ay,
+					mx,
+					my
+				);
+				const double distance_b = distance_to_overview_segment(
+					static_cast<double>(p_coarse_x),
+					static_cast<double>(p_coarse_y),
+					mx,
+					my,
+					bx,
+					by
+				);
+				distance = std::min(distance_a, distance_b);
+			}
+			const double shallow_width = 0.22 + static_cast<double>(flow) * 0.16;
+			const double deep_width = 0.10 + static_cast<double>(flow) * 0.08;
+			if (distance <= deep_width) {
+				return 3;
+			}
+			if (distance <= shallow_width) {
+				overlay = std::max(overlay, 2);
+			}
+		}
+	}
+	return overlay;
 }
 
 } // namespace
@@ -634,7 +910,7 @@ void write_overview_rgba(
 	float p_wall
 ) {
 	if (p_masks.ocean_band) {
-		write_rgba(r_bytes, p_offset, 18, 58, 104);
+		write_rgba(r_bytes, p_offset, 10, 72, 130);
 		return;
 	}
 	if (p_masks.burning_band) {
@@ -642,7 +918,7 @@ void write_overview_rgba(
 		return;
 	}
 	if (!p_masks.continent) {
-		write_rgba(r_bytes, p_offset, 30, 88, 132);
+		write_rgba(r_bytes, p_offset, 24, 86, 126);
 		return;
 	}
 	const float hydro = saturate(p_hydro);
@@ -678,6 +954,9 @@ Ref<Image> make_overview_image(
 	PackedByteArray bytes;
 	bytes.resize(image_width * image_height * 4);
 	FastNoiseLite continent_noise = make_noise(mix_seed(p_snapshot.seed, p_snapshot.world_version, SEED_SALT_CONTINENT), 1.0f / 2048.0f, 4);
+	const std::vector<uint8_t> ocean_directed_trunk_mask = p_world_version >= DRY_RIVER_OVERVIEW_VERSION ?
+			build_ocean_directed_trunk_mask(p_snapshot) :
+			std::vector<uint8_t>();
 	for (int32_t y = 0; y < image_height; ++y) {
 		for (int32_t x = 0; x < image_width; ++x) {
 			const float coarse_sample_x = (static_cast<float>(x) + 0.5f) / static_cast<float>(pixels_per_cell) - 0.5f;
@@ -709,13 +988,30 @@ Ref<Image> make_overview_image(
 			}
 			const float pixel_wall_density = static_cast<float>(wall_count) /
 					static_cast<float>(pixel_sample_steps * pixel_sample_steps);
+			const OverviewMasks masks = sample_overview_masks(p_snapshot, continent_noise, mask_world_x, mask_world_y);
 			write_overview_rgba(
 				bytes,
 				(y * image_width + x) * 4,
-				sample_overview_masks(p_snapshot, continent_noise, mask_world_x, mask_world_y),
+				masks,
 				sample_snapshot_float_bilinear(p_snapshot.hydro_height, p_snapshot, coarse_sample_x, coarse_sample_y),
 				pixel_wall_density
 			);
+			const int32_t offset = (y * image_width + x) * 4;
+			if (masks.continent) {
+				const int32_t dry_overlay = resolve_dry_overview_overlay(
+					p_snapshot,
+					ocean_directed_trunk_mask,
+					coarse_sample_x,
+					coarse_sample_y
+				);
+				if (dry_overlay == 3) {
+					write_rgba(bytes, offset, 58, 45, 32);
+				} else if (dry_overlay == 2) {
+					write_rgba(bytes, offset, 118, 86, 50);
+				} else if (dry_overlay == 1) {
+					write_rgba(bytes, offset, 104, 78, 47);
+				}
+			}
 		}
 	}
 	return Image::create_from_data(image_width, image_height, false, Image::FORMAT_RGBA8, bytes);

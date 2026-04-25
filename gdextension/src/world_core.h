@@ -46,7 +46,8 @@ private:
 		int64_t p_world_version,
 		const mountain_field::Evaluator &p_mountain_evaluator,
 		const mountain_field::Settings &p_effective_mountain_settings,
-		const ::FoundationSettings &p_foundation_settings
+		const ::FoundationSettings &p_foundation_settings,
+		const world_prepass::Snapshot *p_world_prepass_snapshot
 	);
 	const mountain_field::HierarchicalMacroSolve &_get_or_build_hierarchical_macro_solve(
 		int64_t p_seed,

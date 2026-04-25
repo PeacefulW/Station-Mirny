@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_material_set.gd" id="1"]
+[ext_resource type="Texture2D" path="res://assets/textures/terrain/terrain_dug_albedo.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"base:lakebed_deep_material"
+shader_family_id = &"terrain.simple_tile"
+top_albedo = ExtResource("2")
+face_albedo = ExtResource("2")
+top_modulation = ExtResource("2")
+face_modulation = ExtResource("2")
+top_normal = ExtResource("2")
+face_normal = ExtResource("2")
