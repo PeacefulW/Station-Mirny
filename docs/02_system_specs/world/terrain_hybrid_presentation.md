@@ -322,6 +322,19 @@ Notes:
 - `terrain_class_id` is not permission for a second hidden runtime resolution
   path.
 
+### Current dry-bed terrain profiles
+
+R1B-Fix adds dry ocean-bed terrain ids without adding a water overlay. The
+current presentation registry must resolve:
+
+| Terrain id | Terrain class | Presentation rule |
+|---:|---|---|
+| `9` | `TERRAIN_OCEAN_BED_SHALLOW` | dry top-Y ocean rim; single-tile dry-bed profile, ground-incompatible for bank edges |
+| `10` | `TERRAIN_OCEAN_BED_DEEP` | dry top-Y ocean interior; single-tile dry-bed profile, ground-incompatible for bank edges |
+
+These ids are canonical terrain ids, not saved presentation state. They remain
+walkable until a future water overlay changes movement.
+
 ## Registry and ID Model
 
 Terrain presentation should be resolved through IDs and data resources, not

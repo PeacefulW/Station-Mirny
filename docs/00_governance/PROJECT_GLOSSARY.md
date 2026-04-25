@@ -92,6 +92,11 @@ latitude, not as a literal wall terrain override.
 The top-Y hard band in V1 worlds. Its thickness is saved as
 `worldgen_settings.foundation.ocean_band_tiles`.
 
+### Ocean bed (dry)
+Dry base terrain used inside the top-Y ocean band before the future water
+overlay exists. It is regenerated from seed/version/settings, remains walkable
+in V15, and must not be persisted as per-tile chunk diff data.
+
 ### Burning band
 The bottom-Y hard band in V1 worlds. Its thickness is saved as
 `worldgen_settings.foundation.burning_band_tiles`.

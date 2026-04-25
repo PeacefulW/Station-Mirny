@@ -1,4 +1,5 @@
 #include "river_rasterizer.h"
+#include "lake_footprint.h"
 #include "world_utils.h"
 
 #include <algorithm>
@@ -16,7 +17,7 @@ namespace river_rasterizer {
 namespace {
 
 constexpr int32_t COARSE = world_prepass::COARSE_CELL_SIZE_TILES;
-constexpr int32_t NODE_SEARCH_HALO_TILES = COARSE * 2;
+constexpr int32_t NODE_SEARCH_HALO_TILES = COARSE * 4;
 constexpr int32_t MAX_CHAIN_STEPS_MULTIPLIER = 2;
 
 struct RiverSegment {
@@ -28,13 +29,6 @@ struct RiverSegment {
 	float deep_radius = 0.0f;
 	float flow = 0.0f;
 	uint8_t flags = 0U;
-};
-
-struct LakeCandidate {
-	double center_x = 0.0;
-	double center_y = 0.0;
-	float shallow_radius = 0.0f;
-	float deep_radius = 0.0f;
 };
 
 int64_t floor_div(int64_t p_value, int64_t p_divisor) {
@@ -173,7 +167,7 @@ std::vector<int32_t> collect_nearby_nodes(
 	return result;
 }
 
-float resolve_shallow_radius(const world_prepass::Snapshot &p_snapshot, int32_t p_index) {
+float resolve_shallow_radius(const world_prepass::Snapshot &p_snapshot, int32_t p_index, float p_bed_width_scale) {
 	const float flow = saturate(p_snapshot.flow_accumulation[static_cast<size_t>(p_index)]);
 	const float valley = saturate(p_snapshot.coarse_valley_score[static_cast<size_t>(p_index)]);
 	const float wall_pressure = saturate(p_snapshot.coarse_wall_density[static_cast<size_t>(p_index)]);
@@ -183,16 +177,29 @@ float resolve_shallow_radius(const world_prepass::Snapshot &p_snapshot, int32_t 
 		static_cast<float>(std::max<int64_t>(1, p_snapshot.height_tiles - 1))
 	);
 	const float order = static_cast<float>(std::min(6, std::max(1, p_snapshot.strahler_order[static_cast<size_t>(p_index)])));
-	float radius = 0.65f + flow * 2.4f + order * 0.20f + downstream_to_ocean * 0.85f + valley * 0.25f;
-	radius *= 1.0f - std::min(0.35f, wall_pressure * 0.45f);
-	return clamp_value(radius, 0.75f, 3.75f);
+	float shallow_radius = clamp_value(
+		0.50f + flow * 4.00f + order * 0.35f + downstream_to_ocean * 1.50f + valley * 0.40f,
+		0.75f,
+		7.50f
+	);
+	shallow_radius *= 1.0f - std::min(0.35f, wall_pressure * 0.45f);
+	shallow_radius *= p_bed_width_scale;
+	return shallow_radius;
+}
+
+float resolve_deep_radius(float p_shallow_radius) {
+	if (p_shallow_radius < 1.5f) {
+		return std::max(0.45f, p_shallow_radius * 0.32f);
+	}
+	return clamp_value(p_shallow_radius * 0.32f, 0.45f, p_shallow_radius - 0.65f);
 }
 
 std::vector<RiverSegment> build_river_segments(
 	const world_prepass::Snapshot &p_snapshot,
 	const std::vector<int32_t> &p_node_indices,
 	int64_t p_seed,
-	int64_t p_region_reference_x
+	int64_t p_region_reference_x,
+	const FoundationSettings &p_foundation_settings
 ) {
 	std::vector<RiverSegment> result;
 	const int32_t node_count = p_snapshot.grid_width * p_snapshot.grid_height;
@@ -210,17 +217,18 @@ std::vector<RiverSegment> build_river_segments(
 		const godot::Vector2i b_center = p_snapshot.node_to_tile_center(downstream % p_snapshot.grid_width, downstream / p_snapshot.grid_width);
 		const double ax = closest_wrapped_x(static_cast<double>(a_center.x), static_cast<double>(p_region_reference_x), p_snapshot.width_tiles);
 		const double bx = closest_wrapped_x(static_cast<double>(b_center.x), ax, p_snapshot.width_tiles);
-		const float shallow_radius = resolve_shallow_radius(p_snapshot, index);
+		float resolved_shallow_radius = resolve_shallow_radius(p_snapshot, index, p_foundation_settings.bed_width_scale);
+		float resolved_deep_radius = resolve_deep_radius(resolved_shallow_radius);
+		const float flow = saturate(p_snapshot.flow_accumulation[static_cast<size_t>(index)]);
 		const bool is_mouth = p_snapshot.ocean_band_mask[static_cast<size_t>(downstream)] != 0 ||
-				a_center.y < p_snapshot.ocean_band_tiles + COARSE * 2;
+				b_center.y < p_snapshot.ocean_band_tiles + COARSE * 2;
 		const double ay = static_cast<double>(a_center.y);
 		const double by = static_cast<double>(b_center.y);
-		const float resolved_shallow_radius = std::min(4.5f, shallow_radius + (is_mouth ? 0.75f : 0.0f));
-		float resolved_deep_radius = std::max(0.30f, resolved_shallow_radius * 0.28f);
-		if (resolved_shallow_radius >= 1.2f && resolved_shallow_radius - resolved_deep_radius < 0.65f) {
-			resolved_deep_radius = std::max(0.30f, resolved_shallow_radius - 0.65f);
+		if (is_mouth) {
+			const float mouth_bonus = clamp_value(2.5f + flow * 6.5f, 2.5f, 8.0f) * p_foundation_settings.mouth_width_scale;
+			resolved_shallow_radius += mouth_bonus;
+			resolved_deep_radius = std::max(resolved_deep_radius, resolved_shallow_radius * 0.45f);
 		}
-		const float flow = saturate(p_snapshot.flow_accumulation[static_cast<size_t>(index)]);
 		const uint8_t flags = static_cast<uint8_t>(FLAG_RIVERBED | FLAG_OCEAN_DIRECTED | (is_mouth ? FLAG_MOUTH_OR_DELTA : 0U));
 		const double dx = bx - ax;
 		const double dy = by - ay;
@@ -257,12 +265,12 @@ std::vector<RiverSegment> build_river_segments(
 	return result;
 }
 
-std::vector<LakeCandidate> build_lake_candidates(
+std::vector<lake_footprint::LakeShape> build_lake_candidates(
 	const world_prepass::Snapshot &p_snapshot,
 	const std::vector<int32_t> &p_node_indices,
 	int64_t p_region_reference_x
 ) {
-	std::vector<LakeCandidate> result;
+	std::vector<lake_footprint::LakeShape> result;
 	for (int32_t index : p_node_indices) {
 		if (p_snapshot.is_terminal_lake_center[static_cast<size_t>(index)] == 0 ||
 				p_snapshot.ocean_band_mask[static_cast<size_t>(index)] != 0 ||
@@ -270,15 +278,19 @@ std::vector<LakeCandidate> build_lake_candidates(
 			continue;
 		}
 		const godot::Vector2i center = p_snapshot.node_to_tile_center(index % p_snapshot.grid_width, index / p_snapshot.grid_width);
-		const float flow = saturate(p_snapshot.flow_accumulation[static_cast<size_t>(index)]);
-		const float valley = saturate(p_snapshot.coarse_valley_score[static_cast<size_t>(index)]);
-		const float shallow_radius = clamp_value(4.5f + flow * 7.5f + valley * 2.0f, 5.5f, 14.0f);
-		LakeCandidate candidate;
-		candidate.center_x = closest_wrapped_x(static_cast<double>(center.x), static_cast<double>(p_region_reference_x), p_snapshot.width_tiles);
-		candidate.center_y = static_cast<double>(center.y);
-		candidate.shallow_radius = shallow_radius;
-		candidate.deep_radius = std::max(2.5f, shallow_radius * 0.42f);
-		result.push_back(candidate);
+		for (const lake_footprint::LakeShape &shape : p_snapshot.terminal_lake_shapes) {
+			if (std::abs(shape.center_y_tiles - static_cast<double>(center.y)) > 0.5) {
+				continue;
+			}
+			const double shape_x = closest_wrapped_x(shape.center_x_tiles, static_cast<double>(center.x), p_snapshot.width_tiles);
+			if (std::abs(shape_x - static_cast<double>(center.x)) > 0.5) {
+				continue;
+			}
+			lake_footprint::LakeShape resolved_shape = shape;
+			resolved_shape.center_x_tiles = closest_wrapped_x(shape.center_x_tiles, static_cast<double>(p_region_reference_x), p_snapshot.width_tiles);
+			result.push_back(resolved_shape);
+			break;
+		}
 	}
 	return result;
 }
@@ -331,7 +343,6 @@ RasterizedRegion rasterize_region(
 	int32_t p_height
 ) {
 	(void)p_world_version;
-	(void)p_foundation_settings;
 	RasterizedRegion region;
 	region.width = std::max(0, p_width);
 	region.height = std::max(0, p_height);
@@ -349,8 +360,8 @@ RasterizedRegion rasterize_region(
 		p_height
 	);
 	const int64_t reference_x = p_origin_world_x + p_width / 2;
-	const std::vector<RiverSegment> river_segments = build_river_segments(p_snapshot, nearby_nodes, p_seed, reference_x);
-	const std::vector<LakeCandidate> lake_candidates = build_lake_candidates(p_snapshot, nearby_nodes, reference_x);
+	const std::vector<RiverSegment> river_segments = build_river_segments(p_snapshot, nearby_nodes, p_seed, reference_x, p_foundation_settings);
+	const std::vector<lake_footprint::LakeShape> lake_candidates = build_lake_candidates(p_snapshot, nearby_nodes, reference_x);
 
 	for (int32_t y = 0; y < region.height; ++y) {
 		const int64_t world_y = p_origin_world_y + y;
@@ -377,19 +388,16 @@ RasterizedRegion rasterize_region(
 				);
 			}
 
-			for (const LakeCandidate &lake : lake_candidates) {
-				const double lake_x = closest_wrapped_x(lake.center_x, px, p_snapshot.width_tiles);
-				const double dx = px - lake_x;
-				const double dy = py - lake.center_y;
-				const double distance = std::sqrt(dx * dx + dy * dy);
-				apply_candidate_to_cell(
-					region,
-					cell_index,
-					FLAG_LAKEBED,
-					static_cast<float>(distance),
-					lake.deep_radius,
-					lake.shallow_radius
-				);
+			for (const lake_footprint::LakeShape &lake : lake_candidates) {
+				const uint8_t lake_depth = lake_footprint::classify_tile(lake, px, py, p_snapshot.width_tiles);
+				if (lake_depth == lake_footprint::CLASS_NONE) {
+					continue;
+				}
+				if (lake_depth < region.depth[static_cast<size_t>(cell_index)]) {
+					continue;
+				}
+				region.depth[static_cast<size_t>(cell_index)] = lake_depth;
+				region.flags[static_cast<size_t>(cell_index)] = FLAG_LAKEBED;
 			}
 		}
 	}

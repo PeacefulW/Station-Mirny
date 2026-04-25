@@ -1,6 +1,7 @@
 #ifndef STATION_MIRNY_WORLD_PREPASS_H
 #define STATION_MIRNY_WORLD_PREPASS_H
 
+#include "lake_footprint.h"
 #include "mountain_field.h"
 
 #include <cstdint>
@@ -25,6 +26,10 @@ struct FoundationSettings {
 	int64_t pole_orientation = 0;
 	float slope_bias = 0.0f;
 	float river_amount = 0.0f;
+	float lake_density_scale = 1.0f;
+	float lake_radius_scale = 1.0f;
+	float mouth_width_scale = 1.0f;
+	float bed_width_scale = 1.0f;
 };
 
 namespace world_prepass {
@@ -61,6 +66,7 @@ struct Snapshot {
 	std::vector<int32_t> strahler_order;
 	std::vector<uint8_t> is_terminal_lake_center;
 	std::vector<uint8_t> terminal_lake_near_node;
+	std::vector<lake_footprint::LakeShape> terminal_lake_shapes;
 	std::vector<godot::PackedVector2Array> terminal_lake_polygons;
 
 	int32_t index(int32_t p_x, int32_t p_y) const;

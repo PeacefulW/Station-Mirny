@@ -3,6 +3,7 @@ extends Resource
 
 const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const RiverGenSettings = preload("res://core/resources/river_gen_settings.gd")
 
 const POLE_ORIENTATION_OCEAN_TOP: int = 0
 const POLE_ORIENTATION_REVERSED: int = 1
@@ -30,7 +31,8 @@ func to_save_dict() -> Dictionary:
 
 func write_to_settings_packed(
 	settings_packed: PackedFloat32Array,
-	world_bounds: WorldBoundsSettings
+	world_bounds: WorldBoundsSettings,
+	river_settings: RiverGenSettings = null
 ) -> PackedFloat32Array:
 	var normalized_settings: FoundationGenSettings = normalized_for_bounds(world_bounds)
 	var packed: PackedFloat32Array = settings_packed.duplicate()
@@ -42,7 +44,10 @@ func write_to_settings_packed(
 	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_POLE_ORIENTATION] = float(normalized_settings.pole_orientation)
 	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_FOUNDATION_SLOPE_BIAS] = normalized_settings.slope_bias
 	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_RIVER_AMOUNT] = normalized_settings.river_amount
-	return packed
+	var normalized_river_settings: RiverGenSettings = RiverGenSettings.from_save_dict(
+		river_settings.to_save_dict() if river_settings != null else RiverGenSettings.hard_coded_defaults().to_save_dict()
+	)
+	return normalized_river_settings.write_to_settings_packed(packed)
 
 func resolve_spawn_safe_patch_rect(world_bounds: WorldBoundsSettings) -> Rect2i:
 	var normalized_settings: FoundationGenSettings = normalized_for_bounds(world_bounds)

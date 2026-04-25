@@ -169,6 +169,12 @@ Current code note:
       "slope_bias": float,
       "river_amount": float,
     },
+    "rivers"?: {
+      "lake_density_scale": float,
+      "lake_radius_scale": float,
+      "mouth_width_scale": float,
+      "bed_width_scale": float,
+    },
     "mountains"?: {
       "density": float,
       "scale": float,
@@ -198,6 +204,10 @@ Current code notes:
 - `world_version >= 14` adds native dry riverbed/lakebed realization to chunk
   packets. Riverbed/lakebed packet arrays are regenerated from seed/settings and
   are never written to save files.
+- `world_version >= 15` adds `worldgen_settings.rivers`, shared
+  `lake_footprint` polygon classification, and dry ocean-bed terrain ids.
+  Missing `worldgen_settings.rivers` restores hard-coded defaults for
+  backward-compatible saves.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - missing `worldgen_settings.mountains` restores hard-coded loader defaults for
@@ -479,7 +489,9 @@ Current code notes:
   indices `0-8` are mountain settings, and for `world_version >= 9` indices
   `9-15` are `world_width_tiles`, `world_height_tiles`, `ocean_band_tiles`,
   `burning_band_tiles`, `pole_orientation`, `foundation_slope_bias`, and
-  `river_amount`
+  `river_amount`; for `world_version >= 15`, indices `16-19` are
+  `lake_density_scale`, `lake_radius_scale`, `mouth_width_scale`, and
+  `bed_width_scale`
 - the current native boundary requires `world_version >= 6`
 - `world_version >= 6` uses implicit-domain hierarchical labeling: aligned `1024 x 1024` macro solves recurse only through mixed cells, stop at versioned `min_label_cell_size = 8`, reuse a deterministic `1`-macro halo in native code, and hash `mountain_id` from the component representative leaf
 - `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` are base packet fields only; they are not persisted in `ChunkDiffFile`
@@ -491,7 +503,7 @@ Current code notes:
 
 Returned one-per-input-coord by native
 `WorldCore.generate_chunk_packets_batch(seed, coords, world_version, settings_packed)`
-for `world_version >= 14`.
+for the current dry-river path, `world_version >= 15`.
 
 `ChunkPacketV2` extends `ChunkPacketV1` additively. No V1 field is removed or
 reshaped.
@@ -500,10 +512,10 @@ reshaped.
 |---|---|---:|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current dry-river runtime value is `14` |
-| `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids, now including dry river/lake bed ids where not blocked by mountain terrain |
-| `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; ordinary ground solves `47`-tile banks against river/lake bed footprints natively |
-| `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked`; dry river/lake bed terrain remains walkable in R1B |
+| `world_version` | `int` | — | Current dry-river runtime value is `15` |
+| `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids, now including dry river/lake bed ids and dry ocean-bed ids where not blocked by mountain terrain |
+| `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; ordinary ground solves `47`-tile banks against river/lake/ocean dry-bed footprints natively |
+| `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked`; dry river/lake/ocean bed terrain remains walkable in R1B-Fix |
 | `mountain_id_per_tile` | `PackedInt32Array` | 1024 | Same semantics as `ChunkPacketV1` |
 | `mountain_flags` | `PackedByteArray` | 1024 | Same bit layout as `ChunkPacketV1` |
 | `mountain_atlas_indices` | `PackedInt32Array` | 1024 | Same semantics as `ChunkPacketV1` |
@@ -531,6 +543,9 @@ Current code notes:
 - `TERRAIN_RIVERBED_SHALLOW`, `TERRAIN_RIVERBED_DEEP`,
   `TERRAIN_LAKEBED_SHALLOW`, and `TERRAIN_LAKEBED_DEEP` are dry base terrain
   ids and remain walkable until a future water overlay changes movement.
+- `TERRAIN_OCEAN_BED_SHALLOW = 9` and `TERRAIN_OCEAN_BED_DEEP = 10` are dry
+  base terrain ids for the top-Y ocean band in `world_version >= 15`; they remain
+  walkable until a future water overlay changes movement.
 
 ### `WorldFoundationSpawnResult`
 

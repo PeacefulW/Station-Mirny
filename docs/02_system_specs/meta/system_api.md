@@ -295,7 +295,7 @@ Confirmed public native surface:
 
 | Surface | Return | Notes |
 |---|---|---|
-| `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate; for `world_version >= 9`, it reads/builds the `WorldPrePass` cache on the worker path before chunk generation; for `world_version >= 14`, packets include dry river/lake bed fields documented as `ChunkPacketV2` |
+| `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate; for `world_version >= 9`, it reads/builds the `WorldPrePass` cache on the worker path before chunk generation; for `world_version >= 15`, packets include R1B-Fix dry river/lake/ocean bed output documented as `ChunkPacketV2` |
 | `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
 
 Dev-only native surface:
@@ -307,7 +307,8 @@ Dev-only native surface:
 
 Current code notes:
 - `settings_packed` for `world_version >= 9` must include the mountain fields
-  plus V1 foundation indices `9-15`.
+  plus V1 foundation indices `9-15`; for `world_version >= 15`, it also
+  includes river scale indices `16-19`.
 - for `world_version >= 10`, native mountain sampling uses
   `worldgen_settings.world_bounds.width_tiles` as its cylindrical X width;
   `world_version == 9` keeps the legacy `65536`-tile mountain sample-width
@@ -315,8 +316,8 @@ Current code notes:
 - for `world_version >= 11`, the native `WorldPrePass` substrate uses
   `foundation_coarse_cell_size_tiles = 64`; earlier finite-foundation versions
   used `128`.
-- for `world_version >= 14`, native chunk generation realizes dry
-  riverbed/lakebed terrain from `WorldPrePass` and writes additive
+- for `world_version >= 15`, native chunk generation realizes R1B-Fix dry
+  riverbed/lakebed/ocean-bed terrain from `WorldPrePass` and writes additive
   `riverbed_flags` / `riverbed_depth` packet arrays.
 - The substrate snapshot is a derived cache owned by `WorldCore`; it is not
   persisted and must not be mutated by script code.
@@ -341,7 +342,7 @@ Confirmed readable entrypoints:
 |---|---|---|
 | `get_world_seed()` | `int` | Current deterministic world seed |
 | `get_world_version()` | `int` | Current canonical world version |
-| `save_world_state()` | `Dictionary` | World save payload for `world.json`, including embedded `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, and optional `worldgen_signature` |
+| `save_world_state()` | `Dictionary` | World save payload for `world.json`, including embedded `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.rivers`, `worldgen_settings.mountains`, and optional `worldgen_signature` |
 | `collect_chunk_diffs()` | `Array[Dictionary]` | Serialized dirty chunk entries |
 | `get_chunk_packet(chunk_coord: Vector2i)` | `Dictionary` | Loaded chunk packet or `{}`; read-only world-domain lookup for `MountainResolver` |
 | `get_mountain_cover_sample(world_tile: Vector2i)` | `Dictionary` | Read-only cover sample for one tile: `mountain_id`, `mountain_flags`, `component_id`, `is_opening`, `walkable` |
@@ -353,9 +354,9 @@ Confirmed mutation entrypoints:
 
 | Surface | Notes |
 |---|---|
-| `initialize_new_world(seed_value: int, settings: MountainGenSettings, world_bounds: WorldBoundsSettings = null, foundation_settings: FoundationGenSettings = null)` | New-game entrypoint; freezes mountain, finite-bounds, and foundation settings into packed/native form and then delegates to `reset_for_new_game(...)` |
+| `initialize_new_world(seed_value: int, settings: MountainGenSettings, world_bounds: WorldBoundsSettings = null, foundation_settings: FoundationGenSettings = null, river_settings: RiverGenSettings = null)` | New-game entrypoint; freezes mountain, finite-bounds, foundation, and river settings into packed/native form and then delegates to `reset_for_new_game(...)` |
 | `reset_for_new_game(seed, version)` | Clears runtime state, queues native foundation spawn resolution for `world_version >= 9`, applies the resolved new-game spawn tile to the local player before streaming chunks, and emits `world_initialized` |
-| `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, and `worldgen_settings.mountains` from `world.json` (or documented defaults where allowed), and clears runtime state |
+| `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.rivers`, and `worldgen_settings.mountains` from `world.json` (or documented defaults where allowed), and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
 | `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock |
 | `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver` to switch between outside state and one active cavity |
@@ -372,9 +373,11 @@ Not documented here as safe entrypoints:
 Owner files:
 - `core/resources/world_bounds_settings.gd`
 - `core/resources/foundation_gen_settings.gd`
+- `core/resources/river_gen_settings.gd`
 
 Role:
-- data resources for finite cylindrical bounds and V1 foundation settings
+- data resources for finite cylindrical bounds, V1 foundation settings, and
+  R1B-Fix river tuning settings
 
 Confirmed readable entrypoints:
 
@@ -384,4 +387,6 @@ Confirmed readable entrypoints:
 | `WorldBoundsSettings.from_save_dict(data: Dictionary)` | `WorldBoundsSettings` | Rebuilds bounds from `world.json` |
 | `FoundationGenSettings.for_bounds(world_bounds: WorldBoundsSettings)` | `FoundationGenSettings` | Builds default band settings from saved bounds |
 | `FoundationGenSettings.from_save_dict(data: Dictionary, world_bounds: WorldBoundsSettings)` | `FoundationGenSettings` | Rebuilds foundation settings from `world.json` |
-| `FoundationGenSettings.write_to_settings_packed(settings_packed: PackedFloat32Array, world_bounds: WorldBoundsSettings)` | `PackedFloat32Array` | Appends V1 foundation indices `9-15` to the native settings packet |
+| `FoundationGenSettings.write_to_settings_packed(settings_packed: PackedFloat32Array, world_bounds: WorldBoundsSettings, river_settings: RiverGenSettings = null)` | `PackedFloat32Array` | Appends V1 foundation indices `9-15` and R1B-Fix river indices `16-19` to the native settings packet |
+| `RiverGenSettings.from_save_dict(data: Dictionary)` | `RiverGenSettings` | Rebuilds river tuning settings from `world.json`, clamped to `[0.25, 4.0]` |
+| `RiverGenSettings.hard_coded_defaults()` | `RiverGenSettings` | Provides loader defaults when `worldgen_settings.rivers` is missing |

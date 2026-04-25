@@ -8,7 +8,7 @@
 
 namespace river_rasterizer {
 
-constexpr int64_t RIVER_GENERATION_VERSION = 14;
+constexpr int64_t RIVER_GENERATION_VERSION = 15;
 
 constexpr uint8_t FLAG_RIVERBED = 1U << 0U;
 constexpr uint8_t FLAG_LAKEBED = 1U << 1U;

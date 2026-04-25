@@ -912,6 +912,11 @@ report.
 
 This spec is approved for staged implementation. R1B has landed the first
 accepted native dry riverbed/lakebed realization path for `world_version = 14`.
+V15 implements the R1B-Fix acceptance correction; see
+`river_generation_r1b_fix.md` for the binding numerical amendment covering
+shared lake footprints, ocean dry-bed terrain, river mouth widening, width
+curves, node halo, river tuning settings, and the `world_version = 15`
+boundary.
 The acceptance correction narrows river/lake radii to tile-scale dry beds and
 adds a player-facing dry river/lake overlay to the world overview so accepted
 ocean-directed trunks are visible during seed selection. For this version,

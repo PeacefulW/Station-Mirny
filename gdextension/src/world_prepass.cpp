@@ -42,7 +42,7 @@ constexpr uint64_t SEED_SALT_CONTINENT = 0xd1b54a32d192ed03ULL;
 constexpr uint64_t SEED_SALT_RELIEF = 0x8a5cd789635d2dffULL;
 constexpr uint64_t SEED_SALT_SOURCE = 0x9e3779b185ebca87ULL;
 constexpr uint64_t SEED_SALT_REGION = 0xc2b2ae3d27d4eb4fULL;
-constexpr int64_t DRY_RIVER_OVERVIEW_VERSION = 14;
+constexpr int64_t DRY_RIVER_OVERVIEW_VERSION = 15;
 constexpr int32_t MAX_CHAIN_STEPS_MULTIPLIER = 2;
 
 struct QueueEntry {
@@ -65,7 +65,7 @@ struct OverviewMasks {
 	bool continent = false;
 };
 
-struct LakeCandidateScore {
+struct LakeScore {
 	int32_t index = 0;
 	float score = 0.0f;
 };
@@ -159,7 +159,7 @@ void append_neighbours(
 	}
 }
 
-void build_flow_graph(Snapshot &r_snapshot, float p_river_amount) {
+void build_flow_graph(Snapshot &r_snapshot, const FoundationSettings &p_foundation_settings) {
 	const int32_t node_count = r_snapshot.grid_width * r_snapshot.grid_height;
 	std::vector<float> filled_height = r_snapshot.hydro_height;
 	std::vector<uint8_t> visited(static_cast<size_t>(node_count), 0);
@@ -239,7 +239,7 @@ void build_flow_graph(Snapshot &r_snapshot, float p_river_amount) {
 		r_snapshot.flow_accumulation[static_cast<size_t>(index)] = saturate(raw_flow[static_cast<size_t>(index)] / divisor);
 	}
 
-	const float trunk_threshold = visible_flow_threshold(p_river_amount);
+	const float trunk_threshold = visible_flow_threshold(p_foundation_settings.river_amount);
 	for (int32_t index = 0; index < node_count; ++index) {
 		const bool visible = r_snapshot.flow_accumulation[static_cast<size_t>(index)] >= trunk_threshold &&
 				r_snapshot.continent_mask[static_cast<size_t>(index)] != 0 &&
@@ -290,7 +290,7 @@ void build_flow_graph(Snapshot &r_snapshot, float p_river_amount) {
 
 	const int32_t max_lake_radius_cells = 1;
 	r_snapshot.terminal_lake_near_node.assign(static_cast<size_t>(node_count), 0);
-	std::vector<LakeCandidateScore> lake_candidates;
+	std::vector<LakeScore> lake_candidates;
 	lake_candidates.reserve(static_cast<size_t>(std::max(1, node_count / 16)));
 	for (int32_t index = 0; index < node_count; ++index) {
 		const bool is_legacy_terminal = r_snapshot.downstream_index[static_cast<size_t>(index)] < 0 &&
@@ -324,9 +324,9 @@ void build_flow_graph(Snapshot &r_snapshot, float p_river_amount) {
 		if (score < (uses_ocean_primary_routing ? 0.74f : 0.0f)) {
 			continue;
 		}
-		lake_candidates.push_back(LakeCandidateScore{ index, score });
+		lake_candidates.push_back(LakeScore{ index, score });
 	}
-	std::sort(lake_candidates.begin(), lake_candidates.end(), [](const LakeCandidateScore &p_a, const LakeCandidateScore &p_b) {
+	std::sort(lake_candidates.begin(), lake_candidates.end(), [](const LakeScore &p_a, const LakeScore &p_b) {
 		if (p_a.score != p_b.score) {
 			return p_a.score > p_b.score;
 		}
@@ -334,7 +334,7 @@ void build_flow_graph(Snapshot &r_snapshot, float p_river_amount) {
 	});
 
 	auto is_lake_spacing_clear = [&](int32_t p_index, const std::vector<int32_t> &p_accepted) -> bool {
-		constexpr int32_t spacing_radius_cells = 2;
+		constexpr int32_t spacing_radius_cells = 1;
 		const int32_t x = p_index % r_snapshot.grid_width;
 		const int32_t y = p_index / r_snapshot.grid_width;
 		for (int32_t accepted : p_accepted) {
@@ -362,24 +362,30 @@ void build_flow_graph(Snapshot &r_snapshot, float p_river_amount) {
 				r_snapshot.terminal_lake_near_node[static_cast<size_t>(r_snapshot.index(lx, ly))] = 1U;
 			}
 		}
-		const int32_t poly_min_y = std::max(0, cy - max_lake_radius_cells);
-		const int32_t poly_max_y = std::min(r_snapshot.grid_height - 1, cy + max_lake_radius_cells);
-		const int32_t poly_min_x = static_cast<int32_t>(positive_mod(cx - max_lake_radius_cells, r_snapshot.grid_width));
-		const int32_t poly_width = max_lake_radius_cells * 2 + 1;
-		PackedVector2Array polygon;
-		polygon.append(Vector2(poly_min_x * COARSE_CELL_SIZE_TILES, poly_min_y * COARSE_CELL_SIZE_TILES));
-		polygon.append(Vector2((poly_min_x + poly_width) * COARSE_CELL_SIZE_TILES, poly_min_y * COARSE_CELL_SIZE_TILES));
-		polygon.append(Vector2((poly_min_x + poly_width) * COARSE_CELL_SIZE_TILES, (poly_max_y + 1) * COARSE_CELL_SIZE_TILES));
-		polygon.append(Vector2(poly_min_x * COARSE_CELL_SIZE_TILES, (poly_max_y + 1) * COARSE_CELL_SIZE_TILES));
-		r_snapshot.terminal_lake_polygons.push_back(polygon);
+		const Vector2i center = r_snapshot.node_to_tile_center(cx, cy);
+		const uint64_t shape_signature = splitmix64(
+			r_snapshot.signature ^
+			static_cast<uint64_t>(p_index) * 0x9e3779b185ebca87ULL ^
+			0x6a09e667f3bcc909ULL
+		);
+		const lake_footprint::LakeShape shape = lake_footprint::make_shape(
+			static_cast<double>(center.x),
+			static_cast<double>(center.y),
+			saturate(r_snapshot.flow_accumulation[static_cast<size_t>(p_index)]),
+			saturate(r_snapshot.coarse_valley_score[static_cast<size_t>(p_index)]),
+			shape_signature,
+			p_foundation_settings.lake_radius_scale
+		);
+		r_snapshot.terminal_lake_shapes.push_back(shape);
+		r_snapshot.terminal_lake_polygons.push_back(lake_footprint::build_polygon(shape, r_snapshot.width_tiles));
 	};
 
 	const int32_t target_lake_count = uses_ocean_primary_routing ?
-			clamp_value(node_count / 96 + 1, 1, 8) :
+			clamp_value(static_cast<int32_t>(node_count / 24.0 * p_foundation_settings.lake_density_scale + 2.0), 4, 64) :
 			node_count;
 	std::vector<int32_t> accepted_lakes;
 	accepted_lakes.reserve(static_cast<size_t>(target_lake_count));
-	for (const LakeCandidateScore &candidate : lake_candidates) {
+	for (const LakeScore &candidate : lake_candidates) {
 		if (static_cast<int32_t>(accepted_lakes.size()) >= target_lake_count) {
 			break;
 		}
@@ -557,6 +563,22 @@ int32_t resolve_dry_overview_overlay(
 	}
 	const int32_t node_count = p_snapshot.grid_width * p_snapshot.grid_height;
 	int32_t overlay = 0;
+	const double sample_world_x = (static_cast<double>(p_coarse_x) + 0.5) * static_cast<double>(COARSE_CELL_SIZE_TILES);
+	const double sample_world_y = (static_cast<double>(p_coarse_y) + 0.5) * static_cast<double>(COARSE_CELL_SIZE_TILES);
+	for (const lake_footprint::LakeShape &lake : p_snapshot.terminal_lake_shapes) {
+		const uint8_t lake_depth = lake_footprint::classify_tile(
+			lake,
+			sample_world_x,
+			sample_world_y,
+			p_snapshot.width_tiles
+		);
+		if (lake_depth == lake_footprint::CLASS_DEEP) {
+			return 3;
+		}
+		if (lake_depth == lake_footprint::CLASS_SHALLOW) {
+			overlay = std::max(overlay, 1);
+		}
+	}
 	const int32_t center_x = static_cast<int32_t>(std::floor(p_coarse_x + 0.5f));
 	const int32_t center_y = clamp_value(static_cast<int32_t>(std::floor(p_coarse_y + 0.5f)), 0, p_snapshot.grid_height - 1);
 	for (int32_t dy = -1; dy <= 1; ++dy) {
@@ -568,17 +590,6 @@ int32_t resolve_dry_overview_overlay(
 			const int32_t raw_x = center_x + dx;
 			const int32_t node_x = static_cast<int32_t>(positive_mod(raw_x, p_snapshot.grid_width));
 			const int32_t index = p_snapshot.index(node_x, node_y);
-			if (p_snapshot.is_terminal_lake_center[static_cast<size_t>(index)] != 0) {
-				const double lx = closest_wrapped_overview_x(static_cast<double>(raw_x), p_coarse_x, p_snapshot.grid_width);
-				const double distance = std::sqrt(
-					(static_cast<double>(p_coarse_x) - lx) * (static_cast<double>(p_coarse_x) - lx) +
-					(static_cast<double>(p_coarse_y) - static_cast<double>(node_y)) *
-							(static_cast<double>(p_coarse_y) - static_cast<double>(node_y))
-				);
-				if (distance <= 0.42) {
-					overlay = std::max(overlay, 1);
-				}
-			}
 			if (p_ocean_directed_trunk_mask[static_cast<size_t>(index)] == 0) {
 				continue;
 			}
@@ -683,6 +694,10 @@ uint64_t make_signature(
 	signature = splitmix64(signature ^ static_cast<uint64_t>(p_foundation_settings.pole_orientation));
 	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround((p_foundation_settings.slope_bias + 1.0f) * 1000000.0f)));
 	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_foundation_settings.river_amount * 1000000.0f)));
+	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_foundation_settings.lake_density_scale * 1000000.0f)));
+	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_foundation_settings.lake_radius_scale * 1000000.0f)));
+	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_foundation_settings.mouth_width_scale * 1000000.0f)));
+	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_foundation_settings.bed_width_scale * 1000000.0f)));
 	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_mountain_settings.density * 1000000.0f)));
 	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_mountain_settings.scale * 1000.0f)));
 	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_mountain_settings.continuity * 1000000.0f)));
@@ -802,7 +817,7 @@ std::unique_ptr<Snapshot> build_snapshot(
 		}
 	}
 
-	build_flow_graph(*snapshot, p_foundation_settings.river_amount);
+	build_flow_graph(*snapshot, p_foundation_settings);
 	auto finished_at = std::chrono::high_resolution_clock::now();
 	snapshot->compute_time_ms = std::chrono::duration<double, std::milli>(finished_at - started_at).count();
 	return snapshot;

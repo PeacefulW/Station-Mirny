@@ -6,7 +6,7 @@
 script = ExtResource("1")
 id = &"base:lakebed_deep_profile"
 terrain_class_id = &"base:lakebed_deep"
-terrain_ids = [8]
+terrain_ids = [8, 10]
 shape_set_id = &"base:lakebed_deep_shape"
 material_set_id = &"base:lakebed_deep_material"
 shader_family_id = &"terrain.simple_tile"
