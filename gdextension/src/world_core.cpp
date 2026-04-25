@@ -1,6 +1,7 @@
 #include "world_core.h"
 #include "autotile_47.h"
 #include "mountain_field.h"
+#include "world_utils.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,6 +18,8 @@
 #include <godot_cpp/variant/packed_int32_array.hpp>
 
 using namespace godot;
+using world_utils::splitmix64;
+using world_utils::positive_mod;
 
 namespace {
 
@@ -50,55 +53,20 @@ constexpr uint8_t MOUNTAIN_FLAG_WALL = 1U << 1U;
 constexpr uint8_t MOUNTAIN_FLAG_FOOT = 1U << 2U;
 constexpr uint8_t MOUNTAIN_FLAG_INTERIOR = 1U << 0U;
 constexpr uint8_t MOUNTAIN_FLAG_ANCHOR = 1U << 3U;
-constexpr int64_t LEGACY_WORLD_WRAP_WIDTH_TILES = 65536;
+constexpr int64_t LEGACY_WORLD_WRAP_WIDTH_TILES = world_utils::LEGACY_WORLD_WRAP_WIDTH_TILES;
 constexpr int64_t WORLD_FOUNDATION_VERSION = 9;
-constexpr int64_t MOUNTAIN_FINITE_WIDTH_VERSION = 10;
+constexpr int64_t MOUNTAIN_FINITE_WIDTH_VERSION = world_utils::MOUNTAIN_FINITE_WIDTH_VERSION;
 constexpr int64_t FOUNDATION_CHUNK_SIZE = 32;
 constexpr int64_t SPAWN_SAFE_PATCH_MIN_TILE = 12;
 constexpr int64_t SPAWN_SAFE_PATCH_MAX_TILE = 20;
 constexpr size_t HIERARCHICAL_CACHE_LIMIT = 64;
 
-uint64_t splitmix64(uint64_t x) {
-	x += 0x9e3779b97f4a7c15ULL;
-	x = (x ^ (x >> 30U)) * 0xbf58476d1ce4e5b9ULL;
-	x = (x ^ (x >> 27U)) * 0x94d049bb133111ebULL;
-	return x ^ (x >> 31U);
-}
-
-int64_t positive_mod(int64_t p_value, int64_t p_modulus) {
-	if (p_modulus <= 0) {
-		return p_value;
-	}
-	int64_t result = p_value % p_modulus;
-	if (result < 0) {
-		result += p_modulus;
-	}
-	return result;
-}
-
 int64_t wrap_foundation_world_x(int64_t p_world_x, const FoundationSettings &p_foundation_settings) {
-	if (!p_foundation_settings.enabled) {
-		return p_world_x;
-	}
-	return positive_mod(p_world_x, p_foundation_settings.width_tiles);
+	return world_utils::wrap_foundation_world_x(p_world_x, p_foundation_settings.width_tiles, p_foundation_settings.enabled);
 }
 
 int64_t clamp_foundation_world_y(int64_t p_world_y, const FoundationSettings &p_foundation_settings) {
-	if (!p_foundation_settings.enabled) {
-		return p_world_y;
-	}
-	return std::max<int64_t>(0, std::min<int64_t>(p_world_y, p_foundation_settings.height_tiles - 1));
-}
-
-int64_t map_foundation_x_to_legacy_sample(int64_t p_world_x, const FoundationSettings &p_foundation_settings) {
-	if (!p_foundation_settings.enabled) {
-		return p_world_x;
-	}
-	const int64_t wrapped_x = wrap_foundation_world_x(p_world_x, p_foundation_settings);
-	return static_cast<int64_t>(std::llround(
-		(static_cast<double>(wrapped_x) * static_cast<double>(LEGACY_WORLD_WRAP_WIDTH_TILES)) /
-		static_cast<double>(p_foundation_settings.width_tiles)
-	));
+	return world_utils::clamp_foundation_world_y(p_world_y, p_foundation_settings.height_tiles, p_foundation_settings.enabled);
 }
 
 int64_t resolve_mountain_sample_x(
@@ -106,13 +74,7 @@ int64_t resolve_mountain_sample_x(
 	int64_t p_world_version,
 	const FoundationSettings &p_foundation_settings
 ) {
-	if (!p_foundation_settings.enabled) {
-		return p_world_x;
-	}
-	if (p_world_version < MOUNTAIN_FINITE_WIDTH_VERSION) {
-		return map_foundation_x_to_legacy_sample(p_world_x, p_foundation_settings);
-	}
-	return wrap_foundation_world_x(p_world_x, p_foundation_settings);
+	return world_utils::resolve_mountain_sample_x(p_world_x, p_world_version, p_foundation_settings.width_tiles, p_foundation_settings.enabled);
 }
 
 Vector2i canonicalize_chunk_coord(Vector2i p_coord, const FoundationSettings &p_foundation_settings) {
@@ -432,6 +394,8 @@ const world_prepass::Snapshot &WorldCore::_get_or_build_world_prepass(
 			p_foundation_settings
 		);
 	}
+	world_prepass_effective_mountain_settings_ = p_effective_mountain_settings;
+	world_prepass_foundation_settings_ = p_foundation_settings;
 	return *world_prepass_snapshot_;
 }
 
@@ -744,7 +708,19 @@ Ref<Image> WorldCore::get_world_foundation_overview(int64_t p_layer_mask, int64_
 	if (world_prepass_snapshot_ == nullptr || !world_prepass_snapshot_->valid) {
 		return Ref<Image>();
 	}
-	return world_prepass::make_overview_image(*world_prepass_snapshot_, p_layer_mask, p_pixels_per_cell);
+	const mountain_field::Evaluator mountain_evaluator(
+		world_prepass_snapshot_->seed,
+		world_prepass_snapshot_->world_version,
+		world_prepass_effective_mountain_settings_
+	);
+	return world_prepass::make_overview_image(
+		*world_prepass_snapshot_,
+		mountain_evaluator,
+		world_prepass_snapshot_->world_version,
+		world_prepass_foundation_settings_,
+		p_layer_mask,
+		p_pixels_per_cell
+	);
 }
 #endif
 

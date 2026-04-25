@@ -3,11 +3,13 @@ extends RefCounted
 
 const PALETTE_ID: StringName = &"foundation_overview_v1"
 const CANONICAL_LAYER_MASK: int = 0
-const COLOR_OCEAN_BAND: Color = Color(0.07, 0.23, 0.41, 1.0)
-const COLOR_BURNING_BAND: Color = Color(0.40, 0.14, 0.09, 1.0)
-const COLOR_OPEN_WATER: Color = Color(0.12, 0.35, 0.52, 1.0)
+# Must match native write_overview_rgba in world_prepass.cpp:
+# ocean = rgb(18, 58, 104), burning = rgb(102, 36, 24), water = rgb(30, 88, 132).
+const COLOR_OCEAN_BAND: Color = Color(18.0 / 255.0, 58.0 / 255.0, 104.0 / 255.0, 1.0)
+const COLOR_BURNING_BAND: Color = Color(102.0 / 255.0, 36.0 / 255.0, 24.0 / 255.0, 1.0)
+const COLOR_OPEN_WATER: Color = Color(30.0 / 255.0, 88.0 / 255.0, 132.0 / 255.0, 1.0)
 const COLOR_UNKNOWN: Color = Color(0.04, 0.05, 0.06, 1.0)
-const OVERVIEW_PIXELS_PER_CELL: int = 2
+const OVERVIEW_PIXELS_PER_CELL: int = 4
 
 func get_palette_id() -> StringName:
 	return PALETTE_ID

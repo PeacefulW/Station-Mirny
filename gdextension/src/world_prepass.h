@@ -60,6 +60,7 @@ struct Snapshot {
 	std::vector<uint8_t> visible_trunk_mask;
 	std::vector<int32_t> strahler_order;
 	std::vector<uint8_t> is_terminal_lake_center;
+	std::vector<uint8_t> terminal_lake_near_node;
 	std::vector<godot::PackedVector2Array> terminal_lake_polygons;
 
 	int32_t index(int32_t p_x, int32_t p_y) const;
@@ -82,7 +83,14 @@ std::unique_ptr<Snapshot> build_snapshot(
 );
 
 godot::Dictionary make_debug_snapshot(const Snapshot &p_snapshot, int64_t p_layer_mask, int64_t p_downscale_factor);
-godot::Ref<godot::Image> make_overview_image(const Snapshot &p_snapshot, int64_t p_layer_mask, int64_t p_pixels_per_cell);
+godot::Ref<godot::Image> make_overview_image(
+	const Snapshot &p_snapshot,
+	const mountain_field::Evaluator &p_mountain_evaluator,
+	int64_t p_world_version,
+	const FoundationSettings &p_foundation_settings,
+	int64_t p_layer_mask,
+	int64_t p_pixels_per_cell
+);
 godot::Dictionary resolve_spawn_tile(const Snapshot &p_snapshot);
 
 } // namespace world_prepass

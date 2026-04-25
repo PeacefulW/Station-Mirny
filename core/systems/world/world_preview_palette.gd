@@ -13,6 +13,7 @@ const COLOR_CLASSIFICATION_FOOT: Color = Color(0.84, 0.56, 0.20, 1.0)
 const COLOR_CLASSIFICATION_WALL: Color = Color(0.23, 0.67, 0.88, 1.0)
 const COLOR_CLASSIFICATION_INTERIOR: Color = Color(0.92, 0.29, 0.55, 1.0)
 const COLOR_UNKNOWN: Color = Color(0.07, 0.09, 0.10, 1.0)
+const MIPMAP_LEVELS: int = 6
 
 func get_palette_id(render_mode: StringName) -> StringName:
 	var normalized_mode: StringName = _resolve_patch_render_mode(render_mode)
@@ -42,7 +43,61 @@ func build_patch_texture(packet: Dictionary, render_mode: StringName) -> Texture
 				_read_int_from_array(mountain_flags, index)
 			)
 		)
-	return ImageTexture.create_from_image(image)
+	var ground_color: Color = _resolve_ground_color_for_mode(normalized_mode)
+	var levels: Array[Image] = [image]
+	var current: Image = image
+	while (current.get_width() > 1 or current.get_height() > 1) and levels.size() < MIPMAP_LEVELS:
+		current = _downsample_mountain_preserving(current, ground_color)
+		levels.append(current)
+	var combined_bytes := PackedByteArray()
+	for level: Image in levels:
+		combined_bytes.append_array(level.get_data())
+	var mipmapped_image: Image = Image.create_from_data(
+		WorldRuntimeConstants.CHUNK_SIZE,
+		WorldRuntimeConstants.CHUNK_SIZE,
+		true,
+		Image.FORMAT_RGBA8,
+		combined_bytes
+	)
+	return ImageTexture.create_from_image(mipmapped_image)
+
+func _resolve_ground_color_for_mode(render_mode: StringName) -> Color:
+	match render_mode:
+		WorldPreviewRenderMode.MOUNTAIN_ID, WorldPreviewRenderMode.MOUNTAIN_CLASSIFICATION:
+			return _quantize_rgba8_color(COLOR_CLASSIFICATION_GROUND)
+		_:
+			return _quantize_rgba8_color(COLOR_GROUND)
+
+func _downsample_mountain_preserving(src: Image, ground_color: Color) -> Image:
+	var dst_w: int = maxi(1, int(src.get_width() / 2))
+	var dst_h: int = maxi(1, int(src.get_height() / 2))
+	var dst: Image = Image.create(dst_w, dst_h, false, Image.FORMAT_RGBA8)
+	for y: int in range(dst_h):
+		for x: int in range(dst_w):
+			var sx: int = x * 2
+			var sy: int = y * 2
+			var sx1: int = mini(sx + 1, src.get_width() - 1)
+			var sy1: int = mini(sy + 1, src.get_height() - 1)
+			var picked: Color = ground_color
+			for sample: Color in [
+				src.get_pixel(sx, sy),
+				src.get_pixel(sx1, sy),
+				src.get_pixel(sx, sy1),
+				src.get_pixel(sx1, sy1),
+			]:
+				if not sample.is_equal_approx(ground_color):
+					picked = sample
+					break
+			dst.set_pixel(x, y, picked)
+	return dst
+
+func _quantize_rgba8_color(color: Color) -> Color:
+	return Color(
+		float(clampi(roundi(color.r * 255.0), 0, 255)) / 255.0,
+		float(clampi(roundi(color.g * 255.0), 0, 255)) / 255.0,
+		float(clampi(roundi(color.b * 255.0), 0, 255)) / 255.0,
+		float(clampi(roundi(color.a * 255.0), 0, 255)) / 255.0
+	)
 
 func _resolve_tile_color(
 	render_mode: StringName,

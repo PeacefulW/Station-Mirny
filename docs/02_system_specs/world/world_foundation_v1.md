@@ -356,15 +356,18 @@ budget is a blocker for the high-resolution foundation overview pass.
 
 ### Full-World Overview Preview
 
-**Shape.** The canonical source image is one substrate-grid `Image` whose
-source dimensions are `ceil(width / 64) × ceil(height / 64)`. The
-player-facing UI may request a native presentation image at
-`overview_pixels_per_cell = 2`, producing an overview at roughly one
-pixel per `32 × 32` world tiles. This is a native image pass over the
-already-built substrate, not chunk generation and not a second world
-generator. The native overview pass re-samples player-facing
-ocean/burning bands and continent mask at overview pixel centres, then
-interpolates hydro height and wall density from the built substrate.
+**Shape.** The substrate-grid debug source dimensions are
+`ceil(width / 64) × ceil(height / 64)`. The player-facing UI may request
+a native presentation image at `overview_pixels_per_cell = 4`, producing
+an overview at roughly one pixel per `16 × 16` world tiles. This is a
+native image pass over the already-built substrate, not chunk generation
+and not a second world generator. The native overview pass re-samples
+player-facing ocean/burning bands and continent mask at overview pixel
+centres, directly samples the mountain field at
+`pixel_sample_steps × pixel_sample_steps = 16` points within each overview
+pixel's tile window for `wall_density` (bypassing `coarse_wall_density`
+interpolation), and bilinearly interpolates `hydro_height` from the
+built substrate.
 
 **Pipeline.**
 
@@ -388,7 +391,7 @@ current build:
 - `continent_mask = 0` inside habitable Y band → open water blue
 - `continent_mask = 1` → neutral land tone shaded by `hydro_height`
   (darker low, lighter high, snow-white above snowline threshold)
-- `coarse_wall_density` high → grey mountain overlay
+- overview `wall_density` high → grey mountain overlay
 
 No faux biome colours in V1. Biome overlays are added only after a
 future biome spec defines canonical biomes. River and terminal-lake
@@ -657,7 +660,7 @@ layer name; `get_world_foundation_overview` returns a pre-coloured
 overview image for the UI consumer. `downscale_factor` and
 `pixels_per_cell` must be `>= 1`; `downscale_factor = 1` returns the
 native substrate grid (one debug pixel per substrate node), and
-`pixels_per_cell = 2` returns the default player-facing high-resolution
+`pixels_per_cell = 4` returns the default player-facing high-resolution
 overview. The overview image is presentation output only: it may
 re-sample current player-facing masks at higher pixel density, but it
 must not become a gameplay data source.
@@ -753,7 +756,7 @@ worldgen reads for the same seed/settings.
 |---|---|---|---|
 | Substrate compute | one-time native worker at world load | whole world, coarse `64` grid | target ≤ 900 ms on the largest V1 preset |
 | Substrate cache read by chunk batch | native, non-blocking | (no dirty unit; immutable) | free |
-| Overview preview render | native worker + main-thread publish | whole snapshot, one native image, default `2` pixels per substrate cell | no synchronous UI wait |
+| Overview preview render | native worker + main-thread publish | whole snapshot, one native image, default `4` pixels per substrate cell; direct mountain field wall resampling is roughly `16×` the substrate's mountain sampling work compared with substrate-only overview shading | no synchronous UI wait |
 | Progressive detail preview | existing chunk-batch path | existing batch unit | unchanged |
 | Chunk packet generation | existing native worker | chunk batch | unchanged |
 
@@ -832,6 +835,10 @@ worldgen reads for the same seed/settings.
       continents, hard bands, and broad mountain / elevation context
       (shape-true). River skeleton candidates remain hidden from the
       default player overview until river rasterization exists.
+- [ ] Overview shows individual mountain ridges narrower than `32` tiles
+      when they exist at tile level, because `wall_density` is sampled
+      at pixel resolution rather than interpolated from the `64`-tile
+      coarse grid.
 - [ ] Overview palette uses only canonical substrate channels in V1;
       no faux biome colours are rendered.
 - [ ] Seed / size / foundation slider changes rebuild overview

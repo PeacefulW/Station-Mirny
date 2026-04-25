@@ -65,6 +65,8 @@ private:
 	);
 	std::unique_ptr<HierarchicalMacroCache> hierarchical_macro_cache_;
 	std::unique_ptr<world_prepass::Snapshot> world_prepass_snapshot_;
+	mountain_field::Settings world_prepass_effective_mountain_settings_;
+	::FoundationSettings world_prepass_foundation_settings_;
 };
 
 } // namespace godot

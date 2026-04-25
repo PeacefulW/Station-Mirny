@@ -1,4 +1,5 @@
 #include "world_prepass.h"
+#include "world_utils.h"
 
 #include "third_party/FastNoiseLite.h"
 
@@ -9,18 +10,25 @@
 #include <limits>
 #include <queue>
 #include <utility>
+#include <vector>
+
+#ifdef DEBUG_ENABLED
+#include <godot_cpp/core/error_macros.hpp>
+#endif
 
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/rect2i.hpp>
 #include <godot_cpp/variant/vector2.hpp>
 
 using namespace godot;
+using world_utils::splitmix64;
+using world_utils::positive_mod;
+using world_utils::clamp_value;
+using world_utils::saturate;
 
 namespace world_prepass {
 namespace {
 
-constexpr int64_t LEGACY_WORLD_WRAP_WIDTH_TILES = 65536;
-constexpr int64_t MOUNTAIN_FINITE_WIDTH_VERSION = 10;
 constexpr int64_t SPAWN_SAFE_PATCH_MIN_TILE = 12;
 constexpr int64_t SPAWN_SAFE_PATCH_MAX_TILE = 20;
 constexpr float WALL_BLOCK_THRESHOLD = 0.5f;
@@ -29,6 +37,7 @@ constexpr float SPAWN_MIN_VALLEY_SCORE = 0.45f;
 constexpr float SPAWN_HYDRO_MIN = 0.28f;
 constexpr float SPAWN_HYDRO_MAX = 0.74f;
 constexpr float FLOW_SEA_THRESHOLD = 0.62f;
+constexpr float CONTINENT_NOISE_THRESHOLD = 0.28f;
 constexpr uint64_t SEED_SALT_CONTINENT = 0xd1b54a32d192ed03ULL;
 constexpr uint64_t SEED_SALT_RELIEF = 0x8a5cd789635d2dffULL;
 constexpr uint64_t SEED_SALT_SOURCE = 0x9e3779b185ebca87ULL;
@@ -54,29 +63,12 @@ struct OverviewMasks {
 	bool continent = false;
 };
 
-uint64_t splitmix64(uint64_t p_value) {
-	p_value += 0x9e3779b97f4a7c15ULL;
-	p_value = (p_value ^ (p_value >> 30U)) * 0xbf58476d1ce4e5b9ULL;
-	p_value = (p_value ^ (p_value >> 27U)) * 0x94d049bb133111ebULL;
-	return p_value ^ (p_value >> 31U);
-}
-
 uint64_t mix_seed(int64_t p_seed, int64_t p_world_version, uint64_t p_salt) {
-	uint64_t mixed = splitmix64(static_cast<uint64_t>(p_seed) ^ p_salt);
-	return splitmix64(mixed ^ static_cast<uint64_t>(p_world_version) * 0x9e3779b185ebca87ULL);
+	return world_utils::mix_seed(p_seed, p_world_version, p_salt);
 }
 
 int make_noise_seed(uint64_t p_value) {
 	return static_cast<int>(p_value & 0x7fffffffULL);
-}
-
-template <typename T>
-T clamp_value(T p_value, T p_min_value, T p_max_value) {
-	return std::max(p_min_value, std::min(p_max_value, p_value));
-}
-
-float saturate(float p_value) {
-	return clamp_value(p_value, 0.0f, 1.0f);
 }
 
 float smoothstep(float p_edge0, float p_edge1, float p_value) {
@@ -87,33 +79,8 @@ float smoothstep(float p_edge0, float p_edge1, float p_value) {
 	return t * t * (3.0f - 2.0f * t);
 }
 
-int64_t positive_mod(int64_t p_value, int64_t p_modulus) {
-	if (p_modulus <= 0) {
-		return p_value;
-	}
-	int64_t result = p_value % p_modulus;
-	if (result < 0) {
-		result += p_modulus;
-	}
-	return result;
-}
-
 int64_t wrap_foundation_world_x(int64_t p_world_x, const FoundationSettings &p_foundation_settings) {
-	if (!p_foundation_settings.enabled) {
-		return p_world_x;
-	}
-	return positive_mod(p_world_x, p_foundation_settings.width_tiles);
-}
-
-int64_t map_foundation_x_to_legacy_sample(int64_t p_world_x, const FoundationSettings &p_foundation_settings) {
-	if (!p_foundation_settings.enabled) {
-		return p_world_x;
-	}
-	const int64_t wrapped_x = wrap_foundation_world_x(p_world_x, p_foundation_settings);
-	return static_cast<int64_t>(std::llround(
-		(static_cast<double>(wrapped_x) * static_cast<double>(LEGACY_WORLD_WRAP_WIDTH_TILES)) /
-		static_cast<double>(p_foundation_settings.width_tiles)
-	));
+	return world_utils::wrap_foundation_world_x(p_world_x, p_foundation_settings.width_tiles, p_foundation_settings.enabled);
 }
 
 int64_t resolve_mountain_sample_x(
@@ -121,13 +88,7 @@ int64_t resolve_mountain_sample_x(
 	int64_t p_world_version,
 	const FoundationSettings &p_foundation_settings
 ) {
-	if (!p_foundation_settings.enabled) {
-		return p_world_x;
-	}
-	if (p_world_version < MOUNTAIN_FINITE_WIDTH_VERSION) {
-		return map_foundation_x_to_legacy_sample(p_world_x, p_foundation_settings);
-	}
-	return wrap_foundation_world_x(p_world_x, p_foundation_settings);
+	return world_utils::resolve_mountain_sample_x(p_world_x, p_world_version, p_foundation_settings.width_tiles, p_foundation_settings.enabled);
 }
 
 FastNoiseLite make_noise(uint64_t p_seed, float p_frequency, int p_octaves = 3) {
@@ -280,6 +241,11 @@ void build_flow_graph(Snapshot &r_snapshot, float p_river_amount) {
 		r_snapshot.strahler_order[static_cast<size_t>(index)] = visible ? 1 : 0;
 	}
 
+	// Strahler order: collect max upstream order and count of branches at that
+	// max per downstream node, then apply rule: if two or more branches share
+	// the max order, result = max + 1; otherwise result = max.
+	std::vector<int32_t> strahler_max_upstream(static_cast<size_t>(node_count), 0);
+	std::vector<int32_t> strahler_max_count(static_cast<size_t>(node_count), 0);
 	for (auto iter = visit_order.rbegin(); iter != visit_order.rend(); ++iter) {
 		const int32_t index = *iter;
 		if (r_snapshot.visible_trunk_mask[static_cast<size_t>(index)] == 0) {
@@ -290,13 +256,31 @@ void build_flow_graph(Snapshot &r_snapshot, float p_river_amount) {
 			continue;
 		}
 		const int32_t upstream_order = r_snapshot.strahler_order[static_cast<size_t>(index)];
-		int32_t &downstream_order = r_snapshot.strahler_order[static_cast<size_t>(downstream)];
-		downstream_order = downstream_order == upstream_order ?
-				std::min(8, downstream_order + 1) :
-				std::max(downstream_order, upstream_order);
+		int32_t &max_order = strahler_max_upstream[static_cast<size_t>(downstream)];
+		int32_t &max_count = strahler_max_count[static_cast<size_t>(downstream)];
+		if (upstream_order > max_order) {
+			max_order = upstream_order;
+			max_count = 1;
+		} else if (upstream_order == max_order) {
+			max_count += 1;
+		}
+	}
+	for (int32_t index = 0; index < node_count; ++index) {
+		if (r_snapshot.visible_trunk_mask[static_cast<size_t>(index)] == 0) {
+			continue;
+		}
+		if (strahler_max_upstream[static_cast<size_t>(index)] <= 0) {
+			continue;
+		}
+		const int32_t max_order = strahler_max_upstream[static_cast<size_t>(index)];
+		const int32_t max_count = strahler_max_count[static_cast<size_t>(index)];
+		r_snapshot.strahler_order[static_cast<size_t>(index)] = std::min(8,
+			max_count >= 2 ? max_order + 1 : max_order
+		);
 	}
 
 	const int32_t max_lake_radius_cells = 1;
+	r_snapshot.terminal_lake_near_node.assign(static_cast<size_t>(node_count), 0);
 	for (int32_t index = 0; index < node_count; ++index) {
 		if (r_snapshot.downstream_index[static_cast<size_t>(index)] >= 0 ||
 				r_snapshot.flow_accumulation[static_cast<size_t>(index)] < FLOW_SEA_THRESHOLD ||
@@ -305,19 +289,61 @@ void build_flow_graph(Snapshot &r_snapshot, float p_river_amount) {
 			continue;
 		}
 		r_snapshot.is_terminal_lake_center[static_cast<size_t>(index)] = 1U;
-		const int32_t x = index % r_snapshot.grid_width;
-		const int32_t y = index / r_snapshot.grid_width;
-		const int32_t min_x = std::max(0, x - max_lake_radius_cells);
-		const int32_t max_x = std::min(r_snapshot.grid_width - 1, x + max_lake_radius_cells);
-		const int32_t min_y = std::max(0, y - max_lake_radius_cells);
-		const int32_t max_y = std::min(r_snapshot.grid_height - 1, y + max_lake_radius_cells);
+		const int32_t cx = index % r_snapshot.grid_width;
+		const int32_t cy = index / r_snapshot.grid_width;
+		// Mark all nodes within lake radius as near a terminal lake (for spawn rejection).
+		const int32_t min_y = std::max(0, cy - max_lake_radius_cells);
+		const int32_t max_y = std::min(r_snapshot.grid_height - 1, cy + max_lake_radius_cells);
+		for (int32_t ly = min_y; ly <= max_y; ++ly) {
+			for (int32_t dx = -max_lake_radius_cells; dx <= max_lake_radius_cells; ++dx) {
+				const int32_t lx = static_cast<int32_t>(positive_mod(cx + dx, r_snapshot.grid_width));
+				r_snapshot.terminal_lake_near_node[static_cast<size_t>(r_snapshot.index(lx, ly))] = 1U;
+			}
+		}
+		// Build polygon with X-wrap-safe coordinates.
+		const int32_t poly_min_y = std::max(0, cy - max_lake_radius_cells);
+		const int32_t poly_max_y = std::min(r_snapshot.grid_height - 1, cy + max_lake_radius_cells);
+		const int32_t poly_min_x = static_cast<int32_t>(positive_mod(cx - max_lake_radius_cells, r_snapshot.grid_width));
+		const int32_t poly_width = max_lake_radius_cells * 2 + 1;
+		// Store polygon in tile coordinates; use wrapped min_x as origin.
 		PackedVector2Array polygon;
-		polygon.append(Vector2(min_x * COARSE_CELL_SIZE_TILES, min_y * COARSE_CELL_SIZE_TILES));
-		polygon.append(Vector2((max_x + 1) * COARSE_CELL_SIZE_TILES, min_y * COARSE_CELL_SIZE_TILES));
-		polygon.append(Vector2((max_x + 1) * COARSE_CELL_SIZE_TILES, (max_y + 1) * COARSE_CELL_SIZE_TILES));
-		polygon.append(Vector2(min_x * COARSE_CELL_SIZE_TILES, (max_y + 1) * COARSE_CELL_SIZE_TILES));
+		polygon.append(Vector2(poly_min_x * COARSE_CELL_SIZE_TILES, poly_min_y * COARSE_CELL_SIZE_TILES));
+		polygon.append(Vector2((poly_min_x + poly_width) * COARSE_CELL_SIZE_TILES, poly_min_y * COARSE_CELL_SIZE_TILES));
+		polygon.append(Vector2((poly_min_x + poly_width) * COARSE_CELL_SIZE_TILES, (poly_max_y + 1) * COARSE_CELL_SIZE_TILES));
+		polygon.append(Vector2(poly_min_x * COARSE_CELL_SIZE_TILES, (poly_max_y + 1) * COARSE_CELL_SIZE_TILES));
 		r_snapshot.terminal_lake_polygons.push_back(polygon);
 	}
+
+#ifdef DEBUG_ENABLED
+	// Cycle detection: walk every node's downstream chain and assert it terminates.
+	r_snapshot.cycle_free = true;
+	for (int32_t start = 0; start < node_count; ++start) {
+		int32_t slow = start;
+		int32_t fast = start;
+		while (true) {
+			if (r_snapshot.downstream_index[static_cast<size_t>(slow)] < 0) {
+				break;
+			}
+			slow = r_snapshot.downstream_index[static_cast<size_t>(slow)];
+			if (r_snapshot.downstream_index[static_cast<size_t>(fast)] < 0) {
+				break;
+			}
+			fast = r_snapshot.downstream_index[static_cast<size_t>(fast)];
+			if (r_snapshot.downstream_index[static_cast<size_t>(fast)] < 0) {
+				break;
+			}
+			fast = r_snapshot.downstream_index[static_cast<size_t>(fast)];
+			if (slow == fast) {
+				r_snapshot.cycle_free = false;
+				break;
+			}
+		}
+		if (!r_snapshot.cycle_free) {
+			break;
+		}
+	}
+	DEV_ASSERT(r_snapshot.cycle_free && "WorldPrePass downstream graph contains a cycle");
+#endif
 }
 
 PackedFloat32Array make_float_array(const std::vector<float> &p_values) {
@@ -449,7 +475,7 @@ std::unique_ptr<Snapshot> build_snapshot(
 			const float continent_raw = saturate(
 				(sample_cylindrical_noise(continent_noise, static_cast<float>(center_x), static_cast<float>(center_y), static_cast<float>(snapshot->width_tiles)) + 1.0f) * 0.5f
 			);
-			const bool is_continent = !is_ocean_band && !is_burning_band && continent_raw >= 0.28f;
+			const bool is_continent = !is_ocean_band && !is_burning_band && continent_raw >= CONTINENT_NOISE_THRESHOLD;
 
 			float elevation_sum = 0.0f;
 			int32_t wall_count = 0;
@@ -540,6 +566,7 @@ Dictionary make_debug_snapshot(const Snapshot &p_snapshot, int64_t p_layer_mask,
 	result["visible_trunk_mask"] = make_byte_array(p_snapshot.visible_trunk_mask);
 	result["strahler_order"] = make_int_array(p_snapshot.strahler_order);
 	result["is_terminal_lake_center"] = make_byte_array(p_snapshot.is_terminal_lake_center);
+	result["terminal_lake_near_node"] = make_byte_array(p_snapshot.terminal_lake_near_node);
 	Array polygons;
 	for (const PackedVector2Array &polygon : p_snapshot.terminal_lake_polygons) {
 		polygons.append(polygon);
@@ -595,7 +622,7 @@ OverviewMasks sample_overview_masks(
 	return OverviewMasks{
 		is_ocean_band,
 		is_burning_band,
-		!is_ocean_band && !is_burning_band && continent_raw >= 0.28f
+		!is_ocean_band && !is_burning_band && continent_raw >= CONTINENT_NOISE_THRESHOLD
 	};
 }
 
@@ -630,12 +657,22 @@ void write_overview_rgba(
 	write_rgba(r_bytes, p_offset, red, green, blue);
 }
 
-Ref<Image> make_overview_image(const Snapshot &p_snapshot, int64_t p_layer_mask, int64_t p_pixels_per_cell) {
+Ref<Image> make_overview_image(
+	const Snapshot &p_snapshot,
+	const mountain_field::Evaluator &p_mountain_evaluator,
+	int64_t p_world_version,
+	const FoundationSettings &p_foundation_settings,
+	int64_t p_layer_mask,
+	int64_t p_pixels_per_cell
+) {
 	(void)p_layer_mask;
 	if (!p_snapshot.valid || p_snapshot.grid_width <= 0 || p_snapshot.grid_height <= 0) {
 		return Ref<Image>();
 	}
 	const int32_t pixels_per_cell = clamp_value(static_cast<int32_t>(p_pixels_per_cell), 1, 8);
+	const int32_t pixel_window_tiles = COARSE_CELL_SIZE_TILES / pixels_per_cell;
+	constexpr int32_t pixel_sample_steps = 4;
+	const mountain_field::Thresholds &thresholds = p_mountain_evaluator.get_thresholds();
 	const int32_t image_width = p_snapshot.grid_width * pixels_per_cell;
 	const int32_t image_height = p_snapshot.grid_height * pixels_per_cell;
 	PackedByteArray bytes;
@@ -643,22 +680,41 @@ Ref<Image> make_overview_image(const Snapshot &p_snapshot, int64_t p_layer_mask,
 	FastNoiseLite continent_noise = make_noise(mix_seed(p_snapshot.seed, p_snapshot.world_version, SEED_SALT_CONTINENT), 1.0f / 2048.0f, 4);
 	for (int32_t y = 0; y < image_height; ++y) {
 		for (int32_t x = 0; x < image_width; ++x) {
-			const float sample_x = (static_cast<float>(x) + 0.5f) / static_cast<float>(pixels_per_cell) - 0.5f;
-			const float sample_y = (static_cast<float>(y) + 0.5f) / static_cast<float>(pixels_per_cell) - 0.5f;
-			const int64_t world_x = static_cast<int64_t>(std::floor(
+			const float coarse_sample_x = (static_cast<float>(x) + 0.5f) / static_cast<float>(pixels_per_cell) - 0.5f;
+			const float coarse_sample_y = (static_cast<float>(y) + 0.5f) / static_cast<float>(pixels_per_cell) - 0.5f;
+			const int64_t mask_world_x = static_cast<int64_t>(std::floor(
 				((static_cast<double>(x) + 0.5) * static_cast<double>(COARSE_CELL_SIZE_TILES)) /
 				static_cast<double>(pixels_per_cell)
 			));
-			const int64_t world_y = static_cast<int64_t>(std::floor(
+			const int64_t mask_world_y = static_cast<int64_t>(std::floor(
 				((static_cast<double>(y) + 0.5) * static_cast<double>(COARSE_CELL_SIZE_TILES)) /
 				static_cast<double>(pixels_per_cell)
 			));
+			const int64_t pixel_origin_tile_x = static_cast<int64_t>(x) * pixel_window_tiles;
+			const int64_t pixel_origin_tile_y = static_cast<int64_t>(y) * pixel_window_tiles;
+			int32_t wall_count = 0;
+			for (int32_t sample_y = 0; sample_y < pixel_sample_steps; ++sample_y) {
+				for (int32_t sample_x = 0; sample_x < pixel_sample_steps; ++sample_x) {
+					const int64_t world_x = pixel_origin_tile_x +
+							((sample_x * 2 + 1) * pixel_window_tiles) / (pixel_sample_steps * 2);
+					const int64_t world_y_raw = pixel_origin_tile_y +
+							((sample_y * 2 + 1) * pixel_window_tiles) / (pixel_sample_steps * 2);
+					const int64_t world_y = std::min<int64_t>(p_snapshot.height_tiles - 1, world_y_raw);
+					const int64_t sample_world_x = resolve_mountain_sample_x(world_x, p_world_version, p_foundation_settings);
+					const float elevation = p_mountain_evaluator.sample_elevation(sample_world_x, world_y);
+					if (elevation >= thresholds.t_wall) {
+						wall_count += 1;
+					}
+				}
+			}
+			const float pixel_wall_density = static_cast<float>(wall_count) /
+					static_cast<float>(pixel_sample_steps * pixel_sample_steps);
 			write_overview_rgba(
 				bytes,
 				(y * image_width + x) * 4,
-				sample_overview_masks(p_snapshot, continent_noise, world_x, world_y),
-				sample_snapshot_float_bilinear(p_snapshot.hydro_height, p_snapshot, sample_x, sample_y),
-				sample_snapshot_float_bilinear(p_snapshot.coarse_wall_density, p_snapshot, sample_x, sample_y)
+				sample_overview_masks(p_snapshot, continent_noise, mask_world_x, mask_world_y),
+				sample_snapshot_float_bilinear(p_snapshot.hydro_height, p_snapshot, coarse_sample_x, coarse_sample_y),
+				pixel_wall_density
 			);
 		}
 	}
@@ -681,7 +737,8 @@ Dictionary resolve_spawn_tile(const Snapshot &p_snapshot) {
 				p_snapshot.continent_mask[static_cast<size_t>(index)] == 0 ||
 				p_snapshot.coarse_wall_density[static_cast<size_t>(index)] >= SPAWN_MAX_WALL_DENSITY ||
 				p_snapshot.visible_trunk_mask[static_cast<size_t>(index)] != 0 ||
-				p_snapshot.is_terminal_lake_center[static_cast<size_t>(index)] != 0) {
+				p_snapshot.is_terminal_lake_center[static_cast<size_t>(index)] != 0 ||
+				p_snapshot.terminal_lake_near_node[static_cast<size_t>(index)] != 0) {
 			continue;
 		}
 		const float valley = p_snapshot.coarse_valley_score[static_cast<size_t>(index)];

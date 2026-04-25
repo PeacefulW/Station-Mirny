@@ -35,7 +35,7 @@ var _pan_offset: Vector2 = Vector2.ZERO
 var _is_dragging_view: bool = false
 
 func _ready() -> void:
-	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
 	clip_contents = true
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_ensure_progress_overlay()

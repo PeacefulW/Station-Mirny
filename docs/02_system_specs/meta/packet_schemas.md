@@ -435,6 +435,9 @@ Current code notes:
 - runtime mutations are not written back into `ChunkPacketV0`; they are persisted separately as `ChunkDiffFile`
 - `terrain_atlas_indices` is not part of `ChunkDiffFile` and is recomputed from
   `base + diff` for loaded visual patches
+- `WorldChunkPacketBackend` may add `request_chunk_coord` to drained worker
+  results as preview-only request identity; native `chunk_coord` remains the
+  canonical chunk coordinate
 
 ### `ChunkPacketV1`
 
@@ -583,12 +586,13 @@ Image {
 
 Current code notes:
 - `pixels_per_cell` is clamped to `>= 1` on the native side
-- the default new-game overview requests `pixels_per_cell = 2`, which maps the
-  current `64`-tile substrate grid to roughly one image pixel per `32 x 32`
+- the default new-game overview requests `pixels_per_cell = 4`, which maps the
+  current `64`-tile substrate grid to roughly one image pixel per `16 x 16`
   world tiles
 - the native pass re-samples player-facing ocean/burning bands and continent
-  mask at overview pixel centres; hydro height and wall density are interpolated
-  from the built substrate
+  mask at overview pixel centres, directly samples the mountain field for
+  `wall_density`, and bilinearly interpolates `hydro_height` from the built
+  substrate
 - this image is presentation-only and must not be persisted
 
 ## Not Currently Confirmed

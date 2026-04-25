@@ -274,6 +274,7 @@ func _append_completed_packets(batch_requests: Array[Dictionary], packets: Array
 	_result_mutex.lock()
 	for index: int in range(batch_requests.size()):
 		var packet: Dictionary = packets[index] as Dictionary
+		packet["request_chunk_coord"] = batch_requests[index].get("coord", Vector2i.ZERO) as Vector2i
 		packet["epoch"] = int(batch_requests[index].get("epoch", -1))
 		_completed_packets.append(packet)
 	_result_mutex.unlock()

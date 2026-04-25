@@ -316,7 +316,10 @@ func _drain_ready_packets() -> void:
 	for packet: Dictionary in ready_packets:
 		if int(packet.get("epoch", -1)) != _preview_epoch:
 			continue
-		var chunk_coord: Vector2i = packet.get("chunk_coord", Vector2i.ZERO) as Vector2i
+		var chunk_coord: Vector2i = packet.get(
+			"request_chunk_coord",
+			packet.get("chunk_coord", Vector2i.ZERO)
+		) as Vector2i
 		_in_flight_requests.erase(chunk_coord)
 		_patch_cache.store_packet(_build_packet_cache_key(chunk_coord), packet)
 		if _has_available_patch(chunk_coord):
@@ -382,9 +385,12 @@ func _build_stage_plans(center_chunk: Vector2i) -> Array[Dictionary]:
 	var plans: Array[Dictionary] = []
 	var seen_chunks: Dictionary = {}
 	for radius: int in STAGE_RADII_CHUNKS:
-		var window_coords: Array[Vector2i] = _build_square_spiral(center_chunk, radius)
+		var window_coords: Array[Vector2i] = []
 		var request_coords: Array[Vector2i] = []
-		for chunk_coord: Vector2i in window_coords:
+		for chunk_coord: Vector2i in _build_square_spiral(center_chunk, radius):
+			if not _is_preview_chunk_y_in_bounds(chunk_coord):
+				continue
+			window_coords.append(chunk_coord)
 			if seen_chunks.has(chunk_coord):
 				continue
 			seen_chunks[chunk_coord] = true
@@ -412,6 +418,9 @@ func _build_square_spiral(center_chunk: Vector2i, max_radius: int) -> Array[Vect
 		for y: int in range(max_y - 1, min_y, -1):
 			order.append(Vector2i(min_x, y))
 	return order
+
+func _is_preview_chunk_y_in_bounds(chunk_coord: Vector2i) -> bool:
+	return _active_world_bounds == null or _active_world_bounds.is_chunk_y_in_bounds(chunk_coord.y)
 
 func _store_ready_patch(chunk_coord: Vector2i, patch_texture: Texture2D) -> void:
 	if patch_texture == null:
