@@ -56,6 +56,7 @@ var _ready_publish_lookup: Dictionary = {}
 var _published_patches: Dictionary = {}
 var _awaiting_spawn_result: bool = false
 var _awaiting_overview_result: bool = false
+var _has_spawn_context: bool = false
 var _overview_texture: Texture2D = null
 
 func start() -> void:
@@ -76,6 +77,7 @@ func attach_overview_canvas(canvas: WorldOverviewCanvas) -> void:
 	if _overview_canvas == null:
 		return
 	_overview_canvas.reset_overview(_active_world_bounds)
+	_sync_overview_detail_context()
 	if _overview_texture != null:
 		_overview_canvas.publish_overview(_overview_texture)
 	else:
@@ -142,6 +144,7 @@ func queue_preview_rebuild(
 	_packet_backend.clear_queued_work()
 	_awaiting_spawn_result = false
 	_awaiting_overview_result = false
+	_has_spawn_context = false
 	_overview_texture = null
 	_current_stage_request_queue.clear()
 	_in_flight_requests.clear()
@@ -153,6 +156,7 @@ func queue_preview_rebuild(
 	_current_stage_index = -1
 	if _overview_canvas != null:
 		_overview_canvas.reset_overview(_pending_world_bounds)
+		_overview_canvas.clear_detail_region_context()
 		_overview_canvas.set_loading(true)
 	_update_canvas_progress()
 
@@ -189,6 +193,7 @@ func _start_rebuild_from_pending_snapshot() -> void:
 		_pending_foundation_settings
 	)
 	_awaiting_spawn_result = true
+	_has_spawn_context = false
 	_packet_backend.queue_spawn_request(
 		_active_seed,
 		WorldRuntimeConstants.WORLD_VERSION,
@@ -202,7 +207,8 @@ func _start_rebuild_from_pending_snapshot() -> void:
 		WorldRuntimeConstants.WORLD_VERSION,
 		_active_settings_packed,
 		_preview_epoch,
-		_foundation_palette.get_layer_mask()
+		_foundation_palette.get_layer_mask(),
+		_foundation_palette.get_pixels_per_cell()
 	)
 	_current_center_chunk = WorldRuntimeConstants.tile_to_chunk(_current_spawn_tile)
 	_stage_plans.clear()
@@ -217,6 +223,7 @@ func _start_rebuild_from_pending_snapshot() -> void:
 		_canvas.set_render_mode(_active_render_mode, _current_spawn_safe_patch_rect)
 	if _overview_canvas != null:
 		_overview_canvas.reset_overview(_active_world_bounds)
+		_overview_canvas.clear_detail_region_context()
 		_overview_canvas.set_loading(true)
 	_update_canvas_progress()
 
@@ -258,8 +265,12 @@ func _drain_ready_overview_results() -> void:
 			if _overview_canvas != null:
 				_overview_canvas.set_loading(false)
 			return
-		var snapshot: Dictionary = overview_result.get("snapshot", {}) as Dictionary
-		_overview_texture = _foundation_palette.build_overview_texture_from_snapshot(snapshot)
+		var overview_image_variant: Variant = overview_result.get("image", null)
+		if overview_image_variant is Image:
+			_overview_texture = _foundation_palette.build_overview_texture(overview_image_variant as Image)
+		else:
+			var snapshot: Dictionary = overview_result.get("snapshot", {}) as Dictionary
+			_overview_texture = _foundation_palette.build_overview_texture_from_snapshot(snapshot)
 		if _overview_canvas != null:
 			if _overview_texture != null:
 				_overview_canvas.publish_overview(_overview_texture)
@@ -271,6 +282,7 @@ func _begin_rebuild_from_spawn_result(spawn_result: Dictionary) -> void:
 	_current_spawn_tile = WorldSpawnResolver.resolve_spawn_tile_from_native_result(spawn_result)
 	_current_spawn_safe_patch_rect = WorldSpawnResolver.resolve_spawn_safe_patch_rect_from_native_result(spawn_result)
 	_current_center_chunk = WorldRuntimeConstants.tile_to_chunk(_current_spawn_tile)
+	_has_spawn_context = true
 	_stage_plans = _build_stage_plans(_current_center_chunk)
 	_current_stage_window.clear()
 	_current_stage_index = -1
@@ -284,7 +296,20 @@ func _begin_rebuild_from_spawn_result(spawn_result: Dictionary) -> void:
 	_advance_stage_if_needed()
 	_fill_request_window()
 	_publish_ready_patches()
+	_sync_overview_detail_context()
 	_update_canvas_progress()
+
+func _sync_overview_detail_context() -> void:
+	if _overview_canvas == null:
+		return
+	if not _has_spawn_context:
+		_overview_canvas.clear_detail_region_context()
+		return
+	_overview_canvas.set_detail_region_context(
+		_current_center_chunk,
+		_current_spawn_tile,
+		_resolve_full_radius_chunks()
+	)
 
 func _drain_ready_packets() -> void:
 	var ready_packets: Array[Dictionary] = _packet_backend.drain_completed_packets(MAX_RESULTS_PER_TICK)

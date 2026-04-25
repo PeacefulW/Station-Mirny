@@ -191,13 +191,25 @@ Current V1-R1C note:
 - `WorldPreviewController` uses the same debounce and epoch as the detail
   preview, then queues one overview request through `WorldChunkPacketBackend`
 - `WorldChunkPacketBackend` calls the native `WorldCore` foundation snapshot
-  surface on the worker path and returns raw substrate channels for
-  main-thread texture publication
-- `WorldFoundationPalette` maps only canonical substrate channels to the
-  overview image; it does not invent faux biome colours or a second generator
+  / overview surface on the worker path and returns one native overview image
+  for main-thread texture publication
+- the default player overview uses the current `64`-tile substrate grid with
+  `pixels_per_cell = 2`, roughly one overview pixel per `32 x 32` world tiles,
+  without generating chunk packets for the full world
+- the native overview image re-samples the current player-facing
+  ocean/burning bands and continent mask at overview pixel centres; it
+  interpolates hydro height and wall density from the substrate instead of
+  expanding every chunk
+- `WorldFoundationPalette` keeps the current player-truthful canonical palette
+  contract; future river skeleton fields remain available for dev/debug
+  diagnostics but are not rendered as rivers in the default player overview
+  until river rasterization exists
 - `WorldOverviewCanvas` draws a single texture snapshot with X-wrap edge hints;
   it never boots `WorldRuntimeV0`, never creates `ChunkView`, and never writes
   save data
+- the overview canvas also draws presentation-only navigation overlays: the
+  resolved spawn marker and the current `33 x 33` detail-preview window, so the
+  player can see where the lower region preview sits inside the whole world
 
 ## File scope for the first implementation task
 

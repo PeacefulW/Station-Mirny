@@ -507,6 +507,10 @@ Chunk diffs keep `ChunkDiffV0` shape. Forbidden additions:
   instead of remapping finite X into the legacy `65536`-tile sample width.
   Existing `world_version == 9` saves keep the legacy remap so their generated
   base does not drift under load.
+- `WORLD_VERSION` bumps from `10` to `11` in `world_foundation_v1.md` for the
+  high-resolution foundation substrate (`64`-tile cells) and native overview
+  image pass. Mountain sampling semantics remain the `world_version >= 10`
+  finite-width path.
 - each bump is required by LAW 4 because canonical terrain / packet
   output changes for the same `seed + coord`
 - `world_version` remains a plain integer; it is **not** a hash of
@@ -850,7 +854,9 @@ Files forbidden:
 - UI preview canvas / palette files, because preview already reflects runtime.
 
 Acceptance tests for M6:
-- [ ] new worlds write and run as `world_version = 10`;
+- [ ] M6 landed new worlds at `world_version = 10`; current new-world
+      version may be higher after later canonical worldgen owners
+      (currently `11` in `world_foundation_v1.md`);
 - [ ] `world_version == 9` remains load-compatible and keeps the legacy
       mountain sample-width path;
 - [ ] on the `large` preset, generated mountain output no longer appears as

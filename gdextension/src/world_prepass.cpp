@@ -48,6 +48,12 @@ struct QueueEntryCompare {
 	}
 };
 
+struct OverviewMasks {
+	bool ocean_band = false;
+	bool burning_band = false;
+	bool continent = false;
+};
+
 uint64_t splitmix64(uint64_t p_value) {
 	p_value += 0x9e3779b97f4a7c15ULL;
 	p_value = (p_value ^ (p_value >> 30U)) * 0xbf58476d1ce4e5b9ULL;
@@ -403,6 +409,8 @@ std::unique_ptr<Snapshot> build_snapshot(
 	snapshot->signature = make_signature(p_seed, p_world_version, p_mountain_settings, p_foundation_settings);
 	snapshot->width_tiles = p_foundation_settings.width_tiles;
 	snapshot->height_tiles = p_foundation_settings.height_tiles;
+	snapshot->ocean_band_tiles = p_foundation_settings.ocean_band_tiles;
+	snapshot->burning_band_tiles = p_foundation_settings.burning_band_tiles;
 	snapshot->grid_width = std::max<int32_t>(1, static_cast<int32_t>((p_foundation_settings.width_tiles + COARSE_CELL_SIZE_TILES - 1) / COARSE_CELL_SIZE_TILES));
 	snapshot->grid_height = std::max<int32_t>(1, static_cast<int32_t>((p_foundation_settings.height_tiles + COARSE_CELL_SIZE_TILES - 1) / COARSE_CELL_SIZE_TILES));
 
@@ -508,6 +516,8 @@ Dictionary make_debug_snapshot(const Snapshot &p_snapshot, int64_t p_layer_mask,
 	result["coarse_cell_size_tiles"] = COARSE_CELL_SIZE_TILES;
 	result["world_width_tiles"] = p_snapshot.width_tiles;
 	result["world_height_tiles"] = p_snapshot.height_tiles;
+	result["ocean_band_tiles"] = p_snapshot.ocean_band_tiles;
+	result["burning_band_tiles"] = p_snapshot.burning_band_tiles;
 	result["seed"] = p_snapshot.seed;
 	result["world_version"] = p_snapshot.world_version;
 	result["signature"] = static_cast<int64_t>(p_snapshot.signature & 0x7fffffffffffffffULL);
@@ -538,45 +548,121 @@ Dictionary make_debug_snapshot(const Snapshot &p_snapshot, int64_t p_layer_mask,
 	return result;
 }
 
-Ref<Image> make_overview_image(const Snapshot &p_snapshot, int64_t p_layer_mask) {
+float sample_snapshot_float_bilinear(
+	const std::vector<float> &p_values,
+	const Snapshot &p_snapshot,
+	float p_x,
+	float p_y
+) {
+	if (p_values.empty() || p_snapshot.grid_width <= 0 || p_snapshot.grid_height <= 0) {
+		return 0.0f;
+	}
+	const int32_t x0 = static_cast<int32_t>(std::floor(p_x));
+	const int32_t y0 = clamp_value(static_cast<int32_t>(std::floor(p_y)), 0, p_snapshot.grid_height - 1);
+	const int32_t x1 = x0 + 1;
+	const int32_t y1 = clamp_value(y0 + 1, 0, p_snapshot.grid_height - 1);
+	const float tx = p_x - static_cast<float>(std::floor(p_x));
+	const float ty = p_y - static_cast<float>(std::floor(p_y));
+	const int32_t wx0 = static_cast<int32_t>(positive_mod(x0, p_snapshot.grid_width));
+	const int32_t wx1 = static_cast<int32_t>(positive_mod(x1, p_snapshot.grid_width));
+	const float v00 = p_values[static_cast<size_t>(p_snapshot.index(wx0, y0))];
+	const float v10 = p_values[static_cast<size_t>(p_snapshot.index(wx1, y0))];
+	const float v01 = p_values[static_cast<size_t>(p_snapshot.index(wx0, y1))];
+	const float v11 = p_values[static_cast<size_t>(p_snapshot.index(wx1, y1))];
+	const float top = v00 + (v10 - v00) * tx;
+	const float bottom = v01 + (v11 - v01) * tx;
+	return top + (bottom - top) * ty;
+}
+
+OverviewMasks sample_overview_masks(
+	const Snapshot &p_snapshot,
+	FastNoiseLite &p_continent_noise,
+	int64_t p_world_x,
+	int64_t p_world_y
+) {
+	const int64_t world_x = positive_mod(p_world_x, p_snapshot.width_tiles);
+	const int64_t world_y = clamp_value<int64_t>(p_world_y, 0, std::max<int64_t>(0, p_snapshot.height_tiles - 1));
+	const bool is_ocean_band = world_y < p_snapshot.ocean_band_tiles;
+	const bool is_burning_band = world_y >= p_snapshot.height_tiles - p_snapshot.burning_band_tiles;
+	const float continent_raw = saturate(
+		(sample_cylindrical_noise(
+			p_continent_noise,
+			static_cast<float>(world_x),
+			static_cast<float>(world_y),
+			static_cast<float>(p_snapshot.width_tiles)
+		) + 1.0f) * 0.5f
+	);
+	return OverviewMasks{
+		is_ocean_band,
+		is_burning_band,
+		!is_ocean_band && !is_burning_band && continent_raw >= 0.28f
+	};
+}
+
+void write_overview_rgba(
+	PackedByteArray &r_bytes,
+	int32_t p_offset,
+	const OverviewMasks &p_masks,
+	float p_hydro,
+	float p_wall
+) {
+	if (p_masks.ocean_band) {
+		write_rgba(r_bytes, p_offset, 18, 58, 104);
+		return;
+	}
+	if (p_masks.burning_band) {
+		write_rgba(r_bytes, p_offset, 102, 36, 24);
+		return;
+	}
+	if (!p_masks.continent) {
+		write_rgba(r_bytes, p_offset, 30, 88, 132);
+		return;
+	}
+	const float hydro = saturate(p_hydro);
+	const float wall = saturate(p_wall);
+	uint8_t base = static_cast<uint8_t>(clamp_value(72.0f + hydro * 96.0f, 0.0f, 255.0f));
+	uint8_t red = static_cast<uint8_t>(std::min(255.0f, base + 24.0f));
+	uint8_t green = static_cast<uint8_t>(std::min(255.0f, base + 14.0f));
+	uint8_t blue = static_cast<uint8_t>(std::max(36.0f, base - 24.0f));
+	if (wall > 0.45f) {
+		red = green = blue = static_cast<uint8_t>(140 + std::min(80.0f, wall * 80.0f));
+	}
+	write_rgba(r_bytes, p_offset, red, green, blue);
+}
+
+Ref<Image> make_overview_image(const Snapshot &p_snapshot, int64_t p_layer_mask, int64_t p_pixels_per_cell) {
 	(void)p_layer_mask;
 	if (!p_snapshot.valid || p_snapshot.grid_width <= 0 || p_snapshot.grid_height <= 0) {
 		return Ref<Image>();
 	}
+	const int32_t pixels_per_cell = clamp_value(static_cast<int32_t>(p_pixels_per_cell), 1, 8);
+	const int32_t image_width = p_snapshot.grid_width * pixels_per_cell;
+	const int32_t image_height = p_snapshot.grid_height * pixels_per_cell;
 	PackedByteArray bytes;
-	bytes.resize(p_snapshot.grid_width * p_snapshot.grid_height * 4);
-	for (int32_t index = 0; index < p_snapshot.grid_width * p_snapshot.grid_height; ++index) {
-		const int32_t offset = index * 4;
-		if (p_snapshot.ocean_band_mask[static_cast<size_t>(index)] != 0) {
-			write_rgba(bytes, offset, 18, 58, 104);
-		} else if (p_snapshot.burning_band_mask[static_cast<size_t>(index)] != 0) {
-			write_rgba(bytes, offset, 102, 36, 24);
-		} else if (p_snapshot.continent_mask[static_cast<size_t>(index)] == 0) {
-			write_rgba(bytes, offset, 30, 88, 132);
-		} else {
-			const float hydro = p_snapshot.hydro_height[static_cast<size_t>(index)];
-			const float wall = p_snapshot.coarse_wall_density[static_cast<size_t>(index)];
-			uint8_t base = static_cast<uint8_t>(clamp_value(72.0f + hydro * 96.0f, 0.0f, 255.0f));
-			uint8_t red = static_cast<uint8_t>(std::min(255.0f, base + 24.0f));
-			uint8_t green = static_cast<uint8_t>(std::min(255.0f, base + 14.0f));
-			uint8_t blue = static_cast<uint8_t>(std::max(36.0f, base - 24.0f));
-			if (wall > 0.45f) {
-				red = green = blue = static_cast<uint8_t>(140 + std::min(80.0f, wall * 80.0f));
-			}
-			if (p_snapshot.visible_trunk_mask[static_cast<size_t>(index)] != 0) {
-				red = 42;
-				green = 132;
-				blue = 188;
-			}
-			if (p_snapshot.is_terminal_lake_center[static_cast<size_t>(index)] != 0) {
-				red = 36;
-				green = 112;
-				blue = 178;
-			}
-			write_rgba(bytes, offset, red, green, blue);
+	bytes.resize(image_width * image_height * 4);
+	FastNoiseLite continent_noise = make_noise(mix_seed(p_snapshot.seed, p_snapshot.world_version, SEED_SALT_CONTINENT), 1.0f / 2048.0f, 4);
+	for (int32_t y = 0; y < image_height; ++y) {
+		for (int32_t x = 0; x < image_width; ++x) {
+			const float sample_x = (static_cast<float>(x) + 0.5f) / static_cast<float>(pixels_per_cell) - 0.5f;
+			const float sample_y = (static_cast<float>(y) + 0.5f) / static_cast<float>(pixels_per_cell) - 0.5f;
+			const int64_t world_x = static_cast<int64_t>(std::floor(
+				((static_cast<double>(x) + 0.5) * static_cast<double>(COARSE_CELL_SIZE_TILES)) /
+				static_cast<double>(pixels_per_cell)
+			));
+			const int64_t world_y = static_cast<int64_t>(std::floor(
+				((static_cast<double>(y) + 0.5) * static_cast<double>(COARSE_CELL_SIZE_TILES)) /
+				static_cast<double>(pixels_per_cell)
+			));
+			write_overview_rgba(
+				bytes,
+				(y * image_width + x) * 4,
+				sample_overview_masks(p_snapshot, continent_noise, world_x, world_y),
+				sample_snapshot_float_bilinear(p_snapshot.hydro_height, p_snapshot, sample_x, sample_y),
+				sample_snapshot_float_bilinear(p_snapshot.coarse_wall_density, p_snapshot, sample_x, sample_y)
+			);
 		}
 	}
-	return Image::create_from_data(p_snapshot.grid_width, p_snapshot.grid_height, false, Image::FORMAT_RGBA8, bytes);
+	return Image::create_from_data(image_width, image_height, false, Image::FORMAT_RGBA8, bytes);
 }
 
 Dictionary resolve_spawn_tile(const Snapshot &p_snapshot) {

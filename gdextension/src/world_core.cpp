@@ -344,7 +344,7 @@ void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("resolve_world_foundation_spawn_tile", "seed", "world_version", "settings_packed"), &WorldCore::resolve_world_foundation_spawn_tile);
 #ifdef DEBUG_ENABLED
 	ClassDB::bind_method(D_METHOD("get_world_foundation_snapshot", "layer_mask", "downscale_factor"), &WorldCore::get_world_foundation_snapshot);
-	ClassDB::bind_method(D_METHOD("get_world_foundation_overview", "layer_mask"), &WorldCore::get_world_foundation_overview);
+	ClassDB::bind_method(D_METHOD("get_world_foundation_overview", "layer_mask", "pixels_per_cell"), &WorldCore::get_world_foundation_overview, DEFVAL(1));
 #endif
 }
 
@@ -740,11 +740,11 @@ Dictionary WorldCore::get_world_foundation_snapshot(int64_t p_layer_mask, int64_
 	return world_prepass::make_debug_snapshot(*world_prepass_snapshot_, p_layer_mask, p_downscale_factor);
 }
 
-Ref<Image> WorldCore::get_world_foundation_overview(int64_t p_layer_mask) {
+Ref<Image> WorldCore::get_world_foundation_overview(int64_t p_layer_mask, int64_t p_pixels_per_cell) {
 	if (world_prepass_snapshot_ == nullptr || !world_prepass_snapshot_->valid) {
 		return Ref<Image>();
 	}
-	return world_prepass::make_overview_image(*world_prepass_snapshot_, p_layer_mask);
+	return world_prepass::make_overview_image(*world_prepass_snapshot_, p_layer_mask, p_pixels_per_cell);
 }
 #endif
 

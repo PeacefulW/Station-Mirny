@@ -58,8 +58,9 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current mountain extension:
-- `world.json` now records `world_version: 10` for the current finite-world
-  foundation baseline with finite-cylinder mountain aspect normalization
+- `world.json` now records `world_version: 11` for the current finite-world
+  foundation baseline with `64`-tile substrate cells and the native
+  high-resolution overview pass
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - `world_version >= 6` keeps the same save shape but changes canonical new-world
@@ -77,6 +78,8 @@ Current mountain extension:
 - `world_version == 9` finite-foundation saves keep the legacy `65536`-tile
   mountain sample-width compatibility path; `world_version >= 10` uses
   `worldgen_settings.world_bounds.width_tiles` for mountain sampling
+- `world_version >= 11` uses `foundation_coarse_cell_size_tiles = 64` for
+  `WorldPrePass`; versions `9..10` used `128`-tile substrate cells
 - loading `world_version <= 8` preserves the legacy pre-foundation path without
   injecting synthetic bounds into the save
 - loading `world_version >= 9` without `worldgen_settings.world_bounds` fails
@@ -107,7 +110,7 @@ Confirmed `world.json` shape in the current mountain code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 10,
+  "world_version": 11,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,

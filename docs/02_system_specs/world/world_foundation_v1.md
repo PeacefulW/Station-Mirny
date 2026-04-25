@@ -97,8 +97,10 @@ The player must be able to:
   substrate for large-scale height context;
 - recognise the world they are playing on from an **in-menu overview**
   that matches the world they will walk through, at the level of
-  continents, rivers, and climate bands (shape-true, not
-  tileset-perfect).
+  continents, hard bands, and broad mountain / elevation context
+  (shape-true, not tileset-perfect). River skeletons are substrate
+  truth for future river rasterization and dev diagnostics, but are not
+  player-facing river art until a river spec makes them real output.
 
 ## Design Principles
 
@@ -229,7 +231,7 @@ substrate source.
 | C++ compute or main-thread apply? | Native compute on a background worker. Main thread only applies the finished overview image and consumes cached substrate reads inside native batch generation. |
 | Dirty unit | Whole world, once per world load (boot class). No runtime-interactive or background-tick dirty unit — substrate is immutable for the lifetime of a world session. |
 | Single owner | `WorldCore` owns `WorldPrePass`. `world.json` owns the settings copy. UI preview owns only its image publish. No other system writes substrate data. |
-| 10× / 100× scale path | Coarse grid is `ceil(width / coarse_cell) × ceil(height / coarse_cell)`. At `coarse_cell = 128 tiles`, a medium world (`4096 × 2048`) is `32 × 16 = 512` nodes; a large world (`8192 × 4096`) is `64 × 32 = 2048` nodes. Sub-linear in world area. |
+| 10× / 100× scale path | Coarse grid is `ceil(width / coarse_cell) × ceil(height / coarse_cell)`. At `coarse_cell = 64 tiles`, a medium world (`4096 × 2048`) is `64 × 32 = 2048` nodes; a large world (`8192 × 4096`) is `128 × 64 = 8192` nodes. Sub-linear in world area and still not a chunk/tile map. |
 | Main-thread blocking? | Forbidden during normal play. Substrate compute runs behind the world-load progress UI or new-game preview debounce. |
 | Hidden GDScript fallback? | Forbidden. `WorldPrePass` requires the native world core. |
 | Could it become heavy later? | Bounded by coarse cell size and the frozen field list. New consumers must read existing channels or justify a new channel via spec amendment. |
@@ -278,11 +280,11 @@ layer needs, once per world load, in a single cache.
 
 **Grid.**
 
-- coarse cell size: `foundation_coarse_cell_size_tiles = 128`
-- grid dimensions: `ceil(width / 128) × ceil(height / 128)`
+- coarse cell size: `foundation_coarse_cell_size_tiles = 64`
+- grid dimensions: `ceil(width / 64) × ceil(height / 64)`
 - X wraps; Y does not
-- for `4096 × 2048` world: `32 × 16 = 512` nodes
-- for `8192 × 4096` world: `64 × 32 = 2048` nodes
+- for `4096 × 2048` world: `64 × 32 = 2048` nodes
+- for `8192 × 4096` world: `128 × 64 = 8192` nodes
 
 Changing the coarse cell size requires a `WORLD_VERSION` bump.
 
@@ -300,12 +302,12 @@ Changing the coarse cell size requires a `WORLD_VERSION` bump.
 | `coarse_valley_score` | `1 - coarse_wall_density - 0.5 × coarse_foot_density`, clamped to `[0, 1]` | river skeleton |
 | `source_score` | deterministic biased noise gated by `hydro_height > headwater_threshold` | river skeleton |
 | `biome_region_id` | deterministic low-frequency Voronoi tag stable across noise scale | biome resolver (future) |
-| `downstream_index` | D8 downstream pick on `hydro_height` after priority-flood depression filling, with wrap-safe X | future river spec, preview |
-| `flow_accumulation` | normalised accumulated flow along the downstream graph | future river spec, preview |
-| `visible_trunk_mask` | routing-eligible land node with `flow_accumulation >= flow_visible_threshold(amount)` | future river spec, preview |
+| `downstream_index` | D8 downstream pick on `hydro_height` after priority-flood depression filling, with wrap-safe X | future river spec, dev/debug preview |
+| `flow_accumulation` | normalised accumulated flow along the downstream graph | future river spec, dev/debug preview |
+| `visible_trunk_mask` | routing-eligible land node with `flow_accumulation >= flow_visible_threshold(amount)` | future river spec, dev/debug preview |
 | `strahler_order` | tree order along the visible trunk graph | future river spec |
-| `is_terminal_lake_center` | basin-outlet flag where `flow_accumulation >= flow_sea_threshold` | future river spec, preview |
-| `terminal_lake_polygon` | deterministic lake polygon clamped to a max tile area, clipped at world Y bounds | future river spec, preview |
+| `is_terminal_lake_center` | basin-outlet flag where `flow_accumulation >= flow_sea_threshold` | future river spec, dev/debug preview |
+| `terminal_lake_polygon` | deterministic lake polygon clamped to a max tile area, clipped at world Y bounds | future river spec, dev/debug preview |
 
 Adding a field to this set requires a spec amendment and a
 `WORLD_VERSION` review.
@@ -348,15 +350,21 @@ particle simulation, no WFC.
 `(seed, world_version, world_bounds, settings_packed_hash)`. Replaced
 on world load; not persisted.
 
-**Budget.** `≤ 500 ms` on native for the largest V1 preset
-(`8192 × 4096`, `2048` nodes). Measured by debug counter. Breaching the
-budget is a blocker for V1-R1B closure.
+**Budget.** Target `≤ 900 ms` on native for the largest V1 preset
+(`8192 × 4096`, `8192` nodes). Measured by debug counter. Breaching the
+budget is a blocker for the high-resolution foundation overview pass.
 
 ### Full-World Overview Preview
 
-**Shape.** One `Image` whose pixel dimensions are the coarse grid
-dimensions (`ceil(width / 128) × ceil(height / 128)`), uploaded to one
-`ImageTexture`, drawn into the new-game panel's overview slot.
+**Shape.** The canonical source image is one substrate-grid `Image` whose
+source dimensions are `ceil(width / 64) × ceil(height / 64)`. The
+player-facing UI may request a native presentation image at
+`overview_pixels_per_cell = 2`, producing an overview at roughly one
+pixel per `32 × 32` world tiles. This is a native image pass over the
+already-built substrate, not chunk generation and not a second world
+generator. The native overview pass re-samples player-facing
+ocean/burning bands and continent mask at overview pixel centres, then
+interpolates hydro height and wall density from the built substrate.
 
 **Pipeline.**
 
@@ -365,14 +373,15 @@ new-game panel → seed / size / foundation settings change
   → debounce
   → epoch bump
   → request WorldPrePass on worker
-  → worker publishes WorldPrePassSnapshot
-  → main thread converts snapshot → Image via WorldFoundationPalette
+  → worker publishes native overview Image from WorldPrePassSnapshot
+  → main thread uploads ImageTexture
   → ImageTexture.update()
   → overview view redraws
 ```
 
-**Canonical-only palette (V1).** `WorldFoundationPalette` maps substrate
-channels to colours using only channels the substrate actually owns:
+**Player-facing canonical palette (V1).** `WorldFoundationPalette` maps
+only substrate channels whose meaning is already player-truthful in the
+current build:
 
 - `ocean_band_mask = 1` → deep blue (distinct from inland water)
 - `burning_band_mask = 1` → dark red / ember
@@ -380,22 +389,29 @@ channels to colours using only channels the substrate actually owns:
 - `continent_mask = 1` → neutral land tone shaded by `hydro_height`
   (darker low, lighter high, snow-white above snowline threshold)
 - `coarse_wall_density` high → grey mountain overlay
-- `visible_trunk_mask = 1` → river blue, one pixel wide at coarse
-  resolution
-- `is_terminal_lake_center = 1` → lake colour, single pixel
 
 No faux biome colours in V1. Biome overlays are added only after a
-future biome spec defines canonical biomes.
+future biome spec defines canonical biomes. River and terminal-lake
+skeleton fields stay in `WorldPrePass` for future river/biome work and
+dev diagnostics, but the default player-facing overview must not render
+them as blue rivers/lakes until a river rasterization spec makes those
+features real terrain / overlay output.
 
 **Debug palette variants.** Heatmap palettes for individual channels
 (raw `hydro_height`, raw `flow_accumulation`, raw `coarse_wall_density`,
-Strahler order colouring, etc.) live in dev builds only and are
-addressable via `layer_mask`.
+Strahler order colouring, visible river trunk candidates, terminal-lake
+candidates, etc.) live in dev builds only and are addressable via
+`layer_mask`.
 
 **Rules.**
 
 - The preview image **is** a snapshot read; there is no chunk batch, no
   `ChunkView`, no tile rasterization.
+- The player-facing overview may draw presentation-only overlays on top
+  of the snapshot: the resolved spawn marker, the current detail-preview
+  `33 × 33` chunk window, and X-wrap edge hints. These overlays are UI
+  reads of existing preview/spawn state and must not mutate substrate,
+  chunks, save data, or world runtime state.
 - The overview must never trigger gameplay world boot, never emit
   world-runtime lifecycle events, never write save files, never mutate
   `WorldDiffStore`.
@@ -437,6 +453,81 @@ It must prefer tiles inside `continent_mask = 1` with
 within a mid-band range. Exact numeric thresholds live in the amendment
 and are a V1-R1A deliverable.
 
+### Biome Resolver Substrate Wiring
+
+V1-R1D is spec-only. It documents the seam for a future biome spec; it
+does not add ocean, burning, latitude-belt, continental, river, lake, or
+mountain biome content in V1.
+
+`BiomeResolver` remains data-driven: adding a biome must be adding or
+overriding `BiomeData` resources and resolver thresholds, not editing
+native generator branches for each biome. The resolver consumes:
+
+- continuous world channels from the existing channel sampler
+  (`height`, `temperature`, `moisture`, `ruggedness`,
+  `flora_density`, `latitude`);
+- causal / derived channels exposed through biome data ranges where
+  already present (`drainage`, `slope`, `rain_shadow`,
+  `continentalness`);
+- bounded structure context returned by
+  `WorldComputeContext.sample_structure_context(world_tile)`.
+
+`WorldComputeContext.sample_structure_context(world_tile)` is the only
+script-facing read seam for substrate-derived biome structure context.
+Its contract for future biome work:
+
+- input is one world tile coordinate on `z = 0`;
+- X is canonicalised through finite cylindrical world bounds before
+  sampling;
+- Y is clamped / rejected according to finite world bounds and never
+  wraps;
+- it samples the already-built `WorldPrePass` cache at the corresponding
+  coarse node, with no script-side re-derivation of substrate channels;
+- it returns a small value object / dictionary owned by worldgen, not a
+  mutable cache and not save data;
+- it is valid only after the substrate exists on the boot/load or
+  preview worker path; interactive gameplay code must not trigger a
+  substrate build through this seam.
+
+The minimum V1 substrate reads required by the future biome spec are:
+
+| Biome need | Substrate read | Notes |
+|---|---|---|
+| hard top-Y band | `ocean_band_mask` | Forces future ocean biome eligibility. |
+| hard bottom-Y band | `burning_band_mask` | Forces future burning biome eligibility. |
+| land / open water split | `continent_mask` | Prevents ordinary land biomes from claiming open water. |
+| latitude belt context | `latitude_t` | Used with existing `latitude` ranges; not environment runtime temperature. |
+| broad elevation / drainage | `hydro_height` | Future mapping to `height` / `drainage` must be documented by the biome spec. |
+| ridge / massif pressure | `coarse_wall_density` | Maps to structure `ridge_strength` for biome scoring. |
+| foothill pressure | `coarse_foot_density` | Maps to structure `ridge_strength` / `slope` as defined by the biome spec. |
+| valley / pass preference | `coarse_valley_score` | Future valley and pass biomes may use this as positive structure context. |
+| broad region identity | `biome_region_id` | Stable coarse tag for future large biome regions; not a biome id by itself. |
+| river corridor pressure | `visible_trunk_mask` and `flow_accumulation` | Maps to structure `river_strength`; it is not riverbed tile rasterization. |
+| floodplain / terminal basin pressure | `is_terminal_lake_center` and `terminal_lake_polygons` | Maps to structure `floodplain_strength` / lake context; not water terrain by itself. |
+
+For the current `BiomeData` shape, the R1D bridge names are:
+
+| `BiomeData` / context key | Source direction |
+|---|---|
+| `latitude` | `latitude_t` converted to the existing resolver latitude domain. |
+| `height` | existing channel height, optionally biased by `hydro_height` only after a future biome spec approves the mapping. |
+| `drainage` | future derived channel from `hydro_height`, `flow_accumulation`, and local slope. |
+| `continentalness` | future derived channel from `continent_mask` plus distance / coarse-region rules defined by the biome spec. |
+| `ridge_strength` | `coarse_wall_density` with optional `coarse_foot_density` contribution. |
+| `river_strength` | `visible_trunk_mask` plus `flow_accumulation`. |
+| `floodplain_strength` | terminal-lake / basin context and future river-adjacent flatness rules. |
+
+Explicit non-goals for V1-R1D:
+
+- no new `BiomeData` exported fields;
+- no new biome resources;
+- no terrain id, walkability, atlas, or chunk packet field changes;
+- no riverbed, lake, ocean, burning, or latitude-belt tile
+  rasterization;
+- no environment-runtime temperature, weather, wind, spore, snow, or
+  season coupling;
+- no save/load changes.
+
 ## Core Contract
 
 ### World Bounds
@@ -460,16 +551,16 @@ Rules:
   overview degenerates to unusable sizes and the substrate loses
   statistical stability).
 - `width_tiles <= 16384` and `height_tiles <= 8192` for V1 (caps set
-  by the 500 ms substrate budget plus per-chunk generation cost on
+  by the substrate budget plus per-chunk generation cost on
   the largest world).
 
 ### Presets (V1-R1)
 
 | Preset | `width_tiles` | `height_tiles` | Coarse grid | Approx. pedestrian crossing time (X) |
 |---|---:|---:|---:|---:|
-| `small`  | 2048 | 1024 | 16 × 8  | ~5 min  |
-| `medium` | 4096 | 2048 | 32 × 16 | ~11 min |
-| `large`  | 8192 | 4096 | 64 × 32 | ~22 min |
+| `small`  | 2048 | 1024 | 32 × 16  | ~5 min  |
+| `medium` | 4096 | 2048 | 64 × 32 | ~11 min |
+| `large`  | 8192 | 4096 | 128 × 64 | ~22 min |
 
 The `custom` path is reserved for dev and headless validation; the UI
 shipped in V1-R1 offers only the three presets.
@@ -556,14 +647,20 @@ WorldCore.get_world_foundation_snapshot(
 ) -> Dictionary
 
 WorldCore.get_world_foundation_overview(
-    layer_mask: int
+    layer_mask: int,
+    pixels_per_cell: int
 ) -> Image
 ```
 
 `get_world_foundation_snapshot` returns raw channel arrays keyed by
 layer name; `get_world_foundation_overview` returns a pre-coloured
-overview image for the UI consumer. `downscale_factor` must be `>= 1`;
-`1` returns the native coarse grid (one pixel per coarse node).
+overview image for the UI consumer. `downscale_factor` and
+`pixels_per_cell` must be `>= 1`; `downscale_factor = 1` returns the
+native substrate grid (one debug pixel per substrate node), and
+`pixels_per_cell = 2` returns the default player-facing high-resolution
+overview. The overview image is presentation output only: it may
+re-sample current player-facing masks at higher pixel density, but it
+must not become a gameplay data source.
 
 Addressable layers:
 
@@ -582,8 +679,8 @@ any of the substrate debug layers cannot be inspected on a dev build.
 | Substrate compute | `WorldCore` (native) | All substrate fields; wrap-safe X math; priority-flood; flow accumulation; trunk extraction; Strahler order; terminal-lake polygons. |
 | Substrate cache | `WorldCore` (native, RAM) | One snapshot per world session, keyed by inputs. |
 | Bounds + settings persistence | `SaveManager` + `world.json` writer | `worldgen_settings.world_bounds`, `worldgen_settings.foundation`. |
-| Overview preview | `WorldPreviewController` + new overview canvas | Debounce, epoch, request snapshot, publish one `ImageTexture`, redraw canvas. |
-| Overview palette | `WorldFoundationPalette` (GDScript) | Pure function from snapshot to colour image. |
+| Overview preview | `WorldPreviewController` + new overview canvas | Debounce, epoch, request native overview image, publish one `ImageTexture`, redraw canvas. |
+| Overview palette | `WorldPrePass` native overview pass + `WorldFoundationPalette` constants | Pure function from snapshot to colour image. GDScript palette remains a fallback/helper and does not run the default whole-world colour loop. |
 | Progressive detail preview | Existing `WorldPreviewController` path | Unchanged UX; reads substrate on the native side. |
 | Spawn resolver | Existing spawn resolver owner in `world_runtime.md` | Reads substrate fields through `WorldCore` and applies the amended rejection / preference rules. |
 | Mountain runtime | Existing `mountain_generation.md` code | Unchanged; contributes input to the substrate via the mountain field. |
@@ -645,13 +742,18 @@ worldgen owner changes output. Mountain Generation M6 advances new worlds to
 `65536`-tile sample width. `world_version == 9` remains a compatibility
 boundary for existing finite-foundation saves.
 
+The high-resolution foundation overview pass advances new worlds to
+`world_version = 11` because `foundation_coarse_cell_size_tiles` changes
+from `128` to `64`, changing substrate-derived spawn and future
+worldgen reads for the same seed/settings.
+
 ## Performance Class
 
 | Operation | Class | Dirty unit | Budget |
 |---|---|---|---|
-| Substrate compute | one-time native worker at world load | whole world, coarse `128` grid | ≤ 500 ms on the largest V1 preset |
+| Substrate compute | one-time native worker at world load | whole world, coarse `64` grid | target ≤ 900 ms on the largest V1 preset |
 | Substrate cache read by chunk batch | native, non-blocking | (no dirty unit; immutable) | free |
-| Overview preview render | native worker + main-thread publish | whole snapshot, one image | no synchronous UI wait |
+| Overview preview render | native worker + main-thread publish | whole snapshot, one native image, default `2` pixels per substrate cell | no synchronous UI wait |
 | Progressive detail preview | existing chunk-batch path | existing batch unit | unchanged |
 | Chunk packet generation | existing native worker | chunk batch | unchanged |
 
@@ -707,8 +809,8 @@ boundary for existing finite-foundation saves.
       flow_visible_threshold(amount)`.
 - [ ] Terminal-lake polygons are clipped at the Y world edges and
       never cross the wrap seam on X in a self-overlapping way.
-- [ ] Substrate budget holds: `small ≤ 80 ms`, `medium ≤ 200 ms`,
-      `large ≤ 500 ms` on the reference hardware.
+- [ ] Substrate budget holds: `small ≤ 120 ms`, `medium ≤ 300 ms`,
+      `large ≤ 900 ms` on the reference hardware.
 
 ### Save / Load
 
@@ -726,8 +828,10 @@ boundary for existing finite-foundation saves.
 
 - [ ] New-game overview shows finite world with visible wrap hint on
       X and visible bands on Y.
-- [ ] Overview matches the gameplay world at the level of continents,
-      rivers, and biome bands (shape-true).
+- [ ] Overview matches the current gameplay world at the level of
+      continents, hard bands, and broad mountain / elevation context
+      (shape-true). River skeleton candidates remain hidden from the
+      default player overview until river rasterization exists.
 - [ ] Overview palette uses only canonical substrate channels in V1;
       no faux biome colours are rendered.
 - [ ] Seed / size / foundation slider changes rebuild overview
@@ -800,7 +904,7 @@ river-skeleton fields.
 - Implementation note (2026-04-24): current R1B code resolves preview
   spawn through the worker-side `WorldCore` surface before progressive
   chunk staging. It does not ship the R1C overview canvas.
-- Profiling gate: the 500 ms budget must hold on the `large` preset on
+- Profiling gate: the substrate budget must hold on the `large` preset on
   reference hardware; missing the budget blocks closure and forces
   either coarse-cell rework or field-set reduction.
 - Acceptance: determinism + substrate acceptance + spawn acceptance +
@@ -827,6 +931,11 @@ landed inside V1.
 - Amend `WorldComputeContext.sample_structure_context()` documentation
   where it already lives.
 - List required substrate reads for the future biome spec.
+- Implementation note (2026-04-25): R1D is documented in this spec's
+  "Biome Resolver Substrate Wiring" section. It defines the future
+  `sample_structure_context(world_tile)` contract, required substrate
+  reads, bridge names for current `BiomeData` scoring fields, and
+  explicit non-goals. It lands no code and no new biome content.
 
 ## Files That May Be Touched
 

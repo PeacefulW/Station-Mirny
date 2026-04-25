@@ -193,6 +193,8 @@ Current code notes:
 - `world_version >= 10` uses `worldgen_settings.world_bounds.width_tiles` as
   the native mountain sample width; version `9` keeps the legacy `65536`-tile
   mountain sample-width compatibility path
+- `world_version >= 11` uses `foundation_coarse_cell_size_tiles = 64` for
+  `WorldPrePass`; versions `9..10` used `128`-tile substrate cells
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - missing `worldgen_settings.mountains` restores hard-coded loader defaults for
@@ -533,6 +535,8 @@ matching substrate has been built.
   "coarse_cell_size_tiles": int,
   "world_width_tiles": int,
   "world_height_tiles": int,
+  "ocean_band_tiles": int,
+  "burning_band_tiles": int,
   "seed": int,
   "world_version": int,
   "signature": int,
@@ -563,8 +567,33 @@ Current code notes:
 - every array is indexed by coarse node index `y * grid_width + x`
 - this dictionary is debug/dev tooling only and must not be persisted
 
+### `WorldFoundationOverviewImage`
+
+Returned by dev-only native
+`WorldCore.get_world_foundation_overview(layer_mask, pixels_per_cell)` after a
+matching substrate has been built.
+
+```text
+Image {
+  width: grid_width * pixels_per_cell,
+  height: grid_height * pixels_per_cell,
+  format: FORMAT_RGBA8,
+}
+```
+
+Current code notes:
+- `pixels_per_cell` is clamped to `>= 1` on the native side
+- the default new-game overview requests `pixels_per_cell = 2`, which maps the
+  current `64`-tile substrate grid to roughly one image pixel per `32 x 32`
+  world tiles
+- the native pass re-samples player-facing ocean/burning bands and continent
+  mask at overview pixel centres; hydro height and wall density are interpolated
+  from the built substrate
+- this image is presentation-only and must not be persisted
+
 ## Not Currently Confirmed
 
-The current code still does not confirm any packet fields beyond `ChunkPacketV1`
-and `WorldFoundationSnapshotDebug` for future biome, river tile realization,
-placement, roof-runtime, entrance-runtime, or environment layers.
+The current code still does not confirm any packet fields beyond `ChunkPacketV1`,
+`WorldFoundationSnapshotDebug`, and `WorldFoundationOverviewImage` for future
+biome, river tile realization, placement, roof-runtime, entrance-runtime, or
+environment layers.

@@ -82,7 +82,8 @@ func queue_overview_request(
 	world_version: int,
 	settings_packed: PackedFloat32Array,
 	epoch: int,
-	layer_mask: int = 0
+	layer_mask: int = 0,
+	pixels_per_cell: int = 1
 ) -> void:
 	_request_mutex.lock()
 	_pending_requests.append({
@@ -92,6 +93,7 @@ func queue_overview_request(
 		"settings_packed": settings_packed.duplicate(),
 		"epoch": epoch,
 		"layer_mask": layer_mask,
+		"pixels_per_cell": maxi(1, pixels_per_cell),
 	})
 	_request_mutex.unlock()
 	_request_semaphore.post()
@@ -209,32 +211,64 @@ func _call_resolve_world_foundation_spawn_tile(worker_world_core: Object, reques
 	}
 
 func _call_get_world_foundation_overview_payload(worker_world_core: Object, request: Dictionary) -> Dictionary:
-	if not worker_world_core.has_method("get_world_foundation_snapshot"):
+	if not worker_world_core.has_method("get_world_foundation_overview"):
 		return {
 			"success": false,
-			"message": "Native foundation snapshot API is unavailable in this build.",
+			"message": "Native foundation overview API is unavailable in this build.",
 		}
 
 	var spawn_probe: Dictionary = _call_resolve_world_foundation_spawn_tile(worker_world_core, request)
-	var snapshot_variant: Variant = worker_world_core.call(
-		"get_world_foundation_snapshot",
-		int(request.get("layer_mask", 0)),
-		1
+	if not bool(spawn_probe.get("success", false)):
+		return spawn_probe
+
+	var requested_pixels_per_cell: int = maxi(1, int(request.get("pixels_per_cell", 1)))
+	var overview_arg_count: int = _get_method_argument_count(
+		worker_world_core,
+		&"get_world_foundation_overview"
 	)
-	if snapshot_variant is Dictionary:
-		var snapshot: Dictionary = snapshot_variant as Dictionary
-		if not snapshot.is_empty():
+	var overview_variant: Variant
+	if overview_arg_count >= 2:
+		overview_variant = worker_world_core.call(
+			"get_world_foundation_overview",
+			int(request.get("layer_mask", 0)),
+			requested_pixels_per_cell
+		)
+	else:
+		overview_variant = worker_world_core.call(
+			"get_world_foundation_overview",
+			int(request.get("layer_mask", 0))
+		)
+	if overview_variant is Image:
+		var overview_image: Image = overview_variant as Image
+		if overview_image != null and not overview_image.is_empty():
+			if overview_arg_count == 1 and requested_pixels_per_cell > 1:
+				overview_image = overview_image.duplicate() as Image
+				overview_image.resize(
+					overview_image.get_width() * requested_pixels_per_cell,
+					overview_image.get_height() * requested_pixels_per_cell,
+					Image.INTERPOLATE_BILINEAR
+				)
 			return {
 				"success": true,
-				"snapshot": snapshot,
-				"grid_width": int(snapshot.get("grid_width", 0)),
-				"grid_height": int(snapshot.get("grid_height", 0)),
+				"image": overview_image,
+				"grid_width": int(spawn_probe.get("grid_width", 0)),
+				"grid_height": int(spawn_probe.get("grid_height", 0)),
+				"image_width": overview_image.get_width(),
+				"image_height": overview_image.get_height(),
+				"pixels_per_cell": requested_pixels_per_cell,
 				"compute_time_ms": float(spawn_probe.get("compute_time_ms", 0.0)),
 			}
 	return {
 		"success": false,
-		"message": "Native foundation snapshot returned empty data.",
+		"message": "Native foundation overview returned empty image.",
 	}
+
+func _get_method_argument_count(target: Object, method_name: StringName) -> int:
+	for method: Dictionary in target.get_method_list():
+		if StringName(str(method.get("name", ""))) == method_name:
+			var args: Array = method.get("args", []) as Array
+			return args.size()
+	return -1
 
 func _append_completed_packets(batch_requests: Array[Dictionary], packets: Array) -> void:
 	_result_mutex.lock()

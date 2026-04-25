@@ -303,7 +303,7 @@ Dev-only native surface:
 | Surface | Return | Notes |
 |---|---|---|
 | `get_world_foundation_snapshot(layer_mask: int, downscale_factor: int)` | `Dictionary` | Debug build only; returns the current `WorldPrePass` channel snapshot |
-| `get_world_foundation_overview(layer_mask: int)` | `Image` | Debug build only; returns a pre-coloured substrate overview image |
+| `get_world_foundation_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured high-resolution substrate overview image |
 
 Current code notes:
 - `settings_packed` for `world_version >= 9` must include the mountain fields
@@ -312,6 +312,9 @@ Current code notes:
   `worldgen_settings.world_bounds.width_tiles` as its cylindrical X width;
   `world_version == 9` keeps the legacy `65536`-tile mountain sample-width
   compatibility path.
+- for `world_version >= 11`, the native `WorldPrePass` substrate uses
+  `foundation_coarse_cell_size_tiles = 64`; earlier finite-foundation versions
+  used `128`.
 - The substrate snapshot is a derived cache owned by `WorldCore`; it is not
   persisted and must not be mutated by script code.
 - Preview spawn resolution uses the shared worker wrapper, not a main-thread

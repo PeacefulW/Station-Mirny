@@ -80,7 +80,9 @@ The finite size of a V1 cylindrical world in tiles: `width_tiles` wraps on X,
 The coarse world-foundation substrate defined by `world_foundation_v1.md`.
 It is native worldgen data, seed-derived, RAM-only, and owned by `WorldCore`.
 V1-R1A lands the settings/save boundary; V1-R1B lands the native substrate
-compute, cache, spawn-result read, and dev/debug snapshot surface.
+compute, cache, spawn-result read, and dev/debug snapshot surface. V1-R1D
+documents the future biome resolver read seam, but does not add new biome
+content.
 
 ### Hard-band Y edge
 A finite-world Y boundary expressed as an impassable biome band derived from
@@ -103,7 +105,14 @@ A substrate basin outlet that becomes a future lake candidate. Its polygon is
 used by future river/biome work and is not persisted to save files.
 
 ### Biome resolver
-A data-driven system that takes world channel values at a position and returns the winning biome. Evaluates registered `BiomeData` candidates by score/conditions (channel ranges, structure context). Adding a biome = adding a `.tres` file, not editing generator code. Implemented: `BiomeResolver` resolves biomes deterministically from `PlanetSampler` channels and `WorldComputeContext.sample_structure_context()` backed by `WorldPrePass`; `BiomeRegistry` loads biome resources from `data/biomes/`.
+A data-driven system that takes world channel values at a position and returns
+the winning biome. It evaluates registered `BiomeData` candidates by
+score/conditions: channel ranges plus bounded structure context. Adding a biome
+must be a `.tres` / registry extension path, not a generator code branch. V1-R1D
+documents that future substrate-aware biome resolution reads structure context
+through `WorldComputeContext.sample_structure_context(world_tile)` backed by
+`WorldPrePass`; implementation of ocean, burning, latitude-belt, continental,
+river, or lake biomes belongs to a future biome spec.
 
 ### Large structure
 A world-scale geographic feature generated at Layer 2: mountain ridges, river systems, floodplains. Large structures influence biome resolution and provide world readability at distance. Current V1-R1B code stores finite bounds/foundation settings and owns shared macro-structure fields through the native `WorldPrePass` substrate for future consumers.

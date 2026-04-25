@@ -29,7 +29,7 @@ struct FoundationSettings {
 
 namespace world_prepass {
 
-constexpr int32_t COARSE_CELL_SIZE_TILES = 128;
+constexpr int32_t COARSE_CELL_SIZE_TILES = 64;
 
 struct Snapshot {
 	bool valid = false;
@@ -42,6 +42,8 @@ struct Snapshot {
 	int32_t grid_height = 0;
 	int64_t width_tiles = 0;
 	int64_t height_tiles = 0;
+	int64_t ocean_band_tiles = 0;
+	int64_t burning_band_tiles = 0;
 
 	std::vector<float> latitude_t;
 	std::vector<uint8_t> ocean_band_mask;
@@ -80,7 +82,7 @@ std::unique_ptr<Snapshot> build_snapshot(
 );
 
 godot::Dictionary make_debug_snapshot(const Snapshot &p_snapshot, int64_t p_layer_mask, int64_t p_downscale_factor);
-godot::Ref<godot::Image> make_overview_image(const Snapshot &p_snapshot, int64_t p_layer_mask);
+godot::Ref<godot::Image> make_overview_image(const Snapshot &p_snapshot, int64_t p_layer_mask, int64_t p_pixels_per_cell);
 godot::Dictionary resolve_spawn_tile(const Snapshot &p_snapshot);
 
 } // namespace world_prepass

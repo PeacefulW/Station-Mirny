@@ -359,7 +359,7 @@ func _build_ui(seed_text: String, active_tab: int) -> void:
 	preview_vbox.add_child(overview_label)
 
 	var overview_frame := PanelContainer.new()
-	overview_frame.custom_minimum_size = Vector2(400, 138)
+	overview_frame.custom_minimum_size = Vector2(400, 170)
 	overview_frame.add_theme_stylebox_override("panel", _make_section_stylebox())
 	preview_vbox.add_child(overview_frame)
 
@@ -368,6 +368,8 @@ func _build_ui(seed_text: String, active_tab: int) -> void:
 	_overview_canvas.size_flags_vertical = SIZE_EXPAND_FILL
 	overview_frame.add_child(_overview_canvas)
 	_preview_controller.attach_overview_canvas(_overview_canvas)
+
+	preview_vbox.add_child(_build_overview_legend_row())
 
 	var preview_label := _make_title_label(Localization.t("UI_WORLDGEN_PREVIEW_TITLE"))
 	preview_vbox.add_child(preview_label)
@@ -595,6 +597,44 @@ func _make_title_label(text: String) -> Label:
 	label.add_theme_color_override("font_color", TEXT_SECONDARY_COLOR)
 	label.uppercase = true
 	return label
+
+func _build_overview_legend_row() -> Control:
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 12)
+	row.add_child(_make_overview_legend_item(
+		WorldOverviewCanvas.DETAIL_REGION_OUTLINE,
+		Localization.t("UI_WORLDGEN_OVERVIEW_LEGEND_REGION")
+	))
+	row.add_child(_make_overview_legend_item(
+		WorldOverviewCanvas.SPAWN_MARKER_COLOR,
+		Localization.t("UI_WORLDGEN_OVERVIEW_LEGEND_SPAWN")
+	))
+	row.add_child(_make_overview_legend_item(
+		WorldOverviewCanvas.WRAP_HINT_COLOR,
+		Localization.t("UI_WORLDGEN_OVERVIEW_LEGEND_WRAP")
+	))
+	return row
+
+func _make_overview_legend_item(color: Color, text: String) -> Control:
+	var item := HBoxContainer.new()
+	item.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	item.add_theme_constant_override("separation", 5)
+
+	var swatch := ColorRect.new()
+	swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	swatch.color = color
+	swatch.custom_minimum_size = Vector2(10, 10)
+	swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	item.add_child(swatch)
+
+	var label := Label.new()
+	label.text = text
+	label.clip_text = true
+	label.add_theme_font_size_override("font_size", 10)
+	label.add_theme_color_override("font_color", TEXT_SECONDARY_COLOR)
+	item.add_child(label)
+	return item
 
 func _apply_tabs_style(tabs: TabContainer) -> void:
 	tabs.add_theme_stylebox_override("panel", _make_stylebox(Color.TRANSPARENT, Color.TRANSPARENT, 0, 0))

@@ -35,7 +35,7 @@ public:
 	Dictionary resolve_world_foundation_spawn_tile(int64_t p_seed, int64_t p_world_version, PackedFloat32Array p_settings_packed);
 #ifdef DEBUG_ENABLED
 	Dictionary get_world_foundation_snapshot(int64_t p_layer_mask, int64_t p_downscale_factor);
-	Ref<Image> get_world_foundation_overview(int64_t p_layer_mask);
+	Ref<Image> get_world_foundation_overview(int64_t p_layer_mask, int64_t p_pixels_per_cell);
 #endif
 
 private:

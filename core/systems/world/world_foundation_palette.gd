@@ -6,15 +6,17 @@ const CANONICAL_LAYER_MASK: int = 0
 const COLOR_OCEAN_BAND: Color = Color(0.07, 0.23, 0.41, 1.0)
 const COLOR_BURNING_BAND: Color = Color(0.40, 0.14, 0.09, 1.0)
 const COLOR_OPEN_WATER: Color = Color(0.12, 0.35, 0.52, 1.0)
-const COLOR_RIVER_TRUNK: Color = Color(0.16, 0.52, 0.74, 1.0)
-const COLOR_TERMINAL_LAKE: Color = Color(0.14, 0.44, 0.70, 1.0)
 const COLOR_UNKNOWN: Color = Color(0.04, 0.05, 0.06, 1.0)
+const OVERVIEW_PIXELS_PER_CELL: int = 2
 
 func get_palette_id() -> StringName:
 	return PALETTE_ID
 
 func get_layer_mask() -> int:
 	return CANONICAL_LAYER_MASK
+
+func get_pixels_per_cell() -> int:
+	return OVERVIEW_PIXELS_PER_CELL
 
 func build_overview_texture_from_snapshot(snapshot: Dictionary) -> Texture2D:
 	var image: Image = build_overview_image(snapshot)
@@ -40,6 +42,12 @@ func build_overview_image(snapshot: Dictionary) -> Image:
 			int(index / grid_width),
 			_resolve_node_color(snapshot, index)
 		)
+	if OVERVIEW_PIXELS_PER_CELL > 1:
+		image.resize(
+			grid_width * OVERVIEW_PIXELS_PER_CELL,
+			grid_height * OVERVIEW_PIXELS_PER_CELL,
+			Image.INTERPOLATE_BILINEAR
+		)
 	return image
 
 func _resolve_node_color(snapshot: Dictionary, index: int) -> Color:
@@ -49,10 +57,6 @@ func _resolve_node_color(snapshot: Dictionary, index: int) -> Color:
 		return COLOR_BURNING_BAND
 	if _read_byte(snapshot.get("continent_mask", PackedByteArray()), index) == 0:
 		return COLOR_OPEN_WATER
-	if _read_byte(snapshot.get("visible_trunk_mask", PackedByteArray()), index) != 0:
-		return COLOR_RIVER_TRUNK
-	if _read_byte(snapshot.get("is_terminal_lake_center", PackedByteArray()), index) != 0:
-		return COLOR_TERMINAL_LAKE
 	var hydro: float = clampf(_read_float(snapshot.get("hydro_height", PackedFloat32Array()), index), 0.0, 1.0)
 	var wall: float = clampf(_read_float(snapshot.get("coarse_wall_density", PackedFloat32Array()), index), 0.0, 1.0)
 	if wall > 0.45:
