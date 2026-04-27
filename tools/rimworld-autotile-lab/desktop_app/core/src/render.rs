@@ -11,6 +11,7 @@ use crate::signature::{canonical_signatures, signature_at, Signature};
 
 const ATLAS_COLUMNS: u32 = 8;
 const MATERIAL_EXPORT_SIZE: u32 = 512;
+const RECIPE_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SurfaceZone {
@@ -39,12 +40,63 @@ impl LoadedTexture {
         Ok(Self { image })
     }
 
-    fn sample(&self, x: f32, y: f32) -> [u8; 4] {
+    fn sample_filtered(&self, x: f32, y: f32, footprint: f32) -> [u8; 4] {
+        let filter_width = footprint.max(1.0);
+        if filter_width <= 1.05 {
+            return self.sample_bilinear(x, y);
+        }
+
+        let steps = filter_width.ceil().clamp(2.0, 8.0) as u32;
+        let step_size = filter_width / steps as f32;
+        let start_x = x - filter_width * 0.5;
+        let start_y = y - filter_width * 0.5;
+        let mut total = [0.0_f32; 4];
+
+        for sample_y in 0..steps {
+            for sample_x in 0..steps {
+                let source_x = start_x + (sample_x as f32 + 0.5) * step_size;
+                let source_y = start_y + (sample_y as f32 + 0.5) * step_size;
+                let color = self.sample_bilinear(source_x, source_y);
+                for channel in 0..4 {
+                    total[channel] += color[channel] as f32;
+                }
+            }
+        }
+
+        let inv_count = 1.0 / (steps * steps) as f32;
+        [
+            (total[0] * inv_count).round().clamp(0.0, 255.0) as u8,
+            (total[1] * inv_count).round().clamp(0.0, 255.0) as u8,
+            (total[2] * inv_count).round().clamp(0.0, 255.0) as u8,
+            (total[3] * inv_count).round().clamp(0.0, 255.0) as u8,
+        ]
+    }
+
+    fn sample_bilinear(&self, x: f32, y: f32) -> [u8; 4] {
         let width = self.image.width().max(1) as f32;
         let height = self.image.height().max(1) as f32;
-        let sx = positive_mod(x, width).floor() as u32;
-        let sy = positive_mod(y, height).floor() as u32;
-        self.image.get_pixel(sx, sy).0
+        let sx = positive_mod(x, width);
+        let sy = positive_mod(y, height);
+        let x0 = sx.floor() as u32;
+        let y0 = sy.floor() as u32;
+        let x1 = (x0 + 1) % self.image.width().max(1);
+        let y1 = (y0 + 1) % self.image.height().max(1);
+        let tx = sx - x0 as f32;
+        let ty = sy - y0 as f32;
+
+        let c00 = self.image.get_pixel(x0, y0).0;
+        let c10 = self.image.get_pixel(x1, y0).0;
+        let c01 = self.image.get_pixel(x0, y1).0;
+        let c11 = self.image.get_pixel(x1, y1).0;
+        let mut result = [0_u8; 4];
+
+        for channel in 0..4 {
+            let top = lerp(c00[channel] as f32, c10[channel] as f32, tx);
+            let bottom = lerp(c01[channel] as f32, c11[channel] as f32, tx);
+            result[channel] = lerp(top, bottom, ty).round().clamp(0.0, 255.0) as u8;
+        }
+
+        result
     }
 }
 
@@ -158,7 +210,7 @@ pub fn run_request(mode: RenderMode, request: AppRequest, output_dir: &Path) -> 
 
     let recipe = RecipePayload {
         tool: "Cliff Forge Desktop",
-        version: 1,
+        version: RECIPE_VERSION,
         mode: mode.as_str(),
         request: &request,
     };
@@ -322,7 +374,17 @@ fn build_material_albedo_and_values(
     for y in 0..height {
         for x in 0..width {
             let value = sample_material_value(texture, request.texture_scale, width, x, y, seed);
-            let color = sample_material_color(tint, texture, request.texture_scale, width, x, y, seed, 1.0);
+            let color = sample_material_color(
+                tint,
+                texture,
+                request.texture_scale,
+                request.texture_color_overlay,
+                width,
+                x,
+                y,
+                seed,
+                1.0,
+            );
             values[(y * width + x) as usize] = value;
             albedo.put_pixel(x, y, rgba(color, 255));
         }
@@ -415,6 +477,7 @@ fn fill_empty_cell(target: &mut RgbaImage, textures: &TextureSet, request: &AppR
                 base_color,
                 textures.base.as_ref(),
                 request.texture_scale,
+                request.texture_color_overlay,
                 request.tile_size,
                 origin_x + local_x,
                 origin_y + local_y,
@@ -475,6 +538,7 @@ fn render_tile(request: &AppRequest, textures: &TextureSet, signature: &Signatur
                     top_color,
                     textures.top.as_ref(),
                     request.texture_scale,
+                    request.texture_color_overlay,
                     request.tile_size,
                     x,
                     y,
@@ -485,6 +549,7 @@ fn render_tile(request: &AppRequest, textures: &TextureSet, signature: &Signatur
                     face_color,
                     textures.face.as_ref(),
                     request.texture_scale,
+                    request.texture_color_overlay,
                     request.tile_size,
                     x,
                     y,
@@ -495,6 +560,7 @@ fn render_tile(request: &AppRequest, textures: &TextureSet, signature: &Signatur
                     back_color,
                     textures.face.as_ref(),
                     request.texture_scale,
+                    request.texture_color_overlay,
                     request.tile_size,
                     x,
                     y,
@@ -783,23 +849,36 @@ fn sample_material_color(
     tint: [u8; 3],
     texture: Option<&LoadedTexture>,
     texture_scale: f32,
+    texture_color_overlay: bool,
     tile_size: u32,
     x: u32,
     y: u32,
     seed: u32,
     brightness: f32,
 ) -> [u8; 3] {
-    let sampled = if let Some(texture) = texture {
-        let source = texture.sample(x as f32 * texture_scale, y as f32 * texture_scale);
-        [source[0], source[1], source[2]]
+    let (sampled, has_texture) = if let Some(texture) = texture {
+        let source = texture.sample_filtered(
+            (x as f32 + 0.5) * texture_scale,
+            (y as f32 + 0.5) * texture_scale,
+            texture_scale,
+        );
+        ([source[0], source[1], source[2]], true)
     } else {
-        procedural_material(seed, x as f32, y as f32, tile_size as f32, tint)
+        (
+            procedural_material(seed, x as f32, y as f32, tile_size as f32, tint),
+            false,
+        )
+    };
+    let tint_factor = if has_texture && !texture_color_overlay {
+        [255, 255, 255]
+    } else {
+        tint
     };
 
     [
-        ((sampled[0] as f32 * (tint[0] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
-        ((sampled[1] as f32 * (tint[1] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
-        ((sampled[2] as f32 * (tint[2] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
+        ((sampled[0] as f32 * (tint_factor[0] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
+        ((sampled[1] as f32 * (tint_factor[1] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
+        ((sampled[2] as f32 * (tint_factor[2] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
     ]
 }
 
@@ -812,7 +891,11 @@ fn sample_material_value(
     seed: u32,
 ) -> f32 {
     if let Some(texture) = texture {
-        let source = texture.sample(x as f32 * texture_scale, y as f32 * texture_scale);
+        let source = texture.sample_filtered(
+            (x as f32 + 0.5) * texture_scale,
+            (y as f32 + 0.5) * texture_scale,
+            texture_scale,
+        );
         return srgb_luminance(source) / 255.0;
     }
 

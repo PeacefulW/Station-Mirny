@@ -34,6 +34,9 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
 - 47 canonical signatures
 - map painter with blob / room / cave helpers
 - draft preview and full atlas generation
+- separate preview and atlas tabs so the preview can use the main workspace
+- anti-aliased sampling for loaded texture files
+- optional color overlay for loaded texture files, disabled by default
 - exports:
   - `preview.png`
   - `atlas_albedo.png`

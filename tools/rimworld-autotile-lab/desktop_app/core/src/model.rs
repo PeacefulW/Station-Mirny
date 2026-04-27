@@ -15,6 +15,8 @@ pub struct AppRequest {
     pub forced_variant: Option<u32>,
     pub seed: u32,
     pub texture_scale: f32,
+    #[serde(default = "default_texture_color_overlay")]
+    pub texture_color_overlay: bool,
     pub preview_mode: String,
     pub textures: TexturePaths,
     pub colors: ColorSet,
@@ -245,6 +247,7 @@ pub fn default_request() -> AppRequest {
         forced_variant: None,
         seed: 240_518,
         texture_scale: 1.0,
+        texture_color_overlay: default_texture_color_overlay(),
         preview_mode: "composite".to_string(),
         textures: TexturePaths {
             top: None,
@@ -259,6 +262,10 @@ pub fn default_request() -> AppRequest {
         },
         map: default_map(),
     }
+}
+
+fn default_texture_color_overlay() -> bool {
+    false
 }
 
 pub fn default_map() -> MapData {

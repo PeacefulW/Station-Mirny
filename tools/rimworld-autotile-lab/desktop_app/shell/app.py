@@ -26,6 +26,7 @@ LABEL_VARIANT_PREFIX = "Вариант "
 TEXT_PROCEDURAL = "процедурно"
 TEXT_PREVIEW_EMPTY = "Превью ещё не собрано..."
 TEXT_PREVIEW_HINT = "Колесо мыши: зум | ЛКМ: двигать"
+TEXT_TEXTURE_COLOR_OVERLAY = "Накладывать цвета на загруженные текстуры"
 
 PRESET_LABELS = {
     "mountain": "Гора",
@@ -100,6 +101,7 @@ class CliffForgeApp:
         self.crown_bevel_var = tk.IntVar(value=2)
         self.variants_var = tk.IntVar(value=4)
         self.texture_scale_var = tk.DoubleVar(value=1.0)
+        self.texture_color_overlay_var = tk.BooleanVar(value=False)
         self.forced_variant_var = tk.StringVar(value=LABEL_AUTO_VARIANT)
         self.top_color_var = tk.StringVar(value="#705940")
         self.face_color_var = tk.StringVar(value="#3e2f25")
@@ -122,7 +124,6 @@ class CliffForgeApp:
         content.grid(row=0, column=1, sticky="nsew")
         content.columnconfigure(0, weight=1)
         content.rowconfigure(0, weight=1)
-        content.rowconfigure(1, weight=1)
         self._build_content(content)
 
         status = ttk.Label(main, textvariable=self.status_var, anchor="w")
@@ -206,6 +207,12 @@ class CliffForgeApp:
 
         textures = ttk.LabelFrame(self.sidebar_inner, text="Текстуры", padding=10)
         textures.pack(fill="x", pady=(0, 10))
+        ttk.Checkbutton(
+            textures,
+            text=TEXT_TEXTURE_COLOR_OVERLAY,
+            variable=self.texture_color_overlay_var,
+            command=self.schedule_full,
+        ).pack(fill="x", pady=(0, 6))
         self.texture_labels = {}
         for slot in ("top", "face", "base"):
             row = ttk.Frame(textures)
@@ -239,10 +246,13 @@ class CliffForgeApp:
         ttk.Label(self.sidebar_inner, textvariable=self.stats_var, justify="left").pack(fill="x", pady=(6, 0))
 
     def _build_content(self, parent: ttk.Frame) -> None:
-        preview_frame = ttk.LabelFrame(parent, text="Превью", padding=12)
-        preview_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
+        notebook = ttk.Notebook(parent)
+        notebook.grid(row=0, column=0, sticky="nsew")
+
+        preview_frame = ttk.Frame(notebook, padding=12)
         preview_frame.columnconfigure(0, weight=1)
         preview_frame.rowconfigure(0, weight=1)
+        notebook.add(preview_frame, text="Превью")
         self.preview_canvas = tk.Canvas(
             preview_frame,
             background="#171311",
@@ -260,10 +270,10 @@ class CliffForgeApp:
         self.preview_canvas.bind("<ButtonRelease-1>", self._end_preview_pan)
         self._render_preview_canvas()
 
-        atlas_frame = ttk.LabelFrame(parent, text="Атлас", padding=12)
-        atlas_frame.grid(row=1, column=0, sticky="nsew")
+        atlas_frame = ttk.Frame(notebook, padding=12)
         atlas_frame.columnconfigure(0, weight=1)
         atlas_frame.rowconfigure(0, weight=1)
+        notebook.add(atlas_frame, text="Атлас")
         self.atlas_label = ttk.Label(atlas_frame, anchor="center", text="Атлас ещё не собран...")
         self.atlas_label.grid(row=0, column=0, sticky="nsew")
 
@@ -493,6 +503,7 @@ class CliffForgeApp:
             "forced_variant": forced_variant,
             "seed": int(self.seed_var.get()),
             "texture_scale": float(self.texture_scale_var.get()),
+            "texture_color_overlay": bool(self.texture_color_overlay_var.get()),
             "preview_mode": self._selected_preview_mode_key(),
             "textures": {
                 "top": self.texture_paths["top"] or None,
@@ -654,7 +665,7 @@ class CliffForgeApp:
         self.preview_offset_y = min(max(self.preview_offset_y, -max_offset_y), max_offset_y)
 
         if self.preview_render_size != target_size or "preview" not in self.photo_refs:
-            render_image = self.preview_source_image.resize(target_size, Image.Resampling.NEAREST)
+            render_image = self.preview_source_image.resize(target_size, Image.Resampling.BICUBIC)
             self.photo_refs["preview"] = ImageTk.PhotoImage(render_image)
             self.preview_render_size = target_size
 
@@ -718,7 +729,7 @@ class CliffForgeApp:
     def _set_image(self, widget: ttk.Label, path: Path, key: str, max_size: tuple[int, int]) -> None:
         with Image.open(path) as image:
             render_image = image.copy()
-        render_image.thumbnail(max_size, Image.Resampling.NEAREST)
+        render_image.thumbnail(max_size, Image.Resampling.BICUBIC)
         photo = ImageTk.PhotoImage(render_image)
         widget.configure(image=photo, text="")
         self.photo_refs[key] = photo
@@ -762,6 +773,7 @@ class CliffForgeApp:
             self.variants_var.set(int(request.get("variants", self.variants_var.get())))
             self.seed_var.set(int(request.get("seed", self.seed_var.get())))
             self.texture_scale_var.set(float(request.get("texture_scale", self.texture_scale_var.get())))
+            self.texture_color_overlay_var.set(bool(request.get("texture_color_overlay", False)))
             preview_key = request.get("preview_mode", self._selected_preview_mode_key())
             self.preview_mode_var.set(PREVIEW_MODE_LABELS.get(preview_key, PREVIEW_MODE_LABELS["composite"]))
             self._refresh_variant_selector()
