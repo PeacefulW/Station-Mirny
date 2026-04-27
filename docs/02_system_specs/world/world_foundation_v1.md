@@ -149,8 +149,9 @@ its fields through a dedicated approved spec and `WORLD_VERSION` review.
 - dev-only native debug API that exposes each substrate channel as a
   snapshot image, stripped in release builds;
 - full-world overview preview renderer that publishes a single
-  `ImageTexture` for the current realised terrain classes (no faux biome,
-  ocean, burning, river, or lake colours in V1);
+  `ImageTexture` for the current realised terrain classes by default (no faux
+  biome, ocean, burning, river, or lake colours in the default V1 terrain
+  mode);
 - spawn-safety contract amendment to `world_runtime.md`: the spawn
   resolver must reject any spawn tile inside an ocean or burning band,
   inside a large mountain massif, and must prefer continent_mask tiles
@@ -337,8 +338,8 @@ new-game panel → seed / size / foundation settings change
 ```
 
 **Player-facing canonical palette (V1 current terrain truth).**
-`WorldFoundationPalette` maps only terrain classes confirmed by the
-current packet boundary:
+The default `WorldFoundationPalette` mode maps only terrain classes confirmed
+by the current packet boundary:
 
 - ground → muted green / earth, with only subtle `hydro_height` shading;
 - mountain foot → ochre rock-foot tone;
@@ -354,6 +355,10 @@ overview.
 (raw `hydro_height`, raw `coarse_wall_density`, `coarse_valley_score`,
 `biome_region_id`, etc.) live in dev builds only and are addressable via
 `layer_mask`.
+The new-game overview UI may expose the raw `hydro_height` channel as a
+diagnostic height-map mode for river-planning and worldgen inspection. This
+mode is presentation/debug output only: it does not imply water terrain,
+river flow, biome truth, or save data.
 
 **Rules.**
 
@@ -592,7 +597,8 @@ WorldCore.get_world_foundation_overview(
 
 `get_world_foundation_snapshot` returns raw channel arrays keyed by
 layer name; `get_world_foundation_overview` returns a pre-coloured
-overview image of current realised terrain classes for the UI consumer.
+overview image for the UI consumer. `layer_mask = 0` is the default current
+terrain-class overview; diagnostic masks may render raw substrate channels.
 `downscale_factor` and
 `pixels_per_cell` must be `>= 1`; `downscale_factor = 1` returns the
 native substrate grid (one debug pixel per substrate node), and
@@ -617,7 +623,7 @@ any of the substrate debug layers cannot be inspected on a dev build.
 | Substrate cache | `WorldCore` (native, RAM) | One snapshot per world session, keyed by inputs. |
 | Bounds + settings persistence | `SaveManager` + `world.json` writer | `worldgen_settings.world_bounds`, `worldgen_settings.foundation`. |
 | Overview preview | `WorldPreviewController` + new overview canvas | Debounce, epoch, request native overview image, publish one `ImageTexture`, redraw canvas. |
-| Overview palette | `WorldPrePass` native overview pass + `WorldFoundationPalette` constants | Pure presentation function from substrate + current terrain-class sampling to colour image. GDScript palette remains a fallback/helper and does not run the default whole-world colour loop. |
+| Overview palette | `WorldPrePass` native overview pass + `WorldFoundationPalette` constants | Pure presentation function from substrate + current terrain-class sampling to colour image. The default mode is terrain-truthful; diagnostic modes may render raw substrate channels such as `hydro_height`. GDScript palette remains a fallback/helper and does not run the default whole-world colour loop. |
 | Progressive detail preview | Existing `WorldPreviewController` path | Unchanged UX; chunk packets stay local after spawn context resolves. |
 | Spawn resolver | Existing spawn resolver owner in `world_runtime.md` | Reads substrate fields through `WorldCore` and applies the amended rejection / preference rules. |
 | Mountain runtime | Existing `mountain_generation.md` code | Unchanged; contributes input to the substrate via the mountain field. |
@@ -769,8 +775,9 @@ implementation existed, but they no longer define current packet or save shape.
       when they exist at tile level, because wall / foot presence is
       sampled at pixel resolution rather than interpolated from the
       `64`-tile coarse grid.
-- [ ] Overview palette uses only currently realised gameplay terrain
-      classes in V1; no faux biome colours are rendered.
+- [ ] Default overview palette uses only currently realised gameplay terrain
+      classes in V1; no faux biome colours are rendered. Diagnostic modes
+      clearly remain substrate inspection, not terrain truth.
 - [ ] Seed / size / foundation slider changes rebuild overview
       without freezing the menu.
 - [ ] Overview writes nothing to save files before `Start`.
@@ -847,7 +854,8 @@ Goal: add the native `WorldPrePass` class and its cache.
 
 Goal: ship the new overview preview in the new-game panel.
 
-- Add `WorldFoundationPalette` (current terrain classes only).
+- Add `WorldFoundationPalette` (default current terrain classes plus
+  diagnostic substrate inspection modes).
 - Add overview canvas inside the new-game panel (alongside the
   existing progressive detail canvas).
 - Hook debounce / epoch / publish pipeline through the existing

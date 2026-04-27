@@ -255,6 +255,7 @@ func _call_get_world_foundation_overview_payload(worker_world_core: Object, requ
 				"grid_height": int(spawn_probe.get("grid_height", 0)),
 				"image_width": overview_image.get_width(),
 				"image_height": overview_image.get_height(),
+				"layer_mask": int(request.get("layer_mask", 0)),
 				"pixels_per_cell": requested_pixels_per_cell,
 				"compute_time_ms": float(spawn_probe.get("compute_time_ms", 0.0)),
 			}
@@ -329,6 +330,7 @@ func _process_spawn_request(worker_world_core: Object, request: Dictionary) -> v
 func _process_overview_request(worker_world_core: Object, request: Dictionary) -> void:
 	var overview_result: Dictionary = _call_get_world_foundation_overview_payload(worker_world_core, request)
 	overview_result["epoch"] = int(request.get("epoch", -1))
+	overview_result["layer_mask"] = int(request.get("layer_mask", 0))
 	_result_mutex.lock()
 	_completed_overviews.append(overview_result)
 	_result_mutex.unlock()

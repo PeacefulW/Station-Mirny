@@ -2,18 +2,53 @@ class_name WorldFoundationPalette
 extends RefCounted
 
 const PALETTE_ID: StringName = &"foundation_overview_v1"
-const CANONICAL_LAYER_MASK: int = 0
+const TERRAIN: StringName = &"terrain"
+const HYDRO_HEIGHT: StringName = &"hydro_height"
+const LAYER_MASK_TERRAIN: int = 0
+const LAYER_MASK_HYDRO_HEIGHT: int = 1 << 4
 # Must match native write_overview_rgba in world_prepass.cpp.
 const COLOR_MOUNTAIN_FOOT: Color = Color(106.0 / 255.0, 98.0 / 255.0, 74.0 / 255.0, 1.0)
 const COLOR_MOUNTAIN_WALL: Color = Color(164.0 / 255.0, 160.0 / 255.0, 146.0 / 255.0, 1.0)
 const COLOR_UNKNOWN: Color = Color(0.04, 0.05, 0.06, 1.0)
 const OVERVIEW_PIXELS_PER_CELL: int = 4
 
+const _ORDERED_MODES: Array[StringName] = [
+	TERRAIN,
+	HYDRO_HEIGHT,
+]
+
+const _LABEL_KEYS: Dictionary = {
+	TERRAIN: &"UI_WORLDGEN_OVERVIEW_MODE_TERRAIN",
+	HYDRO_HEIGHT: &"UI_WORLDGEN_OVERVIEW_MODE_HEIGHT",
+}
+
+var _active_mode: StringName = TERRAIN
+
+static func all_modes() -> Array[StringName]:
+	return _ORDERED_MODES.duplicate()
+
+static func coerce_mode(mode: StringName) -> StringName:
+	return mode if _LABEL_KEYS.has(mode) else TERRAIN
+
+static func get_label_key(mode: StringName) -> StringName:
+	var normalized_mode: StringName = coerce_mode(mode)
+	return _LABEL_KEYS.get(normalized_mode, &"UI_WORLDGEN_OVERVIEW_MODE_TERRAIN") as StringName
+
 func get_palette_id() -> StringName:
-	return PALETTE_ID
+	return StringName("%s.%s" % [String(PALETTE_ID), String(_active_mode)])
+
+func get_mode() -> StringName:
+	return _active_mode
+
+func set_mode(mode: StringName) -> void:
+	_active_mode = coerce_mode(mode)
 
 func get_layer_mask() -> int:
-	return CANONICAL_LAYER_MASK
+	match _active_mode:
+		HYDRO_HEIGHT:
+			return LAYER_MASK_HYDRO_HEIGHT
+		_:
+			return LAYER_MASK_TERRAIN
 
 func get_pixels_per_cell() -> int:
 	return OVERVIEW_PIXELS_PER_CELL
@@ -52,6 +87,8 @@ func build_overview_image(snapshot: Dictionary) -> Image:
 
 func _resolve_node_color(snapshot: Dictionary, index: int) -> Color:
 	var hydro: float = clampf(_read_float(snapshot.get("hydro_height", PackedFloat32Array()), index), 0.0, 1.0)
+	if _active_mode == HYDRO_HEIGHT:
+		return _resolve_height_color(hydro)
 	var wall: float = clampf(_read_float(snapshot.get("coarse_wall_density", PackedFloat32Array()), index), 0.0, 1.0)
 	var foot: float = clampf(_read_float(snapshot.get("coarse_foot_density", PackedFloat32Array()), index), 0.0, 1.0)
 	if wall > 0.0:
@@ -65,6 +102,17 @@ func _resolve_node_color(snapshot: Dictionary, index: int) -> Color:
 		clampf(base - 4.0 / 255.0, 0.0, 1.0),
 		1.0
 	)
+
+func _resolve_height_color(height: float) -> Color:
+	var low: Color = Color(24.0 / 255.0, 38.0 / 255.0, 60.0 / 255.0, 1.0)
+	var mid_low: Color = Color(58.0 / 255.0, 96.0 / 255.0, 86.0 / 255.0, 1.0)
+	var mid_high: Color = Color(156.0 / 255.0, 132.0 / 255.0, 82.0 / 255.0, 1.0)
+	var high: Color = Color(235.0 / 255.0, 230.0 / 255.0, 202.0 / 255.0, 1.0)
+	if height <= 0.42:
+		return low.lerp(mid_low, clampf(height / 0.42, 0.0, 1.0))
+	if height <= 0.75:
+		return mid_low.lerp(mid_high, clampf((height - 0.42) / 0.33, 0.0, 1.0))
+	return mid_high.lerp(high, clampf((height - 0.75) / 0.25, 0.0, 1.0))
 
 func _read_byte(values: Variant, index: int) -> int:
 	if values is not PackedByteArray:

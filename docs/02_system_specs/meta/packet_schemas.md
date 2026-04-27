@@ -579,15 +579,19 @@ Image {
 ```
 
 Current code notes:
+- `layer_mask = 0` returns the default terrain overview. The hydro-height layer
+  mask returns a diagnostic height-map image from the raw `hydro_height`
+  substrate channel; it is presentation/debug output and is not save data.
 - `pixels_per_cell` is clamped to `>= 1` on the native side
 - the default new-game overview requests `pixels_per_cell = 4`, which maps the
   current `64`-tile substrate grid to roughly one image pixel per `16 x 16`
   world tiles
-- the native pass renders only currently realised gameplay terrain classes:
-  ground, mountain foot, and mountain wall
+- the default native pass renders only currently realised gameplay terrain
+  classes: ground, mountain foot, and mountain wall
 - mountain pixels sample the mountain field at overview-pixel resolution and
   apply the same hierarchical `mountain_id` cutoff used by `ChunkPacketV1`;
-  `hydro_height` is used only as subtle neutral-ground shading
+  `hydro_height` is used only as subtle neutral-ground shading in the default
+  terrain overview
 - ocean/burning bands, continent/open-water masks, rivers, and lakes are not
   player-facing overview colours until matching terrain exists
 - this image is presentation-only and must not be persisted

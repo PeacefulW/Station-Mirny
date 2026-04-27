@@ -109,6 +109,16 @@ func attach_canvas(canvas: WorldPreviewCanvas) -> void:
 func get_render_mode() -> StringName:
 	return _active_render_mode
 
+func get_overview_mode() -> StringName:
+	return _foundation_palette.get_mode()
+
+func set_overview_mode(overview_mode: StringName) -> void:
+	var normalized_mode: StringName = WorldFoundationPalette.coerce_mode(overview_mode)
+	if normalized_mode == _foundation_palette.get_mode():
+		return
+	_foundation_palette.set_mode(normalized_mode)
+	_queue_overview_for_active_snapshot()
+
 func set_render_mode(render_mode: StringName) -> void:
 	var normalized_mode: StringName = WorldPreviewRenderMode.coerce(render_mode)
 	if normalized_mode == _active_render_mode:
@@ -175,6 +185,24 @@ func tick(delta: float) -> void:
 	_fill_request_window()
 	_publish_ready_patches()
 	_update_canvas_progress()
+
+func _queue_overview_for_active_snapshot() -> void:
+	if _active_settings_packed.is_empty():
+		return
+	_awaiting_overview_result = true
+	_overview_texture = null
+	_packet_backend.queue_overview_request(
+		_active_seed,
+		WorldRuntimeConstants.WORLD_VERSION,
+		_active_settings_packed,
+		_preview_epoch,
+		_foundation_palette.get_layer_mask(),
+		_foundation_palette.get_pixels_per_cell()
+	)
+	if _overview_canvas != null:
+		_overview_canvas.reset_overview(_active_world_bounds)
+		_sync_overview_detail_context()
+		_overview_canvas.set_loading(true)
 
 func _start_rebuild_from_pending_snapshot() -> void:
 	_published_patches.clear()
@@ -255,6 +283,8 @@ func _drain_ready_overview_results() -> void:
 	var ready_results: Array[Dictionary] = _packet_backend.drain_completed_overviews(MAX_OVERVIEW_RESULTS_PER_TICK)
 	for overview_result: Dictionary in ready_results:
 		if int(overview_result.get("epoch", -1)) != _preview_epoch:
+			continue
+		if int(overview_result.get("layer_mask", -1)) != _foundation_palette.get_layer_mask():
 			continue
 		_awaiting_overview_result = false
 		if not bool(overview_result.get("success", false)):

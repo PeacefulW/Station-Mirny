@@ -4,6 +4,7 @@ extends Control
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
 const WorldOverviewCanvas = preload("res://scenes/ui/world_overview_canvas.gd")
+const WorldFoundationPalette = preload("res://core/systems/world/world_foundation_palette.gd")
 const WorldPreviewCanvas = preload("res://scenes/ui/world_preview_canvas.gd")
 const WorldPreviewController = preload("res://core/systems/world/world_preview_controller.gd")
 const WorldPreviewRenderMode = preload("res://core/systems/world/world_preview_render_mode.gd")
@@ -208,6 +209,7 @@ var _size_preset_select: OptionButton = null
 var _advanced_toggle: Button = null
 var _advanced_container: VBoxContainer = null
 var _overview_canvas: WorldOverviewCanvas = null
+var _overview_mode_select: OptionButton = null
 var _preview_canvas: WorldPreviewCanvas = null
 var _preview_mode_select: OptionButton = null
 var _preview_controller: WorldPreviewController = WorldPreviewController.new()
@@ -244,6 +246,7 @@ func _rebuild_ui(seed_text: String, tab_index: int = 0) -> void:
 	_size_preset_select = null
 	_advanced_toggle = null
 	_advanced_container = null
+	_overview_mode_select = null
 	_preview_mode_select = null
 	_build_ui(seed_text, tab_index)
 
@@ -355,8 +358,29 @@ func _build_ui(seed_text: String, active_tab: int) -> void:
 	preview_vbox.add_theme_constant_override("separation", 8)
 	right_column.add_child(preview_vbox)
 
+	var overview_header := HBoxContainer.new()
+	overview_header.add_theme_constant_override("separation", 8)
+	preview_vbox.add_child(overview_header)
+
 	var overview_label := _make_title_label(Localization.t("UI_WORLDGEN_OVERVIEW_TITLE"))
-	preview_vbox.add_child(overview_label)
+	overview_header.add_child(overview_label)
+
+	var overview_header_spacer := Control.new()
+	overview_header_spacer.size_flags_horizontal = SIZE_EXPAND_FILL
+	overview_header.add_child(overview_header_spacer)
+
+	var overview_mode_label := Label.new()
+	overview_mode_label.text = Localization.t("UI_WORLDGEN_OVERVIEW_MODE_LABEL")
+	overview_mode_label.add_theme_color_override("font_color", TEXT_SECONDARY_COLOR)
+	overview_mode_label.add_theme_font_size_override("font_size", 10)
+	overview_header.add_child(overview_mode_label)
+
+	_overview_mode_select = OptionButton.new()
+	_overview_mode_select.custom_minimum_size = Vector2(150, 30)
+	_apply_secondary_button_style(_overview_mode_select)
+	_populate_overview_mode_options()
+	_overview_mode_select.item_selected.connect(_on_overview_mode_selected)
+	overview_header.add_child(_overview_mode_select)
 
 	var overview_frame := PanelContainer.new()
 	overview_frame.custom_minimum_size = Vector2(400, 170)
@@ -920,6 +944,28 @@ func _schedule_preview_rebuild() -> void:
 		WorldBoundsSettings.from_save_dict(_world_bounds.to_save_dict()),
 		FoundationGenSettings.from_save_dict(_foundation_settings.to_save_dict(), _world_bounds)
 	)
+
+func _populate_overview_mode_options() -> void:
+	if _overview_mode_select == null:
+		return
+	_overview_mode_select.clear()
+	var current_mode: StringName = _preview_controller.get_overview_mode()
+	var available_modes: Array[StringName] = WorldFoundationPalette.all_modes()
+	for index: int in range(available_modes.size()):
+		var mode: StringName = available_modes[index]
+		_overview_mode_select.add_item(
+			Localization.t(WorldFoundationPalette.get_label_key(mode)),
+			index
+		)
+		_overview_mode_select.set_item_metadata(index, mode)
+		if mode == current_mode:
+			_overview_mode_select.select(index)
+
+func _on_overview_mode_selected(index: int) -> void:
+	if _overview_mode_select == null:
+		return
+	var selected_mode: StringName = _overview_mode_select.get_item_metadata(index) as StringName
+	_preview_controller.set_overview_mode(selected_mode)
 
 func _populate_preview_mode_options() -> void:
 	if _preview_mode_select == null:

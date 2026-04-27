@@ -930,6 +930,15 @@ msgstr "STATION MIRNY // ПРОТОКОЛ РАЗВЁРТЫВАНИЯ // КАРТ
 msgid "UI_WORLDGEN_OVERVIEW_TITLE"
 msgstr "ОБЗОР МИРА"
 
+msgid "UI_WORLDGEN_OVERVIEW_MODE_LABEL"
+msgstr "РЕЖИМ:"
+
+msgid "UI_WORLDGEN_OVERVIEW_MODE_TERRAIN"
+msgstr "РЕЛЬЕФ"
+
+msgid "UI_WORLDGEN_OVERVIEW_MODE_HEIGHT"
+msgstr "КАРТА ВЫСОТ"
+
 msgid "UI_WORLDGEN_OVERVIEW_LEGEND_REGION"
 msgstr "ОБЛАСТЬ 33x33"
 

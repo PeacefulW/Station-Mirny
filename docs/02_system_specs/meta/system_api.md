@@ -303,7 +303,7 @@ Dev-only native surface:
 | Surface | Return | Notes |
 |---|---|---|
 | `get_world_foundation_snapshot(layer_mask: int, downscale_factor: int)` | `Dictionary` | Debug build only; returns the current `WorldPrePass` channel snapshot |
-| `get_world_foundation_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured high-resolution overview image of the current realised terrain classes: ground, mountain foot, and mountain wall |
+| `get_world_foundation_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured high-resolution overview image. `layer_mask = 0` renders the current realised terrain classes: ground, mountain foot, and mountain wall. The hydro-height layer mask renders the raw `hydro_height` substrate channel as a diagnostic height map. |
 
 Current code notes:
 - `settings_packed` for `world_version >= 9` must include the mountain fields

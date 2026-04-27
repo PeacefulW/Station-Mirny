@@ -196,17 +196,19 @@ Current V1-R1C note:
 - the default player overview uses the current `64`-tile substrate grid with
   `pixels_per_cell = 4`, roughly one overview pixel per `16 x 16` world tiles,
   without generating chunk packets for the full world
-- the native overview image renders only currently realised gameplay terrain
-  classes: ground, mountain foot, and mountain wall; ocean/burning bands,
-  continent/open-water masks, rivers, and lakes stay out of the default
+- the default native overview image renders only currently realised gameplay
+  terrain classes: ground, mountain foot, and mountain wall; ocean/burning
+  bands, continent/open-water masks, rivers, and lakes stay out of the default
   player overview until matching terrain exists
 - mountain pixels are sampled at overview-pixel resolution through the same
   mountain elevation threshold plus hierarchical `mountain_id` cutoff used by
-  `ChunkPacketV1`; `hydro_height` is only subtle neutral-ground shading
+  `ChunkPacketV1`; `hydro_height` is only subtle neutral-ground shading in
+  the default terrain overview
 - `WorldFoundationPalette` keeps the current player-truthful canonical palette
-  contract; future river skeleton fields remain available for dev/debug
-  diagnostics but are not rendered as rivers in the default player overview
-  until river rasterization exists
+  contract for the default mode and may expose raw `hydro_height` as a
+  diagnostic height-map mode; future river skeleton fields remain available
+  for dev/debug diagnostics but are not rendered as rivers in the default
+  player overview until river rasterization exists
 - `WorldOverviewCanvas` draws a single texture snapshot with X-wrap edge hints;
   it never boots `WorldRuntimeV0`, never creates `ChunkView`, and never writes
   save data

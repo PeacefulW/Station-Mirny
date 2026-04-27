@@ -35,6 +35,7 @@ constexpr float CONTINENT_NOISE_THRESHOLD = 0.28f;
 constexpr uint64_t SEED_SALT_CONTINENT = 0xd1b54a32d192ed03ULL;
 constexpr uint64_t SEED_SALT_RELIEF = 0x8a5cd789635d2dffULL;
 constexpr uint64_t SEED_SALT_REGION = 0xc2b2ae3d27d4eb4fULL;
+constexpr int64_t LAYER_MASK_HYDRO_HEIGHT = 1LL << 4;
 
 enum class OverviewTerrainClass {
 	Ground,
@@ -500,6 +501,43 @@ void write_overview_rgba(
 	);
 }
 
+void write_height_rgba(PackedByteArray &r_bytes, int32_t p_offset, float p_hydro) {
+	const float height = saturate(p_hydro);
+	float r0 = 24.0f;
+	float g0 = 38.0f;
+	float b0 = 60.0f;
+	float r1 = 58.0f;
+	float g1 = 96.0f;
+	float b1 = 86.0f;
+	float segment_t = height / 0.42f;
+	if (height > 0.42f) {
+		r0 = r1;
+		g0 = g1;
+		b0 = b1;
+		r1 = 156.0f;
+		g1 = 132.0f;
+		b1 = 82.0f;
+		segment_t = (height - 0.42f) / 0.33f;
+	}
+	if (height > 0.75f) {
+		r0 = r1;
+		g0 = g1;
+		b0 = b1;
+		r1 = 235.0f;
+		g1 = 230.0f;
+		b1 = 202.0f;
+		segment_t = (height - 0.75f) / 0.25f;
+	}
+	const float t = saturate(segment_t);
+	write_rgba(
+		r_bytes,
+		p_offset,
+		static_cast<uint8_t>(clamp_value(r0 + (r1 - r0) * t, 0.0f, 255.0f)),
+		static_cast<uint8_t>(clamp_value(g0 + (g1 - g0) * t, 0.0f, 255.0f)),
+		static_cast<uint8_t>(clamp_value(b0 + (b1 - b0) * t, 0.0f, 255.0f))
+	);
+}
+
 Ref<Image> make_overview_image(
 	const Snapshot &p_snapshot,
 	const mountain_field::Evaluator &p_mountain_evaluator,
@@ -508,7 +546,6 @@ Ref<Image> make_overview_image(
 	int64_t p_layer_mask,
 	int64_t p_pixels_per_cell
 ) {
-	(void)p_layer_mask;
 	if (!p_snapshot.valid || p_snapshot.grid_width <= 0 || p_snapshot.grid_height <= 0) {
 		return Ref<Image>();
 	}
@@ -519,6 +556,21 @@ Ref<Image> make_overview_image(
 	const int32_t image_height = p_snapshot.grid_height * pixels_per_cell;
 	PackedByteArray bytes;
 	bytes.resize(image_width * image_height * 4);
+	const bool render_hydro_height = (p_layer_mask & LAYER_MASK_HYDRO_HEIGHT) != 0;
+	if (render_hydro_height) {
+		for (int32_t y = 0; y < image_height; ++y) {
+			for (int32_t x = 0; x < image_width; ++x) {
+				const float coarse_sample_x = (static_cast<float>(x) + 0.5f) / static_cast<float>(pixels_per_cell) - 0.5f;
+				const float coarse_sample_y = (static_cast<float>(y) + 0.5f) / static_cast<float>(pixels_per_cell) - 0.5f;
+				write_height_rgba(
+					bytes,
+					(y * image_width + x) * 4,
+					sample_snapshot_float_bilinear(p_snapshot.hydro_height, p_snapshot, coarse_sample_x, coarse_sample_y)
+				);
+			}
+		}
+		return Image::create_from_data(image_width, image_height, false, Image::FORMAT_RGBA8, bytes);
+	}
 	OverviewTerrainSampler terrain_sampler(p_snapshot.seed, p_world_version, p_mountain_evaluator, p_foundation_settings);
 	for (int32_t y = 0; y < image_height; ++y) {
 		for (int32_t x = 0; x < image_width; ++x) {
