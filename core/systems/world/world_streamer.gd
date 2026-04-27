@@ -656,43 +656,43 @@ func _resolve_loaded_ground_atlas_index(tile_coord: Vector2i) -> int:
 	return Autotile47.build_solid_atlas_index(tile_coord, world_seed)
 
 func _try_resolve_loaded_mountain_atlas_index(tile_coord: Vector2i) -> Dictionary:
-	var north: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(0, -1))
-	var east: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(1, 0))
-	var south: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(0, 1))
-	var west: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(-1, 0))
+	var north: Dictionary = _get_loaded_mountain_geometry_no_enqueue(tile_coord + Vector2i(0, -1))
+	var east: Dictionary = _get_loaded_mountain_geometry_no_enqueue(tile_coord + Vector2i(1, 0))
+	var south: Dictionary = _get_loaded_mountain_geometry_no_enqueue(tile_coord + Vector2i(0, 1))
+	var west: Dictionary = _get_loaded_mountain_geometry_no_enqueue(tile_coord + Vector2i(-1, 0))
 	if not bool(north.get("ready", false)) \
 			or not bool(east.get("ready", false)) \
 			or not bool(south.get("ready", false)) \
 			or not bool(west.get("ready", false)):
 		return {"ready": false}
-	var is_north_mountain: bool = _uses_mountain_surface_presentation(int(north.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
-	var is_east_mountain: bool = _uses_mountain_surface_presentation(int(east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
-	var is_south_mountain: bool = _uses_mountain_surface_presentation(int(south.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
-	var is_west_mountain: bool = _uses_mountain_surface_presentation(int(west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+	var is_north_mountain: bool = _is_loaded_mountain_geometry_surface(north)
+	var is_east_mountain: bool = _is_loaded_mountain_geometry_surface(east)
+	var is_south_mountain: bool = _is_loaded_mountain_geometry_surface(south)
+	var is_west_mountain: bool = _is_loaded_mountain_geometry_surface(west)
 	var is_north_east_mountain: bool = false
 	var is_south_east_mountain: bool = false
 	var is_south_west_mountain: bool = false
 	var is_north_west_mountain: bool = false
 	if is_north_mountain and is_east_mountain:
-		var north_east: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(1, -1))
+		var north_east: Dictionary = _get_loaded_mountain_geometry_no_enqueue(tile_coord + Vector2i(1, -1))
 		if not bool(north_east.get("ready", false)):
 			return {"ready": false}
-		is_north_east_mountain = _uses_mountain_surface_presentation(int(north_east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+		is_north_east_mountain = _is_loaded_mountain_geometry_surface(north_east)
 	if is_south_mountain and is_east_mountain:
-		var south_east: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(1, 1))
+		var south_east: Dictionary = _get_loaded_mountain_geometry_no_enqueue(tile_coord + Vector2i(1, 1))
 		if not bool(south_east.get("ready", false)):
 			return {"ready": false}
-		is_south_east_mountain = _uses_mountain_surface_presentation(int(south_east.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+		is_south_east_mountain = _is_loaded_mountain_geometry_surface(south_east)
 	if is_south_mountain and is_west_mountain:
-		var south_west: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(-1, 1))
+		var south_west: Dictionary = _get_loaded_mountain_geometry_no_enqueue(tile_coord + Vector2i(-1, 1))
 		if not bool(south_west.get("ready", false)):
 			return {"ready": false}
-		is_south_west_mountain = _uses_mountain_surface_presentation(int(south_west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+		is_south_west_mountain = _is_loaded_mountain_geometry_surface(south_west)
 	if is_north_mountain and is_west_mountain:
-		var north_west: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord + Vector2i(-1, -1))
+		var north_west: Dictionary = _get_loaded_mountain_geometry_no_enqueue(tile_coord + Vector2i(-1, -1))
 		if not bool(north_west.get("ready", false)):
 			return {"ready": false}
-		is_north_west_mountain = _uses_mountain_surface_presentation(int(north_west.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)))
+		is_north_west_mountain = _is_loaded_mountain_geometry_surface(north_west)
 	var signature_code: int = Autotile47.build_signature_code(
 		is_north_mountain,
 		is_north_east_mountain,
@@ -708,6 +708,44 @@ func _try_resolve_loaded_mountain_atlas_index(tile_coord: Vector2i) -> Dictionar
 		"ready": true,
 		"terrain_atlas_index": Autotile47.build_atlas_index(signature_code, variant_index),
 	}
+
+func _get_loaded_mountain_geometry_no_enqueue(tile_coord: Vector2i) -> Dictionary:
+	tile_coord = _canonicalize_tile_coord(tile_coord)
+	if _uses_finite_world_bounds() and not _world_bounds_settings.is_tile_y_in_bounds(tile_coord.y):
+		return {"ready": false}
+	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(tile_coord)
+	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(tile_coord)
+	var packet: Dictionary = _chunk_packets.get(chunk_coord, {}) as Dictionary
+	if packet.is_empty():
+		return {
+			"ready": false,
+			"chunk_coord": chunk_coord,
+			"local_coord": local_coord,
+		}
+	var index: int = WorldRuntimeConstants.local_to_index(local_coord)
+	var mountain_ids: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
+	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	if index < 0 or index >= terrain_ids.size():
+		return {
+			"ready": false,
+			"chunk_coord": chunk_coord,
+			"local_coord": local_coord,
+		}
+	var has_mountain_geometry: bool = index < mountain_ids.size() and index < mountain_flags.size()
+	return {
+		"ready": true,
+		"chunk_coord": chunk_coord,
+		"local_coord": local_coord,
+		"terrain_id": int(terrain_ids[index]),
+		"mountain_id": int(mountain_ids[index]) if has_mountain_geometry else 0,
+		"mountain_flags": int(mountain_flags[index]) if has_mountain_geometry else 0,
+	}
+
+func _is_loaded_mountain_geometry_surface(sample: Dictionary) -> bool:
+	return _uses_mountain_surface_presentation(
+		int(sample.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
+	)
 
 func _get_loaded_tile_data_no_enqueue(tile_coord: Vector2i) -> Dictionary:
 	tile_coord = _canonicalize_tile_coord(tile_coord)

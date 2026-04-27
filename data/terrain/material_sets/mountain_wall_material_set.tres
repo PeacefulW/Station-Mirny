@@ -1,16 +1,16 @@
 [gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://data/terrain/terrain_material_set.gd" id="1"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/rock_top_albedo.png" id="2"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/rock_face_albedo.png" id="3"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/rock_top_modulation.png" id="4"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/rock_face_modulation.png" id="5"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/rock_top_normal.png" id="6"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/rock_face_normal.png" id="7"]
+[ext_resource type="Texture2D" path="res://assets/textures/terrain/mountain_wall_top_albedo.png" id="2"]
+[ext_resource type="Texture2D" path="res://assets/textures/terrain/mountain_wall_face_albedo.png" id="3"]
+[ext_resource type="Texture2D" path="res://assets/textures/terrain/mountain_wall_top_modulation.png" id="4"]
+[ext_resource type="Texture2D" path="res://assets/textures/terrain/mountain_wall_face_modulation.png" id="5"]
+[ext_resource type="Texture2D" path="res://assets/textures/terrain/mountain_wall_top_normal.png" id="6"]
+[ext_resource type="Texture2D" path="res://assets/textures/terrain/mountain_wall_face_normal.png" id="7"]
 
 [resource]
 script = ExtResource("1")
-id = &"mountain:rock_material"
+id = &"mountain:wall_material"
 shader_family_id = &"terrain.rock_shape"
 top_albedo = ExtResource("2")
 face_albedo = ExtResource("3")

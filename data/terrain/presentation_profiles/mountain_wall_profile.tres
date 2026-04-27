@@ -4,9 +4,9 @@
 
 [resource]
 script = ExtResource("1")
-id = &"mountain:surface_profile"
-terrain_class_id = &"mountain:surface"
-terrain_ids = [1, 3, 4]
-shape_set_id = &"mountain:surface_shape"
-material_set_id = &"mountain:rock_material"
+id = &"mountain:wall_profile"
+terrain_class_id = &"mountain:wall"
+terrain_ids = [1, 3]
+shape_set_id = &"mountain:wall_shape"
+material_set_id = &"mountain:wall_material"
 shader_family_id = &"terrain.rock_shape"

@@ -8,8 +8,8 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 static var _tile_sets_by_layer: Dictionary = {}
 static var _source_ids_by_terrain_id: Dictionary = {}
 static var _materials_by_profile_id: Dictionary = {}
-static var _roof_tile_set: TileSet = null
-static var _roof_source_id: int = -1
+static var _roof_tile_sets_by_terrain_id: Dictionary = {}
+static var _roof_source_ids_by_terrain_id: Dictionary = {}
 
 static func bootstrap() -> void:
 	TerrainPresentationRegistry.bootstrap()
@@ -38,13 +38,19 @@ static func get_overlay_tile_set() -> TileSet:
 	_ensure_layer_tileset(TerrainPresentationRegistry.RENDER_LAYER_OVERLAY)
 	return _tile_sets_by_layer.get(TerrainPresentationRegistry.RENDER_LAYER_OVERLAY, null) as TileSet
 
-static func get_roof_tile_set() -> TileSet:
-	_ensure_roof_tileset()
-	return _roof_tile_set
+static func get_roof_tile_set(
+	terrain_id: int = WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
+) -> TileSet:
+	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
+	_ensure_roof_tileset(roof_terrain_id)
+	return _roof_tile_sets_by_terrain_id.get(roof_terrain_id, null) as TileSet
 
-static func get_roof_source_id() -> int:
-	_ensure_roof_tileset()
-	return _roof_source_id
+static func get_roof_source_id(
+	terrain_id: int = WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
+) -> int:
+	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
+	_ensure_roof_tileset(roof_terrain_id)
+	return int(_roof_source_ids_by_terrain_id.get(roof_terrain_id, -1))
 
 static func get_base_source_id(terrain_id: int) -> int:
 	return get_source_id(terrain_id)
@@ -70,22 +76,28 @@ static func _ensure_layer_tileset(layer_id: StringName) -> void:
 		_source_ids_by_terrain_id[terrain_id] = source_id
 	_tile_sets_by_layer[layer_id] = tile_set
 
-static func _ensure_roof_tileset() -> void:
+static func _resolve_roof_terrain_id(terrain_id: int) -> int:
+	if terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
+		return WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
+	return WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
+
+static func _ensure_roof_tileset(terrain_id: int) -> void:
 	bootstrap()
-	if _roof_tile_set != null:
+	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
+	if _roof_tile_sets_by_terrain_id.has(roof_terrain_id):
 		return
 	var shape_set: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set_for_terrain(
-		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
+		roof_terrain_id
 	)
-	assert(shape_set != null, "Roof TileSet requires mountain surface shape set")
+	assert(shape_set != null, "Roof TileSet requires mountain surface shape set for terrain_id=%d" % roof_terrain_id)
 	var tile_set := TileSet.new()
 	tile_set.tile_size = Vector2i(
 		WorldRuntimeConstants.TILE_SIZE_PX,
 		WorldRuntimeConstants.TILE_SIZE_PX
 	)
 	var source: TileSetAtlasSource = _build_source_for_shape_set(shape_set)
-	_roof_source_id = tile_set.add_source(source)
-	_roof_tile_set = tile_set
+	_roof_source_ids_by_terrain_id[roof_terrain_id] = tile_set.add_source(source)
+	_roof_tile_sets_by_terrain_id[roof_terrain_id] = tile_set
 
 static func _build_source_for_terrain(terrain_id: int) -> TileSetAtlasSource:
 	var shape_set: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set_for_terrain(terrain_id)

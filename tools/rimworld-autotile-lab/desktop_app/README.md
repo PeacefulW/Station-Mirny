@@ -40,6 +40,13 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
   - `atlas_mask.png`
   - `atlas_height.png`
   - `atlas_normal.png`
+  - `top_albedo.png`
+  - `face_albedo.png`
+  - `base_albedo.png`
+  - `top_modulation.png`
+  - `face_modulation.png`
+  - `top_normal.png`
+  - `face_normal.png`
   - `recipe.json`
 - recipe save/load in the shell
 

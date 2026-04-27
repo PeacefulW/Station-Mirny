@@ -10,13 +10,20 @@ use crate::noise::{clamp, fbm_tiled, hash2d, lerp};
 use crate::signature::{canonical_signatures, signature_at, Signature};
 
 const ATLAS_COLUMNS: u32 = 8;
-const ATLAS_PADDING: u32 = 2;
+const MATERIAL_EXPORT_SIZE: u32 = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SurfaceZone {
     Top,
     Face,
     Back,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MaterialKind {
+    Top,
+    Face,
+    Base,
 }
 
 #[derive(Clone)]
@@ -96,19 +103,41 @@ pub fn run_request(mode: RenderMode, request: AppRequest, output_dir: &Path) -> 
             atlas_mask_png: None,
             atlas_height_png: None,
             atlas_normal_png: None,
+            top_albedo_png: None,
+            face_albedo_png: None,
+            base_albedo_png: None,
+            top_modulation_png: None,
+            face_modulation_png: None,
+            top_normal_png: None,
+            face_normal_png: None,
             recipe_json: to_string_path(&recipe_path),
         }
     } else {
         let atlases = build_full_atlases(&request, &textures, &signatures);
+        let material_exports = build_material_exports(&request, &textures);
         let albedo_atlas_path = output_dir.join("atlas_albedo.png");
         let mask_atlas_path = output_dir.join("atlas_mask.png");
         let height_atlas_path = output_dir.join("atlas_height.png");
         let normal_atlas_path = output_dir.join("atlas_normal.png");
+        let top_albedo_path = output_dir.join("top_albedo.png");
+        let face_albedo_path = output_dir.join("face_albedo.png");
+        let base_albedo_path = output_dir.join("base_albedo.png");
+        let top_modulation_path = output_dir.join("top_modulation.png");
+        let face_modulation_path = output_dir.join("face_modulation.png");
+        let top_normal_path = output_dir.join("top_normal.png");
+        let face_normal_path = output_dir.join("face_normal.png");
 
         atlases.albedo.save(&albedo_atlas_path)?;
         atlases.mask.save(&mask_atlas_path)?;
         atlases.height.save(&height_atlas_path)?;
         atlases.normal.save(&normal_atlas_path)?;
+        material_exports.top_albedo.save(&top_albedo_path)?;
+        material_exports.face_albedo.save(&face_albedo_path)?;
+        material_exports.base_albedo.save(&base_albedo_path)?;
+        material_exports.top_modulation.save(&top_modulation_path)?;
+        material_exports.face_modulation.save(&face_modulation_path)?;
+        material_exports.top_normal.save(&top_normal_path)?;
+        material_exports.face_normal.save(&face_normal_path)?;
 
         GeneratedFiles {
             preview_png: to_string_path(&preview_path),
@@ -116,6 +145,13 @@ pub fn run_request(mode: RenderMode, request: AppRequest, output_dir: &Path) -> 
             atlas_mask_png: Some(to_string_path(&mask_atlas_path)),
             atlas_height_png: Some(to_string_path(&height_atlas_path)),
             atlas_normal_png: Some(to_string_path(&normal_atlas_path)),
+            top_albedo_png: Some(to_string_path(&top_albedo_path)),
+            face_albedo_png: Some(to_string_path(&face_albedo_path)),
+            base_albedo_png: Some(to_string_path(&base_albedo_path)),
+            top_modulation_png: Some(to_string_path(&top_modulation_path)),
+            face_modulation_png: Some(to_string_path(&face_modulation_path)),
+            top_normal_png: Some(to_string_path(&top_normal_path)),
+            face_normal_png: Some(to_string_path(&face_normal_path)),
             recipe_json: to_string_path(&recipe_path),
         }
     };
@@ -150,6 +186,16 @@ struct Atlases {
     normal: RgbaImage,
 }
 
+struct MaterialExports {
+    top_albedo: RgbaImage,
+    face_albedo: RgbaImage,
+    base_albedo: RgbaImage,
+    top_modulation: RgbaImage,
+    face_modulation: RgbaImage,
+    top_normal: RgbaImage,
+    face_normal: RgbaImage,
+}
+
 fn load_textures(request: &AppRequest, warnings: &mut Warnings) -> TextureSet {
     TextureSet {
         top: load_texture_slot(request.textures.top.as_deref(), warnings),
@@ -176,9 +222,8 @@ fn build_full_atlases(request: &AppRequest, textures: &TextureSet, signatures: &
     let tile_size = request.tile_size;
     let total = signatures.len() as u32 * request.variants;
     let rows = total.div_ceil(ATLAS_COLUMNS);
-    let cell = tile_size + ATLAS_PADDING * 2;
-    let width = ATLAS_COLUMNS * cell;
-    let height = rows * cell;
+    let width = ATLAS_COLUMNS * tile_size;
+    let height = rows * tile_size;
 
     let mut albedo = RgbaImage::new(width, height);
     let mut mask = RgbaImage::new(width, height);
@@ -191,12 +236,12 @@ fn build_full_atlases(request: &AppRequest, textures: &TextureSet, signatures: &
             let tile = render_tile(request, textures, signature, variant);
             let col = atlas_index % ATLAS_COLUMNS;
             let row = atlas_index / ATLAS_COLUMNS;
-            let dx = col * cell + ATLAS_PADDING;
-            let dy = row * cell + ATLAS_PADDING;
-            blit_with_bleed(&mut albedo, &tile.albedo, dx, dy);
-            blit_with_bleed(&mut mask, &tile.mask, dx, dy);
-            blit_with_bleed(&mut height_img, &tile.height, dx, dy);
-            blit_with_bleed(&mut normal, &tile.normal, dx, dy);
+            let dx = col * tile_size;
+            let dy = row * tile_size;
+            blit_exact(&mut albedo, &tile.albedo, dx, dy);
+            blit_exact(&mut mask, &tile.mask, dx, dy);
+            blit_exact(&mut height_img, &tile.height, dx, dy);
+            blit_exact(&mut normal, &tile.normal, dx, dy);
             atlas_index += 1;
         }
     }
@@ -207,6 +252,130 @@ fn build_full_atlases(request: &AppRequest, textures: &TextureSet, signatures: &
         height: height_img,
         normal,
     }
+}
+
+fn build_material_exports(request: &AppRequest, textures: &TextureSet) -> MaterialExports {
+    let (top_albedo, top_values) =
+        build_material_albedo_and_values(request, textures, MaterialKind::Top);
+    let (face_albedo, face_values) =
+        build_material_albedo_and_values(request, textures, MaterialKind::Face);
+    let (base_albedo, _) =
+        build_material_albedo_and_values(request, textures, MaterialKind::Base);
+
+    MaterialExports {
+        top_albedo,
+        face_albedo,
+        base_albedo,
+        top_modulation: build_scalar_image(
+            &top_values,
+            MATERIAL_EXPORT_SIZE,
+            MATERIAL_EXPORT_SIZE,
+        ),
+        face_modulation: build_scalar_image(
+            &face_values,
+            MATERIAL_EXPORT_SIZE,
+            MATERIAL_EXPORT_SIZE,
+        ),
+        top_normal: build_wrapped_normal_image(
+            &top_values,
+            MATERIAL_EXPORT_SIZE,
+            MATERIAL_EXPORT_SIZE,
+            0.95,
+        ),
+        face_normal: build_wrapped_normal_image(
+            &face_values,
+            MATERIAL_EXPORT_SIZE,
+            MATERIAL_EXPORT_SIZE,
+            0.9,
+        ),
+    }
+}
+
+fn build_material_albedo_and_values(
+    request: &AppRequest,
+    textures: &TextureSet,
+    kind: MaterialKind,
+) -> (RgbaImage, Vec<f32>) {
+    let (tint, texture, seed) = match kind {
+        MaterialKind::Top => (
+            parse_hex_color(&request.colors.top),
+            textures.top.as_ref(),
+            request.seed.wrapping_add(20_001),
+        ),
+        MaterialKind::Face => (
+            parse_hex_color(&request.colors.face),
+            textures.face.as_ref(),
+            request.seed.wrapping_add(20_101),
+        ),
+        MaterialKind::Base => (
+            parse_hex_color(&request.colors.base),
+            textures.base.as_ref(),
+            request.seed.wrapping_add(20_201),
+        ),
+    };
+
+    let width = MATERIAL_EXPORT_SIZE;
+    let height = MATERIAL_EXPORT_SIZE;
+    let mut albedo = RgbaImage::new(width, height);
+    let mut values = vec![0.0_f32; (width * height) as usize];
+
+    for y in 0..height {
+        for x in 0..width {
+            let value = sample_material_value(texture, request.texture_scale, width, x, y, seed);
+            let color = sample_material_color(tint, texture, request.texture_scale, width, x, y, seed, 1.0);
+            values[(y * width + x) as usize] = value;
+            albedo.put_pixel(x, y, rgba(color, 255));
+        }
+    }
+
+    (albedo, values)
+}
+
+fn build_scalar_image(values: &[f32], width: u32, height: u32) -> RgbaImage {
+    let mut image = RgbaImage::new(width, height);
+    for y in 0..height {
+        for x in 0..width {
+            let value = sample_wrapped_value(values, width, height, x as i32, y as i32);
+            let byte = (clamp(value, 0.0, 1.0) * 255.0).round() as u8;
+            image.put_pixel(x, y, Rgba([byte, byte, byte, 255]));
+        }
+    }
+    image
+}
+
+fn build_wrapped_normal_image(values: &[f32], width: u32, height: u32, strength: f32) -> RgbaImage {
+    let mut image = RgbaImage::new(width, height);
+    for y in 0..height {
+        for x in 0..width {
+            let xi = x as i32;
+            let yi = y as i32;
+            let left = sample_wrapped_value(values, width, height, xi - 1, yi);
+            let right = sample_wrapped_value(values, width, height, xi + 1, yi);
+            let up = sample_wrapped_value(values, width, height, xi, yi - 1);
+            let down = sample_wrapped_value(values, width, height, xi, yi + 1);
+            let nx = (left - right) * strength;
+            let ny = (up - down) * strength;
+            let nz = 1.0_f32;
+            let length = (nx * nx + ny * ny + nz * nz).sqrt().max(0.0001);
+            image.put_pixel(
+                x,
+                y,
+                Rgba([
+                    (((nx / length) * 0.5 + 0.5) * 255.0).round() as u8,
+                    (((ny / length) * 0.5 + 0.5) * 255.0).round() as u8,
+                    (((nz / length) * 0.5 + 0.5) * 255.0).round() as u8,
+                    255,
+                ]),
+            );
+        }
+    }
+    image
+}
+
+fn sample_wrapped_value(values: &[f32], width: u32, height: u32, x: i32, y: i32) -> f32 {
+    let sx = x.rem_euclid(width as i32) as u32;
+    let sy = y.rem_euclid(height as i32) as u32;
+    values[(sy * width + sx) as usize]
 }
 
 fn build_map_preview(request: &AppRequest, textures: &TextureSet) -> Result<RgbaImage> {
@@ -634,7 +803,33 @@ fn sample_material_color(
     ]
 }
 
+fn sample_material_value(
+    texture: Option<&LoadedTexture>,
+    texture_scale: f32,
+    tile_size: u32,
+    x: u32,
+    y: u32,
+    seed: u32,
+) -> f32 {
+    if let Some(texture) = texture {
+        let source = texture.sample(x as f32 * texture_scale, y as f32 * texture_scale);
+        return srgb_luminance(source) / 255.0;
+    }
+
+    let mix = procedural_material_mix(seed, x as f32, y as f32, tile_size as f32);
+    clamp((mix - 0.25) / (1.18 - 0.25), 0.0, 1.0)
+}
+
 fn procedural_material(seed: u32, x: f32, y: f32, tile_period: f32, tint: [u8; 3]) -> [u8; 3] {
+    let mix = procedural_material_mix(seed, x, y, tile_period);
+    [
+        ((tint[0] as f32 * mix).round() as i32).clamp(0, 255) as u8,
+        ((tint[1] as f32 * mix).round() as i32).clamp(0, 255) as u8,
+        ((tint[2] as f32 * mix).round() as i32).clamp(0, 255) as u8,
+    ]
+}
+
+fn procedural_material_mix(seed: u32, x: f32, y: f32, tile_period: f32) -> f32 {
     let broad = fbm_tiled(x * 0.08, y * 0.08, tile_period * 0.08, tile_period * 0.08, 4, seed);
     let fine = fbm_tiled(
         x * 0.24 + 13.0,
@@ -645,12 +840,11 @@ fn procedural_material(seed: u32, x: f32, y: f32, tile_period: f32, tint: [u8; 3
         seed.wrapping_add(177),
     );
     let speck = hash2d(x as i32 * 3, y as i32 * 3, seed.wrapping_add(991));
-    let mix = clamp(0.62 + broad * 0.28 + fine * 0.14 + (speck - 0.5) * 0.08, 0.25, 1.18);
-    [
-        ((tint[0] as f32 * mix).round() as i32).clamp(0, 255) as u8,
-        ((tint[1] as f32 * mix).round() as i32).clamp(0, 255) as u8,
-        ((tint[2] as f32 * mix).round() as i32).clamp(0, 255) as u8,
-    ]
+    clamp(0.62 + broad * 0.28 + fine * 0.14 + (speck - 0.5) * 0.08, 0.25, 1.18)
+}
+
+fn srgb_luminance(color: [u8; 4]) -> f32 {
+    color[0] as f32 * 0.2126 + color[1] as f32 * 0.7152 + color[2] as f32 * 0.0722
 }
 
 fn apply_height_shading(color: [u8; 3], height: f32, zone: SurfaceZone) -> [u8; 3] {
@@ -687,30 +881,6 @@ fn encode_normal(size: u32, heights: &[f32], x: u32, y: u32) -> [u8; 3] {
 
 fn sample_height_value(size: u32, heights: &[f32], x: u32, y: u32) -> f32 {
     heights[(y * size + x) as usize]
-}
-
-fn blit_with_bleed(target: &mut RgbaImage, source: &RgbaImage, dx: u32, dy: u32) {
-    let width = source.width();
-    let height = source.height();
-    blit_exact(target, source, dx, dy);
-
-    for x in 0..width {
-        let top = *source.get_pixel(x, 0);
-        let bottom = *source.get_pixel(x, height - 1);
-        for pad in 1..=ATLAS_PADDING {
-            target.put_pixel(dx + x, dy - pad, top);
-            target.put_pixel(dx + x, dy + height - 1 + pad, bottom);
-        }
-    }
-
-    for y in 0..height {
-        let left = *source.get_pixel(0, y);
-        let right = *source.get_pixel(width - 1, y);
-        for pad in 1..=ATLAS_PADDING {
-            target.put_pixel(dx - pad, dy + y, left);
-            target.put_pixel(dx + width - 1 + pad, dy + y, right);
-        }
-    }
 }
 
 fn blit_exact(target: &mut RgbaImage, source: &RgbaImage, dx: u32, dy: u32) {

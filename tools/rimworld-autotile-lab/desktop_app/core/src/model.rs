@@ -64,6 +64,13 @@ pub struct GeneratedFiles {
     pub atlas_mask_png: Option<String>,
     pub atlas_height_png: Option<String>,
     pub atlas_normal_png: Option<String>,
+    pub top_albedo_png: Option<String>,
+    pub face_albedo_png: Option<String>,
+    pub base_albedo_png: Option<String>,
+    pub top_modulation_png: Option<String>,
+    pub face_modulation_png: Option<String>,
+    pub top_normal_png: Option<String>,
+    pub face_normal_png: Option<String>,
     pub recipe_json: String,
 }
 

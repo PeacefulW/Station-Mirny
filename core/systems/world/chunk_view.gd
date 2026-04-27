@@ -111,17 +111,20 @@ func _ensure_layers() -> void:
 		_overlay_layer.z_index = 1
 		add_child(_overlay_layer)
 
-func _ensure_roof_layer(mountain_id: int) -> TileMapLayer:
-	if roof_layers_by_mountain.has(mountain_id):
-		return roof_layers_by_mountain[mountain_id] as TileMapLayer
+func _ensure_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
+	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
+	var terrain_layers: Dictionary = roof_layers_by_mountain.get(mountain_id, {}) as Dictionary
+	if terrain_layers.has(roof_terrain_id):
+		return terrain_layers[roof_terrain_id] as TileMapLayer
 	var layer := TileMapLayer.new()
-	layer.name = "RoofLayer_%d" % mountain_id
-	layer.tile_set = WorldTileSetFactory.get_roof_tile_set()
+	layer.name = "RoofLayer_%d_%s" % [mountain_id, _get_roof_terrain_name(roof_terrain_id)]
+	layer.tile_set = WorldTileSetFactory.get_roof_tile_set(roof_terrain_id)
 	layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	layer.z_index = 10
-	layer.material = _build_roof_material(mountain_id)
+	layer.material = _build_roof_material(mountain_id, roof_terrain_id)
 	add_child(layer)
-	roof_layers_by_mountain[mountain_id] = layer
+	terrain_layers[roof_terrain_id] = layer
+	roof_layers_by_mountain[mountain_id] = terrain_layers
 	return layer
 
 func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: int) -> void:
@@ -152,11 +155,13 @@ func _apply_roof_cell(local_coord: Vector2i, index: int) -> void:
 	var terrain_atlas_index: int = 0
 	if index < _pending_mountain_atlas_indices.size():
 		terrain_atlas_index = int(_pending_mountain_atlas_indices[index])
-	var layer: TileMapLayer = _ensure_roof_layer(mountain_id)
+	var roof_terrain_id: int = _resolve_roof_terrain_id_from_flags(mountain_flags)
+	_clear_other_roof_surface_cell(mountain_id, roof_terrain_id, local_coord)
+	var layer: TileMapLayer = _ensure_roof_layer(mountain_id, roof_terrain_id)
 	layer.set_cell(
 		local_coord,
-		WorldTileSetFactory.get_roof_source_id(),
-		WorldTileSetFactory.get_atlas_coords(WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL, terrain_atlas_index)
+		WorldTileSetFactory.get_roof_source_id(roof_terrain_id),
+		WorldTileSetFactory.get_atlas_coords(roof_terrain_id, terrain_atlas_index)
 	)
 
 func _clear_cell(layer: TileMapLayer, local_coord: Vector2i) -> void:
@@ -164,7 +169,7 @@ func _clear_cell(layer: TileMapLayer, local_coord: Vector2i) -> void:
 		return
 	layer.set_cell(local_coord, -1, Vector2i(-1, -1))
 
-func _build_roof_material(mountain_id: int) -> ShaderMaterial:
+func _build_roof_material(mountain_id: int, terrain_id: int) -> ShaderMaterial:
 	var material := ShaderMaterial.new()
 	material.shader = MOUNTAIN_COVER_SHADER
 	material.set_shader_parameter("cover_mask", _ensure_roof_mask_texture(mountain_id))
@@ -174,15 +179,16 @@ func _build_roof_material(mountain_id: int) -> ShaderMaterial:
 	)
 	material.set_shader_parameter("tile_size_px", float(WorldRuntimeConstants.TILE_SIZE_PX))
 	material.set_shader_parameter("chunk_origin_px", WorldRuntimeConstants.chunk_origin_px(chunk_coord))
-	_apply_roof_presentation_params(material)
+	_apply_roof_presentation_params(material, terrain_id)
 	return material
 
-func _apply_roof_presentation_params(material: ShaderMaterial) -> void:
+func _apply_roof_presentation_params(material: ShaderMaterial, terrain_id: int) -> void:
+	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
 	var shape_set: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set_for_terrain(
-		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
+		roof_terrain_id
 	)
 	var material_set: TerrainMaterialSet = TerrainPresentationRegistry.get_material_set_for_terrain(
-		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
+		roof_terrain_id
 	)
 	material.set_shader_parameter("shape_normal_atlas", shape_set.get_texture_slot(&"shape_normal_atlas"))
 	material.set_shader_parameter("top_albedo_tex", material_set.get_texture_slot(&"top_albedo"))
@@ -196,6 +202,37 @@ func _apply_roof_presentation_params(material: ShaderMaterial) -> void:
 			parameter_name_variant,
 			material_set.sampling_params[parameter_name_variant]
 		)
+
+func _get_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
+	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
+	var terrain_layers: Dictionary = roof_layers_by_mountain.get(mountain_id, {}) as Dictionary
+	return terrain_layers.get(roof_terrain_id, null) as TileMapLayer
+
+func _clear_other_roof_surface_cell(mountain_id: int, terrain_id: int, local_coord: Vector2i) -> void:
+	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
+	var terrain_layers: Dictionary = roof_layers_by_mountain.get(mountain_id, {}) as Dictionary
+	for layer_terrain_id_variant: Variant in terrain_layers.keys():
+		var layer_terrain_id: int = int(layer_terrain_id_variant)
+		if layer_terrain_id == roof_terrain_id:
+			continue
+		_clear_cell(terrain_layers.get(layer_terrain_id, null) as TileMapLayer, local_coord)
+
+func _resolve_roof_terrain_id_from_flags(mountain_flags: int) -> int:
+	if (mountain_flags & WorldRuntimeConstants.MOUNTAIN_FLAG_WALL) != 0:
+		return WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
+	if (mountain_flags & WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT) != 0:
+		return WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
+	return WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
+
+func _resolve_roof_terrain_id(terrain_id: int) -> int:
+	if terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
+		return WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
+	return WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
+
+func _get_roof_terrain_name(terrain_id: int) -> String:
+	if _resolve_roof_terrain_id(terrain_id) == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
+		return "foot"
+	return "wall"
 
 func _ensure_roof_mask_image(mountain_id: int) -> Image:
 	if _roof_mask_images_by_mountain.has(mountain_id):
@@ -226,6 +263,7 @@ func get_cover_render_debug(local_coord: Vector2i, mountain_id: int = 0, expecte
 		"pending_flags": 0,
 		"has_roof_layer": false,
 		"layer_has_cover_material": false,
+		"roof_terrain_id": WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL,
 		"roof_cell_source_id": -1,
 		"roof_cell_atlas_coords": Vector2i(-1, -1),
 		"roof_tile_material_present": false,
@@ -246,7 +284,9 @@ func get_cover_render_debug(local_coord: Vector2i, mountain_id: int = 0, expecte
 	if resolved_mountain_id <= 0:
 		result["ready"] = true
 		return result
-	var layer: TileMapLayer = roof_layers_by_mountain.get(resolved_mountain_id, null) as TileMapLayer
+	var roof_terrain_id: int = _resolve_roof_terrain_id_from_flags(pending_flags)
+	result["roof_terrain_id"] = roof_terrain_id
+	var layer: TileMapLayer = _get_roof_layer(resolved_mountain_id, roof_terrain_id)
 	result["has_roof_layer"] = layer != null and is_instance_valid(layer)
 	if layer != null and is_instance_valid(layer):
 		result["layer_has_cover_material"] = layer.material != null

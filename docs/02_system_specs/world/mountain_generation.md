@@ -339,12 +339,14 @@ Rules:
 
 ### Roof Presentation
 
-- `ChunkView` holds `Dictionary[int, TileMapLayer] roof_layers_by_mountain`
+- `ChunkView` holds `Dictionary[int, Dictionary[int, TileMapLayer]]
+  roof_layers_by_mountain`: `mountain_id -> presentation terrain_id -> layer`
 - roof layers are created lazily on first tile assignment for a given
-  `mountain_id`
+  `(mountain_id, presentation terrain_id)` pair
 - roof layer `tile_set` is provided by
-  `WorldTileSetFactory.get_roof_tile_set()` and shares the rock-top atlas
-  with `TERRAIN_MOUNTAIN_WALL` so the outside silhouette is seamless
+  `WorldTileSetFactory.get_roof_tile_set(terrain_id)`; `TERRAIN_MOUNTAIN_WALL`
+  and `TERRAIN_MOUNTAIN_FOOT` keep separate 47-tile presentation resources
+  while sharing the same per-`mountain_id` cover mask texture
 - roof cells are placed for every tile with
   `mountain_id > 0 and (is_wall == 1 or is_foot == 1)`
 - after publish, roof cells remain static; runtime cover changes are
@@ -762,7 +764,8 @@ Goal: add `roof_layers_by_mountain` + `MountainCavityCache` +
 `MountainResolver` with mask-only cover reveal.
 
 Changes:
-- extend `ChunkView` with `roof_layers_by_mountain` and per-chunk mask
+- extend `ChunkView` with `roof_layers_by_mountain`
+  (`mountain_id -> presentation terrain_id -> layer`) and per-chunk mask
   textures / materials
 - add `mountain_cavity_cache.gd` for derived cavity, opening, and shell
   metadata
