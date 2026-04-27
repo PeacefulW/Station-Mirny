@@ -167,13 +167,6 @@ Current code note:
       "burning_band_tiles": int,
       "pole_orientation": int,
       "slope_bias": float,
-      "river_amount": float,
-    },
-    "rivers"?: {
-      "lake_density_scale": float,
-      "lake_radius_scale": float,
-      "mouth_width_scale": float,
-      "bed_width_scale": float,
     },
     "mountains"?: {
       "density": float,
@@ -201,13 +194,9 @@ Current code notes:
   mountain sample-width compatibility path
 - `world_version >= 11` uses `foundation_coarse_cell_size_tiles = 64` for
   `WorldPrePass`; versions `9..10` used `128`-tile substrate cells
-- `world_version >= 14` adds native dry riverbed/lakebed realization to chunk
-  packets. Riverbed/lakebed packet arrays are regenerated from seed/settings and
-  are never written to save files.
-- `world_version >= 15` adds `worldgen_settings.rivers`, shared
-  `lake_footprint` polygon classification, and dry ocean-bed terrain ids.
-  Missing `worldgen_settings.rivers` restores hard-coded defaults for
-  backward-compatible saves.
+- `world_version == 16` removes the failed dry river/lake settings and packet
+  fields. Base terrain is regenerated from seed/version/settings; river/lake
+  arrays are not part of the current packet boundary.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - missing `worldgen_settings.mountains` restores hard-coded loader defaults for
@@ -463,7 +452,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current foundation runtime value before river realization was `11` |
+| `world_version` | `int` | — | Current foundation runtime value is `16` |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
@@ -487,65 +476,14 @@ Current code notes:
 - `ChunkPacketV1` keeps one hot-path packet per chunk; batch generation returns one packet per requested coord
 - the current native boundary requires the full `settings_packed` payload:
   indices `0-8` are mountain settings, and for `world_version >= 9` indices
-  `9-15` are `world_width_tiles`, `world_height_tiles`, `ocean_band_tiles`,
-  `burning_band_tiles`, `pole_orientation`, `foundation_slope_bias`, and
-  `river_amount`; for `world_version >= 15`, indices `16-19` are
-  `lake_density_scale`, `lake_radius_scale`, `mouth_width_scale`, and
-  `bed_width_scale`
+  `9-14` are `world_width_tiles`, `world_height_tiles`, `ocean_band_tiles`,
+  `burning_band_tiles`, `pole_orientation`, and `foundation_slope_bias`
 - the current native boundary requires `world_version >= 6`
 - `world_version >= 6` uses implicit-domain hierarchical labeling: aligned `1024 x 1024` macro solves recurse only through mixed cells, stop at versioned `min_label_cell_size = 8`, reuse a deterministic `1`-macro halo in native code, and hash `mountain_id` from the component representative leaf
 - `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` are base packet fields only; they are not persisted in `ChunkDiffFile`
 - only tiles with `mountain_id > 0` write canonical mountain terrain through `terrain_ids` as `TERRAIN_MOUNTAIN_WALL` or `TERRAIN_MOUNTAIN_FOOT`
 - active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain either resolves into named mountain output or stays on the ground path at the hierarchical scale cutoff
 - `mountain_atlas_indices` is reserved for later roof presentation, but is already confirmed at the packet boundary in M1
-
-### `ChunkPacketV2`
-
-Returned one-per-input-coord by native
-`WorldCore.generate_chunk_packets_batch(seed, coords, world_version, settings_packed)`
-for the current dry-river path, `world_version >= 15`.
-
-`ChunkPacketV2` extends `ChunkPacketV1` additively. No V1 field is removed or
-reshaped.
-
-| Field | Type | Length | Notes |
-|---|---|---:|---|
-| `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
-| `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current dry-river runtime value is `15` |
-| `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids, now including dry river/lake bed ids and dry ocean-bed ids where not blocked by mountain terrain |
-| `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; ordinary ground solves `47`-tile banks against river/lake/ocean dry-bed footprints natively |
-| `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked`; dry river/lake/ocean bed terrain remains walkable in R1B-Fix |
-| `mountain_id_per_tile` | `PackedInt32Array` | 1024 | Same semantics as `ChunkPacketV1` |
-| `mountain_flags` | `PackedByteArray` | 1024 | Same bit layout as `ChunkPacketV1` |
-| `mountain_atlas_indices` | `PackedInt32Array` | 1024 | Same semantics as `ChunkPacketV1` |
-| `riverbed_flags` | `PackedByteArray` | 1024 | Dry river/lake footprint flags; zero for non-bed tiles or older world versions |
-| `riverbed_depth` | `PackedByteArray` | 1024 | `0 none`, `1 shallow`, `2 deep` |
-
-`riverbed_flags` bit layout:
-
-| Bit | Name | Meaning |
-|---:|---|---|
-| `1 << 0` | `is_riverbed` | Tile belongs to a realized dry river channel footprint |
-| `1 << 1` | `is_lakebed` | Tile belongs to a dry terminal-lake scar footprint |
-| `1 << 2` | `is_ocean_directed` | River path drains into the top-Y ocean band |
-| `1 << 3` | `is_side_channel` | Reserved for R1D split/rejoin side channels; R1B writes `0` |
-| `1 << 4` | `is_mouth_or_delta` | Tile belongs to ocean mouth/delta widening |
-| `1 << 5` | `is_debug_orphan` | Reserved for dev-only rejected drainage debug; R1B release packets write `0` |
-
-Current code notes:
-- R1B does not add `riverbed_atlas_indices` or `river_flow_q8`; dry bed
-  terrain uses normal `terrain_ids` and `terrain_atlas_indices`.
-- R1B realizes only ocean-directed primary river trunks from `WorldPrePass`.
-  Split/rejoin side channels remain deferred to R1D.
-- Lakebed scars are dry terrain footprints. They are regenerated from
-  `WorldPrePass`; they are not persisted per tile.
-- `TERRAIN_RIVERBED_SHALLOW`, `TERRAIN_RIVERBED_DEEP`,
-  `TERRAIN_LAKEBED_SHALLOW`, and `TERRAIN_LAKEBED_DEEP` are dry base terrain
-  ids and remain walkable until a future water overlay changes movement.
-- `TERRAIN_OCEAN_BED_SHALLOW = 9` and `TERRAIN_OCEAN_BED_DEEP = 10` are dry
-  base terrain ids for the top-Y ocean band in `world_version >= 15`; they remain
-  walkable until a future water overlay changes movement.
 
 ### `WorldFoundationSpawnResult`
 
@@ -585,7 +523,7 @@ Failure shape:
 
 Current code notes:
 - success candidates reject ocean band, burning band, open-water continent mask,
-  high wall density, visible river trunk nodes, and terminal lake centres
+  and high wall density
 - the result is transient worker output, not save data
 
 ### `WorldFoundationSnapshotDebug`
@@ -618,14 +556,7 @@ matching substrate has been built.
   "coarse_wall_density": PackedFloat32Array,
   "coarse_foot_density": PackedFloat32Array,
   "coarse_valley_score": PackedFloat32Array,
-  "source_score": PackedFloat32Array,
   "biome_region_id": PackedInt32Array,
-  "downstream_index": PackedInt32Array,
-  "flow_accumulation": PackedFloat32Array,
-  "visible_trunk_mask": PackedByteArray,
-  "strahler_order": PackedInt32Array,
-  "is_terminal_lake_center": PackedByteArray,
-  "terminal_lake_polygons": Array[PackedVector2Array],
 }
 ```
 
@@ -652,10 +583,13 @@ Current code notes:
 - the default new-game overview requests `pixels_per_cell = 4`, which maps the
   current `64`-tile substrate grid to roughly one image pixel per `16 x 16`
   world tiles
-- the native pass re-samples player-facing ocean/burning bands and continent
-  mask at overview pixel centres, directly samples the mountain field for
-  `wall_density`, and bilinearly interpolates `hydro_height` from the built
-  substrate
+- the native pass renders only currently realised gameplay terrain classes:
+  ground, mountain foot, and mountain wall
+- mountain pixels sample the mountain field at overview-pixel resolution and
+  apply the same hierarchical `mountain_id` cutoff used by `ChunkPacketV1`;
+  `hydro_height` is used only as subtle neutral-ground shading
+- ocean/burning bands, continent/open-water masks, rivers, and lakes are not
+  player-facing overview colours until matching terrain exists
 - this image is presentation-only and must not be persisted
 
 ## Not Currently Confirmed

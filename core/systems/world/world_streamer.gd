@@ -5,7 +5,6 @@ const ChunkView = preload("res://core/systems/world/chunk_view.gd")
 const HarvestQuery = preload("res://core/systems/world/harvest_query.gd")
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
-const RiverGenSettings = preload("res://core/resources/river_gen_settings.gd")
 const MountainCavityCache = preload("res://core/systems/world/mountain_cavity_cache.gd")
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
@@ -33,12 +32,10 @@ var _generation_epoch: int = 0
 var _worldgen_settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
 var _world_bounds_settings: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
 var _foundation_settings: FoundationGenSettings = FoundationGenSettings.hard_coded_defaults()
-var _river_settings: RiverGenSettings = RiverGenSettings.hard_coded_defaults()
 var _worldgen_settings_packed: PackedFloat32Array = PackedFloat32Array()
 var _pending_new_world_settings: MountainGenSettings = null
 var _pending_new_world_bounds: WorldBoundsSettings = null
 var _pending_new_foundation_settings: FoundationGenSettings = null
-var _pending_new_river_settings: RiverGenSettings = null
 var _packet_backend: WorldChunkPacketBackend = WorldChunkPacketBackend.new()
 var _awaiting_new_game_spawn_result: bool = false
 var _new_game_spawn_failed: bool = false
@@ -55,8 +52,7 @@ func _ready() -> void:
 	_apply_worldgen_settings(
 		MountainGenSettings.hard_coded_defaults(),
 		WorldBoundsSettings.hard_coded_defaults(),
-		FoundationGenSettings.hard_coded_defaults(),
-		RiverGenSettings.hard_coded_defaults()
+		FoundationGenSettings.hard_coded_defaults()
 	)
 	WorldTileSetFactory.bootstrap()
 	_packet_backend.start()
@@ -80,8 +76,7 @@ func initialize_new_world(
 	seed_value: int,
 	settings: MountainGenSettings,
 	world_bounds: WorldBoundsSettings = null,
-	foundation_settings: FoundationGenSettings = null,
-	river_settings: RiverGenSettings = null
+	foundation_settings: FoundationGenSettings = null
 ) -> void:
 	_pending_new_world_settings = _clone_worldgen_settings(settings)
 	_pending_new_world_bounds = _clone_world_bounds(world_bounds)
@@ -89,7 +84,6 @@ func initialize_new_world(
 		foundation_settings,
 		_pending_new_world_bounds
 	)
-	_pending_new_river_settings = _clone_river_settings(river_settings)
 	reset_for_new_game(seed_value, WorldRuntimeConstants.WORLD_VERSION)
 
 func reset_for_new_game(
@@ -102,21 +96,18 @@ func reset_for_new_game(
 		_apply_worldgen_settings(
 			_pending_new_world_settings,
 			_pending_new_world_bounds,
-			_pending_new_foundation_settings,
-			_pending_new_river_settings
+			_pending_new_foundation_settings
 		)
 	else:
 		var default_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
 		_apply_worldgen_settings(
 			MountainGenSettings.hard_coded_defaults(),
 			default_bounds,
-			FoundationGenSettings.for_bounds(default_bounds),
-			RiverGenSettings.hard_coded_defaults()
+			FoundationGenSettings.for_bounds(default_bounds)
 		)
 	_pending_new_world_settings = null
 	_pending_new_world_bounds = null
 	_pending_new_foundation_settings = null
-	_pending_new_river_settings = null
 	_diff_store.clear()
 	_reset_runtime_state()
 	_queue_new_game_spawn_resolution()
@@ -128,13 +119,11 @@ func load_world_state(data: Dictionary) -> void:
 	_pending_new_world_settings = null
 	_pending_new_world_bounds = null
 	_pending_new_foundation_settings = null
-	_pending_new_river_settings = null
 	var loaded_bounds: WorldBoundsSettings = _load_world_bounds_from_save(data)
 	_apply_worldgen_settings(
 		_load_worldgen_settings_from_save(data),
 		loaded_bounds,
-		_load_foundation_settings_from_save(data, loaded_bounds),
-		_load_river_settings_from_save(data)
+		_load_foundation_settings_from_save(data, loaded_bounds)
 	)
 	_diff_store.clear()
 	_reset_runtime_state()
@@ -150,7 +139,6 @@ func save_world_state() -> Dictionary:
 	if WorldRuntimeConstants.uses_world_foundation(world_version):
 		worldgen_settings["world_bounds"] = _world_bounds_settings.to_save_dict()
 		worldgen_settings["foundation"] = _foundation_settings.to_save_dict()
-		worldgen_settings["rivers"] = _river_settings.to_save_dict()
 	return {
 		"world_rebuild_frozen": false,
 		"world_scene_present": true,
@@ -1091,13 +1079,11 @@ func _wrapped_chunk_delta_abs(a: int, b: int) -> int:
 func _apply_worldgen_settings(
 	settings: MountainGenSettings,
 	world_bounds: WorldBoundsSettings,
-	foundation_settings: FoundationGenSettings,
-	river_settings: RiverGenSettings
+	foundation_settings: FoundationGenSettings
 ) -> void:
 	_worldgen_settings = _clone_worldgen_settings(settings)
 	_world_bounds_settings = _clone_world_bounds(world_bounds)
 	_foundation_settings = _clone_foundation_settings(foundation_settings, _world_bounds_settings)
-	_river_settings = _clone_river_settings(river_settings)
 	_worldgen_settings_packed = _build_worldgen_settings_packed()
 
 func _clone_worldgen_settings(settings: MountainGenSettings) -> MountainGenSettings:
@@ -1118,15 +1104,10 @@ func _clone_foundation_settings(
 		return FoundationGenSettings.for_bounds(world_bounds)
 	return FoundationGenSettings.from_save_dict(settings.to_save_dict(), world_bounds)
 
-func _clone_river_settings(settings: RiverGenSettings) -> RiverGenSettings:
-	if settings == null:
-		return RiverGenSettings.hard_coded_defaults()
-	return RiverGenSettings.from_save_dict(settings.to_save_dict())
-
 func _build_worldgen_settings_packed() -> PackedFloat32Array:
 	var packed: PackedFloat32Array = _worldgen_settings.flatten_to_packed()
 	if WorldRuntimeConstants.uses_world_foundation(world_version):
-		return _foundation_settings.write_to_settings_packed(packed, _world_bounds_settings, _river_settings)
+		return _foundation_settings.write_to_settings_packed(packed, _world_bounds_settings)
 	return packed
 
 func _compute_worldgen_signature(worldgen_settings: Dictionary) -> String:
@@ -1176,14 +1157,3 @@ func _load_foundation_settings_from_save(
 	if foundation_settings is not Dictionary:
 		return FoundationGenSettings.for_bounds(world_bounds)
 	return FoundationGenSettings.from_save_dict(foundation_settings as Dictionary, world_bounds)
-
-func _load_river_settings_from_save(data: Dictionary) -> RiverGenSettings:
-	var worldgen_settings: Variant = data.get("worldgen_settings", {})
-	if not WorldRuntimeConstants.uses_world_foundation(world_version):
-		return RiverGenSettings.hard_coded_defaults()
-	if worldgen_settings is not Dictionary:
-		return RiverGenSettings.hard_coded_defaults()
-	var river_settings: Variant = (worldgen_settings as Dictionary).get("rivers", {})
-	if river_settings is not Dictionary:
-		return RiverGenSettings.hard_coded_defaults()
-	return RiverGenSettings.from_save_dict(river_settings as Dictionary)

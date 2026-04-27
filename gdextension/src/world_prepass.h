@@ -1,7 +1,6 @@
 #ifndef STATION_MIRNY_WORLD_PREPASS_H
 #define STATION_MIRNY_WORLD_PREPASS_H
 
-#include "lake_footprint.h"
 #include "mountain_field.h"
 
 #include <cstdint>
@@ -25,11 +24,6 @@ struct FoundationSettings {
 	int64_t burning_band_tiles = 0;
 	int64_t pole_orientation = 0;
 	float slope_bias = 0.0f;
-	float river_amount = 0.0f;
-	float lake_density_scale = 1.0f;
-	float lake_radius_scale = 1.0f;
-	float mouth_width_scale = 1.0f;
-	float bed_width_scale = 1.0f;
 };
 
 namespace world_prepass {
@@ -38,7 +32,6 @@ constexpr int32_t COARSE_CELL_SIZE_TILES = 64;
 
 struct Snapshot {
 	bool valid = false;
-	bool cycle_free = true;
 	uint64_t signature = 0;
 	double compute_time_ms = 0.0;
 	int64_t seed = 0;
@@ -58,16 +51,7 @@ struct Snapshot {
 	std::vector<float> coarse_wall_density;
 	std::vector<float> coarse_foot_density;
 	std::vector<float> coarse_valley_score;
-	std::vector<float> source_score;
 	std::vector<int32_t> biome_region_id;
-	std::vector<int32_t> downstream_index;
-	std::vector<float> flow_accumulation;
-	std::vector<uint8_t> visible_trunk_mask;
-	std::vector<int32_t> strahler_order;
-	std::vector<uint8_t> is_terminal_lake_center;
-	std::vector<uint8_t> terminal_lake_near_node;
-	std::vector<lake_footprint::LakeShape> terminal_lake_shapes;
-	std::vector<godot::PackedVector2Array> terminal_lake_polygons;
 
 	int32_t index(int32_t p_x, int32_t p_y) const;
 	godot::Vector2i node_to_tile_center(int32_t p_x, int32_t p_y) const;

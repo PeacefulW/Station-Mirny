@@ -37,10 +37,6 @@ const _EPSILON: float = 0.00001
 @export_group("Structure Ranges")
 @export_range(0.0, 1.0, 0.001) var min_ridge_strength: float = 0.0
 @export_range(0.0, 1.0, 0.001) var max_ridge_strength: float = 1.0
-@export_range(0.0, 1.0, 0.001) var min_river_strength: float = 0.0
-@export_range(0.0, 1.0, 0.001) var max_river_strength: float = 1.0
-@export_range(0.0, 1.0, 0.001) var min_floodplain_strength: float = 0.0
-@export_range(0.0, 1.0, 0.001) var max_floodplain_strength: float = 1.0
 
 @export_group("Resolver Weights")
 @export_range(0.0, 4.0, 0.01) var height_weight: float = 1.0
@@ -58,8 +54,6 @@ const _EPSILON: float = 0.00001
 
 @export_group("Structure Weights")
 @export_range(0.0, 4.0, 0.01) var ridge_strength_weight: float = 1.0
-@export_range(0.0, 4.0, 0.01) var river_strength_weight: float = 1.0
-@export_range(0.0, 4.0, 0.01) var floodplain_strength_weight: float = 1.0
 
 @export_group("Sets")
 @export var flora_set_ids: Array[StringName] = []
@@ -116,8 +110,6 @@ func get_structure_scores(structure_context: Variant, soft: bool = false) -> Dic
 		return {}
 	return {
 		"ridge_strength": _score_range(_get_structure_value(structure_context, "ridge_strength"), min_ridge_strength, max_ridge_strength, soft),
-		"river_strength": _score_range(_get_structure_value(structure_context, "river_strength"), min_river_strength, max_river_strength, soft),
-		"floodplain_strength": _score_range(_get_structure_value(structure_context, "floodplain_strength"), min_floodplain_strength, max_floodplain_strength, soft),
 	}
 
 func get_resolver_scores(channels: Variant, structure_context: Variant = null, soft: bool = false) -> Dictionary:
@@ -132,7 +124,7 @@ func _compute_weighted_score(channels: Variant, soft: bool, structure_context: V
 	var channel_scores: Dictionary = get_resolver_scores(channels, structure_context, soft)
 	var score_keys: Array[String] = ["height", "temperature", "moisture", "ruggedness", "flora_density", "latitude"]
 	if structure_context != null:
-		score_keys.append_array(["ridge_strength", "river_strength", "floodplain_strength"])
+		score_keys.append_array(["ridge_strength"])
 	for key: String in score_keys:
 		var weight: float = _get_weight_for_key(key)
 		if weight <= 0.0:
@@ -159,18 +151,12 @@ func _get_weight_for_key(key: String) -> float:
 			return latitude_weight
 		"ridge_strength":
 			return ridge_strength_weight
-		"river_strength":
-			return river_strength_weight
-		"floodplain_strength":
-			return floodplain_strength_weight
 	return 0.0
 
 func _matches_structure_context(structure_context: Variant) -> bool:
 	if structure_context == null:
 		return true
-	return _is_in_range(_get_structure_value(structure_context, "ridge_strength"), min_ridge_strength, max_ridge_strength) \
-		and _is_in_range(_get_structure_value(structure_context, "river_strength"), min_river_strength, max_river_strength) \
-		and _is_in_range(_get_structure_value(structure_context, "floodplain_strength"), min_floodplain_strength, max_floodplain_strength)
+	return _is_in_range(_get_structure_value(structure_context, "ridge_strength"), min_ridge_strength, max_ridge_strength)
 
 func _get_structure_value(structure_context: Variant, key: StringName, default_value: float = 0.0) -> float:
 	if structure_context == null:

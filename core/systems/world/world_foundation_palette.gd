@@ -3,11 +3,9 @@ extends RefCounted
 
 const PALETTE_ID: StringName = &"foundation_overview_v1"
 const CANONICAL_LAYER_MASK: int = 0
-# Must match native write_overview_rgba in world_prepass.cpp:
-# ocean = rgb(18, 58, 104), burning = rgb(102, 36, 24), water = rgb(30, 88, 132).
-const COLOR_OCEAN_BAND: Color = Color(18.0 / 255.0, 58.0 / 255.0, 104.0 / 255.0, 1.0)
-const COLOR_BURNING_BAND: Color = Color(102.0 / 255.0, 36.0 / 255.0, 24.0 / 255.0, 1.0)
-const COLOR_OPEN_WATER: Color = Color(30.0 / 255.0, 88.0 / 255.0, 132.0 / 255.0, 1.0)
+# Must match native write_overview_rgba in world_prepass.cpp.
+const COLOR_MOUNTAIN_FOOT: Color = Color(106.0 / 255.0, 98.0 / 255.0, 74.0 / 255.0, 1.0)
+const COLOR_MOUNTAIN_WALL: Color = Color(164.0 / 255.0, 160.0 / 255.0, 146.0 / 255.0, 1.0)
 const COLOR_UNKNOWN: Color = Color(0.04, 0.05, 0.06, 1.0)
 const OVERVIEW_PIXELS_PER_CELL: int = 4
 
@@ -53,22 +51,18 @@ func build_overview_image(snapshot: Dictionary) -> Image:
 	return image
 
 func _resolve_node_color(snapshot: Dictionary, index: int) -> Color:
-	if _read_byte(snapshot.get("ocean_band_mask", PackedByteArray()), index) != 0:
-		return COLOR_OCEAN_BAND
-	if _read_byte(snapshot.get("burning_band_mask", PackedByteArray()), index) != 0:
-		return COLOR_BURNING_BAND
-	if _read_byte(snapshot.get("continent_mask", PackedByteArray()), index) == 0:
-		return COLOR_OPEN_WATER
 	var hydro: float = clampf(_read_float(snapshot.get("hydro_height", PackedFloat32Array()), index), 0.0, 1.0)
 	var wall: float = clampf(_read_float(snapshot.get("coarse_wall_density", PackedFloat32Array()), index), 0.0, 1.0)
-	if wall > 0.45:
-		var mountain_value: float = clampf(0.55 + wall * 0.32, 0.0, 1.0)
-		return Color(mountain_value, mountain_value, mountain_value, 1.0)
-	var base: float = clampf(0.28 + hydro * 0.38, 0.0, 1.0)
+	var foot: float = clampf(_read_float(snapshot.get("coarse_foot_density", PackedFloat32Array()), index), 0.0, 1.0)
+	if wall > 0.0:
+		return COLOR_MOUNTAIN_WALL.lerp(Color(238.0 / 255.0, 234.0 / 255.0, 220.0 / 255.0, 1.0), clampf(wall, 0.0, 1.0))
+	if foot > 0.0:
+		return COLOR_MOUNTAIN_FOOT.lerp(Color(178.0 / 255.0, 143.0 / 255.0, 101.0 / 255.0, 1.0), clampf(foot, 0.0, 1.0))
+	var base: float = clampf((42.0 + hydro * 24.0) / 255.0, 0.0, 1.0)
 	return Color(
-		clampf(base + 0.10, 0.0, 1.0),
-		clampf(base + 0.05, 0.0, 1.0),
-		clampf(base - 0.10, 0.0, 1.0),
+		base,
+		clampf(base + 18.0 / 255.0, 0.0, 1.0),
+		clampf(base - 4.0 / 255.0, 0.0, 1.0),
 		1.0
 	)
 

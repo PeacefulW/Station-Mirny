@@ -61,7 +61,6 @@ Templates for future docs.
 - [World Grid Rebuild Foundation](02_system_specs/world/world_grid_rebuild_foundation.md)
 - [World Runtime V0](02_system_specs/world/world_runtime.md)
 - [World Foundation V1](02_system_specs/world/world_foundation_v1.md)
-- [River Generation V1](02_system_specs/world/river_generation.md)
 - [Terrain Hybrid Presentation](02_system_specs/world/terrain_hybrid_presentation.md)
 - [Engineering Networks](02_system_specs/base/engineering_networks.md)
 - [Building and Rooms](02_system_specs/base/building_and_rooms.md)

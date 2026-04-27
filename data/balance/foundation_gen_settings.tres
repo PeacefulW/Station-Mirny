@@ -8,4 +8,3 @@ ocean_band_tiles = 128
 burning_band_tiles = 128
 pole_orientation = 0
 slope_bias = 0.0
-river_amount = 0.35

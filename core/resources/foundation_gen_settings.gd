@@ -3,7 +3,6 @@ extends Resource
 
 const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
-const RiverGenSettings = preload("res://core/resources/river_gen_settings.gd")
 
 const POLE_ORIENTATION_OCEAN_TOP: int = 0
 const POLE_ORIENTATION_REVERSED: int = 1
@@ -11,14 +10,11 @@ const BAND_TILES_MIN: int = 64
 const BAND_TILES_MAX: int = 1024
 const SLOPE_BIAS_MIN: float = -1.0
 const SLOPE_BIAS_MAX: float = 1.0
-const RIVER_AMOUNT_MIN: float = 0.0
-const RIVER_AMOUNT_MAX: float = 1.0
 
 @export_range(64, 1024) var ocean_band_tiles: int = 128
 @export_range(64, 1024) var burning_band_tiles: int = 128
 @export_range(0, 1) var pole_orientation: int = POLE_ORIENTATION_OCEAN_TOP
 @export_range(-1.0, 1.0, 0.05) var slope_bias: float = 0.0
-@export_range(0.0, 1.0, 0.01) var river_amount: float = 0.35
 
 func to_save_dict() -> Dictionary:
 	return {
@@ -26,13 +22,11 @@ func to_save_dict() -> Dictionary:
 		"burning_band_tiles": burning_band_tiles,
 		"pole_orientation": pole_orientation,
 		"slope_bias": slope_bias,
-		"river_amount": river_amount,
 	}
 
 func write_to_settings_packed(
 	settings_packed: PackedFloat32Array,
-	world_bounds: WorldBoundsSettings,
-	river_settings: RiverGenSettings = null
+	world_bounds: WorldBoundsSettings
 ) -> PackedFloat32Array:
 	var normalized_settings: FoundationGenSettings = normalized_for_bounds(world_bounds)
 	var packed: PackedFloat32Array = settings_packed.duplicate()
@@ -43,11 +37,7 @@ func write_to_settings_packed(
 	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_BURNING_BAND_TILES] = float(normalized_settings.burning_band_tiles)
 	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_POLE_ORIENTATION] = float(normalized_settings.pole_orientation)
 	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_FOUNDATION_SLOPE_BIAS] = normalized_settings.slope_bias
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_RIVER_AMOUNT] = normalized_settings.river_amount
-	var normalized_river_settings: RiverGenSettings = RiverGenSettings.from_save_dict(
-		river_settings.to_save_dict() if river_settings != null else RiverGenSettings.hard_coded_defaults().to_save_dict()
-	)
-	return normalized_river_settings.write_to_settings_packed(packed)
+	return packed
 
 func resolve_spawn_safe_patch_rect(world_bounds: WorldBoundsSettings) -> Rect2i:
 	var normalized_settings: FoundationGenSettings = normalized_for_bounds(world_bounds)
@@ -96,11 +86,6 @@ static func from_save_dict(data: Dictionary, world_bounds: WorldBoundsSettings) 
 		float(data.get("slope_bias", settings.slope_bias)),
 		SLOPE_BIAS_MIN,
 		SLOPE_BIAS_MAX
-	)
-	settings.river_amount = clampf(
-		float(data.get("river_amount", settings.river_amount)),
-		RIVER_AMOUNT_MIN,
-		RIVER_AMOUNT_MAX
 	)
 	return settings
 

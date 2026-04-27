@@ -484,7 +484,7 @@ msgid "UI_WORLD_CREATE_RIDGE_LABEL"
 msgstr "Площадь гор:"
 
 msgid "UI_WORLD_CREATE_HINT"
-msgstr "Одинаковый seed и одинаковые настройки дают один и тот же мир. Реками, озёрами и горами можно задать характер планеты до высадки."
+msgstr "Одинаковый seed и одинаковые настройки дают один и тот же мир. Горами можно задать характер планеты до высадки."
 
 msgid "UI_WORLD_CREATE_START_BUTTON"
 msgstr "▶  ВЫСАДКА НА ПЛАНЕТУ"
@@ -809,15 +809,6 @@ msgstr "Площадь гор:"
 
 msgid "UI_WORLD_CREATE_MOUNTAIN_CHAINS_LABEL"
 msgstr "Цепочки гор:"
-
-msgid "UI_WORLD_CREATE_RIVER_AMOUNT_LABEL"
-msgstr "Реки:"
-
-msgid "UI_WORLD_CREATE_RIVER_WIDTH_LABEL"
-msgstr "Ширина рек:"
-
-msgid "UI_WORLD_CREATE_LAKE_AMOUNT_LABEL"
-msgstr "Озёра:"
 
 msgid "UI_WORLD_CREATE_TREE_DENSITY_LABEL"
 msgstr "Плотность деревьев:"

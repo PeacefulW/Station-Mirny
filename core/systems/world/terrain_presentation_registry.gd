@@ -141,12 +141,6 @@ static func _validate_registered_resources() -> void:
 		WorldRuntimeConstants.TERRAIN_PLAINS_DUG,
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL,
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT,
-		WorldRuntimeConstants.TERRAIN_RIVERBED_SHALLOW,
-		WorldRuntimeConstants.TERRAIN_RIVERBED_DEEP,
-		WorldRuntimeConstants.TERRAIN_LAKEBED_SHALLOW,
-		WorldRuntimeConstants.TERRAIN_LAKEBED_DEEP,
-		WorldRuntimeConstants.TERRAIN_OCEAN_BED_SHALLOW,
-		WorldRuntimeConstants.TERRAIN_OCEAN_BED_DEEP,
 	]:
 		assert(_profile_id_by_terrain_id.has(terrain_id), "Missing terrain presentation profile mapping for terrain_id=%d" % terrain_id)
 		assert(_resolve_profile_for_terrain(terrain_id) != null, "TerrainPresentationRegistry failed to resolve terrain_id=%d" % terrain_id)
@@ -247,18 +241,6 @@ static func _expected_topology_family_for_terrain(terrain_id: int) -> StringName
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
 			return TOPOLOGY_AUTOTILE_47
 		WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
-			return TOPOLOGY_SINGLE_TILE
-		WorldRuntimeConstants.TERRAIN_RIVERBED_SHALLOW:
-			return TOPOLOGY_SINGLE_TILE
-		WorldRuntimeConstants.TERRAIN_RIVERBED_DEEP:
-			return TOPOLOGY_SINGLE_TILE
-		WorldRuntimeConstants.TERRAIN_LAKEBED_SHALLOW:
-			return TOPOLOGY_SINGLE_TILE
-		WorldRuntimeConstants.TERRAIN_LAKEBED_DEEP:
-			return TOPOLOGY_SINGLE_TILE
-		WorldRuntimeConstants.TERRAIN_OCEAN_BED_SHALLOW:
-			return TOPOLOGY_SINGLE_TILE
-		WorldRuntimeConstants.TERRAIN_OCEAN_BED_DEEP:
 			return TOPOLOGY_SINGLE_TILE
 		_:
 			return &""

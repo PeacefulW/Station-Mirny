@@ -6,12 +6,6 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 
 const PALETTE_ID_PREFIX: String = "terrain_preview_v1"
 const COLOR_GROUND: Color = Color(0.18, 0.23, 0.18, 1.0)
-const COLOR_RIVERBED_SHALLOW: Color = Color(0.42, 0.36, 0.24, 1.0)
-const COLOR_RIVERBED_DEEP: Color = Color(0.27, 0.22, 0.17, 1.0)
-const COLOR_LAKEBED_SHALLOW: Color = Color(0.46, 0.42, 0.30, 1.0)
-const COLOR_LAKEBED_DEEP: Color = Color(0.25, 0.25, 0.22, 1.0)
-const COLOR_OCEAN_BED_SHALLOW: Color = Color(0.18, 0.36, 0.52, 1.0)
-const COLOR_OCEAN_BED_DEEP: Color = Color(0.06, 0.20, 0.38, 1.0)
 const COLOR_MOUNTAIN_FOOT: Color = Color(0.53, 0.49, 0.39, 1.0)
 const COLOR_MOUNTAIN_WALL: Color = Color(0.86, 0.83, 0.76, 1.0)
 const COLOR_CLASSIFICATION_GROUND: Color = Color(0.13, 0.16, 0.13, 1.0)
@@ -121,18 +115,6 @@ func _resolve_tile_color(
 
 func _resolve_terrain_color(terrain_id: int) -> Color:
 	match terrain_id:
-		WorldRuntimeConstants.TERRAIN_RIVERBED_SHALLOW:
-			return COLOR_RIVERBED_SHALLOW
-		WorldRuntimeConstants.TERRAIN_RIVERBED_DEEP:
-			return COLOR_RIVERBED_DEEP
-		WorldRuntimeConstants.TERRAIN_LAKEBED_SHALLOW:
-			return COLOR_LAKEBED_SHALLOW
-		WorldRuntimeConstants.TERRAIN_LAKEBED_DEEP:
-			return COLOR_LAKEBED_DEEP
-		WorldRuntimeConstants.TERRAIN_OCEAN_BED_SHALLOW:
-			return COLOR_OCEAN_BED_SHALLOW
-		WorldRuntimeConstants.TERRAIN_OCEAN_BED_DEEP:
-			return COLOR_OCEAN_BED_DEEP
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL:
 			return COLOR_MOUNTAIN_WALL
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:

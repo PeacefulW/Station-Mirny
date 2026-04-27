@@ -72,7 +72,6 @@ Current transition strategy:
 - [World Runtime V0](world/world_runtime.md)
 - [World Foundation V1](world/world_foundation_v1.md)
 - [Mountain Generation V1](world/mountain_generation.md)
-- [River Generation V1](world/river_generation.md)
 - [Terrain Hybrid Presentation](world/terrain_hybrid_presentation.md)
 
 The removed pre-rebuild world stack now rebuilds from this living world-grid contract

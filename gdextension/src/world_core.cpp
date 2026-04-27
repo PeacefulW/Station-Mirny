@@ -1,7 +1,6 @@
 #include "world_core.h"
 #include "autotile_47.h"
 #include "mountain_field.h"
-#include "river_rasterizer.h"
 #include "world_utils.h"
 
 #include <algorithm>
@@ -30,12 +29,6 @@ constexpr int64_t CELL_COUNT = CHUNK_SIZE * CHUNK_SIZE;
 constexpr int64_t TERRAIN_PLAINS_GROUND = 0;
 constexpr int64_t TERRAIN_MOUNTAIN_WALL = 3;
 constexpr int64_t TERRAIN_MOUNTAIN_FOOT = 4;
-constexpr int64_t TERRAIN_RIVERBED_SHALLOW = 5;
-constexpr int64_t TERRAIN_RIVERBED_DEEP = 6;
-constexpr int64_t TERRAIN_LAKEBED_SHALLOW = 7;
-constexpr int64_t TERRAIN_LAKEBED_DEEP = 8;
-constexpr int64_t TERRAIN_OCEAN_BED_SHALLOW = 9;
-constexpr int64_t TERRAIN_OCEAN_BED_DEEP = 10;
 
 constexpr int64_t SETTINGS_PACKED_LAYOUT_DENSITY = 0;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_SCALE = 1;
@@ -53,12 +46,7 @@ constexpr int64_t SETTINGS_PACKED_LAYOUT_OCEAN_BAND_TILES = 11;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_BURNING_BAND_TILES = 12;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_POLE_ORIENTATION = 13;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_FOUNDATION_SLOPE_BIAS = 14;
-constexpr int64_t SETTINGS_PACKED_LAYOUT_RIVER_AMOUNT = 15;
-constexpr int64_t SETTINGS_PACKED_LAYOUT_LAKE_DENSITY_SCALE = 16;
-constexpr int64_t SETTINGS_PACKED_LAYOUT_LAKE_RADIUS_SCALE = 17;
-constexpr int64_t SETTINGS_PACKED_LAYOUT_MOUTH_WIDTH_SCALE = 18;
-constexpr int64_t SETTINGS_PACKED_LAYOUT_BED_WIDTH_SCALE = 19;
-constexpr int64_t SETTINGS_PACKED_LAYOUT_FIELD_COUNT = 20;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_FIELD_COUNT = 15;
 
 constexpr uint8_t MOUNTAIN_FLAG_WALL = 1U << 1U;
 constexpr uint8_t MOUNTAIN_FLAG_FOOT = 1U << 2U;
@@ -231,11 +219,6 @@ FoundationSettings unpack_foundation_settings(int64_t p_world_version, const Pac
 	);
 	settings.pole_orientation = static_cast<int64_t>(std::llround(p_settings_packed[SETTINGS_PACKED_LAYOUT_POLE_ORIENTATION]));
 	settings.slope_bias = p_settings_packed[SETTINGS_PACKED_LAYOUT_FOUNDATION_SLOPE_BIAS];
-	settings.river_amount = p_settings_packed[SETTINGS_PACKED_LAYOUT_RIVER_AMOUNT];
-	settings.lake_density_scale = world_utils::clamp_value(p_settings_packed[SETTINGS_PACKED_LAYOUT_LAKE_DENSITY_SCALE], 0.25f, 4.0f);
-	settings.lake_radius_scale = world_utils::clamp_value(p_settings_packed[SETTINGS_PACKED_LAYOUT_LAKE_RADIUS_SCALE], 0.25f, 4.0f);
-	settings.mouth_width_scale = world_utils::clamp_value(p_settings_packed[SETTINGS_PACKED_LAYOUT_MOUTH_WIDTH_SCALE], 0.25f, 4.0f);
-	settings.bed_width_scale = world_utils::clamp_value(p_settings_packed[SETTINGS_PACKED_LAYOUT_BED_WIDTH_SCALE], 0.25f, 4.0f);
 	return settings;
 }
 
@@ -250,43 +233,6 @@ Dictionary make_failure_result(const char *p_message) {
 	result["success"] = false;
 	result["message"] = p_message;
 	return result;
-}
-
-bool is_ground_compatible_terrain(int64_t p_terrain_id) {
-	return p_terrain_id == TERRAIN_PLAINS_GROUND;
-}
-
-int64_t resolve_ocean_bed_terrain_id(
-	int64_t p_world_y,
-	int64_t p_world_version,
-	const FoundationSettings &p_foundation_settings
-) {
-	if (p_world_version < river_rasterizer::RIVER_GENERATION_VERSION ||
-			!p_foundation_settings.enabled ||
-			p_world_y < 0 ||
-			p_world_y >= p_foundation_settings.ocean_band_tiles) {
-		return TERRAIN_PLAINS_GROUND;
-	}
-	return p_world_y >= p_foundation_settings.ocean_band_tiles - 8 ?
-			TERRAIN_OCEAN_BED_SHALLOW :
-			TERRAIN_OCEAN_BED_DEEP;
-}
-
-int64_t resolve_river_or_lake_terrain_id(uint8_t p_river_flags, uint8_t p_river_depth) {
-	if (p_river_depth == river_rasterizer::DEPTH_NONE) {
-		return TERRAIN_PLAINS_GROUND;
-	}
-	if ((p_river_flags & river_rasterizer::FLAG_LAKEBED) != 0U) {
-		return p_river_depth == river_rasterizer::DEPTH_DEEP ?
-				TERRAIN_LAKEBED_DEEP :
-				TERRAIN_LAKEBED_SHALLOW;
-	}
-	if ((p_river_flags & river_rasterizer::FLAG_RIVERBED) != 0U) {
-		return p_river_depth == river_rasterizer::DEPTH_DEEP ?
-				TERRAIN_RIVERBED_DEEP :
-				TERRAIN_RIVERBED_SHALLOW;
-	}
-	return TERRAIN_PLAINS_GROUND;
 }
 
 bool is_foundation_spawn_safety_area_at_world(
@@ -333,11 +279,6 @@ uint64_t make_cache_signature(
 		signature = splitmix64(signature ^ static_cast<uint64_t>(p_foundation_settings.burning_band_tiles));
 		signature = splitmix64(signature ^ static_cast<uint64_t>(p_foundation_settings.pole_orientation));
 		signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround((p_foundation_settings.slope_bias + 1.0f) * 1000000.0f)));
-		signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_foundation_settings.river_amount * 1000000.0f)));
-		signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_foundation_settings.lake_density_scale * 1000000.0f)));
-		signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_foundation_settings.lake_radius_scale * 1000000.0f)));
-		signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_foundation_settings.mouth_width_scale * 1000000.0f)));
-		signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_foundation_settings.bed_width_scale * 1000000.0f)));
 	}
 	return signature;
 }
@@ -471,8 +412,7 @@ Dictionary WorldCore::_generate_chunk_packet(
 	int64_t p_world_version,
 	const mountain_field::Evaluator &p_mountain_evaluator,
 	const mountain_field::Settings &p_effective_mountain_settings,
-	const FoundationSettings &p_foundation_settings,
-	const world_prepass::Snapshot *p_world_prepass_snapshot
+	const FoundationSettings &p_foundation_settings
 ) {
 	p_coord = canonicalize_chunk_coord(p_coord, p_foundation_settings);
 	PackedInt32Array terrain_ids;
@@ -487,16 +427,6 @@ Dictionary WorldCore::_generate_chunk_packet(
 	mountain_flags.resize(CELL_COUNT);
 	PackedInt32Array mountain_atlas_indices;
 	mountain_atlas_indices.resize(CELL_COUNT);
-	const bool river_packet_enabled = river_rasterizer::is_enabled_for_version(p_world_version) &&
-			p_foundation_settings.enabled &&
-			p_world_prepass_snapshot != nullptr &&
-			p_world_prepass_snapshot->valid;
-	PackedByteArray riverbed_flags;
-	PackedByteArray riverbed_depth;
-	if (river_packet_enabled) {
-		riverbed_flags.resize(CELL_COUNT);
-		riverbed_depth.resize(CELL_COUNT);
-	}
 
 	const mountain_field::Thresholds &mountain_thresholds = p_mountain_evaluator.get_thresholds();
 	const int32_t macro_cell_size = mountain_field::get_hierarchical_macro_cell_size(p_world_version);
@@ -578,19 +508,6 @@ Dictionary WorldCore::_generate_chunk_packet(
 		}
 	}
 
-	const river_rasterizer::RasterizedRegion river_region = river_packet_enabled ?
-			river_rasterizer::rasterize_region(
-				*p_world_prepass_snapshot,
-				p_seed,
-				p_world_version,
-				p_foundation_settings,
-				static_cast<int64_t>(p_coord.x) * CHUNK_SIZE - mountain_border,
-				static_cast<int64_t>(p_coord.y) * CHUNK_SIZE - mountain_border,
-				static_cast<int32_t>(mountain_grid_side),
-				static_cast<int32_t>(mountain_grid_side)
-			) :
-			river_rasterizer::RasterizedRegion();
-
 	std::vector<int64_t> terrain_id_grid(static_cast<size_t>(mountain_grid_side * mountain_grid_side), TERRAIN_PLAINS_GROUND);
 	for (int64_t sample_y = 0; sample_y < mountain_grid_side; ++sample_y) {
 		for (int64_t sample_x = 0; sample_x < mountain_grid_side; ++sample_x) {
@@ -607,23 +524,6 @@ Dictionary WorldCore::_generate_chunk_packet(
 				terrain_id = TERRAIN_MOUNTAIN_WALL;
 			} else if (mountain_id > 0 && elevation >= mountain_thresholds.t_edge) {
 				terrain_id = TERRAIN_MOUNTAIN_FOOT;
-			} else {
-				const int64_t ocean_terrain_id = resolve_ocean_bed_terrain_id(world_y, p_world_version, p_foundation_settings);
-				terrain_id = ocean_terrain_id;
-				if (river_region.is_valid() &&
-						!is_foundation_spawn_safety_area_at_world(world_x, world_y, p_foundation_settings)) {
-					const int32_t river_index = river_region.index(static_cast<int32_t>(sample_x), static_cast<int32_t>(sample_y));
-					const uint8_t river_flags = river_region.flags[static_cast<size_t>(river_index)];
-					const int64_t river_terrain_id = resolve_river_or_lake_terrain_id(
-						river_flags,
-						river_region.depth[static_cast<size_t>(river_index)]
-					);
-					if (river_terrain_id != TERRAIN_PLAINS_GROUND &&
-							(ocean_terrain_id == TERRAIN_PLAINS_GROUND ||
-									(river_flags & river_rasterizer::FLAG_MOUTH_OR_DELTA) != 0U)) {
-						terrain_id = river_terrain_id;
-					}
-				}
 			}
 			terrain_id_grid[static_cast<size_t>(sample_index)] = terrain_id;
 		}
@@ -649,33 +549,8 @@ Dictionary WorldCore::_generate_chunk_packet(
 			int64_t terrain_id = terrain_id_grid[static_cast<size_t>(grid_index)];
 			int64_t terrain_atlas_index = 0;
 			uint8_t walkable = terrain_id == TERRAIN_MOUNTAIN_WALL || terrain_id == TERRAIN_MOUNTAIN_FOOT ? 0U : 1U;
-			uint8_t resolved_riverbed_flags = 0U;
-			uint8_t resolved_riverbed_depth = river_rasterizer::DEPTH_NONE;
-			if (river_region.is_valid() &&
-					(terrain_id == TERRAIN_RIVERBED_SHALLOW ||
-							terrain_id == TERRAIN_RIVERBED_DEEP ||
-							terrain_id == TERRAIN_LAKEBED_SHALLOW ||
-							terrain_id == TERRAIN_LAKEBED_DEEP)) {
-				const int32_t river_index = river_region.index(static_cast<int32_t>(grid_x), static_cast<int32_t>(grid_y));
-				resolved_riverbed_flags = river_region.flags[static_cast<size_t>(river_index)];
-				resolved_riverbed_depth = river_region.depth[static_cast<size_t>(river_index)];
-			}
 
-			if (terrain_id == TERRAIN_PLAINS_GROUND && river_packet_enabled) {
-				terrain_atlas_index = resolve_base_ground_atlas_index(
-					world_x,
-					world_y,
-					p_seed,
-					is_ground_compatible_terrain(terrain_id_grid[static_cast<size_t>((grid_y - 1) * mountain_grid_side + grid_x)]),
-					is_ground_compatible_terrain(terrain_id_grid[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x + 1))]),
-					is_ground_compatible_terrain(terrain_id_grid[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x + 1))]),
-					is_ground_compatible_terrain(terrain_id_grid[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x + 1))]),
-					is_ground_compatible_terrain(terrain_id_grid[static_cast<size_t>((grid_y + 1) * mountain_grid_side + grid_x)]),
-					is_ground_compatible_terrain(terrain_id_grid[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x - 1))]),
-					is_ground_compatible_terrain(terrain_id_grid[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x - 1))]),
-					is_ground_compatible_terrain(terrain_id_grid[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x - 1))])
-				);
-			} else if (terrain_id == TERRAIN_PLAINS_GROUND) {
+			if (terrain_id == TERRAIN_PLAINS_GROUND) {
 				terrain_atlas_index = resolve_base_ground_atlas_index(
 					world_x,
 					world_y,
@@ -806,10 +681,6 @@ Dictionary WorldCore::_generate_chunk_packet(
 			mountain_id_per_tile.set(index, resolved_mountain_id);
 			mountain_flags.set(index, resolved_mountain_flags);
 			mountain_atlas_indices.set(index, resolved_mountain_atlas_index);
-			if (river_packet_enabled) {
-				riverbed_flags.set(index, resolved_riverbed_flags);
-				riverbed_depth.set(index, resolved_riverbed_depth);
-			}
 		}
 	}
 
@@ -823,10 +694,6 @@ Dictionary WorldCore::_generate_chunk_packet(
 	packet["mountain_id_per_tile"] = mountain_id_per_tile;
 	packet["mountain_flags"] = mountain_flags;
 	packet["mountain_atlas_indices"] = mountain_atlas_indices;
-	if (river_packet_enabled) {
-		packet["riverbed_flags"] = riverbed_flags;
-		packet["riverbed_depth"] = riverbed_depth;
-	}
 	return packet;
 }
 
@@ -934,16 +801,6 @@ Array WorldCore::generate_chunk_packets_batch(
 	const mountain_field::Evaluator mountain_evaluator(p_seed, p_world_version, mountain_settings);
 	const mountain_field::Settings &effective_mountain_settings = mountain_evaluator.get_settings();
 	const int32_t macro_cell_size = mountain_field::get_hierarchical_macro_cell_size(p_world_version);
-	const world_prepass::Snapshot *world_prepass_snapshot = nullptr;
-	if (foundation_settings.enabled) {
-		world_prepass_snapshot = &_get_or_build_world_prepass(
-			p_seed,
-			p_world_version,
-			mountain_evaluator,
-			effective_mountain_settings,
-			foundation_settings
-		);
-	}
 
 	std::vector<ChunkMacroGroup> macro_groups;
 	std::unordered_map<uint64_t, int32_t> group_index_by_key;
@@ -1005,8 +862,7 @@ Array WorldCore::generate_chunk_packets_batch(
 				p_world_version,
 				mountain_evaluator,
 				effective_mountain_settings,
-				foundation_settings,
-				world_prepass_snapshot
+				foundation_settings
 			);
 		}
 	}

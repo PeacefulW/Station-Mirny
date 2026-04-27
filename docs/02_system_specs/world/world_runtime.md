@@ -232,8 +232,8 @@ Rules:
   `WorldCore.resolve_world_foundation_spawn_tile(...)` on the worker path before
   progressive preview chunks are queued.
 - the spawn resolver rejects candidates in ocean/burning masks, open-water
-  continent mask, high wall density, visible river trunks, and terminal lake
-  centres, then returns the selected `spawn_tile` plus `spawn_safe_patch_rect`.
+  continent mask, and high wall density, then returns the selected
+  `spawn_tile` plus `spawn_safe_patch_rect`.
 - `WorldCore` still mirrors the selected safe patch as mountain-safe output in
   chunk packets so the first loaded area stays walkable.
 - runtime new-game start queues the same native spawn resolver on the world

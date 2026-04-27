@@ -484,7 +484,7 @@ msgid "UI_WORLD_CREATE_RIDGE_LABEL"
 msgstr "Mountain area:"
 
 msgid "UI_WORLD_CREATE_HINT"
-msgstr "The same seed and the same settings give the same world. Rivers, lakes, and mountains let you shape the planet before landing."
+msgstr "The same seed and the same settings give the same world. Mountains let you shape the planet before landing."
 
 msgid "UI_WORLD_CREATE_START_BUTTON"
 msgstr "▶  LAND ON THE PLANET"
@@ -809,15 +809,6 @@ msgstr "Mountain area:"
 
 msgid "UI_WORLD_CREATE_MOUNTAIN_CHAINS_LABEL"
 msgstr "Mountain chains:"
-
-msgid "UI_WORLD_CREATE_RIVER_AMOUNT_LABEL"
-msgstr "Rivers:"
-
-msgid "UI_WORLD_CREATE_RIVER_WIDTH_LABEL"
-msgstr "River width:"
-
-msgid "UI_WORLD_CREATE_LAKE_AMOUNT_LABEL"
-msgstr "Lakes:"
 
 msgid "UI_WORLD_CREATE_TREE_DENSITY_LABEL"
 msgstr "Tree density:"
