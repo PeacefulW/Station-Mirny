@@ -37,7 +37,8 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
 - separate preview and atlas tabs so the preview can use the main workspace
 - Russian `Материалы` tab with separate Top / Face / Base layer-stack settings
 - material source per layer: procedural, image file, or flat color
-- procedural material kinds: stone bricks, cracked dry earth, rough stone, worn metal, wood planks, packed dirt, concrete, ice / frost, ash / burnt ground
+- procedural material kinds: stone bricks, cracked dry earth, rough stone, worn metal, wood planks, packed dirt, concrete, ice / frost, ash / burnt ground, snow, sand, moss, gravel / regolith, rusty metal, concrete floor (seamed), ribbed steel
+- procedural feature sizes (brick width, plank width, voronoi cell, scratch period) scale with `tile_size`, so 32 px and 128 px tiles stay readable
 - procedural controls per layer: scale, contrast, crack amount, wear, grain, edge darkening, seed, Color A, Color B, highlight
 - anti-aliased sampling for loaded texture files
 - continuous map-space texture projection in the live preview

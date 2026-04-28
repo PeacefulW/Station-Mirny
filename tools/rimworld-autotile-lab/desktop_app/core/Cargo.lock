@@ -182,6 +182,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "image",
+ "rayon",
  "serde",
  "serde_json",
 ]

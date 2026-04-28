@@ -453,6 +453,13 @@ pub fn normalize_material_kind(value: &str) -> &'static str {
         "concrete" => "concrete",
         "ice_frost" | "ice" | "frost" => "ice_frost",
         "ash_burnt_ground" | "ash" | "burnt_ground" => "ash_burnt_ground",
+        "snow" | "snow_surface" => "snow",
+        "sand" | "sand_dune" => "sand",
+        "moss" | "moss_patch" => "moss",
+        "gravel" | "regolith" | "gravel_regolith" => "gravel",
+        "rusty_metal" | "rust" | "metal_rust" => "rusty_metal",
+        "concrete_floor" | "floor_concrete" | "tiled_concrete" => "concrete_floor",
+        "ribbed_steel" | "steel_ribbed" | "diamond_plate" => "ribbed_steel",
         _ => "rough_stone",
     }
 }

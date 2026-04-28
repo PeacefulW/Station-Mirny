@@ -74,6 +74,13 @@ MATERIAL_KIND_LABELS = {
     "concrete": "Бетон",
     "ice_frost": "Лёд / иней",
     "ash_burnt_ground": "Пепел / выжженная земля",
+    "snow": "Снег",
+    "sand": "Песок",
+    "moss": "Мох",
+    "gravel": "Гравий / реголит",
+    "rusty_metal": "Ржавый металл",
+    "concrete_floor": "Бетонный пол со швами",
+    "ribbed_steel": "Рифлёная сталь",
 }
 MATERIAL_KIND_KEYS_BY_LABEL = {label: key for key, label in MATERIAL_KIND_LABELS.items()}
 

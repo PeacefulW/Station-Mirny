@@ -3,6 +3,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use image::{Rgba, RgbaImage};
+use rayon::prelude::*;
 use serde::Serialize;
 
 use crate::model::{AppRequest, GeneratedFiles, MaterialConfig, OutputManifest, RenderMode};
@@ -288,30 +289,37 @@ fn load_texture_slot(path: Option<&str>, warnings: &mut Warnings) -> Option<Load
 
 fn build_full_atlases(request: &AppRequest, textures: &TextureSet, signatures: &[Signature]) -> Atlases {
     let tile_size = request.tile_size;
-    let total = signatures.len() as u32 * request.variants;
+    let signature_count = signatures.len() as u32;
+    let total = signature_count * request.variants;
     let rows = total.div_ceil(ATLAS_COLUMNS);
     let width = ATLAS_COLUMNS * tile_size;
     let height = rows * tile_size;
+
+    let tiles: Vec<(u32, TileBuffers)> = (0..total)
+        .into_par_iter()
+        .map(|atlas_index| {
+            let variant = atlas_index / signature_count;
+            let sig_idx = (atlas_index % signature_count) as usize;
+            let signature = &signatures[sig_idx];
+            let tile = render_tile(request, textures, signature, variant, 0, 0);
+            (atlas_index, tile)
+        })
+        .collect();
 
     let mut albedo = RgbaImage::new(width, height);
     let mut mask = RgbaImage::new(width, height);
     let mut height_img = RgbaImage::new(width, height);
     let mut normal = RgbaImage::new(width, height);
 
-    let mut atlas_index = 0_u32;
-    for variant in 0..request.variants {
-        for signature in signatures {
-            let tile = render_tile(request, textures, signature, variant, 0, 0);
-            let col = atlas_index % ATLAS_COLUMNS;
-            let row = atlas_index / ATLAS_COLUMNS;
-            let dx = col * tile_size;
-            let dy = row * tile_size;
-            blit_exact(&mut albedo, &tile.albedo, dx, dy);
-            blit_exact(&mut mask, &tile.mask, dx, dy);
-            blit_exact(&mut height_img, &tile.height, dx, dy);
-            blit_exact(&mut normal, &tile.normal, dx, dy);
-            atlas_index += 1;
-        }
+    for (atlas_index, tile) in tiles {
+        let col = atlas_index % ATLAS_COLUMNS;
+        let row = atlas_index / ATLAS_COLUMNS;
+        let dx = col * tile_size;
+        let dy = row * tile_size;
+        blit_exact(&mut albedo, &tile.albedo, dx, dy);
+        blit_exact(&mut mask, &tile.mask, dx, dy);
+        blit_exact(&mut height_img, &tile.height, dx, dy);
+        blit_exact(&mut normal, &tile.normal, dx, dy);
     }
 
     Atlases {
@@ -368,71 +376,64 @@ fn build_material_albedo_and_values(
 
     let width = MATERIAL_EXPORT_SIZE;
     let height = MATERIAL_EXPORT_SIZE;
-    let mut albedo = RgbaImage::new(width, height);
-    let mut values = vec![0.0_f32; (width * height) as usize];
+    let pixel_count = (width as usize) * (height as usize);
+    let mut raw = vec![0_u8; pixel_count * 4];
+    let mut values = vec![0.0_f32; pixel_count];
 
-    for y in 0..height {
-        for x in 0..width {
-            let value = sample_material_value(material, texture, request.texture_scale, width, x, y, seed);
-            let color = sample_material_color(
-                material,
-                tint,
-                texture,
-                request.texture_scale,
-                request.texture_color_overlay,
-                width,
-                x,
-                y,
-                seed,
-                1.0,
-            );
-            values[(y * width + x) as usize] = value;
-            albedo.put_pixel(x, y, rgba(color, 255));
-        }
-    }
+    raw.par_chunks_mut(4)
+        .zip(values.par_iter_mut())
+        .enumerate()
+        .for_each(|(i, (pixel, value))| {
+            let x = (i as u32) % width;
+            let y = (i as u32) / width;
+            let base = sample_material_base(material, texture, request.texture_scale, width, x, y, seed);
+            *value = srgb_luminance_rgb(base.rgb) / 255.0;
+            let color = apply_material_tint(base, tint, request.texture_color_overlay, 1.0);
+            pixel[0] = color[0];
+            pixel[1] = color[1];
+            pixel[2] = color[2];
+            pixel[3] = 255;
+        });
 
+    let albedo = RgbaImage::from_raw(width, height, raw)
+        .expect("buffer size matches dimensions");
     (albedo, values)
 }
 
 fn build_scalar_image(values: &[f32], width: u32, height: u32) -> RgbaImage {
-    let mut image = RgbaImage::new(width, height);
-    for y in 0..height {
-        for x in 0..width {
-            let value = sample_wrapped_value(values, width, height, x as i32, y as i32);
-            let byte = (clamp(value, 0.0, 1.0) * 255.0).round() as u8;
-            image.put_pixel(x, y, Rgba([byte, byte, byte, 255]));
-        }
-    }
-    image
+    let mut raw = vec![0_u8; (width as usize) * (height as usize) * 4];
+    raw.par_chunks_mut(4).enumerate().for_each(|(i, pixel)| {
+        let x = ((i as u32) % width) as i32;
+        let y = ((i as u32) / width) as i32;
+        let value = sample_wrapped_value(values, width, height, x, y);
+        let byte = (clamp(value, 0.0, 1.0) * 255.0).round() as u8;
+        pixel[0] = byte;
+        pixel[1] = byte;
+        pixel[2] = byte;
+        pixel[3] = 255;
+    });
+    RgbaImage::from_raw(width, height, raw).expect("buffer size matches dimensions")
 }
 
 fn build_wrapped_normal_image(values: &[f32], width: u32, height: u32, strength: f32) -> RgbaImage {
-    let mut image = RgbaImage::new(width, height);
-    for y in 0..height {
-        for x in 0..width {
-            let xi = x as i32;
-            let yi = y as i32;
-            let left = sample_wrapped_value(values, width, height, xi - 1, yi);
-            let right = sample_wrapped_value(values, width, height, xi + 1, yi);
-            let up = sample_wrapped_value(values, width, height, xi, yi - 1);
-            let down = sample_wrapped_value(values, width, height, xi, yi + 1);
-            let nx = (left - right) * strength;
-            let ny = (up - down) * strength;
-            let nz = 1.0_f32;
-            let length = (nx * nx + ny * ny + nz * nz).sqrt().max(0.0001);
-            image.put_pixel(
-                x,
-                y,
-                Rgba([
-                    (((nx / length) * 0.5 + 0.5) * 255.0).round() as u8,
-                    (((ny / length) * 0.5 + 0.5) * 255.0).round() as u8,
-                    (((nz / length) * 0.5 + 0.5) * 255.0).round() as u8,
-                    255,
-                ]),
-            );
-        }
-    }
-    image
+    let mut raw = vec![0_u8; (width as usize) * (height as usize) * 4];
+    raw.par_chunks_mut(4).enumerate().for_each(|(i, pixel)| {
+        let xi = ((i as u32) % width) as i32;
+        let yi = ((i as u32) / width) as i32;
+        let left = sample_wrapped_value(values, width, height, xi - 1, yi);
+        let right = sample_wrapped_value(values, width, height, xi + 1, yi);
+        let up = sample_wrapped_value(values, width, height, xi, yi - 1);
+        let down = sample_wrapped_value(values, width, height, xi, yi + 1);
+        let nx = (left - right) * strength;
+        let ny = (up - down) * strength;
+        let nz = 1.0_f32;
+        let length = (nx * nx + ny * ny + nz * nz).sqrt().max(0.0001);
+        pixel[0] = (((nx / length) * 0.5 + 0.5) * 255.0).round() as u8;
+        pixel[1] = (((ny / length) * 0.5 + 0.5) * 255.0).round() as u8;
+        pixel[2] = (((nz / length) * 0.5 + 0.5) * 255.0).round() as u8;
+        pixel[3] = 255;
+    });
+    RgbaImage::from_raw(width, height, raw).expect("buffer size matches dimensions")
 }
 
 fn sample_wrapped_value(values: &[f32], width: u32, height: u32, x: i32, y: i32) -> f32 {
@@ -446,32 +447,41 @@ fn build_map_preview(request: &AppRequest, textures: &TextureSet) -> Result<Rgba
     let height = request.map.height * request.tile_size;
     let mut preview = RgbaImage::new(width, height);
 
-    for map_y in 0..request.map.height as i32 {
-        for map_x in 0..request.map.width as i32 {
+    let positions: Vec<(i32, i32)> = (0..request.map.height as i32)
+        .flat_map(|y| (0..request.map.width as i32).map(move |x| (x, y)))
+        .collect();
+
+    let cell_renders: Vec<(u32, u32, RgbaImage)> = positions
+        .into_par_iter()
+        .map(|(map_x, map_y)| {
             let cell_index = (map_y as u32 * request.map.width + map_x as u32) as usize;
             let filled = request.map.cells.get(cell_index).copied().unwrap_or(0) > 0;
             let origin_x = map_x as u32 * request.tile_size;
             let origin_y = map_y as u32 * request.tile_size;
-
-            if filled {
+            let img = if filled {
                 let signature = signature_at(&request.map, map_x, map_y);
                 let variant = request
                     .forced_variant
                     .unwrap_or_else(|| pick_variant(map_x, map_y, request.seed, request.variants));
                 let tile = render_tile(request, textures, &signature, variant, origin_x, origin_y);
-                let source = choose_mode_image(&tile, &request.preview_mode);
-                blit_exact(&mut preview, source, origin_x, origin_y);
+                extract_mode_image(tile, &request.preview_mode)
             } else {
-                fill_empty_cell(&mut preview, textures, request, origin_x, origin_y);
-            }
-        }
+                render_empty_cell(textures, request, origin_x, origin_y)
+            };
+            (origin_x, origin_y, img)
+        })
+        .collect();
+
+    for (origin_x, origin_y, img) in cell_renders {
+        blit_exact(&mut preview, &img, origin_x, origin_y);
     }
 
     Ok(preview)
 }
 
-fn fill_empty_cell(target: &mut RgbaImage, textures: &TextureSet, request: &AppRequest, origin_x: u32, origin_y: u32) {
+fn render_empty_cell(textures: &TextureSet, request: &AppRequest, origin_x: u32, origin_y: u32) -> RgbaImage {
     let (material, base_color, texture, seed) = material_slot(request, textures, MaterialKind::Base);
+    let mut img = RgbaImage::new(request.tile_size, request.tile_size);
     for local_y in 0..request.tile_size {
         for local_x in 0..request.tile_size {
             let color = sample_material_color(
@@ -486,9 +496,10 @@ fn fill_empty_cell(target: &mut RgbaImage, textures: &TextureSet, request: &AppR
                 seed,
                 0.92,
             );
-            target.put_pixel(origin_x + local_x, origin_y + local_y, rgba(color, 255));
+            img.put_pixel(local_x, local_y, rgba(color, 255));
         }
     }
+    img
 }
 
 fn pick_variant(x: i32, y: i32, seed: u32, total: u32) -> u32 {
@@ -629,13 +640,13 @@ fn render_tile(
     }
 }
 
-fn choose_mode_image<'a>(tile: &'a TileBuffers, preview_mode: &str) -> &'a RgbaImage {
+fn extract_mode_image(tile: TileBuffers, preview_mode: &str) -> RgbaImage {
     match preview_mode {
-        "albedo" | "composite" => &tile.albedo,
-        "mask" => &tile.mask,
-        "height" => &tile.height,
-        "normal" => &tile.normal,
-        _ => &tile.albedo,
+        "albedo" | "composite" => tile.albedo,
+        "mask" => tile.mask,
+        "height" => tile.height,
+        "normal" => tile.normal,
+        _ => tile.albedo,
     }
 }
 
@@ -928,6 +939,83 @@ fn material_slot<'a>(
     }
 }
 
+#[derive(Clone, Copy)]
+struct MaterialBaseSample {
+    rgb: [u8; 3],
+    is_image_source: bool,
+}
+
+fn sample_material_base(
+    material: &MaterialConfig,
+    texture: Option<&LoadedTexture>,
+    texture_scale: f32,
+    tile_size: u32,
+    x: u32,
+    y: u32,
+    seed: u32,
+) -> MaterialBaseSample {
+    match material.source.as_str() {
+        "image" => {
+            if let Some(texture) = texture {
+                let sample = texture.sample_filtered(
+                    (x as f32 + 0.5) * texture_scale,
+                    (y as f32 + 0.5) * texture_scale,
+                    texture_scale,
+                );
+                MaterialBaseSample {
+                    rgb: [sample[0], sample[1], sample[2]],
+                    is_image_source: true,
+                }
+            } else {
+                MaterialBaseSample {
+                    rgb: procedural_layer_material(
+                        material,
+                        seed,
+                        x as f32,
+                        y as f32,
+                        tile_size as f32,
+                        [128, 128, 128],
+                    ),
+                    is_image_source: false,
+                }
+            }
+        }
+        "flat" => MaterialBaseSample {
+            rgb: parse_hex_color(&material.color_a),
+            is_image_source: false,
+        },
+        _ => MaterialBaseSample {
+            rgb: procedural_layer_material(
+                material,
+                seed,
+                x as f32,
+                y as f32,
+                tile_size as f32,
+                [128, 128, 128],
+            ),
+            is_image_source: false,
+        },
+    }
+}
+
+fn apply_material_tint(
+    base: MaterialBaseSample,
+    tint: [u8; 3],
+    texture_color_overlay: bool,
+    brightness: f32,
+) -> [u8; 3] {
+    let tint_factor = if base.is_image_source && texture_color_overlay {
+        tint
+    } else {
+        [255, 255, 255]
+    };
+    [
+        ((base.rgb[0] as f32 * (tint_factor[0] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
+        ((base.rgb[1] as f32 * (tint_factor[1] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
+        ((base.rgb[2] as f32 * (tint_factor[2] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
+    ]
+}
+
 fn sample_material_color(
     material: &MaterialConfig,
     tint: [u8; 3],
@@ -940,68 +1028,8 @@ fn sample_material_color(
     seed: u32,
     brightness: f32,
 ) -> [u8; 3] {
-    let source = material.source.as_str();
-    let (sampled, has_texture) = match source {
-        "image" => {
-            if let Some(texture) = texture {
-                let source = texture.sample_filtered(
-                    (x as f32 + 0.5) * texture_scale,
-                    (y as f32 + 0.5) * texture_scale,
-                    texture_scale,
-                );
-                ([source[0], source[1], source[2]], true)
-            } else {
-                (
-                    procedural_layer_material(material, seed, x as f32, y as f32, tile_size as f32, tint),
-                    false,
-                )
-            }
-        }
-        "flat" => (parse_hex_color(&material.color_a), false),
-        _ => (
-            procedural_layer_material(material, seed, x as f32, y as f32, tile_size as f32, tint),
-            false,
-        ),
-    };
-    let tint_factor = if has_texture && texture_color_overlay {
-        tint
-    } else {
-        [255, 255, 255]
-    };
-
-    [
-        ((sampled[0] as f32 * (tint_factor[0] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
-        ((sampled[1] as f32 * (tint_factor[1] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
-        ((sampled[2] as f32 * (tint_factor[2] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
-    ]
-}
-
-fn sample_material_value(
-    material: &MaterialConfig,
-    texture: Option<&LoadedTexture>,
-    texture_scale: f32,
-    tile_size: u32,
-    x: u32,
-    y: u32,
-    seed: u32,
-) -> f32 {
-    if material.source == "image" {
-        if let Some(texture) = texture {
-            let source = texture.sample_filtered(
-                (x as f32 + 0.5) * texture_scale,
-                (y as f32 + 0.5) * texture_scale,
-                texture_scale,
-            );
-            return srgb_luminance(source) / 255.0;
-        }
-    }
-
-    let color = if material.source == "flat" {
-        parse_hex_color(&material.color_a)
-    } else {
-        procedural_layer_material(material, seed, x as f32, y as f32, tile_size as f32, [128, 128, 128])
-    };
-    srgb_luminance_rgb(color) / 255.0
+    let base = sample_material_base(material, texture, texture_scale, tile_size, x, y, seed);
+    apply_material_tint(base, tint, texture_color_overlay, brightness)
 }
 
 fn procedural_layer_material(
@@ -1019,6 +1047,7 @@ fn procedural_layer_material(
     let px = x * scale;
     let py = y * scale;
     let period = (tile_period * EDGE_NOISE_PERIOD_TILES * scale).max(1.0);
+    let feature_period = (tile_period * scale).max(1.0);
     let seed = seed.wrapping_add(material.seed.wrapping_mul(193));
     let broad = fbm_tiled(px * 0.045, py * 0.045, period * 0.045, period * 0.045, 4, seed);
     let fine = fbm_tiled(
@@ -1031,15 +1060,22 @@ fn procedural_layer_material(
     );
     let speck = hash2d((px * 1.7).floor() as i32, (py * 1.7).floor() as i32, seed.wrapping_add(307));
     let (mut value, crack, wear_mask, highlight_mask) = match material.kind.as_str() {
-        "stone_bricks" => stone_brick_layers(material, seed, px, py, broad, fine),
-        "cracked_earth" => cracked_earth_layers(material, seed, px, py, period, broad, fine),
-        "worn_metal" => worn_metal_layers(material, seed, px, py, broad, fine),
-        "wood_planks" => wood_plank_layers(material, seed, px, py, broad, fine),
-        "packed_dirt" => packed_dirt_layers(material, speck, broad, fine),
-        "concrete" => concrete_layers(material, seed, px, py, broad, fine),
-        "ice_frost" => ice_frost_layers(material, seed, px, py, broad, fine),
-        "ash_burnt_ground" => ash_layers(material, speck, broad, fine),
-        _ => rough_stone_layers(material, speck, broad, fine),
+        "stone_bricks" => stone_brick_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "cracked_earth" => cracked_earth_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "worn_metal" => worn_metal_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "wood_planks" => wood_plank_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "packed_dirt" => packed_dirt_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "concrete" => concrete_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "ice_frost" => ice_frost_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "ash_burnt_ground" => ash_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "snow" => snow_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "sand" => sand_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "moss" => moss_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "gravel" => gravel_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "rusty_metal" => rusty_metal_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "concrete_floor" => concrete_floor_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "ribbed_steel" => ribbed_steel_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        _ => rough_stone_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
     };
 
     value += (speck - 0.5) * material.grain * 0.18;
@@ -1059,11 +1095,14 @@ fn stone_brick_layers(
     seed: u32,
     px: f32,
     py: f32,
+    _period: f32,
+    feature_period: f32,
+    _speck: f32,
     broad: f32,
     fine: f32,
 ) -> (f32, f32, f32, f32) {
-    let brick_w = 20.0;
-    let brick_h = 9.0;
+    let brick_w = (feature_period * 0.3125).max(2.0);
+    let brick_h = (feature_period * 0.140625).max(1.0);
     let row = (py / brick_h).floor() as i32;
     let offset = if row.rem_euclid(2) == 0 { 0.0 } else { brick_w * 0.5 };
     let bx = positive_mod(px + offset, brick_w);
@@ -1085,10 +1124,12 @@ fn cracked_earth_layers(
     px: f32,
     py: f32,
     period: f32,
+    feature_period: f32,
+    _speck: f32,
     broad: f32,
     fine: f32,
 ) -> (f32, f32, f32, f32) {
-    let cell = 18.0;
+    let cell = (feature_period * 0.28125).max(2.0);
     let warp_x = (fbm_tiled(px * 0.035, py * 0.035, period * 0.035, period * 0.035, 3, seed) - 0.5) * 7.0;
     let warp_y = (fbm_tiled(
         px * 0.038 + 31.0,
@@ -1113,7 +1154,17 @@ fn cracked_earth_layers(
     (value, crack, material.wear * (1.0 - broad), 0.04 + fine * 0.08)
 }
 
-fn rough_stone_layers(material: &MaterialConfig, speck: f32, broad: f32, fine: f32) -> (f32, f32, f32, f32) {
+fn rough_stone_layers(
+    material: &MaterialConfig,
+    _seed: u32,
+    _px: f32,
+    _py: f32,
+    _period: f32,
+    _feature_period: f32,
+    speck: f32,
+    broad: f32,
+    fine: f32,
+) -> (f32, f32, f32, f32) {
     let crack = clamp((0.34 - fine).max(0.0) * material.crack_amount * 1.8, 0.0, 1.0);
     let value = 0.36 + broad * 0.34 + fine * 0.18 + speck * material.grain * 0.16;
     (value, crack, material.wear * speck, fine * 0.12)
@@ -1124,12 +1175,20 @@ fn worn_metal_layers(
     seed: u32,
     px: f32,
     py: f32,
+    period: f32,
+    feature_period: f32,
+    _speck: f32,
     broad: f32,
     fine: f32,
 ) -> (f32, f32, f32, f32) {
+    let scratch_period = (feature_period * 0.140625).max(2.0);
     let bands = ((py * 0.22).sin() * 0.5 + 0.5) * 0.16;
-    let scratch_coord = positive_mod(py + fbm_tiled(px * 0.06, py * 0.06, 64.0, 64.0, 2, seed) * 3.0, 9.0);
-    let scratches = line_mask(scratch_coord.min(9.0 - scratch_coord), 0.18 + material.wear * 0.8);
+    let warp = fbm_tiled(px * 0.06, py * 0.06, period * 0.06, period * 0.06, 2, seed) * 3.0;
+    let scratch_coord = positive_mod(py + warp, scratch_period);
+    let scratches = line_mask(
+        scratch_coord.min(scratch_period - scratch_coord),
+        0.18 + material.wear * 0.8,
+    );
     let value = 0.42 + broad * 0.18 + fine * 0.16 + bands;
     (value, scratches * material.crack_amount, scratches, scratches * 0.28)
 }
@@ -1139,19 +1198,38 @@ fn wood_plank_layers(
     seed: u32,
     px: f32,
     py: f32,
+    period: f32,
+    feature_period: f32,
+    _speck: f32,
     broad: f32,
     fine: f32,
 ) -> (f32, f32, f32, f32) {
-    let plank_w = 10.0;
+    let plank_w = (feature_period * 0.15625).max(2.0);
     let lx = positive_mod(px, plank_w);
     let seam = line_mask(lx.min(plank_w - lx), 0.45 + material.crack_amount * 1.3);
-    let grain = fbm_tiled(px * 0.03, py * 0.34, 64.0, 64.0, 4, seed.wrapping_add(41));
-    let knot = hash2d((px / 14.0).floor() as i32, (py / 18.0).floor() as i32, seed.wrapping_add(43));
+    let grain = fbm_tiled(px * 0.03, py * 0.34, period * 0.03, period * 0.34, 4, seed.wrapping_add(41));
+    let knot_x = (feature_period * 0.21875).max(2.0);
+    let knot_y = (feature_period * 0.28125).max(2.0);
+    let knot = hash2d(
+        (px / knot_x).floor() as i32,
+        (py / knot_y).floor() as i32,
+        seed.wrapping_add(43),
+    );
     let value = 0.38 + broad * 0.10 + fine * 0.08 + grain * 0.34 + knot * material.wear * 0.08;
     (value, seam, material.wear * (1.0 - grain), grain * 0.12)
 }
 
-fn packed_dirt_layers(material: &MaterialConfig, speck: f32, broad: f32, fine: f32) -> (f32, f32, f32, f32) {
+fn packed_dirt_layers(
+    material: &MaterialConfig,
+    _seed: u32,
+    _px: f32,
+    _py: f32,
+    _period: f32,
+    _feature_period: f32,
+    speck: f32,
+    broad: f32,
+    fine: f32,
+) -> (f32, f32, f32, f32) {
     let pebble = clamp((speck - 0.72) * 4.0, 0.0, 1.0) * material.grain;
     let crack = clamp((0.28 - fine).max(0.0) * material.crack_amount * 1.6, 0.0, 1.0);
     let value = 0.40 + broad * 0.30 + fine * 0.12 + pebble * 0.10;
@@ -1163,11 +1241,14 @@ fn concrete_layers(
     seed: u32,
     px: f32,
     py: f32,
+    period: f32,
+    _feature_period: f32,
+    _speck: f32,
     broad: f32,
     fine: f32,
 ) -> (f32, f32, f32, f32) {
     let pore = hash2d((px * 2.1) as i32, (py * 2.1) as i32, seed.wrapping_add(83));
-    let crack_line = fbm_tiled(px * 0.08, py * 0.08, 64.0, 64.0, 2, seed.wrapping_add(89));
+    let crack_line = fbm_tiled(px * 0.08, py * 0.08, period * 0.08, period * 0.08, 2, seed.wrapping_add(89));
     let crack = clamp((0.18 - (crack_line - 0.5).abs()).max(0.0) * material.crack_amount * 4.0, 0.0, 1.0);
     let value = 0.48 + broad * 0.16 + fine * 0.08 + (pore - 0.5) * material.grain * 0.08;
     (value, crack, material.wear * pore, 0.04)
@@ -1178,20 +1259,241 @@ fn ice_frost_layers(
     seed: u32,
     px: f32,
     py: f32,
+    period: f32,
+    _feature_period: f32,
+    _speck: f32,
     broad: f32,
     fine: f32,
 ) -> (f32, f32, f32, f32) {
-    let frost = fbm_tiled(px * 0.12 + 9.0, py * 0.12, 64.0, 64.0, 4, seed.wrapping_add(103));
+    let frost = fbm_tiled(px * 0.12 + 9.0, py * 0.12, period * 0.12, period * 0.12, 4, seed.wrapping_add(103));
     let vein = clamp((0.10 - (frost - 0.52).abs()).max(0.0) * material.crack_amount * 5.0, 0.0, 1.0);
     let value = 0.50 + broad * 0.16 + fine * 0.12 + frost * 0.18;
     (value, vein, material.wear * (1.0 - frost), frost * 0.24)
 }
 
-fn ash_layers(material: &MaterialConfig, speck: f32, broad: f32, fine: f32) -> (f32, f32, f32, f32) {
+fn ash_layers(
+    material: &MaterialConfig,
+    _seed: u32,
+    _px: f32,
+    _py: f32,
+    _period: f32,
+    _feature_period: f32,
+    speck: f32,
+    broad: f32,
+    fine: f32,
+) -> (f32, f32, f32, f32) {
     let ember = clamp((speck - 0.92) * 8.0, 0.0, 1.0) * material.wear;
     let crack = clamp((0.25 - fine).max(0.0) * material.crack_amount * 1.8, 0.0, 1.0);
     let value = 0.28 + broad * 0.25 + fine * 0.12 + ember * 0.18;
     (value, crack, material.wear * (1.0 - broad), ember)
+}
+
+fn snow_layers(
+    material: &MaterialConfig,
+    seed: u32,
+    px: f32,
+    py: f32,
+    period: f32,
+    _feature_period: f32,
+    speck: f32,
+    broad: f32,
+    fine: f32,
+) -> (f32, f32, f32, f32) {
+    let drift = fbm_tiled(
+        px * 0.07 + 5.0,
+        py * 0.07 + 13.0,
+        period * 0.07,
+        period * 0.07,
+        3,
+        seed.wrapping_add(211),
+    );
+    let sparkle = clamp((speck - 0.94) * 16.0, 0.0, 1.0) * (0.4 + material.grain * 0.6);
+    let crack = clamp((0.18 - fine).max(0.0) * material.crack_amount * 0.8, 0.0, 1.0);
+    let value = 0.62 + drift * 0.20 + broad * 0.10 + fine * 0.06;
+    (value, crack, material.wear * (1.0 - drift), sparkle * 0.55)
+}
+
+fn sand_layers(
+    material: &MaterialConfig,
+    seed: u32,
+    px: f32,
+    py: f32,
+    period: f32,
+    feature_period: f32,
+    speck: f32,
+    broad: f32,
+    fine: f32,
+) -> (f32, f32, f32, f32) {
+    let ripple_period = (feature_period * 0.125).max(2.0);
+    let warp = (fbm_tiled(
+        px * 0.05,
+        py * 0.05,
+        period * 0.05,
+        period * 0.05,
+        2,
+        seed.wrapping_add(241),
+    ) - 0.5)
+        * 4.0;
+    let ripple = (((py + warp) / ripple_period) * std::f32::consts::TAU).sin() * 0.5 + 0.5;
+    let pebble = clamp((speck - 0.84) * 5.0, 0.0, 1.0) * material.grain;
+    let value = 0.44 + broad * 0.20 + fine * 0.10 + ripple * 0.10 + pebble * 0.10;
+    let highlight = ripple * 0.10 + pebble * 0.18;
+    (value, 0.0, material.wear * fine, highlight)
+}
+
+fn moss_layers(
+    material: &MaterialConfig,
+    seed: u32,
+    px: f32,
+    py: f32,
+    period: f32,
+    _feature_period: f32,
+    speck: f32,
+    broad: f32,
+    fine: f32,
+) -> (f32, f32, f32, f32) {
+    let blob = fbm_tiled(
+        px * 0.06 + 13.0,
+        py * 0.06 + 7.0,
+        period * 0.06,
+        period * 0.06,
+        4,
+        seed.wrapping_add(151),
+    );
+    let cluster = (blob - 0.45).max(0.0) * 1.6;
+    let spores = clamp((speck - 0.92) * 12.0, 0.0, 1.0);
+    let value = 0.32 + broad * 0.14 + fine * 0.10 + cluster * 0.20;
+    let crack = clamp((0.20 - fine).max(0.0) * material.crack_amount * 0.6, 0.0, 1.0);
+    let highlight = spores * 0.40 + cluster * 0.08;
+    (value, crack, material.wear * (1.0 - cluster), highlight)
+}
+
+fn gravel_layers(
+    material: &MaterialConfig,
+    seed: u32,
+    px: f32,
+    py: f32,
+    period: f32,
+    feature_period: f32,
+    speck: f32,
+    broad: f32,
+    fine: f32,
+) -> (f32, f32, f32, f32) {
+    let cell_size = (feature_period * 0.10).max(2.0);
+    let edge = voronoi_edge_mask(
+        px,
+        py,
+        cell_size,
+        period,
+        seed.wrapping_add(331),
+        0.6 + material.crack_amount * 1.4,
+    );
+    let pebble_var = fbm_tiled(
+        px * 0.16,
+        py * 0.16,
+        period * 0.16,
+        period * 0.16,
+        2,
+        seed.wrapping_add(337),
+    );
+    let value =
+        0.30 + broad * 0.16 + fine * 0.08 + pebble_var * 0.30 + (speck - 0.5) * material.grain * 0.18;
+    let highlight = clamp((1.0 - edge) * pebble_var * 0.20, 0.0, 1.0);
+    (value, edge, material.wear * (1.0 - pebble_var), highlight)
+}
+
+fn rusty_metal_layers(
+    material: &MaterialConfig,
+    seed: u32,
+    px: f32,
+    py: f32,
+    period: f32,
+    feature_period: f32,
+    speck: f32,
+    broad: f32,
+    fine: f32,
+) -> (f32, f32, f32, f32) {
+    let scratch_period = (feature_period * 0.140625).max(2.0);
+    let warp = fbm_tiled(
+        px * 0.06,
+        py * 0.06,
+        period * 0.06,
+        period * 0.06,
+        2,
+        seed.wrapping_add(401),
+    ) * 3.0;
+    let scratch_coord = positive_mod(py + warp, scratch_period);
+    let scratches = line_mask(
+        scratch_coord.min(scratch_period - scratch_coord),
+        0.18 + material.wear * 0.6,
+    );
+    let rust = fbm_tiled(
+        px * 0.08 + 23.0,
+        py * 0.08,
+        period * 0.08,
+        period * 0.08,
+        4,
+        seed.wrapping_add(409),
+    );
+    let rust_mask = clamp((rust - 0.42) * 4.0, 0.0, 1.0);
+    let pit = clamp((speck - 0.78) * 8.0, 0.0, 1.0) * (0.4 + material.crack_amount * 0.8);
+    let value = 0.36 + broad * 0.18 + fine * 0.16 + rust_mask * 0.18 - pit * 0.28;
+    let crack = clamp(scratches * material.crack_amount + pit, 0.0, 1.0);
+    (value, crack, scratches + rust_mask * 0.5, rust_mask * 0.30)
+}
+
+fn concrete_floor_layers(
+    material: &MaterialConfig,
+    seed: u32,
+    px: f32,
+    py: f32,
+    _period: f32,
+    feature_period: f32,
+    _speck: f32,
+    broad: f32,
+    fine: f32,
+) -> (f32, f32, f32, f32) {
+    let tile_w = (feature_period * 0.5).max(4.0);
+    let bx = positive_mod(px, tile_w);
+    let by = positive_mod(py, tile_w);
+    let edge_dist = bx.min(tile_w - bx).min(by).min(tile_w - by);
+    let seam = line_mask(edge_dist, 0.5 + material.crack_amount * 1.4);
+    let cell_x = (px / tile_w).floor() as i32;
+    let cell_y = (py / tile_w).floor() as i32;
+    let pour = hash2d(cell_x, cell_y, seed.wrapping_add(503));
+    let pore = (hash2d((px * 2.1) as i32, (py * 2.1) as i32, seed.wrapping_add(509)) - 0.5)
+        * material.grain
+        * 0.10;
+    let value = 0.50 + broad * 0.12 + fine * 0.08 + pour * 0.10 + pore;
+    let highlight = (1.0 - seam) * 0.05 + pour * 0.05;
+    (value, seam, material.wear * (1.0 - pour), highlight)
+}
+
+fn ribbed_steel_layers(
+    material: &MaterialConfig,
+    _seed: u32,
+    px: f32,
+    py: f32,
+    _period: f32,
+    feature_period: f32,
+    _speck: f32,
+    broad: f32,
+    fine: f32,
+) -> (f32, f32, f32, f32) {
+    let rib_period = (feature_period * 0.1875).max(2.0);
+    let diag1 = positive_mod(px + py, rib_period);
+    let diag2 = positive_mod(px - py, rib_period);
+    let rib_dist = diag1
+        .min(rib_period - diag1)
+        .min(diag2)
+        .min(rib_period - diag2);
+    let rib_mask = line_mask(rib_dist, 1.5);
+    let bands = ((py * 0.04).sin() * 0.5 + 0.5) * 0.06;
+    let scratch = clamp((fine - 0.55) * 2.5, 0.0, 1.0) * material.wear * 0.10;
+    let value = 0.46 + broad * 0.10 + fine * 0.10 + bands + rib_mask * 0.18 - scratch;
+    let crack = scratch * material.crack_amount * 0.5;
+    let highlight = rib_mask * 0.32 + bands * 0.18;
+    (value, crack, scratch, highlight)
 }
 
 fn line_mask(distance: f32, width: f32) -> f32 {
@@ -1268,10 +1570,6 @@ fn parse_or_fallback(value: &str, fallback: [u8; 3]) -> [u8; 3] {
     }
 }
 
-fn srgb_luminance(color: [u8; 4]) -> f32 {
-    color[0] as f32 * 0.2126 + color[1] as f32 * 0.7152 + color[2] as f32 * 0.0722
-}
-
 fn srgb_luminance_rgb(color: [u8; 3]) -> f32 {
     color[0] as f32 * 0.2126 + color[1] as f32 * 0.7152 + color[2] as f32 * 0.0722
 }
@@ -1313,10 +1611,22 @@ fn sample_height_value(size: u32, heights: &[f32], x: u32, y: u32) -> f32 {
 }
 
 fn blit_exact(target: &mut RgbaImage, source: &RgbaImage, dx: u32, dy: u32) {
-    for y in 0..source.height() {
-        for x in 0..source.width() {
-            target.put_pixel(dx + x, dy + y, *source.get_pixel(x, y));
-        }
+    let source_width = source.width() as usize;
+    let source_height = source.height() as usize;
+    let target_width = target.width() as usize;
+    let row_bytes = source_width * 4;
+    let target_row_bytes = target_width * 4;
+    let dx_offset = dx as usize * 4;
+    let dy_usize = dy as usize;
+
+    let src: &[u8] = source;
+    let dst: &mut [u8] = target;
+
+    for y in 0..source_height {
+        let src_offset = y * row_bytes;
+        let dst_offset = (dy_usize + y) * target_row_bytes + dx_offset;
+        dst[dst_offset..dst_offset + row_bytes]
+            .copy_from_slice(&src[src_offset..src_offset + row_bytes]);
     }
 }
 
