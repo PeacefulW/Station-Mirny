@@ -51,6 +51,77 @@ SLOT_LABELS = {
     "base": "Основа",
 }
 
+MATERIAL_SLOT_LABELS = {
+    "top": "Верх",
+    "face": "Лицевая",
+    "base": "Основа / пол",
+}
+
+MATERIAL_SOURCE_LABELS = {
+    "procedural": "Процедурный",
+    "image": "Файл",
+    "flat": "Цвет",
+}
+MATERIAL_SOURCE_KEYS_BY_LABEL = {label: key for key, label in MATERIAL_SOURCE_LABELS.items()}
+
+MATERIAL_KIND_LABELS = {
+    "stone_bricks": "Каменные блоки / кирпичи",
+    "cracked_earth": "Растрескавшаяся сухая земля",
+    "rough_stone": "Грубый камень",
+    "worn_metal": "Потёртый металл",
+    "wood_planks": "Деревянные доски",
+    "packed_dirt": "Утрамбованная земля",
+    "concrete": "Бетон",
+    "ice_frost": "Лёд / иней",
+    "ash_burnt_ground": "Пепел / выжженная земля",
+}
+MATERIAL_KIND_KEYS_BY_LABEL = {label: key for key, label in MATERIAL_KIND_LABELS.items()}
+
+MATERIAL_DEFAULTS = {
+    "top": {
+        "source": "procedural",
+        "kind": "rough_stone",
+        "scale": 1.0,
+        "contrast": 1.0,
+        "crack_amount": 0.25,
+        "wear": 0.2,
+        "grain": 0.45,
+        "edge_darkening": 0.25,
+        "seed": 11,
+        "color_a": "#5e5142",
+        "color_b": "#8a7a62",
+        "highlight": "#b9ad93",
+    },
+    "face": {
+        "source": "procedural",
+        "kind": "stone_bricks",
+        "scale": 1.0,
+        "contrast": 1.05,
+        "crack_amount": 0.18,
+        "wear": 0.28,
+        "grain": 0.35,
+        "edge_darkening": 0.45,
+        "seed": 23,
+        "color_a": "#3d3a34",
+        "color_b": "#68665e",
+        "highlight": "#9a9686",
+    },
+    "base": {
+        "source": "procedural",
+        "kind": "packed_dirt",
+        "scale": 1.0,
+        "contrast": 0.9,
+        "crack_amount": 0.12,
+        "wear": 0.2,
+        "grain": 0.5,
+        "edge_darkening": 0.1,
+        "seed": 31,
+        "color_a": "#7d4b1e",
+        "color_b": "#b07232",
+        "highlight": "#d19855",
+    },
+}
+
 
 class CliffForgeApp:
     def __init__(self, root: tk.Tk) -> None:
@@ -109,6 +180,22 @@ class CliffForgeApp:
         self.base_color_var = tk.StringVar(value="#b88d58")
         self.stats_var = tk.StringVar(value=STATS_EMPTY)
         self.status_var = tk.StringVar(value=STATUS_IDLE)
+        self.material_vars = {}
+        for slot, defaults in MATERIAL_DEFAULTS.items():
+            self.material_vars[slot] = {
+                "source": tk.StringVar(value=MATERIAL_SOURCE_LABELS[defaults["source"]]),
+                "kind": tk.StringVar(value=MATERIAL_KIND_LABELS[defaults["kind"]]),
+                "scale": tk.DoubleVar(value=defaults["scale"]),
+                "contrast": tk.DoubleVar(value=defaults["contrast"]),
+                "crack_amount": tk.DoubleVar(value=defaults["crack_amount"]),
+                "wear": tk.DoubleVar(value=defaults["wear"]),
+                "grain": tk.DoubleVar(value=defaults["grain"]),
+                "edge_darkening": tk.DoubleVar(value=defaults["edge_darkening"]),
+                "seed": tk.IntVar(value=defaults["seed"]),
+                "color_a": tk.StringVar(value=defaults["color_a"]),
+                "color_b": tk.StringVar(value=defaults["color_b"]),
+                "highlight": tk.StringVar(value=defaults["highlight"]),
+            }
 
     def _build_layout(self) -> None:
         main = ttk.Frame(self.root, padding=12)
@@ -277,6 +364,72 @@ class CliffForgeApp:
         self.atlas_label = ttk.Label(atlas_frame, anchor="center", text="Атлас ещё не собран...")
         self.atlas_label.grid(row=0, column=0, sticky="nsew")
 
+        materials_frame = ttk.Frame(notebook, padding=12)
+        materials_frame.columnconfigure(0, weight=1)
+        materials_frame.rowconfigure(0, weight=1)
+        notebook.add(materials_frame, text="Материалы")
+        self._build_materials_tab(materials_frame)
+
+    def _build_materials_tab(self, parent: ttk.Frame) -> None:
+        canvas = tk.Canvas(parent, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        inner = ttk.Frame(canvas)
+        window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def sync_scroll_region(_event: tk.Event) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def sync_inner_width(event: tk.Event) -> None:
+            canvas.itemconfigure(window_id, width=event.width)
+
+        inner.bind("<Configure>", sync_scroll_region)
+        canvas.bind("<Configure>", sync_inner_width)
+
+        for slot in ("top", "face", "base"):
+            self._build_material_slot(inner, slot)
+
+    def _build_material_slot(self, parent: ttk.Frame, slot: str) -> None:
+        group = ttk.LabelFrame(parent, text=MATERIAL_SLOT_LABELS[slot], padding=10)
+        group.pack(fill="x", pady=(0, 10))
+        group.columnconfigure(0, weight=1)
+        group.columnconfigure(1, weight=1)
+
+        left = ttk.Frame(group)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        right = ttk.Frame(group)
+        right.grid(row=0, column=1, sticky="nsew")
+
+        vars_for_slot = self.material_vars[slot]
+        self._add_combo(
+            left,
+            "Источник",
+            vars_for_slot["source"],
+            [MATERIAL_SOURCE_LABELS[key] for key in MATERIAL_SOURCE_LABELS],
+            lambda *_args: self.schedule_full(),
+        )
+        self._add_combo(
+            left,
+            "Тип",
+            vars_for_slot["kind"],
+            [MATERIAL_KIND_LABELS[key] for key in MATERIAL_KIND_LABELS],
+            lambda *_args: self.schedule_full(),
+        )
+        self._add_seed_row(left, "Сид материала", vars_for_slot["seed"])
+        self._add_color_row(left, "Цвет A", vars_for_slot["color_a"])
+        self._add_color_row(left, "Цвет B", vars_for_slot["color_b"])
+        self._add_color_row(left, "Блик", vars_for_slot["highlight"])
+
+        self._add_scale(right, "Масштаб", vars_for_slot["scale"], 0.2, 8.0, 0.05)
+        self._add_scale(right, "Контраст", vars_for_slot["contrast"], 0.0, 2.0, 0.05)
+        self._add_scale(right, "Трещины", vars_for_slot["crack_amount"], 0.0, 1.0, 0.01)
+        self._add_scale(right, "Износ", vars_for_slot["wear"], 0.0, 1.0, 0.01)
+        self._add_scale(right, "Зерно", vars_for_slot["grain"], 0.0, 1.0, 0.01)
+        self._add_scale(right, "Затемнение краёв", vars_for_slot["edge_darkening"], 0.0, 1.0, 0.01)
+
     def _add_combo(self, parent: ttk.Widget, label: str, variable: tk.StringVar, values: list[str], callback) -> ttk.Combobox:
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=(2, 6))
@@ -337,6 +490,14 @@ class CliffForgeApp:
         button.pack(side="left")
         variable.trace_add("write", lambda *_args, btn=button, var=variable: self._sync_color_button(btn, var))
 
+    def _add_seed_row(self, parent: ttk.Widget, label: str, variable: tk.IntVar) -> None:
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=(2, 6))
+        ttk.Label(row, text=label, width=20).pack(side="left")
+        entry = ttk.Entry(row, textvariable=variable, width=14)
+        entry.pack(side="left")
+        entry.bind("<Return>", lambda _event: self.schedule_full())
+
     def _sync_color_button(self, button: tk.Button, variable: tk.StringVar) -> None:
         button.configure(background=variable.get())
         if not self.suspend_events:
@@ -356,7 +517,8 @@ class CliffForgeApp:
 
     def _on_scale_change(self, variable: tk.Variable, label: ttk.Label) -> None:
         label.configure(text=self._format_var(variable))
-        self.schedule_draft()
+        if not self.suspend_events:
+            self.schedule_draft()
 
     def _bind_map_canvas(self) -> None:
         self._paint_mode = 1
@@ -456,11 +618,13 @@ class CliffForgeApp:
         if not file_path:
             return
         self.texture_paths[slot] = file_path
+        self.material_vars[slot]["source"].set(MATERIAL_SOURCE_LABELS["image"])
         self.texture_labels[slot].configure(text=Path(file_path).name)
         self.schedule_full()
 
     def _clear_texture(self, slot: str) -> None:
         self.texture_paths[slot] = ""
+        self.material_vars[slot]["source"].set(MATERIAL_SOURCE_LABELS["procedural"])
         self.texture_labels[slot].configure(text=TEXT_PROCEDURAL)
         self.schedule_full()
 
@@ -510,6 +674,7 @@ class CliffForgeApp:
                 "face": self.texture_paths["face"] or None,
                 "base": self.texture_paths["base"] or None,
             },
+            "materials": self._build_materials_payload(),
             "colors": {
                 "top": self.top_color_var.get(),
                 "face": self.face_color_var.get(),
@@ -518,6 +683,25 @@ class CliffForgeApp:
             },
             "map": self.current_map,
         }
+
+    def _build_materials_payload(self) -> dict:
+        payload = {}
+        for slot, vars_for_slot in self.material_vars.items():
+            payload[slot] = {
+                "source": MATERIAL_SOURCE_KEYS_BY_LABEL.get(vars_for_slot["source"].get(), "procedural"),
+                "kind": MATERIAL_KIND_KEYS_BY_LABEL.get(vars_for_slot["kind"].get(), "rough_stone"),
+                "scale": float(vars_for_slot["scale"].get()),
+                "contrast": float(vars_for_slot["contrast"].get()),
+                "crack_amount": float(vars_for_slot["crack_amount"].get()),
+                "wear": float(vars_for_slot["wear"].get()),
+                "grain": float(vars_for_slot["grain"].get()),
+                "edge_darkening": float(vars_for_slot["edge_darkening"].get()),
+                "seed": int(vars_for_slot["seed"].get()),
+                "color_a": vars_for_slot["color_a"].get(),
+                "color_b": vars_for_slot["color_b"].get(),
+                "highlight": vars_for_slot["highlight"].get(),
+            }
+        return payload
 
     def schedule_draft(self) -> None:
         if self.draft_after_id:
@@ -665,7 +849,7 @@ class CliffForgeApp:
         self.preview_offset_y = min(max(self.preview_offset_y, -max_offset_y), max_offset_y)
 
         if self.preview_render_size != target_size or "preview" not in self.photo_refs:
-            render_image = self.preview_source_image.resize(target_size, Image.Resampling.BICUBIC)
+            render_image = self.preview_source_image.resize(target_size, Image.Resampling.NEAREST)
             self.photo_refs["preview"] = ImageTk.PhotoImage(render_image)
             self.preview_render_size = target_size
 
@@ -796,6 +980,7 @@ class CliffForgeApp:
                 value = textures.get(slot) or ""
                 self.texture_paths[slot] = value
                 self.texture_labels[slot].configure(text=Path(value).name if value else TEXT_PROCEDURAL)
+            self._apply_materials_payload(request.get("materials", {}), textures)
 
             map_payload = request.get("map")
             if map_payload:
@@ -805,6 +990,25 @@ class CliffForgeApp:
             self.suspend_events = False
 
         self.schedule_full()
+
+    def _apply_materials_payload(self, materials: dict, textures: dict) -> None:
+        for slot, defaults in MATERIAL_DEFAULTS.items():
+            material = materials.get(slot) or {}
+            vars_for_slot = self.material_vars[slot]
+            source_key = material.get("source") or ("image" if textures.get(slot) else defaults["source"])
+            kind_key = material.get("kind", defaults["kind"])
+            vars_for_slot["source"].set(MATERIAL_SOURCE_LABELS.get(source_key, MATERIAL_SOURCE_LABELS[defaults["source"]]))
+            vars_for_slot["kind"].set(MATERIAL_KIND_LABELS.get(kind_key, MATERIAL_KIND_LABELS[defaults["kind"]]))
+            vars_for_slot["scale"].set(float(material.get("scale", defaults["scale"])))
+            vars_for_slot["contrast"].set(float(material.get("contrast", defaults["contrast"])))
+            vars_for_slot["crack_amount"].set(float(material.get("crack_amount", defaults["crack_amount"])))
+            vars_for_slot["wear"].set(float(material.get("wear", defaults["wear"])))
+            vars_for_slot["grain"].set(float(material.get("grain", defaults["grain"])))
+            vars_for_slot["edge_darkening"].set(float(material.get("edge_darkening", defaults["edge_darkening"])))
+            vars_for_slot["seed"].set(int(material.get("seed", defaults["seed"])))
+            vars_for_slot["color_a"].set(material.get("color_a", defaults["color_a"]))
+            vars_for_slot["color_b"].set(material.get("color_b", defaults["color_b"]))
+            vars_for_slot["highlight"].set(material.get("highlight", defaults["highlight"]))
 
     def _export_outputs(self) -> None:
         target = filedialog.askdirectory(title="Экспорт файлов")

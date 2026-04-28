@@ -35,7 +35,12 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
 - map painter with blob / room / cave helpers
 - draft preview and full atlas generation
 - separate preview and atlas tabs so the preview can use the main workspace
+- Russian `Материалы` tab with separate Top / Face / Base layer-stack settings
+- material source per layer: procedural, image file, or flat color
+- procedural material kinds: stone bricks, cracked dry earth, rough stone, worn metal, wood planks, packed dirt, concrete, ice / frost, ash / burnt ground
+- procedural controls per layer: scale, contrast, crack amount, wear, grain, edge darkening, seed, Color A, Color B, highlight
 - anti-aliased sampling for loaded texture files
+- continuous map-space texture projection in the live preview
 - optional color overlay for loaded texture files, disabled by default
 - exports:
   - `preview.png`

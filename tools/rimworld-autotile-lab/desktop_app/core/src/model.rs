@@ -20,6 +20,8 @@ pub struct AppRequest {
     pub preview_mode: String,
     pub textures: TexturePaths,
     pub colors: ColorSet,
+    #[serde(default = "default_materials")]
+    pub materials: MaterialSlots,
     pub map: MapData,
 }
 
@@ -36,6 +38,44 @@ pub struct ColorSet {
     pub face: String,
     pub back: String,
     pub base: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaterialSlots {
+    #[serde(default = "default_top_material")]
+    pub top: MaterialConfig,
+    #[serde(default = "default_face_material")]
+    pub face: MaterialConfig,
+    #[serde(default = "default_base_material")]
+    pub base: MaterialConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaterialConfig {
+    #[serde(default = "default_material_source")]
+    pub source: String,
+    #[serde(default = "default_material_kind")]
+    pub kind: String,
+    #[serde(default = "default_material_scale")]
+    pub scale: f32,
+    #[serde(default = "default_material_contrast")]
+    pub contrast: f32,
+    #[serde(default = "default_material_crack_amount")]
+    pub crack_amount: f32,
+    #[serde(default = "default_material_wear")]
+    pub wear: f32,
+    #[serde(default = "default_material_grain")]
+    pub grain: f32,
+    #[serde(default = "default_material_edge_darkening")]
+    pub edge_darkening: f32,
+    #[serde(default)]
+    pub seed: u32,
+    #[serde(default = "default_material_color_a")]
+    pub color_a: String,
+    #[serde(default = "default_material_color_b")]
+    pub color_b: String,
+    #[serde(default = "default_material_highlight")]
+    pub highlight: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +154,7 @@ impl AppRequest {
         self.forced_variant = self.forced_variant.map(|value| value.min(self.variants.saturating_sub(1)));
         self.texture_scale = self.texture_scale.clamp(0.25, 4.0);
         self.preview_mode = normalize_preview_mode(&self.preview_mode).to_string();
+        self.materials.sanitize();
 
         if self.colors.top.is_empty() {
             self.colors.top = preset.colors.top.to_string();
@@ -260,12 +301,160 @@ pub fn default_request() -> AppRequest {
             back: preset.colors.back.to_string(),
             base: preset.colors.base.to_string(),
         },
+        materials: default_materials(),
         map: default_map(),
     }
 }
 
 fn default_texture_color_overlay() -> bool {
     false
+}
+
+impl MaterialSlots {
+    fn sanitize(&mut self) {
+        self.top.sanitize();
+        self.face.sanitize();
+        self.base.sanitize();
+    }
+}
+
+impl MaterialConfig {
+    fn sanitize(&mut self) {
+        self.source = normalize_material_source(&self.source).to_string();
+        self.kind = normalize_material_kind(&self.kind).to_string();
+        self.scale = self.scale.clamp(0.2, 8.0);
+        self.contrast = self.contrast.clamp(0.0, 2.0);
+        self.crack_amount = self.crack_amount.clamp(0.0, 1.0);
+        self.wear = self.wear.clamp(0.0, 1.0);
+        self.grain = self.grain.clamp(0.0, 1.0);
+        self.edge_darkening = self.edge_darkening.clamp(0.0, 1.0);
+        if self.color_a.is_empty() {
+            self.color_a = default_material_color_a();
+        }
+        if self.color_b.is_empty() {
+            self.color_b = default_material_color_b();
+        }
+        if self.highlight.is_empty() {
+            self.highlight = default_material_highlight();
+        }
+    }
+}
+
+pub fn default_materials() -> MaterialSlots {
+    MaterialSlots {
+        top: default_top_material(),
+        face: default_face_material(),
+        base: default_base_material(),
+    }
+}
+
+fn default_top_material() -> MaterialConfig {
+    material_config("procedural", "rough_stone", 1.0, 1.0, 0.25, 0.2, 0.45, 0.25, 11, "#5e5142", "#8a7a62", "#b9ad93")
+}
+
+fn default_face_material() -> MaterialConfig {
+    material_config("procedural", "stone_bricks", 1.0, 1.05, 0.18, 0.28, 0.35, 0.45, 23, "#3d3a34", "#68665e", "#9a9686")
+}
+
+fn default_base_material() -> MaterialConfig {
+    material_config("procedural", "packed_dirt", 1.0, 0.9, 0.12, 0.2, 0.5, 0.1, 31, "#7d4b1e", "#b07232", "#d19855")
+}
+
+fn material_config(
+    source: &str,
+    kind: &str,
+    scale: f32,
+    contrast: f32,
+    crack_amount: f32,
+    wear: f32,
+    grain: f32,
+    edge_darkening: f32,
+    seed: u32,
+    color_a: &str,
+    color_b: &str,
+    highlight: &str,
+) -> MaterialConfig {
+    MaterialConfig {
+        source: source.to_string(),
+        kind: kind.to_string(),
+        scale,
+        contrast,
+        crack_amount,
+        wear,
+        grain,
+        edge_darkening,
+        seed,
+        color_a: color_a.to_string(),
+        color_b: color_b.to_string(),
+        highlight: highlight.to_string(),
+    }
+}
+
+fn default_material_source() -> String {
+    "procedural".to_string()
+}
+
+fn default_material_kind() -> String {
+    "rough_stone".to_string()
+}
+
+fn default_material_scale() -> f32 {
+    1.0
+}
+
+fn default_material_contrast() -> f32 {
+    1.0
+}
+
+fn default_material_crack_amount() -> f32 {
+    0.2
+}
+
+fn default_material_wear() -> f32 {
+    0.2
+}
+
+fn default_material_grain() -> f32 {
+    0.4
+}
+
+fn default_material_edge_darkening() -> f32 {
+    0.25
+}
+
+fn default_material_color_a() -> String {
+    "#4b463e".to_string()
+}
+
+fn default_material_color_b() -> String {
+    "#787064".to_string()
+}
+
+fn default_material_highlight() -> String {
+    "#aaa28e".to_string()
+}
+
+pub fn normalize_material_source(value: &str) -> &'static str {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "image" => "image",
+        "flat" => "flat",
+        _ => "procedural",
+    }
+}
+
+pub fn normalize_material_kind(value: &str) -> &'static str {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "stone_bricks" | "stone_blocks" | "bricks" => "stone_bricks",
+        "cracked_earth" | "cracked_dry_earth" | "dry_earth" => "cracked_earth",
+        "rough_stone" | "stone" => "rough_stone",
+        "worn_metal" | "metal" | "metal_worn" => "worn_metal",
+        "wood_planks" | "wood" => "wood_planks",
+        "packed_dirt" | "dirt" => "packed_dirt",
+        "concrete" => "concrete",
+        "ice_frost" | "ice" | "frost" => "ice_frost",
+        "ash_burnt_ground" | "ash" | "burnt_ground" => "ash_burnt_ground",
+        _ => "rough_stone",
+    }
 }
 
 pub fn default_map() -> MapData {
