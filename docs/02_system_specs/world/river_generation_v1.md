@@ -1,0 +1,684 @@
+---
+title: River Generation V1
+doc_type: system_spec
+status: approved
+owner: engineering+design
+source_of_truth: true
+version: 0.1
+last_updated: 2026-04-29
+related_docs:
+  - ../../README.md
+  - ../../00_governance/WORKFLOW.md
+  - ../../00_governance/ENGINEERING_STANDARDS.md
+  - ../../00_governance/PROJECT_GLOSSARY.md
+  - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
+  - ../../05_adrs/0002-wrap-world-is-cylindrical.md
+  - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
+  - ../../05_adrs/0007-environment-runtime-is-layered-and-distinct-from-worldgen.md
+  - world_runtime.md
+  - world_foundation_v1.md
+  - mountain_generation.md
+  - terrain_hybrid_presentation.md
+  - ../meta/packet_schemas.md
+  - ../meta/system_api.md
+  - ../meta/save_and_persistence.md
+---
+
+# River Generation V1
+
+## Status and Current-Code Boundary
+
+This spec approves the design contract for river generation. It does not claim
+that rivers are present in the current runtime.
+
+Current code still has the no-river baseline from `world_version = 16`:
+river/lake settings and packet fields from the failed dry river/lake attempt
+were removed, and current chunk packets do not emit river or lake fields.
+
+Implementation of this spec must therefore land in staged iterations and must
+update the meta boundary docs in the same iteration that changes the live
+packet, API, save, event, or glossary surface. Until that implementation lands,
+`packet_schemas.md`, `system_api.md`, and `save_and_persistence.md` remain the
+source of truth for current runtime shape.
+
+## Purpose
+
+Define a deterministic, native-owned river and water terrain generation model
+for the finite cylindrical surface world.
+
+River Generation V1 adds the contract for:
+
+- a north ocean sink with irregular coastline, estuaries, and deltas;
+- continuous river networks from southern/highland sources to lake or ocean
+  terminals;
+- confluences that widen downstream channels;
+- controlled splits and island-forming braided or distributary branches;
+- natural lakes with spill outlets;
+- mountain avoidance around both mountain wall and mountain foot terrain;
+- shallow and deep water classes;
+- persistent dry riverbeds under current water;
+- chunk-local rasterization output that remains compact and native-owned.
+
+## Gameplay Goal
+
+The player should read the surface map as a coherent hydrological world:
+
+- the north edge is an ocean, not a straight blue strip;
+- rivers visibly travel across the vertical span of the map;
+- small southern/headwater channels merge into wider downstream rivers;
+- some reaches split around islands and rejoin or discharge into lakes/ocean;
+- lakes have organic shapes and connected inflow/outflow;
+- mountains feel like real obstacles that rivers bend around smoothly;
+- shallow water creates crossing opportunities, while deep water is a real
+  traversal blocker;
+- drought or drying can remove current water while leaving riverbeds and
+  lakebeds behind.
+
+## Design Principles
+
+### Hydrology first, not blue noise lines
+
+Rivers are generated from a hydrology graph and then rasterized. They are not
+painted as independent noise curves on top of terrain.
+
+### Mountains first
+
+Mountain wall and mountain foot output is already canonical. River generation
+must consume mountain output as a hard no-go mask plus a configurable clearance
+buffer. A river may bend around a mountain or split around a massif, but it must
+not cross mountain wall/foot tiles and must not run directly adjacent to them.
+
+### Riverbed and water are separate
+
+Riverbeds, lakebeds, shore, and ocean floor are canonical base terrain. Current
+water presence is a gameplay-authoritative overlay on top of water-capable
+terrain. Drying changes the overlay; it does not rewrite the immutable base.
+
+### Native compute only
+
+Hydrology solve, river graph construction, rasterization, SDF sampling,
+transition masks, and atlas decisions belong in C++/GDExtension. GDScript may
+orchestrate worker requests and apply compact packets only.
+
+### Chunk packets stay local
+
+Whole-world hydrology may be solved at world load or new-game preview time, but
+live chunk publication still receives compact per-chunk arrays through the
+existing native packet boundary. No script-side loop over world or chunk tiles is
+allowed on the hot path.
+
+## Scope
+
+River Generation V1 includes:
+
+- `RiverGenSettings` saved into `worldgen_settings.rivers`;
+- a native `WorldHydrologyPrePass` owned by `WorldCore`;
+- north-ocean sink and shoreline generation;
+- hydrology graph solve using depression handling, flow direction, flow
+  accumulation, and watershed labels;
+- river trunk and tributary selection from accumulation / stream order;
+- lake basin detection, lake filling to spill point, and outlet continuation;
+- controlled braided/distributary split generation;
+- centerline smoothing and meander shaping;
+- river/lake/ocean rasterization into chunk packet fields;
+- bank and floodplain rasterization into compact chunk packet fields;
+- base terrain classes for beds and shore;
+- current water-depth classes for shallow/deep water;
+- performance, determinism, save, and preview contracts.
+
+## Out of Scope
+
+River Generation V1 does not implement:
+
+- full hydraulic erosion simulation;
+- sediment transport simulation;
+- physically accurate flood dynamics;
+- weather-driven water volume simulation;
+- seasonal ice/snow behavior beyond reserving the overlay seam;
+- dynamic drought gameplay tuning beyond the bed/water separation contract;
+- subsurface rivers or underground aquifers;
+- water pumps, water treatment, or engineering-network gameplay;
+- boats or swimming;
+- multiplayer packet transport changes beyond deterministic regeneration.
+
+## Related Documents
+
+- `world_foundation_v1.md` owns finite world bounds, ocean band, and the
+  existing substrate baseline.
+- `mountain_generation.md` owns mountain wall/foot terrain and mountain masks.
+- `world_runtime.md` owns chunk packet publication and streaming discipline.
+- `terrain_hybrid_presentation.md` owns visual terrain materials and shape
+  families.
+- `packet_schemas.md`, `system_api.md`, and `save_and_persistence.md` must be
+  amended by the implementation iteration that changes those live boundaries.
+
+## Dependencies
+
+- ADR-0001: hydrology prepass is boot/new-game-preview worker work, never
+  interactive work.
+- ADR-0002: X wraps cylindrically; Y is bounded, with the ocean at top-Y.
+- ADR-0003: riverbeds are immutable base; water overlay is runtime state.
+- ADR-0007: worldgen defines water-capable terrain; environment runtime may
+  change current water state later.
+- Mountain Generation V1: mountain wall and foot are hard blockers for rivers.
+- World Foundation V1: hydrology reads world bounds, ocean band, `hydro_height`,
+  `continent_mask`, and coarse mountain density context.
+
+## Law 0 Classification
+
+| Question | Answer |
+|---|---|
+| Canonical, runtime overlay, or visual only? | Riverbeds, lakebeds, shore, ocean floor, river graph, lake basins, and default channel geometry are canonical worldgen data. Current water depth/presence is a gameplay-authoritative water overlay. Presentation is derived. |
+| Save / load required? | Yes for `worldgen_settings.rivers`. Hydrology snapshots and chunk river arrays are not persisted. Future drought/water overlay state may persist only slow/global state or explicit local overrides. |
+| Deterministic? | Yes. Hydrology output is pure `f(world_seed, world_version, world_bounds, foundation_settings, mountain_settings, river_settings)`. |
+| Must work on unloaded chunks? | Yes. The hydrology substrate is independent of loaded chunks; chunk packets can be regenerated from seed/settings. |
+| C++ compute or main-thread apply? | Hydrology solve, graph construction, SDF rasterization, and atlas decisions are C++ worker/native compute. Main thread only applies finished chunk packet arrays and water overlay updates. |
+| Dirty unit | Hydrology prepass: whole world hydrology grid, once per world load/new-game preview. Chunk rasterization: `32 x 32` chunk packet. Runtime water overlay: future bounded tile block/subchunk dirty unit. |
+| Single owner | `WorldCore` owns canonical hydrology and rasterized base output. `EnvironmentOverlay` owns current water state when drought/weather systems land. `WorldDiffStore` owns player/runtime terrain diffs only. |
+| 10x / 100x scale path | Hydrology grid is coarse and native; packet rasterization queries a native spatial index per chunk. No GDScript tile loops or whole-world gameplay path. |
+| Main-thread blocking? | Forbidden. Hydrology prepass runs on worker behind load/preview debounce. Chunk apply remains sliced through the streaming budget. |
+| Hidden GDScript fallback? | Forbidden. Missing native hydrology support must fail loudly for river-enabled world versions. |
+| Could it become heavy later? | Yes. Therefore hydrology solve and rasterization are native from the first implementation. |
+| Whole-world prepass? | Permitted only as a documented ADR-0001 / ENGINEERING_STANDARDS Law 12 exception: worker-only, RAM-only, cache-keyed, world-load or new-game-preview class, never interactive. |
+
+## Data Model
+
+### `RiverGenSettings`
+
+`RiverGenSettings` is a resource embedded into `worldgen_settings.rivers` for
+new worlds and loaded from `world.json` for existing saves.
+
+| Field | Range | Meaning |
+|---|---|---|
+| `enabled` | bool | Enables river generation for worlds at the river world-version boundary. |
+| `target_trunk_count` | `0..256` | Desired number of major river trunks before density/spacing filters. `0` means auto-scale by world size. |
+| `density` | `0.0..1.0` | Controls how many river trunks and tributaries survive graph selection. |
+| `width_scale` | `0.25..4.0` | Multiplies channel width derived from discharge / stream order. |
+| `lake_chance` | `0.0..1.0` | Probability that eligible depressions become natural lakes instead of breached drainage. |
+| `meander_strength` | `0.0..1.0` | Controls centerline lateral offset and curvature after graph solve. |
+| `braid_chance` | `0.0..1.0` | Controls eligible low-slope/high-discharge split creation. |
+| `shallow_crossing_frequency` | `0.0..1.0` | Controls generated shallow ford / riffle opportunities. |
+| `mountain_clearance_tiles` | `1..16` | Minimum distance from mountain wall/foot tiles to any wet river/lake/ocean cell. |
+| `delta_scale` | `0.0..2.0` | Controls river-mouth widening, distributaries, and estuary carving at the ocean. |
+| `north_drainage_bias` | `0.0..1.0` | Bias that makes the top-Y ocean the preferred terminal while still respecting local height and mountain avoidance. |
+| `hydrology_cell_size_tiles` | `8..64` | Coarse hydrology graph cell size. Default target: `16` tiles. Changing the default requires `WORLD_VERSION` review. |
+
+### Terrain classes
+
+The first implementation iteration must reserve concrete numeric ids in
+`world_runtime_constants.gd` and document them in `packet_schemas.md`.
+
+| Terrain class id | Base meaning | Default traversal |
+|---|---|---|
+| `TERRAIN_RIVERBED_SHALLOW` | Canonical shallow riverbed under water-capable channel. | Walkable when dry or shallow water overlay. |
+| `TERRAIN_RIVERBED_DEEP` | Canonical deep riverbed under main channel. | Walkability comes from current water overlay; deep water blocks. |
+| `TERRAIN_LAKEBED` | Canonical lake floor under natural lake outline. | Walkability comes from current water overlay. |
+| `TERRAIN_OCEAN_FLOOR` | Canonical ocean floor inside top-Y ocean / estuary. | Default current water is ocean/deep and blocks. |
+| `TERRAIN_SHORE` | Land/water transition band around ocean, lakes, and wider rivers. | Walkable unless current water overlay says otherwise. |
+| `TERRAIN_FLOODPLAIN` | Canonical low river-adjacent land that reads as flood-shaped terrain. | Walkable by default; future water overlay may temporarily wet it. |
+
+Water classes are not immutable terrain ids. They are packet/overlay classes:
+
+| Water class | Meaning | Traversal |
+|---|---|---|
+| `WATER_NONE` | Dry bed / dry land. | Uses base terrain walkability. |
+| `WATER_SHALLOW` | Shallow current water. | Walkable with movement penalty in future tuning. |
+| `WATER_DEEP` | Deep current water. | Blocking. |
+| `WATER_OCEAN` | Ocean / impassable sea water. | Blocking. |
+
+### Hydrology substrate snapshot
+
+`WorldHydrologyPrePassSnapshot` is RAM-only and regenerated from seed/settings.
+It is not saved.
+
+Required coarse fields:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `grid_width`, `grid_height` | int | Hydrology graph dimensions. |
+| `cell_size_tiles` | int | Versioned hydrology cell size. |
+| `hydro_elevation` | float array | Effective hydrology height after mountain barriers and north sink bias. |
+| `filled_elevation` | float array | Depression-handled height used for drainage. |
+| `flow_dir` | byte array | Quantized downstream neighbor direction or terminal marker. |
+| `flow_accumulation` | float array | Upstream contributing area / discharge proxy. |
+| `watershed_id` | int array | Drainage basin label. |
+| `lake_id` | int array | Natural lake basin id, `0` for none. |
+| `ocean_sink_mask` | byte array | Top-Y ocean / estuary terminal cells. |
+| `mountain_exclusion_mask` | byte array | Mountain wall/foot plus clearance buffer. |
+| `floodplain_potential` | float array | Lowland area around rivers/lakes eligible for floodplain rasterization. |
+| `river_segment_index` | native spatial index | River/lake/ocean segments for chunk rasterization. |
+
+### Chunk packet additions
+
+The river implementation must extend `ChunkPacketV1` additively. Existing
+fields are not removed or reshaped.
+
+Target packet fields:
+
+| Field | Type | Length | Meaning |
+|---|---|---|---|
+| `terrain_ids` | `PackedInt32Array` | 1024 | Existing field now may include riverbed, lakebed, ocean floor, shore, and floodplain terrain ids. |
+| `walkable_flags` | `PackedByteArray` | 1024 | Derived from base terrain plus default current water class for the initial packet. Runtime overlay may override loaded walkability locally. |
+| `hydrology_id_per_tile` | `PackedInt32Array` | 1024 | `0 = no hydrology`; otherwise stable river/lake/ocean feature id. |
+| `hydrology_flags` | `PackedByteArray` | 1024 | Bitfield for riverbed, lakebed, shore, bank, floodplain, delta, braid/split, confluence, source. |
+| `floodplain_strength` | `PackedByteArray` | 1024 | Optional `0..255` strength used by presentation and future wetting overlays. |
+| `water_class` | `PackedByteArray` | 1024 | Default current water class: none, shallow, deep, ocean. This is seed-derived default overlay state, not immutable terrain. |
+| `flow_dir_quantized` | `PackedByteArray` | 1024 | Optional compact direction for water animation and debug, not authoritative pathfinding. |
+| `stream_order` | `PackedByteArray` | 1024 | Compact stream order / discharge bucket for visuals and tuning. |
+| `water_atlas_indices` | `PackedInt32Array` | 1024 | Derived presentation atlas index for water/shore edge rendering. |
+
+`hydrology_flags` bit layout must be finalized in `packet_schemas.md` before
+implementation. If more than eight flags are needed, use a `PackedInt32Array`
+instead of nesting dictionaries.
+
+## Runtime Architecture
+
+### Ownership
+
+`WorldCore` owns:
+
+- `WorldHydrologyPrePass`;
+- hydrology graph generation;
+- river/lake/ocean rasterization;
+- terrain id and atlas decisions for water-related base output.
+
+`WorldStreamer` owns:
+
+- scheduling native packet generation;
+- publishing finished chunks through existing streaming budget;
+- never deriving hydrology in GDScript.
+
+`EnvironmentOverlay` owns, in later iterations:
+
+- current water presence;
+- drought / refilling state;
+- frozen water or seasonal water state;
+- local overlay dirty updates.
+
+`WorldDiffStore` owns:
+
+- player/runtime diffs on top of the immutable base;
+- never the seed-derived river graph.
+
+### Hydrology prepass lifecycle
+
+```
+new world / load world / preview settings change
+  -> pack worldgen_settings.rivers with foundation + mountain settings
+  -> worker builds or reuses WorldPrePass
+  -> worker builds WorldHydrologyPrePassSnapshot
+  -> native cache publishes snapshot by signature
+  -> chunk packet generation reads snapshot through native spatial index
+  -> main thread receives compact chunk packets only
+```
+
+The snapshot cache key must include:
+
+- `world_seed`
+- `world_version`
+- `world_bounds`
+- `foundation_settings`
+- `mountain_settings`
+- `river_settings`
+
+Changing any canonical river output requires a `WORLD_VERSION` bump.
+
+### Chunk rasterization
+
+Chunk generation queries the native hydrology segment index for the chunk plus
+a bounded halo. Rasterization is:
+
+1. river/lake/ocean centerline or outline query;
+2. signed distance field (SDF) evaluation in native code;
+3. terrain class assignment for bed, shore, banks, and floodplain;
+4. default water class assignment for shallow/deep/ocean water;
+5. transition and atlas index solve;
+6. compact packet return.
+
+GDScript must not sample centerlines, build SDFs, loop through river pixels, or
+perform water adjacency solving.
+
+### Preview integration
+
+After river terrain exists, the new-game overview may render river/lake/ocean
+overlays from the native hydrology snapshot. This overview remains a worker
+image publish and must not instantiate gameplay chunks or write save data.
+
+Before river terrain exists in code, debug height/hydrology modes may remain
+diagnostic only and must not be presented as gameplay truth.
+
+## Hydrology Algorithm Contract
+
+### 1. Build effective hydrology height
+
+The effective height field combines:
+
+- `WorldPrePass.hydro_height`;
+- mountain elevation and mountain density context;
+- a northward drainage bias toward the top-Y ocean sink;
+- low-frequency relief for broad valleys;
+- hard mountain exclusion and clearance costs.
+
+Mountain wall and foot tiles plus `mountain_clearance_tiles` form an exclusion
+mask. Rivers and lakes cannot occupy excluded tiles.
+
+### 2. Create irregular north ocean sink
+
+The top-Y ocean is not a straight terrain strip. The hydrology prepass creates:
+
+- a broad ocean sink in the top band;
+- a coastline SDF with seeded irregularity;
+- estuary widening around river mouths;
+- delta/distributary regions controlled by `delta_scale`.
+
+Ocean terrain remains connected to the top boundary and is impassable by
+default.
+
+### 3. Depression handling and lakes
+
+Use a Priority-Flood style depression pass or an equivalent native algorithm to
+guarantee drainage.
+
+Eligible depressions may become lakes according to `lake_chance`, size, slope,
+and mountain clearance. A lake fills to its spill point, receives inflows, and
+must emit an outlet unless it is intentionally terminal in the ocean band.
+
+Non-lake depressions are filled or breached in the hydrology field so every
+river path has a valid downstream continuation.
+
+### 4. Flow direction, accumulation, and watersheds
+
+Compute flow direction and flow accumulation over the hydrology grid. Derive
+watershed ids from terminal sinks and spill paths.
+
+River trunks and tributaries are selected from:
+
+- accumulation / discharge;
+- stream order;
+- minimum length;
+- source distribution;
+- `target_trunk_count`;
+- desired density;
+- spacing from other major trunks.
+
+### 5. Rivers from source to terminal
+
+Sources prefer southern/highland and valley-adjacent cells. Rivers must travel
+downstream through the graph until they:
+
+- join a larger river;
+- enter a lake and leave through the lake outlet;
+- enter the ocean / estuary.
+
+No river segment may terminate on ordinary land.
+
+### 6. Confluences and width
+
+Channel width derives from discharge and stream order:
+
+```
+width_tiles = base_width + width_scale * pow(discharge_bucket, width_power)
+```
+
+The exact formula is implementation-owned but must obey:
+
+- width increases at confluences;
+- width is allowed to vary locally;
+- shallow crossings may temporarily narrow or shoal the channel;
+- downstream rivers generally read wider than upstream sources.
+
+### 7. Meanders
+
+Centerlines are smoothed after graph extraction. Meander offsets are applied
+only where slope, clearance, and spacing allow it.
+
+Use the hydrology rule of thumb that meander wavelength is tied to channel
+width. USGS Professional Paper 282-B reports meander wavelength commonly around
+7-12 channel widths; V1 may use this as a tuning target rather than a strict
+simulation law.
+
+### 8. Splits, islands, and braids
+
+Splits are allowed only under controlled conditions:
+
+- low slope;
+- high discharge / high stream order;
+- enough local clearance;
+- `braid_chance` permits it;
+- each branch rejoins downstream or exits into a lake/ocean/delta.
+
+The hydrology graph must remain deterministic and acyclic. Orphan branches,
+infinite loops, and land-terminating split branches are invalid.
+
+### 9. Lakes and islands
+
+Lake outlines are rasterized from basin shape plus seeded shoreline roughness.
+Small islands may appear inside lakes or braided reaches only when clearance
+and minimum island size allow readable terrain.
+
+Lakebeds remain canonical base terrain even when water overlay dries.
+
+### 10. Riverbeds and water depth
+
+Rasterization must produce both:
+
+- bed terrain (`riverbed_shallow`, `riverbed_deep`, `lakebed`, `ocean_floor`,
+  `shore`, `floodplain`);
+- default current water class (`none`, `shallow`, `deep`, `ocean`).
+- bank and floodplain masks / strengths for presentation and future wetting.
+
+Drying systems later change only current water class / overlay state, not bed
+terrain ids.
+
+## Event Contracts
+
+River Generation V1 does not require new gameplay events for immutable river
+generation.
+
+If a future water overlay iteration adds drought/refill events, it must update
+`event_contracts.md` in the same task. Candidate future events:
+
+- `water_overlay_changed(region: Rect2i, reason: StringName)`
+- `river_water_state_changed(hydrology_id: int, state: StringName)`
+
+These events are not approved current runtime events until that doc is updated.
+
+## Save / Persistence Contracts
+
+Saved:
+
+- `worldgen_settings.rivers`;
+- `world_version` boundary that includes river generation;
+- future slow water-overlay state only when a drought/environment spec approves
+  it.
+
+Not saved:
+
+- hydrology prepass arrays;
+- river segment graph;
+- per-tile river/lake/ocean packet arrays;
+- derived atlas indices;
+- default water depth class if it is seed-derived and unmodified.
+
+Load order:
+
+1. restore seed, world version, world bounds, foundation, mountain, and river
+   settings;
+2. rebuild native foundation and hydrology snapshots on worker/boot path;
+3. generate chunk packets from base + hydrology;
+4. apply `WorldDiffStore` tile diffs;
+5. apply current water overlay state if that system exists.
+
+## Performance Class
+
+| Operation | Class | Dirty unit | Budget / rule |
+|---|---|---|---|
+| Hydrology prepass | Boot/new-game-preview worker | Whole hydrology grid | Target <= 1500 ms on largest V1 preset at default `16`-tile hydrology cells; no main-thread wait outside load/preview progress. |
+| Chunk river rasterization | Background worker chunk generation | `32 x 32` chunk plus bounded halo | Runs inside native packet generation; no GDScript tile loop. |
+| Chunk water apply | Background apply | Sliced chunk packet publish | Uses existing streaming publish budget and compact arrays. |
+| Runtime water overlay update | Background or interactive-local in future overlay spec | Tile block/subchunk | Only local overlay dirty update may be synchronous; broader changes are queued. |
+| Player movement query | Interactive | One loaded tile | Reads already-materialized walkability; never computes hydrology. |
+
+Forbidden:
+
+- hydrology solve during gameplay input handling;
+- hydrology solve on the main thread;
+- mandatory whole-world tile-resolution raster storage in GDScript;
+- per-tile native calls from script;
+- hidden GDScript fallback when native hydrology is unavailable;
+- `TileMapLayer.clear()` or whole-chunk redraw caused by one water overlay
+  change.
+
+## Modding / Extension Points
+
+River V1 is setting-driven, not arbitrary script-driven.
+
+Allowed mod extension:
+
+- override `RiverGenSettings` defaults for new worlds;
+- add presentation profiles for riverbed, lakebed, shore, and water materials;
+- add biome rules that react to river/floodplain structure through an approved
+  structure-context read seam.
+
+Forbidden without a new spec:
+
+- script-defined per-tile river generators;
+- mod hooks that mutate the hydrology snapshot after compute;
+- changing current water overlay ownership;
+- changing packet fields through ad-hoc dictionaries.
+
+## Acceptance Criteria
+
+- [ ] Same seed, world version, bounds, mountain settings, foundation settings,
+      and river settings produce identical hydrology output.
+- [ ] Current chunk packets remain compact and additive; no existing packet
+      fields are removed or reshaped.
+- [ ] Rivers never occupy mountain wall or mountain foot terrain and respect
+      `mountain_clearance_tiles`.
+- [ ] Rivers form continuous downstream paths to confluence, lake outlet, or
+      ocean.
+- [ ] Confluences increase downstream width or stream order.
+- [ ] Generated splits either rejoin or discharge into lake/ocean/delta.
+- [ ] Lakes have spill outlets unless explicitly terminal in the ocean band.
+- [ ] Shallow water is walkable; deep/ocean water is blocking.
+- [ ] Dried rivers/lakes leave riverbed/lakebed terrain behind.
+- [ ] North ocean coastline is irregular, with wider estuary/delta shapes at
+      river mouths.
+- [ ] New-game overview and runtime chunk rasterization agree at the level of
+      river/lake/ocean placement.
+- [ ] No GDScript code computes hydrology, rasterizes SDFs, or loops through
+      chunk tiles for river generation.
+- [ ] Hydrology prepass and chunk generation fail loudly if native support is
+      missing for a river-enabled world version.
+- [ ] Performance profiling confirms no interactive frame hitch is introduced
+      by river generation or water overlay reads.
+
+## Failure Cases / Risks
+
+| Risk | Mitigation |
+|---|---|
+| Rivers look like straight vertical drains | Centerline smoothing, meander offsets tied to channel width, and obstacle-aware path cost are required. |
+| Rivers cut through mountains | Mountain wall/foot plus clearance buffer is a hard exclusion mask. Acceptance tests must probe this directly. |
+| Hydrology prepass becomes too slow | Keep grid coarse, use native arrays and priority queues, profile largest preset, and reduce optional braids/lake detail before reducing correctness. |
+| Lakes trap rivers without outlets | Depression handling must produce spill points and outlet continuation. |
+| Splits create broken or cyclic graphs | Split branches are controlled DAG branches with required rejoin or valid terminal. |
+| Drying rewrites base terrain | Riverbed/lakebed are immutable base; water presence is overlay-only. |
+| Packet grows too large | Keep per-tile fields byte/int arrays; keep heavy flow data in native substrate. |
+| Current docs drift from current code | Meta docs update only when implementation changes live packet/API/save surfaces; this spec records future target shape. |
+
+## External References
+
+These references are design inputs, not implementation dependencies:
+
+- Jean-David Genevaux, Eric Galin, Eric Guerin, Adrien Peytavie, Bedrich
+  Benes. "Terrain Generation Using Procedural Models Based on Hydrology",
+  ACM TOG 2013. Hydrology-first terrain generation: river network,
+  watersheds, springs, deltas, then terrain carving.
+  <https://www.cs.purdue.edu/cgvlab/www/publications/Genevaux13ToG/>
+- Adrien Peytavie, Thibault Dupont, Eric Guerin, Yann Cortial, Bedrich Benes,
+  James Gain, Eric Galin. "Procedural Riverscapes", Computer Graphics Forum
+  2019. River trajectories from heightfields, riverbed carving, width/depth
+  from terrain and river type.
+  <https://diglib.eg.org/handle/10.1111/cgf13814>
+- Richard Barnes, Clarence Lehman, David Mulla. "Priority-Flood: An Optimal
+  Depression-Filling and Watershed-Labeling Algorithm for Digital Elevation
+  Models", Computers & Geosciences 2014 / arXiv. Depression handling and
+  guaranteed drainage.
+  <https://arxiv.org/abs/1511.04463>
+- Luna B. Leopold and M. Gordon Wolman. "River channel patterns: Braided,
+  meandering, and straight", USGS Professional Paper 282-B, 1957. Meander,
+  riffle, width, and braiding heuristics.
+  <https://pubs.usgs.gov/publication/pp282B>
+
+## Required Updates Before Implementation
+
+The first implementation iteration that changes live behavior must update:
+
+- `docs/02_system_specs/meta/packet_schemas.md` for terrain ids, hydrology
+  packet fields, water classes, and bit layouts;
+- `docs/02_system_specs/meta/system_api.md` for native hydrology prepass,
+  preview/debug reads, and any water overlay read surface;
+- `docs/02_system_specs/meta/save_and_persistence.md` for
+  `worldgen_settings.rivers` and any water overlay save state;
+- `docs/00_governance/PROJECT_GLOSSARY.md` for riverbed, water overlay,
+  hydrology prepass, stream order, confluence, delta, and shallow/deep water;
+- `docs/02_system_specs/world/world_runtime.md` for chunk packet generation and
+  walkability readiness rules;
+- `docs/02_system_specs/world/world_foundation_v1.md` if hydrology reuses or
+  extends foundation substrate fields;
+- `docs/02_system_specs/world/terrain_hybrid_presentation.md` if water/shore
+  atlas topology or material families require new presentation contracts;
+- `docs/02_system_specs/meta/event_contracts.md` only if runtime water overlay
+  events are introduced.
+
+Implementation must also bump `WORLD_VERSION` for any canonical river/lake/ocean
+output change.
+
+## Implementation Iterations
+
+### V1-R1 - Boundary docs and settings
+
+- Add `RiverGenSettings` resource and save shape.
+- Reserve terrain ids and packet fields in docs.
+- Update glossary and runtime/API/save docs.
+- No river generation code yet.
+
+### V1-R2 - Native hydrology substrate
+
+- Add `WorldHydrologyPrePass` in native code.
+- Build effective hydrology height, ocean sink, depression handling, flow
+  direction, accumulation, and watershed labels.
+- Expose dev-only snapshot/overview for diagnostics.
+- No gameplay river terrain yet.
+
+### V1-R3 - Main river trunks and rasterized beds
+
+- Select main trunks and tributaries.
+- Rasterize riverbeds, shallow/deep water classes, shore/banks into chunk
+  packets.
+- Ensure confluence width growth and mountain clearance.
+
+### V1-R4 - Lakes and outlets
+
+- Add natural lake basin selection.
+- Fill lakes to spill points.
+- Rasterize lakebed, shoreline, inflow, and outlet continuation.
+
+### V1-R5 - Deltas, estuaries, and controlled splits
+
+- Add river-mouth widening and delta/estuary shapes.
+- Add controlled braid/distributary split branches and islands.
+- Enforce rejoin or valid terminal for every split.
+
+### V1-R6 - Water overlay seam
+
+- Add current water overlay owner for dry/wet state if drought gameplay is in
+  scope for that iteration.
+- Keep riverbed/lakebed immutable.
+- Add dirty-unit and event contracts if runtime water changes become active.
+
+### V1-R7 - Preview and performance closure
+
+- Render river/lake/ocean overlays in the new-game overview.
+- Add deterministic and performance validation on largest preset.
+- Close no-GDScript-loop and no-interactive-hydrology acceptance checks.

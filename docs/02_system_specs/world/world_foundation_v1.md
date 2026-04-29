@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.4
-last_updated: 2026-04-24
+version: 0.5
+last_updated: 2026-04-29
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -18,6 +18,7 @@ related_docs:
   - world_runtime.md
   - world_grid_rebuild_foundation.md
   - mountain_generation.md
+  - river_generation_v1.md
   - WORLD_GENERATION_PREVIEW_ARCHITECTURE.md
 ---
 
@@ -38,9 +39,9 @@ present in scrapped draft material:
    burning lands at the other).
 2. A single shared **`WorldPrePass` substrate** owns the coarse global
    fields consumed by mountains, future biomes, spawn resolution, and
-   the new-game overview preview. River/lake substrate fields are not
-   part of the current approved foundation after the failed river
-   implementation was removed.
+   the new-game overview preview. River/lake substrate fields are owned by
+   `river_generation_v1.md` and are not part of the current foundation
+   baseline after the failed river implementation was removed.
 3. The new-game UI exposes **world size and topology** as explicit save
    state, and supports a **full-world preview** rendered directly from
    the substrate.
@@ -72,8 +73,8 @@ Define the canonical foundation layer beneath every other worldgen spec:
 
 V1 is the substrate. It does **not** itself implement river rasterization
 into tiles, biome terrain content, or chunk runtime behaviour beyond what
-those existing specs already own. A future river spec must define its own
-approved fields, settings, and packet/read contracts instead of relying
+those existing specs already own. `river_generation_v1.md` owns river/lake
+fields, settings, rasterization, and packet/read contracts instead of relying
 on the removed failed implementation.
 
 ## Gameplay Goal
@@ -128,8 +129,8 @@ not a hidden gameplay world, not a second generator, and never writes
 save files.
 
 **No implicit river substrate.** The current approved foundation does
-not carry river/lake skeleton fields. A future river attempt must add
-its fields through a dedicated approved spec and `WORLD_VERSION` review.
+not carry river/lake skeleton fields. River fields must enter through
+`river_generation_v1.md` and `WORLD_VERSION` review.
 
 ## Scope (In V1-R1)
 
@@ -168,7 +169,7 @@ its fields through a dedicated approved spec and `WORLD_VERSION` review.
   `terrain_hybrid_presentation.md`;
 - actual river/lake generation, riverbed terrain ids, water overlays,
   curve quality contracts, island or split-rejoin logic, and atlas index
-  selection for river output — all deferred to a future river spec;
+  selection for river output — all owned by `river_generation_v1.md`;
 - new biome content (ocean biome, burning biome, latitude belts,
   continental biomes) — deferred to a future biome spec that consumes
   the V1 substrate;
@@ -295,7 +296,7 @@ Adding a field to this set requires a spec amendment and a
 **Removed hydrology fields.** The failed river/lake implementation used
 to add downstream graph, flow accumulation, visible trunk, Strahler, and
 terminal-lake fields here. Those fields are no longer approved
-foundation output. A future hydrology spec must reintroduce any needed
+foundation output. `river_generation_v1.md` must reintroduce any needed
 fields explicitly.
 
 **Output.** One in-RAM `WorldPrePassSnapshot` keyed by
@@ -388,7 +389,7 @@ river flow, biome truth, or save data.
 | `mountain_generation.md` | Unchanged ownership. V1 adds the `coarse_wall_density` / `coarse_foot_density` aggregation as a read of the mountain field, owned by the substrate. Mountain identity and excavation rules are untouched. |
 | `WORLD_GENERATION_PREVIEW_ARCHITECTURE.md` | Stays valid for progressive detail preview. V1 adds the overview mode and a worker-side spawn resolution step before progressive preview chunks are queued. |
 
-No existing river spec is referenced by the current implementation.
+Current implementation does not implement `river_generation_v1.md`.
 
 ### Spawn Contract Amendment
 
@@ -965,7 +966,7 @@ landed inside V1.
 
 ## Deferred
 
-- A future river spec defining its own approved substrate fields,
+- `river_generation_v1.md` defining its own approved substrate fields,
   rasterization, water overlays, curve quality contracts, islands, and
   splits.
 - A future biome spec consuming the V1 substrate for ocean, burning,
