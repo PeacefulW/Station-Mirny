@@ -744,9 +744,42 @@ func _build_loaded_visual_update(tile_coord: Vector2i) -> Dictionary:
 	}
 
 func _resolve_loaded_ground_atlas_index(tile_coord: Vector2i) -> int:
-	# TODO: switch plains-ground edge solving to water adjacency once water
-	# terrain exists. For now, ground always uses solid atlas variants only.
-	return Autotile47.build_solid_atlas_index(tile_coord, world_seed)
+	var north: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(0, -1))
+	var east: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(1, 0))
+	var south: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(0, 1))
+	var west: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(-1, 0))
+	var north_east: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(1, -1))
+	var south_east: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(1, 1))
+	var south_west: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(-1, 1))
+	var north_west: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(-1, -1))
+	var signature_code: int = Autotile47.build_signature_code(
+		north,
+		north_east,
+		east,
+		south_east,
+		south,
+		south_west,
+		west,
+		north_west
+	)
+	var variant_index: int = Autotile47.pick_variant(tile_coord, world_seed)
+	return Autotile47.build_atlas_index(signature_code, variant_index)
+
+func _is_loaded_ground_edge_blocker(tile_coord: Vector2i) -> bool:
+	var sample: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord)
+	if not bool(sample.get("ready", false)):
+		return false
+	var terrain_id: int = int(sample.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
+	if terrain_id == WorldRuntimeConstants.TERRAIN_RIVERBED_SHALLOW \
+			or terrain_id == WorldRuntimeConstants.TERRAIN_RIVERBED_DEEP \
+			or terrain_id == WorldRuntimeConstants.TERRAIN_LAKEBED \
+			or terrain_id == WorldRuntimeConstants.TERRAIN_OCEAN_FLOOR \
+			or terrain_id == WorldRuntimeConstants.TERRAIN_SHORE:
+		return true
+	var water_class: int = int(sample.get("water_class", WorldRuntimeConstants.WATER_CLASS_NONE))
+	return water_class == WorldRuntimeConstants.WATER_CLASS_SHALLOW \
+		or water_class == WorldRuntimeConstants.WATER_CLASS_DEEP \
+		or water_class == WorldRuntimeConstants.WATER_CLASS_OCEAN
 
 func _try_resolve_loaded_mountain_atlas_index(tile_coord: Vector2i) -> Dictionary:
 	var north: Dictionary = _get_loaded_mountain_geometry_no_enqueue(tile_coord + Vector2i(0, -1))

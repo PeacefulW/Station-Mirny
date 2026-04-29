@@ -136,8 +136,11 @@ Required fields:
 - runtime diff save files do not persist it
 - loaded mutation paths may recompute only a bounded local visual patch instead
   of republishing a full chunk
-- plains-ground edge variants are reserved for water adjacency; until water
-  exists, plains ground uses solid atlas variants only
+- for hydrology-enabled worlds, plains-ground edge variants may open against
+  native riverbed / river-bank / lakebed / ocean-floor adjacency while remaining
+  derived presentation metadata
+- local visual patches may recompute the same water-adjacent ground edge only
+  from already-loaded packet/diff/overlay data
 
 Forbidden packet fields in V0:
 - climate bytes

@@ -318,10 +318,12 @@ Notes:
   one `terrain_ids` list.
 - River Generation V1 currently maps hydrology terrain ids `5..10`
   (`riverbed_shallow`, `riverbed_deep`, `lakebed`, `ocean_floor`, `shore`,
-  `floodplain`) through `hydrology:placeholder_profile`. This is a temporary
-  simple-tile presentation bridge using existing authored assets so the live
-  packet boundary has a valid profile. It is not the final water/shore material
-  contract.
+  `floodplain`) through individual `hydrology:*_profile` placeholder profiles.
+  This is a temporary simple-tile presentation bridge with diagnostic colours
+  so the live packet boundary has readable profiles. The floodplain placeholder
+  is an invisible overlay profile drawn over plains ground underlay so authored
+  transparent floodplain texture can replace it later. It is not the final
+  water/shore material contract.
 - `terrain_class_id` is a descriptive/category field for authoring and grouping.
 - `shader_family_id` must resolve through authored `TerrainShaderFamily` data,
   not a hardcoded runtime switch in `WorldTileSetFactory`.

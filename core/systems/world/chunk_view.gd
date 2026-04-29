@@ -131,7 +131,14 @@ func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: in
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
 		return
 	if WorldTileSetFactory.uses_overlay_layer(terrain_id):
-		_clear_cell(_base_layer, local_coord)
+		if _uses_plains_ground_underlay(terrain_id):
+			_base_layer.set_cell(
+				local_coord,
+				WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND),
+				WorldTileSetFactory.get_atlas_coords(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND, 0)
+			)
+		else:
+			_clear_cell(_base_layer, local_coord)
 		_overlay_layer.set_cell(
 			local_coord,
 			WorldTileSetFactory.get_source_id(terrain_id),
@@ -144,6 +151,9 @@ func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: in
 		WorldTileSetFactory.get_source_id(terrain_id),
 		WorldTileSetFactory.get_atlas_coords(terrain_id, terrain_atlas_index)
 	)
+
+func _uses_plains_ground_underlay(terrain_id: int) -> bool:
+	return terrain_id == WorldRuntimeConstants.TERRAIN_FLOODPLAIN
 
 func _apply_roof_cell(local_coord: Vector2i, index: int) -> void:
 	if index < 0 or index >= _pending_mountain_ids.size() or index >= _pending_mountain_flags.size():

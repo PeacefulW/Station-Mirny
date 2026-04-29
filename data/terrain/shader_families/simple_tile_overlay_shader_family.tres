@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="TerrainShaderFamily" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_shader_family.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"terrain.simple_tile_overlay"
+render_layer_id = &"overlay"
+shape_texture_params = {}
+material_texture_params = {}

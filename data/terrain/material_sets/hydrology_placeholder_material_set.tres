@@ -1,0 +1,8 @@
+[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_material_set.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"hydrology:placeholder_material"
+shader_family_id = &"terrain.simple_tile"

@@ -48,7 +48,7 @@ V1-R3B has landed the first gameplay packet rasterization:
 - `WorldStreamer` and preview packing include `RiverGenSettings`; new saves
   write `worldgen_settings.rivers`, while missing river settings on a
   river-enabled load use an explicit hard-coded default migration;
-- the current presentation path uses a temporary hydrology placeholder profile
+- the current presentation path uses temporary hydrology placeholder profiles
   until dedicated water/shore art lands.
 
 V1-R4 has landed the first natural lake pass:
@@ -755,7 +755,7 @@ V1-R3B has updated the live runtime boundary for:
 - `docs/02_system_specs/world/world_runtime.md` current river-enabled chunk
   readiness and water-class walkability;
 - `docs/02_system_specs/world/terrain_hybrid_presentation.md` the temporary
-  hydrology placeholder presentation profile for terrain ids `5..10`.
+  hydrology placeholder presentation profiles for terrain ids `5..10`.
 
 V1-R4 has updated the live lake boundary for:
 

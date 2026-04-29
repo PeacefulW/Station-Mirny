@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="TerrainShapeSet" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_shape_set.gd" id="1"]
+
+[sub_resource type="Gradient" id="Gradient_shore"]
+offsets = PackedFloat32Array(0, 1)
+colors = PackedColorArray(0.63, 0.55, 0.37, 1, 0.63, 0.55, 0.37, 1)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_shore"]
+gradient = SubResource("Gradient_shore")
+width = 32
+height = 32
+
+[resource]
+script = ExtResource("1")
+id = &"hydrology:shore_shape"
+topology_family_id = &"single_tile"
+mask_atlas = SubResource("GradientTexture2D_shore")
+tile_size_px = 32
+case_count = 1
+variant_count = 1

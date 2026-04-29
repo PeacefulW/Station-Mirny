@@ -551,7 +551,7 @@ Returned one-per-input-coord by native
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
 | `world_version` | `int` | — | Current river/lake/delta/organic-water runtime value is `20`; `17` remains the first river-enabled compatibility boundary |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
-| `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve |
+| `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve, and plains ground may use native riverbed / river-bank / lakebed / ocean-floor adjacency for 47-tile edge variants |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
 | `mountain_id_per_tile` | `PackedInt32Array` | 1024 | `0 = no named mountain`; non-zero = deterministic `mountain_id` |
 | `mountain_flags` | `PackedByteArray` | 1024 | Per-tile mountain bit layout documented below |

@@ -375,6 +375,30 @@ RiverRasterSample sample_river_edges(
 	return sample;
 }
 
+bool is_river_ground_edge_blocker(
+	const std::vector<RiverRasterEdge> &p_edges,
+	int64_t p_world_x,
+	int64_t p_world_y,
+	float p_world_width_tiles,
+	float p_river_width_scale
+) {
+	const RiverRasterSample river_sample = sample_river_edges(
+		p_edges,
+		static_cast<float>(p_world_x) + 0.5f,
+		static_cast<float>(p_world_y) + 0.5f,
+		p_world_width_tiles
+	);
+	if (river_sample.segment_id <= 0) {
+		return false;
+	}
+	const float order_f = std::max(1.0f, static_cast<float>(river_sample.stream_order));
+	const float edge_radius_scale = std::max(0.25f, river_sample.radius_scale);
+	const float deep_radius = std::max(0.55f, (0.35f + order_f * 0.16f) * p_river_width_scale * edge_radius_scale);
+	const float bed_radius = std::max(1.25f, deep_radius + (0.9f + p_river_width_scale * 0.25f) * edge_radius_scale);
+	const float bank_radius = bed_radius + (river_sample.delta ? 2.6f : 1.5f);
+	return river_sample.distance <= bank_radius;
+}
+
 std::vector<RiverRasterEdge> filter_river_edges_for_chunk(
 	const std::vector<RiverRasterEdge> &p_edges,
 	int64_t p_chunk_origin_x,
@@ -1217,6 +1241,57 @@ Dictionary WorldCore::_generate_chunk_packet(
 		}
 	}
 
+	std::vector<uint8_t> ground_edge_blocker_grid(static_cast<size_t>(mountain_grid_side * mountain_grid_side), 0U);
+	if (has_hydrology) {
+		const float world_width_tiles = static_cast<float>(std::max<int64_t>(1, p_hydrology_snapshot->width_tiles));
+		for (int64_t sample_y = 0; sample_y < mountain_grid_side; ++sample_y) {
+			for (int64_t sample_x = 0; sample_x < mountain_grid_side; ++sample_x) {
+				const int64_t sample_index = sample_y * mountain_grid_side + sample_x;
+				if (terrain_id_grid[static_cast<size_t>(sample_index)] != TERRAIN_PLAINS_GROUND) {
+					continue;
+				}
+				const int64_t world_x = static_cast<int64_t>(p_coord.x) * CHUNK_SIZE + sample_x - mountain_border;
+				const int64_t world_y = clamp_foundation_world_y(
+					static_cast<int64_t>(p_coord.y) * CHUNK_SIZE + sample_y - mountain_border,
+					p_foundation_settings
+				);
+				bool is_ground_edge_blocker = is_river_ground_edge_blocker(
+					river_edges,
+					world_x,
+					world_y,
+					world_width_tiles,
+					river_width_scale
+				);
+				if (!is_ground_edge_blocker) {
+					const int32_t hydrology_node_index = sample_hydrology_node_index(
+						*p_hydrology_snapshot,
+						world_x,
+						world_y
+					);
+					if (hydrology_node_index >= 0) {
+						const size_t node_index = static_cast<size_t>(hydrology_node_index);
+						if (node_index < p_hydrology_snapshot->ocean_sink_mask.size() &&
+								p_hydrology_snapshot->ocean_sink_mask[node_index] != 0U) {
+							is_ground_edge_blocker = true;
+						} else {
+							const LakeRasterSample lake_sample = sample_lake_raster(
+								*p_hydrology_snapshot,
+								hydrology_node_index,
+								world_x,
+								world_y,
+								has_organic_water
+							);
+							is_ground_edge_blocker = lake_sample.is_lakebed || lake_sample.is_shore;
+						}
+					}
+				}
+				if (is_ground_edge_blocker) {
+					ground_edge_blocker_grid[static_cast<size_t>(sample_index)] = 1U;
+				}
+			}
+		}
+	}
+
 	for (int64_t local_y = 0; local_y < CHUNK_SIZE; ++local_y) {
 		for (int64_t local_x = 0; local_x < CHUNK_SIZE; ++local_x) {
 			const int64_t index = local_y * CHUNK_SIZE + local_x;
@@ -1244,22 +1319,6 @@ Dictionary WorldCore::_generate_chunk_packet(
 			uint8_t resolved_flow_dir = world_hydrology_prepass::FLOW_DIR_TERMINAL;
 			uint8_t resolved_stream_order = 0U;
 			int32_t resolved_water_atlas_index = 0;
-
-			if (terrain_id == TERRAIN_PLAINS_GROUND) {
-				terrain_atlas_index = resolve_base_ground_atlas_index(
-					world_x,
-					world_y,
-					p_seed,
-					true,
-					true,
-					true,
-					true,
-					true,
-					true,
-					true,
-					true
-				);
-			}
 
 			if (resolved_mountain_id > 0) {
 				const int32_t north_id = mountain_ids[static_cast<size_t>((grid_y - 1) * mountain_grid_side + grid_x)];
@@ -1526,6 +1585,26 @@ Dictionary WorldCore::_generate_chunk_packet(
 						}
 					}
 				}
+			}
+
+			if (terrain_id == TERRAIN_PLAINS_GROUND) {
+				const auto is_ground_edge_open = [&](int64_t p_offset_x, int64_t p_offset_y) -> bool {
+					const int64_t sample_index = (grid_y + p_offset_y) * mountain_grid_side + (grid_x + p_offset_x);
+					return ground_edge_blocker_grid[static_cast<size_t>(sample_index)] != 0U;
+				};
+				terrain_atlas_index = resolve_base_ground_atlas_index(
+					world_x,
+					world_y,
+					p_seed,
+					!is_ground_edge_open(0, -1),
+					!is_ground_edge_open(1, -1),
+					!is_ground_edge_open(1, 0),
+					!is_ground_edge_open(1, 1),
+					!is_ground_edge_open(0, 1),
+					!is_ground_edge_open(-1, 1),
+					!is_ground_edge_open(-1, 0),
+					!is_ground_edge_open(-1, -1)
+				);
 			}
 
 			terrain_ids.set(index, terrain_id);
