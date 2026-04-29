@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.1
+version: 1.4
 last_updated: 2026-04-29
 related_docs:
   - ../README.md
@@ -31,8 +31,11 @@ This pass covers only shapes confirmed in current code:
 - runtime native packet/result dictionaries
 
 It also records the River Generation V1 fields that became current in
-`world_version = 17`. Lake, delta, braid, drought, and runtime water-overlay
-fields remain reservations until their implementation iteration lands.
+`world_version = 17`, the V1-R4 lakebed semantics that became current in
+`world_version = 18`, the V1-R5 delta / controlled-split semantics that became
+current in `world_version = 19`, the V1-R8 organic water raster semantics that
+became current in `world_version = 20`, and the V1-R6 runtime water-overlay
+override shape. Broad drought simulation remains a future approved shape.
 
 ## Out of Scope
 
@@ -50,7 +53,7 @@ Confirmed files:
 |---|---|---|---|
 | `meta.json` | `SaveCollectors.collect_meta()` | `SaveManager.get_save_list()` | `SaveCollectors` |
 | `player.json` | `SaveCollectors.collect_player()` | `SaveAppliers.apply_player()` | `SaveCollectors` + component `save_state()` methods |
-| `world.json` | `SaveCollectors.collect_world()` | `SaveAppliers.apply_world()` | `SaveCollectors` |
+| `world.json` | `SaveCollectors.collect_world()` | `SaveAppliers.apply_world()` | `WorldStreamer` + `EnvironmentOverlay` |
 | `time.json` | `SaveCollectors.collect_time()` | `SaveAppliers.apply_time()` | `TimeManager` |
 | `buildings.json` | `SaveCollectors.collect_buildings()` | `SaveAppliers.apply_buildings()` | `BuildingPersistence` |
 | `chunks/<x>_<y>.json` | `SaveCollectors.collect_chunk_data()` via `SaveManager._write_chunk_data()` | `SaveManager._read_chunk_data()` -> `SaveAppliers.apply_chunk_data()` | `WorldDiffStore` |
@@ -199,6 +202,7 @@ Current code note:
       "hydrology_cell_size_tiles": int,
     },
   },
+  "water_overlay"?: WaterOverlayState,
   "worldgen_signature"?: String,
 }
 ```
@@ -220,6 +224,19 @@ Current code notes:
   `worldgen_settings.rivers` is saved, river settings indices `15-26` are
   required for native chunk generation, and `ChunkPacketV1` emits the current
   hydrology fields listed below.
+- `world_version >= 18` enables V1-R4 natural lake basin selection and lakebed /
+  lake shoreline packet rasterization. Existing `world_version = 17` saves keep
+  `lake_id = 0` and the pre-R4 river/ocean packet output.
+- `world_version >= 19` enables V1-R5 river-mouth delta / estuary widening and
+  controlled braid/distributary split packet flags. Existing
+  `world_version = 18` saves keep pre-R5 river/lake packet output.
+- `world_version >= 20` enables V1-R8 organic water raster output: natural lake
+  shorelines use deterministic noise, river raster edges may meander, and river
+  widths vary dynamically. Existing `world_version = 19` saves keep pre-R8
+  river/lake/delta packet output.
+- `water_overlay` is optional and appears only when explicit local current-water
+  overrides exist. It does not change `world_version` because it is runtime
+  overlay state, not canonical worldgen output.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - missing `worldgen_settings.mountains` restores hard-coded loader defaults for
@@ -248,6 +265,41 @@ Current River Generation V1 save extension for `world_version >= 17`:
   }
 }
 ```
+
+### `WaterOverlayState`
+
+Optional field under `world.json`, owned by `EnvironmentOverlay`.
+
+```text
+{
+  "format": 1,
+  "dirty_block_size": 16,
+  "overrides": Array[WaterOverlayOverride],
+}
+```
+
+Rules:
+- present only when explicit local current-water overrides exist;
+- absent means "use seed-derived packet `water_class` defaults";
+- dirty regions / queues are runtime-only and are not saved;
+- this state is applied after regenerated base chunks and `WorldDiffStore`
+  terrain diffs.
+
+### `WaterOverlayOverride`
+
+```text
+{
+  "x": int,
+  "y": int,
+  "water_class": int,
+}
+```
+
+Current code note:
+- `water_class` uses the same numeric values as `ChunkPacketV1.water_class`
+  (`0 = none`, `1 = shallow`, `2 = deep`, `3 = ocean`);
+- the override changes effective current water and derived walkability only. It
+  does not rewrite `terrain_ids` or the seed-derived packet `water_class` array.
 
 ### `ChunkDiffFile`
 
@@ -497,7 +549,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current river-enabled runtime value is `17` |
+| `world_version` | `int` | — | Current river/lake/delta/organic-water runtime value is `20`; `17` remains the first river-enabled compatibility boundary |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
@@ -548,8 +600,13 @@ Current code notes:
 
 ### River Generation V1 Terrain, Water, and Packet Shape
 
-The following fields are current for `world_version >= 17`. Lakebed, delta,
-braid, and drought semantics remain reserved until their later iterations.
+The following fields are current for `world_version >= 17`. V1-R4 makes
+lakebed and lake shoreline semantics current for `world_version >= 18`; V1-R5
+makes delta / estuary and controlled braid/distributary split flag semantics
+current for `world_version >= 19`; V1-R8 makes organic lake shoreline noise,
+meandered river raster edges, and dynamic river width current for
+`world_version >= 20`. Broad drought semantics remain reserved for a future
+iteration.
 
 | Constant | Numeric id | Meaning | Default traversal |
 |---|---:|---|---|
@@ -606,6 +663,10 @@ Rules:
   Future drought/refill systems must own runtime overlay mutation separately.
 - deep and ocean water produce blocking `walkable_flags`; shallow water remains
   walkable.
+- `HYDROLOGY_FLAG_DELTA` marks widened river-mouth estuary/delta output on
+  riverbed, shore, or ocean-floor tiles.
+- `HYDROLOGY_FLAG_BRAID_SPLIT` marks controlled braid/distributary split output;
+  split riverbed tiles keep a stable river `hydrology_id_per_tile`.
 - these fields must be produced in native chunk generation from the
   `WorldHydrologyPrePass` snapshot. GDScript must not rasterize rivers or loop
   through chunk tiles to derive them.
@@ -717,8 +778,9 @@ Current code notes:
   apply the same hierarchical `mountain_id` cutoff used by `ChunkPacketV1`;
   `hydro_height` is used only as subtle neutral-ground shading in the default
   terrain overview
-- the foundation overview remains a foundation/mountain view; river-enabled
-  detail preview uses chunk packets and `WorldPreviewPalette` instead
+- the foundation overview remains a foundation/mountain view; the new-game
+  overview water mode uses `WorldHydrologyOverviewImage` instead of expanding
+  this foundation image surface
 - this image is presentation-only and must not be persisted
 
 ### `WorldHydrologyPrePassBuildResult`
@@ -802,10 +864,13 @@ matching hydrology snapshot has been built.
 Current code notes:
 - every array is indexed by hydrology node index `y * grid_width + x`
 - `flow_dir` uses compact direction buckets with `255` as terminal
-- `lake_id` is reserved and remains `0` until V1-R4 lake basin logic lands
+- for `world_version >= 18`, `lake_id` records deterministic natural lake basin
+  ids; for `world_version = 17`, it remains `0` to preserve the pre-R4
+  compatibility boundary
 - V1-R3A river graph fields remain debug/dev snapshot data and must not be
   saved; V1-R3B chunk generation reads the native snapshot internally and emits
-  only compact per-tile hydrology packet fields
+  only compact per-tile hydrology packet fields; V1-R4 also reads `lake_id` for
+  native lakebed and shoreline rasterization
 - `river_segment_ranges` uses six-int records:
   `segment_id, path_offset, path_length, head_node, tail_node, max_stream_order`
 - `river_path_node_indices` is the concatenated hydrology-node path storage
@@ -827,16 +892,19 @@ Image {
 ```
 
 Current code notes:
-- default layer renders a diagnostic view of ocean sink, mountain exclusion, and
-  effective hydrology height, with selected V1-R3A river graph nodes overlaid
+- default layer renders a hydrology water overview: ocean sink pixels, natural
+  lake pixels, selected river graph pixels, mountain exclusion, and effective
+  hydrology height backing colours
+- the new-game overview water mode requests this image through the packet worker;
+  it is presentation/debug output, not gameplay state or save data
 - layer mask `1 << 0` renders flow accumulation; `1 << 1` renders filled
   elevation
 - this image is presentation/debug output and must not be persisted
 
 ## Not Currently Confirmed
 
-The current code still does not confirm live chunk packet fields for lake basin
-outlines, deltas, controlled braids/splits, future biome, placement,
-roof-runtime, entrance-runtime, drought, or environment layers. Runtime water
-overlay mutation is not confirmed; current `water_class` is seed-derived packet
-state only.
+The current code still does not confirm live chunk packet fields for future
+biome, placement, roof-runtime, entrance-runtime, broad drought, or environment
+layers. Runtime water overlay mutation is confirmed only as sparse explicit
+overrides in `world.json.water_overlay`; current packet `water_class` remains
+seed-derived default state.

@@ -11,6 +11,16 @@ var _failed: bool = false
 func _init() -> void:
 	var core := WorldCore.new()
 	var packed_settings: PackedFloat32Array = _build_settings_packed()
+
+	var legacy_result: Dictionary = core.build_world_hydrology_prepass(
+		WorldRuntimeConstants.DEFAULT_WORLD_SEED,
+		WorldRuntimeConstants.WORLD_RIVER_VERSION,
+		packed_settings
+	)
+	_assert(bool(legacy_result.get("success", false)), "legacy river-version hydrology prepass should build successfully")
+	var legacy_snapshot: Dictionary = core.get_world_hydrology_snapshot(0, 1)
+	_assert(not _has_any_lake(legacy_snapshot), "world_version 17 should keep pre-R4 lake ids empty")
+
 	var first_result: Dictionary = core.build_world_hydrology_prepass(
 		WorldRuntimeConstants.DEFAULT_WORLD_SEED,
 		WorldRuntimeConstants.WORLD_VERSION,
@@ -39,6 +49,9 @@ func _init() -> void:
 	_assert((snapshot.get("flow_dir", PackedByteArray()) as PackedByteArray).size() == node_count, "flow_dir size should match grid")
 	_assert((snapshot.get("flow_accumulation", PackedFloat32Array()) as PackedFloat32Array).size() == node_count, "flow_accumulation size should match grid")
 	_assert((snapshot.get("watershed_id", PackedInt32Array()) as PackedInt32Array).size() == node_count, "watershed_id size should match grid")
+	_assert((snapshot.get("lake_id", PackedInt32Array()) as PackedInt32Array).size() == node_count, "lake_id size should match grid")
+	_assert(_has_any_lake(snapshot), "V1-R4 current hydrology snapshot should expose natural lake ids")
+	_assert(_lake_nodes_avoid_mountain_and_ocean(snapshot), "lake nodes should not overlap mountain exclusion or ocean sink")
 	_assert((snapshot.get("ocean_sink_mask", PackedByteArray()) as PackedByteArray).size() == node_count, "ocean sink mask size should match grid")
 	_assert(_top_row_has_ocean_sink(snapshot), "top hydrology row should include ocean sink cells")
 	_assert(int(snapshot.get("river_segment_count", 0)) > 0, "hydrology snapshot should expose selected river segments")
@@ -82,6 +95,25 @@ func _top_row_has_ocean_sink(snapshot: Dictionary) -> bool:
 		if x < mask.size() and mask[x] != 0:
 			return true
 	return false
+
+func _has_any_lake(snapshot: Dictionary) -> bool:
+	var lake_ids: PackedInt32Array = snapshot.get("lake_id", PackedInt32Array()) as PackedInt32Array
+	for lake_id: int in lake_ids:
+		if lake_id > 0:
+			return true
+	return false
+
+func _lake_nodes_avoid_mountain_and_ocean(snapshot: Dictionary) -> bool:
+	var lake_ids: PackedInt32Array = snapshot.get("lake_id", PackedInt32Array()) as PackedInt32Array
+	var exclusion_mask: PackedByteArray = snapshot.get("mountain_exclusion_mask", PackedByteArray()) as PackedByteArray
+	var ocean_mask: PackedByteArray = snapshot.get("ocean_sink_mask", PackedByteArray()) as PackedByteArray
+	var count: int = mini(lake_ids.size(), mini(exclusion_mask.size(), ocean_mask.size()))
+	for index: int in range(count):
+		if int(lake_ids[index]) <= 0:
+			continue
+		if exclusion_mask[index] != 0 or ocean_mask[index] != 0:
+			return false
+	return true
 
 func _river_nodes_avoid_mountain_exclusion(snapshot: Dictionary) -> bool:
 	var river_mask: PackedByteArray = snapshot.get("river_node_mask", PackedByteArray()) as PackedByteArray

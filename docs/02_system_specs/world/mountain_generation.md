@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.5
-last_updated: 2026-04-24
+version: 1.6
+last_updated: 2026-04-29
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -859,7 +859,7 @@ Files forbidden:
 Acceptance tests for M6:
 - [ ] M6 landed new worlds at `world_version = 10`; current new-world
       version may be higher after later canonical worldgen owners
-      (currently `11` in `world_foundation_v1.md`);
+      (currently `19` in `world_foundation_v1.md`);
 - [ ] `world_version == 9` remains load-compatible and keeps the legacy
       mountain sample-width path;
 - [ ] on the `large` preset, generated mountain output no longer appears as

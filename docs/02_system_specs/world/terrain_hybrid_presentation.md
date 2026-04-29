@@ -316,7 +316,7 @@ Notes:
   canonical `terrain_id -> TerrainPresentationProfile` mapping.
 - Multiple terrain ids may intentionally point to the same profile by sharing
   one `terrain_ids` list.
-- River Generation V1-R3B currently maps hydrology terrain ids `5..10`
+- River Generation V1 currently maps hydrology terrain ids `5..10`
   (`riverbed_shallow`, `riverbed_deep`, `lakebed`, `ocean_floor`, `shore`,
   `floodplain`) through `hydrology:placeholder_profile`. This is a temporary
   simple-tile presentation bridge using existing authored assets so the live

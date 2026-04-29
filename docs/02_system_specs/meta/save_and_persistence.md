@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.5
+version: 1.8
 last_updated: 2026-04-29
 related_docs:
   - multiplayer_and_modding.md
@@ -59,9 +59,11 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current world generation extension:
-- `world.json` now records `world_version: 17` for the current river-enabled
-  finite-world baseline with `64`-tile foundation substrate cells, native
-  hydrology prepass, and first riverbed/water chunk packet rasterization
+- `world.json` now records `world_version: 20` for the current
+  river/lake/delta/organic-water finite-world baseline with `64`-tile foundation
+  substrate cells, native hydrology prepass, riverbed/water chunk packet
+  rasterization, V1-R4 lakebed packet rasterization, and V1-R5 delta /
+  controlled-split packet rasterization, and V1-R8 organic water raster output
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - `world_version >= 6` keeps the same save shape but changes canonical new-world
@@ -86,6 +88,21 @@ Current world generation extension:
 - `world_version >= 17` writes `worldgen_settings.rivers` and regenerates
   hydrology prepass arrays, river graph data, river packet arrays, default
   `water_class`, and water/shore atlas indices from seed/version/settings
+- `world_version >= 18` also regenerates natural lake basin ids, lakebed terrain,
+  lake shoreline / bank markers, and default shallow/deep lake water classes
+  from seed/version/settings. Existing `world_version = 17` saves keep
+  pre-R4 lake ids empty.
+- `world_version >= 19` also regenerates river-mouth delta / estuary widening
+  and controlled braid/distributary split packet flags from
+  seed/version/settings. Existing `world_version = 18` saves keep pre-R5
+  river/lake packet output.
+- `world_version >= 20` also regenerates organic lake shoreline noise,
+  meandered river raster edges, and dynamic river width modulation from
+  seed/version/settings. Existing `world_version = 19` saves keep pre-R8
+  river/lake/delta packet output.
+- V1-R6 adds optional `world.json.water_overlay` runtime state for explicit
+  local current-water overrides only. It does not bump `world_version` because
+  canonical generated output remains unchanged.
 - loading `world_version <= 8` preserves the legacy pre-foundation path without
   injecting synthetic bounds into the save
 - loading `world_version >= 9` without `worldgen_settings.world_bounds` fails
@@ -132,8 +149,10 @@ Current River Generation V1 save extension:
 - hydrology prepass arrays, river graphs, per-tile river packet arrays,
   default `water_class`, and water/shore atlas indices are regenerated from
   seed/version/settings and are not saved
-- future drought/refill state may persist only after a water overlay spec
-  approves its owner, dirty unit, and save shape
+- optional `world.json.water_overlay` persists sparse explicit local overrides
+  owned by `EnvironmentOverlay`; dirty queues and seed-derived default
+  `water_class` are not saved
+- future broad drought/refill state still requires a separate slow-state shape
 
 Confirmed `world.json` shape in the current river-enabled code path:
 
@@ -142,7 +161,7 @@ Confirmed `world.json` shape in the current river-enabled code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 17,
+  "world_version": 19,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,
@@ -180,9 +199,25 @@ Confirmed `world.json` shape in the current river-enabled code path:
       "hydrology_cell_size_tiles": 16
     }
   },
-  "worldgen_signature": "debug-only"
+  "worldgen_signature": "debug-only",
+  "water_overlay": {
+    "format": 1,
+    "dirty_block_size": 16,
+    "overrides": [
+      {
+        "x": 17,
+        "y": 33,
+        "water_class": 0
+      }
+    ]
+  }
 }
 ```
+
+`water_overlay` is optional. If absent, runtime uses regenerated packet
+`water_class` defaults. If present, each override changes only effective current
+water and derived walkability after base packet regeneration and terrain diff
+application.
 
 ## Dependencies
 

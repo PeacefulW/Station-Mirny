@@ -3,9 +3,11 @@ extends RefCounted
 
 const PALETTE_ID: StringName = &"foundation_overview_v1"
 const TERRAIN: StringName = &"terrain"
+const HYDROLOGY_WATER: StringName = &"hydrology_water"
 const HYDRO_HEIGHT: StringName = &"hydro_height"
 const LAYER_MASK_TERRAIN: int = 0
 const LAYER_MASK_HYDRO_HEIGHT: int = 1 << 4
+const LAYER_MASK_HYDROLOGY_WATER: int = 1 << 5
 # Must match native write_overview_rgba in world_prepass.cpp.
 const COLOR_MOUNTAIN_FOOT: Color = Color(106.0 / 255.0, 98.0 / 255.0, 74.0 / 255.0, 1.0)
 const COLOR_MOUNTAIN_WALL: Color = Color(164.0 / 255.0, 160.0 / 255.0, 146.0 / 255.0, 1.0)
@@ -14,11 +16,13 @@ const OVERVIEW_PIXELS_PER_CELL: int = 4
 
 const _ORDERED_MODES: Array[StringName] = [
 	TERRAIN,
+	HYDROLOGY_WATER,
 	HYDRO_HEIGHT,
 ]
 
 const _LABEL_KEYS: Dictionary = {
 	TERRAIN: &"UI_WORLDGEN_OVERVIEW_MODE_TERRAIN",
+	HYDROLOGY_WATER: &"UI_WORLDGEN_OVERVIEW_MODE_WATER",
 	HYDRO_HEIGHT: &"UI_WORLDGEN_OVERVIEW_MODE_HEIGHT",
 }
 
@@ -45,6 +49,8 @@ func set_mode(mode: StringName) -> void:
 
 func get_layer_mask() -> int:
 	match _active_mode:
+		HYDROLOGY_WATER:
+			return LAYER_MASK_HYDROLOGY_WATER
 		HYDRO_HEIGHT:
 			return LAYER_MASK_HYDRO_HEIGHT
 		_:

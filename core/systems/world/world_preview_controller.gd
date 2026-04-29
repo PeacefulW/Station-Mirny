@@ -37,6 +37,7 @@ var _pending_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 var _pending_settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
 var _pending_world_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
 var _pending_foundation_settings: FoundationGenSettings = FoundationGenSettings.hard_coded_defaults()
+var _pending_river_settings: RiverGenSettings = RiverGenSettings.hard_coded_defaults()
 var _pending_settings_signature: String = ""
 var _active_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 var _active_world_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
@@ -136,7 +137,8 @@ func queue_preview_rebuild(
 	seed_value: int,
 	settings: MountainGenSettings,
 	world_bounds: WorldBoundsSettings = null,
-	foundation_settings: FoundationGenSettings = null
+	foundation_settings: FoundationGenSettings = null,
+	river_settings: RiverGenSettings = null
 ) -> void:
 	_pending_seed = seed_value
 	_pending_settings = _clone_settings(settings)
@@ -145,10 +147,12 @@ func queue_preview_rebuild(
 		foundation_settings,
 		_pending_world_bounds
 	)
+	_pending_river_settings = _clone_river_settings(river_settings)
 	_pending_settings_signature = _compute_worldgen_signature(
 		_pending_settings,
 		_pending_world_bounds,
-		_pending_foundation_settings
+		_pending_foundation_settings,
+		_pending_river_settings
 	)
 	_preview_epoch += 1
 	_debounce_remaining = REBUILD_DEBOUNCE_SECONDS
@@ -219,7 +223,8 @@ func _start_rebuild_from_pending_snapshot() -> void:
 	_active_settings_packed = _build_settings_packed(
 		_pending_settings,
 		_pending_world_bounds,
-		_pending_foundation_settings
+		_pending_foundation_settings,
+		_pending_river_settings
 	)
 	_awaiting_spawn_result = true
 	_has_spawn_context = false
@@ -594,21 +599,28 @@ func _clone_foundation_settings(
 		return FoundationGenSettings.for_bounds(world_bounds)
 	return FoundationGenSettings.from_save_dict(settings.to_save_dict(), world_bounds)
 
+func _clone_river_settings(settings: RiverGenSettings) -> RiverGenSettings:
+	if settings == null:
+		return RiverGenSettings.hard_coded_defaults()
+	return RiverGenSettings.from_save_dict(settings.to_save_dict())
+
 func _build_settings_packed(
 	settings: MountainGenSettings,
 	world_bounds: WorldBoundsSettings,
-	foundation_settings: FoundationGenSettings
+	foundation_settings: FoundationGenSettings,
+	river_settings: RiverGenSettings = null
 ) -> PackedFloat32Array:
 	var packed: PackedFloat32Array = settings.flatten_to_packed()
 	packed = foundation_settings.write_to_settings_packed(packed, world_bounds)
 	if WorldRuntimeConstants.uses_river_generation(WorldRuntimeConstants.WORLD_VERSION):
-		packed = RiverGenSettings.hard_coded_defaults().write_to_settings_packed(packed)
+		packed = _clone_river_settings(river_settings).write_to_settings_packed(packed)
 	return packed
 
 func _compute_worldgen_signature(
 	settings: MountainGenSettings,
 	world_bounds: WorldBoundsSettings,
-	foundation_settings: FoundationGenSettings
+	foundation_settings: FoundationGenSettings,
+	river_settings: RiverGenSettings = null
 ) -> String:
 	var hashing_context: HashingContext = HashingContext.new()
 	var start_error: Error = hashing_context.start(HashingContext.HASH_SHA1)
@@ -620,7 +632,7 @@ func _compute_worldgen_signature(
 		"foundation": foundation_settings.to_save_dict(),
 	}
 	if WorldRuntimeConstants.uses_river_generation(WorldRuntimeConstants.WORLD_VERSION):
-		payload["rivers"] = RiverGenSettings.hard_coded_defaults().to_save_dict()
+		payload["rivers"] = _clone_river_settings(river_settings).to_save_dict()
 	hashing_context.update(JSON.stringify(payload).to_utf8_buffer())
 	return hashing_context.finish().hex_encode()
 

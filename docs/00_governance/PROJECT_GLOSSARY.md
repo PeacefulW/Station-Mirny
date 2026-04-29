@@ -4,7 +4,7 @@ doc_type: governance
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.5
+version: 1.6
 last_updated: 2026-04-29
 related_docs:
   - ENGINEERING_STANDARDS.md
@@ -98,10 +98,12 @@ The bottom-Y hard band in V1 worlds. Its thickness is saved as
 `worldgen_settings.foundation.burning_band_tiles`.
 
 ### Water overlay
-Future runtime/environment layer that says how much water is present on top of
-water-capable terrain right now. It may affect walkability and presentation,
-but it must not rewrite immutable base terrain. For rivers and lakes, drying
-changes this overlay while the riverbed/lakebed terrain remains canonical.
+Runtime/environment layer owned by `EnvironmentOverlay` that says how much water
+is present on top of water-capable terrain right now. It may affect walkability
+and presentation, but it must not rewrite immutable base terrain. For rivers and
+lakes, drying changes this overlay while the riverbed/lakebed terrain remains
+canonical. Current V1-R6 code persists only explicit local overrides; broad
+drought/weather simulation remains future work.
 
 ### Riverbed
 Canonical base terrain under a river channel. It records that a tile belongs to
@@ -110,7 +112,7 @@ not the same thing as current water.
 
 ### Lakebed
 Canonical base terrain under a natural lake outline. Lakebed remains after a
-future drought/water overlay removes visible lake water.
+water overlay removes visible lake water.
 
 ### Hydrology prepass
 Native, RAM-only worldgen prepass that derives drainage, lakes, river segments,
@@ -147,8 +149,8 @@ otherwise.
 
 ### Floodplain
 Canonical low river-adjacent land that may visually read as flood-shaped terrain
-and may become wet under future water overlay rules. It is not a river channel
-by itself.
+and may become wet under water overlay rules. It is not a river channel by
+itself.
 
 ### Biome resolver
 A data-driven system that takes world channel values at a position and returns

@@ -848,11 +848,12 @@ class CliffForgeApp:
             return f"{value:.2f}"
         return str(value)
 
-    def _on_scale_change(self, variable: tk.Variable, label: ttk.Label) -> None:
+    def _on_scale_change(self, variable: tk.Variable, label: ttk.Label, *, quiet: bool = False) -> None:
         label.configure(text=self._format_var(variable))
-        if not self.suspend_events:
-            self._mark_dirty()
-            self.schedule_draft()
+        if quiet or self.suspend_events:
+            return
+        self._mark_dirty()
+        self.schedule_draft()
 
     # ─── Map editor ──────────────────────────────────────────────────────
 

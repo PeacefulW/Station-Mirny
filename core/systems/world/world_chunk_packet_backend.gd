@@ -2,6 +2,7 @@ class_name WorldChunkPacketBackend
 extends RefCounted
 
 const DEFAULT_MAX_BATCH_SIZE: int = 64
+const HYDROLOGY_WATER_LAYER_MASK: int = 1 << 5
 
 var _worker_thread: Thread = Thread.new()
 var _request_mutex: Mutex = Mutex.new()
@@ -264,6 +265,80 @@ func _call_get_world_foundation_overview_payload(worker_world_core: Object, requ
 		"message": "Native foundation overview returned empty image.",
 	}
 
+func _call_get_world_hydrology_overview_payload(worker_world_core: Object, request: Dictionary) -> Dictionary:
+	if not worker_world_core.has_method("build_world_hydrology_prepass"):
+		return {
+			"success": false,
+			"message": "Native hydrology prepass API is unavailable in this build.",
+		}
+	if not worker_world_core.has_method("get_world_hydrology_overview"):
+		return {
+			"success": false,
+			"message": "Native hydrology overview API is unavailable in this build.",
+		}
+
+	var build_variant: Variant = worker_world_core.call(
+		"build_world_hydrology_prepass",
+		int(request.get("seed", 0)),
+		int(request.get("world_version", 0)),
+		request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array
+	)
+	if build_variant is not Dictionary:
+		return {
+			"success": false,
+			"message": "Native hydrology prepass returned non-dictionary result.",
+		}
+	var build_result: Dictionary = build_variant as Dictionary
+	if not bool(build_result.get("success", false)):
+		return build_result
+
+	var requested_pixels_per_cell: int = maxi(1, int(request.get("pixels_per_cell", 1)))
+	var native_layer_mask: int = int(request.get("layer_mask", 0)) & ~HYDROLOGY_WATER_LAYER_MASK
+	var overview_arg_count: int = _get_method_argument_count(
+		worker_world_core,
+		&"get_world_hydrology_overview"
+	)
+	var overview_variant: Variant
+	if overview_arg_count >= 2:
+		overview_variant = worker_world_core.call(
+			"get_world_hydrology_overview",
+			native_layer_mask,
+			requested_pixels_per_cell
+		)
+	else:
+		overview_variant = worker_world_core.call(
+			"get_world_hydrology_overview",
+			native_layer_mask
+		)
+	if overview_variant is Image:
+		var overview_image: Image = overview_variant as Image
+		if overview_image != null and not overview_image.is_empty():
+			if overview_arg_count == 1 and requested_pixels_per_cell > 1:
+				overview_image = overview_image.duplicate() as Image
+				overview_image.resize(
+					overview_image.get_width() * requested_pixels_per_cell,
+					overview_image.get_height() * requested_pixels_per_cell,
+					Image.INTERPOLATE_NEAREST
+				)
+			return {
+				"success": true,
+				"image": overview_image,
+				"grid_width": int(build_result.get("grid_width", 0)),
+				"grid_height": int(build_result.get("grid_height", 0)),
+				"image_width": overview_image.get_width(),
+				"image_height": overview_image.get_height(),
+				"layer_mask": int(request.get("layer_mask", 0)),
+				"pixels_per_cell": requested_pixels_per_cell,
+				"compute_time_ms": float(build_result.get("compute_time_ms", 0.0)),
+			}
+	return {
+		"success": false,
+		"message": "Native hydrology overview returned empty image.",
+	}
+
+func _should_use_hydrology_overview(request: Dictionary) -> bool:
+	return (int(request.get("layer_mask", 0)) & HYDROLOGY_WATER_LAYER_MASK) != 0
+
 func _get_method_argument_count(target: Object, method_name: StringName) -> int:
 	for method: Dictionary in target.get_method_list():
 		if StringName(str(method.get("name", ""))) == method_name:
@@ -328,7 +403,9 @@ func _process_spawn_request(worker_world_core: Object, request: Dictionary) -> v
 	_result_mutex.unlock()
 
 func _process_overview_request(worker_world_core: Object, request: Dictionary) -> void:
-	var overview_result: Dictionary = _call_get_world_foundation_overview_payload(worker_world_core, request)
+	var overview_result: Dictionary = _call_get_world_hydrology_overview_payload(worker_world_core, request) \
+			if _should_use_hydrology_overview(request) \
+			else _call_get_world_foundation_overview_payload(worker_world_core, request)
 	overview_result["epoch"] = int(request.get("epoch", -1))
 	overview_result["layer_mask"] = int(request.get("layer_mask", 0))
 	_result_mutex.lock()

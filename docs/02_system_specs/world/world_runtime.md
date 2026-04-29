@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 0.9
+version: 1.2
 last_updated: 2026-04-29
 related_docs:
   - ../../README.md
@@ -27,8 +27,17 @@ Define the smallest working vertical slice of the rebuilt world runtime.
 
 This V0 spec did not authorize rivers, multiple biomes, decor streaming, or
 other future systems. River Generation V1 amends the active runtime for
-`world_version >= 17`; the original V0 baseline remains documented here as the
-minimal chunked-runtime foundation.
+`world_version >= 17`; current lakebed rasterization starts at
+`world_version = 18`, and current delta / controlled-split rasterization starts
+at `world_version = 19`. V1-R6 adds a current-water overlay seam without
+changing canonical chunk generation, so the active world version remains `19`.
+V1-R7 adds a worker-published new-game overview water mode, also without
+changing canonical chunk generation or `world_version`.
+V1-R8 changes canonical water raster output through organic lake shorelines,
+meandered river edges, and dynamic river width, so current new worlds advance to
+`world_version = 20`.
+The original V0 baseline remains documented here as the minimal chunked-runtime
+foundation.
 
 ## Gameplay Goal
 
@@ -254,6 +263,18 @@ V0 out-of-scope list remains true only for the historical V0 baseline.
 V1-R2/V1-R3A add a native diagnostic `WorldHydrologyPrePass` and river graph.
 V1-R3B makes that native substrate part of gameplay chunk readiness by emitting
 compact hydrology packet fields for `world_version >= 17`.
+V1-R4 keeps the same packet shape and makes `lake_id`, lakebed terrain, lake
+shoreline / bank markers, and default lake water classes live for
+`world_version >= 18`.
+V1-R5 keeps the same packet shape and makes river-mouth delta / estuary flags
+and controlled braid/distributary split flags live for `world_version >= 19`.
+V1-R6 keeps canonical packets seed-derived and adds `EnvironmentOverlay` for
+explicit local current-water overrides.
+V1-R7 keeps the same world version and makes river/lake/ocean placement visible
+in the new-game overview through a native hydrology overview image.
+V1-R8 advances current new worlds to `world_version = 20` and keeps the same
+packet shape while making lake outlines, river centerlines, and river widths
+organic in native chunk/overview generation.
 
 For the first river-enabled world version, River Generation V1 extends this
 runtime contract without changing the hot-path ownership:
@@ -262,17 +283,32 @@ runtime contract without changing the hot-path ownership:
   hard no-go terrain with a clearance buffer;
 - `WorldHydrologyPrePass` is native worker/boot/preview work owned by
   `WorldCore`;
+- the new-game overview water mode may build/reuse `WorldHydrologyPrePass` on
+  the worker and publish an image only; it must not instantiate gameplay chunks
+  or write save data;
 - `generate_chunk_packets_batch(...)` remains the only chunk packet hot-path
   boundary and reads the hydrology snapshot internally;
 - chunk readiness for a river-enabled world includes terrain ids, water class,
   hydrology ids/flags, stream order, and water atlas fields documented in
   `packet_schemas.md`;
+- chunk readiness for a lake-enabled world includes native lakebed
+  rasterization and `walkable_flags` derived from default shallow/deep lake
+  water class;
+- chunk readiness for a delta-enabled world includes native river-mouth
+  widening, estuary/ocean-floor delta markers, and controlled split markers;
+- chunk readiness for an organic-water world includes native lake shoreline
+  noise, meandered river raster edges, and dynamic river width modulation;
 - `walkable_flags` must already reflect default current water class: shallow
   water is walkable, deep/ocean water is blocking;
 - riverbed, lakebed, shore, ocean floor, and floodplain are canonical base
   terrain; current water is overlay state on top;
-- drought/refill gameplay must update only the water overlay through a bounded
-  dirty unit and must not rewrite immutable riverbed/lakebed terrain;
+- explicit local dry/wet changes must update only `EnvironmentOverlay` through
+  an aligned `16 x 16` dirty block and must not rewrite immutable
+  riverbed/lakebed terrain;
+- `water_overlay_changed(region: Rect2i, reason: StringName)` is the current
+  dirty event for loaded packet walkability refresh;
+- broad drought/refill gameplay must queue/background larger overlay work rather
+  than applying unbounded synchronous tile changes;
 - GDScript must not compute hydrology, derive centerlines, rasterize SDFs, or
   loop through chunk tiles to build river fields.
 
@@ -312,6 +348,14 @@ Single-tile mutation rules:
 - do not regenerate the whole chunk packet
 - do not republish the entire chunk view
 
+Single-tile water overlay mutation rules:
+- write one explicit override into `EnvironmentOverlay`
+- emit one aligned `16 x 16` `water_overlay_changed` dirty block
+- update only loaded packet `walkable_flags` inside that block
+- do not mutate packet `terrain_ids` or seed-derived packet `water_class`
+- do not regenerate the whole chunk packet
+- do not redraw the whole chunk view
+
 ## Persistence Contract
 
 ### Authoritative Save Shape
@@ -321,14 +365,16 @@ V0 save/load uses:
 - `worldgen_settings.world_bounds` and `worldgen_settings.foundation` for
   `world_version >= 9`
 - `worldgen_settings.rivers` for `world_version >= 17`
+- optional `world.json.water_overlay` for explicit local current-water overrides
 - `chunks/<x>_<y>.json` for dirty chunk tile overrides only
 
 Rules:
 - base chunk data is never saved
 - empty chunk diff = no chunk file
-- load order is `regenerate base -> apply diff -> publish`
+- load order is `regenerate base -> apply terrain diff -> apply water overlay -> publish`
 - missing `world_version` on older saves defaults to `0` and is treated as a
   legacy regenerate-only case
+- water overlay dirty queues are transient and are not serialized
 
 ### ChunkDiffV0
 

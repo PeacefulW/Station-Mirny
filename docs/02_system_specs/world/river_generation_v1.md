@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.5
+version: 0.9
 last_updated: 2026-04-29
 related_docs:
   - ../../README.md
@@ -29,7 +29,14 @@ related_docs:
 ## Status and Current-Code Boundary
 
 This spec approves the design contract for river generation. Current runtime
-has the first river-enabled boundary at `world_version = 17`.
+has the first river-enabled boundary at `world_version = 17`; V1-R4 lakebed
+rasterization advances lake-enabled worlds to `world_version = 18`, and V1-R5
+delta / controlled-split rasterization advances current new worlds to
+`world_version = 19`. V1-R6 added the runtime water overlay seam without
+changing canonical worldgen output, so the V1-R6 boundary remained
+`world_version = 19`.
+V1-R8 changes canonical river/lake raster output and advances current new
+worlds to `world_version = 20`.
 
 V1-R3B has landed the first gameplay packet rasterization:
 
@@ -43,6 +50,63 @@ V1-R3B has landed the first gameplay packet rasterization:
   river-enabled load use an explicit hard-coded default migration;
 - the current presentation path uses a temporary hydrology placeholder profile
   until dedicated water/shore art lands.
+
+V1-R4 has landed the first natural lake pass:
+
+- `WorldHydrologyPrePass` selects deterministic natural lake basins for
+  `world_version >= 18`;
+- legacy `world_version = 17` hydrology snapshots keep `lake_id = 0`;
+- chunk packets rasterize lakebed terrain, lake shoreline / bank markers,
+  default shallow/deep lake water classes, and lake outlet continuation through
+  the existing river graph path.
+
+V1-R5 has landed the first delta / controlled-split pass:
+
+- `world_version >= 19` widens river-mouth reaches into delta / estuary packet
+  output using existing `delta_scale`;
+- eligible high-order reaches may emit deterministic fork/rejoin braid split
+  raster edges using existing `braid_chance`;
+- split and distributary output stays inside the existing chunk packet shape
+  through `HYDROLOGY_FLAG_DELTA` and `HYDROLOGY_FLAG_BRAID_SPLIT`;
+- legacy `world_version = 18` packets keep pre-R5 river/lake output and do not
+  emit V1-R5 delta or split flags.
+
+V1-R6 has landed the current water overlay seam:
+
+- `EnvironmentOverlay` owns explicit dry/wet overrides for current water state;
+- riverbed, lakebed, shore, ocean floor, and floodplain terrain ids remain
+  immutable base terrain under that overlay;
+- one water overlay mutation dirties an aligned `16 x 16` tile block through
+  `water_overlay_changed(region: Rect2i, reason: StringName)`;
+- `WorldStreamer` applies that dirty block only to loaded packet walkability;
+- explicit local overrides may persist in `world.json.water_overlay`, while the
+  seed-derived default `water_class` packet array remains unsaved and immutable.
+
+V1-R7 has landed preview and performance closure:
+
+- the new-game overview exposes a water mode rendered from the native hydrology
+  overview image;
+- that water mode renders river, lake, and ocean overlay pixels from
+  `WorldHydrologyPrePass`;
+- deterministic and performance smoke coverage now exercises the largest world
+  preset;
+- worker overview publication builds/reads native hydrology only and does not
+  instantiate gameplay chunks or write save data.
+
+V1-R8 has landed organic water shape and Water Sector exposure:
+
+- `world_version >= 20` uses deterministic shoreline noise for natural lake
+  chunk rasterization and hydrology overview pixels;
+- river raster edges use deterministic meander subdivision plus per-edge width
+  modulation, and the hydrology overview water mode uses the same organic
+  overview raster path for visible river lines;
+- the new-game Water Sector exposes existing `RiverGenSettings` controls for
+  river count, network density, width scale, lake chance, meander strength,
+  braid chance, shallow crossings, and delta scale;
+- preview/settings signatures now use the live Water Sector settings instead
+  of hard-coded river defaults;
+- no packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added.
 
 V1-R1 landed the boundary/settings preparation:
 
@@ -69,10 +133,9 @@ V1-R3A has landed the native diagnostic river graph:
 - compact six-int segment range records and path node index storage;
 - debug overview rendering for selected river nodes.
 
-Still not landed: natural lake basins/lakebed rasterization, deltas/estuaries,
-controlled braid/split islands, dedicated water/shore materials, and runtime
-drought/water overlay ownership. V1-R3B approximates width growth from stream
-order; full confluence widening remains a later quality pass.
+Still not landed: dedicated water/shore materials and broad drought/refill
+simulation. V1-R3B still approximates width growth from stream order; full
+confluence widening remains a later quality pass.
 
 ## Purpose
 
@@ -202,12 +265,12 @@ River Generation V1 does not implement:
 | Question | Answer |
 |---|---|
 | Canonical, runtime overlay, or visual only? | Riverbeds, lakebeds, shore, ocean floor, river graph, lake basins, and default channel geometry are canonical worldgen data. Current water depth/presence is a gameplay-authoritative water overlay. Presentation is derived. |
-| Save / load required? | Yes for `worldgen_settings.rivers`. Hydrology snapshots and chunk river arrays are not persisted. Future drought/water overlay state may persist only slow/global state or explicit local overrides. |
+| Save / load required? | Yes for `worldgen_settings.rivers`. Hydrology snapshots and chunk river arrays are not persisted. `EnvironmentOverlay` may persist explicit local current-water overrides in `world.json.water_overlay`; future broad drought state still requires its own approved slow-state shape. |
 | Deterministic? | Yes. Hydrology output is pure `f(world_seed, world_version, world_bounds, foundation_settings, mountain_settings, river_settings)`. |
 | Must work on unloaded chunks? | Yes. The hydrology substrate is independent of loaded chunks; chunk packets can be regenerated from seed/settings. |
 | C++ compute or main-thread apply? | Hydrology solve, graph construction, SDF rasterization, and atlas decisions are C++ worker/native compute. Main thread only applies finished chunk packet arrays and water overlay updates. |
-| Dirty unit | Hydrology prepass: whole world hydrology grid, once per world load/new-game preview. Chunk rasterization: `32 x 32` chunk packet. Runtime water overlay: future bounded tile block/subchunk dirty unit. |
-| Single owner | `WorldCore` owns canonical hydrology and rasterized base output. `EnvironmentOverlay` owns current water state when drought/weather systems land. `WorldDiffStore` owns player/runtime terrain diffs only. |
+| Dirty unit | Hydrology prepass: whole world hydrology grid, once per world load/new-game preview. Chunk rasterization: `32 x 32` chunk packet. Runtime water overlay: aligned `16 x 16` tile dirty block for explicit local overrides. |
+| Single owner | `WorldCore` owns canonical hydrology and rasterized base output. `EnvironmentOverlay` owns current water state. `WorldDiffStore` owns player/runtime terrain diffs only. |
 | 10x / 100x scale path | Hydrology grid is coarse and native; packet rasterization builds a bounded native candidate set per chunk and may graduate to a cached spatial index when river counts grow. No GDScript tile loops or whole-world gameplay path. |
 | Main-thread blocking? | Forbidden. Hydrology prepass runs on worker behind load/preview debounce. Chunk apply remains sliced through the streaming budget. |
 | Hidden GDScript fallback? | Forbidden. Missing native hydrology support must fail loudly for river-enabled world versions. |
@@ -253,7 +316,7 @@ them in `packet_schemas.md`.
 | `TERRAIN_LAKEBED` | 7 | Canonical lake floor under natural lake outline. | Walkability comes from current water overlay. |
 | `TERRAIN_OCEAN_FLOOR` | 8 | Canonical ocean floor inside top-Y ocean / estuary. | Default current water is ocean/deep and blocks. |
 | `TERRAIN_SHORE` | 9 | Land/water transition band around ocean, lakes, and wider rivers. | Walkable unless current water overlay says otherwise. |
-| `TERRAIN_FLOODPLAIN` | 10 | Canonical low river-adjacent land that reads as flood-shaped terrain. | Walkable by default; future water overlay may temporarily wet it. |
+| `TERRAIN_FLOODPLAIN` | 10 | Canonical low river-adjacent land that reads as flood-shaped terrain. | Walkable by default; water overlay may temporarily wet it. |
 
 Water classes are not immutable terrain ids. They are packet/overlay classes:
 
@@ -331,12 +394,15 @@ stable flags without nesting dictionaries in chunk packets.
 - publishing finished chunks through existing streaming budget;
 - never deriving hydrology in GDScript.
 
-`EnvironmentOverlay` owns, in later iterations:
+`EnvironmentOverlay` owns:
 
-- current water presence;
-- drought / refilling state;
-- frozen water or seasonal water state;
+- explicit local current-water overrides;
 - local overlay dirty updates.
+
+Future environment specs may extend it with:
+
+- broad drought / refilling state;
+- frozen water or seasonal water state.
 
 `WorldDiffStore` owns:
 
@@ -383,12 +449,12 @@ perform water adjacency solving.
 
 ### Preview integration
 
-After river terrain exists, the new-game overview may render river/lake/ocean
-overlays from the native hydrology snapshot. This overview remains a worker
-image publish and must not instantiate gameplay chunks or write save data.
+The new-game overview may render river/lake/ocean overlays through the water
+overview mode. The mode is a worker image publish sourced from the native
+hydrology snapshot and must not instantiate gameplay chunks or write save data.
 
-Before river terrain exists in code, debug height/hydrology modes may remain
-diagnostic only and must not be presented as gameplay truth.
+Debug height/hydrology layers that do not represent current gameplay terrain
+remain diagnostic only and must not be presented as gameplay truth.
 
 ## Hydrology Algorithm Contract
 
@@ -518,13 +584,14 @@ terrain ids.
 River Generation V1 does not require new gameplay events for immutable river
 generation.
 
-If a future water overlay iteration adds drought/refill events, it must update
-`event_contracts.md` in the same task. Candidate future events:
+V1-R6 approves the current local overlay event and updates
+`event_contracts.md` in the same task:
 
 - `water_overlay_changed(region: Rect2i, reason: StringName)`
-- `river_water_state_changed(hydrology_id: int, state: StringName)`
 
-These events are not approved current runtime events until that doc is updated.
+Still future and not approved as a current runtime event:
+
+- `river_water_state_changed(hydrology_id: int, state: StringName)`
 
 ## Save / Persistence Contracts
 
@@ -532,8 +599,7 @@ Saved:
 
 - `worldgen_settings.rivers`;
 - `world_version` boundary that includes river generation;
-- future slow water-overlay state only when a drought/environment spec approves
-  it.
+- explicit local water overlay overrides through `world.json.water_overlay`.
 
 Not saved:
 
@@ -542,6 +608,7 @@ Not saved:
 - per-tile river/lake/ocean packet arrays;
 - derived atlas indices;
 - default water depth class if it is seed-derived and unmodified.
+- transient water overlay dirty queues.
 
 Load order:
 
@@ -559,7 +626,7 @@ Load order:
 | Hydrology prepass | Boot/new-game-preview worker | Whole hydrology grid | Target <= 1500 ms on largest V1 preset at default `16`-tile hydrology cells; no main-thread wait outside load/preview progress. |
 | Chunk river rasterization | Background worker chunk generation | `32 x 32` chunk plus bounded halo | Runs inside native packet generation; no GDScript tile loop. |
 | Chunk water apply | Background apply | Sliced chunk packet publish | Uses existing streaming publish budget and compact arrays. |
-| Runtime water overlay update | Background or interactive-local in future overlay spec | Tile block/subchunk | Only local overlay dirty update may be synchronous; broader changes are queued. |
+| Runtime water overlay update | Interactive-local for one explicit override; background for future broad drought/refill | Aligned `16 x 16` water block | Only local overlay dirty update may be synchronous; broader changes are queued. |
 | Player movement query | Interactive | One loaded tile | Reads already-materialized walkability; never computes hydrology. |
 
 Forbidden:
@@ -690,13 +757,83 @@ V1-R3B has updated the live runtime boundary for:
 - `docs/02_system_specs/world/terrain_hybrid_presentation.md` the temporary
   hydrology placeholder presentation profile for terrain ids `5..10`.
 
+V1-R4 has updated the live lake boundary for:
+
+- `docs/02_system_specs/meta/packet_schemas.md` current `lake_id` and lakebed
+  packet semantics for `world_version >= 18`;
+- `docs/02_system_specs/meta/system_api.md` `WorldCore` hydrology note for
+  native lake basin selection and packet rasterization;
+- `docs/02_system_specs/meta/save_and_persistence.md` current
+  `world_version = 18` river/lake-enabled baseline;
+- `docs/02_system_specs/world/world_runtime.md` current lakebed chunk readiness
+  and water-class walkability;
+- `docs/02_system_specs/world/world_foundation_v1.md` current river/lake
+  `WORLD_VERSION` history;
+- `docs/02_system_specs/world/terrain_hybrid_presentation.md` current wording
+  for hydrology placeholder profiles.
+
+V1-R5 has updated the live delta/split boundary for:
+
+- `docs/02_system_specs/meta/packet_schemas.md` current `world_version = 19`
+  and live `HYDROLOGY_FLAG_DELTA` / `HYDROLOGY_FLAG_BRAID_SPLIT` semantics;
+- `docs/02_system_specs/meta/system_api.md` current `WorldCore` chunk packet
+  note for delta / estuary widening and controlled split rasterization;
+- `docs/02_system_specs/meta/save_and_persistence.md` current
+  `world_version = 19` baseline without changing the save shape;
+- `docs/02_system_specs/world/world_runtime.md` current delta/split chunk
+  readiness and ownership notes;
+- `docs/02_system_specs/world/world_foundation_v1.md` current river/lake/delta
+  `WORLD_VERSION` history.
+
+V1-R6 has updated the runtime water overlay seam for:
+
+- `docs/02_system_specs/meta/event_contracts.md`
+  `water_overlay_changed(region: Rect2i, reason: StringName)`;
+- `docs/02_system_specs/meta/packet_schemas.md`
+  `world.json.water_overlay` explicit override shape and current overlay
+  notes;
+- `docs/02_system_specs/meta/save_and_persistence.md` explicit water overlay
+  override persistence rules;
+- `docs/02_system_specs/meta/system_api.md` `EnvironmentOverlay` and
+  `WorldStreamer` current-water entrypoints;
+- `docs/02_system_specs/world/world_runtime.md` bounded water overlay dirty
+  block and load/apply order;
+- `docs/00_governance/PROJECT_GLOSSARY.md` current `Water overlay`
+  definition.
+
+V1-R7 has updated the preview/performance closure boundary for:
+
+- `docs/02_system_specs/meta/packet_schemas.md`
+  `WorldHydrologyOverviewImage` current river/lake/ocean overview notes;
+- `docs/02_system_specs/meta/system_api.md` worker-published hydrology overview
+  note;
+- `docs/02_system_specs/world/world_runtime.md` new-game overview water mode
+  ownership and no-save/no-gameplay-chunk boundary.
+- `docs/02_system_specs/world/world_foundation_v1.md` clarification that river
+  and lake overlays are excluded from the default foundation overview, not from
+  the separate hydrology overview mode.
+
+V1-R8 has updated the organic water/settings boundary for:
+
+- `docs/02_system_specs/meta/packet_schemas.md` current `world_version = 20`
+  and organic river/lake raster semantics without packet shape changes;
+- `docs/02_system_specs/meta/system_api.md` current `WorldCore` chunk packet
+  and hydrology overview notes for organic lake shorelines, meandered river
+  raster edges, and dynamic river width;
+- `docs/02_system_specs/meta/save_and_persistence.md` current
+  `world_version = 20` baseline without changing the save shape;
+- `docs/02_system_specs/world/world_runtime.md` current organic water chunk
+  readiness and no-interactive-hydrology ownership note;
+- `docs/02_system_specs/world/world_foundation_v1.md` current river/lake/delta
+  `WORLD_VERSION` history and Water Sector UI exposure boundary.
+
 Future iterations that change live behavior must still update:
 
 - `docs/02_system_specs/world/world_foundation_v1.md` if hydrology reuses or
   extends foundation substrate fields;
 - `docs/02_system_specs/world/terrain_hybrid_presentation.md` if water/shore
   atlas topology or material families require new presentation contracts;
-- `docs/02_system_specs/meta/event_contracts.md` only if runtime water overlay
+- `docs/02_system_specs/meta/event_contracts.md` if additional runtime water
   events are introduced.
 
 Implementation must also bump `WORLD_VERSION` for any canonical river/lake/ocean
@@ -757,32 +894,95 @@ Landed:
   `worldgen_settings.rivers`.
 
 Still true:
-- lakebeds are still reserved until V1-R4;
-- deltas, estuaries, controlled splits, and final water/shore art are still
-  future iterations;
-- drought/refill state still has no runtime water overlay owner.
+- final water/shore art is still a future iteration;
+- broad drought/refill simulation is not implemented.
 
 ### V1-R4 - Lakes and outlets
 
-- Add natural lake basin selection.
-- Fill lakes to spill points.
-- Rasterize lakebed, shoreline, inflow, and outlet continuation.
+Landed:
+- natural lake basin selection in native `WorldHydrologyPrePass` for
+  `world_version >= 18`;
+- legacy `world_version = 17` snapshots keep `lake_id = 0` for compatibility;
+- lake basins use the filled hydrology elevation as their spill surface and
+  record deterministic `lake_id` values in the debug snapshot;
+- lakebed, lake shoreline / bank, default shallow/deep lake water classes, and
+  outlet continuation are rasterized into chunk packets.
+
+Still true:
+- lake shapes remain hydrology-grid coarse for `world_version = 18..19`
+  compatibility output;
+- dedicated water/shore art remains a future iteration.
 
 ### V1-R5 - Deltas, estuaries, and controlled splits
 
-- Add river-mouth widening and delta/estuary shapes.
-- Add controlled braid/distributary split branches and islands.
-- Enforce rejoin or valid terminal for every split.
+Landed:
+- river-mouth widening and delta/estuary chunk packet shapes for
+  `world_version >= 19`;
+- deterministic controlled braid/distributary split raster edges for eligible
+  high-order reaches;
+- every split edge either rejoins the main reach in the same downstream edge or
+  terminates in the ocean as a delta distributary;
+- `HYDROLOGY_FLAG_DELTA` and `HYDROLOGY_FLAG_BRAID_SPLIT` are live packet
+  semantics; no new packet arrays, save fields, or runtime events were added.
+
+Still true:
+- islands are implicit ground left between fork/rejoin channels, not a new
+  terrain id;
+- dedicated water/shore art remains a future iteration;
+- broad drought/refill simulation is not implemented.
 
 ### V1-R6 - Water overlay seam
 
-- Add current water overlay owner for dry/wet state if drought gameplay is in
-  scope for that iteration.
-- Keep riverbed/lakebed immutable.
-- Add dirty-unit and event contracts if runtime water changes become active.
+Landed:
+- `EnvironmentOverlay` owns explicit local current-water overrides.
+- Riverbed/lakebed terrain remains immutable; overlay changes only current
+  water class and derived walkability.
+- One mutation dirties an aligned `16 x 16` tile block and emits
+  `water_overlay_changed(region: Rect2i, reason: StringName)`.
+- `WorldStreamer` applies the dirty block to loaded packet walkability without
+  regenerating a chunk or redrawing the whole chunk.
+- Optional `world.json.water_overlay` stores explicit local overrides only;
+  dirty queues and seed-derived default packet `water_class` are not saved.
+
+Still true:
+- broad drought/refill simulation is not implemented;
+- dedicated water/shore art remains a future iteration.
 
 ### V1-R7 - Preview and performance closure
 
-- Render river/lake/ocean overlays in the new-game overview.
-- Add deterministic and performance validation on largest preset.
-- Close no-GDScript-loop and no-interactive-hydrology acceptance checks.
+Landed:
+- render river/lake/ocean overlays in the new-game overview through
+  `WorldFoundationPalette.HYDROLOGY_WATER`;
+- route that overview request through `WorldChunkPacketBackend` to native
+  `WorldCore.build_world_hydrology_prepass(...)` and
+  `WorldCore.get_world_hydrology_overview(...)`;
+- add deterministic and performance validation on the largest world preset;
+- close the no-GDScript-loop and no-interactive-hydrology acceptance checks with
+  a smoke test that rejects script-side hydrology snapshot reads for preview
+  generation.
+
+Still true:
+- dedicated water/shore art remains a future iteration;
+- broad drought/refill simulation remains a future iteration.
+
+### V1-R8 - Organic water shape and Water Sector settings
+
+Landed:
+- current new worlds advance to `world_version = 20` because canonical
+  river/lake/ocean raster output changes for the same seed/settings;
+- lakebed and hydrology overview lake pixels use deterministic shoreline noise
+  to break up hydrology-cell rectangles while keeping stable `lake_id` and
+  packet fields;
+- river raster edges and hydrology overview river lines use deterministic
+  meander subdivision, controlled branch/fan edges, and dynamic width
+  modulation derived from existing `RiverGenSettings` values;
+- new-game Water Sector exposes existing river settings for river count,
+  density, width, lake chance, meander, braid chance, shallow crossings, and
+  delta scale;
+- preview rebuild signatures and native settings packing consume the live
+  Water Sector values.
+
+Still true:
+- no script code owns river/lake rasterization;
+- dedicated water/shore art remains a future iteration;
+- broad drought/refill simulation remains a future iteration.

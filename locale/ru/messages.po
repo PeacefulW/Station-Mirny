@@ -831,11 +831,17 @@ msgstr "СЕКТОР: СВЯЗЬ"
 msgid "UI_NEW_GAME_TAB_GEOLOGY"
 msgstr "СЕКТОР: ГЕОЛОГИЯ"
 
+msgid "UI_NEW_GAME_TAB_WATER"
+msgstr "СЕКТОР: ВОДА"
+
 msgid "UI_NEW_GAME_COMMS_TITLE"
 msgstr "СВЯЗЬ"
 
 msgid "UI_NEW_GAME_GEOLOGY_TITLE"
 msgstr "ГЕОЛОГИЯ"
+
+msgid "UI_NEW_GAME_WATER_TITLE"
+msgstr "ВОДЫ"
 
 msgid "UI_NEW_GAME_SECTOR_LABEL"
 msgstr "СЕКТОР: %s"
@@ -863,6 +869,54 @@ msgstr "Горящий пояс"
 
 msgid "UI_WORLDGEN_FOUNDATION_BURNING_BAND_DESC"
 msgstr "Толщина непроходимого пояса горящих земель у нижней границы Y в тайлах."
+
+msgid "UI_WORLDGEN_WATER_TARGET_TRUNK_COUNT"
+msgstr "Количество рек"
+
+msgid "UI_WORLDGEN_WATER_TARGET_TRUNK_COUNT_DESC"
+msgstr "Целевое число крупных речных русел. Ноль включает автоматический расчёт по размеру мира."
+
+msgid "UI_WORLDGEN_WATER_DENSITY"
+msgstr "Плотность речной сети"
+
+msgid "UI_WORLDGEN_WATER_DENSITY_DESC"
+msgstr "Регулирует, сколько притоков и вторичных русел сохраняется после гидрологического отбора."
+
+msgid "UI_WORLDGEN_WATER_WIDTH_SCALE"
+msgstr "Ширина рек"
+
+msgid "UI_WORLDGEN_WATER_WIDTH_SCALE_DESC"
+msgstr "Множитель ширины русел. Итоговая ширина всё равно меняется по stream order и локальной форме русла."
+
+msgid "UI_WORLDGEN_WATER_LAKE_CHANCE"
+msgstr "Количество озёр"
+
+msgid "UI_WORLDGEN_WATER_LAKE_CHANCE_DESC"
+msgstr "Вероятность превращения подходящих низин в природные озёра."
+
+msgid "UI_WORLDGEN_WATER_MEANDER_STRENGTH"
+msgstr "Извилистость рек"
+
+msgid "UI_WORLDGEN_WATER_MEANDER_STRENGTH_DESC"
+msgstr "Сила бокового смещения речных русел при rasterization. Большее значение делает реки менее прямыми."
+
+msgid "UI_WORLDGEN_WATER_BRAID_CHANCE"
+msgstr "Ответвления русел"
+
+msgid "UI_WORLDGEN_WATER_BRAID_CHANCE_DESC"
+msgstr "Вероятность контролируемых split / braid участков на подходящих широких реках."
+
+msgid "UI_WORLDGEN_WATER_SHALLOW_CROSSING_FREQUENCY"
+msgstr "Частота отмелей"
+
+msgid "UI_WORLDGEN_WATER_SHALLOW_CROSSING_FREQUENCY_DESC"
+msgstr "Частота мелководных переходов через русла."
+
+msgid "UI_WORLDGEN_WATER_DELTA_SCALE"
+msgstr "Размер дельт"
+
+msgid "UI_WORLDGEN_WATER_DELTA_SCALE_DESC"
+msgstr "Насколько сильно реки расширяются и ветвятся у выхода к северному океану."
 
 msgid "UI_WORLDGEN_MOUNTAINS_DENSITY"
 msgstr "ИНДЕКС ПЛОТНОСТИ"
@@ -935,6 +989,9 @@ msgstr "РЕЖИМ:"
 
 msgid "UI_WORLDGEN_OVERVIEW_MODE_TERRAIN"
 msgstr "РЕЛЬЕФ"
+
+msgid "UI_WORLDGEN_OVERVIEW_MODE_WATER"
+msgstr "ВОДА"
 
 msgid "UI_WORLDGEN_OVERVIEW_MODE_HEIGHT"
 msgstr "КАРТА ВЫСОТ"

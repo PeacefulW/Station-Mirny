@@ -42,6 +42,7 @@ struct Snapshot {
 	int64_t width_tiles = 0;
 	int64_t height_tiles = 0;
 	int64_t ocean_band_tiles = 0;
+	RiverSettings river_settings;
 
 	std::vector<float> hydro_elevation;
 	std::vector<float> filled_elevation;

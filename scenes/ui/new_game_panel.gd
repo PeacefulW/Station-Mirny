@@ -3,6 +3,7 @@ extends Control
 
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
+const RiverGenSettings = preload("res://core/resources/river_gen_settings.gd")
 const WorldOverviewCanvas = preload("res://scenes/ui/world_overview_canvas.gd")
 const WorldFoundationPalette = preload("res://core/systems/world/world_foundation_palette.gd")
 const WorldPreviewCanvas = preload("res://scenes/ui/world_preview_canvas.gd")
@@ -13,6 +14,7 @@ const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.
 
 const DEFAULT_SETTINGS_PATH: String = "res://data/balance/mountain_gen_settings.tres"
 const DEFAULT_FOUNDATION_SETTINGS_PATH: String = "res://data/balance/foundation_gen_settings.tres"
+const DEFAULT_RIVER_SETTINGS_PATH: String = "res://data/balance/river_gen_settings.tres"
 const BACKDROP_IMAGE_PATH: String = "res://assets/ui/backgrounds/mountain_worldgen_backdrop.jpg"
 const PANEL_WIDTH: int = 960
 const SURFACE_COLOR: Color = Color(0.05, 0.06, 0.07, 0.94)
@@ -192,18 +194,111 @@ const FOUNDATION_SLIDER_SPECS: Array[Dictionary] = [
 	},
 ]
 
+const WATER_SLIDER_SPECS: Array[Dictionary] = [
+	{
+		"target": "river",
+		"property": "target_trunk_count",
+		"label_key": "UI_WORLDGEN_WATER_TARGET_TRUNK_COUNT",
+		"tooltip_key": "UI_WORLDGEN_WATER_TARGET_TRUNK_COUNT_DESC",
+		"min": 0.0,
+		"max": 64.0,
+		"step": 1.0,
+		"is_integer": true,
+		"decimals": 0,
+	},
+	{
+		"target": "river",
+		"property": "density",
+		"label_key": "UI_WORLDGEN_WATER_DENSITY",
+		"tooltip_key": "UI_WORLDGEN_WATER_DENSITY_DESC",
+		"min": 0.0,
+		"max": 1.0,
+		"step": 0.01,
+		"is_integer": false,
+		"decimals": 2,
+	},
+	{
+		"target": "river",
+		"property": "width_scale",
+		"label_key": "UI_WORLDGEN_WATER_WIDTH_SCALE",
+		"tooltip_key": "UI_WORLDGEN_WATER_WIDTH_SCALE_DESC",
+		"min": 0.25,
+		"max": 4.0,
+		"step": 0.05,
+		"is_integer": false,
+		"decimals": 2,
+	},
+	{
+		"target": "river",
+		"property": "lake_chance",
+		"label_key": "UI_WORLDGEN_WATER_LAKE_CHANCE",
+		"tooltip_key": "UI_WORLDGEN_WATER_LAKE_CHANCE_DESC",
+		"min": 0.0,
+		"max": 1.0,
+		"step": 0.01,
+		"is_integer": false,
+		"decimals": 2,
+	},
+	{
+		"target": "river",
+		"property": "meander_strength",
+		"label_key": "UI_WORLDGEN_WATER_MEANDER_STRENGTH",
+		"tooltip_key": "UI_WORLDGEN_WATER_MEANDER_STRENGTH_DESC",
+		"min": 0.0,
+		"max": 1.0,
+		"step": 0.01,
+		"is_integer": false,
+		"decimals": 2,
+	},
+	{
+		"target": "river",
+		"property": "braid_chance",
+		"label_key": "UI_WORLDGEN_WATER_BRAID_CHANCE",
+		"tooltip_key": "UI_WORLDGEN_WATER_BRAID_CHANCE_DESC",
+		"min": 0.0,
+		"max": 1.0,
+		"step": 0.01,
+		"is_integer": false,
+		"decimals": 2,
+	},
+	{
+		"target": "river",
+		"property": "shallow_crossing_frequency",
+		"label_key": "UI_WORLDGEN_WATER_SHALLOW_CROSSING_FREQUENCY",
+		"tooltip_key": "UI_WORLDGEN_WATER_SHALLOW_CROSSING_FREQUENCY_DESC",
+		"min": 0.0,
+		"max": 1.0,
+		"step": 0.01,
+		"is_integer": false,
+		"decimals": 2,
+	},
+	{
+		"target": "river",
+		"property": "delta_scale",
+		"label_key": "UI_WORLDGEN_WATER_DELTA_SCALE",
+		"tooltip_key": "UI_WORLDGEN_WATER_DELTA_SCALE_DESC",
+		"min": 0.0,
+		"max": 2.0,
+		"step": 0.05,
+		"is_integer": false,
+		"decimals": 2,
+	},
+]
+
 signal back_requested
 signal start_requested(
 	seed_value: int,
 	settings: MountainGenSettings,
 	world_bounds: WorldBoundsSettings,
-	foundation_settings: FoundationGenSettings
+	foundation_settings: FoundationGenSettings,
+	river_settings: RiverGenSettings
 )
 
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
 var _world_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
 var _foundation_settings: FoundationGenSettings = FoundationGenSettings.hard_coded_defaults()
+var _river_settings: RiverGenSettings = RiverGenSettings.hard_coded_defaults()
 var _seed_line_edit: LineEdit = null
 var _size_preset_select: OptionButton = null
 var _advanced_toggle: Button = null
@@ -232,6 +327,7 @@ func reload_defaults() -> void:
 	_settings = _load_default_settings()
 	_world_bounds = WorldBoundsSettings.hard_coded_defaults()
 	_foundation_settings = _load_default_foundation_settings(_world_bounds)
+	_river_settings = _load_default_river_settings()
 	_rebuild_ui("", 0)
 	_regenerate_seed_text()
 
@@ -343,9 +439,11 @@ func _build_ui(seed_text: String, active_tab: int) -> void:
 
 	_build_comms_tab(tabs, seed_text)
 	_build_geology_tab(tabs)
+	_build_water_tab(tabs)
 	
 	tabs.set_tab_title(0, Localization.t("UI_NEW_GAME_TAB_COMMS"))
 	tabs.set_tab_title(1, Localization.t("UI_NEW_GAME_TAB_GEOLOGY"))
+	tabs.set_tab_title(2, Localization.t("UI_NEW_GAME_TAB_WATER"))
 
 	# RIGHT COLUMN: Preview
 	var right_column := MarginContainer.new()
@@ -614,6 +712,32 @@ func _build_geology_tab(tabs: TabContainer) -> void:
 	for spec: Dictionary in ADVANCED_SLIDER_SPECS:
 		_advanced_container.add_child(_build_slider_row(spec))
 
+func _build_water_tab(tabs: TabContainer) -> void:
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	tabs.add_child(scroll)
+
+	var margin := MarginContainer.new()
+	margin.size_flags_horizontal = SIZE_EXPAND_FILL
+	margin.add_theme_constant_override("margin_top", 16)
+	margin.add_theme_constant_override("margin_right", 16)
+	margin.add_theme_constant_override("margin_bottom", 16)
+	scroll.add_child(margin)
+
+	var content := VBoxContainer.new()
+	content.size_flags_horizontal = SIZE_EXPAND_FILL
+	content.add_theme_constant_override("separation", 16)
+	margin.add_child(content)
+
+	var sector_label := _make_title_label(Localization.t("UI_NEW_GAME_SECTOR_LABEL") % Localization.t("UI_NEW_GAME_WATER_TITLE"))
+	content.add_child(sector_label)
+
+	var water_section := VBoxContainer.new()
+	water_section.add_theme_constant_override("separation", 6)
+	content.add_child(water_section)
+	for spec: Dictionary in WATER_SLIDER_SPECS:
+		water_section.add_child(_build_slider_row(spec))
+
 func _make_title_label(text: String) -> Label:
 	var label := Label.new()
 	label.text = text
@@ -830,17 +954,26 @@ func _read_setting_value(spec: Dictionary) -> float:
 	var property_name: StringName = StringName(str(spec.get("property", "")))
 	if str(spec.get("target", "")) == "foundation":
 		return float(_foundation_settings.get(property_name))
+	if str(spec.get("target", "")) == "river":
+		return float(_river_settings.get(property_name))
 	return float(_settings.get(property_name))
 
 func _apply_setting_value(spec: Dictionary, value: float) -> void:
 	var property_name: StringName = StringName(str(spec.get("property", "")))
-	var target: Object = _foundation_settings if str(spec.get("target", "")) == "foundation" else _settings
+	var target_name: String = str(spec.get("target", ""))
+	var target: Object = _settings
+	if target_name == "foundation":
+		target = _foundation_settings
+	elif target_name == "river":
+		target = _river_settings
 	if bool(spec.get("is_integer", false)):
 		target.set(property_name, int(round(value)))
 	else:
 		target.set(property_name, value)
-	if str(spec.get("target", "")) == "foundation":
+	if target_name == "foundation":
 		_foundation_settings = _foundation_settings.normalized_for_bounds(_world_bounds)
+	elif target_name == "river":
+		_river_settings = RiverGenSettings.from_save_dict(_river_settings.to_save_dict())
 
 func _update_value_label(label: Label, spec: Dictionary, value: float) -> void:
 	var decimals: int = int(spec.get("decimals", 0))
@@ -863,7 +996,8 @@ func _on_start_pressed() -> void:
 		_resolve_seed_value(),
 		MountainGenSettings.from_save_dict(_settings.to_save_dict()),
 		WorldBoundsSettings.from_save_dict(_world_bounds.to_save_dict()),
-		FoundationGenSettings.from_save_dict(_foundation_settings.to_save_dict(), _world_bounds)
+		FoundationGenSettings.from_save_dict(_foundation_settings.to_save_dict(), _world_bounds),
+		RiverGenSettings.from_save_dict(_river_settings.to_save_dict())
 	)
 
 func _on_size_preset_selected(index: int) -> void:
@@ -928,6 +1062,10 @@ func _load_default_foundation_settings(world_bounds: WorldBoundsSettings) -> Fou
 		if resource \
 		else FoundationGenSettings.for_bounds(world_bounds)
 
+func _load_default_river_settings() -> RiverGenSettings:
+	var resource: RiverGenSettings = ResourceLoader.load(DEFAULT_RIVER_SETTINGS_PATH, "RiverGenSettings") as RiverGenSettings
+	return RiverGenSettings.from_save_dict(resource.to_save_dict()) if resource else RiverGenSettings.hard_coded_defaults()
+
 func _load_backdrop_texture() -> Texture2D:
 	var image: Image = Image.load_from_file(ProjectSettings.globalize_path(BACKDROP_IMAGE_PATH))
 	return ImageTexture.create_from_image(image) if image && !image.is_empty() else null
@@ -942,7 +1080,8 @@ func _schedule_preview_rebuild() -> void:
 		_resolve_preview_seed_value(),
 		MountainGenSettings.from_save_dict(_settings.to_save_dict()),
 		WorldBoundsSettings.from_save_dict(_world_bounds.to_save_dict()),
-		FoundationGenSettings.from_save_dict(_foundation_settings.to_save_dict(), _world_bounds)
+		FoundationGenSettings.from_save_dict(_foundation_settings.to_save_dict(), _world_bounds),
+		RiverGenSettings.from_save_dict(_river_settings.to_save_dict())
 	)
 
 func _populate_overview_mode_options() -> void:

@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.7
+version: 0.9
 last_updated: 2026-04-29
 related_docs:
   - ../../README.md
@@ -349,10 +349,11 @@ by the current packet boundary:
 - mountain wall → grey rock tone.
 
 No faux biome colours in V1. `ocean_band_mask`, `burning_band_mask`, and
-`continent_mask` remain substrate/debug/spawn inputs, not player-facing
-overview colours, until a future biome/water spec lands the matching
-terrain. River/lake overlays are not part of the current player-facing
-overview.
+`continent_mask` remain substrate/debug/spawn inputs, not default foundation
+overview colours, until a future biome/water spec lands the matching terrain.
+River/lake overlays are not part of the default foundation terrain overview;
+River Generation V1 provides a separate native hydrology overview mode for
+current river/lake/ocean placement.
 
 **Debug palette variants.** Heatmap palettes for individual channels
 (raw `hydro_height`, raw `coarse_wall_density`, `coarse_valley_score`,
@@ -704,6 +705,21 @@ because canonical chunk output now includes riverbed/shore/floodplain/ocean
 terrain and hydrology packet fields generated from the separate
 `WorldHydrologyPrePass`.
 
+River Generation V1-R4 advances current new worlds to `world_version = 18`
+because canonical chunk output now includes natural lakebed terrain, lake
+shoreline / bank markers, and default shallow/deep lake water classes from the
+same separate `WorldHydrologyPrePass`.
+
+River Generation V1-R5 advances current new worlds to `world_version = 19`
+because canonical chunk output now includes river-mouth delta / estuary widening
+and controlled braid/distributary split markers from the same separate
+`WorldHydrologyPrePass`.
+
+River Generation V1-R8 advances current new worlds to `world_version = 20`
+because canonical water output now includes organic lake shoreline noise,
+meandered river raster edges, and dynamic river width modulation from the same
+separate `WorldHydrologyPrePass` and existing `RiverGenSettings`.
+
 ## Performance Class
 
 | Operation | Class | Dirty unit | Budget |
@@ -775,17 +791,17 @@ terrain and hydrology packet fields generated from the separate
 
 ### Preview
 
-- [ ] New-game overview shows finite world with visible wrap hint on
+- [ ] Default foundation overview shows finite world with visible wrap hint on
       X and does not render ocean/burning/open-water/lake colours that
       are absent from current gameplay terrain.
-- [ ] Overview matches the current gameplay world at the level of
+- [ ] Default foundation overview matches the current gameplay world at the level of
       current terrain classes: ground, mountain foot, and mountain wall
       (shape-true, not tile-perfect).
 - [ ] Overview shows individual mountain ridges narrower than `32` tiles
       when they exist at tile level, because wall / foot presence is
       sampled at pixel resolution rather than interpolated from the
       `64`-tile coarse grid.
-- [ ] Default overview palette uses only currently realised gameplay terrain
+- [ ] Default foundation overview palette uses only currently realised gameplay terrain
       classes in V1; no faux biome colours are rendered. Diagnostic modes
       clearly remain substrate inspection, not terrain truth.
 - [ ] Seed / size / foundation slider changes rebuild overview
@@ -998,8 +1014,8 @@ landed inside V1.
   (`spawn_max_wall_density`, minimum `coarse_valley_score`,
   `hydro_height` mid-band range). To be fixed in V1-R1A with a short
   debug-layer review and locked in the same task.
-- Future river settings UI/editor exposure beyond the current
-  `worldgen_settings.rivers` save shape.
+- Further in-run editor/mod UI exposure beyond the current new-game Water
+  Sector and `worldgen_settings.rivers` save shape.
 
 ## Status Rationale
 
