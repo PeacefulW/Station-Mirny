@@ -311,7 +311,7 @@ Dev-only native surface:
 | `get_world_foundation_snapshot(layer_mask: int, downscale_factor: int)` | `Dictionary` | Debug build only; returns the current `WorldPrePass` channel snapshot |
 | `get_world_foundation_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured high-resolution overview image. `layer_mask = 0` renders the current realised terrain classes: ground, mountain foot, and mountain wall. The hydro-height layer mask renders the raw `hydro_height` substrate channel as a diagnostic height map. |
 | `get_world_hydrology_snapshot(layer_mask: int, downscale_factor: int)` | `Dictionary` | Debug build only; returns the current `WorldHydrologyPrePass` diagnostic snapshot |
-| `get_world_hydrology_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured hydrology overview image. The default layer includes river, lake, and ocean overlay pixels over hydrology backing colours; for `world_version >= 20`, lake overview pixels use organic shoreline boundaries and river overview pixels use organic meander/width/branch rasterization. |
+| `get_world_hydrology_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured hydrology overview image. The default layer includes river, lake, and ocean overlay pixels over hydrology backing colours; `layer_mask` bit `1 << 6` returns a transparent water-only overlay for the new-game composite overview; for `world_version >= 20`, lake overview pixels use organic shoreline boundaries and river overview pixels use organic meander/width/branch rasterization. |
 
 Current code notes:
 - `settings_packed` for `world_version >= 9` must include the mountain fields
@@ -331,10 +331,12 @@ Current code notes:
   persisted and must not be mutated by script code.
 - Preview spawn resolution uses the shared worker wrapper, not a main-thread
   GDScript fallback.
-- New-game overview water mode uses the same worker wrapper. It builds/reuses
-  `WorldHydrologyPrePass` in native code and publishes
-  `get_world_hydrology_overview(...)` as an image; script code must not read the
-  hydrology snapshot arrays to rasterize rivers, lakes, or oceans.
+- New-game overview water/composite modes use the same worker wrapper. They
+  build/reuse `WorldHydrologyPrePass` in native code and publish
+  `get_world_hydrology_overview(...)` as an image or transparent overlay; script
+  code must not read the hydrology snapshot arrays to rasterize rivers, lakes,
+  or oceans. Composite overview composition uses image operations on the worker
+  and publishes one final `Image`.
 - `WorldHydrologyPrePass` is a derived cache owned by `WorldCore`; it is not
   persisted. V1-R3B chunk generation reads it internally for riverbed,
   shore/bank/floodplain, ocean sink, and default water-class rasterization.

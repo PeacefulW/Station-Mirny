@@ -190,25 +190,24 @@ Current V1-R1C note:
   progressive detail canvas
 - `WorldPreviewController` uses the same debounce and epoch as the detail
   preview, then queues one overview request through `WorldChunkPacketBackend`
-- `WorldChunkPacketBackend` calls the native `WorldCore` foundation snapshot
-  / overview surface on the worker path and returns one native overview image
+- `WorldChunkPacketBackend` calls the native `WorldCore` foundation overview
+  surface on the worker path; for the default composite overview it also builds
+  a transparent native hydrology overlay and returns one composed native image
   for main-thread texture publication
 - the default player overview uses the current `64`-tile substrate grid with
   `pixels_per_cell = 4`, roughly one overview pixel per `16 x 16` world tiles,
   without generating chunk packets for the full world
-- the default native overview image renders only currently realised gameplay
-  terrain classes: ground, mountain foot, and mountain wall; ocean/burning
-  bands, continent/open-water masks, rivers, and lakes stay out of the default
-  player overview until matching terrain exists
+- the default player overview is composite: currently realised terrain classes
+  (ground, mountain foot, mountain wall) plus native river/lake/ocean overlay
+  pixels are visible in one image; ocean/burning bands and continent/open-water
+  masks remain substrate/debug inputs unless represented by current terrain or
+  hydrology output
 - mountain pixels are sampled at overview-pixel resolution through the same
   mountain elevation threshold plus hierarchical `mountain_id` cutoff used by
   `ChunkPacketV1`; `hydro_height` is only subtle neutral-ground shading in
-  the default terrain overview
-- `WorldFoundationPalette` keeps the current player-truthful canonical palette
-  contract for the default mode and may expose raw `hydro_height` as a
-  diagnostic height-map mode; future river skeleton fields remain available
-  for dev/debug diagnostics but are not rendered as rivers in the default
-  player overview until river rasterization exists
+  the terrain base
+- `WorldFoundationPalette` defaults to `COMPOSITE` for the player-facing map and
+  retains terrain-only, water-only, and raw `hydro_height` diagnostic modes
 - `WorldOverviewCanvas` draws a single texture snapshot with X-wrap edge hints;
   it never boots `WorldRuntimeV0`, never creates `ChunkView`, and never writes
   save data

@@ -32,7 +32,9 @@ other future systems. River Generation V1 amends the active runtime for
 at `world_version = 19`. V1-R6 adds a current-water overlay seam without
 changing canonical chunk generation, so the active world version remains `19`.
 V1-R7 adds a worker-published new-game overview water mode, also without
-changing canonical chunk generation or `world_version`.
+changing canonical chunk generation or `world_version`. The new-game default
+composite overview later reuses the same worker/native hydrology boundary and
+still does not change chunk generation or `world_version`.
 V1-R8 changes canonical water raster output through organic lake shorelines,
 meandered river edges, and dynamic river width, so current new worlds advance to
 `world_version = 20`.
@@ -274,7 +276,9 @@ and controlled braid/distributary split flags live for `world_version >= 19`.
 V1-R6 keeps canonical packets seed-derived and adds `EnvironmentOverlay` for
 explicit local current-water overrides.
 V1-R7 keeps the same world version and makes river/lake/ocean placement visible
-in the new-game overview through a native hydrology overview image.
+in the new-game overview through a native hydrology overview image. The
+player-facing default composite overview blends that hydrology image as a
+transparent overlay over the foundation terrain image on the preview worker.
 V1-R8 advances current new worlds to `world_version = 20` and keeps the same
 packet shape while making lake outlines, river centerlines, and river widths
 organic in native chunk/overview generation.
@@ -286,9 +290,9 @@ runtime contract without changing the hot-path ownership:
   hard no-go terrain with a clearance buffer;
 - `WorldHydrologyPrePass` is native worker/boot/preview work owned by
   `WorldCore`;
-- the new-game overview water mode may build/reuse `WorldHydrologyPrePass` on
-  the worker and publish an image only; it must not instantiate gameplay chunks
-  or write save data;
+- the new-game overview water/composite modes may build/reuse
+  `WorldHydrologyPrePass` on the worker and publish image output only; they must
+  not instantiate gameplay chunks or write save data;
 - `generate_chunk_packets_batch(...)` remains the only chunk packet hot-path
   boundary and reads the hydrology snapshot internally;
 - chunk readiness for a river-enabled world includes terrain ids, water class,

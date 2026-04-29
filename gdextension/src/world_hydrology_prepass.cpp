@@ -33,6 +33,7 @@ constexpr int32_t FLOW_DX[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
 constexpr int32_t FLOW_DY[8] = { -1, -1, 0, 1, 1, 1, 0, -1 };
 constexpr int64_t LAYER_MASK_FLOW_ACCUMULATION = 1LL << 0;
 constexpr int64_t LAYER_MASK_FILLED_ELEVATION = 1LL << 1;
+constexpr int64_t LAYER_MASK_TRANSPARENT_WATER_OVERLAY = 1LL << 6;
 constexpr int32_t RIVER_SEGMENT_RECORD_SIZE = 6;
 constexpr int64_t WORLD_LAKE_VERSION = 18;
 constexpr int64_t WORLD_DELTA_VERSION = 19;
@@ -1288,6 +1289,7 @@ Ref<Image> make_overview_image(const Snapshot &p_snapshot, int64_t p_layer_mask,
 	const int32_t pixels_per_cell = clamp_value(static_cast<int32_t>(p_pixels_per_cell), 1, 8);
 	const int32_t image_width = p_snapshot.grid_width * pixels_per_cell;
 	const int32_t image_height = p_snapshot.grid_height * pixels_per_cell;
+	const bool transparent_water_overlay = (p_layer_mask & LAYER_MASK_TRANSPARENT_WATER_OVERLAY) != 0;
 	const bool use_organic_river_overview =
 			p_snapshot.world_version >= WORLD_ORGANIC_WATER_VERSION && pixels_per_cell > 1;
 	const std::vector<OverviewRiverEdge> overview_river_edges = use_organic_river_overview ?
@@ -1303,18 +1305,22 @@ Ref<Image> make_overview_image(const Snapshot &p_snapshot, int64_t p_layer_mask,
 			const int32_t index = p_snapshot.index(node_x, node_y);
 			const int32_t offset = (y * image_width + x) * 4;
 			if (p_snapshot.ocean_sink_mask[static_cast<size_t>(index)] != 0U) {
-				write_rgba(bytes, offset, 38, 89, 128);
+				write_rgba(bytes, offset, 38, 89, 128, transparent_water_overlay ? 230 : 255);
 				continue;
 			}
 			const int32_t local_pixel_x = x % pixels_per_cell;
 			const int32_t local_pixel_y = y % pixels_per_cell;
 			if (p_snapshot.lake_id.size() == static_cast<size_t>(p_snapshot.grid_width * p_snapshot.grid_height) &&
 					is_lake_overview_pixel(p_snapshot, node_x, node_y, local_pixel_x, local_pixel_y, pixels_per_cell)) {
-				write_rgba(bytes, offset, 45, 126, 160);
+				write_rgba(bytes, offset, 45, 126, 160, transparent_water_overlay ? 225 : 255);
 				continue;
 			}
 			if (p_snapshot.mountain_exclusion_mask[static_cast<size_t>(index)] != 0U) {
-				write_rgba(bytes, offset, 138, 134, 122);
+				if (transparent_water_overlay) {
+					write_rgba(bytes, offset, 0, 0, 0, 0);
+				} else {
+					write_rgba(bytes, offset, 138, 134, 122);
+				}
 				continue;
 			}
 			if (use_organic_river_overview && !overview_river_edges.empty()) {
@@ -1334,7 +1340,7 @@ Ref<Image> make_overview_image(const Snapshot &p_snapshot, int64_t p_layer_mask,
 				if (sample.distance <= radius) {
 					const uint8_t boost = static_cast<uint8_t>(std::min<int32_t>(70, static_cast<int32_t>(sample.stream_order) * 10));
 					const uint8_t red = sample.braid_split ? 46U : 38U;
-					write_rgba(bytes, offset, red, static_cast<uint8_t>(112 + boost), 190);
+					write_rgba(bytes, offset, red, static_cast<uint8_t>(112 + boost), 190, transparent_water_overlay ? 240 : 255);
 					continue;
 				}
 			}
@@ -1345,7 +1351,11 @@ Ref<Image> make_overview_image(const Snapshot &p_snapshot, int64_t p_layer_mask,
 						p_snapshot.river_stream_order[static_cast<size_t>(index)] :
 						1U;
 				const uint8_t boost = static_cast<uint8_t>(std::min<int32_t>(70, static_cast<int32_t>(order) * 10));
-				write_rgba(bytes, offset, 38, static_cast<uint8_t>(112 + boost), 190);
+				write_rgba(bytes, offset, 38, static_cast<uint8_t>(112 + boost), 190, transparent_water_overlay ? 240 : 255);
+				continue;
+			}
+			if (transparent_water_overlay) {
+				write_rgba(bytes, offset, 0, 0, 0, 0);
 				continue;
 			}
 			float t = 0.0f;

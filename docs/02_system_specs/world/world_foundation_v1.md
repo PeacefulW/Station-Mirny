@@ -316,16 +316,22 @@ budget is a blocker for the high-resolution foundation overview pass.
 a native presentation image at `overview_pixels_per_cell = 4`, producing
 an overview at roughly one pixel per `16 × 16` world tiles. This is a
 native image pass over the already-built substrate, not chunk generation
-and not a second world generator. The native overview pass renders the
-current confirmed gameplay terrain classes only: neutral ground,
+and not a second world generator. The foundation terrain overview pass renders
+the current confirmed gameplay terrain classes only: neutral ground,
 mountain foot, and mountain wall. For each overview pixel it samples
 `pixel_sample_steps × pixel_sample_steps = 16` points within the pixel's
 tile window, applies the same mountain elevation threshold and
 hierarchical `mountain_id` cutoff used by `ChunkPacketV1`, and uses
-`hydro_height` only as subtle neutral-ground shading. It must not render
-ocean, burning, continent/open-water, river, or lake colours until those
-surfaces exist as current gameplay terrain or an approved biome/water
-spec makes them player-truthful.
+`hydro_height` only as subtle neutral-ground shading.
+
+The default new-game player overview is `WorldFoundationPalette.COMPOSITE`.
+`WorldChunkPacketBackend` composes the foundation terrain overview with a
+transparent native hydrology overlay from
+`WorldCore.get_world_hydrology_overview(...)`, so relief, mountains, rivers,
+lakes, and ocean appear together in one final `Image`. This composition is
+presentation-only preview output: it does not create gameplay chunks, does not
+write save data, and does not move hydrology ownership out of native
+`WorldCore`.
 
 **Pipeline.**
 
@@ -333,27 +339,31 @@ spec makes them player-truthful.
 new-game panel → seed / size / foundation settings change
   → debounce
   → epoch bump
-  → request WorldPrePass on worker
-  → worker publishes native overview Image from WorldPrePassSnapshot
+  → request overview Image on worker
+  → worker builds foundation terrain overview
+  → for COMPOSITE, worker builds transparent native hydrology overlay
+  → worker publishes one composed native Image
   → main thread uploads ImageTexture
   → ImageTexture.update()
   → overview view redraws
 ```
 
-**Player-facing canonical palette (V1 current terrain truth).**
-The default `WorldFoundationPalette` mode maps only terrain classes confirmed
-by the current packet boundary:
+**Player-facing canonical palette (V1 composite overview).**
+The default `WorldFoundationPalette.COMPOSITE` mode maps the terrain classes
+confirmed by the current packet boundary and overlays native current
+river/lake/ocean placement:
 
 - ground → muted green / earth, with only subtle `hydro_height` shading;
 - mountain foot → ochre rock-foot tone;
 - mountain wall → grey rock tone.
+- river/lake/ocean → native hydrology overlay colours blended over terrain.
 
 No faux biome colours in V1. `ocean_band_mask`, `burning_band_mask`, and
-`continent_mask` remain substrate/debug/spawn inputs, not default foundation
+`continent_mask` remain substrate/debug/spawn inputs, not foundation terrain
 overview colours, until a future biome/water spec lands the matching terrain.
-River/lake overlays are not part of the default foundation terrain overview;
-River Generation V1 provides a separate native hydrology overview mode for
-current river/lake/ocean placement.
+The standalone foundation terrain mode remains available as a diagnostic
+terrain-only view. The standalone hydrology water mode remains available as a
+diagnostic water-only view.
 
 **Debug palette variants.** Heatmap palettes for individual channels
 (raw `hydro_height`, raw `coarse_wall_density`, `coarse_valley_score`,

@@ -3,6 +3,8 @@ extends RefCounted
 
 const DEFAULT_MAX_BATCH_SIZE: int = 64
 const HYDROLOGY_WATER_LAYER_MASK: int = 1 << 5
+const COMPOSITE_LAYER_MASK: int = 1 << 6
+const HYDROLOGY_TRANSPARENT_OVERLAY_LAYER_MASK: int = 1 << 6
 
 var _worker_thread: Thread = Thread.new()
 var _request_mutex: Mutex = Mutex.new()
@@ -336,6 +338,61 @@ func _call_get_world_hydrology_overview_payload(worker_world_core: Object, reque
 		"message": "Native hydrology overview returned empty image.",
 	}
 
+func _call_get_world_composite_overview_payload(worker_world_core: Object, request: Dictionary) -> Dictionary:
+	var foundation_request: Dictionary = request.duplicate()
+	foundation_request["layer_mask"] = 0
+	var foundation_result: Dictionary = _call_get_world_foundation_overview_payload(worker_world_core, foundation_request)
+	if not bool(foundation_result.get("success", false)):
+		return foundation_result
+
+	var hydrology_request: Dictionary = request.duplicate()
+	hydrology_request["layer_mask"] = HYDROLOGY_TRANSPARENT_OVERLAY_LAYER_MASK
+	var hydrology_result: Dictionary = _call_get_world_hydrology_overview_payload(worker_world_core, hydrology_request)
+	if not bool(hydrology_result.get("success", false)):
+		return hydrology_result
+
+	var foundation_image: Image = foundation_result.get("image", null) as Image
+	var hydrology_overlay: Image = hydrology_result.get("image", null) as Image
+	if foundation_image == null or foundation_image.is_empty():
+		return {
+			"success": false,
+			"message": "Native foundation overview returned empty image for composite overview.",
+		}
+	if hydrology_overlay == null or hydrology_overlay.is_empty():
+		return {
+			"success": false,
+			"message": "Native hydrology overlay returned empty image for composite overview.",
+		}
+
+	var composite_image: Image = foundation_image.duplicate() as Image
+	if hydrology_overlay.get_width() != composite_image.get_width() or hydrology_overlay.get_height() != composite_image.get_height():
+		hydrology_overlay = hydrology_overlay.duplicate() as Image
+		hydrology_overlay.resize(
+			composite_image.get_width(),
+			composite_image.get_height(),
+			Image.INTERPOLATE_NEAREST
+		)
+	composite_image.blend_rect(
+		hydrology_overlay,
+		Rect2i(Vector2i.ZERO, Vector2i(hydrology_overlay.get_width(), hydrology_overlay.get_height())),
+		Vector2i.ZERO
+	)
+
+	return {
+		"success": true,
+		"image": composite_image,
+		"grid_width": int(foundation_result.get("grid_width", 0)),
+		"grid_height": int(foundation_result.get("grid_height", 0)),
+		"image_width": composite_image.get_width(),
+		"image_height": composite_image.get_height(),
+		"layer_mask": int(request.get("layer_mask", 0)),
+		"pixels_per_cell": int(request.get("pixels_per_cell", 1)),
+		"compute_time_ms": float(foundation_result.get("compute_time_ms", 0.0)) + float(hydrology_result.get("compute_time_ms", 0.0)),
+	}
+
+func _should_use_composite_overview(request: Dictionary) -> bool:
+	return (int(request.get("layer_mask", 0)) & COMPOSITE_LAYER_MASK) != 0
+
 func _should_use_hydrology_overview(request: Dictionary) -> bool:
 	return (int(request.get("layer_mask", 0)) & HYDROLOGY_WATER_LAYER_MASK) != 0
 
@@ -403,9 +460,13 @@ func _process_spawn_request(worker_world_core: Object, request: Dictionary) -> v
 	_result_mutex.unlock()
 
 func _process_overview_request(worker_world_core: Object, request: Dictionary) -> void:
-	var overview_result: Dictionary = _call_get_world_hydrology_overview_payload(worker_world_core, request) \
-			if _should_use_hydrology_overview(request) \
-			else _call_get_world_foundation_overview_payload(worker_world_core, request)
+	var overview_result: Dictionary
+	if _should_use_composite_overview(request):
+		overview_result = _call_get_world_composite_overview_payload(worker_world_core, request)
+	elif _should_use_hydrology_overview(request):
+		overview_result = _call_get_world_hydrology_overview_payload(worker_world_core, request)
+	else:
+		overview_result = _call_get_world_foundation_overview_payload(worker_world_core, request)
 	overview_result["epoch"] = int(request.get("epoch", -1))
 	overview_result["layer_mask"] = int(request.get("layer_mask", 0))
 	_result_mutex.lock()

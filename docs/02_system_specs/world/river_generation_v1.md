@@ -813,6 +813,17 @@ V1-R7 has updated the preview/performance closure boundary for:
   and lake overlays are excluded from the default foundation overview, not from
   the separate hydrology overview mode.
 
+The new-game composite overview iteration has updated the same boundary for:
+
+- `docs/02_system_specs/meta/system_api.md` transparent hydrology overview
+  overlay bit and worker-side composition note;
+- `docs/02_system_specs/world/world_runtime.md` composite overview no-save /
+  no-gameplay-chunk boundary;
+- `docs/02_system_specs/world/world_foundation_v1.md` default
+  `WorldFoundationPalette.COMPOSITE` player-facing palette;
+- `docs/02_system_specs/world/WORLD_GENERATION_PREVIEW_ARCHITECTURE.md`
+  one-image composite overview pipeline.
+
 V1-R8 has updated the organic water/settings boundary for:
 
 - `docs/02_system_specs/meta/packet_schemas.md` current `world_version = 20`
@@ -986,3 +997,18 @@ Still true:
 - no script code owns river/lake rasterization;
 - dedicated water/shore art remains a future iteration;
 - broad drought/refill simulation remains a future iteration.
+
+### New-game composite overview - Default player map
+
+Landed:
+- `WorldFoundationPalette.COMPOSITE` is the default new-game overview mode;
+- terrain-only, water-only, and height-map modes remain diagnostic options;
+- `WorldChunkPacketBackend` composes the foundation terrain overview with a
+  transparent native hydrology overlay and publishes one image to the menu;
+- no script code reads hydrology snapshot arrays or rasterizes rivers/lakes.
+
+Still true:
+- dedicated water/shore art remains a future iteration;
+- broad drought/refill simulation remains a future iteration;
+- the feature is menu presentation only and does not change save data,
+  gameplay chunk generation, or `world_version`.

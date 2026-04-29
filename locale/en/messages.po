@@ -987,6 +987,9 @@ msgstr "WORLD OVERVIEW"
 msgid "UI_WORLDGEN_OVERVIEW_MODE_LABEL"
 msgstr "MODE:"
 
+msgid "UI_WORLDGEN_OVERVIEW_MODE_COMPOSITE"
+msgstr "Terrain + Water"
+
 msgid "UI_WORLDGEN_OVERVIEW_MODE_TERRAIN"
 msgstr "Terrain"
 

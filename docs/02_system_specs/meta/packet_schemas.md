@@ -769,18 +769,19 @@ Current code notes:
   mask returns a diagnostic height-map image from the raw `hydro_height`
   substrate channel; it is presentation/debug output and is not save data.
 - `pixels_per_cell` is clamped to `>= 1` on the native side
-- the default new-game overview requests `pixels_per_cell = 4`, which maps the
+- the foundation overview source requests `pixels_per_cell = 4`, which maps the
   current `64`-tile substrate grid to roughly one image pixel per `16 x 16`
   world tiles
-- the default native pass renders only currently realised gameplay terrain
+- the foundation native pass renders only currently realised gameplay terrain
   classes: ground, mountain foot, and mountain wall
 - mountain pixels sample the mountain field at overview-pixel resolution and
   apply the same hierarchical `mountain_id` cutoff used by `ChunkPacketV1`;
   `hydro_height` is used only as subtle neutral-ground shading in the default
   terrain overview
-- the foundation overview remains a foundation/mountain view; the new-game
-  overview water mode uses `WorldHydrologyOverviewImage` instead of expanding
-  this foundation image surface
+- the foundation overview remains a foundation/mountain view; the default
+  new-game composite overview uses this image plus a transparent
+  `WorldHydrologyOverviewImage`, while the standalone water-only diagnostic
+  mode uses `WorldHydrologyOverviewImage` directly
 - this image is presentation-only and must not be persisted
 
 ### `WorldHydrologyPrePassBuildResult`
@@ -895,10 +896,12 @@ Current code notes:
 - default layer renders a hydrology water overview: ocean sink pixels, natural
   lake pixels, selected river graph pixels, mountain exclusion, and effective
   hydrology height backing colours
-- the new-game overview water mode requests this image through the packet worker;
-  it is presentation/debug output, not gameplay state or save data
+- the new-game overview water/composite modes request this image through the
+  packet worker; it is presentation/debug output, not gameplay state or save
+  data
 - layer mask `1 << 0` renders flow accumulation; `1 << 1` renders filled
-  elevation
+  elevation; `1 << 6` renders a transparent water-only overlay for worker-side
+  composition over the foundation terrain overview
 - this image is presentation/debug output and must not be persisted
 
 ## Not Currently Confirmed
