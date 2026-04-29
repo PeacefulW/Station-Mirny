@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.1
+version: 0.5
 last_updated: 2026-04-29
 related_docs:
   - ../../README.md
@@ -28,18 +28,51 @@ related_docs:
 
 ## Status and Current-Code Boundary
 
-This spec approves the design contract for river generation. It does not claim
-that rivers are present in the current runtime.
+This spec approves the design contract for river generation. Current runtime
+has the first river-enabled boundary at `world_version = 17`.
 
-Current code still has the no-river baseline from `world_version = 16`:
-river/lake settings and packet fields from the failed dry river/lake attempt
-were removed, and current chunk packets do not emit river or lake fields.
+V1-R3B has landed the first gameplay packet rasterization:
 
-Implementation of this spec must therefore land in staged iterations and must
-update the meta boundary docs in the same iteration that changes the live
-packet, API, save, event, or glossary surface. Until that implementation lands,
-`packet_schemas.md`, `system_api.md`, and `save_and_persistence.md` remain the
-source of truth for current runtime shape.
+- `WorldCore.generate_chunk_packets_batch(...)` consumes the native
+  `WorldHydrologyPrePass` snapshot for river-enabled world versions;
+- chunk packets emit hydrology arrays, riverbed shallow/deep terrain, shore /
+  bank / floodplain markers, ocean-floor output for the north ocean sink, and
+  default water classes;
+- `WorldStreamer` and preview packing include `RiverGenSettings`; new saves
+  write `worldgen_settings.rivers`, while missing river settings on a
+  river-enabled load use an explicit hard-coded default migration;
+- the current presentation path uses a temporary hydrology placeholder profile
+  until dedicated water/shore art lands.
+
+V1-R1 landed the boundary/settings preparation:
+
+- `RiverGenSettings` resource and default data file exist;
+- reserved river/lake/ocean terrain ids, water classes, and hydrology flag
+  constants exist;
+- meta docs record the approved future packet/API/save boundary.
+
+V1-R2 has landed the native diagnostic hydrology substrate:
+
+- `WorldCore.build_world_hydrology_prepass(...)` builds a RAM-only
+  `WorldHydrologyPrePassSnapshot` from seed, world version, foundation,
+  mountain, and river settings;
+- the snapshot includes effective hydrology height, irregular north ocean sink,
+  Priority-Flood-style filled elevation, flow direction, flow accumulation,
+  watershed labels, mountain exclusion mask, and floodplain potential;
+- dev/debug snapshot and overview reads exist.
+
+V1-R3A has landed the native diagnostic river graph:
+
+- selected river node mask from flow accumulation / stream-order proxy;
+- river source count and segment count;
+- per-node segment id, stream order, and discharge arrays;
+- compact six-int segment range records and path node index storage;
+- debug overview rendering for selected river nodes.
+
+Still not landed: natural lake basins/lakebed rasterization, deltas/estuaries,
+controlled braid/split islands, dedicated water/shore materials, and runtime
+drought/water overlay ownership. V1-R3B approximates width growth from stream
+order; full confluence widening remains a later quality pass.
 
 ## Purpose
 
@@ -175,7 +208,7 @@ River Generation V1 does not implement:
 | C++ compute or main-thread apply? | Hydrology solve, graph construction, SDF rasterization, and atlas decisions are C++ worker/native compute. Main thread only applies finished chunk packet arrays and water overlay updates. |
 | Dirty unit | Hydrology prepass: whole world hydrology grid, once per world load/new-game preview. Chunk rasterization: `32 x 32` chunk packet. Runtime water overlay: future bounded tile block/subchunk dirty unit. |
 | Single owner | `WorldCore` owns canonical hydrology and rasterized base output. `EnvironmentOverlay` owns current water state when drought/weather systems land. `WorldDiffStore` owns player/runtime terrain diffs only. |
-| 10x / 100x scale path | Hydrology grid is coarse and native; packet rasterization queries a native spatial index per chunk. No GDScript tile loops or whole-world gameplay path. |
+| 10x / 100x scale path | Hydrology grid is coarse and native; packet rasterization builds a bounded native candidate set per chunk and may graduate to a cached spatial index when river counts grow. No GDScript tile loops or whole-world gameplay path. |
 | Main-thread blocking? | Forbidden. Hydrology prepass runs on worker behind load/preview debounce. Chunk apply remains sliced through the streaming budget. |
 | Hidden GDScript fallback? | Forbidden. Missing native hydrology support must fail loudly for river-enabled world versions. |
 | Could it become heavy later? | Yes. Therefore hydrology solve and rasterization are native from the first implementation. |
@@ -203,28 +236,33 @@ new worlds and loaded from `world.json` for existing saves.
 | `north_drainage_bias` | `0.0..1.0` | Bias that makes the top-Y ocean the preferred terminal while still respecting local height and mountain avoidance. |
 | `hydrology_cell_size_tiles` | `8..64` | Coarse hydrology graph cell size. Default target: `16` tiles. Changing the default requires `WORLD_VERSION` review. |
 
+Default new-world values live in `data/balance/river_gen_settings.tres`.
+Existing saves must load the embedded `worldgen_settings.rivers` copy once a
+river-enabled world version exists; they must not reread the repository `.tres`
+on load.
+
 ### Terrain classes
 
-The first implementation iteration must reserve concrete numeric ids in
-`world_runtime_constants.gd` and document them in `packet_schemas.md`.
+V1-R1 reserves concrete numeric ids in `world_runtime_constants.gd` and documents
+them in `packet_schemas.md`.
 
-| Terrain class id | Base meaning | Default traversal |
-|---|---|---|
-| `TERRAIN_RIVERBED_SHALLOW` | Canonical shallow riverbed under water-capable channel. | Walkable when dry or shallow water overlay. |
-| `TERRAIN_RIVERBED_DEEP` | Canonical deep riverbed under main channel. | Walkability comes from current water overlay; deep water blocks. |
-| `TERRAIN_LAKEBED` | Canonical lake floor under natural lake outline. | Walkability comes from current water overlay. |
-| `TERRAIN_OCEAN_FLOOR` | Canonical ocean floor inside top-Y ocean / estuary. | Default current water is ocean/deep and blocks. |
-| `TERRAIN_SHORE` | Land/water transition band around ocean, lakes, and wider rivers. | Walkable unless current water overlay says otherwise. |
-| `TERRAIN_FLOODPLAIN` | Canonical low river-adjacent land that reads as flood-shaped terrain. | Walkable by default; future water overlay may temporarily wet it. |
+| Terrain class id | Numeric id | Base meaning | Default traversal |
+|---|---:|---|---|
+| `TERRAIN_RIVERBED_SHALLOW` | 5 | Canonical shallow riverbed under water-capable channel. | Walkable when dry or shallow water overlay. |
+| `TERRAIN_RIVERBED_DEEP` | 6 | Canonical deep riverbed under main channel. | Walkability comes from current water overlay; deep water blocks. |
+| `TERRAIN_LAKEBED` | 7 | Canonical lake floor under natural lake outline. | Walkability comes from current water overlay. |
+| `TERRAIN_OCEAN_FLOOR` | 8 | Canonical ocean floor inside top-Y ocean / estuary. | Default current water is ocean/deep and blocks. |
+| `TERRAIN_SHORE` | 9 | Land/water transition band around ocean, lakes, and wider rivers. | Walkable unless current water overlay says otherwise. |
+| `TERRAIN_FLOODPLAIN` | 10 | Canonical low river-adjacent land that reads as flood-shaped terrain. | Walkable by default; future water overlay may temporarily wet it. |
 
 Water classes are not immutable terrain ids. They are packet/overlay classes:
 
-| Water class | Meaning | Traversal |
-|---|---|---|
-| `WATER_NONE` | Dry bed / dry land. | Uses base terrain walkability. |
-| `WATER_SHALLOW` | Shallow current water. | Walkable with movement penalty in future tuning. |
-| `WATER_DEEP` | Deep current water. | Blocking. |
-| `WATER_OCEAN` | Ocean / impassable sea water. | Blocking. |
+| Water class | Numeric id | Meaning | Traversal |
+|---|---:|---|---|
+| `WATER_CLASS_NONE` | 0 | Dry bed / dry land. | Uses base terrain walkability. |
+| `WATER_CLASS_SHALLOW` | 1 | Shallow current water. | Walkable with movement penalty in future tuning. |
+| `WATER_CLASS_DEEP` | 2 | Deep current water. | Blocking. |
+| `WATER_CLASS_OCEAN` | 3 | Ocean / impassable sea water. | Blocking. |
 
 ### Hydrology substrate snapshot
 
@@ -246,7 +284,13 @@ Required coarse fields:
 | `ocean_sink_mask` | byte array | Top-Y ocean / estuary terminal cells. |
 | `mountain_exclusion_mask` | byte array | Mountain wall/foot plus clearance buffer. |
 | `floodplain_potential` | float array | Lowland area around rivers/lakes eligible for floodplain rasterization. |
-| `river_segment_index` | native spatial index | River/lake/ocean segments for chunk rasterization. |
+| `river_node_mask` | byte array | Diagnostic selected river graph nodes from flow accumulation; not gameplay terrain. |
+| `river_segment_id` | int array | Per-node diagnostic river segment id, `0` for non-river nodes. |
+| `river_stream_order` | byte array | Per-node compact stream-order / discharge bucket for selected river nodes. |
+| `river_discharge` | float array | Per-node discharge proxy copied from flow accumulation for selected river nodes. |
+| `river_segment_ranges` | int array | Six-int records: segment id, path offset, path length, head node, tail node, max stream order. |
+| `river_path_node_indices` | int array | Concatenated hydrology node indices for diagnostic river segment paths. |
+| `river_segment_index` | native candidate set / spatial index | River/lake/ocean segments for chunk rasterization. V1-R3B uses bounded native candidate filtering; larger counts may require a persistent index. |
 
 ### Chunk packet additions
 
@@ -260,16 +304,15 @@ Target packet fields:
 | `terrain_ids` | `PackedInt32Array` | 1024 | Existing field now may include riverbed, lakebed, ocean floor, shore, and floodplain terrain ids. |
 | `walkable_flags` | `PackedByteArray` | 1024 | Derived from base terrain plus default current water class for the initial packet. Runtime overlay may override loaded walkability locally. |
 | `hydrology_id_per_tile` | `PackedInt32Array` | 1024 | `0 = no hydrology`; otherwise stable river/lake/ocean feature id. |
-| `hydrology_flags` | `PackedByteArray` | 1024 | Bitfield for riverbed, lakebed, shore, bank, floodplain, delta, braid/split, confluence, source. |
+| `hydrology_flags` | `PackedInt32Array` | 1024 | Bitfield for riverbed, lakebed, shore, bank, floodplain, delta, braid/split, confluence, and source markers. |
 | `floodplain_strength` | `PackedByteArray` | 1024 | Optional `0..255` strength used by presentation and future wetting overlays. |
 | `water_class` | `PackedByteArray` | 1024 | Default current water class: none, shallow, deep, ocean. This is seed-derived default overlay state, not immutable terrain. |
 | `flow_dir_quantized` | `PackedByteArray` | 1024 | Optional compact direction for water animation and debug, not authoritative pathfinding. |
 | `stream_order` | `PackedByteArray` | 1024 | Compact stream order / discharge bucket for visuals and tuning. |
 | `water_atlas_indices` | `PackedInt32Array` | 1024 | Derived presentation atlas index for water/shore edge rendering. |
 
-`hydrology_flags` bit layout must be finalized in `packet_schemas.md` before
-implementation. If more than eight flags are needed, use a `PackedInt32Array`
-instead of nesting dictionaries.
+`hydrology_flags` uses `PackedInt32Array` because V1 needs more than eight
+stable flags without nesting dictionaries in chunk packets.
 
 ## Runtime Architecture
 
@@ -308,7 +351,7 @@ new world / load world / preview settings change
   -> worker builds or reuses WorldPrePass
   -> worker builds WorldHydrologyPrePassSnapshot
   -> native cache publishes snapshot by signature
-  -> chunk packet generation reads snapshot through native spatial index
+  -> chunk packet generation reads snapshot through native candidate filtering / spatial index
   -> main thread receives compact chunk packets only
 ```
 
@@ -612,18 +655,43 @@ These references are design inputs, not implementation dependencies:
 
 ## Required Updates Before Implementation
 
-The first implementation iteration that changes live behavior must update:
+V1-R1 has updated the static boundary for:
 
-- `docs/02_system_specs/meta/packet_schemas.md` for terrain ids, hydrology
-  packet fields, water classes, and bit layouts;
-- `docs/02_system_specs/meta/system_api.md` for native hydrology prepass,
-  preview/debug reads, and any water overlay read surface;
-- `docs/02_system_specs/meta/save_and_persistence.md` for
-  `worldgen_settings.rivers` and any water overlay save state;
-- `docs/00_governance/PROJECT_GLOSSARY.md` for riverbed, water overlay,
-  hydrology prepass, stream order, confluence, delta, and shallow/deep water;
-- `docs/02_system_specs/world/world_runtime.md` for chunk packet generation and
-  walkability readiness rules;
+- `docs/02_system_specs/meta/packet_schemas.md` terrain ids, hydrology packet
+  fields, water classes, and bit layouts;
+- `docs/02_system_specs/meta/system_api.md` native hydrology prepass target,
+  preview/debug reads, and settings resource surface;
+- `docs/02_system_specs/meta/save_and_persistence.md`
+  `worldgen_settings.rivers` target shape;
+- `docs/00_governance/PROJECT_GLOSSARY.md` riverbed, water overlay, hydrology
+  prepass, stream order, confluence, delta, and shallow/deep water;
+- `docs/02_system_specs/world/world_runtime.md` river-enabled chunk readiness
+  and walkability rules.
+
+V1-R3A has updated the diagnostic boundary for:
+
+- `docs/02_system_specs/meta/packet_schemas.md` hydrology build-result and
+  debug-snapshot river graph fields;
+- `docs/02_system_specs/meta/system_api.md` current `WorldHydrologyPrePass`
+  debug-read note;
+- `docs/02_system_specs/world/world_runtime.md` current no-gameplay-river note.
+
+V1-R3B has updated the live runtime boundary for:
+
+- `docs/02_system_specs/meta/packet_schemas.md` current `ChunkPacketV1`
+  hydrology fields for `world_version >= 17`;
+- `docs/02_system_specs/meta/system_api.md` river-enabled native packing,
+  `generate_chunk_packets_batch(...)`, and `WorldStreamer` settings/save
+  surfaces;
+- `docs/02_system_specs/meta/save_and_persistence.md`
+  `worldgen_settings.rivers` as current save shape for `world_version >= 17`;
+- `docs/02_system_specs/world/world_runtime.md` current river-enabled chunk
+  readiness and water-class walkability;
+- `docs/02_system_specs/world/terrain_hybrid_presentation.md` the temporary
+  hydrology placeholder presentation profile for terrain ids `5..10`.
+
+Future iterations that change live behavior must still update:
+
 - `docs/02_system_specs/world/world_foundation_v1.md` if hydrology reuses or
   extends foundation substrate fields;
 - `docs/02_system_specs/world/terrain_hybrid_presentation.md` if water/shore
@@ -638,25 +706,61 @@ output change.
 
 ### V1-R1 - Boundary docs and settings
 
-- Add `RiverGenSettings` resource and save shape.
-- Reserve terrain ids and packet fields in docs.
-- Update glossary and runtime/API/save docs.
-- No river generation code yet.
+Landed:
+- `RiverGenSettings` resource and default data file.
+- reserved terrain ids, water classes, hydrology flags, and packet fields.
+- glossary and runtime/API/save boundary docs.
+
+Still true:
+- no river generation code yet.
 
 ### V1-R2 - Native hydrology substrate
 
-- Add `WorldHydrologyPrePass` in native code.
-- Build effective hydrology height, ocean sink, depression handling, flow
-  direction, accumulation, and watershed labels.
-- Expose dev-only snapshot/overview for diagnostics.
+Landed:
+- `WorldHydrologyPrePass` in native code.
+- effective hydrology height, irregular north ocean sink,
+  Priority-Flood-style depression handling, flow direction, accumulation, and
+  watershed labels.
+- dev-only snapshot/overview for diagnostics.
+
+Still true:
 - No gameplay river terrain yet.
 
-### V1-R3 - Main river trunks and rasterized beds
+### V1-R3A - Diagnostic river graph selection
 
-- Select main trunks and tributaries.
-- Rasterize riverbeds, shallow/deep water classes, shore/banks into chunk
-  packets.
-- Ensure confluence width growth and mountain clearance.
+Landed:
+- select diagnostic river nodes from flow accumulation / stream-order proxy;
+- expose source count, segment count, per-node segment id, stream order, and
+  discharge arrays through debug snapshot;
+- expose compact segment ranges plus concatenated path node indices;
+- render selected river nodes in the diagnostic hydrology overview.
+
+At the V1-R3A boundary:
+- no gameplay riverbed/water rasterization yet;
+- live chunk packet hydrology fields had not landed yet;
+- no river-enabled `WORLD_VERSION` bump yet.
+
+### V1-R3B - Main river trunks and rasterized beds
+
+Landed:
+- selected river graph from the V1-R3A hydrology snapshot is rasterized into
+  gameplay chunk packets;
+- `WORLD_VERSION` is `17` for the first river-enabled canonical output;
+- chunk packets emit `hydrology_id_per_tile`, `hydrology_flags`,
+  `floodplain_strength`, `water_class`, `flow_dir_quantized`, `stream_order`,
+  and `water_atlas_indices`;
+- riverbed shallow/deep, shore, floodplain, and ocean-floor terrain ids are
+  emitted by native chunk generation;
+- default `walkable_flags` reflects water class: shallow is walkable, deep and
+  ocean are blocking;
+- river settings are packed by runtime/preview and saved in
+  `worldgen_settings.rivers`.
+
+Still true:
+- lakebeds are still reserved until V1-R4;
+- deltas, estuaries, controlled splits, and final water/shore art are still
+  future iterations;
+- drought/refill state still has no runtime water overlay owner.
 
 ### V1-R4 - Lakes and outlets
 

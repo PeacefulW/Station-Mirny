@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.5
+version: 0.7
 last_updated: 2026-04-29
 related_docs:
   - ../../README.md
@@ -120,8 +120,8 @@ build.
 
 **Packets stay local.** `WorldPrePass` does not change any existing
 chunk packet field shape. Chunks still receive all they need through
-the existing native batch boundary; current chunk generation does not
-read the substrate after the river/lake removal.
+the existing native batch boundary; river-enabled chunk generation reads the
+separate `WorldHydrologyPrePass`, not extra `WorldPrePass` fields.
 
 **Preview is a substrate read, not a second world.** The full-world
 overview preview is a bounded native read plus one image publish. It is
@@ -296,8 +296,10 @@ Adding a field to this set requires a spec amendment and a
 **Removed hydrology fields.** The failed river/lake implementation used
 to add downstream graph, flow accumulation, visible trunk, Strahler, and
 terminal-lake fields here. Those fields are no longer approved
-foundation output. `river_generation_v1.md` must reintroduce any needed
-fields explicitly.
+foundation output. River Generation V1-R2 reintroduces hydrology as a
+separate native `WorldHydrologyPrePass` owned by `WorldCore`, not as
+additional `WorldPrePass` fields. The foundation substrate remains limited
+to the fields above.
 
 **Output.** One in-RAM `WorldPrePassSnapshot` keyed by
 `(seed, world_version, world_bounds, settings_packed_hash)`. Replaced
@@ -389,7 +391,8 @@ river flow, biome truth, or save data.
 | `mountain_generation.md` | Unchanged ownership. V1 adds the `coarse_wall_density` / `coarse_foot_density` aggregation as a read of the mountain field, owned by the substrate. Mountain identity and excavation rules are untouched. |
 | `WORLD_GENERATION_PREVIEW_ARCHITECTURE.md` | Stays valid for progressive detail preview. V1 adds the overview mode and a worker-side spawn resolution step before progressive preview chunks are queued. |
 
-Current implementation does not implement `river_generation_v1.md`.
+Current foundation implementation does not own `river_generation_v1.md`; River
+Generation V1 owns the separate hydrology prepass and river packet output.
 
 ### Spawn Contract Amendment
 
@@ -571,8 +574,9 @@ WorldCore.resolve_world_foundation_spawn_tile(
 
 Rules:
 
-- Chunk packet generation stays local and does not require a substrate
-  cache read in the current no-river baseline.
+- Chunk packet generation stays local. For `world_version >= 17`, river output
+  reads the separate `WorldHydrologyPrePass`; it does not add fields to
+  `WorldPrePass`.
 - Spawn resolution builds or reads the substrate cache and returns the
   `WorldFoundationSpawnResult` dictionary documented in
   `packet_schemas.md`.
@@ -694,6 +698,11 @@ The failed river/lake realization was removed from current new worlds at
 `world_version = 16`. `world_version == 14` and `world_version == 15` remain
 historical compatibility boundaries for saves produced while the removed
 implementation existed, but they no longer define current packet or save shape.
+
+River Generation V1-R3B advances current new worlds to `world_version = 17`
+because canonical chunk output now includes riverbed/shore/floodplain/ocean
+terrain and hydrology packet fields generated from the separate
+`WorldHydrologyPrePass`.
 
 ## Performance Class
 
@@ -989,7 +998,8 @@ landed inside V1.
   (`spawn_max_wall_density`, minimum `coarse_valley_score`,
   `hydro_height` mid-band range). To be fixed in V1-R1A with a short
   debug-layer review and locked in the same task.
-- Future river settings shape, if rivers are reintroduced.
+- Future river settings UI/editor exposure beyond the current
+  `worldgen_settings.rivers` save shape.
 
 ## Status Rationale
 

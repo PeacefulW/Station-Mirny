@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 0.5
-last_updated: 2026-04-24
+version: 0.9
+last_updated: 2026-04-29
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -15,6 +15,7 @@ related_docs:
   - ../../05_adrs/0002-wrap-world-is-cylindrical.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
   - ../meta/save_and_persistence.md
+  - river_generation_v1.md
   - world_grid_rebuild_foundation.md
 ---
 
@@ -24,9 +25,10 @@ related_docs:
 
 Define the smallest working vertical slice of the rebuilt world runtime.
 
-This spec does not authorize rivers, multiple biomes, decor streaming, or other
-future systems. Its only job is to prove that the new chunked runtime works
-end-to-end without architectural cheating.
+This V0 spec did not authorize rivers, multiple biomes, decor streaming, or
+other future systems. River Generation V1 amends the active runtime for
+`world_version >= 17`; the original V0 baseline remains documented here as the
+minimal chunked-runtime foundation.
 
 ## Gameplay Goal
 
@@ -244,6 +246,36 @@ Rules:
 - script code may parse the native spawn result, but must not rederive substrate
   channels or provide a hidden GDScript fallback for `world_version >= 9`.
 
+### River Generation V1-R1 Boundary Amendment
+
+`world_version = 17` is the first river-enabled runtime boundary. The original
+V0 out-of-scope list remains true only for the historical V0 baseline.
+
+V1-R2/V1-R3A add a native diagnostic `WorldHydrologyPrePass` and river graph.
+V1-R3B makes that native substrate part of gameplay chunk readiness by emitting
+compact hydrology packet fields for `world_version >= 17`.
+
+For the first river-enabled world version, River Generation V1 extends this
+runtime contract without changing the hot-path ownership:
+
+- mountains are generated first and river generation reads mountain wall/foot as
+  hard no-go terrain with a clearance buffer;
+- `WorldHydrologyPrePass` is native worker/boot/preview work owned by
+  `WorldCore`;
+- `generate_chunk_packets_batch(...)` remains the only chunk packet hot-path
+  boundary and reads the hydrology snapshot internally;
+- chunk readiness for a river-enabled world includes terrain ids, water class,
+  hydrology ids/flags, stream order, and water atlas fields documented in
+  `packet_schemas.md`;
+- `walkable_flags` must already reflect default current water class: shallow
+  water is walkable, deep/ocean water is blocking;
+- riverbed, lakebed, shore, ocean floor, and floodplain are canonical base
+  terrain; current water is overlay state on top;
+- drought/refill gameplay must update only the water overlay through a bounded
+  dirty unit and must not rewrite immutable riverbed/lakebed terrain;
+- GDScript must not compute hydrology, derive centerlines, rasterize SDFs, or
+  loop through chunk tiles to build river fields.
+
 ### Streaming Policy V0
 
 V0 uses one streamer and one symmetric ring only.
@@ -288,6 +320,7 @@ V0 save/load uses:
 - `world.json` for `world_seed` and `world_version`
 - `worldgen_settings.world_bounds` and `worldgen_settings.foundation` for
   `world_version >= 9`
+- `worldgen_settings.rivers` for `world_version >= 17`
 - `chunks/<x>_<y>.json` for dirty chunk tile overrides only
 
 Rules:

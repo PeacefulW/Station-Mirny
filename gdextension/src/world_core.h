@@ -1,6 +1,7 @@
 #ifndef STATION_MIRNY_WORLD_CORE_H
 #define STATION_MIRNY_WORLD_CORE_H
 
+#include "world_hydrology_prepass.h"
 #include "world_prepass.h"
 
 #include <godot_cpp/classes/image.hpp>
@@ -33,9 +34,12 @@ public:
 
 	Array generate_chunk_packets_batch(int64_t p_seed, PackedVector2Array p_coords, int64_t p_world_version, PackedFloat32Array p_settings_packed);
 	Dictionary resolve_world_foundation_spawn_tile(int64_t p_seed, int64_t p_world_version, PackedFloat32Array p_settings_packed);
+	Dictionary build_world_hydrology_prepass(int64_t p_seed, int64_t p_world_version, PackedFloat32Array p_settings_packed);
 #ifdef DEBUG_ENABLED
 	Dictionary get_world_foundation_snapshot(int64_t p_layer_mask, int64_t p_downscale_factor);
 	Ref<Image> get_world_foundation_overview(int64_t p_layer_mask, int64_t p_pixels_per_cell);
+	Dictionary get_world_hydrology_snapshot(int64_t p_layer_mask, int64_t p_downscale_factor);
+	Ref<Image> get_world_hydrology_overview(int64_t p_layer_mask, int64_t p_pixels_per_cell);
 #endif
 
 private:
@@ -46,7 +50,9 @@ private:
 		int64_t p_world_version,
 		const mountain_field::Evaluator &p_mountain_evaluator,
 		const mountain_field::Settings &p_effective_mountain_settings,
-		const ::FoundationSettings &p_foundation_settings
+		const ::FoundationSettings &p_foundation_settings,
+		const world_hydrology_prepass::Snapshot *p_hydrology_snapshot,
+		const world_hydrology_prepass::RiverSettings *p_river_settings
 	);
 	const mountain_field::HierarchicalMacroSolve &_get_or_build_hierarchical_macro_solve(
 		int64_t p_seed,
@@ -63,8 +69,18 @@ private:
 		const mountain_field::Settings &p_effective_mountain_settings,
 		const ::FoundationSettings &p_foundation_settings
 	);
+	const world_hydrology_prepass::Snapshot &_get_or_build_world_hydrology_prepass(
+		int64_t p_seed,
+		int64_t p_world_version,
+		const mountain_field::Evaluator &p_mountain_evaluator,
+		const mountain_field::Settings &p_effective_mountain_settings,
+		const ::FoundationSettings &p_foundation_settings,
+		const world_hydrology_prepass::RiverSettings &p_river_settings,
+		bool &r_cache_hit
+	);
 	std::unique_ptr<HierarchicalMacroCache> hierarchical_macro_cache_;
 	std::unique_ptr<world_prepass::Snapshot> world_prepass_snapshot_;
+	std::unique_ptr<world_hydrology_prepass::Snapshot> world_hydrology_prepass_snapshot_;
 	mountain_field::Settings world_prepass_effective_mountain_settings_;
 	::FoundationSettings world_prepass_foundation_settings_;
 };

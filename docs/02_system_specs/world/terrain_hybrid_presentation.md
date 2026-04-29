@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+art
 source_of_truth: true
-version: 0.4
-last_updated: 2026-04-20
+version: 0.5
+last_updated: 2026-04-29
 related_docs:
   - ../../README.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -316,6 +316,12 @@ Notes:
   canonical `terrain_id -> TerrainPresentationProfile` mapping.
 - Multiple terrain ids may intentionally point to the same profile by sharing
   one `terrain_ids` list.
+- River Generation V1-R3B currently maps hydrology terrain ids `5..10`
+  (`riverbed_shallow`, `riverbed_deep`, `lakebed`, `ocean_floor`, `shore`,
+  `floodplain`) through `hydrology:placeholder_profile`. This is a temporary
+  simple-tile presentation bridge using existing authored assets so the live
+  packet boundary has a valid profile. It is not the final water/shore material
+  contract.
 - `terrain_class_id` is a descriptive/category field for authoring and grouping.
 - `shader_family_id` must resolve through authored `TerrainShaderFamily` data,
   not a hardcoded runtime switch in `WorldTileSetFactory`.

@@ -3,6 +3,7 @@ extends RefCounted
 
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
+const RiverGenSettings = preload("res://core/resources/river_gen_settings.gd")
 const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
 const WorldFoundationPalette = preload("res://core/systems/world/world_foundation_palette.gd")
 const WorldOverviewCanvas = preload("res://scenes/ui/world_overview_canvas.gd")
@@ -599,7 +600,10 @@ func _build_settings_packed(
 	foundation_settings: FoundationGenSettings
 ) -> PackedFloat32Array:
 	var packed: PackedFloat32Array = settings.flatten_to_packed()
-	return foundation_settings.write_to_settings_packed(packed, world_bounds)
+	packed = foundation_settings.write_to_settings_packed(packed, world_bounds)
+	if WorldRuntimeConstants.uses_river_generation(WorldRuntimeConstants.WORLD_VERSION):
+		packed = RiverGenSettings.hard_coded_defaults().write_to_settings_packed(packed)
+	return packed
 
 func _compute_worldgen_signature(
 	settings: MountainGenSettings,
@@ -610,11 +614,14 @@ func _compute_worldgen_signature(
 	var start_error: Error = hashing_context.start(HashingContext.HASH_SHA1)
 	if start_error != OK:
 		return ""
-	hashing_context.update(JSON.stringify({
+	var payload: Dictionary = {
 		"mountains": settings.to_save_dict(),
 		"world_bounds": world_bounds.to_save_dict(),
 		"foundation": foundation_settings.to_save_dict(),
-	}).to_utf8_buffer())
+	}
+	if WorldRuntimeConstants.uses_river_generation(WorldRuntimeConstants.WORLD_VERSION):
+		payload["rivers"] = RiverGenSettings.hard_coded_defaults().to_save_dict()
+	hashing_context.update(JSON.stringify(payload).to_utf8_buffer())
 	return hashing_context.finish().hex_encode()
 
 func _resolve_patch_render_mode() -> StringName:

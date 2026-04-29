@@ -141,6 +141,12 @@ static func _validate_registered_resources() -> void:
 		WorldRuntimeConstants.TERRAIN_PLAINS_DUG,
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL,
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT,
+		WorldRuntimeConstants.TERRAIN_RIVERBED_SHALLOW,
+		WorldRuntimeConstants.TERRAIN_RIVERBED_DEEP,
+		WorldRuntimeConstants.TERRAIN_LAKEBED,
+		WorldRuntimeConstants.TERRAIN_OCEAN_FLOOR,
+		WorldRuntimeConstants.TERRAIN_SHORE,
+		WorldRuntimeConstants.TERRAIN_FLOODPLAIN,
 	]:
 		assert(_profile_id_by_terrain_id.has(terrain_id), "Missing terrain presentation profile mapping for terrain_id=%d" % terrain_id)
 		assert(_resolve_profile_for_terrain(terrain_id) != null, "TerrainPresentationRegistry failed to resolve terrain_id=%d" % terrain_id)

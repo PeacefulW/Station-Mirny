@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.5
-last_updated: 2026-04-24
+version: 0.9
+last_updated: 2026-04-29
 related_docs:
   - ../README.md
   - commands.md
@@ -13,6 +13,7 @@ related_docs:
   - packet_schemas.md
   - save_and_persistence.md
   - multiplayer_authority_and_replication.md
+  - ../world/river_generation_v1.md
 ---
 
 # System API
@@ -43,10 +44,11 @@ It covers only the minimal core set confirmed in code during this pass:
 - `BuildingSystem`
 - `WorldCore`
 - `WorldStreamer`
+- River Generation V1-R3B chunk packet boundary and `RiverGenSettings`
 
 ## Out of Scope
 
-- future API design
+- future API design outside approved inactive boundaries
 - undocumented systems outside the minimal pass
 - private helper methods and backing dictionaries
 - any contract not directly confirmed in code
@@ -286,6 +288,7 @@ Not documented here as safe entrypoints:
 Owner files:
 - `gdextension/src/world_core.cpp`
 - `gdextension/src/world_prepass.cpp`
+- `gdextension/src/world_hydrology_prepass.cpp`
 
 Role:
 - native deterministic world-generation boundary and owner of the RAM-only
@@ -295,8 +298,9 @@ Confirmed public native surface:
 
 | Surface | Return | Notes |
 |---|---|---|
-| `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate; current chunk generation does not emit river/lake fields and does not require a `WorldPrePass` read. |
+| `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate. For `world_version >= 17`, builds/reuses `WorldHydrologyPrePass` internally and emits the hydrology packet fields documented in `packet_schemas.md`. |
 | `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
+| `build_world_hydrology_prepass(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Builds or reuses a RAM-only `WorldHydrologyPrePass` snapshot and returns `WorldHydrologyPrePassBuildResult`. Requires extended settings payload with river fields. Does not emit gameplay river terrain. |
 
 Dev-only native surface:
 
@@ -304,10 +308,16 @@ Dev-only native surface:
 |---|---|---|
 | `get_world_foundation_snapshot(layer_mask: int, downscale_factor: int)` | `Dictionary` | Debug build only; returns the current `WorldPrePass` channel snapshot |
 | `get_world_foundation_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured high-resolution overview image. `layer_mask = 0` renders the current realised terrain classes: ground, mountain foot, and mountain wall. The hydro-height layer mask renders the raw `hydro_height` substrate channel as a diagnostic height map. |
+| `get_world_hydrology_snapshot(layer_mask: int, downscale_factor: int)` | `Dictionary` | Debug build only; returns the current `WorldHydrologyPrePass` diagnostic snapshot |
+| `get_world_hydrology_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a diagnostic hydrology overview image |
 
 Current code notes:
 - `settings_packed` for `world_version >= 9` must include the mountain fields
   plus V1 foundation indices `9-14`.
+- `build_world_hydrology_prepass(...)` requires the extended V1-R2 settings
+  payload with river indices `15-26`.
+- `generate_chunk_packets_batch(...)` requires the same extended payload for
+  `world_version >= 17`; versions `9..16` keep the foundation-only payload.
 - for `world_version >= 10`, native mountain sampling uses
   `worldgen_settings.world_bounds.width_tiles` as its cylindrical X width;
   `world_version == 9` keeps the legacy `65536`-tile mountain sample-width
@@ -319,11 +329,20 @@ Current code notes:
   persisted and must not be mutated by script code.
 - Preview spawn resolution uses the shared worker wrapper, not a main-thread
   GDScript fallback.
+- `WorldHydrologyPrePass` is a derived cache owned by `WorldCore`; it is not
+  persisted. V1-R3B chunk generation reads it internally for riverbed,
+  shore/bank/floodplain, ocean sink, and default water-class rasterization.
 
 Not documented here as safe entrypoints:
 - direct calls to `world_prepass::*` helpers from script, because they are native
   implementation details behind `WorldCore`
-- using dev-only substrate snapshot dictionaries as save data or gameplay state
+- using dev-only substrate or hydrology snapshot dictionaries as save data or
+  gameplay state
+
+River-enabled chunk generation must keep
+`generate_chunk_packets_batch(...)` as the hot-path packet boundary. It may read
+the native hydrology snapshot/spatial index internally, but script code must not
+derive river centerlines, SDFs, water classes, or atlas transitions.
 
 ### WorldStreamer
 
@@ -338,7 +357,7 @@ Confirmed readable entrypoints:
 |---|---|---|
 | `get_world_seed()` | `int` | Current deterministic world seed |
 | `get_world_version()` | `int` | Current canonical world version |
-| `save_world_state()` | `Dictionary` | World save payload for `world.json`, including embedded `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, and optional `worldgen_signature` |
+| `save_world_state()` | `Dictionary` | World save payload for `world.json`, including embedded `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, `worldgen_settings.rivers` for `world_version >= 17`, and optional `worldgen_signature` |
 | `collect_chunk_diffs()` | `Array[Dictionary]` | Serialized dirty chunk entries |
 | `get_chunk_packet(chunk_coord: Vector2i)` | `Dictionary` | Loaded chunk packet or `{}`; read-only world-domain lookup for `MountainResolver` |
 | `get_mountain_cover_sample(world_tile: Vector2i)` | `Dictionary` | Read-only cover sample for one tile: `mountain_id`, `mountain_flags`, `component_id`, `is_opening`, `walkable` |
@@ -350,9 +369,9 @@ Confirmed mutation entrypoints:
 
 | Surface | Notes |
 |---|---|
-| `initialize_new_world(seed_value: int, settings: MountainGenSettings, world_bounds: WorldBoundsSettings = null, foundation_settings: FoundationGenSettings = null)` | New-game entrypoint; freezes mountain, finite-bounds, and foundation settings into packed/native form and then delegates to `reset_for_new_game(...)` |
+| `initialize_new_world(seed_value: int, settings: MountainGenSettings, world_bounds: WorldBoundsSettings = null, foundation_settings: FoundationGenSettings = null, river_settings: RiverGenSettings = null)` | New-game entrypoint; freezes mountain, finite-bounds, foundation, and river settings into packed/native form and then delegates to `reset_for_new_game(...)` |
 | `reset_for_new_game(seed, version)` | Clears runtime state, queues native foundation spawn resolution for `world_version >= 9`, applies the resolved new-game spawn tile to the local player before streaming chunks, and emits `world_initialized` |
-| `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, and `worldgen_settings.mountains` from `world.json` (or documented defaults where allowed), and clears runtime state |
+| `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, and `worldgen_settings.rivers` for river-enabled versions from `world.json` (or documented defaults where allowed), and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
 | `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock |
 | `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver` to switch between outside state and one active cavity |
@@ -382,3 +401,31 @@ Confirmed readable entrypoints:
 | `FoundationGenSettings.for_bounds(world_bounds: WorldBoundsSettings)` | `FoundationGenSettings` | Builds default band settings from saved bounds |
 | `FoundationGenSettings.from_save_dict(data: Dictionary, world_bounds: WorldBoundsSettings)` | `FoundationGenSettings` | Rebuilds foundation settings from `world.json` |
 | `FoundationGenSettings.write_to_settings_packed(settings_packed: PackedFloat32Array, world_bounds: WorldBoundsSettings)` | `PackedFloat32Array` | Appends V1 foundation indices `9-14` to the native settings packet |
+
+### River Generation Settings
+
+Owner file:
+- `core/resources/river_gen_settings.gd`
+
+Role:
+- data resource for River Generation V1 settings. V1-R3B wires the resource
+  into new-game setup, save/load, preview packing, and river-enabled native
+  chunk packet generation.
+
+Confirmed readable entrypoints:
+
+| Surface | Return | Notes |
+|---|---|---|
+| `RiverGenSettings.write_to_settings_packed(settings_packed: PackedFloat32Array)` | `PackedFloat32Array` | Appends river settings indices `15-26` for `build_world_hydrology_prepass(...)` and `generate_chunk_packets_batch(...)` when `world_version >= 17` |
+| `RiverGenSettings.to_save_dict()` | `Dictionary` | Serializes the river settings shape for `worldgen_settings.rivers` |
+| `RiverGenSettings.from_save_dict(data: Dictionary)` | `RiverGenSettings` | Rebuilds and clamps settings from a save dictionary |
+| `RiverGenSettings.hard_coded_defaults()` | `RiverGenSettings` | Returns code defaults for controlled migrations/fallbacks |
+| `RiverGenSettings.compute_signature()` | `String` | Diagnostic SHA1 signature of the settings dictionary |
+
+Default data file:
+- `data/balance/river_gen_settings.tres`
+
+Current code note:
+- this resource is current for `world_version >= 17`. Missing saved river
+  settings on a river-enabled load use an explicit hard-coded default migration
+  in code and do not reread the repository `.tres`.

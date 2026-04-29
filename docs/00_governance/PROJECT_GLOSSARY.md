@@ -4,8 +4,8 @@ doc_type: governance
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.4
-last_updated: 2026-04-25
+version: 1.5
+last_updated: 2026-04-29
 related_docs:
   - ENGINEERING_STANDARDS.md
   - ../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
@@ -13,6 +13,7 @@ related_docs:
   - ../05_adrs/0005-light-is-gameplay-system.md
   - ../05_adrs/0006-surface-and-subsurface-are-separate-but-linked.md
   - ../05_adrs/0007-environment-runtime-is-layered-and-distinct-from-worldgen.md
+  - ../02_system_specs/world/river_generation_v1.md
 ---
 
 # Project Glossary
@@ -99,7 +100,55 @@ The bottom-Y hard band in V1 worlds. Its thickness is saved as
 ### Water overlay
 Future runtime/environment layer that says how much water is present on top of
 water-capable terrain right now. It may affect walkability and presentation,
-but it must not rewrite immutable base terrain.
+but it must not rewrite immutable base terrain. For rivers and lakes, drying
+changes this overlay while the riverbed/lakebed terrain remains canonical.
+
+### Riverbed
+Canonical base terrain under a river channel. It records that a tile belongs to
+the seed-derived river course even when current water dries out. Riverbed is
+not the same thing as current water.
+
+### Lakebed
+Canonical base terrain under a natural lake outline. Lakebed remains after a
+future drought/water overlay removes visible lake water.
+
+### Hydrology prepass
+Native, RAM-only worldgen prepass that derives drainage, lakes, river segments,
+ocean sink, and river rasterization support from seed, world bounds,
+foundation, mountain, and river settings. It is boot/new-game-preview worker
+work, not interactive path work.
+
+### Stream order
+Compact measure of river hierarchy / discharge used to distinguish small
+headwaters from larger downstream channels. River width and presentation may
+grow with stream order.
+
+### Confluence
+Place where two or more river branches join into a downstream branch. River
+width, stream order, and water depth may increase after a confluence.
+
+### Delta
+River-mouth region where a river widens, splits, or forms distributaries before
+entering the north ocean. Deltas are controlled hydrology output, not random
+shoreline decoration.
+
+### Shallow water
+Current water overlay class that remains traversable. Future tuning may add a
+movement penalty, but it must not block by default.
+
+### Deep water
+Current water overlay class that blocks traversal. Deep water is separate from
+the canonical riverbed or lakebed underneath it.
+
+### Shore
+Canonical transition band between land and water bodies such as ocean, lakes,
+and wider rivers. It is generally walkable unless current water overlay says
+otherwise.
+
+### Floodplain
+Canonical low river-adjacent land that may visually read as flood-shaped terrain
+and may become wet under future water overlay rules. It is not a river channel
+by itself.
 
 ### Biome resolver
 A data-driven system that takes world channel values at a position and returns

@@ -8,6 +8,10 @@ const PALETTE_ID_PREFIX: String = "terrain_preview_v1"
 const COLOR_GROUND: Color = Color(0.18, 0.23, 0.18, 1.0)
 const COLOR_MOUNTAIN_FOOT: Color = Color(0.53, 0.49, 0.39, 1.0)
 const COLOR_MOUNTAIN_WALL: Color = Color(0.86, 0.83, 0.76, 1.0)
+const COLOR_RIVER_SHALLOW: Color = Color(0.17, 0.42, 0.58, 1.0)
+const COLOR_RIVER_DEEP: Color = Color(0.08, 0.25, 0.43, 1.0)
+const COLOR_SHORE: Color = Color(0.49, 0.45, 0.35, 1.0)
+const COLOR_FLOODPLAIN: Color = Color(0.21, 0.34, 0.22, 1.0)
 const COLOR_CLASSIFICATION_GROUND: Color = Color(0.13, 0.16, 0.13, 1.0)
 const COLOR_CLASSIFICATION_FOOT: Color = Color(0.84, 0.56, 0.20, 1.0)
 const COLOR_CLASSIFICATION_WALL: Color = Color(0.23, 0.67, 0.88, 1.0)
@@ -119,6 +123,14 @@ func _resolve_terrain_color(terrain_id: int) -> Color:
 			return COLOR_MOUNTAIN_WALL
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
 			return COLOR_MOUNTAIN_FOOT
+		WorldRuntimeConstants.TERRAIN_RIVERBED_DEEP, WorldRuntimeConstants.TERRAIN_OCEAN_FLOOR:
+			return COLOR_RIVER_DEEP
+		WorldRuntimeConstants.TERRAIN_RIVERBED_SHALLOW, WorldRuntimeConstants.TERRAIN_LAKEBED:
+			return COLOR_RIVER_SHALLOW
+		WorldRuntimeConstants.TERRAIN_SHORE:
+			return COLOR_SHORE
+		WorldRuntimeConstants.TERRAIN_FLOODPLAIN:
+			return COLOR_FLOODPLAIN
 		_:
 			return COLOR_GROUND
 

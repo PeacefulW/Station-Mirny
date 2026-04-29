@@ -4,13 +4,14 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.7
-last_updated: 2026-04-24
+version: 1.1
+last_updated: 2026-04-29
 related_docs:
   - ../README.md
   - system_api.md
   - commands.md
   - save_and_persistence.md
+  - ../world/river_generation_v1.md
 ---
 
 # Packet Schemas
@@ -29,10 +30,14 @@ This pass covers only shapes confirmed in current code:
 - command result dictionaries
 - runtime native packet/result dictionaries
 
+It also records the River Generation V1 fields that became current in
+`world_version = 17`. Lake, delta, braid, drought, and runtime water-overlay
+fields remain reservations until their implementation iteration lands.
+
 ## Out of Scope
 
 - future network packet design
-- future native chunk packets
+- future native chunk packets outside an approved source-of-truth spec
 - shapes that are only implied by comments
 
 ## Save Slot Layout
@@ -179,6 +184,20 @@ Current code note:
       "interior_margin": int,
       "latitude_influence": float,
     },
+    "rivers"?: {
+      "enabled": bool,
+      "target_trunk_count": int,
+      "density": float,
+      "width_scale": float,
+      "lake_chance": float,
+      "meander_strength": float,
+      "braid_chance": float,
+      "shallow_crossing_frequency": float,
+      "mountain_clearance_tiles": int,
+      "delta_scale": float,
+      "north_drainage_bias": float,
+      "hydrology_cell_size_tiles": int,
+    },
   },
   "worldgen_signature"?: String,
 }
@@ -197,12 +216,38 @@ Current code notes:
 - `world_version == 16` removes the failed dry river/lake settings and packet
   fields. Base terrain is regenerated from seed/version/settings; river/lake
   arrays are not part of the current packet boundary.
+- `world_version >= 17` is the first River Generation V1 runtime boundary:
+  `worldgen_settings.rivers` is saved, river settings indices `15-26` are
+  required for native chunk generation, and `ChunkPacketV1` emits the current
+  hydrology fields listed below.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - missing `worldgen_settings.mountains` restores hard-coded loader defaults for
   backward-compatible saves
 - `worldgen_signature` is diagnostic only and is never authoritative on load
 - legacy/frozen-world callers may still emit only the older boolean fields
+
+Current River Generation V1 save extension for `world_version >= 17`:
+
+```text
+"worldgen_settings": {
+  ...current fields,
+  "rivers": {
+    "enabled": bool,
+    "target_trunk_count": int,
+    "density": float,
+    "width_scale": float,
+    "lake_chance": float,
+    "meander_strength": float,
+    "braid_chance": float,
+    "shallow_crossing_frequency": float,
+    "mountain_clearance_tiles": int,
+    "delta_scale": float,
+    "north_drainage_bias": float,
+    "hydrology_cell_size_tiles": int,
+  }
+}
+```
 
 ### `ChunkDiffFile`
 
@@ -452,13 +497,20 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current foundation runtime value is `16` |
+| `world_version` | `int` | — | Current river-enabled runtime value is `17` |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
 | `mountain_id_per_tile` | `PackedInt32Array` | 1024 | `0 = no named mountain`; non-zero = deterministic `mountain_id` |
 | `mountain_flags` | `PackedByteArray` | 1024 | Per-tile mountain bit layout documented below |
 | `mountain_atlas_indices` | `PackedInt32Array` | 1024 | Roof-ready atlas indices derived from `mountain_id` adjacency via `autotile_47` |
+| `hydrology_id_per_tile` | `PackedInt32Array` | 1024 | `0 = no hydrology`; otherwise stable river/lake/ocean feature id for `world_version >= 17` |
+| `hydrology_flags` | `PackedInt32Array` | 1024 | River/lake/shore/bank/floodplain bitfield for `world_version >= 17` |
+| `floodplain_strength` | `PackedByteArray` | 1024 | `0..255` bank/floodplain strength for `world_version >= 17` |
+| `water_class` | `PackedByteArray` | 1024 | Default water class for `world_version >= 17`: none, shallow, deep, ocean |
+| `flow_dir_quantized` | `PackedByteArray` | 1024 | Compact hydrology flow direction for `world_version >= 17`; `255` is terminal/none |
+| `stream_order` | `PackedByteArray` | 1024 | Compact stream order / discharge bucket for `world_version >= 17` |
+| `water_atlas_indices` | `PackedInt32Array` | 1024 | Derived water/shore presentation atlas index for `world_version >= 17` |
 
 `mountain_flags` bit layout:
 
@@ -478,12 +530,85 @@ Current code notes:
   indices `0-8` are mountain settings, and for `world_version >= 9` indices
   `9-14` are `world_width_tiles`, `world_height_tiles`, `ocean_band_tiles`,
   `burning_band_tiles`, `pole_orientation`, and `foundation_slope_bias`
+- for `world_version >= 17`, `generate_chunk_packets_batch(...)` also requires
+  river settings indices `15-26` and builds/reuses `WorldHydrologyPrePass`
+  before packet rasterization
+- `WorldCore.build_world_hydrology_prepass(...)` uses an extended
+  `settings_packed` payload for diagnostics: river settings indices `15-26`
+  are `enabled`, `target_trunk_count`, `density`, `width_scale`,
+  `lake_chance`, `meander_strength`, `braid_chance`,
+  `shallow_crossing_frequency`, `mountain_clearance_tiles`, `delta_scale`,
+  `north_drainage_bias`, and `hydrology_cell_size_tiles`
 - the current native boundary requires `world_version >= 6`
 - `world_version >= 6` uses implicit-domain hierarchical labeling: aligned `1024 x 1024` macro solves recurse only through mixed cells, stop at versioned `min_label_cell_size = 8`, reuse a deterministic `1`-macro halo in native code, and hash `mountain_id` from the component representative leaf
 - `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` are base packet fields only; they are not persisted in `ChunkDiffFile`
 - only tiles with `mountain_id > 0` write canonical mountain terrain through `terrain_ids` as `TERRAIN_MOUNTAIN_WALL` or `TERRAIN_MOUNTAIN_FOOT`
 - active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain either resolves into named mountain output or stays on the ground path at the hierarchical scale cutoff
 - `mountain_atlas_indices` is reserved for later roof presentation, but is already confirmed at the packet boundary in M1
+
+### River Generation V1 Terrain, Water, and Packet Shape
+
+The following fields are current for `world_version >= 17`. Lakebed, delta,
+braid, and drought semantics remain reserved until their later iterations.
+
+| Constant | Numeric id | Meaning | Default traversal |
+|---|---:|---|---|
+| `TERRAIN_RIVERBED_SHALLOW` | 5 | Canonical shallow riverbed under water-capable channel | Walkable when dry or under shallow water |
+| `TERRAIN_RIVERBED_DEEP` | 6 | Canonical deep riverbed under main channel | Walkability comes from current water class |
+| `TERRAIN_LAKEBED` | 7 | Canonical natural lake floor | Walkability comes from current water class |
+| `TERRAIN_OCEAN_FLOOR` | 8 | Canonical ocean / estuary floor connected to the north ocean | Blocking by default through ocean water class |
+| `TERRAIN_SHORE` | 9 | Land/water transition band around ocean, lakes, and wider rivers | Walkable unless current water class blocks |
+| `TERRAIN_FLOODPLAIN` | 10 | Canonical low river-adjacent flood-shaped land | Walkable by default |
+
+Water classes are overlay classes, not immutable terrain ids:
+
+| Constant | Numeric id | Meaning | Traversal |
+|---|---:|---|---|
+| `WATER_CLASS_NONE` | 0 | No current water | Uses base terrain walkability |
+| `WATER_CLASS_SHALLOW` | 1 | Shallow current water | Walkable; future tuning may add movement penalty |
+| `WATER_CLASS_DEEP` | 2 | Deep current water | Blocking |
+| `WATER_CLASS_OCEAN` | 3 | Ocean / impassable sea water | Blocking |
+
+The first river-enabled `ChunkPacketV1` must extend the current packet
+additively. Existing fields are not removed or reshaped.
+
+| Field | Type | Length | Meaning |
+|---|---|---:|---|
+| `terrain_ids` | `PackedInt32Array` | 1024 | Existing field may include riverbed, lakebed, ocean floor, shore, and floodplain terrain ids |
+| `walkable_flags` | `PackedByteArray` | 1024 | Derived from base terrain plus current/default water class for that packet |
+| `hydrology_id_per_tile` | `PackedInt32Array` | 1024 | `0 = no hydrology`; otherwise stable river/lake/ocean feature id |
+| `hydrology_flags` | `PackedInt32Array` | 1024 | Bitfield documented below |
+| `floodplain_strength` | `PackedByteArray` | 1024 | `0..255` presentation/future-wetting strength |
+| `water_class` | `PackedByteArray` | 1024 | Current/default water class: none, shallow, deep, ocean |
+| `flow_dir_quantized` | `PackedByteArray` | 1024 | Optional compact flow direction for animation/debug, not pathfinding authority |
+| `stream_order` | `PackedByteArray` | 1024 | Compact stream order / discharge bucket |
+| `water_atlas_indices` | `PackedInt32Array` | 1024 | Derived water/shore presentation atlas index |
+
+`hydrology_flags` bit layout:
+
+| Bit | Constant | Meaning |
+|---:|---|---|
+| `1 << 0` | `HYDROLOGY_FLAG_RIVERBED` | Tile belongs to river channel bed |
+| `1 << 1` | `HYDROLOGY_FLAG_LAKEBED` | Tile belongs to a natural lake basin |
+| `1 << 2` | `HYDROLOGY_FLAG_SHORE` | Tile is shoreline / transition band |
+| `1 << 3` | `HYDROLOGY_FLAG_BANK` | Tile is bank-adjacent terrain |
+| `1 << 4` | `HYDROLOGY_FLAG_FLOODPLAIN` | Tile is floodplain-capable land |
+| `1 << 5` | `HYDROLOGY_FLAG_DELTA` | Tile belongs to delta or estuary widening |
+| `1 << 6` | `HYDROLOGY_FLAG_BRAID_SPLIT` | Tile belongs to a controlled braid/distributary split |
+| `1 << 7` | `HYDROLOGY_FLAG_CONFLUENCE` | Tile marks a confluence or its widened reach |
+| `1 << 8` | `HYDROLOGY_FLAG_SOURCE` | Tile marks a river source/headwater reach |
+
+Rules:
+- `riverbed`, `lakebed`, `shore`, and `ocean_floor` terrain are canonical base
+  terrain. Drying removes or changes `water_class`; it does not rewrite bed
+  terrain.
+- `water_class` is the initial/default overlay state for packet publication.
+  Future drought/refill systems must own runtime overlay mutation separately.
+- deep and ocean water produce blocking `walkable_flags`; shallow water remains
+  walkable.
+- these fields must be produced in native chunk generation from the
+  `WorldHydrologyPrePass` snapshot. GDScript must not rasterize rivers or loop
+  through chunk tiles to derive them.
 
 ### `WorldFoundationSpawnResult`
 
@@ -592,12 +717,126 @@ Current code notes:
   apply the same hierarchical `mountain_id` cutoff used by `ChunkPacketV1`;
   `hydro_height` is used only as subtle neutral-ground shading in the default
   terrain overview
-- ocean/burning bands, continent/open-water masks, rivers, and lakes are not
-  player-facing overview colours until matching terrain exists
+- the foundation overview remains a foundation/mountain view; river-enabled
+  detail preview uses chunk packets and `WorldPreviewPalette` instead
 - this image is presentation-only and must not be persisted
+
+### `WorldHydrologyPrePassBuildResult`
+
+Returned by native
+`WorldCore.build_world_hydrology_prepass(seed, world_version, settings_packed)`.
+
+Success shape:
+
+```text
+{
+  "success": true,
+  "cache_hit": bool,
+  "grid_width": int,
+  "grid_height": int,
+  "cell_size_tiles": int,
+  "signature": int,
+  "compute_time_ms": float,
+  "river_segment_count": int,
+  "river_source_count": int,
+}
+```
+
+Failure shape:
+
+```text
+{
+  "success": false,
+  "message": String,
+}
+```
+
+Current code notes:
+- this result is worker/debug orchestration data, not save data
+- a matching second call returns `cache_hit: true`
+- the method requires river settings fields in `settings_packed`; current
+  `world_version >= 17` chunk packet generation requires the same extended
+  settings payload
+
+### `WorldHydrologyPrePassSnapshotDebug`
+
+Returned by dev-only native
+`WorldCore.get_world_hydrology_snapshot(layer_mask, downscale_factor)` after a
+matching hydrology snapshot has been built.
+
+```text
+{
+  "grid_width": int,
+  "grid_height": int,
+  "cell_size_tiles": int,
+  "world_width_tiles": int,
+  "world_height_tiles": int,
+  "ocean_band_tiles": int,
+  "seed": int,
+  "world_version": int,
+  "signature": int,
+  "compute_time_ms": float,
+  "cycle_free": bool,
+  "layer_mask": int,
+  "downscale_factor": int,
+  "hydro_elevation": PackedFloat32Array,
+  "filled_elevation": PackedFloat32Array,
+  "flow_dir": PackedByteArray,
+  "flow_accumulation": PackedFloat32Array,
+  "watershed_id": PackedInt32Array,
+  "lake_id": PackedInt32Array,
+  "ocean_sink_mask": PackedByteArray,
+  "mountain_exclusion_mask": PackedByteArray,
+  "floodplain_potential": PackedFloat32Array,
+  "river_segment_count": int,
+  "river_source_count": int,
+  "river_node_mask": PackedByteArray,
+  "river_segment_id": PackedInt32Array,
+  "river_stream_order": PackedByteArray,
+  "river_discharge": PackedFloat32Array,
+  "river_segment_ranges": PackedInt32Array,
+  "river_path_node_indices": PackedInt32Array,
+}
+```
+
+Current code notes:
+- every array is indexed by hydrology node index `y * grid_width + x`
+- `flow_dir` uses compact direction buckets with `255` as terminal
+- `lake_id` is reserved and remains `0` until V1-R4 lake basin logic lands
+- V1-R3A river graph fields remain debug/dev snapshot data and must not be
+  saved; V1-R3B chunk generation reads the native snapshot internally and emits
+  only compact per-tile hydrology packet fields
+- `river_segment_ranges` uses six-int records:
+  `segment_id, path_offset, path_length, head_node, tail_node, max_stream_order`
+- `river_path_node_indices` is the concatenated hydrology-node path storage
+  referenced by `river_segment_ranges`
+- this dictionary is debug/dev tooling only and must not be persisted
+
+### `WorldHydrologyOverviewImage`
+
+Returned by dev-only native
+`WorldCore.get_world_hydrology_overview(layer_mask, pixels_per_cell)` after a
+matching hydrology snapshot has been built.
+
+```text
+Image {
+  width: grid_width * pixels_per_cell,
+  height: grid_height * pixels_per_cell,
+  format: FORMAT_RGBA8,
+}
+```
+
+Current code notes:
+- default layer renders a diagnostic view of ocean sink, mountain exclusion, and
+  effective hydrology height, with selected V1-R3A river graph nodes overlaid
+- layer mask `1 << 0` renders flow accumulation; `1 << 1` renders filled
+  elevation
+- this image is presentation/debug output and must not be persisted
 
 ## Not Currently Confirmed
 
-The current code still does not confirm packet fields for future biome,
-placement, roof-runtime, entrance-runtime, water overlay, drought, or
-environment layers.
+The current code still does not confirm live chunk packet fields for lake basin
+outlines, deltas, controlled braids/splits, future biome, placement,
+roof-runtime, entrance-runtime, drought, or environment layers. Runtime water
+overlay mutation is not confirmed; current `water_class` is seed-derived packet
+state only.

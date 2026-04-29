@@ -4,11 +4,12 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.3
-last_updated: 2026-04-24
+version: 1.5
+last_updated: 2026-04-29
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
+  - ../world/river_generation_v1.md
 ---
 
 # Save and Persistence
@@ -58,10 +59,9 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current world generation extension:
-- `world.json` now records `world_version: 16` for the current finite-world
-  foundation baseline with `64`-tile substrate cells and native
-  high-resolution overview; the failed river/lake realization has been removed
-  from save shape and regenerated base terrain
+- `world.json` now records `world_version: 17` for the current river-enabled
+  finite-world baseline with `64`-tile foundation substrate cells, native
+  hydrology prepass, and first riverbed/water chunk packet rasterization
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - `world_version >= 6` keeps the same save shape but changes canonical new-world
@@ -83,6 +83,9 @@ Current world generation extension:
 - `world_version == 16` removes the failed dry river/lake settings and packet
   fields. Base terrain is regenerated from seed/version/settings; only
   player/runtime diffs continue to be saved as changed chunk tiles
+- `world_version >= 17` writes `worldgen_settings.rivers` and regenerates
+  hydrology prepass arrays, river graph data, river packet arrays, default
+  `water_class`, and water/shore atlas indices from seed/version/settings
 - loading `world_version <= 8` preserves the legacy pre-foundation path without
   injecting synthetic bounds into the save
 - loading `world_version >= 9` without `worldgen_settings.world_bounds` fails
@@ -106,14 +109,40 @@ Current world generation extension:
 - optional `worldgen_signature: String` may be written for diagnostics only; it
   is non-authoritative and load must ignore its absence
 
-Confirmed `world.json` shape in the current mountain code path:
+Current River Generation V1 save extension:
+- `world_version >= 17` embeds `worldgen_settings.rivers` in `world.json`;
+  load uses the embedded copy and must not re-read
+  `data/balance/river_gen_settings.tres`
+- `worldgen_settings.rivers` fields:
+  - `enabled: bool`
+  - `target_trunk_count: int` (`0..256`; `0` means auto-scale by world size)
+  - `density: float` (`0.0..1.0`)
+  - `width_scale: float` (`0.25..4.0`)
+  - `lake_chance: float` (`0.0..1.0`)
+  - `meander_strength: float` (`0.0..1.0`)
+  - `braid_chance: float` (`0.0..1.0`)
+  - `shallow_crossing_frequency: float` (`0.0..1.0`)
+  - `mountain_clearance_tiles: int` (`1..16`)
+  - `delta_scale: float` (`0.0..2.0`)
+  - `north_drainage_bias: float` (`0.0..1.0`)
+  - `hydrology_cell_size_tiles: int` (`8..64`; default `16`)
+- for a river-enabled `world_version`, missing `worldgen_settings.rivers` must
+  be handled by an explicit migration/default rule in code; silently reading
+  the repository `.tres` on load is forbidden
+- hydrology prepass arrays, river graphs, per-tile river packet arrays,
+  default `water_class`, and water/shore atlas indices are regenerated from
+  seed/version/settings and are not saved
+- future drought/refill state may persist only after a water overlay spec
+  approves its owner, dirty unit, and save shape
+
+Confirmed `world.json` shape in the current river-enabled code path:
 
 ```json
 {
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 16,
+  "world_version": 17,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,
@@ -135,6 +164,20 @@ Confirmed `world.json` shape in the current mountain code path:
       "foot_band": 0.08,
       "interior_margin": 1,
       "latitude_influence": 0.0
+    },
+    "rivers": {
+      "enabled": true,
+      "target_trunk_count": 0,
+      "density": 0.55,
+      "width_scale": 1.0,
+      "lake_chance": 0.22,
+      "meander_strength": 0.65,
+      "braid_chance": 0.18,
+      "shallow_crossing_frequency": 0.22,
+      "mountain_clearance_tiles": 3,
+      "delta_scale": 1.0,
+      "north_drainage_bias": 0.75,
+      "hydrology_cell_size_tiles": 16
     }
   },
   "worldgen_signature": "debug-only"
