@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.9
-last_updated: 2026-04-29
+version: 1.5
+last_updated: 2026-04-30
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -36,7 +36,21 @@ delta / controlled-split rasterization advances current new worlds to
 changing canonical worldgen output, so the V1-R6 boundary remained
 `world_version = 19`.
 V1-R8 changes canonical river/lake raster output and advances current new
-worlds to `world_version = 20`.
+worlds to `world_version = 20`. V1-R9 changes canonical ocean-edge packet
+output and advances current new worlds to `world_version = 21`. V1-R10 changes
+canonical river centerline geometry and advances current new worlds to
+`world_version = 22`. V1-R11 changes canonical river width/depth classification
+from refined-edge curvature and post-confluence context, so current new worlds
+advance to `world_version = 23`. V1-R12 changes canonical confluence shape by
+marking native Y-shaped confluence zones around qualifying joins, so current new
+worlds advance to `world_version = 24`. V1-R13 changes canonical split-branch
+shape by replacing simple controlled braid offsets with native rejoining island
+loops, so current new worlds advance to `world_version = 25`. V1-R14 changes
+canonical lake shape by deriving lakebed depth/rim from basin contour and spill
+diagnostics, so current new worlds advance to `world_version = 26`. V1-R15
+changes canonical ocean output by adding native organic coastline distance,
+shallow-shelf classification, and river-mouth influence on top of the existing
+hydrology skeleton, so current new worlds advance to `world_version = 27`.
 
 V1-R3B has landed the first gameplay packet rasterization:
 
@@ -108,6 +122,105 @@ V1-R8 has landed organic water shape and Water Sector exposure:
 - no packet arrays, save fields, runtime events, or script-side hydrology
   rasterization were added.
 
+V1-R9 has landed ocean shore band rasterization:
+
+- `world_version >= 21` turns ocean-edge packet output into a real walkable
+  `TERRAIN_SHORE` band with `HYDROLOGY_FLAG_SHORE | HYDROLOGY_FLAG_BANK`;
+- north-ocean floor remains `TERRAIN_OCEAN_FLOOR` with default
+  `WATER_CLASS_OCEAN` and blocking walkability;
+- ocean floor and ocean shore publish a stable ocean hydrology id in packet
+  output except where a river-mouth delta keeps its river segment id;
+- no packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added.
+
+V1-R10 has landed refined river centerline substrate and direction memory:
+
+- `world_version >= 22` builds native refined river edges from the whole
+  `river_segment_ranges` path instead of independently bending each coarse
+  hydrology edge;
+- refined centerlines use Catmull-Rom interpolation, low-frequency
+  deterministic bend memory, and slope / floodplain / mountain-clearance
+  heuristics derived from the existing `WorldHydrologyPrePass` fields;
+- chunk rasterization queries refined river candidates through a native spatial
+  index owned by the hydrology snapshot, so chunks do not scan every river
+  feature as river counts grow;
+- hydrology overview river pixels use the same refined centerline substrate as
+  chunk rasterization;
+- no packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added.
+
+V1-R11 has landed curvature-aware width/depth:
+
+- `world_version >= 23` classifies refined river edges by signed curvature and
+  post-confluence context while keeping the existing hydrology graph as the
+  river skeleton;
+- chunk rasterization widens curved reaches and post-confluence reaches from
+  native refined-edge data, then shifts the deep thalweg toward the outer side
+  of bends;
+- post-confluence riverbed and bank/shore output may carry the existing
+  `HYDROLOGY_FLAG_CONFLUENCE` to mark the widened reach;
+- hydrology build/debug snapshots expose aggregate curvature/confluence edge
+  counts for smoke coverage only;
+- no packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added.
+
+V1-R12 has landed Y-shaped confluence zones:
+
+- `world_version >= 24` keeps the existing hydrology graph as the skeleton but
+  derives a native Y-confluence influence zone around qualifying confluence
+  nodes;
+- refined river edges on two or more upstream arms taper into the join, while
+  the downstream reach tapers out from the join;
+- chunk rasterization reads the same refined spatial-index candidates and marks
+  the upstream/downstream confluence zone with the existing
+  `HYDROLOGY_FLAG_CONFLUENCE`;
+- hydrology build/debug snapshots expose aggregate Y-confluence zone and edge
+  counts for smoke coverage only;
+- no packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added.
+
+V1-R13 has landed braid island loops:
+
+- `world_version >= 25` keeps the existing hydrology graph as the skeleton but
+  derives deterministic, RAM-only braid loop branches for eligible high-order,
+  low-slope/floodplain reaches;
+- braid branches now start on the main reach, arc asymmetrically around an
+  implicit island, and rejoin the same downstream reach through multi-edge
+  native geometry instead of a simple parallel offset;
+- candidate loop points reject mountain exclusion, lake, and ocean cells before
+  refined edges are emitted;
+- chunk rasterization continues to use the existing refined-edge spatial index
+  and existing `HYDROLOGY_FLAG_BRAID_SPLIT`;
+- hydrology build/debug snapshots expose aggregate braid-loop candidate and
+  edge counts for smoke coverage only;
+- no packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added.
+
+V1-R14 has landed basin-contour lakes and oxbow preparation:
+
+- `world_version >= 26` derives selected lake depth ratio and spill/outlet
+  diagnostics from the existing native depression-fill basin data;
+- lake chunk rasterization uses the depth ratio to keep shallow spill/rim tiles
+  and deeper low-basin tiles in the same lake packet shape;
+- hydrology build/debug snapshots expose aggregate basin-contour lake node,
+  spill point, outlet connection, and oxbow candidate counts for smoke coverage
+  only;
+- rare oxbow candidates are detected from high-curvature lowland refined river
+  bends as RAM-only preparation data and do not mutate the active river graph;
+- no packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added.
+
+V1-R15 has landed organic coastline and shelf output:
+
+- `world_version >= 27` adds native RAM-only coast distance, shelf depth, and
+  river-mouth influence fields to the hydrology prepass;
+- ocean-floor packet output now distinguishes walkable shallow shelf from
+  blocking deep ocean using the existing `water_class` array;
+- river-mouth influence widens local shore/shelf classification around valid
+  ocean terminals without changing the active river graph;
+- no packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added.
+
 V1-R1 landed the boundary/settings preparation:
 
 - `RiverGenSettings` resource and default data file exist;
@@ -133,9 +246,10 @@ V1-R3A has landed the native diagnostic river graph:
 - compact six-int segment range records and path node index storage;
 - debug overview rendering for selected river nodes.
 
-Still not landed: dedicated water/shore materials and broad drought/refill
-simulation. V1-R3B still approximates width growth from stream order; full
-confluence widening remains a later quality pass.
+Still not landed: dedicated water/shore materials, broad drought/refill
+simulation, high-detail confluence scour/shore art, active oxbow lake
+rasterization, and optional small ocean-island generation. V1-R15 adds the
+first native organic coastline and shelf pass.
 
 ## Purpose
 
@@ -838,6 +952,110 @@ V1-R8 has updated the organic water/settings boundary for:
 - `docs/02_system_specs/world/world_foundation_v1.md` current river/lake/delta
   `WORLD_VERSION` history and Water Sector UI exposure boundary.
 
+V1-R9 has updated the ocean-shore boundary for:
+
+- `docs/02_system_specs/meta/packet_schemas.md` current `world_version = 21`
+  ocean shore band and stable ocean hydrology-id semantics;
+- `docs/02_system_specs/meta/system_api.md` current `WorldCore` chunk packet
+  note for native ocean shore band rasterization;
+- `docs/02_system_specs/meta/save_and_persistence.md` current
+  `world_version = 21` baseline without changing the save shape;
+- `docs/02_system_specs/world/world_runtime.md` current ocean shore chunk
+  readiness and no-interactive-hydrology ownership note;
+- `docs/02_system_specs/world/world_foundation_v1.md` current
+  `WORLD_VERSION` history.
+
+V1-R10 has updated the refined-centerline boundary for:
+
+- `docs/02_system_specs/meta/packet_schemas.md` current `world_version = 22`,
+  refined river centerline semantics, and hydrology build/debug diagnostic
+  counts without changing `ChunkPacketV1`;
+- `docs/02_system_specs/meta/system_api.md` current `WorldCore` chunk packet
+  and hydrology overview notes for native refined centerlines and bounded
+  spatial-index river candidate queries;
+- `docs/02_system_specs/meta/save_and_persistence.md` current
+  `world_version = 22` baseline without changing the save shape;
+- `docs/02_system_specs/world/world_runtime.md` current refined river
+  centerline chunk readiness and no-interactive-hydrology ownership note;
+- `docs/02_system_specs/world/world_foundation_v1.md` current
+  `WORLD_VERSION` history.
+
+V1-R11 has updated the curvature-aware width/depth boundary for:
+
+- `docs/02_system_specs/meta/packet_schemas.md` current `world_version = 23`,
+  existing `HYDROLOGY_FLAG_CONFLUENCE` reach semantics, and hydrology
+  build/debug diagnostic counts without changing `ChunkPacketV1`;
+- `docs/02_system_specs/meta/system_api.md` current `WorldCore` chunk packet
+  note for curvature-aware river width/depth and post-confluence reach flags;
+- `docs/02_system_specs/meta/save_and_persistence.md` current
+  `world_version = 23` baseline without changing the save shape;
+- `docs/02_system_specs/world/world_runtime.md` current curvature-aware river
+  chunk readiness and no-interactive-hydrology ownership note;
+- `docs/02_system_specs/world/world_foundation_v1.md` current
+  `WORLD_VERSION` history.
+
+V1-R12 has updated the Y-shaped confluence boundary for:
+
+- `docs/00_governance/PROJECT_GLOSSARY.md` current `Confluence` definition;
+- `docs/02_system_specs/meta/packet_schemas.md` current `world_version = 24`,
+  existing `HYDROLOGY_FLAG_CONFLUENCE` Y-zone semantics, and hydrology
+  build/debug diagnostic counts without changing `ChunkPacketV1`;
+- `docs/02_system_specs/meta/system_api.md` current `WorldCore` chunk packet
+  note for native Y-shaped confluence zones;
+- `docs/02_system_specs/meta/save_and_persistence.md` current
+  `world_version = 24` baseline without changing the save shape;
+- `docs/02_system_specs/world/world_runtime.md` current Y-confluence river
+  chunk readiness and no-interactive-hydrology ownership note;
+- `docs/02_system_specs/world/world_foundation_v1.md` current
+  `WORLD_VERSION` history.
+
+V1-R13 has updated the braid island loop boundary for:
+
+- `docs/00_governance/PROJECT_GLOSSARY.md` current `Braid island loop`
+  definition;
+- `docs/02_system_specs/meta/packet_schemas.md` current `world_version = 25`,
+  existing `HYDROLOGY_FLAG_BRAID_SPLIT` loop semantics, and hydrology
+  build/debug diagnostic counts without changing `ChunkPacketV1`;
+- `docs/02_system_specs/meta/system_api.md` current `WorldCore` chunk packet
+  note for native rejoining braid island loops;
+- `docs/02_system_specs/meta/save_and_persistence.md` current
+  `world_version = 25` baseline without changing the save shape;
+- `docs/02_system_specs/world/world_runtime.md` current braid-loop river chunk
+  readiness and no-interactive-hydrology ownership note;
+- `docs/02_system_specs/world/world_foundation_v1.md` current
+  `WORLD_VERSION` history.
+
+V1-R14 has updated the basin-contour lake and oxbow-prep boundary for:
+
+- `docs/00_governance/PROJECT_GLOSSARY.md` current `Basin-contour lake` and
+  `Oxbow lake` definitions;
+- `docs/02_system_specs/meta/packet_schemas.md` current `world_version = 26`,
+  unchanged `ChunkPacketV1` shape, and hydrology build/debug diagnostic counts;
+- `docs/02_system_specs/meta/system_api.md` current `WorldCore` chunk packet
+  and hydrology overview notes for basin-contour lake output;
+- `docs/02_system_specs/meta/save_and_persistence.md` current
+  `world_version = 26` baseline without changing the save shape;
+- `docs/02_system_specs/world/world_runtime.md` current basin-contour lake
+  chunk readiness and no-interactive-hydrology ownership note;
+- `docs/02_system_specs/world/world_foundation_v1.md` current
+  `WORLD_VERSION` history.
+
+V1-R15 has updated the organic coastline and shelf boundary for:
+
+- `docs/00_governance/PROJECT_GLOSSARY.md` current `Organic coastline` and
+  `Ocean shelf` definitions;
+- `docs/02_system_specs/meta/packet_schemas.md` current `world_version = 27`,
+  unchanged `ChunkPacketV1` shape, shallow/deep ocean shelf semantics, and
+  hydrology build/debug diagnostic counts;
+- `docs/02_system_specs/meta/system_api.md` current `WorldCore` chunk packet
+  and hydrology overview notes for coastline/shelf output;
+- `docs/02_system_specs/meta/save_and_persistence.md` current
+  `world_version = 27` baseline without changing the save shape;
+- `docs/02_system_specs/world/world_runtime.md` current organic coastline chunk
+  readiness and no-interactive-hydrology ownership note;
+- `docs/02_system_specs/world/world_foundation_v1.md` current
+  `WORLD_VERSION` history.
+
 Future iterations that change live behavior must still update:
 
 - `docs/02_system_specs/world/world_foundation_v1.md` if hydrology reuses or
@@ -997,6 +1215,173 @@ Still true:
 - no script code owns river/lake rasterization;
 - dedicated water/shore art remains a future iteration;
 - broad drought/refill simulation remains a future iteration.
+
+### V1-R9 - Ocean shore band
+
+Landed:
+- current new worlds advance to `world_version = 21` because canonical ocean
+  edge packet output changes for the same seed/settings;
+- ocean coast chunks now publish walkable `TERRAIN_SHORE` tiles around the
+  north-ocean sink instead of relying only on ground-edge presentation beside
+  `TERRAIN_OCEAN_FLOOR`;
+- ocean shore tiles carry `HYDROLOGY_FLAG_SHORE | HYDROLOGY_FLAG_BANK`,
+  `WATER_CLASS_NONE`, and a stable ocean hydrology id;
+- ocean floor remains blocking through `WATER_CLASS_OCEAN`;
+- delta/estuary output keeps river segment ids where a river mouth overrides
+  the generic ocean identity.
+
+Still true:
+- no script code owns ocean rasterization;
+- no new packet arrays, save fields, or runtime events were added;
+- dedicated water/shore art remains a future iteration;
+- broad drought/refill simulation remains a future iteration.
+
+### V1-R10 - Refined river centerlines and direction memory
+
+Landed:
+- current new worlds advance to `world_version = 22` because canonical river
+  channel geometry changes for the same seed/settings;
+- `WorldHydrologyPrePass` now owns a RAM-only refined centerline substrate and
+  spatial index in addition to the existing coarse hydrology graph;
+- river rasterization uses whole-path Catmull-Rom samples with low-frequency
+  bend memory, slope-aware meander amplitude, mountain-clearance damping, and
+  floodplain/terminal width modulation;
+- chunk generation uses bounded native spatial-index queries for river
+  candidates before per-tile rasterization;
+- the hydrology overview reads the same refined centerline edges, keeping
+  debug overview and chunk output aligned at the river-shape level.
+
+Still true:
+- the existing hydrology graph remains the skeleton; V1-R10 does not replace
+  drainage, lake, delta, or braid graph ownership;
+- no script code owns river/lake/ocean rasterization;
+- no new packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added;
+- dedicated water/shore art remains a future iteration;
+- broad drought/refill simulation remains a future iteration.
+
+### V1-R11 - Curvature-aware width/depth
+
+Landed:
+- current new worlds advance to `world_version = 23` because canonical river
+  bed width/depth classification changes for the same seed/settings;
+- refined river edges now carry signed curvature and post-confluence reach
+  classification in the native RAM-only substrate;
+- chunk rasterization widens curved reaches and post-confluence reaches, shifts
+  the deepest thalweg toward the outer bank of a bend, and marks widened
+  post-confluence riverbed/bank/shore tiles with the existing
+  `HYDROLOGY_FLAG_CONFLUENCE`;
+- hydrology build/debug snapshots expose aggregate
+  `curvature_refined_river_edge_count` and
+  `confluence_refined_river_edge_count` diagnostics for smoke tests.
+
+Still true:
+- V1-R11 itself only widens and deepens post-confluence reaches; V1-R12 lands
+  the first Y-shaped confluence zone pass;
+- the existing hydrology graph remains the skeleton;
+- no script code owns river/lake/ocean rasterization;
+- no new packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added;
+- dedicated water/shore art remains a future iteration;
+- broad drought/refill simulation remains a future iteration.
+
+### V1-R12 - Y-shaped confluence zones
+
+Landed:
+- current new worlds advance to `world_version = 24` because canonical river
+  confluence shape changes for the same seed/settings;
+- `WorldHydrologyPrePass` now derives RAM-only Y-confluence influence around
+  qualifying confluence nodes, using the existing hydrology graph as the source
+  of truth;
+- upstream refined edges taper into the confluence and downstream refined edges
+  taper out of it, so packet rasterization can mark a continuous Y-shaped join
+  instead of only a widened downstream reach;
+- chunk packets continue to use the existing `HYDROLOGY_FLAG_CONFLUENCE`;
+- hydrology build/debug snapshots expose aggregate `y_confluence_zone_count`
+  and `y_confluence_refined_river_edge_count` diagnostics for smoke tests.
+
+Still true:
+- this is a geometric/rasterization pass, not a new drainage solver;
+- the existing hydrology graph remains the skeleton;
+- no script code owns river/lake/ocean rasterization;
+- no new packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added;
+- dedicated water/shore art remains a future iteration;
+- broad drought/refill simulation remains a future iteration.
+
+### V1-R13 - Braid island loops
+
+Landed:
+- current new worlds advance to `world_version = 25` because canonical split
+  branch shape changes for the same seed/settings;
+- eligible high-order braid branches are now native multi-edge loops that start
+  from the main reach and rejoin the same downstream reach, leaving an implicit
+  island between the active channels;
+- loop candidates use slope/floodplain/mountain-clearance heuristics from the
+  existing `WorldHydrologyPrePass` substrate and reject lake/ocean/mountain
+  control points before emitting refined edges;
+- chunk packets continue to use the existing `HYDROLOGY_FLAG_BRAID_SPLIT`;
+- hydrology build/debug snapshots expose aggregate `braid_loop_candidate_count`
+  and `braid_loop_refined_river_edge_count` diagnostics for smoke tests.
+
+Still true:
+- this is a geometric/rasterization pass, not a new drainage solver;
+- the existing hydrology graph remains the skeleton;
+- no script code owns river/lake/ocean rasterization;
+- no new packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added;
+- dedicated water/shore art remains a future iteration;
+- basin-contour lakes and oxbow candidate preparation land in V1-R14; organic
+  coastline/shelf output lands in V1-R15; active oxbow lake rasterization
+  remains a future iteration.
+
+### V1-R14 - Basin-contour lakes and oxbow prep
+
+Landed:
+- current new worlds advance to `world_version = 26` because canonical lake
+  raster shape changes for the same seed/settings;
+- selected lake nodes now record a RAM-only depth ratio derived from the filled
+  basin spill surface, so chunk rasterization can keep a shallow rim and deeper
+  low-basin water in the same lake body;
+- selected lake candidates expose aggregate spill point and outlet connection
+  diagnostics in build/debug results;
+- native refined river geometry is scanned after centerline build for rare
+  high-curvature lowland oxbow candidates; this is preparation only and does
+  not alter the active river graph;
+- chunk packets keep the same terrain, hydrology flag, and water-class arrays.
+
+Still true:
+- this is a geometric/rasterization pass, not a new drainage solver;
+- the existing hydrology graph remains the skeleton;
+- no script code owns river/lake/ocean rasterization;
+- no new packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added;
+- active oxbow lake rasterization remains a future iteration.
+
+### V1-R15 - Organic coastline and shelf
+
+Landed:
+- current new worlds advance to `world_version = 27` because canonical ocean
+  raster output changes for the same seed/settings;
+- the north-ocean mask keeps the existing hydrology skeleton stable, while
+  native RAM-only coast distance, shelf depth, and river-mouth influence fields
+  refine visible ocean shape on top of it;
+- ocean-floor tiles near the coast may now publish `WATER_CLASS_SHALLOW` as a
+  walkable shallow shelf, while farther ocean-floor tiles remain
+  `WATER_CLASS_OCEAN` and blocking;
+- hydrology build/debug snapshots expose aggregate coastline, shallow-shelf,
+  and river-mouth influence diagnostics;
+- hydrology overview ocean pixels may distinguish shallow shelf from deep ocean
+  using native prepass fields.
+
+Still true:
+- this is a geometric/rasterization pass, not a new drainage solver;
+- the existing hydrology graph remains the skeleton;
+- no script code owns river/lake/ocean rasterization;
+- no new packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added;
+- optional small ocean islands, active oxbow lake rasterization, dedicated
+  water/shore art, and broad drought/refill simulation remain future work.
 
 ### New-game composite overview - Default player map
 

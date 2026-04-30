@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.4
-last_updated: 2026-04-29
+version: 1.10
+last_updated: 2026-04-30
 related_docs:
   - ../README.md
   - system_api.md
@@ -34,8 +34,17 @@ It also records the River Generation V1 fields that became current in
 `world_version = 17`, the V1-R4 lakebed semantics that became current in
 `world_version = 18`, the V1-R5 delta / controlled-split semantics that became
 current in `world_version = 19`, the V1-R8 organic water raster semantics that
-became current in `world_version = 20`, and the V1-R6 runtime water-overlay
-override shape. Broad drought simulation remains a future approved shape.
+became current in `world_version = 20`, the V1-R9 ocean shore band semantics
+that became current in `world_version = 21`, the V1-R10 refined river
+centerline semantics that became current in `world_version = 22`, the V1-R11
+curvature-aware river width/depth semantics that became current in
+`world_version = 23`, the V1-R12 Y-shaped confluence semantics that became
+current in `world_version = 24`, the V1-R13 braid island loop semantics that
+became current in `world_version = 25`, the V1-R14 basin-contour lake semantics
+that became current in `world_version = 26`, the V1-R15 organic coastline/shelf
+semantics that became current in `world_version = 27`, and the V1-R6 runtime
+water-overlay override shape. Broad drought simulation remains a future
+approved shape.
 
 ## Out of Scope
 
@@ -234,6 +243,37 @@ Current code notes:
   shorelines use deterministic noise, river raster edges may meander, and river
   widths vary dynamically. Existing `world_version = 19` saves keep pre-R8
   river/lake/delta packet output.
+- `world_version >= 21` enables V1-R9 ocean shore band output: ocean edge
+  chunks may emit walkable `TERRAIN_SHORE` with `HYDROLOGY_FLAG_SHORE` /
+  `HYDROLOGY_FLAG_BANK` and no current water on the shore tile. Existing
+  `world_version = 20` saves keep pre-R9 ocean-floor-only coast output.
+- `world_version >= 22` enables V1-R10 refined river centerline output: rivers
+  use a native whole-path refined centerline substrate, direction-memory
+  meanders, slope/floodplain/mountain-clearance width modulation, and bounded
+  spatial-index candidate queries. Existing `world_version = 21` saves keep
+  pre-R10 per-edge organic river raster output.
+- `world_version >= 23` enables V1-R11 curvature-aware river width/depth:
+  refined river edges contribute signed curvature and post-confluence context
+  to native chunk rasterization, which widens curved/confluence reaches and
+  shifts deep riverbed classification toward the outer bank of bends. Existing
+  `world_version = 22` saves keep pre-R11 refined-centerline river output.
+- `world_version >= 24` enables V1-R12 Y-shaped confluence zones: native
+  refined river edges around qualifying confluence nodes mark two or more
+  upstream arms and the downstream reach as one softened confluence join.
+  Existing `world_version = 23` saves keep pre-R12 curvature-aware river output.
+- `world_version >= 25` enables V1-R13 braid island loops: controlled split
+  output uses native multi-edge branches that rejoin the same downstream reach
+  and keep the existing `HYDROLOGY_FLAG_BRAID_SPLIT` packet flag. Existing
+  `world_version = 24` saves keep pre-R13 simple controlled-split output.
+- `world_version >= 26` enables V1-R14 basin-contour lakes and oxbow
+  preparation: selected lakes use native filled-basin depth/spill data for
+  shallow/deep rim rasterization, and refined river bends expose aggregate
+  oxbow candidate diagnostics. Existing `world_version = 25` saves keep
+  pre-R14 lake raster output.
+- `world_version >= 27` enables V1-R15 organic coastline/shelf output: native
+  coast distance, shelf depth, and river-mouth influence fields classify shore,
+  shallow ocean shelf, and deep ocean while preserving the existing packet
+  arrays. Existing `world_version = 26` saves keep pre-R15 ocean shelf output.
 - `water_overlay` is optional and appears only when explicit local current-water
   overrides exist. It does not change `world_version` because it is runtime
   overlay state, not canonical worldgen output.
@@ -549,7 +589,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current river/lake/delta/organic-water runtime value is `20`; `17` remains the first river-enabled compatibility boundary |
+| `world_version` | `int` | — | Current river/lake/delta/organic-water/ocean-shore/refined-river/curvature-river/Y-confluence/braid-loop/basin-contour-lake/organic-coastline runtime value is `27`; `17` remains the first river-enabled compatibility boundary |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve, and plains ground may use native riverbed / river-bank / lakebed / ocean-floor adjacency for 47-tile edge variants |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
@@ -605,8 +645,16 @@ lakebed and lake shoreline semantics current for `world_version >= 18`; V1-R5
 makes delta / estuary and controlled braid/distributary split flag semantics
 current for `world_version >= 19`; V1-R8 makes organic lake shoreline noise,
 meandered river raster edges, and dynamic river width current for
-`world_version >= 20`. Broad drought semantics remain reserved for a future
-iteration.
+`world_version >= 20`; V1-R9 makes ocean shore band output current for
+`world_version >= 21`; V1-R10 makes refined whole-river centerlines and bounded
+spatial-index river candidate queries current for `world_version >= 22`;
+V1-R11 makes curvature-aware width/depth and post-confluence reach flags current
+for `world_version >= 23`; V1-R12 makes native Y-shaped confluence zones current
+for `world_version >= 24`; V1-R13 makes native rejoining braid island loops
+current for `world_version >= 25`; V1-R14 makes basin-contour lake rim/depth
+rasterization current for `world_version >= 26`; V1-R15 makes organic
+coastline/shelf rasterization current for `world_version >= 27`. Broad drought
+semantics remain reserved for a future iteration.
 
 | Constant | Numeric id | Meaning | Default traversal |
 |---|---:|---|---|
@@ -659,6 +707,14 @@ Rules:
 - `riverbed`, `lakebed`, `shore`, and `ocean_floor` terrain are canonical base
   terrain. Drying removes or changes `water_class`; it does not rewrite bed
   terrain.
+- for `world_version >= 21`, ocean-edge shore tiles use `TERRAIN_SHORE`,
+  `HYDROLOGY_FLAG_SHORE | HYDROLOGY_FLAG_BANK`, `WATER_CLASS_NONE`, and a
+  stable ocean hydrology id (`2000000`). Ocean-floor tiles use the same ocean
+  hydrology id and `WATER_CLASS_OCEAN`. River-mouth delta tiles may keep their
+  river segment id instead.
+- for `world_version >= 27`, ocean-floor tiles within the native shelf band may
+  use `WATER_CLASS_SHALLOW` and walkable flags while farther ocean-floor tiles
+  keep `WATER_CLASS_OCEAN` and remain blocking. No new packet arrays are added.
 - `water_class` is the initial/default overlay state for packet publication.
   Future drought/refill systems must own runtime overlay mutation separately.
 - deep and ocean water produce blocking `walkable_flags`; shallow water remains
@@ -667,6 +723,15 @@ Rules:
   riverbed, shore, or ocean-floor tiles.
 - `HYDROLOGY_FLAG_BRAID_SPLIT` marks controlled braid/distributary split output;
   split riverbed tiles keep a stable river `hydrology_id_per_tile`.
+- for `world_version >= 25`, non-delta braid split output is generated from
+  native rejoining island-loop geometry instead of a simple parallel split
+  edge; it still uses the same `HYDROLOGY_FLAG_BRAID_SPLIT` bit.
+- for `world_version >= 23`, `HYDROLOGY_FLAG_CONFLUENCE` may also mark the
+  widened post-confluence reach on riverbed, shore, or bank tiles; it does not
+  add a new packet array.
+- for `world_version >= 24`, `HYDROLOGY_FLAG_CONFLUENCE` may mark the softened
+  Y-shaped confluence zone across upstream arms and the downstream reach; it
+  still does not add a new packet array.
 - these fields must be produced in native chunk generation from the
   `WorldHydrologyPrePass` snapshot. GDScript must not rasterize rivers or loop
   through chunk tiles to derive them.
@@ -802,6 +867,21 @@ Success shape:
   "compute_time_ms": float,
   "river_segment_count": int,
   "river_source_count": int,
+  "refined_river_edge_count": int,
+  "curvature_refined_river_edge_count": int,
+  "confluence_refined_river_edge_count": int,
+  "y_confluence_zone_count": int,
+  "y_confluence_refined_river_edge_count": int,
+  "braid_loop_candidate_count": int,
+  "braid_loop_refined_river_edge_count": int,
+  "basin_contour_lake_node_count": int,
+  "lake_spill_point_count": int,
+  "lake_outlet_connection_count": int,
+  "oxbow_candidate_count": int,
+  "ocean_coastline_node_count": int,
+  "ocean_shallow_shelf_node_count": int,
+  "ocean_river_mouth_node_count": int,
+  "river_spatial_index_cell_count": int,
 }
 ```
 
@@ -820,6 +900,21 @@ Current code notes:
 - the method requires river settings fields in `settings_packed`; current
   `world_version >= 17` chunk packet generation requires the same extended
   settings payload
+- for `world_version >= 23`, the curvature/confluence refined-edge counts are
+  aggregate smoke-test diagnostics; they are not authoritative gameplay state
+  and must not be persisted
+- for `world_version >= 24`, the Y-confluence counts are aggregate smoke-test
+  diagnostics; they are not authoritative gameplay state and must not be
+  persisted
+- for `world_version >= 25`, the braid-loop candidate/edge counts are aggregate
+  smoke-test diagnostics; they are not authoritative gameplay state and must
+  not be persisted
+- for `world_version >= 26`, the basin-contour lake, lake spill/outlet, and
+  oxbow candidate counts are aggregate smoke-test diagnostics; they are not
+  authoritative gameplay state and must not be persisted
+- for `world_version >= 27`, the coastline, shallow-shelf, and river-mouth
+  influence counts are aggregate smoke-test diagnostics; they are not
+  authoritative gameplay state and must not be persisted
 
 ### `WorldHydrologyPrePassSnapshotDebug`
 
@@ -849,6 +944,9 @@ matching hydrology snapshot has been built.
   "watershed_id": PackedInt32Array,
   "lake_id": PackedInt32Array,
   "ocean_sink_mask": PackedByteArray,
+  "ocean_coast_distance_tiles": PackedFloat32Array,
+  "ocean_shelf_depth_ratio": PackedFloat32Array,
+  "ocean_river_mouth_influence": PackedFloat32Array,
   "mountain_exclusion_mask": PackedByteArray,
   "floodplain_potential": PackedFloat32Array,
   "river_segment_count": int,
@@ -859,6 +957,23 @@ matching hydrology snapshot has been built.
   "river_discharge": PackedFloat32Array,
   "river_segment_ranges": PackedInt32Array,
   "river_path_node_indices": PackedInt32Array,
+  "refined_river_edge_count": int,
+  "curvature_refined_river_edge_count": int,
+  "confluence_refined_river_edge_count": int,
+  "y_confluence_zone_count": int,
+  "y_confluence_refined_river_edge_count": int,
+  "braid_loop_candidate_count": int,
+  "braid_loop_refined_river_edge_count": int,
+  "basin_contour_lake_node_count": int,
+  "lake_spill_point_count": int,
+  "lake_outlet_connection_count": int,
+  "oxbow_candidate_count": int,
+  "ocean_coastline_node_count": int,
+  "ocean_shallow_shelf_node_count": int,
+  "ocean_river_mouth_node_count": int,
+  "river_spatial_index_cell_size_tiles": int,
+  "river_spatial_index_width": int,
+  "river_spatial_index_height": int,
 }
 ```
 
@@ -876,6 +991,38 @@ Current code notes:
   `segment_id, path_offset, path_length, head_node, tail_node, max_stream_order`
 - `river_path_node_indices` is the concatenated hydrology-node path storage
   referenced by `river_segment_ranges`
+- for `world_version >= 22`, `refined_river_edge_count` reports the native
+  RAM-only refined centerline edge count, and the `river_spatial_index_*`
+  fields report the diagnostic shape of the bounded candidate index used by
+  chunk rasterization. The refined edge coordinates and index contents are
+  native-owned implementation data and are not exposed as packet or save arrays.
+- for `world_version >= 23`, `curvature_refined_river_edge_count` reports
+  refined edges with non-zero signed curvature used by chunk width/depth
+  classification, and `confluence_refined_river_edge_count` reports refined
+  edges classified as widened post-confluence reaches. These are aggregate
+  diagnostics only and are not packet or save arrays.
+- for `world_version >= 24`, `y_confluence_zone_count` reports qualifying
+  confluence nodes with native Y-shaped influence zones, and
+  `y_confluence_refined_river_edge_count` reports refined edges affected by
+  that tapering zone. These are aggregate diagnostics only and are not packet
+  or save arrays.
+- for `world_version >= 25`, `braid_loop_candidate_count` reports accepted
+  native island-loop split candidates, and
+  `braid_loop_refined_river_edge_count` reports emitted refined loop edges.
+  These are aggregate diagnostics only and are not packet or save arrays.
+- for `world_version >= 26`, `basin_contour_lake_node_count` reports selected
+  lake nodes with native basin depth ratios, `lake_spill_point_count` reports
+  selected spill points, `lake_outlet_connection_count` reports selected spill
+  points with a downstream outlet, and `oxbow_candidate_count` reports prepared
+  high-curvature lowland abandoned-meander candidates. These are aggregate
+  diagnostics only and are not packet or save arrays.
+- for `world_version >= 27`, `ocean_coast_distance_tiles` is the native signed
+  coarse coast field, `ocean_shelf_depth_ratio` classifies shallow shelf versus
+  deep ocean, and `ocean_river_mouth_influence` widens local coast/shelf
+  behavior around valid river mouths. These arrays are debug snapshot data
+  only; they are not packet or save arrays. `ocean_coastline_node_count`,
+  `ocean_shallow_shelf_node_count`, and `ocean_river_mouth_node_count` are
+  aggregate diagnostics for smoke coverage.
 - this dictionary is debug/dev tooling only and must not be persisted
 
 ### `WorldHydrologyOverviewImage`
@@ -896,6 +1043,20 @@ Current code notes:
 - default layer renders a hydrology water overview: ocean sink pixels, natural
   lake pixels, selected river graph pixels, mountain exclusion, and effective
   hydrology height backing colours
+- for `world_version >= 22`, river overview pixels are sampled from the native
+  refined whole-path centerline substrate instead of rebuilding independent
+  overview-only river edges
+- for `world_version >= 23`, post-confluence radius changes in the refined
+  substrate may be visible in overview river pixels, while bend-side deep-water
+  classification remains a chunk packet concern
+- for `world_version >= 24`, Y-shaped confluence radius/taper changes in the
+  refined substrate may be visible in overview river pixels
+- for `world_version >= 25`, native braid island loop edges may be visible in
+  overview river pixels through the same refined substrate
+- for `world_version >= 26`, lake overview pixels use the same basin-contour
+  edge threshold as chunk lake rasterization
+- for `world_version >= 27`, ocean overview pixels may distinguish shallow
+  shelf from deep ocean using the native shelf depth ratio
 - the new-game overview water/composite modes request this image through the
   packet worker; it is presentation/debug output, not gameplay state or save
   data

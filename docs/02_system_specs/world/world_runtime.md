@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.2
-last_updated: 2026-04-29
+version: 1.8
+last_updated: 2026-04-30
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -37,7 +37,22 @@ composite overview later reuses the same worker/native hydrology boundary and
 still does not change chunk generation or `world_version`.
 V1-R8 changes canonical water raster output through organic lake shorelines,
 meandered river edges, and dynamic river width, so current new worlds advance to
-`world_version = 20`.
+`world_version = 20`. V1-R9 changes canonical ocean-edge packet output through
+a real walkable shore band, so current new worlds advance to
+`world_version = 21`. V1-R10 changes canonical river centerline geometry
+through a native refined whole-path centerline substrate and bounded river
+spatial-index queries, so current new worlds advance to `world_version = 22`.
+V1-R11 changes canonical river width/depth classification through refined-edge
+curvature and post-confluence context, so current new worlds advance to
+`world_version = 23`. V1-R12 changes canonical confluence shape through native
+Y-shaped confluence zones around qualifying joins, so current new worlds
+advance to `world_version = 24`. V1-R13 changes canonical controlled split
+shape through native rejoining braid island loops, so current new worlds
+advance to `world_version = 25`. V1-R14 changes canonical lake shape through
+native basin-contour depth/spill rasterization, so current new worlds advance
+to `world_version = 26`. V1-R15 changes canonical ocean output through native
+organic coastline and shelf classification, so current new worlds advance to
+`world_version = 27`.
 The original V0 baseline remains documented here as the minimal chunked-runtime
 foundation.
 
@@ -282,6 +297,28 @@ transparent overlay over the foundation terrain image on the preview worker.
 V1-R8 advances current new worlds to `world_version = 20` and keeps the same
 packet shape while making lake outlines, river centerlines, and river widths
 organic in native chunk/overview generation.
+V1-R9 advances current new worlds to `world_version = 21` and keeps the same
+packet shape while making ocean-edge chunks emit a walkable `TERRAIN_SHORE`
+band around the north-ocean sink.
+V1-R10 advances current new worlds to `world_version = 22` and keeps the same
+packet shape while making river chunk rasterization read refined native
+whole-path centerlines through a bounded spatial-index candidate query.
+V1-R11 advances current new worlds to `world_version = 23` and keeps the same
+packet shape while making river width/depth rasterization use refined-edge
+curvature and post-confluence reach classification.
+V1-R12 advances current new worlds to `world_version = 24` and keeps the same
+packet shape while making confluence rasterization mark two upstream arms and
+the downstream reach as one native Y-shaped zone.
+V1-R13 advances current new worlds to `world_version = 25` and keeps the same
+packet shape while making eligible controlled split rasterization use native
+rejoining braid island loops.
+V1-R14 advances current new worlds to `world_version = 26` and keeps the same
+packet shape while making lake rasterization use native basin-contour depth and
+spill diagnostics for shallow rim/deep basin classification.
+V1-R15 advances current new worlds to `world_version = 27` and keeps the same
+packet shape while making ocean rasterization use native coast distance, shelf
+depth, and river-mouth influence fields for shore/shallow-shelf/deep-ocean
+classification.
 
 For the first river-enabled world version, River Generation V1 extends this
 runtime contract without changing the hot-path ownership:
@@ -305,6 +342,26 @@ runtime contract without changing the hot-path ownership:
   widening, estuary/ocean-floor delta markers, and controlled split markers;
 - chunk readiness for an organic-water world includes native lake shoreline
   noise, meandered river raster edges, and dynamic river width modulation;
+- chunk readiness for an ocean-shore world includes native walkable ocean shore
+  band rasterization with `TERRAIN_SHORE`, `HYDROLOGY_FLAG_SHORE`, and no
+  current water on the shore tile;
+- chunk readiness for a refined-river world includes native refined whole-path
+  centerline rasterization and bounded spatial-index river candidate queries;
+- chunk readiness for a curvature-river world includes native curvature-aware
+  river width/depth classification, outer-bank deep thalweg shift, and
+  post-confluence reach flags;
+- chunk readiness for a Y-confluence river world includes native Y-shaped
+  confluence influence zones on upstream arms and the downstream reach, using
+  the existing `HYDROLOGY_FLAG_CONFLUENCE`;
+- chunk readiness for a braid-loop river world includes native rejoining island
+  loop edges for eligible controlled splits, using the existing
+  `HYDROLOGY_FLAG_BRAID_SPLIT`;
+- chunk readiness for a basin-contour lake world includes native selected-lake
+  depth/spill diagnostics and shallow-rim/deep-basin lakebed classification,
+  using the existing lakebed terrain and water-class packet arrays;
+- chunk readiness for an organic-coastline world includes native coast
+  distance, shelf depth, and river-mouth influence fields, using the existing
+  shore/ocean terrain and water-class packet arrays;
 - `walkable_flags` must already reflect default current water class: shallow
   water is walkable, deep/ocean water is blocking;
 - riverbed, lakebed, shore, ocean floor, and floodplain are canonical base

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.8
-last_updated: 2026-04-29
+version: 1.14
+last_updated: 2026-04-30
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -59,11 +59,16 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current world generation extension:
-- `world.json` now records `world_version: 20` for the current
-  river/lake/delta/organic-water finite-world baseline with `64`-tile foundation
-  substrate cells, native hydrology prepass, riverbed/water chunk packet
-  rasterization, V1-R4 lakebed packet rasterization, and V1-R5 delta /
-  controlled-split packet rasterization, and V1-R8 organic water raster output
+- `world.json` now records `world_version: 27` for the current
+  river/lake/delta/organic-water/ocean-shore/refined-river/curvature-river
+  /Y-confluence/braid-loop/basin-contour-lake/organic-coastline finite-world baseline with
+  `64`-tile foundation substrate cells, native hydrology prepass,
+  riverbed/water chunk packet rasterization, V1-R4 lakebed packet
+  rasterization, V1-R5 delta / controlled-split packet rasterization, V1-R8
+  organic water raster output, V1-R9 ocean shore band packet output, V1-R10
+  refined river centerline output, V1-R11 curvature-aware river width/depth
+  output, V1-R12 Y-shaped confluence output, V1-R13 braid island loop output,
+  V1-R14 basin-contour lake output, and V1-R15 organic coastline/shelf output
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - `world_version >= 6` keeps the same save shape but changes canonical new-world
@@ -100,6 +105,30 @@ Current world generation extension:
   meandered river raster edges, and dynamic river width modulation from
   seed/version/settings. Existing `world_version = 19` saves keep pre-R8
   river/lake/delta packet output.
+- `world_version >= 21` also regenerates ocean shore band packet output from
+  seed/version/settings. Existing `world_version = 20` saves keep pre-R9
+  ocean-floor-only coast output.
+- `world_version >= 22` also regenerates refined whole-river centerlines,
+  direction-memory meanders, slope/floodplain/mountain-clearance width
+  modulation, and native spatial-index river candidate queries from
+  seed/version/settings. Existing `world_version = 21` saves keep pre-R10
+  per-edge organic river raster output.
+- `world_version >= 23` also regenerates refined-edge curvature and
+  post-confluence reach classification for river width/depth rasterization from
+  seed/version/settings. Existing `world_version = 22` saves keep pre-R11
+  refined-centerline river output.
+- `world_version >= 24` also regenerates native Y-shaped confluence influence
+  zones from seed/version/settings. Existing `world_version = 23` saves keep
+  pre-R12 curvature-aware river output.
+- `world_version >= 25` also regenerates native braid island loop split
+  geometry from seed/version/settings. Existing `world_version = 24` saves keep
+  pre-R13 simple controlled-split output.
+- `world_version >= 26` also regenerates basin-contour lake rim/depth
+  rasterization and oxbow candidate diagnostics from seed/version/settings.
+  Existing `world_version = 25` saves keep pre-R14 lake raster output.
+- `world_version >= 27` also regenerates organic coastline/shelf rasterization
+  and river-mouth coast influence diagnostics from seed/version/settings.
+  Existing `world_version = 26` saves keep pre-R15 ocean shelf output.
 - V1-R6 adds optional `world.json.water_overlay` runtime state for explicit
   local current-water overrides only. It does not bump `world_version` because
   canonical generated output remains unchanged.
@@ -161,7 +190,7 @@ Confirmed `world.json` shape in the current river-enabled code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 19,
+  "world_version": 26,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,

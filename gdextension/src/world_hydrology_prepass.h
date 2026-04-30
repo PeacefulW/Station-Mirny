@@ -30,6 +30,27 @@ struct RiverSettings {
 	int32_t hydrology_cell_size_tiles = DEFAULT_CELL_SIZE_TILES;
 };
 
+struct RefinedRiverEdge {
+	float ax = 0.0f;
+	float ay = 0.0f;
+	float bx = 0.0f;
+	float by = 0.0f;
+	int32_t segment_id = 0;
+	uint8_t stream_order = 0U;
+	uint8_t flow_dir = FLOW_DIR_TERMINAL;
+	float radius_scale = 1.0f;
+	float curvature = 0.0f;
+	float confluence_weight = 0.0f;
+	float braid_loop_weight = 0.0f;
+	uint64_t variation_seed = 0ULL;
+	bool source = false;
+	bool delta = false;
+	bool braid_split = false;
+	bool braid_loop = false;
+	bool confluence = false;
+	bool organic = false;
+};
+
 struct Snapshot {
 	bool valid = false;
 	uint64_t signature = 0;
@@ -50,7 +71,12 @@ struct Snapshot {
 	std::vector<float> flow_accumulation;
 	std::vector<int32_t> watershed_id;
 	std::vector<int32_t> lake_id;
+	std::vector<float> lake_depth_ratio;
+	std::vector<uint8_t> lake_spill_node_mask;
 	std::vector<uint8_t> ocean_sink_mask;
+	std::vector<float> ocean_coast_distance_tiles;
+	std::vector<float> ocean_shelf_depth_ratio;
+	std::vector<float> ocean_river_mouth_influence;
 	std::vector<uint8_t> mountain_exclusion_mask;
 	std::vector<float> floodplain_potential;
 	int32_t river_segment_count = 0;
@@ -61,6 +87,25 @@ struct Snapshot {
 	std::vector<float> river_discharge;
 	std::vector<int32_t> river_segment_ranges;
 	std::vector<int32_t> river_path_node_indices;
+	std::vector<RefinedRiverEdge> refined_river_edges;
+	int32_t refined_river_curved_edge_count = 0;
+	int32_t refined_river_confluence_edge_count = 0;
+	int32_t refined_river_y_confluence_zone_count = 0;
+	int32_t refined_river_y_confluence_edge_count = 0;
+	int32_t refined_river_braid_loop_candidate_count = 0;
+	int32_t refined_river_braid_loop_edge_count = 0;
+	int32_t basin_contour_lake_node_count = 0;
+	int32_t lake_spill_point_count = 0;
+	int32_t lake_outlet_connection_count = 0;
+	int32_t oxbow_candidate_count = 0;
+	int32_t ocean_coastline_node_count = 0;
+	int32_t ocean_shallow_shelf_node_count = 0;
+	int32_t ocean_river_mouth_node_count = 0;
+	int32_t river_spatial_index_cell_size_tiles = 64;
+	int32_t river_spatial_index_width = 0;
+	int32_t river_spatial_index_height = 0;
+	std::vector<int32_t> river_spatial_index_offsets;
+	std::vector<int32_t> river_spatial_index_edge_indices;
 
 	int32_t index(int32_t p_x, int32_t p_y) const;
 	godot::Vector2i node_to_tile_center(int32_t p_x, int32_t p_y) const;
@@ -84,6 +129,14 @@ std::unique_ptr<Snapshot> build_snapshot(
 godot::Dictionary make_build_result(const Snapshot &p_snapshot, bool p_cache_hit);
 godot::Dictionary make_debug_snapshot(const Snapshot &p_snapshot, int64_t p_layer_mask, int64_t p_downscale_factor);
 godot::Ref<godot::Image> make_overview_image(const Snapshot &p_snapshot, int64_t p_layer_mask, int64_t p_pixels_per_cell);
+std::vector<RefinedRiverEdge> query_refined_river_edges(
+	const Snapshot &p_snapshot,
+	int64_t p_min_x,
+	int64_t p_min_y,
+	int64_t p_max_x,
+	int64_t p_max_y,
+	float p_padding_tiles
+);
 
 } // namespace world_hydrology_prepass
 

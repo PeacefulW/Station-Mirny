@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.9
-last_updated: 2026-04-29
+version: 1.5
+last_updated: 2026-04-30
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -729,6 +729,37 @@ River Generation V1-R8 advances current new worlds to `world_version = 20`
 because canonical water output now includes organic lake shoreline noise,
 meandered river raster edges, and dynamic river width modulation from the same
 separate `WorldHydrologyPrePass` and existing `RiverGenSettings`.
+
+River Generation V1-R9 advances current new worlds to `world_version = 21`
+because canonical ocean-edge chunk output now includes walkable
+`TERRAIN_SHORE` band tiles derived from the same north-ocean sink mask.
+
+River Generation V1-R10 advances current new worlds to `world_version = 22`
+because canonical river chunk output now uses native refined whole-path
+centerlines, direction-memory meanders, slope-aware width modulation, and a
+bounded river spatial index derived from the same `WorldHydrologyPrePass`.
+
+River Generation V1-R11 advances current new worlds to `world_version = 23`
+because canonical river chunk output now uses refined-edge curvature and
+post-confluence reach classification for river width/depth rasterization from
+the same `WorldHydrologyPrePass`.
+
+River Generation V1-R12 advances current new worlds to `world_version = 24`
+because canonical river chunk output now uses native Y-shaped confluence
+influence zones around qualifying joins from the same `WorldHydrologyPrePass`.
+
+River Generation V1-R13 advances current new worlds to `world_version = 25`
+because canonical river chunk output now uses native rejoining braid island
+loops for eligible controlled splits from the same `WorldHydrologyPrePass`.
+
+River Generation V1-R14 advances current new worlds to `world_version = 26`
+because canonical lake chunk output now uses native basin-contour depth/spill
+data from the same `WorldHydrologyPrePass`.
+
+River Generation V1-R15 advances current new worlds to `world_version = 27`
+because canonical ocean chunk output now uses native organic coastline distance,
+shallow-shelf depth, and river-mouth influence fields from the same
+`WorldHydrologyPrePass`.
 
 ## Performance Class
 

@@ -7,6 +7,8 @@ const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
+const HYDROLOGY_OCEAN_ID: int = 2000000
+
 var _failed: bool = false
 
 func _init() -> void:
@@ -19,7 +21,7 @@ func _init() -> void:
 	)
 	_assert(bool(build_result.get("success", false)), "hydrology prepass should build before river packet generation")
 
-	var river_chunk: Vector2i = _find_river_chunk(core)
+	var river_chunk: Vector2i = _find_river_chunk(core, packed_settings)
 	_assert(river_chunk != Vector2i(-99999, -99999), "hydrology snapshot should provide a river chunk candidate")
 
 	var coords := PackedVector2Array()
@@ -44,8 +46,9 @@ func _init() -> void:
 	_assert(_riverbed_walkability_matches_water(packet), "riverbed walkability should follow shallow/deep water class")
 	_assert(_riverbed_avoids_mountain(packet), "riverbed tiles should not overlap mountain wall or foot")
 	_assert(_ground_has_edge_next_to_hydrology_surface(packet), "plains ground next to a riverbed or river bank should use a non-solid 47-tile edge variant")
+	_assert(_packet_hydrology_matches_cold_repeat(packed_settings, river_chunk, packet), "river chunk hydrology output should be deterministic across cold WorldCore instances")
 
-	var lake_chunk: Vector2i = _find_lake_edge_chunk(core)
+	var lake_chunk: Vector2i = _find_lake_edge_chunk(core, packed_settings)
 	_assert(lake_chunk != Vector2i(-99999, -99999), "hydrology snapshot should provide a lake edge chunk candidate")
 	var lake_coords := PackedVector2Array()
 	lake_coords.append(Vector2(float(lake_chunk.x), float(lake_chunk.y)))
@@ -62,8 +65,10 @@ func _init() -> void:
 	_assert(_lakebed_walkability_matches_water(lake_packet), "lakebed walkability should follow shallow/deep water class")
 	_assert(_lakebed_avoids_mountain(lake_packet), "lakebed tiles should not overlap mountain wall or foot")
 	_assert(_ground_has_edge_next_to_hydrology_surface(lake_packet), "plains ground next to a lakebed or lake bank should use a non-solid 47-tile edge variant")
+	_assert(WorldRuntimeConstants.WORLD_VERSION > WorldRuntimeConstants.WORLD_BRAID_LOOP_RIVER_VERSION, "current chunk output should advance beyond braid island loops for basin-contour lake rasterization")
+	_assert(_lakebed_has_basin_depth_gradient(lake_packet), "basin-contour lake output should keep a shallow rim and deeper low basin in the same packet")
 
-	var ocean_chunk: Vector2i = _find_ocean_edge_chunk(core)
+	var ocean_chunk: Vector2i = _find_ocean_edge_chunk(core, packed_settings)
 	_assert(ocean_chunk != Vector2i(-99999, -99999), "hydrology snapshot should provide an ocean edge chunk candidate")
 	var ocean_coords := PackedVector2Array()
 	ocean_coords.append(Vector2(float(ocean_chunk.x), float(ocean_chunk.y)))
@@ -75,8 +80,19 @@ func _init() -> void:
 	)
 	_assert(ocean_packets.size() == 1, "ocean edge chunk generation should return one packet")
 	var ocean_packet: Dictionary = ocean_packets[0] if not ocean_packets.is_empty() else {}
-	_assert(_packet_has_ocean_floor(ocean_packet), "ocean edge chunk should contain ocean floor terrain")
-	_assert(_ground_has_edge_next_to_hydrology_surface(ocean_packet), "plains ground next to ocean floor should use a non-solid 47-tile edge variant")
+	_assert(_packet_has_ocean_shore_band(ocean_packet), "ocean edge chunk should contain a walkable ocean shore band")
+	_assert(_ground_has_edge_next_to_hydrology_surface(ocean_packet), "plains ground next to ocean shore should use a non-solid 47-tile edge variant")
+	var ocean_floor_chunk: Vector2i = _find_ocean_floor_chunk(core, packed_settings)
+	_assert(ocean_floor_chunk != Vector2i(-99999, -99999), "hydrology snapshot should provide an ocean floor chunk candidate")
+	var ocean_floor_packet: Dictionary = _generate_single_packet(core, packed_settings, ocean_floor_chunk)
+	_assert(_packet_has_deep_ocean_floor(ocean_floor_packet), "ocean chunks should contain deep ocean floor terrain")
+	_assert(WorldRuntimeConstants.WORLD_VERSION > WorldRuntimeConstants.WORLD_BASIN_CONTOUR_LAKE_VERSION, "current chunk output should advance beyond basin-contour lakes for organic coastline and shelf rasterization")
+	var ocean_shelf_chunk: Vector2i = _find_ocean_shelf_chunk(core, packed_settings)
+	_assert(ocean_shelf_chunk != Vector2i(-99999, -99999), "hydrology snapshot should provide an ocean shelf gradient chunk candidate")
+	var ocean_shelf_packet: Dictionary = _generate_single_packet(core, packed_settings, ocean_shelf_chunk)
+	_assert(_packet_has_ocean_shelf_gradient(ocean_shelf_packet), "organic ocean chunks should include shore, shallow shelf, and deep ocean bands")
+	_assert(_ocean_surface_avoids_mountain(ocean_shelf_packet), "ocean shore/shelf/deep water should not overlap mountain wall or foot")
+	_assert(_packet_hydrology_matches_cold_repeat(packed_settings, ocean_shelf_chunk, ocean_shelf_packet), "ocean shelf chunk hydrology output should be deterministic across cold WorldCore instances")
 
 	var v1_r5_settings: PackedFloat32Array = _build_v1_r5_settings_packed()
 	var v1_r5_result: Dictionary = core.build_world_hydrology_prepass(
@@ -85,6 +101,16 @@ func _init() -> void:
 		v1_r5_settings
 	)
 	_assert(bool(v1_r5_result.get("success", false)), "V1-R5 hydrology prepass should build with delta/split settings")
+	_assert(WorldRuntimeConstants.WORLD_VERSION > WorldRuntimeConstants.WORLD_Y_CONFLUENCE_RIVER_VERSION, "current chunk output should advance beyond Y-shaped confluences for native braid island loops")
+	var braid_loop_candidates: int = int(v1_r5_result.get("braid_loop_candidate_count", 0))
+	var braid_loop_edges: int = int(v1_r5_result.get("braid_loop_refined_river_edge_count", 0))
+	_assert(braid_loop_candidates > 0, "V1-R5 dense hydrology should accept at least one braid island loop candidate")
+	_assert(braid_loop_edges >= braid_loop_candidates * 4, "braid island loops should rasterize from multi-edge rejoin geometry")
+	var confluence_chunk: Vector2i = _find_confluence_chunk(core, v1_r5_settings)
+	_assert(confluence_chunk != Vector2i(-99999, -99999), "dense hydrology snapshot should provide a confluence candidate")
+	var confluence_packet: Dictionary = _generate_single_packet(core, v1_r5_settings, confluence_chunk)
+	_assert(_packet_has_confluence_riverbed(confluence_packet), "curvature-aware river output should mark a widened post-confluence riverbed in chunk packets")
+	_assert(_dense_confluence_has_y_zone(core, v1_r5_settings), "Y-shaped confluence output should mark two upstream arms and the downstream reach near the join")
 
 	var delta_chunk: Vector2i = _find_delta_chunk(core)
 	_assert(delta_chunk != Vector2i(-99999, -99999), "hydrology snapshot should provide a delta/estuary river-mouth candidate")
@@ -149,7 +175,7 @@ func _build_v1_r5_settings_packed() -> PackedFloat32Array:
 	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_RIVER_DELTA_SCALE] = 2.0
 	return packed
 
-func _find_river_chunk(core: WorldCore) -> Vector2i:
+func _find_river_chunk(core: WorldCore, packed_settings: PackedFloat32Array) -> Vector2i:
 	var snapshot: Dictionary = core.get_world_hydrology_snapshot(0, 1)
 	var width: int = int(snapshot.get("grid_width", 0))
 	var height: int = int(snapshot.get("grid_height", 0))
@@ -157,6 +183,7 @@ func _find_river_chunk(core: WorldCore) -> Vector2i:
 	var river_mask: PackedByteArray = snapshot.get("river_node_mask", PackedByteArray()) as PackedByteArray
 	var ocean_mask: PackedByteArray = snapshot.get("ocean_sink_mask", PackedByteArray()) as PackedByteArray
 	var lake_ids: PackedInt32Array = snapshot.get("lake_id", PackedInt32Array()) as PackedInt32Array
+	var seen_chunks: Dictionary = {}
 	for y: int in range(height - 1, -1, -1):
 		for x: int in range(width):
 			var index: int = y * width + x
@@ -167,7 +194,17 @@ func _find_river_chunk(core: WorldCore) -> Vector2i:
 			if index < lake_ids.size() and int(lake_ids[index]) > 0:
 				continue
 			var tile := Vector2i(x * cell_size_tiles + cell_size_tiles / 2, y * cell_size_tiles + cell_size_tiles / 2)
-			return Vector2i(tile.x / WorldRuntimeConstants.CHUNK_SIZE, tile.y / WorldRuntimeConstants.CHUNK_SIZE)
+			var chunk := Vector2i(tile.x / WorldRuntimeConstants.CHUNK_SIZE, tile.y / WorldRuntimeConstants.CHUNK_SIZE)
+			var chunk_key: String = "%d,%d" % [chunk.x, chunk.y]
+			if seen_chunks.has(chunk_key):
+				continue
+			seen_chunks[chunk_key] = true
+			var packet: Dictionary = _generate_single_packet(core, packed_settings, chunk)
+			if _packet_has_riverbed(packet) \
+					and _riverbed_walkability_matches_water(packet) \
+					and _riverbed_avoids_mountain(packet) \
+					and _ground_has_edge_next_to_hydrology_surface(packet):
+				return chunk
 	return Vector2i(-99999, -99999)
 
 func _find_delta_chunk(core: WorldCore) -> Vector2i:
@@ -231,6 +268,153 @@ func _find_braid_chunk(core: WorldCore) -> Vector2i:
 			return Vector2i(tile.x / WorldRuntimeConstants.CHUNK_SIZE, tile.y / WorldRuntimeConstants.CHUNK_SIZE)
 	return Vector2i(-99999, -99999)
 
+func _find_confluence_chunk(core: WorldCore, packed_settings: PackedFloat32Array) -> Vector2i:
+	var snapshot: Dictionary = core.get_world_hydrology_snapshot(0, 1)
+	var width: int = int(snapshot.get("grid_width", 0))
+	var height: int = int(snapshot.get("grid_height", 0))
+	var cell_size_tiles: int = int(snapshot.get("cell_size_tiles", 16))
+	var river_mask: PackedByteArray = snapshot.get("river_node_mask", PackedByteArray()) as PackedByteArray
+	var ocean_mask: PackedByteArray = snapshot.get("ocean_sink_mask", PackedByteArray()) as PackedByteArray
+	var lake_ids: PackedInt32Array = snapshot.get("lake_id", PackedInt32Array()) as PackedInt32Array
+	var flow_dir: PackedByteArray = snapshot.get("flow_dir", PackedByteArray()) as PackedByteArray
+	var seen_chunks: Dictionary = {}
+	for y: int in range(height):
+		for x: int in range(width):
+			var index: int = y * width + x
+			if index >= river_mask.size() or river_mask[index] == 0:
+				continue
+			if index < ocean_mask.size() and ocean_mask[index] != 0:
+				continue
+			if index < lake_ids.size() and int(lake_ids[index]) > 0:
+				continue
+			if _upstream_river_count(index, width, height, river_mask, flow_dir) < 2:
+				continue
+			var tile := Vector2i(x * cell_size_tiles + cell_size_tiles / 2, y * cell_size_tiles + cell_size_tiles / 2)
+			var base_chunk := Vector2i(tile.x / WorldRuntimeConstants.CHUNK_SIZE, tile.y / WorldRuntimeConstants.CHUNK_SIZE)
+			for offset: Vector2i in [
+				Vector2i(0, 0),
+				Vector2i(0, 1),
+				Vector2i(0, -1),
+				Vector2i(1, 0),
+				Vector2i(-1, 0),
+			]:
+				var chunk: Vector2i = base_chunk + offset
+				var chunk_key: String = "%d,%d" % [chunk.x, chunk.y]
+				if seen_chunks.has(chunk_key):
+					continue
+				seen_chunks[chunk_key] = true
+				var packet: Dictionary = _generate_single_packet(core, packed_settings, chunk)
+				if _packet_has_confluence_riverbed(packet):
+					return chunk
+	return Vector2i(-99999, -99999)
+
+func _dense_confluence_has_y_zone(core: WorldCore, packed_settings: PackedFloat32Array) -> bool:
+	var snapshot: Dictionary = core.get_world_hydrology_snapshot(0, 1)
+	var width: int = int(snapshot.get("grid_width", 0))
+	var height: int = int(snapshot.get("grid_height", 0))
+	var cell_size_tiles: int = int(snapshot.get("cell_size_tiles", 16))
+	var river_mask: PackedByteArray = snapshot.get("river_node_mask", PackedByteArray()) as PackedByteArray
+	var ocean_mask: PackedByteArray = snapshot.get("ocean_sink_mask", PackedByteArray()) as PackedByteArray
+	var lake_ids: PackedInt32Array = snapshot.get("lake_id", PackedInt32Array()) as PackedInt32Array
+	var flow_dir: PackedByteArray = snapshot.get("flow_dir", PackedByteArray()) as PackedByteArray
+	for y: int in range(height):
+		for x: int in range(width):
+			var index: int = y * width + x
+			if index >= river_mask.size() or river_mask[index] == 0:
+				continue
+			if index < ocean_mask.size() and ocean_mask[index] != 0:
+				continue
+			if index < lake_ids.size() and int(lake_ids[index]) > 0:
+				continue
+			var upstreams: Array[int] = _upstream_river_indices(index, width, height, river_mask, flow_dir)
+			if upstreams.size() < 2:
+				continue
+			var downstream: int = _resolve_downstream_index(index, width, height, flow_dir)
+			if downstream < 0 or downstream >= river_mask.size() or river_mask[downstream] == 0:
+				continue
+			if not _confluence_probe_has_flag(core, packed_settings, _branch_probe_tile(index, downstream, width, cell_size_tiles, 0.38)):
+				continue
+			var matched_upstreams: int = 0
+			for upstream: int in upstreams:
+				if _confluence_probe_has_flag(core, packed_settings, _branch_probe_tile(index, upstream, width, cell_size_tiles, 0.38)):
+					matched_upstreams += 1
+			if matched_upstreams >= 2:
+				return true
+	return false
+
+func _upstream_river_indices(index: int, width: int, height: int, river_mask: PackedByteArray, flow_dir: PackedByteArray) -> Array[int]:
+	var indices: Array[int] = []
+	var x: int = index % width
+	var y: int = index / width
+	for offset: Vector2i in [
+		Vector2i(0, -1),
+		Vector2i(1, -1),
+		Vector2i(1, 0),
+		Vector2i(1, 1),
+		Vector2i(0, 1),
+		Vector2i(-1, 1),
+		Vector2i(-1, 0),
+		Vector2i(-1, -1),
+	]:
+		var nx: int = posmod(x + offset.x, width)
+		var ny: int = y + offset.y
+		if ny < 0 or ny >= height:
+			continue
+		var upstream_index: int = ny * width + nx
+		if upstream_index < 0 or upstream_index >= river_mask.size() or river_mask[upstream_index] == 0:
+			continue
+		if _resolve_downstream_index(upstream_index, width, height, flow_dir) == index:
+			indices.append(upstream_index)
+	return indices
+
+func _branch_probe_tile(confluence_index: int, branch_index: int, width: int, cell_size_tiles: int, branch_t: float) -> Vector2i:
+	var confluence_node := Vector2i(confluence_index % width, confluence_index / width)
+	var branch_node := Vector2i(branch_index % width, branch_index / width)
+	var confluence_tile := Vector2(
+		float(confluence_node.x * cell_size_tiles + cell_size_tiles / 2),
+		float(confluence_node.y * cell_size_tiles + cell_size_tiles / 2)
+	)
+	var branch_tile := Vector2(
+		float(branch_node.x * cell_size_tiles + cell_size_tiles / 2),
+		float(branch_node.y * cell_size_tiles + cell_size_tiles / 2)
+	)
+	var probe: Vector2 = confluence_tile.lerp(branch_tile, branch_t)
+	return Vector2i(int(round(probe.x)), int(round(probe.y)))
+
+func _confluence_probe_has_flag(core: WorldCore, packed_settings: PackedFloat32Array, tile: Vector2i) -> bool:
+	var chunk := Vector2i(tile.x / WorldRuntimeConstants.CHUNK_SIZE, tile.y / WorldRuntimeConstants.CHUNK_SIZE)
+	var packet: Dictionary = _generate_single_packet(core, packed_settings, chunk)
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	var hydrology_ids: PackedInt32Array = packet.get("hydrology_id_per_tile", PackedInt32Array()) as PackedInt32Array
+	var hydrology_flags: PackedInt32Array = packet.get("hydrology_flags", PackedInt32Array()) as PackedInt32Array
+	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
+	if terrain_ids.size() != WorldRuntimeConstants.CHUNK_CELL_COUNT \
+			or hydrology_ids.size() != WorldRuntimeConstants.CHUNK_CELL_COUNT \
+			or hydrology_flags.size() != WorldRuntimeConstants.CHUNK_CELL_COUNT:
+		return false
+	var local := WorldRuntimeConstants.tile_to_local(tile)
+	for y_offset: int in range(-5, 6):
+		for x_offset: int in range(-5, 6):
+			var lx: int = local.x + x_offset
+			var ly: int = local.y + y_offset
+			if lx < 0 or lx >= WorldRuntimeConstants.CHUNK_SIZE or ly < 0 or ly >= WorldRuntimeConstants.CHUNK_SIZE:
+				continue
+			var packet_index: int = WorldRuntimeConstants.local_to_index(Vector2i(lx, ly))
+			if (int(hydrology_flags[packet_index]) & WorldRuntimeConstants.HYDROLOGY_FLAG_CONFLUENCE) == 0:
+				continue
+			var terrain_id: int = int(terrain_ids[packet_index])
+			if terrain_id != WorldRuntimeConstants.TERRAIN_RIVERBED_SHALLOW \
+					and terrain_id != WorldRuntimeConstants.TERRAIN_RIVERBED_DEEP \
+					and terrain_id != WorldRuntimeConstants.TERRAIN_SHORE:
+				continue
+			if int(hydrology_ids[packet_index]) <= 0:
+				continue
+			if packet_index < mountain_flags.size() \
+					and (int(mountain_flags[packet_index]) & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) != 0:
+				continue
+			return true
+	return false
+
 func _resolve_downstream_index(index: int, width: int, height: int, flow_dir: PackedByteArray) -> int:
 	if index < 0 or index >= flow_dir.size():
 		return -1
@@ -247,12 +431,38 @@ func _resolve_downstream_index(index: int, width: int, height: int, flow_dir: Pa
 		return -1
 	return ny * width + nx
 
-func _find_lake_edge_chunk(core: WorldCore) -> Vector2i:
+func _upstream_river_count(index: int, width: int, height: int, river_mask: PackedByteArray, flow_dir: PackedByteArray) -> int:
+	var count: int = 0
+	var x: int = index % width
+	var y: int = index / width
+	for offset: Vector2i in [
+		Vector2i(0, -1),
+		Vector2i(1, -1),
+		Vector2i(1, 0),
+		Vector2i(1, 1),
+		Vector2i(0, 1),
+		Vector2i(-1, 1),
+		Vector2i(-1, 0),
+		Vector2i(-1, -1),
+	]:
+		var nx: int = posmod(x + offset.x, width)
+		var ny: int = y + offset.y
+		if ny < 0 or ny >= height:
+			continue
+		var upstream_index: int = ny * width + nx
+		if upstream_index < 0 or upstream_index >= river_mask.size() or river_mask[upstream_index] == 0:
+			continue
+		if _resolve_downstream_index(upstream_index, width, height, flow_dir) == index:
+			count += 1
+	return count
+
+func _find_lake_edge_chunk(core: WorldCore, packed_settings: PackedFloat32Array) -> Vector2i:
 	var snapshot: Dictionary = core.get_world_hydrology_snapshot(0, 1)
 	var width: int = int(snapshot.get("grid_width", 0))
 	var height: int = int(snapshot.get("grid_height", 0))
 	var cell_size_tiles: int = int(snapshot.get("cell_size_tiles", 16))
 	var lake_ids: PackedInt32Array = snapshot.get("lake_id", PackedInt32Array()) as PackedInt32Array
+	var seen_chunks: Dictionary = {}
 	for y: int in range(height):
 		for x: int in range(width):
 			var index: int = y * width + x
@@ -267,15 +477,28 @@ func _find_lake_edge_chunk(core: WorldCore) -> Vector2i:
 			if not has_open_edge:
 				continue
 			var tile := Vector2i(x * cell_size_tiles + cell_size_tiles / 2, y * cell_size_tiles + cell_size_tiles / 2)
-			return Vector2i(tile.x / WorldRuntimeConstants.CHUNK_SIZE, tile.y / WorldRuntimeConstants.CHUNK_SIZE)
+			var chunk := Vector2i(tile.x / WorldRuntimeConstants.CHUNK_SIZE, tile.y / WorldRuntimeConstants.CHUNK_SIZE)
+			var chunk_key: String = "%d,%d" % [chunk.x, chunk.y]
+			if seen_chunks.has(chunk_key):
+				continue
+			seen_chunks[chunk_key] = true
+			var packet: Dictionary = _generate_single_packet(core, packed_settings, chunk)
+			if _packet_has_lakebed(packet) \
+					and _lakebed_has_irregular_outline(packet) \
+					and _lakebed_walkability_matches_water(packet) \
+					and _lakebed_avoids_mountain(packet) \
+					and (WorldRuntimeConstants.WORLD_VERSION <= WorldRuntimeConstants.WORLD_BRAID_LOOP_RIVER_VERSION or _lakebed_has_basin_depth_gradient(packet)) \
+					and _ground_has_edge_next_to_hydrology_surface(packet):
+				return chunk
 	return Vector2i(-99999, -99999)
 
-func _find_ocean_edge_chunk(core: WorldCore) -> Vector2i:
+func _find_ocean_edge_chunk(core: WorldCore, packed_settings: PackedFloat32Array) -> Vector2i:
 	var snapshot: Dictionary = core.get_world_hydrology_snapshot(0, 1)
 	var width: int = int(snapshot.get("grid_width", 0))
 	var height: int = int(snapshot.get("grid_height", 0))
 	var cell_size_tiles: int = int(snapshot.get("cell_size_tiles", 16))
 	var ocean_mask: PackedByteArray = snapshot.get("ocean_sink_mask", PackedByteArray()) as PackedByteArray
+	var seen_chunks: Dictionary = {}
 	for y: int in range(height):
 		for x: int in range(width):
 			var index: int = y * width + x
@@ -289,8 +512,134 @@ func _find_ocean_edge_chunk(core: WorldCore) -> Vector2i:
 			if not has_open_edge:
 				continue
 			var tile := Vector2i(x * cell_size_tiles + cell_size_tiles / 2, y * cell_size_tiles + cell_size_tiles / 2)
-			return Vector2i(tile.x / WorldRuntimeConstants.CHUNK_SIZE, tile.y / WorldRuntimeConstants.CHUNK_SIZE)
+			var base_chunk := Vector2i(tile.x / WorldRuntimeConstants.CHUNK_SIZE, tile.y / WorldRuntimeConstants.CHUNK_SIZE)
+			for offset: Vector2i in [
+				Vector2i(0, 0),
+				Vector2i(0, 1),
+				Vector2i(0, -1),
+				Vector2i(1, 0),
+				Vector2i(-1, 0),
+			]:
+				var chunk := base_chunk + offset
+				var chunk_key: String = "%d,%d" % [chunk.x, chunk.y]
+				if seen_chunks.has(chunk_key):
+					continue
+				seen_chunks[chunk_key] = true
+				var packet: Dictionary = _generate_single_packet(core, packed_settings, chunk)
+				if _packet_has_ocean_shore_band(packet) \
+						and _ground_has_edge_next_to_hydrology_surface(packet):
+					return chunk
 	return Vector2i(-99999, -99999)
+
+func _find_ocean_floor_chunk(core: WorldCore, packed_settings: PackedFloat32Array) -> Vector2i:
+	var snapshot: Dictionary = core.get_world_hydrology_snapshot(0, 1)
+	var width: int = int(snapshot.get("grid_width", 0))
+	var height: int = int(snapshot.get("grid_height", 0))
+	var cell_size_tiles: int = int(snapshot.get("cell_size_tiles", 16))
+	var ocean_mask: PackedByteArray = snapshot.get("ocean_sink_mask", PackedByteArray()) as PackedByteArray
+	var seen_chunks: Dictionary = {}
+	for y: int in range(height):
+		for x: int in range(width):
+			var index: int = y * width + x
+			if index >= ocean_mask.size() or ocean_mask[index] == 0:
+				continue
+			var tile := Vector2i(x * cell_size_tiles + cell_size_tiles / 2, y * cell_size_tiles + cell_size_tiles / 2)
+			var chunk := Vector2i(tile.x / WorldRuntimeConstants.CHUNK_SIZE, tile.y / WorldRuntimeConstants.CHUNK_SIZE)
+			var chunk_key: String = "%d,%d" % [chunk.x, chunk.y]
+			if seen_chunks.has(chunk_key):
+				continue
+			seen_chunks[chunk_key] = true
+			var packet: Dictionary = _generate_single_packet(core, packed_settings, chunk)
+			if _packet_has_deep_ocean_floor(packet):
+				return chunk
+	return Vector2i(-99999, -99999)
+
+func _find_ocean_shelf_chunk(core: WorldCore, packed_settings: PackedFloat32Array) -> Vector2i:
+	var snapshot: Dictionary = core.get_world_hydrology_snapshot(0, 1)
+	var width: int = int(snapshot.get("grid_width", 0))
+	var height: int = int(snapshot.get("grid_height", 0))
+	var cell_size_tiles: int = int(snapshot.get("cell_size_tiles", 16))
+	var ocean_mask: PackedByteArray = snapshot.get("ocean_sink_mask", PackedByteArray()) as PackedByteArray
+	var seen_chunks: Dictionary = {}
+	for y: int in range(height):
+		for x: int in range(width):
+			var index: int = y * width + x
+			if index >= ocean_mask.size() or ocean_mask[index] == 0:
+				continue
+			var has_open_edge: bool = \
+				(y > 0 and _sample_ocean_mask(ocean_mask, width, height, x, y - 1) == 0) \
+				or _sample_ocean_mask(ocean_mask, width, height, x + 1, y) == 0 \
+				or (y < height - 1 and _sample_ocean_mask(ocean_mask, width, height, x, y + 1) == 0) \
+				or _sample_ocean_mask(ocean_mask, width, height, x - 1, y) == 0
+			if not has_open_edge:
+				continue
+			var tile := Vector2i(x * cell_size_tiles + cell_size_tiles / 2, y * cell_size_tiles + cell_size_tiles / 2)
+			var base_chunk := Vector2i(tile.x / WorldRuntimeConstants.CHUNK_SIZE, tile.y / WorldRuntimeConstants.CHUNK_SIZE)
+			for offset: Vector2i in [
+				Vector2i(0, 0),
+				Vector2i(0, -1),
+				Vector2i(0, -2),
+				Vector2i(0, 1),
+				Vector2i(1, 0),
+				Vector2i(-1, 0),
+			]:
+				var chunk := base_chunk + offset
+				var chunk_key: String = "%d,%d" % [chunk.x, chunk.y]
+				if seen_chunks.has(chunk_key):
+					continue
+				seen_chunks[chunk_key] = true
+				var packet: Dictionary = _generate_single_packet(core, packed_settings, chunk)
+				if _packet_has_ocean_shelf_gradient(packet) and _ocean_surface_avoids_mountain(packet):
+					return chunk
+	return Vector2i(-99999, -99999)
+
+func _generate_single_packet(core: WorldCore, packed_settings: PackedFloat32Array, chunk: Vector2i) -> Dictionary:
+	var coords := PackedVector2Array()
+	coords.append(Vector2(float(chunk.x), float(chunk.y)))
+	var packets: Array = core.generate_chunk_packets_batch(
+		WorldRuntimeConstants.DEFAULT_WORLD_SEED,
+		coords,
+		WorldRuntimeConstants.WORLD_VERSION,
+		packed_settings
+	)
+	return packets[0] if packets.size() == 1 else {}
+
+func _packet_hydrology_matches_cold_repeat(packed_settings: PackedFloat32Array, chunk: Vector2i, expected_packet: Dictionary) -> bool:
+	var repeat_core := WorldCore.new()
+	var repeat_packet: Dictionary = _generate_single_packet(repeat_core, packed_settings, chunk)
+	for key: String in [
+		"terrain_ids",
+		"walkable_flags",
+		"hydrology_id_per_tile",
+		"hydrology_flags",
+		"floodplain_strength",
+		"water_class",
+		"flow_dir_quantized",
+		"stream_order",
+		"water_atlas_indices",
+	]:
+		if not _packet_array_equal(expected_packet.get(key), repeat_packet.get(key)):
+			return false
+	return true
+
+func _packet_array_equal(left, right) -> bool:
+	if left == null or right == null:
+		return left == right
+	if typeof(left) != typeof(right):
+		return false
+	if not typeof(left) in [
+		TYPE_ARRAY,
+		TYPE_PACKED_BYTE_ARRAY,
+		TYPE_PACKED_INT32_ARRAY,
+		TYPE_PACKED_FLOAT32_ARRAY,
+	]:
+		return left == right
+	if left.size() != right.size():
+		return false
+	for index: int in range(left.size()):
+		if left[index] != right[index]:
+			return false
+	return true
 
 func _sample_ocean_mask(ocean_mask: PackedByteArray, width: int, height: int, x: int, y: int) -> int:
 	if width <= 0 or height <= 0 or y < 0 or y >= height:
@@ -321,6 +670,29 @@ func _packet_has_riverbed(packet: Dictionary) -> bool:
 		if int(water_class[index]) == WorldRuntimeConstants.WATER_CLASS_NONE:
 			return false
 		if int(stream_order[index]) <= 0:
+			return false
+		return true
+	return false
+
+func _packet_has_confluence_riverbed(packet: Dictionary) -> bool:
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	var hydrology_ids: PackedInt32Array = packet.get("hydrology_id_per_tile", PackedInt32Array()) as PackedInt32Array
+	var hydrology_flags: PackedInt32Array = packet.get("hydrology_flags", PackedInt32Array()) as PackedInt32Array
+	var water_class: PackedByteArray = packet.get("water_class", PackedByteArray()) as PackedByteArray
+	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
+	var count: int = mini(mini(terrain_ids.size(), hydrology_ids.size()), mini(hydrology_flags.size(), mini(water_class.size(), mountain_flags.size())))
+	for index: int in range(count):
+		if (int(hydrology_flags[index]) & WorldRuntimeConstants.HYDROLOGY_FLAG_CONFLUENCE) == 0:
+			continue
+		var terrain_id: int = int(terrain_ids[index])
+		if terrain_id != WorldRuntimeConstants.TERRAIN_RIVERBED_SHALLOW \
+				and terrain_id != WorldRuntimeConstants.TERRAIN_RIVERBED_DEEP:
+			return false
+		if int(hydrology_ids[index]) <= 0:
+			return false
+		if int(water_class[index]) == WorldRuntimeConstants.WATER_CLASS_NONE:
+			return false
+		if (int(mountain_flags[index]) & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) != 0:
 			return false
 		return true
 	return false
@@ -420,14 +792,54 @@ func _packet_has_lakebed(packet: Dictionary) -> bool:
 		return true
 	return false
 
-func _packet_has_ocean_floor(packet: Dictionary) -> bool:
+func _packet_has_deep_ocean_floor(packet: Dictionary) -> bool:
 	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
 	var water_class: PackedByteArray = packet.get("water_class", PackedByteArray()) as PackedByteArray
 	var count: int = mini(terrain_ids.size(), water_class.size())
 	for index: int in range(count):
 		if int(terrain_ids[index]) != WorldRuntimeConstants.TERRAIN_OCEAN_FLOOR:
 			continue
-		if int(water_class[index]) != WorldRuntimeConstants.WATER_CLASS_OCEAN:
+		if int(water_class[index]) == WorldRuntimeConstants.WATER_CLASS_OCEAN:
+			return true
+	return false
+
+func _packet_has_ocean_shelf_gradient(packet: Dictionary) -> bool:
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	var water_class: PackedByteArray = packet.get("water_class", PackedByteArray()) as PackedByteArray
+	var walkable_flags: PackedByteArray = packet.get("walkable_flags", PackedByteArray()) as PackedByteArray
+	var count: int = mini(terrain_ids.size(), mini(water_class.size(), walkable_flags.size()))
+	var has_shore: bool = false
+	var has_shallow_shelf: bool = false
+	var has_deep_ocean: bool = false
+	for index: int in range(count):
+		var terrain_id: int = int(terrain_ids[index])
+		var current_water: int = int(water_class[index])
+		var is_walkable: bool = walkable_flags[index] != 0
+		if terrain_id == WorldRuntimeConstants.TERRAIN_SHORE and current_water == WorldRuntimeConstants.WATER_CLASS_NONE and is_walkable:
+			has_shore = true
+		elif terrain_id == WorldRuntimeConstants.TERRAIN_OCEAN_FLOOR and current_water == WorldRuntimeConstants.WATER_CLASS_SHALLOW and is_walkable:
+			has_shallow_shelf = true
+		elif terrain_id == WorldRuntimeConstants.TERRAIN_OCEAN_FLOOR and current_water == WorldRuntimeConstants.WATER_CLASS_OCEAN and not is_walkable:
+			has_deep_ocean = true
+	return has_shore and has_shallow_shelf and has_deep_ocean
+
+func _packet_has_ocean_shore_band(packet: Dictionary) -> bool:
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	var hydrology_ids: PackedInt32Array = packet.get("hydrology_id_per_tile", PackedInt32Array()) as PackedInt32Array
+	var hydrology_flags: PackedInt32Array = packet.get("hydrology_flags", PackedInt32Array()) as PackedInt32Array
+	var water_class: PackedByteArray = packet.get("water_class", PackedByteArray()) as PackedByteArray
+	var walkable_flags: PackedByteArray = packet.get("walkable_flags", PackedByteArray()) as PackedByteArray
+	var count: int = mini(mini(terrain_ids.size(), hydrology_ids.size()), mini(hydrology_flags.size(), mini(water_class.size(), walkable_flags.size())))
+	for index: int in range(count):
+		if int(terrain_ids[index]) != WorldRuntimeConstants.TERRAIN_SHORE:
+			continue
+		if int(hydrology_ids[index]) != HYDROLOGY_OCEAN_ID:
+			continue
+		if (int(hydrology_flags[index]) & WorldRuntimeConstants.HYDROLOGY_FLAG_SHORE) == 0:
+			return false
+		if int(water_class[index]) != WorldRuntimeConstants.WATER_CLASS_NONE:
+			return false
+		if walkable_flags[index] == 0:
 			return false
 		return true
 	return false
@@ -470,12 +882,47 @@ func _lakebed_walkability_matches_water(packet: Dictionary) -> bool:
 			return false
 	return true
 
+func _lakebed_has_basin_depth_gradient(packet: Dictionary) -> bool:
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	var water_class: PackedByteArray = packet.get("water_class", PackedByteArray()) as PackedByteArray
+	var hydrology_flags: PackedInt32Array = packet.get("hydrology_flags", PackedInt32Array()) as PackedInt32Array
+	var count: int = mini(mini(terrain_ids.size(), water_class.size()), hydrology_flags.size())
+	var has_shallow_rim: bool = false
+	var has_deep_basin: bool = false
+	for index: int in range(count):
+		if (int(hydrology_flags[index]) & WorldRuntimeConstants.HYDROLOGY_FLAG_LAKEBED) == 0:
+			continue
+		var terrain_id: int = int(terrain_ids[index])
+		if terrain_id != WorldRuntimeConstants.TERRAIN_LAKEBED:
+			continue
+		if int(water_class[index]) == WorldRuntimeConstants.WATER_CLASS_SHALLOW:
+			has_shallow_rim = true
+		elif int(water_class[index]) == WorldRuntimeConstants.WATER_CLASS_DEEP:
+			has_deep_basin = true
+	return has_shallow_rim and has_deep_basin
+
 func _lakebed_avoids_mountain(packet: Dictionary) -> bool:
 	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
 	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
 	var count: int = mini(terrain_ids.size(), mountain_flags.size())
 	for index: int in range(count):
 		if int(terrain_ids[index]) != WorldRuntimeConstants.TERRAIN_LAKEBED:
+			continue
+		if (int(mountain_flags[index]) & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) != 0:
+			return false
+	return true
+
+func _ocean_surface_avoids_mountain(packet: Dictionary) -> bool:
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	var water_class: PackedByteArray = packet.get("water_class", PackedByteArray()) as PackedByteArray
+	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
+	var count: int = mini(terrain_ids.size(), mini(water_class.size(), mountain_flags.size()))
+	for index: int in range(count):
+		var terrain_id: int = int(terrain_ids[index])
+		var current_water: int = int(water_class[index])
+		var is_ocean_surface: bool = terrain_id == WorldRuntimeConstants.TERRAIN_OCEAN_FLOOR \
+				or (terrain_id == WorldRuntimeConstants.TERRAIN_SHORE and current_water == WorldRuntimeConstants.WATER_CLASS_NONE)
+		if not is_ocean_surface:
 			continue
 		if (int(mountain_flags[index]) & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) != 0:
 			return false

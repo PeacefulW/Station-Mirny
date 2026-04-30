@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.2
-last_updated: 2026-04-29
+version: 1.8
+last_updated: 2026-04-30
 related_docs:
   - ../README.md
   - commands.md
@@ -45,7 +45,7 @@ It covers only the minimal core set confirmed in code during this pass:
 - `WorldCore`
 - `WorldStreamer`
 - `EnvironmentOverlay`
-- River Generation V1-R6 chunk packet / current-water overlay boundary and
+- River Generation V1-R15 chunk packet / current-water overlay boundary and
   `RiverGenSettings`
 
 ## Out of Scope
@@ -300,7 +300,7 @@ Confirmed public native surface:
 
 | Surface | Return | Notes |
 |---|---|---|
-| `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate. For `world_version >= 17`, builds/reuses `WorldHydrologyPrePass` internally and emits the hydrology packet fields documented in `packet_schemas.md`; for `world_version >= 18`, it also rasterizes native lakebed / lake shoreline output from `lake_id`; for `world_version >= 19`, it emits delta / estuary widening and controlled split flags; for `world_version >= 20`, lake shorelines, river centerlines, and river widths use organic native rasterization. |
+| `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate. For `world_version >= 17`, builds/reuses `WorldHydrologyPrePass` internally and emits the hydrology packet fields documented in `packet_schemas.md`; for `world_version >= 18`, it also rasterizes native lakebed / lake shoreline output from `lake_id`; for `world_version >= 19`, it emits delta / estuary widening and controlled split flags; for `world_version >= 20`, lake shorelines, river centerlines, and river widths use organic native rasterization; for `world_version >= 21`, ocean edges may emit native walkable `TERRAIN_SHORE` band output instead of only ocean-floor-adjacent ground edges; for `world_version >= 22`, river rasterization reads native refined whole-path centerline edges through a bounded spatial-index query instead of scanning all river features per chunk; for `world_version >= 23`, river width/depth classification uses refined-edge curvature and post-confluence context, and post-confluence reaches may emit `HYDROLOGY_FLAG_CONFLUENCE`; for `world_version >= 24`, qualifying confluences produce native Y-shaped zones that mark upstream arms and the downstream reach with the existing confluence flag; for `world_version >= 25`, eligible controlled braid splits use native rejoining island-loop geometry while keeping the existing braid split flag; for `world_version >= 26`, lake rasterization uses native basin-contour depth/spill data for shallow rim and deep basin classification; for `world_version >= 27`, ocean rasterization uses native coast distance, shelf depth, and river-mouth influence fields to classify shore, shallow shelf, and deep ocean. |
 | `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
 | `build_world_hydrology_prepass(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Builds or reuses a RAM-only `WorldHydrologyPrePass` snapshot and returns `WorldHydrologyPrePassBuildResult`. Requires extended settings payload with river fields. Does not emit gameplay river terrain. |
 
@@ -311,7 +311,7 @@ Dev-only native surface:
 | `get_world_foundation_snapshot(layer_mask: int, downscale_factor: int)` | `Dictionary` | Debug build only; returns the current `WorldPrePass` channel snapshot |
 | `get_world_foundation_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured high-resolution overview image. `layer_mask = 0` renders the current realised terrain classes: ground, mountain foot, and mountain wall. The hydro-height layer mask renders the raw `hydro_height` substrate channel as a diagnostic height map. |
 | `get_world_hydrology_snapshot(layer_mask: int, downscale_factor: int)` | `Dictionary` | Debug build only; returns the current `WorldHydrologyPrePass` diagnostic snapshot |
-| `get_world_hydrology_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured hydrology overview image. The default layer includes river, lake, and ocean overlay pixels over hydrology backing colours; `layer_mask` bit `1 << 6` returns a transparent water-only overlay for the new-game composite overview; for `world_version >= 20`, lake overview pixels use organic shoreline boundaries and river overview pixels use organic meander/width/branch rasterization. |
+| `get_world_hydrology_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured hydrology overview image. The default layer includes river, lake, and ocean overlay pixels over hydrology backing colours; `layer_mask` bit `1 << 6` returns a transparent water-only overlay for the new-game composite overview; for `world_version >= 20`, lake overview pixels use organic shoreline boundaries and river overview pixels use organic meander/width/branch rasterization; for `world_version >= 22`, overview river pixels use the same refined whole-path centerline substrate as chunk rasterization; for `world_version >= 25`, overview river pixels can show the native braid island loop edges from that same substrate; for `world_version >= 26`, lake overview pixels use the same basin-contour threshold as chunk lake rasterization; for `world_version >= 27`, ocean overview pixels may distinguish shallow shelf from deep ocean using native shelf depth. |
 
 Current code notes:
 - `settings_packed` for `world_version >= 9` must include the mountain fields
@@ -345,7 +345,22 @@ Current code notes:
   graph and `RiverGenSettings` values for native delta / estuary widening and
   controlled split packet flags. V1-R8 uses the same snapshot and settings for
   native organic lake shorelines, meandered river raster edges, hydrology
-  overview river lines, and dynamic river width modulation.
+  overview river lines, and dynamic river width modulation. V1-R9 uses the
+  same ocean sink mask for native walkable ocean shore band packet output.
+  V1-R10 keeps the existing hydrology graph as the skeleton but adds native
+  refined centerline edges and a native spatial index inside the RAM-only
+  snapshot; neither is persisted or exposed to script as per-tile arrays.
+  V1-R11 adds signed curvature and post-confluence classification to those
+  native refined edges for chunk width/depth rasterization and diagnostic
+  aggregate counts; these remain derived RAM-only data. V1-R12 adds native
+  Y-shaped confluence influence weights and aggregate diagnostics to the same
+  refined-edge cache. V1-R13 adds native braid island loop edges and aggregate
+  diagnostics to that same refined-edge cache; these also remain derived
+  RAM-only data. V1-R14 adds native basin-contour lake depth/spill diagnostics
+  and oxbow candidate counts; these also remain derived RAM-only data and are
+  not packet or save arrays. V1-R15 adds native coast distance, shelf depth, and
+  river-mouth influence fields plus aggregate diagnostics; these remain derived
+  RAM-only data and are not packet or save arrays.
 
 Not documented here as safe entrypoints:
 - direct calls to `world_prepass::*` helpers from script, because they are native
