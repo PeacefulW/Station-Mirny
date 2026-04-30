@@ -73,6 +73,8 @@ struct Snapshot {
 	std::vector<int32_t> lake_id;
 	std::vector<float> lake_depth_ratio;
 	std::vector<uint8_t> lake_spill_node_mask;
+	std::vector<int32_t> lake_outlet_node_by_id;
+	std::vector<uint8_t> oxbow_lake_node_mask;
 	std::vector<uint8_t> ocean_sink_mask;
 	std::vector<float> ocean_coast_distance_tiles;
 	std::vector<float> ocean_shelf_depth_ratio;
@@ -98,6 +100,7 @@ struct Snapshot {
 	int32_t lake_spill_point_count = 0;
 	int32_t lake_outlet_connection_count = 0;
 	int32_t oxbow_candidate_count = 0;
+	int32_t oxbow_lake_node_count = 0;
 	int32_t ocean_coastline_node_count = 0;
 	int32_t ocean_shallow_shelf_node_count = 0;
 	int32_t ocean_river_mouth_node_count = 0;

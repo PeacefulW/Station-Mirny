@@ -603,9 +603,9 @@ class CliffForgeApp:
     def _build_geometry_tab(self, parent: ttk.Frame) -> None:
         group = ttk.LabelFrame(parent, text="Размер тайла", padding=10)
         group.pack(fill="x", pady=(0, 10))
-        self._add_panel_scale(group, "Размер тайла", self.tile_size_var, 32, 96, 16, integer=True, debounce_full=True)
+        self._add_panel_scale(group, "Размер тайла", self.tile_size_var, 32, 96, 16, integer=True)
         self._add_panel_scale(group, "Кол-во вариантов", self.variants_var, 1, 8, 1, integer=True,
-                              on_change=self._on_variant_count_changed, debounce_full=True)
+                              on_change=self._on_variant_count_changed, debounce_full=False)
         self._add_panel_scale(group, "Масштаб текстуры", self.texture_scale_var, 0.25, 4.0, 0.05)
 
         group = ttk.LabelFrame(parent, text="Высоты", padding=10)
@@ -731,8 +731,7 @@ class CliffForgeApp:
                          start: float, end: float, resolution: float, *,
                          integer: bool = False,
                          on_change=None,
-                         debounce_full: bool = False,
-                         quiet_drag: bool = False) -> None:
+                         debounce_full: bool = True) -> None:
         frame = ttk.Frame(parent, style="Panel.TFrame")
         frame.pack(fill="x", pady=(2, 6))
         head = ttk.Frame(frame, style="Panel.TFrame")
@@ -747,7 +746,7 @@ class CliffForgeApp:
             background=THEME["panel"], foreground=THEME["fg"],
             troughcolor=THEME["input"], highlightthickness=0,
             activebackground=THEME["accent"],
-            command=lambda _v, var=variable, lbl=value_label, q=quiet_drag: self._on_scale_change(var, lbl, quiet=q),
+            command=lambda _v, var=variable, lbl=value_label: self._on_scale_change(var, lbl),
         )
         scale.pack(fill="x")
         if debounce_full:
@@ -848,9 +847,9 @@ class CliffForgeApp:
             return f"{value:.2f}"
         return str(value)
 
-    def _on_scale_change(self, variable: tk.Variable, label: ttk.Label, *, quiet: bool = False) -> None:
+    def _on_scale_change(self, variable: tk.Variable, label: ttk.Label) -> None:
         label.configure(text=self._format_var(variable))
-        if quiet or self.suspend_events:
+        if self.suspend_events:
             return
         self._mark_dirty()
         self.schedule_draft()

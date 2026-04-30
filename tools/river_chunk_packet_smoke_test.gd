@@ -20,6 +20,10 @@ func _init() -> void:
 		packed_settings
 	)
 	_assert(bool(build_result.get("success", false)), "hydrology prepass should build before river packet generation")
+	var debug_snapshot: Dictionary = core.get_world_hydrology_snapshot(0, 1)
+	_assert(_debug_snapshot_exposes_v2_shape_fields(debug_snapshot), "debug hydrology snapshot should expose V2 shape review fields")
+	_assert(_lake_spill_points_are_river_outlets(debug_snapshot), "lake spill points should be the actual non-terminal river outlets")
+	_assert(_refined_centerlines_avoid_mountain_clearance(debug_snapshot), "refined river centerline samples should stay out of mountain exclusion cells")
 
 	var river_chunk: Vector2i = _find_river_chunk(core, packed_settings)
 	_assert(river_chunk != Vector2i(-99999, -99999), "hydrology snapshot should provide a river chunk candidate")
@@ -106,6 +110,9 @@ func _init() -> void:
 	var braid_loop_edges: int = int(v1_r5_result.get("braid_loop_refined_river_edge_count", 0))
 	_assert(braid_loop_candidates > 0, "V1-R5 dense hydrology should accept at least one braid island loop candidate")
 	_assert(braid_loop_edges >= braid_loop_candidates * 4, "braid island loops should rasterize from multi-edge rejoin geometry")
+	_assert(int(v1_r5_result.get("oxbow_candidate_count", 0)) > 0, "dense hydrology should create at least one oxbow lake geometry")
+	var dense_debug_snapshot: Dictionary = core.get_world_hydrology_snapshot(0, 1)
+	_assert(_oxbow_candidates_are_lake_geometry(dense_debug_snapshot), "oxbow candidates should be materialized into lakebed nodes")
 	var confluence_chunk: Vector2i = _find_confluence_chunk(core, v1_r5_settings)
 	_assert(confluence_chunk != Vector2i(-99999, -99999), "dense hydrology snapshot should provide a confluence candidate")
 	var confluence_packet: Dictionary = _generate_single_packet(core, v1_r5_settings, confluence_chunk)
@@ -173,7 +180,91 @@ func _build_v1_r5_settings_packed() -> PackedFloat32Array:
 	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_RIVER_DENSITY] = 1.0
 	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_RIVER_BRAID_CHANCE] = 1.0
 	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_RIVER_DELTA_SCALE] = 2.0
+	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_RIVER_MEANDER_STRENGTH] = 1.0
 	return packed
+
+func _debug_snapshot_exposes_v2_shape_fields(snapshot: Dictionary) -> bool:
+	var node_count: int = int(snapshot.get("grid_width", 0)) * int(snapshot.get("grid_height", 0))
+	var edge_count: int = int(snapshot.get("refined_river_edge_count", 0))
+	var lake_depth: PackedFloat32Array = snapshot.get("lake_depth_ratio", PackedFloat32Array()) as PackedFloat32Array
+	var spill_mask: PackedByteArray = snapshot.get("lake_spill_node_mask", PackedByteArray()) as PackedByteArray
+	var oxbow_mask: PackedByteArray = snapshot.get("oxbow_lake_node_mask", PackedByteArray()) as PackedByteArray
+	var edge_points: PackedFloat32Array = snapshot.get("refined_river_edge_points", PackedFloat32Array()) as PackedFloat32Array
+	var edge_tangents: PackedFloat32Array = snapshot.get("refined_river_edge_tangents", PackedFloat32Array()) as PackedFloat32Array
+	var edge_shape: PackedFloat32Array = snapshot.get("refined_river_edge_shape_metrics", PackedFloat32Array()) as PackedFloat32Array
+	var edge_metadata: PackedInt32Array = snapshot.get("refined_river_edge_metadata", PackedInt32Array()) as PackedInt32Array
+	return node_count > 0 \
+			and edge_count > 0 \
+			and lake_depth.size() == node_count \
+			and spill_mask.size() == node_count \
+			and oxbow_mask.size() == node_count \
+			and edge_points.size() == edge_count * 4 \
+			and edge_tangents.size() == edge_count * 4 \
+			and edge_shape.size() == edge_count * 4 \
+			and edge_metadata.size() == edge_count * 4
+
+func _lake_spill_points_are_river_outlets(snapshot: Dictionary) -> bool:
+	var width: int = int(snapshot.get("grid_width", 0))
+	var height: int = int(snapshot.get("grid_height", 0))
+	var lake_ids: PackedInt32Array = snapshot.get("lake_id", PackedInt32Array()) as PackedInt32Array
+	var spill_mask: PackedByteArray = snapshot.get("lake_spill_node_mask", PackedByteArray()) as PackedByteArray
+	var river_mask: PackedByteArray = snapshot.get("river_node_mask", PackedByteArray()) as PackedByteArray
+	var flow_dir: PackedByteArray = snapshot.get("flow_dir", PackedByteArray()) as PackedByteArray
+	var spill_count: int = 0
+	var connected_count: int = 0
+	for index: int in range(spill_mask.size()):
+		if spill_mask[index] == 0:
+			continue
+		spill_count += 1
+		if index >= lake_ids.size() or int(lake_ids[index]) <= 0:
+			return false
+		if index >= river_mask.size() or river_mask[index] == 0:
+			return false
+		var downstream: int = _resolve_downstream_index(index, width, height, flow_dir)
+		if downstream < 0 or downstream >= lake_ids.size():
+			continue
+		if int(lake_ids[downstream]) == int(lake_ids[index]):
+			continue
+		if downstream >= river_mask.size() or river_mask[downstream] == 0:
+			return false
+		connected_count += 1
+	return spill_count > 0 and connected_count > 0
+
+func _refined_centerlines_avoid_mountain_clearance(snapshot: Dictionary) -> bool:
+	var width: int = int(snapshot.get("grid_width", 0))
+	var height: int = int(snapshot.get("grid_height", 0))
+	var cell_size_tiles: int = int(snapshot.get("cell_size_tiles", 16))
+	var points: PackedFloat32Array = snapshot.get("refined_river_edge_points", PackedFloat32Array()) as PackedFloat32Array
+	var mountain_mask: PackedByteArray = snapshot.get("mountain_exclusion_mask", PackedByteArray()) as PackedByteArray
+	if width <= 0 or height <= 0 or cell_size_tiles <= 0 or points.size() == 0:
+		return false
+	for offset: int in range(0, points.size(), 4):
+		var ax: float = points[offset]
+		var ay: float = points[offset + 1]
+		var bx: float = points[offset + 2]
+		var by: float = points[offset + 3]
+		for step: int in range(5):
+			var t: float = float(step) / 4.0
+			var x: float = lerpf(ax, bx, t)
+			var y: float = lerpf(ay, by, t)
+			var node_x: int = posmod(int(floor(x / float(cell_size_tiles))), width)
+			var node_y: int = clampi(int(floor(y / float(cell_size_tiles))), 0, height - 1)
+			var node_index: int = node_y * width + node_x
+			if node_index >= 0 and node_index < mountain_mask.size() and mountain_mask[node_index] != 0:
+				return false
+	return true
+
+func _oxbow_candidates_are_lake_geometry(snapshot: Dictionary) -> bool:
+	var lake_ids: PackedInt32Array = snapshot.get("lake_id", PackedInt32Array()) as PackedInt32Array
+	var oxbow_mask: PackedByteArray = snapshot.get("oxbow_lake_node_mask", PackedByteArray()) as PackedByteArray
+	var oxbow_nodes: int = 0
+	for index: int in range(oxbow_mask.size()):
+		if oxbow_mask[index] == 0:
+			continue
+		oxbow_nodes += 1
+		if index >= lake_ids.size() or int(lake_ids[index]) <= 0:
+			return false
+	return oxbow_nodes > 0
 
 func _find_river_chunk(core: WorldCore, packed_settings: PackedFloat32Array) -> Vector2i:
 	var snapshot: Dictionary = core.get_world_hydrology_snapshot(0, 1)

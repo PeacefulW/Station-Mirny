@@ -92,6 +92,8 @@ struct OverviewRiverSample {
 struct LakeBasinCandidate {
 	std::vector<int32_t> nodes;
 	int32_t outlet_node = -1;
+	int32_t outlet_downstream_node = -1;
+	uint8_t outlet_flow_dir = FLOW_DIR_NONE;
 	float max_depth = 0.0f;
 	float average_accumulation = 0.0f;
 	float score = 0.0f;
@@ -184,6 +186,70 @@ PackedByteArray make_byte_array(const std::vector<uint8_t> &p_values) {
 	result.resize(static_cast<int32_t>(p_values.size()));
 	for (int32_t index = 0; index < static_cast<int32_t>(p_values.size()); ++index) {
 		result.set(index, p_values[static_cast<size_t>(index)]);
+	}
+	return result;
+}
+
+PackedFloat32Array make_refined_edge_points_array(const std::vector<RefinedRiverEdge> &p_edges) {
+	PackedFloat32Array result;
+	result.resize(static_cast<int32_t>(p_edges.size() * 4));
+	int32_t offset = 0;
+	for (const RefinedRiverEdge &edge : p_edges) {
+		result.set(offset++, edge.ax);
+		result.set(offset++, edge.ay);
+		result.set(offset++, edge.bx);
+		result.set(offset++, edge.by);
+	}
+	return result;
+}
+
+PackedFloat32Array make_refined_edge_tangents_array(const std::vector<RefinedRiverEdge> &p_edges) {
+	PackedFloat32Array result;
+	result.resize(static_cast<int32_t>(p_edges.size() * 4));
+	int32_t offset = 0;
+	for (const RefinedRiverEdge &edge : p_edges) {
+		const float dx = edge.bx - edge.ax;
+		const float dy = edge.by - edge.ay;
+		const float length = std::max(0.0001f, std::sqrt(dx * dx + dy * dy));
+		const float tx = dx / length;
+		const float ty = dy / length;
+		result.set(offset++, tx);
+		result.set(offset++, ty);
+		result.set(offset++, -ty);
+		result.set(offset++, tx);
+	}
+	return result;
+}
+
+PackedFloat32Array make_refined_edge_shape_metrics_array(const std::vector<RefinedRiverEdge> &p_edges) {
+	PackedFloat32Array result;
+	result.resize(static_cast<int32_t>(p_edges.size() * 4));
+	int32_t offset = 0;
+	for (const RefinedRiverEdge &edge : p_edges) {
+		result.set(offset++, edge.radius_scale);
+		result.set(offset++, edge.curvature);
+		result.set(offset++, edge.confluence_weight);
+		result.set(offset++, edge.braid_loop_weight);
+	}
+	return result;
+}
+
+PackedInt32Array make_refined_edge_metadata_array(const std::vector<RefinedRiverEdge> &p_edges) {
+	PackedInt32Array result;
+	result.resize(static_cast<int32_t>(p_edges.size() * 4));
+	int32_t offset = 0;
+	for (const RefinedRiverEdge &edge : p_edges) {
+		int32_t flags = 0;
+		flags |= edge.source ? 1 : 0;
+		flags |= edge.delta ? 2 : 0;
+		flags |= edge.braid_split ? 4 : 0;
+		flags |= edge.braid_loop ? 8 : 0;
+		flags |= edge.confluence ? 16 : 0;
+		flags |= edge.organic ? 32 : 0;
+		result.set(offset++, edge.segment_id);
+		result.set(offset++, static_cast<int32_t>(edge.stream_order));
+		result.set(offset++, static_cast<int32_t>(edge.flow_dir));
+		result.set(offset++, flags);
 	}
 	return result;
 }
@@ -462,6 +528,35 @@ bool node_is_lake(const Snapshot &p_snapshot, int32_t p_node_index) {
 	return p_node_index >= 0 &&
 			p_node_index < static_cast<int32_t>(p_snapshot.lake_id.size()) &&
 			p_snapshot.lake_id[static_cast<size_t>(p_node_index)] > 0;
+}
+
+bool centerline_point_has_mountain_clearance(const Snapshot &p_snapshot, float p_x, float p_y) {
+	const int32_t node_index = hydrology_node_for_tile(p_snapshot, p_x, p_y);
+	if (node_index < 0 || node_index >= p_snapshot.grid_width * p_snapshot.grid_height) {
+		return false;
+	}
+	return node_index >= static_cast<int32_t>(p_snapshot.mountain_exclusion_mask.size()) ||
+			p_snapshot.mountain_exclusion_mask[static_cast<size_t>(node_index)] == 0U;
+}
+
+bool centerline_segment_has_mountain_clearance(
+	const Snapshot &p_snapshot,
+	float p_ax,
+	float p_ay,
+	float p_bx,
+	float p_by,
+	int32_t p_steps
+) {
+	const int32_t steps = std::max(1, p_steps);
+	for (int32_t step = 0; step <= steps; ++step) {
+		const float t = static_cast<float>(step) / static_cast<float>(steps);
+		const float x = lerp_float(p_ax, p_bx, t);
+		const float y = lerp_float(p_ay, p_by, t);
+		if (!centerline_point_has_mountain_clearance(p_snapshot, x, y)) {
+			return false;
+		}
+	}
+	return true;
 }
 
 float refined_radius_scale_for_node(
@@ -960,6 +1055,44 @@ RiverCenterSample interpolate_center_sample(
 	return sample;
 }
 
+RiverCenterSample interpolate_linear_center_sample(
+	const Snapshot &p_snapshot,
+	const std::vector<RiverCenterSample> &p_controls,
+	int32_t p_segment_index,
+	float p_t
+) {
+	const int32_t count = static_cast<int32_t>(p_controls.size());
+	const int32_t i1 = clamp_value(p_segment_index, 0, count - 1);
+	const int32_t i2 = clamp_value(p_segment_index + 1, 0, count - 1);
+	const RiverCenterSample &c1 = p_controls[static_cast<size_t>(i1)];
+	const RiverCenterSample &c2 = p_controls[static_cast<size_t>(i2)];
+
+	RiverCenterSample sample;
+	sample.x = lerp_float(c1.x, c2.x, p_t);
+	sample.y = lerp_float(c1.y, c2.y, p_t);
+	sample.cumulative = lerp_float(c1.cumulative, c2.cumulative, p_t);
+	sample.node_index = c1.node_index;
+	sample.next_node_index = c2.node_index;
+	sample.local_t = saturate(p_t);
+	sample.stream_order = c1.stream_order;
+	sample.flow_dir = c1.flow_dir;
+	const bool to_lake = node_is_lake(p_snapshot, c2.node_index);
+	const bool to_ocean = node_is_ocean(p_snapshot, c2.node_index);
+	sample.delta = p_snapshot.world_version >= WORLD_DELTA_VERSION && to_ocean &&
+			p_snapshot.river_settings.delta_scale > 0.0f;
+	sample.radius_scale = refined_radius_scale_for_node(
+		p_snapshot,
+		c1.node_index,
+		c2.node_index,
+		sample.stream_order,
+		sample.delta
+	);
+	if (to_lake) {
+		sample.radius_scale = std::max(sample.radius_scale, 1.12f);
+	}
+	return sample;
+}
+
 void apply_direction_memory_offsets(
 	const Snapshot &p_snapshot,
 	std::vector<RiverCenterSample> &r_samples,
@@ -1004,14 +1137,87 @@ void apply_direction_memory_offsets(
 		}
 		const float candidate_x = sample.x + nx * offset;
 		const float candidate_y = sample.y + ny * offset;
-		const int32_t candidate_node = hydrology_node_for_tile(p_snapshot, candidate_x, candidate_y);
-		if (candidate_node >= 0 &&
-				candidate_node < static_cast<int32_t>(p_snapshot.mountain_exclusion_mask.size()) &&
-				p_snapshot.mountain_exclusion_mask[static_cast<size_t>(candidate_node)] != 0U) {
+		if (!centerline_point_has_mountain_clearance(p_snapshot, candidate_x, candidate_y) ||
+				!centerline_segment_has_mountain_clearance(p_snapshot, prev.x, prev.y, candidate_x, candidate_y, 3) ||
+				!centerline_segment_has_mountain_clearance(p_snapshot, candidate_x, candidate_y, next.x, next.y, 3)) {
 			continue;
 		}
 		sample.x = candidate_x;
 		sample.y = candidate_y;
+	}
+}
+
+void apply_y_confluence_geometry(
+	const Snapshot &p_snapshot,
+	std::vector<RiverCenterSample> &r_samples,
+	uint64_t p_segment_seed
+) {
+	if (p_snapshot.world_version < WORLD_Y_CONFLUENCE_RIVER_VERSION || r_samples.size() < 3) {
+		return;
+	}
+	const float cell_size = static_cast<float>(std::max(1, p_snapshot.cell_size_tiles));
+	const float world_width = static_cast<float>(std::max<int64_t>(1, p_snapshot.width_tiles));
+	for (size_t index = 0; index < r_samples.size(); ++index) {
+		RiverCenterSample &sample = r_samples[index];
+		const float weight = y_confluence_weight_for_sample(p_snapshot, sample);
+		if (weight < 0.05f) {
+			continue;
+		}
+		const bool from_join = node_has_y_confluence_zone(p_snapshot, sample.node_index);
+		const bool to_join = node_has_y_confluence_zone(p_snapshot, sample.next_node_index);
+		const int32_t join_node = from_join ? sample.node_index : (to_join ? sample.next_node_index : -1);
+		const int32_t downstream_node = downstream_node_for_node(p_snapshot, join_node);
+		if (join_node < 0 || downstream_node < 0) {
+			continue;
+		}
+		const Vector2i join_center = p_snapshot.node_to_tile_center(join_node % p_snapshot.grid_width, join_node / p_snapshot.grid_width);
+		const Vector2i down_center = p_snapshot.node_to_tile_center(downstream_node % p_snapshot.grid_width, downstream_node / p_snapshot.grid_width);
+		const float join_x = adjust_wrapped_x_near(static_cast<float>(join_center.x) + 0.5f, sample.x, world_width);
+		const float join_y = static_cast<float>(join_center.y) + 0.5f;
+		const float down_x = adjust_wrapped_x_near(static_cast<float>(down_center.x) + 0.5f, join_x, world_width);
+		const float down_y = static_cast<float>(down_center.y) + 0.5f;
+		const float dx = down_x - join_x;
+		const float dy = down_y - join_y;
+		const float length = std::sqrt(dx * dx + dy * dy);
+		if (length <= 0.001f) {
+			continue;
+		}
+		const float tx = dx / length;
+		const float ty = dy / length;
+		const float nx = -ty;
+		const float ny = tx;
+		const uint64_t branch_hash = splitmix64(
+			p_segment_seed ^
+			(static_cast<uint64_t>(std::max(0, sample.node_index)) << 21U) ^
+			static_cast<uint64_t>(std::max(0, sample.next_node_index))
+		);
+		const float branch_side = (branch_hash & 1ULL) != 0ULL ? 1.0f : -1.0f;
+		float target_x = sample.x;
+		float target_y = sample.y;
+		if (to_join) {
+			const float approach = 1.0f - saturate(sample.local_t);
+			const float branch_separation = cell_size * 0.18f * approach;
+			target_x = join_x - tx * cell_size * 0.72f * approach + nx * branch_separation * branch_side;
+			target_y = join_y - ty * cell_size * 0.72f * approach + ny * branch_separation * branch_side;
+		} else if (from_join) {
+			const float downstream_t = saturate(sample.local_t);
+			target_x = join_x + tx * cell_size * 0.88f * downstream_t;
+			target_y = join_y + ty * cell_size * 0.88f * downstream_t;
+		}
+		const float pull = clamp_value(0.18f + weight * 0.34f, 0.0f, 0.52f);
+		const float candidate_x = lerp_float(sample.x, target_x, pull);
+		const float candidate_y = lerp_float(sample.y, target_y, pull);
+		const RiverCenterSample &prev = r_samples[index == 0 ? 0 : index - 1];
+		const RiverCenterSample &next = r_samples[std::min(index + 1, r_samples.size() - 1)];
+		if (!centerline_point_has_mountain_clearance(p_snapshot, candidate_x, candidate_y) ||
+				!centerline_segment_has_mountain_clearance(p_snapshot, prev.x, prev.y, candidate_x, candidate_y, 3) ||
+				!centerline_segment_has_mountain_clearance(p_snapshot, candidate_x, candidate_y, next.x, next.y, 3)) {
+			continue;
+		}
+		sample.x = candidate_x;
+		sample.y = candidate_y;
+		sample.confluence_weight = std::max(sample.confluence_weight, weight);
+		sample.confluence = true;
 	}
 }
 
@@ -1306,7 +1512,17 @@ void build_refined_river_geometry(Snapshot &r_snapshot) {
 					continue;
 				}
 				const float t = static_cast<float>(step) / static_cast<float>(steps);
-				samples.push_back(interpolate_center_sample(r_snapshot, controls, segment_index, t));
+				RiverCenterSample sample = interpolate_center_sample(r_snapshot, controls, segment_index, t);
+				if (!centerline_point_has_mountain_clearance(r_snapshot, sample.x, sample.y) ||
+						!centerline_segment_has_mountain_clearance(r_snapshot, from.x, from.y, sample.x, sample.y, 3) ||
+						!centerline_segment_has_mountain_clearance(r_snapshot, sample.x, sample.y, to.x, to.y, 3)) {
+					sample = interpolate_linear_center_sample(r_snapshot, controls, segment_index, t);
+				}
+				if (!centerline_point_has_mountain_clearance(r_snapshot, sample.x, sample.y)) {
+					sample = t < 0.5f ? from : to;
+					sample.local_t = saturate(t);
+				}
+				samples.push_back(sample);
 			}
 		}
 		const int64_t river_shape_seed_version = r_snapshot.world_version >= WORLD_ORGANIC_COASTLINE_VERSION ?
@@ -1318,6 +1534,7 @@ void build_refined_river_geometry(Snapshot &r_snapshot) {
 			(static_cast<uint64_t>(segment_id) * 0x9e3779b185ebca87ULL)
 		);
 		apply_direction_memory_offsets(r_snapshot, samples, segment_seed);
+		apply_y_confluence_geometry(r_snapshot, samples, segment_seed);
 
 		for (size_t sample_index = 0; sample_index + 1 < samples.size(); ++sample_index) {
 			const RiverCenterSample &from = samples[sample_index];
@@ -1325,7 +1542,8 @@ void build_refined_river_geometry(Snapshot &r_snapshot) {
 			const float dx = to.x - from.x;
 			const float dy = to.y - from.y;
 			const float length = std::sqrt(dx * dx + dy * dy);
-			if (length <= 0.5f) {
+			if (length <= 0.5f ||
+					!centerline_segment_has_mountain_clearance(r_snapshot, from.x, from.y, to.x, to.y, 4)) {
 				continue;
 			}
 			RefinedRiverEdge edge;
@@ -1416,15 +1634,58 @@ void build_refined_river_geometry(Snapshot &r_snapshot) {
 
 void detect_oxbow_candidates(Snapshot &r_snapshot) {
 	r_snapshot.oxbow_candidate_count = 0;
+	r_snapshot.oxbow_lake_node_count = 0;
+	if (r_snapshot.oxbow_lake_node_mask.size() !=
+			static_cast<size_t>(std::max(0, r_snapshot.grid_width * r_snapshot.grid_height))) {
+		r_snapshot.oxbow_lake_node_mask.assign(static_cast<size_t>(std::max(0, r_snapshot.grid_width * r_snapshot.grid_height)), 0U);
+	} else {
+		std::fill(r_snapshot.oxbow_lake_node_mask.begin(), r_snapshot.oxbow_lake_node_mask.end(), 0U);
+	}
 	if (r_snapshot.world_version < WORLD_BASIN_CONTOUR_LAKE_VERSION ||
 			r_snapshot.refined_river_edges.empty()) {
 		return;
 	}
-	std::unordered_set<int64_t> unique_candidate_nodes;
+	const int32_t node_count = r_snapshot.grid_width * r_snapshot.grid_height;
+	if (node_count <= 0) {
+		return;
+	}
+	int32_t next_lake_id = 1;
+	for (const int32_t lake_id : r_snapshot.lake_id) {
+		next_lake_id = std::max(next_lake_id, lake_id + 1);
+	}
+	const int32_t max_oxbow_lakes = clamp_value(node_count / 1536, 1, 32);
+	std::unordered_set<int32_t> used_nodes;
+	auto node_is_eligible = [&](int32_t p_node) {
+		return p_node >= 0 &&
+				p_node < node_count &&
+				p_node < static_cast<int32_t>(r_snapshot.mountain_exclusion_mask.size()) &&
+				r_snapshot.mountain_exclusion_mask[static_cast<size_t>(p_node)] == 0U &&
+				p_node < static_cast<int32_t>(r_snapshot.ocean_sink_mask.size()) &&
+				r_snapshot.ocean_sink_mask[static_cast<size_t>(p_node)] == 0U &&
+				p_node < static_cast<int32_t>(r_snapshot.lake_id.size()) &&
+				r_snapshot.lake_id[static_cast<size_t>(p_node)] == 0 &&
+				p_node < static_cast<int32_t>(r_snapshot.river_node_mask.size()) &&
+				r_snapshot.river_node_mask[static_cast<size_t>(p_node)] == 0U &&
+				used_nodes.find(p_node) == used_nodes.end();
+	};
+	auto push_unique_node = [&](std::vector<int32_t> &r_nodes, int32_t p_node) {
+		if (!node_is_eligible(p_node)) {
+			return;
+		}
+		for (const int32_t existing : r_nodes) {
+			if (existing == p_node) {
+				return;
+			}
+		}
+		r_nodes.push_back(p_node);
+	};
 	for (const RefinedRiverEdge &edge : r_snapshot.refined_river_edges) {
 		if (!edge.organic || edge.delta || edge.braid_split || edge.confluence ||
 				edge.stream_order < 2U || std::abs(edge.curvature) < 0.115f) {
 			continue;
+		}
+		if (r_snapshot.oxbow_candidate_count >= max_oxbow_lakes) {
+			break;
 		}
 		const float mx = (edge.ax + edge.bx) * 0.5f;
 		const float my = (edge.ay + edge.by) * 0.5f;
@@ -1443,10 +1704,67 @@ void detect_oxbow_candidates(Snapshot &r_snapshot) {
 		if (floodplain < 0.08f || flatness < 0.18f) {
 			continue;
 		}
-		const int64_t key = (static_cast<int64_t>(edge.segment_id) << 32) ^ static_cast<int64_t>(node_index);
-		unique_candidate_nodes.insert(key);
+		const float dx = edge.bx - edge.ax;
+		const float dy = edge.by - edge.ay;
+		const float length = std::sqrt(dx * dx + dy * dy);
+		if (length <= 0.001f) {
+			continue;
+		}
+		const float tx = dx / length;
+		const float ty = dy / length;
+		const float nx = -ty;
+		const float ny = tx;
+		const float side = edge.curvature >= 0.0f ? 1.0f : -1.0f;
+		const float cell_size = static_cast<float>(std::max(1, r_snapshot.cell_size_tiles));
+		std::vector<int32_t> oxbow_nodes;
+		oxbow_nodes.reserve(5);
+		const float offset = cell_size * (0.72f + saturate(std::abs(edge.curvature)) * 0.55f);
+		const float shoulder = cell_size * 0.42f;
+		push_unique_node(
+			oxbow_nodes,
+			hydrology_node_for_tile(r_snapshot, mx + nx * offset * side, my + ny * offset * side)
+		);
+		push_unique_node(
+			oxbow_nodes,
+			hydrology_node_for_tile(r_snapshot, mx + nx * offset * 0.92f * side - tx * shoulder, my + ny * offset * 0.92f * side - ty * shoulder)
+		);
+		push_unique_node(
+			oxbow_nodes,
+			hydrology_node_for_tile(r_snapshot, mx + nx * offset * 0.92f * side + tx * shoulder, my + ny * offset * 0.92f * side + ty * shoulder)
+		);
+		if (oxbow_nodes.size() < 2) {
+			const int32_t center_x = node_index % r_snapshot.grid_width;
+			const int32_t center_y = node_index / r_snapshot.grid_width;
+			for (int32_t radius = 1; radius <= 2 && oxbow_nodes.size() < 3; ++radius) {
+				for (int32_t oy = -radius; oy <= radius && oxbow_nodes.size() < 3; ++oy) {
+					const int32_t y = center_y + oy;
+					if (y < 0 || y >= r_snapshot.grid_height) {
+						continue;
+					}
+					for (int32_t ox = -radius; ox <= radius && oxbow_nodes.size() < 3; ++ox) {
+						if (std::abs(ox) + std::abs(oy) != radius) {
+							continue;
+						}
+						const int32_t x = static_cast<int32_t>(positive_mod(center_x + ox, r_snapshot.grid_width));
+						push_unique_node(oxbow_nodes, r_snapshot.index(x, y));
+					}
+				}
+			}
+		}
+		if (oxbow_nodes.empty()) {
+			continue;
+		}
+		const int32_t lake_id = next_lake_id++;
+		for (size_t index = 0; index < oxbow_nodes.size(); ++index) {
+			const int32_t node = oxbow_nodes[index];
+			r_snapshot.lake_id[static_cast<size_t>(node)] = lake_id;
+			r_snapshot.lake_depth_ratio[static_cast<size_t>(node)] = index == 0 ? 0.74f : 0.50f;
+			r_snapshot.oxbow_lake_node_mask[static_cast<size_t>(node)] = 1U;
+			used_nodes.insert(node);
+			r_snapshot.oxbow_lake_node_count += 1;
+		}
+		r_snapshot.oxbow_candidate_count += 1;
 	}
-	r_snapshot.oxbow_candidate_count = static_cast<int32_t>(unique_candidate_nodes.size());
 }
 
 void refresh_ocean_shelf_metrics(Snapshot &r_snapshot) {
@@ -1835,6 +2153,7 @@ void select_lake_basins(Snapshot &r_snapshot, const RiverSettings &p_river_setti
 	r_snapshot.basin_contour_lake_node_count = 0;
 	r_snapshot.lake_spill_point_count = 0;
 	r_snapshot.lake_outlet_connection_count = 0;
+	r_snapshot.lake_outlet_node_by_id.clear();
 
 	const float chance = saturate(p_river_settings.lake_chance);
 	const float depth_threshold = 0.010f + (1.0f - chance) * 0.020f;
@@ -1895,19 +2214,41 @@ void select_lake_basins(Snapshot &r_snapshot, const RiverSettings &p_river_setti
 					r_snapshot.hydro_elevation[static_cast<size_t>(node)];
 			candidate.max_depth = std::max(candidate.max_depth, depression_depth);
 			accumulation_sum += r_snapshot.flow_accumulation[static_cast<size_t>(node)];
+			const int32_t node_x = node % r_snapshot.grid_width;
+			const int32_t node_y = node / r_snapshot.grid_width;
+			auto consider_outlet = [&](int32_t p_downstream, uint8_t p_direction) {
+				if (p_downstream < 0 ||
+						p_downstream >= node_count ||
+						component_id[static_cast<size_t>(p_downstream)] == component_index ||
+						p_downstream >= static_cast<int32_t>(r_snapshot.mountain_exclusion_mask.size()) ||
+						r_snapshot.mountain_exclusion_mask[static_cast<size_t>(p_downstream)] != 0U) {
+					return;
+				}
+				const bool better_outlet = candidate.outlet_node < 0 ||
+						r_snapshot.filled_elevation[static_cast<size_t>(node)] <
+								r_snapshot.filled_elevation[static_cast<size_t>(candidate.outlet_node)] ||
+						(r_snapshot.filled_elevation[static_cast<size_t>(node)] ==
+										r_snapshot.filled_elevation[static_cast<size_t>(candidate.outlet_node)] &&
+								r_snapshot.flow_accumulation[static_cast<size_t>(node)] >
+										r_snapshot.flow_accumulation[static_cast<size_t>(candidate.outlet_node)]);
+				if (better_outlet) {
+					candidate.outlet_node = node;
+					candidate.outlet_downstream_node = p_downstream;
+					candidate.outlet_flow_dir = p_direction;
+				}
+			};
 			const int32_t downstream = resolve_downstream_index(r_snapshot, node);
-			if (downstream < 0 || component_id[static_cast<size_t>(downstream)] == component_index) {
-				continue;
-			}
-			const bool better_outlet = candidate.outlet_node < 0 ||
-					r_snapshot.filled_elevation[static_cast<size_t>(node)] <
-							r_snapshot.filled_elevation[static_cast<size_t>(candidate.outlet_node)] ||
-					(r_snapshot.filled_elevation[static_cast<size_t>(node)] ==
-									r_snapshot.filled_elevation[static_cast<size_t>(candidate.outlet_node)] &&
-							r_snapshot.flow_accumulation[static_cast<size_t>(node)] >
-									r_snapshot.flow_accumulation[static_cast<size_t>(candidate.outlet_node)]);
-			if (better_outlet) {
-				candidate.outlet_node = node;
+			const uint8_t natural_direction = node < static_cast<int32_t>(r_snapshot.flow_dir.size()) ?
+					r_snapshot.flow_dir[static_cast<size_t>(node)] :
+					FLOW_DIR_NONE;
+			consider_outlet(downstream, natural_direction);
+			for (uint8_t direction = 0; direction < 8U; ++direction) {
+				const int32_t nx = static_cast<int32_t>(positive_mod(node_x + FLOW_DX[direction], r_snapshot.grid_width));
+				const int32_t ny = node_y + FLOW_DY[direction];
+				if (ny < 0 || ny >= r_snapshot.grid_height) {
+					continue;
+				}
+				consider_outlet(r_snapshot.index(nx, ny), direction);
 			}
 		}
 		if (candidate.outlet_node < 0 || candidate.max_depth <= 0.0f) {
@@ -1952,6 +2293,7 @@ void select_lake_basins(Snapshot &r_snapshot, const RiverSettings &p_river_setti
 		1,
 		48
 	);
+	r_snapshot.lake_outlet_node_by_id.assign(static_cast<size_t>(max_lake_count + 1), -1);
 	std::vector<int32_t> selected;
 	for (const int32_t candidate_index : ranked) {
 		if (static_cast<int32_t>(selected.size()) >= max_lake_count) {
@@ -1983,6 +2325,14 @@ void select_lake_basins(Snapshot &r_snapshot, const RiverSettings &p_river_setti
 		if (r_snapshot.world_version >= WORLD_BASIN_CONTOUR_LAKE_VERSION &&
 				candidate.outlet_node >= 0 &&
 				candidate.outlet_node < node_count) {
+			if (candidate.outlet_flow_dir < 8U &&
+					candidate.outlet_node < static_cast<int32_t>(r_snapshot.flow_dir.size())) {
+				r_snapshot.flow_dir[static_cast<size_t>(candidate.outlet_node)] = candidate.outlet_flow_dir;
+			}
+			if (next_lake_id >= static_cast<int32_t>(r_snapshot.lake_outlet_node_by_id.size())) {
+				r_snapshot.lake_outlet_node_by_id.resize(static_cast<size_t>(next_lake_id + 1), -1);
+			}
+			r_snapshot.lake_outlet_node_by_id[static_cast<size_t>(next_lake_id)] = candidate.outlet_node;
 			if (candidate.outlet_node < static_cast<int32_t>(r_snapshot.lake_spill_node_mask.size())) {
 				r_snapshot.lake_spill_node_mask[static_cast<size_t>(candidate.outlet_node)] = 1U;
 			}
@@ -2077,9 +2427,28 @@ void build_river_network(Snapshot &r_snapshot, const RiverSettings &p_river_sett
 	}
 	if (max_lake_id > 0) {
 		std::vector<int32_t> outlet_by_lake(static_cast<size_t>(max_lake_id + 1), -1);
+		for (int32_t lake_id = 1; lake_id <= max_lake_id; ++lake_id) {
+			if (lake_id >= static_cast<int32_t>(r_snapshot.lake_outlet_node_by_id.size())) {
+				continue;
+			}
+			const int32_t outlet_node = r_snapshot.lake_outlet_node_by_id[static_cast<size_t>(lake_id)];
+			if (outlet_node < 0 || outlet_node >= node_count ||
+					r_snapshot.lake_id[static_cast<size_t>(outlet_node)] != lake_id) {
+				continue;
+			}
+			const int32_t downstream = resolve_downstream_index(r_snapshot, outlet_node);
+			if (downstream < 0 || downstream >= node_count ||
+					r_snapshot.lake_id[static_cast<size_t>(downstream)] == lake_id) {
+				continue;
+			}
+			outlet_by_lake[static_cast<size_t>(lake_id)] = outlet_node;
+		}
 		for (int32_t index = 0; index < node_count; ++index) {
 			const int32_t lake_id = r_snapshot.lake_id[static_cast<size_t>(index)];
 			if (lake_id <= 0) {
+				continue;
+			}
+			if (outlet_by_lake[static_cast<size_t>(lake_id)] >= 0) {
 				continue;
 			}
 			const int32_t downstream = resolve_downstream_index(r_snapshot, index);
@@ -2299,6 +2668,7 @@ std::unique_ptr<Snapshot> build_snapshot(
 	snapshot->lake_id.assign(static_cast<size_t>(node_count), 0);
 	snapshot->lake_depth_ratio.assign(static_cast<size_t>(node_count), 0.0f);
 	snapshot->lake_spill_node_mask.assign(static_cast<size_t>(node_count), 0U);
+	snapshot->oxbow_lake_node_mask.assign(static_cast<size_t>(node_count), 0U);
 	snapshot->ocean_sink_mask.assign(static_cast<size_t>(node_count), 0U);
 	snapshot->ocean_coast_distance_tiles.assign(static_cast<size_t>(node_count), 0.0f);
 	snapshot->ocean_shelf_depth_ratio.assign(static_cast<size_t>(node_count), 0.0f);
@@ -2404,6 +2774,7 @@ Dictionary make_build_result(const Snapshot &p_snapshot, bool p_cache_hit) {
 	result["lake_spill_point_count"] = p_snapshot.lake_spill_point_count;
 	result["lake_outlet_connection_count"] = p_snapshot.lake_outlet_connection_count;
 	result["oxbow_candidate_count"] = p_snapshot.oxbow_candidate_count;
+	result["oxbow_lake_node_count"] = p_snapshot.oxbow_lake_node_count;
 	result["ocean_coastline_node_count"] = p_snapshot.ocean_coastline_node_count;
 	result["ocean_shallow_shelf_node_count"] = p_snapshot.ocean_shallow_shelf_node_count;
 	result["ocean_river_mouth_node_count"] = p_snapshot.ocean_river_mouth_node_count;
@@ -2435,6 +2806,10 @@ Dictionary make_debug_snapshot(const Snapshot &p_snapshot, int64_t p_layer_mask,
 	result["flow_accumulation"] = make_float_array(p_snapshot.flow_accumulation);
 	result["watershed_id"] = make_int_array(p_snapshot.watershed_id);
 	result["lake_id"] = make_int_array(p_snapshot.lake_id);
+	result["lake_depth_ratio"] = make_float_array(p_snapshot.lake_depth_ratio);
+	result["lake_spill_node_mask"] = make_byte_array(p_snapshot.lake_spill_node_mask);
+	result["lake_outlet_node_by_id"] = make_int_array(p_snapshot.lake_outlet_node_by_id);
+	result["oxbow_lake_node_mask"] = make_byte_array(p_snapshot.oxbow_lake_node_mask);
 	result["ocean_sink_mask"] = make_byte_array(p_snapshot.ocean_sink_mask);
 	result["ocean_coast_distance_tiles"] = make_float_array(p_snapshot.ocean_coast_distance_tiles);
 	result["ocean_shelf_depth_ratio"] = make_float_array(p_snapshot.ocean_shelf_depth_ratio);
@@ -2450,6 +2825,10 @@ Dictionary make_debug_snapshot(const Snapshot &p_snapshot, int64_t p_layer_mask,
 	result["river_segment_ranges"] = make_int_array(p_snapshot.river_segment_ranges);
 	result["river_path_node_indices"] = make_int_array(p_snapshot.river_path_node_indices);
 	result["refined_river_edge_count"] = static_cast<int32_t>(p_snapshot.refined_river_edges.size());
+	result["refined_river_edge_points"] = make_refined_edge_points_array(p_snapshot.refined_river_edges);
+	result["refined_river_edge_tangents"] = make_refined_edge_tangents_array(p_snapshot.refined_river_edges);
+	result["refined_river_edge_shape_metrics"] = make_refined_edge_shape_metrics_array(p_snapshot.refined_river_edges);
+	result["refined_river_edge_metadata"] = make_refined_edge_metadata_array(p_snapshot.refined_river_edges);
 	result["curvature_refined_river_edge_count"] = p_snapshot.refined_river_curved_edge_count;
 	result["confluence_refined_river_edge_count"] = p_snapshot.refined_river_confluence_edge_count;
 	result["y_confluence_zone_count"] = p_snapshot.refined_river_y_confluence_zone_count;
@@ -2460,6 +2839,7 @@ Dictionary make_debug_snapshot(const Snapshot &p_snapshot, int64_t p_layer_mask,
 	result["lake_spill_point_count"] = p_snapshot.lake_spill_point_count;
 	result["lake_outlet_connection_count"] = p_snapshot.lake_outlet_connection_count;
 	result["oxbow_candidate_count"] = p_snapshot.oxbow_candidate_count;
+	result["oxbow_lake_node_count"] = p_snapshot.oxbow_lake_node_count;
 	result["ocean_coastline_node_count"] = p_snapshot.ocean_coastline_node_count;
 	result["ocean_shallow_shelf_node_count"] = p_snapshot.ocean_shallow_shelf_node_count;
 	result["ocean_river_mouth_node_count"] = p_snapshot.ocean_river_mouth_node_count;
