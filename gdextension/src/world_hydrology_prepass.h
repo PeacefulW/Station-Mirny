@@ -42,6 +42,8 @@ struct RefinedRiverEdge {
 	float curvature = 0.0f;
 	float confluence_weight = 0.0f;
 	float braid_loop_weight = 0.0f;
+	float cumulative_start = 0.0f;
+	float cumulative_end = 0.0f;
 	uint64_t variation_seed = 0ULL;
 	bool source = false;
 	bool delta = false;
@@ -49,6 +51,7 @@ struct RefinedRiverEdge {
 	bool braid_loop = false;
 	bool confluence = false;
 	bool organic = false;
+	bool shape_quality_v2_fix = false;
 };
 
 struct Snapshot {

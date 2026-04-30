@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.14
+version: 1.15
 last_updated: 2026-04-30
 related_docs:
   - multiplayer_and_modding.md
@@ -59,16 +59,18 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current world generation extension:
-- `world.json` now records `world_version: 27` for the current
+- `world.json` now records `world_version: 29` for the current
   river/lake/delta/organic-water/ocean-shore/refined-river/curvature-river
-  /Y-confluence/braid-loop/basin-contour-lake/organic-coastline finite-world baseline with
+  /Y-confluence/braid-loop/basin-contour-lake/organic-coastline/headland-coast finite-world baseline with
   `64`-tile foundation substrate cells, native hydrology prepass,
   riverbed/water chunk packet rasterization, V1-R4 lakebed packet
   rasterization, V1-R5 delta / controlled-split packet rasterization, V1-R8
   organic water raster output, V1-R9 ocean shore band packet output, V1-R10
   refined river centerline output, V1-R11 curvature-aware river width/depth
   output, V1-R12 Y-shaped confluence output, V1-R13 braid island loop output,
-  V1-R14 basin-contour lake output, and V1-R15 organic coastline/shelf output
+  V1-R14 basin-contour lake output, V1-R15 organic coastline/shelf output,
+  V1-R16 hydrology shape-quality correction output, and V1-R17 multi-scale
+  headland/bay coastline output
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - `world_version >= 6` keeps the same save shape but changes canonical new-world
@@ -129,6 +131,13 @@ Current world generation extension:
 - `world_version >= 27` also regenerates organic coastline/shelf rasterization
   and river-mouth coast influence diagnostics from seed/version/settings.
   Existing `world_version = 26` saves keep pre-R15 ocean shelf output.
+- `world_version >= 28` also regenerates shape-quality corrected river width,
+  braid loop, and tile-sampled coastline rasterization from
+  seed/version/settings. Existing `world_version = 27` saves keep pre-R16
+  shape output.
+- `world_version >= 29` also regenerates multi-scale headland/bay coastline
+  carving from seed/version/settings. Existing `world_version = 28` saves keep
+  pre-R17 coastline output.
 - V1-R6 adds optional `world.json.water_overlay` runtime state for explicit
   local current-water overrides only. It does not bump `world_version` because
   canonical generated output remains unchanged.

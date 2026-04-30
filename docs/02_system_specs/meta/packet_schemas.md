@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.10
+version: 1.11
 last_updated: 2026-04-30
 related_docs:
   - ../README.md
@@ -42,9 +42,11 @@ curvature-aware river width/depth semantics that became current in
 current in `world_version = 24`, the V1-R13 braid island loop semantics that
 became current in `world_version = 25`, the V1-R14 basin-contour lake semantics
 that became current in `world_version = 26`, the V1-R15 organic coastline/shelf
-semantics that became current in `world_version = 27`, and the V1-R6 runtime
-water-overlay override shape. Broad drought simulation remains a future
-approved shape.
+semantics that became current in `world_version = 27`, the V1-R16 hydrology
+shape-quality correction semantics that became current in `world_version = 28`,
+the V1-R17 multi-scale headland/bay coastline semantics that became current in
+`world_version = 29`, and the V1-R6 runtime water-overlay override shape. Broad
+drought simulation remains a future approved shape.
 
 ## Out of Scope
 
@@ -274,6 +276,16 @@ Current code notes:
   coast distance, shelf depth, and river-mouth influence fields classify shore,
   shallow ocean shelf, and deep ocean while preserving the existing packet
   arrays. Existing `world_version = 26` saves keep pre-R15 ocean shelf output.
+- `world_version >= 28` enables V1-R16 hydrology shape-quality corrections:
+  refined river width modulation is continuous along centerline distance, braid
+  island loops are more strictly validated, and coast distance is sampled as
+  tile-level coastline geometry while preserving the existing packet arrays.
+  Existing `world_version = 27` saves keep pre-R16 shape output.
+- `world_version >= 29` enables V1-R17 multi-scale headland/bay coastline
+  output: the native tile-sampled coast distance uses an expanded near-coast
+  band plus a low-frequency deterministic octave for larger bays and capes,
+  while preserving the existing packet arrays. Existing `world_version = 28`
+  saves keep pre-R17 coastline output.
 - `water_overlay` is optional and appears only when explicit local current-water
   overrides exist. It does not change `world_version` because it is runtime
   overlay state, not canonical worldgen output.
@@ -589,7 +601,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current river/lake/delta/organic-water/ocean-shore/refined-river/curvature-river/Y-confluence/braid-loop/basin-contour-lake/organic-coastline runtime value is `27`; `17` remains the first river-enabled compatibility boundary |
+| `world_version` | `int` | — | Current river/lake/delta/organic-water/ocean-shore/refined-river/curvature-river/Y-confluence/braid-loop/basin-contour-lake/organic-coastline/headland-coast runtime value is `29`; `17` remains the first river-enabled compatibility boundary |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve, and plains ground may use native riverbed / river-bank / lakebed / ocean-floor adjacency for 47-tile edge variants |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
@@ -653,7 +665,10 @@ for `world_version >= 23`; V1-R12 makes native Y-shaped confluence zones current
 for `world_version >= 24`; V1-R13 makes native rejoining braid island loops
 current for `world_version >= 25`; V1-R14 makes basin-contour lake rim/depth
 rasterization current for `world_version >= 26`; V1-R15 makes organic
-coastline/shelf rasterization current for `world_version >= 27`. Broad drought
+coastline/shelf rasterization current for `world_version >= 27`; V1-R16 makes
+continuous river width, stricter braid island loops, and tile-sampled coastline
+rasterization current for `world_version >= 28`; V1-R17 makes multi-scale
+headland/bay coastline carving current for `world_version >= 29`. Broad drought
 semantics remain reserved for a future iteration.
 
 | Constant | Numeric id | Meaning | Default traversal |
@@ -715,6 +730,12 @@ Rules:
 - for `world_version >= 27`, ocean-floor tiles within the native shelf band may
   use `WATER_CLASS_SHALLOW` and walkable flags while farther ocean-floor tiles
   keep `WATER_CLASS_OCEAN` and remain blocking. No new packet arrays are added.
+- for `world_version >= 28`, ocean floor and shore classification samples the
+  native coast distance field as tile-level coastline geometry, preserving the
+  same terrain/water arrays.
+- for `world_version >= 29`, that tile-level coastline geometry adds
+  deterministic multi-scale headland/bay carving while preserving the same
+  terrain/water arrays.
 - `water_class` is the initial/default overlay state for packet publication.
   Future drought/refill systems must own runtime overlay mutation separately.
 - deep and ocean water produce blocking `walkable_flags`; shallow water remains
@@ -915,6 +936,11 @@ Current code notes:
 - for `world_version >= 27`, the coastline, shallow-shelf, and river-mouth
   influence counts are aggregate smoke-test diagnostics; they are not
   authoritative gameplay state and must not be persisted
+- for `world_version >= 28`, shape-quality corrections reuse the same aggregate
+  diagnostics and add no debug arrays that can become save state
+- for `world_version >= 29`, multi-scale headland/bay coastline carving reuses
+  the same aggregate diagnostics and adds no debug arrays that can become save
+  state
 
 ### `WorldHydrologyPrePassSnapshotDebug`
 
@@ -1023,6 +1049,12 @@ Current code notes:
   only; they are not packet or save arrays. `ocean_coastline_node_count`,
   `ocean_shallow_shelf_node_count`, and `ocean_river_mouth_node_count` are
   aggregate diagnostics for smoke coverage.
+- for `world_version >= 28`, chunk and overview rasterization sample
+  `ocean_coast_distance_tiles` as a tile-level signed coastline field; the
+  stored debug arrays remain node-level and RAM-only.
+- for `world_version >= 29`, that tile-level sampler adds deterministic
+  multi-scale headland/bay carving; the stored debug arrays remain node-level
+  and RAM-only.
 - this dictionary is debug/dev tooling only and must not be persisted
 
 ### `WorldHydrologyOverviewImage`
@@ -1057,6 +1089,10 @@ Current code notes:
   edge threshold as chunk lake rasterization
 - for `world_version >= 27`, ocean overview pixels may distinguish shallow
   shelf from deep ocean using the native shelf depth ratio
+- for `world_version >= 28`, ocean overview pixels sample the same tile-level
+  coastline geometry as chunk rasterization
+- for `world_version >= 29`, ocean overview pixels include the same
+  deterministic headland/bay coastline carving as chunk rasterization
 - the new-game overview water/composite modes request this image through the
   packet worker; it is presentation/debug output, not gameplay state or save
   data

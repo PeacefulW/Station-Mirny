@@ -339,55 +339,71 @@ func _call_get_world_hydrology_overview_payload(worker_world_core: Object, reque
 	}
 
 func _call_get_world_composite_overview_payload(worker_world_core: Object, request: Dictionary) -> Dictionary:
-	var foundation_request: Dictionary = request.duplicate()
-	foundation_request["layer_mask"] = 0
-	var foundation_result: Dictionary = _call_get_world_foundation_overview_payload(worker_world_core, foundation_request)
-	if not bool(foundation_result.get("success", false)):
-		return foundation_result
-
-	var hydrology_request: Dictionary = request.duplicate()
-	hydrology_request["layer_mask"] = HYDROLOGY_TRANSPARENT_OVERLAY_LAYER_MASK
-	var hydrology_result: Dictionary = _call_get_world_hydrology_overview_payload(worker_world_core, hydrology_request)
-	if not bool(hydrology_result.get("success", false)):
-		return hydrology_result
-
-	var foundation_image: Image = foundation_result.get("image", null) as Image
-	var hydrology_overlay: Image = hydrology_result.get("image", null) as Image
-	if foundation_image == null or foundation_image.is_empty():
+	if not worker_world_core.has_method("build_world_hydrology_prepass"):
 		return {
 			"success": false,
-			"message": "Native foundation overview returned empty image for composite overview.",
+			"message": "Native hydrology prepass API is unavailable in this build.",
 		}
-	if hydrology_overlay == null or hydrology_overlay.is_empty():
+	if not worker_world_core.has_method("get_world_composite_overview"):
 		return {
 			"success": false,
-			"message": "Native hydrology overlay returned empty image for composite overview.",
+			"message": "Native composite overview API is unavailable in this build.",
 		}
 
-	var composite_image: Image = foundation_image.duplicate() as Image
-	if hydrology_overlay.get_width() != composite_image.get_width() or hydrology_overlay.get_height() != composite_image.get_height():
-		hydrology_overlay = hydrology_overlay.duplicate() as Image
-		hydrology_overlay.resize(
-			composite_image.get_width(),
-			composite_image.get_height(),
-			Image.INTERPOLATE_NEAREST
-		)
-	composite_image.blend_rect(
-		hydrology_overlay,
-		Rect2i(Vector2i.ZERO, Vector2i(hydrology_overlay.get_width(), hydrology_overlay.get_height())),
-		Vector2i.ZERO
+	var build_variant: Variant = worker_world_core.call(
+		"build_world_hydrology_prepass",
+		int(request.get("seed", 0)),
+		int(request.get("world_version", 0)),
+		request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array
 	)
+	if build_variant is not Dictionary:
+		return {
+			"success": false,
+			"message": "Native hydrology prepass returned non-dictionary result.",
+		}
+	var build_result: Dictionary = build_variant as Dictionary
+	if not bool(build_result.get("success", false)):
+		return build_result
 
+	var requested_pixels_per_cell: int = maxi(1, int(request.get("pixels_per_cell", 1)))
+	var overview_arg_count: int = _get_method_argument_count(
+		worker_world_core,
+		&"get_world_composite_overview"
+	)
+	var overview_variant: Variant
+	if overview_arg_count >= 2:
+		overview_variant = worker_world_core.call(
+			"get_world_composite_overview",
+			int(request.get("layer_mask", 0)),
+			requested_pixels_per_cell
+		)
+	else:
+		overview_variant = worker_world_core.call(
+			"get_world_composite_overview",
+			int(request.get("layer_mask", 0))
+		)
+	if overview_variant is not Image:
+		return {
+			"success": false,
+			"message": "Native composite overview returned non-image result.",
+		}
+
+	var composite_image: Image = overview_variant as Image
+	if composite_image == null or composite_image.is_empty():
+		return {
+			"success": false,
+			"message": "Native composite overview returned empty image.",
+		}
 	return {
 		"success": true,
 		"image": composite_image,
-		"grid_width": int(foundation_result.get("grid_width", 0)),
-		"grid_height": int(foundation_result.get("grid_height", 0)),
+		"grid_width": int(build_result.get("grid_width", 0)),
+		"grid_height": int(build_result.get("grid_height", 0)),
 		"image_width": composite_image.get_width(),
 		"image_height": composite_image.get_height(),
 		"layer_mask": int(request.get("layer_mask", 0)),
-		"pixels_per_cell": int(request.get("pixels_per_cell", 1)),
-		"compute_time_ms": float(foundation_result.get("compute_time_ms", 0.0)) + float(hydrology_result.get("compute_time_ms", 0.0)),
+		"pixels_per_cell": requested_pixels_per_cell,
+		"compute_time_ms": float(build_result.get("compute_time_ms", 0.0)),
 	}
 
 func _should_use_composite_overview(request: Dictionary) -> bool:

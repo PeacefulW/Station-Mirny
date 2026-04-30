@@ -45,6 +45,8 @@ constexpr int64_t WORLD_Y_CONFLUENCE_RIVER_VERSION = 24;
 constexpr int64_t WORLD_BRAID_LOOP_RIVER_VERSION = 25;
 constexpr int64_t WORLD_BASIN_CONTOUR_LAKE_VERSION = 26;
 constexpr int64_t WORLD_ORGANIC_COASTLINE_VERSION = 27;
+constexpr int64_t WORLD_HYDROLOGY_SHAPE_FIX_VERSION = 28;
+constexpr int64_t WORLD_HEADLAND_COAST_VERSION = 29;
 constexpr int32_t REFINED_RIVER_INDEX_CELL_SIZE_TILES = 64;
 constexpr float REFINED_RIVER_INDEX_PADDING_TILES = 32.0f;
 constexpr uint64_t SEED_SALT_LAKE_SELECTION = 0xbb67ae8584caa73bULL;
@@ -70,10 +72,13 @@ struct OverviewRiverEdge {
 	float by = 0.0f;
 	uint8_t stream_order = 1U;
 	float radius_scale = 1.0f;
+	float cumulative_start = 0.0f;
+	float cumulative_end = 0.0f;
 	uint64_t variation_seed = 0ULL;
 	bool delta = false;
 	bool braid_split = false;
 	bool organic = false;
+	bool shape_quality_v2_fix = false;
 };
 
 struct SegmentProjection {
@@ -87,6 +92,12 @@ struct OverviewRiverSample {
 	float radius_scale = 1.0f;
 	bool delta = false;
 	bool braid_split = false;
+};
+
+struct OceanOverviewSample {
+	bool is_ocean = false;
+	bool is_shore = false;
+	bool is_shallow_shelf = false;
 };
 
 struct LakeBasinCandidate {
@@ -673,6 +684,21 @@ float resolve_overview_radius_scale(const OverviewRiverEdge &p_edge, const Segme
 		return p_edge.radius_scale;
 	}
 	const float order_f = std::max(1.0f, static_cast<float>(p_edge.stream_order));
+	if (p_edge.shape_quality_v2_fix && p_edge.cumulative_end > p_edge.cumulative_start + 0.001f) {
+		const float river_distance = lerp_float(p_edge.cumulative_start, p_edge.cumulative_end, p_projection.t);
+		const uint64_t river_seed = splitmix64(p_edge.variation_seed);
+		const float phase_a = hash_grid_unit(river_seed, 0, 0) * PI * 2.0f;
+		const float phase_b = hash_grid_unit(river_seed, 1, 0) * PI * 2.0f;
+		const float wavelength_a = 34.0f + order_f * 8.0f;
+		const float wavelength_b = wavelength_a * 2.45f;
+		const float wave_a = std::sin(phase_a + river_distance / wavelength_a * PI * 2.0f);
+		const float wave_b = std::sin(phase_b + river_distance / wavelength_b * PI * 2.0f);
+		const float amplitude = clamp_value(0.045f + order_f * 0.006f, 0.045f, 0.08f);
+		const float multiplier = 1.0f + wave_a * amplitude + wave_b * 0.025f;
+		const float min_scale = std::max(0.72f, p_edge.radius_scale * 0.82f);
+		const float max_scale = std::max(min_scale, p_edge.radius_scale * 1.20f);
+		return clamp_value(p_edge.radius_scale * multiplier, min_scale, max_scale);
+	}
 	const float phase_a = hash_grid_unit(p_edge.variation_seed, 0, 0) * PI * 2.0f;
 	const float phase_b = hash_grid_unit(p_edge.variation_seed, 1, 0) * PI * 2.0f;
 	const float wave_a = std::sin(phase_a + p_projection.t * (2.2f + order_f * 0.22f) * PI);
@@ -875,13 +901,188 @@ std::vector<OverviewRiverEdge> build_overview_river_edges_from_refined(const Sna
 		edge.by = refined.by * tile_to_pixel;
 		edge.stream_order = refined.stream_order;
 		edge.radius_scale = refined.radius_scale;
+		edge.cumulative_start = refined.cumulative_start;
+		edge.cumulative_end = refined.cumulative_end;
 		edge.variation_seed = refined.variation_seed;
 		edge.delta = refined.delta;
 		edge.braid_split = refined.braid_split;
 		edge.organic = refined.organic;
+		edge.shape_quality_v2_fix = refined.shape_quality_v2_fix;
 		edges.push_back(edge);
 	}
 	return edges;
+}
+
+float sample_overview_float_field_at_node(
+	const Snapshot &p_snapshot,
+	const std::vector<float> &p_values,
+	int32_t p_node_x,
+	int32_t p_node_y,
+	float p_fallback
+) {
+	if (!p_snapshot.valid || p_node_y < 0 || p_node_y >= p_snapshot.grid_height ||
+			p_values.empty()) {
+		return p_fallback;
+	}
+	const int32_t node_x = static_cast<int32_t>(positive_mod(p_node_x, p_snapshot.grid_width));
+	const int32_t node_index = p_snapshot.index(node_x, p_node_y);
+	if (node_index < 0 || node_index >= static_cast<int32_t>(p_values.size())) {
+		return p_fallback;
+	}
+	return p_values[static_cast<size_t>(node_index)];
+}
+
+float sample_overview_float_field_bilinear(
+	const Snapshot &p_snapshot,
+	const std::vector<float> &p_values,
+	float p_world_x,
+	float p_world_y,
+	float p_fallback
+) {
+	if (!p_snapshot.valid || p_snapshot.grid_width <= 0 || p_snapshot.grid_height <= 0 ||
+			p_values.empty()) {
+		return p_fallback;
+	}
+	const float cell_size = static_cast<float>(std::max(1, p_snapshot.cell_size_tiles));
+	const float gx = p_world_x / cell_size - 0.5f;
+	const float gy = p_world_y / cell_size - 0.5f;
+	const int32_t x0_raw = static_cast<int32_t>(std::floor(gx));
+	const int32_t y0_raw = static_cast<int32_t>(std::floor(gy));
+	const float tx = smoothstep_unit(gx - static_cast<float>(x0_raw));
+	const float ty = smoothstep_unit(gy - static_cast<float>(y0_raw));
+	const int32_t y0 = clamp_value(y0_raw, 0, p_snapshot.grid_height - 1);
+	const int32_t y1 = clamp_value(y0_raw + 1, 0, p_snapshot.grid_height - 1);
+	const float v00 = sample_overview_float_field_at_node(p_snapshot, p_values, x0_raw, y0, p_fallback);
+	const float v10 = sample_overview_float_field_at_node(p_snapshot, p_values, x0_raw + 1, y0, p_fallback);
+	const float v01 = sample_overview_float_field_at_node(p_snapshot, p_values, x0_raw, y1, p_fallback);
+	const float v11 = sample_overview_float_field_at_node(p_snapshot, p_values, x0_raw + 1, y1, p_fallback);
+	const float vx0 = lerp_float(v00, v10, tx);
+	const float vx1 = lerp_float(v01, v11, tx);
+	return lerp_float(vx0, vx1, ty);
+}
+
+float sample_overview_organic_coast_distance_tiles(
+	const Snapshot &p_snapshot,
+	float p_world_x,
+	float p_world_y
+) {
+	const float base_distance = sample_overview_float_field_bilinear(
+		p_snapshot,
+		p_snapshot.ocean_coast_distance_tiles,
+		p_world_x,
+		p_world_y,
+		-1024.0f
+	);
+	const float cell_size = static_cast<float>(std::max(1, p_snapshot.cell_size_tiles));
+	const bool headland_coast = p_snapshot.world_version >= WORLD_HEADLAND_COAST_VERSION;
+	const float coast_band_width = headland_coast ? cell_size * 5.0f : cell_size * 2.35f;
+	const float near_coast = 1.0f - saturate(std::abs(base_distance) / std::max(1.0f, coast_band_width));
+	if (near_coast <= 0.0f) {
+		return base_distance;
+	}
+	const float mouth_influence = saturate(sample_overview_float_field_bilinear(
+		p_snapshot,
+		p_snapshot.ocean_river_mouth_influence,
+		p_world_x,
+		p_world_y,
+		0.0f
+	));
+	const uint64_t seed = mix_seed(
+		p_snapshot.seed,
+		WORLD_HYDROLOGY_SHAPE_FIX_VERSION,
+		0x2f14f965916a6f19ULL
+	);
+	const float coarse_noise = signed_value_noise_2d(
+		seed,
+		p_world_x / std::max(8.0f, cell_size * 3.65f),
+		p_world_y / std::max(8.0f, cell_size * 3.65f)
+	);
+	const float fine_noise = signed_value_noise_2d(
+		seed ^ 0x9e3779b185ebca87ULL,
+		p_world_x / std::max(4.0f, cell_size * 1.20f),
+		p_world_y / std::max(4.0f, cell_size * 1.20f)
+	);
+	float coastline_offset = (coarse_noise * 0.72f + fine_noise * 0.28f) * cell_size * 0.46f * near_coast;
+	if (headland_coast) {
+		const float headland_noise = signed_value_noise_2d(
+			seed ^ 0xa5b2c3d4e5f60718ULL,
+			p_world_x / std::max(16.0f, cell_size * 8.0f),
+			p_world_y / std::max(16.0f, cell_size * 8.0f)
+		);
+		const float headland_offset = headland_noise * cell_size * 1.50f * near_coast;
+		coastline_offset = (
+			headland_offset +
+			(coarse_noise * 0.72f + fine_noise * 0.28f) * cell_size * 0.46f
+		) * near_coast;
+	}
+	const float mouth_offset = mouth_influence * cell_size * 0.72f * near_coast;
+	return base_distance + coastline_offset + mouth_offset;
+}
+
+OceanOverviewSample sample_ocean_overview_pixel(
+	const Snapshot &p_snapshot,
+	int32_t p_node_x,
+	int32_t p_node_y,
+	int32_t p_local_pixel_x,
+	int32_t p_local_pixel_y,
+	int32_t p_pixels_per_cell
+) {
+	OceanOverviewSample sample;
+	const int32_t node_index = p_snapshot.index(p_node_x, p_node_y);
+	if (node_index < 0 || node_index >= static_cast<int32_t>(p_snapshot.ocean_sink_mask.size())) {
+		return sample;
+	}
+	if (p_snapshot.world_version < WORLD_HYDROLOGY_SHAPE_FIX_VERSION) {
+		if (p_snapshot.ocean_sink_mask[static_cast<size_t>(node_index)] == 0U) {
+			return sample;
+		}
+		const float shelf_ratio = p_snapshot.world_version >= WORLD_ORGANIC_COASTLINE_VERSION &&
+						p_snapshot.ocean_shelf_depth_ratio.size() > static_cast<size_t>(node_index) ?
+				saturate(p_snapshot.ocean_shelf_depth_ratio[static_cast<size_t>(node_index)]) :
+				1.0f;
+		sample.is_ocean = true;
+		sample.is_shallow_shelf = shelf_ratio < 0.72f;
+		return sample;
+	}
+	const float cell_size = static_cast<float>(std::max(1, p_snapshot.cell_size_tiles));
+	const float pixel_scale = cell_size / static_cast<float>(std::max(1, p_pixels_per_cell));
+	const float world_x = static_cast<float>(p_node_x * p_snapshot.cell_size_tiles) +
+			(static_cast<float>(p_local_pixel_x) + 0.5f) * pixel_scale;
+	const float world_y = static_cast<float>(p_node_y * p_snapshot.cell_size_tiles) +
+			(static_cast<float>(p_local_pixel_y) + 0.5f) * pixel_scale;
+	const float coast_distance = sample_overview_organic_coast_distance_tiles(p_snapshot, world_x, world_y);
+	const float mouth_influence = saturate(sample_overview_float_field_bilinear(
+		p_snapshot,
+		p_snapshot.ocean_river_mouth_influence,
+		world_x,
+		world_y,
+		0.0f
+	));
+	const float shore_width = clamp_value(
+		static_cast<float>(clamp_value(p_snapshot.cell_size_tiles / 3, 3, 7)) + mouth_influence * cell_size * 0.22f,
+		2.5f,
+		cell_size * 0.72f
+	);
+	if (std::abs(coast_distance) <= shore_width) {
+		sample.is_shore = true;
+		return sample;
+	}
+	if (coast_distance <= shore_width) {
+		return sample;
+	}
+	const float base_shelf_width = clamp_value(
+		static_cast<float>(p_snapshot.ocean_band_tiles) * 0.22f,
+		cell_size * 1.50f,
+		cell_size * 2.75f
+	);
+	const float local_shelf_width = base_shelf_width * (1.0f + mouth_influence * 0.85f);
+	const float shelf_ratio = saturate(
+		(coast_distance - shore_width * 0.35f) / std::max(1.0f, local_shelf_width) -
+		mouth_influence * 0.12f
+	);
+	sample.is_ocean = true;
+	sample.is_shallow_shelf = shelf_ratio < 0.72f;
+	return sample;
 }
 
 void add_refined_edge_to_index_bins(
@@ -1234,6 +1435,27 @@ void push_refined_branch_edge(
 	branch.ay = p_ay;
 	branch.bx = adjust_wrapped_x_near(p_bx, p_ax, static_cast<float>(std::max<int64_t>(1, r_snapshot.width_tiles)));
 	branch.by = p_by;
+	if (p_template.shape_quality_v2_fix && p_template.cumulative_end > p_template.cumulative_start + 0.001f) {
+		const float tx = p_template.bx - p_template.ax;
+		const float ty = p_template.by - p_template.ay;
+		const float length_sq = tx * tx + ty * ty;
+		if (length_sq > 0.0001f) {
+			auto projected_cumulative = [&](float p_x, float p_y) -> float {
+				const float px = adjust_wrapped_x_near(p_x, p_template.ax, static_cast<float>(std::max<int64_t>(1, r_snapshot.width_tiles)));
+				const float t = clamp_value(
+					((px - p_template.ax) * tx + (p_y - p_template.ay) * ty) / length_sq,
+					0.0f,
+					1.0f
+				);
+				return lerp_float(p_template.cumulative_start, p_template.cumulative_end, t);
+			};
+			branch.cumulative_start = projected_cumulative(branch.ax, branch.ay);
+			branch.cumulative_end = std::max(
+				branch.cumulative_start + 0.001f,
+				projected_cumulative(branch.bx, branch.by)
+			);
+		}
+	}
 	r_snapshot.refined_river_edges.push_back(branch);
 }
 
@@ -1308,9 +1530,22 @@ void append_refined_braid_loop_edges_for_coarse_step(
 	if (r_snapshot.world_version < WORLD_BRAID_LOOP_RIVER_VERSION) {
 		return;
 	}
+	const bool shape_quality_fix = r_snapshot.world_version >= WORLD_HYDROLOGY_SHAPE_FIX_VERSION;
 	const float eligibility = braid_loop_eligibility_score(r_snapshot, p_from.node_index, p_to.node_index);
-	if (eligibility < 0.34f) {
+	if (eligibility < (shape_quality_fix ? 0.55f : 0.34f)) {
 		return;
+	}
+	const float cell_size = static_cast<float>(std::max(1, r_snapshot.cell_size_tiles));
+	if (shape_quality_fix) {
+		const int32_t coarse_bucket = static_cast<int32_t>(std::floor(p_from.cumulative / std::max(1.0f, cell_size)));
+		const int32_t cooldown_phase = clamp_value(
+			static_cast<int32_t>(std::floor(hash_grid_unit(p_template.variation_seed, 7, 0) * 3.0f)),
+			0,
+			2
+		);
+		if ((coarse_bucket + cooldown_phase) % 3 != 0) {
+			return;
+		}
 	}
 	const float order_f = std::max(1.0f, static_cast<float>(p_template.stream_order));
 	const float width_scale = std::max(0.75f, r_snapshot.river_settings.width_scale);
@@ -1325,6 +1560,13 @@ void append_refined_braid_loop_edges_for_coarse_step(
 	const float apex_offset = branch_offset * (1.42f + hash_grid_unit(loop_hash, 3, 0) * 0.34f);
 	const float shoulder_a = branch_offset * (0.62f + hash_grid_unit(loop_hash, 4, 0) * 0.22f);
 	const float shoulder_b = branch_offset * (0.78f + hash_grid_unit(loop_hash, 5, 0) * 0.22f);
+	if (shape_quality_fix) {
+		const float island_length = (t_end - t_start) * p_length;
+		if (apex_offset < cell_size * 0.50f || branch_offset < cell_size * 0.34f ||
+				island_length < cell_size * 1.15f) {
+			return;
+		}
+	}
 	const float tangent_jitter = (hash_grid_unit(loop_hash, 6, 0) - 0.5f) *
 			std::min(p_length * 0.08f, static_cast<float>(r_snapshot.cell_size_tiles) * 0.34f);
 	const float tx = p_dx / p_length;
@@ -1351,6 +1593,32 @@ void append_refined_braid_loop_edges_for_coarse_step(
 	if (!refined_branch_polyline_is_clear(r_snapshot, loop_points)) {
 		return;
 	}
+	std::vector<Vector2> branch_points = loop_points;
+	if (shape_quality_fix) {
+		branch_points.clear();
+		branch_points.reserve(18);
+		for (size_t index = 0; index + 1 < loop_points.size(); ++index) {
+			const Vector2 &p0 = loop_points[index == 0 ? index : index - 1];
+			const Vector2 &p1 = loop_points[index];
+			const Vector2 &p2 = loop_points[index + 1];
+			const Vector2 &p3 = loop_points[std::min(index + 2, loop_points.size() - 1)];
+			const int32_t steps = (index == 0 || index + 2 == loop_points.size()) ? 3 : 4;
+			for (int32_t step = 0; step < steps; ++step) {
+				if (!branch_points.empty() && step == 0) {
+					continue;
+				}
+				const float t = static_cast<float>(step) / static_cast<float>(steps);
+				branch_points.push_back(Vector2(
+					catmull_rom(p0.x, p1.x, p2.x, p3.x, t),
+					catmull_rom(p0.y, p1.y, p2.y, p3.y, t)
+				));
+			}
+		}
+		branch_points.push_back(loop_points.back());
+		if (!refined_branch_polyline_is_clear(r_snapshot, branch_points)) {
+			return;
+		}
+	}
 
 	RefinedRiverEdge loop_branch = p_template;
 	loop_branch.braid_split = true;
@@ -1361,14 +1629,14 @@ void append_refined_braid_loop_edges_for_coarse_step(
 	loop_branch.confluence = false;
 	loop_branch.confluence_weight = 0.0f;
 	const size_t before_count = r_snapshot.refined_river_edges.size();
-	for (size_t index = 0; index + 1 < loop_points.size(); ++index) {
+	for (size_t index = 0; index + 1 < branch_points.size(); ++index) {
 		push_refined_branch_edge(
 			r_snapshot,
 			loop_branch,
-			loop_points[index].x,
-			loop_points[index].y,
-			loop_points[index + 1].x,
-			loop_points[index + 1].y
+			branch_points[index].x,
+			branch_points[index].y,
+			branch_points[index + 1].x,
+			branch_points[index + 1].y
 		);
 	}
 	const int32_t emitted_count = static_cast<int32_t>(r_snapshot.refined_river_edges.size() - before_count);
@@ -1551,6 +1819,11 @@ void build_refined_river_geometry(Snapshot &r_snapshot) {
 			edge.ay = from.y;
 			edge.bx = adjust_wrapped_x_near(to.x, from.x, static_cast<float>(std::max<int64_t>(1, r_snapshot.width_tiles)));
 			edge.by = to.y;
+			if (r_snapshot.world_version >= WORLD_HYDROLOGY_SHAPE_FIX_VERSION) {
+				edge.cumulative_start = from.cumulative;
+				edge.cumulative_end = to.cumulative;
+				edge.shape_quality_v2_fix = true;
+			}
 			edge.segment_id = segment_id;
 			edge.stream_order = std::max<uint8_t>(1U, from.stream_order);
 			edge.flow_dir = from.flow_dir;
@@ -1576,7 +1849,9 @@ void build_refined_river_geometry(Snapshot &r_snapshot) {
 					r_snapshot.refined_river_y_confluence_edge_count += 1;
 				}
 			}
-			edge.variation_seed = splitmix64(segment_seed ^ static_cast<uint64_t>(sample_index) * 0xbf58476d1ce4e5b9ULL);
+			edge.variation_seed = r_snapshot.world_version >= WORLD_HYDROLOGY_SHAPE_FIX_VERSION ?
+					segment_seed :
+					splitmix64(segment_seed ^ static_cast<uint64_t>(sample_index) * 0xbf58476d1ce4e5b9ULL);
 			edge.source = sample_index == 0 && from.source;
 			edge.delta = from.delta || to.delta;
 			edge.organic = true;
@@ -1591,6 +1866,11 @@ void build_refined_river_geometry(Snapshot &r_snapshot) {
 			template_edge.ay = from.y;
 			template_edge.bx = adjust_wrapped_x_near(to.x, from.x, static_cast<float>(std::max<int64_t>(1, r_snapshot.width_tiles)));
 			template_edge.by = to.y;
+			if (r_snapshot.world_version >= WORLD_HYDROLOGY_SHAPE_FIX_VERSION) {
+				template_edge.cumulative_start = from.cumulative;
+				template_edge.cumulative_end = to.cumulative;
+				template_edge.shape_quality_v2_fix = true;
+			}
 			template_edge.segment_id = segment_id;
 			template_edge.stream_order = std::max<uint8_t>(1U, from.stream_order);
 			template_edge.flow_dir = from.flow_dir;
@@ -2937,20 +3217,28 @@ Ref<Image> make_overview_image(const Snapshot &p_snapshot, int64_t p_layer_mask,
 			const int32_t node_y = clamp_value(y / pixels_per_cell, 0, p_snapshot.grid_height - 1);
 			const int32_t index = p_snapshot.index(node_x, node_y);
 			const int32_t offset = (y * image_width + x) * 4;
-			if (p_snapshot.ocean_sink_mask[static_cast<size_t>(index)] != 0U) {
-				const float shelf_ratio = p_snapshot.world_version >= WORLD_ORGANIC_COASTLINE_VERSION &&
-								p_snapshot.ocean_shelf_depth_ratio.size() > static_cast<size_t>(index) ?
-						saturate(p_snapshot.ocean_shelf_depth_ratio[static_cast<size_t>(index)]) :
-						1.0f;
-				if (shelf_ratio < 0.72f) {
+			const int32_t local_pixel_x = x % pixels_per_cell;
+			const int32_t local_pixel_y = y % pixels_per_cell;
+			const OceanOverviewSample ocean_sample = sample_ocean_overview_pixel(
+				p_snapshot,
+				node_x,
+				node_y,
+				local_pixel_x,
+				local_pixel_y,
+				pixels_per_cell
+			);
+			if (ocean_sample.is_ocean) {
+				if (ocean_sample.is_shallow_shelf) {
 					write_rgba(bytes, offset, 52, 116, 148, transparent_water_overlay ? 220 : 255);
 				} else {
 					write_rgba(bytes, offset, 38, 89, 128, transparent_water_overlay ? 230 : 255);
 				}
 				continue;
 			}
-			const int32_t local_pixel_x = x % pixels_per_cell;
-			const int32_t local_pixel_y = y % pixels_per_cell;
+			if (ocean_sample.is_shore) {
+				write_rgba(bytes, offset, 58, 132, 152, transparent_water_overlay ? 190 : 255);
+				continue;
+			}
 			if (p_snapshot.lake_id.size() == static_cast<size_t>(p_snapshot.grid_width * p_snapshot.grid_height) &&
 					is_lake_overview_pixel(p_snapshot, node_x, node_y, local_pixel_x, local_pixel_y, pixels_per_cell)) {
 				write_rgba(bytes, offset, 45, 126, 160, transparent_water_overlay ? 225 : 255);

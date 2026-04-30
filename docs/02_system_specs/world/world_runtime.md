@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.8
+version: 1.9
 last_updated: 2026-04-30
 related_docs:
   - ../../README.md
@@ -52,7 +52,12 @@ advance to `world_version = 25`. V1-R14 changes canonical lake shape through
 native basin-contour depth/spill rasterization, so current new worlds advance
 to `world_version = 26`. V1-R15 changes canonical ocean output through native
 organic coastline and shelf classification, so current new worlds advance to
-`world_version = 27`.
+`world_version = 27`. V1-R16 changes canonical river/ocean shape quality
+through continuous refined-river width, stricter braid loop validation, and
+tile-sampled coastline SDF rasterization, so current new worlds advance to
+`world_version = 28`. V1-R17 changes canonical ocean coastline shape through
+multi-scale headland/bay carving, so current new worlds advance to
+`world_version = 29`.
 The original V0 baseline remains documented here as the minimal chunked-runtime
 foundation.
 
@@ -319,6 +324,13 @@ V1-R15 advances current new worlds to `world_version = 27` and keeps the same
 packet shape while making ocean rasterization use native coast distance, shelf
 depth, and river-mouth influence fields for shore/shallow-shelf/deep-ocean
 classification.
+V1-R16 advances current new worlds to `world_version = 28` and keeps the same
+packet shape while making refined river width continuous along centerline
+distance, validating braid island loops more strictly, and sampling coast
+distance as tile-level coastline geometry for chunk and overview output.
+V1-R17 advances current new worlds to `world_version = 29` and keeps the same
+packet shape while adding deterministic multi-scale headland/bay carving to
+that same tile-sampled coastline geometry for chunk and overview output.
 
 For the first river-enabled world version, River Generation V1 extends this
 runtime contract without changing the hot-path ownership:
@@ -362,6 +374,9 @@ runtime contract without changing the hot-path ownership:
 - chunk readiness for an organic-coastline world includes native coast
   distance, shelf depth, and river-mouth influence fields, using the existing
   shore/ocean terrain and water-class packet arrays;
+- chunk readiness for a headland-coast world includes native multi-scale
+  headland/bay carving in that same coast distance sampler, still using the
+  existing shore/ocean terrain and water-class packet arrays;
 - `walkable_flags` must already reflect default current water class: shallow
   water is walkable, deep/ocean water is blocking;
 - riverbed, lakebed, shore, ocean floor, and floodplain are canonical base

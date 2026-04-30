@@ -4,6 +4,7 @@
 #include "world_utils.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -100,13 +101,44 @@ constexpr int64_t WORLD_Y_CONFLUENCE_RIVER_VERSION = 24;
 constexpr int64_t WORLD_BRAID_LOOP_RIVER_VERSION = 25;
 constexpr int64_t WORLD_BASIN_CONTOUR_LAKE_VERSION = 26;
 constexpr int64_t WORLD_ORGANIC_COASTLINE_VERSION = 27;
+constexpr int64_t WORLD_HYDROLOGY_SHAPE_FIX_VERSION = 28;
+constexpr int64_t WORLD_HEADLAND_COAST_VERSION = 29;
 constexpr int64_t MOUNTAIN_FINITE_WIDTH_VERSION = world_utils::MOUNTAIN_FINITE_WIDTH_VERSION;
 constexpr int64_t FOUNDATION_CHUNK_SIZE = 32;
+constexpr int64_t HYDROLOGY_TRANSPARENT_OVERLAY_LAYER_MASK = 1LL << 6;
 constexpr int64_t SPAWN_SAFE_PATCH_MIN_TILE = 12;
 constexpr int64_t SPAWN_SAFE_PATCH_MAX_TILE = 20;
 constexpr size_t HIERARCHICAL_CACHE_LIMIT = 64;
 constexpr int32_t RIVER_SEGMENT_RECORD_SIZE = 6;
 constexpr float PI = 3.14159265358979323846f;
+
+constexpr int32_t PREVIEW_MIPMAP_LEVELS = 6;
+
+enum class PreviewPatchMode {
+	Terrain,
+	MountainId,
+	MountainClassification
+};
+
+struct Rgba8 {
+	uint8_t r = 0U;
+	uint8_t g = 0U;
+	uint8_t b = 0U;
+	uint8_t a = 255U;
+};
+
+constexpr Rgba8 PREVIEW_COLOR_GROUND = { 46U, 59U, 46U, 255U };
+constexpr Rgba8 PREVIEW_COLOR_MOUNTAIN_FOOT = { 135U, 125U, 99U, 255U };
+constexpr Rgba8 PREVIEW_COLOR_MOUNTAIN_WALL = { 219U, 212U, 194U, 255U };
+constexpr Rgba8 PREVIEW_COLOR_RIVER_SHALLOW = { 43U, 107U, 148U, 255U };
+constexpr Rgba8 PREVIEW_COLOR_RIVER_DEEP = { 20U, 64U, 110U, 255U };
+constexpr Rgba8 PREVIEW_COLOR_SHORE = { 125U, 115U, 89U, 255U };
+constexpr Rgba8 PREVIEW_COLOR_FLOODPLAIN = { 54U, 87U, 56U, 255U };
+constexpr Rgba8 PREVIEW_COLOR_CLASSIFICATION_GROUND = { 33U, 41U, 33U, 255U };
+constexpr Rgba8 PREVIEW_COLOR_CLASSIFICATION_FOOT = { 214U, 143U, 51U, 255U };
+constexpr Rgba8 PREVIEW_COLOR_CLASSIFICATION_WALL = { 59U, 171U, 224U, 255U };
+constexpr Rgba8 PREVIEW_COLOR_CLASSIFICATION_INTERIOR = { 235U, 74U, 140U, 255U };
+constexpr Rgba8 PREVIEW_COLOR_UNKNOWN = { 18U, 23U, 26U, 255U };
 
 struct SegmentProjection {
 	float distance = std::numeric_limits<float>::infinity();
@@ -125,12 +157,15 @@ struct RiverRasterEdge {
 	float radius_scale = 1.0f;
 	float curvature = 0.0f;
 	float confluence_weight = 0.0f;
+	float cumulative_start = 0.0f;
+	float cumulative_end = 0.0f;
 	uint64_t variation_seed = 0ULL;
 	bool source = false;
 	bool delta = false;
 	bool braid_split = false;
 	bool confluence = false;
 	bool organic = false;
+	bool shape_quality_v2_fix = false;
 };
 
 struct RiverRasterSample {
@@ -142,11 +177,319 @@ struct RiverRasterSample {
 	float signed_distance = 0.0f;
 	float curvature = 0.0f;
 	float confluence_weight = 0.0f;
+	bool shape_quality_v2_fix = false;
 	bool source = false;
 	bool delta = false;
 	bool braid_split = false;
 	bool confluence = false;
 };
+
+bool is_foundation_overview_mountain_pixel(const PackedByteArray &p_bytes, int32_t p_offset) {
+	const int32_t r = static_cast<int32_t>(p_bytes[p_offset]);
+	const int32_t g = static_cast<int32_t>(p_bytes[p_offset + 1]);
+	const int32_t b = static_cast<int32_t>(p_bytes[p_offset + 2]);
+	const int32_t a = static_cast<int32_t>(p_bytes[p_offset + 3]);
+	if (a != 255) {
+		return false;
+	}
+	const bool wall_pixel = r >= 164 && r <= 238 && g == r - 4 && b == r - 18;
+	const bool foot_pixel = r >= 107 && r <= 178 &&
+			g >= 98 && g <= 143 &&
+			b >= 74 && b <= 102 &&
+			r > g && g > b;
+	return wall_pixel || foot_pixel;
+}
+
+PackedByteArray make_foundation_mountain_render_mask(const Ref<Image> &p_foundation_image) {
+	PackedByteArray mask;
+	if (p_foundation_image.is_null()) {
+		return mask;
+	}
+	const int32_t width = p_foundation_image->get_width();
+	const int32_t height = p_foundation_image->get_height();
+	if (width <= 0 || height <= 0) {
+		return mask;
+	}
+	const PackedByteArray foundation_bytes = p_foundation_image->get_data();
+	if (foundation_bytes.size() != width * height * 4) {
+		return mask;
+	}
+	mask.resize(width * height);
+	for (int32_t index = 0; index < width * height; ++index) {
+		if (is_foundation_overview_mountain_pixel(foundation_bytes, index * 4)) {
+			mask.set(index, 1U);
+		}
+	}
+	return mask;
+}
+
+Ref<Image> blend_overview_images(
+	const Ref<Image> &p_foundation_image,
+	const Ref<Image> &p_hydrology_overlay,
+	const PackedByteArray &p_foundation_mountain_mask
+) {
+	if (p_foundation_image.is_null() || p_hydrology_overlay.is_null()) {
+		return Ref<Image>();
+	}
+	const int32_t width = p_foundation_image->get_width();
+	const int32_t height = p_foundation_image->get_height();
+	const int32_t overlay_width = p_hydrology_overlay->get_width();
+	const int32_t overlay_height = p_hydrology_overlay->get_height();
+	if (width <= 0 || height <= 0 || overlay_width <= 0 || overlay_height <= 0) {
+		return Ref<Image>();
+	}
+	PackedByteArray foundation_bytes = p_foundation_image->get_data();
+	const PackedByteArray overlay_bytes = p_hydrology_overlay->get_data();
+	if (foundation_bytes.size() != width * height * 4 ||
+			overlay_bytes.size() != overlay_width * overlay_height * 4) {
+		return Ref<Image>();
+	}
+	const bool has_foundation_mountain_mask = p_foundation_mountain_mask.size() == width * height;
+	for (int32_t y = 0; y < height; ++y) {
+		const int32_t overlay_y = world_utils::clamp_value(
+			static_cast<int32_t>((static_cast<int64_t>(y) * overlay_height) / height),
+			0,
+			overlay_height - 1
+		);
+		for (int32_t x = 0; x < width; ++x) {
+			const int32_t overlay_x = world_utils::clamp_value(
+				static_cast<int32_t>((static_cast<int64_t>(x) * overlay_width) / width),
+				0,
+				overlay_width - 1
+			);
+			const int32_t dst_index = y * width + x;
+			const int32_t dst_offset = dst_index * 4;
+			if (has_foundation_mountain_mask && p_foundation_mountain_mask[dst_index] != 0U) {
+				continue;
+			}
+			const int32_t src_offset = (overlay_y * overlay_width + overlay_x) * 4;
+			const int32_t src_a = static_cast<int32_t>(overlay_bytes[src_offset + 3]);
+			if (src_a <= 0) {
+				continue;
+			}
+			if (src_a >= 255) {
+				foundation_bytes.set(dst_offset, overlay_bytes[src_offset]);
+				foundation_bytes.set(dst_offset + 1, overlay_bytes[src_offset + 1]);
+				foundation_bytes.set(dst_offset + 2, overlay_bytes[src_offset + 2]);
+				foundation_bytes.set(dst_offset + 3, 255);
+				continue;
+			}
+			const int32_t inv_a = 255 - src_a;
+			for (int32_t channel = 0; channel < 3; ++channel) {
+				const int32_t src = static_cast<int32_t>(overlay_bytes[src_offset + channel]);
+				const int32_t dst = static_cast<int32_t>(foundation_bytes[dst_offset + channel]);
+				const int32_t blended = (src * src_a + dst * inv_a + 127) / 255;
+				foundation_bytes.set(
+					dst_offset + channel,
+					static_cast<uint8_t>(world_utils::clamp_value(blended, 0, 255))
+				);
+			}
+			foundation_bytes.set(dst_offset + 3, 255);
+		}
+	}
+	return Image::create_from_data(width, height, false, Image::FORMAT_RGBA8, foundation_bytes);
+}
+
+void write_rgba8(PackedByteArray &r_bytes, int32_t p_offset, Rgba8 p_color) {
+	r_bytes.set(p_offset, p_color.r);
+	r_bytes.set(p_offset + 1, p_color.g);
+	r_bytes.set(p_offset + 2, p_color.b);
+	r_bytes.set(p_offset + 3, p_color.a);
+}
+
+Rgba8 read_rgba8(const PackedByteArray &p_bytes, int32_t p_offset) {
+	Rgba8 color;
+	if (p_offset < 0 || p_offset + 3 >= p_bytes.size()) {
+		return color;
+	}
+	color.r = p_bytes[p_offset];
+	color.g = p_bytes[p_offset + 1];
+	color.b = p_bytes[p_offset + 2];
+	color.a = p_bytes[p_offset + 3];
+	return color;
+}
+
+bool rgba8_equal(Rgba8 p_a, Rgba8 p_b) {
+	return p_a.r == p_b.r && p_a.g == p_b.g && p_a.b == p_b.b && p_a.a == p_b.a;
+}
+
+PreviewPatchMode resolve_preview_patch_mode(StringName p_render_mode) {
+	const String mode = String(p_render_mode);
+	if (mode == "mountain_id") {
+		return PreviewPatchMode::MountainId;
+	}
+	if (mode == "mountain_classification") {
+		return PreviewPatchMode::MountainClassification;
+	}
+	return PreviewPatchMode::Terrain;
+}
+
+Rgba8 hsv_to_rgb8(float p_h, float p_s, float p_v) {
+	const float h = p_h - std::floor(p_h);
+	const float s = world_utils::clamp_value(p_s, 0.0f, 1.0f);
+	const float v = world_utils::clamp_value(p_v, 0.0f, 1.0f);
+	const float scaled_h = h * 6.0f;
+	const int32_t sector = static_cast<int32_t>(std::floor(scaled_h));
+	const float f = scaled_h - static_cast<float>(sector);
+	const float p = v * (1.0f - s);
+	const float q = v * (1.0f - s * f);
+	const float t = v * (1.0f - s * (1.0f - f));
+	float r = v;
+	float g = t;
+	float b = p;
+	switch (positive_mod(sector, 6)) {
+		case 0:
+			r = v;
+			g = t;
+			b = p;
+			break;
+		case 1:
+			r = q;
+			g = v;
+			b = p;
+			break;
+		case 2:
+			r = p;
+			g = v;
+			b = t;
+			break;
+		case 3:
+			r = p;
+			g = q;
+			b = v;
+			break;
+		case 4:
+			r = t;
+			g = p;
+			b = v;
+			break;
+		default:
+			r = v;
+			g = p;
+			b = q;
+			break;
+	}
+	return {
+		static_cast<uint8_t>(world_utils::clamp_value(static_cast<int32_t>(std::lround(r * 255.0f)), 0, 255)),
+		static_cast<uint8_t>(world_utils::clamp_value(static_cast<int32_t>(std::lround(g * 255.0f)), 0, 255)),
+		static_cast<uint8_t>(world_utils::clamp_value(static_cast<int32_t>(std::lround(b * 255.0f)), 0, 255)),
+		255U
+	};
+}
+
+int32_t read_int32_at(const PackedInt32Array &p_values, int32_t p_index, int32_t p_fallback = 0) {
+	return p_index >= 0 && p_index < p_values.size() ? p_values[p_index] : p_fallback;
+}
+
+int32_t read_byte_at(const PackedByteArray &p_values, int32_t p_index, int32_t p_fallback = 0) {
+	return p_index >= 0 && p_index < p_values.size() ? static_cast<int32_t>(p_values[p_index]) : p_fallback;
+}
+
+Rgba8 resolve_preview_terrain_color(int32_t p_terrain_id) {
+	switch (p_terrain_id) {
+		case TERRAIN_MOUNTAIN_WALL:
+			return PREVIEW_COLOR_MOUNTAIN_WALL;
+		case TERRAIN_MOUNTAIN_FOOT:
+			return PREVIEW_COLOR_MOUNTAIN_FOOT;
+		case TERRAIN_RIVERBED_DEEP:
+		case TERRAIN_OCEAN_FLOOR:
+			return PREVIEW_COLOR_RIVER_DEEP;
+		case TERRAIN_RIVERBED_SHALLOW:
+		case TERRAIN_LAKEBED:
+			return PREVIEW_COLOR_RIVER_SHALLOW;
+		case TERRAIN_SHORE:
+			return PREVIEW_COLOR_SHORE;
+		case TERRAIN_FLOODPLAIN:
+			return PREVIEW_COLOR_FLOODPLAIN;
+		default:
+			return PREVIEW_COLOR_GROUND;
+	}
+}
+
+Rgba8 resolve_preview_classification_color(int32_t p_mountain_flags) {
+	if ((p_mountain_flags & MOUNTAIN_FLAG_INTERIOR) != 0) {
+		return PREVIEW_COLOR_CLASSIFICATION_INTERIOR;
+	}
+	if ((p_mountain_flags & MOUNTAIN_FLAG_WALL) != 0) {
+		return PREVIEW_COLOR_CLASSIFICATION_WALL;
+	}
+	if ((p_mountain_flags & MOUNTAIN_FLAG_FOOT) != 0) {
+		return PREVIEW_COLOR_CLASSIFICATION_FOOT;
+	}
+	return PREVIEW_COLOR_CLASSIFICATION_GROUND;
+}
+
+Rgba8 resolve_preview_mountain_id_color(int32_t p_mountain_id, int32_t p_mountain_flags) {
+	if (p_mountain_id <= 0) {
+		return PREVIEW_COLOR_CLASSIFICATION_GROUND;
+	}
+	uint32_t hashed_id = static_cast<uint32_t>(p_mountain_id & 0x7fffffff);
+	hashed_id = hashed_id ^ (hashed_id >> 16U);
+	hashed_id *= 224682251U;
+	hashed_id = hashed_id ^ (hashed_id >> 13U);
+	const float hue = static_cast<float>(hashed_id & 1023U) / 1023.0f;
+	const float saturation = std::min(0.92f, 0.58f + static_cast<float>((hashed_id >> 10U) & 63U) / 210.0f);
+	float value = 0.72f;
+	if ((p_mountain_flags & MOUNTAIN_FLAG_INTERIOR) != 0) {
+		value = 0.84f;
+	} else if ((p_mountain_flags & MOUNTAIN_FLAG_WALL) != 0) {
+		value = 0.92f;
+	}
+	return hsv_to_rgb8(hue, saturation, value);
+}
+
+Rgba8 resolve_preview_patch_color(
+	PreviewPatchMode p_mode,
+	int32_t p_terrain_id,
+	int32_t p_mountain_id,
+	int32_t p_mountain_flags
+) {
+	switch (p_mode) {
+		case PreviewPatchMode::MountainId:
+			return resolve_preview_mountain_id_color(p_mountain_id, p_mountain_flags);
+		case PreviewPatchMode::MountainClassification:
+			return resolve_preview_classification_color(p_mountain_flags);
+		case PreviewPatchMode::Terrain:
+		default:
+			return resolve_preview_terrain_color(p_terrain_id);
+	}
+}
+
+PackedByteArray downsample_preview_mipmap(
+	const PackedByteArray &p_src,
+	int32_t p_src_width,
+	int32_t p_src_height,
+	Rgba8 p_ground_color
+) {
+	const int32_t dst_width = std::max(1, p_src_width / 2);
+	const int32_t dst_height = std::max(1, p_src_height / 2);
+	PackedByteArray dst;
+	dst.resize(dst_width * dst_height * 4);
+	for (int32_t y = 0; y < dst_height; ++y) {
+		for (int32_t x = 0; x < dst_width; ++x) {
+			const int32_t sx = x * 2;
+			const int32_t sy = y * 2;
+			const int32_t sx1 = std::min(sx + 1, p_src_width - 1);
+			const int32_t sy1 = std::min(sy + 1, p_src_height - 1);
+			const std::array<int32_t, 4> offsets = {
+				(sy * p_src_width + sx) * 4,
+				(sy * p_src_width + sx1) * 4,
+				(sy1 * p_src_width + sx) * 4,
+				(sy1 * p_src_width + sx1) * 4
+			};
+			Rgba8 picked = p_ground_color;
+			for (const int32_t offset : offsets) {
+				const Rgba8 sample = read_rgba8(p_src, offset);
+				if (!rgba8_equal(sample, p_ground_color)) {
+					picked = sample;
+					break;
+				}
+			}
+			write_rgba8(dst, (y * dst_width + x) * 4, picked);
+		}
+	}
+	return dst;
+}
 
 struct LakeRasterSample {
 	int32_t lake_id = 0;
@@ -405,9 +748,10 @@ RiverChannelRadii resolve_river_channel_radii(
 ) {
 	const float order_f = std::max(1.0f, static_cast<float>(p_sample.stream_order));
 	const float curvature_abs = std::abs(p_sample.curvature);
+	const float curvature_radius_weight = p_sample.shape_quality_v2_fix ? 0.30f : 0.10f;
 	const float confluence_weight = p_sample.confluence ? std::max(0.35f, p_sample.confluence_weight) : 0.0f;
 	float edge_radius_scale = std::max(0.25f, p_sample.radius_scale);
-	edge_radius_scale *= 1.0f + curvature_abs * 0.10f + confluence_weight * 0.16f;
+	edge_radius_scale *= 1.0f + curvature_abs * curvature_radius_weight + confluence_weight * 0.16f;
 	RiverChannelRadii radii;
 	radii.deep_radius = std::max(0.55f, (0.35f + order_f * 0.16f) * p_river_width_scale * edge_radius_scale);
 	radii.bed_radius = std::max(1.25f, radii.deep_radius + (0.9f + p_river_width_scale * 0.25f) * edge_radius_scale);
@@ -428,6 +772,21 @@ float resolve_dynamic_river_radius_scale(const RiverRasterEdge &p_edge, const Se
 		return p_edge.radius_scale;
 	}
 	const float order_f = std::max(1.0f, static_cast<float>(p_edge.stream_order));
+	if (p_edge.shape_quality_v2_fix && p_edge.cumulative_end > p_edge.cumulative_start + 0.001f) {
+		const float river_distance = lerp_float(p_edge.cumulative_start, p_edge.cumulative_end, p_projection.t);
+		const uint64_t river_seed = splitmix64(p_edge.variation_seed);
+		const float phase_a = hash_grid_unit(river_seed, 0, 0) * PI * 2.0f;
+		const float phase_b = hash_grid_unit(river_seed, 1, 0) * PI * 2.0f;
+		const float wavelength_a = 34.0f + order_f * 8.0f;
+		const float wavelength_b = wavelength_a * 2.45f;
+		const float wave_a = std::sin(phase_a + river_distance / wavelength_a * PI * 2.0f);
+		const float wave_b = std::sin(phase_b + river_distance / wavelength_b * PI * 2.0f);
+		const float amplitude = world_utils::clamp_value(0.045f + order_f * 0.006f, 0.045f, 0.08f);
+		const float multiplier = 1.0f + wave_a * amplitude + wave_b * 0.025f;
+		const float min_scale = std::max(0.72f, p_edge.radius_scale * 0.82f);
+		const float max_scale = std::max(min_scale, p_edge.radius_scale * 1.20f);
+		return world_utils::clamp_value(p_edge.radius_scale * multiplier, min_scale, max_scale);
+	}
 	const float phase_a = hash_grid_unit(p_edge.variation_seed, 0, 0) * PI * 2.0f;
 	const float phase_b = hash_grid_unit(p_edge.variation_seed, 1, 0) * PI * 2.0f;
 	const float wave_a = std::sin(phase_a + p_projection.t * (2.2f + order_f * 0.22f) * PI);
@@ -459,6 +818,7 @@ RiverRasterSample sample_river_edges(
 		sample.signed_distance = projection.signed_distance;
 		sample.curvature = edge.curvature;
 		sample.confluence_weight = edge.confluence ? std::max(0.35f, edge.confluence_weight) : 0.0f;
+		sample.shape_quality_v2_fix = edge.shape_quality_v2_fix;
 		sample.source = edge.source;
 		sample.delta = edge.delta;
 		sample.braid_split = edge.braid_split;
@@ -536,12 +896,15 @@ std::vector<RiverRasterEdge> convert_refined_edges_for_chunk(
 		edge.radius_scale = refined.radius_scale;
 		edge.curvature = refined.curvature;
 		edge.confluence_weight = refined.confluence_weight;
+		edge.cumulative_start = refined.cumulative_start;
+		edge.cumulative_end = refined.cumulative_end;
 		edge.variation_seed = refined.variation_seed;
 		edge.source = refined.source;
 		edge.delta = refined.delta;
 		edge.braid_split = refined.braid_split;
 		edge.confluence = refined.confluence;
 		edge.organic = refined.organic;
+		edge.shape_quality_v2_fix = refined.shape_quality_v2_fix;
 		converted.push_back(edge);
 	}
 	return converted;
@@ -841,6 +1204,112 @@ float sample_ocean_mouth_influence_at_node(
 	return world_utils::saturate(p_snapshot.ocean_river_mouth_influence[static_cast<size_t>(node_index)]);
 }
 
+float sample_ocean_float_field_at_node(
+	const world_hydrology_prepass::Snapshot &p_snapshot,
+	const std::vector<float> &p_values,
+	int32_t p_node_x,
+	int32_t p_node_y,
+	float p_fallback
+) {
+	if (!p_snapshot.valid || p_node_y < 0 || p_node_y >= p_snapshot.grid_height ||
+			p_values.empty()) {
+		return p_fallback;
+	}
+	const int32_t node_x = static_cast<int32_t>(positive_mod(p_node_x, p_snapshot.grid_width));
+	const int32_t node_index = p_snapshot.index(node_x, p_node_y);
+	if (node_index < 0 || node_index >= static_cast<int32_t>(p_values.size())) {
+		return p_fallback;
+	}
+	return p_values[static_cast<size_t>(node_index)];
+}
+
+float sample_ocean_float_field_bilinear(
+	const world_hydrology_prepass::Snapshot &p_snapshot,
+	const std::vector<float> &p_values,
+	int64_t p_world_x,
+	int64_t p_world_y,
+	float p_fallback
+) {
+	if (!p_snapshot.valid || p_snapshot.grid_width <= 0 || p_snapshot.grid_height <= 0 ||
+			p_values.empty()) {
+		return p_fallback;
+	}
+	const float cell_size = static_cast<float>(std::max(1, p_snapshot.cell_size_tiles));
+	const float gx = (static_cast<float>(p_world_x) + 0.5f) / cell_size - 0.5f;
+	const float gy = (static_cast<float>(p_world_y) + 0.5f) / cell_size - 0.5f;
+	const int32_t x0_raw = static_cast<int32_t>(std::floor(gx));
+	const int32_t y0_raw = static_cast<int32_t>(std::floor(gy));
+	const float tx = smoothstep_unit(gx - static_cast<float>(x0_raw));
+	const float ty = smoothstep_unit(gy - static_cast<float>(y0_raw));
+	const int32_t y0 = world_utils::clamp_value(y0_raw, 0, p_snapshot.grid_height - 1);
+	const int32_t y1 = world_utils::clamp_value(y0_raw + 1, 0, p_snapshot.grid_height - 1);
+	const float v00 = sample_ocean_float_field_at_node(p_snapshot, p_values, x0_raw, y0, p_fallback);
+	const float v10 = sample_ocean_float_field_at_node(p_snapshot, p_values, x0_raw + 1, y0, p_fallback);
+	const float v01 = sample_ocean_float_field_at_node(p_snapshot, p_values, x0_raw, y1, p_fallback);
+	const float v11 = sample_ocean_float_field_at_node(p_snapshot, p_values, x0_raw + 1, y1, p_fallback);
+	const float vx0 = lerp_float(v00, v10, tx);
+	const float vx1 = lerp_float(v01, v11, tx);
+	return lerp_float(vx0, vx1, ty);
+}
+
+float sample_organic_coast_distance_tiles(
+	const world_hydrology_prepass::Snapshot &p_snapshot,
+	int64_t p_world_x,
+	int64_t p_world_y
+) {
+	const float base_distance = sample_ocean_float_field_bilinear(
+		p_snapshot,
+		p_snapshot.ocean_coast_distance_tiles,
+		p_world_x,
+		p_world_y,
+		-1024.0f
+	);
+	const float cell_size = static_cast<float>(std::max(1, p_snapshot.cell_size_tiles));
+	const bool headland_coast = p_snapshot.world_version >= WORLD_HEADLAND_COAST_VERSION;
+	const float coast_band_width = headland_coast ? cell_size * 5.0f : cell_size * 2.35f;
+	const float near_coast = 1.0f - world_utils::saturate(std::abs(base_distance) / std::max(1.0f, coast_band_width));
+	if (near_coast <= 0.0f) {
+		return base_distance;
+	}
+	const float mouth_influence = world_utils::saturate(sample_ocean_float_field_bilinear(
+		p_snapshot,
+		p_snapshot.ocean_river_mouth_influence,
+		p_world_x,
+		p_world_y,
+		0.0f
+	));
+	const uint64_t seed = world_utils::mix_seed(
+		p_snapshot.seed,
+		WORLD_HYDROLOGY_SHAPE_FIX_VERSION,
+		0x2f14f965916a6f19ULL
+	);
+	const float coarse_noise = signed_value_noise_2d(
+		seed,
+		static_cast<float>(p_world_x) / std::max(8.0f, cell_size * 3.65f),
+		static_cast<float>(p_world_y) / std::max(8.0f, cell_size * 3.65f)
+	);
+	const float fine_noise = signed_value_noise_2d(
+		seed ^ 0x9e3779b185ebca87ULL,
+		static_cast<float>(p_world_x) / std::max(4.0f, cell_size * 1.20f),
+		static_cast<float>(p_world_y) / std::max(4.0f, cell_size * 1.20f)
+	);
+	float coastline_offset = (coarse_noise * 0.72f + fine_noise * 0.28f) * cell_size * 0.46f * near_coast;
+	if (headland_coast) {
+		const float headland_noise = signed_value_noise_2d(
+			seed ^ 0xa5b2c3d4e5f60718ULL,
+			static_cast<float>(p_world_x) / std::max(16.0f, cell_size * 8.0f),
+			static_cast<float>(p_world_y) / std::max(16.0f, cell_size * 8.0f)
+		);
+		const float headland_offset = headland_noise * cell_size * 1.50f * near_coast;
+		coastline_offset = (
+			headland_offset +
+			(coarse_noise * 0.72f + fine_noise * 0.28f) * cell_size * 0.46f
+		) * near_coast;
+	}
+	const float mouth_offset = mouth_influence * cell_size * 0.72f * near_coast;
+	return base_distance + coastline_offset + mouth_offset;
+}
+
 OceanRasterSample sample_ocean_raster(
 	const world_hydrology_prepass::Snapshot &p_snapshot,
 	int32_t p_node_index,
@@ -916,6 +1385,43 @@ OceanRasterSample sample_ocean_raster(
 			255
 		));
 	};
+
+	if (organic_coastline && p_snapshot.world_version >= WORLD_HYDROLOGY_SHAPE_FIX_VERSION) {
+		const float coast_distance = sample_organic_coast_distance_tiles(p_snapshot, p_world_x, p_world_y);
+		const float mouth_influence_tile = world_utils::saturate(sample_ocean_float_field_bilinear(
+			p_snapshot,
+			p_snapshot.ocean_river_mouth_influence,
+			p_world_x,
+			p_world_y,
+			0.0f
+		));
+		const float coast_width = world_utils::clamp_value(
+			static_cast<float>(shore_width) + mouth_influence_tile * static_cast<float>(cell_size) * 0.22f,
+			2.5f,
+			static_cast<float>(cell_size) * 0.72f
+		);
+		if (std::abs(coast_distance) <= coast_width) {
+			sample.is_shore = true;
+			sample.shore_strength = strength_for_distance(std::abs(coast_distance), coast_width);
+			return sample;
+		}
+		if (coast_distance > coast_width) {
+			const float base_shelf_width = world_utils::clamp_value(
+				static_cast<float>(p_snapshot.ocean_band_tiles) * 0.22f,
+				static_cast<float>(cell_size) * 1.50f,
+				static_cast<float>(cell_size) * 2.75f
+			);
+			const float local_shelf_width = base_shelf_width * (1.0f + mouth_influence_tile * 0.85f);
+			const float shelf_ratio = world_utils::saturate(
+				(coast_distance - coast_width * 0.35f) / std::max(1.0f, local_shelf_width) -
+				mouth_influence_tile * 0.12f
+			);
+			sample.is_ocean_floor = true;
+			sample.is_shallow_shelf = shelf_ratio < 0.72f;
+			return sample;
+		}
+		return sample;
+	}
 
 	float best_distance = static_cast<float>(cell_size);
 	if (center_ocean) {
@@ -1266,6 +1772,7 @@ struct WorldCore::HierarchicalMacroCache {
 
 void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("generate_chunk_packets_batch", "seed", "coords", "world_version", "settings_packed"), &WorldCore::generate_chunk_packets_batch);
+	ClassDB::bind_method(D_METHOD("make_world_preview_patch_image", "packet", "render_mode"), &WorldCore::make_world_preview_patch_image);
 	ClassDB::bind_method(D_METHOD("resolve_world_foundation_spawn_tile", "seed", "world_version", "settings_packed"), &WorldCore::resolve_world_foundation_spawn_tile);
 	ClassDB::bind_method(D_METHOD("build_world_hydrology_prepass", "seed", "world_version", "settings_packed"), &WorldCore::build_world_hydrology_prepass);
 #ifdef DEBUG_ENABLED
@@ -1273,6 +1780,7 @@ void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_world_foundation_overview", "layer_mask", "pixels_per_cell"), &WorldCore::get_world_foundation_overview, DEFVAL(1));
 	ClassDB::bind_method(D_METHOD("get_world_hydrology_snapshot", "layer_mask", "downscale_factor"), &WorldCore::get_world_hydrology_snapshot);
 	ClassDB::bind_method(D_METHOD("get_world_hydrology_overview", "layer_mask", "pixels_per_cell"), &WorldCore::get_world_hydrology_overview, DEFVAL(1));
+	ClassDB::bind_method(D_METHOD("get_world_composite_overview", "layer_mask", "pixels_per_cell"), &WorldCore::get_world_composite_overview, DEFVAL(1));
 #endif
 }
 
@@ -1282,6 +1790,55 @@ WorldCore::WorldCore() :
 		world_hydrology_prepass_snapshot_(std::make_unique<world_hydrology_prepass::Snapshot>()) {}
 
 WorldCore::~WorldCore() = default;
+
+Ref<Image> WorldCore::make_world_preview_patch_image(Dictionary p_packet, StringName p_render_mode) {
+	const PreviewPatchMode mode = resolve_preview_patch_mode(p_render_mode);
+	const PackedInt32Array terrain_ids = p_packet.get("terrain_ids", PackedInt32Array());
+	const PackedInt32Array mountain_ids = p_packet.get("mountain_id_per_tile", PackedInt32Array());
+	const PackedByteArray mountain_flags = p_packet.get("mountain_flags", PackedByteArray());
+	const Rgba8 ground_color = mode == PreviewPatchMode::Terrain ?
+			PREVIEW_COLOR_GROUND :
+			PREVIEW_COLOR_CLASSIFICATION_GROUND;
+
+	PackedByteArray base_level;
+	base_level.resize(static_cast<int32_t>(CELL_COUNT * 4));
+	for (int32_t index = 0; index < static_cast<int32_t>(CELL_COUNT); ++index) {
+		const Rgba8 color = index < terrain_ids.size() ?
+				resolve_preview_patch_color(
+					mode,
+					read_int32_at(terrain_ids, index),
+					read_int32_at(mountain_ids, index),
+					read_byte_at(mountain_flags, index)
+				) :
+				PREVIEW_COLOR_UNKNOWN;
+		write_rgba8(base_level, index * 4, color);
+	}
+
+	std::vector<PackedByteArray> levels;
+	levels.reserve(PREVIEW_MIPMAP_LEVELS);
+	levels.push_back(base_level);
+	int32_t current_width = static_cast<int32_t>(CHUNK_SIZE);
+	int32_t current_height = static_cast<int32_t>(CHUNK_SIZE);
+	while ((current_width > 1 || current_height > 1) &&
+			static_cast<int32_t>(levels.size()) < PREVIEW_MIPMAP_LEVELS) {
+		const PackedByteArray next = downsample_preview_mipmap(levels.back(), current_width, current_height, ground_color);
+		levels.push_back(next);
+		current_width = std::max(1, current_width / 2);
+		current_height = std::max(1, current_height / 2);
+	}
+
+	PackedByteArray combined_bytes;
+	for (const PackedByteArray &level : levels) {
+		combined_bytes.append_array(level);
+	}
+	return Image::create_from_data(
+		static_cast<int32_t>(CHUNK_SIZE),
+		static_cast<int32_t>(CHUNK_SIZE),
+		true,
+		Image::FORMAT_RGBA8,
+		combined_bytes
+	);
+}
 
 const mountain_field::HierarchicalMacroSolve &WorldCore::_get_or_build_hierarchical_macro_solve(
 	int64_t p_seed,
@@ -1818,7 +2375,10 @@ Dictionary WorldCore::_generate_chunk_packet(
 								has_organic_water
 							) :
 							OceanRasterSample();
-					if (node_is_ocean) {
+					const bool ocean_raster_applies = has_ocean_shore ?
+							(ocean_sample.is_ocean_floor || (node_is_ocean && ocean_sample.is_shore)) :
+							node_is_ocean;
+					if (ocean_raster_applies) {
 						bool ocean_delta_applied = false;
 						if (has_v1_r5_hydrology) {
 							const RiverRasterSample river_sample = sample_river_edges(
@@ -2180,6 +2740,44 @@ Ref<Image> WorldCore::get_world_hydrology_overview(int64_t p_layer_mask, int64_t
 		p_layer_mask,
 		p_pixels_per_cell
 	);
+}
+
+Ref<Image> WorldCore::get_world_composite_overview(int64_t p_layer_mask, int64_t p_pixels_per_cell) {
+	if (world_prepass_snapshot_ == nullptr || !world_prepass_snapshot_->valid ||
+			world_hydrology_prepass_snapshot_ == nullptr || !world_hydrology_prepass_snapshot_->valid) {
+		return Ref<Image>();
+	}
+	const mountain_field::Evaluator mountain_evaluator(
+		world_prepass_snapshot_->seed,
+		world_prepass_snapshot_->world_version,
+		world_prepass_effective_mountain_settings_
+	);
+	const int64_t foundation_layer_mask = p_layer_mask & ~HYDROLOGY_TRANSPARENT_OVERLAY_LAYER_MASK;
+	const Ref<Image> foundation_image = world_prepass::make_overview_image(
+		*world_prepass_snapshot_,
+		mountain_evaluator,
+		world_prepass_snapshot_->world_version,
+		world_prepass_foundation_settings_,
+		foundation_layer_mask,
+		p_pixels_per_cell
+	);
+	const int32_t hydrology_pixels_per_cell = foundation_image.is_valid() && world_hydrology_prepass_snapshot_->grid_width > 0 ?
+			world_utils::clamp_value(
+				static_cast<int32_t>(std::lround(
+					static_cast<double>(std::max(1, foundation_image->get_width())) /
+					static_cast<double>(world_hydrology_prepass_snapshot_->grid_width)
+				)),
+				1,
+				8
+			) :
+			world_utils::clamp_value(static_cast<int32_t>(p_pixels_per_cell), 1, 8);
+	const Ref<Image> hydrology_overlay = world_hydrology_prepass::make_overview_image(
+		*world_hydrology_prepass_snapshot_,
+		HYDROLOGY_TRANSPARENT_OVERLAY_LAYER_MASK,
+		hydrology_pixels_per_cell
+	);
+	const PackedByteArray foundation_mountain_mask = make_foundation_mountain_render_mask(foundation_image);
+	return blend_overview_images(foundation_image, hydrology_overlay, foundation_mountain_mask);
 }
 #endif
 

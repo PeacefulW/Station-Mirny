@@ -4,7 +4,7 @@ doc_type: governance
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.10
+version: 1.11
 last_updated: 2026-04-30
 related_docs:
   - ENGINEERING_STANDARDS.md
@@ -170,13 +170,13 @@ otherwise.
 ### Organic coastline
 Native hydrology shape field that makes the north ocean read as a connected
 coastline with irregular bays/capes instead of a ruler-straight map border.
-For current V1-R15 worlds this is represented by RAM-only coast distance,
-shallow-shelf depth, and river-mouth influence fields derived by
-`WorldHydrologyPrePass`.
+For current V1-R17 worlds this is represented by RAM-only coast distance,
+shallow-shelf depth, river-mouth influence fields, and multi-scale tile-sampled
+coastline geometry derived by `WorldHydrologyPrePass`.
 
 ### Ocean shelf
 Shallow ocean band between shore and deep ocean. It is canonical ocean floor
-terrain with shallow default current water in V1-R15 chunk output; farther
+terrain with shallow default current water in V1-R17 chunk output; farther
 north remains deep/ocean water and blocks traversal.
 
 ### Floodplain

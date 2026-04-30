@@ -63,12 +63,43 @@ func _init() -> void:
 		is_equal_approx(packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_RIVER_LAKE_CHANCE], wet_settings.lake_chance),
 		"preview settings_packed should use supplied lake chance"
 	)
+	_assert(_native_preview_patch_image_is_available(packed), "WorldCore should expose native preview patch images")
+	_assert(_preview_palette_uses_native_patch_images(), "world preview patch coloring should run through native patch images")
 
 	if _failed:
 		quit(1)
 		return
 	print("world_preview_river_settings_smoke_test: OK")
 	quit(0)
+
+func _native_preview_patch_image_is_available(settings_packed: PackedFloat32Array) -> bool:
+	var core := WorldCore.new()
+	if not core.has_method("make_world_preview_patch_image"):
+		return false
+	var coords := PackedVector2Array()
+	coords.append(Vector2.ZERO)
+	var packets: Array = core.generate_chunk_packets_batch(
+		WorldRuntimeConstants.DEFAULT_WORLD_SEED,
+		coords,
+		WorldRuntimeConstants.WORLD_VERSION,
+		settings_packed
+	)
+	if packets.size() != 1:
+		return false
+	var image: Image = core.call("make_world_preview_patch_image", packets[0] as Dictionary, &"terrain") as Image
+	return image != null \
+			and not image.is_empty() \
+			and image.get_width() == WorldRuntimeConstants.CHUNK_SIZE \
+			and image.get_height() == WorldRuntimeConstants.CHUNK_SIZE
+
+func _preview_palette_uses_native_patch_images() -> bool:
+	var palette_source: String = FileAccess.get_file_as_string("res://core/systems/world/world_preview_palette.gd")
+	if not palette_source.contains("make_world_preview_patch_image"):
+		return false
+	for forbidden: String in ["set_pixel(", "get_pixel(", "Image.create(", "Image.create_from_data("]:
+		if palette_source.contains(forbidden):
+			return false
+	return true
 
 func _assert(condition: bool, message: String) -> void:
 	if condition:

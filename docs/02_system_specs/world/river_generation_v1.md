@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.5
+version: 1.6
 last_updated: 2026-04-30
 related_docs:
   - ../../README.md
@@ -51,6 +51,13 @@ diagnostics, so current new worlds advance to `world_version = 26`. V1-R15
 changes canonical ocean output by adding native organic coastline distance,
 shallow-shelf classification, and river-mouth influence on top of the existing
 hydrology skeleton, so current new worlds advance to `world_version = 27`.
+V1-R16 changes canonical river/ocean shape quality by making refined river width
+variation continuous along centerline distance, tightening braid island loop
+validation, and consuming the coast distance field as tile-sampled coastline
+geometry, so current new worlds advance to `world_version = 28`.
+V1-R17 changes canonical ocean coastline shape by adding multi-scale
+headland/bay carving to the tile-sampled coastline field, so current new worlds
+advance to `world_version = 29`.
 
 V1-R3B has landed the first gameplay packet rasterization:
 
@@ -221,6 +228,31 @@ V1-R15 has landed organic coastline and shelf output:
 - no packet arrays, save fields, runtime events, or script-side hydrology
   rasterization were added.
 
+V1-R16 has landed hydrology shape quality correction:
+
+- `world_version >= 28` keeps refined river centerlines but replaces per-edge
+  width oscillation with deterministic cumulative-distance width modulation;
+- curvature now has stronger influence than residual width noise for riverbed
+  radius/depth classification;
+- braid island loops require higher low-slope/floodplain eligibility, minimum
+  readable island separation/length, deterministic cooldown along the river,
+  and smoothed native branch geometry;
+- chunk rasterization and hydrology overview both consume the RAM-only coast
+  distance field as tile-sampled signed coastline geometry instead of only
+  widening a hydrology-cell shore band;
+- no packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added.
+
+V1-R17 has landed multi-scale headland/bay carving:
+
+- `world_version >= 29` keeps the V1-R16 tile-sampled coastline field but adds
+  a lower-frequency native octave around the coast to carve readable headlands
+  and bays;
+- chunk rasterization and hydrology overview both use the same deterministic
+  headland/bay octave and expanded near-coast band;
+- no packet arrays, save fields, runtime events, optional island generator, or
+  script-side hydrology rasterization were added.
+
 V1-R1 landed the boundary/settings preparation:
 
 - `RiverGenSettings` resource and default data file exist;
@@ -248,8 +280,10 @@ V1-R3A has landed the native diagnostic river graph:
 
 Still not landed: dedicated water/shore materials, broad drought/refill
 simulation, high-detail confluence scour/shore art, active oxbow lake
-rasterization, and optional small ocean-island generation. V1-R15 adds the
-first native organic coastline and shelf pass.
+rasterization, and optional small ocean-island generation. V1-R15 added the
+first native organic coastline and shelf pass; V1-R16 corrects its chunk and
+overview geometry consumption; V1-R17 adds large-scale headland/bay carving
+inside that same native coastline sampler.
 
 ## Purpose
 
@@ -1056,6 +1090,35 @@ V1-R15 has updated the organic coastline and shelf boundary for:
 - `docs/02_system_specs/world/world_foundation_v1.md` current
   `WORLD_VERSION` history.
 
+V1-R16 has updated the hydrology shape quality correction boundary for:
+
+- `docs/02_system_specs/meta/packet_schemas.md` current `world_version = 28`,
+  unchanged `ChunkPacketV1` shape, continuous-width river semantics, stricter
+  braid loop semantics, and tile-sampled coastline/shelf raster semantics;
+- `docs/02_system_specs/meta/system_api.md` current `WorldCore` chunk packet
+  and hydrology overview notes for shape-quality corrected output;
+- `docs/02_system_specs/meta/save_and_persistence.md` current
+  `world_version = 28` baseline without changing the save shape;
+- `docs/02_system_specs/world/world_runtime.md` current shape-quality corrected
+  chunk readiness and no-interactive-hydrology ownership note;
+- `docs/02_system_specs/world/world_foundation_v1.md` current
+  `WORLD_VERSION` history.
+
+V1-R17 has updated the multi-scale headland/bay coastline boundary for:
+
+- `docs/00_governance/PROJECT_GLOSSARY.md` current `Organic coastline` and
+  `Ocean shelf` definitions;
+- `docs/02_system_specs/meta/packet_schemas.md` current `world_version = 29`,
+  unchanged `ChunkPacketV1` shape, and headland/bay coastline semantics;
+- `docs/02_system_specs/meta/system_api.md` current `WorldCore` chunk packet
+  and hydrology overview notes for headland/bay coastline output;
+- `docs/02_system_specs/meta/save_and_persistence.md` current
+  `world_version = 29` baseline without changing the save shape;
+- `docs/02_system_specs/world/world_runtime.md` current headland/bay coastline
+  chunk readiness and no-interactive-hydrology ownership note;
+- `docs/02_system_specs/world/world_foundation_v1.md` current
+  `WORLD_VERSION` history.
+
 Future iterations that change live behavior must still update:
 
 - `docs/02_system_specs/world/world_foundation_v1.md` if hydrology reuses or
@@ -1382,6 +1445,52 @@ Still true:
   rasterization were added;
 - optional small ocean islands, active oxbow lake rasterization, dedicated
   water/shore art, and broad drought/refill simulation remain future work.
+
+### V1-R16 - Hydrology shape quality correction
+
+Landed:
+- current new worlds advance to `world_version = 28` because canonical river
+  width, braid loop, and ocean coastline raster output changes for the same
+  seed/settings;
+- refined river width modulation is now continuous along cumulative centerline
+  distance and has lower residual noise amplitude, while curvature has stronger
+  influence on river radius/deep-channel classification;
+- braid island loops now reject low-eligibility and too-small islands, enforce a
+  deterministic cooldown along the main reach, and emit smoothed native branch
+  edges instead of a coarse five-point polyline;
+- organic ocean rasterization and hydrology overview sample RAM-only coast
+  distance as a tile-level signed coastline field, producing bays/capes and
+  coherent shore -> shallow shelf -> deep ocean classes without new packet
+  arrays.
+
+Still true:
+- this is a geometric/rasterization correction, not a new drainage solver;
+- the existing hydrology graph remains the skeleton;
+- no script code owns river/lake/ocean rasterization;
+- no new packet arrays, save fields, runtime events, or script-side hydrology
+  rasterization were added;
+- optional small ocean islands, active oxbow lake rasterization, dedicated
+  water/shore art, and broad drought/refill simulation remain future work.
+
+### V1-R17 - Multi-scale headland/bay coastline
+
+Landed:
+- current new worlds advance to `world_version = 29` because canonical ocean
+  coastline raster output changes for the same seed/settings;
+- organic ocean rasterization and hydrology overview keep the V1-R16
+  tile-sampled coastline field but expand the near-coast influence band and add
+  a low-frequency deterministic octave for readable headlands and bays;
+- the fine/coarse shoreline detail remains layered over the larger headland/bay
+  mode.
+
+Still true:
+- this is a geometric/rasterization correction, not a new drainage solver;
+- the existing hydrology graph remains the skeleton;
+- no script code owns river/lake/ocean rasterization;
+- no new packet arrays, save fields, runtime events, optional island generator,
+  or script-side hydrology rasterization were added;
+- active oxbow lake rasterization, dedicated water/shore art, and broad
+  drought/refill simulation remain future work.
 
 ### New-game composite overview - Default player map
 

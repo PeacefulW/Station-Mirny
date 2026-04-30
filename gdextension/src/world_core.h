@@ -10,6 +10,7 @@
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_vector2_array.hpp>
+#include <godot_cpp/variant/string_name.hpp>
 #include <godot_cpp/variant/vector2i.hpp>
 
 #include <memory>
@@ -33,6 +34,7 @@ public:
 	~WorldCore() override;
 
 	Array generate_chunk_packets_batch(int64_t p_seed, PackedVector2Array p_coords, int64_t p_world_version, PackedFloat32Array p_settings_packed);
+	Ref<Image> make_world_preview_patch_image(Dictionary p_packet, StringName p_render_mode);
 	Dictionary resolve_world_foundation_spawn_tile(int64_t p_seed, int64_t p_world_version, PackedFloat32Array p_settings_packed);
 	Dictionary build_world_hydrology_prepass(int64_t p_seed, int64_t p_world_version, PackedFloat32Array p_settings_packed);
 #ifdef DEBUG_ENABLED
@@ -40,6 +42,7 @@ public:
 	Ref<Image> get_world_foundation_overview(int64_t p_layer_mask, int64_t p_pixels_per_cell);
 	Dictionary get_world_hydrology_snapshot(int64_t p_layer_mask, int64_t p_downscale_factor);
 	Ref<Image> get_world_hydrology_overview(int64_t p_layer_mask, int64_t p_pixels_per_cell);
+	Ref<Image> get_world_composite_overview(int64_t p_layer_mask, int64_t p_pixels_per_cell);
 #endif
 
 private:

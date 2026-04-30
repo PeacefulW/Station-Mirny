@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.5
+version: 1.6
 last_updated: 2026-04-30
 related_docs:
   - ../../README.md
@@ -759,6 +759,16 @@ data from the same `WorldHydrologyPrePass`.
 River Generation V1-R15 advances current new worlds to `world_version = 27`
 because canonical ocean chunk output now uses native organic coastline distance,
 shallow-shelf depth, and river-mouth influence fields from the same
+`WorldHydrologyPrePass`.
+
+River Generation V1-R16 advances current new worlds to `world_version = 28`
+because canonical hydrology chunk/overview output now uses continuous
+refined-river width, stricter braid island loop validation, and tile-sampled
+organic coastline geometry from the same `WorldHydrologyPrePass`.
+
+River Generation V1-R17 advances current new worlds to `world_version = 29`
+because canonical ocean chunk/overview output now adds multi-scale headland/bay
+carving to the tile-sampled organic coastline geometry from the same
 `WorldHydrologyPrePass`.
 
 ## Performance Class

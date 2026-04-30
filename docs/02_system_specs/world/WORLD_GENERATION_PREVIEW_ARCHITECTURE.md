@@ -206,6 +206,8 @@ Current V1-R1C note:
   mountain elevation threshold plus hierarchical `mountain_id` cutoff used by
   `ChunkPacketV1`; `hydro_height` is only subtle neutral-ground shading in
   the terrain base
+- composite image composition preserves foundation mountain foot/wall pixels;
+  river, lake, and ocean overlay pixels must not overwrite those render pixels
 - `WorldFoundationPalette` defaults to `COMPOSITE` for the player-facing map and
   retains terrain-only, water-only, and raw `hydro_height` diagnostic modes
 - `WorldOverviewCanvas` draws a single texture snapshot with X-wrap edge hints;
