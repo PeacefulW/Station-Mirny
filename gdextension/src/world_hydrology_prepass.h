@@ -44,6 +44,9 @@ struct RefinedRiverEdge {
 	float braid_loop_weight = 0.0f;
 	float cumulative_start = 0.0f;
 	float cumulative_end = 0.0f;
+	float total_distance = 0.0f;
+	float distance_at_source = 0.0f;
+	float distance_to_terminal = 0.0f;
 	uint64_t variation_seed = 0ULL;
 	bool source = false;
 	bool delta = false;
@@ -77,6 +80,7 @@ struct Snapshot {
 	std::vector<float> lake_depth_ratio;
 	std::vector<uint8_t> lake_spill_node_mask;
 	std::vector<int32_t> lake_outlet_node_by_id;
+	std::vector<float> lake_water_level_per_id;
 	std::vector<uint8_t> oxbow_lake_node_mask;
 	std::vector<uint8_t> ocean_sink_mask;
 	std::vector<float> ocean_coast_distance_tiles;
@@ -120,6 +124,7 @@ struct Snapshot {
 uint64_t make_signature(
 	int64_t p_seed,
 	int64_t p_world_version,
+	uint64_t p_foundation_signature,
 	const FoundationSettings &p_foundation_settings,
 	const RiverSettings &p_river_settings
 );
@@ -128,6 +133,7 @@ std::unique_ptr<Snapshot> build_snapshot(
 	int64_t p_seed,
 	int64_t p_world_version,
 	const world_prepass::Snapshot &p_foundation_snapshot,
+	const mountain_field::Evaluator &p_mountain_evaluator,
 	const FoundationSettings &p_foundation_settings,
 	const RiverSettings &p_river_settings
 );

@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.6
+version: 1.7
 last_updated: 2026-04-30
 related_docs:
   - ../../README.md
@@ -58,6 +58,10 @@ geometry, so current new worlds advance to `world_version = 28`.
 V1-R17 changes canonical ocean coastline shape by adding multi-scale
 headland/bay carving to the tile-sampled coastline field, so current new worlds
 advance to `world_version = 29`.
+V1-R18 lands the Hydrology Visual Quality V3 batch: ocean-band mountain
+suppression, continuous river width, distributary fan-out, per-tile lake
+mountain conflict, per-tile lake basin SDF, and soft floodplain gradient.
+Current new worlds advance to `world_version = 30`.
 
 V1-R3B has landed the first gameplay packet rasterization:
 
@@ -252,6 +256,22 @@ V1-R17 has landed multi-scale headland/bay carving:
   headland/bay octave and expanded near-coast band;
 - no packet arrays, save fields, runtime events, optional island generator, or
   script-side hydrology rasterization were added.
+
+V1-R18 has landed the Hydrology Visual Quality V3 batch:
+
+- `world_version >= 30` activates the V3 guarded output path for ocean-band
+  mountain suppression, continuous river width, distributary fan-out, per-tile
+  lake mountain conflict, per-tile lake basin SDF rasterization, and soft
+  floodplain gradient output;
+- chunk floodplain rasterization now samples `floodplain_potential` per tile
+  and writes smooth `floodplain_strength`;
+- `TERRAIN_FLOODPLAIN` is emitted only when floodplain strength is at least
+  `96`;
+- `HYDROLOGY_FLAG_FLOODPLAIN` remains the legacy terrain bit for emitted
+  floodplain terrain, while `HYDROLOGY_FLAG_FLOODPLAIN_FAR` marks strength
+  `96..191` and `HYDROLOGY_FLAG_FLOODPLAIN_NEAR` marks strength `192..255`;
+- existing `world_version = 29` saves keep the pre-V3 headland-coast and
+  legacy node-threshold floodplain packet output.
 
 V1-R1 landed the boundary/settings preparation:
 
@@ -515,7 +535,7 @@ Target packet fields:
 | `terrain_ids` | `PackedInt32Array` | 1024 | Existing field now may include riverbed, lakebed, ocean floor, shore, and floodplain terrain ids. |
 | `walkable_flags` | `PackedByteArray` | 1024 | Derived from base terrain plus default current water class for the initial packet. Runtime overlay may override loaded walkability locally. |
 | `hydrology_id_per_tile` | `PackedInt32Array` | 1024 | `0 = no hydrology`; otherwise stable river/lake/ocean feature id. |
-| `hydrology_flags` | `PackedInt32Array` | 1024 | Bitfield for riverbed, lakebed, shore, bank, floodplain, delta, braid/split, confluence, and source markers. |
+| `hydrology_flags` | `PackedInt32Array` | 1024 | Bitfield for riverbed, lakebed, shore, bank, floodplain, floodplain near/far gradient, delta, braid/split, confluence, and source markers. |
 | `floodplain_strength` | `PackedByteArray` | 1024 | Optional `0..255` strength used by presentation and future wetting overlays. |
 | `water_class` | `PackedByteArray` | 1024 | Default current water class: none, shallow, deep, ocean. This is seed-derived default overlay state, not immutable terrain. |
 | `flow_dir_quantized` | `PackedByteArray` | 1024 | Optional compact direction for water animation and debug, not authoritative pathfinding. |
@@ -1119,6 +1139,19 @@ V1-R17 has updated the multi-scale headland/bay coastline boundary for:
 - `docs/02_system_specs/world/world_foundation_v1.md` current
   `WORLD_VERSION` history.
 
+V1-R18 has updated the Hydrology Visual Quality V3 boundary for:
+
+- `docs/02_system_specs/meta/packet_schemas.md` current `world_version = 30`,
+  floodplain near/far flag bits, and soft floodplain strength semantics;
+- `docs/02_system_specs/meta/system_api.md` current `WorldCore` chunk packet
+  notes for the V3 guarded output path;
+- `docs/02_system_specs/meta/save_and_persistence.md` current
+  `world_version = 30` baseline without changing the save shape;
+- `docs/02_system_specs/world/mountain_generation.md` current M7 ocean-band
+  mountain suppression boundary;
+- `docs/02_system_specs/world/terrain_hybrid_presentation.md` current
+  floodplain strength gradient consumption boundary.
+
 Future iterations that change live behavior must still update:
 
 - `docs/02_system_specs/world/world_foundation_v1.md` if hydrology reuses or
@@ -1491,6 +1524,28 @@ Still true:
   or script-side hydrology rasterization were added;
 - active oxbow lake rasterization, dedicated water/shore art, and broad
   drought/refill simulation remain future work.
+
+### V1-R18 - Hydrology Visual Quality V3 batch
+
+Landed:
+- current new worlds advance to `world_version = 30` because the same
+  seed/settings now produce V3 hydrology visual output;
+- V3 output includes ocean-band mountain suppression, continuous river width,
+  distributary fan-out, per-tile lake mountain conflict, per-tile lake basin
+  SDF rasterization, and soft floodplain gradient packet flags;
+- floodplain output keeps the existing packet arrays and adds only bit usage in
+  `hydrology_flags`: `HYDROLOGY_FLAG_FLOODPLAIN_NEAR (1 << 9)` and
+  `HYDROLOGY_FLAG_FLOODPLAIN_FAR (1 << 10)`;
+- `floodplain_strength` is now a smooth per-tile field for V3 packet output,
+  while `world_version = 29` keeps the legacy node-threshold floodplain
+  behavior.
+
+Still true:
+- the existing hydrology graph remains the skeleton;
+- this is native chunk packet generation, not a GDScript rasterizer;
+- no save payload shape, runtime event, or new packet array is introduced;
+- V3-7 presentation polish remains a follow-up for authored floodplain overlay
+  art and does not require another `world_version` bump.
 
 ### New-game composite overview - Default player map
 

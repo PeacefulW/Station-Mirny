@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.15
+version: 1.16
 last_updated: 2026-04-30
 related_docs:
   - multiplayer_and_modding.md
@@ -59,9 +59,10 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current world generation extension:
-- `world.json` now records `world_version: 29` for the current
+- `world.json` now records `world_version: 30` for the current
   river/lake/delta/organic-water/ocean-shore/refined-river/curvature-river
-  /Y-confluence/braid-loop/basin-contour-lake/organic-coastline/headland-coast finite-world baseline with
+  /Y-confluence/braid-loop/basin-contour-lake/organic-coastline/headland-coast
+  /Hydrology Visual Quality V3 finite-world baseline with
   `64`-tile foundation substrate cells, native hydrology prepass,
   riverbed/water chunk packet rasterization, V1-R4 lakebed packet
   rasterization, V1-R5 delta / controlled-split packet rasterization, V1-R8
@@ -70,7 +71,8 @@ Current world generation extension:
   output, V1-R12 Y-shaped confluence output, V1-R13 braid island loop output,
   V1-R14 basin-contour lake output, V1-R15 organic coastline/shelf output,
   V1-R16 hydrology shape-quality correction output, and V1-R17 multi-scale
-  headland/bay coastline output
+  headland/bay coastline output plus V1-R18 ocean-band mountain suppression,
+  per-tile lake SDF output, and soft floodplain gradient packet flags
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - `world_version >= 6` keeps the same save shape but changes canonical new-world
@@ -138,6 +140,12 @@ Current world generation extension:
 - `world_version >= 29` also regenerates multi-scale headland/bay coastline
   carving from seed/version/settings. Existing `world_version = 28` saves keep
   pre-R17 coastline output.
+- `world_version >= 30` also regenerates the Hydrology Visual Quality V3 batch:
+  ocean-band mountain suppression, continuous river width, distributary
+  fan-out, per-tile lake mountain conflict, per-tile lake basin SDF, and soft
+  floodplain gradient flags from seed/version/settings. Existing
+  `world_version = 29` saves keep pre-V3 generated output. This bump does not
+  add or reshape save fields.
 - V1-R6 adds optional `world.json.water_overlay` runtime state for explicit
   local current-water overrides only. It does not bump `world_version` because
   canonical generated output remains unchanged.
