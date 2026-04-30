@@ -580,6 +580,10 @@ bool uses_basin_contour_lake_generation(int64_t p_world_version) {
 	return p_world_version >= WORLD_BASIN_CONTOUR_LAKE_VERSION;
 }
 
+bool uses_hydrology_visual_v3(int64_t p_world_version) {
+	return p_world_version >= mountain_field::WORLD_HYDROLOGY_VISUAL_V3_VERSION;
+}
+
 int64_t floor_div(int64_t p_value, int64_t p_divisor) {
 	int64_t quotient = p_value / p_divisor;
 	const int64_t remainder = p_value % p_divisor;
@@ -1168,6 +1172,31 @@ int32_t sample_ocean_mask_at_node(
 	return p_snapshot.ocean_sink_mask[static_cast<size_t>(node_index)] != 0U ? 1 : 0;
 }
 
+bool is_v3_ocean_mountain_suppression_tile(
+	int64_t p_world_version,
+	int64_t p_world_x,
+	int64_t p_world_y,
+	const FoundationSettings &p_foundation_settings,
+	const world_hydrology_prepass::Snapshot *p_hydrology_snapshot
+) {
+	if (!uses_hydrology_visual_v3(p_world_version)) {
+		return false;
+	}
+	if (p_foundation_settings.enabled &&
+			p_foundation_settings.ocean_band_tiles > 0 &&
+			p_world_y < p_foundation_settings.ocean_band_tiles) {
+		return true;
+	}
+	if (p_hydrology_snapshot == nullptr || !p_hydrology_snapshot->valid) {
+		return false;
+	}
+	const int32_t node_index = sample_hydrology_node_index(*p_hydrology_snapshot, p_world_x, p_world_y);
+	if (node_index < 0 || node_index >= static_cast<int32_t>(p_hydrology_snapshot->ocean_sink_mask.size())) {
+		return false;
+	}
+	return p_hydrology_snapshot->ocean_sink_mask[static_cast<size_t>(node_index)] != 0U;
+}
+
 float sample_ocean_shelf_ratio_at_node(
 	const world_hydrology_prepass::Snapshot &p_snapshot,
 	int32_t p_node_x,
@@ -1622,6 +1651,10 @@ mountain_field::Settings make_effective_mountain_settings(
 		p_settings.world_wrap_width_tiles = p_foundation_settings.width_tiles;
 	} else {
 		p_settings.world_wrap_width_tiles = LEGACY_WORLD_WRAP_WIDTH_TILES;
+	}
+	if (p_foundation_settings.enabled && uses_hydrology_visual_v3(p_world_version)) {
+		p_settings.ocean_band_tiles = p_foundation_settings.ocean_band_tiles;
+		p_settings.suppress_ocean_band_mountains = true;
 	}
 	return p_settings;
 }
@@ -2125,11 +2158,20 @@ Dictionary WorldCore::_generate_chunk_packet(
 			const int64_t sample_world_x = resolve_mountain_sample_x(world_x, p_world_version, p_foundation_settings);
 			const int64_t sample_index = sample_y * mountain_grid_side + sample_x;
 			float elevation = p_mountain_evaluator.sample_elevation(sample_world_x, world_y);
-			if (is_foundation_spawn_safety_area_at_world(world_x, world_y, p_foundation_settings)) {
+			const bool suppress_ocean_mountain = is_v3_ocean_mountain_suppression_tile(
+				p_world_version,
+				world_x,
+				world_y,
+				p_foundation_settings,
+				p_hydrology_snapshot
+			);
+			if (suppress_ocean_mountain || is_foundation_spawn_safety_area_at_world(world_x, world_y, p_foundation_settings)) {
 				elevation = 0.0f;
 			}
 			mountain_elevations[static_cast<size_t>(sample_index)] = elevation;
-			mountain_ids[static_cast<size_t>(sample_index)] = resolve_mountain_id_at_world(sample_world_x, world_y, elevation);
+			mountain_ids[static_cast<size_t>(sample_index)] = suppress_ocean_mountain ?
+					0 :
+					resolve_mountain_id_at_world(sample_world_x, world_y, elevation);
 		}
 	}
 
@@ -2670,7 +2712,7 @@ Dictionary WorldCore::build_world_hydrology_prepass(
 	const int64_t shape_world_version = world_shape_seed_version(p_world_version);
 	const FoundationSettings foundation_settings = unpack_foundation_settings(p_world_version, p_settings_packed);
 	const mountain_field::Settings mountain_settings = make_effective_mountain_settings(
-		shape_world_version,
+		p_world_version,
 		unpack_mountain_settings(p_settings_packed),
 		foundation_settings
 	);
@@ -2808,7 +2850,7 @@ Array WorldCore::generate_chunk_packets_batch(
 	const int64_t shape_world_version = world_shape_seed_version(p_world_version);
 	const FoundationSettings foundation_settings = unpack_foundation_settings(p_world_version, p_settings_packed);
 	const mountain_field::Settings mountain_settings = make_effective_mountain_settings(
-		shape_world_version,
+		p_world_version,
 		unpack_mountain_settings(p_settings_packed),
 		foundation_settings
 	);
