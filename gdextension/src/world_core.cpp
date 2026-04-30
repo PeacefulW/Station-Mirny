@@ -51,6 +51,8 @@ constexpr int32_t HYDROLOGY_FLAG_DELTA = 1 << 5;
 constexpr int32_t HYDROLOGY_FLAG_BRAID_SPLIT = 1 << 6;
 constexpr int32_t HYDROLOGY_FLAG_CONFLUENCE = 1 << 7;
 constexpr int32_t HYDROLOGY_FLAG_SOURCE = 1 << 8;
+constexpr int32_t HYDROLOGY_FLAG_FLOODPLAIN_NEAR = 1 << 9;
+constexpr int32_t HYDROLOGY_FLAG_FLOODPLAIN_FAR = 1 << 10;
 constexpr int32_t HYDROLOGY_LAKE_ID_OFFSET = 1000000;
 constexpr int32_t HYDROLOGY_OCEAN_ID = 2000000;
 
@@ -159,6 +161,9 @@ struct RiverRasterEdge {
 	float confluence_weight = 0.0f;
 	float cumulative_start = 0.0f;
 	float cumulative_end = 0.0f;
+	float total_distance = 0.0f;
+	float distance_at_source = 0.0f;
+	float distance_to_terminal = 0.0f;
 	uint64_t variation_seed = 0ULL;
 	bool source = false;
 	bool delta = false;
@@ -177,6 +182,10 @@ struct RiverRasterSample {
 	float signed_distance = 0.0f;
 	float curvature = 0.0f;
 	float confluence_weight = 0.0f;
+	float cumulative_distance = 0.0f;
+	float total_distance = 0.0f;
+	float distance_at_source = 0.0f;
+	float distance_to_terminal = 0.0f;
 	bool shape_quality_v2_fix = false;
 	bool source = false;
 	bool delta = false;
@@ -499,6 +508,14 @@ struct LakeRasterSample {
 	uint8_t shore_strength = 0U;
 };
 
+struct V3LakeSdfSample {
+	int32_t lake_id = 0;
+	float signed_distance_tiles = std::numeric_limits<float>::infinity();
+	bool is_lakebed = false;
+	bool is_contour_band = false;
+	uint8_t shore_strength = 0U;
+};
+
 struct OceanRasterSample {
 	bool is_ocean_floor = false;
 	bool is_shore = false;
@@ -684,6 +701,13 @@ float smoothstep_unit(float p_value) {
 	return t * t * (3.0f - 2.0f * t);
 }
 
+float smoothstep(float p_edge0, float p_edge1, float p_value) {
+	if (p_edge1 <= p_edge0) {
+		return p_value >= p_edge1 ? 1.0f : 0.0f;
+	}
+	return smoothstep_unit((p_value - p_edge0) / (p_edge1 - p_edge0));
+}
+
 float lerp_float(float p_a, float p_b, float p_t) {
 	return p_a + (p_b - p_a) * p_t;
 }
@@ -755,11 +779,27 @@ RiverChannelRadii resolve_river_channel_radii(
 	const float curvature_radius_weight = p_sample.shape_quality_v2_fix ? 0.30f : 0.10f;
 	const float confluence_weight = p_sample.confluence ? std::max(0.35f, p_sample.confluence_weight) : 0.0f;
 	float edge_radius_scale = std::max(0.25f, p_sample.radius_scale);
+	const bool use_v3_distance_taper = p_sample.total_distance > 0.001f;
+	float delta_shore_fade = 0.0f;
+	if (use_v3_distance_taper) {
+		const float distance_t = world_utils::clamp_value(p_sample.cumulative_distance / p_sample.total_distance, 0.0f, 1.0f);
+		const float source_taper = smoothstep(0.04f, 0.18f, distance_t);
+		const float terminal_grow = lerp_float(1.0f, 1.45f, smoothstep(0.70f, 0.97f, distance_t));
+		edge_radius_scale *= source_taper * terminal_grow;
+		if (p_sample.delta) {
+			const float fade_window = std::max(12.0f, p_river_width_scale * 16.0f);
+			delta_shore_fade = 1.0f - smoothstep(0.0f, fade_window, p_sample.distance_to_terminal);
+			edge_radius_scale *= lerp_float(0.90f, 1.10f, delta_shore_fade);
+		}
+	}
 	edge_radius_scale *= 1.0f + curvature_abs * curvature_radius_weight + confluence_weight * 0.16f;
 	RiverChannelRadii radii;
 	radii.deep_radius = std::max(0.55f, (0.35f + order_f * 0.16f) * p_river_width_scale * edge_radius_scale);
-	radii.bed_radius = std::max(1.25f, radii.deep_radius + (0.9f + p_river_width_scale * 0.25f) * edge_radius_scale);
-	radii.bank_radius = radii.bed_radius + (p_sample.delta ? 2.6f : 1.5f) + confluence_weight * 0.75f;
+	radii.bed_radius = std::max(use_v3_distance_taper ? 0.75f : 1.25f, radii.deep_radius + (0.9f + p_river_width_scale * 0.25f) * edge_radius_scale);
+	const float delta_bank_extra = use_v3_distance_taper && p_sample.delta ?
+			lerp_float(1.8f, 3.6f, delta_shore_fade) :
+			2.6f;
+	radii.bank_radius = radii.bed_radius + (p_sample.delta ? delta_bank_extra : 1.5f) + confluence_weight * 0.75f;
 	return radii;
 }
 
@@ -822,6 +862,10 @@ RiverRasterSample sample_river_edges(
 		sample.signed_distance = projection.signed_distance;
 		sample.curvature = edge.curvature;
 		sample.confluence_weight = edge.confluence ? std::max(0.35f, edge.confluence_weight) : 0.0f;
+		sample.cumulative_distance = lerp_float(edge.cumulative_start, edge.cumulative_end, projection.t);
+		sample.total_distance = edge.total_distance;
+		sample.distance_at_source = std::max(0.0f, sample.cumulative_distance);
+		sample.distance_to_terminal = std::max(0.0f, edge.total_distance - sample.cumulative_distance);
 		sample.shape_quality_v2_fix = edge.shape_quality_v2_fix;
 		sample.source = edge.source;
 		sample.delta = edge.delta;
@@ -902,6 +946,9 @@ std::vector<RiverRasterEdge> convert_refined_edges_for_chunk(
 		edge.confluence_weight = refined.confluence_weight;
 		edge.cumulative_start = refined.cumulative_start;
 		edge.cumulative_end = refined.cumulative_end;
+		edge.total_distance = refined.total_distance;
+		edge.distance_at_source = refined.distance_at_source;
+		edge.distance_to_terminal = refined.distance_to_terminal;
 		edge.variation_seed = refined.variation_seed;
 		edge.source = refined.source;
 		edge.delta = refined.delta;
@@ -1148,6 +1195,252 @@ float sample_lake_depth_ratio_at_node(
 		return 1.0f;
 	}
 	return world_utils::saturate(p_snapshot.lake_depth_ratio[static_cast<size_t>(node_index)]);
+}
+
+float sample_hydrology_float_at_node(
+	const world_hydrology_prepass::Snapshot &p_snapshot,
+	const std::vector<float> &p_values,
+	int32_t p_node_x,
+	int32_t p_node_y,
+	float p_fallback
+) {
+	if (!p_snapshot.valid || p_node_y < 0 || p_node_y >= p_snapshot.grid_height ||
+			p_values.empty()) {
+		return p_fallback;
+	}
+	const int32_t node_x = static_cast<int32_t>(positive_mod(p_node_x, p_snapshot.grid_width));
+	const int32_t node_index = p_snapshot.index(node_x, p_node_y);
+	if (node_index < 0 || node_index >= static_cast<int32_t>(p_values.size())) {
+		return p_fallback;
+	}
+	return p_values[static_cast<size_t>(node_index)];
+}
+
+float sample_hydrology_float_bilinear(
+	const world_hydrology_prepass::Snapshot &p_snapshot,
+	const std::vector<float> &p_values,
+	int64_t p_world_x,
+	int64_t p_world_y,
+	float p_fallback
+) {
+	if (!p_snapshot.valid || p_snapshot.grid_width <= 0 || p_snapshot.grid_height <= 0 ||
+			p_values.empty()) {
+		return p_fallback;
+	}
+	const float cell_size = static_cast<float>(std::max(1, p_snapshot.cell_size_tiles));
+	const float gx = (static_cast<float>(p_world_x) + 0.5f) / cell_size - 0.5f;
+	const float gy = (static_cast<float>(p_world_y) + 0.5f) / cell_size - 0.5f;
+	const int32_t x0_raw = static_cast<int32_t>(std::floor(gx));
+	const int32_t y0_raw = static_cast<int32_t>(std::floor(gy));
+	const float tx = smoothstep_unit(gx - static_cast<float>(x0_raw));
+	const float ty = smoothstep_unit(gy - static_cast<float>(y0_raw));
+	const int32_t y0 = world_utils::clamp_value(y0_raw, 0, p_snapshot.grid_height - 1);
+	const int32_t y1 = world_utils::clamp_value(y0_raw + 1, 0, p_snapshot.grid_height - 1);
+	const float v00 = sample_hydrology_float_at_node(p_snapshot, p_values, x0_raw, y0, p_fallback);
+	const float v10 = sample_hydrology_float_at_node(p_snapshot, p_values, x0_raw + 1, y0, p_fallback);
+	const float v01 = sample_hydrology_float_at_node(p_snapshot, p_values, x0_raw, y1, p_fallback);
+	const float v11 = sample_hydrology_float_at_node(p_snapshot, p_values, x0_raw + 1, y1, p_fallback);
+	const float vx0 = lerp_float(v00, v10, tx);
+	const float vx1 = lerp_float(v01, v11, tx);
+	return lerp_float(vx0, vx1, ty);
+}
+
+int32_t sample_nearest_lake_id_for_tile(
+	const world_hydrology_prepass::Snapshot &p_snapshot,
+	int64_t p_world_x,
+	int64_t p_world_y
+) {
+	if (!p_snapshot.valid || p_snapshot.grid_width <= 0 || p_snapshot.grid_height <= 0) {
+		return 0;
+	}
+	const float cell_size = static_cast<float>(std::max(1, p_snapshot.cell_size_tiles));
+	const float gx = (static_cast<float>(p_world_x) + 0.5f) / cell_size - 0.5f;
+	const float gy = (static_cast<float>(p_world_y) + 0.5f) / cell_size - 0.5f;
+	const int32_t node_x = static_cast<int32_t>(std::floor(gx + 0.5f));
+	const int32_t node_y = world_utils::clamp_value(
+		static_cast<int32_t>(std::floor(gy + 0.5f)),
+		0,
+		p_snapshot.grid_height - 1
+	);
+	int32_t best_lake_id = 0;
+	float best_distance_sq = std::numeric_limits<float>::infinity();
+	const float tile_x = static_cast<float>(p_world_x) + 0.5f;
+	const float tile_y = static_cast<float>(p_world_y) + 0.5f;
+	const float world_width = static_cast<float>(std::max<int64_t>(1, p_snapshot.width_tiles));
+	const float max_distance = cell_size * 0.75f + 3.0f;
+	for (int32_t dy = -1; dy <= 1; ++dy) {
+		const int32_t sample_y = node_y + dy;
+		if (sample_y < 0 || sample_y >= p_snapshot.grid_height) {
+			continue;
+		}
+		for (int32_t dx = -1; dx <= 1; ++dx) {
+			const int32_t sample_x_raw = node_x + dx;
+			const int32_t lake_id = sample_lake_id_at_node(p_snapshot, sample_x_raw, sample_y);
+			if (lake_id <= 0) {
+				continue;
+			}
+			float node_center_x = static_cast<float>(sample_x_raw) * cell_size + cell_size * 0.5f;
+			node_center_x = adjust_wrapped_x_near(node_center_x, tile_x, world_width);
+			const float node_center_y = static_cast<float>(sample_y) * cell_size + cell_size * 0.5f;
+			const float delta_x = tile_x - node_center_x;
+			const float delta_y = tile_y - node_center_y;
+			const float distance_sq = delta_x * delta_x + delta_y * delta_y;
+			if (distance_sq < best_distance_sq) {
+				best_distance_sq = distance_sq;
+				best_lake_id = lake_id;
+			}
+		}
+	}
+	return best_distance_sq <= max_distance * max_distance ? best_lake_id : 0;
+}
+
+float sample_lake_water_level_for_id(
+	const world_hydrology_prepass::Snapshot &p_snapshot,
+	int32_t p_lake_id,
+	float p_fallback
+) {
+	if (p_lake_id <= 0 || p_lake_id >= static_cast<int32_t>(p_snapshot.lake_water_level_per_id.size())) {
+		return p_fallback;
+	}
+	const float water_level = p_snapshot.lake_water_level_per_id[static_cast<size_t>(p_lake_id)];
+	return std::isfinite(water_level) ? water_level : p_fallback;
+}
+
+float sample_lake_gradient_per_tile(
+	const world_hydrology_prepass::Snapshot &p_snapshot,
+	int64_t p_world_x,
+	int64_t p_world_y,
+	float p_hydro_elevation_at_tile
+) {
+	const float west = sample_hydrology_float_bilinear(
+		p_snapshot,
+		p_snapshot.hydro_elevation,
+		p_world_x - 1,
+		p_world_y,
+		p_hydro_elevation_at_tile
+	);
+	const float east = sample_hydrology_float_bilinear(
+		p_snapshot,
+		p_snapshot.hydro_elevation,
+		p_world_x + 1,
+		p_world_y,
+		p_hydro_elevation_at_tile
+	);
+	const float north = sample_hydrology_float_bilinear(
+		p_snapshot,
+		p_snapshot.hydro_elevation,
+		p_world_x,
+		p_world_y - 1,
+		p_hydro_elevation_at_tile
+	);
+	const float south = sample_hydrology_float_bilinear(
+		p_snapshot,
+		p_snapshot.hydro_elevation,
+		p_world_x,
+		p_world_y + 1,
+		p_hydro_elevation_at_tile
+	);
+	const float gx = (east - west) * 0.5f;
+	const float gy = (south - north) * 0.5f;
+	return std::max(0.0005f, std::sqrt(gx * gx + gy * gy));
+}
+
+float sample_lake_shoreline_noise_tiles(
+	const world_hydrology_prepass::Snapshot &p_snapshot,
+	int32_t p_lake_id,
+	int64_t p_world_x,
+	int64_t p_world_y
+) {
+	const uint64_t seed = world_utils::mix_seed(
+		p_snapshot.seed,
+		p_snapshot.world_version,
+		0x3c6ef372fe94f82bULL ^ static_cast<uint64_t>(p_lake_id)
+	);
+	const float wavelength = 3.0f + hash_grid_unit(seed ^ 0x51ed27055247af03ULL, p_lake_id, 0) * 3.0f;
+	const float amplitude_tiles = 1.0f + hash_grid_unit(seed ^ 0xd1b54a32d192ed03ULL, 0, p_lake_id) * 2.0f;
+	const float coarse = signed_value_noise_2d(
+		seed,
+		static_cast<float>(p_world_x) / wavelength,
+		static_cast<float>(p_world_y) / wavelength
+	);
+	const float fine = signed_value_noise_2d(
+		seed ^ 0x9e3779b185ebca87ULL,
+		static_cast<float>(p_world_x) / std::max(3.0f, wavelength * 0.58f),
+		static_cast<float>(p_world_y) / std::max(3.0f, wavelength * 0.58f)
+	);
+	return (coarse * 0.72f + fine * 0.28f) * amplitude_tiles;
+}
+
+uint8_t resolve_v3_floodplain_strength_byte(float p_floodplain_potential) {
+	const float strength_t = smoothstep(0.45f, 0.85f, world_utils::saturate(p_floodplain_potential));
+	return static_cast<uint8_t>(world_utils::clamp_value(
+		static_cast<int32_t>(std::lround(strength_t * 255.0f)),
+		0,
+		255
+	));
+}
+
+V3LakeSdfSample resolve_v3_lake_sdf_sample(
+	const world_hydrology_prepass::Snapshot &p_snapshot,
+	int64_t p_world_x,
+	int64_t p_world_y
+) {
+	V3LakeSdfSample sample;
+	const int32_t lake_id_nearest = sample_nearest_lake_id_for_tile(p_snapshot, p_world_x, p_world_y);
+	if (lake_id_nearest <= 0) {
+		return sample;
+	}
+
+	const float filled_elevation_at_tile = sample_hydrology_float_bilinear(
+		p_snapshot,
+		p_snapshot.filled_elevation,
+		p_world_x,
+		p_world_y,
+		0.0f
+	);
+	const float hydro_elevation_at_tile = sample_hydrology_float_bilinear(
+		p_snapshot,
+		p_snapshot.hydro_elevation,
+		p_world_x,
+		p_world_y,
+		filled_elevation_at_tile
+	);
+	const float water_level = sample_lake_water_level_for_id(
+		p_snapshot,
+		lake_id_nearest,
+		filled_elevation_at_tile
+	);
+	const float gradient_per_tile = sample_lake_gradient_per_tile(
+		p_snapshot,
+		p_world_x,
+		p_world_y,
+		hydro_elevation_at_tile
+	);
+	const float unnoised_distance_tiles = (water_level - hydro_elevation_at_tile) / gradient_per_tile;
+	const float periphery_weight = 1.0f - world_utils::saturate(
+			(std::abs(unnoised_distance_tiles) - 1.0f) / 3.0f);
+	const float shoreline_noise_tiles = sample_lake_shoreline_noise_tiles(
+		p_snapshot,
+		lake_id_nearest,
+		p_world_x,
+		p_world_y
+	) * periphery_weight;
+	const float shoreline_noise = shoreline_noise_tiles * gradient_per_tile;
+	const float signed_distance_tiles = (water_level + shoreline_noise - hydro_elevation_at_tile) / gradient_per_tile;
+
+	sample.lake_id = lake_id_nearest;
+	sample.signed_distance_tiles = signed_distance_tiles;
+	sample.is_lakebed = lake_id_nearest > 0 && hydro_elevation_at_tile <= water_level + shoreline_noise;
+	sample.is_contour_band = std::abs(signed_distance_tiles) <= 1.0f;
+	if (sample.is_contour_band) {
+		const float shore_t = 1.0f - world_utils::saturate(std::abs(signed_distance_tiles));
+		sample.shore_strength = static_cast<uint8_t>(world_utils::clamp_value(
+			static_cast<int32_t>(std::lround(shore_t * 255.0f)),
+			32,
+			255
+		));
+	}
+	return sample;
 }
 
 int32_t sample_ocean_mask_at_node(
@@ -1550,6 +1843,24 @@ LakeRasterSample sample_lake_raster(
 			255
 		));
 	};
+
+	if (uses_hydrology_visual_v3(p_snapshot.world_version)) {
+		const V3LakeSdfSample v3_lake = resolve_v3_lake_sdf_sample(p_snapshot, p_world_x, p_world_y);
+		if (v3_lake.lake_id <= 0) {
+			return sample;
+		}
+		sample.lake_id = v3_lake.lake_id;
+		if (v3_lake.is_lakebed) {
+			sample.is_lakebed = true;
+			sample.is_lake_edge = v3_lake.is_contour_band || (spill_node && center_lake_id == v3_lake.lake_id);
+			return sample;
+		}
+		if (v3_lake.is_contour_band) {
+			sample.is_shore = true;
+			sample.shore_strength = v3_lake.shore_strength;
+		}
+		return sample;
+	}
 
 	if (center_lake_id > 0) {
 		sample.lake_id = center_lake_id;
@@ -1975,6 +2286,7 @@ const world_hydrology_prepass::Snapshot &WorldCore::_get_or_build_world_hydrolog
 	const uint64_t signature = world_hydrology_prepass::make_signature(
 		p_seed,
 		p_world_version,
+		foundation_snapshot.signature,
 		p_foundation_settings,
 		p_river_settings
 	);
@@ -1986,6 +2298,7 @@ const world_hydrology_prepass::Snapshot &WorldCore::_get_or_build_world_hydrolog
 			p_seed,
 			p_world_version,
 			foundation_snapshot,
+			p_mountain_evaluator,
 			p_foundation_settings,
 			p_river_settings
 		);
@@ -2398,6 +2711,9 @@ Dictionary WorldCore::_generate_chunk_packet(
 
 			const bool hydrology_blocked =
 					(resolved_mountain_flags & (MOUNTAIN_FLAG_WALL | MOUNTAIN_FLAG_FOOT)) != 0U;
+			const bool lakebed_yields_to_mountain = uses_hydrology_visual_v3(p_world_version) &&
+					resolved_mountain_id != 0 &&
+					(resolved_mountain_flags & (MOUNTAIN_FLAG_WALL | MOUNTAIN_FLAG_FOOT)) != 0U;
 			if (has_hydrology && !hydrology_blocked) {
 				const int32_t hydrology_node_index = sample_hydrology_node_index(
 					*p_hydrology_snapshot,
@@ -2471,7 +2787,7 @@ Dictionary WorldCore::_generate_chunk_packet(
 							world_y,
 							has_organic_water
 						);
-						if (lake_sample.is_lakebed) {
+						if (lake_sample.is_lakebed && !lakebed_yields_to_mountain) {
 							terrain_id = TERRAIN_LAKEBED;
 							terrain_atlas_index = 0;
 							const bool shallow_edge = lake_sample.is_lake_edge;
@@ -2573,16 +2889,35 @@ Dictionary WorldCore::_generate_chunk_packet(
 								resolved_hydrology_flags = HYDROLOGY_FLAG_SHORE | HYDROLOGY_FLAG_BANK;
 								resolved_floodplain_strength = ocean_sample.shore_strength;
 							} else if (!river_applied && node_index < p_hydrology_snapshot->floodplain_potential.size()) {
-								const float floodplain = p_hydrology_snapshot->floodplain_potential[node_index];
-								if (floodplain > 0.62f) {
-									terrain_id = TERRAIN_FLOODPLAIN;
-									terrain_atlas_index = 0;
-									resolved_hydrology_flags = HYDROLOGY_FLAG_FLOODPLAIN;
-									resolved_floodplain_strength = static_cast<uint8_t>(world_utils::clamp_value(
-										static_cast<int32_t>(std::lround(floodplain * 255.0f)),
-										0,
-										255
-									));
+								if (uses_hydrology_visual_v3(p_world_version)) {
+									const float floodplain = sample_hydrology_float_bilinear(
+										*p_hydrology_snapshot,
+										p_hydrology_snapshot->floodplain_potential,
+										world_x,
+										world_y,
+										0.0f
+									);
+									resolved_floodplain_strength = resolve_v3_floodplain_strength_byte(floodplain);
+									if (resolved_floodplain_strength >= 96U) {
+										terrain_id = TERRAIN_FLOODPLAIN;
+										terrain_atlas_index = 0;
+										resolved_hydrology_flags = HYDROLOGY_FLAG_FLOODPLAIN |
+												(resolved_floodplain_strength >= 192U ?
+														HYDROLOGY_FLAG_FLOODPLAIN_NEAR :
+														HYDROLOGY_FLAG_FLOODPLAIN_FAR);
+									}
+								} else {
+									const float floodplain = p_hydrology_snapshot->floodplain_potential[node_index];
+									if (floodplain > 0.62f) {
+										terrain_id = TERRAIN_FLOODPLAIN;
+										terrain_atlas_index = 0;
+										resolved_hydrology_flags = HYDROLOGY_FLAG_FLOODPLAIN;
+										resolved_floodplain_strength = static_cast<uint8_t>(world_utils::clamp_value(
+											static_cast<int32_t>(std::lround(floodplain * 255.0f)),
+											0,
+											255
+										));
+									}
 								}
 							}
 						}

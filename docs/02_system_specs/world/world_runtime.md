@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.9
+version: 1.10
 last_updated: 2026-04-30
 related_docs:
   - ../../README.md
@@ -57,7 +57,10 @@ through continuous refined-river width, stricter braid loop validation, and
 tile-sampled coastline SDF rasterization, so current new worlds advance to
 `world_version = 28`. V1-R17 changes canonical ocean coastline shape through
 multi-scale headland/bay carving, so current new worlds advance to
-`world_version = 29`.
+`world_version = 29`. V1-R18 lands the Hydrology Visual Quality V3 batch for
+native chunk packet generation and current new worlds advance to
+`world_version = 30`; hydrology rasterization remains worker/boot packet
+generation, not interactive GDScript.
 The original V0 baseline remains documented here as the minimal chunked-runtime
 foundation.
 
@@ -331,6 +334,10 @@ distance as tile-level coastline geometry for chunk and overview output.
 V1-R17 advances current new worlds to `world_version = 29` and keeps the same
 packet shape while adding deterministic multi-scale headland/bay carving to
 that same tile-sampled coastline geometry for chunk and overview output.
+V1-R18 advances current new worlds to `world_version = 30` and keeps the same
+packet shape while activating Hydrology Visual Quality V3 chunk packet output,
+including soft floodplain gradient flags and the already-native V3 river/lake
+visual corrections.
 
 For the first river-enabled world version, River Generation V1 extends this
 runtime contract without changing the hot-path ownership:

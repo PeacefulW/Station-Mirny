@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.11
+version: 1.12
 last_updated: 2026-04-30
 related_docs:
   - ../README.md
@@ -45,7 +45,9 @@ that became current in `world_version = 26`, the V1-R15 organic coastline/shelf
 semantics that became current in `world_version = 27`, the V1-R16 hydrology
 shape-quality correction semantics that became current in `world_version = 28`,
 the V1-R17 multi-scale headland/bay coastline semantics that became current in
-`world_version = 29`, and the V1-R6 runtime water-overlay override shape. Broad
+`world_version = 29`, the V1-R18 Hydrology Visual Quality V3 semantics that
+became current in `world_version = 30`, and the V1-R6 runtime water-overlay
+override shape. Broad
 drought simulation remains a future approved shape.
 
 ## Out of Scope
@@ -286,6 +288,11 @@ Current code notes:
   band plus a low-frequency deterministic octave for larger bays and capes,
   while preserving the existing packet arrays. Existing `world_version = 28`
   saves keep pre-R17 coastline output.
+- `world_version >= 30` enables V1-R18 Hydrology Visual Quality V3 output:
+  ocean-band mountain suppression, continuous river width, distributary
+  fan-out, per-tile lake mountain conflict, per-tile lake basin SDF, and soft
+  floodplain gradient flags while preserving the existing packet arrays.
+  Existing `world_version = 29` saves keep pre-V3 generated output.
 - `water_overlay` is optional and appears only when explicit local current-water
   overrides exist. It does not change `world_version` because it is runtime
   overlay state, not canonical worldgen output.
@@ -601,7 +608,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current river/lake/delta/organic-water/ocean-shore/refined-river/curvature-river/Y-confluence/braid-loop/basin-contour-lake/organic-coastline/headland-coast runtime value is `29`; `17` remains the first river-enabled compatibility boundary |
+| `world_version` | `int` | — | Current river/lake/delta/organic-water/ocean-shore/refined-river/curvature-river/Y-confluence/braid-loop/basin-contour-lake/organic-coastline/headland-coast/Hydrology Visual Quality V3 runtime value is `30`; `17` remains the first river-enabled compatibility boundary |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve, and plains ground may use native riverbed / river-bank / lakebed / ocean-floor adjacency for 47-tile edge variants |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
@@ -668,8 +675,12 @@ rasterization current for `world_version >= 26`; V1-R15 makes organic
 coastline/shelf rasterization current for `world_version >= 27`; V1-R16 makes
 continuous river width, stricter braid island loops, and tile-sampled coastline
 rasterization current for `world_version >= 28`; V1-R17 makes multi-scale
-headland/bay coastline carving current for `world_version >= 29`. Broad drought
-semantics remain reserved for a future iteration.
+headland/bay coastline carving current for `world_version >= 29`; V1-R18 makes
+the Hydrology Visual Quality V3 batch current for `world_version >= 30`,
+including ocean-band mountain suppression, continuous river width,
+distributary fan-out, per-tile lake mountain conflict, per-tile lake basin SDF,
+and soft floodplain gradient flags. Broad drought semantics remain reserved for
+a future iteration.
 
 | Constant | Numeric id | Meaning | Default traversal |
 |---|---:|---|---|
@@ -717,6 +728,8 @@ additively. Existing fields are not removed or reshaped.
 | `1 << 6` | `HYDROLOGY_FLAG_BRAID_SPLIT` | Tile belongs to a controlled braid/distributary split |
 | `1 << 7` | `HYDROLOGY_FLAG_CONFLUENCE` | Tile marks a confluence or its widened reach |
 | `1 << 8` | `HYDROLOGY_FLAG_SOURCE` | Tile marks a river source/headwater reach |
+| `1 << 9` | `HYDROLOGY_FLAG_FLOODPLAIN_NEAR` | Floodplain strength is `192..255` on V3 floodplain terrain |
+| `1 << 10` | `HYDROLOGY_FLAG_FLOODPLAIN_FAR` | Floodplain strength is `96..191` on V3 floodplain terrain |
 
 Rules:
 - `riverbed`, `lakebed`, `shore`, and `ocean_floor` terrain are canonical base
@@ -736,6 +749,13 @@ Rules:
 - for `world_version >= 29`, that tile-level coastline geometry adds
   deterministic multi-scale headland/bay carving while preserving the same
   terrain/water arrays.
+- for `world_version >= 30`, floodplain packet output samples
+  `floodplain_potential` per tile, writes smooth `floodplain_strength`, emits
+  `TERRAIN_FLOODPLAIN` only for strength `>= 96`, and marks the `96..191` and
+  `192..255` bands with `HYDROLOGY_FLAG_FLOODPLAIN_FAR` and
+  `HYDROLOGY_FLAG_FLOODPLAIN_NEAR` respectively. Existing `world_version = 29`
+  packets keep the legacy node-threshold floodplain output and do not emit
+  bits 9 or 10.
 - `water_class` is the initial/default overlay state for packet publication.
   Future drought/refill systems must own runtime overlay mutation separately.
 - deep and ocean water produce blocking `walkable_flags`; shallow water remains
@@ -941,6 +961,9 @@ Current code notes:
 - for `world_version >= 29`, multi-scale headland/bay coastline carving reuses
   the same aggregate diagnostics and adds no debug arrays that can become save
   state
+- for `world_version >= 30`, Hydrology Visual Quality V3 reuses the existing
+  hydrology debug snapshot shape; per-tile floodplain gradient output is a
+  chunk packet rasterization result, not a new persisted debug array
 
 ### `WorldHydrologyPrePassSnapshotDebug`
 
@@ -1055,6 +1078,9 @@ Current code notes:
 - for `world_version >= 29`, that tile-level sampler adds deterministic
   multi-scale headland/bay carving; the stored debug arrays remain node-level
   and RAM-only.
+- for `world_version >= 30`, V3 chunk rasterization may bilinearly sample
+  node-level `floodplain_potential`, but the debug snapshot remains node-level
+  and RAM-only.
 - this dictionary is debug/dev tooling only and must not be persisted
 
 ### `WorldHydrologyOverviewImage`
@@ -1093,6 +1119,8 @@ Current code notes:
   coastline geometry as chunk rasterization
 - for `world_version >= 29`, ocean overview pixels include the same
   deterministic headland/bay coastline carving as chunk rasterization
+- for `world_version >= 30`, Hydrology Visual Quality V3 changes chunk packet
+  rasterization and does not add a new overview/save array
 - the new-game overview water/composite modes request this image through the
   packet worker; it is presentation/debug output, not gameplay state or save
   data

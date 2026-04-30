@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.6
+version: 1.7
 last_updated: 2026-04-30
 related_docs:
   - ../../README.md
@@ -770,6 +770,11 @@ River Generation V1-R17 advances current new worlds to `world_version = 29`
 because canonical ocean chunk/overview output now adds multi-scale headland/bay
 carving to the tile-sampled organic coastline geometry from the same
 `WorldHydrologyPrePass`.
+
+River Generation V1-R18 advances current new worlds to `world_version = 30`
+because Hydrology Visual Quality V3 changes native chunk packet output for the
+same seed/settings while preserving the same foundation substrate and packet
+worker ownership.
 
 ## Performance Class
 

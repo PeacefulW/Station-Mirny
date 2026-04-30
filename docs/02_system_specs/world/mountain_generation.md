@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.6
-last_updated: 2026-04-29
+version: 1.7
+last_updated: 2026-04-30
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -513,6 +513,11 @@ Chunk diffs keep `ChunkDiffV0` shape. Forbidden additions:
   high-resolution foundation substrate (`64`-tile cells) and native overview
   image pass. Mountain sampling semantics remain the `world_version >= 10`
   finite-width path.
+- `WORLD_VERSION` bumps from `29` to `30` in the Hydrology Visual Quality V3
+  batch for ocean-band mountain suppression and related hydrology visual output.
+  For `world_version >= 30`, mountain sampling and chunk packet generation
+  suppress mountain wall/foot output inside the V1 north ocean band so ocean
+  hydrology and foundation overview remain visually coherent.
 - each bump is required by LAW 4 because canonical terrain / packet
   output changes for the same `seed + coord`
 - `world_version` remains a plain integer; it is **not** a hash of
@@ -859,7 +864,7 @@ Files forbidden:
 Acceptance tests for M6:
 - [ ] M6 landed new worlds at `world_version = 10`; current new-world
       version may be higher after later canonical worldgen owners
-      (currently `19` in `world_foundation_v1.md`);
+      (currently `30` after Hydrology Visual Quality V3);
 - [ ] `world_version == 9` remains load-compatible and keeps the legacy
       mountain sample-width path;
 - [ ] on the `large` preset, generated mountain output no longer appears as
@@ -869,6 +874,34 @@ Acceptance tests for M6:
 - [ ] no save payload shape changes are introduced;
 - [ ] native packet generation remains worker-side and introduces no
       main-thread generation loop.
+
+### M7 — Ocean-Band Mountain Suppression
+
+Goal: prevent V1 north-ocean hydrology from being visually contradicted by
+mountain wall/foot output inside the ocean band.
+
+Changes:
+- for `world_version >= 30`, mountain sampling receives the foundation ocean
+  band width and suppresses mountain elevation gain near the north ocean band;
+- chunk packet generation treats explicit ocean-band and hydrology ocean tiles
+  as mountain-suppressed for terrain ownership, so ocean floor/shore output
+  wins over mountain wall/foot output;
+- `world_version = 29` keeps the legacy headland-coast mountain behavior for
+  existing saves.
+
+Files:
+- `gdextension/src/mountain_field.h`
+- `gdextension/src/mountain_field.cpp`
+- `gdextension/src/world_core.cpp`
+- `core/systems/world/world_runtime_constants.gd`
+
+Acceptance tests for M7:
+- [ ] no mountain wall/foot packet tiles appear inside the V1 north
+      `ocean_sink_mask` on `world_version >= 30`;
+- [ ] `world_version = 29` remains load-compatible and keeps legacy mountain
+      output;
+- [ ] suppression remains native/worker-side and introduces no GDScript
+      per-tile raster fallback.
 
 ## Status Rationale
 

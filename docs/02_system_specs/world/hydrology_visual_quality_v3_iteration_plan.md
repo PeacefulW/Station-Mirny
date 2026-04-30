@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.0
+version: 1.1
 last_updated: 2026-04-30
 related_docs:
   - ../../00_governance/WORKFLOW.md
@@ -684,10 +684,9 @@ seed-ах с `world_version = 29` (legacy regression).
 - [ ] performance: prepass time на large preset ≤ +20% от baseline;
 - [ ] все 5 canonical docs обновлены в этом же PR;
 - [ ] grep evidence для каждого canonical doc update в closure report;
-- [ ] presentation gradient (V3-7 hook) либо в этом PR, либо отдельный
-      follow-up task назначен.
+- [x] presentation gradient (V3-7 hook) landed as separate follow-up task.
 
-### V3-7 (deferred presentation polish)
+### V3-7 (presentation polish)
 
 V3-7 — отдельный follow-up task на presentation:
 - `core/systems/world/terrain_presentation_registry.gd` —
@@ -697,6 +696,15 @@ V3-7 — отдельный follow-up task на presentation:
 
 V3-7 не бампит world_version (presentation only). Может landить независимо
 от main V3 PR, но не раньше его.
+
+Implementation status:
+- V3-7 landed as presentation-only follow-up after V3-6;
+- `data/balance/water_presentation_floodplain.tres` owns floodplain overlay
+  tuning;
+- `ChunkView` applies a chunk-local one-pixel-per-tile overlay texture through
+  the existing bounded publish batches;
+- no packet shape, save shape, command/event boundary, or `WORLD_VERSION`
+  changed.
 
 ## Required Canonical Doc Follow-Ups When Code Lands
 
