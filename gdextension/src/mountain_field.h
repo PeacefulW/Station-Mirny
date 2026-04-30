@@ -8,6 +8,8 @@
 
 namespace mountain_field {
 
+constexpr int64_t WORLD_HYDROLOGY_VISUAL_V3_VERSION = 30;
+
 bool is_spawn_safety_area_at_world(int64_t p_world_version, int64_t p_world_x, int64_t p_world_y);
 
 struct Settings {
@@ -21,6 +23,8 @@ struct Settings {
 	int32_t interior_margin = 1;
 	float latitude_influence = 0.0f;
 	int64_t world_wrap_width_tiles = 65536;
+	int64_t ocean_band_tiles = 0;
+	bool suppress_ocean_band_mountains = false;
 };
 
 struct Thresholds {
