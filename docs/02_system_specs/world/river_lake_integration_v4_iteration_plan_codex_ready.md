@@ -1,11 +1,11 @@
 ---
 title: River/Lake/Ocean Integration V4 - Iteration Plan
 doc_type: system_spec
-status: proposed
+status: approved
 owner: engineering+design
 source_of_truth: false
-version: 0.3
-last_updated: 2026-04-30
+version: 0.6
+last_updated: 2026-05-01
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -194,8 +194,9 @@ Recommended Codex PR order:
    invariant tests.
 4. **PR-4 / V4-3 + V4-4:** improve river discharge width and integrate river
    mouths into coast SDF / delta fan logic.
-5. **PR-5 / V4-5 + V4-6:** lake SDF continuity and unified presentation.
-6. **PR-6 / V4-7 + V4-8:** presets, version bump, final docs, performance pass.
+5. **PR-5 / V4-5:** lake SDF continuity.
+6. **PR-6 / V4-6:** unified presentation.
+7. **PR-7 / V4-7 + V4-8:** presets, version bump, final docs, performance pass.
 
 Codex must stop after each PR with a summary of touched files, tests run,
 remaining risks and screenshots/debug images if available.
@@ -280,6 +281,36 @@ Overview and region preview must read the same result.
 
 ## Iteration Plan
 
+### Implementation status
+
+- V4-0/V4-1 first PR scope: native `HydrologyTileClassifier` shared helper,
+  V4 debug counters/overlays, chunk/preview layer-winner routing, composite
+  overview water priority, V3 lake SDF overview parity, and deterministic
+  classifier-agreement smoke test. Agreement counters compare hydrology
+  layer-family winners while leaving subtype differences visible in debug
+  colours/codes.
+- This first PR is debug/refactor/presentation-only for canonical terrain:
+  no new save fields, no packet arrays, no `WORLD_VERSION` bump, no `Lakes Only`
+  default, and no GDScript hot-path hydrology loops.
+- V4-2 follow-up scope: `WORLD_VERSION 31` gates canonical river/lake
+  mountain-clearance output for new worlds. The implementation keeps clearance
+  diagnostics RAM-only, adds no save fields or packet arrays, and preserves
+  `world_version = 30` generated output for existing saves.
+- V4-3 follow-up scope: `WORLD_VERSION 32` gates canonical river width/depth
+  rasterization from native normalized cumulative discharge and refined-edge
+  width profiles. The implementation keeps the normalized discharge and profile
+  records RAM-only debug diagnostics, adds no save fields or packet arrays, and
+  preserves `world_version = 31` generated output for existing saves.
+- V4-4 follow-up scope: `WORLD_VERSION 33` gates coastline-integrated
+  estuary/delta output. The implementation keeps estuary fan and coast SDF
+  diagnostics RAM-only, adds no save fields or packet arrays, and preserves
+  `world_version = 32` generated output for existing saves.
+- V4-5 follow-up scope: `WORLD_VERSION 34` gates canonical lake basin
+  continuity output. The implementation keeps outlet continuation, widened
+  inlet/outlet shore, and mountain-clipped lake SDF diagnostics RAM-only, adds
+  no save fields or packet arrays, and preserves `world_version = 33`
+  generated output for existing saves.
+
 ### V4-0 — Debug invariants and reproducible failure seeds
 
 **Goal:** stop guessing which layer lied.
@@ -353,6 +384,14 @@ bend around massifs with readable arcs.
 river mouths are wider than upstream reaches, no branch looks saw-cut unless it
 enters a lake/ocean/sink.
 
+**Implementation note:** implemented for `world_version >= 32` in the native
+hydrology prepass and chunk/overview rasterizers. The RAM-only diagnostics are
+`river_discharge_normalized`, `refined_river_edge_width_profile`, and aggregate
+profile counters for profiled edges, source taper, terminal expansion,
+confluence widening, and shallow-ford narrowing. Branch endpoint visual caps
+remain limited to the existing bank/fade behavior; richer endpoint shaping is
+left to V4-4/V4-5 presentation work if screenshots still show cut ends.
+
 ### V4-4 — Estuary and delta as coastline-integrated features
 
 **Goal:** river mouths become part of the ocean edge.
@@ -370,6 +409,17 @@ enters a lake/ocean/sink.
 rivers, terminal fan width is at least `3x` trunk width on qualifying mouths,
 and the river never appears as a thin line pasted onto ocean.
 
+**Implementation note:** implemented for `world_version >= 33` in the native
+hydrology prepass, coast SDF samplers, overview rasterizer, and chunk packet
+rasterizer. Fan branch count is derived from `delta_scale` plus normalized
+discharge, distributary edges are marked as delta/braid-split hydrology, and
+the local river-mouth influence adjusts the coast SDF/shelf classification.
+RAM-only diagnostics are `estuary_delta_fan_terminal_count`,
+`estuary_delta_fan_edge_count`, `estuary_discharge_fan_branch_count`,
+`estuary_coast_sdf_modified_node_count`,
+`estuary_mountain_blocked_branch_count`, and
+`estuary_terminal_fan_width_ratio_max`.
+
 ### V4-5 — Lake basin SDF with inlet/outlet continuity
 
 **Goal:** lakes look like filled basins, not rectangles.
@@ -386,6 +436,12 @@ and the river never appears as a thin line pasted onto ocean.
 corners, no mountain overlap, and connected inlet/outlet behavior when graph
 conditions allow it.
 
+**Implementation note:** implemented for `world_version >= 34` in the native
+`WorldHydrologyPrePass`, chunk packet rasterizer, and hydrology overview debug
+classifier. It keeps lake SDF continuity, outlet continuation, widened
+inlet/outlet shore, and mountain clipping diagnostics RAM-only; it does not add
+packet arrays or save fields.
+
 ### V4-6 — Presentation unification
 
 **Goal:** water reads as one world system.
@@ -401,6 +457,13 @@ conditions allow it.
 
 **Acceptance:** player can tell what is water, what is bank, what is dry bed,
 what is floodplain, and what is ocean without reading debug mode labels.
+
+**Implementation note:** implemented as a presentation-only slice with no
+`WORLD_VERSION` bump. The shared native hydrology helper now exposes a gameplay
+palette used by 33x33 preview patches and hydrology overview rendering, while
+debug winner overlays keep their own palette. Runtime hydrology shape resources
+for ocean floor, lakebed, riverbeds, and shore were aligned to the same palette.
+No packet arrays, save fields, river deletion, or Lakes Only default were added.
 
 ### V4-7 — Settings, presets and safe fallback
 
@@ -423,18 +486,39 @@ what is floodplain, and what is ocean without reading debug mode labels.
 **Acceptance:** user can temporarily choose lakes-only worldgen, but default
 preset keeps rivers enabled and improved.
 
+**Implementation note:** implemented as existing-field presets on
+`RiverGenSettings`, a localized Water Sector preset selector, and a native
+`world_version >= 35` density-zero branch. No new save fields or packet arrays
+were added. `Full Hydrology` remains the default; existing `world_version = 34`
+saves keep the old density-zero river behavior, and non-`Lakes Only` hydrology
+detail seeds stay pinned to the V4-5 shape boundary.
+
 ### V4-8 — Versioning, tests and performance closure
 
 **Goal:** land the work safely.
 
 **Required:**
 
-- bump world version for canonical output changes, proposed `WORLD_VERSION 30 -> 31`;
+- bump world version for each canonical output slice; current V4 boundaries are
+  `WORLD_VERSION 31` for V4-2 mountain clearance and `WORLD_VERSION 32` for
+  V4-3 discharge-based river width, and `WORLD_VERSION 33` for V4-4
+  coastline-integrated estuary/delta output, and `WORLD_VERSION 34` for V4-5
+  lake basin continuity output, `WORLD_VERSION 35` for V4-7
+  preset-selected Lakes Only density-zero river-network suppression, and
+  `WORLD_VERSION 36` for V4-8 dense braid-loop closure;
 - no hidden GDScript fallback;
 - all compute remains native worker/prepass/chunk packet work;
 - no save schema changes unless V4-7 adds explicit settings;
 - performance regression on large preset must stay inside accepted budget;
 - existing V30 worlds load through legacy V30 path.
+
+**Implementation note:** implemented for `world_version >= 36` as a native
+closure boundary. V4-8 restores dense braid island loop acceptance after the
+V1-R16 shape-quality guard, keeps legacy `world_version <= 35` output stable,
+keeps overview/chunk/preview agreement counters native-side, and bounds refined
+overview sampling through the native river spatial index. The accepted largest
+preset debug prepass budget for the V4 stack is `3200 ms`; no save fields,
+packet arrays, or GDScript hydrology raster loops were added.
 
 ## Acceptance Criteria
 

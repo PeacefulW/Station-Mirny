@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.10
-last_updated: 2026-04-30
+version: 1.13
+last_updated: 2026-05-01
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -60,7 +60,19 @@ multi-scale headland/bay carving, so current new worlds advance to
 `world_version = 29`. V1-R18 lands the Hydrology Visual Quality V3 batch for
 native chunk packet generation and current new worlds advance to
 `world_version = 30`; hydrology rasterization remains worker/boot packet
-generation, not interactive GDScript.
+generation, not interactive GDScript. River/Lake/Ocean Integration V4-2
+advances current new worlds to `world_version = 31` for native river/lake
+mountain-clearance packet output; V4-3 advances current new worlds to
+`world_version = 32` for discharge-derived river width/depth output; V4-4
+advances current new worlds to `world_version = 33` for coastline-integrated
+estuary/delta coast SDF and fan output; V4-5 advances current new worlds to
+`world_version = 34` for lake basin continuity and widened lake inlet/outlet
+shore output; V4-7 advances current new worlds to `world_version = 35` for the
+preset-selected `Lakes Only` density-zero native suppression branch; V4-8
+advances current new worlds to `world_version = 36` for native dense
+braid-loop closure and debug agreement semantics. These V4
+changes keep hydrology work native worker/boot packet generation, not
+interactive GDScript.
 The original V0 baseline remains documented here as the minimal chunked-runtime
 foundation.
 
@@ -338,6 +350,30 @@ V1-R18 advances current new worlds to `world_version = 30` and keeps the same
 packet shape while activating Hydrology Visual Quality V3 chunk packet output,
 including soft floodplain gradient flags and the already-native V3 river/lake
 visual corrections.
+River/Lake/Ocean Integration V4-2 advances current new worlds to
+`world_version = 31` and keeps the same packet shape while suppressing
+river/lake water inside the native mountain wall/foot clearance field.
+River/Lake/Ocean Integration V4-3 advances current new worlds to
+`world_version = 32` and keeps the same packet shape while deriving river
+width/depth from normalized discharge and refined-edge width profiles.
+River/Lake/Ocean Integration V4-4 advances current new worlds to
+`world_version = 33` and keeps the same packet shape while integrating
+qualifying river mouths into the coast SDF/shelf classifier and delta fan
+geometry.
+River/Lake/Ocean Integration V4-5 advances current new worlds to
+`world_version = 34` and keeps the same packet shape while keeping lake
+ownership for river-connected inlet/outlet samples and classifying them as
+shallow widened lake shore.
+River/Lake/Ocean Integration V4-7 advances current new worlds to
+`world_version = 35` and keeps the same packet shape while allowing the
+new-game `Lakes Only` preset to suppress trunk/tributary river selection through
+the native density-zero branch. Existing `world_version = 34` saves keep the
+previous density-zero behavior.
+River/Lake/Ocean Integration V4-8 advances current new worlds to
+`world_version = 36` and keeps the same packet shape while restoring dense
+braid-loop acceptance after the shape-quality guard and tightening native
+overview/preview/chunk debug agreement. Existing `world_version <= 35` saves
+keep their prior generated output.
 
 For the first river-enabled world version, River Generation V1 extends this
 runtime contract without changing the hot-path ownership:

@@ -8,7 +8,10 @@ const FLOODPLAIN_PRESENTATION_PATH: String = "res://data/balance/water_presentat
 var _failed: bool = false
 
 func _init() -> void:
-	_assert(WorldRuntimeConstants.WORLD_VERSION == 30, "V3-7 presentation polish must not bump WORLD_VERSION")
+	_assert(
+		WorldRuntimeConstants.WORLD_VERSION >= WorldRuntimeConstants.WORLD_HYDROLOGY_VISUAL_V3_VERSION,
+		"current WORLD_VERSION should preserve the V3-7 floodplain presentation boundary"
+	)
 	_assert(ResourceLoader.exists(FLOODPLAIN_PRESENTATION_PATH), "V3-7 should provide a floodplain water presentation resource")
 	var presentation: Resource = load(FLOODPLAIN_PRESENTATION_PATH) as Resource
 	_assert(

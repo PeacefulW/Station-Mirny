@@ -776,6 +776,13 @@ because Hydrology Visual Quality V3 changes native chunk packet output for the
 same seed/settings while preserving the same foundation substrate and packet
 worker ownership.
 
+River/Lake/Ocean Integration V4-2 advances current new worlds to
+`world_version = 31`, V4-3 advances current new worlds to `world_version = 32`,
+and V4-4 advances current new worlds to `world_version = 33` because canonical
+hydrology packet output now includes native mountain clearance, discharge-width
+profiles, and coastline-integrated estuary/delta output while preserving the
+same foundation substrate and packet worker ownership.
+
 ## Performance Class
 
 | Operation | Class | Dirty unit | Budget |

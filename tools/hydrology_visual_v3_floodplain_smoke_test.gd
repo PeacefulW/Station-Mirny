@@ -6,7 +6,7 @@ const RiverGenSettings = preload("res://core/resources/river_gen_settings.gd")
 const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
-const HYDROLOGY_VISUAL_V3_VERSION: int = 30
+const HYDROLOGY_VISUAL_V3_VERSION: int = WorldRuntimeConstants.WORLD_HYDROLOGY_VISUAL_V3_VERSION
 const HYDROLOGY_FLAG_FLOODPLAIN: int = 1 << 4
 const HYDROLOGY_FLAG_FLOODPLAIN_NEAR: int = 1 << 9
 const HYDROLOGY_FLAG_FLOODPLAIN_FAR: int = 1 << 10
@@ -15,7 +15,7 @@ const MISSING_CHUNK := Vector2i(-99999, -99999)
 var _failed: bool = false
 
 func _init() -> void:
-	_assert(WorldRuntimeConstants.WORLD_VERSION == HYDROLOGY_VISUAL_V3_VERSION, "V3 merge should bump current WORLD_VERSION to 30")
+	_assert(WorldRuntimeConstants.WORLD_VERSION >= HYDROLOGY_VISUAL_V3_VERSION, "current WORLD_VERSION should preserve the V3 boundary")
 	var packed_settings: PackedFloat32Array = _build_settings_packed()
 	var core := WorldCore.new()
 	var result: Dictionary = core.build_world_hydrology_prepass(

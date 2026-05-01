@@ -329,6 +329,19 @@ func _find_delta_chunk(core: WorldCore) -> Vector2i:
 
 func _find_braid_chunk(core: WorldCore) -> Vector2i:
 	var snapshot: Dictionary = core.get_world_hydrology_snapshot(0, 1)
+	var edge_points: PackedFloat32Array = snapshot.get("refined_river_edge_points", PackedFloat32Array()) as PackedFloat32Array
+	var edge_metadata: PackedInt32Array = snapshot.get("refined_river_edge_metadata", PackedInt32Array()) as PackedInt32Array
+	var edge_count: int = mini(edge_points.size() / 4, edge_metadata.size() / 4)
+	for edge_index: int in range(edge_count):
+		var edge_flags: int = int(edge_metadata[edge_index * 4 + 3])
+		if (edge_flags & 4) == 0:
+			continue
+		var ax: float = edge_points[edge_index * 4]
+		var ay: float = edge_points[edge_index * 4 + 1]
+		var bx: float = edge_points[edge_index * 4 + 2]
+		var by: float = edge_points[edge_index * 4 + 3]
+		var mid := Vector2((ax + bx) * 0.5, (ay + by) * 0.5)
+		return Vector2i(floori(mid.x / float(WorldRuntimeConstants.CHUNK_SIZE)), floori(mid.y / float(WorldRuntimeConstants.CHUNK_SIZE)))
 	var width: int = int(snapshot.get("grid_width", 0))
 	var height: int = int(snapshot.get("grid_height", 0))
 	var cell_size_tiles: int = int(snapshot.get("cell_size_tiles", 16))

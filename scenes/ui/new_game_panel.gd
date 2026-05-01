@@ -301,6 +301,7 @@ var _foundation_settings: FoundationGenSettings = FoundationGenSettings.hard_cod
 var _river_settings: RiverGenSettings = RiverGenSettings.hard_coded_defaults()
 var _seed_line_edit: LineEdit = null
 var _size_preset_select: OptionButton = null
+var _water_preset_select: OptionButton = null
 var _advanced_toggle: Button = null
 var _advanced_container: VBoxContainer = null
 var _overview_canvas: WorldOverviewCanvas = null
@@ -340,6 +341,7 @@ func _rebuild_ui(seed_text: String, tab_index: int = 0) -> void:
 		child.queue_free()
 	_seed_line_edit = null
 	_size_preset_select = null
+	_water_preset_select = null
 	_advanced_toggle = null
 	_advanced_container = null
 	_overview_mode_select = null
@@ -732,6 +734,23 @@ func _build_water_tab(tabs: TabContainer) -> void:
 	var sector_label := _make_title_label(Localization.t("UI_NEW_GAME_SECTOR_LABEL") % Localization.t("UI_NEW_GAME_WATER_TITLE"))
 	content.add_child(sector_label)
 
+	var preset_section := VBoxContainer.new()
+	preset_section.add_theme_constant_override("separation", 8)
+	content.add_child(preset_section)
+
+	var preset_label := Label.new()
+	preset_label.text = Localization.t("UI_WORLDGEN_WATER_PRESET_LABEL")
+	preset_label.add_theme_color_override("font_color", TEXT_SECONDARY_COLOR)
+	preset_label.add_theme_font_size_override("font_size", 13)
+	preset_section.add_child(preset_label)
+
+	_water_preset_select = OptionButton.new()
+	_water_preset_select.custom_minimum_size = Vector2(260, 38)
+	_apply_secondary_button_style(_water_preset_select)
+	_populate_water_preset_options()
+	_water_preset_select.item_selected.connect(_on_water_preset_selected)
+	preset_section.add_child(_water_preset_select)
+
 	var water_section := VBoxContainer.new()
 	water_section.add_theme_constant_override("separation", 6)
 	content.add_child(water_section)
@@ -851,6 +870,8 @@ func _build_slider_row(spec: Dictionary) -> Control:
 		if not is_equal_approx(slider.value, resolved_value):
 			slider.set_value_no_signal(resolved_value)
 		_update_value_label(value_label, spec, resolved_value)
+		if str(spec.get("target", "")) == "river":
+			_sync_water_preset_select()
 		_schedule_preview_rebuild()
 	)
 	return row_margin
@@ -974,6 +995,7 @@ func _apply_setting_value(spec: Dictionary, value: float) -> void:
 		_foundation_settings = _foundation_settings.normalized_for_bounds(_world_bounds)
 	elif target_name == "river":
 		_river_settings = RiverGenSettings.from_save_dict(_river_settings.to_save_dict())
+		_river_settings.preset_id = RiverGenSettings.PRESET_CUSTOM
 
 func _update_value_label(label: Label, spec: Dictionary, value: float) -> void:
 	var decimals: int = int(spec.get("decimals", 0))
@@ -1007,6 +1029,43 @@ func _on_size_preset_selected(index: int) -> void:
 	_world_bounds = WorldBoundsSettings.for_preset(presets[index])
 	_foundation_settings = FoundationGenSettings.for_bounds(_world_bounds)
 	_rebuild_ui(_seed_line_edit.text if _seed_line_edit else "", 0)
+	_schedule_preview_rebuild()
+
+func _populate_water_preset_options() -> void:
+	if _water_preset_select == null:
+		return
+	_water_preset_select.clear()
+	var presets: Array[StringName] = RiverGenSettings.preset_select_ids()
+	for index: int in range(presets.size()):
+		var preset: StringName = presets[index]
+		_water_preset_select.add_item(Localization.t(RiverGenSettings.preset_label_key(preset)), index)
+		_water_preset_select.set_item_metadata(index, preset)
+		if preset == RiverGenSettings.PRESET_CUSTOM:
+			_water_preset_select.set_item_disabled(index, true)
+	_sync_water_preset_select()
+
+func _sync_water_preset_select() -> void:
+	if _water_preset_select == null:
+		return
+	var current_preset: StringName = _river_settings.preset_id
+	for index: int in range(_water_preset_select.get_item_count()):
+		if _water_preset_select.get_item_metadata(index) as StringName == current_preset:
+			_water_preset_select.select(index)
+			return
+	for index: int in range(_water_preset_select.get_item_count()):
+		if _water_preset_select.get_item_metadata(index) as StringName == RiverGenSettings.PRESET_CUSTOM:
+			_water_preset_select.select(index)
+			return
+
+func _on_water_preset_selected(index: int) -> void:
+	if _water_preset_select == null:
+		return
+	var preset: StringName = _water_preset_select.get_item_metadata(index) as StringName
+	if preset == RiverGenSettings.PRESET_CUSTOM:
+		_sync_water_preset_select()
+		return
+	_river_settings = RiverGenSettings.for_preset(preset)
+	_rebuild_ui(_seed_line_edit.text if _seed_line_edit else "", 2)
 	_schedule_preview_rebuild()
 
 func _resolve_seed_value() -> int:

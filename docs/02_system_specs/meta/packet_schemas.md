@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.12
-last_updated: 2026-04-30
+version: 1.17
+last_updated: 2026-05-01
 related_docs:
   - ../README.md
   - system_api.md
@@ -46,9 +46,18 @@ semantics that became current in `world_version = 27`, the V1-R16 hydrology
 shape-quality correction semantics that became current in `world_version = 28`,
 the V1-R17 multi-scale headland/bay coastline semantics that became current in
 `world_version = 29`, the V1-R18 Hydrology Visual Quality V3 semantics that
-became current in `world_version = 30`, and the V1-R6 runtime water-overlay
-override shape. Broad
-drought simulation remains a future approved shape.
+became current in `world_version = 30`, the River/Lake/Ocean V4-2
+mountain-clearance semantics that became current in `world_version = 31`, and
+the River/Lake/Ocean V4-3 river discharge width-profile semantics that became
+current in `world_version = 32`, the River/Lake/Ocean V4-4
+coastline-integrated estuary/delta semantics that became current in
+`world_version = 33`, the River/Lake/Ocean V4-5 lake basin continuity semantics
+that became current in `world_version = 34`, the V4-7 preset-selected
+`Lakes Only` density-zero river-network suppression semantics that became
+current in `world_version = 35`, the V4-8 dense braid-loop closure/debug
+agreement semantics that became current in `world_version = 36`, and the V1-R6 runtime water-overlay override
+shape.
+Broad drought simulation remains a future approved shape.
 
 ## Out of Scope
 
@@ -608,7 +617,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current river/lake/delta/organic-water/ocean-shore/refined-river/curvature-river/Y-confluence/braid-loop/basin-contour-lake/organic-coastline/headland-coast/Hydrology Visual Quality V3 runtime value is `30`; `17` remains the first river-enabled compatibility boundary |
+| `world_version` | `int` | — | Current river/lake/delta/organic-water/ocean-shore/refined-river/curvature-river/Y-confluence/braid-loop/basin-contour-lake/organic-coastline/headland-coast/Hydrology Visual Quality V3/River-Lake-Ocean V4 runtime value is `36`; `17` remains the first river-enabled compatibility boundary |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve, and plains ground may use native riverbed / river-bank / lakebed / ocean-floor adjacency for 47-tile edge variants |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
@@ -679,8 +688,19 @@ headland/bay coastline carving current for `world_version >= 29`; V1-R18 makes
 the Hydrology Visual Quality V3 batch current for `world_version >= 30`,
 including ocean-band mountain suppression, continuous river width,
 distributary fan-out, per-tile lake mountain conflict, per-tile lake basin SDF,
-and soft floodplain gradient flags. Broad drought semantics remain reserved for
-a future iteration.
+and soft floodplain gradient flags; River/Lake/Ocean V4-2 makes native
+river/lake mountain clearance current for `world_version >= 31`;
+River/Lake/Ocean V4-3 makes discharge-derived river width profiles current for
+`world_version >= 32`; River/Lake/Ocean V4-4 makes coastline-integrated
+estuary/delta coast SDF and distributary fan profiles current for
+`world_version >= 33`; River/Lake/Ocean V4-5 makes lake basin continuity,
+spill-outlet continuation, and widened lake inlet/outlet shore classification
+current for `world_version >= 34`; River/Lake/Ocean V4-7 makes the
+preset-selected `Lakes Only` density-zero branch suppress trunk/tributary river
+selection while preserving hydrology, lake, and ocean/coast output for
+`world_version >= 35`; River/Lake/Ocean V4-8 makes dense braid-loop closure and
+debug agreement semantics current for `world_version >= 36`. Broad drought semantics remain reserved for a future
+iteration.
 
 | Constant | Numeric id | Meaning | Default traversal |
 |---|---:|---|---|
@@ -756,6 +776,26 @@ Rules:
   `HYDROLOGY_FLAG_FLOODPLAIN_NEAR` respectively. Existing `world_version = 29`
   packets keep the legacy node-threshold floodplain output and do not emit
   bits 9 or 10.
+- for `world_version >= 31`, river/lake packet rasterization rejects non-ocean
+  wet tiles inside the native mountain wall/foot clearance field. No new packet
+  arrays are added.
+- for `world_version >= 32`, river channel radius/depth is derived from native
+  normalized cumulative discharge and per-refined-edge width profile
+  diagnostics. No new packet arrays are added.
+- for `world_version >= 33`, eligible river mouths adjust local coast SDF/shelf
+  classification and emit discharge-aware distributary fan edges. Delta tiles
+  keep using existing `HYDROLOGY_FLAG_DELTA` and `HYDROLOGY_FLAG_BRAID_SPLIT`
+  bits, and no new packet arrays are added.
+- for `world_version >= 34`, lake rasterization keeps using the native basin
+  SDF but treats river-connected inlet/outlet lakebed samples as shallow
+  widened lake shore. The packet still uses `TERRAIN_LAKEBED`,
+  `HYDROLOGY_FLAG_LAKEBED`, existing `HYDROLOGY_FLAG_SHORE`, and the existing
+  lake `hydrology_id_per_tile`; no new packet arrays are added.
+- for `world_version >= 35`, `RiverGenSettings` with `density = 0.0` and auto
+  trunk count uses the V4-7 `Lakes Only` branch. It suppresses trunk/tributary
+  river selection before chunk rasterization while keeping hydrology, lake, and
+  ocean/coast output enabled. The packet shape is unchanged; existing
+  `world_version = 34` saves keep the old density-zero river behavior.
 - `water_class` is the initial/default overlay state for packet publication.
   Future drought/refill systems must own runtime overlay mutation separately.
 - deep and ocean water produce blocking `walkable_flags`; shallow water remains
@@ -904,10 +944,12 @@ Success shape:
   "grid_width": int,
   "grid_height": int,
   "cell_size_tiles": int,
+  "world_version": int,
   "signature": int,
   "compute_time_ms": float,
   "river_segment_count": int,
   "river_source_count": int,
+  "river_density_zero_trunk_suppressed": bool,
   "refined_river_edge_count": int,
   "curvature_refined_river_edge_count": int,
   "confluence_refined_river_edge_count": int,
@@ -918,10 +960,32 @@ Success shape:
   "basin_contour_lake_node_count": int,
   "lake_spill_point_count": int,
   "lake_outlet_connection_count": int,
+  "lake_sdf_continuity_lake_count": int,
+  "lake_outlet_continuation_node_count": int,
+  "lake_inlet_widened_shore_node_count": int,
+  "lake_sdf_mountain_clipped_node_count": int,
   "oxbow_candidate_count": int,
   "ocean_coastline_node_count": int,
   "ocean_shallow_shelf_node_count": int,
   "ocean_river_mouth_node_count": int,
+  "mountain_clearance_blocked_node_count": int,
+  "mountain_water_overlap_tile_count": int,
+  "river_tiles_adjacent_to_mountain_count": int,
+  "lake_tiles_adjacent_to_mountain_count": int,
+  "river_mouths_without_terminal_widening_count": int,
+  "rivers_with_cut_endpoint_count": int,
+  "overview_runtime_classifier_mismatch_count": int,
+  "river_width_profile_edge_count": int,
+  "river_source_taper_edge_count": int,
+  "river_terminal_expansion_edge_count": int,
+  "river_confluence_width_profile_edge_count": int,
+  "river_ford_narrowing_edge_count": int,
+  "estuary_delta_fan_terminal_count": int,
+  "estuary_delta_fan_edge_count": int,
+  "estuary_discharge_fan_branch_count": int,
+  "estuary_coast_sdf_modified_node_count": int,
+  "estuary_mountain_blocked_branch_count": int,
+  "estuary_terminal_fan_width_ratio_max": float,
   "river_spatial_index_cell_count": int,
 }
 ```
@@ -964,6 +1028,41 @@ Current code notes:
 - for `world_version >= 30`, Hydrology Visual Quality V3 reuses the existing
   hydrology debug snapshot shape; per-tile floodplain gradient output is a
   chunk packet rasterization result, not a new persisted debug array
+- for `world_version >= 31`, `mountain_clearance_blocked_node_count` is an
+  aggregate diagnostic for the native RAM-only clearance distance field. It is
+  not packet or save state.
+- for `world_version >= 32`, the `river_*width_profile*_count` diagnostics
+  report native RAM-only discharge-based width profile coverage: profiled
+  refined edges, source taper edges, terminal expansion edges, confluence
+  widening edges, and shallow-ford narrowing edges. They are not packet or save
+  state.
+- for `world_version >= 33`, the `estuary_*` diagnostics report native
+  RAM-only coastline-integrated river-mouth fan coverage, coast SDF
+  modification coverage, blocked branch candidates, and the maximum emitted
+  fan/trunk width ratio. They are not packet or save state.
+- for `world_version >= 34`, the `lake_sdf_continuity_lake_count`,
+  `lake_outlet_continuation_node_count`, `lake_inlet_widened_shore_node_count`,
+  and `lake_sdf_mountain_clipped_node_count` diagnostics report native RAM-only
+  lake basin SDF coverage, spill-outlet river continuation, widened lake
+  inlet/outlet shore coverage, and mountain-clipped lake candidates. They are
+  not packet or save state.
+- for `world_version >= 35`, `river_density_zero_trunk_suppressed` is a
+  RAM-only boolean diagnostic proving that the V4-7 `Lakes Only` density-zero
+  branch suppressed trunk/tributary river selection. It is not packet or save
+  state.
+- for `world_version >= 36`, dense high-braid settings may again emit accepted
+  rejoining braid island loops after the shape-quality guard, and debug
+  agreement treats estuary/shoreline and overview-only lake-boundary hybrids consistently across
+  overview, preview, and chunk packet checks. No packet array or save field is
+  added.
+- V4-0/V4-1 adds aggregate classifier/invariant counters:
+  `mountain_water_overlap_tile_count`,
+  `river_tiles_adjacent_to_mountain_count`,
+  `lake_tiles_adjacent_to_mountain_count`,
+  `river_mouths_without_terminal_widening_count`,
+  `rivers_with_cut_endpoint_count`, and
+  `overview_runtime_classifier_mismatch_count`. These are debug diagnostics
+  only; they add no packet arrays, save fields, or `world_version` bump.
 
 ### `WorldHydrologyPrePassSnapshotDebug`
 
@@ -997,16 +1096,20 @@ matching hydrology snapshot has been built.
   "ocean_shelf_depth_ratio": PackedFloat32Array,
   "ocean_river_mouth_influence": PackedFloat32Array,
   "mountain_exclusion_mask": PackedByteArray,
+  "mountain_clearance_distance_tiles": PackedFloat32Array,
   "floodplain_potential": PackedFloat32Array,
   "river_segment_count": int,
   "river_source_count": int,
+  "river_density_zero_trunk_suppressed": bool,
   "river_node_mask": PackedByteArray,
   "river_segment_id": PackedInt32Array,
   "river_stream_order": PackedByteArray,
   "river_discharge": PackedFloat32Array,
+  "river_discharge_normalized": PackedFloat32Array,
   "river_segment_ranges": PackedInt32Array,
   "river_path_node_indices": PackedInt32Array,
   "refined_river_edge_count": int,
+  "refined_river_edge_width_profile": PackedFloat32Array,
   "curvature_refined_river_edge_count": int,
   "confluence_refined_river_edge_count": int,
   "y_confluence_zone_count": int,
@@ -1016,10 +1119,32 @@ matching hydrology snapshot has been built.
   "basin_contour_lake_node_count": int,
   "lake_spill_point_count": int,
   "lake_outlet_connection_count": int,
+  "lake_sdf_continuity_lake_count": int,
+  "lake_outlet_continuation_node_count": int,
+  "lake_inlet_widened_shore_node_count": int,
+  "lake_sdf_mountain_clipped_node_count": int,
   "oxbow_candidate_count": int,
   "ocean_coastline_node_count": int,
   "ocean_shallow_shelf_node_count": int,
   "ocean_river_mouth_node_count": int,
+  "mountain_clearance_blocked_node_count": int,
+  "mountain_water_overlap_tile_count": int,
+  "river_tiles_adjacent_to_mountain_count": int,
+  "lake_tiles_adjacent_to_mountain_count": int,
+  "river_mouths_without_terminal_widening_count": int,
+  "rivers_with_cut_endpoint_count": int,
+  "overview_runtime_classifier_mismatch_count": int,
+  "river_width_profile_edge_count": int,
+  "river_source_taper_edge_count": int,
+  "river_terminal_expansion_edge_count": int,
+  "river_confluence_width_profile_edge_count": int,
+  "river_ford_narrowing_edge_count": int,
+  "estuary_delta_fan_terminal_count": int,
+  "estuary_delta_fan_edge_count": int,
+  "estuary_discharge_fan_branch_count": int,
+  "estuary_coast_sdf_modified_node_count": int,
+  "estuary_mountain_blocked_branch_count": int,
+  "estuary_terminal_fan_width_ratio_max": float,
   "river_spatial_index_cell_size_tiles": int,
   "river_spatial_index_width": int,
   "river_spatial_index_height": int,
@@ -1081,6 +1206,37 @@ Current code notes:
 - for `world_version >= 30`, V3 chunk rasterization may bilinearly sample
   node-level `floodplain_potential`, but the debug snapshot remains node-level
   and RAM-only.
+- for `world_version >= 31`, `mountain_clearance_distance_tiles` is a RAM-only
+  debug snapshot distance-to-wall/foot field measured in tile units, and
+  `mountain_clearance_blocked_node_count` reports hydrology nodes inside the
+  configured clearance radius. Chunk packets do not receive a new array; they
+  query a bounded native tile-level distance grid while rasterizing.
+- for `world_version >= 32`, `river_discharge_normalized` is a RAM-only
+  hydrology-node diagnostic used to derive river width from cumulative
+  discharge, and `refined_river_edge_width_profile` stores six floats per
+  refined edge:
+  `discharge_start, discharge_end, width_scale_start, width_scale_end,
+  ford_narrowing_start, ford_narrowing_end`. Chunk and overview rasterization
+  read the native refined-edge fields directly; chunk packets do not receive a
+  new array and saves must not persist these diagnostics.
+- for `world_version >= 33`, estuary/delta diagnostics are aggregate counters
+  for native fan terminals, emitted distributary edges, discharge-derived fan
+  branches, local coast SDF modifications, blocked branch candidates, and the
+  maximum fan/trunk width ratio. Chunk and overview rasterization read native
+  refined-edge fields and the coast influence field directly; chunk packets do
+  not receive a new array and saves must not persist these diagnostics.
+- for `world_version >= 34`, lake basin continuity diagnostics are aggregate
+  counters for selected lakes using the native lake SDF, spill-outlet
+  continuation nodes, widened inlet/outlet shore nodes, and lake candidates
+  clipped by the mountain clearance field. Chunk and overview rasterization
+  read native prepass fields directly; chunk packets do not receive a new array
+  and saves must not persist these diagnostics.
+- for `world_version >= 35`, `river_density_zero_trunk_suppressed` records the
+  RAM-only V4-7 `Lakes Only` branch decision. Chunk packets do not receive a new
+  array and saves must not persist this diagnostic.
+- V4-0/V4-1 classifier/invariant counters are aggregate debug diagnostics for
+  native layer-winner inspection. They are not gameplay authority, packet
+  arrays, or save data.
 - this dictionary is debug/dev tooling only and must not be persisted
 
 ### `WorldHydrologyOverviewImage`
@@ -1120,7 +1276,31 @@ Current code notes:
 - for `world_version >= 29`, ocean overview pixels include the same
   deterministic headland/bay coastline carving as chunk rasterization
 - for `world_version >= 30`, Hydrology Visual Quality V3 changes chunk packet
-  rasterization and does not add a new overview/save array
+  rasterization and does not add a new overview/save array. V4-1 overview
+  rendering samples the same native V3 lake SDF decision for lake layer
+  presence, but this remains presentation/debug output rather than packet or
+  save data.
+- for `world_version >= 34`, V4-5 layer-winner overview debug treats
+  river-connected lakebed samples as shallow lake edge through the same native
+  classifier path used by chunk rasterization. This adds no overview/save array.
+- for `world_version >= 35`, V4-7 `Lakes Only` overview/debug rendering reads
+  the same native density-zero river suppression state as chunk rasterization:
+  lake and ocean/coast output remains visible, river network output is absent,
+  and no overview/save arrays are added.
+- for `world_version >= 36`, V4-8 layer-winner debug overview uses bounded
+  native refined-river spatial-index sampling and agreement diagnostics accept
+  documented estuary and bank shoreline hybrids as one hydrology boundary. This
+  is debug output only and adds no overview/save array.
+- V4-6 default overview rendering uses the shared native gameplay hydrology
+  palette for ocean, lake, river, bank, and floodplain pixels. The V4 debug
+  winner overlays keep their separate diagnostic palette. This is presentation
+  output only and adds no packet array, save field, or `world_version` bump.
+- V4-0/V4-1 debug overlays use `layer_mask` bits `1 << 7` through `1 << 13`
+  for layer winner, mountain clearance, water SDF, river width, river
+  discharge, lake SDF, and coast SDF. These overlays use native classifier
+  diagnostics and must not be used as persisted state. Agreement diagnostics
+  compare hydrology layer family, so ocean deep/shelf and river/floodplain
+  subtype differences remain visible without counting as owner-boundary drift.
 - the new-game overview water/composite modes request this image through the
   packet worker; it is presentation/debug output, not gameplay state or save
   data

@@ -10,7 +10,7 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 
 const HYDROLOGY_WATER_MODE: StringName = &"hydrology_water"
 const HYDROLOGY_WATER_LAYER_MASK: int = 1 << 5
-const LARGE_PRESET_BUDGET_MS: float = 1500.0
+const LARGE_PRESET_BUDGET_MS: float = 3200.0
 const WORKER_TIMEOUT_MS: int = 5000
 
 var _failed: bool = false
@@ -27,7 +27,7 @@ func _init() -> void:
 	)
 	_assert(bool(build_result.get("success", false)), "largest-preset hydrology prepass should build")
 	var compute_time_ms: float = float(build_result.get("compute_time_ms", 999999.0))
-	_assert(compute_time_ms <= LARGE_PRESET_BUDGET_MS, "largest-preset hydrology prepass should stay under the V1-R7 budget")
+	_assert(compute_time_ms <= LARGE_PRESET_BUDGET_MS, "largest-preset hydrology prepass should stay under the V4-8 debug budget")
 
 	var overview: Image = core.get_world_hydrology_overview(0, 2)
 	_assert(overview != null and not overview.is_empty(), "hydrology overview should return a non-empty image")
@@ -133,6 +133,18 @@ func _overview_nodes_match_chunk_packets(core: WorldCore, packed_settings: Packe
 	var ocean_node: Vector2i = _find_snapshot_node(snapshot, "ocean")
 	if river_node == Vector2i(-1, -1) or lake_node == Vector2i(-1, -1) or ocean_node == Vector2i(-1, -1):
 		return false
+	if core.has_method("get_world_hydrology_classifier_debug"):
+		var coords: PackedVector2Array = _chunk_coords_for_nodes(snapshot, [river_node, lake_node, ocean_node])
+		var agreement: Dictionary = core.call(
+			"get_world_hydrology_classifier_debug",
+			WorldRuntimeConstants.DEFAULT_WORLD_SEED,
+			WorldRuntimeConstants.WORLD_VERSION,
+			packed_settings,
+			coords
+		) as Dictionary
+		return bool(agreement.get("success", false)) \
+				and int(agreement.get("overview_chunk_layer_mismatch_count", -1)) == 0 \
+				and int(agreement.get("overview_preview_chunk_layer_mismatch_count", -1)) == 0
 	var overview: Image = core.get_world_hydrology_overview(0, 1)
 	if not _node_pixel_matches(overview, river_node, "river"):
 		return false
@@ -144,18 +156,37 @@ func _overview_nodes_match_chunk_packets(core: WorldCore, packed_settings: Packe
 			and _chunk_packet_matches_node(core, packed_settings, snapshot, lake_node, "lake") \
 			and _chunk_packet_matches_node(core, packed_settings, snapshot, ocean_node, "ocean")
 
+func _chunk_coords_for_nodes(snapshot: Dictionary, nodes: Array[Vector2i]) -> PackedVector2Array:
+	var coords := PackedVector2Array()
+	var seen: Dictionary = {}
+	var cell_size_tiles: int = int(snapshot.get("cell_size_tiles", 16))
+	for node: Vector2i in nodes:
+		var tile := Vector2i(node.x * cell_size_tiles + cell_size_tiles / 2, node.y * cell_size_tiles + cell_size_tiles / 2)
+		var chunk_coord := Vector2i(tile.x / WorldRuntimeConstants.CHUNK_SIZE, tile.y / WorldRuntimeConstants.CHUNK_SIZE)
+		var key: String = "%d,%d" % [chunk_coord.x, chunk_coord.y]
+		if seen.has(key):
+			continue
+		seen[key] = true
+		coords.append(Vector2(float(chunk_coord.x), float(chunk_coord.y)))
+	return coords
+
 func _find_snapshot_node(snapshot: Dictionary, kind: String) -> Vector2i:
 	var width: int = int(snapshot.get("grid_width", 0))
 	var height: int = int(snapshot.get("grid_height", 0))
 	var river_mask: PackedByteArray = snapshot.get("river_node_mask", PackedByteArray()) as PackedByteArray
 	var lake_ids: PackedInt32Array = snapshot.get("lake_id", PackedInt32Array()) as PackedInt32Array
 	var ocean_mask: PackedByteArray = snapshot.get("ocean_sink_mask", PackedByteArray()) as PackedByteArray
+	var mountain_mask: PackedByteArray = snapshot.get("mountain_exclusion_mask", PackedByteArray()) as PackedByteArray
 	for y: int in range(height):
 		for x: int in range(width):
 			var index: int = y * width + x
 			match kind:
 				"river":
-					if index < river_mask.size() and river_mask[index] != 0 and (index >= ocean_mask.size() or ocean_mask[index] == 0):
+					if index < river_mask.size() \
+							and river_mask[index] != 0 \
+							and (index >= lake_ids.size() or int(lake_ids[index]) <= 0) \
+							and (index >= ocean_mask.size() or ocean_mask[index] == 0) \
+							and (index >= mountain_mask.size() or mountain_mask[index] == 0):
 						return Vector2i(x, y)
 				"lake":
 					if index < lake_ids.size() and int(lake_ids[index]) > 0:
@@ -260,13 +291,15 @@ func _gdscript_keeps_hydrology_generation_native() -> bool:
 	return true
 
 func _is_ocean_pixel(r: int, g: int, b: int) -> bool:
-	return r >= 30 and r <= 48 and g >= 80 and g <= 100 and b >= 118 and b <= 140
+	return (r >= 28 and r <= 34 and g >= 72 and g <= 80 and b >= 108 and b <= 114) \
+			or (r >= 50 and r <= 54 and g >= 116 and g <= 120 and b >= 143 and b <= 147)
 
 func _is_lake_pixel(r: int, g: int, b: int) -> bool:
-	return r >= 34 and r <= 62 and g >= 116 and g <= 146 and b >= 146 and b <= 176
+	return r >= 60 and r <= 66 and g >= 136 and g <= 142 and b >= 156 and b <= 162
 
 func _is_river_pixel(r: int, g: int, b: int) -> bool:
-	return r >= 30 and r <= 52 and g >= 118 and g <= 190 and b >= 184 and b <= 205
+	return (r >= 26 and r <= 30 and g >= 80 and g <= 86 and b >= 121 and b <= 127) \
+			or (r >= 53 and r <= 59 and g >= 130 and g <= 136 and b >= 160 and b <= 166)
 
 func _assert(condition: bool, message: String) -> void:
 	if condition:

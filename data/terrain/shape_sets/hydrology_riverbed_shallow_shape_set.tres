@@ -4,7 +4,7 @@
 
 [sub_resource type="Gradient" id="Gradient_riverbed_shallow"]
 offsets = PackedFloat32Array(0, 1)
-colors = PackedColorArray(0.61, 0.43, 0.24, 1, 0.61, 0.43, 0.24, 1)
+colors = PackedColorArray(0.219607843137255, 0.52156862745098, 0.63921568627451, 1, 0.219607843137255, 0.52156862745098, 0.63921568627451, 1)
 
 [sub_resource type="GradientTexture2D" id="GradientTexture2D_riverbed_shallow"]
 gradient = SubResource("Gradient_riverbed_shallow")

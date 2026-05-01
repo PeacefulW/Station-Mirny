@@ -858,6 +858,27 @@ msgstr "Medium cylinder"
 msgid "UI_WORLDGEN_SIZE_LARGE"
 msgstr "Large cylinder"
 
+msgid "UI_WORLDGEN_WATER_PRESET_LABEL"
+msgstr "Water preset"
+
+msgid "UI_WORLDGEN_WATER_PRESET_FULL_HYDROLOGY"
+msgstr "Full Hydrology"
+
+msgid "UI_WORLDGEN_WATER_PRESET_LAKES_ONLY"
+msgstr "Lakes Only"
+
+msgid "UI_WORLDGEN_WATER_PRESET_SPARSE_ARCTIC_RIVERS"
+msgstr "Sparse Arctic Rivers"
+
+msgid "UI_WORLDGEN_WATER_PRESET_WET_RIVER_NETWORK"
+msgstr "Wet River Network"
+
+msgid "UI_WORLDGEN_WATER_PRESET_DELTA_HEAVY"
+msgstr "Delta Heavy"
+
+msgid "UI_WORLDGEN_WATER_PRESET_CUSTOM"
+msgstr "Custom"
+
 msgid "UI_WORLDGEN_FOUNDATION_OCEAN_BAND"
 msgstr "Ocean band"
 

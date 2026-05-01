@@ -858,6 +858,27 @@ msgstr "Средний цилиндр"
 msgid "UI_WORLDGEN_SIZE_LARGE"
 msgstr "Большой цилиндр"
 
+msgid "UI_WORLDGEN_WATER_PRESET_LABEL"
+msgstr "Пресет воды"
+
+msgid "UI_WORLDGEN_WATER_PRESET_FULL_HYDROLOGY"
+msgstr "Полная гидрология"
+
+msgid "UI_WORLDGEN_WATER_PRESET_LAKES_ONLY"
+msgstr "Только озёра"
+
+msgid "UI_WORLDGEN_WATER_PRESET_SPARSE_ARCTIC_RIVERS"
+msgstr "Редкие арктические реки"
+
+msgid "UI_WORLDGEN_WATER_PRESET_WET_RIVER_NETWORK"
+msgstr "Влажная речная сеть"
+
+msgid "UI_WORLDGEN_WATER_PRESET_DELTA_HEAVY"
+msgstr "Большие дельты"
+
+msgid "UI_WORLDGEN_WATER_PRESET_CUSTOM"
+msgstr "Пользовательский"
+
 msgid "UI_WORLDGEN_FOUNDATION_OCEAN_BAND"
 msgstr "Океанический пояс"
 

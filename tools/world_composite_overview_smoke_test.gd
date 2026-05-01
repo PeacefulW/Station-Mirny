@@ -43,7 +43,7 @@ func _init() -> void:
 		composite_image.get_width() == foundation_image.get_width() and composite_image.get_height() == foundation_image.get_height(),
 		"composite overview should preserve the foundation overview dimensions"
 	)
-	_assert_composite_preserves_foundation_mountains(settings_packed)
+	_assert(_native_composite_allows_water_over_foundation_mountains(), "composite overview should not keep the old foundation-mountain skip over water")
 	var pixel_counts: Dictionary = _count_composite_pixels(composite_image)
 	_assert(int(pixel_counts.get("water", 0)) > 0, "composite overview should contain river/lake/ocean pixels")
 	_assert(int(pixel_counts.get("relief", 0)) > 0, "composite overview should keep visible relief pixels")
@@ -136,80 +136,10 @@ func _count_composite_pixels(image: Image) -> Dictionary:
 func _is_water_pixel(r: int, g: int, b: int) -> bool:
 	return b >= 110 and b > r + 35 and b >= g + 8
 
-func _assert_composite_preserves_foundation_mountains(settings_packed: PackedFloat32Array) -> void:
-	var checked_mountain_pixels: int = 0
-	var seeds: Array[int] = [
-		WorldRuntimeConstants.DEFAULT_WORLD_SEED,
-		1,
-		7,
-		23,
-		42,
-		1337,
-		26031,
-	]
-	for seed: int in seeds:
-		var core := WorldCore.new()
-		var build_result: Dictionary = core.build_world_hydrology_prepass(
-			seed,
-			WorldRuntimeConstants.WORLD_VERSION,
-			settings_packed
-		)
-		_assert(
-			bool(build_result.get("success", false)),
-			"hydrology prepass should build for composite mountain priority check"
-		)
-		var foundation_image: Image = core.call(
-			"get_world_foundation_overview",
-			0,
-			WorldFoundationPalette.OVERVIEW_PIXELS_PER_CELL
-		) as Image
-		var composite_image: Image = core.call(
-			"get_world_composite_overview",
-			COMPOSITE_LAYER_MASK,
-			WorldFoundationPalette.OVERVIEW_PIXELS_PER_CELL
-		) as Image
-		_assert(
-			foundation_image != null and composite_image != null,
-			"overview images should exist for composite mountain priority check"
-		)
-		if foundation_image == null or composite_image == null:
-			continue
-		_assert(
-			foundation_image.get_width() == composite_image.get_width() and foundation_image.get_height() == composite_image.get_height(),
-			"foundation and composite overview dimensions should match for mountain priority check"
-		)
-		var foundation_data: PackedByteArray = foundation_image.get_data()
-		var composite_data: PackedByteArray = composite_image.get_data()
-		var max_offset: int = min(foundation_data.size(), composite_data.size())
-		for offset: int in range(0, max_offset, 4):
-			var r: int = int(foundation_data[offset])
-			var g: int = int(foundation_data[offset + 1])
-			var b: int = int(foundation_data[offset + 2])
-			var a: int = int(foundation_data[offset + 3])
-			if not _is_foundation_mountain_pixel(r, g, b, a):
-				continue
-			checked_mountain_pixels += 1
-			if (
-				composite_data[offset] != foundation_data[offset] or
-				composite_data[offset + 1] != foundation_data[offset + 1] or
-				composite_data[offset + 2] != foundation_data[offset + 2] or
-				composite_data[offset + 3] != foundation_data[offset + 3]
-			):
-				_assert(false, "composite overview should not overwrite foundation mountain pixels with hydrology overlay")
-				return
-	_assert(checked_mountain_pixels > 0, "composite mountain priority check should inspect foundation mountain pixels")
-
-func _is_foundation_mountain_pixel(r: int, g: int, b: int, a: int) -> bool:
-	if a != 255:
-		return false
-	var is_wall: bool = r >= 164 and r <= 238 and g == r - 4 and b == r - 18
-	var is_foot: bool = (
-		r >= 107 and r <= 178 and
-		g >= 98 and g <= 143 and
-		b >= 74 and b <= 102 and
-		r > g and g > b
-	)
-	return is_wall or is_foot
+func _native_composite_allows_water_over_foundation_mountains() -> bool:
+	var source: String = FileAccess.get_file_as_string("res://gdextension/src/world_core.cpp")
+	return not source.contains("p_foundation_mountain_mask[dst_index] != 0U") \
+			and source.contains("blend_overview_images")
 
 func _gdscript_backend_uses_native_composite() -> bool:
 	var backend_source: String = FileAccess.get_file_as_string("res://core/systems/world/world_chunk_packet_backend.gd")

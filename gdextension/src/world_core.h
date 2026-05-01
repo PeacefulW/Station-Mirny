@@ -43,6 +43,7 @@ public:
 	Dictionary get_world_hydrology_snapshot(int64_t p_layer_mask, int64_t p_downscale_factor);
 	Ref<Image> get_world_hydrology_overview(int64_t p_layer_mask, int64_t p_pixels_per_cell);
 	Ref<Image> get_world_composite_overview(int64_t p_layer_mask, int64_t p_pixels_per_cell);
+	Dictionary get_world_hydrology_classifier_debug(int64_t p_seed, int64_t p_world_version, PackedFloat32Array p_settings_packed, PackedVector2Array p_coords);
 #endif
 
 private:

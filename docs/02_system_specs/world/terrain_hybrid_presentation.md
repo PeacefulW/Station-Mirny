@@ -364,6 +364,32 @@ V3-7 implementation:
 - V3-7 is presentation only: no `WORLD_VERSION` bump, no packet shape change,
   no save payload change, and no new command/event boundary.
 
+## Hydrology Unified Water Presentation
+
+River/Lake/Ocean Integration V4-6 keeps hydrology ownership native-side while
+unifying player-facing water colours across chunk TileSets, 33x33 preview patch
+images, and hydrology overview images.
+
+Implementation contract:
+
+- `HydrologyTileClassifier.gameplay_winner_color(...)` is the native gameplay
+  presentation palette for hydrology layer winners.
+- `HydrologyTileClassifier.debug_winner_color(...)` remains the separate debug
+  palette for V4 layer-winner overlays and agreement diagnostics.
+- `WorldCore.make_world_preview_patch_image(..., "terrain")` resolves preview
+  pixels from the packet layer winner and consumes `floodplain_strength` only
+  as presentation strength. It must not reinterpret terrain ids as another
+  gameplay truth.
+- `WorldHydrologyPrePass` default overview rendering uses the same gameplay
+  palette for ocean, lake, river, bank, and floodplain pixels. River/bank edge
+  transitions are derived from the native SDF/radius sample already used by the
+  overview raster.
+- Runtime hydrology terrain shape resources use the same gameplay palette for
+  `ocean_floor`, `lakebed`, `riverbed_deep`, `riverbed_shallow`, and `shore`.
+  Floodplain remains a chunk-local overlay driven by `floodplain_strength`.
+- V4-6 is presentation only: no `WORLD_VERSION` bump, no packet shape change,
+  no save payload change, and no new command/event boundary.
+
 ## Registry and ID Model
 
 Terrain presentation should be resolved through IDs and data resources, not

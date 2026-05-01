@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.7
-last_updated: 2026-04-30
+version: 1.9
+last_updated: 2026-05-01
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -61,7 +61,15 @@ advance to `world_version = 29`.
 V1-R18 lands the Hydrology Visual Quality V3 batch: ocean-band mountain
 suppression, continuous river width, distributary fan-out, per-tile lake
 mountain conflict, per-tile lake basin SDF, and soft floodplain gradient.
-Current new worlds advance to `world_version = 30`.
+River/Lake/Ocean Integration V4-2 through V4-5 then add native
+mountain-clearance, discharge-width profile, coastline-integrated estuary/delta
+output, and lake basin continuity output. V4-7 adds the preset-selected
+`Lakes Only` density-zero branch, which preserves lake/ocean generation while
+suppressing trunk/tributary river selection for new worlds. Current new worlds
+advance to `world_version = 35`; existing `world_version = 34` saves keep the
+legacy density-zero river behavior. V4-8 advances current new worlds to
+`world_version = 36` for native dense braid-loop closure and debug agreement
+semantics while preserving existing `world_version <= 35` generated output.
 
 V1-R3B has landed the first gameplay packet rasterization:
 
@@ -472,6 +480,26 @@ Existing saves must load the embedded `worldgen_settings.rivers` copy once a
 river-enabled world version exists; they must not reread the repository `.tres`
 on load.
 
+V4-7 adds transient preset helpers on `RiverGenSettings`:
+
+- `Full Hydrology` is the default preset and matches the hard-coded/default
+  saved field values;
+- `Lakes Only`, `Sparse Arctic Rivers`, `Wet River Network`, and `Delta Heavy`
+  map to the same existing fields instead of adding a persisted preset field;
+- `Custom` is UI state used when sliders no longer match a preset and is not a
+  selectable generation preset;
+- `preset_id` is not written to `worldgen_settings.rivers`; saves persist only
+  the field list above.
+
+For `world_version >= 35`, `Lakes Only` uses `density = 0.0`,
+`target_trunk_count = 0`, `braid_chance = 0.0`, and `delta_scale = 0.0` as a
+native branch that suppresses trunk/tributary river selection while keeping the
+hydrology prepass, lake basins, and ocean/coast output enabled. Earlier world
+versions keep the previous density-zero behavior for existing saves. V4-7
+keeps non-`Lakes Only` hydrology foundation/detail seed inputs pinned to the
+V4-5 shape boundary so the version bump does not reseed ordinary Full
+Hydrology lakes and rivers.
+
 ### Terrain classes
 
 V1-R1 reserves concrete numeric ids in `world_runtime_constants.gd` and documents
@@ -791,7 +819,7 @@ Load order:
 
 | Operation | Class | Dirty unit | Budget / rule |
 |---|---|---|---|
-| Hydrology prepass | Boot/new-game-preview worker | Whole hydrology grid | Target <= 1500 ms on largest V1 preset at default `16`-tile hydrology cells; no main-thread wait outside load/preview progress. |
+| Hydrology prepass | Boot/new-game-preview worker | Whole hydrology grid | Target <= 3200 ms on largest V4 debug preset at default `16`-tile hydrology cells; no main-thread wait outside load/preview progress. |
 | Chunk river rasterization | Background worker chunk generation | `32 x 32` chunk plus bounded halo | Runs inside native packet generation; no GDScript tile loop. |
 | Chunk water apply | Background apply | Sliced chunk packet publish | Uses existing streaming publish budget and compact arrays. |
 | Runtime water overlay update | Interactive-local for one explicit override; background for future broad drought/refill | Aligned `16 x 16` water block | Only local overlay dirty update may be synchronous; broader changes are queued. |
@@ -1151,6 +1179,17 @@ V1-R18 has updated the Hydrology Visual Quality V3 boundary for:
   mountain suppression boundary;
 - `docs/02_system_specs/world/terrain_hybrid_presentation.md` current
   floodplain strength gradient consumption boundary.
+
+River/Lake/Ocean Integration V4 has updated the live river-mouth boundary for:
+
+- `docs/02_system_specs/meta/packet_schemas.md` current `world_version = 33`,
+  unchanged packet array shape, and estuary/delta fan flag semantics;
+- `docs/02_system_specs/meta/system_api.md` current `WorldCore` chunk packet,
+  hydrology snapshot, and hydrology overview notes for V4 native diagnostics;
+- `docs/02_system_specs/meta/save_and_persistence.md` current
+  `world_version = 33` baseline without changing the save shape;
+- `docs/02_system_specs/world/river_lake_integration_v4_iteration_plan_codex_ready.md`
+  current V4 iteration status and RAM-only estuary/delta diagnostics.
 
 Future iterations that change live behavior must still update:
 
@@ -1546,6 +1585,37 @@ Still true:
 - no save payload shape, runtime event, or new packet array is introduced;
 - V3-7 presentation polish remains a follow-up for authored floodplain overlay
   art and does not require another `world_version` bump.
+
+### River/Lake/Ocean Integration V4 - native water shape fixes
+
+Landed:
+- V4-2 advances current new worlds to `world_version = 31` for native
+  river/lake mountain-clearance packet output;
+- V4-3 advances current new worlds to `world_version = 32` for native
+  discharge-derived river width/depth packet output;
+- V4-4 advances current new worlds to `world_version = 33` for native
+  coastline-integrated estuary/delta coast SDF and distributary fan output;
+- V4-5 advances current new worlds to `world_version = 34` for native lake
+  basin continuity, spill-outlet continuation diagnostics, and widened
+  inlet/outlet lake shore packet output;
+- V4-6 is presentation-only: runtime hydrology shape resources, native 33x33
+  preview patches, and hydrology overview images now share one gameplay water
+  palette while debug overlays keep separate diagnostic colours.
+- V4-7 advances current new worlds to `world_version = 35` only for
+  preset-selected density-zero `Lakes Only` behavior: trunk/tributary river
+  selection is suppressed natively, while hydrology/lake/ocean generation stays
+  enabled and no new save fields are added.
+- V4-8 advances current new worlds to `world_version = 36` for native closure:
+  dense high-braid settings can again emit accepted rejoining braid island
+  loops after the shape-quality guard, refined overview sampling is bounded by
+  the native river spatial index, and chunk/overview/preview agreement counters
+  treat documented estuary, bank shoreline, and overview-only lake-boundary hybrids as the same hydrology boundary. Existing `world_version <= 35` saves keep their prior generated
+  output.
+
+Still true:
+- the existing hydrology graph remains the skeleton;
+- no save payload shape, runtime event, or new packet array is introduced;
+- all canonical hydrology rasterization remains native-side.
 
 ### New-game composite overview - Default player map
 
