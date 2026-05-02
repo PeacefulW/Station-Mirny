@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.15
-last_updated: 2026-05-01
+version: 0.5
+last_updated: 2026-04-24
 related_docs:
   - ../README.md
   - commands.md
@@ -13,7 +13,6 @@ related_docs:
   - packet_schemas.md
   - save_and_persistence.md
   - multiplayer_authority_and_replication.md
-  - ../world/river_generation_v1.md
 ---
 
 # System API
@@ -44,13 +43,10 @@ It covers only the minimal core set confirmed in code during this pass:
 - `BuildingSystem`
 - `WorldCore`
 - `WorldStreamer`
-- `EnvironmentOverlay`
-- River Generation V1-R17 chunk packet / current-water overlay boundary and
-  `RiverGenSettings`
 
 ## Out of Scope
 
-- future API design outside approved inactive boundaries
+- future API design
 - undocumented systems outside the minimal pass
 - private helper methods and backing dictionaries
 - any contract not directly confirmed in code
@@ -290,7 +286,6 @@ Not documented here as safe entrypoints:
 Owner files:
 - `gdextension/src/world_core.cpp`
 - `gdextension/src/world_prepass.cpp`
-- `gdextension/src/world_hydrology_prepass.cpp`
 
 Role:
 - native deterministic world-generation boundary and owner of the RAM-only
@@ -300,28 +295,20 @@ Confirmed public native surface:
 
 | Surface | Return | Notes |
 |---|---|---|
-| `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate. For `world_version >= 17`, builds/reuses `WorldHydrologyPrePass` internally and emits the hydrology packet fields documented in `packet_schemas.md`; for `world_version >= 18`, it also rasterizes native lakebed / lake shoreline output from `lake_id`; for `world_version >= 19`, it emits delta / estuary widening and controlled split flags; for `world_version >= 20`, lake shorelines, river centerlines, and river widths use organic native rasterization; for `world_version >= 21`, ocean edges may emit native walkable `TERRAIN_SHORE` band output instead of only ocean-floor-adjacent ground edges; for `world_version >= 22`, river rasterization reads native refined whole-path centerline edges through a bounded spatial-index query instead of scanning all river features per chunk; for `world_version >= 23`, river width/depth classification uses refined-edge curvature and post-confluence context, and post-confluence reaches may emit `HYDROLOGY_FLAG_CONFLUENCE`; for `world_version >= 24`, qualifying confluences produce native Y-shaped zones that mark upstream arms and the downstream reach with the existing confluence flag; for `world_version >= 25`, eligible controlled braid splits use native rejoining island-loop geometry while keeping the existing braid split flag; for `world_version >= 26`, lake rasterization uses native basin-contour depth/spill data for shallow rim and deep basin classification; for `world_version >= 27`, ocean rasterization uses native coast distance, shelf depth, and river-mouth influence fields to classify shore, shallow shelf, and deep ocean; for `world_version >= 28`, river width is continuous along centerline distance, braid loops are more strictly validated, and coastline distance is sampled as tile-level geometry; for `world_version >= 29`, coastline sampling adds deterministic multi-scale headland/bay carving; for `world_version >= 30`, Hydrology Visual Quality V3 activates ocean-band mountain suppression, continuous river width, distributary fan-out, per-tile lake mountain conflict, per-tile lake basin SDF, and soft floodplain gradient flags; for `world_version >= 31`, river/lake rasterization queries a bounded native tile-level wall/foot clearance field and suppresses non-ocean water inside `mountain_clearance_tiles`; for `world_version >= 32`, river width/depth rasterization derives channel radius from native normalized cumulative discharge, source taper, confluence widening, terminal expansion, and shallow-ford narrowing profile fields instead of primarily from integer stream order; for `world_version >= 33`, eligible river mouths adjust local coast SDF/shelf classification and emit discharge-aware delta fan branches using the existing delta/braid flags; for `world_version >= 34`, river-connected lake inlet/outlet samples keep lake ownership but rasterize as shallow widened lake shore through the existing lakebed/shore packet fields; for `world_version >= 35`, the V4-7 Lakes Only density-zero branch suppresses trunk/tributary river selection while preserving hydrology, lake, and ocean/coast output; for `world_version >= 36`, V4-8 restores dense braid-loop acceptance after the shape-quality guard while preserving existing packet fields. |
+| `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate; current chunk generation emits only ground and mountain terrain classes and does not require a `WorldPrePass` read. |
+| `make_world_preview_patch_image(packet: Dictionary, render_mode: StringName)` | `Image` | Builds a lightweight preview patch image from an existing `ChunkPacketV1`; current modes are terrain, mountain id, and mountain classification. It reads only ground/mountain packet fields and does not generate chunks. |
 | `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
-| `build_world_hydrology_prepass(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Builds or reuses a RAM-only `WorldHydrologyPrePass` snapshot and returns `WorldHydrologyPrePassBuildResult`. Requires extended settings payload with river fields. Does not emit gameplay river terrain. |
 
 Dev-only native surface:
 
 | Surface | Return | Notes |
 |---|---|---|
 | `get_world_foundation_snapshot(layer_mask: int, downscale_factor: int)` | `Dictionary` | Debug build only; returns the current `WorldPrePass` channel snapshot |
-| `get_world_foundation_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured high-resolution overview image. `layer_mask = 0` renders the current realised terrain classes: ground, mountain foot, and mountain wall. The hydro-height layer mask renders the raw `hydro_height` substrate channel as a diagnostic height map. |
-| `get_world_hydrology_snapshot(layer_mask: int, downscale_factor: int)` | `Dictionary` | Debug build only; returns the current `WorldHydrologyPrePass` diagnostic snapshot. For `world_version >= 31`, the snapshot includes RAM-only `mountain_clearance_distance_tiles` and `mountain_clearance_blocked_node_count` diagnostics; for `world_version >= 32`, it also includes RAM-only `river_discharge_normalized`, `refined_river_edge_width_profile`, and aggregate river width-profile counters; for `world_version >= 33`, it also includes aggregate estuary/delta fan and coast SDF modification counters; for `world_version >= 34`, it also includes aggregate lake SDF continuity, outlet continuation, widened inlet/outlet shore, and mountain-clipped lake counters; for `world_version >= 35`, it also includes the RAM-only `river_density_zero_trunk_suppressed` diagnostic; for `world_version >= 36`, the existing braid-loop candidate/edge counters reflect the V4-8 dense-loop closure. These are not save or packet fields. |
-| `get_world_hydrology_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured hydrology overview image. The default layer includes river, lake, ocean, bank, and floodplain presentation pixels over hydrology backing colours; `layer_mask` bit `1 << 6` returns a transparent water-only overlay for the new-game composite overview; V4 debug overlays use `1 << 7` layer winner, `1 << 8` mountain clearance, `1 << 9` water SDF, `1 << 10` river width, `1 << 11` river discharge, `1 << 12` lake SDF, and `1 << 13` coast SDF. For `world_version >= 20`, lake overview pixels use organic shoreline boundaries and river overview pixels use organic meander/width/branch rasterization; for `world_version >= 22`, overview river pixels use the same refined whole-path centerline substrate as chunk rasterization; for `world_version >= 25`, overview river pixels can show the native braid island loop edges from that same substrate; for `world_version >= 26`, lake overview pixels use the same basin-contour threshold as chunk lake rasterization; for V4-1 on `world_version >= 30`, lake overview pixels use the same native V3 lake SDF decision as chunk rasterization; for `world_version >= 27`, ocean overview pixels may distinguish shallow shelf from deep ocean using native shelf depth; for `world_version >= 28`, ocean overview pixels sample the same tile-level coastline geometry as chunk rasterization; for `world_version >= 29`, ocean overview pixels include the same deterministic headland/bay carving as chunk rasterization; for `world_version >= 31`, the mountain-clearance overlay reads the native distance field diagnostics; for `world_version >= 32`, river-width and river-discharge overlays read the native discharge-width profile diagnostics used by chunk rasterization; for `world_version >= 33`, ocean/river-mouth overview pixels read the same estuary-adjusted coast SDF and delta fan geometry used by chunk rasterization; for `world_version >= 34`, layer-winner debug overview uses the same lake inlet/outlet shallow-edge rule as chunk rasterization; for `world_version >= 36`, layer-winner debug overview uses bounded native refined-river spatial-index sampling and the classifier debug agreement treats estuary, shoreline-bank, and overview-only lake-boundary hybrids as one hydrology boundary. V4-6 keeps the default overview gameplay palette shared with native preview/runtime presentation while debug overlays stay on the separate debug palette; this adds no packet arrays, save fields, or `world_version` boundary. |
-| `get_world_composite_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns the player-facing new-game composite overview by composing the foundation terrain overview with the transparent native hydrology overview. Composition stays native-side and does not expose hydrology snapshot arrays to GDScript. V4 water/composite mode lets water winners override foundation mountain pixels; mountain-only debug views stay separate. |
-| `get_world_hydrology_classifier_debug(seed: int, world_version: int, settings_packed: PackedFloat32Array, coords: PackedVector2Array)` | `Dictionary` | Debug build only; builds/reuses native hydrology, generates the requested chunk packets, and returns deterministic V4 hydrology layer-family agreement counters for overview / 33x33 preview / chunk packet comparisons. Ocean deep/shelf and river/floodplain subtypes stay visible in debug colours/codes but are normalized for the agreement counter; for `world_version >= 36`, estuary delta, shoreline-bank, and overview-only lake-boundary hybrids are also normalized as one hydrology boundary. This is diagnostics only and adds no save or packet fields. |
+| `get_world_foundation_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured high-resolution overview image. `layer_mask = 0` renders the current realised terrain classes: ground, mountain foot, and mountain wall. The foundation-height layer mask renders the raw `foundation_height` substrate channel as a diagnostic height map. |
 
 Current code notes:
 - `settings_packed` for `world_version >= 9` must include the mountain fields
   plus V1 foundation indices `9-14`.
-- `build_world_hydrology_prepass(...)` requires the extended V1-R2 settings
-  payload with river indices `15-26`.
-- `generate_chunk_packets_batch(...)` requires the same extended payload for
-  `world_version >= 17`; versions `9..16` keep the foundation-only payload.
 - for `world_version >= 10`, native mountain sampling uses
   `worldgen_settings.world_bounds.width_tiles` as its cylindrical X width;
   `world_version == 9` keeps the legacy `65536`-tile mountain sample-width
@@ -333,57 +320,11 @@ Current code notes:
   persisted and must not be mutated by script code.
 - Preview spawn resolution uses the shared worker wrapper, not a main-thread
   GDScript fallback.
-- New-game overview water/composite modes use the same worker wrapper. They
-  build/reuse `WorldHydrologyPrePass` in native code and publish
-  `get_world_hydrology_overview(...)` as an image or transparent overlay; script
-  code must not read the hydrology snapshot arrays to rasterize rivers, lakes,
-  or oceans. Composite overview composition uses image operations on the worker
-  and publishes one final `Image`. In V4 water/composite mode, transparent
-  hydrology pixels may override foundation mountain pixels for water winners;
-  debug mountain-only overview modes remain separate diagnostics.
-- `WorldHydrologyPrePass` is a derived cache owned by `WorldCore`; it is not
-  persisted. V1-R3B chunk generation reads it internally for riverbed,
-  shore/bank/floodplain, ocean sink, and default water-class rasterization.
-  V1-R4 also reads `lake_id` for lakebed, lake shoreline / bank, and default
-  shallow/deep lake water-class rasterization. V1-R5 uses the existing river
-  graph and `RiverGenSettings` values for native delta / estuary widening and
-  controlled split packet flags. V1-R8 uses the same snapshot and settings for
-  native organic lake shorelines, meandered river raster edges, hydrology
-  overview river lines, and dynamic river width modulation. V1-R9 uses the
-  same ocean sink mask for native walkable ocean shore band packet output.
-  V1-R10 keeps the existing hydrology graph as the skeleton but adds native
-  refined centerline edges and a native spatial index inside the RAM-only
-  snapshot; neither is persisted or exposed to script as per-tile arrays.
-  V1-R11 adds signed curvature and post-confluence classification to those
-  native refined edges for chunk width/depth rasterization and diagnostic
-  aggregate counts; these remain derived RAM-only data. V1-R12 adds native
-  Y-shaped confluence influence weights and aggregate diagnostics to the same
-  refined-edge cache. V1-R13 adds native braid island loop edges and aggregate
-  diagnostics to that same refined-edge cache; these also remain derived
-  RAM-only data. V1-R14 adds native basin-contour lake depth/spill diagnostics
-  and oxbow candidate counts; these also remain derived RAM-only data and are
-  not packet or save arrays. V1-R15 adds native coast distance, shelf depth, and
-  river-mouth influence fields plus aggregate diagnostics; these remain derived
-  RAM-only data and are not packet or save arrays. V1-R16 makes refined river
-  width continuous, tightens braid loop validation, and samples coastline
-  distance for chunk/overview geometry without adding packet or save arrays.
-  V1-R17 adds multi-scale headland/bay carving to that same coastline sampler
-  without adding packet or save arrays. River/Lake/Ocean V4-2 adds native
-  mountain-clearance diagnostics, V4-3 adds native discharge-width profile
-  diagnostics, V4-4 adds native estuary/delta fan and coast SDF counters, and
-  V4-5 adds native lake basin continuity counters; all remain derived RAM-only
-  data and are not packet or save arrays.
 
 Not documented here as safe entrypoints:
 - direct calls to `world_prepass::*` helpers from script, because they are native
   implementation details behind `WorldCore`
-- using dev-only substrate or hydrology snapshot dictionaries as save data or
-  gameplay state
-
-River-enabled chunk generation must keep
-`generate_chunk_packets_batch(...)` as the hot-path packet boundary. It may read
-the native hydrology snapshot/spatial index internally, but script code must not
-derive river centerlines, SDFs, water classes, or atlas transitions.
+- using dev-only substrate snapshot dictionaries as save data or gameplay state
 
 ### WorldStreamer
 
@@ -398,10 +339,9 @@ Confirmed readable entrypoints:
 |---|---|---|
 | `get_world_seed()` | `int` | Current deterministic world seed |
 | `get_world_version()` | `int` | Current canonical world version |
-| `save_world_state()` | `Dictionary` | World save payload for `world.json`, including embedded `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, `worldgen_settings.rivers` for `world_version >= 17`, optional `water_overlay` explicit overrides, and optional `worldgen_signature` |
+| `save_world_state()` | `Dictionary` | World save payload for `world.json`, including embedded `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, and optional `worldgen_signature` |
 | `collect_chunk_diffs()` | `Array[Dictionary]` | Serialized dirty chunk entries |
 | `get_chunk_packet(chunk_coord: Vector2i)` | `Dictionary` | Loaded chunk packet or `{}`; read-only world-domain lookup for `MountainResolver` |
-| `get_current_water_class_at_tile(tile_coord: Vector2i)` | `int` | Effective current water class for a tile, combining loaded packet default with explicit `EnvironmentOverlay` override when present |
 | `get_mountain_cover_sample(world_tile: Vector2i)` | `Dictionary` | Read-only cover sample for one tile: `mountain_id`, `mountain_flags`, `component_id`, `is_opening`, `walkable` |
 | `get_mountain_cover_debug_snapshot(world_tile: Vector2i)` | `Dictionary` | Debug-only snapshot including `inside_outside_state`, active component ids, and `roof_layers_per_chunk_max` |
 | `is_walkable_at_world(world_pos: Vector2)` | `bool` | Reads `base + diff`; returns `false` while a chunk is not ready |
@@ -411,12 +351,10 @@ Confirmed mutation entrypoints:
 
 | Surface | Notes |
 |---|---|
-| `initialize_new_world(seed_value: int, settings: MountainGenSettings, world_bounds: WorldBoundsSettings = null, foundation_settings: FoundationGenSettings = null, river_settings: RiverGenSettings = null)` | New-game entrypoint; freezes mountain, finite-bounds, foundation, and river settings into packed/native form and then delegates to `reset_for_new_game(...)` |
+| `initialize_new_world(seed_value: int, settings: MountainGenSettings, world_bounds: WorldBoundsSettings = null, foundation_settings: FoundationGenSettings = null)` | New-game entrypoint; freezes mountain, finite-bounds, and foundation settings into packed/native form and then delegates to `reset_for_new_game(...)` |
 | `reset_for_new_game(seed, version)` | Clears runtime state, queues native foundation spawn resolution for `world_version >= 9`, applies the resolved new-game spawn tile to the local player before streaming chunks, and emits `world_initialized` |
-| `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, and `worldgen_settings.rivers` for river-enabled versions from `world.json` (or documented defaults where allowed), and clears runtime state |
+| `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, and `worldgen_settings.mountains` from `world.json` (or documented defaults where allowed), and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
-| `set_current_water_class_at_tile(tile_coord: Vector2i, water_class: int, reason: StringName = &"manual")` | Sets one explicit local current-water override through `EnvironmentOverlay`; emits `water_overlay_changed` and updates only the bounded loaded packet walkability block |
-| `clear_current_water_class_at_tile(tile_coord: Vector2i, reason: StringName = &"manual")` | Clears one explicit local current-water override and restores packet-default water behavior for the bounded loaded packet walkability block |
 | `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock |
 | `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver` to switch between outside state and one active cavity |
 
@@ -424,43 +362,8 @@ Not documented here as safe entrypoints:
 - `_streaming_tick()`
 - `_worker_loop()`
 - direct access to `_chunk_packets`, `_chunk_views`, or `_diff_store`
-- direct access to `_water_overlay`
 - direct mutation of native packet dictionaries outside the documented methods
 - mutation of dictionaries returned by `get_chunk_packet()`
-
-### EnvironmentOverlay
-
-Owner file: `core/systems/world/environment_overlay.gd`
-
-Role:
-- authoritative runtime owner for explicit local current-water overrides
-
-Confirmed readable entrypoints:
-
-| Surface | Return | Notes |
-|---|---|---|
-| `has_water_class_override(tile_coord: Vector2i)` | `bool` | Whether a tile has explicit runtime current-water state |
-| `get_effective_water_class(tile_coord: Vector2i, default_water_class: int)` | `int` | Returns explicit override when present, otherwise the packet default |
-| `consume_dirty_regions(max_count: int)` | `Array[Rect2i]` | Drains transient aligned `16 x 16` water dirty blocks |
-| `apply_to_packet(packet: Dictionary)` | `Dictionary` | Returns a packet copy with overlay-derived `walkable_flags`; does not rewrite `water_class` |
-| `apply_dirty_region_to_packet(packet: Dictionary, region: Rect2i)` | `Dictionary` | Recomputes overlay-derived `walkable_flags` only inside the bounded dirty block |
-| `save_state()` | `Dictionary` | Optional `world.json.water_overlay` payload with explicit overrides only |
-
-Confirmed mutation entrypoints:
-
-| Surface | Notes |
-|---|---|
-| `set_water_class_override(tile_coord: Vector2i, water_class: int, reason: StringName = &"manual")` | Sets one explicit override and emits `water_overlay_changed(region, reason)` |
-| `clear_water_class_override(tile_coord: Vector2i, reason: StringName = &"manual")` | Clears one explicit override and emits `water_overlay_changed(region, reason)` |
-| `load_state(data: Dictionary)` | Restores explicit overrides without enqueuing runtime dirty work |
-| `clear_all()` | Clears overrides and transient dirty regions |
-
-Not documented here as safe entrypoints:
-- `_overrides_by_chunk`
-- `_dirty_regions`
-- `_mark_tile_dirty(...)`
-- direct mutation of packet `water_class`; the packet array remains the
-  seed-derived default current-water class
 
 ### World Bounds and Foundation Settings
 
@@ -480,45 +383,3 @@ Confirmed readable entrypoints:
 | `FoundationGenSettings.for_bounds(world_bounds: WorldBoundsSettings)` | `FoundationGenSettings` | Builds default band settings from saved bounds |
 | `FoundationGenSettings.from_save_dict(data: Dictionary, world_bounds: WorldBoundsSettings)` | `FoundationGenSettings` | Rebuilds foundation settings from `world.json` |
 | `FoundationGenSettings.write_to_settings_packed(settings_packed: PackedFloat32Array, world_bounds: WorldBoundsSettings)` | `PackedFloat32Array` | Appends V1 foundation indices `9-14` to the native settings packet |
-
-### River Generation Settings
-
-Owner file:
-- `core/resources/river_gen_settings.gd`
-
-Role:
-- data resource for River Generation V1 settings. V1-R8 uses the same resource
-  in new-game setup, Water Sector UI, save/load, preview packing, and
-  river-enabled native chunk packet generation.
-
-Confirmed readable entrypoints:
-
-| Surface | Return | Notes |
-|---|---|---|
-| `RiverGenSettings.write_to_settings_packed(settings_packed: PackedFloat32Array)` | `PackedFloat32Array` | Appends river settings indices `15-26` for `build_world_hydrology_prepass(...)` and `generate_chunk_packets_batch(...)` when `world_version >= 17` |
-| `RiverGenSettings.to_save_dict()` | `Dictionary` | Serializes the river settings shape for `worldgen_settings.rivers` |
-| `RiverGenSettings.from_save_dict(data: Dictionary)` | `RiverGenSettings` | Rebuilds and clamps settings from a save dictionary |
-| `RiverGenSettings.hard_coded_defaults()` | `RiverGenSettings` | Returns code defaults for controlled migrations/fallbacks |
-| `RiverGenSettings.preset_ids()` | `Array[StringName]` | Returns selectable water presets: `Full Hydrology`, `Lakes Only`, `Sparse Arctic Rivers`, `Wet River Network`, and `Delta Heavy` |
-| `RiverGenSettings.preset_select_ids()` | `Array[StringName]` | Returns selectable presets plus transient `Custom` UI state for new-game Water Sector display |
-| `RiverGenSettings.preset_label_key(preset: StringName)` | `StringName` | Returns the localization key for a water preset |
-| `RiverGenSettings.for_preset(preset: StringName)` | `RiverGenSettings` | Maps a preset to existing river settings fields; unknown presets fall back to `Full Hydrology` |
-| `RiverGenSettings.match_preset_id(settings: RiverGenSettings)` | `StringName` | Returns a transient preset id for field values, or `Custom` when sliders no longer match a preset |
-| `RiverGenSettings.compute_signature()` | `String` | Diagnostic SHA1 signature of the settings dictionary |
-
-Default data file:
-- `data/balance/river_gen_settings.tres`
-
-Current code note:
-- this resource is current for `world_version >= 17`. Missing saved river
-  settings on a river-enabled load use an explicit hard-coded default migration
-  in code and do not reread the repository `.tres`.
-- the new-game Water Sector edits the existing saved settings shape; it does
-  not add new save fields or a second river settings owner.
-- V4-7 presets are input helpers over existing fields. `preset_id` is transient
-  UI/resource state and is intentionally absent from `to_save_dict()`.
-- `world_version >= 35` keeps non-`Lakes Only` hydrology foundation/detail seed
-  inputs pinned to the V4-5 shape boundary; the V4-7 output change is the native
-  density-zero branch, not a new random reseed for ordinary Full Hydrology.
-- `world_version >= 36` keeps the same save/settings shape and uses the native
-  V4-8 closure branch for dense braid-loop acceptance and debug agreement.

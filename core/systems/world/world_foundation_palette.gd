@@ -2,14 +2,10 @@ class_name WorldFoundationPalette
 extends RefCounted
 
 const PALETTE_ID: StringName = &"foundation_overview_v1"
-const COMPOSITE: StringName = &"composite"
 const TERRAIN: StringName = &"terrain"
-const HYDROLOGY_WATER: StringName = &"hydrology_water"
-const HYDRO_HEIGHT: StringName = &"hydro_height"
+const FOUNDATION_HEIGHT: StringName = &"foundation_height"
 const LAYER_MASK_TERRAIN: int = 0
-const LAYER_MASK_HYDRO_HEIGHT: int = 1 << 4
-const LAYER_MASK_HYDROLOGY_WATER: int = 1 << 5
-const LAYER_MASK_COMPOSITE: int = 1 << 6
+const LAYER_MASK_FOUNDATION_HEIGHT: int = 1 << 4
 # Must match native write_overview_rgba in world_prepass.cpp.
 const COLOR_MOUNTAIN_FOOT: Color = Color(106.0 / 255.0, 98.0 / 255.0, 74.0 / 255.0, 1.0)
 const COLOR_MOUNTAIN_WALL: Color = Color(164.0 / 255.0, 160.0 / 255.0, 146.0 / 255.0, 1.0)
@@ -17,30 +13,26 @@ const COLOR_UNKNOWN: Color = Color(0.04, 0.05, 0.06, 1.0)
 const OVERVIEW_PIXELS_PER_CELL: int = 4
 
 const _ORDERED_MODES: Array[StringName] = [
-	COMPOSITE,
 	TERRAIN,
-	HYDROLOGY_WATER,
-	HYDRO_HEIGHT,
+	FOUNDATION_HEIGHT,
 ]
 
 const _LABEL_KEYS: Dictionary = {
-	COMPOSITE: &"UI_WORLDGEN_OVERVIEW_MODE_COMPOSITE",
 	TERRAIN: &"UI_WORLDGEN_OVERVIEW_MODE_TERRAIN",
-	HYDROLOGY_WATER: &"UI_WORLDGEN_OVERVIEW_MODE_WATER",
-	HYDRO_HEIGHT: &"UI_WORLDGEN_OVERVIEW_MODE_HEIGHT",
+	FOUNDATION_HEIGHT: &"UI_WORLDGEN_OVERVIEW_MODE_HEIGHT",
 }
 
-var _active_mode: StringName = COMPOSITE
+var _active_mode: StringName = TERRAIN
 
 static func all_modes() -> Array[StringName]:
 	return _ORDERED_MODES.duplicate()
 
 static func coerce_mode(mode: StringName) -> StringName:
-	return mode if _LABEL_KEYS.has(mode) else COMPOSITE
+	return mode if _LABEL_KEYS.has(mode) else TERRAIN
 
 static func get_label_key(mode: StringName) -> StringName:
 	var normalized_mode: StringName = coerce_mode(mode)
-	return _LABEL_KEYS.get(normalized_mode, &"UI_WORLDGEN_OVERVIEW_MODE_COMPOSITE") as StringName
+	return _LABEL_KEYS.get(normalized_mode, &"UI_WORLDGEN_OVERVIEW_MODE_TERRAIN") as StringName
 
 func get_palette_id() -> StringName:
 	return StringName("%s.%s" % [String(PALETTE_ID), String(_active_mode)])
@@ -53,12 +45,8 @@ func set_mode(mode: StringName) -> void:
 
 func get_layer_mask() -> int:
 	match _active_mode:
-		COMPOSITE:
-			return LAYER_MASK_COMPOSITE
-		HYDROLOGY_WATER:
-			return LAYER_MASK_HYDROLOGY_WATER
-		HYDRO_HEIGHT:
-			return LAYER_MASK_HYDRO_HEIGHT
+		FOUNDATION_HEIGHT:
+			return LAYER_MASK_FOUNDATION_HEIGHT
 		_:
 			return LAYER_MASK_TERRAIN
 
@@ -98,16 +86,16 @@ func build_overview_image(snapshot: Dictionary) -> Image:
 	return image
 
 func _resolve_node_color(snapshot: Dictionary, index: int) -> Color:
-	var hydro: float = clampf(_read_float(snapshot.get("hydro_height", PackedFloat32Array()), index), 0.0, 1.0)
-	if _active_mode == HYDRO_HEIGHT:
-		return _resolve_height_color(hydro)
+	var foundation_height: float = clampf(_read_float(snapshot.get("foundation_height", PackedFloat32Array()), index), 0.0, 1.0)
+	if _active_mode == FOUNDATION_HEIGHT:
+		return _resolve_height_color(foundation_height)
 	var wall: float = clampf(_read_float(snapshot.get("coarse_wall_density", PackedFloat32Array()), index), 0.0, 1.0)
 	var foot: float = clampf(_read_float(snapshot.get("coarse_foot_density", PackedFloat32Array()), index), 0.0, 1.0)
 	if wall > 0.0:
 		return COLOR_MOUNTAIN_WALL.lerp(Color(238.0 / 255.0, 234.0 / 255.0, 220.0 / 255.0, 1.0), clampf(wall, 0.0, 1.0))
 	if foot > 0.0:
 		return COLOR_MOUNTAIN_FOOT.lerp(Color(178.0 / 255.0, 143.0 / 255.0, 101.0 / 255.0, 1.0), clampf(foot, 0.0, 1.0))
-	var base: float = clampf((42.0 + hydro * 24.0) / 255.0, 0.0, 1.0)
+	var base: float = clampf((42.0 + foundation_height * 24.0) / 255.0, 0.0, 1.0)
 	return Color(
 		base,
 		clampf(base + 18.0 / 255.0, 0.0, 1.0),

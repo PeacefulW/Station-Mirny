@@ -14,7 +14,6 @@ const SHAPE_SET_DIRECTORY: String = "res://data/terrain/shape_sets"
 const MATERIAL_SET_DIRECTORY: String = "res://data/terrain/material_sets"
 const PROFILE_DIRECTORY: String = "res://data/terrain/presentation_profiles"
 const SHADER_FAMILY_DIRECTORY: String = "res://data/terrain/shader_families"
-const FLOODPLAIN_WATER_PRESENTATION_PATH: String = "res://data/balance/water_presentation_floodplain.tres"
 
 static var _bootstrapped: bool = false
 static var _shader_families_by_id: Dictionary = {}
@@ -22,7 +21,6 @@ static var _shape_sets_by_id: Dictionary = {}
 static var _material_sets_by_id: Dictionary = {}
 static var _profiles_by_id: Dictionary = {}
 static var _profile_id_by_terrain_id: Dictionary = {}
-static var _floodplain_water_presentation: Resource = null
 
 static func bootstrap() -> void:
 	if _bootstrapped:
@@ -32,7 +30,6 @@ static func bootstrap() -> void:
 	_material_sets_by_id.clear()
 	_profiles_by_id.clear()
 	_profile_id_by_terrain_id.clear()
-	_floodplain_water_presentation = null
 
 	for shader_family_resource: Resource in _load_resources_from_directory(SHADER_FAMILY_DIRECTORY):
 		_register_shader_family(shader_family_resource)
@@ -47,7 +44,6 @@ static func bootstrap() -> void:
 	for profile_resource: Resource in _load_resources_from_directory(PROFILE_DIRECTORY):
 		_register_profile(profile_resource)
 
-	_floodplain_water_presentation = _load_floodplain_water_presentation()
 	_validate_registered_resources()
 	_bootstrapped = true
 
@@ -80,21 +76,6 @@ static func get_render_layer_for_terrain(terrain_id: int) -> StringName:
 	var shader_family: TerrainShaderFamily = get_shader_family(profile.shader_family_id)
 	assert(shader_family != null, "Missing TerrainShaderFamily for terrain_id=%d" % terrain_id)
 	return shader_family.render_layer_id
-
-static func get_floodplain_overlay_color(floodplain_strength: int, hydrology_flags: int) -> Color:
-	bootstrap()
-	var has_far_flag: bool = (hydrology_flags & WorldRuntimeConstants.HYDROLOGY_FLAG_FLOODPLAIN_FAR) != 0
-	var has_near_flag: bool = (hydrology_flags & WorldRuntimeConstants.HYDROLOGY_FLAG_FLOODPLAIN_NEAR) != 0
-	return _floodplain_water_presentation.call(
-		"get_floodplain_overlay_color",
-		floodplain_strength,
-		has_far_flag,
-		has_near_flag
-	) as Color
-
-static func get_floodplain_water_presentation() -> Resource:
-	bootstrap()
-	return _floodplain_water_presentation
 
 static func get_terrain_ids_for_layer(layer_id: StringName) -> Array[int]:
 	bootstrap()
@@ -146,9 +127,6 @@ static func _register_profile(profile_resource: Resource) -> void:
 
 static func _validate_registered_resources() -> void:
 	assert(not _profiles_by_id.is_empty(), "TerrainPresentationRegistry requires at least one TerrainPresentationProfile")
-	assert(_floodplain_water_presentation != null, "TerrainPresentationRegistry requires a floodplain water presentation profile")
-	assert(_floodplain_water_presentation.has_method("is_valid_profile"), "Floodplain water presentation resource must expose is_valid_profile")
-	assert(bool(_floodplain_water_presentation.call("is_valid_profile")), "Invalid floodplain water presentation profile")
 	for shader_family_variant: Variant in _shader_families_by_id.values():
 		_validate_shader_family(shader_family_variant as TerrainShaderFamily)
 	for shape_set_variant: Variant in _shape_sets_by_id.values():
@@ -163,22 +141,9 @@ static func _validate_registered_resources() -> void:
 		WorldRuntimeConstants.TERRAIN_PLAINS_DUG,
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL,
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT,
-		WorldRuntimeConstants.TERRAIN_RIVERBED_SHALLOW,
-		WorldRuntimeConstants.TERRAIN_RIVERBED_DEEP,
-		WorldRuntimeConstants.TERRAIN_LAKEBED,
-		WorldRuntimeConstants.TERRAIN_OCEAN_FLOOR,
-		WorldRuntimeConstants.TERRAIN_SHORE,
-		WorldRuntimeConstants.TERRAIN_FLOODPLAIN,
 	]:
 		assert(_profile_id_by_terrain_id.has(terrain_id), "Missing terrain presentation profile mapping for terrain_id=%d" % terrain_id)
 		assert(_resolve_profile_for_terrain(terrain_id) != null, "TerrainPresentationRegistry failed to resolve terrain_id=%d" % terrain_id)
-
-static func _load_floodplain_water_presentation() -> Resource:
-	assert(ResourceLoader.exists(FLOODPLAIN_WATER_PRESENTATION_PATH), "Missing floodplain water presentation resource: %s" % [FLOODPLAIN_WATER_PRESENTATION_PATH])
-	var resource: Resource = ResourceLoader.load(FLOODPLAIN_WATER_PRESENTATION_PATH)
-	assert(resource != null, "Failed to load floodplain water presentation resource: %s" % [FLOODPLAIN_WATER_PRESENTATION_PATH])
-	assert(resource.has_method("get_floodplain_overlay_color"), "Floodplain water presentation resource must expose get_floodplain_overlay_color")
-	return resource
 
 static func _load_resources_from_directory(directory_path: String) -> Array[Resource]:
 	var directory: DirAccess = DirAccess.open(directory_path)

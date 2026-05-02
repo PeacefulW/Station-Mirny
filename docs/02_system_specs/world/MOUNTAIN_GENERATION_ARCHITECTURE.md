@@ -508,7 +508,7 @@ WorldCore.generate_chunk_packet(seed, coord, world_version, settings_packed)
 
 Правила:
 - Ключ `worldgen_settings` сразу **namespaced** (`mountains`, позже
-  `rivers`, `biomes`, `climate`). Не плоский `mountain_settings`.
+  `biomes`, `climate`). Не плоский `mountain_settings`.
 - Ресурс `mountain_gen_settings.tres` в репозитории — источник **дефолтов
   для новых миров**, не источник истины для существующих.
 - Патч баланса в ресурсе → старые сейвы грузятся как были, новые миры
@@ -870,7 +870,7 @@ presentation-слой.
 не opaque хэшем. Это критично для debug, changelog, migration. Баланс-патч
 в репозитории не ломает существующие сейвы, только влияет на новые миры.
 Ключ namespaced (`worldgen_settings.mountains`), потому что туда же
-потом пойдут `rivers`, `biomes`, `climate`.
+потом пойдут `biomes`, `climate`.
 
 См. §4.3 для точной формы `world.json`.
 

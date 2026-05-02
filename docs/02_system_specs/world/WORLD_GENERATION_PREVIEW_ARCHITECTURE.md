@@ -190,26 +190,23 @@ Current V1-R1C note:
   progressive detail canvas
 - `WorldPreviewController` uses the same debounce and epoch as the detail
   preview, then queues one overview request through `WorldChunkPacketBackend`
-- `WorldChunkPacketBackend` calls the native `WorldCore` foundation overview
-  surface on the worker path; for the default composite overview it also builds
-  a transparent native hydrology overlay and returns one composed native image
+- `WorldChunkPacketBackend` calls the native `WorldCore` foundation snapshot
+  / overview surface on the worker path and returns one native overview image
   for main-thread texture publication
 - the default player overview uses the current `64`-tile substrate grid with
   `pixels_per_cell = 4`, roughly one overview pixel per `16 x 16` world tiles,
   without generating chunk packets for the full world
-- the default player overview is composite: currently realised terrain classes
-  (ground, mountain foot, mountain wall) plus native river/lake/ocean overlay
-  pixels are visible in one image; ocean/burning bands and continent/open-water
-  masks remain substrate/debug inputs unless represented by current terrain or
-  hydrology output
+- the default native overview image renders only currently realised gameplay
+  terrain classes: ground, mountain foot, and mountain wall; ocean/burning
+  bands and reserved massing masks stay out of the default player overview
+  until matching terrain exists
 - mountain pixels are sampled at overview-pixel resolution through the same
   mountain elevation threshold plus hierarchical `mountain_id` cutoff used by
-  `ChunkPacketV1`; `hydro_height` is only subtle neutral-ground shading in
-  the terrain base
-- composite image composition preserves foundation mountain foot/wall pixels;
-  river, lake, and ocean overlay pixels must not overwrite those render pixels
-- `WorldFoundationPalette` defaults to `COMPOSITE` for the player-facing map and
-  retains terrain-only, water-only, and raw `hydro_height` diagnostic modes
+  `ChunkPacketV1`; `foundation_height` is only subtle neutral-ground shading in
+  the default terrain overview
+- `WorldFoundationPalette` keeps the current player-truthful canonical palette
+  contract for the default mode and may expose raw `foundation_height` as a
+  diagnostic height-map mode
 - `WorldOverviewCanvas` draws a single texture snapshot with X-wrap edge hints;
   it never boots `WorldRuntimeV0`, never creates `ChunkView`, and never writes
   save data
@@ -460,7 +457,6 @@ packet можно сгенерить один раз
 mountain_id debug color
 wall/foot/interior debug
 spawn-safe patch overlay
-позже rivers overlay
 позже climate/temperature heatmap
 позже biome overlay
 
@@ -526,4 +522,4 @@ Preview должен быть чисто временным.
 Сделать spiral queue + cancellation by epoch.
 Нарисовать spawn marker + chunk grid.
 Добавить debug mode mountain_id и interior/wall/foot.
-Потом уже расширять под rivers/climate.
+Потом уже расширять под climate/biomes.

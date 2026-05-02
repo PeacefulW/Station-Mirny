@@ -8,14 +8,6 @@
 
 namespace mountain_field {
 
-constexpr int64_t WORLD_HYDROLOGY_VISUAL_V3_VERSION = 30;
-constexpr int64_t WORLD_HYDROLOGY_CLEARANCE_V4_VERSION = 31;
-constexpr int64_t WORLD_RIVER_DISCHARGE_WIDTH_V4_VERSION = 32;
-constexpr int64_t WORLD_ESTUARY_DELTA_V4_VERSION = 33;
-constexpr int64_t WORLD_LAKE_BASIN_CONTINUITY_V4_VERSION = 34;
-constexpr int64_t WORLD_LAKES_ONLY_PRESET_V4_VERSION = 35;
-constexpr int64_t WORLD_HYDROLOGY_V4_CLOSURE_VERSION = 36;
-
 bool is_spawn_safety_area_at_world(int64_t p_world_version, int64_t p_world_x, int64_t p_world_y);
 
 struct Settings {
@@ -29,8 +21,6 @@ struct Settings {
 	int32_t interior_margin = 1;
 	float latitude_influence = 0.0f;
 	int64_t world_wrap_width_tiles = 65536;
-	int64_t ocean_band_tiles = 0;
-	bool suppress_ocean_band_mountains = false;
 };
 
 struct Thresholds {

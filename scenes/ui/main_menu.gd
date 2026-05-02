@@ -8,7 +8,6 @@ const WORLD_REBUILD_SCENE_PATH: String = "res://scenes/world/world_runtime_v0.ts
 const NEW_GAME_PANEL_SCENE: PackedScene = preload("res://scenes/ui/new_game_panel.tscn")
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
-const RiverGenSettings = preload("res://core/resources/river_gen_settings.gd")
 const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.gd")
 
 var _btn_continue: Button = null
@@ -297,8 +296,7 @@ func _on_new_game_start_requested(
 	seed_value: int,
 	settings: Resource,
 	world_bounds: Resource = null,
-	foundation_settings: Resource = null,
-	river_settings: Resource = null
+	foundation_settings: Resource = null
 ) -> void:
 	WorldPerfProbe.mark_milestone("Startup.start_pressed")
 	var packed_scene: PackedScene = load(WORLD_REBUILD_SCENE_PATH) as PackedScene
@@ -316,8 +314,7 @@ func _on_new_game_start_requested(
 		seed_value,
 		settings as MountainGenSettings,
 		world_bounds as WorldBoundsSettings,
-		foundation_settings as FoundationGenSettings,
-		river_settings as RiverGenSettings
+		foundation_settings as FoundationGenSettings
 	)
 	if current_scene != null and current_scene != world_scene:
 		current_scene.queue_free()

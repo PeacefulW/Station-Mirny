@@ -85,8 +85,6 @@ signal resource_node_depleted(tile_pos: Vector2i, deposit_type: int)
 signal biome_entered(biome_id: StringName)
 @warning_ignore("unused_signal")
 signal mountain_tile_mined(tile_pos: Vector2i, old_type: int, new_type: int)
-@warning_ignore("unused_signal")
-signal water_overlay_changed(region: Rect2i, reason: StringName)
 
 # --- Инвентарь и Предметы ---
 ## Вызывается, когда инвентарь (игрока или сундука) изменился.

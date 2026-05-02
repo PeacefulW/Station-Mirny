@@ -47,7 +47,7 @@ struct Snapshot {
 	std::vector<uint8_t> ocean_band_mask;
 	std::vector<uint8_t> burning_band_mask;
 	std::vector<uint8_t> continent_mask;
-	std::vector<float> hydro_height;
+	std::vector<float> foundation_height;
 	std::vector<float> coarse_wall_density;
 	std::vector<float> coarse_foot_density;
 	std::vector<float> coarse_valley_score;

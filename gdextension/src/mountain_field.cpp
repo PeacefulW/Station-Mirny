@@ -152,7 +152,6 @@ Settings sanitize_settings(const Settings &p_settings) {
 	sanitized.interior_margin = clamp_value(sanitized.interior_margin, 0, 4);
 	sanitized.latitude_influence = clamp_value(sanitized.latitude_influence, -1.0f, 1.0f);
 	sanitized.world_wrap_width_tiles = sanitize_world_wrap_width(sanitized.world_wrap_width_tiles);
-	sanitized.ocean_band_tiles = std::max<int64_t>(0, sanitized.ocean_band_tiles);
 	return sanitized;
 }
 
@@ -265,13 +264,7 @@ float Evaluator::sample_elevation(int64_t p_world_x, int64_t p_world_y) const {
 	const float latitude = std::tanh(static_cast<float>(p_world_y) / 4096.0f);
 	const float latitude_bias = latitude * settings_.latitude_influence * 0.12f;
 	const float elevation = macro + ridge_gate * ridge * settings_.ruggedness * 0.28f + latitude_bias;
-	float gain = 1.0f;
-	if (settings_.suppress_ocean_band_mountains && settings_.ocean_band_tiles > 0) {
-		const float ocean_band = static_cast<float>(settings_.ocean_band_tiles);
-		const float fade_end = std::max(ocean_band + 1.0f, ocean_band * 2.0f);
-		gain = smoothstep(ocean_band, fade_end, static_cast<float>(p_world_y));
-	}
-	return saturate(elevation) * gain;
+	return saturate(elevation);
 }
 
 int32_t Evaluator::resolve_mountain_atlas_index(

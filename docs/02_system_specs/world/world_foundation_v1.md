@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.7
-last_updated: 2026-04-30
+version: 0.5
+last_updated: 2026-04-29
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -18,7 +18,6 @@ related_docs:
   - world_runtime.md
   - world_grid_rebuild_foundation.md
   - mountain_generation.md
-  - river_generation_v1.md
   - WORLD_GENERATION_PREVIEW_ARCHITECTURE.md
 ---
 
@@ -39,9 +38,8 @@ present in scrapped draft material:
    burning lands at the other).
 2. A single shared **`WorldPrePass` substrate** owns the coarse global
    fields consumed by mountains, future biomes, spawn resolution, and
-   the new-game overview preview. River/lake substrate fields are owned by
-   `river_generation_v1.md` and are not part of the current foundation
-   baseline after the failed river implementation was removed.
+   the new-game overview preview. The current approved foundation has
+   no water-generation substrate fields after the failed water stack was removed.
 3. The new-game UI exposes **world size and topology** as explicit save
    state, and supports a **full-world preview** rendered directly from
    the substrate.
@@ -67,15 +65,13 @@ Define the canonical foundation layer beneath every other worldgen spec:
    gameplay scene.
 4. **Readability.** Make the world legible as a recognisable map
    (contained mountain ranges and current terrain classes first; future
-   land/open-water massing and biome belts only after their terrain specs
+   world massing and biome belts only after their terrain specs
    land) without breaking determinism, streaming, or the runtime work
    classification from ADR-0001.
 
-V1 is the substrate. It does **not** itself implement river rasterization
-into tiles, biome terrain content, or chunk runtime behaviour beyond what
-those existing specs already own. `river_generation_v1.md` owns river/lake
-fields, settings, rasterization, and packet/read contracts instead of relying
-on the removed failed implementation.
+V1 is the substrate. It does **not** implement water generation, biome
+terrain content, or chunk runtime behaviour beyond what the approved
+mountain/foundation specs already own.
 
 ## Gameplay Goal
 
@@ -120,17 +116,18 @@ build.
 
 **Packets stay local.** `WorldPrePass` does not change any existing
 chunk packet field shape. Chunks still receive all they need through
-the existing native batch boundary; river-enabled chunk generation reads the
-separate `WorldHydrologyPrePass`, not extra `WorldPrePass` fields.
+the existing native batch boundary; current chunk generation does not
+read the substrate after the failed water-generation stack was removed.
 
 **Preview is a substrate read, not a second world.** The full-world
 overview preview is a bounded native read plus one image publish. It is
 not a hidden gameplay world, not a second generator, and never writes
 save files.
 
-**No implicit river substrate.** The current approved foundation does
-not carry river/lake skeleton fields. River fields must enter through
-`river_generation_v1.md` and `WORLD_VERSION` review.
+**No implicit water-generation substrate.** The current approved foundation does
+not carry water skeleton fields, water masks, or water-generation caches.
+Reintroducing water generation requires a new approved spec and
+`WORLD_VERSION` review.
 
 ## Scope (In V1-R1)
 
@@ -145,18 +142,18 @@ not carry river/lake skeleton fields. River fields must enter through
   for dev and modding but is **not** exposed in the shipped new-game UI;
 - `WorldPrePass` native class owning the coarse substrate:
   `latitude_t`, `ocean_band_mask`, `burning_band_mask`, `continent_mask`,
-  `hydro_height`, `coarse_wall_density`, `coarse_foot_density`,
+  `foundation_height`, `coarse_wall_density`, `coarse_foot_density`,
   `coarse_valley_score`, `biome_region_id`;
 - dev-only native debug API that exposes each substrate channel as a
   snapshot image, stripped in release builds;
 - full-world overview preview renderer that publishes a single
   `ImageTexture` for the current realised terrain classes by default (no faux
-  biome, ocean, burning, river, or lake colours in the default V1 terrain
+  biome, ocean, burning, or water colours in the default V1 terrain
   mode);
 - spawn-safety contract amendment to `world_runtime.md`: the spawn
   resolver must reject any spawn tile inside an ocean or burning band,
   inside a large mountain massif, and must prefer continent_mask tiles
-  with moderate `hydro_height`;
+  with moderate `foundation_height`;
 - `worldgen_settings.world_bounds` and `worldgen_settings.foundation`
   in `world.json`;
 - `WORLD_VERSION` bump for the canonical-output change introduced by
@@ -167,9 +164,9 @@ not carry river/lake skeleton fields. River fields must enter through
 - any fine-resolution terrain, tile, or decor work that already belongs
   to `world_runtime.md`, `mountain_generation.md`, or
   `terrain_hybrid_presentation.md`;
-- actual river/lake generation, riverbed terrain ids, water overlays,
+- actual water generation, water terrain ids, water overlays,
   curve quality contracts, island or split-rejoin logic, and atlas index
-  selection for river output — all owned by `river_generation_v1.md`;
+  selection for water output — removed from the current approved scope;
 - new biome content (ocean biome, burning biome, latitude belts,
   continental biomes) — deferred to a future biome spec that consumes
   the V1 substrate;
@@ -221,7 +218,7 @@ not carry river/lake skeleton fields. River fields must enter through
 | Single owner | `WorldCore` owns `WorldPrePass`. `world.json` owns the settings copy. UI preview owns only its image publish. No other system writes substrate data. |
 | 10× / 100× scale path | Coarse grid is `ceil(width / coarse_cell) × ceil(height / coarse_cell)`. At `coarse_cell = 64 tiles`, a medium world (`4096 × 2048`) is `64 × 32 = 2048` nodes; a large world (`8192 × 4096`) is `128 × 64 = 8192` nodes. Sub-linear in world area and still not a chunk/tile map. |
 | Main-thread blocking? | Forbidden during normal play. Substrate compute runs behind the world-load progress UI or new-game preview debounce. |
-| Hidden GDScript fallback? | Forbidden. `WorldPrePass` requires the native world core. |
+| Hidden GDScript substitute? | Forbidden. `WorldPrePass` requires the native world core. |
 | Could it become heavy later? | Bounded by coarse cell size and the frozen field list. New consumers must read existing channels or justify a new channel via spec amendment. |
 | Whole-world prepass? | **Permitted under an explicit LAW 12 exception.** Runs once at world load, off main thread, RAM-only, cache-keyed to `(seed, world_version, world_bounds, settings_packed)`. Never runs during interactive gameplay. |
 
@@ -237,7 +234,7 @@ not carry river/lake skeleton fields. River fields must enter through
   `latitude_t = 0` is the top-Y pole; `latitude_t = 1` is the bottom-Y
   pole.
 - Fixed pole orientation in V1:
-  - top-Y pole → ocean (canonical impassable water biome)
+  - top-Y pole → reserved hard band (future biome-owned presentation)
   - bottom-Y pole → burning lands (canonical impassable volcanic biome)
 - Hard-band Y edges:
   - `ocean_band_mask = 1` on the top-Y belt of thickness
@@ -283,23 +280,21 @@ Changing the coarse cell size requires a `WORLD_VERSION` bump.
 | `latitude_t` | `y_center / (height - 1)` | biome resolver (future), climate bands |
 | `ocean_band_mask` | `1` if the node's Y center lies within `ocean_band_height_tiles` of the top-Y edge, else `0` | biome resolver (future), spawn resolver, debug |
 | `burning_band_mask` | `1` if the node's Y center lies within `burning_band_height_tiles` of the bottom-Y edge, else `0` | biome resolver (future), spawn resolver, debug |
-| `continent_mask` | deterministic low-frequency noise thresholded for land vs. open-water; masked off inside ocean / burning bands | biome resolver (future), spawn resolver, debug |
-| `hydro_height` | `mountain_elevation_avg + world_slope_noise + low_freq_relief`, with Y gradient optionally biased by `foundation_slope_bias` toward one band | overview ground shading, spawn resolver, future worldgen specs |
-| `coarse_wall_density` | fraction of tiles in cell with `mountain_wall` | overview fallback/debug, spawn resolver |
-| `coarse_foot_density` | fraction of tiles in cell with `mountain_foot` | overview fallback/debug, biome resolver (future) |
+| `continent_mask` | deterministic low-frequency noise thresholded for land vs. reserved non-land massing; masked off inside ocean / burning bands | biome resolver (future), spawn resolver, debug |
+| `foundation_height` | `mountain_elevation_avg + world_slope_noise + low_freq_relief`, with Y gradient optionally biased by `foundation_slope_bias` toward one band | overview ground shading, spawn resolver, future worldgen specs |
+| `coarse_wall_density` | fraction of tiles in cell with `mountain_wall` | overview debug, spawn resolver |
+| `coarse_foot_density` | fraction of tiles in cell with `mountain_foot` | overview debug, biome resolver (future) |
 | `coarse_valley_score` | `1 - coarse_wall_density - 0.5 × coarse_foot_density`, clamped to `[0, 1]` | spawn resolver, future biome specs |
 | `biome_region_id` | deterministic low-frequency Voronoi tag stable across noise scale | biome resolver (future) |
 
 Adding a field to this set requires a spec amendment and a
 `WORLD_VERSION` review.
 
-**Removed hydrology fields.** The failed river/lake implementation used
+**Removed water-generation fields.** The failed water implementation used
 to add downstream graph, flow accumulation, visible trunk, Strahler, and
-terminal-lake fields here. Those fields are no longer approved
-foundation output. River Generation V1-R2 reintroduces hydrology as a
-separate native `WorldHydrologyPrePass` owned by `WorldCore`, not as
-additional `WorldPrePass` fields. The foundation substrate remains limited
-to the fields above.
+terminal-basin fields here. Those fields are no longer approved
+foundation output. Reintroducing any water-generation field requires a new
+approved spec, explicit ownership, and `WORLD_VERSION` review.
 
 **Output.** One in-RAM `WorldPrePassSnapshot` keyed by
 `(seed, world_version, world_bounds, settings_packed_hash)`. Replaced
@@ -316,22 +311,15 @@ budget is a blocker for the high-resolution foundation overview pass.
 a native presentation image at `overview_pixels_per_cell = 4`, producing
 an overview at roughly one pixel per `16 × 16` world tiles. This is a
 native image pass over the already-built substrate, not chunk generation
-and not a second world generator. The foundation terrain overview pass renders
-the current confirmed gameplay terrain classes only: neutral ground,
+and not a second world generator. The native overview pass renders the
+current confirmed gameplay terrain classes only: neutral ground,
 mountain foot, and mountain wall. For each overview pixel it samples
 `pixel_sample_steps × pixel_sample_steps = 16` points within the pixel's
 tile window, applies the same mountain elevation threshold and
 hierarchical `mountain_id` cutoff used by `ChunkPacketV1`, and uses
-`hydro_height` only as subtle neutral-ground shading.
-
-The default new-game player overview is `WorldFoundationPalette.COMPOSITE`.
-`WorldChunkPacketBackend` composes the foundation terrain overview with a
-transparent native hydrology overlay from
-`WorldCore.get_world_hydrology_overview(...)`, so relief, mountains, rivers,
-lakes, and ocean appear together in one final `Image`. This composition is
-presentation-only preview output: it does not create gameplay chunks, does not
-write save data, and does not move hydrology ownership out of native
-`WorldCore`.
+`foundation_height` only as subtle neutral-ground shading. It must not render
+ocean, burning, reserved-mass, or water colours until those surfaces exist as
+current gameplay terrain or an approved biome spec makes them player-truthful.
 
 **Pipeline.**
 
@@ -339,40 +327,34 @@ write save data, and does not move hydrology ownership out of native
 new-game panel → seed / size / foundation settings change
   → debounce
   → epoch bump
-  → request overview Image on worker
-  → worker builds foundation terrain overview
-  → for COMPOSITE, worker builds transparent native hydrology overlay
-  → worker publishes one composed native Image
+  → request WorldPrePass on worker
+  → worker publishes native overview Image from WorldPrePassSnapshot
   → main thread uploads ImageTexture
   → ImageTexture.update()
   → overview view redraws
 ```
 
-**Player-facing canonical palette (V1 composite overview).**
-The default `WorldFoundationPalette.COMPOSITE` mode maps the terrain classes
-confirmed by the current packet boundary and overlays native current
-river/lake/ocean placement:
+**Player-facing canonical palette (V1 current terrain truth).**
+The default `WorldFoundationPalette` mode maps only terrain classes confirmed
+by the current packet boundary:
 
-- ground → muted green / earth, with only subtle `hydro_height` shading;
+- ground → muted green / earth, with only subtle `foundation_height` shading;
 - mountain foot → ochre rock-foot tone;
 - mountain wall → grey rock tone.
-- river/lake/ocean → native hydrology overlay colours blended over terrain.
 
 No faux biome colours in V1. `ocean_band_mask`, `burning_band_mask`, and
-`continent_mask` remain substrate/debug/spawn inputs, not foundation terrain
-overview colours, until a future biome/water spec lands the matching terrain.
-The standalone foundation terrain mode remains available as a diagnostic
-terrain-only view. The standalone hydrology water mode remains available as a
-diagnostic water-only view.
+`continent_mask` remain substrate/debug/spawn inputs, not player-facing
+overview colours, until a future biome spec lands the matching terrain.
+Water overlays are not part of the current player-facing overview.
 
 **Debug palette variants.** Heatmap palettes for individual channels
-(raw `hydro_height`, raw `coarse_wall_density`, `coarse_valley_score`,
+(raw `foundation_height`, raw `coarse_wall_density`, `coarse_valley_score`,
 `biome_region_id`, etc.) live in dev builds only and are addressable via
 `layer_mask`.
-The new-game overview UI may expose the raw `hydro_height` channel as a
-diagnostic height-map mode for river-planning and worldgen inspection. This
+The new-game overview UI may expose the raw `foundation_height` channel as a
+diagnostic height-map mode for worldgen inspection. This
 mode is presentation/debug output only: it does not imply water terrain,
-river flow, biome truth, or save data.
+biome truth, or save data.
 
 **Rules.**
 
@@ -402,8 +384,7 @@ river flow, biome truth, or save data.
 | `mountain_generation.md` | Unchanged ownership. V1 adds the `coarse_wall_density` / `coarse_foot_density` aggregation as a read of the mountain field, owned by the substrate. Mountain identity and excavation rules are untouched. |
 | `WORLD_GENERATION_PREVIEW_ARCHITECTURE.md` | Stays valid for progressive detail preview. V1 adds the overview mode and a worker-side spawn resolution step before progressive preview chunks are queued. |
 
-Current foundation implementation does not own `river_generation_v1.md`; River
-Generation V1 owns the separate hydrology prepass and river packet output.
+Current implementation is mountain-only at the terrain packet boundary.
 
 ### Spawn Contract Amendment
 
@@ -414,10 +395,10 @@ coarse node satisfies any of:
 - `ocean_band_mask = 1`
 - `burning_band_mask = 1`
 - `coarse_wall_density >= spawn_max_wall_density = 0.4`
-- `continent_mask = 0` (do not spawn on open water)
+- `continent_mask = 0` (reserved non-land massing)
 
 It must prefer tiles inside `continent_mask = 1` with
-`coarse_valley_score` above a documented threshold and `hydro_height`
+`coarse_valley_score` above a documented threshold and `foundation_height`
 within a mid-band range. Exact numeric thresholds live in the amendment
 and are a V1-R1A deliverable.
 
@@ -435,7 +416,7 @@ native generator branches for each biome. The resolver consumes:
   (`height`, `temperature`, `moisture`, `ruggedness`,
   `flora_density`, `latitude`);
 - causal / derived channels exposed through biome data ranges where
-  already present (`drainage`, `slope`, `rain_shadow`,
+  already present (`slope`, `rain_shadow`,
   `continentalness`);
 - bounded structure context returned by
   `WorldComputeContext.sample_structure_context(world_tile)`.
@@ -463,9 +444,9 @@ The minimum V1 substrate reads required by the future biome spec are:
 |---|---|---|
 | hard top-Y band | `ocean_band_mask` | Forces future ocean biome eligibility. |
 | hard bottom-Y band | `burning_band_mask` | Forces future burning biome eligibility. |
-| land / open water split | `continent_mask` | Prevents ordinary land biomes from claiming open water. |
+| reserved non-land split | `continent_mask` | Prevents ordinary land biomes from claiming reserved non-land massing. |
 | latitude belt context | `latitude_t` | Used with existing `latitude` ranges; not environment runtime temperature. |
-| broad elevation | `hydro_height` | Future mapping to `height` must be documented by the biome spec. |
+| broad elevation | `foundation_height` | Future mapping to `height` must be documented by the biome spec. |
 | ridge / massif pressure | `coarse_wall_density` | Maps to structure `ridge_strength` for biome scoring. |
 | foothill pressure | `coarse_foot_density` | Maps to structure `ridge_strength` / `slope` as defined by the biome spec. |
 | valley / pass preference | `coarse_valley_score` | Future valley and pass biomes may use this as positive structure context. |
@@ -476,8 +457,7 @@ For the current `BiomeData` shape, the R1D bridge names are:
 | `BiomeData` / context key | Source direction |
 |---|---|
 | `latitude` | `latitude_t` converted to the existing resolver latitude domain. |
-| `height` | existing channel height, optionally biased by `hydro_height` only after a future biome spec approves the mapping. |
-| `drainage` | future derived channel from `hydro_height` and local slope, if approved by a biome spec. |
+| `height` | existing channel height, optionally biased by `foundation_height` only after a future biome spec approves the mapping. |
 | `continentalness` | future derived channel from `continent_mask` plus distance / coarse-region rules defined by the biome spec. |
 | `ridge_strength` | `coarse_wall_density` with optional `coarse_foot_density` contribution. |
 
@@ -486,7 +466,7 @@ Explicit non-goals for V1-R1D:
 - no new `BiomeData` exported fields;
 - no new biome resources;
 - no terrain id, walkability, atlas, or chunk packet field changes;
-- no ocean, burning, latitude-belt, river, or lake tile rasterization;
+- no ocean, burning, latitude-belt, or water tile rasterization;
 - no environment-runtime temperature, weather, wind, spore, snow, or
   season coupling;
 - no save/load changes.
@@ -585,9 +565,8 @@ WorldCore.resolve_world_foundation_spawn_tile(
 
 Rules:
 
-- Chunk packet generation stays local. For `world_version >= 17`, river output
-  reads the separate `WorldHydrologyPrePass`; it does not add fields to
-  `WorldPrePass`.
+- Chunk packet generation stays local and does not require a substrate
+  cache read in the current mountain-only baseline.
 - Spawn resolution builds or reads the substrate cache and returns the
   `WorldFoundationSpawnResult` dictionary documented in
   `packet_schemas.md`.
@@ -625,7 +604,7 @@ must not become a gameplay data source.
 
 Addressable layers:
 
-- latitude / ocean / burning / continent / hydro-height / coarse-wall /
+- latitude / ocean / burning / continent / foundation-height / coarse-wall /
   coarse-foot / coarse-valley / biome-region
 
 Acceptance rejects any build where the overview preview is visible but
@@ -639,7 +618,7 @@ any of the substrate debug layers cannot be inspected on a dev build.
 | Substrate cache | `WorldCore` (native, RAM) | One snapshot per world session, keyed by inputs. |
 | Bounds + settings persistence | `SaveManager` + `world.json` writer | `worldgen_settings.world_bounds`, `worldgen_settings.foundation`. |
 | Overview preview | `WorldPreviewController` + new overview canvas | Debounce, epoch, request native overview image, publish one `ImageTexture`, redraw canvas. |
-| Overview palette | `WorldPrePass` native overview pass + `WorldFoundationPalette` constants | Pure presentation function from substrate + current terrain-class sampling to colour image. The default mode is terrain-truthful; diagnostic modes may render raw substrate channels such as `hydro_height`. GDScript palette remains a fallback/helper and does not run the default whole-world colour loop. |
+| Overview palette | `WorldPrePass` native overview pass + `WorldFoundationPalette` constants | Pure presentation function from substrate + current terrain-class sampling to colour image. The default mode is terrain-truthful; diagnostic modes may render raw substrate channels such as `foundation_height`. GDScript palette is an editor/debug helper and does not run the default whole-world colour loop. |
 | Progressive detail preview | Existing `WorldPreviewController` path | Unchanged UX; chunk packets stay local after spawn context resolves. |
 | Spawn resolver | Existing spawn resolver owner in `world_runtime.md` | Reads substrate fields through `WorldCore` and applies the amended rejection / preference rules. |
 | Mountain runtime | Existing `mountain_generation.md` code | Unchanged; contributes input to the substrate via the mountain field. |
@@ -705,83 +684,10 @@ The high-resolution foundation overview pass advances new worlds to
 from `128` to `64`, changing substrate-derived spawn and future
 worldgen reads for the same seed/settings.
 
-The failed river/lake realization was removed from current new worlds at
-`world_version = 16`. `world_version == 14` and `world_version == 15` remain
-historical compatibility boundaries for saves produced while the removed
-implementation existed, but they no longer define current packet or save shape.
-
-River Generation V1-R3B advances current new worlds to `world_version = 17`
-because canonical chunk output now includes riverbed/shore/floodplain/ocean
-terrain and hydrology packet fields generated from the separate
-`WorldHydrologyPrePass`.
-
-River Generation V1-R4 advances current new worlds to `world_version = 18`
-because canonical chunk output now includes natural lakebed terrain, lake
-shoreline / bank markers, and default shallow/deep lake water classes from the
-same separate `WorldHydrologyPrePass`.
-
-River Generation V1-R5 advances current new worlds to `world_version = 19`
-because canonical chunk output now includes river-mouth delta / estuary widening
-and controlled braid/distributary split markers from the same separate
-`WorldHydrologyPrePass`.
-
-River Generation V1-R8 advances current new worlds to `world_version = 20`
-because canonical water output now includes organic lake shoreline noise,
-meandered river raster edges, and dynamic river width modulation from the same
-separate `WorldHydrologyPrePass` and existing `RiverGenSettings`.
-
-River Generation V1-R9 advances current new worlds to `world_version = 21`
-because canonical ocean-edge chunk output now includes walkable
-`TERRAIN_SHORE` band tiles derived from the same north-ocean sink mask.
-
-River Generation V1-R10 advances current new worlds to `world_version = 22`
-because canonical river chunk output now uses native refined whole-path
-centerlines, direction-memory meanders, slope-aware width modulation, and a
-bounded river spatial index derived from the same `WorldHydrologyPrePass`.
-
-River Generation V1-R11 advances current new worlds to `world_version = 23`
-because canonical river chunk output now uses refined-edge curvature and
-post-confluence reach classification for river width/depth rasterization from
-the same `WorldHydrologyPrePass`.
-
-River Generation V1-R12 advances current new worlds to `world_version = 24`
-because canonical river chunk output now uses native Y-shaped confluence
-influence zones around qualifying joins from the same `WorldHydrologyPrePass`.
-
-River Generation V1-R13 advances current new worlds to `world_version = 25`
-because canonical river chunk output now uses native rejoining braid island
-loops for eligible controlled splits from the same `WorldHydrologyPrePass`.
-
-River Generation V1-R14 advances current new worlds to `world_version = 26`
-because canonical lake chunk output now uses native basin-contour depth/spill
-data from the same `WorldHydrologyPrePass`.
-
-River Generation V1-R15 advances current new worlds to `world_version = 27`
-because canonical ocean chunk output now uses native organic coastline distance,
-shallow-shelf depth, and river-mouth influence fields from the same
-`WorldHydrologyPrePass`.
-
-River Generation V1-R16 advances current new worlds to `world_version = 28`
-because canonical hydrology chunk/overview output now uses continuous
-refined-river width, stricter braid island loop validation, and tile-sampled
-organic coastline geometry from the same `WorldHydrologyPrePass`.
-
-River Generation V1-R17 advances current new worlds to `world_version = 29`
-because canonical ocean chunk/overview output now adds multi-scale headland/bay
-carving to the tile-sampled organic coastline geometry from the same
-`WorldHydrologyPrePass`.
-
-River Generation V1-R18 advances current new worlds to `world_version = 30`
-because Hydrology Visual Quality V3 changes native chunk packet output for the
-same seed/settings while preserving the same foundation substrate and packet
-worker ownership.
-
-River/Lake/Ocean Integration V4-2 advances current new worlds to
-`world_version = 31`, V4-3 advances current new worlds to `world_version = 32`,
-and V4-4 advances current new worlds to `world_version = 33` because canonical
-hydrology packet output now includes native mountain clearance, discharge-width
-profiles, and coastline-integrated estuary/delta output while preserving the
-same foundation substrate and packet worker ownership.
+The failed water-generation stack was fully removed from current new worlds at
+`world_version = 37`. Earlier `world_version` values that carried the removed
+implementation remain historical compatibility boundaries only; they no longer
+define current packet, settings, API, or save shape.
 
 ## Performance Class
 
@@ -812,7 +718,7 @@ same foundation substrate and packet worker ownership.
 - Overview preview renders within one animation frame after the worker
   publishes its snapshot.
 - Chunk batch path shows no regression in median batch time in the
-  no-river baseline.
+  mountain-only baseline.
 - Seed / size changes in the new-game panel trigger one substrate
   recompute and one overview republish, with no hidden gameplay scene
   boot.
@@ -854,17 +760,17 @@ same foundation substrate and packet worker ownership.
 
 ### Preview
 
-- [ ] Default foundation overview shows finite world with visible wrap hint on
-      X and does not render ocean/burning/open-water/lake colours that
+- [ ] New-game overview shows finite world with visible wrap hint on
+      X and does not render ocean/burning/reserved/water colours that
       are absent from current gameplay terrain.
-- [ ] Default foundation overview matches the current gameplay world at the level of
+- [ ] Overview matches the current gameplay world at the level of
       current terrain classes: ground, mountain foot, and mountain wall
       (shape-true, not tile-perfect).
 - [ ] Overview shows individual mountain ridges narrower than `32` tiles
       when they exist at tile level, because wall / foot presence is
       sampled at pixel resolution rather than interpolated from the
       `64`-tile coarse grid.
-- [ ] Default foundation overview palette uses only currently realised gameplay terrain
+- [ ] Default overview palette uses only currently realised gameplay terrain
       classes in V1; no faux biome colours are rendered. Diagnostic modes
       clearly remain substrate inspection, not terrain truth.
 - [ ] Seed / size / foundation slider changes rebuild overview
@@ -879,7 +785,7 @@ same foundation substrate and packet worker ownership.
       never emits a spawn tile inside an ocean or burning band, a
       large mountain massif.
 - [ ] The spawn resolver prefers `continent_mask = 1` tiles with
-      moderate `hydro_height` and high `coarse_valley_score`.
+      moderate `foundation_height` and high `coarse_valley_score`.
 
 ### Performance
 
@@ -1050,13 +956,10 @@ landed inside V1.
 | Hard-coded legacy defaults pollute new worlds | Loader defaults apply **only** to `world_version >= 9` without the foundation section; new worlds always write explicit values. |
 | `WorldPrePass` leaks into interactive path | Compile-time flag on the dev-only API + code review; ADR-0001 class contract; substrate cache is keyed and read-only after publish. |
 | Multiplayer clients see divergent overview | Substrate is a pure function of replicated settings; all clients generate identical snapshots. |
-| Spawn resolver rules too strict → no spawn found | Fallback rule: expand search radius deterministically; if still no candidate found, relax `coarse_valley_score` floor; final fallback raises a clear error that the seed is unspawnable on the chosen preset. |
+| Spawn resolver rules too strict → no spawn found | Escalation rule: expand search radius deterministically; if still no candidate is found, fail loudly that the seed is unspawnable on the chosen preset. |
 
 ## Deferred
 
-- `river_generation_v1.md` defining its own approved substrate fields,
-  rasterization, water overlays, curve quality contracts, islands, and
-  splits.
 - A future biome spec consuming the V1 substrate for ocean, burning,
   latitude-belt, and continental biomes.
 - Subsurface / Z-level substrate extensions.
@@ -1075,10 +978,8 @@ landed inside V1.
 
 - Exact numeric thresholds in the spawn contract amendment
   (`spawn_max_wall_density`, minimum `coarse_valley_score`,
-  `hydro_height` mid-band range). To be fixed in V1-R1A with a short
+  `foundation_height` mid-band range). To be fixed in V1-R1A with a short
   debug-layer review and locked in the same task.
-- Further in-run editor/mod UI exposure beyond the current new-game Water
-  Sector and `worldgen_settings.rivers` save shape.
 
 ## Status Rationale
 

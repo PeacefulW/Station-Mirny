@@ -29,13 +29,13 @@ constexpr int64_t SPAWN_SAFE_PATCH_MIN_TILE = 12;
 constexpr int64_t SPAWN_SAFE_PATCH_MAX_TILE = 20;
 constexpr float SPAWN_MAX_WALL_DENSITY = 0.4f;
 constexpr float SPAWN_MIN_VALLEY_SCORE = 0.45f;
-constexpr float SPAWN_HYDRO_MIN = 0.28f;
-constexpr float SPAWN_HYDRO_MAX = 0.74f;
+constexpr float SPAWN_HEIGHT_MIN = 0.28f;
+constexpr float SPAWN_HEIGHT_MAX = 0.74f;
 constexpr float CONTINENT_NOISE_THRESHOLD = 0.28f;
 constexpr uint64_t SEED_SALT_CONTINENT = 0xd1b54a32d192ed03ULL;
 constexpr uint64_t SEED_SALT_RELIEF = 0x8a5cd789635d2dffULL;
 constexpr uint64_t SEED_SALT_REGION = 0xc2b2ae3d27d4eb4fULL;
-constexpr int64_t LAYER_MASK_HYDRO_HEIGHT = 1LL << 4;
+constexpr int64_t LAYER_MASK_FOUNDATION_HEIGHT = 1LL << 4;
 
 enum class OverviewTerrainClass {
 	Ground,
@@ -328,7 +328,7 @@ std::unique_ptr<Snapshot> build_snapshot(
 	snapshot->ocean_band_mask.assign(static_cast<size_t>(node_count), 0);
 	snapshot->burning_band_mask.assign(static_cast<size_t>(node_count), 0);
 	snapshot->continent_mask.assign(static_cast<size_t>(node_count), 0);
-	snapshot->hydro_height.assign(static_cast<size_t>(node_count), 0.0f);
+	snapshot->foundation_height.assign(static_cast<size_t>(node_count), 0.0f);
 	snapshot->coarse_wall_density.assign(static_cast<size_t>(node_count), 0.0f);
 	snapshot->coarse_foot_density.assign(static_cast<size_t>(node_count), 0.0f);
 	snapshot->coarse_valley_score.assign(static_cast<size_t>(node_count), 0.0f);
@@ -384,13 +384,13 @@ std::unique_ptr<Snapshot> build_snapshot(
 			const float wall_density = static_cast<float>(wall_count) / sample_count;
 			const float foot_density = static_cast<float>(foot_count) / sample_count;
 			const float valley = saturate(1.0f - wall_density - 0.5f * foot_density);
-			const float hydro = saturate(mountain_average * 0.62f + relief * 0.32f + slope);
+			const float foundation_height = saturate(mountain_average * 0.62f + relief * 0.32f + slope);
 
 			snapshot->latitude_t[static_cast<size_t>(index)] = latitude;
 			snapshot->ocean_band_mask[static_cast<size_t>(index)] = is_ocean_band ? 1U : 0U;
 			snapshot->burning_band_mask[static_cast<size_t>(index)] = is_burning_band ? 1U : 0U;
 			snapshot->continent_mask[static_cast<size_t>(index)] = is_continent ? 1U : 0U;
-			snapshot->hydro_height[static_cast<size_t>(index)] = hydro;
+			snapshot->foundation_height[static_cast<size_t>(index)] = foundation_height;
 			snapshot->coarse_wall_density[static_cast<size_t>(index)] = wall_density;
 			snapshot->coarse_foot_density[static_cast<size_t>(index)] = foot_density;
 			snapshot->coarse_valley_score[static_cast<size_t>(index)] = valley;
@@ -425,7 +425,7 @@ Dictionary make_debug_snapshot(const Snapshot &p_snapshot, int64_t p_layer_mask,
 	result["ocean_band_mask"] = make_byte_array(p_snapshot.ocean_band_mask);
 	result["burning_band_mask"] = make_byte_array(p_snapshot.burning_band_mask);
 	result["continent_mask"] = make_byte_array(p_snapshot.continent_mask);
-	result["hydro_height"] = make_float_array(p_snapshot.hydro_height);
+	result["foundation_height"] = make_float_array(p_snapshot.foundation_height);
 	result["coarse_wall_density"] = make_float_array(p_snapshot.coarse_wall_density);
 	result["coarse_foot_density"] = make_float_array(p_snapshot.coarse_foot_density);
 	result["coarse_valley_score"] = make_float_array(p_snapshot.coarse_valley_score);
@@ -462,11 +462,11 @@ float sample_snapshot_float_bilinear(
 void write_overview_rgba(
 	PackedByteArray &r_bytes,
 	int32_t p_offset,
-	float p_hydro,
+	float p_foundation_height,
 	float p_foot_density,
 	float p_wall_density
 ) {
-	const float hydro = saturate(p_hydro);
+	const float foundation_height = saturate(p_foundation_height);
 	const float foot = saturate(p_foot_density);
 	const float wall = saturate(p_wall_density);
 	if (wall > 0.0f) {
@@ -491,7 +491,7 @@ void write_overview_rgba(
 		);
 		return;
 	}
-	const float base = clamp_value(42.0f + hydro * 24.0f, 0.0f, 255.0f);
+	const float base = clamp_value(42.0f + foundation_height * 24.0f, 0.0f, 255.0f);
 	write_rgba(
 		r_bytes,
 		p_offset,
@@ -501,8 +501,8 @@ void write_overview_rgba(
 	);
 }
 
-void write_height_rgba(PackedByteArray &r_bytes, int32_t p_offset, float p_hydro) {
-	const float height = saturate(p_hydro);
+void write_height_rgba(PackedByteArray &r_bytes, int32_t p_offset, float p_foundation_height) {
+	const float height = saturate(p_foundation_height);
 	float r0 = 24.0f;
 	float g0 = 38.0f;
 	float b0 = 60.0f;
@@ -556,8 +556,8 @@ Ref<Image> make_overview_image(
 	const int32_t image_height = p_snapshot.grid_height * pixels_per_cell;
 	PackedByteArray bytes;
 	bytes.resize(image_width * image_height * 4);
-	const bool render_hydro_height = (p_layer_mask & LAYER_MASK_HYDRO_HEIGHT) != 0;
-	if (render_hydro_height) {
+	const bool render_foundation_height = (p_layer_mask & LAYER_MASK_FOUNDATION_HEIGHT) != 0;
+	if (render_foundation_height) {
 		for (int32_t y = 0; y < image_height; ++y) {
 			for (int32_t x = 0; x < image_width; ++x) {
 				const float coarse_sample_x = (static_cast<float>(x) + 0.5f) / static_cast<float>(pixels_per_cell) - 0.5f;
@@ -565,7 +565,7 @@ Ref<Image> make_overview_image(
 				write_height_rgba(
 					bytes,
 					(y * image_width + x) * 4,
-					sample_snapshot_float_bilinear(p_snapshot.hydro_height, p_snapshot, coarse_sample_x, coarse_sample_y)
+					sample_snapshot_float_bilinear(p_snapshot.foundation_height, p_snapshot, coarse_sample_x, coarse_sample_y)
 				);
 			}
 		}
@@ -602,7 +602,7 @@ Ref<Image> make_overview_image(
 			write_overview_rgba(
 				bytes,
 				(y * image_width + x) * 4,
-				sample_snapshot_float_bilinear(p_snapshot.hydro_height, p_snapshot, coarse_sample_x, coarse_sample_y),
+				sample_snapshot_float_bilinear(p_snapshot.foundation_height, p_snapshot, coarse_sample_x, coarse_sample_y),
 				pixel_foot_density,
 				pixel_wall_density
 			);
@@ -629,11 +629,11 @@ Dictionary resolve_spawn_tile(const Snapshot &p_snapshot) {
 			continue;
 		}
 		const float valley = p_snapshot.coarse_valley_score[static_cast<size_t>(index)];
-		const float hydro = p_snapshot.hydro_height[static_cast<size_t>(index)];
-		const float hydro_mid = 1.0f - saturate(std::abs(hydro - 0.52f) / 0.52f);
+		const float foundation_height = p_snapshot.foundation_height[static_cast<size_t>(index)];
+		const float height_mid = 1.0f - saturate(std::abs(foundation_height - 0.52f) / 0.52f);
 		const float wall_penalty = p_snapshot.coarse_wall_density[static_cast<size_t>(index)] * 0.75f;
-		const bool preferred_band = valley >= SPAWN_MIN_VALLEY_SCORE && hydro >= SPAWN_HYDRO_MIN && hydro <= SPAWN_HYDRO_MAX;
-		const float score = valley * 1.8f + hydro_mid * 0.9f - wall_penalty + (preferred_band ? 0.65f : 0.0f);
+		const bool preferred_band = valley >= SPAWN_MIN_VALLEY_SCORE && foundation_height >= SPAWN_HEIGHT_MIN && foundation_height <= SPAWN_HEIGHT_MAX;
+		const float score = valley * 1.8f + height_mid * 0.9f - wall_penalty + (preferred_band ? 0.65f : 0.0f);
 		if (score > best_score) {
 			best_score = score;
 			best_index = index;
@@ -667,7 +667,7 @@ Dictionary resolve_spawn_tile(const Snapshot &p_snapshot) {
 	result["node_coord"] = Vector2i(node_x, node_y);
 	result["score"] = best_score;
 	result["coarse_valley_score"] = p_snapshot.coarse_valley_score[static_cast<size_t>(best_index)];
-	result["hydro_height"] = p_snapshot.hydro_height[static_cast<size_t>(best_index)];
+	result["foundation_height"] = p_snapshot.foundation_height[static_cast<size_t>(best_index)];
 	result["coarse_wall_density"] = p_snapshot.coarse_wall_density[static_cast<size_t>(best_index)];
 	return result;
 }

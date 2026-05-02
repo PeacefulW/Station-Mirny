@@ -831,17 +831,11 @@ msgstr "SECTOR: COMMS"
 msgid "UI_NEW_GAME_TAB_GEOLOGY"
 msgstr "SECTOR: GEOLOGY"
 
-msgid "UI_NEW_GAME_TAB_WATER"
-msgstr "SECTOR: WATER"
-
 msgid "UI_NEW_GAME_COMMS_TITLE"
 msgstr "COMMS"
 
 msgid "UI_NEW_GAME_GEOLOGY_TITLE"
 msgstr "GEOLOGY"
-
-msgid "UI_NEW_GAME_WATER_TITLE"
-msgstr "WATER"
 
 msgid "UI_NEW_GAME_SECTOR_LABEL"
 msgstr "SECTOR: %s"
@@ -858,27 +852,6 @@ msgstr "Medium cylinder"
 msgid "UI_WORLDGEN_SIZE_LARGE"
 msgstr "Large cylinder"
 
-msgid "UI_WORLDGEN_WATER_PRESET_LABEL"
-msgstr "Water preset"
-
-msgid "UI_WORLDGEN_WATER_PRESET_FULL_HYDROLOGY"
-msgstr "Full Hydrology"
-
-msgid "UI_WORLDGEN_WATER_PRESET_LAKES_ONLY"
-msgstr "Lakes Only"
-
-msgid "UI_WORLDGEN_WATER_PRESET_SPARSE_ARCTIC_RIVERS"
-msgstr "Sparse Arctic Rivers"
-
-msgid "UI_WORLDGEN_WATER_PRESET_WET_RIVER_NETWORK"
-msgstr "Wet River Network"
-
-msgid "UI_WORLDGEN_WATER_PRESET_DELTA_HEAVY"
-msgstr "Delta Heavy"
-
-msgid "UI_WORLDGEN_WATER_PRESET_CUSTOM"
-msgstr "Custom"
-
 msgid "UI_WORLDGEN_FOUNDATION_OCEAN_BAND"
 msgstr "Ocean band"
 
@@ -890,54 +863,6 @@ msgstr "Burning band"
 
 msgid "UI_WORLDGEN_FOUNDATION_BURNING_BAND_DESC"
 msgstr "Thickness of the impassable bottom-Y burning-lands belt in tiles."
-
-msgid "UI_WORLDGEN_WATER_TARGET_TRUNK_COUNT"
-msgstr "River count"
-
-msgid "UI_WORLDGEN_WATER_TARGET_TRUNK_COUNT_DESC"
-msgstr "Target number of major river trunks. Zero keeps automatic scaling by world size."
-
-msgid "UI_WORLDGEN_WATER_DENSITY"
-msgstr "River network density"
-
-msgid "UI_WORLDGEN_WATER_DENSITY_DESC"
-msgstr "Controls how many tributaries and secondary channels survive hydrology selection."
-
-msgid "UI_WORLDGEN_WATER_WIDTH_SCALE"
-msgstr "River width"
-
-msgid "UI_WORLDGEN_WATER_WIDTH_SCALE_DESC"
-msgstr "Multiplies channel width. Final width still varies by stream order and local channel shape."
-
-msgid "UI_WORLDGEN_WATER_LAKE_CHANCE"
-msgstr "Lake count"
-
-msgid "UI_WORLDGEN_WATER_LAKE_CHANCE_DESC"
-msgstr "Chance for eligible low basins to become natural lakes."
-
-msgid "UI_WORLDGEN_WATER_MEANDER_STRENGTH"
-msgstr "River meander"
-
-msgid "UI_WORLDGEN_WATER_MEANDER_STRENGTH_DESC"
-msgstr "Strength of lateral channel offset during rasterization. Higher values make rivers less straight."
-
-msgid "UI_WORLDGEN_WATER_BRAID_CHANCE"
-msgstr "Channel branches"
-
-msgid "UI_WORLDGEN_WATER_BRAID_CHANCE_DESC"
-msgstr "Chance of controlled split / braid reaches on eligible wider rivers."
-
-msgid "UI_WORLDGEN_WATER_SHALLOW_CROSSING_FREQUENCY"
-msgstr "Shallow crossings"
-
-msgid "UI_WORLDGEN_WATER_SHALLOW_CROSSING_FREQUENCY_DESC"
-msgstr "Frequency of shallow ford opportunities across channels."
-
-msgid "UI_WORLDGEN_WATER_DELTA_SCALE"
-msgstr "Delta scale"
-
-msgid "UI_WORLDGEN_WATER_DELTA_SCALE_DESC"
-msgstr "How strongly rivers widen and split near the north ocean."
 
 msgid "UI_WORLDGEN_MOUNTAINS_DENSITY"
 msgstr "DENSITY INDEX"
@@ -1008,14 +933,8 @@ msgstr "WORLD OVERVIEW"
 msgid "UI_WORLDGEN_OVERVIEW_MODE_LABEL"
 msgstr "MODE:"
 
-msgid "UI_WORLDGEN_OVERVIEW_MODE_COMPOSITE"
-msgstr "Terrain + Water"
-
 msgid "UI_WORLDGEN_OVERVIEW_MODE_TERRAIN"
 msgstr "Terrain"
-
-msgid "UI_WORLDGEN_OVERVIEW_MODE_WATER"
-msgstr "Water"
 
 msgid "UI_WORLDGEN_OVERVIEW_MODE_HEIGHT"
 msgstr "Height Map"

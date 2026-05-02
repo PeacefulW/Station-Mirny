@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.4
-last_updated: 2026-04-29
+version: 0.3
+last_updated: 2026-04-21
 related_docs:
   - ../README.md
   - system_api.md
@@ -210,23 +210,6 @@ Confirmed listeners:
 
 Current listener use:
 - removes the evicted chunk from scene-local boot tracking
-
-### `water_overlay_changed(region: Rect2i, reason: StringName)`
-
-Emitter:
-- `EnvironmentOverlay._mark_tile_dirty()`
-
-When it fires:
-- after one explicit current-water override is set
-- after one explicit current-water override is cleared
-
-Confirmed listeners:
-- `WorldStreamer._on_water_overlay_changed()`
-
-Current listener use:
-- recomputes overlay-derived `walkable_flags` only inside the aligned water
-  dirty block for already-loaded packets
-- does not rewrite immutable riverbed/lakebed terrain or regenerate chunks
 
 ## Not Included In This Minimal Pass
 

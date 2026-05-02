@@ -22,7 +22,7 @@ Goals:
 - keep the interactive path bounded at <2 ms per local mutation (ADR-0001, ENGINEERING_STANDARDS.md Law 0, Law 11)
 - move all per-chunk heavy compute (noise, biome resolve, placement, mask solve, packet build, cold diff merge) into GDExtension C++ workers
 - keep all scene-tree mutation on the main thread, budgeted through `FrameBudgetDispatcher`
-- support rivers, mountains, biomes, seasons, snow, ice, weather without rewriting the generator or stream path later
+- support mountains, biomes, seasons, snow, ice, weather without rewriting the generator or stream path later
 - keep save files small by persisting only runtime diffs on top of a deterministic base (ADR-0003)
 
 User-directed non-negotiables folded into this plan:
@@ -42,13 +42,12 @@ The user proposed a 4-layer split. The plan keeps the split but renames and re-a
 |-------------------------|----------------------------|----------------------------|-------------------|---------------------|
 | Canonical base          | ADR-0003 immutable base    | `WorldCore` (C++)          | never             | no (from seed)      |
 | Runtime diff            | ADR-0003 runtime diff      | `WorldDiffStore` (GDScript thin + C++ merge) | player/system mutations | yes (per-chunk)     |
-| Environment overlay     | ADR-0007 slow + local      | `EnvironmentOverlay` (GDScript + overlay samplers) | simulation ticks  | slow state only     |
+| Environment runtime     | ADR-0007 slow + local      | Future environment-runtime owner | simulation ticks  | slow state only     |
 | Presentation            | ADR-0007 presentation      | `WorldView` / `ChunkView` (GDScript) | view-local        | no                  |
 
 Rules (carried from the ADRs, repeated here for plan-level clarity):
-- canonical base never mutates after generation; rivers, mountains, biome classification, base resource spots, floodplains are base
-- ice on a river is an environment overlay flag, not a base mutation (frozen=true/false on top of base river tile)
-- seasonal snow cover is a presentation layer driven by environment overlay + time/season — not a new world generation pass
+- canonical base never mutates after generation; mountains, biome classification, and base resource spots are base
+- seasonal snow cover is a presentation layer driven by environment runtime + time/season — not a new world generation pass
 - all visuals derive from `base + diff + overlay`; view state is never authoritative
 
 Cross-layer read rules:
@@ -132,7 +131,7 @@ Transitions are driven by the streamer tick; dispatcher only executes slices, it
 | `world_version`             | `int`                   | bumped on any canonical generation change (Law 4)          |
 | `z_level`                   | `int`                   | surface = 0, subsurface < 0                                |
 | `terrain_ids`               | `PackedInt32Array`      | length 1024 (32×32), atlas id per tile                     |
-| `flags`                     | `PackedByteArray`       | bitfield per tile: walkable, water, river, mountain_block, floodplain, cliff |
+| `flags`                     | `PackedByteArray`       | bitfield per tile: walkable, mountain_block, cliff |
 | `tile_variants`             | `PackedInt32Array`      | precomputed atlas variant ids / transition mask ids       |
 | `placement_batches`         | `Array[PackedInt32Array]` | per-species packed `[x, y, variant, rotation]`           |
 | `resource_spots`            | `PackedInt32Array`      | packed `[x, y, item_id_index, yield_bucket]`              |
@@ -156,7 +155,6 @@ gdextension/src/
     macro_field_cache.h/.cpp  // lazy macro-cell LRU cache (ADR-0002 wrap-safe)
     terrain_solve.h/.cpp      // base terrain id decision
     biome_solve.h/.cpp        // biome classification over resolved channels
-    river_solve.h/.cpp        // river/floodplain mask
     mountain_solve.h/.cpp     // mountain mass, cliff/block mask
     placement_solve.h/.cpp    // flora/resource/POI batches
     tile_mask_solve.h/.cpp    // atlas variants, transition masks (precomputed!)
@@ -190,12 +188,12 @@ Only orchestration, apply, UI, save/load, debug. All of these are already presen
 | `ChunkPublishQueue`       | main-thread publisher: creates/reuses `ChunkView`, applies `TileMapLayer`, attaches MultiMesh        | STREAMING           |
 | `ChunkView` (Node2D)      | per-chunk scene root; owns its subchunk TileMapLayers, MultiMesh nodes, collision bodies             | —                   |
 | `WorldDiffStore`          | per-chunk diff storage; thin API over native diff representation; save/load collector               | —                   |
-| `EnvironmentOverlay`      | slow world state (season/weather), local runtime state (wind, temp), ice/snow flags                  | TOPOLOGY            |
+| Future environment runtime | slow world state (season/weather), local runtime state (wind, temp), snow flags                    | TOPOLOGY            |
 | `WorldMutationCommands`   | `MineTileCommand`, `PlaceTerrainDiffCommand` under existing `CommandExecutor` (LAW 8, LAW 5)         | —                   |
 
 Existing autoloads stay owners:
-- `TimeManager` — sole time-of-day authority (user non-negotiable #1). `EnvironmentOverlay` subscribes to `time_tick`, `hour_changed`, `day_changed`, `season_changed`. No new time owner.
-- `FrameBudgetDispatcher` — sole per-frame budget executor. `WorldStreamer`, `ChunkPublishQueue`, `EnvironmentOverlay` register jobs here; they do not run their own per-frame loops.
+- `TimeManager` — sole time-of-day authority (user non-negotiable #1). Future environment runtime must subscribe to existing time events. No new time owner.
+- `FrameBudgetDispatcher` — sole per-frame budget executor. `WorldStreamer`, `ChunkPublishQueue`, and future environment runtime register jobs here; they do not run their own per-frame loops.
 - `EventBus` — domain event fan-out. New events defined in §11.
 - `SaveManager` — sole save orchestrator. `WorldDiffStore` plugs in via `SaveCollectors.collect_chunk_data()` / `SaveAppliers.apply_chunk_data()` (current stubs).
 
@@ -247,7 +245,7 @@ Required spec/ADR changes (create/refine, in the order they should land):
    - Cites: ADR-0001, ADR-0002, ADR-0003, ADR-0006, ADR-0007, `world_grid_rebuild_foundation.md`.
    - Establishes the `world_version` semantics and the interactive/background/boot classification for every new code path.
 
-2. **New system spec**: `docs/02_system_specs/world/environment_overlay.md`
+2. **New system spec**: future environment runtime spec
    - Scope: slow world state (season is already owned by `TimeManager`; this spec only adds weather cursor and wind baseline), local runtime derivation of `temp(x,y)`, ice/snow overlay flags, interaction with biome and `TimeManager`.
    - Cites: ADR-0007, ADR-0005.
 
@@ -260,10 +258,10 @@ Required spec/ADR changes (create/refine, in the order they should land):
 
 5. **Event contracts update**: `docs/02_system_specs/meta/event_contracts.md`
    - Confirm emitter+listener for `chunk_loaded`, `chunk_unloaded`, `chunk_evicted`, `chunk_published_critical`, `chunk_published_cosmetic` (signals already declared in `EventBus`).
-   - Confirm emitter+listener for `environment_overlay_ticked`, `ice_overlay_changed`.
+   - Confirm emitter+listener names for future environment runtime events.
 
 6. **System API update**: `docs/02_system_specs/meta/system_api.md`
-   - Add safe reads: `WorldCore.get_tile_at(x, y, z)`, `WorldDiffStore.get_diff(coord)`, `EnvironmentOverlay.get_temperature_at(world_pos)`, `EnvironmentOverlay.is_frozen(world_pos)`.
+   - Add safe reads: `WorldCore.get_tile_at(x, y, z)`, `WorldDiffStore.get_diff(coord)`, and future environment-runtime query surfaces.
    - Add safe mutation paths: `MineTileCommand`, `PlaceTerrainDiffCommand`.
 
 7. **Save/persistence update**: `docs/02_system_specs/meta/save_and_persistence.md`
@@ -282,11 +280,11 @@ Each iteration lands a shippable slice under the same streaming contract. No ite
 
 **V1 — Core loop, one biome, no decor.** Surface only (z=0). `WorldCore` generates packets with terrain_ids, flags, a single biome, base resource spots. `WorldStreamer` runs a symmetric ring (forward_lobe_gain=0.0). `ChunkView` applies TileMapLayer from packet. `WorldDiffStore` persists mined-tile diffs. Acceptance: player can walk, chunks stream in and out without hitches, save/load round-trips a dug hole.
 
-**V2 — Rivers, mountains, floodplains.** Layer 2/3 solves added to `WorldCore`. `world_version` bumps to 1. Mountain_block flag drives collisions. Rivers are base tiles; ice is deferred.
+**V2 — Mountains.** Layer 2 solves added to `WorldCore`. `world_version` bumps to 1. Mountain_block flag drives collisions.
 
 **V3 — Biomes.** Biome resolver added behind existing `BiomeRegistry`; biomes drive terrain atlas and resource spots. No code branches per biome — data-driven via existing `BiomeData` resources.
 
-**V4 — Environment overlay + ice + seasons.** `EnvironmentOverlay` subscribes to `TimeManager` and owns ice flag on river tiles, seasonal temperature modifier, and (later) weather cursor. Ice is an overlay, not a base mutation. `world_version` is NOT bumped for overlay changes.
+**V4 — Environment runtime + seasons.** Future environment runtime subscribes to `TimeManager` and owns seasonal temperature modifier and (later) weather cursor. `world_version` is NOT bumped for overlay changes.
 
 **V5 — Mass decor via MultiMesh.** `placement_batches` consumed by `MultiMeshInstance2D` per species per subchunk. Proximity-activation promotes near-player flora to real interactive objects through `ItemRegistry`-driven factories.
 
@@ -333,7 +331,6 @@ Files to add (first implementation iteration, after spec approval):
 - `core/systems/world/chunk_publish_queue.gd`
 - `core/systems/world/world_diff_store.gd`
 - `core/systems/world/streaming_policy.gd` (resource or plain struct)
-- `core/systems/world/environment_overlay.gd`
 - `core/commands/world/mine_tile_command.gd`
 
 ## 14. Verification
@@ -360,7 +357,7 @@ Rule reminders that gate closure:
 1. Where do the shared grid constants live (autoload vs balance resource vs dedicated world config)? `world_grid_rebuild_foundation.md` already lists this as open.
 2. Should `ChunkPacket` be exposed as typed `Dictionary` or as a native class bound through godot-cpp (with getters)? Default recommendation: typed `Dictionary` of `Packed*Array` for simplicity and pickle-compatibility; revisit only if boundary cost becomes measurable.
 3. Does V1 need the reuse pool for `ChunkView` / `TileMapLayer` nodes, or is `free` / re-instantiate fast enough at 32×32? Default: implement the reuse pool from V1 — cheaper to build once than to retrofit.
-4. Does `EnvironmentOverlay` need its own dispatcher job id (`environment.overlay_advance`) or share `topology` budget with a secondary slice? Default: its own named job for observability.
+4. Does future environment runtime need its own dispatcher job id or share `topology` budget with a secondary slice? Default: its own named job for observability.
 
 ## 16. Out-of-Scope Observations
 

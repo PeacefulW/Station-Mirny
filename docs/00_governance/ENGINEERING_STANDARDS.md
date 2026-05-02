@@ -63,7 +63,7 @@ If an operation **could become heavy in the future**, move it into native code
 ### Must be in C++ (GDExtension):
 - chunk generation
 - noise / field sampling
-- biome / river / mountain solve
+- biome / mountain solve
 - placement lists
 - tile mask / transition mask / atlas decisions
 - merging base chunk + diff
@@ -90,7 +90,7 @@ results.
 
 ### Forbidden on the main thread:
 - generating terrain
-- resolving biomes, POIs, or river masks
+- resolving biomes, POIs, or large terrain masks
 - building tile-transition / atlas arrays
 - iterating through the whole chunk synchronously
 - doing anything whose scale is not bounded by the number of local objects
@@ -129,7 +129,7 @@ Any change to canonical world generation that changes the result for the same
 
 ### Without increasing `world_version`, you may not change:
 - terrain solve
-- rivers / lakes
+- water-generation output
 - mountains / cliffs
 - biome classification
 - placement rules (flora, POIs, resources)
@@ -232,7 +232,7 @@ Every data type has exactly **one write owner**.
 | Base chunk terrain | `WorldCore` / C++ generator |
 | Player changes | `WorldDiffStore` |
 | Time of day | `TimeSystem` |
-| Seasonal overlays (snow, ice) | `EnvironmentOverlay` |
+| Seasonal overlays | future environment-runtime owner |
 | Visual shadows | `WorldView` |
 | Building state | `BuildingRegistry` |
 
@@ -272,7 +272,7 @@ result = NativeChunkGen.generate(coord)
 
 ### You may show a chunk only when these are ready:
 - terrain
-- water / river
+- terrain affecting movement
 - blocking cells
 - cliff / block masks
 - everything that affects movement and collisions

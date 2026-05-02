@@ -4,8 +4,8 @@ doc_type: governance
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.11
-last_updated: 2026-04-30
+version: 1.4
+last_updated: 2026-04-25
 related_docs:
   - ENGINEERING_STANDARDS.md
   - ../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
@@ -13,7 +13,6 @@ related_docs:
   - ../05_adrs/0005-light-is-gameplay-system.md
   - ../05_adrs/0006-surface-and-subsurface-are-separate-but-linked.md
   - ../05_adrs/0007-environment-runtime-is-layered-and-distinct-from-worldgen.md
-  - ../02_system_specs/world/river_generation_v1.md
 ---
 
 # Project Glossary
@@ -96,93 +95,6 @@ The top-Y hard band in V1 worlds. Its thickness is saved as
 ### Burning band
 The bottom-Y hard band in V1 worlds. Its thickness is saved as
 `worldgen_settings.foundation.burning_band_tiles`.
-
-### Water overlay
-Runtime/environment layer owned by `EnvironmentOverlay` that says how much water
-is present on top of water-capable terrain right now. It may affect walkability
-and presentation, but it must not rewrite immutable base terrain. For rivers and
-lakes, drying changes this overlay while the riverbed/lakebed terrain remains
-canonical. Current V1-R6 code persists only explicit local overrides; broad
-drought/weather simulation remains future work.
-
-### Riverbed
-Canonical base terrain under a river channel. It records that a tile belongs to
-the seed-derived river course even when current water dries out. Riverbed is
-not the same thing as current water.
-
-### Lakebed
-Canonical base terrain under a natural lake outline. Lakebed remains after a
-water overlay removes visible lake water.
-
-### Basin-contour lake
-Natural lake whose visible outline and shallow/deep rim are derived from the
-filled basin and spill surface in the native hydrology prepass. It should read
-as a low area filled with water, not as a coarse rectangular hydrology-cell
-mask.
-
-### Hydrology prepass
-Native, RAM-only worldgen prepass that derives drainage, lakes, river segments,
-ocean sink, and river rasterization support from seed, world bounds,
-foundation, mountain, and river settings. It is boot/new-game-preview worker
-work, not interactive path work.
-
-### Stream order
-Compact measure of river hierarchy / discharge used to distinguish small
-headwaters from larger downstream channels. River width and presentation may
-grow with stream order.
-
-### Confluence
-Place where two or more river branches join into a downstream branch. River
-width, stream order, and water depth may increase after a confluence. Current
-River Generation may mark a native Y-shaped confluence zone around qualifying
-joins so upstream branches and the downstream reach soften into one visible
-body of water.
-
-### Delta
-River-mouth region where a river widens, splits, or forms distributaries before
-entering the north ocean. Deltas are controlled hydrology output, not random
-shoreline decoration.
-
-### Braid island loop
-Controlled split reach where a high-order river briefly branches around an
-implicit ground island and rejoins the same downstream channel. It is derived
-from the native hydrology prepass and existing river skeleton, not a separate
-decorative river generator.
-
-### Oxbow lake
-Rare abandoned-meander lake candidate near a high-curvature lowland river bend.
-It is prepared from native refined river geometry and must not mutate or break
-the active hydrology graph.
-
-### Shallow water
-Current water overlay class that remains traversable. Future tuning may add a
-movement penalty, but it must not block by default.
-
-### Deep water
-Current water overlay class that blocks traversal. Deep water is separate from
-the canonical riverbed or lakebed underneath it.
-
-### Shore
-Canonical transition band between land and water bodies such as ocean, lakes,
-and wider rivers. It is generally walkable unless current water overlay says
-otherwise.
-
-### Organic coastline
-Native hydrology shape field that makes the north ocean read as a connected
-coastline with irregular bays/capes instead of a ruler-straight map border.
-For current V1-R17 worlds this is represented by RAM-only coast distance,
-shallow-shelf depth, river-mouth influence fields, and multi-scale tile-sampled
-coastline geometry derived by `WorldHydrologyPrePass`.
-
-### Ocean shelf
-Shallow ocean band between shore and deep ocean. It is canonical ocean floor
-terrain with shallow default current water in V1-R17 chunk output; farther
-north remains deep/ocean water and blocks traversal.
-
-### Floodplain
-Canonical low river-adjacent land that may visually read as flood-shaped terrain
-and may become wet under water overlay rules. It is not a river channel by
-itself.
 
 ### Biome resolver
 A data-driven system that takes world channel values at a position and returns

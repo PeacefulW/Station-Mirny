@@ -46,8 +46,8 @@ static func build_solid_atlas_index(
 	seed: int,
 	variant_count: int = DEFAULT_VARIANT_COUNT
 ) -> int:
-	# Solid means "no open edges / no inner cuts". Ground should stay on this
-	# until water-driven edge rules are introduced.
+	# Solid means "no open edges / no inner cuts". Ground stays on this
+	# in the current mountain-only worldgen.
 	return build_atlas_index(
 		build_signature_code(true, true, true, true, true, true, true, true),
 		pick_variant(tile_coord, seed, variant_count)

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+art
 source_of_truth: true
-version: 0.7
-last_updated: 2026-04-30
+version: 0.4
+last_updated: 2026-04-20
 related_docs:
   - ../../README.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -58,7 +58,7 @@ This spec covers:
 This spec does not define:
 
 - canonical biome generation rules
-- water simulation
+- non-mountain terrain simulation
 - climate simulation
 - save payload changes
 - multiplayer packet evolution
@@ -316,79 +316,11 @@ Notes:
   canonical `terrain_id -> TerrainPresentationProfile` mapping.
 - Multiple terrain ids may intentionally point to the same profile by sharing
   one `terrain_ids` list.
-- River Generation V1 currently maps hydrology terrain ids `5..10`
-  (`riverbed_shallow`, `riverbed_deep`, `lakebed`, `ocean_floor`, `shore`,
-  `floodplain`) through individual `hydrology:*_profile` placeholder profiles.
-  This is a temporary simple-tile presentation bridge with diagnostic colours
-  so the live packet boundary has readable profiles. The floodplain placeholder
-  is an invisible overlay profile drawn over plains ground underlay so authored
-  transparent floodplain texture can replace it later. It is not the final
-  water/shore material contract.
 - `terrain_class_id` is a descriptive/category field for authoring and grouping.
 - `shader_family_id` must resolve through authored `TerrainShaderFamily` data,
   not a hardcoded runtime switch in `WorldTileSetFactory`.
 - `terrain_class_id` is not permission for a second hidden runtime resolution
   path.
-
-## Floodplain Strength Gradient
-
-For `world_version >= 30`, native chunk packets expose a smooth per-tile
-`floodplain_strength` gradient instead of only a binary floodplain threshold.
-
-Presentation consumption contract:
-
-- `0..95`: ordinary ground presentation; no floodplain overlay is required.
-- `96..191`: far floodplain band, marked by
-  `HYDROLOGY_FLAG_FLOODPLAIN_FAR`, suitable for a light vegetation/wetness
-  overlay.
-- `192..255`: near floodplain band, marked by
-  `HYDROLOGY_FLAG_FLOODPLAIN_NEAR`, suitable for the strongest floodplain
-  overlay.
-
-The existing `TERRAIN_FLOODPLAIN` placeholder profile remains a temporary
-bridge for readable packet output. V3-7 owns authored floodplain overlay art and
-registry polish; it must consume `floodplain_strength` as presentation data and
-must not reinterpret terrain ids as a second gameplay truth.
-
-V3-7 implementation:
-
-- floodplain overlay tuning lives in
-  `data/balance/water_presentation_floodplain.tres`;
-- `TerrainPresentationRegistry.get_floodplain_overlay_color(...)` is the single
-  presentation-owned consumer for `floodplain_strength` plus the V3 near/far
-  floodplain flags;
-- `ChunkView` publishes a single chunk-local overlay texture with one pixel per
-  tile, updated inside the existing chunk publish batches. It must not create
-  unique materials per tile and must clear the overlay when runtime terrain
-  mutation replaces a tile;
-- V3-7 is presentation only: no `WORLD_VERSION` bump, no packet shape change,
-  no save payload change, and no new command/event boundary.
-
-## Hydrology Unified Water Presentation
-
-River/Lake/Ocean Integration V4-6 keeps hydrology ownership native-side while
-unifying player-facing water colours across chunk TileSets, 33x33 preview patch
-images, and hydrology overview images.
-
-Implementation contract:
-
-- `HydrologyTileClassifier.gameplay_winner_color(...)` is the native gameplay
-  presentation palette for hydrology layer winners.
-- `HydrologyTileClassifier.debug_winner_color(...)` remains the separate debug
-  palette for V4 layer-winner overlays and agreement diagnostics.
-- `WorldCore.make_world_preview_patch_image(..., "terrain")` resolves preview
-  pixels from the packet layer winner and consumes `floodplain_strength` only
-  as presentation strength. It must not reinterpret terrain ids as another
-  gameplay truth.
-- `WorldHydrologyPrePass` default overview rendering uses the same gameplay
-  palette for ocean, lake, river, bank, and floodplain pixels. River/bank edge
-  transitions are derived from the native SDF/radius sample already used by the
-  overview raster.
-- Runtime hydrology terrain shape resources use the same gameplay palette for
-  `ocean_floor`, `lakebed`, `riverbed_deep`, `riverbed_shallow`, and `shore`.
-  Floodplain remains a chunk-local overlay driven by `floodplain_strength`.
-- V4-6 is presentation only: no `WORLD_VERSION` bump, no packet shape change,
-  no save payload change, and no new command/event boundary.
 
 ## Registry and ID Model
 
@@ -731,8 +663,8 @@ The terrain hybrid architecture is considered correctly implemented when:
   related families under one material contract?
 - What is the minimal public registry/API surface needed for mods to extend
   terrain presentation safely?
-- Should water-adjacent low banks remain the same topology family as taller
-  cliffs, or do they justify a separate family later?
+- Should low banks remain the same topology family as taller cliffs, or do
+  they justify a separate family later?
 
 ## Implementation Iterations
 
@@ -772,16 +704,6 @@ The terrain hybrid architecture is considered correctly implemented when:
 
 - expose registry-backed terrain presentation selection for content/mod systems
 - update `system_api.md` if new safe public entrypoints are introduced
-
-### Hydrology V3-7 - Floodplain gradient presentation follow-up
-
-- consume the V3 `floodplain_strength` packet field through
-  `TerrainPresentationRegistry`, backed by `data/balance/water_presentation_*`
-  resources
-- apply visible floodplain wetness/vegetation tint as chunk-local presentation
-  overlay, not as terrain truth
-- keep packet/save/system API boundaries unchanged unless a later task exposes
-  a public modding surface for water presentation
 
 ## Required Updates
 

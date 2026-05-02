@@ -5,10 +5,8 @@ const ChunkView = preload("res://core/systems/world/chunk_view.gd")
 const HarvestQuery = preload("res://core/systems/world/harvest_query.gd")
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
-const RiverGenSettings = preload("res://core/resources/river_gen_settings.gd")
 const MountainCavityCache = preload("res://core/systems/world/mountain_cavity_cache.gd")
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
-const EnvironmentOverlay = preload("res://core/systems/world/environment_overlay.gd")
 const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
 const WorldDiffStore = preload("res://core/systems/world/world_diff_store.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
@@ -23,7 +21,6 @@ var world_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 var world_version: int = WorldRuntimeConstants.WORLD_VERSION
 
 var _diff_store: WorldDiffStore = WorldDiffStore.new()
-var _water_overlay: EnvironmentOverlay = EnvironmentOverlay.new()
 var _chunk_packets: Dictionary = {}
 var _chunk_views: Dictionary = {}
 var _requested_chunks: Dictionary = {}
@@ -35,12 +32,10 @@ var _generation_epoch: int = 0
 var _worldgen_settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
 var _world_bounds_settings: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
 var _foundation_settings: FoundationGenSettings = FoundationGenSettings.hard_coded_defaults()
-var _river_settings: RiverGenSettings = RiverGenSettings.hard_coded_defaults()
 var _worldgen_settings_packed: PackedFloat32Array = PackedFloat32Array()
 var _pending_new_world_settings: MountainGenSettings = null
 var _pending_new_world_bounds: WorldBoundsSettings = null
 var _pending_new_foundation_settings: FoundationGenSettings = null
-var _pending_new_river_settings: RiverGenSettings = null
 var _packet_backend: WorldChunkPacketBackend = WorldChunkPacketBackend.new()
 var _awaiting_new_game_spawn_result: bool = false
 var _new_game_spawn_failed: bool = false
@@ -54,13 +49,10 @@ var _did_warn_roof_layer_explosion: bool = false
 func _ready() -> void:
 	add_to_group("chunk_manager")
 	name = "WorldStreamer"
-	if EventBus and not EventBus.water_overlay_changed.is_connected(_on_water_overlay_changed):
-		EventBus.water_overlay_changed.connect(_on_water_overlay_changed)
 	_apply_worldgen_settings(
 		MountainGenSettings.hard_coded_defaults(),
 		WorldBoundsSettings.hard_coded_defaults(),
-		FoundationGenSettings.hard_coded_defaults(),
-		RiverGenSettings.hard_coded_defaults()
+		FoundationGenSettings.hard_coded_defaults()
 	)
 	WorldTileSetFactory.bootstrap()
 	_packet_backend.start()
@@ -84,8 +76,7 @@ func initialize_new_world(
 	seed_value: int,
 	settings: MountainGenSettings,
 	world_bounds: WorldBoundsSettings = null,
-	foundation_settings: FoundationGenSettings = null,
-	river_settings: RiverGenSettings = null
+	foundation_settings: FoundationGenSettings = null
 ) -> void:
 	_pending_new_world_settings = _clone_worldgen_settings(settings)
 	_pending_new_world_bounds = _clone_world_bounds(world_bounds)
@@ -93,7 +84,6 @@ func initialize_new_world(
 		foundation_settings,
 		_pending_new_world_bounds
 	)
-	_pending_new_river_settings = _clone_river_settings(river_settings)
 	reset_for_new_game(seed_value, WorldRuntimeConstants.WORLD_VERSION)
 
 func reset_for_new_game(
@@ -106,23 +96,19 @@ func reset_for_new_game(
 		_apply_worldgen_settings(
 			_pending_new_world_settings,
 			_pending_new_world_bounds,
-			_pending_new_foundation_settings,
-			_pending_new_river_settings
+			_pending_new_foundation_settings
 		)
 	else:
 		var default_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
 		_apply_worldgen_settings(
 			MountainGenSettings.hard_coded_defaults(),
 			default_bounds,
-			FoundationGenSettings.for_bounds(default_bounds),
-			RiverGenSettings.hard_coded_defaults()
+			FoundationGenSettings.for_bounds(default_bounds)
 		)
 	_pending_new_world_settings = null
 	_pending_new_world_bounds = null
 	_pending_new_foundation_settings = null
-	_pending_new_river_settings = null
 	_diff_store.clear()
-	_water_overlay.clear_all()
 	_reset_runtime_state()
 	_queue_new_game_spawn_resolution()
 	EventBus.world_initialized.emit(world_seed)
@@ -133,16 +119,13 @@ func load_world_state(data: Dictionary) -> void:
 	_pending_new_world_settings = null
 	_pending_new_world_bounds = null
 	_pending_new_foundation_settings = null
-	_pending_new_river_settings = null
 	var loaded_bounds: WorldBoundsSettings = _load_world_bounds_from_save(data)
 	_apply_worldgen_settings(
 		_load_worldgen_settings_from_save(data),
 		loaded_bounds,
-		_load_foundation_settings_from_save(data, loaded_bounds),
-		_load_river_settings_from_save(data)
+		_load_foundation_settings_from_save(data, loaded_bounds)
 	)
 	_diff_store.clear()
-	_water_overlay.load_state(data.get("water_overlay", {}) as Dictionary)
 	_reset_runtime_state()
 	_awaiting_new_game_spawn_result = false
 	_new_game_spawn_failed = false
@@ -156,9 +139,7 @@ func save_world_state() -> Dictionary:
 	if WorldRuntimeConstants.uses_world_foundation(world_version):
 		worldgen_settings["world_bounds"] = _world_bounds_settings.to_save_dict()
 		worldgen_settings["foundation"] = _foundation_settings.to_save_dict()
-	if WorldRuntimeConstants.uses_river_generation(world_version):
-		worldgen_settings["rivers"] = _river_settings.to_save_dict()
-	var data: Dictionary = {
+	return {
 		"world_rebuild_frozen": false,
 		"world_scene_present": true,
 		"world_seed": world_seed,
@@ -166,10 +147,6 @@ func save_world_state() -> Dictionary:
 		"worldgen_settings": worldgen_settings,
 		"worldgen_signature": _compute_worldgen_signature(worldgen_settings),
 	}
-	var water_overlay_state: Dictionary = _water_overlay.save_state()
-	if not water_overlay_state.is_empty():
-		data["water_overlay"] = water_overlay_state
-	return data
 
 func collect_chunk_diffs() -> Array[Dictionary]:
 	return _diff_store.serialize_dirty_chunks()
@@ -186,31 +163,6 @@ func get_world_version() -> int:
 
 func get_chunk_packet(chunk_coord: Vector2i) -> Dictionary:
 	return _chunk_packets.get(chunk_coord, {}) as Dictionary
-
-func set_current_water_class_at_tile(
-	tile_coord: Vector2i,
-	water_class: int,
-	reason: StringName = &"manual"
-) -> bool:
-	var canonical_tile: Vector2i = _canonicalize_tile_coord(tile_coord)
-	return _water_overlay.set_water_class_override(canonical_tile, water_class, reason)
-
-func clear_current_water_class_at_tile(tile_coord: Vector2i, reason: StringName = &"manual") -> bool:
-	var canonical_tile: Vector2i = _canonicalize_tile_coord(tile_coord)
-	return _water_overlay.clear_water_class_override(canonical_tile, reason)
-
-func get_current_water_class_at_tile(tile_coord: Vector2i) -> int:
-	var canonical_tile: Vector2i = _canonicalize_tile_coord(tile_coord)
-	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(canonical_tile)
-	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(canonical_tile)
-	var default_water_class: int = WorldRuntimeConstants.WATER_CLASS_NONE
-	var packet: Dictionary = _chunk_packets.get(chunk_coord, {}) as Dictionary
-	if not packet.is_empty():
-		var index: int = WorldRuntimeConstants.local_to_index(local_coord)
-		var water_classes: PackedByteArray = packet.get("water_class", PackedByteArray()) as PackedByteArray
-		if index >= 0 and index < water_classes.size():
-			default_water_class = int(water_classes[index])
-	return _water_overlay.get_effective_water_class(canonical_tile, default_water_class)
 
 func get_mountain_cover_sample(world_tile: Vector2i) -> Dictionary:
 	return _mountain_cavity_cache.get_sample(
@@ -384,7 +336,7 @@ func _drain_completed_packets(max_count: int) -> void:
 			continue
 		var chunk_coord: Vector2i = _canonicalize_chunk_coord(packet.get("chunk_coord", Vector2i.ZERO) as Vector2i)
 		_requested_chunks.erase(chunk_coord)
-		var merged_packet: Dictionary = _water_overlay.apply_to_packet(_diff_store.apply_to_packet(packet))
+		var merged_packet: Dictionary = _diff_store.apply_to_packet(packet)
 		_chunk_packets[chunk_coord] = merged_packet
 		_refresh_loaded_visuals_around_chunk_overrides(chunk_coord)
 		if _is_chunk_desired(chunk_coord) and not _pending_publish_queue.has(chunk_coord) and chunk_coord != _active_publish_chunk:
@@ -470,25 +422,12 @@ func _get_tile_data(world_pos: Vector2) -> Dictionary:
 	if packet.is_empty():
 		_enqueue_chunk_if_needed(chunk_coord)
 		if not override_data.is_empty():
-			var override_terrain_id: int = int(override_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
-			var override_water_class: int = _water_overlay.get_effective_water_class(
-				tile_coord,
-				WorldRuntimeConstants.WATER_CLASS_NONE
-			)
-			var override_walkable: bool = bool(override_data.get("walkable", true))
-			if _water_overlay.has_water_class_override(tile_coord):
-				override_walkable = EnvironmentOverlay.is_walkable_for_water(
-					override_terrain_id,
-					override_water_class,
-					override_walkable
-				)
 			return {
 				"ready": true,
 				"chunk_coord": chunk_coord,
 				"local_coord": local_coord,
-				"terrain_id": override_terrain_id,
-				"walkable": override_walkable,
-				"water_class": override_water_class,
+				"terrain_id": int(override_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)),
+				"walkable": bool(override_data.get("walkable", true)),
 			}
 		return {
 			"ready": false,
@@ -499,28 +438,18 @@ func _get_tile_data(world_pos: Vector2) -> Dictionary:
 	var index: int = WorldRuntimeConstants.local_to_index(local_coord)
 	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
 	var walkable_flags: PackedByteArray = packet.get("walkable_flags", PackedByteArray()) as PackedByteArray
-	var water_classes: PackedByteArray = packet.get("water_class", PackedByteArray()) as PackedByteArray
 	if index < 0 or index >= terrain_ids.size() or index >= walkable_flags.size():
 		return {
 			"ready": false,
 			"chunk_coord": chunk_coord,
 			"local_coord": local_coord,
 		}
-	var terrain_id: int = int(terrain_ids[index])
-	var default_water_class: int = WorldRuntimeConstants.WATER_CLASS_NONE
-	if index < water_classes.size():
-		default_water_class = int(water_classes[index])
-	var effective_water_class: int = _water_overlay.get_effective_water_class(tile_coord, default_water_class)
-	var walkable: bool = int(walkable_flags[index]) != 0
-	if _water_overlay.has_water_class_override(tile_coord):
-		walkable = EnvironmentOverlay.is_walkable_for_water(terrain_id, effective_water_class, walkable)
 	return {
 		"ready": true,
 		"chunk_coord": chunk_coord,
 		"local_coord": local_coord,
-		"terrain_id": terrain_id,
-		"walkable": walkable,
-		"water_class": effective_water_class,
+		"terrain_id": int(terrain_ids[index]),
+		"walkable": int(walkable_flags[index]) != 0,
 	}
 
 func _sample_harvest_gate_tile(world_tile: Vector2i) -> Dictionary:
@@ -624,7 +553,7 @@ func _refresh_loaded_packets_from_diffs() -> void:
 		chunk_coords.append(chunk_coord_variant as Vector2i)
 	for chunk_coord: Vector2i in chunk_coords:
 		var base_packet: Dictionary = _chunk_packets.get(chunk_coord, {}) as Dictionary
-		_chunk_packets[chunk_coord] = _water_overlay.apply_to_packet(_diff_store.apply_to_packet(base_packet))
+		_chunk_packets[chunk_coord] = _diff_store.apply_to_packet(base_packet)
 		_refresh_loaded_visuals_around_chunk_overrides(chunk_coord)
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
 		if chunk_view:
@@ -632,28 +561,6 @@ func _refresh_loaded_packets_from_diffs() -> void:
 			chunk_view.begin_apply(_chunk_packets[chunk_coord] as Dictionary)
 			if not _pending_publish_queue.has(chunk_coord):
 				_pending_publish_queue.append(chunk_coord)
-
-func _on_water_overlay_changed(region: Rect2i, _reason: StringName) -> void:
-	for chunk_coord: Vector2i in _get_loaded_chunks_intersecting_region(region):
-		var packet: Dictionary = _chunk_packets.get(chunk_coord, {}) as Dictionary
-		if packet.is_empty():
-			continue
-		_chunk_packets[chunk_coord] = _water_overlay.apply_dirty_region_to_packet(packet, region)
-
-func _get_loaded_chunks_intersecting_region(region: Rect2i) -> Array[Vector2i]:
-	var chunk_coords: Array[Vector2i] = []
-	for chunk_coord_variant: Variant in _chunk_packets.keys():
-		var chunk_coord: Vector2i = chunk_coord_variant as Vector2i
-		var chunk_rect := Rect2i(
-			chunk_coord * WorldRuntimeConstants.CHUNK_SIZE,
-			Vector2i(WorldRuntimeConstants.CHUNK_SIZE, WorldRuntimeConstants.CHUNK_SIZE)
-		)
-		if chunk_rect.intersects(region):
-			chunk_coords.append(chunk_coord)
-	chunk_coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return a.x < b.x if a.x != b.x else a.y < b.y
-	)
-	return chunk_coords
 
 func _refresh_loaded_visuals_around_chunk_overrides(center_chunk_coord: Vector2i) -> void:
 	var origin_tiles: Array[Vector2i] = []
@@ -744,42 +651,8 @@ func _build_loaded_visual_update(tile_coord: Vector2i) -> Dictionary:
 	}
 
 func _resolve_loaded_ground_atlas_index(tile_coord: Vector2i) -> int:
-	var north: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(0, -1))
-	var east: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(1, 0))
-	var south: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(0, 1))
-	var west: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(-1, 0))
-	var north_east: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(1, -1))
-	var south_east: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(1, 1))
-	var south_west: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(-1, 1))
-	var north_west: bool = not _is_loaded_ground_edge_blocker(tile_coord + Vector2i(-1, -1))
-	var signature_code: int = Autotile47.build_signature_code(
-		north,
-		north_east,
-		east,
-		south_east,
-		south,
-		south_west,
-		west,
-		north_west
-	)
-	var variant_index: int = Autotile47.pick_variant(tile_coord, world_seed)
-	return Autotile47.build_atlas_index(signature_code, variant_index)
-
-func _is_loaded_ground_edge_blocker(tile_coord: Vector2i) -> bool:
-	var sample: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord)
-	if not bool(sample.get("ready", false)):
-		return false
-	var terrain_id: int = int(sample.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
-	if terrain_id == WorldRuntimeConstants.TERRAIN_RIVERBED_SHALLOW \
-			or terrain_id == WorldRuntimeConstants.TERRAIN_RIVERBED_DEEP \
-			or terrain_id == WorldRuntimeConstants.TERRAIN_LAKEBED \
-			or terrain_id == WorldRuntimeConstants.TERRAIN_OCEAN_FLOOR \
-			or terrain_id == WorldRuntimeConstants.TERRAIN_SHORE:
-		return true
-	var water_class: int = int(sample.get("water_class", WorldRuntimeConstants.WATER_CLASS_NONE))
-	return water_class == WorldRuntimeConstants.WATER_CLASS_SHALLOW \
-		or water_class == WorldRuntimeConstants.WATER_CLASS_DEEP \
-		or water_class == WorldRuntimeConstants.WATER_CLASS_OCEAN
+	# Ground uses solid atlas variants only in the current mountain-only worldgen.
+	return Autotile47.build_solid_atlas_index(tile_coord, world_seed)
 
 func _try_resolve_loaded_mountain_atlas_index(tile_coord: Vector2i) -> Dictionary:
 	var north: Dictionary = _get_loaded_mountain_geometry_no_enqueue(tile_coord + Vector2i(0, -1))
@@ -885,25 +758,12 @@ func _get_loaded_tile_data_no_enqueue(tile_coord: Vector2i) -> Dictionary:
 	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(tile_coord)
 	var override_data: Dictionary = _diff_store.get_tile_override(chunk_coord, local_coord)
 	if not override_data.is_empty():
-		var override_terrain_id: int = int(override_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
-		var override_water_class: int = _water_overlay.get_effective_water_class(
-			tile_coord,
-			WorldRuntimeConstants.WATER_CLASS_NONE
-		)
-		var override_walkable: bool = bool(override_data.get("walkable", true))
-		if _water_overlay.has_water_class_override(tile_coord):
-			override_walkable = EnvironmentOverlay.is_walkable_for_water(
-				override_terrain_id,
-				override_water_class,
-				override_walkable
-			)
 		return {
 			"ready": true,
 			"chunk_coord": chunk_coord,
 			"local_coord": local_coord,
-			"terrain_id": override_terrain_id,
-			"walkable": override_walkable,
-			"water_class": override_water_class,
+			"terrain_id": int(override_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND)),
+			"walkable": bool(override_data.get("walkable", true)),
 		}
 	var packet: Dictionary = _chunk_packets.get(chunk_coord, {}) as Dictionary
 	if packet.is_empty():
@@ -915,28 +775,18 @@ func _get_loaded_tile_data_no_enqueue(tile_coord: Vector2i) -> Dictionary:
 	var index: int = WorldRuntimeConstants.local_to_index(local_coord)
 	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
 	var walkable_flags: PackedByteArray = packet.get("walkable_flags", PackedByteArray()) as PackedByteArray
-	var water_classes: PackedByteArray = packet.get("water_class", PackedByteArray()) as PackedByteArray
 	if index < 0 or index >= terrain_ids.size() or index >= walkable_flags.size():
 		return {
 			"ready": false,
 			"chunk_coord": chunk_coord,
 			"local_coord": local_coord,
 		}
-	var terrain_id: int = int(terrain_ids[index])
-	var default_water_class: int = WorldRuntimeConstants.WATER_CLASS_NONE
-	if index < water_classes.size():
-		default_water_class = int(water_classes[index])
-	var effective_water_class: int = _water_overlay.get_effective_water_class(tile_coord, default_water_class)
-	var walkable: bool = int(walkable_flags[index]) != 0
-	if _water_overlay.has_water_class_override(tile_coord):
-		walkable = EnvironmentOverlay.is_walkable_for_water(terrain_id, effective_water_class, walkable)
 	return {
 		"ready": true,
 		"chunk_coord": chunk_coord,
 		"local_coord": local_coord,
-		"terrain_id": terrain_id,
-		"walkable": walkable,
-		"water_class": effective_water_class,
+		"terrain_id": int(terrain_ids[index]),
+		"walkable": int(walkable_flags[index]) != 0,
 	}
 
 func _chunk_local_to_tile(chunk_coord: Vector2i, local_coord: Vector2i) -> Vector2i:
@@ -1266,13 +1116,11 @@ func _wrapped_chunk_delta_abs(a: int, b: int) -> int:
 func _apply_worldgen_settings(
 	settings: MountainGenSettings,
 	world_bounds: WorldBoundsSettings,
-	foundation_settings: FoundationGenSettings,
-	river_settings: RiverGenSettings
+	foundation_settings: FoundationGenSettings
 ) -> void:
 	_worldgen_settings = _clone_worldgen_settings(settings)
 	_world_bounds_settings = _clone_world_bounds(world_bounds)
 	_foundation_settings = _clone_foundation_settings(foundation_settings, _world_bounds_settings)
-	_river_settings = _clone_river_settings(river_settings)
 	_worldgen_settings_packed = _build_worldgen_settings_packed()
 
 func _clone_worldgen_settings(settings: MountainGenSettings) -> MountainGenSettings:
@@ -1293,17 +1141,10 @@ func _clone_foundation_settings(
 		return FoundationGenSettings.for_bounds(world_bounds)
 	return FoundationGenSettings.from_save_dict(settings.to_save_dict(), world_bounds)
 
-func _clone_river_settings(settings: RiverGenSettings) -> RiverGenSettings:
-	if settings == null:
-		return RiverGenSettings.hard_coded_defaults()
-	return RiverGenSettings.from_save_dict(settings.to_save_dict())
-
 func _build_worldgen_settings_packed() -> PackedFloat32Array:
 	var packed: PackedFloat32Array = _worldgen_settings.flatten_to_packed()
 	if WorldRuntimeConstants.uses_world_foundation(world_version):
-		packed = _foundation_settings.write_to_settings_packed(packed, _world_bounds_settings)
-	if WorldRuntimeConstants.uses_river_generation(world_version):
-		packed = _river_settings.write_to_settings_packed(packed)
+		return _foundation_settings.write_to_settings_packed(packed, _world_bounds_settings)
 	return packed
 
 func _compute_worldgen_signature(worldgen_settings: Dictionary) -> String:
@@ -1353,16 +1194,3 @@ func _load_foundation_settings_from_save(
 	if foundation_settings is not Dictionary:
 		return FoundationGenSettings.for_bounds(world_bounds)
 	return FoundationGenSettings.from_save_dict(foundation_settings as Dictionary, world_bounds)
-
-func _load_river_settings_from_save(data: Dictionary) -> RiverGenSettings:
-	if not WorldRuntimeConstants.uses_river_generation(world_version):
-		return RiverGenSettings.hard_coded_defaults()
-	var worldgen_settings: Variant = data.get("worldgen_settings", {})
-	if worldgen_settings is not Dictionary:
-		push_warning("world_version >= 17 missing worldgen_settings; using hard-coded river defaults")
-		return RiverGenSettings.hard_coded_defaults()
-	var river_settings: Variant = (worldgen_settings as Dictionary).get("rivers", {})
-	if river_settings is not Dictionary:
-		push_warning("world_version >= 17 missing worldgen_settings.rivers; using hard-coded river defaults")
-		return RiverGenSettings.hard_coded_defaults()
-	return RiverGenSettings.from_save_dict(river_settings as Dictionary)

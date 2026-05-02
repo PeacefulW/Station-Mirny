@@ -15,15 +15,9 @@ var _roof_mask_images_by_mountain: Dictionary = {}
 var _roof_mask_textures_by_mountain: Dictionary = {}
 var _pending_terrain_ids: PackedInt32Array = PackedInt32Array()
 var _pending_terrain_atlas_indices: PackedInt32Array = PackedInt32Array()
-var _pending_hydrology_flags: PackedInt32Array = PackedInt32Array()
-var _pending_floodplain_strength: PackedByteArray = PackedByteArray()
 var _pending_mountain_ids: PackedInt32Array = PackedInt32Array()
 var _pending_mountain_flags: PackedByteArray = PackedByteArray()
 var _pending_mountain_atlas_indices: PackedInt32Array = PackedInt32Array()
-var _floodplain_overlay_sprite: Sprite2D = null
-var _floodplain_overlay_image: Image = null
-var _floodplain_overlay_texture: ImageTexture = null
-var _floodplain_overlay_dirty: bool = false
 var _apply_index: int = 0
 
 func _ready() -> void:
@@ -32,8 +26,6 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	_roof_mask_images_by_mountain.clear()
 	_roof_mask_textures_by_mountain.clear()
-	_floodplain_overlay_image = null
-	_floodplain_overlay_texture = null
 
 func configure(new_chunk_coord: Vector2i) -> void:
 	chunk_coord = new_chunk_coord
@@ -43,15 +35,12 @@ func configure(new_chunk_coord: Vector2i) -> void:
 func begin_apply(packet: Dictionary) -> void:
 	_pending_terrain_ids = (packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array).duplicate()
 	_pending_terrain_atlas_indices = (packet.get("terrain_atlas_indices", PackedInt32Array()) as PackedInt32Array).duplicate()
-	_pending_hydrology_flags = (packet.get("hydrology_flags", PackedInt32Array()) as PackedInt32Array).duplicate()
-	_pending_floodplain_strength = (packet.get("floodplain_strength", PackedByteArray()) as PackedByteArray).duplicate()
 	_pending_mountain_ids = (packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array).duplicate()
 	_pending_mountain_flags = (packet.get("mountain_flags", PackedByteArray()) as PackedByteArray).duplicate()
 	_pending_mountain_atlas_indices = (packet.get("mountain_atlas_indices", PackedInt32Array()) as PackedInt32Array).duplicate()
 	_apply_index = 0
 	visible = false
 	_ensure_layers()
-	_reset_floodplain_overlay_image()
 
 func apply_next_batch(batch_size: int) -> bool:
 	if _pending_terrain_ids.is_empty():
@@ -64,10 +53,8 @@ func apply_next_batch(batch_size: int) -> bool:
 		if index < _pending_terrain_atlas_indices.size():
 			terrain_atlas_index = int(_pending_terrain_atlas_indices[index])
 		_apply_cell(local_coord, terrain_id, terrain_atlas_index)
-		_apply_floodplain_overlay_cell(local_coord, index)
 		_apply_roof_cell(local_coord, index)
 	_apply_index = end_index
-	_update_floodplain_overlay_texture()
 	if _apply_index >= _pending_terrain_ids.size():
 		return false
 	return true
@@ -75,8 +62,6 @@ func apply_next_batch(batch_size: int) -> bool:
 func apply_runtime_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: int) -> void:
 	_ensure_layers()
 	_apply_cell(local_coord, terrain_id, terrain_atlas_index)
-	_clear_floodplain_overlay_cell(local_coord)
-	_update_floodplain_overlay_texture()
 
 func apply_cover_visibility(visible_mask: PackedByteArray) -> void:
 	_ensure_layers()
@@ -125,18 +110,6 @@ func _ensure_layers() -> void:
 		_overlay_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		_overlay_layer.z_index = 1
 		add_child(_overlay_layer)
-	if _floodplain_overlay_sprite == null or not is_instance_valid(_floodplain_overlay_sprite):
-		_floodplain_overlay_sprite = Sprite2D.new()
-		_floodplain_overlay_sprite.name = "FloodplainStrengthOverlay"
-		_floodplain_overlay_sprite.centered = false
-		_floodplain_overlay_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		_floodplain_overlay_sprite.z_index = 2
-		_floodplain_overlay_sprite.scale = Vector2(
-			float(WorldRuntimeConstants.TILE_SIZE_PX),
-			float(WorldRuntimeConstants.TILE_SIZE_PX)
-		)
-		_floodplain_overlay_sprite.texture = _ensure_floodplain_overlay_texture()
-		add_child(_floodplain_overlay_sprite)
 
 func _ensure_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
 	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
@@ -158,14 +131,7 @@ func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: in
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
 		return
 	if WorldTileSetFactory.uses_overlay_layer(terrain_id):
-		if _uses_plains_ground_underlay(terrain_id):
-			_base_layer.set_cell(
-				local_coord,
-				WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND),
-				WorldTileSetFactory.get_atlas_coords(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND, 0)
-			)
-		else:
-			_clear_cell(_base_layer, local_coord)
+		_clear_cell(_base_layer, local_coord)
 		_overlay_layer.set_cell(
 			local_coord,
 			WorldTileSetFactory.get_source_id(terrain_id),
@@ -178,63 +144,6 @@ func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: in
 		WorldTileSetFactory.get_source_id(terrain_id),
 		WorldTileSetFactory.get_atlas_coords(terrain_id, terrain_atlas_index)
 	)
-
-func _uses_plains_ground_underlay(terrain_id: int) -> bool:
-	return terrain_id == WorldRuntimeConstants.TERRAIN_FLOODPLAIN
-
-func _apply_floodplain_overlay_cell(local_coord: Vector2i, index: int) -> void:
-	if index < 0 \
-			or index >= _pending_hydrology_flags.size() \
-			or index >= _pending_floodplain_strength.size():
-		_clear_floodplain_overlay_cell(local_coord)
-		return
-	var color: Color = TerrainPresentationRegistry.get_floodplain_overlay_color(
-		int(_pending_floodplain_strength[index]),
-		int(_pending_hydrology_flags[index])
-	)
-	_set_floodplain_overlay_cell(local_coord, color)
-
-func _set_floodplain_overlay_cell(local_coord: Vector2i, color: Color) -> void:
-	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
-		return
-	var image: Image = _ensure_floodplain_overlay_image()
-	image.set_pixel(local_coord.x, local_coord.y, color)
-	_floodplain_overlay_dirty = true
-
-func _clear_floodplain_overlay_cell(local_coord: Vector2i) -> void:
-	_set_floodplain_overlay_cell(local_coord, Color.TRANSPARENT)
-
-func _reset_floodplain_overlay_image() -> void:
-	var image: Image = _ensure_floodplain_overlay_image()
-	image.fill(Color.TRANSPARENT)
-	_floodplain_overlay_dirty = true
-	_update_floodplain_overlay_texture()
-
-func _ensure_floodplain_overlay_image() -> Image:
-	if _floodplain_overlay_image != null:
-		return _floodplain_overlay_image
-	_floodplain_overlay_image = Image.create(
-		WorldRuntimeConstants.CHUNK_SIZE,
-		WorldRuntimeConstants.CHUNK_SIZE,
-		false,
-		Image.FORMAT_RGBA8
-	)
-	_floodplain_overlay_image.fill(Color.TRANSPARENT)
-	return _floodplain_overlay_image
-
-func _ensure_floodplain_overlay_texture() -> ImageTexture:
-	if _floodplain_overlay_texture != null:
-		return _floodplain_overlay_texture
-	_floodplain_overlay_texture = ImageTexture.create_from_image(_ensure_floodplain_overlay_image())
-	return _floodplain_overlay_texture
-
-func _update_floodplain_overlay_texture() -> void:
-	if not _floodplain_overlay_dirty:
-		return
-	_ensure_floodplain_overlay_texture().update(_ensure_floodplain_overlay_image())
-	if _floodplain_overlay_sprite != null and is_instance_valid(_floodplain_overlay_sprite):
-		_floodplain_overlay_sprite.texture = _floodplain_overlay_texture
-	_floodplain_overlay_dirty = false
 
 func _apply_roof_cell(local_coord: Vector2i, index: int) -> void:
 	if index < 0 or index >= _pending_mountain_ids.size() or index >= _pending_mountain_flags.size():
@@ -324,27 +233,6 @@ func _get_roof_terrain_name(terrain_id: int) -> String:
 	if _resolve_roof_terrain_id(terrain_id) == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
 		return "foot"
 	return "wall"
-
-func get_floodplain_overlay_debug(local_coord: Vector2i) -> Dictionary:
-	var image: Image = _ensure_floodplain_overlay_image()
-	var texture: ImageTexture = _ensure_floodplain_overlay_texture()
-	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
-		return {
-			"ready": false,
-			"local_coord": local_coord,
-			"color": Color.TRANSPARENT,
-			"texture_width": 0,
-			"texture_height": 0,
-			"has_sprite": _floodplain_overlay_sprite != null and is_instance_valid(_floodplain_overlay_sprite),
-		}
-	return {
-		"ready": image != null and texture != null,
-		"local_coord": local_coord,
-		"color": image.get_pixel(local_coord.x, local_coord.y),
-		"texture_width": image.get_width(),
-		"texture_height": image.get_height(),
-		"has_sprite": _floodplain_overlay_sprite != null and is_instance_valid(_floodplain_overlay_sprite),
-	}
 
 func _ensure_roof_mask_image(mountain_id: int) -> Image:
 	if _roof_mask_images_by_mountain.has(mountain_id):

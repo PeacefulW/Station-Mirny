@@ -4,12 +4,11 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.21
-last_updated: 2026-05-01
+version: 1.3
+last_updated: 2026-04-24
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
-  - ../world/river_generation_v1.md
 ---
 
 # Save and Persistence
@@ -59,25 +58,10 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current world generation extension:
-- `world.json` now records `world_version: 36` for the current
-  river/lake/delta/organic-water/ocean-shore/refined-river/curvature-river
-  /Y-confluence/braid-loop/basin-contour-lake/organic-coastline/headland-coast
-  /Hydrology Visual Quality V3/River-Lake-Ocean V4 finite-world baseline with
-  `64`-tile foundation substrate cells, native hydrology prepass,
-  riverbed/water chunk packet rasterization, V1-R4 lakebed packet
-  rasterization, V1-R5 delta / controlled-split packet rasterization, V1-R8
-  organic water raster output, V1-R9 ocean shore band packet output, V1-R10
-  refined river centerline output, V1-R11 curvature-aware river width/depth
-  output, V1-R12 Y-shaped confluence output, V1-R13 braid island loop output,
-  V1-R14 basin-contour lake output, V1-R15 organic coastline/shelf output,
-  V1-R16 hydrology shape-quality correction output, and V1-R17 multi-scale
-  headland/bay coastline output plus V1-R18 ocean-band mountain suppression,
-  per-tile lake SDF output, soft floodplain gradient packet flags, and
-  tile-level river/lake mountain-clearance output, native V4 river
-  discharge-based width profile output, native V4 coastline-integrated
-  estuary/delta output, native V4 lake basin continuity output, V4-7
-  preset-selected `Lakes Only` density-zero river-network suppression, and
-  V4-8 dense braid-loop closure/debug agreement semantics
+- `world.json` now records `world_version: 37` for the current finite-world
+  foundation baseline with `64`-tile substrate cells and native
+  high-resolution overview; the failed water-generation stack has been removed
+  from save shape and regenerated base terrain
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - `world_version >= 6` keeps the same save shape but changes canonical new-world
@@ -96,96 +80,9 @@ Current world generation extension:
   `worldgen_settings.world_bounds.width_tiles` for mountain sampling
 - `world_version >= 11` uses `foundation_coarse_cell_size_tiles = 64` for
   `WorldPrePass`; versions `9..10` used `128`-tile substrate cells
-- `world_version == 16` removes the failed dry river/lake settings and packet
-  fields. Base terrain is regenerated from seed/version/settings; only
+- `world_version == 37` removes the failed water-generation settings, packet
+  fields, APIs, and specs. Base terrain is regenerated from seed/version/settings; only
   player/runtime diffs continue to be saved as changed chunk tiles
-- `world_version >= 17` writes `worldgen_settings.rivers` and regenerates
-  hydrology prepass arrays, river graph data, river packet arrays, default
-  `water_class`, and water/shore atlas indices from seed/version/settings
-- `world_version >= 18` also regenerates natural lake basin ids, lakebed terrain,
-  lake shoreline / bank markers, and default shallow/deep lake water classes
-  from seed/version/settings. Existing `world_version = 17` saves keep
-  pre-R4 lake ids empty.
-- `world_version >= 19` also regenerates river-mouth delta / estuary widening
-  and controlled braid/distributary split packet flags from
-  seed/version/settings. Existing `world_version = 18` saves keep pre-R5
-  river/lake packet output.
-- `world_version >= 20` also regenerates organic lake shoreline noise,
-  meandered river raster edges, and dynamic river width modulation from
-  seed/version/settings. Existing `world_version = 19` saves keep pre-R8
-  river/lake/delta packet output.
-- `world_version >= 21` also regenerates ocean shore band packet output from
-  seed/version/settings. Existing `world_version = 20` saves keep pre-R9
-  ocean-floor-only coast output.
-- `world_version >= 22` also regenerates refined whole-river centerlines,
-  direction-memory meanders, slope/floodplain/mountain-clearance width
-  modulation, and native spatial-index river candidate queries from
-  seed/version/settings. Existing `world_version = 21` saves keep pre-R10
-  per-edge organic river raster output.
-- `world_version >= 23` also regenerates refined-edge curvature and
-  post-confluence reach classification for river width/depth rasterization from
-  seed/version/settings. Existing `world_version = 22` saves keep pre-R11
-  refined-centerline river output.
-- `world_version >= 24` also regenerates native Y-shaped confluence influence
-  zones from seed/version/settings. Existing `world_version = 23` saves keep
-  pre-R12 curvature-aware river output.
-- `world_version >= 25` also regenerates native braid island loop split
-  geometry from seed/version/settings. Existing `world_version = 24` saves keep
-  pre-R13 simple controlled-split output.
-- `world_version >= 26` also regenerates basin-contour lake rim/depth
-  rasterization and oxbow candidate diagnostics from seed/version/settings.
-  Existing `world_version = 25` saves keep pre-R14 lake raster output.
-- `world_version >= 27` also regenerates organic coastline/shelf rasterization
-  and river-mouth coast influence diagnostics from seed/version/settings.
-  Existing `world_version = 26` saves keep pre-R15 ocean shelf output.
-- `world_version >= 28` also regenerates shape-quality corrected river width,
-  braid loop, and tile-sampled coastline rasterization from
-  seed/version/settings. Existing `world_version = 27` saves keep pre-R16
-  shape output.
-- `world_version >= 29` also regenerates multi-scale headland/bay coastline
-  carving from seed/version/settings. Existing `world_version = 28` saves keep
-  pre-R17 coastline output.
-- `world_version >= 30` also regenerates the Hydrology Visual Quality V3 batch:
-  ocean-band mountain suppression, continuous river width, distributary
-  fan-out, per-tile lake mountain conflict, per-tile lake basin SDF, and soft
-  floodplain gradient flags from seed/version/settings. Existing
-  `world_version = 29` saves keep pre-V3 generated output. This bump does not
-  add or reshape save fields.
-- River/Lake/Ocean Integration V4-0/V4-1 adds native classifier diagnostics,
-  debug counters, and overview/preview/chunk agreement checks only. It does
-  not add save fields, packet arrays, or a new `world_version` boundary;
-  existing `world_version = 30` saves keep the same canonical generated output.
-- `world_version >= 31` also regenerates river/lake mountain-clearance output
-  from seed/version/settings using a native RAM-only distance field. Existing
-  `world_version = 30` saves keep the pre-V4-2 generated output. This bump does
-  not add or reshape save fields.
-- `world_version >= 32` also regenerates river width/depth output from
-  seed/version/settings using native RAM-only normalized discharge and
-  per-refined-edge width profile diagnostics. Existing `world_version = 31`
-  saves keep the pre-V4-3 generated output. This bump does not add or reshape
-  save fields.
-- `world_version >= 33` also regenerates coastline-integrated river-mouth
-  estuary/delta output from seed/version/settings using native RAM-only fan and
-  coast SDF diagnostics. Existing `world_version = 32` saves keep the pre-V4-4
-  generated output. This bump does not add or reshape save fields.
-- `world_version >= 34` also regenerates lake basin continuity output from
-  seed/version/settings using native RAM-only lake SDF, spill-outlet
-  continuation, widened inlet/outlet shore, and mountain-clipped lake
-  diagnostics. Existing `world_version = 33` saves keep the pre-V4-5 generated
-  output. This bump does not add or reshape save fields.
-- `world_version >= 35` also gives `worldgen_settings.rivers.density = 0.0`
-  with auto trunk count the V4-7 `Lakes Only` meaning: suppress
-  trunk/tributary river selection natively while preserving hydrology prepass,
-  lake basin, and ocean/coast output. Existing `world_version = 34` saves keep
-  the previous density-zero river behavior. This bump does not add or reshape
-  save fields.
-- `world_version >= 36` also regenerates V4-8 dense braid-loop closure and
-  debug agreement semantics from seed/version/settings. Existing
-  `world_version <= 35` saves keep their prior generated output. This bump does
-  not add or reshape save fields.
-- V1-R6 adds optional `world.json.water_overlay` runtime state for explicit
-  local current-water overrides only. It does not bump `world_version` because
-  canonical generated output remains unchanged.
 - loading `world_version <= 8` preserves the legacy pre-foundation path without
   injecting synthetic bounds into the save
 - loading `world_version >= 9` without `worldgen_settings.world_bounds` fails
@@ -209,45 +106,14 @@ Current world generation extension:
 - optional `worldgen_signature: String` may be written for diagnostics only; it
   is non-authoritative and load must ignore its absence
 
-Current River Generation V1 save extension:
-- `world_version >= 17` embeds `worldgen_settings.rivers` in `world.json`;
-  load uses the embedded copy and must not re-read
-  `data/balance/river_gen_settings.tres`
-- `worldgen_settings.rivers` fields:
-  - `enabled: bool`
-  - `target_trunk_count: int` (`0..256`; `0` means auto-scale by world size)
-  - `density: float` (`0.0..1.0`)
-  - `width_scale: float` (`0.25..4.0`)
-  - `lake_chance: float` (`0.0..1.0`)
-  - `meander_strength: float` (`0.0..1.0`)
-  - `braid_chance: float` (`0.0..1.0`)
-  - `shallow_crossing_frequency: float` (`0.0..1.0`)
-  - `mountain_clearance_tiles: int` (`1..16`)
-  - `delta_scale: float` (`0.0..2.0`)
-  - `north_drainage_bias: float` (`0.0..1.0`)
-  - `hydrology_cell_size_tiles: int` (`8..64`; default `16`)
-- for a river-enabled `world_version`, missing `worldgen_settings.rivers` must
-  be handled by an explicit migration/default rule in code; silently reading
-  the repository `.tres` on load is forbidden
-- V4-7 water presets are transient settings/UI helpers. `preset_id` and
-  `hydrology_mode` are not fields in `worldgen_settings.rivers`; choosing a
-  preset writes only the existing river fields listed above.
-- hydrology prepass arrays, river graphs, per-tile river packet arrays,
-  default `water_class`, and water/shore atlas indices are regenerated from
-  seed/version/settings and are not saved
-- optional `world.json.water_overlay` persists sparse explicit local overrides
-  owned by `EnvironmentOverlay`; dirty queues and seed-derived default
-  `water_class` are not saved
-- future broad drought/refill state still requires a separate slow-state shape
-
-Confirmed `world.json` shape in the current river-enabled code path:
+Confirmed `world.json` shape in the current mountain code path:
 
 ```json
 {
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 36,
+  "world_version": 37,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,
@@ -269,41 +135,11 @@ Confirmed `world.json` shape in the current river-enabled code path:
       "foot_band": 0.08,
       "interior_margin": 1,
       "latitude_influence": 0.0
-    },
-    "rivers": {
-      "enabled": true,
-      "target_trunk_count": 0,
-      "density": 0.55,
-      "width_scale": 1.0,
-      "lake_chance": 0.22,
-      "meander_strength": 0.65,
-      "braid_chance": 0.18,
-      "shallow_crossing_frequency": 0.22,
-      "mountain_clearance_tiles": 3,
-      "delta_scale": 1.0,
-      "north_drainage_bias": 0.75,
-      "hydrology_cell_size_tiles": 16
     }
   },
-  "worldgen_signature": "debug-only",
-  "water_overlay": {
-    "format": 1,
-    "dirty_block_size": 16,
-    "overrides": [
-      {
-        "x": 17,
-        "y": 33,
-        "water_class": 0
-      }
-    ]
-  }
+  "worldgen_signature": "debug-only"
 }
 ```
-
-`water_overlay` is optional. If absent, runtime uses regenerated packet
-`water_class` defaults. If present, each override changes only effective current
-water and derived walkability after base packet regeneration and terrain diff
-application.
 
 ## Dependencies
 
