@@ -142,6 +142,10 @@ Any change to canonical world generation that changes the result for the same
 **Why:** Otherwise existing saves / chunks stop matching the generator and the
 world breaks in ways that are hard to explain.
 
+Pre-alpha policy: `world_version` is an algorithm boundary, not a promise to
+migrate old saves. The active load path may reject non-current world versions
+instead of preserving old generated output.
+
 ```gdscript
 # In WorldGenerationSettings or an equivalent location
 const WORLD_VERSION: int = 1  # Bump on any change to canonical output

@@ -66,7 +66,7 @@ Confirmed files:
 
 Current code notes:
 - `save_format_version` is currently hardcoded to `4`
-- `world_seed` is currently hardcoded to `0`
+- `world_seed` is collected from the active `chunk_manager` when present
 
 ### `SaveListEntry`
 
@@ -186,23 +186,21 @@ Current code note:
 
 Current code notes:
 - `world_seed` and `world_version` are present when a `chunk_manager` world runtime is active
-- `world_version >= 9` writes `worldgen_settings.world_bounds` and
-  `worldgen_settings.foundation`; loading version `>= 9` without
-  `world_bounds` fails loudly, while missing `foundation` restores V1 defaults
-- `world_version >= 10` uses `worldgen_settings.world_bounds.width_tiles` as
-  the native mountain sample width; version `9` keeps the legacy `65536`-tile
-  mountain sample-width compatibility path
-- `world_version >= 11` uses `foundation_coarse_cell_size_tiles = 64` for
-  `WorldPrePass`; versions `9..10` used `128`-tile substrate cells
+- active pre-alpha load accepts only saves whose `world_version` equals the
+  current `WorldRuntimeConstants.WORLD_VERSION`; missing, older, or newer
+  values are incompatible
+- current-version `WorldStreamer` loads require `world_seed`,
+  `worldgen_settings.mountains`, `worldgen_settings.world_bounds`, and
+  `worldgen_settings.foundation`; missing fields fail the world apply step
+  before chunk diffs or player/base state are applied
 - `world_version == 37` removes the failed water-generation settings, packet
   fields, APIs, and specs. Base terrain is regenerated from seed/version/settings;
   water arrays are not part of the current packet boundary.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
-- missing `worldgen_settings.mountains` restores hard-coded loader defaults for
-  backward-compatible saves
 - `worldgen_signature` is diagnostic only and is never authoritative on load
-- legacy/frozen-world callers may still emit only the older boolean fields
+- legacy/frozen-world payloads with only the older boolean fields are not
+  load-compatible with the active `WorldStreamer` runtime
 
 ### `ChunkDiffFile`
 

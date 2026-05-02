@@ -293,8 +293,9 @@ Rules:
 - base chunk data is never saved
 - empty chunk diff = no chunk file
 - load order is `regenerate base -> apply diff -> publish`
-- missing `world_version` on older saves defaults to `0` and is treated as a
-  legacy regenerate-only case
+- missing or non-current `world_version` is incompatible in the active
+  pre-alpha load path; old saves are rejected before chunk diffs or other
+  runtime state are applied
 
 ### ChunkDiffV0
 

@@ -177,8 +177,8 @@ Reintroducing water generation requires a new approved spec and
 - progressive chunk-based preview around spawn from
   `WORLD_GENERATION_PREVIEW_ARCHITECTURE.md` — that pipeline stays
   intact and is reused for detail preview beside the new overview mode;
-- migration of legacy `world_version` saves beyond recording the
-  version boundary;
+- migration of legacy `world_version` saves beyond recording the version
+  boundary; active pre-alpha load rejects non-current versions;
 - multiplayer replication of substrate snapshots (substrate is
   regenerated from seed on every client load);
 - subsurface / Z-level topology and connector logic;
@@ -534,9 +534,9 @@ shipped in V1-R1 offers only the three presets.
 | `14`   | `SETTINGS_FOUNDATION_SLOPE_BIAS` | `[-1.0, 1.0]` Y-biased drainage. `0.0` = unbiased; positive = drainage tends toward burning band; negative = toward ocean band. |
 
 Active V1 native path requires at least `15` packed values. Missing
-indices for `world_version >= 9` are invalid after load migration and
-must fail loudly. Legacy-version worlds keep their older settings
-layout unchanged.
+indices for the current active `world_version` are invalid and must fail
+loudly before save diffs or gameplay state are applied. Older settings layouts
+are historical native algorithm paths, not active save-load compatibility.
 
 ## Runtime Architecture
 
@@ -654,16 +654,12 @@ Rules:
 
 - Exact values copied once on new world creation. Repository defaults
   are never re-read for an existing world.
-- Loading `world_version <= 8` preserves the pre-foundation output
-  path:
-  - legacy worlds are treated as unbounded-wrap (X wraps, Y
-    unbounded);
-  - legacy saves do not get synthetic bounds injected;
-  - legacy worlds do not participate in the overview preview.
-- Loading `world_version >= 9` without `worldgen_settings.world_bounds`
-  is invalid and must fail loudly.
-- Loading `world_version >= 9` without `worldgen_settings.foundation`
-  falls back to hard-coded V1 defaults in the loader.
+- Active pre-alpha load accepts only saves whose `world_version` equals
+  `WorldRuntimeConstants.WORLD_VERSION`.
+- Loading missing, older, or newer `world_version` is invalid and must fail
+  before chunk diffs or gameplay state are applied.
+- Loading the current `world_version` without `worldgen_settings.world_bounds`
+  or `worldgen_settings.foundation` is invalid and must fail loudly.
 - The substrate snapshot is **never** written to disk.
 
 ### `WORLD_VERSION`
@@ -676,8 +672,8 @@ The current V1 baseline may advance beyond `9` when another canonical
 worldgen owner changes output. Mountain Generation M6 advances new worlds to
 `world_version = 10` so finite-cylinder mountain sampling uses the saved
 `worldgen_settings.world_bounds.width_tiles` instead of the legacy
-`65536`-tile sample width. `world_version == 9` remains a compatibility
-boundary for existing finite-foundation saves.
+`65536`-tile sample width. `world_version == 9` remains a historical
+algorithm boundary, not an active save-load compatibility promise.
 
 The high-resolution foundation overview pass advances new worlds to
 `world_version = 11` because `foundation_coarse_cell_size_tiles` changes
@@ -686,8 +682,9 @@ worldgen reads for the same seed/settings.
 
 The failed water-generation stack was fully removed from current new worlds at
 `world_version = 37`. Earlier `world_version` values that carried the removed
-implementation remain historical compatibility boundaries only; they no longer
-define current packet, settings, API, or save shape.
+implementation remain historical algorithm boundaries only; they are rejected
+by the active pre-alpha loader and no longer define current packet, settings,
+API, or save shape.
 
 ## Performance Class
 
@@ -750,13 +747,12 @@ define current packet, settings, API, or save shape.
 
 - [ ] New worlds write `worldgen_settings.world_bounds` and
       `worldgen_settings.foundation` with every preset.
-- [ ] Loading `world_version <= 8` preserves legacy behaviour without
-      injecting synthetic bounds.
-- [ ] Loading `world_version >= 9` without required fields fails with
-      a clear error.
+- [ ] Loading missing or non-current `world_version` fails with a clear error.
+- [ ] Loading current `world_version` without required fields fails with a
+      clear error.
 - [ ] `world_version = 9` lands in the same task as V1-R1 code; later
       canonical-output owners may advance the current new-world version while
-      preserving `9` as the finite-foundation compatibility boundary.
+      preserving `9` only as a historical finite-foundation algorithm boundary.
 
 ### Preview
 
@@ -922,8 +918,8 @@ landed inside V1.
   subsections and the `settings_packed` index additions.
 - `meta/save_and_persistence.md`: `worldgen_settings.world_bounds`,
   `worldgen_settings.foundation`, `world_version = 9` finite-foundation
-  compatibility boundary, and any later current `WORLD_VERSION` bump that
-  changes canonical output.
+  historical algorithm boundary, and any later current `WORLD_VERSION` bump
+  that changes canonical output.
 - `meta/system_api.md`: `WorldBoundsSettings` and
   `FoundationGenSettings` entrypoints; dev-only
   `get_world_foundation_snapshot` /
@@ -953,7 +949,7 @@ landed inside V1.
 | Substrate budget breach on `large` preset | Coarse cell size and field list are versioned constants; profile pass is a V1-R1B closure gate. Raising coarse cell to `256` halves node count at the cost of coarser world structure. |
 | ADR-0002 interpretation drift between "soft Y" and "hard band" | Spec names the bands as biome masks, not terrain overrides; ADR-0002 addition is a Consequences clarification, not a reversal. |
 | Preview overview drifts from gameplay world | Overview is a pure substrate read, not a parallel generator; any drift is a substrate bug and must be caught by the determinism acceptance. |
-| Hard-coded legacy defaults pollute new worlds | Loader defaults apply **only** to `world_version >= 9` without the foundation section; new worlds always write explicit values. |
+| Hard-coded legacy defaults pollute new worlds | Active pre-alpha load rejects missing current-version foundation settings; new worlds always write explicit values. |
 | `WorldPrePass` leaks into interactive path | Compile-time flag on the dev-only API + code review; ADR-0001 class contract; substrate cache is keyed and read-only after publish. |
 | Multiplayer clients see divergent overview | Substrate is a pure function of replicated settings; all clients generate identical snapshots. |
 | Spawn resolver rules too strict → no spawn found | Escalation rule: expand search radius deterministically; if still no candidate is found, fail loudly that the seed is unspawnable on the chosen preset. |
@@ -967,8 +963,8 @@ landed inside V1.
 - Dynamic world events that need to re-evaluate substrate fields (must
   justify a separate ADR; V1 assumes substrate is immutable per
   session).
-- Migration of `world_version <= 8` saves into the finite topology
-  (treated as legacy; not forcibly upgraded).
+- Migration of non-current `world_version` saves into the active finite topology
+  (pre-alpha policy rejects them instead of migrating).
 - `custom` world bounds path in the user-facing UI (remains dev-only
   in V1-R1).
 - User-facing `pole_orientation` toggle.

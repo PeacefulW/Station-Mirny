@@ -64,29 +64,23 @@ Current world generation extension:
   from save shape and regenerated base terrain
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
-- `world_version >= 6` keeps the same save shape but changes canonical new-world
-  mountain identity to implicit-domain hierarchical labeling; save/load still
-  regenerates that base data from seed + `world_version` instead of persisting
-  `mountain_id_per_tile`
-- `world_version >= 9` adds explicit finite-world state:
+- pre-alpha save compatibility policy: the active load path accepts only
+  saves whose `world_version` equals `WorldRuntimeConstants.WORLD_VERSION`
+  exactly; missing, older, or newer values are incompatible and must fail
+  before chunk diffs, buildings, player state, or time state are applied
+- current-version `world.json` must include the current worldgen settings shape:
   - `worldgen_settings.world_bounds.width_tiles`
   - `worldgen_settings.world_bounds.height_tiles`
   - `worldgen_settings.foundation.ocean_band_tiles`
   - `worldgen_settings.foundation.burning_band_tiles`
   - `worldgen_settings.foundation.pole_orientation`
   - `worldgen_settings.foundation.slope_bias`
-- `world_version == 9` finite-foundation saves keep the legacy `65536`-tile
-  mountain sample-width compatibility path; `world_version >= 10` uses
-  `worldgen_settings.world_bounds.width_tiles` for mountain sampling
-- `world_version >= 11` uses `foundation_coarse_cell_size_tiles = 64` for
-  `WorldPrePass`; versions `9..10` used `128`-tile substrate cells
+- current-version saves also require `worldgen_settings.mountains`
 - `world_version == 37` removes the failed water-generation settings, packet
   fields, APIs, and specs. Base terrain is regenerated from seed/version/settings; only
   player/runtime diffs continue to be saved as changed chunk tiles
-- loading `world_version <= 8` preserves the legacy pre-foundation path without
-  injecting synthetic bounds into the save
-- loading `world_version >= 9` without `worldgen_settings.world_bounds` fails
-  loudly; missing `worldgen_settings.foundation` restores hard-coded V1 defaults
+- loading a same-version save without required current worldgen settings fails
+  loudly; the active pre-alpha loader does not inject compatibility defaults
 - `worldgen_settings.mountains` stores the embedded per-save mountain input copy
   with these fields:
   - `density: float` (`0.0..1.0`)
@@ -101,8 +95,8 @@ Current world generation extension:
 - new worlds read defaults from `data/balance/mountain_gen_settings.tres` only
   once during `new game`
 - load never re-reads the repository `.tres`; if
-  `worldgen_settings.mountains` is missing, the loader injects hard-coded
-  defaults in code for backward-compatible restore
+  `worldgen_settings.mountains` is missing from a current-version save, load
+  fails instead of injecting compatibility defaults
 - optional `worldgen_signature: String` may be written for diagnostics only; it
   is non-authoritative and load must ignore its absence
 
@@ -153,10 +147,13 @@ Confirmed `world.json` shape in the current mountain code path:
 
 - large worlds remain saveable without full-world dumps
 - modified chunks reload exactly as changed
-- player/base/progression state survives versioned migration safely
+- current-version player/base/progression state survives save/load
+- non-current `world_version` saves are rejected before runtime diffs or other
+  gameplay state are applied
 
 ## Failure signs
 
 - save size scales with total explored world rather than changed state
 - unchanged chunks are stored redundantly
 - persistence rules differ arbitrarily by subsystem
+- load silently accepts a missing or non-current `world_version`

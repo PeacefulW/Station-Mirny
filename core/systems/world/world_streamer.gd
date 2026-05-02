@@ -113,9 +113,20 @@ func reset_for_new_game(
 	_queue_new_game_spawn_resolution()
 	EventBus.world_initialized.emit(world_seed)
 
-func load_world_state(data: Dictionary) -> void:
+func load_world_state(data: Dictionary) -> bool:
+	var loaded_world_version: int = int(data.get("world_version", -1))
+	if not WorldRuntimeConstants.is_current_world_version(loaded_world_version):
+		_reject_world_save(
+			"world.json world_version %d is incompatible with current world_version %d. Pre-alpha world saves are not migrated." % [
+				loaded_world_version,
+				WorldRuntimeConstants.WORLD_VERSION,
+			]
+		)
+		return false
+	if not _validate_current_world_save_shape(data):
+		return false
 	world_seed = int(data.get("world_seed", WorldRuntimeConstants.DEFAULT_WORLD_SEED))
-	world_version = int(data.get("world_version", WorldRuntimeConstants.WORLD_VERSION))
+	world_version = loaded_world_version
 	_pending_new_world_settings = null
 	_pending_new_world_bounds = null
 	_pending_new_foundation_settings = null
@@ -130,6 +141,7 @@ func load_world_state(data: Dictionary) -> void:
 	_awaiting_new_game_spawn_result = false
 	_new_game_spawn_failed = false
 	EventBus.world_initialized.emit(world_seed)
+	return true
 
 func save_world_state() -> Dictionary:
 	var current_settings: MountainGenSettings = _worldgen_settings
@@ -1154,6 +1166,33 @@ func _compute_worldgen_signature(worldgen_settings: Dictionary) -> String:
 		return ""
 	hashing_context.update(JSON.stringify(worldgen_settings).to_utf8_buffer())
 	return hashing_context.finish().hex_encode()
+
+func _validate_current_world_save_shape(data: Dictionary) -> bool:
+	if not data.has("world_seed"):
+		_reject_world_save("world.json is missing required field world_seed")
+		return false
+	if not data.has("worldgen_settings"):
+		_reject_world_save("world.json is missing required field worldgen_settings")
+		return false
+	var worldgen_settings: Variant = data.get("worldgen_settings", {})
+	if worldgen_settings is not Dictionary:
+		_reject_world_save("worldgen_settings must be a Dictionary")
+		return false
+	var settings_dict: Dictionary = worldgen_settings as Dictionary
+	if not settings_dict.has("mountains") or settings_dict.get("mountains") is not Dictionary:
+		_reject_world_save("worldgen_settings.mountains must be a Dictionary")
+		return false
+	if WorldRuntimeConstants.uses_world_foundation(WorldRuntimeConstants.WORLD_VERSION):
+		if not settings_dict.has("world_bounds") or settings_dict.get("world_bounds") is not Dictionary:
+			_reject_world_save("worldgen_settings.world_bounds must be a Dictionary")
+			return false
+		if not settings_dict.has("foundation") or settings_dict.get("foundation") is not Dictionary:
+			_reject_world_save("worldgen_settings.foundation must be a Dictionary")
+			return false
+	return true
+
+func _reject_world_save(message: String) -> void:
+	push_error(message)
 
 func _load_worldgen_settings_from_save(data: Dictionary) -> MountainGenSettings:
 	var worldgen_settings: Variant = data.get("worldgen_settings", {})

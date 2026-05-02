@@ -201,7 +201,8 @@ Rules:
 - wrap-safe on X via `wrap_x(wx, world_width_tiles)`
 - for `world_version >= 10`, `world_width_tiles` is the saved finite
   `worldgen_settings.world_bounds.width_tiles`; `world_version <= 9`
-  preserves the legacy `65536` mountain sample width for existing saves
+  is a historical algorithm path and is not load-compatible under the active
+  pre-alpha save policy
 - combines:
   1. `domain warp` FBM on `(wx, wy)` using `settings.continuity`
   2. `macro FBM` on warped coordinates at wavelength `settings.scale`
@@ -464,8 +465,8 @@ remain as V0 defined them.
 Rules:
 - `worldgen_settings` is namespaced from the start
   (`mountains`, later `biomes`, `climate`)
-- on load, for `world_version >= 2`, missing `worldgen_settings.mountains`
-  → hard-coded defaults in the save loader, **not** re-read from
+- current-version load requires `worldgen_settings.mountains`; missing settings
+  fail instead of using hard-coded compatibility defaults or re-reading
   `data/balance/mountain_gen_settings.tres`
 - on new game, `WorldStreamer` writes the current resource's values
   exactly once into `world.json`, then never re-reads that resource for
@@ -507,8 +508,9 @@ Chunk diffs keep `ChunkDiffV0` shape. Forbidden additions:
   normalisation: new V1 worlds sample mountain elevation, hierarchical
   identity, and mountain atlas coordinates in the saved finite world width
   instead of remapping finite X into the legacy `65536`-tile sample width.
-  Existing `world_version == 9` saves keep the legacy remap so their generated
-  base does not drift under load.
+  `world_version == 9` remains a historical algorithm boundary; the active
+  pre-alpha loader rejects non-current saves instead of preserving legacy
+  save-load compatibility.
 - `WORLD_VERSION` bumps from `10` to `11` in `world_foundation_v1.md` for the
   high-resolution foundation substrate (`64`-tile cells) and native overview
   image pass. Mountain sampling semantics remain the `world_version >= 10`
@@ -709,7 +711,7 @@ relevant doc at the time of landing.
 - cavity/opening derivation drifting between mutation, publish, and load
   paths; mitigated by the single runtime cache refresh path
 - `world.json` migration from V0 saves without `worldgen_settings`;
-  mitigated by explicit hard-coded defaults in the loader
+  mitigated by active pre-alpha rejection of non-current `world_version`
 - legacy `mountain_shadow_system.gd.uid` and shader files producing
   confusion; mitigated by treating them as dead artifacts unless M2
   explicitly reuses a shader primitive
@@ -805,12 +807,12 @@ Changes:
 - add main-menu (or new-game screen) sliders bound to the resource
 - have `WorldStreamer` flatten settings into `settings_packed` once at
   world init and save / load them under `worldgen_settings.mountains`
-- loader populates hard-coded defaults when the section is missing
+- loader rejects current-version saves when the section is missing
 
 Acceptance tests for M4:
 - [ ] each slider measurably changes generation in a new game
 - [ ] new game writes the section into `world.json`
-- [ ] loading an old V0 save succeeds with defaults
+- [ ] loading an old V0 save fails cleanly before diffs/player/base state apply
 - [ ] editing the repository's default `.tres` does not retroactively
       change an existing save
 
@@ -839,7 +841,7 @@ Changes:
 - for `world_version >= 10`, derive that width from
   `worldgen_settings.world_bounds.width_tiles`;
 - for `world_version <= 9`, keep the legacy `65536` width and legacy finite-X
-  remap to preserve existing saves;
+  remap as a historical native algorithm path only;
 - keep the same `settings_packed` shape and `world.json` shape;
 - bump `WorldRuntimeConstants.WORLD_VERSION` to `10`.
 
@@ -860,8 +862,8 @@ Acceptance tests for M6:
 - [ ] M6 landed new worlds at `world_version = 10`; current new-world
       version may be higher after later canonical worldgen owners
       (currently `11` in `world_foundation_v1.md`);
-- [ ] `world_version == 9` remains load-compatible and keeps the legacy
-      mountain sample-width path;
+- [ ] `world_version == 9` remains a historical algorithm boundary only; active
+      pre-alpha save/load rejects non-current `world_version` values;
 - [ ] on the `large` preset, generated mountain output no longer appears as
       vertically stretched one-tile-to-few-tile slices caused by finite-X
       remapping;

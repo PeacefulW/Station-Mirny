@@ -309,13 +309,10 @@ Dev-only native surface:
 Current code notes:
 - `settings_packed` for `world_version >= 9` must include the mountain fields
   plus V1 foundation indices `9-14`.
-- for `world_version >= 10`, native mountain sampling uses
-  `worldgen_settings.world_bounds.width_tiles` as its cylindrical X width;
-  `world_version == 9` keeps the legacy `65536`-tile mountain sample-width
-  compatibility path.
-- for `world_version >= 11`, the native `WorldPrePass` substrate uses
-  `foundation_coarse_cell_size_tiles = 64`; earlier finite-foundation versions
-  used `128`.
+- the active pre-alpha save/load policy accepts only the current
+  `WorldRuntimeConstants.WORLD_VERSION`; older generator versions may remain
+  in native code for deterministic debug surfaces, but are not load-compatible
+  through `WorldStreamer`.
 - The substrate snapshot is a derived cache owned by `WorldCore`; it is not
   persisted and must not be mutated by script code.
 - Preview spawn resolution uses the shared worker wrapper, not a main-thread
@@ -353,7 +350,7 @@ Confirmed mutation entrypoints:
 |---|---|
 | `initialize_new_world(seed_value: int, settings: MountainGenSettings, world_bounds: WorldBoundsSettings = null, foundation_settings: FoundationGenSettings = null)` | New-game entrypoint; freezes mountain, finite-bounds, and foundation settings into packed/native form and then delegates to `reset_for_new_game(...)` |
 | `reset_for_new_game(seed, version)` | Clears runtime state, queues native foundation spawn resolution for `world_version >= 9`, applies the resolved new-game spawn tile to the local player before streaming chunks, and emits `world_initialized` |
-| `load_world_state(data: Dictionary)` | Restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, and `worldgen_settings.mountains` from `world.json` (or documented defaults where allowed), and clears runtime state |
+| `load_world_state(data: Dictionary) -> bool` | Restores only current-version `world.json` payloads. Returns `false` before mutating runtime state when `world_version` is missing/non-current or the current `worldgen_settings` shape is incomplete; on success restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, and `worldgen_settings.mountains` from `world.json`, and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
 | `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock |
 | `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver` to switch between outside state and one active cavity |

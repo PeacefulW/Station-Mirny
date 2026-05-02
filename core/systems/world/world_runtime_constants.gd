@@ -94,3 +94,6 @@ static func is_local_coord_valid(local_coord: Vector2i) -> bool:
 
 static func uses_world_foundation(version: int) -> bool:
 	return version >= WORLD_FOUNDATION_VERSION
+
+static func is_current_world_version(version: int) -> bool:
+	return version == WORLD_VERSION

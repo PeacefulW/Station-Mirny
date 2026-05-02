@@ -9,7 +9,10 @@ static func apply_world(tree: SceneTree, data: Dictionary) -> bool:
 	if not chunk_managers.is_empty():
 		var chunk_manager: Node = chunk_managers[0]
 		if chunk_manager.has_method("load_world_state"):
-			chunk_manager.load_world_state(data)
+			var load_result: Variant = chunk_manager.load_world_state(data)
+			if load_result is bool:
+				var load_succeeded: bool = load_result
+				return load_succeeded
 	return true
 
 static func apply_chunk_data(tree: SceneTree, data: Dictionary) -> void:
