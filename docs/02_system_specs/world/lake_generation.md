@@ -1,11 +1,11 @@
 ---
 title: Lake Generation V1
 doc_type: system_spec
-status: draft
+status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.1
-last_updated: 2026-05-02
+version: 0.5
+last_updated: 2026-05-03
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -50,9 +50,25 @@ foundation channels, or any subsurface owner.
 
 ## Status
 
-Draft. V1 lands in four sequential iterations (`L1..L4`) tracked in
-`docs/04_spec_iteration/`. Status moves to `approved` when L1..L4 close
-their acceptance criteria and the canonical doc follow-ups below are in.
+Approved. V1 landed in four sequential iterations (`L1..L4`) tracked in
+`docs/04_spec_iteration/`. L1 substrate fields are in place. L2 bed terrain
+ids, `lake_flags`, and the V1 `WORLD_VERSION = 38` packet boundary are
+landed. Current `WORLD_VERSION = 39` includes the 2026-05-03 deterministic
+classification and basin-rim correction below. L3 water presentation is landed:
+`ChunkView` now owns the derived
+`WaterSurfaceLayer`, populated from `lake_flags` and current resolved
+`terrain_ids`, with light water over `TERRAIN_LAKE_BED_SHALLOW` and dark water
+over `TERRAIN_LAKE_BED_DEEP`. L4 landed `LakeGenSettings` new-game UI,
+`worldgen_settings.lakes` persistence, and spawn rejection for substrate coarse
+nodes whose `lake_id > 0`.
+
+Amendment 2026-05-03: per-tile lake classification samples
+`WorldPrePass.foundation_height` bilinearly at tile centre before applying
+shore warp, because `lake_water_level_q16` is encoded in `foundation_height`
+units. The basin BFS contract also explicitly forbids a fixed
+`center_height + fill_depth` ceiling; the observed rim is dynamic. Because this
+changes canonical output for the same seed/settings, active new worlds use
+`WORLD_VERSION = 39`; `38` remains the Lake Generation L2 historical boundary.
 
 ## Gameplay Goal
 
@@ -136,8 +152,10 @@ V1 does not include:
   rules, coarse-cell alignment (`64` tiles), and the existing
   `settings_packed` layout (indices `0..14`).
 - `mountain_generation.md` for `mountain_id_per_tile`, `mountain_flags`,
-  and the per-tile elevation field used to derive `tile_elevation` for
-  shoreline classification.
+  and the existing mountain-wins classification branch. Lake shoreline
+  classification reuses the same mountain sample only to decide whether
+  the mountain pipeline wins; water-level comparison uses
+  `WorldPrePass.foundation_height` in substrate units.
 - ADR-0001 for runtime work classes and dirty-update rules.
 - ADR-0002 for cylindrical X wrap; lake basins must be wrap-safe on X.
 - ADR-0003 for immutable base + runtime diff; lake bed terrain is base,
@@ -159,7 +177,7 @@ V1 does not include:
 | C++ compute or main-thread apply? | Lake basin solve, per-tile classification, bed atlas indices, and `lake_flags` are native (`WorldPrePass` + `WorldCore`). Water layer cell placement and per-chunk tile upload are main-thread apply, sliced through `FrameBudgetDispatcher.CATEGORY_STREAMING`. |
 | Dirty unit | `64`-tile coarse cell for substrate basin solve (re-computed only on world load); `32 x 32` chunk for canonical packet generation; one tile for excavation mutation; one chunk for water presentation refresh on publish/unload. |
 | Single owner | `WorldCore` (native) for substrate fields and packet output. `WorldDiffStore` for tile-override diff. `ChunkView` for water presentation layer. `world.json` for `worldgen_settings.lakes`. |
-| 10x / 100x scale path | Lake basin solve is bounded-radius local-min plus bounded BFS over the existing coarse grid (medium = `2048` nodes; large = `8192` nodes). No whole-tile pass. Per-tile path adds a single substrate read + one FBM warp call inside the existing chunk packet loop. |
+| 10x / 100x scale path | Lake basin solve is bounded-radius local-min plus bounded BFS over the existing coarse grid (medium = `2048` nodes; large = `8192` nodes). No whole-tile pass. Per-tile path adds one bilinear `foundation_height` substrate sample + one FBM warp call inside the existing chunk packet loop. |
 | Main-thread blocking? | Forbidden during gameplay. Substrate stays on the world-load worker. Per-tile work stays inside the existing native packet generation. |
 | Hidden GDScript fallback? | Forbidden. Native `WorldPrePass` + `WorldCore` are required. Absence asserts under LAW 9. |
 | Could it become heavy later? | Bounded by the substrate budget and per-tile cost inside `ChunkPacketV1` generation. New consumers must read existing fields or justify a frozen-set extension via spec amendment. |
@@ -241,6 +259,9 @@ Algorithm:
    - has `foundation_height < rim_height_so_far`
    - is not in any reject mask above
    - is on the same connected component (4-neighbour, X wrap-safe)
+   `rim_height_so_far` is the lowest dynamically observed spill rim
+   around the growing basin. A fixed `center_height + fill_depth`
+   ceiling is forbidden because it is not a watershed rim.
    Bound the BFS at `lake_max_basin_cells` (default `64`). If the BFS
    would exceed the bound, abort the candidate (likely an ocean-class
    depression).
@@ -273,9 +294,8 @@ Wrap-safety rule: every cell access uses `wrap_x(cx, grid_width)`.
 Per-tile work happens inside `WorldCore::_generate_chunk_packet` after
 mountain resolution. For each tile `(lx, ly)` in the chunk:
 
-1. Compute `tile_elevation = sample_elevation(seed, world_version, wx,
-   wy, settings_packed)` (already exists for the mountain field; no new
-   call site needed).
+1. Reuse the mountain-field sample already taken for this tile or halo
+   sample. This sample is used only for the mountain branch.
 2. **Mountain wins.** If `mountain_id_per_tile[i] > 0`, the tile keeps
    the mountain pipeline output (`TERRAIN_MOUNTAIN_WALL` /
    `TERRAIN_MOUNTAIN_FOOT`). Lake fields stay at zero.
@@ -284,10 +304,15 @@ mountain resolution. For each tile `(lx, ly)` in the chunk:
 4. If `lake_id == 0`, plains pipeline as today. `lake_flags = 0`.
 5. If `lake_id > 0`:
    - decode `water_level = lake_water_level_q16 / 65536.0`
+   - compute `tile_foundation_height` by bilinear-sampling
+     `WorldPrePass.foundation_height` at the tile centre
+     (`wx + 0.5`, `wy + 0.5`) in coarse-grid coordinates, with X wrap
+     and Y clamp matching the substrate snapshot. This is the same unit
+     as `water_level`.
    - compute `shore_warp = fbm_shore(wx, wy, seed, world_version,
      shore_warp_scale) * shore_warp_amplitude`; this FBM uses a
      dedicated salt distinct from mountain noise
-   - compute `effective_elevation = tile_elevation + shore_warp`
+   - compute `effective_elevation = tile_foundation_height + shore_warp`
    - if `effective_elevation >= water_level`, this is shore land (just
      above water): plains pipeline, `lake_flags = 0`
    - if `effective_elevation < water_level`:
@@ -378,7 +403,7 @@ loader rejects non-current `world_version`.
 ```json
 {
   "world_seed": 131071,
-  "world_version": 38,
+  "world_version": 39,
   "worldgen_settings": {
     "world_bounds": { "...": "..." },
     "foundation":   { "...": "..." },
@@ -482,7 +507,9 @@ V0 mutation path is unchanged in shape. When the player digs a
 
 ### `world.json` Extension
 
-`worldgen_settings.lakes` is mandatory for `world_version >= 38`.
+L4 contract: `worldgen_settings.lakes` is mandatory for the current
+lake-generation save boundary. Runtime generation for an existing world uses
+the embedded save copy rather than the repository default resource.
 
 - new game writes the resource's values exactly once into
   `world.json`, then never re-reads `data/balance/lake_gen_settings.tres`
@@ -506,11 +533,15 @@ does today: one `(local_x, local_y, terrain_id, walkable)` entry.
 
 ### `WORLD_VERSION`
 
-`WorldRuntimeConstants.WORLD_VERSION` bumps from `37` to `38` when L2
-lands, because canonical packet output (`terrain_ids`, `walkable_flags`,
-`lake_flags`) changes for the same `(seed, coord)`.
+`WorldRuntimeConstants.WORLD_VERSION` bumped from `37` to `38` when L2
+landed, because canonical packet output (`terrain_ids`, `walkable_flags`,
+`lake_flags`) changed for the same `(seed, coord)`.
 
-`world_version <= 37` is a historical algorithm boundary and is rejected
+The current active value is `39`. It advances from `38` because the
+2026-05-03 amendment changes deterministic lake classification and basin
+rim solve output for the same `(seed, coord, settings)`.
+
+`world_version <= 38` is a historical algorithm boundary and is rejected
 by the active pre-alpha loader.
 
 `world_version` remains a plain integer; it is **not** a hash of
@@ -532,7 +563,7 @@ runtime overlays will introduce their own signals in their own spec.
 | Operation | Class | Dirty unit | Budget |
 |---|---|---|---|
 | Lake basin solve | boot/load (native worker) | coarse `64`-tile grid, bounded local-min + bounded BFS | inside the existing `WorldPrePass` `≤ 900 ms` budget for the largest preset; lake step alone target `≤ 100 ms` on `large` |
-| Per-tile classification inside chunk packet | background (native worker) | `32 x 32` chunk | 0 additional native calls beyond one substrate read + one FBM call per non-mountain tile; median chunk packet time may grow at most `1 ms` on reference hardware |
+| Per-tile classification inside chunk packet | background (native worker) | `32 x 32` chunk | 0 additional native calls beyond one bilinear substrate sample + one FBM call per non-mountain tile; median chunk packet time may grow at most `1 ms` on reference hardware |
 | Bed atlas resolution (autotile-47) | background (native worker) | one tile | reuses existing autotile path |
 | Water layer population | background apply (sliced) | one chunk | shares `CATEGORY_STREAMING` budget; no separate budget |
 | Excavation mutation | interactive | one tile + bounded local patch | unchanged from V0 budget |
@@ -547,8 +578,9 @@ runtime overlays will introduce their own signals in their own spec.
   exception only)
 - GDScript fallback for any lake compute when native is unavailable
 - per-tile recompute of `mountain_field.sample_elevation` separately for
-  the lake branch — must reuse the same per-tile sample already taken
-  for the mountain branch
+  the lake branch — mountain elevation must stay the existing
+  mountain-wins input, while lake water-level comparison uses bilinear
+  `foundation_height`
 - adding water rendering through a particle system or shader-only
   approach that bypasses the per-chunk water layer
 - treating water as authoritative for walkability — walkability is on
@@ -621,7 +653,7 @@ runtime overlays will introduce their own signals in their own spec.
 
 - [ ] new game writes `worldgen_settings.lakes` exactly once into
       `world.json`
-- [ ] loading a `world_version >= 38` save without
+- [ ] loading a current-version save without
       `worldgen_settings.lakes` fails loudly before chunk diffs are
       applied
 - [ ] editing the repository's `lake_gen_settings.tres` does not change
@@ -753,9 +785,9 @@ live in `docs/04_spec_iteration/`:
   in the same task as L1
 - `docs/02_system_specs/meta/packet_schemas.md` — add `lake_flags`
   packet field and document `WORLD_VERSION = 38` in the same task as L2
-- `docs/02_system_specs/meta/save_and_persistence.md` — add
-  `worldgen_settings.lakes` shape and the `WORLD_VERSION = 38` boundary
-  in the same task as L2
+- `docs/02_system_specs/meta/save_and_persistence.md` — add the
+  `WORLD_VERSION = 38` boundary in the same task as L2; record
+  `worldgen_settings.lakes` as mandatory when L4 closes
 - `docs/02_system_specs/meta/system_api.md` — only if any new public
   reading surface is introduced (no by default; spawn API surface
   unchanged in shape)

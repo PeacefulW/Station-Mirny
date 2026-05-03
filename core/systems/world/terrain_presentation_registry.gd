@@ -51,6 +51,12 @@ static func get_profile_for_terrain(terrain_id: int) -> TerrainPresentationProfi
 	bootstrap()
 	return _resolve_profile_for_terrain(terrain_id)
 
+static func get_profile_by_id(id: StringName) -> TerrainPresentationProfile:
+	bootstrap()
+	var profile: TerrainPresentationProfile = _profiles_by_id.get(id, null) as TerrainPresentationProfile
+	assert(profile != null, "Missing TerrainPresentationProfile resource for profile_id=%s" % [id])
+	return profile
+
 static func get_shader_family(id: StringName) -> TerrainShaderFamily:
 	bootstrap()
 	return _shader_families_by_id.get(id, null) as TerrainShaderFamily
@@ -118,7 +124,7 @@ static func _register_material_set(material_set_resource: Resource) -> void:
 static func _register_profile(profile_resource: Resource) -> void:
 	var profile: TerrainPresentationProfile = profile_resource as TerrainPresentationProfile
 	assert(profile != null, "TerrainPresentationRegistry requires TerrainPresentationProfile resources")
-	assert(profile.is_valid_profile(), "Invalid TerrainPresentationProfile resource")
+	assert(_is_valid_profile_resource(profile), "Invalid TerrainPresentationProfile resource")
 	assert(not _profiles_by_id.has(profile.id), "Duplicate TerrainPresentationProfile id: %s" % [profile.id])
 	_profiles_by_id[profile.id] = profile
 	for terrain_id: int in profile.terrain_ids:
@@ -141,6 +147,8 @@ static func _validate_registered_resources() -> void:
 		WorldRuntimeConstants.TERRAIN_PLAINS_DUG,
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL,
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT,
+		WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW,
+		WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP,
 	]:
 		assert(_profile_id_by_terrain_id.has(terrain_id), "Missing terrain presentation profile mapping for terrain_id=%d" % terrain_id)
 		assert(_resolve_profile_for_terrain(terrain_id) != null, "TerrainPresentationRegistry failed to resolve terrain_id=%d" % terrain_id)
@@ -240,7 +248,21 @@ static func _expected_topology_family_for_terrain(terrain_id: int) -> StringName
 			return TOPOLOGY_AUTOTILE_47
 		WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
 			return TOPOLOGY_AUTOTILE_47
+		WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW:
+			return TOPOLOGY_AUTOTILE_47
+		WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP:
+			return TOPOLOGY_AUTOTILE_47
 		WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
 			return TOPOLOGY_SINGLE_TILE
 		_:
 			return &""
+
+static func _is_valid_profile_resource(profile: TerrainPresentationProfile) -> bool:
+	if profile.is_valid_profile():
+		return true
+	return not str(profile.id).is_empty() \
+		and not str(profile.terrain_class_id).is_empty() \
+		and profile.terrain_ids.is_empty() \
+		and not str(profile.shape_set_id).is_empty() \
+		and not str(profile.material_set_id).is_empty() \
+		and not str(profile.shader_family_id).is_empty()

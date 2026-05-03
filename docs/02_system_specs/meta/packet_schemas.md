@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.7
-last_updated: 2026-04-24
+version: 0.9
+last_updated: 2026-05-03
 related_docs:
   - ../README.md
   - system_api.md
@@ -179,6 +179,14 @@ Current code note:
       "interior_margin": int,
       "latitude_influence": float,
     },
+    "lakes"?: {
+      "density": float,
+      "scale": float,
+      "shore_warp_amplitude": float,
+      "shore_warp_scale": float,
+      "deep_threshold": float,
+      "mountain_clearance": float,
+    },
   },
   "worldgen_signature"?: String,
 }
@@ -191,12 +199,20 @@ Current code notes:
   values are incompatible
 - current-version `WorldStreamer` loads require `world_seed`,
   `worldgen_settings.mountains`, `worldgen_settings.world_bounds`, and
-  `worldgen_settings.foundation`; missing fields fail the world apply step
-  before chunk diffs or player/base state are applied
-- `world_version == 37` removes the failed water-generation settings, packet
-  fields, APIs, and specs. Base terrain is regenerated from seed/version/settings;
-  water arrays are not part of the current packet boundary.
+  `worldgen_settings.foundation`, and `worldgen_settings.lakes`; missing
+  fields fail the world apply step before chunk diffs or player/base state are
+  applied
+- `world_version == 38` is the Lake Generation L2 historical boundary: base
+  terrain is regenerated from seed/version/settings, lake bed terrain ids are
+  canonical packet output, and `lake_flags` is derived packet data rather than
+  save data.
+- `world_version == 39` is the current lake-generation correction boundary:
+  per-tile lake classification samples bilinear `foundation_height` in the
+  same units as `lake_water_level_q16`, and basin BFS uses a dynamic observed
+  rim rather than a fixed `center_height + fill_depth` ceiling.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
+  from `world.json`, not from the repository `.tres`
+- `worldgen_settings.lakes` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_signature` is diagnostic only and is never authoritative on load
 - legacy/frozen-world payloads with only the older boolean fields are not
@@ -450,10 +466,11 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current foundation runtime value is `37` |
+| `world_version` | `int` | — | Current foundation runtime value is `39` |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
+| `lake_flags` | `PackedByteArray` | 1024 | Per-tile lake bit field; bit `0` is `is_water_present` |
 | `mountain_id_per_tile` | `PackedInt32Array` | 1024 | `0 = no named mountain`; non-zero = deterministic `mountain_id` |
 | `mountain_flags` | `PackedByteArray` | 1024 | Per-tile mountain bit layout documented below |
 | `mountain_atlas_indices` | `PackedInt32Array` | 1024 | Roof-ready atlas indices derived from `mountain_id` adjacency via `autotile_47` |
@@ -470,16 +487,31 @@ Returned one-per-input-coord by native
 For tiles with `mountain_id == 0`, current native contract is `mountain_flags = 0`
 and `mountain_atlas_indices = 0`.
 
+`lake_flags` bit layout:
+
+| Bit | Name | Meaning |
+|---|---|---|
+| `1 << 0` | `is_water_present` | Water surface is present over this generated lake-bed tile. Set only when `terrain_ids[index]` is `TERRAIN_LAKE_BED_SHALLOW` or `TERRAIN_LAKE_BED_DEEP`; always `0` on mountain, plains, and shore-land tiles. |
+| `1 << 1..7` | reserved | Must remain `0` in the current L2 packet. |
+
 Current code notes:
 - `ChunkPacketV1` keeps one hot-path packet per chunk; batch generation returns one packet per requested coord
 - the current native boundary requires the full `settings_packed` payload:
   indices `0-8` are mountain settings, and for `world_version >= 9` indices
   `9-14` are `world_width_tiles`, `world_height_tiles`, `ocean_band_tiles`,
-  `burning_band_tiles`, `pole_orientation`, and `foundation_slope_bias`
+  `burning_band_tiles`, `pole_orientation`, and `foundation_slope_bias`;
+  Lake Generation L1 extends the same payload additively with
+  `LakeGenSettings` indices `15-20`
 - the current native boundary requires `world_version >= 6`
 - `world_version >= 6` uses implicit-domain hierarchical labeling: aligned `1024 x 1024` macro solves recurse only through mixed cells, stop at versioned `min_label_cell_size = 8`, reuse a deterministic `1`-macro halo in native code, and hash `mountain_id` from the component representative leaf
 - `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` are base packet fields only; they are not persisted in `ChunkDiffFile`
 - only tiles with `mountain_id > 0` write canonical mountain terrain through `terrain_ids` as `TERRAIN_MOUNTAIN_WALL` or `TERRAIN_MOUNTAIN_FOOT`
+- Lake Generation L2 adds `TERRAIN_LAKE_BED_SHALLOW = 5`,
+  `TERRAIN_LAKE_BED_DEEP = 6`, and `lake_flags` to `ChunkPacketV1`
+  at the `WORLD_VERSION = 38` boundary. Shallow lake bed is walkable (`1`); deep lake
+  bed is blocked (`0`). Mountain terrain wins before lake classification.
+- `lake_flags` is base packet output only; it is not persisted in
+  `ChunkDiffFile` and must not be written into chunk diff JSON.
 - active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain either resolves into named mountain output or stays on the ground path at the hierarchical scale cutoff
 - `mountain_atlas_indices` is reserved for later roof presentation, but is already confirmed at the packet boundary in M1
 
@@ -521,7 +553,7 @@ Failure shape:
 
 Current code notes:
 - success candidates reject ocean band, burning band, reserved non-land mask,
-  and high wall density
+  high wall density, and lake coarse nodes with `lake_id > 0`
 - the result is transient worker output, not save data
 
 ### `WorldFoundationSnapshotDebug`
@@ -555,11 +587,15 @@ matching substrate has been built.
   "coarse_foot_density": PackedFloat32Array,
   "coarse_valley_score": PackedFloat32Array,
   "biome_region_id": PackedInt32Array,
+  "lake_id": PackedInt32Array,
+  "lake_water_level_q16": PackedInt32Array,
 }
 ```
 
 Current code notes:
 - every array is indexed by coarse node index `y * grid_width + x`
+- `lake_id` and `lake_water_level_q16` are Lake Generation L1 substrate fields;
+  they are debug/dev arrays only in L1 and are not part of `ChunkPacketV1`
 - this dictionary is debug/dev tooling only and must not be persisted
 
 ### `WorldFoundationOverviewImage`
@@ -584,8 +620,9 @@ Current code notes:
 - the default new-game overview requests `pixels_per_cell = 4`, which maps the
   current `64`-tile substrate grid to roughly one image pixel per `16 x 16`
   world tiles
-- the default native pass renders only currently realised gameplay terrain
-  classes: ground, mountain foot, and mountain wall
+- the default native pass renders currently realised gameplay terrain
+  classes: ground, mountain foot, mountain wall, shallow lake bed, and deep
+  lake bed
 - mountain pixels sample the mountain field at overview-pixel resolution and
   apply the same hierarchical `mountain_id` cutoff used by `ChunkPacketV1`;
   `foundation_height` is used only as subtle neutral-ground shading in the default

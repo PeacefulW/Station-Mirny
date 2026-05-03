@@ -4,6 +4,7 @@ extends Node2D
 const ChunkView = preload("res://core/systems/world/chunk_view.gd")
 const HarvestQuery = preload("res://core/systems/world/harvest_query.gd")
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
+const LakeGenSettings = preload("res://core/resources/lake_gen_settings.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
 const MountainCavityCache = preload("res://core/systems/world/mountain_cavity_cache.gd")
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
@@ -13,6 +14,7 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 const WorldSpawnResolver = preload("res://core/systems/world/world_spawn_resolver.gd")
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
 const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.gd")
+const DefaultLakeGenSettings = preload("res://data/balance/lake_gen_settings.tres")
 
 const INVALID_CHUNK_COORD: Vector2i = Vector2i(2147483647, 2147483647)
 const MAX_SPAWN_RESULTS_PER_TICK: int = 1
@@ -32,10 +34,12 @@ var _generation_epoch: int = 0
 var _worldgen_settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
 var _world_bounds_settings: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
 var _foundation_settings: FoundationGenSettings = FoundationGenSettings.hard_coded_defaults()
+var _lake_settings: LakeGenSettings = LakeGenSettings.hard_coded_defaults()
 var _worldgen_settings_packed: PackedFloat32Array = PackedFloat32Array()
 var _pending_new_world_settings: MountainGenSettings = null
 var _pending_new_world_bounds: WorldBoundsSettings = null
 var _pending_new_foundation_settings: FoundationGenSettings = null
+var _pending_new_lake_settings: LakeGenSettings = null
 var _packet_backend: WorldChunkPacketBackend = WorldChunkPacketBackend.new()
 var _awaiting_new_game_spawn_result: bool = false
 var _new_game_spawn_failed: bool = false
@@ -52,7 +56,8 @@ func _ready() -> void:
 	_apply_worldgen_settings(
 		MountainGenSettings.hard_coded_defaults(),
 		WorldBoundsSettings.hard_coded_defaults(),
-		FoundationGenSettings.hard_coded_defaults()
+		FoundationGenSettings.hard_coded_defaults(),
+		LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict())
 	)
 	WorldTileSetFactory.bootstrap()
 	_packet_backend.start()
@@ -76,7 +81,8 @@ func initialize_new_world(
 	seed_value: int,
 	settings: MountainGenSettings,
 	world_bounds: WorldBoundsSettings = null,
-	foundation_settings: FoundationGenSettings = null
+	foundation_settings: FoundationGenSettings = null,
+	lake_settings: LakeGenSettings = null
 ) -> void:
 	_pending_new_world_settings = _clone_worldgen_settings(settings)
 	_pending_new_world_bounds = _clone_world_bounds(world_bounds)
@@ -84,6 +90,7 @@ func initialize_new_world(
 		foundation_settings,
 		_pending_new_world_bounds
 	)
+	_pending_new_lake_settings = _clone_lake_settings(lake_settings)
 	reset_for_new_game(seed_value, WorldRuntimeConstants.WORLD_VERSION)
 
 func reset_for_new_game(
@@ -96,18 +103,21 @@ func reset_for_new_game(
 		_apply_worldgen_settings(
 			_pending_new_world_settings,
 			_pending_new_world_bounds,
-			_pending_new_foundation_settings
+			_pending_new_foundation_settings,
+			_pending_new_lake_settings
 		)
 	else:
 		var default_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
 		_apply_worldgen_settings(
 			MountainGenSettings.hard_coded_defaults(),
 			default_bounds,
-			FoundationGenSettings.for_bounds(default_bounds)
+			FoundationGenSettings.for_bounds(default_bounds),
+			LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict())
 		)
 	_pending_new_world_settings = null
 	_pending_new_world_bounds = null
 	_pending_new_foundation_settings = null
+	_pending_new_lake_settings = null
 	_diff_store.clear()
 	_reset_runtime_state()
 	_queue_new_game_spawn_resolution()
@@ -130,11 +140,13 @@ func load_world_state(data: Dictionary) -> bool:
 	_pending_new_world_settings = null
 	_pending_new_world_bounds = null
 	_pending_new_foundation_settings = null
+	_pending_new_lake_settings = null
 	var loaded_bounds: WorldBoundsSettings = _load_world_bounds_from_save(data)
 	_apply_worldgen_settings(
 		_load_worldgen_settings_from_save(data),
 		loaded_bounds,
-		_load_foundation_settings_from_save(data, loaded_bounds)
+		_load_foundation_settings_from_save(data, loaded_bounds),
+		_load_lake_settings_from_save(data)
 	)
 	_diff_store.clear()
 	_reset_runtime_state()
@@ -151,6 +163,7 @@ func save_world_state() -> Dictionary:
 	if WorldRuntimeConstants.uses_world_foundation(world_version):
 		worldgen_settings["world_bounds"] = _world_bounds_settings.to_save_dict()
 		worldgen_settings["foundation"] = _foundation_settings.to_save_dict()
+		worldgen_settings["lakes"] = _lake_settings.to_save_dict()
 	return {
 		"world_rebuild_frozen": false,
 		"world_scene_present": true,
@@ -374,6 +387,7 @@ func _publish_next_batch() -> void:
 	var has_more: bool = active_view.apply_next_batch(WorldRuntimeConstants.PUBLISH_BATCH_SIZE)
 	if not has_more:
 		_handle_cover_chunk_published(_active_publish_chunk)
+		_handle_water_chunk_published(_active_publish_chunk)
 		active_view.visible = true
 		EventBus.chunk_loaded.emit(_active_publish_chunk)
 		_active_publish_chunk = INVALID_CHUNK_COORD
@@ -814,6 +828,7 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 		return existing
 	var chunk_view := ChunkView.new()
 	chunk_view.configure(chunk_coord)
+	chunk_view.set_water_neighbour_resolver(Callable(self, "_has_water_at_world_tile_for_presentation"))
 	add_child(chunk_view)
 	_chunk_views[chunk_coord] = chunk_view
 	return chunk_view
@@ -946,6 +961,37 @@ func _handle_cover_chunk_published(published_chunk_coord: Vector2i) -> void:
 		_refresh_cover_visibility_for_loaded_chunks()
 		return
 	_refresh_cover_visibility_for_loaded_chunks(_dictionary_vector2i_keys(affected_chunks))
+
+func _handle_water_chunk_published(published_chunk_coord: Vector2i) -> void:
+	var published_view: ChunkView = _chunk_views.get(published_chunk_coord) as ChunkView
+	if published_view == null:
+		return
+	for neighbor_delta: Vector2i in [
+		Vector2i(0, -1),
+		Vector2i(1, 0),
+		Vector2i(0, 1),
+		Vector2i(-1, 0),
+	]:
+		var neighbor_coord: Vector2i = _canonicalize_chunk_coord(published_chunk_coord + neighbor_delta)
+		if _uses_finite_world_bounds() and not _world_bounds_settings.is_chunk_y_in_bounds(neighbor_coord.y):
+			continue
+		if neighbor_coord == published_chunk_coord:
+			continue
+		var neighbor_view: ChunkView = _chunk_views.get(neighbor_coord) as ChunkView
+		if neighbor_view == null:
+			continue
+		published_view.refresh_water_edge_towards(neighbor_delta)
+		neighbor_view.refresh_water_edge_towards(-neighbor_delta)
+
+func _has_water_at_world_tile_for_presentation(tile_coord: Vector2i) -> bool:
+	var canonical_tile: Vector2i = _canonicalize_tile_coord(tile_coord)
+	if _uses_finite_world_bounds() and not _world_bounds_settings.is_tile_y_in_bounds(canonical_tile.y):
+		return false
+	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(canonical_tile)
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+	if chunk_view == null:
+		return false
+	return chunk_view.has_water_at_local(WorldRuntimeConstants.tile_to_local(canonical_tile))
 
 func _handle_cover_chunk_unloaded(chunk_coord: Vector2i) -> void:
 	var cover_result: Dictionary = _mountain_cavity_cache.on_chunk_unloaded(
@@ -1128,11 +1174,13 @@ func _wrapped_chunk_delta_abs(a: int, b: int) -> int:
 func _apply_worldgen_settings(
 	settings: MountainGenSettings,
 	world_bounds: WorldBoundsSettings,
-	foundation_settings: FoundationGenSettings
+	foundation_settings: FoundationGenSettings,
+	lake_settings: LakeGenSettings = null
 ) -> void:
 	_worldgen_settings = _clone_worldgen_settings(settings)
 	_world_bounds_settings = _clone_world_bounds(world_bounds)
 	_foundation_settings = _clone_foundation_settings(foundation_settings, _world_bounds_settings)
+	_lake_settings = _clone_lake_settings(lake_settings)
 	_worldgen_settings_packed = _build_worldgen_settings_packed()
 
 func _clone_worldgen_settings(settings: MountainGenSettings) -> MountainGenSettings:
@@ -1153,10 +1201,16 @@ func _clone_foundation_settings(
 		return FoundationGenSettings.for_bounds(world_bounds)
 	return FoundationGenSettings.from_save_dict(settings.to_save_dict(), world_bounds)
 
+func _clone_lake_settings(settings: LakeGenSettings) -> LakeGenSettings:
+	if settings == null:
+		return LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict())
+	return LakeGenSettings.from_save_dict(settings.to_save_dict())
+
 func _build_worldgen_settings_packed() -> PackedFloat32Array:
 	var packed: PackedFloat32Array = _worldgen_settings.flatten_to_packed()
 	if WorldRuntimeConstants.uses_world_foundation(world_version):
-		return _foundation_settings.write_to_settings_packed(packed, _world_bounds_settings)
+		packed = _foundation_settings.write_to_settings_packed(packed, _world_bounds_settings)
+		return _lake_settings.write_to_settings_packed(packed)
 	return packed
 
 func _compute_worldgen_signature(worldgen_settings: Dictionary) -> String:
@@ -1188,6 +1242,9 @@ func _validate_current_world_save_shape(data: Dictionary) -> bool:
 			return false
 		if not settings_dict.has("foundation") or settings_dict.get("foundation") is not Dictionary:
 			_reject_world_save("worldgen_settings.foundation must be a Dictionary")
+			return false
+		if not settings_dict.has("lakes") or settings_dict.get("lakes") is not Dictionary:
+			_reject_world_save("worldgen_settings.lakes must be a Dictionary")
 			return false
 	return true
 
@@ -1233,3 +1290,14 @@ func _load_foundation_settings_from_save(
 	if foundation_settings is not Dictionary:
 		return FoundationGenSettings.for_bounds(world_bounds)
 	return FoundationGenSettings.from_save_dict(foundation_settings as Dictionary, world_bounds)
+
+func _load_lake_settings_from_save(data: Dictionary) -> LakeGenSettings:
+	var worldgen_settings: Variant = data.get("worldgen_settings", {})
+	if not WorldRuntimeConstants.uses_world_foundation(world_version):
+		return LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict())
+	if worldgen_settings is not Dictionary:
+		return LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict())
+	var lake_settings: Variant = (worldgen_settings as Dictionary).get("lakes", {})
+	if lake_settings is not Dictionary:
+		return LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict())
+	return LakeGenSettings.from_save_dict(lake_settings as Dictionary)

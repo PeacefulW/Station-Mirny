@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.3
-last_updated: 2026-04-24
+version: 1.5
+last_updated: 2026-05-03
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -58,10 +58,11 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current world generation extension:
-- `world.json` now records `world_version: 37` for the current finite-world
-  foundation baseline with `64`-tile substrate cells and native
-  high-resolution overview; the failed water-generation stack has been removed
-  from save shape and regenerated base terrain
+- `world.json` now records `world_version: 39` for the current finite-world
+  foundation baseline with `64`-tile substrate cells, native high-resolution
+  overview, Lake Generation L2 packet output (`TERRAIN_LAKE_BED_SHALLOW`,
+  `TERRAIN_LAKE_BED_DEEP`, and `lake_flags`), and the 2026-05-03
+  deterministic lake classification / basin-rim correction
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - pre-alpha save compatibility policy: the active load path accepts only
@@ -76,9 +77,25 @@ Current world generation extension:
   - `worldgen_settings.foundation.pole_orientation`
   - `worldgen_settings.foundation.slope_bias`
 - current-version saves also require `worldgen_settings.mountains`
-- `world_version == 37` removes the failed water-generation settings, packet
-  fields, APIs, and specs. Base terrain is regenerated from seed/version/settings; only
-  player/runtime diffs continue to be saved as changed chunk tiles
+- current-version saves also require `worldgen_settings.lakes`
+- `world_version == 37` remains a historical boundary for the finite-world
+  foundation baseline before Lake Generation L2 packet output.
+- `world_version == 38` adds lake bed terrain ids and the additive
+  `lake_flags` chunk packet field. Save shape remains unchanged in L2:
+  `lake_flags` is derived base packet data and is not persisted in
+  `chunks/*.json`.
+- `world_version == 39` is the current active boundary for the corrected lake
+  classifier and dynamic basin-rim solve.
+- `WorldRuntimeConstants.WORLD_VERSION` is therefore `39` for current saves;
+  `38` remains the historical L2 packet boundary.
+- `worldgen_settings.lakes` stores the embedded per-save lake input copy
+  with these fields:
+  - `density: float` (`0.0..1.0`)
+  - `scale: float` (`64.0..2048.0`)
+  - `shore_warp_amplitude: float` (`0.0..2.0`)
+  - `shore_warp_scale: float` (`8.0..64.0`)
+  - `deep_threshold: float` (`0.05..0.5`)
+  - `mountain_clearance: float` (`0.0..0.5`)
 - loading a same-version save without required current worldgen settings fails
   loudly; the active pre-alpha loader does not inject compatibility defaults
 - `worldgen_settings.mountains` stores the embedded per-save mountain input copy
@@ -95,8 +112,8 @@ Current world generation extension:
 - new worlds read defaults from `data/balance/mountain_gen_settings.tres` only
   once during `new game`
 - load never re-reads the repository `.tres`; if
-  `worldgen_settings.mountains` is missing from a current-version save, load
-  fails instead of injecting compatibility defaults
+  `worldgen_settings.mountains` or `worldgen_settings.lakes` is missing from a
+  current-version save, load fails instead of injecting compatibility defaults
 - optional `worldgen_signature: String` may be written for diagnostics only; it
   is non-authoritative and load must ignore its absence
 
@@ -107,7 +124,7 @@ Confirmed `world.json` shape in the current mountain code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 37,
+  "world_version": 39,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,
@@ -129,6 +146,14 @@ Confirmed `world.json` shape in the current mountain code path:
       "foot_band": 0.08,
       "interior_margin": 1,
       "latitude_influence": 0.0
+    },
+    "lakes": {
+      "density": 0.35,
+      "scale": 512.0,
+      "shore_warp_amplitude": 0.8,
+      "shore_warp_scale": 16.0,
+      "deep_threshold": 0.18,
+      "mountain_clearance": 0.10
     }
   },
   "worldgen_signature": "debug-only"

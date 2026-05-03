@@ -4,8 +4,8 @@ doc_type: governance
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.4
-last_updated: 2026-04-25
+version: 1.5
+last_updated: 2026-05-03
 related_docs:
   - ENGINEERING_STANDARDS.md
   - ../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
@@ -112,6 +112,35 @@ future macro-landform systems. Large structures influence biome resolution and
 provide world readability at distance. Current code stores finite
 bounds/foundation settings and owns shared macro-structure fields through the
 native `WorldPrePass` substrate for future consumers.
+
+### Lake basin
+A deterministic coarse-grid depression selected by the lake-generation
+substrate solve. It is identified by `lake_id`, stores its rim as
+`lake_water_level_q16`, and is owned by native `WorldPrePass`; it is not saved
+as per-chunk diff state.
+
+### Lake water level
+The fixed-point water rim value (`lake_water_level_q16`) for a generated lake
+basin. It is canonical worldgen substrate data, regenerated from
+`world_seed + world_version + worldgen_settings`, and never derived from
+runtime environment state.
+
+### Lake bed shallow
+The walkable lake-bed terrain class `TERRAIN_LAKE_BED_SHALLOW`. It marks the
+shallow ring under generated lake water; gameplay truth stays on the terrain id,
+while visible water is a derived presentation layer.
+
+### Lake bed deep
+The blocked lake-bed terrain class `TERRAIN_LAKE_BED_DEEP`. It marks the deep
+interior under generated lake water and blocks movement through the same
+authoritative walkability channel as other terrain.
+
+### Water presentation layer
+A visual-only `TileMapLayer` owned by `ChunkView` and populated from
+`lake_flags.is_water_present` plus the current resolved lake-bed terrain id.
+It is destroyed with the chunk view, is never saved, and exists so future
+environment runtime systems can mask water visually without mutating base
+terrain, chunk diff, or `lake_flags`.
 
 ### Local variation / Subzone
 A micro-region within a biome that modifies its character without replacing its identity. Types: sparse flora, dense flora, clearing, rocky edge, wet pocket. Reduces visual repetition without multiplying top-level biomes. Layer 4 of world generation. Implemented: `LocalVariationResolver` samples five variation kinds from seeded periodic noise; variation ids and modulation channels (`flora_modulation`, `wetness_modulation`, `rockiness_modulation`, `openness_modulation`) propagate into chunk output and downstream consumers.

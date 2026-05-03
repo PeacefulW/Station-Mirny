@@ -864,6 +864,45 @@ msgstr "Burning band"
 msgid "UI_WORLDGEN_FOUNDATION_BURNING_BAND_DESC"
 msgstr "Thickness of the impassable bottom-Y burning-lands belt in tiles."
 
+msgid "UI_NEW_GAME_WATER_TITLE"
+msgstr "WATER"
+
+msgid "UI_WORLDGEN_LAKES_DENSITY"
+msgstr "Lake density:"
+
+msgid "UI_WORLDGEN_LAKES_DENSITY_DESC"
+msgstr "Acceptance frequency for lake basins. Higher values create more lakes in valid lowlands."
+
+msgid "UI_WORLDGEN_LAKES_SCALE"
+msgstr "Lake scale:"
+
+msgid "UI_WORLDGEN_LAKES_SCALE_DESC"
+msgstr "Average lake diameter in tiles. Higher values make water basins wider."
+
+msgid "UI_WORLDGEN_LAKES_SHORE_WARP_AMPLITUDE"
+msgstr "Shore warp:"
+
+msgid "UI_WORLDGEN_LAKES_SHORE_WARP_AMPLITUDE_DESC"
+msgstr "Amplitude of shoreline noise. Higher values break up straight water edges more strongly."
+
+msgid "UI_WORLDGEN_LAKES_SHORE_WARP_SCALE"
+msgstr "Shore scale:"
+
+msgid "UI_WORLDGEN_LAKES_SHORE_WARP_SCALE_DESC"
+msgstr "Wavelength of shoreline noise. Higher values make shore curves broader."
+
+msgid "UI_WORLDGEN_LAKES_DEEP_THRESHOLD"
+msgstr "Deep threshold:"
+
+msgid "UI_WORLDGEN_LAKES_DEEP_THRESHOLD_DESC"
+msgstr "Relative depth where lake bed becomes deep and impassable."
+
+msgid "UI_WORLDGEN_LAKES_MOUNTAIN_CLEARANCE"
+msgstr "Mountain clearance:"
+
+msgid "UI_WORLDGEN_LAKES_MOUNTAIN_CLEARANCE_DESC"
+msgstr "Maximum mountain density allowed near a basin. Lower values push lakes farther away from massifs."
+
 msgid "UI_WORLDGEN_MOUNTAINS_DENSITY"
 msgstr "DENSITY INDEX"
 

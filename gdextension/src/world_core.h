@@ -13,6 +13,7 @@
 #include <godot_cpp/variant/vector2i.hpp>
 
 #include <memory>
+#include <unordered_map>
 
 namespace mountain_field {
 class Evaluator;
@@ -48,7 +49,8 @@ private:
 		int64_t p_world_version,
 		const mountain_field::Evaluator &p_mountain_evaluator,
 		const mountain_field::Settings &p_effective_mountain_settings,
-		const ::FoundationSettings &p_foundation_settings
+		const ::FoundationSettings &p_foundation_settings,
+		const ::LakeSettings &p_lake_settings
 	);
 	const mountain_field::HierarchicalMacroSolve &_get_or_build_hierarchical_macro_solve(
 		int64_t p_seed,
@@ -63,12 +65,15 @@ private:
 		int64_t p_world_version,
 		const mountain_field::Evaluator &p_mountain_evaluator,
 		const mountain_field::Settings &p_effective_mountain_settings,
-		const ::FoundationSettings &p_foundation_settings
+		const ::FoundationSettings &p_foundation_settings,
+		const ::LakeSettings &p_lake_settings
 	);
 	std::unique_ptr<HierarchicalMacroCache> hierarchical_macro_cache_;
 	std::unique_ptr<world_prepass::Snapshot> world_prepass_snapshot_;
+	std::unordered_map<int32_t, float> world_prepass_lake_basin_min_elevation_;
 	mountain_field::Settings world_prepass_effective_mountain_settings_;
 	::FoundationSettings world_prepass_foundation_settings_;
+	::LakeSettings world_prepass_lake_settings_;
 };
 
 } // namespace godot

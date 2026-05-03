@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.5
-last_updated: 2026-04-29
+version: 0.7
+last_updated: 2026-05-03
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -143,7 +143,8 @@ Reintroducing water generation requires a new approved spec and
 - `WorldPrePass` native class owning the coarse substrate:
   `latitude_t`, `ocean_band_mask`, `burning_band_mask`, `continent_mask`,
   `foundation_height`, `coarse_wall_density`, `coarse_foot_density`,
-  `coarse_valley_score`, `biome_region_id`;
+  `coarse_valley_score`, `biome_region_id`, and the Lake Generation L1
+  additive fields `lake_id`, `lake_water_level_q16`;
 - dev-only native debug API that exposes each substrate channel as a
   snapshot image, stripped in release builds;
 - full-world overview preview renderer that publishes a single
@@ -286,15 +287,22 @@ Changing the coarse cell size requires a `WORLD_VERSION` bump.
 | `coarse_foot_density` | fraction of tiles in cell with `mountain_foot` | overview debug, biome resolver (future) |
 | `coarse_valley_score` | `1 - coarse_wall_density - 0.5 × coarse_foot_density`, clamped to `[0, 1]` | spawn resolver, future biome specs |
 | `biome_region_id` | deterministic low-frequency Voronoi tag stable across noise scale | biome resolver (future) |
+| `lake_id` | deterministic Lake Generation L1 bounded basin identity; `0` means no lake | lake generation L2+ consumers, debug |
+| `lake_water_level_q16` | Lake Generation L1 rim height encoded as fixed-point `foundation_height * 65536`; `0` when `lake_id == 0` | lake generation L2+ consumers, debug |
 
-Adding a field to this set requires a spec amendment and a
-`WORLD_VERSION` review.
+Adding another field to this set requires a spec amendment and a
+`WORLD_VERSION` review. The two lake fields above are the approved
+Lake Generation L1 frozen-set amendment and do not change chunk packet
+output in L1.
 
 **Removed water-generation fields.** The failed water implementation used
 to add downstream graph, flow accumulation, visible trunk, Strahler, and
-terminal-basin fields here. Those fields are no longer approved
-foundation output. Reintroducing any water-generation field requires a new
-approved spec, explicit ownership, and `WORLD_VERSION` review.
+terminal-basin fields here. Those graph/river fields are still not
+approved foundation output. The only current water-related substrate
+fields are the Lake Generation L1 basin fields `lake_id` and
+`lake_water_level_q16`; reintroducing any other water-generation field
+requires a new approved spec, explicit ownership, and `WORLD_VERSION`
+review.
 
 **Output.** One in-RAM `WorldPrePassSnapshot` keyed by
 `(seed, world_version, world_bounds, settings_packed_hash)`. Replaced
@@ -396,6 +404,7 @@ coarse node satisfies any of:
 - `burning_band_mask = 1`
 - `coarse_wall_density >= spawn_max_wall_density = 0.4`
 - `continent_mask = 0` (reserved non-land massing)
+- `lake_id > 0`
 
 It must prefer tiles inside `continent_mask = 1` with
 `coarse_valley_score` above a documented threshold and `foundation_height`
@@ -532,8 +541,14 @@ shipped in V1-R1 offers only the three presets.
 | `12`   | `SETTINGS_BURNING_BAND_TILES` | `burning_band_height_tiles`. |
 | `13`   | `SETTINGS_POLE_ORIENTATION` | `0` = ocean top / burning bottom (V1 default and only shipped value); `1` = reversed (dev-only, not exposed in UI). |
 | `14`   | `SETTINGS_FOUNDATION_SLOPE_BIAS` | `[-1.0, 1.0]` Y-biased drainage. `0.0` = unbiased; positive = drainage tends toward burning band; negative = toward ocean band. |
+| `15`   | `SETTINGS_PACKED_LAYOUT_LAKE_DENSITY` | `LakeGenSettings.density`. |
+| `16`   | `SETTINGS_PACKED_LAYOUT_LAKE_SCALE` | `LakeGenSettings.scale`. |
+| `17`   | `SETTINGS_PACKED_LAYOUT_LAKE_SHORE_WARP_AMPLITUDE` | `LakeGenSettings.shore_warp_amplitude`. |
+| `18`   | `SETTINGS_PACKED_LAYOUT_LAKE_SHORE_WARP_SCALE` | `LakeGenSettings.shore_warp_scale`. |
+| `19`   | `SETTINGS_PACKED_LAYOUT_LAKE_DEEP_THRESHOLD` | `LakeGenSettings.deep_threshold`. |
+| `20`   | `SETTINGS_PACKED_LAYOUT_LAKE_MOUNTAIN_CLEARANCE` | `LakeGenSettings.mountain_clearance`. |
 
-Active V1 native path requires at least `15` packed values. Missing
+Active V1 native path requires exactly `21` packed values. Missing
 indices for the current active `world_version` are invalid and must fail
 loudly before save diffs or gameplay state are applied. Older settings layouts
 are historical native algorithm paths, not active save-load compatibility.
@@ -605,7 +620,7 @@ must not become a gameplay data source.
 Addressable layers:
 
 - latitude / ocean / burning / continent / foundation-height / coarse-wall /
-  coarse-foot / coarse-valley / biome-region
+  coarse-foot / coarse-valley / biome-region / lake-id / lake-water-level
 
 Acceptance rejects any build where the overview preview is visible but
 any of the substrate debug layers cannot be inspected on a dev build.
@@ -685,6 +700,13 @@ The failed water-generation stack was fully removed from current new worlds at
 implementation remain historical algorithm boundaries only; they are rejected
 by the active pre-alpha loader and no longer define current packet, settings,
 API, or save shape.
+
+Lake Generation L2 introduced the lake bed packet boundary at
+`world_version = 38`. The 2026-05-03 lake-generation correction advances
+current new worlds to `world_version = 39`, because per-tile lake
+classification now uses bilinear `foundation_height` in the same units as
+`lake_water_level_q16`, and the basin solve now uses a dynamic observed rim
+instead of a fixed `center_height + fill_depth` ceiling.
 
 ## Performance Class
 
@@ -778,8 +800,8 @@ API, or save shape.
 ### Spawn
 
 - [ ] Across a sample of seeds in each preset, the spawn resolver
-      never emits a spawn tile inside an ocean or burning band, a
-      large mountain massif.
+  never emits a spawn tile inside an ocean or burning band, a
+  large mountain massif, or a lake coarse node.
 - [ ] The spawn resolver prefers `continent_mask = 1` tiles with
       moderate `foundation_height` and high `coarse_valley_score`.
 

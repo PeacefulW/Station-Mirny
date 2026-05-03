@@ -2,6 +2,7 @@ class_name NewGamePanel
 extends Control
 
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
+const LakeGenSettings = preload("res://core/resources/lake_gen_settings.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
 const WorldOverviewCanvas = preload("res://scenes/ui/world_overview_canvas.gd")
 const WorldFoundationPalette = preload("res://core/systems/world/world_foundation_palette.gd")
@@ -13,6 +14,7 @@ const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.
 
 const DEFAULT_SETTINGS_PATH: String = "res://data/balance/mountain_gen_settings.tres"
 const DEFAULT_FOUNDATION_SETTINGS_PATH: String = "res://data/balance/foundation_gen_settings.tres"
+const DEFAULT_LAKE_SETTINGS_PATH: String = "res://data/balance/lake_gen_settings.tres"
 const BACKDROP_IMAGE_PATH: String = "res://assets/ui/backgrounds/mountain_worldgen_backdrop.jpg"
 const PANEL_WIDTH: int = 960
 const SURFACE_COLOR: Color = Color(0.05, 0.06, 0.07, 0.94)
@@ -192,18 +194,89 @@ const FOUNDATION_SLIDER_SPECS: Array[Dictionary] = [
 	},
 ]
 
+const LAKE_SLIDER_SPECS: Array[Dictionary] = [
+	{
+		"target": "lakes",
+		"property": "density",
+		"label_key": "UI_WORLDGEN_LAKES_DENSITY",
+		"tooltip_key": "UI_WORLDGEN_LAKES_DENSITY_DESC",
+		"min": 0.0,
+		"max": 1.0,
+		"step": 0.01,
+		"is_integer": false,
+		"decimals": 2,
+	},
+	{
+		"target": "lakes",
+		"property": "scale",
+		"label_key": "UI_WORLDGEN_LAKES_SCALE",
+		"tooltip_key": "UI_WORLDGEN_LAKES_SCALE_DESC",
+		"min": 64.0,
+		"max": 2048.0,
+		"step": 1.0,
+		"is_integer": false,
+		"decimals": 0,
+	},
+	{
+		"target": "lakes",
+		"property": "shore_warp_amplitude",
+		"label_key": "UI_WORLDGEN_LAKES_SHORE_WARP_AMPLITUDE",
+		"tooltip_key": "UI_WORLDGEN_LAKES_SHORE_WARP_AMPLITUDE_DESC",
+		"min": 0.0,
+		"max": 2.0,
+		"step": 0.05,
+		"is_integer": false,
+		"decimals": 2,
+	},
+	{
+		"target": "lakes",
+		"property": "shore_warp_scale",
+		"label_key": "UI_WORLDGEN_LAKES_SHORE_WARP_SCALE",
+		"tooltip_key": "UI_WORLDGEN_LAKES_SHORE_WARP_SCALE_DESC",
+		"min": 8.0,
+		"max": 64.0,
+		"step": 1.0,
+		"is_integer": false,
+		"decimals": 0,
+	},
+	{
+		"target": "lakes",
+		"property": "deep_threshold",
+		"label_key": "UI_WORLDGEN_LAKES_DEEP_THRESHOLD",
+		"tooltip_key": "UI_WORLDGEN_LAKES_DEEP_THRESHOLD_DESC",
+		"min": 0.05,
+		"max": 0.5,
+		"step": 0.01,
+		"is_integer": false,
+		"decimals": 2,
+	},
+	{
+		"target": "lakes",
+		"property": "mountain_clearance",
+		"label_key": "UI_WORLDGEN_LAKES_MOUNTAIN_CLEARANCE",
+		"tooltip_key": "UI_WORLDGEN_LAKES_MOUNTAIN_CLEARANCE_DESC",
+		"min": 0.0,
+		"max": 0.5,
+		"step": 0.01,
+		"is_integer": false,
+		"decimals": 2,
+	},
+]
+
 signal back_requested
 signal start_requested(
 	seed_value: int,
 	settings: MountainGenSettings,
 	world_bounds: WorldBoundsSettings,
-	foundation_settings: FoundationGenSettings
+	foundation_settings: FoundationGenSettings,
+	lake_settings: LakeGenSettings
 )
 
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
 var _world_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
 var _foundation_settings: FoundationGenSettings = FoundationGenSettings.hard_coded_defaults()
+var _lake_settings: LakeGenSettings = LakeGenSettings.hard_coded_defaults()
 var _seed_line_edit: LineEdit = null
 var _size_preset_select: OptionButton = null
 var _advanced_toggle: Button = null
@@ -232,6 +305,7 @@ func reload_defaults() -> void:
 	_settings = _load_default_settings()
 	_world_bounds = WorldBoundsSettings.hard_coded_defaults()
 	_foundation_settings = _load_default_foundation_settings(_world_bounds)
+	_lake_settings = _load_default_lake_settings()
 	_rebuild_ui("", 0)
 	_regenerate_seed_text()
 
@@ -587,6 +661,15 @@ func _build_geology_tab(tabs: TabContainer) -> void:
 	for spec: Dictionary in PRIMARY_SLIDER_SPECS:
 		primary_section.add_child(_build_slider_row(spec))
 
+	var water_sector_label := _make_title_label(Localization.t("UI_NEW_GAME_SECTOR_LABEL") % Localization.t("UI_NEW_GAME_WATER_TITLE"))
+	content.add_child(water_sector_label)
+
+	var lake_section := VBoxContainer.new()
+	lake_section.add_theme_constant_override("separation", 6)
+	content.add_child(lake_section)
+	for spec: Dictionary in LAKE_SLIDER_SPECS:
+		lake_section.add_child(_build_slider_row(spec))
+
 	var advanced_header := HBoxContainer.new()
 	advanced_header.add_theme_constant_override("separation", 12)
 	content.add_child(advanced_header)
@@ -828,18 +911,27 @@ func _format_advanced_toggle_text(is_pressed: bool) -> String:
 
 func _read_setting_value(spec: Dictionary) -> float:
 	var property_name: StringName = StringName(str(spec.get("property", "")))
-	if str(spec.get("target", "")) == "foundation":
-		return float(_foundation_settings.get(property_name))
-	return float(_settings.get(property_name))
+	match str(spec.get("target", "")):
+		"foundation":
+			return float(_foundation_settings.get(property_name))
+		"lakes":
+			return float(_lake_settings.get(property_name))
+		_:
+			return float(_settings.get(property_name))
 
 func _apply_setting_value(spec: Dictionary, value: float) -> void:
 	var property_name: StringName = StringName(str(spec.get("property", "")))
-	var target: Object = _foundation_settings if str(spec.get("target", "")) == "foundation" else _settings
+	var target_name: String = str(spec.get("target", ""))
+	var target: Object = _settings
+	if target_name == "foundation":
+		target = _foundation_settings
+	elif target_name == "lakes":
+		target = _lake_settings
 	if bool(spec.get("is_integer", false)):
 		target.set(property_name, int(round(value)))
 	else:
 		target.set(property_name, value)
-	if str(spec.get("target", "")) == "foundation":
+	if target_name == "foundation":
 		_foundation_settings = _foundation_settings.normalized_for_bounds(_world_bounds)
 
 func _update_value_label(label: Label, spec: Dictionary, value: float) -> void:
@@ -863,7 +955,8 @@ func _on_start_pressed() -> void:
 		_resolve_seed_value(),
 		MountainGenSettings.from_save_dict(_settings.to_save_dict()),
 		WorldBoundsSettings.from_save_dict(_world_bounds.to_save_dict()),
-		FoundationGenSettings.from_save_dict(_foundation_settings.to_save_dict(), _world_bounds)
+		FoundationGenSettings.from_save_dict(_foundation_settings.to_save_dict(), _world_bounds),
+		LakeGenSettings.from_save_dict(_lake_settings.to_save_dict())
 	)
 
 func _on_size_preset_selected(index: int) -> void:
@@ -928,6 +1021,10 @@ func _load_default_foundation_settings(world_bounds: WorldBoundsSettings) -> Fou
 		if resource \
 		else FoundationGenSettings.for_bounds(world_bounds)
 
+func _load_default_lake_settings() -> LakeGenSettings:
+	var resource: LakeGenSettings = ResourceLoader.load(DEFAULT_LAKE_SETTINGS_PATH, "LakeGenSettings") as LakeGenSettings
+	return LakeGenSettings.from_save_dict(resource.to_save_dict()) if resource else LakeGenSettings.hard_coded_defaults()
+
 func _load_backdrop_texture() -> Texture2D:
 	var image: Image = Image.load_from_file(ProjectSettings.globalize_path(BACKDROP_IMAGE_PATH))
 	return ImageTexture.create_from_image(image) if image && !image.is_empty() else null
@@ -942,7 +1039,8 @@ func _schedule_preview_rebuild() -> void:
 		_resolve_preview_seed_value(),
 		MountainGenSettings.from_save_dict(_settings.to_save_dict()),
 		WorldBoundsSettings.from_save_dict(_world_bounds.to_save_dict()),
-		FoundationGenSettings.from_save_dict(_foundation_settings.to_save_dict(), _world_bounds)
+		FoundationGenSettings.from_save_dict(_foundation_settings.to_save_dict(), _world_bounds),
+		LakeGenSettings.from_save_dict(_lake_settings.to_save_dict())
 	)
 
 func _populate_overview_mode_options() -> void:

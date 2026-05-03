@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.5
-last_updated: 2026-04-24
+version: 0.6
+last_updated: 2026-05-03
 related_docs:
   - ../README.md
   - commands.md
@@ -295,8 +295,8 @@ Confirmed public native surface:
 
 | Surface | Return | Notes |
 |---|---|---|
-| `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate; current chunk generation emits only ground and mountain terrain classes and does not require a `WorldPrePass` read. |
-| `make_world_preview_patch_image(packet: Dictionary, render_mode: StringName)` | `Image` | Builds a lightweight preview patch image from an existing `ChunkPacketV1`; current modes are terrain, mountain id, and mountain classification. It reads only ground/mountain packet fields and does not generate chunks. |
+| `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate; current chunk generation emits ground, mountain, and Lake Generation L2 bed terrain classes and reads the `WorldPrePass` substrate for lake fields. |
+| `make_world_preview_patch_image(packet: Dictionary, render_mode: StringName)` | `Image` | Builds a lightweight preview patch image from an existing `ChunkPacketV1`; current modes are terrain, mountain id, and mountain classification. Terrain mode reads ground, mountain, and lake-bed packet terrain ids; it does not generate chunks. |
 | `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
 
 Dev-only native surface:
@@ -304,11 +304,12 @@ Dev-only native surface:
 | Surface | Return | Notes |
 |---|---|---|
 | `get_world_foundation_snapshot(layer_mask: int, downscale_factor: int)` | `Dictionary` | Debug build only; returns the current `WorldPrePass` channel snapshot |
-| `get_world_foundation_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured high-resolution overview image. `layer_mask = 0` renders the current realised terrain classes: ground, mountain foot, and mountain wall. The foundation-height layer mask renders the raw `foundation_height` substrate channel as a diagnostic height map. |
+| `get_world_foundation_overview(layer_mask: int, pixels_per_cell: int)` | `Image` | Debug build only; returns a pre-coloured high-resolution overview image. `layer_mask = 0` renders the current realised terrain classes: ground, mountain foot, mountain wall, shallow lake bed, and deep lake bed. The foundation-height layer mask renders the raw `foundation_height` substrate channel as a diagnostic height map. |
 
 Current code notes:
 - `settings_packed` for `world_version >= 9` must include the mountain fields
-  plus V1 foundation indices `9-14`.
+  plus V1 foundation indices `9-14` and Lake Generation L1/L2 indices
+  `15-20`.
 - the active pre-alpha save/load policy accepts only the current
   `WorldRuntimeConstants.WORLD_VERSION`; older generator versions may remain
   in native code for deterministic debug surfaces, but are not load-compatible
@@ -336,7 +337,7 @@ Confirmed readable entrypoints:
 |---|---|---|
 | `get_world_seed()` | `int` | Current deterministic world seed |
 | `get_world_version()` | `int` | Current canonical world version |
-| `save_world_state()` | `Dictionary` | World save payload for `world.json`, including embedded `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, and optional `worldgen_signature` |
+| `save_world_state()` | `Dictionary` | World save payload for `world.json`, including embedded `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, `worldgen_settings.lakes`, and optional `worldgen_signature` |
 | `collect_chunk_diffs()` | `Array[Dictionary]` | Serialized dirty chunk entries |
 | `get_chunk_packet(chunk_coord: Vector2i)` | `Dictionary` | Loaded chunk packet or `{}`; read-only world-domain lookup for `MountainResolver` |
 | `get_mountain_cover_sample(world_tile: Vector2i)` | `Dictionary` | Read-only cover sample for one tile: `mountain_id`, `mountain_flags`, `component_id`, `is_opening`, `walkable` |
@@ -348,9 +349,9 @@ Confirmed mutation entrypoints:
 
 | Surface | Notes |
 |---|---|
-| `initialize_new_world(seed_value: int, settings: MountainGenSettings, world_bounds: WorldBoundsSettings = null, foundation_settings: FoundationGenSettings = null)` | New-game entrypoint; freezes mountain, finite-bounds, and foundation settings into packed/native form and then delegates to `reset_for_new_game(...)` |
+| `initialize_new_world(seed_value: int, settings: MountainGenSettings, world_bounds: WorldBoundsSettings = null, foundation_settings: FoundationGenSettings = null, lake_settings: LakeGenSettings = null)` | New-game entrypoint; freezes mountain, finite-bounds, foundation, and lake settings into packed/native form and then delegates to `reset_for_new_game(...)` |
 | `reset_for_new_game(seed, version)` | Clears runtime state, queues native foundation spawn resolution for `world_version >= 9`, applies the resolved new-game spawn tile to the local player before streaming chunks, and emits `world_initialized` |
-| `load_world_state(data: Dictionary) -> bool` | Restores only current-version `world.json` payloads. Returns `false` before mutating runtime state when `world_version` is missing/non-current or the current `worldgen_settings` shape is incomplete; on success restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, and `worldgen_settings.mountains` from `world.json`, and clears runtime state |
+| `load_world_state(data: Dictionary) -> bool` | Restores only current-version `world.json` payloads. Returns `false` before mutating runtime state when `world_version` is missing/non-current or the current `worldgen_settings` shape is incomplete; on success restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, and `worldgen_settings.lakes` from `world.json`, and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
 | `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock |
 | `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver` to switch between outside state and one active cavity |

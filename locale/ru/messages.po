@@ -864,6 +864,45 @@ msgstr "Горящий пояс"
 msgid "UI_WORLDGEN_FOUNDATION_BURNING_BAND_DESC"
 msgstr "Толщина непроходимого пояса горящих земель у нижней границы Y в тайлах."
 
+msgid "UI_NEW_GAME_WATER_TITLE"
+msgstr "ВОДА (WATER)"
+
+msgid "UI_WORLDGEN_LAKES_DENSITY"
+msgstr "Плотность озёр:"
+
+msgid "UI_WORLDGEN_LAKES_DENSITY_DESC"
+msgstr "Частота принятия озёрных котловин. Большее значение создаёт больше озёр в пригодных низинах."
+
+msgid "UI_WORLDGEN_LAKES_SCALE"
+msgstr "Масштаб озёр:"
+
+msgid "UI_WORLDGEN_LAKES_SCALE_DESC"
+msgstr "Средний диаметр озёр в тайлах. Большее значение делает водные котловины шире."
+
+msgid "UI_WORLDGEN_LAKES_SHORE_WARP_AMPLITUDE"
+msgstr "Неровность берега:"
+
+msgid "UI_WORLDGEN_LAKES_SHORE_WARP_AMPLITUDE_DESC"
+msgstr "Амплитуда берегового шума. Большее значение сильнее ломает ровную линию воды."
+
+msgid "UI_WORLDGEN_LAKES_SHORE_WARP_SCALE"
+msgstr "Масштаб берега:"
+
+msgid "UI_WORLDGEN_LAKES_SHORE_WARP_SCALE_DESC"
+msgstr "Длина волны берегового шума. Большее значение делает изгибы берега крупнее."
+
+msgid "UI_WORLDGEN_LAKES_DEEP_THRESHOLD"
+msgstr "Порог глубины:"
+
+msgid "UI_WORLDGEN_LAKES_DEEP_THRESHOLD_DESC"
+msgstr "Относительная глубина, после которой дно становится глубоким и непроходимым."
+
+msgid "UI_WORLDGEN_LAKES_MOUNTAIN_CLEARANCE"
+msgstr "Зазор от гор:"
+
+msgid "UI_WORLDGEN_LAKES_MOUNTAIN_CLEARANCE_DESC"
+msgstr "Максимальная допустимая плотность гор рядом с котловиной. Меньшие значения сильнее отталкивают озёра от массивов."
+
 msgid "UI_WORLDGEN_MOUNTAINS_DENSITY"
 msgstr "ИНДЕКС ПЛОТНОСТИ"
 

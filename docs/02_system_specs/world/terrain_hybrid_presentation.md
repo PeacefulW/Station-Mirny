@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+art
 source_of_truth: true
-version: 0.4
-last_updated: 2026-04-20
+version: 0.5
+last_updated: 2026-05-03
 related_docs:
   - ../../README.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -479,6 +479,16 @@ selection is registry-resolved from the existing authoritative terrain id.
 If a future design requires new presentation-selection data that is not locally
 derivable, then `packet_schemas.md` must be updated in the same task.
 
+### Presentation-only profiles
+
+Most `TerrainPresentationProfile` resources bind authoritative `terrain_ids`.
+Presentation-only layers may instead be registry-addressable by `profile.id`
+with an empty `terrain_ids` list when no canonical terrain id exists for the
+layer. This exception is for visual-only layers such as
+`lake:water_surface_profile`, whose cells are derived from packet fields
+(`lake_flags` plus resolved bed `terrain_ids`) and are never authoritative
+terrain truth.
+
 ## Save / Load Contract
 
 Terrain hybrid presentation is derived visual state.
@@ -555,6 +565,7 @@ data/
       plains_ground.tres
       snow_bank.tres
       mountain_rock.tres
+      water_surface.tres
 ```
 
 Current hardcoded paths may exist during transition, but they are not the

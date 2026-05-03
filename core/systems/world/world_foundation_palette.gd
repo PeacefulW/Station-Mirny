@@ -9,6 +9,8 @@ const LAYER_MASK_FOUNDATION_HEIGHT: int = 1 << 4
 # Must match native write_overview_rgba in world_prepass.cpp.
 const COLOR_MOUNTAIN_FOOT: Color = Color(106.0 / 255.0, 98.0 / 255.0, 74.0 / 255.0, 1.0)
 const COLOR_MOUNTAIN_WALL: Color = Color(164.0 / 255.0, 160.0 / 255.0, 146.0 / 255.0, 1.0)
+const COLOR_LAKE_BED_SHALLOW: Color = Color(120.0 / 255.0, 168.0 / 255.0, 196.0 / 255.0, 1.0)
+const COLOR_LAKE_BED_DEEP: Color = Color(48.0 / 255.0, 84.0 / 255.0, 124.0 / 255.0, 1.0)
 const COLOR_UNKNOWN: Color = Color(0.04, 0.05, 0.06, 1.0)
 const OVERVIEW_PIXELS_PER_CELL: int = 4
 
@@ -95,6 +97,12 @@ func _resolve_node_color(snapshot: Dictionary, index: int) -> Color:
 		return COLOR_MOUNTAIN_WALL.lerp(Color(238.0 / 255.0, 234.0 / 255.0, 220.0 / 255.0, 1.0), clampf(wall, 0.0, 1.0))
 	if foot > 0.0:
 		return COLOR_MOUNTAIN_FOOT.lerp(Color(178.0 / 255.0, 143.0 / 255.0, 101.0 / 255.0, 1.0), clampf(foot, 0.0, 1.0))
+	var lake_id: int = _read_int(snapshot.get("lake_id", PackedInt32Array()), index)
+	var lake_water_level_q16: int = _read_int(snapshot.get("lake_water_level_q16", PackedInt32Array()), index)
+	if lake_id > 0 and lake_water_level_q16 > 0:
+		var water_level: float = float(lake_water_level_q16) / 65536.0
+		var depth: float = water_level - foundation_height
+		return COLOR_LAKE_BED_DEEP if depth >= 0.06 else COLOR_LAKE_BED_SHALLOW
 	var base: float = clampf((42.0 + foundation_height * 24.0) / 255.0, 0.0, 1.0)
 	return Color(
 		base,
@@ -125,3 +133,9 @@ func _read_float(values: Variant, index: int) -> float:
 		return 0.0
 	var typed_values: PackedFloat32Array = values as PackedFloat32Array
 	return float(typed_values[index]) if index >= 0 and index < typed_values.size() else 0.0
+
+func _read_int(values: Variant, index: int) -> int:
+	if values is not PackedInt32Array:
+		return 0
+	var typed_values: PackedInt32Array = values as PackedInt32Array
+	return int(typed_values[index]) if index >= 0 and index < typed_values.size() else 0

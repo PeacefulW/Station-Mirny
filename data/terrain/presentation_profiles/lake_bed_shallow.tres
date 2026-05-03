@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="TerrainPresentationProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_presentation_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"lake:bed_shallow_profile"
+terrain_class_id = &"lake:bed_shallow"
+terrain_ids = [5]
+shape_set_id = &"lake:bed_shallow_shape"
+material_set_id = &"lake:bed_shallow_material"
+shader_family_id = &"terrain.ground_hybrid"

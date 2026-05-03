@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 0.5
-last_updated: 2026-04-24
+version: 0.6
+last_updated: 2026-05-03
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -231,7 +231,8 @@ Rules:
   `WorldCore.resolve_world_foundation_spawn_tile(...)` on the worker path before
   progressive preview chunks are queued.
 - the spawn resolver rejects candidates in ocean/burning masks, reserved
-  non-land massing, and high wall density, then returns the selected
+  non-land massing, high wall density, and lake coarse nodes
+  (`lake_id > 0`), then returns the selected
   `spawn_tile` plus `spawn_safe_patch_rect`.
 - `WorldCore` still mirrors the selected safe patch as mountain-safe output in
   chunk packets so the first loaded area stays walkable.

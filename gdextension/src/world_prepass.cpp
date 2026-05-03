@@ -1,4 +1,5 @@
 #include "world_prepass.h"
+#include "lake_field.h"
 #include "world_utils.h"
 
 #include "third_party/FastNoiseLite.h"
@@ -41,7 +42,16 @@ enum class OverviewTerrainClass {
 	Ground,
 	MountainFoot,
 	MountainWall,
+	LakeBedShallow,
+	LakeBedDeep,
 };
+
+constexpr uint8_t COLOR_LAKE_BED_SHALLOW_R = 120U;
+constexpr uint8_t COLOR_LAKE_BED_SHALLOW_G = 168U;
+constexpr uint8_t COLOR_LAKE_BED_SHALLOW_B = 196U;
+constexpr uint8_t COLOR_LAKE_BED_DEEP_R = 48U;
+constexpr uint8_t COLOR_LAKE_BED_DEEP_G = 84U;
+constexpr uint8_t COLOR_LAKE_BED_DEEP_B = 124U;
 
 uint64_t mix_seed(int64_t p_seed, int64_t p_world_version, uint64_t p_salt) {
 	return world_utils::mix_seed(p_seed, p_world_version, p_salt);
@@ -189,15 +199,21 @@ public:
 	OverviewTerrainSampler(
 		int64_t p_seed,
 		int64_t p_world_version,
+		const Snapshot &p_snapshot,
+		const lake_field::BasinMinElevationLookup &p_lake_basin_min_elevation,
 		const mountain_field::Evaluator &p_mountain_evaluator,
-		const FoundationSettings &p_foundation_settings
+		const FoundationSettings &p_foundation_settings,
+		const LakeSettings &p_lake_settings
 	) :
 			seed_(p_seed),
 			world_version_(p_world_version),
+			snapshot_(p_snapshot),
+			lake_basin_min_elevation_(p_lake_basin_min_elevation),
 			mountain_evaluator_(p_mountain_evaluator),
 			mountain_settings_(p_mountain_evaluator.get_settings()),
 			mountain_thresholds_(p_mountain_evaluator.get_thresholds()),
 			foundation_settings_(p_foundation_settings),
+			lake_settings_(p_lake_settings),
 			macro_cell_size_(mountain_field::get_hierarchical_macro_cell_size(p_world_version)) {}
 
 	OverviewTerrainClass sample_terrain_class(int64_t p_world_x, int64_t p_world_y) {
@@ -207,12 +223,12 @@ public:
 			elevation = 0.0f;
 		}
 		if (elevation < mountain_thresholds_.t_edge) {
-			return OverviewTerrainClass::Ground;
+			return sample_lake_bed_class(p_world_x, p_world_y);
 		}
 		if (mountain_field::uses_hierarchical_labeling(world_version_)) {
 			const int32_t mountain_id = resolve_mountain_id_at_world(sample_world_x, p_world_y, elevation);
 			if (mountain_id <= 0) {
-				return OverviewTerrainClass::Ground;
+				return sample_lake_bed_class(p_world_x, p_world_y);
 			}
 		}
 		return elevation >= mountain_thresholds_.t_wall ?
@@ -254,12 +270,86 @@ private:
 		);
 	}
 
+	OverviewTerrainClass sample_lake_bed_class(int64_t p_world_x, int64_t p_world_y) const {
+		if (!snapshot_.valid || snapshot_.lake_id.empty() || snapshot_.lake_water_level_q16.empty()) {
+			return OverviewTerrainClass::Ground;
+		}
+		const int64_t wrapped_x = world_utils::wrap_foundation_world_x(
+			p_world_x,
+			foundation_settings_.width_tiles,
+			foundation_settings_.enabled
+		);
+		const int64_t clamped_y = world_utils::clamp_foundation_world_y(
+			p_world_y,
+			foundation_settings_.height_tiles,
+			foundation_settings_.enabled
+		);
+		const int32_t coarse_x = static_cast<int32_t>(clamp_value<int64_t>(
+			wrapped_x / COARSE_CELL_SIZE_TILES,
+			0,
+			snapshot_.grid_width - 1
+		));
+		const int32_t coarse_y = static_cast<int32_t>(clamp_value<int64_t>(
+			clamped_y / COARSE_CELL_SIZE_TILES,
+			0,
+			snapshot_.grid_height - 1
+		));
+		const int32_t snapshot_index = snapshot_.index(coarse_x, coarse_y);
+		if (snapshot_index < 0 ||
+				snapshot_index >= static_cast<int32_t>(snapshot_.lake_id.size()) ||
+				snapshot_index >= static_cast<int32_t>(snapshot_.lake_water_level_q16.size())) {
+			return OverviewTerrainClass::Ground;
+		}
+		const int32_t lake_id = snapshot_.lake_id[static_cast<size_t>(snapshot_index)];
+		const int32_t water_level_q16 = snapshot_.lake_water_level_q16[static_cast<size_t>(snapshot_index)];
+		if (lake_id <= 0 || water_level_q16 <= 0) {
+			return OverviewTerrainClass::Ground;
+		}
+		const float water_level = static_cast<float>(water_level_q16) / 65536.0f;
+		const float coarse_sample_x = (static_cast<float>(wrapped_x) + 0.5f) /
+						static_cast<float>(COARSE_CELL_SIZE_TILES) -
+				0.5f;
+		const float coarse_sample_y = (static_cast<float>(clamped_y) + 0.5f) /
+						static_cast<float>(COARSE_CELL_SIZE_TILES) -
+				0.5f;
+		const float foundation_height = sample_snapshot_float_bilinear(
+			snapshot_.foundation_height,
+			snapshot_,
+			coarse_sample_x,
+			coarse_sample_y
+		);
+		const float effective_elevation = foundation_height + lake_field::fbm_shore(
+			wrapped_x,
+			clamped_y,
+			seed_,
+			world_version_,
+			lake_settings_.shore_warp_scale,
+			lake_settings_.shore_warp_amplitude
+		);
+		if (effective_elevation >= water_level) {
+			return OverviewTerrainClass::Ground;
+		}
+		const float basin_min_elevation = lake_field::resolve_basin_min_elevation(
+			lake_basin_min_elevation_,
+			lake_id,
+			effective_elevation
+		);
+		const float basin_depth = std::max(0.0001f, water_level - basin_min_elevation);
+		const float relative_depth = (water_level - effective_elevation) / basin_depth;
+		return relative_depth >= lake_settings_.deep_threshold ?
+				OverviewTerrainClass::LakeBedDeep :
+				OverviewTerrainClass::LakeBedShallow;
+	}
+
 	int64_t seed_ = 0;
 	int64_t world_version_ = 0;
+	const Snapshot &snapshot_;
+	const lake_field::BasinMinElevationLookup &lake_basin_min_elevation_;
 	const mountain_field::Evaluator &mountain_evaluator_;
 	mountain_field::Settings mountain_settings_;
 	const mountain_field::Thresholds &mountain_thresholds_;
 	FoundationSettings foundation_settings_;
+	LakeSettings lake_settings_;
 	int32_t macro_cell_size_ = 0;
 	std::unordered_map<uint64_t, mountain_field::HierarchicalMacroSolve> macro_cache_;
 };
@@ -280,7 +370,8 @@ uint64_t make_signature(
 	int64_t p_seed,
 	int64_t p_world_version,
 	const mountain_field::Settings &p_mountain_settings,
-	const FoundationSettings &p_foundation_settings
+	const FoundationSettings &p_foundation_settings,
+	const LakeSettings &p_lake_settings
 ) {
 	uint64_t signature = splitmix64(static_cast<uint64_t>(p_seed));
 	signature = splitmix64(signature ^ static_cast<uint64_t>(p_world_version) * 0x9e3779b185ebca87ULL);
@@ -300,6 +391,20 @@ uint64_t make_signature(
 	signature = splitmix64(signature ^ static_cast<uint64_t>(p_mountain_settings.interior_margin));
 	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround((p_mountain_settings.latitude_influence + 1.0f) * 1000000.0f)));
 	signature = splitmix64(signature ^ static_cast<uint64_t>(p_mountain_settings.world_wrap_width_tiles));
+	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_lake_settings.density * 1000000.0f)));
+	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_lake_settings.scale * 1000.0f)));
+	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_lake_settings.shore_warp_amplitude * 1000000.0f)));
+	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_lake_settings.shore_warp_scale * 1000.0f)));
+	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_lake_settings.deep_threshold * 1000000.0f)));
+	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_lake_settings.mountain_clearance * 1000000.0f)));
+	return signature;
+}
+
+uint64_t mix_int_vector_signature(uint64_t p_signature, const std::vector<int32_t> &p_values) {
+	uint64_t signature = p_signature;
+	for (int32_t value : p_values) {
+		signature = splitmix64(signature ^ static_cast<uint64_t>(static_cast<uint32_t>(value)));
+	}
 	return signature;
 }
 
@@ -308,14 +413,22 @@ std::unique_ptr<Snapshot> build_snapshot(
 	int64_t p_world_version,
 	const mountain_field::Evaluator &p_mountain_evaluator,
 	const mountain_field::Settings &p_mountain_settings,
-	const FoundationSettings &p_foundation_settings
+	const FoundationSettings &p_foundation_settings,
+	const LakeSettings &p_lake_settings
 ) {
 	auto started_at = std::chrono::high_resolution_clock::now();
 	std::unique_ptr<Snapshot> snapshot = std::make_unique<Snapshot>();
 	snapshot->valid = p_foundation_settings.enabled;
 	snapshot->seed = p_seed;
 	snapshot->world_version = p_world_version;
-	snapshot->signature = make_signature(p_seed, p_world_version, p_mountain_settings, p_foundation_settings);
+	snapshot->cache_signature = make_signature(
+		p_seed,
+		p_world_version,
+		p_mountain_settings,
+		p_foundation_settings,
+		p_lake_settings
+	);
+	snapshot->signature = snapshot->cache_signature;
 	snapshot->width_tiles = p_foundation_settings.width_tiles;
 	snapshot->height_tiles = p_foundation_settings.height_tiles;
 	snapshot->ocean_band_tiles = p_foundation_settings.ocean_band_tiles;
@@ -333,6 +446,8 @@ std::unique_ptr<Snapshot> build_snapshot(
 	snapshot->coarse_foot_density.assign(static_cast<size_t>(node_count), 0.0f);
 	snapshot->coarse_valley_score.assign(static_cast<size_t>(node_count), 0.0f);
 	snapshot->biome_region_id.assign(static_cast<size_t>(node_count), 0);
+	snapshot->lake_id.assign(static_cast<size_t>(node_count), 0);
+	snapshot->lake_water_level_q16.assign(static_cast<size_t>(node_count), 0);
 
 	FastNoiseLite continent_noise = make_noise(mix_seed(p_seed, p_world_version, SEED_SALT_CONTINENT), 1.0f / 2048.0f, 4);
 	FastNoiseLite relief_noise = make_noise(mix_seed(p_seed, p_world_version, SEED_SALT_RELIEF), 1.0f / 1536.0f, 3);
@@ -398,6 +513,10 @@ std::unique_ptr<Snapshot> build_snapshot(
 		}
 	}
 
+	lake_field::solve_lake_basins(*snapshot, p_lake_settings, p_seed, p_world_version);
+	snapshot->signature = mix_int_vector_signature(snapshot->signature, snapshot->lake_id);
+	snapshot->signature = mix_int_vector_signature(snapshot->signature, snapshot->lake_water_level_q16);
+
 	auto finished_at = std::chrono::high_resolution_clock::now();
 	snapshot->compute_time_ms = std::chrono::duration<double, std::milli>(finished_at - started_at).count();
 	return snapshot;
@@ -430,6 +549,8 @@ Dictionary make_debug_snapshot(const Snapshot &p_snapshot, int64_t p_layer_mask,
 	result["coarse_foot_density"] = make_float_array(p_snapshot.coarse_foot_density);
 	result["coarse_valley_score"] = make_float_array(p_snapshot.coarse_valley_score);
 	result["biome_region_id"] = make_int_array(p_snapshot.biome_region_id);
+	result["lake_id"] = make_int_array(p_snapshot.lake_id);
+	result["lake_water_level_q16"] = make_int_array(p_snapshot.lake_water_level_q16);
 	return result;
 }
 
@@ -464,11 +585,15 @@ void write_overview_rgba(
 	int32_t p_offset,
 	float p_foundation_height,
 	float p_foot_density,
-	float p_wall_density
+	float p_wall_density,
+	float p_lake_shallow_density,
+	float p_lake_deep_density
 ) {
 	const float foundation_height = saturate(p_foundation_height);
 	const float foot = saturate(p_foot_density);
 	const float wall = saturate(p_wall_density);
+	const float lake_shallow = saturate(p_lake_shallow_density);
+	const float lake_deep = saturate(p_lake_deep_density);
 	if (wall > 0.0f) {
 		const float rock = clamp_value(164.0f + wall * 74.0f, 0.0f, 255.0f);
 		write_rgba(
@@ -489,6 +614,26 @@ void write_overview_rgba(
 			static_cast<uint8_t>(clamp_value(98.0f + lift * 0.62f, 0.0f, 255.0f)),
 			static_cast<uint8_t>(clamp_value(74.0f + lift * 0.38f, 0.0f, 255.0f))
 		);
+		return;
+	}
+	if (lake_deep > 0.0f || lake_shallow > 0.0f) {
+		if (lake_deep >= lake_shallow) {
+			write_rgba(
+				r_bytes,
+				p_offset,
+				COLOR_LAKE_BED_DEEP_R,
+				COLOR_LAKE_BED_DEEP_G,
+				COLOR_LAKE_BED_DEEP_B
+			);
+		} else {
+			write_rgba(
+				r_bytes,
+				p_offset,
+				COLOR_LAKE_BED_SHALLOW_R,
+				COLOR_LAKE_BED_SHALLOW_G,
+				COLOR_LAKE_BED_SHALLOW_B
+			);
+		}
 		return;
 	}
 	const float base = clamp_value(42.0f + foundation_height * 24.0f, 0.0f, 255.0f);
@@ -543,6 +688,7 @@ Ref<Image> make_overview_image(
 	const mountain_field::Evaluator &p_mountain_evaluator,
 	int64_t p_world_version,
 	const FoundationSettings &p_foundation_settings,
+	const LakeSettings &p_lake_settings,
 	int64_t p_layer_mask,
 	int64_t p_pixels_per_cell
 ) {
@@ -571,7 +717,17 @@ Ref<Image> make_overview_image(
 		}
 		return Image::create_from_data(image_width, image_height, false, Image::FORMAT_RGBA8, bytes);
 	}
-	OverviewTerrainSampler terrain_sampler(p_snapshot.seed, p_world_version, p_mountain_evaluator, p_foundation_settings);
+	const lake_field::BasinMinElevationLookup lake_basin_min_elevation =
+			lake_field::build_basin_min_elevation_lookup(p_snapshot);
+	OverviewTerrainSampler terrain_sampler(
+		p_snapshot.seed,
+		p_world_version,
+		p_snapshot,
+		lake_basin_min_elevation,
+		p_mountain_evaluator,
+		p_foundation_settings,
+		p_lake_settings
+	);
 	for (int32_t y = 0; y < image_height; ++y) {
 		for (int32_t x = 0; x < image_width; ++x) {
 			const float coarse_sample_x = (static_cast<float>(x) + 0.5f) / static_cast<float>(pixels_per_cell) - 0.5f;
@@ -580,6 +736,8 @@ Ref<Image> make_overview_image(
 			const int64_t pixel_origin_tile_y = static_cast<int64_t>(y) * pixel_window_tiles;
 			int32_t wall_count = 0;
 			int32_t foot_count = 0;
+			int32_t lake_shallow_count = 0;
+			int32_t lake_deep_count = 0;
 			for (int32_t sample_y = 0; sample_y < pixel_sample_steps; ++sample_y) {
 				for (int32_t sample_x = 0; sample_x < pixel_sample_steps; ++sample_x) {
 					const int64_t world_x = pixel_origin_tile_x +
@@ -592,6 +750,10 @@ Ref<Image> make_overview_image(
 						++wall_count;
 					} else if (terrain_class == OverviewTerrainClass::MountainFoot) {
 						++foot_count;
+					} else if (terrain_class == OverviewTerrainClass::LakeBedDeep) {
+						++lake_deep_count;
+					} else if (terrain_class == OverviewTerrainClass::LakeBedShallow) {
+						++lake_shallow_count;
 					}
 				}
 			}
@@ -599,12 +761,18 @@ Ref<Image> make_overview_image(
 					static_cast<float>(pixel_sample_steps * pixel_sample_steps);
 			const float pixel_foot_density = static_cast<float>(foot_count) /
 					static_cast<float>(pixel_sample_steps * pixel_sample_steps);
+			const float pixel_lake_shallow_density = static_cast<float>(lake_shallow_count) /
+					static_cast<float>(pixel_sample_steps * pixel_sample_steps);
+			const float pixel_lake_deep_density = static_cast<float>(lake_deep_count) /
+					static_cast<float>(pixel_sample_steps * pixel_sample_steps);
 			write_overview_rgba(
 				bytes,
 				(y * image_width + x) * 4,
 				sample_snapshot_float_bilinear(p_snapshot.foundation_height, p_snapshot, coarse_sample_x, coarse_sample_y),
 				pixel_foot_density,
-				pixel_wall_density
+				pixel_wall_density,
+				pixel_lake_shallow_density,
+				pixel_lake_deep_density
 			);
 		}
 	}
@@ -625,7 +793,8 @@ Dictionary resolve_spawn_tile(const Snapshot &p_snapshot) {
 		if (p_snapshot.ocean_band_mask[static_cast<size_t>(index)] != 0 ||
 				p_snapshot.burning_band_mask[static_cast<size_t>(index)] != 0 ||
 				p_snapshot.continent_mask[static_cast<size_t>(index)] == 0 ||
-				p_snapshot.coarse_wall_density[static_cast<size_t>(index)] >= SPAWN_MAX_WALL_DENSITY) {
+				p_snapshot.coarse_wall_density[static_cast<size_t>(index)] >= SPAWN_MAX_WALL_DENSITY ||
+				p_snapshot.lake_id[static_cast<size_t>(index)] > 0) {
 			continue;
 		}
 		const float valley = p_snapshot.coarse_valley_score[static_cast<size_t>(index)];
@@ -642,7 +811,7 @@ Dictionary resolve_spawn_tile(const Snapshot &p_snapshot) {
 
 	if (best_index < 0) {
 		result["success"] = false;
-		result["message"] = "No valid foundation spawn node found.";
+		result["message"] = "No valid foundation spawn node found outside hard bands, reserved massing, mountain massifs, and lakes.";
 		return result;
 	}
 

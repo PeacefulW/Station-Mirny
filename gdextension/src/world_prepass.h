@@ -26,12 +26,23 @@ struct FoundationSettings {
 	float slope_bias = 0.0f;
 };
 
+struct LakeSettings {
+	bool enabled = false;
+	float density = 0.35f;
+	float scale = 512.0f;
+	float shore_warp_amplitude = 0.8f;
+	float shore_warp_scale = 16.0f;
+	float deep_threshold = 0.18f;
+	float mountain_clearance = 0.10f;
+};
+
 namespace world_prepass {
 
 constexpr int32_t COARSE_CELL_SIZE_TILES = 64;
 
 struct Snapshot {
 	bool valid = false;
+	uint64_t cache_signature = 0;
 	uint64_t signature = 0;
 	double compute_time_ms = 0.0;
 	int64_t seed = 0;
@@ -52,6 +63,8 @@ struct Snapshot {
 	std::vector<float> coarse_foot_density;
 	std::vector<float> coarse_valley_score;
 	std::vector<int32_t> biome_region_id;
+	std::vector<int32_t> lake_id;
+	std::vector<int32_t> lake_water_level_q16;
 
 	int32_t index(int32_t p_x, int32_t p_y) const;
 	godot::Vector2i node_to_tile_center(int32_t p_x, int32_t p_y) const;
@@ -61,7 +74,8 @@ uint64_t make_signature(
 	int64_t p_seed,
 	int64_t p_world_version,
 	const mountain_field::Settings &p_mountain_settings,
-	const FoundationSettings &p_foundation_settings
+	const FoundationSettings &p_foundation_settings,
+	const LakeSettings &p_lake_settings
 );
 
 std::unique_ptr<Snapshot> build_snapshot(
@@ -69,15 +83,23 @@ std::unique_ptr<Snapshot> build_snapshot(
 	int64_t p_world_version,
 	const mountain_field::Evaluator &p_mountain_evaluator,
 	const mountain_field::Settings &p_mountain_settings,
-	const FoundationSettings &p_foundation_settings
+	const FoundationSettings &p_foundation_settings,
+	const LakeSettings &p_lake_settings
 );
 
 godot::Dictionary make_debug_snapshot(const Snapshot &p_snapshot, int64_t p_layer_mask, int64_t p_downscale_factor);
+float sample_snapshot_float_bilinear(
+	const std::vector<float> &p_values,
+	const Snapshot &p_snapshot,
+	float p_x,
+	float p_y
+);
 godot::Ref<godot::Image> make_overview_image(
 	const Snapshot &p_snapshot,
 	const mountain_field::Evaluator &p_mountain_evaluator,
 	int64_t p_world_version,
 	const FoundationSettings &p_foundation_settings,
+	const LakeSettings &p_lake_settings,
 	int64_t p_layer_mask,
 	int64_t p_pixels_per_cell
 );

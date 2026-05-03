@@ -10,6 +10,12 @@ static var _source_ids_by_terrain_id: Dictionary = {}
 static var _materials_by_profile_id: Dictionary = {}
 static var _roof_tile_sets_by_terrain_id: Dictionary = {}
 static var _roof_source_ids_by_terrain_id: Dictionary = {}
+static var _water_tile_set: TileSet = null
+static var _water_source_ids_by_terrain_id: Dictionary = {}
+
+const WATER_SURFACE_PROFILE_ID: StringName = &"lake:water_surface_profile"
+const WATER_SURFACE_LIGHT_MATERIAL_ID: StringName = &"lake:water_surface_light_material"
+const WATER_SURFACE_DARK_MATERIAL_ID: StringName = &"lake:water_surface_dark_material"
 
 static func bootstrap() -> void:
 	TerrainPresentationRegistry.bootstrap()
@@ -45,12 +51,24 @@ static func get_roof_tile_set(
 	_ensure_roof_tileset(roof_terrain_id)
 	return _roof_tile_sets_by_terrain_id.get(roof_terrain_id, null) as TileSet
 
+static func get_water_tile_set() -> TileSet:
+	_ensure_water_tileset()
+	return _water_tile_set
+
 static func get_roof_source_id(
 	terrain_id: int = WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
 ) -> int:
 	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
 	_ensure_roof_tileset(roof_terrain_id)
 	return int(_roof_source_ids_by_terrain_id.get(roof_terrain_id, -1))
+
+static func get_water_source_id(terrain_id: int) -> int:
+	_ensure_water_tileset()
+	var water_terrain_id: int = _resolve_water_variant_terrain_id(terrain_id)
+	return int(_water_source_ids_by_terrain_id.get(water_terrain_id, -1))
+
+static func get_water_atlas_coords(atlas_index: int) -> Vector2i:
+	return Autotile47.atlas_index_to_coords(atlas_index)
 
 static func get_base_source_id(terrain_id: int) -> int:
 	return get_source_id(terrain_id)
@@ -99,6 +117,41 @@ static func _ensure_roof_tileset(terrain_id: int) -> void:
 	_roof_source_ids_by_terrain_id[roof_terrain_id] = tile_set.add_source(source)
 	_roof_tile_sets_by_terrain_id[roof_terrain_id] = tile_set
 
+static func _ensure_water_tileset() -> void:
+	bootstrap()
+	if _water_tile_set != null:
+		return
+	var profile: TerrainPresentationProfile = TerrainPresentationRegistry.get_profile_by_id(
+		WATER_SURFACE_PROFILE_ID
+	)
+	var shape_set: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set(profile.shape_set_id)
+	assert(shape_set != null, "Water TileSet requires water surface shape set")
+	assert(
+		shape_set.topology_family_id == TerrainPresentationRegistry.TOPOLOGY_AUTOTILE_47,
+		"Water surface requires autotile_47 shape set"
+	)
+	var tile_set := TileSet.new()
+	tile_set.tile_size = Vector2i(
+		WorldRuntimeConstants.TILE_SIZE_PX,
+		WorldRuntimeConstants.TILE_SIZE_PX
+	)
+	_water_source_ids_by_terrain_id.clear()
+	_register_water_source(
+		tile_set,
+		shape_set,
+		profile,
+		WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW,
+		WATER_SURFACE_LIGHT_MATERIAL_ID
+	)
+	_register_water_source(
+		tile_set,
+		shape_set,
+		profile,
+		WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP,
+		WATER_SURFACE_DARK_MATERIAL_ID
+	)
+	_water_tile_set = tile_set
+
 static func _build_source_for_terrain(terrain_id: int) -> TileSetAtlasSource:
 	var shape_set: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set_for_terrain(terrain_id)
 	assert(shape_set != null, "Missing TerrainShapeSet for terrain_id=%d" % terrain_id)
@@ -107,6 +160,28 @@ static func _build_source_for_terrain(terrain_id: int) -> TileSetAtlasSource:
 	if material != null:
 		_apply_material_to_source(source, material)
 	return source
+
+static func _register_water_source(
+	tile_set: TileSet,
+	shape_set: TerrainShapeSet,
+	profile: TerrainPresentationProfile,
+	terrain_id: int,
+	material_set_id: StringName
+) -> void:
+	var material_set: TerrainMaterialSet = TerrainPresentationRegistry.get_material_set(material_set_id)
+	assert(material_set != null, "Missing water TerrainMaterialSet: %s" % [material_set_id])
+	assert(
+		material_set.shader_family_id == profile.shader_family_id,
+		"Water material %s must match water profile shader family %s" % [
+			material_set.id,
+			profile.shader_family_id,
+		]
+	)
+	var source: TileSetAtlasSource = _build_source_for_shape_set(shape_set)
+	var material: ShaderMaterial = _build_material(profile, shape_set, material_set)
+	if material != null:
+		_apply_material_to_source(source, material)
+	_water_source_ids_by_terrain_id[terrain_id] = tile_set.add_source(source)
 
 static func _build_source_for_shape_set(shape_set: TerrainShapeSet) -> TileSetAtlasSource:
 	if shape_set.topology_family_id == TerrainPresentationRegistry.TOPOLOGY_AUTOTILE_47:
@@ -186,3 +261,8 @@ static func _build_single_tile_source(texture: Texture2D, tile_size_px: int) -> 
 	source.texture_region_size = Vector2i(tile_size_px, tile_size_px)
 	source.create_tile(Vector2i.ZERO)
 	return source
+
+static func _resolve_water_variant_terrain_id(terrain_id: int) -> int:
+	if terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP:
+		return WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP
+	return WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW
