@@ -26,6 +26,7 @@ func _init() -> void:
 	_assert_l6_native_chunk_packets_are_deterministic()
 	_assert_l6_spawn_tiles_are_not_published_water()
 	_assert_l7_shore_warp_ui_and_persistence()
+	_assert_l8_mask_connected_components()
 	_assert_water_seam_refresh_contract()
 	if _failed:
 		quit(1)
@@ -251,11 +252,6 @@ func _assert_l6_world_version_and_cross_cell_lakes() -> void:
 
 func _assert_l7_shore_warp_ui_and_persistence() -> void:
 	var constants_source: String = FileAccess.get_file_as_string("res://core/systems/world/world_runtime_constants.gd")
-	_assert(
-		constants_source.contains("const WORLD_VERSION: int = 42"),
-		"L7 must advance WorldRuntimeConstants.WORLD_VERSION to 42."
-	)
-
 	var lake_settings_source: String = FileAccess.get_file_as_string("res://core/resources/lake_gen_settings.gd")
 	_assert(
 		lake_settings_source.contains("const SHORE_WARP_AMPLITUDE_MAX: float = 1.0"),
@@ -329,6 +325,74 @@ func _assert_l7_shore_warp_ui_and_persistence() -> void:
 				en_locale.contains("LAKE CONNECTIVITY") and
 				en_locale.contains("Fraction of basin depth"),
 		"English locale must cover L7 lake connectivity and basin-depth shore-warp copy."
+	)
+
+func _assert_l8_mask_connected_components() -> void:
+	var constants_source: String = FileAccess.get_file_as_string("res://core/systems/world/world_runtime_constants.gd")
+	_assert(
+		constants_source.contains("const WORLD_VERSION: int = 43"),
+		"L8 must advance WorldRuntimeConstants.WORLD_VERSION to 43."
+	)
+
+	var lake_field_source: String = FileAccess.get_file_as_string("res://gdextension/src/lake_field.cpp")
+	_assert(
+		lake_field_source.contains("compute_lake_water_threshold"),
+		"L8 must compute a percentile lake-water threshold from eligible substrate heights."
+	)
+	_assert(
+		lake_field_source.contains("solve_lake_connected_components"),
+		"L8 must solve lake identity through face-connected components."
+	)
+	_assert(
+		lake_field_source.contains("struct UnionFind"),
+		"L8 connected-component labeling must use an explicit deterministic union-find."
+	)
+	_assert(
+		lake_field_source.contains("min_lake_component_cells"),
+		"L8 must drop components below min_lake_component_cells(scale)."
+	)
+	_assert(
+		lake_field_source.contains("p_world_version >= 43"),
+		"L8 must gate the new algorithm at world_version >= 43."
+	)
+
+	var lake_generation_spec: String = FileAccess.get_file_as_string("res://docs/02_system_specs/world/lake_generation.md")
+	_assert(
+		lake_generation_spec.contains("LakeGenSettings.connectivity` becomes a no-op") and
+				lake_generation_spec.contains("WORLD_VERSION = 43"),
+		"Lake generation spec must document the L8 connectivity no-op and WORLD_VERSION = 43 boundary."
+	)
+
+	var ru_locale: String = FileAccess.get_file_as_string("res://locale/ru/messages.po")
+	var en_locale: String = FileAccess.get_file_as_string("res://locale/en/messages.po")
+	_assert(
+		ru_locale.contains("UI_WORLDGEN_LAKES_CONNECTIVITY_DESC") and
+				ru_locale.contains("V3") and
+				ru_locale.contains("не влияет"),
+		"Russian locale must describe lake connectivity as a V3 no-op."
+	)
+	_assert(
+		en_locale.contains("UI_WORLDGEN_LAKES_CONNECTIVITY_DESC") and
+				en_locale.contains("V3") and
+				en_locale.contains("does not affect"),
+		"English locale must describe lake connectivity as a V3 no-op."
+	)
+
+	var low_connectivity: Dictionary = _build_lake_snapshot(20260508, 0.0)
+	var high_connectivity: Dictionary = _build_lake_snapshot(20260508, 1.0)
+	_assert(
+		_packed_int32_equal(
+			low_connectivity.get("lake_id", PackedInt32Array()),
+			high_connectivity.get("lake_id", PackedInt32Array())
+		),
+		"L8 connectivity must be a no-op for current-version lake_id output."
+	)
+	_assert(
+		_packed_int32_equal(
+			low_connectivity.get("lake_water_level_q16", PackedInt32Array()),
+			high_connectivity.get("lake_water_level_q16", PackedInt32Array())
+		),
+		"L8 connectivity must be a no-op for current-version lake_water_level_q16 output."
 	)
 
 func _assert_l5_native_lake_snapshot_is_deterministic() -> void:

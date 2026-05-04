@@ -287,8 +287,8 @@ Changing the coarse cell size requires a `WORLD_VERSION` bump.
 | `coarse_foot_density` | fraction of tiles in cell with `mountain_foot` | overview debug, biome resolver (future) |
 | `coarse_valley_score` | `1 - coarse_wall_density - 0.5 × coarse_foot_density`, clamped to `[0, 1]` | spawn resolver, future biome specs |
 | `biome_region_id` | deterministic low-frequency Voronoi tag stable across noise scale | biome resolver (future) |
-| `lake_id` | deterministic Lake Generation L1 bounded basin identity; `0` means no lake | lake generation L2+ consumers, debug |
-| `lake_water_level_q16` | Lake Generation L1 rim height encoded as fixed-point `foundation_height * 65536`; `0` when `lake_id == 0` | lake generation L2+ consumers, debug |
+| `lake_id` | For `world_version >= 43`, deterministic Lake Generation V3 / L8 face-connected component identity; for `world_version <= 42`, deterministic bounded basin identity; `0` means no lake | lake generation L2+ consumers, debug |
+| `lake_water_level_q16` | For `world_version >= 43`, component-uniform water level threshold encoded as fixed-point `foundation_height * 65536`; for `world_version <= 42`, watershed rim height; `0` when `lake_id == 0` | lake generation L2+ consumers, debug |
 
 Adding another field to this set requires a spec amendment and a
 `WORLD_VERSION` review. The two lake fields above are the approved
@@ -735,6 +735,11 @@ for basin-depth shoreline normalisation and mandatory lake connectivity
 persistence. This changes canonical lake packet and spawn output over the same
 `WorldPrePass` fields and does not add substrate fields or change the spawn
 result dictionary shape.
+Lake Generation V3 / L8 advances current new worlds to `world_version = 43`
+for the elevation-threshold mask plus face-connected-component lake substrate
+solve. This changes canonical substrate fields, packet contents, and spawn
+output over the same `WorldPrePass` fields; `worldgen_settings.lakes.connectivity`
+remains mandatory but is a canonical no-op for `world_version >= 43`.
 
 ## Performance Class
 

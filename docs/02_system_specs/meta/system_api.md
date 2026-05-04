@@ -308,8 +308,8 @@ Dev-only native surface:
 
 Current code notes:
 - `settings_packed` for `world_version >= 9` must include the mountain fields
-  plus V1 foundation indices `9-14` and Lake Generation L1/L2 indices
-  `15-20`.
+  plus V1 foundation indices `9-14`, Lake Generation L1/L2 indices `15-20`,
+  and Lake Generation V2+ `connectivity` at index `21` (`22` fields total).
 - the active pre-alpha save/load policy accepts only the current
   `WorldRuntimeConstants.WORLD_VERSION`; older generator versions may remain
   in native code for deterministic debug surfaces, but are not load-compatible

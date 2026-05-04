@@ -907,7 +907,7 @@ msgid "UI_WORLDGEN_LAKES_CONNECTIVITY"
 msgstr "LAKE CONNECTIVITY"
 
 msgid "UI_WORLDGEN_LAKES_CONNECTIVITY_DESC"
-msgstr "Degree to which neighbouring basins fuse into connected lake systems. 0 — each basin stays separate; 1 — large unified bodies of water."
+msgstr "Historical V2 setting: in current V3 worlds it stays in the save, but does not affect lake shape."
 
 msgid "UI_WORLDGEN_MOUNTAINS_DENSITY"
 msgstr "DENSITY INDEX"

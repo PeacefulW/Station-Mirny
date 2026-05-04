@@ -220,10 +220,15 @@ Current code notes:
   boundary: per-tile lake classification and spawn rejection read the
   `3×3 neighbourhood` of coarse lake cells before applying the existing
   effective-elevation water test. `ChunkPacketV1` shape is unchanged.
-- `world_version == 42` is the current V2 / L7 lake-generation algorithm
+- `world_version == 42` is the V2 / L7 lake-generation algorithm
   boundary: `shore_warp_amplitude` is applied as a fraction of chosen basin
   depth, and `worldgen_settings.lakes.connectivity` is mandatory in
   current-version saves. `ChunkPacketV1` shape is unchanged.
+- `world_version == 43` is the current V3 / L8 lake-generation algorithm
+  boundary: lake substrate fields are produced by an elevation-threshold mask
+  plus face-connected-component labeling; `LakeGenSettings.connectivity`
+  remains in `settings_packed[21]` but is a no-op for canonical output.
+  `ChunkPacketV1` shape is unchanged.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded
@@ -480,7 +485,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current foundation runtime value is `42` |
+| `world_version` | `int` | — | Current foundation runtime value is `43` |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
@@ -534,6 +539,11 @@ Current code notes:
   changes canonical lake-bed contents at the `WORLD_VERSION = 42` boundary:
   shoreline FBM is applied as a fraction of the chosen basin depth before
   `lake_flags` is set.
+- Lake Generation L8 keeps the `ChunkPacketV1` field shape unchanged but
+  changes canonical lake substrate and bed contents at the `WORLD_VERSION = 43`
+  boundary: lake identity comes from an elevation-threshold mask plus
+  face-connected components, and `connectivity` no longer affects canonical
+  output.
 - `lake_flags` is base packet output only; it is not persisted in
   `ChunkDiffFile` and must not be written into chunk diff JSON.
 - active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain either resolves into named mountain output or stays on the ground path at the hierarchical scale cutoff

@@ -48,6 +48,56 @@ struct MergeCandidatePair {
 	int32_t max_lake_id = 0;
 };
 
+struct ComponentSummary {
+	int32_t root = -1;
+	int32_t cell_count = 0;
+	int32_t representative_index = std::numeric_limits<int32_t>::max();
+	float min_elevation = std::numeric_limits<float>::infinity();
+	int32_t lake_id = 0;
+};
+
+struct UnionFind {
+	std::vector<int32_t> parent;
+	std::vector<uint8_t> rank;
+
+	explicit UnionFind(int32_t p_count) :
+			parent(static_cast<size_t>(p_count), -1),
+			rank(static_cast<size_t>(p_count), 0U) {}
+
+	void make_set(int32_t p_index) {
+		parent[static_cast<size_t>(p_index)] = p_index;
+	}
+
+	int32_t find(int32_t p_index) {
+		int32_t parent_index = parent[static_cast<size_t>(p_index)];
+		if (parent_index < 0) {
+			return -1;
+		}
+		if (parent_index != p_index) {
+			parent_index = find(parent_index);
+			parent[static_cast<size_t>(p_index)] = parent_index;
+		}
+		return parent_index;
+	}
+
+	void unite(int32_t p_a, int32_t p_b) {
+		int32_t root_a = find(p_a);
+		int32_t root_b = find(p_b);
+		if (root_a < 0 || root_b < 0 || root_a == root_b) {
+			return;
+		}
+		const uint8_t rank_a = rank[static_cast<size_t>(root_a)];
+		const uint8_t rank_b = rank[static_cast<size_t>(root_b)];
+		if (rank_a < rank_b || (rank_a == rank_b && root_b < root_a)) {
+			std::swap(root_a, root_b);
+		}
+		parent[static_cast<size_t>(root_b)] = root_a;
+		if (rank[static_cast<size_t>(root_a)] == rank[static_cast<size_t>(root_b)]) {
+			++rank[static_cast<size_t>(root_a)];
+		}
+	}
+};
+
 LakeSettings sanitize_settings(const LakeSettings &p_settings) {
 	LakeSettings settings = p_settings;
 	settings.density = world_utils::clamp_value(settings.density, 0.0f, 1.0f);
@@ -81,6 +131,15 @@ BasinShape derive_basin_shape(const LakeSettings &p_settings) {
 		64
 	);
 	return shape;
+}
+
+int32_t min_lake_component_cells(const LakeSettings &p_settings) {
+	const float coarse_diameter = p_settings.scale / static_cast<float>(world_prepass::COARSE_CELL_SIZE_TILES);
+	return world_utils::clamp_value(
+		static_cast<int32_t>(std::lround(coarse_diameter)),
+		1,
+		4096
+	);
 }
 
 int32_t wrap_x(int32_t p_x, int32_t p_grid_width) {
@@ -213,6 +272,61 @@ std::vector<Candidate> collect_candidates(
 		return p_a.y < p_b.y || (p_a.y == p_b.y && p_a.x < p_b.x);
 	});
 	return candidates;
+}
+
+float compute_lake_water_threshold(const world_prepass::Snapshot &p_snapshot, const LakeSettings &p_settings) {
+	if (p_settings.density <= 0.0f) {
+		return -std::numeric_limits<float>::infinity();
+	}
+	std::vector<float> eligible_heights;
+	const int32_t node_count = p_snapshot.grid_width * p_snapshot.grid_height;
+	eligible_heights.reserve(static_cast<size_t>(node_count));
+	for (int32_t index = 0; index < node_count; ++index) {
+		if (is_reject_cell(p_snapshot, p_settings, index)) {
+			continue;
+		}
+		eligible_heights.push_back(p_snapshot.foundation_height[static_cast<size_t>(index)]);
+	}
+	if (static_cast<int32_t>(eligible_heights.size()) < min_lake_component_cells(p_settings)) {
+		// A tiny eligible set cannot form a valid L8 component, so avoid
+		// producing a degenerate constant threshold.
+		return -std::numeric_limits<float>::infinity();
+	}
+	std::sort(eligible_heights.begin(), eligible_heights.end());
+	if (p_settings.density >= 1.0f) {
+		return eligible_heights.back();
+	}
+	const int32_t threshold_index = world_utils::clamp_value(
+		static_cast<int32_t>(std::lround(p_settings.density * static_cast<float>(eligible_heights.size() - 1))),
+		0,
+		static_cast<int32_t>(eligible_heights.size() - 1)
+	);
+	return eligible_heights[static_cast<size_t>(threshold_index)];
+}
+
+std::vector<uint8_t> build_lake_candidate_mask(
+	const world_prepass::Snapshot &p_snapshot,
+	const LakeSettings &p_settings,
+	float p_lake_water_threshold
+) {
+	const int32_t node_count = p_snapshot.grid_width * p_snapshot.grid_height;
+	std::vector<uint8_t> candidate_mask(static_cast<size_t>(node_count), 0U);
+	if (!std::isfinite(p_lake_water_threshold)) {
+		return candidate_mask;
+	}
+	for (int32_t index = 0; index < node_count; ++index) {
+		if (is_reject_cell(p_snapshot, p_settings, index)) {
+			continue;
+		}
+		const float height = p_snapshot.foundation_height[static_cast<size_t>(index)];
+		const bool below_threshold = p_settings.density >= 1.0f ?
+				height <= p_lake_water_threshold :
+				height < p_lake_water_threshold;
+		if (below_threshold) {
+			candidate_mask[static_cast<size_t>(index)] = 1U;
+		}
+	}
+	return candidate_mask;
 }
 
 bool contains_id(const std::vector<int32_t> &p_used_ids, int32_t p_id) {
@@ -631,6 +745,153 @@ void merge_lake_basins(
 	assert(remaining_pairs.empty() && "Lake merge iteration cap exceeded.");
 }
 
+int32_t find_component_summary_index(const std::vector<ComponentSummary> &p_summaries, int32_t p_root) {
+	const auto found = std::lower_bound(
+		p_summaries.begin(),
+		p_summaries.end(),
+		p_root,
+		[](const ComponentSummary &p_summary, int32_t p_id) {
+			return p_summary.root < p_id;
+		}
+	);
+	if (found == p_summaries.end() || found->root != p_root) {
+		return -1;
+	}
+	return static_cast<int32_t>(found - p_summaries.begin());
+}
+
+std::vector<ComponentSummary> collect_component_summaries(
+	const world_prepass::Snapshot &p_snapshot,
+	const std::vector<uint8_t> &p_candidate_mask,
+	UnionFind &r_union_find
+) {
+	const int32_t node_count = p_snapshot.grid_width * p_snapshot.grid_height;
+	std::vector<int32_t> roots;
+	roots.reserve(static_cast<size_t>(node_count));
+	for (int32_t index = 0; index < node_count; ++index) {
+		if (p_candidate_mask[static_cast<size_t>(index)] == 0U) {
+			continue;
+		}
+		roots.push_back(r_union_find.find(index));
+	}
+	std::sort(roots.begin(), roots.end());
+	roots.erase(std::unique(roots.begin(), roots.end()), roots.end());
+
+	std::vector<ComponentSummary> summaries;
+	summaries.reserve(roots.size());
+	for (int32_t root : roots) {
+		if (root >= 0) {
+			summaries.push_back({ root });
+		}
+	}
+
+	for (int32_t index = 0; index < node_count; ++index) {
+		if (p_candidate_mask[static_cast<size_t>(index)] == 0U) {
+			continue;
+		}
+		const int32_t root = r_union_find.find(index);
+		const int32_t summary_index = find_component_summary_index(summaries, root);
+		if (summary_index < 0) {
+			continue;
+		}
+		ComponentSummary &summary = summaries[static_cast<size_t>(summary_index)];
+		++summary.cell_count;
+		summary.representative_index = std::min(summary.representative_index, index);
+		summary.min_elevation = std::min(
+			summary.min_elevation,
+			p_snapshot.foundation_height[static_cast<size_t>(index)]
+		);
+	}
+	return summaries;
+}
+
+void solve_lake_connected_components(
+	world_prepass::Snapshot &r_snapshot,
+	const LakeSettings &p_settings,
+	int64_t p_seed,
+	int64_t p_world_version
+) {
+	const int32_t node_count = r_snapshot.grid_width * r_snapshot.grid_height;
+	const int32_t min_component_cells = min_lake_component_cells(p_settings);
+	const float lake_water_threshold = compute_lake_water_threshold(r_snapshot, p_settings);
+	const std::vector<uint8_t> candidate_mask = build_lake_candidate_mask(
+		r_snapshot,
+		p_settings,
+		lake_water_threshold
+	);
+	UnionFind union_find(node_count);
+	for (int32_t index = 0; index < node_count; ++index) {
+		if (candidate_mask[static_cast<size_t>(index)] != 0U) {
+			union_find.make_set(index);
+		}
+	}
+
+	for (int32_t y = 0; y < r_snapshot.grid_height; ++y) {
+		for (int32_t x = 0; x < r_snapshot.grid_width; ++x) {
+			const int32_t index = r_snapshot.index(x, y);
+			if (candidate_mask[static_cast<size_t>(index)] == 0U) {
+				continue;
+			}
+			if (y > 0) {
+				const int32_t north_index = r_snapshot.index(x, y - 1);
+				if (candidate_mask[static_cast<size_t>(north_index)] != 0U) {
+					union_find.unite(index, north_index);
+				}
+			}
+			const int32_t west_x = wrap_x(x - 1, r_snapshot.grid_width);
+			const int32_t west_index = r_snapshot.index(west_x, y);
+			if (candidate_mask[static_cast<size_t>(west_index)] != 0U) {
+				union_find.unite(index, west_index);
+			}
+		}
+	}
+
+	std::vector<ComponentSummary> summaries = collect_component_summaries(r_snapshot, candidate_mask, union_find);
+	std::vector<int32_t> used_lake_ids;
+	used_lake_ids.reserve(summaries.size());
+	const int32_t water_level_q16 = std::isfinite(lake_water_threshold) ?
+			static_cast<int32_t>(std::lround(lake_water_threshold * 65536.0f)) :
+			0;
+	for (ComponentSummary &summary : summaries) {
+		if (summary.cell_count < min_component_cells) {
+			continue;
+		}
+		const Candidate representative = {
+			summary.representative_index % r_snapshot.grid_width,
+			summary.representative_index / r_snapshot.grid_width,
+		};
+		// The same bounded salt sweep used by V1/V2 keeps ids deterministic
+		// even if two components collide under the 31-bit lake id hash.
+		summary.lake_id = make_lake_id(
+			p_seed,
+			p_world_version,
+			representative,
+			summary.cell_count,
+			used_lake_ids
+		);
+		if (summary.lake_id != 0) {
+			used_lake_ids.push_back(summary.lake_id);
+		}
+	}
+
+	for (int32_t index = 0; index < node_count; ++index) {
+		if (candidate_mask[static_cast<size_t>(index)] == 0U) {
+			continue;
+		}
+		const int32_t root = union_find.find(index);
+		const int32_t summary_index = find_component_summary_index(summaries, root);
+		if (summary_index < 0) {
+			continue;
+		}
+		const ComponentSummary &summary = summaries[static_cast<size_t>(summary_index)];
+		if (summary.cell_count < min_component_cells || summary.lake_id == 0) {
+			continue;
+		}
+		r_snapshot.lake_id[static_cast<size_t>(index)] = summary.lake_id;
+		r_snapshot.lake_water_level_q16[static_cast<size_t>(index)] = water_level_q16;
+	}
+}
+
 } // namespace
 
 void solve_lake_basins(
@@ -644,6 +905,10 @@ void solve_lake_basins(
 	}
 	const LakeSettings settings = sanitize_settings(p_lake_settings);
 	if (!settings.enabled || settings.density <= 0.0f) {
+		return;
+	}
+	if (p_world_version >= 43) {
+		solve_lake_connected_components(r_snapshot, settings, p_seed, p_world_version);
 		return;
 	}
 

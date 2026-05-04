@@ -114,14 +114,18 @@ bounds/foundation settings and owns shared macro-structure fields through the
 native `WorldPrePass` substrate for future consumers.
 
 ### Lake basin
-A deterministic coarse-grid depression selected by the lake-generation
-substrate solve. It is identified by `lake_id`, stores its rim as
-`lake_water_level_q16`, and is owned by native `WorldPrePass`; it is not saved
-as per-chunk diff state.
+A deterministic coarse-grid lake identity selected by the lake-generation
+substrate solve. For `world_version >= 43`, a basin is a face-connected
+component of below-threshold eligible substrate cells. For
+`world_version <= 42`, it was a bounded watershed depression. It is identified
+by `lake_id`, stores its water level as `lake_water_level_q16`, and is owned by
+native `WorldPrePass`; it is not saved as per-chunk diff state.
 
 ### Lake water level
-The fixed-point water rim value (`lake_water_level_q16`) for a generated lake
-basin. It is canonical worldgen substrate data, regenerated from
+The fixed-point water value (`lake_water_level_q16`) for a generated lake
+basin. For `world_version >= 43`, it is the component-uniform elevation
+threshold used by the lake mask. For `world_version <= 42`, it was the
+watershed rim value. It is canonical worldgen substrate data, regenerated from
 `world_seed + world_version + worldgen_settings`, and never derived from
 runtime environment state.
 

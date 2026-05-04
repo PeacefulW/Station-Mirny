@@ -907,7 +907,7 @@ msgid "UI_WORLDGEN_LAKES_CONNECTIVITY"
 msgstr "СВЯЗНОСТЬ ОЗЁР"
 
 msgid "UI_WORLDGEN_LAKES_CONNECTIVITY_DESC"
-msgstr "Степень слияния соседних бассейнов в крупные связные системы. 0 — каждое озеро своё; 1 — единые крупные водоёмы."
+msgstr "Историческая настройка V2: в текущих мирах V3 сохраняется в сейве, но не влияет на форму озёр."
 
 msgid "UI_WORLDGEN_MOUNTAINS_DENSITY"
 msgstr "ИНДЕКС ПЛОТНОСТИ"

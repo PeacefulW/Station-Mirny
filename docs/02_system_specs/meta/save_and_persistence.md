@@ -58,7 +58,7 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current world generation extension:
-- `world.json` now records `world_version: 42` for the current finite-world
+- `world.json` now records `world_version: 43` for the current finite-world
   foundation baseline with `64`-tile substrate cells, native high-resolution
   overview, Lake Generation L2 packet output (`TERRAIN_LAKE_BED_SHALLOW`,
   `TERRAIN_LAKE_BED_DEEP`, and `lake_flags`), and the 2026-05-03
@@ -66,7 +66,8 @@ Current world generation extension:
   V2 / L5 basin-size mapping and connectivity merge boundary plus the
   2026-05-04 V2 / L6 cross-cell shoreline boundary plus the 2026-05-04
   V2 / L7 shore-warp normalisation and mandatory connectivity persistence
-  boundary
+  boundary plus the 2026-05-04 V3 / L8 threshold-mask and connected-component
+  lake substrate boundary
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - pre-alpha save compatibility policy: the active load path accepts only
@@ -98,11 +99,16 @@ Current world generation extension:
 - `world_version == 41` is the V2 / L6 boundary for cross-cell
   shoreline classification and spawn rejection. Save shape is otherwise
   unchanged.
-- `world_version == 42` is the current active boundary for V2 / L7 shore-warp
+- `world_version == 42` is the V2 / L7 boundary for shore-warp
   normalisation and final V2 lake persistence. Save shape now requires
   `worldgen_settings.lakes.connectivity` instead of treating it as optional.
-- `WorldRuntimeConstants.WORLD_VERSION` is therefore `42` for current saves;
-  `38` remains the historical L2 packet boundary.
+- `world_version == 43` is the current active boundary for V3 / L8
+  threshold-mask and connected-component lake substrate output.
+  `worldgen_settings.lakes.connectivity` remains mandatory in the save shape
+  but is a no-op for canonical lake output.
+- `WorldRuntimeConstants.WORLD_VERSION` is therefore `43` for current saves;
+  `38` remains the historical L2 packet boundary and `42` remains the
+  historical L7 shore-warp boundary.
 - `worldgen_settings.lakes` stores the embedded per-save lake input copy
   with these fields:
   - `density: float` (`0.0..1.0`)
@@ -111,7 +117,8 @@ Current world generation extension:
   - `shore_warp_scale: float` (`8.0..64.0`)
   - `deep_threshold: float` (`0.05..0.5`)
   - `mountain_clearance: float` (`0.0..0.5`)
-  - `connectivity: float` (`0.0..1.0`, mandatory in current-version saves)
+  - `connectivity: float` (`0.0..1.0`, mandatory in current-version saves;
+    canonical no-op for `world_version >= 43`)
 - loading a same-version save without required current worldgen settings fails
   loudly; the active pre-alpha loader does not inject compatibility defaults
 - `worldgen_settings.mountains` stores the embedded per-save mountain input copy
@@ -140,7 +147,7 @@ Confirmed `world.json` shape in the current mountain code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 42,
+  "world_version": 43,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,
