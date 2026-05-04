@@ -1,26 +1,14 @@
-[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=7 format=3]
+[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://data/terrain/terrain_material_set.gd" id="1"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/blue_metal_plate_diff_1k.jpg" id="2"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/terrain_plains_modulation.png" id="3"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/terrain_face_modulation.png" id="4"]
-[ext_resource type="Texture2D" path="res://assets/sprites/terrain/plain_terrain_normal_atlas.png" id="5"]
+[ext_resource type="Texture2D" path="res://assets/textures/terrain/water_surface_deep.png" id="2"]
 
 [resource]
 script = ExtResource("1")
 id = &"lake:water_surface_dark_material"
-shader_family_id = &"terrain.ground_hybrid"
+shader_family_id = &"terrain.water_surface"
 top_albedo = ExtResource("2")
 face_albedo = ExtResource("2")
-top_modulation = ExtResource("3")
-face_modulation = ExtResource("4")
-top_normal = ExtResource("5")
-face_normal = ExtResource("5")
 sampling_params = {
-"back_rim_darkening": 0.9,
-"face_world_scale_px": 224.0,
-"top_world_scale_px": 320.0,
-"macro_world_scale_px": 896.0,
-"modulation_contrast": 1.08,
-"modulation_strength": 0.08
+"water_world_scale_px": 1024.0
 }

@@ -4,7 +4,6 @@ extends Node2D
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
 const TerrainPresentationRegistry = preload("res://core/systems/world/terrain_presentation_registry.gd")
-const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const MOUNTAIN_COVER_SHADER = preload("res://assets/shaders/mountain_cover_overlay.gdshader")
 
 var chunk_coord: Vector2i = Vector2i.ZERO
@@ -21,7 +20,6 @@ var _pending_lake_flags: PackedByteArray = PackedByteArray()
 var _pending_mountain_ids: PackedInt32Array = PackedInt32Array()
 var _pending_mountain_flags: PackedByteArray = PackedByteArray()
 var _pending_mountain_atlas_indices: PackedInt32Array = PackedInt32Array()
-var _water_neighbour_resolver: Callable = Callable()
 var _apply_index: int = 0
 
 func _ready() -> void:
@@ -35,9 +33,6 @@ func configure(new_chunk_coord: Vector2i) -> void:
 	chunk_coord = new_chunk_coord
 	position = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	_ensure_layers()
-
-func set_water_neighbour_resolver(resolver: Callable) -> void:
-	_water_neighbour_resolver = resolver
 
 func begin_apply(packet: Dictionary) -> void:
 	_pending_terrain_ids = (packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array).duplicate()
@@ -81,31 +76,6 @@ func apply_runtime_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_in
 		_pending_terrain_atlas_indices[index] = terrain_atlas_index
 	_apply_cell(local_coord, terrain_id, terrain_atlas_index)
 	_apply_water_patch_around(local_coord)
-
-func has_water_at_local(local_coord: Vector2i) -> bool:
-	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
-		return false
-	return _should_render_water_at(WorldRuntimeConstants.local_to_index(local_coord))
-
-func refresh_water_edge_towards(neighbor_delta: Vector2i) -> void:
-	if absi(neighbor_delta.x) + absi(neighbor_delta.y) != 1:
-		return
-	if neighbor_delta.x < 0:
-		for y: int in range(WorldRuntimeConstants.CHUNK_SIZE):
-			var local_coord := Vector2i(0, y)
-			_apply_water_cell(local_coord, WorldRuntimeConstants.local_to_index(local_coord))
-	elif neighbor_delta.x > 0:
-		for y: int in range(WorldRuntimeConstants.CHUNK_SIZE):
-			var local_coord := Vector2i(WorldRuntimeConstants.CHUNK_SIZE - 1, y)
-			_apply_water_cell(local_coord, WorldRuntimeConstants.local_to_index(local_coord))
-	elif neighbor_delta.y < 0:
-		for x: int in range(WorldRuntimeConstants.CHUNK_SIZE):
-			var local_coord := Vector2i(x, 0)
-			_apply_water_cell(local_coord, WorldRuntimeConstants.local_to_index(local_coord))
-	elif neighbor_delta.y > 0:
-		for x: int in range(WorldRuntimeConstants.CHUNK_SIZE):
-			var local_coord := Vector2i(x, WorldRuntimeConstants.CHUNK_SIZE - 1)
-			_apply_water_cell(local_coord, WorldRuntimeConstants.local_to_index(local_coord))
 
 func apply_cover_visibility(visible_mask: PackedByteArray) -> void:
 	_ensure_layers()
@@ -162,7 +132,7 @@ func _ensure_water_layer() -> TileMapLayer:
 	_water_layer.name = "WaterSurfaceLayer"
 	_water_layer.tile_set = WorldTileSetFactory.get_water_tile_set()
 	_water_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	_water_layer.z_index = 2
+	_water_layer.z_index = 0
 	add_child(_water_layer)
 	return _water_layer
 
@@ -260,37 +230,8 @@ func _should_render_water_at(index: int) -> bool:
 		return false
 	return _is_lake_bed_terrain(int(_pending_terrain_ids[index]))
 
-func _resolve_water_atlas_index(local_coord: Vector2i) -> int:
-	var north: bool = _has_water_neighbour(local_coord + Vector2i(0, -1))
-	var east: bool = _has_water_neighbour(local_coord + Vector2i(1, 0))
-	var south: bool = _has_water_neighbour(local_coord + Vector2i(0, 1))
-	var west: bool = _has_water_neighbour(local_coord + Vector2i(-1, 0))
-	var north_east: bool = _has_water_neighbour(local_coord + Vector2i(1, -1))
-	var south_east: bool = _has_water_neighbour(local_coord + Vector2i(1, 1))
-	var south_west: bool = _has_water_neighbour(local_coord + Vector2i(-1, 1))
-	var north_west: bool = _has_water_neighbour(local_coord + Vector2i(-1, -1))
-	var signature_code: int = Autotile47.build_signature_code(
-		north,
-		north_east,
-		east,
-		south_east,
-		south,
-		south_west,
-		west,
-		north_west
-	)
-	return Autotile47.build_atlas_index(signature_code, 0)
-
-func _has_water_neighbour(local_coord: Vector2i) -> bool:
-	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
-		if not _water_neighbour_resolver.is_valid():
-			return false
-		var world_tile := Vector2i(
-			chunk_coord.x * WorldRuntimeConstants.CHUNK_SIZE + local_coord.x,
-			chunk_coord.y * WorldRuntimeConstants.CHUNK_SIZE + local_coord.y
-		)
-		return bool(_water_neighbour_resolver.call(world_tile))
-	return _should_render_water_at(WorldRuntimeConstants.local_to_index(local_coord))
+func _resolve_water_atlas_index(_local_coord: Vector2i) -> int:
+	return 0
 
 func _is_lake_bed_terrain(terrain_id: int) -> bool:
 	return terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW \

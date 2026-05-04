@@ -52,6 +52,7 @@ func _init() -> void:
 		variant_index
 	)
 	_assert(open_south_index != solid_index, "open inner south edge must not collapse to solid atlas index")
+	_assert_loaded_ground_edges_only_against_water()
 
 	if _failed:
 		quit(1)
@@ -64,6 +65,23 @@ func _is_runtime_mountain_surface(sample: Dictionary) -> bool:
 	return terrain_id == WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED \
 		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
 		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
+
+func _assert_loaded_ground_edges_only_against_water() -> void:
+	var streamer_source: String = FileAccess.get_file_as_string("res://core/systems/world/world_streamer.gd")
+	_assert(
+		streamer_source.contains("func _is_loaded_water_surface_terrain(terrain_id: int) -> bool:"),
+		"WorldStreamer must keep a dedicated helper for water-only ground edge adjacency."
+	)
+	_assert(
+		streamer_source.contains("func _resolve_loaded_ground_atlas_index(tile_coord: Vector2i) -> int:") and
+				streamer_source.contains("_is_loaded_water_surface_terrain(") and
+				streamer_source.contains("Autotile47.build_signature_code("),
+		"Loaded plains ground atlas resolution must derive 47-tile edges from water neighbours."
+	)
+	_assert(
+		not streamer_source.contains("# Ground uses solid atlas variants only"),
+		"Loaded plains ground must no longer be forced to solid atlas variants."
+	)
 
 func _assert(condition: bool, message: String) -> void:
 	if condition:

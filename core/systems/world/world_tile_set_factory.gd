@@ -67,8 +67,8 @@ static func get_water_source_id(terrain_id: int) -> int:
 	var water_terrain_id: int = _resolve_water_variant_terrain_id(terrain_id)
 	return int(_water_source_ids_by_terrain_id.get(water_terrain_id, -1))
 
-static func get_water_atlas_coords(atlas_index: int) -> Vector2i:
-	return Autotile47.atlas_index_to_coords(atlas_index)
+static func get_water_atlas_coords(_atlas_index: int) -> Vector2i:
+	return Vector2i.ZERO
 
 static func get_base_source_id(terrain_id: int) -> int:
 	return get_source_id(terrain_id)
@@ -127,8 +127,8 @@ static func _ensure_water_tileset() -> void:
 	var shape_set: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set(profile.shape_set_id)
 	assert(shape_set != null, "Water TileSet requires water surface shape set")
 	assert(
-		shape_set.topology_family_id == TerrainPresentationRegistry.TOPOLOGY_AUTOTILE_47,
-		"Water surface requires autotile_47 shape set"
+		shape_set.topology_family_id == TerrainPresentationRegistry.TOPOLOGY_SINGLE_TILE,
+		"Water surface requires single_tile shape set"
 	)
 	var tile_set := TileSet.new()
 	tile_set.tile_size = Vector2i(
@@ -177,10 +177,19 @@ static func _register_water_source(
 			profile.shader_family_id,
 		]
 	)
+	var shader_family: TerrainShaderFamily = TerrainPresentationRegistry.get_shader_family(
+		profile.shader_family_id
+	)
 	var source: TileSetAtlasSource = _build_source_for_shape_set(shape_set)
-	var material: ShaderMaterial = _build_material(profile, shape_set, material_set)
-	if material != null:
-		_apply_material_to_source(source, material)
+	if shape_set.topology_family_id == TerrainPresentationRegistry.TOPOLOGY_SINGLE_TILE \
+			and shader_family != null \
+			and shader_family.shader == null:
+		assert(material_set.top_albedo != null, "Water single-tile material %s requires top_albedo texture" % [material_set.id])
+		source = _build_single_tile_source(material_set.top_albedo, shape_set.tile_size_px)
+	else:
+		var material: ShaderMaterial = _build_material(profile, shape_set, material_set)
+		if material != null:
+			_apply_material_to_source(source, material)
 	_water_source_ids_by_terrain_id[terrain_id] = tile_set.add_source(source)
 
 static func _build_source_for_shape_set(shape_set: TerrainShapeSet) -> TileSetAtlasSource:
@@ -244,16 +253,11 @@ static func _apply_material_texture_params(
 		material.set_shader_parameter(parameter_name, texture)
 
 static func _apply_material_to_source(source: TileSetAtlasSource, material: ShaderMaterial) -> void:
-	var texture: Texture2D = source.texture
-	var tile_size: Vector2i = source.texture_region_size
-	var columns: int = maxi(1, texture.get_width() / tile_size.x)
-	var rows: int = maxi(1, texture.get_height() / tile_size.y)
-	for row: int in range(rows):
-		for column: int in range(columns):
-			var coords := Vector2i(column, row)
-			var tile_data: TileData = source.get_tile_data(coords, 0)
-			if tile_data != null:
-				tile_data.material = material
+	for tile_index: int in range(source.get_tiles_count()):
+		var coords: Vector2i = source.get_tile_id(tile_index)
+		var tile_data: TileData = source.get_tile_data(coords, 0)
+		if tile_data != null:
+			tile_data.material = material
 
 static func _build_single_tile_source(texture: Texture2D, tile_size_px: int) -> TileSetAtlasSource:
 	var source := TileSetAtlasSource.new()

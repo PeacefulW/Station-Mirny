@@ -387,7 +387,6 @@ func _publish_next_batch() -> void:
 	var has_more: bool = active_view.apply_next_batch(WorldRuntimeConstants.PUBLISH_BATCH_SIZE)
 	if not has_more:
 		_handle_cover_chunk_published(_active_publish_chunk)
-		_handle_water_chunk_published(_active_publish_chunk)
 		active_view.visible = true
 		EventBus.chunk_loaded.emit(_active_publish_chunk)
 		_active_publish_chunk = INVALID_CHUNK_COORD
@@ -677,8 +676,38 @@ func _build_loaded_visual_update(tile_coord: Vector2i) -> Dictionary:
 	}
 
 func _resolve_loaded_ground_atlas_index(tile_coord: Vector2i) -> int:
-	# Ground uses solid atlas variants only in the current mountain-only worldgen.
-	return Autotile47.build_solid_atlas_index(tile_coord, world_seed)
+	var north_is_water: bool = _is_loaded_water_surface_at(tile_coord + Vector2i(0, -1))
+	var east_is_water: bool = _is_loaded_water_surface_at(tile_coord + Vector2i(1, 0))
+	var south_is_water: bool = _is_loaded_water_surface_at(tile_coord + Vector2i(0, 1))
+	var west_is_water: bool = _is_loaded_water_surface_at(tile_coord + Vector2i(-1, 0))
+	var north_east_is_water: bool = _is_loaded_water_surface_at(tile_coord + Vector2i(1, -1))
+	var south_east_is_water: bool = _is_loaded_water_surface_at(tile_coord + Vector2i(1, 1))
+	var south_west_is_water: bool = _is_loaded_water_surface_at(tile_coord + Vector2i(-1, 1))
+	var north_west_is_water: bool = _is_loaded_water_surface_at(tile_coord + Vector2i(-1, -1))
+	var signature_code: int = Autotile47.build_signature_code(
+		not north_is_water,
+		not north_east_is_water,
+		not east_is_water,
+		not south_east_is_water,
+		not south_is_water,
+		not south_west_is_water,
+		not west_is_water,
+		not north_west_is_water
+	)
+	var variant_index: int = Autotile47.pick_variant(tile_coord, world_seed)
+	return Autotile47.build_atlas_index(signature_code, variant_index)
+
+func _is_loaded_water_surface_at(tile_coord: Vector2i) -> bool:
+	var sample: Dictionary = _get_loaded_tile_data_no_enqueue(tile_coord)
+	if not bool(sample.get("ready", false)):
+		return false
+	return _is_loaded_water_surface_terrain(
+		int(sample.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
+	)
+
+func _is_loaded_water_surface_terrain(terrain_id: int) -> bool:
+	return terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP
 
 func _try_resolve_loaded_mountain_atlas_index(tile_coord: Vector2i) -> Dictionary:
 	var north: Dictionary = _get_loaded_mountain_geometry_no_enqueue(tile_coord + Vector2i(0, -1))
@@ -828,7 +857,6 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 		return existing
 	var chunk_view := ChunkView.new()
 	chunk_view.configure(chunk_coord)
-	chunk_view.set_water_neighbour_resolver(Callable(self, "_has_water_at_world_tile_for_presentation"))
 	add_child(chunk_view)
 	_chunk_views[chunk_coord] = chunk_view
 	return chunk_view
@@ -961,37 +989,6 @@ func _handle_cover_chunk_published(published_chunk_coord: Vector2i) -> void:
 		_refresh_cover_visibility_for_loaded_chunks()
 		return
 	_refresh_cover_visibility_for_loaded_chunks(_dictionary_vector2i_keys(affected_chunks))
-
-func _handle_water_chunk_published(published_chunk_coord: Vector2i) -> void:
-	var published_view: ChunkView = _chunk_views.get(published_chunk_coord) as ChunkView
-	if published_view == null:
-		return
-	for neighbor_delta: Vector2i in [
-		Vector2i(0, -1),
-		Vector2i(1, 0),
-		Vector2i(0, 1),
-		Vector2i(-1, 0),
-	]:
-		var neighbor_coord: Vector2i = _canonicalize_chunk_coord(published_chunk_coord + neighbor_delta)
-		if _uses_finite_world_bounds() and not _world_bounds_settings.is_chunk_y_in_bounds(neighbor_coord.y):
-			continue
-		if neighbor_coord == published_chunk_coord:
-			continue
-		var neighbor_view: ChunkView = _chunk_views.get(neighbor_coord) as ChunkView
-		if neighbor_view == null:
-			continue
-		published_view.refresh_water_edge_towards(neighbor_delta)
-		neighbor_view.refresh_water_edge_towards(-neighbor_delta)
-
-func _has_water_at_world_tile_for_presentation(tile_coord: Vector2i) -> bool:
-	var canonical_tile: Vector2i = _canonicalize_tile_coord(tile_coord)
-	if _uses_finite_world_bounds() and not _world_bounds_settings.is_tile_y_in_bounds(canonical_tile.y):
-		return false
-	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(canonical_tile)
-	var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
-	if chunk_view == null:
-		return false
-	return chunk_view.has_water_at_local(WorldRuntimeConstants.tile_to_local(canonical_tile))
 
 func _handle_cover_chunk_unloaded(chunk_coord: Vector2i) -> void:
 	var cover_result: Dictionary = _mountain_cavity_cache.on_chunk_unloaded(

@@ -218,6 +218,10 @@ int32_t read_byte_at(const PackedByteArray &p_values, int32_t p_index, int32_t p
 	return p_index >= 0 && p_index < p_values.size() ? static_cast<int32_t>(p_values[p_index]) : p_fallback;
 }
 
+bool is_lake_bed_terrain(int64_t p_terrain_id) {
+	return p_terrain_id == TERRAIN_LAKE_BED_SHALLOW || p_terrain_id == TERRAIN_LAKE_BED_DEEP;
+}
+
 Rgba8 resolve_preview_terrain_color(int32_t p_terrain_id) {
 	switch (p_terrain_id) {
 		case TERRAIN_MOUNTAIN_WALL:
@@ -1242,18 +1246,26 @@ Dictionary WorldCore::_generate_chunk_packet(
 			uint8_t lake_flag = lake_flag_grid[static_cast<size_t>(grid_index)];
 
 			if (terrain_id == TERRAIN_PLAINS_GROUND) {
+				const bool north_is_water = is_lake_bed_terrain(terrain_id_grid[static_cast<size_t>((grid_y - 1) * mountain_grid_side + grid_x)]);
+				const bool north_east_is_water = is_lake_bed_terrain(terrain_id_grid[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x + 1))]);
+				const bool east_is_water = is_lake_bed_terrain(terrain_id_grid[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x + 1))]);
+				const bool south_east_is_water = is_lake_bed_terrain(terrain_id_grid[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x + 1))]);
+				const bool south_is_water = is_lake_bed_terrain(terrain_id_grid[static_cast<size_t>((grid_y + 1) * mountain_grid_side + grid_x)]);
+				const bool south_west_is_water = is_lake_bed_terrain(terrain_id_grid[static_cast<size_t>((grid_y + 1) * mountain_grid_side + (grid_x - 1))]);
+				const bool west_is_water = is_lake_bed_terrain(terrain_id_grid[static_cast<size_t>(grid_y * mountain_grid_side + (grid_x - 1))]);
+				const bool north_west_is_water = is_lake_bed_terrain(terrain_id_grid[static_cast<size_t>((grid_y - 1) * mountain_grid_side + (grid_x - 1))]);
 				terrain_atlas_index = resolve_base_ground_atlas_index(
 					world_x,
 					world_y,
 					p_seed,
-					true,
-					true,
-					true,
-					true,
-					true,
-					true,
-					true,
-					true
+					!north_is_water,
+					!north_east_is_water,
+					!east_is_water,
+					!south_east_is_water,
+					!south_is_water,
+					!south_west_is_water,
+					!west_is_water,
+					!north_west_is_water
 				);
 			} else if (terrain_id == TERRAIN_LAKE_BED_SHALLOW || terrain_id == TERRAIN_LAKE_BED_DEEP) {
 				terrain_atlas_index = resolve_lake_bed_atlas_index(
@@ -1384,12 +1396,12 @@ Dictionary WorldCore::_generate_chunk_packet(
 #ifdef DEBUG_ENABLED
 			ERR_FAIL_COND_V_MSG(
 				resolved_mountain_id > 0 &&
-						(terrain_id == TERRAIN_LAKE_BED_SHALLOW || terrain_id == TERRAIN_LAKE_BED_DEEP),
+						is_lake_bed_terrain(terrain_id),
 				Dictionary(),
 				"Lake classification violated mountain-wins invariant inside WorldCore::_generate_chunk_packet."
 			);
 #endif
-			if (terrain_id != TERRAIN_LAKE_BED_SHALLOW && terrain_id != TERRAIN_LAKE_BED_DEEP) {
+			if (!is_lake_bed_terrain(terrain_id)) {
 				lake_flag = 0U;
 			}
 

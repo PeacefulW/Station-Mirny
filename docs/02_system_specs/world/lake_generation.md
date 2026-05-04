@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.9
+version: 1.0
 last_updated: 2026-05-04
 related_docs:
   - ../../README.md
@@ -64,7 +64,10 @@ L3 water presentation is landed:
 `ChunkView` now owns the derived
 `WaterSurfaceLayer`, populated from `lake_flags` and current resolved
 `terrain_ids`, with light water over `TERRAIN_LAKE_BED_SHALLOW` and dark water
-over `TERRAIN_LAKE_BED_DEEP`. L4 landed `LakeGenSettings` new-game UI,
+over `TERRAIN_LAKE_BED_DEEP`. The water surface uses one seamless single-tile
+texture per shallow/deep variant; authored bank edges are rendered by adjacent
+plains ground, not by a water autotile-47 silhouette. L4 landed
+`LakeGenSettings` new-game UI,
 `worldgen_settings.lakes` persistence, and spawn rejection for substrate coarse
 nodes whose `lake_id > 0`.
 
@@ -425,7 +428,10 @@ mountain resolution. For each tile `(lx, ly)` in the chunk:
      - `lake_flags |= 1 << 0` (water present over this bed)
 6. Atlas indices for `TERRAIN_LAKE_BED_SHALLOW` /
    `TERRAIN_LAKE_BED_DEEP` use `autotile_47` against same-class
-   neighbours, exactly the existing pattern for plains terrain.
+   neighbours. Adjacent `TERRAIN_PLAINS_GROUND` uses `autotile_47`
+   only against shallow/deep lake-bed neighbours so dry ground draws the
+   visible bank edge next to water; mountain neighbours must not open
+   ground edges.
 
 Lake classification is only allowed after the tile's own mountain solve has
 resolved to plains. A tile whose own mountain branch resolves to wall or foot
@@ -761,7 +767,8 @@ Rules:
 | Diff | `WorldDiffStore` | Unchanged. Player can dig a deep bed tile; the override goes through the same path as plains digging. |
 | Chunk orchestration | `WorldStreamer` | Forward `lake_flags` to `ChunkView`. Persist `LakeGenSettings` in `world.json`. |
 | Bed presentation | `ChunkView` | Place `TERRAIN_LAKE_BED_SHALLOW` / `TERRAIN_LAKE_BED_DEEP` cells on the existing base layer using `autotile_47` against same-class neighbours. |
-| Water presentation | `ChunkView.water_layer` | One TileMapLayer per chunk; populated from `lake_flags.is_water_present` on publish; chooses `light` vs `dark` water variant by reading the bed terrain underneath. Cleared on chunk unload. |
+| Ground bank presentation | `ChunkView` | Place `TERRAIN_PLAINS_GROUND` cells with water-only `autotile_47` edges when adjacent to shallow or deep lake beds; mountain adjacency stays solid ground. |
+| Water presentation | `ChunkView.water_layer` | One TileMapLayer per chunk at terrain z-order; populated from `lake_flags.is_water_present` on publish; chooses a seamless single-tile `light` vs `dark` texture by reading the bed terrain underneath. Cleared on chunk unload. |
 | Spawn rejection | Existing spawn resolver in `WorldCore` | Reject candidate if its coarse node has `lake_id > 0`. |
 
 ### Water Layer Population
@@ -769,14 +776,15 @@ Rules:
 - `ChunkView.water_layer` is created lazily on first lake tile in a
   given chunk
 - `tile_set` comes from
-  `WorldTileSetFactory.get_water_tile_set()`; one shared 47-tile
-  presentation resource with two atlases (light, dark)
+  `WorldTileSetFactory.get_water_tile_set()`; two single-tile
+  presentation sources (light, dark) backed by authored water textures
 - on publish, iterate `lake_flags`:
   - if bit `0` set, place a water cell at `(lx, ly)`; pick `light`
     variant if the same-tile bed is `TERRAIN_LAKE_BED_SHALLOW`, otherwise
     `dark`
-  - autotile-47 picks corner / edge variants from same-class neighbours
-    inside `lake_flags`
+  - water atlas coordinates are always `(0, 0)`; water does not build
+    autotile-47 corner or edge variants
+- the layer stays at terrain z-order so actors render above shallow water
 - on chunk unload, `ChunkView.queue_free` destroys the water layer
 - runtime water masking (future drying mechanic) toggles per-tile
   visibility through a shader/material state, not by mutating
@@ -873,6 +881,7 @@ runtime overlays will introduce their own signals in their own spec.
 | Lake substrate solve | boot/load (native worker) | coarse `64`-tile grid; for `world_version >= 43` a single percentile-threshold pass plus one deterministic union-find face-connected-component pass; for `world_version <= 42` bounded local-min + bounded BFS + deterministic merge cap `16` | inside the existing `WorldPrePass` `≤ 900 ms` budget for the largest preset; lake step target `≤ 120 ms` on `large` |
 | Per-tile classification inside chunk packet | background (native worker) | `32 x 32` chunk | 0 additional native calls beyond one bilinear substrate sample + one FBM call per non-mountain tile; median chunk packet time may grow at most `1 ms` on reference hardware |
 | Bed atlas resolution (autotile-47) | background (native worker) | one tile | reuses existing autotile path |
+| Ground bank atlas resolution (autotile-47) | background (native worker) / local runtime patch | one tile plus adjacent loaded patch | checks shallow/deep lake-bed neighbours only; does not inspect mountain neighbours |
 | Water layer population | background apply (sliced) | one chunk | shares `CATEGORY_STREAMING` budget; no separate budget |
 | Excavation mutation | interactive | one tile + bounded local patch | unchanged from V0 budget |
 | Spawn rejection check | boot/load (native) | one coarse node | trivial |
@@ -971,6 +980,10 @@ runtime overlays will introduce their own signals in their own spec.
       `lake_flags.is_water_present`
 - [ ] water variant is `light` over `LAKE_BED_SHALLOW` and `dark` over
       `LAKE_BED_DEEP`
+- [ ] water layer uses single-tile atlas coordinates only; 47-tile bank
+      edges belong to adjacent plains ground, not to water
+- [ ] water layer renders below actors so the player is visually above
+      shallow water
 - [ ] water layer is destroyed on chunk unload, not leaked
 - [ ] no main-thread frame builds the entire water layer in one pass
       (publish stays sliced)
@@ -1045,7 +1058,7 @@ runtime overlays will introduce their own signals in their own spec.
 |---|---|
 | Substrate solve breaks the `≤ 900 ms` budget on `large` preset | For `world_version <= 42` bounded local-min radius and bounded BFS limit cost. For `world_version >= 43` the percentile threshold is one sort + one linear scan and the union-find is `O(N · α(N))` over coarse cells; profile gate is part of L8 closure. If breached, switch the percentile pass to a bucketed-counting approach without changing canonical output. |
 | Lake straddles a mountain because the per-tile shoreline FBM warps a tile under the rim into a mountain-adjacent zone | Mountain-wins rule at per-tile classification; substrate-level rejection of mountain-touching cells from the lake mask; both are required, neither alone is enough. |
-| Water layer leaks across chunk boundaries (visible seams) | Autotile-47 with same-chunk neighbours plus seam refresh on chunk publish. Seam refresh re-evaluates the chunk edge tiles only, not the full layer. |
+| Water layer leaks across chunk boundaries (visible seams) | Water uses seamless single-tile textures, so cross-chunk water autotile seams are not computed. Visible bank seams are owned by ground atlas indices generated from the same packet border and by the bounded local visual patch after tile diffs. |
 | Player spawns inside an unreachable lake | Spawn rejection rule + escalation path: deterministic widening of search radius, fail loudly if no candidate found at preset cap. |
 | Future drying mechanic accidentally bumps `WORLD_VERSION` because someone tries to put it in base | This spec calls out drying as a runtime overlay; the seam already exists (water layer is presentation-only). Drying spec must reuse it. |
 | `LakeGenSettings` settings drift between `tres` and `world.json` after a content patch | Same pattern as `MountainGenSettings`: defaults from `tres` apply only to new worlds; existing saves always read their own copy. |

@@ -9,4 +9,4 @@ terrain_class_id = &"lake:water_surface"
 terrain_ids = []
 shape_set_id = &"lake:water_surface_shape"
 material_set_id = &"lake:water_surface_light_material"
-shader_family_id = &"terrain.ground_hybrid"
+shader_family_id = &"terrain.water_surface"

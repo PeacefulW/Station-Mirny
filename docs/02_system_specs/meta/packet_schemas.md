@@ -487,7 +487,7 @@ Returned one-per-input-coord by native
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
 | `world_version` | `int` | — | Current foundation runtime value is `43` |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
-| `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve |
+| `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve, and plains ground opens `autotile_47` bank edges only against shallow/deep lake-bed neighbours |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
 | `lake_flags` | `PackedByteArray` | 1024 | Per-tile lake bit field; bit `0` is `is_water_present` |
 | `mountain_id_per_tile` | `PackedInt32Array` | 1024 | `0 = no named mountain`; non-zero = deterministic `mountain_id` |

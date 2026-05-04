@@ -957,10 +957,11 @@ fn sample_material_base(
     match material.source.as_str() {
         "image" => {
             if let Some(texture) = texture {
+                let sample_scale = 1.0 / texture_scale.max(0.001);
                 let sample = texture.sample_filtered(
-                    (x as f32 + 0.5) * texture_scale,
-                    (y as f32 + 0.5) * texture_scale,
-                    texture_scale,
+                    (x as f32 + 0.5) * sample_scale,
+                    (y as f32 + 0.5) * sample_scale,
+                    sample_scale,
                 );
                 MaterialBaseSample {
                     rgb: [sample[0], sample[1], sample[2]],
@@ -995,6 +996,54 @@ fn sample_material_base(
             ),
             is_image_source: false,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn image_material() -> MaterialConfig {
+        MaterialConfig {
+            source: "image".to_string(),
+            kind: "rough_stone".to_string(),
+            scale: 1.0,
+            contrast: 1.0,
+            crack_amount: 0.0,
+            wear: 0.0,
+            grain: 0.0,
+            edge_darkening: 0.0,
+            seed: 0,
+            color_a: "#000000".to_string(),
+            color_b: "#ffffff".to_string(),
+            highlight: "#ffffff".to_string(),
+        }
+    }
+
+    #[test]
+    fn texture_scale_above_one_zooms_texture_without_box_blur() {
+        let texture = LoadedTexture {
+            image: RgbaImage::from_fn(4, 1, |x, _| {
+                Rgba([(x * 64) as u8, 0, 0, 255])
+            }),
+        };
+
+        let sample = sample_material_base(
+            &image_material(),
+            Some(&texture),
+            4.0,
+            32,
+            0,
+            0,
+            0,
+        );
+
+        assert!(
+            sample.rgb[0] < 24,
+            "expected scale 4.0 to magnify the first texel, got red={}",
+            sample.rgb[0]
+        );
+        assert!(sample.is_image_source);
     }
 }
 

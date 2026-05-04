@@ -11,6 +11,7 @@ const DefaultFoundationGenSettings = preload("res://data/balance/foundation_gen_
 const DefaultLakeGenSettings = preload("res://data/balance/lake_gen_settings.tres")
 const DefaultMountainGenSettings = preload("res://data/balance/mountain_gen_settings.tres")
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
+const TerrainPresentationRegistry = preload("res://core/systems/world/terrain_presentation_registry.gd")
 
 var _failed: bool = false
 
@@ -28,6 +29,7 @@ func _init() -> void:
 	_assert_l7_shore_warp_ui_and_persistence()
 	_assert_l8_mask_connected_components()
 	_assert_water_seam_refresh_contract()
+	_assert_water_surface_uses_single_tile_textures()
 	if _failed:
 		quit(1)
 		return
@@ -593,25 +595,61 @@ func _assert_water_seam_refresh_contract() -> void:
 		"Water TileSet must expose a dark source for deep lake beds."
 	)
 	_assert(
-		chunk_view_source.contains("func set_water_neighbour_resolver"),
-		"ChunkView must accept a bounded neighbour-water resolver for cross-chunk water autotile checks."
+		chunk_view_source.contains("func _resolve_water_atlas_index(_local_coord: Vector2i) -> int:") and
+				chunk_view_source.contains("return 0"),
+		"ChunkView water surface must use one single-tile atlas coord."
 	)
 	_assert(
-		chunk_view_source.contains("func refresh_water_edge_towards"),
-		"ChunkView must expose edge-only water seam refresh."
+		not chunk_view_source.contains("func refresh_water_edge_towards"),
+		"ChunkView must not keep water autotile seam refresh for single-tile water."
 	)
 	_assert(
-		chunk_view_source.contains("_water_neighbour_resolver.call"),
-		"ChunkView out-of-chunk water neighbour checks must use the resolver."
+		not chunk_view_source.contains("_water_neighbour_resolver"),
+		"ChunkView must not keep water neighbour resolver state for single-tile water."
 	)
 	_assert(
-		streamer_source.contains("func _handle_water_chunk_published"),
-		"WorldStreamer must refresh water seams after chunk publish."
+		not streamer_source.contains("func _handle_water_chunk_published"),
+		"WorldStreamer must not run cross-chunk water seam refresh for single-tile water."
 	)
 	_assert(
-		streamer_source.contains("refresh_water_edge_towards"),
-		"WorldStreamer water seam refresh must re-evaluate edge tiles only."
+		not streamer_source.contains("refresh_water_edge_towards"),
+		"WorldStreamer must not call water autotile seam refresh."
 	)
+
+func _assert_water_surface_uses_single_tile_textures() -> void:
+	var water_shape: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set(&"lake:water_surface_shape")
+	_assert(water_shape != null, "Water surface shape set must exist.")
+	if water_shape != null:
+		_assert(
+			water_shape.topology_family_id == TerrainPresentationRegistry.TOPOLOGY_SINGLE_TILE,
+			"Water surface must use single_tile topology, not autotile_47 edges."
+		)
+		_assert(water_shape.case_count == 1, "Water surface shape set must declare one case.")
+	_assert(
+		WorldTileSetFactory.get_water_atlas_coords(46) == Vector2i.ZERO,
+		"Water surface atlas coords must ignore autotile-47 indices."
+	)
+	var chunk_view := ChunkView.new()
+	chunk_view.configure(Vector2i.ZERO)
+	var terrain_ids := PackedInt32Array()
+	terrain_ids.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	var lake_flags := PackedByteArray()
+	lake_flags.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	terrain_ids[0] = WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW
+	lake_flags[0] = WorldRuntimeConstants.LAKE_FLAG_WATER_PRESENT
+	chunk_view.begin_apply({
+		"terrain_ids": terrain_ids,
+		"lake_flags": lake_flags,
+	})
+	chunk_view.apply_next_batch(1)
+	var water_layer: TileMapLayer = chunk_view.get_node_or_null("WaterSurfaceLayer") as TileMapLayer
+	_assert(water_layer != null, "ChunkView must create WaterSurfaceLayer for water tiles.")
+	if water_layer != null:
+		_assert(
+			water_layer.z_index == 0,
+			"WaterSurfaceLayer must stay at terrain z-index so the player renders above shallow water."
+		)
+	chunk_view.free()
 
 func _assert(condition: bool, message: String) -> void:
 	if condition:

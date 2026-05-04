@@ -606,7 +606,7 @@ class CliffForgeApp:
         self._add_panel_scale(group, "Размер тайла", self.tile_size_var, 32, 96, 16, integer=True)
         self._add_panel_scale(group, "Кол-во вариантов", self.variants_var, 1, 8, 1, integer=True,
                               on_change=self._on_variant_count_changed, debounce_full=False)
-        self._add_panel_scale(group, "Масштаб текстуры", self.texture_scale_var, 0.25, 4.0, 0.05)
+        self._add_panel_scale(group, "Зум текстуры", self.texture_scale_var, 0.25, 4.0, 0.05)
 
         group = ttk.LabelFrame(parent, text="Высоты", padding=10)
         group.pack(fill="x", pady=(0, 10))
