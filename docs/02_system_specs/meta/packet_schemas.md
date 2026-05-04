@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.9
-last_updated: 2026-05-03
+version: 1.0
+last_updated: 2026-05-04
 related_docs:
   - ../README.md
   - system_api.md
@@ -186,6 +186,7 @@ Current code note:
       "shore_warp_scale": float,
       "deep_threshold": float,
       "mountain_clearance": float,
+      "connectivity": float,
     },
   },
   "worldgen_signature"?: String,
@@ -206,10 +207,23 @@ Current code notes:
   terrain is regenerated from seed/version/settings, lake bed terrain ids are
   canonical packet output, and `lake_flags` is derived packet data rather than
   save data.
-- `world_version == 39` is the current lake-generation correction boundary:
+- `world_version == 39` is the lake-generation correction boundary:
   per-tile lake classification samples bilinear `foundation_height` in the
   same units as `lake_water_level_q16`, and basin BFS uses a dynamic observed
   rim rather than a fixed `center_height + fill_depth` ceiling.
+- `world_version == 40` is the V2 / L5 lake-generation algorithm
+  boundary: `settings_packed[21]` carries `LakeGenSettings.connectivity`, basin
+  size mapping allows larger basins, and the native substrate merge pass can
+  fuse adjacent similar-rim basins into one `lake_id`. `ChunkPacketV1` shape is
+  unchanged.
+- `world_version == 41` is the V2 / L6 lake-generation algorithm
+  boundary: per-tile lake classification and spawn rejection read the
+  `3×3 neighbourhood` of coarse lake cells before applying the existing
+  effective-elevation water test. `ChunkPacketV1` shape is unchanged.
+- `world_version == 42` is the current V2 / L7 lake-generation algorithm
+  boundary: `shore_warp_amplitude` is applied as a fraction of chosen basin
+  depth, and `worldgen_settings.lakes.connectivity` is mandatory in
+  current-version saves. `ChunkPacketV1` shape is unchanged.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded
@@ -466,7 +480,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current foundation runtime value is `39` |
+| `world_version` | `int` | — | Current foundation runtime value is `42` |
 | `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve |
 | `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
@@ -501,7 +515,9 @@ Current code notes:
   `9-14` are `world_width_tiles`, `world_height_tiles`, `ocean_band_tiles`,
   `burning_band_tiles`, `pole_orientation`, and `foundation_slope_bias`;
   Lake Generation L1 extends the same payload additively with
-  `LakeGenSettings` indices `15-20`
+  `LakeGenSettings` indices `15-20`; V2 / L5 adds
+  `SETTINGS_PACKED_LAYOUT_LAKE_CONNECTIVITY = 21`, so the current field count
+  is `22`
 - the current native boundary requires `world_version >= 6`
 - `world_version >= 6` uses implicit-domain hierarchical labeling: aligned `1024 x 1024` macro solves recurse only through mixed cells, stop at versioned `min_label_cell_size = 8`, reuse a deterministic `1`-macro halo in native code, and hash `mountain_id` from the component representative leaf
 - `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` are base packet fields only; they are not persisted in `ChunkDiffFile`
@@ -510,6 +526,14 @@ Current code notes:
   `TERRAIN_LAKE_BED_DEEP = 6`, and `lake_flags` to `ChunkPacketV1`
   at the `WORLD_VERSION = 38` boundary. Shallow lake bed is walkable (`1`); deep lake
   bed is blocked (`0`). Mountain terrain wins before lake classification.
+- Lake Generation L6 keeps the `ChunkPacketV1` field shape unchanged but
+  changes canonical lake-bed contents at the `WORLD_VERSION = 41` boundary:
+  eligible plains tiles choose a lake from the `3×3 neighbourhood` of coarse
+  substrate cells before `lake_flags` is set.
+- Lake Generation L7 keeps the `ChunkPacketV1` field shape unchanged but
+  changes canonical lake-bed contents at the `WORLD_VERSION = 42` boundary:
+  shoreline FBM is applied as a fraction of the chosen basin depth before
+  `lake_flags` is set.
 - `lake_flags` is base packet output only; it is not persisted in
   `ChunkDiffFile` and must not be written into chunk diff JSON.
 - active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain either resolves into named mountain output or stays on the ground path at the hierarchical scale cutoff
@@ -553,7 +577,8 @@ Failure shape:
 
 Current code notes:
 - success candidates reject ocean band, burning band, reserved non-land mask,
-  high wall density, and lake coarse nodes with `lake_id > 0`
+  high wall density, and L6 lake candidates whose `3×3 neighbourhood` lookup
+  yields water at the candidate tile's effective elevation
 - the result is transient worker output, not save data
 
 ### `WorldFoundationSnapshotDebug`

@@ -1,6 +1,7 @@
 #ifndef STATION_MIRNY_WORLD_CORE_H
 #define STATION_MIRNY_WORLD_CORE_H
 
+#include "lake_field.h"
 #include "world_prepass.h"
 
 #include <godot_cpp/classes/image.hpp>
@@ -13,7 +14,6 @@
 #include <godot_cpp/variant/vector2i.hpp>
 
 #include <memory>
-#include <unordered_map>
 
 namespace mountain_field {
 class Evaluator;
@@ -70,7 +70,7 @@ private:
 	);
 	std::unique_ptr<HierarchicalMacroCache> hierarchical_macro_cache_;
 	std::unique_ptr<world_prepass::Snapshot> world_prepass_snapshot_;
-	std::unordered_map<int32_t, float> world_prepass_lake_basin_min_elevation_;
+	::lake_field::BasinMinElevationLookup world_prepass_lake_basin_min_elevation_;
 	mountain_field::Settings world_prepass_effective_mountain_settings_;
 	::FoundationSettings world_prepass_foundation_settings_;
 	::LakeSettings world_prepass_lake_settings_;

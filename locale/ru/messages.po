@@ -883,7 +883,7 @@ msgid "UI_WORLDGEN_LAKES_SHORE_WARP_AMPLITUDE"
 msgstr "Неровность берега:"
 
 msgid "UI_WORLDGEN_LAKES_SHORE_WARP_AMPLITUDE_DESC"
-msgstr "Амплитуда берегового шума. Большее значение сильнее ломает ровную линию воды."
+msgstr "Доля глубины бассейна, на которую шумом смещается береговая линия. 0 — берег чёткий, 1 — берег максимально извилистый."
 
 msgid "UI_WORLDGEN_LAKES_SHORE_WARP_SCALE"
 msgstr "Масштаб берега:"
@@ -902,6 +902,12 @@ msgstr "Зазор от гор:"
 
 msgid "UI_WORLDGEN_LAKES_MOUNTAIN_CLEARANCE_DESC"
 msgstr "Максимальная допустимая плотность гор рядом с котловиной. Меньшие значения сильнее отталкивают озёра от массивов."
+
+msgid "UI_WORLDGEN_LAKES_CONNECTIVITY"
+msgstr "СВЯЗНОСТЬ ОЗЁР"
+
+msgid "UI_WORLDGEN_LAKES_CONNECTIVITY_DESC"
+msgstr "Степень слияния соседних бассейнов в крупные связные системы. 0 — каждое озеро своё; 1 — единые крупные водоёмы."
 
 msgid "UI_WORLDGEN_MOUNTAINS_DENSITY"
 msgstr "ИНДЕКС ПЛОТНОСТИ"

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.5
-last_updated: 2026-05-03
+version: 1.7
+last_updated: 2026-05-04
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -58,11 +58,15 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current world generation extension:
-- `world.json` now records `world_version: 39` for the current finite-world
+- `world.json` now records `world_version: 42` for the current finite-world
   foundation baseline with `64`-tile substrate cells, native high-resolution
   overview, Lake Generation L2 packet output (`TERRAIN_LAKE_BED_SHALLOW`,
   `TERRAIN_LAKE_BED_DEEP`, and `lake_flags`), and the 2026-05-03
-  deterministic lake classification / basin-rim correction
+  deterministic lake classification / basin-rim correction plus the 2026-05-04
+  V2 / L5 basin-size mapping and connectivity merge boundary plus the
+  2026-05-04 V2 / L6 cross-cell shoreline boundary plus the 2026-05-04
+  V2 / L7 shore-warp normalisation and mandatory connectivity persistence
+  boundary
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - pre-alpha save compatibility policy: the active load path accepts only
@@ -84,18 +88,30 @@ Current world generation extension:
   `lake_flags` chunk packet field. Save shape remains unchanged in L2:
   `lake_flags` is derived base packet data and is not persisted in
   `chunks/*.json`.
-- `world_version == 39` is the current active boundary for the corrected lake
+- `world_version == 39` is the historical boundary for the corrected lake
   classifier and dynamic basin-rim solve.
-- `WorldRuntimeConstants.WORLD_VERSION` is therefore `39` for current saves;
+- `world_version == 40` is the V2 / L5 boundary for basin-size
+  mapping and deterministic basin merging by `worldgen_settings.lakes.connectivity`.
+  Save shape is otherwise unchanged, and `connectivity` is optional in L5 loads
+  because missing saves read the `LakeGenSettings` default `0.4`; L7 owns the
+  final mandatory persistence/UI wiring.
+- `world_version == 41` is the V2 / L6 boundary for cross-cell
+  shoreline classification and spawn rejection. Save shape is otherwise
+  unchanged.
+- `world_version == 42` is the current active boundary for V2 / L7 shore-warp
+  normalisation and final V2 lake persistence. Save shape now requires
+  `worldgen_settings.lakes.connectivity` instead of treating it as optional.
+- `WorldRuntimeConstants.WORLD_VERSION` is therefore `42` for current saves;
   `38` remains the historical L2 packet boundary.
 - `worldgen_settings.lakes` stores the embedded per-save lake input copy
   with these fields:
   - `density: float` (`0.0..1.0`)
   - `scale: float` (`64.0..2048.0`)
-  - `shore_warp_amplitude: float` (`0.0..2.0`)
+  - `shore_warp_amplitude: float` (`0.0..1.0`)
   - `shore_warp_scale: float` (`8.0..64.0`)
   - `deep_threshold: float` (`0.05..0.5`)
   - `mountain_clearance: float` (`0.0..0.5`)
+  - `connectivity: float` (`0.0..1.0`, mandatory in current-version saves)
 - loading a same-version save without required current worldgen settings fails
   loudly; the active pre-alpha loader does not inject compatibility defaults
 - `worldgen_settings.mountains` stores the embedded per-save mountain input copy
@@ -124,7 +140,7 @@ Confirmed `world.json` shape in the current mountain code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 39,
+  "world_version": 42,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,
@@ -150,10 +166,11 @@ Confirmed `world.json` shape in the current mountain code path:
     "lakes": {
       "density": 0.35,
       "scale": 512.0,
-      "shore_warp_amplitude": 0.8,
+      "shore_warp_amplitude": 0.4,
       "shore_warp_scale": 16.0,
       "deep_threshold": 0.18,
-      "mountain_clearance": 0.10
+      "mountain_clearance": 0.10,
+      "connectivity": 0.4
     }
   },
   "worldgen_signature": "debug-only"

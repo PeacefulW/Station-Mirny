@@ -46,6 +46,28 @@ enum class OverviewTerrainClass {
 	LakeBedDeep,
 };
 
+struct NeighbourLake {
+	int32_t lake_id = 0;
+	int32_t water_level_q16 = 0;
+};
+
+struct LakeNeighbourOffset {
+	int32_t x = 0;
+	int32_t y = 0;
+};
+
+constexpr LakeNeighbourOffset k_lake_neighbour_priority[] = {
+	{ 0, 0 },
+	{ 0, -1 },
+	{ 1, 0 },
+	{ 0, 1 },
+	{ -1, 0 },
+	{ -1, -1 },
+	{ 1, -1 },
+	{ 1, 1 },
+	{ -1, 1 },
+};
+
 constexpr uint8_t COLOR_LAKE_BED_SHALLOW_R = 120U;
 constexpr uint8_t COLOR_LAKE_BED_SHALLOW_G = 168U;
 constexpr uint8_t COLOR_LAKE_BED_SHALLOW_B = 196U;
@@ -108,6 +130,80 @@ int64_t wrap_foundation_world_x(
 		p_foundation_settings.width_tiles,
 		p_foundation_settings.enabled
 	);
+}
+
+bool is_better_neighbour_lake(const NeighbourLake &candidate, const NeighbourLake &best) {
+	if (candidate.water_level_q16 > best.water_level_q16) {
+		return true;
+	}
+	return candidate.water_level_q16 == best.water_level_q16 &&
+			(best.lake_id <= 0 || candidate.lake_id < best.lake_id);
+}
+
+NeighbourLake resolve_best_neighbour_lake(
+	const Snapshot &p_snapshot,
+	int64_t p_world_x,
+	int64_t p_world_y,
+	const FoundationSettings &p_foundation_settings
+) {
+	NeighbourLake best;
+	if (!p_snapshot.valid ||
+			p_snapshot.grid_width <= 0 ||
+			p_snapshot.grid_height <= 0 ||
+			p_snapshot.lake_id.empty() ||
+			p_snapshot.lake_water_level_q16.empty()) {
+		return best;
+	}
+
+	const int64_t wrapped_x = world_utils::wrap_foundation_world_x(
+		p_world_x,
+		p_foundation_settings.width_tiles,
+		p_foundation_settings.enabled
+	);
+	const int64_t clamped_y = world_utils::clamp_foundation_world_y(
+		p_world_y,
+		p_foundation_settings.height_tiles,
+		p_foundation_settings.enabled
+	);
+	const int32_t coarse_x = static_cast<int32_t>(clamp_value<int64_t>(
+		wrapped_x / COARSE_CELL_SIZE_TILES,
+		0,
+		p_snapshot.grid_width - 1
+	));
+	const int32_t coarse_y = static_cast<int32_t>(clamp_value<int64_t>(
+		clamped_y / COARSE_CELL_SIZE_TILES,
+		0,
+		p_snapshot.grid_height - 1
+	));
+
+	for (const LakeNeighbourOffset &offset : k_lake_neighbour_priority) {
+		const int32_t neighbour_x = static_cast<int32_t>(positive_mod(
+			static_cast<int64_t>(coarse_x) + offset.x,
+			p_snapshot.grid_width
+		));
+		const int32_t neighbour_y = static_cast<int32_t>(clamp_value<int64_t>(
+			static_cast<int64_t>(coarse_y) + offset.y,
+			0,
+			p_snapshot.grid_height - 1
+		));
+		const int32_t snapshot_index = p_snapshot.index(neighbour_x, neighbour_y);
+		if (snapshot_index < 0 ||
+				snapshot_index >= static_cast<int32_t>(p_snapshot.lake_id.size()) ||
+				snapshot_index >= static_cast<int32_t>(p_snapshot.lake_water_level_q16.size())) {
+			continue;
+		}
+		const NeighbourLake candidate = {
+			p_snapshot.lake_id[static_cast<size_t>(snapshot_index)],
+			p_snapshot.lake_water_level_q16[static_cast<size_t>(snapshot_index)],
+		};
+		if (candidate.lake_id <= 0 || candidate.water_level_q16 <= 0) {
+			continue;
+		}
+		if (is_better_neighbour_lake(candidate, best)) {
+			best = candidate;
+		}
+	}
+	return best;
 }
 
 bool is_foundation_spawn_safety_area_at_world(
@@ -274,6 +370,15 @@ private:
 		if (!snapshot_.valid || snapshot_.lake_id.empty() || snapshot_.lake_water_level_q16.empty()) {
 			return OverviewTerrainClass::Ground;
 		}
+		const NeighbourLake neighbour_lake = resolve_best_neighbour_lake(
+			snapshot_,
+			p_world_x,
+			p_world_y,
+			foundation_settings_
+		);
+		if (neighbour_lake.lake_id <= 0 || neighbour_lake.water_level_q16 <= 0) {
+			return OverviewTerrainClass::Ground;
+		}
 		const int64_t wrapped_x = world_utils::wrap_foundation_world_x(
 			p_world_x,
 			foundation_settings_.width_tiles,
@@ -284,27 +389,8 @@ private:
 			foundation_settings_.height_tiles,
 			foundation_settings_.enabled
 		);
-		const int32_t coarse_x = static_cast<int32_t>(clamp_value<int64_t>(
-			wrapped_x / COARSE_CELL_SIZE_TILES,
-			0,
-			snapshot_.grid_width - 1
-		));
-		const int32_t coarse_y = static_cast<int32_t>(clamp_value<int64_t>(
-			clamped_y / COARSE_CELL_SIZE_TILES,
-			0,
-			snapshot_.grid_height - 1
-		));
-		const int32_t snapshot_index = snapshot_.index(coarse_x, coarse_y);
-		if (snapshot_index < 0 ||
-				snapshot_index >= static_cast<int32_t>(snapshot_.lake_id.size()) ||
-				snapshot_index >= static_cast<int32_t>(snapshot_.lake_water_level_q16.size())) {
-			return OverviewTerrainClass::Ground;
-		}
-		const int32_t lake_id = snapshot_.lake_id[static_cast<size_t>(snapshot_index)];
-		const int32_t water_level_q16 = snapshot_.lake_water_level_q16[static_cast<size_t>(snapshot_index)];
-		if (lake_id <= 0 || water_level_q16 <= 0) {
-			return OverviewTerrainClass::Ground;
-		}
+		const int32_t lake_id = neighbour_lake.lake_id;
+		const int32_t water_level_q16 = neighbour_lake.water_level_q16;
 		const float water_level = static_cast<float>(water_level_q16) / 65536.0f;
 		const float coarse_sample_x = (static_cast<float>(wrapped_x) + 0.5f) /
 						static_cast<float>(COARSE_CELL_SIZE_TILES) -
@@ -318,23 +404,24 @@ private:
 			coarse_sample_x,
 			coarse_sample_y
 		);
-		const float effective_elevation = foundation_height + lake_field::fbm_shore(
+		const float basin_min_elevation = lake_field::resolve_basin_min_elevation(
+			lake_basin_min_elevation_,
+			lake_id,
+			foundation_height
+		);
+		const float basin_depth = std::max(0.0001f, water_level - basin_min_elevation);
+		const float fbm_unit = lake_field::fbm_shore(
 			wrapped_x,
 			clamped_y,
 			seed_,
 			world_version_,
-			lake_settings_.shore_warp_scale,
-			lake_settings_.shore_warp_amplitude
+			lake_settings_.shore_warp_scale
 		);
+		const float shore_warp = fbm_unit * lake_settings_.shore_warp_amplitude * basin_depth;
+		const float effective_elevation = foundation_height + shore_warp;
 		if (effective_elevation >= water_level) {
 			return OverviewTerrainClass::Ground;
 		}
-		const float basin_min_elevation = lake_field::resolve_basin_min_elevation(
-			lake_basin_min_elevation_,
-			lake_id,
-			effective_elevation
-		);
-		const float basin_depth = std::max(0.0001f, water_level - basin_min_elevation);
 		const float relative_depth = (water_level - effective_elevation) / basin_depth;
 		return relative_depth >= lake_settings_.deep_threshold ?
 				OverviewTerrainClass::LakeBedDeep :
@@ -397,6 +484,7 @@ uint64_t make_signature(
 	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_lake_settings.shore_warp_scale * 1000.0f)));
 	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_lake_settings.deep_threshold * 1000000.0f)));
 	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_lake_settings.mountain_clearance * 1000000.0f)));
+	signature = splitmix64(signature ^ static_cast<uint64_t>(std::lround(p_lake_settings.connectivity * 1000000.0f)));
 	return signature;
 }
 

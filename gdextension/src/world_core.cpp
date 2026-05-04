@@ -17,6 +17,7 @@
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
+#include <godot_cpp/variant/rect2i.hpp>
 
 using namespace godot;
 using world_utils::splitmix64;
@@ -55,7 +56,8 @@ constexpr int64_t SETTINGS_PACKED_LAYOUT_LAKE_SHORE_WARP_AMPLITUDE = 17;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_LAKE_SHORE_WARP_SCALE = 18;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_LAKE_DEEP_THRESHOLD = 19;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_LAKE_MOUNTAIN_CLEARANCE = 20;
-constexpr int64_t SETTINGS_PACKED_LAYOUT_FIELD_COUNT = 21;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_LAKE_CONNECTIVITY = 21;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_FIELD_COUNT = 22;
 
 constexpr uint8_t MOUNTAIN_FLAG_WALL = 1U << 1U;
 constexpr uint8_t MOUNTAIN_FLAG_FOOT = 1U << 2U;
@@ -69,6 +71,10 @@ constexpr int64_t MOUNTAIN_FINITE_WIDTH_VERSION = world_utils::MOUNTAIN_FINITE_W
 constexpr int64_t FOUNDATION_CHUNK_SIZE = 32;
 constexpr int64_t SPAWN_SAFE_PATCH_MIN_TILE = 12;
 constexpr int64_t SPAWN_SAFE_PATCH_MAX_TILE = 20;
+constexpr float SPAWN_MAX_WALL_DENSITY = 0.4f;
+constexpr float SPAWN_MIN_VALLEY_SCORE = 0.45f;
+constexpr float SPAWN_HEIGHT_MIN = 0.28f;
+constexpr float SPAWN_HEIGHT_MAX = 0.74f;
 constexpr size_t HIERARCHICAL_CACHE_LIMIT = 64;
 constexpr int32_t PREVIEW_MIPMAP_LEVELS = 6;
 
@@ -83,6 +89,28 @@ struct Rgba8 {
 	uint8_t g = 0U;
 	uint8_t b = 0U;
 	uint8_t a = 255U;
+};
+
+struct NeighbourLake {
+	int32_t lake_id = 0;
+	int32_t water_level_q16 = 0;
+};
+
+struct LakeNeighbourOffset {
+	int32_t x = 0;
+	int32_t y = 0;
+};
+
+constexpr LakeNeighbourOffset k_lake_neighbour_priority[] = {
+	{ 0, 0 },
+	{ 0, -1 },
+	{ 1, 0 },
+	{ 0, 1 },
+	{ -1, 0 },
+	{ -1, -1 },
+	{ 1, -1 },
+	{ 1, 1 },
+	{ -1, 1 },
 };
 
 constexpr Rgba8 PREVIEW_COLOR_GROUND = { 46U, 59U, 46U, 255U };
@@ -428,15 +456,29 @@ int64_t resolve_lake_bed_atlas_index(
 	);
 }
 
-int32_t resolve_snapshot_index_at_world(
+bool is_better_neighbour_lake(const NeighbourLake &candidate, const NeighbourLake &best) {
+	if (candidate.water_level_q16 > best.water_level_q16) {
+		return true;
+	}
+	return candidate.water_level_q16 == best.water_level_q16 &&
+			(best.lake_id <= 0 || candidate.lake_id < best.lake_id);
+}
+
+NeighbourLake resolve_best_neighbour_lake(
 	const world_prepass::Snapshot &p_snapshot,
 	int64_t p_world_x,
 	int64_t p_world_y,
 	const FoundationSettings &p_foundation_settings
 ) {
-	if (!p_snapshot.valid || p_snapshot.grid_width <= 0 || p_snapshot.grid_height <= 0) {
-		return -1;
+	NeighbourLake best;
+	if (!p_snapshot.valid ||
+			p_snapshot.grid_width <= 0 ||
+			p_snapshot.grid_height <= 0 ||
+			p_snapshot.lake_id.empty() ||
+			p_snapshot.lake_water_level_q16.empty()) {
+		return best;
 	}
+
 	const int64_t wrapped_x = wrap_foundation_world_x(p_world_x, p_foundation_settings);
 	const int64_t clamped_y = clamp_foundation_world_y(p_world_y, p_foundation_settings);
 	const int32_t coarse_x = static_cast<int32_t>(world_utils::clamp_value<int64_t>(
@@ -449,7 +491,35 @@ int32_t resolve_snapshot_index_at_world(
 		0,
 		p_snapshot.grid_height - 1
 	));
-	return p_snapshot.index(coarse_x, coarse_y);
+
+	for (const LakeNeighbourOffset &offset : k_lake_neighbour_priority) {
+		const int32_t neighbour_x = static_cast<int32_t>(positive_mod(
+			static_cast<int64_t>(coarse_x) + offset.x,
+			p_snapshot.grid_width
+		));
+		const int32_t neighbour_y = static_cast<int32_t>(world_utils::clamp_value<int64_t>(
+			static_cast<int64_t>(coarse_y) + offset.y,
+			0,
+			p_snapshot.grid_height - 1
+		));
+		const int32_t snapshot_index = p_snapshot.index(neighbour_x, neighbour_y);
+		if (snapshot_index < 0 ||
+				snapshot_index >= static_cast<int32_t>(p_snapshot.lake_id.size()) ||
+				snapshot_index >= static_cast<int32_t>(p_snapshot.lake_water_level_q16.size())) {
+			continue;
+		}
+		const NeighbourLake candidate = {
+			p_snapshot.lake_id[static_cast<size_t>(snapshot_index)],
+			p_snapshot.lake_water_level_q16[static_cast<size_t>(snapshot_index)],
+		};
+		if (candidate.lake_id <= 0 || candidate.water_level_q16 <= 0) {
+			continue;
+		}
+		if (is_better_neighbour_lake(candidate, best)) {
+			best = candidate;
+		}
+	}
+	return best;
 }
 
 float sample_foundation_height_bilinear(
@@ -472,6 +542,139 @@ float sample_foundation_height_bilinear(
 		coarse_sample_x,
 		coarse_sample_y
 	);
+}
+
+bool is_water_at_world_from_neighbour_lake(
+	const world_prepass::Snapshot &p_snapshot,
+	int64_t p_world_x,
+	int64_t p_world_y,
+	int64_t p_seed,
+	int64_t p_world_version,
+	const FoundationSettings &p_foundation_settings,
+	const LakeSettings &p_lake_settings,
+	const lake_field::BasinMinElevationLookup &p_lake_basin_min_elevation
+) {
+	const NeighbourLake neighbour_lake = resolve_best_neighbour_lake(
+		p_snapshot,
+		p_world_x,
+		p_world_y,
+		p_foundation_settings
+	);
+	if (neighbour_lake.lake_id <= 0 || neighbour_lake.water_level_q16 <= 0) {
+		return false;
+	}
+	const float water_level = static_cast<float>(neighbour_lake.water_level_q16) / 65536.0f;
+	const int64_t lake_world_x = wrap_foundation_world_x(p_world_x, p_foundation_settings);
+	const int64_t lake_world_y = clamp_foundation_world_y(p_world_y, p_foundation_settings);
+	const float foundation_height = sample_foundation_height_bilinear(
+		p_snapshot,
+		p_world_x,
+		p_world_y,
+		p_foundation_settings
+	);
+	const float basin_min_elevation = lake_field::resolve_basin_min_elevation(
+		p_lake_basin_min_elevation,
+		neighbour_lake.lake_id,
+		foundation_height
+	);
+	const float basin_depth = std::max(0.0001f, water_level - basin_min_elevation);
+	const float fbm_unit = lake_field::fbm_shore(
+		lake_world_x,
+		lake_world_y,
+		p_seed,
+		p_world_version,
+		p_lake_settings.shore_warp_scale
+	);
+	const float shore_warp = fbm_unit * p_lake_settings.shore_warp_amplitude * basin_depth;
+	const float effective_elevation = foundation_height + shore_warp;
+	return effective_elevation < water_level;
+}
+
+Dictionary resolve_world_foundation_spawn_tile_l6(
+	const world_prepass::Snapshot &p_snapshot,
+	int64_t p_seed,
+	int64_t p_world_version,
+	const FoundationSettings &p_foundation_settings,
+	const LakeSettings &p_lake_settings,
+	const lake_field::BasinMinElevationLookup &p_lake_basin_min_elevation
+) {
+	Dictionary result;
+	if (!p_snapshot.valid) {
+		result["success"] = false;
+		result["message"] = "WorldPrePass snapshot is not valid.";
+		return result;
+	}
+
+	float best_score = -std::numeric_limits<float>::infinity();
+	int32_t best_index = -1;
+	const int32_t node_count = p_snapshot.grid_width * p_snapshot.grid_height;
+	for (int32_t index = 0; index < node_count; ++index) {
+		if (p_snapshot.ocean_band_mask[static_cast<size_t>(index)] != 0 ||
+				p_snapshot.burning_band_mask[static_cast<size_t>(index)] != 0 ||
+				p_snapshot.continent_mask[static_cast<size_t>(index)] == 0 ||
+				p_snapshot.coarse_wall_density[static_cast<size_t>(index)] >= SPAWN_MAX_WALL_DENSITY) {
+			continue;
+		}
+
+		const int32_t node_x = index % p_snapshot.grid_width;
+		const int32_t node_y = index / p_snapshot.grid_width;
+		const Vector2i candidate_tile = p_snapshot.node_to_tile_center(node_x, node_y);
+		if (is_water_at_world_from_neighbour_lake(
+					p_snapshot,
+					candidate_tile.x,
+					candidate_tile.y,
+					p_seed,
+					p_world_version,
+					p_foundation_settings,
+					p_lake_settings,
+					p_lake_basin_min_elevation)) {
+			continue;
+		}
+
+		const float valley = p_snapshot.coarse_valley_score[static_cast<size_t>(index)];
+		const float foundation_height = p_snapshot.foundation_height[static_cast<size_t>(index)];
+		const float height_mid = 1.0f - world_utils::saturate(std::abs(foundation_height - 0.52f) / 0.52f);
+		const float wall_penalty = p_snapshot.coarse_wall_density[static_cast<size_t>(index)] * 0.75f;
+		const bool preferred_band = valley >= SPAWN_MIN_VALLEY_SCORE &&
+				foundation_height >= SPAWN_HEIGHT_MIN &&
+				foundation_height <= SPAWN_HEIGHT_MAX;
+		const float score = valley * 1.8f + height_mid * 0.9f - wall_penalty + (preferred_band ? 0.65f : 0.0f);
+		if (score > best_score) {
+			best_score = score;
+			best_index = index;
+		}
+	}
+
+	if (best_index < 0) {
+		result["success"] = false;
+		result["message"] = "No valid foundation spawn node found outside hard bands, reserved massing, mountain massifs, and lakes.";
+		return result;
+	}
+
+	const int32_t node_x = best_index % p_snapshot.grid_width;
+	const int32_t node_y = best_index / p_snapshot.grid_width;
+	const Vector2i spawn_tile = p_snapshot.node_to_tile_center(node_x, node_y);
+	const int32_t patch_size = static_cast<int32_t>(SPAWN_SAFE_PATCH_MAX_TILE - SPAWN_SAFE_PATCH_MIN_TILE + 1);
+	const int32_t rect_x = static_cast<int32_t>(world_utils::clamp_value<int64_t>(
+		static_cast<int64_t>(spawn_tile.x) - patch_size / 2,
+		0,
+		std::max<int64_t>(0, p_snapshot.width_tiles - patch_size)
+	));
+	const int32_t rect_y = static_cast<int32_t>(world_utils::clamp_value<int64_t>(
+		static_cast<int64_t>(spawn_tile.y) - patch_size / 2,
+		0,
+		std::max<int64_t>(0, p_snapshot.height_tiles - patch_size)
+	));
+
+	result["success"] = true;
+	result["spawn_tile"] = spawn_tile;
+	result["spawn_safe_patch_rect"] = Rect2i(Vector2i(rect_x, rect_y), Vector2i(patch_size, patch_size));
+	result["node_coord"] = Vector2i(node_x, node_y);
+	result["score"] = best_score;
+	result["coarse_valley_score"] = p_snapshot.coarse_valley_score[static_cast<size_t>(best_index)];
+	result["foundation_height"] = p_snapshot.foundation_height[static_cast<size_t>(best_index)];
+	result["coarse_wall_density"] = p_snapshot.coarse_wall_density[static_cast<size_t>(best_index)];
+	return result;
 }
 
 mountain_field::Settings unpack_mountain_settings(const PackedFloat32Array &p_settings_packed) {
@@ -547,7 +750,7 @@ LakeSettings unpack_lake_settings(int64_t p_world_version, const PackedFloat32Ar
 	settings.shore_warp_amplitude = world_utils::clamp_value(
 		p_settings_packed[SETTINGS_PACKED_LAYOUT_LAKE_SHORE_WARP_AMPLITUDE],
 		0.0f,
-		2.0f
+		1.0f
 	);
 	settings.shore_warp_scale = world_utils::clamp_value(
 		p_settings_packed[SETTINGS_PACKED_LAYOUT_LAKE_SHORE_WARP_SCALE],
@@ -563,6 +766,11 @@ LakeSettings unpack_lake_settings(int64_t p_world_version, const PackedFloat32Ar
 		p_settings_packed[SETTINGS_PACKED_LAYOUT_LAKE_MOUNTAIN_CLEARANCE],
 		0.0f,
 		0.5f
+	);
+	settings.connectivity = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_LAKE_CONNECTIVITY],
+		0.0f,
+		1.0f
 	);
 	return settings;
 }
@@ -964,48 +1172,43 @@ Dictionary WorldCore::_generate_chunk_packet(
 					static_cast<int64_t>(p_coord.y) * CHUNK_SIZE + sample_y - mountain_border,
 					p_foundation_settings
 				);
-				const int32_t snapshot_index = resolve_snapshot_index_at_world(
+				const NeighbourLake neighbour_lake = resolve_best_neighbour_lake(
 					*lake_snapshot,
 					world_x,
 					world_y,
 					p_foundation_settings
 				);
-				if (snapshot_index < 0 ||
-						snapshot_index >= static_cast<int32_t>(lake_snapshot->lake_id.size()) ||
-						snapshot_index >= static_cast<int32_t>(lake_snapshot->lake_water_level_q16.size())) {
-					continue;
-				}
-				const int32_t lake_id = lake_snapshot->lake_id[static_cast<size_t>(snapshot_index)];
-				const int32_t water_level_q16 = lake_snapshot->lake_water_level_q16[static_cast<size_t>(snapshot_index)];
+				const int32_t lake_id = neighbour_lake.lake_id;
+				const int32_t water_level_q16 = neighbour_lake.water_level_q16;
 				if (lake_id <= 0 || water_level_q16 <= 0) {
 					continue;
 				}
 				const float water_level = static_cast<float>(water_level_q16) / 65536.0f;
 				const int64_t lake_world_x = wrap_foundation_world_x(world_x, p_foundation_settings);
-				const float shore_warp = lake_field::fbm_shore(
-					lake_world_x,
-					world_y,
-					p_seed,
-					p_world_version,
-					p_lake_settings.shore_warp_scale,
-					p_lake_settings.shore_warp_amplitude
-				);
 				const float foundation_height = sample_foundation_height_bilinear(
 					*lake_snapshot,
 					world_x,
 					world_y,
 					p_foundation_settings
 				);
+				const float basin_min_elevation = lake_field::resolve_basin_min_elevation(
+					world_prepass_lake_basin_min_elevation_,
+					lake_id,
+					foundation_height
+				);
+				const float basin_depth = std::max(0.0001f, water_level - basin_min_elevation);
+				const float fbm_unit = lake_field::fbm_shore(
+					lake_world_x,
+					world_y,
+					p_seed,
+					p_world_version,
+					p_lake_settings.shore_warp_scale
+				);
+				const float shore_warp = fbm_unit * p_lake_settings.shore_warp_amplitude * basin_depth;
 				const float effective_elevation = foundation_height + shore_warp;
 				if (effective_elevation >= water_level) {
 					continue;
 				}
-				const float basin_min_elevation = lake_field::resolve_basin_min_elevation(
-					world_prepass_lake_basin_min_elevation_,
-					lake_id,
-					effective_elevation
-				);
-				const float basin_depth = std::max(0.0001f, water_level - basin_min_elevation);
 				const float relative_depth = (water_level - effective_elevation) / basin_depth;
 				terrain_id_grid[static_cast<size_t>(sample_index)] =
 						relative_depth >= p_lake_settings.deep_threshold ?
@@ -1251,7 +1454,14 @@ Dictionary WorldCore::resolve_world_foundation_spawn_tile(
 		foundation_settings,
 		lake_settings
 	);
-	Dictionary result = world_prepass::resolve_spawn_tile(snapshot);
+	Dictionary result = resolve_world_foundation_spawn_tile_l6(
+		snapshot,
+		p_seed,
+		p_world_version,
+		foundation_settings,
+		lake_settings,
+		world_prepass_lake_basin_min_elevation_
+	);
 	result["grid_width"] = snapshot.grid_width;
 	result["grid_height"] = snapshot.grid_height;
 	result["coarse_cell_size_tiles"] = world_prepass::COARSE_CELL_SIZE_TILES;

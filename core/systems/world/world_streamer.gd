@@ -1246,6 +1246,10 @@ func _validate_current_world_save_shape(data: Dictionary) -> bool:
 		if not settings_dict.has("lakes") or settings_dict.get("lakes") is not Dictionary:
 			_reject_world_save("worldgen_settings.lakes must be a Dictionary")
 			return false
+		var lake_settings: Dictionary = settings_dict.get("lakes") as Dictionary
+		if WorldRuntimeConstants.WORLD_VERSION >= 42 and not lake_settings.has("connectivity"):
+			_reject_world_save("worldgen_settings.lakes.connectivity is required for world_version >= 42")
+			return false
 	return true
 
 func _reject_world_save(message: String) -> void:

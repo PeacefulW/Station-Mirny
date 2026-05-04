@@ -4,11 +4,12 @@
 #include "world_prepass.h"
 
 #include <cstdint>
-#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace lake_field {
 
-using BasinMinElevationLookup = std::unordered_map<int32_t, float>;
+using BasinMinElevationLookup = std::vector<std::pair<int32_t, float>>;
 
 void solve_lake_basins(
 	world_prepass::Snapshot &r_snapshot,
@@ -30,8 +31,7 @@ float fbm_shore(
 	int64_t p_world_y,
 	int64_t p_seed,
 	int64_t p_world_version,
-	float p_scale,
-	float p_amplitude
+	float p_scale
 );
 
 } // namespace lake_field

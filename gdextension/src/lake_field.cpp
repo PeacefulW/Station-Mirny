@@ -7,6 +7,8 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <queue>
+#include <utility>
 #include <vector>
 
 namespace lake_field {
@@ -16,6 +18,7 @@ constexpr uint64_t k_seed_salt_lake_acceptance = 0x2f894d5c71b3a6e9ULL;
 constexpr uint64_t k_seed_salt_lake_id = 0x96e8f43d2b51c7a5ULL;
 constexpr uint64_t k_seed_salt_lake_shore = 0x58f79c3d49a6e215ULL;
 constexpr int32_t k_lake_id_salt_sweep_limit = 1024;
+constexpr int32_t k_lake_merge_iteration_cap = 16;
 
 struct BasinShape {
 	int32_t seed_search_radius = 3;
@@ -33,22 +36,35 @@ struct FrontierCell {
 	float height = 0.0f;
 };
 
+struct BasinSummary {
+	int32_t lake_id = 0;
+	float rim_height = 0.0f;
+	int32_t bfs_root_index = -1;
+	int32_t water_level_q16 = 0;
+};
+
+struct MergeCandidatePair {
+	int32_t min_lake_id = 0;
+	int32_t max_lake_id = 0;
+};
+
 LakeSettings sanitize_settings(const LakeSettings &p_settings) {
 	LakeSettings settings = p_settings;
 	settings.density = world_utils::clamp_value(settings.density, 0.0f, 1.0f);
 	settings.scale = world_utils::clamp_value(settings.scale, 64.0f, 2048.0f);
-	settings.shore_warp_amplitude = world_utils::clamp_value(settings.shore_warp_amplitude, 0.0f, 2.0f);
+	settings.shore_warp_amplitude = world_utils::clamp_value(settings.shore_warp_amplitude, 0.0f, 1.0f);
 	settings.shore_warp_scale = world_utils::clamp_value(settings.shore_warp_scale, 8.0f, 64.0f);
 	settings.deep_threshold = world_utils::clamp_value(settings.deep_threshold, 0.05f, 0.5f);
 	settings.mountain_clearance = world_utils::clamp_value(settings.mountain_clearance, 0.0f, 0.5f);
+	settings.connectivity = world_utils::clamp_value(settings.connectivity, 0.0f, 1.0f);
 	return settings;
 }
 
 BasinShape derive_basin_shape(const LakeSettings &p_settings) {
 	const float coarse_diameter = p_settings.scale / static_cast<float>(world_prepass::COARSE_CELL_SIZE_TILES);
 	BasinShape shape;
-	// Mapping is intentionally monotonic and coarse-grid-local:
-	// scale=512 produces the spec defaults radius=3, min=2, max=64.
+	// Mapping is intentionally monotonic and coarse-grid-local, with
+	// d = scale / COARSE_CELL_SIZE_TILES.
 	shape.seed_search_radius = world_utils::clamp_value(
 		static_cast<int32_t>(std::lround(coarse_diameter / 2.5f)),
 		1,
@@ -57,9 +73,13 @@ BasinShape derive_basin_shape(const LakeSettings &p_settings) {
 	shape.max_basin_cells = world_utils::clamp_value(
 		static_cast<int32_t>(std::lround(coarse_diameter * coarse_diameter)),
 		4,
-		256
+		4096
 	);
-	shape.min_basin_cells = world_utils::clamp_value(shape.max_basin_cells / 32, 2, 16);
+	shape.min_basin_cells = world_utils::clamp_value(
+		static_cast<int32_t>(std::lround(coarse_diameter * coarse_diameter / 16.0f)),
+		2,
+		64
+	);
 	return shape;
 }
 
@@ -211,18 +231,22 @@ bool frontier_less(const FrontierCell &p_a, const FrontierCell &p_b, int32_t p_g
 	return (p_a.index % p_grid_width) < (p_b.index % p_grid_width);
 }
 
-int32_t pop_lowest_frontier(std::vector<FrontierCell> &r_frontier, int32_t p_grid_width) {
+struct FrontierCellPriority {
+	int32_t grid_width = 1;
+
+	bool operator()(const FrontierCell &p_a, const FrontierCell &p_b) const {
+		return frontier_less(p_b, p_a, grid_width);
+	}
+};
+
+using FrontierQueue = std::priority_queue<FrontierCell, std::vector<FrontierCell>, FrontierCellPriority>;
+
+int32_t pop_lowest_frontier(FrontierQueue &r_frontier) {
 	if (r_frontier.empty()) {
 		return -1;
 	}
-	int32_t best_position = 0;
-	for (int32_t position = 1; position < static_cast<int32_t>(r_frontier.size()); ++position) {
-		if (frontier_less(r_frontier[static_cast<size_t>(position)], r_frontier[static_cast<size_t>(best_position)], p_grid_width)) {
-			best_position = position;
-		}
-	}
-	const int32_t best_index = r_frontier[static_cast<size_t>(best_position)].index;
-	r_frontier.erase(r_frontier.begin() + best_position);
+	const int32_t best_index = r_frontier.top().index;
+	r_frontier.pop();
 	return best_index;
 }
 
@@ -232,7 +256,7 @@ bool add_frontier_cell(
 	int32_t p_index,
 	const std::vector<uint8_t> &p_accepted,
 	std::vector<uint8_t> &r_frontier_seen,
-	std::vector<FrontierCell> &r_frontier
+	FrontierQueue &r_frontier
 ) {
 	if (p_index < 0 ||
 			p_index >= static_cast<int32_t>(p_accepted.size()) ||
@@ -244,7 +268,7 @@ bool add_frontier_cell(
 		return false;
 	}
 	r_frontier_seen[static_cast<size_t>(p_index)] = 1U;
-	r_frontier.push_back({ p_index, p_snapshot.foundation_height[static_cast<size_t>(p_index)] });
+	r_frontier.push({ p_index, p_snapshot.foundation_height[static_cast<size_t>(p_index)] });
 	return true;
 }
 
@@ -254,7 +278,7 @@ bool queue_frontier_neighbours(
 	int32_t p_index,
 	const std::vector<uint8_t> &p_accepted,
 	std::vector<uint8_t> &r_frontier_seen,
-	std::vector<FrontierCell> &r_frontier
+	FrontierQueue &r_frontier
 ) {
 	const int32_t current_x = p_index % p_snapshot.grid_width;
 	const int32_t current_y = p_index / p_snapshot.grid_width;
@@ -339,8 +363,12 @@ bool build_basin(
 	const int32_t node_count = r_snapshot.grid_width * r_snapshot.grid_height;
 	std::vector<uint8_t> accepted(static_cast<size_t>(node_count), 0);
 	std::vector<uint8_t> frontier_seen(static_cast<size_t>(node_count), 0);
-	std::vector<FrontierCell> frontier;
-	frontier.reserve(static_cast<size_t>(p_shape.max_basin_cells + 4));
+	std::vector<FrontierCell> frontier_storage;
+	frontier_storage.reserve(static_cast<size_t>(p_shape.max_basin_cells + 4));
+	FrontierQueue frontier(
+		FrontierCellPriority{ r_snapshot.grid_width },
+		std::move(frontier_storage)
+	);
 
 	const int32_t root_index = r_snapshot.index(p_candidate.x, p_candidate.y);
 	accepted[static_cast<size_t>(root_index)] = 1U;
@@ -352,7 +380,7 @@ bool build_basin(
 
 	float rim_height_so_far = std::numeric_limits<float>::infinity();
 	while (!frontier.empty()) {
-		const int32_t current_index = pop_lowest_frontier(frontier, r_snapshot.grid_width);
+		const int32_t current_index = pop_lowest_frontier(frontier);
 		if (current_index < 0 || accepted[static_cast<size_t>(current_index)] != 0U) {
 			continue;
 		}
@@ -392,6 +420,217 @@ bool build_basin(
 	return true;
 }
 
+using BasinSummaryIndex = std::vector<std::pair<int32_t, int32_t>>;
+
+BasinSummaryIndex build_basin_summary_index(const std::vector<BasinSummary> &p_summaries) {
+	BasinSummaryIndex summary_index;
+	summary_index.reserve(p_summaries.size());
+	for (int32_t index = 0; index < static_cast<int32_t>(p_summaries.size()); ++index) {
+		const int32_t lake_id = p_summaries[static_cast<size_t>(index)].lake_id;
+		if (lake_id > 0) {
+			summary_index.push_back({ lake_id, index });
+		}
+	}
+	std::sort(summary_index.begin(), summary_index.end(), [](const std::pair<int32_t, int32_t> &p_a, const std::pair<int32_t, int32_t> &p_b) {
+		return p_a.first < p_b.first;
+	});
+	return summary_index;
+}
+
+int32_t find_basin_summary_index(const BasinSummaryIndex &p_summary_index, int32_t p_lake_id) {
+	const auto found = std::lower_bound(
+		p_summary_index.begin(),
+		p_summary_index.end(),
+		p_lake_id,
+		[](const std::pair<int32_t, int32_t> &p_entry, int32_t p_id) {
+			return p_entry.first < p_id;
+		}
+	);
+	if (found == p_summary_index.end() || found->first != p_lake_id) {
+		return -1;
+	}
+	return found->second;
+}
+
+bool merge_candidate_pair_less(const MergeCandidatePair &p_a, const MergeCandidatePair &p_b) {
+	return p_a.min_lake_id < p_b.min_lake_id ||
+			(p_a.min_lake_id == p_b.min_lake_id && p_a.max_lake_id < p_b.max_lake_id);
+}
+
+void add_merge_candidate_pair(
+	const LakeSettings &p_settings,
+	const std::vector<BasinSummary> &p_summaries,
+	const BasinSummaryIndex &p_summary_index,
+	int32_t p_lake_id_a,
+	int32_t p_lake_id_b,
+	std::vector<MergeCandidatePair> &r_candidate_pairs
+) {
+	if (p_lake_id_a <= 0 || p_lake_id_b <= 0 || p_lake_id_a == p_lake_id_b) {
+		return;
+	}
+	const int32_t summary_a_index = find_basin_summary_index(p_summary_index, p_lake_id_a);
+	const int32_t summary_b_index = find_basin_summary_index(p_summary_index, p_lake_id_b);
+	if (summary_a_index < 0 || summary_b_index < 0) {
+		return;
+	}
+	const BasinSummary &summary_a = p_summaries[static_cast<size_t>(summary_a_index)];
+	const BasinSummary &summary_b = p_summaries[static_cast<size_t>(summary_b_index)];
+	const float merge_height_tolerance = lerp(0.0f, 0.06f, p_settings.connectivity);
+	if (std::fabs(summary_a.rim_height - summary_b.rim_height) >= merge_height_tolerance) {
+		return;
+	}
+	MergeCandidatePair pair;
+	pair.min_lake_id = std::min(p_lake_id_a, p_lake_id_b);
+	pair.max_lake_id = std::max(p_lake_id_a, p_lake_id_b);
+	r_candidate_pairs.push_back(pair);
+}
+
+std::vector<MergeCandidatePair> collect_merge_candidate_pairs(
+	const world_prepass::Snapshot &p_snapshot,
+	const LakeSettings &p_settings,
+	const std::vector<BasinSummary> &p_summaries
+) {
+	std::vector<MergeCandidatePair> candidate_pairs;
+	const LakeSettings &settings = p_settings;
+	if (settings.connectivity <= 0.0f ||
+			!p_snapshot.valid ||
+			p_snapshot.grid_width <= 0 ||
+			p_snapshot.grid_height <= 0 ||
+			p_summaries.empty()) {
+		return candidate_pairs;
+	}
+	const int32_t node_count = p_snapshot.grid_width * p_snapshot.grid_height;
+	if (static_cast<int32_t>(p_snapshot.lake_id.size()) < node_count) {
+		return candidate_pairs;
+	}
+	const BasinSummaryIndex summary_index = build_basin_summary_index(p_summaries);
+	for (int32_t y = 0; y < p_snapshot.grid_height; ++y) {
+		for (int32_t x = 0; x < p_snapshot.grid_width; ++x) {
+			const int32_t index = p_snapshot.index(x, y);
+			const int32_t lake_id = p_snapshot.lake_id[static_cast<size_t>(index)];
+			const int32_t east_x = wrap_x(x + 1, p_snapshot.grid_width);
+			add_merge_candidate_pair(
+				p_settings,
+				p_summaries,
+				summary_index,
+				lake_id,
+				p_snapshot.lake_id[static_cast<size_t>(p_snapshot.index(east_x, y))],
+				candidate_pairs
+			);
+			const int32_t south_y = y + 1;
+			if (is_y_in_bounds(south_y, p_snapshot.grid_height)) {
+				add_merge_candidate_pair(
+					p_settings,
+					p_summaries,
+					summary_index,
+					lake_id,
+					p_snapshot.lake_id[static_cast<size_t>(p_snapshot.index(x, south_y))],
+					candidate_pairs
+				);
+			}
+		}
+	}
+	std::sort(candidate_pairs.begin(), candidate_pairs.end(), merge_candidate_pair_less);
+	candidate_pairs.erase(
+		std::unique(candidate_pairs.begin(), candidate_pairs.end(), [](const MergeCandidatePair &p_a, const MergeCandidatePair &p_b) {
+			return p_a.min_lake_id == p_b.min_lake_id && p_a.max_lake_id == p_b.max_lake_id;
+		}),
+		candidate_pairs.end()
+	);
+	return candidate_pairs;
+}
+
+bool is_summary_a_survivor(const BasinSummary &p_a, const BasinSummary &p_b) {
+	if (p_a.bfs_root_index != p_b.bfs_root_index) {
+		return p_a.bfs_root_index < p_b.bfs_root_index;
+	}
+	return p_a.lake_id < p_b.lake_id;
+}
+
+void rewrite_merged_lake_cells(
+	world_prepass::Snapshot &r_snapshot,
+	int32_t p_survivor_lake_id,
+	int32_t p_loser_lake_id,
+	int32_t p_water_level_q16
+) {
+	const int32_t node_count = r_snapshot.grid_width * r_snapshot.grid_height;
+	for (int32_t index = 0; index < node_count; ++index) {
+		const int32_t current_lake_id = r_snapshot.lake_id[static_cast<size_t>(index)];
+		if (current_lake_id != p_survivor_lake_id && current_lake_id != p_loser_lake_id) {
+			continue;
+		}
+		r_snapshot.lake_id[static_cast<size_t>(index)] = p_survivor_lake_id;
+		r_snapshot.lake_water_level_q16[static_cast<size_t>(index)] = p_water_level_q16;
+	}
+}
+
+bool merge_lake_pair(
+	world_prepass::Snapshot &r_snapshot,
+	const MergeCandidatePair &p_pair,
+	std::vector<BasinSummary> &r_summaries,
+	BasinSummaryIndex &r_summary_index
+) {
+	const int32_t summary_min_index = find_basin_summary_index(r_summary_index, p_pair.min_lake_id);
+	const int32_t summary_max_index = find_basin_summary_index(r_summary_index, p_pair.max_lake_id);
+	if (summary_min_index < 0 || summary_max_index < 0 || summary_min_index == summary_max_index) {
+		return false;
+	}
+	const BasinSummary summary_min = r_summaries[static_cast<size_t>(summary_min_index)];
+	const BasinSummary summary_max = r_summaries[static_cast<size_t>(summary_max_index)];
+	const bool min_survives = is_summary_a_survivor(summary_min, summary_max);
+	const int32_t survivor_index = min_survives ? summary_min_index : summary_max_index;
+	const int32_t loser_index = min_survives ? summary_max_index : summary_min_index;
+	BasinSummary &survivor = r_summaries[static_cast<size_t>(survivor_index)];
+	const BasinSummary loser = r_summaries[static_cast<size_t>(loser_index)];
+	const int32_t survivor_lake_id = survivor.lake_id;
+	const int32_t loser_lake_id = loser.lake_id;
+	const int32_t merged_water_level_q16 = std::min(survivor.water_level_q16, loser.water_level_q16);
+
+	survivor.rim_height = std::min(survivor.rim_height, loser.rim_height);
+	assert(survivor.bfs_root_index <= loser.bfs_root_index && "Lake merge survivor must own the lower BFS root.");
+	survivor.water_level_q16 = merged_water_level_q16;
+	rewrite_merged_lake_cells(r_snapshot, survivor_lake_id, loser_lake_id, merged_water_level_q16);
+
+	r_summaries.erase(r_summaries.begin() + loser_index);
+	r_summary_index = build_basin_summary_index(r_summaries);
+	return true;
+}
+
+void merge_lake_basins(
+	world_prepass::Snapshot &r_snapshot,
+	const LakeSettings &p_settings,
+	std::vector<BasinSummary> &r_summaries
+) {
+	const LakeSettings &settings = p_settings;
+	if (settings.connectivity <= 0.0f || r_summaries.size() < 2) {
+		return;
+	}
+	for (int32_t iteration = 0; iteration < k_lake_merge_iteration_cap; ++iteration) {
+		const std::vector<MergeCandidatePair> candidate_pairs = collect_merge_candidate_pairs(
+			r_snapshot,
+			p_settings,
+			r_summaries
+		);
+		if (candidate_pairs.empty()) {
+			return;
+		}
+		bool merged_any = false;
+		BasinSummaryIndex summary_index = build_basin_summary_index(r_summaries);
+		for (const MergeCandidatePair &pair : candidate_pairs) {
+			merged_any = merge_lake_pair(r_snapshot, pair, r_summaries, summary_index) || merged_any;
+		}
+		if (!merged_any) {
+			return;
+		}
+	}
+	const std::vector<MergeCandidatePair> remaining_pairs = collect_merge_candidate_pairs(
+		r_snapshot,
+		p_settings,
+		r_summaries
+	);
+	assert(remaining_pairs.empty() && "Lake merge iteration cap exceeded.");
+}
+
 } // namespace
 
 void solve_lake_basins(
@@ -412,6 +651,8 @@ void solve_lake_basins(
 	const std::vector<Candidate> candidates = collect_candidates(r_snapshot, settings, shape, p_seed, p_world_version);
 	std::vector<int32_t> used_lake_ids;
 	used_lake_ids.reserve(candidates.size());
+	std::vector<BasinSummary> basin_summaries;
+	basin_summaries.reserve(candidates.size());
 
 	for (const Candidate &candidate : candidates) {
 		std::vector<int32_t> basin_cells;
@@ -430,14 +671,20 @@ void solve_lake_basins(
 			continue;
 		}
 		used_lake_ids.push_back(lake_id);
-		const int32_t water_level_q16 = static_cast<int32_t>(std::lround(
-			world_utils::clamp_value(rim_height, 0.0f, 1.0f) * 65536.0f
-		));
+		const int32_t water_level_q16 = static_cast<int32_t>(std::lround(rim_height * 65536.0f));
 		for (int32_t basin_index : basin_cells) {
 			r_snapshot.lake_id[static_cast<size_t>(basin_index)] = lake_id;
 			r_snapshot.lake_water_level_q16[static_cast<size_t>(basin_index)] = water_level_q16;
 		}
+		basin_summaries.push_back({
+			lake_id,
+			rim_height,
+			r_snapshot.index(candidate.x, candidate.y),
+			water_level_q16
+		});
 	}
+
+	merge_lake_basins(r_snapshot, settings, basin_summaries);
 }
 
 BasinMinElevationLookup build_basin_min_elevation_lookup(const world_prepass::Snapshot &p_snapshot) {
@@ -455,14 +702,19 @@ BasinMinElevationLookup build_basin_min_elevation_lookup(const world_prepass::Sn
 			continue;
 		}
 		const float elevation = p_snapshot.foundation_height[static_cast<size_t>(index)];
-		auto found = lookup.find(lake_id);
-		if (found == lookup.end()) {
-			lookup.emplace(lake_id, elevation);
-		} else {
-			found->second = std::min(found->second, elevation);
-		}
+		lookup.push_back({ lake_id, elevation });
 	}
-	return lookup;
+	std::sort(lookup.begin(), lookup.end());
+	BasinMinElevationLookup compressed;
+	compressed.reserve(lookup.size());
+	for (const std::pair<int32_t, float> &entry : lookup) {
+		if (compressed.empty() || compressed.back().first != entry.first) {
+			compressed.push_back(entry);
+			continue;
+		}
+		compressed.back().second = std::min(compressed.back().second, entry.second);
+	}
+	return compressed;
 }
 
 float resolve_basin_min_elevation(
@@ -470,8 +722,15 @@ float resolve_basin_min_elevation(
 	int32_t p_lake_id,
 	float p_fallback
 ) {
-	auto found = p_lookup.find(p_lake_id);
-	return found == p_lookup.end() ? p_fallback : found->second;
+	const auto found = std::lower_bound(
+		p_lookup.begin(),
+		p_lookup.end(),
+		p_lake_id,
+		[](const std::pair<int32_t, float> &p_entry, int32_t p_id) {
+			return p_entry.first < p_id;
+		}
+	);
+	return found == p_lookup.end() || found->first != p_lake_id ? p_fallback : found->second;
 }
 
 float fbm_shore(
@@ -479,8 +738,7 @@ float fbm_shore(
 	int64_t p_world_y,
 	int64_t p_seed,
 	int64_t p_world_version,
-	float p_scale,
-	float p_amplitude
+	float p_scale
 ) {
 	const float safe_scale = std::max(1.0f, p_scale);
 	const float x = static_cast<float>(p_world_x) / safe_scale;
@@ -488,7 +746,7 @@ float fbm_shore(
 	const float octave0 = sample_value_noise(p_seed, p_world_version, x, y, 0);
 	const float octave1 = sample_value_noise(p_seed, p_world_version, x * 2.0f, y * 2.0f, 1);
 	const float fbm = octave0 * 0.6666667f + octave1 * 0.3333333f;
-	return world_utils::clamp_value(fbm, -1.0f, 1.0f) * std::max(0.0f, p_amplitude);
+	return world_utils::clamp_value(fbm, -1.0f, 1.0f);
 }
 
 } // namespace lake_field

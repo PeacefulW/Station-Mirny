@@ -34,6 +34,7 @@ struct LakeSettings {
 	float shore_warp_scale = 16.0f;
 	float deep_threshold = 0.18f;
 	float mountain_clearance = 0.10f;
+	float connectivity = 0.4f;
 };
 
 namespace world_prepass {

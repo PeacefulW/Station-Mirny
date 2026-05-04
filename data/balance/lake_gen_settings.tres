@@ -6,7 +6,8 @@
 script = ExtResource("1")
 density = 0.35
 scale = 512.0
-shore_warp_amplitude = 0.8
+shore_warp_amplitude = 0.4
 shore_warp_scale = 16.0
 deep_threshold = 0.18
 mountain_clearance = 0.1
+connectivity = 0.4

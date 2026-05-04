@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.7
-last_updated: 2026-05-03
+version: 0.9
+last_updated: 2026-05-04
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -282,7 +282,7 @@ Changing the coarse cell size requires a `WORLD_VERSION` bump.
 | `ocean_band_mask` | `1` if the node's Y center lies within `ocean_band_height_tiles` of the top-Y edge, else `0` | biome resolver (future), spawn resolver, debug |
 | `burning_band_mask` | `1` if the node's Y center lies within `burning_band_height_tiles` of the bottom-Y edge, else `0` | biome resolver (future), spawn resolver, debug |
 | `continent_mask` | deterministic low-frequency noise thresholded for land vs. reserved non-land massing; masked off inside ocean / burning bands | biome resolver (future), spawn resolver, debug |
-| `foundation_height` | `mountain_elevation_avg + world_slope_noise + low_freq_relief`, with Y gradient optionally biased by `foundation_slope_bias` toward one band | overview ground shading, spawn resolver, future worldgen specs |
+| `foundation_height` | `clamp(mountain_elevation_avg + world_slope_noise + low_freq_relief + slope_bias_term, 0, 1)`, with Y gradient optionally biased by `foundation_slope_bias` toward one band | overview ground shading, spawn resolver, future worldgen specs |
 | `coarse_wall_density` | fraction of tiles in cell with `mountain_wall` | overview debug, spawn resolver |
 | `coarse_foot_density` | fraction of tiles in cell with `mountain_foot` | overview debug, biome resolver (future) |
 | `coarse_valley_score` | `1 - coarse_wall_density - 0.5 × coarse_foot_density`, clamped to `[0, 1]` | spawn resolver, future biome specs |
@@ -294,6 +294,10 @@ Adding another field to this set requires a spec amendment and a
 `WORLD_VERSION` review. The two lake fields above are the approved
 Lake Generation L1 frozen-set amendment and do not change chunk packet
 output in L1.
+
+`foundation_height` is clamped to `[0, 1]` at substrate write time.
+Downstream consumers may rely on this range; any out-of-range value is a
+foundation-substrate bug rather than a lake-generation condition to mask.
 
 **Removed water-generation fields.** The failed water implementation used
 to add downstream graph, flow accumulation, visible trunk, Strahler, and
@@ -404,7 +408,17 @@ coarse node satisfies any of:
 - `burning_band_mask = 1`
 - `coarse_wall_density >= spawn_max_wall_density = 0.4`
 - `continent_mask = 0` (reserved non-land massing)
-- `lake_id > 0`
+- Lake Generation L6: the candidate tile's `3×3 neighbourhood` lookup
+  chooses a lake with `lake_id > 0` and `lake_water_level_q16 > 0`, and the
+  candidate's computed `bilinear(foundation_height) + shore_warp` is below
+  that chosen `water_level`
+
+The L6 lake-neighbour selection is the same rule used by
+`lake_generation.md`: highest `lake_water_level_q16`, ties by lowest
+`lake_id`, then the deterministic priority
+`(0,0), (0,-1), (1,0), (0,1), (-1,0), (-1,-1), (1,-1), (1,1), (-1,1)`.
+X wraps and Y clamps. This broadens the older V1 / L4 coarse-node
+`lake_id > 0` rejection without changing the spawn result dictionary shape.
 
 It must prefer tiles inside `continent_mask = 1` with
 `coarse_valley_score` above a documented threshold and `foundation_height`
@@ -703,10 +717,24 @@ API, or save shape.
 
 Lake Generation L2 introduced the lake bed packet boundary at
 `world_version = 38`. The 2026-05-03 lake-generation correction advances
-current new worlds to `world_version = 39`, because per-tile lake
+new worlds to `world_version = 39`, because per-tile lake
 classification now uses bilinear `foundation_height` in the same units as
 `lake_water_level_q16`, and the basin solve now uses a dynamic observed rim
 instead of a fixed `center_height + fill_depth` ceiling.
+Lake Generation V2 / L5 advanced new worlds to `world_version = 40`
+for basin-size mapping and deterministic basin connectivity. This changes only
+the lake algorithm over the existing `lake_id` and `lake_water_level_q16`
+fields; the frozen `WorldPrePass` field set does not grow.
+Lake Generation V2 / L6 advanced new worlds to `world_version = 41`
+for cross-cell shoreline classification and spawn rejection over the same
+`3×3 neighbourhood` lake-selection rule. This changes canonical packet and
+spawn output but does not add substrate fields or change the spawn result
+dictionary shape.
+Lake Generation V2 / L7 advances current new worlds to `world_version = 42`
+for basin-depth shoreline normalisation and mandatory lake connectivity
+persistence. This changes canonical lake packet and spawn output over the same
+`WorldPrePass` fields and does not add substrate fields or change the spawn
+result dictionary shape.
 
 ## Performance Class
 

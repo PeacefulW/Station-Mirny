@@ -883,7 +883,7 @@ msgid "UI_WORLDGEN_LAKES_SHORE_WARP_AMPLITUDE"
 msgstr "Shore warp:"
 
 msgid "UI_WORLDGEN_LAKES_SHORE_WARP_AMPLITUDE_DESC"
-msgstr "Amplitude of shoreline noise. Higher values break up straight water edges more strongly."
+msgstr "Fraction of basin depth used to warp the shoreline. 0 keeps the shore crisp; 1 makes it maximally winding."
 
 msgid "UI_WORLDGEN_LAKES_SHORE_WARP_SCALE"
 msgstr "Shore scale:"
@@ -902,6 +902,12 @@ msgstr "Mountain clearance:"
 
 msgid "UI_WORLDGEN_LAKES_MOUNTAIN_CLEARANCE_DESC"
 msgstr "Maximum mountain density allowed near a basin. Lower values push lakes farther away from massifs."
+
+msgid "UI_WORLDGEN_LAKES_CONNECTIVITY"
+msgstr "LAKE CONNECTIVITY"
+
+msgid "UI_WORLDGEN_LAKES_CONNECTIVITY_DESC"
+msgstr "Degree to which neighbouring basins fuse into connected lake systems. 0 — each basin stays separate; 1 — large unified bodies of water."
 
 msgid "UI_WORLDGEN_MOUNTAINS_DENSITY"
 msgstr "DENSITY INDEX"

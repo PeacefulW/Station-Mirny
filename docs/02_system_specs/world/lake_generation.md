@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.5
-last_updated: 2026-05-03
+version: 0.8
+last_updated: 2026-05-04
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -53,8 +53,14 @@ foundation channels, or any subsurface owner.
 Approved. V1 landed in four sequential iterations (`L1..L4`) tracked in
 `docs/04_spec_iteration/`. L1 substrate fields are in place. L2 bed terrain
 ids, `lake_flags`, and the V1 `WORLD_VERSION = 38` packet boundary are
-landed. Current `WORLD_VERSION = 39` includes the 2026-05-03 deterministic
-classification and basin-rim correction below. L3 water presentation is landed:
+landed. `WORLD_VERSION = 39` includes the 2026-05-03 deterministic
+classification and basin-rim correction below. `WORLD_VERSION = 40`
+includes the 2026-05-04 V2 / L5 basin-size and connectivity amendment below.
+`WORLD_VERSION = 41` includes the 2026-05-04 V2 / L6 cross-cell shoreline
+amendment below. Current `WORLD_VERSION = 42` includes the 2026-05-04 V2 / L7
+shore-warp normalisation, connectivity UI, and mandatory persistence amendment
+below.
+L3 water presentation is landed:
 `ChunkView` now owns the derived
 `WaterSurfaceLayer`, populated from `lake_flags` and current resolved
 `terrain_ids`, with light water over `TERRAIN_LAKE_BED_SHALLOW` and dark water
@@ -67,8 +73,37 @@ Amendment 2026-05-03: per-tile lake classification samples
 shore warp, because `lake_water_level_q16` is encoded in `foundation_height`
 units. The basin BFS contract also explicitly forbids a fixed
 `center_height + fill_depth` ceiling; the observed rim is dynamic. Because this
-changes canonical output for the same seed/settings, active new worlds use
+changed canonical output for the same seed/settings, that amendment introduced
 `WORLD_VERSION = 39`; `38` remains the Lake Generation L2 historical boundary.
+
+Amendment 2026-05-04 (V2 / L5): basin size now maps from
+`LakeGenSettings.scale` using the larger `lake_max_basin_cells` and
+`lake_min_basin_cells` formulas below, and `LakeGenSettings.connectivity`
+drives a deterministic basin-merge pass for neighbouring basins with similar
+rim heights. Because this changes canonical substrate output for the same
+`(seed, world_version, world_bounds, settings_packed)`, active new worlds use
+`WORLD_VERSION = 40`; `39` remains the previous lake-classification
+correction boundary.
+
+Amendment 2026-05-04 (V2 / L6): per-tile lake classification now reads the
+`3×3 neighbourhood` of coarse substrate cells around each tile and chooses
+one deterministic best applicable lake before running the existing
+`foundation_height + shore_warp < water_level` test. Spawn rejection uses the
+same neighbour selection and effective-elevation test. Because this changes
+canonical packet contents and spawn output for the same
+`(seed, world_version, world_bounds, settings_packed)`, active new worlds use
+`WORLD_VERSION = 41`; `40` remains the V2 / L5 basin-connectivity boundary.
+
+Amendment 2026-05-04 (V2 / L7): `shore_warp_amplitude` is now interpreted as
+a fraction of chosen basin depth rather than an absolute `foundation_height`
+offset. `fbm_shore` returns dimensionless FBM in `[-1.0, 1.0]`, and callers
+apply `fbm_unit * shore_warp_amplitude * basin_depth`. New worlds default
+`shore_warp_amplitude` to `0.4` in range `0.0..1.0`, the new-game panel exposes
+`LakeGenSettings.connectivity`, and `worldgen_settings.lakes.connectivity` is
+mandatory for `world_version >= 42`. Because this changes canonical packet and
+spawn output for the same `(seed, world_version, world_bounds,
+settings_packed)`, active new worlds use `WORLD_VERSION = 42`; `41` remains the
+V2 / L6 cross-cell shoreline boundary.
 
 ## Gameplay Goal
 
@@ -114,7 +149,7 @@ V1 is an **additive** extension of `world_runtime.md` + `mountain_generation.md`
   deterministically from the bed under the tile)
 - `LakeGenSettings` resource + `worldgen_settings.lakes` section in
   `world.json`
-- amended `settings_packed` with six new indices (`15..20`)
+- amended `settings_packed` with seven lake indices (`15..21`)
 - `WORLD_VERSION` bump from `37` to `38` when L2 lands gameplay terrain
   ids and the `lake_flags` packet field
 - amendment to the spawn contract from `world_foundation_v1.md`:
@@ -177,7 +212,7 @@ V1 does not include:
 | C++ compute or main-thread apply? | Lake basin solve, per-tile classification, bed atlas indices, and `lake_flags` are native (`WorldPrePass` + `WorldCore`). Water layer cell placement and per-chunk tile upload are main-thread apply, sliced through `FrameBudgetDispatcher.CATEGORY_STREAMING`. |
 | Dirty unit | `64`-tile coarse cell for substrate basin solve (re-computed only on world load); `32 x 32` chunk for canonical packet generation; one tile for excavation mutation; one chunk for water presentation refresh on publish/unload. |
 | Single owner | `WorldCore` (native) for substrate fields and packet output. `WorldDiffStore` for tile-override diff. `ChunkView` for water presentation layer. `world.json` for `worldgen_settings.lakes`. |
-| 10x / 100x scale path | Lake basin solve is bounded-radius local-min plus bounded BFS over the existing coarse grid (medium = `2048` nodes; large = `8192` nodes). No whole-tile pass. Per-tile path adds one bilinear `foundation_height` substrate sample + one FBM warp call inside the existing chunk packet loop. |
+| 10x / 100x scale path | Lake basin solve is bounded-radius local-min plus bounded BFS over the existing coarse grid (medium = `2048` nodes; large = `8192` nodes). No whole-tile pass. Per-tile path adds one bounded `3×3` coarse-cell lake lookup, one bilinear `foundation_height` substrate sample, one dimensionless FBM warp call, and one multiplication by basin depth inside the existing chunk packet loop. |
 | Main-thread blocking? | Forbidden during gameplay. Substrate stays on the world-load worker. Per-tile work stays inside the existing native packet generation. |
 | Hidden GDScript fallback? | Forbidden. Native `WorldPrePass` + `WorldCore` are required. Absence asserts under LAW 9. |
 | Could it become heavy later? | Bounded by the substrate budget and per-tile cost inside `ChunkPacketV1` generation. New consumers must read existing fields or justify a frozen-set extension via spec amendment. |
@@ -226,6 +261,9 @@ match every other substrate field.
   platforms);
 - the encoded float must be reproducible bit-for-bit from `(seed,
   world_version, world_bounds, settings_packed)`;
+- encoding is exactly `round(rim_height * 65536.0)` with no lake-local
+  clamp. `world_foundation_v1.md` owns the invariant that
+  `foundation_height` is already clamped to `[0, 1]`;
 - it represents the **rim** of the basin, i.e. the lowest point of the
   ring of cells through which water would spill out.
 
@@ -243,6 +281,14 @@ Inputs:
 - unpacked `LakeGenSettings` (see Settings below)
 - world bounds and `seed + world_version`
 
+Basin-shape mapping:
+
+- `d = scale / COARSE_CELL_SIZE_TILES`, where
+  `COARSE_CELL_SIZE_TILES = 64` from `world_prepass.h`
+- `lake_seed_search_radius = clamp(round(d / 2.5), 1, 8)`
+- `lake_max_basin_cells = clamp(round(d * d), 4, 4096)`
+- `lake_min_basin_cells = clamp(round(d * d / 16), 2, 64)`
+
 Algorithm:
 
 1. **Local-minimum candidate scan.** For each coarse node `(cx, cy)`:
@@ -250,6 +296,8 @@ Algorithm:
      `continent_mask = 0`
    - skip if `coarse_wall_density >= mountain_clearance` or
      `coarse_foot_density >= mountain_clearance * 1.5`
+   - apply `density` as a deterministic Bernoulli mask: skip if the
+     seed-derived `hash_unit(seed, world_version, cx, cy) > density`
    - mark as candidate if `foundation_height(cx, cy)` is the strict
      minimum within a square of radius `lake_seed_search_radius`
      (default `3`) on coarse grid, with X wrap-safe
@@ -262,11 +310,13 @@ Algorithm:
    `rim_height_so_far` is the lowest dynamically observed spill rim
    around the growing basin. A fixed `center_height + fill_depth`
    ceiling is forbidden because it is not a watershed rim.
-   Bound the BFS at `lake_max_basin_cells` (default `64`). If the BFS
+   Basins must not touch Y bounds: if 4-neighbour growth would leave
+   `[0, grid_height - 1]`, reject the candidate. X still wraps.
+   Bound the BFS at `lake_max_basin_cells`. If the BFS
    would exceed the bound, abort the candidate (likely an ocean-class
    depression).
 3. **Reject too small.** If the basin contains fewer than
-   `lake_min_basin_cells` (default `2`), drop the candidate.
+   `lake_min_basin_cells`, drop the candidate.
 4. **Reject mountain-touching.** If any cell on the basin's outer ring
    has `coarse_wall_density >= mountain_clearance` or
    `coarse_foot_density >= mountain_clearance * 1.5`, drop the
@@ -282,6 +332,20 @@ Algorithm:
    document the loop bound in code comments.
 7. **Write fields.** For every accepted basin cell, write `lake_id`
    and `lake_water_level_q16`. Other cells stay at `0`.
+8. **Deterministic basin merge.** After all initial basins are written,
+   compute neighbouring basin pairs from the completed `lake_id` array,
+   the `connectivity` setting, and the rim heights recorded during the
+   solve. Two basins `A` and `B` merge iff they touch on at least one
+   shared 4-neighbour edge of coarse cells, with X wrapping, and
+   `|rim_height_A - rim_height_B| < merge_height_tolerance`, where
+   `merge_height_tolerance = lerp(0.0, 0.06, connectivity)` in
+   `foundation_height` units. The surviving `lake_id` is the id whose
+   basin has the lower BFS root index (`y * grid_width + x`); the merged
+   `lake_water_level_q16` is `round(min(level_A, level_B) * 65536.0)`.
+   Candidate pairs are sorted by `(min_lake_id, max_lake_id)`, merged in
+   that order, and the pass repeats until a pass produces zero merges or
+   `merge_iteration_cap = 16` is reached. If `connectivity == 0.0`, the
+   merge pass is a no-op.
 
 Determinism rule: candidates and BFS order must be fully deterministic
 from the inputs above. No reliance on `randf()`, no reliance on
@@ -299,28 +363,38 @@ mountain resolution. For each tile `(lx, ly)` in the chunk:
 2. **Mountain wins.** If `mountain_id_per_tile[i] > 0`, the tile keeps
    the mountain pipeline output (`TERRAIN_MOUNTAIN_WALL` /
    `TERRAIN_MOUNTAIN_FOOT`). Lake fields stay at zero.
-3. Otherwise look up `(lake_id, lake_water_level_q16)` in the substrate
-   for the coarse cell containing `(wx, wy)`.
-4. If `lake_id == 0`, plains pipeline as today. `lake_flags = 0`.
-5. If `lake_id > 0`:
+3. Otherwise scan the `3×3 neighbourhood` of substrate coarse cells around
+   the tile's containing cell `(cx-1..cx+1, cy-1..cy+1)`. X wraps per
+   ADR-0002, and Y is clamped with `clamp_foundation_world_y`.
+4. Among neighbours with `lake_id > 0` and
+   `lake_water_level_q16 > 0`, pick the best applicable lake by:
+   highest `lake_water_level_q16`; ties broken by lowest `lake_id`; second
+   tie broken by deterministic neighbour priority
+   `(0,0), (0,-1), (1,0), (0,1), (-1,0), (-1,-1), (1,-1), (1,1), (-1,1)`.
+   If no neighbour qualifies, the tile keeps the plains pipeline and
+   `lake_flags = 0`.
+5. If a neighbour lake qualifies:
    - decode `water_level = lake_water_level_q16 / 65536.0`
    - compute `tile_foundation_height` by bilinear-sampling
      `WorldPrePass.foundation_height` at the tile centre
      (`wx + 0.5`, `wy + 0.5`) in coarse-grid coordinates, with X wrap
      and Y clamp matching the substrate snapshot. This is the same unit
      as `water_level`.
-   - compute `shore_warp = fbm_shore(wx, wy, seed, world_version,
-     shore_warp_scale) * shore_warp_amplitude`; this FBM uses a
-     dedicated salt distinct from mountain noise
+   - look up `basin_min_elevation` from the existing native `WorldCore`
+     lookup for the chosen `lake_id`; native code caches this per `lake_id`
+     to avoid recomputing per tile
+   - compute `basin_depth = max(epsilon, water_level - basin_min_elevation)`
+   - compute dimensionless `fbm_unit = clamp(fbm_shore(wx, wy, seed,
+     world_version, shore_warp_scale), -1.0, 1.0)`; this FBM uses a
+     dedicated salt distinct from mountain noise and applies no amplitude
+     internally
+   - compute `shore_warp = fbm_unit * shore_warp_amplitude * basin_depth`
    - compute `effective_elevation = tile_foundation_height + shore_warp`
    - if `effective_elevation >= water_level`, this is shore land (just
      above water): plains pipeline, `lake_flags = 0`
    - if `effective_elevation < water_level`:
      - `depth = water_level - effective_elevation`
-     - `relative_depth = depth / max(epsilon, water_level - basin_min_elevation)`
-       where `basin_min_elevation` comes from the substrate snapshot
-       (smallest `foundation_height` cell inside the basin); native code
-       caches this per `lake_id` to avoid recomputing per tile
+     - `relative_depth = depth / basin_depth`
      - `terrain_id = relative_depth >= deep_threshold ?
        TERRAIN_LAKE_BED_DEEP : TERRAIN_LAKE_BED_SHALLOW`
      - `walkable = (terrain_id == TERRAIN_LAKE_BED_SHALLOW) ? 1 : 0`
@@ -329,12 +403,19 @@ mountain resolution. For each tile `(lx, ly)` in the chunk:
    `TERRAIN_LAKE_BED_DEEP` use `autotile_47` against same-class
    neighbours, exactly the existing pattern for plains terrain.
 
-`fbm_shore` rule: low-frequency FBM (2–3 octaves) with input scaled by
-`1 / shore_warp_scale`; salt is `seed XOR LAKE_SHORE_SALT`. Output range
-is `[-shore_warp_amplitude, +shore_warp_amplitude]`.
+Lake classification is only allowed after the tile's own mountain solve has
+resolved to plains. A tile whose own mountain branch resolves to wall or foot
+must not be converted to lake terrain by a neighbouring basin; mountain-wins
+is the hard tiebreaker.
 
-This per-tile path adds at most **one substrate read + one FBM call**
-per non-mountain tile. Mountain tiles skip the entire branch.
+`fbm_shore` rule: low-frequency FBM (2 octaves) with input scaled by
+`1 / shore_warp_scale`; salt is `seed XOR LAKE_SHORE_SALT`. Output range is
+dimensionless `[-1.0, +1.0]`. Amplitude is applied only by the caller as a
+fraction of the chosen basin depth.
+
+This per-tile path adds at most **one `3×3` substrate lookup + one bilinear
+sample + one FBM call + one multiplication by basin depth** per non-mountain
+tile. Mountain tiles skip the entire branch.
 
 ### `lake_flags` Bit Layout
 
@@ -370,12 +451,13 @@ ranges:
 
 | Field | Range | Default | Meaning |
 |---|---|---|---|
-| `density` | `0.0..1.0` | `0.35` | Acceptance threshold scaling for lake-candidate basins; higher = more accepted candidates per area. |
+| `density` | `0.0..1.0` | `0.35` | Deterministic Bernoulli mask over seed-derived candidate hashes; higher = more accepted candidates per area. |
 | `scale` | `64.0..2048.0` | `512.0` | Target average basin diameter in tiles. Drives `lake_seed_search_radius`, `lake_min_basin_cells`, `lake_max_basin_cells` via fixed monotonic mapping documented in `lake_field.cpp`. |
-| `shore_warp_amplitude` | `0.0..2.0` | `0.8` | Per-tile shoreline FBM amplitude in `foundation_height` units. |
+| `shore_warp_amplitude` | `0.0..1.0` | `0.4` | Доля глубины бассейна, на которую шумом смещается береговая линия. 0 — берег чёткий, 1 — берег максимально извилистый. |
 | `shore_warp_scale` | `8.0..64.0` | `16.0` | Per-tile shoreline FBM wavelength in tiles. |
 | `deep_threshold` | `0.05..0.5` | `0.18` | Relative depth (fraction of basin max depth) above which bed becomes `LAKE_BED_DEEP`. |
 | `mountain_clearance` | `0.0..0.5` | `0.10` | Minimum permitted `coarse_wall_density` for a basin cell. Above this the cell is treated as mountain-touching and the basin is rejected. Foot density uses `mountain_clearance * 1.5`. |
+| `connectivity` | `0.0..1.0` | `0.4` | Лимит схожести соседних бассейнов для слияния. 0 — каждое озеро своё; 1 — крупные связные системы. |
 
 Defaults live in `data/balance/lake_gen_settings.tres`. They apply only
 to new worlds; existing saves always load the embedded copy from
@@ -391,19 +473,19 @@ to new worlds; existing saves always load the embedded copy from
 | `18` | `SETTINGS_PACKED_LAYOUT_LAKE_SHORE_WARP_SCALE` | `shore_warp_scale` |
 | `19` | `SETTINGS_PACKED_LAYOUT_LAKE_DEEP_THRESHOLD` | `deep_threshold` |
 | `20` | `SETTINGS_PACKED_LAYOUT_LAKE_MOUNTAIN_CLEARANCE` | `mountain_clearance` |
-| `21` | `SETTINGS_PACKED_LAYOUT_FIELD_COUNT` | total length, `21` |
+| `21` | `SETTINGS_PACKED_LAYOUT_LAKE_CONNECTIVITY` | `connectivity` |
+| `22` | `SETTINGS_PACKED_LAYOUT_FIELD_COUNT` | total length, `22` |
 
-Active V1 lake path requires `world_version >= 38` and exactly `21`
-packed values. `world_version <= 37` keeps the legacy non-lake field
-count and is a historical algorithm boundary; the active pre-alpha
-loader rejects non-current `world_version`.
+Current active V1 lake path requires `world_version >= 42` and exactly `22`
+packed values. `world_version <= 41` keeps historical algorithm layouts and is
+rejected by the active pre-alpha loader.
 
 `world.json` shape:
 
 ```json
 {
   "world_seed": 131071,
-  "world_version": 39,
+  "world_version": 42,
   "worldgen_settings": {
     "world_bounds": { "...": "..." },
     "foundation":   { "...": "..." },
@@ -411,14 +493,18 @@ loader rejects non-current `world_version`.
     "lakes": {
       "density": 0.35,
       "scale": 512.0,
-      "shore_warp_amplitude": 0.8,
+      "shore_warp_amplitude": 0.4,
       "shore_warp_scale": 16.0,
       "deep_threshold": 0.18,
-      "mountain_clearance": 0.10
+      "mountain_clearance": 0.10,
+      "connectivity": 0.4
     }
   }
 }
 ```
+
+For `world_version >= 42`, all seven `worldgen_settings.lakes` fields above are
+mandatory, including `connectivity`.
 
 ## Runtime Architecture
 
@@ -516,6 +602,8 @@ the embedded save copy rather than the repository default resource.
   for that world
 - missing `worldgen_settings.lakes` for current `world_version` fails
   load, exactly like missing mountain or foundation settings
+- missing `worldgen_settings.lakes.connectivity` for `world_version >= 42`
+  fails load before chunk diffs are applied
 - editing `data/balance/lake_gen_settings.tres` after a save exists
   must not retroactively change that save
 
@@ -537,11 +625,12 @@ does today: one `(local_x, local_y, terrain_id, walkable)` entry.
 landed, because canonical packet output (`terrain_ids`, `walkable_flags`,
 `lake_flags`) changed for the same `(seed, coord)`.
 
-The current active value is `39`. It advances from `38` because the
-2026-05-03 amendment changes deterministic lake classification and basin
-rim solve output for the same `(seed, coord, settings)`.
+The current active value is `42`. It advances from `41` because V2 / L7
+normalises shoreline FBM by chosen basin depth and makes
+`worldgen_settings.lakes.connectivity` mandatory for the same
+`(seed, world_bounds, settings_packed)`.
 
-`world_version <= 38` is a historical algorithm boundary and is rejected
+`world_version <= 41` is a historical algorithm boundary and is rejected
 by the active pre-alpha loader.
 
 `world_version` remains a plain integer; it is **not** a hash of
@@ -562,7 +651,7 @@ runtime overlays will introduce their own signals in their own spec.
 
 | Operation | Class | Dirty unit | Budget |
 |---|---|---|---|
-| Lake basin solve | boot/load (native worker) | coarse `64`-tile grid, bounded local-min + bounded BFS | inside the existing `WorldPrePass` `≤ 900 ms` budget for the largest preset; lake step alone target `≤ 100 ms` on `large` |
+| Lake basin solve + merge | boot/load (native worker) | coarse `64`-tile grid, bounded local-min + bounded BFS + deterministic merge cap `16` | inside the existing `WorldPrePass` `≤ 900 ms` budget for the largest preset; lake step target `≤ 120 ms` on `large` |
 | Per-tile classification inside chunk packet | background (native worker) | `32 x 32` chunk | 0 additional native calls beyond one bilinear substrate sample + one FBM call per non-mountain tile; median chunk packet time may grow at most `1 ms` on reference hardware |
 | Bed atlas resolution (autotile-47) | background (native worker) | one tile | reuses existing autotile path |
 | Water layer population | background apply (sliced) | one chunk | shares `CATEGORY_STREAMING` budget; no separate budget |
@@ -593,8 +682,9 @@ runtime overlays will introduce their own signals in their own spec.
 - [ ] same `(seed, world_version, world_bounds, settings_packed)`
       yields identical `lake_id`, `lake_water_level_q16`, `terrain_ids`,
       `walkable_flags`, `lake_flags` across sessions and hosts
-- [ ] each of the six `LakeGenSettings` fields produces a measurable
+- [ ] each of the seven `LakeGenSettings` fields produces a measurable
       and visible change when varied alone
+- [ ] varying `connectivity` produces a measurable difference at fixed seed
 - [ ] `world_version` bump produces a reproducibly different output
 
 ### Lake Geometry
@@ -609,6 +699,12 @@ runtime overlays will introduce their own signals in their own spec.
       in V1)
 - [ ] shoreline FBM warp produces visibly organic edges, not coarse
       grid-aligned edges
+- [ ] lake outlines do not snap to coarse-cell boundaries; visual
+      inspection at the new-game preview shows organic edges across
+      coarse-cell seams
+- [ ] no tile in the `3×3 neighbourhood` of any basin cell becomes
+      water unless `bilinear(foundation_height) + shore_warp <
+      chosen_water_level`
 
 ### Bed Classification
 
@@ -658,6 +754,9 @@ runtime overlays will introduce their own signals in their own spec.
       applied
 - [ ] editing the repository's `lake_gen_settings.tres` does not change
       an existing save's lake layout
+- [ ] loading a current-version save without
+      `worldgen_settings.lakes.connectivity` fails loudly before chunk
+      diffs are applied
 - [ ] no `lake_*` field appears in any `chunks/*.json`
 
 ### Performance
@@ -784,10 +883,18 @@ live in `docs/04_spec_iteration/`:
   frozen substrate field set with `lake_id` and `lake_water_level_q16`
   in the same task as L1
 - `docs/02_system_specs/meta/packet_schemas.md` — add `lake_flags`
-  packet field and document `WORLD_VERSION = 38` in the same task as L2
+  packet field and document `WORLD_VERSION = 38` in the same task as L2;
+  document the `WORLD_VERSION = 40` algorithm boundary when V2 / L5 lands;
+  document the `WORLD_VERSION = 41` cross-cell shoreline boundary when V2 /
+  L6 lands; document the `WORLD_VERSION = 42` shore-warp normalisation
+  boundary when V2 / L7 lands
 - `docs/02_system_specs/meta/save_and_persistence.md` — add the
   `WORLD_VERSION = 38` boundary in the same task as L2; record
-  `worldgen_settings.lakes` as mandatory when L4 closes
+  `worldgen_settings.lakes` as mandatory when L4 closes; record
+  `worldgen_settings.lakes.connectivity` and the `WORLD_VERSION = 40`
+  boundary when V2 / L5 lands; record the `WORLD_VERSION = 41` algorithm
+  boundary when V2 / L6 lands; record the `WORLD_VERSION = 42` persistence
+  boundary when V2 / L7 lands
 - `docs/02_system_specs/meta/system_api.md` — only if any new public
   reading surface is introduced (no by default; spawn API surface
   unchanged in shape)
