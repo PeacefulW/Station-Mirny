@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 0.6
-last_updated: 2026-05-03
+version: 0.7
+last_updated: 2026-05-05
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -86,7 +86,7 @@ V0 explicitly does not include:
 | Deterministic? | Yes, base packet is pure `f(seed, coord, world_version)` |
 | Must work on unloaded chunks? | Yes, diff store remains authoritative when a chunk is not loaded |
 | C++ compute or main-thread apply? | Generation in C++; publish/apply on main thread only |
-| Dirty unit | `32 x 32` chunk for generation, one tile for authoritative mutation, bounded local visual patch for adjacency-dependent terrain presentation, bounded cell batches for publish |
+| Dirty unit | `16 x 16` chunk for generation, one tile for authoritative mutation, bounded local visual patch for adjacency-dependent terrain presentation, bounded cell batches for publish |
 | Single owner | `WorldCore` owns canonical base output; `WorldDiffStore` owns persisted overrides; `ChunkView` owns only presentation |
 | 10x / 100x scale path | More chunks increase queued packet generation and sliced publish work; they do not expand the interactive mutation path |
 | Main-thread blocking risk | Allowed only for bounded apply slices; heavy generation stays off-thread |
@@ -98,9 +98,9 @@ V0 explicitly does not include:
 
 ### Chunk Geometry
 
-- one world tile = `32 px`
-- one chunk = `32 x 32` tiles
-- chunk-local cell coordinates are `0..31` on each axis
+- one world tile = `64 px`
+- one chunk = `16 x 16` tiles
+- chunk-local cell coordinates are `0..15` on each axis
 - world X wrap follows ADR-0002
 - world Y does not wrap
 
@@ -114,10 +114,10 @@ Required fields:
 |---|---|---|
 | `chunk_coord` | `Vector2i` | canonical chunk coordinate |
 | `world_seed` | `int` | copied into the packet for validation/debug |
-| `world_version` | `int` | first V0 runtime value starts at `1` |
-| `terrain_ids` | `PackedInt32Array` | length `1024`, one terrain id per local tile |
-| `terrain_atlas_indices` | `PackedInt32Array` | length `1024`, derived presentation atlas index per local tile |
-| `walkable_flags` | `PackedByteArray` | length `1024`, `1 = walkable`, `0 = blocked` |
+| `world_version` | `int` | first V0 runtime value starts at `1`; current active contract is `44` |
+| `terrain_ids` | `PackedInt32Array` | length `256`, one terrain id per local tile |
+| `terrain_atlas_indices` | `PackedInt32Array` | length `256`, derived presentation atlas index per local tile |
+| `walkable_flags` | `PackedByteArray` | length `256`, `1 = walkable`, `0 = blocked` |
 
 `terrain_atlas_indices` rules:
 - it is derived presentation metadata, not authoritative terrain state

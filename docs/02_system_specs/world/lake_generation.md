@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.0
-last_updated: 2026-05-04
+version: 1.1
+last_updated: 2026-05-05
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -57,9 +57,10 @@ landed. `WORLD_VERSION = 39` includes the 2026-05-03 deterministic
 classification and basin-rim correction below. `WORLD_VERSION = 40`
 includes the 2026-05-04 V2 / L5 basin-size and connectivity amendment below.
 `WORLD_VERSION = 41` includes the 2026-05-04 V2 / L6 cross-cell shoreline
-amendment below. Current `WORLD_VERSION = 42` includes the 2026-05-04 V2 / L7
-shore-warp normalisation, connectivity UI, and mandatory persistence amendment
-below.
+amendment below. `WORLD_VERSION = 42` includes the 2026-05-04 V2 / L7
+shore-warp normalisation, connectivity UI, and mandatory persistence
+amendment below. `WORLD_VERSION = 43` includes the V3 / L8 lake substrate
+boundary, and current `WORLD_VERSION = 44` carries the grid-contract boundary.
 L3 water presentation is landed:
 `ChunkView` now owns the derived
 `WaterSurfaceLayer`, populated from `lake_flags` and current resolved
@@ -127,6 +128,10 @@ substrate fields, packet contents, terrain ids, walkable flags, lake
 flags, and spawn output for the same `(seed, world_version, world_bounds,
 settings_packed)`, active new worlds use `WORLD_VERSION = 43`; `42`
 remains the historical V2 / L7 shore-warp normalisation boundary.
+Amendment 2026-05-05 (grid-contract boundary): active new worlds now use
+`WORLD_VERSION = 44` for the `64 px` tile / `16 x 16` chunk contract.
+Lake algorithms from `43` are unchanged, but packet arrays now contain
+`256` entries and chunk-diff sharding follows the new chunk footprint.
 
 ## Gameplay Goal
 
@@ -233,7 +238,7 @@ V1 does not include:
 | Deterministic? | Yes. `lake_id`, `lake_water_level_q16`, bed terrain ids, and `lake_flags` are pure `f(seed, world_version, world_bounds, settings_packed)`. |
 | Must work on unloaded chunks? | Yes. Canonical lake data is recomputable from base + diff on demand. |
 | C++ compute or main-thread apply? | Lake basin solve, per-tile classification, bed atlas indices, and `lake_flags` are native (`WorldPrePass` + `WorldCore`). Water layer cell placement and per-chunk tile upload are main-thread apply, sliced through `FrameBudgetDispatcher.CATEGORY_STREAMING`. |
-| Dirty unit | `64`-tile coarse cell for substrate basin solve (re-computed only on world load); `32 x 32` chunk for canonical packet generation; one tile for excavation mutation; one chunk for water presentation refresh on publish/unload. |
+| Dirty unit | `64`-tile coarse cell for substrate basin solve (re-computed only on world load); `16 x 16` chunk for canonical packet generation; one tile for excavation mutation; one chunk for water presentation refresh on publish/unload. |
 | Single owner | `WorldCore` (native) for substrate fields and packet output. `WorldDiffStore` for tile-override diff. `ChunkView` for water presentation layer. `world.json` for `worldgen_settings.lakes`. |
 | 10x / 100x scale path | For `world_version >= 43`, lake substrate solve is one eligible-height sort plus one union-find connected-component pass over the existing coarse grid (medium = `2048` nodes; large = `8192` nodes). For `world_version <= 42`, the historical path is bounded-radius local-min plus bounded BFS. No whole-tile pass. Per-tile path adds one bounded `3×3` coarse-cell lake lookup, one bilinear `foundation_height` substrate sample, one dimensionless FBM warp call, and one multiplication by basin depth inside the existing chunk packet loop. |
 | Main-thread blocking? | Forbidden during gameplay. Substrate stays on the world-load worker. Per-tile work stays inside the existing native packet generation. |
@@ -245,7 +250,8 @@ V1 does not include:
 
 ### Chunk Geometry
 
-Unchanged: `32 px` tile, `32 x 32` chunk, X wraps per ADR-0002, Y bounded.
+Unchanged relative to the active grid contract: `64 px` tile, `16 x 16` chunk,
+X wraps per ADR-0002, Y bounded.
 
 ### Terrain IDs
 
@@ -638,7 +644,7 @@ pre-`world_version = 43` saves.
 
 ### `lake_flags` Bit Layout
 
-`lake_flags` is a `PackedByteArray` of length `1024` per chunk packet.
+`lake_flags` is a `PackedByteArray` of length `256` per chunk packet.
 
 | Bit | Name | Meaning |
 |---|---|---|
@@ -654,7 +660,7 @@ pre-`world_version = 43` saves.
 
 | Field | Type | Length | Notes |
 |---|---|---|---|
-| `lake_flags` | `PackedByteArray` | `1024` | Per-tile bit field; bit `0` is `is_water_present`. |
+| `lake_flags` | `PackedByteArray` | `256` | Per-tile bit field; bit `0` is `is_water_present`. |
 
 Forbidden V1 packet fields:
 
@@ -695,9 +701,10 @@ to new worlds; existing saves always load the embedded copy from
 | `21` | `SETTINGS_PACKED_LAYOUT_LAKE_CONNECTIVITY` | `connectivity` |
 | `22` | `SETTINGS_PACKED_LAYOUT_FIELD_COUNT` | total length, `22` |
 
-Current active lake path requires `world_version >= 43` (V3 / L8) and
-exactly `22` packed values. `world_version <= 42` keeps historical
-algorithm layouts and is rejected by the active pre-alpha loader.
+Current active lake path requires `world_version >= 44` (grid-contract
+boundary on top of V3 / L8) and
+exactly `22` packed values. `world_version <= 43` keeps historical
+algorithm / grid layouts and is rejected by the active pre-alpha loader.
 `settings_packed` shape and length do not change at the V3 / L8 boundary;
 only the algorithmic interpretation of `density`, `scale`, and
 `connectivity` changes.
@@ -707,7 +714,7 @@ only the algorithmic interpretation of `density`, `scale`, and
 ```json
 {
   "world_seed": 131071,
-  "world_version": 42,
+  "world_version": 44,
   "worldgen_settings": {
     "world_bounds": { "...": "..." },
     "foundation":   { "...": "..." },
@@ -852,12 +859,11 @@ does today: one `(local_x, local_y, terrain_id, walkable)` entry.
 landed, because canonical packet output (`terrain_ids`, `walkable_flags`,
 `lake_flags`) changed for the same `(seed, coord)`.
 
-The current active value is `42`. It advances from `41` because V2 / L7
-normalises shoreline FBM by chosen basin depth and makes
-`worldgen_settings.lakes.connectivity` mandatory for the same
-`(seed, world_bounds, settings_packed)`.
+The current active value is `44`. It advances from `43` because the
+grid contract changes to `64 px` tiles and `16 x 16` chunks, changing packet
+length and chunk-diff sharding without changing the lake algorithm itself.
 
-`world_version <= 41` is a historical algorithm boundary and is rejected
+`world_version <= 43` is a historical algorithm / grid boundary and is rejected
 by the active pre-alpha loader.
 
 `world_version` remains a plain integer; it is **not** a hash of
@@ -879,7 +885,7 @@ runtime overlays will introduce their own signals in their own spec.
 | Operation | Class | Dirty unit | Budget |
 |---|---|---|---|
 | Lake substrate solve | boot/load (native worker) | coarse `64`-tile grid; for `world_version >= 43` a single percentile-threshold pass plus one deterministic union-find face-connected-component pass; for `world_version <= 42` bounded local-min + bounded BFS + deterministic merge cap `16` | inside the existing `WorldPrePass` `≤ 900 ms` budget for the largest preset; lake step target `≤ 120 ms` on `large` |
-| Per-tile classification inside chunk packet | background (native worker) | `32 x 32` chunk | 0 additional native calls beyond one bilinear substrate sample + one FBM call per non-mountain tile; median chunk packet time may grow at most `1 ms` on reference hardware |
+| Per-tile classification inside chunk packet | background (native worker) | `16 x 16` chunk | 0 additional native calls beyond one bilinear substrate sample + one FBM call per non-mountain tile; median chunk packet time may grow at most `1 ms` on reference hardware |
 | Bed atlas resolution (autotile-47) | background (native worker) | one tile | reuses existing autotile path |
 | Ground bank atlas resolution (autotile-47) | background (native worker) / local runtime patch | one tile plus adjacent loaded patch | checks shallow/deep lake-bed neighbours only; does not inspect mountain neighbours |
 | Water layer population | background apply (sliced) | one chunk | shares `CATEGORY_STREAMING` budget; no separate budget |

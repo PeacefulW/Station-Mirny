@@ -1,7 +1,7 @@
 class_name ZStairs
 extends Area2D
 
-const TILE_SIZE_PX: int = 32
+const TILE_SIZE_PX: int = 64
 
 ## Лестница/люк для перехода между z-уровнями.
 ## Игрок наступает → автоматический переход с фейдом.

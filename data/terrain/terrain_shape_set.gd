@@ -10,7 +10,7 @@ extends Resource
 @export var shape_normal_atlas: Texture2D = null
 
 @export_group("Layout")
-@export_range(1, 4096, 1) var tile_size_px: int = 32
+@export_range(1, 4096, 1) var tile_size_px: int = 64
 @export_range(1, 1024, 1) var case_count: int = 1
 @export_range(1, 1024, 1) var variant_count: int = 1
 

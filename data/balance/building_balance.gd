@@ -5,7 +5,7 @@ extends Resource
 
 @export_group("Сетка")
 ## Размер ячейки сетки в пикселях.
-@export var grid_size: int = 32
+@export var grid_size: int = 64
 
 @export_group("Стены")
 @export var wall_health: float = 50.0

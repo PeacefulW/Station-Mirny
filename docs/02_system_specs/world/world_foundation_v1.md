@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.9
-last_updated: 2026-05-04
+version: 1.0
+last_updated: 2026-05-05
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -191,7 +191,7 @@ Reintroducing water generation requires a new approved spec and
 - `world_runtime.md` for chunk packet boundary, `WorldCore` ownership,
   streaming discipline, and `WorldStreamer` role. V1 introduces one
   amendment to its spawn section (see Spawn Contract Amendment below).
-- `world_grid_rebuild_foundation.md` for `32 px` tile / `32 × 32` chunk
+- `world_grid_rebuild_foundation.md` for `64 px` tile / `16 × 16` chunk
   contract.
 - `mountain_generation.md` for mountain field and `mountain_id`
   identity; V1 adds one consumer contract (`coarse_wall_density` /
@@ -392,7 +392,7 @@ biome truth, or save data.
 | Spec | V1 change |
 |---|---|
 | `world_runtime.md` | No packet-shape change. Current chunk generation does not read the substrate; spawn resolution and overview preview use `WorldPrePass`. Plus a targeted Spawn Contract amendment (below). |
-| `world_grid_rebuild_foundation.md` | Unchanged; V1 stays at `32 px` / `32 × 32`. |
+| `world_grid_rebuild_foundation.md` | Updated by the 2026-05-05 grid contract; V1 now inherits `64 px` / `16 × 16`. |
 | `mountain_generation.md` | Unchanged ownership. V1 adds the `coarse_wall_density` / `coarse_foot_density` aggregation as a read of the mountain field, owned by the substrate. Mountain identity and excavation rules are untouched. |
 | `WORLD_GENERATION_PREVIEW_ARCHITECTURE.md` | Stays valid for progressive detail preview. V1 adds the overview mode and a worker-side spawn resolution step before progressive preview chunks are queued. |
 
@@ -507,7 +507,7 @@ world_bounds = {
 
 Rules:
 
-- `width_tiles % 32 == 0` and `height_tiles % 32 == 0` (alignment with
+- `width_tiles % 16 == 0` and `height_tiles % 16 == 0` (alignment with
   the rebuild chunk contract).
 - `width_tiles % foundation_coarse_cell_size_tiles == 0` and
   `height_tiles % foundation_coarse_cell_size_tiles == 0`
@@ -735,11 +735,14 @@ for basin-depth shoreline normalisation and mandatory lake connectivity
 persistence. This changes canonical lake packet and spawn output over the same
 `WorldPrePass` fields and does not add substrate fields or change the spawn
 result dictionary shape.
-Lake Generation V3 / L8 advances current new worlds to `world_version = 43`
+Lake Generation V3 / L8 advances new worlds to `world_version = 43`
 for the elevation-threshold mask plus face-connected-component lake substrate
 solve. This changes canonical substrate fields, packet contents, and spawn
 output over the same `WorldPrePass` fields; `worldgen_settings.lakes.connectivity`
 remains mandatory but is a canonical no-op for `world_version >= 43`.
+The 2026-05-05 grid-contract boundary advances current new worlds to
+`world_version = 44` for `64 px` tiles, `16 x 16` chunks, and `256`-entry
+chunk packet arrays; it does not add new substrate fields.
 
 ## Performance Class
 

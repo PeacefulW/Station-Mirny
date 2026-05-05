@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.7
-last_updated: 2026-05-04
+version: 1.8
+last_updated: 2026-05-05
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -58,7 +58,7 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current world generation extension:
-- `world.json` now records `world_version: 43` for the current finite-world
+- `world.json` now records `world_version: 44` for the current finite-world
   foundation baseline with `64`-tile substrate cells, native high-resolution
   overview, Lake Generation L2 packet output (`TERRAIN_LAKE_BED_SHALLOW`,
   `TERRAIN_LAKE_BED_DEEP`, and `lake_flags`), and the 2026-05-03
@@ -67,7 +67,8 @@ Current world generation extension:
   2026-05-04 V2 / L6 cross-cell shoreline boundary plus the 2026-05-04
   V2 / L7 shore-warp normalisation and mandatory connectivity persistence
   boundary plus the 2026-05-04 V3 / L8 threshold-mask and connected-component
-  lake substrate boundary
+  lake substrate boundary plus the 2026-05-05 grid-contract boundary
+  (`64 px` tile, `16 x 16` chunk, `256`-entry chunk packet arrays)
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - pre-alpha save compatibility policy: the active load path accepts only
@@ -102,11 +103,15 @@ Current world generation extension:
 - `world_version == 42` is the V2 / L7 boundary for shore-warp
   normalisation and final V2 lake persistence. Save shape now requires
   `worldgen_settings.lakes.connectivity` instead of treating it as optional.
-- `world_version == 43` is the current active boundary for V3 / L8
+- `world_version == 43` is the V3 / L8 boundary for
   threshold-mask and connected-component lake substrate output.
   `worldgen_settings.lakes.connectivity` remains mandatory in the save shape
   but is a no-op for canonical lake output.
-- `WorldRuntimeConstants.WORLD_VERSION` is therefore `43` for current saves;
+- `world_version == 44` is the current active boundary for the `64 px` /
+  `16 x 16` grid contract. It changes chunk packet length and chunk-diff
+  sharding, so previous `32 px` / `32 x 32` pre-alpha saves are rejected before
+  chunk diffs are applied.
+- `WorldRuntimeConstants.WORLD_VERSION` is therefore `44` for current saves;
   `38` remains the historical L2 packet boundary and `42` remains the
   historical L7 shore-warp boundary.
 - `worldgen_settings.lakes` stores the embedded per-save lake input copy
@@ -147,7 +152,7 @@ Confirmed `world.json` shape in the current mountain code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 43,
+  "world_version": 44,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,

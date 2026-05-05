@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.0
-last_updated: 2026-05-04
+version: 1.1
+last_updated: 2026-05-05
 related_docs:
   - ../README.md
   - system_api.md
@@ -224,11 +224,15 @@ Current code notes:
   boundary: `shore_warp_amplitude` is applied as a fraction of chosen basin
   depth, and `worldgen_settings.lakes.connectivity` is mandatory in
   current-version saves. `ChunkPacketV1` shape is unchanged.
-- `world_version == 43` is the current V3 / L8 lake-generation algorithm
+- `world_version == 43` is the V3 / L8 lake-generation algorithm
   boundary: lake substrate fields are produced by an elevation-threshold mask
   plus face-connected-component labeling; `LakeGenSettings.connectivity`
   remains in `settings_packed[21]` but is a no-op for canonical output.
   `ChunkPacketV1` shape is unchanged.
+- `world_version == 44` is the current grid-contract boundary: one world tile
+  is `64 px`, one chunk is `16 x 16` tiles, and chunk packet arrays contain
+  `256` entries. This changes chunk coordinate sharding and therefore rejects
+  previous `32 px` / `32 x 32` pre-alpha saves before chunk diffs are applied.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded
@@ -458,9 +462,9 @@ subset carried by each element of `WorldCore.generate_chunk_packets_batch(...)`.
   "chunk_coord": Vector2i,
   "world_seed": int,
   "world_version": int,
-  "terrain_ids": PackedInt32Array,           # length 1024
-  "terrain_atlas_indices": PackedInt32Array, # length 1024
-  "walkable_flags": PackedByteArray,         # length 1024
+  "terrain_ids": PackedInt32Array,           # length 256
+  "terrain_atlas_indices": PackedInt32Array, # length 256
+  "walkable_flags": PackedByteArray,         # length 256
 }
 ```
 
@@ -485,14 +489,14 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current foundation runtime value is `43` |
-| `terrain_ids` | `PackedInt32Array` | 1024 | Base terrain ids for the gameplay layer |
-| `terrain_atlas_indices` | `PackedInt32Array` | 1024 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve, and plains ground opens `autotile_47` bank edges only against shallow/deep lake-bed neighbours |
-| `walkable_flags` | `PackedByteArray` | 1024 | `1 = walkable`, `0 = blocked` |
-| `lake_flags` | `PackedByteArray` | 1024 | Per-tile lake bit field; bit `0` is `is_water_present` |
-| `mountain_id_per_tile` | `PackedInt32Array` | 1024 | `0 = no named mountain`; non-zero = deterministic `mountain_id` |
-| `mountain_flags` | `PackedByteArray` | 1024 | Per-tile mountain bit layout documented below |
-| `mountain_atlas_indices` | `PackedInt32Array` | 1024 | Roof-ready atlas indices derived from `mountain_id` adjacency via `autotile_47` |
+| `world_version` | `int` | — | Current foundation runtime value is `44` |
+| `terrain_ids` | `PackedInt32Array` | 256 | Base terrain ids for the gameplay layer |
+| `terrain_atlas_indices` | `PackedInt32Array` | 256 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve, and plains ground opens `autotile_47` bank edges only against shallow/deep lake-bed neighbours |
+| `walkable_flags` | `PackedByteArray` | 256 | `1 = walkable`, `0 = blocked` |
+| `lake_flags` | `PackedByteArray` | 256 | Per-tile lake bit field; bit `0` is `is_water_present` |
+| `mountain_id_per_tile` | `PackedInt32Array` | 256 | `0 = no named mountain`; non-zero = deterministic `mountain_id` |
+| `mountain_flags` | `PackedByteArray` | 256 | Per-tile mountain bit layout documented below |
+| `mountain_atlas_indices` | `PackedInt32Array` | 256 | Roof-ready atlas indices derived from `mountain_id` adjacency via `autotile_47` |
 
 `mountain_flags` bit layout:
 

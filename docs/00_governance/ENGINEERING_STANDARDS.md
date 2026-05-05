@@ -4,9 +4,9 @@ doc_type: governance
 status: approved
 owner: engineering
 source_of_truth: true
-version: 3.2
+version: 3.3
 lang: en
-last_updated: 2026-04-18
+last_updated: 2026-05-05
 depends_on:
   - WORKFLOW.md
 related_docs:
@@ -300,7 +300,7 @@ layers.
 | System | Dirty unit |
 |---|---|
 | Terrain redraw | `16x16` subchunk |
-| World generation | `32x32` chunk |
+| World generation | `16x16` chunk |
 | Flora rebuild | chunk packet |
 | Ice / snow overlay | tile block / subchunk |
 | Save diff | tile / object mutation |

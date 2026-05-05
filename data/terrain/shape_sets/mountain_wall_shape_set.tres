@@ -1,8 +1,8 @@
 [gd_resource type="Resource" script_class="TerrainShapeSet" load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://data/terrain/terrain_shape_set.gd" id="1"]
-[ext_resource type="Texture2D" path="res://assets/sprites/terrain/mountain_wall_mask_atlas.png" id="2"]
-[ext_resource type="Texture2D" path="res://assets/sprites/terrain/mountain_wall_shape_normal_atlas.png" id="3"]
+[ext_resource type="Texture2D" path="res://assets/sprites/terrain/mountain_wall_mask_atlas_64.png" id="2"]
+[ext_resource type="Texture2D" path="res://assets/sprites/terrain/mountain_wall_shape_normal_atlas_64.png" id="3"]
 
 [resource]
 script = ExtResource("1")
@@ -10,6 +10,6 @@ id = &"mountain:wall_shape"
 topology_family_id = &"autotile_47"
 mask_atlas = ExtResource("2")
 shape_normal_atlas = ExtResource("3")
-tile_size_px = 32
+tile_size_px = 64
 case_count = 47
 variant_count = 6

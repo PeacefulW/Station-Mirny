@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.0
-last_updated: 2026-04-18
+version: 2.0
+last_updated: 2026-05-05
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -34,12 +34,16 @@ operate on tighter local units.
 ## Core statement
 
 The rebuild contract is:
-- one world tile = `32 px`
-- one chunk = `32 x 32` tiles
+- one world tile = `64 px`
+- one chunk = `16 x 16` tiles
 
 World-facing systems must derive tile/world conversion, building alignment,
 visibility radii, chunk addressing, and save sharding from this contract instead of
-carrying legacy `64 px`, `64 x 64`, or `12 px` assumptions.
+carrying legacy `32 px`, `64 x 64`, or `12 px` assumptions.
+
+The `16 x 16` chunk footprint is intentional: at `64 px` tiles it preserves the
+previous `1024 x 1024 px` chunk presentation footprint while cutting one chunk
+packet / publish unit from `1024` cells to `256` cells.
 
 ## Scope
 
@@ -78,24 +82,26 @@ This spec does not by itself:
 ### Tile contract
 
 - Logical world coordinates remain tile-based (`Vector2i` tile cells).
-- The presentation size of one world tile is `32 px`.
+- The presentation size of one world tile is `64 px`.
 - Pixels are presentation scale only; gameplay and save logic stay tile-based.
-- Building placement grid must stay aligned with the same `32 px` tile contract.
+- Building placement grid must stay aligned with the same `64 px` tile contract.
 
 ### Chunk contract
 
-- Chunk footprint: `32 x 32` tiles.
-- One chunk therefore materializes `1024` tiles.
+- Chunk footprint: `16 x 16` tiles.
+- One chunk therefore materializes `256` tiles.
 - Chunk coordinates remain `Vector2i` in chunk space.
-- Local tile indices inside a chunk are `0..31` on each axis.
+- Local tile indices inside a chunk are `0..15` on each axis.
 - A chunk is still a streaming/rendering/persistence unit, not the owner of world identity.
 
 ### Save contract
 
-- Changed world state is sharded by `32 x 32` chunk coordinates.
+- Changed world state is sharded by `16 x 16` chunk coordinates.
 - No new save writer may key world state by pixels.
 - Compatibility with removed `64 x 64` chunk saves is deferred explicitly until a
   dedicated migration task exists.
+- Compatibility with the previous `32 px` / `32 x 32` pre-alpha contract is not
+  migrated; the active load path rejects non-current `world_version` saves.
 
 ## Runtime Architecture
 
@@ -121,13 +127,15 @@ This spec does not by itself:
 ## Event Contracts
 
 - Tile events continue to speak in tile coordinates, not pixel coordinates.
-- Chunk events continue to speak in chunk coordinates, now under the `32 x 32` contract.
+- Chunk events continue to speak in chunk coordinates, now under the `16 x 16` contract.
 
 ## Save / Persistence Contracts
 
 - World diffs remain authoritative changed state.
-- Save payloads must shard changed world data by rebuilt `32 x 32` chunks.
+- Save payloads must shard changed world data by rebuilt `16 x 16` chunks.
 - Old `64 x 64` data is not silently reinterpreted as compatible.
+- Previous `32 x 32` pre-alpha chunk-diff data is not silently reinterpreted as
+  compatible; `WORLD_VERSION` owns that boundary.
 
 ## Performance Class
 
@@ -142,49 +150,65 @@ This spec does not by itself:
 
 ## Acceptance Criteria
 
-- Canonical docs state `32 px` tiles and `32 x 32` chunks for the rebuild.
-- Surviving world-facing code in the current repo no longer hardcodes `64 px` or `12 px`
+- Canonical docs state `64 px` tiles and `16 x 16` chunks for the rebuild.
+- Surviving world-facing code in the current repo no longer hardcodes `32 px` or `12 px`
   tile-size fallbacks.
-- Live balance data no longer overrides the building grid back to `64`.
+- Live balance data keeps the building grid at `64`.
 - System-spec indices point to this world rebuild contract.
 
 ## Failure Cases / Risks
 
-- A data resource silently reintroduces `64` while code defaults say `32`.
+- A data resource silently reintroduces `32` while code defaults say `64`.
 - World systems mix logical tile size and presentation pixels.
 - A future save path assumes old `64 x 64` chunks without a migration boundary.
 
 ## Open Questions
 
-- Where should the shared grid constants live once the new world runtime is reintroduced:
-  autoload, balance resource, or dedicated world config resource?
-- Do pre-rebuild `64 x 64` saves need migration, or should the rebuilt world start with a
-  clean compatibility boundary?
+- Do pre-rebuild `64 x 64` saves or previous `32 px` / `32 x 32` pre-alpha saves
+  need migration later, or should this remain a clean compatibility boundary?
 
 ## Implementation Iterations
 
 ### Iteration 1 - Contract establishment
 
-Goal: make the rebuild contract explicit and remove the surviving repo-level fallback
-assumptions that still contradict it.
+Goal: move the active contract to `64 px` tiles and `16 x 16` chunks while
+preserving tile-based gameplay/save math.
 
 What changes:
-- create this spec
-- update docs indices and glossary
-- align surviving world-facing fallback sizes to `32 px`
-- align current building grid balance data to `32`
+- update this spec, glossary, runtime specs, packet/save docs, and relevant world specs
+- align shared runtime constants to `64 px` and `16 x 16`
+- align surviving world-facing fallback sizes to `64 px`
+- align current building grid balance data to `64`
+- bump `WORLD_VERSION` because chunk packet shape and chunk-diff sharding changed
 
 Acceptance tests:
-- [ ] `docs/00_governance/PROJECT_GLOSSARY.md` states `32 px` tile and `32 x 32` chunk contract
-- [ ] `data/balance/building_balance.tres` sets `grid_size = 32`
-- [ ] surviving world-facing scripts no longer contain `64 px` or `12 px` tile-size fallbacks
+- [ ] `docs/00_governance/PROJECT_GLOSSARY.md` states `64 px` tile and `16 x 16` chunk contract
+- [ ] `core/systems/world/world_runtime_constants.gd` sets `TILE_SIZE_PX = 64`, `CHUNK_SIZE = 16`, and a new current `WORLD_VERSION`
+- [ ] `gdextension/src/world_core.cpp` mirrors the `16 x 16` chunk packet geometry
+- [ ] `data/balance/building_balance.tres` sets `grid_size = 64`
+- [ ] current terrain shape sets use `64 px` source regions so `TileSet.tile_size` and source atlases remain aligned
+- [ ] surviving world-facing scripts no longer contain `32 px` or `12 px` tile-size fallbacks in active contract paths
 
 Files that may be touched:
 - `docs/02_system_specs/world/world_grid_rebuild_foundation.md`
 - `docs/02_system_specs/README.md`
 - `docs/README.md`
 - `docs/00_governance/PROJECT_GLOSSARY.md`
+- `docs/00_governance/ENGINEERING_STANDARDS.md`
+- `docs/02_system_specs/world/world_runtime.md`
+- `docs/02_system_specs/world/world_foundation_v1.md`
+- `docs/02_system_specs/world/mountain_generation.md`
+- `docs/02_system_specs/world/lake_generation.md`
+- `docs/02_system_specs/world/oversized_terrain_presentation.md`
+- `docs/02_system_specs/meta/packet_schemas.md`
+- `docs/02_system_specs/meta/save_and_persistence.md`
 - `data/balance/building_balance.tres`
+- `data/balance/building_balance.gd`
+- `core/systems/world/world_runtime_constants.gd`
+- `gdextension/src/world_core.cpp`
+- `data/terrain/terrain_shape_set.gd`
+- `data/terrain/shape_sets/*.tres`
+- `assets/sprites/terrain/*_64.png`
 - `core/entities/player/player_visibility_indicator.gd`
 - `core/entities/structures/z_stairs.gd`
 - `core/entities/structures/ark_battery.gd`
@@ -206,5 +230,5 @@ Scope anchor:
 ### Iteration 3 - Streaming, save, and rebuild implementation
 
 Goal: reintroduce chunked world generation, persistence, and streaming under the
-`32 px` / `32 x 32` contract after the V0 slice is proven and approved for
+`64 px` / `16 x 16` contract after the V0 slice is proven and approved for
 extension.

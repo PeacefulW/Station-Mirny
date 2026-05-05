@@ -25,7 +25,7 @@ using world_utils::positive_mod;
 
 namespace {
 
-constexpr int64_t CHUNK_SIZE = 32;
+constexpr int64_t CHUNK_SIZE = 16;
 constexpr int64_t CELL_COUNT = CHUNK_SIZE * CHUNK_SIZE;
 
 constexpr int64_t TERRAIN_PLAINS_GROUND = 0;
@@ -68,7 +68,7 @@ constexpr int64_t LEGACY_WORLD_WRAP_WIDTH_TILES = world_utils::LEGACY_WORLD_WRAP
 constexpr int64_t WORLD_FOUNDATION_VERSION = 9;
 constexpr int64_t LAKE_PACKET_VERSION = 38;
 constexpr int64_t MOUNTAIN_FINITE_WIDTH_VERSION = world_utils::MOUNTAIN_FINITE_WIDTH_VERSION;
-constexpr int64_t FOUNDATION_CHUNK_SIZE = 32;
+constexpr int64_t FOUNDATION_CHUNK_SIZE = CHUNK_SIZE;
 constexpr int64_t SPAWN_SAFE_PATCH_MIN_TILE = 12;
 constexpr int64_t SPAWN_SAFE_PATCH_MAX_TILE = 20;
 constexpr float SPAWN_MAX_WALL_DENSITY = 0.4f;

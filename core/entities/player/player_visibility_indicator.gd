@@ -4,7 +4,7 @@ extends Node2D
 ## Player-local visibility ring. Uses the current underground reveal radius as the
 ## only explicit visibility circle defined by the runtime today.
 
-const FALLBACK_TILE_SIZE_PX: float = 32.0
+const FALLBACK_TILE_SIZE_PX: float = 64.0
 const FALLBACK_REVEAL_RADIUS_TILES: float = 6.0
 const OUTLINE_COLOR: Color = Color(0.78, 0.92, 1.0, 0.9)
 const FILL_COLOR: Color = Color(0.34, 0.60, 0.78, 0.08)

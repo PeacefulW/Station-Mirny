@@ -1,14 +1,14 @@
 class_name WorldRuntimeConstants
 extends RefCounted
 
-const TILE_SIZE_PX: int = 32
-const CHUNK_SIZE: int = 32
+const TILE_SIZE_PX: int = 64
+const CHUNK_SIZE: int = 16
 const CHUNK_CELL_COUNT: int = CHUNK_SIZE * CHUNK_SIZE
 const STREAM_RADIUS_CHUNKS: int = 1
 const PUBLISH_BATCH_SIZE: int = 128
 
 const DEFAULT_WORLD_SEED: int = 131071
-const WORLD_VERSION: int = 43
+const WORLD_VERSION: int = 44
 const WORLD_FOUNDATION_VERSION: int = 9
 const FOUNDATION_COARSE_CELL_SIZE_TILES: int = 64
 const LEGACY_WORLD_WRAP_WIDTH_TILES: int = 65536

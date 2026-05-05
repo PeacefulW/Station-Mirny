@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.5
-last_updated: 2026-04-24
+version: 1.6
+last_updated: 2026-05-05
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -104,7 +104,7 @@ V1 does not include:
 ## Dependencies
 
 - `World Runtime V0` for the end-to-end chunked runtime that V1 extends
-- `World Grid Rebuild Foundation` for the `32 px` tile / `32 x 32` chunk
+- `World Grid Rebuild Foundation` for the `64 px` tile / `16 x 16` chunk
   contract
 - ADR-0001 for runtime work classes and dirty-update rules
 - ADR-0002 for wrap-safe X sampling
@@ -123,7 +123,7 @@ V1 does not include:
 | Deterministic? | Yes. Field, identity, and atlas indices are pure `f(seed, world_version, coord, settings_packed)`. |
 | Must work on unloaded chunks? | Yes. All per-tile canonical data is recomputable from base + diff on demand. |
 | C++ compute or main-thread apply? | Field sample, hierarchical domain solve / legacy anchor fallback, and atlas indices are C++ compute. Roof cell placement, chunk mask upload, and cavity/opening cache refresh are main-thread apply. |
-| Dirty unit | `32 x 32` chunk for generation; one tile for excavation mutation; one loaded chunk plus direct seam-neighbor diff participants for publish / unload; one current cavity component for inside reveal. |
+| Dirty unit | `16 x 16` chunk for generation; one tile for excavation mutation; one loaded chunk plus direct seam-neighbor diff participants for publish / unload; one current cavity component for inside reveal. |
 | Single owner | `WorldCore` for base field. `WorldDiffStore` for diff. `ChunkView` for static roof presentation and per-chunk mask material. `MountainCavityCache` for runtime-derived cavity/opening state. `WorldStreamer` for active cover selection. `world.json` for `worldgen_settings`. |
 | 10x / 100x scale path | Version `6` keeps identity on aligned macro solves with reusable native cache, recursive subdivision only for mixed cells, and versioned `min_label_cell_size = 8`. Publish inherits V0 slicing. No whole-world scan is introduced. |
 | Main-thread blocking? | No. Generation stays in the existing worker path. Apply remains sliced through `FrameBudgetDispatcher.CATEGORY_STREAMING`. |
@@ -136,9 +136,9 @@ V1 does not include:
 ### Chunk Geometry
 
 Unchanged from `world_grid_rebuild_foundation.md`:
-- one world tile = `32 px`
-- one chunk = `32 x 32` tiles
-- chunk-local cell coordinates `0..31`
+- one world tile = `64 px`
+- one chunk = `16 x 16` tiles
+- chunk-local cell coordinates `0..15`
 - world X wraps (ADR-0002); world Y does not
 
 ### Terrain IDs
@@ -169,17 +169,17 @@ V0 fields remain as defined in `world_runtime.md`:
 | `chunk_coord` | `Vector2i` | — |
 | `world_seed` | `int` | — |
 | `world_version` | `int` | — |
-| `terrain_ids` | `PackedInt32Array` | 1024 |
-| `terrain_atlas_indices` | `PackedInt32Array` | 1024 |
-| `walkable_flags` | `PackedByteArray` | 1024 |
+| `terrain_ids` | `PackedInt32Array` | 256 |
+| `terrain_atlas_indices` | `PackedInt32Array` | 256 |
+| `walkable_flags` | `PackedByteArray` | 256 |
 
 V1 additive fields:
 
 | Field | Type | Length | Notes |
 |---|---|---|---|
-| `mountain_id_per_tile` | `PackedInt32Array` | 1024 | `0` = not mountain. Non-zero = deterministic `mountain_id`. |
-| `mountain_flags` | `PackedByteArray` | 1024 | Bit 0 `is_interior`, bit 1 `is_wall`, bit 2 `is_foot`, bit 3 `is_anchor`. Other bits reserved. |
-| `mountain_atlas_indices` | `PackedInt32Array` | 1024 | Atlas indices for the roof `TileMapLayer`. Derived via `autotile_47` on `mountain_id` adjacency. |
+| `mountain_id_per_tile` | `PackedInt32Array` | 256 | `0` = not mountain. Non-zero = deterministic `mountain_id`. |
+| `mountain_flags` | `PackedByteArray` | 256 | Bit 0 `is_interior`, bit 1 `is_wall`, bit 2 `is_foot`, bit 3 `is_anchor`. Other bits reserved. |
+| `mountain_atlas_indices` | `PackedInt32Array` | 256 | Atlas indices for the roof `TileMapLayer`. Derived via `autotile_47` on `mountain_id` adjacency. |
 
 Forbidden packet fields in V1 (reserved for later specs):
 - climate bytes, water-generation masks, biome blend data

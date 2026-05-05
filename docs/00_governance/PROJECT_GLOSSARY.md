@@ -4,8 +4,8 @@ doc_type: governance
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.5
-last_updated: 2026-05-03
+version: 1.6
+last_updated: 2026-05-05
 related_docs:
   - ENGINEERING_STANDARDS.md
   - ../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
@@ -169,10 +169,10 @@ resource distribution.
 An underground space inside a mountain, accessed by mining through rock. Distinct from cellar (player-built underground beneath base). Caves are discovered, not constructed. Environmental rules: no natural light, potential for unique resources, enclosed threat profile. Cave topology is generated from mountain structure + player excavation. See: ADR-0006.
 
 ### Tile
-A logical world cell used for gameplay coordinates, building placement, and world mutations. The current rebuild contract maps one world tile to `32x32` presentation pixels. Gameplay and save math stay tile-based; pixels are presentation scale only.
+A logical world cell used for gameplay coordinates, building placement, and world mutations. The current rebuild contract maps one world tile to `64x64` presentation pixels. Gameplay and save math stay tile-based; pixels are presentation scale only.
 
 ### Chunk
-A fixed-size tile grid (current rebuild contract: `32x32` tiles) used as the streaming, rendering, and persistence unit. Chunks are loaded/unloaded based on player proximity. A chunk is a cache/materialization of world truth, not a source of identity. World truth comes from channels + resolver + structures; chunks just render it.
+A fixed-size tile grid (current rebuild contract: `16x16` tiles) used as the streaming, rendering, and persistence unit. Chunks are loaded/unloaded based on player proximity. A chunk is a cache/materialization of world truth, not a source of identity. World truth comes from channels + resolver + structures; chunks just render it.
 
 ---
 

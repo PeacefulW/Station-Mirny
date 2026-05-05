@@ -1,11 +1,11 @@
 ---
 title: Oversized Terrain Presentation
 doc_type: system_spec
-status: draft
+status: superseded
 owner: engineering+art
 source_of_truth: false
-version: 0.2
-last_updated: 2026-05-04
+version: 0.3
+last_updated: 2026-05-05
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -23,6 +23,11 @@ related_docs:
 ---
 
 # Oversized Terrain Presentation
+
+> Superseded by `world_grid_rebuild_foundation.md` version 2.0.
+> The active contract now uses `64 px` logical world tiles directly, so this
+> draft's "64 px presentation over 32 px logical tiles" approach is historical
+> design context only.
 
 ## Purpose
 
