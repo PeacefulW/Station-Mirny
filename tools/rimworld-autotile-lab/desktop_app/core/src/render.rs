@@ -1,18 +1,18 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
 use serde::Serialize;
 
-use crate::model::{AppRequest, GeneratedFiles, MaterialConfig, OutputManifest, RenderMode};
+use crate::model::{AppRequest, ExportMode, GeneratedFiles, MaterialConfig, OutputManifest, RenderMode};
 use crate::noise::{clamp, fbm_tiled, hash2d, lerp};
 use crate::signature::{canonical_signatures, signature_at, Signature};
 
 const ATLAS_COLUMNS: u32 = 8;
 const MATERIAL_EXPORT_SIZE: u32 = 512;
-const RECIPE_VERSION: u32 = 2;
+const RECIPE_VERSION: u32 = 4;
 const EDGE_NOISE_PERIOD_TILES: f32 = 8.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,67 +161,75 @@ pub fn run_request(mode: RenderMode, request: AppRequest, output_dir: &Path) -> 
     let signatures = canonical_signatures();
 
     let preview = build_map_preview(&request, &textures)?;
-    let preview_path = output_dir.join("preview.png");
+    let preview_path = export_file_path(output_dir, &request, "preview", "png");
     preview.save(&preview_path)?;
 
-    let recipe_path = output_dir.join("recipe.json");
+    let recipe_path = export_file_path(output_dir, &request, "recipe", "json");
     let files = if mode == RenderMode::Draft {
-        GeneratedFiles {
-            preview_png: to_string_path(&preview_path),
-            atlas_albedo_png: None,
-            atlas_mask_png: None,
-            atlas_height_png: None,
-            atlas_normal_png: None,
-            top_albedo_png: None,
-            face_albedo_png: None,
-            base_albedo_png: None,
-            top_modulation_png: None,
-            face_modulation_png: None,
-            top_normal_png: None,
-            face_normal_png: None,
-            recipe_json: to_string_path(&recipe_path),
-        }
+        generated_files_with_preview(&preview_path, &recipe_path)
     } else {
-        let atlases = build_full_atlases(&request, &textures, &signatures);
-        let material_exports = build_material_exports(&request, &textures);
-        let albedo_atlas_path = output_dir.join("atlas_albedo.png");
-        let mask_atlas_path = output_dir.join("atlas_mask.png");
-        let height_atlas_path = output_dir.join("atlas_height.png");
-        let normal_atlas_path = output_dir.join("atlas_normal.png");
-        let top_albedo_path = output_dir.join("top_albedo.png");
-        let face_albedo_path = output_dir.join("face_albedo.png");
-        let base_albedo_path = output_dir.join("base_albedo.png");
-        let top_modulation_path = output_dir.join("top_modulation.png");
-        let face_modulation_path = output_dir.join("face_modulation.png");
-        let top_normal_path = output_dir.join("top_normal.png");
-        let face_normal_path = output_dir.join("face_normal.png");
+        match request.export_mode {
+            ExportMode::Full47 => {
+                let atlases = build_full_atlases(&request, &textures, &signatures);
+                let material_exports = build_material_exports(&request, &textures);
+                let albedo_atlas_path = export_file_path(output_dir, &request, "atlas_albedo", "png");
+                let mask_atlas_path = export_file_path(output_dir, &request, "atlas_mask", "png");
+                let height_atlas_path = export_file_path(output_dir, &request, "atlas_height", "png");
+                let normal_atlas_path = export_file_path(output_dir, &request, "atlas_normal", "png");
+                let top_albedo_path = export_file_path(output_dir, &request, "top_albedo", "png");
+                let face_albedo_path = export_file_path(output_dir, &request, "face_albedo", "png");
+                let base_albedo_path = export_file_path(output_dir, &request, "base_albedo", "png");
+                let top_modulation_path = export_file_path(output_dir, &request, "top_modulation", "png");
+                let face_modulation_path = export_file_path(output_dir, &request, "face_modulation", "png");
+                let top_normal_path = export_file_path(output_dir, &request, "top_normal", "png");
+                let face_normal_path = export_file_path(output_dir, &request, "face_normal", "png");
 
-        atlases.albedo.save(&albedo_atlas_path)?;
-        atlases.mask.save(&mask_atlas_path)?;
-        atlases.height.save(&height_atlas_path)?;
-        atlases.normal.save(&normal_atlas_path)?;
-        material_exports.top_albedo.save(&top_albedo_path)?;
-        material_exports.face_albedo.save(&face_albedo_path)?;
-        material_exports.base_albedo.save(&base_albedo_path)?;
-        material_exports.top_modulation.save(&top_modulation_path)?;
-        material_exports.face_modulation.save(&face_modulation_path)?;
-        material_exports.top_normal.save(&top_normal_path)?;
-        material_exports.face_normal.save(&face_normal_path)?;
+                atlases.albedo.save(&albedo_atlas_path)?;
+                atlases.mask.save(&mask_atlas_path)?;
+                atlases.height.save(&height_atlas_path)?;
+                atlases.normal.save(&normal_atlas_path)?;
+                material_exports.top_albedo.save(&top_albedo_path)?;
+                material_exports.face_albedo.save(&face_albedo_path)?;
+                material_exports.base_albedo.save(&base_albedo_path)?;
+                material_exports.top_modulation.save(&top_modulation_path)?;
+                material_exports.face_modulation.save(&face_modulation_path)?;
+                material_exports.top_normal.save(&top_normal_path)?;
+                material_exports.face_normal.save(&face_normal_path)?;
 
-        GeneratedFiles {
-            preview_png: to_string_path(&preview_path),
-            atlas_albedo_png: Some(to_string_path(&albedo_atlas_path)),
-            atlas_mask_png: Some(to_string_path(&mask_atlas_path)),
-            atlas_height_png: Some(to_string_path(&height_atlas_path)),
-            atlas_normal_png: Some(to_string_path(&normal_atlas_path)),
-            top_albedo_png: Some(to_string_path(&top_albedo_path)),
-            face_albedo_png: Some(to_string_path(&face_albedo_path)),
-            base_albedo_png: Some(to_string_path(&base_albedo_path)),
-            top_modulation_png: Some(to_string_path(&top_modulation_path)),
-            face_modulation_png: Some(to_string_path(&face_modulation_path)),
-            top_normal_png: Some(to_string_path(&top_normal_path)),
-            face_normal_png: Some(to_string_path(&face_normal_path)),
-            recipe_json: to_string_path(&recipe_path),
+                GeneratedFiles {
+                    preview_png: to_string_path(&preview_path),
+                    atlas_albedo_png: Some(to_string_path(&albedo_atlas_path)),
+                    atlas_mask_png: Some(to_string_path(&mask_atlas_path)),
+                    atlas_height_png: Some(to_string_path(&height_atlas_path)),
+                    atlas_normal_png: Some(to_string_path(&normal_atlas_path)),
+                    top_albedo_png: Some(to_string_path(&top_albedo_path)),
+                    face_albedo_png: Some(to_string_path(&face_albedo_path)),
+                    base_albedo_png: Some(to_string_path(&base_albedo_path)),
+                    top_modulation_png: Some(to_string_path(&top_modulation_path)),
+                    face_modulation_png: Some(to_string_path(&face_modulation_path)),
+                    top_normal_png: Some(to_string_path(&top_normal_path)),
+                    face_normal_png: Some(to_string_path(&face_normal_path)),
+                    recipe_json: to_string_path(&recipe_path),
+                }
+            }
+            ExportMode::BaseVariantsOnly => {
+                let atlas = build_base_variants_atlas(&request, &textures);
+                let atlas_path = export_file_path(output_dir, &request, "atlas_albedo", "png");
+                atlas.save(&atlas_path)?;
+
+                let mut files = generated_files_with_preview(&preview_path, &recipe_path);
+                files.atlas_albedo_png = Some(to_string_path(&atlas_path));
+                files
+            }
+            ExportMode::MaskOnly => {
+                let atlas = build_mask_atlas(&request, &signatures);
+                let atlas_path = export_file_path(output_dir, &request, "atlas_mask", "png");
+                atlas.save(&atlas_path)?;
+
+                let mut files = generated_files_with_preview(&preview_path, &recipe_path);
+                files.atlas_mask_png = Some(to_string_path(&atlas_path));
+                files
+            }
         }
     };
 
@@ -236,11 +244,12 @@ pub fn run_request(mode: RenderMode, request: AppRequest, output_dir: &Path) -> 
 
     Ok(OutputManifest {
         mode: mode.as_str().to_string(),
+        export_mode: request.export_mode.as_str().to_string(),
         preset: request.preset.clone(),
         tile_size: request.tile_size,
         variants: request.variants,
-        signature_count: signatures.len(),
-        total_tiles: signatures.len() * request.variants as usize,
+        signature_count: manifest_signature_count(&request, signatures.len()),
+        total_tiles: manifest_total_tiles(&request, signatures.len()),
         preview_mode: request.preview_mode.clone(),
         files,
         warnings: warnings.items,
@@ -263,6 +272,39 @@ struct MaterialExports {
     face_modulation: RgbaImage,
     top_normal: RgbaImage,
     face_normal: RgbaImage,
+}
+
+fn export_file_path(output_dir: &Path, request: &AppRequest, slot: &str, extension: &str) -> PathBuf {
+    output_dir.join(format!("{}_{}.{}", request.asset_name, slot, extension))
+}
+
+fn generated_files_with_preview(preview_path: &Path, recipe_path: &Path) -> GeneratedFiles {
+    GeneratedFiles {
+        preview_png: to_string_path(preview_path),
+        atlas_albedo_png: None,
+        atlas_mask_png: None,
+        atlas_height_png: None,
+        atlas_normal_png: None,
+        top_albedo_png: None,
+        face_albedo_png: None,
+        base_albedo_png: None,
+        top_modulation_png: None,
+        face_modulation_png: None,
+        top_normal_png: None,
+        face_normal_png: None,
+        recipe_json: to_string_path(recipe_path),
+    }
+}
+
+fn manifest_signature_count(request: &AppRequest, full_signature_count: usize) -> usize {
+    match request.export_mode {
+        ExportMode::BaseVariantsOnly => 1,
+        ExportMode::Full47 | ExportMode::MaskOnly => full_signature_count,
+    }
+}
+
+fn manifest_total_tiles(request: &AppRequest, full_signature_count: usize) -> usize {
+    manifest_signature_count(request, full_signature_count) * request.variants as usize
 }
 
 fn load_textures(request: &AppRequest, warnings: &mut Warnings) -> TextureSet {
@@ -330,6 +372,112 @@ fn build_full_atlases(request: &AppRequest, textures: &TextureSet, signatures: &
     }
 }
 
+fn build_base_variants_atlas(request: &AppRequest, textures: &TextureSet) -> RgbaImage {
+    let tile_size = request.tile_size;
+    let width = tile_size * request.variants;
+    let height = tile_size;
+    let tiles: Vec<(u32, RgbaImage)> = (0..request.variants)
+        .into_par_iter()
+        .map(|variant| {
+            let tile = render_base_variant_tile(request, textures, variant);
+            (variant, tile)
+        })
+        .collect();
+
+    let mut atlas = RgbaImage::new(width, height);
+    for (variant, tile) in tiles {
+        blit_exact(&mut atlas, &tile, variant * tile_size, 0);
+    }
+    atlas
+}
+
+fn render_base_variant_tile(request: &AppRequest, textures: &TextureSet, variant: u32) -> RgbaImage {
+    let size = request.tile_size;
+    let (material, base_color, texture, seed) = material_slot(request, textures, MaterialKind::Base);
+    let variant_seed = request
+        .seed
+        .wrapping_add(variant.wrapping_mul(4_091))
+        .wrapping_add(17_371);
+    let mut image = RgbaImage::new(size, size);
+
+    for y in 0..size {
+        for x in 0..size {
+            let local_seed = variant_seed
+                .wrapping_add(y.wrapping_mul(4_099))
+                .wrapping_add(x)
+                .wrapping_mul(13);
+            let color = sample_material_color(
+                material,
+                base_color,
+                texture,
+                request.texture_scale,
+                request.texture_color_overlay,
+                size,
+                x,
+                y,
+                seed.wrapping_add(local_seed),
+                1.0,
+            );
+            image.put_pixel(x, y, rgba(color, 255));
+        }
+    }
+
+    image
+}
+
+fn build_mask_atlas(request: &AppRequest, signatures: &[Signature]) -> RgbaImage {
+    let tile_size = request.tile_size;
+    let signature_count = signatures.len() as u32;
+    let total = signature_count * request.variants;
+    let rows = total.div_ceil(ATLAS_COLUMNS);
+    let width = ATLAS_COLUMNS * tile_size;
+    let height = rows * tile_size;
+
+    let tiles: Vec<(u32, RgbaImage)> = (0..total)
+        .into_par_iter()
+        .map(|atlas_index| {
+            let sig_idx = (atlas_index % signature_count) as usize;
+            let signature = &signatures[sig_idx];
+            let tile = render_mask_tile(request, signature, 0, 0);
+            (atlas_index, tile)
+        })
+        .collect();
+
+    let mut atlas = RgbaImage::new(width, height);
+    for (atlas_index, tile) in tiles {
+        let col = atlas_index % ATLAS_COLUMNS;
+        let row = atlas_index / ATLAS_COLUMNS;
+        blit_exact(&mut atlas, &tile, col * tile_size, row * tile_size);
+    }
+    atlas
+}
+
+fn render_mask_tile(request: &AppRequest, signature: &Signature, origin_x: u32, origin_y: u32) -> RgbaImage {
+    let size = request.tile_size;
+    let mut mask = RgbaImage::new(size, size);
+    let geometry_seed = request.seed;
+
+    for y in 0..size {
+        for x in 0..size {
+            let (_, zone) = sample_height(
+                request,
+                signature,
+                geometry_seed,
+                x as f32,
+                y as f32,
+                (origin_x + x) as f32,
+                (origin_y + y) as f32,
+            );
+            let top_mask = if zone == SurfaceZone::Top { 255 } else { 0 };
+            let face_mask = if zone == SurfaceZone::Face { 255 } else { 0 };
+            let back_mask = if zone == SurfaceZone::Back { 255 } else { 0 };
+            mask.put_pixel(x, y, Rgba([top_mask, face_mask, back_mask, 255]));
+        }
+    }
+
+    mask
+}
+
 fn build_material_exports(request: &AppRequest, textures: &TextureSet) -> MaterialExports {
     let (top_albedo, top_values) =
         build_material_albedo_and_values(request, textures, MaterialKind::Top);
@@ -356,13 +504,13 @@ fn build_material_exports(request: &AppRequest, textures: &TextureSet) -> Materi
             &top_values,
             MATERIAL_EXPORT_SIZE,
             MATERIAL_EXPORT_SIZE,
-            0.95,
+            request.normal_strength,
         ),
         face_normal: build_wrapped_normal_image(
             &face_values,
             MATERIAL_EXPORT_SIZE,
             MATERIAL_EXPORT_SIZE,
-            0.9,
+            request.normal_strength,
         ),
     }
 }
@@ -420,17 +568,11 @@ fn build_wrapped_normal_image(values: &[f32], width: u32, height: u32, strength:
     raw.par_chunks_mut(4).enumerate().for_each(|(i, pixel)| {
         let xi = ((i as u32) % width) as i32;
         let yi = ((i as u32) / width) as i32;
-        let left = sample_wrapped_value(values, width, height, xi - 1, yi);
-        let right = sample_wrapped_value(values, width, height, xi + 1, yi);
-        let up = sample_wrapped_value(values, width, height, xi, yi - 1);
-        let down = sample_wrapped_value(values, width, height, xi, yi + 1);
-        let nx = (left - right) * strength;
-        let ny = (up - down) * strength;
-        let nz = 1.0_f32;
-        let length = (nx * nx + ny * ny + nz * nz).sqrt().max(0.0001);
-        pixel[0] = (((nx / length) * 0.5 + 0.5) * 255.0).round() as u8;
-        pixel[1] = (((ny / length) * 0.5 + 0.5) * 255.0).round() as u8;
-        pixel[2] = (((nz / length) * 0.5 + 0.5) * 255.0).round() as u8;
+        let (dx, dy) = sobel_gradient_wrapped(values, width, height, xi, yi);
+        let encoded = encode_normal_from_gradient(dx, dy, strength);
+        pixel[0] = encoded[0];
+        pixel[1] = encoded[1];
+        pixel[2] = encoded[2];
         pixel[3] = 255;
     });
     RgbaImage::from_raw(width, height, raw).expect("buffer size matches dimensions")
@@ -440,6 +582,11 @@ fn sample_wrapped_value(values: &[f32], width: u32, height: u32, x: i32, y: i32)
     let sx = x.rem_euclid(width as i32) as u32;
     let sy = y.rem_euclid(height as i32) as u32;
     values[(sy * width + sx) as usize]
+}
+
+fn sobel_gradient_wrapped(values: &[f32], width: u32, height: u32, x: i32, y: i32) -> (f32, f32) {
+    let at = |ox: i32, oy: i32| sample_wrapped_value(values, width, height, x + ox, y + oy);
+    sobel_gradient_from_samples(at)
 }
 
 fn build_map_preview(request: &AppRequest, textures: &TextureSet) -> Result<RgbaImage> {
@@ -555,6 +702,7 @@ fn render_tile(
         &mut heights,
         &zones,
     );
+    let normal_heights = blur_heights_3x3(size, &heights);
 
     let mut albedo = RgbaImage::new(size, size);
     let mut mask = RgbaImage::new(size, size);
@@ -616,7 +764,12 @@ fn render_tile(
                 ),
             };
 
-            let shaded = apply_height_shading(base, height_value, zone);
+            let shaded = maybe_apply_height_shading(
+                base,
+                height_value,
+                zone,
+                request.bake_height_shading,
+            );
             albedo.put_pixel(x, y, rgba(shaded, 255));
 
             let top_mask = if zone == SurfaceZone::Top { 255 } else { 0 };
@@ -627,7 +780,7 @@ fn render_tile(
             let height_byte = (clamp(height_value, 0.0, 1.0) * 255.0).round() as u8;
             height_img.put_pixel(x, y, Rgba([height_byte, height_byte, height_byte, 255]));
 
-            let encoded = encode_normal(size, &heights, x, y);
+            let encoded = encode_normal(size, &normal_heights, x, y, request.normal_strength);
             normal.put_pixel(x, y, Rgba([encoded[0], encoded[1], encoded[2], 255]));
         }
     }
@@ -1001,7 +1154,22 @@ fn sample_material_base(
 
 #[cfg(test)]
 mod tests {
+    use crate::model::{default_request, ExportMode};
+    use std::fs as test_fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use super::*;
+
+    fn test_output_dir(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("cliff_forge_{name}_{nonce}"));
+        test_fs::create_dir_all(&dir).expect("test output dir should be creatable");
+        dir
+    }
 
     fn image_material() -> MaterialConfig {
         MaterialConfig {
@@ -1044,6 +1212,125 @@ mod tests {
             sample.rgb[0]
         );
         assert!(sample.is_image_source);
+    }
+
+    #[test]
+    fn sobel_normal_uses_diagonal_height_signal() {
+        let size = 3;
+        let mut heights = vec![0.0_f32; (size * size) as usize];
+        heights[0] = 1.0;
+
+        let encoded = encode_normal(size, &heights, 1, 1, 2.0);
+
+        assert_ne!(encoded[0], 128, "Sobel should read diagonal X contribution");
+        assert_ne!(encoded[1], 128, "Sobel should read diagonal Y contribution");
+    }
+
+    #[test]
+    fn wrapped_and_tile_normals_share_gradient_formula() {
+        let size = 5;
+        let heights: Vec<f32> = (0..size)
+            .flat_map(|y| (0..size).map(move |x| (x as f32 + y as f32 * 2.0) / 16.0))
+            .collect();
+        let strength = 2.0;
+
+        let tile_normal = encode_normal(size, &heights, 2, 2, strength);
+        let wrapped = build_wrapped_normal_image(&heights, size, size, strength);
+        let wrapped_normal = wrapped.get_pixel(2, 2).0;
+
+        for channel in 0..3 {
+            assert!(
+                (tile_normal[channel] as i16 - wrapped_normal[channel] as i16).abs() <= 1,
+                "normal channel {channel} diverged: tile={} wrapped={}",
+                tile_normal[channel],
+                wrapped_normal[channel]
+            );
+        }
+    }
+
+    #[test]
+    fn height_shading_can_be_disabled_for_flat_albedo() {
+        let color = [100, 150, 200];
+
+        assert_eq!(
+            maybe_apply_height_shading(color, 0.2, SurfaceZone::Face, false),
+            color
+        );
+        assert_ne!(
+            maybe_apply_height_shading(color, 0.2, SurfaceZone::Face, true),
+            color
+        );
+    }
+
+    #[test]
+    fn export_file_names_are_prefixed_with_asset_name() {
+        let output_dir = Path::new("exports");
+        let mut request = default_request();
+        request.asset_name = "plains_ground".to_string();
+        let request = request.sanitized();
+
+        assert_eq!(
+            export_file_path(output_dir, &request, "top_albedo", "png"),
+            output_dir.join("plains_ground_top_albedo.png")
+        );
+        assert_eq!(
+            export_file_path(output_dir, &request, "recipe", "json"),
+            output_dir.join("plains_ground_recipe.json")
+        );
+    }
+
+    #[test]
+    fn base_variants_only_writes_one_by_variant_albedo_atlas() {
+        let output_dir = test_output_dir("base_variants_only");
+        let mut request = default_request();
+        request.asset_name = "plains_ground".to_string();
+        request.export_mode = ExportMode::BaseVariantsOnly;
+        request.tile_size = 32;
+        request.variants = 6;
+        request.normal_strength = 1.0;
+        let request = request.sanitized();
+
+        let manifest = run_request(RenderMode::Full, request, &output_dir)
+            .expect("base variants export should render");
+        let atlas_path = manifest
+            .files
+            .atlas_albedo_png
+            .as_deref()
+            .expect("base variants mode should write an albedo atlas");
+        let atlas = image::open(atlas_path)
+            .expect("base variants atlas should be readable")
+            .to_rgba8();
+
+        assert_eq!(atlas.dimensions(), (32 * 6, 32));
+        assert!(manifest.files.atlas_mask_png.is_none());
+        assert!(manifest.files.top_albedo_png.is_none());
+        assert!(!output_dir.join("plains_ground_atlas_mask.png").exists());
+    }
+
+    #[test]
+    fn mask_only_writes_mask_atlas_and_skips_material_exports() {
+        let output_dir = test_output_dir("mask_only");
+        let mut request = default_request();
+        request.asset_name = "plains_ground".to_string();
+        request.export_mode = ExportMode::MaskOnly;
+        request.tile_size = 32;
+        request.variants = 6;
+        request.normal_strength = 1.0;
+        let request = request.sanitized();
+
+        let manifest = run_request(RenderMode::Full, request, &output_dir)
+            .expect("mask-only export should render");
+        let mask_path = manifest
+            .files
+            .atlas_mask_png
+            .as_deref()
+            .expect("mask-only mode should write mask atlas");
+
+        assert!(Path::new(mask_path).exists());
+        assert!(manifest.files.atlas_albedo_png.is_none());
+        assert!(manifest.files.top_albedo_png.is_none());
+        assert!(!output_dir.join("plains_ground_atlas_albedo.png").exists());
+        assert!(!output_dir.join("plains_ground_top_albedo.png").exists());
     }
 }
 
@@ -1623,6 +1910,19 @@ fn srgb_luminance_rgb(color: [u8; 3]) -> f32 {
     color[0] as f32 * 0.2126 + color[1] as f32 * 0.7152 + color[2] as f32 * 0.0722
 }
 
+fn maybe_apply_height_shading(
+    color: [u8; 3],
+    height: f32,
+    zone: SurfaceZone,
+    bake_height_shading: bool,
+) -> [u8; 3] {
+    if bake_height_shading {
+        apply_height_shading(color, height, zone)
+    } else {
+        color
+    }
+}
+
 fn apply_height_shading(color: [u8; 3], height: f32, zone: SurfaceZone) -> [u8; 3] {
     let factor = match zone {
         SurfaceZone::Top => 0.96 + height * 0.08,
@@ -1636,17 +1936,49 @@ fn apply_height_shading(color: [u8; 3], height: f32, zone: SurfaceZone) -> [u8; 
     ]
 }
 
-fn encode_normal(size: u32, heights: &[f32], x: u32, y: u32) -> [u8; 3] {
-    let left = sample_height_value(size, heights, x.saturating_sub(1), y);
-    let right = sample_height_value(size, heights, (x + 1).min(size - 1), y);
-    let top = sample_height_value(size, heights, x, y.saturating_sub(1));
-    let bottom = sample_height_value(size, heights, x, (y + 1).min(size - 1));
+fn blur_heights_3x3(size: u32, heights: &[f32]) -> Vec<f32> {
+    let mut out = vec![0.0_f32; heights.len()];
+    for y in 0..size {
+        for x in 0..size {
+            let mut total = 0.0;
+            for oy in -1..=1 {
+                for ox in -1..=1 {
+                    total += sample_height_value_clamped(size, heights, x as i32 + ox, y as i32 + oy);
+                }
+            }
+            out[(y * size + x) as usize] = total / 9.0;
+        }
+    }
+    out
+}
 
-    let dx = right - left;
-    let dy = bottom - top;
-    let nx = -dx * 2.4;
-    let ny = -dy * 2.4;
-    let nz = 1.0;
+fn encode_normal(size: u32, heights: &[f32], x: u32, y: u32, strength: f32) -> [u8; 3] {
+    let at = |ox: i32, oy: i32| {
+        sample_height_value_clamped(size, heights, x as i32 + ox, y as i32 + oy)
+    };
+    let (dx, dy) = sobel_gradient_from_samples(at);
+    encode_normal_from_gradient(dx, dy, strength)
+}
+
+fn sobel_gradient_from_samples<F>(at: F) -> (f32, f32)
+where
+    F: Fn(i32, i32) -> f32,
+{
+    let dx = (
+        at(1, -1) + 2.0 * at(1, 0) + at(1, 1)
+            - at(-1, -1) - 2.0 * at(-1, 0) - at(-1, 1)
+    ) * 0.25;
+    let dy = (
+        at(-1, 1) + 2.0 * at(0, 1) + at(1, 1)
+            - at(-1, -1) - 2.0 * at(0, -1) - at(1, -1)
+    ) * 0.25;
+    (dx, dy)
+}
+
+fn encode_normal_from_gradient(dx: f32, dy: f32, strength: f32) -> [u8; 3] {
+    let nx = -dx * strength;
+    let ny = -dy * strength;
+    let nz = 1.0_f32;
     let length = (nx * nx + ny * ny + nz * nz).sqrt().max(0.0001);
     [
         (((nx / length) * 0.5 + 0.5) * 255.0).round() as u8,
@@ -1655,8 +1987,10 @@ fn encode_normal(size: u32, heights: &[f32], x: u32, y: u32) -> [u8; 3] {
     ]
 }
 
-fn sample_height_value(size: u32, heights: &[f32], x: u32, y: u32) -> f32 {
-    heights[(y * size + x) as usize]
+fn sample_height_value_clamped(size: u32, heights: &[f32], x: i32, y: i32) -> f32 {
+    let sx = x.clamp(0, size as i32 - 1) as u32;
+    let sy = y.clamp(0, size as i32 - 1) as u32;
+    heights[(sy * size + sx) as usize]
 }
 
 fn blit_exact(target: &mut RgbaImage, source: &RgbaImage, dx: u32, dy: u32) {

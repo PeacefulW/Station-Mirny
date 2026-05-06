@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import queue
 import random
-import shutil
+import re
 import threading
 import tkinter as tk
 from collections import deque
@@ -22,6 +22,53 @@ from presets import PRESETS, clone_preset, make_blob_map, make_cave_map, make_ro
 SESSION_OUTPUT_DIR = DESKTOP_APP_DIR / "exports" / "session"
 STATE_FILE = DESKTOP_APP_DIR / ".ui_state.json"
 RECIPE_SUFFIX = ".json"
+DEFAULT_ASSET_NAME = "unnamed"
+ASSET_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
+RUNTIME_VARIANT_COUNT = 6
+DECAL_EXPORT_MODE = "Decals"
+SILHOUETTE_EXPORT_MODE = "Silhouettes"
+DECAL_GRID_SIZE = 4
+DECAL_CELL_COUNT = DECAL_GRID_SIZE * DECAL_GRID_SIZE
+DECAL_SIZE_CLASSES = (16, 32, 64, 128)
+SILHOUETTE_TILE_SIZES = (32, 64, 96, 128)
+SILHOUETTE_HEIGHTS = (64, 96, 128, 160, 192)
+EXPORT_MODE_VALUES = ("Full47", "BaseVariantsOnly", "MaskOnly")
+EXPORT_FILE_SLOTS = (
+    ("preview", "png"),
+    ("atlas_albedo", "png"),
+    ("atlas_mask", "png"),
+    ("atlas_height", "png"),
+    ("atlas_normal", "png"),
+    ("top_albedo", "png"),
+    ("face_albedo", "png"),
+    ("base_albedo", "png"),
+    ("top_modulation", "png"),
+    ("face_modulation", "png"),
+    ("top_normal", "png"),
+    ("face_normal", "png"),
+    ("recipe", "json"),
+)
+EXPORT_FILE_SLOTS_BY_MODE = {
+    "Full47": EXPORT_FILE_SLOTS,
+    "BaseVariantsOnly": (
+        ("preview", "png"),
+        ("atlas_albedo", "png"),
+        ("recipe", "json"),
+    ),
+    "MaskOnly": (
+        ("preview", "png"),
+        ("atlas_mask", "png"),
+        ("recipe", "json"),
+    ),
+    DECAL_EXPORT_MODE: (
+        ("decal_atlas", "png"),
+        ("decal_metadata", "json"),
+    ),
+    SILHOUETTE_EXPORT_MODE: (
+        ("silhouette_atlas", "png"),
+        ("silhouette_metadata", "json"),
+    ),
+}
 
 WINDOW_TITLE = "Cliff Forge Desktop"
 DEFAULT_GEOMETRY = "1640x1000"
@@ -69,6 +116,8 @@ TEXT_PROCEDURAL = "процедурно"
 TEXT_PREVIEW_EMPTY = "Превью ещё не собрано"
 TEXT_PREVIEW_HINT = "Колесо мыши: зум | ЛКМ: тянуть"
 TEXT_TEXTURE_COLOR_OVERLAY = "Накладывать цвета на загруженные текстуры"
+TEXT_ASSET_NAME_ERROR = "Asset name: только snake_case, например plains_ground"
+TEXT_VARIANT_WARNING = "Runtime expects 6; другие значения только для authoring experiments."
 
 PRESET_LABELS = {
     "mountain": "Гора",
@@ -85,6 +134,13 @@ PREVIEW_MODE_LABELS = {
     "normal":    "Нормали",
 }
 PREVIEW_MODE_KEYS_BY_LABEL = {label: key for key, label in PREVIEW_MODE_LABELS.items()}
+
+EXPORT_MODE_LABELS = {
+    "Full47":           "Full 47 cases",
+    "BaseVariantsOnly": "Base variants only",
+    "MaskOnly":         "Mask only",
+}
+EXPORT_MODE_KEYS_BY_LABEL = {label: key for key, label in EXPORT_MODE_LABELS.items()}
 
 SLOT_LABELS = {
     "top":  "Верх",
@@ -126,6 +182,38 @@ MATERIAL_KIND_LABELS = {
 }
 MATERIAL_KIND_KEYS_BY_LABEL = {label: key for key, label in MATERIAL_KIND_LABELS.items()}
 
+DECAL_SOURCE_LABELS = {
+    "procedural": "Процедурный",
+    "image":      "Файл",
+    "color":      "Цвет",
+}
+DECAL_SOURCE_KEYS_BY_LABEL = {label: key for key, label in DECAL_SOURCE_LABELS.items()}
+
+DECAL_KIND_LABELS = {
+    "rough_stone":   MATERIAL_KIND_LABELS["rough_stone"],
+    "cracked_earth": MATERIAL_KIND_LABELS["cracked_earth"],
+    "gravel":        MATERIAL_KIND_LABELS["gravel"],
+    "packed_dirt":   MATERIAL_KIND_LABELS["packed_dirt"],
+    "ribbed_steel":  MATERIAL_KIND_LABELS["ribbed_steel"],
+}
+DECAL_KIND_KEYS_BY_LABEL = {label: key for key, label in DECAL_KIND_LABELS.items()}
+
+DECAL_PIVOT_LABELS = {
+    "center":        "Центр",
+    "bottom_center": "Низ / центр",
+    "top_center":    "Верх / центр",
+    "left_center":   "Лево / центр",
+    "right_center":  "Право / центр",
+}
+DECAL_PIVOT_KEYS_BY_LABEL = {label: key for key, label in DECAL_PIVOT_LABELS.items()}
+
+SILHOUETTE_MATERIAL_SLOT_LABELS = {
+    "top":  "Top material",
+    "face": "Face material",
+    "base": "Base material",
+}
+SILHOUETTE_MATERIAL_SLOT_KEYS_BY_LABEL = {label: key for key, label in SILHOUETTE_MATERIAL_SLOT_LABELS.items()}
+
 MATERIAL_DEFAULTS = {
     "top": {
         "source": "procedural", "kind": "rough_stone",
@@ -160,6 +248,54 @@ TOOL_LABELS = {
 }
 
 
+def is_valid_asset_name(value: str) -> bool:
+    return bool(ASSET_NAME_PATTERN.fullmatch(value.strip()))
+
+
+def normalize_export_mode(value: str) -> str:
+    return value if value in EXPORT_MODE_VALUES else "Full47"
+
+
+def normalize_output_mode(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in {"decal", "decals"}:
+        return DECAL_EXPORT_MODE
+    if normalized in {"silhouette", "silhouettes"}:
+        return SILHOUETTE_EXPORT_MODE
+    return normalize_export_mode(value)
+
+
+def expected_export_file_names(asset_name: str, export_mode: str = "Full47") -> list[str]:
+    slots = EXPORT_FILE_SLOTS_BY_MODE[normalize_output_mode(export_mode)]
+    return [f"{asset_name}_{slot}.{extension}" for slot, extension in slots]
+
+
+def default_decal_cell(index: int) -> dict:
+    if index < 4:
+        size_class = 16
+    elif index < 8:
+        size_class = 32
+    elif index < 12:
+        size_class = 64
+    else:
+        size_class = 128
+
+    kind_keys = tuple(DECAL_KIND_LABELS.keys())
+    return {
+        "source": "procedural",
+        "kind": kind_keys[index % len(kind_keys)],
+        "size_class": size_class,
+        "seed": (index + 1) * 97,
+        "pivot": "center",
+        "color": "#7f725f",
+        "image_path": "",
+    }
+
+
+def normalize_choice(value: int, choices: tuple[int, ...], fallback: int) -> int:
+    return value if value in choices else fallback
+
+
 # ─── Application ─────────────────────────────────────────────────────────────
 
 class CliffForgeApp:
@@ -174,7 +310,8 @@ class CliffForgeApp:
         self.render_queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self.render_thread: threading.Thread | None = None
         self.pending_mode: str | None = None
-        self.pending_export_dir: Path | None = None
+        self.export_target_dir: Path | None = None
+        self.suppress_overwrite_prompt = False
         self.draft_after_id: str | None = None
         self.last_manifest: dict | None = None
         self.last_warnings: list[str] = []
@@ -237,6 +374,8 @@ class CliffForgeApp:
         try:
             self.state["geometry"] = self.root.geometry()
             self.state["preset"] = self._selected_preset_key()
+            self.state["asset_name"] = self.asset_name_var.get().strip() or DEFAULT_ASSET_NAME
+            self.state["export_mode"] = self._selected_export_mode_key()
             self.state["recent_colors"] = self.recent_colors[:RECENT_COLORS_LIMIT]
             self.state["recent_recipes"] = self.recent_recipes[:RECENT_RECIPES_LIMIT]
             STATE_FILE.write_text(json.dumps(self.state, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -325,6 +464,14 @@ class CliffForgeApp:
     # ─── Variables ───────────────────────────────────────────────────────
 
     def _build_variables(self) -> None:
+        asset_name = str(self.state.get("asset_name", DEFAULT_ASSET_NAME))
+        if not is_valid_asset_name(asset_name):
+            asset_name = DEFAULT_ASSET_NAME
+        self.asset_name_var = tk.StringVar(value=asset_name)
+        self.asset_name_error_var = tk.StringVar(value="")
+        self.export_target_var = tk.StringVar(value="(рабочая папка сессии)")
+        export_mode = normalize_export_mode(str(self.state.get("export_mode", "Full47")))
+        self.export_mode_var = tk.StringVar(value=EXPORT_MODE_LABELS[export_mode])
         self.preset_var = tk.StringVar(value=PRESET_LABELS["mountain"])
         self.preview_mode_var = tk.StringVar(value=PREVIEW_MODE_LABELS["composite"])
         self.seed_var = tk.IntVar(value=240_518)
@@ -336,8 +483,10 @@ class CliffForgeApp:
         self.face_power_var = tk.DoubleVar(value=1.0)
         self.back_drop_var = tk.DoubleVar(value=0.34)
         self.crown_bevel_var = tk.IntVar(value=2)
-        self.variants_var = tk.IntVar(value=4)
+        self.variants_var = tk.IntVar(value=RUNTIME_VARIANT_COUNT)
         self.texture_scale_var = tk.DoubleVar(value=1.0)
+        self.normal_strength_var = tk.DoubleVar(value=self._normal_strength_for_tile_size(self.tile_size_var.get()))
+        self.bake_height_shading_var = tk.BooleanVar(value=False)
         self.texture_color_overlay_var = tk.BooleanVar(value=False)
         self.forced_variant_var = tk.StringVar(value=LABEL_AUTO_VARIANT)
         self.top_color_var = tk.StringVar(value="#705940")
@@ -367,6 +516,30 @@ class CliffForgeApp:
                 "color_b":        tk.StringVar(value=defaults["color_b"]),
                 "highlight":      tk.StringVar(value=defaults["highlight"]),
             }
+
+        self.decal_cell_size_var = tk.IntVar(value=128)
+        self.decal_outline_enable_var = tk.BooleanVar(value=False)
+        self.decal_vars: list[dict[str, tk.Variable]] = []
+        self.decal_image_labels: list[ttk.Label] = []
+        for index in range(DECAL_CELL_COUNT):
+            defaults = default_decal_cell(index)
+            self.decal_vars.append({
+                "source":     tk.StringVar(value=DECAL_SOURCE_LABELS[defaults["source"]]),
+                "kind":       tk.StringVar(value=DECAL_KIND_LABELS[defaults["kind"]]),
+                "size_class": tk.IntVar(value=defaults["size_class"]),
+                "seed":       tk.IntVar(value=defaults["seed"]),
+                "pivot":      tk.StringVar(value=DECAL_PIVOT_LABELS[defaults["pivot"]]),
+                "color":      tk.StringVar(value=defaults["color"]),
+                "image_path": tk.StringVar(value=defaults["image_path"]),
+            })
+
+        self.silhouette_tile_size_var = tk.IntVar(value=64)
+        self.silhouette_height_var = tk.IntVar(value=96)
+        self.silhouette_variants_var = tk.IntVar(value=3)
+        self.silhouette_material_slot_var = tk.StringVar(value=SILHOUETTE_MATERIAL_SLOT_LABELS["face"])
+        self.silhouette_top_jitter_var = tk.IntVar(value=12)
+        self.silhouette_top_roughness_var = tk.DoubleVar(value=0.55)
+        self.silhouette_seed_var = tk.IntVar(value=0)
 
     # ─── Layout ──────────────────────────────────────────────────────────
 
@@ -414,7 +587,7 @@ class CliffForgeApp:
                                             activebackground=THEME["accent"], activeforeground="#1a1410")
         load_btn.configure(menu=self.recent_recipes_menu)
         load_btn.pack(side="left", padx=(6, 0))
-        ttk.Button(bar, text="⬇  Экспорт PNG", style="Toolbar.TButton", command=self._export_outputs).pack(side="left", padx=(6, 0))
+        ttk.Button(bar, text="⬇  Экспорт в папку…", style="Toolbar.TButton", command=self._export_outputs).pack(side="left", padx=(6, 0))
         self._toolbar_separator(bar)
 
         # Preset + seed
@@ -565,6 +738,8 @@ class CliffForgeApp:
     # ─── Right pane: Inspector tabs ──────────────────────────────────────
 
     def _build_right_pane(self, parent: ttk.Frame) -> None:
+        self._build_export_panel(parent)
+
         self.right_notebook = ttk.Notebook(parent)
         self.right_notebook.pack(fill="both", expand=True)
 
@@ -574,8 +749,49 @@ class CliffForgeApp:
         materials_tab = self._make_scrolled_tab(self.right_notebook, "  Материалы  ")
         self._build_materials_tab(materials_tab)
 
+        decals_tab = self._make_scrolled_tab(self.right_notebook, "  Decals  ")
+        self._build_decals_tab(decals_tab)
+
+        silhouettes_tab = self._make_scrolled_tab(self.right_notebook, "  Silhouettes  ")
+        self._build_silhouettes_tab(silhouettes_tab)
+
         colors_tab = self._make_scrolled_tab(self.right_notebook, "  Цвета и текстуры  ")
         self._build_colors_tab(colors_tab)
+
+    def _build_export_panel(self, parent: ttk.Frame) -> None:
+        group = ttk.LabelFrame(parent, text="Экспорт", padding=10)
+        group.pack(fill="x", pady=(0, 8))
+
+        asset_row = ttk.Frame(group, style="Panel.TFrame")
+        asset_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(asset_row, text="Asset name", style="Panel.TLabel", width=14).pack(side="left")
+        asset_entry = ttk.Entry(asset_row, textvariable=self.asset_name_var, width=24)
+        asset_entry.pack(side="left", fill="x", expand=True)
+        asset_entry.bind("<KeyRelease>", self._on_asset_name_changed)
+        asset_entry.bind("<FocusOut>", self._on_asset_name_changed)
+
+        ttk.Label(group, textvariable=self.asset_name_error_var, style="Warn.TLabel").pack(anchor="w")
+
+        folder_row = ttk.Frame(group, style="Panel.TFrame")
+        folder_row.pack(fill="x", pady=(6, 0))
+        ttk.Label(folder_row, text="Папка", style="Panel.TLabel", width=14).pack(side="left")
+        ttk.Entry(folder_row, textvariable=self.export_target_var, state="readonly").pack(
+            side="left",
+            fill="x",
+            expand=True,
+        )
+        ttk.Button(
+            folder_row,
+            text="Выбрать...",
+            style="Mini.TButton",
+            command=lambda: self._choose_export_folder(schedule=False),
+        ).pack(side="left", padx=(6, 0))
+        ttk.Button(
+            folder_row,
+            text="Сброс",
+            style="Mini.TButton",
+            command=self._clear_export_folder,
+        ).pack(side="left", padx=(4, 0))
 
     def _make_scrolled_tab(self, notebook: ttk.Notebook, label: str) -> ttk.Frame:
         outer = ttk.Frame(notebook, style="Panel.TFrame")
@@ -603,10 +819,19 @@ class CliffForgeApp:
     def _build_geometry_tab(self, parent: ttk.Frame) -> None:
         group = ttk.LabelFrame(parent, text="Размер тайла", padding=10)
         group.pack(fill="x", pady=(0, 10))
-        self._add_panel_scale(group, "Размер тайла", self.tile_size_var, 32, 96, 16, integer=True)
+        self._add_panel_scale(group, "Размер тайла", self.tile_size_var, 32, 96, 16, integer=True,
+                              on_change=self._on_tile_size_changed)
         self._add_panel_scale(group, "Кол-во вариантов", self.variants_var, 1, 8, 1, integer=True,
                               on_change=self._on_variant_count_changed, debounce_full=False)
+        ttk.Label(group, text=TEXT_VARIANT_WARNING, style="Warn.TLabel", wraplength=300).pack(anchor="w", pady=(0, 4))
         self._add_panel_scale(group, "Зум текстуры", self.texture_scale_var, 0.25, 4.0, 0.05)
+
+        lighting = ttk.LabelFrame(parent, text="Нормали и свет", padding=10)
+        lighting.pack(fill="x", pady=(0, 10))
+        self._add_panel_scale(lighting, "Сила нормалей", self.normal_strength_var, 0.25, 8.0, 0.05)
+        ttk.Checkbutton(lighting, text="Запекать высотную тень в альбедо",
+                        variable=self.bake_height_shading_var,
+                        command=self.schedule_full).pack(fill="x", pady=(2, 0))
 
         group = ttk.LabelFrame(parent, text="Высоты", padding=10)
         group.pack(fill="x", pady=(0, 10))
@@ -627,6 +852,22 @@ class CliffForgeApp:
         ttk.Label(toolbar, text="Слои стека: верх → лицо → основа.", style="DimPanel.TLabel").pack(side="left")
         ttk.Button(toolbar, text="↺ Сброс к пресету", style="Mini.TButton",
                    command=self._reset_materials_to_preset).pack(side="right")
+
+        mode_group = ttk.LabelFrame(parent, text="Режим экспорта", padding=10)
+        mode_group.pack(fill="x", pady=(0, 10))
+        mode_row = ttk.Frame(mode_group, style="Panel.TFrame")
+        mode_row.pack(fill="x")
+        ttk.Label(mode_row, text="Export mode", style="Panel.TLabel", width=14).pack(side="left")
+        mode_combo = ttk.Combobox(
+            mode_row,
+            textvariable=self.export_mode_var,
+            values=[EXPORT_MODE_LABELS[key] for key in EXPORT_MODE_VALUES],
+            state="readonly",
+            width=24,
+        )
+        mode_combo.pack(side="left", fill="x", expand=True)
+        mode_combo.bind("<<ComboboxSelected>>", lambda *_: self.schedule_full())
+
         for slot in ("top", "face", "base"):
             self._build_material_slot(parent, slot)
 
@@ -668,6 +909,216 @@ class CliffForgeApp:
         self._add_panel_scale(right, "Износ", vars_for_slot["wear"], 0.0, 1.0, 0.01)
         self._add_panel_scale(right, "Зерно", vars_for_slot["grain"], 0.0, 1.0, 0.01)
         self._add_panel_scale(right, "Затемнение краёв", vars_for_slot["edge_darkening"], 0.0, 1.0, 0.01)
+
+    def _build_decals_tab(self, parent: ttk.Frame) -> None:
+        atlas_group = ttk.LabelFrame(parent, text="Decal atlas", padding=10)
+        atlas_group.pack(fill="x", pady=(0, 10))
+
+        controls = ttk.Frame(atlas_group, style="Panel.TFrame")
+        controls.pack(fill="x")
+        ttk.Label(controls, text="Max cell", style="Panel.TLabel", width=12).pack(side="left")
+        cell_combo = ttk.Combobox(
+            controls,
+            textvariable=self.decal_cell_size_var,
+            values=list(DECAL_SIZE_CLASSES),
+            state="readonly",
+            width=8,
+        )
+        cell_combo.pack(side="left")
+        cell_combo.bind("<<ComboboxSelected>>", lambda *_: self.schedule_decals())
+        ttk.Checkbutton(
+            controls,
+            text="Outline",
+            variable=self.decal_outline_enable_var,
+            command=self.schedule_decals,
+        ).pack(side="left", padx=(12, 0))
+        ttk.Button(
+            controls,
+            text="Собрать decal atlas",
+            style="Accent.TButton",
+            command=self.schedule_decals,
+        ).pack(side="right")
+
+        cells_group = ttk.LabelFrame(parent, text="16 cells", padding=10)
+        cells_group.pack(fill="x", pady=(0, 10))
+        self.decal_image_labels.clear()
+        for index, vars_for_cell in enumerate(self.decal_vars):
+            cell = ttk.LabelFrame(cells_group, text=f"Cell {index:02d}", padding=8)
+            cell.pack(fill="x", pady=(0, 8))
+            cell.columnconfigure(1, weight=1)
+            cell.columnconfigure(3, weight=1)
+
+            ttk.Label(cell, text="Источник", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
+            source_combo = ttk.Combobox(
+                cell,
+                textvariable=vars_for_cell["source"],
+                values=[DECAL_SOURCE_LABELS[key] for key in DECAL_SOURCE_LABELS],
+                state="readonly",
+                width=14,
+            )
+            source_combo.grid(row=0, column=1, sticky="ew", padx=(6, 10), pady=2)
+            source_combo.bind("<<ComboboxSelected>>", lambda *_: self.schedule_decals())
+
+            ttk.Label(cell, text="Тип", style="Panel.TLabel").grid(row=0, column=2, sticky="w")
+            kind_combo = ttk.Combobox(
+                cell,
+                textvariable=vars_for_cell["kind"],
+                values=[DECAL_KIND_LABELS[key] for key in DECAL_KIND_LABELS],
+                state="readonly",
+                width=18,
+            )
+            kind_combo.grid(row=0, column=3, sticky="ew", padx=(6, 0), pady=2)
+            kind_combo.bind("<<ComboboxSelected>>", lambda *_: self.schedule_decals())
+
+            ttk.Label(cell, text="Size", style="Panel.TLabel").grid(row=1, column=0, sticky="w")
+            size_combo = ttk.Combobox(
+                cell,
+                textvariable=vars_for_cell["size_class"],
+                values=list(DECAL_SIZE_CLASSES),
+                state="readonly",
+                width=8,
+            )
+            size_combo.grid(row=1, column=1, sticky="w", padx=(6, 10), pady=2)
+            size_combo.bind("<<ComboboxSelected>>", lambda *_: self.schedule_decals())
+
+            ttk.Label(cell, text="Pivot", style="Panel.TLabel").grid(row=1, column=2, sticky="w")
+            pivot_combo = ttk.Combobox(
+                cell,
+                textvariable=vars_for_cell["pivot"],
+                values=[DECAL_PIVOT_LABELS[key] for key in DECAL_PIVOT_LABELS],
+                state="readonly",
+                width=18,
+            )
+            pivot_combo.grid(row=1, column=3, sticky="ew", padx=(6, 0), pady=2)
+            pivot_combo.bind("<<ComboboxSelected>>", lambda *_: self.schedule_decals())
+
+            ttk.Label(cell, text="Seed", style="Panel.TLabel").grid(row=2, column=0, sticky="w")
+            seed_entry = ttk.Entry(cell, textvariable=vars_for_cell["seed"], width=10)
+            seed_entry.grid(row=2, column=1, sticky="w", padx=(6, 10), pady=2)
+            seed_entry.bind("<Return>", lambda _e: self.schedule_decals())
+
+            ttk.Label(cell, text="Цвет", style="Panel.TLabel").grid(row=2, column=2, sticky="w")
+            color_row = ttk.Frame(cell, style="Panel.TFrame")
+            color_row.grid(row=2, column=3, sticky="ew", padx=(6, 0), pady=2)
+            color_entry = ttk.Entry(color_row, textvariable=vars_for_cell["color"], width=10)
+            color_entry.pack(side="left")
+            color_entry.bind("<Return>", lambda _e: self.schedule_decals())
+            swatch = tk.Button(
+                color_row,
+                width=3,
+                relief="flat",
+                background=vars_for_cell["color"].get(),
+                activebackground=vars_for_cell["color"].get(),
+                command=lambda i=index: self._pick_decal_color(i),
+            )
+            swatch.pack(side="left", padx=(6, 0))
+            vars_for_cell["color"].trace_add(
+                "write",
+                lambda *_a, btn=swatch, var=vars_for_cell["color"]: self._sync_color_swatch(btn, var),
+            )
+
+            image_row = ttk.Frame(cell, style="Panel.TFrame")
+            image_row.grid(row=3, column=0, columnspan=4, sticky="ew", pady=(4, 0))
+            ttk.Label(image_row, text="Файл", style="Panel.TLabel", width=8).pack(side="left")
+            image_label = ttk.Label(image_row, text=TEXT_PROCEDURAL, style="DimPanel.TLabel", width=24, anchor="w")
+            image_label.pack(side="left", fill="x", expand=True)
+            ttk.Button(
+                image_row,
+                text="Файл...",
+                style="Mini.TButton",
+                command=lambda i=index: self._choose_decal_image(i),
+            ).pack(side="left")
+            ttk.Button(
+                image_row,
+                text="✕",
+                style="Mini.TButton",
+                width=3,
+                command=lambda i=index: self._clear_decal_image(i),
+            ).pack(side="left", padx=(4, 0))
+            self.decal_image_labels.append(image_label)
+
+    def _build_silhouettes_tab(self, parent: ttk.Frame) -> None:
+        atlas_group = ttk.LabelFrame(parent, text="Silhouette atlas", padding=10)
+        atlas_group.pack(fill="x", pady=(0, 10))
+
+        size_row = ttk.Frame(atlas_group, style="Panel.TFrame")
+        size_row.pack(fill="x", pady=(0, 6))
+        ttk.Label(size_row, text="Tile size", style="Panel.TLabel", width=14).pack(side="left")
+        tile_combo = ttk.Combobox(
+            size_row,
+            textvariable=self.silhouette_tile_size_var,
+            values=list(SILHOUETTE_TILE_SIZES),
+            state="readonly",
+            width=8,
+        )
+        tile_combo.pack(side="left", padx=(0, 12))
+        tile_combo.bind("<<ComboboxSelected>>", lambda *_: self.schedule_silhouettes())
+        ttk.Label(size_row, text="Height", style="Panel.TLabel", width=8).pack(side="left")
+        height_combo = ttk.Combobox(
+            size_row,
+            textvariable=self.silhouette_height_var,
+            values=list(SILHOUETTE_HEIGHTS),
+            state="readonly",
+            width=8,
+        )
+        height_combo.pack(side="left")
+        height_combo.bind("<<ComboboxSelected>>", lambda *_: self.schedule_silhouettes())
+
+        variant_row = ttk.Frame(atlas_group, style="Panel.TFrame")
+        variant_row.pack(fill="x", pady=(0, 6))
+        ttk.Label(variant_row, text="Variants", style="Panel.TLabel", width=14).pack(side="left")
+        variant_combo = ttk.Combobox(
+            variant_row,
+            textvariable=self.silhouette_variants_var,
+            values=list(range(1, 9)),
+            state="readonly",
+            width=8,
+        )
+        variant_combo.pack(side="left", padx=(0, 12))
+        variant_combo.bind("<<ComboboxSelected>>", lambda *_: self.schedule_silhouettes())
+        ttk.Label(variant_row, text="Material", style="Panel.TLabel", width=8).pack(side="left")
+        material_combo = ttk.Combobox(
+            variant_row,
+            textvariable=self.silhouette_material_slot_var,
+            values=[SILHOUETTE_MATERIAL_SLOT_LABELS[key] for key in SILHOUETTE_MATERIAL_SLOT_LABELS],
+            state="readonly",
+            width=16,
+        )
+        material_combo.pack(side="left", fill="x", expand=True)
+        material_combo.bind("<<ComboboxSelected>>", lambda *_: self.schedule_silhouettes())
+
+        edge_group = ttk.LabelFrame(parent, text="Top edge", padding=10)
+        edge_group.pack(fill="x", pady=(0, 10))
+        jitter_row = ttk.Frame(edge_group, style="Panel.TFrame")
+        jitter_row.pack(fill="x", pady=(0, 6))
+        ttk.Label(jitter_row, text="Jitter px", style="Panel.TLabel", width=14).pack(side="left")
+        jitter_entry = ttk.Entry(jitter_row, textvariable=self.silhouette_top_jitter_var, width=8)
+        jitter_entry.pack(side="left", padx=(0, 12))
+        jitter_entry.bind("<Return>", lambda _e: self.schedule_silhouettes())
+        ttk.Label(jitter_row, text="Roughness", style="Panel.TLabel", width=10).pack(side="left")
+        roughness_entry = ttk.Entry(jitter_row, textvariable=self.silhouette_top_roughness_var, width=8)
+        roughness_entry.pack(side="left")
+        roughness_entry.bind("<Return>", lambda _e: self.schedule_silhouettes())
+
+        seed_row = ttk.Frame(edge_group, style="Panel.TFrame")
+        seed_row.pack(fill="x")
+        ttk.Label(seed_row, text="Seed", style="Panel.TLabel", width=14).pack(side="left")
+        seed_entry = ttk.Entry(seed_row, textvariable=self.silhouette_seed_var, width=12)
+        seed_entry.pack(side="left")
+        seed_entry.bind("<Return>", lambda _e: self.schedule_silhouettes())
+        ttk.Button(
+            seed_row,
+            text="🎲",
+            width=3,
+            style="Mini.TButton",
+            command=self._randomize_silhouette_seed,
+        ).pack(side="left", padx=(4, 0))
+        ttk.Button(
+            seed_row,
+            text="Собрать silhouette atlas",
+            style="Accent.TButton",
+            command=self.schedule_silhouettes,
+        ).pack(side="right")
 
     def _build_colors_tab(self, parent: ttk.Frame) -> None:
         # Recent palette
@@ -800,6 +1251,12 @@ class CliffForgeApp:
             pass
         if not self.suspend_events:
             self.schedule_draft()
+
+    def _sync_color_swatch(self, button: tk.Button, variable: tk.StringVar) -> None:
+        try:
+            button.configure(background=variable.get(), activebackground=variable.get())
+        except tk.TclError:
+            pass
 
     def _pick_color(self, variable: tk.StringVar) -> None:
         self.last_color_var = variable
@@ -1071,6 +1528,16 @@ class CliffForgeApp:
     def _on_preset_changed(self, *_args) -> None:
         self._apply_preset(self._selected_preset_key(), schedule=True)
 
+    @staticmethod
+    def _normal_strength_for_tile_size(tile_size: int) -> float:
+        return max(0.25, min(8.0, float(tile_size) / 32.0))
+
+    def _on_tile_size_changed(self) -> None:
+        if self.suspend_events:
+            return
+        self.normal_strength_var.set(self._normal_strength_for_tile_size(int(self.tile_size_var.get())))
+        self.schedule_full()
+
     def _apply_preset(self, name: str, *, schedule: bool) -> None:
         preset = clone_preset(name)
         self.suspend_events = True
@@ -1084,8 +1551,10 @@ class CliffForgeApp:
             self.face_power_var.set(preset["face_power"])
             self.back_drop_var.set(preset["back_drop"])
             self.crown_bevel_var.set(preset["crown_bevel"])
-            self.variants_var.set(preset["variants"])
+            self.variants_var.set(RUNTIME_VARIANT_COUNT)
             self.texture_scale_var.set(preset["texture_scale"])
+            self.normal_strength_var.set(self._normal_strength_for_tile_size(preset["tile_size"]))
+            self.bake_height_shading_var.set(False)
             self.top_color_var.set(preset["colors"]["top"])
             self.face_color_var.set(preset["colors"]["face"])
             self.back_color_var.set(preset["colors"]["back"])
@@ -1113,6 +1582,9 @@ class CliffForgeApp:
 
     def _selected_preview_mode_key(self) -> str:
         return PREVIEW_MODE_KEYS_BY_LABEL.get(self.preview_mode_var.get(), "composite")
+
+    def _selected_export_mode_key(self) -> str:
+        return normalize_export_mode(EXPORT_MODE_KEYS_BY_LABEL.get(self.export_mode_var.get(), "Full47"))
 
     def _randomize_seed(self) -> None:
         self.seed_var.set(random.randint(1, 2_147_483_647))
@@ -1165,14 +1637,66 @@ class CliffForgeApp:
         self.texture_labels[slot].configure(text=TEXT_PROCEDURAL)
         self.schedule_full()
 
+    def _choose_decal_image(self, index: int) -> None:
+        file_path = filedialog.askopenfilename(
+            title=f"Загрузить decal source: Cell {index:02d}",
+            filetypes=[("Изображения", "*.png;*.jpg;*.jpeg;*.bmp;*.webp"), ("Все файлы", "*.*")],
+        )
+        if not file_path:
+            return
+        vars_for_cell = self.decal_vars[index]
+        vars_for_cell["image_path"].set(file_path)
+        vars_for_cell["source"].set(DECAL_SOURCE_LABELS["image"])
+        self.decal_image_labels[index].configure(text=Path(file_path).name)
+        self.schedule_decals()
+
+    def _clear_decal_image(self, index: int) -> None:
+        vars_for_cell = self.decal_vars[index]
+        vars_for_cell["image_path"].set("")
+        vars_for_cell["source"].set(DECAL_SOURCE_LABELS["procedural"])
+        self.decal_image_labels[index].configure(text=TEXT_PROCEDURAL)
+        self.schedule_decals()
+
+    def _pick_decal_color(self, index: int) -> None:
+        variable = self.decal_vars[index]["color"]
+        _, hex_value = colorchooser.askcolor(color=variable.get(), parent=self.root)
+        if hex_value:
+            variable.set(hex_value)
+            self._add_recent_color(hex_value)
+            self.schedule_decals()
+
+    def _randomize_silhouette_seed(self) -> None:
+        self.silhouette_seed_var.set(random.randint(1, 2_147_483_647))
+        self.schedule_silhouettes()
+
     # ─── Request building ────────────────────────────────────────────────
+
+    def _on_asset_name_changed(self, _event: tk.Event | None = None) -> None:
+        self._validated_asset_name(show_error=True, raise_on_error=False)
+        self._mark_dirty()
+
+    def _validated_asset_name(self, *, show_error: bool, raise_on_error: bool = True) -> str | None:
+        value = self.asset_name_var.get().strip()
+        if is_valid_asset_name(value):
+            if show_error:
+                self.asset_name_error_var.set("")
+            return value
+
+        if show_error:
+            self.asset_name_error_var.set(TEXT_ASSET_NAME_ERROR)
+        if raise_on_error:
+            raise ValueError(TEXT_ASSET_NAME_ERROR)
+        return None
 
     def build_request(self) -> dict:
         forced_variant = None
         if self.forced_variant_var.get().startswith(LABEL_VARIANT_PREFIX):
             forced_variant = max(0, int(self.forced_variant_var.get().replace(LABEL_VARIANT_PREFIX, "", 1)) - 1)
 
+        asset_name = self._validated_asset_name(show_error=True)
         return {
+            "asset_name": asset_name,
+            "export_mode": self._selected_export_mode_key(),
             "preset": self._selected_preset_key(),
             "tile_size": int(self.tile_size_var.get()),
             "south_height": int(self.south_height_var.get()),
@@ -1186,6 +1710,8 @@ class CliffForgeApp:
             "forced_variant": forced_variant,
             "seed": int(self.seed_var.get()),
             "texture_scale": float(self.texture_scale_var.get()),
+            "normal_strength": float(self.normal_strength_var.get()),
+            "bake_height_shading": bool(self.bake_height_shading_var.get()),
             "texture_color_overlay": bool(self.texture_color_overlay_var.get()),
             "preview_mode": self._selected_preview_mode_key(),
             "textures": {
@@ -1200,6 +1726,8 @@ class CliffForgeApp:
                 "back": self.back_color_var.get(),
                 "base": self.base_color_var.get(),
             },
+            "decal_atlas": self._build_decal_payload(),
+            "silhouette_atlas": self._build_silhouette_payload(),
             "map": self.current_map,
         }
 
@@ -1222,6 +1750,40 @@ class CliffForgeApp:
             }
         return payload
 
+    def _build_decal_payload(self) -> dict:
+        cells = []
+        max_cell_size = int(self.decal_cell_size_var.get())
+        for vars_for_cell in self.decal_vars:
+            size_class = int(vars_for_cell["size_class"].get())
+            cells.append({
+                "source":     DECAL_SOURCE_KEYS_BY_LABEL.get(vars_for_cell["source"].get(), "procedural"),
+                "kind":       DECAL_KIND_KEYS_BY_LABEL.get(vars_for_cell["kind"].get(), "rough_stone"),
+                "size_class": min(size_class, max_cell_size),
+                "seed":       int(vars_for_cell["seed"].get()),
+                "pivot":      DECAL_PIVOT_KEYS_BY_LABEL.get(vars_for_cell["pivot"].get(), "center"),
+                "color":      vars_for_cell["color"].get(),
+                "image_path": vars_for_cell["image_path"].get() or None,
+            })
+        return {
+            "cell_size": max_cell_size,
+            "outline_enable": bool(self.decal_outline_enable_var.get()),
+            "cells": cells,
+        }
+
+    def _build_silhouette_payload(self) -> dict:
+        return {
+            "tile_size_px": normalize_choice(int(self.silhouette_tile_size_var.get()), SILHOUETTE_TILE_SIZES, 64),
+            "silhouette_height_px": normalize_choice(int(self.silhouette_height_var.get()), SILHOUETTE_HEIGHTS, 96),
+            "variants": max(1, min(8, int(self.silhouette_variants_var.get()))),
+            "material_slot": SILHOUETTE_MATERIAL_SLOT_KEYS_BY_LABEL.get(
+                self.silhouette_material_slot_var.get(),
+                "face",
+            ),
+            "top_jitter_px": max(0, int(self.silhouette_top_jitter_var.get())),
+            "top_roughness": max(0.0, min(1.0, float(self.silhouette_top_roughness_var.get()))),
+            "seed": int(self.silhouette_seed_var.get()),
+        }
+
     # ─── Render scheduling ───────────────────────────────────────────────
 
     def schedule_draft(self) -> None:
@@ -1237,20 +1799,51 @@ class CliffForgeApp:
             self.draft_after_id = None
         self.request_render("full")
 
+    def schedule_decals(self) -> None:
+        self._mark_dirty()
+        if self.draft_after_id:
+            self.root.after_cancel(self.draft_after_id)
+            self.draft_after_id = None
+        self.request_render("decals")
+
+    def schedule_silhouettes(self) -> None:
+        self._mark_dirty()
+        if self.draft_after_id:
+            self.root.after_cancel(self.draft_after_id)
+            self.draft_after_id = None
+        self.request_render("silhouettes")
+
     def request_render(self, mode: str) -> None:
         if self.render_thread and self.render_thread.is_alive():
             self.pending_mode = self._merge_modes(self.pending_mode, mode)
             return
 
         self.draft_after_id = None
-        request = self.build_request()
-        mode_label = "черновой" if mode == "draft" else "полный"
+        try:
+            request = self.build_request()
+        except ValueError as error:
+            self._set_status(str(error))
+            return
+
+        output_dir = SESSION_OUTPUT_DIR
+        if mode in {"full", "decals", "silhouettes"} and self.export_target_dir:
+            if not self._confirm_overwrite_if_needed(self.export_target_dir, request["asset_name"]):
+                self._set_status("Экспорт отменён.")
+                return
+            output_dir = self.export_target_dir
+
+        mode_label = {
+            "draft": "черновой",
+            "full": "полный",
+            "decals": "decal atlas",
+            "silhouettes": "silhouette atlas",
+        }.get(mode, "полный")
         self._set_status(f"Идёт {mode_label} рендер…")
         self._set_progress_active(True)
 
         def worker() -> None:
             try:
-                manifest = run_core(mode, request, SESSION_OUTPUT_DIR)
+                manifest = run_core(mode, request, output_dir)
                 self.render_queue.put(("ok", manifest))
             except Exception as error:  # noqa: BLE001
                 self.render_queue.put(("error", error))
@@ -1259,8 +1852,11 @@ class CliffForgeApp:
         self.render_thread.start()
 
     def _merge_modes(self, existing: str | None, incoming: str) -> str:
-        if existing == "full" or incoming == "full":
-            return "full"
+        full_modes = {"full", "decals", "silhouettes"}
+        if incoming in full_modes:
+            return incoming
+        if existing in full_modes:
+            return existing
         return incoming
 
     def _poll_render_queue(self) -> None:
@@ -1281,20 +1877,31 @@ class CliffForgeApp:
         self.last_warnings = list(manifest.get("warnings") or [])
         self._update_warnings_label()
         self._update_images(manifest)
-        self.stats_var.set(
-            f"Сборка: {manifest.get('build_ms', '?')} мс  ·  "
-            f"Сигнатур: {manifest.get('signature_count', '?')}  ·  "
-            f"Тайлы: {manifest.get('total_tiles', '?')}"
-        )
         mode_value = manifest.get("mode", "render")
-        mode_label = {"draft": "Черновой", "full": "Полный"}.get(mode_value, "Рендер")
+        if mode_value == "decals":
+            self.stats_var.set(
+                f"Сборка: {manifest.get('build_ms', '?')} мс  ·  "
+                f"Decal cells: {manifest.get('cell_count', '?')}"
+            )
+        elif mode_value == "silhouettes":
+            self.stats_var.set(
+                f"Сборка: {manifest.get('build_ms', '?')} мс  ·  "
+                f"Silhouette cells: {manifest.get('cell_count', '?')}"
+            )
+        else:
+            self.stats_var.set(
+                f"Сборка: {manifest.get('build_ms', '?')} мс  ·  "
+                f"Сигнатур: {manifest.get('signature_count', '?')}  ·  "
+                f"Тайлы: {manifest.get('total_tiles', '?')}"
+            )
+        mode_label = {
+            "draft": "Черновой",
+            "full": "Полный",
+            "decals": "Decal atlas",
+            "silhouettes": "Silhouette atlas",
+        }.get(mode_value, "Рендер")
         self._set_status(f"{mode_label} рендер завершён.")
         self._set_progress_active(False)
-
-        if self.pending_export_dir and manifest.get("mode") == "full":
-            export_dir = self.pending_export_dir
-            self.pending_export_dir = None
-            self._copy_outputs_to(export_dir)
 
         if self.pending_mode:
             next_mode = self.pending_mode
@@ -1340,8 +1947,24 @@ class CliffForgeApp:
 
     def _update_images(self, manifest: dict) -> None:
         files = manifest.get("files", {})
-        preview_path = Path(files.get("preview_png", ""))
-        if preview_path.exists():
+        decal_atlas_value = files.get("decal_atlas_png")
+        if decal_atlas_value:
+            decal_atlas_path = Path(decal_atlas_value)
+            if decal_atlas_path.exists():
+                self._set_atlas_image(decal_atlas_path)
+            if manifest.get("mode") == "decals":
+                return
+
+        silhouette_atlas_value = files.get("silhouette_atlas_png")
+        if silhouette_atlas_value:
+            silhouette_atlas_path = Path(silhouette_atlas_value)
+            if silhouette_atlas_path.exists():
+                self._set_atlas_image(silhouette_atlas_path)
+            if manifest.get("mode") == "silhouettes":
+                return
+
+        preview_value = files.get("preview_png")
+        if preview_value and (preview_path := Path(preview_value)).exists():
             self._set_preview_image(preview_path)
 
         mode = self._selected_preview_mode_key()
@@ -1352,6 +1975,8 @@ class CliffForgeApp:
             "height":    files.get("atlas_height_png"),
             "normal":    files.get("atlas_normal_png"),
         }.get(mode)
+        if not atlas_value and manifest.get("export_mode") == "MaskOnly":
+            atlas_value = files.get("atlas_mask_png")
 
         if atlas_value:
             atlas_path = Path(atlas_value)
@@ -1501,18 +2126,24 @@ class CliffForgeApp:
     # ─── Recipe save / load ──────────────────────────────────────────────
 
     def _save_recipe(self) -> None:
-        initial = str(self.current_recipe_path or "")
+        try:
+            asset_name = self._validated_asset_name(show_error=True)
+        except ValueError as error:
+            self._set_status(str(error))
+            return
+        initial_dir = str(self.current_recipe_path.parent) if self.current_recipe_path else ""
         file_path = filedialog.asksaveasfilename(
             title="Сохранить рецепт",
             defaultextension=RECIPE_SUFFIX,
-            initialfile=initial,
+            initialdir=initial_dir,
+            initialfile=f"{asset_name}_recipe.json",
             filetypes=[("JSON", "*.json")],
         )
         if not file_path:
             return
         payload = {
             "tool": "Cliff Forge Desktop",
-            "version": 2,
+            "version": 6,
             "mode": "manual",
             "request": self.build_request(),
         }
@@ -1543,6 +2174,11 @@ class CliffForgeApp:
         self.suspend_events = True
         try:
             preset_key = request.get("preset", "mountain")
+            asset_name = str(request.get("asset_name", DEFAULT_ASSET_NAME))
+            self.asset_name_var.set(asset_name if is_valid_asset_name(asset_name) else DEFAULT_ASSET_NAME)
+            self.asset_name_error_var.set("")
+            export_mode = normalize_export_mode(str(request.get("export_mode", "Full47")))
+            self.export_mode_var.set(EXPORT_MODE_LABELS[export_mode])
             self.preset_var.set(PRESET_LABELS.get(preset_key, PRESET_LABELS["mountain"]))
             self._apply_preset(preset_key, schedule=False)
             self.tile_size_var.set(int(request.get("tile_size", self.tile_size_var.get())))
@@ -1556,6 +2192,11 @@ class CliffForgeApp:
             self.variants_var.set(int(request.get("variants", self.variants_var.get())))
             self.seed_var.set(int(request.get("seed", self.seed_var.get())))
             self.texture_scale_var.set(float(request.get("texture_scale", self.texture_scale_var.get())))
+            self.normal_strength_var.set(float(request.get(
+                "normal_strength",
+                self._normal_strength_for_tile_size(int(self.tile_size_var.get())),
+            )))
+            self.bake_height_shading_var.set(bool(request.get("bake_height_shading", False)))
             self.texture_color_overlay_var.set(bool(request.get("texture_color_overlay", False)))
             preview_key = request.get("preview_mode", self._selected_preview_mode_key())
             self.preview_mode_var.set(PREVIEW_MODE_LABELS.get(preview_key, PREVIEW_MODE_LABELS["composite"]))
@@ -1581,6 +2222,8 @@ class CliffForgeApp:
                 self.texture_labels[slot].configure(text=Path(value).name if value else TEXT_PROCEDURAL)
 
             self._apply_materials_payload(request.get("materials", {}), textures)
+            self._apply_decal_payload(request.get("decal_atlas", {}))
+            self._apply_silhouette_payload(request.get("silhouette_atlas", {}))
 
             map_payload = request.get("map")
             if map_payload:
@@ -1616,6 +2259,54 @@ class CliffForgeApp:
             vars_for_slot["color_b"].set(material.get("color_b", defaults["color_b"]))
             vars_for_slot["highlight"].set(material.get("highlight", defaults["highlight"]))
 
+    def _apply_decal_payload(self, decal_atlas: dict) -> None:
+        cell_size = int(decal_atlas.get("cell_size", 128))
+        if cell_size not in DECAL_SIZE_CLASSES:
+            cell_size = 128
+        self.decal_cell_size_var.set(cell_size)
+        self.decal_outline_enable_var.set(bool(decal_atlas.get("outline_enable", False)))
+
+        cells = decal_atlas.get("cells") or []
+        for index, vars_for_cell in enumerate(self.decal_vars):
+            defaults = default_decal_cell(index)
+            cell = cells[index] if index < len(cells) and isinstance(cells[index], dict) else defaults
+            source_key = str(cell.get("source", defaults["source"]))
+            if source_key == "flat":
+                source_key = "color"
+            kind_key = str(cell.get("kind", defaults["kind"]))
+            pivot_key = str(cell.get("pivot", defaults["pivot"]))
+            size_class = int(cell.get("size_class", defaults["size_class"]))
+            if size_class not in DECAL_SIZE_CLASSES:
+                size_class = defaults["size_class"]
+            size_class = min(size_class, cell_size)
+            image_path = cell.get("image_path") or ""
+
+            vars_for_cell["source"].set(DECAL_SOURCE_LABELS.get(source_key, DECAL_SOURCE_LABELS[defaults["source"]]))
+            vars_for_cell["kind"].set(DECAL_KIND_LABELS.get(kind_key, DECAL_KIND_LABELS[defaults["kind"]]))
+            vars_for_cell["size_class"].set(size_class)
+            vars_for_cell["seed"].set(int(cell.get("seed", defaults["seed"])))
+            vars_for_cell["pivot"].set(DECAL_PIVOT_LABELS.get(pivot_key, DECAL_PIVOT_LABELS[defaults["pivot"]]))
+            vars_for_cell["color"].set(cell.get("color", defaults["color"]))
+            vars_for_cell["image_path"].set(image_path)
+            if index < len(self.decal_image_labels):
+                self.decal_image_labels[index].configure(text=Path(image_path).name if image_path else TEXT_PROCEDURAL)
+
+    def _apply_silhouette_payload(self, silhouette_atlas: dict) -> None:
+        tile_size = normalize_choice(int(silhouette_atlas.get("tile_size_px", 64)), SILHOUETTE_TILE_SIZES, 64)
+        height = normalize_choice(int(silhouette_atlas.get("silhouette_height_px", 96)), SILHOUETTE_HEIGHTS, 96)
+        material_slot = str(silhouette_atlas.get("material_slot", "face"))
+        self.silhouette_tile_size_var.set(tile_size)
+        self.silhouette_height_var.set(height)
+        self.silhouette_variants_var.set(max(1, min(8, int(silhouette_atlas.get("variants", 3)))))
+        self.silhouette_material_slot_var.set(
+            SILHOUETTE_MATERIAL_SLOT_LABELS.get(material_slot, SILHOUETTE_MATERIAL_SLOT_LABELS["face"])
+        )
+        self.silhouette_top_jitter_var.set(max(0, int(silhouette_atlas.get("top_jitter_px", 12))))
+        self.silhouette_top_roughness_var.set(
+            max(0.0, min(1.0, float(silhouette_atlas.get("top_roughness", 0.55))))
+        )
+        self.silhouette_seed_var.set(int(silhouette_atlas.get("seed", 0)))
+
     def _add_recent_recipe(self, file_path: str) -> None:
         if not file_path:
             return
@@ -1633,39 +2324,94 @@ class CliffForgeApp:
         if self.recent_recipes:
             self.recent_recipes_menu.add_separator()
             for path in self.recent_recipes:
-                shortened = path if len(path) <= 60 else "…" + path[-57:]
                 self.recent_recipes_menu.add_command(
-                    label=shortened,
+                    label=self._recipe_menu_label(path),
                     command=lambda p=path: self._load_recipe_from(p),
                 )
+
+    def _recipe_menu_label(self, path: str) -> str:
+        shortened = path if len(path) <= 52 else "…" + path[-49:]
+        try:
+            payload = json.loads(Path(path).read_text(encoding="utf-8"))
+            request = payload.get("request", payload)
+            asset_name = request.get("asset_name")
+        except Exception:
+            asset_name = None
+        if asset_name and is_valid_asset_name(str(asset_name)):
+            return f"{asset_name}  |  {shortened}"
+        return shortened
 
     # ─── Export ──────────────────────────────────────────────────────────
 
     def _export_outputs(self) -> None:
-        target = filedialog.askdirectory(title="Экспорт файлов")
+        self._choose_export_folder(schedule=True)
+
+    def _choose_export_folder(self, *, schedule: bool) -> None:
+        target = filedialog.askdirectory(title="Export to folder...")
         if not target:
             return
-        export_dir = Path(target)
-        if not self.last_manifest or self.last_manifest.get("mode") != "full":
-            self.pending_export_dir = export_dir
+        self.export_target_dir = Path(target)
+        self.export_target_var.set(str(self.export_target_dir))
+        if schedule:
             self.schedule_full()
-            self._set_status("Перед экспортом поставлена в очередь полная сборка…")
-            return
-        self._copy_outputs_to(export_dir)
 
-    def _copy_outputs_to(self, export_dir: Path) -> None:
-        export_dir.mkdir(parents=True, exist_ok=True)
-        files = self.last_manifest.get("files", {}) if self.last_manifest else {}
-        copied = []
-        for value in files.values():
-            if not value:
-                continue
-            source = Path(value)
-            if source.exists():
-                destination = export_dir / source.name
-                shutil.copy2(source, destination)
-                copied.append(destination.name)
-        self._set_status(f"Экспортировано {len(copied)} файл(ов) в {export_dir}")
+    def _clear_export_folder(self) -> None:
+        self.export_target_dir = None
+        self.export_target_var.set("(рабочая папка сессии)")
+
+    def _confirm_overwrite_if_needed(self, export_dir: Path, asset_name: str) -> bool:
+        if self.suppress_overwrite_prompt:
+            return True
+        existing = sorted(path.name for path in export_dir.glob(f"{asset_name}_*") if path.is_file())
+        if not existing:
+            return True
+        return self._show_overwrite_dialog(export_dir, existing)
+
+    def _show_overwrite_dialog(self, export_dir: Path, existing: list[str]) -> bool:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Files exist - overwrite?")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+
+        result = {"ok": False}
+        skip_var = tk.BooleanVar(value=False)
+        names = "\n".join(existing[:8])
+        if len(existing) > 8:
+            names += f"\n... ещё {len(existing) - 8}"
+
+        body = ttk.Frame(dialog, style="Panel.TFrame", padding=14)
+        body.pack(fill="both", expand=True)
+        ttk.Label(
+            body,
+            text=f"В папке уже есть файлы для этого asset_name:\n{export_dir}",
+            style="Panel.TLabel",
+            wraplength=520,
+        ).pack(anchor="w")
+        ttk.Label(body, text=names, style="DimPanel.TLabel", wraplength=520).pack(anchor="w", pady=(8, 8))
+        ttk.Checkbutton(
+            body,
+            text="Не спрашивать снова в этой сессии",
+            variable=skip_var,
+        ).pack(anchor="w", pady=(0, 12))
+
+        buttons = ttk.Frame(body, style="Panel.TFrame")
+        buttons.pack(fill="x")
+
+        def accept() -> None:
+            result["ok"] = True
+            self.suppress_overwrite_prompt = bool(skip_var.get())
+            dialog.destroy()
+
+        def cancel() -> None:
+            result["ok"] = False
+            dialog.destroy()
+
+        ttk.Button(buttons, text="Перезаписать", style="Accent.TButton", command=accept).pack(side="right")
+        ttk.Button(buttons, text="Отмена", style="Toolbar.TButton", command=cancel).pack(side="right", padx=(0, 6))
+        dialog.protocol("WM_DELETE_WINDOW", cancel)
+        self.root.wait_window(dialog)
+        return result["ok"]
 
     # ─── Status / dirty / title ──────────────────────────────────────────
 
@@ -1707,6 +2453,7 @@ class CliffForgeApp:
         self.root.bind_all("<Control-Key-1>", lambda _e: self.right_notebook.select(0))
         self.root.bind_all("<Control-Key-2>", lambda _e: self.right_notebook.select(1))
         self.root.bind_all("<Control-Key-3>", lambda _e: self.right_notebook.select(2))
+        self.root.bind_all("<Control-Key-4>", lambda _e: self.right_notebook.select(3))
 
     def _on_tool_shortcut(self, event: tk.Event, tool: str) -> None:
         if isinstance(event.widget, (tk.Entry, ttk.Entry, tk.Text)):

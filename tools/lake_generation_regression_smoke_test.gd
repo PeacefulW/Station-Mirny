@@ -332,8 +332,8 @@ func _assert_l7_shore_warp_ui_and_persistence() -> void:
 func _assert_l8_mask_connected_components() -> void:
 	var constants_source: String = FileAccess.get_file_as_string("res://core/systems/world/world_runtime_constants.gd")
 	_assert(
-		constants_source.contains("const WORLD_VERSION: int = 43"),
-		"L8 must advance WorldRuntimeConstants.WORLD_VERSION to 43."
+		constants_source.contains("const WORLD_VERSION: int = 44"),
+		"WorldRuntimeConstants.WORLD_VERSION must remain at the current visual-only transition boundary 44."
 	)
 
 	var lake_field_source: String = FileAccess.get_file_as_string("res://gdextension/src/lake_field.cpp")
@@ -646,8 +646,13 @@ func _assert_water_surface_uses_single_tile_textures() -> void:
 	_assert(water_layer != null, "ChunkView must create WaterSurfaceLayer for water tiles.")
 	if water_layer != null:
 		_assert(
-			water_layer.z_index == 0,
-			"WaterSurfaceLayer must stay at terrain z-index so the player renders above shallow water."
+			water_layer.z_index == 3,
+			"WaterSurfaceLayer must render above the transition overlay layer and below roof/silhouette presentation."
+		)
+		var player_scene_source: String = FileAccess.get_file_as_string("res://scenes/player/player.tscn")
+		_assert(
+			player_scene_source.contains("[node name=\"Player\"") and player_scene_source.contains("z_index = 4"),
+			"Player scene root must render above WaterSurfaceLayer and below roof presentation."
 		)
 	chunk_view.free()
 
