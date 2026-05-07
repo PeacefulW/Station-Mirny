@@ -19,6 +19,10 @@ pub struct AppRequest {
     pub face_power: f32,
     pub back_drop: f32,
     pub crown_bevel: u32,
+    #[serde(default)]
+    pub outer_corner_radius: u32,
+    #[serde(default)]
+    pub inner_corner_radius: u32,
     pub variants: u32,
     pub forced_variant: Option<u32>,
     pub seed: u32,
@@ -235,6 +239,9 @@ impl AppRequest {
         self.face_power = self.face_power.clamp(0.4, 2.8);
         self.back_drop = self.back_drop.clamp(0.1, 0.8);
         self.crown_bevel = self.crown_bevel.clamp(0, 12);
+        let max_corner_radius = self.tile_size / 2;
+        self.outer_corner_radius = self.outer_corner_radius.min(max_corner_radius);
+        self.inner_corner_radius = self.inner_corner_radius.min(max_corner_radius);
         self.variants = self.variants.clamp(1, 8);
         self.forced_variant = self.forced_variant.map(|value| value.min(self.variants.saturating_sub(1)));
         self.texture_scale = self.texture_scale.clamp(0.25, 4.0);
@@ -282,6 +289,8 @@ pub struct Preset {
     pub face_power: f32,
     pub back_drop: f32,
     pub crown_bevel: u32,
+    pub outer_corner_radius: u32,
+    pub inner_corner_radius: u32,
     pub variants: u32,
     pub colors: PresetColors,
 }
@@ -315,6 +324,8 @@ impl Preset {
             face_power: 1.0,
             back_drop: 0.34,
             crown_bevel: 2,
+            outer_corner_radius: 12,
+            inner_corner_radius: 10,
             variants: DEFAULT_VARIANT_COUNT,
             colors: PresetColors {
                 top: "#705940",
@@ -335,6 +346,8 @@ impl Preset {
             face_power: 1.34,
             back_drop: 0.24,
             crown_bevel: 1,
+            outer_corner_radius: 6,
+            inner_corner_radius: 4,
             variants: DEFAULT_VARIANT_COUNT,
             colors: PresetColors {
                 top: "#765439",
@@ -355,6 +368,8 @@ impl Preset {
             face_power: 0.82,
             back_drop: 0.28,
             crown_bevel: 2,
+            outer_corner_radius: 8,
+            inner_corner_radius: 6,
             variants: DEFAULT_VARIANT_COUNT,
             colors: PresetColors {
                 top: "#7b5027",
@@ -380,6 +395,8 @@ pub fn default_request() -> AppRequest {
         face_power: preset.face_power,
         back_drop: preset.back_drop,
         crown_bevel: preset.crown_bevel,
+        outer_corner_radius: preset.outer_corner_radius,
+        inner_corner_radius: preset.inner_corner_radius,
         variants: preset.variants,
         forced_variant: None,
         seed: 240_518,

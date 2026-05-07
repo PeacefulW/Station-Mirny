@@ -20,6 +20,7 @@ enum SurfaceZone {
     Top,
     Face,
     Back,
+    Empty,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -471,7 +472,8 @@ fn render_mask_tile(request: &AppRequest, signature: &Signature, origin_x: u32, 
             let top_mask = if zone == SurfaceZone::Top { 255 } else { 0 };
             let face_mask = if zone == SurfaceZone::Face { 255 } else { 0 };
             let back_mask = if zone == SurfaceZone::Back { 255 } else { 0 };
-            mask.put_pixel(x, y, Rgba([top_mask, face_mask, back_mask, 255]));
+            let occupancy = if zone == SurfaceZone::Empty { 0 } else { 255 };
+            mask.put_pixel(x, y, Rgba([top_mask, face_mask, back_mask, occupancy]));
         }
     }
 
@@ -711,6 +713,7 @@ fn render_tile(
 
     let (top_material, top_color, top_texture, top_seed) = material_slot(request, textures, MaterialKind::Top);
     let (face_material, face_color, face_texture, face_seed) = material_slot(request, textures, MaterialKind::Face);
+    let (base_material, base_color, base_texture, base_seed) = material_slot(request, textures, MaterialKind::Base);
     let back_color = parse_hex_color(&request.colors.back);
 
     for y in 0..size {
@@ -762,6 +765,18 @@ fn render_tile(
                     face_seed.wrapping_add(local_seed).wrapping_add(181),
                     1.0,
                 ),
+                SurfaceZone::Empty => sample_material_color(
+                    base_material,
+                    base_color,
+                    base_texture,
+                    request.texture_scale,
+                    request.texture_color_overlay,
+                    request.tile_size,
+                    sample_x,
+                    sample_y,
+                    base_seed.wrapping_add(local_seed),
+                    0.92,
+                ),
             };
 
             let shaded = maybe_apply_height_shading(
@@ -775,13 +790,18 @@ fn render_tile(
             let top_mask = if zone == SurfaceZone::Top { 255 } else { 0 };
             let face_mask = if zone == SurfaceZone::Face { 255 } else { 0 };
             let back_mask = if zone == SurfaceZone::Back { 255 } else { 0 };
-            mask.put_pixel(x, y, Rgba([top_mask, face_mask, back_mask, 255]));
+            let occupancy = if zone == SurfaceZone::Empty { 0 } else { 255 };
+            mask.put_pixel(x, y, Rgba([top_mask, face_mask, back_mask, occupancy]));
 
             let height_byte = (clamp(height_value, 0.0, 1.0) * 255.0).round() as u8;
-            height_img.put_pixel(x, y, Rgba([height_byte, height_byte, height_byte, 255]));
+            height_img.put_pixel(x, y, Rgba([height_byte, height_byte, height_byte, occupancy]));
 
-            let encoded = encode_normal(size, &normal_heights, x, y, request.normal_strength);
-            normal.put_pixel(x, y, Rgba([encoded[0], encoded[1], encoded[2], 255]));
+            let encoded = if zone == SurfaceZone::Empty {
+                [128, 128, 255]
+            } else {
+                encode_normal(size, &normal_heights, x, y, request.normal_strength)
+            };
+            normal.put_pixel(x, y, Rgba([encoded[0], encoded[1], encoded[2], occupancy]));
         }
     }
 
@@ -886,15 +906,73 @@ fn sample_height(
         }
     }
 
+    let outer_radius = request.outer_corner_radius as f32;
+    if outer_radius > 0.0 {
+        if let (Some(north), Some(east)) = (north_open_boundary, east_open_boundary) {
+            set_rounded_outer_corner_height(
+                request,
+                &mut min_height,
+                &mut min_zone,
+                x - (east - outer_radius),
+                (north + outer_radius) - y,
+                outer_radius,
+                (size - 1.0 - east).max(north),
+            );
+        }
+        if let (Some(south), Some(east)) = (south_open_boundary, east_open_boundary) {
+            set_rounded_outer_corner_height(
+                request,
+                &mut min_height,
+                &mut min_zone,
+                x - (east - outer_radius),
+                y - (south - outer_radius),
+                outer_radius,
+                (size - 1.0 - east).max(size - 1.0 - south),
+            );
+        }
+        if let (Some(south), Some(west)) = (south_open_boundary, west_open_boundary) {
+            set_rounded_outer_corner_height(
+                request,
+                &mut min_height,
+                &mut min_zone,
+                (west + outer_radius) - x,
+                y - (south - outer_radius),
+                outer_radius,
+                west.max(size - 1.0 - south),
+            );
+        }
+        if let (Some(north), Some(west)) = (north_open_boundary, west_open_boundary) {
+            set_rounded_outer_corner_height(
+                request,
+                &mut min_height,
+                &mut min_zone,
+                (west + outer_radius) - x,
+                (north + outer_radius) - y,
+                outer_radius,
+                west.max(north),
+            );
+        }
+    }
+
     let notch_side = side_depth.max(2.0);
     let notch_north = north_depth.max(2.0);
+    let inner_radius = request.inner_corner_radius as f32;
 
     if signature.notch_ne {
         let x_start = size - notch_side
             + edge_jitter(world_y, seed.wrapping_add(53), rough_px * 0.8, edge_period);
         let y_end = notch_north
             + edge_jitter(world_x, seed.wrapping_add(59), rough_px * 0.8, edge_period);
-        if x > x_start && y < y_end {
+        if inner_radius > 0.0 {
+            if let Some(progress) = rounded_inner_notch_progress(x - x_start, y_end - y, notch_side, notch_north, inner_radius) {
+                set_min_height(
+                    &mut min_height,
+                    &mut min_zone,
+                    face_height_for_progress(request, progress),
+                    SurfaceZone::Face,
+                );
+            }
+        } else if x > x_start && y < y_end {
             let east_progress = ((x - x_start) / notch_side.max(1.0)).clamp(0.0, 1.0);
             set_min_height(
                 &mut min_height,
@@ -909,7 +987,16 @@ fn sample_height(
             + edge_jitter(world_y, seed.wrapping_add(61), rough_px * 0.8, edge_period);
         let y_end = notch_north
             + edge_jitter(world_x, seed.wrapping_add(67), rough_px * 0.8, edge_period);
-        if x < x_end && y < y_end {
+        if inner_radius > 0.0 {
+            if let Some(progress) = rounded_inner_notch_progress(x_end - x, y_end - y, notch_side, notch_north, inner_radius) {
+                set_min_height(
+                    &mut min_height,
+                    &mut min_zone,
+                    face_height_for_progress(request, progress),
+                    SurfaceZone::Face,
+                );
+            }
+        } else if x < x_end && y < y_end {
             let west_progress = (1.0 - x / x_end.max(1.0)).clamp(0.0, 1.0);
             set_min_height(
                 &mut min_height,
@@ -922,7 +1009,16 @@ fn sample_height(
     if signature.notch_se {
         let x_start = east_boundary(request, rough_px, edge_period, seed.wrapping_add(37), world_y);
         let y_start = south_boundary(request, rough_px, edge_period, seed.wrapping_add(23), world_x);
-        if x > x_start && y > y_start {
+        if inner_radius > 0.0 {
+            if let Some(progress) = rounded_inner_notch_progress(x - x_start, y - y_start, notch_side, request.south_height as f32, inner_radius) {
+                set_min_height(
+                    &mut min_height,
+                    &mut min_zone,
+                    face_height_for_progress(request, progress),
+                    SurfaceZone::Face,
+                );
+            }
+        } else if x > x_start && y > y_start {
             let progress = ((y - y_start) / (size - 1.0 - y_start).max(1.0)).clamp(0.0, 1.0);
             set_min_height(
                 &mut min_height,
@@ -935,7 +1031,16 @@ fn sample_height(
     if signature.notch_sw {
         let x_end = west_boundary(request, rough_px, edge_period, seed.wrapping_add(41), world_y);
         let y_start = south_boundary(request, rough_px, edge_period, seed.wrapping_add(23), world_x);
-        if x < x_end && y > y_start {
+        if inner_radius > 0.0 {
+            if let Some(progress) = rounded_inner_notch_progress(x_end - x, y - y_start, notch_side, request.south_height as f32, inner_radius) {
+                set_min_height(
+                    &mut min_height,
+                    &mut min_zone,
+                    face_height_for_progress(request, progress),
+                    SurfaceZone::Face,
+                );
+            }
+        } else if x < x_end && y > y_start {
             let progress = ((y - y_start) / (size - 1.0 - y_start).max(1.0)).clamp(0.0, 1.0);
             set_min_height(
                 &mut min_height,
@@ -944,6 +1049,10 @@ fn sample_height(
                 SurfaceZone::Face,
             );
         }
+    }
+
+    if rounded_outer_corner_is_empty(request, signature, x, y) {
+        return (0.0, SurfaceZone::Empty);
     }
 
     (clamp(min_height, 0.0, 1.0), min_zone)
@@ -973,6 +1082,90 @@ fn back_height_for_progress(request: &AppRequest, progress: f32) -> f32 {
 
 fn face_height_for_progress(request: &AppRequest, progress: f32) -> f32 {
     (1.0 - progress).powf(request.face_power)
+}
+
+fn set_rounded_outer_corner_height(
+    request: &AppRequest,
+    current_height: &mut f32,
+    current_zone: &mut SurfaceZone,
+    dx: f32,
+    dy: f32,
+    radius: f32,
+    outward_span: f32,
+) {
+    if dx <= 0.0 || dy <= 0.0 || radius <= 0.0 {
+        return;
+    }
+
+    let distance = (dx * dx + dy * dy).sqrt();
+    if distance <= radius {
+        return;
+    }
+
+    let progress = ((distance - radius) / outward_span.max(1.0)).clamp(0.0, 1.0);
+    set_min_height(
+        current_height,
+        current_zone,
+        face_height_for_progress(request, progress),
+        SurfaceZone::Face,
+    );
+}
+
+fn rounded_inner_notch_progress(
+    dx: f32,
+    dy: f32,
+    notch_width: f32,
+    notch_height: f32,
+    radius: f32,
+) -> Option<f32> {
+    if dx <= 0.0 || dy <= 0.0 {
+        return None;
+    }
+
+    let radius = radius.min(notch_width).min(notch_height);
+    let distance = (dx * dx + dy * dy).sqrt();
+    if distance <= radius {
+        return None;
+    }
+
+    Some(((distance - radius) / notch_width.max(notch_height).max(1.0)).clamp(0.0, 1.0))
+}
+
+fn rounded_outer_corner_is_empty(request: &AppRequest, signature: &Signature, x: f32, y: f32) -> bool {
+    let radius = request.outer_corner_radius as f32;
+    if radius <= 0.0 {
+        return false;
+    }
+
+    let size = request.tile_size as f32 - 1.0;
+    let max_radius = size * 0.5;
+    let radius = radius.min(max_radius);
+    if radius <= 0.0 {
+        return false;
+    }
+
+    (signature.open_n && signature.open_e && outside_corner_arc(x, y, size - radius, radius, radius, 1.0, -1.0))
+        || (signature.open_s && signature.open_e && outside_corner_arc(x, y, size - radius, size - radius, radius, 1.0, 1.0))
+        || (signature.open_s && signature.open_w && outside_corner_arc(x, y, radius, size - radius, radius, -1.0, 1.0))
+        || (signature.open_n && signature.open_w && outside_corner_arc(x, y, radius, radius, radius, -1.0, -1.0))
+}
+
+fn outside_corner_arc(
+    x: f32,
+    y: f32,
+    center_x: f32,
+    center_y: f32,
+    radius: f32,
+    sign_x: f32,
+    sign_y: f32,
+) -> bool {
+    let dx = (x - center_x) * sign_x;
+    let dy = (y - center_y) * sign_y;
+    if dx <= 0.0 || dy <= 0.0 {
+        return false;
+    }
+
+    dx * dx + dy * dy > radius * radius
 }
 
 fn set_min_height(current_height: &mut f32, current_zone: &mut SurfaceZone, candidate: f32, zone: SurfaceZone) {
@@ -1260,6 +1453,82 @@ mod tests {
             maybe_apply_height_shading(color, 0.2, SurfaceZone::Face, true),
             color
         );
+    }
+
+    #[test]
+    fn outer_corner_radius_rounds_exposed_face_corner() {
+        let mut request = default_request();
+        request.tile_size = 64;
+        request.south_height = 16;
+        request.north_height = 8;
+        request.side_height = 16;
+        request.roughness = 0.0;
+        request.outer_corner_radius = 12;
+        let request = request.sanitized();
+        let signature = Signature::create(true, false, false, false, false, false, true, true);
+
+        let (height, zone) = sample_height(
+            &request,
+            &signature,
+            request.seed,
+            45.0,
+            45.0,
+            45.0,
+            45.0,
+        );
+
+        assert_eq!(zone, SurfaceZone::Face);
+        assert!(
+            height < 0.99,
+            "rounded corner should cut the old square top corner into the face zone, got height={height}"
+        );
+    }
+
+    #[test]
+    fn outer_corner_radius_clips_square_face_silhouette() {
+        let mut request = default_request();
+        request.tile_size = 64;
+        request.south_height = 16;
+        request.north_height = 8;
+        request.side_height = 16;
+        request.roughness = 0.0;
+        request.outer_corner_radius = 12;
+        let request = request.sanitized();
+        let signature = Signature::create(true, false, false, false, false, false, true, true);
+        let tile = render_mask_tile(&request, &signature, 0, 0);
+
+        assert_eq!(
+            tile.get_pixel(63, 63).0[3],
+            0,
+            "rounded face geometry should clear occupancy in the old square corner"
+        );
+    }
+
+    #[test]
+    fn inner_corner_radius_rounds_notch_cut() {
+        let mut request = default_request();
+        request.tile_size = 64;
+        request.south_height = 16;
+        request.north_height = 16;
+        request.side_height = 16;
+        request.roughness = 0.0;
+        request.outer_corner_radius = 0;
+        request.inner_corner_radius = 10;
+        let request = request.sanitized();
+        let signature = Signature::create(true, false, true, true, true, true, true, true);
+
+        let (height, zone) = sample_height(
+            &request,
+            &signature,
+            request.seed,
+            51.0,
+            13.0,
+            51.0,
+            13.0,
+        );
+
+        assert_eq!(zone, SurfaceZone::Top);
+        assert_eq!(height, 1.0);
     }
 
     #[test]
@@ -1928,6 +2197,7 @@ fn apply_height_shading(color: [u8; 3], height: f32, zone: SurfaceZone) -> [u8; 
         SurfaceZone::Top => 0.96 + height * 0.08,
         SurfaceZone::Face => 0.90 + height * 0.10,
         SurfaceZone::Back => 0.94 + height * 0.08,
+        SurfaceZone::Empty => 1.0,
     };
     [
         ((color[0] as f32 * factor).round() as i32).clamp(0, 255) as u8,

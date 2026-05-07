@@ -483,6 +483,8 @@ class CliffForgeApp:
         self.face_power_var = tk.DoubleVar(value=1.0)
         self.back_drop_var = tk.DoubleVar(value=0.34)
         self.crown_bevel_var = tk.IntVar(value=2)
+        self.outer_corner_radius_var = tk.IntVar(value=12)
+        self.inner_corner_radius_var = tk.IntVar(value=10)
         self.variants_var = tk.IntVar(value=RUNTIME_VARIANT_COUNT)
         self.texture_scale_var = tk.DoubleVar(value=1.0)
         self.normal_strength_var = tk.DoubleVar(value=self._normal_strength_for_tile_size(self.tile_size_var.get()))
@@ -845,6 +847,8 @@ class CliffForgeApp:
         self._add_panel_scale(group, "Сила фасада", self.face_power_var, 0.4, 2.8, 0.05)
         self._add_panel_scale(group, "Задний спад", self.back_drop_var, 0.1, 0.8, 0.01)
         self._add_panel_scale(group, "Скос гребня", self.crown_bevel_var, 0, 12, 1, integer=True)
+        self._add_panel_scale(group, "Внешний радиус", self.outer_corner_radius_var, 0, 32, 1, integer=True)
+        self._add_panel_scale(group, "Внутренний радиус", self.inner_corner_radius_var, 0, 32, 1, integer=True)
 
     def _build_materials_tab(self, parent: ttk.Frame) -> None:
         toolbar = ttk.Frame(parent, style="Panel.TFrame")
@@ -1551,6 +1555,8 @@ class CliffForgeApp:
             self.face_power_var.set(preset["face_power"])
             self.back_drop_var.set(preset["back_drop"])
             self.crown_bevel_var.set(preset["crown_bevel"])
+            self.outer_corner_radius_var.set(preset["outer_corner_radius"])
+            self.inner_corner_radius_var.set(preset["inner_corner_radius"])
             self.variants_var.set(RUNTIME_VARIANT_COUNT)
             self.texture_scale_var.set(preset["texture_scale"])
             self.normal_strength_var.set(self._normal_strength_for_tile_size(preset["tile_size"]))
@@ -1706,6 +1712,8 @@ class CliffForgeApp:
             "face_power": float(self.face_power_var.get()),
             "back_drop": float(self.back_drop_var.get()),
             "crown_bevel": int(self.crown_bevel_var.get()),
+            "outer_corner_radius": int(self.outer_corner_radius_var.get()),
+            "inner_corner_radius": int(self.inner_corner_radius_var.get()),
             "variants": int(self.variants_var.get()),
             "forced_variant": forced_variant,
             "seed": int(self.seed_var.get()),
@@ -2189,6 +2197,8 @@ class CliffForgeApp:
             self.face_power_var.set(float(request.get("face_power", self.face_power_var.get())))
             self.back_drop_var.set(float(request.get("back_drop", self.back_drop_var.get())))
             self.crown_bevel_var.set(int(request.get("crown_bevel", self.crown_bevel_var.get())))
+            self.outer_corner_radius_var.set(int(request.get("outer_corner_radius", self.outer_corner_radius_var.get())))
+            self.inner_corner_radius_var.set(int(request.get("inner_corner_radius", self.inner_corner_radius_var.get())))
             self.variants_var.set(int(request.get("variants", self.variants_var.get())))
             self.seed_var.set(int(request.get("seed", self.seed_var.get())))
             self.texture_scale_var.set(float(request.get("texture_scale", self.texture_scale_var.get())))

@@ -14,6 +14,8 @@ PRESETS = {
         "face_power": 1.0,
         "back_drop": 0.34,
         "crown_bevel": 2,
+        "outer_corner_radius": 12,
+        "inner_corner_radius": 10,
         "variants": 4,
         "texture_scale": 1.0,
         "colors": {
@@ -32,6 +34,8 @@ PRESETS = {
         "face_power": 1.34,
         "back_drop": 0.24,
         "crown_bevel": 1,
+        "outer_corner_radius": 6,
+        "inner_corner_radius": 4,
         "variants": 3,
         "texture_scale": 1.0,
         "colors": {
@@ -50,6 +54,8 @@ PRESETS = {
         "face_power": 0.82,
         "back_drop": 0.28,
         "crown_bevel": 2,
+        "outer_corner_radius": 8,
+        "inner_corner_radius": 6,
         "variants": 4,
         "texture_scale": 1.0,
         "colors": {
