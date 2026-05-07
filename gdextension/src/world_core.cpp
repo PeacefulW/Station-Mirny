@@ -1,6 +1,7 @@
 #include "world_core.h"
 #include "autotile_47.h"
 #include "lake_field.h"
+#include "mountain_contour.h"
 #include "mountain_field.h"
 #include "world_utils.h"
 
@@ -868,6 +869,7 @@ struct WorldCore::HierarchicalMacroCache {
 void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("generate_chunk_packets_batch", "seed", "coords", "world_version", "settings_packed"), &WorldCore::generate_chunk_packets_batch);
 	ClassDB::bind_method(D_METHOD("make_world_preview_patch_image", "packet", "render_mode"), &WorldCore::make_world_preview_patch_image);
+	ClassDB::bind_method(D_METHOD("build_mountain_contour_debug", "solid_halo", "chunk_size", "tile_size_px"), &WorldCore::build_mountain_contour_debug);
 	ClassDB::bind_method(D_METHOD("resolve_world_foundation_spawn_tile", "seed", "world_version", "settings_packed"), &WorldCore::resolve_world_foundation_spawn_tile);
 #ifdef DEBUG_ENABLED
 	ClassDB::bind_method(D_METHOD("get_world_foundation_snapshot", "layer_mask", "downscale_factor"), &WorldCore::get_world_foundation_snapshot);
@@ -1017,6 +1019,18 @@ const world_prepass::Snapshot &WorldCore::_get_or_build_world_prepass(
 	world_prepass_foundation_settings_ = p_foundation_settings;
 	world_prepass_lake_settings_ = p_lake_settings;
 	return *world_prepass_snapshot_;
+}
+
+Dictionary WorldCore::build_mountain_contour_debug(
+	PackedByteArray p_solid_halo,
+	int64_t p_chunk_size,
+	int64_t p_tile_size_px
+) {
+	return mountain_contour::build_debug_mesh(
+		p_solid_halo,
+		static_cast<int32_t>(p_chunk_size),
+		static_cast<int32_t>(p_tile_size_px)
+	);
 }
 
 Dictionary WorldCore::_generate_chunk_packet(

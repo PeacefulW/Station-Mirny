@@ -670,6 +670,31 @@ Current code notes:
   player-facing overview colours until matching terrain exists
 - this image is presentation-only and must not be persisted
 
+### `MountainContourDebugResult`
+
+Returned by debug-only native
+`WorldCore.build_mountain_contour_debug(solid_halo, chunk_size, tile_size_px)`.
+
+```text
+{
+  "vertices": PackedVector2Array,
+  "indices": PackedInt32Array,
+  "solid_sample_count": int,
+  "halo_side": int,
+}
+```
+
+Current code notes:
+- `solid_halo` is a compact `(chunk_size + 2)^2` `PackedByteArray` built from
+  the loaded effective mountain solid state (`base + diff`) and includes a
+  one-tile halo for loaded seam neighbours
+- `vertices` and `indices` are derived debug mesh data only; they are not
+  authoritative terrain, walkability, collision, navigation, or save data
+- diagonal-only contact is resolved as separate filled pieces by the native
+  marching-squares helper, so it does not create a face-connected solid
+  component
+- this result is not part of `ChunkPacketV1` and must not be persisted
+
 ## Not Currently Confirmed
 
 The current code still does not confirm packet fields for future biome,

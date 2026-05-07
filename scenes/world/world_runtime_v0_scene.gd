@@ -29,10 +29,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		var save_slot: String = SaveManager.current_slot if not SaveManager.current_slot.is_empty() else WorldRuntimeConstants.DEFAULT_SAVE_SLOT
 		SaveManager.save_game(save_slot)
 		get_viewport().set_input_as_handled()
+	elif key_event.keycode == KEY_F6:
+		_world_streamer.toggle_debug_tile_grid()
+		get_viewport().set_input_as_handled()
+	elif key_event.keycode == KEY_F7:
+		_world_streamer.toggle_debug_mountain_solid_mask()
+		get_viewport().set_input_as_handled()
 	elif key_event.keycode == KEY_F9:
 		var load_slot: String = SaveManager.current_slot if not SaveManager.current_slot.is_empty() else WorldRuntimeConstants.DEFAULT_SAVE_SLOT
 		if SaveManager.save_exists(load_slot):
 			SaveManager.load_game(load_slot)
+		get_viewport().set_input_as_handled()
+	elif key_event.keycode == KEY_F10:
+		_world_streamer.toggle_debug_mountain_contour()
 		get_viewport().set_input_as_handled()
 	elif key_event.keycode == KEY_ESCAPE:
 		PlayerAuthority.clear_cache()

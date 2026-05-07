@@ -74,6 +74,9 @@ Current transition strategy:
 - [Mountain Generation V1](world/mountain_generation.md)
 - [Lake Generation V1](world/lake_generation.md) (draft)
 - [Terrain Hybrid Presentation](world/terrain_hybrid_presentation.md)
+- [Mountain Contour Mesh L1 Debug Foundation](world/mountain_contour_mesh_l1_debug_foundation_iteration_brief.md) (draft)
+- [Mountain Contour Mesh L2 Visual Replacement](world/mountain_contour_mesh_l2_visual_replacement_iteration_brief.md) (draft)
+- [Mountain Contour Mesh L3 Collision Alignment](world/mountain_contour_mesh_l3_collision_alignment_iteration_brief.md) (draft)
 
 The removed pre-rebuild world stack now rebuilds from this living world-grid contract
 plus the approved ADR stack:
