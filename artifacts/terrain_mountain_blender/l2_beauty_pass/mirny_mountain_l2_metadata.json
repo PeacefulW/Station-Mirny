@@ -1,0 +1,14 @@
+{
+  "prototype": "mirny_mountain_l2_rounded_cliff_beauty_pass",
+  "seed": 43821,
+  "camera_contract": "north-up gameplay view; south cliff face looks straight at the player",
+  "intent": "style target for future atlas cases, not a final Godot runtime asset",
+  "improvements_over_l1": [
+    "continuous rounded plateau mesh instead of visible block tiles",
+    "soft bevel/erosion on the rim and corners",
+    "rounded rubble instead of triangular pyramid stones",
+    "layered cliff face using slabs, sediment lines, and cracks",
+    "base rubble accumulation at the cliff foot"
+  ],
+  "reference_used": "../references/generated_cliff_reference_sheet.png"
+}

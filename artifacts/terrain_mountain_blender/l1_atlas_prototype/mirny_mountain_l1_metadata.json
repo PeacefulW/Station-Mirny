@@ -1,0 +1,324 @@
+{
+  "prototype": "mirny_mountain_l1_atlas",
+  "tile_size_px": 256,
+  "case_count": 16,
+  "bit_order": {
+    "N": 1,
+    "E": 2,
+    "S": 4,
+    "W": 8
+  },
+  "cases": [
+    {
+      "case_index": 0,
+      "case_name": "isolated",
+      "neighbors": {
+        "N": false,
+        "E": false,
+        "S": false,
+        "W": false
+      },
+      "exposed_sides": [
+        "N",
+        "E",
+        "S",
+        "W"
+      ],
+      "atlas_cell": {
+        "x": 0,
+        "y": 0
+      },
+      "file": "cases\\case_00_isolated.png"
+    },
+    {
+      "case_index": 1,
+      "case_name": "N",
+      "neighbors": {
+        "N": true,
+        "E": false,
+        "S": false,
+        "W": false
+      },
+      "exposed_sides": [
+        "E",
+        "S",
+        "W"
+      ],
+      "atlas_cell": {
+        "x": 1,
+        "y": 0
+      },
+      "file": "cases\\case_01_N.png"
+    },
+    {
+      "case_index": 2,
+      "case_name": "E",
+      "neighbors": {
+        "N": false,
+        "E": true,
+        "S": false,
+        "W": false
+      },
+      "exposed_sides": [
+        "N",
+        "S",
+        "W"
+      ],
+      "atlas_cell": {
+        "x": 2,
+        "y": 0
+      },
+      "file": "cases\\case_02_E.png"
+    },
+    {
+      "case_index": 3,
+      "case_name": "NE",
+      "neighbors": {
+        "N": true,
+        "E": true,
+        "S": false,
+        "W": false
+      },
+      "exposed_sides": [
+        "S",
+        "W"
+      ],
+      "atlas_cell": {
+        "x": 3,
+        "y": 0
+      },
+      "file": "cases\\case_03_NE.png"
+    },
+    {
+      "case_index": 4,
+      "case_name": "S",
+      "neighbors": {
+        "N": false,
+        "E": false,
+        "S": true,
+        "W": false
+      },
+      "exposed_sides": [
+        "N",
+        "E",
+        "W"
+      ],
+      "atlas_cell": {
+        "x": 0,
+        "y": 1
+      },
+      "file": "cases\\case_04_S.png"
+    },
+    {
+      "case_index": 5,
+      "case_name": "NS",
+      "neighbors": {
+        "N": true,
+        "E": false,
+        "S": true,
+        "W": false
+      },
+      "exposed_sides": [
+        "E",
+        "W"
+      ],
+      "atlas_cell": {
+        "x": 1,
+        "y": 1
+      },
+      "file": "cases\\case_05_NS.png"
+    },
+    {
+      "case_index": 6,
+      "case_name": "ES",
+      "neighbors": {
+        "N": false,
+        "E": true,
+        "S": true,
+        "W": false
+      },
+      "exposed_sides": [
+        "N",
+        "W"
+      ],
+      "atlas_cell": {
+        "x": 2,
+        "y": 1
+      },
+      "file": "cases\\case_06_ES.png"
+    },
+    {
+      "case_index": 7,
+      "case_name": "NES",
+      "neighbors": {
+        "N": true,
+        "E": true,
+        "S": true,
+        "W": false
+      },
+      "exposed_sides": [
+        "W"
+      ],
+      "atlas_cell": {
+        "x": 3,
+        "y": 1
+      },
+      "file": "cases\\case_07_NES.png"
+    },
+    {
+      "case_index": 8,
+      "case_name": "W",
+      "neighbors": {
+        "N": false,
+        "E": false,
+        "S": false,
+        "W": true
+      },
+      "exposed_sides": [
+        "N",
+        "E",
+        "S"
+      ],
+      "atlas_cell": {
+        "x": 0,
+        "y": 2
+      },
+      "file": "cases\\case_08_W.png"
+    },
+    {
+      "case_index": 9,
+      "case_name": "NW",
+      "neighbors": {
+        "N": true,
+        "E": false,
+        "S": false,
+        "W": true
+      },
+      "exposed_sides": [
+        "E",
+        "S"
+      ],
+      "atlas_cell": {
+        "x": 1,
+        "y": 2
+      },
+      "file": "cases\\case_09_NW.png"
+    },
+    {
+      "case_index": 10,
+      "case_name": "EW",
+      "neighbors": {
+        "N": false,
+        "E": true,
+        "S": false,
+        "W": true
+      },
+      "exposed_sides": [
+        "N",
+        "S"
+      ],
+      "atlas_cell": {
+        "x": 2,
+        "y": 2
+      },
+      "file": "cases\\case_10_EW.png"
+    },
+    {
+      "case_index": 11,
+      "case_name": "NEW",
+      "neighbors": {
+        "N": true,
+        "E": true,
+        "S": false,
+        "W": true
+      },
+      "exposed_sides": [
+        "S"
+      ],
+      "atlas_cell": {
+        "x": 3,
+        "y": 2
+      },
+      "file": "cases\\case_11_NEW.png"
+    },
+    {
+      "case_index": 12,
+      "case_name": "SW",
+      "neighbors": {
+        "N": false,
+        "E": false,
+        "S": true,
+        "W": true
+      },
+      "exposed_sides": [
+        "N",
+        "E"
+      ],
+      "atlas_cell": {
+        "x": 0,
+        "y": 3
+      },
+      "file": "cases\\case_12_SW.png"
+    },
+    {
+      "case_index": 13,
+      "case_name": "NSW",
+      "neighbors": {
+        "N": true,
+        "E": false,
+        "S": true,
+        "W": true
+      },
+      "exposed_sides": [
+        "E"
+      ],
+      "atlas_cell": {
+        "x": 1,
+        "y": 3
+      },
+      "file": "cases\\case_13_NSW.png"
+    },
+    {
+      "case_index": 14,
+      "case_name": "ESW",
+      "neighbors": {
+        "N": false,
+        "E": true,
+        "S": true,
+        "W": true
+      },
+      "exposed_sides": [
+        "N"
+      ],
+      "atlas_cell": {
+        "x": 2,
+        "y": 3
+      },
+      "file": "cases\\case_14_ESW.png"
+    },
+    {
+      "case_index": 15,
+      "case_name": "NESW",
+      "neighbors": {
+        "N": true,
+        "E": true,
+        "S": true,
+        "W": true
+      },
+      "exposed_sides": [],
+      "atlas_cell": {
+        "x": 3,
+        "y": 3
+      },
+      "file": "cases\\case_15_NESW.png"
+    }
+  ],
+  "notes": [
+    "L1 uses 4-cardinal neighbor masks only.",
+    "Atlas renders closed art-review modules to avoid misleading transparent holes in the case sheet.",
+    "Preview renders one continuous front-oblique mountain mesh, not separate tile blocks.",
+    "Camera faces the south cliff straight on to match Station Mirny's north-up gameplay view.",
+    "This is an art-pipeline proof, not the final 47-case terrain topology.",
+    "Final production should add diagonal-aware cases, variants, mask/AO/normal passes, facade breakup, and Godot TerrainShapeSet validation."
+  ]
+}
