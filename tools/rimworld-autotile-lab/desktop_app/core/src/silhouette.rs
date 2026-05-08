@@ -253,6 +253,33 @@ fn material_mix(material: &MaterialConfig, x: u32, y: u32, variant: u32) -> f32 
         if mortar {
             value *= 0.45;
         }
+    } else if material.kind == "stratified_rock" {
+        let warp = (value_noise(
+            x as f32 * 0.04 / scale,
+            y as f32 * 0.03 / scale,
+            seed.wrapping_add(71),
+        ) - 0.5)
+            * 0.8;
+        let tilted_y = y as f32 + x as f32 * 0.015 + warp;
+        let band_height = (4.0 * scale.sqrt()).clamp(3.5, 7.0);
+        let band = (tilted_y / band_height).floor() as i32;
+        let band_tone = match band.rem_euclid(4) {
+            0 => 0.70,
+            1 => 0.52,
+            2 => 0.60,
+            _ => 0.38,
+        };
+        let local = positive_mod(tilted_y, band_height);
+        let seam_width = 0.65 + material.crack_amount * 0.8;
+        let seam = 1.0 - clamp(local.min(band_height - local) / seam_width, 0.0, 1.0);
+        let grain = (value_noise(
+            x as f32 * 0.18 / scale,
+            y as f32 * 0.11 / scale,
+            seed.wrapping_add(19),
+        ) - 0.5)
+            * material.grain
+            * 0.12;
+        value = band_tone + grain - seam * (0.14 + material.crack_amount * 0.16);
     } else if material.kind == "cracked_earth" {
         let crack = ((x as i32 - y as i32 + seed as i32 % 13).abs() % 23) <= 1;
         if crack {
@@ -262,6 +289,15 @@ fn material_mix(material: &MaterialConfig, x: u32, y: u32, variant: u32) -> f32 
         value = if (x + y + seed % 5) % 9 < 3 { 0.72 } else { 0.38 };
     }
     clamp(value, 0.0, 1.0)
+}
+
+fn positive_mod(value: f32, period: f32) -> f32 {
+    let remainder = value % period;
+    if remainder < 0.0 {
+        remainder + period
+    } else {
+        remainder
+    }
 }
 
 fn direction_shade(request: &SilhouetteAtlasRequest, direction_index: usize, x: u32, y: u32) -> f32 {
@@ -373,7 +409,7 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::model::default_request;
+    use crate::model::{MaterialConfig, default_request};
 
     use super::*;
 
@@ -443,6 +479,51 @@ mod tests {
         let min_y = samples.iter().copied().flatten().min().expect("samples should exist");
         let max_y = samples.iter().copied().flatten().max().expect("samples should exist");
         assert!(max_y - min_y <= 2);
+    }
+
+    #[test]
+    fn stratified_rock_silhouette_material_draws_horizontal_bands() {
+        let material = MaterialConfig {
+            source: "procedural".to_string(),
+            kind: "stratified_rock".to_string(),
+            scale: 1.0,
+            contrast: 1.0,
+            crack_amount: 0.4,
+            wear: 0.2,
+            grain: 0.4,
+            edge_darkening: 0.5,
+            seed: 23,
+            color_a: "#332d27".to_string(),
+            color_b: "#665848".to_string(),
+            highlight: "#a18f73".to_string(),
+        };
+
+        let seam_row: Vec<f32> = (4..60)
+            .step_by(4)
+            .map(|x| material_mix(&material, x, 14, 0))
+            .collect();
+        let shelf_row: Vec<f32> = (4..60)
+            .step_by(4)
+            .map(|x| material_mix(&material, x, 18, 0))
+            .collect();
+        let seam_mean = mean(&seam_row);
+        let shelf_mean = mean(&shelf_row);
+        let seam_spread = spread(&seam_row);
+
+        assert!(
+            seam_spread <= 0.18 && seam_mean + 0.12 < shelf_mean,
+            "stratified rock silhouette material should show horizontally coherent sedimentary seams"
+        );
+    }
+
+    fn mean(values: &[f32]) -> f32 {
+        values.iter().sum::<f32>() / values.len().max(1) as f32
+    }
+
+    fn spread(values: &[f32]) -> f32 {
+        let min = values.iter().fold(f32::MAX, |a, b| a.min(*b));
+        let max = values.iter().fold(f32::MIN, |a, b| a.max(*b));
+        max - min
     }
 
     fn first_opaque_y(image: &image::RgbaImage, x: u32, top: u32, height: u32) -> Option<u32> {

@@ -358,11 +358,6 @@ pub struct PresetColors {
 }
 
 const DEFAULT_VARIANT_COUNT: u32 = 6;
-const DEFAULT_MOUNTAIN_TOP_TEXTURE: &str =
-    r"C:\Users\peaceful\Station Peaceful\Новая папка (3)\top.png";
-const DEFAULT_MOUNTAIN_FACE_TEXTURE: &str =
-    r"C:\Users\peaceful\Station Peaceful\Новая папка (3)\face.png";
-
 impl Preset {
     pub fn from_name(name: &str) -> Self {
         match name.trim().to_ascii_lowercase().as_str() {
@@ -471,9 +466,6 @@ impl Preset {
 
 pub fn default_request() -> AppRequest {
     let preset = Preset::mountain();
-    let mut materials = default_materials();
-    materials.top.source = "image".to_string();
-    materials.face.source = "image".to_string();
 
     AppRequest {
         asset_name: default_asset_name(),
@@ -510,8 +502,8 @@ pub fn default_request() -> AppRequest {
         silhouette_atlas: default_silhouette_atlas_request(),
         preview_mode: "composite".to_string(),
         textures: TexturePaths {
-            top: Some(DEFAULT_MOUNTAIN_TOP_TEXTURE.to_string()),
-            face: Some(DEFAULT_MOUNTAIN_FACE_TEXTURE.to_string()),
+            top: None,
+            face: None,
             base: None,
         },
         colors: ColorSet {
@@ -520,7 +512,7 @@ pub fn default_request() -> AppRequest {
             back: preset.colors.back.to_string(),
             base: preset.colors.base.to_string(),
         },
-        materials,
+        materials: default_materials(),
         map: default_map(),
     }
 }
@@ -862,17 +854,17 @@ fn default_top_material() -> MaterialConfig {
 fn default_face_material() -> MaterialConfig {
     material_config(
         "procedural",
-        "stone_bricks",
+        "stratified_rock",
         1.0,
-        1.05,
-        0.18,
-        0.28,
-        0.35,
-        0.45,
+        1.08,
+        0.32,
+        0.34,
+        0.42,
+        0.55,
         23,
-        "#3d3a34",
-        "#68665e",
-        "#9a9686",
+        "#332d27",
+        "#665848",
+        "#a18f73",
     )
 }
 
@@ -978,6 +970,9 @@ pub fn normalize_material_source(value: &str) -> &'static str {
 pub fn normalize_material_kind(value: &str) -> &'static str {
     match value.trim().to_ascii_lowercase().as_str() {
         "stone_bricks" | "stone_blocks" | "bricks" => "stone_bricks",
+        "stratified_rock" | "layered_rock" | "sedimentary_rock" | "cliff_rock" => {
+            "stratified_rock"
+        }
         "cracked_earth" | "cracked_dry_earth" | "dry_earth" => "cracked_earth",
         "rough_stone" | "stone" => "rough_stone",
         "worn_metal" | "metal" | "metal_worn" => "worn_metal",
@@ -1026,6 +1021,7 @@ pub fn normalize_preview_mode(value: &str) -> &'static str {
         "mask" => "mask",
         "height" => "height",
         "normal" => "normal",
+        "lit" | "light" | "lighting" => "lit",
         _ => "composite",
     }
 }
@@ -1073,22 +1069,19 @@ mod tests {
     }
 
     #[test]
-    fn default_request_uses_requested_mountain_source_textures() {
+    fn default_request_uses_self_contained_mountain_materials() {
         let request = default_request().sanitized();
 
         assert_eq!(request.south_height, 32);
         assert_eq!(request.side_height, 10);
         assert_eq!(request.north_height, 6);
-        assert_eq!(
-            request.textures.top.as_deref(),
-            Some(r"C:\Users\peaceful\Station Peaceful\Новая папка (3)\top.png")
-        );
-        assert_eq!(
-            request.textures.face.as_deref(),
-            Some(r"C:\Users\peaceful\Station Peaceful\Новая папка (3)\face.png")
-        );
-        assert_eq!(request.materials.top.source, "image");
-        assert_eq!(request.materials.face.source, "image");
+        assert_eq!(request.textures.top, None);
+        assert_eq!(request.textures.face, None);
+        assert_eq!(request.materials.top.source, "procedural");
+        assert_eq!(request.materials.face.source, "procedural");
+        assert_eq!(request.materials.face.kind, "stratified_rock");
+        assert_eq!(normalize_material_kind("layered_rock"), "stratified_rock");
+        assert_eq!(normalize_preview_mode("lit"), "lit");
     }
 
     #[test]

@@ -128,6 +128,7 @@ PRESET_KEYS_BY_LABEL = {label: key for key, label in PRESET_LABELS.items()}
 
 PREVIEW_MODE_LABELS = {
     "composite": "Композит",
+    "lit":       "Освещённый",
     "albedo":    "Альбедо",
     "mask":      "Маска",
     "height":    "Высота",
@@ -164,6 +165,7 @@ MATERIAL_SOURCE_KEYS_BY_LABEL = {label: key for key, label in MATERIAL_SOURCE_LA
 
 MATERIAL_KIND_LABELS = {
     "stone_bricks":     "Каменные блоки / кирпичи",
+    "stratified_rock":  "Слоистая скала",
     "cracked_earth":    "Растрескавшаяся сухая земля",
     "rough_stone":      "Грубый камень",
     "worn_metal":       "Потёртый металл",
@@ -222,10 +224,10 @@ MATERIAL_DEFAULTS = {
         "color_a": "#5e5142", "color_b": "#8a7a62", "highlight": "#b9ad93",
     },
     "face": {
-        "source": "procedural", "kind": "stone_bricks",
-        "scale": 1.0, "contrast": 1.05, "crack_amount": 0.18, "wear": 0.28,
-        "grain": 0.35, "edge_darkening": 0.45, "seed": 23,
-        "color_a": "#3d3a34", "color_b": "#68665e", "highlight": "#9a9686",
+        "source": "procedural", "kind": "stratified_rock",
+        "scale": 1.0, "contrast": 1.08, "crack_amount": 0.32, "wear": 0.34,
+        "grain": 0.42, "edge_darkening": 0.55, "seed": 23,
+        "color_a": "#332d27", "color_b": "#665848", "highlight": "#a18f73",
     },
     "base": {
         "source": "procedural", "kind": "packed_dirt",
@@ -2026,6 +2028,7 @@ class CliffForgeApp:
         mode = self._selected_preview_mode_key()
         atlas_value = {
             "composite": files.get("atlas_albedo_png"),
+            "lit":       files.get("atlas_normal_png") or files.get("atlas_albedo_png"),
             "albedo":    files.get("atlas_albedo_png"),
             "mask":      files.get("atlas_mask_png"),
             "height":    files.get("atlas_height_png"),

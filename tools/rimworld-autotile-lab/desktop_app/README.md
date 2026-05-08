@@ -37,7 +37,8 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
 - separate preview and atlas tabs so the preview can use the main workspace
 - Russian `Материалы` tab with separate Top / Face / Base layer-stack settings
 - material source per layer: procedural, image file, or flat color
-- procedural material kinds: stone bricks, cracked dry earth, rough stone, worn metal, wood planks, packed dirt, concrete, ice / frost, ash / burnt ground, snow, sand, moss, gravel / regolith, rusty metal, concrete floor (seamed), ribbed steel
+- procedural material kinds: stratified rock, stone bricks, cracked dry earth, rough stone, worn metal, wood planks, packed dirt, concrete, ice / frost, ash / burnt ground, snow, sand, moss, gravel / regolith, rusty metal, concrete floor (seamed), ribbed steel
+- mountain preset is self-contained by default and uses procedural stratified rock for the cliff face instead of requiring local source textures
 - procedural feature sizes (brick width, plank width, voronoi cell, scratch period) scale with `tile_size`, so 32 px and 128 px tiles stay readable
 - procedural controls per layer: scale, contrast, crack amount, wear, grain, edge darkening, seed, Color A, Color B, highlight
 - anti-aliased sampling for loaded texture files
@@ -50,6 +51,7 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
 - default terrain presets use gentler `roughness` / `contour_warp_px` values so rounded corners stay readable
 - rim and chip controls: `rim_width` and `edge_debris` add a broken cliff-lip height band for authored ledges without baking drop shadows into albedo
 - dynamic-lighting-ready normals: shape normals use a 3x3 height blur plus Sobel gradients, with `normal_strength` defaulting to `tile_size / 32.0`; `normal_detail_strength` adds extra height relief for more readable dynamic lighting
+- optional lit preview mode (`lit`) visualizes the exported normal/height response inside the generator only; exported albedo remains unlit for the game's dynamic lighting
 - shape supersampling: `shape_supersampling` anti-aliases curved mask/height/normal edges at export time; current quality presets default to `4`
 - optional baked height shading in albedo, disabled by default for dynamic lighting
 - optional color overlay for loaded texture files, disabled by default

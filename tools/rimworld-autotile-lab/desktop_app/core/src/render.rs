@@ -877,11 +877,59 @@ fn render_tile(
 fn extract_mode_image(tile: TileBuffers, preview_mode: &str) -> RgbaImage {
     match preview_mode {
         "albedo" | "composite" => tile.albedo,
+        "lit" => build_lit_preview_image(&tile),
         "mask" => tile.mask,
         "height" => tile.height,
         "normal" => tile.normal,
         _ => tile.albedo,
     }
+}
+
+fn build_lit_preview_image(tile: &TileBuffers) -> RgbaImage {
+    let (width, height) = tile.albedo.dimensions();
+    let mut image = RgbaImage::new(width, height);
+    let light_dir = normalize3(-0.45, -0.62, 0.64);
+
+    for y in 0..height {
+        for x in 0..width {
+            let albedo = tile.albedo.get_pixel(x, y).0;
+            let normal = tile.normal.get_pixel(x, y).0;
+            let mask = tile.mask.get_pixel(x, y).0;
+            let height_value = tile.height.get_pixel(x, y).0[0] as f32 / 255.0;
+            let nx = normal[0] as f32 / 127.5 - 1.0;
+            let ny = normal[1] as f32 / 127.5 - 1.0;
+            let nz = normal[2] as f32 / 127.5 - 1.0;
+            let dot = (nx * light_dir.0 + ny * light_dir.1 + nz * light_dir.2).max(0.0);
+            let zone_factor = if mask[1] > 0 {
+                0.84
+            } else if mask[2] > 0 {
+                0.91
+            } else if mask[0] > 0 {
+                1.02
+            } else {
+                0.96
+            };
+            let height_ao = 0.82 + height_value * 0.18;
+            let light = (0.54 + dot * 0.56) * zone_factor * height_ao;
+            image.put_pixel(
+                x,
+                y,
+                Rgba([
+                    (albedo[0] as f32 * light).round().clamp(0.0, 255.0) as u8,
+                    (albedo[1] as f32 * light).round().clamp(0.0, 255.0) as u8,
+                    (albedo[2] as f32 * light).round().clamp(0.0, 255.0) as u8,
+                    albedo[3],
+                ]),
+            );
+        }
+    }
+
+    image
+}
+
+fn normalize3(x: f32, y: f32, z: f32) -> (f32, f32, f32) {
+    let len = (x * x + y * y + z * z).sqrt().max(0.0001);
+    (x / len, y / len, z / len)
 }
 
 fn geometry_seed_for_variant(request: &AppRequest, variant: u32) -> u32 {
@@ -1841,6 +1889,28 @@ mod tests {
     }
 
     #[test]
+    fn lit_preview_uses_normals_without_baking_albedo() {
+        let mut request = default_request();
+        request.tile_size = 64;
+        request.roughness = 0.0;
+        request.contour_warp_px = 0.0;
+        request.normal_detail_strength = 2.0;
+        request.bake_height_shading = false;
+        request.preview_mode = "lit".to_string();
+        let request = request.sanitized();
+        let signature = Signature::from_marching_mask(0b0011);
+
+        let tile = render_tile(&request, &TextureSet::default(), &signature, 0, 0, 0);
+        let raw_albedo = tile.albedo.clone();
+        let lit_preview = extract_mode_image(tile, &request.preview_mode);
+
+        assert!(
+            images_differ(&raw_albedo, &lit_preview),
+            "lit preview should visualize normal/height response without requiring baked albedo shading"
+        );
+    }
+
+    #[test]
     fn outer_corner_radius_rounds_exposed_face_corner() {
         let mut request = default_request();
         request.tile_size = 64;
@@ -2223,6 +2293,17 @@ fn procedural_layer_material(
             broad,
             fine,
         ),
+        "stratified_rock" => stratified_rock_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
         "cracked_earth" => cracked_earth_layers(
             material,
             seed,
@@ -2514,6 +2595,54 @@ fn rough_stone_layers(
     );
     let value = 0.36 + broad * 0.34 + fine * 0.18 + speck * material.grain * 0.16;
     (value, crack, material.wear * speck, fine * 0.12)
+}
+
+fn stratified_rock_layers(
+    material: &MaterialConfig,
+    seed: u32,
+    px: f32,
+    py: f32,
+    period: f32,
+    feature_period: f32,
+    speck: f32,
+    broad: f32,
+    fine: f32,
+) -> (f32, f32, f32, f32) {
+    let band_height = (feature_period * 0.105).max(3.0);
+    let warp = (fbm_tiled(
+        px * 0.035,
+        py * 0.045,
+        period * 0.035,
+        period * 0.045,
+        3,
+        seed.wrapping_add(607),
+    ) - 0.5)
+        * band_height
+        * 1.8;
+    let tilted_y = py + px * 0.10 + warp;
+    let band_pos = positive_mod(tilted_y, band_height);
+    let band_edge = line_mask(band_pos.min(band_height - band_pos), 0.55 + material.crack_amount);
+    let shelf = ((tilted_y / band_height).floor() as i32).rem_euclid(5) as f32 / 5.0;
+    let vertical_crack = clamp(
+        (0.13 - (fbm_tiled(
+            px * 0.095 + 31.0,
+            py * 0.028,
+            period * 0.095,
+            period * 0.028,
+            2,
+            seed.wrapping_add(613),
+        ) - 0.48)
+            .abs())
+            * material.crack_amount
+            * 5.0,
+        0.0,
+        1.0,
+    );
+    let chip = clamp((speck - 0.73) * 3.8, 0.0, 1.0) * material.wear;
+    let crack = clamp(band_edge * 0.75 + vertical_crack * 0.65 + chip * 0.35, 0.0, 1.0);
+    let value = 0.34 + broad * 0.22 + fine * 0.12 + shelf * 0.16 + speck * material.grain * 0.10;
+    let highlight = clamp((1.0 - band_edge) * fine * 0.10 + chip * 0.16, 0.0, 1.0);
+    (value, crack, chip + vertical_crack * 0.35, highlight)
 }
 
 fn worn_metal_layers(

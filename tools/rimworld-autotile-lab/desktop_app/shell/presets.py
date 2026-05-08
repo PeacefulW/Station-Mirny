@@ -3,10 +3,6 @@ from __future__ import annotations
 import random
 from copy import deepcopy
 
-
-DEFAULT_MOUNTAIN_TOP_TEXTURE = r"C:\Users\peaceful\Station Peaceful\Новая папка (3)\top.png"
-DEFAULT_MOUNTAIN_FACE_TEXTURE = r"C:\Users\peaceful\Station Peaceful\Новая папка (3)\face.png"
-
 PRESETS = {
     "mountain": {
         "tile_size": 64,
@@ -32,8 +28,8 @@ PRESETS = {
         "variants": 6,
         "texture_scale": 1.0,
         "textures": {
-            "top": DEFAULT_MOUNTAIN_TOP_TEXTURE,
-            "face": DEFAULT_MOUNTAIN_FACE_TEXTURE,
+            "top": "",
+            "face": "",
             "base": "",
         },
         "colors": {
