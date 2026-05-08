@@ -7,6 +7,11 @@ pub struct Signature {
     pub index: usize,
     pub key: String,
     pub label: String,
+    pub marching_mask: u8,
+    pub corner_nw: bool,
+    pub corner_ne: bool,
+    pub corner_se: bool,
+    pub corner_sw: bool,
     pub open_n: bool,
     pub open_e: bool,
     pub open_s: bool,
@@ -18,6 +23,7 @@ pub struct Signature {
 }
 
 impl Signature {
+    #[cfg(test)]
     pub fn create(n: bool, ne: bool, e: bool, se: bool, s: bool, sw: bool, w: bool, nw: bool) -> Self {
         let open_n = !n;
         let open_e = !e;
@@ -27,6 +33,11 @@ impl Signature {
         let notch_se = s && e && !se;
         let notch_sw = s && w && !sw;
         let notch_nw = n && w && !nw;
+        let corner_nw = n || w || nw;
+        let corner_ne = n || e || ne;
+        let corner_se = s || e || se;
+        let corner_sw = s || w || sw;
+        let marching_mask = marching_mask(corner_nw, corner_ne, corner_se, corner_sw);
         let key = format!(
             "{}{}{}{}|{}{}{}{}",
             u8::from(open_n),
@@ -83,6 +94,11 @@ impl Signature {
             index: 0,
             key,
             label,
+            marching_mask,
+            corner_nw,
+            corner_ne,
+            corner_se,
+            corner_sw,
             open_n,
             open_e,
             open_s,
@@ -93,31 +109,45 @@ impl Signature {
             notch_nw,
         }
     }
+
+    pub fn from_marching_mask(mask: u8) -> Self {
+        let mask = mask & 0x0f;
+        let corner_nw = mask & 0b0001 != 0;
+        let corner_ne = mask & 0b0010 != 0;
+        let corner_se = mask & 0b0100 != 0;
+        let corner_sw = mask & 0b1000 != 0;
+        let key = format!("ms_{mask:x}");
+        let label = if mask == 0 {
+            "ms empty".to_string()
+        } else if mask == 0x0f {
+            "ms solid".to_string()
+        } else {
+            format!("ms {mask:x}")
+        };
+
+        Self {
+            index: 0,
+            key,
+            label,
+            marching_mask: mask,
+            corner_nw,
+            corner_ne,
+            corner_se,
+            corner_sw,
+            open_n: !(corner_nw && corner_ne),
+            open_e: !(corner_ne && corner_se),
+            open_s: !(corner_sw && corner_se),
+            open_w: !(corner_nw && corner_sw),
+            notch_ne: false,
+            notch_se: false,
+            notch_sw: false,
+            notch_nw: false,
+        }
+    }
 }
 
 pub fn canonical_signatures() -> Vec<Signature> {
-    let mut unique = std::collections::BTreeMap::<String, Signature>::new();
-
-    for mask in 0_u16..256 {
-        let signature = Signature::create(
-            mask & 1 != 0,
-            mask & 2 != 0,
-            mask & 4 != 0,
-            mask & 8 != 0,
-            mask & 16 != 0,
-            mask & 32 != 0,
-            mask & 64 != 0,
-            mask & 128 != 0,
-        );
-        unique.entry(signature.key.clone()).or_insert(signature);
-    }
-
-    let mut out: Vec<Signature> = unique.into_values().collect();
-    out.sort_by(|left, right| {
-        let left_score = edge_count(left) * 10 + notch_count(left);
-        let right_score = edge_count(right) * 10 + notch_count(right);
-        left_score.cmp(&right_score).then(left.key.cmp(&right.key))
-    });
+    let mut out: Vec<Signature> = (0_u8..16).map(Signature::from_marching_mask).collect();
     for (index, signature) in out.iter_mut().enumerate() {
         signature.index = index;
     }
@@ -125,16 +155,12 @@ pub fn canonical_signatures() -> Vec<Signature> {
 }
 
 pub fn signature_at(map: &MapData, x: i32, y: i32) -> Signature {
-    Signature::create(
-        cell(map, x, y - 1),
-        cell(map, x + 1, y - 1),
+    Signature::from_marching_mask(marching_mask(
+        cell(map, x, y),
         cell(map, x + 1, y),
         cell(map, x + 1, y + 1),
         cell(map, x, y + 1),
-        cell(map, x - 1, y + 1),
-        cell(map, x - 1, y),
-        cell(map, x - 1, y - 1),
-    )
+    ))
 }
 
 fn cell(map: &MapData, x: i32, y: i32) -> bool {
@@ -144,16 +170,33 @@ fn cell(map: &MapData, x: i32, y: i32) -> bool {
     map.cells[(y as u32 * map.width + x as u32) as usize] > 0
 }
 
-fn edge_count(signature: &Signature) -> usize {
-    usize::from(signature.open_n)
-        + usize::from(signature.open_e)
-        + usize::from(signature.open_s)
-        + usize::from(signature.open_w)
+fn marching_mask(nw: bool, ne: bool, se: bool, sw: bool) -> u8 {
+    u8::from(nw) | (u8::from(ne) << 1) | (u8::from(se) << 2) | (u8::from(sw) << 3)
 }
 
-fn notch_count(signature: &Signature) -> usize {
-    usize::from(signature.notch_ne)
-        + usize::from(signature.notch_se)
-        + usize::from(signature.notch_sw)
-        + usize::from(signature.notch_nw)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_signatures_are_true_marching_square_cases() {
+        let signatures = canonical_signatures();
+
+        assert_eq!(signatures.len(), 16);
+        assert_eq!(signatures[0].key, "ms_0");
+        assert_eq!(signatures[15].key, "ms_f");
+    }
+
+    #[test]
+    fn signature_at_reads_four_corner_samples() {
+        let map = MapData {
+            width: 2,
+            height: 2,
+            cells: vec![1, 0, 0, 1],
+        };
+
+        let signature = signature_at(&map, 0, 0);
+
+        assert_eq!(signature.key, "ms_5");
+    }
 }

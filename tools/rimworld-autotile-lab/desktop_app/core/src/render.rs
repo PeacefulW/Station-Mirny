@@ -609,12 +609,10 @@ fn build_map_preview(request: &AppRequest, textures: &TextureSet) -> Result<Rgba
     let cell_renders: Vec<(u32, u32, RgbaImage)> = positions
         .into_par_iter()
         .map(|(map_x, map_y)| {
-            let cell_index = (map_y as u32 * request.map.width + map_x as u32) as usize;
-            let filled = request.map.cells.get(cell_index).copied().unwrap_or(0) > 0;
             let origin_x = map_x as u32 * request.tile_size;
             let origin_y = map_y as u32 * request.tile_size;
-            let img = if filled {
-                let signature = signature_at(&request.map, map_x, map_y);
+            let signature = signature_at(&request.map, map_x, map_y);
+            let img = if signature.marching_mask != 0 {
                 let variant = request
                     .forced_variant
                     .unwrap_or_else(|| pick_variant(map_x, map_y, request.seed, request.variants));
@@ -933,6 +931,13 @@ fn dominant_zone(counts: [u32; 4]) -> SurfaceZone {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ContourDistance {
+    signed_distance: f32,
+    zone: SurfaceZone,
+    depth: f32,
+}
+
 fn sample_height(
     request: &AppRequest,
     signature: &Signature,
@@ -947,138 +952,22 @@ fn sample_height(
     let side_depth = request.side_height as f32;
     let rough_px = edge_rough_px(request);
     let edge_period = edge_noise_period(request);
-    let north_open_boundary = signature
-        .open_n
-        .then(|| north_boundary(request, rough_px, edge_period, seed.wrapping_add(11), world_x));
-    let south_open_boundary = signature
-        .open_s
-        .then(|| south_boundary(request, rough_px, edge_period, seed.wrapping_add(23), world_x));
-    let east_open_boundary = signature
-        .open_e
-        .then(|| east_boundary(request, rough_px, edge_period, seed.wrapping_add(37), world_y));
-    let west_open_boundary = signature
-        .open_w
-        .then(|| west_boundary(request, rough_px, edge_period, seed.wrapping_add(41), world_y));
 
     let mut min_height = 1.0_f32;
     let mut min_zone = SurfaceZone::Top;
-    let overlap_ne = matches!(
-        (north_open_boundary, east_open_boundary),
-        (Some(north), Some(east)) if y < north && x > east
-    );
-    let overlap_nw = matches!(
-        (north_open_boundary, west_open_boundary),
-        (Some(north), Some(west)) if y < north && x < west
-    );
-    let overlap_se = matches!(
-        (south_open_boundary, east_open_boundary),
-        (Some(south), Some(east)) if y > south && x > east
-    );
-    let overlap_sw = matches!(
-        (south_open_boundary, west_open_boundary),
-        (Some(south), Some(west)) if y > south && x < west
-    );
 
-    if signature.open_n {
-        let boundary = north_open_boundary.expect("north boundary must exist when open_n");
-        if y < boundary && !overlap_ne && !overlap_nw {
-            let progress = 1.0 - (y / boundary.max(1.0));
-            set_min_height(
-                &mut min_height,
-                &mut min_zone,
-                back_height_for_progress(request, progress),
-                SurfaceZone::Back,
-            );
-        }
-    }
-    if signature.open_s {
-        let boundary = south_open_boundary.expect("south boundary must exist when open_s");
-        if y > boundary {
-            let progress = ((y - boundary) / (size - 1.0 - boundary).max(1.0)).clamp(0.0, 1.0);
-            set_min_height(
-                &mut min_height,
-                &mut min_zone,
-                face_height_for_progress(request, progress),
-                SurfaceZone::Face,
-            );
-        }
-    }
-    if signature.open_e {
-        let boundary = east_open_boundary.expect("east boundary must exist when open_e");
-        if x > boundary && !overlap_se {
-            let progress = ((x - boundary) / (size - 1.0 - boundary).max(1.0)).clamp(0.0, 1.0);
-            set_min_height(
-                &mut min_height,
-                &mut min_zone,
-                face_height_for_progress(request, progress),
-                SurfaceZone::Face,
-            );
-        }
-    }
-    if signature.open_w {
-        let boundary = west_open_boundary.expect("west boundary must exist when open_w");
-        if x < boundary && !overlap_sw {
-            let progress = 1.0 - (x / boundary.max(1.0));
-            set_min_height(
-                &mut min_height,
-                &mut min_zone,
-                face_height_for_progress(request, progress),
-                SurfaceZone::Face,
-            );
-        }
-    }
-
-    let outer_radius = relaxed_corner_radius(
-        request,
-        request.outer_corner_radius as f32,
-        seed.wrapping_add(311),
-        world_x,
-        world_y,
-    );
-    if outer_radius > 0.0 {
-        if let (Some(north), Some(east)) = (north_open_boundary, east_open_boundary) {
-            set_rounded_outer_corner_height(
-                request,
-                &mut min_height,
-                &mut min_zone,
-                x - (east - outer_radius),
-                (north + outer_radius) - y,
-                outer_radius,
-                (size - 1.0 - east).max(north),
-            );
-        }
-        if let (Some(south), Some(east)) = (south_open_boundary, east_open_boundary) {
-            set_rounded_outer_corner_height(
-                request,
-                &mut min_height,
-                &mut min_zone,
-                x - (east - outer_radius),
-                y - (south - outer_radius),
-                outer_radius,
-                (size - 1.0 - east).max(size - 1.0 - south),
-            );
-        }
-        if let (Some(south), Some(west)) = (south_open_boundary, west_open_boundary) {
-            set_rounded_outer_corner_height(
-                request,
-                &mut min_height,
-                &mut min_zone,
-                (west + outer_radius) - x,
-                y - (south - outer_radius),
-                outer_radius,
-                west.max(size - 1.0 - south),
-            );
-        }
-        if let (Some(north), Some(west)) = (north_open_boundary, west_open_boundary) {
-            set_rounded_outer_corner_height(
-                request,
-                &mut min_height,
-                &mut min_zone,
-                (west + outer_radius) - x,
-                (north + outer_radius) - y,
-                outer_radius,
-                west.max(north),
-            );
+    if let Some(contour) = outer_contour_distance(request, signature, seed, x, y, world_x, world_y) {
+        if contour.signed_distance < 0.0 {
+            let outside_distance = -contour.signed_distance;
+            if outside_distance > contour.depth {
+                return (0.0, SurfaceZone::Empty);
+            }
+            let progress = (outside_distance / contour.depth.max(1.0)).clamp(0.0, 1.0);
+            let height = match contour.zone {
+                SurfaceZone::Back => back_height_for_progress(request, progress),
+                _ => face_height_for_progress(request, progress),
+            };
+            return (clamp(height, 0.0, 1.0), contour.zone);
         }
     }
 
@@ -1201,15 +1090,142 @@ fn sample_height(
         }
     }
 
-    if rounded_outer_corner_is_empty(request, signature, seed, x, y, world_x, world_y) {
-        return (0.0, SurfaceZone::Empty);
-    }
-
     (clamp(min_height, 0.0, 1.0), min_zone)
 }
 
-fn north_boundary(request: &AppRequest, rough_px: f32, edge_period: f32, seed: u32, edge_coord: f32) -> f32 {
-    request.north_height as f32 + edge_jitter(edge_coord, seed, rough_px, edge_period)
+fn outer_contour_distance(
+    request: &AppRequest,
+    signature: &Signature,
+    seed: u32,
+    x: f32,
+    y: f32,
+    world_x: f32,
+    world_y: f32,
+) -> Option<ContourDistance> {
+    marching_contour_distance(request, signature, seed, x, y, world_x, world_y)
+}
+
+fn marching_contour_distance(
+    request: &AppRequest,
+    signature: &Signature,
+    seed: u32,
+    x: f32,
+    y: f32,
+    world_x: f32,
+    world_y: f32,
+) -> Option<ContourDistance> {
+    let mask = signature.marching_mask & 0x0f;
+    if mask == 0 {
+        return Some(ContourDistance {
+            signed_distance: -(request.tile_size as f32),
+            zone: SurfaceZone::Face,
+            depth: 0.0,
+        });
+    }
+    if mask == 0x0f {
+        return None;
+    }
+
+    let size = (request.tile_size as f32 - 1.0).max(1.0);
+    let u = (x / size).clamp(0.0, 1.0);
+    let v = (y / size).clamp(0.0, 1.0);
+    let nw = f32::from(signature.corner_nw);
+    let ne = f32::from(signature.corner_ne);
+    let se = f32::from(signature.corner_se);
+    let sw = f32::from(signature.corner_sw);
+    let north = lerp(nw, ne, u);
+    let south = lerp(sw, se, u);
+    let value = lerp(north, south, v);
+    let du = lerp(ne - nw, se - sw, v);
+    let dv = lerp(sw - nw, se - ne, u);
+    let mut gx = du;
+    let mut gy = dv;
+    let mut gradient_len = (gx * gx + gy * gy).sqrt();
+    if gradient_len < 0.001 {
+        let fallback = fallback_marching_gradient(signature, u, v);
+        gx = fallback.0;
+        gy = fallback.1;
+        gradient_len = (gx * gx + gy * gy).sqrt().max(0.001);
+    }
+
+    let threshold = marching_threshold(request, seed, world_x, world_y);
+    let signed_distance = ((value - threshold) / gradient_len) * request.tile_size as f32;
+    let (zone, depth) = marching_zone_and_depth(request, gx, gy);
+
+    Some(ContourDistance {
+        signed_distance,
+        zone,
+        depth,
+    })
+}
+
+fn fallback_marching_gradient(signature: &Signature, u: f32, v: f32) -> (f32, f32) {
+    let corners = [
+        (0.0_f32, 0.0_f32, signature.corner_nw),
+        (1.0_f32, 0.0_f32, signature.corner_ne),
+        (1.0_f32, 1.0_f32, signature.corner_se),
+        (0.0_f32, 1.0_f32, signature.corner_sw),
+    ];
+    let mut nearest_inside = None;
+    let mut nearest_empty = None;
+    for (cx, cy, filled) in corners {
+        let dx = cx - u;
+        let dy = cy - v;
+        let distance_sq = dx * dx + dy * dy;
+        let slot = if filled {
+            &mut nearest_inside
+        } else {
+            &mut nearest_empty
+        };
+        if slot.map_or(true, |(_, _, current): (f32, f32, f32)| distance_sq < current) {
+            *slot = Some((dx, dy, distance_sq));
+        }
+    }
+
+    match (nearest_inside, nearest_empty) {
+        (Some((ix, iy, _)), Some((ex, ey, _))) => (ix - ex, iy - ey),
+        (Some((ix, iy, _)), None) => (ix, iy),
+        _ => (0.0, 1.0),
+    }
+}
+
+fn marching_threshold(request: &AppRequest, seed: u32, world_x: f32, world_y: f32) -> f32 {
+    if request.contour_warp_px <= 0.0 {
+        return 0.5;
+    }
+
+    let period = (request.tile_size as f32 * 8.0).max(1.0);
+    let warp = fbm_tiled(
+        world_x * 0.055,
+        world_y * 0.055,
+        period * 0.055,
+        period * 0.055,
+        2,
+        seed.wrapping_add(5_911),
+    ) - 0.5;
+    (0.5 + warp * request.contour_warp_px / request.tile_size as f32)
+        .clamp(0.38, 0.62)
+}
+
+fn marching_zone_and_depth(request: &AppRequest, gx: f32, gy: f32) -> (SurfaceZone, f32) {
+    let ax = gx.abs();
+    let ay = gy.abs();
+    let total = (ax + ay).max(0.001);
+    if gy > ax * 0.75 {
+        let north_weight = ay / total;
+        let side_weight = ax / total;
+        return (
+            SurfaceZone::Back,
+            request.north_height as f32 * north_weight + request.side_height as f32 * side_weight,
+        );
+    }
+
+    let south_weight = if gy < 0.0 { ay / total } else { 0.0 };
+    let side_weight = 1.0 - south_weight;
+    (
+        SurfaceZone::Face,
+        request.south_height as f32 * south_weight + request.side_height as f32 * side_weight,
+    )
 }
 
 fn south_boundary(request: &AppRequest, rough_px: f32, edge_period: f32, seed: u32, edge_coord: f32) -> f32 {
@@ -1239,33 +1255,6 @@ fn face_height_for_progress(request: &AppRequest, progress: f32) -> f32 {
     (1.0 - progress).powf(request.face_power)
 }
 
-fn set_rounded_outer_corner_height(
-    request: &AppRequest,
-    current_height: &mut f32,
-    current_zone: &mut SurfaceZone,
-    dx: f32,
-    dy: f32,
-    radius: f32,
-    outward_span: f32,
-) {
-    if dx <= 0.0 || dy <= 0.0 || radius <= 0.0 {
-        return;
-    }
-
-    let distance = (dx * dx + dy * dy).sqrt();
-    if distance <= radius {
-        return;
-    }
-
-    let progress = ((distance - radius) / outward_span.max(1.0)).clamp(0.0, 1.0);
-    set_min_height(
-        current_height,
-        current_zone,
-        face_height_for_progress(request, progress),
-        SurfaceZone::Face,
-    );
-}
-
 fn rounded_inner_notch_progress(
     dx: f32,
     dy: f32,
@@ -1284,47 +1273,6 @@ fn rounded_inner_notch_progress(
     }
 
     Some(((distance - radius) / notch_width.max(notch_height).max(1.0)).clamp(0.0, 1.0))
-}
-
-fn rounded_outer_corner_is_empty(
-    request: &AppRequest,
-    signature: &Signature,
-    seed: u32,
-    x: f32,
-    y: f32,
-    world_x: f32,
-    world_y: f32,
-) -> bool {
-    let radius = relaxed_corner_radius(
-        request,
-        request.outer_corner_radius as f32,
-        seed.wrapping_add(311),
-        world_x,
-        world_y,
-    );
-    if radius <= 0.0 {
-        return false;
-    }
-
-    let size = request.tile_size as f32 - 1.0;
-    let max_radius = size * 0.5;
-    let radius = radius.min(max_radius);
-    if radius <= 0.0 {
-        return false;
-    }
-
-    (signature.open_n
-        && signature.open_e
-        && outside_corner_arc(x, y, size - radius, radius, radius, 1.0, -1.0))
-        || (signature.open_s
-            && signature.open_e
-            && outside_corner_arc(x, y, size - radius, size - radius, radius, 1.0, 1.0))
-        || (signature.open_s
-            && signature.open_w
-            && outside_corner_arc(x, y, radius, size - radius, radius, -1.0, 1.0))
-        || (signature.open_n
-            && signature.open_w
-            && outside_corner_arc(x, y, radius, radius, radius, -1.0, -1.0))
 }
 
 fn relaxed_corner_radius(
@@ -1351,24 +1299,6 @@ fn relaxed_corner_radius(
     }
 
     radius.clamp(0.0, request.tile_size as f32 * 0.5)
-}
-
-fn outside_corner_arc(
-    x: f32,
-    y: f32,
-    center_x: f32,
-    center_y: f32,
-    radius: f32,
-    sign_x: f32,
-    sign_y: f32,
-) -> bool {
-    let dx = (x - center_x) * sign_x;
-    let dy = (y - center_y) * sign_y;
-    if dx <= 0.0 || dy <= 0.0 {
-        return false;
-    }
-
-    dx * dx + dy * dy > radius * radius
 }
 
 fn set_min_height(current_height: &mut f32, current_zone: &mut SurfaceZone, candidate: f32, zone: SurfaceZone) {
@@ -1421,8 +1351,6 @@ fn apply_crown_bevel(
     }
 
     let size = request.tile_size as usize;
-    let rough_px = edge_rough_px(request);
-    let edge_period = edge_noise_period(request);
 
     for y in 0..size {
         for x in 0..size {
@@ -1435,25 +1363,13 @@ fn apply_crown_bevel(
             let yf = y as f32;
             let world_x = origin_x as f32 + xf;
             let world_y = origin_y as f32 + yf;
-            let mut nearest = f32::MAX;
-
-            if signature.open_n {
-                let boundary = north_boundary(request, rough_px, edge_period, seed.wrapping_add(11), world_x);
-                nearest = nearest.min((yf - boundary).abs());
-            }
-            if signature.open_s {
-                let boundary = south_boundary(request, rough_px, edge_period, seed.wrapping_add(23), world_x);
-                nearest = nearest.min((yf - boundary).abs());
-            }
-            if signature.open_e {
-                let boundary = east_boundary(request, rough_px, edge_period, seed.wrapping_add(37), world_y);
-                nearest = nearest.min((xf - boundary).abs());
-            }
-            if signature.open_w {
-                let boundary = west_boundary(request, rough_px, edge_period, seed.wrapping_add(41), world_y);
-                nearest = nearest.min((xf - boundary).abs());
-            }
-            if nearest.is_finite() && nearest < bevel {
+            if let Some(contour) =
+                outer_contour_distance(request, signature, seed, xf, yf, world_x, world_y)
+            {
+                let nearest = contour.signed_distance;
+                if nearest < 0.0 || nearest >= bevel {
+                    continue;
+                }
                 let t = (nearest / bevel).clamp(0.0, 1.0);
                 heights[index] = heights[index].min(lerp(0.86, 1.0, t));
             }
@@ -1552,32 +1468,8 @@ fn exposed_edge_distance(
     world_x: f32,
     world_y: f32,
 ) -> Option<f32> {
-    let rough_px = edge_rough_px(request);
-    let edge_period = edge_noise_period(request);
-    let mut nearest = f32::MAX;
-
-    if signature.open_n {
-        let boundary = north_boundary(request, rough_px, edge_period, seed.wrapping_add(11), world_x);
-        nearest = nearest.min((y - boundary).abs());
-    }
-    if signature.open_s {
-        let boundary = south_boundary(request, rough_px, edge_period, seed.wrapping_add(23), world_x);
-        nearest = nearest.min((y - boundary).abs());
-    }
-    if signature.open_e {
-        let boundary = east_boundary(request, rough_px, edge_period, seed.wrapping_add(37), world_y);
-        nearest = nearest.min((x - boundary).abs());
-    }
-    if signature.open_w {
-        let boundary = west_boundary(request, rough_px, edge_period, seed.wrapping_add(41), world_y);
-        nearest = nearest.min((x - boundary).abs());
-    }
-
-    if nearest.is_finite() {
-        Some(nearest)
-    } else {
-        None
-    }
+    outer_contour_distance(request, signature, seed, x, y, world_x, world_y)
+        .map(|contour| contour.signed_distance.abs())
 }
 
 fn material_slot<'a>(
@@ -1862,6 +1754,32 @@ mod tests {
     }
 
     #[test]
+    fn marching_square_diagonal_case_antialiases_contour() {
+        let mut request = default_request();
+        request.tile_size = 64;
+        request.roughness = 0.0;
+        request.contour_relax = 0.0;
+        request.contour_warp_px = 0.0;
+        request.corner_variation = 0.0;
+        request.shape_supersampling = 4;
+        let request = request.sanitized();
+        let signature = Signature::from_marching_mask(0b0101);
+
+        let tile = render_mask_tile(&request, &signature, 0, 0, 0);
+        let has_partial_alpha = (8..56).any(|y| {
+            (8..56).any(|x| {
+                let alpha = tile.get_pixel(x, y).0[3];
+                alpha > 0 && alpha < 255
+            })
+        });
+
+        assert!(
+            has_partial_alpha,
+            "true marching-squares diagonal case should produce an anti-aliased curved contour"
+        );
+    }
+
+    #[test]
     fn rim_detail_and_micro_relief_add_height_variation_for_normals() {
         let mut flat = default_request();
         flat.tile_size = 64;
@@ -1904,8 +1822,9 @@ mod tests {
         request.roughness = 40.0;
         request.geometry_variance = 1.0;
         request.normal_detail_strength = 0.0;
+        request.contour_warp_px = 8.0;
         let request = request.sanitized();
-        let signature = Signature::create(true, true, true, true, false, true, true, true);
+        let signature = Signature::from_marching_mask(0b0011);
 
         let variant_a = render_tile(&request, &TextureSet::default(), &signature, 0, 0, 0);
         let variant_b = render_tile(&request, &TextureSet::default(), &signature, 1, 0, 0);

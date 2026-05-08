@@ -31,7 +31,7 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
 ## Current feature set
 
 - presets: `mountain`, `wall`, `earth`
-- 47 canonical signatures
+- 16 true marching-squares signatures
 - map painter with blob / room / cave helpers
 - draft preview and full atlas generation
 - separate preview and atlas tabs so the preview can use the main workspace
@@ -43,7 +43,8 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
 - anti-aliased sampling for loaded texture files
 - continuous map-space texture projection in the live preview
 - texture zoom semantics: values above `1.0` zoom source textures in; values below `1.0` zoom them out
-- organic terrain geometry controls: `outer_corner_radius` rounds exposed L-corners, `inner_corner_radius` rounds notch cuts, `contour_relax` softens blocky joins, `contour_warp_px` adds map-space edge noise, and `corner_variation` keeps repeated corners from looking identical while preserving the same 47-case topology family
+- true marching-squares terrain geometry: the full shape atlas now uses 16 corner-mask cases (`ms_0..ms_f`) instead of the old 47 center-cell adjacency family
+- organic terrain geometry controls: `contour_warp_px` adds map-space contour noise, `rim_width` and `edge_debris` break the cliff lip, and `normal_detail_strength` adds height relief for dynamic lighting
 - rim and chip controls: `rim_width` and `edge_debris` add a broken cliff-lip height band for authored ledges without baking drop shadows into albedo
 - dynamic-lighting-ready normals: shape normals use a 3x3 height blur plus Sobel gradients, with `normal_strength` defaulting to `tile_size / 32.0`; `normal_detail_strength` adds extra height relief for more readable dynamic lighting
 - shape supersampling: `shape_supersampling` anti-aliases curved mask/height/normal edges at export time
@@ -52,9 +53,9 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
 - named export workflow: `asset_name` must be `snake_case` and prefixes every PNG and recipe export
 - optional target export folder in the shell; when set, Full Generate writes directly to that folder and asks before overwriting matching `asset_name` files
 - export modes:
-  - `Full47`: full `47 x N` shape/material export for the legacy Cliff Forge atlas flow
+  - `Full47`: full `16 x N` marching-squares shape/material export; the serialized key is kept for older UI state and recipes
   - `BaseVariantsOnly`: `1 x N` full-tile base material atlas for transition-overlay base passes
-  - `MaskOnly`: shared `47 x N` mask atlas without albedo/material exports
+  - `MaskOnly`: shared `16 x N` marching-squares mask atlas without albedo/material exports
 - Decals tab for the terrain decal layer authoring pass:
   - `4 x 4` mixed-size atlas with `16`, `32`, `64`, and `128` px decal cells centered inside the selected max cell size
   - per-cell source: procedural, image file, or color
@@ -66,7 +67,7 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
   - face material reuses the existing Top / Face / Base material stack
   - top jitter and roughness controls keep the rock-wall top edge continuous through corner cells
 - variant count defaults to `6`, which matches the runtime transition overlay consumer; other values are supported for authoring experiments only
-- `Full47` exports:
+- `Full47` / marching-squares exports:
   - `{asset_name}_preview.png`
   - `{asset_name}_atlas_albedo.png`
   - `{asset_name}_atlas_mask.png`

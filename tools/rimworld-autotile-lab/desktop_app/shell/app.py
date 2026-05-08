@@ -136,7 +136,7 @@ PREVIEW_MODE_LABELS = {
 PREVIEW_MODE_KEYS_BY_LABEL = {label: key for key, label in PREVIEW_MODE_LABELS.items()}
 
 EXPORT_MODE_LABELS = {
-    "Full47":           "Full 47 cases",
+    "Full47":           "Full 16 MS cases",
     "BaseVariantsOnly": "Base variants only",
     "MaskOnly":         "Mask only",
 }
