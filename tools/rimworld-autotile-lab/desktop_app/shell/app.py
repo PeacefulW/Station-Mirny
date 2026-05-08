@@ -485,9 +485,17 @@ class CliffForgeApp:
         self.crown_bevel_var = tk.IntVar(value=2)
         self.outer_corner_radius_var = tk.IntVar(value=12)
         self.inner_corner_radius_var = tk.IntVar(value=10)
+        self.contour_relax_var = tk.DoubleVar(value=0.7)
+        self.contour_warp_px_var = tk.DoubleVar(value=3.0)
+        self.corner_variation_var = tk.DoubleVar(value=0.35)
+        self.rim_width_var = tk.IntVar(value=7)
+        self.edge_debris_var = tk.DoubleVar(value=0.65)
+        self.geometry_variance_var = tk.DoubleVar(value=0.45)
+        self.shape_supersampling_var = tk.IntVar(value=2)
         self.variants_var = tk.IntVar(value=RUNTIME_VARIANT_COUNT)
         self.texture_scale_var = tk.DoubleVar(value=1.0)
         self.normal_strength_var = tk.DoubleVar(value=self._normal_strength_for_tile_size(self.tile_size_var.get()))
+        self.normal_detail_strength_var = tk.DoubleVar(value=1.25)
         self.bake_height_shading_var = tk.BooleanVar(value=False)
         self.texture_color_overlay_var = tk.BooleanVar(value=False)
         self.forced_variant_var = tk.StringVar(value=LABEL_AUTO_VARIANT)
@@ -831,6 +839,7 @@ class CliffForgeApp:
         lighting = ttk.LabelFrame(parent, text="Нормали и свет", padding=10)
         lighting.pack(fill="x", pady=(0, 10))
         self._add_panel_scale(lighting, "Сила нормалей", self.normal_strength_var, 0.25, 8.0, 0.05)
+        self._add_panel_scale(lighting, "Деталь нормалей", self.normal_detail_strength_var, 0.0, 4.0, 0.05)
         ttk.Checkbutton(lighting, text="Запекать высотную тень в альбедо",
                         variable=self.bake_height_shading_var,
                         command=self.schedule_full).pack(fill="x", pady=(2, 0))
@@ -849,6 +858,13 @@ class CliffForgeApp:
         self._add_panel_scale(group, "Скос гребня", self.crown_bevel_var, 0, 12, 1, integer=True)
         self._add_panel_scale(group, "Внешний радиус", self.outer_corner_radius_var, 0, 32, 1, integer=True)
         self._add_panel_scale(group, "Внутренний радиус", self.inner_corner_radius_var, 0, 32, 1, integer=True)
+        self._add_panel_scale(group, "Плавность контура", self.contour_relax_var, 0.0, 1.0, 0.05)
+        self._add_panel_scale(group, "Шум контура px", self.contour_warp_px_var, 0.0, 16.0, 0.25)
+        self._add_panel_scale(group, "Разброс углов", self.corner_variation_var, 0.0, 1.0, 0.05)
+        self._add_panel_scale(group, "Ширина обода", self.rim_width_var, 0, 32, 1, integer=True)
+        self._add_panel_scale(group, "Сколы кромки", self.edge_debris_var, 0.0, 1.0, 0.05)
+        self._add_panel_scale(group, "Вариация геометрии", self.geometry_variance_var, 0.0, 1.0, 0.05)
+        self._add_panel_scale(group, "Суперсемплинг формы", self.shape_supersampling_var, 1, 4, 1, integer=True)
 
     def _build_materials_tab(self, parent: ttk.Frame) -> None:
         toolbar = ttk.Frame(parent, style="Panel.TFrame")
@@ -1557,14 +1573,23 @@ class CliffForgeApp:
             self.crown_bevel_var.set(preset["crown_bevel"])
             self.outer_corner_radius_var.set(preset["outer_corner_radius"])
             self.inner_corner_radius_var.set(preset["inner_corner_radius"])
+            self.contour_relax_var.set(preset.get("contour_relax", 0.7))
+            self.contour_warp_px_var.set(preset.get("contour_warp_px", 3.0))
+            self.corner_variation_var.set(preset.get("corner_variation", 0.35))
+            self.rim_width_var.set(preset.get("rim_width", 7))
+            self.edge_debris_var.set(preset.get("edge_debris", 0.65))
+            self.geometry_variance_var.set(preset.get("geometry_variance", 0.45))
+            self.shape_supersampling_var.set(preset.get("shape_supersampling", 2))
             self.variants_var.set(RUNTIME_VARIANT_COUNT)
             self.texture_scale_var.set(preset["texture_scale"])
             self.normal_strength_var.set(self._normal_strength_for_tile_size(preset["tile_size"]))
+            self.normal_detail_strength_var.set(preset.get("normal_detail_strength", 1.25))
             self.bake_height_shading_var.set(False)
             self.top_color_var.set(preset["colors"]["top"])
             self.face_color_var.set(preset["colors"]["face"])
             self.back_color_var.set(preset["colors"]["back"])
             self.base_color_var.set(preset["colors"]["base"])
+            self._apply_preset_textures(preset)
         finally:
             self.suspend_events = False
         self._refresh_variant_selector()
@@ -1608,9 +1633,21 @@ class CliffForgeApp:
                 vars_for_slot["color_a"].set(defaults["color_a"])
                 vars_for_slot["color_b"].set(defaults["color_b"])
                 vars_for_slot["highlight"].set(defaults["highlight"])
+            self._apply_preset_textures(clone_preset(self._selected_preset_key()))
         finally:
             self.suspend_events = False
         self.schedule_full()
+
+    def _apply_preset_textures(self, preset: dict) -> None:
+        textures = preset.get("textures", {})
+        for slot in ("top", "face", "base"):
+            value = str(textures.get(slot) or "")
+            self.texture_paths[slot] = value
+            if hasattr(self, "texture_labels"):
+                self.texture_labels[slot].configure(text=Path(value).name if value else TEXT_PROCEDURAL)
+            if hasattr(self, "material_vars"):
+                source_key = "image" if value else MATERIAL_DEFAULTS[slot]["source"]
+                self.material_vars[slot]["source"].set(MATERIAL_SOURCE_LABELS[source_key])
 
     def _copy_material(self, src: str, dst: str) -> None:
         self.suspend_events = True
@@ -1714,11 +1751,19 @@ class CliffForgeApp:
             "crown_bevel": int(self.crown_bevel_var.get()),
             "outer_corner_radius": int(self.outer_corner_radius_var.get()),
             "inner_corner_radius": int(self.inner_corner_radius_var.get()),
+            "contour_relax": float(self.contour_relax_var.get()),
+            "contour_warp_px": float(self.contour_warp_px_var.get()),
+            "corner_variation": float(self.corner_variation_var.get()),
+            "rim_width": int(self.rim_width_var.get()),
+            "edge_debris": float(self.edge_debris_var.get()),
+            "geometry_variance": float(self.geometry_variance_var.get()),
+            "shape_supersampling": int(self.shape_supersampling_var.get()),
             "variants": int(self.variants_var.get()),
             "forced_variant": forced_variant,
             "seed": int(self.seed_var.get()),
             "texture_scale": float(self.texture_scale_var.get()),
             "normal_strength": float(self.normal_strength_var.get()),
+            "normal_detail_strength": float(self.normal_detail_strength_var.get()),
             "bake_height_shading": bool(self.bake_height_shading_var.get()),
             "texture_color_overlay": bool(self.texture_color_overlay_var.get()),
             "preview_mode": self._selected_preview_mode_key(),
@@ -2199,12 +2244,23 @@ class CliffForgeApp:
             self.crown_bevel_var.set(int(request.get("crown_bevel", self.crown_bevel_var.get())))
             self.outer_corner_radius_var.set(int(request.get("outer_corner_radius", self.outer_corner_radius_var.get())))
             self.inner_corner_radius_var.set(int(request.get("inner_corner_radius", self.inner_corner_radius_var.get())))
+            self.contour_relax_var.set(float(request.get("contour_relax", self.contour_relax_var.get())))
+            self.contour_warp_px_var.set(float(request.get("contour_warp_px", self.contour_warp_px_var.get())))
+            self.corner_variation_var.set(float(request.get("corner_variation", self.corner_variation_var.get())))
+            self.rim_width_var.set(int(request.get("rim_width", self.rim_width_var.get())))
+            self.edge_debris_var.set(float(request.get("edge_debris", self.edge_debris_var.get())))
+            self.geometry_variance_var.set(float(request.get("geometry_variance", self.geometry_variance_var.get())))
+            self.shape_supersampling_var.set(int(request.get("shape_supersampling", self.shape_supersampling_var.get())))
             self.variants_var.set(int(request.get("variants", self.variants_var.get())))
             self.seed_var.set(int(request.get("seed", self.seed_var.get())))
             self.texture_scale_var.set(float(request.get("texture_scale", self.texture_scale_var.get())))
             self.normal_strength_var.set(float(request.get(
                 "normal_strength",
                 self._normal_strength_for_tile_size(int(self.tile_size_var.get())),
+            )))
+            self.normal_detail_strength_var.set(float(request.get(
+                "normal_detail_strength",
+                self.normal_detail_strength_var.get(),
             )))
             self.bake_height_shading_var.set(bool(request.get("bake_height_shading", False)))
             self.texture_color_overlay_var.set(bool(request.get("texture_color_overlay", False)))

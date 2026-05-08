@@ -4,20 +4,36 @@ import random
 from copy import deepcopy
 
 
+DEFAULT_MOUNTAIN_TOP_TEXTURE = r"C:\Users\peaceful\Station Peaceful\Новая папка (3)\top.png"
+DEFAULT_MOUNTAIN_FACE_TEXTURE = r"C:\Users\peaceful\Station Peaceful\Новая папка (3)\face.png"
+
 PRESETS = {
     "mountain": {
         "tile_size": 64,
-        "south_height": 18,
-        "north_height": 10,
-        "side_height": 16,
+        "south_height": 32,
+        "north_height": 6,
+        "side_height": 10,
         "roughness": 52.0,
         "face_power": 1.0,
         "back_drop": 0.34,
         "crown_bevel": 2,
         "outer_corner_radius": 12,
         "inner_corner_radius": 10,
-        "variants": 4,
+        "contour_relax": 0.7,
+        "contour_warp_px": 3.0,
+        "corner_variation": 0.35,
+        "rim_width": 7,
+        "edge_debris": 0.65,
+        "geometry_variance": 0.45,
+        "shape_supersampling": 2,
+        "normal_detail_strength": 1.25,
+        "variants": 6,
         "texture_scale": 1.0,
+        "textures": {
+            "top": DEFAULT_MOUNTAIN_TOP_TEXTURE,
+            "face": DEFAULT_MOUNTAIN_FACE_TEXTURE,
+            "base": "",
+        },
         "colors": {
             "top": "#705940",
             "face": "#3e2f25",
@@ -36,6 +52,14 @@ PRESETS = {
         "crown_bevel": 1,
         "outer_corner_radius": 6,
         "inner_corner_radius": 4,
+        "contour_relax": 0.35,
+        "contour_warp_px": 1.25,
+        "corner_variation": 0.16,
+        "rim_width": 4,
+        "edge_debris": 0.25,
+        "geometry_variance": 0.15,
+        "shape_supersampling": 2,
+        "normal_detail_strength": 0.8,
         "variants": 3,
         "texture_scale": 1.0,
         "colors": {
@@ -56,6 +80,14 @@ PRESETS = {
         "crown_bevel": 2,
         "outer_corner_radius": 8,
         "inner_corner_radius": 6,
+        "contour_relax": 0.55,
+        "contour_warp_px": 2.25,
+        "corner_variation": 0.25,
+        "rim_width": 5,
+        "edge_debris": 0.45,
+        "geometry_variance": 0.3,
+        "shape_supersampling": 2,
+        "normal_detail_strength": 1.0,
         "variants": 4,
         "texture_scale": 1.0,
         "colors": {

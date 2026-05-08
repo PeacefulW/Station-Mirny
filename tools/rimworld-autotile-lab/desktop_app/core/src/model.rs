@@ -23,12 +23,28 @@ pub struct AppRequest {
     pub outer_corner_radius: u32,
     #[serde(default)]
     pub inner_corner_radius: u32,
+    #[serde(default = "default_contour_relax")]
+    pub contour_relax: f32,
+    #[serde(default = "default_contour_warp_px")]
+    pub contour_warp_px: f32,
+    #[serde(default = "default_corner_variation")]
+    pub corner_variation: f32,
+    #[serde(default = "default_rim_width")]
+    pub rim_width: u32,
+    #[serde(default = "default_edge_debris")]
+    pub edge_debris: f32,
+    #[serde(default = "default_geometry_variance")]
+    pub geometry_variance: f32,
+    #[serde(default = "default_shape_supersampling")]
+    pub shape_supersampling: u32,
     pub variants: u32,
     pub forced_variant: Option<u32>,
     pub seed: u32,
     pub texture_scale: f32,
     #[serde(default = "default_normal_strength_unset")]
     pub normal_strength: f32,
+    #[serde(default = "default_normal_detail_strength")]
+    pub normal_detail_strength: f32,
     #[serde(default)]
     pub bake_height_shading: bool,
     #[serde(default = "default_texture_color_overlay")]
@@ -242,6 +258,13 @@ impl AppRequest {
         let max_corner_radius = self.tile_size / 2;
         self.outer_corner_radius = self.outer_corner_radius.min(max_corner_radius);
         self.inner_corner_radius = self.inner_corner_radius.min(max_corner_radius);
+        self.contour_relax = finite_or_default(self.contour_relax, default_contour_relax()).clamp(0.0, 1.0);
+        self.contour_warp_px = finite_or_default(self.contour_warp_px, default_contour_warp_px()).clamp(0.0, 16.0);
+        self.corner_variation = finite_or_default(self.corner_variation, default_corner_variation()).clamp(0.0, 1.0);
+        self.rim_width = self.rim_width.min(self.tile_size / 4);
+        self.edge_debris = finite_or_default(self.edge_debris, default_edge_debris()).clamp(0.0, 1.0);
+        self.geometry_variance = finite_or_default(self.geometry_variance, default_geometry_variance()).clamp(0.0, 1.0);
+        self.shape_supersampling = normalize_shape_supersampling(self.shape_supersampling);
         self.variants = self.variants.clamp(1, 8);
         self.forced_variant = self.forced_variant.map(|value| value.min(self.variants.saturating_sub(1)));
         self.texture_scale = self.texture_scale.clamp(0.25, 4.0);
@@ -250,6 +273,11 @@ impl AppRequest {
         } else {
             normal_strength_for_tile_size(self.tile_size)
         };
+        self.normal_detail_strength = finite_or_default(
+            self.normal_detail_strength,
+            default_normal_detail_strength(),
+        )
+        .clamp(0.0, 4.0);
         self.preview_mode = normalize_preview_mode(&self.preview_mode).to_string();
         self.materials.sanitize();
         self.decal_atlas.sanitize();
@@ -291,6 +319,14 @@ pub struct Preset {
     pub crown_bevel: u32,
     pub outer_corner_radius: u32,
     pub inner_corner_radius: u32,
+    pub contour_relax: f32,
+    pub contour_warp_px: f32,
+    pub corner_variation: f32,
+    pub rim_width: u32,
+    pub edge_debris: f32,
+    pub geometry_variance: f32,
+    pub shape_supersampling: u32,
+    pub normal_detail_strength: f32,
     pub variants: u32,
     pub colors: PresetColors,
 }
@@ -304,6 +340,10 @@ pub struct PresetColors {
 }
 
 const DEFAULT_VARIANT_COUNT: u32 = 6;
+const DEFAULT_MOUNTAIN_TOP_TEXTURE: &str =
+    r"C:\Users\peaceful\Station Peaceful\Новая папка (3)\top.png";
+const DEFAULT_MOUNTAIN_FACE_TEXTURE: &str =
+    r"C:\Users\peaceful\Station Peaceful\Новая папка (3)\face.png";
 
 impl Preset {
     pub fn from_name(name: &str) -> Self {
@@ -317,15 +357,23 @@ impl Preset {
     pub fn mountain() -> Self {
         Self {
             name: "mountain",
-            south_height: 18,
-            north_height: 10,
-            side_height: 16,
+            south_height: 32,
+            north_height: 6,
+            side_height: 10,
             roughness: 52.0,
             face_power: 1.0,
             back_drop: 0.34,
             crown_bevel: 2,
             outer_corner_radius: 12,
             inner_corner_radius: 10,
+            contour_relax: 0.7,
+            contour_warp_px: 3.0,
+            corner_variation: 0.35,
+            rim_width: 7,
+            edge_debris: 0.65,
+            geometry_variance: 0.45,
+            shape_supersampling: 2,
+            normal_detail_strength: default_normal_detail_strength(),
             variants: DEFAULT_VARIANT_COUNT,
             colors: PresetColors {
                 top: "#705940",
@@ -348,6 +396,14 @@ impl Preset {
             crown_bevel: 1,
             outer_corner_radius: 6,
             inner_corner_radius: 4,
+            contour_relax: 0.35,
+            contour_warp_px: 1.25,
+            corner_variation: 0.16,
+            rim_width: 4,
+            edge_debris: 0.25,
+            geometry_variance: 0.15,
+            shape_supersampling: 2,
+            normal_detail_strength: 0.8,
             variants: DEFAULT_VARIANT_COUNT,
             colors: PresetColors {
                 top: "#765439",
@@ -370,6 +426,14 @@ impl Preset {
             crown_bevel: 2,
             outer_corner_radius: 8,
             inner_corner_radius: 6,
+            contour_relax: 0.55,
+            contour_warp_px: 2.25,
+            corner_variation: 0.25,
+            rim_width: 5,
+            edge_debris: 0.45,
+            geometry_variance: 0.3,
+            shape_supersampling: 2,
+            normal_detail_strength: 1.0,
             variants: DEFAULT_VARIANT_COUNT,
             colors: PresetColors {
                 top: "#7b5027",
@@ -383,6 +447,10 @@ impl Preset {
 
 pub fn default_request() -> AppRequest {
     let preset = Preset::mountain();
+    let mut materials = default_materials();
+    materials.top.source = "image".to_string();
+    materials.face.source = "image".to_string();
+
     AppRequest {
         asset_name: default_asset_name(),
         export_mode: ExportMode::Full47,
@@ -397,19 +465,27 @@ pub fn default_request() -> AppRequest {
         crown_bevel: preset.crown_bevel,
         outer_corner_radius: preset.outer_corner_radius,
         inner_corner_radius: preset.inner_corner_radius,
+        contour_relax: preset.contour_relax,
+        contour_warp_px: preset.contour_warp_px,
+        corner_variation: preset.corner_variation,
+        rim_width: preset.rim_width,
+        edge_debris: preset.edge_debris,
+        geometry_variance: preset.geometry_variance,
+        shape_supersampling: preset.shape_supersampling,
         variants: preset.variants,
         forced_variant: None,
         seed: 240_518,
         texture_scale: 1.0,
         normal_strength: normal_strength_for_tile_size(64),
+        normal_detail_strength: preset.normal_detail_strength,
         bake_height_shading: false,
         texture_color_overlay: default_texture_color_overlay(),
         decal_atlas: default_decal_atlas_request(),
         silhouette_atlas: default_silhouette_atlas_request(),
         preview_mode: "composite".to_string(),
         textures: TexturePaths {
-            top: None,
-            face: None,
+            top: Some(DEFAULT_MOUNTAIN_TOP_TEXTURE.to_string()),
+            face: Some(DEFAULT_MOUNTAIN_FACE_TEXTURE.to_string()),
             base: None,
         },
         colors: ColorSet {
@@ -418,7 +494,7 @@ pub fn default_request() -> AppRequest {
             back: preset.colors.back.to_string(),
             base: preset.colors.base.to_string(),
         },
-        materials: default_materials(),
+        materials,
         map: default_map(),
     }
 }
@@ -461,6 +537,56 @@ fn default_normal_strength_unset() -> f32 {
 
 pub fn normal_strength_for_tile_size(tile_size: u32) -> f32 {
     tile_size as f32 / 32.0
+}
+
+fn default_contour_relax() -> f32 {
+    0.7
+}
+
+fn default_contour_warp_px() -> f32 {
+    3.0
+}
+
+fn default_corner_variation() -> f32 {
+    0.35
+}
+
+fn default_rim_width() -> u32 {
+    7
+}
+
+fn default_edge_debris() -> f32 {
+    0.65
+}
+
+fn default_geometry_variance() -> f32 {
+    0.45
+}
+
+fn default_shape_supersampling() -> u32 {
+    2
+}
+
+fn default_normal_detail_strength() -> f32 {
+    1.25
+}
+
+fn finite_or_default(value: f32, fallback: f32) -> f32 {
+    if value.is_finite() {
+        value
+    } else {
+        fallback
+    }
+}
+
+fn normalize_shape_supersampling(value: u32) -> u32 {
+    if value <= 1 {
+        1
+    } else if value <= 2 {
+        2
+    } else {
+        4
+    }
 }
 
 impl MaterialSlots {
@@ -687,15 +813,54 @@ pub fn normalize_material_slot(value: &str) -> &'static str {
 }
 
 fn default_top_material() -> MaterialConfig {
-    material_config("procedural", "rough_stone", 1.0, 1.0, 0.25, 0.2, 0.45, 0.25, 11, "#5e5142", "#8a7a62", "#b9ad93")
+    material_config(
+        "procedural",
+        "rough_stone",
+        1.0,
+        1.0,
+        0.25,
+        0.2,
+        0.45,
+        0.25,
+        11,
+        "#5e5142",
+        "#8a7a62",
+        "#b9ad93",
+    )
 }
 
 fn default_face_material() -> MaterialConfig {
-    material_config("procedural", "stone_bricks", 1.0, 1.05, 0.18, 0.28, 0.35, 0.45, 23, "#3d3a34", "#68665e", "#9a9686")
+    material_config(
+        "procedural",
+        "stone_bricks",
+        1.0,
+        1.05,
+        0.18,
+        0.28,
+        0.35,
+        0.45,
+        23,
+        "#3d3a34",
+        "#68665e",
+        "#9a9686",
+    )
 }
 
 fn default_base_material() -> MaterialConfig {
-    material_config("procedural", "packed_dirt", 1.0, 0.9, 0.12, 0.2, 0.5, 0.1, 31, "#7d4b1e", "#b07232", "#d19855")
+    material_config(
+        "procedural",
+        "packed_dirt",
+        1.0,
+        0.9,
+        0.12,
+        0.2,
+        0.5,
+        0.1,
+        31,
+        "#7d4b1e",
+        "#b07232",
+        "#d19855",
+    )
 }
 
 fn material_config(
@@ -872,7 +1037,51 @@ mod tests {
         let request = default_request().sanitized();
 
         assert_eq!(request.normal_strength, 2.0);
+        assert_eq!(request.normal_detail_strength, 1.25);
         assert!(!request.bake_height_shading);
+    }
+
+    #[test]
+    fn default_request_uses_requested_mountain_source_textures() {
+        let request = default_request().sanitized();
+
+        assert_eq!(request.south_height, 32);
+        assert_eq!(request.side_height, 10);
+        assert_eq!(request.north_height, 6);
+        assert_eq!(
+            request.textures.top.as_deref(),
+            Some(r"C:\Users\peaceful\Station Peaceful\Новая папка (3)\top.png")
+        );
+        assert_eq!(
+            request.textures.face.as_deref(),
+            Some(r"C:\Users\peaceful\Station Peaceful\Новая папка (3)\face.png")
+        );
+        assert_eq!(request.materials.top.source, "image");
+        assert_eq!(request.materials.face.source, "image");
+    }
+
+    #[test]
+    fn organic_edge_controls_are_sanitized() {
+        let mut request = default_request();
+        request.contour_relax = 2.0;
+        request.contour_warp_px = 99.0;
+        request.corner_variation = -1.0;
+        request.rim_width = 99;
+        request.edge_debris = 4.0;
+        request.geometry_variance = 4.0;
+        request.shape_supersampling = 99;
+        request.normal_detail_strength = 99.0;
+
+        let request = request.sanitized();
+
+        assert_eq!(request.contour_relax, 1.0);
+        assert_eq!(request.contour_warp_px, 16.0);
+        assert_eq!(request.corner_variation, 0.0);
+        assert_eq!(request.rim_width, 16);
+        assert_eq!(request.edge_debris, 1.0);
+        assert_eq!(request.geometry_variance, 1.0);
+        assert_eq!(request.shape_supersampling, 4);
+        assert_eq!(request.normal_detail_strength, 4.0);
     }
 
     #[test]

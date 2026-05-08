@@ -43,8 +43,10 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
 - anti-aliased sampling for loaded texture files
 - continuous map-space texture projection in the live preview
 - texture zoom semantics: values above `1.0` zoom source textures in; values below `1.0` zoom them out
-- rounded terrain geometry controls: `outer_corner_radius` rounds exposed L-corners, and `inner_corner_radius` rounds notch cuts while keeping the same 47-case topology family
-- dynamic-lighting-ready normals: shape normals use a 3x3 height blur plus Sobel gradients, with `normal_strength` defaulting to `tile_size / 32.0`
+- organic terrain geometry controls: `outer_corner_radius` rounds exposed L-corners, `inner_corner_radius` rounds notch cuts, `contour_relax` softens blocky joins, `contour_warp_px` adds map-space edge noise, and `corner_variation` keeps repeated corners from looking identical while preserving the same 47-case topology family
+- rim and chip controls: `rim_width` and `edge_debris` add a broken cliff-lip height band for authored ledges without baking drop shadows into albedo
+- dynamic-lighting-ready normals: shape normals use a 3x3 height blur plus Sobel gradients, with `normal_strength` defaulting to `tile_size / 32.0`; `normal_detail_strength` adds extra height relief for more readable dynamic lighting
+- shape supersampling: `shape_supersampling` anti-aliases curved mask/height/normal edges at export time
 - optional baked height shading in albedo, disabled by default for dynamic lighting
 - optional color overlay for loaded texture files, disabled by default
 - named export workflow: `asset_name` must be `snake_case` and prefixes every PNG and recipe export
