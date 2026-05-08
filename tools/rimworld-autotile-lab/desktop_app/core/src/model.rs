@@ -23,6 +23,10 @@ pub struct AppRequest {
     pub outer_corner_radius: u32,
     #[serde(default)]
     pub inner_corner_radius: u32,
+    #[serde(default = "default_corner_round_px")]
+    pub corner_round_px: u32,
+    #[serde(default = "default_diagonal_smooth_px")]
+    pub diagonal_smooth_px: u32,
     #[serde(default = "default_contour_relax")]
     pub contour_relax: f32,
     #[serde(default = "default_contour_warp_px")]
@@ -258,15 +262,24 @@ impl AppRequest {
         let max_corner_radius = self.tile_size / 2;
         self.outer_corner_radius = self.outer_corner_radius.min(max_corner_radius);
         self.inner_corner_radius = self.inner_corner_radius.min(max_corner_radius);
-        self.contour_relax = finite_or_default(self.contour_relax, default_contour_relax()).clamp(0.0, 1.0);
-        self.contour_warp_px = finite_or_default(self.contour_warp_px, default_contour_warp_px()).clamp(0.0, 16.0);
-        self.corner_variation = finite_or_default(self.corner_variation, default_corner_variation()).clamp(0.0, 1.0);
+        self.corner_round_px = self.corner_round_px.min(max_corner_radius);
+        self.diagonal_smooth_px = self.diagonal_smooth_px.min(max_corner_radius);
+        self.contour_relax =
+            finite_or_default(self.contour_relax, default_contour_relax()).clamp(0.0, 1.0);
+        self.contour_warp_px =
+            finite_or_default(self.contour_warp_px, default_contour_warp_px()).clamp(0.0, 16.0);
+        self.corner_variation =
+            finite_or_default(self.corner_variation, default_corner_variation()).clamp(0.0, 1.0);
         self.rim_width = self.rim_width.min(self.tile_size / 4);
-        self.edge_debris = finite_or_default(self.edge_debris, default_edge_debris()).clamp(0.0, 1.0);
-        self.geometry_variance = finite_or_default(self.geometry_variance, default_geometry_variance()).clamp(0.0, 1.0);
+        self.edge_debris =
+            finite_or_default(self.edge_debris, default_edge_debris()).clamp(0.0, 1.0);
+        self.geometry_variance =
+            finite_or_default(self.geometry_variance, default_geometry_variance()).clamp(0.0, 1.0);
         self.shape_supersampling = normalize_shape_supersampling(self.shape_supersampling);
         self.variants = self.variants.clamp(1, 8);
-        self.forced_variant = self.forced_variant.map(|value| value.min(self.variants.saturating_sub(1)));
+        self.forced_variant = self
+            .forced_variant
+            .map(|value| value.min(self.variants.saturating_sub(1)));
         self.texture_scale = self.texture_scale.clamp(0.25, 4.0);
         self.normal_strength = if self.normal_strength.is_finite() && self.normal_strength > 0.0 {
             self.normal_strength.clamp(0.0, 8.0)
@@ -300,7 +313,10 @@ impl AppRequest {
         if self.map.width == 0 || self.map.height == 0 || self.map.cells.len() != expected {
             self.map = default_map();
         } else {
-            self.map.cells.iter_mut().for_each(|cell| *cell = u8::from(*cell > 0));
+            self.map
+                .cells
+                .iter_mut()
+                .for_each(|cell| *cell = u8::from(*cell > 0));
         }
 
         self
@@ -319,6 +335,8 @@ pub struct Preset {
     pub crown_bevel: u32,
     pub outer_corner_radius: u32,
     pub inner_corner_radius: u32,
+    pub corner_round_px: u32,
+    pub diagonal_smooth_px: u32,
     pub contour_relax: f32,
     pub contour_warp_px: f32,
     pub corner_variation: f32,
@@ -360,19 +378,21 @@ impl Preset {
             south_height: 32,
             north_height: 6,
             side_height: 10,
-            roughness: 52.0,
+            roughness: 36.0,
             face_power: 1.0,
             back_drop: 0.34,
             crown_bevel: 2,
             outer_corner_radius: 12,
             inner_corner_radius: 10,
+            corner_round_px: 16,
+            diagonal_smooth_px: 6,
             contour_relax: 0.7,
-            contour_warp_px: 3.0,
+            contour_warp_px: 1.75,
             corner_variation: 0.35,
             rim_width: 7,
             edge_debris: 0.65,
             geometry_variance: 0.45,
-            shape_supersampling: 2,
+            shape_supersampling: 4,
             normal_detail_strength: default_normal_detail_strength(),
             variants: DEFAULT_VARIANT_COUNT,
             colors: PresetColors {
@@ -390,19 +410,21 @@ impl Preset {
             south_height: 10,
             north_height: 6,
             side_height: 8,
-            roughness: 18.0,
+            roughness: 14.0,
             face_power: 1.34,
             back_drop: 0.24,
             crown_bevel: 1,
             outer_corner_radius: 6,
             inner_corner_radius: 4,
+            corner_round_px: 8,
+            diagonal_smooth_px: 3,
             contour_relax: 0.35,
             contour_warp_px: 1.25,
             corner_variation: 0.16,
             rim_width: 4,
             edge_debris: 0.25,
             geometry_variance: 0.15,
-            shape_supersampling: 2,
+            shape_supersampling: 4,
             normal_detail_strength: 0.8,
             variants: DEFAULT_VARIANT_COUNT,
             colors: PresetColors {
@@ -420,19 +442,21 @@ impl Preset {
             south_height: 8,
             north_height: 5,
             side_height: 7,
-            roughness: 34.0,
+            roughness: 26.0,
             face_power: 0.82,
             back_drop: 0.28,
             crown_bevel: 2,
             outer_corner_radius: 8,
             inner_corner_radius: 6,
+            corner_round_px: 10,
+            diagonal_smooth_px: 4,
             contour_relax: 0.55,
-            contour_warp_px: 2.25,
+            contour_warp_px: 1.5,
             corner_variation: 0.25,
             rim_width: 5,
             edge_debris: 0.45,
             geometry_variance: 0.3,
-            shape_supersampling: 2,
+            shape_supersampling: 4,
             normal_detail_strength: 1.0,
             variants: DEFAULT_VARIANT_COUNT,
             colors: PresetColors {
@@ -465,6 +489,8 @@ pub fn default_request() -> AppRequest {
         crown_bevel: preset.crown_bevel,
         outer_corner_radius: preset.outer_corner_radius,
         inner_corner_radius: preset.inner_corner_radius,
+        corner_round_px: preset.corner_round_px,
+        diagonal_smooth_px: preset.diagonal_smooth_px,
         contour_relax: preset.contour_relax,
         contour_warp_px: preset.contour_warp_px,
         corner_variation: preset.corner_variation,
@@ -551,6 +577,14 @@ fn default_corner_variation() -> f32 {
     0.35
 }
 
+fn default_corner_round_px() -> u32 {
+    16
+}
+
+fn default_diagonal_smooth_px() -> u32 {
+    6
+}
+
 fn default_rim_width() -> u32 {
     7
 }
@@ -564,7 +598,7 @@ fn default_geometry_variance() -> f32 {
 }
 
 fn default_shape_supersampling() -> u32 {
-    2
+    4
 }
 
 fn default_normal_detail_strength() -> f32 {
@@ -572,11 +606,7 @@ fn default_normal_detail_strength() -> f32 {
 }
 
 fn finite_or_default(value: f32, fallback: f32) -> f32 {
-    if value.is_finite() {
-        value
-    } else {
-        fallback
-    }
+    if value.is_finite() { value } else { fallback }
 }
 
 fn normalize_shape_supersampling(value: u32) -> u32 {
@@ -1038,6 +1068,7 @@ mod tests {
 
         assert_eq!(request.normal_strength, 2.0);
         assert_eq!(request.normal_detail_strength, 1.25);
+        assert_eq!(request.shape_supersampling, 4);
         assert!(!request.bake_height_shading);
     }
 
@@ -1066,6 +1097,8 @@ mod tests {
         request.contour_relax = 2.0;
         request.contour_warp_px = 99.0;
         request.corner_variation = -1.0;
+        request.corner_round_px = 99;
+        request.diagonal_smooth_px = 99;
         request.rim_width = 99;
         request.edge_debris = 4.0;
         request.geometry_variance = 4.0;
@@ -1077,6 +1110,8 @@ mod tests {
         assert_eq!(request.contour_relax, 1.0);
         assert_eq!(request.contour_warp_px, 16.0);
         assert_eq!(request.corner_variation, 0.0);
+        assert_eq!(request.corner_round_px, 32);
+        assert_eq!(request.diagonal_smooth_px, 32);
         assert_eq!(request.rim_width, 16);
         assert_eq!(request.edge_debris, 1.0);
         assert_eq!(request.geometry_variance, 1.0);

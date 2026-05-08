@@ -6,13 +6,15 @@ use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
 use serde::Serialize;
 
-use crate::model::{AppRequest, ExportMode, GeneratedFiles, MaterialConfig, OutputManifest, RenderMode};
+use crate::model::{
+    AppRequest, ExportMode, GeneratedFiles, MaterialConfig, OutputManifest, RenderMode,
+};
 use crate::noise::{clamp, fbm_tiled, hash2d, lerp};
-use crate::signature::{canonical_signatures, signature_at, Signature};
+use crate::signature::{Signature, canonical_signatures, signature_at};
 
 const ATLAS_COLUMNS: u32 = 8;
 const MATERIAL_EXPORT_SIZE: u32 = 512;
-const RECIPE_VERSION: u32 = 5;
+const RECIPE_VERSION: u32 = 7;
 const EDGE_NOISE_PERIOD_TILES: f32 = 8.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,7 +161,11 @@ struct RecipePayload<'a> {
     request: &'a AppRequest,
 }
 
-pub fn run_request(mode: RenderMode, request: AppRequest, output_dir: &Path) -> Result<OutputManifest> {
+pub fn run_request(
+    mode: RenderMode,
+    request: AppRequest,
+    output_dir: &Path,
+) -> Result<OutputManifest> {
     fs::create_dir_all(output_dir)
         .with_context(|| format!("failed to create output dir: {}", output_dir.display()))?;
 
@@ -180,15 +186,20 @@ pub fn run_request(mode: RenderMode, request: AppRequest, output_dir: &Path) -> 
             ExportMode::Full47 => {
                 let atlases = build_full_atlases(&request, &textures, &signatures);
                 let material_exports = build_material_exports(&request, &textures);
-                let albedo_atlas_path = export_file_path(output_dir, &request, "atlas_albedo", "png");
+                let albedo_atlas_path =
+                    export_file_path(output_dir, &request, "atlas_albedo", "png");
                 let mask_atlas_path = export_file_path(output_dir, &request, "atlas_mask", "png");
-                let height_atlas_path = export_file_path(output_dir, &request, "atlas_height", "png");
-                let normal_atlas_path = export_file_path(output_dir, &request, "atlas_normal", "png");
+                let height_atlas_path =
+                    export_file_path(output_dir, &request, "atlas_height", "png");
+                let normal_atlas_path =
+                    export_file_path(output_dir, &request, "atlas_normal", "png");
                 let top_albedo_path = export_file_path(output_dir, &request, "top_albedo", "png");
                 let face_albedo_path = export_file_path(output_dir, &request, "face_albedo", "png");
                 let base_albedo_path = export_file_path(output_dir, &request, "base_albedo", "png");
-                let top_modulation_path = export_file_path(output_dir, &request, "top_modulation", "png");
-                let face_modulation_path = export_file_path(output_dir, &request, "face_modulation", "png");
+                let top_modulation_path =
+                    export_file_path(output_dir, &request, "top_modulation", "png");
+                let face_modulation_path =
+                    export_file_path(output_dir, &request, "face_modulation", "png");
                 let top_normal_path = export_file_path(output_dir, &request, "top_normal", "png");
                 let face_normal_path = export_file_path(output_dir, &request, "face_normal", "png");
 
@@ -200,7 +211,9 @@ pub fn run_request(mode: RenderMode, request: AppRequest, output_dir: &Path) -> 
                 material_exports.face_albedo.save(&face_albedo_path)?;
                 material_exports.base_albedo.save(&base_albedo_path)?;
                 material_exports.top_modulation.save(&top_modulation_path)?;
-                material_exports.face_modulation.save(&face_modulation_path)?;
+                material_exports
+                    .face_modulation
+                    .save(&face_modulation_path)?;
                 material_exports.top_normal.save(&top_normal_path)?;
                 material_exports.face_normal.save(&face_normal_path)?;
 
@@ -282,7 +295,12 @@ struct MaterialExports {
     face_normal: RgbaImage,
 }
 
-fn export_file_path(output_dir: &Path, request: &AppRequest, slot: &str, extension: &str) -> PathBuf {
+fn export_file_path(
+    output_dir: &Path,
+    request: &AppRequest,
+    slot: &str,
+    extension: &str,
+) -> PathBuf {
     output_dir.join(format!("{}_{}.{}", request.asset_name, slot, extension))
 }
 
@@ -337,7 +355,11 @@ fn load_texture_slot(path: Option<&str>, warnings: &mut Warnings) -> Option<Load
     }
 }
 
-fn build_full_atlases(request: &AppRequest, textures: &TextureSet, signatures: &[Signature]) -> Atlases {
+fn build_full_atlases(
+    request: &AppRequest,
+    textures: &TextureSet,
+    signatures: &[Signature],
+) -> Atlases {
     let tile_size = request.tile_size;
     let signature_count = signatures.len() as u32;
     let total = signature_count * request.variants;
@@ -399,9 +421,14 @@ fn build_base_variants_atlas(request: &AppRequest, textures: &TextureSet) -> Rgb
     atlas
 }
 
-fn render_base_variant_tile(request: &AppRequest, textures: &TextureSet, variant: u32) -> RgbaImage {
+fn render_base_variant_tile(
+    request: &AppRequest,
+    textures: &TextureSet,
+    variant: u32,
+) -> RgbaImage {
     let size = request.tile_size;
-    let (material, base_color, texture, seed) = material_slot(request, textures, MaterialKind::Base);
+    let (material, base_color, texture, seed) =
+        material_slot(request, textures, MaterialKind::Base);
     let variant_seed = request
         .seed
         .wrapping_add(variant.wrapping_mul(4_091))
@@ -474,10 +501,23 @@ fn render_mask_tile(
 
     for y in 0..size {
         for x in 0..size {
-            let sample = sample_surface_pixel(request, signature, geometry_seed, x, y, origin_x, origin_y);
-            let top_mask = if sample.zone == SurfaceZone::Top { 255 } else { 0 };
-            let face_mask = if sample.zone == SurfaceZone::Face { 255 } else { 0 };
-            let back_mask = if sample.zone == SurfaceZone::Back { 255 } else { 0 };
+            let sample =
+                sample_surface_pixel(request, signature, geometry_seed, x, y, origin_x, origin_y);
+            let top_mask = if sample.zone == SurfaceZone::Top {
+                255
+            } else {
+                0
+            };
+            let face_mask = if sample.zone == SurfaceZone::Face {
+                255
+            } else {
+                0
+            };
+            let back_mask = if sample.zone == SurfaceZone::Back {
+                255
+            } else {
+                0
+            };
             let occupancy = (sample.occupancy.clamp(0.0, 1.0) * 255.0).round() as u8;
             mask.put_pixel(x, y, Rgba([top_mask, face_mask, back_mask, occupancy]));
         }
@@ -491,18 +531,13 @@ fn build_material_exports(request: &AppRequest, textures: &TextureSet) -> Materi
         build_material_albedo_and_values(request, textures, MaterialKind::Top);
     let (face_albedo, face_values) =
         build_material_albedo_and_values(request, textures, MaterialKind::Face);
-    let (base_albedo, _) =
-        build_material_albedo_and_values(request, textures, MaterialKind::Base);
+    let (base_albedo, _) = build_material_albedo_and_values(request, textures, MaterialKind::Base);
 
     MaterialExports {
         top_albedo,
         face_albedo,
         base_albedo,
-        top_modulation: build_scalar_image(
-            &top_values,
-            MATERIAL_EXPORT_SIZE,
-            MATERIAL_EXPORT_SIZE,
-        ),
+        top_modulation: build_scalar_image(&top_values, MATERIAL_EXPORT_SIZE, MATERIAL_EXPORT_SIZE),
         face_modulation: build_scalar_image(
             &face_values,
             MATERIAL_EXPORT_SIZE,
@@ -542,7 +577,8 @@ fn build_material_albedo_and_values(
         .for_each(|(i, (pixel, value))| {
             let x = (i as u32) % width;
             let y = (i as u32) / width;
-            let base = sample_material_base(material, texture, request.texture_scale, width, x, y, seed);
+            let base =
+                sample_material_base(material, texture, request.texture_scale, width, x, y, seed);
             *value = srgb_luminance_rgb(base.rgb) / 255.0;
             let color = apply_material_tint(base, tint, request.texture_color_overlay, 1.0);
             pixel[0] = color[0];
@@ -551,8 +587,7 @@ fn build_material_albedo_and_values(
             pixel[3] = 255;
         });
 
-    let albedo = RgbaImage::from_raw(width, height, raw)
-        .expect("buffer size matches dimensions");
+    let albedo = RgbaImage::from_raw(width, height, raw).expect("buffer size matches dimensions");
     (albedo, values)
 }
 
@@ -632,8 +667,14 @@ fn build_map_preview(request: &AppRequest, textures: &TextureSet) -> Result<Rgba
     Ok(preview)
 }
 
-fn render_empty_cell(textures: &TextureSet, request: &AppRequest, origin_x: u32, origin_y: u32) -> RgbaImage {
-    let (material, base_color, texture, seed) = material_slot(request, textures, MaterialKind::Base);
+fn render_empty_cell(
+    textures: &TextureSet,
+    request: &AppRequest,
+    origin_x: u32,
+    origin_y: u32,
+) -> RgbaImage {
+    let (material, base_color, texture, seed) =
+        material_slot(request, textures, MaterialKind::Base);
     let mut img = RgbaImage::new(request.tile_size, request.tile_size);
     for local_y in 0..request.tile_size {
         for local_x in 0..request.tile_size {
@@ -686,7 +727,8 @@ fn render_tile(
     for y in 0..size {
         for x in 0..size {
             let index = (y * size + x) as usize;
-            let sample = sample_surface_pixel(request, signature, geometry_seed, x, y, origin_x, origin_y);
+            let sample =
+                sample_surface_pixel(request, signature, geometry_seed, x, y, origin_x, origin_y);
             heights[index] = sample.height;
             zones[index] = sample.zone;
             occupancies[index] = sample.occupancy;
@@ -719,9 +761,12 @@ fn render_tile(
     let mut height_img = RgbaImage::new(size, size);
     let mut normal = RgbaImage::new(size, size);
 
-    let (top_material, top_color, top_texture, top_seed) = material_slot(request, textures, MaterialKind::Top);
-    let (face_material, face_color, face_texture, face_seed) = material_slot(request, textures, MaterialKind::Face);
-    let (base_material, base_color, base_texture, base_seed) = material_slot(request, textures, MaterialKind::Base);
+    let (top_material, top_color, top_texture, top_seed) =
+        material_slot(request, textures, MaterialKind::Top);
+    let (face_material, face_color, face_texture, face_seed) =
+        material_slot(request, textures, MaterialKind::Face);
+    let (base_material, base_color, base_texture, base_seed) =
+        material_slot(request, textures, MaterialKind::Base);
     let back_color = parse_hex_color(&request.colors.back);
 
     for y in 0..size {
@@ -787,29 +832,37 @@ fn render_tile(
                 ),
             };
 
-            let shaded = maybe_apply_height_shading(
-                base,
-                height_value,
-                zone,
-                request.bake_height_shading,
-            );
+            let shaded =
+                maybe_apply_height_shading(base, height_value, zone, request.bake_height_shading);
             albedo.put_pixel(x, y, rgba(shaded, 255));
 
             let top_mask = if zone == SurfaceZone::Top { 255 } else { 0 };
             let face_mask = if zone == SurfaceZone::Face { 255 } else { 0 };
             let back_mask = if zone == SurfaceZone::Back { 255 } else { 0 };
             let occupancy_alpha = (occupancies[index].clamp(0.0, 1.0) * 255.0).round() as u8;
-            mask.put_pixel(x, y, Rgba([top_mask, face_mask, back_mask, occupancy_alpha]));
+            mask.put_pixel(
+                x,
+                y,
+                Rgba([top_mask, face_mask, back_mask, occupancy_alpha]),
+            );
 
             let height_byte = (clamp(height_value, 0.0, 1.0) * 255.0).round() as u8;
-            height_img.put_pixel(x, y, Rgba([height_byte, height_byte, height_byte, occupancy_alpha]));
+            height_img.put_pixel(
+                x,
+                y,
+                Rgba([height_byte, height_byte, height_byte, occupancy_alpha]),
+            );
 
             let encoded = if zone == SurfaceZone::Empty {
                 [128, 128, 255]
             } else {
                 encode_normal(size, &normal_heights, x, y, request.normal_strength)
             };
-            normal.put_pixel(x, y, Rgba([encoded[0], encoded[1], encoded[2], occupancy_alpha]));
+            normal.put_pixel(
+                x,
+                y,
+                Rgba([encoded[0], encoded[1], encoded[2], occupancy_alpha]),
+            );
         }
     }
 
@@ -899,7 +952,11 @@ fn sample_surface_pixel(
 
     let total = samples * samples;
     SurfaceSample {
-        height: if occupied == 0 { 0.0 } else { height_sum / occupied as f32 },
+        height: if occupied == 0 {
+            0.0
+        } else {
+            height_sum / occupied as f32
+        },
         zone: dominant_zone(zone_counts),
         occupancy: occupied as f32 / total as f32,
     }
@@ -956,7 +1013,8 @@ fn sample_height(
     let mut min_height = 1.0_f32;
     let mut min_zone = SurfaceZone::Top;
 
-    if let Some(contour) = outer_contour_distance(request, signature, seed, x, y, world_x, world_y) {
+    if let Some(contour) = outer_contour_distance(request, signature, seed, x, y, world_x, world_y)
+    {
         if contour.signed_distance < 0.0 {
             let outside_distance = -contour.signed_distance;
             if outside_distance > contour.depth {
@@ -984,12 +1042,16 @@ fn sample_height(
     if signature.notch_ne {
         let x_start = size - notch_side
             + edge_jitter(world_y, seed.wrapping_add(53), rough_px * 0.8, edge_period);
-        let y_end = notch_north
-            + edge_jitter(world_x, seed.wrapping_add(59), rough_px * 0.8, edge_period);
+        let y_end =
+            notch_north + edge_jitter(world_x, seed.wrapping_add(59), rough_px * 0.8, edge_period);
         if inner_radius > 0.0 {
-            if let Some(progress) =
-                rounded_inner_notch_progress(x - x_start, y_end - y, notch_side, notch_north, inner_radius)
-            {
+            if let Some(progress) = rounded_inner_notch_progress(
+                x - x_start,
+                y_end - y,
+                notch_side,
+                notch_north,
+                inner_radius,
+            ) {
                 set_min_height(
                     &mut min_height,
                     &mut min_zone,
@@ -1008,14 +1070,18 @@ fn sample_height(
         }
     }
     if signature.notch_nw {
-        let x_end = notch_side
-            + edge_jitter(world_y, seed.wrapping_add(61), rough_px * 0.8, edge_period);
-        let y_end = notch_north
-            + edge_jitter(world_x, seed.wrapping_add(67), rough_px * 0.8, edge_period);
+        let x_end =
+            notch_side + edge_jitter(world_y, seed.wrapping_add(61), rough_px * 0.8, edge_period);
+        let y_end =
+            notch_north + edge_jitter(world_x, seed.wrapping_add(67), rough_px * 0.8, edge_period);
         if inner_radius > 0.0 {
-            if let Some(progress) =
-                rounded_inner_notch_progress(x_end - x, y_end - y, notch_side, notch_north, inner_radius)
-            {
+            if let Some(progress) = rounded_inner_notch_progress(
+                x_end - x,
+                y_end - y,
+                notch_side,
+                notch_north,
+                inner_radius,
+            ) {
                 set_min_height(
                     &mut min_height,
                     &mut min_zone,
@@ -1034,8 +1100,20 @@ fn sample_height(
         }
     }
     if signature.notch_se {
-        let x_start = east_boundary(request, rough_px, edge_period, seed.wrapping_add(37), world_y);
-        let y_start = south_boundary(request, rough_px, edge_period, seed.wrapping_add(23), world_x);
+        let x_start = east_boundary(
+            request,
+            rough_px,
+            edge_period,
+            seed.wrapping_add(37),
+            world_y,
+        );
+        let y_start = south_boundary(
+            request,
+            rough_px,
+            edge_period,
+            seed.wrapping_add(23),
+            world_x,
+        );
         if inner_radius > 0.0 {
             if let Some(progress) = rounded_inner_notch_progress(
                 x - x_start,
@@ -1062,8 +1140,20 @@ fn sample_height(
         }
     }
     if signature.notch_sw {
-        let x_end = west_boundary(request, rough_px, edge_period, seed.wrapping_add(41), world_y);
-        let y_start = south_boundary(request, rough_px, edge_period, seed.wrapping_add(23), world_x);
+        let x_end = west_boundary(
+            request,
+            rough_px,
+            edge_period,
+            seed.wrapping_add(41),
+            world_y,
+        );
+        let y_start = south_boundary(
+            request,
+            rough_px,
+            edge_period,
+            seed.wrapping_add(23),
+            world_x,
+        );
         if inner_radius > 0.0 {
             if let Some(progress) = rounded_inner_notch_progress(
                 x_end - x,
@@ -1148,6 +1238,7 @@ fn marching_contour_distance(
         gradient_len = (gx * gx + gy * gy).sqrt().max(0.001);
     }
 
+    let value = adjusted_marching_value(request, signature, value, u, v);
     let threshold = marching_threshold(request, seed, world_x, world_y);
     let signed_distance = ((value - threshold) / gradient_len) * request.tile_size as f32;
     let (zone, depth) = marching_zone_and_depth(request, gx, gy);
@@ -1157,6 +1248,71 @@ fn marching_contour_distance(
         zone,
         depth,
     })
+}
+
+fn adjusted_marching_value(
+    request: &AppRequest,
+    signature: &Signature,
+    base_value: f32,
+    u: f32,
+    v: f32,
+) -> f32 {
+    let max_radius = (request.tile_size as f32 * 0.5).max(1.0);
+    let mut value = base_value;
+
+    if request.corner_round_px > 0 {
+        let strength = (request.corner_round_px as f32 / max_radius).clamp(0.0, 1.0);
+        let rounded_value = rounded_corner_field(signature, u, v, strength);
+        value = lerp(value, rounded_value, strength * 0.55);
+    }
+
+    if request.diagonal_smooth_px > 0 {
+        let strength = (request.diagonal_smooth_px as f32 / max_radius).clamp(0.0, 1.0);
+        if let Some(diagonal_value) = diagonal_smooth_field(signature.marching_mask, u, v) {
+            value = lerp(value, diagonal_value, strength * 0.35);
+        }
+    }
+
+    value.clamp(0.0, 1.0)
+}
+
+fn rounded_corner_field(signature: &Signature, u: f32, v: f32, strength: f32) -> f32 {
+    let corners = [
+        (0.0_f32, 0.0_f32, signature.corner_nw),
+        (1.0_f32, 0.0_f32, signature.corner_ne),
+        (1.0_f32, 1.0_f32, signature.corner_se),
+        (0.0_f32, 1.0_f32, signature.corner_sw),
+    ];
+    let sigma = lerp(0.18, 0.58, strength).max(0.001);
+    let sigma_sq = sigma * sigma * 2.0;
+    let mut inside_weight = 0.0_f32;
+    let mut empty_weight = 0.0_f32;
+
+    for (corner_u, corner_v, filled) in corners {
+        let du = u - corner_u;
+        let dv = v - corner_v;
+        let weight = (-(du * du + dv * dv) / sigma_sq).exp();
+        if filled {
+            inside_weight += weight;
+        } else {
+            empty_weight += weight;
+        }
+    }
+
+    let total = inside_weight + empty_weight;
+    if total <= 0.0001 {
+        0.5
+    } else {
+        inside_weight / total
+    }
+}
+
+fn diagonal_smooth_field(mask: u8, u: f32, v: f32) -> Option<f32> {
+    match mask & 0x0f {
+        0b0101 => Some((1.0 - (u - v).abs()).clamp(0.0, 1.0)),
+        0b1010 => Some((1.0 - (u + v - 1.0).abs()).clamp(0.0, 1.0)),
+        _ => None,
+    }
 }
 
 fn fallback_marching_gradient(signature: &Signature, u: f32, v: f32) -> (f32, f32) {
@@ -1177,7 +1333,9 @@ fn fallback_marching_gradient(signature: &Signature, u: f32, v: f32) -> (f32, f3
         } else {
             &mut nearest_empty
         };
-        if slot.map_or(true, |(_, _, current): (f32, f32, f32)| distance_sq < current) {
+        if slot.map_or(true, |(_, _, current): (f32, f32, f32)| {
+            distance_sq < current
+        }) {
             *slot = Some((dx, dy, distance_sq));
         }
     }
@@ -1203,8 +1361,7 @@ fn marching_threshold(request: &AppRequest, seed: u32, world_x: f32, world_y: f3
         2,
         seed.wrapping_add(5_911),
     ) - 0.5;
-    (0.5 + warp * request.contour_warp_px / request.tile_size as f32)
-        .clamp(0.38, 0.62)
+    (0.5 + warp * request.contour_warp_px / request.tile_size as f32).clamp(0.38, 0.62)
 }
 
 fn marching_zone_and_depth(request: &AppRequest, gx: f32, gy: f32) -> (SurfaceZone, f32) {
@@ -1228,23 +1385,40 @@ fn marching_zone_and_depth(request: &AppRequest, gx: f32, gy: f32) -> (SurfaceZo
     )
 }
 
-fn south_boundary(request: &AppRequest, rough_px: f32, edge_period: f32, seed: u32, edge_coord: f32) -> f32 {
+fn south_boundary(
+    request: &AppRequest,
+    rough_px: f32,
+    edge_period: f32,
+    seed: u32,
+    edge_coord: f32,
+) -> f32 {
     (request.tile_size as f32 - 1.0 - request.south_height as f32)
         + edge_jitter(edge_coord, seed, rough_px, edge_period)
 }
 
-fn east_boundary(request: &AppRequest, rough_px: f32, edge_period: f32, seed: u32, edge_coord: f32) -> f32 {
+fn east_boundary(
+    request: &AppRequest,
+    rough_px: f32,
+    edge_period: f32,
+    seed: u32,
+    edge_coord: f32,
+) -> f32 {
     (request.tile_size as f32 - 1.0 - request.side_height as f32)
         + edge_jitter(edge_coord, seed, rough_px, edge_period)
 }
 
-fn west_boundary(request: &AppRequest, rough_px: f32, edge_period: f32, seed: u32, edge_coord: f32) -> f32 {
+fn west_boundary(
+    request: &AppRequest,
+    rough_px: f32,
+    edge_period: f32,
+    seed: u32,
+    edge_coord: f32,
+) -> f32 {
     request.side_height as f32 + edge_jitter(edge_coord, seed, rough_px, edge_period)
 }
 
 fn edge_rough_px(request: &AppRequest) -> f32 {
-    (request.roughness / 100.0) * (request.tile_size as f32 * 0.085)
-        + request.contour_warp_px
+    (request.roughness / 100.0) * (request.tile_size as f32 * 0.085) + request.contour_warp_px
 }
 
 fn back_height_for_progress(request: &AppRequest, progress: f32) -> f32 {
@@ -1301,7 +1475,12 @@ fn relaxed_corner_radius(
     radius.clamp(0.0, request.tile_size as f32 * 0.5)
 }
 
-fn set_min_height(current_height: &mut f32, current_zone: &mut SurfaceZone, candidate: f32, zone: SurfaceZone) {
+fn set_min_height(
+    current_height: &mut f32,
+    current_zone: &mut SurfaceZone,
+    candidate: f32,
+    zone: SurfaceZone,
+) {
     if candidate < *current_height {
         *current_height = candidate;
         *current_zone = zone;
@@ -1387,7 +1566,8 @@ fn apply_organic_height_relief(
     zones: &[SurfaceZone],
     occupancies: &[f32],
 ) {
-    if request.rim_width == 0 && request.edge_debris <= 0.0 && request.normal_detail_strength <= 0.0 {
+    if request.rim_width == 0 && request.edge_debris <= 0.0 && request.normal_detail_strength <= 0.0
+    {
         return;
     }
 
@@ -1432,20 +1612,13 @@ fn apply_organic_height_relief(
 
             if request.rim_width > 0 || request.edge_debris > 0.0 {
                 if let Some(distance) = exposed_edge_distance(
-                    request,
-                    signature,
-                    seed,
-                    x as f32,
-                    y as f32,
-                    world_x,
-                    world_y,
+                    request, signature, seed, x as f32, y as f32, world_x, world_y,
                 ) {
                     let rim = (1.0 - distance / request.rim_width.max(1) as f32).clamp(0.0, 1.0);
                     if rim > 0.0 {
                         let chip = ((fine - 0.38) * 2.2).clamp(0.0, 1.0);
                         let edge_cut = rim
-                            * (request.contour_relax * 0.018
-                                + chip * request.edge_debris * 0.045);
+                            * (request.contour_relax * 0.018 + chip * request.edge_debris * 0.045);
                         delta -= edge_cut;
                         if zone == SurfaceZone::Face {
                             delta += rim * request.edge_debris * (broad - 0.45) * 0.026;
@@ -1561,7 +1734,7 @@ fn sample_material_base(
 
 #[cfg(test)]
 mod tests {
-    use crate::model::{default_request, ExportMode};
+    use crate::model::{ExportMode, default_request};
     use std::fs as test_fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1606,20 +1779,10 @@ mod tests {
     #[test]
     fn texture_scale_above_one_zooms_texture_without_box_blur() {
         let texture = LoadedTexture {
-            image: RgbaImage::from_fn(4, 1, |x, _| {
-                Rgba([(x * 64) as u8, 0, 0, 255])
-            }),
+            image: RgbaImage::from_fn(4, 1, |x, _| Rgba([(x * 64) as u8, 0, 0, 255])),
         };
 
-        let sample = sample_material_base(
-            &image_material(),
-            Some(&texture),
-            4.0,
-            32,
-            0,
-            0,
-            0,
-        );
+        let sample = sample_material_base(&image_material(), Some(&texture), 4.0, 32, 0, 0, 0);
 
         assert!(
             sample.rgb[0] < 24,
@@ -1689,15 +1852,8 @@ mod tests {
         let request = request.sanitized();
         let signature = Signature::create(true, false, false, false, false, false, true, true);
 
-        let (height, zone) = sample_height(
-            &request,
-            &signature,
-            request.seed,
-            45.0,
-            45.0,
-            45.0,
-            45.0,
-        );
+        let (height, zone) =
+            sample_height(&request, &signature, request.seed, 45.0, 45.0, 45.0, 45.0);
 
         assert_eq!(zone, SurfaceZone::Face);
         assert!(
@@ -1780,6 +1936,59 @@ mod tests {
     }
 
     #[test]
+    fn corner_round_px_changes_active_marching_square_mask() {
+        let mut sharp = default_request();
+        sharp.tile_size = 64;
+        sharp.roughness = 0.0;
+        sharp.contour_relax = 0.0;
+        sharp.contour_warp_px = 0.0;
+        sharp.corner_variation = 0.0;
+        sharp.corner_round_px = 0;
+        sharp.shape_supersampling = 4;
+        let sharp = sharp.sanitized();
+
+        let mut rounded = sharp.clone();
+        rounded.corner_round_px = 20;
+        let rounded = rounded.sanitized();
+
+        let signature = Signature::from_marching_mask(0b0001);
+        let sharp_tile = render_mask_tile(&sharp, &signature, 0, 0, 0);
+        let rounded_tile = render_mask_tile(&rounded, &signature, 0, 0, 0);
+
+        assert!(
+            images_differ(&sharp_tile, &rounded_tile),
+            "corner_round_px should affect current ms_* mask geometry, not only legacy notch cases"
+        );
+    }
+
+    #[test]
+    fn diagonal_smooth_px_changes_diagonal_marching_square_mask() {
+        let mut sharp = default_request();
+        sharp.tile_size = 64;
+        sharp.roughness = 0.0;
+        sharp.contour_relax = 0.0;
+        sharp.contour_warp_px = 0.0;
+        sharp.corner_variation = 0.0;
+        sharp.corner_round_px = 0;
+        sharp.diagonal_smooth_px = 0;
+        sharp.shape_supersampling = 4;
+        let sharp = sharp.sanitized();
+
+        let mut smoothed = sharp.clone();
+        smoothed.diagonal_smooth_px = 16;
+        let smoothed = smoothed.sanitized();
+
+        let signature = Signature::from_marching_mask(0b0101);
+        let sharp_tile = render_mask_tile(&sharp, &signature, 0, 0, 0);
+        let smoothed_tile = render_mask_tile(&smoothed, &signature, 0, 0, 0);
+
+        assert!(
+            images_differ(&sharp_tile, &smoothed_tile),
+            "diagonal_smooth_px should alter diagonal ms_* masks"
+        );
+    }
+
+    #[test]
     fn rim_detail_and_micro_relief_add_height_variation_for_normals() {
         let mut flat = default_request();
         flat.tile_size = 64;
@@ -1848,15 +2057,8 @@ mod tests {
         let request = request.sanitized();
         let signature = Signature::create(true, false, true, true, true, true, true, true);
 
-        let (height, zone) = sample_height(
-            &request,
-            &signature,
-            request.seed,
-            51.0,
-            13.0,
-            51.0,
-            13.0,
-        );
+        let (height, zone) =
+            sample_height(&request, &signature, request.seed, 51.0, 13.0, 51.0, 13.0);
 
         assert_eq!(zone, SurfaceZone::Top);
         assert_eq!(height, 1.0);
@@ -1946,9 +2148,12 @@ fn apply_material_tint(
         [255, 255, 255]
     };
     [
-        ((base.rgb[0] as f32 * (tint_factor[0] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
-        ((base.rgb[1] as f32 * (tint_factor[1] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
-        ((base.rgb[2] as f32 * (tint_factor[2] as f32 / 255.0) * brightness).round() as i32).clamp(0, 255) as u8,
+        ((base.rgb[0] as f32 * (tint_factor[0] as f32 / 255.0) * brightness).round() as i32)
+            .clamp(0, 255) as u8,
+        ((base.rgb[1] as f32 * (tint_factor[1] as f32 / 255.0) * brightness).round() as i32)
+            .clamp(0, 255) as u8,
+        ((base.rgb[2] as f32 * (tint_factor[2] as f32 / 255.0) * brightness).round() as i32)
+            .clamp(0, 255) as u8,
     ]
 }
 
@@ -1985,7 +2190,14 @@ fn procedural_layer_material(
     let period = (tile_period * EDGE_NOISE_PERIOD_TILES * scale).max(1.0);
     let feature_period = (tile_period * scale).max(1.0);
     let seed = seed.wrapping_add(material.seed.wrapping_mul(193));
-    let broad = fbm_tiled(px * 0.045, py * 0.045, period * 0.045, period * 0.045, 4, seed);
+    let broad = fbm_tiled(
+        px * 0.045,
+        py * 0.045,
+        period * 0.045,
+        period * 0.045,
+        4,
+        seed,
+    );
     let fine = fbm_tiled(
         px * 0.18 + 37.0,
         py * 0.18 + 19.0,
@@ -1994,24 +2206,188 @@ fn procedural_layer_material(
         3,
         seed.wrapping_add(97),
     );
-    let speck = hash2d((px * 1.7).floor() as i32, (py * 1.7).floor() as i32, seed.wrapping_add(307));
+    let speck = hash2d(
+        (px * 1.7).floor() as i32,
+        (py * 1.7).floor() as i32,
+        seed.wrapping_add(307),
+    );
     let (mut value, crack, wear_mask, highlight_mask) = match material.kind.as_str() {
-        "stone_bricks" => stone_brick_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        "cracked_earth" => cracked_earth_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        "worn_metal" => worn_metal_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        "wood_planks" => wood_plank_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        "packed_dirt" => packed_dirt_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        "concrete" => concrete_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        "ice_frost" => ice_frost_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        "ash_burnt_ground" => ash_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        "snow" => snow_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        "sand" => sand_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        "moss" => moss_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        "gravel" => gravel_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        "rusty_metal" => rusty_metal_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        "concrete_floor" => concrete_floor_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        "ribbed_steel" => ribbed_steel_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
-        _ => rough_stone_layers(material, seed, px, py, period, feature_period, speck, broad, fine),
+        "stone_bricks" => stone_brick_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        "cracked_earth" => cracked_earth_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        "worn_metal" => worn_metal_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        "wood_planks" => wood_plank_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        "packed_dirt" => packed_dirt_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        "concrete" => concrete_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        "ice_frost" => ice_frost_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        "ash_burnt_ground" => ash_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        "snow" => snow_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        "sand" => sand_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        "moss" => moss_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        "gravel" => gravel_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        "rusty_metal" => rusty_metal_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        "concrete_floor" => concrete_floor_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        "ribbed_steel" => ribbed_steel_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
+        _ => rough_stone_layers(
+            material,
+            seed,
+            px,
+            py,
+            period,
+            feature_period,
+            speck,
+            broad,
+            fine,
+        ),
     };
 
     value += (speck - 0.5) * material.grain * 0.18;
@@ -2022,7 +2398,11 @@ fn procedural_layer_material(
     let darkening = crack * (0.28 + material.edge_darkening * 0.55)
         + wear_mask * material.edge_darkening * 0.18;
     color = scale_color(color, 1.0 - darkening.clamp(0.0, 0.82));
-    color = mix_color(color, highlight, (wear_mask * material.wear * 0.22).clamp(0.0, 0.35));
+    color = mix_color(
+        color,
+        highlight,
+        (wear_mask * material.wear * 0.22).clamp(0.0, 0.35),
+    );
     color
 }
 
@@ -2040,7 +2420,11 @@ fn stone_brick_layers(
     let brick_w = (feature_period * 0.3125).max(2.0);
     let brick_h = (feature_period * 0.140625).max(1.0);
     let row = (py / brick_h).floor() as i32;
-    let offset = if row.rem_euclid(2) == 0 { 0.0 } else { brick_w * 0.5 };
+    let offset = if row.rem_euclid(2) == 0 {
+        0.0
+    } else {
+        brick_w * 0.5
+    };
     let bx = positive_mod(px + offset, brick_w);
     let by = positive_mod(py, brick_h);
     let edge_distance = bx.min(brick_w - bx).min(by.min(brick_h - by));
@@ -2048,7 +2432,12 @@ fn stone_brick_layers(
     let cell_x = ((px + offset) / brick_w).floor() as i32;
     let cell_y = (py / brick_h).floor() as i32;
     let cell = hash2d(cell_x, cell_y, seed.wrapping_add(701));
-    let chip = (hash2d((px * 0.65) as i32, (py * 0.65) as i32, seed.wrapping_add(709)) - 0.5) * material.wear;
+    let chip = (hash2d(
+        (px * 0.65) as i32,
+        (py * 0.65) as i32,
+        seed.wrapping_add(709),
+    ) - 0.5)
+        * material.wear;
     let value = 0.42 + broad * 0.22 + fine * 0.14 + cell * 0.20 + chip * 0.12;
     let highlight = line_mask(edge_distance, 2.2) * (1.0 - mortar) * 0.18;
     (value, mortar, chip.abs(), highlight)
@@ -2066,7 +2455,15 @@ fn cracked_earth_layers(
     fine: f32,
 ) -> (f32, f32, f32, f32) {
     let cell = (feature_period * 0.28125).max(2.0);
-    let warp_x = (fbm_tiled(px * 0.035, py * 0.035, period * 0.035, period * 0.035, 3, seed) - 0.5) * 7.0;
+    let warp_x = (fbm_tiled(
+        px * 0.035,
+        py * 0.035,
+        period * 0.035,
+        period * 0.035,
+        3,
+        seed,
+    ) - 0.5)
+        * 7.0;
     let warp_y = (fbm_tiled(
         px * 0.038 + 31.0,
         py * 0.038 + 11.0,
@@ -2084,10 +2481,19 @@ fn cracked_earth_layers(
         seed.wrapping_add(17),
         0.35 + material.crack_amount * 2.4,
     );
-    let hairline = clamp((0.16 - (fine - 0.48).abs()).max(0.0) * material.crack_amount * 3.0, 0.0, 1.0);
+    let hairline = clamp(
+        (0.16 - (fine - 0.48).abs()).max(0.0) * material.crack_amount * 3.0,
+        0.0,
+        1.0,
+    );
     let crack = clamp(main_crack + hairline * 0.45, 0.0, 1.0);
     let value = 0.44 + broad * 0.25 + fine * 0.16;
-    (value, crack, material.wear * (1.0 - broad), 0.04 + fine * 0.08)
+    (
+        value,
+        crack,
+        material.wear * (1.0 - broad),
+        0.04 + fine * 0.08,
+    )
 }
 
 fn rough_stone_layers(
@@ -2101,7 +2507,11 @@ fn rough_stone_layers(
     broad: f32,
     fine: f32,
 ) -> (f32, f32, f32, f32) {
-    let crack = clamp((0.34 - fine).max(0.0) * material.crack_amount * 1.8, 0.0, 1.0);
+    let crack = clamp(
+        (0.34 - fine).max(0.0) * material.crack_amount * 1.8,
+        0.0,
+        1.0,
+    );
     let value = 0.36 + broad * 0.34 + fine * 0.18 + speck * material.grain * 0.16;
     (value, crack, material.wear * speck, fine * 0.12)
 }
@@ -2126,7 +2536,12 @@ fn worn_metal_layers(
         0.18 + material.wear * 0.8,
     );
     let value = 0.42 + broad * 0.18 + fine * 0.16 + bands;
-    (value, scratches * material.crack_amount, scratches, scratches * 0.28)
+    (
+        value,
+        scratches * material.crack_amount,
+        scratches,
+        scratches * 0.28,
+    )
 }
 
 fn wood_plank_layers(
@@ -2143,7 +2558,14 @@ fn wood_plank_layers(
     let plank_w = (feature_period * 0.15625).max(2.0);
     let lx = positive_mod(px, plank_w);
     let seam = line_mask(lx.min(plank_w - lx), 0.45 + material.crack_amount * 1.3);
-    let grain = fbm_tiled(px * 0.03, py * 0.34, period * 0.03, period * 0.34, 4, seed.wrapping_add(41));
+    let grain = fbm_tiled(
+        px * 0.03,
+        py * 0.34,
+        period * 0.03,
+        period * 0.34,
+        4,
+        seed.wrapping_add(41),
+    );
     let knot_x = (feature_period * 0.21875).max(2.0);
     let knot_y = (feature_period * 0.28125).max(2.0);
     let knot = hash2d(
@@ -2167,7 +2589,11 @@ fn packed_dirt_layers(
     fine: f32,
 ) -> (f32, f32, f32, f32) {
     let pebble = clamp((speck - 0.72) * 4.0, 0.0, 1.0) * material.grain;
-    let crack = clamp((0.28 - fine).max(0.0) * material.crack_amount * 1.6, 0.0, 1.0);
+    let crack = clamp(
+        (0.28 - fine).max(0.0) * material.crack_amount * 1.6,
+        0.0,
+        1.0,
+    );
     let value = 0.40 + broad * 0.30 + fine * 0.12 + pebble * 0.10;
     (value, crack, material.wear * (1.0 - broad), pebble * 0.18)
 }
@@ -2184,8 +2610,19 @@ fn concrete_layers(
     fine: f32,
 ) -> (f32, f32, f32, f32) {
     let pore = hash2d((px * 2.1) as i32, (py * 2.1) as i32, seed.wrapping_add(83));
-    let crack_line = fbm_tiled(px * 0.08, py * 0.08, period * 0.08, period * 0.08, 2, seed.wrapping_add(89));
-    let crack = clamp((0.18 - (crack_line - 0.5).abs()).max(0.0) * material.crack_amount * 4.0, 0.0, 1.0);
+    let crack_line = fbm_tiled(
+        px * 0.08,
+        py * 0.08,
+        period * 0.08,
+        period * 0.08,
+        2,
+        seed.wrapping_add(89),
+    );
+    let crack = clamp(
+        (0.18 - (crack_line - 0.5).abs()).max(0.0) * material.crack_amount * 4.0,
+        0.0,
+        1.0,
+    );
     let value = 0.48 + broad * 0.16 + fine * 0.08 + (pore - 0.5) * material.grain * 0.08;
     (value, crack, material.wear * pore, 0.04)
 }
@@ -2201,8 +2638,19 @@ fn ice_frost_layers(
     broad: f32,
     fine: f32,
 ) -> (f32, f32, f32, f32) {
-    let frost = fbm_tiled(px * 0.12 + 9.0, py * 0.12, period * 0.12, period * 0.12, 4, seed.wrapping_add(103));
-    let vein = clamp((0.10 - (frost - 0.52).abs()).max(0.0) * material.crack_amount * 5.0, 0.0, 1.0);
+    let frost = fbm_tiled(
+        px * 0.12 + 9.0,
+        py * 0.12,
+        period * 0.12,
+        period * 0.12,
+        4,
+        seed.wrapping_add(103),
+    );
+    let vein = clamp(
+        (0.10 - (frost - 0.52).abs()).max(0.0) * material.crack_amount * 5.0,
+        0.0,
+        1.0,
+    );
     let value = 0.50 + broad * 0.16 + fine * 0.12 + frost * 0.18;
     (value, vein, material.wear * (1.0 - frost), frost * 0.24)
 }
@@ -2219,7 +2667,11 @@ fn ash_layers(
     fine: f32,
 ) -> (f32, f32, f32, f32) {
     let ember = clamp((speck - 0.92) * 8.0, 0.0, 1.0) * material.wear;
-    let crack = clamp((0.25 - fine).max(0.0) * material.crack_amount * 1.8, 0.0, 1.0);
+    let crack = clamp(
+        (0.25 - fine).max(0.0) * material.crack_amount * 1.8,
+        0.0,
+        1.0,
+    );
     let value = 0.28 + broad * 0.25 + fine * 0.12 + ember * 0.18;
     (value, crack, material.wear * (1.0 - broad), ember)
 }
@@ -2244,7 +2696,11 @@ fn snow_layers(
         seed.wrapping_add(211),
     );
     let sparkle = clamp((speck - 0.94) * 16.0, 0.0, 1.0) * (0.4 + material.grain * 0.6);
-    let crack = clamp((0.18 - fine).max(0.0) * material.crack_amount * 0.8, 0.0, 1.0);
+    let crack = clamp(
+        (0.18 - fine).max(0.0) * material.crack_amount * 0.8,
+        0.0,
+        1.0,
+    );
     let value = 0.62 + drift * 0.20 + broad * 0.10 + fine * 0.06;
     (value, crack, material.wear * (1.0 - drift), sparkle * 0.55)
 }
@@ -2299,7 +2755,11 @@ fn moss_layers(
     let cluster = (blob - 0.45).max(0.0) * 1.6;
     let spores = clamp((speck - 0.92) * 12.0, 0.0, 1.0);
     let value = 0.32 + broad * 0.14 + fine * 0.10 + cluster * 0.20;
-    let crack = clamp((0.20 - fine).max(0.0) * material.crack_amount * 0.6, 0.0, 1.0);
+    let crack = clamp(
+        (0.20 - fine).max(0.0) * material.crack_amount * 0.6,
+        0.0,
+        1.0,
+    );
     let highlight = spores * 0.40 + cluster * 0.08;
     (value, crack, material.wear * (1.0 - cluster), highlight)
 }
@@ -2332,8 +2792,11 @@ fn gravel_layers(
         2,
         seed.wrapping_add(337),
     );
-    let value =
-        0.30 + broad * 0.16 + fine * 0.08 + pebble_var * 0.30 + (speck - 0.5) * material.grain * 0.18;
+    let value = 0.30
+        + broad * 0.16
+        + fine * 0.08
+        + pebble_var * 0.30
+        + (speck - 0.5) * material.grain * 0.18;
     let highlight = clamp((1.0 - edge) * pebble_var * 0.20, 0.0, 1.0);
     (value, edge, material.wear * (1.0 - pebble_var), highlight)
 }
@@ -2544,7 +3007,8 @@ fn blur_heights_3x3(size: u32, heights: &[f32]) -> Vec<f32> {
             let mut total = 0.0;
             for oy in -1..=1 {
                 for ox in -1..=1 {
-                    total += sample_height_value_clamped(size, heights, x as i32 + ox, y as i32 + oy);
+                    total +=
+                        sample_height_value_clamped(size, heights, x as i32 + ox, y as i32 + oy);
                 }
             }
             out[(y * size + x) as usize] = total / 9.0;
@@ -2554,9 +3018,8 @@ fn blur_heights_3x3(size: u32, heights: &[f32]) -> Vec<f32> {
 }
 
 fn encode_normal(size: u32, heights: &[f32], x: u32, y: u32, strength: f32) -> [u8; 3] {
-    let at = |ox: i32, oy: i32| {
-        sample_height_value_clamped(size, heights, x as i32 + ox, y as i32 + oy)
-    };
+    let at =
+        |ox: i32, oy: i32| sample_height_value_clamped(size, heights, x as i32 + ox, y as i32 + oy);
     let (dx, dy) = sobel_gradient_from_samples(at);
     encode_normal_from_gradient(dx, dy, strength)
 }
@@ -2565,14 +3028,10 @@ fn sobel_gradient_from_samples<F>(at: F) -> (f32, f32)
 where
     F: Fn(i32, i32) -> f32,
 {
-    let dx = (
-        at(1, -1) + 2.0 * at(1, 0) + at(1, 1)
-            - at(-1, -1) - 2.0 * at(-1, 0) - at(-1, 1)
-    ) * 0.25;
-    let dy = (
-        at(-1, 1) + 2.0 * at(0, 1) + at(1, 1)
-            - at(-1, -1) - 2.0 * at(0, -1) - at(1, -1)
-    ) * 0.25;
+    let dx =
+        (at(1, -1) + 2.0 * at(1, 0) + at(1, 1) - at(-1, -1) - 2.0 * at(-1, 0) - at(-1, 1)) * 0.25;
+    let dy =
+        (at(-1, 1) + 2.0 * at(0, 1) + at(1, 1) - at(-1, -1) - 2.0 * at(0, -1) - at(1, -1)) * 0.25;
     (dx, dy)
 }
 
@@ -2620,7 +3079,8 @@ fn parse_hex_color(value: &str) -> [u8; 3] {
         return [255, 255, 255];
     }
 
-    let parse = |slice: std::ops::Range<usize>| u8::from_str_radix(&trimmed[slice], 16).unwrap_or(255);
+    let parse =
+        |slice: std::ops::Range<usize>| u8::from_str_radix(&trimmed[slice], 16).unwrap_or(255);
     [parse(0..2), parse(2..4), parse(4..6)]
 }
 

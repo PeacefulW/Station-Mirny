@@ -479,19 +479,21 @@ class CliffForgeApp:
         self.south_height_var = tk.IntVar(value=18)
         self.north_height_var = tk.IntVar(value=10)
         self.side_height_var = tk.IntVar(value=16)
-        self.roughness_var = tk.DoubleVar(value=52.0)
+        self.roughness_var = tk.DoubleVar(value=36.0)
         self.face_power_var = tk.DoubleVar(value=1.0)
         self.back_drop_var = tk.DoubleVar(value=0.34)
         self.crown_bevel_var = tk.IntVar(value=2)
         self.outer_corner_radius_var = tk.IntVar(value=12)
         self.inner_corner_radius_var = tk.IntVar(value=10)
+        self.corner_round_px_var = tk.IntVar(value=16)
+        self.diagonal_smooth_px_var = tk.IntVar(value=6)
         self.contour_relax_var = tk.DoubleVar(value=0.7)
-        self.contour_warp_px_var = tk.DoubleVar(value=3.0)
+        self.contour_warp_px_var = tk.DoubleVar(value=1.75)
         self.corner_variation_var = tk.DoubleVar(value=0.35)
         self.rim_width_var = tk.IntVar(value=7)
         self.edge_debris_var = tk.DoubleVar(value=0.65)
         self.geometry_variance_var = tk.DoubleVar(value=0.45)
-        self.shape_supersampling_var = tk.IntVar(value=2)
+        self.shape_supersampling_var = tk.IntVar(value=4)
         self.variants_var = tk.IntVar(value=RUNTIME_VARIANT_COUNT)
         self.texture_scale_var = tk.DoubleVar(value=1.0)
         self.normal_strength_var = tk.DoubleVar(value=self._normal_strength_for_tile_size(self.tile_size_var.get()))
@@ -827,44 +829,41 @@ class CliffForgeApp:
         return inner
 
     def _build_geometry_tab(self, parent: ttk.Frame) -> None:
-        group = ttk.LabelFrame(parent, text="Размер тайла", padding=10)
-        group.pack(fill="x", pady=(0, 10))
-        self._add_panel_scale(group, "Размер тайла", self.tile_size_var, 32, 96, 16, integer=True,
+        shape = ttk.LabelFrame(parent, text="Форма / mask", padding=10)
+        shape.pack(fill="x", pady=(0, 10))
+        self._add_panel_scale(shape, "Размер тайла", self.tile_size_var, 32, 96, 16, integer=True,
                               on_change=self._on_tile_size_changed)
-        self._add_panel_scale(group, "Кол-во вариантов", self.variants_var, 1, 8, 1, integer=True,
+        self._add_panel_scale(shape, "Кол-во вариантов", self.variants_var, 1, 8, 1, integer=True,
                               on_change=self._on_variant_count_changed, debounce_full=False)
-        ttk.Label(group, text=TEXT_VARIANT_WARNING, style="Warn.TLabel", wraplength=300).pack(anchor="w", pady=(0, 4))
-        self._add_panel_scale(group, "Зум текстуры", self.texture_scale_var, 0.25, 4.0, 0.05)
+        ttk.Label(shape, text=TEXT_VARIANT_WARNING, style="Warn.TLabel", wraplength=300).pack(anchor="w", pady=(0, 4))
+        self._add_panel_scale(shape, "Шероховатость", self.roughness_var, 0, 100, 1)
+        self._add_panel_scale(shape, "Шум контура px", self.contour_warp_px_var, 0.0, 16.0, 0.25)
+        self._add_panel_scale(shape, "Скругление контура", self.corner_round_px_var, 0, 32, 1, integer=True)
+        self._add_panel_scale(shape, "Смягчение диагоналей", self.diagonal_smooth_px_var, 0, 32, 1, integer=True)
+        self._add_panel_scale(shape, "Разброс углов", self.corner_variation_var, 0.0, 1.0, 0.05)
+        self._add_panel_scale(shape, "Суперсемплинг формы", self.shape_supersampling_var, 1, 4, 1, integer=True)
 
-        lighting = ttk.LabelFrame(parent, text="Нормали и свет", padding=10)
-        lighting.pack(fill="x", pady=(0, 10))
-        self._add_panel_scale(lighting, "Сила нормалей", self.normal_strength_var, 0.25, 8.0, 0.05)
-        self._add_panel_scale(lighting, "Деталь нормалей", self.normal_detail_strength_var, 0.0, 4.0, 0.05)
-        ttk.Checkbutton(lighting, text="Запекать высотную тень в альбедо",
+        height = ttk.LabelFrame(parent, text="Высота / normal", padding=10)
+        height.pack(fill="x", pady=(0, 10))
+        self._add_panel_scale(height, "Южная высота", self.south_height_var, 4, 32, 1, integer=True)
+        self._add_panel_scale(height, "Северная высота", self.north_height_var, 2, 24, 1, integer=True)
+        self._add_panel_scale(height, "Боковая высота", self.side_height_var, 2, 24, 1, integer=True)
+        self._add_panel_scale(height, "Сила фасада", self.face_power_var, 0.4, 2.8, 0.05)
+        self._add_panel_scale(height, "Задний спад", self.back_drop_var, 0.1, 0.8, 0.01)
+        self._add_panel_scale(height, "Скос гребня", self.crown_bevel_var, 0, 12, 1, integer=True)
+        self._add_panel_scale(height, "Плавность контура", self.contour_relax_var, 0.0, 1.0, 0.05)
+        self._add_panel_scale(height, "Ширина обода", self.rim_width_var, 0, 32, 1, integer=True)
+        self._add_panel_scale(height, "Сколы кромки", self.edge_debris_var, 0.0, 1.0, 0.05)
+        self._add_panel_scale(height, "Вариация геометрии", self.geometry_variance_var, 0.0, 1.0, 0.05)
+        self._add_panel_scale(height, "Сила нормалей", self.normal_strength_var, 0.25, 8.0, 0.05)
+        self._add_panel_scale(height, "Деталь нормалей", self.normal_detail_strength_var, 0.0, 4.0, 0.05)
+
+        material = ttk.LabelFrame(parent, text="Материал / albedo", padding=10)
+        material.pack(fill="x", pady=(0, 10))
+        self._add_panel_scale(material, "Зум текстуры", self.texture_scale_var, 0.25, 4.0, 0.05)
+        ttk.Checkbutton(material, text="Запекать высотную тень в альбедо",
                         variable=self.bake_height_shading_var,
                         command=self.schedule_full).pack(fill="x", pady=(2, 0))
-
-        group = ttk.LabelFrame(parent, text="Высоты", padding=10)
-        group.pack(fill="x", pady=(0, 10))
-        self._add_panel_scale(group, "Южная высота", self.south_height_var, 4, 32, 1, integer=True)
-        self._add_panel_scale(group, "Северная высота", self.north_height_var, 2, 24, 1, integer=True)
-        self._add_panel_scale(group, "Боковая высота", self.side_height_var, 2, 24, 1, integer=True)
-
-        group = ttk.LabelFrame(parent, text="Кромка", padding=10)
-        group.pack(fill="x", pady=(0, 10))
-        self._add_panel_scale(group, "Шероховатость", self.roughness_var, 0, 100, 1)
-        self._add_panel_scale(group, "Сила фасада", self.face_power_var, 0.4, 2.8, 0.05)
-        self._add_panel_scale(group, "Задний спад", self.back_drop_var, 0.1, 0.8, 0.01)
-        self._add_panel_scale(group, "Скос гребня", self.crown_bevel_var, 0, 12, 1, integer=True)
-        self._add_panel_scale(group, "Внешний радиус", self.outer_corner_radius_var, 0, 32, 1, integer=True)
-        self._add_panel_scale(group, "Внутренний радиус", self.inner_corner_radius_var, 0, 32, 1, integer=True)
-        self._add_panel_scale(group, "Плавность контура", self.contour_relax_var, 0.0, 1.0, 0.05)
-        self._add_panel_scale(group, "Шум контура px", self.contour_warp_px_var, 0.0, 16.0, 0.25)
-        self._add_panel_scale(group, "Разброс углов", self.corner_variation_var, 0.0, 1.0, 0.05)
-        self._add_panel_scale(group, "Ширина обода", self.rim_width_var, 0, 32, 1, integer=True)
-        self._add_panel_scale(group, "Сколы кромки", self.edge_debris_var, 0.0, 1.0, 0.05)
-        self._add_panel_scale(group, "Вариация геометрии", self.geometry_variance_var, 0.0, 1.0, 0.05)
-        self._add_panel_scale(group, "Суперсемплинг формы", self.shape_supersampling_var, 1, 4, 1, integer=True)
 
     def _build_materials_tab(self, parent: ttk.Frame) -> None:
         toolbar = ttk.Frame(parent, style="Panel.TFrame")
@@ -1573,13 +1572,15 @@ class CliffForgeApp:
             self.crown_bevel_var.set(preset["crown_bevel"])
             self.outer_corner_radius_var.set(preset["outer_corner_radius"])
             self.inner_corner_radius_var.set(preset["inner_corner_radius"])
+            self.corner_round_px_var.set(preset.get("corner_round_px", preset["outer_corner_radius"]))
+            self.diagonal_smooth_px_var.set(preset.get("diagonal_smooth_px", 6))
             self.contour_relax_var.set(preset.get("contour_relax", 0.7))
             self.contour_warp_px_var.set(preset.get("contour_warp_px", 3.0))
             self.corner_variation_var.set(preset.get("corner_variation", 0.35))
             self.rim_width_var.set(preset.get("rim_width", 7))
             self.edge_debris_var.set(preset.get("edge_debris", 0.65))
             self.geometry_variance_var.set(preset.get("geometry_variance", 0.45))
-            self.shape_supersampling_var.set(preset.get("shape_supersampling", 2))
+            self.shape_supersampling_var.set(preset.get("shape_supersampling", 4))
             self.variants_var.set(RUNTIME_VARIANT_COUNT)
             self.texture_scale_var.set(preset["texture_scale"])
             self.normal_strength_var.set(self._normal_strength_for_tile_size(preset["tile_size"]))
@@ -1749,8 +1750,10 @@ class CliffForgeApp:
             "face_power": float(self.face_power_var.get()),
             "back_drop": float(self.back_drop_var.get()),
             "crown_bevel": int(self.crown_bevel_var.get()),
-            "outer_corner_radius": int(self.outer_corner_radius_var.get()),
-            "inner_corner_radius": int(self.inner_corner_radius_var.get()),
+            "outer_corner_radius": int(self.corner_round_px_var.get()),
+            "inner_corner_radius": int(self.corner_round_px_var.get()),
+            "corner_round_px": int(self.corner_round_px_var.get()),
+            "diagonal_smooth_px": int(self.diagonal_smooth_px_var.get()),
             "contour_relax": float(self.contour_relax_var.get()),
             "contour_warp_px": float(self.contour_warp_px_var.get()),
             "corner_variation": float(self.corner_variation_var.get()),
@@ -2196,7 +2199,7 @@ class CliffForgeApp:
             return
         payload = {
             "tool": "Cliff Forge Desktop",
-            "version": 6,
+            "version": 7,
             "mode": "manual",
             "request": self.build_request(),
         }
@@ -2244,6 +2247,11 @@ class CliffForgeApp:
             self.crown_bevel_var.set(int(request.get("crown_bevel", self.crown_bevel_var.get())))
             self.outer_corner_radius_var.set(int(request.get("outer_corner_radius", self.outer_corner_radius_var.get())))
             self.inner_corner_radius_var.set(int(request.get("inner_corner_radius", self.inner_corner_radius_var.get())))
+            self.corner_round_px_var.set(int(request.get(
+                "corner_round_px",
+                request.get("outer_corner_radius", self.corner_round_px_var.get()),
+            )))
+            self.diagonal_smooth_px_var.set(int(request.get("diagonal_smooth_px", self.diagonal_smooth_px_var.get())))
             self.contour_relax_var.set(float(request.get("contour_relax", self.contour_relax_var.get())))
             self.contour_warp_px_var.set(float(request.get("contour_warp_px", self.contour_warp_px_var.get())))
             self.corner_variation_var.set(float(request.get("corner_variation", self.corner_variation_var.get())))

@@ -44,10 +44,13 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
 - continuous map-space texture projection in the live preview
 - texture zoom semantics: values above `1.0` zoom source textures in; values below `1.0` zoom them out
 - true marching-squares terrain geometry: the full shape atlas now uses 16 corner-mask cases (`ms_0..ms_f`) instead of the old 47 center-cell adjacency family
+- Geometry tab controls are grouped by visible output: `Форма / mask`, `Высота / normal`, and `Материал / albedo`
+- active marching-squares smoothing controls: `corner_round_px` rounds current `ms_*` contour masks and `diagonal_smooth_px` softens diagonal marching cases
 - organic terrain geometry controls: `contour_warp_px` adds map-space contour noise, `rim_width` and `edge_debris` break the cliff lip, and `normal_detail_strength` adds height relief for dynamic lighting
+- default terrain presets use gentler `roughness` / `contour_warp_px` values so rounded corners stay readable
 - rim and chip controls: `rim_width` and `edge_debris` add a broken cliff-lip height band for authored ledges without baking drop shadows into albedo
 - dynamic-lighting-ready normals: shape normals use a 3x3 height blur plus Sobel gradients, with `normal_strength` defaulting to `tile_size / 32.0`; `normal_detail_strength` adds extra height relief for more readable dynamic lighting
-- shape supersampling: `shape_supersampling` anti-aliases curved mask/height/normal edges at export time
+- shape supersampling: `shape_supersampling` anti-aliases curved mask/height/normal edges at export time; current quality presets default to `4`
 - optional baked height shading in albedo, disabled by default for dynamic lighting
 - optional color overlay for loaded texture files, disabled by default
 - named export workflow: `asset_name` must be `snake_case` and prefixes every PNG and recipe export
