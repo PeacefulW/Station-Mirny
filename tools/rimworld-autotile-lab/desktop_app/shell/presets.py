@@ -7,27 +7,30 @@ PRESETS = {
     "mountain": {
         "tile_size": 64,
         "south_height": 32,
-        "north_height": 6,
-        "side_height": 10,
-        "roughness": 36.0,
-        "face_power": 1.0,
-        "back_drop": 0.34,
-        "crown_bevel": 2,
-        "outer_corner_radius": 12,
-        "inner_corner_radius": 10,
+        "north_height": 0,
+        "side_height": 0,
+        "roughness": 0.0,
+        "face_power": 2.8,
+        "back_drop": 0.8,
+        "crown_bevel": 12,
+        "outer_corner_radius": 20,
+        "inner_corner_radius": 20,
         "corner_round_px": 16,
-        "diagonal_smooth_px": 6,
-        "contour_relax": 0.7,
-        "contour_warp_px": 1.75,
-        "corner_variation": 0.35,
+        "diagonal_smooth_px": 32,
+        "contour_relax": 1.0,
+        "contour_warp_px": 0.0,
+        "corner_variation": 1.0,
         "rim_width": 7,
         "edge_debris": 0.65,
         "edge_color_strength": 0.35,
-        "geometry_variance": 0.45,
+        "geometry_variance": 1.0,
         "shape_supersampling": 4,
-        "normal_detail_strength": 1.25,
+        "normal_strength": 8.0,
+        "normal_detail_strength": 4.0,
         "variants": 6,
         "texture_scale": 1.0,
+        "bake_height_shading": False,
+        "light_angle_deg": 234.0,
         "textures": {
             "top": "",
             "face": "",
@@ -106,6 +109,31 @@ PRESETS = {
         },
     },
 }
+
+
+DEFAULT_MAP_ROWS = (
+    "000000000011100010000",
+    "011111111111111111110",
+    "011111111111111111110",
+    "111111111111111111111",
+    "011111111111111111111",
+    "111111111111111111111",
+    "011111111111111111111",
+    "011111111111111111110",
+    "000111111111100001110",
+    "001111111111000000000",
+    "011111111111100000110",
+    "001111111111100000000",
+    "011111111111110000000",
+    "000111011111100000000",
+    "000000000010000000000",
+)
+
+
+def make_default_map() -> dict:
+    width = len(DEFAULT_MAP_ROWS[0])
+    cells = [1 if cell == "1" else 0 for row in DEFAULT_MAP_ROWS for cell in row]
+    return {"width": width, "height": len(DEFAULT_MAP_ROWS), "cells": cells}
 
 
 def make_blob_map(width: int = 18, height: int = 12) -> dict:

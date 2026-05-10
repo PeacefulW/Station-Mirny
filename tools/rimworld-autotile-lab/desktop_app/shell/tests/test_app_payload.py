@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import app  # noqa: E402
+import presets  # noqa: E402
 
 
 class FakeVar:
@@ -17,6 +18,14 @@ class FakeVar:
 
     def set(self, value):
         self.value = value
+
+
+class FakeCombo:
+    def __init__(self):
+        self.config = {}
+
+    def configure(self, **kwargs):
+        self.config.update(kwargs)
 
 
 def make_request_builder_stub():
@@ -73,6 +82,101 @@ def make_request_builder_stub():
 
 
 class AppPayloadTests(unittest.TestCase):
+    def test_default_mountain_preset_matches_generator_startup_defaults(self):
+        preset = presets.clone_preset("mountain")
+
+        expected = {
+            "tile_size": 64,
+            "south_height": 32,
+            "north_height": 0,
+            "side_height": 0,
+            "roughness": 0.0,
+            "face_power": 2.8,
+            "back_drop": 0.8,
+            "crown_bevel": 12,
+            "outer_corner_radius": 20,
+            "inner_corner_radius": 20,
+            "corner_round_px": 16,
+            "diagonal_smooth_px": 32,
+            "contour_relax": 1.0,
+            "contour_warp_px": 0.0,
+            "corner_variation": 1.0,
+            "rim_width": 7,
+            "edge_debris": 0.65,
+            "edge_color_strength": 0.35,
+            "geometry_variance": 1.0,
+            "shape_supersampling": 4,
+            "normal_strength": 8.0,
+            "normal_detail_strength": 4.0,
+            "variants": 6,
+            "texture_scale": 1.0,
+            "bake_height_shading": False,
+            "light_angle_deg": 234.0,
+        }
+
+        for key, value in expected.items():
+            self.assertEqual(preset[key], value, key)
+
+    def test_default_map_matches_generator_startup_screenshot(self):
+        self.assertTrue(hasattr(presets, "make_default_map"))
+
+        default_map = presets.make_default_map()
+        rows = [
+            "".join(str(default_map["cells"][y * default_map["width"] + x]) for x in range(default_map["width"]))
+            for y in range(default_map["height"])
+        ]
+
+        self.assertEqual(default_map["width"], 21)
+        self.assertEqual(default_map["height"], 15)
+        self.assertEqual(
+            rows,
+            [
+                "000000000011100010000",
+                "011111111111111111110",
+                "011111111111111111110",
+                "111111111111111111111",
+                "011111111111111111111",
+                "111111111111111111111",
+                "011111111111111111111",
+                "011111111111111111110",
+                "000111111111100001110",
+                "001111111111000000000",
+                "011111111111100000110",
+                "001111111111100000000",
+                "011111111111110000000",
+                "000111011111100000000",
+                "000000000010000000000",
+            ],
+        )
+
+    def test_apply_mountain_preset_uses_startup_defaults_in_ui_variables(self):
+        instance = make_request_builder_stub()
+        instance.suspend_events = False
+        instance.preset_var = FakeVar("")
+        instance.variant_combo = FakeCombo()
+        instance._apply_preset_textures = lambda _preset: None
+
+        instance._apply_preset("mountain", schedule=False)
+
+        self.assertEqual(instance.south_height_var.get(), 32)
+        self.assertEqual(instance.north_height_var.get(), 0)
+        self.assertEqual(instance.side_height_var.get(), 0)
+        self.assertEqual(instance.roughness_var.get(), 0.0)
+        self.assertEqual(instance.face_power_var.get(), 2.8)
+        self.assertEqual(instance.back_drop_var.get(), 0.8)
+        self.assertEqual(instance.crown_bevel_var.get(), 12)
+        self.assertEqual(instance.outer_corner_radius_var.get(), 20)
+        self.assertEqual(instance.inner_corner_radius_var.get(), 20)
+        self.assertEqual(instance.diagonal_smooth_px_var.get(), 32)
+        self.assertEqual(instance.contour_relax_var.get(), 1.0)
+        self.assertEqual(instance.contour_warp_px_var.get(), 0.0)
+        self.assertEqual(instance.corner_variation_var.get(), 1.0)
+        self.assertEqual(instance.geometry_variance_var.get(), 1.0)
+        self.assertEqual(instance.normal_strength_var.get(), 8.0)
+        self.assertEqual(instance.normal_detail_strength_var.get(), 4.0)
+        self.assertEqual(instance.light_angle_var.get(), 234.0)
+        self.assertFalse(instance.bake_height_shading_var.get())
+
     def test_build_request_preserves_separate_corner_radii(self):
         request = make_request_builder_stub().build_request()
 

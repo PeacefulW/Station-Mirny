@@ -15,7 +15,7 @@ from tkinter import colorchooser, filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 
 from core_bridge import DESKTOP_APP_DIR, RenderCancelled, run_core, stop_core_server
-from presets import PRESETS, clone_preset, make_blob_map, make_cave_map, make_room_map
+from presets import PRESETS, clone_preset, make_blob_map, make_cave_map, make_default_map, make_room_map
 
 
 # ─── Paths & limits ──────────────────────────────────────────────────────────
@@ -80,8 +80,8 @@ RECENT_COLORS_LIMIT = 12
 RECENT_RECIPES_LIMIT = 6
 MAP_W_RANGE = (8, 32)
 MAP_H_RANGE = (6, 24)
-MAP_DEFAULT_W = 18
-MAP_DEFAULT_H = 12
+MAP_DEFAULT_W = 21
+MAP_DEFAULT_H = 15
 
 
 def resampling_for_zoom_scale(scale: float) -> Image.Resampling:
@@ -373,7 +373,7 @@ class CliffForgeApp:
         self.last_warnings: list[str] = []
         self.photo_refs: dict[str, ImageTk.PhotoImage] = {}
         self.suspend_events = False
-        self.current_map = make_blob_map(MAP_DEFAULT_W, MAP_DEFAULT_H)
+        self.current_map = make_default_map()
         self.map_history: deque[tuple[dict, dict]] = deque(maxlen=MAP_HISTORY_LIMIT)
         self.map_redo: deque[tuple[dict, dict]] = deque(maxlen=MAP_HISTORY_LIMIT)
         self.texture_paths = {"top": "", "face": "", "base": ""}
@@ -540,28 +540,28 @@ class CliffForgeApp:
         self.preview_mode_var = tk.StringVar(value=PREVIEW_MODE_LABELS["composite"])
         self.seed_var = tk.IntVar(value=240_518)
         self.tile_size_var = tk.IntVar(value=64)
-        self.south_height_var = tk.IntVar(value=18)
-        self.north_height_var = tk.IntVar(value=10)
-        self.side_height_var = tk.IntVar(value=16)
-        self.roughness_var = tk.DoubleVar(value=36.0)
-        self.face_power_var = tk.DoubleVar(value=1.0)
-        self.back_drop_var = tk.DoubleVar(value=0.34)
-        self.crown_bevel_var = tk.IntVar(value=2)
-        self.outer_corner_radius_var = tk.IntVar(value=12)
-        self.inner_corner_radius_var = tk.IntVar(value=10)
+        self.south_height_var = tk.IntVar(value=32)
+        self.north_height_var = tk.IntVar(value=0)
+        self.side_height_var = tk.IntVar(value=0)
+        self.roughness_var = tk.DoubleVar(value=0.0)
+        self.face_power_var = tk.DoubleVar(value=2.8)
+        self.back_drop_var = tk.DoubleVar(value=0.8)
+        self.crown_bevel_var = tk.IntVar(value=12)
+        self.outer_corner_radius_var = tk.IntVar(value=20)
+        self.inner_corner_radius_var = tk.IntVar(value=20)
         self.corner_round_px_var = tk.IntVar(value=16)
-        self.diagonal_smooth_px_var = tk.IntVar(value=6)
-        self.contour_relax_var = tk.DoubleVar(value=0.7)
-        self.contour_warp_px_var = tk.DoubleVar(value=1.75)
-        self.corner_variation_var = tk.DoubleVar(value=0.35)
+        self.diagonal_smooth_px_var = tk.IntVar(value=32)
+        self.contour_relax_var = tk.DoubleVar(value=1.0)
+        self.contour_warp_px_var = tk.DoubleVar(value=0.0)
+        self.corner_variation_var = tk.DoubleVar(value=1.0)
         self.rim_width_var = tk.IntVar(value=7)
         self.edge_debris_var = tk.DoubleVar(value=0.65)
-        self.geometry_variance_var = tk.DoubleVar(value=0.45)
+        self.geometry_variance_var = tk.DoubleVar(value=1.0)
         self.shape_supersampling_var = tk.IntVar(value=4)
         self.variants_var = tk.IntVar(value=RUNTIME_VARIANT_COUNT)
         self.texture_scale_var = tk.DoubleVar(value=1.0)
-        self.normal_strength_var = tk.DoubleVar(value=self._normal_strength_for_tile_size(self.tile_size_var.get()))
-        self.normal_detail_strength_var = tk.DoubleVar(value=1.25)
+        self.normal_strength_var = tk.DoubleVar(value=8.0)
+        self.normal_detail_strength_var = tk.DoubleVar(value=4.0)
         self.bake_height_shading_var = tk.BooleanVar(value=False)
         self.light_angle_var = tk.DoubleVar(value=234.0)
         self.texture_color_overlay_var = tk.BooleanVar(value=False)
@@ -1686,10 +1686,12 @@ class CliffForgeApp:
             self.shape_supersampling_var.set(preset.get("shape_supersampling", 4))
             self.variants_var.set(RUNTIME_VARIANT_COUNT)
             self.texture_scale_var.set(preset["texture_scale"])
-            self.normal_strength_var.set(self._normal_strength_for_tile_size(preset["tile_size"]))
+            self.normal_strength_var.set(
+                preset.get("normal_strength", self._normal_strength_for_tile_size(preset["tile_size"]))
+            )
             self.normal_detail_strength_var.set(preset.get("normal_detail_strength", 1.25))
-            self.bake_height_shading_var.set(False)
-            self.light_angle_var.set(234.0)
+            self.bake_height_shading_var.set(bool(preset.get("bake_height_shading", False)))
+            self.light_angle_var.set(preset.get("light_angle_deg", 234.0))
             self.top_color_var.set(preset["colors"]["top"])
             self.face_color_var.set(preset["colors"]["face"])
             self.edge_color_var.set(preset["colors"].get("edge", preset["colors"]["face"]))
