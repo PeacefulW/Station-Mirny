@@ -2,7 +2,7 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
@@ -747,43 +747,55 @@ fn sobel_gradient_wrapped(values: &[f32], width: u32, height: u32, x: i32, y: i3
 struct MapSdfCacheKey {
     width: u32,
     height: u32,
+    outside_padding: u32,
     cells_hash: u64,
 }
 
-static MAP_SDF_CACHE: OnceLock<Mutex<Option<(MapSdfCacheKey, MapSdf)>>> = OnceLock::new();
+static MAP_SDF_CACHE: OnceLock<Mutex<Option<(MapSdfCacheKey, Arc<MapSdf>)>>> = OnceLock::new();
 
-fn cached_map_sdf(map: &crate::model::MapData) -> MapSdf {
-    let key = map_sdf_cache_key(map);
+fn cached_map_sdf(map: &crate::model::MapData, outside_padding: u32) -> Arc<MapSdf> {
+    let key = map_sdf_cache_key(map, outside_padding);
     let cache = MAP_SDF_CACHE.get_or_init(|| Mutex::new(None));
     let mut cache = cache
         .lock()
         .expect("SDF cache mutex should not be poisoned");
     if let Some((cached_key, sdf)) = cache.as_ref() {
         if *cached_key == key {
-            return sdf.clone();
+            return Arc::clone(sdf);
         }
     }
 
-    let sdf = MapSdf::compute(map);
-    *cache = Some((key, sdf.clone()));
+    let sdf = Arc::new(MapSdf::compute_with_padding(map, outside_padding));
+    *cache = Some((key, Arc::clone(&sdf)));
     sdf
 }
 
-fn map_sdf_cache_key(map: &crate::model::MapData) -> MapSdfCacheKey {
+fn map_sdf_cache_key(map: &crate::model::MapData, outside_padding: u32) -> MapSdfCacheKey {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     map.cells.hash(&mut hasher);
     MapSdfCacheKey {
         width: map.width,
         height: map.height,
+        outside_padding,
         cells_hash: hasher.finish(),
     }
+}
+
+fn map_sdf_padding_for_request(request: &AppRequest) -> u32 {
+    let max_height_px = request
+        .south_height
+        .max(request.north_height)
+        .max(request.side_height)
+        .max(request.rim_width) as f32
+        + request.contour_warp_px.abs().ceil();
+    ((max_height_px / request.tile_size.max(1) as f32).ceil() as u32 + 2).max(8)
 }
 
 fn build_map_preview(request: &AppRequest, textures: &TextureSet) -> Result<RgbaImage> {
     let width = request.map.width * request.tile_size;
     let height = request.map.height * request.tile_size;
     let mut preview = RgbaImage::new(width, height);
-    let sdf = cached_map_sdf(&request.map);
+    let sdf = cached_map_sdf(&request.map, map_sdf_padding_for_request(request));
 
     let tile_size = request.tile_size as usize;
     let preview_width = width as usize;
@@ -798,8 +810,14 @@ fn build_map_preview(request: &AppRequest, textures: &TextureSet) -> Result<Rgba
                 let variant = request.forced_variant.unwrap_or_else(|| {
                     pick_variant(map_x as i32, map_y as i32, request.seed, request.variants)
                 });
-                let tile =
-                    render_tile_with_sdf(request, textures, &sdf, variant, origin_x, origin_y);
+                let tile = render_tile_with_sdf(
+                    request,
+                    textures,
+                    sdf.as_ref(),
+                    variant,
+                    origin_x,
+                    origin_y,
+                );
                 let img = extract_mode_image(tile, request);
                 blit_exact_band(band, preview_width, tile_size, map_x * tile_size, &img);
             }
@@ -879,11 +897,32 @@ fn render_tile_with_field(
         .wrapping_add(variant.wrapping_mul(4_091))
         .wrapping_add(17_371);
 
+    let global_distance_cache = if let SurfaceField::GlobalSdf(sdf) = field {
+        Some(GlobalSdfDistanceCache::new(
+            request,
+            sdf,
+            geometry_seed,
+            origin_x,
+            origin_y,
+            size,
+        ))
+    } else {
+        None
+    };
+
     for y in 0..size {
         for x in 0..size {
             let index = (y * size + x) as usize;
-            let sample =
-                sample_surface_for_field(request, field, geometry_seed, x, y, origin_x, origin_y);
+            let sample = sample_surface_for_field(
+                request,
+                field,
+                global_distance_cache.as_ref(),
+                geometry_seed,
+                x,
+                y,
+                origin_x,
+                origin_y,
+            );
             heights[index] = sample.height;
             zones[index] = sample.zone;
             occupancies[index] = sample.occupancy;
@@ -903,6 +942,7 @@ fn render_tile_with_field(
         apply_crown_bevel(
             request,
             field,
+            global_distance_cache.as_ref(),
             geometry_seed,
             origin_x,
             origin_y,
@@ -912,6 +952,7 @@ fn render_tile_with_field(
         apply_organic_height_relief(
             request,
             field,
+            global_distance_cache.as_ref(),
             geometry_seed,
             origin_x,
             origin_y,
@@ -934,9 +975,12 @@ fn render_tile_with_field(
         && let SurfaceField::GlobalSdf(sdf) = field
     {
         Some(GlobalRenderHeightCache::new(
-            request,
-            sdf,
-            geometry_seed,
+            GlobalSdfSampler {
+                request,
+                sdf,
+                seed: geometry_seed,
+                distance_cache: global_distance_cache.as_ref(),
+            },
             origin_x,
             origin_y,
             size,
@@ -968,8 +1012,15 @@ fn render_tile_with_field(
             let sample_y = origin_y + y;
             let world_x = sample_x as f32;
             let world_y = sample_y as f32;
-            let (facade_x, facade_y) =
-                material_coords_for_zone(request, field, geometry_seed, zone, world_x, world_y);
+            let (facade_x, facade_y) = material_coords_for_zone(
+                request,
+                field,
+                global_distance_cache.as_ref(),
+                geometry_seed,
+                zone,
+                world_x,
+                world_y,
+            );
             let sample_seed = material_seed;
 
             let base = match zone {
@@ -989,6 +1040,7 @@ fn render_tile_with_field(
                     let edge_distance = exposed_edge_distance(
                         request,
                         field,
+                        global_distance_cache.as_ref(),
                         geometry_seed,
                         x as f32,
                         y as f32,
@@ -1088,6 +1140,7 @@ fn render_tile_with_field(
                 let (wall_x, wall_y) = material_coords_for_zone(
                     request,
                     field,
+                    global_distance_cache.as_ref(),
                     geometry_seed,
                     SurfaceZone::Face,
                     world_x,
@@ -1334,6 +1387,7 @@ fn geometry_seed_for_variant(request: &AppRequest, variant: u32) -> u32 {
 fn sample_surface_for_field(
     request: &AppRequest,
     field: SurfaceField<'_>,
+    global_distance_cache: Option<&GlobalSdfDistanceCache>,
     seed: u32,
     x: u32,
     y: u32,
@@ -1344,9 +1398,18 @@ fn sample_surface_for_field(
         SurfaceField::Local(signature) => {
             sample_surface_pixel(request, signature, seed, x, y, origin_x, origin_y)
         }
-        SurfaceField::GlobalSdf(sdf) => {
-            sample_global_surface_pixel(request, sdf, seed, x, y, origin_x, origin_y)
-        }
+        SurfaceField::GlobalSdf(sdf) => sample_global_surface_pixel(
+            GlobalSdfSampler {
+                request,
+                sdf,
+                seed,
+                distance_cache: global_distance_cache,
+            },
+            x,
+            y,
+            origin_x,
+            origin_y,
+        ),
     }
 }
 
@@ -1456,20 +1519,53 @@ fn sample_surface_pixel(
     }
 }
 
-fn sample_global_surface_pixel(
-    request: &AppRequest,
-    sdf: &MapSdf,
+#[derive(Clone, Copy)]
+struct GlobalSdfSampler<'a> {
+    request: &'a AppRequest,
+    sdf: &'a MapSdf,
     seed: u32,
+    distance_cache: Option<&'a GlobalSdfDistanceCache>,
+}
+
+impl<'a> GlobalSdfSampler<'a> {
+    #[cfg(test)]
+    fn uncached(request: &'a AppRequest, sdf: &'a MapSdf, seed: u32) -> Self {
+        Self {
+            request,
+            sdf,
+            seed,
+            distance_cache: None,
+        }
+    }
+
+    fn distance_px(self, world_x: f32, world_y: f32) -> f32 {
+        self.distance_cache.map_or_else(
+            || controlled_sdf_distance_px(self.request, self.sdf, self.seed, world_x, world_y),
+            |cache| cache.sample(world_x, world_y),
+        )
+    }
+
+    fn gradient(self, world_x: f32, world_y: f32) -> (f32, f32) {
+        self.distance_cache.map_or_else(
+            || controlled_sdf_gradient(self.request, self.sdf, self.seed, world_x, world_y),
+            |cache| cache.gradient(world_x, world_y),
+        )
+    }
+}
+
+fn sample_global_surface_pixel(
+    sampler: GlobalSdfSampler<'_>,
     x: u32,
     y: u32,
     origin_x: u32,
     origin_y: u32,
 ) -> SurfaceSample {
+    let request = sampler.request;
     let samples = request.shape_supersampling.max(1);
     if samples <= 1 {
         let world_x = origin_x as f32 + x as f32;
         let world_y = origin_y as f32 + y as f32;
-        let (height, zone) = sample_global_height(request, sdf, seed, world_x, world_y);
+        let (height, zone) = sample_global_height_with_sampler(sampler, world_x, world_y);
         let occupancy = if zone == SurfaceZone::Empty { 0.0 } else { 1.0 };
         return surface_sample(height, zone, occupancy);
     }
@@ -1490,7 +1586,7 @@ fn sample_global_surface_pixel(
             let sample_y = y as f32 + offset_y;
             let world_x = origin_x as f32 + sample_x;
             let world_y = origin_y as f32 + sample_y;
-            let (height, zone) = sample_global_height(request, sdf, seed, world_x, world_y);
+            let (height, zone) = sample_global_height_with_sampler(sampler, world_x, world_y);
             zone_counts[zone_index(zone)] += 1;
             if zone != SurfaceZone::Empty {
                 height_sum += height;
@@ -1523,6 +1619,7 @@ fn sample_global_surface_pixel(
     }
 }
 
+#[cfg(test)]
 fn sample_global_height(
     request: &AppRequest,
     sdf: &MapSdf,
@@ -1530,19 +1627,25 @@ fn sample_global_height(
     world_x: f32,
     world_y: f32,
 ) -> (f32, SurfaceZone) {
-    let signed_distance_px = controlled_sdf_distance_px(request, sdf, seed, world_x, world_y);
+    sample_global_height_with_sampler(
+        GlobalSdfSampler::uncached(request, sdf, seed),
+        world_x,
+        world_y,
+    )
+}
+
+fn sample_global_height_with_sampler(
+    sampler: GlobalSdfSampler<'_>,
+    world_x: f32,
+    world_y: f32,
+) -> (f32, SurfaceZone) {
+    let request = sampler.request;
+    let signed_distance_px = sampler.distance_px(world_x, world_y);
     if front_only_projection_active(request) {
-        return sample_front_only_projected_height(
-            request,
-            sdf,
-            seed,
-            world_x,
-            world_y,
-            signed_distance_px,
-        );
+        return sample_front_only_projected_height(sampler, world_x, world_y, signed_distance_px);
     }
 
-    let (gx, gy) = controlled_sdf_gradient(request, sdf, seed, world_x, world_y);
+    let (gx, gy) = sampler.gradient(world_x, world_y);
     let (zone, depth) = marching_zone_and_depth(request, gx, gy);
 
     if signed_distance_px < 0.0 {
@@ -1572,13 +1675,12 @@ fn front_only_projection_active(request: &AppRequest) -> bool {
 }
 
 fn sample_front_only_projected_height(
-    request: &AppRequest,
-    sdf: &MapSdf,
-    seed: u32,
+    sampler: GlobalSdfSampler<'_>,
     world_x: f32,
     world_y: f32,
     signed_distance_px: f32,
 ) -> (f32, SurfaceZone) {
+    let request = sampler.request;
     if signed_distance_px >= 0.0 {
         let edge_width = preview_edge_width_px(request);
         if edge_width > 0.0 && signed_distance_px <= edge_width {
@@ -1588,8 +1690,7 @@ fn sample_front_only_projected_height(
         return (1.0, SurfaceZone::Top);
     }
 
-    let Some(progress) = front_only_projected_facade_progress(request, sdf, seed, world_x, world_y)
-    else {
+    let Some(progress) = front_only_projected_facade_progress(sampler, world_x, world_y) else {
         return (0.0, SurfaceZone::Empty);
     };
     (
@@ -1599,18 +1700,15 @@ fn sample_front_only_projected_height(
 }
 
 fn front_only_projected_facade_progress(
-    request: &AppRequest,
-    sdf: &MapSdf,
-    seed: u32,
+    sampler: GlobalSdfSampler<'_>,
     world_x: f32,
     world_y: f32,
 ) -> Option<f32> {
+    let request = sampler.request;
     let mut best_progress = None;
 
     if let Some(depth) = projected_axis_depth(
-        request,
-        sdf,
-        seed,
+        sampler,
         world_x,
         world_y,
         0.0,
@@ -1624,9 +1722,7 @@ fn front_only_projected_facade_progress(
 }
 
 fn projected_axis_depth(
-    request: &AppRequest,
-    sdf: &MapSdf,
-    seed: u32,
+    sampler: GlobalSdfSampler<'_>,
     world_x: f32,
     world_y: f32,
     direction_x: f32,
@@ -1639,7 +1735,7 @@ fn projected_axis_depth(
 
     let inside_x = world_x + direction_x * max_depth;
     let inside_y = world_y + direction_y * max_depth;
-    if controlled_sdf_distance_px(request, sdf, seed, inside_x, inside_y) < 0.0 {
+    if sampler.distance_px(inside_x, inside_y) < 0.0 {
         return None;
     }
 
@@ -1649,7 +1745,7 @@ fn projected_axis_depth(
         let mid = (outside + inside) * 0.5;
         let sample_x = world_x + direction_x * mid;
         let sample_y = world_y + direction_y * mid;
-        if controlled_sdf_distance_px(request, sdf, seed, sample_x, sample_y) >= 0.0 {
+        if sampler.distance_px(sample_x, sample_y) >= 0.0 {
             inside = mid;
         } else {
             outside = mid;
@@ -1658,6 +1754,7 @@ fn projected_axis_depth(
     Some(inside)
 }
 
+#[cfg(test)]
 fn sample_global_render_height(
     request: &AppRequest,
     sdf: &MapSdf,
@@ -1665,12 +1762,25 @@ fn sample_global_render_height(
     world_x: f32,
     world_y: f32,
 ) -> f32 {
-    let (mut height, zone) = sample_global_height(request, sdf, seed, world_x, world_y);
+    sample_global_render_height_with_sampler(
+        GlobalSdfSampler::uncached(request, sdf, seed),
+        world_x,
+        world_y,
+    )
+}
+
+fn sample_global_render_height_with_sampler(
+    sampler: GlobalSdfSampler<'_>,
+    world_x: f32,
+    world_y: f32,
+) -> f32 {
+    let request = sampler.request;
+    let (mut height, zone) = sample_global_height_with_sampler(sampler, world_x, world_y);
     if zone == SurfaceZone::Empty {
         return 0.0;
     }
 
-    let contour = global_contour_distance(request, sdf, seed, world_x, world_y);
+    let contour = global_contour_distance_with_sampler(sampler, world_x, world_y);
     let bevel = request.crown_bevel as f32;
     if bevel > 0.0 && zone == SurfaceZone::Top {
         let nearest = contour.signed_distance;
@@ -1685,7 +1795,7 @@ fn sample_global_render_height(
             + organic_height_delta(
                 request,
                 zone,
-                seed,
+                sampler.seed,
                 world_x,
                 world_y,
                 Some(contour.signed_distance.abs()),
@@ -1720,6 +1830,100 @@ fn sample_blurred_global_render_height(
     total / 9.0
 }
 
+struct GlobalSdfDistanceCache {
+    origin_x: i32,
+    origin_y: i32,
+    width: u32,
+    height: u32,
+    values: Vec<f32>,
+}
+
+impl GlobalSdfDistanceCache {
+    fn new(
+        request: &AppRequest,
+        sdf: &MapSdf,
+        seed: u32,
+        tile_origin_x: u32,
+        tile_origin_y: u32,
+        tile_size: u32,
+    ) -> Self {
+        let padding = global_sdf_distance_cache_padding_px(request);
+        let width = tile_size + padding as u32 * 2 + 2;
+        let height = width;
+        let origin_x = tile_origin_x as i32 - padding;
+        let origin_y = tile_origin_y as i32 - padding;
+        let mut values = vec![0.0_f32; (width * height) as usize];
+        values
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(index, value)| {
+                let x = (index as u32) % width;
+                let y = (index as u32) / width;
+                *value = controlled_sdf_distance_px(
+                    request,
+                    sdf,
+                    seed,
+                    (origin_x + x as i32) as f32,
+                    (origin_y + y as i32) as f32,
+                );
+            });
+        Self {
+            origin_x,
+            origin_y,
+            width,
+            height,
+            values,
+        }
+    }
+
+    fn sample(&self, world_x: f32, world_y: f32) -> f32 {
+        let x = world_x - self.origin_x as f32;
+        let y = world_y - self.origin_y as f32;
+        let x0 = x.floor();
+        let y0 = y.floor();
+        let tx = x - x0;
+        let ty = y - y0;
+        let x0 = x0 as i32;
+        let y0 = y0 as i32;
+        let nw = self.value_at(x0, y0);
+        let ne = self.value_at(x0 + 1, y0);
+        let sw = self.value_at(x0, y0 + 1);
+        let se = self.value_at(x0 + 1, y0 + 1);
+        lerp(lerp(nw, ne, tx), lerp(sw, se, tx), ty)
+    }
+
+    fn gradient(&self, world_x: f32, world_y: f32) -> (f32, f32) {
+        let step = 1.0_f32;
+        let dx = (self.sample(world_x + step, world_y) - self.sample(world_x - step, world_y))
+            / (step * 2.0);
+        let dy = (self.sample(world_x, world_y + step) - self.sample(world_x, world_y - step))
+            / (step * 2.0);
+        (dx, dy)
+    }
+
+    fn value_at(&self, x: i32, y: i32) -> f32 {
+        let x = x.clamp(0, self.width as i32 - 1) as u32;
+        let y = y.clamp(0, self.height as i32 - 1) as u32;
+        self.values[(y * self.width + x) as usize]
+    }
+}
+
+fn global_sdf_distance_cache_padding_px(request: &AppRequest) -> i32 {
+    let max_projection = request
+        .south_height
+        .max(request.north_height)
+        .max(request.side_height)
+        .max(request.crown_bevel)
+        .max(request.rim_width)
+        .max(request.outer_corner_radius)
+        .max(request.inner_corner_radius)
+        .max(request.corner_round_px)
+        .max(request.diagonal_smooth_px) as f32
+        + request.contour_warp_px.abs().ceil()
+        + 4.0;
+    max_projection.ceil().max(4.0) as i32
+}
+
 struct GlobalRenderHeightCache {
     origin_x: i32,
     origin_y: i32,
@@ -1730,9 +1934,7 @@ struct GlobalRenderHeightCache {
 
 impl GlobalRenderHeightCache {
     fn new(
-        request: &AppRequest,
-        sdf: &MapSdf,
-        seed: u32,
+        sampler: GlobalSdfSampler<'_>,
         tile_origin_x: u32,
         tile_origin_y: u32,
         tile_size: u32,
@@ -1749,10 +1951,8 @@ impl GlobalRenderHeightCache {
             .for_each(|(index, value)| {
                 let x = (index as u32) % width;
                 let y = (index as u32) / width;
-                *value = sample_global_render_height(
-                    request,
-                    sdf,
-                    seed,
+                *value = sample_global_render_height_with_sampler(
+                    sampler,
                     (origin_x + x as i32) as f32,
                     (origin_y + y as i32) as f32,
                 );
@@ -1864,7 +2064,7 @@ fn controlled_sdf_gradient(
 ) -> (f32, f32) {
     if !sdf_shape_controls_active(request) {
         let tile_size = request.tile_size.max(1) as f32;
-        return sdf.gradient(world_x / tile_size, world_y / tile_size);
+        return sdf.gradient_with_step(world_x / tile_size, world_y / tile_size, 1.0 / tile_size);
     }
 
     let step = 1.0_f32;
@@ -2689,6 +2889,7 @@ fn edge_noise_period(request: &AppRequest) -> f32 {
 fn apply_crown_bevel(
     request: &AppRequest,
     field: SurfaceField<'_>,
+    global_distance_cache: Option<&GlobalSdfDistanceCache>,
     seed: u32,
     origin_x: u32,
     origin_y: u32,
@@ -2713,9 +2914,16 @@ fn apply_crown_bevel(
             let yf = y as f32;
             let world_x = origin_x as f32 + xf;
             let world_y = origin_y as f32 + yf;
-            if let Some(contour) =
-                contour_distance_for_field(request, field, seed, xf, yf, world_x, world_y)
-            {
+            if let Some(contour) = contour_distance_for_field(
+                request,
+                field,
+                global_distance_cache,
+                seed,
+                xf,
+                yf,
+                world_x,
+                world_y,
+            ) {
                 let nearest = contour.signed_distance;
                 if nearest < 0.0 || nearest >= bevel {
                     continue;
@@ -2730,6 +2938,7 @@ fn apply_crown_bevel(
 fn apply_organic_height_relief(
     request: &AppRequest,
     field: SurfaceField<'_>,
+    global_distance_cache: Option<&GlobalSdfDistanceCache>,
     seed: u32,
     origin_x: u32,
     origin_y: u32,
@@ -2754,7 +2963,16 @@ fn apply_organic_height_relief(
             let world_x = origin_x as f32 + x as f32;
             let world_y = origin_y as f32 + y as f32;
             let edge_distance = if request.rim_width > 0 || request.edge_debris > 0.0 {
-                exposed_edge_distance(request, field, seed, x as f32, y as f32, world_x, world_y)
+                exposed_edge_distance(
+                    request,
+                    field,
+                    global_distance_cache,
+                    seed,
+                    x as f32,
+                    y as f32,
+                    world_x,
+                    world_y,
+                )
             } else {
                 None
             };
@@ -2832,19 +3050,30 @@ fn organic_height_delta(
 fn exposed_edge_distance(
     request: &AppRequest,
     field: SurfaceField<'_>,
+    global_distance_cache: Option<&GlobalSdfDistanceCache>,
     seed: u32,
     x: f32,
     y: f32,
     world_x: f32,
     world_y: f32,
 ) -> Option<f32> {
-    contour_distance_for_field(request, field, seed, x, y, world_x, world_y)
-        .map(|contour| contour.signed_distance.abs())
+    contour_distance_for_field(
+        request,
+        field,
+        global_distance_cache,
+        seed,
+        x,
+        y,
+        world_x,
+        world_y,
+    )
+    .map(|contour| contour.signed_distance.abs())
 }
 
 fn contour_distance_for_field(
     request: &AppRequest,
     field: SurfaceField<'_>,
+    global_distance_cache: Option<&GlobalSdfDistanceCache>,
     seed: u32,
     x: f32,
     y: f32,
@@ -2855,21 +3084,27 @@ fn contour_distance_for_field(
         SurfaceField::Local(signature) => {
             outer_contour_distance(request, signature, seed, x, y, world_x, world_y)
         }
-        SurfaceField::GlobalSdf(sdf) => Some(global_contour_distance(
-            request, sdf, seed, world_x, world_y,
+        SurfaceField::GlobalSdf(sdf) => Some(global_contour_distance_with_sampler(
+            GlobalSdfSampler {
+                request,
+                sdf,
+                seed,
+                distance_cache: global_distance_cache,
+            },
+            world_x,
+            world_y,
         )),
     }
 }
 
-fn global_contour_distance(
-    request: &AppRequest,
-    sdf: &MapSdf,
-    seed: u32,
+fn global_contour_distance_with_sampler(
+    sampler: GlobalSdfSampler<'_>,
     world_x: f32,
     world_y: f32,
 ) -> ContourDistance {
-    let signed_distance = controlled_sdf_distance_px(request, sdf, seed, world_x, world_y);
-    let (gx, gy) = controlled_sdf_gradient(request, sdf, seed, world_x, world_y);
+    let signed_distance = sampler.distance_px(world_x, world_y);
+    let (gx, gy) = sampler.gradient(world_x, world_y);
+    let request = sampler.request;
     let (zone, depth) = marching_zone_and_depth(request, gx, gy);
 
     ContourDistance {
@@ -2884,6 +3119,7 @@ fn global_contour_distance(
 fn material_coords_for_zone(
     request: &AppRequest,
     field: SurfaceField<'_>,
+    global_distance_cache: Option<&GlobalSdfDistanceCache>,
     seed: u32,
     zone: SurfaceZone,
     world_x: f32,
@@ -2898,7 +3134,13 @@ fn material_coords_for_zone(
 
     match field {
         SurfaceField::GlobalSdf(sdf) => {
-            let contour = global_contour_distance(request, sdf, seed, world_x, world_y);
+            let sampler = GlobalSdfSampler {
+                request,
+                sdf,
+                seed,
+                distance_cache: global_distance_cache,
+            };
+            let contour = global_contour_distance_with_sampler(sampler, world_x, world_y);
             let (gx, gy) = (contour.gradient_x, contour.gradient_y);
             let len = (gx * gx + gy * gy).sqrt();
             if len <= 0.0001 {
@@ -2909,13 +3151,9 @@ fn material_coords_for_zone(
             let ny = gy / len;
             let tangent_x = -ny;
             let tangent_y = nx;
-            let cell_x = (world_x / request.tile_size as f32).floor() as i32;
-            let cell_y = (world_y / request.tile_size as f32).floor() as i32;
-            let cell_offset = (hash2d(cell_x, cell_y, seed.wrapping_add(44_211)) - 0.5)
-                * request.tile_size as f32;
-            let along = (world_x * tangent_x + world_y * tangent_y + cell_offset).abs();
+            let along = (world_x * tangent_x + world_y * tangent_y).abs();
             let depth = if zone == SurfaceZone::Face && front_only_projection_active(request) {
-                front_only_projected_facade_progress(request, sdf, seed, world_x, world_y)
+                front_only_projected_facade_progress(sampler, world_x, world_y)
                     .map(|progress| progress * request.south_height as f32)
                     .unwrap_or_else(|| contour.signed_distance.abs())
             } else {
@@ -3298,6 +3536,23 @@ mod tests {
     }
 
     #[test]
+    fn cached_map_sdf_returns_shared_arc_on_cache_hit() {
+        let map = MapData {
+            width: 2,
+            height: 2,
+            cells: vec![1, 0, 0, 1],
+        };
+
+        let first = cached_map_sdf(&map, 8);
+        let second = cached_map_sdf(&map, 8);
+
+        assert!(
+            std::sync::Arc::ptr_eq(&first, &second),
+            "cache hits should share the same SDF allocation instead of cloning the value table"
+        );
+    }
+
+    #[test]
     fn mask_preview_empty_cells_are_transparent() {
         let mut request = flat_preview_request();
         request.preview_mode = "mask".to_string();
@@ -3639,6 +3894,36 @@ mod tests {
             sdf_shape_controls_active(&request),
             "inner_corner_radius changes the SDF contour, so facade gradients must use the controlled SDF"
         );
+    }
+
+    #[test]
+    fn controlled_sdf_distance_cache_matches_direct_samples_and_gradients() {
+        let (mut request, sdf, _signature) = single_cell_sdf_request();
+        request.corner_round_px = 24;
+        request.outer_corner_radius = 24;
+        request.contour_warp_px = 2.0;
+        request.roughness = 20.0;
+        let request = request.sanitized();
+        let cache =
+            GlobalSdfDistanceCache::new(&request, &sdf, request.seed, 64, 64, request.tile_size);
+        let samples = [(80.0, 80.0), (96.25, 96.75), (127.0, 96.0)];
+
+        for (world_x, world_y) in samples {
+            let direct = controlled_sdf_distance_px(&request, &sdf, request.seed, world_x, world_y);
+            let cached = cache.sample(world_x, world_y);
+            assert!(
+                (cached - direct).abs() < 0.25,
+                "cached distance should stay close to direct SDF: ({world_x},{world_y}) direct={direct}, cached={cached}"
+            );
+
+            let (direct_x, direct_y) =
+                controlled_sdf_gradient(&request, &sdf, request.seed, world_x, world_y);
+            let (cached_x, cached_y) = cache.gradient(world_x, world_y);
+            assert!(
+                (cached_x - direct_x).abs() < 0.15 && (cached_y - direct_y).abs() < 0.15,
+                "cached gradient should stay close to direct central differences: ({world_x},{world_y}) direct=({direct_x},{direct_y}), cached=({cached_x},{cached_y})"
+            );
+        }
     }
 
     #[test]
@@ -4161,6 +4446,7 @@ mod tests {
         let (west_along, _west_depth) = material_coords_for_zone(
             &request,
             SurfaceField::GlobalSdf(&sdf),
+            None,
             request.seed,
             SurfaceZone::Face,
             63.0,
@@ -4169,6 +4455,7 @@ mod tests {
         let (east_along, _east_depth) = material_coords_for_zone(
             &request,
             SurfaceField::GlobalSdf(&sdf),
+            None,
             request.seed,
             SurfaceZone::Face,
             129.0,
@@ -4178,6 +4465,41 @@ mod tests {
         assert!(
             west_along.signum() == east_along.signum(),
             "facade material projection should not mirror across opposite SDF contours: west={west_along}, east={east_along}"
+        );
+    }
+
+    #[test]
+    fn sdf_facade_material_coordinates_are_continuous_across_cell_boundaries() {
+        let mut request = flat_preview_request();
+        request.map = MapData {
+            width: 4,
+            height: 2,
+            cells: vec![1, 1, 1, 1, 0, 0, 0, 0],
+        };
+        let request = request.sanitized();
+        let sdf = MapSdf::compute(&request.map);
+        let (left_along, _left_depth) = material_coords_for_zone(
+            &request,
+            SurfaceField::GlobalSdf(&sdf),
+            None,
+            request.seed,
+            SurfaceZone::Face,
+            127.5,
+            80.0,
+        );
+        let (right_along, _right_depth) = material_coords_for_zone(
+            &request,
+            SurfaceField::GlobalSdf(&sdf),
+            None,
+            request.seed,
+            SurfaceZone::Face,
+            128.5,
+            80.0,
+        );
+
+        assert!(
+            (right_along - left_along).abs() < 3.0,
+            "facade material coordinates should not jump at cell boundaries: left={left_along}, right={right_along}"
         );
     }
 

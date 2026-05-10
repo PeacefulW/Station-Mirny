@@ -14,7 +14,12 @@ pub struct MapSdf {
 }
 
 impl MapSdf {
+    #[cfg(test)]
     pub fn compute(map: &MapData) -> Self {
+        Self::compute_with_padding(map, 8)
+    }
+
+    pub fn compute_with_padding(map: &MapData, outside_padding: u32) -> Self {
         let width = map.width;
         let height = map.height;
         let expected = (width * height) as usize;
@@ -73,7 +78,7 @@ impl MapSdf {
             }
         }
 
-        let outside_padding = 8;
+        let outside_padding = outside_padding;
         let outside_width = width + outside_padding * 2;
         let outside_height = height + outside_padding * 2;
         let outside_distance_sq =
@@ -134,8 +139,13 @@ impl MapSdf {
         lerp(north, south, ty)
     }
 
-    pub fn gradient(&self, cell_x: f32, cell_y: f32) -> (f32, f32) {
-        let step = 0.5_f32;
+    #[cfg(test)]
+    fn gradient(&self, cell_x: f32, cell_y: f32) -> (f32, f32) {
+        self.gradient_with_step(cell_x, cell_y, 0.5)
+    }
+
+    pub fn gradient_with_step(&self, cell_x: f32, cell_y: f32, step: f32) -> (f32, f32) {
+        let step = step.max(0.0001);
         let dx = (self.sample(cell_x + step, cell_y) - self.sample(cell_x - step, cell_y))
             / (step * 2.0);
         let dy = (self.sample(cell_x, cell_y + step) - self.sample(cell_x, cell_y - step))
@@ -368,6 +378,49 @@ mod tests {
         assert!(
             gy.abs() < 0.01,
             "horizontal edge should not invent vertical normal"
+        );
+    }
+
+    #[test]
+    fn gradient_with_pixel_sized_step_tracks_local_direction() {
+        let map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+
+        let sdf = MapSdf::compute(&map);
+        let tile_size = 128.0_f32;
+        let (coarse_x, coarse_y) = sdf.gradient(0.95, 0.95);
+        let (fine_x, fine_y) = sdf.gradient_with_step(0.95, 0.95, 1.0 / tile_size);
+
+        assert!(
+            fine_x.abs() > coarse_x.abs() * 5.0,
+            "pixel-sized gradient should preserve local contour direction: coarse={coarse_x}, fine={fine_x}"
+        );
+        assert!(
+            fine_y.abs() > coarse_y.abs() * 5.0,
+            "pixel-sized gradient should preserve local contour direction: coarse={coarse_y}, fine={fine_y}"
+        );
+    }
+
+    #[test]
+    fn compute_with_padding_covers_configured_wall_depth() {
+        let map = MapData {
+            width: 1,
+            height: 1,
+            cells: vec![1],
+        };
+
+        let sdf = MapSdf::compute_with_padding(&map, 18);
+
+        assert!(
+            sdf.sample(0.0, -17.0) < 0.0,
+            "expanded outside SDF should cover samples used by tall north/south projection"
+        );
+        assert!(
+            sdf.outside_padding >= 18,
+            "outside padding should be stored at the requested depth"
         );
     }
 
