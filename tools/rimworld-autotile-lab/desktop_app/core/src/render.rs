@@ -31,6 +31,15 @@ enum SurfaceZone {
     Empty,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ProjectedFacade {
+    zone: SurfaceZone,
+    depth: f32,
+    max_depth: f32,
+    tangent_x: f32,
+    tangent_y: f32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MaterialKind {
     Top,
@@ -1645,10 +1654,18 @@ fn sample_global_height_with_sampler(
         return sample_front_only_projected_height(sampler, world_x, world_y, signed_distance_px);
     }
 
-    let (gx, gy) = sampler.gradient(world_x, world_y);
-    let (zone, depth) = marching_zone_and_depth(request, gx, gy);
-
     if signed_distance_px < 0.0 {
+        if let Some(projected) = projected_sdf_facade(sampler, world_x, world_y) {
+            let progress = (projected.depth / projected.max_depth.max(1.0)).clamp(0.0, 1.0);
+            let height = match projected.zone {
+                SurfaceZone::Back => back_height_for_progress(request, progress),
+                _ => face_height_for_progress(request, progress),
+            };
+            return (clamp(height, 0.0, 1.0), projected.zone);
+        }
+
+        let (gx, gy) = sampler.gradient(world_x, world_y);
+        let (zone, depth) = marching_zone_and_depth(request, gx, gy);
         let outside_distance = -signed_distance_px;
         if outside_distance > depth {
             return (0.0, SurfaceZone::Empty);
@@ -1721,6 +1738,101 @@ fn front_only_projected_facade_progress(
     best_progress
 }
 
+fn projected_sdf_facade(
+    sampler: GlobalSdfSampler<'_>,
+    world_x: f32,
+    world_y: f32,
+) -> Option<ProjectedFacade> {
+    let request = sampler.request;
+    let mut best = None;
+
+    add_projected_facade_candidate(
+        &mut best,
+        sampler,
+        world_x,
+        world_y,
+        0.0,
+        -1.0,
+        request.south_height as f32,
+        SurfaceZone::Face,
+    );
+
+    if request.side_height > 0 {
+        add_projected_facade_candidate(
+            &mut best,
+            sampler,
+            world_x,
+            world_y,
+            1.0,
+            0.0,
+            request.side_height as f32,
+            SurfaceZone::Face,
+        );
+        add_projected_facade_candidate(
+            &mut best,
+            sampler,
+            world_x,
+            world_y,
+            -1.0,
+            0.0,
+            request.side_height as f32,
+            SurfaceZone::Face,
+        );
+    }
+
+    if request.north_height > 0 {
+        add_projected_facade_candidate(
+            &mut best,
+            sampler,
+            world_x,
+            world_y,
+            0.0,
+            1.0,
+            request.north_height as f32,
+            SurfaceZone::Back,
+        );
+    }
+
+    best
+}
+
+fn add_projected_facade_candidate(
+    best: &mut Option<ProjectedFacade>,
+    sampler: GlobalSdfSampler<'_>,
+    world_x: f32,
+    world_y: f32,
+    direction_x: f32,
+    direction_y: f32,
+    max_depth: f32,
+    zone: SurfaceZone,
+) {
+    let Some(depth) = projected_axis_depth(
+        sampler,
+        world_x,
+        world_y,
+        direction_x,
+        direction_y,
+        max_depth,
+    ) else {
+        return;
+    };
+    let candidate = ProjectedFacade {
+        zone,
+        depth,
+        max_depth,
+        tangent_x: -direction_y,
+        tangent_y: direction_x,
+    };
+    let candidate_progress = depth / max_depth.max(1.0);
+    let replace = best
+        .as_ref()
+        .map(|current| candidate_progress < current.depth / current.max_depth.max(1.0))
+        .unwrap_or(true);
+    if replace {
+        *best = Some(candidate);
+    }
+}
+
 fn projected_axis_depth(
     sampler: GlobalSdfSampler<'_>,
     world_x: f32,
@@ -1733,14 +1845,21 @@ fn projected_axis_depth(
         return None;
     }
 
-    let inside_x = world_x + direction_x * max_depth;
-    let inside_y = world_y + direction_y * max_depth;
-    if sampler.distance_px(inside_x, inside_y) < 0.0 {
-        return None;
+    let steps = max_depth.ceil().max(1.0) as u32;
+    let mut outside = 0.0_f32;
+    let mut inside = None;
+    for step in 1..=steps {
+        let depth = (step as f32).min(max_depth);
+        let sample_x = world_x + direction_x * depth;
+        let sample_y = world_y + direction_y * depth;
+        if sampler.distance_px(sample_x, sample_y) >= 0.0 {
+            inside = Some(depth);
+            break;
+        }
+        outside = depth;
     }
 
-    let mut outside = 0.0_f32;
-    let mut inside = max_depth;
+    let mut inside = inside?;
     for _ in 0..7 {
         let mid = (outside + inside) * 0.5;
         let sample_x = world_x + direction_x * mid;
@@ -3140,6 +3259,13 @@ fn material_coords_for_zone(
                 seed,
                 distance_cache: global_distance_cache,
             };
+            if matches!(zone, SurfaceZone::Face | SurfaceZone::Back)
+                && let Some(projected) = projected_sdf_facade(sampler, world_x, world_y)
+                && projected.zone == zone
+            {
+                let along = (world_x * projected.tangent_x + world_y * projected.tangent_y).abs();
+                return (along, projected.depth);
+            }
             let contour = global_contour_distance_with_sampler(sampler, world_x, world_y);
             let (gx, gy) = (contour.gradient_x, contour.gradient_y);
             let len = (gx * gx + gy * gy).sqrt();
@@ -4204,7 +4330,7 @@ mod tests {
         let mut unsupported_face_pixels = 0_usize;
         for y in 0..tile.mask.height() {
             for x in 0..tile.mask.width() {
-                if tile.mask.get_pixel(x, y).0[1] == 0 {
+                if tile.mask.get_pixel(x, y).0[1] < 64 {
                     continue;
                 }
                 let supported_by_top_above = (1..=request.south_height)
@@ -4218,6 +4344,51 @@ mod tests {
         assert_eq!(
             unsupported_face_pixels, 0,
             "front-only south facade must project vertically from top coverage without side lobes"
+        );
+    }
+
+    #[test]
+    fn sdf_south_face_projects_top_silhouette_vertically_for_single_cell() {
+        let mut request = flat_preview_request();
+        request.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+        request.south_height = 32;
+        request.side_height = 10;
+        request.north_height = 6;
+        request.rim_width = 0;
+        request.edge_debris = 0.0;
+        request.roughness = 0.0;
+        request.contour_warp_px = 0.0;
+        request.corner_round_px = 24;
+        request.outer_corner_radius = 24;
+        request.inner_corner_radius = 0;
+        request.diagonal_smooth_px = 0;
+        request.corner_variation = 0.0;
+        request.shape_supersampling = 4;
+        let request = request.sanitized();
+        let sdf = MapSdf::compute(&request.map);
+        let tile = render_tile_with_sdf(&request, &TextureSet::default(), &sdf, 0, 64, 64);
+
+        let mut unsupported_projected_columns = 0_usize;
+        for y in (request.tile_size / 2)..request.tile_size {
+            for x in 0..request.tile_size {
+                let supported_by_top_above = (1..=request.south_height)
+                    .any(|dy| y >= dy && tile.mask.get_pixel(x, y - dy).0[0] > 0);
+                if !supported_by_top_above {
+                    continue;
+                }
+                if tile.mask.get_pixel(x, y).0[1] == 0 {
+                    unsupported_projected_columns += 1;
+                }
+            }
+        }
+
+        assert_eq!(
+            unsupported_projected_columns, 0,
+            "SDF south face should project the rounded top silhouette vertically instead of curving inward"
         );
     }
 
