@@ -1,7 +1,9 @@
 {
   "geometry": "1536x793+-206+-18",
   "preset": "mountain",
-  "recent_colors": [],
+  "recent_colors": [
+    "#050403"
+  ],
   "recent_recipes": [],
   "asset_name": "unnamed",
   "export_mode": "Full47"

@@ -88,7 +88,8 @@ pub fn run_request(request: &AppRequest, output_dir: &Path) -> Result<Silhouette
     let atlas_width = silhouette.tile_size_px * SILHOUETTE_DIRECTIONS.len() as u32;
     let atlas_height = silhouette.silhouette_height_px * silhouette.variants;
     let mut atlas = RgbaImage::from_pixel(atlas_width, atlas_height, Rgba([0, 0, 0, 0]));
-    let mut metadata_cells = Vec::with_capacity((silhouette.variants as usize) * SILHOUETTE_DIRECTIONS.len());
+    let mut metadata_cells =
+        Vec::with_capacity((silhouette.variants as usize) * SILHOUETTE_DIRECTIONS.len());
 
     for variant in 0..silhouette.variants {
         let top_profile = build_top_profile(silhouette, variant);
@@ -113,7 +114,10 @@ pub fn run_request(request: &AppRequest, output_dir: &Path) -> Result<Silhouette
                     material_slot: silhouette.material_slot.clone(),
                     source: material.source.clone(),
                     kind: material.kind.clone(),
-                    seed: material.seed.wrapping_add(silhouette.seed).wrapping_add(variant),
+                    seed: material
+                        .seed
+                        .wrapping_add(silhouette.seed)
+                        .wrapping_add(variant),
                 },
             });
         }
@@ -133,8 +137,12 @@ pub fn run_request(request: &AppRequest, output_dir: &Path) -> Result<Silhouette
         has_corner_sprites: true,
         cells: metadata_cells,
     };
-    fs::write(&metadata_path, serde_json::to_vec_pretty(&metadata)?)
-        .with_context(|| format!("failed to write silhouette metadata: {}", metadata_path.display()))?;
+    fs::write(&metadata_path, serde_json::to_vec_pretty(&metadata)?).with_context(|| {
+        format!(
+            "failed to write silhouette metadata: {}",
+            metadata_path.display()
+        )
+    })?;
 
     Ok(SilhouetteOutputManifest {
         mode: "silhouettes".to_string(),
@@ -186,7 +194,8 @@ fn smooth_profile(profile: &mut [u32]) {
     }
     let copy = profile.to_vec();
     for index in 1..profile.len() - 1 {
-        profile[index] = ((copy[index - 1] + copy[index] + copy[index + 1]) as f32 / 3.0).round() as u32;
+        profile[index] =
+            ((copy[index - 1] + copy[index] + copy[index + 1]) as f32 / 3.0).round() as u32;
     }
 }
 
@@ -286,7 +295,11 @@ fn material_mix(material: &MaterialConfig, x: u32, y: u32, variant: u32) -> f32 
             value *= 0.35;
         }
     } else if material.kind == "ribbed_steel" {
-        value = if (x + y + seed % 5) % 9 < 3 { 0.72 } else { 0.38 };
+        value = if (x + y + seed % 5) % 9 < 3 {
+            0.72
+        } else {
+            0.38
+        };
     }
     clamp(value, 0.0, 1.0)
 }
@@ -300,7 +313,12 @@ fn positive_mod(value: f32, period: f32) -> f32 {
     }
 }
 
-fn direction_shade(request: &SilhouetteAtlasRequest, direction_index: usize, x: u32, y: u32) -> f32 {
+fn direction_shade(
+    request: &SilhouetteAtlasRequest,
+    direction_index: usize,
+    x: u32,
+    y: u32,
+) -> f32 {
     let vertical = y as f32 / request.silhouette_height_px.max(1) as f32;
     let horizontal = x as f32 / request.tile_size_px.max(1) as f32;
     let side = match direction_index {
@@ -438,19 +456,34 @@ mod tests {
             .expect("silhouette atlas should be readable")
             .to_rgba8();
         let metadata: serde_json::Value = serde_json::from_slice(
-            &test_fs::read(&manifest.files.silhouette_metadata_json).expect("metadata should be readable"),
+            &test_fs::read(&manifest.files.silhouette_metadata_json)
+                .expect("metadata should be readable"),
         )
         .expect("metadata should be json");
 
         assert_eq!(atlas.dimensions(), (64 * 8, 96 * 3));
         assert_eq!(manifest.cell_count, 24);
-        assert_eq!(metadata["cells"].as_array().expect("cells should be array").len(), 24);
+        assert_eq!(
+            metadata["cells"]
+                .as_array()
+                .expect("cells should be array")
+                .len(),
+            24
+        );
         assert_eq!(metadata["cells"][0]["direction"], "N");
         assert_eq!(metadata["cells"][4]["direction"], "NE");
         assert!(metadata["cells"][0]["pivot"].is_object());
         assert!(metadata["cells"][4]["pivot"].is_object());
-        assert!(output_dir.join("first_biome_rock_wall_silhouette_atlas.png").exists());
-        assert!(output_dir.join("first_biome_rock_wall_silhouette_metadata.json").exists());
+        assert!(
+            output_dir
+                .join("first_biome_rock_wall_silhouette_atlas.png")
+                .exists()
+        );
+        assert!(
+            output_dir
+                .join("first_biome_rock_wall_silhouette_metadata.json")
+                .exists()
+        );
     }
 
     #[test]
@@ -476,8 +509,18 @@ mod tests {
         ];
 
         assert!(samples.iter().all(Option::is_some));
-        let min_y = samples.iter().copied().flatten().min().expect("samples should exist");
-        let max_y = samples.iter().copied().flatten().max().expect("samples should exist");
+        let min_y = samples
+            .iter()
+            .copied()
+            .flatten()
+            .min()
+            .expect("samples should exist");
+        let max_y = samples
+            .iter()
+            .copied()
+            .flatten()
+            .max()
+            .expect("samples should exist");
         assert!(max_y - min_y <= 2);
     }
 

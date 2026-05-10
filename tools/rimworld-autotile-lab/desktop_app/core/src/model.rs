@@ -37,6 +37,8 @@ pub struct AppRequest {
     pub rim_width: u32,
     #[serde(default = "default_edge_debris")]
     pub edge_debris: f32,
+    #[serde(default = "default_edge_color_strength")]
+    pub edge_color_strength: f32,
     #[serde(default = "default_geometry_variance")]
     pub geometry_variance: f32,
     #[serde(default = "default_shape_supersampling")]
@@ -95,6 +97,8 @@ pub struct TexturePaths {
 pub struct ColorSet {
     pub top: String,
     pub face: String,
+    #[serde(default = "default_edge_color")]
+    pub edge: String,
     pub back: String,
     pub base: String,
 }
@@ -252,9 +256,9 @@ impl AppRequest {
         }
         self.preset = preset.name.to_string();
         self.tile_size = self.tile_size.clamp(32, 128);
-        self.south_height = self.south_height.clamp(4, self.tile_size / 2);
-        self.north_height = self.north_height.clamp(2, self.tile_size / 2);
-        self.side_height = self.side_height.clamp(2, self.tile_size / 2);
+        self.south_height = self.south_height.min(self.tile_size / 2);
+        self.north_height = self.north_height.min(self.tile_size / 2);
+        self.side_height = self.side_height.min(self.tile_size / 2);
         self.roughness = self.roughness.clamp(0.0, 100.0);
         self.face_power = self.face_power.clamp(0.4, 2.8);
         self.back_drop = self.back_drop.clamp(0.1, 0.8);
@@ -273,6 +277,9 @@ impl AppRequest {
         self.rim_width = self.rim_width.min(self.tile_size / 4);
         self.edge_debris =
             finite_or_default(self.edge_debris, default_edge_debris()).clamp(0.0, 1.0);
+        self.edge_color_strength =
+            finite_or_default(self.edge_color_strength, default_edge_color_strength())
+                .clamp(0.0, 1.0);
         self.geometry_variance =
             finite_or_default(self.geometry_variance, default_geometry_variance()).clamp(0.0, 1.0);
         self.shape_supersampling = normalize_shape_supersampling(self.shape_supersampling);
@@ -301,6 +308,9 @@ impl AppRequest {
         }
         if self.colors.face.is_empty() {
             self.colors.face = preset.colors.face.to_string();
+        }
+        if self.colors.edge.is_empty() {
+            self.colors.edge = preset.colors.edge.to_string();
         }
         if self.colors.back.is_empty() {
             self.colors.back = preset.colors.back.to_string();
@@ -342,6 +352,7 @@ pub struct Preset {
     pub corner_variation: f32,
     pub rim_width: u32,
     pub edge_debris: f32,
+    pub edge_color_strength: f32,
     pub geometry_variance: f32,
     pub shape_supersampling: u32,
     pub normal_detail_strength: f32,
@@ -353,6 +364,7 @@ pub struct Preset {
 pub struct PresetColors {
     pub top: &'static str,
     pub face: &'static str,
+    pub edge: &'static str,
     pub back: &'static str,
     pub base: &'static str,
 }
@@ -386,6 +398,7 @@ impl Preset {
             corner_variation: 0.35,
             rim_width: 7,
             edge_debris: 0.65,
+            edge_color_strength: default_edge_color_strength(),
             geometry_variance: 0.45,
             shape_supersampling: 4,
             normal_detail_strength: default_normal_detail_strength(),
@@ -393,6 +406,7 @@ impl Preset {
             colors: PresetColors {
                 top: "#705940",
                 face: "#3e2f25",
+                edge: "#49382c",
                 back: "#564436",
                 base: "#b88d58",
             },
@@ -418,6 +432,7 @@ impl Preset {
             corner_variation: 0.16,
             rim_width: 4,
             edge_debris: 0.25,
+            edge_color_strength: default_edge_color_strength(),
             geometry_variance: 0.15,
             shape_supersampling: 4,
             normal_detail_strength: 0.8,
@@ -425,6 +440,7 @@ impl Preset {
             colors: PresetColors {
                 top: "#765439",
                 face: "#473328",
+                edge: "#5c3f2d",
                 back: "#5e4636",
                 base: "#bb9361",
             },
@@ -450,6 +466,7 @@ impl Preset {
             corner_variation: 0.25,
             rim_width: 5,
             edge_debris: 0.45,
+            edge_color_strength: default_edge_color_strength(),
             geometry_variance: 0.3,
             shape_supersampling: 4,
             normal_detail_strength: 1.0,
@@ -457,6 +474,7 @@ impl Preset {
             colors: PresetColors {
                 top: "#7b5027",
                 face: "#5a3822",
+                edge: "#654326",
                 back: "#6b452a",
                 base: "#a56a36",
             },
@@ -488,6 +506,7 @@ pub fn default_request() -> AppRequest {
         corner_variation: preset.corner_variation,
         rim_width: preset.rim_width,
         edge_debris: preset.edge_debris,
+        edge_color_strength: preset.edge_color_strength,
         geometry_variance: preset.geometry_variance,
         shape_supersampling: preset.shape_supersampling,
         variants: preset.variants,
@@ -509,6 +528,7 @@ pub fn default_request() -> AppRequest {
         colors: ColorSet {
             top: preset.colors.top.to_string(),
             face: preset.colors.face.to_string(),
+            edge: preset.colors.edge.to_string(),
             back: preset.colors.back.to_string(),
             base: preset.colors.base.to_string(),
         },
@@ -583,6 +603,14 @@ fn default_rim_width() -> u32 {
 
 fn default_edge_debris() -> f32 {
     0.65
+}
+
+fn default_edge_color() -> String {
+    "#49382c".to_string()
+}
+
+fn default_edge_color_strength() -> f32 {
+    0.35
 }
 
 fn default_geometry_variance() -> f32 {
@@ -970,9 +998,7 @@ pub fn normalize_material_source(value: &str) -> &'static str {
 pub fn normalize_material_kind(value: &str) -> &'static str {
     match value.trim().to_ascii_lowercase().as_str() {
         "stone_bricks" | "stone_blocks" | "bricks" => "stone_bricks",
-        "stratified_rock" | "layered_rock" | "sedimentary_rock" | "cliff_rock" => {
-            "stratified_rock"
-        }
+        "stratified_rock" | "layered_rock" | "sedimentary_rock" | "cliff_rock" => "stratified_rock",
         "cracked_earth" | "cracked_dry_earth" | "dry_earth" => "cracked_earth",
         "rough_stone" | "stone" => "rough_stone",
         "worn_metal" | "metal" | "metal_worn" => "worn_metal",
@@ -1080,6 +1106,7 @@ mod tests {
         assert_eq!(request.materials.top.source, "procedural");
         assert_eq!(request.materials.face.source, "procedural");
         assert_eq!(request.materials.face.kind, "stratified_rock");
+        assert_eq!(request.colors.edge, "#49382c");
         assert_eq!(normalize_material_kind("layered_rock"), "stratified_rock");
         assert_eq!(normalize_preview_mode("lit"), "lit");
     }
@@ -1094,6 +1121,7 @@ mod tests {
         request.diagonal_smooth_px = 99;
         request.rim_width = 99;
         request.edge_debris = 4.0;
+        request.edge_color_strength = 4.0;
         request.geometry_variance = 4.0;
         request.shape_supersampling = 99;
         request.normal_detail_strength = 99.0;
@@ -1107,9 +1135,22 @@ mod tests {
         assert_eq!(request.diagonal_smooth_px, 32);
         assert_eq!(request.rim_width, 16);
         assert_eq!(request.edge_debris, 1.0);
+        assert_eq!(request.edge_color_strength, 1.0);
         assert_eq!(request.geometry_variance, 1.0);
         assert_eq!(request.shape_supersampling, 4);
         assert_eq!(request.normal_detail_strength, 4.0);
+    }
+
+    #[test]
+    fn front_only_preview_allows_zero_side_and_north_heights() {
+        let mut request = default_request();
+        request.side_height = 0;
+        request.north_height = 0;
+
+        let request = request.sanitized();
+
+        assert_eq!(request.side_height, 0);
+        assert_eq!(request.north_height, 0);
     }
 
     #[test]

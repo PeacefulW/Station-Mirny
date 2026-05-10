@@ -10,6 +10,7 @@ use crate::model::{
     AppRequest, ExportMode, GeneratedFiles, MaterialConfig, OutputManifest, RenderMode,
 };
 use crate::noise::{clamp, fbm_tiled, hash2d, lerp};
+use crate::sdf::MapSdf;
 use crate::signature::{Signature, canonical_signatures, signature_at};
 
 const ATLAS_COLUMNS: u32 = 8;
@@ -20,6 +21,7 @@ const EDGE_NOISE_PERIOD_TILES: f32 = 8.0;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SurfaceZone {
     Top,
+    Edge,
     Face,
     Back,
     Empty,
@@ -151,6 +153,15 @@ struct SurfaceSample {
     height: f32,
     zone: SurfaceZone,
     occupancy: f32,
+    top_coverage: f32,
+    face_coverage: f32,
+    back_coverage: f32,
+}
+
+#[derive(Clone, Copy)]
+enum SurfaceField<'a> {
+    Local(&'a Signature),
+    GlobalSdf(&'a MapSdf),
 }
 
 #[derive(Serialize)]
@@ -174,13 +185,23 @@ pub fn run_request(
     let textures = load_textures(&request, &mut warnings);
     let signatures = canonical_signatures();
 
-    let preview = build_map_preview(&request, &textures)?;
-    let preview_path = export_file_path(output_dir, &request, "preview", "png");
-    preview.save(&preview_path)?;
+    let preview_path = if mode == RenderMode::Draft {
+        let preview = build_map_preview(&request, &textures)?;
+        let preview_path = export_file_path(output_dir, &request, "preview", "png");
+        preview.save(&preview_path)?;
+        Some(preview_path)
+    } else {
+        None
+    };
 
     let recipe_path = export_file_path(output_dir, &request, "recipe", "json");
     let files = if mode == RenderMode::Draft {
-        generated_files_with_preview(&preview_path, &recipe_path)
+        generated_files_with_preview(
+            preview_path
+                .as_deref()
+                .expect("draft render should always write a preview"),
+            &recipe_path,
+        )
     } else {
         match request.export_mode {
             ExportMode::Full47 => {
@@ -218,7 +239,7 @@ pub fn run_request(
                 material_exports.face_normal.save(&face_normal_path)?;
 
                 GeneratedFiles {
-                    preview_png: to_string_path(&preview_path),
+                    preview_png: String::new(),
                     atlas_albedo_png: Some(to_string_path(&albedo_atlas_path)),
                     atlas_mask_png: Some(to_string_path(&mask_atlas_path)),
                     atlas_height_png: Some(to_string_path(&height_atlas_path)),
@@ -238,7 +259,7 @@ pub fn run_request(
                 let atlas_path = export_file_path(output_dir, &request, "atlas_albedo", "png");
                 atlas.save(&atlas_path)?;
 
-                let mut files = generated_files_with_preview(&preview_path, &recipe_path);
+                let mut files = generated_files_without_preview(&recipe_path);
                 files.atlas_albedo_png = Some(to_string_path(&atlas_path));
                 files
             }
@@ -247,7 +268,7 @@ pub fn run_request(
                 let atlas_path = export_file_path(output_dir, &request, "atlas_mask", "png");
                 atlas.save(&atlas_path)?;
 
-                let mut files = generated_files_with_preview(&preview_path, &recipe_path);
+                let mut files = generated_files_without_preview(&recipe_path);
                 files.atlas_mask_png = Some(to_string_path(&atlas_path));
                 files
             }
@@ -307,6 +328,13 @@ fn export_file_path(
 fn generated_files_with_preview(preview_path: &Path, recipe_path: &Path) -> GeneratedFiles {
     GeneratedFiles {
         preview_png: to_string_path(preview_path),
+        ..generated_files_without_preview(recipe_path)
+    }
+}
+
+fn generated_files_without_preview(recipe_path: &Path) -> GeneratedFiles {
+    GeneratedFiles {
+        preview_png: String::new(),
         atlas_albedo_png: None,
         atlas_mask_png: None,
         atlas_height_png: None,
@@ -448,8 +476,8 @@ fn render_base_variant_tile(
                 request.texture_scale,
                 request.texture_color_overlay,
                 size,
-                x,
-                y,
+                x as f32,
+                y as f32,
                 seed.wrapping_add(local_seed),
                 1.0,
             );
@@ -503,12 +531,12 @@ fn render_mask_tile(
         for x in 0..size {
             let sample =
                 sample_surface_pixel(request, signature, geometry_seed, x, y, origin_x, origin_y);
-            let top_mask = if sample.zone == SurfaceZone::Top {
+            let top_mask = if matches!(sample.zone, SurfaceZone::Top | SurfaceZone::Edge) {
                 255
             } else {
                 0
             };
-            let face_mask = if sample.zone == SurfaceZone::Face {
+            let face_mask = if matches!(sample.zone, SurfaceZone::Face | SurfaceZone::Edge) {
                 255
             } else {
                 0
@@ -577,8 +605,15 @@ fn build_material_albedo_and_values(
         .for_each(|(i, (pixel, value))| {
             let x = (i as u32) % width;
             let y = (i as u32) / width;
-            let base =
-                sample_material_base(material, texture, request.texture_scale, width, x, y, seed);
+            let base = sample_material_base(
+                material,
+                texture,
+                request.texture_scale,
+                width,
+                x as f32,
+                y as f32,
+                seed,
+            );
             *value = srgb_luminance_rgb(base.rgb) / 255.0;
             let color = apply_material_tint(base, tint, request.texture_color_overlay, 1.0);
             pixel[0] = color[0];
@@ -636,6 +671,7 @@ fn build_map_preview(request: &AppRequest, textures: &TextureSet) -> Result<Rgba
     let width = request.map.width * request.tile_size;
     let height = request.map.height * request.tile_size;
     let mut preview = RgbaImage::new(width, height);
+    let sdf = MapSdf::compute(&request.map);
 
     let positions: Vec<(i32, i32)> = (0..request.map.height as i32)
         .flat_map(|y| (0..request.map.width as i32).map(move |x| (x, y)))
@@ -647,15 +683,13 @@ fn build_map_preview(request: &AppRequest, textures: &TextureSet) -> Result<Rgba
             let origin_x = map_x as u32 * request.tile_size;
             let origin_y = map_y as u32 * request.tile_size;
             let signature = signature_at(&request.map, map_x, map_y);
-            let img = if signature.marching_mask != 0 {
-                let variant = request
-                    .forced_variant
-                    .unwrap_or_else(|| pick_variant(map_x, map_y, request.seed, request.variants));
-                let tile = render_tile(request, textures, &signature, variant, origin_x, origin_y);
-                extract_mode_image(tile, &request.preview_mode)
-            } else {
-                render_empty_cell(textures, request, origin_x, origin_y)
-            };
+            let variant = request
+                .forced_variant
+                .unwrap_or_else(|| pick_variant(map_x, map_y, request.seed, request.variants));
+            let tile = render_tile_with_sdf(
+                request, textures, &sdf, &signature, variant, origin_x, origin_y,
+            );
+            let img = extract_mode_image(tile, &request.preview_mode);
             (origin_x, origin_y, img)
         })
         .collect();
@@ -665,35 +699,6 @@ fn build_map_preview(request: &AppRequest, textures: &TextureSet) -> Result<Rgba
     }
 
     Ok(preview)
-}
-
-fn render_empty_cell(
-    textures: &TextureSet,
-    request: &AppRequest,
-    origin_x: u32,
-    origin_y: u32,
-) -> RgbaImage {
-    let (material, base_color, texture, seed) =
-        material_slot(request, textures, MaterialKind::Base);
-    let mut img = RgbaImage::new(request.tile_size, request.tile_size);
-    for local_y in 0..request.tile_size {
-        for local_x in 0..request.tile_size {
-            let color = sample_material_color(
-                material,
-                base_color,
-                texture,
-                request.texture_scale,
-                request.texture_color_overlay,
-                request.tile_size,
-                origin_x + local_x,
-                origin_y + local_y,
-                seed,
-                0.92,
-            );
-            img.put_pixel(local_x, local_y, rgba(color, 255));
-        }
-    }
-    img
 }
 
 fn pick_variant(x: i32, y: i32, seed: u32, total: u32) -> u32 {
@@ -712,13 +717,57 @@ fn render_tile(
     origin_x: u32,
     origin_y: u32,
 ) -> TileBuffers {
+    render_tile_with_field(
+        request,
+        textures,
+        SurfaceField::Local(signature),
+        variant,
+        origin_x,
+        origin_y,
+    )
+}
+
+fn render_tile_with_sdf(
+    request: &AppRequest,
+    textures: &TextureSet,
+    sdf: &MapSdf,
+    _signature: &Signature,
+    variant: u32,
+    origin_x: u32,
+    origin_y: u32,
+) -> TileBuffers {
+    render_tile_with_field(
+        request,
+        textures,
+        SurfaceField::GlobalSdf(sdf),
+        variant,
+        origin_x,
+        origin_y,
+    )
+}
+
+fn render_tile_with_field(
+    request: &AppRequest,
+    textures: &TextureSet,
+    field: SurfaceField<'_>,
+    variant: u32,
+    origin_x: u32,
+    origin_y: u32,
+) -> TileBuffers {
     let size = request.tile_size;
     let pixel_count = (size * size) as usize;
     let mut heights = vec![0.0_f32; pixel_count];
     let mut zones = vec![SurfaceZone::Top; pixel_count];
     let mut occupancies = vec![1.0_f32; pixel_count];
+    let mut top_coverages = vec![1.0_f32; pixel_count];
+    let mut face_coverages = vec![0.0_f32; pixel_count];
+    let mut back_coverages = vec![0.0_f32; pixel_count];
 
-    let geometry_seed = geometry_seed_for_variant(request, variant);
+    let geometry_variant = match field {
+        SurfaceField::GlobalSdf(_) => request.forced_variant.unwrap_or(0),
+        SurfaceField::Local(_) => variant,
+    };
+    let geometry_seed = geometry_seed_for_variant(request, geometry_variant);
     let material_seed = request
         .seed
         .wrapping_add(variant.wrapping_mul(4_091))
@@ -728,16 +777,19 @@ fn render_tile(
         for x in 0..size {
             let index = (y * size + x) as usize;
             let sample =
-                sample_surface_pixel(request, signature, geometry_seed, x, y, origin_x, origin_y);
+                sample_surface_for_field(request, field, geometry_seed, x, y, origin_x, origin_y);
             heights[index] = sample.height;
             zones[index] = sample.zone;
             occupancies[index] = sample.occupancy;
+            top_coverages[index] = sample.top_coverage;
+            face_coverages[index] = sample.face_coverage;
+            back_coverages[index] = sample.back_coverage;
         }
     }
 
     apply_crown_bevel(
         request,
-        signature,
+        field,
         geometry_seed,
         origin_x,
         origin_y,
@@ -746,7 +798,7 @@ fn render_tile(
     );
     apply_organic_height_relief(
         request,
-        signature,
+        field,
         geometry_seed,
         origin_x,
         origin_y,
@@ -754,7 +806,15 @@ fn render_tile(
         &zones,
         &occupancies,
     );
-    let normal_heights = blur_heights_3x3(size, &heights);
+    let needs_normal = match field {
+        SurfaceField::GlobalSdf(_) => matches!(request.preview_mode.as_str(), "normal" | "lit"),
+        SurfaceField::Local(_) => true,
+    };
+    let normal_heights = if needs_normal && matches!(field, SurfaceField::Local(_)) {
+        blur_heights_3x3(size, &heights)
+    } else {
+        Vec::new()
+    };
 
     let mut albedo = RgbaImage::new(size, size);
     let mut mask = RgbaImage::new(size, size);
@@ -768,6 +828,7 @@ fn render_tile(
     let (base_material, base_color, base_texture, base_seed) =
         material_slot(request, textures, MaterialKind::Base);
     let back_color = parse_hex_color(&request.colors.back);
+    let edge_color = parse_hex_color(&request.colors.edge);
 
     for y in 0..size {
         for x in 0..size {
@@ -776,10 +837,11 @@ fn render_tile(
             let height_value = heights[index];
             let sample_x = origin_x + x;
             let sample_y = origin_y + y;
-            let local_seed = material_seed
-                .wrapping_add(sample_y.wrapping_mul(4_099))
-                .wrapping_add(sample_x)
-                .wrapping_mul(13);
+            let world_x = sample_x as f32;
+            let world_y = sample_y as f32;
+            let (facade_x, facade_y) =
+                material_coords_for_zone(request, field, geometry_seed, zone, world_x, world_y);
+            let sample_seed = material_seed;
 
             let base = match zone {
                 SurfaceZone::Top => sample_material_color(
@@ -789,11 +851,68 @@ fn render_tile(
                     request.texture_scale,
                     request.texture_color_overlay,
                     request.tile_size,
-                    sample_x,
-                    sample_y,
-                    top_seed.wrapping_add(local_seed),
+                    world_x,
+                    world_y,
+                    top_seed.wrapping_add(sample_seed),
                     1.0,
                 ),
+                SurfaceZone::Edge => {
+                    let edge_distance = exposed_edge_distance(
+                        request,
+                        field,
+                        geometry_seed,
+                        x as f32,
+                        y as f32,
+                        sample_x as f32,
+                        sample_y as f32,
+                    )
+                    .unwrap_or(0.0);
+                    let edge_width = edge_relief_width_px(request);
+                    let edge_t = (1.0 - edge_distance / edge_width).clamp(0.0, 1.0);
+                    let chip = fbm_tiled(
+                        sample_x as f32 * 0.19 + 19.0,
+                        sample_y as f32 * 0.17 + 43.0,
+                        edge_noise_period(request) * 0.19,
+                        edge_noise_period(request) * 0.17,
+                        2,
+                        geometry_seed.wrapping_add(9_337),
+                    );
+                    let top_sample = sample_material_color(
+                        top_material,
+                        top_color,
+                        top_texture,
+                        request.texture_scale,
+                        request.texture_color_overlay,
+                        request.tile_size,
+                        world_x,
+                        world_y,
+                        top_seed.wrapping_add(sample_seed),
+                        1.0,
+                    );
+                    let face_sample = sample_material_color(
+                        face_material,
+                        face_color,
+                        face_texture,
+                        request.texture_scale,
+                        request.texture_color_overlay,
+                        request.tile_size,
+                        facade_x,
+                        facade_y,
+                        face_seed.wrapping_add(sample_seed).wrapping_add(73),
+                        1.0,
+                    );
+                    let debris = request.edge_debris.clamp(0.0, 1.0);
+                    let mix_factor = ((0.22 + debris * 0.18)
+                        + (chip - 0.5) * debris * 0.20
+                        + edge_t * debris * 0.06)
+                        .clamp(0.16, 0.58);
+                    let mixed = mix_color(top_sample, face_sample, mix_factor);
+                    let edge_strength = request.edge_color_strength.clamp(0.0, 1.0);
+                    let tinted =
+                        mix_color(mixed, edge_color, edge_strength * (0.65 + edge_t * 0.35));
+                    let darken = (0.96 - edge_t * debris * (0.05 + chip * 0.12)).clamp(0.78, 0.98);
+                    scale_color(tinted, darken)
+                }
                 SurfaceZone::Face => sample_material_color(
                     face_material,
                     face_color,
@@ -801,9 +920,9 @@ fn render_tile(
                     request.texture_scale,
                     request.texture_color_overlay,
                     request.tile_size,
-                    sample_x,
-                    sample_y,
-                    face_seed.wrapping_add(local_seed),
+                    facade_x,
+                    facade_y,
+                    face_seed.wrapping_add(sample_seed),
                     1.0,
                 ),
                 SurfaceZone::Back => sample_material_color(
@@ -813,9 +932,9 @@ fn render_tile(
                     request.texture_scale,
                     request.texture_color_overlay,
                     request.tile_size,
-                    sample_x,
-                    sample_y,
-                    face_seed.wrapping_add(local_seed).wrapping_add(181),
+                    facade_x,
+                    facade_y,
+                    face_seed.wrapping_add(sample_seed).wrapping_add(181),
                     1.0,
                 ),
                 SurfaceZone::Empty => sample_material_color(
@@ -825,21 +944,131 @@ fn render_tile(
                     request.texture_scale,
                     request.texture_color_overlay,
                     request.tile_size,
-                    sample_x,
-                    sample_y,
-                    base_seed.wrapping_add(local_seed),
+                    world_x,
+                    world_y,
+                    base_seed.wrapping_add(sample_seed),
                     0.92,
                 ),
             };
 
-            let shaded =
-                maybe_apply_height_shading(base, height_value, zone, request.bake_height_shading);
-            albedo.put_pixel(x, y, rgba(shaded, 255));
+            let shaded = if matches!(field, SurfaceField::GlobalSdf(_))
+                && zone != SurfaceZone::Edge
+                && top_coverages[index] > 0.0
+                && (face_coverages[index] > 0.0 || back_coverages[index] > 0.0)
+            {
+                let (wall_x, wall_y) = material_coords_for_zone(
+                    request,
+                    field,
+                    geometry_seed,
+                    SurfaceZone::Face,
+                    world_x,
+                    world_y,
+                );
+                let top_sample = sample_material_color(
+                    top_material,
+                    top_color,
+                    top_texture,
+                    request.texture_scale,
+                    request.texture_color_overlay,
+                    request.tile_size,
+                    world_x,
+                    world_y,
+                    top_seed.wrapping_add(sample_seed),
+                    1.0,
+                );
+                let face_sample = sample_material_color(
+                    face_material,
+                    face_color,
+                    face_texture,
+                    request.texture_scale,
+                    request.texture_color_overlay,
+                    request.tile_size,
+                    wall_x,
+                    wall_y,
+                    face_seed.wrapping_add(sample_seed),
+                    1.0,
+                );
+                let back_sample = sample_material_color(
+                    face_material,
+                    back_color,
+                    face_texture,
+                    request.texture_scale,
+                    request.texture_color_overlay,
+                    request.tile_size,
+                    wall_x,
+                    wall_y,
+                    face_seed.wrapping_add(sample_seed).wrapping_add(181),
+                    1.0,
+                );
+                blend_coverage_color(
+                    maybe_apply_height_shading(
+                        top_sample,
+                        height_value,
+                        SurfaceZone::Top,
+                        request.bake_height_shading,
+                    ),
+                    top_coverages[index],
+                    maybe_apply_height_shading(
+                        face_sample,
+                        height_value,
+                        SurfaceZone::Face,
+                        request.bake_height_shading,
+                    ),
+                    face_coverages[index],
+                    maybe_apply_height_shading(
+                        back_sample,
+                        height_value,
+                        SurfaceZone::Back,
+                        request.bake_height_shading,
+                    ),
+                    back_coverages[index],
+                )
+            } else {
+                maybe_apply_height_shading(base, height_value, zone, request.bake_height_shading)
+            };
+            let occupancy = occupancies[index].clamp(0.0, 1.0);
+            let visible = if occupancy > 0.0 && occupancy < 1.0 && zone != SurfaceZone::Empty {
+                let empty_base = sample_material_color(
+                    base_material,
+                    base_color,
+                    base_texture,
+                    request.texture_scale,
+                    request.texture_color_overlay,
+                    request.tile_size,
+                    world_x,
+                    world_y,
+                    base_seed.wrapping_add(sample_seed),
+                    0.92,
+                );
+                mix_color(empty_base, shaded, occupancy)
+            } else {
+                shaded
+            };
+            albedo.put_pixel(x, y, rgba(visible, 255));
 
-            let top_mask = if zone == SurfaceZone::Top { 255 } else { 0 };
-            let face_mask = if zone == SurfaceZone::Face { 255 } else { 0 };
-            let back_mask = if zone == SurfaceZone::Back { 255 } else { 0 };
-            let occupancy_alpha = (occupancies[index].clamp(0.0, 1.0) * 255.0).round() as u8;
+            let use_coverage_mask = matches!(field, SurfaceField::GlobalSdf(_));
+            let top_mask = if use_coverage_mask {
+                coverage_byte(top_coverages[index])
+            } else if matches!(zone, SurfaceZone::Top | SurfaceZone::Edge) {
+                255
+            } else {
+                0
+            };
+            let face_mask = if use_coverage_mask {
+                coverage_byte(face_coverages[index])
+            } else if matches!(zone, SurfaceZone::Face | SurfaceZone::Edge) {
+                255
+            } else {
+                0
+            };
+            let back_mask = if use_coverage_mask {
+                coverage_byte(back_coverages[index])
+            } else if zone == SurfaceZone::Back {
+                255
+            } else {
+                0
+            };
+            let occupancy_alpha = (occupancy * 255.0).round() as u8;
             mask.put_pixel(
                 x,
                 y,
@@ -853,8 +1082,17 @@ fn render_tile(
                 Rgba([height_byte, height_byte, height_byte, occupancy_alpha]),
             );
 
-            let encoded = if zone == SurfaceZone::Empty {
+            let encoded = if !needs_normal || zone == SurfaceZone::Empty {
                 [128, 128, 255]
+            } else if let SurfaceField::GlobalSdf(sdf) = field {
+                encode_global_normal(
+                    request,
+                    sdf,
+                    geometry_seed,
+                    sample_x as f32,
+                    sample_y as f32,
+                    request.normal_strength,
+                )
             } else {
                 encode_normal(size, &normal_heights, x, y, request.normal_strength)
             };
@@ -900,7 +1138,9 @@ fn build_lit_preview_image(tile: &TileBuffers) -> RgbaImage {
             let ny = normal[1] as f32 / 127.5 - 1.0;
             let nz = normal[2] as f32 / 127.5 - 1.0;
             let dot = (nx * light_dir.0 + ny * light_dir.1 + nz * light_dir.2).max(0.0);
-            let zone_factor = if mask[1] > 0 {
+            let zone_factor = if mask[0] > 0 && mask[1] > 0 {
+                0.98
+            } else if mask[1] > 0 {
                 0.84
             } else if mask[2] > 0 {
                 0.91
@@ -943,6 +1183,52 @@ fn geometry_seed_for_variant(request: &AppRequest, variant: u32) -> u32 {
     }
 }
 
+fn sample_surface_for_field(
+    request: &AppRequest,
+    field: SurfaceField<'_>,
+    seed: u32,
+    x: u32,
+    y: u32,
+    origin_x: u32,
+    origin_y: u32,
+) -> SurfaceSample {
+    match field {
+        SurfaceField::Local(signature) => {
+            sample_surface_pixel(request, signature, seed, x, y, origin_x, origin_y)
+        }
+        SurfaceField::GlobalSdf(sdf) => {
+            sample_global_surface_pixel(request, sdf, seed, x, y, origin_x, origin_y)
+        }
+    }
+}
+
+fn surface_sample(height: f32, zone: SurfaceZone, occupancy: f32) -> SurfaceSample {
+    let (top_coverage, face_coverage, back_coverage) =
+        coverage_for_zone(zone, occupancy.clamp(0.0, 1.0));
+    SurfaceSample {
+        height,
+        zone,
+        occupancy,
+        top_coverage,
+        face_coverage,
+        back_coverage,
+    }
+}
+
+fn coverage_for_zone(zone: SurfaceZone, occupancy: f32) -> (f32, f32, f32) {
+    match zone {
+        SurfaceZone::Top => (occupancy, 0.0, 0.0),
+        SurfaceZone::Edge => (occupancy, occupancy, 0.0),
+        SurfaceZone::Face => (0.0, occupancy, 0.0),
+        SurfaceZone::Back => (0.0, 0.0, occupancy),
+        SurfaceZone::Empty => (0.0, 0.0, 0.0),
+    }
+}
+
+fn coverage_byte(value: f32) -> u8 {
+    (value.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
 fn sample_surface_pixel(
     request: &AppRequest,
     signature: &Signature,
@@ -963,17 +1249,17 @@ fn sample_surface_pixel(
             (origin_x + x) as f32,
             (origin_y + y) as f32,
         );
-        return SurfaceSample {
-            height,
-            zone,
-            occupancy: if zone == SurfaceZone::Empty { 0.0 } else { 1.0 },
-        };
+        let occupancy = if zone == SurfaceZone::Empty { 0.0 } else { 1.0 };
+        return surface_sample(height, zone, occupancy);
     }
 
     let inv_samples = 1.0 / samples as f32;
     let mut height_sum = 0.0_f32;
     let mut occupied = 0_u32;
-    let mut zone_counts = [0_u32; 4];
+    let mut zone_counts = [0_u32; 5];
+    let mut top_coverage = 0.0_f32;
+    let mut face_coverage = 0.0_f32;
+    let mut back_coverage = 0.0_f32;
 
     for sy in 0..samples {
         for sx in 0..samples {
@@ -995,31 +1281,647 @@ fn sample_surface_pixel(
                 height_sum += height;
                 occupied += 1;
             }
+            let (top, face, back) = coverage_for_zone(zone, 1.0);
+            top_coverage += top;
+            face_coverage += face;
+            back_coverage += back;
         }
     }
 
     let total = samples * samples;
+    let inv_total = 1.0 / total as f32;
     SurfaceSample {
         height: if occupied == 0 {
             0.0
         } else {
             height_sum / occupied as f32
         },
-        zone: dominant_zone(zone_counts),
+        zone: if occupied == 0 {
+            SurfaceZone::Empty
+        } else {
+            dominant_occupied_zone(zone_counts)
+        },
         occupancy: occupied as f32 / total as f32,
+        top_coverage: top_coverage * inv_total,
+        face_coverage: face_coverage * inv_total,
+        back_coverage: back_coverage * inv_total,
     }
+}
+
+fn sample_global_surface_pixel(
+    request: &AppRequest,
+    sdf: &MapSdf,
+    seed: u32,
+    x: u32,
+    y: u32,
+    origin_x: u32,
+    origin_y: u32,
+) -> SurfaceSample {
+    let samples = request.shape_supersampling.max(1);
+    if samples <= 1 {
+        let world_x = origin_x as f32 + x as f32;
+        let world_y = origin_y as f32 + y as f32;
+        let (height, zone) = sample_global_height(request, sdf, seed, world_x, world_y);
+        let occupancy = if zone == SurfaceZone::Empty { 0.0 } else { 1.0 };
+        return surface_sample(height, zone, occupancy);
+    }
+
+    let inv_samples = 1.0 / samples as f32;
+    let mut height_sum = 0.0_f32;
+    let mut occupied = 0_u32;
+    let mut zone_counts = [0_u32; 5];
+    let mut top_coverage = 0.0_f32;
+    let mut face_coverage = 0.0_f32;
+    let mut back_coverage = 0.0_f32;
+
+    for sy in 0..samples {
+        for sx in 0..samples {
+            let offset_x = (sx as f32 + 0.5) * inv_samples;
+            let offset_y = (sy as f32 + 0.5) * inv_samples;
+            let sample_x = x as f32 + offset_x;
+            let sample_y = y as f32 + offset_y;
+            let world_x = origin_x as f32 + sample_x;
+            let world_y = origin_y as f32 + sample_y;
+            let (height, zone) = sample_global_height(request, sdf, seed, world_x, world_y);
+            zone_counts[zone_index(zone)] += 1;
+            if zone != SurfaceZone::Empty {
+                height_sum += height;
+                occupied += 1;
+            }
+            let (top, face, back) = coverage_for_zone(zone, 1.0);
+            top_coverage += top;
+            face_coverage += face;
+            back_coverage += back;
+        }
+    }
+
+    let total = samples * samples;
+    let inv_total = 1.0 / total as f32;
+    SurfaceSample {
+        height: if occupied == 0 {
+            0.0
+        } else {
+            height_sum / occupied as f32
+        },
+        zone: if occupied == 0 {
+            SurfaceZone::Empty
+        } else {
+            dominant_occupied_zone(zone_counts)
+        },
+        occupancy: occupied as f32 / total as f32,
+        top_coverage: top_coverage * inv_total,
+        face_coverage: face_coverage * inv_total,
+        back_coverage: back_coverage * inv_total,
+    }
+}
+
+fn sample_global_height(
+    request: &AppRequest,
+    sdf: &MapSdf,
+    seed: u32,
+    world_x: f32,
+    world_y: f32,
+) -> (f32, SurfaceZone) {
+    let signed_distance_px = controlled_sdf_distance_px(request, sdf, seed, world_x, world_y);
+    if front_only_projection_active(request) {
+        return sample_front_only_projected_height(
+            request,
+            sdf,
+            seed,
+            world_x,
+            world_y,
+            signed_distance_px,
+        );
+    }
+
+    let (gx, gy) = controlled_sdf_gradient(request, sdf, seed, world_x, world_y);
+    let (zone, depth) = marching_zone_and_depth(request, gx, gy);
+
+    if signed_distance_px < 0.0 {
+        let outside_distance = -signed_distance_px;
+        if outside_distance > depth {
+            return (0.0, SurfaceZone::Empty);
+        }
+        let progress = (outside_distance / depth.max(1.0)).clamp(0.0, 1.0);
+        let height = match zone {
+            SurfaceZone::Back => back_height_for_progress(request, progress),
+            _ => face_height_for_progress(request, progress),
+        };
+        return (clamp(height, 0.0, 1.0), zone);
+    }
+
+    let edge_width = preview_edge_width_px(request);
+    if edge_width > 0.0 && signed_distance_px <= edge_width {
+        let progress = (signed_distance_px / edge_width.max(1.0)).clamp(0.0, 1.0);
+        return (edge_height_for_progress(progress), SurfaceZone::Edge);
+    }
+
+    (1.0, SurfaceZone::Top)
+}
+
+fn front_only_projection_active(request: &AppRequest) -> bool {
+    request.side_height == 0 && request.north_height == 0
+}
+
+fn sample_front_only_projected_height(
+    request: &AppRequest,
+    sdf: &MapSdf,
+    seed: u32,
+    world_x: f32,
+    world_y: f32,
+    signed_distance_px: f32,
+) -> (f32, SurfaceZone) {
+    if signed_distance_px >= 0.0 {
+        let edge_width = preview_edge_width_px(request);
+        if edge_width > 0.0 && signed_distance_px <= edge_width {
+            let progress = (signed_distance_px / edge_width.max(1.0)).clamp(0.0, 1.0);
+            return (edge_height_for_progress(progress), SurfaceZone::Edge);
+        }
+        return (1.0, SurfaceZone::Top);
+    }
+
+    let Some(progress) = front_only_projected_facade_progress(request, sdf, seed, world_x, world_y)
+    else {
+        return (0.0, SurfaceZone::Empty);
+    };
+    (
+        clamp(face_height_for_progress(request, progress), 0.0, 1.0),
+        SurfaceZone::Face,
+    )
+}
+
+fn front_only_projected_facade_progress(
+    request: &AppRequest,
+    sdf: &MapSdf,
+    seed: u32,
+    world_x: f32,
+    world_y: f32,
+) -> Option<f32> {
+    let mut best_progress = None;
+
+    if let Some(depth) = projected_axis_depth(
+        request,
+        sdf,
+        seed,
+        world_x,
+        world_y,
+        0.0,
+        -1.0,
+        request.south_height as f32,
+    ) {
+        best_progress = Some((depth / request.south_height.max(1) as f32).clamp(0.0, 1.0));
+    }
+
+    best_progress
+}
+
+fn projected_axis_depth(
+    request: &AppRequest,
+    sdf: &MapSdf,
+    seed: u32,
+    world_x: f32,
+    world_y: f32,
+    direction_x: f32,
+    direction_y: f32,
+    max_depth: f32,
+) -> Option<f32> {
+    if max_depth <= 0.0 {
+        return None;
+    }
+
+    let inside_x = world_x + direction_x * max_depth;
+    let inside_y = world_y + direction_y * max_depth;
+    if controlled_sdf_distance_px(request, sdf, seed, inside_x, inside_y) < 0.0 {
+        return None;
+    }
+
+    let mut outside = 0.0_f32;
+    let mut inside = max_depth;
+    for _ in 0..7 {
+        let mid = (outside + inside) * 0.5;
+        let sample_x = world_x + direction_x * mid;
+        let sample_y = world_y + direction_y * mid;
+        if controlled_sdf_distance_px(request, sdf, seed, sample_x, sample_y) >= 0.0 {
+            inside = mid;
+        } else {
+            outside = mid;
+        }
+    }
+    Some(inside)
+}
+
+fn sample_global_render_height(
+    request: &AppRequest,
+    sdf: &MapSdf,
+    seed: u32,
+    world_x: f32,
+    world_y: f32,
+) -> f32 {
+    let (mut height, zone) = sample_global_height(request, sdf, seed, world_x, world_y);
+    if zone == SurfaceZone::Empty {
+        return 0.0;
+    }
+
+    let contour = global_contour_distance(request, sdf, seed, world_x, world_y);
+    let bevel = request.crown_bevel as f32;
+    if bevel > 0.0 && zone == SurfaceZone::Top {
+        let nearest = contour.signed_distance;
+        if nearest >= 0.0 && nearest < bevel {
+            let t = (nearest / bevel).clamp(0.0, 1.0);
+            height = height.min(lerp(0.86, 1.0, t));
+        }
+    }
+
+    if request.rim_width > 0 || request.edge_debris > 0.0 || request.normal_detail_strength > 0.0 {
+        let period = (request.tile_size as f32 * 4.0).max(1.0);
+        let broad = fbm_tiled(
+            world_x * 0.065,
+            world_y * 0.065,
+            period * 0.065,
+            period * 0.065,
+            3,
+            seed.wrapping_add(1_003),
+        );
+        let fine = fbm_tiled(
+            world_x * 0.21 + 41.0,
+            world_y * 0.19 + 17.0,
+            period * 0.21,
+            period * 0.19,
+            2,
+            seed.wrapping_add(1_819),
+        );
+        let zone_amp = match zone {
+            SurfaceZone::Top => 0.012,
+            SurfaceZone::Edge => 0.026,
+            SurfaceZone::Face => 0.036,
+            SurfaceZone::Back => 0.022,
+            SurfaceZone::Empty => 0.0,
+        };
+        let mut delta = ((broad - 0.5) * 0.65 + (fine - 0.5) * 0.35)
+            * zone_amp
+            * request.normal_detail_strength;
+
+        if request.rim_width > 0 || request.edge_debris > 0.0 {
+            let rim = (1.0 - contour.signed_distance.abs() / edge_relief_width_px(request))
+                .clamp(0.0, 1.0);
+            if rim > 0.0 {
+                let chip = ((fine - 0.38) * 2.2).clamp(0.0, 1.0);
+                let rim_cut = if request.rim_width > 0 {
+                    request.contour_relax * 0.018
+                } else {
+                    0.0
+                };
+                let edge_cut = rim * (rim_cut + chip * request.edge_debris * 0.045);
+                delta -= edge_cut;
+                if zone == SurfaceZone::Face {
+                    delta += rim * request.edge_debris * (broad - 0.45) * 0.026;
+                }
+            }
+        }
+
+        height = clamp(height + delta, 0.0, 1.0);
+    }
+
+    clamp(height, 0.0, 1.0)
+}
+
+fn sample_blurred_global_render_height(
+    request: &AppRequest,
+    sdf: &MapSdf,
+    seed: u32,
+    world_x: f32,
+    world_y: f32,
+) -> f32 {
+    let mut total = 0.0;
+    for oy in -1..=1 {
+        for ox in -1..=1 {
+            total += sample_global_render_height(
+                request,
+                sdf,
+                seed,
+                world_x + ox as f32,
+                world_y + oy as f32,
+            );
+        }
+    }
+    total / 9.0
+}
+
+fn encode_global_normal(
+    request: &AppRequest,
+    sdf: &MapSdf,
+    seed: u32,
+    world_x: f32,
+    world_y: f32,
+    strength: f32,
+) -> [u8; 3] {
+    let at = |ox: i32, oy: i32| {
+        sample_blurred_global_render_height(
+            request,
+            sdf,
+            seed,
+            world_x + ox as f32,
+            world_y + oy as f32,
+        )
+    };
+    let (dx, dy) = sobel_gradient_from_samples(at);
+    encode_normal_from_gradient(dx, dy, strength)
+}
+
+fn preview_edge_width_px(request: &AppRequest) -> f32 {
+    let debris_width = request.tile_size as f32 * 0.06 * request.edge_debris.clamp(0.0, 1.0);
+    (request.rim_width as f32)
+        .max(debris_width)
+        .min(request.tile_size as f32 * 0.25)
+}
+
+fn edge_relief_width_px(request: &AppRequest) -> f32 {
+    preview_edge_width_px(request).max(request.rim_width.max(1) as f32)
+}
+
+fn edge_height_for_progress(progress: f32) -> f32 {
+    lerp(0.90, 1.0, progress.clamp(0.0, 1.0))
+}
+
+fn controlled_sdf_distance_px(
+    request: &AppRequest,
+    sdf: &MapSdf,
+    seed: u32,
+    world_x: f32,
+    world_y: f32,
+) -> f32 {
+    let tile_size = request.tile_size.max(1) as f32;
+    let cell_x = world_x / tile_size;
+    let cell_y = world_y / tile_size;
+    let field = smoothed_sdf_value(request, sdf, seed, world_x, world_y, cell_x, cell_y);
+    field * tile_size - contour_distance_offset_px(request, seed, world_x, world_y)
+}
+
+fn controlled_sdf_gradient(
+    request: &AppRequest,
+    sdf: &MapSdf,
+    seed: u32,
+    world_x: f32,
+    world_y: f32,
+) -> (f32, f32) {
+    if !sdf_shape_controls_active(request) {
+        let tile_size = request.tile_size.max(1) as f32;
+        return sdf.gradient(world_x / tile_size, world_y / tile_size);
+    }
+
+    let step = 1.0_f32;
+    let dx = (controlled_sdf_distance_px(request, sdf, seed, world_x + step, world_y)
+        - controlled_sdf_distance_px(request, sdf, seed, world_x - step, world_y))
+        / (step * 2.0);
+    let dy = (controlled_sdf_distance_px(request, sdf, seed, world_x, world_y + step)
+        - controlled_sdf_distance_px(request, sdf, seed, world_x, world_y - step))
+        / (step * 2.0);
+    (dx, dy)
+}
+
+fn sdf_shape_controls_active(request: &AppRequest) -> bool {
+    request.outer_corner_radius > 0
+        || request.inner_corner_radius > 0
+        || request.corner_round_px > 0
+        || request.diagonal_smooth_px > 0
+        || request.contour_warp_px > 0.0
+        || request.roughness > 0.0
+        || request.corner_variation > 0.0
+}
+
+fn smoothed_sdf_value(
+    request: &AppRequest,
+    sdf: &MapSdf,
+    seed: u32,
+    world_x: f32,
+    world_y: f32,
+    cell_x: f32,
+    cell_y: f32,
+) -> f32 {
+    let tile_size = request.tile_size.max(1) as f32;
+    let mut value = sdf.sample(cell_x, cell_y);
+    let relax = (0.65 + request.contour_relax * 0.45).clamp(0.35, 1.1);
+    let corner_mask = sdf_corner_mask(sdf, cell_x, cell_y);
+    let corner_count = corner_mask.count_ones();
+
+    if request.outer_corner_radius > 0 && corner_count == 1 {
+        let strength = (request.outer_corner_radius as f32 / (tile_size * 0.5)).clamp(0.0, 1.0);
+        let radius = varied_smoothing_radius_cells(
+            request,
+            seed.wrapping_add(1_701),
+            world_x,
+            world_y,
+            request.outer_corner_radius as f32,
+        );
+        let smoothed = average_sdf_neighborhood(sdf, cell_x, cell_y, radius);
+        value = lerp(value, smoothed, (strength * 0.78 * relax).clamp(0.0, 0.9));
+    }
+
+    if request.inner_corner_radius > 0 && corner_count == 3 {
+        let strength = (request.inner_corner_radius as f32 / (tile_size * 0.5)).clamp(0.0, 1.0);
+        let radius = varied_smoothing_radius_cells(
+            request,
+            seed.wrapping_add(1_907),
+            world_x,
+            world_y,
+            request.inner_corner_radius as f32,
+        );
+        let smoothed = average_sdf_neighborhood(sdf, cell_x, cell_y, radius);
+        value = lerp(value, smoothed, (strength * 0.78 * relax).clamp(0.0, 0.9));
+    }
+
+    if request.corner_round_px > 0 {
+        let strength = (request.corner_round_px as f32 / (tile_size * 0.5)).clamp(0.0, 1.0);
+        let radius = varied_smoothing_radius_cells(
+            request,
+            seed.wrapping_add(2_101),
+            world_x,
+            world_y,
+            request.corner_round_px as f32,
+        );
+        let smoothed = average_sdf_neighborhood(sdf, cell_x, cell_y, radius);
+        value = lerp(value, smoothed, (strength * 0.72 * relax).clamp(0.0, 0.88));
+    }
+
+    if request.diagonal_smooth_px > 0 {
+        let strength = (request.diagonal_smooth_px as f32 / (tile_size * 0.5)).clamp(0.0, 1.0);
+        let radius = varied_smoothing_radius_cells(
+            request,
+            seed.wrapping_add(3_307),
+            world_x,
+            world_y,
+            request.diagonal_smooth_px as f32,
+        );
+        let smoothed = average_sdf_diagonals(sdf, cell_x, cell_y, radius);
+        let softened = lerp(value, smoothed, (strength * 0.64 * relax).clamp(0.0, 0.82));
+        value = value.max(softened);
+        if let Some(bridge) = diagonal_bridge_sdf_value(sdf, cell_x, cell_y, strength, relax) {
+            if value >= 0.0 {
+                let saddle_width = lerp(0.035, 0.13, strength) * (0.85 + relax * 0.15);
+                let saddle = line_mask(value, saddle_width);
+                value = lerp(value, bridge, saddle);
+            } else {
+                value = value.max(bridge);
+            }
+        }
+    }
+
+    value
+}
+
+fn sdf_corner_mask(sdf: &MapSdf, cell_x: f32, cell_y: f32) -> u8 {
+    let x0 = cell_x.floor() as i32;
+    let y0 = cell_y.floor() as i32;
+    u8::from(sdf.sample(x0 as f32, y0 as f32) > 0.0)
+        | (u8::from(sdf.sample((x0 + 1) as f32, y0 as f32) > 0.0) << 1)
+        | (u8::from(sdf.sample((x0 + 1) as f32, (y0 + 1) as f32) > 0.0) << 2)
+        | (u8::from(sdf.sample(x0 as f32, (y0 + 1) as f32) > 0.0) << 3)
+}
+
+fn varied_smoothing_radius_cells(
+    request: &AppRequest,
+    seed: u32,
+    world_x: f32,
+    world_y: f32,
+    radius_px: f32,
+) -> f32 {
+    let tile_size = request.tile_size.max(1) as f32;
+    let mut radius = (radius_px / tile_size).max(0.001);
+    if request.corner_variation > 0.0 {
+        let period = (tile_size * 5.0).max(1.0);
+        let noise = fbm_tiled(
+            world_x * 0.037 + 13.0,
+            world_y * 0.037 + 29.0,
+            period * 0.037,
+            period * 0.037,
+            2,
+            seed,
+        );
+        radius *= 1.0 + (noise - 0.5) * 2.0 * request.corner_variation * 0.45;
+    }
+    radius.clamp(0.001, 0.75)
+}
+
+fn average_sdf_neighborhood(sdf: &MapSdf, cell_x: f32, cell_y: f32, radius: f32) -> f32 {
+    let samples = [
+        (0.0_f32, 0.0_f32, 4.0_f32),
+        (-radius, 0.0, 2.0),
+        (radius, 0.0, 2.0),
+        (0.0, -radius, 2.0),
+        (0.0, radius, 2.0),
+        (-radius, -radius, 1.0),
+        (radius, -radius, 1.0),
+        (-radius, radius, 1.0),
+        (radius, radius, 1.0),
+    ];
+    weighted_sdf_average(sdf, cell_x, cell_y, &samples)
+}
+
+fn average_sdf_diagonals(sdf: &MapSdf, cell_x: f32, cell_y: f32, radius: f32) -> f32 {
+    let samples = [
+        (0.0_f32, 0.0_f32, 2.0_f32),
+        (-radius, -radius, 1.0),
+        (radius, -radius, 1.0),
+        (-radius, radius, 1.0),
+        (radius, radius, 1.0),
+    ];
+    weighted_sdf_average(sdf, cell_x, cell_y, &samples)
+}
+
+fn diagonal_bridge_sdf_value(
+    sdf: &MapSdf,
+    cell_x: f32,
+    cell_y: f32,
+    strength: f32,
+    relax: f32,
+) -> Option<f32> {
+    let x0 = cell_x.floor() as i32;
+    let y0 = cell_y.floor() as i32;
+    let u = (cell_x - x0 as f32).clamp(0.0, 1.0);
+    let v = (cell_y - y0 as f32).clamp(0.0, 1.0);
+    let corner_inside = |ox: i32, oy: i32| sdf.sample((x0 + ox) as f32, (y0 + oy) as f32) > 0.0;
+    let mask = u8::from(corner_inside(0, 0))
+        | (u8::from(corner_inside(1, 0)) << 1)
+        | (u8::from(corner_inside(1, 1)) << 2)
+        | (u8::from(corner_inside(0, 1)) << 3);
+    let diagonal_distance = match mask & 0x0f {
+        0b0101 => (u - v).abs(),
+        0b1010 => (u + v - 1.0).abs(),
+        _ => return None,
+    };
+    let width =
+        lerp(0.18, 0.72, strength).clamp(0.04, 0.74) * (0.85 + relax * 0.18).clamp(0.85, 1.05);
+    if diagonal_distance >= width {
+        return None;
+    }
+
+    let endpoint_distance = u.min(1.0 - u).min(v.min(1.0 - v));
+    let endpoint_fade = line_mask(0.04 - endpoint_distance, 0.04);
+    if endpoint_fade <= 0.001 {
+        return None;
+    }
+    let bridge_strength = line_mask(diagonal_distance, width) * endpoint_fade;
+    Some(-lerp(0.018, 0.105, strength) * bridge_strength)
+}
+
+fn weighted_sdf_average(
+    sdf: &MapSdf,
+    cell_x: f32,
+    cell_y: f32,
+    samples: &[(f32, f32, f32)],
+) -> f32 {
+    let mut sum = 0.0_f32;
+    let mut weight_sum = 0.0_f32;
+    for (offset_x, offset_y, weight) in samples {
+        sum += sdf.sample(cell_x + *offset_x, cell_y + *offset_y) * *weight;
+        weight_sum += *weight;
+    }
+    sum / weight_sum.max(0.001)
+}
+
+fn contour_distance_offset_px(request: &AppRequest, seed: u32, world_x: f32, world_y: f32) -> f32 {
+    let mut offset = 0.0_f32;
+    if request.contour_warp_px > 0.0 {
+        let period = (request.tile_size as f32 * 8.0).max(1.0);
+        let warp = fbm_tiled(
+            world_x * 0.055,
+            world_y * 0.055,
+            period * 0.055,
+            period * 0.055,
+            2,
+            seed.wrapping_add(5_911),
+        ) - 0.5;
+        offset += warp * request.contour_warp_px;
+    }
+
+    let rough_px = (request.roughness / 100.0) * (request.tile_size as f32 * 0.085);
+    if rough_px > 0.0 {
+        let period = edge_noise_period(request);
+        let rough = fbm_tiled(
+            world_x * 0.11 + 31.0,
+            world_y * 0.11 + 17.0,
+            period * 0.11,
+            period * 0.11,
+            3,
+            seed.wrapping_add(8_711),
+        ) - 0.5;
+        offset += rough * rough_px * 2.0;
+    }
+
+    offset
 }
 
 fn zone_index(zone: SurfaceZone) -> usize {
     match zone {
         SurfaceZone::Top => 0,
-        SurfaceZone::Face => 1,
-        SurfaceZone::Back => 2,
-        SurfaceZone::Empty => 3,
+        SurfaceZone::Edge => 1,
+        SurfaceZone::Face => 2,
+        SurfaceZone::Back => 3,
+        SurfaceZone::Empty => 4,
     }
 }
 
-fn dominant_zone(counts: [u32; 4]) -> SurfaceZone {
+fn dominant_zone(counts: [u32; 5]) -> SurfaceZone {
     let mut best_index = 0_usize;
     let mut best_count = counts[0];
     for (index, count) in counts.iter().copied().enumerate().skip(1) {
@@ -1030,10 +1932,16 @@ fn dominant_zone(counts: [u32; 4]) -> SurfaceZone {
     }
     match best_index {
         0 => SurfaceZone::Top,
-        1 => SurfaceZone::Face,
-        2 => SurfaceZone::Back,
+        1 => SurfaceZone::Edge,
+        2 => SurfaceZone::Face,
+        3 => SurfaceZone::Back,
         _ => SurfaceZone::Empty,
     }
+}
+
+fn dominant_occupied_zone(counts: [u32; 5]) -> SurfaceZone {
+    let occupied_counts = [counts[0], counts[1], counts[2], counts[3], 0];
+    dominant_zone(occupied_counts)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1419,14 +2327,25 @@ fn marching_zone_and_depth(request: &AppRequest, gx: f32, gy: f32) -> (SurfaceZo
     if gy > ax * 0.75 {
         let north_weight = ay / total;
         let side_weight = ax / total;
+        let side_depth = if request.north_height > 0 {
+            request.side_height as f32 * side_weight
+        } else {
+            0.0
+        };
         return (
             SurfaceZone::Back,
-            request.north_height as f32 * north_weight + request.side_height as f32 * side_weight,
+            request.north_height as f32 * north_weight + side_depth,
         );
     }
 
     let south_weight = if gy < 0.0 { ay / total } else { 0.0 };
-    let side_weight = 1.0 - south_weight;
+    let side_fade = if request.north_height == 0 && gy > 0.0 {
+        let fade_span = (ax * 0.75).max(0.001);
+        (1.0 - gy / fade_span).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let side_weight = (1.0 - south_weight) * side_fade;
     (
         SurfaceZone::Face,
         request.south_height as f32 * south_weight + request.side_height as f32 * side_weight,
@@ -1565,7 +2484,7 @@ fn edge_noise_period(request: &AppRequest) -> f32 {
 
 fn apply_crown_bevel(
     request: &AppRequest,
-    signature: &Signature,
+    field: SurfaceField<'_>,
     seed: u32,
     origin_x: u32,
     origin_y: u32,
@@ -1591,7 +2510,7 @@ fn apply_crown_bevel(
             let world_x = origin_x as f32 + xf;
             let world_y = origin_y as f32 + yf;
             if let Some(contour) =
-                outer_contour_distance(request, signature, seed, xf, yf, world_x, world_y)
+                contour_distance_for_field(request, field, seed, xf, yf, world_x, world_y)
             {
                 let nearest = contour.signed_distance;
                 if nearest < 0.0 || nearest >= bevel {
@@ -1606,7 +2525,7 @@ fn apply_crown_bevel(
 
 fn apply_organic_height_relief(
     request: &AppRequest,
-    signature: &Signature,
+    field: SurfaceField<'_>,
     seed: u32,
     origin_x: u32,
     origin_y: u32,
@@ -1650,6 +2569,7 @@ fn apply_organic_height_relief(
 
             let zone_amp = match zone {
                 SurfaceZone::Top => 0.012,
+                SurfaceZone::Edge => 0.026,
                 SurfaceZone::Face => 0.036,
                 SurfaceZone::Back => 0.022,
                 SurfaceZone::Empty => 0.0,
@@ -1660,13 +2580,17 @@ fn apply_organic_height_relief(
 
             if request.rim_width > 0 || request.edge_debris > 0.0 {
                 if let Some(distance) = exposed_edge_distance(
-                    request, signature, seed, x as f32, y as f32, world_x, world_y,
+                    request, field, seed, x as f32, y as f32, world_x, world_y,
                 ) {
-                    let rim = (1.0 - distance / request.rim_width.max(1) as f32).clamp(0.0, 1.0);
+                    let rim = (1.0 - distance / edge_relief_width_px(request)).clamp(0.0, 1.0);
                     if rim > 0.0 {
                         let chip = ((fine - 0.38) * 2.2).clamp(0.0, 1.0);
-                        let edge_cut = rim
-                            * (request.contour_relax * 0.018 + chip * request.edge_debris * 0.045);
+                        let rim_cut = if request.rim_width > 0 {
+                            request.contour_relax * 0.018
+                        } else {
+                            0.0
+                        };
+                        let edge_cut = rim * (rim_cut + chip * request.edge_debris * 0.045);
                         delta -= edge_cut;
                         if zone == SurfaceZone::Face {
                             delta += rim * request.edge_debris * (broad - 0.45) * 0.026;
@@ -1682,15 +2606,94 @@ fn apply_organic_height_relief(
 
 fn exposed_edge_distance(
     request: &AppRequest,
-    signature: &Signature,
+    field: SurfaceField<'_>,
     seed: u32,
     x: f32,
     y: f32,
     world_x: f32,
     world_y: f32,
 ) -> Option<f32> {
-    outer_contour_distance(request, signature, seed, x, y, world_x, world_y)
+    contour_distance_for_field(request, field, seed, x, y, world_x, world_y)
         .map(|contour| contour.signed_distance.abs())
+}
+
+fn contour_distance_for_field(
+    request: &AppRequest,
+    field: SurfaceField<'_>,
+    seed: u32,
+    x: f32,
+    y: f32,
+    world_x: f32,
+    world_y: f32,
+) -> Option<ContourDistance> {
+    match field {
+        SurfaceField::Local(signature) => {
+            outer_contour_distance(request, signature, seed, x, y, world_x, world_y)
+        }
+        SurfaceField::GlobalSdf(sdf) => Some(global_contour_distance(
+            request, sdf, seed, world_x, world_y,
+        )),
+    }
+}
+
+fn global_contour_distance(
+    request: &AppRequest,
+    sdf: &MapSdf,
+    seed: u32,
+    world_x: f32,
+    world_y: f32,
+) -> ContourDistance {
+    let signed_distance = controlled_sdf_distance_px(request, sdf, seed, world_x, world_y);
+    let (gx, gy) = controlled_sdf_gradient(request, sdf, seed, world_x, world_y);
+    let (zone, depth) = marching_zone_and_depth(request, gx, gy);
+
+    ContourDistance {
+        signed_distance,
+        zone,
+        depth,
+    }
+}
+
+fn material_coords_for_zone(
+    request: &AppRequest,
+    field: SurfaceField<'_>,
+    seed: u32,
+    zone: SurfaceZone,
+    world_x: f32,
+    world_y: f32,
+) -> (f32, f32) {
+    if !matches!(
+        zone,
+        SurfaceZone::Face | SurfaceZone::Back | SurfaceZone::Edge
+    ) {
+        return (world_x, world_y);
+    }
+
+    match field {
+        SurfaceField::GlobalSdf(sdf) => {
+            let contour = global_contour_distance(request, sdf, seed, world_x, world_y);
+            let (gx, gy) = controlled_sdf_gradient(request, sdf, seed, world_x, world_y);
+            let len = (gx * gx + gy * gy).sqrt();
+            if len <= 0.0001 {
+                return (world_x, world_y);
+            }
+
+            let nx = gx / len;
+            let ny = gy / len;
+            let tangent_x = -ny;
+            let tangent_y = nx;
+            let along = world_x * tangent_x + world_y * tangent_y;
+            let depth = if zone == SurfaceZone::Face && front_only_projection_active(request) {
+                front_only_projected_facade_progress(request, sdf, seed, world_x, world_y)
+                    .map(|progress| progress * request.south_height as f32)
+                    .unwrap_or_else(|| contour.signed_distance.abs())
+            } else {
+                contour.signed_distance.abs()
+            };
+            (along, depth)
+        }
+        SurfaceField::Local(_) => (world_x, world_y),
+    }
 }
 
 fn material_slot<'a>(
@@ -1731,8 +2734,8 @@ fn sample_material_base(
     texture: Option<&LoadedTexture>,
     texture_scale: f32,
     tile_size: u32,
-    x: u32,
-    y: u32,
+    x: f32,
+    y: f32,
     seed: u32,
 ) -> MaterialBaseSample {
     match material.source.as_str() {
@@ -1740,8 +2743,8 @@ fn sample_material_base(
             if let Some(texture) = texture {
                 let sample_scale = 1.0 / texture_scale.max(0.001);
                 let sample = texture.sample_filtered(
-                    (x as f32 + 0.5) * sample_scale,
-                    (y as f32 + 0.5) * sample_scale,
+                    (x + 0.5) * sample_scale,
+                    (y + 0.5) * sample_scale,
                     sample_scale,
                 );
                 MaterialBaseSample {
@@ -1753,8 +2756,8 @@ fn sample_material_base(
                     rgb: procedural_layer_material(
                         material,
                         seed,
-                        x as f32,
-                        y as f32,
+                        x,
+                        y,
                         tile_size as f32,
                         [128, 128, 128],
                     ),
@@ -1767,14 +2770,7 @@ fn sample_material_base(
             is_image_source: false,
         },
         _ => MaterialBaseSample {
-            rgb: procedural_layer_material(
-                material,
-                seed,
-                x as f32,
-                y as f32,
-                tile_size as f32,
-                [128, 128, 128],
-            ),
+            rgb: procedural_layer_material(material, seed, x, y, tile_size as f32, [128, 128, 128]),
             is_image_source: false,
         },
     }
@@ -1782,7 +2778,8 @@ fn sample_material_base(
 
 #[cfg(test)]
 mod tests {
-    use crate::model::{ExportMode, default_request};
+    use crate::model::{ExportMode, MapData, default_request};
+    use crate::sdf::MapSdf;
     use std::fs as test_fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1824,13 +2821,110 @@ mod tests {
                 .any(|(left_pixel, right_pixel)| left_pixel.0 != right_pixel.0)
     }
 
+    fn occupied_pixels(image: &RgbaImage) -> usize {
+        image.pixels().filter(|pixel| pixel.0[3] > 0).count()
+    }
+
+    fn images_match(left: &RgbaImage, right: &RgbaImage) -> bool {
+        left.dimensions() == right.dimensions()
+            && left
+                .pixels()
+                .zip(right.pixels())
+                .all(|(left_pixel, right_pixel)| left_pixel.0 == right_pixel.0)
+    }
+
+    fn thin_occupied_columns(image: &RgbaImage) -> usize {
+        (0..image.width())
+            .filter(|x| {
+                let occupied = (0..image.height())
+                    .filter(|y| image.get_pixel(*x, *y).0[3] > 0)
+                    .count();
+                occupied > 0 && occupied <= 3
+            })
+            .count()
+    }
+
+    fn unique_edge_albedo_colors(tile: &TileBuffers) -> usize {
+        let mut colors = std::collections::BTreeSet::new();
+        for y in 0..tile.albedo.height() {
+            for x in 0..tile.albedo.width() {
+                let mask = tile.mask.get_pixel(x, y).0;
+                if mask[0] == 255 && mask[1] == 255 && mask[3] == 255 {
+                    let albedo = tile.albedo.get_pixel(x, y).0;
+                    colors.insert([albedo[0], albedo[1], albedo[2]]);
+                }
+            }
+        }
+        colors.len()
+    }
+
+    fn flat_material(color: &str) -> MaterialConfig {
+        MaterialConfig {
+            source: "flat".to_string(),
+            kind: "rough_stone".to_string(),
+            scale: 1.0,
+            contrast: 1.0,
+            crack_amount: 0.0,
+            wear: 0.0,
+            grain: 0.0,
+            edge_darkening: 0.0,
+            seed: 0,
+            color_a: color.to_string(),
+            color_b: color.to_string(),
+            highlight: color.to_string(),
+        }
+    }
+
+    fn flat_preview_request() -> AppRequest {
+        let mut request = default_request();
+        request.tile_size = 64;
+        request.south_height = 16;
+        request.north_height = 8;
+        request.side_height = 16;
+        request.roughness = 0.0;
+        request.contour_warp_px = 0.0;
+        request.corner_round_px = 0;
+        request.diagonal_smooth_px = 0;
+        request.corner_variation = 0.0;
+        request.geometry_variance = 0.0;
+        request.normal_detail_strength = 0.0;
+        request.rim_width = 0;
+        request.edge_debris = 0.0;
+        request.shape_supersampling = 4;
+        request.materials.top = flat_material("#ffffff");
+        request.materials.face = flat_material("#000000");
+        request.materials.base = flat_material("#ff0000");
+        request.colors.top = "#ffffff".to_string();
+        request.colors.face = "#000000".to_string();
+        request.colors.back = "#404040".to_string();
+        request.colors.base = "#ff0000".to_string();
+        request.sanitized()
+    }
+
+    fn partial_mask_pixels_with_unblended_albedo(tile: &TileBuffers) -> usize {
+        let mut count = 0_usize;
+        for y in 0..tile.mask.height() {
+            for x in 0..tile.mask.width() {
+                let alpha = tile.mask.get_pixel(x, y).0[3];
+                if alpha == 0 || alpha == 255 {
+                    continue;
+                }
+                let rgb = &tile.albedo.get_pixel(x, y).0[0..3];
+                if rgb == [255, 255, 255] || rgb == [0, 0, 0] || rgb == [255, 0, 0] {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
     #[test]
     fn texture_scale_above_one_zooms_texture_without_box_blur() {
         let texture = LoadedTexture {
             image: RgbaImage::from_fn(4, 1, |x, _| Rgba([(x * 64) as u8, 0, 0, 255])),
         };
 
-        let sample = sample_material_base(&image_material(), Some(&texture), 4.0, 32, 0, 0, 0);
+        let sample = sample_material_base(&image_material(), Some(&texture), 4.0, 32, 0.0, 0.0, 0);
 
         assert!(
             sample.rgb[0] < 24,
@@ -1907,6 +3001,969 @@ mod tests {
         assert!(
             images_differ(&raw_albedo, &lit_preview),
             "lit preview should visualize normal/height response without requiring baked albedo shading"
+        );
+    }
+
+    #[test]
+    fn global_sdf_height_transitions_from_top_to_face_to_empty() {
+        let mut request = default_request();
+        request.tile_size = 64;
+        request.side_height = 16;
+        request.south_height = 16;
+        request.north_height = 8;
+        request.roughness = 0.0;
+        request.contour_warp_px = 0.0;
+        request.corner_round_px = 0;
+        request.diagonal_smooth_px = 0;
+        request.corner_variation = 0.0;
+        request.rim_width = 0;
+        request.edge_debris = 0.0;
+        let request = request.sanitized();
+        let map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+        let sdf = MapSdf::compute(&map);
+
+        let (inside_height, inside_zone) =
+            sample_global_height(&request, &sdf, request.seed, 1.25 * 64.0, 1.0 * 64.0);
+        let (face_height, face_zone) =
+            sample_global_height(&request, &sdf, request.seed, 1.51 * 64.0, 1.0 * 64.0);
+        let (empty_height, empty_zone) =
+            sample_global_height(&request, &sdf, request.seed, 1.80 * 64.0, 1.0 * 64.0);
+
+        assert_eq!(inside_zone, SurfaceZone::Top);
+        assert_eq!(inside_height, 1.0);
+        assert_eq!(face_zone, SurfaceZone::Face);
+        assert!(face_height > 0.0 && face_height < 1.0);
+        assert_eq!(empty_zone, SurfaceZone::Empty);
+        assert_eq!(empty_height, 0.0);
+    }
+
+    #[test]
+    fn mask_preview_empty_cells_are_transparent() {
+        let mut request = flat_preview_request();
+        request.preview_mode = "mask".to_string();
+        request.map = MapData {
+            width: 1,
+            height: 1,
+            cells: vec![0],
+        };
+
+        let preview = build_map_preview(&request, &TextureSet::default())
+            .expect("mask preview should render");
+
+        assert_eq!(
+            preview.get_pixel(0, 0).0,
+            [0, 0, 0, 0],
+            "mask preview should not paint base albedo into empty cells"
+        );
+    }
+
+    fn single_cell_sdf_request() -> (AppRequest, MapSdf, Signature) {
+        let mut request = default_request();
+        request.tile_size = 64;
+        request.south_height = 16;
+        request.north_height = 8;
+        request.side_height = 16;
+        request.roughness = 0.0;
+        request.contour_warp_px = 0.0;
+        request.corner_round_px = 0;
+        request.diagonal_smooth_px = 0;
+        request.geometry_variance = 0.0;
+        request.normal_detail_strength = 0.0;
+        request.rim_width = 0;
+        request.edge_debris = 0.0;
+        request.shape_supersampling = 4;
+        let mut request = request.sanitized();
+        request.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+        let sdf = MapSdf::compute(&request.map);
+        let signature = signature_at(&request.map, 1, 1);
+        (request, sdf, signature)
+    }
+
+    fn diagonal_sdf_request() -> (AppRequest, MapSdf, Signature) {
+        let mut request = default_request();
+        request.tile_size = 64;
+        request.south_height = 16;
+        request.north_height = 8;
+        request.side_height = 16;
+        request.roughness = 0.0;
+        request.contour_warp_px = 0.0;
+        request.corner_round_px = 0;
+        request.diagonal_smooth_px = 0;
+        request.geometry_variance = 0.0;
+        request.normal_detail_strength = 0.0;
+        request.rim_width = 0;
+        request.edge_debris = 0.0;
+        request.shape_supersampling = 4;
+        let mut request = request.sanitized();
+        request.map = MapData {
+            width: 2,
+            height: 2,
+            cells: vec![1, 0, 0, 1],
+        };
+        let sdf = MapSdf::compute(&request.map);
+        let signature = signature_at(&request.map, 0, 0);
+        (request, sdf, signature)
+    }
+
+    fn straight_south_sdf_request() -> (AppRequest, MapSdf, Signature) {
+        let mut request = default_request();
+        request.tile_size = 64;
+        request.south_height = 32;
+        request.north_height = 8;
+        request.side_height = 16;
+        request.roughness = 0.0;
+        request.contour_warp_px = 0.0;
+        request.corner_round_px = 0;
+        request.diagonal_smooth_px = 0;
+        request.geometry_variance = 0.0;
+        request.normal_detail_strength = 0.0;
+        request.rim_width = 0;
+        request.edge_debris = 0.0;
+        request.shape_supersampling = 4;
+        let mut request = request.sanitized();
+        request.map = MapData {
+            width: 2,
+            height: 2,
+            cells: vec![1, 1, 0, 0],
+        };
+        let sdf = MapSdf::compute(&request.map);
+        let signature = signature_at(&request.map, 0, 0);
+        (request, sdf, signature)
+    }
+
+    #[test]
+    fn global_sdf_south_face_uses_the_configured_pixel_depth() {
+        let (request, sdf, signature) = straight_south_sdf_request();
+        let world_x = 32.0;
+        let world_y = 63.0;
+        let (local_height, local_zone) = sample_height(
+            &request,
+            &signature,
+            request.seed,
+            world_x,
+            world_y,
+            world_x,
+            world_y,
+        );
+        let (global_height, global_zone) =
+            sample_global_height(&request, &sdf, request.seed, world_x, world_y);
+
+        assert_eq!(local_zone, SurfaceZone::Face);
+        assert_eq!(
+            global_zone, local_zone,
+            "global SDF should not halve the configured south face depth"
+        );
+        assert!(
+            (global_height - local_height).abs() < 0.05,
+            "global height {global_height} should stay close to local marching height {local_height}"
+        );
+    }
+
+    #[test]
+    fn global_sdf_keeps_diagonal_neck_as_wide_as_local_marching() {
+        let (mut request, sdf, signature) = diagonal_sdf_request();
+        request.diagonal_smooth_px = 6;
+        let request = request.sanitized();
+        let world_x = 48.0;
+        let world_y = 16.0;
+        let (local_height, local_zone) = sample_height(
+            &request,
+            &signature,
+            request.seed,
+            world_x,
+            world_y,
+            world_x,
+            world_y,
+        );
+        let (global_height, global_zone) =
+            sample_global_height(&request, &sdf, request.seed, world_x, world_y);
+
+        assert_ne!(
+            local_zone,
+            SurfaceZone::Empty,
+            "local marching keeps this diagonal throat sample occupied"
+        );
+        assert_eq!(
+            global_zone, local_zone,
+            "global SDF should preserve the old diagonal throat instead of collapsing it"
+        );
+        assert!(
+            (global_height - local_height).abs() < 0.15,
+            "global height {global_height} should stay close to local marching height {local_height}"
+        );
+    }
+
+    #[test]
+    fn corner_round_px_changes_sdf_preview_mask_geometry() {
+        let (sharp, sdf, signature) = single_cell_sdf_request();
+        let mut rounded = sharp.clone();
+        rounded.corner_round_px = 24;
+        let rounded = rounded.sanitized();
+
+        let sharp_tile =
+            render_tile_with_sdf(&sharp, &TextureSet::default(), &sdf, &signature, 0, 64, 64);
+        let rounded_tile = render_tile_with_sdf(
+            &rounded,
+            &TextureSet::default(),
+            &sdf,
+            &signature,
+            0,
+            64,
+            64,
+        );
+
+        assert!(
+            images_differ(&sharp_tile.mask, &rounded_tile.mask),
+            "corner_round_px should alter live SDF preview mask geometry"
+        );
+    }
+
+    #[test]
+    fn diagonal_smooth_px_changes_sdf_preview_mask_geometry() {
+        let (sharp, sdf, signature) = diagonal_sdf_request();
+        let mut smoothed = sharp.clone();
+        smoothed.diagonal_smooth_px = 24;
+        let smoothed = smoothed.sanitized();
+
+        let sharp_tile =
+            render_tile_with_sdf(&sharp, &TextureSet::default(), &sdf, &signature, 0, 0, 0);
+        let smoothed_tile =
+            render_tile_with_sdf(&smoothed, &TextureSet::default(), &sdf, &signature, 0, 0, 0);
+
+        assert!(
+            images_differ(&sharp_tile.mask, &smoothed_tile.mask),
+            "diagonal_smooth_px should alter live SDF preview mask geometry"
+        );
+    }
+
+    #[test]
+    fn diagonal_smooth_px_widens_sdf_preview_diagonal_neck() {
+        let (sharp, sdf, signature) = diagonal_sdf_request();
+        let mut smoothed = sharp.clone();
+        smoothed.diagonal_smooth_px = 24;
+        let smoothed = smoothed.sanitized();
+
+        let sharp_tile =
+            render_tile_with_sdf(&sharp, &TextureSet::default(), &sdf, &signature, 0, 0, 0);
+        let smoothed_tile =
+            render_tile_with_sdf(&smoothed, &TextureSet::default(), &sdf, &signature, 0, 0, 0);
+
+        assert!(
+            occupied_pixels(&smoothed_tile.mask) > occupied_pixels(&sharp_tile.mask),
+            "diagonal_smooth_px should widen, not merely perturb, the SDF diagonal throat"
+        );
+    }
+
+    #[test]
+    fn outer_corner_radius_changes_sdf_preview_mask_geometry() {
+        let (sharp, sdf, signature) = single_cell_sdf_request();
+        let mut rounded = sharp.clone();
+        rounded.outer_corner_radius = 32;
+        let rounded = rounded.sanitized();
+
+        let sharp_tile =
+            render_tile_with_sdf(&sharp, &TextureSet::default(), &sdf, &signature, 0, 64, 64);
+        let rounded_tile = render_tile_with_sdf(
+            &rounded,
+            &TextureSet::default(),
+            &sdf,
+            &signature,
+            0,
+            64,
+            64,
+        );
+
+        assert!(
+            images_differ(&sharp_tile.mask, &rounded_tile.mask),
+            "outer_corner_radius should affect live SDF preview corners"
+        );
+    }
+
+    #[test]
+    fn inner_corner_radius_changes_sdf_preview_concave_corners() {
+        let mut sharp = flat_preview_request();
+        sharp.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![1, 1, 1, 1, 0, 1, 1, 1, 1],
+        };
+        sharp.preview_mode = "mask".to_string();
+        let mut rounded = sharp.clone();
+        rounded.inner_corner_radius = 32;
+        let sharp = sharp.sanitized();
+        let rounded = rounded.sanitized();
+
+        let sharp_preview = build_map_preview(&sharp, &TextureSet::default())
+            .expect("sharp concave preview should render");
+        let rounded_preview = build_map_preview(&rounded, &TextureSet::default())
+            .expect("rounded concave preview should render");
+
+        assert!(
+            images_differ(&sharp_preview, &rounded_preview),
+            "inner_corner_radius should affect live SDF preview concave corners"
+        );
+    }
+
+    #[test]
+    fn sdf_preview_albedo_blends_partial_coverage_against_base() {
+        let mut request = flat_preview_request();
+        request.map = MapData {
+            width: 2,
+            height: 2,
+            cells: vec![1, 0, 0, 1],
+        };
+        let sdf = MapSdf::compute(&request.map);
+        let signature = signature_at(&request.map, 0, 0);
+
+        let tile =
+            render_tile_with_sdf(&request, &TextureSet::default(), &sdf, &signature, 0, 0, 0);
+
+        assert_eq!(
+            partial_mask_pixels_with_unblended_albedo(&tile),
+            0,
+            "partial-coverage pixels should be blended against base instead of keeping a hard zone color"
+        );
+    }
+
+    #[test]
+    fn sdf_preview_draws_visible_edge_band_on_the_top_lip() {
+        let mut flat = flat_preview_request();
+        flat.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+        let mut edged = flat.clone();
+        edged.rim_width = 8;
+        edged.edge_debris = 0.0;
+        let flat = flat.sanitized();
+        let edged = edged.sanitized();
+        let sdf = MapSdf::compute(&flat.map);
+        let signature = signature_at(&flat.map, 1, 1);
+
+        let flat_tile =
+            render_tile_with_sdf(&flat, &TextureSet::default(), &sdf, &signature, 0, 64, 64);
+        let edged_tile =
+            render_tile_with_sdf(&edged, &TextureSet::default(), &sdf, &signature, 0, 64, 64);
+
+        assert!(
+            images_differ(&flat_tile.albedo, &edged_tile.albedo),
+            "rim_width should create a visibly distinct albedo edge band in SDF preview"
+        );
+    }
+
+    #[test]
+    fn sdf_preview_normal_reads_neighboring_cells_at_tile_boundaries() {
+        let (mut request, sdf, signature) = single_cell_sdf_request();
+        request.preview_mode = "normal".to_string();
+        let request = request.sanitized();
+        let tile = render_tile_with_sdf(
+            &request,
+            &TextureSet::default(),
+            &sdf,
+            &signature,
+            0,
+            64,
+            64,
+        );
+
+        let expected = encode_global_normal(
+            &request,
+            &sdf,
+            request.seed,
+            127.0,
+            96.0,
+            request.normal_strength,
+        );
+        let actual = tile.normal.get_pixel(63, 32).0;
+
+        for channel in 0..3 {
+            assert!(
+                (actual[channel] as i16 - expected[channel] as i16).abs() <= 1,
+                "normal channel {channel} should use map-space height across the tile edge: actual={} expected={}",
+                actual[channel],
+                expected[channel]
+            );
+        }
+    }
+
+    #[test]
+    fn corner_radii_activate_sdf_gradient_controls() {
+        let (mut request, _sdf, _signature) = single_cell_sdf_request();
+        request.corner_round_px = 0;
+        request.diagonal_smooth_px = 0;
+        request.contour_warp_px = 0.0;
+        request.roughness = 0.0;
+        request.corner_variation = 0.0;
+        request.outer_corner_radius = 24;
+        request.inner_corner_radius = 0;
+        assert!(
+            sdf_shape_controls_active(&request),
+            "outer_corner_radius changes the SDF contour, so facade gradients must use the controlled SDF"
+        );
+
+        request.outer_corner_radius = 0;
+        request.inner_corner_radius = 24;
+        assert!(
+            sdf_shape_controls_active(&request),
+            "inner_corner_radius changes the SDF contour, so facade gradients must use the controlled SDF"
+        );
+    }
+
+    #[test]
+    fn diagonal_smooth_px_keeps_diagonal_center_from_becoming_flat_top() {
+        let (mut request, sdf, _signature) = diagonal_sdf_request();
+        request.diagonal_smooth_px = 24;
+        let request = request.sanitized();
+
+        let (height, zone) = sample_global_height(&request, &sdf, request.seed, 32.0, 32.0);
+
+        assert_ne!(
+            zone,
+            SurfaceZone::Top,
+            "diagonal smoothing should not turn the ambiguous cell center into a flat top plateau"
+        );
+        assert!(
+            height < 1.0,
+            "diagonal center should stay transitional, got height={height}"
+        );
+    }
+
+    #[test]
+    fn diagonal_smooth_px_does_not_leave_isolated_column_artifacts() {
+        let (mut request, _sdf, _signature) = diagonal_sdf_request();
+        request.preview_mode = "mask".to_string();
+        request.diagonal_smooth_px = 24;
+        let request = request.sanitized();
+
+        let preview = build_map_preview(&request, &TextureSet::default())
+            .expect("diagonal preview should render");
+
+        assert_eq!(
+            thin_occupied_columns(&preview),
+            0,
+            "diagonal smoothing should not leave one-pixel column artifacts at cell boundaries"
+        );
+    }
+
+    #[test]
+    fn edge_debris_only_uses_visible_edge_width_for_height_relief() {
+        let mut request = flat_preview_request();
+        request.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+        request.rim_width = 0;
+        request.edge_debris = 1.0;
+        request.normal_detail_strength = 0.0;
+        let request = request.sanitized();
+        let sdf = MapSdf::compute(&request.map);
+        let edge_width = preview_edge_width_px(&request);
+
+        let mut sample = None;
+        for y in 64..128 {
+            for x in 64..128 {
+                let world_x = x as f32 + 0.5;
+                let world_y = y as f32 + 0.5;
+                let signed_distance =
+                    controlled_sdf_distance_px(&request, &sdf, request.seed, world_x, world_y);
+                if signed_distance > 1.1 && signed_distance < edge_width - 0.25 {
+                    sample = Some((world_x, world_y));
+                    break;
+                }
+            }
+            if sample.is_some() {
+                break;
+            }
+        }
+        let (world_x, world_y) = sample.expect("expected a sample inside the visible edge band");
+        let (base_height, zone) =
+            sample_global_height(&request, &sdf, request.seed, world_x, world_y);
+        let render_height =
+            sample_global_render_height(&request, &sdf, request.seed, world_x, world_y);
+
+        assert_eq!(zone, SurfaceZone::Edge);
+        assert!(
+            (render_height - base_height).abs() > 0.001,
+            "edge_debris should chip height across the visible edge band even when rim_width is zero"
+        );
+    }
+
+    #[test]
+    fn edge_debris_varies_visible_edge_albedo() {
+        let mut request = flat_preview_request();
+        request.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+        request.rim_width = 8;
+        request.edge_debris = 1.0;
+        let request = request.sanitized();
+        let sdf = MapSdf::compute(&request.map);
+        let signature = signature_at(&request.map, 1, 1);
+
+        let tile = render_tile_with_sdf(
+            &request,
+            &TextureSet::default(),
+            &sdf,
+            &signature,
+            0,
+            64,
+            64,
+        );
+
+        assert!(
+            unique_edge_albedo_colors(&tile) > 3,
+            "edge_debris should add spatial color variation to the visible edge band"
+        );
+    }
+
+    #[test]
+    fn edge_debris_width_scales_from_zero_without_a_step_change() {
+        let mut request = flat_preview_request();
+        request.rim_width = 0;
+        request.edge_debris = 0.25;
+        let request = request.sanitized();
+
+        let expected = request.tile_size as f32 * 0.06 * request.edge_debris;
+
+        assert!(
+            (preview_edge_width_px(&request) - expected).abs() < 0.001,
+            "edge_debris should grow the visible edge width gradually from zero"
+        );
+    }
+
+    #[test]
+    fn sdf_preview_mask_channels_preserve_supersampled_zone_coverage() {
+        let (mut request, sdf, signature) = diagonal_sdf_request();
+        request.shape_supersampling = 4;
+        request.preview_mode = "mask".to_string();
+        let request = request.sanitized();
+
+        let tile =
+            render_tile_with_sdf(&request, &TextureSet::default(), &sdf, &signature, 0, 0, 0);
+
+        assert!(
+            tile.mask.pixels().any(|pixel| {
+                pixel.0[3] > 0
+                    && pixel.0[3] < 255
+                    && pixel.0[..3]
+                        .iter()
+                        .any(|channel| *channel > 0 && *channel < 255)
+            }),
+            "partial SDF coverage should be visible in mask channels, not only alpha"
+        );
+    }
+
+    #[test]
+    fn contour_warp_px_changes_sdf_preview_mask_geometry() {
+        let (flat, sdf, signature) = single_cell_sdf_request();
+        let mut warped = flat.clone();
+        warped.contour_warp_px = 10.0;
+        let warped = warped.sanitized();
+
+        let flat_tile =
+            render_tile_with_sdf(&flat, &TextureSet::default(), &sdf, &signature, 0, 64, 64);
+        let warped_tile =
+            render_tile_with_sdf(&warped, &TextureSet::default(), &sdf, &signature, 0, 64, 64);
+
+        assert!(
+            images_differ(&flat_tile.mask, &warped_tile.mask),
+            "contour_warp_px should alter live SDF preview mask geometry"
+        );
+    }
+
+    #[test]
+    fn roughness_changes_sdf_preview_mask_geometry() {
+        let (flat, sdf, signature) = single_cell_sdf_request();
+        let mut rough = flat.clone();
+        rough.roughness = 100.0;
+        let rough = rough.sanitized();
+
+        let flat_tile =
+            render_tile_with_sdf(&flat, &TextureSet::default(), &sdf, &signature, 0, 64, 64);
+        let rough_tile =
+            render_tile_with_sdf(&rough, &TextureSet::default(), &sdf, &signature, 0, 64, 64);
+
+        assert!(
+            images_differ(&flat_tile.mask, &rough_tile.mask),
+            "roughness should alter live SDF preview mask geometry"
+        );
+    }
+
+    #[test]
+    fn automatic_variants_do_not_change_sdf_preview_geometry() {
+        let (mut request, sdf, signature) = single_cell_sdf_request();
+        request.contour_warp_px = 8.0;
+        request.geometry_variance = 1.0;
+        request.forced_variant = None;
+        let request = request.sanitized();
+
+        let variant_a = render_tile_with_sdf(
+            &request,
+            &TextureSet::default(),
+            &sdf,
+            &signature,
+            0,
+            64,
+            64,
+        );
+        let variant_b = render_tile_with_sdf(
+            &request,
+            &TextureSet::default(),
+            &sdf,
+            &signature,
+            1,
+            64,
+            64,
+        );
+
+        assert!(
+            images_match(&variant_a.mask, &variant_b.mask),
+            "auto variants may vary material, but SDF preview geometry must stay continuous across map tiles"
+        );
+    }
+
+    #[test]
+    fn sdf_preview_procedural_material_seed_is_stable_across_pixels() {
+        let mut request = flat_preview_request();
+        request.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![1, 1, 1, 1, 1, 1, 1, 1, 1],
+        };
+        request.materials.top.kind = "rough_stone".to_string();
+        request.materials.top.scale = 1.0;
+        request.preview_mode = "albedo".to_string();
+        let request = request.sanitized();
+        let sdf = MapSdf::compute(&request.map);
+        let signature = signature_at(&request.map, 1, 1);
+        let tile = render_tile_with_sdf(
+            &request,
+            &TextureSet::default(),
+            &sdf,
+            &signature,
+            0,
+            64,
+            64,
+        );
+        let sample_x = 96.0;
+        let sample_y = 96.0;
+        let material_seed = request.seed.wrapping_add(17_371);
+        let expected = sample_material_color(
+            &request.materials.top,
+            parse_hex_color(&request.colors.top),
+            None,
+            request.texture_scale,
+            request.texture_color_overlay,
+            request.tile_size,
+            sample_x,
+            sample_y,
+            request
+                .seed
+                .wrapping_add(20_001)
+                .wrapping_add(material_seed),
+            1.0,
+        );
+
+        assert_eq!(
+            tile.albedo.get_pixel(32, 32).0[..3],
+            expected,
+            "procedural materials should use a stable layer/variant seed; coordinates already provide per-pixel texture variation"
+        );
+    }
+
+    #[test]
+    fn front_only_sdf_preview_does_not_emit_side_facade_lobes() {
+        let mut request = flat_preview_request();
+        request.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+        request.south_height = 16;
+        request.side_height = 0;
+        request.north_height = 0;
+        request.rim_width = 0;
+        request.edge_debris = 0.0;
+        let request = request.sanitized();
+        let sdf = MapSdf::compute(&request.map);
+
+        let (_height, zone) = sample_global_height(&request, &sdf, request.seed, 128.5, 96.0);
+
+        assert_eq!(
+            zone,
+            SurfaceZone::Empty,
+            "with side_height=0, east/west contour normals must not create protruding side facade"
+        );
+    }
+
+    #[test]
+    fn front_only_south_face_is_vertical_projection_without_side_lobes() {
+        let mut request = flat_preview_request();
+        request.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+        request.south_height = 20;
+        request.side_height = 0;
+        request.north_height = 0;
+        request.rim_width = 0;
+        request.edge_debris = 0.0;
+        request.roughness = 0.0;
+        request.contour_warp_px = 0.0;
+        request.corner_variation = 0.0;
+        request.shape_supersampling = 4;
+        let request = request.sanitized();
+        let sdf = MapSdf::compute(&request.map);
+        let signature = signature_at(&request.map, 1, 1);
+        let tile = render_tile_with_sdf(
+            &request,
+            &TextureSet::default(),
+            &sdf,
+            &signature,
+            0,
+            64,
+            64,
+        );
+
+        let mut unsupported_face_pixels = 0_usize;
+        for y in 0..tile.mask.height() {
+            for x in 0..tile.mask.width() {
+                if tile.mask.get_pixel(x, y).0[1] == 0 {
+                    continue;
+                }
+                let supported_by_top_above = (1..=request.south_height)
+                    .any(|dy| y >= dy && tile.mask.get_pixel(x, y - dy).0[0] > 0);
+                if !supported_by_top_above {
+                    unsupported_face_pixels += 1;
+                }
+            }
+        }
+
+        assert_eq!(
+            unsupported_face_pixels, 0,
+            "front-only south facade must project vertically from top coverage without side lobes"
+        );
+    }
+
+    #[test]
+    fn side_height_with_zero_north_height_does_not_emit_north_back_horns() {
+        let mut request = flat_preview_request();
+        request.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+        request.south_height = 20;
+        request.side_height = 16;
+        request.north_height = 0;
+        request.rim_width = 0;
+        request.edge_debris = 0.0;
+        request.roughness = 0.0;
+        request.contour_warp_px = 0.0;
+        let request = request.sanitized();
+        let sdf = MapSdf::compute(&request.map);
+        let signature = signature_at(&request.map, 1, 0);
+        let tile =
+            render_tile_with_sdf(&request, &TextureSet::default(), &sdf, &signature, 0, 64, 0);
+
+        assert!(
+            !tile.mask.pixels().any(|pixel| pixel.0[2] > 0),
+            "side height must not create north/back facade horns when north_height is zero"
+        );
+    }
+
+    #[test]
+    fn side_height_preview_stays_within_configured_side_depth() {
+        let mut request = flat_preview_request();
+        request.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+        request.south_height = 20;
+        request.side_height = 16;
+        request.north_height = 0;
+        request.rim_width = 0;
+        request.edge_debris = 0.0;
+        request.roughness = 0.0;
+        request.contour_warp_px = 0.0;
+        let request = request.sanitized();
+        let sdf = MapSdf::compute(&request.map);
+        let signature = signature_at(&request.map, 1, 1);
+        let tile = render_tile_with_sdf(
+            &request,
+            &TextureSet::default(),
+            &sdf,
+            &signature,
+            0,
+            64,
+            64,
+        );
+
+        let contour_x = (request.tile_size / 2) as i32;
+        let mut max_side_depth = -1_i32;
+        let mut side_pixels = 0_usize;
+        for y in 0..tile.mask.height() {
+            for x in contour_x as u32..tile.mask.width() {
+                if tile.mask.get_pixel(x, y).0[1] > 0 {
+                    side_pixels += 1;
+                    max_side_depth = max_side_depth.max(x as i32 - contour_x);
+                }
+            }
+        }
+
+        assert!(side_pixels > 0, "side height should create a side facade");
+        assert!(
+            max_side_depth <= request.side_height as i32,
+            "side facade depth should stay within side_height: got {max_side_depth}"
+        );
+    }
+
+    #[test]
+    fn global_preview_blends_top_and_face_boundary_pixels() {
+        let mut request = flat_preview_request();
+        request.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+        request.colors.top = "#ffffff".to_string();
+        request.colors.face = "#000000".to_string();
+        request.materials.top = flat_material("#ffffff");
+        request.materials.face = flat_material("#000000");
+        request.south_height = 20;
+        request.side_height = 16;
+        request.north_height = 0;
+        request.rim_width = 0;
+        request.edge_debris = 0.0;
+        request.roughness = 0.0;
+        request.contour_warp_px = 0.0;
+        request.corner_variation = 0.0;
+        request.bake_height_shading = false;
+        request.shape_supersampling = 4;
+        let request = request.sanitized();
+        let sdf = MapSdf::compute(&request.map);
+        let signature = signature_at(&request.map, 1, 1);
+        let tile = render_tile_with_sdf(
+            &request,
+            &TextureSet::default(),
+            &sdf,
+            &signature,
+            0,
+            64,
+            64,
+        );
+
+        let boundary_pixel = tile
+            .mask
+            .enumerate_pixels()
+            .find(|(_x, _y, mask)| {
+                mask.0[0] > 0 && mask.0[1] > 0 && mask.0[2] == 0 && mask.0[3] == 255
+            })
+            .expect("expected a supersampled top/face boundary pixel");
+        let albedo = tile.albedo.get_pixel(boundary_pixel.0, boundary_pixel.1).0;
+
+        assert!(
+            albedo[0] > 0 && albedo[0] < 255,
+            "mixed top/face boundary pixels should render as blended preview color, got {albedo:?}"
+        );
+    }
+
+    #[test]
+    fn edge_color_tints_visible_preview_lip() {
+        let mut request = flat_preview_request();
+        request.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+        request.colors.top = "#202020".to_string();
+        request.colors.face = "#202020".to_string();
+        request.colors.edge = "#ff0000".to_string();
+        request.edge_color_strength = 1.0;
+        request.rim_width = 8;
+        request.edge_debris = 0.0;
+        let request = request.sanitized();
+        let sdf = MapSdf::compute(&request.map);
+        let signature = signature_at(&request.map, 1, 1);
+        let tile = render_tile_with_sdf(
+            &request,
+            &TextureSet::default(),
+            &sdf,
+            &signature,
+            0,
+            64,
+            64,
+        );
+        let mut edge_pixels = tile
+            .albedo
+            .pixels()
+            .zip(tile.mask.pixels())
+            .filter(|(_albedo, mask)| mask.0[0] > 0 && mask.0[1] > 0);
+
+        let (albedo, _mask) = edge_pixels
+            .next()
+            .expect("expected at least one visible edge pixel");
+
+        assert!(
+            albedo.0[0] > albedo.0[1] * 2 && albedo.0[0] > albedo.0[2] * 2,
+            "edge color should visibly tint the preview lip"
+        );
+    }
+
+    #[test]
+    fn side_facade_image_texture_wraps_by_wall_depth() {
+        let mut request = flat_preview_request();
+        request.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+        request.south_height = 16;
+        request.side_height = 16;
+        request.north_height = 0;
+        request.rim_width = 0;
+        request.edge_debris = 0.0;
+        request.texture_scale = 1.0;
+        request.materials.face.source = "image".to_string();
+        let request = request.sanitized();
+        let sdf = MapSdf::compute(&request.map);
+        let signature = signature_at(&request.map, 1, 1);
+        let texture = LoadedTexture {
+            image: RgbaImage::from_fn(32, 32, |_x, y| {
+                if y < 8 {
+                    Rgba([40, 40, 40, 255])
+                } else {
+                    Rgba([220, 220, 220, 255])
+                }
+            }),
+        };
+        let textures = TextureSet {
+            face: Some(texture),
+            ..TextureSet::default()
+        };
+        let tile = render_tile_with_sdf(&request, &textures, &sdf, &signature, 0, 64, 64);
+
+        let shallow = tile.albedo.get_pixel(34, 0).0;
+        let deep = tile.albedo.get_pixel(46, 0).0;
+
+        assert_ne!(
+            shallow[..3],
+            deep[..3],
+            "side wall textures should turn with the facade and vary by wall depth, not fixed screen Y"
         );
     }
 
@@ -2204,6 +4261,24 @@ mod tests {
         assert!(!output_dir.join("plains_ground_atlas_albedo.png").exists());
         assert!(!output_dir.join("plains_ground_top_albedo.png").exists());
     }
+
+    #[test]
+    fn full_export_does_not_recompute_map_preview() {
+        let output_dir = test_output_dir("full_export_without_preview");
+        let mut request = default_request();
+        request.asset_name = "plains_ground".to_string();
+        request.export_mode = ExportMode::BaseVariantsOnly;
+        request.tile_size = 32;
+        request.variants = 2;
+        let request = request.sanitized();
+
+        let manifest = run_request(RenderMode::Full, request, &output_dir)
+            .expect("full export should render without preview");
+
+        assert!(manifest.files.preview_png.is_empty());
+        assert!(!output_dir.join("plains_ground_preview.png").exists());
+        assert!(manifest.files.atlas_albedo_png.is_some());
+    }
 }
 
 fn apply_material_tint(
@@ -2234,8 +4309,8 @@ fn sample_material_color(
     texture_scale: f32,
     texture_color_overlay: bool,
     tile_size: u32,
-    x: u32,
-    y: u32,
+    x: f32,
+    y: f32,
     seed: u32,
     brightness: f32,
 ) -> [u8; 3] {
@@ -2621,25 +4696,33 @@ fn stratified_rock_layers(
         * 1.8;
     let tilted_y = py + px * 0.10 + warp;
     let band_pos = positive_mod(tilted_y, band_height);
-    let band_edge = line_mask(band_pos.min(band_height - band_pos), 0.55 + material.crack_amount);
+    let band_edge = line_mask(
+        band_pos.min(band_height - band_pos),
+        0.55 + material.crack_amount,
+    );
     let shelf = ((tilted_y / band_height).floor() as i32).rem_euclid(5) as f32 / 5.0;
     let vertical_crack = clamp(
-        (0.13 - (fbm_tiled(
-            px * 0.095 + 31.0,
-            py * 0.028,
-            period * 0.095,
-            period * 0.028,
-            2,
-            seed.wrapping_add(613),
-        ) - 0.48)
-            .abs())
+        (0.13
+            - (fbm_tiled(
+                px * 0.095 + 31.0,
+                py * 0.028,
+                period * 0.095,
+                period * 0.028,
+                2,
+                seed.wrapping_add(613),
+            ) - 0.48)
+                .abs())
             * material.crack_amount
             * 5.0,
         0.0,
         1.0,
     );
     let chip = clamp((speck - 0.73) * 3.8, 0.0, 1.0) * material.wear;
-    let crack = clamp(band_edge * 0.75 + vertical_crack * 0.65 + chip * 0.35, 0.0, 1.0);
+    let crack = clamp(
+        band_edge * 0.75 + vertical_crack * 0.65 + chip * 0.35,
+        0.0,
+        1.0,
+    );
     let value = 0.34 + broad * 0.22 + fine * 0.12 + shelf * 0.16 + speck * material.grain * 0.10;
     let highlight = clamp((1.0 - band_edge) * fine * 0.10 + chip * 0.16, 0.0, 1.0);
     (value, crack, chip + vertical_crack * 0.35, highlight)
@@ -3077,6 +5160,38 @@ fn mix_color(a: [u8; 3], b: [u8; 3], t: f32) -> [u8; 3] {
     ]
 }
 
+fn blend_coverage_color(
+    top: [u8; 3],
+    top_weight: f32,
+    face: [u8; 3],
+    face_weight: f32,
+    back: [u8; 3],
+    back_weight: f32,
+) -> [u8; 3] {
+    let top_weight = top_weight.clamp(0.0, 1.0);
+    let face_weight = face_weight.clamp(0.0, 1.0);
+    let back_weight = back_weight.clamp(0.0, 1.0);
+    let total = top_weight + face_weight + back_weight;
+    if total <= 0.0001 {
+        return top;
+    }
+
+    [
+        ((top[0] as f32 * top_weight + face[0] as f32 * face_weight + back[0] as f32 * back_weight)
+            / total)
+            .round()
+            .clamp(0.0, 255.0) as u8,
+        ((top[1] as f32 * top_weight + face[1] as f32 * face_weight + back[1] as f32 * back_weight)
+            / total)
+            .round()
+            .clamp(0.0, 255.0) as u8,
+        ((top[2] as f32 * top_weight + face[2] as f32 * face_weight + back[2] as f32 * back_weight)
+            / total)
+            .round()
+            .clamp(0.0, 255.0) as u8,
+    ]
+}
+
 fn scale_color(color: [u8; 3], factor: f32) -> [u8; 3] {
     [
         (color[0] as f32 * factor).round().clamp(0.0, 255.0) as u8,
@@ -3118,6 +5233,7 @@ fn maybe_apply_height_shading(
 fn apply_height_shading(color: [u8; 3], height: f32, zone: SurfaceZone) -> [u8; 3] {
     let factor = match zone {
         SurfaceZone::Top => 0.96 + height * 0.08,
+        SurfaceZone::Edge => 0.93 + height * 0.08,
         SurfaceZone::Face => 0.90 + height * 0.10,
         SurfaceZone::Back => 0.94 + height * 0.08,
         SurfaceZone::Empty => 1.0,

@@ -3,7 +3,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use image::{imageops, Rgba, RgbaImage};
+use image::{Rgba, RgbaImage, imageops};
 use serde::Serialize;
 
 use crate::model::{AppRequest, DecalCellRequest};
@@ -117,8 +117,12 @@ pub fn run_request(request: &AppRequest, output_dir: &Path) -> Result<DecalOutpu
         outline_enable: request.decal_atlas.outline_enable,
         cells: metadata_cells,
     };
-    fs::write(&metadata_path, serde_json::to_vec_pretty(&metadata)?)
-        .with_context(|| format!("failed to write decal metadata: {}", metadata_path.display()))?;
+    fs::write(&metadata_path, serde_json::to_vec_pretty(&metadata)?).with_context(|| {
+        format!(
+            "failed to write decal metadata: {}",
+            metadata_path.display()
+        )
+    })?;
 
     Ok(DecalOutputManifest {
         mode: "decals".to_string(),
@@ -136,7 +140,11 @@ pub fn run_request(request: &AppRequest, output_dir: &Path) -> Result<DecalOutpu
     })
 }
 
-fn render_cell(cell: &DecalCellRequest, outline_enable: bool, warnings: &mut Vec<String>) -> RgbaImage {
+fn render_cell(
+    cell: &DecalCellRequest,
+    outline_enable: bool,
+    warnings: &mut Vec<String>,
+) -> RgbaImage {
     let mut sprite = if cell.source == "image" {
         render_image_cell(cell, warnings).unwrap_or_else(|| render_procedural_cell(cell))
     } else if cell.source == "color" {
@@ -216,7 +224,11 @@ fn render_procedural_cell(cell: &DecalCellRequest) -> RgbaImage {
                 let crack = crack_mask(x, y, cell.size_class, cell.seed);
                 shade -= crack * 0.35;
             } else if cell.kind == "ribbed_steel" {
-                let rib = if (x + y + cell.seed % 7) % 7 < 2 { 0.18 } else { -0.05 };
+                let rib = if (x + y + cell.seed % 7) % 7 < 2 {
+                    0.18
+                } else {
+                    -0.05
+                };
                 shade += rib;
             } else if cell.kind == "gravel" {
                 shade += (hash2d((x / 3) as i32, (y / 3) as i32, cell.seed) - 0.5) * 0.35;
@@ -242,18 +254,20 @@ fn decal_alpha(x: u32, y: u32, size: u32, seed: u32) -> u8 {
 fn crack_mask(x: u32, y: u32, size: u32, seed: u32) -> f32 {
     let band_a = ((x as i32 - y as i32 + seed as i32 % 17).abs() % 19) as u32;
     let band_b = ((x + y + seed % 23) % (size / 2).max(7)) as u32;
-    if band_a <= 1 || band_b == 0 {
-        1.0
-    } else {
-        0.0
-    }
+    if band_a <= 1 || band_b == 0 { 1.0 } else { 0.0 }
 }
 
 fn shaded(color: [u8; 3], shade: f32, alpha: u8) -> Rgba<u8> {
     Rgba([
-        (color[0] as f32 * shade.clamp(0.35, 1.35)).round().clamp(0.0, 255.0) as u8,
-        (color[1] as f32 * shade.clamp(0.35, 1.35)).round().clamp(0.0, 255.0) as u8,
-        (color[2] as f32 * shade.clamp(0.35, 1.35)).round().clamp(0.0, 255.0) as u8,
+        (color[0] as f32 * shade.clamp(0.35, 1.35))
+            .round()
+            .clamp(0.0, 255.0) as u8,
+        (color[1] as f32 * shade.clamp(0.35, 1.35))
+            .round()
+            .clamp(0.0, 255.0) as u8,
+        (color[2] as f32 * shade.clamp(0.35, 1.35))
+            .round()
+            .clamp(0.0, 255.0) as u8,
         alpha,
     ])
 }
@@ -353,16 +367,27 @@ mod tests {
             .expect("decal atlas should be readable")
             .to_rgba8();
         let metadata: serde_json::Value = serde_json::from_slice(
-            &test_fs::read(&manifest.files.decal_metadata_json).expect("metadata should be readable"),
+            &test_fs::read(&manifest.files.decal_metadata_json)
+                .expect("metadata should be readable"),
         )
         .expect("metadata should be json");
 
         assert_eq!(atlas.dimensions(), (128, 128));
-        assert_eq!(metadata["cells"].as_array().expect("cells should be array").len(), 16);
+        assert_eq!(
+            metadata["cells"]
+                .as_array()
+                .expect("cells should be array")
+                .len(),
+            16
+        );
         assert_eq!(metadata["cells"][0]["size_class"], 16);
         assert_eq!(metadata["cells"][1]["pivot"], "bottom_center");
         assert!(output_dir.join("plains_debris_decal_atlas.png").exists());
-        assert!(output_dir.join("plains_debris_decal_metadata.json").exists());
+        assert!(
+            output_dir
+                .join("plains_debris_decal_metadata.json")
+                .exists()
+        );
     }
 
     #[test]
@@ -386,13 +411,26 @@ mod tests {
 
         let manifest = run_request(&request, &output_dir).expect("decal export should render");
         let metadata: serde_json::Value = serde_json::from_slice(
-            &test_fs::read(&manifest.files.decal_metadata_json).expect("metadata should be readable"),
+            &test_fs::read(&manifest.files.decal_metadata_json)
+                .expect("metadata should be readable"),
         )
         .expect("metadata should be json");
 
-        assert_eq!(metadata["cells"][0]["source_recipe_summary"]["source"], "procedural");
-        assert_eq!(metadata["cells"][0]["source_recipe_summary"]["kind"], "rough_stone");
-        assert_eq!(metadata["cells"][1]["source_recipe_summary"]["source"], "color");
-        assert_eq!(metadata["cells"][2]["source_recipe_summary"]["source"], "image");
+        assert_eq!(
+            metadata["cells"][0]["source_recipe_summary"]["source"],
+            "procedural"
+        );
+        assert_eq!(
+            metadata["cells"][0]["source_recipe_summary"]["kind"],
+            "rough_stone"
+        );
+        assert_eq!(
+            metadata["cells"][1]["source_recipe_summary"]["source"],
+            "color"
+        );
+        assert_eq!(
+            metadata["cells"][2]["source_recipe_summary"]["source"],
+            "image"
+        );
     }
 }

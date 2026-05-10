@@ -24,7 +24,16 @@ pub struct Signature {
 
 impl Signature {
     #[cfg(test)]
-    pub fn create(n: bool, ne: bool, e: bool, se: bool, s: bool, sw: bool, w: bool, nw: bool) -> Self {
+    pub fn create(
+        n: bool,
+        ne: bool,
+        e: bool,
+        se: bool,
+        s: bool,
+        sw: bool,
+        w: bool,
+        nw: bool,
+    ) -> Self {
         let open_n = !n;
         let open_e = !e;
         let open_s = !s;

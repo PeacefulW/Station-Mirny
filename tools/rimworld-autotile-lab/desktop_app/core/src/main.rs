@@ -1,17 +1,18 @@
-mod model;
 mod decal;
+mod model;
 mod noise;
 mod render;
-mod silhouette;
+mod sdf;
 mod signature;
+mod silhouette;
 
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 
-use crate::model::{default_request, AppRequest, RenderMode};
+use crate::model::{AppRequest, RenderMode, default_request};
 
 fn main() {
     if let Err(error) = try_main() {
@@ -39,7 +40,9 @@ fn try_main() -> Result<()> {
             serde_json::to_value(render::run_request(render_mode, request, &cli.output_dir)?)?
         }
         CliMode::Decals => serde_json::to_value(decal::run_request(&request, &cli.output_dir)?)?,
-        CliMode::Silhouettes => serde_json::to_value(silhouette::run_request(&request, &cli.output_dir)?)?,
+        CliMode::Silhouettes => {
+            serde_json::to_value(silhouette::run_request(&request, &cli.output_dir)?)?
+        }
     };
     let manifest_path = cli.output_dir.join("manifest.json");
     fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)
@@ -70,17 +73,23 @@ fn parse_args(args: &[String]) -> Result<Cli> {
         match args[index].as_str() {
             "--mode" => {
                 index += 1;
-                let value = args.get(index).ok_or_else(|| anyhow!("missing value for --mode"))?;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| anyhow!("missing value for --mode"))?;
                 mode = parse_mode(value);
             }
             "--request" => {
                 index += 1;
-                let value = args.get(index).ok_or_else(|| anyhow!("missing value for --request"))?;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| anyhow!("missing value for --request"))?;
                 request_path = Some(PathBuf::from(value));
             }
             "--output" => {
                 index += 1;
-                let value = args.get(index).ok_or_else(|| anyhow!("missing value for --output"))?;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| anyhow!("missing value for --output"))?;
                 output_dir = Some(PathBuf::from(value));
             }
             unknown => {

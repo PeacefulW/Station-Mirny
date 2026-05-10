@@ -22,6 +22,7 @@ PRESETS = {
         "corner_variation": 0.35,
         "rim_width": 7,
         "edge_debris": 0.65,
+        "edge_color_strength": 0.35,
         "geometry_variance": 0.45,
         "shape_supersampling": 4,
         "normal_detail_strength": 1.25,
@@ -35,6 +36,7 @@ PRESETS = {
         "colors": {
             "top": "#705940",
             "face": "#3e2f25",
+            "edge": "#49382c",
             "back": "#564436",
             "base": "#b88d58",
         },
@@ -57,6 +59,7 @@ PRESETS = {
         "corner_variation": 0.16,
         "rim_width": 4,
         "edge_debris": 0.25,
+        "edge_color_strength": 0.35,
         "geometry_variance": 0.15,
         "shape_supersampling": 4,
         "normal_detail_strength": 0.8,
@@ -65,6 +68,7 @@ PRESETS = {
         "colors": {
             "top": "#765439",
             "face": "#473328",
+            "edge": "#5c3f2d",
             "back": "#5e4636",
             "base": "#bb9361",
         },
@@ -87,6 +91,7 @@ PRESETS = {
         "corner_variation": 0.25,
         "rim_width": 5,
         "edge_debris": 0.45,
+        "edge_color_strength": 0.35,
         "geometry_variance": 0.3,
         "shape_supersampling": 4,
         "normal_detail_strength": 1.0,
@@ -95,6 +100,7 @@ PRESETS = {
         "colors": {
             "top": "#7b5027",
             "face": "#5a3822",
+            "edge": "#654326",
             "back": "#6b452a",
             "base": "#a56a36",
         },
