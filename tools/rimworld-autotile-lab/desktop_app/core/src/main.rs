@@ -8,11 +8,15 @@ mod silhouette;
 
 use std::env;
 use std::fs;
+use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
+use schemars::schema_for;
+use serde::{Deserialize, Serialize};
 
 use crate::model::{AppRequest, RenderMode, default_request};
+use crate::render::RenderOptions;
 
 fn main() {
     if let Err(error) = try_main() {
@@ -27,6 +31,16 @@ fn try_main() -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&default_request())?);
         return Ok(());
     }
+    if args.len() == 2 && args[1] == "--print-request-schema" {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&schema_for!(AppRequest))?
+        );
+        return Ok(());
+    }
+    if args.len() == 2 && args[1] == "--serve" {
+        return serve_loop();
+    }
 
     let cli = parse_args(&args)?;
     let request_bytes = fs::read(&cli.request_path)
@@ -36,17 +50,25 @@ fn try_main() -> Result<()> {
     let request = request.sanitized();
 
     let manifest = match cli.mode {
-        CliMode::Terrain(render_mode) => {
-            serde_json::to_value(render::run_request(render_mode, request, &cli.output_dir)?)?
-        }
+        CliMode::Terrain(render_mode) => serde_json::to_value(render::run_request_with_options(
+            render_mode,
+            request,
+            &cli.output_dir,
+            RenderOptions {
+                inline_preview: cli.inline_preview,
+                transient: cli.transient,
+            },
+        )?)?,
         CliMode::Decals => serde_json::to_value(decal::run_request(&request, &cli.output_dir)?)?,
         CliMode::Silhouettes => {
             serde_json::to_value(silhouette::run_request(&request, &cli.output_dir)?)?
         }
     };
-    let manifest_path = cli.output_dir.join("manifest.json");
-    fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)
-        .with_context(|| format!("failed to write manifest: {}", manifest_path.display()))?;
+    if !cli.transient {
+        let manifest_path = cli.output_dir.join("manifest.json");
+        fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)
+            .with_context(|| format!("failed to write manifest: {}", manifest_path.display()))?;
+    }
     println!("{}", serde_json::to_string_pretty(&manifest)?);
     Ok(())
 }
@@ -55,6 +77,8 @@ struct Cli {
     mode: CliMode,
     request_path: PathBuf,
     output_dir: PathBuf,
+    inline_preview: bool,
+    transient: bool,
 }
 
 enum CliMode {
@@ -63,10 +87,95 @@ enum CliMode {
     Silhouettes,
 }
 
+#[derive(Deserialize)]
+struct ServeRequest {
+    id: u64,
+    mode: String,
+    request: AppRequest,
+    output: PathBuf,
+    #[serde(default)]
+    inline_preview: bool,
+    #[serde(default)]
+    transient: bool,
+}
+
+#[derive(Serialize)]
+struct ServeResponse {
+    id: u64,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    manifest: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+fn serve_loop() -> Result<()> {
+    let stdin = io::stdin();
+    let mut stdout = io::stdout();
+    for line in stdin.lock().lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let response = handle_serve_line(&line);
+        writeln!(stdout, "{}", serde_json::to_string(&response)?)?;
+        stdout.flush()?;
+    }
+    Ok(())
+}
+
+fn handle_serve_line(line: &str) -> ServeResponse {
+    let parsed: Result<ServeRequest, _> = serde_json::from_str(line);
+    match parsed {
+        Ok(message) => {
+            let id = message.id;
+            let request = message.request.sanitized();
+            let result = match parse_mode(&message.mode) {
+                CliMode::Terrain(render_mode) => render::run_request_with_options(
+                    render_mode,
+                    request,
+                    &message.output,
+                    RenderOptions {
+                        inline_preview: message.inline_preview,
+                        transient: message.transient,
+                    },
+                )
+                .and_then(|manifest| serde_json::to_value(manifest).map_err(Into::into)),
+                CliMode::Decals => decal::run_request(&request, &message.output)
+                    .and_then(|manifest| serde_json::to_value(manifest).map_err(Into::into)),
+                CliMode::Silhouettes => silhouette::run_request(&request, &message.output)
+                    .and_then(|manifest| serde_json::to_value(manifest).map_err(Into::into)),
+            };
+            match result {
+                Ok(manifest) => ServeResponse {
+                    id,
+                    ok: true,
+                    manifest: Some(manifest),
+                    error: None,
+                },
+                Err(error) => ServeResponse {
+                    id,
+                    ok: false,
+                    manifest: None,
+                    error: Some(format!("{error:#}")),
+                },
+            }
+        }
+        Err(error) => ServeResponse {
+            id: 0,
+            ok: false,
+            manifest: None,
+            error: Some(format!("invalid server request: {error}")),
+        },
+    }
+}
+
 fn parse_args(args: &[String]) -> Result<Cli> {
     let mut mode = CliMode::Terrain(RenderMode::Full);
     let mut request_path: Option<PathBuf> = None;
     let mut output_dir: Option<PathBuf> = None;
+    let mut inline_preview = false;
+    let mut transient = false;
     let mut index = 1;
 
     while index < args.len() {
@@ -92,9 +201,15 @@ fn parse_args(args: &[String]) -> Result<Cli> {
                     .ok_or_else(|| anyhow!("missing value for --output"))?;
                 output_dir = Some(PathBuf::from(value));
             }
+            "--inline-preview" => {
+                inline_preview = true;
+            }
+            "--transient" => {
+                transient = true;
+            }
             unknown => {
                 return Err(anyhow!(
-                    "unknown argument: {unknown}. expected --mode <draft|full|decals|silhouettes> --request <json> --output <dir>"
+                    "unknown argument: {unknown}. expected --mode <draft|full|decals|silhouettes> --request <json> --output <dir> [--inline-preview] [--transient]"
                 ));
             }
         }
@@ -105,6 +220,8 @@ fn parse_args(args: &[String]) -> Result<Cli> {
         mode,
         request_path: request_path.ok_or_else(|| anyhow!("--request is required"))?,
         output_dir: output_dir.ok_or_else(|| anyhow!("--output is required"))?,
+        inline_preview,
+        transient,
     })
 }
 

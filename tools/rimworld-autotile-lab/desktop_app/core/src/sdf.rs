@@ -7,6 +7,10 @@ pub struct MapSdf {
     pub width: u32,
     pub height: u32,
     pub values: Vec<f32>,
+    outside_padding: u32,
+    outside_width: u32,
+    outside_height: u32,
+    outside_values: Vec<f32>,
 }
 
 impl MapSdf {
@@ -19,6 +23,10 @@ impl MapSdf {
                 width,
                 height,
                 values: Vec::new(),
+                outside_padding: 0,
+                outside_width: 0,
+                outside_height: 0,
+                outside_values: Vec::new(),
             };
         }
 
@@ -31,6 +39,10 @@ impl MapSdf {
                 width,
                 height,
                 values,
+                outside_padding: 0,
+                outside_width: 0,
+                outside_height: 0,
+                outside_values: Vec::new(),
             };
         }
 
@@ -61,10 +73,45 @@ impl MapSdf {
             }
         }
 
+        let outside_padding = 8;
+        let outside_width = width + outside_padding * 2;
+        let outside_height = height + outside_padding * 2;
+        let outside_distance_sq =
+            squared_distance_to_features(outside_width, outside_height, |x, y| {
+                cell_inside(
+                    map,
+                    x as i32 - outside_padding as i32,
+                    y as i32 - outside_padding as i32,
+                )
+            });
+        let mut outside_values = vec![0.0_f32; (outside_width * outside_height) as usize];
+        for y in 0..outside_height {
+            for x in 0..outside_width {
+                let map_x = x as i32 - outside_padding as i32;
+                let map_y = y as i32 - outside_padding as i32;
+                let value =
+                    if map_x >= 0 && map_y >= 0 && map_x < width as i32 && map_y < height as i32 {
+                        values[(map_y as u32 * width + map_x as u32) as usize]
+                    } else {
+                        let best_sq = outside_distance_sq[(y * outside_width + x) as usize];
+                        if best_sq < INF_DISTANCE_SQ * 0.5 {
+                            -(best_sq.sqrt() - 0.5).max(0.0)
+                        } else {
+                            -(width.max(height).max(1) as f32)
+                        }
+                    };
+                outside_values[(y * outside_width + x) as usize] = value;
+            }
+        }
+
         Self {
             width,
             height,
             values,
+            outside_padding,
+            outside_width,
+            outside_height,
+            outside_values,
         }
     }
 
@@ -104,22 +151,38 @@ impl MapSdf {
     }
 
     fn outside_value_at(&self, x: i32, y: i32) -> f32 {
-        let mut best_sq = f32::INFINITY;
-        for iy in 0..self.height as i32 {
-            for ix in 0..self.width as i32 {
-                let value = self.values[(iy as u32 * self.width + ix as u32) as usize];
-                if value > 0.0 {
-                    let dx = x as f32 - ix as f32;
-                    let dy = y as f32 - iy as f32;
-                    best_sq = best_sq.min(dx * dx + dy * dy);
-                }
+        if self.outside_padding > 0 {
+            let px = x + self.outside_padding as i32;
+            let py = y + self.outside_padding as i32;
+            if px >= 0
+                && py >= 0
+                && px < self.outside_width as i32
+                && py < self.outside_height as i32
+            {
+                return self.outside_values[(py as u32 * self.outside_width + px as u32) as usize];
             }
         }
-        if best_sq.is_finite() {
-            -(best_sq.sqrt() - 0.5).max(0.0)
+
+        let max_x = self.width as i32 - 1;
+        let max_y = self.height as i32 - 1;
+        let clamped_x = x.clamp(0, max_x);
+        let clamped_y = y.clamp(0, max_y);
+        let edge_value = self.values[(clamped_y as u32 * self.width + clamped_x as u32) as usize];
+        let dx = if x < 0 {
+            -x
+        } else if x > max_x {
+            x - max_x
         } else {
-            -(self.width.max(self.height).max(1) as f32)
-        }
+            0
+        };
+        let dy = if y < 0 {
+            -y
+        } else if y > max_y {
+            y - max_y
+        } else {
+            0
+        };
+        edge_value - ((dx * dx + dy * dy) as f32).sqrt()
     }
 }
 

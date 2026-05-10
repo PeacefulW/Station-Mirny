@@ -69,21 +69,23 @@ fn value_noise_tiled(x: f32, y: f32, period_x: f32, period_y: f32, seed: u32) ->
         return value_noise(x, y, seed);
     }
 
-    let wrapped_x = positive_mod(x, period_x);
-    let wrapped_y = positive_mod(y, period_y);
-    let tx = clamp(wrapped_x / period_x, 0.0, 1.0);
-    let ty = clamp(wrapped_y / period_y, 0.0, 1.0);
+    let period_x = period_x.round().max(1.0) as i32;
+    let period_y = period_y.round().max(1.0) as i32;
+    let x0 = x.floor() as i32;
+    let y0 = y.floor() as i32;
+    let tx = x - x0 as f32;
+    let ty = y - y0 as f32;
+    let sx = smoothstep(tx);
+    let sy = smoothstep(ty);
+    let x1 = x0 + 1;
+    let y1 = y0 + 1;
 
-    let v00 = value_noise(wrapped_x, wrapped_y, seed);
-    let v10 = value_noise(wrapped_x - period_x, wrapped_y, seed);
-    let v01 = value_noise(wrapped_x, wrapped_y - period_y, seed);
-    let v11 = value_noise(wrapped_x - period_x, wrapped_y - period_y, seed);
+    let v00 = hash2d(x0.rem_euclid(period_x), y0.rem_euclid(period_y), seed);
+    let v10 = hash2d(x1.rem_euclid(period_x), y0.rem_euclid(period_y), seed);
+    let v01 = hash2d(x0.rem_euclid(period_x), y1.rem_euclid(period_y), seed);
+    let v11 = hash2d(x1.rem_euclid(period_x), y1.rem_euclid(period_y), seed);
 
-    let top = lerp(v00, v10, tx);
-    let bottom = lerp(v01, v11, tx);
-    lerp(top, bottom, ty)
-}
-
-fn positive_mod(value: f32, size: f32) -> f32 {
-    ((value % size) + size) % size
+    let top = lerp(v00, v10, sx);
+    let bottom = lerp(v01, v11, sx);
+    lerp(top, bottom, sy)
 }

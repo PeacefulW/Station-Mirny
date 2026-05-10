@@ -1,6 +1,7 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AppRequest {
     #[serde(default = "default_asset_name")]
     pub asset_name: String,
@@ -53,6 +54,8 @@ pub struct AppRequest {
     pub normal_detail_strength: f32,
     #[serde(default)]
     pub bake_height_shading: bool,
+    #[serde(default = "default_light_angle_deg")]
+    pub light_angle_deg: f32,
     #[serde(default = "default_texture_color_overlay")]
     pub texture_color_overlay: bool,
     pub preview_mode: String,
@@ -63,7 +66,7 @@ pub struct AppRequest {
     pub map: MapData,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum ExportMode {
     Full47,
     BaseVariantsOnly,
@@ -86,14 +89,14 @@ impl ExportMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TexturePaths {
     pub top: Option<String>,
     pub face: Option<String>,
     pub base: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ColorSet {
     pub top: String,
     pub face: String,
@@ -103,7 +106,7 @@ pub struct ColorSet {
     pub base: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct MaterialSlots {
     #[serde(default = "default_top_material")]
     pub top: MaterialConfig,
@@ -113,7 +116,7 @@ pub struct MaterialSlots {
     pub base: MaterialConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct MaterialConfig {
     #[serde(default = "default_material_source")]
     pub source: String,
@@ -141,7 +144,7 @@ pub struct MaterialConfig {
     pub highlight: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DecalAtlasRequest {
     #[serde(default = "default_decal_cell_size")]
     pub cell_size: u32,
@@ -151,7 +154,7 @@ pub struct DecalAtlasRequest {
     pub cells: Vec<DecalCellRequest>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DecalCellRequest {
     #[serde(default = "default_decal_source")]
     pub source: String,
@@ -169,7 +172,7 @@ pub struct DecalCellRequest {
     pub image_path: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SilhouetteAtlasRequest {
     #[serde(default = "default_silhouette_tile_size_px")]
     pub tile_size_px: u32,
@@ -187,7 +190,7 @@ pub struct SilhouetteAtlasRequest {
     pub seed: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct MapData {
     pub width: u32,
     pub height: u32,
@@ -212,6 +215,8 @@ pub struct OutputManifest {
 #[derive(Debug, Clone, Serialize)]
 pub struct GeneratedFiles {
     pub preview_png: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_png_base64: Option<String>,
     pub atlas_albedo_png: Option<String>,
     pub atlas_mask_png: Option<String>,
     pub atlas_height_png: Option<String>,
@@ -298,6 +303,8 @@ impl AppRequest {
             default_normal_detail_strength(),
         )
         .clamp(0.0, 4.0);
+        self.light_angle_deg =
+            finite_or_default(self.light_angle_deg, default_light_angle_deg()).rem_euclid(360.0);
         self.preview_mode = normalize_preview_mode(&self.preview_mode).to_string();
         self.materials.sanitize();
         self.decal_atlas.sanitize();
@@ -516,6 +523,7 @@ pub fn default_request() -> AppRequest {
         normal_strength: normal_strength_for_tile_size(64),
         normal_detail_strength: preset.normal_detail_strength,
         bake_height_shading: false,
+        light_angle_deg: default_light_angle_deg(),
         texture_color_overlay: default_texture_color_overlay(),
         decal_atlas: default_decal_atlas_request(),
         silhouette_atlas: default_silhouette_atlas_request(),
@@ -539,6 +547,10 @@ pub fn default_request() -> AppRequest {
 
 fn default_texture_color_overlay() -> bool {
     false
+}
+
+fn default_light_angle_deg() -> f32 {
+    234.0
 }
 
 fn default_asset_name() -> String {
@@ -845,11 +857,16 @@ pub fn normalize_decal_source(value: &str) -> &'static str {
 }
 
 pub fn normalize_decal_pivot(value: &str) -> &'static str {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "bottom_center" | "bottom" | "foot" => "bottom_center",
-        "top_center" | "top" => "top_center",
-        "left_center" | "left" => "left_center",
-        "right_center" | "right" => "right_center",
+    match value
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['-', ' '], "_")
+        .as_str()
+    {
+        "bottom_center" | "bottom" | "foot" | "south" => "bottom_center",
+        "top_center" | "top" | "head" | "north" => "top_center",
+        "left_center" | "left" | "west" => "left_center",
+        "right_center" | "right" | "east" => "right_center",
         _ => "center",
     }
 }

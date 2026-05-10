@@ -8,12 +8,13 @@ import re
 import threading
 import tkinter as tk
 from collections import deque
+from io import BytesIO
 from pathlib import Path
 from tkinter import colorchooser, filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk
 
-from core_bridge import DESKTOP_APP_DIR, run_core
+from core_bridge import DESKTOP_APP_DIR, RenderCancelled, run_core, stop_core_server
 from presets import PRESETS, clone_preset, make_blob_map, make_cave_map, make_room_map
 
 
@@ -131,9 +132,10 @@ LABEL_VARIANT_PREFIX = "Вариант "
 TEXT_PROCEDURAL = "процедурно"
 TEXT_PREVIEW_EMPTY = "Превью ещё не собрано"
 TEXT_PREVIEW_HINT = "Колесо мыши: зум | ЛКМ: тянуть"
-TEXT_TEXTURE_COLOR_OVERLAY = "Накладывать цвета на загруженные текстуры"
+TEXT_TEXTURE_COLOR_OVERLAY = "Умножать tint на загруженные текстуры"
 TEXT_ASSET_NAME_ERROR = "Asset name: только snake_case, например plains_ground"
 TEXT_VARIANT_WARNING = "Runtime expects 6; другие значения только для authoring experiments."
+TEXT_SDF_VARIANT_HINT = "В SDF-превью авто-варианты меняют материалы; геометрия остаётся непрерывной."
 
 PRESET_LABELS = {
     "mountain": "Гора",
@@ -314,6 +316,39 @@ def normalize_choice(value: int, choices: tuple[int, ...], fallback: int) -> int
     return value if value in choices else fallback
 
 
+class ToolTip:
+    def __init__(self, widget: tk.Widget, text: str) -> None:
+        self.widget = widget
+        self.text = text
+        self.tip: tk.Toplevel | None = None
+        widget.bind("<Enter>", self._show, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+
+    def _show(self, _event: tk.Event) -> None:
+        if self.tip is not None:
+            return
+        x = self.widget.winfo_rootx() + 12
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+        self.tip = tk.Toplevel(self.widget)
+        self.tip.wm_overrideredirect(True)
+        self.tip.wm_geometry(f"+{x}+{y}")
+        label = ttk.Label(
+            self.tip,
+            text=self.text,
+            style="DimPanel.TLabel",
+            padding=(8, 5),
+            relief="solid",
+            borderwidth=1,
+        )
+        label.pack()
+
+    def _hide(self, _event: tk.Event | None = None) -> None:
+        if self.tip is None:
+            return
+        self.tip.destroy()
+        self.tip = None
+
+
 # ─── Application ─────────────────────────────────────────────────────────────
 
 class CliffForgeApp:
@@ -327,7 +362,10 @@ class CliffForgeApp:
         # Runtime state
         self.render_queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self.render_thread: threading.Thread | None = None
+        self.render_cancel_event: threading.Event | None = None
         self.pending_mode: str | None = None
+        self.active_render_mode: str | None = None
+        self.active_render_user_initiated = False
         self.export_target_dir: Path | None = None
         self.suppress_overwrite_prompt = False
         self.draft_after_id: str | None = None
@@ -345,12 +383,14 @@ class CliffForgeApp:
         self.preview_offset_y = 0.0
         self.preview_drag_last: tuple[int, int] | None = None
         self.preview_render_size: tuple[int, int] | None = None
+        self.preview_configure_after_id: str | None = None
         self.atlas_source_image: Image.Image | None = None
         self.atlas_zoom = 1.0
         self.atlas_offset_x = 0.0
         self.atlas_offset_y = 0.0
         self.atlas_drag_last: tuple[int, int] | None = None
         self.atlas_render_size: tuple[int, int] | None = None
+        self.atlas_configure_after_id: str | None = None
         self.corner_limited_scales: list[tuple[tk.Variable, tk.Scale]] = []
         self.height_limited_scales: list[tuple[tk.Variable, tk.Scale]] = []
         self.rim_width_scale: tk.Scale | None = None
@@ -381,7 +421,7 @@ class CliffForgeApp:
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.after(120, self._poll_render_queue)
-        self.request_render("full")
+        self.request_render("draft")
 
     # ─── State persistence ───────────────────────────────────────────────
 
@@ -404,6 +444,9 @@ class CliffForgeApp:
             pass
 
     def _on_close(self) -> None:
+        if self.render_cancel_event is not None:
+            self.render_cancel_event.set()
+        stop_core_server()
         self._save_state()
         self.root.destroy()
 
@@ -520,6 +563,7 @@ class CliffForgeApp:
         self.normal_strength_var = tk.DoubleVar(value=self._normal_strength_for_tile_size(self.tile_size_var.get()))
         self.normal_detail_strength_var = tk.DoubleVar(value=1.25)
         self.bake_height_shading_var = tk.BooleanVar(value=False)
+        self.light_angle_var = tk.DoubleVar(value=234.0)
         self.texture_color_overlay_var = tk.BooleanVar(value=False)
         self.forced_variant_var = tk.StringVar(value=LABEL_AUTO_VARIANT)
         self.top_color_var = tk.StringVar(value="#705940")
@@ -652,6 +696,7 @@ class CliffForgeApp:
                                            values=[LABEL_AUTO_VARIANT], state="readonly", width=12)
         self.variant_combo.pack(side="right", padx=(4, 0))
         self.variant_combo.bind("<<ComboboxSelected>>", lambda *_: self.schedule_draft())
+        ToolTip(self.variant_combo, TEXT_SDF_VARIANT_HINT)
 
         return bar
 
@@ -739,7 +784,7 @@ class CliffForgeApp:
             takefocus=1,
         )
         self.preview_canvas.grid(row=0, column=0, sticky="nsew")
-        self.preview_canvas.bind("<Configure>", lambda _e: self._render_preview_canvas())
+        self.preview_canvas.bind("<Configure>", lambda _e: self._schedule_preview_canvas_render())
         self.preview_canvas.bind("<Enter>", lambda _e: self.preview_canvas.focus_set())
         self.preview_canvas.bind("<MouseWheel>", self._on_preview_zoom)
         self.preview_canvas.bind("<Button-4>", self._on_preview_zoom)
@@ -760,7 +805,7 @@ class CliffForgeApp:
             takefocus=1,
         )
         self.atlas_canvas.grid(row=0, column=0, sticky="nsew")
-        self.atlas_canvas.bind("<Configure>", lambda _e: self._render_atlas_canvas())
+        self.atlas_canvas.bind("<Configure>", lambda _e: self._schedule_atlas_canvas_render())
         self.atlas_canvas.bind("<Enter>", lambda _e: self.atlas_canvas.focus_set())
         self.atlas_canvas.bind("<MouseWheel>", self._on_atlas_zoom)
         self.atlas_canvas.bind("<Button-4>", self._on_atlas_zoom)
@@ -889,6 +934,7 @@ class CliffForgeApp:
         self._add_panel_scale(height, "Вариация геометрии", self.geometry_variance_var, 0.0, 1.0, 0.05)
         self._add_panel_scale(height, "Сила нормалей", self.normal_strength_var, 0.25, 8.0, 0.05)
         self._add_panel_scale(height, "Деталь нормалей", self.normal_detail_strength_var, 0.0, 4.0, 0.05)
+        self._add_panel_scale(height, "Угол света", self.light_angle_var, 0.0, 360.0, 1.0)
 
         material = ttk.LabelFrame(parent, text="Материал / albedo", padding=10)
         material.pack(fill="x", pady=(0, 10))
@@ -1643,6 +1689,7 @@ class CliffForgeApp:
             self.normal_strength_var.set(self._normal_strength_for_tile_size(preset["tile_size"]))
             self.normal_detail_strength_var.set(preset.get("normal_detail_strength", 1.25))
             self.bake_height_shading_var.set(False)
+            self.light_angle_var.set(234.0)
             self.top_color_var.set(preset["colors"]["top"])
             self.face_color_var.set(preset["colors"]["face"])
             self.edge_color_var.set(preset["colors"].get("edge", preset["colors"]["face"]))
@@ -1827,6 +1874,7 @@ class CliffForgeApp:
             "normal_strength": float(self.normal_strength_var.get()),
             "normal_detail_strength": float(self.normal_detail_strength_var.get()),
             "bake_height_shading": bool(self.bake_height_shading_var.get()),
+            "light_angle_deg": float(self.light_angle_var.get()),
             "texture_color_overlay": bool(self.texture_color_overlay_var.get()),
             "preview_mode": self._selected_preview_mode_key(),
             "textures": {
@@ -1932,6 +1980,9 @@ class CliffForgeApp:
     def request_render(self, mode: str) -> None:
         if self.render_thread and self.render_thread.is_alive():
             self.pending_mode = self._merge_modes(self.pending_mode, mode)
+            if self.render_cancel_event is not None:
+                self.render_cancel_event.set()
+                self._set_status("Отменяю текущий рендер…")
             return
 
         self.draft_after_id = None
@@ -1956,11 +2007,21 @@ class CliffForgeApp:
         }.get(mode, "полный")
         self._set_status(f"Идёт {mode_label} рендер…")
         self._set_progress_active(True)
+        cancel_event = threading.Event()
+        self.render_cancel_event = cancel_event
+        self.active_render_mode = mode
+        self.active_render_user_initiated = mode in {"full", "decals", "silhouettes"}
 
         def worker() -> None:
             try:
-                manifest = run_core(mode, request, output_dir)
+                manifest = run_core(mode, request, output_dir, cancel_event)
+                preview_bytes = manifest.pop("_preview_png_bytes", None)
+                if preview_bytes:
+                    with Image.open(BytesIO(preview_bytes)) as image:
+                        manifest["_preview_image"] = image.copy()
                 self.render_queue.put(("ok", manifest))
+            except RenderCancelled as error:
+                self.render_queue.put(("cancelled", error))
             except Exception as error:  # noqa: BLE001
                 self.render_queue.put(("error", error))
 
@@ -1981,6 +2042,8 @@ class CliffForgeApp:
                 status, payload = self.render_queue.get_nowait()
                 if status == "ok":
                     self._handle_manifest(payload)
+                elif status == "cancelled":
+                    self._handle_cancelled(payload)
                 else:
                     self._handle_error(payload)
         except queue.Empty:
@@ -2018,18 +2081,39 @@ class CliffForgeApp:
         }.get(mode_value, "Рендер")
         self._set_status(f"{mode_label} рендер завершён.")
         self._set_progress_active(False)
+        self.render_cancel_event = None
+        self.active_render_mode = None
+        self.active_render_user_initiated = False
 
         if self.pending_mode:
             next_mode = self.pending_mode
             self.pending_mode = None
             self.request_render(next_mode)
         elif mode_value == "full" and not manifest.get("files", {}).get("preview_png"):
+            self._set_status("Полный рендер завершён, обновляю превью…")
             self.request_render("draft")
+
+    def _handle_cancelled(self, _error: Exception) -> None:
+        self._set_progress_active(False)
+        self.render_cancel_event = None
+        self.active_render_mode = None
+        self.active_render_user_initiated = False
+        if self.pending_mode:
+            next_mode = self.pending_mode
+            self.pending_mode = None
+            self.request_render(next_mode)
+        else:
+            self._set_status("Рендер отменён.")
 
     def _handle_error(self, error: Exception) -> None:
         self._set_progress_active(False)
         self._set_status(f"Ошибка: {error}")
-        messagebox.showerror(WINDOW_TITLE, str(error))
+        show_modal = self.active_render_user_initiated
+        self.render_cancel_event = None
+        self.active_render_mode = None
+        self.active_render_user_initiated = False
+        if show_modal:
+            messagebox.showerror(WINDOW_TITLE, str(error))
         if self.pending_mode:
             next_mode = self.pending_mode
             self.pending_mode = None
@@ -2081,6 +2165,10 @@ class CliffForgeApp:
             if manifest.get("mode") == "silhouettes":
                 return
 
+        preview_image = manifest.get("_preview_image")
+        if preview_image is not None:
+            self._set_preview_image(preview_image)
+
         preview_value = files.get("preview_png")
         if preview_value and (preview_path := Path(preview_value)).exists():
             self._set_preview_image(preview_path)
@@ -2102,9 +2190,12 @@ class CliffForgeApp:
             if atlas_path.exists():
                 self._set_atlas_image(atlas_path)
 
-    def _set_preview_image(self, path: Path) -> None:
-        with Image.open(path) as image:
-            self.preview_source_image = image.copy()
+    def _set_preview_image(self, source: Path | Image.Image) -> None:
+        if isinstance(source, Image.Image):
+            self.preview_source_image = source.copy()
+        else:
+            with Image.open(source) as image:
+                self.preview_source_image = image.copy()
         self.preview_render_size = None
         self.photo_refs.pop("preview", None)
         self._render_preview_canvas()
@@ -2158,6 +2249,7 @@ class CliffForgeApp:
     def _render_preview_canvas(self) -> None:
         if not hasattr(self, "preview_canvas"):
             return
+        self.preview_configure_after_id = None
         self.preview_offset_x, self.preview_offset_y = self._render_zoomable(
             self.preview_canvas, self.preview_source_image,
             self.preview_zoom, self.preview_offset_x, self.preview_offset_y,
@@ -2167,11 +2259,22 @@ class CliffForgeApp:
     def _render_atlas_canvas(self) -> None:
         if not hasattr(self, "atlas_canvas"):
             return
+        self.atlas_configure_after_id = None
         self.atlas_offset_x, self.atlas_offset_y = self._render_zoomable(
             self.atlas_canvas, self.atlas_source_image,
             self.atlas_zoom, self.atlas_offset_x, self.atlas_offset_y,
             "atlas_render_size", "atlas", "Атлас ещё не собран",
         )
+
+    def _schedule_preview_canvas_render(self) -> None:
+        if self.preview_configure_after_id:
+            self.root.after_cancel(self.preview_configure_after_id)
+        self.preview_configure_after_id = self.root.after_idle(self._render_preview_canvas)
+
+    def _schedule_atlas_canvas_render(self) -> None:
+        if self.atlas_configure_after_id:
+            self.root.after_cancel(self.atlas_configure_after_id)
+        self.atlas_configure_after_id = self.root.after_idle(self._render_atlas_canvas)
 
     def _zoom_event(self, event: tk.Event, current_zoom: float) -> float:
         delta = getattr(event, "delta", 0)
@@ -2335,6 +2438,7 @@ class CliffForgeApp:
                 self.normal_detail_strength_var.get(),
             )))
             self.bake_height_shading_var.set(bool(request.get("bake_height_shading", False)))
+            self.light_angle_var.set(float(request.get("light_angle_deg", self.light_angle_var.get())))
             self.texture_color_overlay_var.set(bool(request.get("texture_color_overlay", False)))
             preview_key = request.get("preview_mode", self._selected_preview_mode_key())
             self.preview_mode_var.set(PREVIEW_MODE_LABELS.get(preview_key, PREVIEW_MODE_LABELS["composite"]))

@@ -58,6 +58,7 @@ def make_request_builder_stub():
         "normal_strength_var": 2.0,
         "normal_detail_strength_var": 0.5,
         "bake_height_shading_var": True,
+        "light_angle_var": 180.0,
         "texture_color_overlay_var": False,
         "top_color_var": "#778899",
         "face_color_var": "#556677",
@@ -80,6 +81,7 @@ class AppPayloadTests(unittest.TestCase):
         self.assertEqual(request["corner_round_px"], 3)
         self.assertEqual(request["colors"]["edge"], "#cc5533")
         self.assertEqual(request["edge_color_strength"], 0.75)
+        self.assertEqual(request["light_angle_deg"], 180.0)
 
     def test_lit_preview_mode_does_not_show_normal_atlas_as_lit_atlas(self):
         instance = object.__new__(app.CliffForgeApp)
@@ -115,12 +117,13 @@ class AppPayloadTests(unittest.TestCase):
     def test_full_manifest_without_preview_schedules_draft_refresh(self):
         instance = object.__new__(app.CliffForgeApp)
         requested_modes = []
+        statuses = []
         instance.pending_mode = None
         instance.last_warnings = []
         instance.stats_var = FakeVar("")
         instance._update_warnings_label = lambda: None
         instance._update_images = lambda _manifest: None
-        instance._set_status = lambda _text: None
+        instance._set_status = lambda text: statuses.append(text)
         instance._set_progress_active = lambda _active: None
         instance.request_render = lambda mode: requested_modes.append(mode)
 
@@ -135,6 +138,41 @@ class AppPayloadTests(unittest.TestCase):
         )
 
         self.assertEqual(requested_modes, ["draft"])
+        self.assertIn("обновляю превью", statuses[-1].lower())
+
+    def test_non_explicit_render_error_does_not_open_modal(self):
+        instance = object.__new__(app.CliffForgeApp)
+        statuses = []
+        modals = []
+        original_showerror = app.messagebox.showerror
+        app.messagebox.showerror = lambda *_args, **_kwargs: modals.append(True)
+        try:
+            instance.pending_mode = None
+            instance.active_render_user_initiated = False
+            instance._set_progress_active = lambda _active: None
+            instance._set_status = lambda text: statuses.append(text)
+
+            instance._handle_error(RuntimeError("bad slider value"))
+        finally:
+            app.messagebox.showerror = original_showerror
+
+        self.assertEqual(modals, [])
+        self.assertEqual(statuses, ["Ошибка: bad slider value"])
+
+    def test_set_preview_image_accepts_predecoded_image(self):
+        instance = object.__new__(app.CliffForgeApp)
+        calls = []
+        instance.preview_render_size = (10, 10)
+        instance.photo_refs = {"preview": object()}
+        instance._render_preview_canvas = lambda: calls.append("render")
+
+        image = app.Image.new("RGBA", (2, 3), (1, 2, 3, 255))
+        instance._set_preview_image(image)
+
+        self.assertEqual(instance.preview_source_image.size, (2, 3))
+        self.assertIsNone(instance.preview_render_size)
+        self.assertNotIn("preview", instance.photo_refs)
+        self.assertEqual(calls, ["render"])
 
     def test_zooming_out_uses_smooth_resampling(self):
         self.assertEqual(

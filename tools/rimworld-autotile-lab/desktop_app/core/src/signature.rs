@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+#[cfg(test)]
 use crate::model::MapData;
 
 #[derive(Debug, Clone, Serialize)]
@@ -163,6 +164,7 @@ pub fn canonical_signatures() -> Vec<Signature> {
     out
 }
 
+#[cfg(test)]
 pub fn signature_at(map: &MapData, x: i32, y: i32) -> Signature {
     Signature::from_marching_mask(marching_mask(
         cell(map, x, y),
@@ -172,6 +174,7 @@ pub fn signature_at(map: &MapData, x: i32, y: i32) -> Signature {
     ))
 }
 
+#[cfg(test)]
 fn cell(map: &MapData, x: i32, y: i32) -> bool {
     if x < 0 || y < 0 || x >= map.width as i32 || y >= map.height as i32 {
         return false;
@@ -179,6 +182,7 @@ fn cell(map: &MapData, x: i32, y: i32) -> bool {
     map.cells[(y as u32 * map.width + x as u32) as usize] > 0
 }
 
+#[cfg(test)]
 fn marching_mask(nw: bool, ne: bool, se: bool, sw: bool) -> u8 {
     u8::from(nw) | (u8::from(ne) << 1) | (u8::from(se) << 2) | (u8::from(sw) << 3)
 }
