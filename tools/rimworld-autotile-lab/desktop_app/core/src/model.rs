@@ -390,25 +390,25 @@ impl Preset {
         Self {
             name: "mountain",
             south_height: 32,
-            north_height: 6,
-            side_height: 10,
-            roughness: 36.0,
-            face_power: 1.0,
-            back_drop: 0.34,
-            crown_bevel: 2,
-            outer_corner_radius: 12,
-            inner_corner_radius: 10,
+            north_height: 0,
+            side_height: 0,
+            roughness: 10.0,
+            face_power: 2.5,
+            back_drop: 0.8,
+            crown_bevel: 10,
+            outer_corner_radius: 20,
+            inner_corner_radius: 20,
             corner_round_px: 16,
-            diagonal_smooth_px: 6,
-            contour_relax: 0.7,
-            contour_warp_px: 1.75,
-            corner_variation: 0.35,
-            rim_width: 7,
-            edge_debris: 0.65,
+            diagonal_smooth_px: 32,
+            contour_relax: 1.0,
+            contour_warp_px: 0.75,
+            corner_variation: 0.55,
+            rim_width: 8,
+            edge_debris: 0.8,
             edge_color_strength: default_edge_color_strength(),
-            geometry_variance: 0.45,
+            geometry_variance: 0.75,
             shape_supersampling: 4,
-            normal_detail_strength: default_normal_detail_strength(),
+            normal_detail_strength: 4.0,
             variants: DEFAULT_VARIANT_COUNT,
             colors: PresetColors {
                 top: "#705940",
@@ -520,14 +520,14 @@ pub fn default_request() -> AppRequest {
         forced_variant: None,
         seed: 240_518,
         texture_scale: 1.0,
-        normal_strength: normal_strength_for_tile_size(64),
+        normal_strength: 8.0,
         normal_detail_strength: preset.normal_detail_strength,
         bake_height_shading: false,
         light_angle_deg: default_light_angle_deg(),
         texture_color_overlay: default_texture_color_overlay(),
         decal_atlas: default_decal_atlas_request(),
         silhouette_atlas: default_silhouette_atlas_request(),
-        preview_mode: "composite".to_string(),
+        preview_mode: "lit".to_string(),
         textures: TexturePaths {
             top: None,
             face: None,
@@ -883,16 +883,16 @@ fn default_top_material() -> MaterialConfig {
     material_config(
         "procedural",
         "rough_stone",
-        1.0,
-        1.0,
-        0.25,
-        0.2,
-        0.45,
-        0.25,
+        1.35,
+        1.22,
+        0.34,
+        0.30,
+        0.68,
+        0.35,
         11,
-        "#5e5142",
-        "#8a7a62",
-        "#b9ad93",
+        "#4e473a",
+        "#8b7a61",
+        "#b8aa8b",
     )
 }
 
@@ -900,16 +900,16 @@ fn default_face_material() -> MaterialConfig {
     material_config(
         "procedural",
         "stratified_rock",
-        1.0,
-        1.08,
-        0.32,
-        0.34,
-        0.42,
+        1.25,
+        1.26,
+        0.45,
         0.55,
+        0.60,
+        0.72,
         23,
-        "#332d27",
-        "#665848",
-        "#a18f73",
+        "#27231f",
+        "#5e5145",
+        "#aa9879",
     )
 }
 
@@ -1105,8 +1105,8 @@ mod tests {
     fn default_request_uses_dynamic_lighting_normal_defaults() {
         let request = default_request().sanitized();
 
-        assert_eq!(request.normal_strength, 2.0);
-        assert_eq!(request.normal_detail_strength, 1.25);
+        assert_eq!(request.normal_strength, 8.0);
+        assert_eq!(request.normal_detail_strength, 4.0);
         assert_eq!(request.shape_supersampling, 4);
         assert!(!request.bake_height_shading);
     }
@@ -1116,13 +1116,33 @@ mod tests {
         let request = default_request().sanitized();
 
         assert_eq!(request.south_height, 32);
-        assert_eq!(request.side_height, 10);
-        assert_eq!(request.north_height, 6);
+        assert_eq!(request.side_height, 0);
+        assert_eq!(request.north_height, 0);
+        assert_eq!(request.roughness, 10.0);
+        assert_eq!(request.face_power, 2.5);
+        assert_eq!(request.crown_bevel, 10);
+        assert_eq!(request.contour_warp_px, 0.75);
+        assert_eq!(request.corner_variation, 0.55);
+        assert_eq!(request.rim_width, 8);
+        assert_eq!(request.edge_debris, 0.8);
+        assert_eq!(request.geometry_variance, 0.75);
+        assert_eq!(request.preview_mode, "lit");
         assert_eq!(request.textures.top, None);
         assert_eq!(request.textures.face, None);
         assert_eq!(request.materials.top.source, "procedural");
         assert_eq!(request.materials.face.source, "procedural");
         assert_eq!(request.materials.face.kind, "stratified_rock");
+        assert_eq!(request.materials.top.scale, 1.35);
+        assert_eq!(request.materials.top.contrast, 1.22);
+        assert_eq!(request.materials.top.crack_amount, 0.34);
+        assert_eq!(request.materials.top.grain, 0.68);
+        assert_eq!(request.materials.top.color_a, "#4e473a");
+        assert_eq!(request.materials.face.scale, 1.25);
+        assert_eq!(request.materials.face.contrast, 1.26);
+        assert_eq!(request.materials.face.crack_amount, 0.45);
+        assert_eq!(request.materials.face.wear, 0.55);
+        assert_eq!(request.materials.face.edge_darkening, 0.72);
+        assert_eq!(request.materials.face.color_a, "#27231f");
         assert_eq!(request.colors.edge, "#49382c");
         assert_eq!(normalize_material_kind("layered_rock"), "stratified_rock");
         assert_eq!(normalize_preview_mode("lit"), "lit");

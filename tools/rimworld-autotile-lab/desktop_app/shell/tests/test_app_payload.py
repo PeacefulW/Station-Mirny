@@ -33,7 +33,7 @@ def make_request_builder_stub():
     instance._validated_asset_name = lambda show_error=False, raise_on_error=False: "test_asset"
     instance._selected_export_mode_key = lambda: "Full47"
     instance._selected_preset_key = lambda: "mountain"
-    instance._selected_preview_mode_key = lambda: "composite"
+    instance._selected_preview_mode_key = lambda: "lit"
     instance._build_materials_payload = lambda: {}
     instance._build_decal_payload = lambda: {}
     instance._build_silhouette_payload = lambda: {}
@@ -90,21 +90,21 @@ class AppPayloadTests(unittest.TestCase):
             "south_height": 32,
             "north_height": 0,
             "side_height": 0,
-            "roughness": 0.0,
-            "face_power": 2.8,
+            "roughness": 10.0,
+            "face_power": 2.5,
             "back_drop": 0.8,
-            "crown_bevel": 12,
+            "crown_bevel": 10,
             "outer_corner_radius": 20,
             "inner_corner_radius": 20,
             "corner_round_px": 16,
             "diagonal_smooth_px": 32,
             "contour_relax": 1.0,
-            "contour_warp_px": 0.0,
-            "corner_variation": 1.0,
-            "rim_width": 7,
-            "edge_debris": 0.65,
+            "contour_warp_px": 0.75,
+            "corner_variation": 0.55,
+            "rim_width": 8,
+            "edge_debris": 0.8,
             "edge_color_strength": 0.35,
-            "geometry_variance": 1.0,
+            "geometry_variance": 0.75,
             "shape_supersampling": 4,
             "normal_strength": 8.0,
             "normal_detail_strength": 4.0,
@@ -112,10 +112,27 @@ class AppPayloadTests(unittest.TestCase):
             "texture_scale": 1.0,
             "bake_height_shading": False,
             "light_angle_deg": 234.0,
+            "preview_mode": "lit",
         }
 
         for key, value in expected.items():
             self.assertEqual(preset[key], value, key)
+
+    def test_default_mountain_materials_are_preview_tuned_for_64px_rock(self):
+        self.assertEqual(app.MATERIAL_DEFAULTS["top"]["scale"], 1.35)
+        self.assertEqual(app.MATERIAL_DEFAULTS["top"]["contrast"], 1.22)
+        self.assertEqual(app.MATERIAL_DEFAULTS["top"]["crack_amount"], 0.34)
+        self.assertEqual(app.MATERIAL_DEFAULTS["top"]["grain"], 0.68)
+        self.assertEqual(app.MATERIAL_DEFAULTS["top"]["color_a"], "#4e473a")
+        self.assertEqual(app.MATERIAL_DEFAULTS["top"]["color_b"], "#8b7a61")
+
+        self.assertEqual(app.MATERIAL_DEFAULTS["face"]["scale"], 1.25)
+        self.assertEqual(app.MATERIAL_DEFAULTS["face"]["contrast"], 1.26)
+        self.assertEqual(app.MATERIAL_DEFAULTS["face"]["crack_amount"], 0.45)
+        self.assertEqual(app.MATERIAL_DEFAULTS["face"]["wear"], 0.55)
+        self.assertEqual(app.MATERIAL_DEFAULTS["face"]["edge_darkening"], 0.72)
+        self.assertEqual(app.MATERIAL_DEFAULTS["face"]["color_a"], "#27231f")
+        self.assertEqual(app.MATERIAL_DEFAULTS["face"]["highlight"], "#aa9879")
 
     def test_default_map_matches_generator_startup_screenshot(self):
         self.assertTrue(hasattr(presets, "make_default_map"))
@@ -153,6 +170,7 @@ class AppPayloadTests(unittest.TestCase):
         instance = make_request_builder_stub()
         instance.suspend_events = False
         instance.preset_var = FakeVar("")
+        instance.preview_mode_var = FakeVar("")
         instance.variant_combo = FakeCombo()
         instance._apply_preset_textures = lambda _preset: None
 
@@ -161,20 +179,23 @@ class AppPayloadTests(unittest.TestCase):
         self.assertEqual(instance.south_height_var.get(), 32)
         self.assertEqual(instance.north_height_var.get(), 0)
         self.assertEqual(instance.side_height_var.get(), 0)
-        self.assertEqual(instance.roughness_var.get(), 0.0)
-        self.assertEqual(instance.face_power_var.get(), 2.8)
+        self.assertEqual(instance.roughness_var.get(), 10.0)
+        self.assertEqual(instance.face_power_var.get(), 2.5)
         self.assertEqual(instance.back_drop_var.get(), 0.8)
-        self.assertEqual(instance.crown_bevel_var.get(), 12)
+        self.assertEqual(instance.crown_bevel_var.get(), 10)
         self.assertEqual(instance.outer_corner_radius_var.get(), 20)
         self.assertEqual(instance.inner_corner_radius_var.get(), 20)
         self.assertEqual(instance.diagonal_smooth_px_var.get(), 32)
         self.assertEqual(instance.contour_relax_var.get(), 1.0)
-        self.assertEqual(instance.contour_warp_px_var.get(), 0.0)
-        self.assertEqual(instance.corner_variation_var.get(), 1.0)
-        self.assertEqual(instance.geometry_variance_var.get(), 1.0)
+        self.assertEqual(instance.contour_warp_px_var.get(), 0.75)
+        self.assertEqual(instance.corner_variation_var.get(), 0.55)
+        self.assertEqual(instance.rim_width_var.get(), 8)
+        self.assertEqual(instance.edge_debris_var.get(), 0.8)
+        self.assertEqual(instance.geometry_variance_var.get(), 0.75)
         self.assertEqual(instance.normal_strength_var.get(), 8.0)
         self.assertEqual(instance.normal_detail_strength_var.get(), 4.0)
         self.assertEqual(instance.light_angle_var.get(), 234.0)
+        self.assertEqual(instance.preview_mode_var.get(), app.PREVIEW_MODE_LABELS["lit"])
         self.assertFalse(instance.bake_height_shading_var.get())
 
     def test_build_request_preserves_separate_corner_radii(self):

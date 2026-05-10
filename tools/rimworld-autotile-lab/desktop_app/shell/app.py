@@ -237,15 +237,15 @@ SILHOUETTE_MATERIAL_SLOT_KEYS_BY_LABEL = {label: key for key, label in SILHOUETT
 MATERIAL_DEFAULTS = {
     "top": {
         "source": "procedural", "kind": "rough_stone",
-        "scale": 1.0, "contrast": 1.0, "crack_amount": 0.25, "wear": 0.2,
-        "grain": 0.45, "edge_darkening": 0.25, "seed": 11,
-        "color_a": "#5e5142", "color_b": "#8a7a62", "highlight": "#b9ad93",
+        "scale": 1.35, "contrast": 1.22, "crack_amount": 0.34, "wear": 0.30,
+        "grain": 0.68, "edge_darkening": 0.35, "seed": 11,
+        "color_a": "#4e473a", "color_b": "#8b7a61", "highlight": "#b8aa8b",
     },
     "face": {
         "source": "procedural", "kind": "stratified_rock",
-        "scale": 1.0, "contrast": 1.08, "crack_amount": 0.32, "wear": 0.34,
-        "grain": 0.42, "edge_darkening": 0.55, "seed": 23,
-        "color_a": "#332d27", "color_b": "#665848", "highlight": "#a18f73",
+        "scale": 1.25, "contrast": 1.26, "crack_amount": 0.45, "wear": 0.55,
+        "grain": 0.60, "edge_darkening": 0.72, "seed": 23,
+        "color_a": "#27231f", "color_b": "#5e5145", "highlight": "#aa9879",
     },
     "base": {
         "source": "procedural", "kind": "packed_dirt",
@@ -537,7 +537,7 @@ class CliffForgeApp:
         export_mode = normalize_export_mode(str(self.state.get("export_mode", "Full47")))
         self.export_mode_var = tk.StringVar(value=EXPORT_MODE_LABELS[export_mode])
         self.preset_var = tk.StringVar(value=PRESET_LABELS["mountain"])
-        self.preview_mode_var = tk.StringVar(value=PREVIEW_MODE_LABELS["composite"])
+        self.preview_mode_var = tk.StringVar(value=PREVIEW_MODE_LABELS["lit"])
         self.seed_var = tk.IntVar(value=240_518)
         self.tile_size_var = tk.IntVar(value=64)
         self.south_height_var = tk.IntVar(value=32)
@@ -1692,6 +1692,9 @@ class CliffForgeApp:
             self.normal_detail_strength_var.set(preset.get("normal_detail_strength", 1.25))
             self.bake_height_shading_var.set(bool(preset.get("bake_height_shading", False)))
             self.light_angle_var.set(preset.get("light_angle_deg", 234.0))
+            preview_mode = preset.get("preview_mode")
+            if preview_mode:
+                self.preview_mode_var.set(PREVIEW_MODE_LABELS.get(preview_mode, PREVIEW_MODE_LABELS["lit"]))
             self.top_color_var.set(preset["colors"]["top"])
             self.face_color_var.set(preset["colors"]["face"])
             self.edge_color_var.set(preset["colors"].get("edge", preset["colors"]["face"]))

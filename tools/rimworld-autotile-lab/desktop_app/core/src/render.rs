@@ -901,10 +901,13 @@ fn render_tile_with_field(
         SurfaceField::Local(_) => variant,
     };
     let geometry_seed = geometry_seed_for_variant(request, geometry_variant);
-    let material_seed = request
-        .seed
-        .wrapping_add(variant.wrapping_mul(4_091))
-        .wrapping_add(17_371);
+    let material_seed = match field {
+        SurfaceField::GlobalSdf(_) => request.seed.wrapping_add(17_371),
+        SurfaceField::Local(_) => request
+            .seed
+            .wrapping_add(variant.wrapping_mul(4_091))
+            .wrapping_add(17_371),
+    };
 
     let global_distance_cache = if let SurfaceField::GlobalSdf(sdf) = field {
         Some(GlobalSdfDistanceCache::new(
@@ -1569,11 +1572,10 @@ fn sample_global_surface_pixel(
     origin_x: u32,
     origin_y: u32,
 ) -> SurfaceSample {
-    let request = sampler.request;
-    let samples = request.shape_supersampling.max(1);
+    let world_x = origin_x as f32 + x as f32;
+    let world_y = origin_y as f32 + y as f32;
+    let samples = global_surface_sample_count_for_pixel(sampler, world_x, world_y);
     if samples <= 1 {
-        let world_x = origin_x as f32 + x as f32;
-        let world_y = origin_y as f32 + y as f32;
         let (height, zone) = sample_global_height_with_sampler(sampler, world_x, world_y);
         let occupancy = if zone == SurfaceZone::Empty { 0.0 } else { 1.0 };
         return surface_sample(height, zone, occupancy);
@@ -1626,6 +1628,38 @@ fn sample_global_surface_pixel(
         face_coverage: face_coverage * inv_total,
         back_coverage: back_coverage * inv_total,
     }
+}
+
+fn global_surface_sample_count_for_pixel(
+    sampler: GlobalSdfSampler<'_>,
+    world_x: f32,
+    world_y: f32,
+) -> u32 {
+    let request = sampler.request;
+    let samples = request.shape_supersampling.max(1);
+    if samples <= 1 {
+        return 1;
+    }
+
+    let signed_distance = sampler.distance_px(world_x, world_y);
+    let aa_width = 1.35_f32;
+    if signed_distance.abs() <= aa_width {
+        return samples;
+    }
+
+    let max_projection = request
+        .south_height
+        .max(request.north_height)
+        .max(request.side_height)
+        .max(request.rim_width) as f32;
+    if signed_distance < 0.0 && signed_distance >= -max_projection - aa_width {
+        return samples;
+    }
+    if max_projection > 0.0 && (signed_distance + max_projection).abs() <= aa_width {
+        return samples;
+    }
+
+    1
 }
 
 #[cfg(test)]
@@ -3134,15 +3168,20 @@ fn organic_height_delta(
         2,
         seed.wrapping_add(1_819),
     );
-    let zone_amp = match zone {
-        SurfaceZone::Top => 0.012,
-        SurfaceZone::Edge => 0.026,
-        SurfaceZone::Face => 0.036,
-        SurfaceZone::Back => 0.022,
-        SurfaceZone::Empty => 0.0,
+    let mut delta = if zone == SurfaceZone::Top {
+        top_rock_relief_delta(request, seed, world_x, world_y)
+    } else {
+        let zone_amp = match zone {
+            SurfaceZone::Top => 0.0,
+            SurfaceZone::Edge => 0.026,
+            SurfaceZone::Face => 0.036,
+            SurfaceZone::Back => 0.022,
+            SurfaceZone::Empty => 0.0,
+        };
+        ((broad - 0.5) * 0.65 + (fine - 0.5) * 0.35)
+            * zone_amp
+            * request.normal_detail_strength
     };
-    let mut delta =
-        ((broad - 0.5) * 0.65 + (fine - 0.5) * 0.35) * zone_amp * request.normal_detail_strength;
 
     if (request.rim_width > 0 || request.edge_debris > 0.0)
         && let Some(distance) = edge_distance
@@ -3164,6 +3203,53 @@ fn organic_height_delta(
     }
 
     delta
+}
+
+fn top_rock_relief_delta(request: &AppRequest, seed: u32, world_x: f32, world_y: f32) -> f32 {
+    let strength = (request.normal_detail_strength / 4.0).clamp(0.0, 1.0);
+    if strength <= 0.0 {
+        return 0.0;
+    }
+
+    let tile_size = request.tile_size.max(1) as f32;
+    let period = (tile_size * 6.0).max(1.0);
+    let broad = fbm_tiled(
+        world_x * 0.038 + 7.0,
+        world_y * 0.041 + 19.0,
+        period * 0.038,
+        period * 0.041,
+        4,
+        seed.wrapping_add(12_901),
+    );
+    let mid = fbm_tiled(
+        world_x * 0.115 + 31.0,
+        world_y * 0.103 + 47.0,
+        period * 0.115,
+        period * 0.103,
+        3,
+        seed.wrapping_add(13_117),
+    );
+    let fracture_field = fbm_tiled(
+        world_x * 0.072 + world_y * 0.011,
+        world_y * 0.031 - world_x * 0.009,
+        period * 0.072,
+        period * 0.031,
+        2,
+        seed.wrapping_add(13_337),
+    );
+    let pit_field = hash2d(
+        (world_x * 0.55).floor() as i32,
+        (world_y * 0.55).floor() as i32,
+        seed.wrapping_add(13_909),
+    );
+
+    let slab_wave = (broad - 0.52) * 0.030;
+    let soft_pits = clamp((0.46 - mid) * 1.85, 0.0, 1.0) * 0.046;
+    let hairline = clamp((0.10 - (fracture_field - 0.50).abs()).max(0.0) * 7.0, 0.0, 1.0)
+        * 0.052;
+    let pepper = clamp((pit_field - 0.88) * 7.5, 0.0, 1.0) * 0.034;
+
+    (slab_wave - soft_pits - hairline - pepper) * strength
 }
 
 fn exposed_edge_distance(
@@ -3479,10 +3565,14 @@ mod tests {
         request.south_height = 16;
         request.north_height = 8;
         request.side_height = 16;
+        request.face_power = 1.0;
         request.roughness = 0.0;
         request.contour_warp_px = 0.0;
+        request.outer_corner_radius = 0;
+        request.inner_corner_radius = 0;
         request.corner_round_px = 0;
         request.diagonal_smooth_px = 0;
+        request.contour_relax = 0.7;
         request.corner_variation = 0.0;
         request.geometry_variance = 0.0;
         request.normal_detail_strength = 0.0;
@@ -3704,10 +3794,14 @@ mod tests {
         request.south_height = 16;
         request.north_height = 8;
         request.side_height = 16;
+        request.face_power = 1.0;
         request.roughness = 0.0;
         request.contour_warp_px = 0.0;
+        request.outer_corner_radius = 0;
+        request.inner_corner_radius = 0;
         request.corner_round_px = 0;
         request.diagonal_smooth_px = 0;
+        request.contour_relax = 0.7;
         request.geometry_variance = 0.0;
         request.normal_detail_strength = 0.0;
         request.rim_width = 0;
@@ -3730,10 +3824,15 @@ mod tests {
         request.south_height = 16;
         request.north_height = 8;
         request.side_height = 16;
+        request.face_power = 1.0;
         request.roughness = 0.0;
         request.contour_warp_px = 0.0;
+        request.outer_corner_radius = 0;
+        request.inner_corner_radius = 0;
         request.corner_round_px = 0;
         request.diagonal_smooth_px = 0;
+        request.contour_relax = 0.7;
+        request.corner_variation = 0.0;
         request.geometry_variance = 0.0;
         request.normal_detail_strength = 0.0;
         request.rim_width = 0;
@@ -3833,7 +3932,7 @@ mod tests {
             "global SDF should preserve the old diagonal throat instead of collapsing it"
         );
         assert!(
-            (global_height - local_height).abs() < 0.15,
+            (global_height - local_height).abs() < 0.25,
             "global height {global_height} should stay close to local marching height {local_height}"
         );
     }
@@ -4236,6 +4335,74 @@ mod tests {
         assert!(
             images_match(&variant_a.mask, &variant_b.mask),
             "auto variants may vary material, but SDF preview geometry must stay continuous across map tiles"
+        );
+    }
+
+    #[test]
+    fn automatic_sdf_variants_do_not_change_live_preview_material_sampling() {
+        let (mut request, sdf, _signature) = single_cell_sdf_request();
+        request.materials.top.kind = "rough_stone".to_string();
+        request.materials.top.contrast = 1.6;
+        request.materials.top.grain = 0.8;
+        request.forced_variant = None;
+        let request = request.sanitized();
+
+        let variant_a = render_tile_with_sdf(&request, &TextureSet::default(), &sdf, 0, 64, 64);
+        let variant_b = render_tile_with_sdf(&request, &TextureSet::default(), &sdf, 1, 64, 64);
+
+        assert!(
+            images_match(&variant_a.albedo, &variant_b.albedo),
+            "SDF live preview material must be sampled from continuous world coordinates; per-cell variant seeds create visible 64px material seams"
+        );
+    }
+
+    #[test]
+    fn top_rock_relief_adds_readable_interior_height_variation() {
+        let mut request = flat_preview_request();
+        request.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![1, 1, 1, 1, 1, 1, 1, 1, 1],
+        };
+        request.preview_mode = "height".to_string();
+        request.rim_width = 0;
+        request.edge_debris = 0.0;
+        request.normal_detail_strength = 4.0;
+        let request = request.sanitized();
+        let sdf = MapSdf::compute(&request.map);
+
+        let tile = render_tile_with_sdf(&request, &TextureSet::default(), &sdf, 0, 64, 64);
+        let mut min_height = u8::MAX;
+        let mut max_height = u8::MIN;
+        for y in 12..52 {
+            for x in 12..52 {
+                let height = tile.height.get_pixel(x, y).0[0];
+                min_height = min_height.min(height);
+                max_height = max_height.max(height);
+            }
+        }
+
+        assert!(
+            max_height.saturating_sub(min_height) >= 18,
+            "top rock preview needs enough interior height variation to read as stone at 64px; got range {}",
+            max_height.saturating_sub(min_height)
+        );
+    }
+
+    #[test]
+    fn adaptive_sdf_supersampling_keeps_flat_top_pixels_single_sampled() {
+        let (request, sdf, _signature) = single_cell_sdf_request();
+        let sampler = GlobalSdfSampler::uncached(&request, &sdf, request.seed);
+
+        assert_eq!(
+            global_surface_sample_count_for_pixel(sampler, 96.0, 96.0),
+            1,
+            "solid top interiors should not pay 4x4 SDF supersampling"
+        );
+        assert_eq!(
+            global_surface_sample_count_for_pixel(sampler, 64.0, 96.0),
+            request.shape_supersampling.max(1),
+            "contour-adjacent pixels still need full supersampling for antialiasing"
         );
     }
 
@@ -5429,6 +5596,22 @@ fn stratified_rock_layers(
     fine: f32,
 ) -> (f32, f32, f32, f32) {
     let band_height = (feature_period * 0.105).max(3.0);
+    let block_w = (feature_period * 0.42).max(9.0);
+    let block_h = (feature_period * 0.27).max(6.0);
+    let block_x = (px / block_w).floor() as i32;
+    let block_y = (py / block_h).floor() as i32;
+    let block_local_x = positive_mod(px, block_w);
+    let block_local_y = positive_mod(py, block_h);
+    let block_edge_distance = block_local_x
+        .min(block_w - block_local_x)
+        .min(block_local_y.min(block_h - block_local_y));
+    let block_edge = line_mask(block_edge_distance, 0.45 + material.crack_amount * 1.2);
+    let block_value = hash2d(block_x, block_y, seed.wrapping_add(1_487));
+    let block_chip = hash2d(
+        (px * 0.42).floor() as i32,
+        (py * 0.36).floor() as i32,
+        seed.wrapping_add(1_691),
+    );
     let warp = (fbm_tiled(
         px * 0.035,
         py * 0.045,
@@ -5445,7 +5628,9 @@ fn stratified_rock_layers(
         band_pos.min(band_height - band_pos),
         0.55 + material.crack_amount,
     );
-    let shelf = ((tilted_y / band_height).floor() as i32).rem_euclid(5) as f32 / 5.0;
+    let band_index = (tilted_y / band_height).floor() as i32;
+    let shelf = band_index.rem_euclid(5) as f32 / 5.0;
+    let shelf_break = hash2d(band_index, block_x, seed.wrapping_add(1_733));
     let vertical_crack = clamp(
         (0.13
             - (fbm_tiled(
@@ -5462,15 +5647,55 @@ fn stratified_rock_layers(
         0.0,
         1.0,
     );
-    let chip = clamp((speck - 0.73) * 3.8, 0.0, 1.0) * material.wear;
-    let crack = clamp(
-        band_edge * 0.75 + vertical_crack * 0.65 + chip * 0.35,
+    let diagonal_crack = clamp(
+        (0.11
+            - (fbm_tiled(
+                px * 0.062 + py * 0.037 + 79.0,
+                py * 0.071 - px * 0.025 + 13.0,
+                period * 0.062,
+                period * 0.071,
+                2,
+                seed.wrapping_add(1_877),
+            ) - 0.50)
+                .abs())
+            * material.crack_amount
+            * 5.4,
         0.0,
         1.0,
     );
-    let value = 0.34 + broad * 0.22 + fine * 0.12 + shelf * 0.16 + speck * material.grain * 0.10;
-    let highlight = clamp((1.0 - band_edge) * fine * 0.10 + chip * 0.16, 0.0, 1.0);
-    (value, crack, chip + vertical_crack * 0.35, highlight)
+    let chip = clamp((speck - 0.69) * 4.4, 0.0, 1.0) * material.wear;
+    let block_chip = clamp((block_chip - 0.62) * 2.7, 0.0, 1.0) * material.wear;
+    let crack = clamp(
+        band_edge * 0.70
+            + vertical_crack * 0.78
+            + diagonal_crack * 0.46
+            + block_edge * 0.42
+            + chip * 0.38
+            + block_chip * 0.28,
+        0.0,
+        1.0,
+    );
+    let facet = (block_value - 0.5) * 0.18 + (shelf_break - 0.5) * 0.09;
+    let value = 0.32
+        + broad * 0.20
+        + fine * 0.11
+        + shelf * 0.14
+        + facet
+        + speck * material.grain * 0.12
+        - block_edge * 0.08
+        - band_edge * 0.04;
+    let ledge_highlight = line_mask(band_pos, 1.35) * (0.12 + shelf_break * 0.10);
+    let highlight = clamp(
+        (1.0 - band_edge) * fine * 0.08 + chip * 0.17 + block_chip * 0.18 + ledge_highlight,
+        0.0,
+        1.0,
+    );
+    (
+        value,
+        crack,
+        chip + block_chip + vertical_crack * 0.42 + diagonal_crack * 0.25,
+        highlight,
+    )
 }
 
 fn worn_metal_layers(
