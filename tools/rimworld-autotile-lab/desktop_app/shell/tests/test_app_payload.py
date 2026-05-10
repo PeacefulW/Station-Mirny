@@ -58,6 +58,8 @@ def make_request_builder_stub():
         "contour_warp_px_var": 2.5,
         "corner_variation_var": 0.2,
         "rim_width_var": 6,
+        "mountain_outline_enabled_var": True,
+        "mountain_outline_width_var": 3,
         "edge_debris_var": 0.15,
         "geometry_variance_var": 0.1,
         "shape_supersampling_var": 2,
@@ -102,6 +104,8 @@ class AppPayloadTests(unittest.TestCase):
             "contour_warp_px": 0.75,
             "corner_variation": 0.55,
             "rim_width": 8,
+            "mountain_outline_enabled": True,
+            "mountain_outline_width": 3,
             "edge_debris": 0.8,
             "edge_color_strength": 0.35,
             "geometry_variance": 0.75,
@@ -190,6 +194,8 @@ class AppPayloadTests(unittest.TestCase):
         self.assertEqual(instance.contour_warp_px_var.get(), 0.75)
         self.assertEqual(instance.corner_variation_var.get(), 0.55)
         self.assertEqual(instance.rim_width_var.get(), 8)
+        self.assertTrue(instance.mountain_outline_enabled_var.get())
+        self.assertEqual(instance.mountain_outline_width_var.get(), 3)
         self.assertEqual(instance.edge_debris_var.get(), 0.8)
         self.assertEqual(instance.geometry_variance_var.get(), 0.75)
         self.assertEqual(instance.normal_strength_var.get(), 8.0)
@@ -206,6 +212,8 @@ class AppPayloadTests(unittest.TestCase):
         self.assertEqual(request["corner_round_px"], 3)
         self.assertEqual(request["colors"]["edge"], "#cc5533")
         self.assertEqual(request["edge_color_strength"], 0.75)
+        self.assertTrue(request["mountain_outline_enabled"])
+        self.assertEqual(request["mountain_outline_width"], 3)
         self.assertEqual(request["light_angle_deg"], 180.0)
 
     def test_lit_preview_mode_does_not_show_normal_atlas_as_lit_atlas(self):
@@ -314,6 +322,8 @@ class AppPayloadTests(unittest.TestCase):
         self.assertEqual(app.max_corner_radius_for_tile_size(64), 32)
         self.assertEqual(app.max_rim_width_for_tile_size(32), 8)
         self.assertEqual(app.max_rim_width_for_tile_size(64), 16)
+        self.assertEqual(app.max_mountain_outline_width_for_tile_size(32), 4)
+        self.assertEqual(app.max_mountain_outline_width_for_tile_size(64), 8)
         self.assertEqual(app.max_height_for_tile_size(32), 16)
         self.assertEqual(app.max_height_for_tile_size(64), 32)
 

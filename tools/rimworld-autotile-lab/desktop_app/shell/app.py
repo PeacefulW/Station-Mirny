@@ -96,6 +96,10 @@ def max_rim_width_for_tile_size(tile_size: int) -> int:
     return max(0, int(tile_size) // 4)
 
 
+def max_mountain_outline_width_for_tile_size(tile_size: int) -> int:
+    return max(0, int(tile_size) // 8)
+
+
 def max_height_for_tile_size(tile_size: int) -> int:
     return max(0, int(tile_size) // 2)
 
@@ -394,6 +398,7 @@ class CliffForgeApp:
         self.corner_limited_scales: list[tuple[tk.Variable, tk.Scale]] = []
         self.height_limited_scales: list[tuple[tk.Variable, tk.Scale]] = []
         self.rim_width_scale: tk.Scale | None = None
+        self.mountain_outline_width_scale: tk.Scale | None = None
         self.tool = TOOL_BRUSH
         self.brush_size_var: tk.IntVar | None = None
         self.recent_colors: list[str] = list(self.state.get("recent_colors", []))
@@ -555,6 +560,8 @@ class CliffForgeApp:
         self.contour_warp_px_var = tk.DoubleVar(value=0.0)
         self.corner_variation_var = tk.DoubleVar(value=1.0)
         self.rim_width_var = tk.IntVar(value=7)
+        self.mountain_outline_enabled_var = tk.BooleanVar(value=True)
+        self.mountain_outline_width_var = tk.IntVar(value=3)
         self.edge_debris_var = tk.DoubleVar(value=0.65)
         self.geometry_variance_var = tk.DoubleVar(value=1.0)
         self.shape_supersampling_var = tk.IntVar(value=4)
@@ -929,6 +936,18 @@ class CliffForgeApp:
         self._add_panel_scale(height, "Скос гребня", self.crown_bevel_var, 0, 12, 1, integer=True)
         self._add_panel_scale(height, "Плавность контура", self.contour_relax_var, 0.0, 1.0, 0.05)
         self.rim_width_scale = self._add_panel_scale(height, "Ширина обода", self.rim_width_var, 0, max_rim_width_for_tile_size(int(self.tile_size_var.get())), 1, integer=True)
+        ttk.Checkbutton(height, text="Обводка низа горы",
+                        variable=self.mountain_outline_enabled_var,
+                        command=self.schedule_full).pack(fill="x", pady=(2, 0))
+        self.mountain_outline_width_scale = self._add_panel_scale(
+            height,
+            "Ширина обводки",
+            self.mountain_outline_width_var,
+            0,
+            max_mountain_outline_width_for_tile_size(int(self.tile_size_var.get())),
+            1,
+            integer=True,
+        )
         self._add_panel_scale(height, "Сколы кромки", self.edge_debris_var, 0.0, 1.0, 0.05)
         self._add_panel_scale(height, "Сила цвета кромки", self.edge_color_strength_var, 0.0, 1.0, 0.05)
         self._add_panel_scale(height, "Вариация геометрии", self.geometry_variance_var, 0.0, 1.0, 0.05)
@@ -1658,6 +1677,11 @@ class CliffForgeApp:
             self.rim_width_scale.configure(to=rim_max)
             if int(self.rim_width_var.get()) > rim_max:
                 self.rim_width_var.set(rim_max)
+        if self.mountain_outline_width_scale is not None:
+            outline_max = max_mountain_outline_width_for_tile_size(tile_size)
+            self.mountain_outline_width_scale.configure(to=outline_max)
+            if int(self.mountain_outline_width_var.get()) > outline_max:
+                self.mountain_outline_width_var.set(outline_max)
 
     def _apply_preset(self, name: str, *, schedule: bool) -> None:
         preset = clone_preset(name)
@@ -1680,6 +1704,8 @@ class CliffForgeApp:
             self.contour_warp_px_var.set(preset.get("contour_warp_px", 3.0))
             self.corner_variation_var.set(preset.get("corner_variation", 0.35))
             self.rim_width_var.set(preset.get("rim_width", 7))
+            self.mountain_outline_enabled_var.set(bool(preset.get("mountain_outline_enabled", False)))
+            self.mountain_outline_width_var.set(int(preset.get("mountain_outline_width", 3)))
             self.edge_debris_var.set(preset.get("edge_debris", 0.65))
             self.edge_color_strength_var.set(preset.get("edge_color_strength", 0.35))
             self.geometry_variance_var.set(preset.get("geometry_variance", 0.45))
@@ -1868,6 +1894,8 @@ class CliffForgeApp:
             "contour_warp_px": float(self.contour_warp_px_var.get()),
             "corner_variation": float(self.corner_variation_var.get()),
             "rim_width": int(self.rim_width_var.get()),
+            "mountain_outline_enabled": bool(self.mountain_outline_enabled_var.get()),
+            "mountain_outline_width": int(self.mountain_outline_width_var.get()),
             "edge_debris": float(self.edge_debris_var.get()),
             "edge_color_strength": float(self.edge_color_strength_var.get()),
             "geometry_variance": float(self.geometry_variance_var.get()),
@@ -2427,6 +2455,8 @@ class CliffForgeApp:
             self.contour_warp_px_var.set(float(request.get("contour_warp_px", self.contour_warp_px_var.get())))
             self.corner_variation_var.set(float(request.get("corner_variation", self.corner_variation_var.get())))
             self.rim_width_var.set(int(request.get("rim_width", self.rim_width_var.get())))
+            self.mountain_outline_enabled_var.set(bool(request.get("mountain_outline_enabled", self.mountain_outline_enabled_var.get())))
+            self.mountain_outline_width_var.set(int(request.get("mountain_outline_width", self.mountain_outline_width_var.get())))
             self.edge_debris_var.set(float(request.get("edge_debris", self.edge_debris_var.get())))
             self.edge_color_strength_var.set(float(request.get("edge_color_strength", self.edge_color_strength_var.get())))
             self.geometry_variance_var.set(float(request.get("geometry_variance", self.geometry_variance_var.get())))

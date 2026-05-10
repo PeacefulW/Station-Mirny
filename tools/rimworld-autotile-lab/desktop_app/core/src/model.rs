@@ -36,6 +36,10 @@ pub struct AppRequest {
     pub corner_variation: f32,
     #[serde(default = "default_rim_width")]
     pub rim_width: u32,
+    #[serde(default = "default_mountain_outline_enabled")]
+    pub mountain_outline_enabled: bool,
+    #[serde(default = "default_mountain_outline_width")]
+    pub mountain_outline_width: u32,
     #[serde(default = "default_edge_debris")]
     pub edge_debris: f32,
     #[serde(default = "default_edge_color_strength")]
@@ -280,6 +284,7 @@ impl AppRequest {
         self.corner_variation =
             finite_or_default(self.corner_variation, default_corner_variation()).clamp(0.0, 1.0);
         self.rim_width = self.rim_width.min(self.tile_size / 4);
+        self.mountain_outline_width = self.mountain_outline_width.min(self.tile_size / 8);
         self.edge_debris =
             finite_or_default(self.edge_debris, default_edge_debris()).clamp(0.0, 1.0);
         self.edge_color_strength =
@@ -358,6 +363,8 @@ pub struct Preset {
     pub contour_warp_px: f32,
     pub corner_variation: f32,
     pub rim_width: u32,
+    pub mountain_outline_enabled: bool,
+    pub mountain_outline_width: u32,
     pub edge_debris: f32,
     pub edge_color_strength: f32,
     pub geometry_variance: f32,
@@ -404,6 +411,8 @@ impl Preset {
             contour_warp_px: 0.75,
             corner_variation: 0.55,
             rim_width: 8,
+            mountain_outline_enabled: true,
+            mountain_outline_width: 3,
             edge_debris: 0.8,
             edge_color_strength: default_edge_color_strength(),
             geometry_variance: 0.75,
@@ -438,6 +447,8 @@ impl Preset {
             contour_warp_px: 1.25,
             corner_variation: 0.16,
             rim_width: 4,
+            mountain_outline_enabled: false,
+            mountain_outline_width: 2,
             edge_debris: 0.25,
             edge_color_strength: default_edge_color_strength(),
             geometry_variance: 0.15,
@@ -472,6 +483,8 @@ impl Preset {
             contour_warp_px: 1.5,
             corner_variation: 0.25,
             rim_width: 5,
+            mountain_outline_enabled: false,
+            mountain_outline_width: 2,
             edge_debris: 0.45,
             edge_color_strength: default_edge_color_strength(),
             geometry_variance: 0.3,
@@ -512,6 +525,8 @@ pub fn default_request() -> AppRequest {
         contour_warp_px: preset.contour_warp_px,
         corner_variation: preset.corner_variation,
         rim_width: preset.rim_width,
+        mountain_outline_enabled: preset.mountain_outline_enabled,
+        mountain_outline_width: preset.mountain_outline_width,
         edge_debris: preset.edge_debris,
         edge_color_strength: preset.edge_color_strength,
         geometry_variance: preset.geometry_variance,
@@ -611,6 +626,14 @@ fn default_diagonal_smooth_px() -> u32 {
 
 fn default_rim_width() -> u32 {
     7
+}
+
+fn default_mountain_outline_enabled() -> bool {
+    false
+}
+
+fn default_mountain_outline_width() -> u32 {
+    3
 }
 
 fn default_edge_debris() -> f32 {
@@ -1149,6 +1172,14 @@ mod tests {
     }
 
     #[test]
+    fn default_request_serializes_bottom_outline_settings() {
+        let request = serde_json::to_value(default_request().sanitized()).unwrap();
+
+        assert_eq!(request["mountain_outline_enabled"], true);
+        assert_eq!(request["mountain_outline_width"], 3);
+    }
+
+    #[test]
     fn organic_edge_controls_are_sanitized() {
         let mut request = default_request();
         request.contour_relax = 2.0;
@@ -1157,6 +1188,7 @@ mod tests {
         request.corner_round_px = 99;
         request.diagonal_smooth_px = 99;
         request.rim_width = 99;
+        request.mountain_outline_width = 99;
         request.edge_debris = 4.0;
         request.edge_color_strength = 4.0;
         request.geometry_variance = 4.0;
@@ -1171,6 +1203,7 @@ mod tests {
         assert_eq!(request.corner_round_px, 32);
         assert_eq!(request.diagonal_smooth_px, 32);
         assert_eq!(request.rim_width, 16);
+        assert_eq!(request.mountain_outline_width, 8);
         assert_eq!(request.edge_debris, 1.0);
         assert_eq!(request.edge_color_strength, 1.0);
         assert_eq!(request.geometry_variance, 1.0);

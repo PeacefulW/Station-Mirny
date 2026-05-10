@@ -1296,12 +1296,227 @@ fn render_tile_with_field(
         }
     }
 
+    apply_mountain_bottom_outline_for_field(
+        request,
+        size,
+        field,
+        global_distance_cache.as_ref(),
+        geometry_seed,
+        origin_x,
+        origin_y,
+        &mut mask,
+        &mut albedo,
+    );
+
     TileBuffers {
         albedo,
         mask,
         height: height_img,
         normal,
     }
+}
+
+#[cfg(test)]
+fn apply_mountain_bottom_outline(
+    request: &AppRequest,
+    size: u32,
+    mask: &mut RgbaImage,
+    albedo: &mut RgbaImage,
+) {
+    let source_mask = mask.clone();
+    let source = OutlineMaskSource {
+        mask: &source_mask,
+        size,
+        global_sampler: None,
+        origin_x: 0,
+        origin_y: 0,
+    };
+    apply_mountain_bottom_outline_from_source(request, size, &source, mask, albedo);
+}
+
+fn apply_mountain_bottom_outline_for_field(
+    request: &AppRequest,
+    size: u32,
+    field: SurfaceField<'_>,
+    global_distance_cache: Option<&GlobalSdfDistanceCache>,
+    geometry_seed: u32,
+    origin_x: u32,
+    origin_y: u32,
+    mask: &mut RgbaImage,
+    albedo: &mut RgbaImage,
+) {
+    let source_mask = mask.clone();
+    let global_sampler = match field {
+        SurfaceField::GlobalSdf(sdf) => Some(GlobalSdfSampler {
+            request,
+            sdf,
+            seed: geometry_seed,
+            distance_cache: global_distance_cache,
+        }),
+        SurfaceField::Local(_) => None,
+    };
+    let source = OutlineMaskSource {
+        mask: &source_mask,
+        size,
+        global_sampler,
+        origin_x,
+        origin_y,
+    };
+    apply_mountain_bottom_outline_from_source(request, size, &source, mask, albedo);
+}
+
+fn apply_mountain_bottom_outline_from_source(
+    request: &AppRequest,
+    size: u32,
+    source: &OutlineMaskSource<'_>,
+    mask: &mut RgbaImage,
+    albedo: &mut RgbaImage,
+) {
+    if !request.mountain_outline_enabled || request.mountain_outline_width == 0 {
+        return;
+    }
+
+    let width = request.mountain_outline_width.min(size).max(1);
+    let source_albedo = albedo.clone();
+    let outline = [4_u8, 4_u8, 4_u8];
+    for y in 0..size {
+        for x in 0..size {
+            let strength = bottom_outline_strength(source, x as i32, y as i32, width);
+            if strength <= 0.0 {
+                continue;
+            }
+            let original = source_albedo.get_pixel(x, y).0;
+            let mixed = mix_color([original[0], original[1], original[2]], outline, strength);
+            albedo.put_pixel(x, y, Rgba([mixed[0], mixed[1], mixed[2], original[3]]));
+            apply_outline_mask_coverage(mask, x, y, strength);
+        }
+    }
+}
+
+struct OutlineMaskSource<'a> {
+    mask: &'a RgbaImage,
+    size: u32,
+    global_sampler: Option<GlobalSdfSampler<'a>>,
+    origin_x: u32,
+    origin_y: u32,
+}
+
+impl OutlineMaskSource<'_> {
+    fn mask_at(&self, x: i32, y: i32) -> Option<[u8; 4]> {
+        if x >= 0 && x < self.size as i32 && y >= 0 && y < self.size as i32 {
+            return Some(self.mask.get_pixel(x as u32, y as u32).0);
+        }
+
+        let sampler = self.global_sampler?;
+        let world_x = self.origin_x as i32 + x;
+        let world_y = self.origin_y as i32 + y;
+        Some(surface_sample_mask(sample_global_surface_at_world(
+            sampler,
+            world_x as f32,
+            world_y as f32,
+        )))
+    }
+}
+
+fn bottom_outline_strength(
+    source: &OutlineMaskSource<'_>,
+    x: i32,
+    y: i32,
+    width: u32,
+) -> f32 {
+    let Some(pixel_mask) = source.mask_at(x, y) else {
+        return 0.0;
+    };
+    if is_bottom_outline_face_pixel(pixel_mask) {
+        let Some(distance) = distance_to_empty_below(source, x, y, width) else {
+            return 0.0;
+        };
+        let fade = (width as f32 + 1.0 - distance) / width as f32;
+        return (fade * 0.86).clamp(0.0, 0.86);
+    }
+
+    if pixel_mask[3] == 0 {
+        let ground_width = width.div_ceil(2).max(1);
+        let Some(distance) = distance_to_face_above(source, x, y, ground_width) else {
+            return 0.0;
+        };
+        let fade = (ground_width as f32 + 1.0 - distance) / ground_width as f32;
+        return (fade * 0.68).clamp(0.0, 0.68);
+    }
+
+    0.0
+}
+
+fn apply_outline_mask_coverage(mask: &mut RgbaImage, x: u32, y: u32, strength: f32) {
+    let coverage = (strength.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let mut current = mask.get_pixel(x, y).0;
+    current[0] = 0;
+    current[1] = current[1].max(coverage);
+    current[2] = 0;
+    current[3] = current[3].max(coverage);
+    mask.put_pixel(x, y, Rgba(current));
+}
+
+fn is_bottom_outline_face_pixel(mask: [u8; 4]) -> bool {
+    mask[1] > 0 && mask[2] == 0 && mask[3] > 0
+}
+
+fn distance_to_empty_below(
+    source: &OutlineMaskSource<'_>,
+    x: i32,
+    y: i32,
+    width: u32,
+) -> Option<f32> {
+    let mut nearest = None;
+    let radius = width as i32;
+    for dy in 1..=radius {
+        let sample_y = y + dy;
+        for dx in -radius..=radius {
+            let sample_x = x + dx;
+            let distance = ((dx * dx + dy * dy) as f32).sqrt();
+            if distance > width as f32 {
+                continue;
+            }
+            let Some(mask) = source.mask_at(sample_x, sample_y) else {
+                continue;
+            };
+            if mask[3] == 0 {
+                nearest = Some(nearest.map_or(distance, |current: f32| current.min(distance)));
+            }
+        }
+    }
+    nearest
+}
+
+fn distance_to_face_above(
+    source: &OutlineMaskSource<'_>,
+    x: i32,
+    y: i32,
+    width: u32,
+) -> Option<f32> {
+    let mut nearest = None;
+    let radius = width as i32;
+    for dy in 1..=radius {
+        let sample_y = y - dy;
+        for dx in -radius..=radius {
+            let sample_x = x + dx;
+            let distance = ((dx * dx + dy * dy) as f32).sqrt();
+            if distance > width as f32 {
+                continue;
+            }
+            if is_bottom_contact_face_pixel(source, sample_x, sample_y) {
+                nearest = Some(nearest.map_or(distance, |current: f32| current.min(distance)));
+            }
+        }
+    }
+    nearest
+}
+
+fn is_bottom_contact_face_pixel(source: &OutlineMaskSource<'_>, x: i32, y: i32) -> bool {
+    source
+        .mask_at(x, y)
+        .is_some_and(is_bottom_outline_face_pixel)
+        && distance_to_empty_below(source, x, y, 1).is_some()
 }
 
 fn extract_mode_image(tile: TileBuffers, request: &AppRequest) -> RgbaImage {
@@ -1452,6 +1667,15 @@ fn coverage_byte(value: f32) -> u8 {
     (value.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
+fn surface_sample_mask(sample: SurfaceSample) -> [u8; 4] {
+    [
+        coverage_byte(sample.top_coverage),
+        coverage_byte(sample.face_coverage),
+        coverage_byte(sample.back_coverage),
+        coverage_byte(sample.occupancy),
+    ]
+}
+
 fn sample_surface_pixel(
     request: &AppRequest,
     signature: &Signature,
@@ -1574,6 +1798,14 @@ fn sample_global_surface_pixel(
 ) -> SurfaceSample {
     let world_x = origin_x as f32 + x as f32;
     let world_y = origin_y as f32 + y as f32;
+    sample_global_surface_at_world(sampler, world_x, world_y)
+}
+
+fn sample_global_surface_at_world(
+    sampler: GlobalSdfSampler<'_>,
+    world_x: f32,
+    world_y: f32,
+) -> SurfaceSample {
     let samples = global_surface_sample_count_for_pixel(sampler, world_x, world_y);
     if samples <= 1 {
         let (height, zone) = sample_global_height_with_sampler(sampler, world_x, world_y);
@@ -1593,11 +1825,8 @@ fn sample_global_surface_pixel(
         for sx in 0..samples {
             let offset_x = (sx as f32 + 0.5) * inv_samples;
             let offset_y = (sy as f32 + 0.5) * inv_samples;
-            let sample_x = x as f32 + offset_x;
-            let sample_y = y as f32 + offset_y;
-            let world_x = origin_x as f32 + sample_x;
-            let world_y = origin_y as f32 + sample_y;
-            let (height, zone) = sample_global_height_with_sampler(sampler, world_x, world_y);
+            let (height, zone) =
+                sample_global_height_with_sampler(sampler, world_x + offset_x, world_y + offset_y);
             zone_counts[zone_index(zone)] += 1;
             if zone != SurfaceZone::Empty {
                 height_sum += height;
@@ -3577,6 +3806,7 @@ mod tests {
         request.geometry_variance = 0.0;
         request.normal_detail_strength = 0.0;
         request.rim_width = 0;
+        request.mountain_outline_enabled = false;
         request.edge_debris = 0.0;
         request.shape_supersampling = 4;
         request.materials.top = flat_material("#ffffff");
@@ -3805,6 +4035,7 @@ mod tests {
         request.geometry_variance = 0.0;
         request.normal_detail_strength = 0.0;
         request.rim_width = 0;
+        request.mountain_outline_enabled = false;
         request.edge_debris = 0.0;
         request.shape_supersampling = 4;
         let mut request = request.sanitized();
@@ -3836,6 +4067,7 @@ mod tests {
         request.geometry_variance = 0.0;
         request.normal_detail_strength = 0.0;
         request.rim_width = 0;
+        request.mountain_outline_enabled = false;
         request.edge_debris = 0.0;
         request.shape_supersampling = 4;
         let mut request = request.sanitized();
@@ -3862,6 +4094,7 @@ mod tests {
         request.geometry_variance = 0.0;
         request.normal_detail_strength = 0.0;
         request.rim_width = 0;
+        request.mountain_outline_enabled = false;
         request.edge_debris = 0.0;
         request.shape_supersampling = 4;
         let mut request = request.sanitized();
@@ -4697,6 +4930,229 @@ mod tests {
         assert!(
             albedo.0[0] > albedo.0[1] * 2 && albedo.0[0] > albedo.0[2] * 2,
             "edge color should visibly tint the preview lip"
+        );
+    }
+
+    #[test]
+    fn mountain_bottom_outline_darkens_only_lower_face_contact() {
+        let mut base = flat_preview_request();
+        base.map = MapData {
+            width: 3,
+            height: 3,
+            cells: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+        };
+        base.south_height = 20;
+        base.side_height = 0;
+        base.north_height = 0;
+        base.rim_width = 8;
+        base.edge_debris = 0.0;
+        base.materials.face = flat_material("#909090");
+        base.materials.base = flat_material("#909090");
+        base.colors.face = "#909090".to_string();
+        base.colors.base = "#909090".to_string();
+        base.mountain_outline_width = 3;
+
+        let mut without_outline = base.clone();
+        without_outline.mountain_outline_enabled = false;
+        let without_outline = without_outline.sanitized();
+
+        let mut with_outline = base;
+        with_outline.mountain_outline_enabled = true;
+        let with_outline = with_outline.sanitized();
+
+        let sdf = MapSdf::compute(&with_outline.map);
+        let plain_tile =
+            render_tile_with_sdf(&without_outline, &TextureSet::default(), &sdf, 0, 64, 64);
+        let outlined_tile =
+            render_tile_with_sdf(&with_outline, &TextureSet::default(), &sdf, 0, 64, 64);
+
+        let bottom_contact = (0..plain_tile.mask.height() - 1)
+            .rev()
+            .flat_map(|y| (0..plain_tile.mask.width()).map(move |x| (x, y)))
+            .find(|(x, y)| {
+                let mask = plain_tile.mask.get_pixel(*x, *y).0;
+                let below = plain_tile.mask.get_pixel(*x, *y + 1).0;
+                mask[1] > 128 && mask[3] > 128 && below[3] == 0
+            })
+            .expect("expected a face pixel with empty terrain directly below");
+
+        let top_lip = (0..plain_tile.mask.height())
+            .flat_map(|y| (0..plain_tile.mask.width()).map(move |x| (x, y)))
+            .find(|(x, y)| {
+                let mask = plain_tile.mask.get_pixel(*x, *y).0;
+                mask[0] > 128 && mask[1] > 128 && mask[3] > 128
+            })
+            .expect("expected a visible top lip edge pixel");
+
+        let plain_bottom = plain_tile
+            .albedo
+            .get_pixel(bottom_contact.0, bottom_contact.1)
+            .0;
+        let outlined_bottom = outlined_tile
+            .albedo
+            .get_pixel(bottom_contact.0, bottom_contact.1)
+            .0;
+        assert!(
+            srgb_luminance_rgb([outlined_bottom[0], outlined_bottom[1], outlined_bottom[2]]) + 20.0
+                < srgb_luminance_rgb([plain_bottom[0], plain_bottom[1], plain_bottom[2]]),
+            "bottom face contact should be visibly darkened by the mountain outline"
+        );
+
+        assert_eq!(
+            plain_tile.albedo.get_pixel(top_lip.0, top_lip.1).0,
+            outlined_tile.albedo.get_pixel(top_lip.0, top_lip.1).0,
+            "bottom outline must not tint the existing top lip/rim edge"
+        );
+    }
+
+    #[test]
+    fn mountain_bottom_outline_does_not_treat_tile_edge_as_empty_ground() {
+        let mut request = flat_preview_request();
+        request.mountain_outline_enabled = true;
+        request.mountain_outline_width = 3;
+        let request = request.sanitized();
+        let size = 8;
+        let mut mask = RgbaImage::from_pixel(size, size, Rgba([0, 255, 0, 255]));
+        let mut albedo = RgbaImage::from_pixel(size, size, Rgba([144, 144, 144, 255]));
+
+        apply_mountain_bottom_outline(&request, size, &mut mask, &mut albedo);
+
+        for y in size - request.mountain_outline_width..size {
+            assert_eq!(
+                albedo.get_pixel(4, y).0,
+                [144, 144, 144, 255],
+                "tile bounds are not ground; treating them as empty creates horizontal stripes across continuing facades"
+            );
+        }
+    }
+
+    #[test]
+    fn mountain_bottom_outline_darkens_ground_side_of_contact() {
+        let mut request = flat_preview_request();
+        request.mountain_outline_enabled = true;
+        request.mountain_outline_width = 3;
+        let request = request.sanitized();
+        let size = 8;
+        let mut mask = RgbaImage::from_pixel(size, size, Rgba([0, 0, 0, 0]));
+        mask.put_pixel(4, 3, Rgba([0, 255, 0, 255]));
+        let mut albedo = RgbaImage::from_pixel(size, size, Rgba([144, 144, 144, 255]));
+
+        apply_mountain_bottom_outline(&request, size, &mut mask, &mut albedo);
+
+        let ground = albedo.get_pixel(4, 4).0;
+        assert!(
+            srgb_luminance_rgb([ground[0], ground[1], ground[2]]) + 20.0
+                < srgb_luminance_rgb([144, 144, 144]),
+            "the first ground pixel below a face contact should be darkened so the outline remains visible over terrain"
+        );
+        for x in 3..=5 {
+            let ground = albedo.get_pixel(x, 4).0;
+            assert!(
+                srgb_luminance_rgb([ground[0], ground[1], ground[2]]) + 8.0
+                    < srgb_luminance_rgb([144, 144, 144]),
+                "ground-side outline should spread around the contact instead of forming column-shaped gaps"
+            );
+        }
+    }
+
+    #[test]
+    fn mountain_bottom_outline_keeps_thin_line_across_mixed_face_pixels() {
+        let mut request = flat_preview_request();
+        request.mountain_outline_enabled = true;
+        request.mountain_outline_width = 1;
+        let request = request.sanitized();
+        let size = 8;
+        let mut mask = RgbaImage::from_pixel(size, size, Rgba([0, 0, 0, 0]));
+        mask.put_pixel(2, 3, Rgba([0, 255, 0, 255]));
+        mask.put_pixel(3, 3, Rgba([96, 180, 0, 255]));
+        mask.put_pixel(4, 3, Rgba([0, 255, 0, 255]));
+        let mut albedo = RgbaImage::from_pixel(size, size, Rgba([144, 144, 144, 255]));
+
+        apply_mountain_bottom_outline(&request, size, &mut mask, &mut albedo);
+
+        for x in 2..=4 {
+            let ground = albedo.get_pixel(x, 4).0;
+            assert!(
+                srgb_luminance_rgb([ground[0], ground[1], ground[2]]) + 8.0
+                    < srgb_luminance_rgb([144, 144, 144]),
+                "thin bottom outline should not break on mixed top/face mask pixels"
+            );
+        }
+    }
+
+    #[test]
+    fn mountain_bottom_outline_continues_across_sdf_tile_boundary() {
+        let mut base = default_request();
+        base.preview_mode = "albedo".to_string();
+        base.mountain_outline_enabled = false;
+        base.mountain_outline_width = 1;
+        let base = base.sanitized();
+
+        let mut outlined = base.clone();
+        outlined.mountain_outline_enabled = true;
+        let outlined = outlined.sanitized();
+
+        let mut mask_request = base.clone();
+        mask_request.preview_mode = "mask".to_string();
+        let mask_preview = build_map_preview(&mask_request, &TextureSet::default())
+            .expect("mask preview should render");
+        let plain_preview =
+            build_map_preview(&base, &TextureSet::default()).expect("plain preview should render");
+        let outlined_preview = build_map_preview(&outlined, &TextureSet::default())
+            .expect("outlined preview should render");
+
+        let mut boundary_columns = 0_usize;
+        let mut gaps = 0_usize;
+        for x in 0..mask_preview.width() {
+            let Some(bottom_y) = (0..mask_preview.height()).rev().find(|y| {
+                let mask = mask_preview.get_pixel(x, *y).0;
+                mask[1] > 0 && mask[2] == 0 && mask[3] > 0
+            }) else {
+                continue;
+            };
+            if bottom_y + 1 >= mask_preview.height() || bottom_y % base.tile_size != base.tile_size - 1 {
+                continue;
+            }
+            if mask_preview.get_pixel(x, bottom_y + 1).0[3] != 0 {
+                continue;
+            }
+            boundary_columns += 1;
+            let changed = plain_preview.get_pixel(x, bottom_y).0
+                != outlined_preview.get_pixel(x, bottom_y).0
+                || plain_preview.get_pixel(x, bottom_y + 1).0
+                    != outlined_preview.get_pixel(x, bottom_y + 1).0;
+            if !changed {
+                gaps += 1;
+            }
+        }
+
+        assert!(
+            boundary_columns > 40,
+            "fixture should include a visible bottom face that crosses tile boundaries"
+        );
+        assert_eq!(
+            gaps, 0,
+            "bottom outline should not break when the face contact falls on a tile boundary"
+        );
+    }
+
+    #[test]
+    fn mountain_bottom_outline_claims_mask_coverage_on_ground_side() {
+        let mut request = flat_preview_request();
+        request.mountain_outline_enabled = true;
+        request.mountain_outline_width = 3;
+        let request = request.sanitized();
+        let size = 8;
+        let mut mask = RgbaImage::from_pixel(size, size, Rgba([0, 0, 0, 0]));
+        mask.put_pixel(4, 3, Rgba([0, 255, 0, 255]));
+        let mut albedo = RgbaImage::from_pixel(size, size, Rgba([144, 144, 144, 255]));
+
+        apply_mountain_bottom_outline(&request, size, &mut mask, &mut albedo);
+
+        let outline_mask = mask.get_pixel(4, 4).0;
+        assert!(
+            outline_mask[1] > 0 && outline_mask[3] > 0,
+            "ground-side outline pixels need face mask coverage so terrain does not draw over them"
         );
     }
 
