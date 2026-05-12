@@ -4,8 +4,8 @@ doc_type: system_spec_index
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.8
-last_updated: 2026-04-29
+version: 1.9
+last_updated: 2026-05-12
 ---
 
 # System Specs
@@ -74,9 +74,14 @@ Current transition strategy:
 - [Mountain Generation V1](world/mountain_generation.md)
 - [Lake Generation V1](world/lake_generation.md) (draft)
 - [Terrain Hybrid Presentation](world/terrain_hybrid_presentation.md)
-- [Mountain Contour Mesh L1 Debug Foundation](world/mountain_contour_mesh_l1_debug_foundation_iteration_brief.md) (draft)
-- [Mountain Contour Mesh L2 Visual Replacement](world/mountain_contour_mesh_l2_visual_replacement_iteration_brief.md) (draft)
-- [Mountain Contour Mesh L3 Collision Alignment](world/mountain_contour_mesh_l3_collision_alignment_iteration_brief.md) (draft)
+- [Runtime SDF Terrain Contours](world/runtime_sdf_terrain_contours.md) (draft)
+- [Runtime SDF Contours - Iteration 01 Generator Recipe Export](world/runtime_sdf_contours_iteration_01_generator_recipe_export.md) (draft)
+- [Runtime SDF Contours - Iteration 02 Native Contour Field](world/runtime_sdf_contours_iteration_02_native_contour_field.md) (draft)
+- [Runtime SDF Contours - Iteration 03 Streaming Packets](world/runtime_sdf_contours_iteration_03_streaming_packets.md) (draft)
+- [Runtime SDF Contours - Iteration 04 Chunk Rendering](world/runtime_sdf_contours_iteration_04_chunk_rendering.md) (draft)
+- [Runtime SDF Contours - Iteration 05 Collision Queries](world/runtime_sdf_contours_iteration_05_collision_queries.md) (draft)
+- [Runtime SDF Contours - Iteration 06 Excavation Dirty Updates](world/runtime_sdf_contours_iteration_06_excavation_dirty_updates.md) (draft)
+- [Runtime SDF Contours - Iteration 07 Ground and Mountain Cutover Validation](world/runtime_sdf_contours_iteration_07_cutover_validation.md) (draft)
 
 The removed pre-rebuild world stack now rebuilds from this living world-grid contract
 plus the approved ADR stack:
