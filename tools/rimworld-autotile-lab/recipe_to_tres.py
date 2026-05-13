@@ -290,6 +290,7 @@ def build_material_set(
     for slot in (
         "top_albedo",
         "face_albedo",
+        "base_albedo",
         "top_modulation",
         "face_modulation",
         "top_normal",
@@ -310,6 +311,7 @@ def build_material_set(
     for slot in (
         "top_albedo",
         "face_albedo",
+        "base_albedo",
         "top_modulation",
         "face_modulation",
         "top_normal",
@@ -350,6 +352,7 @@ def collect_material_textures(
     aliases_by_slot: dict[str, tuple[str, ...]] = {
         "top_albedo": top_albedo_aliases,
         "face_albedo": ("face_albedo", "atlas_albedo", "base_albedo"),
+        "base_albedo": ("base_albedo", "atlas_albedo", "top_albedo"),
         "top_modulation": ("top_modulation", "atlas_modulation"),
         "face_modulation": ("face_modulation", "top_modulation", "atlas_modulation"),
         "top_normal": ("top_normal",),

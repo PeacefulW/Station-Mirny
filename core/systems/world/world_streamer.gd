@@ -594,7 +594,7 @@ func _publish_next_batch() -> void:
 		_refresh_debug_visuals_for_chunk(_active_publish_chunk)
 		if _are_contour_results_ready_for_current_revision(_active_publish_chunk):
 			_apply_ready_contour_results_to_chunk_view(_active_publish_chunk)
-		elif not _try_apply_contour_ground_placeholder_to_chunk_view(_active_publish_chunk):
+		else:
 			active_view.visible = false
 		_emit_world_event(&"chunk_loaded", [_active_publish_chunk])
 		_active_publish_chunk = INVALID_CHUNK_COORD
@@ -1726,8 +1726,6 @@ func _register_contour_result(result: Dictionary) -> bool:
 		_contour_ready_revision_by_chunk[chunk_coord] = required_revision
 		_contour_requested_revision_by_chunk.erase(chunk_coord)
 		_apply_ready_contour_results_to_chunk_view(chunk_coord)
-	else:
-		_try_apply_contour_ground_placeholder_to_chunk_view(chunk_coord)
 	return true
 
 func _release_contour_results_for_chunk(chunk_coord: Vector2i) -> void:
@@ -1832,47 +1830,6 @@ func _apply_ready_contour_results_to_chunk_view(chunk_coord: Vector2i) -> void:
 		required_revision
 	)
 
-func _try_apply_contour_ground_placeholder_to_chunk_view(chunk_coord: Vector2i) -> bool:
-	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
-	var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
-	if chunk_view == null:
-		return false
-	var required_revision: int = _get_contour_required_revision_for_chunk(chunk_coord)
-	var chunk_results: Dictionary = _contour_results_by_chunk.get(chunk_coord, {}) as Dictionary
-	var ground_result: Dictionary = chunk_results.get(
-		WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE,
-		{}
-	) as Dictionary
-	if chunk_view.apply_contour_ground_placeholder(ground_result, required_revision):
-		return true
-	return chunk_view.apply_contour_ground_placeholder(
-		_build_immediate_ground_placeholder_result(chunk_coord, required_revision),
-		required_revision
-	)
-
-func _build_immediate_ground_placeholder_result(chunk_coord: Vector2i, diff_revision: int) -> Dictionary:
-	var mask_image := Image.create(1, 1, false, Image.FORMAT_RGBA8)
-	mask_image.fill(Color(1.0, 0.0, 0.0, 1.0))
-	var height_image := Image.create(1, 1, false, Image.FORMAT_RH)
-	height_image.fill(Color(1.0, 0.0, 0.0, 1.0))
-	var normal_image := Image.create(1, 1, false, Image.FORMAT_RGBA8)
-	normal_image.fill(Color(0.5, 0.5, 1.0, 1.0))
-	return {
-		"ready": true,
-		"chunk_coord": chunk_coord,
-		"contour_class": WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE,
-		"diff_revision": diff_revision,
-		"required_diff_revision": diff_revision,
-		"recipe_id": "ground_placeholder",
-		"pixel_size": Vector2i(1, 1),
-		"mask_rgba8": mask_image.get_data(),
-		"height_r16": height_image.get_data(),
-		"normal_rgba8": normal_image.get_data(),
-		"collision_sdf_f32": PackedFloat32Array(),
-		"collision_size": Vector2i.ZERO,
-		"collision_sample_px": 0,
-	}
-
 func _make_contour_request_key(chunk_coord: Vector2i, diff_revision: int) -> String:
 	return "%d:%d:%d" % [chunk_coord.x, chunk_coord.y, diff_revision]
 
@@ -1922,18 +1879,10 @@ func _process_contour_worker_request(worker_world_core: Object, request: Diction
 		var input: Dictionary = _build_contour_input_from_request(request, packet_map, contour_class)
 		if input.is_empty():
 			continue
-		var result: Dictionary = {}
-		if contour_class == WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE:
-			result = _build_constant_contour_result(input, contour_class, true)
-		elif _is_contour_solid_mask_empty(input):
-			result = _build_constant_contour_result(input, contour_class, false)
-		elif _is_contour_solid_mask_full(input):
-			result = _build_constant_contour_result(input, contour_class, true)
-		else:
-			var result_variant: Variant = worker_world_core.call("build_contour_chunk", input)
-			if result_variant is not Dictionary:
-				continue
-			result = (result_variant as Dictionary).duplicate(true)
+		var result_variant: Variant = worker_world_core.call("build_contour_chunk", input)
+		if result_variant is not Dictionary:
+			continue
+		var result: Dictionary = (result_variant as Dictionary).duplicate(true)
 		if result.is_empty():
 			continue
 		_annotate_contour_result_visual_coverage(result)
@@ -1941,68 +1890,6 @@ func _process_contour_worker_request(worker_world_core: Object, request: Diction
 		result["epoch"] = int(request.get("epoch", -1))
 		result["request_key"] = str(request.get("request_key", ""))
 		_append_completed_contour_results([result])
-
-func _is_contour_solid_mask_empty(input: Dictionary) -> bool:
-	var mask: PackedByteArray = input.get("solid_mask_with_halo", PackedByteArray()) as PackedByteArray
-	if mask.is_empty():
-		return false
-	for value: int in mask:
-		if value != 0:
-			return false
-	return true
-
-func _is_contour_solid_mask_full(input: Dictionary) -> bool:
-	var mask: PackedByteArray = input.get("solid_mask_with_halo", PackedByteArray()) as PackedByteArray
-	if mask.is_empty():
-		return false
-	for value: int in mask:
-		if value == 0:
-			return false
-	return true
-
-func _build_constant_contour_result(input: Dictionary, contour_class: StringName, occupied: bool) -> Dictionary:
-	var chunk_coord: Vector2i = input.get("chunk_coord", Vector2i.ZERO) as Vector2i
-	var chunk_size_tiles: int = maxi(1, int(input.get("chunk_size_tiles", WorldRuntimeConstants.CHUNK_SIZE)))
-	var tile_size_px: int = maxi(1, int(input.get("tile_size_px", WorldRuntimeConstants.TILE_SIZE_PX)))
-	var render_tile_size_px: int = maxi(1, int(input.get("render_tile_size_px", tile_size_px)))
-	var logical_output_px: int = chunk_size_tiles * tile_size_px
-	var render_output_px: int = chunk_size_tiles * render_tile_size_px
-	var recipe: Dictionary = input.get("recipe", {}) as Dictionary
-	var collision: Dictionary = recipe.get("collision", {}) as Dictionary
-	var collision_sample_px: int = maxi(1, int(collision.get("sampling_px", 4)))
-	var collision_side: int = ceili(float(logical_output_px) / float(collision_sample_px)) + 1
-	var blocks_inside: bool = bool(collision.get(
-		"blocks_inside",
-		contour_class == WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS
-	))
-
-	var mask_image := Image.create(render_output_px, render_output_px, false, Image.FORMAT_RGBA8)
-	mask_image.fill(Color(1.0, 0.0, 0.0, 1.0) if occupied else Color(0.0, 0.0, 0.0, 0.0))
-	var normal_image := Image.create(render_output_px, render_output_px, false, Image.FORMAT_RGBA8)
-	normal_image.fill(Color(0.5, 0.5, 1.0, 1.0))
-	var height_image := Image.create(render_output_px, render_output_px, false, Image.FORMAT_RH)
-	height_image.fill(Color(1.0 if occupied else 0.0, 0.0, 0.0, 1.0))
-	var collision_sdf_f32 := PackedFloat32Array()
-	collision_sdf_f32.resize(collision_side * collision_side)
-	collision_sdf_f32.fill(1.0 if occupied else -1.0)
-
-	return {
-		"chunk_coord": chunk_coord,
-		"recipe_id": StringName(str(recipe.get("asset_name", contour_class))),
-		"diff_revision": int(input.get("diff_revision", 0)),
-		"pixel_size": Vector2i(render_output_px, render_output_px),
-		"mask_rgba8": mask_image.get_data(),
-		"height_r16": height_image.get_data(),
-		"normal_rgba8": normal_image.get_data(),
-		"collision_sdf_f32": collision_sdf_f32,
-		"collision_origin_world_px": Vector2i(chunk_coord.x * logical_output_px, chunk_coord.y * logical_output_px),
-		"collision_sample_px": collision_sample_px,
-		"collision_size": Vector2i(collision_side, collision_side),
-		"collision_blocks_inside": blocks_inside,
-		"solid_bounds_world_px": Rect2i(0, 0, logical_output_px, logical_output_px) if occupied else Rect2i(),
-		"has_visual_coverage": occupied,
-		"ready": true,
-	}
 
 func _annotate_contour_result_visual_coverage(result: Dictionary) -> void:
 	if result.has("has_visual_coverage"):

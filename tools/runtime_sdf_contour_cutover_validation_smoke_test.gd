@@ -76,10 +76,11 @@ func _assert_static_contract() -> void:
 	)
 	var streamer_source: String = FileAccess.get_file_as_string("res://core/systems/world/world_streamer.gd")
 	_assert(
-		streamer_source.contains("_build_constant_contour_result") \
-			and streamer_source.contains("_is_contour_solid_mask_empty") \
-			and streamer_source.contains("_is_contour_solid_mask_full"),
-		"WorldStreamer contour worker must fast-path empty/full masks instead of sending trivial chunks through native SDF sampling."
+		not streamer_source.contains("_build_constant_contour_result") \
+			and not streamer_source.contains("_build_immediate_ground_placeholder_result") \
+			and not streamer_source.contains("_is_contour_solid_mask_empty") \
+			and not streamer_source.contains("_is_contour_solid_mask_full"),
+		"WorldStreamer contour worker must send active ground/mountain masks through native SDF instead of GDScript constant fallbacks."
 	)
 	_assert(
 		streamer_source.contains("CONTOUR_WORKER_THREAD_COUNT") \

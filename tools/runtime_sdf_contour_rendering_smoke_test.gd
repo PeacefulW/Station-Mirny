@@ -14,8 +14,6 @@ func _init() -> void:
 
 func _run() -> void:
 	_assert_static_contract()
-	_assert_constant_contour_height_encoding()
-	_assert_immediate_ground_placeholder_contract()
 	_assert_contour_visual_coverage_metadata()
 	if _failed:
 		quit(1)
@@ -44,20 +42,6 @@ func _run() -> void:
 	_assert(not bool(stale_state.get("ready", true)), "Stale contour revisions must keep the chunk hidden.")
 	_assert(not chunk_view.visible, "A stale contour chunk must remain hidden.")
 
-	var placeholder_applied: bool = chunk_view.apply_contour_ground_placeholder(
-		_build_contour_result(
-			WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE,
-			DIFF_REVISION
-		),
-		DIFF_REVISION
-	)
-	var placeholder_state: Dictionary = chunk_view.get_contour_render_debug_state()
-	_assert(placeholder_applied, "Fresh ground contour must be usable as a loading placeholder.")
-	_assert(not bool(placeholder_state.get("ready", true)), "Ground-only loading placeholder must not mark the chunk contour-ready.")
-	_assert(bool(placeholder_state.get("visible", false)), "Ground-only loading placeholder must keep the chunk visible instead of showing a black square.")
-	_assert(int(placeholder_state.get("ground_visual_count", 0)) == 1, "Ground-only loading placeholder must create one ground visual.")
-	_assert(int(placeholder_state.get("mountain_bucket_count", 0)) == 0, "Ground-only loading placeholder must not invent mountain contour visuals.")
-
 	var fresh_results: Dictionary = {
 		WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE: _build_contour_result(
 			WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE,
@@ -85,6 +69,7 @@ func _run() -> void:
 	_assert(bool(ground_state.get("has_mask_texture", false)), "Ground material must receive mask texture.")
 	_assert(bool(ground_state.get("has_height_texture", false)), "Ground material must receive height texture.")
 	_assert(bool(ground_state.get("has_normal_texture", false)), "Ground material must receive normal texture.")
+	_assert(bool(ground_state.get("has_base_albedo", false)), "Ground material must receive exported base albedo texture.")
 	_assert(bool(ground_state.get("has_chunk_origin", false)), "Ground material must receive chunk origin uniform.")
 	_assert(bool(ground_state.get("has_tile_size", false)), "Ground material must receive tile size uniform.")
 
@@ -96,18 +81,15 @@ func _run() -> void:
 		_assert(bool(bucket.get("has_mask_texture", false)), "Mountain material must receive mask texture.")
 		_assert(bool(bucket.get("has_height_texture", false)), "Mountain material must receive height texture.")
 		_assert(bool(bucket.get("has_normal_texture", false)), "Mountain material must receive normal texture.")
+		_assert(bool(bucket.get("has_base_albedo", false)), "Mountain material must receive exported base albedo texture.")
 		_assert(bool(bucket.get("has_cover_mask", false)), "Mountain material must receive cover mask.")
-		_assert(bool(bucket.get("has_runtime_cutout_mask", false)), "Mountain material must receive runtime cutout mask.")
 		_assert(bool(bucket.get("has_chunk_origin", false)), "Mountain material must receive chunk origin uniform.")
 		_assert(bool(bucket.get("has_tile_size", false)), "Mountain material must receive tile size uniform.")
 	_assert(seen_mountain_ids.has(ChunkView.FALLBACK_MOUNTAIN_CONTOUR_ID), "Mountain contour visual must use the chunk SDF bucket.")
 	chunk_view.apply_runtime_contour_cell_state(Vector2i(4, 4), WorldRuntimeConstants.TERRAIN_PLAINS_DUG, true)
-	var cutout_state: Dictionary = chunk_view.get_contour_render_debug_state()
-	var cutout_buckets: Array = cutout_state.get("mountain_buckets", []) as Array
-	_assert(not cutout_buckets.is_empty(), "Runtime cutout must keep the mountain contour visual alive.")
-	if not cutout_buckets.is_empty():
-		var cutout_bucket: Dictionary = cutout_buckets[0] as Dictionary
-		_assert(int(cutout_bucket.get("runtime_cutout_count", 0)) == 1, "Mining a mountain tile must immediately mark one runtime cutout cell.")
+	var dirty_cell_state: Dictionary = chunk_view.get_contour_render_debug_state()
+	_assert(bool(dirty_cell_state.get("visible", false)), "Dirty contour chunks must keep the previous visual visible until native refresh arrives.")
+	_assert(bool(dirty_cell_state.get("ready", false)), "Logical cell updates must not fabricate a partial contour visual revision.")
 
 	chunk_view.set_debug_overlays(true, true, true)
 	var after_debug_state: Dictionary = chunk_view.get_contour_render_debug_state()
@@ -145,7 +127,6 @@ func _assert_static_contract() -> void:
 		"res://assets/shaders/contour_mountain_material.gdshader",
 		"mountain"
 	)
-	_assert_mountain_shader_has_soft_runtime_cutout()
 	_assert_mountain_shader_has_bottom_outline_darkening()
 	_assert_mountain_shader_uses_cover_mask()
 	_assert_mountain_shader_darkens_bottom_contact()
@@ -158,58 +139,18 @@ func _assert_static_contract() -> void:
 		chunk_view_source.contains("get_contour_render_debug_state"),
 		"ChunkView must expose contour rendering debug readback."
 	)
-
-func _assert_constant_contour_height_encoding() -> void:
-	var streamer := WorldStreamer.new()
-	var input: Dictionary = {
-		"chunk_coord": Vector2i.ZERO,
-		"chunk_size_tiles": 1,
-		"tile_size_px": 4,
-		"render_tile_size_px": 2,
-		"diff_revision": DIFF_REVISION,
-		"recipe": {
-			"asset_name": StringName("smoke_ground"),
-			"collision": {
-				"sampling_px": 4,
-				"blocks_inside": false,
-			},
-		},
-	}
-	var full_result: Dictionary = streamer._build_constant_contour_result(
-		input,
-		WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE,
-		true
-	)
-	var full_height: PackedByteArray = full_result.get("height_r16", PackedByteArray()) as PackedByteArray
-	_assert(full_height.size() == 8, "1x1 constant contour at 2px render scale must produce four R16 pixels.")
 	_assert(
-		full_height.size() >= 2 and full_height[0] == 0 and full_height[1] == 60,
-		"Occupied constant contour height must encode half-float 1.0, not an invalid 0xFFFF payload."
+		not chunk_view_source.contains("apply_contour_ground_placeholder"),
+		"ChunkView must not expose a script-side ground placeholder apply path."
 	)
-	var empty_result: Dictionary = streamer._build_constant_contour_result(
-		input,
-		WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE,
-		false
-	)
-	var empty_height: PackedByteArray = empty_result.get("height_r16", PackedByteArray()) as PackedByteArray
+	var streamer_source: String = FileAccess.get_file_as_string("res://core/systems/world/world_streamer.gd")
 	_assert(
-		empty_height.size() >= 2 and empty_height[0] == 0 and empty_height[1] == 0,
-		"Empty constant contour height must encode half-float 0.0."
+		not streamer_source.contains("_build_constant_contour_result") \
+			and not streamer_source.contains("_build_immediate_ground_placeholder_result") \
+			and not streamer_source.contains("_is_contour_solid_mask_empty") \
+			and not streamer_source.contains("_is_contour_solid_mask_full"),
+		"WorldStreamer must not fabricate contour visuals through GDScript constant or placeholder paths."
 	)
-	streamer.free()
-
-func _assert_immediate_ground_placeholder_contract() -> void:
-	var streamer := WorldStreamer.new()
-	var result: Dictionary = streamer._build_immediate_ground_placeholder_result(Vector2i(3, 4), DIFF_REVISION)
-	_assert(bool(result.get("ready", false)), "Immediate ground placeholder must be ready for visual-only application.")
-	_assert(result.get("pixel_size", Vector2i.ZERO) == Vector2i(1, 1), "Immediate ground placeholder must stay bounded to a 1x1 constant texture.")
-	_assert((result.get("mask_rgba8", PackedByteArray()) as PackedByteArray).size() == 4, "Immediate ground placeholder must include RGBA mask data.")
-	var height_bytes: PackedByteArray = result.get("height_r16", PackedByteArray()) as PackedByteArray
-	_assert(height_bytes.size() == 2, "Immediate ground placeholder must include one R16 half-float height sample.")
-	if height_bytes.size() == 2:
-		_assert(height_bytes[0] == 0 and height_bytes[1] == 60, "Immediate ground placeholder height must encode half-float 1.0.")
-	_assert((result.get("normal_rgba8", PackedByteArray()) as PackedByteArray).size() == 4, "Immediate ground placeholder must include one normal sample.")
-	streamer.free()
 
 func _assert_contour_visual_coverage_metadata() -> void:
 	var streamer := WorldStreamer.new()
@@ -258,15 +199,6 @@ func _assert_shader_has_alpha_only_mask_fallback(path: String, label: String) ->
 	_assert(
 		shader_source.contains("alpha_coverage_fallback"),
 		"%s contour shader must turn alpha-only occupancy masks into visible material coverage." % label
-	)
-
-func _assert_mountain_shader_has_soft_runtime_cutout() -> void:
-	var shader_source: String = FileAccess.get_file_as_string("res://assets/shaders/contour_mountain_material.gdshader")
-	_assert(
-		shader_source.contains("runtime_cutout_coverage")
-			and shader_source.contains("rounded_tile_cutout")
-			and shader_source.contains("radial_blob"),
-		"Mountain contour shader must use softened organic runtime cutout coverage instead of hard tile-square removal."
 	)
 
 func _assert_mountain_shader_has_bottom_outline_darkening() -> void:

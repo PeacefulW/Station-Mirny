@@ -763,6 +763,9 @@ Current code notes:
   canonical world state
 - material texture names are parsed to preserve the recipe contract, but
   Iteration 02 native output emits mask/height/normal/collision buffers only
+- exported albedo maps are consumed by the runtime contour shaders as unlit
+  material color inputs; they are not saved and are not embedded in
+  `ContourChunkResultV1`
 
 ### `ContourChunkInputV1`
 
@@ -853,6 +856,9 @@ Current code notes:
 - Results whose `diff_revision` does not match the target chunk's required
   contour revision, or whose generation epoch no longer matches current runtime
   state, are stale and must be rejected instead of being reused.
+- Active ground and mountain contour classes are expected to arrive from native
+  `WorldCore.build_contour_chunk(input)` results. GDScript constant
+  `ContourChunkResultV1` fabrication is not a valid cutover path.
 - `ContourChunkResultV1` is not part of `ChunkPacketV1`, is not save data, and
   does not drive scene rendering or movement collision in Iteration 03.
 - `collision_sdf_f32` is sampled from the same signed distance field at

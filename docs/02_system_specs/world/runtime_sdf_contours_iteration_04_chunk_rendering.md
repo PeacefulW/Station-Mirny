@@ -28,6 +28,8 @@ TileMap atlas cells.
 - no save/load change
 - no legacy ground/mountain TileMap fallback after this rendering path is
   activated for the target terrain ids
+- no GDScript constant contour generation or immediate ground placeholder after
+  cutover; active contour visuals come from native contour results only
 
 ## Runtime Classification
 
@@ -53,6 +55,8 @@ TileMap atlas cells.
 
 - no GDScript contour generation
 - no pixel loops in `ChunkView`
+- no 1x1 ground placeholder or empty/full constant contour fast path in
+  GDScript
 - no movement query changes
 - no save/load changes
 
@@ -69,9 +73,9 @@ TileMap atlas cells.
 7. Preserve mountain cover visibility by applying cover masks to the mountain
    contour material.
 8. Stop applying ground and mountain terrain ids to TileMap layers in contour
-   mode. If initial contour resources are missing, the chunk remains hidden.
-   During a later dirty refresh, an already-published chunk may keep its
-   previous visual revision visible while readiness/collision remain stale.
+   mode. If initial native contour resources are missing, the chunk remains
+   hidden. During a later dirty refresh, an already-published chunk may keep
+   its previous visual revision visible while readiness/collision remain stale.
 9. Keep water rendering outside this cutover unless the lake spec explicitly
    moves water to contour rendering.
 
@@ -109,9 +113,9 @@ The smoke test must assert:
 - `ChunkView` creates contour visual nodes for ground and mountain classes
 - target terrain ids do not call the active TileMap terrain apply path in
   contour mode
-- stale contour revisions do not become ready; initial stale/missing resources
-  keep the chunk hidden, while dirty refresh may keep the previous visual
-  revision visible
+- stale contour revisions do not become ready; initial stale/missing native
+  resources keep the chunk hidden, while dirty refresh may keep the previous
+  visual revision visible
 - mountain contour material receives mask, height, normal, cover mask,
   chunk origin, and tile size uniforms
 - two mountain ids in one chunk create two cover-gated mountain visual buckets
@@ -125,11 +129,13 @@ The smoke test must assert:
 - toggling debug views does not mutate contour textures
 - no `autotile_47` TileMap cells are applied for cutover ground/mountain ids
 - missing initial contour resources keep the chunk hidden instead of rendering
-  legacy TileMap cells
+  legacy TileMap cells or a placeholder
 
 ## Definition of Done
 
 - ground and mountain visuals come from contour result textures
 - contour shader reproduces generator channel semantics
+- contour shader samples exported unlit albedo/normal material maps and does
+  not bake alternate height tint or hardcoded color grading into albedo
 - mountain outline, rim, face, and top zones are visible in game
 - legacy tile atlas cells are not used for target ground and mountain rendering

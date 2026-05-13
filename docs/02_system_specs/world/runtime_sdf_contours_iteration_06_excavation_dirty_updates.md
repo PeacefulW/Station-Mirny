@@ -114,9 +114,11 @@ The smoke test must assert:
 
 ## Smoke Tests
 
-- mining a mountain edge opens the visible contour at that location; a
-  chunk-local runtime cutout may provide immediate presentation feedback, but
-  movement remains blocked until the matching collision revision is ready
+- mining a mountain edge keeps the previous contour visible during dirty
+  refresh and opens the visible contour only when the matching native SDF
+  visual/collision revision is ready
+- no chunk-local shader cutout or other temporary rounded hole appears between
+  the mining action and the native contour swap
 - movement can pass through the new opening after the contour revision is ready
 - movement cannot pass through stale visual/collision mismatch during refresh
 - digging a seam tile refreshes both neighboring chunks

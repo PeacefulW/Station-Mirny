@@ -129,6 +129,7 @@ It contains:
 
 - `top albedo`
 - `face albedo`
+- `base albedo`
 - `top modulation`
 - `face modulation`
 - `top normal`
@@ -254,6 +255,7 @@ Canonical fields:
 - `id: StringName`
 - `top_albedo: Texture2D`
 - `face_albedo: Texture2D`
+- `base_albedo: Texture2D`
 - `top_modulation: Texture2D`
 - `face_modulation: Texture2D`
 - `top_normal: Texture2D`
@@ -263,8 +265,11 @@ Canonical fields:
 
 Notes:
 
-- `top_albedo` and `face_albedo` are authored textures supplied by the content
-  pipeline, typically exported from the terrain generator.
+- `top_albedo`, `face_albedo`, and `base_albedo` are authored textures supplied
+  by the content pipeline, typically exported from the terrain generator.
+- `base_albedo` is required for contour rendering so the game can draw the same
+  unlit base material used by generator previews without inventing a separate
+  ground color in a runtime shader.
 - `sampling_params` may contain values such as UV scale, modulation strength,
   contrast, tint opacity, or material-specific shader tuning.
 - Missing required maps should fail validation; they should not silently

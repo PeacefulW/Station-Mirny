@@ -8,6 +8,7 @@ extends Resource
 @export_group("Textures")
 @export var top_albedo: Texture2D = null
 @export var face_albedo: Texture2D = null
+@export var base_albedo: Texture2D = null
 @export var top_modulation: Texture2D = null
 @export var face_modulation: Texture2D = null
 @export var top_normal: Texture2D = null
@@ -25,6 +26,8 @@ func get_texture_slot(slot_id: StringName) -> Texture2D:
 			return top_albedo
 		&"face_albedo":
 			return face_albedo
+		&"base_albedo":
+			return base_albedo
 		&"top_modulation":
 			return top_modulation
 		&"face_modulation":

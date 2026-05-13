@@ -326,6 +326,9 @@ Current code notes:
   with halo. The authoritative owner of the input mask remains the world
   runtime/diff path; `WorldCore` owns only the native compute boundary and
   returned fixed-format buffers.
+- Active ground and mountain contour classes must be produced by
+  `WorldCore.build_contour_chunk(input)`; script-side constant contour results
+  and immediate visual placeholders are not safe runtime entrypoints.
 
 Not documented here as safe entrypoints:
 - direct calls to `world_prepass::*` helpers from script, because they are native
@@ -398,13 +401,11 @@ Current Runtime SDF contour lifecycle:
   visual revision visible to avoid chunk-sized black holes; movement/collision
   readiness still fails closed until the required revision is ready. Unaffected
   chunks keep their previous ready revision valid after unrelated global diff
-  changes. A newly published chunk may show a fresh `ground_surface`
-  loading placeholder while `mountain_mass` is still pending; this placeholder
-  is visual-only, is not contour-ready, and does not open movement/collision
-  readiness. In Iteration 07, the active classes are
-  `mountain_mass` and `ground_surface`; `ground_surface` may use a constant
-  native base-plane result in the first cutover, while `water_surface` remains a
-  boundary/debug contour class and is not an independent readiness gate.
+  changes. A newly published chunk stays hidden until native `ground_surface`
+  and `mountain_mass` results exist for the required revision. In Iteration 07,
+  the active classes are `mountain_mass` and `ground_surface`; `water_surface`
+  remains a boundary/debug contour class and is not an independent readiness
+  gate.
 - Iteration 07 cutover makes `TERRAIN_PLAINS_GROUND`,
   `TERRAIN_PLAINS_DUG`, `TERRAIN_LEGACY_BLOCKED`,
   `TERRAIN_MOUNTAIN_WALL`, and `TERRAIN_MOUNTAIN_FOOT` contour-only terrain

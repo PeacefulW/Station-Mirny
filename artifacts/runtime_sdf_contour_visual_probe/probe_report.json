@@ -1,5 +1,5 @@
 {
-	"all_desired_contour_ready_ms": 2021,
+	"all_desired_contour_ready_ms": 4671,
 	"debug_image_stats": {
 		"cyan_ratio": 0.0505555555555556,
 		"dark_ratio": 0.0,
@@ -17,14 +17,14 @@
 		"dark_ratio": 0.0,
 		"height": 720,
 		"loaded": true,
-		"non_background_ratio": 1.0,
+		"non_background_ratio": 0.422222222222222,
 		"samples": 14400,
 		"width": 1280
 	},
 	"early_screenshot": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/runtime_sdf_contour_visual_probe/contour_density60_early.png",
-	"early_screenshot_ms": 500,
+	"early_screenshot_ms": 516,
 	"expected_initial_chunks": 9,
-	"first_chunk_loaded_ms": 286,
+	"first_chunk_loaded_ms": 313,
 	"lake_density_internal": 0.0,
 	"loaded_chunk_events": 9,
 	"mining_sequence": {
@@ -32,9 +32,9 @@
 		"last_mined_tile": "(1695, 1279)",
 		"records": [
 			{
-				"call_usec": 2184,
+				"call_usec": 2124,
 				"chunk": "(106, 80)",
-				"contour_ready_ms": 599,
+				"contour_ready_ms": 1029,
 				"dirty_state": {
 					"chunk_coord": "(106, 80)",
 					"current_diff_revision": 1,
@@ -61,6 +61,7 @@
 				"immediate_render_state": {
 					"enabled": true,
 					"ground": {
+						"has_base_albedo": true,
 						"has_chunk_origin": true,
 						"has_height_texture": true,
 						"has_mask_texture": true,
@@ -68,19 +69,18 @@
 						"has_tile_size": true
 					},
 					"ground_visual_count": 1,
-					"mask_texture_instance_id": -9223371912770483778,
+					"mask_texture_instance_id": -9223371913273800224,
 					"mountain_bucket_count": 1,
 					"mountain_buckets": [
 						{
+							"has_base_albedo": true,
 							"has_chunk_origin": true,
 							"has_cover_mask": true,
 							"has_height_texture": true,
 							"has_mask_texture": true,
 							"has_normal_texture": true,
-							"has_runtime_cutout_mask": true,
 							"has_tile_size": true,
-							"mountain_id": -1,
-							"runtime_cutout_count": 1
+							"mountain_id": -1
 						}
 					],
 					"ready": false,
@@ -98,9 +98,9 @@
 				"tile": "(1698, 1280)"
 			},
 			{
-				"call_usec": 4909,
+				"call_usec": 3718,
 				"chunk": "(106, 80)",
-				"contour_ready_ms": 1632,
+				"contour_ready_ms": 2449,
 				"dirty_state": {
 					"chunk_coord": "(106, 80)",
 					"current_diff_revision": 2,
@@ -130,9 +130,9 @@
 				"tile": "(1697, 1280)"
 			},
 			{
-				"call_usec": 3708,
+				"call_usec": 3680,
 				"chunk": "(106, 80)",
-				"contour_ready_ms": 1402,
+				"contour_ready_ms": 2208,
 				"dirty_state": {
 					"chunk_coord": "(106, 80)",
 					"current_diff_revision": 3,
@@ -154,7 +154,7 @@
 
 				},
 				"immediate_screenshot": "",
-				"inflight_count": 2,
+				"inflight_count": 1,
 				"message_key": "",
 				"pending_request_count": 0,
 				"step": 2,
@@ -162,9 +162,9 @@
 				"tile": "(1696, 1280)"
 			},
 			{
-				"call_usec": 3757,
+				"call_usec": 5583,
 				"chunk": "(105, 80)",
-				"contour_ready_ms": 938,
+				"contour_ready_ms": 1347,
 				"dirty_state": {
 					"chunk_coord": "(105, 80)",
 					"current_diff_revision": 4,
@@ -186,7 +186,7 @@
 
 				},
 				"immediate_screenshot": "",
-				"inflight_count": 3,
+				"inflight_count": 4,
 				"message_key": "",
 				"pending_request_count": 0,
 				"step": 3,
@@ -194,9 +194,9 @@
 				"tile": "(1695, 1280)"
 			},
 			{
-				"call_usec": 4082,
+				"call_usec": 3120,
 				"chunk": "(105, 79)",
-				"contour_ready_ms": 914,
+				"contour_ready_ms": 1875,
 				"dirty_state": {
 					"chunk_coord": "(105, 79)",
 					"current_diff_revision": 5,
@@ -218,9 +218,9 @@
 
 				},
 				"immediate_screenshot": "",
-				"inflight_count": 5,
+				"inflight_count": 6,
 				"message_key": "",
-				"pending_request_count": 1,
+				"pending_request_count": 2,
 				"step": 4,
 				"success": true,
 				"tile": "(1695, 1279)"
@@ -241,9 +241,46 @@
 	"probe_note": "Timing starts after new-world spawn resolution, when player is moved next to the density 60 mountain target.",
 	"seed": 240518,
 	"target_chunk": "(106, 80)",
-	"target_ground_placeholder_visible_ms": 335,
+	"target_ground_material_stats": {
+		"base_albedo": {
+			"avg_brightness": 0.390845855018896,
+			"height": 512,
+			"ready": true,
+			"resource_path": "res://assets/textures/terrain/ground/unnamed_base_albedo.png",
+			"width": 512
+		},
+		"face_albedo": {
+			"avg_brightness": 0.283358871568149,
+			"height": 512,
+			"ready": true,
+			"resource_path": "res://assets/textures/terrain/ground/unnamed_face_albedo.png",
+			"width": 512
+		},
+		"face_normal": {
+			"avg_brightness": 0.660646456041528,
+			"height": 512,
+			"ready": true,
+			"resource_path": "res://assets/textures/terrain/ground/unnamed_face_normal.png",
+			"width": 512
+		},
+		"ready": true,
+		"top_albedo": {
+			"avg_brightness": 0.453518185398324,
+			"height": 512,
+			"ready": true,
+			"resource_path": "res://assets/textures/terrain/ground/unnamed_top_albedo.png",
+			"width": 512
+		},
+		"top_normal": {
+			"avg_brightness": 0.657397630964018,
+			"height": 512,
+			"ready": true,
+			"resource_path": "res://assets/textures/terrain/ground/unnamed_top_normal.png",
+			"width": 512
+		}
+	},
 	"target_local": "(0, 0)",
-	"target_mountain_contour_ready_ms": 1545,
+	"target_mountain_contour_ready_ms": 3771,
 	"target_mountain_cover_stats": {
 		"mountains": {
 			"-1": {
@@ -274,6 +311,13 @@
 	"target_mountain_material_stats": {
 		"mountains": {
 			"-1": {
+				"base_albedo": {
+					"avg_brightness": 0.390845855018896,
+					"height": 512,
+					"ready": true,
+					"resource_path": "res://assets/textures/terrain/mountains/unnamed_base_albedo.png",
+					"width": 512
+				},
 				"face_albedo": {
 					"avg_brightness": 0.274023444680399,
 					"height": 512,
@@ -288,6 +332,13 @@
 					"resource_path": "res://assets/textures/terrain/mountains/unnamed_face_modulation.png",
 					"width": 512
 				},
+				"face_normal": {
+					"avg_brightness": 0.663928471879142,
+					"height": 512,
+					"ready": true,
+					"resource_path": "res://assets/textures/terrain/mountains/unnamed_face_normal.png",
+					"width": 512
+				},
 				"top_albedo": {
 					"avg_brightness": 0.478463299126215,
 					"height": 512,
@@ -300,6 +351,13 @@
 					"height": 512,
 					"ready": true,
 					"resource_path": "res://assets/textures/terrain/mountains/unnamed_top_modulation.png",
+					"width": 512
+				},
+				"top_normal": {
+					"avg_brightness": 0.658333343732617,
+					"height": 512,
+					"ready": true,
+					"resource_path": "res://assets/textures/terrain/mountains/unnamed_top_normal.png",
 					"width": 512
 				}
 			}
@@ -325,6 +383,7 @@
 	"target_render_state": {
 		"enabled": true,
 		"ground": {
+			"has_base_albedo": true,
 			"has_chunk_origin": true,
 			"has_height_texture": true,
 			"has_mask_texture": true,
@@ -332,19 +391,18 @@
 			"has_tile_size": true
 		},
 		"ground_visual_count": 1,
-		"mask_texture_instance_id": -9223371893778675201,
+		"mask_texture_instance_id": -9223371896077153779,
 		"mountain_bucket_count": 1,
 		"mountain_buckets": [
 			{
+				"has_base_albedo": true,
 				"has_chunk_origin": true,
 				"has_cover_mask": true,
 				"has_height_texture": true,
 				"has_mask_texture": true,
 				"has_normal_texture": true,
-				"has_runtime_cutout_mask": true,
 				"has_tile_size": true,
-				"mountain_id": -1,
-				"runtime_cutout_count": 0
+				"mountain_id": -1
 			}
 		],
 		"ready": true,

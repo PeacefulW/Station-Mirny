@@ -26,9 +26,6 @@ var _contour_ground_visual: Sprite2D = null
 var _contour_mountain_visuals_by_id: Dictionary = {}
 var _contour_membership_images_by_mountain: Dictionary = {}
 var _contour_membership_textures_by_mountain: Dictionary = {}
-var _contour_runtime_cutout_image: Image = null
-var _contour_runtime_cutout_texture: ImageTexture = null
-var _contour_runtime_cutout_count: int = 0
 var roof_layers_by_mountain: Dictionary = {}
 var _roof_mask_images_by_mountain: Dictionary = {}
 var _roof_mask_textures_by_mountain: Dictionary = {}
@@ -57,9 +54,6 @@ func _exit_tree() -> void:
 	_contour_membership_images_by_mountain.clear()
 	_contour_membership_textures_by_mountain.clear()
 	_contour_mountain_visuals_by_id.clear()
-	_contour_runtime_cutout_image = null
-	_contour_runtime_cutout_texture = null
-	_contour_runtime_cutout_count = 0
 
 func configure(new_chunk_coord: Vector2i) -> void:
 	chunk_coord = new_chunk_coord
@@ -81,7 +75,6 @@ func begin_apply(packet: Dictionary) -> void:
 	_contour_render_ready = false
 	_contour_render_stale = false
 	visible = false
-	_reset_contour_runtime_cutout()
 	_ensure_layers()
 	if _contour_rendering_enabled:
 		_clear_tilemap_terrain_layers()
@@ -171,10 +164,6 @@ func apply_runtime_contour_cell_state(
 		_pending_mountain_ids[index] = mountain_id
 		if _pending_mountain_flags.size() == WorldRuntimeConstants.CHUNK_CELL_COUNT:
 			_pending_mountain_flags[index] = mountain_flags
-	if _contour_rendering_enabled:
-		var cuts_mountain_visual: bool = terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
-			and terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
-		_set_contour_runtime_cutout(local_coord, cuts_mountain_visual)
 	if _debug_solid_mask_visible or _debug_contour_visible:
 		_refresh_debug_solid_mask()
 
@@ -222,28 +211,11 @@ func apply_contour_results(results_by_class: Dictionary, required_diff_revision:
 		_contour_render_stale = false
 		visible = false
 		return
-	_reset_contour_runtime_cutout()
 	_apply_ground_contour_visual(ground_textures)
 	_apply_mountain_contour_visuals(mountain_textures)
 	_contour_render_ready = true
 	_contour_render_stale = false
 	visible = true
-
-func apply_contour_ground_placeholder(ground_result: Dictionary, required_diff_revision: int) -> bool:
-	if not _contour_rendering_enabled:
-		return false
-	_ensure_layers()
-	_ensure_contour_root()
-	if not _is_contour_result_fresh(ground_result, required_diff_revision):
-		return false
-	var ground_textures: Dictionary = _build_contour_textures(ground_result)
-	if ground_textures.is_empty():
-		return false
-	_apply_ground_contour_visual(ground_textures)
-	_contour_render_ready = false
-	_contour_render_stale = true
-	visible = true
-	return true
 
 func mark_contour_render_stale() -> void:
 	if not _contour_rendering_enabled:
@@ -268,11 +240,6 @@ func get_contour_render_debug_state() -> Dictionary:
 			_contour_mountain_visuals_by_id[mountain_id] as Sprite2D,
 			&"cover_mask"
 		)
-		state["has_runtime_cutout_mask"] = _visual_has_shader_parameter(
-			_contour_mountain_visuals_by_id[mountain_id] as Sprite2D,
-			&"runtime_cutout_mask"
-		)
-		state["runtime_cutout_count"] = _contour_runtime_cutout_count
 		mountain_states.append(state)
 	var mask_texture_instance_id: int = 0
 	if _contour_ground_visual != null \
@@ -500,7 +467,6 @@ func _apply_mountain_contour_visuals(textures: Dictionary) -> void:
 		)
 		_apply_common_contour_shader_params(material, textures)
 		material.set_shader_parameter("cover_mask", _ensure_roof_mask_texture(mountain_id))
-		_apply_contour_runtime_cutout_shader_params(material)
 		material.set_shader_parameter(
 			"mask_tile_count",
 			Vector2(float(WorldRuntimeConstants.CHUNK_SIZE), float(WorldRuntimeConstants.CHUNK_SIZE))
@@ -572,6 +538,7 @@ func _apply_contour_presentation_params(material: ShaderMaterial, terrain_id: in
 	var material_set: TerrainMaterialSet = TerrainPresentationRegistry.get_material_set_for_terrain(terrain_id)
 	material.set_shader_parameter("top_albedo_tex", material_set.get_texture_slot(&"top_albedo"))
 	material.set_shader_parameter("face_albedo_tex", material_set.get_texture_slot(&"face_albedo"))
+	material.set_shader_parameter("base_albedo_tex", material_set.get_texture_slot(&"base_albedo"))
 	material.set_shader_parameter("top_modulation", material_set.get_texture_slot(&"top_modulation"))
 	material.set_shader_parameter("face_modulation", material_set.get_texture_slot(&"face_modulation"))
 	material.set_shader_parameter("top_normal_tex", material_set.get_texture_slot(&"top_normal"))
@@ -581,60 +548,6 @@ func _apply_contour_presentation_params(material: ShaderMaterial, terrain_id: in
 			parameter_name_variant,
 			material_set.sampling_params[parameter_name_variant]
 		)
-
-func _reset_contour_runtime_cutout() -> void:
-	_contour_runtime_cutout_count = 0
-	if _contour_runtime_cutout_image != null:
-		_contour_runtime_cutout_image.fill(Color(0.0, 0.0, 0.0, 1.0))
-		if _contour_runtime_cutout_texture != null:
-			_contour_runtime_cutout_texture.update(_contour_runtime_cutout_image)
-	_sync_contour_runtime_cutout_shader_params()
-
-func _set_contour_runtime_cutout(local_coord: Vector2i, enabled: bool) -> void:
-	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
-		return
-	var image: Image = _ensure_contour_runtime_cutout_image()
-	var previous_enabled: bool = image.get_pixel(local_coord.x, local_coord.y).r > 0.5
-	if previous_enabled == enabled:
-		return
-	image.set_pixel(local_coord.x, local_coord.y, Color(1.0 if enabled else 0.0, 0.0, 0.0, 1.0))
-	_contour_runtime_cutout_count += 1 if enabled else -1
-	_contour_runtime_cutout_count = maxi(0, _contour_runtime_cutout_count)
-	if _contour_runtime_cutout_texture == null:
-		_contour_runtime_cutout_texture = ImageTexture.create_from_image(image)
-	else:
-		_contour_runtime_cutout_texture.update(image)
-	_sync_contour_runtime_cutout_shader_params()
-
-func _ensure_contour_runtime_cutout_image() -> Image:
-	if _contour_runtime_cutout_image == null:
-		_contour_runtime_cutout_image = Image.create(
-			WorldRuntimeConstants.CHUNK_SIZE,
-			WorldRuntimeConstants.CHUNK_SIZE,
-			false,
-			Image.FORMAT_L8
-		)
-		_contour_runtime_cutout_image.fill(Color(0.0, 0.0, 0.0, 1.0))
-	return _contour_runtime_cutout_image
-
-func _apply_contour_runtime_cutout_shader_params(material: ShaderMaterial) -> void:
-	if _contour_runtime_cutout_texture == null:
-		_contour_runtime_cutout_texture = ImageTexture.create_from_image(_ensure_contour_runtime_cutout_image())
-	material.set_shader_parameter("runtime_cutout_mask", _contour_runtime_cutout_texture)
-	material.set_shader_parameter(
-		"runtime_cutout_enabled",
-		1.0 if _contour_runtime_cutout_count > 0 else 0.0
-	)
-
-func _sync_contour_runtime_cutout_shader_params() -> void:
-	for visual_variant: Variant in _contour_mountain_visuals_by_id.values():
-		var visual: Sprite2D = visual_variant as Sprite2D
-		if visual == null or not is_instance_valid(visual):
-			continue
-		var material: ShaderMaterial = visual.material as ShaderMaterial
-		if material == null:
-			continue
-		_apply_contour_runtime_cutout_shader_params(material)
 
 func _collect_contour_mountain_ids() -> Array:
 	var max_count: int = mini(_pending_terrain_ids.size(), _pending_mountain_flags.size())
@@ -737,6 +650,7 @@ func _build_contour_visual_debug_state(visual: Sprite2D) -> Dictionary:
 		"has_mask_texture": _visual_has_shader_parameter(visual, &"mask_texture"),
 		"has_height_texture": _visual_has_shader_parameter(visual, &"height_texture"),
 		"has_normal_texture": _visual_has_shader_parameter(visual, &"normal_texture"),
+		"has_base_albedo": _visual_has_shader_parameter(visual, &"base_albedo_tex"),
 		"has_chunk_origin": _visual_has_shader_parameter(visual, &"chunk_origin_px"),
 		"has_tile_size": _visual_has_shader_parameter(visual, &"tile_size_px"),
 	}

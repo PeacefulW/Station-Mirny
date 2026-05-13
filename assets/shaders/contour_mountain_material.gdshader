@@ -4,16 +4,13 @@ uniform sampler2D mask_texture : filter_linear;
 uniform sampler2D height_texture : filter_linear;
 uniform sampler2D normal_texture : filter_linear;
 uniform sampler2D cover_mask : filter_nearest;
-uniform sampler2D runtime_cutout_mask : filter_linear;
-uniform float runtime_cutout_enabled = 0.0;
-uniform float runtime_cutout_radius_tiles = 0.42;
-uniform float runtime_cutout_softness_tiles = 0.22;
 uniform vec2 mask_tile_count = vec2(16.0, 16.0);
 uniform vec2 chunk_origin_px = vec2(0.0, 0.0);
 uniform float tile_size_px = 64.0;
 
 uniform sampler2D top_albedo_tex : repeat_enable, filter_linear;
 uniform sampler2D face_albedo_tex : repeat_enable, filter_linear;
+uniform sampler2D base_albedo_tex : repeat_enable, filter_linear;
 uniform sampler2D top_modulation : repeat_enable, filter_linear;
 uniform sampler2D face_modulation : repeat_enable, filter_linear;
 uniform sampler2D top_normal_tex : repeat_enable, filter_linear;
@@ -26,6 +23,7 @@ uniform vec4 face_light_color : source_color = vec4(0.39, 0.33, 0.28, 1.0);
 uniform vec4 dust_color : source_color = vec4(0.62, 0.53, 0.42, 1.0);
 uniform vec4 bottom_outline_color : source_color = vec4(0.016, 0.014, 0.012, 1.0);
 
+uniform float base_world_scale_px = 512.0;
 uniform float top_world_scale_px = 224.0;
 uniform float face_world_scale_px = 112.0;
 uniform float macro_world_scale_px = 448.0;
@@ -55,49 +53,8 @@ float remap_contrast(float value, float amount) {
 	return clamp((value - 0.5) * amount + 0.5, 0.0, 1.0);
 }
 
-float rounded_tile_cutout(vec2 delta_tiles, float radius_tiles, float softness_tiles) {
-	vec2 half_size = vec2(0.52, 0.52);
-	vec2 q = abs(delta_tiles) - half_size + vec2(radius_tiles, radius_tiles);
-	float signed_distance = length(max(q, vec2(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius_tiles;
-	float rounded_box = 1.0 - smoothstep(-softness_tiles, max(0.001, softness_tiles), signed_distance);
-	float radial_distance = length(delta_tiles * vec2(0.92, 1.08));
-	float radial_blob = 1.0 - smoothstep(0.54, 0.78 + softness_tiles * 0.35, radial_distance);
-	float diagonal_softener = 1.0 - smoothstep(0.68, 0.95, length(delta_tiles));
-	return clamp(max(radial_blob, rounded_box * diagonal_softener), 0.0, 1.0);
-}
-
-float runtime_cutout_coverage(vec2 uv) {
-	if (runtime_cutout_enabled <= 0.5) {
-		return 0.0;
-	}
-	vec2 tile_pos = uv * mask_tile_count - vec2(0.5, 0.5);
-	vec2 base_tile = floor(tile_pos);
-	float coverage = 0.0;
-	for (int y = -1; y <= 1; y++) {
-		for (int x = -1; x <= 1; x++) {
-			vec2 cell = base_tile + vec2(float(x), float(y));
-			vec2 sample_uv = (cell + vec2(0.5, 0.5)) / mask_tile_count;
-			if (sample_uv.x < 0.0 || sample_uv.y < 0.0 || sample_uv.x > 1.0 || sample_uv.y > 1.0) {
-				continue;
-			}
-			float enabled = texture(runtime_cutout_mask, sample_uv).r;
-			if (enabled <= 0.01) {
-				continue;
-			}
-			vec2 delta_tiles = (uv - sample_uv) * mask_tile_count;
-			float tile_cut = rounded_tile_cutout(delta_tiles, runtime_cutout_radius_tiles, runtime_cutout_softness_tiles);
-			coverage = max(coverage, enabled * tile_cut);
-		}
-	}
-	return clamp(coverage, 0.0, 1.0);
-}
-
 void fragment() {
 	vec4 shape_mask = texture(mask_texture, UV);
-	float cutout = runtime_cutout_coverage(UV);
-	if (cutout > 0.0) {
-		shape_mask *= 1.0 - cutout;
-	}
 
 	vec2 local_pos_px = world_pos - chunk_origin_px;
 	vec2 tile_coord = floor(local_pos_px / tile_size_px);
@@ -125,8 +82,8 @@ void fragment() {
 			coverage_sum = top_mask;
 		}
 		float total_mask = max(coverage_sum, 0.001);
-		float contour_height = texture(height_texture, UV).r;
 
+			vec2 base_uv = world_pos / base_world_scale_px;
 			vec2 top_uv = world_pos / top_world_scale_px;
 			vec2 top_uv_secondary = vec2(-world_pos.y, world_pos.x) / (top_world_scale_px * 1.73);
 			vec2 face_uv = vec2(world_pos.x / face_world_scale_px, world_pos.y / (face_world_scale_px * 0.62));
@@ -149,6 +106,7 @@ void fragment() {
 			float face_macro = texture(face_modulation, fract(macro_uv * vec2(0.8, 1.2) + vec2(0.73, 0.29))).r;
 			float face_value = remap_contrast(mix(face_micro, face_macro, 0.28), face_contrast);
 
+			vec3 base_albedo = texture(base_albedo_tex, fract(base_uv)).rgb;
 			vec3 top_albedo = texture(top_albedo_tex, fract(top_uv)).rgb;
 			vec3 top_color = mix(
 				mix(top_dark_color.rgb, top_light_color.rgb, top_value),
@@ -181,7 +139,7 @@ void fragment() {
 				0.95
 			);
 			final_color = mix(final_color, bottom_outline_color.rgb, bottom_outline_mix);
-			final_color *= mix(0.94, 1.06, contour_height);
+			final_color = mix(base_albedo, final_color, shape_mask.a);
 
 			vec3 shape_normal = unpack_normal(texture(normal_texture, UV).rgb);
 			vec3 top_detail_normal = unpack_normal(texture(top_normal_tex, fract(top_uv)).rgb);

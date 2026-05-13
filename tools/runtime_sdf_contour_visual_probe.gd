@@ -86,7 +86,6 @@ func _run() -> void:
 	var first_chunk_msec: int = -1
 	var all_ready_msec: int = -1
 	var target_visible_msec: int = -1
-	var target_ground_placeholder_msec: int = -1
 	var expected_count: int = 0
 	var frame_count: int = 0
 	var target_chunk_coord: Vector2i = target_chunk
@@ -107,8 +106,6 @@ func _run() -> void:
 			expected_count = desired.size()
 			if all_ready_msec < 0 and _all_desired_chunks_contour_ready(streamer, desired):
 				all_ready_msec = Time.get_ticks_msec() - start_msec
-		if target_ground_placeholder_msec < 0 and _chunk_ground_placeholder_visible(streamer, target_chunk_coord):
-			target_ground_placeholder_msec = Time.get_ticks_msec() - start_msec
 		if target_visible_msec < 0 and _chunk_contour_ready(streamer, target_chunk_coord):
 			target_visible_msec = Time.get_ticks_msec() - start_msec
 		if all_ready_msec >= 0 and target_visible_msec >= 0:
@@ -168,12 +165,12 @@ func _run() -> void:
 		"early_screenshot": ProjectSettings.globalize_path(early_path),
 		"early_image_stats": early_stats,
 		"all_desired_contour_ready_ms": all_ready_msec,
-		"target_ground_placeholder_visible_ms": target_ground_placeholder_msec,
 		"target_mountain_contour_ready_ms": target_visible_msec,
 		"probe_note": "Timing starts after new-world spawn resolution, when player is moved next to the density 60 mountain target.",
 		"target_mountain_result": target_state,
 		"target_mountain_mask_stats": _summarize_contour_mask(target_result),
 		"target_mountain_cover_stats": _summarize_target_cover(streamer, target_chunk_coord),
+		"target_ground_material_stats": _summarize_target_ground_material(streamer, target_chunk_coord),
 		"target_mountain_material_stats": _summarize_target_mountain_material(streamer, target_chunk_coord),
 		"target_render_state": render_state,
 		"mining_sequence": mining_report,
@@ -190,8 +187,12 @@ func _run() -> void:
 	report["report_path"] = ProjectSettings.globalize_path(json_path)
 	print("RUNTIME_SDF_CONTOUR_VISUAL_PROBE_JSON=" + JSON.stringify(report))
 
+	if event_bus != null and event_bus.has_signal("chunk_loaded") \
+			and event_bus.is_connected("chunk_loaded", _on_chunk_loaded):
+		event_bus.disconnect("chunk_loaded", _on_chunk_loaded)
+	current_scene = null
 	world_scene.queue_free()
-	await process_frame
+	await _settle_frames(30)
 	quit(1 if _failed else 0)
 
 func _build_mountain_settings() -> MountainGenSettings:
@@ -355,15 +356,6 @@ func _chunk_contour_ready(streamer: WorldStreamer, coord: Vector2i) -> bool:
 	var state: Dictionary = view.get_contour_render_debug_state()
 	return bool(state.get("ready", false)) and bool(state.get("visible", false))
 
-func _chunk_ground_placeholder_visible(streamer: WorldStreamer, coord: Vector2i) -> bool:
-	var view: ChunkView = streamer._chunk_views.get(coord) as ChunkView
-	if view == null:
-		return false
-	var state: Dictionary = view.get_contour_render_debug_state()
-	return bool(state.get("visible", false)) \
-		and not bool(state.get("ready", false)) \
-		and int(state.get("ground_visual_count", 0)) > 0
-
 func _run_mining_sequence(streamer: WorldStreamer, player: Node2D) -> Dictionary:
 	var records: Array[Dictionary] = []
 	var last_mined_tile := Vector2i(-1, -1)
@@ -525,6 +517,22 @@ func _summarize_target_cover(streamer: WorldStreamer, coord: Vector2i) -> Dictio
 		}
 	return result
 
+func _summarize_target_ground_material(streamer: WorldStreamer, coord: Vector2i) -> Dictionary:
+	var view: ChunkView = streamer._chunk_views.get(coord) as ChunkView
+	if view == null or view._contour_ground_visual == null:
+		return {"ready": false}
+	var material: ShaderMaterial = view._contour_ground_visual.material as ShaderMaterial
+	if material == null:
+		return {"ready": false}
+	return {
+		"ready": true,
+		"base_albedo": _summarize_texture(material.get_shader_parameter(&"base_albedo_tex")),
+		"top_albedo": _summarize_texture(material.get_shader_parameter(&"top_albedo_tex")),
+		"face_albedo": _summarize_texture(material.get_shader_parameter(&"face_albedo_tex")),
+		"top_normal": _summarize_texture(material.get_shader_parameter(&"top_normal_tex")),
+		"face_normal": _summarize_texture(material.get_shader_parameter(&"face_normal_tex")),
+	}
+
 func _summarize_target_mountain_material(streamer: WorldStreamer, coord: Vector2i) -> Dictionary:
 	var view: ChunkView = streamer._chunk_views.get(coord) as ChunkView
 	if view == null:
@@ -537,10 +545,13 @@ func _summarize_target_mountain_material(streamer: WorldStreamer, coord: Vector2
 		if material == null:
 			continue
 		(result["mountains"] as Dictionary)[mountain_id] = {
+			"base_albedo": _summarize_texture(material.get_shader_parameter(&"base_albedo_tex")),
 			"top_albedo": _summarize_texture(material.get_shader_parameter(&"top_albedo_tex")),
 			"face_albedo": _summarize_texture(material.get_shader_parameter(&"face_albedo_tex")),
 			"top_modulation": _summarize_texture(material.get_shader_parameter(&"top_modulation")),
 			"face_modulation": _summarize_texture(material.get_shader_parameter(&"face_modulation")),
+			"top_normal": _summarize_texture(material.get_shader_parameter(&"top_normal_tex")),
+			"face_normal": _summarize_texture(material.get_shader_parameter(&"face_normal_tex")),
 		}
 	return result
 

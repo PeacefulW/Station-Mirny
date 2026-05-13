@@ -32,7 +32,7 @@ func _run() -> void:
 	_set_diff_override_without_request(streamer, wrapped_diff_tile, WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL, false)
 
 	_assert_halo_contracts(streamer, target_chunk)
-	_assert_worker_request_orders_ground_placeholder_first(streamer, target_chunk)
+	_assert_worker_request_includes_native_ground_before_mountain(streamer, target_chunk)
 	await _assert_worker_result_lifecycle(streamer, target_chunk)
 
 	await _shutdown_streamer(streamer)
@@ -126,7 +126,7 @@ func _assert_halo_contracts(streamer: WorldStreamer, target_chunk: Vector2i) -> 
 	_assert(source_mask[out_of_world_index] == WorldRuntimeConstants.CONTOUR_SOURCE_OUT_OF_WORLD, "Top halo outside finite Y bounds must be empty.")
 	_assert(solid_mask[out_of_world_index] == 0, "Out-of-world halo cells must not be solid.")
 
-func _assert_worker_request_orders_ground_placeholder_first(streamer: WorldStreamer, target_chunk: Vector2i) -> void:
+func _assert_worker_request_includes_native_ground_before_mountain(streamer: WorldStreamer, target_chunk: Vector2i) -> void:
 	var request: Dictionary = streamer._build_contour_worker_request(target_chunk, streamer._contour_diff_revision)
 	var contour_classes: Array = request.get("contour_classes", []) as Array
 	_assert(not contour_classes.is_empty(), "Contour worker request must include active contour classes.")
@@ -134,7 +134,7 @@ func _assert_worker_request_orders_ground_placeholder_first(streamer: WorldStrea
 		return
 	_assert(
 		contour_classes[0] == WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE,
-		"Contour worker must produce ground_surface before heavier mountain_mass so startup can show a visual placeholder."
+		"Contour worker must keep ground_surface first so native ground and mountain readiness is deterministic."
 	)
 
 func _assert_worker_result_lifecycle(streamer: WorldStreamer, target_chunk: Vector2i) -> void:

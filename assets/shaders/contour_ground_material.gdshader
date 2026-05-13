@@ -8,11 +8,13 @@ uniform float tile_size_px = 64.0;
 
 uniform sampler2D top_albedo_tex : repeat_enable, filter_linear;
 uniform sampler2D face_albedo_tex : repeat_enable, filter_linear;
+uniform sampler2D base_albedo_tex : repeat_enable, filter_linear;
 uniform sampler2D top_modulation : repeat_enable, filter_linear;
 uniform sampler2D face_modulation : repeat_enable, filter_linear;
 uniform sampler2D top_normal_tex : repeat_enable, filter_linear;
 uniform sampler2D face_normal_tex : repeat_enable, filter_linear;
 
+uniform float base_world_scale_px = 512.0;
 uniform float top_world_scale_px = 384.0;
 uniform float face_world_scale_px = 224.0;
 uniform float macro_world_scale_px = 896.0;
@@ -54,13 +56,14 @@ void fragment() {
 			coverage_sum = top_mask;
 		}
 		float total_mask = max(coverage_sum, 0.001);
-		float contour_height = texture(height_texture, UV).r;
 
+		vec2 base_uv = world_pos / base_world_scale_px;
 		vec2 top_uv = world_pos / top_world_scale_px;
 		vec2 top_uv_secondary = vec2(-world_pos.y, world_pos.x) / (top_world_scale_px * 1.73) + vec2(0.37, 0.19);
 		vec2 face_uv = vec2(world_pos.x / face_world_scale_px, world_pos.y / (face_world_scale_px * 0.72));
 		vec2 macro_uv = vec2(world_pos.y, world_pos.x) / macro_world_scale_px + vec2(0.11, 0.53);
 
+		vec3 base_color = texture(base_albedo_tex, fract(base_uv)).rgb;
 		vec3 top_albedo = mix(
 			texture(top_albedo_tex, fract(top_uv)).rgb,
 			texture(top_albedo_tex, fract(top_uv_secondary)).rgb,
@@ -70,7 +73,7 @@ void fragment() {
 		float top_macro = texture(top_modulation, fract(macro_uv)).r;
 		float top_breakup = remap_contrast(mix(top_micro, top_macro, 0.34), modulation_contrast);
 		float top_brightness = mix(1.0 - modulation_strength, 1.0 + modulation_strength, top_breakup);
-		vec3 top_color = top_albedo * top_brightness;
+		vec3 top_color = mix(base_color, top_albedo * top_brightness, 0.0);
 
 		vec3 face_albedo = texture(face_albedo_tex, fract(face_uv)).rgb;
 		float face_micro = texture(face_modulation, fract(face_uv)).r;
@@ -85,7 +88,6 @@ void fragment() {
 			face_color * face_mask +
 			back_color * back_mask
 		) / total_mask;
-		final_color *= mix(0.96, 1.04, contour_height);
 
 		vec3 shape_normal = unpack_normal(texture(normal_texture, UV).rgb);
 		vec3 top_normal = unpack_normal(texture(top_normal_tex, fract(top_uv)).rgb);
