@@ -828,6 +828,7 @@ Returned by native `WorldCore.build_contour_chunk(input)`.
   "collision_size": Vector2i,
   "collision_blocks_inside": bool,
   "solid_bounds_world_px": Rect2i,
+  "has_visual_coverage": bool,
   "ready": bool,
 }
 ```
@@ -845,6 +846,10 @@ Current code notes:
   as `mask_rgba8`
 - `WorldStreamer` stores this result as derived runtime cache keyed by
   `chunk_coord`, `contour_class`, `recipe_id`, and `diff_revision`.
+- `has_visual_coverage` is derived from non-zero `mask_rgba8` alpha. It is used
+  by runtime presentation to draw halo-projected contour pixels, such as a
+  south mountain facade that extends into a neighboring chunk with no local
+  mountain tiles. It is derived cache metadata, not terrain authority.
 - Results whose `diff_revision` does not match the target chunk's required
   contour revision, or whose generation epoch no longer matches current runtime
   state, are stale and must be rejected instead of being reused.

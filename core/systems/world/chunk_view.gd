@@ -468,6 +468,7 @@ func _build_contour_textures(result: Dictionary) -> Dictionary:
 		"mask": ImageTexture.create_from_image(mask_image),
 		"height": ImageTexture.create_from_image(height_image),
 		"normal": ImageTexture.create_from_image(normal_image),
+		"has_visual_coverage": bool(result.get("has_visual_coverage", false)),
 	}
 
 func _apply_ground_contour_visual(textures: Dictionary) -> void:
@@ -483,6 +484,8 @@ func _apply_ground_contour_visual(textures: Dictionary) -> void:
 
 func _apply_mountain_contour_visuals(textures: Dictionary) -> void:
 	var active_mountain_ids: Array = _collect_contour_mountain_ids()
+	if active_mountain_ids.is_empty() and bool(textures.get("has_visual_coverage", false)):
+		active_mountain_ids = [FALLBACK_MOUNTAIN_CONTOUR_ID]
 	var active_lookup: Dictionary = {}
 	for mountain_id_variant: Variant in active_mountain_ids:
 		var mountain_id: int = int(mountain_id_variant)

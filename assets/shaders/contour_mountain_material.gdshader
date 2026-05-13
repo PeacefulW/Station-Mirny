@@ -24,6 +24,7 @@ uniform vec4 top_light_color : source_color = vec4(0.49, 0.41, 0.34, 1.0);
 uniform vec4 face_dark_color : source_color = vec4(0.22, 0.18, 0.16, 1.0);
 uniform vec4 face_light_color : source_color = vec4(0.39, 0.33, 0.28, 1.0);
 uniform vec4 dust_color : source_color = vec4(0.62, 0.53, 0.42, 1.0);
+uniform vec4 bottom_outline_color : source_color = vec4(0.016, 0.014, 0.012, 1.0);
 
 uniform float top_world_scale_px = 224.0;
 uniform float face_world_scale_px = 112.0;
@@ -34,6 +35,7 @@ uniform float face_contrast = 1.22;
 uniform float back_rim_darkening = 1.0;
 uniform float top_albedo_blend = 1.0;
 uniform float face_albedo_blend = 1.0;
+uniform float bottom_outline_strength = 0.95;
 
 varying vec2 world_pos;
 
@@ -96,13 +98,26 @@ void fragment() {
 	if (cutout > 0.0) {
 		shape_mask *= 1.0 - cutout;
 	}
-	if (shape_mask.a < 0.01) {
+
+	vec2 local_pos_px = world_pos - chunk_origin_px;
+	vec2 tile_coord = floor(local_pos_px / tile_size_px);
+	vec2 mask_uv = (tile_coord + vec2(0.5, 0.5)) / mask_tile_count;
+	float cover = texture(cover_mask, mask_uv).r;
+
+	if (cover < 0.01 || shape_mask.a < 0.01) {
 		COLOR = vec4(0.0, 0.0, 0.0, 0.0);
 		NORMAL_MAP = vec3(0.5, 0.5, 1.0);
 	} else {
 		float top_mask = smoothstep(0.02, 0.2, shape_mask.r);
 		float face_mask = smoothstep(0.02, 0.2, shape_mask.g);
 		float back_mask = smoothstep(0.02, 0.2, shape_mask.b);
+		vec4 below_shape_mask = texture(mask_texture, UV + vec2(0.0, TEXTURE_PIXEL_SIZE.y));
+		float outline_only_face = face_mask
+			* (1.0 - smoothstep(0.02, 0.16, top_mask + back_mask))
+			* (1.0 - smoothstep(0.50, 0.85, shape_mask.a));
+		float bottom_face_contact = face_mask
+			* (1.0 - smoothstep(0.02, 0.16, top_mask + back_mask))
+			* (1.0 - smoothstep(0.55, 0.90, below_shape_mask.a));
 		float coverage_sum = top_mask + face_mask + back_mask;
 		float alpha_coverage_fallback = smoothstep(0.02, 0.2, shape_mask.a);
 		if (coverage_sum < 0.001 && alpha_coverage_fallback > 0.0) {
@@ -160,6 +175,12 @@ void fragment() {
 				face_color * face_mask +
 				back_color * back_mask
 			) / total_mask;
+			float bottom_outline_mix = clamp(
+				max(outline_only_face, bottom_face_contact * 0.78) * bottom_outline_strength,
+				0.0,
+				0.95
+			);
+			final_color = mix(final_color, bottom_outline_color.rgb, bottom_outline_mix);
 			final_color *= mix(0.94, 1.06, contour_height);
 
 			vec3 shape_normal = unpack_normal(texture(normal_texture, UV).rgb);
@@ -173,7 +194,7 @@ void fragment() {
 			);
 			vec3 final_normal = blend_normals(shape_normal, detail_normal);
 
-		COLOR = vec4(final_color, shape_mask.a);
+		COLOR = vec4(final_color, shape_mask.a * cover);
 		NORMAL_MAP = final_normal * 0.5 + 0.5;
 	}
 }

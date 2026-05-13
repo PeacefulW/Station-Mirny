@@ -16,6 +16,7 @@ func _run() -> void:
 	_assert_static_contract()
 	_assert_constant_contour_height_encoding()
 	_assert_immediate_ground_placeholder_contract()
+	_assert_contour_visual_coverage_metadata()
 	if _failed:
 		quit(1)
 		return
@@ -117,6 +118,10 @@ func _run() -> void:
 
 	chunk_view.queue_free()
 	await process_frame
+
+	_assert_halo_only_mountain_facade_visual()
+	await process_frame
+
 	if _failed:
 		quit(1)
 		return
@@ -141,6 +146,9 @@ func _assert_static_contract() -> void:
 		"mountain"
 	)
 	_assert_mountain_shader_has_soft_runtime_cutout()
+	_assert_mountain_shader_has_bottom_outline_darkening()
+	_assert_mountain_shader_uses_cover_mask()
+	_assert_mountain_shader_darkens_bottom_contact()
 	var chunk_view_source: String = FileAccess.get_file_as_string("res://core/systems/world/chunk_view.gd")
 	_assert(
 		chunk_view_source.contains("apply_contour_results"),
@@ -203,6 +211,48 @@ func _assert_immediate_ground_placeholder_contract() -> void:
 	_assert((result.get("normal_rgba8", PackedByteArray()) as PackedByteArray).size() == 4, "Immediate ground placeholder must include one normal sample.")
 	streamer.free()
 
+func _assert_contour_visual_coverage_metadata() -> void:
+	var streamer := WorldStreamer.new()
+	var covered := {
+		"mask_rgba8": PackedByteArray([0, 0, 0, 0, 0, 0, 0, 1]),
+	}
+	streamer._annotate_contour_result_visual_coverage(covered)
+	_assert(bool(covered.get("has_visual_coverage", false)), "Contour results with non-zero alpha must be annotated with visual coverage before main-thread apply.")
+
+	var empty := {
+		"mask_rgba8": PackedByteArray([0, 0, 0, 0]),
+	}
+	streamer._annotate_contour_result_visual_coverage(empty)
+	_assert(not bool(empty.get("has_visual_coverage", true)), "Contour results with zero alpha must not request a visual bucket.")
+	streamer.free()
+
+func _assert_halo_only_mountain_facade_visual() -> void:
+	var chunk_view := ChunkView.new()
+	root.add_child(chunk_view)
+	chunk_view.configure(Vector2i(0, 1))
+	chunk_view.set_contour_rendering_enabled(true)
+	chunk_view.begin_apply(_build_ground_only_packet())
+	while chunk_view.apply_next_batch(64):
+		pass
+	var fresh_results: Dictionary = {
+		WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE: _build_contour_result(
+			WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE,
+			DIFF_REVISION
+		),
+		WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS: _build_contour_result(
+			WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS,
+			DIFF_REVISION,
+			true
+		),
+	}
+	chunk_view.apply_contour_results(fresh_results, DIFF_REVISION)
+	var state: Dictionary = chunk_view.get_contour_render_debug_state()
+	_assert(
+		int(state.get("mountain_bucket_count", 0)) == 1,
+		"Halo-projected south mountain facade must create a fallback visual bucket even when this chunk has no local mountain tiles."
+	)
+	chunk_view.queue_free()
+
 func _assert_shader_has_alpha_only_mask_fallback(path: String, label: String) -> void:
 	var shader_source: String = FileAccess.get_file_as_string(path)
 	_assert(
@@ -217,6 +267,34 @@ func _assert_mountain_shader_has_soft_runtime_cutout() -> void:
 			and shader_source.contains("rounded_tile_cutout")
 			and shader_source.contains("radial_blob"),
 		"Mountain contour shader must use softened organic runtime cutout coverage instead of hard tile-square removal."
+	)
+
+func _assert_mountain_shader_has_bottom_outline_darkening() -> void:
+	var shader_source: String = FileAccess.get_file_as_string("res://assets/shaders/contour_mountain_material.gdshader")
+	_assert(
+		shader_source.contains("bottom_outline_strength")
+			and shader_source.contains("outline_only_face")
+			and shader_source.contains("bottom_outline_color"),
+		"Mountain contour shader must darken native outline-only face coverage so generator bottom outline remains visible in runtime."
+	)
+
+func _assert_mountain_shader_uses_cover_mask() -> void:
+	var shader_source: String = FileAccess.get_file_as_string("res://assets/shaders/contour_mountain_material.gdshader")
+	_assert(
+		shader_source.contains("texture(cover_mask")
+			and shader_source.contains("local_pos_px")
+			and shader_source.contains("mask_uv")
+			and shader_source.contains("shape_mask.a * cover"),
+		"Mountain contour shader must sample cover_mask so runtime mountain coverage matches the preview mask instead of drawing stale face pixels."
+	)
+
+func _assert_mountain_shader_darkens_bottom_contact() -> void:
+	var shader_source: String = FileAccess.get_file_as_string("res://assets/shaders/contour_mountain_material.gdshader")
+	_assert(
+		shader_source.contains("bottom_face_contact")
+			and shader_source.contains("TEXTURE_PIXEL_SIZE")
+			and shader_source.contains("below_shape_mask"),
+		"Mountain contour shader must darken the bottom face contact, not only the generator's transparent outline pixels."
 	)
 
 func _build_packet_with_ground_and_two_mountains() -> Dictionary:
@@ -255,7 +333,40 @@ func _build_packet_with_ground_and_two_mountains() -> Dictionary:
 		"mountain_atlas_indices": mountain_atlas_indices,
 	}
 
-func _build_contour_result(contour_class: StringName, diff_revision: int) -> Dictionary:
+func _build_ground_only_packet() -> Dictionary:
+	var terrain_ids := PackedInt32Array()
+	var atlas_indices := PackedInt32Array()
+	var walkable_flags := PackedByteArray()
+	var lake_flags := PackedByteArray()
+	var mountain_ids := PackedInt32Array()
+	var mountain_flags := PackedByteArray()
+	var mountain_atlas_indices := PackedInt32Array()
+	terrain_ids.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	atlas_indices.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	walkable_flags.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	lake_flags.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	mountain_ids.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	mountain_flags.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	mountain_atlas_indices.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	for index: int in range(WorldRuntimeConstants.CHUNK_CELL_COUNT):
+		terrain_ids[index] = WorldRuntimeConstants.TERRAIN_PLAINS_GROUND
+		walkable_flags[index] = 1
+	return {
+		"chunk_coord": Vector2i(0, 1),
+		"terrain_ids": terrain_ids,
+		"terrain_atlas_indices": atlas_indices,
+		"walkable_flags": walkable_flags,
+		"lake_flags": lake_flags,
+		"mountain_id_per_tile": mountain_ids,
+		"mountain_flags": mountain_flags,
+		"mountain_atlas_indices": mountain_atlas_indices,
+	}
+
+func _build_contour_result(
+	contour_class: StringName,
+	diff_revision: int,
+	has_visual_coverage: bool = true
+) -> Dictionary:
 	return {
 		"chunk_coord": Vector2i.ZERO,
 		"contour_class": contour_class,
@@ -270,6 +381,7 @@ func _build_contour_result(contour_class: StringName, diff_revision: int) -> Dic
 		"collision_sample_px": 4,
 		"collision_size": Vector2i(257, 257),
 		"collision_blocks_inside": contour_class == WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS,
+		"has_visual_coverage": has_visual_coverage,
 		"ready": true,
 	}
 

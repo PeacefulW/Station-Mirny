@@ -431,12 +431,16 @@ ContourChunkResultV1 {
   collision_sample_px: int,
   collision_size: Vector2i,
   solid_bounds_world_px: Rect2,
+  has_visual_coverage: bool,
   ready: bool
 }
 ```
 
 The result is a runtime cache. It is not written to save files and is not sent
 through current save slot chunk JSON.
+`has_visual_coverage` is derived from non-zero mask alpha and lets presentation
+draw halo-projected contour pixels, including south mountain facades that extend
+into neighboring chunks without local mountain tiles.
 
 ### Determinism and Parity Contract
 

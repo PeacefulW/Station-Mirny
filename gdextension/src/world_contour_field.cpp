@@ -939,6 +939,16 @@ void apply_mountain_bottom_outline_for_field(
 	}
 }
 
+bool mask_has_alpha_coverage(const godot::PackedByteArray &p_mask) {
+	const uint8_t *mask_read = p_mask.ptr();
+	for (int32_t offset = 3; offset < p_mask.size(); offset += 4) {
+		if (mask_read[offset] != 0U) {
+			return true;
+		}
+	}
+	return false;
+}
+
 float contour_collision_distance_px(
 	const ContourChunkInputV1 &p_input,
 	const TileSdf &p_sdf,
@@ -1158,6 +1168,7 @@ godot::Dictionary build_contour_chunk(const godot::Dictionary &p_input) {
 	result["collision_size"] = godot::Vector2i(collision_side, collision_side);
 	result["collision_blocks_inside"] = input.recipe.collision_blocks_inside;
 	result["solid_bounds_world_px"] = compute_solid_bounds_world_px(input);
+	result["has_visual_coverage"] = mask_has_alpha_coverage(mask_rgba8);
 	result["ready"] = true;
 	return result;
 }

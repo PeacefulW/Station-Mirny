@@ -1936,6 +1936,7 @@ func _process_contour_worker_request(worker_world_core: Object, request: Diction
 			result = (result_variant as Dictionary).duplicate(true)
 		if result.is_empty():
 			continue
+		_annotate_contour_result_visual_coverage(result)
 		result["contour_class"] = contour_class
 		result["epoch"] = int(request.get("epoch", -1))
 		result["request_key"] = str(request.get("request_key", ""))
@@ -1999,8 +2000,22 @@ func _build_constant_contour_result(input: Dictionary, contour_class: StringName
 		"collision_size": Vector2i(collision_side, collision_side),
 		"collision_blocks_inside": blocks_inside,
 		"solid_bounds_world_px": Rect2i(0, 0, logical_output_px, logical_output_px) if occupied else Rect2i(),
+		"has_visual_coverage": occupied,
 		"ready": true,
 	}
+
+func _annotate_contour_result_visual_coverage(result: Dictionary) -> void:
+	if result.has("has_visual_coverage"):
+		return
+	result["has_visual_coverage"] = _contour_mask_has_visual_coverage(
+		result.get("mask_rgba8", PackedByteArray()) as PackedByteArray
+	)
+
+func _contour_mask_has_visual_coverage(mask_rgba8: PackedByteArray) -> bool:
+	for alpha_offset: int in range(3, mask_rgba8.size(), 4):
+		if mask_rgba8[alpha_offset] != 0:
+			return true
+	return false
 
 func _build_contour_packet_map_for_request(worker_world_core: Object, request: Dictionary) -> Dictionary:
 	var packet_map: Dictionary = {}
