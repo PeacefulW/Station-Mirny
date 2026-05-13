@@ -1,22 +1,15 @@
-[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=9 format=3]
+[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://data/terrain/terrain_material_set.gd" id="1"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/ground/unnamed_top_albedo.png" id="2"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/ground/unnamed_face_albedo.png" id="3"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/ground/unnamed_top_modulation.png" id="4"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/ground/unnamed_face_modulation.png" id="5"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/ground/unnamed_top_normal.png" id="6"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/ground/unnamed_face_normal.png" id="7"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/ground/unnamed_base_albedo.png" id="8"]
+[ext_resource type="Texture2D" path="res://assets/textures/terrain/terrain_dug_albedo.png" id="2"]
 
 [resource]
 script = ExtResource("1")
 id = &"base:plains_dug_material"
 shader_family_id = &"terrain.simple_tile"
 top_albedo = ExtResource("2")
-face_albedo = ExtResource("3")
-base_albedo = ExtResource("8")
-top_modulation = ExtResource("4")
-face_modulation = ExtResource("5")
-top_normal = ExtResource("6")
-face_normal = ExtResource("7")
+face_albedo = ExtResource("2")
+top_modulation = ExtResource("2")
+face_modulation = ExtResource("2")
+top_normal = ExtResource("2")
+face_normal = ExtResource("2")

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.7
-last_updated: 2026-05-12
+version: 0.6
+last_updated: 2026-05-03
 related_docs:
   - ../README.md
   - commands.md
@@ -286,7 +286,6 @@ Not documented here as safe entrypoints:
 Owner files:
 - `gdextension/src/world_core.cpp`
 - `gdextension/src/world_prepass.cpp`
-- `gdextension/src/world_contour_field.cpp`
 
 Role:
 - native deterministic world-generation boundary and owner of the RAM-only
@@ -299,7 +298,6 @@ Confirmed public native surface:
 | `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate; current chunk generation emits ground, mountain, and Lake Generation L2 bed terrain classes and reads the `WorldPrePass` substrate for lake fields. |
 | `make_world_preview_patch_image(packet: Dictionary, render_mode: StringName)` | `Image` | Builds a lightweight preview patch image from an existing `ChunkPacketV1`; current modes are terrain, mountain id, and mountain classification. Terrain mode reads ground, mountain, and lake-bed packet terrain ids; it does not generate chunks. |
 | `build_mountain_contour_debug(solid_halo: PackedByteArray, chunk_size: int, tile_size_px: int)` | `Dictionary` | Debug-only native marching-squares helper for Mountain Contour Mesh L1. Input is a compact `(chunk_size + 2)^2` solid mask with a one-tile halo; output contains derived `vertices: PackedVector2Array` and `indices: PackedInt32Array`. This is visual/debug data only, not packet truth, save state, collision, or walkability. |
-| `build_contour_chunk(input: Dictionary)` | `Dictionary` | Builds a transient native runtime SDF contour field from `ContourChunkInputV1` and returns `ContourChunkResultV1`. Output buffers are derived presentation/collision cache data for one chunk plus halo; they are not canonical terrain truth and must not be persisted. |
 | `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
 
 Dev-only native surface:
@@ -321,23 +319,10 @@ Current code notes:
   persisted and must not be mutated by script code.
 - Preview spawn resolution uses the shared worker wrapper, not a main-thread
   GDScript fallback.
-- Runtime SDF contour chunk output from `build_contour_chunk(input)` is a
-  derived per-chunk cache built from an already assembled `base + diff` mask
-  with halo. The authoritative owner of the input mask remains the world
-  runtime/diff path; `WorldCore` owns only the native compute boundary and
-  returned fixed-format buffers.
-- Active ground and mountain contour classes must be produced by
-  `WorldCore.build_contour_chunk(input)`; script-side constant contour results
-  and immediate visual placeholders are not safe runtime entrypoints.
-- Active ground and mountain contour recipes must already be
-  `RuntimeSdfContour` recipes. The public runtime path does not accept legacy
-  `Full47` recipe normalization as a compatibility fallback.
 
 Not documented here as safe entrypoints:
 - direct calls to `world_prepass::*` helpers from script, because they are native
   implementation details behind `WorldCore`
-- direct calls to `world_contour_field::*` helpers from script, because
-  `WorldCore.build_contour_chunk(input)` is the public native boundary
 - using dev-only substrate snapshot dictionaries as save data or gameplay state
 
 ### WorldStreamer
@@ -358,22 +343,9 @@ Confirmed readable entrypoints:
 | `get_chunk_packet(chunk_coord: Vector2i)` | `Dictionary` | Loaded chunk packet or `{}`; read-only world-domain lookup for `MountainResolver` |
 | `get_mountain_cover_sample(world_tile: Vector2i)` | `Dictionary` | Read-only cover sample for one tile: `mountain_id`, `mountain_flags`, `component_id`, `is_opening`, `walkable` |
 | `get_mountain_cover_debug_snapshot(world_tile: Vector2i)` | `Dictionary` | Debug-only snapshot including `inside_outside_state`, active component ids, and `roof_layers_per_chunk_max` |
-| `is_walkable_at_world(world_pos: Vector2)` | `bool` | Movement-facing walkability read. Reads raw `base + diff` tile state and the chunk-required `mountain_mass` contour collision cache; returns `false` while the chunk or required contour collision revision is not ready. Mountain cutover terrain is blocked by visible contour occupancy rather than by square logical tile corners. |
-| `is_movement_blocked_at_world(world_pos: Vector2)` | `bool` | Movement-facing contour collision read. Returns `true` when the chunk-required `mountain_mass` collision SDF blocks the point, or when the required collision result is missing/stale and movement must fail closed. |
-| `is_raw_tile_walkable_at_world(world_pos: Vector2)` | `bool` | Raw logical tile-grid walkability for mining, resource checks, build placement, debug, and save/diff inspection. Does not sample contour collision. |
-| `get_effective_tile_data_at_world(world_pos: Vector2)` | `Dictionary` | Raw loaded effective tile data from `base + diff`: `ready`, `chunk_coord`, `local_coord`, `terrain_id`, and `walkable`. This is the safe read for non-movement systems that need logical tile truth. |
+| `is_walkable_at_world(world_pos: Vector2)` | `bool` | Reads `base + diff`; returns `false` while a chunk is not ready |
 | `has_resource_at_world(world_pos: Vector2)` | `bool` | Diggable surface query for the current harvest path (`TERRAIN_MOUNTAIN_WALL` and `TERRAIN_MOUNTAIN_FOOT`); returns `true` only when the tile also has an orthogonally exposed walkable face |
 | `get_mountain_contour_debug_state(chunk_coord: Vector2i)` | `Dictionary` | Debug-only readback for the loaded chunk's L1 grid/mask/contour overlay state. Returns `ready: false` if the chunk view is not loaded. |
-| `get_contour_halo_debug_state(chunk_coord: Vector2i, contour_class: StringName)` | `Dictionary` | Debug-only readback for Runtime SDF Contours Iteration 03 input assembly. Returns compact `20 x 20` halo masks for the requested contour class, including `source_mask_with_halo`, `terrain_id_with_halo`, and `chunk_coord_with_halo` diagnostics. These diagnostics are not native packet schema and must not be persisted. |
-| `get_contour_result_debug_state(chunk_coord: Vector2i, contour_class: StringName)` | `Dictionary` | Debug-only readback for the loaded chunk's derived `ContourChunkResultV1` metadata. Returns `ready: true` only when a result exists for the chunk's `required_diff_revision`; stale stored revisions return `ready: false` with `stored_diff_revision`, `current_diff_revision`, and `required_diff_revision`. |
-| `get_contour_dirty_debug_state(chunk_coord: Vector2i)` | `Dictionary` | Debug-only readback for Runtime SDF Contours Iteration 06 dirty revision state. Returns `store_diff_revision`, current streamer `diff_revision`, required revision, requested revision, ready revision, and per-class result revisions for the chunk. This is diagnostic data only and is not save state. |
-
-Dev-only contour test surfaces:
-
-| Surface | Return | Notes |
-|---|---|---|
-| `request_contour_results_for_chunk_debug(chunk_coord: Vector2i)` | `void` | Queues the same derived contour worker request used by the streaming lifecycle for a packet-ready chunk. |
-| `drain_contour_results_debug(max_count: int = 8)` | `int` | Drains ready contour worker results into the main-thread cache for headless smoke tests. Normal streaming drains this cache from `_streaming_tick()`. |
 
 Confirmed mutation entrypoints:
 
@@ -389,55 +361,12 @@ Confirmed mutation entrypoints:
 | `toggle_debug_mountain_solid_mask()` | Toggles the developer-only `F7` current solid mountain mask overlay for loaded chunks |
 | `toggle_debug_mountain_contour()` | Toggles the developer-only `F10` native contour mesh overlay for loaded chunks; does not bind or use `F8` |
 
-Current Runtime SDF contour lifecycle:
-- `WorldStreamer` owns contour scheduling, halo snapshot assembly, contour result
-  readiness, and release on chunk unload.
-- Authoritative terrain truth remains `ChunkPacketV1 + WorldDiffStore`; contour
-  halo inputs and `ContourChunkResultV1` buffers are derived cache only.
-- `WorldDiffStore` owns the monotonic runtime `diff_revision`. Each successful
-  tile override increments it once; it is not serialized in chunk diff payloads.
-- Excavation dirty updates mark the owning chunk and direct halo seam-neighbor
-  chunks dirty, enqueue fresh contour worker request assembly under the
-  streaming budget, and keep movement blocked until the chunk's active visual
-  and collision contour classes are ready for the chunk's required revision.
-  During dirty refresh, an already-published chunk may keep the previous
-  visual revision visible to avoid chunk-sized black holes; movement/collision
-  readiness still fails closed until the required revision is ready. Unaffected
-  chunks keep their previous ready revision valid after unrelated global diff
-  changes. A newly published chunk stays hidden until native `ground_surface`
-  and `mountain_mass` results exist for the required revision. In Iteration 07,
-  the active classes are `mountain_mass` and `ground_surface`; `water_surface`
-  remains a boundary/debug contour class and is not an independent readiness
-  gate.
-- Iteration 07 cutover makes `TERRAIN_PLAINS_GROUND`,
-  `TERRAIN_PLAINS_DUG`, `TERRAIN_LEGACY_BLOCKED`,
-  `TERRAIN_MOUNTAIN_WALL`, and `TERRAIN_MOUNTAIN_FOOT` contour-only terrain
-  ids for active gameplay rendering. `WorldTileSetFactory` must not build
-  active TileMap sources for these ids, and `ChunkView` clears those cells
-  instead of falling back to legacy `autotile_47` ground, mountain, or roof
-  presentation. Legacy TileMap presentation remains available only for
-  non-cutover terrain classes.
-- Missing halo neighbor chunks are filled inside the contour worker through
-  transient `WorldCore.generate_chunk_packets_batch(...)` calls. These packets
-  are not inserted into `_chunk_packets`, are not published as visible chunks,
-  and are not save state.
-- Halo source priority is loaded runtime diff, loaded packet, unloaded runtime
-  diff, generated base packet, then empty out-of-world Y.
-- Results are stored by `chunk_coord`, `contour_class`, `recipe_id`, and
-  `diff_revision`; results that do not match the chunk-required revision or
-  current generation epoch are rejected by the main-thread registration path.
-- Iteration 05 cuts movement-facing walkability over to `mountain_mass`
-  contour collision. Raw tile-grid consumers must use
-  `is_raw_tile_walkable_at_world()` or `get_effective_tile_data_at_world()`
-  instead of `is_walkable_at_world()`.
-
 Not documented here as safe entrypoints:
 - `_streaming_tick()`
 - `_worker_loop()`
 - direct access to `_chunk_packets`, `_chunk_views`, or `_diff_store`
 - direct mutation of native packet dictionaries outside the documented methods
 - mutation of dictionaries returned by `get_chunk_packet()`
-- using runtime SDF contour buffers as save/load data or authoritative terrain
 
 ### World Bounds and Foundation Settings
 

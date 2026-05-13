@@ -2,6 +2,8 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{Context, Result};
@@ -546,6 +548,19 @@ struct RuntimeSdfReferenceExports {
     albedo: RgbaImage,
 }
 
+struct MapPreviewOutputs {
+    albedo: RgbaImage,
+    mask: RgbaImage,
+    height: RgbaImage,
+    normal: RgbaImage,
+}
+
+#[derive(Clone, Copy, Default)]
+struct FieldRenderCaches<'a> {
+    global_distance: Option<&'a GlobalSdfDistanceCache>,
+    global_height: Option<&'a GlobalRenderHeightCache>,
+}
+
 fn export_file_path(
     output_dir: &Path,
     request: &AppRequest,
@@ -954,23 +969,15 @@ fn build_runtime_sdf_reference_exports(
     request: &AppRequest,
     textures: &TextureSet,
 ) -> Result<RuntimeSdfReferenceExports> {
-    Ok(RuntimeSdfReferenceExports {
-        mask: build_runtime_sdf_reference_image(request, textures, "mask")?,
-        height: build_runtime_sdf_reference_image(request, textures, "height")?,
-        normal: build_runtime_sdf_reference_image(request, textures, "normal")?,
-        albedo: build_runtime_sdf_reference_image(request, textures, "albedo")?,
-    })
-}
-
-fn build_runtime_sdf_reference_image(
-    request: &AppRequest,
-    textures: &TextureSet,
-    preview_mode: &str,
-) -> Result<RgbaImage> {
     let mut reference_request = request.clone();
-    reference_request.preview_mode = preview_mode.to_string();
     reference_request.bake_height_shading = false;
-    build_map_preview(&reference_request, textures)
+    let outputs = build_map_preview_outputs(&reference_request, textures)?;
+    Ok(RuntimeSdfReferenceExports {
+        mask: outputs.mask,
+        height: outputs.height,
+        normal: outputs.normal,
+        albedo: outputs.albedo,
+    })
 }
 
 fn build_material_albedo_and_values(
@@ -1063,6 +1070,17 @@ struct MapSdfCacheKey {
 }
 
 static MAP_SDF_CACHE: OnceLock<Mutex<Option<(MapSdfCacheKey, Arc<MapSdf>)>>> = OnceLock::new();
+#[cfg(test)]
+static MAP_PREVIEW_BUILD_COUNT: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+static GLOBAL_DISTANCE_CACHE_BUILD_COUNT: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+static GLOBAL_RENDER_HEIGHT_CACHE_BUILD_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(test)]
+fn count_perf_request(request: &AppRequest) -> bool {
+    request.asset_name.starts_with("perf_counter_")
+}
 
 fn cached_map_sdf(map: &crate::model::MapData, outside_padding: u32) -> Arc<MapSdf> {
     let key = map_sdf_cache_key(map, outside_padding);
@@ -1103,10 +1121,46 @@ fn map_sdf_padding_for_request(request: &AppRequest) -> u32 {
 }
 
 fn build_map_preview(request: &AppRequest, textures: &TextureSet) -> Result<RgbaImage> {
+    #[cfg(test)]
+    if count_perf_request(request) {
+        MAP_PREVIEW_BUILD_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
+
     let width = request.map.width * request.tile_size;
     let height = request.map.height * request.tile_size;
     let mut preview = RgbaImage::new(width, height);
     let sdf = cached_map_sdf(&request.map, map_sdf_padding_for_request(request));
+    let geometry_variant = request.forced_variant.unwrap_or(0);
+    let geometry_seed = geometry_seed_for_variant(request, geometry_variant);
+    let global_distance_cache = GlobalSdfDistanceCache::new_region(
+        request,
+        sdf.as_ref(),
+        geometry_seed,
+        0,
+        0,
+        width,
+        height,
+    );
+    let global_height_cache = if matches!(request.preview_mode.as_str(), "normal" | "lit") {
+        Some(GlobalRenderHeightCache::new_region(
+            GlobalSdfSampler {
+                request,
+                sdf: sdf.as_ref(),
+                seed: geometry_seed,
+                distance_cache: Some(&global_distance_cache),
+            },
+            0,
+            0,
+            width,
+            height,
+        ))
+    } else {
+        None
+    };
+    let caches = FieldRenderCaches {
+        global_distance: Some(&global_distance_cache),
+        global_height: global_height_cache.as_ref(),
+    };
 
     let tile_size = request.tile_size as usize;
     let preview_width = width as usize;
@@ -1121,10 +1175,11 @@ fn build_map_preview(request: &AppRequest, textures: &TextureSet) -> Result<Rgba
                 let variant = request.forced_variant.unwrap_or_else(|| {
                     pick_variant(map_x as i32, map_y as i32, request.seed, request.variants)
                 });
-                let tile = render_tile_with_sdf(
+                let tile = render_tile_with_sdf_cached(
                     request,
                     textures,
                     sdf.as_ref(),
+                    caches,
                     variant,
                     origin_x,
                     origin_y,
@@ -1135,6 +1190,110 @@ fn build_map_preview(request: &AppRequest, textures: &TextureSet) -> Result<Rgba
         });
 
     Ok(preview)
+}
+
+fn build_map_preview_outputs(
+    request: &AppRequest,
+    textures: &TextureSet,
+) -> Result<MapPreviewOutputs> {
+    #[cfg(test)]
+    if count_perf_request(request) {
+        MAP_PREVIEW_BUILD_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
+
+    let mut render_request = request.clone();
+    render_request.preview_mode = "lit".to_string();
+    render_request.bake_height_shading = false;
+
+    let width = render_request.map.width * render_request.tile_size;
+    let height = render_request.map.height * render_request.tile_size;
+    let sdf = cached_map_sdf(
+        &render_request.map,
+        map_sdf_padding_for_request(&render_request),
+    );
+    let geometry_variant = render_request.forced_variant.unwrap_or(0);
+    let geometry_seed = geometry_seed_for_variant(&render_request, geometry_variant);
+    let global_distance_cache = GlobalSdfDistanceCache::new_region(
+        &render_request,
+        sdf.as_ref(),
+        geometry_seed,
+        0,
+        0,
+        width,
+        height,
+    );
+    let global_height_cache = GlobalRenderHeightCache::new_region(
+        GlobalSdfSampler {
+            request: &render_request,
+            sdf: sdf.as_ref(),
+            seed: geometry_seed,
+            distance_cache: Some(&global_distance_cache),
+        },
+        0,
+        0,
+        width,
+        height,
+    );
+    let caches = FieldRenderCaches {
+        global_distance: Some(&global_distance_cache),
+        global_height: Some(&global_height_cache),
+    };
+
+    let tile_size = render_request.tile_size as usize;
+    let preview_width = width as usize;
+    let row_band_bytes = preview_width * 4 * tile_size;
+    let pixel_bytes = (width as usize) * (height as usize) * 4;
+    let mut albedo_raw = vec![0_u8; pixel_bytes];
+    let mut mask_raw = vec![0_u8; pixel_bytes];
+    let mut height_raw = vec![0_u8; pixel_bytes];
+    let mut normal_raw = vec![0_u8; pixel_bytes];
+
+    albedo_raw
+        .par_chunks_mut(row_band_bytes)
+        .zip(mask_raw.par_chunks_mut(row_band_bytes))
+        .zip(height_raw.par_chunks_mut(row_band_bytes))
+        .zip(normal_raw.par_chunks_mut(row_band_bytes))
+        .enumerate()
+        .for_each(
+            |(map_y, (((albedo_band, mask_band), height_band), normal_band))| {
+                for map_x in 0..render_request.map.width as usize {
+                    let origin_x = map_x as u32 * render_request.tile_size;
+                    let origin_y = map_y as u32 * render_request.tile_size;
+                    let variant = render_request.forced_variant.unwrap_or_else(|| {
+                        pick_variant(
+                            map_x as i32,
+                            map_y as i32,
+                            render_request.seed,
+                            render_request.variants,
+                        )
+                    });
+                    let tile = render_tile_with_sdf_cached(
+                        &render_request,
+                        textures,
+                        sdf.as_ref(),
+                        caches,
+                        variant,
+                        origin_x,
+                        origin_y,
+                    );
+                    let dx = map_x * tile_size;
+                    blit_exact_band(albedo_band, preview_width, tile_size, dx, &tile.albedo);
+                    blit_exact_band(mask_band, preview_width, tile_size, dx, &tile.mask);
+                    blit_exact_band(height_band, preview_width, tile_size, dx, &tile.height);
+                    blit_exact_band(normal_band, preview_width, tile_size, dx, &tile.normal);
+                }
+            },
+        );
+
+    Ok(MapPreviewOutputs {
+        albedo: RgbaImage::from_raw(width, height, albedo_raw)
+            .expect("buffer size matches dimensions"),
+        mask: RgbaImage::from_raw(width, height, mask_raw).expect("buffer size matches dimensions"),
+        height: RgbaImage::from_raw(width, height, height_raw)
+            .expect("buffer size matches dimensions"),
+        normal: RgbaImage::from_raw(width, height, normal_raw)
+            .expect("buffer size matches dimensions"),
+    })
 }
 
 fn pick_variant(x: i32, y: i32, seed: u32, total: u32) -> u32 {
@@ -1157,12 +1316,14 @@ fn render_tile(
         request,
         textures,
         SurfaceField::Local(signature),
+        FieldRenderCaches::default(),
         variant,
         origin_x,
         origin_y,
     )
 }
 
+#[cfg(test)]
 fn render_tile_with_sdf(
     request: &AppRequest,
     textures: &TextureSet,
@@ -1175,6 +1336,27 @@ fn render_tile_with_sdf(
         request,
         textures,
         SurfaceField::GlobalSdf(sdf),
+        FieldRenderCaches::default(),
+        variant,
+        origin_x,
+        origin_y,
+    )
+}
+
+fn render_tile_with_sdf_cached(
+    request: &AppRequest,
+    textures: &TextureSet,
+    sdf: &MapSdf,
+    caches: FieldRenderCaches<'_>,
+    variant: u32,
+    origin_x: u32,
+    origin_y: u32,
+) -> TileBuffers {
+    render_tile_with_field(
+        request,
+        textures,
+        SurfaceField::GlobalSdf(sdf),
+        caches,
         variant,
         origin_x,
         origin_y,
@@ -1185,6 +1367,7 @@ fn render_tile_with_field(
     request: &AppRequest,
     textures: &TextureSet,
     field: SurfaceField<'_>,
+    caches: FieldRenderCaches<'_>,
     variant: u32,
     origin_x: u32,
     origin_y: u32,
@@ -1211,7 +1394,9 @@ fn render_tile_with_field(
             .wrapping_add(17_371),
     };
 
-    let global_distance_cache = if let SurfaceField::GlobalSdf(sdf) = field {
+    let local_distance_cache = if caches.global_distance.is_none()
+        && let SurfaceField::GlobalSdf(sdf) = field
+    {
         Some(GlobalSdfDistanceCache::new(
             request,
             sdf,
@@ -1223,6 +1408,7 @@ fn render_tile_with_field(
     } else {
         None
     };
+    let global_distance_cache = caches.global_distance.or(local_distance_cache.as_ref());
 
     for y in 0..size {
         for x in 0..size {
@@ -1230,7 +1416,7 @@ fn render_tile_with_field(
             let sample = sample_surface_for_field(
                 request,
                 field,
-                global_distance_cache.as_ref(),
+                global_distance_cache,
                 geometry_seed,
                 x,
                 y,
@@ -1256,7 +1442,7 @@ fn render_tile_with_field(
         apply_crown_bevel(
             request,
             field,
-            global_distance_cache.as_ref(),
+            global_distance_cache,
             geometry_seed,
             origin_x,
             origin_y,
@@ -1266,7 +1452,7 @@ fn render_tile_with_field(
         apply_organic_height_relief(
             request,
             field,
-            global_distance_cache.as_ref(),
+            global_distance_cache,
             geometry_seed,
             origin_x,
             origin_y,
@@ -1284,8 +1470,9 @@ fn render_tile_with_field(
     } else {
         Vec::new()
     };
-    let global_height_cache = if needs_normal
+    let local_global_height_cache = if needs_normal
         && matches!(request.preview_mode.as_str(), "normal" | "lit")
+        && caches.global_height.is_none()
         && let SurfaceField::GlobalSdf(sdf) = field
     {
         Some(GlobalRenderHeightCache::new(
@@ -1293,7 +1480,7 @@ fn render_tile_with_field(
                 request,
                 sdf,
                 seed: geometry_seed,
-                distance_cache: global_distance_cache.as_ref(),
+                distance_cache: global_distance_cache,
             },
             origin_x,
             origin_y,
@@ -1302,6 +1489,7 @@ fn render_tile_with_field(
     } else {
         None
     };
+    let global_height_cache = caches.global_height.or(local_global_height_cache.as_ref());
 
     let mut albedo = RgbaImage::new(size, size);
     let mut mask = RgbaImage::new(size, size);
@@ -1329,7 +1517,7 @@ fn render_tile_with_field(
             let (facade_x, facade_y) = material_coords_for_zone(
                 request,
                 field,
-                global_distance_cache.as_ref(),
+                global_distance_cache,
                 geometry_seed,
                 zone,
                 world_x,
@@ -1354,7 +1542,7 @@ fn render_tile_with_field(
                     let edge_distance = exposed_edge_distance(
                         request,
                         field,
-                        global_distance_cache.as_ref(),
+                        global_distance_cache,
                         geometry_seed,
                         x as f32,
                         y as f32,
@@ -1453,7 +1641,7 @@ fn render_tile_with_field(
                 let (wall_x, wall_y) = material_coords_for_zone(
                     request,
                     field,
-                    global_distance_cache.as_ref(),
+                    global_distance_cache,
                     geometry_seed,
                     SurfaceZone::Face,
                     world_x,
@@ -1560,7 +1748,7 @@ fn render_tile_with_field(
 
             let encoded = if !needs_normal || zone == SurfaceZone::Empty {
                 [128, 128, 255]
-            } else if let Some(cache) = &global_height_cache {
+            } else if let Some(cache) = global_height_cache {
                 encode_global_normal_from_cache(
                     cache,
                     sample_x as f32,
@@ -1582,7 +1770,7 @@ fn render_tile_with_field(
         request,
         size,
         field,
-        global_distance_cache.as_ref(),
+        global_distance_cache,
         geometry_seed,
         origin_x,
         origin_y,
@@ -2506,11 +2694,36 @@ impl GlobalSdfDistanceCache {
         tile_origin_y: u32,
         tile_size: u32,
     ) -> Self {
+        Self::new_region(
+            request,
+            sdf,
+            seed,
+            tile_origin_x,
+            tile_origin_y,
+            tile_size,
+            tile_size,
+        )
+    }
+
+    fn new_region(
+        request: &AppRequest,
+        sdf: &MapSdf,
+        seed: u32,
+        region_origin_x: u32,
+        region_origin_y: u32,
+        region_width: u32,
+        region_height: u32,
+    ) -> Self {
+        #[cfg(test)]
+        if count_perf_request(request) {
+            GLOBAL_DISTANCE_CACHE_BUILD_COUNT.fetch_add(1, Ordering::Relaxed);
+        }
+
         let padding = global_sdf_distance_cache_padding_px(request);
-        let width = tile_size + padding as u32 * 2 + 2;
-        let height = width;
-        let origin_x = tile_origin_x as i32 - padding;
-        let origin_y = tile_origin_y as i32 - padding;
+        let width = region_width + padding as u32 * 2 + 2;
+        let height = region_height + padding as u32 * 2 + 2;
+        let origin_x = region_origin_x as i32 - padding;
+        let origin_y = region_origin_y as i32 - padding;
         let mut values = vec![0.0_f32; (width * height) as usize];
         values
             .par_iter_mut()
@@ -2598,11 +2811,26 @@ impl GlobalRenderHeightCache {
         tile_origin_y: u32,
         tile_size: u32,
     ) -> Self {
+        Self::new_region(sampler, tile_origin_x, tile_origin_y, tile_size, tile_size)
+    }
+
+    fn new_region(
+        sampler: GlobalSdfSampler<'_>,
+        region_origin_x: u32,
+        region_origin_y: u32,
+        region_width: u32,
+        region_height: u32,
+    ) -> Self {
+        #[cfg(test)]
+        if count_perf_request(sampler.request) {
+            GLOBAL_RENDER_HEIGHT_CACHE_BUILD_COUNT.fetch_add(1, Ordering::Relaxed);
+        }
+
         let padding = 2_i32;
-        let width = tile_size + padding as u32 * 2;
-        let height = width;
-        let origin_x = tile_origin_x as i32 - padding;
-        let origin_y = tile_origin_y as i32 - padding;
+        let width = region_width + padding as u32 * 2;
+        let height = region_height + padding as u32 * 2;
+        let origin_x = region_origin_x as i32 - padding;
+        let origin_y = region_origin_y as i32 - padding;
         let mut values = vec![0.0_f32; (width * height) as usize];
         values
             .par_iter_mut()
@@ -3977,6 +4205,24 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
+
+    fn reset_perf_counters() {
+        MAP_PREVIEW_BUILD_COUNT.store(0, Ordering::Relaxed);
+        GLOBAL_DISTANCE_CACHE_BUILD_COUNT.store(0, Ordering::Relaxed);
+        GLOBAL_RENDER_HEIGHT_CACHE_BUILD_COUNT.store(0, Ordering::Relaxed);
+    }
+
+    fn map_preview_build_count() -> usize {
+        MAP_PREVIEW_BUILD_COUNT.load(Ordering::Relaxed)
+    }
+
+    fn global_distance_cache_build_count() -> usize {
+        GLOBAL_DISTANCE_CACHE_BUILD_COUNT.load(Ordering::Relaxed)
+    }
+
+    fn global_render_height_cache_build_count() -> usize {
+        GLOBAL_RENDER_HEIGHT_CACHE_BUILD_COUNT.load(Ordering::Relaxed)
+    }
 
     fn test_output_dir(name: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -6316,6 +6562,54 @@ mod tests {
         );
         assert!(manifest.files.atlas_mask_png.is_none());
         assert_eq!(manifest.signature_count, 0);
+    }
+
+    #[test]
+    fn map_preview_reuses_global_sdf_caches_across_tiles() {
+        let mut request = default_request();
+        request.asset_name = "perf_counter_preview".to_string();
+        request.tile_size = 32;
+        request.preview_mode = "lit".to_string();
+        request.map = MapData {
+            width: 3,
+            height: 2,
+            cells: vec![1, 1, 0, 0, 1, 1],
+        };
+
+        reset_perf_counters();
+        build_map_preview(&request.sanitized(), &TextureSet::default())
+            .expect("preview should render");
+
+        assert_eq!(
+            global_distance_cache_build_count(),
+            1,
+            "draft preview should build one global distance cache, not one per tile"
+        );
+        assert_eq!(
+            global_render_height_cache_build_count(),
+            1,
+            "lit preview should build one global height cache, not one per tile"
+        );
+    }
+
+    #[test]
+    fn runtime_sdf_contour_export_uses_single_preview_traversal_for_references() {
+        let output_dir = test_output_dir("runtime_sdf_single_preview_traversal");
+        let request = runtime_sdf_fixture_request("perf_counter_runtime", "mountain");
+
+        reset_perf_counters();
+        run_request(RenderMode::Full, request, &output_dir)
+            .expect("runtime SDF contour export should render");
+
+        assert!(
+            map_preview_build_count() <= 1,
+            "runtime reference export should not render the global preview once per reference mode"
+        );
+        assert_eq!(
+            global_distance_cache_build_count(),
+            1,
+            "runtime reference export should share one distance cache across all reference images"
+        );
     }
 }
 

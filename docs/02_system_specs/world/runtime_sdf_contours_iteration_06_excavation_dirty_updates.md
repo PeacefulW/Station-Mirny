@@ -62,26 +62,17 @@ at the dug edge.
 4. Mark the owning chunk contour dirty.
 5. Mark direct seam-neighbor chunks dirty when the changed tile can affect their
    halo.
-6. Enqueue native contour rebuild request assembly for dirty classes and chunks
-   under the streaming budget; the interactive harvest call must not build full
-   contour requests synchronously.
+6. Request native contour rebuilds for dirty classes and chunks.
 7. Block movement through dirty contour regions until the matching collision
    revision is ready.
-8. Swap visual textures and collision fields together by the affected chunk's
-   required revision.
+8. Swap visual textures and collision fields together by revision.
 9. Keep mountain cover/cavity updates synchronized with the contour revision.
-   An already-published chunk may keep its previous visual revision visible
-   while dirty, but movement/collision readiness still fails closed.
 10. Add tests that dig edge, corner, and seam tiles.
 
 ## Revision Contract
 
-`ContourChunkResultV1.diff_revision` must equal the affected chunk's required
-revision at apply time. Older results for that chunk are discarded.
-
-`WorldDiffStore.diff_revision` remains a global monotonic change id, but it does
-not invalidate every loaded chunk. Unaffected chunks keep their existing ready
-revision valid until their own tile data or bounded contour halo changes.
+`ContourChunkResultV1.diff_revision` must equal the current
+`WorldDiffStore.diff_revision` at apply time. Older results are discarded.
 
 `WorldStreamer` stores:
 
@@ -91,7 +82,7 @@ _contour_ready_revision_by_chunk: Dictionary
 ```
 
 A chunk is movement-ready only when required contour classes have ready results
-for that chunk's required contour revision.
+for the current diff revision.
 
 ## Required Tests and Commands
 
@@ -109,16 +100,11 @@ The smoke test must assert:
 - seam-neighbor chunks are marked dirty when the tile is within two tiles of a
   chunk edge
 - stale contour results are discarded
-- an unrelated global diff does not make unaffected chunks stale
 - visual and collision revisions become ready together
 
 ## Smoke Tests
 
-- mining a mountain edge keeps the previous contour visible during dirty
-  refresh and opens the visible contour only when the matching native SDF
-  visual/collision revision is ready
-- no chunk-local shader cutout or other temporary rounded hole appears between
-  the mining action and the native contour swap
+- mining a mountain edge opens the visible contour at that location
 - movement can pass through the new opening after the contour revision is ready
 - movement cannot pass through stale visual/collision mismatch during refresh
 - digging a seam tile refreshes both neighboring chunks

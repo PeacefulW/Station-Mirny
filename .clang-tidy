@@ -1,0 +1,10 @@
+Checks: >
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*,
+  readability-braces-around-statements,
+  readability-implicit-bool-conversion,
+  modernize-use-nullptr
+WarningsAsErrors: ''
+HeaderFilterRegex: 'gdextension/src/.*'
+FormatStyle: file

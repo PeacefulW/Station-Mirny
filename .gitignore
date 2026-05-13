@@ -15,7 +15,14 @@ Thumbs.db
 .vscode/
 *.code-workspace
 Godot_v4.6.1-stable_win64.exe
+Godot_v4.6.2-stable_win64.exe
+Godot_v4.6.2-stable_win64_console.exe
 gdextension/godot-cpp/
+
+# Local agent/tooling downloads
+.tools/
+test-results/gdunit4/
+gdextension/compile_commands.json
 
 # Local secrets
 .env
@@ -29,5 +36,3 @@ gdextension/godot-cpp/
 CLAUDE.local.md
 .claude/settings.local.json
 .claude/agent-memory-local/
-Godot_v4.6.2-stable_win64.exe
-Godot_v4.6.2-stable_win64_console.exe

@@ -1,13 +1,11 @@
-[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=9 format=3]
+[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://data/terrain/terrain_material_set.gd" id="1"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/ground/unnamed_top_albedo.png" id="2"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/ground/unnamed_face_albedo.png" id="3"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/ground/unnamed_top_modulation.png" id="4"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/ground/unnamed_face_modulation.png" id="5"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/ground/unnamed_top_normal.png" id="6"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/ground/unnamed_face_normal.png" id="7"]
-[ext_resource type="Texture2D" path="res://assets/textures/terrain/ground/unnamed_base_albedo.png" id="8"]
+[ext_resource type="Texture2D" path="res://assets/textures/terrain/terrain_plains_albedo.png" id="2"]
+[ext_resource type="Texture2D" path="res://assets/textures/terrain/terrain_plains_face_albedo.png" id="3"]
+[ext_resource type="Texture2D" path="res://assets/textures/terrain/terrain_plains_modulation.png" id="4"]
+[ext_resource type="Texture2D" path="res://assets/textures/terrain/terrain_face_modulation.png" id="5"]
+[ext_resource type="Texture2D" path="res://assets/sprites/terrain/plain_terrain_normal_atlas.png" id="6"]
 
 [resource]
 script = ExtResource("1")
@@ -15,18 +13,15 @@ id = &"base:plains_ground_material"
 shader_family_id = &"terrain.ground_hybrid"
 top_albedo = ExtResource("2")
 face_albedo = ExtResource("3")
-base_albedo = ExtResource("8")
 top_modulation = ExtResource("4")
 face_modulation = ExtResource("5")
 top_normal = ExtResource("6")
-face_normal = ExtResource("7")
+face_normal = ExtResource("6")
 sampling_params = {
-"base_world_scale_px": 512.0,
-"detail_normal_strength": 1.0,
-"edge_color": Color(0.286, 0.22, 0.173, 1),
-"edge_color_strength": 0.35,
-"face_height_px": 10.0,
-"face_power": 2.5,
-"face_world_scale_px": 512.0,
-"top_world_scale_px": 512.0
+"back_rim_darkening": 0.94,
+"face_world_scale_px": 224.0,
+"top_world_scale_px": 384.0,
+"macro_world_scale_px": 896.0,
+"modulation_contrast": 1.08,
+"modulation_strength": 0.12
 }

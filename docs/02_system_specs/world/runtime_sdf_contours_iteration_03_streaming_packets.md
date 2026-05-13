@@ -65,10 +65,7 @@ diff.
    base packet data through the existing `WorldCore.generate_chunk_packets_batch`
    path, then apply runtime diff overrides on top.
 5. Use a fixed halo of `2` tiles for all contour requests in this iteration.
-6. Request worker contour builds only for active result classes required by the
-   current cutover. `water_surface` halo assembly remains available for boundary
-   classification, but it must not be treated as an independent readiness gate
-   until a lake cutover spec promotes it.
+6. Request one native contour build per class per chunk.
 7. Store results by chunk coordinate, class, recipe id, and diff revision.
 8. Mark contour result readiness separately from packet readiness.
 9. Keep chunk movement readiness false until required contour collision data is

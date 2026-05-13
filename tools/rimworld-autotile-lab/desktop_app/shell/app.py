@@ -122,6 +122,33 @@ def max_height_for_tile_size(tile_size: int) -> int:
     return max(0, int(tile_size) // 2)
 
 
+def normalize_map_payload(map_payload: object) -> dict:
+    if not isinstance(map_payload, dict):
+        return make_default_map()
+    try:
+        width = int(map_payload.get("width", 0))
+        height = int(map_payload.get("height", 0))
+    except (TypeError, ValueError):
+        return make_default_map()
+
+    cells = map_payload.get("cells")
+    if (
+        width < MAP_W_RANGE[0]
+        or width > MAP_W_RANGE[1]
+        or height < MAP_H_RANGE[0]
+        or height > MAP_H_RANGE[1]
+        or not isinstance(cells, list)
+        or len(cells) != width * height
+    ):
+        return make_default_map()
+
+    return {
+        "width": width,
+        "height": height,
+        "cells": [1 if cell else 0 for cell in cells],
+    }
+
+
 # ─── Theme ───────────────────────────────────────────────────────────────────
 
 THEME = {
@@ -2535,9 +2562,9 @@ class CliffForgeApp:
 
             map_payload = request.get("map")
             if map_payload:
-                self.current_map = map_payload
-                self.map_w_var.set(map_payload.get("width", self.current_map["width"]))
-                self.map_h_var.set(map_payload.get("height", self.current_map["height"]))
+                self.current_map = normalize_map_payload(map_payload)
+                self.map_w_var.set(self.current_map["width"])
+                self.map_h_var.set(self.current_map["height"])
                 self._draw_map()
             self._sync_geometry_scale_limits()
         finally:

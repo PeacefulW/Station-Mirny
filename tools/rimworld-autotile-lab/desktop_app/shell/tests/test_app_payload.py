@@ -396,6 +396,13 @@ class AppPayloadTests(unittest.TestCase):
 
         self.assertEqual(calls, ["draft"])
 
+    def test_recipe_map_payload_is_bounded_to_supported_editor_size(self):
+        oversized = {"width": 256, "height": 256, "cells": [1] * (256 * 256)}
+
+        normalized = app.normalize_map_payload(oversized)
+
+        self.assertEqual(normalized, presets.make_default_map())
+
 
 if __name__ == "__main__":
     unittest.main()

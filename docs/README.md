@@ -4,11 +4,12 @@ doc_type: docs_index
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.10
-last_updated: 2026-05-12
+version: 1.11
+last_updated: 2026-05-13
 related_docs:
   - 00_governance/WORKFLOW.md
   - 00_governance/ENGINEERING_STANDARDS.md
+  - 00_governance/AGENT_TOOLING.md
   - 02_system_specs/README.md
   - 05_adrs/README.md
 ---
@@ -50,6 +51,7 @@ Templates for future docs.
 ### Governance
 - [Workflow](00_governance/WORKFLOW.md)
 - [Engineering Standards](00_governance/ENGINEERING_STANDARDS.md)
+- [Agent Tooling](00_governance/AGENT_TOOLING.md)
 - [Project Glossary](00_governance/PROJECT_GLOSSARY.md)
 
 ### Product
@@ -121,6 +123,7 @@ Templates for future docs.
 ### "How should we work in this repository?"
 - [Workflow](00_governance/WORKFLOW.md)
 - [Engineering Standards](00_governance/ENGINEERING_STANDARDS.md)
+- [Agent Tooling](00_governance/AGENT_TOOLING.md)
 - [Project Glossary](00_governance/PROJECT_GLOSSARY.md)
 
 ### "How do survival and base systems fit together?"

@@ -344,8 +344,17 @@ impl AppRequest {
             self.colors.base = preset.colors.base.to_string();
         }
 
-        let expected = (self.map.width * self.map.height) as usize;
-        if self.map.width == 0 || self.map.height == 0 || self.map.cells.len() != expected {
+        let expected = self
+            .map
+            .width
+            .checked_mul(self.map.height)
+            .map(|value| value as usize);
+        if self.map.width == 0
+            || self.map.height == 0
+            || self.map.width > MAX_MAP_WIDTH
+            || self.map.height > MAX_MAP_HEIGHT
+            || expected != Some(self.map.cells.len())
+        {
             self.map = default_map();
         } else {
             self.map
@@ -397,6 +406,8 @@ pub struct PresetColors {
 }
 
 const DEFAULT_VARIANT_COUNT: u32 = 6;
+const MAX_MAP_WIDTH: u32 = 32;
+const MAX_MAP_HEIGHT: u32 = 24;
 impl Preset {
     pub fn from_name(name: &str) -> Self {
         match name.trim().to_ascii_lowercase().as_str() {
@@ -1234,6 +1245,22 @@ mod tests {
         assert_eq!(request.geometry_variance, 1.0);
         assert_eq!(request.shape_supersampling, 4);
         assert_eq!(request.normal_detail_strength, 4.0);
+    }
+
+    #[test]
+    fn oversized_recipe_map_falls_back_to_default_map() {
+        let mut request = default_request();
+        request.map = MapData {
+            width: 256,
+            height: 256,
+            cells: vec![1; 256 * 256],
+        };
+
+        let request = request.sanitized();
+
+        assert_eq!(request.map.width, default_map().width);
+        assert_eq!(request.map.height, default_map().height);
+        assert_eq!(request.map.cells, default_map().cells);
     }
 
     #[test]
