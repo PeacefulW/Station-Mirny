@@ -399,6 +399,10 @@ func _run_mining_sequence(streamer: WorldStreamer, player: Node2D) -> Dictionary
 			"call_usec": call_usec,
 			"contour_ready_ms": ready_msec,
 			"dirty_state": streamer.get_contour_dirty_debug_state(chunk_coord),
+			"result_state": streamer.get_contour_result_debug_state(
+				chunk_coord,
+				WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS
+			),
 			"immediate_screenshot": ProjectSettings.globalize_path(immediate_path) if not immediate_path.is_empty() else "",
 			"immediate_image_stats": immediate_stats,
 			"immediate_render_state": immediate_render_state,

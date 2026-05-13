@@ -21,11 +21,12 @@ face_modulation = ExtResource("5")
 top_normal = ExtResource("6")
 face_normal = ExtResource("7")
 sampling_params = {
-"back_rim_darkening": 0.94,
 "base_world_scale_px": 512.0,
-"face_world_scale_px": 224.0,
-"top_world_scale_px": 384.0,
-"macro_world_scale_px": 896.0,
-"modulation_contrast": 1.08,
-"modulation_strength": 0.12
+"detail_normal_strength": 1.0,
+"edge_color": Color(0.286, 0.22, 0.173, 1),
+"edge_color_strength": 0.35,
+"face_height_px": 10.0,
+"face_power": 2.5,
+"face_world_scale_px": 512.0,
+"top_world_scale_px": 512.0
 }

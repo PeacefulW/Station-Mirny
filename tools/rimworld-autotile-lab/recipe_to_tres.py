@@ -130,7 +130,10 @@ def load_context(args: argparse.Namespace) -> BridgeContext:
 
     mode = normalize_mode(args.mode)
     if mode == "auto":
-        mode = normalize_mode(string_field(recipe, request, "export_mode") or "Full47")
+        if recipe.get("schema") == "station_peaceful.runtime_sdf_contour_recipe.v1":
+            mode = "RuntimeSdfContour"
+        else:
+            mode = normalize_mode(string_field(recipe, request, "export_mode") or "Full47")
 
     tile_size_px = int_field(recipe, request, ("tile_size_px", "tile_size"), DEFAULT_TILE_SIZE)
     variant_count = int_field(
@@ -172,6 +175,8 @@ def normalize_mode(mode: str) -> str:
         "basevariants": "BaseVariantsOnly",
         "maskonly": "MaskOnly",
         "mask": "MaskOnly",
+        "runtimesdfcontour": "RuntimeSdfContour",
+        "runtimesdf": "RuntimeSdfContour",
         "decal": "Decals",
         "decals": "Decals",
         "terraindecalatlas": "Decals",
@@ -183,7 +188,7 @@ def normalize_mode(mode: str) -> str:
         return aliases[key]
     except KeyError as exc:
         raise BridgeError(
-            f"unsupported mode '{mode}'. Expected auto, Full47, BaseVariantsOnly, MaskOnly, Decals, or Silhouettes."
+            f"unsupported mode '{mode}'. Expected auto, Full47, BaseVariantsOnly, MaskOnly, RuntimeSdfContour, Decals, or Silhouettes."
         ) from exc
 
 
@@ -200,6 +205,10 @@ def plan_outputs(context: BridgeContext) -> list[BridgeOutput]:
     if context.mode == "MaskOnly":
         return [
             build_shape_set(context, require_shape_normal=False),
+        ]
+    if context.mode == "RuntimeSdfContour":
+        return [
+            build_material_set(context, require_full_material=True, prefer_base_atlas=False),
         ]
     if context.mode == "Decals":
         return [build_decal_atlas(context)]
@@ -321,7 +330,7 @@ def build_material_set(
         if resource_id is not None:
             resource_lines.append(f'{slot} = ExtResource("{resource_id}")')
 
-    sampling_params = dict_field(context.recipe, context.request, "sampling_params")
+    sampling_params = material_sampling_params(context)
     resource_lines.append(f"sampling_params = {format_dictionary(sampling_params)}")
     resource_lines.append("")
 
@@ -375,6 +384,31 @@ def collect_material_textures(
         )
 
     return texture_paths
+
+
+def material_sampling_params(context: BridgeContext) -> dict[str, Any]:
+    sampling_params = dict_field(context.recipe, context.request, "sampling_params")
+    if sampling_params or context.mode != "RuntimeSdfContour":
+        return sampling_params
+
+    geometry = context.recipe.get("geometry")
+    if not isinstance(geometry, dict):
+        geometry = {}
+    materials = context.recipe.get("materials")
+    if not isinstance(materials, dict):
+        materials = {}
+
+    normal_detail_strength = float(materials.get("normal_detail_strength", 4.0) or 0.0)
+    return {
+        "base_world_scale_px": 512.0,
+        "top_world_scale_px": 512.0,
+        "face_world_scale_px": 512.0,
+        "face_height_px": float(geometry.get("south_height_px", 32.0) or 32.0),
+        "face_power": float(geometry.get("face_power", 1.0) or 1.0),
+        "edge_color_strength": float(geometry.get("edge_color_strength", 0.0) or 0.0),
+        "detail_normal_strength": max(0.0, min(1.0, normal_detail_strength / 4.0)),
+        "bottom_outline_strength": 0.95 if bool(geometry.get("outline_enabled", False)) else 0.0,
+    }
 
 
 def build_decal_atlas(context: BridgeContext) -> BridgeOutput:

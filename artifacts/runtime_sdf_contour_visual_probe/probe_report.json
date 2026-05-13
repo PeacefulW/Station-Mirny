@@ -1,30 +1,20 @@
 {
-	"all_desired_contour_ready_ms": 4671,
+	"all_desired_contour_ready_ms": -1,
 	"debug_image_stats": {
-		"cyan_ratio": 0.0505555555555556,
-		"dark_ratio": 0.0,
-		"height": 720,
-		"loaded": true,
-		"non_background_ratio": 1.0,
-		"samples": 14400,
-		"width": 1280
+		"error": "viewport_image_null",
+		"loaded": false
 	},
 	"debug_screenshot": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/runtime_sdf_contour_visual_probe/contour_density60_debug.png",
 	"density_internal": 0.6,
 	"density_ui_percent": 60,
 	"early_image_stats": {
-		"cyan_ratio": 0.0,
-		"dark_ratio": 0.0,
-		"height": 720,
-		"loaded": true,
-		"non_background_ratio": 0.422222222222222,
-		"samples": 14400,
-		"width": 1280
+		"error": "viewport_image_null",
+		"loaded": false
 	},
 	"early_screenshot": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/runtime_sdf_contour_visual_probe/contour_density60_early.png",
-	"early_screenshot_ms": 516,
+	"early_screenshot_ms": 505,
 	"expected_initial_chunks": 9,
-	"first_chunk_loaded_ms": 313,
+	"first_chunk_loaded_ms": 277,
 	"lake_density_internal": 0.0,
 	"loaded_chunk_events": 9,
 	"mining_sequence": {
@@ -32,9 +22,9 @@
 		"last_mined_tile": "(1695, 1279)",
 		"records": [
 			{
-				"call_usec": 2124,
+				"call_usec": 2307,
 				"chunk": "(106, 80)",
-				"contour_ready_ms": 1029,
+				"contour_ready_ms": 3597,
 				"dirty_state": {
 					"chunk_coord": "(106, 80)",
 					"current_diff_revision": 1,
@@ -50,13 +40,8 @@
 					"store_diff_revision": 1
 				},
 				"immediate_image_stats": {
-					"cyan_ratio": 0.0,
-					"dark_ratio": 0.0,
-					"height": 720,
-					"loaded": true,
-					"non_background_ratio": 1.0,
-					"samples": 14400,
-					"width": 1280
+					"error": "viewport_image_null",
+					"loaded": false
 				},
 				"immediate_render_state": {
 					"enabled": true,
@@ -69,7 +54,7 @@
 						"has_tile_size": true
 					},
 					"ground_visual_count": 1,
-					"mask_texture_instance_id": -9223371913273800224,
+					"mask_texture_instance_id": -9223371911629632985,
 					"mountain_bucket_count": 1,
 					"mountain_buckets": [
 						{
@@ -90,17 +75,40 @@
 					"visible": true
 				},
 				"immediate_screenshot": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/runtime_sdf_contour_visual_probe/contour_density60_after_first_dig_immediate.png",
-				"inflight_count": 1,
+				"inflight_count": 0,
 				"message_key": "",
 				"pending_request_count": 0,
+				"result_state": {
+					"chunk_coord": "(106, 80)",
+					"collision_sample_count": 66049,
+					"collision_sample_px": 4,
+					"collision_size": "(257, 257)",
+					"contour_class": "mountain_mass",
+					"current_diff_revision": 1,
+					"diff_revision": 1,
+					"height_byte_count": 524288,
+					"mask_byte_count": 1048576,
+					"normal_byte_count": 1048576,
+					"pixel_size": "(512, 512)",
+					"ready": true,
+					"recipe_id": "unnamed",
+					"required_diff_revision": 1,
+					"worker_timing": {
+						"class_build_usec": 1477338,
+						"packet_map_usec": 122,
+						"queued_wait_usec": 1203513,
+						"render_tile_size_px": 32,
+						"request_chunk": "(106, 80)"
+					}
+				},
 				"step": 0,
 				"success": true,
 				"tile": "(1698, 1280)"
 			},
 			{
-				"call_usec": 3718,
+				"call_usec": 2224,
 				"chunk": "(106, 80)",
-				"contour_ready_ms": 2449,
+				"contour_ready_ms": 2336,
 				"dirty_state": {
 					"chunk_coord": "(106, 80)",
 					"current_diff_revision": 2,
@@ -122,17 +130,40 @@
 
 				},
 				"immediate_screenshot": "",
-				"inflight_count": 0,
+				"inflight_count": 2,
 				"message_key": "",
 				"pending_request_count": 0,
+				"result_state": {
+					"chunk_coord": "(106, 80)",
+					"collision_sample_count": 66049,
+					"collision_sample_px": 4,
+					"collision_size": "(257, 257)",
+					"contour_class": "mountain_mass",
+					"current_diff_revision": 2,
+					"diff_revision": 2,
+					"height_byte_count": 524288,
+					"mask_byte_count": 1048576,
+					"normal_byte_count": 1048576,
+					"pixel_size": "(512, 512)",
+					"ready": true,
+					"recipe_id": "unnamed",
+					"required_diff_revision": 2,
+					"worker_timing": {
+						"class_build_usec": 1410100,
+						"packet_map_usec": 140,
+						"queued_wait_usec": 46,
+						"render_tile_size_px": 32,
+						"request_chunk": "(106, 80)"
+					}
+				},
 				"step": 1,
 				"success": true,
 				"tile": "(1697, 1280)"
 			},
 			{
-				"call_usec": 3680,
+				"call_usec": 2294,
 				"chunk": "(106, 80)",
-				"contour_ready_ms": 2208,
+				"contour_ready_ms": 3261,
 				"dirty_state": {
 					"chunk_coord": "(106, 80)",
 					"current_diff_revision": 3,
@@ -154,17 +185,40 @@
 
 				},
 				"immediate_screenshot": "",
-				"inflight_count": 1,
+				"inflight_count": 4,
 				"message_key": "",
 				"pending_request_count": 0,
+				"result_state": {
+					"chunk_coord": "(106, 80)",
+					"collision_sample_count": 66049,
+					"collision_sample_px": 4,
+					"collision_size": "(257, 257)",
+					"contour_class": "mountain_mass",
+					"current_diff_revision": 3,
+					"diff_revision": 3,
+					"height_byte_count": 524288,
+					"mask_byte_count": 1048576,
+					"normal_byte_count": 1048576,
+					"pixel_size": "(512, 512)",
+					"ready": true,
+					"recipe_id": "unnamed",
+					"required_diff_revision": 3,
+					"worker_timing": {
+						"class_build_usec": 1503551,
+						"packet_map_usec": 109,
+						"queued_wait_usec": 866841,
+						"render_tile_size_px": 32,
+						"request_chunk": "(106, 80)"
+					}
+				},
 				"step": 2,
 				"success": true,
 				"tile": "(1696, 1280)"
 			},
 			{
-				"call_usec": 5583,
+				"call_usec": 2209,
 				"chunk": "(105, 80)",
-				"contour_ready_ms": 1347,
+				"contour_ready_ms": 3758,
 				"dirty_state": {
 					"chunk_coord": "(105, 80)",
 					"current_diff_revision": 4,
@@ -186,17 +240,40 @@
 
 				},
 				"immediate_screenshot": "",
-				"inflight_count": 4,
+				"inflight_count": 5,
 				"message_key": "",
-				"pending_request_count": 0,
+				"pending_request_count": 1,
+				"result_state": {
+					"chunk_coord": "(105, 80)",
+					"collision_sample_count": 66049,
+					"collision_sample_px": 4,
+					"collision_size": "(257, 257)",
+					"contour_class": "mountain_mass",
+					"current_diff_revision": 4,
+					"diff_revision": 4,
+					"height_byte_count": 524288,
+					"mask_byte_count": 1048576,
+					"normal_byte_count": 1048576,
+					"pixel_size": "(512, 512)",
+					"ready": true,
+					"recipe_id": "unnamed",
+					"required_diff_revision": 4,
+					"worker_timing": {
+						"class_build_usec": 1386949,
+						"packet_map_usec": 457,
+						"queued_wait_usec": 1469504,
+						"render_tile_size_px": 32,
+						"request_chunk": "(105, 80)"
+					}
+				},
 				"step": 3,
 				"success": true,
 				"tile": "(1695, 1280)"
 			},
 			{
-				"call_usec": 3120,
+				"call_usec": 3245,
 				"chunk": "(105, 79)",
-				"contour_ready_ms": 1875,
+				"contour_ready_ms": 3490,
 				"dirty_state": {
 					"chunk_coord": "(105, 79)",
 					"current_diff_revision": 5,
@@ -221,6 +298,29 @@
 				"inflight_count": 6,
 				"message_key": "",
 				"pending_request_count": 2,
+				"result_state": {
+					"chunk_coord": "(105, 79)",
+					"collision_sample_count": 66049,
+					"collision_sample_px": 4,
+					"collision_size": "(257, 257)",
+					"contour_class": "mountain_mass",
+					"current_diff_revision": 5,
+					"diff_revision": 5,
+					"height_byte_count": 524288,
+					"mask_byte_count": 1048576,
+					"normal_byte_count": 1048576,
+					"pixel_size": "(512, 512)",
+					"ready": true,
+					"recipe_id": "unnamed",
+					"required_diff_revision": 5,
+					"worker_timing": {
+						"class_build_usec": 1338247,
+						"packet_map_usec": 443,
+						"queued_wait_usec": 1275419,
+						"render_tile_size_px": 32,
+						"request_chunk": "(105, 79)"
+					}
+				},
 				"step": 4,
 				"success": true,
 				"tile": "(1695, 1279)"
@@ -229,13 +329,8 @@
 		"requested_steps": 5
 	},
 	"normal_image_stats": {
-		"cyan_ratio": 0.0,
-		"dark_ratio": 0.0,
-		"height": 720,
-		"loaded": true,
-		"non_background_ratio": 1.0,
-		"samples": 14400,
-		"width": 1280
+		"error": "viewport_image_null",
+		"loaded": false
 	},
 	"normal_screenshot": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/runtime_sdf_contour_visual_probe/contour_density60_normal.png",
 	"probe_note": "Timing starts after new-world spawn resolution, when player is moved next to the density 60 mountain target.",
@@ -280,7 +375,7 @@
 		}
 	},
 	"target_local": "(0, 0)",
-	"target_mountain_contour_ready_ms": 3771,
+	"target_mountain_contour_ready_ms": 6063,
 	"target_mountain_cover_stats": {
 		"mountains": {
 			"-1": {
@@ -297,68 +392,59 @@
 		"ready": true
 	},
 	"target_mountain_mask_stats": {
-		"alpha_avg": 111.1533203125,
-		"alpha_ratio": 0.4541015625,
-		"back_avg": 0.0,
-		"back_ratio": 0.0,
-		"face_avg": 10.0498046875,
-		"face_ratio": 0.0576171875,
-		"ready": true,
-		"samples": 1024,
-		"top_avg": 107.9931640625,
-		"top_ratio": 0.44140625
+		"ready": false
 	},
 	"target_mountain_material_stats": {
 		"mountains": {
 			"-1": {
 				"base_albedo": {
-					"avg_brightness": 0.390845855018896,
-					"height": 512,
+					"avg_brightness": 0.390554162838556,
+					"height": 1024,
 					"ready": true,
 					"resource_path": "res://assets/textures/terrain/mountains/unnamed_base_albedo.png",
-					"width": 512
+					"width": 1024
 				},
 				"face_albedo": {
-					"avg_brightness": 0.274023444680399,
-					"height": 512,
+					"avg_brightness": 0.230360249109558,
+					"height": 1024,
 					"ready": true,
 					"resource_path": "res://assets/textures/terrain/mountains/unnamed_face_albedo.png",
-					"width": 512
+					"width": 1024
 				},
 				"face_modulation": {
-					"avg_brightness": 0.281483620303334,
-					"height": 512,
+					"avg_brightness": 0.235475074587157,
+					"height": 1024,
 					"ready": true,
 					"resource_path": "res://assets/textures/terrain/mountains/unnamed_face_modulation.png",
-					"width": 512
+					"width": 1024
 				},
 				"face_normal": {
-					"avg_brightness": 0.663928471879142,
-					"height": 512,
+					"avg_brightness": 0.663969959786,
+					"height": 1024,
 					"ready": true,
 					"resource_path": "res://assets/textures/terrain/mountains/unnamed_face_normal.png",
-					"width": 512
+					"width": 1024
 				},
 				"top_albedo": {
-					"avg_brightness": 0.478463299126215,
-					"height": 512,
+					"avg_brightness": 0.421713204707588,
+					"height": 1024,
 					"ready": true,
 					"resource_path": "res://assets/textures/terrain/mountains/unnamed_top_albedo.png",
-					"width": 512
+					"width": 1024
 				},
 				"top_modulation": {
-					"avg_brightness": 0.493098970415303,
-					"height": 512,
+					"avg_brightness": 0.437114165819366,
+					"height": 1024,
 					"ready": true,
 					"resource_path": "res://assets/textures/terrain/mountains/unnamed_top_modulation.png",
-					"width": 512
+					"width": 1024
 				},
 				"top_normal": {
-					"avg_brightness": 0.658333343732617,
-					"height": 512,
+					"avg_brightness": 0.663795391460254,
+					"height": 1024,
 					"ready": true,
 					"resource_path": "res://assets/textures/terrain/mountains/unnamed_top_normal.png",
-					"width": 512
+					"width": 1024
 				}
 			}
 		},
@@ -366,18 +452,9 @@
 	},
 	"target_mountain_result": {
 		"chunk_coord": "(106, 80)",
-		"collision_sample_count": 66049,
-		"collision_sample_px": 4,
-		"collision_size": "(257, 257)",
 		"contour_class": "mountain_mass",
 		"current_diff_revision": 5,
-		"diff_revision": 5,
-		"height_byte_count": 524288,
-		"mask_byte_count": 1048576,
-		"normal_byte_count": 1048576,
-		"pixel_size": "(512, 512)",
-		"ready": true,
-		"recipe_id": "mountain",
+		"ready": false,
 		"required_diff_revision": 5
 	},
 	"target_render_state": {
@@ -391,7 +468,7 @@
 			"has_tile_size": true
 		},
 		"ground_visual_count": 1,
-		"mask_texture_instance_id": -9223371896077153779,
+		"mask_texture_instance_id": -9223371885759165848,
 		"mountain_bucket_count": 1,
 		"mountain_buckets": [
 			{
@@ -405,8 +482,8 @@
 				"mountain_id": -1
 			}
 		],
-		"ready": true,
-		"stale": false,
+		"ready": false,
+		"stale": true,
 		"target_tilemap_apply_count": 0,
 		"target_tilemap_cell_count": 0,
 		"visible": true

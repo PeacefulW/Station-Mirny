@@ -334,6 +334,7 @@ func get_contour_result_debug_state(chunk_coord: Vector2i, contour_class: String
 		"height_byte_count": (result.get("height_r16", PackedByteArray()) as PackedByteArray).size(),
 		"normal_byte_count": (result.get("normal_rgba8", PackedByteArray()) as PackedByteArray).size(),
 		"collision_sample_count": (result.get("collision_sdf_f32", PackedFloat32Array()) as PackedFloat32Array).size(),
+		"worker_timing": result.get("worker_timing", {}),
 	}
 
 func get_contour_dirty_debug_state(chunk_coord: Vector2i) -> Dictionary:
@@ -1646,6 +1647,7 @@ func _queue_contour_worker_request(request: Dictionary) -> void:
 	if not _has_contour_worker_threads_running():
 		push_error("Runtime SDF contour worker is not running.")
 		return
+	request["queued_usec"] = Time.get_ticks_usec()
 	var request_key: String = str(request.get("request_key", ""))
 	var request_chunk: Vector2i = _canonicalize_chunk_coord(request.get("chunk_coord", Vector2i.ZERO) as Vector2i)
 	var request_revision: int = int(request.get("diff_revision", -1))
@@ -1803,9 +1805,6 @@ func _collect_contour_dirty_chunks_for_tile(world_tile: Vector2i) -> Array[Vecto
 				continue
 			seen[affected_chunk] = true
 			affected.append(affected_chunk)
-	affected.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return a.x < b.x if a.x != b.x else a.y < b.y
-	)
 	return affected
 
 func _mark_contour_chunk_dirty(chunk_coord: Vector2i, diff_revision: int) -> void:
@@ -1870,7 +1869,11 @@ func _append_completed_contour_results(results: Array[Dictionary]) -> void:
 	_contour_result_mutex.unlock()
 
 func _process_contour_worker_request(worker_world_core: Object, request: Dictionary) -> void:
+	var worker_start_usec: int = Time.get_ticks_usec()
+	var queued_usec: int = int(request.get("queued_usec", worker_start_usec))
+	var packet_start_usec: int = Time.get_ticks_usec()
 	var packet_map: Dictionary = _build_contour_packet_map_for_request(worker_world_core, request)
+	var packet_map_usec: int = Time.get_ticks_usec() - packet_start_usec
 	if packet_map.is_empty():
 		return
 	var contour_classes: Array = request.get("contour_classes", []) as Array
@@ -1879,7 +1882,9 @@ func _process_contour_worker_request(worker_world_core: Object, request: Diction
 		var input: Dictionary = _build_contour_input_from_request(request, packet_map, contour_class)
 		if input.is_empty():
 			continue
+		var build_start_usec: int = Time.get_ticks_usec()
 		var result_variant: Variant = worker_world_core.call("build_contour_chunk", input)
+		var build_usec: int = Time.get_ticks_usec() - build_start_usec
 		if result_variant is not Dictionary:
 			continue
 		var result: Dictionary = (result_variant as Dictionary).duplicate(true)
@@ -1889,6 +1894,13 @@ func _process_contour_worker_request(worker_world_core: Object, request: Diction
 		result["contour_class"] = contour_class
 		result["epoch"] = int(request.get("epoch", -1))
 		result["request_key"] = str(request.get("request_key", ""))
+		result["worker_timing"] = {
+			"queued_wait_usec": maxi(0, worker_start_usec - queued_usec),
+			"packet_map_usec": packet_map_usec,
+			"class_build_usec": build_usec,
+			"render_tile_size_px": WorldRuntimeConstants.CONTOUR_RENDER_TILE_SIZE_PX,
+			"request_chunk": request.get("chunk_coord", Vector2i.ZERO),
+		}
 		_append_completed_contour_results([result])
 
 func _annotate_contour_result_visual_coverage(result: Dictionary) -> void:

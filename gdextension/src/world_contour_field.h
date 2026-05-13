@@ -19,7 +19,7 @@ struct ContourChunkInputV1 {
 	int64_t world_seed = 0;
 	int64_t world_version = 0;
 	int32_t tile_size_px = 64;
-	int32_t render_tile_size_px = 64;
+	int32_t render_tile_size_px = 32;
 	int32_t chunk_size_tiles = 16;
 	int32_t halo_tiles = 1;
 	godot::StringName recipe_id;

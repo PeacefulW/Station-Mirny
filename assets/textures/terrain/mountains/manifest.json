@@ -1,0 +1,28 @@
+{
+  "build_ms": 23002,
+  "export_mode": "Full16",
+  "files": {
+    "atlas_albedo_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\textures\\terrain\\mountains\\unnamed_atlas_albedo.png",
+    "atlas_height_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\textures\\terrain\\mountains\\unnamed_atlas_height.png",
+    "atlas_mask_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\textures\\terrain\\mountains\\unnamed_atlas_mask.png",
+    "atlas_normal_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\textures\\terrain\\mountains\\unnamed_atlas_normal.png",
+    "base_albedo_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\textures\\terrain\\mountains\\unnamed_base_albedo.png",
+    "face_albedo_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\textures\\terrain\\mountains\\unnamed_face_albedo.png",
+    "face_modulation_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\textures\\terrain\\mountains\\unnamed_face_modulation.png",
+    "face_normal_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\textures\\terrain\\mountains\\unnamed_face_normal.png",
+    "preview_png": "",
+    "recipe_json": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\textures\\terrain\\mountains\\unnamed_recipe.json",
+    "runtime_sdf_recipe_json": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\textures\\terrain\\mountains\\unnamed_runtime_sdf_recipe.json",
+    "top_albedo_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\textures\\terrain\\mountains\\unnamed_top_albedo.png",
+    "top_modulation_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\textures\\terrain\\mountains\\unnamed_top_modulation.png",
+    "top_normal_png": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\textures\\terrain\\mountains\\unnamed_top_normal.png"
+  },
+  "mode": "full",
+  "preset": "mountain",
+  "preview_mode": "lit",
+  "signature_count": 16,
+  "tile_size": 128,
+  "total_tiles": 96,
+  "variants": 6,
+  "warnings": []
+}

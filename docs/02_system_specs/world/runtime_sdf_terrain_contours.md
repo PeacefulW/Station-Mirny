@@ -131,8 +131,11 @@ The generator:
 - applies corner smoothing, diagonal smoothing, contour relax, warp, roughness,
   rim, face, and outline controls in the preview path
 - exports material stacks, masks, height, and normal images
-- currently does not export the live global SDF preview as a runtime-ready
-  contour contract
+- exports `RuntimeSdfContour` recipes and reference images for the live global
+  SDF preview path
+- may also emit the active `{asset_name}_runtime_sdf_recipe.json` alongside a
+  `Full16` atlas/material export as a game-ready authoring convenience;
+  `RuntimeSdfContour` remains the full reference-image export path
 
 ## Non-Negotiable Requirements
 
@@ -348,6 +351,13 @@ The recipe is authored by the desktop generator, loaded by Godot as an asset,
 and consumed by native runtime code through explicit fields. Runtime code must
 not parse visual PNG names to infer geometry behavior.
 
+Active ground and mountain recipes must come from exported
+`*_runtime_sdf_recipe.json` assets under the terrain texture folders. Legacy
+`Full47` / `*_recipe.json` files are not valid runtime contour recipes and must
+not be normalized into runtime SDF input for active ground or mountain
+rendering. Generator reference recipes under `tools/` are allowed only for
+tests, debug references, or non-active boundary classes.
+
 ### Native Contour Input
 
 Native contour compute receives a compact chunk request:
@@ -481,6 +491,17 @@ Albedo visual parity is evaluated by screenshot/reference comparison after
 shader integration. Because runtime lighting is dynamic, albedo references must
 be unlit and normal-driven lighting is tested separately.
 
+The active authored runtime exports live under:
+
+```text
+assets/textures/terrain/ground/unnamed_runtime_sdf_recipe.json
+assets/textures/terrain/ground/unnamed_reference_albedo.png
+assets/textures/terrain/ground/unnamed_reference_normal.png
+assets/textures/terrain/mountains/unnamed_runtime_sdf_recipe.json
+assets/textures/terrain/mountains/unnamed_reference_albedo.png
+assets/textures/terrain/mountains/unnamed_reference_normal.png
+```
+
 ### Rendering Model
 
 Runtime contour rendering uses the generator's authored unlit material output as
@@ -496,6 +517,9 @@ Rules:
 - contour shaders may combine authored albedo maps by mask/zone, but must not
   reintroduce baked height tint, alternate hardcoded color grading, or a second
   artistic shading model
+- runtime shaders should stay dumb: mask/height/normal selects and lights the
+  authored material maps; it does not recreate the generator's procedural
+  material stack from scratch
 - lit generator preview is a diagnostic view only; parity targets unlit albedo
   plus normal response
 
@@ -508,9 +532,11 @@ shape is one contour visual resource per class per chunk:
 - material maps from the generator recipe
 - world-space material sampling to avoid visible texture seams
 
-Mountain cover remains a mask-driven concept, but the cover material samples
-the contour mask instead of a 47-case TileMap atlas. If cover data and contour
-data disagree, contour data wins for shape and cover only gates visibility.
+Mountain cover remains a mask-driven concept for cover-specific overlays, but
+the SDF contour alpha is authoritative for terrain silhouette and facade
+visibility. Cover masks may be sampled for diagnostics or cover overlays, but
+must not clip `mountain_mass` contour alpha because facades can legitimately
+extend into adjacent dug/ground cells.
 
 ### Collision Model
 

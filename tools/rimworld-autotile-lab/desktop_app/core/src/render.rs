@@ -18,7 +18,8 @@ use crate::sdf::MapSdf;
 use crate::signature::{Signature, canonical_signatures};
 
 const ATLAS_COLUMNS: u32 = 8;
-const MATERIAL_EXPORT_SIZE: u32 = 512;
+const MATERIAL_EXPORT_SIZE: u32 = 1024;
+const RUNTIME_SDF_GAME_TILE_SIZE: u32 = 64;
 const RECIPE_VERSION: u32 = 7;
 const RUNTIME_SDF_RECIPE_SCHEMA: &str = "station_peaceful.runtime_sdf_contour_recipe.v1";
 const RUNTIME_SDF_CHUNK_SIZE_TILES: u32 = 16;
@@ -325,7 +326,7 @@ pub fn run_request_with_options(
         )
     } else {
         match request.export_mode {
-            ExportMode::Full47 => {
+            ExportMode::Full16 => {
                 let signatures = canonical_signatures();
                 let atlases = build_full_atlases(&request, &textures, &signatures);
                 let material_exports = build_material_exports(&request, &textures);
@@ -336,6 +337,8 @@ pub fn run_request_with_options(
                     export_file_path(output_dir, &request, "atlas_height", "png");
                 let normal_atlas_path =
                     export_file_path(output_dir, &request, "atlas_normal", "png");
+                let runtime_sdf_recipe_path =
+                    export_file_path(output_dir, &request, "runtime_sdf_recipe", "json");
                 let top_albedo_path = export_file_path(output_dir, &request, "top_albedo", "png");
                 let face_albedo_path = export_file_path(output_dir, &request, "face_albedo", "png");
                 let base_albedo_path = export_file_path(output_dir, &request, "base_albedo", "png");
@@ -367,6 +370,7 @@ pub fn run_request_with_options(
                     atlas_mask_png: Some(to_string_path(&mask_atlas_path)),
                     atlas_height_png: Some(to_string_path(&height_atlas_path)),
                     atlas_normal_png: Some(to_string_path(&normal_atlas_path)),
+                    runtime_sdf_recipe_json: Some(to_string_path(&runtime_sdf_recipe_path)),
                     reference_mask_png: None,
                     reference_height_png: None,
                     reference_normal_png: None,
@@ -455,6 +459,7 @@ pub fn run_request_with_options(
                         atlas_mask_png: None,
                         atlas_height_png: None,
                         atlas_normal_png: None,
+                        runtime_sdf_recipe_json: Some(to_string_path(&recipe_path)),
                         reference_mask_png: Some(to_string_path(&reference_mask_path)),
                         reference_height_png: Some(to_string_path(&reference_height_path)),
                         reference_normal_png: Some(to_string_path(&reference_normal_path)),
@@ -478,14 +483,19 @@ pub fn run_request_with_options(
     if !options.transient {
         if mode == RenderMode::Full && matches!(request.export_mode, ExportMode::RuntimeSdfContour)
         {
-            let recipe = build_runtime_sdf_recipe_payload(&request, &files);
-            fs::write(&recipe_path, serde_json::to_vec_pretty(&recipe)?).with_context(|| {
-                format!(
-                    "failed to write runtime SDF recipe: {}",
-                    recipe_path.display()
-                )
-            })?;
+            write_runtime_sdf_recipe(&recipe_path, &request, &files, request.tile_size)?;
         } else {
+            if mode == RenderMode::Full
+                && matches!(request.export_mode, ExportMode::Full16)
+                && let Some(runtime_recipe_path) = files.runtime_sdf_recipe_json.as_deref()
+            {
+                write_runtime_sdf_recipe(
+                    Path::new(runtime_recipe_path),
+                    &request,
+                    &files,
+                    RUNTIME_SDF_GAME_TILE_SIZE,
+                )?;
+            }
             let recipe = RecipePayload {
                 tool: "Cliff Forge Desktop",
                 version: RECIPE_VERSION,
@@ -552,6 +562,22 @@ fn generated_files_with_preview(preview_path: &Path, recipe_path: &Path) -> Gene
     }
 }
 
+fn write_runtime_sdf_recipe(
+    recipe_path: &Path,
+    request: &AppRequest,
+    files: &GeneratedFiles,
+    tile_size_px: u32,
+) -> Result<()> {
+    let recipe = build_runtime_sdf_recipe_payload(request, files, tile_size_px);
+    fs::write(recipe_path, serde_json::to_vec_pretty(&recipe)?).with_context(|| {
+        format!(
+            "failed to write runtime SDF recipe: {}",
+            recipe_path.display()
+        )
+    })?;
+    Ok(())
+}
+
 fn generated_files_without_preview(recipe_path: &Path) -> GeneratedFiles {
     GeneratedFiles {
         preview_png: String::new(),
@@ -560,6 +586,7 @@ fn generated_files_without_preview(recipe_path: &Path) -> GeneratedFiles {
         atlas_mask_png: None,
         atlas_height_png: None,
         atlas_normal_png: None,
+        runtime_sdf_recipe_json: None,
         reference_mask_png: None,
         reference_height_png: None,
         reference_normal_png: None,
@@ -578,7 +605,7 @@ fn generated_files_without_preview(recipe_path: &Path) -> GeneratedFiles {
 fn manifest_signature_count(request: &AppRequest, full_signature_count: usize) -> usize {
     match request.export_mode {
         ExportMode::BaseVariantsOnly => 1,
-        ExportMode::Full47 | ExportMode::MaskOnly => full_signature_count,
+        ExportMode::Full16 | ExportMode::MaskOnly => full_signature_count,
         ExportMode::RuntimeSdfContour => 0,
     }
 }
@@ -590,33 +617,38 @@ fn manifest_total_tiles(request: &AppRequest, full_signature_count: usize) -> us
 fn build_runtime_sdf_recipe_payload(
     request: &AppRequest,
     files: &GeneratedFiles,
+    tile_size_px: u32,
 ) -> RuntimeSdfRecipePayload {
+    let authored_tile_size = request.tile_size.max(1) as f32;
+    let runtime_tile_size = tile_size_px.max(1);
+    let geometry_scale = runtime_tile_size as f32 / authored_tile_size;
+    let scale_px = |value: f32| value * geometry_scale;
     RuntimeSdfRecipePayload {
         schema: RUNTIME_SDF_RECIPE_SCHEMA,
         asset_name: request.asset_name.clone(),
         preset: request.preset.clone(),
-        tile_size_px: request.tile_size,
+        tile_size_px: runtime_tile_size,
         chunk_size_tiles: RUNTIME_SDF_CHUNK_SIZE_TILES,
         solid_class: runtime_sdf_solid_class(request),
         geometry: RuntimeSdfRecipeGeometry {
-            south_height_px: request.south_height as f32,
-            north_height_px: request.north_height as f32,
-            side_height_px: request.side_height as f32,
+            south_height_px: scale_px(request.south_height as f32),
+            north_height_px: scale_px(request.north_height as f32),
+            side_height_px: scale_px(request.side_height as f32),
             roughness_px: request.roughness,
-            edge_width_px: preview_edge_width_px(request),
+            edge_width_px: scale_px(preview_edge_width_px(request)),
             face_power: request.face_power,
             back_drop: request.back_drop,
             crown_bevel_px: request.crown_bevel as f32,
-            outer_corner_radius_px: request.outer_corner_radius as f32,
-            inner_corner_radius_px: request.inner_corner_radius as f32,
-            corner_round_px: request.corner_round_px as f32,
-            diagonal_smooth_px: request.diagonal_smooth_px as f32,
+            outer_corner_radius_px: scale_px(request.outer_corner_radius as f32),
+            inner_corner_radius_px: scale_px(request.inner_corner_radius as f32),
+            corner_round_px: scale_px(request.corner_round_px as f32),
+            diagonal_smooth_px: scale_px(request.diagonal_smooth_px as f32),
             contour_relax: request.contour_relax,
-            contour_warp_px: request.contour_warp_px,
+            contour_warp_px: scale_px(request.contour_warp_px),
             corner_variation: request.corner_variation,
-            rim_width_px: request.rim_width as f32,
+            rim_width_px: scale_px(request.rim_width as f32),
             outline_enabled: request.mountain_outline_enabled,
-            outline_width_px: request.mountain_outline_width as f32,
+            outline_width_px: scale_px(request.mountain_outline_width as f32),
             edge_debris: request.edge_debris,
             edge_color_strength: request.edge_color_strength,
             geometry_variance: request.geometry_variance,
@@ -875,21 +907,9 @@ fn render_mask_tile(
         for x in 0..size {
             let sample =
                 sample_surface_pixel(request, signature, geometry_seed, x, y, origin_x, origin_y);
-            let top_mask = if matches!(sample.zone, SurfaceZone::Top | SurfaceZone::Edge) {
-                255
-            } else {
-                0
-            };
-            let face_mask = if matches!(sample.zone, SurfaceZone::Face | SurfaceZone::Edge) {
-                255
-            } else {
-                0
-            };
-            let back_mask = if sample.zone == SurfaceZone::Back {
-                255
-            } else {
-                0
-            };
+            let top_mask = coverage_byte(sample.top_coverage);
+            let face_mask = coverage_byte(sample.face_coverage);
+            let back_mask = coverage_byte(sample.back_coverage);
             let occupancy = (sample.occupancy.clamp(0.0, 1.0) * 255.0).round() as u8;
             mask.put_pixel(x, y, Rgba([top_mask, face_mask, back_mask, occupancy]));
         }
@@ -1426,8 +1446,7 @@ fn render_tile_with_field(
                 ),
             };
 
-            let shaded = if matches!(field, SurfaceField::GlobalSdf(_))
-                && zone != SurfaceZone::Edge
+            let shaded = if zone != SurfaceZone::Edge
                 && top_coverages[index] > 0.0
                 && (face_coverages[index] > 0.0 || back_coverages[index] > 0.0)
             {
@@ -1522,28 +1541,9 @@ fn render_tile_with_field(
             };
             albedo.put_pixel(x, y, rgba(visible, 255));
 
-            let use_coverage_mask = matches!(field, SurfaceField::GlobalSdf(_));
-            let top_mask = if use_coverage_mask {
-                coverage_byte(top_coverages[index])
-            } else if matches!(zone, SurfaceZone::Top | SurfaceZone::Edge) {
-                255
-            } else {
-                0
-            };
-            let face_mask = if use_coverage_mask {
-                coverage_byte(face_coverages[index])
-            } else if matches!(zone, SurfaceZone::Face | SurfaceZone::Edge) {
-                255
-            } else {
-                0
-            };
-            let back_mask = if use_coverage_mask {
-                coverage_byte(back_coverages[index])
-            } else if zone == SurfaceZone::Back {
-                255
-            } else {
-                0
-            };
+            let top_mask = coverage_byte(top_coverages[index]);
+            let face_mask = coverage_byte(face_coverages[index]);
+            let back_mask = coverage_byte(back_coverages[index]);
             let occupancy_alpha = (occupancy * 255.0).round() as u8;
             mask.put_pixel(
                 x,
@@ -4212,6 +4212,55 @@ mod tests {
         count
     }
 
+    fn partial_coverage_channel_pixels(mask: &RgbaImage) -> usize {
+        let mut count = 0_usize;
+        for pixel in mask.pixels() {
+            let [top, face, back, _alpha] = pixel.0;
+            if [top, face, back]
+                .iter()
+                .any(|channel| *channel > 0 && *channel < 255)
+            {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    fn hard_zone_color_on_partial_channel_pixels(tile: &TileBuffers) -> usize {
+        let mut count = 0_usize;
+        for y in 0..tile.mask.height() {
+            for x in 0..tile.mask.width() {
+                let mask = tile.mask.get_pixel(x, y).0;
+                if ![mask[0], mask[1], mask[2]]
+                    .iter()
+                    .any(|channel| *channel > 0 && *channel < 255)
+                {
+                    continue;
+                }
+                let color = tile.albedo.get_pixel(x, y).0;
+                let rgb = [color[0], color[1], color[2]];
+                if rgb == [255, 255, 255] || rgb == [0, 0, 0] || rgb == [255, 0, 0] {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    fn outline_pixels_claimed_by_mask(plain: &RgbaImage, outlined: &RgbaImage) -> usize {
+        let mut count = 0_usize;
+        for y in 0..plain.height() {
+            for x in 0..plain.width() {
+                let before = plain.get_pixel(x, y).0;
+                let after = outlined.get_pixel(x, y).0;
+                if before[3] == 0 && after[1] > 0 && after[3] > 0 {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
     #[test]
     fn texture_scale_above_one_zooms_texture_without_box_blur() {
         let texture = LoadedTexture {
@@ -4226,6 +4275,97 @@ mod tests {
             sample.rgb[0]
         );
         assert!(sample.is_image_source);
+    }
+
+    #[test]
+    fn material_exports_are_authored_at_1k_resolution() {
+        let request = default_request().sanitized();
+        let exports = build_material_exports(&request, &TextureSet::default());
+
+        assert_eq!(exports.top_albedo.dimensions(), (1024, 1024));
+        assert_eq!(exports.face_albedo.dimensions(), (1024, 1024));
+        assert_eq!(exports.base_albedo.dimensions(), (1024, 1024));
+        assert_eq!(exports.top_modulation.dimensions(), (1024, 1024));
+        assert_eq!(exports.face_modulation.dimensions(), (1024, 1024));
+        assert_eq!(exports.top_normal.dimensions(), (1024, 1024));
+        assert_eq!(exports.face_normal.dimensions(), (1024, 1024));
+    }
+
+    #[test]
+    fn full16_default_export_writes_1k_shape_atlases() {
+        let output_dir = test_output_dir("full16_default_1k_shape_atlas");
+        let mut request = default_request().sanitized();
+        request.asset_name = "quality_probe".to_string();
+
+        let manifest = run_request(RenderMode::Full, request, &output_dir)
+            .expect("full16 export should render");
+
+        assert_eq!(manifest.export_mode, "Full16");
+        assert_eq!(manifest.signature_count, 16);
+        assert_eq!(manifest.total_tiles, 16 * 6);
+        for path in [
+            manifest.files.atlas_albedo_png.as_deref().unwrap(),
+            manifest.files.atlas_mask_png.as_deref().unwrap(),
+            manifest.files.atlas_height_png.as_deref().unwrap(),
+            manifest.files.atlas_normal_png.as_deref().unwrap(),
+        ] {
+            let image = image::open(path)
+                .expect("shape atlas should be readable")
+                .to_rgba8();
+            assert_eq!(image.dimensions(), (1024, 1536));
+        }
+    }
+
+    #[test]
+    fn full16_export_writes_game_ready_runtime_sdf_files() {
+        let output_dir = test_output_dir("full16_game_ready_runtime_sdf_files");
+        let mut request = default_request().sanitized();
+        request.asset_name = "unnamed".to_string();
+
+        run_request(RenderMode::Full, request, &output_dir)
+            .expect("full16 export should render game-ready files");
+
+        for name in ["unnamed_runtime_sdf_recipe.json"] {
+            assert!(
+                output_dir.join(name).exists(),
+                "Full16 export should include game-ready runtime SDF recipe {name}"
+            );
+        }
+
+        let recipe_text =
+            test_fs::read_to_string(output_dir.join("unnamed_runtime_sdf_recipe.json"))
+                .expect("runtime SDF recipe should be readable");
+        let recipe: serde_json::Value =
+            serde_json::from_str(&recipe_text).expect("runtime SDF recipe should be valid JSON");
+        assert_eq!(
+            recipe["schema"],
+            serde_json::Value::String(RUNTIME_SDF_RECIPE_SCHEMA.to_string())
+        );
+        assert_eq!(
+            recipe["asset_name"],
+            serde_json::Value::String("unnamed".to_string())
+        );
+        assert_eq!(recipe["tile_size_px"], serde_json::Value::from(64));
+        assert_eq!(
+            recipe["geometry"]["south_height_px"],
+            serde_json::Value::from(32.0)
+        );
+        assert_eq!(
+            recipe["geometry"]["outer_corner_radius_px"],
+            serde_json::Value::from(20.0)
+        );
+        assert_eq!(
+            recipe["geometry"]["rim_width_px"],
+            serde_json::Value::from(8.0)
+        );
+        assert_eq!(
+            recipe["geometry"]["outline_width_px"],
+            serde_json::Value::from(3.0)
+        );
+        assert_eq!(
+            recipe["materials"]["top_albedo"],
+            serde_json::Value::String("unnamed_top_albedo.png".to_string())
+        );
     }
 
     #[test]
@@ -4329,10 +4469,14 @@ mod tests {
         request.north_height = 8;
         request.roughness = 0.0;
         request.contour_warp_px = 0.0;
+        request.outer_corner_radius = 0;
+        request.inner_corner_radius = 0;
         request.corner_round_px = 0;
         request.diagonal_smooth_px = 0;
         request.corner_variation = 0.0;
+        request.geometry_variance = 0.0;
         request.rim_width = 0;
+        request.mountain_outline_enabled = false;
         request.edge_debris = 0.0;
         let request = request.sanitized();
         let map = MapData {
@@ -4652,6 +4796,70 @@ mod tests {
             partial_mask_pixels_with_unblended_albedo(&tile),
             0,
             "partial-coverage pixels should be blended against base instead of keeping a hard zone color"
+        );
+    }
+
+    #[test]
+    fn local_atlas_mask_preserves_supersampled_channel_coverage() {
+        let mut request = flat_preview_request();
+        request.tile_size = 64;
+        request.shape_supersampling = 4;
+        request.bake_height_shading = false;
+        request.mountain_outline_enabled = false;
+        let request = request.sanitized();
+        let signature = Signature::from_marching_mask(0b0001);
+
+        let tile = render_tile(&request, &TextureSet::default(), &signature, 0, 0, 0);
+
+        assert!(
+            partial_coverage_channel_pixels(&tile.mask) > 0,
+            "local atlas masks must keep supersampled RGB channel coverage instead of quantizing contour edges to 0/255"
+        );
+        assert_eq!(
+            hard_zone_color_on_partial_channel_pixels(&tile),
+            0,
+            "local atlas albedo must blend supersampled zone coverage instead of leaving hard top/face/base colors on partial pixels"
+        );
+    }
+
+    #[test]
+    fn mask_only_atlas_preserves_supersampled_channel_coverage() {
+        let mut request = flat_preview_request();
+        request.tile_size = 64;
+        request.shape_supersampling = 4;
+        request.mountain_outline_enabled = false;
+        let request = request.sanitized();
+        let signatures = canonical_signatures();
+
+        let mask = build_mask_atlas(&request, &signatures);
+
+        assert!(
+            partial_coverage_channel_pixels(&mask) > 0,
+            "mask-only atlas export should preserve partial RGB coverage for antialiased contour masks"
+        );
+    }
+
+    #[test]
+    fn full_atlas_mask_claims_mountain_outline_coverage() {
+        let mut plain = flat_preview_request();
+        plain.tile_size = 64;
+        plain.variants = 1;
+        plain.shape_supersampling = 4;
+        plain.mountain_outline_enabled = false;
+        plain.mountain_outline_width = 3;
+        let plain = plain.sanitized();
+
+        let mut outlined = plain.clone();
+        outlined.mountain_outline_enabled = true;
+        let outlined = outlined.sanitized();
+        let signatures = canonical_signatures();
+
+        let plain_atlas = build_full_atlases(&plain, &TextureSet::default(), &signatures);
+        let outlined_atlas = build_full_atlases(&outlined, &TextureSet::default(), &signatures);
+
+        assert!(
+            outline_pixels_claimed_by_mask(&plain_atlas.mask, &outlined_atlas.mask) > 0,
+            "atlas mask needs face/alpha coverage on generated bottom-outline pixels so the outline survives export"
         );
     }
 
@@ -5711,12 +5919,7 @@ mod tests {
 
     #[test]
     fn outer_corner_radius_rounds_exposed_face_corner() {
-        let mut request = default_request();
-        request.tile_size = 64;
-        request.south_height = 16;
-        request.north_height = 8;
-        request.side_height = 16;
-        request.roughness = 0.0;
+        let mut request = flat_preview_request();
         request.outer_corner_radius = 12;
         let request = request.sanitized();
         let signature = Signature::create(true, false, false, false, false, false, true, true);
@@ -5733,12 +5936,7 @@ mod tests {
 
     #[test]
     fn outer_corner_radius_clips_square_face_silhouette() {
-        let mut request = default_request();
-        request.tile_size = 64;
-        request.south_height = 16;
-        request.north_height = 8;
-        request.side_height = 16;
-        request.roughness = 0.0;
+        let mut request = flat_preview_request();
         request.outer_corner_radius = 12;
         let request = request.sanitized();
         let signature = Signature::create(true, false, false, false, false, false, true, true);
@@ -5753,12 +5951,7 @@ mod tests {
 
     #[test]
     fn shape_supersampling_antialiases_curved_mask_edge() {
-        let mut request = default_request();
-        request.tile_size = 64;
-        request.south_height = 16;
-        request.north_height = 8;
-        request.side_height = 16;
-        request.roughness = 0.0;
+        let mut request = flat_preview_request();
         request.outer_corner_radius = 12;
         request.shape_supersampling = 4;
         let request = request.sanitized();

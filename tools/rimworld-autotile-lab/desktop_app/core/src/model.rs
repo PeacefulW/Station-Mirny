@@ -72,7 +72,8 @@ pub struct AppRequest {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum ExportMode {
-    Full47,
+    #[serde(rename = "Full16", alias = "Full47")]
+    Full16,
     BaseVariantsOnly,
     MaskOnly,
     RuntimeSdfContour,
@@ -80,14 +81,14 @@ pub enum ExportMode {
 
 impl Default for ExportMode {
     fn default() -> Self {
-        Self::Full47
+        Self::Full16
     }
 }
 
 impl ExportMode {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Full47 => "Full47",
+            Self::Full16 => "Full16",
             Self::BaseVariantsOnly => "BaseVariantsOnly",
             Self::MaskOnly => "MaskOnly",
             Self::RuntimeSdfContour => "RuntimeSdfContour",
@@ -227,6 +228,8 @@ pub struct GeneratedFiles {
     pub atlas_mask_png: Option<String>,
     pub atlas_height_png: Option<String>,
     pub atlas_normal_png: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_sdf_recipe_json: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference_mask_png: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -406,23 +409,23 @@ impl Preset {
     pub fn mountain() -> Self {
         Self {
             name: "mountain",
-            south_height: 32,
+            south_height: 64,
             north_height: 0,
             side_height: 0,
             roughness: 10.0,
             face_power: 2.5,
             back_drop: 0.8,
             crown_bevel: 10,
-            outer_corner_radius: 20,
-            inner_corner_radius: 20,
-            corner_round_px: 16,
-            diagonal_smooth_px: 32,
+            outer_corner_radius: 40,
+            inner_corner_radius: 40,
+            corner_round_px: 32,
+            diagonal_smooth_px: 64,
             contour_relax: 1.0,
-            contour_warp_px: 0.75,
+            contour_warp_px: 1.5,
             corner_variation: 0.55,
-            rim_width: 8,
+            rim_width: 16,
             mountain_outline_enabled: true,
-            mountain_outline_width: 3,
+            mountain_outline_width: 6,
             edge_debris: 0.8,
             edge_color_strength: default_edge_color_strength(),
             geometry_variance: 0.75,
@@ -442,23 +445,23 @@ impl Preset {
     pub fn wall() -> Self {
         Self {
             name: "wall",
-            south_height: 10,
-            north_height: 6,
-            side_height: 8,
+            south_height: 20,
+            north_height: 12,
+            side_height: 16,
             roughness: 14.0,
             face_power: 1.34,
             back_drop: 0.24,
             crown_bevel: 1,
-            outer_corner_radius: 6,
-            inner_corner_radius: 4,
-            corner_round_px: 8,
-            diagonal_smooth_px: 3,
+            outer_corner_radius: 12,
+            inner_corner_radius: 8,
+            corner_round_px: 16,
+            diagonal_smooth_px: 6,
             contour_relax: 0.35,
-            contour_warp_px: 1.25,
+            contour_warp_px: 2.5,
             corner_variation: 0.16,
-            rim_width: 4,
+            rim_width: 8,
             mountain_outline_enabled: false,
-            mountain_outline_width: 2,
+            mountain_outline_width: 4,
             edge_debris: 0.25,
             edge_color_strength: default_edge_color_strength(),
             geometry_variance: 0.15,
@@ -478,23 +481,23 @@ impl Preset {
     pub fn earth() -> Self {
         Self {
             name: "earth",
-            south_height: 8,
-            north_height: 5,
-            side_height: 7,
+            south_height: 16,
+            north_height: 10,
+            side_height: 14,
             roughness: 26.0,
             face_power: 0.82,
             back_drop: 0.28,
             crown_bevel: 2,
-            outer_corner_radius: 8,
-            inner_corner_radius: 6,
-            corner_round_px: 10,
-            diagonal_smooth_px: 4,
+            outer_corner_radius: 16,
+            inner_corner_radius: 12,
+            corner_round_px: 20,
+            diagonal_smooth_px: 8,
             contour_relax: 0.55,
-            contour_warp_px: 1.5,
+            contour_warp_px: 3.0,
             corner_variation: 0.25,
-            rim_width: 5,
+            rim_width: 10,
             mountain_outline_enabled: false,
-            mountain_outline_width: 2,
+            mountain_outline_width: 4,
             edge_debris: 0.45,
             edge_color_strength: default_edge_color_strength(),
             geometry_variance: 0.3,
@@ -517,9 +520,9 @@ pub fn default_request() -> AppRequest {
 
     AppRequest {
         asset_name: default_asset_name(),
-        export_mode: ExportMode::Full47,
+        export_mode: ExportMode::Full16,
         preset: preset.name.to_string(),
-        tile_size: 64,
+        tile_size: 128,
         south_height: preset.south_height,
         north_height: preset.north_height,
         side_height: preset.side_height,
@@ -1107,10 +1110,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_request_uses_full47_export_mode() {
+    fn default_request_uses_full16_export_mode() {
         let request = default_request().sanitized();
 
-        assert_eq!(request.export_mode, ExportMode::Full47);
+        assert_eq!(request.export_mode.as_str(), "Full16");
+    }
+
+    #[test]
+    fn legacy_full47_recipe_deserializes_as_full16() {
+        let mut payload = serde_json::to_value(default_request()).unwrap();
+        payload["export_mode"] = serde_json::Value::String("Full47".to_string());
+
+        let request: AppRequest = serde_json::from_value(payload).unwrap();
+
+        assert_eq!(request.sanitized().export_mode.as_str(), "Full16");
     }
 
     #[test]
@@ -1148,15 +1161,17 @@ mod tests {
     fn default_request_uses_self_contained_mountain_materials() {
         let request = default_request().sanitized();
 
-        assert_eq!(request.south_height, 32);
+        assert_eq!(request.tile_size, 128);
+        assert_eq!(request.south_height, 64);
         assert_eq!(request.side_height, 0);
         assert_eq!(request.north_height, 0);
         assert_eq!(request.roughness, 10.0);
         assert_eq!(request.face_power, 2.5);
         assert_eq!(request.crown_bevel, 10);
-        assert_eq!(request.contour_warp_px, 0.75);
+        assert_eq!(request.contour_warp_px, 1.5);
         assert_eq!(request.corner_variation, 0.55);
-        assert_eq!(request.rim_width, 8);
+        assert_eq!(request.rim_width, 16);
+        assert_eq!(request.mountain_outline_width, 6);
         assert_eq!(request.edge_debris, 0.8);
         assert_eq!(request.geometry_variance, 0.75);
         assert_eq!(request.preview_mode, "lit");
@@ -1186,7 +1201,7 @@ mod tests {
         let request = serde_json::to_value(default_request().sanitized()).unwrap();
 
         assert_eq!(request["mountain_outline_enabled"], true);
-        assert_eq!(request["mountain_outline_width"], 3);
+        assert_eq!(request["mountain_outline_width"], 6);
     }
 
     #[test]
@@ -1210,10 +1225,10 @@ mod tests {
         assert_eq!(request.contour_relax, 1.0);
         assert_eq!(request.contour_warp_px, 16.0);
         assert_eq!(request.corner_variation, 0.0);
-        assert_eq!(request.corner_round_px, 32);
-        assert_eq!(request.diagonal_smooth_px, 32);
-        assert_eq!(request.rim_width, 16);
-        assert_eq!(request.mountain_outline_width, 8);
+        assert_eq!(request.corner_round_px, 64);
+        assert_eq!(request.diagonal_smooth_px, 64);
+        assert_eq!(request.rim_width, 32);
+        assert_eq!(request.mountain_outline_width, 16);
         assert_eq!(request.edge_debris, 1.0);
         assert_eq!(request.edge_color_strength, 1.0);
         assert_eq!(request.geometry_variance, 1.0);

@@ -329,6 +329,9 @@ Current code notes:
 - Active ground and mountain contour classes must be produced by
   `WorldCore.build_contour_chunk(input)`; script-side constant contour results
   and immediate visual placeholders are not safe runtime entrypoints.
+- Active ground and mountain contour recipes must already be
+  `RuntimeSdfContour` recipes. The public runtime path does not accept legacy
+  `Full47` recipe normalization as a compatibility fallback.
 
 Not documented here as safe entrypoints:
 - direct calls to `world_prepass::*` helpers from script, because they are native

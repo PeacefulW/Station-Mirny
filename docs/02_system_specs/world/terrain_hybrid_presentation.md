@@ -272,6 +272,11 @@ Notes:
   ground color in a runtime shader.
 - `sampling_params` may contain values such as UV scale, modulation strength,
   contrast, tint opacity, or material-specific shader tuning.
+- For runtime SDF contour materials, `sampling_params` carries only the values
+  needed to sample exported unlit material maps consistently, such as material
+  UV scale, facade height, face power, edge tint strength, and normal detail
+  strength. It must not become a second procedural material authoring language
+  inside Godot.
 - Missing required maps should fail validation; they should not silently
   degrade on runtime hot paths.
 

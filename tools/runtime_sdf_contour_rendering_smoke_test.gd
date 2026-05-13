@@ -197,7 +197,8 @@ func _assert_halo_only_mountain_facade_visual() -> void:
 func _assert_shader_has_alpha_only_mask_fallback(path: String, label: String) -> void:
 	var shader_source: String = FileAccess.get_file_as_string(path)
 	_assert(
-		shader_source.contains("alpha_coverage_fallback"),
+		shader_source.contains("coverage_sum < 0.001")
+			and (shader_source.contains("top_mask = alpha") or shader_source.contains("top_mask = shape_mask.a")),
 		"%s contour shader must turn alpha-only occupancy masks into visible material coverage." % label
 	)
 
@@ -216,8 +217,9 @@ func _assert_mountain_shader_uses_cover_mask() -> void:
 		shader_source.contains("texture(cover_mask")
 			and shader_source.contains("local_pos_px")
 			and shader_source.contains("mask_uv")
-			and shader_source.contains("shape_mask.a * cover"),
-		"Mountain contour shader must sample cover_mask so runtime mountain coverage matches the preview mask instead of drawing stale face pixels."
+			and shader_source.contains("float alpha = clamp(shape_mask.a")
+			and not shader_source.contains("shape_mask.a * cover"),
+		"Mountain contour shader may read cover_mask for tile alignment debug, but SDF contour alpha must not be clipped by cover_mask because the facade can extend into adjacent dug cells."
 	)
 
 func _assert_mountain_shader_darkens_bottom_contact() -> void:

@@ -802,7 +802,46 @@ SurfaceSample surface_sample(float p_height, SurfaceZone p_zone, float p_occupan
 	return sample;
 }
 
-SurfaceSample sample_surface(
+int32_t zone_index(SurfaceZone p_zone) {
+	switch (p_zone) {
+		case SurfaceZone::Top:
+			return 0;
+		case SurfaceZone::Edge:
+			return 1;
+		case SurfaceZone::Face:
+			return 2;
+		case SurfaceZone::Back:
+			return 3;
+		case SurfaceZone::Empty:
+		default:
+			return 4;
+	}
+}
+
+SurfaceZone dominant_occupied_zone(const int32_t p_counts[5]) {
+	int32_t best_index = 0;
+	int32_t best_count = p_counts[0];
+	for (int32_t index = 1; index < 4; ++index) {
+		if (p_counts[index] > best_count) {
+			best_index = index;
+			best_count = p_counts[index];
+		}
+	}
+	switch (best_index) {
+		case 0:
+			return SurfaceZone::Top;
+		case 1:
+			return SurfaceZone::Edge;
+		case 2:
+			return SurfaceZone::Face;
+		case 3:
+			return SurfaceZone::Back;
+		default:
+			return SurfaceZone::Empty;
+	}
+}
+
+SurfaceSample sample_surface_at_world(
 	const ContourChunkInputV1 &p_input,
 	const TileSdf &p_sdf,
 	float p_world_x,
@@ -810,7 +849,6 @@ SurfaceSample sample_surface(
 ) {
 	const world_contour_recipe::ContourRecipeV1 &recipe = p_input.recipe;
 	const float signed_distance = controlled_sdf_distance_px(p_input, p_sdf, p_world_x, p_world_y) - recipe.collision_threshold_px;
-	const float occupancy = smoothstep((signed_distance + 4.0f) / 8.0f);
 
 	if (signed_distance < 0.0f) {
 		const float max_projection = std::max(recipe.south_height_px, std::max(recipe.north_height_px, recipe.side_height_px));
@@ -823,8 +861,7 @@ SurfaceSample sample_surface(
 			const float height = projected.zone == SurfaceZone::Back ?
 					back_height_for_progress(recipe, progress) :
 					face_height_for_progress(recipe, progress);
-			const float facade_alpha = smoothstep((projected.max_depth - projected.depth + 1.0f) / 2.0f);
-			return surface_sample(height, projected.zone, std::max(occupancy, facade_alpha));
+			return surface_sample(height, projected.zone, 1.0f);
 		}
 		const float tile_size = static_cast<float>(std::max(1, p_input.tile_size_px));
 		const float cell_x = static_cast<float>(p_input.halo_tiles) + (p_world_x - tile_size * 0.5f) / tile_size;
@@ -843,7 +880,7 @@ SurfaceSample sample_surface(
 			const float corner_distance = std::sqrt((fx - 0.5f) * (fx - 0.5f) + (fy - 0.5f) * (fy - 0.5f));
 			corner_alpha = smoothstep((0.18f - corner_distance) / 0.18f) * 0.35f;
 		}
-		const float fallback_coverage = std::max(occupancy, corner_alpha);
+		const float fallback_coverage = corner_alpha;
 		if (fallback_coverage > 0.0f) {
 			return surface_sample(0.0f, SurfaceZone::Edge, fallback_coverage);
 		}
@@ -863,7 +900,88 @@ SurfaceSample sample_surface(
 		const float t = clamp_value(signed_distance / std::max(1.0f, recipe.crown_bevel_px), 0.0f, 1.0f);
 		height = std::min(height, lerp(0.86f, 1.0f, t));
 	}
-	return surface_sample(height, zone, occupancy);
+	return surface_sample(height, zone, 1.0f);
+}
+
+int32_t surface_sample_count_for_pixel(
+	const ContourChunkInputV1 &p_input,
+	const TileSdf &p_sdf,
+	float p_center_x,
+	float p_center_y,
+	float p_pixel_size_px
+) {
+	const int32_t samples = std::max(1, std::min(2, p_input.recipe.shape_supersampling));
+	if (samples <= 1) {
+		return 1;
+	}
+
+	const float signed_distance = controlled_sdf_distance_px(p_input, p_sdf, p_center_x, p_center_y) - p_input.recipe.collision_threshold_px;
+	const float aa_width = std::max(1.35f, p_pixel_size_px * 0.75f);
+	if (std::abs(signed_distance) <= aa_width) {
+		return samples;
+	}
+
+	const float max_projection = std::max(
+		std::max(p_input.recipe.south_height_px, p_input.recipe.north_height_px),
+		std::max(p_input.recipe.side_height_px, p_input.recipe.rim_width_px)
+	);
+	if (max_projection > 0.0f && std::abs(signed_distance + max_projection) <= aa_width) {
+		return samples;
+	}
+	return 1;
+}
+
+SurfaceSample sample_surface_pixel(
+	const ContourChunkInputV1 &p_input,
+	const TileSdf &p_sdf,
+	float p_pixel_origin_x,
+	float p_pixel_origin_y,
+	float p_pixel_size_px
+) {
+	const float center_x = p_pixel_origin_x + p_pixel_size_px * 0.5f;
+	const float center_y = p_pixel_origin_y + p_pixel_size_px * 0.5f;
+	const int32_t samples = surface_sample_count_for_pixel(p_input, p_sdf, center_x, center_y, p_pixel_size_px);
+	if (samples <= 1) {
+		return sample_surface_at_world(p_input, p_sdf, center_x, center_y);
+	}
+
+	const float inv_samples = 1.0f / static_cast<float>(samples);
+	const float total = static_cast<float>(samples * samples);
+	float height_sum = 0.0f;
+	float top_coverage = 0.0f;
+	float face_coverage = 0.0f;
+	float back_coverage = 0.0f;
+	int32_t occupied = 0;
+	int32_t zone_counts[5] = { 0, 0, 0, 0, 0 };
+
+	for (int32_t sy = 0; sy < samples; ++sy) {
+		for (int32_t sx = 0; sx < samples; ++sx) {
+			const float sample_x = p_pixel_origin_x + (static_cast<float>(sx) + 0.5f) * inv_samples * p_pixel_size_px;
+			const float sample_y = p_pixel_origin_y + (static_cast<float>(sy) + 0.5f) * inv_samples * p_pixel_size_px;
+			const SurfaceSample sample = sample_surface_at_world(p_input, p_sdf, sample_x, sample_y);
+			zone_counts[zone_index(sample.zone)] += 1;
+			if (sample.zone != SurfaceZone::Empty) {
+				height_sum += sample.height;
+				++occupied;
+			}
+			top_coverage += sample.top_coverage;
+			face_coverage += sample.face_coverage;
+			back_coverage += sample.back_coverage;
+		}
+	}
+
+	SurfaceSample result;
+	if (occupied <= 0) {
+		return result;
+	}
+	const float inv_total = 1.0f / total;
+	result.height = height_sum / static_cast<float>(occupied);
+	result.zone = dominant_occupied_zone(zone_counts);
+	result.occupancy = static_cast<float>(occupied) * inv_total;
+	result.top_coverage = top_coverage * inv_total;
+	result.face_coverage = face_coverage * inv_total;
+	result.back_coverage = back_coverage * inv_total;
+	return result;
 }
 
 void encode_normal_from_height(
@@ -956,7 +1074,7 @@ float contour_collision_distance_px(
 	float p_world_y
 ) {
 	const float base_distance = controlled_sdf_distance_px(p_input, p_sdf, p_world_x, p_world_y) - p_input.recipe.collision_threshold_px;
-	const SurfaceSample visual_sample = sample_surface(p_input, p_sdf, p_world_x, p_world_y);
+	const SurfaceSample visual_sample = sample_surface_at_world(p_input, p_sdf, p_world_x, p_world_y);
 	if (visual_sample.zone == SurfaceZone::Empty || visual_sample.occupancy <= 0.40f) {
 		return base_distance;
 	}
@@ -1091,9 +1209,9 @@ godot::Dictionary build_contour_chunk(const godot::Dictionary &p_input) {
 	for (int32_t y = 0; y < output_px; ++y) {
 		for (int32_t x = 0; x < output_px; ++x) {
 			const int32_t index = y * output_px + x;
-			const float logical_x = (static_cast<float>(x) + 0.5f) * render_to_logical_scale;
-			const float logical_y = (static_cast<float>(y) + 0.5f) * render_to_logical_scale;
-			const SurfaceSample sample = sample_surface(input, sdf, logical_x, logical_y);
+			const float logical_x = static_cast<float>(x) * render_to_logical_scale;
+			const float logical_y = static_cast<float>(y) * render_to_logical_scale;
+			const SurfaceSample sample = sample_surface_pixel(input, sdf, logical_x, logical_y, render_to_logical_scale);
 			render_heights[static_cast<size_t>(index)] = sample.height;
 			occupancies[static_cast<size_t>(index)] = sample.occupancy;
 

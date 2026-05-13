@@ -31,7 +31,7 @@ class FakeCombo:
 def make_request_builder_stub():
     instance = object.__new__(app.CliffForgeApp)
     instance._validated_asset_name = lambda show_error=False, raise_on_error=False: "test_asset"
-    instance._selected_export_mode_key = lambda: "Full47"
+    instance._selected_export_mode_key = lambda: "Full16"
     instance._selected_preset_key = lambda: "mountain"
     instance._selected_preview_mode_key = lambda: "lit"
     instance._build_materials_payload = lambda: {}
@@ -88,24 +88,24 @@ class AppPayloadTests(unittest.TestCase):
         preset = presets.clone_preset("mountain")
 
         expected = {
-            "tile_size": 64,
-            "south_height": 32,
+            "tile_size": 128,
+            "south_height": 64,
             "north_height": 0,
             "side_height": 0,
             "roughness": 10.0,
             "face_power": 2.5,
             "back_drop": 0.8,
             "crown_bevel": 10,
-            "outer_corner_radius": 20,
-            "inner_corner_radius": 20,
-            "corner_round_px": 16,
-            "diagonal_smooth_px": 32,
+            "outer_corner_radius": 40,
+            "inner_corner_radius": 40,
+            "corner_round_px": 32,
+            "diagonal_smooth_px": 64,
             "contour_relax": 1.0,
-            "contour_warp_px": 0.75,
+            "contour_warp_px": 1.5,
             "corner_variation": 0.55,
-            "rim_width": 8,
+            "rim_width": 16,
             "mountain_outline_enabled": True,
-            "mountain_outline_width": 3,
+            "mountain_outline_width": 6,
             "edge_debris": 0.8,
             "edge_color_strength": 0.35,
             "geometry_variance": 0.75,
@@ -122,7 +122,7 @@ class AppPayloadTests(unittest.TestCase):
         for key, value in expected.items():
             self.assertEqual(preset[key], value, key)
 
-    def test_default_mountain_materials_are_preview_tuned_for_64px_rock(self):
+    def test_default_mountain_materials_are_preview_tuned_for_1k_rock(self):
         self.assertEqual(app.MATERIAL_DEFAULTS["top"]["scale"], 1.35)
         self.assertEqual(app.MATERIAL_DEFAULTS["top"]["contrast"], 1.22)
         self.assertEqual(app.MATERIAL_DEFAULTS["top"]["crack_amount"], 0.34)
@@ -180,22 +180,24 @@ class AppPayloadTests(unittest.TestCase):
 
         instance._apply_preset("mountain", schedule=False)
 
-        self.assertEqual(instance.south_height_var.get(), 32)
+        self.assertEqual(instance.tile_size_var.get(), 128)
+        self.assertEqual(instance.south_height_var.get(), 64)
         self.assertEqual(instance.north_height_var.get(), 0)
         self.assertEqual(instance.side_height_var.get(), 0)
         self.assertEqual(instance.roughness_var.get(), 10.0)
         self.assertEqual(instance.face_power_var.get(), 2.5)
         self.assertEqual(instance.back_drop_var.get(), 0.8)
         self.assertEqual(instance.crown_bevel_var.get(), 10)
-        self.assertEqual(instance.outer_corner_radius_var.get(), 20)
-        self.assertEqual(instance.inner_corner_radius_var.get(), 20)
-        self.assertEqual(instance.diagonal_smooth_px_var.get(), 32)
+        self.assertEqual(instance.outer_corner_radius_var.get(), 40)
+        self.assertEqual(instance.inner_corner_radius_var.get(), 40)
+        self.assertEqual(instance.corner_round_px_var.get(), 32)
+        self.assertEqual(instance.diagonal_smooth_px_var.get(), 64)
         self.assertEqual(instance.contour_relax_var.get(), 1.0)
-        self.assertEqual(instance.contour_warp_px_var.get(), 0.75)
+        self.assertEqual(instance.contour_warp_px_var.get(), 1.5)
         self.assertEqual(instance.corner_variation_var.get(), 0.55)
-        self.assertEqual(instance.rim_width_var.get(), 8)
+        self.assertEqual(instance.rim_width_var.get(), 16)
         self.assertTrue(instance.mountain_outline_enabled_var.get())
-        self.assertEqual(instance.mountain_outline_width_var.get(), 3)
+        self.assertEqual(instance.mountain_outline_width_var.get(), 6)
         self.assertEqual(instance.edge_debris_var.get(), 0.8)
         self.assertEqual(instance.geometry_variance_var.get(), 0.75)
         self.assertEqual(instance.normal_strength_var.get(), 8.0)
@@ -231,6 +233,21 @@ class AppPayloadTests(unittest.TestCase):
             "mountain",
             "RuntimeSdfContour",
         ))
+
+    def test_full16_export_mode_is_sent_to_core(self):
+        instance = make_request_builder_stub()
+        instance.export_mode_var = FakeVar(app.EXPORT_MODE_LABELS["Full16"])
+        instance._selected_export_mode_key = app.CliffForgeApp._selected_export_mode_key.__get__(
+            instance,
+            app.CliffForgeApp,
+        )
+
+        request = instance.build_request()
+
+        self.assertEqual(request["export_mode"], "Full16")
+        self.assertIn("mountain_atlas_mask.png", app.expected_export_file_names("mountain", "Full16"))
+        self.assertIn("mountain_runtime_sdf_recipe.json", app.expected_export_file_names("mountain", "Full16"))
+        self.assertEqual(app.normalize_export_mode("Full47"), "Full16")
 
     def test_lit_preview_mode_does_not_show_normal_atlas_as_lit_atlas(self):
         instance = object.__new__(app.CliffForgeApp)
@@ -333,15 +350,31 @@ class AppPayloadTests(unittest.TestCase):
             app.Image.Resampling.NEAREST,
         )
 
+    def test_zooming_in_uses_smooth_resampling(self):
+        self.assertEqual(
+            app.resampling_for_zoom_scale(1.5),
+            app.Image.Resampling.LANCZOS,
+        )
+
+    def test_tile_size_slider_exposes_128_px_generation(self):
+        import inspect
+
+        source = inspect.getsource(app.CliffForgeApp._build_geometry_tab)
+        self.assertIn('"Размер тайла", self.tile_size_var, 32, 128', source)
+
     def test_preview_control_limits_match_core_sanitization(self):
         self.assertEqual(app.max_corner_radius_for_tile_size(32), 16)
         self.assertEqual(app.max_corner_radius_for_tile_size(64), 32)
+        self.assertEqual(app.max_corner_radius_for_tile_size(128), 64)
         self.assertEqual(app.max_rim_width_for_tile_size(32), 8)
         self.assertEqual(app.max_rim_width_for_tile_size(64), 16)
+        self.assertEqual(app.max_rim_width_for_tile_size(128), 32)
         self.assertEqual(app.max_mountain_outline_width_for_tile_size(32), 4)
         self.assertEqual(app.max_mountain_outline_width_for_tile_size(64), 8)
+        self.assertEqual(app.max_mountain_outline_width_for_tile_size(128), 16)
         self.assertEqual(app.max_height_for_tile_size(32), 16)
         self.assertEqual(app.max_height_for_tile_size(64), 32)
+        self.assertEqual(app.max_height_for_tile_size(128), 64)
 
     def test_panel_scale_release_defaults_to_draft_preview(self):
         instance = object.__new__(app.CliffForgeApp)

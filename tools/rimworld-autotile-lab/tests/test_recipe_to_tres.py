@@ -50,6 +50,7 @@ def write_material_textures(asset_dir: Path, asset_name: str) -> None:
     for slot in (
         "top_albedo",
         "face_albedo",
+        "base_albedo",
         "top_modulation",
         "face_modulation",
         "top_normal",
@@ -155,6 +156,37 @@ class RecipeToTresBridgeTests(unittest.TestCase):
             self.assertEqual(run_bridge(project_root, mask_recipe, target).returncode, 0)
             self.assertTrue((target / "shape_sets" / "transition_mask_shape_set.tres").exists())
             self.assertFalse((target / "material_sets" / "transition_mask_material_set.tres").exists())
+
+            contour_dir = project_root / "assets" / "textures" / "terrain" / "sdf_ground"
+            contour_recipe = contour_dir / "sdf_ground_runtime_sdf_recipe.json"
+            contour_dir.mkdir(parents=True, exist_ok=True)
+            contour_recipe.write_text(
+                json.dumps(
+                    {
+                        "schema": "station_peaceful.runtime_sdf_contour_recipe.v1",
+                        "asset_name": "sdf_ground",
+                        "tile_size_px": 64,
+                        "geometry": {
+                            "south_height_px": 10.0,
+                            "face_power": 2.5,
+                            "edge_color_strength": 0.35,
+                            "outline_enabled": True,
+                        },
+                        "materials": {"normal_detail_strength": 4.0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            write_material_textures(contour_dir, "sdf_ground")
+            self.assertEqual(run_bridge(project_root, contour_recipe, target).returncode, 0)
+            self.assertTrue((target / "material_sets" / "sdf_ground_material_set.tres").exists())
+            self.assertFalse((target / "shape_sets" / "sdf_ground_shape_set.tres").exists())
+            contour_material = (target / "material_sets" / "sdf_ground_material_set.tres").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn('"face_height_px": 10', contour_material)
+            self.assertIn('"face_power": 2.5', contour_material)
+            self.assertIn('"bottom_outline_strength": 0.95', contour_material)
 
             decal_dir = project_root / "assets" / "textures" / "terrain" / "first_biome"
             decal_recipe = decal_dir / "first_biome_recipe.json"

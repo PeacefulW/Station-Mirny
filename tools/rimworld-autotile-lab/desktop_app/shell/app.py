@@ -26,6 +26,8 @@ RECIPE_SUFFIX = ".json"
 DEFAULT_ASSET_NAME = "unnamed"
 ASSET_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 RUNTIME_VARIANT_COUNT = 6
+FULL16_EXPORT_MODE = "Full16"
+LEGACY_FULL47_EXPORT_MODE = "Full47"
 RUNTIME_SDF_EXPORT_MODE = "RuntimeSdfContour"
 DECAL_EXPORT_MODE = "Decals"
 SILHOUETTE_EXPORT_MODE = "Silhouettes"
@@ -34,13 +36,14 @@ DECAL_CELL_COUNT = DECAL_GRID_SIZE * DECAL_GRID_SIZE
 DECAL_SIZE_CLASSES = (16, 32, 64, 128)
 SILHOUETTE_TILE_SIZES = (32, 64, 96, 128)
 SILHOUETTE_HEIGHTS = (64, 96, 128, 160, 192)
-EXPORT_MODE_VALUES = ("Full47", "BaseVariantsOnly", "MaskOnly", RUNTIME_SDF_EXPORT_MODE)
+EXPORT_MODE_VALUES = (FULL16_EXPORT_MODE, "BaseVariantsOnly", "MaskOnly", RUNTIME_SDF_EXPORT_MODE)
 EXPORT_FILE_SLOTS = (
     ("preview", "png"),
     ("atlas_albedo", "png"),
     ("atlas_mask", "png"),
     ("atlas_height", "png"),
     ("atlas_normal", "png"),
+    ("runtime_sdf_recipe", "json"),
     ("top_albedo", "png"),
     ("face_albedo", "png"),
     ("base_albedo", "png"),
@@ -51,7 +54,7 @@ EXPORT_FILE_SLOTS = (
     ("recipe", "json"),
 )
 EXPORT_FILE_SLOTS_BY_MODE = {
-    "Full47": EXPORT_FILE_SLOTS,
+    FULL16_EXPORT_MODE: EXPORT_FILE_SLOTS,
     "BaseVariantsOnly": (
         ("preview", "png"),
         ("atlas_albedo", "png"),
@@ -100,7 +103,7 @@ MAP_DEFAULT_H = 15
 
 
 def resampling_for_zoom_scale(scale: float) -> Image.Resampling:
-    return Image.Resampling.NEAREST if scale >= 1.0 else Image.Resampling.LANCZOS
+    return Image.Resampling.NEAREST if abs(scale - 1.0) <= 1e-6 else Image.Resampling.LANCZOS
 
 
 def max_corner_radius_for_tile_size(tile_size: int) -> int:
@@ -174,7 +177,7 @@ PREVIEW_MODE_LABELS = {
 PREVIEW_MODE_KEYS_BY_LABEL = {label: key for key, label in PREVIEW_MODE_LABELS.items()}
 
 EXPORT_MODE_LABELS = {
-    "Full47":           "Full 16 MS cases",
+    FULL16_EXPORT_MODE: "Full 16 MS cases",
     "BaseVariantsOnly": "Base variants only",
     "MaskOnly":         "Mask only",
     RUNTIME_SDF_EXPORT_MODE: "Runtime SDF contour",
@@ -293,7 +296,9 @@ def is_valid_asset_name(value: str) -> bool:
 
 
 def normalize_export_mode(value: str) -> str:
-    return value if value in EXPORT_MODE_VALUES else "Full47"
+    if value == LEGACY_FULL47_EXPORT_MODE:
+        return FULL16_EXPORT_MODE
+    return value if value in EXPORT_MODE_VALUES else FULL16_EXPORT_MODE
 
 
 def normalize_output_mode(value: str) -> str:
@@ -305,7 +310,7 @@ def normalize_output_mode(value: str) -> str:
     return normalize_export_mode(value)
 
 
-def expected_export_file_names(asset_name: str, export_mode: str = "Full47") -> list[str]:
+def expected_export_file_names(asset_name: str, export_mode: str = FULL16_EXPORT_MODE) -> list[str]:
     slots = EXPORT_FILE_SLOTS_BY_MODE[normalize_output_mode(export_mode)]
     return [f"{asset_name}_{slot}.{extension}" for slot, extension in slots]
 
@@ -555,31 +560,31 @@ class CliffForgeApp:
         self.asset_name_var = tk.StringVar(value=asset_name)
         self.asset_name_error_var = tk.StringVar(value="")
         self.export_target_var = tk.StringVar(value="(рабочая папка сессии)")
-        export_mode = normalize_export_mode(str(self.state.get("export_mode", "Full47")))
+        export_mode = normalize_export_mode(str(self.state.get("export_mode", FULL16_EXPORT_MODE)))
         self.export_mode_var = tk.StringVar(value=EXPORT_MODE_LABELS[export_mode])
         self.preset_var = tk.StringVar(value=PRESET_LABELS["mountain"])
         self.preview_mode_var = tk.StringVar(value=PREVIEW_MODE_LABELS["lit"])
         self.seed_var = tk.IntVar(value=240_518)
-        self.tile_size_var = tk.IntVar(value=64)
-        self.south_height_var = tk.IntVar(value=32)
+        self.tile_size_var = tk.IntVar(value=128)
+        self.south_height_var = tk.IntVar(value=64)
         self.north_height_var = tk.IntVar(value=0)
         self.side_height_var = tk.IntVar(value=0)
         self.roughness_var = tk.DoubleVar(value=0.0)
         self.face_power_var = tk.DoubleVar(value=2.8)
         self.back_drop_var = tk.DoubleVar(value=0.8)
         self.crown_bevel_var = tk.IntVar(value=12)
-        self.outer_corner_radius_var = tk.IntVar(value=20)
-        self.inner_corner_radius_var = tk.IntVar(value=20)
-        self.corner_round_px_var = tk.IntVar(value=16)
-        self.diagonal_smooth_px_var = tk.IntVar(value=32)
+        self.outer_corner_radius_var = tk.IntVar(value=40)
+        self.inner_corner_radius_var = tk.IntVar(value=40)
+        self.corner_round_px_var = tk.IntVar(value=32)
+        self.diagonal_smooth_px_var = tk.IntVar(value=64)
         self.contour_relax_var = tk.DoubleVar(value=1.0)
-        self.contour_warp_px_var = tk.DoubleVar(value=0.0)
-        self.corner_variation_var = tk.DoubleVar(value=1.0)
-        self.rim_width_var = tk.IntVar(value=7)
+        self.contour_warp_px_var = tk.DoubleVar(value=1.5)
+        self.corner_variation_var = tk.DoubleVar(value=0.55)
+        self.rim_width_var = tk.IntVar(value=16)
         self.mountain_outline_enabled_var = tk.BooleanVar(value=True)
-        self.mountain_outline_width_var = tk.IntVar(value=3)
-        self.edge_debris_var = tk.DoubleVar(value=0.65)
-        self.geometry_variance_var = tk.DoubleVar(value=1.0)
+        self.mountain_outline_width_var = tk.IntVar(value=6)
+        self.edge_debris_var = tk.DoubleVar(value=0.8)
+        self.geometry_variance_var = tk.DoubleVar(value=0.75)
         self.shape_supersampling_var = tk.IntVar(value=4)
         self.variants_var = tk.IntVar(value=RUNTIME_VARIANT_COUNT)
         self.texture_scale_var = tk.DoubleVar(value=1.0)
@@ -922,7 +927,7 @@ class CliffForgeApp:
     def _build_geometry_tab(self, parent: ttk.Frame) -> None:
         shape = ttk.LabelFrame(parent, text="Форма / mask", padding=10)
         shape.pack(fill="x", pady=(0, 10))
-        self._add_panel_scale(shape, "Размер тайла", self.tile_size_var, 32, 96, 16, integer=True,
+        self._add_panel_scale(shape, "Размер тайла", self.tile_size_var, 32, 128, 16, integer=True,
                               on_change=self._on_tile_size_changed)
         self._add_panel_scale(shape, "Кол-во вариантов", self.variants_var, 1, 8, 1, integer=True,
                               on_change=self._on_variant_count_changed, debounce_full=False)
@@ -1768,7 +1773,7 @@ class CliffForgeApp:
         return PREVIEW_MODE_KEYS_BY_LABEL.get(self.preview_mode_var.get(), "composite")
 
     def _selected_export_mode_key(self) -> str:
-        return normalize_export_mode(EXPORT_MODE_KEYS_BY_LABEL.get(self.export_mode_var.get(), "Full47"))
+        return normalize_export_mode(EXPORT_MODE_KEYS_BY_LABEL.get(self.export_mode_var.get(), FULL16_EXPORT_MODE))
 
     def _randomize_seed(self) -> None:
         self.seed_var.set(random.randint(1, 2_147_483_647))
@@ -2457,7 +2462,7 @@ class CliffForgeApp:
             asset_name = str(request.get("asset_name", DEFAULT_ASSET_NAME))
             self.asset_name_var.set(asset_name if is_valid_asset_name(asset_name) else DEFAULT_ASSET_NAME)
             self.asset_name_error_var.set("")
-            export_mode = normalize_export_mode(str(request.get("export_mode", "Full47")))
+            export_mode = normalize_export_mode(str(request.get("export_mode", FULL16_EXPORT_MODE)))
             self.export_mode_var.set(EXPORT_MODE_LABELS[export_mode])
             self.preset_var.set(PRESET_LABELS.get(preset_key, PRESET_LABELS["mountain"]))
             self._apply_preset(preset_key, schedule=False)

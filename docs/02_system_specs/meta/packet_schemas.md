@@ -766,6 +766,9 @@ Current code notes:
 - exported albedo maps are consumed by the runtime contour shaders as unlit
   material color inputs; they are not saved and are not embedded in
   `ContourChunkResultV1`
+- active ground and mountain contour recipes are loaded from exported
+  `*_runtime_sdf_recipe.json` assets; legacy `Full47` recipe payloads are not
+  valid runtime contour input
 
 ### `ContourChunkInputV1`
 

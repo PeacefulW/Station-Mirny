@@ -96,6 +96,12 @@ func _assert_static_contract() -> void:
 			and contour_field_source.contains("collision_sdf_f32.ptrw()"),
 		"Runtime contour field output buffers must use direct PackedArray writes instead of per-pixel Variant set() calls."
 	)
+	var registry_source_after: String = FileAccess.get_file_as_string("res://core/systems/world/terrain_presentation_registry.gd")
+	_assert(
+		not registry_source_after.contains('source.get("request"') \
+			and not registry_source_after.contains("unnamed_recipe.json"),
+		"TerrainPresentationRegistry must not normalize legacy Full47 recipes for active runtime contour rendering."
+	)
 
 func _assert_contour_recipes_use_exported_assets() -> void:
 	var ground_source: String = TerrainPresentationRegistry.get_contour_recipe_source_for_class(
@@ -105,12 +111,30 @@ func _assert_contour_recipes_use_exported_assets() -> void:
 		WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS
 	)
 	_assert(
-		ground_source.begins_with("res://assets/textures/terrain/ground/"),
-		"Ground contour recipe must use the exported ground recipe folder, not the generator reference fallback."
+		ground_source == "res://assets/textures/terrain/ground/unnamed_runtime_sdf_recipe.json",
+		"Ground contour recipe must use the exported RuntimeSdfContour recipe, not the legacy Full47 recipe or generator reference fallback."
 	)
 	_assert(
-		mountain_source.begins_with("res://assets/textures/terrain/mountains/"),
-		"Mountain contour recipe must use the exported mountain recipe folder, not the generator reference fallback."
+		mountain_source == "res://assets/textures/terrain/mountains/unnamed_runtime_sdf_recipe.json",
+		"Mountain contour recipe must use the exported RuntimeSdfContour recipe, not the legacy Full47 recipe or generator reference fallback."
+	)
+	var ground_recipe: Dictionary = TerrainPresentationRegistry.get_contour_recipe_for_class(
+		WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE
+	)
+	var mountain_recipe: Dictionary = TerrainPresentationRegistry.get_contour_recipe_for_class(
+		WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS
+	)
+	_assert(
+		str(ground_recipe.get("schema", "")) == "station_peaceful.runtime_sdf_contour_recipe.v1",
+		"Ground contour recipe must keep the RuntimeSdfContour schema."
+	)
+	_assert(
+		not bool((ground_recipe.get("collision", {}) as Dictionary).get("blocks_inside", true)),
+		"Ground contour collision must not block inside even when the authored preset came from a mountain-like recipe."
+	)
+	_assert(
+		bool((mountain_recipe.get("collision", {}) as Dictionary).get("blocks_inside", false)),
+		"Mountain contour collision must block inside."
 	)
 
 func _assert_cutover_ids_have_no_active_tilemap_sources() -> void:

@@ -10,10 +10,13 @@ recipes and PNG sets into Godot `.tres` resources under `data/terrain/...`.
 
 The Materials tab supports three export modes:
 
-- `Full47`: exports a full `47 x N` terrain shape set plus material textures.
+- `Full16`: exports a full `16 x N` terrain shape set, material textures, and
+  the game-ready `{asset_name}_runtime_sdf_recipe.json` used by active runtime
+  contour terrain. The old `Full47` key is accepted only as a legacy recipe
+  alias.
 - `BaseVariantsOnly`: exports a `1 x N` base material atlas for split
   base/transition rendering.
-- `MaskOnly`: exports only the shared `47 x N` grayscale mask atlas.
+- `MaskOnly`: exports only the shared `16 x N` mask atlas.
 
 All terrain exports use the authored `asset_name` prefix, for example
 `plains_ground_atlas_mask.png` and `plains_ground_recipe.json`.
@@ -76,11 +79,15 @@ metadata files define the intended resource family.
 
 ## Validation
 
+The bridge is for legacy `.tres` conversion paths. Active ground and mountain
+runtime contour terrain reads `{asset_name}_runtime_sdf_recipe.json` directly
+from `assets/textures/terrain/...`.
+
 The bridge validates input before writing:
 
-- `Full47` and `MaskOnly` mask atlases must be `47 * tile_size_px` wide by
-  `variant_count * tile_size_px` high.
-- `Full47` shape normal atlases must match the same dimensions.
+- Legacy `Full47` bridge mask atlases must be `47 * tile_size_px` wide by
+  `variant_count * tile_size_px` high, and shape normal atlases must match the
+  same dimensions.
 - `BaseVariantsOnly` base atlases are validated as `1 x variant_count` when an
   `{asset_name}_atlas_albedo.png` file is present.
 - `Full47` material output requires the six canonical material maps:

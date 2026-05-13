@@ -16,23 +16,15 @@ uniform sampler2D face_modulation : repeat_enable, filter_linear;
 uniform sampler2D top_normal_tex : repeat_enable, filter_linear;
 uniform sampler2D face_normal_tex : repeat_enable, filter_linear;
 
-uniform vec4 top_dark_color : source_color = vec4(0.30, 0.24, 0.20, 1.0);
-uniform vec4 top_light_color : source_color = vec4(0.49, 0.41, 0.34, 1.0);
-uniform vec4 face_dark_color : source_color = vec4(0.22, 0.18, 0.16, 1.0);
-uniform vec4 face_light_color : source_color = vec4(0.39, 0.33, 0.28, 1.0);
-uniform vec4 dust_color : source_color = vec4(0.62, 0.53, 0.42, 1.0);
-uniform vec4 bottom_outline_color : source_color = vec4(0.016, 0.014, 0.012, 1.0);
-
 uniform float base_world_scale_px = 512.0;
-uniform float top_world_scale_px = 224.0;
-uniform float face_world_scale_px = 112.0;
-uniform float macro_world_scale_px = 448.0;
-uniform float dust_strength = 0.0;
-uniform float top_contrast = 1.12;
-uniform float face_contrast = 1.22;
-uniform float back_rim_darkening = 1.0;
-uniform float top_albedo_blend = 1.0;
-uniform float face_albedo_blend = 1.0;
+uniform float top_world_scale_px = 512.0;
+uniform float face_world_scale_px = 512.0;
+uniform float face_height_px = 32.0;
+uniform float face_power = 2.5;
+uniform float detail_normal_strength = 1.0;
+uniform vec4 edge_color : source_color = vec4(0.286, 0.220, 0.173, 1.0);
+uniform float edge_color_strength = 0.35;
+uniform vec4 bottom_outline_color : source_color = vec4(0.016, 0.014, 0.012, 1.0);
 uniform float bottom_outline_strength = 0.95;
 
 varying vec2 world_pos;
@@ -46,28 +38,72 @@ vec3 unpack_normal(vec3 packed_normal) {
 }
 
 vec3 blend_normals(vec3 base_normal, vec3 detail_normal) {
-	return normalize(vec3(base_normal.xy + detail_normal.xy, max(0.001, base_normal.z * detail_normal.z)));
+	return normalize(vec3(
+		base_normal.xy + detail_normal.xy * detail_normal_strength,
+		max(0.001, base_normal.z * detail_normal.z)
+	));
 }
 
-float remap_contrast(float value, float amount) {
-	return clamp((value - 0.5) * amount + 0.5, 0.0, 1.0);
+vec2 repeat_uv(vec2 coord_px, float scale_px) {
+	return fract(coord_px / max(1.0, scale_px));
+}
+
+vec2 contour_tangent(vec3 shape_normal) {
+	vec2 gradient = shape_normal.xy;
+	if (dot(gradient, gradient) < 0.0001) {
+		return vec2(1.0, 0.0);
+	}
+	vec2 normal_2d = normalize(gradient);
+	return normalize(vec2(-normal_2d.y, normal_2d.x));
+}
+
+vec2 face_material_coord(vec3 shape_normal, float height_value) {
+	vec2 tangent = contour_tangent(shape_normal);
+	float along = abs(dot(world_pos, tangent));
+	float progress = 1.0 - pow(clamp(height_value, 0.0, 1.0), 1.0 / max(0.01, face_power));
+	float depth = clamp(progress, 0.0, 1.0) * max(1.0, face_height_px);
+	return vec2(along, depth);
 }
 
 void fragment() {
 	vec4 shape_mask = texture(mask_texture, UV);
-
 	vec2 local_pos_px = world_pos - chunk_origin_px;
 	vec2 tile_coord = floor(local_pos_px / tile_size_px);
 	vec2 mask_uv = (tile_coord + vec2(0.5, 0.5)) / mask_tile_count;
 	float cover = texture(cover_mask, mask_uv).r;
+	float alpha = clamp(shape_mask.a, 0.0, 1.0);
 
-	if (cover < 0.01 || shape_mask.a < 0.01) {
+	if (cover < 0.01 || alpha < 0.01) {
 		COLOR = vec4(0.0, 0.0, 0.0, 0.0);
 		NORMAL_MAP = vec3(0.5, 0.5, 1.0);
 	} else {
-		float top_mask = smoothstep(0.02, 0.2, shape_mask.r);
-		float face_mask = smoothstep(0.02, 0.2, shape_mask.g);
-		float back_mask = smoothstep(0.02, 0.2, shape_mask.b);
+		float top_mask = clamp(shape_mask.r, 0.0, 1.0);
+		float face_mask = clamp(shape_mask.g, 0.0, 1.0);
+		float back_mask = clamp(shape_mask.b, 0.0, 1.0);
+		float coverage_sum = top_mask + face_mask + back_mask;
+		if (coverage_sum < 0.001) {
+			top_mask = shape_mask.a;
+			coverage_sum = shape_mask.a;
+		}
+		float total_mask = max(coverage_sum, 0.001);
+
+		vec3 shape_normal = unpack_normal(texture(normal_texture, UV).rgb);
+		float height_value = texture(height_texture, UV).r;
+		vec2 top_uv = repeat_uv(world_pos, top_world_scale_px);
+		vec2 face_uv = repeat_uv(face_material_coord(shape_normal, height_value), face_world_scale_px);
+
+		vec3 top_color = texture(top_albedo_tex, top_uv).rgb;
+		vec3 face_color = texture(face_albedo_tex, face_uv).rgb;
+		vec3 back_color = face_color;
+		vec3 surface_color = (
+			top_color * top_mask +
+			face_color * face_mask +
+			back_color * back_mask
+		) / total_mask;
+
+		float edge_mix = clamp(min(top_mask, face_mask + back_mask) * edge_color_strength, 0.0, 1.0);
+		surface_color = mix(surface_color, edge_color.rgb, edge_mix);
+
 		vec4 below_shape_mask = texture(mask_texture, UV + vec2(0.0, TEXTURE_PIXEL_SIZE.y));
 		float outline_only_face = face_mask
 			* (1.0 - smoothstep(0.02, 0.16, top_mask + back_mask))
@@ -75,84 +111,24 @@ void fragment() {
 		float bottom_face_contact = face_mask
 			* (1.0 - smoothstep(0.02, 0.16, top_mask + back_mask))
 			* (1.0 - smoothstep(0.55, 0.90, below_shape_mask.a));
-		float coverage_sum = top_mask + face_mask + back_mask;
-		float alpha_coverage_fallback = smoothstep(0.02, 0.2, shape_mask.a);
-		if (coverage_sum < 0.001 && alpha_coverage_fallback > 0.0) {
-			top_mask = alpha_coverage_fallback;
-			coverage_sum = top_mask;
-		}
-		float total_mask = max(coverage_sum, 0.001);
+		float bottom_outline_mix = clamp(
+			max(outline_only_face, bottom_face_contact * 0.78) * bottom_outline_strength,
+			0.0,
+			0.95
+		);
+		surface_color = mix(surface_color, bottom_outline_color.rgb, bottom_outline_mix);
+		vec3 final_color = surface_color;
 
-			vec2 base_uv = world_pos / base_world_scale_px;
-			vec2 top_uv = world_pos / top_world_scale_px;
-			vec2 top_uv_secondary = vec2(-world_pos.y, world_pos.x) / (top_world_scale_px * 1.73);
-			vec2 face_uv = vec2(world_pos.x / face_world_scale_px, world_pos.y / (face_world_scale_px * 0.62));
-			vec2 macro_uv = world_pos / macro_world_scale_px;
-			vec2 macro_uv_secondary = vec2(world_pos.y, world_pos.x) / (macro_world_scale_px * 1.37);
+		vec3 top_detail_normal = unpack_normal(texture(top_normal_tex, top_uv).rgb);
+		vec3 face_detail_normal = unpack_normal(texture(face_normal_tex, face_uv).rgb);
+		vec3 detail_normal = normalize(
+			top_detail_normal * top_mask +
+			face_detail_normal * (face_mask + back_mask) +
+			vec3(0.0, 0.0, 1.0) * max(0.0, 1.0 - total_mask)
+		);
+		vec3 final_normal = blend_normals(shape_normal, detail_normal);
 
-			float top_micro = texture(top_modulation, fract(top_uv)).r;
-			float top_secondary = texture(face_modulation, fract(top_uv_secondary + vec2(0.41, 0.23))).r;
-			float top_macro = texture(top_modulation, fract(macro_uv + vec2(0.17, 0.31))).r;
-			float top_macro_secondary = texture(face_modulation, fract(macro_uv_secondary + vec2(0.73, 0.29))).r;
-			float top_value = remap_contrast(
-				top_micro * 0.42 +
-				top_secondary * 0.18 +
-				top_macro * 0.24 +
-				top_macro_secondary * 0.16,
-				top_contrast
-			);
-
-			float face_micro = texture(face_modulation, fract(face_uv)).r;
-			float face_macro = texture(face_modulation, fract(macro_uv * vec2(0.8, 1.2) + vec2(0.73, 0.29))).r;
-			float face_value = remap_contrast(mix(face_micro, face_macro, 0.28), face_contrast);
-
-			vec3 base_albedo = texture(base_albedo_tex, fract(base_uv)).rgb;
-			vec3 top_albedo = texture(top_albedo_tex, fract(top_uv)).rgb;
-			vec3 top_color = mix(
-				mix(top_dark_color.rgb, top_light_color.rgb, top_value),
-				top_albedo,
-				top_albedo_blend
-			);
-			float dust = smoothstep(0.62, 0.92, max(top_macro, top_macro_secondary)) * dust_strength;
-			top_color = mix(top_color, dust_color.rgb, dust);
-			top_color *= mix(0.995, 1.005, top_micro * 0.65 + top_secondary * 0.35);
-
-			vec3 face_albedo = texture(face_albedo_tex, fract(face_uv)).rgb;
-			vec3 face_color = mix(
-				mix(face_dark_color.rgb, face_light_color.rgb, face_value),
-				face_albedo,
-				face_albedo_blend
-			);
-			float face_wear = smoothstep(0.75, 1.0, face_micro) * dust_strength * 0.65;
-			face_color = mix(face_color, dust_color.rgb * 0.82, face_wear);
-			face_color *= mix(0.995, 1.005, face_macro);
-
-			vec3 back_color = mix(top_color * back_rim_darkening, face_color, 0.25);
-			vec3 final_color = (
-				top_color * top_mask +
-				face_color * face_mask +
-				back_color * back_mask
-			) / total_mask;
-			float bottom_outline_mix = clamp(
-				max(outline_only_face, bottom_face_contact * 0.78) * bottom_outline_strength,
-				0.0,
-				0.95
-			);
-			final_color = mix(final_color, bottom_outline_color.rgb, bottom_outline_mix);
-			final_color = mix(base_albedo, final_color, shape_mask.a);
-
-			vec3 shape_normal = unpack_normal(texture(normal_texture, UV).rgb);
-			vec3 top_detail_normal = unpack_normal(texture(top_normal_tex, fract(top_uv)).rgb);
-			vec3 top_secondary_normal = unpack_normal(texture(face_normal_tex, fract(top_uv_secondary + vec2(0.41, 0.23))).rgb);
-			vec3 face_detail_normal = unpack_normal(texture(face_normal_tex, fract(face_uv)).rgb);
-			vec3 detail_normal = normalize(
-				normalize(top_detail_normal + top_secondary_normal) * top_mask +
-				face_detail_normal * face_mask +
-				normalize(top_detail_normal + top_secondary_normal) * back_mask
-			);
-			vec3 final_normal = blend_normals(shape_normal, detail_normal);
-
-		COLOR = vec4(final_color, shape_mask.a * cover);
+		COLOR = vec4(final_color, alpha * cover);
 		NORMAL_MAP = final_normal * 0.5 + 0.5;
 	}
 }
