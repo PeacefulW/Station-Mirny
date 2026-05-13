@@ -216,6 +216,22 @@ class AppPayloadTests(unittest.TestCase):
         self.assertEqual(request["mountain_outline_width"], 3)
         self.assertEqual(request["light_angle_deg"], 180.0)
 
+    def test_runtime_sdf_contour_export_mode_is_sent_to_core(self):
+        instance = make_request_builder_stub()
+        instance.export_mode_var = FakeVar(app.EXPORT_MODE_LABELS["RuntimeSdfContour"])
+        instance._selected_export_mode_key = app.CliffForgeApp._selected_export_mode_key.__get__(
+            instance,
+            app.CliffForgeApp,
+        )
+
+        request = instance.build_request()
+
+        self.assertEqual(request["export_mode"], "RuntimeSdfContour")
+        self.assertIn("mountain_runtime_sdf_recipe.json", app.expected_export_file_names(
+            "mountain",
+            "RuntimeSdfContour",
+        ))
+
     def test_lit_preview_mode_does_not_show_normal_atlas_as_lit_atlas(self):
         instance = object.__new__(app.CliffForgeApp)
         instance._selected_preview_mode_key = lambda: "lit"

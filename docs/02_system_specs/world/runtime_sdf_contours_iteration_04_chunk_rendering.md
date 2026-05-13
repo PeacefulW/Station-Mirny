@@ -69,7 +69,9 @@ TileMap atlas cells.
 7. Preserve mountain cover visibility by applying cover masks to the mountain
    contour material.
 8. Stop applying ground and mountain terrain ids to TileMap layers in contour
-   mode. If contour resources are missing or stale, the chunk remains hidden.
+   mode. If initial contour resources are missing, the chunk remains hidden.
+   During a later dirty refresh, an already-published chunk may keep its
+   previous visual revision visible while readiness/collision remain stale.
 9. Keep water rendering outside this cutover unless the lake spec explicitly
    moves water to contour rendering.
 
@@ -107,7 +109,9 @@ The smoke test must assert:
 - `ChunkView` creates contour visual nodes for ground and mountain classes
 - target terrain ids do not call the active TileMap terrain apply path in
   contour mode
-- stale contour revisions keep the chunk hidden
+- stale contour revisions do not become ready; initial stale/missing resources
+  keep the chunk hidden, while dirty refresh may keep the previous visual
+  revision visible
 - mountain contour material receives mask, height, normal, cover mask,
   chunk origin, and tile size uniforms
 - two mountain ids in one chunk create two cover-gated mountain visual buckets
@@ -120,8 +124,8 @@ The smoke test must assert:
 - cover mask hides unrevealed mountain areas without changing contour shape
 - toggling debug views does not mutate contour textures
 - no `autotile_47` TileMap cells are applied for cutover ground/mountain ids
-- missing contour resources keep the chunk hidden instead of rendering legacy
-  TileMap cells
+- missing initial contour resources keep the chunk hidden instead of rendering
+  legacy TileMap cells
 
 ## Definition of Done
 

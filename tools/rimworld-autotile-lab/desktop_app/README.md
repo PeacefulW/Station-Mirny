@@ -66,6 +66,7 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
   - `Full47`: full `16 x N` marching-squares shape/material export; the serialized key is kept for older UI state and recipes
   - `BaseVariantsOnly`: `1 x N` full-tile base material atlas for transition-overlay base passes
   - `MaskOnly`: shared `16 x N` marching-squares mask atlas without albedo/material exports
+  - `RuntimeSdfContour`: target game contour export; writes a runtime SDF recipe plus reference mask/height/normal/albedo images from the same global SDF map-preview path used by the live preview
 - Decals tab for the terrain decal layer authoring pass:
   - `4 x 4` mixed-size atlas with `16`, `32`, `64`, and `128` px decal cells centered inside the selected max cell size
   - per-cell source: procedural, image file, or color
@@ -92,14 +93,31 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
   - `{asset_name}_top_normal.png`
   - `{asset_name}_face_normal.png`
   - `{asset_name}_recipe.json`
-- SDF is currently preview-only; `Full47` / `MaskOnly` atlas exports still use
-  the per-cell marching-squares path until atlas parity is implemented. Automatic SDF preview variants keep geometry continuous and vary material sampling only.
+- For legacy atlas modes, SDF is still preview-only; `Full47` / `MaskOnly`
+  atlas exports still use the per-cell marching-squares path until atlas parity
+  is implemented.
+  `RuntimeSdfContour` is the target game export path and uses the global SDF
+  map-preview path for its reference images. Automatic SDF preview variants keep
+  geometry continuous and vary material sampling only.
 - `BaseVariantsOnly` full generation exports:
   - `{asset_name}_atlas_albedo.png`
   - `{asset_name}_recipe.json`
 - `MaskOnly` full generation exports:
   - `{asset_name}_atlas_mask.png`
   - `{asset_name}_recipe.json`
+- `RuntimeSdfContour` full generation exports:
+  - `{asset_name}_runtime_sdf_recipe.json`
+  - `{asset_name}_reference_mask.png`
+  - `{asset_name}_reference_height.png`
+  - `{asset_name}_reference_normal.png`
+  - `{asset_name}_reference_albedo.png`
+  - `{asset_name}_top_albedo.png`
+  - `{asset_name}_face_albedo.png`
+  - `{asset_name}_base_albedo.png`
+  - `{asset_name}_top_modulation.png`
+  - `{asset_name}_face_modulation.png`
+  - `{asset_name}_top_normal.png`
+  - `{asset_name}_face_normal.png`
 - Decals export:
   - `{asset_name}_decal_atlas.png`
   - `{asset_name}_decal_metadata.json`

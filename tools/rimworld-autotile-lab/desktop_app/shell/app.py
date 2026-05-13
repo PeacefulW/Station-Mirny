@@ -26,6 +26,7 @@ RECIPE_SUFFIX = ".json"
 DEFAULT_ASSET_NAME = "unnamed"
 ASSET_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 RUNTIME_VARIANT_COUNT = 6
+RUNTIME_SDF_EXPORT_MODE = "RuntimeSdfContour"
 DECAL_EXPORT_MODE = "Decals"
 SILHOUETTE_EXPORT_MODE = "Silhouettes"
 DECAL_GRID_SIZE = 4
@@ -33,7 +34,7 @@ DECAL_CELL_COUNT = DECAL_GRID_SIZE * DECAL_GRID_SIZE
 DECAL_SIZE_CLASSES = (16, 32, 64, 128)
 SILHOUETTE_TILE_SIZES = (32, 64, 96, 128)
 SILHOUETTE_HEIGHTS = (64, 96, 128, 160, 192)
-EXPORT_MODE_VALUES = ("Full47", "BaseVariantsOnly", "MaskOnly")
+EXPORT_MODE_VALUES = ("Full47", "BaseVariantsOnly", "MaskOnly", RUNTIME_SDF_EXPORT_MODE)
 EXPORT_FILE_SLOTS = (
     ("preview", "png"),
     ("atlas_albedo", "png"),
@@ -60,6 +61,20 @@ EXPORT_FILE_SLOTS_BY_MODE = {
         ("preview", "png"),
         ("atlas_mask", "png"),
         ("recipe", "json"),
+    ),
+    RUNTIME_SDF_EXPORT_MODE: (
+        ("runtime_sdf_recipe", "json"),
+        ("reference_mask", "png"),
+        ("reference_height", "png"),
+        ("reference_normal", "png"),
+        ("reference_albedo", "png"),
+        ("top_albedo", "png"),
+        ("face_albedo", "png"),
+        ("base_albedo", "png"),
+        ("top_modulation", "png"),
+        ("face_modulation", "png"),
+        ("top_normal", "png"),
+        ("face_normal", "png"),
     ),
     DECAL_EXPORT_MODE: (
         ("decal_atlas", "png"),
@@ -162,6 +177,7 @@ EXPORT_MODE_LABELS = {
     "Full47":           "Full 16 MS cases",
     "BaseVariantsOnly": "Base variants only",
     "MaskOnly":         "Mask only",
+    RUNTIME_SDF_EXPORT_MODE: "Runtime SDF contour",
 }
 EXPORT_MODE_KEYS_BY_LABEL = {label: key for key, label in EXPORT_MODE_LABELS.items()}
 
@@ -2217,6 +2233,15 @@ class CliffForgeApp:
         }.get(mode)
         if not atlas_value and manifest.get("export_mode") == "MaskOnly":
             atlas_value = files.get("atlas_mask_png")
+        if not atlas_value and manifest.get("export_mode") == RUNTIME_SDF_EXPORT_MODE:
+            atlas_value = {
+                "composite": files.get("reference_albedo_png"),
+                "lit":       files.get("reference_albedo_png"),
+                "albedo":    files.get("reference_albedo_png"),
+                "mask":      files.get("reference_mask_png"),
+                "height":    files.get("reference_height_png"),
+                "normal":    files.get("reference_normal_png"),
+            }.get(mode)
 
         if atlas_value:
             atlas_path = Path(atlas_value)

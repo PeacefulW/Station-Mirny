@@ -24,12 +24,17 @@ static func get_tile_set() -> TileSet:
 	return get_base_tile_set()
 
 static func get_source_id(terrain_id: int) -> int:
+	if TerrainPresentationRegistry.is_contour_cutover_terrain(terrain_id):
+		push_error("Contour cutover terrain_id=%d has no TileMap source." % terrain_id)
+		return -1
 	var layer_id: StringName = get_render_layer_id(terrain_id)
 	_ensure_layer_tileset(layer_id)
 	assert(_source_ids_by_terrain_id.has(terrain_id), "Missing TileSet source id for terrain_id=%d layer=%s" % [terrain_id, layer_id])
 	return int(_source_ids_by_terrain_id[terrain_id])
 
 static func get_atlas_coords(terrain_id: int, atlas_index: int = 0) -> Vector2i:
+	if TerrainPresentationRegistry.is_contour_cutover_terrain(terrain_id):
+		return Vector2i.ZERO
 	var shape_set: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set_for_terrain(terrain_id)
 	assert(shape_set != null, "Missing TerrainShapeSet for terrain_id=%d" % terrain_id)
 	if shape_set.topology_family_id == TerrainPresentationRegistry.TOPOLOGY_AUTOTILE_47:
@@ -48,6 +53,8 @@ static func get_roof_tile_set(
 	terrain_id: int = WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
 ) -> TileSet:
 	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
+	if TerrainPresentationRegistry.is_contour_cutover_terrain(roof_terrain_id):
+		return TileSet.new()
 	_ensure_roof_tileset(roof_terrain_id)
 	return _roof_tile_sets_by_terrain_id.get(roof_terrain_id, null) as TileSet
 
@@ -59,6 +66,8 @@ static func get_roof_source_id(
 	terrain_id: int = WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
 ) -> int:
 	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
+	if TerrainPresentationRegistry.is_contour_cutover_terrain(roof_terrain_id):
+		return -1
 	_ensure_roof_tileset(roof_terrain_id)
 	return int(_roof_source_ids_by_terrain_id.get(roof_terrain_id, -1))
 
@@ -79,6 +88,13 @@ static func uses_overlay_layer(terrain_id: int) -> bool:
 static func get_render_layer_id(terrain_id: int) -> StringName:
 	return TerrainPresentationRegistry.get_render_layer_for_terrain(terrain_id)
 
+static func has_tilemap_source_for_terrain(terrain_id: int) -> bool:
+	if TerrainPresentationRegistry.is_contour_cutover_terrain(terrain_id):
+		return false
+	var layer_id: StringName = get_render_layer_id(terrain_id)
+	_ensure_layer_tileset(layer_id)
+	return _source_ids_by_terrain_id.has(terrain_id)
+
 static func _ensure_layer_tileset(layer_id: StringName) -> void:
 	bootstrap()
 	if _tile_sets_by_layer.has(layer_id):
@@ -88,7 +104,7 @@ static func _ensure_layer_tileset(layer_id: StringName) -> void:
 		WorldRuntimeConstants.TILE_SIZE_PX,
 		WorldRuntimeConstants.TILE_SIZE_PX
 	)
-	for terrain_id: int in TerrainPresentationRegistry.get_terrain_ids_for_layer(layer_id):
+	for terrain_id: int in TerrainPresentationRegistry.get_tilemap_terrain_ids_for_layer(layer_id):
 		var source: TileSetAtlasSource = _build_source_for_terrain(terrain_id)
 		var source_id: int = tile_set.add_source(source)
 		_source_ids_by_terrain_id[terrain_id] = source_id
@@ -102,6 +118,8 @@ static func _resolve_roof_terrain_id(terrain_id: int) -> int:
 static func _ensure_roof_tileset(terrain_id: int) -> void:
 	bootstrap()
 	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
+	if TerrainPresentationRegistry.is_contour_cutover_terrain(roof_terrain_id):
+		return
 	if _roof_tile_sets_by_terrain_id.has(roof_terrain_id):
 		return
 	var shape_set: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set_for_terrain(

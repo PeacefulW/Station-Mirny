@@ -20,6 +20,10 @@ use crate::signature::{Signature, canonical_signatures};
 const ATLAS_COLUMNS: u32 = 8;
 const MATERIAL_EXPORT_SIZE: u32 = 512;
 const RECIPE_VERSION: u32 = 7;
+const RUNTIME_SDF_RECIPE_SCHEMA: &str = "station_peaceful.runtime_sdf_contour_recipe.v1";
+const RUNTIME_SDF_CHUNK_SIZE_TILES: u32 = 16;
+const RUNTIME_SDF_COLLISION_THRESHOLD_PX: f32 = 0.0;
+const RUNTIME_SDF_COLLISION_SAMPLE_PX: u32 = 4;
 const EDGE_NOISE_PERIOD_TILES: f32 = 8.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,6 +190,75 @@ struct RecipePayload<'a> {
     request: &'a AppRequest,
 }
 
+#[derive(Serialize)]
+struct RuntimeSdfRecipePayload {
+    schema: &'static str,
+    asset_name: String,
+    preset: String,
+    tile_size_px: u32,
+    chunk_size_tiles: u32,
+    solid_class: &'static str,
+    geometry: RuntimeSdfRecipeGeometry,
+    materials: RuntimeSdfRecipeMaterials,
+    collision: RuntimeSdfRecipeCollision,
+    determinism: RuntimeSdfRecipeDeterminism,
+}
+
+#[derive(Serialize)]
+struct RuntimeSdfRecipeGeometry {
+    south_height_px: f32,
+    north_height_px: f32,
+    side_height_px: f32,
+    roughness_px: f32,
+    edge_width_px: f32,
+    face_power: f32,
+    back_drop: f32,
+    crown_bevel_px: f32,
+    outer_corner_radius_px: f32,
+    inner_corner_radius_px: f32,
+    corner_round_px: f32,
+    diagonal_smooth_px: f32,
+    contour_relax: f32,
+    contour_warp_px: f32,
+    corner_variation: f32,
+    rim_width_px: f32,
+    outline_enabled: bool,
+    outline_width_px: f32,
+    edge_debris: f32,
+    edge_color_strength: f32,
+    geometry_variance: f32,
+    shape_supersampling: u32,
+}
+
+#[derive(Serialize)]
+struct RuntimeSdfRecipeMaterials {
+    top_albedo: String,
+    face_albedo: String,
+    base_albedo: String,
+    top_modulation: String,
+    face_modulation: String,
+    top_normal: String,
+    face_normal: String,
+    texture_scale: f32,
+    normal_strength: f32,
+    normal_detail_strength: f32,
+}
+
+#[derive(Serialize)]
+struct RuntimeSdfRecipeCollision {
+    threshold: f32,
+    threshold_px: f32,
+    sampling_px: u32,
+    blocks_inside: bool,
+}
+
+#[derive(Serialize)]
+struct RuntimeSdfRecipeDeterminism {
+    seed: u32,
+    variant_count: u32,
+    forced_variant: Option<u32>,
+}
+
 #[cfg(test)]
 fn run_request(mode: RenderMode, request: AppRequest, output_dir: &Path) -> Result<OutputManifest> {
     run_request_with_options(mode, request, output_dir, RenderOptions::default())
@@ -210,7 +283,6 @@ pub fn run_request_with_options(
     let mut warnings = Warnings::default();
     let textures = load_textures(&request, &mut warnings);
     collect_request_warnings(&request, &mut warnings);
-    let signatures = canonical_signatures();
 
     let mut preview_base64 = None;
     let preview_path = if mode == RenderMode::Draft {
@@ -227,8 +299,15 @@ pub fn run_request_with_options(
         None
     };
 
-    let recipe_path = export_file_path(output_dir, &request, "recipe", "json");
-    let files = if mode == RenderMode::Draft {
+    let recipe_slot = if mode == RenderMode::Full
+        && matches!(request.export_mode, ExportMode::RuntimeSdfContour)
+    {
+        "runtime_sdf_recipe"
+    } else {
+        "recipe"
+    };
+    let recipe_path = export_file_path(output_dir, &request, recipe_slot, "json");
+    let (files, signature_count, total_tiles) = if mode == RenderMode::Draft {
         let mut files = if let Some(preview_path) = preview_path.as_deref() {
             generated_files_with_preview(preview_path, &recipe_path)
         } else {
@@ -238,10 +317,16 @@ pub fn run_request_with_options(
         if options.transient {
             files.recipe_json.clear();
         }
-        files
+        let full_signature_count = canonical_signatures().len();
+        (
+            files,
+            manifest_signature_count(&request, full_signature_count),
+            manifest_total_tiles(&request, full_signature_count),
+        )
     } else {
         match request.export_mode {
             ExportMode::Full47 => {
+                let signatures = canonical_signatures();
                 let atlases = build_full_atlases(&request, &textures, &signatures);
                 let material_exports = build_material_exports(&request, &textures);
                 let albedo_atlas_path =
@@ -275,13 +360,17 @@ pub fn run_request_with_options(
                 material_exports.top_normal.save(&top_normal_path)?;
                 material_exports.face_normal.save(&face_normal_path)?;
 
-                GeneratedFiles {
+                let files = GeneratedFiles {
                     preview_png: String::new(),
                     preview_png_base64: None,
                     atlas_albedo_png: Some(to_string_path(&albedo_atlas_path)),
                     atlas_mask_png: Some(to_string_path(&mask_atlas_path)),
                     atlas_height_png: Some(to_string_path(&height_atlas_path)),
                     atlas_normal_png: Some(to_string_path(&normal_atlas_path)),
+                    reference_mask_png: None,
+                    reference_height_png: None,
+                    reference_normal_png: None,
+                    reference_albedo_png: None,
                     top_albedo_png: Some(to_string_path(&top_albedo_path)),
                     face_albedo_png: Some(to_string_path(&face_albedo_path)),
                     base_albedo_png: Some(to_string_path(&base_albedo_path)),
@@ -290,7 +379,13 @@ pub fn run_request_with_options(
                     top_normal_png: Some(to_string_path(&top_normal_path)),
                     face_normal_png: Some(to_string_path(&face_normal_path)),
                     recipe_json: to_string_path(&recipe_path),
-                }
+                };
+                let signature_count = signatures.len();
+                (
+                    files,
+                    signature_count,
+                    signature_count * request.variants as usize,
+                )
             }
             ExportMode::BaseVariantsOnly => {
                 let atlas = build_base_variants_atlas(&request, &textures);
@@ -299,29 +394,107 @@ pub fn run_request_with_options(
 
                 let mut files = generated_files_without_preview(&recipe_path);
                 files.atlas_albedo_png = Some(to_string_path(&atlas_path));
-                files
+                (files, 1, request.variants as usize)
             }
             ExportMode::MaskOnly => {
+                let signatures = canonical_signatures();
                 let atlas = build_mask_atlas(&request, &signatures);
                 let atlas_path = export_file_path(output_dir, &request, "atlas_mask", "png");
                 atlas.save(&atlas_path)?;
 
                 let mut files = generated_files_without_preview(&recipe_path);
                 files.atlas_mask_png = Some(to_string_path(&atlas_path));
-                files
+                let signature_count = signatures.len();
+                (
+                    files,
+                    signature_count,
+                    signature_count * request.variants as usize,
+                )
+            }
+            ExportMode::RuntimeSdfContour => {
+                let reference_exports = build_runtime_sdf_reference_exports(&request, &textures)?;
+                let material_exports = build_material_exports(&request, &textures);
+
+                let reference_mask_path =
+                    export_file_path(output_dir, &request, "reference_mask", "png");
+                let reference_height_path =
+                    export_file_path(output_dir, &request, "reference_height", "png");
+                let reference_normal_path =
+                    export_file_path(output_dir, &request, "reference_normal", "png");
+                let reference_albedo_path =
+                    export_file_path(output_dir, &request, "reference_albedo", "png");
+                let top_albedo_path = export_file_path(output_dir, &request, "top_albedo", "png");
+                let face_albedo_path = export_file_path(output_dir, &request, "face_albedo", "png");
+                let base_albedo_path = export_file_path(output_dir, &request, "base_albedo", "png");
+                let top_modulation_path =
+                    export_file_path(output_dir, &request, "top_modulation", "png");
+                let face_modulation_path =
+                    export_file_path(output_dir, &request, "face_modulation", "png");
+                let top_normal_path = export_file_path(output_dir, &request, "top_normal", "png");
+                let face_normal_path = export_file_path(output_dir, &request, "face_normal", "png");
+
+                reference_exports.mask.save(&reference_mask_path)?;
+                reference_exports.height.save(&reference_height_path)?;
+                reference_exports.normal.save(&reference_normal_path)?;
+                reference_exports.albedo.save(&reference_albedo_path)?;
+                material_exports.top_albedo.save(&top_albedo_path)?;
+                material_exports.face_albedo.save(&face_albedo_path)?;
+                material_exports.base_albedo.save(&base_albedo_path)?;
+                material_exports.top_modulation.save(&top_modulation_path)?;
+                material_exports
+                    .face_modulation
+                    .save(&face_modulation_path)?;
+                material_exports.top_normal.save(&top_normal_path)?;
+                material_exports.face_normal.save(&face_normal_path)?;
+
+                (
+                    GeneratedFiles {
+                        preview_png: String::new(),
+                        preview_png_base64: None,
+                        atlas_albedo_png: None,
+                        atlas_mask_png: None,
+                        atlas_height_png: None,
+                        atlas_normal_png: None,
+                        reference_mask_png: Some(to_string_path(&reference_mask_path)),
+                        reference_height_png: Some(to_string_path(&reference_height_path)),
+                        reference_normal_png: Some(to_string_path(&reference_normal_path)),
+                        reference_albedo_png: Some(to_string_path(&reference_albedo_path)),
+                        top_albedo_png: Some(to_string_path(&top_albedo_path)),
+                        face_albedo_png: Some(to_string_path(&face_albedo_path)),
+                        base_albedo_png: Some(to_string_path(&base_albedo_path)),
+                        top_modulation_png: Some(to_string_path(&top_modulation_path)),
+                        face_modulation_png: Some(to_string_path(&face_modulation_path)),
+                        top_normal_png: Some(to_string_path(&top_normal_path)),
+                        face_normal_png: Some(to_string_path(&face_normal_path)),
+                        recipe_json: to_string_path(&recipe_path),
+                    },
+                    0,
+                    0,
+                )
             }
         }
     };
 
-    let recipe = RecipePayload {
-        tool: "Cliff Forge Desktop",
-        version: RECIPE_VERSION,
-        mode: mode.as_str(),
-        request: &request,
-    };
     if !options.transient {
-        fs::write(&recipe_path, serde_json::to_vec_pretty(&recipe)?)
-            .with_context(|| format!("failed to write recipe: {}", recipe_path.display()))?;
+        if mode == RenderMode::Full && matches!(request.export_mode, ExportMode::RuntimeSdfContour)
+        {
+            let recipe = build_runtime_sdf_recipe_payload(&request, &files);
+            fs::write(&recipe_path, serde_json::to_vec_pretty(&recipe)?).with_context(|| {
+                format!(
+                    "failed to write runtime SDF recipe: {}",
+                    recipe_path.display()
+                )
+            })?;
+        } else {
+            let recipe = RecipePayload {
+                tool: "Cliff Forge Desktop",
+                version: RECIPE_VERSION,
+                mode: mode.as_str(),
+                request: &request,
+            };
+            fs::write(&recipe_path, serde_json::to_vec_pretty(&recipe)?)
+                .with_context(|| format!("failed to write recipe: {}", recipe_path.display()))?;
+        }
     }
 
     Ok(OutputManifest {
@@ -330,8 +503,8 @@ pub fn run_request_with_options(
         preset: request.preset.clone(),
         tile_size: request.tile_size,
         variants: request.variants,
-        signature_count: manifest_signature_count(&request, signatures.len()),
-        total_tiles: manifest_total_tiles(&request, signatures.len()),
+        signature_count,
+        total_tiles,
         preview_mode: request.preview_mode.clone(),
         files,
         warnings: warnings.items,
@@ -354,6 +527,13 @@ struct MaterialExports {
     face_modulation: RgbaImage,
     top_normal: RgbaImage,
     face_normal: RgbaImage,
+}
+
+struct RuntimeSdfReferenceExports {
+    mask: RgbaImage,
+    height: RgbaImage,
+    normal: RgbaImage,
+    albedo: RgbaImage,
 }
 
 fn export_file_path(
@@ -380,6 +560,10 @@ fn generated_files_without_preview(recipe_path: &Path) -> GeneratedFiles {
         atlas_mask_png: None,
         atlas_height_png: None,
         atlas_normal_png: None,
+        reference_mask_png: None,
+        reference_height_png: None,
+        reference_normal_png: None,
+        reference_albedo_png: None,
         top_albedo_png: None,
         face_albedo_png: None,
         base_albedo_png: None,
@@ -395,11 +579,86 @@ fn manifest_signature_count(request: &AppRequest, full_signature_count: usize) -
     match request.export_mode {
         ExportMode::BaseVariantsOnly => 1,
         ExportMode::Full47 | ExportMode::MaskOnly => full_signature_count,
+        ExportMode::RuntimeSdfContour => 0,
     }
 }
 
 fn manifest_total_tiles(request: &AppRequest, full_signature_count: usize) -> usize {
     manifest_signature_count(request, full_signature_count) * request.variants as usize
+}
+
+fn build_runtime_sdf_recipe_payload(
+    request: &AppRequest,
+    files: &GeneratedFiles,
+) -> RuntimeSdfRecipePayload {
+    RuntimeSdfRecipePayload {
+        schema: RUNTIME_SDF_RECIPE_SCHEMA,
+        asset_name: request.asset_name.clone(),
+        preset: request.preset.clone(),
+        tile_size_px: request.tile_size,
+        chunk_size_tiles: RUNTIME_SDF_CHUNK_SIZE_TILES,
+        solid_class: runtime_sdf_solid_class(request),
+        geometry: RuntimeSdfRecipeGeometry {
+            south_height_px: request.south_height as f32,
+            north_height_px: request.north_height as f32,
+            side_height_px: request.side_height as f32,
+            roughness_px: request.roughness,
+            edge_width_px: preview_edge_width_px(request),
+            face_power: request.face_power,
+            back_drop: request.back_drop,
+            crown_bevel_px: request.crown_bevel as f32,
+            outer_corner_radius_px: request.outer_corner_radius as f32,
+            inner_corner_radius_px: request.inner_corner_radius as f32,
+            corner_round_px: request.corner_round_px as f32,
+            diagonal_smooth_px: request.diagonal_smooth_px as f32,
+            contour_relax: request.contour_relax,
+            contour_warp_px: request.contour_warp_px,
+            corner_variation: request.corner_variation,
+            rim_width_px: request.rim_width as f32,
+            outline_enabled: request.mountain_outline_enabled,
+            outline_width_px: request.mountain_outline_width as f32,
+            edge_debris: request.edge_debris,
+            edge_color_strength: request.edge_color_strength,
+            geometry_variance: request.geometry_variance,
+            shape_supersampling: request.shape_supersampling,
+        },
+        materials: RuntimeSdfRecipeMaterials {
+            top_albedo: file_name_string(files.top_albedo_png.as_deref()),
+            face_albedo: file_name_string(files.face_albedo_png.as_deref()),
+            base_albedo: file_name_string(files.base_albedo_png.as_deref()),
+            top_modulation: file_name_string(files.top_modulation_png.as_deref()),
+            face_modulation: file_name_string(files.face_modulation_png.as_deref()),
+            top_normal: file_name_string(files.top_normal_png.as_deref()),
+            face_normal: file_name_string(files.face_normal_png.as_deref()),
+            texture_scale: request.texture_scale,
+            normal_strength: request.normal_strength,
+            normal_detail_strength: request.normal_detail_strength,
+        },
+        collision: RuntimeSdfRecipeCollision {
+            threshold: RUNTIME_SDF_COLLISION_THRESHOLD_PX,
+            threshold_px: RUNTIME_SDF_COLLISION_THRESHOLD_PX,
+            sampling_px: RUNTIME_SDF_COLLISION_SAMPLE_PX,
+            blocks_inside: runtime_sdf_solid_class(request) == "mountain_mass",
+        },
+        determinism: RuntimeSdfRecipeDeterminism {
+            seed: request.seed,
+            variant_count: request.variants,
+            forced_variant: request.forced_variant,
+        },
+    }
+}
+
+fn runtime_sdf_solid_class(request: &AppRequest) -> &'static str {
+    match request.preset.as_str() {
+        "earth" => "ground_surface",
+        _ => "mountain_mass",
+    }
+}
+
+fn file_name_string(path: Option<&str>) -> String {
+    path.and_then(|value| Path::new(value).file_name())
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_default()
 }
 
 fn load_textures(request: &AppRequest, warnings: &mut Warnings) -> TextureSet {
@@ -669,6 +928,29 @@ fn build_material_exports(request: &AppRequest, textures: &TextureSet) -> Materi
             request.normal_strength,
         ),
     }
+}
+
+fn build_runtime_sdf_reference_exports(
+    request: &AppRequest,
+    textures: &TextureSet,
+) -> Result<RuntimeSdfReferenceExports> {
+    Ok(RuntimeSdfReferenceExports {
+        mask: build_runtime_sdf_reference_image(request, textures, "mask")?,
+        height: build_runtime_sdf_reference_image(request, textures, "height")?,
+        normal: build_runtime_sdf_reference_image(request, textures, "normal")?,
+        albedo: build_runtime_sdf_reference_image(request, textures, "albedo")?,
+    })
+}
+
+fn build_runtime_sdf_reference_image(
+    request: &AppRequest,
+    textures: &TextureSet,
+    preview_mode: &str,
+) -> Result<RgbaImage> {
+    let mut reference_request = request.clone();
+    reference_request.preview_mode = preview_mode.to_string();
+    reference_request.bake_height_shading = false;
+    build_map_preview(&reference_request, textures)
 }
 
 fn build_material_albedo_and_values(
@@ -1418,12 +1700,7 @@ impl OutlineMaskSource<'_> {
     }
 }
 
-fn bottom_outline_strength(
-    source: &OutlineMaskSource<'_>,
-    x: i32,
-    y: i32,
-    width: u32,
-) -> f32 {
+fn bottom_outline_strength(source: &OutlineMaskSource<'_>, x: i32, y: i32, width: u32) -> f32 {
     let Some(pixel_mask) = source.mask_at(x, y) else {
         return 0.0;
     };
@@ -3407,9 +3684,7 @@ fn organic_height_delta(
             SurfaceZone::Back => 0.022,
             SurfaceZone::Empty => 0.0,
         };
-        ((broad - 0.5) * 0.65 + (fine - 0.5) * 0.35)
-            * zone_amp
-            * request.normal_detail_strength
+        ((broad - 0.5) * 0.65 + (fine - 0.5) * 0.35) * zone_amp * request.normal_detail_strength
     };
 
     if (request.rim_width > 0 || request.edge_debris > 0.0)
@@ -3474,8 +3749,11 @@ fn top_rock_relief_delta(request: &AppRequest, seed: u32, world_x: f32, world_y:
 
     let slab_wave = (broad - 0.52) * 0.030;
     let soft_pits = clamp((0.46 - mid) * 1.85, 0.0, 1.0) * 0.046;
-    let hairline = clamp((0.10 - (fracture_field - 0.50).abs()).max(0.0) * 7.0, 0.0, 1.0)
-        * 0.052;
+    let hairline = clamp(
+        (0.10 - (fracture_field - 0.50).abs()).max(0.0) * 7.0,
+        0.0,
+        1.0,
+    ) * 0.052;
     let pepper = clamp((pit_field - 0.88) * 7.5, 0.0, 1.0) * 0.034;
 
     (slab_wave - soft_pits - hairline - pepper) * strength
@@ -3694,6 +3972,7 @@ mod tests {
     use crate::sdf::MapSdf;
     use crate::signature::signature_at;
     use std::fs as test_fs;
+    use std::hash::{Hash, Hasher};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -3744,6 +4023,103 @@ mod tests {
                 .pixels()
                 .zip(right.pixels())
                 .all(|(left_pixel, right_pixel)| left_pixel.0 == right_pixel.0)
+    }
+
+    fn runtime_sdf_fixture_map() -> MapData {
+        MapData {
+            width: 8,
+            height: 8,
+            cells: [
+                "00000000", "00111100", "01111110", "01101110", "01111110", "00111000", "00010000",
+                "00000000",
+            ]
+            .iter()
+            .flat_map(|row| row.bytes().map(|cell| u8::from(cell == b'1')))
+            .collect(),
+        }
+    }
+
+    fn runtime_sdf_fixture_request(asset_name: &str, preset: &str) -> AppRequest {
+        let mut request = default_request();
+        request.asset_name = asset_name.to_string();
+        request.export_mode = ExportMode::RuntimeSdfContour;
+        request.preset = preset.to_string();
+        request.tile_size = 64;
+        request.seed = 13_371_337;
+        request.forced_variant = Some(0);
+        request.shape_supersampling = 4;
+        request.preview_mode = "normal".to_string();
+        request.bake_height_shading = false;
+        request.map = runtime_sdf_fixture_map();
+        request.sanitized()
+    }
+
+    fn runtime_export_paths(manifest: &OutputManifest) -> Vec<String> {
+        vec![
+            manifest.files.recipe_json.clone(),
+            manifest
+                .files
+                .reference_mask_png
+                .clone()
+                .expect("runtime export should include reference mask"),
+            manifest
+                .files
+                .reference_height_png
+                .clone()
+                .expect("runtime export should include reference height"),
+            manifest
+                .files
+                .reference_normal_png
+                .clone()
+                .expect("runtime export should include reference normal"),
+            manifest
+                .files
+                .reference_albedo_png
+                .clone()
+                .expect("runtime export should include reference albedo"),
+            manifest
+                .files
+                .top_albedo_png
+                .clone()
+                .expect("runtime export should include top albedo"),
+            manifest
+                .files
+                .face_albedo_png
+                .clone()
+                .expect("runtime export should include face albedo"),
+            manifest
+                .files
+                .base_albedo_png
+                .clone()
+                .expect("runtime export should include base albedo"),
+            manifest
+                .files
+                .top_modulation_png
+                .clone()
+                .expect("runtime export should include top modulation"),
+            manifest
+                .files
+                .face_modulation_png
+                .clone()
+                .expect("runtime export should include face modulation"),
+            manifest
+                .files
+                .top_normal_png
+                .clone()
+                .expect("runtime export should include top normal"),
+            manifest
+                .files
+                .face_normal_png
+                .clone()
+                .expect("runtime export should include face normal"),
+        ]
+    }
+
+    fn file_hash(path: &str) -> u64 {
+        let bytes = test_fs::read(path).expect("exported file should be readable");
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        hasher.finish()
     }
 
     fn thin_occupied_columns(image: &RgbaImage) -> usize {
@@ -5110,7 +5486,9 @@ mod tests {
             }) else {
                 continue;
             };
-            if bottom_y + 1 >= mask_preview.height() || bottom_y % base.tile_size != base.tile_size - 1 {
+            if bottom_y + 1 >= mask_preview.height()
+                || bottom_y % base.tile_size != base.tile_size - 1
+            {
                 continue;
             }
             if mask_preview.get_pixel(x, bottom_y + 1).0[3] != 0 {
@@ -5643,6 +6021,109 @@ mod tests {
         assert!(!output_dir.join("plains_ground_preview.png").exists());
         assert!(manifest.files.atlas_albedo_png.is_some());
     }
+
+    #[test]
+    fn runtime_sdf_contour_export_writes_recipe_and_reference_images() {
+        let output_dir = test_output_dir("runtime_sdf_contour_export");
+        let request = runtime_sdf_fixture_request("mountain", "mountain");
+
+        let manifest = run_request(RenderMode::Full, request, &output_dir)
+            .expect("runtime SDF contour export should render");
+
+        assert_eq!(manifest.export_mode, "RuntimeSdfContour");
+        assert_eq!(manifest.signature_count, 0);
+        assert_eq!(manifest.total_tiles, 0);
+        assert!(manifest.files.atlas_albedo_png.is_none());
+        assert!(manifest.files.atlas_mask_png.is_none());
+        assert!(output_dir.join("mountain_runtime_sdf_recipe.json").exists());
+
+        for path in runtime_export_paths(&manifest) {
+            assert!(
+                Path::new(&path).exists(),
+                "missing runtime export file: {path}"
+            );
+        }
+
+        let recipe: serde_json::Value = serde_json::from_slice(
+            &test_fs::read(&manifest.files.recipe_json).expect("recipe should be readable"),
+        )
+        .expect("runtime recipe should be valid JSON");
+        assert_eq!(
+            recipe["schema"],
+            "station_peaceful.runtime_sdf_contour_recipe.v1"
+        );
+        assert_eq!(recipe["asset_name"], "mountain");
+        assert_eq!(recipe["solid_class"], "mountain_mass");
+        assert_eq!(recipe["tile_size_px"], 64);
+        assert_eq!(recipe["chunk_size_tiles"], 16);
+        assert_eq!(recipe["collision"]["threshold_px"], 0.0);
+        assert_eq!(recipe["collision"]["sampling_px"], 4);
+        assert_eq!(recipe["materials"]["top_albedo"], "mountain_top_albedo.png");
+        assert_eq!(
+            recipe["materials"]["face_albedo"],
+            "mountain_face_albedo.png"
+        );
+
+        for path in [
+            manifest.files.reference_mask_png.as_deref().unwrap(),
+            manifest.files.reference_height_png.as_deref().unwrap(),
+            manifest.files.reference_normal_png.as_deref().unwrap(),
+            manifest.files.reference_albedo_png.as_deref().unwrap(),
+        ] {
+            let image = image::open(path)
+                .expect("reference image should be readable")
+                .to_rgba8();
+            assert_eq!(image.dimensions(), (512, 512));
+        }
+    }
+
+    #[test]
+    fn runtime_sdf_contour_export_is_deterministic() {
+        let request = runtime_sdf_fixture_request("mountain", "mountain");
+        let first_dir = test_output_dir("runtime_sdf_first");
+        let second_dir = test_output_dir("runtime_sdf_second");
+
+        let first = run_request(RenderMode::Full, request.clone(), &first_dir)
+            .expect("first runtime SDF export should render");
+        let second = run_request(RenderMode::Full, request, &second_dir)
+            .expect("second runtime SDF export should render");
+
+        let first_hashes: Vec<u64> = runtime_export_paths(&first)
+            .iter()
+            .map(|path| file_hash(path))
+            .collect();
+        let second_hashes: Vec<u64> = runtime_export_paths(&second)
+            .iter()
+            .map(|path| file_hash(path))
+            .collect();
+
+        assert_eq!(
+            first_hashes, second_hashes,
+            "runtime SDF export should produce identical recipe and image hashes for the same seed"
+        );
+    }
+
+    #[test]
+    fn runtime_sdf_contour_export_uses_map_sdf_path_not_canonical_signatures() {
+        let output_dir = test_output_dir("runtime_sdf_contour_sdf_path");
+        let mut request = runtime_sdf_fixture_request("mountain", "mountain");
+        request.preview_mode = "mask".to_string();
+        let expected_mask = build_map_preview(&request, &TextureSet::default())
+            .expect("live map SDF preview should render");
+
+        let manifest = run_request(RenderMode::Full, request, &output_dir)
+            .expect("runtime SDF contour export should render");
+        let reference_mask = image::open(manifest.files.reference_mask_png.as_deref().unwrap())
+            .expect("reference mask should be readable")
+            .to_rgba8();
+
+        assert!(
+            images_match(&reference_mask, &expected_mask),
+            "runtime reference mask should match the live global SDF map preview"
+        );
+        assert!(manifest.files.atlas_mask_png.is_none());
+        assert_eq!(manifest.signature_count, 0);
+    }
 }
 
 fn apply_material_tint(
@@ -6132,14 +6613,10 @@ fn stratified_rock_layers(
         1.0,
     );
     let facet = (block_value - 0.5) * 0.18 + (shelf_break - 0.5) * 0.09;
-    let value = 0.32
-        + broad * 0.20
-        + fine * 0.11
-        + shelf * 0.14
-        + facet
-        + speck * material.grain * 0.12
-        - block_edge * 0.08
-        - band_edge * 0.04;
+    let value =
+        0.32 + broad * 0.20 + fine * 0.11 + shelf * 0.14 + facet + speck * material.grain * 0.12
+            - block_edge * 0.08
+            - band_edge * 0.04;
     let ledge_highlight = line_mask(band_pos, 1.35) * (0.12 + shelf_break * 0.10);
     let highlight = clamp(
         (1.0 - band_edge) * fine * 0.08 + chip * 0.17 + block_chip * 0.18 + ledge_highlight,

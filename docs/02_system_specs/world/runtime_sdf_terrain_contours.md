@@ -153,9 +153,15 @@ The generator:
 - Generator preview references and in-game render captures must have a defined
   parity test.
 - There is no runtime ground/mountain fallback to `autotile_47` after cutover.
-- Target ground and mountain chunks must fail closed: if contour visual or
-  contour collision data is missing, stale, or invalid, the chunk is not visible
-  and not movement-ready.
+- Target ground and mountain chunks must fail closed for readiness: if contour
+  collision data is missing, stale, or invalid, the chunk is not
+  movement-ready. Initial missing visual data keeps the chunk hidden; a dirty
+  already-published chunk may keep its previous visual revision visible while
+  collision/readiness remain blocked.
+- Iteration 07 active readiness is gated by `mountain_mass` and
+  `ground_surface` results. `water_surface` remains a boundary/debug contour
+  class and must not block chunk visibility or movement readiness while lake
+  presentation still uses the existing water layer.
 
 ## Law 0 Classification
 
@@ -217,9 +223,23 @@ After cutover:
 
 must not render through ground or mountain `autotile_47` TileMap sources.
 
-If a loaded chunk contains any of those terrain ids and the matching contour
-result is not ready, the chunk stays hidden and movement into the chunk returns
-not ready. This is an intentional fail-closed rule, not a fallback.
+If a loaded chunk contains any of those terrain ids and no matching contour
+result has ever been published, the chunk may only become visible through a
+fresh `ground_surface` loading placeholder while `mountain_mass` is still
+pending. This placeholder is visual-only, is not contour-ready, and does not
+make movement into the chunk ready. If no fresh `ground_surface` result exists
+yet, the chunk stays hidden. If a later dirty revision is pending, the previous
+visual revision may remain visible, but movement into the stale contour region
+still returns not ready. This is an intentional fail-closed readiness rule, not
+a fallback.
+
+Contour worker requests must produce `ground_surface` before
+`mountain_mass` so the visual-only placeholder can be published quickly on
+startup or teleport while the heavier mountain SDF continues on the worker.
+If the worker `ground_surface` result is not available at chunk publish time,
+the streamer may apply a 1x1 constant `ground_surface` placeholder on the main
+thread. That placeholder is a bounded presentation cache only and must never be
+stored as the authoritative contour result.
 
 ### Terrain Classes
 
@@ -227,12 +247,21 @@ The first cutover handles these contour classes:
 
 | Class | Logical source | Visual role | Collision role |
 |---|---|---|---|
-| `mountain_mass` | effective mountain wall/foot tiles with mountain flags | mountain top/face/outline contour | blocks movement inside the contour |
-| `ground_surface` | walkable ground and dug terrain | base ground material and organic banks/cuts | walkable outside blocking contours |
+| `mountain_mass` | effective mountain wall/foot tiles with mountain flags, plus legacy blocked terrain after cutover | mountain top/face/outline contour | blocks movement inside the contour |
+| `ground_surface` | walkable ground and dug terrain | base ground material under active cutover terrain; native constant result is allowed in the first cutover when no blocking ground contour is required | non-blocking |
 | `water_surface` | lake shallow/deep terrain | shore boundary participant | uses existing water movement semantics unless a lake spec changes them |
 
-Ground is not a blocking solid. Ground SDF is used to render organic edges
-where ground meets water, mountain mass, dug cuts, or future region masks.
+Ground is not a blocking solid. In the first cutover, `ground_surface` may use a
+constant native contour result as the base material plane so chunk readiness is
+not held by a second heavy SDF pass. That constant result must still encode
+`height_r16` as valid Godot `Image.FORMAT_RH` half-float data, not as arbitrary
+filled bytes. Organic blocking shape, visible mountain occupancy, and movement
+collision are owned by `mountain_mass`; later lake or ground-edge specs may
+promote more ground-edge SDF detail without changing the movement owner.
+In Iteration 07, only `mountain_mass` and `ground_surface` are active contour
+result classes for chunk readiness. `water_surface` remains available for halo
+classification and debug readback, but it is not an independent readiness gate
+until a later lake cutover spec promotes it.
 
 ### Fixed Texture and Field Formats
 
@@ -241,7 +270,7 @@ Contour output formats are fixed for implementation and tests:
 | Field | Format | Size | Encoding |
 |---|---|---|---|
 | `mask_rgba8` | RGBA8 | `chunk_px_w * chunk_px_h * 4` bytes | R = top coverage, G = face coverage, B = back coverage, A = occupancy coverage. All channels are `0..255` UNORM. |
-| `height_r16` | R16 little-endian | `chunk_px_w * chunk_px_h * 2` bytes | `0..65535` UNORM maps to `0..tile_size_px` height range. |
+| `height_r16` | R16 half-float little-endian | `chunk_px_w * chunk_px_h * 2` bytes | IEEE 754 binary16 stores normalized `0..1` surface height and is uploaded as Godot `Image.FORMAT_RH`. |
 | `normal_rgba8` | RGBA8 | `chunk_px_w * chunk_px_h * 4` bytes | XYZ normal encoded as `(n * 0.5 + 0.5) * 255`, A = occupancy coverage. |
 | `collision_sdf_f32` | Float32 little-endian | `collision_w * collision_h * 4` bytes | Signed distance in world pixels; inside blocking mountain mass is positive, outside is negative. |
 
@@ -338,6 +367,7 @@ ContourChunkInputV1 {
   world_seed: int,
   world_version: int,
   tile_size_px: int,
+  render_tile_size_px?: int,
   chunk_size_tiles: int,
   halo_tiles: int,
   recipe_id: StringName,
@@ -367,6 +397,11 @@ ContourChunkInputV1 {
 The halo is fixed to `2` tiles for Iterations 02-07. This covers the initial
 SDF smoothing and diagonal shaping budget. Increasing halo size requires a spec
 version bump because it changes streaming cost and seam behavior.
+
+`tile_size_px` remains the logical SDF and collision coordinate scale. Runtime
+may provide `render_tile_size_px` for a lower-resolution visual cache, provided
+the result is scaled to the logical chunk size and collision buffers keep using
+logical `tile_size_px` coordinates.
 
 Halo data is not limited to already loaded neighbor chunks. `WorldStreamer`
 must assemble halo input from:
@@ -441,7 +476,7 @@ generator output across repeated exports.
 Native parity compares the native contour result to generator reference images:
 
 - mask maximum per-channel absolute difference: `<= 2`
-- height maximum absolute difference after R16 decode: `<= 2` units
+- height maximum absolute difference after binary16 decode: `<= 2` units
 - normal maximum per-channel absolute difference: `<= 3`
 - occupancy threshold classification at `alpha >= 128`: exact match
 - collision sign at every `4 px` sample: exact match against reference
@@ -508,14 +543,32 @@ diff write:
 4. native contour compute refreshes the full affected chunk result for each
    dirty contour class
 5. `ChunkView` swaps visual textures only when the result revision matches the
-   current diff revision
+   chunk's required contour revision
 6. movement queries read the refreshed collision revision
 
 If the new collision revision is not ready yet, movement into the affected dirty
-region is blocked until readiness catches up.
+region is blocked until readiness catches up. Already-published chunks may keep
+the previous visual revision visible during this dirty refresh to avoid
+chunk-sized holes; the stale visual must not be treated as movement-ready and
+must be atomically replaced with the matching visual/collision revision when it
+arrives.
 
-Partial texture updates are deliberately out of scope for the first cutover.
-Full affected chunk refresh is the initial correctness path.
+The global `WorldDiffStore.diff_revision` is a monotonic change id, not a
+requirement that every loaded chunk rebuild after every diff. `WorldStreamer`
+tracks a per-chunk required revision. Only chunks whose own tiles or bounded
+halo can observe the changed tile are marked dirty for the new revision; already
+ready unaffected chunks keep their previous ready revision valid.
+
+Bounded immediate visual feedback is allowed through a chunk-local runtime
+cutout mask for the mutated logical tile. This mask is presentation-only,
+shader-smoothed in tile space with a rounded organic falloff to avoid a hard
+square before the SDF refresh, and
+must not make movement ready. The authoritative visual/collision contour still
+arrives through the full affected chunk worker refresh and revision swap.
+
+Mountain outline coverage is derived from the same SDF field as occupancy. It
+must not use vertical pixel-probe expansion, because that reintroduces
+chunk/tile-corner brackets on diagonal silhouettes.
 
 ## File Ownership Plan
 

@@ -13,11 +13,13 @@ const WorldDiffStore = preload("res://core/systems/world/world_diff_store.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldSpawnResolver = preload("res://core/systems/world/world_spawn_resolver.gd")
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
+const TerrainPresentationRegistry = preload("res://core/systems/world/terrain_presentation_registry.gd")
 const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.gd")
 const DefaultLakeGenSettings = preload("res://data/balance/lake_gen_settings.tres")
 
 const INVALID_CHUNK_COORD: Vector2i = Vector2i(2147483647, 2147483647)
 const MAX_SPAWN_RESULTS_PER_TICK: int = 1
+const CONTOUR_WORKER_THREAD_COUNT: int = 4
 
 var world_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 var world_version: int = WorldRuntimeConstants.WORLD_VERSION
@@ -53,6 +55,21 @@ var _debug_tile_grid_visible: bool = false
 var _debug_mountain_solid_visible: bool = false
 var _debug_mountain_contour_visible: bool = false
 var _contour_world_core: Object = null
+var _contour_worker_threads: Array[Thread] = []
+var _contour_request_mutex: Mutex = Mutex.new()
+var _contour_result_mutex: Mutex = Mutex.new()
+var _contour_request_semaphore: Semaphore = Semaphore.new()
+var _contour_pending_requests: Array[Dictionary] = []
+var _contour_completed_results: Array[Dictionary] = []
+var _contour_worker_should_exit: bool = false
+var _contour_inflight_count: int = 0
+var _contour_requested_keys: Dictionary = {}
+var _contour_dirty_request_queue: Array[Vector2i] = []
+var _contour_dirty_request_lookup: Dictionary = {}
+var _contour_results_by_chunk: Dictionary = {}
+var _contour_diff_revision: int = 0
+var _contour_requested_revision_by_chunk: Dictionary = {}
+var _contour_ready_revision_by_chunk: Dictionary = {}
 
 func _ready() -> void:
 	add_to_group("chunk_manager")
@@ -64,22 +81,56 @@ func _ready() -> void:
 		LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict())
 	)
 	WorldTileSetFactory.bootstrap()
+	_start_contour_worker()
 	_packet_backend.start()
-	_stream_job_id = FrameBudgetDispatcher.register_job(
-		RuntimeWorkTypes.CATEGORY_STREAMING,
-		1.5,
-		_streaming_tick,
-		&"world.streaming_v0",
-		RuntimeWorkTypes.CadenceKind.NEAR_PLAYER,
-		RuntimeWorkTypes.ThreadingRole.COMPUTE_THEN_APPLY,
-		true,
-		"World runtime V0 streaming"
-	)
+	var frame_budget_dispatcher: Node = _get_frame_budget_dispatcher()
+	if frame_budget_dispatcher != null:
+		_stream_job_id = frame_budget_dispatcher.register_job(
+			RuntimeWorkTypes.CATEGORY_STREAMING,
+			1.5,
+			_streaming_tick,
+			&"world.streaming_v0",
+			RuntimeWorkTypes.CadenceKind.NEAR_PLAYER,
+			RuntimeWorkTypes.ThreadingRole.COMPUTE_THEN_APPLY,
+			true,
+			"World runtime V0 streaming"
+		)
 
 func _exit_tree() -> void:
-	if _stream_job_id and FrameBudgetDispatcher:
-		FrameBudgetDispatcher.unregister_job(_stream_job_id)
+	var frame_budget_dispatcher: Node = _get_frame_budget_dispatcher()
+	if _stream_job_id and frame_budget_dispatcher != null:
+		frame_budget_dispatcher.unregister_job(_stream_job_id)
+	_stop_contour_worker()
 	_packet_backend.stop()
+
+func _get_frame_budget_dispatcher() -> Node:
+	return get_node_or_null("/root/FrameBudgetDispatcher")
+
+func _get_event_bus() -> Node:
+	return get_node_or_null("/root/EventBus")
+
+func _emit_world_event(signal_name: StringName, args: Array = []) -> void:
+	var event_bus: Node = _get_event_bus()
+	if event_bus == null:
+		return
+	var call_args: Array = [signal_name]
+	call_args.append_array(args)
+	event_bus.callv("emit_signal", call_args)
+
+func _get_player_authority() -> Node:
+	return get_node_or_null("/root/PlayerAuthority")
+
+func _get_local_player_node() -> Node2D:
+	var player_authority: Node = _get_player_authority()
+	if player_authority == null or not player_authority.has_method("get_local_player"):
+		return null
+	return player_authority.call("get_local_player") as Node2D
+
+func _get_local_player_position() -> Vector2:
+	var player_authority: Node = _get_player_authority()
+	if player_authority == null or not player_authority.has_method("get_local_player_position"):
+		return Vector2.ZERO
+	return player_authority.call("get_local_player_position") as Vector2
 
 func initialize_new_world(
 	seed_value: int,
@@ -125,7 +176,7 @@ func reset_for_new_game(
 	_diff_store.clear()
 	_reset_runtime_state()
 	_queue_new_game_spawn_resolution()
-	EventBus.world_initialized.emit(world_seed)
+	_emit_world_event(&"world_initialized", [world_seed])
 
 func load_world_state(data: Dictionary) -> bool:
 	var loaded_world_version: int = int(data.get("world_version", -1))
@@ -156,7 +207,7 @@ func load_world_state(data: Dictionary) -> bool:
 	_reset_runtime_state()
 	_awaiting_new_game_spawn_result = false
 	_new_game_spawn_failed = false
-	EventBus.world_initialized.emit(world_seed)
+	_emit_world_event(&"world_initialized", [world_seed])
 	return true
 
 func save_world_state() -> Dictionary:
@@ -183,6 +234,8 @@ func collect_chunk_diffs() -> Array[Dictionary]:
 func load_chunk_diffs(entries: Array) -> void:
 	_diff_store.load_serialized_chunks(entries)
 	_refresh_loaded_packets_from_diffs()
+	_sync_contour_diff_revision_from_store()
+	_request_contour_results_for_loaded_chunks()
 
 func get_world_seed() -> int:
 	return world_seed
@@ -215,6 +268,94 @@ func get_mountain_contour_debug_state(chunk_coord: Vector2i) -> Dictionary:
 	var debug_state: Dictionary = chunk_view.get_mountain_contour_debug_state()
 	debug_state["ready"] = true
 	return debug_state
+
+func get_contour_halo_debug_state(chunk_coord: Vector2i, contour_class: StringName) -> Dictionary:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var request: Dictionary = _build_contour_worker_request(chunk_coord)
+	if request.is_empty():
+		return {
+			"ready": false,
+			"chunk_coord": chunk_coord,
+			"contour_class": contour_class,
+		}
+	var world_core: Object = ClassDB.instantiate("WorldCore")
+	if world_core == null:
+		return {
+			"ready": false,
+			"chunk_coord": chunk_coord,
+			"contour_class": contour_class,
+		}
+	var packet_map: Dictionary = _build_contour_packet_map_for_request(world_core, request)
+	var input: Dictionary = _build_contour_input_from_request(request, packet_map, contour_class)
+	input["ready"] = not input.is_empty()
+	return input
+
+func request_contour_results_for_chunk_debug(chunk_coord: Vector2i) -> void:
+	_request_contour_results_for_chunk(chunk_coord)
+
+func drain_contour_results_debug(max_count: int = 8) -> int:
+	return _drain_completed_contour_results(max_count)
+
+func get_contour_result_debug_state(chunk_coord: Vector2i, contour_class: StringName) -> Dictionary:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var required_revision: int = _get_contour_required_revision_for_chunk(chunk_coord)
+	var chunk_results: Dictionary = _contour_results_by_chunk.get(chunk_coord, {}) as Dictionary
+	var result: Dictionary = chunk_results.get(contour_class, {}) as Dictionary
+	if result.is_empty():
+		return {
+			"ready": false,
+			"chunk_coord": chunk_coord,
+			"contour_class": contour_class,
+			"current_diff_revision": _contour_diff_revision,
+			"required_diff_revision": required_revision,
+		}
+	var stored_revision: int = int(result.get("diff_revision", -1))
+	if stored_revision != required_revision:
+		return {
+			"ready": false,
+			"chunk_coord": chunk_coord,
+			"contour_class": contour_class,
+			"stored_diff_revision": stored_revision,
+			"current_diff_revision": _contour_diff_revision,
+			"required_diff_revision": required_revision,
+		}
+	return {
+		"ready": bool(result.get("ready", false)),
+		"chunk_coord": chunk_coord,
+		"contour_class": contour_class,
+		"recipe_id": result.get("recipe_id", &""),
+		"diff_revision": stored_revision,
+		"current_diff_revision": _contour_diff_revision,
+		"required_diff_revision": required_revision,
+		"pixel_size": result.get("pixel_size", Vector2i.ZERO),
+		"collision_size": result.get("collision_size", Vector2i.ZERO),
+		"collision_sample_px": int(result.get("collision_sample_px", 0)),
+		"mask_byte_count": (result.get("mask_rgba8", PackedByteArray()) as PackedByteArray).size(),
+		"height_byte_count": (result.get("height_r16", PackedByteArray()) as PackedByteArray).size(),
+		"normal_byte_count": (result.get("normal_rgba8", PackedByteArray()) as PackedByteArray).size(),
+		"collision_sample_count": (result.get("collision_sdf_f32", PackedFloat32Array()) as PackedFloat32Array).size(),
+	}
+
+func get_contour_dirty_debug_state(chunk_coord: Vector2i) -> Dictionary:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var chunk_results: Dictionary = _contour_results_by_chunk.get(chunk_coord, {}) as Dictionary
+	var result_revisions: Dictionary = {}
+	for contour_class_variant: Variant in WorldRuntimeConstants.CONTOUR_CLASSES:
+		var contour_class: StringName = contour_class_variant as StringName
+		var result: Dictionary = chunk_results.get(contour_class, {}) as Dictionary
+		result_revisions[contour_class] = int(result.get("diff_revision", -1)) if not result.is_empty() else -1
+	var ready_revision: int = int(_contour_ready_revision_by_chunk.get(chunk_coord, -1))
+	var required_revision: int = _get_contour_required_revision_for_chunk(chunk_coord)
+	return {
+		"ready": ready_revision == required_revision,
+		"chunk_coord": chunk_coord,
+		"store_diff_revision": _diff_store.get_diff_revision(),
+		"current_diff_revision": _contour_diff_revision,
+		"required_diff_revision": required_revision,
+		"requested_revision": int(_contour_requested_revision_by_chunk.get(chunk_coord, -1)),
+		"ready_revision": ready_revision,
+		"result_revisions": result_revisions,
+	}
 
 func get_chunk_packet(chunk_coord: Vector2i) -> Dictionary:
 	return _chunk_packets.get(chunk_coord, {}) as Dictionary
@@ -284,10 +425,35 @@ func set_active_mountain_component(mountain_id: int, component_id: int) -> void:
 	_refresh_cover_visibility_for_loaded_chunks()
 
 func is_walkable_at_world(world_pos: Vector2) -> bool:
-	var tile_data: Dictionary = _get_tile_data(world_pos)
+	var tile_data: Dictionary = get_effective_tile_data_at_world(world_pos)
+	if not bool(tile_data.get("ready", false)):
+		return false
+	var terrain_id: int = int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
+	var raw_walkable: bool = bool(tile_data.get("walkable", false))
+	if not raw_walkable and not _is_movement_walkability_contour_controlled(terrain_id):
+		return false
+	var collision_sample: Dictionary = _sample_movement_collision_at_world(world_pos)
+	if not bool(collision_sample.get("ready", false)):
+		return false
+	return not bool(collision_sample.get("blocked", true))
+
+func is_movement_blocked_at_world(world_pos: Vector2) -> bool:
+	var tile_data: Dictionary = get_effective_tile_data_at_world(world_pos)
+	if not bool(tile_data.get("ready", false)):
+		return true
+	var collision_sample: Dictionary = _sample_movement_collision_at_world(world_pos)
+	if not bool(collision_sample.get("ready", false)):
+		return true
+	return bool(collision_sample.get("blocked", true))
+
+func is_raw_tile_walkable_at_world(world_pos: Vector2) -> bool:
+	var tile_data: Dictionary = get_effective_tile_data_at_world(world_pos)
 	if not bool(tile_data.get("ready", false)):
 		return false
 	return bool(tile_data.get("walkable", false))
+
+func get_effective_tile_data_at_world(world_pos: Vector2) -> Dictionary:
+	return _get_tile_data(world_pos)
 
 func has_resource_at_world(world_pos: Vector2) -> bool:
 	var tile_data: Dictionary = _get_tile_data(world_pos)
@@ -335,11 +501,16 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 		WorldRuntimeConstants.TERRAIN_PLAINS_DUG,
 		true
 	)
+	_sync_contour_diff_revision_from_store()
 	_apply_loaded_override(chunk_coord, local_coord, WorldRuntimeConstants.TERRAIN_PLAINS_DUG, true)
-	_handle_cover_tile_dug(_chunk_local_to_tile(chunk_coord, local_coord))
+	_handle_cover_tile_dug(world_tile)
+	_mark_contour_diff_changed(world_tile, _contour_diff_revision)
 	if terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
 			or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
-		EventBus.mountain_tile_mined.emit(_chunk_local_to_tile(chunk_coord, local_coord), terrain_id, WorldRuntimeConstants.TERRAIN_PLAINS_DUG)
+		_emit_world_event(
+			&"mountain_tile_mined",
+			[world_tile, terrain_id, WorldRuntimeConstants.TERRAIN_PLAINS_DUG]
+		)
 	return {
 		"success": true,
 		"item_id": "base:scrap",
@@ -355,13 +526,15 @@ func _streaming_tick() -> bool:
 	_wrap_local_player_position_if_needed()
 	_update_player_chunk_coord()
 	_enqueue_desired_chunks()
-	_drain_completed_packets(1)
+	_drain_completed_packets(2)
+	_drain_completed_contour_results(4)
+	_request_queued_dirty_contour_chunks(4)
 	_publish_next_batch()
 	_evict_outside_ring(1)
 	return _has_pending_streaming_work()
 
 func _update_player_chunk_coord() -> void:
-	var player_pos: Vector2 = PlayerAuthority.get_local_player_position()
+	var player_pos: Vector2 = _get_local_player_position()
 	var tile_coord: Vector2i = _canonicalize_tile_coord(WorldRuntimeConstants.world_to_tile(player_pos))
 	_player_chunk_coord = WorldRuntimeConstants.tile_to_chunk(tile_coord)
 
@@ -394,6 +567,7 @@ func _drain_completed_packets(max_count: int) -> void:
 		var merged_packet: Dictionary = _diff_store.apply_to_packet(packet)
 		_chunk_packets[chunk_coord] = merged_packet
 		_refresh_loaded_visuals_around_chunk_overrides(chunk_coord)
+		_request_contour_results_for_chunk(chunk_coord)
 		if _is_chunk_desired(chunk_coord) and not _pending_publish_queue.has(chunk_coord) and chunk_coord != _active_publish_chunk:
 			_pending_publish_queue.append(chunk_coord)
 
@@ -418,8 +592,11 @@ func _publish_next_batch() -> void:
 	if not has_more:
 		_handle_cover_chunk_published(_active_publish_chunk)
 		_refresh_debug_visuals_for_chunk(_active_publish_chunk)
-		active_view.visible = true
-		EventBus.chunk_loaded.emit(_active_publish_chunk)
+		if _are_contour_results_ready_for_current_revision(_active_publish_chunk):
+			_apply_ready_contour_results_to_chunk_view(_active_publish_chunk)
+		elif not _try_apply_contour_ground_placeholder_to_chunk_view(_active_publish_chunk):
+			active_view.visible = false
+		_emit_world_event(&"chunk_loaded", [_active_publish_chunk])
 		_active_publish_chunk = INVALID_CHUNK_COORD
 
 func _evict_outside_ring(max_count: int) -> void:
@@ -442,8 +619,9 @@ func _evict_outside_ring(max_count: int) -> void:
 		_chunk_packets.erase(chunk_coord)
 		_requested_chunks.erase(chunk_coord)
 		_pending_publish_queue.erase(chunk_coord)
+		_release_contour_results_for_chunk(chunk_coord)
 		_handle_cover_chunk_unloaded(chunk_coord)
-		EventBus.chunk_unloaded.emit(chunk_coord)
+		_emit_world_event(&"chunk_unloaded", [chunk_coord])
 		evicted += 1
 
 func _has_pending_streaming_work() -> bool:
@@ -456,6 +634,8 @@ func _has_pending_streaming_work() -> bool:
 	if _packet_backend.has_pending_requests():
 		return true
 	if _packet_backend.has_completed_packets():
+		return true
+	if _has_pending_contour_work():
 		return true
 	for chunk_coord_variant: Variant in _chunk_views.keys():
 		if not _is_chunk_desired(chunk_coord_variant as Vector2i):
@@ -507,6 +687,107 @@ func _get_tile_data(world_pos: Vector2) -> Dictionary:
 		"terrain_id": int(terrain_ids[index]),
 		"walkable": int(walkable_flags[index]) != 0,
 	}
+
+func _sample_movement_collision_at_world(world_pos: Vector2) -> Dictionary:
+	var raw_tile: Vector2i = WorldRuntimeConstants.world_to_tile(world_pos)
+	var tile_coord: Vector2i = _canonicalize_tile_coord(raw_tile)
+	if _uses_finite_world_bounds() and not _world_bounds_settings.is_tile_y_in_bounds(tile_coord.y):
+		return {"ready": false}
+	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(tile_coord)
+	var contour_result: Dictionary = _get_current_contour_result(
+		chunk_coord,
+		WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS
+	)
+	if contour_result.is_empty():
+		return {"ready": false}
+	if not bool(contour_result.get("collision_blocks_inside", true)):
+		return {
+			"ready": true,
+			"blocked": false,
+			"chunk_coord": chunk_coord,
+		}
+	var sdf_values: PackedFloat32Array = contour_result.get("collision_sdf_f32", PackedFloat32Array()) as PackedFloat32Array
+	var collision_size: Vector2i = contour_result.get("collision_size", Vector2i.ZERO) as Vector2i
+	var sample_px: int = maxi(1, int(contour_result.get("collision_sample_px", 0)))
+	if collision_size.x <= 0 \
+			or collision_size.y <= 0 \
+			or sdf_values.size() < collision_size.x * collision_size.y:
+		return {"ready": false}
+	var origin: Vector2 = _resolve_contour_collision_origin(contour_result, chunk_coord)
+	var canonical_world_pos: Vector2 = _canonicalize_world_pos_for_collision(world_pos, raw_tile, tile_coord)
+	var local_px: Vector2 = canonical_world_pos - origin
+	var sample_x: float = clampf(local_px.x / float(sample_px), 0.0, float(collision_size.x - 1))
+	var sample_y: float = clampf(local_px.y / float(sample_px), 0.0, float(collision_size.y - 1))
+	var sdf_px: float = _sample_collision_sdf_bilinear(sdf_values, collision_size, sample_x, sample_y)
+	return {
+		"ready": true,
+		"blocked": sdf_px >= 0.0,
+		"sdf_px": sdf_px,
+		"chunk_coord": chunk_coord,
+	}
+
+func _get_current_contour_result(chunk_coord: Vector2i, contour_class: StringName) -> Dictionary:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var required_revision: int = _get_contour_required_revision_for_chunk(chunk_coord)
+	if (_contour_requested_revision_by_chunk.has(chunk_coord) or _contour_ready_revision_by_chunk.has(chunk_coord)) \
+			and int(_contour_ready_revision_by_chunk.get(chunk_coord, -1)) != required_revision:
+		return {}
+	var chunk_results: Dictionary = _contour_results_by_chunk.get(chunk_coord, {}) as Dictionary
+	var result: Dictionary = chunk_results.get(contour_class, {}) as Dictionary
+	if result.is_empty():
+		return {}
+	if int(result.get("diff_revision", -1)) != required_revision:
+		return {}
+	if not bool(result.get("ready", false)):
+		return {}
+	return result
+
+func _resolve_contour_collision_origin(result: Dictionary, chunk_coord: Vector2i) -> Vector2:
+	var default_origin: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	var origin_variant: Variant = result.get("collision_origin_world_px", default_origin)
+	if origin_variant is Vector2:
+		return origin_variant as Vector2
+	if origin_variant is Vector2i:
+		return Vector2(origin_variant as Vector2i)
+	return default_origin
+
+func _canonicalize_world_pos_for_collision(
+	world_pos: Vector2,
+	raw_tile: Vector2i,
+	canonical_tile: Vector2i
+) -> Vector2:
+	var tile_size: float = float(WorldRuntimeConstants.TILE_SIZE_PX)
+	var raw_tile_origin: Vector2 = Vector2(float(raw_tile.x) * tile_size, float(raw_tile.y) * tile_size)
+	var local_tile_offset: Vector2 = world_pos - raw_tile_origin
+	return Vector2(
+		float(canonical_tile.x) * tile_size + local_tile_offset.x,
+		float(canonical_tile.y) * tile_size + local_tile_offset.y
+	)
+
+func _sample_collision_sdf_bilinear(
+	sdf_values: PackedFloat32Array,
+	collision_size: Vector2i,
+	sample_x: float,
+	sample_y: float
+) -> float:
+	var x0: int = clampi(floori(sample_x), 0, collision_size.x - 1)
+	var y0: int = clampi(floori(sample_y), 0, collision_size.y - 1)
+	var x1: int = mini(x0 + 1, collision_size.x - 1)
+	var y1: int = mini(y0 + 1, collision_size.y - 1)
+	var tx: float = sample_x - float(x0)
+	var ty: float = sample_y - float(y0)
+	var v00: float = sdf_values[y0 * collision_size.x + x0]
+	var v10: float = sdf_values[y0 * collision_size.x + x1]
+	var v01: float = sdf_values[y1 * collision_size.x + x0]
+	var v11: float = sdf_values[y1 * collision_size.x + x1]
+	var top: float = lerpf(v00, v10, tx)
+	var bottom: float = lerpf(v01, v11, tx)
+	return lerpf(top, bottom, ty)
+
+func _is_movement_walkability_contour_controlled(terrain_id: int) -> bool:
+	return terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED
 
 func _sample_harvest_gate_tile(world_tile: Vector2i) -> Dictionary:
 	return _get_tile_data(WorldRuntimeConstants.tile_to_world_center(world_tile))
@@ -597,6 +878,12 @@ func _apply_loaded_override(chunk_coord: Vector2i, local_coord: Vector2i, terrai
 	packet["walkable_flags"] = walkable_flags
 	_chunk_packets[chunk_coord] = packet
 	var world_tile: Vector2i = _chunk_local_to_tile(chunk_coord, local_coord)
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+	if TerrainPresentationRegistry.is_contour_cutover_terrain(terrain_id):
+		if chunk_view != null:
+			chunk_view.apply_runtime_contour_cell_state(local_coord, terrain_id, walkable)
+		_refresh_debug_visuals_around_tile(world_tile)
+		return
 	_refresh_loaded_visual_patch_for_tiles([
 		world_tile,
 	])
@@ -903,6 +1190,7 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 		return existing
 	var chunk_view := ChunkView.new()
 	chunk_view.configure(chunk_coord)
+	chunk_view.set_contour_rendering_enabled(true)
 	chunk_view.set_debug_overlays(
 		_debug_tile_grid_visible,
 		_debug_mountain_solid_visible,
@@ -927,6 +1215,7 @@ func _reset_runtime_state() -> void:
 			chunk_view.queue_free()
 	_chunk_views.clear()
 	_chunk_packets.clear()
+	_clear_contour_runtime_state()
 	roof_layers_per_chunk_max = 0
 	_mountain_cavity_cache.clear()
 	_active_cover_mountain_id = 0
@@ -982,7 +1271,7 @@ func _fail_new_game_spawn_resolution(message: String) -> void:
 	_new_game_spawn_failed = true
 
 func _position_local_player_at_spawn_tile(spawn_tile: Vector2i) -> void:
-	var player: Node2D = PlayerAuthority.get_local_player()
+	var player: Node2D = _get_local_player_node()
 	if player == null:
 		_fail_new_game_spawn_resolution(
 			"WorldStreamer could not apply new-game spawn because local player is missing."
@@ -1093,7 +1382,7 @@ func _collect_diff_world_tiles_for_chunk(chunk_coord: Vector2i) -> Array[Vector2
 func _repair_active_cover_component_from_player_position() -> Dictionary:
 	var previous_mountain_id: int = _active_cover_mountain_id
 	var previous_component_id: int = _active_cover_component_id
-	if PlayerAuthority.get_local_player() == null:
+	if _get_local_player_node() == null:
 		_active_cover_mountain_id = 0
 		_active_cover_component_id = 0
 		return {
@@ -1103,7 +1392,7 @@ func _repair_active_cover_component_from_player_position() -> Dictionary:
 			"mountain_id": 0,
 			"component_id": 0,
 		}
-	var player_tile: Vector2i = _canonicalize_tile_coord(WorldRuntimeConstants.world_to_tile(PlayerAuthority.get_local_player_position()))
+	var player_tile: Vector2i = _canonicalize_tile_coord(WorldRuntimeConstants.world_to_tile(_get_local_player_position()))
 	var current_sample: Dictionary = get_mountain_cover_sample(player_tile)
 	var next_component_id: int = int(current_sample.get("component_id", 0))
 	if not _mountain_cavity_cache.has_component(next_component_id):
@@ -1187,6 +1476,811 @@ func _refresh_debug_visuals_around_tile(world_tile: Vector2i) -> void:
 	for chunk_coord: Vector2i in _dictionary_vector2i_keys(affected_chunks):
 		_refresh_debug_visuals_for_chunk(chunk_coord)
 
+func _start_contour_worker() -> void:
+	if _has_contour_worker_threads_running():
+		return
+	var probe_world_core: Object = ClassDB.instantiate("WorldCore")
+	assert(probe_world_core != null, "WorldCore required for runtime SDF contour streaming - build GDExtension first")
+	if probe_world_core == null:
+		return
+	assert(probe_world_core.has_method("build_contour_chunk"), "WorldCore.build_contour_chunk(input) is required for runtime SDF contour streaming")
+	assert(probe_world_core.has_method("generate_chunk_packets_batch"), "WorldCore.generate_chunk_packets_batch(...) is required for contour halo packet fill")
+	_contour_worker_should_exit = false
+	_contour_worker_threads.clear()
+	for _index: int in range(CONTOUR_WORKER_THREAD_COUNT):
+		var thread := Thread.new()
+		var start_error: Error = thread.start(_contour_worker_loop)
+		assert(start_error == OK, "Failed to start runtime SDF contour worker thread")
+		if start_error == OK:
+			_contour_worker_threads.append(thread)
+
+func _stop_contour_worker() -> void:
+	if not _has_contour_worker_threads_running():
+		return
+	_contour_worker_should_exit = true
+	for _index: int in range(_contour_worker_threads.size()):
+		_contour_request_semaphore.post()
+	for thread: Thread in _contour_worker_threads:
+		if thread.is_started():
+			thread.wait_to_finish()
+	_contour_worker_threads.clear()
+
+func _has_contour_worker_threads_running() -> bool:
+	for thread: Thread in _contour_worker_threads:
+		if thread.is_started():
+			return true
+	return false
+
+func _clear_contour_runtime_state() -> void:
+	_contour_request_mutex.lock()
+	_contour_pending_requests.clear()
+	_contour_requested_keys.clear()
+	_contour_inflight_count = 0
+	_contour_request_mutex.unlock()
+	_contour_dirty_request_queue.clear()
+	_contour_dirty_request_lookup.clear()
+	_contour_result_mutex.lock()
+	_contour_completed_results.clear()
+	_contour_result_mutex.unlock()
+	_contour_results_by_chunk.clear()
+	_contour_diff_revision = 0
+	_contour_requested_revision_by_chunk.clear()
+	_contour_ready_revision_by_chunk.clear()
+
+func _request_contour_results_for_loaded_chunks() -> void:
+	for chunk_coord_variant: Variant in _chunk_packets.keys():
+		_request_contour_results_for_chunk(chunk_coord_variant as Vector2i)
+
+func _request_contour_results_for_chunk(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if _uses_finite_world_bounds() and not _world_bounds_settings.is_chunk_y_in_bounds(chunk_coord.y):
+		return
+	if (_chunk_packets.get(chunk_coord, {}) as Dictionary).is_empty():
+		return
+	if _are_contour_results_ready_for_current_revision(chunk_coord):
+		return
+	var required_revision: int = _get_contour_required_revision_for_chunk(chunk_coord)
+	_contour_requested_revision_by_chunk[chunk_coord] = required_revision
+	var request: Dictionary = _build_contour_worker_request(chunk_coord, required_revision)
+	if request.is_empty():
+		return
+	_queue_contour_worker_request(request)
+
+func _are_contour_results_ready_for_current_revision(chunk_coord: Vector2i) -> bool:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var required_revision: int = _get_contour_required_revision_for_chunk(chunk_coord)
+	if int(_contour_ready_revision_by_chunk.get(chunk_coord, -1)) == required_revision:
+		return true
+	var chunk_results: Dictionary = _contour_results_by_chunk.get(chunk_coord, {}) as Dictionary
+	if chunk_results.size() < WorldRuntimeConstants.CONTOUR_ACTIVE_RESULT_CLASSES.size():
+		return false
+	for contour_class_variant: Variant in WorldRuntimeConstants.CONTOUR_ACTIVE_RESULT_CLASSES:
+		var contour_class: StringName = contour_class_variant as StringName
+		var result: Dictionary = chunk_results.get(contour_class, {}) as Dictionary
+		if result.is_empty() or int(result.get("diff_revision", -1)) != required_revision:
+			return false
+		if not bool(result.get("ready", false)):
+			return false
+	return true
+
+func _build_contour_worker_request(chunk_coord: Vector2i, diff_revision: int = -1) -> Dictionary:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var packet: Dictionary = _chunk_packets.get(chunk_coord, {}) as Dictionary
+	if packet.is_empty():
+		return {}
+	var request_revision: int = _contour_diff_revision if diff_revision < 0 else diff_revision
+	var recipes: Dictionary = {}
+	for contour_class_variant: Variant in WorldRuntimeConstants.CONTOUR_CLASSES:
+		var contour_class: StringName = contour_class_variant as StringName
+		var recipe: Dictionary = TerrainPresentationRegistry.get_contour_recipe_for_class(contour_class)
+		if recipe.is_empty():
+			return {}
+		recipes[contour_class] = recipe
+	var contour_classes: Array[StringName] = _build_contour_worker_class_order()
+	var loaded_packets: Dictionary = {}
+	var diff_overrides: Dictionary = {}
+	for halo_chunk: Vector2i in _collect_contour_halo_chunk_coords(chunk_coord):
+		var loaded_packet: Dictionary = _chunk_packets.get(halo_chunk, {}) as Dictionary
+		if not loaded_packet.is_empty():
+			loaded_packets[halo_chunk] = loaded_packet.duplicate(true)
+		var chunk_diffs: Dictionary = _snapshot_contour_diffs_for_chunk(halo_chunk)
+		if not chunk_diffs.is_empty():
+			diff_overrides[halo_chunk] = chunk_diffs
+	return {
+		"chunk_coord": chunk_coord,
+		"world_seed": world_seed,
+		"world_version": world_version,
+		"settings_packed": _worldgen_settings_packed.duplicate(),
+		"epoch": _generation_epoch,
+		"diff_revision": request_revision,
+		"request_key": _make_contour_request_key(chunk_coord, request_revision),
+		"finite_world": _uses_finite_world_bounds(),
+		"bounds_width_tiles": _world_bounds_settings.width_tiles,
+		"bounds_height_tiles": _world_bounds_settings.height_tiles,
+		"loaded_packets": loaded_packets,
+		"diff_overrides": diff_overrides,
+		"contour_classes": contour_classes,
+		"recipes": recipes,
+	}
+
+func _build_contour_worker_class_order() -> Array[StringName]:
+	var ordered: Array[StringName] = []
+	var preferred_order: Array[StringName] = [
+		WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE,
+		WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS,
+		WorldRuntimeConstants.CONTOUR_CLASS_WATER_SURFACE,
+	]
+	for contour_class: StringName in preferred_order:
+		if WorldRuntimeConstants.CONTOUR_ACTIVE_RESULT_CLASSES.has(contour_class):
+			ordered.append(contour_class)
+	for contour_class_variant: Variant in WorldRuntimeConstants.CONTOUR_ACTIVE_RESULT_CLASSES:
+		var contour_class: StringName = contour_class_variant as StringName
+		if not ordered.has(contour_class):
+			ordered.append(contour_class)
+	return ordered
+
+func _snapshot_contour_diffs_for_chunk(chunk_coord: Vector2i) -> Dictionary:
+	var diffs: Dictionary = {}
+	for local_coord: Vector2i in _diff_store.get_chunk_override_local_coords(chunk_coord):
+		diffs[local_coord] = _diff_store.get_tile_override(chunk_coord, local_coord)
+	return diffs
+
+func _collect_contour_halo_chunk_coords(chunk_coord: Vector2i) -> Array[Vector2i]:
+	var coords: Array[Vector2i] = []
+	var seen: Dictionary = {}
+	for y: int in range(chunk_coord.y - 1, chunk_coord.y + 2):
+		for x: int in range(chunk_coord.x - 1, chunk_coord.x + 2):
+			var sample_chunk: Vector2i = _canonicalize_chunk_coord(Vector2i(x, y))
+			if _uses_finite_world_bounds() and not _world_bounds_settings.is_chunk_y_in_bounds(sample_chunk.y):
+				continue
+			if seen.has(sample_chunk):
+				continue
+			seen[sample_chunk] = true
+			coords.append(sample_chunk)
+	coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return a.x < b.x if a.x != b.x else a.y < b.y
+	)
+	return coords
+
+func _queue_contour_worker_request(request: Dictionary) -> void:
+	if not _has_contour_worker_threads_running():
+		push_error("Runtime SDF contour worker is not running.")
+		return
+	var request_key: String = str(request.get("request_key", ""))
+	var request_chunk: Vector2i = _canonicalize_chunk_coord(request.get("chunk_coord", Vector2i.ZERO) as Vector2i)
+	var request_revision: int = int(request.get("diff_revision", -1))
+	_contour_request_mutex.lock()
+	if _contour_requested_keys.has(request_key):
+		_contour_request_mutex.unlock()
+		return
+	_drop_stale_pending_contour_requests_locked(request_chunk, request_revision)
+	_contour_requested_keys[request_key] = true
+	_contour_pending_requests.append(request)
+	_contour_inflight_count += 1
+	_contour_request_mutex.unlock()
+	_contour_request_semaphore.post()
+
+func _queue_dirty_contour_request(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if _contour_dirty_request_lookup.has(chunk_coord):
+		return
+	_contour_dirty_request_lookup[chunk_coord] = true
+	_contour_dirty_request_queue.append(chunk_coord)
+
+func _request_queued_dirty_contour_chunks(max_count: int) -> int:
+	var requested_count: int = 0
+	while requested_count < max_count and not _contour_dirty_request_queue.is_empty():
+		var chunk_coord: Vector2i = _contour_dirty_request_queue.pop_front()
+		_contour_dirty_request_lookup.erase(chunk_coord)
+		_request_contour_results_for_chunk(chunk_coord)
+		requested_count += 1
+	return requested_count
+
+func _drop_stale_pending_contour_requests_locked(chunk_coord: Vector2i, revision: int) -> void:
+	var retained: Array[Dictionary] = []
+	var removed_count: int = 0
+	for queued_request: Dictionary in _contour_pending_requests:
+		var queued_chunk: Vector2i = _canonicalize_chunk_coord(queued_request.get("chunk_coord", INVALID_CHUNK_COORD) as Vector2i)
+		if queued_chunk != chunk_coord:
+			retained.append(queued_request)
+			continue
+		var queued_revision: int = int(queued_request.get("diff_revision", -1))
+		if queued_revision < revision:
+			_contour_requested_keys.erase(str(queued_request.get("request_key", "")))
+			removed_count += 1
+			continue
+		retained.append(queued_request)
+	if removed_count > 0:
+		_contour_pending_requests = retained
+		_contour_inflight_count = maxi(0, _contour_inflight_count - removed_count)
+
+func _drain_completed_contour_results(max_count: int) -> int:
+	var drained: Array[Dictionary] = []
+	_contour_result_mutex.lock()
+	var drain_count: int = mini(max_count, _contour_completed_results.size())
+	for _i: int in range(drain_count):
+		drained.append(_contour_completed_results.pop_front() as Dictionary)
+	_contour_result_mutex.unlock()
+	for result: Dictionary in drained:
+		_register_contour_result(result)
+	return drained.size()
+
+func _register_contour_result(result: Dictionary) -> bool:
+	if int(result.get("epoch", -1)) != _generation_epoch:
+		return false
+	var chunk_coord: Vector2i = _canonicalize_chunk_coord(result.get("chunk_coord", Vector2i.ZERO) as Vector2i)
+	var required_revision: int = _get_contour_required_revision_for_chunk(chunk_coord)
+	if int(result.get("diff_revision", -1)) != required_revision:
+		return false
+	if (_chunk_packets.get(chunk_coord, {}) as Dictionary).is_empty():
+		return false
+	var contour_class: StringName = result.get("contour_class", &"") as StringName
+	if not WorldRuntimeConstants.CONTOUR_CLASSES.has(contour_class):
+		return false
+	if not bool(result.get("ready", false)):
+		return false
+	var chunk_results: Dictionary = _contour_results_by_chunk.get(chunk_coord, {}) as Dictionary
+	chunk_results[contour_class] = result.duplicate(true)
+	_contour_results_by_chunk[chunk_coord] = chunk_results
+	if _are_contour_results_ready_for_current_revision(chunk_coord):
+		_contour_ready_revision_by_chunk[chunk_coord] = required_revision
+		_contour_requested_revision_by_chunk.erase(chunk_coord)
+		_apply_ready_contour_results_to_chunk_view(chunk_coord)
+	else:
+		_try_apply_contour_ground_placeholder_to_chunk_view(chunk_coord)
+	return true
+
+func _release_contour_results_for_chunk(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	_contour_results_by_chunk.erase(chunk_coord)
+	_contour_requested_revision_by_chunk.erase(chunk_coord)
+	_contour_ready_revision_by_chunk.erase(chunk_coord)
+	_contour_dirty_request_lookup.erase(chunk_coord)
+	_contour_dirty_request_queue.erase(chunk_coord)
+	var key_prefix: String = "%d:%d:" % [chunk_coord.x, chunk_coord.y]
+	_contour_request_mutex.lock()
+	for request_key_variant: Variant in _contour_requested_keys.keys():
+		var request_key: String = str(request_key_variant)
+		if request_key.begins_with(key_prefix):
+			_contour_requested_keys.erase(request_key)
+	_contour_request_mutex.unlock()
+
+func _has_pending_contour_work() -> bool:
+	_contour_request_mutex.lock()
+	var has_requests: bool = not _contour_pending_requests.is_empty() or _contour_inflight_count > 0
+	_contour_request_mutex.unlock()
+	if has_requests:
+		return true
+	if not _contour_dirty_request_queue.is_empty():
+		return true
+	_contour_result_mutex.lock()
+	var has_results: bool = not _contour_completed_results.is_empty()
+	_contour_result_mutex.unlock()
+	return has_results
+
+func _sync_contour_diff_revision_from_store() -> void:
+	_contour_diff_revision = _diff_store.get_diff_revision()
+
+func _get_contour_required_revision_for_chunk(chunk_coord: Vector2i) -> int:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if _contour_requested_revision_by_chunk.has(chunk_coord):
+		return int(_contour_requested_revision_by_chunk.get(chunk_coord, _contour_diff_revision))
+	if _contour_ready_revision_by_chunk.has(chunk_coord):
+		return int(_contour_ready_revision_by_chunk.get(chunk_coord, _contour_diff_revision))
+	return _contour_diff_revision
+
+func _mark_contour_diff_revision_changed() -> void:
+	_sync_contour_diff_revision_from_store()
+
+func _mark_contour_diff_changed(world_tile: Vector2i, diff_revision: int) -> void:
+	var affected_chunks: Array[Vector2i] = _collect_contour_dirty_chunks_for_tile(world_tile)
+	for affected_chunk: Vector2i in affected_chunks:
+		_mark_contour_chunk_dirty(affected_chunk, diff_revision)
+		_queue_dirty_contour_request(affected_chunk)
+
+func _collect_contour_dirty_chunks_for_tile(world_tile: Vector2i) -> Array[Vector2i]:
+	var canonical_tile: Vector2i = _canonicalize_tile_coord(world_tile)
+	var changed_chunk: Vector2i = WorldRuntimeConstants.tile_to_chunk(canonical_tile)
+	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(canonical_tile)
+	var halo_tiles: int = WorldRuntimeConstants.CONTOUR_HALO_TILES
+	var x_offsets: Array[int] = [0]
+	var y_offsets: Array[int] = [0]
+	if local_coord.x < halo_tiles:
+		x_offsets.append(-1)
+	if local_coord.x >= WorldRuntimeConstants.CHUNK_SIZE - halo_tiles:
+		x_offsets.append(1)
+	if local_coord.y < halo_tiles:
+		y_offsets.append(-1)
+	if local_coord.y >= WorldRuntimeConstants.CHUNK_SIZE - halo_tiles:
+		y_offsets.append(1)
+
+	var affected: Array[Vector2i] = []
+	var seen: Dictionary = {}
+	for y_offset: int in y_offsets:
+		for x_offset: int in x_offsets:
+			var affected_chunk: Vector2i = _canonicalize_chunk_coord(changed_chunk + Vector2i(x_offset, y_offset))
+			if _uses_finite_world_bounds() and not _world_bounds_settings.is_chunk_y_in_bounds(affected_chunk.y):
+				continue
+			if seen.has(affected_chunk):
+				continue
+			seen[affected_chunk] = true
+			affected.append(affected_chunk)
+	affected.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return a.x < b.x if a.x != b.x else a.y < b.y
+	)
+	return affected
+
+func _mark_contour_chunk_dirty(chunk_coord: Vector2i, diff_revision: int) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	_contour_requested_revision_by_chunk[chunk_coord] = diff_revision
+	_contour_ready_revision_by_chunk.erase(chunk_coord)
+	_contour_results_by_chunk.erase(chunk_coord)
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+	if chunk_view != null:
+		chunk_view.mark_contour_render_stale()
+
+func _apply_ready_contour_results_to_chunk_view(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if not _are_contour_results_ready_for_current_revision(chunk_coord):
+		return
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+	if chunk_view == null:
+		return
+	var required_revision: int = _get_contour_required_revision_for_chunk(chunk_coord)
+	chunk_view.apply_contour_results(
+		_contour_results_by_chunk.get(chunk_coord, {}) as Dictionary,
+		required_revision
+	)
+
+func _try_apply_contour_ground_placeholder_to_chunk_view(chunk_coord: Vector2i) -> bool:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+	if chunk_view == null:
+		return false
+	var required_revision: int = _get_contour_required_revision_for_chunk(chunk_coord)
+	var chunk_results: Dictionary = _contour_results_by_chunk.get(chunk_coord, {}) as Dictionary
+	var ground_result: Dictionary = chunk_results.get(
+		WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE,
+		{}
+	) as Dictionary
+	if chunk_view.apply_contour_ground_placeholder(ground_result, required_revision):
+		return true
+	return chunk_view.apply_contour_ground_placeholder(
+		_build_immediate_ground_placeholder_result(chunk_coord, required_revision),
+		required_revision
+	)
+
+func _build_immediate_ground_placeholder_result(chunk_coord: Vector2i, diff_revision: int) -> Dictionary:
+	var mask_image := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+	mask_image.fill(Color(1.0, 0.0, 0.0, 1.0))
+	var height_image := Image.create(1, 1, false, Image.FORMAT_RH)
+	height_image.fill(Color(1.0, 0.0, 0.0, 1.0))
+	var normal_image := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+	normal_image.fill(Color(0.5, 0.5, 1.0, 1.0))
+	return {
+		"ready": true,
+		"chunk_coord": chunk_coord,
+		"contour_class": WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE,
+		"diff_revision": diff_revision,
+		"required_diff_revision": diff_revision,
+		"recipe_id": "ground_placeholder",
+		"pixel_size": Vector2i(1, 1),
+		"mask_rgba8": mask_image.get_data(),
+		"height_r16": height_image.get_data(),
+		"normal_rgba8": normal_image.get_data(),
+		"collision_sdf_f32": PackedFloat32Array(),
+		"collision_size": Vector2i.ZERO,
+		"collision_sample_px": 0,
+	}
+
+func _make_contour_request_key(chunk_coord: Vector2i, diff_revision: int) -> String:
+	return "%d:%d:%d" % [chunk_coord.x, chunk_coord.y, diff_revision]
+
+func _contour_worker_loop() -> void:
+	var worker_world_core: Object = ClassDB.instantiate("WorldCore")
+	assert(worker_world_core != null, "WorldCore required inside runtime SDF contour worker")
+	while true:
+		_contour_request_semaphore.wait()
+		if _contour_worker_should_exit:
+			return
+		while true:
+			var request: Dictionary = _pop_contour_worker_request()
+			if request.is_empty():
+				break
+			if worker_world_core != null:
+				_process_contour_worker_request(worker_world_core, request)
+			_finish_contour_worker_request()
+
+func _pop_contour_worker_request() -> Dictionary:
+	_contour_request_mutex.lock()
+	var request: Dictionary = {}
+	if not _contour_pending_requests.is_empty():
+		request = _contour_pending_requests.pop_front() as Dictionary
+	_contour_request_mutex.unlock()
+	return request
+
+func _finish_contour_worker_request() -> void:
+	_contour_request_mutex.lock()
+	_contour_inflight_count = maxi(0, _contour_inflight_count - 1)
+	_contour_request_mutex.unlock()
+
+func _append_completed_contour_results(results: Array[Dictionary]) -> void:
+	if results.is_empty():
+		return
+	_contour_result_mutex.lock()
+	for result: Dictionary in results:
+		_contour_completed_results.append(result)
+	_contour_result_mutex.unlock()
+
+func _process_contour_worker_request(worker_world_core: Object, request: Dictionary) -> void:
+	var packet_map: Dictionary = _build_contour_packet_map_for_request(worker_world_core, request)
+	if packet_map.is_empty():
+		return
+	var contour_classes: Array = request.get("contour_classes", []) as Array
+	for contour_class_variant: Variant in contour_classes:
+		var contour_class: StringName = contour_class_variant as StringName
+		var input: Dictionary = _build_contour_input_from_request(request, packet_map, contour_class)
+		if input.is_empty():
+			continue
+		var result: Dictionary = {}
+		if contour_class == WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE:
+			result = _build_constant_contour_result(input, contour_class, true)
+		elif _is_contour_solid_mask_empty(input):
+			result = _build_constant_contour_result(input, contour_class, false)
+		elif _is_contour_solid_mask_full(input):
+			result = _build_constant_contour_result(input, contour_class, true)
+		else:
+			var result_variant: Variant = worker_world_core.call("build_contour_chunk", input)
+			if result_variant is not Dictionary:
+				continue
+			result = (result_variant as Dictionary).duplicate(true)
+		if result.is_empty():
+			continue
+		result["contour_class"] = contour_class
+		result["epoch"] = int(request.get("epoch", -1))
+		result["request_key"] = str(request.get("request_key", ""))
+		_append_completed_contour_results([result])
+
+func _is_contour_solid_mask_empty(input: Dictionary) -> bool:
+	var mask: PackedByteArray = input.get("solid_mask_with_halo", PackedByteArray()) as PackedByteArray
+	if mask.is_empty():
+		return false
+	for value: int in mask:
+		if value != 0:
+			return false
+	return true
+
+func _is_contour_solid_mask_full(input: Dictionary) -> bool:
+	var mask: PackedByteArray = input.get("solid_mask_with_halo", PackedByteArray()) as PackedByteArray
+	if mask.is_empty():
+		return false
+	for value: int in mask:
+		if value == 0:
+			return false
+	return true
+
+func _build_constant_contour_result(input: Dictionary, contour_class: StringName, occupied: bool) -> Dictionary:
+	var chunk_coord: Vector2i = input.get("chunk_coord", Vector2i.ZERO) as Vector2i
+	var chunk_size_tiles: int = maxi(1, int(input.get("chunk_size_tiles", WorldRuntimeConstants.CHUNK_SIZE)))
+	var tile_size_px: int = maxi(1, int(input.get("tile_size_px", WorldRuntimeConstants.TILE_SIZE_PX)))
+	var render_tile_size_px: int = maxi(1, int(input.get("render_tile_size_px", tile_size_px)))
+	var logical_output_px: int = chunk_size_tiles * tile_size_px
+	var render_output_px: int = chunk_size_tiles * render_tile_size_px
+	var recipe: Dictionary = input.get("recipe", {}) as Dictionary
+	var collision: Dictionary = recipe.get("collision", {}) as Dictionary
+	var collision_sample_px: int = maxi(1, int(collision.get("sampling_px", 4)))
+	var collision_side: int = ceili(float(logical_output_px) / float(collision_sample_px)) + 1
+	var blocks_inside: bool = bool(collision.get(
+		"blocks_inside",
+		contour_class == WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS
+	))
+
+	var mask_image := Image.create(render_output_px, render_output_px, false, Image.FORMAT_RGBA8)
+	mask_image.fill(Color(1.0, 0.0, 0.0, 1.0) if occupied else Color(0.0, 0.0, 0.0, 0.0))
+	var normal_image := Image.create(render_output_px, render_output_px, false, Image.FORMAT_RGBA8)
+	normal_image.fill(Color(0.5, 0.5, 1.0, 1.0))
+	var height_image := Image.create(render_output_px, render_output_px, false, Image.FORMAT_RH)
+	height_image.fill(Color(1.0 if occupied else 0.0, 0.0, 0.0, 1.0))
+	var collision_sdf_f32 := PackedFloat32Array()
+	collision_sdf_f32.resize(collision_side * collision_side)
+	collision_sdf_f32.fill(1.0 if occupied else -1.0)
+
+	return {
+		"chunk_coord": chunk_coord,
+		"recipe_id": StringName(str(recipe.get("asset_name", contour_class))),
+		"diff_revision": int(input.get("diff_revision", 0)),
+		"pixel_size": Vector2i(render_output_px, render_output_px),
+		"mask_rgba8": mask_image.get_data(),
+		"height_r16": height_image.get_data(),
+		"normal_rgba8": normal_image.get_data(),
+		"collision_sdf_f32": collision_sdf_f32,
+		"collision_origin_world_px": Vector2i(chunk_coord.x * logical_output_px, chunk_coord.y * logical_output_px),
+		"collision_sample_px": collision_sample_px,
+		"collision_size": Vector2i(collision_side, collision_side),
+		"collision_blocks_inside": blocks_inside,
+		"solid_bounds_world_px": Rect2i(0, 0, logical_output_px, logical_output_px) if occupied else Rect2i(),
+		"ready": true,
+	}
+
+func _build_contour_packet_map_for_request(worker_world_core: Object, request: Dictionary) -> Dictionary:
+	var packet_map: Dictionary = {}
+	var loaded_packets: Dictionary = request.get("loaded_packets", {}) as Dictionary
+	for chunk_coord_variant: Variant in loaded_packets.keys():
+		packet_map[chunk_coord_variant] = (loaded_packets.get(chunk_coord_variant, {}) as Dictionary).duplicate(true)
+
+	var missing_coords: Array[Vector2i] = []
+	for halo_chunk: Vector2i in _collect_contour_halo_chunk_coords_for_request(request):
+		if packet_map.has(halo_chunk):
+			continue
+		missing_coords.append(halo_chunk)
+	if missing_coords.is_empty():
+		return packet_map
+
+	var coords := PackedVector2Array()
+	for chunk_coord: Vector2i in missing_coords:
+		coords.append(Vector2(chunk_coord.x, chunk_coord.y))
+	var packets_variant: Variant = worker_world_core.call(
+		"generate_chunk_packets_batch",
+		int(request.get("world_seed", 0)),
+		coords,
+		int(request.get("world_version", 0)),
+		request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array
+	)
+	if packets_variant is not Array:
+		return packet_map
+	var generated_packets: Array = packets_variant as Array
+	for index: int in range(mini(missing_coords.size(), generated_packets.size())):
+		packet_map[missing_coords[index]] = (generated_packets[index] as Dictionary).duplicate(true)
+	return packet_map
+
+func _collect_contour_halo_chunk_coords_for_request(request: Dictionary) -> Array[Vector2i]:
+	var chunk_coord: Vector2i = request.get("chunk_coord", Vector2i.ZERO) as Vector2i
+	var coords: Array[Vector2i] = []
+	var seen: Dictionary = {}
+	for y: int in range(chunk_coord.y - 1, chunk_coord.y + 2):
+		for x: int in range(chunk_coord.x - 1, chunk_coord.x + 2):
+			var sample_chunk: Vector2i = _canonicalize_chunk_coord_for_request(Vector2i(x, y), request)
+			if not _request_chunk_y_in_bounds(sample_chunk.y, request):
+				continue
+			if seen.has(sample_chunk):
+				continue
+			seen[sample_chunk] = true
+			coords.append(sample_chunk)
+	coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return a.x < b.x if a.x != b.x else a.y < b.y
+	)
+	return coords
+
+func _build_contour_input_from_request(request: Dictionary, packet_map: Dictionary, contour_class: StringName) -> Dictionary:
+	var recipes: Dictionary = request.get("recipes", {}) as Dictionary
+	var recipe: Dictionary = recipes.get(contour_class, {}) as Dictionary
+	if recipe.is_empty():
+		return {}
+	var chunk_coord: Vector2i = request.get("chunk_coord", Vector2i.ZERO) as Vector2i
+	var halo_tiles: int = WorldRuntimeConstants.CONTOUR_HALO_TILES
+	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + halo_tiles * 2
+	var cell_count: int = halo_side * halo_side
+	var solid_mask := PackedByteArray()
+	var contour_class_mask := PackedByteArray()
+	var source_mask := PackedByteArray()
+	var mountain_ids := PackedInt32Array()
+	var terrain_ids := PackedInt32Array()
+	solid_mask.resize(cell_count)
+	contour_class_mask.resize(cell_count)
+	source_mask.resize(cell_count)
+	mountain_ids.resize(cell_count)
+	terrain_ids.resize(cell_count)
+	var chunk_coords: Array = []
+	for halo_y: int in range(halo_side):
+		for halo_x: int in range(halo_side):
+			var local_coord := Vector2i(halo_x - halo_tiles, halo_y - halo_tiles)
+			var world_tile := Vector2i(
+				chunk_coord.x * WorldRuntimeConstants.CHUNK_SIZE + local_coord.x,
+				chunk_coord.y * WorldRuntimeConstants.CHUNK_SIZE + local_coord.y
+			)
+			var sample: Dictionary = _sample_contour_tile_for_request(world_tile, packet_map, request)
+			var index: int = halo_y * halo_side + halo_x
+			var sample_class_code: int = _contour_class_code_for_sample(sample)
+			contour_class_mask[index] = sample_class_code
+			source_mask[index] = int(sample.get("source", WorldRuntimeConstants.CONTOUR_SOURCE_EMPTY))
+			terrain_ids[index] = int(sample.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
+			chunk_coords.append(sample.get("chunk_coord", INVALID_CHUNK_COORD) as Vector2i)
+			if _is_sample_solid_for_contour_class(sample, contour_class):
+				solid_mask[index] = 1
+				if contour_class == WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS:
+					mountain_ids[index] = int(sample.get("mountain_id", 0))
+	return {
+		"chunk_coord": chunk_coord,
+		"world_seed": int(request.get("world_seed", world_seed)),
+		"world_version": int(request.get("world_version", world_version)),
+		"tile_size_px": WorldRuntimeConstants.TILE_SIZE_PX,
+		"render_tile_size_px": WorldRuntimeConstants.CONTOUR_RENDER_TILE_SIZE_PX,
+		"chunk_size_tiles": WorldRuntimeConstants.CHUNK_SIZE,
+		"halo_tiles": halo_tiles,
+		"halo_side": halo_side,
+		"recipe_id": StringName(str(recipe.get("asset_name", contour_class))),
+		"recipe": recipe,
+		"solid_mask_with_halo": solid_mask,
+		"contour_class_mask_with_halo": contour_class_mask,
+		"mountain_id_with_halo": mountain_ids,
+		"diff_revision": int(request.get("diff_revision", 0)),
+		"source_mask_with_halo": source_mask,
+		"terrain_id_with_halo": terrain_ids,
+		"chunk_coord_with_halo": chunk_coords,
+	}
+
+func _sample_contour_tile_for_request(world_tile: Vector2i, packet_map: Dictionary, request: Dictionary) -> Dictionary:
+	var canonical_tile: Vector2i = _canonicalize_tile_coord_for_request(world_tile, request)
+	if not _request_tile_y_in_bounds(canonical_tile.y, request):
+		return {
+			"ready": false,
+			"chunk_coord": WorldRuntimeConstants.tile_to_chunk(canonical_tile),
+			"local_coord": WorldRuntimeConstants.tile_to_local(canonical_tile),
+			"source": WorldRuntimeConstants.CONTOUR_SOURCE_OUT_OF_WORLD,
+		}
+	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(canonical_tile)
+	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(canonical_tile)
+	var loaded_packets: Dictionary = request.get("loaded_packets", {}) as Dictionary
+	var is_loaded_packet: bool = loaded_packets.has(chunk_coord)
+	var override_data: Dictionary = _get_contour_diff_override_for_request(chunk_coord, local_coord, request)
+	if not override_data.is_empty():
+		return _build_contour_override_sample(
+			chunk_coord,
+			local_coord,
+			override_data,
+			WorldRuntimeConstants.CONTOUR_SOURCE_LOADED_DIFF if is_loaded_packet else WorldRuntimeConstants.CONTOUR_SOURCE_UNLOADED_DIFF
+		)
+	var packet: Dictionary = packet_map.get(chunk_coord, {}) as Dictionary
+	if packet.is_empty():
+		return {
+			"ready": false,
+			"chunk_coord": chunk_coord,
+			"local_coord": local_coord,
+			"source": WorldRuntimeConstants.CONTOUR_SOURCE_EMPTY,
+		}
+	return _read_contour_packet_sample(
+		packet,
+		chunk_coord,
+		local_coord,
+		WorldRuntimeConstants.CONTOUR_SOURCE_LOADED_PACKET if is_loaded_packet else WorldRuntimeConstants.CONTOUR_SOURCE_GENERATED_BASE
+	)
+
+func _get_contour_diff_override_for_request(chunk_coord: Vector2i, local_coord: Vector2i, request: Dictionary) -> Dictionary:
+	var diff_overrides: Dictionary = request.get("diff_overrides", {}) as Dictionary
+	var chunk_diffs: Dictionary = diff_overrides.get(chunk_coord, {}) as Dictionary
+	return (chunk_diffs.get(local_coord, {}) as Dictionary).duplicate(true)
+
+func _build_contour_override_sample(
+	chunk_coord: Vector2i,
+	local_coord: Vector2i,
+	override_data: Dictionary,
+	source: int
+) -> Dictionary:
+	var terrain_id: int = int(override_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
+	var walkable: bool = bool(override_data.get("walkable", true))
+	var mountain_id: int = 0
+	var mountain_flags: int = 0
+	if terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL:
+		mountain_id = 1
+		mountain_flags = WorldRuntimeConstants.MOUNTAIN_FLAG_WALL
+	elif terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
+		mountain_id = 1
+		mountain_flags = WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT
+	var lake_flags: int = 0
+	if terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW \
+			or terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP:
+		lake_flags = WorldRuntimeConstants.LAKE_FLAG_WATER_PRESENT
+	return {
+		"ready": true,
+		"chunk_coord": chunk_coord,
+		"local_coord": local_coord,
+		"terrain_id": terrain_id,
+		"walkable": walkable,
+		"mountain_id": mountain_id,
+		"mountain_flags": mountain_flags,
+		"lake_flags": lake_flags,
+		"source": source,
+	}
+
+func _read_contour_packet_sample(packet: Dictionary, chunk_coord: Vector2i, local_coord: Vector2i, source: int) -> Dictionary:
+	var index: int = WorldRuntimeConstants.local_to_index(local_coord)
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	var walkable_flags: PackedByteArray = packet.get("walkable_flags", PackedByteArray()) as PackedByteArray
+	var mountain_id_per_tile: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
+	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
+	var lake_flags: PackedByteArray = packet.get("lake_flags", PackedByteArray()) as PackedByteArray
+	if index < 0 or index >= terrain_ids.size() or index >= walkable_flags.size():
+		return {
+			"ready": false,
+			"chunk_coord": chunk_coord,
+			"local_coord": local_coord,
+			"source": source,
+		}
+	return {
+		"ready": true,
+		"chunk_coord": chunk_coord,
+		"local_coord": local_coord,
+		"terrain_id": int(terrain_ids[index]),
+		"walkable": int(walkable_flags[index]) != 0,
+		"mountain_id": int(mountain_id_per_tile[index]) if index < mountain_id_per_tile.size() else 0,
+		"mountain_flags": int(mountain_flags[index]) if index < mountain_flags.size() else 0,
+		"lake_flags": int(lake_flags[index]) if index < lake_flags.size() else 0,
+		"source": source,
+	}
+
+func _contour_class_code_for_sample(sample: Dictionary) -> int:
+	if not bool(sample.get("ready", false)):
+		return WorldRuntimeConstants.CONTOUR_CLASS_EMPTY_CODE
+	var terrain_id: int = int(sample.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
+	var lake_flags: int = int(sample.get("lake_flags", 0))
+	if (terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW \
+			or terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP) \
+			and (lake_flags & WorldRuntimeConstants.LAKE_FLAG_WATER_PRESENT) != 0:
+		return WorldRuntimeConstants.CONTOUR_CLASS_WATER_CODE
+	if _is_mountain_mass_terrain(terrain_id):
+		return WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_CODE
+	if _is_ground_surface_terrain(terrain_id):
+		return WorldRuntimeConstants.CONTOUR_CLASS_GROUND_CODE
+	return WorldRuntimeConstants.CONTOUR_CLASS_EMPTY_CODE
+
+func _is_sample_solid_for_contour_class(sample: Dictionary, contour_class: StringName) -> bool:
+	if not bool(sample.get("ready", false)):
+		return false
+	var terrain_id: int = int(sample.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
+	match contour_class:
+		WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE:
+			return _is_ground_surface_terrain(terrain_id)
+		WorldRuntimeConstants.CONTOUR_CLASS_WATER_SURFACE:
+			return (terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW \
+					or terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP) \
+				and (int(sample.get("lake_flags", 0)) & WorldRuntimeConstants.LAKE_FLAG_WATER_PRESENT) != 0
+		WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS:
+			if not _is_mountain_mass_terrain(terrain_id):
+				return false
+			if bool(sample.get("walkable", true)):
+				return false
+			if terrain_id == WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED:
+				return true
+			var mountain_id: int = int(sample.get("mountain_id", 0))
+			var flags: int = int(sample.get("mountain_flags", 0))
+			return mountain_id > 0 \
+				and (flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) != 0
+	return false
+
+func _is_mountain_mass_terrain(terrain_id: int) -> bool:
+	return terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED
+
+func _is_ground_surface_terrain(terrain_id: int) -> bool:
+	return terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_GROUND \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_DUG \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP
+
+func _canonicalize_tile_coord_for_request(tile_coord: Vector2i, request: Dictionary) -> Vector2i:
+	if not bool(request.get("finite_world", false)):
+		return tile_coord
+	var width_tiles: int = maxi(1, int(request.get("bounds_width_tiles", 1)))
+	return Vector2i(posmod(tile_coord.x, width_tiles), tile_coord.y)
+
+func _canonicalize_chunk_coord_for_request(chunk_coord: Vector2i, request: Dictionary) -> Vector2i:
+	if not bool(request.get("finite_world", false)):
+		return chunk_coord
+	var width_chunks: int = maxi(1, int(request.get("bounds_width_tiles", WorldRuntimeConstants.CHUNK_SIZE)) / WorldRuntimeConstants.CHUNK_SIZE)
+	return Vector2i(posmod(chunk_coord.x, width_chunks), chunk_coord.y)
+
+func _request_tile_y_in_bounds(tile_y: int, request: Dictionary) -> bool:
+	if not bool(request.get("finite_world", false)):
+		return true
+	return tile_y >= 0 and tile_y < int(request.get("bounds_height_tiles", 0))
+
+func _request_chunk_y_in_bounds(chunk_y: int, request: Dictionary) -> bool:
+	if not bool(request.get("finite_world", false)):
+		return true
+	var height_chunks: int = maxi(1, int(request.get("bounds_height_tiles", WorldRuntimeConstants.CHUNK_SIZE)) / WorldRuntimeConstants.CHUNK_SIZE)
+	return chunk_y >= 0 and chunk_y < height_chunks
+
 func _build_local_mountain_solid_mask(chunk_coord: Vector2i) -> PackedByteArray:
 	var mask := PackedByteArray()
 	mask.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
@@ -1237,11 +2331,12 @@ func _is_mountain_contour_solid_sample(sample: Dictionary) -> bool:
 	if not bool(sample.get("ready", false)):
 		return false
 	var terrain_id: int = int(sample.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
-	if terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
-			and terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
+	if not _is_mountain_mass_terrain(terrain_id):
 		return false
 	if bool(sample.get("walkable", true)):
 		return false
+	if terrain_id == WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED:
+		return true
 	var mountain_id: int = int(sample.get("mountain_id", 0))
 	var mountain_flags: int = int(sample.get("mountain_flags", 0))
 	return mountain_id > 0 \
@@ -1312,7 +2407,7 @@ func _uses_mountain_surface_presentation(terrain_id: int) -> bool:
 func _wrap_local_player_position_if_needed() -> void:
 	if not _uses_finite_world_bounds():
 		return
-	var player: Node2D = PlayerAuthority.get_local_player()
+	var player: Node2D = _get_local_player_node()
 	if player == null:
 		return
 	var width_px: float = float(_world_bounds_settings.width_tiles * WorldRuntimeConstants.TILE_SIZE_PX)

@@ -29,3 +29,5 @@ gdextension/godot-cpp/
 CLAUDE.local.md
 .claude/settings.local.json
 .claude/agent-memory-local/
+Godot_v4.6.2-stable_win64.exe
+Godot_v4.6.2-stable_win64_console.exe

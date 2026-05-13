@@ -4,9 +4,14 @@ extends RefCounted
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
 var _diffs_by_chunk: Dictionary = {}
+var diff_revision: int = 0
 
 func clear() -> void:
 	_diffs_by_chunk.clear()
+	diff_revision = 0
+
+func get_diff_revision() -> int:
+	return diff_revision
 
 func set_tile_override(chunk_coord: Vector2i, local_coord: Vector2i, terrain_id: int, walkable: bool) -> void:
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
@@ -18,6 +23,7 @@ func set_tile_override(chunk_coord: Vector2i, local_coord: Vector2i, terrain_id:
 		"terrain_id": terrain_id,
 		"walkable": walkable,
 	}
+	diff_revision += 1
 
 func get_tile_override(chunk_coord: Vector2i, local_coord: Vector2i) -> Dictionary:
 	var chunk_diffs: Dictionary = _diffs_by_chunk.get(chunk_coord, {}) as Dictionary

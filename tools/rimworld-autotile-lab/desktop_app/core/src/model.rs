@@ -75,6 +75,7 @@ pub enum ExportMode {
     Full47,
     BaseVariantsOnly,
     MaskOnly,
+    RuntimeSdfContour,
 }
 
 impl Default for ExportMode {
@@ -89,6 +90,7 @@ impl ExportMode {
             Self::Full47 => "Full47",
             Self::BaseVariantsOnly => "BaseVariantsOnly",
             Self::MaskOnly => "MaskOnly",
+            Self::RuntimeSdfContour => "RuntimeSdfContour",
         }
     }
 }
@@ -225,6 +227,14 @@ pub struct GeneratedFiles {
     pub atlas_mask_png: Option<String>,
     pub atlas_height_png: Option<String>,
     pub atlas_normal_png: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference_mask_png: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference_height_png: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference_normal_png: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference_albedo_png: Option<String>,
     pub top_albedo_png: Option<String>,
     pub face_albedo_png: Option<String>,
     pub base_albedo_png: Option<String>,

@@ -9,11 +9,31 @@ const TOPOLOGY_SINGLE_TILE: StringName = &"single_tile"
 
 const RENDER_LAYER_BASE: StringName = &"base"
 const RENDER_LAYER_OVERLAY: StringName = &"overlay"
+const CONTOUR_CUTOVER_TERRAIN_IDS: Array[int] = [
+	WorldRuntimeConstants.TERRAIN_PLAINS_GROUND,
+	WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED,
+	WorldRuntimeConstants.TERRAIN_PLAINS_DUG,
+	WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL,
+	WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT,
+]
 
 const SHAPE_SET_DIRECTORY: String = "res://data/terrain/shape_sets"
 const MATERIAL_SET_DIRECTORY: String = "res://data/terrain/material_sets"
 const PROFILE_DIRECTORY: String = "res://data/terrain/presentation_profiles"
 const SHADER_FAMILY_DIRECTORY: String = "res://data/terrain/shader_families"
+const CONTOUR_RECIPE_PATHS_BY_CLASS: Dictionary = {
+	WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE: [
+		"res://assets/textures/terrain/ground/unnamed_recipe.json",
+		"res://tools/rimworld-autotile-lab/desktop_app/exports/runtime_sdf_reference/earth_runtime_sdf_recipe.json",
+	],
+	WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS: [
+		"res://assets/textures/terrain/mountains/unnamed_recipe.json",
+		"res://tools/rimworld-autotile-lab/desktop_app/exports/runtime_sdf_reference/mountain_runtime_sdf_recipe.json",
+	],
+	WorldRuntimeConstants.CONTOUR_CLASS_WATER_SURFACE: [
+		"res://tools/rimworld-autotile-lab/desktop_app/exports/runtime_sdf_reference/earth_runtime_sdf_recipe.json",
+	],
+}
 
 static var _bootstrapped: bool = false
 static var _shader_families_by_id: Dictionary = {}
@@ -21,6 +41,8 @@ static var _shape_sets_by_id: Dictionary = {}
 static var _material_sets_by_id: Dictionary = {}
 static var _profiles_by_id: Dictionary = {}
 static var _profile_id_by_terrain_id: Dictionary = {}
+static var _contour_recipes_by_class: Dictionary = {}
+static var _contour_recipe_source_by_class: Dictionary = {}
 
 static func bootstrap() -> void:
 	if _bootstrapped:
@@ -93,12 +115,148 @@ static func get_terrain_ids_for_layer(layer_id: StringName) -> Array[int]:
 	terrain_ids.sort()
 	return terrain_ids
 
+static func get_tilemap_terrain_ids_for_layer(layer_id: StringName) -> Array[int]:
+	var terrain_ids: Array[int] = []
+	for terrain_id: int in get_terrain_ids_for_layer(layer_id):
+		if is_contour_cutover_terrain(terrain_id):
+			continue
+		terrain_ids.append(terrain_id)
+	return terrain_ids
+
+static func is_contour_cutover_terrain(terrain_id: int) -> bool:
+	return CONTOUR_CUTOVER_TERRAIN_IDS.has(terrain_id)
+
+static func get_contour_recipe_for_class(contour_class: StringName) -> Dictionary:
+	_ensure_contour_recipes_loaded()
+	var recipe: Dictionary = _contour_recipes_by_class.get(contour_class, {}) as Dictionary
+	assert(not recipe.is_empty(), "Missing runtime SDF contour recipe for class=%s" % contour_class)
+	return recipe.duplicate(true)
+
+static func get_contour_recipe_source_for_class(contour_class: StringName) -> String:
+	_ensure_contour_recipes_loaded()
+	return str(_contour_recipe_source_by_class.get(contour_class, ""))
+
+static func get_contour_recipe_id_for_class(contour_class: StringName) -> StringName:
+	var recipe: Dictionary = get_contour_recipe_for_class(contour_class)
+	return StringName(str(recipe.get("asset_name", contour_class)))
+
 static func _resolve_profile_for_terrain(terrain_id: int) -> TerrainPresentationProfile:
 	assert(_profile_id_by_terrain_id.has(terrain_id), "Missing terrain presentation profile mapping for terrain_id=%d" % terrain_id)
 	var profile_id: StringName = _profile_id_by_terrain_id[terrain_id] as StringName
 	var profile: TerrainPresentationProfile = _profiles_by_id.get(profile_id, null) as TerrainPresentationProfile
 	assert(profile != null, "Missing TerrainPresentationProfile resource for terrain_id=%d profile_id=%s" % [terrain_id, profile_id])
 	return profile
+
+static func _ensure_contour_recipes_loaded() -> void:
+	if _contour_recipes_by_class.size() == WorldRuntimeConstants.CONTOUR_CLASSES.size():
+		return
+	_contour_recipes_by_class.clear()
+	_contour_recipe_source_by_class.clear()
+	for contour_class_variant: Variant in WorldRuntimeConstants.CONTOUR_CLASSES:
+		var contour_class: StringName = contour_class_variant as StringName
+		var recipe: Dictionary = _load_contour_recipe_for_class(contour_class)
+		assert(not recipe.is_empty(), "Failed to load runtime SDF contour recipe for class=%s" % contour_class)
+		if recipe.is_empty():
+			continue
+		_contour_recipes_by_class[contour_class] = recipe
+
+static func _load_contour_recipe_for_class(contour_class: StringName) -> Dictionary:
+	var paths: Array = CONTOUR_RECIPE_PATHS_BY_CLASS.get(contour_class, []) as Array
+	for path_variant: Variant in paths:
+		var path: String = str(path_variant)
+		if not FileAccess.file_exists(path):
+			continue
+		var text: String = FileAccess.get_file_as_string(path)
+		var parsed: Variant = JSON.parse_string(text)
+		if parsed is not Dictionary:
+			continue
+		var recipe: Dictionary = _normalize_contour_recipe(parsed as Dictionary, contour_class)
+		if recipe.is_empty():
+			continue
+		_contour_recipe_source_by_class[contour_class] = path
+		return recipe
+	return {}
+
+static func _normalize_contour_recipe(source: Dictionary, contour_class: StringName) -> Dictionary:
+	if str(source.get("schema", "")) == "station_peaceful.runtime_sdf_contour_recipe.v1":
+		var recipe: Dictionary = source.duplicate(true)
+		recipe["solid_class"] = str(contour_class)
+		if contour_class == WorldRuntimeConstants.CONTOUR_CLASS_WATER_SURFACE:
+			recipe["asset_name"] = "water"
+			var collision: Dictionary = (recipe.get("collision", {}) as Dictionary).duplicate(true)
+			collision["blocks_inside"] = false
+			recipe["collision"] = collision
+		return recipe
+	var request: Dictionary = source.get("request", {}) as Dictionary
+	if request.is_empty():
+		return {}
+	var asset_name: String = _contour_asset_name_for_class(contour_class)
+	return {
+		"schema": "station_peaceful.runtime_sdf_contour_recipe.v1",
+		"asset_name": asset_name,
+		"preset": str(request.get("preset", asset_name)),
+		"tile_size_px": int(request.get("tile_size", WorldRuntimeConstants.TILE_SIZE_PX)),
+		"chunk_size_tiles": WorldRuntimeConstants.CHUNK_SIZE,
+		"solid_class": str(contour_class),
+		"geometry": {
+			"south_height_px": float(request.get("south_height", 8.0)),
+			"north_height_px": float(request.get("north_height", 0.0)),
+			"side_height_px": float(request.get("side_height", 0.0)),
+			"roughness_px": float(request.get("roughness", 10.0)),
+			"edge_width_px": float(request.get("rim_width", 5.0)),
+			"face_power": float(request.get("face_power", 1.0)),
+			"back_drop": float(request.get("back_drop", 0.0)),
+			"crown_bevel_px": float(request.get("crown_bevel", 0.0)),
+			"outer_corner_radius_px": float(request.get("outer_corner_radius", 0.0)),
+			"inner_corner_radius_px": float(request.get("inner_corner_radius", 0.0)),
+			"corner_round_px": float(request.get("corner_round_px", 0.0)),
+			"diagonal_smooth_px": float(request.get("diagonal_smooth_px", 0.0)),
+			"contour_relax": float(request.get("contour_relax", 1.0)),
+			"contour_warp_px": float(request.get("contour_warp_px", 0.0)),
+			"corner_variation": float(request.get("corner_variation", 0.0)),
+			"rim_width_px": float(request.get("rim_width", 0.0)),
+			"outline_enabled": bool(request.get("mountain_outline_enabled", false)),
+			"outline_width_px": float(request.get("mountain_outline_width", 0.0)),
+			"edge_debris": float(request.get("edge_debris", 0.0)),
+			"edge_color_strength": float(request.get("edge_color_strength", 0.0)),
+			"geometry_variance": float(request.get("geometry_variance", 0.0)),
+			"shape_supersampling": int(request.get("shape_supersampling", 4)),
+		},
+		"materials": {
+			"top_albedo": "%s_top_albedo.png" % asset_name,
+			"face_albedo": "%s_face_albedo.png" % asset_name,
+			"base_albedo": "%s_base_albedo.png" % asset_name,
+			"top_modulation": "%s_top_modulation.png" % asset_name,
+			"face_modulation": "%s_face_modulation.png" % asset_name,
+			"top_normal": "%s_top_normal.png" % asset_name,
+			"face_normal": "%s_face_normal.png" % asset_name,
+			"texture_scale": float(request.get("texture_scale", 1.0)),
+			"normal_strength": float(request.get("normal_strength", 8.0)),
+			"normal_detail_strength": float(request.get("normal_detail_strength", 1.0)),
+		},
+		"collision": {
+			"threshold": 0.0,
+			"threshold_px": 0.0,
+			"sampling_px": 4,
+			"blocks_inside": contour_class == WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS,
+		},
+		"determinism": {
+			"seed": int(request.get("seed", 13371337)),
+			"variant_count": int(request.get("variants", 6)),
+			"forced_variant": 0 if request.get("forced_variant", null) == null else int(request.get("forced_variant", 0)),
+		},
+	}
+
+static func _contour_asset_name_for_class(contour_class: StringName) -> String:
+	match contour_class:
+		WorldRuntimeConstants.CONTOUR_CLASS_GROUND_SURFACE:
+			return "ground"
+		WorldRuntimeConstants.CONTOUR_CLASS_MOUNTAIN_MASS:
+			return "mountain"
+		WorldRuntimeConstants.CONTOUR_CLASS_WATER_SURFACE:
+			return "water"
+		_:
+			return str(contour_class)
 
 static func _register_shader_family(shader_family_resource: Resource) -> void:
 	var shader_family: TerrainShaderFamily = shader_family_resource as TerrainShaderFamily
@@ -239,21 +397,13 @@ static func _validate_profile(profile: TerrainPresentationProfile) -> void:
 			)
 
 static func _expected_topology_family_for_terrain(terrain_id: int) -> StringName:
+	if is_contour_cutover_terrain(terrain_id):
+		return &""
 	match terrain_id:
-		WorldRuntimeConstants.TERRAIN_PLAINS_GROUND:
-			return TOPOLOGY_AUTOTILE_47
-		WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED:
-			return TOPOLOGY_AUTOTILE_47
-		WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL:
-			return TOPOLOGY_AUTOTILE_47
-		WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
-			return TOPOLOGY_AUTOTILE_47
 		WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW:
 			return TOPOLOGY_AUTOTILE_47
 		WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP:
 			return TOPOLOGY_AUTOTILE_47
-		WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
-			return TOPOLOGY_SINGLE_TILE
 		_:
 			return &""
 

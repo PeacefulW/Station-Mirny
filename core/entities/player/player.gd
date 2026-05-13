@@ -113,7 +113,7 @@ func _find_harvest_target_position() -> Vector2:
 	var chunk_manager: Node = _get_chunk_manager()
 	if chunk_manager == null \
 			or not chunk_manager.has_method("has_resource_at_world") \
-			or not chunk_manager.has_method("is_walkable_at_world"):
+			or not chunk_manager.has_method("is_raw_tile_walkable_at_world"):
 		return Vector2.INF
 	var dir: Vector2 = get_global_mouse_position() - global_position
 	var end_world: Vector2 = global_position if dir.length_squared() <= 0.0001 \
@@ -122,7 +122,7 @@ func _find_harvest_target_position() -> Vector2:
 		global_position,
 		end_world,
 		Callable(chunk_manager, "has_resource_at_world"),
-		Callable(chunk_manager, "is_walkable_at_world")
+		Callable(chunk_manager, "is_raw_tile_walkable_at_world")
 	)
 
 func tick_harvest_cooldown(delta: float) -> void:

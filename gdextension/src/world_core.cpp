@@ -3,6 +3,7 @@
 #include "lake_field.h"
 #include "mountain_contour.h"
 #include "mountain_field.h"
+#include "world_contour_field.h"
 #include "world_utils.h"
 
 #include <algorithm>
@@ -870,6 +871,7 @@ void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("generate_chunk_packets_batch", "seed", "coords", "world_version", "settings_packed"), &WorldCore::generate_chunk_packets_batch);
 	ClassDB::bind_method(D_METHOD("make_world_preview_patch_image", "packet", "render_mode"), &WorldCore::make_world_preview_patch_image);
 	ClassDB::bind_method(D_METHOD("build_mountain_contour_debug", "solid_halo", "chunk_size", "tile_size_px"), &WorldCore::build_mountain_contour_debug);
+	ClassDB::bind_method(D_METHOD("build_contour_chunk", "input"), &WorldCore::build_contour_chunk);
 	ClassDB::bind_method(D_METHOD("resolve_world_foundation_spawn_tile", "seed", "world_version", "settings_packed"), &WorldCore::resolve_world_foundation_spawn_tile);
 #ifdef DEBUG_ENABLED
 	ClassDB::bind_method(D_METHOD("get_world_foundation_snapshot", "layer_mask", "downscale_factor"), &WorldCore::get_world_foundation_snapshot);
@@ -1031,6 +1033,10 @@ Dictionary WorldCore::build_mountain_contour_debug(
 		static_cast<int32_t>(p_chunk_size),
 		static_cast<int32_t>(p_tile_size_px)
 	);
+}
+
+Dictionary WorldCore::build_contour_chunk(Dictionary p_input) {
+	return world_contour_field::build_contour_chunk(p_input);
 }
 
 Dictionary WorldCore::_generate_chunk_packet(

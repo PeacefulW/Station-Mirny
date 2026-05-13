@@ -67,7 +67,8 @@ ids.
 2. Remove ground and mountain target ids from the active `autotile_47` TileMap
    rendering path.
 3. Keep raw logical terrain ids and diff behavior unchanged.
-4. Verify chunk readiness requires contour visual and collision readiness.
+4. Verify chunk readiness requires active contour visual and collision
+   readiness for `mountain_mass` and `ground_surface`.
 5. Run generator parity exports for mountain and earth presets.
 6. Capture matching in-game chunks and compare mask/normal/albedo behavior
    against reference output within documented tolerance.
@@ -90,7 +91,9 @@ These terrain ids are contour-only after this iteration:
 | `TERRAIN_MOUNTAIN_FOOT` | `4` | `mountain_mass` |
 
 Lake terrain ids keep their existing water presentation in this cutover but
-participate in ground contour boundaries as `water_surface`.
+participate in ground contour boundaries as `water_surface`. `water_surface`
+must remain available to halo classification and debug readback, but it is not
+an independent active readiness gate in this iteration.
 
 ## Required Tests and Commands
 
