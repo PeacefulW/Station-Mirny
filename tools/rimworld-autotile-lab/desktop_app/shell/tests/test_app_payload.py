@@ -112,6 +112,9 @@ class AppPayloadTests(unittest.TestCase):
             "shape_supersampling": 4,
             "normal_strength": 8.0,
             "normal_detail_strength": 4.0,
+            "top_world_scale_px": 224.0,
+            "face_world_scale_px": 112.0,
+            "macro_world_scale_px": 448.0,
             "variants": 6,
             "texture_scale": 1.0,
             "bake_height_shading": False,
@@ -233,6 +236,49 @@ class AppPayloadTests(unittest.TestCase):
             "mountain",
             "RuntimeSdfContour",
         ))
+
+    def test_runtime_sdf_contour_expected_files_include_contour_style_v1_package(self):
+        expected = app.expected_export_file_names("mountain", "RuntimeSdfContour")
+
+        for name in [
+            "mountain_contour_style.v1.json",
+            "mountain_edge_profile_lut.png",
+            "mountain_height_profile_lut.png",
+            "mountain_reference_preview.png",
+            "mountain_reference_normal.png",
+        ]:
+            self.assertIn(name, expected)
+
+    def test_shell_payload_carries_every_source_field_for_contour_style_v1(self):
+        request = make_request_builder_stub().build_request()
+
+        for key in [
+            "asset_name",
+            "preset",
+            "tile_size",
+            "south_height",
+            "north_height",
+            "side_height",
+            "corner_round_px",
+            "diagonal_smooth_px",
+            "contour_warp_px",
+            "roughness",
+            "corner_variation",
+            "rim_width",
+            "edge_debris",
+            "edge_color_strength",
+            "mountain_outline_enabled",
+            "mountain_outline_width",
+            "normal_strength",
+            "normal_detail_strength",
+            "top_world_scale_px",
+            "face_world_scale_px",
+            "macro_world_scale_px",
+            "texture_scale",
+            "colors",
+            "textures",
+        ]:
+            self.assertIn(key, request)
 
     def test_full16_export_mode_is_sent_to_core(self):
         instance = make_request_builder_stub()

@@ -5,13 +5,18 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
 const TerrainPresentationRegistry = preload("res://core/systems/world/terrain_presentation_registry.gd")
 const ChunkDebugVisualLayer = preload("res://core/systems/world/chunk_debug_visual_layer.gd")
+const MountainContourStyle = preload("res://core/systems/world/mountain_contour_style.gd")
+const MountainContourVisualLayer = preload("res://core/systems/world/mountain_contour_visual_layer.gd")
 const MOUNTAIN_COVER_SHADER = preload("res://assets/shaders/mountain_cover_overlay.gdshader")
+
+const MOUNTAIN_CONTOUR_VISUAL_Z_INDEX: int = 5
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 
 var _base_layer: TileMapLayer = null
 var _overlay_layer: TileMapLayer = null
 var _water_layer: TileMapLayer = null
+var _mountain_contour_visual_layer: MountainContourVisualLayer = null
 var _debug_layer: ChunkDebugVisualLayer = null
 var roof_layers_by_mountain: Dictionary = {}
 var _roof_mask_images_by_mountain: Dictionary = {}
@@ -30,6 +35,7 @@ var _debug_contour_visible: bool = false
 var _debug_solid_mask: PackedByteArray = PackedByteArray()
 var _debug_contour_vertices: PackedVector2Array = PackedVector2Array()
 var _debug_contour_indices: PackedInt32Array = PackedInt32Array()
+var _mountain_contour_runtime_stats: Dictionary = {}
 
 func _exit_tree() -> void:
 	_roof_mask_images_by_mountain.clear()
@@ -54,6 +60,7 @@ func begin_apply(packet: Dictionary) -> void:
 	visible = false
 	_ensure_layers()
 	_refresh_debug_solid_mask()
+	_clear_mountain_contour_runtime_data()
 
 func apply_next_batch(batch_size: int) -> bool:
 	if _pending_terrain_ids.is_empty():
@@ -138,6 +145,52 @@ func get_mountain_contour_debug_state() -> Dictionary:
 		"contour_triangle_count": _debug_contour_indices.size() / 3,
 	}
 
+func apply_mountain_contour_runtime_data(
+	style: MountainContourStyle,
+	runtime_result: Dictionary,
+	collision_ready: bool,
+	halo_state: Dictionary,
+	runtime_visible: bool = false
+) -> void:
+	_ensure_layers()
+	var result_ready: bool = bool(runtime_result.get("ready", false))
+	if style == null or not result_ready:
+		_clear_mountain_contour_runtime_data()
+		_mountain_contour_runtime_stats = _build_mountain_contour_runtime_stats(
+			style,
+			{},
+			collision_ready,
+			halo_state,
+			false,
+			runtime_visible
+		)
+		return
+	var layer: MountainContourVisualLayer = _ensure_mountain_contour_visual_layer()
+	layer.configure(chunk_coord, style)
+	var visual_ready: bool = layer.apply_runtime_result(runtime_result)
+	layer.z_index = MOUNTAIN_CONTOUR_VISUAL_Z_INDEX
+	layer.visible = runtime_visible and visual_ready and layer.get_total_vertex_count() > 0
+	_mountain_contour_runtime_stats = _build_mountain_contour_runtime_stats(
+		style,
+		layer.get_debug_stats(),
+		collision_ready,
+		halo_state,
+		visual_ready,
+		runtime_visible
+	)
+
+func get_mountain_contour_runtime_debug_snapshot() -> Dictionary:
+	if _mountain_contour_runtime_stats.is_empty():
+		_mountain_contour_runtime_stats = _build_mountain_contour_runtime_stats(
+			null,
+			{},
+			false,
+			{},
+			false,
+			false
+		)
+	return _mountain_contour_runtime_stats.duplicate(true)
+
 func apply_cover_visibility(visible_mask: PackedByteArray) -> void:
 	_ensure_layers()
 	var resolved_mask: PackedByteArray = visible_mask
@@ -185,6 +238,17 @@ func _ensure_layers() -> void:
 		_overlay_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		_overlay_layer.z_index = 1
 		add_child(_overlay_layer)
+
+func _ensure_mountain_contour_visual_layer() -> MountainContourVisualLayer:
+	if _mountain_contour_visual_layer != null and is_instance_valid(_mountain_contour_visual_layer):
+		_mountain_contour_visual_layer.z_index = MOUNTAIN_CONTOUR_VISUAL_Z_INDEX
+		return _mountain_contour_visual_layer
+	_mountain_contour_visual_layer = MountainContourVisualLayer.new()
+	_mountain_contour_visual_layer.name = "MountainContourVisualLayer"
+	_mountain_contour_visual_layer.z_index = MOUNTAIN_CONTOUR_VISUAL_Z_INDEX
+	_mountain_contour_visual_layer.visible = false
+	add_child(_mountain_contour_visual_layer)
+	return _mountain_contour_visual_layer
 
 func _ensure_water_layer() -> TileMapLayer:
 	if _water_layer != null and is_instance_valid(_water_layer):
@@ -333,6 +397,58 @@ func _sync_debug_layer_data() -> void:
 	if _debug_layer == null or not is_instance_valid(_debug_layer):
 		return
 	_debug_layer.set_debug_data(_debug_solid_mask, _debug_contour_vertices, _debug_contour_indices)
+
+func _clear_mountain_contour_runtime_data() -> void:
+	if _mountain_contour_visual_layer != null and is_instance_valid(_mountain_contour_visual_layer):
+		_mountain_contour_visual_layer.clear_runtime_result()
+		_mountain_contour_visual_layer.visible = false
+		_mountain_contour_visual_layer.z_index = MOUNTAIN_CONTOUR_VISUAL_Z_INDEX
+	_mountain_contour_runtime_stats = _build_mountain_contour_runtime_stats(
+		null,
+		{},
+		false,
+		{},
+		false,
+		false
+	)
+
+func _build_mountain_contour_runtime_stats(
+	style: MountainContourStyle,
+	layer_stats: Dictionary,
+	collision_ready: bool,
+	halo_state: Dictionary,
+	visual_ready: bool,
+	runtime_visible: bool
+) -> Dictionary:
+	var has_layer: bool = _mountain_contour_visual_layer != null and is_instance_valid(_mountain_contour_visual_layer)
+	var style_id: StringName = &""
+	if style != null:
+		style_id = style.asset_name
+	return {
+		"ready": visual_ready and collision_ready,
+		"chunk_coord": chunk_coord,
+		"style_id": style_id,
+		"visual_ready": visual_ready,
+		"collision_ready": collision_ready,
+		"has_visual_layer": has_layer,
+		"visual_layer_visible": has_layer and _mountain_contour_visual_layer.visible,
+		"visual_layer_z_index": _mountain_contour_visual_layer.z_index if has_layer else -1,
+		"runtime_visibility_enabled": runtime_visible,
+		"total_vertex_count": int(layer_stats.get("total_vertex_count", 0)),
+		"total_triangle_count": int(layer_stats.get("total_triangle_count", 0)),
+		"loop_count": int(halo_state.get("loop_count", 0)),
+		"aabb_count": int(halo_state.get("aabb_count", 0)),
+		"solid_sample_count": int(layer_stats.get("solid_sample_count", halo_state.get("solid_sample_count", 0))),
+		"boundary_edge_count": int(layer_stats.get("boundary_edge_count", 0)),
+		"seam_touch_mask": int(layer_stats.get("seam_touch_mask", 0)),
+		"compute_time_usec": int(layer_stats.get("compute_time_usec", 0)),
+		"halo_ready": bool(halo_state.get("ready", false)),
+		"halo_side": int(halo_state.get("halo_side", 0)),
+		"halo_solid_sample_count": int(halo_state.get("solid_sample_count", 0)),
+		"loaded_seam_neighbours": (halo_state.get("loaded_seam_neighbours", []) as Array).duplicate(),
+		"missing_required_seam_neighbours": (halo_state.get("missing_required_seam_neighbours", []) as Array).duplicate(),
+		"optional_missing_seam_neighbours": (halo_state.get("optional_missing_seam_neighbours", []) as Array).duplicate(),
+	}
 
 func _count_debug_solid_tiles() -> int:
 	var count: int = 0
