@@ -4,6 +4,7 @@ const ChunkView = preload("res://core/systems/world/chunk_view.gd")
 const MountainContourCollisionCache = preload("res://core/systems/world/mountain_contour_collision_cache.gd")
 const MountainContourStyleRegistry = preload("res://core/systems/world/mountain_contour_style_registry.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const WorldStreamer = preload("res://core/systems/world/world_streamer.gd")
 
 const OUTPUT_DIR: String = "res://artifacts/mountain_contour_chunk_integration_smoke_test"
 const REPORT_PATH: String = "%s/report.json" % OUTPUT_DIR
@@ -35,8 +36,9 @@ func _run() -> void:
 
 	_assert_chunk_can_apply_contour_runtime(style, world_core)
 	_assert_missing_required_seam_blocks_cache(style)
+	_assert_missing_required_seam_keeps_degraded_visual(style)
 	_assert_loaded_seam_halo_restores_cache(style, world_core)
-	_assert_no_save_or_movement_cutover()
+	_assert_no_save_contour_payload()
 
 	if _failed:
 		_write_report()
@@ -56,7 +58,6 @@ func _assert_static_contract() -> void:
 	_assert(world_streamer_source.contains("build_mountain_contour_runtime"), "WorldStreamer must call native build_mountain_contour_runtime().")
 	_assert(world_streamer_source.contains("_mountain_contour_collision_caches"), "WorldStreamer must store contour collision caches per chunk.")
 	_assert(world_streamer_source.contains("get_mountain_contour_runtime_debug_snapshot"), "WorldStreamer must expose contour runtime debug snapshot.")
-	_assert(_function_body(world_streamer_source, "is_walkable_at_world").find("mountain_contour") == -1, "Task 6 must not cut movement over to contour collision.")
 	_assert(_function_body(world_streamer_source, "save_world_state").find("contour") == -1, "Task 6 must not add contour data to save_world_state().")
 
 func _assert_chunk_can_apply_contour_runtime(style, world_core: Object) -> void:
@@ -103,6 +104,28 @@ func _assert_missing_required_seam_blocks_cache(style) -> void:
 	_assert((snapshot.get("missing_required_seam_neighbours", []) as Array).has(Vector2i(-1, 0)), "Missing required west seam neighbour must be reported.")
 	chunk_view.free()
 
+func _assert_missing_required_seam_keeps_degraded_visual(style) -> void:
+	var chunk_coord := Vector2i.ZERO
+	var packet: Dictionary = _build_packet(_west_seam_blob())
+	var chunk_view: ChunkView = _build_loaded_chunk_view(chunk_coord, packet)
+	var streamer := WorldStreamer.new()
+	streamer._mountain_contour_style = style
+	streamer._mountain_contour_runtime_visible = true
+	streamer._chunk_packets[chunk_coord] = packet
+	streamer._chunk_views[chunk_coord] = chunk_view
+	var telemetry: Dictionary = streamer._rebuild_mountain_contour_runtime_for_chunk(chunk_coord)
+	var snapshot: Dictionary = streamer.get_mountain_contour_runtime_debug_snapshot(chunk_coord)
+	_assert(not telemetry.is_empty(), "Missing seam runtime rebuild must still produce telemetry.")
+	_assert(not bool(snapshot.get("ready", true)), "Missing seam contour runtime must not become fully ready.")
+	_assert(not bool(snapshot.get("collision_ready", true)), "Missing seam contour runtime must not configure collision cache as ready.")
+	_assert(bool(snapshot.get("missing_cache_blocks", false)), "Missing seam contour cache must stay fail-closed for collision.")
+	_assert(bool(snapshot.get("visual_ready", false)), "Missing seam contour runtime must still publish degraded visual geometry.")
+	_assert(bool(snapshot.get("visual_layer_visible", false)), "Missing seam contour visual layer must remain visible instead of clearing the mountain.")
+	_assert(int(snapshot.get("total_vertex_count", 0)) > 0, "Missing seam contour visual must contain vertices.")
+	_assert(not (snapshot.get("missing_required_seam_neighbours", []) as Array).is_empty(), "Missing required seam neighbour must remain visible in debug state.")
+	chunk_view.free()
+	streamer.free()
+
 func _assert_loaded_seam_halo_restores_cache(style, world_core: Object) -> void:
 	var seam_blob: Array[Vector2i] = _west_seam_blob()
 	seam_blob.append(Vector2i(-1, 7))
@@ -123,11 +146,9 @@ func _assert_loaded_seam_halo_restores_cache(style, world_core: Object) -> void:
 	_assert((snapshot.get("missing_required_seam_neighbours", []) as Array).is_empty(), "No required seam neighbour should be missing after west packet is loaded.")
 	chunk_view.free()
 
-func _assert_no_save_or_movement_cutover() -> void:
+func _assert_no_save_contour_payload() -> void:
 	var world_streamer_source: String = FileAccess.get_file_as_string("res://core/systems/world/world_streamer.gd")
 	_assert(_function_body(world_streamer_source, "save_world_state").find("contour") == -1, "Contour runtime state must not enter world save payload.")
-	_assert(not world_streamer_source.contains("func is_capsule_walkable_at_world"), "Task 6 must not add movement cutover query yet.")
-	_assert(not world_streamer_source.contains("func move_capsule_with_slide"), "Task 6 must not add movement slide cutover yet.")
 
 func _build_loaded_chunk_view(chunk_coord: Vector2i, packet: Dictionary) -> ChunkView:
 	var chunk_view := ChunkView.new()
@@ -147,6 +168,9 @@ func _build_runtime_result(world_core: Object, solid_halo: PackedByteArray, styl
 		{
 			"south_height_px": style.south_height_px,
 			"side_height_px": style.side_height_px,
+			"corner_round_px": style.corner_round_px,
+			"diagonal_smooth_px": style.diagonal_smooth_px,
+			"contour_warp_px": style.contour_warp_px,
 			"rim_width_px": style.rim_width_px,
 			"mountain_outline_enabled": style.mountain_outline_enabled,
 			"mountain_outline_width_px": style.mountain_outline_width_px,

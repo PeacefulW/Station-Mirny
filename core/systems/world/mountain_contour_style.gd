@@ -116,7 +116,7 @@ static func load_from_dict(data: Dictionary, base_dir: String) -> MountainContou
 			push_error("MountainContourStyle: missing required texture path '%s'." % [texture_field])
 			return null
 
-	var style := MountainContourStyle.new()
+	var style := new()
 	style.asset_name = StringName(str(data.get("asset_name", "")))
 	style.preset = StringName(str(data.get("preset", "")))
 	style.logical_tile_size_px = int(data.get("logical_tile_size_px", 0))
@@ -232,9 +232,10 @@ static func _resolve_style_path(base_dir: String, source_path: String) -> String
 static func _load_texture2d(path: String) -> Texture2D:
 	if not FileAccess.file_exists(path):
 		return null
-	var resource: Resource = ResourceLoader.load(path)
-	if resource is Texture2D:
-		return resource as Texture2D
+	if ResourceLoader.exists(path):
+		var resource: Resource = ResourceLoader.load(path)
+		if resource is Texture2D:
+			return resource as Texture2D
 	var image := Image.new()
 	if image.load(path) != OK:
 		return null

@@ -104,16 +104,6 @@ func _assert_static_contract() -> void:
 	_assert(not shader_source.contains("mask_rgba8"), "Shader must not consume a generated mask texture.")
 	_assert(not shader_source.contains("height_r16"), "Shader must not consume a generated height texture.")
 	_assert(not shader_source.contains("normal_rgba8"), "Shader must not consume a generated normal texture.")
-	_assert(_source_excludes_live_cutover(), "Task 4 probe must not wire MountainContourVisualLayer into live world rendering.")
-
-func _source_excludes_live_cutover() -> bool:
-	var chunk_view_source: String = FileAccess.get_file_as_string("res://core/systems/world/chunk_view.gd")
-	var world_streamer_source: String = FileAccess.get_file_as_string("res://core/systems/world/world_streamer.gd")
-	return not chunk_view_source.contains("MountainContourVisualLayer") \
-		and not chunk_view_source.contains("mountain_contour_visual_layer") \
-		and not world_streamer_source.contains("MountainContourVisualLayer") \
-		and not world_streamer_source.contains("mountain_contour_visual_layer")
-
 func _build_runtime_result(style: MountainContourStyle) -> Dictionary:
 	var world_core: Object = ClassDB.instantiate("WorldCore")
 	_assert(world_core != null, "WorldCore must be available for mountain contour visual probe.")
@@ -138,6 +128,9 @@ func _style_params(style: MountainContourStyle) -> Dictionary:
 	return {
 		"south_height_px": style.south_height_px,
 		"side_height_px": style.side_height_px,
+		"corner_round_px": style.corner_round_px,
+		"diagonal_smooth_px": style.diagonal_smooth_px,
+		"contour_warp_px": style.contour_warp_px,
 		"rim_width_px": style.rim_width_px,
 		"mountain_outline_enabled": style.mountain_outline_enabled,
 		"mountain_outline_width_px": style.mountain_outline_width_px,

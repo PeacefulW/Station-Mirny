@@ -1,0 +1,271 @@
+{
+	"cases": [
+		{
+			"albedo": {
+				"mean_delta": 0.196949897772853,
+				"p95_delta": 0.424836605787277,
+				"samples": 423
+			},
+			"case": "single_tile",
+			"diff_albedo": "res://artifacts/mountain_contour_parity/single_tile/diff_albedo.png",
+			"diff_normal": "res://artifacts/mountain_contour_parity/single_tile/diff_normal.png",
+			"diff_silhouette": "res://artifacts/mountain_contour_parity/single_tile/diff_silhouette.png",
+			"normal": {
+				"mean_delta": 0.318005540530755,
+				"p95_delta": 0.686274528503418,
+				"samples": 423
+			},
+			"result": {
+				"boundary_edge_count": 4,
+				"compute_time_usec": 57,
+				"seam_touch_mask": 0,
+				"solid_sample_count": 1
+			},
+			"runtime_albedo": "res://artifacts/mountain_contour_parity/single_tile/runtime_albedo.png",
+			"runtime_normal": "res://artifacts/mountain_contour_parity/single_tile/runtime_normal.png",
+			"silhouette": {
+				"case": "single_tile",
+				"mismatch_ratio": 0.0055694580078125,
+				"mismatches": 365,
+				"reference_covered": 241,
+				"runtime_covered": 240,
+				"samples": 65536
+			}
+		},
+		{
+			"albedo": {
+				"mean_delta": 0.176869423820294,
+				"p95_delta": 0.427450984716415,
+				"samples": 1606
+			},
+			"case": "two_by_two_blob",
+			"diff_albedo": "res://artifacts/mountain_contour_parity/two_by_two_blob/diff_albedo.png",
+			"diff_normal": "res://artifacts/mountain_contour_parity/two_by_two_blob/diff_normal.png",
+			"diff_silhouette": "res://artifacts/mountain_contour_parity/two_by_two_blob/diff_silhouette.png",
+			"normal": {
+				"mean_delta": 0.211794831145952,
+				"p95_delta": 0.673202633857727,
+				"samples": 1606
+			},
+			"result": {
+				"boundary_edge_count": 8,
+				"compute_time_usec": 65,
+				"seam_touch_mask": 0,
+				"solid_sample_count": 4
+			},
+			"runtime_albedo": "res://artifacts/mountain_contour_parity/two_by_two_blob/runtime_albedo.png",
+			"runtime_normal": "res://artifacts/mountain_contour_parity/two_by_two_blob/runtime_normal.png",
+			"silhouette": {
+				"case": "two_by_two_blob",
+				"mismatch_ratio": 0.0132904052734375,
+				"mismatches": 871,
+				"reference_covered": 1189,
+				"runtime_covered": 1152,
+				"samples": 65536
+			}
+		},
+		{
+			"albedo": {
+				"mean_delta": 0.106420049706963,
+				"p95_delta": 0.390849679708481,
+				"samples": 27024
+			},
+			"case": "large_blob",
+			"diff_albedo": "res://artifacts/mountain_contour_parity/large_blob/diff_albedo.png",
+			"diff_normal": "res://artifacts/mountain_contour_parity/large_blob/diff_normal.png",
+			"diff_silhouette": "res://artifacts/mountain_contour_parity/large_blob/diff_silhouette.png",
+			"normal": {
+				"mean_delta": 0.069847339264187,
+				"p95_delta": 0.657516340414683,
+				"samples": 27024
+			},
+			"result": {
+				"boundary_edge_count": 44,
+				"compute_time_usec": 213,
+				"seam_touch_mask": 0,
+				"solid_sample_count": 92
+			},
+			"runtime_albedo": "res://artifacts/mountain_contour_parity/large_blob/runtime_albedo.png",
+			"runtime_normal": "res://artifacts/mountain_contour_parity/large_blob/runtime_normal.png",
+			"silhouette": {
+				"case": "large_blob",
+				"mismatch_ratio": 0.059722900390625,
+				"mismatches": 3914,
+				"reference_covered": 25206,
+				"runtime_covered": 24928,
+				"samples": 65536
+			}
+		},
+		{
+			"albedo": {
+				"mean_delta": 0.131771346561646,
+				"p95_delta": 0.42091503739357,
+				"samples": 34691
+			},
+			"case": "thin_diagonal_opening",
+			"diff_albedo": "res://artifacts/mountain_contour_parity/thin_diagonal_opening/diff_albedo.png",
+			"diff_normal": "res://artifacts/mountain_contour_parity/thin_diagonal_opening/diff_normal.png",
+			"diff_silhouette": "res://artifacts/mountain_contour_parity/thin_diagonal_opening/diff_silhouette.png",
+			"normal": {
+				"mean_delta": 0.110142908808577,
+				"p95_delta": 0.667973866065343,
+				"samples": 34691
+			},
+			"result": {
+				"boundary_edge_count": 76,
+				"compute_time_usec": 487,
+				"seam_touch_mask": 0,
+				"solid_sample_count": 108
+			},
+			"runtime_albedo": "res://artifacts/mountain_contour_parity/thin_diagonal_opening/runtime_albedo.png",
+			"runtime_normal": "res://artifacts/mountain_contour_parity/thin_diagonal_opening/runtime_normal.png",
+			"silhouette": {
+				"case": "thin_diagonal_opening",
+				"mismatch_ratio": 0.138671875,
+				"mismatches": 9088,
+				"reference_covered": 30342,
+				"runtime_covered": 29952,
+				"samples": 65536
+			}
+		},
+		{
+			"albedo": {
+				"mean_delta": 0.111857719369735,
+				"p95_delta": 0.405228763818741,
+				"samples": 34481
+			},
+			"case": "inner_dug_hole",
+			"diff_albedo": "res://artifacts/mountain_contour_parity/inner_dug_hole/diff_albedo.png",
+			"diff_normal": "res://artifacts/mountain_contour_parity/inner_dug_hole/diff_normal.png",
+			"diff_silhouette": "res://artifacts/mountain_contour_parity/inner_dug_hole/diff_silhouette.png",
+			"normal": {
+				"mean_delta": 0.0768678799615749,
+				"p95_delta": 0.660130729277929,
+				"samples": 34481
+			},
+			"result": {
+				"boundary_edge_count": 52,
+				"compute_time_usec": 317,
+				"seam_touch_mask": 0,
+				"solid_sample_count": 116
+			},
+			"runtime_albedo": "res://artifacts/mountain_contour_parity/inner_dug_hole/runtime_albedo.png",
+			"runtime_normal": "res://artifacts/mountain_contour_parity/inner_dug_hole/runtime_normal.png",
+			"silhouette": {
+				"case": "inner_dug_hole",
+				"mismatch_ratio": 0.0902099609375,
+				"mismatches": 5912,
+				"reference_covered": 31690,
+				"runtime_covered": 31360,
+				"samples": 65536
+			}
+		},
+		{
+			"albedo": {
+				"mean_delta": 0.117339063705322,
+				"p95_delta": 0.411764711141586,
+				"samples": 22248
+			},
+			"case": "straight_south_face",
+			"diff_albedo": "res://artifacts/mountain_contour_parity/straight_south_face/diff_albedo.png",
+			"diff_normal": "res://artifacts/mountain_contour_parity/straight_south_face/diff_normal.png",
+			"diff_silhouette": "res://artifacts/mountain_contour_parity/straight_south_face/diff_silhouette.png",
+			"normal": {
+				"mean_delta": 0.0858987195598367,
+				"p95_delta": 0.662745098272959,
+				"samples": 22248
+			},
+			"result": {
+				"boundary_edge_count": 36,
+				"compute_time_usec": 214,
+				"seam_touch_mask": 0,
+				"solid_sample_count": 72
+			},
+			"runtime_albedo": "res://artifacts/mountain_contour_parity/straight_south_face/runtime_albedo.png",
+			"runtime_normal": "res://artifacts/mountain_contour_parity/straight_south_face/runtime_normal.png",
+			"silhouette": {
+				"case": "straight_south_face",
+				"mismatch_ratio": 0.0669708251953125,
+				"mismatches": 4389,
+				"reference_covered": 20107,
+				"runtime_covered": 20000,
+				"samples": 65536
+			}
+		},
+		{
+			"albedo": {
+				"mean_delta": 0.110980870765104,
+				"p95_delta": 0.409150332212448,
+				"samples": 20224
+			},
+			"case": "chunk_seam_edge",
+			"diff_albedo": "res://artifacts/mountain_contour_parity/chunk_seam_edge/diff_albedo.png",
+			"diff_normal": "res://artifacts/mountain_contour_parity/chunk_seam_edge/diff_normal.png",
+			"diff_silhouette": "res://artifacts/mountain_contour_parity/chunk_seam_edge/diff_silhouette.png",
+			"normal": {
+				"mean_delta": 0.0815611001613064,
+				"p95_delta": 0.664052287737528,
+				"samples": 20224
+			},
+			"result": {
+				"boundary_edge_count": 36,
+				"compute_time_usec": 200,
+				"seam_touch_mask": 2,
+				"solid_sample_count": 68
+			},
+			"runtime_albedo": "res://artifacts/mountain_contour_parity/chunk_seam_edge/runtime_albedo.png",
+			"runtime_normal": "res://artifacts/mountain_contour_parity/chunk_seam_edge/runtime_normal.png",
+			"silhouette": {
+				"case": "chunk_seam_edge",
+				"mismatch_ratio": 0.055816650390625,
+				"mismatches": 3658,
+				"reference_covered": 18534,
+				"runtime_covered": 18256,
+				"samples": 65536
+			}
+		},
+		{
+			"albedo": {
+				"mean_delta": 0.116902997264013,
+				"p95_delta": 0.409150332212448,
+				"samples": 29780
+			},
+			"case": "mined_tile_notch",
+			"diff_albedo": "res://artifacts/mountain_contour_parity/mined_tile_notch/diff_albedo.png",
+			"diff_normal": "res://artifacts/mountain_contour_parity/mined_tile_notch/diff_normal.png",
+			"diff_silhouette": "res://artifacts/mountain_contour_parity/mined_tile_notch/diff_silhouette.png",
+			"normal": {
+				"mean_delta": 0.0868418604120299,
+				"p95_delta": 0.664052297671636,
+				"samples": 29780
+			},
+			"result": {
+				"boundary_edge_count": 58,
+				"compute_time_usec": 395,
+				"seam_touch_mask": 0,
+				"solid_sample_count": 97
+			},
+			"runtime_albedo": "res://artifacts/mountain_contour_parity/mined_tile_notch/runtime_albedo.png",
+			"runtime_normal": "res://artifacts/mountain_contour_parity/mined_tile_notch/runtime_normal.png",
+			"silhouette": {
+				"case": "mined_tile_notch",
+				"mismatch_ratio": 0.0871734619140625,
+				"mismatches": 5713,
+				"reference_covered": 27136,
+				"runtime_covered": 26711,
+				"samples": 65536
+			}
+		}
+	],
+	"errors": [],
+	"ok": true,
+	"tolerances": {
+		"compare_step_px": 4,
+		"mean_rgb_delta_limit": 0.42,
+		"normal_mean_rgb_delta_limit": 0.55,
+		"normal_p95_rgb_delta_limit": 0.95,
+		"p95_rgb_delta_limit": 0.92,
+		"reference_resize": "generator reference images are resized to the runtime chunk viewport before comparison",
+		"silhouette_mismatch_ratio_limit": 0.35
+	}
+}

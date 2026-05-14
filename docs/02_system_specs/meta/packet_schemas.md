@@ -738,9 +738,12 @@ Current code notes:
 - every `visual_*_attributes` array stores six floats per matching visual
   vertex: edge distance, face depth, edge kind, local noise x, local noise y,
   and material zone
-- `collision_loops` and `collision_aabbs` are derived from face-connected solid
-  components; diagonal-only contact stays separate and must not invent a
-  face-connected blocked component
+- `collision_loops` and `collision_aabbs` are derived from filled contour
+  polygons that mirror the top mesh triangles. They intentionally do not depend
+  on a fully closed per-chunk boundary loop, so carved openings that cross a
+  chunk edge remain passable instead of becoming hidden seam walls. A fully
+  solid chunk with no local contour edge may use a full-chunk collision
+  fallback.
 - `seam_touch_mask` is a bit field for local chunk edge contact:
   `1 = west`, `2 = east`, `4 = north`, `8 = south`
 - empty chunks return `ready: true` with empty but valid arrays; invalid input

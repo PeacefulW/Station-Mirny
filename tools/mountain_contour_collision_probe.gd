@@ -51,15 +51,6 @@ func _assert_static_contract() -> void:
 	_assert(not source.contains("walkable_flags"), "Collision cache must not fall back to square walkable_flags.")
 	_assert(not source.contains("SaveManager"), "Collision cache must remain transient and must not touch SaveManager.")
 	_assert(not source.contains("save_state"), "Collision cache must not expose save_state().")
-	_assert(_source_excludes_live_cutover(), "Task 5 must not wire contour collision into live movement, building, chunk, or streamer code.")
-
-func _source_excludes_live_cutover() -> bool:
-	var chunk_view_source: String = FileAccess.get_file_as_string("res://core/systems/world/chunk_view.gd")
-	var world_streamer_source: String = FileAccess.get_file_as_string("res://core/systems/world/world_streamer.gd")
-	return not chunk_view_source.contains("MountainContourCollisionCache") \
-		and not chunk_view_source.contains("mountain_contour_collision_cache") \
-		and not world_streamer_source.contains("MountainContourCollisionCache") \
-		and not world_streamer_source.contains("mountain_contour_collision_cache")
 
 func _assert_missing_cache_blocks() -> void:
 	var cache: Object = _new_cache()

@@ -166,8 +166,10 @@ func _assert_roof_tileset_mapping() -> void:
 	view.apply_next_batch(WorldRuntimeConstants.CHUNK_CELL_COUNT)
 	var render_debug: Dictionary = view.get_cover_render_debug(local_coord, 1, 0)
 	_assert(int(render_debug.get("roof_terrain_id", -1)) == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT, "roof layer should keep mountain foot terrain id")
-	_assert(int(render_debug.get("roof_cell_source_id", -1)) == WorldTileSetFactory.get_roof_source_id(WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT), "roof layer should use dedicated mountain foot roof source id")
-	_assert((render_debug.get("roof_cell_atlas_coords", Vector2i(-1, -1)) as Vector2i) == WorldTileSetFactory.get_atlas_coords(WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT, 7), "roof layer should preserve mountain foot atlas coords")
+	_assert(int(render_debug.get("pending_mountain_id", 0)) == 1, "cover debug should keep mountain id after contour visual cutover")
+	_assert(int(render_debug.get("pending_flags", 0)) == WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT, "cover debug should keep mountain foot flags after contour visual cutover")
+	_assert(int(render_debug.get("roof_cell_source_id", 0)) < 0, "contour visual cutover should not render mountain foot as a square roof TileMap cell")
+	_assert((render_debug.get("roof_cell_atlas_coords", Vector2i.ZERO) as Vector2i) == Vector2i(-1, -1), "contour visual cutover should clear mountain foot roof atlas coords")
 	view.free()
 
 func _assert(condition: bool, message: String) -> void:

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <initializer_list>
 #include <vector>
@@ -22,9 +23,18 @@ struct ContourPoint {
 	float y = 0.0f;
 };
 
+struct ContourSegment {
+	godot::Vector2 a;
+	godot::Vector2 b;
+	godot::Vector2 outward;
+};
+
 struct RuntimeStyle {
 	float south_height_px = 32.0f;
 	float side_height_px = 16.0f;
+	float corner_round_px = 16.0f;
+	float diagonal_smooth_px = 32.0f;
+	float contour_warp_px = 0.0f;
 	float rim_width_px = 8.0f;
 	float outline_width_px = 3.0f;
 	bool outline_enabled = true;
@@ -51,8 +61,27 @@ ContourPoint midpoint(ContourPoint p_a, ContourPoint p_b) {
 	};
 }
 
+godot::Vector2 midpoint_vec(godot::Vector2 p_a, godot::Vector2 p_b) {
+	return (p_a + p_b) * 0.5f;
+}
+
 float clamp_coord(float p_value, float p_max) {
 	return std::max(0.0f, std::min(p_value, p_max));
+}
+
+godot::Vector2 clamp_vec(godot::Vector2 p_value, float p_max) {
+	return godot::Vector2(
+		clamp_coord(p_value.x, p_max),
+		clamp_coord(p_value.y, p_max)
+	);
+}
+
+godot::Vector2 normalized_or(godot::Vector2 p_value, godot::Vector2 p_fallback) {
+	const float length_sq = p_value.length_squared();
+	if (length_sq <= 0.000001f) {
+		return p_fallback;
+	}
+	return p_value / std::sqrt(length_sq);
 }
 
 bool read_solid(const godot::PackedByteArray &p_solid_halo, int32_t p_side, int32_t p_x, int32_t p_y) {
@@ -79,6 +108,24 @@ ContourPoint sample_point(int32_t p_x, int32_t p_y, int32_t p_tile_size_px) {
 	};
 }
 
+godot::Vector2 sample_vec(int32_t p_x, int32_t p_y, int32_t p_tile_size_px) {
+	const float tile_size = static_cast<float>(p_tile_size_px);
+	return godot::Vector2(
+		(static_cast<float>(p_x) - 0.5f) * tile_size,
+		(static_cast<float>(p_y) - 0.5f) * tile_size
+	);
+}
+
+void append_vertex_attributes(
+	godot::PackedFloat32Array &r_attributes,
+	godot::Vector2 p_vertex,
+	float p_edge_distance,
+	float p_face_depth,
+	float p_edge_kind,
+	float p_material_zone,
+	float p_tile_size_px
+);
+
 void append_polygon(
 	godot::PackedVector2Array &r_vertices,
 	godot::PackedInt32Array &r_indices,
@@ -94,6 +141,41 @@ void append_polygon(
 			clamp_coord(point.x, p_chunk_px),
 			clamp_coord(point.y, p_chunk_px)
 		));
+	}
+	for (int32_t fan_index = 1; fan_index < static_cast<int32_t>(p_points.size()) - 1; ++fan_index) {
+		r_indices.append(base_index);
+		r_indices.append(base_index + fan_index);
+		r_indices.append(base_index + fan_index + 1);
+	}
+}
+
+void append_polygon_runtime(
+	godot::PackedVector2Array &r_vertices,
+	godot::PackedInt32Array &r_indices,
+	godot::PackedFloat32Array &r_attributes,
+	std::initializer_list<godot::Vector2> p_points,
+	float p_chunk_px,
+	float p_edge_distance,
+	float p_edge_kind,
+	float p_material_zone,
+	float p_tile_size_px
+) {
+	if (p_points.size() < 3) {
+		return;
+	}
+	const int32_t base_index = r_vertices.size();
+	for (const godot::Vector2 &point : p_points) {
+		const godot::Vector2 clamped = clamp_vec(point, p_chunk_px);
+		r_vertices.append(clamped);
+		append_vertex_attributes(
+			r_attributes,
+			clamped,
+			p_edge_distance,
+			0.0f,
+			p_edge_kind,
+			p_material_zone,
+			p_tile_size_px
+		);
 	}
 	for (int32_t fan_index = 1; fan_index < static_cast<int32_t>(p_points.size()) - 1; ++fan_index) {
 		r_indices.append(base_index);
@@ -172,6 +254,83 @@ void append_case_mesh(
 	}
 }
 
+void append_case_top_mesh(
+	godot::PackedVector2Array &r_vertices,
+	godot::PackedInt32Array &r_indices,
+	godot::PackedFloat32Array &r_attributes,
+	int32_t p_case_code,
+	godot::Vector2 p_tl,
+	godot::Vector2 p_tr,
+	godot::Vector2 p_br,
+	godot::Vector2 p_bl,
+	float p_chunk_px,
+	const RuntimeStyle &p_style,
+	float p_tile_size_px
+) {
+	const godot::Vector2 top = midpoint_vec(p_tl, p_tr);
+	const godot::Vector2 right = midpoint_vec(p_tr, p_br);
+	const godot::Vector2 bottom = midpoint_vec(p_bl, p_br);
+	const godot::Vector2 left = midpoint_vec(p_tl, p_bl);
+	const float edge_distance = std::max(
+		1.0f,
+		p_style.corner_round_px + p_style.diagonal_smooth_px * 0.25f + p_style.contour_warp_px * 4.0f
+	);
+
+	switch (p_case_code) {
+		case 0:
+			return;
+		case 1:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_tl, top, left }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		case 2:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_tr, right, top }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		case 3:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_tl, p_tr, right, left }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		case 4:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_br, bottom, right }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		case 5:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_tl, top, left }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_br, bottom, right }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		case 6:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_tr, p_br, bottom, top }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		case 7:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_tl, p_tr, p_br, bottom, left }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		case 8:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_bl, left, bottom }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		case 9:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_tl, top, bottom, p_bl }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		case 10:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_tr, right, top }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_bl, left, bottom }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		case 11:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_tl, p_tr, right, bottom, p_bl }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		case 12:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { left, right, p_br, p_bl }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		case 13:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_tl, top, right, p_br, p_bl }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		case 14:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { top, p_tr, p_br, p_bl, left }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		case 15:
+			append_polygon_runtime(r_vertices, r_indices, r_attributes, { p_tl, p_tr, p_br, p_bl }, p_chunk_px, edge_distance, 0.0f, static_cast<float>(ZONE_TOP), p_tile_size_px);
+			return;
+		default:
+			return;
+	}
+}
+
 float read_style_float(const godot::Dictionary &p_style_params, const char *p_key, float p_default_value) {
 	const godot::Variant value = p_style_params.get(p_key, p_default_value);
 	if (value.get_type() == godot::Variant::NIL) {
@@ -192,6 +351,9 @@ RuntimeStyle read_runtime_style(const godot::Dictionary &p_style_params) {
 	RuntimeStyle style;
 	style.south_height_px = std::max(0.0f, std::min(read_style_float(p_style_params, "south_height_px", style.south_height_px), 512.0f));
 	style.side_height_px = std::max(0.0f, std::min(read_style_float(p_style_params, "side_height_px", style.side_height_px), 512.0f));
+	style.corner_round_px = std::max(0.0f, std::min(read_style_float(p_style_params, "corner_round_px", style.corner_round_px), 256.0f));
+	style.diagonal_smooth_px = std::max(0.0f, std::min(read_style_float(p_style_params, "diagonal_smooth_px", style.diagonal_smooth_px), 256.0f));
+	style.contour_warp_px = std::max(0.0f, std::min(read_style_float(p_style_params, "contour_warp_px", style.contour_warp_px), 256.0f));
 	style.rim_width_px = std::max(0.0f, std::min(read_style_float(p_style_params, "rim_width_px", style.rim_width_px), 256.0f));
 	style.outline_width_px = std::max(0.0f, std::min(read_style_float(p_style_params, "mountain_outline_width_px", style.outline_width_px), 256.0f));
 	style.outline_enabled = read_style_bool(p_style_params, "mountain_outline_enabled", style.outline_enabled);
@@ -375,6 +537,204 @@ void append_rim_edge(
 	}
 }
 
+void append_contour_segment(
+	std::vector<ContourSegment> &r_segments,
+	godot::Vector2 p_a,
+	godot::Vector2 p_b,
+	godot::Vector2 p_solid_center,
+	float p_chunk_px
+) {
+	godot::Vector2 a = clamp_vec(p_a, p_chunk_px);
+	godot::Vector2 b = clamp_vec(p_b, p_chunk_px);
+	if (a.distance_squared_to(b) <= 0.001f) {
+		return;
+	}
+	godot::Vector2 midpoint = midpoint_vec(a, b);
+	godot::Vector2 tangent = normalized_or(b - a, godot::Vector2(1.0f, 0.0f));
+	godot::Vector2 fallback = godot::Vector2(tangent.y, -tangent.x);
+	godot::Vector2 outward = normalized_or(midpoint - p_solid_center, fallback);
+	r_segments.push_back({ a, b, outward });
+}
+
+godot::Vector2 solid_center_for_case(
+	int32_t p_case_code,
+	godot::Vector2 p_tl,
+	godot::Vector2 p_tr,
+	godot::Vector2 p_br,
+	godot::Vector2 p_bl
+) {
+	godot::Vector2 center;
+	float count = 0.0f;
+	if ((p_case_code & 1) != 0) {
+		center += p_tl;
+		count += 1.0f;
+	}
+	if ((p_case_code & 2) != 0) {
+		center += p_tr;
+		count += 1.0f;
+	}
+	if ((p_case_code & 4) != 0) {
+		center += p_br;
+		count += 1.0f;
+	}
+	if ((p_case_code & 8) != 0) {
+		center += p_bl;
+		count += 1.0f;
+	}
+	return count > 0.0f ? center / count : midpoint_vec(p_tl, p_br);
+}
+
+void append_case_contour_segments(
+	std::vector<ContourSegment> &r_segments,
+	int32_t p_case_code,
+	godot::Vector2 p_tl,
+	godot::Vector2 p_tr,
+	godot::Vector2 p_br,
+	godot::Vector2 p_bl,
+	float p_chunk_px
+) {
+	if (p_case_code == 0 || p_case_code == 15) {
+		return;
+	}
+	const godot::Vector2 top = midpoint_vec(p_tl, p_tr);
+	const godot::Vector2 right = midpoint_vec(p_tr, p_br);
+	const godot::Vector2 bottom = midpoint_vec(p_bl, p_br);
+	const godot::Vector2 left = midpoint_vec(p_tl, p_bl);
+	const godot::Vector2 solid_center = solid_center_for_case(p_case_code, p_tl, p_tr, p_br, p_bl);
+	switch (p_case_code) {
+		case 1:
+		case 14:
+			append_contour_segment(r_segments, top, left, solid_center, p_chunk_px);
+			return;
+		case 2:
+		case 13:
+			append_contour_segment(r_segments, right, top, solid_center, p_chunk_px);
+			return;
+		case 3:
+		case 12:
+			append_contour_segment(r_segments, right, left, solid_center, p_chunk_px);
+			return;
+		case 4:
+		case 11:
+			append_contour_segment(r_segments, bottom, right, solid_center, p_chunk_px);
+			return;
+		case 5:
+			append_contour_segment(r_segments, top, left, solid_center, p_chunk_px);
+			append_contour_segment(r_segments, bottom, right, solid_center, p_chunk_px);
+			return;
+		case 6:
+		case 9:
+			append_contour_segment(r_segments, bottom, top, solid_center, p_chunk_px);
+			return;
+		case 7:
+		case 8:
+			append_contour_segment(r_segments, bottom, left, solid_center, p_chunk_px);
+			return;
+		case 10:
+			append_contour_segment(r_segments, right, top, solid_center, p_chunk_px);
+			append_contour_segment(r_segments, left, bottom, solid_center, p_chunk_px);
+			return;
+		default:
+			return;
+	}
+}
+
+void append_rim_segment(
+	godot::PackedVector2Array &r_vertices,
+	godot::PackedInt32Array &r_indices,
+	godot::PackedFloat32Array &r_attributes,
+	const ContourSegment &p_segment,
+	const RuntimeStyle &p_style,
+	float p_tile_size_px
+) {
+	if (p_style.rim_width_px <= 0.0f) {
+		return;
+	}
+	const float rim_width = std::min(p_style.rim_width_px + p_style.corner_round_px * 0.125f, p_tile_size_px * 0.5f);
+	const godot::Vector2 inward = -p_segment.outward;
+	append_quad(
+		r_vertices,
+		r_indices,
+		r_attributes,
+		p_segment.a,
+		p_segment.b,
+		p_segment.b + inward * rim_width,
+		p_segment.a + inward * rim_width,
+		rim_width,
+		0.0f,
+		0.0f,
+		2.0f,
+		static_cast<float>(ZONE_RIM),
+		p_tile_size_px
+	);
+}
+
+void append_face_segment(
+	godot::PackedVector2Array &r_vertices,
+	godot::PackedInt32Array &r_indices,
+	godot::PackedFloat32Array &r_attributes,
+	const ContourSegment &p_segment,
+	const RuntimeStyle &p_style,
+	float p_tile_size_px
+) {
+	const float height = std::max(0.0f, p_segment.outward.y) * p_style.south_height_px
+			+ std::abs(p_segment.outward.x) * p_style.side_height_px;
+	if (height <= 0.0f) {
+		return;
+	}
+	const godot::Vector2 drop(0.0f, height);
+	append_quad(
+		r_vertices,
+		r_indices,
+		r_attributes,
+		p_segment.a,
+		p_segment.b,
+		p_segment.b + drop,
+		p_segment.a + drop,
+		0.0f,
+		0.0f,
+		height,
+		1.0f,
+		static_cast<float>(ZONE_FACE),
+		p_tile_size_px
+	);
+}
+
+void append_outline_segment(
+	godot::PackedVector2Array &r_vertices,
+	godot::PackedInt32Array &r_indices,
+	godot::PackedFloat32Array &r_attributes,
+	const ContourSegment &p_segment,
+	const RuntimeStyle &p_style,
+	float p_tile_size_px
+) {
+	if (!p_style.outline_enabled || p_style.outline_width_px <= 0.0f) {
+		return;
+	}
+	const float height = std::max(0.0f, p_segment.outward.y) * p_style.south_height_px
+			+ std::abs(p_segment.outward.x) * p_style.side_height_px;
+	if (height <= 0.0f) {
+		return;
+	}
+	const godot::Vector2 face_drop(0.0f, height);
+	const godot::Vector2 outline_drop(0.0f, p_style.outline_width_px);
+	append_quad(
+		r_vertices,
+		r_indices,
+		r_attributes,
+		p_segment.a + face_drop,
+		p_segment.b + face_drop,
+		p_segment.b + face_drop + outline_drop,
+		p_segment.a + face_drop + outline_drop,
+		0.0f,
+		0.0f,
+		p_style.outline_width_px,
+		3.0f,
+		static_cast<float>(ZONE_OUTLINE),
+		p_tile_size_px
+	);
+}
+
 godot::Dictionary make_runtime_result_shell(int32_t p_chunk_size, int32_t p_tile_size_px, int32_t p_halo_side, bool p_ready) {
 	godot::Dictionary result;
 	result["ready"] = p_ready;
@@ -425,6 +785,46 @@ void append_component_collision(
 	loop.append(godot::Vector2(x0, y1));
 	r_collision_loops.append(loop);
 	r_collision_aabbs.append(godot::Rect2(godot::Vector2(x0, y0), godot::Vector2(x1 - x0, y1 - y0)));
+}
+
+godot::Rect2 loop_aabb(const godot::PackedVector2Array &p_loop) {
+	if (p_loop.is_empty()) {
+		return godot::Rect2();
+	}
+	float min_x = p_loop[0].x;
+	float min_y = p_loop[0].y;
+	float max_x = p_loop[0].x;
+	float max_y = p_loop[0].y;
+	for (int32_t index = 1; index < p_loop.size(); ++index) {
+		const godot::Vector2 point = p_loop[index];
+		min_x = std::min(min_x, point.x);
+		min_y = std::min(min_y, point.y);
+		max_x = std::max(max_x, point.x);
+		max_y = std::max(max_y, point.y);
+	}
+	return godot::Rect2(godot::Vector2(min_x, min_y), godot::Vector2(max_x - min_x, max_y - min_y));
+}
+
+void append_collision_triangles_from_mesh(
+	godot::Array &r_collision_loops,
+	godot::Array &r_collision_aabbs,
+	const godot::PackedVector2Array &p_vertices,
+	const godot::PackedInt32Array &p_indices
+) {
+	for (int32_t index = 0; index + 2 < p_indices.size(); index += 3) {
+		const int32_t ia = p_indices[index];
+		const int32_t ib = p_indices[index + 1];
+		const int32_t ic = p_indices[index + 2];
+		if (ia < 0 || ib < 0 || ic < 0 || ia >= p_vertices.size() || ib >= p_vertices.size() || ic >= p_vertices.size()) {
+			continue;
+		}
+		godot::PackedVector2Array loop;
+		loop.append(p_vertices[ia]);
+		loop.append(p_vertices[ib]);
+		loop.append(p_vertices[ic]);
+		r_collision_loops.append(loop);
+		r_collision_aabbs.append(loop_aabb(loop));
+	}
 }
 
 } // namespace
@@ -525,12 +925,6 @@ godot::Dictionary build_runtime_result(
 	int32_t solid_sample_count = 0;
 	int32_t boundary_edge_count = 0;
 	int32_t seam_touch_mask = 0;
-	constexpr int32_t directions[4][2] = {
-		{ 0, -1 },
-		{ 1, 0 },
-		{ 0, 1 },
-		{ -1, 0 },
-	};
 	for (int32_t y = 0; y < p_chunk_size; ++y) {
 		for (int32_t x = 0; x < p_chunk_size; ++x) {
 			if (!read_solid(p_solid_halo, halo_side, x + 1, y + 1)) {
@@ -538,7 +932,6 @@ godot::Dictionary build_runtime_result(
 			}
 			solid_local[static_cast<size_t>(y * p_chunk_size + x)] = 1U;
 			++solid_sample_count;
-			append_top_tile(top_vertices, top_indices, top_attributes, x, y, p_tile_size_px);
 			if (x == 0) {
 				seam_touch_mask |= SEAM_WEST;
 			}
@@ -551,75 +944,68 @@ godot::Dictionary build_runtime_result(
 			if (y == p_chunk_size - 1) {
 				seam_touch_mask |= SEAM_SOUTH;
 			}
-			for (const auto &direction : directions) {
-				const int32_t dx = direction[0];
-				const int32_t dy = direction[1];
-				if (read_solid(p_solid_halo, halo_side, x + 1 + dx, y + 1 + dy)) {
-					continue;
-				}
-				++boundary_edge_count;
-				append_rim_edge(rim_vertices, rim_indices, rim_attributes, x, y, p_tile_size_px, style.rim_width_px, dx, dy);
-				if (dy > 0) {
-					append_south_face(face_vertices, face_indices, face_attributes, x, y, p_tile_size_px, style.south_height_px);
-					if (style.outline_enabled) {
-						append_south_outline(outline_vertices, outline_indices, outline_attributes, x, y, p_tile_size_px, style.south_height_px, style.outline_width_px);
-					}
-				}
-			}
 		}
+	}
+
+	const float chunk_px = static_cast<float>(p_chunk_size * p_tile_size_px);
+	std::vector<ContourSegment> contour_segments;
+	for (int32_t y = 0; y < halo_side - 1; ++y) {
+		for (int32_t x = 0; x < halo_side - 1; ++x) {
+			const bool tl_solid = read_solid(p_solid_halo, halo_side, x, y);
+			const bool tr_solid = read_solid(p_solid_halo, halo_side, x + 1, y);
+			const bool br_solid = read_solid(p_solid_halo, halo_side, x + 1, y + 1);
+			const bool bl_solid = read_solid(p_solid_halo, halo_side, x, y + 1);
+			const int32_t case_code =
+					(tl_solid ? 1 : 0) |
+					(tr_solid ? 2 : 0) |
+					(br_solid ? 4 : 0) |
+					(bl_solid ? 8 : 0);
+			if (case_code == 0) {
+				continue;
+			}
+			const godot::Vector2 tl = sample_vec(x, y, p_tile_size_px);
+			const godot::Vector2 tr = sample_vec(x + 1, y, p_tile_size_px);
+			const godot::Vector2 br = sample_vec(x + 1, y + 1, p_tile_size_px);
+			const godot::Vector2 bl = sample_vec(x, y + 1, p_tile_size_px);
+			append_case_top_mesh(
+				top_vertices,
+				top_indices,
+				top_attributes,
+				case_code,
+				tl,
+				tr,
+				br,
+				bl,
+				chunk_px,
+				style,
+				static_cast<float>(p_tile_size_px)
+			);
+			const size_t segment_count_before = contour_segments.size();
+			append_case_contour_segments(contour_segments, case_code, tl, tr, br, bl, chunk_px);
+			boundary_edge_count += static_cast<int32_t>(contour_segments.size() - segment_count_before);
+		}
+	}
+	for (const ContourSegment &segment : contour_segments) {
+		append_rim_segment(rim_vertices, rim_indices, rim_attributes, segment, style, static_cast<float>(p_tile_size_px));
+		append_face_segment(face_vertices, face_indices, face_attributes, segment, style, static_cast<float>(p_tile_size_px));
+		append_outline_segment(outline_vertices, outline_indices, outline_attributes, segment, style, static_cast<float>(p_tile_size_px));
 	}
 
 	godot::Array collision_loops;
 	godot::Array collision_aabbs;
-	std::vector<uint8_t> visited(static_cast<size_t>(p_chunk_size * p_chunk_size), 0U);
-	std::vector<int32_t> queue;
-	for (int32_t y = 0; y < p_chunk_size; ++y) {
-		for (int32_t x = 0; x < p_chunk_size; ++x) {
-			const int32_t start_index = y * p_chunk_size + x;
-			if (!read_local_solid(solid_local, p_chunk_size, x, y) || visited[static_cast<size_t>(start_index)] != 0U) {
-				continue;
-			}
-			int32_t min_x = x;
-			int32_t max_x = x;
-			int32_t min_y = y;
-			int32_t max_y = y;
-			queue.clear();
-			queue.push_back(start_index);
-			visited[static_cast<size_t>(start_index)] = 1U;
-			for (size_t cursor = 0; cursor < queue.size(); ++cursor) {
-				const int32_t index = queue[cursor];
-				const int32_t cx = index % p_chunk_size;
-				const int32_t cy = index / p_chunk_size;
-				min_x = std::min(min_x, cx);
-				max_x = std::max(max_x, cx);
-				min_y = std::min(min_y, cy);
-				max_y = std::max(max_y, cy);
-				for (const auto &direction : directions) {
-					const int32_t nx = cx + direction[0];
-					const int32_t ny = cy + direction[1];
-					if (!read_local_solid(solid_local, p_chunk_size, nx, ny)) {
-						continue;
-					}
-					const int32_t neighbour_index = ny * p_chunk_size + nx;
-					if (visited[static_cast<size_t>(neighbour_index)] != 0U) {
-						continue;
-					}
-					visited[static_cast<size_t>(neighbour_index)] = 1U;
-					queue.push_back(neighbour_index);
-				}
-			}
-			append_component_collision(
-				collision_loops,
-				collision_aabbs,
-				min_x,
-				min_y,
-				max_x,
-				max_y,
-				p_tile_size_px,
-				style.south_height_px,
-				style.outline_enabled ? style.outline_width_px : 0.0f
-			);
-		}
+	append_collision_triangles_from_mesh(collision_loops, collision_aabbs, top_vertices, top_indices);
+	if (collision_loops.is_empty() && solid_sample_count > 0) {
+		append_component_collision(
+			collision_loops,
+			collision_aabbs,
+			0,
+			0,
+			p_chunk_size - 1,
+			p_chunk_size - 1,
+			p_tile_size_px,
+			style.south_height_px,
+			style.outline_enabled ? style.outline_width_px : 0.0f
+		);
 	}
 
 	const auto end_time = std::chrono::steady_clock::now();

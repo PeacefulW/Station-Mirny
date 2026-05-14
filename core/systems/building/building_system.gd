@@ -131,6 +131,10 @@ func can_place_selected_building_at(world_pos: Vector2) -> bool:
 		return false
 	if not _placement_service.can_place_at(grid_pos, _player_scrap):
 		return false
+	if not _is_selected_building_placement_shape_clear(grid_pos, selected_building):
+		return false
+	if _chunk_manager != null and _chunk_manager.has_method("is_placement_shape_clear"):
+		return true
 	for dx: int in range(selected_building.size_x):
 		for dy: int in range(selected_building.size_y):
 			var cell: Vector2i = Vector2i(grid_pos.x + dx, grid_pos.y + dy)
@@ -457,9 +461,32 @@ func _is_buildable_grid_cell(grid_pos: Vector2i) -> bool:
 	if not _chunk_manager:
 		return true
 	var world_pos: Vector2 = grid_to_world(grid_pos)
-	if _chunk_manager.has_method("is_walkable_at_world") and not _chunk_manager.is_walkable_at_world(world_pos):
+	if _chunk_manager.has_method("is_raw_tile_walkable_at_world") \
+			and not _chunk_manager.is_raw_tile_walkable_at_world(world_pos):
+		return false
+	if not _chunk_manager.has_method("is_raw_tile_walkable_at_world") \
+			and _chunk_manager.has_method("is_walkable_at_world") \
+			and not _chunk_manager.is_walkable_at_world(world_pos):
 		return false
 	return true
+
+func _is_selected_building_placement_shape_clear(grid_pos: Vector2i, selected_building: BuildingData) -> bool:
+	if not _chunk_manager:
+		_chunk_manager = _find_chunk_manager()
+	if not _chunk_manager:
+		return true
+	if not _chunk_manager.has_method("is_placement_shape_clear"):
+		return true
+	return _chunk_manager.is_placement_shape_clear(
+		_build_selected_placement_world_shape(grid_pos, selected_building)
+	)
+
+func _build_selected_placement_world_shape(grid_pos: Vector2i, selected_building: BuildingData) -> Rect2:
+	var grid_size: int = _placement_service.get_grid_size()
+	return Rect2(
+		Vector2(grid_pos.x * grid_size, grid_pos.y * grid_size),
+		Vector2(maxi(selected_building.size_x, 1) * grid_size, maxi(selected_building.size_y, 1) * grid_size)
+	)
 
 func _execute_place_command() -> void:
 	if not _command_executor:
