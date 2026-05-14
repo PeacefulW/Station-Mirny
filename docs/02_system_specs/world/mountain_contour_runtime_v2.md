@@ -5,7 +5,7 @@ status: draft
 owner: engineering+art
 source_of_truth: false
 version: 0.1
-last_updated: 2026-05-13
+last_updated: 2026-05-14
 related_docs:
   - ../../05_adrs/0008-generator-authored-contour-mesh-runtime.md
   - mountain_contour_runtime_v2_design_brief.md
@@ -166,8 +166,10 @@ After a tile is mined, the visible mountain and contour collision must update in
 the same interactive response window. A chunk must not remain visibly stale while
 an async contour worker catches up.
 
-If a contour cache is missing for an area, movement/building queries are blocked
-there until the cache exists.
+If a contour cache is missing for a queried shape that overlaps contour-owned
+mountain terrain, movement/building queries are blocked there until the cache
+exists. Missing cache in an unrelated part of the same loaded chunk must not
+create invisible walls on clear ground.
 
 ### 6. Preview parity is a required product feature
 
@@ -418,6 +420,16 @@ Texture/material values are not passed to native.
 - `solid_halo` must represent effective mountain solid state after runtime diff.
 - `solid_halo` must include neighbour data needed for seam-stable contour
   construction.
+- When chunk publication supplies previously missing seam-neighbour halo data,
+  the runtime owner must rebuild the newly published chunk and loaded
+  one-tile-neighbour chunks before treating contour presentation as recovered.
+  A loaded chunk must not remain visually empty only because its earlier contour
+  build happened before a required seam neighbour arrived.
+- While required seam-neighbour halo data is still missing, collision/cache
+  readiness remains fail-closed, but the runtime owner should still publish
+  degraded visual contour geometry from the loaded local/partial halo when the
+  native runtime result is available. Missing cache must block movement and
+  placement; it must not clear the visible mountain.
 - `chunk_size` must be `16` for current world version.
 - `tile_size_px` must be `64` for current world version.
 - The helper must not read global world state, texture files, or Godot scene
@@ -555,7 +567,8 @@ Responsibilities:
 - support player and NPC movement;
 - support future building footprint checks;
 - invalidate and rebuild exact dirty chunks on mining;
-- block queries when required contour cache is missing.
+- block queries when the queried capsule/footprint overlaps contour-owned
+  mountain terrain whose required contour cache is missing.
 
 ### Movement query
 
@@ -564,6 +577,7 @@ Required public query shape:
 ```text
 is_capsule_walkable_at_world(world_pos: Vector2, radius_px: float) -> bool
 move_capsule_with_slide(start: Vector2, motion: Vector2, radius_px: float) -> Dictionary
+move_capsule_with_contour_slide(start: Vector2, motion: Vector2, radius_px: float) -> Dictionary
 ```
 
 The exact API names may differ, but the movement system must be able to query a
@@ -576,7 +590,9 @@ For contour-owned mountain terrain:
 - blocked shape comes from `MountainContourRuntimeResultV1.collision_loops`;
 - loops represent the visual mountain footprint down to the bottom visible line;
 - square tile `walkable_flags` are not a movement fallback;
-- unloaded or cache-missing contour chunks are treated as blocked/not walkable;
+- unloaded or cache-missing contour chunks are treated as blocked/not walkable
+  only for queried capsules/footprints that overlap contour-owned mountain
+  terrain;
 - NPC movement uses the same query as the player.
 
 ### Building placement
@@ -585,6 +601,16 @@ Future building placement near contour mountains must use the same contour
 collision cache for footprint checks. It must not require walls to align only to
 orth/south/east/west square tile edges if the visible mountain edge is diagonal
 and the building footprint fits.
+
+Required public query shape:
+
+```text
+is_placement_shape_clear(world_shape: Rect2 or polygon) -> bool
+```
+
+Grid anchoring remains a building-system rule. The contour query only answers
+whether the world-space placement footprint intersects contour collision or
+ordinary non-contour blocked terrain.
 
 ## Mining Dirty Update Contract
 
@@ -951,7 +977,7 @@ Files:
 
 - generator reference case exports under
   `tools/rimworld-autotile-lab/desktop_app/exports/contour_parity_v1/**`
-- new `tools/mountain_contour_parity_render_test.gd`
+- new `tools/mountain_contour_parity_probe.gd`
 - optional comparison utility under `tools/`
 
 Tasks:
