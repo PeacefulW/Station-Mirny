@@ -67,7 +67,7 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
   - `Full16`: full `16 x N` marching-squares shape/material export plus the game-ready runtime SDF recipe; the old `Full47` serialized key is accepted only as a legacy alias for older UI state and recipes
   - `BaseVariantsOnly`: `1 x N` full-tile base material atlas for transition-overlay base passes
   - `MaskOnly`: shared `16 x N` marching-squares mask atlas without albedo/material exports
-  - `RuntimeSdfContour`: target game contour export; writes a runtime SDF recipe plus reference mask/height/normal/albedo images from the same global SDF map-preview path used by the live preview
+  - `RuntimeSdfContour`: runtime contour authoring export; writes the `ContourStyleV1` style package, reusable style textures/LUTs, legacy runtime SDF recipe, and reference images from the same global SDF map-preview path used by the live preview
 - Decals tab for the terrain decal layer authoring pass:
   - `4 x 4` mixed-size atlas with `16`, `32`, `64`, and `128` px decal cells centered inside the selected max cell size
   - per-cell source: procedural, image file, or color
@@ -102,9 +102,10 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
   export. Their mask RGB channels preserve supersampled coverage rather than
   quantizing contour edges to binary zone colors, and the optional mountain
   bottom outline writes face/alpha mask coverage so the outline is exported.
-  `RuntimeSdfContour` is the target game export path and uses the global SDF
-  map-preview path for its reference images; runtime contour presentation does
-  not consume legacy `{asset_name}_atlas_*.png` files.
+  `RuntimeSdfContour` is the mountain contour authoring export path. The game
+  runtime consumes the lightweight `ContourStyleV1` JSON plus reusable material
+  textures/LUTs; reference images are for parity/debug only, and runtime contour
+  presentation does not consume legacy `{asset_name}_atlas_*.png` files.
 - `BaseVariantsOnly` full generation exports:
   - `{asset_name}_atlas_albedo.png`
   - `{asset_name}_recipe.json`
@@ -112,11 +113,15 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
   - `{asset_name}_atlas_mask.png`
   - `{asset_name}_recipe.json`
 - `RuntimeSdfContour` full generation exports:
+  - `{asset_name}_contour_style.v1.json`
   - `{asset_name}_runtime_sdf_recipe.json`
   - `{asset_name}_reference_mask.png`
   - `{asset_name}_reference_height.png`
+  - `{asset_name}_reference_preview.png`
   - `{asset_name}_reference_normal.png`
   - `{asset_name}_reference_albedo.png`
+  - `{asset_name}_edge_profile_lut.png`
+  - `{asset_name}_height_profile_lut.png`
   - `{asset_name}_top_albedo.png`
   - `{asset_name}_face_albedo.png`
   - `{asset_name}_base_albedo.png`
@@ -124,6 +129,11 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
   - `{asset_name}_face_modulation.png`
   - `{asset_name}_top_normal.png`
   - `{asset_name}_face_normal.png`
+- `ContourStyleV1` stores the authored mountain style fields needed by the
+  runtime mesh/shader path: logical and authoring tile size, face heights,
+  corner/diagonal/rim/outline controls, normal strengths, UV/world-scale
+  controls, colours, reusable texture paths, and reference image paths. It does
+  not describe per-game-chunk mask/height/normal image buffers.
 - Decals export:
   - `{asset_name}_decal_atlas.png`
   - `{asset_name}_decal_metadata.json`

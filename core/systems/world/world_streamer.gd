@@ -7,6 +7,9 @@ const FoundationGenSettings = preload("res://core/resources/foundation_gen_setti
 const LakeGenSettings = preload("res://core/resources/lake_gen_settings.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
 const MountainCavityCache = preload("res://core/systems/world/mountain_cavity_cache.gd")
+const MountainContourCollisionCache = preload("res://core/systems/world/mountain_contour_collision_cache.gd")
+const MountainContourStyle = preload("res://core/systems/world/mountain_contour_style.gd")
+const MountainContourStyleRegistry = preload("res://core/systems/world/mountain_contour_style_registry.gd")
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
 const WorldDiffStore = preload("res://core/systems/world/world_diff_store.gd")
@@ -53,6 +56,11 @@ var _debug_tile_grid_visible: bool = false
 var _debug_mountain_solid_visible: bool = false
 var _debug_mountain_contour_visible: bool = false
 var _contour_world_core: Object = null
+var _mountain_contour_style_registry: MountainContourStyleRegistry = MountainContourStyleRegistry.new()
+var _mountain_contour_style: MountainContourStyle = null
+var _mountain_contour_collision_caches: Dictionary = {}
+var _mountain_contour_runtime_debug_snapshots: Dictionary = {}
+var _mountain_contour_runtime_visible: bool = false
 
 func _ready() -> void:
 	add_to_group("chunk_manager")
@@ -64,21 +72,26 @@ func _ready() -> void:
 		LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict())
 	)
 	WorldTileSetFactory.bootstrap()
+	_load_default_mountain_contour_style()
 	_packet_backend.start()
-	_stream_job_id = FrameBudgetDispatcher.register_job(
-		RuntimeWorkTypes.CATEGORY_STREAMING,
-		1.5,
-		_streaming_tick,
-		&"world.streaming_v0",
-		RuntimeWorkTypes.CadenceKind.NEAR_PLAYER,
-		RuntimeWorkTypes.ThreadingRole.COMPUTE_THEN_APPLY,
-		true,
-		"World runtime V0 streaming"
-	)
+	var dispatcher: Object = _get_frame_budget_dispatcher()
+	if dispatcher != null:
+		_stream_job_id = dispatcher.call(
+			"register_job",
+			RuntimeWorkTypes.CATEGORY_STREAMING,
+			1.5,
+			_streaming_tick,
+			&"world.streaming_v0",
+			RuntimeWorkTypes.CadenceKind.NEAR_PLAYER,
+			RuntimeWorkTypes.ThreadingRole.COMPUTE_THEN_APPLY,
+			true,
+			"World runtime V0 streaming"
+		)
 
 func _exit_tree() -> void:
-	if _stream_job_id and FrameBudgetDispatcher:
-		FrameBudgetDispatcher.unregister_job(_stream_job_id)
+	var dispatcher: Object = _get_frame_budget_dispatcher()
+	if _stream_job_id and dispatcher != null:
+		dispatcher.call("unregister_job", _stream_job_id)
 	_packet_backend.stop()
 
 func initialize_new_world(
@@ -215,6 +228,23 @@ func get_mountain_contour_debug_state(chunk_coord: Vector2i) -> Dictionary:
 	var debug_state: Dictionary = chunk_view.get_mountain_contour_debug_state()
 	debug_state["ready"] = true
 	return debug_state
+
+func get_mountain_contour_runtime_debug_snapshot(chunk_coord: Vector2i) -> Dictionary:
+	var canonical_chunk: Vector2i = _canonicalize_chunk_coord(chunk_coord)
+	var snapshot: Dictionary = _mountain_contour_runtime_debug_snapshots.get(canonical_chunk, {}) as Dictionary
+	if not snapshot.is_empty():
+		return snapshot.duplicate(true)
+	var chunk_view: ChunkView = _chunk_views.get(canonical_chunk) as ChunkView
+	if chunk_view != null:
+		return chunk_view.get_mountain_contour_runtime_debug_snapshot()
+	return {
+		"ready": false,
+		"chunk_coord": canonical_chunk,
+		"visual_ready": false,
+		"collision_ready": false,
+		"has_visual_layer": false,
+		"missing_cache_blocks": true,
+	}
 
 func get_chunk_packet(chunk_coord: Vector2i) -> Dictionary:
 	return _chunk_packets.get(chunk_coord, {}) as Dictionary
@@ -394,6 +424,7 @@ func _drain_completed_packets(max_count: int) -> void:
 		var merged_packet: Dictionary = _diff_store.apply_to_packet(packet)
 		_chunk_packets[chunk_coord] = merged_packet
 		_refresh_loaded_visuals_around_chunk_overrides(chunk_coord)
+		_refresh_mountain_contour_runtime_around_chunk(chunk_coord)
 		if _is_chunk_desired(chunk_coord) and not _pending_publish_queue.has(chunk_coord) and chunk_coord != _active_publish_chunk:
 			_pending_publish_queue.append(chunk_coord)
 
@@ -417,6 +448,7 @@ func _publish_next_batch() -> void:
 	var has_more: bool = active_view.apply_next_batch(WorldRuntimeConstants.PUBLISH_BATCH_SIZE)
 	if not has_more:
 		_handle_cover_chunk_published(_active_publish_chunk)
+		_rebuild_mountain_contour_runtime_for_chunk(_active_publish_chunk)
 		_refresh_debug_visuals_for_chunk(_active_publish_chunk)
 		active_view.visible = true
 		EventBus.chunk_loaded.emit(_active_publish_chunk)
@@ -440,9 +472,12 @@ func _evict_outside_ring(max_count: int) -> void:
 			chunk_view.queue_free()
 		_chunk_views.erase(chunk_coord)
 		_chunk_packets.erase(chunk_coord)
+		_mountain_contour_collision_caches.erase(chunk_coord)
+		_mountain_contour_runtime_debug_snapshots.erase(chunk_coord)
 		_requested_chunks.erase(chunk_coord)
 		_pending_publish_queue.erase(chunk_coord)
 		_handle_cover_chunk_unloaded(chunk_coord)
+		_refresh_mountain_contour_runtime_around_chunk(chunk_coord)
 		EventBus.chunk_unloaded.emit(chunk_coord)
 		evicted += 1
 
@@ -927,6 +962,8 @@ func _reset_runtime_state() -> void:
 			chunk_view.queue_free()
 	_chunk_views.clear()
 	_chunk_packets.clear()
+	_mountain_contour_collision_caches.clear()
+	_mountain_contour_runtime_debug_snapshots.clear()
 	roof_layers_per_chunk_max = 0
 	_mountain_cavity_cache.clear()
 	_active_cover_mountain_id = 0
@@ -1187,6 +1224,159 @@ func _refresh_debug_visuals_around_tile(world_tile: Vector2i) -> void:
 	for chunk_coord: Vector2i in _dictionary_vector2i_keys(affected_chunks):
 		_refresh_debug_visuals_for_chunk(chunk_coord)
 
+func _refresh_mountain_contour_runtime_around_chunk(center_chunk_coord: Vector2i) -> void:
+	for offset_y: int in range(-1, 2):
+		for offset_x: int in range(-1, 2):
+			var chunk_coord: Vector2i = _canonicalize_chunk_coord(center_chunk_coord + Vector2i(offset_x, offset_y))
+			if _chunk_views.has(chunk_coord):
+				_rebuild_mountain_contour_runtime_for_chunk(chunk_coord)
+
+func _rebuild_mountain_contour_runtime_for_chunk(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+	if chunk_view == null:
+		return
+	var cache := MountainContourCollisionCache.new()
+	_mountain_contour_collision_caches[chunk_coord] = cache
+	var halo_state: Dictionary = _build_mountain_contour_runtime_halo_state(chunk_coord)
+	var style: MountainContourStyle = _ensure_mountain_contour_style()
+	if style == null or not bool(halo_state.get("ready", false)):
+		chunk_view.apply_mountain_contour_runtime_data(
+			style,
+			{"ready": false},
+			false,
+			halo_state,
+			_mountain_contour_runtime_visible
+		)
+		_store_mountain_contour_runtime_debug_snapshot(chunk_coord, chunk_view, cache, false, halo_state)
+		return
+	var runtime_result: Dictionary = _build_native_mountain_contour_runtime_for_chunk(chunk_coord, halo_state, style)
+	var collision_ready: bool = bool(runtime_result.get("ready", false))
+	if collision_ready:
+		cache.configure(
+			chunk_coord,
+			runtime_result.get("collision_loops", []) as Array,
+			runtime_result.get("collision_aabbs", []) as Array
+		)
+		halo_state["loop_count"] = (runtime_result.get("collision_loops", []) as Array).size()
+		halo_state["aabb_count"] = (runtime_result.get("collision_aabbs", []) as Array).size()
+	chunk_view.apply_mountain_contour_runtime_data(
+		style,
+		runtime_result,
+		collision_ready,
+		halo_state,
+		_mountain_contour_runtime_visible
+	)
+	_store_mountain_contour_runtime_debug_snapshot(chunk_coord, chunk_view, cache, collision_ready, halo_state)
+
+func _store_mountain_contour_runtime_debug_snapshot(
+	chunk_coord: Vector2i,
+	chunk_view: ChunkView,
+	cache: MountainContourCollisionCache,
+	collision_ready: bool,
+	halo_state: Dictionary
+) -> void:
+	var snapshot: Dictionary = chunk_view.get_mountain_contour_runtime_debug_snapshot()
+	snapshot["ready"] = bool(snapshot.get("visual_ready", false)) and collision_ready
+	snapshot["chunk_coord"] = chunk_coord
+	snapshot["collision_ready"] = collision_ready
+	snapshot["missing_cache_blocks"] = not collision_ready and cache.is_point_blocked(Vector2.ZERO)
+	snapshot["loaded_seam_neighbours"] = (halo_state.get("loaded_seam_neighbours", []) as Array).duplicate()
+	snapshot["missing_required_seam_neighbours"] = (halo_state.get("missing_required_seam_neighbours", []) as Array).duplicate()
+	snapshot["optional_missing_seam_neighbours"] = (halo_state.get("optional_missing_seam_neighbours", []) as Array).duplicate()
+	_mountain_contour_runtime_debug_snapshots[chunk_coord] = snapshot
+
+func _build_native_mountain_contour_runtime_for_chunk(
+	chunk_coord: Vector2i,
+	halo_state: Dictionary,
+	style: MountainContourStyle
+) -> Dictionary:
+	var world_core: Object = _get_contour_world_core("build_mountain_contour_runtime")
+	if world_core == null:
+		return {"ready": false}
+	var result_variant: Variant = world_core.call(
+		"build_mountain_contour_runtime",
+		halo_state.get("solid_halo", PackedByteArray()) as PackedByteArray,
+		WorldRuntimeConstants.CHUNK_SIZE,
+		WorldRuntimeConstants.TILE_SIZE_PX,
+		_build_mountain_contour_style_params(style)
+	)
+	if result_variant is Dictionary:
+		return result_variant as Dictionary
+	push_error("WorldCore.build_mountain_contour_runtime returned non-dictionary result for chunk %s." % [str(chunk_coord)])
+	return {"ready": false}
+
+func _build_mountain_contour_runtime_halo_state(chunk_coord: Vector2i) -> Dictionary:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + 2
+	var solid_halo := PackedByteArray()
+	solid_halo.resize(halo_side * halo_side)
+	var local_solid_mask: PackedByteArray = _build_local_mountain_solid_mask(chunk_coord)
+	var loaded_seam_neighbours: Dictionary = {}
+	var missing_required_seam_neighbours: Dictionary = {}
+	var optional_missing_seam_neighbours: Dictionary = {}
+	var ready: bool = true
+	for halo_y: int in range(halo_side):
+		for halo_x: int in range(halo_side):
+			var local_coord := Vector2i(halo_x - 1, halo_y - 1)
+			var halo_index: int = halo_y * halo_side + halo_x
+			if WorldRuntimeConstants.is_local_coord_valid(local_coord):
+				var local_index: int = WorldRuntimeConstants.local_to_index(local_coord)
+				if local_index >= 0 and local_index < local_solid_mask.size():
+					solid_halo[halo_index] = local_solid_mask[local_index]
+				continue
+			var world_tile: Vector2i = _canonicalize_tile_coord(_chunk_local_to_tile(chunk_coord, local_coord))
+			var seam_chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(world_tile)
+			var sample: Dictionary = _get_loaded_tile_data_no_enqueue(world_tile)
+			if bool(sample.get("ready", false)):
+				loaded_seam_neighbours[seam_chunk_coord] = true
+				if _is_mountain_contour_solid_sample(sample):
+					solid_halo[halo_index] = 1
+				continue
+			if _is_halo_sample_required(local_coord, local_solid_mask):
+				missing_required_seam_neighbours[seam_chunk_coord] = true
+				ready = false
+			else:
+				optional_missing_seam_neighbours[seam_chunk_coord] = true
+	return {
+		"ready": ready,
+		"chunk_coord": chunk_coord,
+		"halo_side": halo_side,
+		"solid_halo": solid_halo,
+		"solid_sample_count": _count_solid_values(solid_halo),
+		"loaded_seam_neighbours": _dictionary_vector2i_keys(loaded_seam_neighbours),
+		"missing_required_seam_neighbours": _dictionary_vector2i_keys(missing_required_seam_neighbours),
+		"optional_missing_seam_neighbours": _dictionary_vector2i_keys(optional_missing_seam_neighbours),
+		"loop_count": 0,
+		"aabb_count": 0,
+	}
+
+func _is_halo_sample_required(local_coord: Vector2i, local_solid_mask: PackedByteArray) -> bool:
+	var sample_local: Vector2i = Vector2i(
+		clampi(local_coord.x, 0, WorldRuntimeConstants.CHUNK_SIZE - 1),
+		clampi(local_coord.y, 0, WorldRuntimeConstants.CHUNK_SIZE - 1)
+	)
+	var sample_index: int = WorldRuntimeConstants.local_to_index(sample_local)
+	return sample_index >= 0 \
+		and sample_index < local_solid_mask.size() \
+		and int(local_solid_mask[sample_index]) != 0
+
+func _count_solid_values(values: PackedByteArray) -> int:
+	var count: int = 0
+	for value: int in values:
+		if value != 0:
+			count += 1
+	return count
+
+func _build_mountain_contour_style_params(style: MountainContourStyle) -> Dictionary:
+	return {
+		"south_height_px": style.south_height_px,
+		"side_height_px": style.side_height_px,
+		"rim_width_px": style.rim_width_px,
+		"mountain_outline_enabled": style.mountain_outline_enabled,
+		"mountain_outline_width_px": style.mountain_outline_width_px,
+	}
+
 func _build_local_mountain_solid_mask(chunk_coord: Vector2i) -> PackedByteArray:
 	var mask := PackedByteArray()
 	mask.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
@@ -1247,18 +1437,39 @@ func _is_mountain_contour_solid_sample(sample: Dictionary) -> bool:
 	return mountain_id > 0 \
 		and (mountain_flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) != 0
 
-func _get_contour_world_core() -> Object:
+func _get_contour_world_core(required_method: String = "build_mountain_contour_debug") -> Object:
 	if _contour_world_core != null:
-		return _contour_world_core
+		if required_method.is_empty() or _contour_world_core.has_method(required_method):
+			return _contour_world_core
+		push_error("WorldCore missing %s; mountain contour runtime disabled." % [required_method])
+		_contour_world_core = null
+		return null
 	_contour_world_core = ClassDB.instantiate("WorldCore")
-	assert(_contour_world_core != null, "WorldCore required for mountain contour debug - build GDExtension first")
+	assert(_contour_world_core != null, "WorldCore required for mountain contour runtime - build GDExtension first")
 	if _contour_world_core == null:
 		return null
-	if not _contour_world_core.has_method("build_mountain_contour_debug"):
-		push_error("WorldCore missing build_mountain_contour_debug; mountain contour debug disabled.")
+	if not required_method.is_empty() and not _contour_world_core.has_method(required_method):
+		push_error("WorldCore missing %s; mountain contour runtime disabled." % [required_method])
 		_contour_world_core = null
 		return null
 	return _contour_world_core
+
+func _load_default_mountain_contour_style() -> void:
+	if _mountain_contour_style_registry.load_default_styles():
+		_mountain_contour_style = _mountain_contour_style_registry.require_style(&"mountain")
+	else:
+		_mountain_contour_style = null
+
+func _ensure_mountain_contour_style() -> MountainContourStyle:
+	if _mountain_contour_style != null:
+		return _mountain_contour_style
+	_load_default_mountain_contour_style()
+	return _mountain_contour_style
+
+func _get_frame_budget_dispatcher() -> Object:
+	if not is_inside_tree():
+		return null
+	return get_node_or_null("/root/FrameBudgetDispatcher")
 
 func _dictionary_vector2i_keys(source: Dictionary) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
