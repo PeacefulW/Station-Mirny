@@ -45,6 +45,48 @@ const REQUIRED_SCALAR_FIELDS: Array[String] = [
 	"reference_preview_path",
 	"reference_normal_path",
 ]
+const REQUIRED_COLOR_FIELDS: Array[String] = ["top", "face", "edge", "base"]
+const RUNTIME_GEOMETRY_PARAMETER_NAMES: Array[String] = [
+	"south_height_px",
+	"north_height_px",
+	"side_height_px",
+	"corner_round_px",
+	"diagonal_smooth_px",
+	"contour_warp_px",
+	"roughness",
+	"corner_variation",
+	"rim_width_px",
+	"mountain_outline_enabled",
+	"mountain_outline_width_px",
+]
+const SHADER_PARAMETER_NAMES: Array[String] = [
+	"top_albedo_tex",
+	"face_albedo_tex",
+	"base_albedo_tex",
+	"top_modulation_tex",
+	"face_modulation_tex",
+	"top_normal_tex",
+	"face_normal_tex",
+	"edge_profile_lut",
+	"height_profile_lut",
+	"top_world_scale_px",
+	"face_world_scale_px",
+	"macro_world_scale_px",
+	"texture_scale",
+	"south_height_px",
+	"side_height_px",
+	"rim_width_px",
+	"mountain_outline_enabled",
+	"mountain_outline_width_px",
+	"normal_strength",
+	"normal_detail_strength",
+	"edge_debris",
+	"edge_color_strength",
+	"top_tint",
+	"face_tint",
+	"edge_tint",
+	"base_tint",
+]
 
 var asset_name: StringName
 var preset: StringName
@@ -73,6 +115,8 @@ var colors: Dictionary = {}
 var texture_paths: Dictionary = {}
 var reference_preview_path: String = ""
 var reference_normal_path: String = ""
+var source_path: String = ""
+var source_signature: Dictionary = {}
 
 var top_albedo: Texture2D
 var face_albedo: Texture2D
@@ -93,7 +137,11 @@ static func load_from_file(style_path: String) -> MountainContourStyle:
 	if parsed is not Dictionary:
 		push_error("MountainContourStyle: style JSON is not a dictionary: %s" % [style_path])
 		return null
-	return load_from_dict(parsed as Dictionary, style_path.get_base_dir())
+	var style: MountainContourStyle = load_from_dict(parsed as Dictionary, style_path.get_base_dir())
+	if style != null:
+		style.source_path = style_path
+		style._rebuild_source_signature(style_path)
+	return style
 
 static func load_from_dict(data: Dictionary, base_dir: String) -> MountainContourStyle:
 	for field_name: String in REQUIRED_SCALAR_FIELDS:
@@ -145,10 +193,11 @@ static func load_from_dict(data: Dictionary, base_dir: String) -> MountainContou
 	style.reference_normal_path = _resolve_style_path(base_dir, str(data.get("reference_normal_path", "")))
 	style.texture_paths = {}
 
-	if not style._validate_scalar_ranges():
+	if not style._validate_scalar_ranges() or not style._validate_colors():
 		return null
 	if not style._load_textures(texture_path_values, base_dir):
 		return null
+	style._rebuild_source_signature("")
 	return style
 
 func debug_snapshot() -> Dictionary:
@@ -157,14 +206,84 @@ func debug_snapshot() -> Dictionary:
 		"preset": String(preset),
 		"logical_tile_size_px": logical_tile_size_px,
 		"style_tile_size_px": style_tile_size_px,
+		"south_height_px": south_height_px,
+		"north_height_px": north_height_px,
+		"side_height_px": side_height_px,
+		"corner_round_px": corner_round_px,
+		"diagonal_smooth_px": diagonal_smooth_px,
+		"contour_warp_px": contour_warp_px,
+		"roughness": roughness,
+		"corner_variation": corner_variation,
 		"rim_width_px": rim_width_px,
+		"edge_debris": edge_debris,
+		"edge_color_strength": edge_color_strength,
+		"mountain_outline_enabled": mountain_outline_enabled,
 		"mountain_outline_width_px": mountain_outline_width_px,
 		"normal_strength": normal_strength,
 		"normal_detail_strength": normal_detail_strength,
+		"top_world_scale_px": top_world_scale_px,
+		"face_world_scale_px": face_world_scale_px,
+		"macro_world_scale_px": macro_world_scale_px,
+		"texture_scale": texture_scale,
+		"colors": colors.duplicate(true),
 		"texture_count": texture_paths.size(),
+		"texture_paths": texture_paths.duplicate(true),
 		"reference_preview_path": reference_preview_path,
 		"reference_normal_path": reference_normal_path,
+		"source_path": source_path,
+		"source_signature": get_source_signature(),
 	}
+
+func to_shader_params() -> Dictionary:
+	return {
+		"top_albedo_tex": top_albedo,
+		"face_albedo_tex": face_albedo,
+		"base_albedo_tex": base_albedo,
+		"top_modulation_tex": top_modulation,
+		"face_modulation_tex": face_modulation,
+		"top_normal_tex": top_normal,
+		"face_normal_tex": face_normal,
+		"edge_profile_lut": edge_profile_lut,
+		"height_profile_lut": height_profile_lut,
+		"top_world_scale_px": top_world_scale_px,
+		"face_world_scale_px": face_world_scale_px,
+		"macro_world_scale_px": macro_world_scale_px,
+		"texture_scale": texture_scale,
+		"south_height_px": south_height_px,
+		"side_height_px": side_height_px,
+		"rim_width_px": rim_width_px,
+		"mountain_outline_enabled": mountain_outline_enabled,
+		"mountain_outline_width_px": mountain_outline_width_px,
+		"normal_strength": normal_strength,
+		"normal_detail_strength": normal_detail_strength,
+		"edge_debris": edge_debris,
+		"edge_color_strength": edge_color_strength,
+		"top_tint": color_value("top"),
+		"face_tint": color_value("face"),
+		"edge_tint": color_value("edge"),
+		"base_tint": color_value("base"),
+	}
+
+func to_runtime_geometry_params() -> Dictionary:
+	return {
+		"south_height_px": south_height_px,
+		"north_height_px": north_height_px,
+		"side_height_px": side_height_px,
+		"corner_round_px": corner_round_px,
+		"diagonal_smooth_px": diagonal_smooth_px,
+		"contour_warp_px": contour_warp_px,
+		"roughness": roughness,
+		"corner_variation": corner_variation,
+		"rim_width_px": rim_width_px,
+		"mountain_outline_enabled": mountain_outline_enabled,
+		"mountain_outline_width_px": mountain_outline_width_px,
+	}
+
+func color_value(color_id: String) -> Color:
+	return _parse_hex_color(str(colors.get(color_id, "#ffffff")), Color(1.0, 1.0, 1.0, 1.0))
+
+func get_source_signature() -> Dictionary:
+	return source_signature.duplicate(true)
 
 func _validate_scalar_ranges() -> bool:
 	if String(asset_name).is_empty():
@@ -213,6 +332,16 @@ func _validate_scalar_ranges() -> bool:
 		return false
 	return true
 
+func _validate_colors() -> bool:
+	for color_field: String in REQUIRED_COLOR_FIELDS:
+		if not colors.has(color_field):
+			push_error("MountainContourStyle: missing required color '%s'." % [color_field])
+			return false
+		if not _is_valid_hex_color(str(colors.get(color_field, ""))):
+			push_error("MountainContourStyle: color '%s' must be a #RRGGBB or #RRGGBBAA value." % [color_field])
+			return false
+	return true
+
 func _load_textures(source_paths: Dictionary, base_dir: String) -> bool:
 	for texture_field: String in REQUIRED_TEXTURE_FIELDS:
 		var resolved_path: String = _resolve_style_path(base_dir, str(source_paths.get(texture_field, "")))
@@ -232,14 +361,81 @@ static func _resolve_style_path(base_dir: String, source_path: String) -> String
 static func _load_texture2d(path: String) -> Texture2D:
 	if not FileAccess.file_exists(path):
 		return null
+	var uncached_texture: Texture2D = _load_texture2d_uncached(path)
+	if uncached_texture != null:
+		return uncached_texture
 	if ResourceLoader.exists(path):
-		var resource: Resource = ResourceLoader.load(path)
+		var resource: Resource = ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE)
 		if resource is Texture2D:
 			return resource as Texture2D
+	return null
+
+static func _load_texture2d_uncached(path: String) -> Texture2D:
 	var image := Image.new()
 	if image.load(path) != OK:
 		return null
 	return ImageTexture.create_from_image(image)
 
+func _rebuild_source_signature(style_file_path: String) -> void:
+	var texture_signatures: Dictionary = {}
+	for texture_field: String in REQUIRED_TEXTURE_FIELDS:
+		texture_signatures[texture_field] = _file_signature(str(texture_paths.get(texture_field, "")))
+	source_signature = {
+		"style_path": style_file_path,
+		"style": _file_signature(style_file_path) if not style_file_path.is_empty() else {},
+		"textures": texture_signatures,
+		"reference_preview": _file_signature(reference_preview_path),
+		"reference_normal": _file_signature(reference_normal_path),
+	}
+
 static func _float_in_range(value: float, min_value: float, max_value: float) -> bool:
 	return value >= min_value and value <= max_value
+
+static func _file_signature(path: String) -> Dictionary:
+	if path.is_empty() or not FileAccess.file_exists(path):
+		return {
+			"path": path,
+			"exists": false,
+			"modified_time": 0,
+			"size_bytes": 0,
+		}
+	var size_bytes: int = 0
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file != null:
+		size_bytes = int(file.get_length())
+		file.close()
+	return {
+		"path": path,
+		"exists": true,
+		"modified_time": int(FileAccess.get_modified_time(path)),
+		"size_bytes": size_bytes,
+	}
+
+static func _is_valid_hex_color(raw_value: String) -> bool:
+	var text: String = raw_value.strip_edges()
+	if text.begins_with("#"):
+		text = text.substr(1)
+	if text.length() != 6 and text.length() != 8:
+		return false
+	for index: int in text.length():
+		var code: int = text.unicode_at(index)
+		var is_digit: bool = code >= 48 and code <= 57
+		var is_upper: bool = code >= 65 and code <= 70
+		var is_lower: bool = code >= 97 and code <= 102
+		if not is_digit and not is_upper and not is_lower:
+			return false
+	return true
+
+static func _parse_hex_color(raw_value: String, fallback: Color) -> Color:
+	var text: String = raw_value.strip_edges()
+	if text.begins_with("#"):
+		text = text.substr(1)
+	if not _is_valid_hex_color(text):
+		return fallback
+	var red: float = float(text.substr(0, 2).hex_to_int()) / 255.0
+	var green: float = float(text.substr(2, 2).hex_to_int()) / 255.0
+	var blue: float = float(text.substr(4, 2).hex_to_int()) / 255.0
+	var alpha: float = 1.0
+	if text.length() == 8:
+		alpha = float(text.substr(6, 2).hex_to_int()) / 255.0
+	return Color(red, green, blue, alpha)

@@ -29,7 +29,10 @@ func _run() -> void:
 		return
 
 	var result: Dictionary = _build_runtime_result(style)
-	_assert(bool(result.get("ready", false)), "Native production contour result must be ready for visual probe.")
+	var runtime_ready: bool = bool(result.get("ready", false))
+	var collision_ready: bool = _runtime_collision_ready(result)
+	_assert(runtime_ready, "Native production contour result must be ready for visual probe.")
+	_assert(collision_ready, "Native production contour collision result must be ready for visual probe.")
 	_assert_surface_payload(result, "visual_top")
 	_assert_surface_payload(result, "visual_face")
 	_assert_surface_payload(result, "visual_rim")
@@ -63,14 +66,27 @@ func _run() -> void:
 	_assert(int(layer_stats.get("outline_vertex_count", 0)) > 0, "Visual layer must render bottom outline vertices.")
 	_assert(int(layer_stats.get("total_triangle_count", 0)) > 0, "Visual layer must render triangles.")
 
-	_capture_viewport(SCREENSHOT_PATH)
-	var screenshot_stats: Dictionary = _sample_image_stats(SCREENSHOT_PATH)
-	_assert(bool(screenshot_stats.get("loaded", false)), "Probe screenshot must be readable.")
-	_assert(int(screenshot_stats.get("non_background_samples", 0)) > 64, "Probe screenshot must contain rendered contour pixels.")
-	_assert(int(screenshot_stats.get("cyan_debug_samples", 0)) == 0, "Probe must not render cyan debug contour output.")
+	var renderer_name: String = DisplayServer.get_name()
+	var visual_verification_mode: String = "manual_human_verification_required" if renderer_name == "headless" else "agent_run_real_viewport"
+	var screenshot_captured: bool = false
+	if renderer_name == "headless":
+		_fail("Mountain contour visual probe requires a real renderer; headless mode cannot verify rendered contour pixels.")
+	else:
+		screenshot_captured = _capture_viewport(SCREENSHOT_PATH)
+	var screenshot_stats: Dictionary = _sample_image_stats(SCREENSHOT_PATH) if screenshot_captured else {"loaded": false, "capture_failed": true}
+	_assert(screenshot_captured and bool(screenshot_stats.get("loaded", false)), "Probe screenshot must be readable.")
+	if screenshot_captured:
+		_assert(int(screenshot_stats.get("non_background_samples", 0)) > 64, "Probe screenshot must contain rendered contour pixels.")
+		_assert(int(screenshot_stats.get("cyan_debug_samples", 0)) == 0, "Probe must not render cyan debug contour output.")
 
 	var report := {
-		"ready": not _failed,
+		"ready": not _failed and runtime_ready and collision_ready,
+		"runtime_ready": runtime_ready,
+		"collision_ready": collision_ready,
+		"face_ready": (result.get("visual_face_vertices", PackedVector2Array()) as PackedVector2Array).size() > 0,
+		"outline_ready": (result.get("visual_outline_vertices", PackedVector2Array()) as PackedVector2Array).size() > 0,
+		"visual_verification_mode": visual_verification_mode,
+		"renderer_name": renderer_name,
 		"screenshot_path": SCREENSHOT_PATH,
 		"result": {
 			"solid_sample_count": int(result.get("solid_sample_count", 0)),
@@ -124,17 +140,12 @@ func _build_runtime_result(style: MountainContourStyle) -> Dictionary:
 		return result_variant as Dictionary
 	return {}
 
+func _runtime_collision_ready(result: Dictionary) -> bool:
+	return (result.get("collision_loops", []) as Array).size() > 0 \
+		and (result.get("collision_aabbs", []) as Array).size() > 0
+
 func _style_params(style: MountainContourStyle) -> Dictionary:
-	return {
-		"south_height_px": style.south_height_px,
-		"side_height_px": style.side_height_px,
-		"corner_round_px": style.corner_round_px,
-		"diagonal_smooth_px": style.diagonal_smooth_px,
-		"contour_warp_px": style.contour_warp_px,
-		"rim_width_px": style.rim_width_px,
-		"mountain_outline_enabled": style.mountain_outline_enabled,
-		"mountain_outline_width_px": style.mountain_outline_width_px,
-	}
+	return style.to_runtime_geometry_params()
 
 func _build_probe_halo() -> PackedByteArray:
 	var side: int = WorldRuntimeConstants.CHUNK_SIZE + 2
@@ -163,7 +174,7 @@ func _assert_surface_payload(result: Dictionary, prefix: String) -> void:
 	var attributes: PackedFloat32Array = result.get("%s_attributes" % [prefix], PackedFloat32Array()) as PackedFloat32Array
 	_assert(vertices.size() > 0, "%s must have vertices." % [prefix])
 	_assert(indices.size() >= 3 and indices.size() % 3 == 0, "%s must have triangle indices." % [prefix])
-	_assert(attributes.size() == vertices.size() * 6, "%s must have six custom floats per vertex." % [prefix])
+	_assert(attributes.size() == vertices.size() * 8, "%s must have eight contour custom floats per vertex." % [prefix])
 
 func _assert_bottom_outline_is_lower_contact(result: Dictionary) -> void:
 	var outline_indices: PackedInt32Array = result.get("visual_outline_indices", PackedInt32Array()) as PackedInt32Array
@@ -185,22 +196,23 @@ func _prepare_output_dir() -> void:
 	if err != OK:
 		_fail("Failed to create probe output directory %s: %d" % [absolute_dir, err])
 
-func _capture_viewport(path: String) -> void:
+func _capture_viewport(path: String) -> bool:
 	var image: Image = root.get_viewport().get_texture().get_image()
 	if image == null:
 		_fail("Viewport image is null.")
-		return
+		return false
 	var absolute_path: String = ProjectSettings.globalize_path(path).replace("\\", "/")
 	var png_bytes: PackedByteArray = image.save_png_to_buffer()
 	if png_bytes.is_empty():
 		_fail("Failed to encode viewport capture %s." % [absolute_path])
-		return
+		return false
 	var file := FileAccess.open(absolute_path, FileAccess.WRITE)
 	if file == null:
 		_fail("Failed to open viewport capture %s: %d" % [absolute_path, FileAccess.get_open_error()])
-		return
+		return false
 	file.store_buffer(png_bytes)
 	file.close()
+	return true
 
 func _sample_image_stats(path: String) -> Dictionary:
 	var image := Image.new()

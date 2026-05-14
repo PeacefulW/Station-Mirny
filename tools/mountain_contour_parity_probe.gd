@@ -10,16 +10,17 @@ const REPORT_PATH: String = "%s/report.json" % OUTPUT_DIR
 const VIEWPORT_SIZE: Vector2i = Vector2i(1024, 1024)
 const COMPARE_STEP: int = 4
 
-const SILHOUETTE_MISMATCH_RATIO_LIMIT: float = 0.35
-const MEAN_RGB_DELTA_LIMIT: float = 0.42
-const P95_RGB_DELTA_LIMIT: float = 0.92
-const NORMAL_MEAN_RGB_DELTA_LIMIT: float = 0.55
-const NORMAL_P95_RGB_DELTA_LIMIT: float = 0.95
+const SILHOUETTE_MISMATCH_RATIO_LIMIT: float = 0.005
+const MEAN_RGB_DELTA_LIMIT: float = 0.02
+const P95_RGB_DELTA_LIMIT: float = 0.08
+const NORMAL_MEAN_ANGLE_DELTA_DEG_LIMIT: float = 5.0
+const SEAM_GAP_PIXELS_LIMIT: int = 0
 
 const PARITY_CASE_ORDER: Array[String] = [
 	"single_tile",
 	"two_by_two_blob",
 	"large_blob",
+	"large_cave_like_cut",
 	"thin_diagonal_opening",
 	"inner_dug_hole",
 	"straight_south_face",
@@ -80,6 +81,24 @@ const PARITY_CASE_ROWS: Dictionary = {
 		"0000000000000000",
 		"0000000000000000",
 		"0000000000000000",
+		"0000000000000000",
+	],
+	"large_cave_like_cut": [
+		"0000011100000000",
+		"0000111110000000",
+		"0001111111000000",
+		"0011111111100000",
+		"0111111111110000",
+		"1111111111111000",
+		"1111111111111100",
+		"1111111001111100",
+		"1111110000111100",
+		"1111100000011100",
+		"1111110000111110",
+		"1111111001111110",
+		"0111111111111110",
+		"0011111111111100",
+		"0001111111111000",
 		"0000000000000000",
 	],
 	"thin_diagonal_opening": [
@@ -263,13 +282,28 @@ var _failed: bool = false
 var _errors: Array[String] = []
 var _case_reports: Array[Dictionary] = []
 var _normal_debug_shader: Shader = null
+var _renderer_name: String = "unknown"
+var _visual_verification_mode: String = "agent_run_real_viewport"
 
 func _init() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
 	_prepare_output_dir()
+	_renderer_name = DisplayServer.get_name()
 	_assert_static_contract()
+	if _renderer_name == "headless":
+		_visual_verification_mode = "manual_human_verification_required"
+		_fail("Mountain contour parity requires a real renderer; headless mode cannot verify textures, normals, outline, or facade composition.")
+		_write_report()
+		print(JSON.stringify({
+			"ok": false,
+			"visual_verification_mode": _visual_verification_mode,
+			"renderer_name": _renderer_name,
+			"errors": _errors,
+		}, "\t"))
+		quit(1)
+		return
 
 	var registry := MountainContourStyleRegistry.new()
 	_assert(registry.load_default_styles(), "Parity probe must load canonical mountain contour style.")
@@ -299,6 +333,7 @@ func _run() -> void:
 	quit(1 if _failed else 0)
 
 func _run_case(case_name: String, style: MountainContourStyle, world_core: Object) -> void:
+	var case_error_count_start: int = _errors.size()
 	var rows: Array = PARITY_CASE_ROWS.get(case_name, []) as Array
 	var case_dir: String = "%s/%s" % [OUTPUT_DIR, case_name]
 	_make_dir(case_dir)
@@ -306,11 +341,18 @@ func _run_case(case_name: String, style: MountainContourStyle, world_core: Objec
 	var reference_paths := _reference_paths(case_name)
 	for field_name: String in reference_paths.keys():
 		_assert(FileAccess.file_exists(reference_paths[field_name]), "%s missing generator reference %s: %s" % [case_name, field_name, reference_paths[field_name]])
-	if _failed:
+	if _errors.size() > case_error_count_start:
 		return
 
 	var result: Dictionary = _build_runtime_result(world_core, _build_halo(rows), style)
-	_assert(bool(result.get("ready", false)), "%s runtime contour result must be ready." % [case_name])
+	var runtime_ready: bool = bool(result.get("ready", false))
+	var collision_ready: bool = _runtime_collision_ready(result)
+	var face_ready: bool = (result.get("visual_face_vertices", PackedVector2Array()) as PackedVector2Array).size() > 0
+	var outline_ready: bool = (result.get("visual_outline_vertices", PackedVector2Array()) as PackedVector2Array).size() > 0
+	_assert(runtime_ready, "%s runtime contour result must be ready." % [case_name])
+	_assert(collision_ready, "%s contour collision result must be ready." % [case_name])
+	_assert(face_ready, "%s must emit face vertices." % [case_name])
+	_assert(outline_ready, "%s must emit bottom outline vertices." % [case_name])
 	_assert_no_square_only_vertices(case_name, result)
 	_assert_outline_and_face_normals(case_name, result, style)
 	if case_name == "chunk_seam_edge":
@@ -328,9 +370,9 @@ func _run_case(case_name: String, style: MountainContourStyle, world_core: Objec
 	_save_image(runtime_albedo, runtime_albedo_path)
 	_save_image(runtime_normal, runtime_normal_path)
 
-	var reference_mask: Image = _load_resized(reference_paths["mask"], runtime_albedo.get_size())
-	var reference_albedo: Image = _load_resized(reference_paths["preview"], runtime_albedo.get_size())
-	var reference_normal: Image = _load_resized(reference_paths["normal"], runtime_normal.get_size())
+	var reference_mask: Image = _load_reference_exact(reference_paths["mask"], runtime_albedo.get_size(), case_name, "mask")
+	var reference_albedo: Image = _load_reference_exact(reference_paths["preview"], runtime_albedo.get_size(), case_name, "preview")
+	var reference_normal: Image = _load_reference_exact(reference_paths["normal"], runtime_normal.get_size(), case_name, "normal")
 	_assert(reference_mask != null, "%s reference mask must load." % [case_name])
 	_assert(reference_albedo != null, "%s reference preview must load." % [case_name])
 	_assert(reference_normal != null, "%s reference normal must load." % [case_name])
@@ -339,18 +381,24 @@ func _run_case(case_name: String, style: MountainContourStyle, world_core: Objec
 
 	var silhouette: Dictionary = _compare_silhouette(case_name, reference_mask, runtime_albedo, "%s/diff_silhouette.png" % [case_dir])
 	var albedo: Dictionary = _compare_rgb(reference_albedo, runtime_albedo, reference_mask, "%s/diff_albedo.png" % [case_dir])
-	var normal: Dictionary = _compare_rgb(reference_normal, runtime_normal, reference_mask, "%s/diff_normal.png" % [case_dir])
+	var normal: Dictionary = _compare_normal_angle(reference_normal, runtime_normal, reference_mask, "%s/diff_normal.png" % [case_dir])
+	var seam_gap_pixels: int = 0
+	if case_name == "chunk_seam_edge":
+		seam_gap_pixels = _measure_seam_gap_pixels(reference_mask, runtime_albedo, "east")
 
 	_assert(float(silhouette.get("mismatch_ratio", 1.0)) <= SILHOUETTE_MISMATCH_RATIO_LIMIT, "%s silhouette mismatch exceeds tolerance." % [case_name])
 	_assert(float(albedo.get("mean_delta", 1.0)) <= MEAN_RGB_DELTA_LIMIT, "%s albedo mean delta exceeds tolerance." % [case_name])
 	_assert(float(albedo.get("p95_delta", 1.0)) <= P95_RGB_DELTA_LIMIT, "%s albedo p95 delta exceeds tolerance." % [case_name])
-	_assert(float(normal.get("mean_delta", 1.0)) <= NORMAL_MEAN_RGB_DELTA_LIMIT, "%s normal mean delta exceeds tolerance." % [case_name])
-	_assert(float(normal.get("p95_delta", 1.0)) <= NORMAL_P95_RGB_DELTA_LIMIT, "%s normal p95 delta exceeds tolerance." % [case_name])
+	_assert(float(normal.get("mean_angle_delta_deg", 180.0)) <= NORMAL_MEAN_ANGLE_DELTA_DEG_LIMIT, "%s normal mean angle delta exceeds tolerance." % [case_name])
 	if case_name == "chunk_seam_edge":
-		_assert(_edge_has_runtime_coverage(runtime_albedo, "east"), "chunk_seam_edge must render coverage on the seam edge.")
+		_assert(seam_gap_pixels <= SEAM_GAP_PIXELS_LIMIT, "chunk_seam_edge must not leave any seam gap pixels.")
 
 	_case_reports.append({
 		"case": case_name,
+		"runtime_ready": runtime_ready,
+		"collision_ready": collision_ready,
+		"face_ready": face_ready,
+		"outline_ready": outline_ready,
 		"runtime_albedo": runtime_albedo_path,
 		"runtime_normal": runtime_normal_path,
 		"diff_silhouette": "%s/diff_silhouette.png" % [case_dir],
@@ -365,6 +413,7 @@ func _run_case(case_name: String, style: MountainContourStyle, world_core: Objec
 		"silhouette": silhouette,
 		"albedo": albedo,
 		"normal": normal,
+		"seam_gap_pixels": seam_gap_pixels,
 	})
 
 func _assert_static_contract() -> void:
@@ -373,6 +422,8 @@ func _assert_static_contract() -> void:
 	var contour_source: String = FileAccess.get_file_as_string("res://gdextension/src/mountain_contour.cpp")
 	_assert(shader_source.contains("face_normal_tex"), "Runtime shader must consume face normals for parity.")
 	_assert(shader_source.contains("NORMAL_MAP"), "Runtime shader must write normals for lighting/parity.")
+	_assert(not shader_source.contains("* top_tint.rgb"), "Runtime shader must not multiply final generator top albedo by top_tint.")
+	_assert(not shader_source.contains("* face_tint.rgb"), "Runtime shader must not multiply final generator face albedo by face_tint.")
 	_assert(layer_source.contains("MountainContourVisualLayer"), "Parity probe must target the production visual layer.")
 	_assert(not layer_source.contains("TileMapLayer"), "MountainContourVisualLayer must not render square TileMap cells.")
 	_assert(not contour_source.contains("mask_rgba8"), "Runtime contour result must not reintroduce mask image buffers.")
@@ -385,21 +436,16 @@ func _build_runtime_result(world_core: Object, solid_halo: PackedByteArray, styl
 		solid_halo,
 		WorldRuntimeConstants.CHUNK_SIZE,
 		WorldRuntimeConstants.TILE_SIZE_PX,
-		{
-			"south_height_px": style.south_height_px,
-			"side_height_px": style.side_height_px,
-			"corner_round_px": style.corner_round_px,
-			"diagonal_smooth_px": style.diagonal_smooth_px,
-			"contour_warp_px": style.contour_warp_px,
-			"rim_width_px": style.rim_width_px,
-			"mountain_outline_enabled": style.mountain_outline_enabled,
-			"mountain_outline_width_px": style.mountain_outline_width_px,
-		}
+		style.to_runtime_geometry_params()
 	)
 	_assert(result_variant is Dictionary, "build_mountain_contour_runtime() must return Dictionary.")
 	if result_variant is Dictionary:
 		return result_variant as Dictionary
 	return {"ready": false}
+
+func _runtime_collision_ready(result: Dictionary) -> bool:
+	return (result.get("collision_loops", []) as Array).size() > 0 \
+		and (result.get("collision_aabbs", []) as Array).size() > 0
 
 func _build_halo(rows: Array) -> PackedByteArray:
 	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + 2
@@ -415,8 +461,6 @@ func _build_halo(rows: Array) -> PackedByteArray:
 	return solid_halo
 
 func _render_runtime_image(style: MountainContourStyle, result: Dictionary, normal_debug: bool) -> Image:
-	if DisplayServer.get_name() == "headless":
-		return _render_runtime_proxy(style, result, normal_debug)
 	var viewport := SubViewport.new()
 	viewport.size = VIEWPORT_SIZE
 	viewport.transparent_bg = true
@@ -440,63 +484,16 @@ func _render_runtime_image(style: MountainContourStyle, result: Dictionary, norm
 		viewport.remove_child(scene_root)
 		scene_root.free()
 		viewport.free()
-		return _render_runtime_proxy(style, result, normal_debug)
+		_fail("Real viewport texture is unavailable; visual parity cannot be proven with a proxy render.")
+		return null
 	var image: Image = viewport.get_texture().get_image()
 	viewport.remove_child(scene_root)
 	scene_root.free()
 	viewport.free()
 	if image == null or image.is_empty():
-		return _render_runtime_proxy(style, result, normal_debug)
+		_fail("Real viewport image is empty; visual parity cannot be proven with a proxy render.")
+		return null
 	return image
-
-func _render_runtime_proxy(style: MountainContourStyle, result: Dictionary, normal_debug: bool) -> Image:
-	var image := Image.create(VIEWPORT_SIZE.x, VIEWPORT_SIZE.y, false, Image.FORMAT_RGBA8)
-	image.fill(Color(0.0, 0.0, 0.0, 0.0))
-	if normal_debug:
-		_draw_surface_proxy(image, result, "visual_top", Color(0.50, 0.50, 1.00, 1.0))
-		_draw_surface_proxy(image, result, "visual_face", Color(0.43, 0.58, 0.89, 1.0))
-		_draw_surface_proxy(image, result, "visual_rim", Color(0.47, 0.54, 0.94, 1.0))
-		_draw_surface_proxy(image, result, "visual_outline", Color(0.42, 0.55, 0.90, 1.0))
-	else:
-		_draw_surface_proxy(image, result, "visual_top", _parse_hex_color(str(style.colors.get("top", "#705940")), Color(0.44, 0.35, 0.25, 1.0)))
-		_draw_surface_proxy(image, result, "visual_face", _parse_hex_color(str(style.colors.get("face", "#3e2f25")), Color(0.24, 0.18, 0.14, 1.0)))
-		_draw_surface_proxy(image, result, "visual_rim", _parse_hex_color(str(style.colors.get("edge", "#49382c")), Color(0.29, 0.22, 0.17, 1.0)))
-		_draw_surface_proxy(image, result, "visual_outline", _parse_hex_color(str(style.colors.get("edge", "#49382c")), Color(0.17, 0.13, 0.10, 1.0)))
-	return image
-
-func _draw_surface_proxy(image: Image, result: Dictionary, prefix: String, color: Color) -> void:
-	var vertices: PackedVector2Array = result.get("%s_vertices" % [prefix], PackedVector2Array()) as PackedVector2Array
-	var indices: PackedInt32Array = result.get("%s_indices" % [prefix], PackedInt32Array()) as PackedInt32Array
-	if vertices.is_empty() or indices.size() < 3:
-		return
-	for index_offset: int in range(0, indices.size() - 2, 3):
-		var a_index: int = int(indices[index_offset])
-		var b_index: int = int(indices[index_offset + 1])
-		var c_index: int = int(indices[index_offset + 2])
-		if a_index < 0 or b_index < 0 or c_index < 0 or a_index >= vertices.size() or b_index >= vertices.size() or c_index >= vertices.size():
-			continue
-		_fill_triangle(image, vertices[a_index], vertices[b_index], vertices[c_index], color)
-
-func _fill_triangle(image: Image, a: Vector2, b: Vector2, c: Vector2, color: Color) -> void:
-	var min_x: int = clampi(int(floor(minf(a.x, minf(b.x, c.x)))), 0, image.get_width() - 1)
-	var max_x: int = clampi(int(ceil(maxf(a.x, maxf(b.x, c.x)))), 0, image.get_width() - 1)
-	var min_y: int = clampi(int(floor(minf(a.y, minf(b.y, c.y)))), 0, image.get_height() - 1)
-	var max_y: int = clampi(int(ceil(maxf(a.y, maxf(b.y, c.y)))), 0, image.get_height() - 1)
-	if min_x > max_x or min_y > max_y:
-		return
-	for y: int in range(min_y, max_y + 1):
-		for x: int in range(min_x, max_x + 1):
-			if _point_in_triangle(Vector2(float(x) + 0.5, float(y) + 0.5), a, b, c):
-				image.set_pixel(x, y, color)
-
-func _point_in_triangle(point: Vector2, a: Vector2, b: Vector2, c: Vector2) -> bool:
-	var denominator: float = ((b.y - c.y) * (a.x - c.x)) + ((c.x - b.x) * (a.y - c.y))
-	if absf(denominator) < 0.0001:
-		return false
-	var alpha: float = (((b.y - c.y) * (point.x - c.x)) + ((c.x - b.x) * (point.y - c.y))) / denominator
-	var beta: float = (((c.y - a.y) * (point.x - c.x)) + ((a.x - c.x) * (point.y - c.y))) / denominator
-	var gamma: float = 1.0 - alpha - beta
-	return alpha >= -0.001 and beta >= -0.001 and gamma >= -0.001
 
 func _apply_normal_debug_materials(layer: Node, style: MountainContourStyle) -> void:
 	for child: Node in layer.get_children():
@@ -516,20 +513,9 @@ func _normal_debug_material(style: MountainContourStyle, surface_zone: float) ->
 	var material := ShaderMaterial.new()
 	material.shader = _normal_debug_shader
 	material.set_shader_parameter("surface_zone", surface_zone)
-	material.set_shader_parameter("top_normal_tex", style.top_normal)
-	material.set_shader_parameter("face_normal_tex", style.face_normal)
-	material.set_shader_parameter("edge_profile_lut", style.edge_profile_lut)
-	material.set_shader_parameter("height_profile_lut", style.height_profile_lut)
-	material.set_shader_parameter("top_world_scale_px", style.top_world_scale_px)
-	material.set_shader_parameter("face_world_scale_px", style.face_world_scale_px)
-	material.set_shader_parameter("macro_world_scale_px", style.macro_world_scale_px)
-	material.set_shader_parameter("texture_scale", style.texture_scale)
-	material.set_shader_parameter("south_height_px", style.south_height_px)
-	material.set_shader_parameter("side_height_px", style.side_height_px)
-	material.set_shader_parameter("rim_width_px", style.rim_width_px)
-	material.set_shader_parameter("normal_strength", style.normal_strength)
-	material.set_shader_parameter("normal_detail_strength", style.normal_detail_strength)
-	material.set_shader_parameter("edge_color_strength", style.edge_color_strength)
+	var shader_params: Dictionary = style.to_shader_params()
+	for parameter_name: String in shader_params.keys():
+		material.set_shader_parameter(parameter_name, shader_params[parameter_name])
 	return material
 
 func _reference_paths(case_name: String) -> Dictionary:
@@ -540,13 +526,19 @@ func _reference_paths(case_name: String) -> Dictionary:
 		"normal": "%s/%s/generator/%s_reference_normal.png" % [OUTPUT_DIR, case_name, prefix],
 	}
 
-func _load_resized(path: String, size: Vector2i) -> Image:
+func _load_reference_exact(path: String, size: Vector2i, case_name: String, field_name: String) -> Image:
 	var image := Image.new()
 	var err: Error = image.load(ProjectSettings.globalize_path(path))
 	if err != OK:
 		return null
 	if image.get_size() != size:
-		image.resize(size.x, size.y, Image.INTERPOLATE_LANCZOS)
+		_fail("%s generator %s reference has size %s, expected exact runtime size %s. Regenerate references with exact_generator_runtime_scale." % [
+			case_name,
+			field_name,
+			image.get_size(),
+			size,
+		])
+		return null
 	return image
 
 func _compare_silhouette(case_name: String, reference_mask: Image, runtime_image: Image, diff_path: String) -> Dictionary:
@@ -555,6 +547,7 @@ func _compare_silhouette(case_name: String, reference_mask: Image, runtime_image
 	var mismatches: int = 0
 	var reference_covered: int = 0
 	var runtime_covered: int = 0
+	var union_covered: int = 0
 	for sy: int in diff.get_height():
 		for sx: int in diff.get_width():
 			var x: int = sx * COMPARE_STEP
@@ -566,6 +559,8 @@ func _compare_silhouette(case_name: String, reference_mask: Image, runtime_image
 				reference_covered += 1
 			if runtime_on:
 				runtime_covered += 1
+			if ref_on or runtime_on:
+				union_covered += 1
 			if ref_on != runtime_on:
 				mismatches += 1
 				diff.set_pixel(sx, sy, Color(1.0, 0.0, 0.0, 1.0))
@@ -579,8 +574,10 @@ func _compare_silhouette(case_name: String, reference_mask: Image, runtime_image
 		"samples": samples,
 		"reference_covered": reference_covered,
 		"runtime_covered": runtime_covered,
+		"union_covered": union_covered,
 		"mismatches": mismatches,
-		"mismatch_ratio": float(mismatches) / float(maxi(1, samples)),
+		"mismatch_ratio": float(mismatches) / float(maxi(1, union_covered)),
+		"viewport_mismatch_ratio": float(mismatches) / float(maxi(1, samples)),
 	}
 
 func _compare_rgb(reference_image: Image, runtime_image: Image, reference_mask: Image, diff_path: String) -> Dictionary:
@@ -611,6 +608,54 @@ func _compare_rgb(reference_image: Image, runtime_image: Image, reference_mask: 
 		"mean_delta": total / float(deltas.size()),
 		"p95_delta": float(deltas[p95_index]),
 	}
+
+func _compare_normal_angle(reference_image: Image, runtime_image: Image, reference_mask: Image, diff_path: String) -> Dictionary:
+	var diff := Image.create(reference_image.get_width() / COMPARE_STEP, reference_image.get_height() / COMPARE_STEP, false, Image.FORMAT_RGBA8)
+	var angles: Array[float] = []
+	for sy: int in diff.get_height():
+		for sx: int in diff.get_width():
+			var x: int = sx * COMPARE_STEP
+			var y: int = sy * COMPARE_STEP
+			if not _reference_mask_on(reference_mask.get_pixel(x, y)) and runtime_image.get_pixel(x, y).a <= 0.05:
+				diff.set_pixel(sx, sy, Color(0.0, 0.0, 0.0, 1.0))
+				continue
+			var ref_normal: Vector3 = _normal_from_color(reference_image.get_pixel(x, y))
+			var runtime_normal: Vector3 = _normal_from_color(runtime_image.get_pixel(x, y))
+			var angle_deg: float = rad_to_deg(acos(clampf(ref_normal.dot(runtime_normal), -1.0, 1.0)))
+			angles.append(angle_deg)
+			var heat: float = clampf(angle_deg / 45.0, 0.0, 1.0)
+			diff.set_pixel(sx, sy, Color(heat, 0.0, 1.0 - heat, 1.0))
+	_save_image(diff, diff_path)
+	if angles.is_empty():
+		return {"samples": 0, "mean_angle_delta_deg": 180.0, "p95_angle_delta_deg": 180.0}
+	angles.sort()
+	var total: float = 0.0
+	for angle: float in angles:
+		total += angle
+	var p95_index: int = clampi(int(floor(float(angles.size() - 1) * 0.95)), 0, angles.size() - 1)
+	return {
+		"samples": angles.size(),
+		"mean_angle_delta_deg": total / float(angles.size()),
+		"p95_angle_delta_deg": float(angles[p95_index]),
+	}
+
+func _normal_from_color(color: Color) -> Vector3:
+	return Vector3(
+		color.r * 2.0 - 1.0,
+		color.g * 2.0 - 1.0,
+		color.b * 2.0 - 1.0
+	).normalized()
+
+func _measure_seam_gap_pixels(reference_mask: Image, runtime_image: Image, edge: String) -> int:
+	var gap_pixels: int = 0
+	if edge == "east":
+		var x: int = maxi(0, reference_mask.get_width() - COMPARE_STEP)
+		for y: int in range(0, reference_mask.get_height(), COMPARE_STEP):
+			var ref_on: bool = _reference_mask_on(reference_mask.get_pixel(x, y))
+			var runtime_on: bool = runtime_image.get_pixel(x, y).a > 0.05
+			if ref_on and not runtime_on:
+				gap_pixels += 1
+	return gap_pixels
 
 func _reference_mask_on(color: Color) -> bool:
 	return color.a > 0.05 and (color.r + color.g + color.b) / 3.0 > 0.08
@@ -644,27 +689,6 @@ func _edge_has_runtime_coverage(image: Image, edge: String) -> bool:
 				hit_count += 1
 	return hit_count > 0
 
-func _parse_hex_color(raw_value: String, fallback: Color) -> Color:
-	var text: String = raw_value.strip_edges()
-	if text.begins_with("#"):
-		text = text.substr(1)
-	if text.length() != 6 and text.length() != 8:
-		return fallback
-	for index: int in text.length():
-		var code: int = text.unicode_at(index)
-		var is_digit: bool = code >= 48 and code <= 57
-		var is_upper: bool = code >= 65 and code <= 70
-		var is_lower: bool = code >= 97 and code <= 102
-		if not is_digit and not is_upper and not is_lower:
-			return fallback
-	var red: float = float(text.substr(0, 2).hex_to_int()) / 255.0
-	var green: float = float(text.substr(2, 2).hex_to_int()) / 255.0
-	var blue: float = float(text.substr(4, 2).hex_to_int()) / 255.0
-	var alpha: float = 1.0
-	if text.length() == 8:
-		alpha = float(text.substr(6, 2).hex_to_int()) / 255.0
-	return Color(red, green, blue, alpha)
-
 func _save_image(image: Image, path: String) -> void:
 	var absolute_path: String = ProjectSettings.globalize_path(path).replace("\\", "/")
 	DirAccess.make_dir_recursive_absolute(absolute_path.get_base_dir())
@@ -690,10 +714,11 @@ func _tolerances() -> Dictionary:
 		"silhouette_mismatch_ratio_limit": SILHOUETTE_MISMATCH_RATIO_LIMIT,
 		"mean_rgb_delta_limit": MEAN_RGB_DELTA_LIMIT,
 		"p95_rgb_delta_limit": P95_RGB_DELTA_LIMIT,
-		"normal_mean_rgb_delta_limit": NORMAL_MEAN_RGB_DELTA_LIMIT,
-		"normal_p95_rgb_delta_limit": NORMAL_P95_RGB_DELTA_LIMIT,
+		"normal_mean_angle_delta_deg_limit": NORMAL_MEAN_ANGLE_DELTA_DEG_LIMIT,
+		"seam_gap_pixels_limit": SEAM_GAP_PIXELS_LIMIT,
 		"compare_step_px": COMPARE_STEP,
-		"reference_resize": "generator reference images are resized to the runtime chunk viewport before comparison",
+		"reference_scale_contract": "exact_generator_runtime_scale",
+		"visual_evidence": "real renderer viewport only; headless mode is manual_human_verification_required",
 	}
 
 func _assert(condition: bool, message: String) -> void:
@@ -711,6 +736,8 @@ func _write_report() -> void:
 	DirAccess.make_dir_recursive_absolute(absolute_path.get_base_dir())
 	var report := {
 		"ok": not _failed,
+		"visual_verification_mode": _visual_verification_mode,
+		"renderer_name": _renderer_name,
 		"errors": _errors,
 		"tolerances": _tolerances(),
 		"cases": _case_reports,

@@ -389,6 +389,28 @@ MountainContourStyleResource {
 Validation must happen before any chunk publication or mining path can use the
 style.
 
+The loaded style object is the single handoff payload for shader/material and
+native contour geometry parameters. Runtime rendering code may choose surface
+zones and topology, but it must not duplicate artistic defaults for rim width,
+outline width, facade height, corner rounding, diagonal smoothing, colour
+tints, material scale, albedo textures, or normal maps. A valid style package
+change inside the existing `MountainContourStyleV1` contract must reach shader
+uniforms and native contour-builder parameters through the style object without
+gameplay-code edits.
+
+The visual layer must expose a debug/parity snapshot of the effective shader
+parameters per surface. This snapshot exists to prove that top, facade, rim,
+and outline materials all received the same generator-authored style package
+with only surface zone differing.
+
+Developer authoring reload is explicit. Exporting a new style package while the
+game is already running must be followed by the dev reload entrypoint, currently
+bound to `F11` in `world_runtime_v0_scene.gd`. This reload reads the JSON and
+PNG files from disk without relying on Godot's cached imported texture
+resources, keeps the previous style if validation fails, and reapplies loaded
+contour chunks. It must not become an automatic file watcher or a mining-frame
+disk scan.
+
 Failure policy:
 
 - invalid style package = startup/dev validation failure;
@@ -509,7 +531,9 @@ textures and parameters.
 Required inputs:
 
 - world position;
-- local contour attributes from `*_custom0` arrays;
+- local contour attributes from `visual_*_attributes` arrays:
+  `edge_u`, `edge_v`, `signed_distance`, `face_depth_px`, `facade_side`,
+  `zone`, local noise x, and local noise y;
 - zone/kind: top, face, rim, outline;
 - edge/facade depth or equivalent scalar;
 - material textures: top/face albedo, modulation, normal;
@@ -520,6 +544,10 @@ Required behaviour:
 
 - top areas sample `top_albedo`, `top_modulation`, `top_normal`;
 - facade areas sample `face_albedo`, `face_modulation`, `face_normal`;
+- exported albedo textures are treated as authored material colour and must not
+  be multiplied by legacy tint colours by default;
+- facade colour must not be shifted toward the ground/base albedo unless that
+  blend is explicitly represented by the generator export contract;
 - rim and bottom outline use style params, edge/profile data, and exported
   material maps;
 - final normal blends material normal with contour/height/profile normal;
@@ -749,6 +777,7 @@ first parity matrix must include:
 
 - single solid tile;
 - blob mountain;
+- large cave-like visual rescue cut;
 - diagonal contact;
 - narrow diagonal passage;
 - concave notch;
@@ -759,8 +788,13 @@ first parity matrix must include:
 
 ### Godot render parity
 
-A headless or scripted Godot render test must render the same masks with the
-same style package and compare against generator reference output.
+A scripted Godot render test using a real renderer must render the same masks
+with the same style package and compare against generator reference output.
+Headless mode may run static/style-contract checks, but it must not produce
+software proxy images or report visual parity as passed. If no real viewport
+image can be read, the report must set
+`visual_verification_mode = manual_human_verification_required`, include
+`renderer_name`, and fail the automated visual parity claim.
 
 Required comparisons:
 
@@ -780,6 +814,61 @@ p95_rgb_delta <= 0.08
 normal_mean_angle_delta_deg <= 5.0
 seam_gap_pixels == 0
 ```
+
+### Task 11R — Visual Parity Rescue
+
+The current Mountain Contour Runtime V2 visual cutover is not accepted as
+gameplay presentation. The live gameplay cutover disabled state is intentional
+until the strict parity matrix above passes with a real renderer and the visual
+mesh no longer relies on tile-rectangle production geometry.
+
+The rescue gate exists because "contour exists" is not the same as generator
+preview parity. A report must not return `ok = true` when any of these are true:
+
+- `runtime_ready == false`;
+- `collision_ready == false`;
+- face, rim, or bottom outline geometry is missing;
+- the game falls back to visibly degraded or square/tile-band presentation;
+- references were resized to fit the runtime viewport.
+
+The live fail-case matrix must include a large cave-like cut with visible top,
+facade, rim, and outline surfaces near an interior/edge player position. The
+case is intended to catch the failure mode where a green square field, straight
+tile bands, missing facade chunks, or missing outline chunks still looks
+"acceptable" to a soft numeric test.
+
+Generator-exported `top_albedo`, `face_albedo`, and normal textures are the
+source of truth for final material appearance. Runtime shader code must not
+multiply final exported albedo by independent `top_tint` or `face_tint`. If a
+future style explicitly exports grayscale/procedural base textures, the style
+contract must state that mode and the shader must apply the generator colour
+exactly.
+
+Production visual geometry must be contour-driven:
+
+```text
+contour edge polyline
+-> tessellated face strip
+-> rim strip
+-> bottom outline strip
+```
+
+Per-tile top squares and per-tile south-face rectangles may remain only as
+diagnostic or rejected-transition code while live gameplay cutover disabled is
+set. Re-enabling cutover requires vertex attributes rich enough to reproduce
+the generator SDF look:
+
+- `edge_u`;
+- `edge_v`;
+- `signed_distance`;
+- `face_depth_px`;
+- `facade_side`;
+- `zone`.
+
+Parity references must use the exact generator/runtime scale contract
+(`exact_generator_runtime_scale`). The accepted first-wave contract is
+`tile_size_px = 64` for generator parity exports and Godot runtime rendering.
+Reference image resize is a failed test setup, not a passing comparison mode.
 
 Human visual review is still required for first approval, but automated parity
 must exist so regressions are caught before gameplay testing.
@@ -987,6 +1076,9 @@ Tasks:
 - [ ] Compare silhouette, albedo, normal, and seam pixels.
 - [ ] Report image diff stats.
 - [ ] Add failure thresholds from this spec.
+- [ ] Reject headless/software-proxy renders as visual parity evidence.
+- [ ] Prove style JSON changes roundtrip into shader uniforms without
+      material-code edits.
 
 Acceptance:
 
@@ -996,6 +1088,8 @@ Acceptance:
 - [ ] Inner-hole parity passes.
 - [ ] Seam parity passes.
 - [ ] Normal-map parity passes within threshold.
+- [ ] Headless run reports `manual_human_verification_required` instead of
+      passing texture/normal/outline/facade parity.
 
 ### Iteration 6 — Contour collision cache and movement query
 
@@ -1061,6 +1155,14 @@ Acceptance:
 ### Iteration 8 — Mountain visual cutover
 
 Goal: remove visible square mountain cells from normal gameplay.
+
+Task 11R status: the attempted visual cutover is rejected until strict
+generator parity is proven. `ChunkView` must keep the live gameplay cutover
+disabled while native visual geometry still uses tile-rectangle production
+helpers or the shader attribute contract above is missing. This means old
+TileMap mountain presentation may remain visible as a temporary rejected-cutover
+fallback; it must not be reported as accepted Mountain Contour Runtime V2
+presentation.
 
 Files:
 

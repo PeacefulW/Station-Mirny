@@ -10,6 +10,8 @@ const MountainContourVisualLayer = preload("res://core/systems/world/mountain_co
 const MOUNTAIN_COVER_SHADER = preload("res://assets/shaders/mountain_cover_overlay.gdshader")
 
 const MOUNTAIN_CONTOUR_VISUAL_Z_INDEX: int = 5
+const MOUNTAIN_CONTOUR_VISUAL_CUTOVER_ACCEPTED: bool = false
+const MOUNTAIN_CONTOUR_VISUAL_CUTOVER_BLOCKED_REASON: String = "strict_visual_parity_not_accepted"
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 
@@ -154,6 +156,7 @@ func apply_mountain_contour_runtime_data(
 	runtime_visible: bool = false
 ) -> void:
 	_ensure_layers()
+	var resolved_runtime_visible: bool = runtime_visible and _is_mountain_contour_visual_cutover_enabled()
 	var result_ready: bool = bool(runtime_result.get("ready", false))
 	if style == null or not result_ready:
 		_clear_mountain_contour_runtime_data()
@@ -163,6 +166,7 @@ func apply_mountain_contour_runtime_data(
 			collision_ready,
 			halo_state,
 			false,
+			resolved_runtime_visible,
 			runtime_visible
 		)
 		return
@@ -170,13 +174,14 @@ func apply_mountain_contour_runtime_data(
 	layer.configure(chunk_coord, style)
 	var visual_ready: bool = layer.apply_runtime_result(runtime_result)
 	layer.z_index = MOUNTAIN_CONTOUR_VISUAL_Z_INDEX
-	layer.visible = runtime_visible and visual_ready and layer.get_total_vertex_count() > 0
+	layer.visible = resolved_runtime_visible and visual_ready and layer.get_total_vertex_count() > 0
 	_mountain_contour_runtime_stats = _build_mountain_contour_runtime_stats(
 		style,
 		layer.get_debug_stats(),
 		collision_ready,
 		halo_state,
 		visual_ready,
+		resolved_runtime_visible,
 		runtime_visible
 	)
 
@@ -337,7 +342,7 @@ func _resolve_base_tilemap_terrain_id(terrain_id: int) -> int:
 	return terrain_id
 
 func _is_mountain_contour_visual_cutover_enabled() -> bool:
-	return true
+	return MOUNTAIN_CONTOUR_VISUAL_CUTOVER_ACCEPTED
 
 func _is_mountain_contour_terrain(terrain_id: int) -> bool:
 	return terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
@@ -438,21 +443,30 @@ func _build_mountain_contour_runtime_stats(
 	collision_ready: bool,
 	halo_state: Dictionary,
 	visual_ready: bool,
-	runtime_visible: bool
+	runtime_visible: bool,
+	runtime_visible_requested: bool = false
 ) -> Dictionary:
 	var has_layer: bool = _mountain_contour_visual_layer != null and is_instance_valid(_mountain_contour_visual_layer)
 	var style_id: StringName = &""
+	var style_source_signature: Dictionary = {}
 	if style != null:
 		style_id = style.asset_name
+		style_source_signature = style.get_source_signature()
+	var visual_cutover_accepted: bool = _is_mountain_contour_visual_cutover_enabled()
 	return {
 		"ready": visual_ready and collision_ready,
+		"gameplay_cutover_ready": visual_ready and collision_ready and runtime_visible and visual_cutover_accepted,
 		"chunk_coord": chunk_coord,
 		"style_id": style_id,
+		"style_source_signature": style_source_signature,
+		"visual_cutover_accepted": visual_cutover_accepted,
+		"visual_cutover_blocked_reason": "" if visual_cutover_accepted else MOUNTAIN_CONTOUR_VISUAL_CUTOVER_BLOCKED_REASON,
 		"visual_ready": visual_ready,
 		"collision_ready": collision_ready,
 		"has_visual_layer": has_layer,
 		"visual_layer_visible": has_layer and _mountain_contour_visual_layer.visible,
 		"visual_layer_z_index": _mountain_contour_visual_layer.z_index if has_layer else -1,
+		"runtime_visibility_requested": runtime_visible_requested,
 		"runtime_visibility_enabled": runtime_visible,
 		"material_ready": bool(layer_stats.get("material_ready", false)),
 		"surface_count": int(layer_stats.get("surface_count", 0)),

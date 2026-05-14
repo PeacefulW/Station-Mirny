@@ -4,7 +4,15 @@ extends Node2D
 const MountainContourStyle = preload("res://core/systems/world/mountain_contour_style.gd")
 const RUNTIME_SHADER = preload("res://assets/shaders/mountain_contour_runtime.gdshader")
 
-const ATTRIBUTE_STRIDE: int = 6
+const ATTRIBUTE_STRIDE: int = 8
+const ATTR_EDGE_U: int = 0
+const ATTR_EDGE_V: int = 1
+const ATTR_SIGNED_DISTANCE: int = 2
+const ATTR_FACE_DEPTH_PX: int = 3
+const ATTR_FACADE_SIDE: int = 4
+const ATTR_ZONE: int = 5
+const ATTR_NOISE_U: int = 6
+const ATTR_NOISE_V: int = 7
 const SURFACE_IDS: Array[String] = ["top", "face", "rim", "outline"]
 const SURFACE_PREFIX_BY_ID: Dictionary = {
 	"top": "visual_top",
@@ -99,6 +107,21 @@ func get_debug_stats() -> Dictionary:
 		result["total_triangle_count"] = int(result["total_triangle_count"]) + triangle_count
 	return result
 
+func get_style_shader_debug_snapshot() -> Dictionary:
+	var result: Dictionary = {}
+	for surface_id: String in SURFACE_IDS:
+		var material: ShaderMaterial = _materials_by_surface.get(surface_id, null) as ShaderMaterial
+		var surface_params: Dictionary = {}
+		if material != null:
+			surface_params["surface_zone"] = material.get_shader_parameter("surface_zone")
+			for parameter_name: String in MountainContourStyle.SHADER_PARAMETER_NAMES:
+				surface_params[parameter_name] = material.get_shader_parameter(parameter_name)
+		if _style != null:
+			surface_params["texture_paths"] = _style.texture_paths.duplicate(true)
+			surface_params["style_debug"] = _style.debug_snapshot()
+		result[surface_id] = surface_params
+	return result
+
 func _ensure_surface_nodes() -> void:
 	for surface_index: int in SURFACE_IDS.size():
 		var surface_id: String = SURFACE_IDS[surface_index]
@@ -127,32 +150,9 @@ func _apply_style_to_material(material: ShaderMaterial, surface_zone: float) -> 
 	if _style == null:
 		return
 	material.set_shader_parameter("surface_zone", surface_zone)
-	material.set_shader_parameter("top_albedo_tex", _style.top_albedo)
-	material.set_shader_parameter("face_albedo_tex", _style.face_albedo)
-	material.set_shader_parameter("base_albedo_tex", _style.base_albedo)
-	material.set_shader_parameter("top_modulation_tex", _style.top_modulation)
-	material.set_shader_parameter("face_modulation_tex", _style.face_modulation)
-	material.set_shader_parameter("top_normal_tex", _style.top_normal)
-	material.set_shader_parameter("face_normal_tex", _style.face_normal)
-	material.set_shader_parameter("edge_profile_lut", _style.edge_profile_lut)
-	material.set_shader_parameter("height_profile_lut", _style.height_profile_lut)
-	material.set_shader_parameter("top_world_scale_px", _style.top_world_scale_px)
-	material.set_shader_parameter("face_world_scale_px", _style.face_world_scale_px)
-	material.set_shader_parameter("macro_world_scale_px", _style.macro_world_scale_px)
-	material.set_shader_parameter("texture_scale", _style.texture_scale)
-	material.set_shader_parameter("south_height_px", _style.south_height_px)
-	material.set_shader_parameter("side_height_px", _style.side_height_px)
-	material.set_shader_parameter("rim_width_px", _style.rim_width_px)
-	material.set_shader_parameter("mountain_outline_enabled", _style.mountain_outline_enabled)
-	material.set_shader_parameter("mountain_outline_width_px", _style.mountain_outline_width_px)
-	material.set_shader_parameter("normal_strength", _style.normal_strength)
-	material.set_shader_parameter("normal_detail_strength", _style.normal_detail_strength)
-	material.set_shader_parameter("edge_debris", _style.edge_debris)
-	material.set_shader_parameter("edge_color_strength", _style.edge_color_strength)
-	material.set_shader_parameter("top_tint", _style_color("top", Color(0.44, 0.35, 0.25, 1.0)))
-	material.set_shader_parameter("face_tint", _style_color("face", Color(0.24, 0.18, 0.14, 1.0)))
-	material.set_shader_parameter("edge_tint", _style_color("edge", Color(0.29, 0.22, 0.17, 1.0)))
-	material.set_shader_parameter("base_tint", _style_color("base", Color(0.72, 0.55, 0.35, 1.0)))
+	var shader_params: Dictionary = _style.to_shader_params()
+	for parameter_name: String in shader_params.keys():
+		material.set_shader_parameter(parameter_name, shader_params[parameter_name])
 
 func _apply_surface(surface_id: String, result: Dictionary) -> void:
 	var prefix: String = str(SURFACE_PREFIX_BY_ID.get(surface_id, ""))
@@ -188,8 +188,7 @@ func _build_array_mesh(
 	var arrays: Array = []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = _to_vector3_vertices(vertices)
-	arrays[Mesh.ARRAY_TEX_UV] = _build_uvs(vertices)
-	arrays[Mesh.ARRAY_TEX_UV2] = _build_noise_uvs(attributes, vertices.size())
+	arrays[Mesh.ARRAY_TEX_UV] = _build_edge_uvs(attributes, vertices.size())
 	arrays[Mesh.ARRAY_COLOR] = _build_vertex_colors(attributes, vertices.size(), surface_zone)
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
@@ -204,21 +203,13 @@ func _to_vector3_vertices(vertices: PackedVector2Array) -> PackedVector3Array:
 		result[index] = Vector3(vertex.x, vertex.y, 0.0)
 	return result
 
-func _build_uvs(vertices: PackedVector2Array) -> PackedVector2Array:
-	var result := PackedVector2Array()
-	result.resize(vertices.size())
-	var scale: float = maxf(1.0, float(_style.logical_tile_size_px if _style != null else 64))
-	for index: int in vertices.size():
-		result[index] = vertices[index] / scale
-	return result
-
-func _build_noise_uvs(attributes: PackedFloat32Array, vertex_count: int) -> PackedVector2Array:
+func _build_edge_uvs(attributes: PackedFloat32Array, vertex_count: int) -> PackedVector2Array:
 	var result := PackedVector2Array()
 	result.resize(vertex_count)
 	for index: int in vertex_count:
 		result[index] = Vector2(
-			_read_attribute(attributes, index, 3, 0.0),
-			_read_attribute(attributes, index, 4, 0.0)
+			_read_attribute(attributes, index, ATTR_EDGE_U, 0.0),
+			_read_attribute(attributes, index, ATTR_EDGE_V, 0.0)
 		)
 	return result
 
@@ -226,11 +217,11 @@ func _build_vertex_colors(attributes: PackedFloat32Array, vertex_count: int, sur
 	var result := PackedColorArray()
 	result.resize(vertex_count)
 	for index: int in vertex_count:
-		var edge_distance: float = clampf(_read_attribute(attributes, index, 0, 0.0) / 128.0, 0.0, 1.0)
-		var face_depth: float = clampf(_read_attribute(attributes, index, 1, 0.0) / 128.0, 0.0, 1.0)
-		var edge_kind: float = clampf(_read_attribute(attributes, index, 2, 0.0) / 8.0, 0.0, 1.0)
-		var material_zone: float = clampf(_read_attribute(attributes, index, 5, surface_zone) / 8.0, 0.0, 1.0)
-		result[index] = Color(edge_distance, face_depth, edge_kind, material_zone)
+		var signed_distance: float = clampf((_read_attribute(attributes, index, ATTR_SIGNED_DISTANCE, 0.0) + 128.0) / 256.0, 0.0, 1.0)
+		var face_depth_px: float = clampf(_read_attribute(attributes, index, ATTR_FACE_DEPTH_PX, 0.0) / 128.0, 0.0, 1.0)
+		var facade_side: float = clampf(_read_attribute(attributes, index, ATTR_FACADE_SIDE, 0.0) / 4.0, 0.0, 1.0)
+		var zone: float = clampf(_read_attribute(attributes, index, ATTR_ZONE, surface_zone) / 8.0, 0.0, 1.0)
+		result[index] = Color(signed_distance, face_depth_px, facade_side, zone)
 	return result
 
 func _read_attribute(attributes: PackedFloat32Array, vertex_index: int, offset: int, default_value: float) -> float:
@@ -253,23 +244,3 @@ func _materials_ready() -> bool:
 		and _style.base_albedo is Texture2D \
 		and _style.top_normal is Texture2D \
 		and _style.face_normal is Texture2D
-
-func _style_color(color_id: String, fallback: Color) -> Color:
-	if _style == null:
-		return fallback
-	var raw_value: String = str(_style.colors.get(color_id, ""))
-	return _parse_hex_color(raw_value, fallback)
-
-static func _parse_hex_color(raw_value: String, fallback: Color) -> Color:
-	var text: String = raw_value.strip_edges()
-	if text.begins_with("#"):
-		text = text.substr(1)
-	if text.length() != 6 and text.length() != 8:
-		return fallback
-	var red: float = float(text.substr(0, 2).hex_to_int()) / 255.0
-	var green: float = float(text.substr(2, 2).hex_to_int()) / 255.0
-	var blue: float = float(text.substr(4, 2).hex_to_int()) / 255.0
-	var alpha: float = 1.0
-	if text.length() == 8:
-		alpha = float(text.substr(6, 2).hex_to_int()) / 255.0
-	return Color(red, green, blue, alpha)

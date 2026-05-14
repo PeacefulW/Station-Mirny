@@ -33,7 +33,7 @@ func _run():
 		quit(1)
 		return
 
-	_assert_mountain_cells_are_not_visible_tilemap_surface(style, world_core)
+	_assert_mountain_visual_cutover_policy(style, world_core)
 	await _assert_production_contour_renders_visible_pixels(style, world_core)
 	_assert_mining_reveals_dug_ground_and_clears_roof_cell()
 	_assert_non_mountain_ground_still_uses_tilemap_surface()
@@ -63,14 +63,14 @@ func _assert_static_contract() -> void:
 	)
 	_assert(
 		world_streamer_source.contains("_mountain_contour_runtime_visible: bool = true"),
-		"WorldStreamer must enable mountain contour runtime visuals for normal gameplay cutover."
+		"WorldStreamer may request mountain contour visuals, while ChunkView owns the accepted cutover gate."
 	)
 	_assert(
 		_function_body(world_streamer_source, "_publish_next_batch").contains("_refresh_mountain_contour_runtime_around_chunk(_active_publish_chunk)"),
 		"Publishing a newly loaded chunk must refresh nearby contour runtime caches so seam-neighbour readiness can recover visible mountains."
 	)
 
-func _assert_mountain_cells_are_not_visible_tilemap_surface(style, world_core: Object) -> void:
+func _assert_mountain_visual_cutover_policy(style, world_core: Object) -> void:
 	var wall_local := Vector2i(7, 7)
 	var foot_local := Vector2i(8, 7)
 	var terrain_by_local: Dictionary = {}
@@ -98,25 +98,34 @@ func _assert_mountain_cells_are_not_visible_tilemap_surface(style, world_core: O
 
 	var wall_base_source: int = view._base_layer.get_cell_source_id(wall_local)
 	var foot_base_source: int = view._base_layer.get_cell_source_id(foot_local)
-	_assert(wall_base_source != WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL), "Wall must not render as a square mountain base TileMap cell.")
-	_assert(foot_base_source != WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT), "Foot must not render as a square mountain base TileMap cell.")
-	_assert(wall_base_source == WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND), "Wall underlay must render as non-mountain ground below contour visual.")
-	_assert(foot_base_source == WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND), "Foot underlay must render as non-mountain ground below contour visual.")
 
 	var wall_cover_debug: Dictionary = view.get_cover_render_debug(wall_local, 31, 0)
 	var foot_cover_debug: Dictionary = view.get_cover_render_debug(foot_local, 31, 0)
 	_assert(int(wall_cover_debug.get("pending_mountain_id", 0)) == 31, "Cover debug must keep mountain id after visual cutover.")
 	_assert(int(foot_cover_debug.get("pending_flags", 0)) == WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT, "Cover debug must keep mountain flags after visual cutover.")
-	_assert(int(wall_cover_debug.get("roof_cell_source_id", 0)) < 0, "Wall must not render as a square roof TileMap cell after cutover.")
-	_assert(int(foot_cover_debug.get("roof_cell_source_id", 0)) < 0, "Foot must not render as a square roof TileMap cell after cutover.")
 
 	var snapshot: Dictionary = view.get_mountain_contour_runtime_debug_snapshot()
-	_assert(bool(snapshot.get("visual_layer_visible", false)), "Contour visual layer must be visible after cutover when runtime data is ready.")
+	_assert(bool(snapshot.get("visual_cutover_accepted", true)) == ChunkView.MOUNTAIN_CONTOUR_VISUAL_CUTOVER_ACCEPTED, "Snapshot must expose the current visual cutover acceptance gate.")
 	_assert(int(snapshot.get("visual_layer_z_index", -1)) > 1, "Contour visual layer must draw above ground/overlay TileMap layers.")
 	_assert(int(snapshot.get("total_vertex_count", 0)) > 0, "Contour visual layer must own mountain vertices after cutover.")
+	if ChunkView.MOUNTAIN_CONTOUR_VISUAL_CUTOVER_ACCEPTED:
+		_assert(wall_base_source != WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL), "Wall must not render as a square mountain base TileMap cell.")
+		_assert(foot_base_source != WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT), "Foot must not render as a square mountain base TileMap cell.")
+		_assert(wall_base_source == WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND), "Wall underlay must render as non-mountain ground below contour visual.")
+		_assert(foot_base_source == WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND), "Foot underlay must render as non-mountain ground below contour visual.")
+		_assert(int(wall_cover_debug.get("roof_cell_source_id", 0)) < 0, "Wall must not render as a square roof TileMap cell after cutover.")
+		_assert(int(foot_cover_debug.get("roof_cell_source_id", 0)) < 0, "Foot must not render as a square roof TileMap cell after cutover.")
+		_assert(bool(snapshot.get("visual_layer_visible", false)), "Contour visual layer must be visible after accepted cutover when runtime data is ready.")
+	else:
+		_assert(int(wall_cover_debug.get("roof_cell_source_id", -1)) >= 0, "Wall roof TileMap must remain visible while visual cutover is rejected.")
+		_assert(int(foot_cover_debug.get("roof_cell_source_id", -1)) >= 0, "Foot roof TileMap must remain visible while visual cutover is rejected.")
+		_assert(not bool(snapshot.get("visual_layer_visible", true)), "Contour visual layer must stay hidden while visual cutover is rejected.")
+		_assert(str(snapshot.get("visual_cutover_blocked_reason", "")) == "strict_visual_parity_not_accepted", "Snapshot must explain the rejected visual cutover.")
 	view.free()
 
 func _assert_production_contour_renders_visible_pixels(style, world_core: Object):
+	if not ChunkView.MOUNTAIN_CONTOUR_VISUAL_CUTOVER_ACCEPTED:
+		return
 	if DisplayServer.get_name() == "headless":
 		return
 	var wall_local := Vector2i(7, 7)
@@ -200,16 +209,7 @@ func _build_runtime_result(world_core: Object, solid_halo: PackedByteArray, styl
 		solid_halo,
 		WorldRuntimeConstants.CHUNK_SIZE,
 		WorldRuntimeConstants.TILE_SIZE_PX,
-		{
-			"south_height_px": style.south_height_px,
-			"side_height_px": style.side_height_px,
-			"corner_round_px": style.corner_round_px,
-			"diagonal_smooth_px": style.diagonal_smooth_px,
-			"contour_warp_px": style.contour_warp_px,
-			"rim_width_px": style.rim_width_px,
-			"mountain_outline_enabled": style.mountain_outline_enabled,
-			"mountain_outline_width_px": style.mountain_outline_width_px,
-		}
+		style.to_runtime_geometry_params()
 	)
 	_assert(result_variant is Dictionary, "build_mountain_contour_runtime() must return Dictionary.")
 	if result_variant is Dictionary:

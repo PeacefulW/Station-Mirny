@@ -223,6 +223,38 @@ func toggle_debug_mountain_contour() -> bool:
 	_refresh_debug_visuals_for_loaded_chunks()
 	return _debug_mountain_contour_visible
 
+func reload_mountain_contour_style_from_disk() -> Dictionary:
+	var previous_signature: Dictionary = {}
+	if _mountain_contour_style != null:
+		previous_signature = _mountain_contour_style.get_source_signature()
+	var new_registry := MountainContourStyleRegistry.new()
+	if not new_registry.load_default_styles():
+		return {
+			"ok": false,
+			"kept_previous_style": _mountain_contour_style != null,
+			"validation_errors": new_registry.validation_errors.duplicate(),
+			"previous_source_signature": previous_signature,
+		}
+	var new_style: MountainContourStyle = new_registry.require_style(&"mountain")
+	if new_style == null:
+		return {
+			"ok": false,
+			"kept_previous_style": _mountain_contour_style != null,
+			"validation_errors": new_registry.validation_errors.duplicate(),
+			"previous_source_signature": previous_signature,
+		}
+	_mountain_contour_style_registry = new_registry
+	_mountain_contour_style = new_style
+	var refresh_report: Dictionary = _refresh_mountain_contour_runtime_for_loaded_chunks(&"style_reload")
+	return {
+		"ok": true,
+		"style_id": String(_mountain_contour_style.asset_name),
+		"previous_source_signature": previous_signature,
+		"source_signature": _mountain_contour_style.get_source_signature(),
+		"refreshed_chunk_count": int(refresh_report.get("chunk_count", 0)),
+		"refresh_usec": int(refresh_report.get("refresh_usec", 0)),
+	}
+
 func get_mountain_contour_debug_state(chunk_coord: Vector2i) -> Dictionary:
 	var chunk_view: ChunkView = _chunk_views.get(_canonicalize_chunk_coord(chunk_coord)) as ChunkView
 	if chunk_view == null:
@@ -1635,6 +1667,32 @@ func _refresh_mountain_contour_runtime_around_chunk(center_chunk_coord: Vector2i
 			if _chunk_views.has(chunk_coord):
 				_rebuild_mountain_contour_runtime_for_chunk(chunk_coord)
 
+func _refresh_mountain_contour_runtime_for_loaded_chunks(dirty_reason: StringName) -> Dictionary:
+	var loaded_chunks: Array[Vector2i] = _dictionary_vector2i_keys(_chunk_views)
+	var refresh_start_usec: int = Time.get_ticks_usec()
+	if loaded_chunks.is_empty():
+		return {
+			"chunk_count": 0,
+			"refresh_usec": Time.get_ticks_usec() - refresh_start_usec,
+			"chunk_updates": [],
+		}
+	var runtime_revision: int = _next_mountain_contour_runtime_revision()
+	var chunk_updates: Array[Dictionary] = []
+	for chunk_coord: Vector2i in loaded_chunks:
+		var telemetry: Dictionary = _rebuild_mountain_contour_runtime_for_chunk(
+			chunk_coord,
+			runtime_revision,
+			loaded_chunks.size(),
+			dirty_reason
+		)
+		if not telemetry.is_empty():
+			chunk_updates.append(telemetry)
+	return {
+		"chunk_count": loaded_chunks.size(),
+		"refresh_usec": Time.get_ticks_usec() - refresh_start_usec,
+		"chunk_updates": chunk_updates,
+	}
+
 func _refresh_mountain_contour_runtime_after_mining(
 	chunk_coord: Vector2i,
 	local_coord: Vector2i,
@@ -1914,16 +1972,7 @@ func _count_solid_values(values: PackedByteArray) -> int:
 	return count
 
 func _build_mountain_contour_style_params(style: MountainContourStyle) -> Dictionary:
-	return {
-		"south_height_px": style.south_height_px,
-		"side_height_px": style.side_height_px,
-		"corner_round_px": style.corner_round_px,
-		"diagonal_smooth_px": style.diagonal_smooth_px,
-		"contour_warp_px": style.contour_warp_px,
-		"rim_width_px": style.rim_width_px,
-		"mountain_outline_enabled": style.mountain_outline_enabled,
-		"mountain_outline_width_px": style.mountain_outline_width_px,
-	}
+	return style.to_runtime_geometry_params()
 
 func _build_local_mountain_solid_mask(chunk_coord: Vector2i) -> PackedByteArray:
 	var mask := PackedByteArray()
