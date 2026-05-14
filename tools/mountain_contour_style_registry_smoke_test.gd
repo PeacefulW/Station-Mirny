@@ -36,6 +36,7 @@ func _assert_registry_loads_known_style() -> void:
 		return
 	_assert(style.asset_name == StringName("mountain"), "Loaded style must keep the authored asset name.")
 	_assert(style.logical_tile_size_px == WorldRuntimeConstants.TILE_SIZE_PX, "Style logical tile size must match world runtime tile size.")
+	_assert(style.style_tile_size_px == WorldRuntimeConstants.TILE_SIZE_PX, "Canonical mountain style must be exported at exact_generator_runtime_scale.")
 	_assert(style.top_albedo is Texture2D, "top_albedo must load as Texture2D.")
 	_assert(style.face_albedo is Texture2D, "face_albedo must load as Texture2D.")
 	_assert(style.base_albedo is Texture2D, "base_albedo must load as Texture2D.")

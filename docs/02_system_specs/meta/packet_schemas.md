@@ -732,12 +732,17 @@ Current code notes:
   input used by `MountainContourDebugResult`: local chunk samples are offset by
   the one-tile halo and read from effective mountain solid state (`base + diff`)
 - `style_params` supplies scalar contour geometry controls such as
-  `south_height_px`, `side_height_px`, `rim_width_px`,
-  `mountain_outline_width_px`, and `mountain_outline_enabled`; reusable texture
-  assets remain owned by style loading/rendering code, not by this result
-- every `visual_*_attributes` array stores six floats per matching visual
-  vertex: edge distance, face depth, edge kind, local noise x, local noise y,
-  and material zone
+  `south_height_px`, `north_height_px`, `side_height_px`, `corner_round_px`,
+  `diagonal_smooth_px`, `contour_warp_px`, `roughness`, `corner_variation`,
+  `rim_width_px`, `mountain_outline_width_px`, and
+  `mountain_outline_enabled`; reusable texture assets remain owned by style
+  loading/rendering code, not by this result
+- every `visual_*_attributes` array stores eight floats per matching visual
+  vertex: `edge_u`, `edge_v`, `signed_distance`, `face_depth_px`,
+  `facade_side`, `zone`, local noise x, and local noise y. `edge_u` is the
+  deterministic position along the emitted contour edge stream; `edge_v` is the
+  local strip depth; `signed_distance` is positive inward/top-side and negative
+  outward/facade-side.
 - `collision_loops` and `collision_aabbs` are derived from filled contour
   polygons that mirror the top mesh triangles. They intentionally do not depend
   on a fully closed per-chunk boundary loop, so carved openings that cross a

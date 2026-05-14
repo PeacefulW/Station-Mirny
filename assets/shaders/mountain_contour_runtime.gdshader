@@ -31,10 +31,12 @@ uniform float edge_debris = 0.8;
 uniform float edge_color_strength = 0.35;
 
 varying vec2 world_pos;
+varying vec2 contour_edge_uv;
 varying vec4 contour_attr;
 
 void vertex() {
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).xy;
+	contour_edge_uv = UV;
 	contour_attr = COLOR;
 }
 
@@ -66,42 +68,47 @@ vec3 sample_face_normal(vec2 face_uv, vec2 macro_uv) {
 }
 
 void fragment() {
-	float edge_distance = contour_attr.r;
-	float face_depth = contour_attr.g;
-	float material_zone = surface_zone;
-	float edge_profile = texture(edge_profile_lut, vec2(clamp(edge_distance, 0.0, 1.0), 0.5)).r;
-	float height_profile = texture(height_profile_lut, vec2(clamp(face_depth, 0.0, 1.0), 0.5)).r;
+	float edge_u = contour_edge_uv.x;
+	float edge_v = contour_edge_uv.y;
+	float signed_distance = contour_attr.r * 2.0 - 1.0;
+	float face_depth_px = contour_attr.g * 128.0;
+	float facade_side = contour_attr.b * 4.0;
+	float material_zone = floor(contour_attr.a * 8.0 + 0.5);
+	float depth_norm = clamp(face_depth_px / max(1.0, south_height_px + side_height_px + mountain_outline_width_px), 0.0, 1.0);
+	float edge_profile = texture(edge_profile_lut, vec2(clamp(edge_v, 0.0, 1.0), 0.5)).r;
+	float height_profile = texture(height_profile_lut, vec2(depth_norm, 0.5)).r;
 
 	vec2 top_uv = world_pos / safe_scale(top_world_scale_px);
-	vec2 face_uv = vec2(world_pos.x, world_pos.y + face_depth * max(1.0, south_height_px)) / safe_scale(face_world_scale_px);
+	vec2 face_uv = vec2(edge_u * 64.0 + facade_side * 23.0, face_depth_px) / safe_scale(face_world_scale_px);
 	vec2 macro_uv = world_pos / safe_scale(macro_world_scale_px);
 
-	vec3 top_albedo = texture(top_albedo_tex, top_uv).rgb * top_tint.rgb;
-	vec3 face_albedo = texture(face_albedo_tex, face_uv).rgb * face_tint.rgb;
-	vec3 base_albedo = texture(base_albedo_tex, macro_uv).rgb * base_tint.rgb;
+	vec3 top_albedo = texture(top_albedo_tex, top_uv).rgb;
+	vec3 face_albedo = texture(face_albedo_tex, face_uv).rgb;
+	vec3 base_albedo = texture(base_albedo_tex, macro_uv).rgb;
 	float top_breakup = texture(top_modulation_tex, top_uv * 1.13 + vec2(0.17, 0.29)).r;
 	float face_breakup = texture(face_modulation_tex, face_uv * vec2(0.8, 1.25) + vec2(0.41, 0.23)).r;
-	float debris = smoothstep(0.54, 0.95, max(top_breakup, face_breakup)) * edge_debris * edge_profile;
+	float debris = smoothstep(0.54, 0.95, max(top_breakup, face_breakup)) * edge_debris * edge_profile * (1.0 - abs(signed_distance));
 
 	vec3 color = top_albedo;
 	vec3 material_normal = sample_top_normal(top_uv, macro_uv);
 	if (material_zone > 0.5 && material_zone < 1.5) {
-		color = mix(face_albedo, base_albedo, 0.08 + height_profile * 0.18);
-		color *= mix(0.82, 1.12, face_breakup);
+		color = face_albedo;
+		color *= mix(0.74, 1.08, face_breakup);
+		color *= mix(0.78, 1.0, height_profile);
 		material_normal = sample_face_normal(face_uv, macro_uv);
 	} else if (material_zone >= 1.5 && material_zone < 2.5) {
-		color = mix(top_albedo, face_albedo, 0.45);
-		color = mix(color, edge_tint.rgb, edge_color_strength * (0.35 + edge_profile * 0.45));
+		color = mix(top_albedo, face_albedo, 0.52);
+		color = mix(color, face_albedo * 0.72, edge_color_strength * (0.35 + edge_profile * 0.45));
 		color *= mix(0.9, 1.08, top_breakup);
 		material_normal = normalize(mix(sample_top_normal(top_uv, macro_uv), sample_face_normal(face_uv, macro_uv), 0.4));
 	} else if (material_zone >= 2.5) {
 		float outline_alpha = mountain_outline_enabled ? 1.0 : 0.0;
-		color = mix(base_albedo * 0.35, edge_tint.rgb * 0.58, outline_alpha);
+		color = mix(face_albedo * 0.34, face_albedo * 0.16, outline_alpha);
 		color *= mix(0.72, 0.92, clamp(mountain_outline_width_px / 16.0, 0.0, 1.0));
 		material_normal = sample_face_normal(face_uv, macro_uv);
 	} else {
 		color *= mix(0.94, 1.10, top_breakup);
-		color = mix(color, edge_tint.rgb, debris * 0.18);
+		color = mix(color, face_albedo, debris * 0.12);
 	}
 
 	vec3 shape_normal = normalize(vec3(

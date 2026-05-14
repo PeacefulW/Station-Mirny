@@ -326,6 +326,11 @@ Current code notes:
 - The mountain contour runtime result is recomputed from the effective
   mountain solid halo for one chunk; it is presentation/collision topology and
   does not become `ChunkPacketV1`, save data, or authoritative terrain.
+- Task 11R keeps the live mountain contour visual cutover disabled until strict
+  generator parity is accepted. Diagnostic visual meshes and collision caches
+  may still rebuild from `build_mountain_contour_runtime`, but square/tile
+  fallback presentation must not be reported as accepted contour gameplay
+  presentation.
 
 Not documented here as safe entrypoints:
 - direct calls to `world_prepass::*` helpers from script, because they are native
@@ -386,6 +391,9 @@ Confirmed public surface:
 | `load_from_file(style_path: String)` | `MountainContourStyle` or `null` | Loads and validates a `ContourStyleV1` JSON package from disk |
 | `load_from_dict(data: Dictionary, base_dir: String)` | `MountainContourStyle` or `null` | Validation entrypoint used by smoke tests and import tooling |
 | `debug_snapshot()` | `Dictionary` | Returns a diagnostic summary for loaded style validation |
+| `to_shader_params()` | `Dictionary` | Single style handoff payload for contour shader uniforms: reusable albedo/normal/profile textures, material scale, tints, rim/outline controls, and normal strengths |
+| `to_runtime_geometry_params()` | `Dictionary` | Single style handoff payload for native contour geometry: facade height, side height, corner rounding, diagonal smoothing, contour warp, rim width, and bottom outline controls |
+| `color_value(color_id: String)` | `Color` | Parses a validated style colour for shader binding and diagnostics |
 
 Confirmed readable state:
 - authored style id fields: `asset_name`, `preset`
@@ -468,6 +476,7 @@ Confirmed mutation entrypoints:
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
 | `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock. When the mined tile is mountain contour terrain, the result includes transient `mountain_contour_dirty_update` telemetry with `runtime_revision`, `affected_chunk_count`, `affected_chunks`, `contour_rebuild_usec`, `visual_apply_usec`, and `collision_apply_usec`; this telemetry is not save or packet data. |
 | `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver` to switch between outside state and one active cavity |
+| `reload_mountain_contour_style_from_disk()` | Developer-only authoring helper; reloads the canonical mountain contour style package from disk, keeps the previous style if validation fails, and reapplies loaded contour chunks with `dirty_reason = "style_reload"`. This is not an interactive mining path and must not become an automatic per-frame file watcher. |
 | `toggle_debug_tile_grid()` | Toggles the developer-only `F6` 64 px grid overlay for loaded chunks |
 | `toggle_debug_mountain_solid_mask()` | Toggles the developer-only `F7` current solid mountain mask overlay for loaded chunks |
 | `toggle_debug_mountain_contour()` | Toggles the developer-only `F10` native contour mesh overlay for loaded chunks; does not bind or use `F8` |

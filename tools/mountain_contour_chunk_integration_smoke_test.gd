@@ -120,7 +120,8 @@ func _assert_missing_required_seam_keeps_degraded_visual(style) -> void:
 	_assert(not bool(snapshot.get("collision_ready", true)), "Missing seam contour runtime must not configure collision cache as ready.")
 	_assert(bool(snapshot.get("missing_cache_blocks", false)), "Missing seam contour cache must stay fail-closed for collision.")
 	_assert(bool(snapshot.get("visual_ready", false)), "Missing seam contour runtime must still publish degraded visual geometry.")
-	_assert(bool(snapshot.get("visual_layer_visible", false)), "Missing seam contour visual layer must remain visible instead of clearing the mountain.")
+	_assert(not bool(snapshot.get("visual_layer_visible", true)), "Missing seam contour visual layer must stay hidden while visual cutover is rejected.")
+	_assert(not bool(snapshot.get("visual_cutover_accepted", true)), "Missing seam contour runtime must report rejected visual cutover.")
 	_assert(int(snapshot.get("total_vertex_count", 0)) > 0, "Missing seam contour visual must contain vertices.")
 	_assert(not (snapshot.get("missing_required_seam_neighbours", []) as Array).is_empty(), "Missing required seam neighbour must remain visible in debug state.")
 	chunk_view.free()
@@ -165,16 +166,7 @@ func _build_runtime_result(world_core: Object, solid_halo: PackedByteArray, styl
 		solid_halo,
 		WorldRuntimeConstants.CHUNK_SIZE,
 		WorldRuntimeConstants.TILE_SIZE_PX,
-		{
-			"south_height_px": style.south_height_px,
-			"side_height_px": style.side_height_px,
-			"corner_round_px": style.corner_round_px,
-			"diagonal_smooth_px": style.diagonal_smooth_px,
-			"contour_warp_px": style.contour_warp_px,
-			"rim_width_px": style.rim_width_px,
-			"mountain_outline_enabled": style.mountain_outline_enabled,
-			"mountain_outline_width_px": style.mountain_outline_width_px,
-		}
+		style.to_runtime_geometry_params()
 	)
 	_assert(result_variant is Dictionary, "build_mountain_contour_runtime() must return Dictionary.")
 	if result_variant is Dictionary:

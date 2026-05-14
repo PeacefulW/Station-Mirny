@@ -72,6 +72,16 @@ func _assert_static_contract() -> void:
 		not contour_source.contains("append_top_tile(top_vertices"),
 		"Runtime top contour must not render one square top quad per solid tile."
 	)
+	_assert(not contour_source.contains("void append_top_tile("), "Runtime visual code must not keep tile-top quad helpers in the production contour file.")
+	_assert(not contour_source.contains("void append_south_face("), "Runtime visual code must not keep south-face tile rectangle helpers in the production contour file.")
+	_assert(not contour_source.contains("void append_south_outline("), "Runtime visual code must not keep south-outline tile rectangle helpers in the production contour file.")
+	_assert(not contour_source.contains("void append_rim_edge("), "Runtime visual code must not keep per-tile rim rectangle helpers in the production contour file.")
+	_assert(contour_source.contains("edge_u"), "Runtime contour attributes must include edge_u.")
+	_assert(contour_source.contains("edge_v"), "Runtime contour attributes must include edge_v.")
+	_assert(contour_source.contains("signed_distance"), "Runtime contour attributes must include signed_distance.")
+	_assert(contour_source.contains("face_depth_px"), "Runtime contour attributes must include face_depth_px.")
+	_assert(contour_source.contains("facade_side"), "Runtime contour attributes must include facade_side.")
+	_assert(contour_source.contains("zone"), "Runtime contour attributes must include zone.")
 	_assert(contour_source.contains("corner_round_px"), "Runtime contour builder must consume corner_round_px from the style package.")
 	_assert(contour_source.contains("diagonal_smooth_px"), "Runtime contour builder must consume diagonal_smooth_px from the style package.")
 	_assert(not contour_source.contains("mask_rgba8"), "Runtime contour result must not allocate per-chunk mask image bytes.")
@@ -97,8 +107,8 @@ func _assert_single_tile_result(world_core: Object) -> void:
 	_assert(int(result.get("solid_sample_count", 0)) == 1, "Single-tile result must count one solid sample.")
 	_assert((result.get("visual_top_vertices", PackedVector2Array()) as PackedVector2Array).size() >= 4, "Single tile must emit top mesh vertices.")
 	_assert(
-		_has_half_tile_contour_vertex(result.get("visual_top_vertices", PackedVector2Array()) as PackedVector2Array),
-		"Single tile runtime top contour must include half-tile vertices instead of only square tile corners."
+		_has_off_tile_grid_contour_vertex(result.get("visual_top_vertices", PackedVector2Array()) as PackedVector2Array),
+		"Single tile runtime top contour must include SDF-interpolated vertices instead of only square tile corners."
 	)
 	_assert((result.get("visual_face_vertices", PackedVector2Array()) as PackedVector2Array).size() >= 4, "Single tile must emit south face mesh vertices.")
 	_assert((result.get("visual_rim_vertices", PackedVector2Array()) as PackedVector2Array).size() >= 4, "Single tile must emit rim mesh vertices.")
@@ -246,7 +256,7 @@ func _set_local_cell(solid_halo: PackedByteArray, local_x: int, local_y: int, va
 func _attributes_match_vertices(result: Dictionary, prefix: String) -> bool:
 	var vertices: PackedVector2Array = result.get("%s_vertices" % [prefix], PackedVector2Array()) as PackedVector2Array
 	var attributes: PackedFloat32Array = result.get("%s_attributes" % [prefix], PackedFloat32Array()) as PackedFloat32Array
-	return attributes.size() == vertices.size() * 6
+	return attributes.size() == vertices.size() * 8
 
 func _collision_loop_count(result: Dictionary) -> int:
 	return (result.get("collision_loops", []) as Array).size()
@@ -260,12 +270,12 @@ func _assert_collision_triangles_match_top_mesh(result: Dictionary, label: Strin
 		"%s collision loops must mirror filled top mesh triangles so chunk-edge openings do not require closed boundary loops." % [label]
 	)
 
-func _has_half_tile_contour_vertex(vertices: PackedVector2Array) -> bool:
+func _has_off_tile_grid_contour_vertex(vertices: PackedVector2Array) -> bool:
 	for vertex: Vector2 in vertices:
 		var mod_x: float = fposmod(vertex.x, float(WorldRuntimeConstants.TILE_SIZE_PX))
 		var mod_y: float = fposmod(vertex.y, float(WorldRuntimeConstants.TILE_SIZE_PX))
-		if is_equal_approx(mod_x, float(WorldRuntimeConstants.TILE_SIZE_PX) * 0.5) \
-				or is_equal_approx(mod_y, float(WorldRuntimeConstants.TILE_SIZE_PX) * 0.5):
+		if not (is_equal_approx(mod_x, 0.0) or is_equal_approx(mod_x, float(WorldRuntimeConstants.TILE_SIZE_PX))) \
+				or not (is_equal_approx(mod_y, 0.0) or is_equal_approx(mod_y, float(WorldRuntimeConstants.TILE_SIZE_PX))):
 			return true
 	return false
 

@@ -69,6 +69,24 @@ PARITY_CASES: dict[str, tuple[str, ...]] = {
         "0000000000000000",
         "0000000000000000",
     ),
+    "large_cave_like_cut": (
+        "0000011100000000",
+        "0000111110000000",
+        "0001111111000000",
+        "0011111111100000",
+        "0111111111110000",
+        "1111111111111000",
+        "1111111111111100",
+        "1111111001111100",
+        "1111110000111100",
+        "1111100000011100",
+        "1111110000111110",
+        "1111111001111110",
+        "0111111111111110",
+        "0011111111111100",
+        "0001111111111000",
+        "0000000000000000",
+    ),
     "thin_diagonal_opening": (
         "0000000000000000",
         "0000000000000000",
@@ -170,7 +188,7 @@ def build_reference_request(case_name: str) -> dict:
         "asset_name": f"parity_{case_name}",
         "export_mode": REFERENCE_EXPORT_MODE,
         "preset": "mountain",
-        "tile_size": 128,
+        "tile_size": 64,
         "south_height": preset["south_height"],
         "north_height": preset["north_height"],
         "side_height": preset["side_height"],
@@ -211,6 +229,7 @@ def build_reference_request(case_name: str) -> dict:
 
 
 def export_references(output_dir: Path, case_names: Iterable[str] | None = None) -> dict:
+    output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     selected_cases = list(case_names) if case_names is not None else list(PARITY_CASES.keys())
     index: dict[str, dict] = {}
