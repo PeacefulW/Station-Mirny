@@ -1019,30 +1019,37 @@ fn build_material_albedo_and_values(
     let width = MATERIAL_EXPORT_SIZE;
     let height = MATERIAL_EXPORT_SIZE;
     let pixel_count = (width as usize) * (height as usize);
+    let row_stride = (width as usize) * 4;
+    let value_stride = width as usize;
     let mut raw = vec![0_u8; pixel_count * 4];
     let mut values = vec![0.0_f32; pixel_count];
 
-    raw.par_chunks_mut(4)
-        .zip(values.par_iter_mut())
+    raw.par_chunks_mut(row_stride)
+        .zip(values.par_chunks_mut(value_stride))
         .enumerate()
-        .for_each(|(i, (pixel, value))| {
-            let x = (i as u32) % width;
-            let y = (i as u32) / width;
-            let base = sample_material_base(
-                material,
-                texture,
-                request.texture_scale,
-                width,
-                x as f32,
-                y as f32,
-                seed,
-            );
-            *value = srgb_luminance_rgb(base.rgb) / 255.0;
-            let color = apply_material_tint(base, tint, request.texture_color_overlay, 1.0);
-            pixel[0] = color[0];
-            pixel[1] = color[1];
-            pixel[2] = color[2];
-            pixel[3] = 255;
+        .for_each(|(y, (row, value_row))| {
+            let yf = y as f32;
+            for (x, (pixel, value_slot)) in row
+                .chunks_exact_mut(4)
+                .zip(value_row.iter_mut())
+                .enumerate()
+            {
+                let base = sample_material_base(
+                    material,
+                    texture,
+                    request.texture_scale,
+                    width,
+                    x as f32,
+                    yf,
+                    seed,
+                );
+                *value_slot = srgb_luminance_rgb(base.rgb) / 255.0;
+                let color = apply_material_tint(base, tint, request.texture_color_overlay, 1.0);
+                pixel[0] = color[0];
+                pixel[1] = color[1];
+                pixel[2] = color[2];
+                pixel[3] = 255;
+            }
         });
 
     let albedo = RgbaImage::from_raw(width, height, raw).expect("buffer size matches dimensions");
@@ -1050,32 +1057,40 @@ fn build_material_albedo_and_values(
 }
 
 fn build_scalar_image(values: &[f32], width: u32, height: u32) -> RgbaImage {
-    let mut raw = vec![0_u8; (width as usize) * (height as usize) * 4];
-    raw.par_chunks_mut(4).enumerate().for_each(|(i, pixel)| {
-        let x = ((i as u32) % width) as i32;
-        let y = ((i as u32) / width) as i32;
-        let value = sample_wrapped_value(values, width, height, x, y);
-        let byte = (clamp(value, 0.0, 1.0) * 255.0).round() as u8;
-        pixel[0] = byte;
-        pixel[1] = byte;
-        pixel[2] = byte;
-        pixel[3] = 255;
-    });
+    let row_stride = (width as usize) * 4;
+    let mut raw = vec![0_u8; row_stride * (height as usize)];
+    raw.par_chunks_mut(row_stride)
+        .enumerate()
+        .for_each(|(y, row)| {
+            let yi = y as i32;
+            for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
+                let value = sample_wrapped_value(values, width, height, x as i32, yi);
+                let byte = (clamp(value, 0.0, 1.0) * 255.0).round() as u8;
+                pixel[0] = byte;
+                pixel[1] = byte;
+                pixel[2] = byte;
+                pixel[3] = 255;
+            }
+        });
     RgbaImage::from_raw(width, height, raw).expect("buffer size matches dimensions")
 }
 
 fn build_wrapped_normal_image(values: &[f32], width: u32, height: u32, strength: f32) -> RgbaImage {
-    let mut raw = vec![0_u8; (width as usize) * (height as usize) * 4];
-    raw.par_chunks_mut(4).enumerate().for_each(|(i, pixel)| {
-        let xi = ((i as u32) % width) as i32;
-        let yi = ((i as u32) / width) as i32;
-        let (dx, dy) = sobel_gradient_wrapped(values, width, height, xi, yi);
-        let encoded = encode_normal_from_gradient(dx, dy, strength);
-        pixel[0] = encoded[0];
-        pixel[1] = encoded[1];
-        pixel[2] = encoded[2];
-        pixel[3] = 255;
-    });
+    let row_stride = (width as usize) * 4;
+    let mut raw = vec![0_u8; row_stride * (height as usize)];
+    raw.par_chunks_mut(row_stride)
+        .enumerate()
+        .for_each(|(y, row)| {
+            let yi = y as i32;
+            for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
+                let (dx, dy) = sobel_gradient_wrapped(values, width, height, x as i32, yi);
+                let encoded = encode_normal_from_gradient(dx, dy, strength);
+                pixel[0] = encoded[0];
+                pixel[1] = encoded[1];
+                pixel[2] = encoded[2];
+                pixel[3] = 255;
+            }
+        });
     RgbaImage::from_raw(width, height, raw).expect("buffer size matches dimensions")
 }
 
@@ -1876,20 +1891,43 @@ fn apply_mountain_bottom_outline_from_source(
     }
 
     let width = request.mountain_outline_width.min(size).max(1);
-    let source_albedo = albedo.clone();
     let outline = [4_u8, 4_u8, 4_u8];
-    for y in 0..size {
-        for x in 0..size {
-            let strength = bottom_outline_strength(source, x as i32, y as i32, width);
-            if strength <= 0.0 {
-                continue;
+    let row_stride = (size as usize) * 4;
+    let albedo_raw = albedo.as_mut();
+    let mask_raw = mask.as_mut();
+
+    albedo_raw
+        .par_chunks_mut(row_stride)
+        .zip(mask_raw.par_chunks_mut(row_stride))
+        .enumerate()
+        .for_each(|(y, (albedo_row, mask_row))| {
+            for x in 0..size as usize {
+                let strength = bottom_outline_strength(source, x as i32, y as i32, width);
+                if strength <= 0.0 {
+                    continue;
+                }
+                let offset = x * 4;
+                let original_r = albedo_row[offset];
+                let original_g = albedo_row[offset + 1];
+                let original_b = albedo_row[offset + 2];
+                let original_a = albedo_row[offset + 3];
+                let mixed = mix_color(
+                    [original_r, original_g, original_b],
+                    outline,
+                    strength,
+                );
+                albedo_row[offset] = mixed[0];
+                albedo_row[offset + 1] = mixed[1];
+                albedo_row[offset + 2] = mixed[2];
+                albedo_row[offset + 3] = original_a;
+
+                let coverage = (strength.clamp(0.0, 1.0) * 255.0).round() as u8;
+                mask_row[offset] = 0;
+                mask_row[offset + 1] = mask_row[offset + 1].max(coverage);
+                mask_row[offset + 2] = 0;
+                mask_row[offset + 3] = mask_row[offset + 3].max(coverage);
             }
-            let original = source_albedo.get_pixel(x, y).0;
-            let mixed = mix_color([original[0], original[1], original[2]], outline, strength);
-            albedo.put_pixel(x, y, Rgba([mixed[0], mixed[1], mixed[2], original[3]]));
-            apply_outline_mask_coverage(mask, x, y, strength);
-        }
-    }
+        });
 }
 
 struct OutlineMaskSource<'a> {
@@ -1941,16 +1979,6 @@ fn bottom_outline_strength(source: &OutlineMaskSource<'_>, x: i32, y: i32, width
     0.0
 }
 
-fn apply_outline_mask_coverage(mask: &mut RgbaImage, x: u32, y: u32, strength: f32) {
-    let coverage = (strength.clamp(0.0, 1.0) * 255.0).round() as u8;
-    let mut current = mask.get_pixel(x, y).0;
-    current[0] = 0;
-    current[1] = current[1].max(coverage);
-    current[2] = 0;
-    current[3] = current[3].max(coverage);
-    mask.put_pixel(x, y, Rgba(current));
-}
-
 fn is_bottom_outline_face_pixel(mask: [u8; 4]) -> bool {
     mask[1] > 0 && mask[2] == 0 && mask[3] > 0
 }
@@ -1963,18 +1991,20 @@ fn distance_to_empty_below(
 ) -> Option<f32> {
     let mut nearest = None;
     let radius = width as i32;
+    let width_sq = (width as i32) * (width as i32);
     for dy in 1..=radius {
         let sample_y = y + dy;
         for dx in -radius..=radius {
-            let sample_x = x + dx;
-            let distance = ((dx * dx + dy * dy) as f32).sqrt();
-            if distance > width as f32 {
+            let dist_sq = dx * dx + dy * dy;
+            if dist_sq > width_sq {
                 continue;
             }
+            let sample_x = x + dx;
             let Some(mask) = source.mask_at(sample_x, sample_y) else {
                 continue;
             };
             if mask[3] == 0 {
+                let distance = (dist_sq as f32).sqrt();
                 nearest = Some(nearest.map_or(distance, |current: f32| current.min(distance)));
             }
         }
@@ -1992,13 +2022,15 @@ fn distance_to_face_above(
     let radius = width as i32;
     for dy in 1..=radius {
         let sample_y = y - dy;
+        let width_sq = (width as i32) * (width as i32);
         for dx in -radius..=radius {
-            let sample_x = x + dx;
-            let distance = ((dx * dx + dy * dy) as f32).sqrt();
-            if distance > width as f32 {
+            let dist_sq = dx * dx + dy * dy;
+            if dist_sq > width_sq {
                 continue;
             }
+            let sample_x = x + dx;
             if is_bottom_contact_face_pixel(source, sample_x, sample_y) {
+                let distance = (dist_sq as f32).sqrt();
                 nearest = Some(nearest.map_or(distance, |current: f32| current.min(distance)));
             }
         }
@@ -2754,19 +2786,21 @@ impl GlobalSdfDistanceCache {
         let origin_x = region_origin_x as i32 - padding;
         let origin_y = region_origin_y as i32 - padding;
         let mut values = vec![0.0_f32; (width * height) as usize];
+        let row_len = width as usize;
         values
-            .par_iter_mut()
+            .par_chunks_mut(row_len)
             .enumerate()
-            .for_each(|(index, value)| {
-                let x = (index as u32) % width;
-                let y = (index as u32) / width;
-                *value = controlled_sdf_distance_px(
-                    request,
-                    sdf,
-                    seed,
-                    (origin_x + x as i32) as f32,
-                    (origin_y + y as i32) as f32,
-                );
+            .for_each(|(y_idx, row)| {
+                let world_y = (origin_y + y_idx as i32) as f32;
+                for (x_idx, value) in row.iter_mut().enumerate() {
+                    *value = controlled_sdf_distance_px(
+                        request,
+                        sdf,
+                        seed,
+                        (origin_x + x_idx as i32) as f32,
+                        world_y,
+                    );
+                }
             });
         Self {
             origin_x,
@@ -2861,17 +2895,19 @@ impl GlobalRenderHeightCache {
         let origin_x = region_origin_x as i32 - padding;
         let origin_y = region_origin_y as i32 - padding;
         let mut values = vec![0.0_f32; (width * height) as usize];
+        let row_len = width as usize;
         values
-            .par_iter_mut()
+            .par_chunks_mut(row_len)
             .enumerate()
-            .for_each(|(index, value)| {
-                let x = (index as u32) % width;
-                let y = (index as u32) / width;
-                *value = sample_global_render_height_with_sampler(
-                    sampler,
-                    (origin_x + x as i32) as f32,
-                    (origin_y + y as i32) as f32,
-                );
+            .for_each(|(y_idx, row)| {
+                let world_y = (origin_y + y_idx as i32) as f32;
+                for (x_idx, value) in row.iter_mut().enumerate() {
+                    *value = sample_global_render_height_with_sampler(
+                        sampler,
+                        (origin_x + x_idx as i32) as f32,
+                        world_y,
+                    );
+                }
             });
         Self {
             origin_x,
@@ -3718,8 +3754,39 @@ fn back_height_for_progress(request: &AppRequest, progress: f32) -> f32 {
     1.0 - progress * request.back_drop
 }
 
+const FACE_POWER_LUT_SIZE: usize = 1024;
+
+thread_local! {
+    static FACE_POWER_LUT_CACHE: std::cell::RefCell<Option<(f32, [f32; FACE_POWER_LUT_SIZE])>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 fn face_height_for_progress(request: &AppRequest, progress: f32) -> f32 {
-    (1.0 - progress).powf(request.face_power)
+    let face_power = request.face_power;
+    let clamped = progress.clamp(0.0, 1.0);
+    FACE_POWER_LUT_CACHE.with(|cell| {
+        let mut cached = cell.borrow_mut();
+        let needs_rebuild = cached
+            .as_ref()
+            .map_or(true, |(p, _)| (*p - face_power).abs() > 1.0e-6);
+        if needs_rebuild {
+            let mut table = [0.0_f32; FACE_POWER_LUT_SIZE];
+            let last = (FACE_POWER_LUT_SIZE - 1) as f32;
+            for (i, slot) in table.iter_mut().enumerate() {
+                let p = i as f32 / last;
+                *slot = (1.0 - p).powf(face_power);
+            }
+            *cached = Some((face_power, table));
+        }
+        let table = &cached.as_ref().unwrap().1;
+        let scaled = clamped * (FACE_POWER_LUT_SIZE - 1) as f32;
+        let lo = scaled.floor() as usize;
+        let hi = (lo + 1).min(FACE_POWER_LUT_SIZE - 1);
+        let frac = scaled - lo as f32;
+        let a = table[lo];
+        let b = table[hi];
+        a + (b - a) * frac
+    })
 }
 
 fn rounded_inner_notch_progress(

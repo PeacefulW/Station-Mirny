@@ -378,13 +378,32 @@ class AppPayloadTests(unittest.TestCase):
 
     def test_panel_scale_release_defaults_to_draft_preview(self):
         instance = object.__new__(app.CliffForgeApp)
+        instance.draft_after_id = None
         calls = []
-        instance.schedule_draft = lambda: calls.append("draft")
-        instance.schedule_full = lambda: calls.append("full")
+        instance.request_render = lambda mode: calls.append(mode)
 
         instance._on_panel_scale_release()
 
         self.assertEqual(calls, ["draft"])
+
+    def test_panel_scale_release_fires_draft_immediately_cancelling_pending_debounce(self):
+        instance = object.__new__(app.CliffForgeApp)
+        cancelled: list[str] = []
+
+        class _RootStub:
+            def after_cancel(self, after_id: str) -> None:
+                cancelled.append(after_id)
+
+        instance.root = _RootStub()
+        instance.draft_after_id = "after#9001"
+        rendered: list[str] = []
+        instance.request_render = lambda mode: rendered.append(mode)
+
+        instance._on_panel_scale_release()
+
+        self.assertEqual(cancelled, ["after#9001"])
+        self.assertIsNone(instance.draft_after_id)
+        self.assertEqual(rendered, ["draft"])
 
     def test_map_release_schedules_draft_preview(self):
         instance = object.__new__(app.CliffForgeApp)

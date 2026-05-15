@@ -446,6 +446,9 @@ class CliffForgeApp:
         self.atlas_drag_last: tuple[int, int] | None = None
         self.atlas_render_size: tuple[int, int] | None = None
         self.atlas_configure_after_id: str | None = None
+        self.map_cell_items: list[int] = []
+        self.map_cell_grid_shape: tuple[int, int, int] | None = None
+        self.map_cell_fill_state: list[str] = []
         self.corner_limited_scales: list[tuple[tk.Variable, tk.Scale]] = []
         self.height_limited_scales: list[tuple[tk.Variable, tk.Scale]] = []
         self.rim_width_scale: tk.Scale | None = None
@@ -1481,7 +1484,10 @@ class CliffForgeApp:
         self.schedule_draft()
 
     def _on_panel_scale_release(self) -> None:
-        self.schedule_draft()
+        if self.draft_after_id:
+            self.root.after_cancel(self.draft_after_id)
+            self.draft_after_id = None
+        self.request_render("draft")
 
     # ─── Map editor ──────────────────────────────────────────────────────
 
@@ -1636,7 +1642,6 @@ class CliffForgeApp:
         self.schedule_full()
 
     def _draw_map(self) -> None:
-        self.map_canvas.delete("all")
         cs = self._cell_size()
         w = self.current_map["width"]
         h = self.current_map["height"]
@@ -1644,17 +1649,38 @@ class CliffForgeApp:
         new_canvas_h = max(180, h * cs)
         if int(self.map_canvas["width"]) != new_canvas_w or int(self.map_canvas["height"]) != new_canvas_h:
             self.map_canvas.configure(width=new_canvas_w, height=new_canvas_h)
-        for y in range(h):
-            for x in range(w):
-                index = y * w + x
-                filled = self.current_map["cells"][index] > 0
-                left = x * cs
+
+        fill_full = THEME["map_fill"]
+        fill_empty = THEME["map_empty"]
+        cells = self.current_map["cells"]
+        shape = (w, h, cs)
+
+        if self.map_cell_grid_shape != shape or len(self.map_cell_items) != w * h:
+            self.map_canvas.delete("all")
+            outline_color = THEME["map_grid"]
+            self.map_cell_items = [0] * (w * h)
+            self.map_cell_fill_state = [""] * (w * h)
+            for y in range(h):
                 top = y * cs
-                self.map_canvas.create_rectangle(
-                    left, top, left + cs, top + cs,
-                    fill=THEME["map_fill"] if filled else THEME["map_empty"],
-                    outline=THEME["map_grid"],
-                )
+                row_offset = y * w
+                for x in range(w):
+                    left = x * cs
+                    fill = fill_full if cells[row_offset + x] > 0 else fill_empty
+                    item_id = self.map_canvas.create_rectangle(
+                        left, top, left + cs, top + cs,
+                        fill=fill,
+                        outline=outline_color,
+                    )
+                    self.map_cell_items[row_offset + x] = item_id
+                    self.map_cell_fill_state[row_offset + x] = fill
+            self.map_cell_grid_shape = shape
+            return
+
+        for index, (cell, item_id) in enumerate(zip(cells, self.map_cell_items)):
+            fill = fill_full if cell > 0 else fill_empty
+            if self.map_cell_fill_state[index] != fill:
+                self.map_canvas.itemconfigure(item_id, fill=fill)
+                self.map_cell_fill_state[index] = fill
 
     # ─── Map presets ─────────────────────────────────────────────────────
 
@@ -2079,7 +2105,13 @@ class CliffForgeApp:
         final_output_dir: Path | None = None
         output_dir = SESSION_OUTPUT_DIR
         if mode in {"full", "decals", "silhouettes"} and self.export_target_dir:
-            if not self._confirm_overwrite_if_needed(self.export_target_dir, request["asset_name"]):
+            overwrite_mode_key = {
+                "decals": DECAL_EXPORT_MODE,
+                "silhouettes": SILHOUETTE_EXPORT_MODE,
+            }.get(mode, request.get("export_mode", FULL16_EXPORT_MODE))
+            if not self._confirm_overwrite_if_needed(
+                self.export_target_dir, request["asset_name"], overwrite_mode_key
+            ):
                 self._set_status("Экспорт отменён.")
                 return
             final_output_dir = self.export_target_dir
@@ -2414,12 +2446,14 @@ class CliffForgeApp:
     def _schedule_preview_canvas_render(self) -> None:
         if self.preview_configure_after_id:
             self.root.after_cancel(self.preview_configure_after_id)
-        self.preview_configure_after_id = self.root.after_idle(self._render_preview_canvas)
+        # Debounce window-resize storms: a 60ms timer collapses many <Configure>
+        # events into a single LANCZOS resize. after_idle would fire per event.
+        self.preview_configure_after_id = self.root.after(60, self._render_preview_canvas)
 
     def _schedule_atlas_canvas_render(self) -> None:
         if self.atlas_configure_after_id:
             self.root.after_cancel(self.atlas_configure_after_id)
-        self.atlas_configure_after_id = self.root.after_idle(self._render_atlas_canvas)
+        self.atlas_configure_after_id = self.root.after(60, self._render_atlas_canvas)
 
     def _zoom_event(self, event: tk.Event, current_zoom: float) -> float:
         delta = getattr(event, "delta", 0)
@@ -2750,10 +2784,16 @@ class CliffForgeApp:
         self.export_target_dir = None
         self.export_target_var.set("(рабочая папка сессии)")
 
-    def _confirm_overwrite_if_needed(self, export_dir: Path, asset_name: str) -> bool:
+    def _confirm_overwrite_if_needed(
+        self,
+        export_dir: Path,
+        asset_name: str,
+        export_mode: str = FULL16_EXPORT_MODE,
+    ) -> bool:
         if self.suppress_overwrite_prompt:
             return True
-        existing = sorted(path.name for path in export_dir.glob(f"{asset_name}_*") if path.is_file())
+        expected = expected_export_file_names(asset_name, export_mode)
+        existing = sorted(name for name in expected if (export_dir / name).is_file())
         if not existing:
             return True
         return self._show_overwrite_dialog(export_dir, existing)
