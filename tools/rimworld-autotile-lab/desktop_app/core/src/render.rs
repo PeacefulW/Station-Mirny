@@ -19,7 +19,6 @@ use crate::noise::{clamp, fbm_tiled, hash2d, lerp};
 use crate::sdf::MapSdf;
 use crate::signature::{Signature, canonical_signatures};
 
-const ATLAS_COLUMNS: u32 = 8;
 const MATERIAL_EXPORT_SIZE: u32 = 1024;
 const RUNTIME_SDF_GAME_TILE_SIZE: u32 = 64;
 const RECIPE_VERSION: u32 = 7;
@@ -782,8 +781,9 @@ fn build_full_atlases(
     let tile_size = request.tile_size;
     let signature_count = signatures.len() as u32;
     let total = signature_count * request.variants;
-    let rows = total.div_ceil(ATLAS_COLUMNS);
-    let width = ATLAS_COLUMNS * tile_size;
+    let columns = marching_atlas_columns(signatures);
+    let rows = total.div_ceil(columns);
+    let width = columns * tile_size;
     let height = rows * tile_size;
 
     let tiles: Vec<(u32, TileBuffers)> = (0..total)
@@ -803,8 +803,8 @@ fn build_full_atlases(
     let mut normal = RgbaImage::new(width, height);
 
     for (atlas_index, tile) in tiles {
-        let col = atlas_index % ATLAS_COLUMNS;
-        let row = atlas_index / ATLAS_COLUMNS;
+        let col = atlas_index % columns;
+        let row = atlas_index / columns;
         let dx = col * tile_size;
         let dy = row * tile_size;
         blit_exact(&mut albedo, &tile.albedo, dx, dy);
@@ -883,8 +883,9 @@ fn build_mask_atlas(request: &AppRequest, signatures: &[Signature]) -> RgbaImage
     let tile_size = request.tile_size;
     let signature_count = signatures.len() as u32;
     let total = signature_count * request.variants;
-    let rows = total.div_ceil(ATLAS_COLUMNS);
-    let width = ATLAS_COLUMNS * tile_size;
+    let columns = marching_atlas_columns(signatures);
+    let rows = total.div_ceil(columns);
+    let width = columns * tile_size;
     let height = rows * tile_size;
 
     let tiles: Vec<(u32, RgbaImage)> = (0..total)
@@ -900,11 +901,15 @@ fn build_mask_atlas(request: &AppRequest, signatures: &[Signature]) -> RgbaImage
 
     let mut atlas = RgbaImage::new(width, height);
     for (atlas_index, tile) in tiles {
-        let col = atlas_index % ATLAS_COLUMNS;
-        let row = atlas_index / ATLAS_COLUMNS;
+        let col = atlas_index % columns;
+        let row = atlas_index / columns;
         blit_exact(&mut atlas, &tile, col * tile_size, row * tile_size);
     }
     atlas
+}
+
+fn marching_atlas_columns(signatures: &[Signature]) -> u32 {
+    (signatures.len() as u32).max(1)
 }
 
 fn render_mask_tile(
@@ -3270,6 +3275,12 @@ fn sample_height(
             };
             return (clamp(height, 0.0, 1.0), contour.zone);
         }
+
+        let edge_width = preview_edge_width_px(request);
+        if edge_width > 0.0 && contour.signed_distance <= edge_width {
+            let progress = (contour.signed_distance / edge_width.max(1.0)).clamp(0.0, 1.0);
+            return (edge_height_for_progress(progress), SurfaceZone::Edge);
+        }
     }
 
     let notch_side = side_depth.max(2.0);
@@ -4538,8 +4549,8 @@ mod tests {
     }
 
     #[test]
-    fn full16_default_export_writes_1k_shape_atlases() {
-        let output_dir = test_output_dir("full16_default_1k_shape_atlas");
+    fn full16_default_export_writes_one_variant_per_16_case_row() {
+        let output_dir = test_output_dir("full16_default_16_case_rows");
         let mut request = default_request().sanitized();
         request.asset_name = "quality_probe".to_string();
 
@@ -4558,7 +4569,7 @@ mod tests {
             let image = image::open(path)
                 .expect("shape atlas should be readable")
                 .to_rgba8();
-            assert_eq!(image.dimensions(), (1024, 1536));
+            assert_eq!(image.dimensions(), (128 * 16, 128 * 6));
         }
     }
 
@@ -5065,6 +5076,30 @@ mod tests {
             hard_zone_color_on_partial_channel_pixels(&tile),
             0,
             "local atlas albedo must blend supersampled zone coverage instead of leaving hard top/face/base colors on partial pixels"
+        );
+    }
+
+    #[test]
+    fn local_atlas_mask_marks_visible_edge_band_on_the_top_lip() {
+        let mut request = flat_preview_request();
+        request.rim_width = 8;
+        request.edge_debris = 0.0;
+        request.shape_supersampling = 1;
+        let request = request.sanitized();
+        let signature = Signature::from_marching_mask(0b0001);
+
+        let mask = render_mask_tile(&request, &signature, 0, 0, 0);
+        let edge_pixels = mask
+            .pixels()
+            .filter(|pixel| {
+                let [top, face, back, alpha] = pixel.0;
+                top > 0 && face > 0 && back == 0 && alpha > 0
+            })
+            .count();
+
+        assert!(
+            edge_pixels > 0,
+            "local atlas mask should encode the visible rim/edge band as overlapping top+face coverage"
         );
     }
 
@@ -6437,6 +6472,10 @@ mod tests {
             .expect("mask-only mode should write mask atlas");
 
         assert!(Path::new(mask_path).exists());
+        let mask = image::open(mask_path)
+            .expect("mask-only atlas should be readable")
+            .to_rgba8();
+        assert_eq!(mask.dimensions(), (32 * 16, 32 * 6));
         assert!(manifest.files.atlas_albedo_png.is_none());
         assert!(manifest.files.top_albedo_png.is_none());
         assert!(!output_dir.join("plains_ground_atlas_albedo.png").exists());

@@ -58,15 +58,15 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
 - dynamic-lighting-ready normals: shape normals use a 3x3 height blur plus Sobel gradients, with `normal_strength` defaulting to `tile_size / 32.0`; live SDF preview normals sample map-space height across tile boundaries, and `normal_detail_strength` adds extra height relief for more readable dynamic lighting
 - optional lit preview mode (`lit`) visualizes the exported normal/height response inside the generator only; exported albedo remains unlit for the game's dynamic lighting, and the shell exposes a light-angle slider for inspecting normal response
 - shape supersampling: `shape_supersampling` anti-aliases curved mask/height/normal edges and blends partial live-preview albedo coverage against the base material; current quality presets default to `4`
-- high-resolution authoring: the default terrain tile size is `128 px`, which produces `1024 px`-wide `Full16` marching-squares atlases, and standalone material/procedural texture exports are authored at `1024 x 1024`
+- high-resolution authoring: the default terrain tile size is `128 px`, which produces `2048 px`-wide `Full16` marching-squares atlases with all 16 cases on each variant row, and standalone material/procedural texture exports are authored at `1024 x 1024`
 - optional baked height shading in albedo, disabled by default for dynamic lighting
 - optional color overlay for loaded texture files, disabled by default
 - named export workflow: `asset_name` must be `snake_case` and prefixes every PNG and recipe export
 - optional target export folder in the shell; when set, Full Generate writes directly to that folder and asks before overwriting matching `asset_name` files
 - export modes:
-  - `Full16`: full `16 x N` marching-squares shape/material export plus the game-ready runtime SDF recipe; the old `Full47` serialized key is accepted only as a legacy alias for older UI state and recipes
+  - `Full16`: full `16 x N` marching-squares shape/material export, laid out as 16 case columns by N variant rows, plus the game-ready runtime SDF recipe; the old `Full47` serialized key is accepted only as a legacy alias for older UI state and recipes
   - `BaseVariantsOnly`: `1 x N` full-tile base material atlas for transition-overlay base passes
-  - `MaskOnly`: shared `16 x N` marching-squares mask atlas without albedo/material exports
+  - `MaskOnly`: shared `16 x N` marching-squares mask atlas, laid out as 16 case columns by N variant rows, without albedo/material exports
   - `RuntimeSdfContour`: target game contour export; writes a runtime SDF recipe plus reference mask/height/normal/albedo images from the same global SDF map-preview path used by the live preview
 - Decals tab for the terrain decal layer authoring pass:
   - `4 x 4` mixed-size atlas with `16`, `32`, `64`, and `128` px decal cells centered inside the selected max cell size
@@ -100,8 +100,9 @@ tools\rimworld-autotile-lab\desktop_app\run_desktop_tool.cmd
   Use `RuntimeSdfContour` when reference mask/height/normal/albedo PNGs are
   needed for parity/debug exports. `MaskOnly` remains a legacy atlas-only
   export. Their mask RGB channels preserve supersampled coverage rather than
-  quantizing contour edges to binary zone colors, and the optional mountain
-  bottom outline writes face/alpha mask coverage so the outline is exported.
+  quantizing contour edges to binary zone colors; the visible rim/edge band is
+  encoded as overlapping top+face coverage, and the optional mountain bottom
+  outline writes face/alpha mask coverage so the outline is exported.
   `RuntimeSdfContour` is the target game export path and uses the global SDF
   map-preview path for its reference images; runtime contour presentation does
   not consume legacy `{asset_name}_atlas_*.png` files.
