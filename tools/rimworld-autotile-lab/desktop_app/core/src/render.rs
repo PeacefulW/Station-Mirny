@@ -4282,6 +4282,368 @@ mod tests {
                 .all(|(left_pixel, right_pixel)| left_pixel.0 == right_pixel.0)
     }
 
+    fn pixel_mismatch_count(left: &RgbaImage, right: &RgbaImage) -> usize {
+        assert_eq!(left.dimensions(), right.dimensions());
+        left.pixels()
+            .zip(right.pixels())
+            .filter(|(left_pixel, right_pixel)| left_pixel.0 != right_pixel.0)
+            .count()
+    }
+
+    fn pixel_diff_image(left: &RgbaImage, right: &RgbaImage) -> RgbaImage {
+        assert_eq!(left.dimensions(), right.dimensions());
+        let mut diff = RgbaImage::new(left.width(), left.height());
+        for y in 0..left.height() {
+            for x in 0..left.width() {
+                let left_pixel = left.get_pixel(x, y).0;
+                let right_pixel = right.get_pixel(x, y).0;
+                if left_pixel == right_pixel {
+                    diff.put_pixel(x, y, Rgba([0, 0, 0, 0]));
+                } else {
+                    let delta = left_pixel
+                        .iter()
+                        .zip(right_pixel.iter())
+                        .map(|(left_channel, right_channel)| left_channel.abs_diff(*right_channel))
+                        .max()
+                        .unwrap_or(0);
+                    diff.put_pixel(x, y, Rgba([255, delta.max(64), 255, 255]));
+                }
+            }
+        }
+        diff
+    }
+
+    fn map_from_rows(rows: &[&str]) -> MapData {
+        let width = rows.first().expect("map needs at least one row").len() as u32;
+        MapData {
+            width,
+            height: rows.len() as u32,
+            cells: rows
+                .iter()
+                .flat_map(|row| {
+                    assert_eq!(row.len() as u32, width);
+                    row.bytes().map(|cell| u8::from(cell == b'1'))
+                })
+                .collect(),
+        }
+    }
+
+    fn dual_grid_case_at(map: &MapData, vertex_x: u32, vertex_y: u32) -> u8 {
+        let cell = |x: i32, y: i32| -> bool {
+            if x < 0 || y < 0 || x >= map.width as i32 || y >= map.height as i32 {
+                return false;
+            }
+            map.cells[(y as u32 * map.width + x as u32) as usize] > 0
+        };
+        let vx = vertex_x as i32;
+        let vy = vertex_y as i32;
+        u8::from(cell(vx - 1, vy - 1))
+            | (u8::from(cell(vx, vy - 1)) << 1)
+            | (u8::from(cell(vx, vy)) << 2)
+            | (u8::from(cell(vx - 1, vy)) << 3)
+    }
+
+    fn atlas_case_tile(
+        atlas: &RgbaImage,
+        request: &AppRequest,
+        case: u8,
+        variant: u32,
+    ) -> RgbaImage {
+        let tile_size = request.tile_size;
+        let x = case as u32 * tile_size;
+        let y = variant * tile_size;
+        image::imageops::crop_imm(atlas, x, y, tile_size, tile_size).to_image()
+    }
+
+    fn render_dual_grid_direct_mask(
+        request: &AppRequest,
+        map: &MapData,
+        variant: u32,
+    ) -> RgbaImage {
+        let tile_size = request.tile_size;
+        let mut image = RgbaImage::new((map.width + 1) * tile_size, (map.height + 1) * tile_size);
+        for vertex_y in 0..=map.height {
+            for vertex_x in 0..=map.width {
+                let case = dual_grid_case_at(map, vertex_x, vertex_y);
+                let signature = Signature::from_marching_mask(case);
+                let tile = render_mask_tile(request, &signature, variant, 0, 0);
+                blit_exact(
+                    &mut image,
+                    &tile,
+                    vertex_x * tile_size,
+                    vertex_y * tile_size,
+                );
+            }
+        }
+        image
+    }
+
+    fn render_dual_grid_atlas_mask(request: &AppRequest, map: &MapData, variant: u32) -> RgbaImage {
+        let tile_size = request.tile_size;
+        let signatures = canonical_signatures();
+        let atlas = build_mask_atlas(request, &signatures);
+        let mut image = RgbaImage::new((map.width + 1) * tile_size, (map.height + 1) * tile_size);
+        for vertex_y in 0..=map.height {
+            for vertex_x in 0..=map.width {
+                let case = dual_grid_case_at(map, vertex_x, vertex_y);
+                let tile = atlas_case_tile(&atlas, request, case, variant);
+                blit_exact(
+                    &mut image,
+                    &tile,
+                    vertex_x * tile_size,
+                    vertex_y * tile_size,
+                );
+            }
+        }
+        image
+    }
+
+    fn render_sdf_case_tile_with_textures(
+        request: &AppRequest,
+        textures: &TextureSet,
+        case: u8,
+        variant: u32,
+    ) -> TileBuffers {
+        let case_map = MapData {
+            width: 2,
+            height: 2,
+            cells: vec![
+                u8::from(case & 0b0001 != 0),
+                u8::from(case & 0b0010 != 0),
+                u8::from(case & 0b1000 != 0),
+                u8::from(case & 0b0100 != 0),
+            ],
+        };
+        let sdf = MapSdf::compute_with_padding(&case_map, map_sdf_padding_for_request(request));
+        render_tile_with_sdf(request, textures, &sdf, variant, 0, 0)
+    }
+
+    fn render_sdf_case_mask_tile(request: &AppRequest, case: u8, variant: u32) -> RgbaImage {
+        render_sdf_case_tile_with_textures(request, &TextureSet::default(), case, variant).mask
+    }
+
+    fn render_sdf_case_albedo_tile(
+        request: &AppRequest,
+        textures: &TextureSet,
+        case: u8,
+        variant: u32,
+    ) -> RgbaImage {
+        render_sdf_case_tile_with_textures(request, textures, case, variant).albedo
+    }
+
+    fn crop_dual_grid_to_map_bounds(
+        image: &RgbaImage,
+        request: &AppRequest,
+        map: &MapData,
+    ) -> RgbaImage {
+        let offset = request.tile_size;
+        image::imageops::crop_imm(
+            image,
+            offset,
+            offset,
+            map.width * request.tile_size,
+            map.height * request.tile_size,
+        )
+        .to_image()
+    }
+
+    fn render_cropped_dual_grid_atlas_mask(
+        request: &AppRequest,
+        map: &MapData,
+        variant: u32,
+    ) -> RgbaImage {
+        crop_dual_grid_to_map_bounds(
+            &render_dual_grid_atlas_mask(request, map, variant),
+            request,
+            map,
+        )
+    }
+
+    fn render_dual_grid_sdf_case_mask(
+        request: &AppRequest,
+        map: &MapData,
+        variant: u32,
+    ) -> RgbaImage {
+        let tile_size = request.tile_size;
+        let mut image = RgbaImage::new((map.width + 1) * tile_size, (map.height + 1) * tile_size);
+        for vertex_y in 0..=map.height {
+            for vertex_x in 0..=map.width {
+                let case = dual_grid_case_at(map, vertex_x, vertex_y);
+                let tile = render_sdf_case_mask_tile(request, case, variant);
+                blit_exact(
+                    &mut image,
+                    &tile,
+                    vertex_x * tile_size,
+                    vertex_y * tile_size,
+                );
+            }
+        }
+        crop_dual_grid_to_map_bounds(&image, request, map)
+    }
+
+    fn render_dual_grid_direct_albedo(
+        request: &AppRequest,
+        textures: &TextureSet,
+        map: &MapData,
+        variant: u32,
+    ) -> RgbaImage {
+        let tile_size = request.tile_size;
+        let mut image = RgbaImage::new((map.width + 1) * tile_size, (map.height + 1) * tile_size);
+        for vertex_y in 0..=map.height {
+            for vertex_x in 0..=map.width {
+                let case = dual_grid_case_at(map, vertex_x, vertex_y);
+                let signature = Signature::from_marching_mask(case);
+                let tile = render_tile(request, textures, &signature, variant, 0, 0);
+                blit_exact(
+                    &mut image,
+                    &tile.albedo,
+                    vertex_x * tile_size,
+                    vertex_y * tile_size,
+                );
+            }
+        }
+        image
+    }
+
+    fn render_dual_grid_atlas_albedo(
+        request: &AppRequest,
+        textures: &TextureSet,
+        map: &MapData,
+        variant: u32,
+    ) -> RgbaImage {
+        let tile_size = request.tile_size;
+        let signatures = canonical_signatures();
+        let atlas = build_full_atlases(request, textures, &signatures);
+        let mut image = RgbaImage::new((map.width + 1) * tile_size, (map.height + 1) * tile_size);
+        for vertex_y in 0..=map.height {
+            for vertex_x in 0..=map.width {
+                let case = dual_grid_case_at(map, vertex_x, vertex_y);
+                let tile = atlas_case_tile(&atlas.albedo, request, case, variant);
+                blit_exact(
+                    &mut image,
+                    &tile,
+                    vertex_x * tile_size,
+                    vertex_y * tile_size,
+                );
+            }
+        }
+        image
+    }
+
+    fn render_cropped_dual_grid_atlas_albedo(
+        request: &AppRequest,
+        textures: &TextureSet,
+        map: &MapData,
+        variant: u32,
+    ) -> RgbaImage {
+        crop_dual_grid_to_map_bounds(
+            &render_dual_grid_atlas_albedo(request, textures, map, variant),
+            request,
+            map,
+        )
+    }
+
+    fn render_dual_grid_sdf_case_albedo(
+        request: &AppRequest,
+        textures: &TextureSet,
+        map: &MapData,
+        variant: u32,
+    ) -> RgbaImage {
+        let tile_size = request.tile_size;
+        let mut image = RgbaImage::new((map.width + 1) * tile_size, (map.height + 1) * tile_size);
+        for vertex_y in 0..=map.height {
+            for vertex_x in 0..=map.width {
+                let case = dual_grid_case_at(map, vertex_x, vertex_y);
+                let tile = render_sdf_case_albedo_tile(request, textures, case, variant);
+                blit_exact(
+                    &mut image,
+                    &tile,
+                    vertex_x * tile_size,
+                    vertex_y * tile_size,
+                );
+            }
+        }
+        crop_dual_grid_to_map_bounds(&image, request, map)
+    }
+
+    fn maybe_write_dual_grid_compare_artifacts(
+        name: &str,
+        direct_mask: &RgbaImage,
+        atlas_mask: &RgbaImage,
+        direct_albedo: &RgbaImage,
+        atlas_albedo: &RgbaImage,
+    ) {
+        let Ok(output_dir) = std::env::var("CLIFF_FORGE_WRITE_DUAL_GRID_COMPARE") else {
+            return;
+        };
+        let output_dir = PathBuf::from(output_dir);
+        test_fs::create_dir_all(&output_dir).expect("debug output dir should be creatable");
+        direct_mask
+            .save(output_dir.join(format!("{name}_direct_mask.png")))
+            .expect("direct mask artifact should save");
+        atlas_mask
+            .save(output_dir.join(format!("{name}_atlas_mask.png")))
+            .expect("atlas mask artifact should save");
+        pixel_diff_image(direct_mask, atlas_mask)
+            .save(output_dir.join(format!("{name}_mask_diff.png")))
+            .expect("mask diff artifact should save");
+        direct_albedo
+            .save(output_dir.join(format!("{name}_direct_albedo.png")))
+            .expect("direct albedo artifact should save");
+        atlas_albedo
+            .save(output_dir.join(format!("{name}_atlas_albedo.png")))
+            .expect("atlas albedo artifact should save");
+        pixel_diff_image(direct_albedo, atlas_albedo)
+            .save(output_dir.join(format!("{name}_albedo_diff.png")))
+            .expect("albedo diff artifact should save");
+    }
+
+    fn maybe_write_generator_preview_compare_artifacts(
+        name: &str,
+        generator_mask: &RgbaImage,
+        current_atlas_mask: &RgbaImage,
+        sdf_case_mask: &RgbaImage,
+        generator_albedo: &RgbaImage,
+        current_atlas_albedo: &RgbaImage,
+        sdf_case_albedo: &RgbaImage,
+    ) {
+        let Ok(output_dir) = std::env::var("CLIFF_FORGE_WRITE_GENERATOR_PREVIEW_COMPARE") else {
+            return;
+        };
+        let output_dir = PathBuf::from(output_dir);
+        test_fs::create_dir_all(&output_dir).expect("debug output dir should be creatable");
+        generator_mask
+            .save(output_dir.join(format!("{name}_generator_mask.png")))
+            .expect("generator mask artifact should save");
+        current_atlas_mask
+            .save(output_dir.join(format!("{name}_current_atlas_mask.png")))
+            .expect("current atlas mask artifact should save");
+        sdf_case_mask
+            .save(output_dir.join(format!("{name}_sdf_case_mask.png")))
+            .expect("sdf case mask artifact should save");
+        pixel_diff_image(generator_mask, current_atlas_mask)
+            .save(output_dir.join(format!("{name}_current_atlas_mask_diff.png")))
+            .expect("current atlas mask diff artifact should save");
+        pixel_diff_image(generator_mask, sdf_case_mask)
+            .save(output_dir.join(format!("{name}_sdf_case_mask_diff.png")))
+            .expect("sdf case mask diff artifact should save");
+        generator_albedo
+            .save(output_dir.join(format!("{name}_generator_albedo.png")))
+            .expect("generator albedo artifact should save");
+        current_atlas_albedo
+            .save(output_dir.join(format!("{name}_current_atlas_albedo.png")))
+            .expect("current atlas albedo artifact should save");
+        sdf_case_albedo
+            .save(output_dir.join(format!("{name}_sdf_case_albedo.png")))
+            .expect("sdf case albedo artifact should save");
+        pixel_diff_image(generator_albedo, current_atlas_albedo)
+            .save(output_dir.join(format!("{name}_current_atlas_albedo_diff.png")))
+            .expect("current atlas albedo diff artifact should save");
+        pixel_diff_image(generator_albedo, sdf_case_albedo)
+            .save(output_dir.join(format!("{name}_sdf_case_albedo_diff.png")))
+            .expect("sdf case albedo diff artifact should save");
+    }
+
     fn runtime_sdf_fixture_map() -> MapData {
         MapData {
             width: 8,
@@ -5118,6 +5480,135 @@ mod tests {
             partial_coverage_channel_pixels(&mask) > 0,
             "mask-only atlas export should preserve partial RGB coverage for antialiased contour masks"
         );
+    }
+
+    #[test]
+    fn dual_grid_atlas_composition_matches_local_case_renderer_pixel_for_pixel() {
+        let mut request = flat_preview_request();
+        request.tile_size = 32;
+        request.rim_width = 6;
+        request.corner_round_px = 10;
+        request.diagonal_smooth_px = 4;
+        request.outer_corner_radius = 8;
+        request.variants = 1;
+        request.shape_supersampling = 4;
+        let request = request.sanitized();
+        let textures = TextureSet::default();
+
+        for (name, map) in [
+            (
+                "single",
+                map_from_rows(&["000000", "000000", "000100", "000000", "000000", "000000"]),
+            ),
+            (
+                "corner",
+                map_from_rows(&["000000", "001100", "001100", "000000", "000000", "000000"]),
+            ),
+            (
+                "diagonal",
+                map_from_rows(&["000000", "001000", "000100", "000010", "000000", "000000"]),
+            ),
+            (
+                "blob",
+                map_from_rows(&["000000", "001100", "011110", "011110", "000100", "000000"]),
+            ),
+        ] {
+            let direct_mask = render_dual_grid_direct_mask(&request, &map, 0);
+            let atlas_mask = render_dual_grid_atlas_mask(&request, &map, 0);
+            let direct_albedo = render_dual_grid_direct_albedo(&request, &textures, &map, 0);
+            let atlas_albedo = render_dual_grid_atlas_albedo(&request, &textures, &map, 0);
+
+            maybe_write_dual_grid_compare_artifacts(
+                name,
+                &direct_mask,
+                &atlas_mask,
+                &direct_albedo,
+                &atlas_albedo,
+            );
+
+            assert_eq!(
+                pixel_mismatch_count(&direct_mask, &atlas_mask),
+                0,
+                "dual-grid {name} mask atlas composition must match the local case renderer"
+            );
+            assert_eq!(
+                pixel_mismatch_count(&direct_albedo, &atlas_albedo),
+                0,
+                "dual-grid {name} albedo atlas composition must match the local case renderer"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "diagnostic: writes/prints comparison between Full16 atlas cases and SDF map preview"]
+    fn compare_dual_grid_atlas_with_generator_map_preview() {
+        let mut request = flat_preview_request();
+        request.tile_size = 32;
+        request.rim_width = 6;
+        request.corner_round_px = 10;
+        request.diagonal_smooth_px = 4;
+        request.outer_corner_radius = 8;
+        request.variants = 1;
+        request.forced_variant = Some(0);
+        request.shape_supersampling = 4;
+        let textures = TextureSet::default();
+
+        for (name, map) in [
+            (
+                "single",
+                map_from_rows(&["000000", "000000", "000100", "000000", "000000", "000000"]),
+            ),
+            (
+                "corner",
+                map_from_rows(&["000000", "001100", "001100", "000000", "000000", "000000"]),
+            ),
+            (
+                "diagonal",
+                map_from_rows(&["000000", "001000", "000100", "000010", "000000", "000000"]),
+            ),
+            (
+                "blob",
+                map_from_rows(&["000000", "001100", "011110", "011110", "000100", "000000"]),
+            ),
+        ] {
+            let mut mask_request = request.clone();
+            mask_request.map = map.clone();
+            mask_request.preview_mode = "mask".to_string();
+            let mask_request = mask_request.sanitized();
+            let generator_mask = build_map_preview(&mask_request, &textures)
+                .expect("generator map mask preview should render");
+            let current_atlas_mask = render_cropped_dual_grid_atlas_mask(&mask_request, &map, 0);
+            let sdf_case_mask = render_dual_grid_sdf_case_mask(&mask_request, &map, 0);
+
+            let mut albedo_request = request.clone();
+            albedo_request.map = map.clone();
+            albedo_request.preview_mode = "albedo".to_string();
+            let albedo_request = albedo_request.sanitized();
+            let generator_albedo = build_map_preview(&albedo_request, &textures)
+                .expect("generator map albedo preview should render");
+            let current_atlas_albedo =
+                render_cropped_dual_grid_atlas_albedo(&albedo_request, &textures, &map, 0);
+            let sdf_case_albedo =
+                render_dual_grid_sdf_case_albedo(&albedo_request, &textures, &map, 0);
+
+            maybe_write_generator_preview_compare_artifacts(
+                name,
+                &generator_mask,
+                &current_atlas_mask,
+                &sdf_case_mask,
+                &generator_albedo,
+                &current_atlas_albedo,
+                &sdf_case_albedo,
+            );
+
+            eprintln!(
+                "{name}: current_atlas_mask_mismatch={} sdf_case_mask_mismatch={} current_atlas_albedo_mismatch={} sdf_case_albedo_mismatch={}",
+                pixel_mismatch_count(&generator_mask, &current_atlas_mask),
+                pixel_mismatch_count(&generator_mask, &sdf_case_mask),
+                pixel_mismatch_count(&generator_albedo, &current_atlas_albedo),
+                pixel_mismatch_count(&generator_albedo, &sdf_case_albedo)
+            );
+        }
     }
 
     #[test]
