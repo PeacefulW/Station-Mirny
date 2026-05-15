@@ -10,12 +10,11 @@ uniform sampler2D face_normal_tex : repeat_enable, filter_linear;
 uniform sampler2D edge_profile_lut : repeat_disable, filter_linear;
 uniform sampler2D height_profile_lut : repeat_disable, filter_linear;
 
-uniform vec4 top_tint : source_color = vec4(0.44, 0.35, 0.25, 1.0);
-uniform vec4 face_tint : source_color = vec4(0.24, 0.18, 0.14, 1.0);
-uniform vec4 edge_tint : source_color = vec4(0.29, 0.22, 0.17, 1.0);
-uniform vec4 base_tint : source_color = vec4(0.72, 0.55, 0.35, 1.0);
+uniform vec4 top_tint : source_color = vec4(1.0);
+uniform vec4 face_tint : source_color = vec4(1.0);
+uniform vec4 edge_tint : source_color = vec4(0.18, 0.13, 0.09, 1.0);
+uniform vec4 base_tint : source_color = vec4(1.0);
 
-uniform float surface_zone = 0.0;
 uniform float top_world_scale_px = 224.0;
 uniform float face_world_scale_px = 112.0;
 uniform float macro_world_scale_px = 448.0;
@@ -30,95 +29,101 @@ uniform float normal_detail_strength = 4.0;
 uniform float edge_debris = 0.8;
 uniform float edge_color_strength = 0.35;
 
-varying vec2 world_pos;
-varying vec2 contour_edge_uv;
-varying vec4 contour_attr;
+varying vec2 v_world_pos;
+varying vec2 v_edge_uv;
+varying vec4 v_packed_attr;
 
 void vertex() {
-	world_pos = (MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).xy;
-	contour_edge_uv = UV;
-	contour_attr = COLOR;
+	v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).xy;
+	v_edge_uv = UV;
+	v_packed_attr = COLOR;
 }
 
 vec3 unpack_normal(vec3 packed_normal) {
 	return normalize(packed_normal * 2.0 - 1.0);
 }
 
-vec3 blend_normals(vec3 shape_normal, vec3 material_normal) {
-	return normalize(vec3(
-		shape_normal.xy * 0.65 + material_normal.xy,
-		max(0.001, shape_normal.z * material_normal.z)
-	));
-}
-
 float safe_scale(float scale_px) {
 	return max(1.0, scale_px * max(0.01, texture_scale));
 }
 
-vec3 sample_top_normal(vec2 top_uv, vec2 macro_uv) {
-	vec3 primary = unpack_normal(texture(top_normal_tex, top_uv).rgb);
-	vec3 detail = unpack_normal(texture(top_normal_tex, macro_uv + vec2(0.37, 0.19)).rgb);
-	return normalize(mix(primary, detail, clamp(normal_detail_strength / 16.0, 0.0, 1.0) * 0.35));
-}
-
-vec3 sample_face_normal(vec2 face_uv, vec2 macro_uv) {
-	vec3 primary = unpack_normal(texture(face_normal_tex, face_uv).rgb);
-	vec3 detail = unpack_normal(texture(face_normal_tex, macro_uv + vec2(0.11, 0.47)).rgb);
-	return normalize(mix(primary, detail, clamp(normal_detail_strength / 16.0, 0.0, 1.0) * 0.35));
+vec2 world_uv(float scale_px) {
+	return v_world_pos / safe_scale(scale_px);
 }
 
 void fragment() {
-	float edge_u = contour_edge_uv.x;
-	float edge_v = contour_edge_uv.y;
-	float signed_distance = contour_attr.r * 2.0 - 1.0;
-	float face_depth_px = contour_attr.g * 128.0;
-	float facade_side = contour_attr.b * 4.0;
-	float material_zone = floor(contour_attr.a * 8.0 + 0.5);
-	float depth_norm = clamp(face_depth_px / max(1.0, south_height_px + side_height_px + mountain_outline_width_px), 0.0, 1.0);
-	float edge_profile = texture(edge_profile_lut, vec2(clamp(edge_v, 0.0, 1.0), 0.5)).r;
-	float height_profile = texture(height_profile_lut, vec2(depth_norm, 0.5)).r;
+	float edge_u = v_edge_uv.x;
+	float edge_v = clamp(v_edge_uv.y, 0.0, 1.0);
 
-	vec2 top_uv = world_pos / safe_scale(top_world_scale_px);
-	vec2 face_uv = vec2(edge_u * 64.0 + facade_side * 23.0, face_depth_px) / safe_scale(face_world_scale_px);
-	vec2 macro_uv = world_pos / safe_scale(macro_world_scale_px);
+	float signed_distance_px = (v_packed_attr.r - 0.5) * 256.0;
+	float face_depth_norm = clamp(v_packed_attr.g, 0.0, 1.0);
+	float facade_side = floor(v_packed_attr.b * 4.0 + 0.5);
+	float zone = floor(v_packed_attr.a * 8.0 + 0.5);
+
+	float max_face_depth_px = max(1.0, south_height_px + side_height_px + (mountain_outline_enabled ? mountain_outline_width_px : 0.0));
+	float face_depth_px = face_depth_norm * max_face_depth_px;
+	float height_norm = clamp(face_depth_px / max(1.0, south_height_px + side_height_px), 0.0, 1.0);
+
+	vec2 top_uv = world_uv(top_world_scale_px);
+	vec2 macro_uv = world_uv(macro_world_scale_px);
+	vec2 face_uv = vec2(edge_u, face_depth_px / max(1.0, face_world_scale_px));
 
 	vec3 top_albedo = texture(top_albedo_tex, top_uv).rgb;
 	vec3 face_albedo = texture(face_albedo_tex, face_uv).rgb;
 	vec3 base_albedo = texture(base_albedo_tex, macro_uv).rgb;
-	float top_breakup = texture(top_modulation_tex, top_uv * 1.13 + vec2(0.17, 0.29)).r;
-	float face_breakup = texture(face_modulation_tex, face_uv * vec2(0.8, 1.25) + vec2(0.41, 0.23)).r;
-	float debris = smoothstep(0.54, 0.95, max(top_breakup, face_breakup)) * edge_debris * edge_profile * (1.0 - abs(signed_distance));
+
+	float top_modulation = texture(top_modulation_tex, top_uv).r;
+	float face_modulation = texture(face_modulation_tex, face_uv).r;
+
+	vec3 top_normal = unpack_normal(texture(top_normal_tex, top_uv).rgb);
+	vec3 face_normal = unpack_normal(texture(face_normal_tex, face_uv).rgb);
+
+	float edge_profile = texture(edge_profile_lut, vec2(edge_v, 0.5)).r;
+	float height_profile = texture(height_profile_lut, vec2(height_norm, 0.5)).r;
 
 	vec3 color = top_albedo;
-	vec3 material_normal = sample_top_normal(top_uv, macro_uv);
-	if (material_zone > 0.5 && material_zone < 1.5) {
-		color = face_albedo;
-		color *= mix(0.74, 1.08, face_breakup);
-		color *= mix(0.78, 1.0, height_profile);
-		material_normal = sample_face_normal(face_uv, macro_uv);
-	} else if (material_zone >= 1.5 && material_zone < 2.5) {
-		color = mix(top_albedo, face_albedo, 0.52);
-		color = mix(color, face_albedo * 0.72, edge_color_strength * (0.35 + edge_profile * 0.45));
-		color *= mix(0.9, 1.08, top_breakup);
-		material_normal = normalize(mix(sample_top_normal(top_uv, macro_uv), sample_face_normal(face_uv, macro_uv), 0.4));
-	} else if (material_zone >= 2.5) {
-		float outline_alpha = mountain_outline_enabled ? 1.0 : 0.0;
-		color = mix(face_albedo * 0.34, face_albedo * 0.16, outline_alpha);
-		color *= mix(0.72, 0.92, clamp(mountain_outline_width_px / 16.0, 0.0, 1.0));
-		material_normal = sample_face_normal(face_uv, macro_uv);
+	vec3 material_normal = top_normal;
+	float alpha = 1.0;
+
+	if (zone < 0.5) {
+		color = top_albedo * mix(0.85, 1.15, top_modulation);
+		material_normal = top_normal;
+	} else if (zone < 1.5) {
+		float height_shade = mix(0.85, 1.0, height_profile);
+		color = face_albedo * height_shade * mix(0.92, 1.08, face_modulation);
+		material_normal = face_normal;
+	} else if (zone < 2.5) {
+		vec3 top_color = top_albedo * mix(0.85, 1.15, top_modulation);
+		color = mix(top_color, edge_tint.rgb, edge_profile * edge_color_strength);
+		material_normal = mix(top_normal, face_normal, 0.5);
 	} else {
-		color *= mix(0.94, 1.10, top_breakup);
-		color = mix(color, face_albedo, debris * 0.12);
+		color = edge_tint.rgb;
+		material_normal = face_normal;
 	}
 
-	vec3 shape_normal = normalize(vec3(
-		(edge_profile - 0.5) * max(0.05, edge_color_strength),
-		(height_profile - 0.5) * clamp((south_height_px + side_height_px + rim_width_px) / 256.0, 0.05, 0.7),
-		1.0
-	));
-	vec3 final_normal = blend_normals(shape_normal, material_normal);
-	final_normal = normalize(mix(vec3(0.0, 0.0, 1.0), final_normal, clamp(normal_strength / 16.0, 0.0, 1.0)));
+	float shape_z;
+	if (zone < 0.5) {
+		shape_z = 1.0;
+	} else if (zone < 1.5) {
+		shape_z = mix(1.0, 0.2, height_norm);
+	} else if (zone < 2.5) {
+		shape_z = mix(1.0, 0.5, edge_profile);
+	} else {
+		shape_z = 0.2;
+	}
+	float shape_xy_amount = clamp(1.0 - shape_z * shape_z, 0.0, 1.0);
+	vec2 facade_dir = vec2(
+		facade_side > 1.5 ? sign(edge_u - floor(edge_u + 0.5)) * 0.5 : (facade_side > 0.5 ? 1.0 : 0.0),
+		facade_side < 1.5 ? 1.0 : 0.5
+	);
+	vec3 shape_normal = normalize(vec3(facade_dir.x * shape_xy_amount, facade_dir.y * shape_xy_amount, shape_z));
 
-	COLOR = vec4(color, 1.0);
+	float material_weight = clamp(normal_strength / 16.0, 0.0, 1.0);
+	vec3 final_normal = normalize(mix(vec3(0.0, 0.0, 1.0), normalize(shape_normal + material_normal * material_weight), clamp(normal_strength / 8.0, 0.0, 1.0)));
+
+	float debris_t = clamp(edge_debris * edge_profile * (1.0 - height_norm), 0.0, 1.0);
+	color = mix(color, color * 0.85, debris_t * 0.4);
+
+	COLOR = vec4(color, alpha);
 	NORMAL_MAP = final_normal * 0.5 + 0.5;
 }

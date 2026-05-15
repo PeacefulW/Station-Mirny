@@ -8,11 +8,9 @@ const ATTRIBUTE_STRIDE: int = 8
 const ATTR_EDGE_U: int = 0
 const ATTR_EDGE_V: int = 1
 const ATTR_SIGNED_DISTANCE: int = 2
-const ATTR_FACE_DEPTH_PX: int = 3
+const ATTR_FACE_DEPTH_NORM: int = 3
 const ATTR_FACADE_SIDE: int = 4
 const ATTR_ZONE: int = 5
-const ATTR_NOISE_U: int = 6
-const ATTR_NOISE_V: int = 7
 const SURFACE_IDS: Array[String] = ["top", "face", "rim", "outline"]
 const SURFACE_PREFIX_BY_ID: Dictionary = {
 	"top": "visual_top",
@@ -20,18 +18,18 @@ const SURFACE_PREFIX_BY_ID: Dictionary = {
 	"rim": "visual_rim",
 	"outline": "visual_outline",
 }
-const SURFACE_ZONE_BY_ID: Dictionary = {
-	"top": 0.0,
-	"face": 1.0,
-	"rim": 2.0,
-	"outline": 3.0,
+const SURFACE_Z_INDEX_BY_ID: Dictionary = {
+	"top": 0,
+	"face": 1,
+	"rim": 2,
+	"outline": 3,
 }
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 
 var _style: MountainContourStyle = null
 var _mesh_nodes: Dictionary = {}
-var _materials_by_surface: Dictionary = {}
+var _shared_material: ShaderMaterial = null
 var _surface_stats: Dictionary = {}
 var _last_result_stats: Dictionary = {}
 
@@ -43,7 +41,7 @@ func configure(new_chunk_coord: Vector2i, style: MountainContourStyle) -> void:
 	chunk_coord = new_chunk_coord
 	_style = style
 	_ensure_surface_nodes()
-	_rebuild_materials()
+	_rebuild_material()
 
 func apply_runtime_result(result: Dictionary) -> bool:
 	if _style == null:
@@ -85,7 +83,7 @@ func get_total_vertex_count() -> int:
 func get_debug_stats() -> Dictionary:
 	var result: Dictionary = {
 		"chunk_coord": chunk_coord,
-		"material_ready": _materials_ready(),
+		"material_ready": _material_ready(),
 		"surface_count": SURFACE_IDS.size(),
 		"total_vertex_count": get_total_vertex_count(),
 		"total_index_count": 0,
@@ -110,12 +108,10 @@ func get_debug_stats() -> Dictionary:
 func get_style_shader_debug_snapshot() -> Dictionary:
 	var result: Dictionary = {}
 	for surface_id: String in SURFACE_IDS:
-		var material: ShaderMaterial = _materials_by_surface.get(surface_id, null) as ShaderMaterial
 		var surface_params: Dictionary = {}
-		if material != null:
-			surface_params["surface_zone"] = material.get_shader_parameter("surface_zone")
+		if _shared_material != null:
 			for parameter_name: String in MountainContourStyle.SHADER_PARAMETER_NAMES:
-				surface_params[parameter_name] = material.get_shader_parameter(parameter_name)
+				surface_params[parameter_name] = _shared_material.get_shader_parameter(parameter_name)
 		if _style != null:
 			surface_params["texture_paths"] = _style.texture_paths.duplicate(true)
 			surface_params["style_debug"] = _style.debug_snapshot()
@@ -123,33 +119,30 @@ func get_style_shader_debug_snapshot() -> Dictionary:
 	return result
 
 func _ensure_surface_nodes() -> void:
-	for surface_index: int in SURFACE_IDS.size():
-		var surface_id: String = SURFACE_IDS[surface_index]
+	for surface_id: String in SURFACE_IDS:
 		var existing: MeshInstance2D = _mesh_nodes.get(surface_id, null) as MeshInstance2D
 		if existing != null and is_instance_valid(existing):
 			continue
 		var node := MeshInstance2D.new()
 		node.name = "%s_mesh" % [surface_id]
-		node.z_index = surface_index
+		node.z_index = int(SURFACE_Z_INDEX_BY_ID.get(surface_id, 0))
 		node.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 		add_child(node)
 		_mesh_nodes[surface_id] = node
 
-func _rebuild_materials() -> void:
-	_materials_by_surface.clear()
+func _rebuild_material() -> void:
+	if _shared_material == null:
+		_shared_material = ShaderMaterial.new()
+		_shared_material.shader = RUNTIME_SHADER
+	_apply_style_to_material(_shared_material)
 	for surface_id: String in SURFACE_IDS:
-		var material := ShaderMaterial.new()
-		material.shader = RUNTIME_SHADER
-		_apply_style_to_material(material, float(SURFACE_ZONE_BY_ID.get(surface_id, 0.0)))
-		_materials_by_surface[surface_id] = material
 		var node: MeshInstance2D = _mesh_nodes.get(surface_id, null) as MeshInstance2D
 		if node != null:
-			node.material = material
+			node.material = _shared_material
 
-func _apply_style_to_material(material: ShaderMaterial, surface_zone: float) -> void:
+func _apply_style_to_material(material: ShaderMaterial) -> void:
 	if _style == null:
 		return
-	material.set_shader_parameter("surface_zone", surface_zone)
 	var shader_params: Dictionary = _style.to_shader_params()
 	for parameter_name: String in shader_params.keys():
 		material.set_shader_parameter(parameter_name, shader_params[parameter_name])
@@ -170,9 +163,9 @@ func _apply_surface(surface_id: String, result: Dictionary) -> void:
 			"triangle_count": 0,
 		}
 		return
-	node.mesh = _build_array_mesh(vertices, indices, attributes, float(SURFACE_ZONE_BY_ID.get(surface_id, 0.0)))
-	if _materials_by_surface.has(surface_id):
-		node.material = _materials_by_surface[surface_id] as ShaderMaterial
+	node.mesh = _build_array_mesh(vertices, indices, attributes)
+	if _shared_material != null:
+		node.material = _shared_material
 	_surface_stats[surface_id] = {
 		"vertex_count": vertices.size(),
 		"index_count": indices.size(),
@@ -182,63 +175,54 @@ func _apply_surface(surface_id: String, result: Dictionary) -> void:
 func _build_array_mesh(
 	vertices: PackedVector2Array,
 	indices: PackedInt32Array,
-	attributes: PackedFloat32Array,
-	surface_zone: float
+	attributes: PackedFloat32Array
 ) -> ArrayMesh:
+	var vertex_count: int = vertices.size()
+	var vertices_3d := PackedVector3Array()
+	vertices_3d.resize(vertex_count)
+	var uvs := PackedVector2Array()
+	uvs.resize(vertex_count)
+	var colors := PackedColorArray()
+	colors.resize(vertex_count)
+	for index: int in vertex_count:
+		var vertex: Vector2 = vertices[index]
+		vertices_3d[index] = Vector3(vertex.x, vertex.y, 0.0)
+		var stride_base: int = index * ATTRIBUTE_STRIDE
+		var edge_u: float = 0.0
+		var edge_v: float = 0.0
+		var signed_distance: float = 0.0
+		var face_depth_norm: float = 0.0
+		var facade_side: float = 0.0
+		var zone: float = 0.0
+		if stride_base + ATTRIBUTE_STRIDE <= attributes.size():
+			edge_u = attributes[stride_base + ATTR_EDGE_U]
+			edge_v = attributes[stride_base + ATTR_EDGE_V]
+			signed_distance = attributes[stride_base + ATTR_SIGNED_DISTANCE]
+			face_depth_norm = attributes[stride_base + ATTR_FACE_DEPTH_NORM]
+			facade_side = attributes[stride_base + ATTR_FACADE_SIDE]
+			zone = attributes[stride_base + ATTR_ZONE]
+		uvs[index] = Vector2(edge_u, edge_v)
+		colors[index] = Color(
+			clampf(signed_distance / 256.0 + 0.5, 0.0, 1.0),
+			clampf(face_depth_norm, 0.0, 1.0),
+			clampf(facade_side / 4.0, 0.0, 1.0),
+			clampf(zone / 8.0, 0.0, 1.0)
+		)
 	var arrays: Array = []
 	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = _to_vector3_vertices(vertices)
-	arrays[Mesh.ARRAY_TEX_UV] = _build_edge_uvs(attributes, vertices.size())
-	arrays[Mesh.ARRAY_COLOR] = _build_vertex_colors(attributes, vertices.size(), surface_zone)
+	arrays[Mesh.ARRAY_VERTEX] = vertices_3d
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_COLOR] = colors
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
 
-func _to_vector3_vertices(vertices: PackedVector2Array) -> PackedVector3Array:
-	var result := PackedVector3Array()
-	result.resize(vertices.size())
-	for index: int in vertices.size():
-		var vertex: Vector2 = vertices[index]
-		result[index] = Vector3(vertex.x, vertex.y, 0.0)
-	return result
-
-func _build_edge_uvs(attributes: PackedFloat32Array, vertex_count: int) -> PackedVector2Array:
-	var result := PackedVector2Array()
-	result.resize(vertex_count)
-	for index: int in vertex_count:
-		result[index] = Vector2(
-			_read_attribute(attributes, index, ATTR_EDGE_U, 0.0),
-			_read_attribute(attributes, index, ATTR_EDGE_V, 0.0)
-		)
-	return result
-
-func _build_vertex_colors(attributes: PackedFloat32Array, vertex_count: int, surface_zone: float) -> PackedColorArray:
-	var result := PackedColorArray()
-	result.resize(vertex_count)
-	for index: int in vertex_count:
-		var signed_distance: float = clampf((_read_attribute(attributes, index, ATTR_SIGNED_DISTANCE, 0.0) + 128.0) / 256.0, 0.0, 1.0)
-		var face_depth_px: float = clampf(_read_attribute(attributes, index, ATTR_FACE_DEPTH_PX, 0.0) / 128.0, 0.0, 1.0)
-		var facade_side: float = clampf(_read_attribute(attributes, index, ATTR_FACADE_SIDE, 0.0) / 4.0, 0.0, 1.0)
-		var zone: float = clampf(_read_attribute(attributes, index, ATTR_ZONE, surface_zone) / 8.0, 0.0, 1.0)
-		result[index] = Color(signed_distance, face_depth_px, facade_side, zone)
-	return result
-
-func _read_attribute(attributes: PackedFloat32Array, vertex_index: int, offset: int, default_value: float) -> float:
-	var attribute_index: int = vertex_index * ATTRIBUTE_STRIDE + offset
-	if attribute_index < 0 or attribute_index >= attributes.size():
-		return default_value
-	return float(attributes[attribute_index])
-
-func _materials_ready() -> bool:
+func _material_ready() -> bool:
 	if _style == null:
 		return false
-	if _materials_by_surface.size() != SURFACE_IDS.size():
+	if _shared_material == null or _shared_material.shader == null:
 		return false
-	for surface_id: String in SURFACE_IDS:
-		var material: ShaderMaterial = _materials_by_surface.get(surface_id, null) as ShaderMaterial
-		if material == null or material.shader == null:
-			return false
 	return _style.top_albedo is Texture2D \
 		and _style.face_albedo is Texture2D \
 		and _style.base_albedo is Texture2D \

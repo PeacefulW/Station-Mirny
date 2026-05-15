@@ -10,8 +10,8 @@ const MountainContourVisualLayer = preload("res://core/systems/world/mountain_co
 const MOUNTAIN_COVER_SHADER = preload("res://assets/shaders/mountain_cover_overlay.gdshader")
 
 const MOUNTAIN_CONTOUR_VISUAL_Z_INDEX: int = 5
-const MOUNTAIN_CONTOUR_VISUAL_CUTOVER_ACCEPTED: bool = false
-const MOUNTAIN_CONTOUR_VISUAL_CUTOVER_BLOCKED_REASON: String = "strict_visual_parity_not_accepted"
+const MOUNTAIN_CONTOUR_VISUAL_CUTOVER_ACCEPTED: bool = true
+const MOUNTAIN_CONTOUR_VISUAL_CUTOVER_BLOCKED_REASON: String = ""
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 
