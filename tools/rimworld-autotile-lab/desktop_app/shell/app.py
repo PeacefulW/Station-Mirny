@@ -66,15 +66,11 @@ EXPORT_FILE_SLOTS_BY_MODE = {
         ("recipe", "json"),
     ),
     RUNTIME_SDF_EXPORT_MODE: (
-        ("contour_style.v1", "json"),
         ("runtime_sdf_recipe", "json"),
         ("reference_mask", "png"),
         ("reference_height", "png"),
-        ("reference_preview", "png"),
         ("reference_normal", "png"),
         ("reference_albedo", "png"),
-        ("edge_profile_lut", "png"),
-        ("height_profile_lut", "png"),
         ("top_albedo", "png"),
         ("face_albedo", "png"),
         ("base_albedo", "png"),
@@ -1926,7 +1922,6 @@ class CliffForgeApp:
             forced_variant = max(0, int(self.forced_variant_var.get().replace(LABEL_VARIANT_PREFIX, "", 1)) - 1)
 
         asset_name = self._validated_asset_name(show_error=True)
-        preset = clone_preset(self._selected_preset_key())
         return {
             "asset_name": asset_name,
             "export_mode": self._selected_export_mode_key(),
@@ -1957,9 +1952,6 @@ class CliffForgeApp:
             "forced_variant": forced_variant,
             "seed": int(self.seed_var.get()),
             "texture_scale": float(self.texture_scale_var.get()),
-            "top_world_scale_px": float(preset.get("top_world_scale_px", 224.0)),
-            "face_world_scale_px": float(preset.get("face_world_scale_px", 112.0)),
-            "macro_world_scale_px": float(preset.get("macro_world_scale_px", 448.0)),
             "normal_strength": float(self.normal_strength_var.get()),
             "normal_detail_strength": float(self.normal_detail_strength_var.get()),
             "bake_height_shading": bool(self.bake_height_shading_var.get()),
@@ -2275,8 +2267,8 @@ class CliffForgeApp:
             atlas_value = files.get("atlas_mask_png")
         if not atlas_value and manifest.get("export_mode") == RUNTIME_SDF_EXPORT_MODE:
             atlas_value = {
-                "composite": files.get("reference_preview_png") or files.get("reference_albedo_png"),
-                "lit":       files.get("reference_preview_png") or files.get("reference_albedo_png"),
+                "composite": files.get("reference_albedo_png"),
+                "lit":       files.get("reference_albedo_png"),
                 "albedo":    files.get("reference_albedo_png"),
                 "mask":      files.get("reference_mask_png"),
                 "height":    files.get("reference_height_png"),

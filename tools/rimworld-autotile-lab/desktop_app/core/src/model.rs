@@ -52,12 +52,6 @@ pub struct AppRequest {
     pub forced_variant: Option<u32>,
     pub seed: u32,
     pub texture_scale: f32,
-    #[serde(default = "default_top_world_scale_px")]
-    pub top_world_scale_px: f32,
-    #[serde(default = "default_face_world_scale_px")]
-    pub face_world_scale_px: f32,
-    #[serde(default = "default_macro_world_scale_px")]
-    pub macro_world_scale_px: f32,
     #[serde(default = "default_normal_strength_unset")]
     pub normal_strength: f32,
     #[serde(default = "default_normal_detail_strength")]
@@ -237,21 +231,13 @@ pub struct GeneratedFiles {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_sdf_recipe_json: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub contour_style_json: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub reference_mask_png: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference_height_png: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub reference_preview_png: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub reference_normal_png: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference_albedo_png: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub edge_profile_lut_png: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub height_profile_lut_png: Option<String>,
     pub top_albedo_png: Option<String>,
     pub face_albedo_png: Option<String>,
     pub base_albedo_png: Option<String>,
@@ -325,15 +311,6 @@ impl AppRequest {
             .forced_variant
             .map(|value| value.min(self.variants.saturating_sub(1)));
         self.texture_scale = self.texture_scale.clamp(0.25, 4.0);
-        self.top_world_scale_px =
-            finite_or_default(self.top_world_scale_px, default_top_world_scale_px())
-                .clamp(1.0, 4096.0);
-        self.face_world_scale_px =
-            finite_or_default(self.face_world_scale_px, default_face_world_scale_px())
-                .clamp(1.0, 4096.0);
-        self.macro_world_scale_px =
-            finite_or_default(self.macro_world_scale_px, default_macro_world_scale_px())
-                .clamp(1.0, 8192.0);
         self.normal_strength = if self.normal_strength.is_finite() && self.normal_strength > 0.0 {
             self.normal_strength.clamp(0.0, 8.0)
         } else {
@@ -415,9 +392,6 @@ pub struct Preset {
     pub geometry_variance: f32,
     pub shape_supersampling: u32,
     pub normal_detail_strength: f32,
-    pub top_world_scale_px: f32,
-    pub face_world_scale_px: f32,
-    pub macro_world_scale_px: f32,
     pub variants: u32,
     pub colors: PresetColors,
 }
@@ -468,9 +442,6 @@ impl Preset {
             geometry_variance: 0.75,
             shape_supersampling: 4,
             normal_detail_strength: 4.0,
-            top_world_scale_px: default_top_world_scale_px(),
-            face_world_scale_px: default_face_world_scale_px(),
-            macro_world_scale_px: default_macro_world_scale_px(),
             variants: DEFAULT_VARIANT_COUNT,
             colors: PresetColors {
                 top: "#705940",
@@ -507,9 +478,6 @@ impl Preset {
             geometry_variance: 0.15,
             shape_supersampling: 4,
             normal_detail_strength: 0.8,
-            top_world_scale_px: default_top_world_scale_px(),
-            face_world_scale_px: default_face_world_scale_px(),
-            macro_world_scale_px: default_macro_world_scale_px(),
             variants: DEFAULT_VARIANT_COUNT,
             colors: PresetColors {
                 top: "#765439",
@@ -546,9 +514,6 @@ impl Preset {
             geometry_variance: 0.3,
             shape_supersampling: 4,
             normal_detail_strength: 1.0,
-            top_world_scale_px: default_top_world_scale_px(),
-            face_world_scale_px: default_face_world_scale_px(),
-            macro_world_scale_px: default_macro_world_scale_px(),
             variants: DEFAULT_VARIANT_COUNT,
             colors: PresetColors {
                 top: "#7b5027",
@@ -594,9 +559,6 @@ pub fn default_request() -> AppRequest {
         forced_variant: None,
         seed: 240_518,
         texture_scale: 1.0,
-        top_world_scale_px: preset.top_world_scale_px,
-        face_world_scale_px: preset.face_world_scale_px,
-        macro_world_scale_px: preset.macro_world_scale_px,
         normal_strength: 8.0,
         normal_detail_strength: preset.normal_detail_strength,
         bake_height_shading: false,
@@ -720,18 +682,6 @@ fn default_shape_supersampling() -> u32 {
 
 fn default_normal_detail_strength() -> f32 {
     1.25
-}
-
-fn default_top_world_scale_px() -> f32 {
-    224.0
-}
-
-fn default_face_world_scale_px() -> f32 {
-    112.0
-}
-
-fn default_macro_world_scale_px() -> f32 {
-    448.0
 }
 
 fn finite_or_default(value: f32, fallback: f32) -> f32 {
@@ -1235,9 +1185,6 @@ mod tests {
         assert_eq!(request.mountain_outline_width, 6);
         assert_eq!(request.edge_debris, 0.8);
         assert_eq!(request.geometry_variance, 0.75);
-        assert_eq!(request.top_world_scale_px, 224.0);
-        assert_eq!(request.face_world_scale_px, 112.0);
-        assert_eq!(request.macro_world_scale_px, 448.0);
         assert_eq!(request.preview_mode, "lit");
         assert_eq!(request.textures.top, None);
         assert_eq!(request.textures.face, None);

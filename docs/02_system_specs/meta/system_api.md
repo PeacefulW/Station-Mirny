@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.10
-last_updated: 2026-05-14
+version: 0.6
+last_updated: 2026-05-03
 related_docs:
   - ../README.md
   - commands.md
@@ -42,9 +42,6 @@ It covers only the minimal core set confirmed in code during this pass:
 - `CommandExecutor`
 - `BuildingSystem`
 - `WorldCore`
-- `MountainContourCollisionCache`
-- `MountainContourStyle`
-- `MountainContourStyleRegistry`
 - `WorldStreamer`
 
 ## Out of Scope
@@ -301,7 +298,6 @@ Confirmed public native surface:
 | `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate; current chunk generation emits ground, mountain, and Lake Generation L2 bed terrain classes and reads the `WorldPrePass` substrate for lake fields. |
 | `make_world_preview_patch_image(packet: Dictionary, render_mode: StringName)` | `Image` | Builds a lightweight preview patch image from an existing `ChunkPacketV1`; current modes are terrain, mountain id, and mountain classification. Terrain mode reads ground, mountain, and lake-bed packet terrain ids; it does not generate chunks. |
 | `build_mountain_contour_debug(solid_halo: PackedByteArray, chunk_size: int, tile_size_px: int)` | `Dictionary` | Debug-only native marching-squares helper for Mountain Contour Mesh L1. Input is a compact `(chunk_size + 2)^2` solid mask with a one-tile halo; output contains derived `vertices: PackedVector2Array` and `indices: PackedInt32Array`. This is visual/debug data only, not packet truth, save state, collision, or walkability. |
-| `build_mountain_contour_runtime(solid_halo: PackedByteArray, chunk_size: int, tile_size_px: int, style_params: Dictionary)` | `Dictionary` | Production derived mountain contour topology result for visuals and collision. Input uses the same compact one-tile halo mask as the debug helper plus style scalar parameters; output shape is `MountainContourRuntimeResultV1` in `packet_schemas.md`. The result is derived runtime data only: it must not mutate terrain, chunk packets, save data, or load texture/image bytes. |
 | `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
 
 Dev-only native surface:
@@ -323,118 +319,11 @@ Current code notes:
   persisted and must not be mutated by script code.
 - Preview spawn resolution uses the shared worker wrapper, not a main-thread
   GDScript fallback.
-- The mountain contour runtime result is recomputed from the effective
-  mountain solid halo for one chunk; it is presentation/collision topology and
-  does not become `ChunkPacketV1`, save data, or authoritative terrain.
-- Task 11R keeps the live mountain contour visual cutover disabled until strict
-  generator parity is accepted. Diagnostic visual meshes and collision caches
-  may still rebuild from `build_mountain_contour_runtime`, but square/tile
-  fallback presentation must not be reported as accepted contour gameplay
-  presentation.
 
 Not documented here as safe entrypoints:
 - direct calls to `world_prepass::*` helpers from script, because they are native
   implementation details behind `WorldCore`
 - using dev-only substrate snapshot dictionaries as save data or gameplay state
-
-### MountainContourCollisionCache
-
-Owner file: `core/systems/world/mountain_contour_collision_cache.gd`
-
-Role:
-- transient chunk-local collision query helper for mountain contour runtime
-  loops
-- owns probe-level point, capsule, slide, and future building-footprint checks
-  against `MountainContourRuntimeResultV1.collision_loops` and
-  `collision_aabbs`
-
-Confirmed public surface:
-
-| Surface | Return | Notes |
-|---|---|---|
-| `configure(chunk_coord: Vector2i, collision_loops: Array, collision_aabbs: Array)` | `void` | Replaces the transient cache contents for one chunk from derived runtime contour output. |
-| `is_point_blocked(local_pos: Vector2)` | `bool` | Returns contour-local blocked state. An unconfigured cache is blocked. |
-| `is_capsule_blocked(local_pos: Vector2, radius_px: float)` | `bool` | Tests capsule overlap against contour loops using supplied AABBs for broad-phase rejection. |
-| `slide_capsule(local_pos: Vector2, motion: Vector2, radius_px: float)` | `Dictionary` | Probe-level slide result with `blocked`, `collided`, `final_position`, `motion_applied`, `remainder`, and `normal`. |
-| `intersects_building_footprint(local_shape)` | `bool` | Probe-level contour footprint query for `Rect2` or polygon-like local shapes. An unconfigured cache is blocked. |
-
-Current code notes:
-- the cache is derived runtime state; it is not `ChunkPacketV1`, save data, or
-  authoritative terrain
-- square `walkable_flags` are not a fallback for contour collision queries
-- Task 6 stores the cache per loaded chunk through `WorldStreamer`; live
-  movement, building placement, and mining dirty-update cutover remain later
-  work
-
-Not documented here as safe entrypoints:
-- using this cache as a save/load payload
-- mutating terrain or chunk packet state from collision query methods
-- silently allowing movement or building placement when a required contour
-  cache is missing
-- treating stored contour caches as the movement route before the movement
-  cutover is explicitly implemented
-
-### MountainContourStyle
-
-Owner file: `core/systems/world/mountain_contour_style.gd`
-
-Role:
-- immutable runtime helper for a generator-authored mountain contour style
-  package
-- validates style scalar fields, `WorldRuntimeConstants.TILE_SIZE_PX`, and
-  required reusable texture assets before gameplay rendering can consume them
-
-Confirmed public surface:
-
-| Surface | Return | Notes |
-|---|---|---|
-| `load_from_file(style_path: String)` | `MountainContourStyle` or `null` | Loads and validates a `ContourStyleV1` JSON package from disk |
-| `load_from_dict(data: Dictionary, base_dir: String)` | `MountainContourStyle` or `null` | Validation entrypoint used by smoke tests and import tooling |
-| `debug_snapshot()` | `Dictionary` | Returns a diagnostic summary for loaded style validation |
-| `to_shader_params()` | `Dictionary` | Single style handoff payload for contour shader uniforms: reusable albedo/normal/profile textures, material scale, tints, rim/outline controls, and normal strengths |
-| `to_runtime_geometry_params()` | `Dictionary` | Single style handoff payload for native contour geometry: facade height, side height, corner rounding, diagonal smoothing, contour warp, rim width, and bottom outline controls |
-| `color_value(color_id: String)` | `Color` | Parses a validated style colour for shader binding and diagnostics |
-
-Confirmed readable state:
-- authored style id fields: `asset_name`, `preset`
-- tile-size fields: `logical_tile_size_px`, `style_tile_size_px`
-- validated scalar style parameters for geometry, sampling, colours, outline,
-  rim, and normals
-- loaded reusable texture references: `top_albedo`, `face_albedo`,
-  `base_albedo`, `top_modulation`, `face_modulation`, `top_normal`,
-  `face_normal`, `edge_profile_lut`, and `height_profile_lut`
-
-Not documented here as safe entrypoints:
-- writing style data into save payloads or chunk packets
-- accepting legacy runtime SDF recipe JSON as a contour style package
-- using reference preview/normal images as gameplay textures
-- mutating loaded texture/path dictionaries after validation
-
-### MountainContourStyleRegistry
-
-Owner file: `core/systems/world/mountain_contour_style_registry.gd`
-
-Role:
-- boot/validation registry for known mountain contour styles
-- lookup by style id / generator `asset_name`
-
-Confirmed public surface:
-
-| Surface | Return | Notes |
-|---|---|---|
-| `load_default_styles()` | `bool` | Loads the repository canonical mountain style package |
-| `load_styles(style_paths: Array)` | `bool` | Clears and validates an explicit style path list |
-| `has_style(style_id: StringName)` | `bool` | Checks validated style availability |
-| `get_style(style_id: StringName)` | `MountainContourStyle` or `null` | Returns a validated style by id |
-| `require_style(style_id: StringName)` | `MountainContourStyle` or `null` | Emits a validation error when a required style is missing |
-| `get_style_ids()` | `Array[StringName]` | Snapshot of loaded style ids |
-| `debug_snapshot()` | `Dictionary` | Diagnostic registry state |
-
-Not documented here as safe entrypoints:
-- falling back to `unnamed_recipe.json`, legacy Full47, or square TileMap
-  presentation when style validation fails
-- deriving gameplay chunk data from style paths
-- storing style paths in save data or chunk packets
 
 ### WorldStreamer
 
@@ -454,17 +343,9 @@ Confirmed readable entrypoints:
 | `get_chunk_packet(chunk_coord: Vector2i)` | `Dictionary` | Loaded chunk packet or `{}`; read-only world-domain lookup for `MountainResolver` |
 | `get_mountain_cover_sample(world_tile: Vector2i)` | `Dictionary` | Read-only cover sample for one tile: `mountain_id`, `mountain_flags`, `component_id`, `is_opening`, `walkable` |
 | `get_mountain_cover_debug_snapshot(world_tile: Vector2i)` | `Dictionary` | Debug-only snapshot including `inside_outside_state`, active component ids, and `roof_layers_per_chunk_max` |
-| `get_effective_tile_data_at_world(world_pos: Vector2)` | `Dictionary` | Read-only effective tile sample from `base + diff`; does not expose derived contour cache state |
-| `is_raw_tile_walkable_at_world(world_pos: Vector2)` | `bool` | Reads only logical tile walkability from `base + diff`; intended for tile-domain systems such as harvest ray gating and pre-Task-9 building grid gating |
-| `is_walkable_at_world(world_pos: Vector2)` | `bool` | Point adapter to contour-aware movement walkability; returns `false` while a chunk or required mountain contour collision cache is not ready |
-| `is_capsule_walkable_at_world(world_pos: Vector2, radius_px: float)` | `bool` | Player/NPC movement query; uses mountain contour collision cache for contour-owned mountain terrain, blocks on missing required cache only when the queried capsule overlaps contour-owned mountain terrain, and preserves raw tile walkability for non-contour terrain |
-| `is_movement_blocked_at_world(world_pos: Vector2)` | `bool` | Point adapter that returns the inverse of contour-aware movement walkability |
-| `move_capsule_with_contour_slide(start: Vector2, motion: Vector2, radius_px: float)` | `Dictionary` | Player/NPC movement slide query; returns `blocked`, `collided`, `final_position`, `motion_applied`, `remainder`, and `normal` using contour collision where applicable |
-| `move_capsule_with_slide(start: Vector2, motion: Vector2, radius_px: float)` | `Dictionary` | Compatibility alias for `move_capsule_with_contour_slide(...)` |
-| `is_placement_shape_clear(world_shape: Variant)` | `bool` | Building placement footprint query for world-space `Rect2` or polygon shapes; uses mountain contour collision cache for contour-owned mountain terrain, blocks on missing required cache only when the queried footprint overlaps contour-owned mountain terrain, and preserves raw walkability for non-contour terrain |
+| `is_walkable_at_world(world_pos: Vector2)` | `bool` | Reads `base + diff`; returns `false` while a chunk is not ready |
 | `has_resource_at_world(world_pos: Vector2)` | `bool` | Diggable surface query for the current harvest path (`TERRAIN_MOUNTAIN_WALL` and `TERRAIN_MOUNTAIN_FOOT`); returns `true` only when the tile also has an orthogonally exposed walkable face |
 | `get_mountain_contour_debug_state(chunk_coord: Vector2i)` | `Dictionary` | Debug-only readback for the loaded chunk's L1 grid/mask/contour overlay state. Returns `ready: false` if the chunk view is not loaded. |
-| `get_mountain_contour_runtime_debug_snapshot(chunk_coord: Vector2i)` | `Dictionary` | Debug-only readback for the loaded chunk's derived contour visual/collision readiness, material readiness, per-surface visual vertex/triangle counts, seam halo state, runtime/visual/collision revision, mining dirty-update telemetry, and missing-cache blocking state. `visual_ready` may be true while `collision_ready` and aggregate `ready` are false when a partial/degraded contour visual is shown but a required seam cache is still fail-closed. Returns `ready: false` if the chunk view is not loaded or runtime contour data is not fully ready. |
 
 Confirmed mutation entrypoints:
 
@@ -474,9 +355,8 @@ Confirmed mutation entrypoints:
 | `reset_for_new_game(seed, version)` | Clears runtime state, queues native foundation spawn resolution for `world_version >= 9`, applies the resolved new-game spawn tile to the local player before streaming chunks, and emits `world_initialized` |
 | `load_world_state(data: Dictionary) -> bool` | Restores only current-version `world.json` payloads. Returns `false` before mutating runtime state when `world_version` is missing/non-current or the current `worldgen_settings` shape is incomplete; on success restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, and `worldgen_settings.lakes` from `world.json`, and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
-| `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock. When the mined tile is mountain contour terrain, the result includes transient `mountain_contour_dirty_update` telemetry with `runtime_revision`, `affected_chunk_count`, `affected_chunks`, `contour_rebuild_usec`, `visual_apply_usec`, and `collision_apply_usec`; this telemetry is not save or packet data. |
+| `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock |
 | `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver` to switch between outside state and one active cavity |
-| `reload_mountain_contour_style_from_disk()` | Developer-only authoring helper; reloads the canonical mountain contour style package from disk, keeps the previous style if validation fails, and reapplies loaded contour chunks with `dirty_reason = "style_reload"`. This is not an interactive mining path and must not become an automatic per-frame file watcher. |
 | `toggle_debug_tile_grid()` | Toggles the developer-only `F6` 64 px grid overlay for loaded chunks |
 | `toggle_debug_mountain_solid_mask()` | Toggles the developer-only `F7` current solid mountain mask overlay for loaded chunks |
 | `toggle_debug_mountain_contour()` | Toggles the developer-only `F10` native contour mesh overlay for loaded chunks; does not bind or use `F8` |
@@ -485,8 +365,6 @@ Not documented here as safe entrypoints:
 - `_streaming_tick()`
 - `_worker_loop()`
 - direct access to `_chunk_packets`, `_chunk_views`, or `_diff_store`
-- direct access to `_mountain_contour_collision_caches` or runtime contour
-  debug mirrors
 - direct mutation of native packet dictionaries outside the documented methods
 - mutation of dictionaries returned by `get_chunk_packet()`
 

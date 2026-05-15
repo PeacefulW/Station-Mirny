@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.2
-last_updated: 2026-05-14
+version: 1.1
+last_updated: 2026-05-05
 related_docs:
   - ../README.md
   - system_api.md
@@ -694,70 +694,6 @@ Current code notes:
   marching-squares helper, so it does not create a face-connected solid
   component
 - this result is not part of `ChunkPacketV1` and must not be persisted
-
-### `MountainContourRuntimeResultV1`
-
-Returned by production native
-`WorldCore.build_mountain_contour_runtime(solid_halo, chunk_size, tile_size_px, style_params)`.
-
-```text
-{
-  "ready": bool,
-  "chunk_size": int,
-  "tile_size_px": int,
-  "halo_side": int,
-  "solid_sample_count": int,
-  "visual_top_vertices": PackedVector2Array,
-  "visual_top_indices": PackedInt32Array,
-  "visual_top_attributes": PackedFloat32Array,
-  "visual_face_vertices": PackedVector2Array,
-  "visual_face_indices": PackedInt32Array,
-  "visual_face_attributes": PackedFloat32Array,
-  "visual_rim_vertices": PackedVector2Array,
-  "visual_rim_indices": PackedInt32Array,
-  "visual_rim_attributes": PackedFloat32Array,
-  "visual_outline_vertices": PackedVector2Array,
-  "visual_outline_indices": PackedInt32Array,
-  "visual_outline_attributes": PackedFloat32Array,
-  "collision_loops": Array[PackedVector2Array],
-  "collision_aabbs": Array[Rect2],
-  "boundary_edge_count": int,
-  "seam_touch_mask": int,
-  "compute_time_usec": int,
-}
-```
-
-Current code notes:
-- `solid_halo` is the same compact `(chunk_size + 2)^2` `PackedByteArray`
-  input used by `MountainContourDebugResult`: local chunk samples are offset by
-  the one-tile halo and read from effective mountain solid state (`base + diff`)
-- `style_params` supplies scalar contour geometry controls such as
-  `south_height_px`, `north_height_px`, `side_height_px`, `corner_round_px`,
-  `diagonal_smooth_px`, `contour_warp_px`, `roughness`, `corner_variation`,
-  `rim_width_px`, `mountain_outline_width_px`, and
-  `mountain_outline_enabled`; reusable texture assets remain owned by style
-  loading/rendering code, not by this result
-- every `visual_*_attributes` array stores eight floats per matching visual
-  vertex: `edge_u`, `edge_v`, `signed_distance`, `face_depth_px`,
-  `facade_side`, `zone`, local noise x, and local noise y. `edge_u` is the
-  deterministic position along the emitted contour edge stream; `edge_v` is the
-  local strip depth; `signed_distance` is positive inward/top-side and negative
-  outward/facade-side.
-- `collision_loops` and `collision_aabbs` are derived from filled contour
-  polygons that mirror the top mesh triangles. They intentionally do not depend
-  on a fully closed per-chunk boundary loop, so carved openings that cross a
-  chunk edge remain passable instead of becoming hidden seam walls. A fully
-  solid chunk with no local contour edge may use a full-chunk collision
-  fallback.
-- `seam_touch_mask` is a bit field for local chunk edge contact:
-  `1 = west`, `2 = east`, `4 = north`, `8 = south`
-- empty chunks return `ready: true` with empty but valid arrays; invalid input
-  returns `ready: false` with the same field set present
-- this result is derived runtime presentation/collision topology only; it is
-  not `ChunkPacketV1`, not authoritative terrain, not save data, and must not
-  be persisted
-- the runtime result must not contain per-chunk image buffers or texture bytes,
-  including `mask_rgba8`, `height_r16`, or `normal_rgba8`
 
 ## Not Currently Confirmed
 

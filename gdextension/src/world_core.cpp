@@ -870,7 +870,6 @@ void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("generate_chunk_packets_batch", "seed", "coords", "world_version", "settings_packed"), &WorldCore::generate_chunk_packets_batch);
 	ClassDB::bind_method(D_METHOD("make_world_preview_patch_image", "packet", "render_mode"), &WorldCore::make_world_preview_patch_image);
 	ClassDB::bind_method(D_METHOD("build_mountain_contour_debug", "solid_halo", "chunk_size", "tile_size_px"), &WorldCore::build_mountain_contour_debug);
-	ClassDB::bind_method(D_METHOD("build_mountain_contour_runtime", "solid_halo", "chunk_size", "tile_size_px", "style_params"), &WorldCore::build_mountain_contour_runtime);
 	ClassDB::bind_method(D_METHOD("resolve_world_foundation_spawn_tile", "seed", "world_version", "settings_packed"), &WorldCore::resolve_world_foundation_spawn_tile);
 #ifdef DEBUG_ENABLED
 	ClassDB::bind_method(D_METHOD("get_world_foundation_snapshot", "layer_mask", "downscale_factor"), &WorldCore::get_world_foundation_snapshot);
@@ -1031,20 +1030,6 @@ Dictionary WorldCore::build_mountain_contour_debug(
 		p_solid_halo,
 		static_cast<int32_t>(p_chunk_size),
 		static_cast<int32_t>(p_tile_size_px)
-	);
-}
-
-Dictionary WorldCore::build_mountain_contour_runtime(
-	PackedByteArray p_solid_halo,
-	int64_t p_chunk_size,
-	int64_t p_tile_size_px,
-	Dictionary p_style_params
-) {
-	return mountain_contour::build_runtime_result(
-		p_solid_halo,
-		static_cast<int32_t>(p_chunk_size),
-		static_cast<int32_t>(p_tile_size_px),
-		p_style_params
 	);
 }
 

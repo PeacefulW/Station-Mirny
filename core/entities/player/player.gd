@@ -113,7 +113,7 @@ func _find_harvest_target_position() -> Vector2:
 	var chunk_manager: Node = _get_chunk_manager()
 	if chunk_manager == null \
 			or not chunk_manager.has_method("has_resource_at_world") \
-			or not chunk_manager.has_method("is_raw_tile_walkable_at_world"):
+			or not chunk_manager.has_method("is_walkable_at_world"):
 		return Vector2.INF
 	var dir: Vector2 = get_global_mouse_position() - global_position
 	var end_world: Vector2 = global_position if dir.length_squared() <= 0.0001 \
@@ -122,7 +122,7 @@ func _find_harvest_target_position() -> Vector2:
 		global_position,
 		end_world,
 		Callable(chunk_manager, "has_resource_at_world"),
-		Callable(chunk_manager, "is_raw_tile_walkable_at_world")
+		Callable(chunk_manager, "is_walkable_at_world")
 	)
 
 func tick_harvest_cooldown(delta: float) -> void:
@@ -216,18 +216,7 @@ func _on_world_initialized(_seed_value: int) -> void:
 func _apply_terrain_blocking(delta: float) -> void:
 	if velocity == Vector2.ZERO:
 		return
-	var chunk_manager: Node = _get_chunk_manager()
-	if chunk_manager == null:
-		return
-	if chunk_manager.has_method("move_capsule_with_contour_slide"):
-		var motion: Vector2 = velocity * delta
-		var slide: Dictionary = chunk_manager.move_capsule_with_contour_slide(
-			global_position,
-			motion,
-			_resolve_blocking_radius_px()
-		)
-		var motion_applied: Vector2 = slide.get("motion_applied", motion) as Vector2
-		velocity = motion_applied / maxf(delta, 0.0001)
+	if _get_chunk_manager() == null:
 		return
 	var intended_pos: Vector2 = global_position + velocity * delta
 	if _can_occupy_world(intended_pos):
@@ -254,11 +243,7 @@ func _apply_terrain_blocking(delta: float) -> void:
 
 func _can_occupy_world(target_pos: Vector2) -> bool:
 	var chunk_manager: Node = _get_chunk_manager()
-	if not chunk_manager:
-		return true
-	if chunk_manager.has_method("is_capsule_walkable_at_world"):
-		return chunk_manager.is_capsule_walkable_at_world(target_pos, _resolve_blocking_radius_px())
-	if not chunk_manager.has_method("is_walkable_at_world"):
+	if not chunk_manager or not chunk_manager.has_method("is_walkable_at_world"):
 		return true
 	var sample_points: Array[Vector2] = _build_occupancy_sample_points(target_pos)
 	for point: Vector2 in sample_points:
@@ -297,21 +282,6 @@ func _resolve_blocking_half_extents() -> Vector2:
 		var capsule: CapsuleShape2D = shape as CapsuleShape2D
 		return Vector2(capsule.radius, capsule.radius + capsule.height * 0.5)
 	return Vector2(20.0, 20.0)
-
-func _resolve_blocking_radius_px() -> float:
-	var collision_shape_node: CollisionShape2D = get_node_or_null("CollisionShape2D") as CollisionShape2D
-	if collision_shape_node == null or collision_shape_node.shape == null:
-		return 20.0
-	var shape: Shape2D = collision_shape_node.shape
-	if shape is CircleShape2D:
-		return maxf(4.0, (shape as CircleShape2D).radius)
-	if shape is CapsuleShape2D:
-		return maxf(4.0, (shape as CapsuleShape2D).radius)
-	if shape is RectangleShape2D:
-		var size: Vector2 = (shape as RectangleShape2D).size
-		return maxf(4.0, minf(size.x, size.y) * 0.5)
-	var half_extents: Vector2 = _resolve_blocking_half_extents()
-	return maxf(4.0, minf(half_extents.x, half_extents.y))
 
 func update_movement_velocity() -> void:
 	var direction: Vector2 = get_move_input()

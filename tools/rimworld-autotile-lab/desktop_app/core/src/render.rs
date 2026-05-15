@@ -27,8 +27,6 @@ const RUNTIME_SDF_RECIPE_SCHEMA: &str = "station_peaceful.runtime_sdf_contour_re
 const RUNTIME_SDF_CHUNK_SIZE_TILES: u32 = 16;
 const RUNTIME_SDF_COLLISION_THRESHOLD_PX: f32 = 0.0;
 const RUNTIME_SDF_COLLISION_SAMPLE_PX: u32 = 4;
-const CONTOUR_STYLE_SCHEMA_VERSION: u32 = 1;
-const CONTOUR_PROFILE_LUT_WIDTH: u32 = 256;
 const EDGE_NOISE_PERIOD_TILES: f32 = 8.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -264,60 +262,6 @@ struct RuntimeSdfRecipeDeterminism {
     forced_variant: Option<u32>,
 }
 
-#[derive(Serialize)]
-struct ContourStyleV1Payload {
-    schema_version: u32,
-    asset_name: String,
-    preset: String,
-    logical_tile_size_px: u32,
-    style_tile_size_px: u32,
-    south_height_px: f32,
-    north_height_px: f32,
-    side_height_px: f32,
-    corner_round_px: f32,
-    diagonal_smooth_px: f32,
-    contour_warp_px: f32,
-    roughness: f32,
-    corner_variation: f32,
-    rim_width_px: f32,
-    edge_debris: f32,
-    edge_color_strength: f32,
-    mountain_outline_enabled: bool,
-    mountain_outline_width_px: f32,
-    normal_strength: f32,
-    normal_detail_strength: f32,
-    top_world_scale_px: f32,
-    face_world_scale_px: f32,
-    macro_world_scale_px: f32,
-    texture_scale: f32,
-    colors: ContourStyleV1Colors,
-    texture_paths: ContourStyleV1TexturePaths,
-    reference_preview_path: String,
-    reference_normal_path: String,
-}
-
-#[derive(Serialize)]
-struct ContourStyleV1Colors {
-    top: String,
-    face: String,
-    edge: String,
-    back: String,
-    base: String,
-}
-
-#[derive(Serialize)]
-struct ContourStyleV1TexturePaths {
-    top_albedo: String,
-    face_albedo: String,
-    base_albedo: String,
-    top_modulation: String,
-    face_modulation: String,
-    top_normal: String,
-    face_normal: String,
-    edge_profile_lut: String,
-    height_profile_lut: String,
-}
-
 #[cfg(test)]
 fn run_request(mode: RenderMode, request: AppRequest, output_dir: &Path) -> Result<OutputManifest> {
     run_request_with_options(mode, request, output_dir, RenderOptions::default())
@@ -429,14 +373,10 @@ pub fn run_request_with_options(
                     atlas_height_png: Some(to_string_path(&height_atlas_path)),
                     atlas_normal_png: Some(to_string_path(&normal_atlas_path)),
                     runtime_sdf_recipe_json: Some(to_string_path(&runtime_sdf_recipe_path)),
-                    contour_style_json: None,
                     reference_mask_png: None,
                     reference_height_png: None,
-                    reference_preview_png: None,
                     reference_normal_png: None,
                     reference_albedo_png: None,
-                    edge_profile_lut_png: None,
-                    height_profile_lut_png: None,
                     top_albedo_png: Some(to_string_path(&top_albedo_path)),
                     face_albedo_png: Some(to_string_path(&face_albedo_path)),
                     base_albedo_png: Some(to_string_path(&base_albedo_path)),
@@ -480,17 +420,11 @@ pub fn run_request_with_options(
             ExportMode::RuntimeSdfContour => {
                 let reference_exports = build_runtime_sdf_reference_exports(&request, &textures)?;
                 let material_exports = build_material_exports(&request, &textures);
-                let edge_profile_lut = build_edge_profile_lut(&request);
-                let height_profile_lut = build_height_profile_lut(&request);
 
-                let contour_style_path =
-                    export_file_path(output_dir, &request, "contour_style.v1", "json");
                 let reference_mask_path =
                     export_file_path(output_dir, &request, "reference_mask", "png");
                 let reference_height_path =
                     export_file_path(output_dir, &request, "reference_height", "png");
-                let reference_preview_path =
-                    export_file_path(output_dir, &request, "reference_preview", "png");
                 let reference_normal_path =
                     export_file_path(output_dir, &request, "reference_normal", "png");
                 let reference_albedo_path =
@@ -504,14 +438,9 @@ pub fn run_request_with_options(
                     export_file_path(output_dir, &request, "face_modulation", "png");
                 let top_normal_path = export_file_path(output_dir, &request, "top_normal", "png");
                 let face_normal_path = export_file_path(output_dir, &request, "face_normal", "png");
-                let edge_profile_lut_path =
-                    export_file_path(output_dir, &request, "edge_profile_lut", "png");
-                let height_profile_lut_path =
-                    export_file_path(output_dir, &request, "height_profile_lut", "png");
 
                 reference_exports.mask.save(&reference_mask_path)?;
                 reference_exports.height.save(&reference_height_path)?;
-                reference_exports.albedo.save(&reference_preview_path)?;
                 reference_exports.normal.save(&reference_normal_path)?;
                 reference_exports.albedo.save(&reference_albedo_path)?;
                 material_exports.top_albedo.save(&top_albedo_path)?;
@@ -523,8 +452,6 @@ pub fn run_request_with_options(
                     .save(&face_modulation_path)?;
                 material_exports.top_normal.save(&top_normal_path)?;
                 material_exports.face_normal.save(&face_normal_path)?;
-                edge_profile_lut.save(&edge_profile_lut_path)?;
-                height_profile_lut.save(&height_profile_lut_path)?;
 
                 (
                     GeneratedFiles {
@@ -535,14 +462,10 @@ pub fn run_request_with_options(
                         atlas_height_png: None,
                         atlas_normal_png: None,
                         runtime_sdf_recipe_json: Some(to_string_path(&recipe_path)),
-                        contour_style_json: Some(to_string_path(&contour_style_path)),
                         reference_mask_png: Some(to_string_path(&reference_mask_path)),
                         reference_height_png: Some(to_string_path(&reference_height_path)),
-                        reference_preview_png: Some(to_string_path(&reference_preview_path)),
                         reference_normal_png: Some(to_string_path(&reference_normal_path)),
                         reference_albedo_png: Some(to_string_path(&reference_albedo_path)),
-                        edge_profile_lut_png: Some(to_string_path(&edge_profile_lut_path)),
-                        height_profile_lut_png: Some(to_string_path(&height_profile_lut_path)),
                         top_albedo_png: Some(to_string_path(&top_albedo_path)),
                         face_albedo_png: Some(to_string_path(&face_albedo_path)),
                         base_albedo_png: Some(to_string_path(&base_albedo_path)),
@@ -563,9 +486,6 @@ pub fn run_request_with_options(
         if mode == RenderMode::Full && matches!(request.export_mode, ExportMode::RuntimeSdfContour)
         {
             write_runtime_sdf_recipe(&recipe_path, &request, &files, request.tile_size)?;
-            if let Some(style_path) = files.contour_style_json.as_deref() {
-                write_contour_style_v1(Path::new(style_path), &request, &files)?;
-            }
         } else {
             if mode == RenderMode::Full
                 && matches!(request.export_mode, ExportMode::Full16)
@@ -673,17 +593,6 @@ fn write_runtime_sdf_recipe(
     Ok(())
 }
 
-fn write_contour_style_v1(
-    style_path: &Path,
-    request: &AppRequest,
-    files: &GeneratedFiles,
-) -> Result<()> {
-    let style = build_contour_style_v1_payload(request, files);
-    fs::write(style_path, serde_json::to_vec_pretty(&style)?)
-        .with_context(|| format!("failed to write contour style: {}", style_path.display()))?;
-    Ok(())
-}
-
 fn generated_files_without_preview(recipe_path: &Path) -> GeneratedFiles {
     GeneratedFiles {
         preview_png: String::new(),
@@ -693,14 +602,10 @@ fn generated_files_without_preview(recipe_path: &Path) -> GeneratedFiles {
         atlas_height_png: None,
         atlas_normal_png: None,
         runtime_sdf_recipe_json: None,
-        contour_style_json: None,
         reference_mask_png: None,
         reference_height_png: None,
-        reference_preview_png: None,
         reference_normal_png: None,
         reference_albedo_png: None,
-        edge_profile_lut_png: None,
-        height_profile_lut_png: None,
         top_albedo_png: None,
         face_albedo_png: None,
         base_albedo_png: None,
@@ -709,63 +614,6 @@ fn generated_files_without_preview(recipe_path: &Path) -> GeneratedFiles {
         top_normal_png: None,
         face_normal_png: None,
         recipe_json: to_string_path(recipe_path),
-    }
-}
-
-fn build_contour_style_v1_payload(
-    request: &AppRequest,
-    files: &GeneratedFiles,
-) -> ContourStyleV1Payload {
-    let authored_tile_size = request.tile_size.max(1) as f32;
-    let logical_tile_size = RUNTIME_SDF_GAME_TILE_SIZE.max(1);
-    let geometry_scale = logical_tile_size as f32 / authored_tile_size;
-    let scale_px = |value: f32| value * geometry_scale;
-
-    ContourStyleV1Payload {
-        schema_version: CONTOUR_STYLE_SCHEMA_VERSION,
-        asset_name: request.asset_name.clone(),
-        preset: request.preset.clone(),
-        logical_tile_size_px: logical_tile_size,
-        style_tile_size_px: request.tile_size,
-        south_height_px: scale_px(request.south_height as f32),
-        north_height_px: scale_px(request.north_height as f32),
-        side_height_px: scale_px(request.side_height as f32),
-        corner_round_px: scale_px(request.corner_round_px as f32),
-        diagonal_smooth_px: scale_px(request.diagonal_smooth_px as f32),
-        contour_warp_px: scale_px(request.contour_warp_px),
-        roughness: request.roughness,
-        corner_variation: request.corner_variation,
-        rim_width_px: scale_px(request.rim_width as f32),
-        edge_debris: request.edge_debris,
-        edge_color_strength: request.edge_color_strength,
-        mountain_outline_enabled: request.mountain_outline_enabled,
-        mountain_outline_width_px: scale_px(request.mountain_outline_width as f32),
-        normal_strength: request.normal_strength,
-        normal_detail_strength: request.normal_detail_strength,
-        top_world_scale_px: request.top_world_scale_px,
-        face_world_scale_px: request.face_world_scale_px,
-        macro_world_scale_px: request.macro_world_scale_px,
-        texture_scale: request.texture_scale,
-        colors: ContourStyleV1Colors {
-            top: request.colors.top.clone(),
-            face: request.colors.face.clone(),
-            edge: request.colors.edge.clone(),
-            back: request.colors.back.clone(),
-            base: request.colors.base.clone(),
-        },
-        texture_paths: ContourStyleV1TexturePaths {
-            top_albedo: file_name_string(files.top_albedo_png.as_deref()),
-            face_albedo: file_name_string(files.face_albedo_png.as_deref()),
-            base_albedo: file_name_string(files.base_albedo_png.as_deref()),
-            top_modulation: file_name_string(files.top_modulation_png.as_deref()),
-            face_modulation: file_name_string(files.face_modulation_png.as_deref()),
-            top_normal: file_name_string(files.top_normal_png.as_deref()),
-            face_normal: file_name_string(files.face_normal_png.as_deref()),
-            edge_profile_lut: file_name_string(files.edge_profile_lut_png.as_deref()),
-            height_profile_lut: file_name_string(files.height_profile_lut_png.as_deref()),
-        },
-        reference_preview_path: file_name_string(files.reference_preview_png.as_deref()),
-        reference_normal_path: file_name_string(files.reference_normal_png.as_deref()),
     }
 }
 
@@ -1115,56 +963,6 @@ fn build_material_exports(request: &AppRequest, textures: &TextureSet) -> Materi
             request.normal_strength,
         ),
     }
-}
-
-fn build_edge_profile_lut(request: &AppRequest) -> RgbaImage {
-    RgbaImage::from_fn(CONTOUR_PROFILE_LUT_WIDTH, 1, |x, _| {
-        let denom = (CONTOUR_PROFILE_LUT_WIDTH - 1).max(1) as f32;
-        let t = x as f32 / denom;
-        let rim = smoothstep(0.0, 0.35, 1.0 - t);
-        let outline = if request.mountain_outline_enabled {
-            smoothstep(0.0, 0.18, t)
-        } else {
-            0.0
-        };
-        let debris = clamp(
-            (1.0 - (t - 0.28).abs() * 3.2) * request.edge_debris,
-            0.0,
-            1.0,
-        );
-        Rgba([
-            coverage_byte(rim),
-            coverage_byte(outline),
-            coverage_byte(debris),
-            255,
-        ])
-    })
-}
-
-fn build_height_profile_lut(request: &AppRequest) -> RgbaImage {
-    let max_height = request
-        .south_height
-        .max(request.north_height)
-        .max(request.side_height)
-        .max(1) as f32;
-    RgbaImage::from_fn(CONTOUR_PROFILE_LUT_WIDTH, 1, |x, _| {
-        let denom = (CONTOUR_PROFILE_LUT_WIDTH - 1).max(1) as f32;
-        let t = x as f32 / denom;
-        let height = smoothstep(0.0, 1.0, t);
-        let face_depth = (height * request.south_height as f32 / max_height).clamp(0.0, 1.0);
-        let normal_hint = (1.0 - (2.0 * t - 1.0).abs()).clamp(0.0, 1.0);
-        Rgba([
-            coverage_byte(height),
-            coverage_byte(face_depth),
-            coverage_byte(normal_hint),
-            255,
-        ])
-    })
-}
-
-fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
-    let t = ((value - edge0) / (edge1 - edge0).max(0.0001)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
 }
 
 fn build_runtime_sdf_reference_exports(
@@ -4507,11 +4305,6 @@ mod tests {
             manifest.files.recipe_json.clone(),
             manifest
                 .files
-                .contour_style_json
-                .clone()
-                .expect("runtime export should include contour style json"),
-            manifest
-                .files
                 .reference_mask_png
                 .clone()
                 .expect("runtime export should include reference mask"),
@@ -4520,11 +4313,6 @@ mod tests {
                 .reference_height_png
                 .clone()
                 .expect("runtime export should include reference height"),
-            manifest
-                .files
-                .reference_preview_png
-                .clone()
-                .expect("runtime export should include reference preview"),
             manifest
                 .files
                 .reference_normal_png
@@ -4570,16 +4358,6 @@ mod tests {
                 .face_normal_png
                 .clone()
                 .expect("runtime export should include face normal"),
-            manifest
-                .files
-                .edge_profile_lut_png
-                .clone()
-                .expect("runtime export should include edge profile LUT"),
-            manifest
-                .files
-                .height_profile_lut_png
-                .clone()
-                .expect("runtime export should include height profile LUT"),
         ]
     }
 
@@ -6736,127 +6514,6 @@ mod tests {
                 .to_rgba8();
             assert_eq!(image.dimensions(), (512, 512));
         }
-    }
-
-    #[test]
-    fn runtime_sdf_contour_export_writes_contour_style_v1_package() {
-        let output_dir = test_output_dir("runtime_contour_style_package");
-        let request = runtime_sdf_fixture_request("mountain", "mountain");
-
-        run_request(RenderMode::Full, request, &output_dir)
-            .expect("runtime contour style export should render");
-
-        for name in [
-            "mountain_contour_style.v1.json",
-            "mountain_top_albedo.png",
-            "mountain_face_albedo.png",
-            "mountain_base_albedo.png",
-            "mountain_top_modulation.png",
-            "mountain_face_modulation.png",
-            "mountain_top_normal.png",
-            "mountain_face_normal.png",
-            "mountain_edge_profile_lut.png",
-            "mountain_height_profile_lut.png",
-            "mountain_reference_preview.png",
-            "mountain_reference_normal.png",
-        ] {
-            assert!(
-                output_dir.join(name).exists(),
-                "ContourStyleV1 package should include {name}"
-            );
-        }
-
-        let style: serde_json::Value = serde_json::from_slice(
-            &test_fs::read(output_dir.join("mountain_contour_style.v1.json"))
-                .expect("style json should be readable"),
-        )
-        .expect("style json should be valid JSON");
-
-        for field in [
-            "schema_version",
-            "asset_name",
-            "preset",
-            "logical_tile_size_px",
-            "style_tile_size_px",
-            "south_height_px",
-            "north_height_px",
-            "side_height_px",
-            "corner_round_px",
-            "diagonal_smooth_px",
-            "contour_warp_px",
-            "roughness",
-            "corner_variation",
-            "rim_width_px",
-            "edge_debris",
-            "edge_color_strength",
-            "mountain_outline_enabled",
-            "mountain_outline_width_px",
-            "normal_strength",
-            "normal_detail_strength",
-            "top_world_scale_px",
-            "face_world_scale_px",
-            "macro_world_scale_px",
-            "texture_scale",
-            "colors",
-            "texture_paths",
-            "reference_preview_path",
-            "reference_normal_path",
-        ] {
-            assert!(style.get(field).is_some(), "missing style field {field}");
-        }
-
-        assert_eq!(style["schema_version"], 1);
-        assert_eq!(style["asset_name"], "mountain");
-        assert_eq!(style["preset"], "mountain");
-        assert_eq!(style["logical_tile_size_px"], 64);
-        assert_eq!(style["style_tile_size_px"], 64);
-        assert_eq!(
-            style["texture_paths"]["top_albedo"],
-            "mountain_top_albedo.png"
-        );
-        assert_eq!(
-            style["reference_preview_path"],
-            "mountain_reference_preview.png"
-        );
-        assert_eq!(
-            style["reference_normal_path"],
-            "mountain_reference_normal.png"
-        );
-    }
-
-    #[test]
-    fn contour_style_v1_paths_use_authored_asset_name_prefix() {
-        let output_dir = test_output_dir("runtime_contour_style_asset_prefix");
-        let request = runtime_sdf_fixture_request("polar_ridge", "mountain");
-
-        run_request(RenderMode::Full, request, &output_dir)
-            .expect("runtime contour style export should render");
-
-        let style: serde_json::Value = serde_json::from_slice(
-            &test_fs::read(output_dir.join("polar_ridge_contour_style.v1.json"))
-                .expect("style json should be readable"),
-        )
-        .expect("style json should be valid JSON");
-
-        for value in style["texture_paths"]
-            .as_object()
-            .expect("texture_paths should be an object")
-            .values()
-        {
-            let path = value.as_str().expect("texture path should be a string");
-            assert!(
-                path.starts_with("polar_ridge_"),
-                "texture path should use the authored asset_name prefix: {path}"
-            );
-        }
-        assert_eq!(
-            style["reference_preview_path"],
-            "polar_ridge_reference_preview.png"
-        );
-        assert_eq!(
-            style["reference_normal_path"],
-            "polar_ridge_reference_normal.png"
-        );
     }
 
     #[test]

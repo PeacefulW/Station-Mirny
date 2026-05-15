@@ -5,20 +5,13 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
 const TerrainPresentationRegistry = preload("res://core/systems/world/terrain_presentation_registry.gd")
 const ChunkDebugVisualLayer = preload("res://core/systems/world/chunk_debug_visual_layer.gd")
-const MountainContourStyle = preload("res://core/systems/world/mountain_contour_style.gd")
-const MountainContourVisualLayer = preload("res://core/systems/world/mountain_contour_visual_layer.gd")
 const MOUNTAIN_COVER_SHADER = preload("res://assets/shaders/mountain_cover_overlay.gdshader")
-
-const MOUNTAIN_CONTOUR_VISUAL_Z_INDEX: int = 5
-const MOUNTAIN_CONTOUR_VISUAL_CUTOVER_ACCEPTED: bool = true
-const MOUNTAIN_CONTOUR_VISUAL_CUTOVER_BLOCKED_REASON: String = ""
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 
 var _base_layer: TileMapLayer = null
 var _overlay_layer: TileMapLayer = null
 var _water_layer: TileMapLayer = null
-var _mountain_contour_visual_layer: MountainContourVisualLayer = null
 var _debug_layer: ChunkDebugVisualLayer = null
 var roof_layers_by_mountain: Dictionary = {}
 var _roof_mask_images_by_mountain: Dictionary = {}
@@ -37,7 +30,6 @@ var _debug_contour_visible: bool = false
 var _debug_solid_mask: PackedByteArray = PackedByteArray()
 var _debug_contour_vertices: PackedVector2Array = PackedVector2Array()
 var _debug_contour_indices: PackedInt32Array = PackedInt32Array()
-var _mountain_contour_runtime_stats: Dictionary = {}
 
 func _exit_tree() -> void:
 	_roof_mask_images_by_mountain.clear()
@@ -62,7 +54,6 @@ func begin_apply(packet: Dictionary) -> void:
 	visible = false
 	_ensure_layers()
 	_refresh_debug_solid_mask()
-	_clear_mountain_contour_runtime_data()
 
 func apply_next_batch(batch_size: int) -> bool:
 	if _pending_terrain_ids.is_empty():
@@ -113,7 +104,6 @@ func apply_runtime_cell(
 				_pending_mountain_flags[index] = mountain_flags
 	_apply_cell(local_coord, terrain_id, terrain_atlas_index)
 	_apply_water_patch_around(local_coord)
-	_apply_roof_cell(local_coord, index)
 	_refresh_debug_solid_mask()
 
 func set_debug_overlays(grid_visible: bool, solid_mask_visible: bool, contour_visible: bool) -> void:
@@ -147,55 +137,6 @@ func get_mountain_contour_debug_state() -> Dictionary:
 		"contour_index_count": _debug_contour_indices.size(),
 		"contour_triangle_count": _debug_contour_indices.size() / 3,
 	}
-
-func apply_mountain_contour_runtime_data(
-	style: MountainContourStyle,
-	runtime_result: Dictionary,
-	collision_ready: bool,
-	halo_state: Dictionary,
-	runtime_visible: bool = false
-) -> void:
-	_ensure_layers()
-	var resolved_runtime_visible: bool = runtime_visible and _is_mountain_contour_visual_cutover_enabled()
-	var result_ready: bool = bool(runtime_result.get("ready", false))
-	if style == null or not result_ready:
-		_clear_mountain_contour_runtime_data()
-		_mountain_contour_runtime_stats = _build_mountain_contour_runtime_stats(
-			style,
-			{},
-			collision_ready,
-			halo_state,
-			false,
-			resolved_runtime_visible,
-			runtime_visible
-		)
-		return
-	var layer: MountainContourVisualLayer = _ensure_mountain_contour_visual_layer()
-	layer.configure(chunk_coord, style)
-	var visual_ready: bool = layer.apply_runtime_result(runtime_result)
-	layer.z_index = MOUNTAIN_CONTOUR_VISUAL_Z_INDEX
-	layer.visible = resolved_runtime_visible and visual_ready and layer.get_total_vertex_count() > 0
-	_mountain_contour_runtime_stats = _build_mountain_contour_runtime_stats(
-		style,
-		layer.get_debug_stats(),
-		collision_ready,
-		halo_state,
-		visual_ready,
-		resolved_runtime_visible,
-		runtime_visible
-	)
-
-func get_mountain_contour_runtime_debug_snapshot() -> Dictionary:
-	if _mountain_contour_runtime_stats.is_empty():
-		_mountain_contour_runtime_stats = _build_mountain_contour_runtime_stats(
-			null,
-			{},
-			false,
-			{},
-			false,
-			false
-		)
-	return _mountain_contour_runtime_stats.duplicate(true)
 
 func apply_cover_visibility(visible_mask: PackedByteArray) -> void:
 	_ensure_layers()
@@ -245,17 +186,6 @@ func _ensure_layers() -> void:
 		_overlay_layer.z_index = 1
 		add_child(_overlay_layer)
 
-func _ensure_mountain_contour_visual_layer() -> MountainContourVisualLayer:
-	if _mountain_contour_visual_layer != null and is_instance_valid(_mountain_contour_visual_layer):
-		_mountain_contour_visual_layer.z_index = MOUNTAIN_CONTOUR_VISUAL_Z_INDEX
-		return _mountain_contour_visual_layer
-	_mountain_contour_visual_layer = MountainContourVisualLayer.new()
-	_mountain_contour_visual_layer.name = "MountainContourVisualLayer"
-	_mountain_contour_visual_layer.z_index = MOUNTAIN_CONTOUR_VISUAL_Z_INDEX
-	_mountain_contour_visual_layer.visible = false
-	add_child(_mountain_contour_visual_layer)
-	return _mountain_contour_visual_layer
-
 func _ensure_water_layer() -> TileMapLayer:
 	if _water_layer != null and is_instance_valid(_water_layer):
 		return _water_layer
@@ -295,34 +225,27 @@ func _ensure_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
 func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: int) -> void:
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
 		return
-	var tilemap_terrain_id: int = _resolve_base_tilemap_terrain_id(terrain_id)
-	var tilemap_atlas_index: int = 0 if tilemap_terrain_id != terrain_id else terrain_atlas_index
-	if WorldTileSetFactory.uses_overlay_layer(tilemap_terrain_id):
+	if WorldTileSetFactory.uses_overlay_layer(terrain_id):
 		_clear_cell(_base_layer, local_coord)
 		_overlay_layer.set_cell(
 			local_coord,
-			WorldTileSetFactory.get_source_id(tilemap_terrain_id),
-			WorldTileSetFactory.get_atlas_coords(tilemap_terrain_id, tilemap_atlas_index)
+			WorldTileSetFactory.get_source_id(terrain_id),
+			WorldTileSetFactory.get_atlas_coords(terrain_id, terrain_atlas_index)
 		)
 		return
 	_clear_cell(_overlay_layer, local_coord)
 	_base_layer.set_cell(
 		local_coord,
-		WorldTileSetFactory.get_source_id(tilemap_terrain_id),
-		WorldTileSetFactory.get_atlas_coords(tilemap_terrain_id, tilemap_atlas_index)
+		WorldTileSetFactory.get_source_id(terrain_id),
+		WorldTileSetFactory.get_atlas_coords(terrain_id, terrain_atlas_index)
 	)
 
 func _apply_roof_cell(local_coord: Vector2i, index: int) -> void:
 	if index < 0 or index >= _pending_mountain_ids.size() or index >= _pending_mountain_flags.size():
-		_clear_all_roof_surface_cells(local_coord)
 		return
 	var mountain_id: int = int(_pending_mountain_ids[index])
 	var mountain_flags: int = int(_pending_mountain_flags[index])
 	if not _is_roof_bearing_mountain_tile(mountain_id, mountain_flags):
-		_clear_all_roof_surface_cells(local_coord)
-		return
-	if _is_mountain_contour_visual_cutover_enabled():
-		_clear_all_roof_surface_cells(local_coord)
 		return
 	var terrain_atlas_index: int = 0
 	if index < _pending_mountain_atlas_indices.size():
@@ -335,18 +258,6 @@ func _apply_roof_cell(local_coord: Vector2i, index: int) -> void:
 		WorldTileSetFactory.get_roof_source_id(roof_terrain_id),
 		WorldTileSetFactory.get_atlas_coords(roof_terrain_id, terrain_atlas_index)
 	)
-
-func _resolve_base_tilemap_terrain_id(terrain_id: int) -> int:
-	if _is_mountain_contour_visual_cutover_enabled() and _is_mountain_contour_terrain(terrain_id):
-		return WorldRuntimeConstants.TERRAIN_PLAINS_GROUND
-	return terrain_id
-
-func _is_mountain_contour_visual_cutover_enabled() -> bool:
-	return MOUNTAIN_CONTOUR_VISUAL_CUTOVER_ACCEPTED
-
-func _is_mountain_contour_terrain(terrain_id: int) -> bool:
-	return terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
-		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
 
 func _apply_water_patch_around(local_coord: Vector2i) -> void:
 	for offset: Vector2i in [
@@ -423,77 +334,6 @@ func _sync_debug_layer_data() -> void:
 		return
 	_debug_layer.set_debug_data(_debug_solid_mask, _debug_contour_vertices, _debug_contour_indices)
 
-func _clear_mountain_contour_runtime_data() -> void:
-	if _mountain_contour_visual_layer != null and is_instance_valid(_mountain_contour_visual_layer):
-		_mountain_contour_visual_layer.clear_runtime_result()
-		_mountain_contour_visual_layer.visible = false
-		_mountain_contour_visual_layer.z_index = MOUNTAIN_CONTOUR_VISUAL_Z_INDEX
-	_mountain_contour_runtime_stats = _build_mountain_contour_runtime_stats(
-		null,
-		{},
-		false,
-		{},
-		false,
-		false
-	)
-
-func _build_mountain_contour_runtime_stats(
-	style: MountainContourStyle,
-	layer_stats: Dictionary,
-	collision_ready: bool,
-	halo_state: Dictionary,
-	visual_ready: bool,
-	runtime_visible: bool,
-	runtime_visible_requested: bool = false
-) -> Dictionary:
-	var has_layer: bool = _mountain_contour_visual_layer != null and is_instance_valid(_mountain_contour_visual_layer)
-	var style_id: StringName = &""
-	var style_source_signature: Dictionary = {}
-	if style != null:
-		style_id = style.asset_name
-		style_source_signature = style.get_source_signature()
-	var visual_cutover_accepted: bool = _is_mountain_contour_visual_cutover_enabled()
-	return {
-		"ready": visual_ready and collision_ready,
-		"gameplay_cutover_ready": visual_ready and collision_ready and runtime_visible and visual_cutover_accepted,
-		"chunk_coord": chunk_coord,
-		"style_id": style_id,
-		"style_source_signature": style_source_signature,
-		"visual_cutover_accepted": visual_cutover_accepted,
-		"visual_cutover_blocked_reason": "" if visual_cutover_accepted else MOUNTAIN_CONTOUR_VISUAL_CUTOVER_BLOCKED_REASON,
-		"visual_ready": visual_ready,
-		"collision_ready": collision_ready,
-		"has_visual_layer": has_layer,
-		"visual_layer_visible": has_layer and _mountain_contour_visual_layer.visible,
-		"visual_layer_z_index": _mountain_contour_visual_layer.z_index if has_layer else -1,
-		"runtime_visibility_requested": runtime_visible_requested,
-		"runtime_visibility_enabled": runtime_visible,
-		"material_ready": bool(layer_stats.get("material_ready", false)),
-		"surface_count": int(layer_stats.get("surface_count", 0)),
-		"total_vertex_count": int(layer_stats.get("total_vertex_count", 0)),
-		"top_vertex_count": int(layer_stats.get("top_vertex_count", 0)),
-		"face_vertex_count": int(layer_stats.get("face_vertex_count", 0)),
-		"rim_vertex_count": int(layer_stats.get("rim_vertex_count", 0)),
-		"outline_vertex_count": int(layer_stats.get("outline_vertex_count", 0)),
-		"total_triangle_count": int(layer_stats.get("total_triangle_count", 0)),
-		"top_triangle_count": int(layer_stats.get("top_triangle_count", 0)),
-		"face_triangle_count": int(layer_stats.get("face_triangle_count", 0)),
-		"rim_triangle_count": int(layer_stats.get("rim_triangle_count", 0)),
-		"outline_triangle_count": int(layer_stats.get("outline_triangle_count", 0)),
-		"loop_count": int(halo_state.get("loop_count", 0)),
-		"aabb_count": int(halo_state.get("aabb_count", 0)),
-		"solid_sample_count": int(layer_stats.get("solid_sample_count", halo_state.get("solid_sample_count", 0))),
-		"boundary_edge_count": int(layer_stats.get("boundary_edge_count", 0)),
-		"seam_touch_mask": int(layer_stats.get("seam_touch_mask", 0)),
-		"compute_time_usec": int(layer_stats.get("compute_time_usec", 0)),
-		"halo_ready": bool(halo_state.get("ready", false)),
-		"halo_side": int(halo_state.get("halo_side", 0)),
-		"halo_solid_sample_count": int(halo_state.get("solid_sample_count", 0)),
-		"loaded_seam_neighbours": (halo_state.get("loaded_seam_neighbours", []) as Array).duplicate(),
-		"missing_required_seam_neighbours": (halo_state.get("missing_required_seam_neighbours", []) as Array).duplicate(),
-		"optional_missing_seam_neighbours": (halo_state.get("optional_missing_seam_neighbours", []) as Array).duplicate(),
-	}
-
 func _count_debug_solid_tiles() -> int:
 	var count: int = 0
 	for value: int in _debug_solid_mask:
@@ -564,12 +404,6 @@ func _clear_other_roof_surface_cell(mountain_id: int, terrain_id: int, local_coo
 		if layer_terrain_id == roof_terrain_id:
 			continue
 		_clear_cell(terrain_layers.get(layer_terrain_id, null) as TileMapLayer, local_coord)
-
-func _clear_all_roof_surface_cells(local_coord: Vector2i) -> void:
-	for mountain_layers_variant: Variant in roof_layers_by_mountain.values():
-		var terrain_layers: Dictionary = mountain_layers_variant as Dictionary
-		for layer_variant: Variant in terrain_layers.values():
-			_clear_cell(layer_variant as TileMapLayer, local_coord)
 
 func _resolve_roof_terrain_id_from_flags(mountain_flags: int) -> int:
 	if (mountain_flags & WorldRuntimeConstants.MOUNTAIN_FLAG_WALL) != 0:

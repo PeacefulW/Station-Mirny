@@ -43,10 +43,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif key_event.keycode == KEY_F10:
 		_world_streamer.toggle_debug_mountain_contour()
 		get_viewport().set_input_as_handled()
-	elif key_event.keycode == KEY_F11:
-		var reload_report: Dictionary = _world_streamer.reload_mountain_contour_style_from_disk()
-		print("Mountain contour style reload: %s" % [JSON.stringify(reload_report)])
-		get_viewport().set_input_as_handled()
 	elif key_event.keycode == KEY_ESCAPE:
 		PlayerAuthority.clear_cache()
 		get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")

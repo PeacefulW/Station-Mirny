@@ -4,8 +4,8 @@ doc_type: system_spec_index
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.10
-last_updated: 2026-05-13
+version: 1.9
+last_updated: 2026-05-12
 ---
 
 # System Specs
@@ -72,7 +72,6 @@ Current transition strategy:
 - [World Runtime V0](world/world_runtime.md)
 - [World Foundation V1](world/world_foundation_v1.md)
 - [Mountain Generation V1](world/mountain_generation.md)
-- [Mountain Contour Runtime V2](world/mountain_contour_runtime_v2.md) (draft)
 - [Lake Generation V1](world/lake_generation.md) (draft)
 - [Terrain Hybrid Presentation](world/terrain_hybrid_presentation.md)
 - [Runtime SDF Terrain Contours](world/runtime_sdf_terrain_contours.md) (draft)
