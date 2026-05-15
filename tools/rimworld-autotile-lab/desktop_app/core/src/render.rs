@@ -1,6 +1,7 @@
 use std::fs;
+use std::fs::File;
 use std::hash::{Hash, Hasher};
-use std::io::Cursor;
+use std::io::{BufWriter, Cursor};
 use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8,7 +9,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
-use image::{ImageFormat, Rgba, RgbaImage};
+use image::codecs::png::{CompressionType, FilterType as PngFilterType, PngEncoder};
+use image::{ExtendedColorType, ImageEncoder, ImageFormat, Rgba, RgbaImage};
 use rayon::prelude::*;
 use serde::Serialize;
 
@@ -294,7 +296,7 @@ pub fn run_request_with_options(
             None
         } else {
             let preview_path = export_file_path(output_dir, &request, "preview", "png");
-            preview.save(&preview_path)?;
+            save_png_fast(&preview, &preview_path)?;
             Some(preview_path)
         }
     } else {
@@ -350,19 +352,19 @@ pub fn run_request_with_options(
                 let top_normal_path = export_file_path(output_dir, &request, "top_normal", "png");
                 let face_normal_path = export_file_path(output_dir, &request, "face_normal", "png");
 
-                atlases.albedo.save(&albedo_atlas_path)?;
-                atlases.mask.save(&mask_atlas_path)?;
-                atlases.height.save(&height_atlas_path)?;
-                atlases.normal.save(&normal_atlas_path)?;
-                material_exports.top_albedo.save(&top_albedo_path)?;
-                material_exports.face_albedo.save(&face_albedo_path)?;
-                material_exports.base_albedo.save(&base_albedo_path)?;
-                material_exports.top_modulation.save(&top_modulation_path)?;
-                material_exports
-                    .face_modulation
-                    .save(&face_modulation_path)?;
-                material_exports.top_normal.save(&top_normal_path)?;
-                material_exports.face_normal.save(&face_normal_path)?;
+                save_pngs_parallel(&[
+                    (albedo_atlas_path.clone(), &atlases.albedo),
+                    (mask_atlas_path.clone(), &atlases.mask),
+                    (height_atlas_path.clone(), &atlases.height),
+                    (normal_atlas_path.clone(), &atlases.normal),
+                    (top_albedo_path.clone(), &material_exports.top_albedo),
+                    (face_albedo_path.clone(), &material_exports.face_albedo),
+                    (base_albedo_path.clone(), &material_exports.base_albedo),
+                    (top_modulation_path.clone(), &material_exports.top_modulation),
+                    (face_modulation_path.clone(), &material_exports.face_modulation),
+                    (top_normal_path.clone(), &material_exports.top_normal),
+                    (face_normal_path.clone(), &material_exports.face_normal),
+                ])?;
 
                 let files = GeneratedFiles {
                     preview_png: String::new(),
@@ -395,7 +397,7 @@ pub fn run_request_with_options(
             ExportMode::BaseVariantsOnly => {
                 let atlas = build_base_variants_atlas(&request, &textures);
                 let atlas_path = export_file_path(output_dir, &request, "atlas_albedo", "png");
-                atlas.save(&atlas_path)?;
+                save_png_fast(&atlas, &atlas_path)?;
 
                 let mut files = generated_files_without_preview(&recipe_path);
                 files.atlas_albedo_png = Some(to_string_path(&atlas_path));
@@ -405,7 +407,7 @@ pub fn run_request_with_options(
                 let signatures = canonical_signatures();
                 let atlas = build_mask_atlas(&request, &signatures);
                 let atlas_path = export_file_path(output_dir, &request, "atlas_mask", "png");
-                atlas.save(&atlas_path)?;
+                save_png_fast(&atlas, &atlas_path)?;
 
                 let mut files = generated_files_without_preview(&recipe_path);
                 files.atlas_mask_png = Some(to_string_path(&atlas_path));
@@ -438,19 +440,19 @@ pub fn run_request_with_options(
                 let top_normal_path = export_file_path(output_dir, &request, "top_normal", "png");
                 let face_normal_path = export_file_path(output_dir, &request, "face_normal", "png");
 
-                reference_exports.mask.save(&reference_mask_path)?;
-                reference_exports.height.save(&reference_height_path)?;
-                reference_exports.normal.save(&reference_normal_path)?;
-                reference_exports.albedo.save(&reference_albedo_path)?;
-                material_exports.top_albedo.save(&top_albedo_path)?;
-                material_exports.face_albedo.save(&face_albedo_path)?;
-                material_exports.base_albedo.save(&base_albedo_path)?;
-                material_exports.top_modulation.save(&top_modulation_path)?;
-                material_exports
-                    .face_modulation
-                    .save(&face_modulation_path)?;
-                material_exports.top_normal.save(&top_normal_path)?;
-                material_exports.face_normal.save(&face_normal_path)?;
+                save_pngs_parallel(&[
+                    (reference_mask_path.clone(), &reference_exports.mask),
+                    (reference_height_path.clone(), &reference_exports.height),
+                    (reference_normal_path.clone(), &reference_exports.normal),
+                    (reference_albedo_path.clone(), &reference_exports.albedo),
+                    (top_albedo_path.clone(), &material_exports.top_albedo),
+                    (face_albedo_path.clone(), &material_exports.face_albedo),
+                    (base_albedo_path.clone(), &material_exports.base_albedo),
+                    (top_modulation_path.clone(), &material_exports.top_modulation),
+                    (face_modulation_path.clone(), &material_exports.face_modulation),
+                    (top_normal_path.clone(), &material_exports.top_normal),
+                    (face_normal_path.clone(), &material_exports.face_normal),
+                ])?;
 
                 (
                     GeneratedFiles {
@@ -567,6 +569,28 @@ fn export_file_path(
     extension: &str,
 ) -> PathBuf {
     output_dir.join(format!("{}_{}.{}", request.asset_name, slot, extension))
+}
+
+pub(crate) fn save_png_fast(image: &RgbaImage, path: &Path) -> Result<()> {
+    let file = File::create(path)
+        .with_context(|| format!("failed to create png: {}", path.display()))?;
+    let writer = BufWriter::new(file);
+    let encoder = PngEncoder::new_with_quality(writer, CompressionType::Fast, PngFilterType::NoFilter);
+    encoder
+        .write_image(
+            image.as_raw(),
+            image.width(),
+            image.height(),
+            ExtendedColorType::Rgba8,
+        )
+        .with_context(|| format!("failed to encode png: {}", path.display()))?;
+    Ok(())
+}
+
+fn save_pngs_parallel(items: &[(PathBuf, &RgbaImage)]) -> Result<()> {
+    items
+        .par_iter()
+        .try_for_each(|(path, image)| save_png_fast(image, path))
 }
 
 fn generated_files_with_preview(preview_path: &Path, recipe_path: &Path) -> GeneratedFiles {

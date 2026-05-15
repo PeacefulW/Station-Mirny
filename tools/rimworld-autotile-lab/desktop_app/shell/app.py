@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import random
 import re
+import shutil
+import tempfile
 import threading
 import tkinter as tk
 from collections import deque
@@ -2073,12 +2076,21 @@ class CliffForgeApp:
             self._set_status(str(error))
             return
 
+        final_output_dir: Path | None = None
         output_dir = SESSION_OUTPUT_DIR
         if mode in {"full", "decals", "silhouettes"} and self.export_target_dir:
             if not self._confirm_overwrite_if_needed(self.export_target_dir, request["asset_name"]):
                 self._set_status("Экспорт отменён.")
                 return
-            output_dir = self.export_target_dir
+            final_output_dir = self.export_target_dir
+            final_output_dir.mkdir(parents=True, exist_ok=True)
+            staging_dir = Path(tempfile.mkdtemp(
+                prefix=f".{request['asset_name']}_pending_",
+                dir=str(final_output_dir),
+            ))
+            output_dir = staging_dir
+        else:
+            staging_dir = None
 
         mode_label = {
             "draft": "черновой",
@@ -2096,18 +2108,61 @@ class CliffForgeApp:
         def worker() -> None:
             try:
                 manifest = run_core(mode, request, output_dir, cancel_event)
+                if staging_dir is not None and final_output_dir is not None:
+                    manifest = self._promote_staging_to_target(
+                        manifest, staging_dir, final_output_dir
+                    )
                 preview_bytes = manifest.pop("_preview_png_bytes", None)
                 if preview_bytes:
                     with Image.open(BytesIO(preview_bytes)) as image:
                         manifest["_preview_image"] = image.copy()
                 self.render_queue.put(("ok", manifest))
             except RenderCancelled as error:
+                if staging_dir is not None:
+                    shutil.rmtree(staging_dir, ignore_errors=True)
                 self.render_queue.put(("cancelled", error))
             except Exception as error:  # noqa: BLE001
+                if staging_dir is not None:
+                    shutil.rmtree(staging_dir, ignore_errors=True)
                 self.render_queue.put(("error", error))
 
         self.render_thread = threading.Thread(target=worker, daemon=True)
         self.render_thread.start()
+
+    def _promote_staging_to_target(
+        self,
+        manifest: dict,
+        staging_dir: Path,
+        final_dir: Path,
+    ) -> dict:
+        """Atomically move staged exports into the final folder and rewrite manifest paths."""
+        try:
+            for entry in sorted(staging_dir.iterdir()):
+                if not entry.is_file():
+                    continue
+                destination = final_dir / entry.name
+                os.replace(str(entry), str(destination))
+            try:
+                staging_dir.rmdir()
+            except OSError:
+                shutil.rmtree(staging_dir, ignore_errors=True)
+        except Exception:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            raise
+
+        staging_str = str(staging_dir)
+        final_str = str(final_dir)
+
+        def rewrite(value):
+            if isinstance(value, str) and value.startswith(staging_str):
+                return final_str + value[len(staging_str):]
+            if isinstance(value, dict):
+                return {key: rewrite(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [rewrite(item) for item in value]
+            return value
+
+        return rewrite(manifest)
 
     def _merge_modes(self, existing: str | None, incoming: str) -> str:
         full_modes = {"full", "decals", "silhouettes"}

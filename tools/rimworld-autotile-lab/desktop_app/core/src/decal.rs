@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::model::{AppRequest, DecalCellRequest};
 use crate::noise::{clamp, hash2d, value_noise};
+use crate::render::save_png_fast;
 
 const DECAL_COLUMNS: u32 = 4;
 const DECAL_ROWS: u32 = 4;
@@ -103,8 +104,7 @@ pub fn run_request(request: &AppRequest, output_dir: &Path) -> Result<DecalOutpu
         });
     }
 
-    atlas
-        .save(&atlas_path)
+    save_png_fast(&atlas, &atlas_path)
         .with_context(|| format!("failed to write decal atlas: {}", atlas_path.display()))?;
 
     let metadata = DecalMetadata {

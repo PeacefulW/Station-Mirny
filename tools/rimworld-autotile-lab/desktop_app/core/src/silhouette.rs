@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::model::{AppRequest, MaterialConfig, SilhouetteAtlasRequest};
 use crate::noise::{clamp, hash2d, value_noise};
+use crate::render::save_png_fast;
 
 const SILHOUETTE_DIRECTIONS: [&str; 8] = ["N", "E", "S", "W", "NE", "SE", "SW", "NW"];
 const CARDINAL_DIRECTION_COUNT: usize = 4;
@@ -123,8 +124,7 @@ pub fn run_request(request: &AppRequest, output_dir: &Path) -> Result<Silhouette
         }
     }
 
-    atlas
-        .save(&atlas_path)
+    save_png_fast(&atlas, &atlas_path)
         .with_context(|| format!("failed to write silhouette atlas: {}", atlas_path.display()))?;
     let metadata = SilhouetteMetadata {
         tool: "Cliff Forge Desktop",

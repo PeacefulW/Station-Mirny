@@ -403,6 +403,37 @@ class AppPayloadTests(unittest.TestCase):
 
         self.assertEqual(normalized, presets.make_default_map())
 
+    def test_promote_staging_moves_files_and_rewrites_manifest_paths(self):
+        with tempfile.TemporaryDirectory() as base:
+            final_dir = Path(base) / "final"
+            final_dir.mkdir()
+            staging_dir = Path(tempfile.mkdtemp(prefix=".pending_", dir=str(final_dir)))
+            (staging_dir / "asset_atlas_albedo.png").write_bytes(b"png-bytes")
+            (staging_dir / "asset_recipe.json").write_text("{}", encoding="utf-8")
+
+            instance = object.__new__(app.CliffForgeApp)
+            manifest = {
+                "files": {
+                    "atlas_albedo_png": str(staging_dir / "asset_atlas_albedo.png"),
+                    "recipe_json": str(staging_dir / "asset_recipe.json"),
+                },
+                "build_ms": 12,
+            }
+
+            promoted = instance._promote_staging_to_target(manifest, staging_dir, final_dir)
+
+            self.assertFalse(staging_dir.exists())
+            self.assertTrue((final_dir / "asset_atlas_albedo.png").exists())
+            self.assertTrue((final_dir / "asset_recipe.json").exists())
+            self.assertEqual(
+                promoted["files"]["atlas_albedo_png"],
+                str(final_dir / "asset_atlas_albedo.png"),
+            )
+            self.assertEqual(
+                promoted["files"]["recipe_json"],
+                str(final_dir / "asset_recipe.json"),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
