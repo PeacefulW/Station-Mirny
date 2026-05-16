@@ -1,6 +1,5 @@
 use std::fs;
 use std::fs::File;
-use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Cursor};
 use std::path::{Path, PathBuf};
 #[cfg(test)]
@@ -167,6 +166,85 @@ struct TileBuffers {
     mask: RgbaImage,
     height: RgbaImage,
     normal: RgbaImage,
+}
+
+#[derive(Default)]
+struct TileGeometry {
+    heights: Vec<f32>,
+    zones: Vec<SurfaceZone>,
+    occupancies: Vec<f32>,
+    top_coverages: Vec<f32>,
+    face_coverages: Vec<f32>,
+    back_coverages: Vec<f32>,
+    normal_heights: Vec<f32>,
+    geometry_seed: u32,
+    needs_normal: bool,
+}
+
+impl TileGeometry {
+    fn prepare(&mut self, pixel_count: usize) {
+        self.heights.clear();
+        self.heights.resize(pixel_count, 0.0_f32);
+        self.zones.clear();
+        self.zones.resize(pixel_count, SurfaceZone::Top);
+        self.occupancies.clear();
+        self.occupancies.resize(pixel_count, 1.0_f32);
+        self.top_coverages.clear();
+        self.top_coverages.resize(pixel_count, 1.0_f32);
+        self.face_coverages.clear();
+        self.face_coverages.resize(pixel_count, 0.0_f32);
+        self.back_coverages.clear();
+        self.back_coverages.resize(pixel_count, 0.0_f32);
+        self.normal_heights.clear();
+        self.geometry_seed = 0;
+        self.needs_normal = false;
+    }
+}
+
+thread_local! {
+    // Cell<Option<...>> instead of RefCell: render_tile_with_field calls into
+    // apply_mountain_bottom_outline_for_field, which uses rayon. Rayon can
+    // steal a sibling render task onto the same OS thread mid-call, so we
+    // cannot hold a RefCell borrow across the function body. take/set on
+    // a Cell sidesteps the re-entry panic: the inner call gets a default
+    // scratch, the outer puts its scratch back on drop.
+    static TILE_GEOMETRY_SCRATCH: std::cell::Cell<Option<TileGeometry>> =
+        const { std::cell::Cell::new(None) };
+}
+
+struct TileGeometryGuard {
+    inner: Option<TileGeometry>,
+}
+
+impl TileGeometryGuard {
+    fn acquire(pixel_count: usize) -> Self {
+        let mut geometry = TILE_GEOMETRY_SCRATCH
+            .with(|cell| cell.take())
+            .unwrap_or_default();
+        geometry.prepare(pixel_count);
+        Self {
+            inner: Some(geometry),
+        }
+    }
+
+    fn geometry(&mut self) -> &mut TileGeometry {
+        self.inner
+            .as_mut()
+            .expect("geometry scratch is held until drop releases it")
+    }
+}
+
+impl Drop for TileGeometryGuard {
+    fn drop(&mut self) {
+        if let Some(geometry) = self.inner.take() {
+            // Re-entry note: when rayon work-stealing nests render calls on
+            // the same OS thread, the outer's put-back overwrites the inner's.
+            // We lose one scratch's amortized capacity per nesting, which is
+            // acceptable because the leaf path is bounded by pixel_count and
+            // re-entry depth stays shallow.
+            TILE_GEOMETRY_SCRATCH.with(|cell| cell.set(Some(geometry)));
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -810,38 +888,91 @@ fn build_full_atlases(
     let width = columns * tile_size;
     let height = rows * tile_size;
 
-    let tiles: Vec<(u32, TileBuffers)> = (0..total)
-        .into_par_iter()
-        .map(|atlas_index| {
-            let variant = atlas_index / signature_count;
-            let sig_idx = (atlas_index % signature_count) as usize;
-            let signature = &signatures[sig_idx];
-            let tile = render_tile(request, textures, signature, variant, 0, 0);
-            (atlas_index, tile)
-        })
-        .collect();
+    let tile_size_usize = tile_size as usize;
+    let target_width = width as usize;
+    let row_band_bytes = target_width * 4 * tile_size_usize;
+    let pixel_bytes = target_width * (height as usize) * 4;
 
-    let mut albedo = RgbaImage::new(width, height);
-    let mut mask = RgbaImage::new(width, height);
-    let mut height_img = RgbaImage::new(width, height);
-    let mut normal = RgbaImage::new(width, height);
+    let mut albedo_raw = vec![0_u8; pixel_bytes];
+    let mut mask_raw = vec![0_u8; pixel_bytes];
+    let mut height_raw = vec![0_u8; pixel_bytes];
+    let mut normal_raw = vec![0_u8; pixel_bytes];
 
-    for (atlas_index, tile) in tiles {
-        let col = atlas_index % columns;
-        let row = atlas_index / columns;
-        let dx = col * tile_size;
-        let dy = row * tile_size;
-        blit_exact(&mut albedo, &tile.albedo, dx, dy);
-        blit_exact(&mut mask, &tile.mask, dx, dy);
-        blit_exact(&mut height_img, &tile.height, dx, dy);
-        blit_exact(&mut normal, &tile.normal, dx, dy);
-    }
+    // When geometry_variance == 0.0, geometry_seed_for_variant collapses to
+    // request.seed for every variant — meaning all variants of one signature
+    // share identical geometry buffers. Precompute geometry once per
+    // signature in parallel, then run only the material/output phase per
+    // (signature, variant) tile.
+    let shared_geometries: Option<Vec<TileGeometry>> = if request.geometry_variance <= 0.0
+        && !signatures.is_empty()
+    {
+        Some(
+            signatures
+                .par_iter()
+                .map(|signature| {
+                    compute_owned_tile_geometry(
+                        request,
+                        SurfaceField::Local(signature),
+                        FieldRenderCaches::default(),
+                        0,
+                        0,
+                        0,
+                    )
+                })
+                .collect(),
+        )
+    } else {
+        None
+    };
+    let shared_geometries: Option<&[TileGeometry]> = shared_geometries.as_deref();
+
+    albedo_raw
+        .par_chunks_mut(row_band_bytes)
+        .zip(mask_raw.par_chunks_mut(row_band_bytes))
+        .zip(height_raw.par_chunks_mut(row_band_bytes))
+        .zip(normal_raw.par_chunks_mut(row_band_bytes))
+        .enumerate()
+        .for_each(
+            |(row, (((albedo_band, mask_band), height_band), normal_band))| {
+                let row_u32 = row as u32;
+                let row_start = row_u32 * columns;
+                let row_end = (row_u32 + 1) * columns;
+                let atlas_end = row_end.min(total);
+                for atlas_index in row_start..atlas_end {
+                    let variant = atlas_index / signature_count;
+                    let sig_idx = (atlas_index % signature_count) as usize;
+                    let signature = &signatures[sig_idx];
+                    let tile = match shared_geometries {
+                        Some(geoms) => render_local_tile_with_shared_geometry(
+                            request,
+                            textures,
+                            signature,
+                            &geoms[sig_idx],
+                            variant,
+                            0,
+                            0,
+                        ),
+                        None => render_tile(request, textures, signature, variant, 0, 0),
+                    };
+                    let col = atlas_index % columns;
+                    let dx = (col as usize) * tile_size_usize;
+                    blit_exact_band(albedo_band, target_width, tile_size_usize, dx, &tile.albedo);
+                    blit_exact_band(mask_band, target_width, tile_size_usize, dx, &tile.mask);
+                    blit_exact_band(height_band, target_width, tile_size_usize, dx, &tile.height);
+                    blit_exact_band(normal_band, target_width, tile_size_usize, dx, &tile.normal);
+                }
+            },
+        );
 
     Atlases {
-        albedo,
-        mask,
-        height: height_img,
-        normal,
+        albedo: RgbaImage::from_raw(width, height, albedo_raw)
+            .expect("albedo buffer size matches atlas dimensions"),
+        mask: RgbaImage::from_raw(width, height, mask_raw)
+            .expect("mask buffer size matches atlas dimensions"),
+        height: RgbaImage::from_raw(width, height, height_raw)
+            .expect("height buffer size matches atlas dimensions"),
+        normal: RgbaImage::from_raw(width, height, normal_raw)
+            .expect("normal buffer size matches atlas dimensions"),
     }
 }
 
@@ -1113,7 +1244,14 @@ struct MapSdfCacheKey {
     cells_hash: u64,
 }
 
-static MAP_SDF_CACHE: OnceLock<Mutex<Option<(MapSdfCacheKey, Arc<MapSdf>)>>> = OnceLock::new();
+const MAP_SDF_CACHE_CAPACITY: usize = 4;
+
+struct MapSdfCacheEntry {
+    key: MapSdfCacheKey,
+    sdf: Arc<MapSdf>,
+}
+
+static MAP_SDF_CACHE: OnceLock<Mutex<Vec<MapSdfCacheEntry>>> = OnceLock::new();
 #[cfg(test)]
 static MAP_PREVIEW_BUILD_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[cfg(test)]
@@ -1128,30 +1266,58 @@ fn count_perf_request(request: &AppRequest) -> bool {
 
 fn cached_map_sdf(map: &crate::model::MapData, outside_padding: u32) -> Arc<MapSdf> {
     let key = map_sdf_cache_key(map, outside_padding);
-    let cache = MAP_SDF_CACHE.get_or_init(|| Mutex::new(None));
+    let cache = MAP_SDF_CACHE
+        .get_or_init(|| Mutex::new(Vec::with_capacity(MAP_SDF_CACHE_CAPACITY)));
     let mut cache = cache
         .lock()
         .expect("SDF cache mutex should not be poisoned");
-    if let Some((cached_key, sdf)) = cache.as_ref() {
-        if *cached_key == key {
-            return Arc::clone(sdf);
+    if let Some(idx) = cache.iter().position(|entry| entry.key == key) {
+        if idx != 0 {
+            let entry = cache.remove(idx);
+            cache.insert(0, entry);
         }
+        return Arc::clone(&cache[0].sdf);
     }
 
     let sdf = Arc::new(MapSdf::compute_with_padding(map, outside_padding));
-    *cache = Some((key, Arc::clone(&sdf)));
+    cache.insert(
+        0,
+        MapSdfCacheEntry {
+            key,
+            sdf: Arc::clone(&sdf),
+        },
+    );
+    if cache.len() > MAP_SDF_CACHE_CAPACITY {
+        cache.truncate(MAP_SDF_CACHE_CAPACITY);
+    }
     sdf
 }
 
 fn map_sdf_cache_key(map: &crate::model::MapData, outside_padding: u32) -> MapSdfCacheKey {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    map.cells.hash(&mut hasher);
     MapSdfCacheKey {
         width: map.width,
         height: map.height,
         outside_padding,
-        cells_hash: hasher.finish(),
+        cells_hash: fast_hash_cells(&map.cells),
     }
+}
+
+#[inline]
+fn fast_hash_cells(bytes: &[u8]) -> u64 {
+    // FNV-1a with 8-byte stride. Non-cryptographic; cache identity is also
+    // gated by width/height/outside_padding so collision risk is acceptable.
+    const SEED: u64 = 0xcbf29ce484222325;
+    const MULT: u64 = 0x100000001b3;
+    let mut h: u64 = SEED ^ (bytes.len() as u64);
+    let mut chunks = bytes.chunks_exact(8);
+    for chunk in &mut chunks {
+        let v = u64::from_le_bytes(chunk.try_into().expect("chunks_exact yields 8 bytes"));
+        h = (h ^ v).wrapping_mul(MULT);
+    }
+    for &b in chunks.remainder() {
+        h = (h ^ b as u64).wrapping_mul(MULT);
+    }
+    h
 }
 
 fn map_sdf_padding_for_request(request: &AppRequest) -> u32 {
@@ -1407,36 +1573,23 @@ fn render_tile_with_sdf_cached(
     )
 }
 
-fn render_tile_with_field(
+fn populate_tile_geometry(
+    geometry: &mut TileGeometry,
     request: &AppRequest,
-    textures: &TextureSet,
     field: SurfaceField<'_>,
     caches: FieldRenderCaches<'_>,
     variant: u32,
     origin_x: u32,
     origin_y: u32,
-) -> TileBuffers {
+) -> Option<GlobalSdfDistanceCache> {
     let size = request.tile_size;
-    let pixel_count = (size * size) as usize;
-    let mut heights = vec![0.0_f32; pixel_count];
-    let mut zones = vec![SurfaceZone::Top; pixel_count];
-    let mut occupancies = vec![1.0_f32; pixel_count];
-    let mut top_coverages = vec![1.0_f32; pixel_count];
-    let mut face_coverages = vec![0.0_f32; pixel_count];
-    let mut back_coverages = vec![0.0_f32; pixel_count];
 
     let geometry_variant = match field {
         SurfaceField::GlobalSdf(_) => request.forced_variant.unwrap_or(0),
         SurfaceField::Local(_) => variant,
     };
     let geometry_seed = geometry_seed_for_variant(request, geometry_variant);
-    let material_seed = match field {
-        SurfaceField::GlobalSdf(_) => request.seed.wrapping_add(17_371),
-        SurfaceField::Local(_) => request
-            .seed
-            .wrapping_add(variant.wrapping_mul(4_091))
-            .wrapping_add(17_371),
-    };
+    geometry.geometry_seed = geometry_seed;
 
     let local_distance_cache = if caches.global_distance.is_none()
         && let SurfaceField::GlobalSdf(sdf) = field
@@ -1467,12 +1620,12 @@ fn render_tile_with_field(
                 origin_x,
                 origin_y,
             );
-            heights[index] = sample.height;
-            zones[index] = sample.zone;
-            occupancies[index] = sample.occupancy;
-            top_coverages[index] = sample.top_coverage;
-            face_coverages[index] = sample.face_coverage;
-            back_coverages[index] = sample.back_coverage;
+            geometry.heights[index] = sample.height;
+            geometry.zones[index] = sample.zone;
+            geometry.occupancies[index] = sample.occupancy;
+            geometry.top_coverages[index] = sample.top_coverage;
+            geometry.face_coverages[index] = sample.face_coverage;
+            geometry.back_coverages[index] = sample.back_coverage;
         }
     }
 
@@ -1490,8 +1643,8 @@ fn render_tile_with_field(
             geometry_seed,
             origin_x,
             origin_y,
-            &mut heights,
-            &zones,
+            &mut geometry.heights,
+            &geometry.zones,
         );
         apply_organic_height_relief(
             request,
@@ -1500,20 +1653,67 @@ fn render_tile_with_field(
             geometry_seed,
             origin_x,
             origin_y,
-            &mut heights,
-            &zones,
-            &occupancies,
+            &mut geometry.heights,
+            &geometry.zones,
+            &geometry.occupancies,
         );
     }
     let needs_normal = match field {
         SurfaceField::GlobalSdf(_) => matches!(request.preview_mode.as_str(), "normal" | "lit"),
         SurfaceField::Local(_) => true,
     };
-    let normal_heights = if needs_normal && matches!(field, SurfaceField::Local(_)) {
-        blur_heights_3x3(size, &heights)
-    } else {
-        Vec::new()
+    geometry.needs_normal = needs_normal;
+    if needs_normal && matches!(field, SurfaceField::Local(_)) {
+        let blurred = blur_heights_3x3(size, &geometry.heights);
+        geometry.normal_heights = blurred;
+    }
+
+    local_distance_cache
+}
+
+fn compute_owned_tile_geometry(
+    request: &AppRequest,
+    field: SurfaceField<'_>,
+    caches: FieldRenderCaches<'_>,
+    variant: u32,
+    origin_x: u32,
+    origin_y: u32,
+) -> TileGeometry {
+    let size = request.tile_size;
+    let pixel_count = (size * size) as usize;
+    let mut geometry = TileGeometry::default();
+    geometry.prepare(pixel_count);
+    // Local SDF distance cache is dropped here; only Local-path callers use
+    // owned geometry and never need the SDF cache during the material phase.
+    let _local_distance_cache =
+        populate_tile_geometry(&mut geometry, request, field, caches, variant, origin_x, origin_y);
+    geometry
+}
+
+fn render_tile_outputs(
+    request: &AppRequest,
+    textures: &TextureSet,
+    field: SurfaceField<'_>,
+    caches: FieldRenderCaches<'_>,
+    geometry: &TileGeometry,
+    variant: u32,
+    origin_x: u32,
+    origin_y: u32,
+    local_distance_cache: Option<&GlobalSdfDistanceCache>,
+) -> TileBuffers {
+    let size = request.tile_size;
+    let geometry_seed = geometry.geometry_seed;
+    let needs_normal = geometry.needs_normal;
+    let global_distance_cache = caches.global_distance.or(local_distance_cache);
+
+    let material_seed = match field {
+        SurfaceField::GlobalSdf(_) => request.seed.wrapping_add(17_371),
+        SurfaceField::Local(_) => request
+            .seed
+            .wrapping_add(variant.wrapping_mul(4_091))
+            .wrapping_add(17_371),
     };
+
     let local_global_height_cache = if needs_normal
         && matches!(request.preview_mode.as_str(), "normal" | "lit")
         && caches.global_height.is_none()
@@ -1552,8 +1752,8 @@ fn render_tile_with_field(
     for y in 0..size {
         for x in 0..size {
             let index = (y * size + x) as usize;
-            let zone = zones[index];
-            let height_value = heights[index];
+            let zone = geometry.zones[index];
+            let height_value = geometry.heights[index];
             let sample_x = origin_x + x;
             let sample_y = origin_y + y;
             let world_x = sample_x as f32;
@@ -1679,8 +1879,8 @@ fn render_tile_with_field(
             };
 
             let shaded = if zone != SurfaceZone::Edge
-                && top_coverages[index] > 0.0
-                && (face_coverages[index] > 0.0 || back_coverages[index] > 0.0)
+                && geometry.top_coverages[index] > 0.0
+                && (geometry.face_coverages[index] > 0.0 || geometry.back_coverages[index] > 0.0)
             {
                 let (wall_x, wall_y) = material_coords_for_zone(
                     request,
@@ -1734,26 +1934,26 @@ fn render_tile_with_field(
                         SurfaceZone::Top,
                         request.bake_height_shading,
                     ),
-                    top_coverages[index],
+                    geometry.top_coverages[index],
                     maybe_apply_height_shading(
                         face_sample,
                         height_value,
                         SurfaceZone::Face,
                         request.bake_height_shading,
                     ),
-                    face_coverages[index],
+                    geometry.face_coverages[index],
                     maybe_apply_height_shading(
                         back_sample,
                         height_value,
                         SurfaceZone::Back,
                         request.bake_height_shading,
                     ),
-                    back_coverages[index],
+                    geometry.back_coverages[index],
                 )
             } else {
                 maybe_apply_height_shading(base, height_value, zone, request.bake_height_shading)
             };
-            let occupancy = occupancies[index].clamp(0.0, 1.0);
+            let occupancy = geometry.occupancies[index].clamp(0.0, 1.0);
             let visible = if occupancy > 0.0 && occupancy < 1.0 && zone != SurfaceZone::Empty {
                 let empty_base = sample_material_color(
                     base_material,
@@ -1773,9 +1973,9 @@ fn render_tile_with_field(
             };
             albedo.put_pixel(x, y, rgba(visible, 255));
 
-            let top_mask = coverage_byte(top_coverages[index]);
-            let face_mask = coverage_byte(face_coverages[index]);
-            let back_mask = coverage_byte(back_coverages[index]);
+            let top_mask = coverage_byte(geometry.top_coverages[index]);
+            let face_mask = coverage_byte(geometry.face_coverages[index]);
+            let back_mask = coverage_byte(geometry.back_coverages[index]);
             let occupancy_alpha = (occupancy * 255.0).round() as u8;
             mask.put_pixel(
                 x,
@@ -1800,7 +2000,7 @@ fn render_tile_with_field(
                     request.normal_strength,
                 )
             } else {
-                encode_normal(size, &normal_heights, x, y, request.normal_strength)
+                encode_normal(size, &geometry.normal_heights, x, y, request.normal_strength)
             };
             normal.put_pixel(
                 x,
@@ -1828,6 +2028,65 @@ fn render_tile_with_field(
         height: height_img,
         normal,
     }
+}
+
+fn render_tile_with_field(
+    request: &AppRequest,
+    textures: &TextureSet,
+    field: SurfaceField<'_>,
+    caches: FieldRenderCaches<'_>,
+    variant: u32,
+    origin_x: u32,
+    origin_y: u32,
+) -> TileBuffers {
+    let size = request.tile_size;
+    let pixel_count = (size * size) as usize;
+    let mut geometry_guard = TileGeometryGuard::acquire(pixel_count);
+    let local_distance_cache = populate_tile_geometry(
+        geometry_guard.geometry(),
+        request,
+        field,
+        caches,
+        variant,
+        origin_x,
+        origin_y,
+    );
+    render_tile_outputs(
+        request,
+        textures,
+        field,
+        caches,
+        geometry_guard.geometry(),
+        variant,
+        origin_x,
+        origin_y,
+        local_distance_cache.as_ref(),
+    )
+}
+
+// Used by build_full_atlases when geometry_variance == 0 to amortize the
+// geometry phase across all variants of one signature. Always Local-path:
+// local_distance_cache is never populated in this caller.
+fn render_local_tile_with_shared_geometry(
+    request: &AppRequest,
+    textures: &TextureSet,
+    signature: &Signature,
+    geometry: &TileGeometry,
+    variant: u32,
+    origin_x: u32,
+    origin_y: u32,
+) -> TileBuffers {
+    render_tile_outputs(
+        request,
+        textures,
+        SurfaceField::Local(signature),
+        FieldRenderCaches::default(),
+        geometry,
+        variant,
+        origin_x,
+        origin_y,
+        None,
+    )
 }
 
 #[cfg(test)]

@@ -36,3 +36,4 @@ gdextension/compile_commands.json
 CLAUDE.local.md
 .claude/settings.local.json
 .claude/agent-memory-local/
+tools.rar
