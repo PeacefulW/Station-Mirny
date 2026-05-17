@@ -1,0 +1,85 @@
+[gd_resource type="Resource" script_class="TerrainVisualRecipe" format=3 uid="uid://cuyk45ooeqmqy"]
+
+[ext_resource type="Script" uid="uid://detiieweaidh1" path="res://data/terrain_visual/terrain_visual_recipe.gd" id="1_recipe"]
+[ext_resource type="Script" uid="uid://djmds63vhuenj" path="res://data/terrain_visual/terrain_visual_material_slot.gd" id="2_material"]
+
+[sub_resource type="Resource" id="Resource_back_material"]
+script = ExtResource("2_material")
+source = &"procedural"
+procedural_kind = &"stratified_rock"
+flat_color = Color(0.152941, 0.137255, 0.121569, 1)
+color_a = Color(0.152941, 0.137255, 0.121569, 1)
+color_b = Color(0.368627, 0.317647, 0.270588, 1)
+highlight_color = Color(0.666667, 0.596078, 0.47451, 1)
+scale = 1.25
+contrast = 1.26
+crack_amount = 0.45
+wear = 0.55
+grain = 0.6
+edge_darkening = 0.72
+seed = 29
+normal_mix = 0.75
+modulation_strength = 0.7
+
+[sub_resource type="Resource" id="Resource_base_material"]
+script = ExtResource("2_material")
+source = &"procedural"
+procedural_kind = &"packed_dirt"
+flat_color = Color(0.490196, 0.294118, 0.117647, 1)
+color_a = Color(0.490196, 0.294118, 0.117647, 1)
+color_b = Color(0.690196, 0.447059, 0.196078, 1)
+highlight_color = Color(0.819608, 0.596078, 0.333333, 1)
+scale = 1.0
+contrast = 0.9
+crack_amount = 0.12
+wear = 0.2
+grain = 0.5
+edge_darkening = 0.1
+seed = 31
+normal_mix = 0.45
+modulation_strength = 0.6
+
+[sub_resource type="Resource" id="Resource_face_material"]
+script = ExtResource("2_material")
+source = &"procedural"
+procedural_kind = &"stratified_rock"
+flat_color = Color(0.152941, 0.137255, 0.121569, 1)
+color_a = Color(0.152941, 0.137255, 0.121569, 1)
+color_b = Color(0.368627, 0.317647, 0.270588, 1)
+highlight_color = Color(0.666667, 0.596078, 0.47451, 1)
+scale = 1.25
+contrast = 1.26
+crack_amount = 0.45
+wear = 0.55
+grain = 0.6
+edge_darkening = 0.72
+seed = 23
+modulation_strength = 0.8
+
+[sub_resource type="Resource" id="Resource_top_material"]
+script = ExtResource("2_material")
+source = &"procedural"
+procedural_kind = &"rough_stone"
+flat_color = Color(0.305882, 0.278431, 0.227451, 1)
+color_a = Color(0.305882, 0.278431, 0.227451, 1)
+color_b = Color(0.545098, 0.478431, 0.380392, 1)
+highlight_color = Color(0.721569, 0.666667, 0.545098, 1)
+scale = 1.35
+contrast = 1.22
+crack_amount = 0.34
+wear = 0.3
+grain = 0.68
+edge_darkening = 0.35
+seed = 11
+normal_mix = 0.85
+modulation_strength = 0.65
+
+[resource]
+script = ExtResource("1_recipe")
+id = &"core:rock_default"
+display_name_key = &"TERRAIN_VISUAL_ROCK_DEFAULT_NAME"
+default_seed = 1337
+top_material = SubResource("Resource_top_material")
+face_material = SubResource("Resource_face_material")
+base_material = SubResource("Resource_base_material")
+back_material = SubResource("Resource_back_material")

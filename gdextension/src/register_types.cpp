@@ -5,6 +5,8 @@
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
 
+#include "rock_marching_squares.h"
+#include "terrain_visual_solver.h"
 #include "world_core.h"
 
 using namespace godot;
@@ -15,6 +17,8 @@ void initialize_station_mirny_module(ModuleInitializationLevel p_level) {
 	}
 
 	GDREGISTER_CLASS(WorldCore);
+	GDREGISTER_CLASS(RockMarchingSquares);
+	GDREGISTER_CLASS(TerrainVisualSolver);
 }
 
 void uninitialize_station_mirny_module(ModuleInitializationLevel p_level) {

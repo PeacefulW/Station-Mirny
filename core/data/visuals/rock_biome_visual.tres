@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="RockVisualResource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://core/data/visuals/biome_visual_resource.gd" id="1_rockv"]
+
+[resource]
+script = ExtResource("1_rockv")
+top_color = Color(0.72, 0.7, 0.66, 1)
+face_color = Color(0.45, 0.42, 0.4, 1)
+back_color = Color(0.22, 0.2, 0.19, 1)
+top_to_face_cutoff = 0.62
+face_to_back_cutoff = 0.28
+ledge_contrast = 1.2
+top_coverage = 0.55
+face_coverage = 0.3
+back_coverage = 0.15
+normal_strength = 1.0

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+art
 source_of_truth: true
-version: 0.5
-last_updated: 2026-05-03
+version: 0.6
+last_updated: 2026-05-17
 related_docs:
   - ../../README.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -15,6 +15,7 @@ related_docs:
   - ../meta/system_api.md
   - ../meta/packet_schemas.md
   - world_runtime.md
+  - biome_visual_authoring_variant_d_v2.md
 ---
 
 # Terrain Hybrid Presentation
@@ -30,6 +31,22 @@ Define the canonical presentation architecture for terrain that uses:
 This spec exists so terrain presentation can scale to new biomes, cliffs, banks,
 and material families without turning `WorldTileSetFactory` into a hardcoded list
 of one-off texture paths.
+
+## Active Variant D v2 Cutover
+
+Variant D v2 is the canonical active terrain visual path for rock. The active
+runtime/editor path is:
+
+```text
+BiomeData.rock_visual_recipe -> TerrainVisualRecipe -> TerrainVisualSolver
+-> TerrainVisualPacketV0 -> ChunkView V2 presenter/shader
+```
+
+The older baked shape-set model in this document remains useful as a broad
+presentation design reference for future non-rock terrain families, but it is
+not the active rock source of truth after V2-IT9. For rock, generated visual
+packets are derived state from the V2 recipe and native solver. They are not
+save data, gameplay terrain truth, or a second renderer.
 
 ## Gameplay Goal
 

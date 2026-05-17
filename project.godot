@@ -42,7 +42,7 @@ window/stretch/mode="canvas_items"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/gdUnit4/plugin.cfg")
+enabled=PackedStringArray("res://addons/gdUnit4/plugin.cfg", "res://addons/biome_visual_authoring_v2/plugin.cfg")
 
 [filesystem]
 
@@ -66,3 +66,7 @@ locale/translations=PackedStringArray("res://locale/ru/messages.po", "res://loca
 
 rendering_device/driver.windows="d3d12"
 environment/defaults/default_clear_color=Color(0.08, 0.1, 0.06, 1)
+
+[station_mirny]
+
+terrain_visual/v2_chunk_runtime_enabled=true
