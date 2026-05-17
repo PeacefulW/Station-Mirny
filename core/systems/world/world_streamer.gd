@@ -28,9 +28,11 @@ var _chunk_packets: Dictionary = { }
 var _chunk_views: Dictionary = { }
 var _requested_chunks: Dictionary = { }
 var _pending_publish_queue: Array[Vector2i] = []
+var _pending_visual_full_queue: Array[Vector2i] = []
 var _active_publish_chunk: Vector2i = INVALID_CHUNK_COORD
 var _player_chunk_coord: Vector2i = INVALID_CHUNK_COORD
 var _stream_job_id: StringName = &""
+var _visual_job_id: StringName = &""
 var _generation_epoch: int = 0
 var _worldgen_settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
 var _world_bounds_settings: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
@@ -79,11 +81,23 @@ func _ready() -> void:
 		true,
 		"World runtime V0 streaming",
 	)
+	_visual_job_id = FrameBudgetDispatcher.register_job(
+		RuntimeWorkTypes.CATEGORY_VISUAL,
+		1.5,
+		_terrain_visual_tick,
+		&"world.terrain_visual_v2",
+		RuntimeWorkTypes.CadenceKind.NEAR_PLAYER,
+		RuntimeWorkTypes.ThreadingRole.MAIN_THREAD_ONLY,
+		false,
+		"World terrain visual V2 apply",
+	)
 
 
 func _exit_tree() -> void:
 	if _stream_job_id and FrameBudgetDispatcher:
 		FrameBudgetDispatcher.unregister_job(_stream_job_id)
+	if _visual_job_id and FrameBudgetDispatcher:
+		FrameBudgetDispatcher.unregister_job(_visual_job_id)
 	_packet_backend.stop()
 
 
@@ -423,6 +437,7 @@ func _drain_completed_packets(max_count: int) -> void:
 		var merged_packet: Dictionary = _diff_store.apply_to_packet(packet)
 		_chunk_packets[chunk_coord] = merged_packet
 		_refresh_loaded_visuals_around_chunk_overrides(chunk_coord)
+		_queue_terrain_visual_v2_full_refreshes_around_chunk(chunk_coord)
 		if _is_chunk_desired(chunk_coord) and not _pending_publish_queue.has(chunk_coord) and chunk_coord != _active_publish_chunk:
 			_pending_publish_queue.append(chunk_coord)
 
@@ -449,9 +464,28 @@ func _publish_next_batch() -> void:
 	if not has_more:
 		_handle_cover_chunk_published(_active_publish_chunk)
 		_refresh_debug_visuals_for_chunk(_active_publish_chunk)
+		_queue_terrain_visual_v2_full_refresh(_active_publish_chunk)
 		active_view.visible = true
 		EventBus.chunk_loaded.emit(_active_publish_chunk)
 		_active_publish_chunk = INVALID_CHUNK_COORD
+
+
+func _terrain_visual_tick() -> bool:
+	if _pending_visual_full_queue.is_empty():
+		return false
+	var chunk_coord: Vector2i = _pending_visual_full_queue.pop_front()
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+	var packet: Dictionary = _chunk_packets.get(chunk_coord, { }) as Dictionary
+	if chunk_view == null or packet.is_empty() or not _is_terrain_visual_v2_runtime_enabled():
+		return not _pending_visual_full_queue.is_empty()
+	if not _packet_has_v2_mountain_surface(packet):
+		return not _pending_visual_full_queue.is_empty()
+
+	_configure_chunk_terrain_visual_v2(chunk_view, chunk_coord, packet)
+	var started_usec := WorldPerfProbe.begin()
+	chunk_view.apply_pending_terrain_visual_v2_full()
+	WorldPerfProbe.end("WorldStreamer.terrain_visual_v2.full_apply", started_usec)
+	return not _pending_visual_full_queue.is_empty()
 
 
 func _evict_outside_ring(max_count: int) -> void:
@@ -475,6 +509,7 @@ func _evict_outside_ring(max_count: int) -> void:
 		_chunk_packets.erase(chunk_coord)
 		_requested_chunks.erase(chunk_coord)
 		_pending_publish_queue.erase(chunk_coord)
+		_pending_visual_full_queue.erase(chunk_coord)
 		_handle_cover_chunk_unloaded(chunk_coord)
 		EventBus.chunk_unloaded.emit(chunk_coord)
 		evicted += 1
@@ -967,8 +1002,51 @@ func _configure_chunk_terrain_visual_v2(
 	chunk_view.set_terrain_visual_v2_enabled(enabled)
 	if not enabled:
 		chunk_view.set_terrain_visual_recipe(null)
+		chunk_view.set_terrain_visual_solid_halo(PackedByteArray())
 		return
 	chunk_view.set_terrain_visual_recipe(_resolve_chunk_rock_visual_recipe(chunk_coord, packet))
+	chunk_view.set_terrain_visual_solid_halo(_build_mountain_solid_halo(chunk_coord))
+
+
+func _queue_terrain_visual_v2_full_refresh(chunk_coord: Vector2i) -> void:
+	if not _is_terrain_visual_v2_runtime_enabled():
+		return
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if not _chunk_views.has(chunk_coord) or not _chunk_packets.has(chunk_coord):
+		return
+	if _pending_visual_full_queue.has(chunk_coord):
+		return
+	_pending_visual_full_queue.append(chunk_coord)
+
+
+func _queue_terrain_visual_v2_full_refreshes_around_chunk(center_chunk_coord: Vector2i) -> void:
+	if not _is_terrain_visual_v2_runtime_enabled():
+		return
+	for y: int in range(center_chunk_coord.y - 1, center_chunk_coord.y + 2):
+		for x: int in range(center_chunk_coord.x - 1, center_chunk_coord.x + 2):
+			_queue_terrain_visual_v2_full_refresh(Vector2i(x, y))
+
+
+func _packet_has_v2_mountain_surface(packet: Dictionary) -> bool:
+	var mountain_ids: PackedInt32Array = packet.get(
+		"mountain_id_per_tile",
+		PackedInt32Array(),
+	) as PackedInt32Array
+	var mountain_flags: PackedByteArray = packet.get(
+		"mountain_flags",
+		PackedByteArray(),
+	) as PackedByteArray
+	var surface_flags := (
+		WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT
+	)
+	var count := mini(mountain_ids.size(), mountain_flags.size())
+	for index: int in range(count):
+		if int(mountain_ids[index]) <= 0:
+			continue
+		var flags := int(mountain_flags[index])
+		if (flags & surface_flags) != 0:
+			return true
+	return false
 
 
 func _is_terrain_visual_v2_runtime_enabled() -> bool:
@@ -1054,6 +1132,7 @@ func _reset_runtime_state() -> void:
 	_new_game_spawn_failed = false
 	_requested_chunks.clear()
 	_pending_publish_queue.clear()
+	_pending_visual_full_queue.clear()
 	_active_publish_chunk = INVALID_CHUNK_COORD
 	_player_chunk_coord = INVALID_CHUNK_COORD
 	for chunk_view_variant: Variant in _chunk_views.values():
@@ -1365,7 +1444,7 @@ func _build_native_mountain_contour_for_chunk(chunk_coord: Vector2i) -> Dictiona
 		}
 	var result_variant: Variant = world_core.call(
 		"build_mountain_contour_debug",
-		_build_mountain_solid_halo(chunk_coord),
+		_build_mountain_solid_halo(chunk_coord, false),
 		WorldRuntimeConstants.CHUNK_SIZE,
 		WorldRuntimeConstants.TILE_SIZE_PX,
 	)
@@ -1378,7 +1457,10 @@ func _build_native_mountain_contour_for_chunk(chunk_coord: Vector2i) -> Dictiona
 	}
 
 
-func _build_mountain_solid_halo(chunk_coord: Vector2i) -> PackedByteArray:
+func _build_mountain_solid_halo(
+		chunk_coord: Vector2i,
+		missing_loaded_tile_is_solid: bool = true,
+) -> PackedByteArray:
 	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + 2
 	var solid_halo := PackedByteArray()
 	solid_halo.resize(halo_side * halo_side)
@@ -1386,9 +1468,24 @@ func _build_mountain_solid_halo(chunk_coord: Vector2i) -> PackedByteArray:
 		for halo_x: int in range(halo_side):
 			var local_coord := Vector2i(halo_x - 1, halo_y - 1)
 			var world_tile: Vector2i = _chunk_local_to_tile(chunk_coord, local_coord)
-			if _is_mountain_contour_solid_sample(_get_loaded_tile_data_no_enqueue(world_tile)):
+			var sample := _get_loaded_tile_data_no_enqueue(world_tile)
+			if _is_mountain_contour_solid_sample(sample) \
+					or (
+						missing_loaded_tile_is_solid
+						and _is_missing_tile_visual_halo_solid(world_tile, sample)
+					):
 				solid_halo[halo_y * halo_side + halo_x] = 1
 	return solid_halo
+
+
+func _is_missing_tile_visual_halo_solid(world_tile: Vector2i, sample: Dictionary) -> bool:
+	if bool(sample.get("ready", false)):
+		return false
+	var canonical_tile := _canonicalize_tile_coord(world_tile)
+	if _uses_finite_world_bounds() \
+			and not _world_bounds_settings.is_tile_y_in_bounds(canonical_tile.y):
+		return false
+	return not _chunk_packets.has(WorldRuntimeConstants.tile_to_chunk(canonical_tile))
 
 
 func _is_mountain_contour_solid_sample(sample: Dictionary) -> bool:

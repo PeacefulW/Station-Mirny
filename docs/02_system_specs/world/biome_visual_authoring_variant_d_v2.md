@@ -1248,6 +1248,82 @@ IT9 decision:
 - `tools/rimworld-autotile-lab/desktop_app` remains archived as historical
   reference and test-oracle material. It is not a runtime source of truth.
 
+### V2-IT10 - Native halo-cropped runtime solve
+
+Goal:
+
+- remove false facade/edge rendering at internal chunk and dirty-rect
+  boundaries;
+- keep SDF/zone/height/normal classification in native code;
+- avoid expanding runtime output textures to a full chunk when only a compact
+  rock footprint or dirty rect is required.
+
+Implementation contract:
+
+- Runtime may build a derived one-tile `solid_halo` from loaded authoritative
+  chunk terrain state.
+- `TerrainVisualSolver.build_chunk_visual_packet_with_halo(...)` receives the
+  larger input mask and an `output_rect_tiles` crop.
+- The native solver must classify pixels against the full halo input, then
+  emit only the cropped output packet.
+- `world_origin_tile` in the returned packet anchors the cropped output region,
+  not the halo origin.
+- The halo is derived visual input only. It is not saved, not gameplay truth,
+  and not a mutation surface.
+
+Acceptance:
+
+- a solid region continuing across a chunk boundary does not produce `face` or
+  `edge` pixels on the internal boundary solely because the output crop ends
+  there;
+- dirty patch solve uses the same halo-aware native entrypoint when halo data
+  is available;
+- fallback to `build_chunk_visual_packet(...)` remains diagnostic only for
+  missing halo data, not an independent renderer.
+
+### V2-IT11 - Streaming seam and publish hitch fix
+
+Goal:
+
+- remove persistent dark facade seams caused by late neighbouring chunk
+  packets;
+- keep final chunk publish batches limited to terrain cell publication;
+- reduce full V2 packet apply cost enough that it can be scheduled as visual
+  presentation work instead of blocking chunk publish.
+
+Implementation contract:
+
+- `ChunkView.apply_next_batch(...)` must not solve/apply a full V2 packet on
+  the final publish batch.
+- `WorldStreamer` owns full V2 visual refresh scheduling for loaded chunks
+  through a separate visual work queue.
+- When a packet arrives, `WorldStreamer` may enqueue loaded chunks in the
+  3x3 neighbourhood so their derived one-tile solid halo is rebuilt from the
+  newest authoritative packet set.
+- Before a neighbouring in-bounds packet is available, V2 visual halo treats
+  that missing neighbour as solid. This is visual degraded mode only: it
+  suppresses false stream-ring facades until authoritative data arrives, while
+  debug contour and gameplay queries still use strict loaded packet truth.
+- Runtime full packet applies may override the authored recipe preview
+  `tile_size_px` with a lower texture resolution, then stretch the visual layer
+  to the canonical world-tile footprint. This changes only derived visual
+  texture resolution, not terrain truth, save data, collision, or tile size.
+- Runtime packet downsample must scale authored pixel-distance metrics by the
+  same tile-size ratio, otherwise facade height/rim width changes in world
+  space and can reach beyond the intended halo.
+- Full packet generation remains native solver work. Script may schedule the
+  work and own textures, but must not reimplement the per-pixel solver.
+
+Acceptance:
+
+- a late neighbouring packet removes an internal V2 chunk facade on already
+  loaded chunks without requiring player movement or a full world rebuild;
+- missing in-bounds neighbours do not produce temporary horizontal/vertical
+  facades at stream-ring boundaries;
+- the final cell publish batch does not include full V2 visual solve/apply;
+- the same `TerrainVisualPacketV0` shape is used for editor preview, runtime
+  full refresh, and dirty patch apply.
+
 ## 26. Required boundary documentation updates (Required Updates)
 
 Current IT9 status:
@@ -1258,6 +1334,12 @@ Current IT9 status:
 - `docs/02_system_specs/meta/packet_schemas.md` documents
   `TerrainVisualPacketV0` as the stable derived visual packet used by editor,
   runtime chunk presentation, and dirty patch apply.
+- V2-IT10 updates `system_api.md` and `packet_schemas.md` for
+  `TerrainVisualSolver.build_chunk_visual_packet_with_halo(...)` and
+  halo-cropped runtime packet semantics.
+- V2-IT11 updates `system_api.md` for `WorldStreamer` visual full-refresh
+  scheduling and `ChunkView.apply_pending_terrain_visual_v2_full()`, and
+  updates `packet_schemas.md` for runtime packet texture resolution semantics.
 - `docs/02_system_specs/meta/modding_extension_contracts.md` documents
   `TerrainVisualRecipe` and `BiomeData.rock_visual_recipe` as public authored
   content extension seams for the canonical V2 path.

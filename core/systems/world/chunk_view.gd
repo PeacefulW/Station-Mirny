@@ -31,6 +31,7 @@ var _pending_lake_flags: PackedByteArray = PackedByteArray()
 var _pending_mountain_ids: PackedInt32Array = PackedInt32Array()
 var _pending_mountain_flags: PackedByteArray = PackedByteArray()
 var _pending_mountain_atlas_indices: PackedInt32Array = PackedInt32Array()
+var _pending_terrain_visual_solid_halo: PackedByteArray = PackedByteArray()
 var _apply_index: int = 0
 var _debug_grid_visible: bool = false
 var _debug_solid_mask_visible: bool = false
@@ -86,6 +87,7 @@ func begin_apply(packet: Dictionary) -> void:
 		_rock_visual_material = null
 		_clear_roof_layers()
 		_terrain_visual_presenter.begin_chunk_apply(packet)
+		_terrain_visual_presenter.set_chunk_solid_halo(_pending_terrain_visual_solid_halo)
 	else:
 		_rock_visual = _resolve_rock_visual_resource()
 		_rock_visual_material = _build_rock_visual_material(_rock_visual)
@@ -107,13 +109,7 @@ func apply_next_batch(batch_size: int) -> bool:
 		_apply_roof_cell(local_coord, index)
 	_apply_index = end_index
 	if _apply_index >= _pending_terrain_ids.size():
-		if _terrain_visual_presenter != null and _terrain_visual_presenter.is_enabled():
-			_terrain_visual_presenter.apply_full_pending(
-				chunk_coord,
-				_pending_mountain_ids,
-				_pending_mountain_flags,
-			)
-		else:
+		if _terrain_visual_presenter == null or not _terrain_visual_presenter.is_enabled():
 			_refresh_rock_regions()
 		return false
 	return true
@@ -166,6 +162,12 @@ func set_terrain_visual_recipe(recipe: Resource) -> void:
 	_ensure_terrain_visual_presenter().set_recipe(recipe)
 
 
+func set_terrain_visual_solid_halo(solid_halo: PackedByteArray) -> void:
+	_pending_terrain_visual_solid_halo = solid_halo.duplicate()
+	if _terrain_visual_presenter != null and is_instance_valid(_terrain_visual_presenter):
+		_terrain_visual_presenter.set_chunk_solid_halo(_pending_terrain_visual_solid_halo)
+
+
 func get_terrain_visual_v2_debug_state() -> Dictionary:
 	if _terrain_visual_presenter != null and is_instance_valid(_terrain_visual_presenter):
 		return _terrain_visual_presenter.get_debug_state()
@@ -177,6 +179,13 @@ func apply_pending_terrain_visual_v2_patch() -> bool:
 	if tv == null or not tv.is_enabled():
 		return false
 	return tv.apply_dirty_patch(chunk_coord, _pending_mountain_ids, _pending_mountain_flags)
+
+
+func apply_pending_terrain_visual_v2_full() -> bool:
+	var tv := _terrain_visual_presenter
+	if tv == null or not tv.is_enabled():
+		return false
+	return tv.apply_full_pending(chunk_coord, _pending_mountain_ids, _pending_mountain_flags)
 
 
 func _ensure_terrain_visual_presenter() -> TerrainVisualRuntimePresenter:

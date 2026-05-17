@@ -559,11 +559,14 @@ Current code notes:
 Returned by native
 `TerrainVisualSolver.build_editor_preview_packet(solid_mask, width_tiles, height_tiles, recipe_payload, preview_origin_tile, seed)`
 or
-`TerrainVisualSolver.build_chunk_visual_packet(solid_mask, width_tiles, height_tiles, recipe_payload, world_origin_tile, chunk_coord, seed)`.
+`TerrainVisualSolver.build_chunk_visual_packet(solid_mask, width_tiles, height_tiles, recipe_payload, world_origin_tile, chunk_coord, seed)`
+or
+`TerrainVisualSolver.build_chunk_visual_packet_with_halo(solid_mask, width_tiles, height_tiles, recipe_payload, input_world_origin_tile, chunk_coord, seed, output_rect_tiles)`.
 
 Current scope:
 - V2-IT2 editor/test/background compute
 - V2-IT9 canonical `ChunkView` rock runtime presentation
+- V2-IT10 halo-backed cropped runtime chunk/dirty-rect solve
 - V2-IT7 bounded runtime dirty patch solve/apply for loaded chunk visuals
 - not a save payload
 - not gameplay terrain truth
@@ -616,19 +619,33 @@ Current code notes:
 - `outline_polylines` is allowed to be empty in V2-IT2
 - `debug_counters` includes at least `solver_version`, `seed`,
   `solid_pixels`, `empty_pixels`, `top_pixels`, `edge_pixels`,
-  `face_pixels`, `back_pixels`, and `outline_polyline_count`
+  `face_pixels`, `back_pixels`, and `outline_polyline_count`; V2-IT10 packets
+  may also include `input_width_tiles`, `input_height_tiles`,
+  `output_width_tiles`, and `output_height_tiles`
 - the packet is derived from the solid mask plus `TerrainVisualRecipe` payload
   values and must not be written into save data
 - runtime rock presentation may use a bounded local mask around the actual rock
   footprint instead of a full 16x16 chunk mask; `world_origin_tile` anchors that
   bounded packet in world-tile coordinates, while `chunk_coord` keeps the owning
   chunk identity
+- when built through `build_chunk_visual_packet_with_halo(...)`, the input mask
+  may include a one-tile topology halo around the owned output rect. The packet
+  still reports only the cropped output dimensions, and `world_origin_tile`
+  anchors the cropped output, not the halo origin.
 - runtime dirty patch presentation uses the same packet shape for a local dirty
   rect. The patch packet is copied into the current visual texture cache and is
   not a new authoritative packet type.
 - canonical runtime applies packet textures/materials only as visual
   derived state; runtime terrain truth remains `ChunkPacketV1` plus
   `ChunkDiffFile`
+- runtime presentation may solve/apply packet textures at a lower
+  `tile_size_px` than the authored recipe preview, then stretch the visual
+  layer to the canonical world-tile footprint. `tile_size_px`, `pixel_width`,
+  and `pixel_height` describe packet texture resolution, not gameplay tile
+  size or chunk dimensions. Runtime downsample must scale authored pixel
+  metrics such as `rim_width_px`, `south_height_px`, `north_height_px`, and
+  `side_height_px` by the same tile-size ratio so visual world-space distances
+  do not change.
 
 ### `WorldFoundationSpawnResult`
 
