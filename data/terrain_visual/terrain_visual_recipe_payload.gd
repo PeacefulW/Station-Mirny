@@ -1,6 +1,10 @@
 class_name TerrainVisualRecipePayload
 extends RefCounted
 
+const FIXED_GAME_TILE_SIZE_PX := 64
+const MAX_RUNTIME_SHAPE_SUPERSAMPLING := 4
+
+
 static func make_payload(recipe: Resource) -> Dictionary:
 	if recipe == null:
 		return { }
@@ -8,7 +12,8 @@ static func make_payload(recipe: Resource) -> Dictionary:
 		"schema_version": int(recipe.get("schema_version")),
 		"recipe_id": recipe.get("id"),
 		"surface_kind": recipe.get("surface_kind"),
-		"tile_size_px": int(recipe.get("tile_size_px")),
+		"tile_size_px": FIXED_GAME_TILE_SIZE_PX,
+		"runtime_tile_size_px": FIXED_GAME_TILE_SIZE_PX,
 		"rim_width_px": float(recipe.get("rim_width_px")),
 		"south_height_px": float(recipe.get("south_height_px")),
 		"north_height_px": float(recipe.get("north_height_px")),
@@ -24,7 +29,11 @@ static func make_payload(recipe: Resource) -> Dictionary:
 		"contour_warp_px": float(recipe.get("contour_warp_px")),
 		"corner_variation": float(recipe.get("corner_variation")),
 		"geometry_variance": float(recipe.get("geometry_variance")),
-		"shape_supersampling": int(recipe.get("shape_supersampling")),
+		"shape_supersampling": clampi(
+			int(recipe.get("shape_supersampling")),
+			1,
+			MAX_RUNTIME_SHAPE_SUPERSAMPLING,
+		),
 		"edge_debris": float(recipe.get("edge_debris")),
 		"edge_color_strength": float(recipe.get("edge_color_strength")),
 		"contact_outline_enabled": bool(recipe.get("contact_outline_enabled")),

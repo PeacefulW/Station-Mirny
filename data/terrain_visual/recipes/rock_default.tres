@@ -1,9 +1,9 @@
-[gd_resource type="Resource" script_class="TerrainVisualRecipe" format=3 uid="uid://cuyk45ooeqmqy"]
+[gd_resource type="Resource" script_class="TerrainVisualRecipe" format=3]
 
-[ext_resource type="Script" uid="uid://detiieweaidh1" path="res://data/terrain_visual/terrain_visual_recipe.gd" id="1_recipe"]
-[ext_resource type="Script" uid="uid://djmds63vhuenj" path="res://data/terrain_visual/terrain_visual_material_slot.gd" id="2_material"]
+[ext_resource type="Script" path="res://data/terrain_visual/terrain_visual_recipe.gd" id="1_recipe"]
+[ext_resource type="Script" path="res://data/terrain_visual/terrain_visual_material_slot.gd" id="2_material"]
 
-[sub_resource type="Resource" id="Resource_back_material"]
+[sub_resource type="Resource" id="Resource_mxmy3"]
 script = ExtResource("2_material")
 flat_color = Color(0.152941, 0.137255, 0.121569, 1)
 color_a = Color(0.152941, 0.137255, 0.121569, 1)
@@ -19,7 +19,7 @@ seed = 29
 normal_mix = 0.75
 modulation_strength = 0.7
 
-[sub_resource type="Resource" id="Resource_base_material"]
+[sub_resource type="Resource" id="Resource_xjf1w"]
 script = ExtResource("2_material")
 procedural_kind = &"packed_dirt"
 flat_color = Color(0.490196, 0.294118, 0.117647, 1)
@@ -35,22 +35,22 @@ seed = 31
 normal_mix = 0.45
 modulation_strength = 0.6
 
-[sub_resource type="Resource" id="Resource_face_material"]
+[sub_resource type="Resource" id="Resource_w6ssb"]
 script = ExtResource("2_material")
-flat_color = Color(0.152941, 0.137255, 0.121569, 1)
-color_a = Color(0.152941, 0.137255, 0.121569, 1)
-color_b = Color(0.368627, 0.317647, 0.270588, 1)
-highlight_color = Color(0.666667, 0.596078, 0.47451, 1)
-scale = 1.25
-contrast = 1.26
-crack_amount = 0.45
-wear = 0.55
-grain = 0.6
-edge_darkening = 0.72
+flat_color = Color(0.105882, 0.094118, 0.082353, 1)
+color_a = Color(0.105882, 0.094118, 0.082353, 1)
+color_b = Color(0.301961, 0.247059, 0.196078, 1)
+highlight_color = Color(0.580392, 0.498039, 0.392157, 1)
+scale = 1.45
+contrast = 1.38
+crack_amount = 0.55
+wear = 0.45
+grain = 0.7
+edge_darkening = 0.78
 seed = 23
-modulation_strength = 0.8
+modulation_strength = 0.85
 
-[sub_resource type="Resource" id="Resource_top_material"]
+[sub_resource type="Resource" id="Resource_vepcl"]
 script = ExtResource("2_material")
 procedural_kind = &"rough_stone"
 flat_color = Color(0.305882, 0.278431, 0.227451, 1)
@@ -71,8 +71,23 @@ script = ExtResource("1_recipe")
 id = &"core:rock_default"
 display_name_key = &"TERRAIN_VISUAL_ROCK_DEFAULT_NAME"
 default_seed = 1337
-contour_relax = 1.0
-top_material = SubResource("Resource_top_material")
-face_material = SubResource("Resource_face_material")
-base_material = SubResource("Resource_base_material")
-back_material = SubResource("Resource_back_material")
+south_height_px = 12.4
+back_drop = 0.99
+crown_bevel_px = 12.7
+outer_corner_radius_px = 51.3
+inner_corner_radius_px = 63.1
+corner_round_px = 82.6
+diagonal_smooth_px = 10.4
+contour_relax = 0.16
+contour_warp_px = 12.4
+corner_variation = 0.64
+rim_width_px = 2.5
+edge_color_strength = 0.54
+contact_outline_width_px = 8.0
+normal_strength = 16.0
+normal_detail_strength = 16.0
+height_to_normal_blur_radius_px = 16.0
+top_material = SubResource("Resource_vepcl")
+face_material = SubResource("Resource_w6ssb")
+base_material = SubResource("Resource_xjf1w")
+back_material = SubResource("Resource_mxmy3")

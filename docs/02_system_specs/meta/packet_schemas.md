@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.3
-last_updated: 2026-05-17
+version: 1.4
+last_updated: 2026-05-18
 related_docs:
   - ../README.md
   - system_api.md
@@ -644,6 +644,9 @@ Current code notes:
 - canonical runtime applies packet textures/materials only as visual
   derived state; runtime terrain truth remains `ChunkPacketV1` plus
   `ChunkDiffFile`
+- V2 mountain surface collision may read committed `zone_ids` and coverage
+  bytes as a derived contour query for loaded chunks. This read does not make
+  the packet save truth and does not add packet fields.
 - runtime presentation may solve/apply packet textures at a lower
   `tile_size_px` than the authored recipe preview, then stretch the visual
   layer to the canonical world-tile footprint. `tile_size_px`, `pixel_width`,

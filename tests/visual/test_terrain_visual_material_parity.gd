@@ -76,6 +76,103 @@ func test_material_builder_wires_flat_image_and_procedural_sources() -> void:
 	)
 
 
+func test_material_builder_maps_old_generator_runtime_kinds() -> void:
+	var packet := _synthetic_packet(Vector2i(8, 8), &"top")
+	var expected_ids := {
+		&"stratified_rock": 0,
+		&"rough_stone": 1,
+		&"cracked_dry_earth": 2,
+		&"packed_dirt": 3,
+		&"sand": 4,
+		&"ash_burnt_ground": 5,
+		&"snow": 6,
+		&"moss": 7,
+		&"gravel": 8,
+		&"concrete": 9,
+		&"ribbed_steel": 10,
+		&"ice_frost": 11,
+	}
+
+	for kind: StringName in expected_ids.keys():
+		var recipe := _recipe_fixture()
+		recipe.set(
+			"top_material",
+			_material_slot(
+				&"procedural",
+				kind,
+				Color(0.26, 0.24, 0.20, 1.0),
+				null,
+			),
+		)
+		var material: ShaderMaterial = _new_material_builder().call(
+			"build_material",
+			packet,
+			DEBUG_MODE_ALBEDO,
+			recipe,
+		)
+		assert_that(material.get_shader_parameter("top_kind")).is_equal(expected_ids[kind])
+
+
+func test_material_builder_accepts_old_generator_kind_aliases() -> void:
+	var packet := _synthetic_packet(Vector2i(8, 8), &"top")
+	var expected_alias_ids := {
+		&"layered_rock": 0,
+		&"stone": 1,
+		&"cracked_earth": 2,
+		&"dirt": 3,
+		&"sand_dune": 4,
+		&"ash": 5,
+		&"snow_surface": 6,
+		&"moss_patch": 7,
+		&"regolith": 8,
+		&"diamond_plate": 10,
+		&"ice": 11,
+	}
+
+	for kind: StringName in expected_alias_ids.keys():
+		var recipe := _recipe_fixture()
+		recipe.set(
+			"top_material",
+			_material_slot(
+				&"procedural",
+				kind,
+				Color(0.26, 0.24, 0.20, 1.0),
+				null,
+			),
+		)
+		var material: ShaderMaterial = _new_material_builder().call(
+			"build_material",
+			packet,
+			DEBUG_MODE_ALBEDO,
+			recipe,
+		)
+		assert_that(material.get_shader_parameter("top_kind")).is_equal(expected_alias_ids[kind])
+
+
+func test_material_slot_validates_runtime_procedural_kind_registry() -> void:
+	for kind: StringName in [
+		&"stratified_rock",
+		&"rough_stone",
+		&"cracked_dry_earth",
+		&"packed_dirt",
+		&"sand",
+		&"ash_burnt_ground",
+		&"snow",
+		&"moss",
+		&"gravel",
+		&"concrete",
+		&"ribbed_steel",
+		&"ice_frost",
+	]:
+		var slot := _material_slot(
+			&"procedural",
+			kind,
+			Color(0.26, 0.24, 0.20, 1.0),
+			null,
+		)
+		assert_that(slot.call("validate")).is_empty()
+
+
 func test_procedural_kinds_produce_distinct_albedo_from_material_uv() -> void:
 	var packet := _synthetic_packet(Vector2i(32, 32), &"top")
 	var hashes := { }
@@ -85,6 +182,14 @@ func test_procedural_kinds_produce_distinct_albedo_from_material_uv() -> void:
 		&"rough_stone",
 		&"cracked_dry_earth",
 		&"packed_dirt",
+		&"sand",
+		&"ash_burnt_ground",
+		&"snow",
+		&"moss",
+		&"gravel",
+		&"concrete",
+		&"ribbed_steel",
+		&"ice_frost",
 	]:
 		var recipe := _recipe_fixture()
 		recipe.set(
@@ -103,6 +208,10 @@ func test_procedural_kinds_produce_distinct_albedo_from_material_uv() -> void:
 	assert_that(hashes[&"stratified_rock"]).is_not_equal(hashes[&"rough_stone"])
 	assert_that(hashes[&"rough_stone"]).is_not_equal(hashes[&"cracked_dry_earth"])
 	assert_that(hashes[&"cracked_dry_earth"]).is_not_equal(hashes[&"packed_dirt"])
+	assert_that(hashes[&"sand"]).is_not_equal(hashes[&"ash_burnt_ground"])
+	assert_that(hashes[&"snow"]).is_not_equal(hashes[&"ice_frost"])
+	assert_that(hashes[&"moss"]).is_not_equal(hashes[&"gravel"])
+	assert_that(hashes[&"concrete"]).is_not_equal(hashes[&"ribbed_steel"])
 
 
 func test_image_face_material_uses_packet_projection_not_screen_uv() -> void:

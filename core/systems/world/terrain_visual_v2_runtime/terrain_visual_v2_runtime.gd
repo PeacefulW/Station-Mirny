@@ -8,6 +8,8 @@ const TerrainVisualPacketBackend = preload(
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
 const RUNTIME_ENABLED_SETTING := "station_mirny/terrain_visual/v2_chunk_runtime_enabled"
+const TICK_BUDGET_USEC := 2000
+const TICK_MAX_ITERATIONS := 16
 
 var _packet_backend: TerrainVisualPacketBackend = TerrainVisualPacketBackend.new()
 var _pending_full_queue: Array[Vector2i] = []
@@ -62,11 +64,19 @@ func has_pending_work() -> bool:
 
 
 func tick(world_wrap_width_tiles: int) -> bool:
-	if _pending_patch_queue.is_empty() and _pending_full_queue.is_empty():
-		return false
-	if not _pending_patch_queue.is_empty():
-		return _advance_patch_apply(world_wrap_width_tiles)
-	return _advance_full_apply(world_wrap_width_tiles)
+	var started_usec := Time.get_ticks_usec()
+	var iterations := 0
+	while iterations < TICK_MAX_ITERATIONS:
+		if _pending_patch_queue.is_empty() and _pending_full_queue.is_empty():
+			return false
+		if not _pending_patch_queue.is_empty():
+			_advance_patch_apply(world_wrap_width_tiles)
+		else:
+			_advance_full_apply(world_wrap_width_tiles)
+		iterations += 1
+		if Time.get_ticks_usec() - started_usec >= TICK_BUDGET_USEC:
+			break
+	return _has_queued_work()
 
 
 func configure_chunk(

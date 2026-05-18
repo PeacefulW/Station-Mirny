@@ -1097,3 +1097,162 @@ msgstr "Causality по чанкам"
 
 msgid "UI_DEBUG_CHUNK_OVERLAY_TASK_CAUSALITY"
 msgstr "Causality по visual task"
+
+msgid "UI_TERRAIN_VISUAL_SECTION_DEBUG"
+msgstr "Отладка"
+
+msgid "UI_TERRAIN_VISUAL_SECTION_MASK"
+msgstr "Форма / маска"
+
+msgid "UI_TERRAIN_VISUAL_SECTION_SHAPE"
+msgstr "Форма"
+
+msgid "UI_TERRAIN_VISUAL_SECTION_FACADE"
+msgstr "Фасад"
+
+msgid "UI_TERRAIN_VISUAL_SECTION_RIM"
+msgstr "Кромка"
+
+msgid "UI_TERRAIN_VISUAL_SECTION_NORMAL"
+msgstr "Нормали"
+
+msgid "UI_TERRAIN_VISUAL_SECTION_MATERIALS"
+msgstr "Материалы"
+
+msgid "UI_TERRAIN_VISUAL_SAVE_RECIPE"
+msgstr "Сохранить рецепт"
+
+msgid "UI_TERRAIN_VISUAL_EXPORT_REFERENCE"
+msgstr "Экспорт PNG"
+
+msgid "UI_TERRAIN_VISUAL_SAVE_HINT"
+msgstr "Сохраняет параметры рецепта для игры. Маска справа нужна только для предпросмотра."
+
+msgid "UI_TERRAIN_VISUAL_SAVE_SUCCESS"
+msgstr "Сохранено: {path}"
+
+msgid "UI_TERRAIN_VISUAL_SAVE_FAILED"
+msgstr "Не удалось сохранить: {path}"
+
+msgid "UI_TERRAIN_VISUAL_DEBUG_ALBEDO"
+msgstr "albedo"
+
+msgid "UI_TERRAIN_VISUAL_DEBUG_ZONE"
+msgstr "зоны"
+
+msgid "UI_TERRAIN_VISUAL_DEBUG_COVERAGE"
+msgstr "покрытие"
+
+msgid "UI_TERRAIN_VISUAL_DEBUG_HEIGHT"
+msgstr "высота"
+
+msgid "UI_TERRAIN_VISUAL_DEBUG_NORMAL"
+msgstr "нормали"
+
+msgid "UI_TERRAIN_VISUAL_DEBUG_MATERIAL_UV"
+msgstr "material uv"
+
+msgid "UI_TERRAIN_VISUAL_DEBUG_LIT_PREVIEW"
+msgstr "lit preview"
+
+msgid "UI_TERRAIN_VISUAL_MASK_SOLID_4X3"
+msgstr "сплошная 4x3"
+
+msgid "UI_TERRAIN_VISUAL_MASK_NOTCH_3X3"
+msgstr "вырез 3x3"
+
+msgid "UI_TERRAIN_VISUAL_MASK_DIAGONAL_3X3"
+msgstr "диагональ 3x3"
+
+msgid "UI_TERRAIN_VISUAL_MASK_CAVE_CUT_5X4"
+msgstr "пещерный вырез 5x4"
+
+msgid "UI_TERRAIN_VISUAL_MASK_SINGLE_1X1"
+msgstr "остров 1x1"
+
+msgid "UI_TERRAIN_VISUAL_MASK_CELL_TOOLTIP"
+msgstr "маска {x},{y}"
+
+msgid "UI_TERRAIN_VISUAL_MATERIAL_TOP"
+msgstr "верх"
+
+msgid "UI_TERRAIN_VISUAL_MATERIAL_FACE"
+msgstr "фасад"
+
+msgid "UI_TERRAIN_VISUAL_MATERIAL_BACK"
+msgstr "задний спад"
+
+msgid "UI_TERRAIN_VISUAL_MATERIAL_BASE"
+msgstr "основание"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_TILE_SIZE_PX"
+msgstr "Размер тайла"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_RUNTIME_TILE_SIZE_PX"
+msgstr "Размер в игре"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_SOUTH_HEIGHT_PX"
+msgstr "Южная высота"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_NORTH_HEIGHT_PX"
+msgstr "Северная высота"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_SIDE_HEIGHT_PX"
+msgstr "Боковая высота"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_FACE_POWER"
+msgstr "Сила фасада"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_BACK_DROP"
+msgstr "Задний спад"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_RIM_WIDTH_PX"
+msgstr "Ширина кромки"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_CROWN_BEVEL_PX"
+msgstr "Скос верхушки"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_EDGE_DEBRIS"
+msgstr "Мусор на кромке"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_EDGE_COLOR_STRENGTH"
+msgstr "Сила цвета кромки"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_CONTACT_OUTLINE_WIDTH_PX"
+msgstr "Ширина контактного контура"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_OUTER_CORNER_RADIUS_PX"
+msgstr "Внешний радиус угла"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_INNER_CORNER_RADIUS_PX"
+msgstr "Внутренний радиус выреза"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_CORNER_ROUND_PX"
+msgstr "Скругление контура"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_DIAGONAL_SMOOTH_PX"
+msgstr "Смягчение диагоналей"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_CONTOUR_RELAX"
+msgstr "Расслабление контура"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_CONTOUR_WARP_PX"
+msgstr "Шум контура"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_CORNER_VARIATION"
+msgstr "Разброс углов"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_GEOMETRY_VARIANCE"
+msgstr "Вариативность геометрии"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_SHAPE_SUPERSAMPLING"
+msgstr "Суперсемплинг формы"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_NORMAL_STRENGTH"
+msgstr "Сила нормалей"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_NORMAL_DETAIL_STRENGTH"
+msgstr "Детализация нормалей"
+
+msgid "UI_TERRAIN_VISUAL_CONTROL_HEIGHT_TO_NORMAL_BLUR_RADIUS_PX"
+msgstr "Размытие height-normal"

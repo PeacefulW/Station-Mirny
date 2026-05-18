@@ -27,6 +27,14 @@ func is_enabled() -> bool:
 	return _presenter != null and _presenter.is_enabled()
 
 
+func is_ready() -> bool:
+	if _presenter == null or not is_instance_valid(_presenter):
+		return false
+	if not _presenter.is_enabled():
+		return false
+	return _presenter.is_ready()
+
+
 func set_enabled(enabled: bool) -> void:
 	var presenter := _ensure_presenter()
 	if presenter != null:
@@ -61,6 +69,12 @@ func get_debug_state() -> Dictionary:
 	if _presenter != null and is_instance_valid(_presenter):
 		return _presenter.get_debug_state()
 	return { "enabled": false }
+
+
+func is_solid_at_world(world_pos: Vector2) -> bool:
+	if _presenter == null or not is_instance_valid(_presenter):
+		return false
+	return _presenter.is_packet_solid_at_world(world_pos)
 
 
 func begin_chunk_apply(packet: Dictionary) -> void:

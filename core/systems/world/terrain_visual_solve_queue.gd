@@ -9,8 +9,6 @@ const TerrainVisualPacketBackend = preload(
 	"res://core/systems/world/terrain_visual_packet_backend.gd"
 )
 
-const RUNTIME_PACKET_TILE_SIZE_PX := 32
-
 var _solver: Object = null
 var _packet_backend: TerrainVisualPacketBackend = null
 var _owns_packet_backend: bool = false
@@ -50,6 +48,7 @@ func queue_solve_request(
 		chunk_coord: Vector2i,
 		recipe: Resource,
 		seed: int,
+		priority: int = TerrainVisualPacketBackend.FULL_SOLVE_PRIORITY,
 ) -> int:
 	var recipe_payload := _make_runtime_recipe_payload(recipe)
 	var input_origin_local: Vector2i = (
@@ -71,6 +70,7 @@ func queue_solve_request(
 		seed,
 		bool(mask_result.get("uses_halo", false)),
 		output_rect,
+		priority,
 	)
 
 
@@ -88,11 +88,7 @@ func cancel_request(request_id: int) -> void:
 func runtime_scaled_recipe_px(recipe: Resource, property_name: StringName) -> float:
 	if recipe == null:
 		return 0.0
-	var authored_tile_size_px := int(recipe.get("tile_size_px"))
-	if authored_tile_size_px <= 0:
-		authored_tile_size_px = WorldRuntimeConstants.TILE_SIZE_PX
-	var runtime_scale := float(RUNTIME_PACKET_TILE_SIZE_PX) / float(authored_tile_size_px)
-	return maxf(0.0, float(recipe.get(property_name)) * runtime_scale)
+	return maxf(0.0, float(recipe.get(property_name)))
 
 
 func copy_patch_field_bytes(
@@ -157,27 +153,5 @@ func _ensure_solver() -> Object:
 
 func _make_runtime_recipe_payload(recipe: Resource) -> Dictionary:
 	var recipe_payload := TerrainVisualRecipePayload.make_payload(recipe)
-	var authored_tile_size_px := int(
-		recipe_payload.get("tile_size_px", WorldRuntimeConstants.TILE_SIZE_PX),
-	)
-	if authored_tile_size_px <= 0:
-		authored_tile_size_px = WorldRuntimeConstants.TILE_SIZE_PX
-	var runtime_scale := float(RUNTIME_PACKET_TILE_SIZE_PX) / float(authored_tile_size_px)
-	recipe_payload["tile_size_px"] = RUNTIME_PACKET_TILE_SIZE_PX
-	for metric_key: String in [
-		"rim_width_px",
-		"south_height_px",
-		"north_height_px",
-		"side_height_px",
-		"crown_bevel_px",
-		"outer_corner_radius_px",
-		"inner_corner_radius_px",
-		"corner_round_px",
-		"diagonal_smooth_px",
-		"contour_warp_px",
-		"contact_outline_width_px",
-		"height_to_normal_blur_radius_px",
-	]:
-		recipe_payload[metric_key] = float(recipe_payload.get(metric_key, 0.0)) * runtime_scale
 	recipe_payload["world_wrap_width_tiles"] = _world_wrap_width_tiles
 	return recipe_payload

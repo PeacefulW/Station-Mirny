@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+art
 source_of_truth: true
-version: 1.1
+version: 1.3
 last_updated: 2026-05-18
 supersedes:
   - ./biome_visual_authoring_variant_d.md
@@ -226,6 +226,37 @@ Target performance contract:
 - no per-cell Node creation;
 - no GDScript loop over all pixels or all chunk cells.
 
+### 6.4 Chunk reveal gate (Fresh-publish reveal gate)
+
+When a fresh world chunk publishes through `WorldStreamer`, the reveal order is
+mandatory:
+
+1. terrain `TileMap` cells apply in bounded batches under `apply_next_batch`;
+2. the V2 mountain visual full solve is queued **as soon as the chunk view is
+   configured for that publish step**, so the native solve overlaps terrain
+   apply rather than starting only after it;
+3. the chunk view stays `visible = false` until either:
+   - the chunk packet has no V2 mountain surface (no V2 mountain to reveal);
+   - V2 mountain visual is not active for the chunk (project setting off, or
+     biome has no rock visual recipe — both are explicit configurations, not
+     defensive fallbacks);
+   - or V2 mountain visual reports ready: native solve completed, packet was
+     applied to the chunk visual layer, and `is_ready()` returns `true`.
+
+Forbidden by the gate:
+
+- revealing a chunk that contains V2 mountain surface while V2 still has
+  pending solve or pending apply;
+- any defensive timeout, frame-counter, or silent skip that flips `visible` to
+  `true` to "unstick" a deadline — if V2 cannot finish, the path must surface
+  the failure explicitly, not hide it behind a fallback;
+- driving V2 forward from the streaming tick in parallel with the V2 visual
+  job for the same chunk; only one driver advances any given chunk's V2 state.
+
+The reveal gate guarantees player perception: a fresh chunk never appears with
+plains-ground underlay where the mountain mass should be. The signal
+`chunk_loaded` (see `event_contracts.md`) fires only after this gate passes.
+
 ## 7. Target scale (Scale Scenario)
 
 V2 must be designed against at least this target:
@@ -390,6 +421,7 @@ Required fields:
 - `solver_family_id: StringName`
 - `default_seed: int`
 - `tile_size_px: int`
+- `runtime_tile_size_px: int`
 - `variant_count: int`
 
 `surface_kind` examples:
@@ -517,16 +549,29 @@ Allowed `source` values:
 - `image`
 - `flat`
 
-Initial `procedural_kind` values should be ported from the old generator only
-as needed for rock-first acceptance:
+Runtime `procedural_kind` values ported from the old generator for rock-first
+and biome-material acceptance:
 
 - `stratified_rock`
 - `rough_stone`
 - `cracked_dry_earth`
 - `packed_dirt`
+- `sand`
+- `ash_burnt_ground`
+- `snow`
+- `moss`
+- `gravel`
+- `concrete`
+- `ribbed_steel`
+- `ice_frost`
 
 Additional kinds from the old generator are allowed later, but must land as
 data-driven material kinds, not hardcoded shader branches per biome.
+
+`runtime_tile_size_px` is optional. `0` means "use authored `tile_size_px`";
+positive values downsample or supersample the authored recipe at runtime. Rock
+defaults to `48` px in `rock_default.tres` to avoid the old hidden 32 px runtime
+cap while keeping packet memory below authored 64 px.
 
 ## 13. Runtime packet: TerrainVisualPacket
 
@@ -770,6 +815,30 @@ Required editor capabilities:
 - export reference screenshots for tests;
 - show dirty rect/debug counters;
 - show warning when recipe schema is invalid.
+
+Workbench presentation requirements:
+
+- preview is the primary pane and must not be overlapped by sliders or mask
+  controls;
+- controls live in a separate right-side scroll panel on wide editor viewports
+  and may be hidden on very narrow test/mobile-sized viewports;
+- control groups must be separated by authoring domain: `Mask`, `Shape`,
+  `Facade`, `Rim`, `Materials`, `Normal`, and `Debug`;
+- every visible workbench label, button, mask preset, material slot, and slider
+  label must use project localization keys with at least English and Russian
+  translations;
+- the workbench must expose a recipe save action. Saving writes the current
+  `TerrainVisualRecipe` resource, not only a PNG reference image. Preview mask
+  edits are editor-only and are not saved as world terrain;
+- authoring `tile_size_px` and runtime `runtime_tile_size_px` must be visible
+  controls, because visual parity and runtime memory cost are a deliberate
+  authoring choice;
+- the preview pane must not magnify a generated packet above native packet
+  resolution by default. If a larger preview is needed, the recipe tile size
+  should be increased instead of stretching nearest-sampled packet textures;
+- default preview mode should be lit/composite, not raw albedo, so height and
+  normal regressions are visible immediately;
+- default mask should include a cave/cutout case, not only a solid rectangle.
 
 Editor forbidden capabilities for early iterations:
 
@@ -1125,6 +1194,14 @@ Goal:
   - `rough_stone`;
   - `cracked_dry_earth`;
   - `packed_dirt`;
+  - `sand`;
+  - `ash_burnt_ground`;
+  - `snow`;
+  - `moss`;
+  - `gravel`;
+  - `concrete`;
+  - `ribbed_steel`;
+  - `ice_frost`;
 - support image/flat/procedural sources;
 - implement contour tangent/depth projection for face/back/edge.
 
@@ -1578,6 +1655,8 @@ Implementation contract:
 - `addons/biome_visual_authoring_v2/terrain_visual_workbench.gd` must build
   native preview packets through `TerrainVisualRecipePayload.make_payload(...)`,
   the same payload assembler used by runtime and golden tests.
+- The workbench layout must keep `PacketPreview` inside a dedicated preview
+  stage and keep the control scroll panel outside that preview stage.
 - The workbench may provide editor-only controls for facade height, side/north
   height, rim width, bevel, corner radii, diagonal smoothing, contour relax/warp,
   variance, supersampling, face falloff, normal strength, debug mode, mask
@@ -1600,8 +1679,108 @@ Acceptance:
 - existing workbench tests continue to prove native solver usage, mask edit
   refresh, height/material preview changes, and PNG-free reference screenshot
   export;
+- layout tests prove the right-side controls do not overlap the preview stage
+  and the default view opens on a lit cave/cutout mask;
 - `TerrainVisualPacketV0`, gameplay command schemas, event payload schemas,
   terrain ids, collision, and save/load behavior remain unchanged.
+
+### V2-IT19 - Runtime packet throughput and contour collision
+
+Goal:
+
+- remove the V2 visual latency where full chunk solves and mining patches were
+  serialized behind one worker and one texture field per visual tick;
+- make mining feedback update the committed packet immediately after the native
+  patch solve completes;
+- make loaded V2 mountain surface collision follow the committed packet contour
+  instead of the full tile square.
+
+Implementation contract:
+
+- `TerrainVisualPacketBackend` owns a shared multi-worker native solve pool.
+  GDScript remains orchestration only; SDF, coverage, height, normal, material
+  projection, and patch byte copy stay native.
+- Dirty patch solve requests have priority over full refresh requests so a
+  mining action is not trapped behind unrelated chunk full solves.
+- Full packet apply and dirty patch apply upload/copy all packet fields in one
+  visual tick after the native result is ready. The final chunk cell publish
+  batch still must not run full solve or texture apply.
+- `WorldStreamer.is_walkable_at_world(...)` remains the public collision read.
+  For V2 mountain surface only, it may sample the committed
+  `TerrainVisualPacketV0` `zone_ids` and coverage fields to answer sub-tile
+  contour collision. If the committed V2 packet is not ready, the query is
+  conservative and keeps the non-walkable mountain tile blocked.
+- The packet is still derived state. It is not serialized, networked, or treated
+  as the owner of terrain ids, mining diff, biome identity, or `world_version`.
+
+Acceptance:
+
+- runtime packet backend starts at least two native worker threads;
+- once a full packet solve result is ready, one visual tick commits every packet
+  texture field and leaves no pending full apply state;
+- once a dirty patch solve result is ready, one visual tick commits every patch
+  field and clears pending patch state without a full solve;
+- `WorldStreamer.is_walkable_at_world(...)` returns walkable for an empty
+  contour pixel inside a non-walkable mountain tile and blocked for a solid
+  contour pixel in the same V2 packet pipeline;
+- `TerrainVisualPacketV0`, save/load payloads, gameplay commands, and public
+  event payloads remain unchanged.
+
+### V2-IT20 - Per-chunk variant seed and visual tick budget
+
+Goal:
+
+- remove the visible "draw-in" stutter where each loaded chunk waits its own
+  visual tick before the V2 runtime even polls its native solve result;
+- stop neighbouring rock chunks from rendering as mirrored copies of the same
+  authored recipe by introducing a deterministic per-chunk variant seed that
+  shifts procedural material phase only;
+- finish the rock-first authoring calibration so the default
+  `core:rock_default` recipe produces face/back zones on all four cardinal
+  directions, not only south.
+
+Implementation contract:
+
+- `TerrainVisualV2Runtime.tick(...)` may pop and advance more than one queued
+  chunk per visual tick, bounded by a documented per-tick budget in
+  microseconds and a maximum iteration count. The final cell publish batch
+  still must not run full V2 visual solve or texture apply.
+- The packet shader receives a new `chunk_variant_seed` uniform. The runtime
+  presenter must compute it deterministically from the chunk coordinate and
+  the recipe `default_seed`, and must pass it through
+  `TerrainVisualChunkLayer.make_pending_layer(...)`. The seed is a shader
+  input only: it does not change `TerrainVisualPacketV0` fields, native solver
+  output, terrain ids, collision, or save/load state.
+- The seed must shift only procedural material phase. Geometry, zone
+  classification, height, normal, and material projection remain the native
+  solver's deterministic output. Editor preview that omits the uniform must
+  keep producing the same pre-IT20 baseline.
+- `core:rock_default.tres` may serialize calibrated `south_height_px`,
+  `north_height_px`, `side_height_px`, `crown_bevel_px`, `rim_width_px`,
+  `contact_outline_width_px`, `contour_warp_px`, `corner_variation`,
+  `geometry_variance`, and a darker `face_material` slot. These are authored
+  content edits, not runtime contract changes.
+
+Acceptance:
+
+- a single `TerrainVisualV2Runtime.tick(...)` can advance more than one
+  pending chunk when the per-tick budget allows, while staying bounded by the
+  documented maximum iteration count;
+- the V2 packet shader exposes a `chunk_variant_seed` uniform with a default
+  value of `0`, and the runtime presenter sets it through the chunk layer for
+  every committed full packet apply;
+- two chunks at different coordinates render the same recipe with visually
+  distinct procedural material phase, while their zone, height, normal, and
+  material projection packet fields remain unchanged;
+- `core:rock_default` validates and produces non-empty face coverage on the
+  south, north, east, and west edges of a closed 4x4 rock mask;
+- this slice intentionally changes derived packet bytes (recipe shape change)
+  and screenshot hashes (shader uniform + material recipe change). The V2
+  golden fixture
+  `tests/visual/golden/terrain_visual_v2_golden.json` must be regenerated in
+  a follow-up acceptance run; `TerrainVisualPacketV0` field set, gameplay
+  command schemas, event payload schemas, terrain ids, collision, and
+  save/load data remain unchanged.
 
 ## 26. Required boundary documentation updates (Required Updates)
 
@@ -1647,6 +1826,22 @@ Current IT9 status:
   `TerrainVisualSolver.copy_patch_field_bytes(...)`, and wrap-aware contour
   warp payload semantics. `commands.md` and `event_contracts.md` remain
   unchanged because no gameplay command or public event payload changes.
+- V2-IT19 updates this V2 world spec, `system_api.md`, and
+  `packet_schemas.md` for multi-worker packet solving, one-tick packet field
+  apply, and V2 mountain surface contour collision reads through
+  `WorldStreamer.is_walkable_at_world(...)`. `commands.md` and
+  `event_contracts.md` remain unchanged because no gameplay command or public
+  event payload changes.
+- V2-IT20 updates this V2 world spec only. `system_api.md`,
+  `packet_schemas.md`, `commands.md`, and `event_contracts.md` remain
+  unchanged because no public runtime entrypoint, packet field, command, or
+  event payload changes. The `chunk_variant_seed` uniform is a shader-only
+  input passed through the existing chunk layer surface, and the per-tick
+  visual budget is internal scheduling that preserves the existing
+  `TerrainVisualV2Runtime.tick(...)` contract. The V2 golden fixture must be
+  regenerated in a follow-up acceptance run because recipe shape and shader
+  uniform changes intentionally shift derived packet bytes and screenshot
+  hashes.
 - `docs/02_system_specs/meta/modding_extension_contracts.md` documents
   `TerrainVisualRecipe` and `BiomeData.rock_visual_recipe` as public authored
   content extension seams for the canonical V2 path.
