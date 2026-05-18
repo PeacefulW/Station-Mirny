@@ -3,68 +3,68 @@
 	"fixture_id": "terrain_visual_v2_it8_golden",
 	"packets": {
 		"diagonal_2x2": {
-			"height_q16": 2080637521,
-			"material_u_q16": 421962897,
-			"material_v_q16": 1965610367,
-			"normal_rgba8": 658392262,
+			"height_q16": 863467758,
+			"material_u_q16": 1876856644,
+			"material_v_q16": 450256930,
+			"normal_rgba8": 1000878582,
 			"pixel_size": [
 				32,
 				32
 			],
 			"zone_counts": {
 				"back": 0,
-				"edge": 60,
-				"empty": 512,
-				"face": 300,
-				"top": 152,
+				"edge": 51,
+				"empty": 626,
+				"face": 344,
+				"top": 3,
 				"unknown": 0
 			},
-			"zone_ids": 581880712
+			"zone_ids": 1860734770
 		},
 		"notch_3x3": {
-			"height_q16": 881295901,
-			"material_u_q16": 10701359,
-			"material_v_q16": 112459213,
-			"normal_rgba8": 1624024823,
+			"height_q16": 905548435,
+			"material_u_q16": 2019812976,
+			"material_v_q16": 1488521020,
+			"normal_rgba8": 986116743,
 			"pixel_size": [
 				48,
 				48
 			],
 			"zone_counts": {
 				"back": 0,
-				"edge": 128,
-				"empty": 256,
-				"face": 888,
-				"top": 1032,
+				"edge": 69,
+				"empty": 153,
+				"face": 914,
+				"top": 1168,
 				"unknown": 0
 			},
-			"zone_ids": 2044165719
+			"zone_ids": 551844557
 		},
 		"single_cell": {
-			"height_q16": 1322083385,
-			"material_u_q16": 828411237,
-			"material_v_q16": 723580182,
-			"normal_rgba8": 951437458,
+			"height_q16": 2080917208,
+			"material_u_q16": 1341017701,
+			"material_v_q16": 1456336228,
+			"normal_rgba8": 309285760,
 			"pixel_size": [
 				16,
 				16
 			],
 			"zone_counts": {
 				"back": 0,
-				"edge": 30,
-				"empty": 0,
-				"face": 150,
-				"top": 76,
+				"edge": 2,
+				"empty": 55,
+				"face": 163,
+				"top": 36,
 				"unknown": 0
 			},
-			"zone_ids": 1511037970
+			"zone_ids": 593791831
 		}
 	},
 	"schema_version": 1,
 	"screenshots": {
 		"notch_3x3": {
 			"albedo": {
-				"hash": 1122944523,
+				"hash": 1913497808,
 				"size": [
 					96,
 					96
@@ -72,28 +72,28 @@
 				"visible_pixels": 2304
 			},
 			"height": {
-				"hash": 1684941235,
+				"hash": 533767337,
 				"size": [
 					96,
 					96
 				],
-				"visible_pixels": 2048
+				"visible_pixels": 2151
 			},
 			"normal": {
-				"hash": 2123776834,
+				"hash": 629584873,
 				"size": [
 					96,
 					96
 				],
-				"visible_pixels": 2048
+				"visible_pixels": 2151
 			},
 			"zone": {
-				"hash": 112367558,
+				"hash": 1182928546,
 				"size": [
 					96,
 					96
 				],
-				"visible_pixels": 2048
+				"visible_pixels": 2151
 			}
 		}
 	},

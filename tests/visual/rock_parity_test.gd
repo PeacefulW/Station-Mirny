@@ -7,7 +7,10 @@ const PREVIEW_SCENE_PATH: String = "res://addons/biome_visual_authoring/biome_vi
 const SABOTAGE_ENV: String = "IT6_ROCK_PARITY_SABOTAGE"
 
 
-func test_rock_preview_runtime_parity() -> void:
+func test_rock_preview_runtime_parity(
+		_do_skip := true,
+		_skip_reason := "Legacy ChunkView RockVisualResource runtime path was removed by V2.",
+) -> void:
 	var rock_visual: RockVisualResource = load(ROCK_VISUAL_PATH) as RockVisualResource
 	assert_object(rock_visual).is_not_null()
 
@@ -35,8 +38,8 @@ func test_rock_preview_runtime_parity() -> void:
 	runtime_viewport.free()
 
 	assert_bool(bool(comparison["matched"])) \
-		.override_failure_message(str(comparison["message"])) \
-		.is_true()
+			.override_failure_message(str(comparison["message"])) \
+			.is_true()
 
 
 func _make_viewport(viewport_name: String) -> SubViewport:
@@ -86,7 +89,9 @@ func _make_runtime_path(rock_visual: RockVisualResource, preview_node: Node2D) -
 	runtime_shape.color = preview_shape.color
 
 	var chunk_view := ChunkView.new()
-	var material: ShaderMaterial = chunk_view.call("_build_rock_visual_material", rock_visual) as ShaderMaterial
+	var material: ShaderMaterial = (
+		chunk_view.call("_build_rock_visual_material", rock_visual) as ShaderMaterial
+	)
 	chunk_view.free()
 	assert_object(material).is_not_null()
 	runtime_shape.material = material
@@ -119,7 +124,11 @@ func _compare_images(preview_image: Image, runtime_image: Image) -> Dictionary:
 	if preview_image == null or runtime_image == null:
 		return {
 			"matched": false,
-			"message": "Rock parity failed: one viewport did not return an image. Run GdUnit with -NoHeadless; the headless dummy renderer cannot capture SubViewport images.",
+			"message": (
+				"Rock parity failed: one viewport did not return an image. "
+				+ "Run GdUnit with -NoHeadless; the headless dummy renderer cannot "
+				+ "capture SubViewport images."
+			),
 		}
 	if preview_image.get_size() != runtime_image.get_size():
 		return {
@@ -157,7 +166,10 @@ func _compare_images(preview_image: Image, runtime_image: Image) -> Dictionary:
 		}
 	return {
 		"matched": false,
-		"message": "Rock parity failed: %d pixels exceeded %d LSB tolerance; first diff at %s preview=%s runtime=%s max_delta=%d." % [
+		"message": (
+			"Rock parity failed: %d pixels exceeded %d LSB tolerance; "
+			+ "first diff at %s preview=%s runtime=%s max_delta=%d."
+		) % [
 			mismatch_count,
 			TOLERANCE_LSB,
 			first_coord,
@@ -171,7 +183,7 @@ func _compare_images(preview_image: Image, runtime_image: Image) -> Dictionary:
 func _max_lsb_delta(a: Color, b: Color) -> int:
 	return maxi(
 		maxi(abs(_to_lsb(a.r) - _to_lsb(b.r)), abs(_to_lsb(a.g) - _to_lsb(b.g))),
-		maxi(abs(_to_lsb(a.b) - _to_lsb(b.b)), abs(_to_lsb(a.a) - _to_lsb(b.a)))
+		maxi(abs(_to_lsb(a.b) - _to_lsb(b.b)), abs(_to_lsb(a.a) - _to_lsb(b.a))),
 	)
 
 

@@ -82,6 +82,59 @@ func test_shape_and_material_controls_change_preview() -> void:
 	viewport.free()
 
 
+func test_organic_shape_controls_are_sent_to_native_preview_payload() -> void:
+	var mounted := await _mount_workbench()
+	var workbench: Control = mounted.get("workbench") as Control
+	var viewport: SubViewport = mounted.get("viewport") as SubViewport
+	if workbench == null:
+		return
+
+	workbench.call("set_recipe", _recipe_fixture())
+	workbench.call("set_mask_size", Vector2i(3, 3))
+	workbench.call("fill_mask", true)
+	workbench.call("set_mask_cell", Vector2i(1, 1), false)
+	await _settle()
+
+	var relaxed_packet: Dictionary = workbench.call("get_last_packet")
+	var relaxed_coverage_hash := _byte_hash(
+		relaxed_packet.get("coverage_top", PackedByteArray()),
+	)
+	workbench.call("set_shape_control", &"contour_relax", 0.0)
+	await _settle()
+
+	var hard_packet: Dictionary = workbench.call("get_last_packet")
+	assert_that(_byte_hash(hard_packet.get("coverage_top", PackedByteArray()))).is_not_equal(
+		relaxed_coverage_hash,
+	)
+
+	viewport.free()
+
+
+func test_workbench_exposes_edge_outline_and_normal_authoring_controls() -> void:
+	var mounted := await _mount_workbench()
+	var workbench: Control = mounted.get("workbench") as Control
+	var viewport: SubViewport = mounted.get("viewport") as SubViewport
+	if workbench == null:
+		return
+
+	var specs: Array = workbench.call("_shape_control_specs") as Array
+	var fields := {}
+	for spec_variant: Variant in specs:
+		var spec: Dictionary = spec_variant as Dictionary
+		fields[spec.get("field", &"")] = true
+
+	for field: StringName in [
+		&"edge_debris",
+		&"edge_color_strength",
+		&"contact_outline_width_px",
+		&"normal_detail_strength",
+		&"height_to_normal_blur_radius_px",
+	]:
+		assert_that(fields.has(field)).is_true()
+
+	viewport.free()
+
+
 func test_reference_screenshot_exports_without_png_atlas_intermediate() -> void:
 	var mounted := await _mount_workbench()
 	var workbench: Control = mounted.get("workbench") as Control

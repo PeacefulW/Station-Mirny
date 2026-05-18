@@ -71,6 +71,7 @@ script = ExtResource("1_recipe")
 id = &"core:rock_default"
 display_name_key = &"TERRAIN_VISUAL_ROCK_DEFAULT_NAME"
 default_seed = 1337
+contour_relax = 1.0
 top_material = SubResource("Resource_top_material")
 face_material = SubResource("Resource_face_material")
 base_material = SubResource("Resource_base_material")

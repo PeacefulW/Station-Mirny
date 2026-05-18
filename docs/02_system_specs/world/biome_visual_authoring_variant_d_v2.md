@@ -5,7 +5,7 @@ status: approved
 owner: engineering+art
 source_of_truth: true
 version: 1.1
-last_updated: 2026-05-17
+last_updated: 2026-05-18
 supersedes:
   - ./biome_visual_authoring_variant_d.md
 related_docs:
@@ -639,11 +639,25 @@ build_editor_preview_packet(
   preview_origin_tile,
   seed
 ) -> TerrainVisualPacket
+
+copy_patch_field_bytes(
+  base_bytes,
+  patch_bytes,
+  base_pixel_size,
+  patch_pixel_size,
+  dst_rect,
+  src_rect,
+  bytes_per_pixel
+) -> PackedByteArray
 ```
 
 `recipe_payload` should be a packed/native-friendly representation prepared
 from `TerrainVisualRecipe`. The solver must not pull values directly from
 Godot resources inside deep pixel loops.
+Runtime may add `world_wrap_width_tiles` to the payload so deterministic
+contour warp remains periodic across the cylindrical X seam.
+`copy_patch_field_bytes(...)` is a derived-cache helper for staged runtime
+dirty patch apply; it is not a gameplay mutation API.
 
 ### 14.3 Determinism requirements
 
@@ -1324,6 +1338,271 @@ Acceptance:
 - the same `TerrainVisualPacketV0` shape is used for editor preview, runtime
   full refresh, and dirty patch apply.
 
+### V2-IT12 - Organic rock contour controls
+
+Goal:
+
+- remove the visible "cell" feel from rock contours by making the native
+  solver consume the authored shape controls that were already part of
+  `TerrainVisualRecipe`;
+- recover the old generator's smooth signed-distance contour behavior without
+  moving gameplay terrain truth out of `ChunkPacketV1` or `ChunkDiffFile`;
+- keep this slice rock-only so ground/water pipeline parity and visual apply
+  scheduling can be handled as separate bounded tasks.
+
+Implementation contract:
+
+- `TerrainVisualRecipePayload` must serialize the rock shape knobs that affect
+  contour geometry: `crown_bevel_px`, `outer_corner_radius_px`,
+  `inner_corner_radius_px`, `corner_round_px`, `diagonal_smooth_px`,
+  `contour_relax`, `contour_warp_px`, `corner_variation`,
+  `geometry_variance`, and `shape_supersampling`.
+- Runtime packet downsample must scale authored pixel-distance contour metrics
+  by the same `tile_size_px` ratio as facade/rim metrics. Ratio fields such as
+  `contour_relax`, `corner_variation`, and `geometry_variance` are not scaled.
+- The native solver owns contour sampling. Script may pass recipe payloads and
+  schedule visual packet apply, but must not rebuild the SDF/coverage solver in
+  GDScript.
+- Contour smoothing is derived visual state only. It must not change terrain
+  ids, mountain ids, collision, save/load data, or topology authority.
+- `shape_supersampling` may anti-alias only pixels near the solved contour.
+  Full-packet native solve is background visual work; interactive updates must
+  remain bounded to dirty patches.
+
+Acceptance:
+
+- a diagonal or notch rock mask emits deterministic partial coverage on the
+  solved contour instead of only hard 0/255 cell coverage;
+- changing `contour_warp_px` changes native packet geometry deterministically
+  for the same mask/seed;
+- changing `shape_supersampling` changes contour anti-aliasing without changing
+  terrain truth;
+- existing V2 packet shape remains unchanged for editor preview, runtime full
+  refresh, and dirty patch apply;
+- ground/water authoring parity remains out of this slice unless a separate
+  iteration explicitly adds those surfaces to the same packet pipeline;
+- full visual packet apply remains scheduled presentation work and is not moved
+  back into chunk publish.
+
+### V2-IT13 - Staged runtime full visual apply
+
+Goal:
+
+- remove the remaining main-thread spike where runtime full V2 visual apply
+  uploads every packet texture and swaps the material layer in one visual tick;
+- keep authoritative terrain truth in `ChunkPacketV1` plus runtime diff while
+  treating the V2 packet, images, textures, and material layer as derived
+  presentation state;
+- preserve the final publish batch contract: chunk cell publication must not
+  perform full V2 packet solve or texture apply.
+
+Implementation contract:
+
+- `ChunkView.apply_pending_terrain_visual_v2_full()` becomes a staged visual
+  work entrypoint. One call may start the native full packet solve, but each
+  call may upload only a bounded number of packet textures before returning.
+- `WorldStreamer` must keep a chunk in the runtime visual queue while its
+  presenter reports pending full apply work. A chunk leaves the visual queue
+  only after the staged packet is committed or the work is no longer valid.
+- The staged apply is double-buffered presentation state: an already committed
+  V2 layer remains visible while a replacement full packet is being prepared,
+  and the new layer is swapped in only after all required packet textures are
+  ready.
+- Runtime halo, recipe, enablement, or local dirty mutations may invalidate a
+  pending staged packet. Invalidating pending staged work must not clear the
+  currently committed packet layer.
+- This slice does not change `TerrainVisualPacketV0` fields, native solver
+  output, terrain ids, collision, save/load data, or ground/water pipeline
+  ownership.
+
+Acceptance:
+
+- after the first `apply_pending_terrain_visual_v2_full()` call on a new V2
+  chunk, debug state reports pending full apply work and fewer than all packet
+  textures uploaded;
+- after draining staged full apply calls, the V2 packet layer exists and all
+  packet texture fields are committed;
+- `WorldStreamer` requeues a chunk while staged full apply remains pending;
+- the final cell publish batch still does not include full V2 visual solve or
+  texture apply.
+
+### V2-IT14 - Async runtime full packet solve
+
+Goal:
+
+- remove the remaining main-thread spike where runtime full V2 visual refresh
+  performs the native full packet solve in the same visual tick that scheduled
+  the refresh;
+- keep the main thread responsible only for queue orchestration, result polling,
+  and bounded texture/material apply;
+- preserve the existing `TerrainVisualPacketV0` packet shape and the V2-IT13
+  staged texture apply contract.
+
+Implementation contract:
+
+- `ChunkView.apply_pending_terrain_visual_v2_full()` must start or poll an
+  asynchronous full packet solve before any staged texture upload begins.
+- The native solve still owns SDF/coverage/height/normal/material packet
+  generation. GDScript may build the compact tile mask, enqueue a solve request,
+  poll completion, and apply finished packet textures.
+- `WorldStreamer` must keep the chunk in the visual queue while a full packet
+  solve is pending or while staged full apply work remains pending.
+- Production runtime must use a shared visual packet solve worker owned by
+  `WorldStreamer`, not one worker per loaded chunk. Standalone tests/tools may
+  create a local worker only when no shared owner is injected.
+- Runtime halo, recipe, enablement, chunk reset, or local dirty mutations may
+  cancel a pending solve. A cancelled solve result must not replace the current
+  committed V2 layer.
+- This slice does not change `TerrainVisualPacketV0` fields, terrain truth,
+  collision, save/load data, or ground/water pipeline ownership.
+
+Acceptance:
+
+- after the first `apply_pending_terrain_visual_v2_full()` call on a new V2
+  chunk, debug state reports pending full solve work, zero completed full solves,
+  no pending texture apply, and no V2 packet layer for a first-time chunk;
+- after the async solve is drained, staged texture apply begins and still uploads
+  fewer than all packet textures in a single call;
+- after all visual work is drained, the V2 packet layer exists and all packet
+  texture fields are committed;
+- `WorldStreamer` requeues a chunk while either async solve or staged texture
+  apply remains pending;
+- the final cell publish batch still does not include full V2 visual solve or
+  texture apply.
+
+### V2-IT15 - Old generator parity harness and rock contour calibration
+
+Goal:
+
+- make the native V2 rock generator measurable against the old
+  `rimworld-autotile-lab` runtime export instead of judging visual parity only
+  by screenshots;
+- reduce the visible "grid cell" feel by calibrating native contour, rim, and
+  south-facade classification against the old mountain reference artifacts;
+- keep the old generator as a test oracle only, not as a runtime dependency or
+  a second source of truth.
+
+Implementation contract:
+
+- The reference artifacts under
+  `tools/rimworld-autotile-lab/desktop_app/exports/runtime_sdf_reference/`
+  may be loaded by tests and diagnostics only.
+- Runtime terrain truth remains the solid tile mask produced by world data.
+  The native solver may derive smoother coverage, height, normal, and material
+  projection fields from that mask, but must not mutate terrain cells,
+  collision, save/load data, or `world_version`.
+- The comparison target is aggregate visual behavior: reference-derived solid
+  tile mask, top/edge/face distribution, south-facade bias, partial contour
+  coverage, and low-frequency organic silhouette. Exact pixel equality with the
+  old browser tool is not required because V2 uses a single native packet
+  pipeline instead of the old authoring renderer.
+- Calibration belongs in the native `TerrainVisualSolver` packet build path.
+  GDScript may assemble recipe payloads and run tests, but must not introduce a
+  per-pixel visual solve in interactive runtime.
+- This slice does not change the `TerrainVisualPacketV0` packet shape, public
+  commands, public events, or ground/water ownership. It may change derived
+  packet bytes and therefore requires V2 golden fixture updates when hashes
+  move intentionally.
+
+Acceptance:
+
+- a Godot parity test loads the old mountain reference mask and recipe JSON,
+  derives the compact old-generator solid tile mask, and builds a native
+  `TerrainVisualPacketV0` using the same geometry controls;
+- the native packet passes bounded aggregate parity checks for surface
+  coverage, top/edge/face zone ratios, south-facade placement, and partial
+  organic contour coverage;
+- existing native solver tests continue to prove deterministic packets,
+  diagonal/notch partial coverage, and halo-cropped chunk solve behavior;
+- existing runtime visual tests continue to prove chunk streaming does not
+  redraw seams or run full packet solve/texture apply inside the final publish
+  batch;
+- `TerrainVisualPacketV0`, gameplay command schemas, and event payload schemas
+  remain unchanged.
+
+### V2-IT16 - Native organic shape field parity pass
+
+Goal:
+
+- move the rock silhouette from "smoothed tile cells" toward a continuous
+  organic shape field comparable to the old generator;
+- make authored corner and diagonal controls affect the SDF before zone
+  classification, not only post-classification coverage;
+- turn the default rock recipe toward the organic path while keeping gameplay
+  terrain truth, collision, save/load, and packet schema unchanged.
+
+Implementation contract:
+
+- The native `TerrainVisualSolver` owns the shape-field pass. GDScript may pass
+  recipe payloads and schedule packet work, but must not implement per-pixel
+  SDF smoothing or shape sampling.
+- The pass derives from the existing solid mask plus authored
+  `TerrainVisualRecipe` controls: `contour_relax`, `diagonal_smooth_px`,
+  `corner_round_px`, `outer_corner_radius_px`, `inner_corner_radius_px`,
+  `corner_variation`, and `geometry_variance`.
+- Straight boundaries should remain stable, while convex corners, concave
+  cutouts, and diagonal joins receive stronger smoothing. The pass must preserve
+  intentional empty notches and halo-cropped chunk boundaries.
+- Runtime full solve remains background/native work. Interactive terrain
+  mutation remains bounded to dirty patch solve/apply and may not trigger a
+  synchronous full chunk refresh.
+- This slice may intentionally change derived packet bytes and golden fixture
+  hashes. It must not add or remove `TerrainVisualPacketV0` fields.
+
+Acceptance:
+
+- a focused native solver test proves the organic shape field changes corner
+  and diagonal coverage for the same contour relax without changing packet
+  shape;
+- the default rock recipe serializes an enabled organic contour relax value;
+- old-generator parity, diagonal/notch/halo solver tests, runtime dirty patch
+  tests, chunk seam/publish-cost tests, and golden regression tests pass after
+  intentional golden updates;
+- `TerrainVisualPacketV0`, gameplay command schemas, event payload schemas,
+  terrain ids, collision, and save/load behavior remain unchanged.
+
+### V2-IT17 - Authoring workbench full recipe payload pass
+
+Goal:
+
+- make the Godot authoring workbench expose and preview the same organic contour
+  controls that now drive runtime/golden packet generation;
+- remove the editor/runtime mismatch where the workbench could edit new
+  `TerrainVisualRecipe` fields but still call the native preview solver with an
+  old partial recipe payload;
+- improve day-to-day rock authoring without reintroducing the old desktop app as
+  a source of truth.
+
+Implementation contract:
+
+- `addons/biome_visual_authoring_v2/terrain_visual_workbench.gd` must build
+  native preview packets through `TerrainVisualRecipePayload.make_payload(...)`,
+  the same payload assembler used by runtime and golden tests.
+- The workbench may provide editor-only controls for facade height, side/north
+  height, rim width, bevel, corner radii, diagonal smoothing, contour relax/warp,
+  variance, supersampling, face falloff, normal strength, debug mode, mask
+  presets, and material colors.
+- Every visual preview rebuild must still call
+  `TerrainVisualSolver.build_editor_preview_packet(...)`. The workbench must not
+  implement SDF, coverage, height, normal, or material projection solving in
+  GDScript.
+- This slice is editor-only. It does not change gameplay terrain truth,
+  `TerrainVisualPacketV0`, save/load data, commands, public events, chunk
+  streaming, or runtime apply scheduling.
+- Ground/water parity remains a future data/recipe expansion on the same packet
+  pipeline. This slice must not create a separate ground/water renderer or
+  another runtime branch.
+
+Acceptance:
+
+- changing an organic contour knob such as `contour_relax` in the workbench
+  changes the native preview packet for a notch/diagonal mask;
+- existing workbench tests continue to prove native solver usage, mask edit
+  refresh, height/material preview changes, and PNG-free reference screenshot
+  export;
+- `TerrainVisualPacketV0`, gameplay command schemas, event payload schemas,
+  terrain ids, collision, and save/load behavior remain unchanged.
+
 ## 26. Required boundary documentation updates (Required Updates)
 
 Current IT9 status:
@@ -1340,6 +1619,34 @@ Current IT9 status:
 - V2-IT11 updates `system_api.md` for `WorldStreamer` visual full-refresh
   scheduling and `ChunkView.apply_pending_terrain_visual_v2_full()`, and
   updates `packet_schemas.md` for runtime packet texture resolution semantics.
+- V2-IT12 updates `packet_schemas.md` for serialized organic contour recipe
+  payload fields and keeps `system_api.md` unchanged because no public runtime
+  entrypoint changes.
+- V2-IT13 updates `system_api.md` for staged
+  `ChunkView.apply_pending_terrain_visual_v2_full()` semantics and the
+  `WorldStreamer` visual queue requeue contract. `packet_schemas.md` remains
+  unchanged because no packet field changes.
+- V2-IT14 updates `system_api.md` for async full packet solve semantics and
+  shared `WorldStreamer` visual solve worker ownership. `packet_schemas.md`
+  remains unchanged because no packet field changes.
+- V2-IT15 updates this V2 world spec for old-generator parity testing and native
+  rock contour calibration. `system_api.md`, `packet_schemas.md`,
+  `commands.md`, and `event_contracts.md` remain unchanged because no public
+  runtime entrypoint, packet field, command, or event payload changes.
+- V2-IT16 updates this V2 world spec for the native organic shape field parity
+  pass and intentionally updates golden fixture hashes. `system_api.md`,
+  `packet_schemas.md`, `commands.md`, and `event_contracts.md` remain unchanged
+  because no public runtime entrypoint, packet field, command, or event payload
+  changes.
+- V2-IT17 updates this V2 world spec for the editor-only authoring workbench
+  payload pass. `system_api.md`, `packet_schemas.md`, `commands.md`, and
+  `event_contracts.md` remain unchanged because no public runtime entrypoint,
+  packet field, command, or event payload changes.
+- V2-IT18 updates this V2 world spec, `system_api.md`, and
+  `packet_schemas.md` for async/staged dirty patch apply,
+  `TerrainVisualSolver.copy_patch_field_bytes(...)`, and wrap-aware contour
+  warp payload semantics. `commands.md` and `event_contracts.md` remain
+  unchanged because no gameplay command or public event payload changes.
 - `docs/02_system_specs/meta/modding_extension_contracts.md` documents
   `TerrainVisualRecipe` and `BiomeData.rock_visual_recipe` as public authored
   content extension seams for the canonical V2 path.

@@ -372,6 +372,7 @@ Confirmed public native surface:
 | `build_editor_preview_packet(solid_mask: PackedByteArray, width_tiles: int, height_tiles: int, recipe_payload: Dictionary, preview_origin_tile: Vector2i, seed: int)` | `Dictionary` shaped as `TerrainVisualPacketV0` | Builds an editor/test visual packet from a compact solid mask and packed recipe values. This is native compute only; script may orchestrate the call but must not perform a per-pixel fallback solve. |
 | `build_chunk_visual_packet(solid_mask: PackedByteArray, width_tiles: int, height_tiles: int, recipe_payload: Dictionary, world_origin_tile: Vector2i, chunk_coord: Vector2i, seed: int)` | `Dictionary` shaped as `TerrainVisualPacketV0` | Builds a runtime chunk visual packet from a compact solid mask and packed recipe values. The caller owns chunk context, mask bounds, canonical V2 apply scheduling, and optional diagnostic gating; the returned packet is derived visual state only. |
 | `build_chunk_visual_packet_with_halo(solid_mask: PackedByteArray, width_tiles: int, height_tiles: int, recipe_payload: Dictionary, input_world_origin_tile: Vector2i, chunk_coord: Vector2i, seed: int, output_rect_tiles: Rect2i)` | `Dictionary` shaped as `TerrainVisualPacketV0` | Builds a runtime chunk visual packet from a larger input mask that includes topology halo, while returning only the cropped `output_rect_tiles` region. V2-IT10 uses this to prevent false facade/edge pixels on internal chunk or dirty-rect boundaries. The caller owns halo sampling from authoritative loaded terrain state; the returned packet remains derived visual state only. |
+| `copy_patch_field_bytes(base_bytes: PackedByteArray, patch_bytes: PackedByteArray, base_pixel_size: Vector2i, patch_pixel_size: Vector2i, dst_rect: Rect2i, src_rect: Rect2i, bytes_per_pixel: int)` | `PackedByteArray` | Copies one packet field patch into a duplicated base buffer inside native code. Runtime uses this during staged dirty patch apply so GDScript does not run row/byte loops in the visual work path. This is derived visual cache maintenance only. |
 
 Current code notes:
 - `solid_mask` is indexed by `y * width_tiles + x`; non-zero means solid.
@@ -387,6 +388,9 @@ Current code notes:
   space.
 - V2-IT7 allows the runtime caller to solve and apply a pending visual dirty
   patch for the current chunk through the `ChunkView` safe entrypoint below.
+- V2-IT18 keeps the public `ChunkView` patch entrypoint but changes its
+  execution semantics: dirty patch solve is queued through the shared visual
+  packet backend, and packet field upload/copy is staged across visual ticks.
 - The returned packet is derived visual state. It must not be serialized into
   save data or treated as gameplay terrain truth.
 
@@ -399,7 +403,14 @@ Not documented here as safe entrypoints:
 
 Owner files:
 - `core/systems/world/chunk_view.gd`
+- `core/systems/world/chunk_visual_bridge.gd`
+- `core/systems/world/chunk_roof_layer_bridge.gd`
 - `core/systems/world/terrain_visual_runtime_presenter.gd`
+- `core/systems/world/terrain_visual_apply_machine.gd`
+- `core/systems/world/terrain_visual_chunk_layer.gd`
+- `core/systems/world/terrain_visual_mask_builder.gd`
+- `core/systems/world/terrain_visual_solve_queue.gd`
+- `core/systems/world/terrain_visual_v2_runtime/terrain_visual_v2_runtime.gd`
 
 Role:
 - canonical bridge from authoritative chunk terrain data to derived Variant D
@@ -410,15 +421,23 @@ Confirmed mutation entrypoints:
 
 | Surface | Return | Notes |
 |---|---|---|
-| `apply_pending_terrain_visual_v2_full()` | `bool` | Applies the current chunk's full V2 terrain visual packet from already-published authoritative terrain arrays. This is a visual/background apply entrypoint for `WorldStreamer` visual work, not part of `apply_next_batch(...)` and not an interactive mutation hook. Returns `false` when V2 is disabled or no presenter exists. |
-| `apply_pending_terrain_visual_v2_patch()` | `bool` | Applies the pending V2 visual dirty patch after a runtime tile mutation has already updated authoritative terrain arrays and marked a local dirty rect. The method solves a bounded local mask through `TerrainVisualSolver.build_chunk_visual_packet_with_halo(...)` when a valid chunk solid halo is available, otherwise through `build_chunk_visual_packet(...)`, blits the resulting packet into the current packet textures, updates debug counters, and does not perform a full chunk visual solve. Returns `false` when V2 is disabled, no presenter exists, no packet layer exists, or no pending patch intersects the current visual packet. |
+| `apply_pending_terrain_visual_v2_full()` | `bool` | Advances the current chunk's asynchronous full V2 terrain visual refresh from already-published authoritative terrain arrays. This is a visual/background entrypoint for `WorldStreamer` visual work, not part of `apply_next_batch(...)` and not an interactive mutation hook. One call may enqueue or poll a native packet solve; once the packet is ready, later calls upload/commit textures through the staged apply budget. Returns `true` while async solve or staged apply work remains queued for the same chunk, and `false` when the refresh is complete, V2 is disabled, no presenter exists, or no full visual work is valid. |
+| `apply_pending_terrain_visual_v2_patch()` | `bool` | Advances the pending V2 visual dirty patch after a runtime tile mutation has already updated authoritative terrain arrays and marked a local dirty rect. One call may queue/poll a bounded native solve through `TerrainVisualSolver.build_chunk_visual_packet_with_halo(...)` when a valid chunk solid halo is available, otherwise through `build_chunk_visual_packet(...)`; later calls copy/upload one packet texture field at a time, using `copy_patch_field_bytes(...)` for packet-cache bytes. If no committed V2 packet exists yet, the method requeues a fresh full visual refresh from current authoritative arrays instead of dropping the mutation. Returns `true` while async solve or staged apply work remains, and `false` when work is complete, V2 is disabled, no presenter exists, or no pending patch intersects the current visual packet. |
 
 Current code notes:
 - `apply_next_batch(...)` owns only chunk cell publication. It must not run a
   full V2 packet solve/apply on the final publish batch.
-- `WorldStreamer` schedules full V2 packet apply through the runtime visual
-  work queue after a chunk is published, and may enqueue a loaded chunk again
-  when a neighbouring packet arrives so the one-tile visual halo can be rebuilt.
+- `ChunkView` no longer builds the legacy `RockVisualResource` SDF/Polygon2D
+  renderer. V2 packet presentation is the canonical organic rock path; when V2
+  is disabled, the chunk falls back to regular tile/roof atlas presentation.
+- `WorldStreamer` delegates V2 visual scheduling to `TerrainVisualV2Runtime`
+  after a chunk is published. The runtime keeps chunks queued while staged
+  full solve/apply work remains pending, owns the shared full packet solve
+  worker for production runtime, and may enqueue a loaded chunk again when a
+  neighbouring packet arrives so the one-tile visual halo can be rebuilt.
+- `WorldStreamer` also owns the dirty patch requeue loop for V2 visual work;
+  loaded runtime mutations enqueue `_queue_terrain_visual_v2_patch_apply`
+  instead of calling the patch apply hook through `call_deferred`.
 - For V2 visual halo only, an in-bounds but not-yet-loaded neighbouring tile is
   treated as solid until its authoritative packet arrives. This prevents stream
   ring boundaries from being rendered as false facades. Debug contour halo keeps
@@ -426,10 +445,9 @@ Current code notes:
 - `apply_runtime_cell(...)` remains the interactive mutation hook for loaded
   chunk visuals. With V2 enabled it only updates local authoritative arrays,
   paints base/water/debug cells, and marks a V2 dirty patch.
-- `apply_pending_terrain_visual_v2_patch()` is the bounded apply hook intended
-  for the current explicit flush/test path, the current deferred loaded-visual
-  patch apply, and the future frame-budgeted visual work queue. It is derived
-  presentation work only.
+- `apply_pending_terrain_visual_v2_patch()` is the bounded staged apply hook
+  for explicit flush/test paths and the frame-budgeted `WorldStreamer` visual
+  patch queue. It is derived presentation work only.
 - Visual packet images/textures are caches owned by the presenter. Terrain truth
   remains `ChunkPacketV1` plus `WorldDiffStore`.
 - The bridge may receive a derived `(chunk_size + 2)^2` solid halo from
@@ -443,12 +461,16 @@ Not documented here as safe entrypoints:
 
 ### WorldStreamer
 
-Owner file: `core/systems/world/world_streamer.gd`
+Owner files:
+- `core/systems/world/world_streamer.gd`
+- `core/systems/world/mountain_cover_runtime.gd`
 
 Role:
 - V0 world runtime orchestrator and current `chunk_manager` compatibility surface
-- owner of V2 chunk visual full-refresh scheduling for loaded chunks; this is
+- delegates V2 chunk visual scheduling to `TerrainVisualV2Runtime`; this is
   derived presentation work and is not save/gameplay terrain truth
+- delegates mountain cover component cache, visibility masks, and roof-layer
+  guardrail metrics to `MountainCoverRuntime`
 
 Confirmed readable entrypoints:
 

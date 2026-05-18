@@ -32,8 +32,12 @@ func test_golden_fixture_locks_solver_packets_and_controlled_viewport_screenshot
 	assert_that(golden.get("fixture_id")).is_equal(actual.get("fixture_id"))
 	assert_that(golden.get("dev_command")).is_equal(DEV_COMMAND)
 	assert_that(golden.get("tolerance")).is_equal(actual.get("tolerance"))
-	assert_that(golden.get("packets")).is_equal(actual.get("packets"))
-	assert_that(golden.get("screenshots")).is_equal(actual.get("screenshots"))
+	assert_that(JSON.stringify(golden.get("packets"))).is_equal(
+		JSON.stringify(actual.get("packets")),
+	)
+	assert_that(JSON.stringify(golden.get("screenshots"))).is_equal(
+		JSON.stringify(actual.get("screenshots")),
+	)
 
 
 func test_editor_and_runtime_packets_are_byte_equivalent_for_golden_mask() -> void:

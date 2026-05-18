@@ -125,6 +125,7 @@ func apply_recipe_materials(material: ShaderMaterial, recipe: Resource) -> void:
 		&"base",
 		Color(0.31, 0.24, 0.15, 1.0),
 	)
+	_apply_recipe_render_controls(material, recipe)
 
 
 func _make_texture(
@@ -255,6 +256,33 @@ func _color_property(slot: Resource, property_name: StringName, fallback: Color)
 
 func _float_property(slot: Resource, property_name: StringName, fallback: float) -> float:
 	var value: Variant = slot.get(property_name)
+	if value == null:
+		return fallback
+	return float(value)
+
+
+func _apply_recipe_render_controls(material: ShaderMaterial, recipe: Resource) -> void:
+	material.set_shader_parameter(
+		"edge_color_strength",
+		clampf(_recipe_float(recipe, &"edge_color_strength", 0.0), 0.0, 1.0),
+	)
+	material.set_shader_parameter(
+		"contact_outline_enabled",
+		bool(recipe.get("contact_outline_enabled")),
+	)
+	material.set_shader_parameter(
+		"contact_outline_width_px",
+		maxf(0.0, _recipe_float(recipe, &"contact_outline_width_px", 0.0)),
+	)
+	var outline_color: Variant = recipe.get("contact_outline_color")
+	material.set_shader_parameter(
+		"contact_outline_color",
+		outline_color if outline_color is Color else Color(0.05, 0.045, 0.04, 1.0),
+	)
+
+
+func _recipe_float(recipe: Resource, property_name: StringName, fallback: float) -> float:
+	var value: Variant = recipe.get(property_name)
 	if value == null:
 		return fallback
 	return float(value)

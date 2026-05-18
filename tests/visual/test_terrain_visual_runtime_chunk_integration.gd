@@ -25,7 +25,7 @@ func test_chunk_view_applies_v2_packet_layer_from_recipe_when_feature_enabled() 
 	chunk_view.begin_apply(_chunk_packet_with_rock_block(Vector2i(2, 3)))
 	while chunk_view.apply_next_batch(256):
 		pass
-	chunk_view.apply_pending_terrain_visual_v2_full()
+	await _drain_v2_full_apply(chunk_view)
 
 	var debug: Dictionary = chunk_view.get_terrain_visual_v2_debug_state()
 	assert_that(debug.get("enabled")).is_equal(true)
@@ -51,6 +51,29 @@ func test_chunk_view_applies_v2_packet_layer_from_recipe_when_feature_enabled() 
 	chunk_view.free()
 
 
+func test_chunk_view_hides_legacy_mountain_tilemap_under_v2_packet_layer() -> void:
+	var chunk_view := _build_v2_chunk_view(Vector2i.ZERO)
+	add_child(chunk_view)
+
+	chunk_view.begin_apply(_chunk_packet_with_rock_block(Vector2i.ZERO))
+	while chunk_view.apply_next_batch(256):
+		pass
+
+	var rock_coord := Vector2i(3, 3)
+	var overlay_layer := chunk_view.get_node_or_null("TerrainOverlayLayer") as TileMapLayer
+	var base_layer := chunk_view.get_node_or_null("TerrainBaseLayer") as TileMapLayer
+	assert_that(overlay_layer).is_not_null()
+	assert_that(base_layer).is_not_null()
+	if overlay_layer == null or base_layer == null:
+		chunk_view.free()
+		return
+
+	assert_that(overlay_layer.get_cell_source_id(rock_coord)).is_equal(-1)
+	assert_that(base_layer.get_cell_source_id(rock_coord)).is_not_equal(-1)
+
+	chunk_view.free()
+
+
 func test_chunk_view_v2_halo_solver_suppresses_facade_on_internal_chunk_edge() -> void:
 	var chunk_view := _build_v2_chunk_view(Vector2i.ZERO)
 	chunk_view.set_terrain_visual_solid_halo(_right_edge_rock_solid_halo())
@@ -59,7 +82,7 @@ func test_chunk_view_v2_halo_solver_suppresses_facade_on_internal_chunk_edge() -
 	chunk_view.begin_apply(_chunk_packet_with_right_edge_rock(Vector2i.ZERO))
 	while chunk_view.apply_next_batch(256):
 		pass
-	chunk_view.apply_pending_terrain_visual_v2_full()
+	await _drain_v2_full_apply(chunk_view)
 
 	var debug: Dictionary = chunk_view.get_terrain_visual_v2_debug_state()
 	assert_that(debug.get("ready")).is_equal(true)
@@ -87,7 +110,7 @@ func test_runtime_cell_marks_dirty_patch_without_full_v2_resolve() -> void:
 	chunk_view.begin_apply(_chunk_packet_with_rock_block(Vector2i.ZERO))
 	while chunk_view.apply_next_batch(256):
 		pass
-	chunk_view.apply_pending_terrain_visual_v2_full()
+	await _drain_v2_full_apply(chunk_view)
 	var before: Dictionary = chunk_view.get_terrain_visual_v2_debug_state()
 
 	chunk_view.apply_runtime_cell(
@@ -115,7 +138,7 @@ func test_multiple_runtime_cells_union_v2_dirty_patch() -> void:
 	chunk_view.begin_apply(_chunk_packet_with_rock_block(Vector2i.ZERO))
 	while chunk_view.apply_next_batch(256):
 		pass
-	chunk_view.apply_pending_terrain_visual_v2_full()
+	await _drain_v2_full_apply(chunk_view)
 
 	chunk_view.apply_runtime_cell(
 		Vector2i(3, 3),
@@ -148,7 +171,7 @@ func test_dirty_patch_apply_updates_material_textures_without_full_rebuild() -> 
 	chunk_view.begin_apply(_chunk_packet_with_rock_block(Vector2i.ZERO))
 	while chunk_view.apply_next_batch(256):
 		pass
-	chunk_view.apply_pending_terrain_visual_v2_full()
+	await _drain_v2_full_apply(chunk_view)
 
 	var before_zone := _sample_v2_zone_id(chunk_view, Vector2i(3, 3))
 	assert_that(before_zone).is_greater(0)
@@ -168,18 +191,57 @@ func test_dirty_patch_apply_updates_material_textures_without_full_rebuild() -> 
 		chunk_view.free()
 		return
 
-	var applied: bool = chunk_view.call("apply_pending_terrain_visual_v2_patch")
+	var first_step: bool = chunk_view.call("apply_pending_terrain_visual_v2_patch")
 	var debug: Dictionary = chunk_view.get_terrain_visual_v2_debug_state()
-	assert_that(applied).is_true()
+	assert_that(first_step).is_true()
+	assert_that(debug.get("full_solve_count")).is_equal(full_before)
+	assert_that(debug.get("has_pending_patch_solve")).is_equal(true)
+	assert_that(debug.get("patch_solve_count")).is_equal(0)
+
+	await _drain_v2_patch_apply(chunk_view)
+	debug = chunk_view.get_terrain_visual_v2_debug_state()
 	assert_that(debug.get("full_solve_count")).is_equal(full_before)
 	assert_that(debug.get("patch_solve_count")).is_equal(1)
 	assert_that(debug.get("patch_apply_count")).is_equal(1)
 	assert_that(debug.get("has_pending_dirty_patch")).is_equal(false)
+	assert_that(debug.get("has_pending_patch_solve")).is_equal(false)
+	assert_that(debug.get("has_pending_patch_apply")).is_equal(false)
 	assert_that(debug.get("last_patch_world_origin_tile")).is_equal(Vector2i(2, 2))
 	assert_that(debug.get("last_patch_pixel_size")).is_equal(Vector2i(96, 96))
 
+	await await_idle_frame()
 	var after_zone := _sample_v2_zone_id(chunk_view, Vector2i(3, 3))
 	assert_that(after_zone).is_equal(0)
+	assert_that(_sample_v2_packet_zone_id(chunk_view, Vector2i(3, 3))).is_equal(0)
+
+	chunk_view.free()
+
+
+func test_dirty_patch_before_first_v2_packet_requeues_fresh_full_visual() -> void:
+	var chunk_view := _build_v2_chunk_view(Vector2i.ZERO)
+	add_child(chunk_view)
+
+	chunk_view.begin_apply(_chunk_packet_with_rock_block(Vector2i.ZERO))
+	while chunk_view.apply_next_batch(256):
+		pass
+	chunk_view.apply_runtime_cell(
+		Vector2i(3, 3),
+		WorldRuntimeConstants.TERRAIN_PLAINS_DUG,
+		0,
+		true,
+		0,
+		0,
+	)
+
+	var first_step: bool = chunk_view.call("apply_pending_terrain_visual_v2_patch")
+	assert_that(first_step).is_true()
+	await _drain_v2_patch_apply(chunk_view)
+
+	var debug: Dictionary = chunk_view.get_terrain_visual_v2_debug_state()
+	assert_that(debug.get("ready")).is_equal(true)
+	assert_that(debug.get("full_solve_count")).is_equal(1)
+	assert_that(debug.get("has_pending_dirty_patch")).is_equal(false)
+	assert_that(_sample_v2_packet_zone_id(chunk_view, Vector2i(3, 3))).is_equal(0)
 
 	chunk_view.free()
 
@@ -191,6 +253,26 @@ func _build_v2_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 	chunk_view.set_terrain_visual_v2_enabled(true)
 	chunk_view.set_terrain_visual_recipe(recipe)
 	return chunk_view
+
+
+func _drain_v2_full_apply(chunk_view: ChunkView) -> void:
+	var has_more_visual_work := true
+	for step_index: int in range(32):
+		has_more_visual_work = chunk_view.apply_pending_terrain_visual_v2_full()
+		if not has_more_visual_work:
+			return
+		await await_idle_frame()
+	assert_that(has_more_visual_work).is_false()
+
+
+func _drain_v2_patch_apply(chunk_view: ChunkView) -> void:
+	var has_more_visual_work := true
+	for step_index: int in range(32):
+		has_more_visual_work = chunk_view.apply_pending_terrain_visual_v2_patch()
+		if not has_more_visual_work:
+			return
+		await await_idle_frame()
+	assert_that(has_more_visual_work).is_false()
 
 
 func _chunk_packet_with_rock_block(chunk_coord: Vector2i) -> Dictionary:
@@ -288,6 +370,28 @@ func _sample_v2_zone_id(chunk_view: ChunkView, local_coord: Vector2i) -> int:
 	)
 
 
+func _sample_v2_packet_zone_id(chunk_view: ChunkView, local_coord: Vector2i) -> int:
+	var presenter := chunk_view.get_node_or_null("TerrainVisualV2RuntimePresenter")
+	if presenter == null:
+		return -1
+	var packet: Dictionary = presenter.get("_last_packet")
+	var zone_ids: PackedByteArray = packet.get("zone_ids", PackedByteArray())
+	if zone_ids.is_empty():
+		return -1
+	var pixel := _packet_pixel_for_local_coord(
+		chunk_view,
+		local_coord,
+		Vector2i(WorldRuntimeConstants.TILE_SIZE_PX / 2, WorldRuntimeConstants.TILE_SIZE_PX / 2),
+		Vector2i(
+			int(packet.get("pixel_width", 0)),
+			int(packet.get("pixel_height", 0)),
+		),
+	)
+	if pixel.x < 0:
+		return -1
+	return int(zone_ids[pixel.y * int(packet.get("pixel_width", 0)) + pixel.x])
+
+
 func _sample_v2_zone_id_at_tile_pixel(
 		chunk_view: ChunkView,
 		local_coord: Vector2i,
@@ -301,13 +405,27 @@ func _sample_v2_zone_id_at_tile_pixel(
 	) as ColorRect
 	if layer == null or layer.material == null:
 		return -1
-	var material := layer.material as ShaderMaterial
-	if material == null:
+	var image := _get_v2_packet_zone_image(chunk_view)
+	if image == null:
 		return -1
-	var texture := material.get_shader_parameter("zone_texture") as Texture2D
-	if texture == null:
+	var pixel := _packet_pixel_for_local_coord(
+		chunk_view,
+		local_coord,
+		tile_pixel_offset,
+		Vector2i(image.get_width(), image.get_height()),
+	)
+	if pixel.x < 0:
 		return -1
-	var image := texture.get_image()
+	return int(round(image.get_pixel(pixel.x, pixel.y).r * 255.0))
+
+
+func _packet_pixel_for_local_coord(
+		chunk_view: ChunkView,
+		local_coord: Vector2i,
+		tile_pixel_offset: Vector2i,
+		pixel_size: Vector2i,
+) -> Vector2i:
+	var debug: Dictionary = chunk_view.get_terrain_visual_v2_debug_state()
 	var origin: Vector2i = (
 		debug["world_origin_tile"] - debug["chunk_coord"] * WorldRuntimeConstants.CHUNK_SIZE
 	)
@@ -319,10 +437,31 @@ func _sample_v2_zone_id_at_tile_pixel(
 	var pixel := (local_coord - origin) * packet_tile_size + packet_offset
 	if pixel.x < 0 \
 			or pixel.y < 0 \
-			or pixel.x >= image.get_width() \
-			or pixel.y >= image.get_height():
-		return -1
-	return int(round(image.get_pixel(pixel.x, pixel.y).r * 255.0))
+			or pixel.x >= pixel_size.x \
+			or pixel.y >= pixel_size.y:
+		return Vector2i(-1, -1)
+	return pixel
+
+
+func _get_v2_packet_zone_image(chunk_view: ChunkView) -> Image:
+	var presenter := chunk_view.get_node_or_null("TerrainVisualV2RuntimePresenter")
+	if presenter != null:
+		var packet_images: Dictionary = presenter.get("_packet_images")
+		var image := packet_images.get("zone_ids") as Image
+		if image != null:
+			return image
+	var layer := chunk_view.get_node_or_null(
+		"TerrainVisualV2RuntimePresenter/TerrainVisualV2PacketLayer",
+	) as ColorRect
+	if layer == null or layer.material == null:
+		return null
+	var material := layer.material as ShaderMaterial
+	if material == null:
+		return null
+	var texture := material.get_shader_parameter("zone_texture") as Texture2D
+	if texture == null:
+		return null
+	return texture.get_image()
 
 
 func _clamped_world_to_packet_pixel(world_pixel: int, packet_tile_size: int) -> int:
