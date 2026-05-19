@@ -29,10 +29,6 @@ uniform sampler2D material_v_texture : repeat_disable, filter_nearest;
 
 uniform int debug_mode = 0;
 uniform vec2 packet_pixel_size = vec2(1.0, 1.0);
-uniform float edge_color_strength : hint_range(0.0, 1.0) = 0.0;
-uniform bool contact_outline_enabled = false;
-uniform float contact_outline_width_px : hint_range(0.0, 64.0) = 0.0;
-uniform vec4 contact_outline_color : source_color = vec4(0.05, 0.045, 0.04, 1.0);
 
 uniform vec4 top_color : source_color = vec4(0.60, 0.58, 0.52, 1.0);
 uniform vec4 edge_color : source_color = vec4(0.40, 0.38, 0.34, 1.0);
@@ -357,11 +353,6 @@ vec4 blended_albedo(vec2 material_uv, float top, float edge, float face, float b
 			back_sample.rgb * back_weight +
 			base_sample.rgb * base_weight
 	) / total_weight;
-	mixed_color = mix(
-			mixed_color,
-			edge_sample.rgb,
-			clamp(edge * edge_color_strength * edge_sample.a, 0.0, 1.0)
-	);
 	return vec4(clamp(mixed_color, vec3(0.0), vec3(1.0)), clamp(total_weight, 0.0, 1.0));
 }
 
@@ -380,14 +371,6 @@ void fragment() {
 	float material_v = q16_value(material_v_texture, uv);
 	vec2 material_uv = vec2(material_u, material_v);
 	vec4 albedo = blended_albedo(material_uv, top, edge, face, back);
-	if (contact_outline_enabled && contact_outline_width_px > 0.0) {
-		float outline_depth = clamp(contact_outline_width_px / max(packet_pixel_size.y, 1.0), 0.0, 0.35);
-		float vertical_surface = clamp(max(max(edge, face), back), 0.0, 1.0);
-		float contact_t = smoothstep(1.0 - outline_depth, 1.0, material_v) * vertical_surface;
-		float outline_alpha = clamp(contact_t * contact_outline_color.a, 0.0, 1.0);
-		albedo.rgb = mix(albedo.rgb, contact_outline_color.rgb, outline_alpha);
-		albedo.a = max(albedo.a, outline_alpha);
-	}
 
 	if (debug_mode == MODE_ZONE) {
 		COLOR = zone_debug_color(zone_id, surface_alpha);

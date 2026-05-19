@@ -45,16 +45,6 @@ public:
 		int64_t p_seed,
 		Rect2i p_output_rect_tiles
 	) const;
-
-	PackedByteArray copy_patch_field_bytes(
-		const PackedByteArray &p_base_bytes,
-		const PackedByteArray &p_patch_bytes,
-		Vector2i p_base_pixel_size,
-		Vector2i p_patch_pixel_size,
-		Rect2i p_dst_rect,
-		Rect2i p_src_rect,
-		int64_t p_bytes_per_pixel
-	) const;
 };
 
 } // namespace godot

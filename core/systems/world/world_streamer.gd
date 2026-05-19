@@ -6,12 +6,9 @@ const HarvestQuery = preload("res://core/systems/world/harvest_query.gd")
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const LakeGenSettings = preload("res://core/resources/lake_gen_settings.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
-const MountainCoverRuntime = preload("res://core/systems/world/mountain_cover_runtime.gd")
+const MountainCavityCache = preload("res://core/systems/world/mountain_cavity_cache.gd")
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
-const TerrainVisualV2Runtime = preload(
-	"res://core/systems/world/terrain_visual_v2_runtime/terrain_visual_v2_runtime.gd"
-)
 const WorldDiffStore = preload("res://core/systems/world/world_diff_store.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldSpawnResolver = preload("res://core/systems/world/world_spawn_resolver.gd")
@@ -21,6 +18,7 @@ const DefaultLakeGenSettings = preload("res://data/balance/lake_gen_settings.tre
 
 const INVALID_CHUNK_COORD: Vector2i = Vector2i(2147483647, 2147483647)
 const MAX_SPAWN_RESULTS_PER_TICK: int = 1
+const TERRAIN_VISUAL_V2_RUNTIME_SETTING := "station_mirny/terrain_visual/v2_chunk_runtime_enabled"
 
 var world_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 var world_version: int = WorldRuntimeConstants.WORLD_VERSION
@@ -30,6 +28,7 @@ var _chunk_packets: Dictionary = { }
 var _chunk_views: Dictionary = { }
 var _requested_chunks: Dictionary = { }
 var _pending_publish_queue: Array[Vector2i] = []
+var _pending_visual_full_queue: Array[Vector2i] = []
 var _active_publish_chunk: Vector2i = INVALID_CHUNK_COORD
 var _player_chunk_coord: Vector2i = INVALID_CHUNK_COORD
 var _stream_job_id: StringName = &""
@@ -45,15 +44,20 @@ var _pending_new_world_bounds: WorldBoundsSettings = null
 var _pending_new_foundation_settings: FoundationGenSettings = null
 var _pending_new_lake_settings: LakeGenSettings = null
 var _packet_backend: WorldChunkPacketBackend = WorldChunkPacketBackend.new()
-var _terrain_visual_v2_runtime: TerrainVisualV2Runtime = TerrainVisualV2Runtime.new()
-var _mountain_cover_runtime: MountainCoverRuntime = MountainCoverRuntime.new()
 var _awaiting_new_game_spawn_result: bool = false
 var _new_game_spawn_failed: bool = false
+var roof_layers_per_chunk_max: int = 0
 
+var _mountain_cavity_cache: MountainCavityCache = MountainCavityCache.new()
+var _active_cover_mountain_id: int = 0
+var _active_cover_component_id: int = 0
+var _did_warn_roof_layer_explosion: bool = false
 var _debug_tile_grid_visible: bool = false
 var _debug_mountain_solid_visible: bool = false
 var _debug_mountain_contour_visible: bool = false
 var _contour_world_core: Object = null
+var _did_warn_terrain_visual_v2_default_biome_fallback: bool = false
+var _did_warn_terrain_visual_v2_missing_recipe: bool = false
 
 
 func _ready() -> void:
@@ -66,10 +70,7 @@ func _ready() -> void:
 		LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict()),
 	)
 	WorldTileSetFactory.bootstrap()
-	_configure_terrain_visual_v2_runtime_context()
-	_configure_mountain_cover_runtime_context()
 	_packet_backend.start()
-	_terrain_visual_v2_runtime.start()
 	_stream_job_id = FrameBudgetDispatcher.register_job(
 		RuntimeWorkTypes.CATEGORY_STREAMING,
 		1.5,
@@ -86,7 +87,7 @@ func _ready() -> void:
 		_terrain_visual_tick,
 		&"world.terrain_visual_v2",
 		RuntimeWorkTypes.CadenceKind.NEAR_PLAYER,
-		RuntimeWorkTypes.ThreadingRole.COMPUTE_THEN_APPLY,
+		RuntimeWorkTypes.ThreadingRole.MAIN_THREAD_ONLY,
 		false,
 		"World terrain visual V2 apply",
 	)
@@ -98,29 +99,6 @@ func _exit_tree() -> void:
 	if _visual_job_id and FrameBudgetDispatcher:
 		FrameBudgetDispatcher.unregister_job(_visual_job_id)
 	_packet_backend.stop()
-	_terrain_visual_v2_runtime.stop()
-
-
-func _configure_terrain_visual_v2_runtime_context() -> void:
-	_terrain_visual_v2_runtime.configure_context(
-		self,
-		_chunk_views,
-		_chunk_packets,
-		Callable(self, "_canonicalize_chunk_coord"),
-		Callable(self, "_build_mountain_solid_halo"),
-	)
-
-
-func _configure_mountain_cover_runtime_context() -> void:
-	_mountain_cover_runtime.configure_context(
-		_chunk_views,
-		_chunk_packets,
-		_diff_store,
-		Callable(self, "_canonicalize_tile_coord"),
-		Callable(self, "_chunk_local_to_tile"),
-		Callable(self, "_has_local_player_for_cover"),
-		Callable(self, "_get_local_player_position_for_cover"),
-	)
 
 
 func initialize_new_world(
@@ -275,27 +253,71 @@ func get_chunk_packet(chunk_coord: Vector2i) -> Dictionary:
 
 
 func get_mountain_cover_sample(world_tile: Vector2i) -> Dictionary:
-	return _mountain_cover_runtime.get_sample(world_tile)
+	return _mountain_cavity_cache.get_sample(
+		world_tile,
+		Callable(self, "_sample_mountain_cover_tile"),
+	)
 
 
 func get_mountain_cover_debug_snapshot(world_tile: Vector2i) -> Dictionary:
-	return _mountain_cover_runtime.get_debug_snapshot(world_tile)
+	var debug_snapshot: Dictionary = _mountain_cavity_cache.get_debug_snapshot(
+		world_tile,
+		_active_cover_component_id,
+		Callable(self, "_sample_mountain_cover_tile"),
+	)
+	debug_snapshot["active_mountain_id"] = _active_cover_mountain_id
+	debug_snapshot["active_component_id"] = _active_cover_component_id
+	debug_snapshot["roof_layers_per_chunk_max"] = roof_layers_per_chunk_max
+	return debug_snapshot
 
 
 func get_mountain_cover_render_debug_snapshot(world_tile: Vector2i) -> Dictionary:
-	return _mountain_cover_runtime.get_render_debug_snapshot(world_tile)
+	var probe_tile: Vector2i = _canonicalize_tile_coord(_resolve_cover_debug_probe_tile(world_tile))
+	var probe_chunk: Vector2i = WorldRuntimeConstants.tile_to_chunk(probe_tile)
+	var probe_local: Vector2i = WorldRuntimeConstants.tile_to_local(probe_tile)
+	var probe_sample: Dictionary = get_mountain_cover_sample(probe_tile)
+	var expected_open_bit: int = -1
+	var visible_mask: PackedByteArray = _mountain_cavity_cache.build_chunk_visibility_mask(
+		probe_chunk,
+		_active_cover_component_id,
+	)
+	var probe_index: int = WorldRuntimeConstants.local_to_index(probe_local)
+	if probe_index >= 0 and probe_index < visible_mask.size():
+		expected_open_bit = int(visible_mask[probe_index])
+	var debug_snapshot := {
+		"ready": true,
+		"probe_tile": probe_tile,
+		"probe_chunk": probe_chunk,
+		"probe_local": probe_local,
+		"probe_mountain_id": int(probe_sample.get("mountain_id", 0)),
+		"probe_component_id": int(probe_sample.get("component_id", 0)),
+		"probe_is_opening": bool(probe_sample.get("is_opening", false)),
+		"expected_open_bit": expected_open_bit,
+		"chunk_view_ready": false,
+	}
+	var chunk_view: ChunkView = _chunk_views.get(probe_chunk) as ChunkView
+	if chunk_view == null:
+		return debug_snapshot
+	debug_snapshot["chunk_view_ready"] = true
+	var render_debug: Dictionary = chunk_view.get_cover_render_debug(
+		probe_local,
+		int(probe_sample.get("mountain_id", 0)),
+		expected_open_bit,
+	)
+	for key_variant: Variant in render_debug.keys():
+		debug_snapshot[key_variant] = render_debug[key_variant]
+	return debug_snapshot
 
 
 func set_active_mountain_component(mountain_id: int, component_id: int) -> void:
-	_mountain_cover_runtime.set_active_mountain_component(mountain_id, component_id)
-
-
-func _has_local_player_for_cover() -> bool:
-	return PlayerAuthority.get_local_player() != null
-
-
-func _get_local_player_position_for_cover() -> Vector2:
-	return PlayerAuthority.get_local_player_position()
+	var resolved_component_id: int = component_id if _mountain_cavity_cache.has_component(component_id) else 0
+	var resolved_mountain_id: int = mountain_id if resolved_component_id > 0 else 0
+	if resolved_mountain_id == _active_cover_mountain_id \
+			and resolved_component_id == _active_cover_component_id:
+		return
+	_active_cover_mountain_id = resolved_mountain_id
+	_active_cover_component_id = resolved_component_id
+	_refresh_cover_visibility_for_loaded_chunks()
 
 
 func is_walkable_at_world(world_pos: Vector2) -> bool:
@@ -353,7 +375,7 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 		true,
 	)
 	_apply_loaded_override(chunk_coord, local_coord, WorldRuntimeConstants.TERRAIN_PLAINS_DUG, true)
-	_mountain_cover_runtime.on_tile_dug(_chunk_local_to_tile(chunk_coord, local_coord))
+	_handle_cover_tile_dug(_chunk_local_to_tile(chunk_coord, local_coord))
 	if terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
 			or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
 		EventBus.mountain_tile_mined.emit(_chunk_local_to_tile(chunk_coord, local_coord), terrain_id, WorldRuntimeConstants.TERRAIN_PLAINS_DUG)
@@ -429,7 +451,7 @@ func _publish_next_batch() -> void:
 		if packet.is_empty():
 			_active_publish_chunk = INVALID_CHUNK_COORD
 			return
-		_mountain_cover_runtime.track_roof_layer_metric(_active_publish_chunk, packet)
+		_track_roof_layer_metric(_active_publish_chunk, packet)
 		var chunk_view: ChunkView = _ensure_chunk_view(_active_publish_chunk)
 		_configure_chunk_terrain_visual_v2(chunk_view, _active_publish_chunk, packet)
 		chunk_view.begin_apply(packet)
@@ -440,7 +462,7 @@ func _publish_next_batch() -> void:
 		return
 	var has_more: bool = active_view.apply_next_batch(WorldRuntimeConstants.PUBLISH_BATCH_SIZE)
 	if not has_more:
-		_mountain_cover_runtime.on_chunk_published(_active_publish_chunk)
+		_handle_cover_chunk_published(_active_publish_chunk)
 		_refresh_debug_visuals_for_chunk(_active_publish_chunk)
 		_queue_terrain_visual_v2_full_refresh(_active_publish_chunk)
 		active_view.visible = true
@@ -449,7 +471,21 @@ func _publish_next_batch() -> void:
 
 
 func _terrain_visual_tick() -> bool:
-	return _terrain_visual_v2_runtime.tick(_world_bounds_settings.width_tiles)
+	if _pending_visual_full_queue.is_empty():
+		return false
+	var chunk_coord: Vector2i = _pending_visual_full_queue.pop_front()
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+	var packet: Dictionary = _chunk_packets.get(chunk_coord, { }) as Dictionary
+	if chunk_view == null or packet.is_empty() or not _is_terrain_visual_v2_runtime_enabled():
+		return not _pending_visual_full_queue.is_empty()
+	if not _packet_has_v2_mountain_surface(packet):
+		return not _pending_visual_full_queue.is_empty()
+
+	_configure_chunk_terrain_visual_v2(chunk_view, chunk_coord, packet)
+	var started_usec := WorldPerfProbe.begin()
+	chunk_view.apply_pending_terrain_visual_v2_full()
+	WorldPerfProbe.end("WorldStreamer.terrain_visual_v2.full_apply", started_usec)
+	return not _pending_visual_full_queue.is_empty()
 
 
 func _evict_outside_ring(max_count: int) -> void:
@@ -473,8 +509,8 @@ func _evict_outside_ring(max_count: int) -> void:
 		_chunk_packets.erase(chunk_coord)
 		_requested_chunks.erase(chunk_coord)
 		_pending_publish_queue.erase(chunk_coord)
-		_terrain_visual_v2_runtime.erase_chunk(chunk_coord)
-		_mountain_cover_runtime.on_chunk_unloaded(chunk_coord)
+		_pending_visual_full_queue.erase(chunk_coord)
+		_handle_cover_chunk_unloaded(chunk_coord)
 		EventBus.chunk_unloaded.emit(chunk_coord)
 		evicted += 1
 
@@ -489,8 +525,6 @@ func _has_pending_streaming_work() -> bool:
 	if _packet_backend.has_pending_requests():
 		return true
 	if _packet_backend.has_completed_packets():
-		return true
-	if _terrain_visual_v2_runtime.has_pending_work():
 		return true
 	for chunk_coord_variant: Variant in _chunk_views.keys():
 		if not _is_chunk_desired(chunk_coord_variant as Vector2i):
@@ -549,6 +583,59 @@ func _sample_harvest_gate_tile(world_tile: Vector2i) -> Dictionary:
 	return _get_tile_data(WorldRuntimeConstants.tile_to_world_center(world_tile))
 
 
+func _sample_mountain_cover_tile(world_tile: Vector2i) -> Dictionary:
+	var canonical_tile: Vector2i = _canonicalize_tile_coord(world_tile)
+	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(canonical_tile)
+	var packet: Dictionary = get_chunk_packet(chunk_coord)
+	if packet.is_empty():
+		return {
+			"ready": false,
+			"chunk_coord": chunk_coord,
+			"local_coord": WorldRuntimeConstants.tile_to_local(canonical_tile),
+		}
+	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(canonical_tile)
+	var index: int = WorldRuntimeConstants.local_to_index(local_coord)
+	var mountain_ids: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
+	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
+	var walkable_flags: PackedByteArray = packet.get("walkable_flags", PackedByteArray()) as PackedByteArray
+	if index < 0 \
+			or index >= mountain_ids.size() \
+			or index >= mountain_flags.size() \
+			or index >= walkable_flags.size():
+		return {
+			"ready": false,
+			"chunk_coord": chunk_coord,
+			"local_coord": local_coord,
+		}
+	return {
+		"ready": true,
+		"chunk_coord": chunk_coord,
+		"local_coord": local_coord,
+		"mountain_id": int(mountain_ids[index]),
+		"mountain_flags": int(mountain_flags[index]),
+		"walkable": int(walkable_flags[index]) != 0,
+	}
+
+
+func _resolve_cover_debug_probe_tile(world_tile: Vector2i) -> Vector2i:
+	for offset: Vector2i in [
+		Vector2i.ZERO,
+		Vector2i.UP,
+		Vector2i.RIGHT,
+		Vector2i.DOWN,
+		Vector2i.LEFT,
+		Vector2i(1, -1),
+		Vector2i(1, 1),
+		Vector2i(-1, 1),
+		Vector2i(-1, -1),
+	]:
+		var candidate_tile: Vector2i = world_tile + offset
+		var candidate_sample: Dictionary = _sample_mountain_cover_tile(candidate_tile)
+		if int(candidate_sample.get("mountain_id", 0)) > 0:
+			return candidate_tile
+	return world_tile
+
+
 func _enqueue_chunk_if_needed(chunk_coord: Vector2i) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
 	if _uses_finite_world_bounds() and not _world_bounds_settings.is_chunk_y_in_bounds(chunk_coord.y):
@@ -594,7 +681,9 @@ func _apply_loaded_override(chunk_coord: Vector2i, local_coord: Vector2i, terrai
 
 
 func _refresh_loaded_packets_from_diffs() -> void:
-	_mountain_cover_runtime.clear()
+	_mountain_cavity_cache.clear()
+	_active_cover_mountain_id = 0
+	_active_cover_component_id = 0
 	var chunk_coords: Array[Vector2i] = []
 	for chunk_coord_variant: Variant in _chunk_packets.keys():
 		chunk_coords.append(chunk_coord_variant as Vector2i)
@@ -604,10 +693,7 @@ func _refresh_loaded_packets_from_diffs() -> void:
 		_refresh_loaded_visuals_around_chunk_overrides(chunk_coord)
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
 		if chunk_view:
-			_mountain_cover_runtime.track_roof_layer_metric(
-				chunk_coord,
-				_chunk_packets[chunk_coord] as Dictionary,
-			)
+			_track_roof_layer_metric(chunk_coord, _chunk_packets[chunk_coord] as Dictionary)
 			_configure_chunk_terrain_visual_v2(
 				chunk_view,
 				chunk_coord,
@@ -689,7 +775,7 @@ func _refresh_loaded_visual_patch_for_tiles(origin_tiles: Array[Vector2i]) -> vo
 					int(update.get("mountain_id", 0)),
 					int(update.get("mountain_flags", 0)),
 				)
-			_queue_terrain_visual_v2_patch_apply(chunk_coord)
+			chunk_view.call_deferred("apply_pending_terrain_visual_v2_patch")
 
 
 func _build_loaded_visual_update(tile_coord: Vector2i) -> Dictionary:
@@ -912,36 +998,110 @@ func _configure_chunk_terrain_visual_v2(
 		chunk_coord: Vector2i,
 		packet: Dictionary,
 ) -> void:
-	_terrain_visual_v2_runtime.configure_chunk(
-		chunk_view,
-		chunk_coord,
-		packet,
-		_world_bounds_settings.width_tiles,
-	)
+	var enabled := _is_terrain_visual_v2_runtime_enabled()
+	chunk_view.set_terrain_visual_v2_enabled(enabled)
+	if not enabled:
+		chunk_view.set_terrain_visual_recipe(null)
+		chunk_view.set_terrain_visual_solid_halo(PackedByteArray())
+		return
+	chunk_view.set_terrain_visual_recipe(_resolve_chunk_rock_visual_recipe(chunk_coord, packet))
+	chunk_view.set_terrain_visual_solid_halo(_build_mountain_solid_halo(chunk_coord))
 
 
 func _queue_terrain_visual_v2_full_refresh(chunk_coord: Vector2i) -> void:
-	_terrain_visual_v2_runtime.queue_full_refresh(chunk_coord)
-
-
-func _queue_terrain_visual_v2_patch_apply(chunk_coord: Vector2i) -> void:
-	_terrain_visual_v2_runtime.queue_patch_apply(chunk_coord)
+	if not _is_terrain_visual_v2_runtime_enabled():
+		return
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if not _chunk_views.has(chunk_coord) or not _chunk_packets.has(chunk_coord):
+		return
+	if _pending_visual_full_queue.has(chunk_coord):
+		return
+	_pending_visual_full_queue.append(chunk_coord)
 
 
 func _queue_terrain_visual_v2_full_refreshes_around_chunk(center_chunk_coord: Vector2i) -> void:
-	_terrain_visual_v2_runtime.queue_full_refreshes_around_chunk(center_chunk_coord)
+	if not _is_terrain_visual_v2_runtime_enabled():
+		return
+	for y: int in range(center_chunk_coord.y - 1, center_chunk_coord.y + 2):
+		for x: int in range(center_chunk_coord.x - 1, center_chunk_coord.x + 2):
+			_queue_terrain_visual_v2_full_refresh(Vector2i(x, y))
 
 
 func _packet_has_v2_mountain_surface(packet: Dictionary) -> bool:
-	return _terrain_visual_v2_runtime.packet_has_v2_mountain_surface(packet)
+	var mountain_ids: PackedInt32Array = packet.get(
+		"mountain_id_per_tile",
+		PackedInt32Array(),
+	) as PackedInt32Array
+	var mountain_flags: PackedByteArray = packet.get(
+		"mountain_flags",
+		PackedByteArray(),
+	) as PackedByteArray
+	var surface_flags := (
+		WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT
+	)
+	var count := mini(mountain_ids.size(), mountain_flags.size())
+	for index: int in range(count):
+		if int(mountain_ids[index]) <= 0:
+			continue
+		var flags := int(mountain_flags[index])
+		if (flags & surface_flags) != 0:
+			return true
+	return false
 
 
 func _is_terrain_visual_v2_runtime_enabled() -> bool:
-	return _terrain_visual_v2_runtime.is_enabled()
+	return bool(ProjectSettings.get_setting(TERRAIN_VISUAL_V2_RUNTIME_SETTING, true))
 
 
 func _resolve_chunk_rock_visual_recipe(chunk_coord: Vector2i, packet: Dictionary) -> Resource:
-	return _terrain_visual_v2_runtime.resolve_chunk_rock_visual_recipe(chunk_coord, packet)
+	var biome: Object = _resolve_packet_biome(packet)
+	if biome == null:
+		if not _did_warn_terrain_visual_v2_default_biome_fallback:
+			push_warning(
+				"Terrain visual V2 chunk %s has no biome_id; using default biome recipe fallback."
+				% [chunk_coord],
+			)
+			_did_warn_terrain_visual_v2_default_biome_fallback = true
+		biome = _get_default_biome_for_visuals()
+	if biome == null:
+		return null
+	var recipe: Resource = biome.get("rock_visual_recipe") as Resource
+	if recipe == null and not _did_warn_terrain_visual_v2_missing_recipe:
+		push_warning("Terrain visual V2 biome %s has no rock_visual_recipe." % [biome.get("id")])
+		_did_warn_terrain_visual_v2_missing_recipe = true
+	return recipe
+
+
+func _resolve_packet_biome(packet: Dictionary) -> Object:
+	var biome_id: StringName = _packet_biome_id(packet)
+	if biome_id == &"":
+		return null
+	var registry: Node = get_node_or_null("/root/BiomeRegistry")
+	if registry == null:
+		return null
+	if registry.has_method("get_biome"):
+		var biome: Object = registry.call("get_biome", biome_id) as Object
+		if biome != null:
+			return biome
+	if registry.has_method("get_biome_by_short_id"):
+		return registry.call("get_biome_by_short_id", biome_id) as Object
+	return null
+
+
+func _packet_biome_id(packet: Dictionary) -> StringName:
+	var biome_id: Variant = packet.get("biome_id", &"")
+	if biome_id is StringName:
+		return biome_id
+	if biome_id is String:
+		return StringName(biome_id)
+	return &""
+
+
+func _get_default_biome_for_visuals() -> Object:
+	var registry: Node = get_node_or_null("/root/BiomeRegistry")
+	if registry == null or not registry.has_method("get_default_biome"):
+		return null
+	return registry.call("get_default_biome") as Object
 
 
 func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
@@ -968,11 +1128,11 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 func _reset_runtime_state() -> void:
 	_generation_epoch += 1
 	_packet_backend.clear_queued_work()
-	_terrain_visual_v2_runtime.clear_queued_work()
 	_awaiting_new_game_spawn_result = false
 	_new_game_spawn_failed = false
 	_requested_chunks.clear()
 	_pending_publish_queue.clear()
+	_pending_visual_full_queue.clear()
 	_active_publish_chunk = INVALID_CHUNK_COORD
 	_player_chunk_coord = INVALID_CHUNK_COORD
 	for chunk_view_variant: Variant in _chunk_views.values():
@@ -981,7 +1141,11 @@ func _reset_runtime_state() -> void:
 			chunk_view.queue_free()
 	_chunk_views.clear()
 	_chunk_packets.clear()
-	_mountain_cover_runtime.clear()
+	roof_layers_per_chunk_max = 0
+	_mountain_cavity_cache.clear()
+	_active_cover_mountain_id = 0
+	_active_cover_component_id = 0
+	_did_warn_roof_layer_explosion = false
 
 
 func _queue_new_game_spawn_resolution() -> void:
@@ -1082,6 +1246,124 @@ func _is_chunk_desired(chunk_coord: Vector2i) -> bool:
 
 func _chunk_has_diff(chunk_coord: Vector2i) -> bool:
 	return not _diff_store.get_chunk_override_local_coords(chunk_coord).is_empty()
+
+
+func _handle_cover_chunk_published(published_chunk_coord: Vector2i) -> void:
+	var cover_result: Dictionary = _mountain_cavity_cache.on_chunk_loaded(
+		published_chunk_coord,
+		_collect_cover_candidate_tiles_for_chunk(published_chunk_coord),
+		Callable(self, "_sample_mountain_cover_tile"),
+	)
+	var active_change: Dictionary = _repair_active_cover_component_from_player_position()
+	var affected_chunks: Dictionary = { }
+	var published_chunks: Array[Vector2i] = _variant_to_vector2i_array(cover_result.get("affected_chunks", []))
+	for chunk_coord: Vector2i in published_chunks:
+		affected_chunks[chunk_coord] = true
+	if bool(active_change.get("state_changed", false)):
+		_refresh_cover_visibility_for_loaded_chunks()
+		return
+	_refresh_cover_visibility_for_loaded_chunks(_dictionary_vector2i_keys(affected_chunks))
+
+
+func _handle_cover_chunk_unloaded(chunk_coord: Vector2i) -> void:
+	var cover_result: Dictionary = _mountain_cavity_cache.on_chunk_unloaded(
+		chunk_coord,
+		_collect_diff_world_tiles_for_chunk(chunk_coord),
+		Callable(self, "_sample_mountain_cover_tile"),
+	)
+	var active_change: Dictionary = _repair_active_cover_component_from_player_position()
+	if bool(active_change.get("state_changed", false)):
+		_refresh_cover_visibility_for_loaded_chunks()
+		return
+	var unloaded_chunks: Array[Vector2i] = _variant_to_vector2i_array(cover_result.get("affected_chunks", []))
+	_refresh_cover_visibility_for_loaded_chunks(unloaded_chunks)
+
+
+func _handle_cover_tile_dug(world_tile: Vector2i) -> void:
+	var previous_active_component_id: int = _active_cover_component_id
+	var cover_result: Dictionary = _mountain_cavity_cache.on_tile_dug(
+		world_tile,
+		Callable(self, "_sample_mountain_cover_tile"),
+	)
+	var active_change: Dictionary = _repair_active_cover_component_from_player_position()
+	if bool(active_change.get("state_changed", false)):
+		_refresh_cover_visibility_for_loaded_chunks()
+		return
+	var affected_chunks: Dictionary = { }
+	var dug_chunks: Array[Vector2i] = _variant_to_vector2i_array(cover_result.get("affected_chunks", []))
+	for chunk_coord: Vector2i in dug_chunks:
+		affected_chunks[chunk_coord] = true
+	for component_id: int in [previous_active_component_id, _active_cover_component_id]:
+		if component_id <= 0:
+			continue
+		for component_chunk_coord: Vector2i in _mountain_cavity_cache.get_component_chunks(component_id):
+			affected_chunks[component_chunk_coord] = true
+	_refresh_cover_visibility_for_loaded_chunks(_dictionary_vector2i_keys(affected_chunks))
+
+
+func _collect_cover_candidate_tiles_for_chunk(published_chunk_coord: Vector2i) -> Array[Vector2i]:
+	var candidate_tiles: Dictionary = { }
+	for sample_chunk_y: int in range(published_chunk_coord.y - 1, published_chunk_coord.y + 2):
+		for sample_chunk_x: int in range(published_chunk_coord.x - 1, published_chunk_coord.x + 2):
+			var sample_chunk_coord := Vector2i(sample_chunk_x, sample_chunk_y)
+			for local_coord: Vector2i in _diff_store.get_chunk_override_local_coords(sample_chunk_coord):
+				candidate_tiles[_chunk_local_to_tile(sample_chunk_coord, local_coord)] = true
+	return _dictionary_vector2i_keys(candidate_tiles)
+
+
+func _collect_diff_world_tiles_for_chunk(chunk_coord: Vector2i) -> Array[Vector2i]:
+	var world_tiles: Array[Vector2i] = []
+	for local_coord: Vector2i in _diff_store.get_chunk_override_local_coords(chunk_coord):
+		world_tiles.append(_chunk_local_to_tile(chunk_coord, local_coord))
+	return world_tiles
+
+
+func _repair_active_cover_component_from_player_position() -> Dictionary:
+	var previous_mountain_id: int = _active_cover_mountain_id
+	var previous_component_id: int = _active_cover_component_id
+	if PlayerAuthority.get_local_player() == null:
+		_active_cover_mountain_id = 0
+		_active_cover_component_id = 0
+		return {
+			"state_changed": previous_mountain_id != 0 or previous_component_id != 0,
+			"previous_mountain_id": previous_mountain_id,
+			"previous_component_id": previous_component_id,
+			"mountain_id": 0,
+			"component_id": 0,
+		}
+	var player_tile: Vector2i = _canonicalize_tile_coord(WorldRuntimeConstants.world_to_tile(PlayerAuthority.get_local_player_position()))
+	var current_sample: Dictionary = get_mountain_cover_sample(player_tile)
+	var next_component_id: int = int(current_sample.get("component_id", 0))
+	if not _mountain_cavity_cache.has_component(next_component_id):
+		next_component_id = 0
+	var next_mountain_id: int = int(current_sample.get("mountain_id", 0)) if next_component_id > 0 else 0
+	_active_cover_mountain_id = next_mountain_id
+	_active_cover_component_id = next_component_id
+	return {
+		"state_changed": previous_mountain_id != next_mountain_id
+		or previous_component_id != next_component_id,
+		"previous_mountain_id": previous_mountain_id,
+		"previous_component_id": previous_component_id,
+		"mountain_id": next_mountain_id,
+		"component_id": next_component_id,
+	}
+
+
+func _refresh_cover_visibility_for_loaded_chunks(target_chunks: Array[Vector2i] = []) -> void:
+	var refresh_chunks: Array[Vector2i] = target_chunks
+	if refresh_chunks.is_empty():
+		refresh_chunks = _dictionary_vector2i_keys(_chunk_views)
+	var seen_chunks: Dictionary = { }
+	for chunk_coord: Vector2i in refresh_chunks:
+		if seen_chunks.has(chunk_coord):
+			continue
+		seen_chunks[chunk_coord] = true
+		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+		if chunk_view == null:
+			continue
+		chunk_view.apply_cover_visibility(
+			_mountain_cavity_cache.build_chunk_visibility_mask(chunk_coord, _active_cover_component_id),
+		)
 
 
 func _apply_debug_overlay_visibility_to_loaded_chunks() -> void:
@@ -1252,6 +1534,26 @@ func _variant_to_vector2i_array(value: Variant) -> Array[Vector2i]:
 		for entry: Variant in value:
 			result.append(entry as Vector2i)
 	return result
+
+
+func _track_roof_layer_metric(chunk_coord: Vector2i, packet: Dictionary) -> void:
+	var mountain_ids: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
+	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
+	if mountain_ids.is_empty() or mountain_flags.is_empty():
+		return
+	var present_mountains: Dictionary = { }
+	for index: int in range(mini(mountain_ids.size(), mountain_flags.size())):
+		var mountain_id: int = int(mountain_ids[index])
+		var flags: int = int(mountain_flags[index])
+		if mountain_id <= 0 or (flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) == 0:
+			continue
+		present_mountains[mountain_id] = true
+	var mountain_count: int = present_mountains.size()
+	if mountain_count > roof_layers_per_chunk_max:
+		roof_layers_per_chunk_max = mountain_count
+	if mountain_count > 4 and not _did_warn_roof_layer_explosion:
+		_did_warn_roof_layer_explosion = true
+		push_warning("roof layer explosion: chunk %s has %d mountains" % [chunk_coord, mountain_count])
 
 
 func _chunk_distance_sq(a: Vector2i, b: Vector2i) -> int:

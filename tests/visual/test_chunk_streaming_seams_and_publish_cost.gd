@@ -81,103 +81,6 @@ func test_final_chunk_publish_batch_has_no_visual_apply_spike() -> void:
 	chunk_view.free()
 
 
-func test_full_v2_visual_apply_is_staged_across_texture_steps() -> void:
-	var chunk_view := _build_rock_chunk(Vector2i.ZERO)
-	add_child(chunk_view)
-
-	var packet := _chunk_packet_with_rock_block(Vector2i.ZERO)
-	chunk_view.begin_apply(packet)
-	while chunk_view.apply_next_batch(WorldRuntimeConstants.CHUNK_CELL_COUNT):
-		pass
-
-	var has_more_visual_work := chunk_view.apply_pending_terrain_visual_v2_full()
-	var debug: Dictionary = chunk_view.get_terrain_visual_v2_debug_state()
-	assert_that(has_more_visual_work).is_true()
-	assert_that(debug.get("full_solve_request_count")).is_equal(1)
-	assert_that(debug.get("full_solve_count")).is_equal(0)
-	assert_that(debug.get("has_pending_full_solve")).is_equal(true)
-	assert_that(debug.get("has_pending_full_apply")).is_equal(false)
-	assert_that(debug.get("has_visual_layer")).is_equal(false)
-
-	await _drain_v2_full_apply(chunk_view)
-	debug = chunk_view.get_terrain_visual_v2_debug_state()
-	assert_that(debug.get("full_solve_count")).is_equal(1)
-	assert_that(debug.get("has_pending_full_solve")).is_equal(false)
-	assert_that(debug.get("has_pending_full_apply")).is_equal(false)
-	assert_that(debug.get("has_visual_layer")).is_equal(true)
-	assert_that(debug.get("full_apply_texture_count")).is_equal(
-		debug.get("full_apply_texture_total"),
-	)
-
-	chunk_view.free()
-
-
-func test_world_streamer_requeues_staged_v2_full_apply_until_complete() -> void:
-	var streamer := WorldStreamer.new()
-	add_child(streamer)
-	var chunk_view := _build_rock_chunk(Vector2i.ZERO)
-	streamer.add_child(chunk_view)
-
-	var packet := _chunk_packet_with_rock_block(Vector2i.ZERO)
-	chunk_view.begin_apply(packet)
-	while chunk_view.apply_next_batch(WorldRuntimeConstants.CHUNK_CELL_COUNT):
-		pass
-	streamer._chunk_views[Vector2i.ZERO] = chunk_view
-	streamer._chunk_packets[Vector2i.ZERO] = packet
-	streamer.call("_queue_terrain_visual_v2_full_refresh", Vector2i.ZERO)
-
-	var first_tick_has_more := bool(streamer.call("_terrain_visual_tick"))
-	var debug: Dictionary = chunk_view.get_terrain_visual_v2_debug_state()
-	assert_that(first_tick_has_more).is_true()
-	assert_that(debug.get("has_pending_full_solve")).is_equal(true)
-
-	await _drain_terrain_visual_streamer(streamer)
-	debug = chunk_view.get_terrain_visual_v2_debug_state()
-	assert_that(debug.get("has_pending_full_solve")).is_equal(false)
-	assert_that(debug.get("has_pending_full_apply")).is_equal(false)
-	assert_that(debug.get("has_visual_layer")).is_equal(true)
-
-	streamer.free()
-
-
-func test_world_streamer_requeues_staged_v2_dirty_patch_until_complete() -> void:
-	var streamer := WorldStreamer.new()
-	add_child(streamer)
-	var chunk_view := _build_rock_chunk(Vector2i.ZERO)
-	streamer.add_child(chunk_view)
-
-	var packet := _chunk_packet_with_rock_block(Vector2i.ZERO)
-	chunk_view.begin_apply(packet)
-	while chunk_view.apply_next_batch(WorldRuntimeConstants.CHUNK_CELL_COUNT):
-		pass
-	streamer._chunk_views[Vector2i.ZERO] = chunk_view
-	streamer._chunk_packets[Vector2i.ZERO] = packet
-	await _drain_v2_full_apply(chunk_view)
-
-	chunk_view.apply_runtime_cell(
-		Vector2i(3, 3),
-		WorldRuntimeConstants.TERRAIN_PLAINS_DUG,
-		0,
-		true,
-		0,
-		0,
-	)
-	streamer.call("_queue_terrain_visual_v2_patch_apply", Vector2i.ZERO)
-
-	var first_tick_has_more := bool(streamer.call("_terrain_visual_tick"))
-	var debug: Dictionary = chunk_view.get_terrain_visual_v2_debug_state()
-	assert_that(first_tick_has_more).is_true()
-	assert_that(debug.get("has_pending_patch_solve")).is_equal(true)
-
-	await _drain_terrain_visual_streamer(streamer)
-	debug = chunk_view.get_terrain_visual_v2_debug_state()
-	assert_that(debug.get("has_pending_patch_solve")).is_equal(false)
-	assert_that(debug.get("has_pending_patch_apply")).is_equal(false)
-	assert_that(debug.get("patch_apply_count")).is_equal(1)
-
-	streamer.free()
-
-
 func test_late_neighbor_halo_rebuild_removes_internal_v2_chunk_facade() -> void:
 	var chunk_view := _build_rock_chunk(Vector2i.ZERO)
 	add_child(chunk_view)
@@ -185,7 +88,7 @@ func test_late_neighbor_halo_rebuild_removes_internal_v2_chunk_facade() -> void:
 	chunk_view.begin_apply(_chunk_packet_with_right_edge_rock(Vector2i.ZERO))
 	while chunk_view.apply_next_batch(WorldRuntimeConstants.CHUNK_CELL_COUNT):
 		pass
-	await _drain_v2_full_apply(chunk_view)
+	chunk_view.apply_pending_terrain_visual_v2_full()
 
 	var before_zone := _sample_v2_zone_id_at_tile_pixel(
 		chunk_view,
@@ -195,7 +98,7 @@ func test_late_neighbor_halo_rebuild_removes_internal_v2_chunk_facade() -> void:
 	assert_that(before_zone).is_not_equal(1)
 
 	chunk_view.set_terrain_visual_solid_halo(_right_edge_rock_solid_halo())
-	await _drain_v2_full_apply(chunk_view)
+	chunk_view.apply_pending_terrain_visual_v2_full()
 
 	var after_zone := _sample_v2_zone_id_at_tile_pixel(
 		chunk_view,
@@ -222,7 +125,7 @@ func test_missing_neighbor_visual_halo_does_not_emit_stream_ring_facade() -> voi
 	chunk_view.begin_apply(packet)
 	while chunk_view.apply_next_batch(WorldRuntimeConstants.CHUNK_CELL_COUNT):
 		pass
-	await _drain_v2_full_apply(chunk_view)
+	chunk_view.apply_pending_terrain_visual_v2_full()
 
 	var south_boundary_zone := _sample_v2_zone_id_at_tile_pixel(
 		chunk_view,
@@ -248,26 +151,6 @@ func _apply_plain_packet(chunk_view: ChunkView, chunk_coord: Vector2i) -> void:
 	while chunk_view.apply_next_batch(WorldRuntimeConstants.CHUNK_CELL_COUNT):
 		pass
 	chunk_view.visible = true
-
-
-func _drain_v2_full_apply(chunk_view: ChunkView) -> void:
-	var has_more_visual_work := true
-	for step_index: int in range(32):
-		has_more_visual_work = chunk_view.apply_pending_terrain_visual_v2_full()
-		if not has_more_visual_work:
-			return
-		await await_idle_frame()
-	assert_that(has_more_visual_work).is_false()
-
-
-func _drain_terrain_visual_streamer(streamer: WorldStreamer) -> void:
-	var has_more_visual_work := true
-	for step_index: int in range(32):
-		has_more_visual_work = bool(streamer.call("_terrain_visual_tick"))
-		if not has_more_visual_work:
-			return
-		await await_idle_frame()
-	assert_that(has_more_visual_work).is_false()
 
 
 func _build_rock_chunk(chunk_coord: Vector2i) -> ChunkView:

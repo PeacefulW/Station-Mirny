@@ -4,9 +4,6 @@ extends Control
 const TerrainVisualPacketMaterialBuilder = preload(
 	"res://data/terrain_visual/terrain_visual_packet_material.gd"
 )
-const TerrainVisualRecipePayload = preload(
-	"res://data/terrain_visual/terrain_visual_recipe_payload.gd"
-)
 const DEFAULT_RECIPE: Resource = preload("res://data/terrain_visual/recipes/rock_default.tres")
 
 const SOLID_VALUE := 1
@@ -30,15 +27,13 @@ var _control_panel: PanelContainer = null
 var _mask_grid: GridContainer = null
 var _mask_buttons: Array[Button] = []
 var _shape_sliders: Dictionary = { }
-var _material_color_pickers: Dictionary = { }
-var _debug_mode_select: OptionButton = null
-var _mask_preset_select: OptionButton = null
+var _top_color_picker: ColorPickerButton = null
 
 
 func _ready() -> void:
 	_ensure_ui()
 	if _mask_size == Vector2i.ZERO:
-		apply_mask_preset(&"solid_4x3")
+		set_mask_size(DEFAULT_MASK_SIZE)
 	if _recipe == null:
 		set_recipe(DEFAULT_RECIPE.duplicate(true))
 
@@ -88,7 +83,7 @@ func set_mask_cell(cell: Vector2i, is_solid: bool) -> void:
 	var index := _mask_index(cell)
 	_solid_mask[index] = SOLID_VALUE if is_solid else EMPTY_VALUE
 	if index < _mask_buttons.size():
-		_mask_buttons[index].set_pressed_no_signal(is_solid)
+		_mask_buttons[index].button_pressed = is_solid
 	if not _is_bulk_mask_edit:
 		_refresh_preview()
 
@@ -102,7 +97,8 @@ func get_mask_cell(cell: Vector2i) -> bool:
 func fill_mask(is_solid: bool) -> void:
 	_is_bulk_mask_edit = true
 	_solid_mask.fill(SOLID_VALUE if is_solid else EMPTY_VALUE)
-	_sync_mask_buttons()
+	for button: Button in _mask_buttons:
+		button.button_pressed = is_solid
 	_is_bulk_mask_edit = false
 	_refresh_preview()
 
@@ -110,11 +106,8 @@ func fill_mask(is_solid: bool) -> void:
 func set_shape_control(field_name: StringName, value: float) -> void:
 	if _recipe == null:
 		return
-	var resolved_value := value
-	if field_name == &"shape_supersampling":
-		resolved_value = float(clampi(roundi(value), 1, 8))
-	_recipe.set(field_name, resolved_value)
-	_update_slider_value(field_name, resolved_value)
+	_recipe.set(field_name, value)
+	_update_slider_value(field_name, value)
 	_refresh_preview()
 
 
@@ -130,16 +123,13 @@ func set_material_color(slot_id: StringName, color: Color) -> void:
 	slot.set("color_a", color)
 	if slot.get("source") == &"flat":
 		slot.set("flat_color", color)
-	var color_picker: ColorPickerButton = _material_color_pickers.get(slot_id, null)
-	if color_picker != null:
-		color_picker.color = color
+	if slot_id == &"top" and _top_color_picker != null:
+		_top_color_picker.color = color
 	_refresh_preview()
 
 
 func set_debug_mode(debug_mode: int) -> void:
 	_debug_mode = clampi(debug_mode, 0, 6)
-	if _debug_mode_select != null:
-		_debug_mode_select.select(_debug_mode)
 	_apply_packet_to_preview()
 
 
@@ -165,19 +155,6 @@ func get_last_validation_errors() -> PackedStringArray:
 
 func get_refresh_count() -> int:
 	return _refresh_count
-
-
-func apply_mask_preset(preset_id: StringName) -> bool:
-	var preset := _mask_preset(preset_id)
-	if preset.is_empty():
-		return false
-	_mask_size = preset.get("size", DEFAULT_MASK_SIZE)
-	_solid_mask = preset.get("mask", PackedByteArray()).duplicate()
-	_rebuild_mask_grid()
-	_sync_mask_buttons()
-	if _recipe != null:
-		_refresh_preview()
-	return true
 
 
 func capture_reference_image() -> Image:
@@ -209,30 +186,21 @@ func _ensure_ui() -> void:
 	_control_panel.offset_right = 240.0
 	add_child(_control_panel)
 
-	var scroll := ScrollContainer.new()
-	scroll.name = "WorkbenchControlScroll"
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_control_panel.add_child(scroll)
-
 	var controls := VBoxContainer.new()
 	controls.add_theme_constant_override("separation", 6)
-	scroll.add_child(controls)
+	_control_panel.add_child(controls)
 
-	_add_debug_mode_select(controls)
-	_add_mask_preset_select(controls)
+	_add_shape_slider(controls, &"south_height_px", 0.0, 128.0)
+	_add_shape_slider(controls, &"rim_width_px", 0.0, 64.0)
+	_add_shape_slider(controls, &"side_height_px", 0.0, 128.0)
 
-	for control_spec: Dictionary in _shape_control_specs():
-		_add_shape_slider(
-			controls,
-			control_spec.get("field", &""),
-			float(control_spec.get("min", 0.0)),
-			float(control_spec.get("max", 1.0)),
-			float(control_spec.get("step", 0.1)),
-		)
-
-	for slot_id: StringName in [&"top", &"face", &"back", &"base"]:
-		_add_material_color_picker(controls, slot_id)
+	_top_color_picker = ColorPickerButton.new()
+	_top_color_picker.name = "TopMaterialColor"
+	_top_color_picker.text = "top"
+	_top_color_picker.color_changed.connect(
+		func(color: Color) -> void: set_material_color(&"top", color),
+	)
+	controls.add_child(_top_color_picker)
 
 	var export_button := Button.new()
 	export_button.name = "ExportReferenceScreenshot"
@@ -250,7 +218,6 @@ func _add_shape_slider(
 		field_name: StringName,
 		min_value: float,
 		max_value: float,
-		step: float = 0.1,
 ) -> void:
 	var row := VBoxContainer.new()
 	row.add_theme_constant_override("separation", 2)
@@ -264,49 +231,11 @@ func _add_shape_slider(
 	slider.name = str(field_name)
 	slider.min_value = min_value
 	slider.max_value = max_value
-	slider.step = step
+	slider.step = 0.1
 	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	slider.value_changed.connect(func(value: float) -> void: set_shape_control(field_name, value))
 	row.add_child(slider)
 	_shape_sliders[field_name] = slider
-
-
-func _add_debug_mode_select(parent: VBoxContainer) -> void:
-	_debug_mode_select = OptionButton.new()
-	_debug_mode_select.name = "DebugMode"
-	for debug_mode: Dictionary in _debug_modes():
-		_debug_mode_select.add_item(
-			String(debug_mode.get("label", "")),
-			int(debug_mode.get("id", 0)),
-		)
-	_debug_mode_select.item_selected.connect(
-		func(index: int) -> void:
-			set_debug_mode(_debug_mode_select.get_item_id(index))
-	)
-	parent.add_child(_debug_mode_select)
-
-
-func _add_mask_preset_select(parent: VBoxContainer) -> void:
-	_mask_preset_select = OptionButton.new()
-	_mask_preset_select.name = "MaskPreset"
-	for preset_id: StringName in _mask_preset_ids():
-		_mask_preset_select.add_item(str(preset_id))
-	_mask_preset_select.item_selected.connect(
-		func(index: int) -> void:
-			apply_mask_preset(StringName(_mask_preset_select.get_item_text(index)))
-	)
-	parent.add_child(_mask_preset_select)
-
-
-func _add_material_color_picker(parent: VBoxContainer, slot_id: StringName) -> void:
-	var color_picker := ColorPickerButton.new()
-	color_picker.name = "%sMaterialColor" % str(slot_id).capitalize()
-	color_picker.text = str(slot_id)
-	color_picker.color_changed.connect(
-		func(color: Color) -> void: set_material_color(slot_id, color),
-	)
-	parent.add_child(color_picker)
-	_material_color_pickers[slot_id] = color_picker
 
 
 func _rebuild_mask_grid() -> void:
@@ -328,11 +257,6 @@ func _rebuild_mask_grid() -> void:
 			button.toggled.connect(func(is_pressed: bool) -> void: set_mask_cell(cell, is_pressed))
 			_mask_grid.add_child(button)
 			_mask_buttons.append(button)
-
-
-func _sync_mask_buttons() -> void:
-	for index: int in range(mini(_mask_buttons.size(), _solid_mask.size())):
-		_mask_buttons[index].set_pressed_no_signal(_solid_mask[index] == SOLID_VALUE)
 
 
 func _refresh_preview() -> bool:
@@ -397,7 +321,19 @@ func _apply_packet_to_preview() -> void:
 
 
 func _make_recipe_payload() -> Dictionary:
-	return TerrainVisualRecipePayload.make_payload(_recipe)
+	return {
+		"schema_version": int(_recipe.get("schema_version")),
+		"recipe_id": StringName(_recipe.get("id")),
+		"surface_kind": StringName(_recipe.get("surface_kind")),
+		"tile_size_px": int(_recipe.get("tile_size_px")),
+		"rim_width_px": float(_recipe.get("rim_width_px")),
+		"south_height_px": float(_recipe.get("south_height_px")),
+		"north_height_px": float(_recipe.get("north_height_px")),
+		"side_height_px": float(_recipe.get("side_height_px")),
+		"face_power": float(_recipe.get("face_power")),
+		"back_drop": float(_recipe.get("back_drop")),
+		"normal_strength": float(_recipe.get("normal_strength")),
+	}
 
 
 func _update_ui_from_recipe() -> void:
@@ -405,15 +341,13 @@ func _update_ui_from_recipe() -> void:
 		return
 	for field_name: StringName in _shape_sliders:
 		_update_slider_value(field_name, float(_recipe.get(field_name)))
-	if not _recipe.has_method("get_material_slot"):
-		return
-	for slot_id: StringName in _material_color_pickers:
-		var slot: Resource = _recipe.call("get_material_slot", slot_id) as Resource
-		var color_picker: ColorPickerButton = _material_color_pickers.get(slot_id, null)
-		if slot != null and color_picker != null:
-			var color_value: Variant = slot.get("color_a")
-			if color_value is Color:
-				color_picker.color = color_value
+	var top_slot: Resource = null
+	if _recipe.has_method("get_material_slot"):
+		top_slot = _recipe.call("get_material_slot", &"top") as Resource
+	if top_slot != null and _top_color_picker != null:
+		var color_value: Variant = top_slot.get("color_a")
+		if color_value is Color:
+			_top_color_picker.color = color_value
 
 
 func _update_slider_value(field_name: StringName, value: float) -> void:
@@ -466,145 +400,3 @@ func _count_solid_tiles() -> int:
 		if value == SOLID_VALUE:
 			count += 1
 	return count
-
-
-func _shape_control_specs() -> Array[Dictionary]:
-	return [
-		{ "field": &"south_height_px", "min": 0.0, "max": 128.0, "step": 0.1 },
-		{ "field": &"north_height_px", "min": 0.0, "max": 128.0, "step": 0.1 },
-		{ "field": &"side_height_px", "min": 0.0, "max": 128.0, "step": 0.1 },
-		{ "field": &"rim_width_px", "min": 0.0, "max": 64.0, "step": 0.1 },
-		{ "field": &"crown_bevel_px", "min": 0.0, "max": 64.0, "step": 0.1 },
-		{ "field": &"outer_corner_radius_px", "min": 0.0, "max": 128.0, "step": 0.1 },
-		{ "field": &"inner_corner_radius_px", "min": 0.0, "max": 128.0, "step": 0.1 },
-		{ "field": &"corner_round_px", "min": 0.0, "max": 128.0, "step": 0.1 },
-		{ "field": &"diagonal_smooth_px", "min": 0.0, "max": 128.0, "step": 0.1 },
-		{ "field": &"contour_relax", "min": 0.0, "max": 1.0, "step": 0.01 },
-		{ "field": &"contour_warp_px", "min": 0.0, "max": 16.0, "step": 0.1 },
-		{ "field": &"corner_variation", "min": 0.0, "max": 1.0, "step": 0.01 },
-		{ "field": &"geometry_variance", "min": 0.0, "max": 1.0, "step": 0.01 },
-		{ "field": &"shape_supersampling", "min": 1.0, "max": 8.0, "step": 1.0 },
-		{ "field": &"face_power", "min": 0.1, "max": 8.0, "step": 0.01 },
-		{ "field": &"back_drop", "min": 0.0, "max": 1.0, "step": 0.01 },
-		{ "field": &"edge_debris", "min": 0.0, "max": 1.0, "step": 0.01 },
-		{ "field": &"edge_color_strength", "min": 0.0, "max": 1.0, "step": 0.01 },
-		{ "field": &"contact_outline_width_px", "min": 0.0, "max": 32.0, "step": 0.1 },
-		{ "field": &"normal_strength", "min": 0.0, "max": 16.0, "step": 0.01 },
-		{ "field": &"normal_detail_strength", "min": 0.0, "max": 16.0, "step": 0.01 },
-		{ "field": &"height_to_normal_blur_radius_px", "min": 0.0, "max": 16.0, "step": 0.1 },
-	]
-
-
-func _debug_modes() -> Array[Dictionary]:
-	return [
-		{ "id": 0, "label": "albedo" },
-		{ "id": 1, "label": "zone" },
-		{ "id": 2, "label": "coverage" },
-		{ "id": 3, "label": "height" },
-		{ "id": 4, "label": "normal" },
-		{ "id": 5, "label": "material uv" },
-		{ "id": 6, "label": "lit preview" },
-	]
-
-
-func _mask_preset_ids() -> Array[StringName]:
-	return [
-		&"solid_4x3",
-		&"notch_3x3",
-		&"diagonal_3x3",
-		&"cave_cut_5x4",
-		&"single_1x1",
-	]
-
-
-func _mask_preset(preset_id: StringName) -> Dictionary:
-	match preset_id:
-		&"solid_4x3":
-			return {
-				"size": Vector2i(4, 3),
-				"mask": PackedByteArray(
-					[
-						1,
-						1,
-						1,
-						1,
-						1,
-						1,
-						1,
-						1,
-						1,
-						1,
-						1,
-						1,
-					],
-				),
-			}
-		&"notch_3x3":
-			return {
-				"size": Vector2i(3, 3),
-				"mask": PackedByteArray(
-					[
-						1,
-						1,
-						1,
-						1,
-						0,
-						1,
-						1,
-						1,
-						1,
-					],
-				),
-			}
-		&"diagonal_3x3":
-			return {
-				"size": Vector2i(3, 3),
-				"mask": PackedByteArray(
-					[
-						1,
-						0,
-						0,
-						1,
-						1,
-						0,
-						1,
-						1,
-						1,
-					],
-				),
-			}
-		&"cave_cut_5x4":
-			return {
-				"size": Vector2i(5, 4),
-				"mask": PackedByteArray(
-					[
-						1,
-						1,
-						1,
-						1,
-						1,
-						1,
-						0,
-						0,
-						1,
-						1,
-						1,
-						1,
-						0,
-						1,
-						0,
-						1,
-						1,
-						1,
-						1,
-						0,
-					],
-				),
-			}
-		&"single_1x1":
-			return {
-				"size": Vector2i(1, 1),
-				"mask": PackedByteArray([1]),
-			}
-		_:
-			return { }

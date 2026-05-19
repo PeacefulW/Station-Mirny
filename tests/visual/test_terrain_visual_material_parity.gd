@@ -131,10 +131,8 @@ func test_image_face_material_uses_packet_projection_not_screen_uv() -> void:
 
 
 func test_generated_reference_keeps_old_generator_texture_variance() -> void:
-	var old_reference := _load_png_image(OLD_REFERENCE_ALBEDO_PATH)
-	assert_that(old_reference).is_not_null()
-	if old_reference == null:
-		return
+	var old_reference := Image.new()
+	assert_that(old_reference.load(OLD_REFERENCE_ALBEDO_PATH)).is_equal(OK)
 
 	var recipe: Resource = load(RECIPE_PATH).duplicate(true) as Resource
 	recipe.set("tile_size_px", 16)
@@ -382,19 +380,6 @@ func _stripe_texture() -> Texture2D:
 			var color := Color(0.08, 0.08, 0.08, 1.0) if y < 4 else Color(0.92, 0.92, 0.92, 1.0)
 			image.set_pixel(x, y, color)
 	return ImageTexture.create_from_image(image)
-
-
-func _load_png_image(path: String) -> Image:
-	var file := FileAccess.open(path, FileAccess.READ)
-	assert_that(file).is_not_null()
-	if file == null:
-		return null
-	var image := Image.new()
-	var result := image.load_png_from_buffer(file.get_buffer(file.get_length()))
-	assert_that(result).is_equal(OK)
-	if result != OK:
-		return null
-	return image
 
 
 func _fill_q16_field(packet: Dictionary, field_name: String, value: float) -> void:

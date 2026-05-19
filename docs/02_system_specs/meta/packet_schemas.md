@@ -611,9 +611,8 @@ Shape:
 
 Current code notes:
 - all per-pixel arrays are indexed by `y * pixel_width + x`
-- `coverage_*` arrays are byte coverage masks; organic contour supersampling
-  may emit partial values between `0` and `255` without changing the packet
-  keys
+- `coverage_*` arrays currently use hard `0`/`255` coverage values; future
+  anti-aliasing may refine coverage without changing the packet keys
 - `height_q16`, `material_u_q16`, and `material_v_q16` are packed as
   little-endian unsigned 16-bit values
 - `normal_rgba8` encodes tangent-space-like derived normals as RGBA8
@@ -629,11 +628,6 @@ Current code notes:
   footprint instead of a full 16x16 chunk mask; `world_origin_tile` anchors that
   bounded packet in world-tile coordinates, while `chunk_coord` keeps the owning
   chunk identity
-- recipe payload values consumed by the solver include organic shape,
-  edge/rim, contact-outline, normal-detail, and optional
-  `world_wrap_width_tiles` controls. `world_wrap_width_tiles` is an input-only
-  deterministic sampling parameter and is not serialized into
-  `TerrainVisualPacketV0`.
 - when built through `build_chunk_visual_packet_with_halo(...)`, the input mask
   may include a one-tile topology halo around the owned output rect. The packet
   still reports only the cropped output dimensions, and `world_origin_tile`
@@ -652,12 +646,6 @@ Current code notes:
   metrics such as `rim_width_px`, `south_height_px`, `north_height_px`, and
   `side_height_px` by the same tile-size ratio so visual world-space distances
   do not change.
-- V2 organic contour payloads also carry authored shape metrics:
-  `crown_bevel_px`, `outer_corner_radius_px`, `inner_corner_radius_px`,
-  `corner_round_px`, `diagonal_smooth_px`, `contour_relax`,
-  `contour_warp_px`, `corner_variation`, `geometry_variance`, and
-  `shape_supersampling`. Pixel-distance shape metrics are scaled by runtime
-  packet downsample; normalized ratio/noise fields are copied unchanged.
 
 ### `WorldFoundationSpawnResult`
 
