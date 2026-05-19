@@ -1,12 +1,11 @@
 ---
 title: Biome Visual Authoring — Variant D (Rock-First)
 doc_type: system_spec
-status: superseded
+status: approved
 owner: engineering+art
-source_of_truth: false
-version: 1.1
-last_updated: 2026-05-17
-superseded_by: ./biome_visual_authoring_variant_d_v2.md
+source_of_truth: true
+version: 1.0
+last_updated: 2026-05-16
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -25,15 +24,6 @@ related_docs:
 ---
 
 # Biome Visual Authoring — Variant D (Rock-First)
-
-## 0. Superseded Notice
-
-This document is retained as historical reference for Variant D v1 decisions.
-It is superseded by `biome_visual_authoring_variant_d_v2.md`, which is the
-canonical active terrain visual source of truth after V2-IT9.
-
-Do not extend this document as the active terrain visual path. New runtime,
-editor, recipe, solver, packet, and cutover work belongs to Variant D v2.
 
 ## 1. Purpose
 

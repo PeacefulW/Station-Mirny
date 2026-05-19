@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.3
-last_updated: 2026-05-17
+version: 1.1
+last_updated: 2026-05-05
 related_docs:
   - ../README.md
   - system_api.md
@@ -28,7 +28,6 @@ This pass covers only shapes confirmed in current code:
 - save payload dictionaries
 - command result dictionaries
 - runtime native packet/result dictionaries
-- editor/test terrain visual packets confirmed at native API boundaries
 
 ## Out of Scope
 
@@ -553,82 +552,6 @@ Current code notes:
   `ChunkDiffFile` and must not be written into chunk diff JSON.
 - active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain either resolves into named mountain output or stays on the ground path at the hierarchical scale cutoff
 - `mountain_atlas_indices` is reserved for later roof presentation, but is already confirmed at the packet boundary in M1
-
-### `TerrainVisualPacketV0`
-
-Returned by native
-`TerrainVisualSolver.build_editor_preview_packet(solid_mask, width_tiles, height_tiles, recipe_payload, preview_origin_tile, seed)`
-or
-`TerrainVisualSolver.build_chunk_visual_packet(solid_mask, width_tiles, height_tiles, recipe_payload, world_origin_tile, chunk_coord, seed)`.
-
-Current scope:
-- V2-IT2 editor/test/background compute
-- V2-IT9 canonical `ChunkView` rock runtime presentation
-- V2-IT7 bounded runtime dirty patch solve/apply for loaded chunk visuals
-- not a save payload
-- not gameplay terrain truth
-
-Shape:
-
-```text
-{
-  "schema_version": int,                  # currently 1
-  "recipe_id": StringName,
-  "surface_kind": StringName,
-  "world_origin_tile": Vector2i,          # preview origin or runtime packet origin
-  "chunk_coord": Vector2i,                # Vector2i(0, 0) for editor preview packets
-  "dirty_rect_tiles": Rect2i,
-  "dirty_rect_px": Rect2i,
-  "tile_size_px": int,
-  "pixel_width": int,
-  "pixel_height": int,
-  "zone_ids": PackedByteArray,            # one byte per pixel
-  "coverage_top": PackedByteArray,        # one byte per pixel
-  "coverage_edge": PackedByteArray,       # one byte per pixel
-  "coverage_face": PackedByteArray,       # one byte per pixel
-  "coverage_back": PackedByteArray,       # one byte per pixel
-  "height_q16": PackedByteArray,          # little-endian uint16 per pixel
-  "normal_rgba8": PackedByteArray,        # four bytes per pixel
-  "material_u_q16": PackedByteArray,      # little-endian uint16 per pixel
-  "material_v_q16": PackedByteArray,      # little-endian uint16 per pixel
-  "outline_polylines": Array[PackedVector2Array],
-  "debug_counters": Dictionary,
-}
-```
-
-`zone_ids` values:
-
-| Value | Name |
-|---:|---|
-| `0` | `empty` |
-| `1` | `top` |
-| `2` | `edge` |
-| `3` | `face` |
-| `4` | `back` |
-
-Current code notes:
-- all per-pixel arrays are indexed by `y * pixel_width + x`
-- `coverage_*` arrays currently use hard `0`/`255` coverage values; future
-  anti-aliasing may refine coverage without changing the packet keys
-- `height_q16`, `material_u_q16`, and `material_v_q16` are packed as
-  little-endian unsigned 16-bit values
-- `normal_rgba8` encodes tangent-space-like derived normals as RGBA8
-- `outline_polylines` is allowed to be empty in V2-IT2
-- `debug_counters` includes at least `solver_version`, `seed`,
-  `solid_pixels`, `empty_pixels`, `top_pixels`, `edge_pixels`,
-  `face_pixels`, `back_pixels`, and `outline_polyline_count`
-- the packet is derived from the solid mask plus `TerrainVisualRecipe` payload
-  values and must not be written into save data
-- runtime rock presentation may use a bounded local mask around the actual rock
-  footprint instead of a full 16x16 chunk mask; `world_origin_tile` anchors that
-  bounded packet in world-tile coordinates, while `chunk_coord` keeps the owning
-  chunk identity
-- runtime dirty patch presentation uses the same packet shape for a local dirty
-  rect. The patch packet is copied into the current visual texture cache and is
-  not a new authoritative packet type.
-- canonical runtime applies packet textures/materials only as visual
-  derived state; runtime terrain truth remains `ChunkPacketV1` plus
-  `ChunkDiffFile`
 
 ### `WorldFoundationSpawnResult`
 

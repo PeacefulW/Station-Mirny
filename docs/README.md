@@ -4,8 +4,8 @@ doc_type: docs_index
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.12
-last_updated: 2026-05-17
+version: 1.11
+last_updated: 2026-05-13
 related_docs:
   - 00_governance/WORKFLOW.md
   - 00_governance/ENGINEERING_STANDARDS.md
@@ -64,8 +64,6 @@ Templates for future docs.
 - [World Runtime V0](02_system_specs/world/world_runtime.md)
 - [World Foundation V1](02_system_specs/world/world_foundation_v1.md)
 - [Terrain Hybrid Presentation](02_system_specs/world/terrain_hybrid_presentation.md)
-- [Biome Visual Authoring - Variant D](02_system_specs/world/biome_visual_authoring_variant_d.md) (superseded by v2)
-- [Biome Visual Authoring - Variant D v2 Godot-Native Terrain Workbench](02_system_specs/world/biome_visual_authoring_variant_d_v2.md) (canonical active terrain visual path)
 - [Runtime SDF Terrain Contours](02_system_specs/world/runtime_sdf_terrain_contours.md) (draft)
 - [Runtime SDF Contours - Iteration 01 Generator Recipe Export](02_system_specs/world/runtime_sdf_contours_iteration_01_generator_recipe_export.md) (draft)
 - [Runtime SDF Contours - Iteration 02 Native Contour Field](02_system_specs/world/runtime_sdf_contours_iteration_02_native_contour_field.md) (draft)

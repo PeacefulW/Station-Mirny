@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.9
-last_updated: 2026-05-17
+version: 0.6
+last_updated: 2026-05-03
 related_docs:
   - ../README.md
   - commands.md
@@ -42,8 +42,6 @@ It covers only the minimal core set confirmed in code during this pass:
 - `CommandExecutor`
 - `BuildingSystem`
 - `WorldCore`
-- `RockMarchingSquares`
-- `TerrainVisualSolver`
 - `WorldStreamer`
 
 ## Out of Scope
@@ -326,102 +324,6 @@ Not documented here as safe entrypoints:
 - direct calls to `world_prepass::*` helpers from script, because they are native
   implementation details behind `WorldCore`
 - using dev-only substrate snapshot dictionaries as save data or gameplay state
-
-### RockMarchingSquares
-
-Owner files:
-- `gdextension/src/rock_marching_squares.cpp`
-- `gdextension/src/rock_marching_squares.h`
-
-Role:
-- stateless native extractor for Variant D rock silhouette polylines; see
-  `docs/02_system_specs/world/biome_visual_authoring_variant_d.md` section 13
-
-Confirmed public native surface:
-
-| Surface | Return | Notes |
-|---|---|---|
-| `extract_polylines(terrain_ids: PackedInt32Array, width: int, height: int, rock_terrain_id: int)` | `Array[PackedVector2Array]` | Runs marching-squares over a terrain-id grid and returns one polyline per detected rock boundary. Input is read-only; output is derived visual state, not save or gameplay truth. |
-
-Current code notes:
-- The class is stateless. Runtime cache ownership belongs to the caller
-  (`ChunkView` in the Variant D runtime iteration), not to this native API.
-- Coordinates are returned in tile-grid units, using half-tile positions for
-  contour edge crossings.
-
-Not documented here as safe entrypoints:
-- caching, dirty-region invalidation, or per-frame batching; those are runtime
-  integration responsibilities outside this API
-- serializing returned polylines into save data
-
-### TerrainVisualSolver
-
-Owner files:
-- `gdextension/src/terrain_visual_solver.cpp`
-- `gdextension/src/terrain_visual_solver.h`
-
-Role:
-- stateless native SDF/zone/height packet builder for Variant D v2 editor,
-  test fixtures, and canonical runtime chunk visuals; see
-  `docs/02_system_specs/world/biome_visual_authoring_variant_d_v2.md`
-
-Confirmed public native surface:
-
-| Surface | Return | Notes |
-|---|---|---|
-| `build_editor_preview_packet(solid_mask: PackedByteArray, width_tiles: int, height_tiles: int, recipe_payload: Dictionary, preview_origin_tile: Vector2i, seed: int)` | `Dictionary` shaped as `TerrainVisualPacketV0` | Builds an editor/test visual packet from a compact solid mask and packed recipe values. This is native compute only; script may orchestrate the call but must not perform a per-pixel fallback solve. |
-| `build_chunk_visual_packet(solid_mask: PackedByteArray, width_tiles: int, height_tiles: int, recipe_payload: Dictionary, world_origin_tile: Vector2i, chunk_coord: Vector2i, seed: int)` | `Dictionary` shaped as `TerrainVisualPacketV0` | Builds a runtime chunk visual packet from a compact solid mask and packed recipe values. The caller owns chunk context, mask bounds, canonical V2 apply scheduling, and optional diagnostic gating; the returned packet is derived visual state only. |
-
-Current code notes:
-- `solid_mask` is indexed by `y * width_tiles + x`; non-zero means solid.
-- `recipe_payload` is a native-friendly dictionary prepared from
-  `TerrainVisualRecipe`; the solver does not load textures or pull Godot
-  resources inside pixel loops.
-- V2-IT9 makes `ChunkView` consumption the canonical rock runtime visual path.
-  Runtime presentation may solve a bounded chunk sub-rect instead of the full
-  chunk when the rock mask has a smaller local bounding box.
-- V2-IT7 allows the runtime caller to solve and apply a pending visual dirty
-  patch for the current chunk through the `ChunkView` safe entrypoint below.
-- The returned packet is derived visual state. It must not be serialized into
-  save data or treated as gameplay terrain truth.
-
-Not documented here as safe entrypoints:
-- direct runtime mutation of terrain, biome, save, or diff state
-- direct mutation of returned packet arrays
-- GDScript SDF/height/normal fallback when the native class is missing
-
-### ChunkView terrain visual V2 bridge
-
-Owner files:
-- `core/systems/world/chunk_view.gd`
-- `core/systems/world/terrain_visual_runtime_presenter.gd`
-
-Role:
-- canonical bridge from authoritative chunk terrain data to derived Variant D
-  v2 rock presentation
-- owner of runtime packet material/texture apply for one loaded chunk view
-
-Confirmed mutation entrypoints:
-
-| Surface | Return | Notes |
-|---|---|---|
-| `apply_pending_terrain_visual_v2_patch()` | `bool` | Applies the pending V2 visual dirty patch after a runtime tile mutation has already updated authoritative terrain arrays and marked a local dirty rect. The method solves a bounded local mask through `TerrainVisualSolver.build_chunk_visual_packet(...)`, blits the resulting packet into the current packet textures, updates debug counters, and does not perform a full chunk visual solve. Returns `false` when V2 is disabled, no presenter exists, no packet layer exists, or no pending patch intersects the current visual packet. |
-
-Current code notes:
-- `apply_runtime_cell(...)` remains the interactive mutation hook for loaded
-  chunk visuals. With V2 enabled it only updates local authoritative arrays,
-  paints base/water/debug cells, and marks a V2 dirty patch.
-- `apply_pending_terrain_visual_v2_patch()` is the bounded apply hook intended
-  for the current explicit flush/test path, the current deferred loaded-visual
-  patch apply, and the future frame-budgeted visual work queue. It is derived
-  presentation work only.
-- Visual packet images/textures are caches owned by the presenter. Terrain truth
-  remains `ChunkPacketV1` plus `WorldDiffStore`.
-
-Not documented here as safe entrypoints:
-- direct mutation of `TerrainVisualRuntimePresenter` internal texture caches
-- saving or networking `TerrainVisualPacketV0`
-- treating V2 debug counters as gameplay state
 
 ### WorldStreamer
 

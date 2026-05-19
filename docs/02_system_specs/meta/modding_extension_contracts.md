@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.4
-last_updated: 2026-05-17
+version: 0.1
+last_updated: 2026-03-25
 related_docs:
   - multiplayer_and_modding.md
   - save_and_persistence.md
@@ -437,38 +437,9 @@ The project should progressively define stable data contracts for major moddable
 - `RecipeData`
 - `BuildingData`
 - `LightSourceData`
-- `TerrainVisualRecipe`
-- `TerrainVisualMaterialSlot`
 
 The exact final class names may evolve.
-
-Current confirmed `BiomeData` visual extension seam:
-
-- `rock_visual: RockVisualResource` is an optional authored visual resource
-  reference for Variant D rock presentation.
-- `rock_visual_recipe: TerrainVisualRecipe` is the authored Variant D v2 recipe
-  used by canonical runtime rock presentation and the Godot-native
-  terrain visual workbench.
-- Mods and base content may assign this field on biome `.tres` resources.
-- Runtime treats referenced visual resources and recipes as read-only authored
-  content; they are not save payloads, runtime diffs, event payloads, or command
-  surfaces.
 The principle should remain.
-
-Current confirmed `TerrainVisualRecipe` extension seam:
-
-- `TerrainVisualRecipe` is the Variant D v2 authored terrain visual recipe
-  resource introduced for the Godot-native terrain workbench.
-- `TerrainVisualMaterialSlot` is the subresource contract for one material
-  slot inside a recipe. It supports `procedural`, `image`, and `flat` sources.
-- The current base rock recipe lives at
-  `res://data/terrain_visual/recipes/rock_default.tres`.
-- V2-IT9 usage makes canonical runtime rock chunk presentation flow through
-  `BiomeData.rock_visual_recipe`. It does not add a gameplay command, does not
-  add an event payload, and does not add save state.
-- Runtime and mods must treat recipes as read-only authored content. Generated
-  visual packets, SDF fields, height/normal textures, and outline polylines are
-  derived visual state and must not be persisted as save data.
 
 ## Minimal architectural seams
 
