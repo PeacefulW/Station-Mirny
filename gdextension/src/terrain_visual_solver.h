@@ -4,7 +4,6 @@
 #include <godot_cpp/classes/object.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
-#include <godot_cpp/variant/rect2i.hpp>
 #include <godot_cpp/variant/vector2i.hpp>
 
 namespace godot {
@@ -33,17 +32,6 @@ public:
 		Vector2i p_world_origin_tile,
 		Vector2i p_chunk_coord,
 		int64_t p_seed
-	) const;
-
-	Dictionary build_chunk_visual_packet_with_halo(
-		const PackedByteArray &p_solid_mask,
-		int64_t p_width_tiles,
-		int64_t p_height_tiles,
-		const Dictionary &p_recipe_payload,
-		Vector2i p_input_world_origin_tile,
-		Vector2i p_chunk_coord,
-		int64_t p_seed,
-		Rect2i p_output_rect_tiles
 	) const;
 };
 

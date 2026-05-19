@@ -147,47 +147,6 @@ func test_chunk_packet_entrypoint_preserves_runtime_origin_and_chunk_coord() -> 
 	assert_that(packet.get("debug_counters").get("seed")).is_equal(9876)
 
 
-func test_chunk_packet_with_halo_crops_output_and_suppresses_internal_chunk_edge() -> void:
-	assert_that(ClassDB.class_exists(&"TerrainVisualSolver")).is_true()
-	if not ClassDB.class_exists(&"TerrainVisualSolver"):
-		return
-
-	var solver: Object = ClassDB.instantiate(&"TerrainVisualSolver")
-	assert_that(solver).is_not_null()
-	if solver == null:
-		return
-	assert_that(solver.has_method("build_chunk_visual_packet_with_halo")).is_true()
-	if not solver.has_method("build_chunk_visual_packet_with_halo"):
-		solver.free()
-		return
-
-	var packet: Dictionary = solver.call(
-		"build_chunk_visual_packet_with_halo",
-		_mask_filled(5, 5),
-		5,
-		5,
-		_base_recipe_payload(),
-		Vector2i(31, 47),
-		Vector2i(2, 3),
-		2468,
-		Rect2i(Vector2i(1, 1), Vector2i(3, 3)),
-	)
-	solver.free()
-	_assert_packet_shape(packet)
-	assert_that(packet.get("chunk_coord")).is_equal(Vector2i(2, 3))
-	assert_that(packet.get("world_origin_tile")).is_equal(Vector2i(32, 48))
-	assert_that(packet.get("pixel_width")).is_equal(48)
-	assert_that(packet.get("pixel_height")).is_equal(48)
-	assert_that(packet.get("dirty_rect_tiles")).is_equal(Rect2i(Vector2i.ZERO, Vector2i(3, 3)))
-
-	var internal_right_edge_index := _pixel_index(packet, 47, 24)
-	assert_that(packet.get("zone_ids")[internal_right_edge_index]).is_equal(ZONE_TOP)
-	assert_that(_coverage_at(packet, "coverage_edge", internal_right_edge_index)).is_equal(0)
-	assert_that(_coverage_at(packet, "coverage_face", internal_right_edge_index)).is_equal(0)
-	assert_that(packet.get("debug_counters").get("input_width_tiles")).is_equal(5)
-	assert_that(packet.get("debug_counters").get("output_width_tiles")).is_equal(3)
-
-
 func _solve(mask: PackedByteArray, width_tiles: int, height_tiles: int) -> Dictionary:
 	assert_that(ClassDB.class_exists(&"TerrainVisualSolver")).is_true()
 	if not ClassDB.class_exists(&"TerrainVisualSolver"):
@@ -264,13 +223,6 @@ func _mask(values: Array[int]) -> PackedByteArray:
 	var mask := PackedByteArray()
 	for value: int in values:
 		mask.append(value)
-	return mask
-
-
-func _mask_filled(width: int, height: int) -> PackedByteArray:
-	var mask := PackedByteArray()
-	mask.resize(width * height)
-	mask.fill(1)
 	return mask
 
 

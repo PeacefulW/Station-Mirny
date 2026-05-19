@@ -1,8 +1,8 @@
-[gd_scene format=3 uid="uid://k4psmr81ao2v"]
+[gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" uid="uid://bdupnuqhsev62" path="res://addons/biome_visual_authoring_v2/terrain_visual_workbench.gd" id="1_workbench"]
+[ext_resource type="Script" path="res://addons/biome_visual_authoring_v2/terrain_visual_workbench.gd" id="1_workbench"]
 
-[node name="TerrainVisualWorkbenchV2" type="Control" unique_id=1662102058]
+[node name="TerrainVisualWorkbenchV2" type="Control"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
