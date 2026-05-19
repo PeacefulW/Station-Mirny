@@ -16,14 +16,6 @@ const KIND_STRATIFIED_ROCK := 0
 const KIND_ROUGH_STONE := 1
 const KIND_CRACKED_DRY_EARTH := 2
 const KIND_PACKED_DIRT := 3
-const KIND_SAND := 4
-const KIND_ASH_BURNT_GROUND := 5
-const KIND_SNOW := 6
-const KIND_MOSS := 7
-const KIND_GRAVEL := 8
-const KIND_CONCRETE := 9
-const KIND_RIBBED_STEEL := 10
-const KIND_ICE_FROST := 11
 
 const PACKET_SHADER: Shader = preload("res://assets/shaders/terrain_visual_packet.gdshader")
 
@@ -245,32 +237,14 @@ func _source_id(slot: Resource) -> int:
 func _kind_id(slot: Resource) -> int:
 	var kind: Variant = slot.get("procedural_kind")
 	match kind:
-		&"stratified_rock", &"layered_rock", &"sedimentary_rock", &"cliff_rock":
-			return KIND_STRATIFIED_ROCK
-		&"rough_stone", &"stone":
+		&"rough_stone":
 			return KIND_ROUGH_STONE
-		&"cracked_dry_earth", &"cracked_earth", &"dry_earth":
+		&"cracked_dry_earth", &"cracked_earth":
 			return KIND_CRACKED_DRY_EARTH
-		&"packed_dirt", &"dirt":
+		&"packed_dirt":
 			return KIND_PACKED_DIRT
-		&"sand", &"sand_dune":
-			return KIND_SAND
-		&"ash_burnt_ground", &"ash", &"burnt_ground":
-			return KIND_ASH_BURNT_GROUND
-		&"snow", &"snow_surface":
-			return KIND_SNOW
-		&"moss", &"moss_patch":
-			return KIND_MOSS
-		&"gravel", &"regolith", &"gravel_regolith":
-			return KIND_GRAVEL
-		&"concrete", &"concrete_floor", &"floor_concrete", &"tiled_concrete":
-			return KIND_CONCRETE
-		&"ribbed_steel", &"steel_ribbed", &"diamond_plate", &"ribbed_metal":
-			return KIND_RIBBED_STEEL
-		&"ice_frost", &"ice", &"frost":
-			return KIND_ICE_FROST
 		_:
-			return KIND_ROUGH_STONE
+			return KIND_STRATIFIED_ROCK
 
 
 func _color_property(slot: Resource, property_name: StringName, fallback: Color) -> Color:

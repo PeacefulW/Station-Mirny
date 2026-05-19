@@ -9,14 +9,6 @@ const PROCEDURAL_STRATIFIED_ROCK: StringName = &"stratified_rock"
 const PROCEDURAL_ROUGH_STONE: StringName = &"rough_stone"
 const PROCEDURAL_CRACKED_DRY_EARTH: StringName = &"cracked_dry_earth"
 const PROCEDURAL_PACKED_DIRT: StringName = &"packed_dirt"
-const PROCEDURAL_SAND: StringName = &"sand"
-const PROCEDURAL_ASH_BURNT_GROUND: StringName = &"ash_burnt_ground"
-const PROCEDURAL_SNOW: StringName = &"snow"
-const PROCEDURAL_MOSS: StringName = &"moss"
-const PROCEDURAL_GRAVEL: StringName = &"gravel"
-const PROCEDURAL_CONCRETE: StringName = &"concrete"
-const PROCEDURAL_RIBBED_STEEL: StringName = &"ribbed_steel"
-const PROCEDURAL_ICE_FROST: StringName = &"ice_frost"
 
 const VALID_SOURCES: Array[StringName] = [SOURCE_PROCEDURAL, SOURCE_IMAGE, SOURCE_FLAT]
 const VALID_PROCEDURAL_KINDS: Array[StringName] = [
@@ -24,14 +16,6 @@ const VALID_PROCEDURAL_KINDS: Array[StringName] = [
 	PROCEDURAL_ROUGH_STONE,
 	PROCEDURAL_CRACKED_DRY_EARTH,
 	PROCEDURAL_PACKED_DIRT,
-	PROCEDURAL_SAND,
-	PROCEDURAL_ASH_BURNT_GROUND,
-	PROCEDURAL_SNOW,
-	PROCEDURAL_MOSS,
-	PROCEDURAL_GRAVEL,
-	PROCEDURAL_CONCRETE,
-	PROCEDURAL_RIBBED_STEEL,
-	PROCEDURAL_ICE_FROST,
 ]
 
 @export_group("Source")

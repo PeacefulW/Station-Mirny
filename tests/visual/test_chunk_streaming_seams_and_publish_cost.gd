@@ -12,7 +12,6 @@ const CHUNK_SCREEN_SIZE := int(
 const RECIPE_PATH := "res://data/terrain_visual/recipes/rock_default.tres"
 const SEAM_DARKENING_THRESHOLD := 35
 const PUBLISH_SPIKE_RATIO_THRESHOLD := 2.0
-const VISUAL_DRAIN_STEP_LIMIT := 192
 
 
 func test_adjacent_chunk_views_do_not_render_dark_boundary_gap_under_fractional_transform() -> void:
@@ -82,7 +81,7 @@ func test_final_chunk_publish_batch_has_no_visual_apply_spike() -> void:
 	chunk_view.free()
 
 
-func test_full_v2_visual_apply_commits_all_packet_fields_after_solve() -> void:
+func test_full_v2_visual_apply_is_staged_across_texture_steps() -> void:
 	var chunk_view := _build_rock_chunk(Vector2i.ZERO)
 	add_child(chunk_view)
 
@@ -100,7 +99,7 @@ func test_full_v2_visual_apply_commits_all_packet_fields_after_solve() -> void:
 	assert_that(debug.get("has_pending_full_apply")).is_equal(false)
 	assert_that(debug.get("has_visual_layer")).is_equal(false)
 
-	await _drain_until_full_solve_completed(chunk_view)
+	await _drain_v2_full_apply(chunk_view)
 	debug = chunk_view.get_terrain_visual_v2_debug_state()
 	assert_that(debug.get("full_solve_count")).is_equal(1)
 	assert_that(debug.get("has_pending_full_solve")).is_equal(false)
@@ -113,39 +112,9 @@ func test_full_v2_visual_apply_commits_all_packet_fields_after_solve() -> void:
 	chunk_view.free()
 
 
-func test_world_streamer_walkability_uses_v2_packet_contour_for_mountain_surface() -> void:
-	var streamer := _build_test_streamer()
-	var chunk_view := _build_rock_chunk(Vector2i.ZERO)
-	streamer.add_child(chunk_view)
-
-	var packet := _chunk_packet_with_rock_block(Vector2i.ZERO)
-	chunk_view.begin_apply(packet)
-	while chunk_view.apply_next_batch(WorldRuntimeConstants.CHUNK_CELL_COUNT):
-		pass
-	streamer._chunk_views[Vector2i.ZERO] = chunk_view
-	streamer._chunk_packets[Vector2i.ZERO] = packet
-	await _drain_v2_full_apply(chunk_view)
-
-	var empty_sample: Dictionary = _find_v2_mountain_tile_contour_sample(chunk_view, packet, false)
-	var solid_sample: Dictionary = _find_v2_mountain_tile_contour_sample(chunk_view, packet, true)
-	assert_that(empty_sample.is_empty()).is_false()
-	assert_that(solid_sample.is_empty()).is_false()
-	if empty_sample.is_empty() or solid_sample.is_empty():
-		streamer.free()
-		return
-
-	assert_that(
-		streamer.is_walkable_at_world(empty_sample.get("world_pos", Vector2.ZERO)),
-	).is_true()
-	assert_that(
-		streamer.is_walkable_at_world(solid_sample.get("world_pos", Vector2.ZERO)),
-	).is_false()
-
-	streamer.free()
-
-
 func test_world_streamer_requeues_staged_v2_full_apply_until_complete() -> void:
-	var streamer := _build_test_streamer()
+	var streamer := WorldStreamer.new()
+	add_child(streamer)
 	var chunk_view := _build_rock_chunk(Vector2i.ZERO)
 	streamer.add_child(chunk_view)
 
@@ -172,7 +141,8 @@ func test_world_streamer_requeues_staged_v2_full_apply_until_complete() -> void:
 
 
 func test_world_streamer_requeues_staged_v2_dirty_patch_until_complete() -> void:
-	var streamer := _build_test_streamer()
+	var streamer := WorldStreamer.new()
+	add_child(streamer)
 	var chunk_view := _build_rock_chunk(Vector2i.ZERO)
 	streamer.add_child(chunk_view)
 
@@ -273,14 +243,6 @@ func _new_plain_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 	return chunk_view
 
 
-func _build_test_streamer() -> WorldStreamer:
-	var streamer := WorldStreamer.new()
-	add_child(streamer)
-	FrameBudgetDispatcher.unregister_job(streamer.get("_stream_job_id"))
-	FrameBudgetDispatcher.unregister_job(streamer.get("_visual_job_id"))
-	return streamer
-
-
 func _apply_plain_packet(chunk_view: ChunkView, chunk_coord: Vector2i) -> void:
 	chunk_view.begin_apply(_plain_packet(chunk_coord))
 	while chunk_view.apply_next_batch(WorldRuntimeConstants.CHUNK_CELL_COUNT):
@@ -290,7 +252,7 @@ func _apply_plain_packet(chunk_view: ChunkView, chunk_coord: Vector2i) -> void:
 
 func _drain_v2_full_apply(chunk_view: ChunkView) -> void:
 	var has_more_visual_work := true
-	for step_index: int in range(VISUAL_DRAIN_STEP_LIMIT):
+	for step_index: int in range(32):
 		has_more_visual_work = chunk_view.apply_pending_terrain_visual_v2_full()
 		if not has_more_visual_work:
 			return
@@ -298,24 +260,9 @@ func _drain_v2_full_apply(chunk_view: ChunkView) -> void:
 	assert_that(has_more_visual_work).is_false()
 
 
-func _drain_until_full_solve_completed(chunk_view: ChunkView) -> void:
-	for step_index: int in range(VISUAL_DRAIN_STEP_LIMIT):
-		var has_more_visual_work := chunk_view.apply_pending_terrain_visual_v2_full()
-		var debug: Dictionary = chunk_view.get_terrain_visual_v2_debug_state()
-		if int(debug.get("full_solve_count", 0)) >= 1:
-			return
-		if not has_more_visual_work:
-			return
-		await await_idle_frame()
-	var solve_count := int(
-		chunk_view.get_terrain_visual_v2_debug_state().get("full_solve_count", 0),
-	)
-	assert_that(solve_count).is_equal(1)
-
-
 func _drain_terrain_visual_streamer(streamer: WorldStreamer) -> void:
 	var has_more_visual_work := true
-	for step_index: int in range(VISUAL_DRAIN_STEP_LIMIT):
+	for step_index: int in range(32):
 		has_more_visual_work = bool(streamer.call("_terrain_visual_tick"))
 		if not has_more_visual_work:
 			return
@@ -508,70 +455,6 @@ func _clamped_world_to_packet_pixel(world_pixel: int, packet_tile_size: int) -> 
 		0,
 		packet_tile_size - 1,
 	)
-
-
-func _find_v2_mountain_tile_contour_sample(
-		chunk_view: ChunkView,
-		source_packet: Dictionary,
-		want_solid: bool,
-) -> Dictionary:
-	var presenter := chunk_view.get_node_or_null("TerrainVisualV2RuntimePresenter")
-	if presenter == null:
-		return { }
-	var packet: Dictionary = presenter.get("_last_packet")
-	var zone_ids: PackedByteArray = packet.get("zone_ids", PackedByteArray())
-	if zone_ids.is_empty():
-		return { }
-	var pixel_width := int(packet.get("pixel_width", 0))
-	var pixel_height := int(packet.get("pixel_height", 0))
-	var tile_size_px := int(packet.get("tile_size_px", WorldRuntimeConstants.TILE_SIZE_PX))
-	if pixel_width <= 0 or pixel_height <= 0 or tile_size_px <= 0:
-		return { }
-	var packet_origin_tile: Vector2i = packet.get("world_origin_tile", Vector2i.ZERO) as Vector2i
-	var debug: Dictionary = chunk_view.get_terrain_visual_v2_debug_state()
-	var chunk_coord: Vector2i = debug.get("chunk_coord", Vector2i.ZERO) as Vector2i
-	var packet_origin_local := packet_origin_tile - chunk_coord * WorldRuntimeConstants.CHUNK_SIZE
-	var terrain_ids: PackedInt32Array = source_packet["terrain_ids"]
-	var walkable_flags: PackedByteArray = source_packet["walkable_flags"]
-
-	for index: int in range(WorldRuntimeConstants.CHUNK_CELL_COUNT):
-		var local_coord: Vector2i = WorldRuntimeConstants.index_to_local(index)
-		if index >= terrain_ids.size() or index >= walkable_flags.size():
-			continue
-		if int(terrain_ids[index]) != WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL:
-			continue
-		if int(walkable_flags[index]) != 0:
-			continue
-		var tile_pixel_origin := (local_coord - packet_origin_local) * tile_size_px
-		for pixel_y: int in range(tile_size_px):
-			for pixel_x: int in range(tile_size_px):
-				var packet_pixel := tile_pixel_origin + Vector2i(pixel_x, pixel_y)
-				if packet_pixel.x < 0 \
-						or packet_pixel.y < 0 \
-						or packet_pixel.x >= pixel_width \
-						or packet_pixel.y >= pixel_height:
-					continue
-				var zone := int(zone_ids[packet_pixel.y * pixel_width + packet_pixel.x])
-				if (zone > 0) != want_solid:
-					continue
-				var world_offset := Vector2(
-					(float(pixel_x) + 0.5)
-					* float(WorldRuntimeConstants.TILE_SIZE_PX)
-					/ float(tile_size_px),
-					(float(pixel_y) + 0.5)
-					* float(WorldRuntimeConstants.TILE_SIZE_PX)
-					/ float(tile_size_px),
-				)
-				var world_tile := chunk_coord * WorldRuntimeConstants.CHUNK_SIZE + local_coord
-				var sample_world_pos := (
-					Vector2(world_tile * WorldRuntimeConstants.TILE_SIZE_PX) + world_offset
-				)
-				return {
-					"world_pos": sample_world_pos,
-					"local_coord": local_coord,
-					"zone": zone,
-				}
-	return { }
 
 
 func _average_luma_on_column(image: Image, x: int, y0: int, y1: int) -> int:

@@ -88,12 +88,6 @@ func is_enabled() -> bool:
 	return _enabled and _recipe != null
 
 
-func is_ready() -> bool:
-	return _chunk_layer.is_ready() \
-			and not _has_pending_full_solve() \
-			and not _apply_machine.has_pending_full_apply()
-
-
 func begin_chunk_apply(packet: Dictionary) -> void:
 	_seed = int(packet.get("world_seed", 0))
 	if _seed == 0 and _recipe != null:
@@ -143,13 +137,7 @@ func apply_full_chunk(packet: Dictionary, recipe: Resource, seed: int) -> bool:
 		return false
 
 	var chunk_coord: Vector2i = packet.get("chunk_coord", Vector2i.ZERO) as Vector2i
-	var request_id := _queue_solve_request(
-		mask_result,
-		chunk_coord,
-		recipe,
-		seed,
-		TerrainVisualPacketBackend.FULL_SOLVE_PRIORITY,
-	)
+	var request_id := _queue_solve_request(mask_result, chunk_coord, recipe, seed)
 	if request_id <= 0:
 		return false
 	_pending_full_solve_request_id = request_id
@@ -232,13 +220,7 @@ func apply_dirty_patch(
 			or int(mask_result.get("height_tiles", 0)) <= 0:
 		return false
 
-	var request_id := _queue_solve_request(
-		mask_result,
-		chunk_coord,
-		_recipe,
-		_seed,
-		TerrainVisualPacketBackend.PATCH_SOLVE_PRIORITY,
-	)
+	var request_id := _queue_solve_request(mask_result, chunk_coord, _recipe, _seed)
 	if request_id <= 0:
 		return false
 	_pending_patch_solve_request_id = request_id
@@ -296,10 +278,6 @@ func get_debug_state() -> Dictionary:
 		"has_pending_dirty_patch": _has_pending_dirty_patch,
 		"shader_path": TerrainVisualChunkLayer.PACKET_SHADER_PATH,
 	}
-
-
-func is_packet_solid_at_world(world_pos: Vector2) -> bool:
-	return _chunk_layer.sample_world_solid(world_pos)
 
 
 func _advance_pending_full_solve() -> bool:
@@ -397,6 +375,5 @@ func _queue_solve_request(
 		chunk_coord: Vector2i,
 		recipe: Resource,
 		seed: int,
-		priority: int,
 ) -> int:
-	return _solve_queue.queue_solve_request(mask_result, chunk_coord, recipe, seed, priority)
+	return _solve_queue.queue_solve_request(mask_result, chunk_coord, recipe, seed)

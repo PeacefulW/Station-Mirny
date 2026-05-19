@@ -2,8 +2,6 @@ class_name TerrainVisualRecipe
 extends Resource
 
 const SUPPORTED_SCHEMA_VERSION: int = 1
-const FIXED_GAME_TILE_SIZE_PX: int = 64
-const MAX_RUNTIME_SHAPE_SUPERSAMPLING: int = 4
 
 const SURFACE_ROCK: StringName = &"rock"
 const SURFACE_GROUND: StringName = &"ground"
@@ -18,7 +16,7 @@ const SUPPORTED_SURFACE_KINDS: Array[StringName] = [
 	SURFACE_SNOW,
 	SURFACE_ASH,
 ]
-const SUPPORTED_SHAPE_SUPERSAMPLING: Array[int] = [1, 2, 4]
+const SUPPORTED_SHAPE_SUPERSAMPLING: Array[int] = [1, 2, 4, 8]
 
 @export_group("Identity")
 @export var id: StringName = &""
@@ -27,8 +25,7 @@ const SUPPORTED_SHAPE_SUPERSAMPLING: Array[int] = [1, 2, 4]
 @export var surface_kind: StringName = SURFACE_ROCK
 @export var solver_family_id: StringName = &"terrain_visual_sdf_v2"
 @export var default_seed: int = 0
-@export_storage var tile_size_px: int = FIXED_GAME_TILE_SIZE_PX
-@export_storage var runtime_tile_size_px: int = FIXED_GAME_TILE_SIZE_PX
+@export_range(1, 4096, 1) var tile_size_px: int = 64
 @export_range(1, 1024, 1) var variant_count: int = 6
 
 @export_group("Shape")
@@ -46,7 +43,7 @@ const SUPPORTED_SHAPE_SUPERSAMPLING: Array[int] = [1, 2, 4]
 @export_range(0.0, 64.0, 0.1) var contour_warp_px: float = 1.5
 @export_range(0.0, 1.0, 0.01) var corner_variation: float = 0.55
 @export_range(0.0, 1.0, 0.01) var geometry_variance: float = 0.75
-@export_range(1, MAX_RUNTIME_SHAPE_SUPERSAMPLING, 1) var shape_supersampling: int = 4
+@export_range(1, 8, 1) var shape_supersampling: int = 4
 
 @export_group("Edge And Rim")
 @export_range(0.0, 256.0, 0.1) var rim_width_px: float = 16.0
@@ -88,8 +85,6 @@ func validate() -> PackedStringArray:
 		errors.append("solver_family_id is required")
 	if tile_size_px <= 0:
 		errors.append("tile_size_px must be greater than 0")
-	if runtime_tile_size_px < 0:
-		errors.append("runtime_tile_size_px must be greater than or equal to 0")
 	if variant_count <= 0:
 		errors.append("variant_count must be greater than 0")
 	if not SUPPORTED_SHAPE_SUPERSAMPLING.has(shape_supersampling):
@@ -128,16 +123,6 @@ func validate() -> PackedStringArray:
 	if edge_material_override != null:
 		_append_prefixed_errors(errors, "edge_material_override", edge_material_override.validate())
 	return errors
-
-
-func normalize_fixed_tile_size() -> void:
-	tile_size_px = FIXED_GAME_TILE_SIZE_PX
-	runtime_tile_size_px = FIXED_GAME_TILE_SIZE_PX
-
-
-func normalize_runtime_limits() -> void:
-	normalize_fixed_tile_size()
-	shape_supersampling = clampi(shape_supersampling, 1, MAX_RUNTIME_SHAPE_SUPERSAMPLING)
 
 
 func get_material_slot(slot_id: StringName) -> Resource:

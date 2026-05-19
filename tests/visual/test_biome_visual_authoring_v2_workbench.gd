@@ -6,7 +6,6 @@ const VIEWPORT_SIZE := Vector2i(96, 96)
 
 const DEBUG_MODE_ALBEDO := 0
 const DEBUG_MODE_HEIGHT := 3
-const DEBUG_MODE_LIT_PREVIEW := 6
 
 
 func test_workbench_uses_native_solver_packet_and_refreshes_on_mask_edit() -> void:
@@ -119,7 +118,7 @@ func test_workbench_exposes_edge_outline_and_normal_authoring_controls() -> void
 		return
 
 	var specs: Array = workbench.call("_shape_control_specs") as Array
-	var fields := { }
+	var fields := {}
 	for spec_variant: Variant in specs:
 		var spec: Dictionary = spec_variant as Dictionary
 		fields[spec.get("field", &"")] = true
@@ -132,221 +131,6 @@ func test_workbench_exposes_edge_outline_and_normal_authoring_controls() -> void
 		&"height_to_normal_blur_radius_px",
 	]:
 		assert_that(fields.has(field)).is_true()
-
-	viewport.free()
-
-
-func test_workbench_does_not_expose_pixel_size_controls() -> void:
-	var mounted := await _mount_workbench()
-	var workbench: Control = mounted.get("workbench") as Control
-	var viewport: SubViewport = mounted.get("viewport") as SubViewport
-	if workbench == null:
-		return
-
-	var specs: Array = workbench.call("_shape_control_specs") as Array
-	var fields := { }
-	for spec_variant: Variant in specs:
-		var spec: Dictionary = spec_variant as Dictionary
-		fields[spec.get("field", &"")] = true
-
-	assert_that(fields.has(&"tile_size_px")).is_false()
-	assert_that(fields.has(&"runtime_tile_size_px")).is_false()
-	assert_that(workbench.find_child("tile_size_px", true, false)).is_null()
-	assert_that(workbench.find_child("runtime_tile_size_px", true, false)).is_null()
-
-	viewport.free()
-
-
-func test_workbench_caps_shape_supersampling_to_runtime_budget() -> void:
-	var mounted := await _mount_workbench()
-	var workbench: Control = mounted.get("workbench") as Control
-	var viewport: SubViewport = mounted.get("viewport") as SubViewport
-	if workbench == null:
-		return
-
-	var specs: Array = workbench.call("_shape_control_specs") as Array
-	var supersampling_spec := { }
-	for spec_variant: Variant in specs:
-		var spec: Dictionary = spec_variant as Dictionary
-		if spec.get("field", &"") == &"shape_supersampling":
-			supersampling_spec = spec
-			break
-
-	assert_that(supersampling_spec.is_empty()).is_false()
-	assert_that(float(supersampling_spec.get("max", 0.0))).is_equal(4.0)
-
-	var recipe := _recipe_fixture()
-	recipe.set("shape_supersampling", 8)
-	workbench.call("set_recipe", recipe)
-	workbench.call("set_shape_control", &"shape_supersampling", 8.0)
-	await _settle()
-	assert_that(int(workbench.call("get_recipe").get("shape_supersampling"))).is_equal(4)
-
-	viewport.free()
-
-
-func test_workbench_keeps_controls_outside_preview_stage() -> void:
-	var mounted := await _mount_workbench_with_size(Vector2i(1280, 720))
-	var workbench: Control = mounted.get("workbench") as Control
-	var viewport: SubViewport = mounted.get("viewport") as SubViewport
-	if workbench == null:
-		return
-
-	workbench.call("set_recipe", _recipe_fixture())
-	workbench.call("apply_mask_preset", &"cave_cut_5x4")
-	await _settle()
-
-	var preview_stage := workbench.find_child("PreviewStage", true, false) as Control
-	var controls := workbench.find_child("WorkbenchControls", true, false) as Control
-	var preview_quad := workbench.find_child("PacketPreview", true, false) as Control
-	assert_that(preview_stage).is_not_null()
-	assert_that(controls).is_not_null()
-	assert_that(preview_quad).is_not_null()
-	if preview_stage == null or controls == null or preview_quad == null:
-		viewport.free()
-		return
-
-	assert_that(controls.visible).is_true()
-	assert_that(preview_stage.get_global_rect().end.x).is_less_equal(
-		controls.get_global_rect().position.x + 1.0,
-	)
-	assert_that(preview_quad.get_global_rect().position.x).is_greater_equal(
-		preview_stage.get_global_rect().position.x,
-	)
-	assert_that(preview_quad.get_global_rect().end.x).is_less_equal(
-		preview_stage.get_global_rect().end.x,
-	)
-	assert_that(preview_quad.get_global_rect().end.y).is_less_equal(
-		preview_stage.get_global_rect().end.y,
-	)
-
-	viewport.free()
-
-
-func test_workbench_opens_on_lit_preview_and_cave_reference_mask() -> void:
-	var mounted := await _mount_workbench_with_size(Vector2i(1280, 720))
-	var workbench: Control = mounted.get("workbench") as Control
-	var viewport: SubViewport = mounted.get("viewport") as SubViewport
-	if workbench == null:
-		return
-
-	var debug_select := workbench.find_child("DebugMode", true, false) as OptionButton
-	assert_that(workbench.call("get_debug_mode")).is_equal(6)
-	assert_that(workbench.call("get_mask_size")).is_equal(Vector2i(5, 4))
-	assert_that(debug_select).is_not_null()
-	if debug_select != null:
-		assert_that(debug_select.get_selected_id()).is_equal(6)
-
-	viewport.free()
-
-
-func test_workbench_saves_current_recipe_to_requested_resource_path() -> void:
-	var mounted := await _mount_workbench()
-	var workbench: Control = mounted.get("workbench") as Control
-	var viewport: SubViewport = mounted.get("viewport") as SubViewport
-	if workbench == null:
-		return
-
-	var recipe := _recipe_fixture()
-	workbench.call("set_recipe", recipe)
-	workbench.call("set_shape_control", &"outer_corner_radius_px", 23.5)
-	workbench.call("set_shape_control", &"runtime_tile_size_px", 64.0)
-	await _settle()
-
-	var save_path := "user://terrain_visual_workbench_saved_recipe_%d.tres" % Time.get_ticks_usec()
-	assert_that(workbench.call("save_current_recipe", save_path)).is_true()
-	assert_that(FileAccess.file_exists(save_path)).is_true()
-
-	var saved_recipe: Resource = ResourceLoader.load(
-		save_path,
-		"",
-		ResourceLoader.CACHE_MODE_IGNORE,
-	) as Resource
-	assert_that(saved_recipe).is_not_null()
-	if saved_recipe != null:
-		assert_that(float(saved_recipe.get("outer_corner_radius_px"))).is_equal_approx(23.5, 0.001)
-		assert_that(int(saved_recipe.get("runtime_tile_size_px"))).is_equal(64)
-
-	viewport.free()
-
-
-func test_workbench_save_normalizes_pixel_size_to_fixed_game_size() -> void:
-	var mounted := await _mount_workbench()
-	var workbench: Control = mounted.get("workbench") as Control
-	var viewport: SubViewport = mounted.get("viewport") as SubViewport
-	if workbench == null:
-		return
-
-	var recipe := _recipe_fixture()
-	recipe.set("tile_size_px", 128)
-	recipe.set("runtime_tile_size_px", 240)
-	workbench.call("set_recipe", recipe)
-	await _settle()
-
-	var save_path := "user://terrain_visual_workbench_fixed_size_%d.tres" % Time.get_ticks_usec()
-	assert_that(workbench.call("save_current_recipe", save_path)).is_true()
-
-	var saved_recipe: Resource = ResourceLoader.load(
-		save_path,
-		"",
-		ResourceLoader.CACHE_MODE_IGNORE,
-	) as Resource
-	assert_that(saved_recipe).is_not_null()
-	if saved_recipe != null:
-		assert_that(int(saved_recipe.get("tile_size_px"))).is_equal(64)
-		assert_that(int(saved_recipe.get("runtime_tile_size_px"))).is_equal(64)
-
-	viewport.free()
-
-
-func test_workbench_uses_localized_editor_labels() -> void:
-	var previous_locale := TranslationServer.get_locale()
-	TranslationServer.set_locale("ru")
-	var mounted_ru := await _mount_workbench_with_size(Vector2i(1280, 720))
-	var workbench_ru: Control = mounted_ru.get("workbench") as Control
-	var viewport_ru: SubViewport = mounted_ru.get("viewport") as SubViewport
-	if workbench_ru == null:
-		TranslationServer.set_locale(previous_locale)
-		return
-
-	var ru_texts := _collect_control_texts(workbench_ru)
-	assert_that(ru_texts.has("Форма")).is_true()
-	assert_that(ru_texts.has("Внешний радиус угла")).is_true()
-	assert_that(ru_texts.has("Сохранить рецепт")).is_true()
-	assert_that(ru_texts.has("outer_corner_radius_px")).is_false()
-	viewport_ru.free()
-
-	TranslationServer.set_locale("en")
-	var mounted_en := await _mount_workbench_with_size(Vector2i(1280, 720))
-	var workbench_en: Control = mounted_en.get("workbench") as Control
-	var viewport_en: SubViewport = mounted_en.get("viewport") as SubViewport
-	if workbench_en != null:
-		var en_texts := _collect_control_texts(workbench_en)
-		assert_that(en_texts.has("Shape")).is_true()
-		assert_that(en_texts.has("Outer corner radius")).is_true()
-		assert_that(en_texts.has("Save recipe")).is_true()
-		assert_that(en_texts.has("outer_corner_radius_px")).is_false()
-	viewport_en.free()
-	TranslationServer.set_locale(previous_locale)
-
-
-func test_workbench_preview_does_not_magnify_packet_pixels() -> void:
-	var mounted := await _mount_workbench_with_size(Vector2i(1842, 1008))
-	var workbench: Control = mounted.get("workbench") as Control
-	var viewport: SubViewport = mounted.get("viewport") as SubViewport
-	if workbench == null:
-		return
-
-	workbench.call("set_recipe", _recipe_fixture())
-	workbench.call("apply_mask_preset", &"solid_4x3")
-	workbench.call("set_debug_mode", DEBUG_MODE_LIT_PREVIEW)
-	await _settle()
-
-	var preview_quad := workbench.find_child("PacketPreview", true, false) as Control
-	assert_that(preview_quad).is_not_null()
-	if preview_quad != null:
-		assert_that(preview_quad.scale.x).is_less_equal(1.0)
-		assert_that(preview_quad.scale.y).is_less_equal(1.0)
 
 	viewport.free()
 
@@ -375,10 +159,6 @@ func test_reference_screenshot_exports_without_png_atlas_intermediate() -> void:
 
 
 func _mount_workbench() -> Dictionary:
-	return await _mount_workbench_with_size(VIEWPORT_SIZE)
-
-
-func _mount_workbench_with_size(viewport_size: Vector2i) -> Dictionary:
 	assert_that(FileAccess.file_exists(WORKBENCH_SCENE_PATH)).is_true()
 	var scene: PackedScene = load(WORKBENCH_SCENE_PATH) as PackedScene
 	assert_that(scene).is_not_null()
@@ -386,7 +166,7 @@ func _mount_workbench_with_size(viewport_size: Vector2i) -> Dictionary:
 		return { }
 
 	var viewport := SubViewport.new()
-	viewport.size = viewport_size
+	viewport.size = VIEWPORT_SIZE
 	viewport.disable_3d = true
 	viewport.transparent_bg = true
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
@@ -398,7 +178,7 @@ func _mount_workbench_with_size(viewport_size: Vector2i) -> Dictionary:
 		viewport.free()
 		return { }
 	workbench.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	workbench.size = Vector2(viewport_size)
+	workbench.size = Vector2(VIEWPORT_SIZE)
 	viewport.add_child(workbench)
 	await _settle()
 	return {
@@ -450,22 +230,3 @@ func _image_lsb_hash(image: Image) -> int:
 
 func _to_lsb(value: float) -> int:
 	return clampi(roundi(value * 255.0), 0, 255)
-
-
-func _collect_control_texts(root: Node) -> PackedStringArray:
-	var texts := PackedStringArray()
-	_collect_control_texts_recursive(root, texts)
-	return texts
-
-
-func _collect_control_texts_recursive(node: Node, texts: PackedStringArray) -> void:
-	if node is OptionButton:
-		var option_button := node as OptionButton
-		for index: int in range(option_button.item_count):
-			texts.append(option_button.get_item_text(index))
-	elif node is Button:
-		texts.append((node as Button).text)
-	elif node is Label:
-		texts.append((node as Label).text)
-	for child: Node in node.get_children():
-		_collect_control_texts_recursive(child, texts)

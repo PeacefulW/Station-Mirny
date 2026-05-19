@@ -21,7 +21,6 @@ const PACKET_TEXTURE_FIELDS := [
 	["material_u_q16", "material_u_texture", Image.FORMAT_RG8, 2],
 	["material_v_q16", "material_v_texture", Image.FORMAT_RG8, 2],
 ]
-const SOLID_COVERAGE_THRESHOLD := 32
 
 var packet_layer: ColorRect = null
 var last_packet: Dictionary = { }
@@ -72,12 +71,9 @@ func make_pending_layer(
 	material.set_shader_parameter("contact_outline_width_px", contact_outline_width_px)
 	material.set_shader_parameter("base_source", 2)
 	material.set_shader_parameter("base_flat_color", Color(0.0, 0.0, 0.0, 0.0))
-	var chunk_coord: Vector2i = packet.get("chunk_coord", Vector2i.ZERO) as Vector2i
-	material.set_shader_parameter(
-			"chunk_variant_seed",
-			_chunk_variant_seed(chunk_coord, recipe),
-	)
 	layer.material = material
+
+	var chunk_coord: Vector2i = packet.get("chunk_coord", Vector2i.ZERO) as Vector2i
 	var world_origin_tile: Vector2i = packet.get("world_origin_tile", Vector2i.ZERO) as Vector2i
 	layer.position = Vector2(
 		float(world_origin_tile.x - chunk_coord.x * WorldRuntimeConstants.CHUNK_SIZE),
@@ -187,40 +183,6 @@ func copy_patch_packet_field(
 	return true
 
 
-func sample_world_solid(world_pos: Vector2) -> bool:
-	if last_packet.is_empty():
-		return false
-	var pixel_size := Vector2i(
-		int(last_packet.get("pixel_width", 0)),
-		int(last_packet.get("pixel_height", 0)),
-	)
-	var tile_size_px := int(last_packet.get("tile_size_px", WorldRuntimeConstants.TILE_SIZE_PX))
-	if pixel_size.x <= 0 or pixel_size.y <= 0 or tile_size_px <= 0:
-		return false
-	var world_origin_variant: Variant = last_packet.get("world_origin_tile", Vector2i.ZERO)
-	var world_origin_tile: Vector2i = world_origin_variant as Vector2i
-	var packet_pixel := Vector2i(
-		floori(
-			(world_pos.x / float(WorldRuntimeConstants.TILE_SIZE_PX) - float(world_origin_tile.x))
-			* float(tile_size_px),
-		),
-		floori(
-			(world_pos.y / float(WorldRuntimeConstants.TILE_SIZE_PX) - float(world_origin_tile.y))
-			* float(tile_size_px),
-		),
-	)
-	if packet_pixel.x < 0 \
-			or packet_pixel.y < 0 \
-			or packet_pixel.x >= pixel_size.x \
-			or packet_pixel.y >= pixel_size.y:
-		return false
-	var pixel_index := packet_pixel.y * pixel_size.x + packet_pixel.x
-	var zone_ids: PackedByteArray = last_packet.get("zone_ids", PackedByteArray())
-	if pixel_index >= zone_ids.size() or int(zone_ids[pixel_index]) <= 0:
-		return false
-	return _max_surface_coverage_at(pixel_index) >= SOLID_COVERAGE_THRESHOLD
-
-
 func make_packet_image(
 		packet: Dictionary,
 		field_name: String,
@@ -296,27 +258,3 @@ func _copy_patch_bytes_to_current_packet(
 		return false
 	last_packet[field_name] = patched_bytes
 	return true
-
-
-func _chunk_variant_seed(chunk_coord: Vector2i, recipe: Resource) -> int:
-	var default_seed := 0
-	if recipe != null:
-		default_seed = int(recipe.get("default_seed"))
-	var mixed := chunk_coord.x * 73856093
-	mixed ^= chunk_coord.y * 19349663
-	mixed ^= default_seed * 83492791
-	return mixed & 0x7fffffff
-
-
-func _max_surface_coverage_at(pixel_index: int) -> int:
-	var max_coverage := 0
-	for field_name: String in [
-		"coverage_top",
-		"coverage_edge",
-		"coverage_face",
-		"coverage_back",
-	]:
-		var coverage: PackedByteArray = last_packet.get(field_name, PackedByteArray())
-		if pixel_index < coverage.size():
-			max_coverage = maxi(max_coverage, int(coverage[pixel_index]))
-	return max_coverage

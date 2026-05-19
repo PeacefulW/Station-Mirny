@@ -155,18 +155,6 @@ func get_terrain_visual_v2_debug_state() -> Dictionary:
 	return _visual_bridge.get_debug_state()
 
 
-func is_terrain_visual_v2_active() -> bool:
-	return _visual_bridge.is_enabled()
-
-
-func is_terrain_visual_v2_ready() -> bool:
-	return _visual_bridge.is_ready()
-
-
-func is_terrain_visual_v2_solid_at_world(world_pos: Vector2) -> bool:
-	return _visual_bridge.is_solid_at_world(world_pos)
-
-
 func apply_pending_terrain_visual_v2_patch() -> bool:
 	return _visual_bridge.apply_dirty_patch(
 		chunk_coord,

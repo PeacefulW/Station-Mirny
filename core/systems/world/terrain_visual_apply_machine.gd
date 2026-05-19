@@ -4,8 +4,7 @@ extends RefCounted
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const TerrainVisualChunkLayer = preload("res://core/systems/world/terrain_visual_chunk_layer.gd")
 
-const FULL_APPLY_TEXTURES_PER_STEP := 9
-const PATCH_APPLY_TEXTURES_PER_STEP := 9
+const FULL_APPLY_TEXTURES_PER_STEP := 1
 
 var full_apply_step_count: int = 0
 var last_full_apply_texture_count: int = 0
@@ -133,22 +132,21 @@ func advance_patch_apply_step(
 	if not has_pending_patch_apply():
 		return { "has_more": false, "committed": false, "failed": false }
 	var texture_fields: Array = TerrainVisualChunkLayer.PACKET_TEXTURE_FIELDS
-	var applied_count := 0
-	while applied_count < PATCH_APPLY_TEXTURES_PER_STEP \
-			and _pending_patch_texture_index < texture_fields.size():
-		var field_spec: Array = texture_fields[_pending_patch_texture_index]
-		if not chunk_layer.copy_patch_packet_field(
-			_pending_patch_packet,
-			field_spec,
-			_pending_patch_patch_pixel_size,
-			_pending_patch_intersection_px,
-			_pending_patch_src_rect_px,
-			solve_queue,
-		):
-			cancel_patch_apply()
-			return { "has_more": false, "committed": false, "failed": true }
-		_pending_patch_texture_index += 1
-		applied_count += 1
+	if _pending_patch_texture_index >= texture_fields.size():
+		_commit_pending_patch_apply(chunk_layer)
+		return { "has_more": false, "committed": true, "failed": false }
+	var field_spec: Array = texture_fields[_pending_patch_texture_index]
+	if not chunk_layer.copy_patch_packet_field(
+		_pending_patch_packet,
+		field_spec,
+		_pending_patch_patch_pixel_size,
+		_pending_patch_intersection_px,
+		_pending_patch_src_rect_px,
+		solve_queue,
+	):
+		cancel_patch_apply()
+		return { "has_more": false, "committed": false, "failed": true }
+	_pending_patch_texture_index += 1
 	if _pending_patch_texture_index >= texture_fields.size():
 		_commit_pending_patch_apply(chunk_layer)
 		return { "has_more": false, "committed": true, "failed": false }

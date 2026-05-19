@@ -16,16 +16,6 @@ const int KIND_STRATIFIED_ROCK = 0;
 const int KIND_ROUGH_STONE = 1;
 const int KIND_CRACKED_DRY_EARTH = 2;
 const int KIND_PACKED_DIRT = 3;
-const int KIND_SAND = 4;
-const int KIND_ASH_BURNT_GROUND = 5;
-const int KIND_SNOW = 6;
-const int KIND_MOSS = 7;
-const int KIND_GRAVEL = 8;
-const int KIND_CONCRETE = 9;
-const int KIND_RIBBED_STEEL = 10;
-const int KIND_ICE_FROST = 11;
-
-uniform int chunk_variant_seed = 0;
 
 uniform sampler2D zone_texture : repeat_disable, filter_nearest;
 uniform sampler2D coverage_top_texture : repeat_disable, filter_nearest;
@@ -145,30 +135,10 @@ float fbm(vec2 p) {
 	return value;
 }
 
-float fbm2(vec2 p) {
-	float value = 0.0;
-	float amplitude = 0.5;
-	for (int i = 0; i < 2; i++) {
-		value += value_noise(p) * amplitude;
-		p = p * 2.03 + vec2(17.13, 9.41);
-		amplitude *= 0.5;
-	}
-	return value;
-}
-
 float crack_mask(vec2 p, float amount) {
 	float ridge = 1.0 - abs(value_noise(p) - 0.5) * 2.0;
 	float threshold = mix(0.94, 0.72, amount);
 	return smoothstep(threshold, 1.0, ridge);
-}
-
-float line_mask(float distance, float width) {
-	return clamp(1.0 - distance / max(width, 0.0001), 0.0, 1.0);
-}
-
-float periodic_line(float coordinate, float width) {
-	float wrapped = fract(coordinate);
-	return line_mask(min(wrapped, 1.0 - wrapped), width);
 }
 
 float layer_value(int kind, vec2 uv, vec2 p, float grain, float crack_amount, float seed) {
@@ -189,102 +159,11 @@ float layer_value(int kind, vec2 uv, vec2 p, float grain, float crack_amount, fl
 		float grains = fbm(p * 4.8 + vec2(6.0, seed * 0.19));
 		return clamp(mix(broad, grains, grain * 0.38), 0.0, 1.0);
 	}
-	if (kind == KIND_SAND) {
-		float broad = fbm(p * 0.52 + vec2(seed * 0.03, 1.7));
-		float warp = (fbm2(p * 0.48 + vec2(seed * 0.07, 2.3)) - 0.5) * 0.18;
-		float ripple = sin((uv.y + warp) * 82.0 + uv.x * 6.0) * 0.5 + 0.5;
-		float grains = fbm(p * 7.0 + vec2(3.1, seed * 0.11));
-		float pebbles = smoothstep(0.82, 1.0, value_noise(p * 10.5 + vec2(seed, 4.0)));
-		return clamp(0.34 + broad * 0.24 + ripple * 0.12 + grains * 0.16 + pebbles * grain * 0.10, 0.0, 1.0);
-	}
-	if (kind == KIND_ASH_BURNT_GROUND) {
-		float broad = fbm(p * 0.62 + vec2(seed * 0.05, 9.0));
-		float fine = fbm(p * 3.6 + vec2(2.0, seed * 0.31));
-		float ember = smoothstep(0.93, 1.0, value_noise(p * 9.0 + vec2(seed * 0.17, 6.0)));
-		float fissure = crack_mask(p * 2.6 + vec2(5.0, seed * 0.19), max(crack_amount, 0.25));
-		return clamp(0.20 + broad * 0.28 + fine * 0.16 + ember * 0.25 - fissure * 0.18, 0.0, 1.0);
-	}
-	if (kind == KIND_SNOW) {
-		float drift = fbm(p * 0.48 + vec2(5.0, seed * 0.13));
-		float fine = fbm(p * 2.2 + vec2(seed * 0.23, 13.0));
-		float sparkle = smoothstep(0.94, 1.0, value_noise(p * 12.0 + vec2(seed, 0.0)));
-		float crust = crack_mask(p * 1.55 + vec2(0.0, seed * 0.11), crack_amount * 0.45);
-		return clamp(0.58 + drift * 0.24 + fine * 0.08 + sparkle * 0.16 - crust * 0.08, 0.0, 1.0);
-	}
-	if (kind == KIND_MOSS) {
-		float broad = fbm(p * 0.55 + vec2(13.0, seed * 0.05));
-		float blob = fbm(p * 0.95 + vec2(seed * 0.11, 7.0));
-		float cluster = smoothstep(0.42, 0.84, blob);
-		float spores = smoothstep(0.91, 1.0, value_noise(p * 9.5 + vec2(4.0, seed)));
-		return clamp(0.22 + broad * 0.16 + cluster * 0.38 + spores * 0.08, 0.0, 1.0);
-	}
-	if (kind == KIND_GRAVEL) {
-		float broad = fbm(p * 0.65 + vec2(seed * 0.03, 3.0));
-		float stones = fbm(p * 4.2 + vec2(8.0, seed * 0.17));
-		float pebble_edges = crack_mask(p * 5.1 + vec2(seed * 0.29, 1.0), max(crack_amount, 0.25));
-		float speckle = value_noise(p * 12.0 + vec2(seed, 5.0));
-		return clamp(0.26 + broad * 0.18 + stones * 0.38 + (speckle - 0.5) * grain * 0.20 - pebble_edges * 0.16, 0.0, 1.0);
-	}
-	if (kind == KIND_CONCRETE) {
-		float broad = fbm(p * 0.42 + vec2(seed * 0.02, 0.0));
-		float fine = fbm(p * 2.1 + vec2(6.0, seed * 0.19));
-		float pore = value_noise(p * 10.2 + vec2(seed * 0.43, 3.0));
-		float hairline = crack_mask(p * 1.7 + vec2(1.0, seed * 0.27), crack_amount);
-		return clamp(0.45 + broad * 0.16 + fine * 0.08 + (pore - 0.5) * grain * 0.14 - hairline * 0.14, 0.0, 1.0);
-	}
-	if (kind == KIND_RIBBED_STEEL) {
-		float broad = fbm(p * 0.36 + vec2(seed * 0.03, 0.0));
-		float fine = fbm(p * 3.7 + vec2(2.0, seed * 0.17));
-		float diag_a = periodic_line((uv.x + uv.y) * 8.5 + seed * 0.013, 0.095);
-		float diag_b = periodic_line((uv.x - uv.y) * 8.5 + seed * 0.017, 0.095);
-		float ribs = max(diag_a, diag_b);
-		float scratches = smoothstep(0.62, 1.0, fine) * grain;
-		return clamp(0.40 + broad * 0.12 + fine * 0.10 + ribs * 0.32 - scratches * 0.08, 0.0, 1.0);
-	}
-	if (kind == KIND_ICE_FROST) {
-		float broad = fbm(p * 0.45 + vec2(seed * 0.04, 2.0));
-		float frost = fbm(p * 1.25 + vec2(9.0, seed * 0.13));
-		float vein = crack_mask(p * 2.3 + vec2(seed * 0.31, 4.0), max(crack_amount, 0.28));
-		float glint = smoothstep(0.87, 1.0, value_noise(p * 7.0 + vec2(3.0, seed)));
-		return clamp(0.50 + broad * 0.16 + frost * 0.24 + glint * 0.14 - vein * 0.08, 0.0, 1.0);
-	}
 
-	float broad = fbm2(p * 0.52 + vec2(seed * 0.07, 0.0));
-	float fine = fbm2(p * vec2(1.15, 3.4) + vec2(0.0, seed));
-	float block_x = uv.x * 4.2;
-	float block_y = uv.y * 3.7;
-	vec2 block_local = fract(vec2(block_x, block_y));
-	float block_edge_distance = min(
-			min(block_local.x, 1.0 - block_local.x),
-			min(block_local.y, 1.0 - block_local.y)
-	);
-	float block_edge = line_mask(block_edge_distance, 0.025 + crack_amount * 0.055);
-	float block_value = value_noise(floor(vec2(block_x, block_y)) + vec2(seed * 0.19, seed * 0.31));
-	float warp = (fbm2(vec2(uv.x * 6.0, uv.y * 3.4) + vec2(seed * 0.31, 0.0)) - 0.5) * 0.09;
-	float tilted_y = uv.y + uv.x * 0.10 + warp;
-	float band_coord = tilted_y * 11.5 + seed * 0.017;
-	float band_edge = periodic_line(band_coord, 0.028 + crack_amount * 0.045);
-	float shelf = mod(floor(band_coord), 5.0) / 5.0;
-	float vertical_crack = crack_mask(vec2(uv.x * 7.8, uv.y * 2.2) + vec2(seed * 0.13, 31.0), crack_amount);
-	float diagonal_crack = crack_mask(
-			vec2(uv.x * 5.4 + uv.y * 3.2, uv.y * 6.0 - uv.x * 2.4) + vec2(seed * 0.09, 13.0),
-			crack_amount
-	);
-	float chips = smoothstep(0.72, 1.0, value_noise(p * 4.2 + vec2(seed * 0.37, 11.0))) * grain;
-	return clamp(
-			0.28
-					+ broad * 0.20
-					+ fine * 0.13
-					+ shelf * 0.16
-					+ (block_value - 0.5) * 0.18
-					+ chips * 0.08
-					- band_edge * 0.12
-					- block_edge * 0.10
-					- vertical_crack * 0.10
-					- diagonal_crack * 0.07,
-			0.0,
-			1.0
-	);
+	float warp = fbm(vec2(uv.x * 8.0, uv.y * 2.0) + vec2(seed * 0.31, 0.0));
+	float bands = sin((uv.y * 38.0 + warp * 4.0 + seed * 0.17) * max(0.25, grain + 0.55));
+	float fine = fbm(p * vec2(1.15, 3.4) + vec2(0.0, seed));
+	return clamp(mix(bands * 0.5 + 0.5, fine, 0.28), 0.0, 1.0);
 }
 
 vec4 procedural_material(
@@ -307,12 +186,8 @@ vec4 procedural_material(
 	float modulation_strength = clamp(params2.w, 0.0, 1.0);
 
 	vec2 uv = fract(material_uv);
-	float variant_offset = float(chunk_variant_seed);
-	float seed_value = float(seed) + variant_offset * 0.0117;
-	vec2 p = uv * scale * 9.0 + vec2(
-			seed_value * 0.071 + variant_offset * 0.137,
-			seed_value * 0.137 + variant_offset * 0.181
-	);
+	float seed_value = float(seed);
+	vec2 p = uv * scale * 9.0 + vec2(seed_value * 0.071, seed_value * 0.137);
 	float layer = layer_value(kind, uv, p, grain, crack_amount, seed_value);
 	layer = clamp((layer - 0.5) * contrast + 0.5, 0.0, 1.0);
 	layer = mix(0.5, layer, modulation_strength);

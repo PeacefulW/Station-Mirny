@@ -189,26 +189,13 @@ Emitter:
 - `WorldStreamer._publish_next_batch()`
 
 When it fires:
-- after one chunk finishes bounded TileMap publish, **and** for chunks that contain
-  Terrain Visual V2 mountain surface, after the V2 visual packet has been solved
-  and applied to the chunk view; only then does the chunk become visible and
-  this signal fire
-- for chunks without V2 mountain surface, fires immediately after bounded
-  TileMap publish completes (no V2 wait, because there is no V2 mountain
-  presentation to reveal)
+- after one chunk finishes bounded TileMap publish and becomes visible
 
 Confirmed listeners:
 - `WorldRuntimeV0Scene._on_chunk_loaded()`
 
 Current listener use:
 - tracks which V0 chunks finished boot/publish in the active world runtime scene
-
-Reveal-gate guarantee:
-- `chunk_loaded` is the canonical signal that `WorldStreamer` considers a chunk
-  fully revealed, both for gameplay tiles and for V2 mountain visual presentation
-- listeners that depend on the chunk being visually correct (not on a transient
-  grass underlay) should use `chunk_loaded` rather than peeking at internal
-  `_chunk_views` state
 
 ### `chunk_unloaded(chunk_coord: Vector2i)`
 

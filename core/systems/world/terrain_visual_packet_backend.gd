@@ -1,12 +1,7 @@
 class_name TerrainVisualPacketBackend
 extends RefCounted
 
-const DEFAULT_MIN_WORKER_COUNT := 2
-const DEFAULT_MAX_WORKER_COUNT := 6
-const FULL_SOLVE_PRIORITY := 100
-const PATCH_SOLVE_PRIORITY := 0
-
-var _worker_threads: Array[Thread] = []
+var _worker_thread: Thread = Thread.new()
 var _request_mutex: Mutex = Mutex.new()
 var _result_mutex: Mutex = Mutex.new()
 var _request_semaphore: Semaphore = Semaphore.new()
@@ -15,43 +10,27 @@ var _completed_results: Dictionary = { }
 var _cancelled_request_ids: Dictionary = { }
 var _worker_should_exit: bool = false
 var _next_request_id: int = 1
-var _active_request_ids: Dictionary = { }
+var _active_request_id: int = 0
 
 
-func start(worker_count: int = 0) -> void:
-	if not _worker_threads.is_empty():
+func start() -> void:
+	if _worker_thread.is_started():
 		return
 	if not ClassDB.class_exists(&"TerrainVisualSolver"):
 		push_error("TerrainVisualSolver native class is required for TerrainVisualPacketBackend.")
 		return
-	var resolved_worker_count := _resolve_worker_count(worker_count)
 	_worker_should_exit = false
-	for worker_index: int in range(resolved_worker_count):
-		var worker_thread := Thread.new()
-		var start_error: Error = worker_thread.start(_worker_loop)
-		assert(start_error == OK, "Failed to start terrain visual packet worker thread")
-		if start_error == OK:
-			_worker_threads.append(worker_thread)
+	var start_error: Error = _worker_thread.start(_worker_loop)
+	assert(start_error == OK, "Failed to start terrain visual packet worker thread")
 
 
 func stop() -> void:
-	if _worker_threads.is_empty():
+	if not _worker_thread.is_started():
 		return
 	_worker_should_exit = true
-	for worker_thread: Thread in _worker_threads:
-		_request_semaphore.post()
-	for worker_thread: Thread in _worker_threads:
-		if worker_thread.is_started():
-			worker_thread.wait_to_finish()
-	_worker_threads.clear()
-	_request_mutex.lock()
-	_pending_requests.clear()
-	_request_mutex.unlock()
-	_result_mutex.lock()
-	_active_request_ids.clear()
-	_completed_results.clear()
-	_cancelled_request_ids.clear()
-	_result_mutex.unlock()
+	_request_semaphore.post()
+	_worker_thread.wait_to_finish()
+	_active_request_id = 0
 
 
 func queue_chunk_visual_packet_request(
@@ -64,18 +43,16 @@ func queue_chunk_visual_packet_request(
 		seed: int,
 		uses_halo: bool,
 		output_rect_tiles: Rect2i,
-		priority: int = FULL_SOLVE_PRIORITY,
 ) -> int:
-	if _worker_threads.is_empty():
+	if not _worker_thread.is_started():
 		push_error("TerrainVisualPacketBackend must be started before queueing solve work.")
 		return 0
 	_request_mutex.lock()
 	var request_id := _next_request_id
 	_next_request_id += 1
-	_insert_pending_request(
+	_pending_requests.append(
 		{
 			"request_id": request_id,
-			"priority": priority,
 			"solid_mask": solid_mask.duplicate(),
 			"width_tiles": width_tiles,
 			"height_tiles": height_tiles,
@@ -129,8 +106,8 @@ func clear_queued_work() -> void:
 	_result_mutex.lock()
 	for request_id: int in cancelled_request_ids:
 		_cancelled_request_ids[request_id] = true
-	for request_id_variant: Variant in _active_request_ids.keys():
-		_cancelled_request_ids[int(request_id_variant)] = true
+	if _active_request_id > 0:
+		_cancelled_request_ids[_active_request_id] = true
 	_completed_results.clear()
 	_result_mutex.unlock()
 
@@ -140,13 +117,9 @@ func has_pending_requests() -> bool:
 	var has_pending := not _pending_requests.is_empty()
 	_request_mutex.unlock()
 	_result_mutex.lock()
-	has_pending = has_pending or not _active_request_ids.is_empty()
+	has_pending = has_pending or _active_request_id > 0
 	_result_mutex.unlock()
 	return has_pending
-
-
-func get_worker_count() -> int:
-	return _worker_threads.size()
 
 
 func _worker_loop() -> void:
@@ -163,23 +136,17 @@ func _worker_loop() -> void:
 		_request_mutex.unlock()
 		if request.is_empty():
 			continue
-		var request_id := int(request.get("request_id", 0))
-		_set_request_active(request_id, true)
+		_set_active_request_id(int(request.get("request_id", 0)))
 		var result := _solve_request(worker_solver, request)
 		_store_result(result)
-		_set_request_active(request_id, false)
+		_set_active_request_id(0)
 	if worker_solver != null:
 		worker_solver.free()
 
 
-func _set_request_active(request_id: int, active: bool) -> void:
-	if request_id <= 0:
-		return
+func _set_active_request_id(request_id: int) -> void:
 	_result_mutex.lock()
-	if active:
-		_active_request_ids[request_id] = true
-	else:
-		_active_request_ids.erase(request_id)
+	_active_request_id = request_id
 	_result_mutex.unlock()
 
 
@@ -246,25 +213,3 @@ func _solve_request(worker_solver: Object, request: Dictionary) -> Dictionary:
 		"solve_usec": solve_usec,
 		"message": "TerrainVisualSolver returned an empty or invalid packet.",
 	}
-
-
-func _insert_pending_request(request: Dictionary) -> void:
-	var priority := int(request.get("priority", FULL_SOLVE_PRIORITY))
-	var insert_index := _pending_requests.size()
-	for index: int in range(_pending_requests.size()):
-		var queued: Dictionary = _pending_requests[index] as Dictionary
-		if int(queued.get("priority", FULL_SOLVE_PRIORITY)) > priority:
-			insert_index = index
-			break
-	_pending_requests.insert(insert_index, request)
-
-
-func _resolve_worker_count(requested_worker_count: int) -> int:
-	if requested_worker_count > 0:
-		return clampi(requested_worker_count, 1, DEFAULT_MAX_WORKER_COUNT)
-	var processor_count := OS.get_processor_count()
-	return clampi(
-		maxi(DEFAULT_MIN_WORKER_COUNT, processor_count - 1),
-		DEFAULT_MIN_WORKER_COUNT,
-		DEFAULT_MAX_WORKER_COUNT,
-	)

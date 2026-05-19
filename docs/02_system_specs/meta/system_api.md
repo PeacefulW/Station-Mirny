@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.0
-last_updated: 2026-05-18
+version: 0.9
+last_updated: 2026-05-17
 related_docs:
   - ../README.md
   - commands.md
@@ -421,9 +421,8 @@ Confirmed mutation entrypoints:
 
 | Surface | Return | Notes |
 |---|---|---|
-| `apply_pending_terrain_visual_v2_full()` | `bool` | Advances the current chunk's asynchronous full V2 terrain visual refresh from already-published authoritative terrain arrays. This is a visual/background entrypoint for `WorldStreamer` visual work, not part of `apply_next_batch(...)` and not an interactive mutation hook. One call may enqueue or poll a native packet solve; once the packet is ready, the same visual tick uploads/commits all packet texture fields. Returns `true` while async solve work remains queued for the same chunk, and `false` when the refresh is complete, V2 is disabled, no presenter exists, or no full visual work is valid. |
-| `apply_pending_terrain_visual_v2_patch()` | `bool` | Advances the pending V2 visual dirty patch after a runtime tile mutation has already updated authoritative terrain arrays and marked a local dirty rect. One call may queue/poll a bounded native solve through `TerrainVisualSolver.build_chunk_visual_packet_with_halo(...)` when a valid chunk solid halo is available, otherwise through `build_chunk_visual_packet(...)`; once the packet is ready, the same visual tick copies/uploads all packet fields using `copy_patch_field_bytes(...)` for packet-cache bytes. If no committed V2 packet exists yet, the method requeues a fresh full visual refresh from current authoritative arrays instead of dropping the mutation. Returns `true` while async solve work remains, and `false` when work is complete, V2 is disabled, no presenter exists, or no pending patch intersects the current visual packet. |
-| `is_terrain_visual_v2_solid_at_world(world_pos: Vector2)` | `bool` | Samples the committed `TerrainVisualPacketV0` zone/coverage fields for one world pixel position. This is a read-only derived contour query used by `WorldStreamer.is_walkable_at_world(...)` for V2 mountain surface collision; it must not mutate terrain truth or save state. |
+| `apply_pending_terrain_visual_v2_full()` | `bool` | Advances the current chunk's asynchronous full V2 terrain visual refresh from already-published authoritative terrain arrays. This is a visual/background entrypoint for `WorldStreamer` visual work, not part of `apply_next_batch(...)` and not an interactive mutation hook. One call may enqueue or poll a native packet solve; once the packet is ready, later calls upload/commit textures through the staged apply budget. Returns `true` while async solve or staged apply work remains queued for the same chunk, and `false` when the refresh is complete, V2 is disabled, no presenter exists, or no full visual work is valid. |
+| `apply_pending_terrain_visual_v2_patch()` | `bool` | Advances the pending V2 visual dirty patch after a runtime tile mutation has already updated authoritative terrain arrays and marked a local dirty rect. One call may queue/poll a bounded native solve through `TerrainVisualSolver.build_chunk_visual_packet_with_halo(...)` when a valid chunk solid halo is available, otherwise through `build_chunk_visual_packet(...)`; later calls copy/upload one packet texture field at a time, using `copy_patch_field_bytes(...)` for packet-cache bytes. If no committed V2 packet exists yet, the method requeues a fresh full visual refresh from current authoritative arrays instead of dropping the mutation. Returns `true` while async solve or staged apply work remains, and `false` when work is complete, V2 is disabled, no presenter exists, or no pending patch intersects the current visual packet. |
 
 Current code notes:
 - `apply_next_batch(...)` owns only chunk cell publication. It must not run a
@@ -432,10 +431,10 @@ Current code notes:
   renderer. V2 packet presentation is the canonical organic rock path; when V2
   is disabled, the chunk falls back to regular tile/roof atlas presentation.
 - `WorldStreamer` delegates V2 visual scheduling to `TerrainVisualV2Runtime`
-  after a chunk is published. The runtime keeps chunks queued while async solve
-  work remains pending, owns the shared multi-worker packet backend for
-  production runtime, and may enqueue a loaded chunk again when a neighbouring
-  packet arrives so the one-tile visual halo can be rebuilt.
+  after a chunk is published. The runtime keeps chunks queued while staged
+  full solve/apply work remains pending, owns the shared full packet solve
+  worker for production runtime, and may enqueue a loaded chunk again when a
+  neighbouring packet arrives so the one-tile visual halo can be rebuilt.
 - `WorldStreamer` also owns the dirty patch requeue loop for V2 visual work;
   loaded runtime mutations enqueue `_queue_terrain_visual_v2_patch_apply`
   instead of calling the patch apply hook through `call_deferred`.
@@ -446,13 +445,9 @@ Current code notes:
 - `apply_runtime_cell(...)` remains the interactive mutation hook for loaded
   chunk visuals. With V2 enabled it only updates local authoritative arrays,
   paints base/water/debug cells, and marks a V2 dirty patch.
-- `apply_pending_terrain_visual_v2_patch()` is the bounded patch apply hook
+- `apply_pending_terrain_visual_v2_patch()` is the bounded staged apply hook
   for explicit flush/test paths and the frame-budgeted `WorldStreamer` visual
   patch queue. It is derived presentation work only.
-- `is_terrain_visual_v2_solid_at_world(...)` is a read-only contour sample for
-  loaded V2 mountain surface collision. If no committed packet exists,
-  `WorldStreamer.is_walkable_at_world(...)` remains conservative and treats the
-  mountain tile as blocked.
 - Visual packet images/textures are caches owned by the presenter. Terrain truth
   remains `ChunkPacketV1` plus `WorldDiffStore`.
 - The bridge may receive a derived `(chunk_size + 2)^2` solid halo from
@@ -488,7 +483,7 @@ Confirmed readable entrypoints:
 | `get_chunk_packet(chunk_coord: Vector2i)` | `Dictionary` | Loaded chunk packet or `{}`; read-only world-domain lookup for `MountainResolver` |
 | `get_mountain_cover_sample(world_tile: Vector2i)` | `Dictionary` | Read-only cover sample for one tile: `mountain_id`, `mountain_flags`, `component_id`, `is_opening`, `walkable` |
 | `get_mountain_cover_debug_snapshot(world_tile: Vector2i)` | `Dictionary` | Debug-only snapshot including `inside_outside_state`, active component ids, and `roof_layers_per_chunk_max` |
-| `is_walkable_at_world(world_pos: Vector2)` | `bool` | Reads `base + diff`; returns `false` while a chunk is not ready. For non-walkable V2 mountain surface tiles with a committed packet, samples the derived packet contour so player/building collision follows the organic rock silhouette instead of the full tile square. |
+| `is_walkable_at_world(world_pos: Vector2)` | `bool` | Reads `base + diff`; returns `false` while a chunk is not ready |
 | `has_resource_at_world(world_pos: Vector2)` | `bool` | Diggable surface query for the current harvest path (`TERRAIN_MOUNTAIN_WALL` and `TERRAIN_MOUNTAIN_FOOT`); returns `true` only when the tile also has an orthogonally exposed walkable face |
 | `get_mountain_contour_debug_state(chunk_coord: Vector2i)` | `Dictionary` | Debug-only readback for the loaded chunk's L1 grid/mask/contour overlay state. Returns `ready: false` if the chunk view is not loaded. |
 
