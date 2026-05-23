@@ -37,6 +37,7 @@ public:
 	Array generate_chunk_packets_batch(int64_t p_seed, PackedVector2Array p_coords, int64_t p_world_version, PackedFloat32Array p_settings_packed);
 	Ref<Image> make_world_preview_patch_image(Dictionary p_packet, StringName p_render_mode);
 	Dictionary build_mountain_contour_debug(PackedByteArray p_solid_halo, int64_t p_chunk_size, int64_t p_tile_size_px);
+	Dictionary build_mountain_plateau_raster_image(Array p_packets, Vector2i p_target_chunk, Dictionary p_preset, Ref<Image> p_top_image, Ref<Image> p_face_image);
 	Dictionary resolve_world_foundation_spawn_tile(int64_t p_seed, int64_t p_world_version, PackedFloat32Array p_settings_packed);
 #ifdef DEBUG_ENABLED
 	Dictionary get_world_foundation_snapshot(int64_t p_layer_mask, int64_t p_downscale_factor);

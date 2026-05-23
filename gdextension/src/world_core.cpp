@@ -3,6 +3,7 @@
 #include "lake_field.h"
 #include "mountain_contour.h"
 #include "mountain_field.h"
+#include "mountain_plateau_raster.h"
 #include "world_utils.h"
 
 #include <algorithm>
@@ -870,6 +871,7 @@ void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("generate_chunk_packets_batch", "seed", "coords", "world_version", "settings_packed"), &WorldCore::generate_chunk_packets_batch);
 	ClassDB::bind_method(D_METHOD("make_world_preview_patch_image", "packet", "render_mode"), &WorldCore::make_world_preview_patch_image);
 	ClassDB::bind_method(D_METHOD("build_mountain_contour_debug", "solid_halo", "chunk_size", "tile_size_px"), &WorldCore::build_mountain_contour_debug);
+	ClassDB::bind_method(D_METHOD("build_mountain_plateau_raster_image", "packets", "target_chunk", "preset", "top_image", "face_image"), &WorldCore::build_mountain_plateau_raster_image);
 	ClassDB::bind_method(D_METHOD("resolve_world_foundation_spawn_tile", "seed", "world_version", "settings_packed"), &WorldCore::resolve_world_foundation_spawn_tile);
 #ifdef DEBUG_ENABLED
 	ClassDB::bind_method(D_METHOD("get_world_foundation_snapshot", "layer_mask", "downscale_factor"), &WorldCore::get_world_foundation_snapshot);
@@ -930,6 +932,16 @@ Ref<Image> WorldCore::make_world_preview_patch_image(Dictionary p_packet, String
 		Image::FORMAT_RGBA8,
 		combined_bytes
 	);
+}
+
+Dictionary WorldCore::build_mountain_plateau_raster_image(
+	Array p_packets,
+	Vector2i p_target_chunk,
+	Dictionary p_preset,
+	Ref<Image> p_top_image,
+	Ref<Image> p_face_image
+) {
+	return mountain_plateau_raster::build_image(p_packets, p_target_chunk, p_preset, p_top_image, p_face_image);
 }
 
 const mountain_field::HierarchicalMacroSolve &WorldCore::_get_or_build_hierarchical_macro_solve(
