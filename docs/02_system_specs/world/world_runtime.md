@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 0.7
-last_updated: 2026-05-05
+version: 1.0
+last_updated: 2026-05-28
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -59,7 +59,8 @@ V0 includes only:
 
 V0 explicitly does not include:
 - water generation
-- mountains
+- mountain gameplay rules beyond the active visual-only mountain presentation
+  bridge documented below
 - multiple biomes
 - climate data
 - biome blend logic
@@ -184,12 +185,70 @@ V0 introduces only three world runtime roles:
 | Orchestrator | `WorldStreamer` | stream ring, request packets, receive results, schedule publish, expose compatibility reads/mutation |
 | State | `WorldDiffStore` | store per-chunk tile overrides, feed save/load |
 | View | `ChunkView` | own one chunk root and one local `TileMapLayer` |
+| Visual bridge | `WorldStreamer` + `ChunkView` | own chunk-scoped 2D mountain native masks, publish derived mask textures, and keep old page work out of normal streaming |
 
 V0 does not add:
 - a separate publish queue object
 - a second streamer
 - an environment overlay owner
 - a generic world service graph
+
+### Runtime 2D Mountain Native Masks
+
+The active world version includes a transitional native-mask bridge for the
+accepted 2D mountain look:
+
+- `WorldStreamer` remains the stream orchestrator. It does not queue FHD
+  mountain render pages for normal chunk streaming; runtime mountain
+  presentation is a chunk-owned native halo mask applied directly to each
+  `ChunkView`.
+- The authoritative source stays unchanged: `ChunkPacketV0` plus
+  `WorldDiffStore`. Native masks are derived presentation/cache data and are not
+  saved.
+- The source cache radius for terrain packets is the visible stream radius plus
+  one chunk. This gives each visible chunk enough neighbour truth to build its
+  local mountain halo without waiting for a separate mountain-page pipeline.
+- `WorldStreamer` builds only the small solid halo from loaded packets and
+  runtime diffs on the main thread. `WorldCore.build_mountain_halo_mask` runs as
+  a `mountain_halo_mask` job in `WorldChunkPacketBackend` worker threads. The
+  native method returns an `L8` alpha mask at bounded pixels-per-tile
+  resolution. Publish waits for gameplay-ready mask bytes before exposing a
+  chunk that contains mountain surface. Mining may apply only a local dirty
+  rect to existing bytes synchronously, then queues a worker reconciliation for
+  affected halo chunks.
+- The publish/mining path may only store mask bytes and mark the chunk for
+  visual upload; it must not create or update `ImageTexture` synchronously.
+  `ImageTexture` creation/update belongs to the separate
+  `FrameBudgetDispatcher.CATEGORY_VISUAL` job
+  `world.mountain_native_mask_visual_upload`, which applies at most one native
+  mask texture upload per visual tick. A completed native mask worker result
+  must not enqueue a full chunk republish for an already visible chunk; visible
+  chunks keep their current `ChunkView` and only swap the derived mask texture
+  through the visual queue.
+- `ChunkView` suppresses square mountain tile visuals while the native mask
+  shader paints the accepted top/facade textures through the same mask. This
+  prevents visible square terrain from leaking while keeping one logical
+  `64px` tile as the gameplay unit.
+- The local dirty unit for mining is one authoritative tile plus the affected
+  chunk native mask. Adjacent chunk masks are refreshed only when the changed
+  tile lies inside their fixed halo. Mining must not rebuild the whole mountain
+  or all nearby chunks synchronously. A mountain-surface dig must not repaint
+  the ordinary square terrain cell in the interactive frame; the visible change
+  goes through the bounded native-mask dirty rect so the player never sees an
+  intermediate square tile.
+- Inside a ready native mask, `is_walkable_at_world`,
+  `has_resource_at_world`, and `try_harvest_at_world` sample the same mask bytes
+  queued for presentation. Gameplay/collision readiness is based on the mask
+  bytes, not on visual texture upload completion. The owner chunk sample wins
+  when the world position is
+  inside that chunk mask; neighbour masks are consulted only for overlap.
+- Mining still resolves the sampled visual pixel back to one authoritative
+  exposed mountain tile and writes through `WorldDiffStore`. A dug
+  authoritative tile wins immediately over overlapping mask pixels, so the
+  mined point becomes walkable without waiting for a full visual rebuild.
+- The FHD mountain raster/dev-scene path remains an authoring and probe tool
+  until the accepted look is promoted into authored terrain resources. It is not
+  the normal runtime streaming path.
 
 ### Existing Compatibility Surface
 
@@ -203,13 +262,21 @@ try_harvest_at_world(world_pos: Vector2) -> Dictionary
 ```
 
 V0 interpretation:
-- `is_walkable_at_world` reads `base + diff`
+- `is_walkable_at_world` reads `base + diff`; inside a ready mountain raster hit
+  mask it uses the native contour to block solid mountain pixels and to release
+  rounded-off square mountain corners. Authoritative non-mountain walkable
+  diffs, including dug tiles, take precedence over stale overlapping hit pages
 - `has_resource_at_world` is allowed only as the single-tile mutation proof for
   the current diggable surface class provided by the active world runtime;
   diagonal-only sealed rock does not qualify, because the candidate tile must
-  have at least one orthogonally exposed walkable face
+  have at least one orthogonally exposed walkable face. Inside a ready raster hit
+  mask it first requires a solid mountain pixel, then resolves that pixel to the
+  nearest exposed authoritative mountain tile. Dug tiles are not resources even
+  if a stale neighbour hit page still covers the sampled pixel
 - `try_harvest_at_world` is allowed only to convert that one diggable tile into
   its post-mutation state and return the minimal harvest/mutation result payload;
+  raster contour mining uses the same mutation path after resolving the visual
+  pixel to the authoritative tile
   the current harvest input path must resolve the nearest qualifying tile along
   the player-to-cursor ray and must not skip through a nearer blocking solid
 
@@ -335,11 +402,20 @@ existing signal set is insufficient.
 - interactive:
   - one tile mutation
   - one local diff write
-  - one bounded local visible patch apply if loaded
+  - one bounded local visible patch apply if loaded; for mountain-surface digs
+    this explicitly excludes the ordinary square terrain cell
+  - one bounded native-mask dirty rect byte patch for mining if a ready mask is
+    loaded
 - background compute:
   - native chunk generation off-thread
+  - chunk mountain halo mask generation in `WorldChunkPacketBackend` worker
+    threads
 - background apply:
   - sliced chunk publish through `FrameBudgetDispatcher`
+  - chunk mountain native mask texture upload through
+    `FrameBudgetDispatcher.CATEGORY_VISUAL`; publish/mining only enqueues this
+    work after storing gameplay-ready mask bytes, and post-mining native mask
+    reconciliation does not republish already visible chunks
 - boot/load:
   - initial chunk bubble materialization and diff restore
 

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+art
 source_of_truth: true
-version: 0.5
-last_updated: 2026-05-03
+version: 0.8
+last_updated: 2026-05-28
 related_docs:
   - ../../README.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -99,6 +99,42 @@ Terrain presentation is split into two authored layers:
 The runtime does **not** compute geometric parameters such as `height`, `lip`,
 `roughness`, `north rim`, or `inner corners` from numbers in code. Those are
 authoring parameters of the generator and are baked into the shape set exports.
+
+### Runtime 2D Mountain Native Masks
+
+Until the accepted mountain look is promoted into authored shape/material
+resources, the active runtime uses a transitional native-mask presentation:
+
+- The authoritative source stays unchanged: `ChunkPacketV0` plus runtime diffs.
+  The mask does not own terrain ids, save/load, or world generation.
+- Runtime does not stream FHD mountain render pages. For each visible chunk,
+  `WorldStreamer` derives a small solid halo from loaded neighbour packets and
+  local diffs, then asks `WorldCore.build_mountain_halo_mask` for a bounded
+  native `L8` alpha mask.
+- The native mask performs the expensive smoothing, displacement, and
+  thresholding. The main thread may create/update a texture from returned bytes
+  and pass it to `ChunkView`, but it must not do script-side contour
+  rasterization.
+- `ChunkView` owns the chunk-local visual mask and suppresses square mountain
+  tile painting where the native mask is active. The shader samples the accepted
+  top/facade textures through that mask, keeping the visual surface organic
+  while the canonical gameplay tile remains `64px`.
+- Mask bounds include a fixed halo around the chunk, so adjacent chunks overlap
+  enough for continuous contours. The owner chunk sample wins for gameplay
+  queries inside its mask; neighbour masks are only an overlap fallback for
+  positions outside the owner mask bounds.
+- Mining updates the authoritative tile through the normal runtime diff path and
+  then refreshes only the affected chunk native mask, plus halo-neighbour masks
+  when the changed tile is close enough to a chunk edge. It must not rebuild the
+  whole mountain synchronously.
+- Runtime collision/resource/mining checks inside a ready mask use the same mask
+  bytes as presentation, then resolve solid visual pixels back to the nearest
+  exposed authoritative mountain tile before mutation.
+- The FHD raster/dev-scene path remains an authoring/probe tool. It is not the
+  normal runtime streaming presentation path and must not be reintroduced as a
+  per-frame or per-chunk fallback.
+- This native-mask bridge is a transitional presentation product, not a new
+  canonical terrain geometry authoring model.
 
 ## Core Terms
 

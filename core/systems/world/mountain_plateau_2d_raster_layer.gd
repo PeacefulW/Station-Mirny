@@ -3,8 +3,8 @@ extends Node2D
 
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
-const TOP_TEXTURE_PATH: String = "C:/Users/peaceful/Station Peaceful/Новая папка (3)/top.png"
-const FACE_TEXTURE_PATH: String = "C:/Users/peaceful/Station Peaceful/Новая папка (3)/face.png"
+const TOP_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_top.png"
+const FACE_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_face.png"
 
 const TILE_SIZE_PX: float = 64.0
 const SAMPLE_STEP_PX: float = 1.0
@@ -115,8 +115,15 @@ var _ground_lit_texture: CanvasTexture = null
 var _mountain_texture: ImageTexture = null
 var _mountain_normal_texture: ImageTexture = null
 var _mountain_lit_texture: CanvasTexture = null
+var _hit_mask: PackedByteArray = PackedByteArray()
+var _hit_mask_width: int = 0
+var _hit_mask_height: int = 0
+var _hit_mask_origin_world: Vector2 = Vector2.ZERO
+var _hit_mask_step_px: float = 0.0
 var _display_normal_map: bool = false
 var _display_light_map: bool = false
+var _display_ground_surface: bool = true
+var _anchor_to_target_chunk: bool = true
 var _ground_sprite: Sprite2D = null
 var _mountain_sprite: Sprite2D = null
 var _normal_preview_sprite: Sprite2D = null
@@ -140,7 +147,7 @@ func rebuild_from_packets(packets: Array[Dictionary], target_chunk: Vector2i) ->
 	_mountain_tiles.clear()
 	_bounds = Rect2i()
 	_clear_textures()
-	position = -WorldRuntimeConstants.chunk_origin_px(target_chunk)
+	position = _resolve_layer_position(target_chunk)
 	var result: Dictionary = _native_core.call(
 		"build_mountain_plateau_raster_image",
 		packets,
@@ -149,52 +156,90 @@ func rebuild_from_packets(packets: Array[Dictionary], target_chunk: Vector2i) ->
 		_top_image,
 		_face_image
 	) as Dictionary
+	_apply_native_result(result, target_chunk, packets.size())
+
+func apply_raster_result(result: Dictionary, target_chunk: Vector2i, packet_count: int = 0) -> void:
+	_mountain_tiles.clear()
+	_bounds = Rect2i()
+	_clear_textures()
+	position = _resolve_layer_position(target_chunk)
+	_apply_native_result(result, target_chunk, packet_count)
+
+func apply_hit_mask_result(result: Dictionary, target_chunk: Vector2i, packet_count: int = 0) -> void:
+	_mountain_tiles.clear()
+	_bounds = Rect2i()
+	_clear_textures()
+	position = _resolve_layer_position(target_chunk)
+	_store_hit_mask(result)
+	_render_origin_world = result.get("render_origin_world", Vector2.ZERO) as Vector2
+	_render_size_world = result.get("render_size_world", Vector2.ZERO) as Vector2
+	_sync_render_nodes()
+	_debug_snapshot = _compact_native_result(result)
+	_debug_snapshot["preset"] = get_preset()
+	_debug_snapshot["normal_preview"] = false
+	_debug_snapshot["light_preview"] = false
+	_debug_snapshot["lit_texture_ready"] = false
+	_debug_snapshot["ground_lit_texture_ready"] = false
+	_debug_snapshot["mountain_lit_texture_ready"] = false
+	_debug_snapshot["lit_split_surface_ready"] = false
+	_debug_snapshot["light_occluder_ready"] = false
+	_debug_snapshot["hit_mask_ready"] = _hit_mask_width > 0 and _hit_mask_height > 0 and not _hit_mask.is_empty()
+	_debug_snapshot["hit_mask_width"] = _hit_mask_width
+	_debug_snapshot["hit_mask_height"] = _hit_mask_height
+	_debug_snapshot["hit_mask_step_px"] = _hit_mask_step_px
+	_debug_snapshot["hit_mask_origin_world"] = _hit_mask_origin_world
+	_debug_snapshot["ground_surface_visible"] = false
+	_debug_snapshot["target_chunk_anchor_enabled"] = _anchor_to_target_chunk
+	_debug_snapshot["layer_position"] = position
+	_debug_snapshot["target_chunk"] = target_chunk
+	_debug_snapshot["packet_count"] = packet_count if packet_count > 0 else int(_debug_snapshot.get("packet_count", 0))
+	queue_redraw()
+
+func get_source_images() -> Dictionary:
+	_ensure_source_images_loaded()
+	return {
+		"top_image": _top_image.duplicate() if _top_image != null else null,
+		"face_image": _face_image.duplicate() if _face_image != null else null,
+	}
+
+func _apply_native_result(result: Dictionary, target_chunk: Vector2i, packet_count: int) -> void:
 	var image: Image = result.get("image", null) as Image
-	if image == null:
-		push_error("MountainPlateau2DRasterLayer native raster build returned no image.")
-		_debug_snapshot = {
-			"ready": false,
-			"packet_count": packets.size(),
-			"native": true,
-		}
-		queue_redraw()
-		return
 	var normal_image: Image = result.get("normal_image", null) as Image
 	var ground_image: Image = result.get("ground_image", null) as Image
 	var ground_normal_image: Image = result.get("ground_normal_image", null) as Image
 	var mountain_image: Image = result.get("mountain_image", null) as Image
 	var mountain_normal_image: Image = result.get("mountain_normal_image", null) as Image
-	if normal_image == null or ground_image == null or ground_normal_image == null \
-			or mountain_image == null or mountain_normal_image == null:
-		push_error("MountainPlateau2DRasterLayer native raster build returned incomplete light images.")
+	if normal_image == null:
+		normal_image = mountain_normal_image
+	if mountain_image == null \
+			or (_display_ground_surface and ground_image == null):
+		push_error("MountainPlateau2DRasterLayer native raster build returned incomplete runtime images.")
 		_debug_snapshot = {
 			"ready": false,
-			"packet_count": packets.size(),
+			"packet_count": packet_count,
 			"native": true,
+			"target_chunk": target_chunk,
+			"success": bool(result.get("success", false)),
+			"message": str(result.get("message", "")),
 		}
+		_sync_render_nodes()
 		queue_redraw()
 		return
-	_image_texture = ImageTexture.create_from_image(image)
-	_normal_texture = ImageTexture.create_from_image(normal_image)
-	_ground_texture = ImageTexture.create_from_image(ground_image)
-	_ground_normal_texture = ImageTexture.create_from_image(ground_normal_image)
+	_image_texture = ImageTexture.create_from_image(image) if image != null else null
+	_normal_texture = ImageTexture.create_from_image(normal_image) if normal_image != null else null
+	_ground_texture = ImageTexture.create_from_image(ground_image) if ground_image != null else null
+	_ground_normal_texture = ImageTexture.create_from_image(ground_normal_image) if ground_normal_image != null else null
 	_mountain_texture = ImageTexture.create_from_image(mountain_image)
-	_mountain_normal_texture = ImageTexture.create_from_image(mountain_normal_image)
-	_lit_texture = _create_lit_texture(_image_texture, _normal_texture)
-	_ground_lit_texture = _create_lit_texture(_ground_texture, _ground_normal_texture)
-	_mountain_lit_texture = _create_lit_texture(_mountain_texture, _mountain_normal_texture)
+	_mountain_normal_texture = ImageTexture.create_from_image(mountain_normal_image) if mountain_normal_image != null else null
+	_lit_texture = _create_lit_texture(_image_texture, _normal_texture) if _image_texture != null and _normal_texture != null else null
+	_ground_lit_texture = _create_lit_texture(_ground_texture, _ground_normal_texture) if _ground_texture != null and _ground_normal_texture != null else null
+	_mountain_lit_texture = _create_lit_texture(_mountain_texture, _mountain_normal_texture) if _mountain_normal_texture != null else null
+	_store_hit_mask(result)
 	_light_occluder_polygon = result.get("light_occluder_polygon", PackedVector2Array()) as PackedVector2Array
 	_render_origin_world = result.get("render_origin_world", Vector2.ZERO) as Vector2
 	_render_size_world = result.get("render_size_world", Vector2.ZERO) as Vector2
 	_sync_render_nodes()
-	_debug_snapshot = result.duplicate(true)
-	_debug_snapshot.erase("image")
-	_debug_snapshot.erase("normal_image")
-	_debug_snapshot.erase("ground_image")
-	_debug_snapshot.erase("ground_normal_image")
-	_debug_snapshot.erase("mountain_image")
-	_debug_snapshot.erase("mountain_normal_image")
-	_debug_snapshot.erase("light_occluder_polygon")
+	_debug_snapshot = _compact_native_result(result)
 	_debug_snapshot["preset"] = get_preset()
 	_debug_snapshot["normal_preview"] = _display_normal_map
 	_debug_snapshot["light_preview"] = _display_light_map
@@ -203,6 +248,16 @@ func rebuild_from_packets(packets: Array[Dictionary], target_chunk: Vector2i) ->
 	_debug_snapshot["mountain_lit_texture_ready"] = _mountain_lit_texture != null
 	_debug_snapshot["lit_split_surface_ready"] = _ground_lit_texture != null and _mountain_lit_texture != null
 	_debug_snapshot["light_occluder_ready"] = _light_occluder_polygon.size() >= 8
+	_debug_snapshot["hit_mask_ready"] = _hit_mask_width > 0 and _hit_mask_height > 0 and not _hit_mask.is_empty()
+	_debug_snapshot["hit_mask_width"] = _hit_mask_width
+	_debug_snapshot["hit_mask_height"] = _hit_mask_height
+	_debug_snapshot["hit_mask_step_px"] = _hit_mask_step_px
+	_debug_snapshot["hit_mask_origin_world"] = _hit_mask_origin_world
+	_debug_snapshot["ground_surface_visible"] = _display_ground_surface
+	_debug_snapshot["target_chunk_anchor_enabled"] = _anchor_to_target_chunk
+	_debug_snapshot["layer_position"] = position
+	_debug_snapshot["target_chunk"] = target_chunk
+	_debug_snapshot["packet_count"] = packet_count if packet_count > 0 else int(_debug_snapshot.get("packet_count", 0))
 	queue_redraw()
 
 func clear_plateau() -> void:
@@ -216,6 +271,10 @@ func clear_plateau() -> void:
 		"lit_texture_ready": false,
 		"lit_split_surface_ready": false,
 		"light_occluder_ready": false,
+		"hit_mask_ready": false,
+		"ground_surface_visible": _display_ground_surface,
+		"target_chunk_anchor_enabled": _anchor_to_target_chunk,
+		"layer_position": position,
 	}
 	queue_redraw()
 
@@ -257,6 +316,46 @@ func set_display_light_map(enabled: bool) -> void:
 func is_displaying_light_map() -> bool:
 	return _display_light_map
 
+func set_ground_surface_enabled(enabled: bool) -> void:
+	_display_ground_surface = enabled
+	_debug_snapshot["ground_surface_visible"] = _display_ground_surface
+	_sync_render_nodes()
+	queue_redraw()
+
+func is_ground_surface_enabled() -> bool:
+	return _display_ground_surface
+
+func set_target_chunk_anchor_enabled(enabled: bool) -> void:
+	_anchor_to_target_chunk = enabled
+	_debug_snapshot["target_chunk_anchor_enabled"] = _anchor_to_target_chunk
+	_debug_snapshot["layer_position"] = position
+
+func is_target_chunk_anchor_enabled() -> bool:
+	return _anchor_to_target_chunk
+
+func sample_mountain_hit_at_world(world_pos: Vector2) -> Dictionary:
+	if _hit_mask.is_empty() or _hit_mask_width <= 0 or _hit_mask_height <= 0 or _hit_mask_step_px <= 0.0:
+		return {
+			"ready": false,
+			"in_bounds": false,
+			"solid": false,
+		}
+	var mask_position: Vector2 = (world_pos - _hit_mask_origin_world) / _hit_mask_step_px
+	var x: int = floori(mask_position.x)
+	var y: int = floori(mask_position.y)
+	if x < 0 or y < 0 or x >= _hit_mask_width or y >= _hit_mask_height:
+		return {
+			"ready": true,
+			"in_bounds": false,
+			"solid": false,
+		}
+	var index: int = y * _hit_mask_width + x
+	return {
+		"ready": true,
+		"in_bounds": true,
+		"solid": int(_hit_mask[index]) != 0,
+	}
+
 func _draw() -> void:
 	pass
 
@@ -271,6 +370,36 @@ func _clear_textures() -> void:
 	_mountain_normal_texture = null
 	_mountain_lit_texture = null
 	_light_occluder_polygon = PackedVector2Array()
+	_hit_mask = PackedByteArray()
+	_hit_mask_width = 0
+	_hit_mask_height = 0
+	_hit_mask_origin_world = Vector2.ZERO
+	_hit_mask_step_px = 0.0
+
+func _store_hit_mask(result: Dictionary) -> void:
+	_hit_mask = result.get("hit_mask", PackedByteArray()) as PackedByteArray
+	_hit_mask_width = int(result.get("hit_mask_width", 0))
+	_hit_mask_height = int(result.get("hit_mask_height", 0))
+	_hit_mask_origin_world = result.get("hit_mask_origin_world", Vector2.ZERO) as Vector2
+	_hit_mask_step_px = float(result.get("hit_mask_step_px", 0.0))
+
+func _compact_native_result(result: Dictionary) -> Dictionary:
+	var compact: Dictionary = {}
+	for key_variant: Variant in result.keys():
+		var key: Variant = key_variant
+		if key in [
+			"image",
+			"normal_image",
+			"ground_image",
+			"ground_normal_image",
+			"mountain_image",
+			"mountain_normal_image",
+			"light_occluder_polygon",
+			"hit_mask",
+		]:
+			continue
+		compact[key] = result[key]
+	return compact
 
 func _create_lit_texture(diffuse: Texture2D, normal: Texture2D) -> CanvasTexture:
 	var lit_texture := CanvasTexture.new()
@@ -290,11 +419,11 @@ func _ensure_render_nodes() -> void:
 		_light_occluder.name = "MountainLightOccluder"
 		add_child(_light_occluder)
 
-func _create_sprite(sprite_name: String, sprite_z_index: int) -> Sprite2D:
+func _create_sprite(sprite_name: String, _sprite_z_index: int) -> Sprite2D:
 	var sprite := Sprite2D.new()
 	sprite.name = sprite_name
 	sprite.centered = false
-	sprite.z_index = sprite_z_index
+	sprite.z_index = 0
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	add_child(sprite)
 	return sprite
@@ -304,11 +433,11 @@ func _sync_render_nodes() -> void:
 	_ground_sprite.position = _render_origin_world
 	_mountain_sprite.position = _render_origin_world
 	_normal_preview_sprite.position = _render_origin_world
-	_ground_sprite.texture = _ground_lit_texture if _display_light_map else _ground_texture
+	_ground_sprite.texture = _ground_lit_texture if _display_light_map and _ground_lit_texture != null else _ground_texture
 	_mountain_sprite.texture = _mountain_lit_texture if _display_light_map else _mountain_texture
 	_normal_preview_sprite.texture = _normal_texture
-	_ground_sprite.visible = _image_texture != null and not _display_normal_map
-	_mountain_sprite.visible = _image_texture != null and not _display_normal_map
+	_ground_sprite.visible = _ground_texture != null and not _display_normal_map and _display_ground_surface
+	_mountain_sprite.visible = _mountain_texture != null and not _display_normal_map
 	_normal_preview_sprite.visible = _normal_texture != null and _display_normal_map
 	var has_occluder_polygon: bool = _light_occluder_polygon.size() >= 8
 	if has_occluder_polygon:
@@ -323,12 +452,22 @@ func _ensure_source_images_loaded() -> void:
 	if _face_image == null:
 		_face_image = _load_external_image(FACE_TEXTURE_PATH, "mountain face")
 
+func _resolve_layer_position(target_chunk: Vector2i) -> Vector2:
+	if not _anchor_to_target_chunk:
+		return Vector2.ZERO
+	return -WorldRuntimeConstants.chunk_origin_px(target_chunk)
+
 func _load_external_image(path: String, label: String) -> Image:
-	var image := Image.new()
-	var error: Error = image.load(path)
-	if error != OK:
-		push_error("MountainPlateau2DRasterLayer cannot load %s image: %s" % [label, path])
+	var texture: Texture2D = load(path) as Texture2D
+	if texture == null:
+		push_error("MountainPlateau2DRasterLayer cannot load %s texture: %s" % [label, path])
 		return null
+	var image: Image = texture.get_image()
+	if image == null:
+		push_error("MountainPlateau2DRasterLayer %s texture has no readable image: %s" % [label, path])
+		return null
+	if image.is_compressed():
+		image.decompress()
 	if image.get_format() != Image.FORMAT_RGBA8:
 		image.convert(Image.FORMAT_RGBA8)
 	return image

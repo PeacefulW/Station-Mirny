@@ -3,8 +3,8 @@ extends Node2D
 
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
-const TOP_TEXTURE_PATH: String = "C:/Users/peaceful/Station Peaceful/Новая папка (3)/top.png"
-const FACE_TEXTURE_PATH: String = "C:/Users/peaceful/Station Peaceful/Новая папка (3)/face.png"
+const TOP_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_top.png"
+const FACE_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_face.png"
 
 const TILE_SIZE_PX: float = 64.0
 const DIR_N: int = 0
@@ -114,12 +114,10 @@ func _ensure_textures_loaded() -> void:
 		_face_texture = _load_external_texture(FACE_TEXTURE_PATH, "mountain face")
 
 func _load_external_texture(path: String, label: String) -> Texture2D:
-	var image := Image.new()
-	var error: Error = image.load(path)
-	if error != OK:
+	var texture: Texture2D = load(path) as Texture2D
+	if texture == null:
 		push_error("MountainPlateau2DLayer cannot load %s texture: %s" % [label, path])
-		return null
-	return ImageTexture.create_from_image(image)
+	return texture
 
 func _collect_mountain_tiles(packet: Dictionary) -> void:
 	var chunk_coord: Vector2i = packet.get("chunk_coord", Vector2i.ZERO) as Vector2i

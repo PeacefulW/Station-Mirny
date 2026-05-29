@@ -871,6 +871,7 @@ void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("generate_chunk_packets_batch", "seed", "coords", "world_version", "settings_packed"), &WorldCore::generate_chunk_packets_batch);
 	ClassDB::bind_method(D_METHOD("make_world_preview_patch_image", "packet", "render_mode"), &WorldCore::make_world_preview_patch_image);
 	ClassDB::bind_method(D_METHOD("build_mountain_contour_debug", "solid_halo", "chunk_size", "tile_size_px"), &WorldCore::build_mountain_contour_debug);
+	ClassDB::bind_method(D_METHOD("build_mountain_halo_mask", "solid_halo", "chunk_size", "tile_size_px", "pixels_per_tile", "origin_world_x", "origin_world_y"), &WorldCore::build_mountain_halo_mask);
 	ClassDB::bind_method(D_METHOD("build_mountain_plateau_raster_image", "packets", "target_chunk", "preset", "top_image", "face_image"), &WorldCore::build_mountain_plateau_raster_image);
 	ClassDB::bind_method(D_METHOD("resolve_world_foundation_spawn_tile", "seed", "world_version", "settings_packed"), &WorldCore::resolve_world_foundation_spawn_tile);
 #ifdef DEBUG_ENABLED
@@ -1042,6 +1043,24 @@ Dictionary WorldCore::build_mountain_contour_debug(
 		p_solid_halo,
 		static_cast<int32_t>(p_chunk_size),
 		static_cast<int32_t>(p_tile_size_px)
+	);
+}
+
+Dictionary WorldCore::build_mountain_halo_mask(
+	PackedByteArray p_solid_halo,
+	int64_t p_chunk_size,
+	int64_t p_tile_size_px,
+	int64_t p_pixels_per_tile,
+	double p_origin_world_x,
+	double p_origin_world_y
+) {
+	return mountain_contour::build_halo_mask(
+		p_solid_halo,
+		static_cast<int32_t>(p_chunk_size),
+		static_cast<int32_t>(p_tile_size_px),
+		static_cast<int32_t>(p_pixels_per_tile),
+		p_origin_world_x,
+		p_origin_world_y
 	);
 }
 

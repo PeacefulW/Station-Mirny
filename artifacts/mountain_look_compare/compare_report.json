@@ -1,0 +1,10 @@
+{
+	"baked_png": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/mountain_look_compare/A_baked_raster.png",
+	"density": 0.6,
+	"seed": 131071,
+	"shader_png": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/mountain_look_compare/B_shader_from_mask.png",
+	"side_by_side_png": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/mountain_look_compare/compare_side_by_side.png",
+	"solid_mountain_tiles": 249,
+	"target_chunk": "(156, 52)",
+	"view_size": 1280
+}

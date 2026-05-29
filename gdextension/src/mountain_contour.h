@@ -12,6 +12,15 @@ godot::Dictionary build_debug_mesh(
 	int32_t p_tile_size_px
 );
 
+godot::Dictionary build_halo_mask(
+	const godot::PackedByteArray &p_solid_halo,
+	int32_t p_chunk_size,
+	int32_t p_tile_size_px,
+	int32_t p_pixels_per_tile,
+	double p_origin_world_x,
+	double p_origin_world_y
+);
+
 } // namespace mountain_contour
 
 #endif

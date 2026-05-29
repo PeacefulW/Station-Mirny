@@ -6,6 +6,12 @@ const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_fac
 const TerrainPresentationRegistry = preload("res://core/systems/world/terrain_presentation_registry.gd")
 const ChunkDebugVisualLayer = preload("res://core/systems/world/chunk_debug_visual_layer.gd")
 const MOUNTAIN_COVER_SHADER = preload("res://assets/shaders/mountain_cover_overlay.gdshader")
+const MOUNTAIN_TOP_MASK_UNDERLAY_SHADER = preload("res://assets/shaders/mountain_top_mask_underlay.gdshader")
+
+# Visual-only south facade height for the mask underlay shader ("wall with roof").
+# Single tunable source; collision stays on the top silhouette (mask hit test).
+const MOUNTAIN_FACADE_HEIGHT_PX: float = 72.0
+const MOUNTAIN_FACE_TEXTURE_SCALE: float = 0.46
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 
@@ -27,6 +33,34 @@ var _apply_index: int = 0
 var _debug_grid_visible: bool = false
 var _debug_solid_mask_visible: bool = false
 var _debug_contour_visible: bool = false
+var _mountain_tile_visuals_enabled: bool = true
+var _skip_full_mountain_surface_apply: bool = false
+var _mountain_page_sprite: Sprite2D = null
+var _mountain_top_mask_sprite: Sprite2D = null
+var _mountain_page_texture: ImageTexture = null
+var _mountain_page_image: Image = null
+var _mountain_page_normal_texture: ImageTexture = null
+var _mountain_page_lit_texture: CanvasTexture = null
+var _mountain_top_mask_texture: ImageTexture = null
+var _mountain_top_mask_image: Image = null
+var _mountain_top_mask_bytes: PackedByteArray = PackedByteArray()
+var _mountain_top_mask_width: int = 0
+var _mountain_top_mask_height: int = 0
+var _mountain_top_mask_material: ShaderMaterial = null
+var _mountain_top_mask_origin_world: Vector2 = Vector2.ZERO
+var _mountain_top_mask_step_px: float = 0.0
+var _mountain_top_mask_texture_scale: float = 0.70
+var _mountain_top_mask_visual_dirty: bool = false
+var _mountain_interior_fill_active: bool = false
+var _mountain_page_hit_mask: PackedByteArray = PackedByteArray()
+var _mountain_page_hit_mask_width: int = 0
+var _mountain_page_hit_mask_height: int = 0
+var _mountain_page_hit_mask_origin_world: Vector2 = Vector2.ZERO
+var _mountain_page_hit_mask_step_px: float = 0.0
+var _mountain_page_render_origin_world: Vector2 = Vector2.ZERO
+var _mountain_page_debug: Dictionary = {
+	"ready": false,
+}
 var _debug_solid_mask: PackedByteArray = PackedByteArray()
 var _debug_contour_vertices: PackedVector2Array = PackedVector2Array()
 var _debug_contour_indices: PackedInt32Array = PackedInt32Array()
@@ -50,6 +84,7 @@ func begin_apply(packet: Dictionary) -> void:
 	_pending_mountain_ids = (packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array).duplicate()
 	_pending_mountain_flags = (packet.get("mountain_flags", PackedByteArray()) as PackedByteArray).duplicate()
 	_pending_mountain_atlas_indices = (packet.get("mountain_atlas_indices", PackedInt32Array()) as PackedInt32Array).duplicate()
+	_skip_full_mountain_surface_apply = not _mountain_tile_visuals_enabled and _is_pending_full_mountain_surface()
 	_apply_index = 0
 	visible = false
 	_ensure_layers()
@@ -58,6 +93,10 @@ func begin_apply(packet: Dictionary) -> void:
 func apply_next_batch(batch_size: int) -> bool:
 	if _pending_terrain_ids.is_empty():
 		return false
+	if _skip_full_mountain_surface_apply:
+		_apply_index = _pending_terrain_ids.size()
+		_skip_full_mountain_surface_apply = false
+		return false
 	var end_index: int = mini(_apply_index + batch_size, _pending_terrain_ids.size())
 	for index: int in range(_apply_index, end_index):
 		var local_coord: Vector2i = WorldRuntimeConstants.index_to_local(index)
@@ -65,6 +104,9 @@ func apply_next_batch(batch_size: int) -> bool:
 		var terrain_atlas_index: int = 0
 		if index < _pending_terrain_atlas_indices.size():
 			terrain_atlas_index = int(_pending_terrain_atlas_indices[index])
+		if _should_suppress_mountain_visual(index, terrain_id):
+			_clear_mountain_visual_cell(local_coord)
+			continue
 		_apply_cell(local_coord, terrain_id, terrain_atlas_index)
 		_apply_water_cell(local_coord, index)
 		_apply_roof_cell(local_coord, index)
@@ -102,9 +144,20 @@ func apply_runtime_cell(
 			_pending_mountain_ids[index] = mountain_id
 			if _pending_mountain_flags.size() == WorldRuntimeConstants.CHUNK_CELL_COUNT:
 				_pending_mountain_flags[index] = mountain_flags
+	if _should_suppress_mountain_visual(index, terrain_id):
+		_clear_mountain_visual_cell(local_coord)
+		_refresh_debug_solid_mask()
+		return
 	_apply_cell(local_coord, terrain_id, terrain_atlas_index)
 	_apply_water_patch_around(local_coord)
 	_refresh_debug_solid_mask()
+
+func set_mountain_tile_visuals_enabled(enabled: bool) -> void:
+	if _mountain_tile_visuals_enabled == enabled:
+		return
+	_mountain_tile_visuals_enabled = enabled
+	if not _mountain_tile_visuals_enabled:
+		_clear_loaded_mountain_visuals()
 
 func set_debug_overlays(grid_visible: bool, solid_mask_visible: bool, contour_visible: bool) -> void:
 	_debug_grid_visible = grid_visible
@@ -137,6 +190,557 @@ func get_mountain_contour_debug_state() -> Dictionary:
 		"contour_index_count": _debug_contour_indices.size(),
 		"contour_triangle_count": _debug_contour_indices.size() / 3,
 	}
+
+func apply_mountain_render_page(result: Dictionary, top_texture: Texture2D = null, face_texture: Texture2D = null) -> void:
+	_ensure_mountain_page_sprite()
+	var mountain_image: Image = result.get("mountain_image", null) as Image
+	var top_mask: PackedByteArray = result.get("top_mask", PackedByteArray()) as PackedByteArray
+	if (mountain_image == null or mountain_image.is_empty()) and top_mask.is_empty():
+		clear_mountain_render_page()
+		return
+	_mountain_interior_fill_active = false
+	_apply_mountain_top_mask(result, top_texture, face_texture)
+	_mountain_page_image = (mountain_image.duplicate() as Image) if mountain_image != null and not mountain_image.is_empty() else null
+	_mountain_page_texture = ImageTexture.create_from_image(_mountain_page_image) if _mountain_page_image != null else null
+	_mountain_page_normal_texture = null
+	_mountain_page_lit_texture = null
+	_mountain_page_render_origin_world = result.get("render_origin_world", Vector2.ZERO) as Vector2
+	_mountain_page_sprite.position = _mountain_page_render_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	_mountain_page_sprite.scale = Vector2.ONE
+	_mountain_page_sprite.texture = _mountain_page_lit_texture if _mountain_page_lit_texture != null else _mountain_page_texture
+	_mountain_page_sprite.visible = _mountain_page_texture != null
+	_mountain_page_hit_mask = result.get("hit_mask", PackedByteArray()) as PackedByteArray
+	_mountain_page_hit_mask_width = int(result.get("hit_mask_width", 0))
+	_mountain_page_hit_mask_height = int(result.get("hit_mask_height", 0))
+	_mountain_page_hit_mask_origin_world = result.get("hit_mask_origin_world", Vector2.ZERO) as Vector2
+	_mountain_page_hit_mask_step_px = float(result.get("hit_mask_step_px", 0.0))
+	_mountain_page_debug = _compact_mountain_page_result(result)
+	_mountain_page_debug["ready"] = true
+	_mountain_page_debug["chunk_coord"] = chunk_coord
+
+func apply_mountain_hit_page(result: Dictionary) -> void:
+	_ensure_mountain_page_sprite()
+	_mountain_interior_fill_active = false
+	_mountain_page_texture = null
+	_mountain_page_image = null
+	_mountain_page_normal_texture = null
+	_mountain_page_lit_texture = null
+	_mountain_page_render_origin_world = result.get("render_origin_world", Vector2.ZERO) as Vector2
+	_mountain_page_sprite.texture = null
+	_mountain_page_sprite.visible = false
+	_mountain_page_sprite.scale = Vector2.ONE
+	_clear_mountain_top_mask()
+	_mountain_page_hit_mask = result.get("hit_mask", PackedByteArray()) as PackedByteArray
+	_mountain_page_hit_mask_width = int(result.get("hit_mask_width", 0))
+	_mountain_page_hit_mask_height = int(result.get("hit_mask_height", 0))
+	_mountain_page_hit_mask_origin_world = result.get("hit_mask_origin_world", Vector2.ZERO) as Vector2
+	_mountain_page_hit_mask_step_px = float(result.get("hit_mask_step_px", 0.0))
+	_mountain_page_debug = _compact_mountain_page_result(result)
+	_mountain_page_debug["ready"] = true
+	_mountain_page_debug["hit_only"] = true
+	_mountain_page_debug["chunk_coord"] = chunk_coord
+
+func apply_mountain_interior_fill(top_texture: Texture2D, face_texture: Texture2D = null, top_texture_scale: float = 0.70) -> void:
+	if top_texture == null:
+		clear_mountain_render_page()
+		return
+	_ensure_mountain_page_sprite()
+	_mountain_interior_fill_active = true
+	_mountain_page_texture = null
+	_mountain_page_image = null
+	_mountain_page_normal_texture = null
+	_mountain_page_lit_texture = null
+	_mountain_page_hit_mask = PackedByteArray()
+	_mountain_page_hit_mask_width = 0
+	_mountain_page_hit_mask_height = 0
+	_mountain_page_hit_mask_origin_world = Vector2.ZERO
+	_mountain_page_hit_mask_step_px = 0.0
+	_mountain_page_render_origin_world = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	_mountain_page_sprite.texture = null
+	_mountain_page_sprite.visible = false
+	_apply_mountain_full_top_fill(top_texture, face_texture, top_texture_scale)
+	_mountain_page_debug = {
+		"ready": true,
+		"chunk_coord": chunk_coord,
+		"interior_fill": true,
+	}
+
+func apply_mountain_mask_fill(packet: Dictionary, top_texture: Texture2D, face_texture: Texture2D = null, top_texture_scale: float = 0.70) -> void:
+	if top_texture == null:
+		clear_mountain_render_page()
+		return
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	var walkable_flags: PackedByteArray = packet.get("walkable_flags", PackedByteArray()) as PackedByteArray
+	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
+	var mask := PackedByteArray()
+	mask.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	for index: int in range(WorldRuntimeConstants.CHUNK_CELL_COUNT):
+		if index >= terrain_ids.size():
+			continue
+		var terrain_id: int = int(terrain_ids[index])
+		if not _is_mountain_visual_terrain(terrain_id):
+			continue
+		if index < walkable_flags.size() and int(walkable_flags[index]) != 0:
+			continue
+		if terrain_id != WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED and index < mountain_flags.size():
+			var flags: int = int(mountain_flags[index])
+			if (flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) == 0:
+				continue
+		mask[index] = 255
+	var mask_image: Image = Image.create_from_data(
+		WorldRuntimeConstants.CHUNK_SIZE,
+		WorldRuntimeConstants.CHUNK_SIZE,
+		false,
+		Image.FORMAT_L8,
+		mask
+	)
+	mask_image.resize(
+		WorldRuntimeConstants.CHUNK_SIZE * 8,
+		WorldRuntimeConstants.CHUNK_SIZE * 8,
+		Image.INTERPOLATE_CUBIC
+	)
+	_apply_mountain_mask_image(
+		mask_image,
+		top_texture,
+		face_texture,
+		top_texture_scale,
+		float(WorldRuntimeConstants.TILE_SIZE_PX) / 8.0,
+		WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	)
+	_mountain_interior_fill_active = false
+	_mountain_page_texture = null
+	_mountain_page_image = null
+	_mountain_page_normal_texture = null
+	_mountain_page_lit_texture = null
+	_mountain_page_hit_mask = PackedByteArray()
+	_mountain_page_hit_mask_width = 0
+	_mountain_page_hit_mask_height = 0
+	_mountain_page_hit_mask_origin_world = Vector2.ZERO
+	_mountain_page_hit_mask_step_px = 0.0
+	_mountain_page_render_origin_world = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	_mountain_page_debug = {
+		"ready": true,
+		"chunk_coord": chunk_coord,
+		"mask_fill": true,
+		"mask_size": mask_image.get_size(),
+	}
+
+func apply_mountain_halo_mask_fill(
+	solid_halo: PackedByteArray,
+	top_texture: Texture2D,
+	face_texture: Texture2D = null,
+	top_texture_scale: float = 0.70
+) -> void:
+	if top_texture == null:
+		clear_mountain_render_page()
+		return
+	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + 2
+	if solid_halo.size() != halo_side * halo_side:
+		apply_mountain_interior_fill(top_texture, face_texture, top_texture_scale)
+		return
+	var mask_bytes := PackedByteArray()
+	mask_bytes.resize(solid_halo.size())
+	for index: int in range(solid_halo.size()):
+		mask_bytes[index] = 255 if int(solid_halo[index]) != 0 else 0
+	var mask_image: Image = Image.create_from_data(
+		halo_side,
+		halo_side,
+		false,
+		Image.FORMAT_L8,
+		mask_bytes
+	)
+	mask_image.resize(
+		halo_side * 8,
+		halo_side * 8,
+		Image.INTERPOLATE_CUBIC
+	)
+	_apply_mountain_mask_image(
+		mask_image,
+		top_texture,
+		face_texture,
+		top_texture_scale,
+		float(WorldRuntimeConstants.TILE_SIZE_PX) / 8.0,
+		WorldRuntimeConstants.chunk_origin_px(chunk_coord) - Vector2.ONE * float(WorldRuntimeConstants.TILE_SIZE_PX)
+	)
+	_mountain_interior_fill_active = false
+	_mountain_page_texture = null
+	_mountain_page_image = null
+	_mountain_page_normal_texture = null
+	_mountain_page_lit_texture = null
+	_mountain_page_hit_mask = PackedByteArray()
+	_mountain_page_hit_mask_width = 0
+	_mountain_page_hit_mask_height = 0
+	_mountain_page_hit_mask_origin_world = Vector2.ZERO
+	_mountain_page_hit_mask_step_px = 0.0
+	_mountain_page_render_origin_world = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	_mountain_page_debug = {
+		"ready": true,
+		"chunk_coord": chunk_coord,
+		"halo_mask_fill": true,
+		"mask_size": mask_image.get_size(),
+	}
+
+func apply_mountain_native_mask_fill(
+	mask_result: Dictionary,
+	mask_origin_world: Vector2,
+	top_texture: Texture2D,
+	face_texture: Texture2D = null,
+	top_texture_scale: float = 0.70
+) -> void:
+	if top_texture == null:
+		clear_mountain_render_page()
+		return
+	if not apply_mountain_native_mask_data(mask_result, mask_origin_world, top_texture_scale):
+		clear_mountain_render_page()
+		return
+	apply_pending_mountain_native_mask_visual(top_texture, face_texture)
+
+func apply_mountain_native_mask_data(
+	mask_result: Dictionary,
+	mask_origin_world: Vector2,
+	top_texture_scale: float = 0.70
+) -> bool:
+	var mask_bytes: PackedByteArray = mask_result.get("mask", PackedByteArray()) as PackedByteArray
+	var mask_width: int = int(mask_result.get("width", 0))
+	var mask_height: int = int(mask_result.get("height", 0))
+	var mask_step_px: float = float(mask_result.get("step_px", 0.0))
+	if mask_width <= 0 \
+			or mask_height <= 0 \
+			or mask_step_px <= 0.0 \
+			or mask_bytes.size() != mask_width * mask_height:
+		return false
+	_mountain_top_mask_image = null
+	_mountain_top_mask_bytes = mask_bytes.duplicate()
+	_mountain_top_mask_width = mask_width
+	_mountain_top_mask_height = mask_height
+	_mountain_top_mask_origin_world = mask_origin_world
+	_mountain_top_mask_step_px = mask_step_px
+	_mountain_top_mask_texture_scale = top_texture_scale
+	_mountain_top_mask_visual_dirty = true
+	_mountain_interior_fill_active = false
+	_mountain_page_texture = null
+	_mountain_page_image = null
+	_mountain_page_normal_texture = null
+	_mountain_page_lit_texture = null
+	_mountain_page_hit_mask = PackedByteArray()
+	_mountain_page_hit_mask_width = 0
+	_mountain_page_hit_mask_height = 0
+	_mountain_page_hit_mask_origin_world = Vector2.ZERO
+	_mountain_page_hit_mask_step_px = 0.0
+	_mountain_page_render_origin_world = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	_mountain_page_debug = {
+		"ready": true,
+		"chunk_coord": chunk_coord,
+		"native_mask_fill": true,
+		"native_mask_visual_pending": true,
+		"native_mask_visual_ready": _mountain_top_mask_texture != null,
+		"mask_size": Vector2i(mask_width, mask_height),
+		"solid_sample_count": int(mask_result.get("solid_sample_count", 0)),
+		"pixels_per_tile": int(mask_result.get("pixels_per_tile", 0)),
+	}
+	return true
+
+func apply_pending_mountain_native_mask_visual(top_texture: Texture2D, face_texture: Texture2D = null) -> bool:
+	if not _mountain_top_mask_visual_dirty:
+		return false
+	if top_texture == null \
+			or _mountain_top_mask_width <= 0 \
+			or _mountain_top_mask_height <= 0 \
+			or _mountain_top_mask_step_px <= 0.0 \
+			or _mountain_top_mask_bytes.size() != _mountain_top_mask_width * _mountain_top_mask_height:
+		return false
+	var mask_image: Image = Image.create_from_data(
+		_mountain_top_mask_width,
+		_mountain_top_mask_height,
+		false,
+		Image.FORMAT_L8,
+		_mountain_top_mask_bytes
+	)
+	_upload_mountain_mask_texture(
+		mask_image,
+		top_texture,
+		face_texture,
+		_mountain_top_mask_texture_scale,
+		_mountain_top_mask_step_px,
+		_mountain_top_mask_origin_world
+	)
+	_mountain_top_mask_image = mask_image
+	_mountain_top_mask_visual_dirty = false
+	_mountain_page_debug["native_mask_visual_pending"] = false
+	_mountain_page_debug["native_mask_visual_ready"] = true
+	return true
+
+func invalidate_mountain_render_page_hit_mask_keep_visual() -> void:
+	_mountain_page_hit_mask = PackedByteArray()
+	_mountain_page_hit_mask_width = 0
+	_mountain_page_hit_mask_height = 0
+	_mountain_page_hit_mask_origin_world = Vector2.ZERO
+	_mountain_page_hit_mask_step_px = 0.0
+	_mountain_page_debug["ready"] = false
+	_mountain_page_debug["visual_stale"] = true
+
+func _apply_mountain_top_mask(result: Dictionary, top_texture: Texture2D, face_texture: Texture2D) -> void:
+	var top_mask: PackedByteArray = result.get("top_mask", PackedByteArray()) as PackedByteArray
+	var top_mask_width: int = int(result.get("top_mask_width", 0))
+	var top_mask_height: int = int(result.get("top_mask_height", 0))
+	if top_texture == null \
+			or top_mask.is_empty() \
+			or top_mask_width <= 0 \
+			or top_mask_height <= 0 \
+			or top_mask.size() != top_mask_width * top_mask_height:
+		_clear_mountain_top_mask()
+		return
+	var top_mask_image: Image = Image.create_from_data(
+		top_mask_width,
+		top_mask_height,
+		false,
+		Image.FORMAT_L8,
+		top_mask
+	)
+	var top_mask_origin_world: Vector2 = result.get("top_mask_origin_world", Vector2.ZERO) as Vector2
+	var top_mask_step_px: float = float(result.get("top_mask_step_px", 1.0))
+	_apply_mountain_mask_image(top_mask_image, top_texture, face_texture, float(result.get("top_texture_scale", 0.70)), top_mask_step_px, top_mask_origin_world)
+
+func _apply_mountain_mask_image(
+	mask_image: Image,
+	top_texture: Texture2D,
+	face_texture: Texture2D,
+	top_texture_scale: float,
+	mask_step_px: float,
+	mask_origin_world: Vector2
+) -> void:
+	_mountain_top_mask_image = mask_image
+	_mountain_top_mask_bytes = mask_image.get_data()
+	_mountain_top_mask_width = mask_image.get_width()
+	_mountain_top_mask_height = mask_image.get_height()
+	_mountain_top_mask_origin_world = mask_origin_world
+	_mountain_top_mask_step_px = mask_step_px
+	_mountain_top_mask_texture_scale = top_texture_scale
+	_mountain_top_mask_visual_dirty = false
+	_upload_mountain_mask_texture(
+		mask_image,
+		top_texture,
+		face_texture,
+		top_texture_scale,
+		mask_step_px,
+		mask_origin_world
+	)
+
+func _upload_mountain_mask_texture(
+	mask_image: Image,
+	top_texture: Texture2D,
+	face_texture: Texture2D,
+	top_texture_scale: float,
+	mask_step_px: float,
+	mask_origin_world: Vector2
+) -> void:
+	if _mountain_top_mask_texture != null \
+			and _mountain_top_mask_texture.get_width() == _mountain_top_mask_width \
+			and _mountain_top_mask_texture.get_height() == _mountain_top_mask_height:
+		_mountain_top_mask_texture.update(mask_image)
+	else:
+		_mountain_top_mask_texture = ImageTexture.create_from_image(mask_image)
+	var sprite: Sprite2D = _ensure_mountain_top_mask_sprite()
+	var material: ShaderMaterial = _ensure_mountain_top_mask_material()
+	_mountain_top_mask_origin_world = mask_origin_world
+	_mountain_top_mask_step_px = mask_step_px
+	_mountain_top_mask_texture_scale = top_texture_scale
+	material.set_shader_parameter("top_texture", top_texture)
+	material.set_shader_parameter("top_texture_size", Vector2(
+		maxf(1.0, float(top_texture.get_width())),
+		maxf(1.0, float(top_texture.get_height()))
+	))
+	if face_texture == null:
+		face_texture = top_texture
+	if face_texture != null:
+		material.set_shader_parameter("face_texture", face_texture)
+		material.set_shader_parameter("face_texture_size", Vector2(
+			maxf(1.0, float(face_texture.get_width())),
+			maxf(1.0, float(face_texture.get_height()))
+		))
+	material.set_shader_parameter("world_origin_px", mask_origin_world)
+	material.set_shader_parameter("sample_step_px", mask_step_px)
+	material.set_shader_parameter("top_texture_scale", top_texture_scale)
+	material.set_shader_parameter("face_texture_scale", MOUNTAIN_FACE_TEXTURE_SCALE)
+	material.set_shader_parameter("facade_height_px", MOUNTAIN_FACADE_HEIGHT_PX)
+	sprite.material = material
+	sprite.position = mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	sprite.scale = Vector2.ONE * mask_step_px
+	sprite.texture = _mountain_top_mask_texture
+	sprite.visible = true
+
+func _clear_mountain_top_mask() -> void:
+	if _mountain_top_mask_sprite != null and is_instance_valid(_mountain_top_mask_sprite):
+		_mountain_top_mask_sprite.texture = null
+		_mountain_top_mask_sprite.visible = false
+		_mountain_top_mask_sprite.scale = Vector2.ONE
+		_mountain_top_mask_sprite.material = null
+	_mountain_top_mask_texture = null
+	_mountain_top_mask_image = null
+	_mountain_top_mask_bytes = PackedByteArray()
+	_mountain_top_mask_width = 0
+	_mountain_top_mask_height = 0
+	_mountain_top_mask_origin_world = Vector2.ZERO
+	_mountain_top_mask_step_px = 0.0
+	_mountain_top_mask_texture_scale = 0.70
+	_mountain_top_mask_visual_dirty = false
+
+func _apply_mountain_full_top_fill(top_texture: Texture2D, face_texture: Texture2D, top_texture_scale: float) -> void:
+	var mask := PackedByteArray()
+	mask.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	mask.fill(255)
+	_mountain_top_mask_image = Image.create_from_data(
+		WorldRuntimeConstants.CHUNK_SIZE,
+		WorldRuntimeConstants.CHUNK_SIZE,
+		false,
+		Image.FORMAT_L8,
+		mask
+	)
+	var chunk_origin_world: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	_apply_mountain_mask_image(
+		_mountain_top_mask_image,
+		top_texture,
+		face_texture,
+		top_texture_scale,
+		float(WorldRuntimeConstants.TILE_SIZE_PX),
+		chunk_origin_world
+	)
+
+func clear_mountain_render_page() -> void:
+	if _mountain_page_sprite != null and is_instance_valid(_mountain_page_sprite):
+		_mountain_page_sprite.texture = null
+		_mountain_page_sprite.visible = false
+		_mountain_page_sprite.scale = Vector2.ONE
+	_mountain_interior_fill_active = false
+	_mountain_page_texture = null
+	_mountain_page_image = null
+	_mountain_page_normal_texture = null
+	_mountain_page_lit_texture = null
+	_clear_mountain_top_mask()
+	_mountain_page_hit_mask = PackedByteArray()
+	_mountain_page_hit_mask_width = 0
+	_mountain_page_hit_mask_height = 0
+	_mountain_page_hit_mask_origin_world = Vector2.ZERO
+	_mountain_page_hit_mask_step_px = 0.0
+	_mountain_page_render_origin_world = Vector2.ZERO
+	_mountain_page_debug = {
+		"ready": false,
+		"chunk_coord": chunk_coord,
+	}
+
+func apply_mountain_local_dig_patch(local_coord: Vector2i, padding_px: int = 2) -> bool:
+	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
+		return false
+	var patched: bool = false
+	var tile_min_world: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord) \
+		+ Vector2(float(local_coord.x), float(local_coord.y)) * float(WorldRuntimeConstants.TILE_SIZE_PX)
+	var tile_max_world: Vector2 = tile_min_world + Vector2.ONE * float(WorldRuntimeConstants.TILE_SIZE_PX)
+	if _clear_mountain_page_image_rect(tile_min_world, tile_max_world, padding_px):
+		patched = true
+	if _clear_mountain_top_mask_rect(tile_min_world, tile_max_world, padding_px):
+		patched = true
+	if _clear_mountain_page_hit_rect(tile_min_world, tile_max_world, padding_px):
+		patched = true
+	if patched:
+		_mountain_page_debug["local_dig_patch_count"] = int(_mountain_page_debug.get("local_dig_patch_count", 0)) + 1
+	return patched
+
+func apply_mountain_world_dig_patch(world_tile: Vector2i, padding_px: int = 2) -> bool:
+	var patched: bool = false
+	var tile_min_world: Vector2 = Vector2(
+		float(world_tile.x * WorldRuntimeConstants.TILE_SIZE_PX),
+		float(world_tile.y * WorldRuntimeConstants.TILE_SIZE_PX)
+	)
+	var tile_max_world: Vector2 = tile_min_world + Vector2.ONE * float(WorldRuntimeConstants.TILE_SIZE_PX)
+	if _clear_mountain_page_image_rect(tile_min_world, tile_max_world, padding_px):
+		patched = true
+	if _clear_mountain_top_mask_rect(tile_min_world, tile_max_world, padding_px):
+		patched = true
+	if _clear_mountain_page_hit_rect(tile_min_world, tile_max_world, padding_px):
+		patched = true
+	if patched:
+		_mountain_page_debug["world_dig_patch_count"] = int(_mountain_page_debug.get("world_dig_patch_count", 0)) + 1
+	return patched
+
+func has_mountain_render_page() -> bool:
+	return (_mountain_page_hit_mask_width > 0 \
+		and _mountain_page_hit_mask_height > 0 \
+		and not _mountain_page_hit_mask.is_empty()) \
+		or (_mountain_top_mask_width > 0 \
+		and _mountain_top_mask_height > 0 \
+		and not _mountain_top_mask_bytes.is_empty() \
+		and _mountain_top_mask_step_px > 0.0)
+
+func sample_mountain_page_hit_at_world(world_pos: Vector2) -> Dictionary:
+	if _mountain_page_hit_mask_width > 0 \
+			and _mountain_page_hit_mask_height > 0 \
+			and not _mountain_page_hit_mask.is_empty() \
+			and _mountain_page_hit_mask_step_px > 0.0:
+		var mask_position: Vector2 = (world_pos - _mountain_page_hit_mask_origin_world) / _mountain_page_hit_mask_step_px
+		var x: int = floori(mask_position.x)
+		var y: int = floori(mask_position.y)
+		if x < 0 or y < 0 or x >= _mountain_page_hit_mask_width or y >= _mountain_page_hit_mask_height:
+			return {
+				"ready": true,
+				"in_bounds": false,
+				"solid": false,
+				"chunk_coord": chunk_coord,
+			}
+		var index: int = y * _mountain_page_hit_mask_width + x
+		return {
+			"ready": true,
+			"in_bounds": true,
+			"solid": int(_mountain_page_hit_mask[index]) != 0,
+			"chunk_coord": chunk_coord,
+		}
+	if _mountain_top_mask_width <= 0 \
+			or _mountain_top_mask_height <= 0 \
+			or _mountain_top_mask_bytes.is_empty() \
+			or _mountain_top_mask_step_px <= 0.0:
+		return {
+			"ready": false,
+			"in_bounds": false,
+			"solid": false,
+			"chunk_coord": chunk_coord,
+		}
+	var mask_position: Vector2 = (world_pos - _mountain_top_mask_origin_world) / _mountain_top_mask_step_px
+	var x: int = floori(mask_position.x)
+	var y: int = floori(mask_position.y)
+	if x < 0 or y < 0 or x >= _mountain_top_mask_width or y >= _mountain_top_mask_height:
+		return {
+			"ready": true,
+			"in_bounds": false,
+			"solid": false,
+			"chunk_coord": chunk_coord,
+		}
+	var index: int = y * _mountain_top_mask_width + x
+	var mask: int = int(_mountain_top_mask_bytes[index]) if index >= 0 and index < _mountain_top_mask_bytes.size() else 0
+	return {
+		"ready": true,
+		"in_bounds": true,
+		"solid": mask > 107,
+		"chunk_coord": chunk_coord,
+	}
+
+func get_mountain_render_page_debug_state() -> Dictionary:
+	return _mountain_page_debug.duplicate(true)
+
+func get_mountain_native_mask_debug_state() -> Dictionary:
+	var debug := _mountain_page_debug.duplicate(true)
+	var active: bool = _mountain_top_mask_width > 0 \
+		and _mountain_top_mask_height > 0 \
+		and _mountain_top_mask_step_px > 0.0 \
+		and not _mountain_top_mask_bytes.is_empty()
+	debug["native_mask_active"] = active
+	debug["mask_width"] = _mountain_top_mask_width
+	debug["mask_height"] = _mountain_top_mask_height
+	debug["mask_step_px"] = _mountain_top_mask_step_px
+	debug["mask_byte_count"] = _mountain_top_mask_bytes.size()
+	debug["has_visual_texture"] = _mountain_top_mask_texture != null
+	debug["native_mask_visual_pending"] = _mountain_top_mask_visual_dirty
+	debug["native_mask_visual_ready"] = _mountain_top_mask_texture != null and not _mountain_top_mask_visual_dirty
+	debug["chunk_coord"] = chunk_coord
+	return debug
 
 func apply_cover_visibility(visible_mask: PackedByteArray) -> void:
 	_ensure_layers()
@@ -206,6 +810,128 @@ func _ensure_debug_layer() -> ChunkDebugVisualLayer:
 	add_child(_debug_layer)
 	return _debug_layer
 
+func _ensure_mountain_page_sprite() -> Sprite2D:
+	if _mountain_page_sprite != null and is_instance_valid(_mountain_page_sprite):
+		return _mountain_page_sprite
+	_mountain_page_sprite = Sprite2D.new()
+	_mountain_page_sprite.name = "MountainRenderPage"
+	_mountain_page_sprite.centered = false
+	_mountain_page_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_mountain_page_sprite.z_as_relative = false
+	_mountain_page_sprite.z_index = 8
+	add_child(_mountain_page_sprite)
+	return _mountain_page_sprite
+
+func _clear_mountain_page_image_rect(tile_min_world: Vector2, tile_max_world: Vector2, padding_px: int) -> bool:
+	if _mountain_page_image == null \
+			or _mountain_page_texture == null \
+			or _mountain_page_image.is_empty() \
+			or _mountain_page_hit_mask_step_px <= 0.0:
+		return false
+	var step_px: float = _mountain_page_hit_mask_step_px
+	var min_x: int = maxi(0, floori((tile_min_world.x - _mountain_page_render_origin_world.x) / step_px) - padding_px)
+	var min_y: int = maxi(0, floori((tile_min_world.y - _mountain_page_render_origin_world.y) / step_px) - padding_px)
+	var max_x: int = mini(_mountain_page_image.get_width() - 1, ceili((tile_max_world.x - _mountain_page_render_origin_world.x) / step_px) + padding_px)
+	var max_y: int = mini(_mountain_page_image.get_height() - 1, ceili((tile_max_world.y - _mountain_page_render_origin_world.y) / step_px) + padding_px)
+	if min_x > max_x or min_y > max_y:
+		return false
+	for y: int in range(min_y, max_y + 1):
+		for x: int in range(min_x, max_x + 1):
+			_mountain_page_image.set_pixel(x, y, Color(0.0, 0.0, 0.0, 0.0))
+	_mountain_page_texture.update(_mountain_page_image)
+	return true
+
+func _clear_mountain_page_hit_rect(tile_min_world: Vector2, tile_max_world: Vector2, padding_px: int) -> bool:
+	if _mountain_page_hit_mask.is_empty() \
+			or _mountain_page_hit_mask_width <= 0 \
+			or _mountain_page_hit_mask_height <= 0 \
+			or _mountain_page_hit_mask_step_px <= 0.0:
+		return false
+	var step_px: float = _mountain_page_hit_mask_step_px
+	var min_x: int = maxi(0, floori((tile_min_world.x - _mountain_page_hit_mask_origin_world.x) / step_px) - padding_px)
+	var min_y: int = maxi(0, floori((tile_min_world.y - _mountain_page_hit_mask_origin_world.y) / step_px) - padding_px)
+	var max_x: int = mini(_mountain_page_hit_mask_width - 1, ceili((tile_max_world.x - _mountain_page_hit_mask_origin_world.x) / step_px) + padding_px)
+	var max_y: int = mini(_mountain_page_hit_mask_height - 1, ceili((tile_max_world.y - _mountain_page_hit_mask_origin_world.y) / step_px) + padding_px)
+	if min_x > max_x or min_y > max_y:
+		return false
+	for y: int in range(min_y, max_y + 1):
+		var row_start: int = y * _mountain_page_hit_mask_width
+		for x: int in range(min_x, max_x + 1):
+			_mountain_page_hit_mask[row_start + x] = 0
+	return true
+
+func _clear_mountain_top_mask_rect(tile_min_world: Vector2, tile_max_world: Vector2, padding_px: int) -> bool:
+	if _mountain_top_mask_width <= 0 \
+			or _mountain_top_mask_height <= 0 \
+			or _mountain_top_mask_bytes.is_empty() \
+			or _mountain_top_mask_step_px <= 0.0:
+		return false
+	var step_px: float = _mountain_top_mask_step_px
+	var scaled_padding: int = ceili(float(padding_px) / step_px)
+	var min_x: int = maxi(0, floori((tile_min_world.x - _mountain_top_mask_origin_world.x) / step_px) - scaled_padding)
+	var min_y: int = maxi(0, floori((tile_min_world.y - _mountain_top_mask_origin_world.y) / step_px) - scaled_padding)
+	var max_x: int = mini(_mountain_top_mask_width - 1, ceili((tile_max_world.x - _mountain_top_mask_origin_world.x) / step_px) + scaled_padding)
+	var max_y: int = mini(_mountain_top_mask_height - 1, ceili((tile_max_world.y - _mountain_top_mask_origin_world.y) / step_px) + scaled_padding)
+	if min_x > max_x or min_y > max_y:
+		return false
+	var feather_px: float = maxf(step_px * 2.0, float(padding_px) * 2.0 + 6.0)
+	var image_changed: bool = _mountain_top_mask_image != null and not _mountain_top_mask_image.is_empty()
+	for y: int in range(min_y, max_y + 1):
+		for x: int in range(min_x, max_x + 1):
+			var index: int = y * _mountain_top_mask_width + x
+			if index < 0 or index >= _mountain_top_mask_bytes.size():
+				continue
+			var pixel_world: Vector2 = _mountain_top_mask_origin_world \
+				+ Vector2(float(x) + 0.5, float(y) + 0.5) * step_px
+			var clear_strength: float = _organic_dig_clear_strength(
+				pixel_world,
+				tile_min_world,
+				tile_max_world,
+				feather_px
+			)
+			if clear_strength <= 0.0:
+				continue
+			var next_mask: int = int(roundf(float(_mountain_top_mask_bytes[index]) * (1.0 - clear_strength)))
+			next_mask = clampi(next_mask, 0, 255)
+			_mountain_top_mask_bytes[index] = next_mask
+			if image_changed:
+				_mountain_top_mask_image.set_pixel(x, y, Color8(next_mask, next_mask, next_mask))
+	_mountain_top_mask_visual_dirty = true
+	_mountain_page_debug["native_mask_visual_pending"] = true
+	return true
+
+func _organic_dig_clear_strength(pixel_world: Vector2, tile_min_world: Vector2, tile_max_world: Vector2, feather_px: float) -> float:
+	var center: Vector2 = (tile_min_world + tile_max_world) * 0.5
+	var half_extent: Vector2 = (tile_max_world - tile_min_world) * 0.5 + Vector2.ONE * (feather_px * 0.45)
+	var radius: float = minf(half_extent.x, half_extent.y) * 0.46
+	var q: Vector2 = (pixel_world - center).abs() - (half_extent - Vector2.ONE * radius)
+	var outside := Vector2(maxf(q.x, 0.0), maxf(q.y, 0.0))
+	var sdf: float = outside.length() + minf(maxf(q.x, q.y), 0.0) - radius
+	if sdf <= -feather_px:
+		return 1.0
+	if sdf >= feather_px:
+		return 0.0
+	return 1.0 - smoothstep(-feather_px, feather_px, sdf)
+
+func _ensure_mountain_top_mask_sprite() -> Sprite2D:
+	if _mountain_top_mask_sprite != null and is_instance_valid(_mountain_top_mask_sprite):
+		return _mountain_top_mask_sprite
+	_mountain_top_mask_sprite = Sprite2D.new()
+	_mountain_top_mask_sprite.name = "MountainTopMaskUnderlay"
+	_mountain_top_mask_sprite.centered = false
+	_mountain_top_mask_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_mountain_top_mask_sprite.z_as_relative = false
+	_mountain_top_mask_sprite.z_index = 7
+	add_child(_mountain_top_mask_sprite)
+	return _mountain_top_mask_sprite
+
+func _ensure_mountain_top_mask_material() -> ShaderMaterial:
+	if _mountain_top_mask_material != null:
+		return _mountain_top_mask_material
+	_mountain_top_mask_material = ShaderMaterial.new()
+	_mountain_top_mask_material.shader = MOUNTAIN_TOP_MASK_UNDERLAY_SHADER
+	return _mountain_top_mask_material
+
 func _ensure_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
 	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
 	var terrain_layers: Dictionary = roof_layers_by_mountain.get(mountain_id, {}) as Dictionary
@@ -241,6 +967,9 @@ func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: in
 	)
 
 func _apply_roof_cell(local_coord: Vector2i, index: int) -> void:
+	if not _mountain_tile_visuals_enabled:
+		_clear_roof_surface_cell(local_coord)
+		return
 	if index < 0 or index >= _pending_mountain_ids.size() or index >= _pending_mountain_flags.size():
 		return
 	var mountain_id: int = int(_pending_mountain_ids[index])
@@ -291,6 +1020,62 @@ func _clear_cell(layer: TileMapLayer, local_coord: Vector2i) -> void:
 		return
 	layer.set_cell(local_coord, -1, Vector2i(-1, -1))
 
+func _clear_loaded_mountain_visuals() -> void:
+	_ensure_layers()
+	for index: int in range(mini(_pending_terrain_ids.size(), WorldRuntimeConstants.CHUNK_CELL_COUNT)):
+		var terrain_id: int = int(_pending_terrain_ids[index])
+		if not _should_suppress_mountain_visual(index, terrain_id):
+			continue
+		_clear_mountain_visual_cell(WorldRuntimeConstants.index_to_local(index))
+
+func _clear_mountain_visual_cell(local_coord: Vector2i) -> void:
+	_apply_ground_underlay_cell(local_coord)
+	_clear_cell(_overlay_layer, local_coord)
+	_clear_cell(_water_layer, local_coord)
+	_clear_roof_surface_cell(local_coord)
+
+func _apply_ground_underlay_cell(local_coord: Vector2i) -> void:
+	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
+		return
+	_base_layer.set_cell(
+		local_coord,
+		WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND),
+		WorldTileSetFactory.get_atlas_coords(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND, 0)
+	)
+
+func _clear_roof_surface_cell(local_coord: Vector2i) -> void:
+	for terrain_layers_variant: Variant in roof_layers_by_mountain.values():
+		var terrain_layers: Dictionary = terrain_layers_variant as Dictionary
+		for layer_variant: Variant in terrain_layers.values():
+			_clear_cell(layer_variant as TileMapLayer, local_coord)
+
+func _should_suppress_mountain_visual(index: int, terrain_id: int) -> bool:
+	if _mountain_tile_visuals_enabled:
+		return false
+	if not _is_mountain_visual_terrain(terrain_id):
+		return false
+	return true
+
+func _is_mountain_visual_terrain(terrain_id: int) -> bool:
+	return terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT \
+		or terrain_id == WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED
+
+func _is_pending_full_mountain_surface() -> bool:
+	if _pending_terrain_ids.size() < WorldRuntimeConstants.CHUNK_CELL_COUNT:
+		return false
+	for index: int in range(WorldRuntimeConstants.CHUNK_CELL_COUNT):
+		if not _is_mountain_visual_terrain(int(_pending_terrain_ids[index])):
+			return false
+		if index < _pending_walkable_flags.size() and int(_pending_walkable_flags[index]) != 0:
+			return false
+		if int(_pending_terrain_ids[index]) != WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED \
+				and index < _pending_mountain_flags.size():
+			var flags: int = int(_pending_mountain_flags[index])
+			if (flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) == 0:
+				return false
+	return true
+
 func _refresh_debug_solid_mask() -> void:
 	_debug_solid_mask = _build_debug_solid_mask()
 	_sync_debug_layer_data()
@@ -340,6 +1125,25 @@ func _count_debug_solid_tiles() -> int:
 		if value != 0:
 			count += 1
 	return count
+
+func _compact_mountain_page_result(result: Dictionary) -> Dictionary:
+	var compact: Dictionary = {}
+	for key_variant: Variant in result.keys():
+		var key: Variant = key_variant
+		if key in [
+			"image",
+			"normal_image",
+			"ground_image",
+			"ground_normal_image",
+			"mountain_image",
+			"mountain_normal_image",
+			"light_occluder_polygon",
+			"hit_mask",
+			"top_mask",
+		]:
+			continue
+		compact[key] = result[key]
+	return compact
 
 func _should_render_water_at(index: int) -> bool:
 	if index < 0 \
