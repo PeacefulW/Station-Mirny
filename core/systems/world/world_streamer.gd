@@ -23,7 +23,7 @@ const PACKET_WORKER_COUNT: int = 3
 const MOUNTAIN_MASK_WORKER_COUNT: int = 3
 const MAX_PACKET_RESULTS_PER_TICK: int = 24
 const MAX_MOUNTAIN_PAGE_RESULTS_PER_TICK: int = 1
-const MAX_MOUNTAIN_NATIVE_MASK_RESULTS_PER_TICK: int = 3
+const MAX_MOUNTAIN_NATIVE_MASK_RESULTS_PER_TICK: int = 8
 const MOUNTAIN_PAGE_MAX_INFLIGHT: int = 18
 const MOUNTAIN_MASK_SOURCE_RADIUS_CHUNKS: int = 1
 const MOUNTAIN_PAGE_PREFETCH_RADIUS_CHUNKS: int = 1
@@ -1329,6 +1329,13 @@ func _drain_completed_mountain_native_masks(max_count: int) -> void:
 		var chunk_view: ChunkView = _chunk_views.get(target_chunk, null) as ChunkView
 		if chunk_view != null:
 			_apply_ready_mountain_native_mask_to_chunk_view(target_chunk, chunk_view, result)
+			if (result.get("reason", &"worker") as StringName) == &"mining":
+				_ensure_mountain_mask_sources()
+				chunk_view.apply_pending_mountain_native_mask_visual(
+					_mountain_top_fill_texture,
+					_mountain_face_fill_texture
+				)
+				_drop_mountain_native_mask_visual_upload(target_chunk)
 		var chunk_needs_publish_after_mask: bool = chunk_view == null or not chunk_view.visible
 		if not chunk_needs_publish_after_mask:
 			_mountain_native_mask_visible_republish_skip_count_total += 1
@@ -1491,12 +1498,11 @@ func _apply_mountain_surface_local_dig_patch(chunk_coord: Vector2i, local_coord:
 	_refresh_mountain_native_masks_around_tile(_chunk_local_to_tile(chunk_coord, local_coord))
 
 func _refresh_mountain_native_masks_around_tile(world_tile: Vector2i) -> void:
-	# Mining edits the mask LOCALLY: apply_mountain_world_dig_patch is a world-space
-	# SDF clear every affected chunk applies identically. We deliberately do NOT
-	# trigger a full per-chunk mask rebuild here -- staggered rebuilds were the source
-	# of the transient chunk-boundary seam. The local clear is uploaded immediately for
-	# ALL affected chunks in this same frame (atomic), so neighbours never show
-	# new-vs-old. Cached results are invalidated so a re-stream rebuilds fresh from the diff.
+	# Mining gives an INSTANT response via a world-space local clear (applied + uploaded
+	# the same frame for every affected chunk), THEN re-flows the organic contour by
+	# rebuilding each affected chunk's mask from the dug solid set. Rebuilds carry reason
+	# "mining" so the drain applies them with an immediate same-frame upload (not the
+	# 1/frame queue) -> neighbours stay in sync, no leftover bits, no blocky square holes.
 	var affected: Array[Vector2i] = _build_mountain_native_mask_dirty_chunks_for_tile(world_tile)
 	_mountain_native_mask_last_refreshed_chunks = []
 	_ensure_mountain_mask_sources()
@@ -1505,15 +1511,21 @@ func _refresh_mountain_native_masks_around_tile(world_tile: Vector2i) -> void:
 		var chunk_view: ChunkView = _chunk_views.get(affected_chunk, null) as ChunkView
 		if chunk_view == null:
 			continue
-		_bump_mountain_mask_revision(affected_chunk)
-		_mountain_native_masks_by_chunk.erase(affected_chunk)
-		_mountain_native_mask_inflight_chunks.erase(affected_chunk)
 		if chunk_view.apply_mountain_world_dig_patch(world_tile, 2):
 			chunk_view.apply_pending_mountain_native_mask_visual(
 				_mountain_top_fill_texture,
 				_mountain_face_fill_texture
 			)
 			_drop_mountain_native_mask_visual_upload(affected_chunk)
+		var dig_packet: Dictionary = _chunk_packets.get(affected_chunk, {}) as Dictionary
+		if dig_packet.is_empty():
+			continue
+		_bump_mountain_mask_revision(affected_chunk)
+		_mountain_native_masks_by_chunk.erase(affected_chunk)
+		_mountain_native_mask_inflight_chunks.erase(affected_chunk)
+		var dig_solid_halo: PackedByteArray = _build_mountain_solid_halo(affected_chunk, MOUNTAIN_HALO_MASK_RADIUS_TILES)
+		if _solid_halo_has_any(dig_solid_halo):
+			_request_mountain_native_mask_for_chunk(affected_chunk, dig_solid_halo, &"mining")
 
 func _build_mountain_native_mask_dirty_chunks_for_tile(world_tile: Vector2i) -> Array[Vector2i]:
 	var canonical_tile: Vector2i = _canonicalize_tile_coord(world_tile)
