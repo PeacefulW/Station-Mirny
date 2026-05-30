@@ -23,7 +23,7 @@ func _run() -> void:
 		"WorldStreamer must own chunk render pages directly, not the retired merged presenter."
 	)
 	_assert(
-		streamer_source.contains("_mountain_page_backend"),
+		streamer_source.contains("_mountain_mask_backend"),
 		"WorldStreamer must run chunk-owned mountain page work on a dedicated backend."
 	)
 	_assert(
@@ -31,15 +31,15 @@ func _run() -> void:
 		"WorldStreamer must build native runtime page presets explicitly."
 	)
 	_assert(
-		streamer_source.contains("_sample_mountain_page_hit"),
+		streamer_source.contains("_sample_mountain_mask_hit"),
 		"WorldStreamer must sample chunk page hit masks for gameplay queries."
 	)
 	_assert(
-		streamer_source.contains("_resolve_raster_mining_tile"),
+		streamer_source.contains("_resolve_mask_mining_tile"),
 		"WorldStreamer must resolve visual contour mining back to authoritative tiles."
 	)
 	_assert(
-		streamer_source.contains("_can_publish_chunk_with_mountain_page"),
+		streamer_source.contains("_can_publish_chunk_with_mountain_mask"),
 		"WorldStreamer must keep the mountain page publication seam explicit."
 	)
 	_assert(
@@ -55,7 +55,7 @@ func _run() -> void:
 		"WorldStreamer must tell native raster pages to clip visual overlay ownership to the target chunk."
 	)
 	_assert(
-		streamer_source.contains("MOUNTAIN_PAGE_WORKER_COUNT"),
+		streamer_source.contains("MOUNTAIN_MASK_WORKER_COUNT"),
 		"WorldStreamer must run native page jobs on explicit workers."
 	)
 	_assert(
@@ -65,7 +65,7 @@ func _run() -> void:
 	)
 	_assert(
 		streamer_source.contains("_build_mountain_page_dirty_chunks_for_tile")
-			and streamer_source.contains("_mountain_page_revision_by_chunk"),
+			and streamer_source.contains("_mountain_mask_revision_by_chunk"),
 		"WorldStreamer must use bounded per-page dirty invalidation for mining."
 	)
 	var chunk_view_source: String = FileAccess.get_file_as_string("res://core/systems/world/chunk_view.gd")

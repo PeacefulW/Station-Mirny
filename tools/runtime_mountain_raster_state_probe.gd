@@ -35,7 +35,7 @@ func _run() -> void:
 			if player != null:
 				var target_tile: Vector2i = PROBE_TARGET_CHUNK * WorldRuntimeConstants.CHUNK_SIZE + PROBE_TARGET_LOCAL
 				player.global_position = WorldRuntimeConstants.tile_to_world_center(target_tile)
-				if streamer.has_method("get_mountain_raster_runtime_debug_state"):
+				if streamer.has_method("get_mountain_mask_runtime_debug_state"):
 					print("runtime_mountain_raster_state_probe: moved player to tile=%s chunk=%s" % [
 						str(target_tile),
 						str(PROBE_TARGET_CHUNK),
@@ -46,7 +46,7 @@ func _run() -> void:
 			streamer.call("_streaming_tick")
 		if streamer.has_method("_mountain_native_mask_visual_apply_tick"):
 			streamer.call("_mountain_native_mask_visual_apply_tick")
-		last_debug = streamer.call("get_mountain_raster_runtime_debug_state") as Dictionary
+		last_debug = streamer.call("get_mountain_mask_runtime_debug_state") as Dictionary
 		if frame % 60 == 0:
 			print("runtime_mountain_raster_state_probe: frame=%d debug=%s" % [
 				frame,

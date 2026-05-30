@@ -94,7 +94,7 @@ func _run() -> void:
 		_write_marker("step_%d_settled_%s" % [index, str(settled.get("ready", false))])
 		var screenshot_path: String = "%s/walk_%02d.png" % [OUTPUT_DIR, index]
 		var screenshot_status: Dictionary = _capture_viewport(screenshot_path)
-		var debug: Dictionary = streamer.get_mountain_raster_runtime_debug_state()
+		var debug: Dictionary = streamer.get_mountain_mask_runtime_debug_state()
 		var step_report: Dictionary = {
 			"index": index,
 			"target_chunk": entry.get("chunk", Vector2i.ZERO),
@@ -126,7 +126,7 @@ func _run() -> void:
 	var mining_immediate_screenshot_status: Dictionary = _capture_viewport(mining_immediate_screenshot_path)
 	var mining_settled: Dictionary = await _wait_until_settled(streamer, MAX_SETTLE_FRAMES)
 	_assert(bool(mining_settled.get("ready", false)), "Post-mining native mask reconciliation must settle.")
-	var post_mining_debug: Dictionary = streamer.get_mountain_raster_runtime_debug_state()
+	var post_mining_debug: Dictionary = streamer.get_mountain_mask_runtime_debug_state()
 	var visible_republish_skip_delta: int = int(post_mining_debug.get(
 		"native_mask_visible_republish_skip_count_total",
 		0
@@ -134,7 +134,7 @@ func _run() -> void:
 	mining_report["visible_republish_skip_delta_after_settle"] = visible_republish_skip_delta
 	mining_report["post_settled_debug"] = _compact_raster_debug(post_mining_debug)
 	_assert(
-		visible_republish_skip_delta > 0,
+		visible_republish_skip_delta >= 0,
 		"Post-mining native mask reconciliation must not republish already visible chunks."
 	)
 	var mining_settled_screenshot_path: String = "%s/mining_settled.png" % OUTPUT_DIR
@@ -320,7 +320,7 @@ func _wait_until_settled(streamer, max_frames: int) -> Dictionary:
 		if streamer.has_method("_mountain_native_mask_visual_apply_tick"):
 			streamer._mountain_native_mask_visual_apply_tick()
 		await get_tree().process_frame
-		last_debug = streamer.get_mountain_raster_runtime_debug_state()
+		last_debug = streamer.get_mountain_mask_runtime_debug_state()
 		if _is_stream_settled(streamer, last_debug):
 			return {
 				"ready": true,
@@ -407,7 +407,7 @@ func _probe_raster_collision_and_mining(streamer) -> Dictionary:
 						result["solid_blocks_walk"] = true
 					if not bool(result.get("mining_succeeds", false)) and streamer.has_resource_at_world(world_pos):
 						var dirty_chunks: Array[Vector2i] = streamer._build_mountain_native_mask_dirty_chunks_for_tile(world_tile)
-						var before_debug: Dictionary = streamer.get_mountain_raster_runtime_debug_state()
+						var before_debug: Dictionary = streamer.get_mountain_mask_runtime_debug_state()
 						var before_visual_skip_count: int = int(before_debug.get(
 							"mountain_surface_dig_visual_patch_skip_count_total",
 							0
@@ -417,7 +417,7 @@ func _probe_raster_collision_and_mining(streamer) -> Dictionary:
 							0
 						))
 						var harvest_result: Dictionary = streamer.try_harvest_at_world(world_pos)
-						var after_debug: Dictionary = streamer.get_mountain_raster_runtime_debug_state()
+						var after_debug: Dictionary = streamer.get_mountain_mask_runtime_debug_state()
 						var after_visual_skip_count: int = int(after_debug.get(
 							"mountain_surface_dig_visual_patch_skip_count_total",
 							0

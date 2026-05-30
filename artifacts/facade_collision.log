@@ -1,0 +1,13 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+mountain_facade_collision_probe: start
+[FrameBudget] streaming=3.9ms topology=0.0ms visual=0.0ms spawn=0.0ms total=4.0ms/6.0ms world.streaming_v0=3.9ms(60) world.mountain_native_mask_visual_upload=0.0ms(52)
+mountain_facade_collision_probe: checked=40473
+  facade-band (top within 72px north): solid=2687  STILL-WALKABLE(bug)=0
+  open (no top in reach north):          walkable=37786  unexpected-solid=0
+mountain_facade_collision_probe: FACADE-COLLISION CONFIRMED
+mountain_facade_collision_probe: OK
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 7 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

@@ -1,0 +1,20 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+mountain_upload_backlog_probe: start
+[FrameBudget] streaming=4.1ms topology=0.0ms visual=0.0ms spawn=0.0ms total=4.2ms/6.0ms world.streaming_v0=4.1ms(60) world.mountain_native_mask_visual_upload=0.0ms(53)
+  f47: queue=0 applied_this_tick=0 pending=0 inflight=1 ready=0
+  f48: queue=0 applied_this_tick=0 pending=0 inflight=1 ready=0
+  f49: queue=0 applied_this_tick=1 pending=0 inflight=0 ready=1
+  f54: queue=0 applied_this_tick=0 pending=0 inflight=1 ready=1
+  f55: queue=0 applied_this_tick=0 pending=0 inflight=1 ready=1
+  f56: queue=0 applied_this_tick=1 pending=0 inflight=0 ready=2
+  f80: SETTLED queue=0
+mountain_upload_backlog_probe: max_upload_queue=0  max_applied_per_tick=1  max_pending=0  frames_with_backlog=0
+mountain_upload_backlog_probe: [STREAM] uploads applied per frame never exceeded 1; chunks appear one-by-one.
+mountain_upload_backlog_probe: dig tile=(2489, 832) success=true
+mountain_upload_backlog_probe: STAGGERED-UPLOAD not observed — uploads capped at 1/frame; queue peaked at 0 (stream) / 0 (dig). While draining, neighbouring chunks show new-vs-old/blank masks = transient boundary seam.
+mountain_upload_backlog_probe: OK
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 7 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)
