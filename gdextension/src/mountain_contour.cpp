@@ -378,10 +378,10 @@ godot::Dictionary build_halo_mask(
 			const float broad = fbm_noise((world_x - 173.0f) / 420.0f, (world_y + 211.0f) / 420.0f);
 			const float macro = fbm_noise(world_x / 220.0f, world_y / 220.0f);
 			const float fine = fbm_noise((world_x + 91.0f) / 104.0f, (world_y - 37.0f) / 104.0f);
-			const float disp_x = ((fbm_noise((world_x + 43.0f) / 360.0f, (world_y - 139.0f) / 360.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 1.15f)
-					+ ((fbm_noise((world_x - 211.0f) / 150.0f, (world_y + 79.0f) / 150.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 0.45f);
-			const float disp_y = ((fbm_noise((world_x - 97.0f) / 380.0f, (world_y + 181.0f) / 380.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 1.15f)
-					+ ((fbm_noise((world_x + 157.0f) / 156.0f, (world_y - 223.0f) / 156.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 0.45f);
+			const float disp_x = ((fbm_noise((world_x + 43.0f) / 360.0f, (world_y - 139.0f) / 360.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 1.3f)
+					+ ((fbm_noise((world_x - 211.0f) / 150.0f, (world_y + 79.0f) / 150.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 0.75f);
+			const float disp_y = ((fbm_noise((world_x - 97.0f) / 380.0f, (world_y + 181.0f) / 380.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 1.3f)
+					+ ((fbm_noise((world_x + 157.0f) / 156.0f, (world_y - 223.0f) / 156.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 0.75f);
 			const float threshold = 0.455f
 					+ ((broad - 0.5f) * 0.150f)
 					+ ((macro - 0.5f) * 0.150f)
