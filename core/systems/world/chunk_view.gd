@@ -563,6 +563,11 @@ func _upload_mountain_mask_texture(
 	material.set_shader_parameter("top_texture_scale", top_texture_scale)
 	material.set_shader_parameter("face_texture_scale", MOUNTAIN_FACE_TEXTURE_SCALE)
 	material.set_shader_parameter("facade_height_px", MOUNTAIN_FACADE_HEIGHT_PX)
+	var mask_world_size: float = float(mask_image.get_width()) * mask_step_px
+	var mask_chunk_origin: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	var mask_chunk_size_world: float = float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX)
+	material.set_shader_parameter("chunk_uv_lo", (mask_chunk_origin.x - mask_origin_world.x) / max(mask_world_size, 1.0))
+	material.set_shader_parameter("chunk_uv_hi", (mask_chunk_origin.x + mask_chunk_size_world - mask_origin_world.x) / max(mask_world_size, 1.0))
 	sprite.material = material
 	sprite.position = mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	sprite.scale = Vector2.ONE * mask_step_px

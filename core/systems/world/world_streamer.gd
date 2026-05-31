@@ -456,6 +456,9 @@ func is_walkable_at_world(world_pos: Vector2) -> bool:
 		return false
 	var terrain_id: int = int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
 	if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
+		# Facade over a dug tile stays PASSABLE: making it collidable blocks stepping
+		# onto a tile you just mined (its north neighbour is still solid -> still under
+		# the facade), which makes tunnelling impossible. Mining sees through it instead.
 		return true
 	var hit_sample: Dictionary = _sample_mountain_mask_hit(world_pos)
 	if _is_ready_mountain_mask_hit_sample(hit_sample):
@@ -473,6 +476,9 @@ func has_resource_at_world(world_pos: Vector2) -> bool:
 		return false
 	var terrain_id: int = int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
 	if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
+		var dug_hit: Dictionary = _sample_mountain_mask_hit(world_pos)
+		if _is_ready_mountain_mask_hit_sample(dug_hit) and bool(dug_hit.get("solid", false)):
+			return not _resolve_mask_mining_tile(world_pos).is_empty()
 		return false
 	var hit_sample: Dictionary = _sample_mountain_mask_hit(world_pos)
 	if _is_ready_mountain_mask_hit_sample(hit_sample):
@@ -498,6 +504,11 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 		}
 	var terrain_id: int = int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
 	if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
+		var dug_hit: Dictionary = _sample_mountain_mask_hit(world_pos)
+		if _is_ready_mountain_mask_hit_sample(dug_hit) and bool(dug_hit.get("solid", false)):
+			var dug_mining_tile: Dictionary = _resolve_mask_mining_tile(world_pos)
+			if not dug_mining_tile.is_empty():
+				return _commit_harvest_tile(dug_mining_tile, world_pos)
 		return {
 			"success": false,
 			"message_key": "SYSTEM_WORLD_TILE_NOT_DIGGABLE",
@@ -1597,8 +1608,10 @@ func _ensure_mountain_mask_sources() -> void:
 	assert(top_image != null, "Mountain top source image is required for chunk render pages.")
 	assert(face_image != null, "Mountain face source image is required for chunk render pages.")
 	if top_image != null and _mountain_top_fill_texture == null:
+		top_image.generate_mipmaps()
 		_mountain_top_fill_texture = ImageTexture.create_from_image(top_image)
 	if face_image != null and _mountain_face_fill_texture == null:
+		face_image.generate_mipmaps()
 		_mountain_face_fill_texture = ImageTexture.create_from_image(face_image)
 	_mountain_mask_source_images = {
 		"top_image": top_image,
