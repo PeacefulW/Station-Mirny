@@ -721,20 +721,6 @@ func sample_mountain_page_hit_at_world(world_pos: Vector2) -> Dictionary:
 	var index: int = y * _mountain_top_mask_width + x
 	var mask: int = int(_mountain_top_mask_bytes[index]) if index >= 0 and index < _mountain_top_mask_bytes.size() else 0
 	var solid: bool = mask > 107
-	if not solid:
-		# South facade footprint: the shader projects the wall DOWN from the top
-		# silhouette, so the band south of an edge is drawn as wall. Make collision
-		# match the visible wall -- march up the mask the same facade height the
-		# shader uses, and block if a top pixel sits within reach above.
-		var facade_texels: int = maxi(1, roundi(MOUNTAIN_FACADE_HEIGHT_PX / _mountain_top_mask_step_px))
-		for facade_depth: int in range(1, facade_texels + 1):
-			var above_y: int = y - facade_depth
-			if above_y < 0:
-				break
-			var above_index: int = above_y * _mountain_top_mask_width + x
-			if above_index >= 0 and above_index < _mountain_top_mask_bytes.size() and int(_mountain_top_mask_bytes[above_index]) > 107:
-				solid = true
-				break
 	return {
 		"ready": true,
 		"in_bounds": true,

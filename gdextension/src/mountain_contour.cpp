@@ -338,7 +338,7 @@ godot::Dictionary build_halo_mask(
 		}
 	}
 
-	const int32_t blur_radius = std::max(2, (pixels_per_tile * 5) / 8);
+	const int32_t blur_radius = std::max(2, (pixels_per_tile * 4) / 8);
 	for (int32_t pass = 0; pass < 2; ++pass) {
 		const std::vector<float> &src_h = pass == 0 ? field : blurred;
 		for (int32_t y = 0; y < height; ++y) {

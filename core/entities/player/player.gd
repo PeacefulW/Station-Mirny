@@ -253,10 +253,8 @@ func _can_occupy_world(target_pos: Vector2) -> bool:
 
 func _build_occupancy_sample_points(target_pos: Vector2) -> Array[Vector2]:
 	var half_extents: Vector2 = _resolve_blocking_half_extents()
-	# Slightly smaller occupancy footprint so 1-tile dug corridors feel a touch roomier
-	# (tune this margin to taste; it only affects how snugly the player fits gaps).
-	var edge_x: float = maxf(4.0, half_extents.x - 5.0)
-	var edge_y: float = maxf(4.0, half_extents.y - 5.0)
+	var edge_x: float = maxf(4.0, half_extents.x - 2.0)
+	var edge_y: float = maxf(4.0, half_extents.y - 2.0)
 	# Sample the full footprint so diagonal motion cannot cut through impassable tiles.
 	return [
 		target_pos,

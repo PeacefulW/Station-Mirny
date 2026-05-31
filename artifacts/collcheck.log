@@ -1,0 +1,13 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+mountain_collision_check: start
+[FrameBudget] streaming=3.9ms topology=0.0ms visual=0.1ms spawn=0.0ms total=3.9ms/6.0ms world.streaming_v0=3.9ms(60) world.mountain_native_mask_visual_upload=0.1ms(52)
+mountain_collision_check: checked=19200
+  SOLID (mask>107): blocked=9071  WALKABLE(bug)=4
+  open  (mask<=107): walkable=10094  blocked=31
+mountain_collision_check: COLLISION BROKEN (solid is walkable)
+mountain_collision_check: FAIL
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 7 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)
