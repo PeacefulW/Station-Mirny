@@ -1,8 +1,8 @@
 extends Node
 
-# Confirms the facade-collision fix: a pixel in the SOUTH facade band (mask<=107 but a
-# top pixel within facade height directly north) must now sample as SOLID via the real
-# ChunkView collision sampler, while an open pixel (no top within facade reach north)
+# Confirms the facade-collision fix: a pixel in the SOUTH contour lip (mask<=107 but a
+# top pixel within collision depth directly north) must now sample as SOLID via the real
+# ChunkView collision sampler, while an open pixel (no top within collision reach north)
 # stays walkable. Headless; uses the live runtime chunk views.
 
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
@@ -18,7 +18,7 @@ const DENSITY: float = 0.60
 const LAKE_DENSITY: float = 0.0
 const SCAN_RADIUS: int = 16
 const SOLID_THRESHOLD: int = 107
-const FACADE_HEIGHT_PX: float = 72.0
+const FACADE_COLLISION_DEPTH_PX: float = 12.0
 
 func _ready() -> void:
 	call_deferred("_run")
@@ -71,7 +71,7 @@ func _run() -> void:
 		var origin: Vector2 = cv._mountain_top_mask_origin_world
 		if bytes.is_empty() or w <= 0 or h <= 0 or step <= 0.0:
 			continue
-		var facade_texels: int = maxi(1, roundi(FACADE_HEIGHT_PX / step))
+		var facade_texels: int = maxi(1, roundi(FACADE_COLLISION_DEPTH_PX / step))
 		for my: int in range(h):
 			for mx: int in range(w):
 				var here: int = int(bytes[my * w + mx])
@@ -107,7 +107,7 @@ func _run() -> void:
 			break
 
 	print("mountain_facade_collision_probe: checked=%d" % checked)
-	print("  facade-band (top within %.0fpx north): solid=%d  STILL-WALKABLE(bug)=%d" % [FACADE_HEIGHT_PX, facade_band_solid, facade_band_walkable_BUG])
+	print("  facade-band (top within %.0fpx north): solid=%d  STILL-WALKABLE(bug)=%d" % [FACADE_COLLISION_DEPTH_PX, facade_band_solid, facade_band_walkable_BUG])
 	print("  open (no top in reach north):          walkable=%d  unexpected-solid=%d" % [open_walkable, open_solid_unexpected])
 	var ok: bool = facade_band_solid > 0 and facade_band_walkable_BUG == 0 and open_walkable > 0
 	print("mountain_facade_collision_probe: FACADE-COLLISION %s" % ("CONFIRMED" if ok else "NOT confirmed"))

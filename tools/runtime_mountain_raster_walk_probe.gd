@@ -120,7 +120,8 @@ func _run() -> void:
 	_assert(bool(mining_report.get("empty_corner_walks", false)), "Raster hit mask must allow rounded-off empty mountain corners.")
 	_assert(bool(mining_report.get("mining_succeeds", false)), "Raster mining probe must commit an actual harvest.")
 	_assert(int(mining_report.get("dirty_chunk_count", 99)) <= 9, "Mining must dirty only the local native mask and halo neighbours.")
-	_assert(bool(mining_report.get("walkable_after_mining", false)), "Mined tile must become walkable immediately without waiting for a full mountain redraw.")
+	_assert(bool(mining_report.get("walkable_after_mining", false)), "Mined tile center must become walkable immediately without waiting for a full mountain redraw.")
+	_assert(not bool(mining_report.get("impact_walkable_after_mining", true)), "Mined impact pixel inside the visible facade/lip must remain blocking.")
 	_assert(int(mining_report.get("visual_patch_skip_delta", 0)) > 0, "Mountain mining must skip the square terrain visual patch.")
 	var mining_immediate_screenshot_path: String = "%s/mining_immediate.png" % OUTPUT_DIR
 	var mining_immediate_screenshot_status: Dictionary = _capture_viewport(mining_immediate_screenshot_path)
@@ -426,7 +427,10 @@ func _probe_raster_collision_and_mining(streamer) -> Dictionary:
 						result["mining_tile"] = world_tile
 						result["dirty_chunk_count"] = dirty_chunks.size()
 						result["dirty_chunks"] = dirty_chunks
-						result["walkable_after_mining"] = streamer.is_walkable_at_world(world_pos)
+						result["impact_walkable_after_mining"] = streamer.is_walkable_at_world(world_pos)
+						result["walkable_after_mining"] = streamer.is_walkable_at_world(
+							WorldRuntimeConstants.tile_to_world_center(world_tile)
+						)
 						result["visual_patch_skip_delta"] = after_visual_skip_count - before_visual_skip_count
 						result["visible_republish_skip_before"] = before_visible_republish_skip_count
 				elif streamer.is_walkable_at_world(world_pos):

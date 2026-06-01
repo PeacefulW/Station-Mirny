@@ -455,14 +455,16 @@ func is_walkable_at_world(world_pos: Vector2) -> bool:
 	if not bool(tile_data.get("ready", false)):
 		return false
 	var terrain_id: int = int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
-	if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
-		return true
 	var hit_sample: Dictionary = _sample_mountain_mask_hit(world_pos)
 	if _is_ready_mountain_mask_hit_sample(hit_sample):
 		if bool(hit_sample.get("solid", false)):
 			return false
+		if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
+			return true
 		if _uses_mountain_surface_presentation(terrain_id):
 			return true
+	if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
+		return true
 	if _uses_mountain_surface_presentation(terrain_id):
 		return false
 	return bool(tile_data.get("walkable", false))
@@ -472,13 +474,13 @@ func has_resource_at_world(world_pos: Vector2) -> bool:
 	if not bool(tile_data.get("ready", false)):
 		return false
 	var terrain_id: int = int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
-	if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
-		return false
 	var hit_sample: Dictionary = _sample_mountain_mask_hit(world_pos)
 	if _is_ready_mountain_mask_hit_sample(hit_sample):
 		if not bool(hit_sample.get("solid", false)):
 			return false
 		return not _resolve_mask_mining_tile(world_pos).is_empty()
+	if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
+		return false
 	if not _is_diggable_surface_terrain(terrain_id):
 		return false
 	return HarvestQuery.is_tile_orthogonally_exposed(
@@ -497,11 +499,6 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 			"message_key": "SYSTEM_WORLD_CHUNK_NOT_READY",
 		}
 	var terrain_id: int = int(tile_data.get("terrain_id", WorldRuntimeConstants.TERRAIN_PLAINS_GROUND))
-	if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
-		return {
-			"success": false,
-			"message_key": "SYSTEM_WORLD_TILE_NOT_DIGGABLE",
-		}
 	var hit_sample: Dictionary = _sample_mountain_mask_hit(world_pos)
 	if _is_ready_mountain_mask_hit_sample(hit_sample):
 		if not bool(hit_sample.get("solid", false)):
@@ -516,6 +513,11 @@ func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 				"message_key": "SYSTEM_WORLD_TILE_NOT_DIGGABLE",
 			}
 		return _commit_harvest_tile(mining_tile_data, world_pos)
+	if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
+		return {
+			"success": false,
+			"message_key": "SYSTEM_WORLD_TILE_NOT_DIGGABLE",
+		}
 	if not _is_diggable_surface_terrain(terrain_id):
 		return {
 			"success": false,

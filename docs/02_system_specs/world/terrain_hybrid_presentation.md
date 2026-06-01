@@ -128,8 +128,10 @@ resources, the active runtime uses a transitional native-mask presentation:
   when the changed tile is close enough to a chunk edge. It must not rebuild the
   whole mountain synchronously.
 - Runtime collision/resource/mining checks inside a ready mask use the same mask
-  bytes as presentation, then resolve solid visual pixels back to the nearest
-  exposed authoritative mountain tile before mutation.
+  bytes as presentation, including the narrow south contour lip used for the
+  antialiased facade/overhang edge. They then resolve solid visual pixels back
+  to the nearest exposed authoritative mountain tile before mutation; open mask
+  pixels still defer to the authoritative terrain diff.
 - The FHD raster/dev-scene path remains an authoring/probe tool. It is not the
   normal runtime streaming presentation path and must not be reintroduced as a
   per-frame or per-chunk fallback.

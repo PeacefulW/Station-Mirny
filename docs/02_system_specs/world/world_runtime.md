@@ -243,9 +243,11 @@ accepted 2D mountain look:
   when the world position is
   inside that chunk mask; neighbour masks are consulted only for overlap.
 - Mining still resolves the sampled visual pixel back to one authoritative
-  exposed mountain tile and writes through `WorldDiffStore`. A dug
-  authoritative tile wins immediately over overlapping mask pixels, so the
-  mined point becomes walkable without waiting for a full visual rebuild.
+  exposed mountain tile and writes through `WorldDiffStore`. Inside a ready
+  native mask, visible solid mask pixels and the narrow south contour lip remain
+  blocking even when the sampled authoritative tile is already `dug`; open mask
+  pixels, including the mined tile center, become walkable immediately without
+  waiting for a full visual rebuild.
 - The FHD mountain raster/dev-scene path remains an authoring and probe tool
   until the accepted look is promoted into authored terrain resources. It is not
   the normal runtime streaming path.
@@ -263,16 +265,17 @@ try_harvest_at_world(world_pos: Vector2) -> Dictionary
 
 V0 interpretation:
 - `is_walkable_at_world` reads `base + diff`; inside a ready mountain raster hit
-  mask it uses the native contour to block solid mountain pixels and to release
-  rounded-off square mountain corners. Authoritative non-mountain walkable
-  diffs, including dug tiles, take precedence over stale overlapping hit pages
+  mask it samples the owner native contour first. Solid mask pixels and the
+  narrow south contour lip block movement even when the underlying authoritative
+  tile is already `dug`, while open mask pixels release rounded-off square
+  corners and mined tile centers to the authoritative walkability diff
 - `has_resource_at_world` is allowed only as the single-tile mutation proof for
   the current diggable surface class provided by the active world runtime;
   diagonal-only sealed rock does not qualify, because the candidate tile must
   have at least one orthogonally exposed walkable face. Inside a ready raster hit
-  mask it first requires a solid mountain pixel, then resolves that pixel to the
-  nearest exposed authoritative mountain tile. Dug tiles are not resources even
-  if a stale neighbour hit page still covers the sampled pixel
+  mask it first requires a solid mountain pixel or narrow south contour lip,
+  then resolves that pixel to the nearest exposed authoritative mountain tile.
+  Dug tiles are not resources when the sampled mask pixel is open
 - `try_harvest_at_world` is allowed only to convert that one diggable tile into
   its post-mutation state and return the minimal harvest/mutation result payload;
   raster contour mining uses the same mutation path after resolving the visual

@@ -1,9 +1,11 @@
 extends Node
 
-# Direct check of the MOVEMENT collision query: every SOLID mountain mask pixel
-# (mask>107) must report is_walkable_at_world() == false; open pixels must be
-# walkable. This is exactly what the player movement uses (_apply_terrain_blocking
-# -> _can_occupy_world -> is_walkable_at_world). Headless; live runtime chunk views.
+# Direct check of the MOVEMENT collision query for the visible native-mask area:
+# every SOLID mountain mask pixel (mask>107) and south facade-band pixel inside
+# the owning chunk must report is_walkable_at_world() == false; truly open pixels
+# in that same visible area must be walkable. Halo pixels are sampled by the shader
+# for continuity, but clipped from rendering, so they are not part of the visible
+# collision contract.
 
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const LakeGenSettings = preload("res://core/resources/lake_gen_settings.gd")
@@ -18,6 +20,7 @@ const DENSITY: float = 0.60
 const LAKE_DENSITY: float = 0.0
 const SCAN_RADIUS: int = 16
 const SOLID_THRESHOLD: int = 107
+const FACADE_COLLISION_DEPTH_PX: float = 12.0
 
 func _ready() -> void:
 	call_deferred("_run")
@@ -58,8 +61,15 @@ func _run() -> void:
 	var solid_walkable_BUG: int = 0
 	var open_walkable: int = 0
 	var open_blocked: int = 0
+	var facade_blocked: int = 0
+	var facade_walkable_BUG: int = 0
 	var checked: int = 0
+	var skipped_halo: int = 0
+	var solid_mismatch_examples: Array[String] = []
+	var facade_mismatch_examples: Array[String] = []
+	var open_mismatch_examples: Array[String] = []
 	for key: Variant in streamer._chunk_views.keys():
+		var mask_chunk: Vector2i = key as Vector2i
 		var cv = streamer._chunk_views[key]
 		if cv == null:
 			continue
@@ -75,27 +85,93 @@ func _run() -> void:
 				var here: int = int(bytes[my * w + mx])
 				var wpos: Vector2 = origin + Vector2(float(mx) + 0.5, float(my) + 0.5) * step
 				var walkable: bool = bool(streamer.is_walkable_at_world(wpos))
+				var owner_chunk: Vector2i = streamer._canonicalize_chunk_coord(
+					WorldRuntimeConstants.tile_to_chunk(WorldRuntimeConstants.world_to_tile(wpos))
+				)
+				if owner_chunk != mask_chunk:
+					skipped_halo += 1
+					continue
 				checked += 1
+				var facade: bool = here <= SOLID_THRESHOLD and _is_facade_band_pixel(bytes, w, h, step, mx, my)
 				if here > SOLID_THRESHOLD:
 					if walkable:
 						solid_walkable_BUG += 1
+						if solid_mismatch_examples.size() < 8:
+							solid_mismatch_examples.append("solid_walkable mask_chunk=%s owner_chunk=%s mask=(%d,%d) world=(%.1f,%.1f)" % [
+								str(key),
+								str(owner_chunk),
+								mx,
+								my,
+								wpos.x,
+								wpos.y,
+							])
 					else:
 						solid_blocked += 1
+				elif facade:
+					if walkable:
+						facade_walkable_BUG += 1
+						if facade_mismatch_examples.size() < 8:
+							facade_mismatch_examples.append("facade_walkable mask_chunk=%s owner_chunk=%s mask=(%d,%d) world=(%.1f,%.1f)" % [
+								str(key),
+								str(owner_chunk),
+								mx,
+								my,
+								wpos.x,
+								wpos.y,
+							])
+					else:
+						facade_blocked += 1
 				else:
 					if walkable:
 						open_walkable += 1
 					else:
 						open_blocked += 1
+						if open_mismatch_examples.size() < 8:
+							open_mismatch_examples.append("open_blocked mask_chunk=%s owner_chunk=%s mask=(%d,%d) world=(%.1f,%.1f)" % [
+								str(key),
+								str(owner_chunk),
+								mx,
+								my,
+								wpos.x,
+								wpos.y,
+							])
 		if checked > 200000:
 			break
 
 	print("mountain_collision_check: checked=%d" % checked)
+	print("mountain_collision_check: skipped_halo=%d" % skipped_halo)
 	print("  SOLID (mask>%d): blocked=%d  WALKABLE(bug)=%d" % [SOLID_THRESHOLD, solid_blocked, solid_walkable_BUG])
+	print("  facade-band:      blocked=%d  WALKABLE(bug)=%d" % [facade_blocked, facade_walkable_BUG])
 	print("  open  (mask<=%d): walkable=%d  blocked=%d" % [SOLID_THRESHOLD, open_walkable, open_blocked])
-	var ok: bool = solid_blocked > 0 and solid_walkable_BUG == 0
-	print("mountain_collision_check: COLLISION %s" % ("WORKS (solid is blocked)" if ok else "BROKEN (solid is walkable)"))
+	for example: String in solid_mismatch_examples:
+		print("  mismatch: %s" % example)
+	for example: String in facade_mismatch_examples:
+		print("  mismatch: %s" % example)
+	for example: String in open_mismatch_examples:
+		print("  mismatch: %s" % example)
+	var ok: bool = solid_blocked > 0 \
+		and facade_blocked > 0 \
+		and solid_walkable_BUG == 0 \
+		and facade_walkable_BUG == 0 \
+		and open_blocked == 0
+	print("mountain_collision_check: COLLISION %s" % ("WORKS (visible mask matches walkability)" if ok else "BROKEN (visible mask/walkability mismatch)"))
 	print("mountain_collision_check: %s" % ("OK" if ok else "FAIL"))
 	get_tree().quit(0 if ok else 1)
+
+func _is_facade_band_pixel(bytes: PackedByteArray, width: int, height: int, step_px: float, x: int, y: int) -> bool:
+	if bytes.is_empty() or width <= 0 or height <= 0 or step_px <= 0.0:
+		return false
+	if x < 0 or y < 0 or x >= width or y >= height:
+		return false
+	var facade_texels: int = maxi(1, ceili(FACADE_COLLISION_DEPTH_PX / step_px))
+	for distance: int in range(1, facade_texels + 1):
+		var north_y: int = y - distance
+		if north_y < 0:
+			return false
+		var north_index: int = north_y * width + x
+		if north_index >= 0 and north_index < bytes.size() and int(bytes[north_index]) > SOLID_THRESHOLD:
+			return true
+	return false
 
 func _find_dense_mountain_tile(core: Object, settings: PackedFloat32Array, center: Vector2i) -> Vector2i:
 	var best: Vector2i = center * WorldRuntimeConstants.CHUNK_SIZE + Vector2i(8, 8)

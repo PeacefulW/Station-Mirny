@@ -8,10 +8,12 @@ const ChunkDebugVisualLayer = preload("res://core/systems/world/chunk_debug_visu
 const MOUNTAIN_COVER_SHADER = preload("res://assets/shaders/mountain_cover_overlay.gdshader")
 const MOUNTAIN_TOP_MASK_UNDERLAY_SHADER = preload("res://assets/shaders/mountain_top_mask_underlay.gdshader")
 
-# Visual-only south facade height for the mask underlay shader ("wall with roof").
-# Single tunable source; collision stays on the top silhouette (mask hit test).
+# Visual south facade height for the mask underlay shader ("wall with roof").
+# Collision uses the same native mask plus a narrow lip for antialiased overhang.
 const MOUNTAIN_FACADE_HEIGHT_PX: float = 72.0
+const MOUNTAIN_FACADE_COLLISION_DEPTH_PX: float = 12.0
 const MOUNTAIN_FACE_TEXTURE_SCALE: float = 0.46
+const MOUNTAIN_NATIVE_MASK_SOLID_THRESHOLD: int = 107
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 
@@ -720,13 +722,33 @@ func sample_mountain_page_hit_at_world(world_pos: Vector2) -> Dictionary:
 		}
 	var index: int = y * _mountain_top_mask_width + x
 	var mask: int = int(_mountain_top_mask_bytes[index]) if index >= 0 and index < _mountain_top_mask_bytes.size() else 0
-	var solid: bool = mask > 107
+	var solid: bool = mask > MOUNTAIN_NATIVE_MASK_SOLID_THRESHOLD \
+		or _is_mountain_facade_band_solid(x, y)
 	return {
 		"ready": true,
 		"in_bounds": true,
 		"solid": solid,
 		"chunk_coord": chunk_coord,
 	}
+
+func _is_mountain_facade_band_solid(mask_x: int, mask_y: int) -> bool:
+	if mask_x < 0 \
+			or mask_y < 0 \
+			or mask_x >= _mountain_top_mask_width \
+			or mask_y >= _mountain_top_mask_height \
+			or _mountain_top_mask_step_px <= 0.0:
+		return false
+	var facade_texels: int = maxi(1, ceili(MOUNTAIN_FACADE_COLLISION_DEPTH_PX / _mountain_top_mask_step_px))
+	for distance: int in range(1, facade_texels + 1):
+		var north_y: int = mask_y - distance
+		if north_y < 0:
+			return false
+		var north_index: int = north_y * _mountain_top_mask_width + mask_x
+		if north_index < 0 or north_index >= _mountain_top_mask_bytes.size():
+			continue
+		if int(_mountain_top_mask_bytes[north_index]) > MOUNTAIN_NATIVE_MASK_SOLID_THRESHOLD:
+			return true
+	return false
 
 func get_mountain_render_page_debug_state() -> Dictionary:
 	return _mountain_page_debug.duplicate(true)
