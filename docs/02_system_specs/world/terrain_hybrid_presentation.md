@@ -119,6 +119,11 @@ resources, the active runtime uses a transitional native-mask presentation:
   tile painting where the native mask is active. The shader samples the accepted
   top/facade textures through that mask, keeping the visual surface organic
   while the canonical gameplay tile remains `64px`.
+- The active runtime shader may derive rim separation, layered facade strata,
+  form-based normals, macro color variation, sparse cracks/debris, and a
+  fresher exposed-cut look from the native mask plus existing top/facade
+  textures. These are presentation-only material cues; they do not create new
+  terrain ids, save data, collision ownership, or worldgen state.
 - Mask bounds include a fixed halo around the chunk, so adjacent chunks overlap
   enough for continuous contours. The owner chunk sample wins for gameplay
   queries inside its mask; neighbour masks are only an overlap fallback for

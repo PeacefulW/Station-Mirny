@@ -6,8 +6,8 @@ shader_type canvas_item;
 // visible wall == the real solid tile == collision == mining (WYSIWYG): dig one
 // tile, stand on it, the neighbouring mountain tile is the wall right there.
 //   - roof (top texture, bump-lit) on interior solid;
-//   - wall (face texture, bump-lit, no vertical gradient) on the south strip of
-//     solid up to facade_height_px, with a lit top rim + thin black base line;
+//   - wall (face texture, bump-lit, layered strata) on the south strip of solid
+//     up to facade_height_px, with separate top rim, dark cleft, and base line;
 //   - a small COSMETIC roof eave ("козырёк") drawn a few px below the silhouette;
 //   - only the chunk's own tiles are drawn (halo is sampled, not drawn) -> no
 //     neighbour overdraw; top/face textures use mipmaps (no minification shimmer).
@@ -26,14 +26,48 @@ uniform float overhang_px = 8.0;       // cosmetic roof eave projected below the
 uniform float top_threshold_low = 0.40;
 uniform float top_threshold_high = 0.58;
 uniform float light_angle_deg = 234.0;
-uniform float normal_strength = 0.0;
-uniform float light_ambient = 0.62;
-uniform float light_diffuse = 0.55;
+uniform float normal_strength = 1.35;
+uniform float light_ambient = 0.68;
+uniform float light_diffuse = 0.34;
 uniform float chunk_uv_lo = 0.1;
 uniform float chunk_uv_hi = 0.9;
 
 float luma(vec3 c) {
 	return dot(c, vec3(0.299, 0.587, 0.114));
+}
+
+float hash12(vec2 p) {
+	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+	p3 += dot(p3, p3.yzx + 33.33);
+	return fract((p3.x + p3.y) * p3.z);
+}
+
+float value_noise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	vec2 u = f * f * (3.0 - 2.0 * f);
+	float a = hash12(i);
+	float b = hash12(i + vec2(1.0, 0.0));
+	float c = hash12(i + vec2(0.0, 1.0));
+	float d = hash12(i + vec2(1.0, 1.0));
+	return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+float fbm2(vec2 p) {
+	float v = 0.0;
+	float a = 0.56;
+	float total = 0.0;
+	for (int i = 0; i < 3; i++) {
+		v += value_noise(p) * a;
+		total += a;
+		p = p * 2.07 + vec2(17.1, -9.4);
+		a *= 0.48;
+	}
+	return v / max(total, 0.0001);
+}
+
+float mask_to_top(float mask_value) {
+	return smoothstep(top_threshold_low, top_threshold_high, mask_value);
 }
 
 void fragment() {
@@ -44,7 +78,12 @@ void fragment() {
 
 	vec2 tex_size = vec2(textureSize(TEXTURE, 0));
 	vec2 texel = 1.0 / tex_size;
-	float top_here = smoothstep(top_threshold_low, top_threshold_high, texture(TEXTURE, UV).r);
+	float top_here = mask_to_top(texture(TEXTURE, UV).r);
+	float top_l = mask_to_top(texture(TEXTURE, UV - vec2(texel.x, 0.0)).r);
+	float top_r = mask_to_top(texture(TEXTURE, UV + vec2(texel.x, 0.0)).r);
+	float top_u = mask_to_top(texture(TEXTURE, UV - vec2(0.0, texel.y)).r);
+	float top_d = mask_to_top(texture(TEXTURE, UV + vec2(0.0, texel.y)).r);
+	vec2 mask_grad = vec2(top_l - top_r, top_u - top_d);
 
 	float wall_texels = max(1.0, facade_height_px / sample_step_px);
 	float overhang_texels = max(1.0, overhang_px / sample_step_px);
@@ -55,7 +94,7 @@ void fragment() {
 		float prev = top_here;
 		int steps = int(min(wall_texels + 2.0, 96.0));
 		for (int d = 1; d <= steps; d++) {
-			float cur = smoothstep(top_threshold_low, top_threshold_high, texture(TEXTURE, UV + vec2(0.0, texel.y * float(d))).r);
+			float cur = mask_to_top(texture(TEXTURE, UV + vec2(0.0, texel.y * float(d))).r);
 			if (cur < 0.5 && prev >= 0.5) {
 				float t = (prev - 0.5) / max(prev - cur, 0.0001);
 				edge_below = float(d) - 1.0 + t;
@@ -71,7 +110,7 @@ void fragment() {
 	if (top_here < 0.5) {
 		int osteps = int(min(overhang_texels + 2.0, 24.0));
 		for (int d = 1; d <= osteps; d++) {
-			if (smoothstep(top_threshold_low, top_threshold_high, texture(TEXTURE, UV - vec2(0.0, texel.y * float(d))).r) >= 0.5) {
+			if (mask_to_top(texture(TEXTURE, UV - vec2(0.0, texel.y * float(d))).r) >= 0.5) {
 				overhang = 1.0 - smoothstep(0.0, overhang_texels, float(d) - 1.0);
 				break;
 			}
@@ -88,27 +127,42 @@ void fragment() {
 	float a = radians(light_angle_deg);
 	vec3 light_dir = normalize(vec3(cos(a), sin(a), 0.62));
 	float grad_px = 2.0;
+	float macro = fbm2(world_px / 920.0);
+	float mid_mottle = fbm2(world_px / 210.0 + vec2(3.7, 15.2));
+	float small_mottle = fbm2(world_px / 86.0 + vec2(-21.0, 5.0));
+	float top_variation = 0.94 + (macro - 0.5) * 0.18 + (mid_mottle - 0.5) * 0.08;
 
-	// Roof (top) -- bump-lit top texture.
+	// Roof (top) -- mask-shape normal plus restrained texture relief.
 	vec2 top_uv = world_px * top_texture_scale / tz / max(top_texture_size, vec2(1.0));
 	vec2 top_uv_dx = (world_px + vec2(grad_px, 0.0)) * top_texture_scale / tz / max(top_texture_size, vec2(1.0));
 	vec2 top_uv_dy = (world_px + vec2(0.0, grad_px)) * top_texture_scale / tz / max(top_texture_size, vec2(1.0));
 	vec4 top_col = texture(top_texture, top_uv);
+	top_col.rgb *= top_variation;
+	top_col.rgb = mix(top_col.rgb, top_col.rgb * vec3(0.90, 0.84, 0.76), smoothstep(0.68, 0.96, macro) * 0.20);
 	float h_c = luma(top_col.rgb);
 	float h_x = luma(texture(top_texture, top_uv_dx).rgb);
 	float h_y = luma(texture(top_texture, top_uv_dy).rgb);
-	vec3 top_n = normalize(vec3((h_c - h_x) * normal_strength, (h_c - h_y) * normal_strength, 1.0));
+	vec3 top_n = normalize(vec3(
+		mask_grad.x * 2.2 + (h_c - h_x) * normal_strength * 0.38,
+		mask_grad.y * 2.2 + (h_c - h_y) * normal_strength * 0.38,
+		1.0
+	));
 	vec3 top_lit = top_col.rgb * (light_ambient + light_diffuse * clamp(dot(top_n, light_dir), 0.0, 1.0));
 
-	// Wall -- bump-lit face texture (no vertical gradient).
+	// Wall -- layered strata, controlled relief, and sparse base chips.
 	vec2 face_uv = world_px * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
 	vec2 face_uv_dx = (world_px + vec2(grad_px, 0.0)) * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
 	vec2 face_uv_dy = (world_px + vec2(0.0, grad_px)) * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
 	vec4 face_col = texture(face_texture, face_uv);
+	face_col.rgb *= 0.86 + (macro - 0.5) * 0.10;
 	float fh_c = luma(face_col.rgb);
 	float fh_x = luma(texture(face_texture, face_uv_dx).rgb);
 	float fh_y = luma(texture(face_texture, face_uv_dy).rgb);
-	vec3 face_n = normalize(vec3((fh_c - fh_x) * normal_strength, (fh_c - fh_y) * normal_strength, 1.0));
+	vec3 face_n = normalize(vec3(
+		mask_grad.x * 1.55 + (fh_c - fh_x) * normal_strength * 0.62,
+		mask_grad.y * 1.55 + (fh_c - fh_y) * normal_strength * 0.62,
+		1.0
+	));
 	vec3 facade_color = face_col.rgb * (light_ambient + light_diffuse * clamp(dot(face_n, light_dir), 0.0, 1.0));
 
 	vec3 color = top_lit;
@@ -116,25 +170,41 @@ void fragment() {
 
 	if (is_wall) {
 		float wall_depth = clamp(edge_below / wall_texels, 0.0, 1.0); // 0 = base (south), 1 = top (north)
-		color = facade_color;
-		// Lit rim where the wall meets the roof (top of the strip).
-		float rim = smoothstep(0.74, 1.0, wall_depth);
-		color = mix(color, vec3(0.78, 0.38, 0.16), rim * 0.5);
-		// Thin (~2px) black line at the wall base (south edge).
+		float strata_noise = fbm2(vec2(world_px.x / 260.0, world_px.y / 92.0));
+		float strata_wave = 0.5 + 0.5 * sin(world_px.y * 0.135 + world_px.x * 0.010 + strata_noise * 4.5);
+		float strata_line = smoothstep(0.57, 0.78, strata_wave) * (1.0 - smoothstep(0.90, 1.0, strata_wave));
+		float broad_layer = fbm2(vec2(world_px.x / 520.0, world_px.y / 128.0) + vec2(41.0, -13.0));
+		float vertical_mass = mix(0.58, 1.04, wall_depth);
+		float cut_highlight = smoothstep(0.64, 1.0, wall_depth) * (0.70 + small_mottle * 0.30);
+		float cleft = smoothstep(0.48, 0.67, wall_depth) * (1.0 - smoothstep(0.77, 0.92, wall_depth));
+		float base_debris = (1.0 - smoothstep(0.00, 0.26, wall_depth)) * smoothstep(0.62, 0.92, fbm2(world_px / 32.0 + vec2(12.0, 71.0)));
+		float crack = smoothstep(0.80, 0.94, fbm2(vec2(world_px.x / 46.0, world_px.y / 18.0) + vec2(5.0, -31.0))) * smoothstep(0.12, 0.82, wall_depth);
+		color = facade_color * vertical_mass;
+		color = mix(color, color * 0.72, strata_line * 0.42);
+		color = mix(color, color * 0.84, smoothstep(0.58, 0.86, broad_layer) * 0.22);
+		color = mix(color, vec3(0.82, 0.39, 0.16), cut_highlight * 0.22);
+		color = mix(color, vec3(0.12, 0.045, 0.018), cleft * 0.28);
+		color = mix(color, vec3(0.055, 0.026, 0.012), crack * 0.38);
+		color = mix(color, vec3(0.18, 0.075, 0.032), base_debris * 0.55);
+		float top_rim = smoothstep(0.77, 1.0, wall_depth);
 		float base_outline = 1.0 - smoothstep(0.0, 2.0 / max(sample_step_px, 1.0), edge_below);
-		color = mix(color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0));
+		color = mix(color, vec3(0.93, 0.49, 0.20), top_rim * 0.28);
+		color = mix(color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0) * 0.92);
 		out_alpha = 1.0;
 	}
 
 	// Cosmetic roof eave over the open space just below the silhouette.
 	if (!is_wall && overhang > 0.0) {
-		color = mix(color, top_lit * 0.42, overhang);
+		vec3 eave_color = mix(vec3(0.13, 0.052, 0.022), top_lit * 0.48, 0.28);
+		color = mix(color, eave_color, overhang);
 		out_alpha = max(out_alpha, overhang);
 	}
 
 	// Thin dark outline along the solid silhouette edge (sides / non-wall).
 	float silhouette = smoothstep(0.08, 0.5, top_here) * (1.0 - smoothstep(0.5, 0.82, top_here));
-	color = mix(color, vec3(0.03, 0.02, 0.012), silhouette * 0.6);
+	float inner_rim = smoothstep(0.42, 0.72, top_here) * (1.0 - smoothstep(0.76, 0.96, top_here));
+	color = mix(color, vec3(0.03, 0.02, 0.012), silhouette * 0.64);
+	color = mix(color, vec3(0.70, 0.30, 0.11), inner_rim * 0.10 * top_here);
 
 	COLOR = vec4(color, out_alpha);
 }
