@@ -254,6 +254,18 @@ Per-tile assignment for `world_version >= 6`:
 - active mountain worlds must not emit a standalone scattered-rock terrain
   fallback for elevated tiles; `mountain_id = 0` above `t_edge` is now the
   explicit scale cutoff, not an anonymous-owner fallback
+- `world_version == 45` is the historical first satellite-outcrop boundary.
+- `world_version == 46` is the historical first clustered satellite-outcrop
+  boundary.
+- `world_version >= 47` adds the active deliberate exception for
+  **strengthened satellite outcrop clusters**: sparse groups of `2..20`
+  separate deterministic `3..18`-tile components generated from native anchor
+  cells in the outer ring of an existing main mountain. The count distribution
+  is intentionally biased toward `10..20` components, with smaller `2..9`
+  groups retained for variation. They are not anonymous fallback terrain; each
+  outcrop receives its own deterministic `mountain_id`, participates in the
+  existing wall/foot classification, and stays rare enough that
+  `roof_layers_per_chunk_max` does not explode.
 
 Identity is base data. It never mutates in response to diff, excavation,
 or runtime events (LAW 5).
@@ -359,7 +371,7 @@ Rules:
 
 Guardrail (mandatory from M2 onward):
 - `WorldStreamer` exposes debug metric `roof_layers_per_chunk_max`
-- when value exceeds `4`, emit one warning per session:
+- when value exceeds `6`, emit one warning per session:
   `"roof layer explosion: chunk %s has %d mountains"`
 
 ### Cover Cache and Visibility
@@ -515,6 +527,21 @@ Chunk diffs keep `ChunkDiffV0` shape. Forbidden additions:
   high-resolution foundation substrate (`64`-tile cells) and native overview
   image pass. Mountain sampling semantics remain the `world_version >= 10`
   finite-width path.
+- `WORLD_VERSION` bumps from `44` to `45` for sparse satellite outcrops:
+  deterministic `3..10`-tile mountain components may spawn in the outer ring
+  around large mountain masses. They use the existing `mountain_id`,
+  `mountain_flags`, terrain id, collision, and excavation contracts; they are
+  not visual decals and do not add packet or save fields.
+- `WORLD_VERSION` bumps from `45` to `46` for clustered satellite outcrops:
+  sparse groups of `2..6` separate deterministic `3..10`-tile mountain
+  components may spawn near large mountain masses, with varied compact,
+  elongated, L-like, and tapered footprints. They keep the same packet and
+  save shape as ordinary mountains.
+- `WORLD_VERSION` bumps from `46` to `47` for strengthened satellite outcrop
+  clusters: deterministic groups now target `2..20` separate `3..18`-tile
+  mountain components, are biased toward `10..20` components, and allow
+  occasional larger footprints. They keep the same packet and save shape as
+  ordinary mountains.
 - each bump is required by LAW 4 because canonical terrain / packet
   output changes for the same `seed + coord`
 - `world_version` remains a plain integer; it is **not** a hash of
@@ -545,6 +572,7 @@ contract.
 |---|---|---|---|
 | Mountain field sample | background (native worker) | 32x32 chunk | outside main thread |
 | Hierarchical mountain-domain solve | background (native worker) | aligned `1024 x 1024` macro cell interior with cached `1`-macro halo | outside main thread |
+| Satellite outcrop solve | background (native worker) | current chunk candidate anchor cells | outside main thread |
 | Sliced mountain publish | background apply | batch of cells | shares V0 `CATEGORY_STREAMING` budget |
 | Resolver tile lookup | interactive | 1 tile | < 0.05 ms/frame |
 | Cover mask upload on state switch | background apply | loaded chunks only | bounded by loaded ring; no topology rebuild |
@@ -580,6 +608,10 @@ contract.
 
 - [ ] any two spatially adjacent but logically separate mountains produce
       different `mountain_id` values
+- [ ] sparse satellite outcrops appear as independent `3..18`-tile
+      mountain components in `2..20`-component groups near large mountain
+      masses at density `0.60`, with at least one deterministic probe group
+      in the `10..20` range
 - [ ] a single mountain's `mountain_id` is stable across chunk seams
 - [ ] `mountain_id` does not change after initial generation, including
       after excavation that fully bisects a mountain
@@ -627,7 +659,7 @@ contract.
 - [ ] chunk publish / evict do not trigger full loaded-world cover rebuild
 - [ ] interactive excavation including cover-cache refresh completes under
       `1.0 ms` at p95
-- [ ] `roof_layers_per_chunk_max > 4` emits exactly one warning per
+- [ ] `roof_layers_per_chunk_max > 24` emits exactly one warning per
       session, not per frame
 - [ ] no measurable regression in V0 acceptance tests when
       `worldgen_settings.mountains.density = 0.0`

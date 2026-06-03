@@ -2523,9 +2523,9 @@ func _track_roof_layer_metric(chunk_coord: Vector2i, packet: Dictionary) -> void
 	var mountain_count: int = present_mountains.size()
 	if mountain_count > roof_layers_per_chunk_max:
 		roof_layers_per_chunk_max = mountain_count
-	if mountain_count > 4 and not _did_warn_roof_layer_explosion:
+	if mountain_count > 24 and not _did_warn_roof_layer_explosion:
 		_did_warn_roof_layer_explosion = true
-		push_warning("roof layer explosion: chunk %s has %d mountains" % [chunk_coord, mountain_count])
+		push_warning("roof layer count above strengthened satellite-outcrop guardrail: chunk %s has %d mountains" % [chunk_coord, mountain_count])
 
 func _chunk_distance_sq(a: Vector2i, b: Vector2i) -> int:
 	var dx: int = _wrapped_chunk_delta_abs(a.x, b.x)

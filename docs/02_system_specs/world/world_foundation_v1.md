@@ -743,6 +743,17 @@ remains mandatory but is a canonical no-op for `world_version >= 43`.
 The 2026-05-05 grid-contract boundary advances current new worlds to
 `world_version = 44` for `64 px` tiles, `16 x 16` chunks, and `256`-entry
 chunk packet arrays; it does not add new substrate fields.
+The 2026-06-03 mountain satellite-outcrop boundary advances new worlds to
+`world_version = 45`; it changes canonical mountain output while leaving
+`WorldPrePass` fields and chunk packet shape unchanged. The clustered
+satellite-outcrop refinement advances current new worlds to
+`world_version = 46`; it changes canonical mountain output again so outcrops
+spawn as sparse groups of small components, still without changing
+`WorldPrePass` fields or chunk packet shape. The strengthened
+satellite-outcrop refinement advances current new worlds to
+`world_version = 47`; it changes canonical mountain output so these outcrop
+groups can reach `2..20` components and are biased toward `10..20`, still
+without changing `WorldPrePass` fields or chunk packet shape.
 
 ## Performance Class
 

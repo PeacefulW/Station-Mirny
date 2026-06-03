@@ -74,8 +74,8 @@ func _assert_static_contract() -> void:
 
 	var constants_source: String = FileAccess.get_file_as_string("res://core/systems/world/world_runtime_constants.gd")
 	_assert(
-		constants_source.contains("const WORLD_VERSION: int = 44"),
-		"WORLD_VERSION must remain 44 for visual-only transition overlay work."
+		constants_source.contains("const WORLD_VERSION: int = 47"),
+		"WORLD_VERSION must remain at the current strengthened satellite-outcrop mountain generation boundary; transition overlay work is visual-only."
 	)
 
 func _assert_native_packet_fields() -> void:

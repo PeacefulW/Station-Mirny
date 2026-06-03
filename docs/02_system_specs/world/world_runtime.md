@@ -115,7 +115,7 @@ Required fields:
 |---|---|---|
 | `chunk_coord` | `Vector2i` | canonical chunk coordinate |
 | `world_seed` | `int` | copied into the packet for validation/debug |
-| `world_version` | `int` | first V0 runtime value starts at `1`; current active contract is `44` |
+| `world_version` | `int` | first V0 runtime value starts at `1`; current active contract is `47` |
 | `terrain_ids` | `PackedInt32Array` | length `256`, one terrain id per local tile |
 | `terrain_atlas_indices` | `PackedInt32Array` | length `256`, derived presentation atlas index per local tile |
 | `walkable_flags` | `PackedByteArray` | length `256`, `1 = walkable`, `0 = blocked` |

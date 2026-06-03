@@ -229,10 +229,22 @@ Current code notes:
   plus face-connected-component labeling; `LakeGenSettings.connectivity`
   remains in `settings_packed[21]` but is a no-op for canonical output.
   `ChunkPacketV1` shape is unchanged.
-- `world_version == 44` is the current grid-contract boundary: one world tile
+- `world_version == 44` is the grid-contract boundary: one world tile
   is `64 px`, one chunk is `16 x 16` tiles, and chunk packet arrays contain
   `256` entries. This changes chunk coordinate sharding and therefore rejects
   previous `32 px` / `32 x 32` pre-alpha saves before chunk diffs are applied.
+- `world_version == 45` is the historical first satellite-outcrop
+  mountain-generation boundary: sparse `3..10`-tile mountain components may
+  generate near large mountain masses. `ChunkPacketV1` shape is unchanged.
+- `world_version == 46` is the historical clustered satellite-outcrop
+  mountain-generation boundary: sparse groups of `2..6` separate `3..10`-tile
+  mountain components may generate near large mountain masses. `ChunkPacketV1`
+  shape is unchanged.
+- `world_version == 47` is the current strengthened satellite-outcrop
+  mountain-generation boundary: sparse groups of `2..20` separate `3..18`-tile
+  mountain components may generate near large mountain masses, biased toward
+  `10..20` components with occasional larger footprints. `ChunkPacketV1` shape
+  is unchanged.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded
@@ -489,7 +501,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current foundation runtime value is `44` |
+| `world_version` | `int` | — | Current foundation runtime value is `46` |
 | `terrain_ids` | `PackedInt32Array` | 256 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 256 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve, and plains ground opens `autotile_47` bank edges only against shallow/deep lake-bed neighbours |
 | `walkable_flags` | `PackedByteArray` | 256 | `1 = walkable`, `0 = blocked` |

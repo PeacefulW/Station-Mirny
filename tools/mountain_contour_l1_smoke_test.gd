@@ -46,8 +46,8 @@ func _assert_static_contract() -> void:
 
 	var constants_source: String = FileAccess.get_file_as_string("res://core/systems/world/world_runtime_constants.gd")
 	_assert(
-		constants_source.contains("const WORLD_VERSION: int = 44"),
-		"WORLD_VERSION must remain unchanged for visual/debug-only L1 contour work."
+		constants_source.contains("const WORLD_VERSION: int = 47"),
+		"WORLD_VERSION must remain at the current strengthened satellite-outcrop mountain generation boundary; contour debug is visual-only."
 	)
 
 	var save_schema_source: String = FileAccess.get_file_as_string("res://docs/02_system_specs/meta/packet_schemas.md")

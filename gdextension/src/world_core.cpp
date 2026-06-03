@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <limits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -69,6 +70,7 @@ constexpr uint8_t LAKE_FLAG_WATER_PRESENT = 1U << 0U;
 constexpr int64_t LEGACY_WORLD_WRAP_WIDTH_TILES = world_utils::LEGACY_WORLD_WRAP_WIDTH_TILES;
 constexpr int64_t WORLD_FOUNDATION_VERSION = 9;
 constexpr int64_t LAKE_PACKET_VERSION = 38;
+constexpr int64_t MOUNTAIN_SATELLITE_OUTCROP_CLUSTER_VERSION = 47;
 constexpr int64_t MOUNTAIN_FINITE_WIDTH_VERSION = world_utils::MOUNTAIN_FINITE_WIDTH_VERSION;
 constexpr int64_t FOUNDATION_CHUNK_SIZE = CHUNK_SIZE;
 constexpr int64_t SPAWN_SAFE_PATCH_MIN_TILE = 12;
@@ -79,6 +81,21 @@ constexpr float SPAWN_HEIGHT_MIN = 0.28f;
 constexpr float SPAWN_HEIGHT_MAX = 0.74f;
 constexpr size_t HIERARCHICAL_CACHE_LIMIT = 64;
 constexpr int32_t PREVIEW_MIPMAP_LEVELS = 6;
+constexpr int32_t SATELLITE_OUTCROP_ANCHOR_CELL_SIZE = 16;
+constexpr int32_t SATELLITE_OUTCROP_SCAN_MARGIN_TILES = 32;
+constexpr int32_t SATELLITE_OUTCROP_MIN_MAIN_DISTANCE_TILES = 2;
+constexpr int32_t SATELLITE_OUTCROP_MAX_MAIN_DISTANCE_TILES = 14;
+constexpr int32_t SATELLITE_OUTCROP_MIN_CELLS = 3;
+constexpr int32_t SATELLITE_OUTCROP_MAX_CELLS = 18;
+constexpr int32_t SATELLITE_OUTCROP_CLUSTER_MIN_COUNT = 2;
+constexpr int32_t SATELLITE_OUTCROP_CLUSTER_MAX_COUNT = 20;
+constexpr int32_t SATELLITE_OUTCROP_CLUSTER_ATTEMPTS = 52;
+constexpr int32_t SATELLITE_OUTCROP_CLUSTER_SPREAD_TILES = 15;
+constexpr int32_t SATELLITE_OUTCROP_ID_BASE = 0x60000000;
+constexpr int32_t SATELLITE_OUTCROP_ID_MASK = 0x0fffffff;
+constexpr float SATELLITE_OUTCROP_BASE_CHANCE = 0.018f;
+constexpr float SATELLITE_OUTCROP_DENSITY_CHANCE = 0.13f;
+constexpr uint64_t SATELLITE_OUTCROP_HASH_SALT = 0x4d51d1b8f6a4c3e9ULL;
 
 enum class PreviewPatchMode {
 	Terrain,
@@ -101,6 +118,25 @@ struct NeighbourLake {
 struct LakeNeighbourOffset {
 	int32_t x = 0;
 	int32_t y = 0;
+};
+
+struct SatelliteOutcropCandidate {
+	int64_t anchor_cell_x = 0;
+	int64_t anchor_cell_y = 0;
+	int64_t center_x = 0;
+	int64_t center_y = 0;
+	float radius_x = 1.5f;
+	float radius_y = 1.5f;
+	float wobble = 0.0f;
+	int32_t shape_mode = 0;
+	int32_t shape_orientation = 0;
+	int32_t mountain_id = 0;
+};
+
+struct SatelliteOutcropHit {
+	bool active = false;
+	int32_t mountain_id = 0;
+	float elevation = 0.0f;
 };
 
 constexpr LakeNeighbourOffset k_lake_neighbour_priority[] = {
@@ -361,6 +397,103 @@ int64_t floor_div(int64_t p_value, int64_t p_divisor) {
 		quotient -= 1;
 	}
 	return quotient;
+}
+
+uint64_t hash_satellite_outcrop_anchor(
+	int64_t p_seed,
+	int64_t p_world_version,
+	int64_t p_anchor_cell_x,
+	int64_t p_anchor_cell_y,
+	int64_t p_world_wrap_width_tiles
+) {
+	const int64_t anchor_cells_per_wrap = std::max<int64_t>(
+		1,
+		(p_world_wrap_width_tiles + SATELLITE_OUTCROP_ANCHOR_CELL_SIZE - 1) / SATELLITE_OUTCROP_ANCHOR_CELL_SIZE
+	);
+	const int64_t wrapped_anchor_x = positive_mod(p_anchor_cell_x, anchor_cells_per_wrap);
+	uint64_t mixed = world_utils::mix_seed(p_seed, p_world_version, SATELLITE_OUTCROP_HASH_SALT);
+	mixed = splitmix64(mixed ^ static_cast<uint64_t>(wrapped_anchor_x) * 0x9e3779b185ebca87ULL);
+	mixed = splitmix64(mixed ^ static_cast<uint64_t>(p_anchor_cell_y) * 0xc2b2ae3d27d4eb4fULL);
+	return mixed;
+}
+
+float hash_unit_float(uint64_t p_hash, uint32_t p_shift) {
+	return static_cast<float>((p_hash >> p_shift) & 0xffffU) / 65535.0f;
+}
+
+int32_t make_satellite_outcrop_mountain_id(uint64_t p_hash) {
+	return SATELLITE_OUTCROP_ID_BASE |
+			static_cast<int32_t>(splitmix64(p_hash ^ 0x7f4a7c159e3779b9ULL) & SATELLITE_OUTCROP_ID_MASK);
+}
+
+int64_t signed_wrapped_delta_x(int64_t p_from_x, int64_t p_to_x, int64_t p_world_wrap_width_tiles) {
+	const int64_t width = std::max<int64_t>(1, p_world_wrap_width_tiles);
+	int64_t delta = positive_mod(p_to_x - p_from_x, width);
+	if (delta > width / 2) {
+		delta -= width;
+	}
+	return delta;
+}
+
+float satellite_outcrop_shape_distance(
+	const SatelliteOutcropCandidate &p_candidate,
+	int64_t p_world_x,
+	int64_t p_world_y,
+	int64_t p_world_wrap_width_tiles,
+	uint64_t p_tile_hash
+) {
+	float local_x = static_cast<float>(signed_wrapped_delta_x(p_candidate.center_x, p_world_x, p_world_wrap_width_tiles));
+	float local_y = static_cast<float>(p_world_y - p_candidate.center_y);
+	switch (positive_mod(p_candidate.shape_orientation, 4)) {
+		case 1: {
+			const float tmp = local_x;
+			local_x = -local_y;
+			local_y = tmp;
+		} break;
+		case 2:
+			local_x = -local_x;
+			local_y = -local_y;
+			break;
+		case 3: {
+			const float tmp = local_x;
+			local_x = local_y;
+			local_y = -tmp;
+		} break;
+		default:
+			break;
+	}
+	const float organic_breakup = (hash_unit_float(p_tile_hash, 6U) - 0.5f) * p_candidate.wobble;
+	const float radius_x = std::max(0.1f, p_candidate.radius_x);
+	const float radius_y = std::max(0.1f, p_candidate.radius_y);
+	const int32_t shape_mode = positive_mod(p_candidate.shape_mode, 4);
+	if (shape_mode == 1) {
+		const float normalized_x = local_x / (radius_x * 1.35f);
+		const float normalized_y = local_y / (radius_y * 0.78f);
+		return normalized_x * normalized_x + normalized_y * normalized_y + organic_breakup;
+	}
+	if (shape_mode == 2) {
+		const float arm_a_x = local_x / (radius_x * 0.68f);
+		const float arm_a_y = (local_y + radius_y * 0.25f) / (radius_y * 1.10f);
+		const float arm_b_x = (local_x - radius_x * 0.42f) / (radius_x * 1.12f);
+		const float arm_b_y = (local_y - radius_y * 0.42f) / (radius_y * 0.62f);
+		const float arm_a = arm_a_x * arm_a_x + arm_a_y * arm_a_y;
+		const float arm_b = arm_b_x * arm_b_x + arm_b_y * arm_b_y;
+		return std::min(arm_a, arm_b) + organic_breakup;
+	}
+	if (shape_mode == 3) {
+		const float normalized_y = local_y / radius_y;
+		const float taper = world_utils::clamp_value(1.0f - (normalized_y + 0.85f) * 0.42f, 0.32f, 1.25f);
+		const float normalized_x = local_x / (radius_x * taper);
+		return normalized_x * normalized_x + normalized_y * normalized_y * 0.72f + organic_breakup;
+	}
+	const float normalized_x = local_x / radius_x;
+	const float normalized_y = local_y / radius_y;
+	return normalized_x * normalized_x + normalized_y * normalized_y + organic_breakup;
+}
+
+int32_t satellite_outcrop_candidate_extent(const SatelliteOutcropCandidate &p_candidate) {
+	const float largest_radius = std::max(p_candidate.radius_x, p_candidate.radius_y);
+	return std::max<int32_t>(4, static_cast<int32_t>(std::ceil(largest_radius * 2.25f + 4.0f)));
 }
 
 int64_t resolve_macro_cell_x_for_world(
@@ -1170,6 +1303,452 @@ Dictionary WorldCore::_generate_chunk_packet(
 		return solve.is_representative_tile(p_world_x, p_world_y, p_mountain_id);
 	};
 
+	auto base_mountain_id_at_world = [&](int64_t p_sample_world_x, int64_t p_world_y) -> int32_t {
+		const float elevation = p_mountain_evaluator.sample_elevation(p_sample_world_x, p_world_y);
+		return resolve_mountain_id_at_world(p_sample_world_x, p_world_y, elevation);
+	};
+	auto candidate_touches_base_mountain = [&](int64_t p_sample_world_x, int64_t p_world_y) -> bool {
+		const int32_t separation_offsets[][2] = {
+			{ 0, 0 },
+			{ 1, 0 },
+			{ -1, 0 },
+			{ 0, 1 },
+			{ 0, -1 },
+			{ 1, 1 },
+			{ -1, 1 },
+			{ 1, -1 },
+			{ -1, -1 },
+		};
+		for (const auto &offset : separation_offsets) {
+			const int64_t neighbour_x = positive_mod(
+				p_sample_world_x + static_cast<int64_t>(offset[0]),
+				p_effective_mountain_settings.world_wrap_width_tiles
+			);
+			const int64_t raw_neighbour_y = p_world_y + static_cast<int64_t>(offset[1]);
+			if (p_foundation_settings.enabled &&
+					(raw_neighbour_y < 0 || raw_neighbour_y >= p_foundation_settings.height_tiles)) {
+				continue;
+			}
+			const int64_t neighbour_y = clamp_foundation_world_y(raw_neighbour_y, p_foundation_settings);
+			if (base_mountain_id_at_world(neighbour_x, neighbour_y) > 0) {
+				return true;
+			}
+		}
+		return false;
+	};
+
+	std::vector<SatelliteOutcropCandidate> satellite_outcrop_candidates;
+	if (p_world_version >= MOUNTAIN_SATELLITE_OUTCROP_CLUSTER_VERSION && p_effective_mountain_settings.density > 0.05f) {
+		auto anchor_is_near_main_mountain = [&](int64_t p_center_x, int64_t p_center_y) -> bool {
+			const int32_t near_offsets[][2] = {
+				{ 1, 0 },
+				{ -1, 0 },
+				{ 0, 1 },
+				{ 0, -1 },
+				{ 1, 1 },
+				{ -1, 1 },
+				{ 1, -1 },
+				{ -1, -1 },
+			};
+			for (int32_t distance = 1; distance <= SATELLITE_OUTCROP_MIN_MAIN_DISTANCE_TILES; ++distance) {
+				for (const auto &offset : near_offsets) {
+					const int64_t sample_x = positive_mod(
+						p_center_x + static_cast<int64_t>(offset[0]) * static_cast<int64_t>(distance),
+						p_effective_mountain_settings.world_wrap_width_tiles
+					);
+					const int64_t sample_y = clamp_foundation_world_y(
+						p_center_y + static_cast<int64_t>(offset[1]) * static_cast<int64_t>(distance),
+						p_foundation_settings
+					);
+					if (base_mountain_id_at_world(sample_x, sample_y) > 0) {
+						return false;
+					}
+				}
+			}
+			const int32_t ring_distances[] = { 3, 5, 8, SATELLITE_OUTCROP_MAX_MAIN_DISTANCE_TILES };
+			for (int32_t distance : ring_distances) {
+				for (const auto &offset : near_offsets) {
+					const int64_t sample_x = positive_mod(
+						p_center_x + static_cast<int64_t>(offset[0]) * static_cast<int64_t>(distance),
+						p_effective_mountain_settings.world_wrap_width_tiles
+					);
+					const int64_t sample_y = clamp_foundation_world_y(
+						p_center_y + static_cast<int64_t>(offset[1]) * static_cast<int64_t>(distance),
+						p_foundation_settings
+					);
+					if (base_mountain_id_at_world(sample_x, sample_y) > 0) {
+						return true;
+					}
+				}
+			}
+			return false;
+		};
+		auto make_outcrop_tile_key = [&](int64_t p_sample_x, int64_t p_sample_y) -> int64_t {
+			return p_sample_y * p_effective_mountain_settings.world_wrap_width_tiles + p_sample_x;
+		};
+		auto collect_candidate_solid_tiles = [&](const SatelliteOutcropCandidate &p_candidate) -> std::vector<int64_t> {
+			std::vector<int64_t> solid_tiles;
+			const int32_t candidate_extent = satellite_outcrop_candidate_extent(p_candidate);
+			for (int64_t offset_y = -candidate_extent; offset_y <= candidate_extent; ++offset_y) {
+				const int64_t raw_sample_y = p_candidate.center_y + offset_y;
+				if (p_foundation_settings.enabled &&
+						(raw_sample_y < 0 || raw_sample_y >= p_foundation_settings.height_tiles)) {
+					continue;
+				}
+				const int64_t sample_y = clamp_foundation_world_y(raw_sample_y, p_foundation_settings);
+				for (int64_t offset_x = -candidate_extent; offset_x <= candidate_extent; ++offset_x) {
+					const int64_t sample_x = positive_mod(
+						p_candidate.center_x + offset_x,
+						p_effective_mountain_settings.world_wrap_width_tiles
+					);
+					const float base_elevation = p_mountain_evaluator.sample_elevation(sample_x, sample_y);
+					if (base_elevation >= mountain_thresholds.t_edge) {
+						continue;
+					}
+					if (candidate_touches_base_mountain(sample_x, sample_y)) {
+						continue;
+					}
+					const uint64_t tile_hash = splitmix64(
+						hash_satellite_outcrop_anchor(
+							p_seed,
+							p_world_version,
+							p_candidate.anchor_cell_x,
+							p_candidate.anchor_cell_y,
+							p_effective_mountain_settings.world_wrap_width_tiles
+						) ^
+						static_cast<uint64_t>(sample_x) * 0x9e3779b185ebca87ULL ^
+						static_cast<uint64_t>(sample_y) * 0xc2b2ae3d27d4eb4fULL
+					);
+					if (satellite_outcrop_shape_distance(
+						p_candidate,
+						sample_x,
+						sample_y,
+						p_effective_mountain_settings.world_wrap_width_tiles,
+						tile_hash
+					) <= 1.0f) {
+						solid_tiles.push_back(make_outcrop_tile_key(sample_x, sample_y));
+					}
+				}
+			}
+			return solid_tiles;
+		};
+
+		const int64_t chunk_origin_sample_x = resolve_mountain_sample_x(
+			static_cast<int64_t>(p_coord.x) * CHUNK_SIZE,
+			p_world_version,
+			p_foundation_settings
+		);
+		const int64_t chunk_origin_y = clamp_foundation_world_y(
+			static_cast<int64_t>(p_coord.y) * CHUNK_SIZE,
+			p_foundation_settings
+		);
+		const int64_t anchor_min_x = floor_div(
+			chunk_origin_sample_x - mountain_border - SATELLITE_OUTCROP_SCAN_MARGIN_TILES,
+			static_cast<int64_t>(SATELLITE_OUTCROP_ANCHOR_CELL_SIZE)
+		);
+		const int64_t anchor_max_x = floor_div(
+			chunk_origin_sample_x + CHUNK_SIZE - 1 + mountain_border + SATELLITE_OUTCROP_SCAN_MARGIN_TILES,
+			static_cast<int64_t>(SATELLITE_OUTCROP_ANCHOR_CELL_SIZE)
+		);
+		const int64_t anchor_min_y = floor_div(
+			chunk_origin_y - mountain_border - SATELLITE_OUTCROP_SCAN_MARGIN_TILES,
+			static_cast<int64_t>(SATELLITE_OUTCROP_ANCHOR_CELL_SIZE)
+		);
+		const int64_t anchor_max_y = floor_div(
+			chunk_origin_y + CHUNK_SIZE - 1 + mountain_border + SATELLITE_OUTCROP_SCAN_MARGIN_TILES,
+			static_cast<int64_t>(SATELLITE_OUTCROP_ANCHOR_CELL_SIZE)
+		);
+		const int64_t anchor_cells_per_wrap = std::max<int64_t>(
+			1,
+			(p_effective_mountain_settings.world_wrap_width_tiles + SATELLITE_OUTCROP_ANCHOR_CELL_SIZE - 1) /
+					SATELLITE_OUTCROP_ANCHOR_CELL_SIZE
+		);
+		const float spawn_chance = world_utils::clamp_value(
+			SATELLITE_OUTCROP_BASE_CHANCE + p_effective_mountain_settings.density * SATELLITE_OUTCROP_DENSITY_CHANCE,
+			0.0f,
+			0.14f
+		);
+		for (int64_t anchor_y = anchor_min_y; anchor_y <= anchor_max_y; ++anchor_y) {
+			if (p_foundation_settings.enabled) {
+				const int64_t anchor_origin_y = anchor_y * SATELLITE_OUTCROP_ANCHOR_CELL_SIZE;
+				if (anchor_origin_y >= p_foundation_settings.height_tiles ||
+						anchor_origin_y + SATELLITE_OUTCROP_ANCHOR_CELL_SIZE - 1 < 0) {
+					continue;
+				}
+			}
+			for (int64_t anchor_x = anchor_min_x; anchor_x <= anchor_max_x; ++anchor_x) {
+				const int64_t canonical_anchor_x = positive_mod(anchor_x, anchor_cells_per_wrap);
+				const uint64_t anchor_hash = hash_satellite_outcrop_anchor(
+					p_seed,
+					p_world_version,
+					canonical_anchor_x,
+					anchor_y,
+					p_effective_mountain_settings.world_wrap_width_tiles
+				);
+				if (hash_unit_float(anchor_hash, 0U) > spawn_chance) {
+					continue;
+				}
+				bool suppressed_by_nearby_anchor = false;
+				for (int32_t neighbour_y = -2; neighbour_y <= 2; ++neighbour_y) {
+					for (int32_t neighbour_x = -2; neighbour_x <= 2; ++neighbour_x) {
+						if (neighbour_x == 0 && neighbour_y == 0) {
+							continue;
+						}
+						const int64_t neighbour_anchor_y = anchor_y + neighbour_y;
+						if (p_foundation_settings.enabled) {
+							const int64_t neighbour_origin_y = neighbour_anchor_y * SATELLITE_OUTCROP_ANCHOR_CELL_SIZE;
+							if (neighbour_origin_y >= p_foundation_settings.height_tiles ||
+									neighbour_origin_y + SATELLITE_OUTCROP_ANCHOR_CELL_SIZE - 1 < 0) {
+								continue;
+							}
+						}
+						const int64_t neighbour_anchor_x = positive_mod(canonical_anchor_x + neighbour_x, anchor_cells_per_wrap);
+						const uint64_t neighbour_hash = hash_satellite_outcrop_anchor(
+							p_seed,
+							p_world_version,
+							neighbour_anchor_x,
+							neighbour_anchor_y,
+							p_effective_mountain_settings.world_wrap_width_tiles
+						);
+						if (hash_unit_float(neighbour_hash, 0U) <= spawn_chance && neighbour_hash < anchor_hash) {
+							suppressed_by_nearby_anchor = true;
+							break;
+						}
+					}
+					if (suppressed_by_nearby_anchor) {
+						break;
+					}
+				}
+				if (suppressed_by_nearby_anchor) {
+					continue;
+				}
+
+				const int64_t anchor_origin_x = canonical_anchor_x * SATELLITE_OUTCROP_ANCHOR_CELL_SIZE;
+				const int64_t anchor_origin_y = anchor_y * SATELLITE_OUTCROP_ANCHOR_CELL_SIZE;
+				const int64_t cluster_center_x = positive_mod(
+					anchor_origin_x + 4 + static_cast<int64_t>(std::floor(hash_unit_float(anchor_hash, 16U) * 8.0f)),
+					p_effective_mountain_settings.world_wrap_width_tiles
+				);
+				const int64_t cluster_center_y = anchor_origin_y + 4 + static_cast<int64_t>(std::floor(hash_unit_float(anchor_hash, 32U) * 8.0f));
+				if (p_foundation_settings.enabled && (cluster_center_y < 0 || cluster_center_y >= p_foundation_settings.height_tiles)) {
+					continue;
+				}
+				if (mountain_field::is_spawn_safety_area_at_world(p_world_version, cluster_center_x, cluster_center_y) ||
+						is_foundation_spawn_safety_area_at_world(cluster_center_x, cluster_center_y, p_foundation_settings)) {
+					continue;
+				}
+				const float cluster_center_elevation = p_mountain_evaluator.sample_elevation(cluster_center_x, cluster_center_y);
+				if (cluster_center_elevation >= mountain_thresholds.t_edge ||
+						resolve_mountain_id_at_world(cluster_center_x, cluster_center_y, cluster_center_elevation) > 0) {
+					continue;
+				}
+				if (!anchor_is_near_main_mountain(cluster_center_x, cluster_center_y)) {
+					continue;
+				}
+
+				const uint64_t cluster_hash = splitmix64(anchor_hash ^ 0xa73e2d9b4c6f1825ULL);
+				const float count_roll = hash_unit_float(cluster_hash, 0U);
+				const int32_t raw_desired_count = count_roll < 0.25f ?
+						2 + static_cast<int32_t>(std::floor(hash_unit_float(cluster_hash, 16U) * 8.0f)) :
+						10 + static_cast<int32_t>(std::floor(hash_unit_float(cluster_hash, 16U) * 11.0f));
+				const int32_t desired_count = world_utils::clamp_value(
+					raw_desired_count,
+					SATELLITE_OUTCROP_CLUSTER_MIN_COUNT,
+					SATELLITE_OUTCROP_CLUSTER_MAX_COUNT
+				);
+				const int32_t cluster_offsets[][2] = {
+					{ 0, 0 },
+					{ 5, 0 },
+					{ -5, 0 },
+					{ 0, 5 },
+					{ 0, -5 },
+					{ 5, 5 },
+					{ -5, 5 },
+					{ 5, -5 },
+					{ -5, -5 },
+					{ 10, 0 },
+					{ -10, 0 },
+					{ 0, 10 },
+					{ 0, -10 },
+					{ 10, 5 },
+					{ -10, 5 },
+					{ 10, -5 },
+					{ -10, -5 },
+					{ 5, 10 },
+					{ -5, 10 },
+					{ 5, -10 },
+					{ -5, -10 },
+					{ 12, 12 },
+					{ -12, 12 },
+					{ 12, -12 },
+					{ -12, -12 },
+					{ 15, 0 },
+					{ -15, 0 },
+					{ 0, 15 },
+					{ 0, -15 },
+					{ 15, 8 },
+					{ -15, 8 },
+					{ 15, -8 },
+					{ -15, -8 },
+					{ 8, 15 },
+					{ -8, 15 },
+					{ 8, -15 },
+					{ -8, -15 },
+					{ 18, 3 },
+					{ -18, -3 },
+					{ 3, 18 },
+					{ -3, -18 },
+				};
+				std::vector<SatelliteOutcropCandidate> pending_cluster;
+				std::unordered_set<int64_t> pending_cluster_occupied_tiles;
+				for (int32_t attempt = 0; attempt < SATELLITE_OUTCROP_CLUSTER_ATTEMPTS; ++attempt) {
+					if (static_cast<int32_t>(pending_cluster.size()) >= desired_count) {
+						break;
+					}
+					const uint64_t child_hash = splitmix64(
+						cluster_hash ^
+						static_cast<uint64_t>(attempt + 1) * 0x9e3779b185ebca87ULL
+					);
+					const int32_t offset_index = attempt % (sizeof(cluster_offsets) / sizeof(cluster_offsets[0]));
+					const int64_t jitter_x = static_cast<int64_t>(std::floor(hash_unit_float(child_hash, 8U) * 5.0f)) - 2;
+					const int64_t jitter_y = static_cast<int64_t>(std::floor(hash_unit_float(child_hash, 24U) * 5.0f)) - 2;
+					const int64_t child_x = positive_mod(
+						cluster_center_x +
+							static_cast<int64_t>(cluster_offsets[offset_index][0]) +
+							jitter_x,
+						p_effective_mountain_settings.world_wrap_width_tiles
+					);
+					const int64_t child_y = cluster_center_y +
+						static_cast<int64_t>(cluster_offsets[offset_index][1]) +
+						jitter_y;
+					if (p_foundation_settings.enabled && (child_y < 0 || child_y >= p_foundation_settings.height_tiles)) {
+						continue;
+					}
+					if (std::abs(child_y - cluster_center_y) > SATELLITE_OUTCROP_CLUSTER_SPREAD_TILES ||
+							std::abs(signed_wrapped_delta_x(cluster_center_x, child_x, p_effective_mountain_settings.world_wrap_width_tiles)) >
+									SATELLITE_OUTCROP_CLUSTER_SPREAD_TILES) {
+						continue;
+					}
+					if (mountain_field::is_spawn_safety_area_at_world(p_world_version, child_x, child_y) ||
+							is_foundation_spawn_safety_area_at_world(child_x, child_y, p_foundation_settings)) {
+						continue;
+					}
+					const float child_elevation = p_mountain_evaluator.sample_elevation(child_x, child_y);
+					if (child_elevation >= mountain_thresholds.t_edge ||
+							resolve_mountain_id_at_world(child_x, child_y, child_elevation) > 0) {
+						continue;
+					}
+
+					SatelliteOutcropCandidate candidate;
+					candidate.anchor_cell_x = canonical_anchor_x;
+					candidate.anchor_cell_y = anchor_y;
+					candidate.center_x = child_x;
+					candidate.center_y = child_y;
+					candidate.shape_mode = static_cast<int32_t>(child_hash & 3ULL);
+					candidate.shape_orientation = static_cast<int32_t>((child_hash >> 2U) & 3ULL);
+					const float compact_radius_x = 0.95f + hash_unit_float(child_hash, 16U) * 0.44f;
+					const float compact_radius_y = 0.92f + hash_unit_float(child_hash, 32U) * 0.42f;
+					if (candidate.shape_mode == 1) {
+						candidate.radius_x = 1.22f + hash_unit_float(child_hash, 40U) * 0.58f;
+						candidate.radius_y = 0.72f + hash_unit_float(child_hash, 48U) * 0.26f;
+					} else if (candidate.shape_mode == 2) {
+						candidate.radius_x = 0.92f + hash_unit_float(child_hash, 40U) * 0.34f;
+						candidate.radius_y = 0.92f + hash_unit_float(child_hash, 48U) * 0.34f;
+					} else if (candidate.shape_mode == 3) {
+						candidate.radius_x = 1.02f + hash_unit_float(child_hash, 40U) * 0.46f;
+						candidate.radius_y = 1.02f + hash_unit_float(child_hash, 48U) * 0.44f;
+					} else {
+						candidate.radius_x = compact_radius_x;
+						candidate.radius_y = compact_radius_y;
+					}
+					const float large_roll = hash_unit_float(splitmix64(child_hash ^ 0x9f47baf219a4d6c3ULL), 0U);
+					if (large_roll > 0.72f) {
+						const float size_scale = 1.18f + hash_unit_float(splitmix64(child_hash ^ 0x3b2e8c1f7a56d409ULL), 0U) * 0.42f;
+						candidate.radius_x *= size_scale;
+						candidate.radius_y *= size_scale;
+					}
+					candidate.wobble = 0.06f + hash_unit_float(splitmix64(child_hash ^ 0x5d7b8f3a6e4c2910ULL), 0U) * 0.16f;
+					candidate.mountain_id = make_satellite_outcrop_mountain_id(child_hash);
+					const std::vector<int64_t> solid_tiles = collect_candidate_solid_tiles(candidate);
+					if (solid_tiles.size() < SATELLITE_OUTCROP_MIN_CELLS || solid_tiles.size() > SATELLITE_OUTCROP_MAX_CELLS) {
+						continue;
+					}
+					bool overlaps_cluster = false;
+					for (const int64_t tile_key : solid_tiles) {
+						if (pending_cluster_occupied_tiles.find(tile_key) != pending_cluster_occupied_tiles.end()) {
+							overlaps_cluster = true;
+							break;
+						}
+					}
+					if (overlaps_cluster) {
+						continue;
+					}
+					pending_cluster.push_back(candidate);
+					for (const int64_t tile_key : solid_tiles) {
+						pending_cluster_occupied_tiles.insert(tile_key);
+					}
+				}
+				if (static_cast<int32_t>(pending_cluster.size()) >= SATELLITE_OUTCROP_CLUSTER_MIN_COUNT) {
+					satellite_outcrop_candidates.insert(
+						satellite_outcrop_candidates.end(),
+						pending_cluster.begin(),
+						pending_cluster.end()
+					);
+				}
+			}
+		}
+	}
+
+	auto resolve_satellite_outcrop_hit = [&](int64_t p_sample_world_x, int64_t p_world_y, float p_base_elevation) -> SatelliteOutcropHit {
+		SatelliteOutcropHit hit;
+		if (p_base_elevation >= mountain_thresholds.t_edge || satellite_outcrop_candidates.empty()) {
+			return hit;
+		}
+		for (const SatelliteOutcropCandidate &candidate : satellite_outcrop_candidates) {
+			const int32_t candidate_extent = satellite_outcrop_candidate_extent(candidate);
+			if (std::abs(p_world_y - candidate.center_y) > candidate_extent) {
+				continue;
+			}
+			if (std::abs(signed_wrapped_delta_x(candidate.center_x, p_sample_world_x, p_effective_mountain_settings.world_wrap_width_tiles)) >
+					candidate_extent) {
+				continue;
+			}
+			const uint64_t tile_hash = splitmix64(
+				hash_satellite_outcrop_anchor(
+					p_seed,
+					p_world_version,
+					candidate.anchor_cell_x,
+					candidate.anchor_cell_y,
+					p_effective_mountain_settings.world_wrap_width_tiles
+				) ^
+				static_cast<uint64_t>(positive_mod(p_sample_world_x, p_effective_mountain_settings.world_wrap_width_tiles)) *
+						0x9e3779b185ebca87ULL ^
+				static_cast<uint64_t>(p_world_y) * 0xc2b2ae3d27d4eb4fULL
+			);
+			const float shape_distance = satellite_outcrop_shape_distance(
+				candidate,
+				p_sample_world_x,
+				p_world_y,
+				p_effective_mountain_settings.world_wrap_width_tiles,
+				tile_hash
+			);
+			if (shape_distance > 1.0f) {
+				continue;
+			}
+			if (candidate_touches_base_mountain(p_sample_world_x, p_world_y)) {
+				continue;
+			}
+			hit.active = true;
+			hit.mountain_id = candidate.mountain_id;
+			const float wall_cut = 0.58f + (hash_unit_float(tile_hash, 24U) - 0.5f) * 0.12f;
+			hit.elevation = shape_distance <= wall_cut ?
+					std::min(1.0f, mountain_thresholds.t_wall + 0.08f) :
+					std::min(mountain_thresholds.t_wall - 0.001f, mountain_thresholds.t_edge + p_effective_mountain_settings.foot_band * 0.55f);
+			return hit;
+		}
+		return hit;
+	};
+
 	for (int64_t sample_y = 0; sample_y < mountain_grid_side; ++sample_y) {
 		for (int64_t sample_x = 0; sample_x < mountain_grid_side; ++sample_x) {
 			const int64_t world_x = static_cast<int64_t>(p_coord.x) * CHUNK_SIZE + sample_x - mountain_border;
@@ -1183,8 +1762,16 @@ Dictionary WorldCore::_generate_chunk_packet(
 			if (is_foundation_spawn_safety_area_at_world(world_x, world_y, p_foundation_settings)) {
 				elevation = 0.0f;
 			}
+			int32_t mountain_id = resolve_mountain_id_at_world(sample_world_x, world_y, elevation);
+			if (mountain_id == 0) {
+				const SatelliteOutcropHit outcrop_hit = resolve_satellite_outcrop_hit(sample_world_x, world_y, elevation);
+				if (outcrop_hit.active) {
+					elevation = outcrop_hit.elevation;
+					mountain_id = outcrop_hit.mountain_id;
+				}
+			}
 			mountain_elevations[static_cast<size_t>(sample_index)] = elevation;
-			mountain_ids[static_cast<size_t>(sample_index)] = resolve_mountain_id_at_world(sample_world_x, world_y, elevation);
+			mountain_ids[static_cast<size_t>(sample_index)] = mountain_id;
 		}
 	}
 

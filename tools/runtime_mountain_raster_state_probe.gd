@@ -2,8 +2,8 @@ extends SceneTree
 
 const WORLD_RUNTIME_SCENE_PATH: String = "res://scenes/world/world_runtime_v0.tscn"
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
-const PROBE_TARGET_CHUNK: Vector2i = Vector2i(128, 100)
-const PROBE_TARGET_LOCAL: Vector2i = Vector2i(8, 0)
+const PROBE_TARGET_CHUNK: Vector2i = Vector2i(138, 97)
+const PROBE_TARGET_LOCAL: Vector2i = Vector2i(7, 3)
 
 var _failed: bool = false
 
