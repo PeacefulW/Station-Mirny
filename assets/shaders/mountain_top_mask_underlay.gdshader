@@ -29,6 +29,16 @@ uniform float light_angle_deg = 234.0;
 uniform float normal_strength = 1.35;
 uniform float light_ambient = 0.68;
 uniform float light_diffuse = 0.34;
+uniform float top_surface_alpha = 1.0;
+uniform float wall_surface_alpha = 1.0;
+uniform vec3 top_dust_tint = vec3(0.90, 0.84, 0.76);
+uniform vec3 rim_highlight_color = vec3(0.93, 0.49, 0.20);
+uniform vec3 cut_highlight_color = vec3(0.82, 0.39, 0.16);
+uniform vec3 cleft_color = vec3(0.12, 0.045, 0.018);
+uniform vec3 crack_color = vec3(0.055, 0.026, 0.012);
+uniform vec3 base_debris_color = vec3(0.18, 0.075, 0.032);
+uniform vec3 eave_shadow_color = vec3(0.13, 0.052, 0.022);
+uniform vec3 inner_rim_color = vec3(0.70, 0.30, 0.11);
 uniform float chunk_uv_lo = 0.1;
 uniform float chunk_uv_hi = 0.9;
 
@@ -138,7 +148,7 @@ void fragment() {
 	vec2 top_uv_dy = (world_px + vec2(0.0, grad_px)) * top_texture_scale / tz / max(top_texture_size, vec2(1.0));
 	vec4 top_col = texture(top_texture, top_uv);
 	top_col.rgb *= top_variation;
-	top_col.rgb = mix(top_col.rgb, top_col.rgb * vec3(0.90, 0.84, 0.76), smoothstep(0.68, 0.96, macro) * 0.20);
+	top_col.rgb = mix(top_col.rgb, top_col.rgb * top_dust_tint, smoothstep(0.68, 0.96, macro) * 0.20);
 	float h_c = luma(top_col.rgb);
 	float h_x = luma(texture(top_texture, top_uv_dx).rgb);
 	float h_y = luma(texture(top_texture, top_uv_dy).rgb);
@@ -166,7 +176,7 @@ void fragment() {
 	vec3 facade_color = face_col.rgb * (light_ambient + light_diffuse * clamp(dot(face_n, light_dir), 0.0, 1.0));
 
 	vec3 color = top_lit;
-	float out_alpha = top_here * top_col.a;
+	float out_alpha = top_here * top_col.a * top_surface_alpha;
 
 	if (is_wall) {
 		float wall_depth = clamp(edge_below / wall_texels, 0.0, 1.0); // 0 = base (south), 1 = top (north)
@@ -182,29 +192,29 @@ void fragment() {
 		color = facade_color * vertical_mass;
 		color = mix(color, color * 0.72, strata_line * 0.42);
 		color = mix(color, color * 0.84, smoothstep(0.58, 0.86, broad_layer) * 0.22);
-		color = mix(color, vec3(0.82, 0.39, 0.16), cut_highlight * 0.22);
-		color = mix(color, vec3(0.12, 0.045, 0.018), cleft * 0.28);
-		color = mix(color, vec3(0.055, 0.026, 0.012), crack * 0.38);
-		color = mix(color, vec3(0.18, 0.075, 0.032), base_debris * 0.55);
+		color = mix(color, cut_highlight_color, cut_highlight * 0.22);
+		color = mix(color, cleft_color, cleft * 0.28);
+		color = mix(color, crack_color, crack * 0.38);
+		color = mix(color, base_debris_color, base_debris * 0.55);
 		float top_rim = smoothstep(0.77, 1.0, wall_depth);
 		float base_outline = 1.0 - smoothstep(0.0, 2.0 / max(sample_step_px, 1.0), edge_below);
-		color = mix(color, vec3(0.93, 0.49, 0.20), top_rim * 0.28);
+		color = mix(color, rim_highlight_color, top_rim * 0.28);
 		color = mix(color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0) * 0.92);
-		out_alpha = 1.0;
+		out_alpha = wall_surface_alpha;
 	}
 
 	// Cosmetic roof eave over the open space just below the silhouette.
 	if (!is_wall && overhang > 0.0) {
-		vec3 eave_color = mix(vec3(0.13, 0.052, 0.022), top_lit * 0.48, 0.28);
+		vec3 eave_color = mix(eave_shadow_color, top_lit * 0.48, 0.28);
 		color = mix(color, eave_color, overhang);
-		out_alpha = max(out_alpha, overhang);
+		out_alpha = max(out_alpha, overhang * wall_surface_alpha);
 	}
 
 	// Thin dark outline along the solid silhouette edge (sides / non-wall).
 	float silhouette = smoothstep(0.08, 0.5, top_here) * (1.0 - smoothstep(0.5, 0.82, top_here));
 	float inner_rim = smoothstep(0.42, 0.72, top_here) * (1.0 - smoothstep(0.76, 0.96, top_here));
 	color = mix(color, vec3(0.03, 0.02, 0.012), silhouette * 0.64);
-	color = mix(color, vec3(0.70, 0.30, 0.11), inner_rim * 0.10 * top_here);
+	color = mix(color, inner_rim_color, inner_rim * 0.10 * top_here);
 
 	COLOR = vec4(color, out_alpha);
 }

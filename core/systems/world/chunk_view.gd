@@ -7,6 +7,7 @@ const TerrainPresentationRegistry = preload("res://core/systems/world/terrain_pr
 const ChunkDebugVisualLayer = preload("res://core/systems/world/chunk_debug_visual_layer.gd")
 const MOUNTAIN_COVER_SHADER = preload("res://assets/shaders/mountain_cover_overlay.gdshader")
 const MOUNTAIN_TOP_MASK_UNDERLAY_SHADER = preload("res://assets/shaders/mountain_top_mask_underlay.gdshader")
+const WATER_SURFACE_SHADER = preload("res://assets/shaders/water_surface_material.gdshader")
 
 # Visual south facade height for the mask underlay shader ("wall with roof").
 # Collision uses the same native mask plus a narrow lip for antialiased overhang.
@@ -14,12 +15,19 @@ const MOUNTAIN_FACADE_HEIGHT_PX: float = 72.0
 const MOUNTAIN_FACADE_COLLISION_DEPTH_PX: float = 12.0
 const MOUNTAIN_FACE_TEXTURE_SCALE: float = 0.46
 const MOUNTAIN_NATIVE_MASK_SOLID_THRESHOLD: int = 107
+const TERRAIN_EDGE_FACADE_HEIGHT_PX: float = 22.0
+const TERRAIN_EDGE_TOP_TEXTURE_SCALE: float = 0.70
+const TERRAIN_EDGE_FACE_TEXTURE_SCALE: float = 0.38
+const TERRAIN_EDGE_TOP_ALPHA: float = 1.0
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 
 var _base_layer: TileMapLayer = null
 var _overlay_layer: TileMapLayer = null
 var _water_layer: TileMapLayer = null
+var _water_fill_sprite: Sprite2D = null
+var _water_fill_texture: ImageTexture = null
+var _water_fill_material: ShaderMaterial = null
 var _debug_layer: ChunkDebugVisualLayer = null
 var roof_layers_by_mountain: Dictionary = {}
 var _roof_mask_images_by_mountain: Dictionary = {}
@@ -54,6 +62,16 @@ var _mountain_top_mask_step_px: float = 0.0
 var _mountain_top_mask_texture_scale: float = 0.70
 var _mountain_top_mask_visual_dirty: bool = false
 var _mountain_interior_fill_active: bool = false
+var _terrain_edge_mask_sprite: Sprite2D = null
+var _terrain_edge_mask_texture: ImageTexture = null
+var _terrain_edge_mask_image: Image = null
+var _terrain_edge_mask_bytes: PackedByteArray = PackedByteArray()
+var _terrain_edge_mask_width: int = 0
+var _terrain_edge_mask_height: int = 0
+var _terrain_edge_mask_material: ShaderMaterial = null
+var _terrain_edge_mask_origin_world: Vector2 = Vector2.ZERO
+var _terrain_edge_mask_step_px: float = 0.0
+var _terrain_edge_mask_visual_dirty: bool = false
 var _mountain_page_hit_mask: PackedByteArray = PackedByteArray()
 var _mountain_page_hit_mask_width: int = 0
 var _mountain_page_hit_mask_height: int = 0
@@ -90,6 +108,7 @@ func begin_apply(packet: Dictionary) -> void:
 	_apply_index = 0
 	visible = false
 	_ensure_layers()
+	_sync_water_fill_visual()
 	_refresh_debug_solid_mask()
 
 func apply_next_batch(batch_size: int) -> bool:
@@ -109,7 +128,10 @@ func apply_next_batch(batch_size: int) -> bool:
 		if _should_suppress_mountain_visual(index, terrain_id):
 			_clear_mountain_visual_cell(local_coord)
 			continue
-		_apply_cell(local_coord, terrain_id, terrain_atlas_index)
+		if _should_suppress_terrain_ground_visual(index, terrain_id):
+			_clear_terrain_base_visual_cell(local_coord)
+		else:
+			_apply_cell(local_coord, terrain_id, terrain_atlas_index)
 		_apply_water_cell(local_coord, index)
 		_apply_roof_cell(local_coord, index)
 	_apply_index = end_index
@@ -150,7 +172,11 @@ func apply_runtime_cell(
 		_clear_mountain_visual_cell(local_coord)
 		_refresh_debug_solid_mask()
 		return
-	_apply_cell(local_coord, terrain_id, terrain_atlas_index)
+	_sync_water_fill_visual()
+	if _should_suppress_terrain_ground_visual(index, terrain_id):
+		_clear_terrain_base_visual_cell(local_coord)
+	else:
+		_apply_cell(local_coord, terrain_id, terrain_atlas_index)
 	_apply_water_patch_around(local_coord)
 	_refresh_debug_solid_mask()
 
@@ -472,6 +498,46 @@ func apply_pending_mountain_native_mask_visual(top_texture: Texture2D, face_text
 	_mountain_page_debug["native_mask_visual_ready"] = true
 	return true
 
+func apply_terrain_edge_mask_data(mask_result: Dictionary, mask_origin_world: Vector2) -> bool:
+	var mask_bytes: PackedByteArray = mask_result.get("mask", PackedByteArray()) as PackedByteArray
+	var mask_width: int = int(mask_result.get("width", 0))
+	var mask_height: int = int(mask_result.get("height", 0))
+	var mask_step_px: float = float(mask_result.get("step_px", 0.0))
+	if mask_width <= 0 \
+			or mask_height <= 0 \
+			or mask_step_px <= 0.0 \
+			or mask_bytes.size() != mask_width * mask_height:
+		return false
+	_terrain_edge_mask_image = null
+	_terrain_edge_mask_bytes = mask_bytes.duplicate()
+	_terrain_edge_mask_width = mask_width
+	_terrain_edge_mask_height = mask_height
+	_terrain_edge_mask_origin_world = mask_origin_world
+	_terrain_edge_mask_step_px = mask_step_px
+	_terrain_edge_mask_visual_dirty = true
+	return true
+
+func apply_pending_terrain_edge_mask_visual(top_texture: Texture2D, face_texture: Texture2D = null) -> bool:
+	if not _terrain_edge_mask_visual_dirty:
+		return false
+	if top_texture == null \
+			or _terrain_edge_mask_width <= 0 \
+			or _terrain_edge_mask_height <= 0 \
+			or _terrain_edge_mask_step_px <= 0.0 \
+			or _terrain_edge_mask_bytes.size() != _terrain_edge_mask_width * _terrain_edge_mask_height:
+		return false
+	var mask_image: Image = Image.create_from_data(
+		_terrain_edge_mask_width,
+		_terrain_edge_mask_height,
+		false,
+		Image.FORMAT_L8,
+		_terrain_edge_mask_bytes
+	)
+	_upload_terrain_edge_mask_texture(mask_image, top_texture, face_texture)
+	_terrain_edge_mask_image = mask_image
+	_terrain_edge_mask_visual_dirty = false
+	return true
+
 func invalidate_mountain_render_page_hit_mask_keep_visual() -> void:
 	_mountain_page_hit_mask = PackedByteArray()
 	_mountain_page_hit_mask_width = 0
@@ -576,6 +642,57 @@ func _upload_mountain_mask_texture(
 	sprite.texture = _mountain_top_mask_texture
 	sprite.visible = true
 
+func _upload_terrain_edge_mask_texture(mask_image: Image, top_texture: Texture2D, face_texture: Texture2D) -> void:
+	if _terrain_edge_mask_texture != null \
+			and _terrain_edge_mask_texture.get_width() == _terrain_edge_mask_width \
+			and _terrain_edge_mask_texture.get_height() == _terrain_edge_mask_height:
+		_terrain_edge_mask_texture.update(mask_image)
+	else:
+		_terrain_edge_mask_texture = ImageTexture.create_from_image(mask_image)
+	var sprite: Sprite2D = _ensure_terrain_edge_mask_sprite()
+	var material: ShaderMaterial = _ensure_terrain_edge_mask_material()
+	if face_texture == null:
+		face_texture = top_texture
+	material.set_shader_parameter("top_texture", top_texture)
+	material.set_shader_parameter("top_texture_size", Vector2(
+		maxf(1.0, float(top_texture.get_width())),
+		maxf(1.0, float(top_texture.get_height()))
+	))
+	material.set_shader_parameter("face_texture", face_texture)
+	material.set_shader_parameter("face_texture_size", Vector2(
+		maxf(1.0, float(face_texture.get_width())),
+		maxf(1.0, float(face_texture.get_height()))
+	))
+	material.set_shader_parameter("world_origin_px", _terrain_edge_mask_origin_world)
+	material.set_shader_parameter("sample_step_px", _terrain_edge_mask_step_px)
+	material.set_shader_parameter("top_texture_scale", TERRAIN_EDGE_TOP_TEXTURE_SCALE)
+	material.set_shader_parameter("face_texture_scale", TERRAIN_EDGE_FACE_TEXTURE_SCALE)
+	material.set_shader_parameter("facade_height_px", TERRAIN_EDGE_FACADE_HEIGHT_PX)
+	material.set_shader_parameter("overhang_px", 3.0)
+	material.set_shader_parameter("normal_strength", 0.72)
+	material.set_shader_parameter("light_ambient", 0.72)
+	material.set_shader_parameter("light_diffuse", 0.24)
+	material.set_shader_parameter("top_surface_alpha", TERRAIN_EDGE_TOP_ALPHA)
+	material.set_shader_parameter("wall_surface_alpha", 0.94)
+	material.set_shader_parameter("top_dust_tint", Vector3(0.82, 0.87, 0.90))
+	material.set_shader_parameter("rim_highlight_color", Vector3(0.42, 0.48, 0.50))
+	material.set_shader_parameter("cut_highlight_color", Vector3(0.34, 0.39, 0.41))
+	material.set_shader_parameter("cleft_color", Vector3(0.045, 0.052, 0.055))
+	material.set_shader_parameter("crack_color", Vector3(0.018, 0.023, 0.026))
+	material.set_shader_parameter("base_debris_color", Vector3(0.075, 0.082, 0.084))
+	material.set_shader_parameter("eave_shadow_color", Vector3(0.040, 0.048, 0.050))
+	material.set_shader_parameter("inner_rim_color", Vector3(0.32, 0.38, 0.40))
+	var mask_world_size: float = float(mask_image.get_width()) * _terrain_edge_mask_step_px
+	var mask_chunk_origin: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	var mask_chunk_size_world: float = float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX)
+	material.set_shader_parameter("chunk_uv_lo", (mask_chunk_origin.x - _terrain_edge_mask_origin_world.x) / max(mask_world_size, 1.0))
+	material.set_shader_parameter("chunk_uv_hi", (mask_chunk_origin.x + mask_chunk_size_world - _terrain_edge_mask_origin_world.x) / max(mask_world_size, 1.0))
+	sprite.material = material
+	sprite.position = _terrain_edge_mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	sprite.scale = Vector2.ONE * _terrain_edge_mask_step_px
+	sprite.texture = _terrain_edge_mask_texture
+	sprite.visible = true
+
 func _clear_mountain_top_mask() -> void:
 	if _mountain_top_mask_sprite != null and is_instance_valid(_mountain_top_mask_sprite):
 		_mountain_top_mask_sprite.texture = null
@@ -591,6 +708,21 @@ func _clear_mountain_top_mask() -> void:
 	_mountain_top_mask_step_px = 0.0
 	_mountain_top_mask_texture_scale = 0.70
 	_mountain_top_mask_visual_dirty = false
+
+func clear_terrain_edge_mask() -> void:
+	if _terrain_edge_mask_sprite != null and is_instance_valid(_terrain_edge_mask_sprite):
+		_terrain_edge_mask_sprite.texture = null
+		_terrain_edge_mask_sprite.visible = false
+		_terrain_edge_mask_sprite.scale = Vector2.ONE
+		_terrain_edge_mask_sprite.material = null
+	_terrain_edge_mask_texture = null
+	_terrain_edge_mask_image = null
+	_terrain_edge_mask_bytes = PackedByteArray()
+	_terrain_edge_mask_width = 0
+	_terrain_edge_mask_height = 0
+	_terrain_edge_mask_origin_world = Vector2.ZERO
+	_terrain_edge_mask_step_px = 0.0
+	_terrain_edge_mask_visual_dirty = false
 
 func _apply_mountain_full_top_fill(top_texture: Texture2D, face_texture: Texture2D, top_texture_scale: float) -> void:
 	var mask := PackedByteArray()
@@ -770,6 +902,23 @@ func get_mountain_native_mask_debug_state() -> Dictionary:
 	debug["chunk_coord"] = chunk_coord
 	return debug
 
+func get_terrain_edge_mask_debug_state() -> Dictionary:
+	var active: bool = _terrain_edge_mask_width > 0 \
+		and _terrain_edge_mask_height > 0 \
+		and _terrain_edge_mask_step_px > 0.0 \
+		and not _terrain_edge_mask_bytes.is_empty()
+	return {
+		"terrain_edge_mask_active": active,
+		"mask_width": _terrain_edge_mask_width,
+		"mask_height": _terrain_edge_mask_height,
+		"mask_step_px": _terrain_edge_mask_step_px,
+		"mask_byte_count": _terrain_edge_mask_bytes.size(),
+		"has_visual_texture": _terrain_edge_mask_texture != null,
+		"visual_pending": _terrain_edge_mask_visual_dirty,
+		"visual_ready": _terrain_edge_mask_texture != null and not _terrain_edge_mask_visual_dirty,
+		"chunk_coord": chunk_coord,
+	}
+
 func apply_cover_visibility(visible_mask: PackedByteArray) -> void:
 	_ensure_layers()
 	var resolved_mask: PackedByteArray = visible_mask
@@ -825,9 +974,37 @@ func _ensure_water_layer() -> TileMapLayer:
 	_water_layer.name = "WaterSurfaceLayer"
 	_water_layer.tile_set = WorldTileSetFactory.get_water_tile_set()
 	_water_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	_water_layer.z_index = 0
+	_water_layer.z_index = 1
 	add_child(_water_layer)
 	return _water_layer
+
+func _ensure_water_fill_sprite() -> Sprite2D:
+	if _water_fill_sprite != null and is_instance_valid(_water_fill_sprite):
+		return _water_fill_sprite
+	_water_fill_sprite = Sprite2D.new()
+	_water_fill_sprite.name = "WaterFillUnderlay"
+	_water_fill_sprite.centered = false
+	_water_fill_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	_water_fill_sprite.z_as_relative = false
+	_water_fill_sprite.z_index = 1
+	add_child(_water_fill_sprite)
+	return _water_fill_sprite
+
+func _ensure_water_fill_texture() -> ImageTexture:
+	if _water_fill_texture != null:
+		return _water_fill_texture
+	var image: Image = Image.create(1, 1, false, Image.FORMAT_RGBA8)
+	image.set_pixel(0, 0, Color(1.0, 1.0, 1.0, 1.0))
+	_water_fill_texture = ImageTexture.create_from_image(image)
+	return _water_fill_texture
+
+func _ensure_water_fill_material() -> ShaderMaterial:
+	if _water_fill_material != null:
+		return _water_fill_material
+	_water_fill_material = ShaderMaterial.new()
+	_water_fill_material.shader = WATER_SURFACE_SHADER
+	_water_fill_material.set_shader_parameter("water_world_scale_px", 1024.0)
+	return _water_fill_material
 
 func _ensure_debug_layer() -> ChunkDebugVisualLayer:
 	if _debug_layer != null and is_instance_valid(_debug_layer):
@@ -960,6 +1137,25 @@ func _ensure_mountain_top_mask_material() -> ShaderMaterial:
 	_mountain_top_mask_material.shader = MOUNTAIN_TOP_MASK_UNDERLAY_SHADER
 	return _mountain_top_mask_material
 
+func _ensure_terrain_edge_mask_sprite() -> Sprite2D:
+	if _terrain_edge_mask_sprite != null and is_instance_valid(_terrain_edge_mask_sprite):
+		return _terrain_edge_mask_sprite
+	_terrain_edge_mask_sprite = Sprite2D.new()
+	_terrain_edge_mask_sprite.name = "TerrainEdgeMaskUnderlay"
+	_terrain_edge_mask_sprite.centered = false
+	_terrain_edge_mask_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_terrain_edge_mask_sprite.z_as_relative = false
+	_terrain_edge_mask_sprite.z_index = 2
+	add_child(_terrain_edge_mask_sprite)
+	return _terrain_edge_mask_sprite
+
+func _ensure_terrain_edge_mask_material() -> ShaderMaterial:
+	if _terrain_edge_mask_material != null:
+		return _terrain_edge_mask_material
+	_terrain_edge_mask_material = ShaderMaterial.new()
+	_terrain_edge_mask_material.shader = MOUNTAIN_TOP_MASK_UNDERLAY_SHADER
+	return _terrain_edge_mask_material
+
 func _ensure_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
 	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
 	var terrain_layers: Dictionary = roof_layers_by_mountain.get(mountain_id, {}) as Dictionary
@@ -1032,16 +1228,45 @@ func _apply_water_patch_around(local_coord: Vector2i) -> void:
 func _apply_water_cell(local_coord: Vector2i, index: int) -> void:
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
 		return
-	if not _should_render_water_at(index):
-		_clear_cell(_water_layer, local_coord)
+	_clear_cell(_water_layer, local_coord)
+
+func _sync_water_fill_visual() -> void:
+	var water_texture: Texture2D = _resolve_water_fill_texture()
+	if water_texture == null:
+		if _water_fill_sprite != null and is_instance_valid(_water_fill_sprite):
+			_water_fill_sprite.texture = null
+			_water_fill_sprite.visible = false
 		return
-	var terrain_id: int = int(_pending_terrain_ids[index])
-	var layer: TileMapLayer = _ensure_water_layer()
-	layer.set_cell(
-		local_coord,
-		WorldTileSetFactory.get_water_source_id(terrain_id),
-		WorldTileSetFactory.get_water_atlas_coords(_resolve_water_atlas_index(local_coord))
+	_ensure_water_layer()
+	var sprite: Sprite2D = _ensure_water_fill_sprite()
+	var material: ShaderMaterial = _ensure_water_fill_material()
+	material.set_shader_parameter("water_albedo", water_texture)
+	sprite.material = material
+	sprite.texture = _ensure_water_fill_texture()
+	var chunk_size_px: float = float(
+		WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX
 	)
+	sprite.position = Vector2.ZERO
+	sprite.scale = Vector2.ONE * chunk_size_px
+	sprite.visible = true
+
+func _resolve_water_fill_texture() -> Texture2D:
+	if _pending_terrain_ids.is_empty() or _pending_lake_flags.is_empty():
+		return null
+	var has_water: bool = false
+	for index: int in range(mini(_pending_terrain_ids.size(), _pending_lake_flags.size())):
+		if not _should_render_water_at(index):
+			continue
+		has_water = true
+		break
+	if not has_water:
+		return null
+	var material_set: TerrainMaterialSet = TerrainPresentationRegistry.get_material_set(
+		WorldTileSetFactory.WATER_SURFACE_DARK_MATERIAL_ID
+	)
+	if material_set == null:
+		return null
+	return material_set.get_texture_slot(&"top_albedo")
 
 func _clear_cell(layer: TileMapLayer, local_coord: Vector2i) -> void:
 	if layer == null or not is_instance_valid(layer):
@@ -1065,11 +1290,31 @@ func _clear_mountain_visual_cell(local_coord: Vector2i) -> void:
 func _apply_ground_underlay_cell(local_coord: Vector2i) -> void:
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
 		return
+	if _has_terrain_ground_mask_data():
+		_clear_terrain_base_visual_cell(local_coord)
+		return
 	_base_layer.set_cell(
 		local_coord,
 		WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND),
 		WorldTileSetFactory.get_atlas_coords(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND, 0)
 	)
+
+func _clear_terrain_base_visual_cell(local_coord: Vector2i) -> void:
+	_clear_cell(_base_layer, local_coord)
+	_clear_cell(_overlay_layer, local_coord)
+
+func _should_suppress_terrain_ground_visual(index: int, terrain_id: int) -> bool:
+	if not _has_terrain_ground_mask_data():
+		return false
+	if _is_mountain_visual_terrain(terrain_id):
+		return false
+	return index >= 0 and index < WorldRuntimeConstants.CHUNK_CELL_COUNT
+
+func _has_terrain_ground_mask_data() -> bool:
+	return _terrain_edge_mask_width > 0 \
+		and _terrain_edge_mask_height > 0 \
+		and _terrain_edge_mask_step_px > 0.0 \
+		and not _terrain_edge_mask_bytes.is_empty()
 
 func _clear_roof_surface_cell(local_coord: Vector2i) -> void:
 	for terrain_layers_variant: Variant in roof_layers_by_mountain.values():

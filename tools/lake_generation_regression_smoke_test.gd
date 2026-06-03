@@ -646,14 +646,19 @@ func _assert_water_surface_uses_single_tile_textures() -> void:
 	_assert(water_layer != null, "ChunkView must create WaterSurfaceLayer for water tiles.")
 	if water_layer != null:
 		_assert(
-			water_layer.z_index == 3,
-			"WaterSurfaceLayer must render above the transition overlay layer and below roof/silhouette presentation."
+			water_layer.z_index == 1,
+			"WaterSurfaceLayer must render below terrain ground mask so organic ground contours hide square water edges."
 		)
-		var player_scene_source: String = FileAccess.get_file_as_string("res://scenes/player/player.tscn")
-		_assert(
+	var water_fill: Sprite2D = chunk_view.get_node_or_null("WaterFillUnderlay") as Sprite2D
+	_assert(water_fill != null, "ChunkView must create WaterFillUnderlay for continuous water presentation.")
+	if water_fill != null:
+		_assert(water_fill.visible, "WaterFillUnderlay must be visible for water chunks.")
+		_assert(water_fill.z_index == 1, "WaterFillUnderlay must render below terrain ground mask.")
+	var player_scene_source: String = FileAccess.get_file_as_string("res://scenes/player/player.tscn")
+	_assert(
 			player_scene_source.contains("[node name=\"Player\"") and player_scene_source.contains("z_index = 4"),
-			"Player scene root must render above WaterSurfaceLayer and below roof presentation."
-		)
+			"Player scene root must render above terrain ground and water presentation and below roof presentation."
+	)
 	chunk_view.free()
 
 func _assert(condition: bool, message: String) -> void:

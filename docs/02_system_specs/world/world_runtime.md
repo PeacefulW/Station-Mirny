@@ -229,6 +229,14 @@ accepted 2D mountain look:
   shader paints the accepted top/facade textures through the same mask. This
   prevents visible square terrain from leaking while keeping one logical
   `64px` tile as the gameplay unit.
+- Dry terrain ground may use the same bounded native halo mask path with
+  `mask_purpose = terrain_edge`. `WorldStreamer` derives dry terrain vs visible
+  water from `terrain_ids + lake_flags`, queues the mask through the existing
+  `WorldChunkPacketBackend` worker pool, and `ChunkView` paints a visual-only
+  terrain top plus low facade above the water layer. While this mask is active,
+  square base terrain tiles are suppressed for covered dry terrain. The terrain
+  ground mask is derived cache data and must not affect walkability, collision,
+  mining, lake simulation, or save/load.
 - The local dirty unit for mining is one authoritative tile plus the affected
   chunk native mask. Adjacent chunk masks are refreshed only when the changed
   tile lies inside their fixed halo. Mining must not rebuild the whole mountain

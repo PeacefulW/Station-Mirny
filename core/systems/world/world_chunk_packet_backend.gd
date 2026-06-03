@@ -148,7 +148,8 @@ func queue_mountain_halo_mask_request(
 	pixels_per_tile: int,
 	epoch: int,
 	revision: int,
-	reason: StringName
+	reason: StringName,
+	mask_purpose: StringName = &"mountain"
 ) -> void:
 	_request_mutex.lock()
 	_pending_requests.append({
@@ -162,6 +163,7 @@ func queue_mountain_halo_mask_request(
 		"epoch": epoch,
 		"revision": revision,
 		"reason": reason,
+		"mask_purpose": mask_purpose,
 		"queued_msec": Time.get_ticks_msec(),
 	})
 	_request_mutex.unlock()
@@ -512,6 +514,7 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 	result["epoch"] = int(request.get("epoch", -1))
 	result["revision"] = int(request.get("revision", -1))
 	result["reason"] = request.get("reason", &"worker") as StringName
+	result["mask_purpose"] = request.get("mask_purpose", &"mountain") as StringName
 	result["target_chunk"] = request.get("target_chunk", Vector2i.ZERO) as Vector2i
 	result["mask_origin_world"] = request.get("mask_origin_world", Vector2.ZERO) as Vector2
 	result["queued_msec"] = int(request.get("queued_msec", started_msec))

@@ -143,6 +143,33 @@ resources, the active runtime uses a transitional native-mask presentation:
 - This native-mask bridge is a transitional presentation product, not a new
   canonical terrain geometry authoring model.
 
+### Runtime 2D Terrain Ground Native Masks
+
+The same transitional native-mask bridge may be used as the active 2D terrain
+ground presentation for dry ground, including low banks where dry ground meets
+visible lake water:
+
+- The authoritative source remains `terrain_ids` plus `lake_flags` from the
+  resolved chunk packet. Water is derived from `LAKE_FLAG_WATER_PRESENT` on
+  shallow/deep lake bed terrain. The terrain ground mask never owns terrain ids,
+  walkability, collision, mining, save/load, or lake simulation state.
+- `WorldStreamer` builds a bounded halo where dry terrain is solid and visible
+  water is open, then queues `WorldCore.build_mountain_halo_mask` through the
+  existing `mountain_halo_mask` worker path with a `terrain_edge` purpose tag.
+  This reuses the native smoothing/displacement path without adding a second
+  worker pool.
+- `ChunkView` owns the chunk-local visual mask and paints the dry ground top
+  surface plus a low facade / bank presentation from shared terrain top/face
+  textures. While the mask is active, the square base terrain tile is suppressed
+  for covered dry terrain so the old tile grid cannot show through.
+- Water renders below the terrain ground mask. The organic terrain mask, not the
+  square water tile, defines the visible dry/water contour.
+- Any chunk that contains visible dry terrain waits for ready terrain-ground mask
+  bytes and visual texture upload before first visible publish. Fully water
+  chunks skip the layer entirely.
+- Mountains keep their separate native mask and z-order, so terrain ground
+  presentation must not replace or mutate mountain presentation.
+
 ## Core Terms
 
 ### `shape set`

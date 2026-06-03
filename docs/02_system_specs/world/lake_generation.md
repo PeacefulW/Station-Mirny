@@ -774,8 +774,8 @@ Rules:
 | Diff | `WorldDiffStore` | Unchanged. Player can dig a deep bed tile; the override goes through the same path as plains digging. |
 | Chunk orchestration | `WorldStreamer` | Forward `lake_flags` to `ChunkView`. Persist `LakeGenSettings` in `world.json`. |
 | Bed presentation | `ChunkView` | Place `TERRAIN_LAKE_BED_SHALLOW` / `TERRAIN_LAKE_BED_DEEP` cells on the existing base layer using `autotile_47` against same-class neighbours. |
-| Ground bank presentation | `ChunkView` | Place `TERRAIN_PLAINS_GROUND` cells with water-only `autotile_47` edges when adjacent to shallow or deep lake beds; mountain adjacency stays solid ground. |
-| Water presentation | `ChunkView.water_layer` | One TileMapLayer per chunk at terrain z-order; populated from `lake_flags.is_water_present` on publish; chooses a seamless single-tile `light` vs `dark` texture by reading the bed terrain underneath. Cleared on chunk unload. |
+| Ground bank presentation | `ChunkView` | Paint dry terrain through the runtime terrain-ground native mask. The mask suppresses square ground tiles for covered dry terrain and provides the organic bank contour. |
+| Water presentation | `ChunkView.water_layer` + `WaterFillUnderlay` | A compatibility TileMapLayer plus one chunk-sized continuous water fill below the terrain-ground mask. The fill is enabled from `lake_flags.is_water_present` and samples one shared water material in world space, so chunk-local shallow/deep decisions cannot create square color blocks. The terrain-ground mask, not water tile edges, defines the visible shoreline. Cleared on chunk unload. |
 | Spawn rejection | Existing spawn resolver in `WorldCore` | Reject candidate if its coarse node has `lake_id > 0`. |
 
 ### Water Layer Population
@@ -785,13 +785,15 @@ Rules:
 - `tile_set` comes from
   `WorldTileSetFactory.get_water_tile_set()`; two single-tile
   presentation sources (light, dark) backed by authored water textures
-- on publish, iterate `lake_flags`:
-  - if bit `0` set, place a water cell at `(lx, ly)`; pick `light`
-    variant if the same-tile bed is `TERRAIN_LAKE_BED_SHALLOW`, otherwise
-    `dark`
-  - water atlas coordinates are always `(0, 0)`; water does not build
-    autotile-47 corner or edge variants
-- the layer stays at terrain z-order so actors render above shallow water
+- on publish, iterate `lake_flags` only to decide whether the chunk contains
+  visible water; current runtime water presentation does not place per-tile
+  water cells
+- `WaterFillUnderlay` samples one shared water material in world space. Shallow
+  vs deep bed terrain remains canonical data, but the current visual pass does
+  not switch water albedo per chunk because that creates square color blocks.
+- the layer stays below the terrain-ground native mask so square water tiles
+  cannot define the visible shoreline; actors render above both water and
+  terrain-ground presentation
 - on chunk unload, `ChunkView.queue_free` destroys the water layer
 - runtime water masking (future drying mechanic) toggles per-tile
   visibility through a shader/material state, not by mutating
