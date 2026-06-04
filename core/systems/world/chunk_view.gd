@@ -62,6 +62,10 @@ var _mountain_top_mask_step_px: float = 0.0
 var _mountain_top_mask_texture_scale: float = 0.70
 var _mountain_top_mask_visual_dirty: bool = false
 var _mountain_interior_fill_active: bool = false
+var _sun_light_angle_deg: float = 234.0
+var _sun_shadow_length_px: float = 72.0
+var _sun_shadow_opacity: float = 0.0
+var _sun_shadow_softness_px: float = 28.0
 var _terrain_edge_mask_sprite: Sprite2D = null
 var _terrain_edge_mask_texture: ImageTexture = null
 var _terrain_edge_mask_image: Image = null
@@ -192,6 +196,19 @@ func set_debug_overlays(grid_visible: bool, solid_mask_visible: bool, contour_vi
 	_debug_solid_mask_visible = solid_mask_visible
 	_debug_contour_visible = contour_visible
 	_sync_debug_layer()
+
+func apply_sun_lighting(
+	light_angle_deg: float,
+	shadow_length_px: float,
+	shadow_opacity: float,
+	shadow_softness_px: float
+) -> void:
+	_sun_light_angle_deg = light_angle_deg
+	_sun_shadow_length_px = shadow_length_px
+	_sun_shadow_opacity = shadow_opacity
+	_sun_shadow_softness_px = shadow_softness_px
+	_apply_sun_lighting_to_mask_material(_mountain_top_mask_material, 1.0)
+	_apply_sun_lighting_to_mask_material(_terrain_edge_mask_material, 0.30)
 
 func apply_contour_debug_data(
 	solid_mask: PackedByteArray,
@@ -636,6 +653,7 @@ func _upload_mountain_mask_texture(
 	var mask_chunk_size_world: float = float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX)
 	material.set_shader_parameter("chunk_uv_lo", (mask_chunk_origin.x - mask_origin_world.x) / max(mask_world_size, 1.0))
 	material.set_shader_parameter("chunk_uv_hi", (mask_chunk_origin.x + mask_chunk_size_world - mask_origin_world.x) / max(mask_world_size, 1.0))
+	_apply_sun_lighting_to_mask_material(material, 1.0)
 	sprite.material = material
 	sprite.position = mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	sprite.scale = Vector2.ONE * mask_step_px
@@ -687,6 +705,7 @@ func _upload_terrain_edge_mask_texture(mask_image: Image, top_texture: Texture2D
 	var mask_chunk_size_world: float = float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX)
 	material.set_shader_parameter("chunk_uv_lo", (mask_chunk_origin.x - _terrain_edge_mask_origin_world.x) / max(mask_world_size, 1.0))
 	material.set_shader_parameter("chunk_uv_hi", (mask_chunk_origin.x + mask_chunk_size_world - _terrain_edge_mask_origin_world.x) / max(mask_world_size, 1.0))
+	_apply_sun_lighting_to_mask_material(material, 0.30)
 	sprite.material = material
 	sprite.position = _terrain_edge_mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	sprite.scale = Vector2.ONE * _terrain_edge_mask_step_px
@@ -723,6 +742,15 @@ func clear_terrain_edge_mask() -> void:
 	_terrain_edge_mask_origin_world = Vector2.ZERO
 	_terrain_edge_mask_step_px = 0.0
 	_terrain_edge_mask_visual_dirty = false
+
+func _apply_sun_lighting_to_mask_material(material: ShaderMaterial, shadow_opacity_scale: float) -> void:
+	if material == null:
+		return
+	material.set_shader_parameter("light_angle_deg", _sun_light_angle_deg)
+	material.set_shader_parameter("projected_shadow_angle_deg", _sun_light_angle_deg + 180.0)
+	material.set_shader_parameter("projected_shadow_length_px", _sun_shadow_length_px)
+	material.set_shader_parameter("projected_shadow_opacity", _sun_shadow_opacity * shadow_opacity_scale)
+	material.set_shader_parameter("projected_shadow_softness_px", _sun_shadow_softness_px)
 
 func _apply_mountain_full_top_fill(top_texture: Texture2D, face_texture: Texture2D, top_texture_scale: float) -> void:
 	var mask := PackedByteArray()

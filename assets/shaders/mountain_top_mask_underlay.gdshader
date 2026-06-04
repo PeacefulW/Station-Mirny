@@ -29,6 +29,11 @@ uniform float light_angle_deg = 234.0;
 uniform float normal_strength = 1.35;
 uniform float light_ambient = 0.68;
 uniform float light_diffuse = 0.34;
+uniform float projected_shadow_angle_deg = 234.0;
+uniform float projected_shadow_length_px = 72.0;
+uniform float projected_shadow_opacity = 0.0;
+uniform float projected_shadow_softness_px = 28.0;
+uniform vec3 projected_shadow_color = vec3(0.030, 0.026, 0.018);
 uniform float top_surface_alpha = 1.0;
 uniform float wall_surface_alpha = 1.0;
 uniform vec3 top_dust_tint = vec3(0.90, 0.84, 0.76);
@@ -88,6 +93,7 @@ void fragment() {
 
 	vec2 tex_size = vec2(textureSize(TEXTURE, 0));
 	vec2 texel = 1.0 / tex_size;
+	vec2 world_px = world_origin_px + UV * tex_size * sample_step_px;
 	float top_here = mask_to_top(texture(TEXTURE, UV).r);
 	float top_l = mask_to_top(texture(TEXTURE, UV - vec2(texel.x, 0.0)).r);
 	float top_r = mask_to_top(texture(TEXTURE, UV + vec2(texel.x, 0.0)).r);
@@ -128,11 +134,40 @@ void fragment() {
 	}
 
 	float coverage = max(top_here, overhang);
-	if (coverage <= 0.01) {
+	float projected_shadow = 0.0;
+	float shadow_open_space = (1.0 - smoothstep(0.08, 0.56, top_here)) * (1.0 - clamp(overhang, 0.0, 1.0) * 0.92);
+	if (projected_shadow_opacity > 0.001 && projected_shadow_length_px > 1.0 && shadow_open_space > 0.001) {
+		float shadow_a = radians(projected_shadow_angle_deg);
+		vec2 shadow_dir = normalize(vec2(cos(shadow_a), sin(shadow_a)));
+		vec2 shadow_side = vec2(-shadow_dir.y, shadow_dir.x);
+		float max_shadow_texels = max(projected_shadow_length_px / max(sample_step_px, 0.001), 1.0);
+		float soft_shadow_texels = max(projected_shadow_softness_px / max(sample_step_px, 0.001), 1.0);
+		float shadow_sum = 0.0;
+		float shadow_weight_sum = 0.0;
+		for (int i = 1; i <= 14; i++) {
+			float t = (float(i) - 0.5) / 14.0;
+			float dist_texels = max_shadow_texels * t;
+			float side_texels = soft_shadow_texels * (0.28 + t * 1.10);
+			vec2 base_uv = UV - shadow_dir * texel * dist_texels;
+			float center = mask_to_top(texture(TEXTURE, base_uv).r);
+			float left = mask_to_top(texture(TEXTURE, base_uv + shadow_side * texel * side_texels).r);
+			float right = mask_to_top(texture(TEXTURE, base_uv - shadow_side * texel * side_texels).r);
+			float wide_left = mask_to_top(texture(TEXTURE, base_uv + shadow_side * texel * side_texels * 1.85).r);
+			float wide_right = mask_to_top(texture(TEXTURE, base_uv - shadow_side * texel * side_texels * 1.85).r);
+			float source = center * 0.42 + (left + right) * 0.20 + (wide_left + wide_right) * 0.09;
+			float distance_fade = pow(1.0 - t, 1.45);
+			float weight = mix(1.18, 0.42, t) * distance_fade;
+			shadow_sum += source * weight;
+			shadow_weight_sum += weight;
+		}
+		projected_shadow = smoothstep(0.045, 0.66, shadow_sum / max(shadow_weight_sum, 0.0001));
+		float shadow_breakup = 0.92 + fbm2(world_px / 460.0 + vec2(8.0, -19.0)) * 0.08;
+		projected_shadow = clamp(projected_shadow * shadow_open_space * projected_shadow_opacity * shadow_breakup, 0.0, projected_shadow_opacity);
+	}
+	if (coverage <= 0.01 && projected_shadow <= 0.002) {
 		discard;
 	}
 
-	vec2 world_px = world_origin_px + UV * tex_size * sample_step_px;
 	float tz = max(texture_zoom, 0.01);
 	float a = radians(light_angle_deg);
 	vec3 light_dir = normalize(vec3(cos(a), sin(a), 0.62));
@@ -208,6 +243,11 @@ void fragment() {
 		vec3 eave_color = mix(eave_shadow_color, top_lit * 0.48, 0.28);
 		color = mix(color, eave_color, overhang);
 		out_alpha = max(out_alpha, overhang * wall_surface_alpha);
+	}
+
+	if (!is_wall && top_here < 0.5 && overhang <= 0.01 && projected_shadow > 0.002) {
+		color = projected_shadow_color;
+		out_alpha = max(out_alpha, projected_shadow);
 	}
 
 	// Thin dark outline along the solid silhouette edge (sides / non-wall).

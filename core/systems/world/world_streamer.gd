@@ -42,6 +42,16 @@ const TERRAIN_EDGE_HALO_MASK_PIXELS_PER_TILE: int = 8
 const TERRAIN_EDGE_TOP_TEXTURE_PATH: String = "res://assets/textures/terrain/terrain_edge_top.png"
 const TERRAIN_EDGE_FACE_TEXTURE_PATH: String = "res://assets/textures/terrain/terrain_edge_face.png"
 const MOUNTAIN_NATIVE_MASK_VISUAL_UPLOAD_BUDGET_MS: float = 0.75
+const SUN_SHADOW_MIN_LENGTH_PX: float = 78.0
+const SUN_SHADOW_MAX_LENGTH_PX: float = 360.0
+const SUN_SHADOW_MIN_OPACITY: float = 0.512
+const SUN_SHADOW_MAX_OPACITY: float = 1.0
+const SUN_SHADOW_MIN_SOFTNESS_PX: float = 24.0
+const SUN_SHADOW_MAX_SOFTNESS_PX: float = 78.0
+const SUN_SHADOW_DUSK_FADE_START_HOUR: float = 17.0
+const SUN_SHADOW_DUSK_FADE_END_HOUR: float = 21.0
+const SUN_SHADOW_DAWN_FADE_START_HOUR: float = 4.0
+const SUN_SHADOW_DAWN_FADE_END_HOUR: float = 7.0
 const MASK_MINING_SEARCH_RADIUS_TILES: int = 3
 const MAX_VIEWPORT_STREAM_RADIUS_CHUNKS: int = 4
 const MOUNTAIN_MASK_PRESET_PATH: String = "res://scenes/dev/mountain_2d_raster_preset.json"
@@ -135,6 +145,10 @@ var _mountain_native_mask_worker_elapsed_ms_max_total: float = 0.0
 var _mountain_native_mask_request_to_complete_ms_last: float = 0.0
 var _mountain_native_mask_request_to_complete_ms_max_total: float = 0.0
 var _mountain_surface_dig_visual_patch_skip_count_total: int = 0
+var _sun_light_angle_deg: float = 234.0
+var _sun_shadow_length_px: float = 72.0
+var _sun_shadow_opacity: float = 0.0
+var _sun_shadow_softness_px: float = 28.0
 
 func _ready() -> void:
 	add_to_group("chunk_manager")
@@ -170,8 +184,13 @@ func _ready() -> void:
 		false,
 		"World native mountain mask visual upload"
 	)
+	if EventBus and not EventBus.time_tick.is_connected(_on_time_tick):
+		EventBus.time_tick.connect(_on_time_tick)
+	_sync_sun_lighting_from_time(true)
 
 func _exit_tree() -> void:
+	if EventBus and EventBus.time_tick.is_connected(_on_time_tick):
+		EventBus.time_tick.disconnect(_on_time_tick)
 	if _stream_job_id and FrameBudgetDispatcher:
 		FrameBudgetDispatcher.unregister_job(_stream_job_id)
 	if _mountain_native_mask_visual_job_id and FrameBudgetDispatcher:
@@ -1394,9 +1413,71 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 		_debug_mountain_solid_visible,
 		_debug_mountain_contour_visible
 	)
+	chunk_view.apply_sun_lighting(
+		_sun_light_angle_deg,
+		_sun_shadow_length_px,
+		_sun_shadow_opacity,
+		_sun_shadow_softness_px
+	)
 	add_child(chunk_view)
 	_chunk_views[chunk_coord] = chunk_view
 	return chunk_view
+
+func _on_time_tick(_current_hour: float, _day_progress: float) -> void:
+	_sync_sun_lighting_from_time(false)
+
+func _sync_sun_lighting_from_time(force: bool = false) -> void:
+	if not TimeManager \
+			or not TimeManager.has_method("get_sun_angle") \
+			or not TimeManager.has_method("get_sun_progress"):
+		return
+	var angle_deg: float = rad_to_deg(float(TimeManager.get_sun_angle()))
+	var sun_progress: float = float(TimeManager.get_sun_progress())
+	var elevation: float = maxf(cos(sun_progress * TAU), 0.0)
+	var low_sun: float = pow(1.0 - clampf(elevation, 0.0, 1.0), 0.72)
+	var sun_visibility: float = _shadow_visibility_for_hour(float(TimeManager.current_hour))
+	var shadow_length_px: float = lerpf(SUN_SHADOW_MIN_LENGTH_PX, SUN_SHADOW_MAX_LENGTH_PX, low_sun)
+	var shadow_opacity: float = lerpf(SUN_SHADOW_MIN_OPACITY, SUN_SHADOW_MAX_OPACITY, low_sun) * sun_visibility
+	var shadow_softness_px: float = lerpf(SUN_SHADOW_MIN_SOFTNESS_PX, SUN_SHADOW_MAX_SOFTNESS_PX, low_sun)
+	if not force \
+			and absf(angle_deg - _sun_light_angle_deg) < 0.05 \
+			and absf(shadow_length_px - _sun_shadow_length_px) < 0.05 \
+			and absf(shadow_opacity - _sun_shadow_opacity) < 0.002 \
+			and absf(shadow_softness_px - _sun_shadow_softness_px) < 0.05:
+		return
+	_sun_light_angle_deg = angle_deg
+	_sun_shadow_length_px = shadow_length_px
+	_sun_shadow_opacity = shadow_opacity
+	_sun_shadow_softness_px = shadow_softness_px
+	_apply_sun_lighting_to_loaded_chunks()
+
+func _apply_sun_lighting_to_loaded_chunks() -> void:
+	for chunk_view_variant: Variant in _chunk_views.values():
+		var chunk_view: ChunkView = chunk_view_variant as ChunkView
+		if chunk_view == null:
+			continue
+		chunk_view.apply_sun_lighting(
+			_sun_light_angle_deg,
+			_sun_shadow_length_px,
+			_sun_shadow_opacity,
+			_sun_shadow_softness_px
+		)
+
+func _shadow_visibility_for_hour(hour: float) -> float:
+	var wrapped_hour: float = fposmod(hour, 24.0)
+	if wrapped_hour >= SUN_SHADOW_DUSK_FADE_START_HOUR and wrapped_hour < SUN_SHADOW_DUSK_FADE_END_HOUR:
+		return 1.0 - _smoothstep_float(SUN_SHADOW_DUSK_FADE_START_HOUR, SUN_SHADOW_DUSK_FADE_END_HOUR, wrapped_hour)
+	if wrapped_hour >= SUN_SHADOW_DAWN_FADE_START_HOUR and wrapped_hour < SUN_SHADOW_DAWN_FADE_END_HOUR:
+		return _smoothstep_float(SUN_SHADOW_DAWN_FADE_START_HOUR, SUN_SHADOW_DAWN_FADE_END_HOUR, wrapped_hour)
+	if wrapped_hour >= SUN_SHADOW_DAWN_FADE_END_HOUR and wrapped_hour < SUN_SHADOW_DUSK_FADE_START_HOUR:
+		return 1.0
+	return 0.0
+
+func _smoothstep_float(edge0: float, edge1: float, value: float) -> float:
+	if is_equal_approx(edge0, edge1):
+		return 0.0
+	var t: float = clampf((value - edge0) / (edge1 - edge0), 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
 
 func _drain_completed_native_masks(max_count: int) -> void:
 	var drained: Array[Dictionary] = _mountain_mask_backend.drain_completed_mountain_halo_masks(max_count)
