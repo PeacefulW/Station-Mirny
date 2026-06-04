@@ -1491,13 +1491,6 @@ func _handle_completed_mountain_native_mask(result: Dictionary) -> void:
 	var chunk_view: ChunkView = _chunk_views.get(target_chunk, null) as ChunkView
 	if chunk_view != null:
 		_apply_ready_mountain_native_mask_to_chunk_view(target_chunk, chunk_view, result)
-		if (result.get("reason", &"worker") as StringName) == &"mining":
-			_ensure_mountain_mask_sources()
-			chunk_view.apply_pending_mountain_native_mask_visual(
-				_mountain_top_fill_texture,
-				_mountain_face_fill_texture
-			)
-			_drop_mountain_native_mask_visual_upload(target_chunk)
 	var chunk_needs_publish_after_mask: bool = chunk_view == null or not chunk_view.visible
 	if not chunk_needs_publish_after_mask:
 		_mountain_native_mask_visible_republish_skip_count_total += 1
@@ -1798,25 +1791,16 @@ func _apply_mountain_surface_local_dig_patch(chunk_coord: Vector2i, local_coord:
 	_refresh_mountain_native_masks_around_tile(_chunk_local_to_tile(chunk_coord, local_coord))
 
 func _refresh_mountain_native_masks_around_tile(world_tile: Vector2i) -> void:
-	# Mining gives an INSTANT response via a world-space local clear (applied + uploaded
-	# the same frame for every affected chunk), THEN re-flows the organic contour by
-	# rebuilding each affected chunk's mask from the dug solid set. Rebuilds carry reason
-	# "mining" so the drain applies them with an immediate same-frame upload (not the
-	# 1/frame queue) -> neighbours stay in sync, no leftover bits, no blocky square holes.
+	# Mining gives an instant gameplay response via a world-space collision-only
+	# mask byte clear, then re-flows the organic contour through native worker
+	# reconciliation. Visible textures are not uploaded from this interactive path.
 	var affected: Array[Vector2i] = _build_mountain_native_mask_dirty_chunks_for_tile(world_tile)
 	_mountain_native_mask_last_refreshed_chunks = []
-	_ensure_mountain_mask_sources()
 	for affected_chunk: Vector2i in affected:
 		_mountain_native_mask_last_refreshed_chunks.append(affected_chunk)
 		var chunk_view: ChunkView = _chunk_views.get(affected_chunk, null) as ChunkView
-		if chunk_view == null:
-			continue
-		if chunk_view.apply_mountain_world_dig_patch(world_tile, 2):
-			chunk_view.apply_pending_mountain_native_mask_visual(
-				_mountain_top_fill_texture,
-				_mountain_face_fill_texture
-			)
-			_drop_mountain_native_mask_visual_upload(affected_chunk)
+		if chunk_view != null:
+			chunk_view.apply_mountain_world_dig_collision_patch(world_tile, 2)
 		var dig_packet: Dictionary = _chunk_packets.get(affected_chunk, {}) as Dictionary
 		if dig_packet.is_empty():
 			continue

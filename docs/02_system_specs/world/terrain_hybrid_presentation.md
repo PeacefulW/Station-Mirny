@@ -112,9 +112,10 @@ resources, the active runtime uses a transitional native-mask presentation:
   local diffs, then asks `WorldCore.build_mountain_halo_mask` for a bounded
   native `L8` alpha mask.
 - The native mask performs the expensive smoothing, displacement, and
-  thresholding. The main thread may create/update a texture from returned bytes
-  and pass it to `ChunkView`, but it must not do script-side contour
-  rasterization.
+  thresholding. `WorldStreamer` may only store returned mask bytes on
+  publish/mining paths; `ImageTexture` creation/update belongs to the bounded
+  visual upload job, not the interactive mutation call. Script-side contour
+  rasterization remains forbidden.
 - `ChunkView` owns the chunk-local visual mask and suppresses square mountain
   tile painting where the native mask is active. The shader samples the accepted
   top/facade textures through that mask, keeping the visual surface organic
@@ -132,6 +133,10 @@ resources, the active runtime uses a transitional native-mask presentation:
   then refreshes only the affected chunk native mask, plus halo-neighbour masks
   when the changed tile is close enough to a chunk edge. It must not rebuild the
   whole mountain synchronously.
+- The synchronous mining dirty path may mutate only gameplay-ready collision /
+  resource mask bytes for the mined tile region. It must not clear visible
+  sprites, repaint square mountain cells, or force a mask texture upload in the
+  same `try_harvest_at_world` call.
 - Runtime collision/resource/mining checks inside a ready mask use the same mask
   bytes as presentation, including the narrow south contour lip used for the
   antialiased facade/overhang edge. They then resolve solid visual pixels back

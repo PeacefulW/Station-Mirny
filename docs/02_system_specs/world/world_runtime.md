@@ -254,7 +254,9 @@ accepted 2D mountain look:
   or all nearby chunks synchronously. A mountain-surface dig must not repaint
   the ordinary square terrain cell in the interactive frame; the visible change
   goes through the bounded native-mask dirty rect so the player never sees an
-  intermediate square tile.
+  intermediate square tile. The synchronous dirty rect is collision/resource
+  bytes only; texture creation/update must stay in the visual upload job after
+  native reconciliation produces the next derived mask.
 - Inside a ready native mask, `is_walkable_at_world`,
   `has_resource_at_world`, and `try_harvest_at_world` sample the same mask bytes
   queued for presentation. Gameplay/collision readiness is based on the mask

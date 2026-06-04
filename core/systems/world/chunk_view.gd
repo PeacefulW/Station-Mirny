@@ -813,8 +813,6 @@ func apply_mountain_local_dig_patch(local_coord: Vector2i, padding_px: int = 2) 
 	var tile_min_world: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord) \
 		+ Vector2(float(local_coord.x), float(local_coord.y)) * float(WorldRuntimeConstants.TILE_SIZE_PX)
 	var tile_max_world: Vector2 = tile_min_world + Vector2.ONE * float(WorldRuntimeConstants.TILE_SIZE_PX)
-	if _clear_mountain_page_image_rect(tile_min_world, tile_max_world, padding_px):
-		patched = true
 	if _clear_mountain_top_mask_rect(tile_min_world, tile_max_world, padding_px):
 		patched = true
 	if _clear_mountain_page_hit_rect(tile_min_world, tile_max_world, padding_px):
@@ -830,14 +828,27 @@ func apply_mountain_world_dig_patch(world_tile: Vector2i, padding_px: int = 2) -
 		float(world_tile.y * WorldRuntimeConstants.TILE_SIZE_PX)
 	)
 	var tile_max_world: Vector2 = tile_min_world + Vector2.ONE * float(WorldRuntimeConstants.TILE_SIZE_PX)
-	if _clear_mountain_page_image_rect(tile_min_world, tile_max_world, padding_px):
-		patched = true
 	if _clear_mountain_top_mask_rect(tile_min_world, tile_max_world, padding_px):
 		patched = true
 	if _clear_mountain_page_hit_rect(tile_min_world, tile_max_world, padding_px):
 		patched = true
 	if patched:
 		_mountain_page_debug["world_dig_patch_count"] = int(_mountain_page_debug.get("world_dig_patch_count", 0)) + 1
+	return patched
+
+func apply_mountain_world_dig_collision_patch(world_tile: Vector2i, padding_px: int = 2) -> bool:
+	var patched: bool = false
+	var tile_min_world: Vector2 = Vector2(
+		float(world_tile.x * WorldRuntimeConstants.TILE_SIZE_PX),
+		float(world_tile.y * WorldRuntimeConstants.TILE_SIZE_PX)
+	)
+	var tile_max_world: Vector2 = tile_min_world + Vector2.ONE * float(WorldRuntimeConstants.TILE_SIZE_PX)
+	if _clear_mountain_top_mask_rect(tile_min_world, tile_max_world, padding_px, false):
+		patched = true
+	if _clear_mountain_page_hit_rect(tile_min_world, tile_max_world, padding_px):
+		patched = true
+	if patched:
+		_mountain_page_debug["world_dig_collision_patch_count"] = int(_mountain_page_debug.get("world_dig_collision_patch_count", 0)) + 1
 	return patched
 
 func has_mountain_render_page() -> bool:
@@ -1066,25 +1077,6 @@ func _ensure_mountain_page_sprite() -> Sprite2D:
 	add_child(_mountain_page_sprite)
 	return _mountain_page_sprite
 
-func _clear_mountain_page_image_rect(tile_min_world: Vector2, tile_max_world: Vector2, padding_px: int) -> bool:
-	if _mountain_page_image == null \
-			or _mountain_page_texture == null \
-			or _mountain_page_image.is_empty() \
-			or _mountain_page_hit_mask_step_px <= 0.0:
-		return false
-	var step_px: float = _mountain_page_hit_mask_step_px
-	var min_x: int = maxi(0, floori((tile_min_world.x - _mountain_page_render_origin_world.x) / step_px) - padding_px)
-	var min_y: int = maxi(0, floori((tile_min_world.y - _mountain_page_render_origin_world.y) / step_px) - padding_px)
-	var max_x: int = mini(_mountain_page_image.get_width() - 1, ceili((tile_max_world.x - _mountain_page_render_origin_world.x) / step_px) + padding_px)
-	var max_y: int = mini(_mountain_page_image.get_height() - 1, ceili((tile_max_world.y - _mountain_page_render_origin_world.y) / step_px) + padding_px)
-	if min_x > max_x or min_y > max_y:
-		return false
-	for y: int in range(min_y, max_y + 1):
-		for x: int in range(min_x, max_x + 1):
-			_mountain_page_image.set_pixel(x, y, Color(0.0, 0.0, 0.0, 0.0))
-	_mountain_page_texture.update(_mountain_page_image)
-	return true
-
 func _clear_mountain_page_hit_rect(tile_min_world: Vector2, tile_max_world: Vector2, padding_px: int) -> bool:
 	if _mountain_page_hit_mask.is_empty() \
 			or _mountain_page_hit_mask_width <= 0 \
@@ -1104,7 +1096,12 @@ func _clear_mountain_page_hit_rect(tile_min_world: Vector2, tile_max_world: Vect
 			_mountain_page_hit_mask[row_start + x] = 0
 	return true
 
-func _clear_mountain_top_mask_rect(tile_min_world: Vector2, tile_max_world: Vector2, padding_px: int) -> bool:
+func _clear_mountain_top_mask_rect(
+	tile_min_world: Vector2,
+	tile_max_world: Vector2,
+	padding_px: int,
+	mark_visual_dirty: bool = true
+) -> bool:
 	if _mountain_top_mask_width <= 0 \
 			or _mountain_top_mask_height <= 0 \
 			or _mountain_top_mask_bytes.is_empty() \
@@ -1119,7 +1116,10 @@ func _clear_mountain_top_mask_rect(tile_min_world: Vector2, tile_max_world: Vect
 	if min_x > max_x or min_y > max_y:
 		return false
 	var feather_px: float = maxf(step_px * 2.0, float(padding_px) * 2.0 + 6.0)
-	var image_changed: bool = _mountain_top_mask_image != null and not _mountain_top_mask_image.is_empty()
+	var image_changed: bool = mark_visual_dirty \
+		and _mountain_top_mask_image != null \
+		and not _mountain_top_mask_image.is_empty()
+	var changed: bool = false
 	for y: int in range(min_y, max_y + 1):
 		for x: int in range(min_x, max_x + 1):
 			var index: int = y * _mountain_top_mask_width + x
@@ -1137,12 +1137,16 @@ func _clear_mountain_top_mask_rect(tile_min_world: Vector2, tile_max_world: Vect
 				continue
 			var next_mask: int = int(roundf(float(_mountain_top_mask_bytes[index]) * (1.0 - clear_strength)))
 			next_mask = clampi(next_mask, 0, 255)
+			if next_mask == int(_mountain_top_mask_bytes[index]):
+				continue
 			_mountain_top_mask_bytes[index] = next_mask
+			changed = true
 			if image_changed:
 				_mountain_top_mask_image.set_pixel(x, y, Color8(next_mask, next_mask, next_mask))
-	_mountain_top_mask_visual_dirty = true
-	_mountain_page_debug["native_mask_visual_pending"] = true
-	return true
+	if changed and mark_visual_dirty:
+		_mountain_top_mask_visual_dirty = true
+		_mountain_page_debug["native_mask_visual_pending"] = true
+	return changed
 
 func _organic_dig_clear_strength(pixel_world: Vector2, tile_min_world: Vector2, tile_max_world: Vector2, feather_px: float) -> float:
 	var center: Vector2 = (tile_min_world + tile_max_world) * 0.5
