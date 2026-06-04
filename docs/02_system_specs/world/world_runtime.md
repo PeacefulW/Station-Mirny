@@ -237,6 +237,17 @@ accepted 2D mountain look:
   square base terrain tiles are suppressed for covered dry terrain. The terrain
   ground mask is derived cache data and must not affect walkability, collision,
   mining, lake simulation, or save/load.
+- Visual sun/shadow parameters are locked in
+  `WorldVisualLightingProfile`. Runtime `WorldStreamer` reads the current
+  `TimeManager` hour/progress, derives sun angle, projected shadow length,
+  opacity, softness, and dusk/dawn fade from that profile, then pushes only
+  shader material parameters into loaded `ChunkView` instances. This is visual
+  presentation work; it does not create a gameplay light authority and does not
+  mutate world generation, save state, terrain ids, or walkability.
+- Dev visual lock scenes that evaluate the accepted mountain/terrain/shadow
+  look must use the same `WorldVisualLightingProfile` values as runtime. Local
+  hardcoded shadow ranges in dev scenes are invalid because they make runtime
+  screenshots and authoring screenshots disagree.
 - The local dirty unit for mining is one authoritative tile plus the affected
   chunk native mask. Adjacent chunk masks are refreshed only when the changed
   tile lies inside their fixed halo. Mining must not rebuild the whole mountain
@@ -433,6 +444,8 @@ existing signal set is insufficient.
 V0 is invalid if it:
 - moves scene-tree work into workers
 - adds a GDScript generator fallback
+- falls back from native batch chunk generation to single-chunk generation when
+  the batch contract is broken
 - rebuilds a full chunk for one tile mutation
 - performs a whole-world prepass
 

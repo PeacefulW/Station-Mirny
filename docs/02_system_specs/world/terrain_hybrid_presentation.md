@@ -169,6 +169,12 @@ visible lake water:
   chunks skip the layer entirely.
 - Mountains keep their separate native mask and z-order, so terrain ground
   presentation must not replace or mutate mountain presentation.
+- Mountain and terrain-ground shadow projection is driven by
+  `WorldVisualLightingProfile`. Runtime and visual lock dev scenes must share
+  that profile for sun angle, shadow length, opacity, softness, dusk/dawn fade,
+  and terrain-edge shadow opacity scale. Shader parameters may differ per visual
+  layer only through documented layer multipliers; they must not introduce a
+  second hidden lighting curve.
 
 ## Core Terms
 
@@ -713,6 +719,7 @@ Forbidden:
 - one hardcoded texture constant per biome in long switch/if chains
 - saving presentation-only texture references in chunk diffs
 - GDScript fallback topology solve when native is missing
+- local dev-scene shadow constants that diverge from runtime
 - per-tile unique material creation on hot paths
 - treating `modulation` as a replacement for `albedo`
 - storing canonical terrain truth inside `ChunkView` or a shader

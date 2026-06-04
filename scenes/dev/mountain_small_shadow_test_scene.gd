@@ -2,6 +2,7 @@ extends Node2D
 
 const ChunkView = preload("res://core/systems/world/chunk_view.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
 
 const TOP_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_top.png"
@@ -15,9 +16,9 @@ const CAMERA_ZOOM_STEP: float = 1.12
 var _chunk_view: ChunkView = null
 var _camera: Camera2D = null
 var _label: Label = null
-var _sun_angle_deg: float = 238.0
+var _preview_hour: float = WorldVisualLightingProfile.DEFAULT_PREVIEW_HOUR
 var _auto_sun: bool = true
-var _shadow_opacity: float = 0.48
+var _shadow_opacity_scale: float = 1.0
 
 func _ready() -> void:
 	WorldTileSetFactory.bootstrap()
@@ -30,7 +31,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	if _auto_sun:
-		_sun_angle_deg = fposmod(_sun_angle_deg + delta * 18.0, 360.0)
+		_preview_hour = fposmod(_preview_hour + delta * 1.2, WorldVisualLightingProfile.HOURS_PER_DAY)
 	_apply_sun()
 	_update_label()
 	queue_redraw()
@@ -45,14 +46,14 @@ func _unhandled_input(event: InputEvent) -> void:
 				_auto_sun = not _auto_sun
 			KEY_Q:
 				_auto_sun = false
-				_sun_angle_deg = fposmod(_sun_angle_deg - 8.0, 360.0)
+				_preview_hour = fposmod(_preview_hour - 0.5, WorldVisualLightingProfile.HOURS_PER_DAY)
 			KEY_E:
 				_auto_sun = false
-				_sun_angle_deg = fposmod(_sun_angle_deg + 8.0, 360.0)
+				_preview_hour = fposmod(_preview_hour + 0.5, WorldVisualLightingProfile.HOURS_PER_DAY)
 			KEY_Z:
-				_shadow_opacity = maxf(0.0, _shadow_opacity - 0.04)
+				_shadow_opacity_scale = maxf(0.0, _shadow_opacity_scale - 0.10)
 			KEY_X:
-				_shadow_opacity = minf(0.75, _shadow_opacity + 0.04)
+				_shadow_opacity_scale = minf(1.60, _shadow_opacity_scale + 0.10)
 	elif event is InputEventMouseButton:
 		var mouse_button := event as InputEventMouseButton
 		if mouse_button.button_index == MOUSE_BUTTON_WHEEL_UP and mouse_button.pressed:
@@ -61,7 +62,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_camera.zoom /= CAMERA_ZOOM_STEP
 
 func _draw() -> void:
-	var light_dir := Vector2(cos(deg_to_rad(_sun_angle_deg)), sin(deg_to_rad(_sun_angle_deg))).normalized()
+	var sun_angle_deg: float = WorldVisualLightingProfile.light_angle_deg_for_hour(_preview_hour)
+	var light_dir := Vector2(cos(deg_to_rad(sun_angle_deg)), sin(deg_to_rad(sun_angle_deg))).normalized()
 	var start := MOUNTAIN_CENTER - light_dir * 210.0
 	var finish := MOUNTAIN_CENTER - light_dir * 82.0
 	draw_line(start, finish, Color(1.0, 0.78, 0.28, 0.92), 4.0, true)
@@ -222,20 +224,27 @@ func _hash(p: Vector2) -> float:
 func _apply_sun() -> void:
 	if _chunk_view == null:
 		return
-	var low_sun: float = clampf(0.58 + 0.32 * sin(deg_to_rad(_sun_angle_deg * 1.7)), 0.0, 1.0)
-	low_sun = pow(low_sun, 0.72)
+	var sun_progress: float = WorldVisualLightingProfile.sun_progress_for_hour(_preview_hour)
+	var low_sun: float = WorldVisualLightingProfile.low_sun_for_progress(sun_progress)
+	var sun_angle_deg: float = WorldVisualLightingProfile.light_angle_deg_for_hour(_preview_hour)
 	_chunk_view.apply_sun_lighting(
-		_sun_angle_deg,
-		lerpf(120.0, 294.0, low_sun),
-		_shadow_opacity,
-		lerpf(32.0, 92.0, low_sun)
+		sun_angle_deg,
+		WorldVisualLightingProfile.shadow_length_px_for_low_sun(low_sun),
+		WorldVisualLightingProfile.shadow_opacity_for_low_sun_and_hour(low_sun, _preview_hour) * _shadow_opacity_scale,
+		WorldVisualLightingProfile.shadow_softness_px_for_low_sun(low_sun)
 	)
 
 func _update_label() -> void:
 	if _label == null:
 		return
-	_label.text = "Тест маленькой 2D-горы\nСолнце: %.1f deg  авто=%s  тень=%.2f\nSpace авто | Q/E угол | Z/X сила тени | колесо зум" % [
-		_sun_angle_deg,
+	var sun_angle_deg: float = WorldVisualLightingProfile.light_angle_deg_for_hour(_preview_hour)
+	var sun_progress: float = WorldVisualLightingProfile.sun_progress_for_hour(_preview_hour)
+	var low_sun: float = WorldVisualLightingProfile.low_sun_for_progress(sun_progress)
+	var runtime_opacity: float = WorldVisualLightingProfile.shadow_opacity_for_low_sun_and_hour(low_sun, _preview_hour)
+	_label.text = "Тест маленькой 2D-горы\nЧас: %.1f  солнце: %.1f deg  авто=%s\nТень runtime=%.2f  множитель=%.1f\nSpace авто | Q/E час | Z/X сила тени | колесо зум" % [
+		_preview_hour,
+		sun_angle_deg,
 		str(_auto_sun),
-		_shadow_opacity,
+		runtime_opacity,
+		_shadow_opacity_scale,
 	]

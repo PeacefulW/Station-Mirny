@@ -383,45 +383,29 @@ func _append_completed_packets(batch_requests: Array[Dictionary], packets: Array
 		_completed_packets.append(packet)
 	_result_mutex.unlock()
 
-func _requeue_requests_front(requests: Array[Dictionary]) -> void:
-	if requests.is_empty():
-		return
-	_request_mutex.lock()
-	for index: int in range(requests.size() - 1, -1, -1):
-		_pending_requests.push_front(requests[index])
-	_request_mutex.unlock()
-	_request_semaphore.post()
+func _append_failed_packets(batch_requests: Array[Dictionary], message: String) -> void:
+	_result_mutex.lock()
+	for request: Dictionary in batch_requests:
+		var chunk_coord: Vector2i = request.get("coord", Vector2i.ZERO) as Vector2i
+		_completed_packets.append({
+			"success": false,
+			"chunk_coord": chunk_coord,
+			"request_chunk_coord": chunk_coord,
+			"epoch": int(request.get("epoch", -1)),
+			"message": message,
+		})
+	_result_mutex.unlock()
 
-func _process_batch_with_fallback(worker_world_core: Object, batch_requests: Array[Dictionary]) -> void:
+func _process_packet_batch_strict(worker_world_core: Object, batch_requests: Array[Dictionary]) -> void:
 	var packets: Array = _call_generate_chunk_packets_batch(worker_world_core, batch_requests)
 	if packets.size() == batch_requests.size():
 		_append_completed_packets(batch_requests, packets)
 		return
 
-	push_error(
-		"WorldChunkPacketBackend batch response mismatch: expected %d packet(s), got %d. Falling back to single-request generation."
+	var message := "WorldChunkPacketBackend batch response mismatch: expected %d packet(s), got %d. Native batch contract is required; no single-request fallback is allowed." \
 		% [batch_requests.size(), packets.size()]
-	)
-	var recovered_packets: Array[Dictionary] = []
-	var recovered_requests: Array[Dictionary] = []
-	var failed_requests: Array[Dictionary] = []
-	for request: Dictionary in batch_requests:
-		var single_request: Array[Dictionary] = [request]
-		var single_packets: Array = _call_generate_chunk_packets_batch(worker_world_core, single_request)
-		if single_packets.size() != 1:
-			var chunk_coord: Vector2i = request.get("coord", Vector2i.ZERO) as Vector2i
-			push_error(
-				"WorldChunkPacketBackend single-request fallback failed for chunk %s: expected 1 packet, got %d. Re-queueing request."
-				% [str(chunk_coord), single_packets.size()]
-			)
-			failed_requests.append(request)
-			continue
-		recovered_requests.append(request)
-		recovered_packets.append(single_packets[0] as Dictionary)
-	if not recovered_requests.is_empty():
-		_append_completed_packets(recovered_requests, recovered_packets)
-	if not failed_requests.is_empty():
-		_requeue_requests_front(failed_requests)
+	push_error(message)
+	_append_failed_packets(batch_requests, message)
 
 func _process_spawn_request(worker_world_core: Object, request: Dictionary) -> void:
 	var spawn_result: Dictionary = _call_resolve_world_foundation_spawn_tile(worker_world_core, request)
@@ -562,4 +546,4 @@ func _worker_loop() -> void:
 					break
 				batch_requests.append(_pending_requests.pop_front() as Dictionary)
 		_request_mutex.unlock()
-		_process_batch_with_fallback(worker_world_core, batch_requests)
+		_process_packet_batch_strict(worker_world_core, batch_requests)

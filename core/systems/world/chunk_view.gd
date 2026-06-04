@@ -2,6 +2,7 @@ class_name ChunkView
 extends Node2D
 
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
 const TerrainPresentationRegistry = preload("res://core/systems/world/terrain_presentation_registry.gd")
 const ChunkDebugVisualLayer = preload("res://core/systems/world/chunk_debug_visual_layer.gd")
@@ -62,10 +63,10 @@ var _mountain_top_mask_step_px: float = 0.0
 var _mountain_top_mask_texture_scale: float = 0.70
 var _mountain_top_mask_visual_dirty: bool = false
 var _mountain_interior_fill_active: bool = false
-var _sun_light_angle_deg: float = 234.0
-var _sun_shadow_length_px: float = 72.0
-var _sun_shadow_opacity: float = 0.0
-var _sun_shadow_softness_px: float = 28.0
+var _sun_light_angle_deg: float = WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG
+var _sun_shadow_length_px: float = WorldVisualLightingProfile.DEFAULT_SHADOW_LENGTH_PX
+var _sun_shadow_opacity: float = WorldVisualLightingProfile.DEFAULT_SHADOW_OPACITY
+var _sun_shadow_softness_px: float = WorldVisualLightingProfile.DEFAULT_SHADOW_SOFTNESS_PX
 var _terrain_edge_mask_sprite: Sprite2D = null
 var _terrain_edge_mask_texture: ImageTexture = null
 var _terrain_edge_mask_image: Image = null
@@ -208,7 +209,10 @@ func apply_sun_lighting(
 	_sun_shadow_opacity = shadow_opacity
 	_sun_shadow_softness_px = shadow_softness_px
 	_apply_sun_lighting_to_mask_material(_mountain_top_mask_material, 1.0)
-	_apply_sun_lighting_to_mask_material(_terrain_edge_mask_material, 0.30)
+	_apply_sun_lighting_to_mask_material(
+		_terrain_edge_mask_material,
+		WorldVisualLightingProfile.TERRAIN_EDGE_SHADOW_OPACITY_SCALE
+	)
 
 func apply_contour_debug_data(
 	solid_mask: PackedByteArray,
@@ -381,7 +385,11 @@ func apply_mountain_halo_mask_fill(
 		return
 	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + 2
 	if solid_halo.size() != halo_side * halo_side:
-		apply_mountain_interior_fill(top_texture, face_texture, top_texture_scale)
+		push_error("ChunkView received invalid mountain halo mask: expected %d byte(s), got %d." % [
+			halo_side * halo_side,
+			solid_halo.size(),
+		])
+		clear_mountain_render_page()
 		return
 	var mask_bytes := PackedByteArray()
 	mask_bytes.resize(solid_halo.size())
@@ -705,7 +713,10 @@ func _upload_terrain_edge_mask_texture(mask_image: Image, top_texture: Texture2D
 	var mask_chunk_size_world: float = float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX)
 	material.set_shader_parameter("chunk_uv_lo", (mask_chunk_origin.x - _terrain_edge_mask_origin_world.x) / max(mask_world_size, 1.0))
 	material.set_shader_parameter("chunk_uv_hi", (mask_chunk_origin.x + mask_chunk_size_world - _terrain_edge_mask_origin_world.x) / max(mask_world_size, 1.0))
-	_apply_sun_lighting_to_mask_material(material, 0.30)
+	_apply_sun_lighting_to_mask_material(
+		material,
+		WorldVisualLightingProfile.TERRAIN_EDGE_SHADOW_OPACITY_SCALE
+	)
 	sprite.material = material
 	sprite.position = _terrain_edge_mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	sprite.scale = Vector2.ONE * _terrain_edge_mask_step_px
