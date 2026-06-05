@@ -14,6 +14,8 @@ shader_type canvas_item;
 
 uniform sampler2D top_texture : filter_linear_mipmap, repeat_enable;
 uniform sampler2D face_texture : filter_linear_mipmap, repeat_enable;
+uniform sampler2D top_normal_texture : filter_linear_mipmap, repeat_enable;
+uniform sampler2D face_normal_texture : filter_linear_mipmap, repeat_enable;
 uniform vec2 top_texture_size = vec2(1024.0, 1024.0);
 uniform vec2 face_texture_size = vec2(1024.0, 1024.0);
 uniform vec2 world_origin_px = vec2(0.0, 0.0);
@@ -27,6 +29,8 @@ uniform float top_threshold_low = 0.40;
 uniform float top_threshold_high = 0.58;
 uniform float light_angle_deg = 234.0;
 uniform float normal_strength = 1.35;
+uniform float material_normal_mix = 0.0;
+uniform float material_normal_strength = 0.62;
 uniform float light_ambient = 0.68;
 uniform float light_diffuse = 0.34;
 uniform float projected_shadow_angle_deg = 234.0;
@@ -49,6 +53,17 @@ uniform float chunk_uv_hi = 0.9;
 
 float luma(vec3 c) {
 	return dot(c, vec3(0.299, 0.587, 0.114));
+}
+
+vec3 unpack_normal(vec3 packed_normal) {
+	return normalize(packed_normal * 2.0 - 1.0);
+}
+
+vec3 blend_normals(vec3 base_normal, vec3 detail_normal) {
+	return normalize(vec3(
+		base_normal.xy + detail_normal.xy * material_normal_strength,
+		max(0.001, base_normal.z * max(0.001, detail_normal.z))
+	));
 }
 
 float hash12(vec2 p) {
@@ -192,6 +207,10 @@ void fragment() {
 		mask_grad.y * 2.2 + (h_c - h_y) * normal_strength * 0.38,
 		1.0
 	));
+	if (material_normal_mix > 0.001) {
+		vec3 top_detail_n = unpack_normal(texture(top_normal_texture, top_uv).rgb);
+		top_n = normalize(mix(top_n, blend_normals(top_n, top_detail_n), clamp(material_normal_mix, 0.0, 1.0)));
+	}
 	vec3 top_lit = top_col.rgb * (light_ambient + light_diffuse * clamp(dot(top_n, light_dir), 0.0, 1.0));
 
 	// Wall -- layered strata, controlled relief, and sparse base chips.
@@ -208,6 +227,10 @@ void fragment() {
 		mask_grad.y * 1.55 + (fh_c - fh_y) * normal_strength * 0.62,
 		1.0
 	));
+	if (material_normal_mix > 0.001) {
+		vec3 face_detail_n = unpack_normal(texture(face_normal_texture, face_uv).rgb);
+		face_n = normalize(mix(face_n, blend_normals(face_n, face_detail_n), clamp(material_normal_mix, 0.0, 1.0)));
+	}
 	vec3 facade_color = face_col.rgb * (light_ambient + light_diffuse * clamp(dot(face_n, light_dir), 0.0, 1.0));
 
 	vec3 color = top_lit;

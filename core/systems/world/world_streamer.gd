@@ -42,6 +42,8 @@ const TERRAIN_EDGE_HALO_MASK_RADIUS_TILES: int = 2
 const TERRAIN_EDGE_HALO_MASK_PIXELS_PER_TILE: int = 8
 const TERRAIN_EDGE_TOP_TEXTURE_PATH: String = "res://assets/textures/terrain/terrain_edge_top.png"
 const TERRAIN_EDGE_FACE_TEXTURE_PATH: String = "res://assets/textures/terrain/terrain_edge_face.png"
+const TERRAIN_EDGE_TOP_NORMAL_TEXTURE_PATH: String = "res://assets/textures/terrain/terrain_edge_top_normal.png"
+const TERRAIN_EDGE_FACE_NORMAL_TEXTURE_PATH: String = "res://assets/textures/terrain/terrain_edge_face_normal.png"
 const MOUNTAIN_NATIVE_MASK_VISUAL_UPLOAD_BUDGET_MS: float = 0.75
 const MASK_MINING_SEARCH_RADIUS_TILES: int = 3
 const MAX_VIEWPORT_STREAM_RADIUS_CHUNKS: int = 4
@@ -97,6 +99,8 @@ var _mountain_top_fill_texture: ImageTexture = null
 var _mountain_face_fill_texture: ImageTexture = null
 var _terrain_edge_top_texture: ImageTexture = null
 var _terrain_edge_face_texture: ImageTexture = null
+var _terrain_edge_top_normal_texture: ImageTexture = null
+var _terrain_edge_face_normal_texture: ImageTexture = null
 var _mountain_mask_revision_by_chunk: Dictionary = {}
 var _mountain_native_masks_by_chunk: Dictionary = {}
 var _mountain_native_mask_inflight_chunks: Dictionary = {}
@@ -781,7 +785,9 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 		_ensure_terrain_edge_mask_sources()
 		if chunk_view.apply_pending_terrain_edge_mask_visual(
 			_terrain_edge_top_texture,
-			_terrain_edge_face_texture
+			_terrain_edge_face_texture,
+			_terrain_edge_top_normal_texture,
+			_terrain_edge_face_normal_texture
 		):
 			return false
 	return false
@@ -1916,18 +1922,31 @@ func _ensure_mountain_mask_sources() -> void:
 	}
 
 func _ensure_terrain_edge_mask_sources() -> void:
-	if _terrain_edge_top_texture != null and _terrain_edge_face_texture != null:
+	if _terrain_edge_top_texture != null \
+			and _terrain_edge_face_texture != null \
+			and _terrain_edge_top_normal_texture != null \
+			and _terrain_edge_face_normal_texture != null:
 		return
 	var top_image: Image = _load_mountain_mask_source_image(TERRAIN_EDGE_TOP_TEXTURE_PATH, "terrain edge top")
 	var face_image: Image = _load_mountain_mask_source_image(TERRAIN_EDGE_FACE_TEXTURE_PATH, "terrain edge face")
+	var top_normal_image: Image = _load_mountain_mask_source_image(TERRAIN_EDGE_TOP_NORMAL_TEXTURE_PATH, "terrain edge top normal")
+	var face_normal_image: Image = _load_mountain_mask_source_image(TERRAIN_EDGE_FACE_NORMAL_TEXTURE_PATH, "terrain edge face normal")
 	assert(top_image != null, "Terrain edge top source image is required: %s" % TERRAIN_EDGE_TOP_TEXTURE_PATH)
 	assert(face_image != null, "Terrain edge face source image is required: %s" % TERRAIN_EDGE_FACE_TEXTURE_PATH)
+	assert(top_normal_image != null, "Terrain edge top normal source image is required: %s" % TERRAIN_EDGE_TOP_NORMAL_TEXTURE_PATH)
+	assert(face_normal_image != null, "Terrain edge face normal source image is required: %s" % TERRAIN_EDGE_FACE_NORMAL_TEXTURE_PATH)
 	if top_image != null and _terrain_edge_top_texture == null:
 		top_image.generate_mipmaps()
 		_terrain_edge_top_texture = ImageTexture.create_from_image(top_image)
 	if face_image != null and _terrain_edge_face_texture == null:
 		face_image.generate_mipmaps()
 		_terrain_edge_face_texture = ImageTexture.create_from_image(face_image)
+	if top_normal_image != null and _terrain_edge_top_normal_texture == null:
+		top_normal_image.generate_mipmaps()
+		_terrain_edge_top_normal_texture = ImageTexture.create_from_image(top_normal_image)
+	if face_normal_image != null and _terrain_edge_face_normal_texture == null:
+		face_normal_image.generate_mipmaps()
+		_terrain_edge_face_normal_texture = ImageTexture.create_from_image(face_normal_image)
 
 func _load_mountain_mask_source_image(path: String, label: String) -> Image:
 	var texture: Texture2D = load(path) as Texture2D
