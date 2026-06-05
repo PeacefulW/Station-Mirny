@@ -706,8 +706,8 @@ func _upload_terrain_edge_mask_texture(
 	if top_normal_texture != null and face_normal_texture != null:
 		material.set_shader_parameter("top_normal_texture", top_normal_texture)
 		material.set_shader_parameter("face_normal_texture", face_normal_texture)
-		material.set_shader_parameter("material_normal_mix", 0.78)
-		material.set_shader_parameter("material_normal_strength", 0.58)
+		material.set_shader_parameter("material_normal_mix", 1.0)
+		material.set_shader_parameter("material_normal_strength", 1.45)
 	else:
 		material.set_shader_parameter("material_normal_mix", 0.0)
 	material.set_shader_parameter("world_origin_px", _terrain_edge_mask_origin_world)
@@ -716,9 +716,9 @@ func _upload_terrain_edge_mask_texture(
 	material.set_shader_parameter("face_texture_scale", TERRAIN_EDGE_FACE_TEXTURE_SCALE)
 	material.set_shader_parameter("facade_height_px", TERRAIN_EDGE_FACADE_HEIGHT_PX)
 	material.set_shader_parameter("overhang_px", 3.0)
-	material.set_shader_parameter("normal_strength", 0.72)
-	material.set_shader_parameter("light_ambient", 0.72)
-	material.set_shader_parameter("light_diffuse", 0.24)
+	material.set_shader_parameter("normal_strength", 0.48)
+	material.set_shader_parameter("light_ambient", 0.58)
+	material.set_shader_parameter("light_diffuse", 0.44)
 	material.set_shader_parameter("top_surface_alpha", TERRAIN_EDGE_TOP_ALPHA)
 	material.set_shader_parameter("wall_surface_alpha", 0.94)
 	material.set_shader_parameter("top_dust_tint", Vector3(0.82, 0.87, 0.90))
