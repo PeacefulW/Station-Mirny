@@ -493,7 +493,12 @@ func apply_mountain_native_mask_data(
 	}
 	return true
 
-func apply_pending_mountain_native_mask_visual(top_texture: Texture2D, face_texture: Texture2D = null) -> bool:
+func apply_pending_mountain_native_mask_visual(
+	top_texture: Texture2D,
+	face_texture: Texture2D = null,
+	top_normal_texture: Texture2D = null,
+	face_normal_texture: Texture2D = null
+) -> bool:
 	if not _mountain_top_mask_visual_dirty:
 		return false
 	if top_texture == null \
@@ -515,7 +520,9 @@ func apply_pending_mountain_native_mask_visual(top_texture: Texture2D, face_text
 		face_texture,
 		_mountain_top_mask_texture_scale,
 		_mountain_top_mask_step_px,
-		_mountain_top_mask_origin_world
+		_mountain_top_mask_origin_world,
+		top_normal_texture,
+		face_normal_texture
 	)
 	_mountain_top_mask_image = mask_image
 	_mountain_top_mask_visual_dirty = false
@@ -577,7 +584,13 @@ func invalidate_mountain_render_page_hit_mask_keep_visual() -> void:
 	_mountain_page_debug["ready"] = false
 	_mountain_page_debug["visual_stale"] = true
 
-func _apply_mountain_top_mask(result: Dictionary, top_texture: Texture2D, face_texture: Texture2D) -> void:
+func _apply_mountain_top_mask(
+	result: Dictionary,
+	top_texture: Texture2D,
+	face_texture: Texture2D,
+	top_normal_texture: Texture2D = null,
+	face_normal_texture: Texture2D = null
+) -> void:
 	var top_mask: PackedByteArray = result.get("top_mask", PackedByteArray()) as PackedByteArray
 	var top_mask_width: int = int(result.get("top_mask_width", 0))
 	var top_mask_height: int = int(result.get("top_mask_height", 0))
@@ -597,7 +610,16 @@ func _apply_mountain_top_mask(result: Dictionary, top_texture: Texture2D, face_t
 	)
 	var top_mask_origin_world: Vector2 = result.get("top_mask_origin_world", Vector2.ZERO) as Vector2
 	var top_mask_step_px: float = float(result.get("top_mask_step_px", 1.0))
-	_apply_mountain_mask_image(top_mask_image, top_texture, face_texture, float(result.get("top_texture_scale", 0.70)), top_mask_step_px, top_mask_origin_world)
+	_apply_mountain_mask_image(
+		top_mask_image,
+		top_texture,
+		face_texture,
+		float(result.get("top_texture_scale", 0.70)),
+		top_mask_step_px,
+		top_mask_origin_world,
+		top_normal_texture,
+		face_normal_texture
+	)
 
 func _apply_mountain_mask_image(
 	mask_image: Image,
@@ -605,7 +627,9 @@ func _apply_mountain_mask_image(
 	face_texture: Texture2D,
 	top_texture_scale: float,
 	mask_step_px: float,
-	mask_origin_world: Vector2
+	mask_origin_world: Vector2,
+	top_normal_texture: Texture2D = null,
+	face_normal_texture: Texture2D = null
 ) -> void:
 	_mountain_top_mask_image = mask_image
 	_mountain_top_mask_bytes = mask_image.get_data()
@@ -621,7 +645,9 @@ func _apply_mountain_mask_image(
 		face_texture,
 		top_texture_scale,
 		mask_step_px,
-		mask_origin_world
+		mask_origin_world,
+		top_normal_texture,
+		face_normal_texture
 	)
 
 func _upload_mountain_mask_texture(
@@ -630,7 +656,9 @@ func _upload_mountain_mask_texture(
 	face_texture: Texture2D,
 	top_texture_scale: float,
 	mask_step_px: float,
-	mask_origin_world: Vector2
+	mask_origin_world: Vector2,
+	top_normal_texture: Texture2D = null,
+	face_normal_texture: Texture2D = null
 ) -> void:
 	if _mountain_top_mask_texture != null \
 			and _mountain_top_mask_texture.get_width() == _mountain_top_mask_width \
@@ -656,12 +684,23 @@ func _upload_mountain_mask_texture(
 			maxf(1.0, float(face_texture.get_width())),
 			maxf(1.0, float(face_texture.get_height()))
 		))
+	if face_normal_texture == null:
+		face_normal_texture = top_normal_texture
+	if top_normal_texture != null and face_normal_texture != null:
+		material.set_shader_parameter("top_normal_texture", top_normal_texture)
+		material.set_shader_parameter("face_normal_texture", face_normal_texture)
+		material.set_shader_parameter("material_normal_mix", 1.0)
+		material.set_shader_parameter("material_normal_strength", 1.45)
+	else:
+		material.set_shader_parameter("material_normal_mix", 0.0)
 	material.set_shader_parameter("world_origin_px", mask_origin_world)
 	material.set_shader_parameter("sample_step_px", mask_step_px)
 	material.set_shader_parameter("top_texture_scale", top_texture_scale)
 	material.set_shader_parameter("face_texture_scale", MOUNTAIN_FACE_TEXTURE_SCALE)
 	material.set_shader_parameter("facade_height_px", MOUNTAIN_FACADE_HEIGHT_PX)
-	material.set_shader_parameter("material_normal_mix", 0.0)
+	material.set_shader_parameter("normal_strength", 0.48)
+	material.set_shader_parameter("light_ambient", 0.58)
+	material.set_shader_parameter("light_diffuse", 0.44)
 	var mask_world_size: float = float(mask_image.get_width()) * mask_step_px
 	var mask_chunk_origin: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	var mask_chunk_size_world: float = float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX)

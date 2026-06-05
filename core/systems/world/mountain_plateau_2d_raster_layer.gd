@@ -5,6 +5,8 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 
 const TOP_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_top.png"
 const FACE_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_face.png"
+const TOP_NORMAL_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_top_normal.png"
+const FACE_NORMAL_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_face_normal.png"
 
 const TILE_SIZE_PX: float = 64.0
 const SAMPLE_STEP_PX: float = 1.0
