@@ -63,8 +63,9 @@ amendment below. `WORLD_VERSION = 43` includes the V3 / L8 lake substrate
 boundary, `WORLD_VERSION = 44` carries the grid-contract boundary,
 `WORLD_VERSION = 45` carries the first mountain satellite-outcrop boundary,
 `WORLD_VERSION = 46` carries the historical clustered satellite-outcrop
-boundary, and current `WORLD_VERSION = 47` carries the strengthened
-satellite-outcrop boundary.
+boundary, `WORLD_VERSION = 47` carries the strengthened satellite-outcrop
+boundary, and current `WORLD_VERSION = 48` carries the mountain
+passage/outcrop refinement boundary.
 L3 water presentation is landed:
 `ChunkView` now owns the derived
 `WaterSurfaceLayer`, populated from `lake_flags` and current resolved
@@ -143,7 +144,10 @@ new worlds to `WORLD_VERSION = 46` so outcrops generate as sparse groups of
 small components. The strengthened satellite-outcrop refinement advances
 current new worlds to `WORLD_VERSION = 47` so outcrop clusters can reach
 `2..20` components and are biased toward `10..20` components. Lake algorithms
-from `43` and the grid contract from `44` are unchanged.
+from `43` and the grid contract from `44` are unchanged. The mountain
+passage/outcrop refinement advances current new worlds to `WORLD_VERSION = 48`
+so deterministic native carve masks can create walkable mountain passages,
+pockets, and gorges without changing lake packet fields.
 
 ## Gameplay Goal
 
@@ -713,9 +717,9 @@ to new worlds; existing saves always load the embedded copy from
 | `21` | `SETTINGS_PACKED_LAYOUT_LAKE_CONNECTIVITY` | `connectivity` |
 | `22` | `SETTINGS_PACKED_LAYOUT_FIELD_COUNT` | total length, `22` |
 
-Current active lake path requires `world_version >= 47` (strengthened mountain
-satellite-outcrop boundary on top of the `44` grid contract and V3 / L8) and
-exactly `22` packed values. `world_version <= 46` keeps historical
+Current active lake path requires `world_version >= 48` (mountain
+passage/outcrop refinement on top of the `44` grid contract and V3 / L8) and
+exactly `22` packed values. `world_version <= 47` keeps historical
 algorithm / grid layouts and is rejected by the active pre-alpha loader.
 `settings_packed` shape and length do not change at the V3 / L8 boundary;
 only the algorithmic interpretation of `density`, `scale`, and
@@ -726,7 +730,7 @@ only the algorithmic interpretation of `density`, `scale`, and
 ```json
 {
   "world_seed": 131071,
-  "world_version": 46,
+  "world_version": 48,
   "worldgen_settings": {
     "world_bounds": { "...": "..." },
     "foundation":   { "...": "..." },
@@ -873,12 +877,12 @@ does today: one `(local_x, local_y, terrain_id, walkable)` entry.
 landed, because canonical packet output (`terrain_ids`, `walkable_flags`,
 `lake_flags`) changed for the same `(seed, coord)`.
 
-The current active value is `47`. It advances from `46` because mountain
-generation now strengthens sparse deterministic satellite outcrop clusters to
-`2..20` nearby components biased toward `10..20`, without changing the lake
-algorithm itself.
+The current active value is `48`. It advances from `47` because mountain
+generation now refines sparse deterministic satellite outcrop placement and
+adds native deterministic carve masks for mountain passages, pockets, and
+gorges, without changing the lake algorithm itself.
 
-`world_version <= 46` is a historical algorithm / grid boundary and is rejected
+`world_version <= 47` is a historical algorithm / grid boundary and is rejected
 by the active pre-alpha loader.
 
 `world_version` remains a plain integer; it is **not** a hash of

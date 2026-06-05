@@ -332,8 +332,8 @@ func _assert_l7_shore_warp_ui_and_persistence() -> void:
 func _assert_l8_mask_connected_components() -> void:
 	var constants_source: String = FileAccess.get_file_as_string("res://core/systems/world/world_runtime_constants.gd")
 	_assert(
-		constants_source.contains("const WORLD_VERSION: int = 47"),
-		"WorldRuntimeConstants.WORLD_VERSION must remain at the current strengthened satellite-outcrop mountain generation boundary 47."
+		constants_source.contains("const WORLD_VERSION: int = 48"),
+		"WorldRuntimeConstants.WORLD_VERSION must remain at the current mountain passage/outcrop refinement boundary 48."
 	)
 
 	var lake_field_source: String = FileAccess.get_file_as_string("res://gdextension/src/lake_field.cpp")

@@ -257,15 +257,18 @@ Per-tile assignment for `world_version >= 6`:
 - `world_version == 45` is the historical first satellite-outcrop boundary.
 - `world_version == 46` is the historical first clustered satellite-outcrop
   boundary.
-- `world_version >= 47` adds the active deliberate exception for
-  **strengthened satellite outcrop clusters**: sparse groups of `2..20`
-  separate deterministic `3..18`-tile components generated from native anchor
-  cells in the outer ring of an existing main mountain. The count distribution
-  is intentionally biased toward `10..20` components, with smaller `2..9`
-  groups retained for variation. They are not anonymous fallback terrain; each
-  outcrop receives its own deterministic `mountain_id`, participates in the
-  existing wall/foot classification, and stays rare enough that
-  `roof_layers_per_chunk_max` does not explode.
+- `world_version == 47` is the historical strengthened satellite-outcrop
+  boundary: sparse groups of `2..20` separate deterministic `3..18`-tile
+  components generated from native anchor cells in the outer ring of an
+  existing main mountain.
+- `world_version >= 48` is the active mountain passage/outcrop refinement
+  boundary. It keeps the same packet shape, strengthens satellite outcrop
+  clustering frequency and placement variation, and adds deterministic native
+  mountain carve masks for walkable passages, pockets, and gorges. These cuts
+  run before final terrain classification, so carved tiles become ordinary
+  ground/lake packet tiles instead of visual overlays. Outcrops remain
+  deterministic mountain components with their own `mountain_id`; carved
+  passages remain `mountain_id = 0`.
 
 Identity is base data. It never mutates in response to diff, excavation,
 or runtime events (LAW 5).
@@ -542,6 +545,12 @@ Chunk diffs keep `ChunkDiffV0` shape. Forbidden additions:
   mountain components, are biased toward `10..20` components, and allow
   occasional larger footprints. They keep the same packet and save shape as
   ordinary mountains.
+- `WORLD_VERSION` bumps from `47` to `48` for mountain passage/outcrop
+  refinement: outcrop clusters become more frequent and spatially varied, and
+  native deterministic carve masks create passages, pockets, and gorges inside
+  base mountain masses. The packet/save shape remains unchanged because the
+  result is still expressed through existing `terrain_ids`, `walkable_flags`,
+  `mountain_id_per_tile`, and `mountain_flags`.
 - each bump is required by LAW 4 because canonical terrain / packet
   output changes for the same `seed + coord`
 - `world_version` remains a plain integer; it is **not** a hash of
@@ -573,6 +582,7 @@ contract.
 | Mountain field sample | background (native worker) | 32x32 chunk | outside main thread |
 | Hierarchical mountain-domain solve | background (native worker) | aligned `1024 x 1024` macro cell interior with cached `1`-macro halo | outside main thread |
 | Satellite outcrop solve | background (native worker) | current chunk candidate anchor cells | outside main thread |
+| Passage / pocket / gorge carve solve | background (native worker) | current chunk `32 x 32` mountain sample grid plus bounded nearby `32`-tile anchors | outside main thread |
 | Sliced mountain publish | background apply | batch of cells | shares V0 `CATEGORY_STREAMING` budget |
 | Resolver tile lookup | interactive | 1 tile | < 0.05 ms/frame |
 | Cover mask upload on state switch | background apply | loaded chunks only | bounded by loaded ring; no topology rebuild |
@@ -612,6 +622,8 @@ contract.
       mountain components in `2..20`-component groups near large mountain
       masses at density `0.60`, with at least one deterministic probe group
       in the `10..20` range
+- [ ] deterministic passage/pocket/gorge cuts produce walkable ground/lake
+      packet tiles inside or through mountain masses at density `0.60`
 - [ ] a single mountain's `mountain_id` is stable across chunk seams
 - [ ] `mountain_id` does not change after initial generation, including
       after excavation that fully bisects a mountain

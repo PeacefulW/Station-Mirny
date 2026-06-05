@@ -240,11 +240,17 @@ Current code notes:
   mountain-generation boundary: sparse groups of `2..6` separate `3..10`-tile
   mountain components may generate near large mountain masses. `ChunkPacketV1`
   shape is unchanged.
-- `world_version == 47` is the current strengthened satellite-outcrop
+- `world_version == 47` is the historical strengthened satellite-outcrop
   mountain-generation boundary: sparse groups of `2..20` separate `3..18`-tile
   mountain components may generate near large mountain masses, biased toward
   `10..20` components with occasional larger footprints. `ChunkPacketV1` shape
   is unchanged.
+- `world_version == 48` is the current mountain passage/outcrop refinement
+  boundary: satellite outcrop clusters become more frequent and spatially
+  varied, and deterministic native carve masks create walkable passages,
+  pockets, and gorges inside mountain masses. `ChunkPacketV1` shape is
+  unchanged because carved openings are represented by existing terrain,
+  walkability, and mountain fields.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded
@@ -501,7 +507,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current foundation runtime value is `46` |
+| `world_version` | `int` | — | Current foundation runtime value is `48` |
 | `terrain_ids` | `PackedInt32Array` | 256 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 256 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve, and plains ground opens `autotile_47` bank edges only against shallow/deep lake-bed neighbours |
 | `walkable_flags` | `PackedByteArray` | 256 | `1 = walkable`, `0 = blocked` |

@@ -25,7 +25,7 @@ const OUTCROP_CLUSTER_MIN_COMPONENTS: int = 2
 const OUTCROP_CLUSTER_MAX_COMPONENTS: int = 20
 const OUTCROP_CLUSTER_LARGE_COMPONENTS: int = 10
 const LARGE_MOUNTAIN_MIN_CELLS: int = 96
-const NEAR_MAIN_MAX_DISTANCE_TILES: int = 16
+const NEAR_MAIN_MAX_DISTANCE_TILES: int = 36
 const NEAR_OUTCROP_MAX_DISTANCE_TILES: int = 12
 const ROOF_LAYER_GUARDRAIL_PER_CHUNK: int = 24
 const SATELLITE_OUTCROP_ID_MIN: int = 0x60000000
@@ -36,8 +36,8 @@ var _failed: bool = false
 func _initialize() -> void:
 	var core := WorldCore.new()
 	_assert(
-		WorldRuntimeConstants.WORLD_VERSION == 47,
-		"Strengthened satellite outcrop clusters change canonical mountain output and must bump WORLD_VERSION to 47."
+		WorldRuntimeConstants.WORLD_VERSION == 48,
+		"Mountain passage/outcrop refinement changes canonical mountain output and must bump WORLD_VERSION to 48."
 	)
 	var settings_packed: PackedFloat32Array = _build_settings_packed()
 	var total_outcrops: int = 0
@@ -46,6 +46,8 @@ func _initialize() -> void:
 	var total_large_groups: int = 0
 	var max_varied_footprints: int = 0
 	var max_unique_mountains_per_chunk: int = 0
+	var total_passage_like_tiles: int = 0
+	var total_pocket_like_tiles: int = 0
 	var group_sizes: Array = []
 	var group_boxes: Array = []
 	var probe_summaries: Array[String] = []
@@ -58,6 +60,8 @@ func _initialize() -> void:
 		var large_group_count: int = int(analysis.get("large_group_count", 0))
 		var varied_footprint_count: int = int(analysis.get("varied_footprint_count", 0))
 		var probe_max_unique: int = int(analysis.get("max_unique_mountains_per_chunk", 0))
+		var passage_like_tiles: int = int(analysis.get("passage_like_tiles", 0))
+		var pocket_like_tiles: int = int(analysis.get("pocket_like_tiles", 0))
 		if small_components.size() > 0:
 			_assert(
 				grouped_components == small_components.size(),
@@ -67,13 +71,15 @@ func _initialize() -> void:
 		total_grouped += grouped_components
 		total_valid_groups += valid_group_count
 		total_large_groups += large_group_count
+		total_passage_like_tiles += passage_like_tiles
+		total_pocket_like_tiles += pocket_like_tiles
 		max_varied_footprints = maxi(max_varied_footprints, varied_footprint_count)
 		max_unique_mountains_per_chunk = maxi(max_unique_mountains_per_chunk, probe_max_unique)
 		group_sizes.append_array(analysis.get("group_sizes", []) as Array)
 		group_boxes.append_array(analysis.get("group_boxes", []) as Array)
 		probe_summaries.append(
-			"%s: outcrops=%d groups=%d large_groups=%d footprints=%d max_chunk_mountains=%d"
-			% [str(center_chunk), small_components.size(), valid_group_count, large_group_count, varied_footprint_count, probe_max_unique]
+			"%s: outcrops=%d groups=%d large_groups=%d footprints=%d passages=%d pockets=%d max_chunk_mountains=%d"
+			% [str(center_chunk), small_components.size(), valid_group_count, large_group_count, varied_footprint_count, passage_like_tiles, pocket_like_tiles, probe_max_unique]
 		)
 	_assert(
 		total_outcrops > 0,
@@ -95,9 +101,17 @@ func _initialize() -> void:
 		max_unique_mountains_per_chunk <= ROOF_LAYER_GUARDRAIL_PER_CHUNK,
 		"Satellite outcrops must stay bounded enough to avoid roof-layer explosion per chunk."
 	)
+	_assert(
+		total_passage_like_tiles > 0,
+		"Mountain generation must produce walkable passage/gorge-like cuts through mountain masses at density 0.60."
+	)
+	_assert(
+		total_pocket_like_tiles > 0,
+		"Mountain generation must produce walkable pocket-like cuts inside mountain contours at density 0.60."
+	)
 	print(
-		"mountain_satellite_outcrop_smoke_test: outcrops=%d grouped=%d groups=%d large_groups=%d group_sizes=%s group_boxes=%s footprints=%d max_unique_mountains_per_chunk=%d probes=%s"
-		% [total_outcrops, total_grouped, total_valid_groups, total_large_groups, str(group_sizes), str(group_boxes), max_varied_footprints, max_unique_mountains_per_chunk, str(probe_summaries)]
+		"mountain_satellite_outcrop_smoke_test: outcrops=%d grouped=%d groups=%d large_groups=%d passages=%d pockets=%d group_sizes=%s group_boxes=%s footprints=%d max_unique_mountains_per_chunk=%d probes=%s"
+		% [total_outcrops, total_grouped, total_valid_groups, total_large_groups, total_passage_like_tiles, total_pocket_like_tiles, str(group_sizes), str(group_boxes), max_varied_footprints, max_unique_mountains_per_chunk, str(probe_summaries)]
 	)
 	print("mountain_satellite_outcrop_smoke_test: %s" % ("FAIL" if _failed else "OK"))
 	quit(1 if _failed else 0)
@@ -128,6 +142,7 @@ func _generate_packets(core: Object, settings_packed: PackedFloat32Array, center
 
 func _analyze_components(packets: Array) -> Dictionary:
 	var solid_tiles: Dictionary = {}
+	var walkable_tiles: Dictionary = {}
 	var chunk_unique_ids: Dictionary = {}
 	var min_tile := Vector2i(1 << 30, 1 << 30)
 	var max_tile := Vector2i(-(1 << 30), -(1 << 30))
@@ -143,6 +158,15 @@ func _analyze_components(packets: Array) -> Dictionary:
 			var mountain_id: int = int(mountain_ids[index])
 			var mountain_flag: int = int(mountain_flags[index])
 			if mountain_id <= 0:
+				if int(walkable_flags[index]) == 1 \
+						and terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+						and terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
+					var local_walkable: Vector2i = WorldRuntimeConstants.index_to_local(index)
+					var walkable_world_tile := Vector2i(
+						chunk_coord.x * WorldRuntimeConstants.CHUNK_SIZE + local_walkable.x,
+						chunk_coord.y * WorldRuntimeConstants.CHUNK_SIZE + local_walkable.y
+					)
+					walkable_tiles[walkable_world_tile] = true
 				continue
 			if terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
 					and terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
@@ -202,6 +226,8 @@ func _analyze_components(packets: Array) -> Dictionary:
 		"group_boxes": group_analysis.get("group_boxes", []),
 		"varied_footprint_count": footprint_signatures.size(),
 		"max_unique_mountains_per_chunk": max_unique_mountains_per_chunk,
+		"passage_like_tiles": _count_passage_like_walkable_tiles(walkable_tiles, solid_tiles),
+		"pocket_like_tiles": _count_pocket_like_walkable_tiles(walkable_tiles, solid_tiles),
 	}
 
 func _collect_components(solid_tiles: Dictionary) -> Array:
@@ -314,6 +340,37 @@ func _components_are_near(a: Dictionary, b: Dictionary) -> bool:
 func _group_is_near_large_component(group_indices: Array[int], small_components: Array, large_components: Array) -> bool:
 	for index: int in group_indices:
 		if _is_near_large_component(small_components[index] as Dictionary, large_components):
+			return true
+	return false
+
+func _count_passage_like_walkable_tiles(walkable_tiles: Dictionary, solid_tiles: Dictionary) -> int:
+	var count: int = 0
+	for tile: Vector2i in walkable_tiles.keys():
+		var horizontal_cut: bool = _has_mountain_in_direction(tile, solid_tiles, Vector2i.LEFT, 6) \
+				and _has_mountain_in_direction(tile, solid_tiles, Vector2i.RIGHT, 6)
+		var vertical_cut: bool = _has_mountain_in_direction(tile, solid_tiles, Vector2i.UP, 6) \
+				and _has_mountain_in_direction(tile, solid_tiles, Vector2i.DOWN, 6)
+		if horizontal_cut or vertical_cut:
+			count += 1
+	return count
+
+func _count_pocket_like_walkable_tiles(walkable_tiles: Dictionary, solid_tiles: Dictionary) -> int:
+	var count: int = 0
+	for tile: Vector2i in walkable_tiles.keys():
+		var nearby_solid: int = 0
+		for y: int in range(-1, 2):
+			for x: int in range(-1, 2):
+				if x == 0 and y == 0:
+					continue
+				if solid_tiles.has(tile + Vector2i(x, y)):
+					nearby_solid += 1
+		if nearby_solid >= 5:
+			count += 1
+	return count
+
+func _has_mountain_in_direction(tile: Vector2i, solid_tiles: Dictionary, direction: Vector2i, max_distance: int) -> bool:
+	for distance: int in range(1, max_distance + 1):
+		if solid_tiles.has(tile + direction * distance):
 			return true
 	return false
 

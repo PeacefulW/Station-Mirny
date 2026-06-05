@@ -58,7 +58,7 @@ Current V0 runtime implementation:
 - load order is deterministic base restore first, then per-chunk diff apply
 
 Current world generation extension:
-- `world.json` now records `world_version: 46` for the current finite-world
+- `world.json` now records `world_version: 48` for the current finite-world
   foundation baseline with `64`-tile substrate cells, native high-resolution
   overview, Lake Generation L2 packet output (`TERRAIN_LAKE_BED_SHALLOW`,
   `TERRAIN_LAKE_BED_DEEP`, and `lake_flags`), and the 2026-05-03
@@ -71,7 +71,8 @@ Current world generation extension:
   (`64 px` tile, `16 x 16` chunk, `256`-entry chunk packet arrays), plus the
   2026-06-03 mountain satellite-outcrop boundary, plus the 2026-06-03
   clustered satellite-outcrop refinement boundary, plus the strengthened
-  satellite-outcrop refinement boundary
+  satellite-outcrop refinement boundary, plus the mountain passage/outcrop
+  refinement boundary
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - pre-alpha save compatibility policy: the active load path accepts only
@@ -121,12 +122,17 @@ Current world generation extension:
   mountain-generation boundary. It changes canonical mountain output so
   outcrops appear as sparse groups of `2..6` separate `3..10`-tile components,
   but does not change save payload or chunk-diff shape.
-- `world_version == 47` is the current strengthened satellite-outcrop
+- `world_version == 47` is the historical strengthened satellite-outcrop
   mountain-generation boundary. It changes canonical mountain output so
   outcrops appear as larger clusters of `2..20` separate `3..18`-tile
   components, biased toward `10..20` components, but does not change save
   payload or chunk-diff shape.
-- `WorldRuntimeConstants.WORLD_VERSION` is therefore `47` for current saves;
+- `world_version == 48` is the current mountain passage/outcrop refinement
+  boundary. It changes canonical mountain output so outcrop clusters are more
+  frequent and spatially varied, and deterministic native carve masks create
+  walkable passages, pockets, and gorges inside mountain masses. It does not
+  change save payload or chunk-diff shape.
+- `WorldRuntimeConstants.WORLD_VERSION` is therefore `48` for current saves;
   `38` remains the historical L2 packet boundary and `42` remains the
   historical L7 shore-warp boundary.
 - `worldgen_settings.lakes` stores the embedded per-save lake input copy
@@ -167,7 +173,7 @@ Confirmed `world.json` shape in the current mountain code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 46,
+  "world_version": 48,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,

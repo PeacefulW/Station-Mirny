@@ -753,7 +753,12 @@ spawn as sparse groups of small components, still without changing
 satellite-outcrop refinement advances current new worlds to
 `world_version = 47`; it changes canonical mountain output so these outcrop
 groups can reach `2..20` components and are biased toward `10..20`, still
-without changing `WorldPrePass` fields or chunk packet shape.
+without changing `WorldPrePass` fields or chunk packet shape. The mountain
+passage/outcrop refinement advances current new worlds to
+`world_version = 48`; it changes canonical mountain output by adding
+deterministic native passage, pocket, and gorge carve masks and stronger
+outcrop grouping, still without changing `WorldPrePass` fields or chunk packet
+shape.
 
 ## Performance Class
 
