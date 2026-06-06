@@ -9,6 +9,7 @@ const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.
 const MountainCavityCache = preload("res://core/systems/world/mountain_cavity_cache.gd")
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const MountainPlateau2DRasterLayer = preload("res://core/systems/world/mountain_plateau_2d_raster_layer.gd")
+const MiningFeedbackLayer = preload("res://core/systems/world/mining_feedback_layer.gd")
 const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
 const WorldDiffStore = preload("res://core/systems/world/world_diff_store.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
@@ -146,6 +147,7 @@ var _sun_light_angle_deg: float = WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE
 var _sun_shadow_length_px: float = WorldVisualLightingProfile.DEFAULT_SHADOW_LENGTH_PX
 var _sun_shadow_opacity: float = WorldVisualLightingProfile.DEFAULT_SHADOW_OPACITY
 var _sun_shadow_softness_px: float = WorldVisualLightingProfile.DEFAULT_SHADOW_SOFTNESS_PX
+var _mining_feedback_layer: MiningFeedbackLayer = null
 
 func _ready() -> void:
 	add_to_group("chunk_manager")
@@ -184,6 +186,7 @@ func _ready() -> void:
 	if EventBus and not EventBus.time_tick.is_connected(_on_time_tick):
 		EventBus.time_tick.connect(_on_time_tick)
 	_sync_sun_lighting_from_time(true)
+	_ensure_mining_feedback_layer()
 
 func _exit_tree() -> void:
 	if EventBus and EventBus.time_tick.is_connected(_on_time_tick):
@@ -613,7 +616,9 @@ func _commit_harvest_tile(tile_data: Dictionary, impact_world_pos: Vector2 = Vec
 	_handle_cover_tile_dug(_chunk_local_to_tile(chunk_coord, local_coord))
 	if terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
 			or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
-		EventBus.mountain_tile_mined.emit(_chunk_local_to_tile(chunk_coord, local_coord), terrain_id, WorldRuntimeConstants.TERRAIN_PLAINS_DUG)
+		var mined_world_tile: Vector2i = _chunk_local_to_tile(chunk_coord, local_coord)
+		_spawn_mountain_mining_feedback(mined_world_tile, impact_world_pos)
+		EventBus.mountain_tile_mined.emit(mined_world_tile, terrain_id, WorldRuntimeConstants.TERRAIN_PLAINS_DUG)
 	return {
 		"success": true,
 		"item_id": "base:scrap",
@@ -1430,6 +1435,20 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 	_chunk_views[chunk_coord] = chunk_view
 	return chunk_view
 
+func _ensure_mining_feedback_layer() -> MiningFeedbackLayer:
+	if _mining_feedback_layer != null and is_instance_valid(_mining_feedback_layer):
+		return _mining_feedback_layer
+	_mining_feedback_layer = MiningFeedbackLayer.new()
+	_mining_feedback_layer.name = "MiningFeedbackLayer"
+	_mining_feedback_layer.z_as_relative = false
+	_mining_feedback_layer.z_index = 12
+	add_child(_mining_feedback_layer)
+	return _mining_feedback_layer
+
+func _spawn_mountain_mining_feedback(world_tile: Vector2i, impact_world_pos: Vector2) -> void:
+	var feedback_layer: MiningFeedbackLayer = _ensure_mining_feedback_layer()
+	feedback_layer.spawn_mountain_mining_feedback(world_tile, impact_world_pos)
+
 func _on_time_tick(_current_hour: float, _day_progress: float) -> void:
 	_sync_sun_lighting_from_time(false)
 
@@ -2083,6 +2102,8 @@ func _reset_runtime_state() -> void:
 			chunk_view.queue_free()
 	_chunk_views.clear()
 	_chunk_packets.clear()
+	if _mining_feedback_layer != null and is_instance_valid(_mining_feedback_layer):
+		_mining_feedback_layer.clear_feedback()
 	roof_layers_per_chunk_max = 0
 	_mountain_cavity_cache.clear()
 	_active_cover_mountain_id = 0

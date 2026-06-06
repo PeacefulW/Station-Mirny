@@ -255,7 +255,7 @@ void fragment() {
 		color = mix(color, crack_color, crack * 0.38);
 		color = mix(color, base_debris_color, base_debris * 0.55);
 		float top_rim = smoothstep(0.77, 1.0, wall_depth);
-		float base_outline = 1.0 - smoothstep(0.0, 2.0 / max(sample_step_px, 1.0), edge_below);
+		float base_outline = 1.0 - smoothstep(0.0, 1.0 / max(sample_step_px, 1.0), edge_below);
 		color = mix(color, rim_highlight_color, top_rim * 0.28);
 		color = mix(color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0) * 0.92);
 		out_alpha = wall_surface_alpha;
