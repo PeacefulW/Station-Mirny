@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.0
-last_updated: 2026-05-28
+version: 1.2
+last_updated: 2026-06-06
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -249,6 +249,19 @@ accepted 2D mountain look:
   and derives organic blob coverage in shader from world-space coordinates.
   This overlay must not affect terrain ids, walkability, collision, mining,
   save/load, lake simulation, or chunk packet schemas.
+- Chunk-local rocky ground patch overlay is visual-only and belongs to
+  `ChunkView`. It reuses the ready terrain-ground mask texture as a clip mask,
+  samples preloaded rocky albedo/normal material maps, and derives organic
+  patch coverage in shader from world-space coordinates. It must not affect
+  terrain ids, walkability, collision, mining, save/load, lake simulation, or
+  chunk packet schemas.
+- Chunk-local mountain foothill / rocky apron overlay is visual-only and
+  belongs to `ChunkView`. It reuses the ready mountain native mask texture as a
+  clip/source mask, renders below the mountain material and above ground/grass,
+  and samples preloaded albedo/normal material maps. Its outer apron width may
+  vary locally in shader from world-space noise, but the source mask and dirty
+  owner stay unchanged. It must not affect terrain ids, walkability, collision,
+  mining, save/load, or chunk packet schemas.
 - Dev visual lock scenes that evaluate the accepted mountain/terrain/shadow
   look must use the same `WorldVisualLightingProfile` values as runtime. Local
   hardcoded shadow ranges in dev scenes are invalid because they make runtime

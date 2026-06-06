@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+art
 source_of_truth: true
-version: 0.8
-last_updated: 2026-05-28
+version: 1.0
+last_updated: 2026-06-06
 related_docs:
   - ../../README.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -142,6 +142,14 @@ resources, the active runtime uses a transitional native-mask presentation:
   antialiased facade/overhang edge. They then resolve solid visual pixels back
   to the nearest exposed authoritative mountain tile before mutation; open mask
   pixels still defer to the authoritative terrain diff.
+- A mountain foothill / rocky apron overlay may render below the mountain mask
+  and above ground/grass. It samples the same chunk-local native mountain mask
+  as a clip/source field, uses preloaded foothill albedo/normal material maps,
+  and follows the mountain silhouette without adding terrain ids, collision,
+  mining targets, save data, packet fields, or a separate topology owner.
+  The apron may use world-space shader noise to locally widen the outer band,
+  as long as the authoritative mask and dirty owner stay unchanged. Refreshing
+  it belongs to the existing bounded native-mask visual upload path.
 - The FHD raster/dev-scene path remains an authoring/probe tool. It is not the
   normal runtime streaming presentation path and must not be reintroduced as a
   per-frame or per-chunk fallback.
@@ -186,6 +194,12 @@ visible lake water:
   coordinates. This overlay is presentation-only: it does not create terrain
   ids, walkability, collision, mining targets, runtime diff data, save data, or
   a new chunk readiness dependency.
+- Decorative rocky ground patches may use the same visual-only overlay model
+  above the terrain-ground top surface. They sample the ready terrain-ground
+  mask for clipping, use preloaded rocky albedo/normal material maps, and derive
+  deterministic patch shapes in shader from world-space coordinates. They must
+  not create terrain ids, walkability, collision, mining targets, runtime diff
+  data, save data, packet fields, or a new chunk readiness dependency.
 
 ## Core Terms
 

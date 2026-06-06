@@ -245,7 +245,7 @@ void fragment() {
 		float vertical_mass = mix(0.58, 1.04, wall_depth);
 		float cut_highlight = smoothstep(0.64, 1.0, wall_depth) * (0.70 + small_mottle * 0.30);
 		float cleft = smoothstep(0.48, 0.67, wall_depth) * (1.0 - smoothstep(0.77, 0.92, wall_depth));
-		float base_debris = (1.0 - smoothstep(0.00, 0.26, wall_depth)) * smoothstep(0.62, 0.92, fbm2(world_px / 32.0 + vec2(12.0, 71.0)));
+		float base_debris = (1.0 - smoothstep(0.00, 0.125, wall_depth)) * smoothstep(0.62, 0.92, fbm2(world_px / 32.0 + vec2(12.0, 71.0)));
 		float crack = smoothstep(0.80, 0.94, fbm2(vec2(world_px.x / 46.0, world_px.y / 18.0) + vec2(5.0, -31.0))) * smoothstep(0.12, 0.82, wall_depth);
 		color = facade_color * vertical_mass;
 		color = mix(color, color * 0.72, strata_line * 0.42);

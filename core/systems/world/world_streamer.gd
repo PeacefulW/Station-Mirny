@@ -48,6 +48,8 @@ const TERRAIN_EDGE_FACE_NORMAL_TEXTURE_PATH: String = "res://assets/textures/ter
 const GRASS_BLOB_OVERLAY_TEXTURE_PATH: String = "res://assets/textures/terrain/grass_overlay.png"
 const GRASS_BLOB_OVERLAY_TEXTURE_PATH_2: String = "res://assets/textures/terrain/grass_overlay_2.png"
 const GRASS_BLOB_OVERLAY_TEXTURE_PATH_3: String = "res://assets/textures/terrain/grass_overlay_3.png"
+const MOUNTAIN_FOOTHILL_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_foothill.png"
+const MOUNTAIN_FOOTHILL_NORMAL_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_foothill_normal.png"
 const MOUNTAIN_NATIVE_MASK_VISUAL_UPLOAD_BUDGET_MS: float = 0.75
 const MASK_MINING_SEARCH_RADIUS_TILES: int = 3
 const MAX_VIEWPORT_STREAM_RADIUS_CHUNKS: int = 4
@@ -103,6 +105,8 @@ var _mountain_top_fill_texture: ImageTexture = null
 var _mountain_face_fill_texture: ImageTexture = null
 var _mountain_top_normal_fill_texture: ImageTexture = null
 var _mountain_face_normal_fill_texture: ImageTexture = null
+var _mountain_foothill_texture: ImageTexture = null
+var _mountain_foothill_normal_texture: ImageTexture = null
 var _terrain_edge_top_texture: ImageTexture = null
 var _terrain_edge_face_texture: ImageTexture = null
 var _terrain_edge_top_normal_texture: ImageTexture = null
@@ -778,7 +782,9 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			_mountain_top_fill_texture,
 			_mountain_face_fill_texture,
 			_mountain_top_normal_fill_texture,
-			_mountain_face_normal_fill_texture
+			_mountain_face_normal_fill_texture,
+			_mountain_foothill_texture,
+			_mountain_foothill_normal_texture
 		)
 		if not applied:
 			continue
@@ -806,7 +812,9 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			_terrain_edge_face_normal_texture,
 			_grass_blob_overlay_texture,
 			_grass_blob_overlay_texture_2,
-			_grass_blob_overlay_texture_3
+			_grass_blob_overlay_texture_3,
+			_mountain_foothill_texture,
+			_mountain_foothill_normal_texture
 		):
 			return false
 	return false
@@ -1940,16 +1948,22 @@ func _ensure_mountain_mask_sources() -> void:
 	if _mountain_mask_source_images.has("top_image") \
 			and _mountain_mask_source_images.has("face_image") \
 			and _mountain_mask_source_images.has("top_normal_image") \
-			and _mountain_mask_source_images.has("face_normal_image"):
+			and _mountain_mask_source_images.has("face_normal_image") \
+			and _mountain_foothill_texture != null \
+			and _mountain_foothill_normal_texture != null:
 		return
 	var top_image: Image = _load_mountain_mask_source_image(MountainPlateau2DRasterLayer.TOP_TEXTURE_PATH, "mountain top")
 	var face_image: Image = _load_mountain_mask_source_image(MountainPlateau2DRasterLayer.FACE_TEXTURE_PATH, "mountain face")
 	var top_normal_image: Image = _load_mountain_mask_source_image(MountainPlateau2DRasterLayer.TOP_NORMAL_TEXTURE_PATH, "mountain top normal")
 	var face_normal_image: Image = _load_mountain_mask_source_image(MountainPlateau2DRasterLayer.FACE_NORMAL_TEXTURE_PATH, "mountain face normal")
+	var foothill_image: Image = _load_mountain_mask_source_image(MOUNTAIN_FOOTHILL_TEXTURE_PATH, "mountain foothill")
+	var foothill_normal_image: Image = _load_mountain_mask_source_image(MOUNTAIN_FOOTHILL_NORMAL_TEXTURE_PATH, "mountain foothill normal")
 	assert(top_image != null, "Mountain top source image is required for chunk render pages.")
 	assert(face_image != null, "Mountain face source image is required for chunk render pages.")
 	assert(top_normal_image != null, "Mountain top normal source image is required for chunk render pages.")
 	assert(face_normal_image != null, "Mountain face normal source image is required for chunk render pages.")
+	assert(foothill_image != null, "Mountain foothill source image is required: %s" % MOUNTAIN_FOOTHILL_TEXTURE_PATH)
+	assert(foothill_normal_image != null, "Mountain foothill normal source image is required: %s" % MOUNTAIN_FOOTHILL_NORMAL_TEXTURE_PATH)
 	if top_image != null and _mountain_top_fill_texture == null:
 		top_image.generate_mipmaps()
 		_mountain_top_fill_texture = ImageTexture.create_from_image(top_image)
@@ -1962,11 +1976,19 @@ func _ensure_mountain_mask_sources() -> void:
 	if face_normal_image != null and _mountain_face_normal_fill_texture == null:
 		face_normal_image.generate_mipmaps()
 		_mountain_face_normal_fill_texture = ImageTexture.create_from_image(face_normal_image)
+	if foothill_image != null and _mountain_foothill_texture == null:
+		foothill_image.generate_mipmaps()
+		_mountain_foothill_texture = ImageTexture.create_from_image(foothill_image)
+	if foothill_normal_image != null and _mountain_foothill_normal_texture == null:
+		foothill_normal_image.generate_mipmaps()
+		_mountain_foothill_normal_texture = ImageTexture.create_from_image(foothill_normal_image)
 	_mountain_mask_source_images = {
 		"top_image": top_image,
 		"face_image": face_image,
 		"top_normal_image": top_normal_image,
 		"face_normal_image": face_normal_image,
+		"foothill_image": foothill_image,
+		"foothill_normal_image": foothill_normal_image,
 	}
 
 func _ensure_terrain_edge_mask_sources() -> void:
