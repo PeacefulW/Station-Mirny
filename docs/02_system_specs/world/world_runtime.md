@@ -244,6 +244,11 @@ accepted 2D mountain look:
   shader material parameters into loaded `ChunkView` instances. This is visual
   presentation work; it does not create a gameplay light authority and does not
   mutate world generation, save state, terrain ids, or walkability.
+- Chunk-local dry-ground grass / straw overlay is visual-only and belongs to
+  `ChunkView`. It reuses the ready terrain-ground mask texture as a clip mask
+  and derives organic blob coverage in shader from world-space coordinates.
+  This overlay must not affect terrain ids, walkability, collision, mining,
+  save/load, lake simulation, or chunk packet schemas.
 - Dev visual lock scenes that evaluate the accepted mountain/terrain/shadow
   look must use the same `WorldVisualLightingProfile` values as runtime. Local
   hardcoded shadow ranges in dev scenes are invalid because they make runtime

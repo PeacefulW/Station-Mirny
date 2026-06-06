@@ -180,6 +180,12 @@ visible lake water:
   and terrain-edge shadow opacity scale. Shader parameters may differ per visual
   layer only through documented layer multipliers; they must not introduce a
   second hidden lighting curve.
+- Dry-ground grass / straw breakup may render as a chunk-local organic overlay
+  above the terrain-ground top surface. It samples the same terrain-ground mask
+  for clipping and derives deterministic region shapes in shader from world-space
+  coordinates. This overlay is presentation-only: it does not create terrain
+  ids, walkability, collision, mining targets, runtime diff data, save data, or
+  a new chunk readiness dependency.
 
 ## Core Terms
 

@@ -45,6 +45,9 @@ const TERRAIN_EDGE_TOP_TEXTURE_PATH: String = "res://assets/textures/terrain/ter
 const TERRAIN_EDGE_FACE_TEXTURE_PATH: String = "res://assets/textures/terrain/terrain_edge_face.png"
 const TERRAIN_EDGE_TOP_NORMAL_TEXTURE_PATH: String = "res://assets/textures/terrain/terrain_edge_top_normal.png"
 const TERRAIN_EDGE_FACE_NORMAL_TEXTURE_PATH: String = "res://assets/textures/terrain/terrain_edge_face_normal.png"
+const GRASS_BLOB_OVERLAY_TEXTURE_PATH: String = "res://assets/textures/terrain/grass_overlay.png"
+const GRASS_BLOB_OVERLAY_TEXTURE_PATH_2: String = "res://assets/textures/terrain/grass_overlay_2.png"
+const GRASS_BLOB_OVERLAY_TEXTURE_PATH_3: String = "res://assets/textures/terrain/grass_overlay_3.png"
 const MOUNTAIN_NATIVE_MASK_VISUAL_UPLOAD_BUDGET_MS: float = 0.75
 const MASK_MINING_SEARCH_RADIUS_TILES: int = 3
 const MAX_VIEWPORT_STREAM_RADIUS_CHUNKS: int = 4
@@ -104,6 +107,9 @@ var _terrain_edge_top_texture: ImageTexture = null
 var _terrain_edge_face_texture: ImageTexture = null
 var _terrain_edge_top_normal_texture: ImageTexture = null
 var _terrain_edge_face_normal_texture: ImageTexture = null
+var _grass_blob_overlay_texture: ImageTexture = null
+var _grass_blob_overlay_texture_2: ImageTexture = null
+var _grass_blob_overlay_texture_3: ImageTexture = null
 var _mountain_mask_revision_by_chunk: Dictionary = {}
 var _mountain_native_masks_by_chunk: Dictionary = {}
 var _mountain_native_mask_inflight_chunks: Dictionary = {}
@@ -161,6 +167,7 @@ func _ready() -> void:
 	WorldTileSetFactory.bootstrap()
 	_ensure_mountain_mask_sources()
 	_ensure_terrain_edge_mask_sources()
+	_ensure_grass_blob_overlay_source()
 	_packet_backend.start(PACKET_WORKER_COUNT)
 	_mountain_mask_backend.start(MOUNTAIN_MASK_WORKER_COUNT)
 	_stream_job_id = FrameBudgetDispatcher.register_job(
@@ -796,7 +803,10 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			_terrain_edge_top_texture,
 			_terrain_edge_face_texture,
 			_terrain_edge_top_normal_texture,
-			_terrain_edge_face_normal_texture
+			_terrain_edge_face_normal_texture,
+			_grass_blob_overlay_texture,
+			_grass_blob_overlay_texture_2,
+			_grass_blob_overlay_texture_3
 		):
 			return false
 	return false
@@ -1985,6 +1995,35 @@ func _ensure_terrain_edge_mask_sources() -> void:
 	if face_normal_image != null and _terrain_edge_face_normal_texture == null:
 		face_normal_image.generate_mipmaps()
 		_terrain_edge_face_normal_texture = ImageTexture.create_from_image(face_normal_image)
+
+func _ensure_grass_blob_overlay_source() -> void:
+	if _grass_blob_overlay_texture != null \
+			and _grass_blob_overlay_texture_2 != null \
+			and _grass_blob_overlay_texture_3 != null:
+		return
+	var grass_image: Image = _load_mountain_mask_source_image(
+		GRASS_BLOB_OVERLAY_TEXTURE_PATH,
+		"grass overlay weak"
+	)
+	var grass_image_2: Image = _load_mountain_mask_source_image(
+		GRASS_BLOB_OVERLAY_TEXTURE_PATH_2,
+		"grass overlay medium"
+	)
+	var grass_image_3: Image = _load_mountain_mask_source_image(
+		GRASS_BLOB_OVERLAY_TEXTURE_PATH_3,
+		"grass overlay dense"
+	)
+	assert(grass_image != null, "Grass overlay source image is required: %s" % GRASS_BLOB_OVERLAY_TEXTURE_PATH)
+	assert(grass_image_2 != null, "Grass overlay source image is required: %s" % GRASS_BLOB_OVERLAY_TEXTURE_PATH_2)
+	assert(grass_image_3 != null, "Grass overlay source image is required: %s" % GRASS_BLOB_OVERLAY_TEXTURE_PATH_3)
+	if grass_image == null or grass_image_2 == null or grass_image_3 == null:
+		return
+	grass_image.generate_mipmaps()
+	grass_image_2.generate_mipmaps()
+	grass_image_3.generate_mipmaps()
+	_grass_blob_overlay_texture = ImageTexture.create_from_image(grass_image)
+	_grass_blob_overlay_texture_2 = ImageTexture.create_from_image(grass_image_2)
+	_grass_blob_overlay_texture_3 = ImageTexture.create_from_image(grass_image_3)
 
 func _load_mountain_mask_source_image(path: String, label: String) -> Image:
 	var texture: Texture2D = load(path) as Texture2D

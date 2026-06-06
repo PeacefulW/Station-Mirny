@@ -9,6 +9,7 @@ const ChunkDebugVisualLayer = preload("res://core/systems/world/chunk_debug_visu
 const MOUNTAIN_COVER_SHADER = preload("res://assets/shaders/mountain_cover_overlay.gdshader")
 const MOUNTAIN_TOP_MASK_UNDERLAY_SHADER = preload("res://assets/shaders/mountain_top_mask_underlay.gdshader")
 const WATER_SURFACE_SHADER = preload("res://assets/shaders/water_surface_material.gdshader")
+const GRASS_BLOB_OVERLAY_SHADER = preload("res://assets/shaders/grass_blob_overlay.gdshader")
 
 # Visual south facade height for the mask underlay shader ("wall with roof").
 # Collision uses the same native mask plus a narrow lip for antialiased overhang.
@@ -20,6 +21,12 @@ const TERRAIN_EDGE_FACADE_HEIGHT_PX: float = 22.0
 const TERRAIN_EDGE_TOP_TEXTURE_SCALE: float = 0.70
 const TERRAIN_EDGE_FACE_TEXTURE_SCALE: float = 0.38
 const TERRAIN_EDGE_TOP_ALPHA: float = 1.0
+const GRASS_BLOB_OVERLAY_ENABLED: bool = true
+const GRASS_BLOB_TEXTURE_SCALE: float = 0.78
+const GRASS_BLOB_PATCH_CELL_PX: float = 1850.0
+const GRASS_BLOB_PATCH_DENSITY: float = 0.54
+const GRASS_BLOB_PATCH_ALPHA: float = 0.48
+const GRASS_BLOB_EDGE_CLEARANCE_PX: float = 22.0
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 
@@ -77,6 +84,9 @@ var _terrain_edge_mask_material: ShaderMaterial = null
 var _terrain_edge_mask_origin_world: Vector2 = Vector2.ZERO
 var _terrain_edge_mask_step_px: float = 0.0
 var _terrain_edge_mask_visual_dirty: bool = false
+var _grass_blob_overlay_sprite: Sprite2D = null
+var _grass_blob_overlay_material: ShaderMaterial = null
+var _grass_blob_overlay_canvas_texture: ImageTexture = null
 var _mountain_page_hit_mask: PackedByteArray = PackedByteArray()
 var _mountain_page_hit_mask_width: int = 0
 var _mountain_page_hit_mask_height: int = 0
@@ -553,7 +563,10 @@ func apply_pending_terrain_edge_mask_visual(
 	top_texture: Texture2D,
 	face_texture: Texture2D = null,
 	top_normal_texture: Texture2D = null,
-	face_normal_texture: Texture2D = null
+	face_normal_texture: Texture2D = null,
+	grass_overlay_texture: Texture2D = null,
+	grass_overlay_texture_2: Texture2D = null,
+	grass_overlay_texture_3: Texture2D = null
 ) -> bool:
 	if not _terrain_edge_mask_visual_dirty:
 		return false
@@ -570,7 +583,16 @@ func apply_pending_terrain_edge_mask_visual(
 		Image.FORMAT_L8,
 		_terrain_edge_mask_bytes
 	)
-	_upload_terrain_edge_mask_texture(mask_image, top_texture, face_texture, top_normal_texture, face_normal_texture)
+	_upload_terrain_edge_mask_texture(
+		mask_image,
+		top_texture,
+		face_texture,
+		top_normal_texture,
+		face_normal_texture,
+		grass_overlay_texture,
+		grass_overlay_texture_2,
+		grass_overlay_texture_3
+	)
 	_terrain_edge_mask_image = mask_image
 	_terrain_edge_mask_visual_dirty = false
 	return true
@@ -718,7 +740,10 @@ func _upload_terrain_edge_mask_texture(
 	top_texture: Texture2D,
 	face_texture: Texture2D,
 	top_normal_texture: Texture2D,
-	face_normal_texture: Texture2D
+	face_normal_texture: Texture2D,
+	grass_overlay_texture: Texture2D,
+	grass_overlay_texture_2: Texture2D,
+	grass_overlay_texture_3: Texture2D
 ) -> void:
 	if _terrain_edge_mask_texture != null \
 			and _terrain_edge_mask_texture.get_width() == _terrain_edge_mask_width \
@@ -782,6 +807,11 @@ func _upload_terrain_edge_mask_texture(
 	sprite.scale = Vector2.ONE * _terrain_edge_mask_step_px
 	sprite.texture = _terrain_edge_mask_texture
 	sprite.visible = true
+	_sync_grass_blob_overlay_visual(
+		grass_overlay_texture,
+		grass_overlay_texture_2,
+		grass_overlay_texture_3
+	)
 
 func _clear_mountain_top_mask() -> void:
 	if _mountain_top_mask_sprite != null and is_instance_valid(_mountain_top_mask_sprite):
@@ -813,6 +843,7 @@ func clear_terrain_edge_mask() -> void:
 	_terrain_edge_mask_origin_world = Vector2.ZERO
 	_terrain_edge_mask_step_px = 0.0
 	_terrain_edge_mask_visual_dirty = false
+	_clear_grass_blob_overlay()
 
 func _apply_sun_lighting_to_mask_material(material: ShaderMaterial, shadow_opacity_scale: float) -> void:
 	if material == null:
@@ -1026,6 +1057,9 @@ func get_terrain_edge_mask_debug_state() -> Dictionary:
 		"has_visual_texture": _terrain_edge_mask_texture != null,
 		"visual_pending": _terrain_edge_mask_visual_dirty,
 		"visual_ready": _terrain_edge_mask_texture != null and not _terrain_edge_mask_visual_dirty,
+		"grass_overlay_visible": _grass_blob_overlay_sprite != null \
+			and is_instance_valid(_grass_blob_overlay_sprite) \
+			and _grass_blob_overlay_sprite.visible,
 		"chunk_coord": chunk_coord,
 	}
 
@@ -1258,6 +1292,98 @@ func _ensure_terrain_edge_mask_material() -> ShaderMaterial:
 	_terrain_edge_mask_material = ShaderMaterial.new()
 	_terrain_edge_mask_material.shader = MOUNTAIN_TOP_MASK_UNDERLAY_SHADER
 	return _terrain_edge_mask_material
+
+func _sync_grass_blob_overlay_visual(
+	grass_overlay_texture: Texture2D,
+	grass_overlay_texture_2: Texture2D,
+	grass_overlay_texture_3: Texture2D
+) -> void:
+	if not GRASS_BLOB_OVERLAY_ENABLED \
+			or grass_overlay_texture == null \
+			or grass_overlay_texture_2 == null \
+			or grass_overlay_texture_3 == null \
+			or _terrain_edge_mask_texture == null \
+			or _terrain_edge_mask_width <= 0 \
+			or _terrain_edge_mask_height <= 0 \
+			or _terrain_edge_mask_step_px <= 0.0:
+		_clear_grass_blob_overlay()
+		return
+	var sprite: Sprite2D = _ensure_grass_blob_overlay_sprite()
+	var material: ShaderMaterial = _ensure_grass_blob_overlay_material()
+	material.set_shader_parameter("grass_texture", grass_overlay_texture)
+	material.set_shader_parameter("grass_texture_2", grass_overlay_texture_2)
+	material.set_shader_parameter("grass_texture_3", grass_overlay_texture_3)
+	material.set_shader_parameter("mask_texture", _terrain_edge_mask_texture)
+	material.set_shader_parameter("grass_texture_size", Vector2(
+		maxf(1.0, float(grass_overlay_texture.get_width())),
+		maxf(1.0, float(grass_overlay_texture.get_height()))
+	))
+	material.set_shader_parameter("grass_texture_size_2", Vector2(
+		maxf(1.0, float(grass_overlay_texture_2.get_width())),
+		maxf(1.0, float(grass_overlay_texture_2.get_height()))
+	))
+	material.set_shader_parameter("grass_texture_size_3", Vector2(
+		maxf(1.0, float(grass_overlay_texture_3.get_width())),
+		maxf(1.0, float(grass_overlay_texture_3.get_height()))
+	))
+	material.set_shader_parameter("mask_texture_size", Vector2(
+		maxf(1.0, float(_terrain_edge_mask_width)),
+		maxf(1.0, float(_terrain_edge_mask_height))
+	))
+	material.set_shader_parameter("world_origin_px", _terrain_edge_mask_origin_world)
+	material.set_shader_parameter("sample_step_px", _terrain_edge_mask_step_px)
+	material.set_shader_parameter("grass_texture_scale", GRASS_BLOB_TEXTURE_SCALE)
+	material.set_shader_parameter("patch_cell_px", GRASS_BLOB_PATCH_CELL_PX)
+	material.set_shader_parameter("patch_density", GRASS_BLOB_PATCH_DENSITY)
+	material.set_shader_parameter("patch_alpha", GRASS_BLOB_PATCH_ALPHA)
+	material.set_shader_parameter("edge_clearance_px", GRASS_BLOB_EDGE_CLEARANCE_PX)
+	var mask_world_size: float = float(_terrain_edge_mask_width) * _terrain_edge_mask_step_px
+	var mask_chunk_origin: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	var mask_chunk_size_world: float = float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX)
+	material.set_shader_parameter("chunk_uv_lo", (mask_chunk_origin.x - _terrain_edge_mask_origin_world.x) / max(mask_world_size, 1.0))
+	material.set_shader_parameter("chunk_uv_hi", (mask_chunk_origin.x + mask_chunk_size_world - _terrain_edge_mask_origin_world.x) / max(mask_world_size, 1.0))
+	sprite.material = material
+	sprite.position = _terrain_edge_mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	sprite.scale = Vector2(
+		float(_terrain_edge_mask_width) * _terrain_edge_mask_step_px,
+		float(_terrain_edge_mask_height) * _terrain_edge_mask_step_px
+	)
+	sprite.texture = _ensure_grass_blob_overlay_canvas_texture()
+	sprite.visible = true
+
+func _clear_grass_blob_overlay() -> void:
+	if _grass_blob_overlay_sprite != null and is_instance_valid(_grass_blob_overlay_sprite):
+		_grass_blob_overlay_sprite.texture = null
+		_grass_blob_overlay_sprite.visible = false
+		_grass_blob_overlay_sprite.scale = Vector2.ONE
+		_grass_blob_overlay_sprite.material = null
+
+func _ensure_grass_blob_overlay_sprite() -> Sprite2D:
+	if _grass_blob_overlay_sprite != null and is_instance_valid(_grass_blob_overlay_sprite):
+		return _grass_blob_overlay_sprite
+	_grass_blob_overlay_sprite = Sprite2D.new()
+	_grass_blob_overlay_sprite.name = "GrassBlobOverlay"
+	_grass_blob_overlay_sprite.centered = false
+	_grass_blob_overlay_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_grass_blob_overlay_sprite.z_as_relative = false
+	_grass_blob_overlay_sprite.z_index = 3
+	add_child(_grass_blob_overlay_sprite)
+	return _grass_blob_overlay_sprite
+
+func _ensure_grass_blob_overlay_material() -> ShaderMaterial:
+	if _grass_blob_overlay_material != null:
+		return _grass_blob_overlay_material
+	_grass_blob_overlay_material = ShaderMaterial.new()
+	_grass_blob_overlay_material.shader = GRASS_BLOB_OVERLAY_SHADER
+	return _grass_blob_overlay_material
+
+func _ensure_grass_blob_overlay_canvas_texture() -> ImageTexture:
+	if _grass_blob_overlay_canvas_texture != null:
+		return _grass_blob_overlay_canvas_texture
+	var image: Image = Image.create(1, 1, false, Image.FORMAT_RGBA8)
+	image.fill(Color(1.0, 1.0, 1.0, 0.0))
+	_grass_blob_overlay_canvas_texture = ImageTexture.create_from_image(image)
+	return _grass_blob_overlay_canvas_texture
 
 func _ensure_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
 	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
