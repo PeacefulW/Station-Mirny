@@ -45,9 +45,10 @@ const TERRAIN_EDGE_TOP_TEXTURE_PATH: String = "res://assets/textures/world/biome
 const TERRAIN_EDGE_FACE_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_face_albedo.png"
 const TERRAIN_EDGE_TOP_NORMAL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_top_normal.png"
 const TERRAIN_EDGE_FACE_NORMAL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_face_normal.png"
-const GRASS_BLOB_OVERLAY_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_grass_sparse_albedo.png"
-const GRASS_BLOB_OVERLAY_TEXTURE_PATH_2: String = "res://assets/textures/world/biomes/plains/ground/dry_grass_medium_albedo.png"
-const GRASS_BLOB_OVERLAY_TEXTURE_PATH_3: String = "res://assets/textures/world/biomes/plains/ground/dry_grass_dense_albedo.png"
+const GRASS_BLOB_OVERLAY_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/orange_biofield_albedo.png"
+const GRASS_BLOB_OVERLAY_TEXTURE_PATH_2: String = "res://assets/textures/world/biomes/plains/ground/orange_biofield_albedo.png"
+const GRASS_BLOB_OVERLAY_TEXTURE_PATH_3: String = "res://assets/textures/world/biomes/plains/ground/orange_biofield_albedo.png"
+const GRASS_BLOB_OVERLAY_NORMAL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/orange_biofield_normal.png"
 const PLAINS_ROCK_SCATTER_ENABLED: bool = true
 const PLAINS_ROCK_ATLAS_1: Texture2D = preload("res://assets/sprites/resources/atlases/plains_rock_1_atlas.png")
 const PLAINS_ROCK_ATLAS_2: Texture2D = preload("res://assets/sprites/resources/atlases/plains_rock_2_atlas.png")
@@ -120,6 +121,7 @@ var _terrain_edge_face_normal_texture: ImageTexture = null
 var _grass_blob_overlay_texture: ImageTexture = null
 var _grass_blob_overlay_texture_2: ImageTexture = null
 var _grass_blob_overlay_texture_3: ImageTexture = null
+var _grass_blob_overlay_normal_texture: ImageTexture = null
 var _plains_rock_scatter_atlases: Array[Texture2D] = []
 var _plains_living_flora_atlas: Texture2D = null
 var _mountain_mask_revision_by_chunk: Dictionary = {}
@@ -823,6 +825,7 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			_grass_blob_overlay_texture,
 			_grass_blob_overlay_texture_2,
 			_grass_blob_overlay_texture_3,
+			_grass_blob_overlay_normal_texture,
 			_mountain_foothill_texture,
 			_mountain_foothill_normal_texture
 		):
@@ -2033,31 +2036,39 @@ func _ensure_terrain_edge_mask_sources() -> void:
 func _ensure_grass_blob_overlay_source() -> void:
 	if _grass_blob_overlay_texture != null \
 			and _grass_blob_overlay_texture_2 != null \
-			and _grass_blob_overlay_texture_3 != null:
+			and _grass_blob_overlay_texture_3 != null \
+			and _grass_blob_overlay_normal_texture != null:
 		return
 	var grass_image: Image = _load_mountain_mask_source_image(
 		GRASS_BLOB_OVERLAY_TEXTURE_PATH,
-		"grass overlay weak"
+		"orange biofield overlay weak"
 	)
 	var grass_image_2: Image = _load_mountain_mask_source_image(
 		GRASS_BLOB_OVERLAY_TEXTURE_PATH_2,
-		"grass overlay medium"
+		"orange biofield overlay medium"
 	)
 	var grass_image_3: Image = _load_mountain_mask_source_image(
 		GRASS_BLOB_OVERLAY_TEXTURE_PATH_3,
-		"grass overlay dense"
+		"orange biofield overlay dense"
+	)
+	var grass_normal_image: Image = _load_mountain_mask_source_image(
+		GRASS_BLOB_OVERLAY_NORMAL_TEXTURE_PATH,
+		"orange biofield overlay normal"
 	)
 	assert(grass_image != null, "Grass overlay source image is required: %s" % GRASS_BLOB_OVERLAY_TEXTURE_PATH)
 	assert(grass_image_2 != null, "Grass overlay source image is required: %s" % GRASS_BLOB_OVERLAY_TEXTURE_PATH_2)
 	assert(grass_image_3 != null, "Grass overlay source image is required: %s" % GRASS_BLOB_OVERLAY_TEXTURE_PATH_3)
-	if grass_image == null or grass_image_2 == null or grass_image_3 == null:
+	assert(grass_normal_image != null, "Grass overlay normal source image is required: %s" % GRASS_BLOB_OVERLAY_NORMAL_TEXTURE_PATH)
+	if grass_image == null or grass_image_2 == null or grass_image_3 == null or grass_normal_image == null:
 		return
 	grass_image.generate_mipmaps()
 	grass_image_2.generate_mipmaps()
 	grass_image_3.generate_mipmaps()
+	grass_normal_image.generate_mipmaps()
 	_grass_blob_overlay_texture = ImageTexture.create_from_image(grass_image)
 	_grass_blob_overlay_texture_2 = ImageTexture.create_from_image(grass_image_2)
 	_grass_blob_overlay_texture_3 = ImageTexture.create_from_image(grass_image_3)
+	_grass_blob_overlay_normal_texture = ImageTexture.create_from_image(grass_normal_image)
 
 func _ensure_plains_rock_scatter_sources() -> void:
 	if not PLAINS_ROCK_SCATTER_ENABLED:

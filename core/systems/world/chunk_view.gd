@@ -33,10 +33,10 @@ const TERRAIN_EDGE_FACE_TEXTURE_SCALE: float = 0.38
 const TERRAIN_EDGE_TOP_ALPHA: float = 1.0
 const GRASS_BLOB_OVERLAY_ENABLED: bool = true
 const GRASS_BLOB_TEXTURE_SCALE: float = 0.78
-const GRASS_BLOB_PATCH_CELL_PX: float = 1850.0
-const GRASS_BLOB_PATCH_DENSITY: float = 0.54
-const GRASS_BLOB_PATCH_ALPHA: float = 0.48
-const GRASS_BLOB_EDGE_CLEARANCE_PX: float = 22.0
+const GRASS_BLOB_PATCH_CELL_PX: float = 2750.0
+const GRASS_BLOB_PATCH_DENSITY: float = 0.72
+const GRASS_BLOB_PATCH_ALPHA: float = 0.62
+const GRASS_BLOB_EDGE_CLEARANCE_PX: float = 30.0
 const ROCK_PATCH_OVERLAY_ENABLED: bool = true
 const ROCK_PATCH_TEXTURE_SCALE: float = 0.66
 const ROCK_PATCH_CELL_PX: float = 1280.0
@@ -261,6 +261,7 @@ func apply_sun_lighting(
 	_apply_sun_lighting_to_mask_material(_mountain_top_mask_material, 1.0)
 	_apply_sun_lighting_to_foothill_material(_mountain_foothill_overlay_material)
 	_apply_sun_lighting_to_rock_patch_material(_rock_patch_overlay_material)
+	_apply_sun_lighting_to_grass_blob_material(_grass_blob_overlay_material)
 	_apply_sun_lighting_to_rock_scatter_layer()
 	_apply_sun_lighting_to_living_flora_layer()
 	_apply_sun_lighting_to_mask_material(
@@ -625,6 +626,7 @@ func apply_pending_terrain_edge_mask_visual(
 	grass_overlay_texture: Texture2D = null,
 	grass_overlay_texture_2: Texture2D = null,
 	grass_overlay_texture_3: Texture2D = null,
+	grass_overlay_normal_texture: Texture2D = null,
 	rock_patch_texture: Texture2D = null,
 	rock_patch_normal_texture: Texture2D = null
 ) -> bool:
@@ -652,6 +654,7 @@ func apply_pending_terrain_edge_mask_visual(
 		grass_overlay_texture,
 		grass_overlay_texture_2,
 		grass_overlay_texture_3,
+		grass_overlay_normal_texture,
 		rock_patch_texture,
 		rock_patch_normal_texture
 	)
@@ -813,6 +816,7 @@ func _upload_terrain_edge_mask_texture(
 	grass_overlay_texture: Texture2D,
 	grass_overlay_texture_2: Texture2D,
 	grass_overlay_texture_3: Texture2D,
+	grass_overlay_normal_texture: Texture2D,
 	rock_patch_texture: Texture2D,
 	rock_patch_normal_texture: Texture2D
 ) -> void:
@@ -888,7 +892,8 @@ func _upload_terrain_edge_mask_texture(
 	_sync_grass_blob_overlay_visual(
 		grass_overlay_texture,
 		grass_overlay_texture_2,
-		grass_overlay_texture_3
+		grass_overlay_texture_3,
+		grass_overlay_normal_texture
 	)
 	_sync_living_flora_scatter_visual()
 
@@ -944,6 +949,11 @@ func _apply_sun_lighting_to_foothill_material(material: ShaderMaterial) -> void:
 	material.set_shader_parameter("light_angle_deg", _sun_light_angle_deg)
 
 func _apply_sun_lighting_to_rock_patch_material(material: ShaderMaterial) -> void:
+	if material == null:
+		return
+	material.set_shader_parameter("light_angle_deg", _sun_light_angle_deg)
+
+func _apply_sun_lighting_to_grass_blob_material(material: ShaderMaterial) -> void:
 	if material == null:
 		return
 	material.set_shader_parameter("light_angle_deg", _sun_light_angle_deg)
@@ -1627,7 +1637,8 @@ func _ensure_rock_patch_overlay_canvas_texture() -> ImageTexture:
 func _sync_grass_blob_overlay_visual(
 	grass_overlay_texture: Texture2D,
 	grass_overlay_texture_2: Texture2D,
-	grass_overlay_texture_3: Texture2D
+	grass_overlay_texture_3: Texture2D,
+	grass_overlay_normal_texture: Texture2D
 ) -> void:
 	if not GRASS_BLOB_OVERLAY_ENABLED \
 			or grass_overlay_texture == null \
@@ -1645,6 +1656,11 @@ func _sync_grass_blob_overlay_visual(
 	material.set_shader_parameter("grass_texture_2", grass_overlay_texture_2)
 	material.set_shader_parameter("grass_texture_3", grass_overlay_texture_3)
 	material.set_shader_parameter("mask_texture", _terrain_edge_mask_texture)
+	if grass_overlay_normal_texture != null:
+		material.set_shader_parameter("grass_normal_texture", grass_overlay_normal_texture)
+		material.set_shader_parameter("normal_mix", 1.0)
+	else:
+		material.set_shader_parameter("normal_mix", 0.0)
 	material.set_shader_parameter("grass_texture_size", Vector2(
 		maxf(1.0, float(grass_overlay_texture.get_width())),
 		maxf(1.0, float(grass_overlay_texture.get_height()))
@@ -1668,6 +1684,7 @@ func _sync_grass_blob_overlay_visual(
 	material.set_shader_parameter("patch_density", GRASS_BLOB_PATCH_DENSITY)
 	material.set_shader_parameter("patch_alpha", GRASS_BLOB_PATCH_ALPHA)
 	material.set_shader_parameter("edge_clearance_px", GRASS_BLOB_EDGE_CLEARANCE_PX)
+	_apply_sun_lighting_to_grass_blob_material(material)
 	_set_mask_shader_chunk_clip(
 		material,
 		_terrain_edge_mask_origin_world,

@@ -4,6 +4,7 @@ render_mode unshaded, blend_mix;
 uniform sampler2D grass_texture : filter_linear_mipmap, repeat_enable;
 uniform sampler2D grass_texture_2 : filter_linear_mipmap, repeat_enable;
 uniform sampler2D grass_texture_3 : filter_linear_mipmap, repeat_enable;
+uniform sampler2D grass_normal_texture : filter_linear_mipmap, repeat_enable;
 uniform sampler2D mask_texture : filter_linear, repeat_disable;
 uniform vec2 grass_texture_size = vec2(1024.0, 1024.0);
 uniform vec2 grass_texture_size_2 = vec2(1024.0, 1024.0);
@@ -16,12 +17,17 @@ uniform float patch_cell_px = 1850.0;
 uniform float patch_density = 0.50;
 uniform float patch_alpha = 0.52;
 uniform float edge_clearance_px = 22.0;
+uniform float normal_mix = 0.0;
+uniform float normal_strength = 0.34;
+uniform float light_angle_deg = 234.0;
+uniform float light_ambient = 0.76;
+uniform float light_diffuse = 0.24;
 uniform float terrain_threshold_low = 0.40;
 uniform float terrain_threshold_high = 0.58;
 uniform vec2 chunk_uv_min = vec2(0.1, 0.1);
 uniform vec2 chunk_uv_max = vec2(0.9, 0.9);
-uniform vec3 dry_grass_tint = vec3(1.02, 0.90, 0.66);
-uniform vec3 contact_shadow_tint = vec3(0.30, 0.20, 0.11);
+uniform vec3 dry_grass_tint = vec3(1.04, 0.88, 0.60);
+uniform vec3 contact_shadow_tint = vec3(0.34, 0.18, 0.08);
 
 float luma(vec3 c) {
 	return dot(c, vec3(0.299, 0.587, 0.114));
@@ -55,6 +61,13 @@ float fbm2(vec2 p) {
 		a *= 0.48;
 	}
 	return v / max(total, 0.0001);
+}
+
+vec3 unpack_normal(vec3 packed_normal) {
+	vec3 n = packed_normal * 2.0 - 1.0;
+	n.xy *= normal_strength;
+	n.z = mix(1.0, n.z, clamp(normal_strength, 0.0, 1.0));
+	return normalize(n);
 }
 
 float terrain_mask(vec2 uv) {
@@ -136,8 +149,19 @@ void fragment() {
 	grass_sample = mix(grass_sample, grass_sample_3, dense_mix);
 	float detail = smoothstep(0.32, 0.72, luma(grass_sample.rgb));
 	float patch_edge = smoothstep(0.05, 0.34, patch) * (1.0 - smoothstep(0.60, 0.92, patch));
+	float a = radians(light_angle_deg);
+	vec3 light_dir = normalize(vec3(cos(a), sin(a), 0.70));
+	vec3 normal = vec3(0.0, 0.0, 1.0);
+	if (normal_mix > 0.001) {
+		normal = normalize(mix(
+			normal,
+			unpack_normal(texture(grass_normal_texture, grass_uv).rgb),
+			clamp(normal_mix, 0.0, 1.0)
+		));
+	}
+	float light = light_ambient + light_diffuse * clamp(dot(normal, light_dir), 0.0, 1.0);
 
-	vec3 color = grass_sample.rgb * dry_grass_tint;
+	vec3 color = grass_sample.rgb * dry_grass_tint * light;
 	color = mix(color, color * contact_shadow_tint, patch_edge * 0.22);
 	color *= 0.94 + fbm2(world_px / 390.0 + vec2(31.0, -7.0)) * 0.12;
 
