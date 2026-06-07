@@ -23,6 +23,11 @@ const DEFAULT_ATLAS_COLUMNS: int = 8
 const DEFAULT_ATLAS_ROWS: int = 4
 const DEFAULT_ATLAS_FRAME_COUNT: int = 32
 const FRAME_COLOR_SCALE: float = 255.0
+const CONTACT_SHADOW_Z_INDEX: int = 4
+const DECOR_SPRITE_Z_INDEX: int = 5
+const CONTACT_SHADOW_BASE_OPACITY: float = 0.30
+const CONTACT_SHADOW_SUN_OPACITY_SCALE: float = 0.08
+const CONTACT_SHADOW_MAX_OPACITY: float = 0.40
 
 static var _shared_unit_texture: ImageTexture = null
 
@@ -35,6 +40,8 @@ var _atlas_columns: int = DEFAULT_ATLAS_COLUMNS
 var _atlas_rows: int = DEFAULT_ATLAS_ROWS
 var _atlas_frame_count: int = DEFAULT_ATLAS_FRAME_COUNT
 var _chunk_size_px: float = 1024.0
+var _animation_frames_per_group: int = 1
+var _animation_fps: float = 0.0
 
 func set_atlas_layout(columns: int, rows: int, frame_count: int) -> void:
 	_atlas_columns = maxi(1, columns)
@@ -44,6 +51,11 @@ func set_atlas_layout(columns: int, rows: int, frame_count: int) -> void:
 
 func set_chunk_size_px(chunk_size_px: float) -> void:
 	_chunk_size_px = maxf(1.0, chunk_size_px)
+
+func set_animation(frames_per_group: int, fps: float) -> void:
+	_animation_frames_per_group = maxi(1, frames_per_group)
+	_animation_fps = maxf(0.0, fps)
+	_update_sprite_material_layouts()
 
 func clear_batches() -> void:
 	_instance_count = 0
@@ -84,8 +96,15 @@ func set_sun_lighting(
 ) -> void:
 	var material: ShaderMaterial = _ensure_shadow_material()
 	material.set_shader_parameter("shadow_angle_rad", deg_to_rad(light_angle_deg + 180.0))
-	material.set_shader_parameter("shadow_length_px", maxf(0.0, shadow_length_px) * 0.11)
-	material.set_shader_parameter("shadow_opacity", clampf(shadow_opacity * 0.24, 0.0, 0.32))
+	material.set_shader_parameter("shadow_length_px", 0.0)
+	material.set_shader_parameter(
+		"shadow_opacity",
+		clampf(
+			CONTACT_SHADOW_BASE_OPACITY + shadow_opacity * CONTACT_SHADOW_SUN_OPACITY_SCALE,
+			0.0,
+			CONTACT_SHADOW_MAX_OPACITY
+		)
+	)
 	material.set_shader_parameter("shadow_softness_px", maxf(1.0, shadow_softness_px))
 
 func set_wind(wind_time: float, wind_direction: Vector2, wind_strength_px: float) -> void:
@@ -169,12 +188,20 @@ func _apply_buffer_to_layer(
 			+ buffer[offset + BUFFER_TINT_G]
 			+ buffer[offset + BUFFER_TINT_B]
 		) / 3.0
-		multimesh.set_instance_color(instance_index, Color(
-			clampf(buffer[offset + BUFFER_FRAME_INDEX] / FRAME_COLOR_SCALE, 0.0, 1.0),
-			clampf(tint, 0.0, 1.0),
-			clampf(buffer[offset + BUFFER_WIND_PHASE], 0.0, 1.0),
-			clampf(buffer[offset + BUFFER_TINT_A], 0.0, 1.0)
-		))
+		if is_shadow:
+			multimesh.set_instance_color(instance_index, Color(
+				clampf(buffer[offset + BUFFER_SHADOW_SCALE] / 4.0, 0.0, 1.0),
+				1.0 / maxf(1.0, size.x),
+				1.0 / maxf(1.0, size.y),
+				clampf(buffer[offset + BUFFER_TINT_A], 0.0, 1.0)
+			))
+		else:
+			multimesh.set_instance_color(instance_index, Color(
+				clampf(buffer[offset + BUFFER_FRAME_INDEX] / FRAME_COLOR_SCALE, 0.0, 1.0),
+				clampf(tint, 0.0, 1.0),
+				clampf(buffer[offset + BUFFER_WIND_PHASE], 0.0, 1.0),
+				clampf(buffer[offset + BUFFER_TINT_A], 0.0, 1.0)
+			))
 	layer.texture = texture
 	layer.multimesh = multimesh
 	layer.visible = true
@@ -208,7 +235,7 @@ func _ensure_sprite_layers_for_atlas(atlas_index: int) -> Array:
 		var layer := MultiMeshInstance2D.new()
 		layer.name = "DecorAtlas%dDepth%d" % [atlas_index, layers.size()]
 		layer.z_as_relative = true
-		layer.z_index = layers.size()
+		layer.z_index = DECOR_SPRITE_Z_INDEX
 		layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		layer.material = _make_sprite_material()
 		layer.visible = false
@@ -222,7 +249,7 @@ func _ensure_shadow_layer() -> MultiMeshInstance2D:
 	_shadow_layer = MultiMeshInstance2D.new()
 	_shadow_layer.name = "DecorShadowBatch"
 	_shadow_layer.z_as_relative = true
-	_shadow_layer.z_index = -1
+	_shadow_layer.z_index = CONTACT_SHADOW_Z_INDEX
 	_shadow_layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	_shadow_layer.material = _ensure_shadow_material()
 	_shadow_layer.visible = false
@@ -235,6 +262,8 @@ func _make_sprite_material() -> ShaderMaterial:
 	material.set_shader_parameter("atlas_columns", float(_atlas_columns))
 	material.set_shader_parameter("atlas_rows", float(_atlas_rows))
 	material.set_shader_parameter("atlas_frame_count", float(_atlas_frame_count))
+	material.set_shader_parameter("animation_frames_per_group", float(_animation_frames_per_group))
+	material.set_shader_parameter("animation_fps", _animation_fps)
 	material.set_shader_parameter("wind_direction", Vector2.RIGHT)
 	return material
 
@@ -254,6 +283,8 @@ func _update_sprite_material_layouts() -> void:
 			material.set_shader_parameter("atlas_columns", float(_atlas_columns))
 			material.set_shader_parameter("atlas_rows", float(_atlas_rows))
 			material.set_shader_parameter("atlas_frame_count", float(_atlas_frame_count))
+			material.set_shader_parameter("animation_frames_per_group", float(_animation_frames_per_group))
+			material.set_shader_parameter("animation_fps", _animation_fps)
 
 func _hide_sprite_layers_for_atlas(atlas_index: int) -> void:
 	if atlas_index < 0 or atlas_index >= _sprite_layers_by_atlas.size():

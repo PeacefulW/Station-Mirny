@@ -48,10 +48,12 @@ const TERRAIN_EDGE_FACE_NORMAL_TEXTURE_PATH: String = "res://assets/textures/wor
 const GRASS_BLOB_OVERLAY_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_grass_sparse_albedo.png"
 const GRASS_BLOB_OVERLAY_TEXTURE_PATH_2: String = "res://assets/textures/world/biomes/plains/ground/dry_grass_medium_albedo.png"
 const GRASS_BLOB_OVERLAY_TEXTURE_PATH_3: String = "res://assets/textures/world/biomes/plains/ground/dry_grass_dense_albedo.png"
-const PLAINS_ROCK_SCATTER_ENABLED: bool = false
+const PLAINS_ROCK_SCATTER_ENABLED: bool = true
 const PLAINS_ROCK_ATLAS_1: Texture2D = preload("res://assets/sprites/resources/atlases/plains_rock_1_atlas.png")
 const PLAINS_ROCK_ATLAS_2: Texture2D = preload("res://assets/sprites/resources/atlases/plains_rock_2_atlas.png")
 const PLAINS_VOLCANIC_ROCK_ATLAS: Texture2D = preload("res://assets/sprites/resources/atlases/plains_volcanic_rock_atlas.png")
+const PLAINS_LIVING_FLORA_ENABLED: bool = true
+const PLAINS_LIVING_FLORA_ATLAS_PATH: String = "res://assets/sprites/flora/atlases/brown_seaweed_living_4views_16frames_256.png"
 const MOUNTAIN_FOOTHILL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/mountain/foothill_albedo.png"
 const MOUNTAIN_FOOTHILL_NORMAL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/mountain/foothill_normal.png"
 const MOUNTAIN_NATIVE_MASK_VISUAL_UPLOAD_BUDGET_MS: float = 0.75
@@ -119,6 +121,7 @@ var _grass_blob_overlay_texture: ImageTexture = null
 var _grass_blob_overlay_texture_2: ImageTexture = null
 var _grass_blob_overlay_texture_3: ImageTexture = null
 var _plains_rock_scatter_atlases: Array[Texture2D] = []
+var _plains_living_flora_atlas: Texture2D = null
 var _mountain_mask_revision_by_chunk: Dictionary = {}
 var _mountain_native_masks_by_chunk: Dictionary = {}
 var _mountain_native_mask_inflight_chunks: Dictionary = {}
@@ -178,6 +181,7 @@ func _ready() -> void:
 	_ensure_terrain_edge_mask_sources()
 	_ensure_grass_blob_overlay_source()
 	_ensure_plains_rock_scatter_sources()
+	_ensure_plains_living_flora_source()
 	_packet_backend.start(PACKET_WORKER_COUNT)
 	_mountain_mask_backend.start(MOUNTAIN_MASK_WORKER_COUNT)
 	_stream_job_id = FrameBudgetDispatcher.register_job(
@@ -1450,6 +1454,7 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 		_debug_mountain_contour_visible
 	)
 	chunk_view.set_plains_rock_scatter_sources(_plains_rock_scatter_atlases)
+	chunk_view.set_living_flora_source(_plains_living_flora_atlas)
 	chunk_view.apply_sun_lighting(
 		_sun_light_angle_deg,
 		_sun_shadow_length_px,
@@ -2064,6 +2069,18 @@ func _ensure_plains_rock_scatter_sources() -> void:
 	_plains_rock_scatter_atlases.append(PLAINS_ROCK_ATLAS_1)
 	_plains_rock_scatter_atlases.append(PLAINS_ROCK_ATLAS_2)
 	_plains_rock_scatter_atlases.append(PLAINS_VOLCANIC_ROCK_ATLAS)
+
+func _ensure_plains_living_flora_source() -> void:
+	if not PLAINS_LIVING_FLORA_ENABLED:
+		_plains_living_flora_atlas = null
+		return
+	if _plains_living_flora_atlas != null:
+		return
+	_plains_living_flora_atlas = load(PLAINS_LIVING_FLORA_ATLAS_PATH) as Texture2D
+	assert(
+		_plains_living_flora_atlas != null,
+		"WorldStreamer cannot load living flora atlas: %s" % PLAINS_LIVING_FLORA_ATLAS_PATH
+	)
 
 func _load_mountain_mask_source_image(path: String, label: String) -> Image:
 	var texture: Texture2D = load(path) as Texture2D

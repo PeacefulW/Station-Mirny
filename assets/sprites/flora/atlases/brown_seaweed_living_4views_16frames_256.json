@@ -1,0 +1,15 @@
+{
+  "source": "artifacts/brown_seaweed_animation/brown_seaweed_living_master_4views_16frames_512.png",
+  "atlas": "brown_seaweed_living_4views_16frames_256.png",
+  "views": 4,
+  "frames_per_view": 16,
+  "frame_width": 256,
+  "frame_height": 256,
+  "columns": 16,
+  "rows": 4,
+  "frame_count": 64,
+  "camera": "orthographic top-front, 62 degree elevation",
+  "animation": "baked subtle self-motion; GPU frame selection in world_decor_atlas_batch.gdshader",
+  "placement": "visual-only grass-patch gated plains living flora proof",
+  "world_runtime_view": "fixed south/front-facing row 0"
+}

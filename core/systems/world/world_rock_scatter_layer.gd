@@ -12,6 +12,16 @@ const PRIMARY_DENSITY: float = 0.23
 const SATELLITE_DENSITY: float = 0.18
 const VOLCANIC_ROCK_CHANCE: float = 0.08
 const EDGE_PADDING_PX: float = 18.0
+const ROCK_VISUAL_SCALE: float = 0.5
+const LARGE_ROCK_COLLISION_MIN_SIZE_PX: float = 42.0
+const LARGE_ROCK_COLLISION_RADIUS_SCALE: float = 0.32
+const LARGE_ROCK_COLLISION_LAYER: int = 2
+const SHADOW_WIDTH_SCALE: float = 0.92
+const SHADOW_HEIGHT_SCALE: float = 0.30
+const SHADOW_CENTER_Y_SCALE: float = 0.30
+const SHADOW_MIN_WIDTH_PX: float = 14.0
+const SHADOW_MIN_HEIGHT_PX: float = 6.0
+const SHADOW_MIN_PROJECTED_SCALE: float = 0.52
 
 var _atlases: Array[Texture2D] = []
 var _terrain_ids: PackedInt32Array = PackedInt32Array()
@@ -20,7 +30,10 @@ var _chunk_coord: Vector2i = Vector2i.ZERO
 var _world_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 var _world_version: int = WorldRuntimeConstants.WORLD_VERSION
 var _batch_layer: WorldDecorBatchLayer = null
+var _collision_body: StaticBody2D = null
+var _collision_shape_owner_ids: Array[int] = []
 var _rock_count: int = 0
+var _collider_count: int = 0
 
 # Temporary visual adapter only; final dense object placement belongs in the
 # native chunk packet path and should feed WorldDecorBatchLayer directly.
@@ -63,8 +76,12 @@ func set_sun_lighting(
 func get_rock_count() -> int:
 	return _rock_count
 
+func get_collider_count() -> int:
+	return _collider_count
+
 func _rebuild_batch() -> void:
 	_rock_count = 0
+	_collider_count = 0
 	visible = false
 	if _atlases.is_empty() or _terrain_ids.size() != WorldRuntimeConstants.CHUNK_CELL_COUNT:
 		_clear_batch()
@@ -73,6 +90,7 @@ func _rebuild_batch() -> void:
 	for _atlas_index: int in range(_atlases.size()):
 		sprite_buffers.append(PackedFloat32Array())
 	var shadow_buffer := PackedFloat32Array()
+	var collision_records: Array[Dictionary] = []
 	var chunk_size_px: float = float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX)
 	var cell_size_px: float = chunk_size_px / float(SCATTER_GRID_SIDE)
 	var used_variants: Dictionary = {}
@@ -87,7 +105,15 @@ func _rebuild_batch() -> void:
 			if _unit_float(cell_hash) > PRIMARY_DENSITY:
 				continue
 			var position: Vector2 = _candidate_position(grid_x, grid_y, cell_size_px, cell_hash)
-			_append_rock(position, cell_hash, false, used_variants, sprite_buffers, shadow_buffer)
+			_append_rock(
+				position,
+				cell_hash,
+				false,
+				used_variants,
+				sprite_buffers,
+				shadow_buffer,
+				collision_records
+			)
 			if _unit_float(_hash4(cell_hash, grid_x, grid_y, 17)) <= SATELLITE_DENSITY:
 				var angle: float = _unit_float(_hash4(cell_hash, 3, 5, 19)) * TAU
 				var distance_px: float = lerpf(26.0, 72.0, _unit_float(_hash4(cell_hash, 11, 13, 23)))
@@ -97,7 +123,8 @@ func _rebuild_batch() -> void:
 					true,
 					used_variants,
 					sprite_buffers,
-					shadow_buffer
+					shadow_buffer,
+					collision_records
 				)
 	if _rock_count <= 0:
 		_clear_batch()
@@ -106,6 +133,7 @@ func _rebuild_batch() -> void:
 	batch_layer.set_chunk_size_px(chunk_size_px)
 	batch_layer.set_atlas_layout(FRAME_COLUMNS, FRAME_ROWS, FRAME_COUNT)
 	batch_layer.set_batches(_atlases, sprite_buffers, shadow_buffer)
+	_sync_collision_shapes(collision_records)
 	visible = true
 
 func _append_rock(
@@ -114,7 +142,8 @@ func _append_rock(
 	is_satellite: bool,
 	used_variants: Dictionary,
 	sprite_buffers: Array,
-	shadow_buffer: PackedFloat32Array
+	shadow_buffer: PackedFloat32Array,
+	collision_records: Array[Dictionary]
 ) -> void:
 	if not _is_position_valid_for_rock(position):
 		return
@@ -137,16 +166,25 @@ func _append_rock(
 		size_px / 64.0
 	)
 	sprite_buffers[atlas_index] = sprite_buffer
+	var shadow_size := Vector2(
+		maxf(size_px * SHADOW_WIDTH_SCALE, SHADOW_MIN_WIDTH_PX),
+		maxf(size_px * SHADOW_HEIGHT_SCALE, SHADOW_MIN_HEIGHT_PX)
+	)
 	WorldDecorBatchLayer.append_instance(
 		shadow_buffer,
-		position + Vector2(0.0, size_px * 0.24),
-		Vector2(size_px * 0.72, size_px * 0.24),
+		position + Vector2(0.0, size_px * SHADOW_CENTER_Y_SCALE),
+		shadow_size,
 		0,
-		Color(1.0, 1.0, 1.0, 1.0),
+		Color(1.0, 1.0, 1.0, 0.92),
 		0.0,
 		wind_phase,
-		size_px / 64.0
+		maxf(size_px / 64.0, SHADOW_MIN_PROJECTED_SCALE)
 	)
+	if size_px >= LARGE_ROCK_COLLISION_MIN_SIZE_PX:
+		collision_records.append({
+			"position": position + Vector2(0.0, size_px * 0.18),
+			"radius": clampf(size_px * LARGE_ROCK_COLLISION_RADIUS_SCALE, 10.0, 18.0),
+		})
 	_rock_count += 1
 
 func _candidate_position(grid_x: int, grid_y: int, cell_size_px: float, salt: int) -> Vector2:
@@ -187,7 +225,7 @@ func _choose_size_px(salt: int, atlas_index: int, is_satellite: bool) -> float:
 		size_px *= 0.88
 	if _unit_float(_hash4(salt, 139, 149, 151)) < 0.10 and not is_satellite:
 		size_px *= 1.22
-	return clampf(size_px, 28.0, 96.0)
+	return clampf(size_px * ROCK_VISUAL_SCALE, 14.0, 48.0)
 
 func _is_position_valid_for_rock(position: Vector2) -> bool:
 	var chunk_size_px: float = float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX)
@@ -219,8 +257,45 @@ func _ensure_batch_layer() -> WorldDecorBatchLayer:
 	add_child(_batch_layer)
 	return _batch_layer
 
+func _ensure_collision_body() -> StaticBody2D:
+	if _collision_body != null and is_instance_valid(_collision_body):
+		return _collision_body
+	_collision_body = StaticBody2D.new()
+	_collision_body.name = "LargeRockCollisionBody"
+	_collision_body.collision_layer = LARGE_ROCK_COLLISION_LAYER
+	_collision_body.collision_mask = 0
+	add_child(_collision_body)
+	return _collision_body
+
+func _sync_collision_shapes(collision_records: Array[Dictionary]) -> void:
+	_clear_collision_shapes()
+	if collision_records.is_empty():
+		return
+	var body: StaticBody2D = _ensure_collision_body()
+	for record: Dictionary in collision_records:
+		var shape := CircleShape2D.new()
+		shape.radius = float(record.get("radius", 10.0))
+		var owner_id: int = body.create_shape_owner(body)
+		body.shape_owner_add_shape(owner_id, shape)
+		body.shape_owner_set_transform(
+			owner_id,
+			Transform2D(0.0, record.get("position", Vector2.ZERO) as Vector2)
+		)
+		_collision_shape_owner_ids.append(owner_id)
+	_collider_count = _collision_shape_owner_ids.size()
+
+func _clear_collision_shapes() -> void:
+	_collider_count = 0
+	if _collision_body == null or not is_instance_valid(_collision_body):
+		_collision_shape_owner_ids.clear()
+		return
+	for owner_id: int in _collision_shape_owner_ids:
+		_collision_body.remove_shape_owner(owner_id)
+	_collision_shape_owner_ids.clear()
+
 func _clear_batch() -> void:
 	_rock_count = 0
+	_clear_collision_shapes()
 	visible = false
 	if _batch_layer != null and is_instance_valid(_batch_layer):
 		_batch_layer.clear_batches()

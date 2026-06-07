@@ -1,0 +1,49 @@
+22:20:02 | INFO: Data are loaded, start creating Blender stuff
+22:20:02 | INFO: Blender create Mesh node tripo_mesh_ee11e8ea-bea8-435c-b3dc-70c75ee667f7
+22:20:02 | INFO: glTF import finished in 0.01s
+00:10.265  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_00_000deg.png'
+00:18.328  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_01_011deg.png'
+00:26.265  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_02_022deg.png'
+00:34.593  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_03_034deg.png'
+00:42.437  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_04_045deg.png'
+00:50.187  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_05_056deg.png'
+00:58.703  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_06_068deg.png'
+01:07.171  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_07_079deg.png'
+01:15.546  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_08_090deg.png'
+01:24.484  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_09_101deg.png'
+01:32.578  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_10_112deg.png'
+01:40.500  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_11_124deg.png'
+01:48.468  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_12_135deg.png'
+01:56.296  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_13_146deg.png'
+02:04.140  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_14_158deg.png'
+02:12.031  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_15_169deg.png'
+02:20.203  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_16_180deg.png'
+02:28.109  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_17_191deg.png'
+02:36.687  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_18_202deg.png'
+02:44.796  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_19_214deg.png'
+02:52.671  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_20_225deg.png'
+03:01.078  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_21_236deg.png'
+03:09.171  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_22_248deg.png'
+03:17.875  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_23_259deg.png'
+03:25.781  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_24_270deg.png'
+03:33.765  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_25_281deg.png'
+03:41.812  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_26_292deg.png'
+03:49.750  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_27_304deg.png'
+03:57.703  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_28_315deg.png'
+04:05.703  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_29_326deg.png'
+04:13.703  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_30_338deg.png'
+04:22.000  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512\volcanic_rock_rot_31_349deg.png'
+Rock overhead shadow sprite render complete
+input_glb=M:\Downloads\volcanic+rock+3d+model.glb
+output_dir=C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\volcanic_rock\frames_512
+asset_name=volcanic_rock
+rotations=32
+frame_size=512
+bounds_min=(-0.46, -0.499, 0.0)
+bounds_max=(0.46, 0.499, 0.998)
+render_engine=CYCLES
+camera_ortho_scale=1.7993
+shadow=cycles shadow catcher, overhead sun
+Blender 5.0.1 (hash a3db93c5b259 built 2025-12-16 01:32:30)
+
+Blender quit

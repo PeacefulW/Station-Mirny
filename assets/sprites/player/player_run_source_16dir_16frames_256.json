@@ -1,0 +1,20 @@
+{
+  "source": "artifacts\\player_run_retarget\\space_suit_run_source_16dir_16frames_512.png",
+  "atlas": "assets\\sprites\\player\\player_run_source_16dir_16frames_256.png",
+  "columns": 16,
+  "rows": 16,
+  "frame_size_px": 256,
+  "directions": 16,
+  "frames_per_direction": 16,
+  "total_frames": 256,
+  "nonempty_frames": 256,
+  "average_alpha_bbox_px": [
+    105.06,
+    151.14
+  ],
+  "max_alpha_bbox_px": [
+    145,
+    200
+  ],
+  "usage": "Temporary player run atlas generated from Mixamo source mesh for in-game visual testing."
+}

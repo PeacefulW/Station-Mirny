@@ -12,6 +12,13 @@ const WorldStreamer = preload("res://core/systems/world/world_streamer.gd")
 const SCRAP_ITEM_ID: String = "base:scrap"
 const WOOD_ITEM_ID: String = "base:wood"
 const SHOW_MOUNTAIN_DEBUG_OVERLAY: bool = false
+const PLAYER_RUN_ATLAS_COLUMNS: int = 16
+const PLAYER_RUN_ATLAS_ROWS: int = 16
+const PLAYER_RUN_ATLAS_FRAME_SIZE: int = 256
+const PLAYER_RUN_ATLAS_FPS: float = 18.0
+const PLAYER_RUN_ATLAS_DIRECTION_STEP_DEGREES: float = 22.5
+const PLAYER_RUN_ATLAS_DIRECTION_OFFSET_DEGREES: float = 90.0
+const PLAYER_RUN_ATLAS_DEFAULT_DIRECTION: int = 0
 @export var balance: PlayerBalance = null
 
 var _speed_modifier: float = 1.0
@@ -30,6 +37,9 @@ var _camera: PlayerCamera = null
 var _mountain_debug_layer: CanvasLayer = null
 var _mountain_debug_panel: PanelContainer = null
 var _mountain_debug_label: Label = null
+var _visual: Sprite2D = null
+var _run_visual_time: float = 0.0
+var _run_visual_direction: int = PLAYER_RUN_ATLAS_DEFAULT_DIRECTION
 
 func _ready() -> void:
 	if not balance:
@@ -42,6 +52,7 @@ func _ready() -> void:
 	_health_component = get_node_or_null("HealthComponent")
 	_attack_area = get_node_or_null("AttackArea")
 	_inventory = get_node_or_null("InventoryComponent")
+	_visual = get_node_or_null("Visual") as Sprite2D
 	if _oxygen_system:
 		_oxygen_system.speed_modifier_changed.connect(_on_speed_modifier_changed)
 	if _health_component:
@@ -54,16 +65,17 @@ func _ready() -> void:
 	_apply_attack_range()
 	_setup_camera()
 	_setup_state_machine()
+	_configure_player_visual()
 	_ensure_mountain_debug_overlay()
 	_mountain_resolver = MountainResolver.new()
 	call_deferred("_find_chunk_manager")
 	call_deferred("_emit_scrap_state")
 
 func _physics_process(delta: float) -> void:
-	_handle_rotation()
 	_state_machine.physics_update(delta)
 	_apply_terrain_blocking(delta)
 	move_and_slide()
+	_update_player_visual(delta)
 	var streamer: WorldStreamer = _get_world_streamer()
 	if _mountain_resolver != null and streamer != null:
 		_mountain_resolver.update_from_player_position(global_position, streamer)
@@ -299,11 +311,51 @@ func get_move_input() -> Vector2:
 		direction.x += 1.0
 	return direction.normalized() if direction.length() > 0.0 else Vector2.ZERO
 
-func _handle_rotation() -> void:
-	var visual: Sprite2D = get_node_or_null("Visual") as Sprite2D
-	if visual:
-		visual.look_at(get_global_mouse_position())
-		visual.rotation_degrees -= 90.0
+func _configure_player_visual() -> void:
+	if _visual == null:
+		return
+	_visual.centered = true
+	_visual.region_enabled = true
+	_visual.rotation = 0.0
+	_apply_player_visual_frame(0, _run_visual_direction)
+
+func _update_player_visual(delta: float) -> void:
+	if _visual == null:
+		return
+	var mouse_delta: Vector2 = get_global_mouse_position() - global_position
+	if mouse_delta.length_squared() > 0.0001:
+		_run_visual_direction = _atlas_direction_index_from_vector(mouse_delta)
+	var is_running: bool = velocity.length_squared() > 1.0 and not _is_dead
+	if is_running:
+		_run_visual_time = fposmod(
+			_run_visual_time + delta * PLAYER_RUN_ATLAS_FPS,
+			float(PLAYER_RUN_ATLAS_COLUMNS)
+		)
+	else:
+		_run_visual_time = 0.0
+	var frame_index: int = int(floor(_run_visual_time)) % PLAYER_RUN_ATLAS_COLUMNS
+	_apply_player_visual_frame(frame_index, _run_visual_direction)
+
+func _atlas_direction_index_from_vector(direction: Vector2) -> int:
+	var angle_degrees: float = fposmod(
+		PLAYER_RUN_ATLAS_DIRECTION_OFFSET_DEGREES - rad_to_deg(direction.angle()),
+		360.0
+	)
+	var raw_index: int = int(floor(angle_degrees / PLAYER_RUN_ATLAS_DIRECTION_STEP_DEGREES + 0.5))
+	return raw_index % PLAYER_RUN_ATLAS_ROWS
+
+func _apply_player_visual_frame(frame_index: int, direction_index: int) -> void:
+	if _visual == null:
+		return
+	var safe_frame: int = clampi(frame_index, 0, PLAYER_RUN_ATLAS_COLUMNS - 1)
+	var safe_direction: int = clampi(direction_index, 0, PLAYER_RUN_ATLAS_ROWS - 1)
+	_visual.rotation = 0.0
+	_visual.region_rect = Rect2(
+		safe_frame * PLAYER_RUN_ATLAS_FRAME_SIZE,
+		safe_direction * PLAYER_RUN_ATLAS_FRAME_SIZE,
+		PLAYER_RUN_ATLAS_FRAME_SIZE,
+		PLAYER_RUN_ATLAS_FRAME_SIZE
+	)
 
 func _setup_camera() -> void:
 	_camera = get_node_or_null("Camera2D") as PlayerCamera

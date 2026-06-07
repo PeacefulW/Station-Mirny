@@ -4,19 +4,29 @@ render_mode blend_mix;
 uniform float atlas_columns = 8.0;
 uniform float atlas_rows = 4.0;
 uniform float atlas_frame_count = 32.0;
+uniform float animation_frames_per_group = 1.0;
+uniform float animation_fps = 0.0;
 uniform float wind_time = 0.0;
 uniform vec2 wind_direction = vec2(1.0, 0.0);
 uniform float wind_strength_px = 0.0;
 
+varying vec4 instance_data;
+
 void vertex() {
-	float wind_phase = COLOR.b * 6.28318530718;
+	instance_data = COLOR;
+	float wind_phase = instance_data.b * 6.28318530718;
 	float sway = sin(wind_time + wind_phase) * wind_strength_px;
 	VERTEX += normalize(wind_direction) * sway * UV.y;
 }
 
 void fragment() {
-	vec4 instance_data = COLOR;
-	float frame_index = floor(clamp(instance_data.r * 255.0 + 0.5, 0.0, atlas_frame_count - 1.0));
+	float base_frame_index = floor(clamp(instance_data.r * 255.0 + 0.5, 0.0, atlas_frame_count - 1.0));
+	float frame_index = base_frame_index;
+	if (animation_frames_per_group > 1.0 && animation_fps > 0.0) {
+		float phase_frame = floor(instance_data.b * animation_frames_per_group);
+		float animation_frame = mod(floor(TIME * animation_fps) + phase_frame, animation_frames_per_group);
+		frame_index = clamp(base_frame_index + animation_frame, 0.0, atlas_frame_count - 1.0);
+	}
 	float frame_x = mod(frame_index, atlas_columns);
 	float frame_y = floor(frame_index / atlas_columns);
 	vec2 atlas_cell_size = vec2(1.0 / atlas_columns, 1.0 / atlas_rows);

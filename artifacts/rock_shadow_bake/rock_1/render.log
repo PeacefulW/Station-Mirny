@@ -1,0 +1,49 @@
+21:50:01 | INFO: Data are loaded, start creating Blender stuff
+21:50:01 | INFO: Blender create Mesh node meshes[0]
+21:50:01 | INFO: glTF import finished in 0.01s
+00:10.844  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_00_000deg.png'
+00:18.875  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_01_011deg.png'
+00:27.344  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_02_022deg.png'
+00:35.172  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_03_034deg.png'
+00:43.329  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_04_045deg.png'
+00:51.219  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_05_056deg.png'
+00:59.125  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_06_068deg.png'
+01:06.985  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_07_079deg.png'
+01:15.000  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_08_090deg.png'
+01:23.360  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_09_101deg.png'
+01:32.032  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_10_112deg.png'
+01:40.235  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_11_124deg.png'
+01:48.516  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_12_135deg.png'
+01:56.641  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_13_146deg.png'
+02:04.782  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_14_158deg.png'
+02:12.875  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_15_169deg.png'
+02:21.297  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_16_180deg.png'
+02:29.547  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_17_191deg.png'
+02:37.907  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_18_202deg.png'
+02:45.985  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_19_214deg.png'
+02:54.016  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_20_225deg.png'
+03:02.157  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_21_236deg.png'
+03:10.282  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_22_248deg.png'
+03:18.360  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_23_259deg.png'
+03:26.407  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_24_270deg.png'
+03:34.875  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_25_281deg.png'
+03:43.000  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_26_292deg.png'
+03:51.375  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_27_304deg.png'
+03:59.704  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_28_315deg.png'
+04:07.985  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_29_326deg.png'
+04:16.750  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_30_338deg.png'
+04:24.954  render           | Saved: 'C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512\rock_1_rot_31_349deg.png'
+Rock overhead shadow sprite render complete
+input_glb=C:\Users\peaceful\Station Peaceful\flora glb\rock 1.glb
+output_dir=C:\Users\peaceful\Station Peaceful\Station Peaceful\artifacts\rock_shadow_bake\rock_1\frames_512
+asset_name=rock_1
+rotations=32
+frame_size=512
+bounds_min=(-0.4678, -0.499, 0.0)
+bounds_max=(0.4678, 0.499, 0.7832)
+render_engine=CYCLES
+camera_ortho_scale=1.7009
+shadow=cycles shadow catcher, overhead sun
+Blender 5.0.1 (hash a3db93c5b259 built 2025-12-16 01:32:30)
+
+Blender quit

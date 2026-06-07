@@ -1,0 +1,46 @@
+{
+  "atlases": [
+    {
+      "atlas": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\sprites\\resources\\atlases\\plains_rock_1_atlas.png",
+      "backup": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\rock_grounding_grade\\originals\\plains_rock_1_atlas.png",
+      "size": [
+        4096,
+        2048
+      ],
+      "frames": 32,
+      "nonempty_frames": 32,
+      "grade": "matte desaturate, lifted black level, softened highlights, bottom darkening, lower edge dust"
+    },
+    {
+      "atlas": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\sprites\\resources\\atlases\\plains_rock_2_atlas.png",
+      "backup": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\rock_grounding_grade\\originals\\plains_rock_2_atlas.png",
+      "size": [
+        4096,
+        2048
+      ],
+      "frames": 32,
+      "nonempty_frames": 32,
+      "grade": "matte desaturate, lifted black level, softened highlights, bottom darkening, lower edge dust"
+    },
+    {
+      "atlas": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\sprites\\resources\\atlases\\plains_volcanic_rock_atlas.png",
+      "backup": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\rock_grounding_grade\\originals\\plains_volcanic_rock_atlas.png",
+      "size": [
+        4096,
+        2048
+      ],
+      "frames": 32,
+      "nonempty_frames": 32,
+      "grade": "matte desaturate, lifted black level, softened highlights, bottom darkening, lower edge dust"
+    }
+  ],
+  "preview": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\rock_grounding_grade\\rock_grade_before_after_checker_preview.png",
+  "frame_layout": {
+    "columns": 8,
+    "rows": 4,
+    "frame_size_px": [
+      512,
+      512
+    ]
+  }
+}

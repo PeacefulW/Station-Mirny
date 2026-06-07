@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.2
+version: 0.3
 last_updated: 2026-06-07
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -57,6 +57,9 @@ V0 includes only:
 - a compact per-chunk object placement packet shape;
 - batched or pooled presentation for visible objects;
 - deterministic visual variation derived from seed, chunk, tile, and object ID;
+- a narrow loaded-chunk collision proof for large `plains` rocks only;
+- a narrow visual-only animated flora proof gated by chunk-local grass patches,
+  using one fixed south/front-facing atlas row for presentation;
 - asset folder rules for sprites, atlases, and related presentation assets;
 - mod-compatible additive content registration direction for `plains`.
 
@@ -70,6 +73,10 @@ V0 explicitly does not include:
 - seasonal, weather, wind, or environment-runtime object changes;
 - harvest, mining, chopping, pickup, or resource yield gameplay;
 - object destruction runtime diff;
+- broad generated object collision beyond the explicit large `plains` rock
+  loaded-chunk proof in Iteration 1;
+- harvesting, collision, save identity, or gameplay commands for animated flora;
+- rotation variation for the visual-only animated flora proof;
 - dedicated harvest commands or events;
 - save migration for older `world_version` values;
 - one `Node` per generated object;
@@ -288,8 +295,10 @@ Required direction:
   materials;
 - sprite atlas frame, tint, depth bucket, wind phase, and shadow parameters are
   presentation data, not gameplay identity;
-- dynamic sun-shadow or wind changes update shader uniforms, not per-object CPU
-  geometry;
+- sprite-frame animation for living decor must stay in shader/material uniforms,
+  not per-frame CPU buffer rebuilds;
+- contact-shadow, dynamic sun-shadow, or wind changes update shader uniforms,
+  not per-object CPU geometry;
 - depth ordering may use bounded depth buckets per chunk, but not one node per
   object;
 - source textures are preloaded or boot-prepared before runtime publish;
@@ -306,6 +315,29 @@ Forbidden in the production path:
 - `queue_redraw()` as the normal sun, wind, or time-of-day update path;
 - synchronous `load()` when a chunk enters view;
 - rebuilding object placement just because lighting changed.
+
+### Loaded Large Rock Collision Proof
+
+Iteration 1 allows one explicit collision exception: large visual rocks in
+`plains` may expose static obstacle collision while the final packet-backed
+object placement path is still being proven.
+
+Rules:
+
+- collision is allowed only for large rocks derived from the same deterministic
+  loaded-chunk scatter data as the visual rock batch;
+- collision must be chunk-scoped: one `StaticBody2D` per loaded chunk layer with
+  shape owners, not one physics node per rock;
+- collision uses the obstacle-compatible layer expected by the player movement
+  mask;
+- shape size is derived from the same visual `size_px` as the rendered rock and
+  must stay smaller than the sprite footprint;
+- collision records are derived presentation/physics proof data, not saved
+  authoritative world state;
+- this proof does not add harvesting, resource yield, object commands, object
+  events, save diffs, non-`plains` placement, or mod script hooks;
+- accepted dense placement and collision for mod-scale content must move into
+  the native packet path before it is treated as production object gameplay.
 
 ## Event Contracts
 
@@ -340,7 +372,9 @@ Runtime work class:
 
 - placement generation: `boot` or `background`;
 - chunk publish / presentation apply: bounded main-thread apply;
-- interactive gameplay path: none in V0.
+- interactive gameplay path: static physics broadphase for large loaded rocks
+  only; no scatter rebuild, asset load, or shape regeneration in an interactive
+  input path.
 
 Dirty unit:
 
@@ -360,6 +394,10 @@ Escalation path:
 - registry-prepared numeric indices for hot packets;
 - `MultiMeshInstance2D` batched rendering for mass presentation;
 - shader-uniform updates for dynamic wind and fake shadows;
+- centered contact shadows for small static rocks when directional cast shadows
+  make the sprite read as floating;
+- GPU atlas-frame animation for visual-only living flora;
+- chunk-scoped static collision shape owners for large loaded rocks only;
 - pooled interactive proxies only near the player in later iterations.
 
 ## Modding / Extension Points
@@ -412,12 +450,14 @@ Goal:
   production batch renderer is installed.
 - temporary `ChunkView`-local visual scatter must use the batch presentation
   contract above and must remain presentation-only while final packet fields are
-  still unconfirmed.
+  still unconfirmed, except for the explicit large-rock loaded collision proof
+  above.
 
 Allowed content:
 
 - non-interactive `plains` rock atlases under
   `assets/sprites/resources/atlases/`;
+- visual-only animated flora atlases under `assets/sprites/flora/atlases/`;
 - later flora object, such as `core:sporestalk_small`;
 - later loose stone/resource-like definition, such as `core:loose_stone`.
 
@@ -453,6 +493,10 @@ V0 is acceptable when:
 - chunk placement is deterministic for the same seed, chunk, version, and
   content pack set;
 - visible mass objects are batched or pooled, not one node per object;
+- animated living flora uses shader frame selection, not per-frame instance
+  buffer rebuilds;
+- large loaded rocks with collision use chunk-scoped shape owners, not one
+  physics node per rock;
 - canonical generated placements are not saved as full chunk content;
 - mods have an additive content path that does not require core generator
   surgery.
@@ -465,6 +509,8 @@ This design is wrong if:
 - asset paths become gameplay identity;
 - placement output depends on file order;
 - visible objects are instantiated as one node each across loaded chunks;
+- collision is added as one node per rock or rebuilt during interactive input;
+- animated flora updates rebuild instance buffers every frame;
 - V0 quietly expands beyond `plains`;
 - object harvesting is added before command/save/event contracts are defined.
 

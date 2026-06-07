@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.4
+version: 1.5
 last_updated: 2026-06-07
 related_docs:
   - ../../README.md
@@ -82,15 +82,27 @@ V0 explicitly does not include:
 ### Narrow Visual Object Presentation Amendment
 
 `World Object Placement V0` authorizes one narrow exception to the original
-decor/placement exclusion: a `plains`-only, visual-only generated object
-presentation layer owned by `ChunkView`.
+decor/placement exclusion: a `plains`-only generated object presentation layer
+owned by `ChunkView`, plus an explicit loaded large-rock collision proof.
 
-This amendment does not add gameplay placements to `ChunkPacketV1`, does not
-add collision, harvesting, resource yield, save diffs, commands, or events, and
-does not authorize non-`plains` biome placement. The layer is derived
-presentation from the already loaded chunk packet and must remain bounded by
-chunk-level `MultiMeshInstance2D` batches and shader uniforms, not one node or
-one CPU draw operation per object.
+This amendment does not add gameplay placements to `ChunkPacketV1`, harvesting,
+resource yield, save diffs, commands, events, or non-`plains` biome placement.
+The visual layer is derived presentation from the already loaded chunk packet
+and must remain bounded by chunk-level `MultiMeshInstance2D` batches and shader
+uniforms, not one node or one CPU draw operation per object.
+
+Only large `plains` rocks may expose collision in this proof. Their collision
+must be chunk-scoped through one `StaticBody2D` with shape owners per loaded
+chunk layer, derived from the same deterministic visual size as the rendered
+rock, and not saved as authoritative world state. Accepted dense object
+collision for mod-scale content must move into the native packet-backed object
+placement path before it becomes production gameplay.
+
+The amendment also allows a narrow visual-only animated flora proof. This flora
+may be derived from the chunk-local grass/straw overlay mask, must be batched,
+must use one fixed south/front-facing atlas row, must animate through shader
+atlas-frame selection, and must not add collision, harvesting, save identity,
+commands, events, or authoritative placement state.
 
 ## Law 0 Classification
 
@@ -258,6 +270,9 @@ accepted 2D mountain look:
   shader material parameters into loaded `ChunkView` instances. This is visual
   presentation work; it does not create a gameplay light authority and does not
   mutate world generation, save state, terrain ids, or walkability.
+  Small generated decor, such as `plains` rocks, may clamp projected shadow
+  length to zero and use a centered contact shadow when a directional cast
+  shadow makes the sprite read as floating.
 - Chunk-local dry-ground grass / straw overlay is visual-only and belongs to
   `ChunkView`. It reuses the ready terrain-ground mask texture as a clip mask
   and derives organic blob coverage in shader from world-space coordinates.

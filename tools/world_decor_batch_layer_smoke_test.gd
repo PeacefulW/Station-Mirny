@@ -60,9 +60,13 @@ func _init() -> void:
 	layer.set_sun_lighting(45.0, 128.0, 0.8, 24.0)
 
 	var state: Dictionary = layer.get_debug_state()
+	var shadow_material: ShaderMaterial = layer._shadow_material as ShaderMaterial
 	assert(int(state.get("instance_count", -1)) == 2)
 	assert(int(state.get("shadow_instance_count", -1)) == 2)
 	assert(bool(state.get("uses_multimesh", false)))
+	assert(shadow_material != null)
+	assert(is_equal_approx(float(shadow_material.get_shader_parameter("shadow_length_px")), 0.0))
+	assert(float(shadow_material.get_shader_parameter("shadow_opacity")) > 0.25)
 	print("WORLD_DECOR_BATCH_SMOKE ", state)
 
 	layer.free()
