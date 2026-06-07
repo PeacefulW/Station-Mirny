@@ -1,0 +1,206 @@
+{
+  "source": "M:/Downloads/Running.fbx",
+  "artifact_root": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\player_run_retarget",
+  "sheet": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\player_run_retarget\\space_suit_run_source_16dir_16frames_512.png",
+  "preview_2048": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\player_run_retarget\\space_suit_run_source_16dir_16frames_512_preview_2048.png",
+  "checker_preview_2048": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\player_run_retarget\\space_suit_run_source_16dir_16frames_512_checker_preview_2048.png",
+  "frames_root": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\player_run_retarget\\frames_source_16dir",
+  "layout": {
+    "columns": 16,
+    "rows": 16,
+    "columns_mean": "animation frames",
+    "rows_mean": "directions",
+    "frame_size_px": [
+      512,
+      512
+    ],
+    "sheet_size_px": [
+      8192,
+      8192
+    ]
+  },
+  "render": {
+    "directions": 16,
+    "frames_per_direction": 16,
+    "camera": "top-front orthographic, 62 degree elevation",
+    "shadows": "disabled",
+    "background": "transparent",
+    "webp_previews": "selected cardinal directions only: rows 0,4,8,12"
+  },
+  "verification": {
+    "direction_dirs_found": 16,
+    "total_png_frames": 256,
+    "all_frames_same_size": true,
+    "all_frames_nonempty_alpha": true,
+    "alpha_minmax_global": [
+      0,
+      255
+    ],
+    "motion_adjacent_pairs_checked": 240,
+    "min_motion_score_between_adjacent_frames": 2479,
+    "max_motion_score_between_adjacent_frames": 6647,
+    "any_adjacent_motion_detected": true
+  },
+  "directions": [
+    {
+      "index": 0,
+      "directory": "dir_00_000deg",
+      "angle_degrees": 0,
+      "frame_count": 16,
+      "webp_preview": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\player_run_retarget\\previews\\source_run_dir_00_000deg.webp",
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 2597,
+      "max_motion_score_between_adjacent_frames": 4370
+    },
+    {
+      "index": 1,
+      "directory": "dir_01_022deg",
+      "angle_degrees": 22,
+      "frame_count": 16,
+      "webp_preview": null,
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 2479,
+      "max_motion_score_between_adjacent_frames": 4514
+    },
+    {
+      "index": 2,
+      "directory": "dir_02_045deg",
+      "angle_degrees": 45,
+      "frame_count": 16,
+      "webp_preview": null,
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 2541,
+      "max_motion_score_between_adjacent_frames": 5038
+    },
+    {
+      "index": 3,
+      "directory": "dir_03_068deg",
+      "angle_degrees": 68,
+      "frame_count": 16,
+      "webp_preview": null,
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 3188,
+      "max_motion_score_between_adjacent_frames": 5686
+    },
+    {
+      "index": 4,
+      "directory": "dir_04_090deg",
+      "angle_degrees": 90,
+      "frame_count": 16,
+      "webp_preview": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\player_run_retarget\\previews\\source_run_dir_04_090deg.webp",
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 3848,
+      "max_motion_score_between_adjacent_frames": 6257
+    },
+    {
+      "index": 5,
+      "directory": "dir_05_112deg",
+      "angle_degrees": 112,
+      "frame_count": 16,
+      "webp_preview": null,
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 3903,
+      "max_motion_score_between_adjacent_frames": 6625
+    },
+    {
+      "index": 6,
+      "directory": "dir_06_135deg",
+      "angle_degrees": 135,
+      "frame_count": 16,
+      "webp_preview": null,
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 3728,
+      "max_motion_score_between_adjacent_frames": 6647
+    },
+    {
+      "index": 7,
+      "directory": "dir_07_158deg",
+      "angle_degrees": 158,
+      "frame_count": 16,
+      "webp_preview": null,
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 3592,
+      "max_motion_score_between_adjacent_frames": 5669
+    },
+    {
+      "index": 8,
+      "directory": "dir_08_180deg",
+      "angle_degrees": 180,
+      "frame_count": 16,
+      "webp_preview": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\player_run_retarget\\previews\\source_run_dir_08_180deg.webp",
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 3082,
+      "max_motion_score_between_adjacent_frames": 5553
+    },
+    {
+      "index": 9,
+      "directory": "dir_09_202deg",
+      "angle_degrees": 202,
+      "frame_count": 16,
+      "webp_preview": null,
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 3792,
+      "max_motion_score_between_adjacent_frames": 6238
+    },
+    {
+      "index": 10,
+      "directory": "dir_10_225deg",
+      "angle_degrees": 225,
+      "frame_count": 16,
+      "webp_preview": null,
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 3106,
+      "max_motion_score_between_adjacent_frames": 6286
+    },
+    {
+      "index": 11,
+      "directory": "dir_11_248deg",
+      "angle_degrees": 248,
+      "frame_count": 16,
+      "webp_preview": null,
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 3750,
+      "max_motion_score_between_adjacent_frames": 6481
+    },
+    {
+      "index": 12,
+      "directory": "dir_12_270deg",
+      "angle_degrees": 270,
+      "frame_count": 16,
+      "webp_preview": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\player_run_retarget\\previews\\source_run_dir_12_270deg.webp",
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 4330,
+      "max_motion_score_between_adjacent_frames": 6193
+    },
+    {
+      "index": 13,
+      "directory": "dir_13_292deg",
+      "angle_degrees": 292,
+      "frame_count": 16,
+      "webp_preview": null,
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 4331,
+      "max_motion_score_between_adjacent_frames": 6307
+    },
+    {
+      "index": 14,
+      "directory": "dir_14_315deg",
+      "angle_degrees": 315,
+      "frame_count": 16,
+      "webp_preview": null,
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 3420,
+      "max_motion_score_between_adjacent_frames": 6034
+    },
+    {
+      "index": 15,
+      "directory": "dir_15_338deg",
+      "angle_degrees": 338,
+      "frame_count": 16,
+      "webp_preview": null,
+      "non_empty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 3174,
+      "max_motion_score_between_adjacent_frames": 5710
+    }
+  ]
+}

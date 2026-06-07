@@ -15,8 +15,8 @@ uniform float inner_width_px = 36.0;
 uniform float foothill_alpha = 0.62;
 uniform float top_threshold_low = 0.40;
 uniform float top_threshold_high = 0.58;
-uniform float chunk_uv_lo = 0.1;
-uniform float chunk_uv_hi = 0.9;
+uniform vec2 chunk_uv_min = vec2(0.1, 0.1);
+uniform vec2 chunk_uv_max = vec2(0.9, 0.9);
 uniform float light_angle_deg = 234.0;
 uniform float light_ambient = 0.70;
 uniform float light_diffuse = 0.26;
@@ -100,7 +100,7 @@ float eight_dir_open_score(vec2 uv, vec2 texel, float radius_texels) {
 }
 
 void fragment() {
-	if (UV.x < chunk_uv_lo || UV.x > chunk_uv_hi || UV.y < chunk_uv_lo || UV.y > chunk_uv_hi) {
+	if (UV.x < chunk_uv_min.x || UV.x > chunk_uv_max.x || UV.y < chunk_uv_min.y || UV.y > chunk_uv_max.y) {
 		discard;
 	}
 
@@ -126,14 +126,16 @@ void fragment() {
 
 	float outside_band = (1.0 - solid) * outer_score;
 	float inside_band = solid * inner_score * 0.42;
-	float band = max(outside_band, inside_band);
+	float edge_band = max(outside_band, inside_band);
+	float footprint_fill = solid * mix(0.46, 0.62, fbm2(world_px / 1180.0 + vec2(67.0, -42.0)));
+	float band = max(edge_band, footprint_fill);
 	if (band <= 0.01) {
 		discard;
 	}
 
 	float broad = fbm2(world_px / 520.0 + vec2(23.0, -11.0));
 	float gravel_break = fbm2(world_px / 150.0 + vec2(-7.0, 39.0));
-	float feather = smoothstep(0.06, 0.82, band);
+	float feather = max(smoothstep(0.06, 0.82, edge_band), footprint_fill * 0.78);
 	float organic_alpha = 0.76 + (broad - 0.5) * 0.30 + (gravel_break - 0.5) * 0.18;
 	float alpha = clamp(feather * foothill_alpha * organic_alpha, 0.0, 0.78);
 	if (alpha <= 0.01) {
@@ -158,7 +160,7 @@ void fragment() {
 
 	vec3 color = sample_col.rgb * light;
 	color = mix(color, color * dust_tint, smoothstep(0.58, 0.96, broad) * 0.20);
-	color = mix(color, color * contact_tint, smoothstep(0.30, 0.86, band) * 0.18);
+	color = mix(color, color * contact_tint, smoothstep(0.30, 0.86, edge_band) * 0.18);
 	color *= 0.90 + detail * 0.16;
 
 	COLOR = vec4(color, alpha * sample_col.a);

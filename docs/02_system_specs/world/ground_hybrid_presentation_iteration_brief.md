@@ -49,8 +49,8 @@ This iteration establishes the generic ground hybrid seam using the existing
 - `assets/shaders/ground_hybrid_material.gdshader`
 - `core/systems/world/world_tile_set_factory.gd`
 - `core/systems/world/chunk_view.gd` if strictly needed for presentation wiring
-- `assets/textures/terrain/terrain_plains_albedo.png`
-- `assets/textures/terrain/terrain_plains_modulation.png`
+- `assets/textures/world/biomes/plains/ground/dry_ground_top_albedo.png`
+- `assets/textures/world/biomes/plains/ground/dry_ground_top_modulation.png`
 
 ## Forbidden Files / Boundaries
 

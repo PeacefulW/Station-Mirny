@@ -3,8 +3,8 @@ extends Node2D
 
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
-const TOP_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_top.png"
-const FACE_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_face.png"
+const TOP_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/mountain/rock_top_albedo.png"
+const FACE_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/mountain/rock_face_albedo.png"
 
 const TILE_SIZE_PX: float = 64.0
 const DIR_N: int = 0

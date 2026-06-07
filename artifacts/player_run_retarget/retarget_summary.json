@@ -1,0 +1,109 @@
+{
+  "mapped_count": 22,
+  "mapped": [
+    {
+      "source": "mixamorig:Hips",
+      "target": "Hip"
+    },
+    {
+      "source": "mixamorig:Spine",
+      "target": "Waist"
+    },
+    {
+      "source": "mixamorig:Spine1",
+      "target": "Spine01"
+    },
+    {
+      "source": "mixamorig:Spine2",
+      "target": "Spine02"
+    },
+    {
+      "source": "mixamorig:Neck",
+      "target": "NeckTwist01"
+    },
+    {
+      "source": "mixamorig:Head",
+      "target": "Head"
+    },
+    {
+      "source": "mixamorig:LeftShoulder",
+      "target": "L_Clavicle"
+    },
+    {
+      "source": "mixamorig:LeftArm",
+      "target": "L_Upperarm"
+    },
+    {
+      "source": "mixamorig:LeftForeArm",
+      "target": "L_Forearm"
+    },
+    {
+      "source": "mixamorig:LeftHand",
+      "target": "L_Hand"
+    },
+    {
+      "source": "mixamorig:RightShoulder",
+      "target": "R_Clavicle"
+    },
+    {
+      "source": "mixamorig:RightArm",
+      "target": "R_Upperarm"
+    },
+    {
+      "source": "mixamorig:RightForeArm",
+      "target": "R_Forearm"
+    },
+    {
+      "source": "mixamorig:RightHand",
+      "target": "R_Hand"
+    },
+    {
+      "source": "mixamorig:LeftUpLeg",
+      "target": "L_Thigh"
+    },
+    {
+      "source": "mixamorig:LeftLeg",
+      "target": "L_Calf"
+    },
+    {
+      "source": "mixamorig:LeftFoot",
+      "target": "L_Foot"
+    },
+    {
+      "source": "mixamorig:LeftToeBase",
+      "target": "L_ToeBase"
+    },
+    {
+      "source": "mixamorig:RightUpLeg",
+      "target": "R_Thigh"
+    },
+    {
+      "source": "mixamorig:RightLeg",
+      "target": "R_Calf"
+    },
+    {
+      "source": "mixamorig:RightFoot",
+      "target": "R_Foot"
+    },
+    {
+      "source": "mixamorig:RightToeBase",
+      "target": "R_ToeBase"
+    }
+  ],
+  "missing_source": [],
+  "missing_target": [],
+  "frame_start": 1,
+  "frame_end": 72,
+  "output_frames": 72,
+  "target_glb": "M:\\Downloads\\space+suit+3d+model (1).glb",
+  "running_fbx": "M:\\Downloads\\Running.fbx",
+  "blend": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\player_run_retarget\\space_suit_running_retarget_test.blend",
+  "preview_frames": 16,
+  "frame_size": 512,
+  "target_armature": "Armature",
+  "source_armature": "Armature.001",
+  "target_meshes": 67,
+  "source_hidden": true,
+  "camera": "orthographic top-front, 62 degree elevation, no side yaw",
+  "shadows": "disabled"
+}

@@ -9,8 +9,8 @@ shader_type canvas_item;
 //   - wall (face texture, bump-lit, layered strata) on the south strip of solid
 //     up to facade_height_px, with separate top rim, dark cleft, and base line;
 //   - a small COSMETIC roof eave ("козырёк") drawn a few px below the silhouette;
-//   - only the chunk's own tiles are drawn (halo is sampled, not drawn) -> no
-//     neighbour overdraw; top/face textures use mipmaps (no minification shimmer).
+//   - the chunk's own tiles are drawn from a halo mask, with a tiny opaque-underlay
+//     clip overlap to cover subpixel seams while camera movement is fractional.
 
 uniform sampler2D top_texture : filter_linear_mipmap, repeat_enable;
 uniform sampler2D face_texture : filter_linear_mipmap, repeat_enable;
@@ -48,8 +48,13 @@ uniform vec3 crack_color = vec3(0.055, 0.026, 0.012);
 uniform vec3 base_debris_color = vec3(0.18, 0.075, 0.032);
 uniform vec3 eave_shadow_color = vec3(0.13, 0.052, 0.022);
 uniform vec3 inner_rim_color = vec3(0.70, 0.30, 0.11);
-uniform float chunk_uv_lo = 0.1;
-uniform float chunk_uv_hi = 0.9;
+uniform vec2 chunk_uv_min = vec2(0.1, 0.1);
+uniform vec2 chunk_uv_max = vec2(0.9, 0.9);
+uniform vec2 shadow_uv_min = vec2(0.1, 0.1);
+uniform vec2 shadow_uv_max = vec2(0.9, 0.9);
+uniform vec2 shadow_draw_uv_min = vec2(0.1, 0.1);
+uniform vec2 shadow_draw_uv_max = vec2(0.9, 0.9);
+uniform float shadow_blend_texels = 4.0;
 
 float luma(vec3 c) {
 	return dot(c, vec3(0.299, 0.587, 0.114));
@@ -100,9 +105,32 @@ float mask_to_top(float mask_value) {
 	return smoothstep(top_threshold_low, top_threshold_high, mask_value);
 }
 
+float uv_inside(vec2 uv) {
+	return step(0.0, uv.x) * step(0.0, uv.y) * step(uv.x, 1.0) * step(uv.y, 1.0);
+}
+
+float uv_rect_inside(vec2 uv, vec2 min_uv, vec2 max_uv) {
+	return step(min_uv.x, uv.x) * step(min_uv.y, uv.y) * step(uv.x, max_uv.x) * step(uv.y, max_uv.y);
+}
+
+float shadow_axis_owner_weight(float value, float min_value, float max_value, float texel_size, float blend_texels) {
+	float blend_uv = max(texel_size * max(blend_texels, 1.0), 0.0001);
+	float left = smoothstep(min_value - blend_uv, min_value + blend_uv, value);
+	float right = 1.0 - smoothstep(max_value - blend_uv, max_value + blend_uv, value);
+	return min(left, right);
+}
+
+float shadow_owner_weight(vec2 uv, vec2 min_uv, vec2 max_uv, vec2 texel, float blend_texels) {
+	float wx = shadow_axis_owner_weight(uv.x, min_uv.x, max_uv.x, texel.x, blend_texels);
+	float wy = shadow_axis_owner_weight(uv.y, min_uv.y, max_uv.y, texel.y, blend_texels);
+	return min(wx, wy);
+}
+
 void fragment() {
-	// Draw only this chunk's own tiles (halo is sampled below, never drawn).
-	if (UV.x < chunk_uv_lo || UV.x > chunk_uv_hi || UV.y < chunk_uv_lo || UV.y > chunk_uv_hi) {
+	float body_area = uv_rect_inside(UV, chunk_uv_min, chunk_uv_max);
+	float shadow_draw_area = uv_rect_inside(UV, shadow_draw_uv_min, shadow_draw_uv_max);
+	// Body uses a tiny opaque overlap; projected shadow uses a wider blended overlap.
+	if (max(body_area, shadow_draw_area) < 0.5) {
 		discard;
 	}
 
@@ -134,7 +162,7 @@ void fragment() {
 			prev = cur;
 		}
 	}
-	bool is_wall = top_here >= 0.5 && edge_below >= 0.0 && edge_below <= wall_texels;
+	bool is_wall = body_area > 0.5 && top_here >= 0.5 && edge_below >= 0.0 && edge_below <= wall_texels;
 
 	// OPEN pixel: cosmetic roof eave just below the silhouette ("козырёк").
 	float overhang = 0.0;
@@ -147,8 +175,9 @@ void fragment() {
 			}
 		}
 	}
+	overhang *= body_area;
 
-	float coverage = max(top_here, overhang);
+	float coverage = max(top_here * body_area, overhang);
 	float projected_shadow = 0.0;
 	float shadow_open_space = (1.0 - smoothstep(0.08, 0.56, top_here)) * (1.0 - clamp(overhang, 0.0, 1.0) * 0.92);
 	if (projected_shadow_opacity > 0.001 && projected_shadow_length_px > 1.0 && shadow_open_space > 0.001) {
@@ -164,18 +193,29 @@ void fragment() {
 			float dist_texels = max_shadow_texels * t;
 			float side_texels = soft_shadow_texels * (0.28 + t * 1.10);
 			vec2 base_uv = UV - shadow_dir * texel * dist_texels;
-			float center = mask_to_top(texture(TEXTURE, base_uv).r);
-			float left = mask_to_top(texture(TEXTURE, base_uv + shadow_side * texel * side_texels).r);
-			float right = mask_to_top(texture(TEXTURE, base_uv - shadow_side * texel * side_texels).r);
-			float wide_left = mask_to_top(texture(TEXTURE, base_uv + shadow_side * texel * side_texels * 1.85).r);
-			float wide_right = mask_to_top(texture(TEXTURE, base_uv - shadow_side * texel * side_texels * 1.85).r);
+			vec2 left_uv = base_uv + shadow_side * texel * side_texels;
+			vec2 right_uv = base_uv - shadow_side * texel * side_texels;
+			vec2 wide_left_uv = base_uv + shadow_side * texel * side_texels * 1.85;
+			vec2 wide_right_uv = base_uv - shadow_side * texel * side_texels * 1.85;
+			float center_w = uv_inside(base_uv);
+			float left_w = uv_inside(left_uv);
+			float right_w = uv_inside(right_uv);
+			float wide_left_w = uv_inside(wide_left_uv);
+			float wide_right_w = uv_inside(wide_right_uv);
+			float center = mask_to_top(texture(TEXTURE, base_uv).r) * center_w;
+			float left = mask_to_top(texture(TEXTURE, left_uv).r) * left_w;
+			float right = mask_to_top(texture(TEXTURE, right_uv).r) * right_w;
+			float wide_left = mask_to_top(texture(TEXTURE, wide_left_uv).r) * wide_left_w;
+			float wide_right = mask_to_top(texture(TEXTURE, wide_right_uv).r) * wide_right_w;
 			float source = center * 0.42 + (left + right) * 0.20 + (wide_left + wide_right) * 0.09;
+			float source_weight = center_w * 0.42 + (left_w + right_w) * 0.20 + (wide_left_w + wide_right_w) * 0.09;
 			float distance_fade = pow(1.0 - t, 1.45);
 			float weight = mix(1.18, 0.42, t) * distance_fade;
 			shadow_sum += source * weight;
-			shadow_weight_sum += weight;
+			shadow_weight_sum += source_weight * weight;
 		}
 		projected_shadow = smoothstep(0.045, 0.66, shadow_sum / max(shadow_weight_sum, 0.0001));
+		projected_shadow *= shadow_draw_area * shadow_owner_weight(UV, shadow_uv_min, shadow_uv_max, texel, shadow_blend_texels);
 		float shadow_breakup = 0.92 + fbm2(world_px / 460.0 + vec2(8.0, -19.0)) * 0.08;
 		projected_shadow = clamp(projected_shadow * shadow_open_space * projected_shadow_opacity * shadow_breakup, 0.0, projected_shadow_opacity);
 	}
@@ -274,8 +314,8 @@ void fragment() {
 	}
 
 	// Thin dark outline along the solid silhouette edge (sides / non-wall).
-	float silhouette = smoothstep(0.08, 0.5, top_here) * (1.0 - smoothstep(0.5, 0.82, top_here));
-	float inner_rim = smoothstep(0.42, 0.72, top_here) * (1.0 - smoothstep(0.76, 0.96, top_here));
+	float silhouette = body_area * smoothstep(0.08, 0.5, top_here) * (1.0 - smoothstep(0.5, 0.82, top_here));
+	float inner_rim = body_area * smoothstep(0.42, 0.72, top_here) * (1.0 - smoothstep(0.76, 0.96, top_here));
 	color = mix(color, vec3(0.03, 0.02, 0.012), silhouette * 0.64);
 	color = mix(color, inner_rim_color, inner_rim * 0.10 * top_here);
 

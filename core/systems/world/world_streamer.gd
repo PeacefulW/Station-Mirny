@@ -41,15 +41,19 @@ const MOUNTAIN_NATIVE_MASK_RUNTIME_ENABLED: bool = true
 const TERRAIN_EDGE_MASK_RUNTIME_ENABLED: bool = true
 const TERRAIN_EDGE_HALO_MASK_RADIUS_TILES: int = 2
 const TERRAIN_EDGE_HALO_MASK_PIXELS_PER_TILE: int = 8
-const TERRAIN_EDGE_TOP_TEXTURE_PATH: String = "res://assets/textures/terrain/terrain_edge_top.png"
-const TERRAIN_EDGE_FACE_TEXTURE_PATH: String = "res://assets/textures/terrain/terrain_edge_face.png"
-const TERRAIN_EDGE_TOP_NORMAL_TEXTURE_PATH: String = "res://assets/textures/terrain/terrain_edge_top_normal.png"
-const TERRAIN_EDGE_FACE_NORMAL_TEXTURE_PATH: String = "res://assets/textures/terrain/terrain_edge_face_normal.png"
-const GRASS_BLOB_OVERLAY_TEXTURE_PATH: String = "res://assets/textures/terrain/grass_overlay.png"
-const GRASS_BLOB_OVERLAY_TEXTURE_PATH_2: String = "res://assets/textures/terrain/grass_overlay_2.png"
-const GRASS_BLOB_OVERLAY_TEXTURE_PATH_3: String = "res://assets/textures/terrain/grass_overlay_3.png"
-const MOUNTAIN_FOOTHILL_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_foothill.png"
-const MOUNTAIN_FOOTHILL_NORMAL_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_foothill_normal.png"
+const TERRAIN_EDGE_TOP_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_top_albedo.png"
+const TERRAIN_EDGE_FACE_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_face_albedo.png"
+const TERRAIN_EDGE_TOP_NORMAL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_top_normal.png"
+const TERRAIN_EDGE_FACE_NORMAL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_face_normal.png"
+const GRASS_BLOB_OVERLAY_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_grass_sparse_albedo.png"
+const GRASS_BLOB_OVERLAY_TEXTURE_PATH_2: String = "res://assets/textures/world/biomes/plains/ground/dry_grass_medium_albedo.png"
+const GRASS_BLOB_OVERLAY_TEXTURE_PATH_3: String = "res://assets/textures/world/biomes/plains/ground/dry_grass_dense_albedo.png"
+const PLAINS_ROCK_SCATTER_ENABLED: bool = false
+const PLAINS_ROCK_ATLAS_1: Texture2D = preload("res://assets/sprites/resources/atlases/plains_rock_1_atlas.png")
+const PLAINS_ROCK_ATLAS_2: Texture2D = preload("res://assets/sprites/resources/atlases/plains_rock_2_atlas.png")
+const PLAINS_VOLCANIC_ROCK_ATLAS: Texture2D = preload("res://assets/sprites/resources/atlases/plains_volcanic_rock_atlas.png")
+const MOUNTAIN_FOOTHILL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/mountain/foothill_albedo.png"
+const MOUNTAIN_FOOTHILL_NORMAL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/mountain/foothill_normal.png"
 const MOUNTAIN_NATIVE_MASK_VISUAL_UPLOAD_BUDGET_MS: float = 0.75
 const MASK_MINING_SEARCH_RADIUS_TILES: int = 3
 const MAX_VIEWPORT_STREAM_RADIUS_CHUNKS: int = 4
@@ -114,6 +118,7 @@ var _terrain_edge_face_normal_texture: ImageTexture = null
 var _grass_blob_overlay_texture: ImageTexture = null
 var _grass_blob_overlay_texture_2: ImageTexture = null
 var _grass_blob_overlay_texture_3: ImageTexture = null
+var _plains_rock_scatter_atlases: Array[Texture2D] = []
 var _mountain_mask_revision_by_chunk: Dictionary = {}
 var _mountain_native_masks_by_chunk: Dictionary = {}
 var _mountain_native_mask_inflight_chunks: Dictionary = {}
@@ -172,6 +177,7 @@ func _ready() -> void:
 	_ensure_mountain_mask_sources()
 	_ensure_terrain_edge_mask_sources()
 	_ensure_grass_blob_overlay_source()
+	_ensure_plains_rock_scatter_sources()
 	_packet_backend.start(PACKET_WORKER_COUNT)
 	_mountain_mask_backend.start(MOUNTAIN_MASK_WORKER_COUNT)
 	_stream_job_id = FrameBudgetDispatcher.register_job(
@@ -1443,6 +1449,7 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 		_debug_mountain_solid_visible,
 		_debug_mountain_contour_visible
 	)
+	chunk_view.set_plains_rock_scatter_sources(_plains_rock_scatter_atlases)
 	chunk_view.apply_sun_lighting(
 		_sun_light_angle_deg,
 		_sun_shadow_length_px,
@@ -1760,7 +1767,7 @@ func _apply_mountain_mask_to_chunk_view(
 		_request_mountain_native_mask_for_chunk(chunk_coord, solid_halo, reason)
 	else:
 		_drop_mountain_native_mask_visual_upload(chunk_coord)
-		chunk_view.clear_mountain_render_page()
+		chunk_view.clear_mountain_render_page(reason == &"mining")
 		_record_mountain_native_mask_clear(chunk_coord, reason)
 
 func _apply_terrain_edge_mask_to_chunk_view(
@@ -2046,6 +2053,17 @@ func _ensure_grass_blob_overlay_source() -> void:
 	_grass_blob_overlay_texture = ImageTexture.create_from_image(grass_image)
 	_grass_blob_overlay_texture_2 = ImageTexture.create_from_image(grass_image_2)
 	_grass_blob_overlay_texture_3 = ImageTexture.create_from_image(grass_image_3)
+
+func _ensure_plains_rock_scatter_sources() -> void:
+	if not PLAINS_ROCK_SCATTER_ENABLED:
+		_plains_rock_scatter_atlases.clear()
+		return
+	if _plains_rock_scatter_atlases.size() == 3:
+		return
+	_plains_rock_scatter_atlases.clear()
+	_plains_rock_scatter_atlases.append(PLAINS_ROCK_ATLAS_1)
+	_plains_rock_scatter_atlases.append(PLAINS_ROCK_ATLAS_2)
+	_plains_rock_scatter_atlases.append(PLAINS_VOLCANIC_ROCK_ATLAS)
 
 func _load_mountain_mask_source_image(path: String, label: String) -> Image:
 	var texture: Texture2D = load(path) as Texture2D

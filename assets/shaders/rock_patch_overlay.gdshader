@@ -15,8 +15,8 @@ uniform float patch_alpha = 0.34;
 uniform float edge_clearance_px = 36.0;
 uniform float terrain_threshold_low = 0.40;
 uniform float terrain_threshold_high = 0.58;
-uniform float chunk_uv_lo = 0.1;
-uniform float chunk_uv_hi = 0.9;
+uniform vec2 chunk_uv_min = vec2(0.1, 0.1);
+uniform vec2 chunk_uv_max = vec2(0.9, 0.9);
 uniform float normal_mix = 1.0;
 uniform float normal_strength = 0.34;
 uniform float light_angle_deg = 234.0;
@@ -99,7 +99,7 @@ float organic_rock_patch(vec2 world_px) {
 }
 
 void fragment() {
-	if (UV.x < chunk_uv_lo || UV.x > chunk_uv_hi || UV.y < chunk_uv_lo || UV.y > chunk_uv_hi) {
+	if (UV.x < chunk_uv_min.x || UV.x > chunk_uv_max.x || UV.y < chunk_uv_min.y || UV.y > chunk_uv_max.y) {
 		discard;
 	}
 
@@ -158,5 +158,5 @@ void fragment() {
 		discard;
 	}
 
-	COLOR = vec4(color, clamp(alpha, 0.0, 0.56) * rock_sample.a);
+	COLOR = vec4(color, clamp(alpha, 0.0, 0.64) * rock_sample.a);
 }

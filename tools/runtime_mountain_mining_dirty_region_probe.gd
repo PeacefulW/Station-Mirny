@@ -74,6 +74,11 @@ func _run() -> void:
 		return
 
 	var dig_tile: Vector2i = WorldRuntimeConstants.world_to_tile(dig_pos)
+	var dig_chunk: Vector2i = WorldRuntimeConstants.tile_to_chunk(dig_tile)
+	_assert(
+		_chunk_foothill_mask_active(streamer, dig_chunk),
+		"Probe chunk must have a captured mountain foothill footprint before mining."
+	)
 	var dirty_chunks: Array[Vector2i] = streamer._build_mountain_native_mask_dirty_chunks_for_tile(dig_tile)
 	var before_debug: Dictionary = streamer.get_mountain_mask_runtime_debug_state()
 	var before_upload_total: int = int(before_debug.get("native_mask_visual_upload_count_total", 0))
@@ -99,6 +104,10 @@ func _run() -> void:
 		"Local collision-only mining patch must open the mined mask point immediately."
 	)
 	_assert(
+		_chunk_foothill_mask_active(streamer, dig_chunk),
+		"Local mining must preserve the captured mountain foothill footprint."
+	)
+	_assert(
 		dirty_chunks.size() <= 9,
 		"Mining dirty chunk set must stay bounded to owner plus fixed halo neighbours."
 	)
@@ -116,6 +125,10 @@ func _run() -> void:
 	_assert(
 		int(final_debug.get("native_mask_visual_pending_count", 0)) == 0,
 		"Native mask visual pending count must drain after mining reconciliation."
+	)
+	_assert(
+		_chunk_foothill_mask_active(streamer, dig_chunk),
+		"Native mining reconciliation must preserve the captured mountain foothill footprint."
 	)
 	print("runtime_mountain_mining_dirty_region_probe: dig_tile=%s dirty_chunks=%d upload_total_delta=%d final=%s" % [
 		str(dig_tile),
@@ -232,6 +245,14 @@ func _compact_debug(debug: Dictionary) -> Dictionary:
 		"native_mask_visual_upload_count_total": int(debug.get("native_mask_visual_upload_count_total", 0)),
 		"native_mask_last_reason": str(debug.get("native_mask_last_reason", "")),
 	}
+
+func _chunk_foothill_mask_active(streamer: Node, chunk_coord: Vector2i) -> bool:
+	var chunk_views: Dictionary = streamer._chunk_views
+	var chunk_view = chunk_views.get(chunk_coord, null)
+	if chunk_view == null:
+		return false
+	var debug: Dictionary = chunk_view.get_mountain_native_mask_debug_state()
+	return bool(debug.get("foothill_mask_active", false))
 
 func _assert(condition: bool, message: String) -> void:
 	if condition:

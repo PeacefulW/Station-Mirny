@@ -5,8 +5,8 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
 
-const TOP_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_top.png"
-const FACE_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_face.png"
+const TOP_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/mountain/rock_top_albedo.png"
+const FACE_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/mountain/rock_face_albedo.png"
 const MASK_WIDTH: int = 768
 const MASK_HEIGHT: int = 640
 const MASK_STEP_PX: float = 1.0

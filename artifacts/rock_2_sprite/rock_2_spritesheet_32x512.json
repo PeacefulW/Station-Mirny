@@ -1,0 +1,303 @@
+{
+  "source": "C:/Users/peaceful/Station Peaceful/flora glb/rock 2.glb",
+  "sprite_sheet": "rock_2_spritesheet_32x512.png",
+  "preview": "rock_2_spritesheet_32x512_checker_preview.png",
+  "frame_count": 32,
+  "columns": 8,
+  "rows": 4,
+  "frame_width": 512,
+  "frame_height": 512,
+  "camera": "orthographic top-front, 62 degree elevation, no side yaw",
+  "animation": "disabled",
+  "shadows": "disabled",
+  "frames": [
+    {
+      "index": 0,
+      "file": "rock_2_rot_00_000deg.png",
+      "angle_degrees": 0,
+      "x": 0,
+      "y": 0,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 1,
+      "file": "rock_2_rot_01_011deg.png",
+      "angle_degrees": 11,
+      "x": 512,
+      "y": 0,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 2,
+      "file": "rock_2_rot_02_022deg.png",
+      "angle_degrees": 22,
+      "x": 1024,
+      "y": 0,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 3,
+      "file": "rock_2_rot_03_034deg.png",
+      "angle_degrees": 34,
+      "x": 1536,
+      "y": 0,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 4,
+      "file": "rock_2_rot_04_045deg.png",
+      "angle_degrees": 45,
+      "x": 2048,
+      "y": 0,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 5,
+      "file": "rock_2_rot_05_056deg.png",
+      "angle_degrees": 56,
+      "x": 2560,
+      "y": 0,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 6,
+      "file": "rock_2_rot_06_068deg.png",
+      "angle_degrees": 68,
+      "x": 3072,
+      "y": 0,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 7,
+      "file": "rock_2_rot_07_079deg.png",
+      "angle_degrees": 79,
+      "x": 3584,
+      "y": 0,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 8,
+      "file": "rock_2_rot_08_090deg.png",
+      "angle_degrees": 90,
+      "x": 0,
+      "y": 512,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 9,
+      "file": "rock_2_rot_09_101deg.png",
+      "angle_degrees": 101,
+      "x": 512,
+      "y": 512,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 10,
+      "file": "rock_2_rot_10_112deg.png",
+      "angle_degrees": 112,
+      "x": 1024,
+      "y": 512,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 11,
+      "file": "rock_2_rot_11_124deg.png",
+      "angle_degrees": 124,
+      "x": 1536,
+      "y": 512,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 12,
+      "file": "rock_2_rot_12_135deg.png",
+      "angle_degrees": 135,
+      "x": 2048,
+      "y": 512,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 13,
+      "file": "rock_2_rot_13_146deg.png",
+      "angle_degrees": 146,
+      "x": 2560,
+      "y": 512,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 14,
+      "file": "rock_2_rot_14_158deg.png",
+      "angle_degrees": 158,
+      "x": 3072,
+      "y": 512,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 15,
+      "file": "rock_2_rot_15_169deg.png",
+      "angle_degrees": 169,
+      "x": 3584,
+      "y": 512,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 16,
+      "file": "rock_2_rot_16_180deg.png",
+      "angle_degrees": 180,
+      "x": 0,
+      "y": 1024,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 17,
+      "file": "rock_2_rot_17_191deg.png",
+      "angle_degrees": 191,
+      "x": 512,
+      "y": 1024,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 18,
+      "file": "rock_2_rot_18_202deg.png",
+      "angle_degrees": 202,
+      "x": 1024,
+      "y": 1024,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 19,
+      "file": "rock_2_rot_19_214deg.png",
+      "angle_degrees": 214,
+      "x": 1536,
+      "y": 1024,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 20,
+      "file": "rock_2_rot_20_225deg.png",
+      "angle_degrees": 225,
+      "x": 2048,
+      "y": 1024,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 21,
+      "file": "rock_2_rot_21_236deg.png",
+      "angle_degrees": 236,
+      "x": 2560,
+      "y": 1024,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 22,
+      "file": "rock_2_rot_22_248deg.png",
+      "angle_degrees": 248,
+      "x": 3072,
+      "y": 1024,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 23,
+      "file": "rock_2_rot_23_259deg.png",
+      "angle_degrees": 259,
+      "x": 3584,
+      "y": 1024,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 24,
+      "file": "rock_2_rot_24_270deg.png",
+      "angle_degrees": 270,
+      "x": 0,
+      "y": 1536,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 25,
+      "file": "rock_2_rot_25_281deg.png",
+      "angle_degrees": 281,
+      "x": 512,
+      "y": 1536,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 26,
+      "file": "rock_2_rot_26_292deg.png",
+      "angle_degrees": 292,
+      "x": 1024,
+      "y": 1536,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 27,
+      "file": "rock_2_rot_27_304deg.png",
+      "angle_degrees": 304,
+      "x": 1536,
+      "y": 1536,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 28,
+      "file": "rock_2_rot_28_315deg.png",
+      "angle_degrees": 315,
+      "x": 2048,
+      "y": 1536,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 29,
+      "file": "rock_2_rot_29_326deg.png",
+      "angle_degrees": 326,
+      "x": 2560,
+      "y": 1536,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 30,
+      "file": "rock_2_rot_30_338deg.png",
+      "angle_degrees": 338,
+      "x": 3072,
+      "y": 1536,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 31,
+      "file": "rock_2_rot_31_349deg.png",
+      "angle_degrees": 349,
+      "x": 3584,
+      "y": 1536,
+      "width": 512,
+      "height": 512
+    }
+  ]
+}

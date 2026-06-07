@@ -556,7 +556,7 @@ Files that may be touched:
 - `tools/rimworld-autotile-lab/desktop_app/**`
 - `data/terrain/shape_sets/<new>.tres`
 - `data/terrain/material_sets/<new>.tres`
-- `assets/textures/terrain/**` (new exported textures only)
+- `assets/textures/world/biomes/<biome_id>/**` (new exported biome textures only)
 
 Files that must not be touched:
 - any approved spec (Iteration 1 owned that)

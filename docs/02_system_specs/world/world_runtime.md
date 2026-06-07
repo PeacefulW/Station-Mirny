@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.2
-last_updated: 2026-06-06
+version: 1.4
+last_updated: 2026-06-07
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -16,6 +16,7 @@ related_docs:
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
   - ../meta/save_and_persistence.md
   - world_grid_rebuild_foundation.md
+  - world_object_placement_v0.md
 ---
 
 # World Runtime V0
@@ -77,6 +78,19 @@ V0 explicitly does not include:
 - hidden preload experiments
 - node reuse pools unless profiling later proves they are immediately required
 - a broad native framework or multi-class native API
+
+### Narrow Visual Object Presentation Amendment
+
+`World Object Placement V0` authorizes one narrow exception to the original
+decor/placement exclusion: a `plains`-only, visual-only generated object
+presentation layer owned by `ChunkView`.
+
+This amendment does not add gameplay placements to `ChunkPacketV1`, does not
+add collision, harvesting, resource yield, save diffs, commands, or events, and
+does not authorize non-`plains` biome placement. The layer is derived
+presentation from the already loaded chunk packet and must remain bounded by
+chunk-level `MultiMeshInstance2D` batches and shader uniforms, not one node or
+one CPU draw operation per object.
 
 ## Law 0 Classification
 
@@ -256,12 +270,15 @@ accepted 2D mountain look:
   terrain ids, walkability, collision, mining, save/load, lake simulation, or
   chunk packet schemas.
 - Chunk-local mountain foothill / rocky apron overlay is visual-only and
-  belongs to `ChunkView`. It reuses the ready mountain native mask texture as a
-  clip/source mask, renders below the mountain material and above ground/grass,
-  and samples preloaded albedo/normal material maps. Its outer apron width may
-  vary locally in shader from world-space noise, but the source mask and dirty
-  owner stay unchanged. It must not affect terrain ids, walkability, collision,
-  mining, save/load, or chunk packet schemas.
+  belongs to `ChunkView`. It captures the first valid ready mountain native
+  mask for the chunk view as a separate footprint mask, renders below the
+  mountain material and above ground/grass, and samples preloaded
+  albedo/normal material maps. Its outer apron width may vary locally in shader
+  from world-space noise, and the footprint may remain visible inside the
+  former mountain area after mining clears the live mountain mask. This
+  footprint remains presentation cache only: the authoritative source, dirty
+  owner, terrain ids, walkability, collision, mining, save/load, and chunk
+  packet schemas stay unchanged. Full chunk unload/reset may clear it.
 - Dev visual lock scenes that evaluate the accepted mountain/terrain/shadow
   look must use the same `WorldVisualLightingProfile` values as runtime. Local
   hardcoded shadow ranges in dev scenes are invalid because they make runtime

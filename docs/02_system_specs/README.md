@@ -71,6 +71,7 @@ Current transition strategy:
 - [World Grid Rebuild Foundation](world/world_grid_rebuild_foundation.md)
 - [World Runtime V0](world/world_runtime.md)
 - [World Foundation V1](world/world_foundation_v1.md)
+- [World Object Placement V0](world/world_object_placement_v0.md) (draft)
 - [Mountain Generation V1](world/mountain_generation.md)
 - [Lake Generation V1](world/lake_generation.md) (draft)
 - [Terrain Hybrid Presentation](world/terrain_hybrid_presentation.md)

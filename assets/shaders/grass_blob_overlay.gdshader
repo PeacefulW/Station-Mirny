@@ -18,8 +18,8 @@ uniform float patch_alpha = 0.52;
 uniform float edge_clearance_px = 22.0;
 uniform float terrain_threshold_low = 0.40;
 uniform float terrain_threshold_high = 0.58;
-uniform float chunk_uv_lo = 0.1;
-uniform float chunk_uv_hi = 0.9;
+uniform vec2 chunk_uv_min = vec2(0.1, 0.1);
+uniform vec2 chunk_uv_max = vec2(0.9, 0.9);
 uniform vec3 dry_grass_tint = vec3(1.02, 0.90, 0.66);
 uniform vec3 contact_shadow_tint = vec3(0.30, 0.20, 0.11);
 
@@ -91,7 +91,7 @@ float organic_region_mask(vec2 world_px) {
 }
 
 void fragment() {
-	if (UV.x < chunk_uv_lo || UV.x > chunk_uv_hi || UV.y < chunk_uv_lo || UV.y > chunk_uv_hi) {
+	if (UV.x < chunk_uv_min.x || UV.x > chunk_uv_max.x || UV.y < chunk_uv_min.y || UV.y > chunk_uv_max.y) {
 		discard;
 	}
 

@@ -143,13 +143,17 @@ resources, the active runtime uses a transitional native-mask presentation:
   to the nearest exposed authoritative mountain tile before mutation; open mask
   pixels still defer to the authoritative terrain diff.
 - A mountain foothill / rocky apron overlay may render below the mountain mask
-  and above ground/grass. It samples the same chunk-local native mountain mask
-  as a clip/source field, uses preloaded foothill albedo/normal material maps,
-  and follows the mountain silhouette without adding terrain ids, collision,
-  mining targets, save data, packet fields, or a separate topology owner.
+  and above ground/grass. It captures the first valid chunk-local native
+  mountain mask for the current chunk view as a visual footprint source, uses
+  preloaded foothill albedo/normal material maps, and follows the mountain
+  silhouette without adding terrain ids, collision, mining targets, save data,
+  packet fields, or a separate topology owner. The captured footprint may fill
+  the former mountain area so mined-out mountains leave a visible rocky trace.
   The apron may use world-space shader noise to locally widen the outer band,
-  as long as the authoritative mask and dirty owner stay unchanged. Refreshing
-  it belongs to the existing bounded native-mask visual upload path.
+  as long as the authoritative mask and dirty owner stay unchanged. Mining may
+  clear the live mountain mask but must not clear the captured footprint in the
+  same chunk view; full chunk unload/reset may clear it. Refreshing it belongs
+  to the existing bounded native-mask visual upload path.
 - The FHD raster/dev-scene path remains an authoring/probe tool. It is not the
   normal runtime streaming presentation path and must not be reintroduced as a
   per-frame or per-chunk fallback.

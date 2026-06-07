@@ -16,8 +16,8 @@ const MountainPlateau2DRasterLayer = preload("res://core/systems/world/mountain_
 const DefaultLakeGenSettings = preload("res://data/balance/lake_gen_settings.tres")
 const MOUNTAIN_TOP_MASK_UNDERLAY_SHADER = preload("res://assets/shaders/mountain_top_mask_underlay.gdshader")
 
-const TOP_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_top.png"
-const FACE_TEXTURE_PATH: String = "res://assets/textures/terrain/mountain_plateau_face.png"
+const TOP_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/mountain/rock_top_albedo.png"
+const FACE_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/mountain/rock_face_albedo.png"
 const PRESET_PATH: String = "res://scenes/dev/mountain_2d_raster_preset.json"
 const OUTPUT_DIR: String = "res://artifacts/mountain_look_compare"
 

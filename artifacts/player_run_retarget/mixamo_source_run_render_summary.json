@@ -1,0 +1,13 @@
+{
+  "source": "M:\\Downloads\\Running.fbx",
+  "frames_dir": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\player_run_retarget\\frames_source_16dir",
+  "directions": 16,
+  "frames_per_direction": 16,
+  "source_frame_start": 1,
+  "source_frame_end": 72,
+  "frame_size": 512,
+  "mesh_count": 1,
+  "armature_count": 1,
+  "camera": "orthographic top-front, 62 degree elevation, no side yaw",
+  "shadows": "disabled"
+}
