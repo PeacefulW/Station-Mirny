@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.8
-last_updated: 2026-05-05
+version: 1.9
+last_updated: 2026-06-08
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -127,12 +127,20 @@ Current world generation extension:
   outcrops appear as larger clusters of `2..20` separate `3..18`-tile
   components, biased toward `10..20` components, but does not change save
   payload or chunk-diff shape.
-- `world_version == 48` is the current mountain passage/outcrop refinement
+- `world_version == 48` is the historical mountain passage/outcrop refinement
   boundary. It changes canonical mountain output so outcrop clusters are more
   frequent and spatially varied, and deterministic native carve masks create
   walkable passages, pockets, and gorges inside mountain masses. It does not
   change save payload or chunk-diff shape.
-- `WorldRuntimeConstants.WORLD_VERSION` is therefore `48` for current saves;
+- `world_version == 49` is the current static biofield flora placement
+  boundary. It changes deterministic native visual object placement by allowing
+  spiky flora atlas index `1` on the same orange biofield mask used by the
+  static spiky flora proof. It does not change save payload or chunk-diff shape.
+- Current native visual object packet fields for rocks and flora are immutable
+  generated presentation records plus the loaded large-rock collision proof.
+  They are regenerated from `world_seed + chunk_coord + world_version` and do
+  not extend `world.json` or per-chunk diff files.
+- `WorldRuntimeConstants.WORLD_VERSION` is therefore `49` for current saves;
   `38` remains the historical L2 packet boundary and `42` remains the
   historical L7 shore-warp boundary.
 - `worldgen_settings.lakes` stores the embedded per-save lake input copy

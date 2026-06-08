@@ -6,8 +6,7 @@ const WorldVisualLightingProfile = preload("res://core/systems/world/world_visua
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
 const TerrainPresentationRegistry = preload("res://core/systems/world/terrain_presentation_registry.gd")
 const ChunkDebugVisualLayer = preload("res://core/systems/world/chunk_debug_visual_layer.gd")
-const WorldRockScatterLayer = preload("res://core/systems/world/world_rock_scatter_layer.gd")
-const WorldLivingFloraScatterLayer = preload("res://core/systems/world/world_living_flora_scatter_layer.gd")
+const WorldObjectPacketLayer = preload("res://core/systems/world/world_object_packet_layer.gd")
 const MOUNTAIN_COVER_SHADER = preload("res://assets/shaders/mountain_cover_overlay.gdshader")
 const MOUNTAIN_TOP_MASK_UNDERLAY_SHADER = preload("res://assets/shaders/mountain_top_mask_underlay.gdshader")
 const MOUNTAIN_FOOTHILL_OVERLAY_SHADER = preload("res://assets/shaders/mountain_foothill_overlay.gdshader")
@@ -118,10 +117,10 @@ var _grass_blob_overlay_canvas_texture: ImageTexture = null
 var _rock_patch_overlay_sprite: Sprite2D = null
 var _rock_patch_overlay_material: ShaderMaterial = null
 var _rock_patch_overlay_canvas_texture: ImageTexture = null
-var _rock_scatter_layer: WorldRockScatterLayer = null
 var _rock_scatter_atlases: Array[Texture2D] = []
-var _living_flora_scatter_layer: WorldLivingFloraScatterLayer = null
 var _living_flora_atlas: Texture2D = null
+var _spiky_flora_atlases: Array[Texture2D] = []
+var _object_packet_layer: WorldObjectPacketLayer = null
 var _mountain_page_hit_mask: PackedByteArray = PackedByteArray()
 var _mountain_page_hit_mask_width: int = 0
 var _mountain_page_hit_mask_height: int = 0
@@ -163,7 +162,7 @@ func begin_apply(packet: Dictionary) -> void:
 	visible = false
 	_ensure_layers()
 	_sync_water_fill_visual()
-	_sync_rock_scatter_visual(packet_world_seed, packet_world_version)
+	_sync_object_packet_visual(packet)
 	_refresh_debug_solid_mask()
 
 func apply_next_batch(batch_size: int) -> bool:
@@ -262,8 +261,7 @@ func apply_sun_lighting(
 	_apply_sun_lighting_to_foothill_material(_mountain_foothill_overlay_material)
 	_apply_sun_lighting_to_rock_patch_material(_rock_patch_overlay_material)
 	_apply_sun_lighting_to_grass_blob_material(_grass_blob_overlay_material)
-	_apply_sun_lighting_to_rock_scatter_layer()
-	_apply_sun_lighting_to_living_flora_layer()
+	_apply_sun_lighting_to_object_packet_layer()
 	_apply_sun_lighting_to_mask_material(
 		_terrain_edge_mask_material,
 		WorldVisualLightingProfile.TERRAIN_EDGE_SHADOW_OPACITY_SCALE
@@ -271,13 +269,24 @@ func apply_sun_lighting(
 
 func set_plains_rock_scatter_sources(atlases: Array[Texture2D]) -> void:
 	_rock_scatter_atlases = atlases.duplicate()
-	if _rock_scatter_layer != null and is_instance_valid(_rock_scatter_layer):
-		_rock_scatter_layer.set_atlases(_rock_scatter_atlases)
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		_object_packet_layer.set_rock_atlases(_rock_scatter_atlases)
 
 func set_living_flora_source(atlas: Texture2D) -> void:
 	_living_flora_atlas = atlas
-	if _living_flora_scatter_layer != null and is_instance_valid(_living_flora_scatter_layer):
-		_living_flora_scatter_layer.set_atlas(_living_flora_atlas)
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		_object_packet_layer.set_living_flora_atlas(_living_flora_atlas)
+
+func set_spiky_flora_source(atlas: Texture2D) -> void:
+	if atlas == null:
+		set_spiky_flora_sources([])
+	else:
+		set_spiky_flora_sources([atlas])
+
+func set_spiky_flora_sources(atlases: Array[Texture2D]) -> void:
+	_spiky_flora_atlases = atlases.duplicate()
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		_object_packet_layer.set_spiky_flora_atlases(_spiky_flora_atlases)
 
 func apply_contour_debug_data(
 	solid_mask: PackedByteArray,
@@ -895,7 +904,6 @@ func _upload_terrain_edge_mask_texture(
 		grass_overlay_texture_3,
 		grass_overlay_normal_texture
 	)
-	_sync_living_flora_scatter_visual()
 
 func _clear_mountain_top_mask(preserve_foothill: bool = false) -> void:
 	if _mountain_top_mask_sprite != null and is_instance_valid(_mountain_top_mask_sprite):
@@ -932,7 +940,6 @@ func clear_terrain_edge_mask() -> void:
 	_terrain_edge_mask_visual_dirty = false
 	_clear_rock_patch_overlay()
 	_clear_grass_blob_overlay()
-	_clear_living_flora_scatter()
 
 func _apply_sun_lighting_to_mask_material(material: ShaderMaterial, shadow_opacity_scale: float) -> void:
 	if material == null:
@@ -958,20 +965,10 @@ func _apply_sun_lighting_to_grass_blob_material(material: ShaderMaterial) -> voi
 		return
 	material.set_shader_parameter("light_angle_deg", _sun_light_angle_deg)
 
-func _apply_sun_lighting_to_rock_scatter_layer() -> void:
-	if _rock_scatter_layer == null or not is_instance_valid(_rock_scatter_layer):
+func _apply_sun_lighting_to_object_packet_layer() -> void:
+	if _object_packet_layer == null or not is_instance_valid(_object_packet_layer):
 		return
-	_rock_scatter_layer.set_sun_lighting(
-		_sun_light_angle_deg,
-		_sun_shadow_length_px,
-		_sun_shadow_opacity,
-		_sun_shadow_softness_px
-	)
-
-func _apply_sun_lighting_to_living_flora_layer() -> void:
-	if _living_flora_scatter_layer == null or not is_instance_valid(_living_flora_scatter_layer):
-		return
-	_living_flora_scatter_layer.set_sun_lighting(
+	_object_packet_layer.set_sun_lighting(
 		_sun_light_angle_deg,
 		_sun_shadow_length_px,
 		_sun_shadow_opacity,
@@ -1736,73 +1733,33 @@ func _ensure_grass_blob_overlay_canvas_texture() -> ImageTexture:
 	_grass_blob_overlay_canvas_texture = ImageTexture.create_from_image(image)
 	return _grass_blob_overlay_canvas_texture
 
-func _sync_rock_scatter_visual(world_seed: int, world_version: int) -> void:
+func _sync_object_packet_visual(packet: Dictionary) -> void:
 	if _rock_scatter_atlases.is_empty() \
-			or _pending_terrain_ids.size() != WorldRuntimeConstants.CHUNK_CELL_COUNT:
-		if _rock_scatter_layer != null and is_instance_valid(_rock_scatter_layer):
-			_rock_scatter_layer.visible = false
+			and _living_flora_atlas == null \
+			and _spiky_flora_atlases.is_empty():
+		_clear_object_packet_visual()
 		return
-	var layer: WorldRockScatterLayer = _ensure_rock_scatter_layer()
-	layer.set_atlases(_rock_scatter_atlases)
-	layer.configure_chunk(
-		chunk_coord,
-		world_seed,
-		world_version,
-		_pending_terrain_ids,
-		_pending_lake_flags
-	)
-	_apply_sun_lighting_to_rock_scatter_layer()
+	var layer: WorldObjectPacketLayer = _ensure_object_packet_layer()
+	layer.set_rock_atlases(_rock_scatter_atlases)
+	layer.set_living_flora_atlas(_living_flora_atlas)
+	layer.set_spiky_flora_atlases(_spiky_flora_atlases)
+	layer.configure_packet(packet)
+	_apply_sun_lighting_to_object_packet_layer()
 
-func _ensure_rock_scatter_layer() -> WorldRockScatterLayer:
-	if _rock_scatter_layer != null and is_instance_valid(_rock_scatter_layer):
-		return _rock_scatter_layer
-	_rock_scatter_layer = WorldRockScatterLayer.new()
-	_rock_scatter_layer.name = "PlainsRockScatterLayer"
-	_rock_scatter_layer.z_as_relative = false
-	_rock_scatter_layer.z_index = 0
-	_rock_scatter_layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	add_child(_rock_scatter_layer)
-	return _rock_scatter_layer
+func _ensure_object_packet_layer() -> WorldObjectPacketLayer:
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		return _object_packet_layer
+	_object_packet_layer = WorldObjectPacketLayer.new()
+	_object_packet_layer.name = "WorldObjectPacketLayer"
+	_object_packet_layer.z_as_relative = false
+	_object_packet_layer.z_index = 0
+	_object_packet_layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	add_child(_object_packet_layer)
+	return _object_packet_layer
 
-func _sync_living_flora_scatter_visual() -> void:
-	if _living_flora_atlas == null \
-			or _pending_terrain_ids.size() != WorldRuntimeConstants.CHUNK_CELL_COUNT \
-			or _terrain_edge_mask_bytes.size() != _terrain_edge_mask_width * _terrain_edge_mask_height \
-			or _terrain_edge_mask_width <= 0 \
-			or _terrain_edge_mask_height <= 0 \
-			or _terrain_edge_mask_step_px <= 0.0:
-		_clear_living_flora_scatter()
-		return
-	var layer: WorldLivingFloraScatterLayer = _ensure_living_flora_scatter_layer()
-	layer.set_atlas(_living_flora_atlas)
-	layer.configure_chunk(
-		chunk_coord,
-		_pending_world_seed,
-		_pending_world_version,
-		_pending_terrain_ids,
-		_pending_lake_flags,
-		_terrain_edge_mask_bytes,
-		_terrain_edge_mask_width,
-		_terrain_edge_mask_height,
-		_terrain_edge_mask_origin_world,
-		_terrain_edge_mask_step_px
-	)
-	_apply_sun_lighting_to_living_flora_layer()
-
-func _ensure_living_flora_scatter_layer() -> WorldLivingFloraScatterLayer:
-	if _living_flora_scatter_layer != null and is_instance_valid(_living_flora_scatter_layer):
-		return _living_flora_scatter_layer
-	_living_flora_scatter_layer = WorldLivingFloraScatterLayer.new()
-	_living_flora_scatter_layer.name = "LivingFloraScatterLayer"
-	_living_flora_scatter_layer.z_as_relative = false
-	_living_flora_scatter_layer.z_index = 0
-	_living_flora_scatter_layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	add_child(_living_flora_scatter_layer)
-	return _living_flora_scatter_layer
-
-func _clear_living_flora_scatter() -> void:
-	if _living_flora_scatter_layer != null and is_instance_valid(_living_flora_scatter_layer):
-		_living_flora_scatter_layer.visible = false
+func _clear_object_packet_visual() -> void:
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		_object_packet_layer.visible = false
 
 func _ensure_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
 	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)

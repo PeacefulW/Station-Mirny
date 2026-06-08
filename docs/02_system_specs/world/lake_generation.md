@@ -64,8 +64,9 @@ boundary, `WORLD_VERSION = 44` carries the grid-contract boundary,
 `WORLD_VERSION = 45` carries the first mountain satellite-outcrop boundary,
 `WORLD_VERSION = 46` carries the historical clustered satellite-outcrop
 boundary, `WORLD_VERSION = 47` carries the strengthened satellite-outcrop
-boundary, and current `WORLD_VERSION = 48` carries the mountain
-passage/outcrop refinement boundary.
+boundary, `WORLD_VERSION = 48` carries the mountain passage/outcrop refinement
+boundary, and current `WORLD_VERSION = 49` carries the static biofield flora
+placement boundary.
 L3 water presentation is landed:
 `ChunkView` now owns the derived
 `WaterSurfaceLayer`, populated from `lake_flags` and current resolved
@@ -145,9 +146,11 @@ small components. The strengthened satellite-outcrop refinement advances
 current new worlds to `WORLD_VERSION = 47` so outcrop clusters can reach
 `2..20` components and are biased toward `10..20` components. Lake algorithms
 from `43` and the grid contract from `44` are unchanged. The mountain
-passage/outcrop refinement advances current new worlds to `WORLD_VERSION = 48`
+passage/outcrop refinement advances new worlds to `WORLD_VERSION = 48`
 so deterministic native carve masks can create walkable mountain passages,
 pockets, and gorges without changing lake packet fields.
+The static biofield flora placement boundary advances current new worlds to
+`WORLD_VERSION = 49` without changing lake packet fields or lake algorithms.
 
 ## Gameplay Goal
 
@@ -877,12 +880,12 @@ does today: one `(local_x, local_y, terrain_id, walkable)` entry.
 landed, because canonical packet output (`terrain_ids`, `walkable_flags`,
 `lake_flags`) changed for the same `(seed, coord)`.
 
-The current active value is `48`. It advances from `47` because mountain
-generation now refines sparse deterministic satellite outcrop placement and
-adds native deterministic carve masks for mountain passages, pockets, and
-gorges, without changing the lake algorithm itself.
+The current active value is `49`. It advances from `48` because native visual
+object placement now emits a small static brown seaweed object on the
+deterministic orange biofield mask, without changing the lake algorithm itself.
 
-`world_version <= 47` is a historical algorithm / grid boundary and is rejected
+`world_version <= 48` is a historical algorithm / grid / object-placement
+boundary and is rejected
 by the active pre-alpha loader.
 
 `world_version` remains a plain integer; it is **not** a hash of

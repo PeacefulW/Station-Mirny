@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.5
-last_updated: 2026-06-07
+version: 1.6
+last_updated: 2026-06-08
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -85,24 +85,38 @@ V0 explicitly does not include:
 decor/placement exclusion: a `plains`-only generated object presentation layer
 owned by `ChunkView`, plus an explicit loaded large-rock collision proof.
 
-This amendment does not add gameplay placements to `ChunkPacketV1`, harvesting,
+This amendment does not add gameplay placements to `ChunkPacketV0`, harvesting,
 resource yield, save diffs, commands, events, or non-`plains` biome placement.
-The visual layer is derived presentation from the already loaded chunk packet
-and must remain bounded by chunk-level `MultiMeshInstance2D` batches and shader
-uniforms, not one node or one CPU draw operation per object.
+It does authorize additive visual object fields in `ChunkPacketV0` for accepted
+rocks and visual-only flora proofs. The visual layer is derived presentation
+from the already loaded chunk packet and must remain bounded by chunk-level
+`MultiMeshInstance2D` batches and shader uniforms, not one node or one CPU draw
+operation per object.
 
 Only large `plains` rocks may expose collision in this proof. Their collision
 must be chunk-scoped through one `StaticBody2D` with shape owners per loaded
 chunk layer, derived from the same deterministic visual size as the rendered
 rock, and not saved as authoritative world state. Accepted dense object
-collision for mod-scale content must move into the native packet-backed object
+collision for mod-scale content must stay in the native packet-backed object
 placement path before it becomes production gameplay.
 
 The amendment also allows a narrow visual-only animated flora proof. This flora
-may be derived from the chunk-local grass/straw overlay mask, must be batched,
-must use one fixed south/front-facing atlas row, must animate through shader
-atlas-frame selection, and must not add collision, harvesting, save identity,
-commands, events, or authoritative placement state.
+is emitted as native object packet records, must be batched, must use one fixed
+south/front-facing atlas row, must animate through shader atlas-frame selection,
+and must not add collision, harvesting, save identity, commands, events, or
+authoritative placement state.
+
+The amendment also allows a narrow visual-only static spiky flora proof. This
+flora is emitted as native object packet records using the same orange biofield
+organic field as the chunk overlay, must use batched atlas presentation with a
+fixed front/top baked-shadow frame, and must not add collision, harvesting, save
+identity, commands, events, or authoritative placement state.
+
+The amendment also allows a narrow small static biofield flora proof in the
+spiky flora family. It is emitted as native object packet records with spiky
+flora atlas index `1`, must pass the deterministic orange biofield mask before
+placement, and must not add collision, harvesting, save identity, commands,
+events, or per-object scene nodes.
 
 ## Law 0 Classification
 
@@ -113,7 +127,7 @@ commands, events, or authoritative placement state.
 | Deterministic? | Yes, base packet is pure `f(seed, coord, world_version)` |
 | Must work on unloaded chunks? | Yes, diff store remains authoritative when a chunk is not loaded |
 | C++ compute or main-thread apply? | Generation in C++; publish/apply on main thread only |
-| Dirty unit | `16 x 16` chunk for generation, one tile for authoritative mutation, bounded local visual patch for adjacency-dependent terrain presentation, bounded cell batches for publish |
+| Dirty unit | `16 x 16` chunk for generation, one tile for authoritative mutation, one chunk object packet for visual object placement, bounded local visual patch for adjacency-dependent terrain presentation, bounded cell batches for publish |
 | Single owner | `WorldCore` owns canonical base output; `WorldDiffStore` owns persisted overrides; `ChunkView` owns only presentation |
 | 10x / 100x scale path | More chunks increase queued packet generation and sliced publish work; they do not expand the interactive mutation path |
 | Main-thread blocking risk | Allowed only for bounded apply slices; heavy generation stays off-thread |
@@ -141,10 +155,28 @@ Required fields:
 |---|---|---|
 | `chunk_coord` | `Vector2i` | canonical chunk coordinate |
 | `world_seed` | `int` | copied into the packet for validation/debug |
-| `world_version` | `int` | first V0 runtime value starts at `1`; current active contract is `48` |
+| `world_version` | `int` | first V0 runtime value starts at `1`; current active contract is `49` |
 | `terrain_ids` | `PackedInt32Array` | length `256`, one terrain id per local tile |
 | `terrain_atlas_indices` | `PackedInt32Array` | length `256`, derived presentation atlas index per local tile |
 | `walkable_flags` | `PackedByteArray` | length `256`, `1 = walkable`, `0 = blocked` |
+
+Approved additive visual object fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `object_kind` | `PackedByteArray` | V0 family id: `1` rock, `2` living flora, `3` spiky flora |
+| `object_local_x_px_q4` | `PackedByteArray` | chunk-local pixel X quantized to `4 px` |
+| `object_local_y_px_q4` | `PackedByteArray` | chunk-local pixel Y quantized to `4 px` |
+| `object_size_px` | `PackedByteArray` | rendered sprite size in pixels |
+| `object_atlas_index` | `PackedByteArray` | prepared atlas bank index for the family; spiky flora index `1` is the small static brown seaweed biofield object |
+| `object_variant` | `PackedByteArray` | atlas frame / animation view variant |
+| `object_flags` | `PackedByteArray` | visual/physics proof flags; bit `0` = large-rock collision |
+| `object_tint` | `PackedByteArray` | `0..255` presentation tint scalar |
+| `object_phase` | `PackedByteArray` | `0..255` deterministic animation phase |
+
+All visual object arrays must have identical length. They are derived immutable
+base output for presentation and the explicit large-rock collision proof only;
+they are not saved as gameplay object state.
 
 `terrain_atlas_indices` rules:
 - it is derived presentation metadata, not authoritative terrain state
@@ -159,8 +191,8 @@ Forbidden packet fields in V0:
 - water-generation masks
 - mountain masks
 - biome blend data
-- placements
-- decor batches
+- gameplay placement identity beyond the approved visual object packet
+- precomputed decor batch buffers
 - connector requests
 - seasonal or weather state
 
@@ -507,6 +539,8 @@ V0 is invalid if it:
 - [ ] the same `world_seed + chunk_coord + world_version` always yields the same `ChunkPacketV0`
 - [ ] chunks stream in and out deterministically under a symmetric ring policy
 - [ ] one modified tile survives save/load on top of regenerated base terrain
+- [ ] visual object packet fields remain deterministic and same-length for the
+  same `world_seed + chunk_coord + world_version`
 - [ ] no worker thread touches the active scene tree
 - [ ] single-tile mutation does not trigger full chunk rebuild or full chunk redraw
 

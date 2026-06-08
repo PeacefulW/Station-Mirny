@@ -55,6 +55,9 @@ const PLAINS_ROCK_ATLAS_2: Texture2D = preload("res://assets/sprites/resources/a
 const PLAINS_VOLCANIC_ROCK_ATLAS: Texture2D = preload("res://assets/sprites/resources/atlases/plains_volcanic_rock_atlas.png")
 const PLAINS_LIVING_FLORA_ENABLED: bool = false
 const PLAINS_LIVING_FLORA_ATLAS_PATH: String = "res://assets/sprites/flora/atlases/brown_seaweed_living_4views_16frames_256.png"
+const PLAINS_SPIKY_FLORA_ENABLED: bool = true
+const PLAINS_SPIKY_FLORA_ATLAS_PATH: String = "res://assets/sprites/flora/atlases/orange_spiky_plant_spritesheet_4x512.png"
+const PLAINS_BROWN_SEAWEED_STATIC_FLORA_ATLAS_PATH: String = "res://assets/sprites/flora/atlases/brown_seaweed_static_biofield_4x512.png"
 const MOUNTAIN_FOOTHILL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/mountain/foothill_albedo.png"
 const MOUNTAIN_FOOTHILL_NORMAL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/mountain/foothill_normal.png"
 const MOUNTAIN_NATIVE_MASK_VISUAL_UPLOAD_BUDGET_MS: float = 0.75
@@ -124,6 +127,7 @@ var _grass_blob_overlay_texture_3: ImageTexture = null
 var _grass_blob_overlay_normal_texture: ImageTexture = null
 var _plains_rock_scatter_atlases: Array[Texture2D] = []
 var _plains_living_flora_atlas: Texture2D = null
+var _plains_spiky_flora_atlases: Array[Texture2D] = []
 var _mountain_mask_revision_by_chunk: Dictionary = {}
 var _mountain_native_masks_by_chunk: Dictionary = {}
 var _mountain_native_mask_inflight_chunks: Dictionary = {}
@@ -184,6 +188,7 @@ func _ready() -> void:
 	_ensure_grass_blob_overlay_source()
 	_ensure_plains_rock_scatter_sources()
 	_ensure_plains_living_flora_source()
+	_ensure_plains_spiky_flora_source()
 	_packet_backend.start(PACKET_WORKER_COUNT)
 	_mountain_mask_backend.start(MOUNTAIN_MASK_WORKER_COUNT)
 	_stream_job_id = FrameBudgetDispatcher.register_job(
@@ -1458,6 +1463,7 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 	)
 	chunk_view.set_plains_rock_scatter_sources(_plains_rock_scatter_atlases)
 	chunk_view.set_living_flora_source(_plains_living_flora_atlas)
+	chunk_view.set_spiky_flora_sources(_plains_spiky_flora_atlases)
 	chunk_view.apply_sun_lighting(
 		_sun_light_angle_deg,
 		_sun_shadow_length_px,
@@ -2091,6 +2097,27 @@ func _ensure_plains_living_flora_source() -> void:
 	assert(
 		_plains_living_flora_atlas != null,
 		"WorldStreamer cannot load living flora atlas: %s" % PLAINS_LIVING_FLORA_ATLAS_PATH
+	)
+
+func _ensure_plains_spiky_flora_source() -> void:
+	if not PLAINS_SPIKY_FLORA_ENABLED:
+		_plains_spiky_flora_atlases.clear()
+		return
+	if _plains_spiky_flora_atlases.size() == 2:
+		return
+	_plains_spiky_flora_atlases.clear()
+	var spiky_atlas := load(PLAINS_SPIKY_FLORA_ATLAS_PATH) as Texture2D
+	var brown_seaweed_atlas := load(PLAINS_BROWN_SEAWEED_STATIC_FLORA_ATLAS_PATH) as Texture2D
+	if spiky_atlas != null:
+		_plains_spiky_flora_atlases.append(spiky_atlas)
+	if brown_seaweed_atlas != null:
+		_plains_spiky_flora_atlases.append(brown_seaweed_atlas)
+	assert(
+		_plains_spiky_flora_atlases.size() == 2,
+		"WorldStreamer cannot load static biofield flora atlases: %s, %s" % [
+			PLAINS_SPIKY_FLORA_ATLAS_PATH,
+			PLAINS_BROWN_SEAWEED_STATIC_FLORA_ATLAS_PATH,
+		]
 	)
 
 func _load_mountain_mask_source_image(path: String, label: String) -> Image:

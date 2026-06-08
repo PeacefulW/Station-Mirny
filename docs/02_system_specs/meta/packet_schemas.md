@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.1
-last_updated: 2026-05-05
+version: 1.2
+last_updated: 2026-06-08
 related_docs:
   - ../README.md
   - system_api.md
@@ -245,12 +245,18 @@ Current code notes:
   mountain components may generate near large mountain masses, biased toward
   `10..20` components with occasional larger footprints. `ChunkPacketV1` shape
   is unchanged.
-- `world_version == 48` is the current mountain passage/outcrop refinement
+- `world_version == 48` is the historical mountain passage/outcrop refinement
   boundary: satellite outcrop clusters become more frequent and spatially
   varied, and deterministic native carve masks create walkable passages,
   pockets, and gorges inside mountain masses. `ChunkPacketV1` shape is
   unchanged because carved openings are represented by existing terrain,
   walkability, and mountain fields.
+- `world_version == 49` is the current static biofield flora placement
+  boundary: native object packets may emit spiky flora family atlas index `1`
+  as a small static brown seaweed object only when its deterministic center
+  passes the orange biofield mask. `ChunkPacketV1` shape is unchanged because
+  the object uses existing visual object arrays and does not add collision,
+  save identity, commands, or events.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded
@@ -515,6 +521,15 @@ Returned one-per-input-coord by native
 | `mountain_id_per_tile` | `PackedInt32Array` | 256 | `0 = no named mountain`; non-zero = deterministic `mountain_id` |
 | `mountain_flags` | `PackedByteArray` | 256 | Per-tile mountain bit layout documented below |
 | `mountain_atlas_indices` | `PackedInt32Array` | 256 | Roof-ready atlas indices derived from `mountain_id` adjacency via `autotile_47` |
+| `object_kind` | `PackedByteArray` | N | Visual object family id: `1` rock, `2` living flora, `3` spiky flora |
+| `object_local_x_px_q4` | `PackedByteArray` | N | Chunk-local pixel X quantized to `4 px` |
+| `object_local_y_px_q4` | `PackedByteArray` | N | Chunk-local pixel Y quantized to `4 px` |
+| `object_size_px` | `PackedByteArray` | N | Rendered sprite size in pixels |
+| `object_atlas_index` | `PackedByteArray` | N | Prepared atlas bank index for the visual family |
+| `object_variant` | `PackedByteArray` | N | Atlas frame / animation view variant |
+| `object_flags` | `PackedByteArray` | N | Visual/physics proof flags; bit `0` = large-rock collision proof |
+| `object_tint` | `PackedByteArray` | N | `0..255` presentation tint scalar |
+| `object_phase` | `PackedByteArray` | N | `0..255` deterministic animation phase |
 
 `mountain_flags` bit layout:
 
@@ -537,6 +552,9 @@ and `mountain_atlas_indices = 0`.
 
 Current code notes:
 - `ChunkPacketV1` keeps one hot-path packet per chunk; batch generation returns one packet per requested coord
+- all `object_*` arrays must have identical length; they are native-generated
+  immutable visual object records, consumed by `WorldObjectPacketLayer`, and
+  are not persisted as gameplay object state
 - the current native boundary requires the full `settings_packed` payload:
   indices `0-8` are mountain settings, and for `world_version >= 9` indices
   `9-14` are `world_width_tiles`, `world_height_tiles`, `ocean_band_tiles`,
@@ -569,6 +587,11 @@ Current code notes:
 - `lake_flags` is base packet output only; it is not persisted in
   `ChunkDiffFile` and must not be written into chunk diff JSON.
 - active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain either resolves into named mountain output or stays on the ground path at the hierarchical scale cutoff
+- `object_kind == 1` uses rock atlas bank indices `0..2` for ordinary loose
+  plains rocks.
+- `object_kind == 3` uses static biofield flora atlas bank index `0` for the
+  orange spiky plant and index `1` for the small brown seaweed object. Both are
+  immutable generated presentation records, not saved gameplay object state.
 - `mountain_atlas_indices` is reserved for later roof presentation, but is already confirmed at the packet boundary in M1
 
 ### `WorldFoundationSpawnResult`

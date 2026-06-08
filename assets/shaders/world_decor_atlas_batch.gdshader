@@ -30,7 +30,9 @@ void fragment() {
 	float frame_x = mod(frame_index, atlas_columns);
 	float frame_y = floor(frame_index / atlas_columns);
 	vec2 atlas_cell_size = vec2(1.0 / atlas_columns, 1.0 / atlas_rows);
-	vec2 atlas_uv = (vec2(frame_x, frame_y) + UV) * atlas_cell_size;
+	// QuadMesh UV.y is inverted relative to PNG top-left orientation.
+	vec2 atlas_sample_uv = vec2(UV.x, 1.0 - UV.y);
+	vec2 atlas_uv = (vec2(frame_x, frame_y) + atlas_sample_uv) * atlas_cell_size;
 	vec4 atlas_color = texture(TEXTURE, atlas_uv);
 	float tint = clamp(instance_data.g, 0.0, 1.0);
 	COLOR = atlas_color * vec4(tint, tint, tint, instance_data.a);

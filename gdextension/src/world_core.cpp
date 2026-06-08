@@ -106,6 +106,58 @@ constexpr float MOUNTAIN_PASSAGE_DENSITY_CHANCE = 0.092f;
 constexpr float MOUNTAIN_PASSAGE_TAU = 6.2831853071795864769f;
 constexpr uint64_t MOUNTAIN_PASSAGE_HASH_SALT = 0xb71c8e5d4f39a602ULL;
 
+constexpr int32_t TILE_SIZE_PX = 64;
+constexpr int32_t CHUNK_SIZE_PX = static_cast<int32_t>(CHUNK_SIZE) * TILE_SIZE_PX;
+constexpr uint8_t OBJECT_KIND_ROCK = 1U;
+constexpr uint8_t OBJECT_KIND_LIVING_FLORA = 2U;
+constexpr uint8_t OBJECT_KIND_SPIKY_FLORA = 3U;
+constexpr uint8_t OBJECT_FLAG_COLLIDER = 1U << 0U;
+constexpr int32_t OBJECT_LOCAL_PX_QUANTUM = 4;
+
+constexpr int32_t ROCK_FRAME_COUNT = 32;
+constexpr int32_t ROCK_ATLAS_COUNT = 3;
+constexpr int32_t ROCK_SCATTER_GRID_SIDE = 8;
+constexpr float ROCK_PRIMARY_DENSITY = 0.23f;
+constexpr float ROCK_SATELLITE_DENSITY = 0.18f;
+constexpr float ROCK_VOLCANIC_CHANCE = 0.08f;
+constexpr float ROCK_EDGE_PADDING_PX = 18.0f;
+constexpr float ROCK_VISUAL_SCALE = 0.5f;
+constexpr float ROCK_LARGE_COLLISION_MIN_SIZE_PX = 42.0f;
+
+constexpr int32_t LIVING_FLORA_SCATTER_GRID_SIDE = 10;
+constexpr float LIVING_FLORA_PRIMARY_DENSITY = 0.42f;
+constexpr int32_t LIVING_FLORA_MAX_PER_CHUNK = 18;
+constexpr float LIVING_FLORA_EDGE_PADDING_PX = 24.0f;
+constexpr float LIVING_FLORA_MIN_SIZE_PX = 84.0f;
+constexpr float LIVING_FLORA_MAX_SIZE_PX = 112.0f;
+constexpr float LIVING_FLORA_PATCH_CELL_PX = 1850.0f;
+constexpr float LIVING_FLORA_PATCH_DENSITY = 0.54f;
+constexpr float LIVING_FLORA_PATCH_THRESHOLD = 0.50f;
+
+constexpr int32_t SPIKY_FLORA_CANDIDATE_COUNT = 48;
+constexpr int32_t SPIKY_FLORA_MAX_PER_CHUNK = 2;
+constexpr uint8_t SPIKY_FLORA_ATLAS_SPIKY_PLANT = 0U;
+constexpr uint8_t SPIKY_FLORA_ATLAS_BROWN_SEAWEED = 1U;
+constexpr float SPIKY_FLORA_EDGE_PADDING_PX = 36.0f;
+constexpr float SPIKY_FLORA_MIN_SIZE_PX = 58.0f;
+constexpr float SPIKY_FLORA_MAX_SIZE_PX = 220.0f;
+constexpr float SPIKY_FLORA_SIZE_EXPONENT = 1.65f;
+constexpr float SPIKY_FLORA_MIN_DISTANCE_PX = 158.0f;
+constexpr float SPIKY_FLORA_PATCH_CELL_PX = 2750.0f;
+constexpr float SPIKY_FLORA_PATCH_DENSITY = 0.72f;
+constexpr float SPIKY_FLORA_PLACEMENT_THRESHOLD = 0.36f;
+constexpr float SPIKY_FLORA_MIN_DENSITY = 0.01f;
+constexpr float SPIKY_FLORA_MAX_DENSITY = 0.06f;
+constexpr int32_t BIOFIELD_SEAWEED_CANDIDATE_COUNT = 96;
+constexpr int32_t BIOFIELD_SEAWEED_MAX_PER_CHUNK = 5;
+constexpr float BIOFIELD_SEAWEED_EDGE_PADDING_PX = 34.0f;
+constexpr float BIOFIELD_SEAWEED_MIN_SIZE_PX = 42.0f;
+constexpr float BIOFIELD_SEAWEED_MAX_SIZE_PX = 84.0f;
+constexpr float BIOFIELD_SEAWEED_SIZE_EXPONENT = 1.24f;
+constexpr float BIOFIELD_SEAWEED_MIN_DISTANCE_PX = 92.0f;
+constexpr float BIOFIELD_SEAWEED_MIN_DENSITY = 0.025f;
+constexpr float BIOFIELD_SEAWEED_MAX_DENSITY = 0.14f;
+
 enum class PreviewPatchMode {
 	Terrain,
 	MountainId,
@@ -146,6 +198,18 @@ struct SatelliteOutcropHit {
 	bool active = false;
 	int32_t mountain_id = 0;
 	float elevation = 0.0f;
+};
+
+struct WorldObjectPacketBuffers {
+	std::vector<uint8_t> kind;
+	std::vector<uint8_t> local_x_px_q4;
+	std::vector<uint8_t> local_y_px_q4;
+	std::vector<uint8_t> size_px;
+	std::vector<uint8_t> atlas_index;
+	std::vector<uint8_t> variant;
+	std::vector<uint8_t> flags;
+	std::vector<uint8_t> tint;
+	std::vector<uint8_t> phase;
 };
 
 constexpr LakeNeighbourOffset k_lake_neighbour_priority[] = {
@@ -446,6 +510,413 @@ uint64_t hash_mountain_passage_anchor(
 
 float hash_unit_float(uint64_t p_hash, uint32_t p_shift) {
 	return static_cast<float>((p_hash >> p_shift) & 0xffffU) / 65535.0f;
+}
+
+float smoothstep01(float p_edge0, float p_edge1, float p_value) {
+	const float t = world_utils::clamp_value((p_value - p_edge0) / std::max(0.0001f, p_edge1 - p_edge0), 0.0f, 1.0f);
+	return t * t * (3.0f - 2.0f * t);
+}
+
+float fract_float(float p_value) {
+	return p_value - std::floor(p_value);
+}
+
+float lerp_float(float p_a, float p_b, float p_t) {
+	return p_a + (p_b - p_a) * p_t;
+}
+
+uint8_t quantize_byte(float p_value) {
+	return static_cast<uint8_t>(world_utils::clamp_value(static_cast<int32_t>(std::lround(p_value)), 0, 255));
+}
+
+uint8_t quantize_local_px_q4(float p_value) {
+	return quantize_byte(p_value / static_cast<float>(OBJECT_LOCAL_PX_QUANTUM));
+}
+
+uint64_t object_hash4(int64_t p_a, int64_t p_b, int64_t p_c, int64_t p_d) {
+	uint64_t value = splitmix64(static_cast<uint64_t>(p_a) * 0x9e3779b185ebca87ULL);
+	value = splitmix64(value ^ static_cast<uint64_t>(p_b) * 0xc2b2ae3d27d4eb4fULL);
+	value = splitmix64(value ^ static_cast<uint64_t>(p_c) * 0x165667b19e3779f9ULL);
+	value = splitmix64(value ^ static_cast<uint64_t>(p_d) * 0x85ebca77c2b2ae63ULL);
+	return value;
+}
+
+float object_unit(uint64_t p_hash, uint64_t p_salt) {
+	return hash_unit_float(splitmix64(p_hash ^ p_salt), 0U);
+}
+
+float object_hash12(float p_x, float p_y) {
+	float p3x = fract_float(p_x * 0.1031f);
+	float p3y = fract_float(p_y * 0.1031f);
+	float p3z = fract_float(p_x * 0.1031f);
+	const float d = p3x * (p3y + 33.33f) + p3y * (p3z + 33.33f) + p3z * (p3x + 33.33f);
+	p3x += d;
+	p3y += d;
+	p3z += d;
+	return fract_float((p3x + p3y) * p3z);
+}
+
+float object_value_noise(float p_x, float p_y) {
+	const float ix = std::floor(p_x);
+	const float iy = std::floor(p_y);
+	const float fx = p_x - ix;
+	const float fy = p_y - iy;
+	const float ux = fx * fx * (3.0f - 2.0f * fx);
+	const float uy = fy * fy * (3.0f - 2.0f * fy);
+	const float a = object_hash12(ix, iy);
+	const float b = object_hash12(ix + 1.0f, iy);
+	const float c = object_hash12(ix, iy + 1.0f);
+	const float d = object_hash12(ix + 1.0f, iy + 1.0f);
+	return lerp_float(lerp_float(a, b, ux), lerp_float(c, d, ux), uy);
+}
+
+float object_fbm2(float p_x, float p_y) {
+	float x = p_x;
+	float y = p_y;
+	float value = 0.0f;
+	float amplitude = 0.56f;
+	float total = 0.0f;
+	for (int32_t index = 0; index < 3; ++index) {
+		value += object_value_noise(x, y) * amplitude;
+		total += amplitude;
+		x = x * 2.03f + 19.7f;
+		y = y * 2.03f - 11.2f;
+		amplitude *= 0.48f;
+	}
+	return value / std::max(total, 0.0001f);
+}
+
+float object_organic_region_mask(float p_world_px_x, float p_world_px_y, float p_cell_px, float p_density) {
+	const float px = p_world_px_x / std::max(p_cell_px, 1.0f);
+	const float py = p_world_px_y / std::max(p_cell_px, 1.0f);
+	const float broad_warp_x = object_fbm2(px * 0.72f + 13.4f, py * 0.72f - 8.9f) - 0.5f;
+	const float broad_warp_y = object_fbm2(px * 0.69f - 31.7f, py * 0.69f + 24.1f) - 0.5f;
+	const float local_warp_x = object_fbm2(px * 1.86f + 71.0f, py * 1.86f + 9.5f) - 0.5f;
+	const float local_warp_y = object_fbm2(px * 1.61f - 44.6f, py * 1.61f + 58.2f) - 0.5f;
+	const float wx = px + broad_warp_x * 1.55f + local_warp_x * 0.42f;
+	const float wy = py + broad_warp_y * 1.55f + local_warp_y * 0.42f;
+	const float large_regions = object_fbm2(wx * 0.94f + 5.1f, wy * 0.94f + 17.3f);
+	const float medium_cut = object_fbm2(wx * 2.15f - 19.0f, wy * 2.15f + 41.0f);
+	const float edge_breakup = object_fbm2(wx * 5.8f + 62.0f, wy * 5.8f - 27.0f);
+	float field = large_regions * 0.70f + medium_cut * 0.22f + edge_breakup * 0.08f;
+	field += (edge_breakup - 0.5f) * 0.10f;
+	const float threshold = lerp_float(0.76f, 0.43f, world_utils::clamp_value(p_density, 0.0f, 1.0f));
+	float region = smoothstep01(threshold - 0.065f, threshold + 0.085f, field);
+	const float erosion = object_fbm2(wx * 8.5f - 3.0f, wy * 8.5f + 103.0f);
+	region = world_utils::clamp_value(region + (erosion - 0.52f) * 0.18f, 0.0f, 1.0f);
+	return smoothstep01(0.16f, 0.86f, region);
+}
+
+PackedByteArray make_packed_byte_array(const std::vector<uint8_t> &p_values) {
+	PackedByteArray result;
+	result.resize(static_cast<int32_t>(p_values.size()));
+	for (int32_t index = 0; index < static_cast<int32_t>(p_values.size()); ++index) {
+		result.set(index, p_values[static_cast<size_t>(index)]);
+	}
+	return result;
+}
+
+void append_object_record(
+	WorldObjectPacketBuffers &r_buffers,
+	uint8_t p_kind,
+	float p_local_x_px,
+	float p_local_y_px,
+	float p_size_px,
+	uint8_t p_atlas_index,
+	uint8_t p_variant,
+	uint8_t p_flags,
+	float p_tint,
+	float p_phase
+) {
+	r_buffers.kind.push_back(p_kind);
+	r_buffers.local_x_px_q4.push_back(quantize_local_px_q4(p_local_x_px));
+	r_buffers.local_y_px_q4.push_back(quantize_local_px_q4(p_local_y_px));
+	r_buffers.size_px.push_back(quantize_byte(p_size_px));
+	r_buffers.atlas_index.push_back(p_atlas_index);
+	r_buffers.variant.push_back(p_variant);
+	r_buffers.flags.push_back(p_flags);
+	r_buffers.tint.push_back(quantize_byte(world_utils::clamp_value(p_tint, 0.0f, 1.0f) * 255.0f));
+	r_buffers.phase.push_back(quantize_byte(world_utils::clamp_value(p_phase, 0.0f, 1.0f) * 255.0f));
+}
+
+bool object_position_is_plain(
+	float p_local_x_px,
+	float p_local_y_px,
+	const PackedInt32Array &p_terrain_ids,
+	const PackedByteArray &p_lake_flags
+) {
+	if (p_local_x_px < 0.0f || p_local_y_px < 0.0f || p_local_x_px >= static_cast<float>(CHUNK_SIZE_PX) || p_local_y_px >= static_cast<float>(CHUNK_SIZE_PX)) {
+		return false;
+	}
+	const int32_t local_x = static_cast<int32_t>(std::floor(p_local_x_px / static_cast<float>(TILE_SIZE_PX)));
+	const int32_t local_y = static_cast<int32_t>(std::floor(p_local_y_px / static_cast<float>(TILE_SIZE_PX)));
+	if (local_x < 0 || local_y < 0 || local_x >= CHUNK_SIZE || local_y >= CHUNK_SIZE) {
+		return false;
+	}
+	const int32_t index = local_y * static_cast<int32_t>(CHUNK_SIZE) + local_x;
+	if (read_int32_at(p_terrain_ids, index, TERRAIN_MOUNTAIN_WALL) != TERRAIN_PLAINS_GROUND) {
+		return false;
+	}
+	return (read_byte_at(p_lake_flags, index, 0) & LAKE_FLAG_WATER_PRESENT) == 0;
+}
+
+bool object_position_is_plain_with_clearance(
+	float p_local_x_px,
+	float p_local_y_px,
+	const PackedInt32Array &p_terrain_ids,
+	const PackedByteArray &p_lake_flags,
+	float p_clearance_px
+) {
+	if (!object_position_is_plain(p_local_x_px, p_local_y_px, p_terrain_ids, p_lake_flags)) {
+		return false;
+	}
+	const float diagonal_clearance = p_clearance_px * 0.72f;
+	return object_position_is_plain(p_local_x_px + p_clearance_px, p_local_y_px, p_terrain_ids, p_lake_flags) &&
+			object_position_is_plain(p_local_x_px - p_clearance_px, p_local_y_px, p_terrain_ids, p_lake_flags) &&
+			object_position_is_plain(p_local_x_px, p_local_y_px + p_clearance_px, p_terrain_ids, p_lake_flags) &&
+			object_position_is_plain(p_local_x_px, p_local_y_px - p_clearance_px, p_terrain_ids, p_lake_flags) &&
+			object_position_is_plain(p_local_x_px + diagonal_clearance, p_local_y_px + diagonal_clearance, p_terrain_ids, p_lake_flags) &&
+			object_position_is_plain(p_local_x_px - diagonal_clearance, p_local_y_px + diagonal_clearance, p_terrain_ids, p_lake_flags) &&
+			object_position_is_plain(p_local_x_px + diagonal_clearance, p_local_y_px - diagonal_clearance, p_terrain_ids, p_lake_flags) &&
+			object_position_is_plain(p_local_x_px - diagonal_clearance, p_local_y_px - diagonal_clearance, p_terrain_ids, p_lake_flags);
+}
+
+void append_native_rock_object(
+	WorldObjectPacketBuffers &r_buffers,
+	Vector2i p_coord,
+	int64_t p_seed,
+	int64_t p_world_version,
+	const PackedInt32Array &p_terrain_ids,
+	const PackedByteArray &p_lake_flags,
+	float p_local_x_px,
+	float p_local_y_px,
+	uint64_t p_salt,
+	bool p_is_satellite,
+	bool p_used_variants[ROCK_ATLAS_COUNT][ROCK_FRAME_COUNT]
+) {
+	if (p_local_x_px < ROCK_EDGE_PADDING_PX ||
+			p_local_y_px < ROCK_EDGE_PADDING_PX ||
+			p_local_x_px > static_cast<float>(CHUNK_SIZE_PX) - ROCK_EDGE_PADDING_PX ||
+			p_local_y_px > static_cast<float>(CHUNK_SIZE_PX) - ROCK_EDGE_PADDING_PX ||
+			!object_position_is_plain(p_local_x_px, p_local_y_px, p_terrain_ids, p_lake_flags)) {
+		return;
+	}
+	const float atlas_roll = object_unit(p_salt, 0x79ULL);
+	uint8_t atlas_index = 0U;
+	if (atlas_roll < ROCK_VOLCANIC_CHANCE) {
+		atlas_index = 2U;
+	} else if (atlas_roll >= 0.54f) {
+		atlas_index = 1U;
+	}
+	int32_t frame_index = static_cast<int32_t>(std::floor(object_unit(p_salt, 0x97ULL) * ROCK_FRAME_COUNT)) % ROCK_FRAME_COUNT;
+	for (int32_t offset = 0; offset < ROCK_FRAME_COUNT; ++offset) {
+		const int32_t candidate = (frame_index + offset * 7) % ROCK_FRAME_COUNT;
+		if (p_used_variants[atlas_index][candidate]) {
+			continue;
+		}
+		p_used_variants[atlas_index][candidate] = true;
+		frame_index = candidate;
+		break;
+	}
+	float size_px = lerp_float(42.0f, 76.0f, object_unit(p_salt, 0x107ULL));
+	if (p_is_satellite) {
+		size_px *= lerp_float(0.64f, 0.84f, object_unit(p_salt, 0x127ULL));
+	}
+	if (atlas_index == 2U) {
+		size_px *= 0.88f;
+	}
+	if (object_unit(p_salt, 0x139ULL) < 0.10f && !p_is_satellite) {
+		size_px *= 1.22f;
+	}
+	size_px = world_utils::clamp_value(size_px * ROCK_VISUAL_SCALE, 14.0f, 48.0f);
+	const float tint = lerp_float(0.88f, 1.0f, object_unit(p_salt, 0x67ULL));
+	const float phase = object_unit(p_salt, 0x157ULL);
+	const uint8_t flags = size_px >= ROCK_LARGE_COLLISION_MIN_SIZE_PX ? OBJECT_FLAG_COLLIDER : 0U;
+	append_object_record(r_buffers, OBJECT_KIND_ROCK, p_local_x_px, p_local_y_px, size_px, atlas_index, static_cast<uint8_t>(frame_index), flags, tint, phase);
+}
+
+void append_native_object_placements(
+	WorldObjectPacketBuffers &r_buffers,
+	int64_t p_seed,
+	Vector2i p_coord,
+	int64_t p_world_version,
+	const PackedInt32Array &p_terrain_ids,
+	const PackedByteArray &p_lake_flags
+) {
+	bool used_rock_variants[ROCK_ATLAS_COUNT][ROCK_FRAME_COUNT] = {};
+	const float rock_cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(ROCK_SCATTER_GRID_SIDE);
+	for (int32_t grid_y = 0; grid_y < ROCK_SCATTER_GRID_SIDE; ++grid_y) {
+		for (int32_t grid_x = 0; grid_x < ROCK_SCATTER_GRID_SIDE; ++grid_x) {
+			const uint64_t cell_hash = object_hash4(p_coord.x, p_coord.y, grid_x + grid_y * ROCK_SCATTER_GRID_SIDE, p_seed ^ (p_world_version * 31));
+			if (hash_unit_float(cell_hash, 0U) > ROCK_PRIMARY_DENSITY) {
+				continue;
+			}
+			const float jitter_x = (object_unit(cell_hash, 0x41ULL) - 0.5f) * std::max(8.0f, rock_cell_size_px - ROCK_EDGE_PADDING_PX * 2.0f);
+			const float jitter_y = (object_unit(cell_hash, 0x53ULL) - 0.5f) * std::max(8.0f, rock_cell_size_px - ROCK_EDGE_PADDING_PX * 2.0f);
+			const float local_x = (static_cast<float>(grid_x) + 0.5f) * rock_cell_size_px + jitter_x;
+			const float local_y = (static_cast<float>(grid_y) + 0.5f) * rock_cell_size_px + jitter_y;
+			append_native_rock_object(r_buffers, p_coord, p_seed, p_world_version, p_terrain_ids, p_lake_flags, local_x, local_y, cell_hash, false, used_rock_variants);
+			if (object_unit(cell_hash, 0x17ULL) <= ROCK_SATELLITE_DENSITY) {
+				const float angle = object_unit(cell_hash, 0x03ULL) * MOUNTAIN_PASSAGE_TAU;
+				const float distance_px = lerp_float(26.0f, 72.0f, object_unit(cell_hash, 0x11ULL));
+				const uint64_t satellite_hash = splitmix64(cell_hash ^ 0x293137ULL);
+				append_native_rock_object(
+					r_buffers,
+					p_coord,
+					p_seed,
+					p_world_version,
+					p_terrain_ids,
+					p_lake_flags,
+					local_x + std::cos(angle) * distance_px,
+					local_y + std::sin(angle) * distance_px,
+					satellite_hash,
+					true,
+					used_rock_variants
+				);
+			}
+		}
+	}
+
+	int32_t living_count = 0;
+	const float living_cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(LIVING_FLORA_SCATTER_GRID_SIDE);
+	for (int32_t grid_y = 0; grid_y < LIVING_FLORA_SCATTER_GRID_SIDE && living_count < LIVING_FLORA_MAX_PER_CHUNK; ++grid_y) {
+		for (int32_t grid_x = 0; grid_x < LIVING_FLORA_SCATTER_GRID_SIDE && living_count < LIVING_FLORA_MAX_PER_CHUNK; ++grid_x) {
+			const uint64_t cell_hash = object_hash4(p_coord.x, p_coord.y, grid_x + grid_y * LIVING_FLORA_SCATTER_GRID_SIDE, p_seed ^ (p_world_version * 53));
+			if (hash_unit_float(cell_hash, 0U) > LIVING_FLORA_PRIMARY_DENSITY) {
+				continue;
+			}
+			const float jitter_x = (object_unit(cell_hash, 0x41ULL) - 0.5f) * std::max(8.0f, living_cell_size_px - LIVING_FLORA_EDGE_PADDING_PX * 2.0f);
+			const float jitter_y = (object_unit(cell_hash, 0x53ULL) - 0.5f) * std::max(8.0f, living_cell_size_px - LIVING_FLORA_EDGE_PADDING_PX * 2.0f);
+			const float local_x = (static_cast<float>(grid_x) + 0.5f) * living_cell_size_px + jitter_x;
+			const float local_y = (static_cast<float>(grid_y) + 0.5f) * living_cell_size_px + jitter_y;
+			if (local_x < LIVING_FLORA_EDGE_PADDING_PX ||
+					local_y < LIVING_FLORA_EDGE_PADDING_PX ||
+					local_x > static_cast<float>(CHUNK_SIZE_PX) - LIVING_FLORA_EDGE_PADDING_PX ||
+					local_y > static_cast<float>(CHUNK_SIZE_PX) - LIVING_FLORA_EDGE_PADDING_PX ||
+					!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags)) {
+				continue;
+			}
+			const float world_px_x = static_cast<float>(p_coord.x * CHUNK_SIZE_PX) + local_x;
+			const float world_px_y = static_cast<float>(p_coord.y * CHUNK_SIZE_PX) + local_y;
+			if (object_organic_region_mask(world_px_x, world_px_y, LIVING_FLORA_PATCH_CELL_PX, LIVING_FLORA_PATCH_DENSITY) < LIVING_FLORA_PATCH_THRESHOLD) {
+				continue;
+			}
+			const float size_px = lerp_float(LIVING_FLORA_MIN_SIZE_PX, LIVING_FLORA_MAX_SIZE_PX, object_unit(cell_hash, 0x101ULL));
+			const float tint = lerp_float(0.86f, 1.0f, object_unit(cell_hash, 0x109ULL));
+			const float phase = object_unit(cell_hash, 0x131ULL);
+			append_object_record(r_buffers, OBJECT_KIND_LIVING_FLORA, local_x, local_y, size_px, 0U, 0U, 0U, tint, phase);
+			++living_count;
+		}
+	}
+
+	std::vector<std::pair<float, float>> placed_spiky_positions;
+	for (int32_t candidate_index = 0; candidate_index < SPIKY_FLORA_CANDIDATE_COUNT && static_cast<int32_t>(placed_spiky_positions.size()) < SPIKY_FLORA_MAX_PER_CHUNK; ++candidate_index) {
+		const uint64_t candidate_hash = object_hash4(p_coord.x, p_coord.y, candidate_index, p_seed ^ (p_world_version * 67));
+		const float density_roll = object_unit(candidate_hash, 0x181ULL);
+		if (density_roll > SPIKY_FLORA_MAX_DENSITY) {
+			continue;
+		}
+		const float local_x = lerp_float(SPIKY_FLORA_EDGE_PADDING_PX, static_cast<float>(CHUNK_SIZE_PX) - SPIKY_FLORA_EDGE_PADDING_PX, object_unit(candidate_hash, 0x41ULL));
+		const float local_y = lerp_float(SPIKY_FLORA_EDGE_PADDING_PX, static_cast<float>(CHUNK_SIZE_PX) - SPIKY_FLORA_EDGE_PADDING_PX, object_unit(candidate_hash, 0x53ULL));
+		if (!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags)) {
+			continue;
+		}
+		const float world_px_x = static_cast<float>(p_coord.x * CHUNK_SIZE_PX) + local_x;
+		const float world_px_y = static_cast<float>(p_coord.y * CHUNK_SIZE_PX) + local_y;
+		const float biofield_score = object_organic_region_mask(world_px_x, world_px_y, SPIKY_FLORA_PATCH_CELL_PX, SPIKY_FLORA_PATCH_DENSITY);
+		if (biofield_score < SPIKY_FLORA_PLACEMENT_THRESHOLD) {
+			continue;
+		}
+		const float chance = lerp_float(
+			SPIKY_FLORA_MIN_DENSITY,
+			SPIKY_FLORA_MAX_DENSITY,
+			smoothstep01(SPIKY_FLORA_PLACEMENT_THRESHOLD, 0.86f, biofield_score)
+		);
+		if (density_roll > chance) {
+			continue;
+		}
+		bool too_close = false;
+		const float min_distance_sq = SPIKY_FLORA_MIN_DISTANCE_PX * SPIKY_FLORA_MIN_DISTANCE_PX;
+		for (const std::pair<float, float> &existing : placed_spiky_positions) {
+			const float dx = local_x - existing.first;
+			const float dy = local_y - existing.second;
+			if (dx * dx + dy * dy < min_distance_sq) {
+				too_close = true;
+				break;
+			}
+		}
+		if (too_close) {
+			continue;
+		}
+		const float size_roll = std::pow(object_unit(candidate_hash, 0x107ULL), SPIKY_FLORA_SIZE_EXPONENT);
+		float size_px = lerp_float(SPIKY_FLORA_MIN_SIZE_PX, SPIKY_FLORA_MAX_SIZE_PX, size_roll);
+		size_px *= lerp_float(0.94f, 1.10f, world_utils::clamp_value(biofield_score, 0.0f, 1.0f));
+		const float tint = lerp_float(0.92f, 1.0f, object_unit(candidate_hash, 0x127ULL));
+		const float phase = object_unit(candidate_hash, 0x139ULL);
+		append_object_record(r_buffers, OBJECT_KIND_SPIKY_FLORA, local_x, local_y, size_px, SPIKY_FLORA_ATLAS_SPIKY_PLANT, 0U, 0U, tint, phase);
+		placed_spiky_positions.push_back({ local_x, local_y });
+	}
+
+	int32_t biofield_seaweed_count = 0;
+	for (int32_t candidate_index = 0; candidate_index < BIOFIELD_SEAWEED_CANDIDATE_COUNT && biofield_seaweed_count < BIOFIELD_SEAWEED_MAX_PER_CHUNK; ++candidate_index) {
+		const uint64_t candidate_hash = object_hash4(p_coord.x, p_coord.y, candidate_index, p_seed ^ (p_world_version * 71));
+		const float density_roll = object_unit(candidate_hash, 0x181ULL);
+		if (density_roll > BIOFIELD_SEAWEED_MAX_DENSITY) {
+			continue;
+		}
+		const float local_x = lerp_float(BIOFIELD_SEAWEED_EDGE_PADDING_PX, static_cast<float>(CHUNK_SIZE_PX) - BIOFIELD_SEAWEED_EDGE_PADDING_PX, object_unit(candidate_hash, 0x41ULL));
+		const float local_y = lerp_float(BIOFIELD_SEAWEED_EDGE_PADDING_PX, static_cast<float>(CHUNK_SIZE_PX) - BIOFIELD_SEAWEED_EDGE_PADDING_PX, object_unit(candidate_hash, 0x53ULL));
+		if (!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags)) {
+			continue;
+		}
+		const float world_px_x = static_cast<float>(p_coord.x * CHUNK_SIZE_PX) + local_x;
+		const float world_px_y = static_cast<float>(p_coord.y * CHUNK_SIZE_PX) + local_y;
+		const float biofield_score = object_organic_region_mask(world_px_x, world_px_y, SPIKY_FLORA_PATCH_CELL_PX, SPIKY_FLORA_PATCH_DENSITY);
+		if (biofield_score < SPIKY_FLORA_PLACEMENT_THRESHOLD) {
+			continue;
+		}
+		const float chance = lerp_float(
+			BIOFIELD_SEAWEED_MIN_DENSITY,
+			BIOFIELD_SEAWEED_MAX_DENSITY,
+			smoothstep01(SPIKY_FLORA_PLACEMENT_THRESHOLD, 0.86f, biofield_score)
+		);
+		if (density_roll > chance) {
+			continue;
+		}
+		bool too_close = false;
+		const float min_distance_sq = BIOFIELD_SEAWEED_MIN_DISTANCE_PX * BIOFIELD_SEAWEED_MIN_DISTANCE_PX;
+		for (const std::pair<float, float> &existing : placed_spiky_positions) {
+			const float dx = local_x - existing.first;
+			const float dy = local_y - existing.second;
+			if (dx * dx + dy * dy < min_distance_sq) {
+				too_close = true;
+				break;
+			}
+		}
+		if (too_close) {
+			continue;
+		}
+		const float size_roll = std::pow(object_unit(candidate_hash, 0x107ULL), BIOFIELD_SEAWEED_SIZE_EXPONENT);
+		float size_px = lerp_float(BIOFIELD_SEAWEED_MIN_SIZE_PX, BIOFIELD_SEAWEED_MAX_SIZE_PX, size_roll);
+		size_px *= lerp_float(0.92f, 1.08f, world_utils::clamp_value(biofield_score, 0.0f, 1.0f));
+		const int32_t frame_index = static_cast<int32_t>(std::floor(object_unit(candidate_hash, 0x151ULL) * 4.0f)) % 4;
+		const float tint = lerp_float(0.90f, 1.0f, object_unit(candidate_hash, 0x127ULL));
+		const float phase = object_unit(candidate_hash, 0x139ULL);
+		append_object_record(
+			r_buffers,
+			OBJECT_KIND_SPIKY_FLORA,
+			local_x,
+			local_y,
+			size_px,
+			SPIKY_FLORA_ATLAS_BROWN_SEAWEED,
+			static_cast<uint8_t>(frame_index),
+			0U,
+			tint,
+			phase
+		);
+		placed_spiky_positions.push_back({ local_x, local_y });
+		++biofield_seaweed_count;
+	}
 }
 
 int32_t make_satellite_outcrop_mountain_id(uint64_t p_hash) {
@@ -2217,6 +2688,16 @@ Dictionary WorldCore::_generate_chunk_packet(
 		}
 	}
 
+	WorldObjectPacketBuffers object_buffers;
+	append_native_object_placements(
+		object_buffers,
+		p_seed,
+		p_coord,
+		p_world_version,
+		terrain_ids,
+		lake_flags
+	);
+
 	Dictionary packet;
 	packet["chunk_coord"] = p_coord;
 	packet["world_seed"] = p_seed;
@@ -2228,6 +2709,15 @@ Dictionary WorldCore::_generate_chunk_packet(
 	packet["mountain_id_per_tile"] = mountain_id_per_tile;
 	packet["mountain_flags"] = mountain_flags;
 	packet["mountain_atlas_indices"] = mountain_atlas_indices;
+	packet["object_kind"] = make_packed_byte_array(object_buffers.kind);
+	packet["object_local_x_px_q4"] = make_packed_byte_array(object_buffers.local_x_px_q4);
+	packet["object_local_y_px_q4"] = make_packed_byte_array(object_buffers.local_y_px_q4);
+	packet["object_size_px"] = make_packed_byte_array(object_buffers.size_px);
+	packet["object_atlas_index"] = make_packed_byte_array(object_buffers.atlas_index);
+	packet["object_variant"] = make_packed_byte_array(object_buffers.variant);
+	packet["object_flags"] = make_packed_byte_array(object_buffers.flags);
+	packet["object_tint"] = make_packed_byte_array(object_buffers.tint);
+	packet["object_phase"] = make_packed_byte_array(object_buffers.phase);
 	return packet;
 }
 

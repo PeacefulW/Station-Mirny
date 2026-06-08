@@ -1,0 +1,48 @@
+{
+  "source": "M:/Downloads/brown+seaweed+3d+model.glb",
+  "sprite_sheet": "brown_seaweed_static_biofield_4x512.png",
+  "frame_count": 4,
+  "unique_variant_count": 4,
+  "columns": 4,
+  "rows": 1,
+  "frame_width": 512,
+  "frame_height": 512,
+  "camera": "orthographic top-front, 63 degree elevation, no side yaw",
+  "shadows": "cycles two-pass render; real ground shadow pass composited under sprite",
+  "postprocess": "two-pass object/shadow composite; slight bottom darken applied to object pixels",
+  "native_packet_compatibility": "static biofield flora atlas index 1; four variants selected by object_variant",
+  "frames": [
+    {
+      "index": 0,
+      "angle_degrees": 0,
+      "x": 0,
+      "y": 0,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 1,
+      "angle_degrees": 90,
+      "x": 512,
+      "y": 0,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 2,
+      "angle_degrees": 180,
+      "x": 1024,
+      "y": 0,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "index": 3,
+      "angle_degrees": 270,
+      "x": 1536,
+      "y": 0,
+      "width": 512,
+      "height": 512
+    }
+  ]
+}

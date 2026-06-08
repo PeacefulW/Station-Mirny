@@ -1,0 +1,88 @@
+{
+  "asset": "orange_spiky_plant",
+  "source_glb": "M:\\Downloads\\orange+spiky+plant+3d+model.glb",
+  "atlas": "orange_spiky_plant_spritesheet_4x512.png",
+  "columns": 4,
+  "rows": 1,
+  "frame_width": 512,
+  "frame_height": 512,
+  "frame_count": 4,
+  "rotations_degrees": [
+    0,
+    90,
+    180,
+    270
+  ],
+  "camera": "orthographic opposite top-front/game-facing, 63 degree elevation",
+  "camera_y_sign": 1.0,
+  "screen_space_rotation_degrees": 0,
+  "lighting": "Cycles two-pass render; top sun with slight front tilt; real ground shadows composited under sprite",
+  "postprocess": "two-pass object/shadow composite when pass files exist; slight bottom darken applied to object pixels",
+  "placement": "runtime uses fixed frame 0; camera side is baked into the atlas instead of rotating the sprite in game",
+  "frames": [
+    {
+      "index": 0,
+      "degrees": 0,
+      "file": "orange_spiky_plant_rot_00_000deg.png",
+      "raw_file": "orange_spiky_plant_rot_00_000deg_raw.png",
+      "object_file": "orange_spiky_plant_rot_00_000deg_object.png",
+      "shadow_file": "orange_spiky_plant_rot_00_000deg_shadow.png",
+      "alpha_bbox": [
+        71,
+        56,
+        440,
+        466
+      ],
+      "visible_width": 369,
+      "visible_height": 410
+    },
+    {
+      "index": 1,
+      "degrees": 90,
+      "file": "orange_spiky_plant_rot_01_090deg.png",
+      "raw_file": "orange_spiky_plant_rot_01_090deg_raw.png",
+      "object_file": "orange_spiky_plant_rot_01_090deg_object.png",
+      "shadow_file": "orange_spiky_plant_rot_01_090deg_shadow.png",
+      "alpha_bbox": [
+        66,
+        60,
+        446,
+        460
+      ],
+      "visible_width": 380,
+      "visible_height": 400
+    },
+    {
+      "index": 2,
+      "degrees": 180,
+      "file": "orange_spiky_plant_rot_02_180deg.png",
+      "raw_file": "orange_spiky_plant_rot_02_180deg_raw.png",
+      "object_file": "orange_spiky_plant_rot_02_180deg_object.png",
+      "shadow_file": "orange_spiky_plant_rot_02_180deg_shadow.png",
+      "alpha_bbox": [
+        72,
+        69,
+        441,
+        466
+      ],
+      "visible_width": 369,
+      "visible_height": 397
+    },
+    {
+      "index": 3,
+      "degrees": 270,
+      "file": "orange_spiky_plant_rot_03_270deg.png",
+      "raw_file": "orange_spiky_plant_rot_03_270deg_raw.png",
+      "object_file": "orange_spiky_plant_rot_03_270deg_object.png",
+      "shadow_file": "orange_spiky_plant_rot_03_270deg_shadow.png",
+      "alpha_bbox": [
+        66,
+        55,
+        446,
+        460
+      ],
+      "visible_width": 380,
+      "visible_height": 405
+    }
+  ]
+}
