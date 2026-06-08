@@ -12,8 +12,10 @@ const OBJECT_LOCAL_PX_QUANTUM: float = 4.0
 const ROCK_FRAME_COLUMNS: int = 8
 const ROCK_FRAME_ROWS: int = 4
 const ROCK_FRAME_COUNT: int = 32
+const RARE_ROCK_FORMATION_ATLAS_INDEX: int = 3
 const ROCK_COLLISION_LAYER: int = 2
 const ROCK_COLLISION_RADIUS_SCALE: float = 0.32
+const RARE_ROCK_FORMATION_COLLISION_RADIUS_SCALE: float = 0.22
 const ROCK_SHADOW_WIDTH_SCALE: float = 0.92
 const ROCK_SHADOW_HEIGHT_SCALE: float = 0.30
 const ROCK_SHADOW_CENTER_Y_SCALE: float = 0.30
@@ -208,13 +210,15 @@ func _append_rock(
 		position + Vector2(0.0, size_px * ROCK_SHADOW_CENTER_Y_SCALE),
 		shadow_size,
 		0,
-		Color(1.0, 1.0, 1.0, 0.92),
+		Color(1.0, 1.0, 1.0, 0.58 if atlas_index == RARE_ROCK_FORMATION_ATLAS_INDEX else 0.92),
 		0.0,
 		phase,
 		maxf(size_px / 64.0, ROCK_SHADOW_MIN_PROJECTED_SCALE)
 	)
 	if (flags & OBJECT_FLAG_COLLIDER) != 0:
 		var collision_radius: float = clampf(size_px * ROCK_COLLISION_RADIUS_SCALE, 10.0, 18.0)
+		if atlas_index == RARE_ROCK_FORMATION_ATLAS_INDEX:
+			collision_radius = clampf(size_px * RARE_ROCK_FORMATION_COLLISION_RADIUS_SCALE, 30.0, 56.0)
 		collision_records.append({
 			"position": position + Vector2(0.0, size_px * 0.18),
 			"radius": collision_radius,

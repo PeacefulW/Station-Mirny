@@ -118,6 +118,12 @@ flora atlas index `1`, must pass the deterministic orange biofield mask before
 placement, and must not add collision, harvesting, save identity, commands,
 events, or per-object scene nodes.
 
+The amendment also allows a narrow rare large rocky-patch object in the rock
+family. It is emitted as native object packet records with rock atlas index `3`,
+must pass the deterministic rocky ground patch mask before placement, and uses
+the same chunk-scoped large-rock collision proof. It does not create terrain ids,
+save identity, commands, events, or per-object scene nodes.
+
 ## Law 0 Classification
 
 | Question | V0 answer |
@@ -155,7 +161,7 @@ Required fields:
 |---|---|---|
 | `chunk_coord` | `Vector2i` | canonical chunk coordinate |
 | `world_seed` | `int` | copied into the packet for validation/debug |
-| `world_version` | `int` | first V0 runtime value starts at `1`; current active contract is `49` |
+| `world_version` | `int` | first V0 runtime value starts at `1`; current active contract is `50` |
 | `terrain_ids` | `PackedInt32Array` | length `256`, one terrain id per local tile |
 | `terrain_atlas_indices` | `PackedInt32Array` | length `256`, derived presentation atlas index per local tile |
 | `walkable_flags` | `PackedByteArray` | length `256`, `1 = walkable`, `0 = blocked` |
@@ -168,7 +174,7 @@ Approved additive visual object fields:
 | `object_local_x_px_q4` | `PackedByteArray` | chunk-local pixel X quantized to `4 px` |
 | `object_local_y_px_q4` | `PackedByteArray` | chunk-local pixel Y quantized to `4 px` |
 | `object_size_px` | `PackedByteArray` | rendered sprite size in pixels |
-| `object_atlas_index` | `PackedByteArray` | prepared atlas bank index for the family; spiky flora index `1` is the small static brown seaweed biofield object |
+| `object_atlas_index` | `PackedByteArray` | prepared atlas bank index for the family; spiky flora index `1` is the small static brown seaweed biofield object; rock index `3` is the rare large rocky-patch rock formation |
 | `object_variant` | `PackedByteArray` | atlas frame / animation view variant |
 | `object_flags` | `PackedByteArray` | visual/physics proof flags; bit `0` = large-rock collision |
 | `object_tint` | `PackedByteArray` | `0..255` presentation tint scalar |

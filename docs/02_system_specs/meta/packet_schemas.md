@@ -251,12 +251,18 @@ Current code notes:
   pockets, and gorges inside mountain masses. `ChunkPacketV1` shape is
   unchanged because carved openings are represented by existing terrain,
   walkability, and mountain fields.
-- `world_version == 49` is the current static biofield flora placement
+- `world_version == 49` is the historical static biofield flora placement
   boundary: native object packets may emit spiky flora family atlas index `1`
   as a small static brown seaweed object only when its deterministic center
   passes the orange biofield mask. `ChunkPacketV1` shape is unchanged because
   the object uses existing visual object arrays and does not add collision,
   save identity, commands, or events.
+- `world_version == 50` is the current rare rocky-patch rock formation
+  placement boundary: native object packets may emit rock family atlas index
+  `3` as a sparse large object only when its deterministic center and clearance
+  samples pass the rocky ground patch mask. `ChunkPacketV1` shape is unchanged
+  because the object uses existing visual object arrays and the existing
+  large-rock collision flag.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded
@@ -588,7 +594,9 @@ Current code notes:
   `ChunkDiffFile` and must not be written into chunk diff JSON.
 - active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain either resolves into named mountain output or stays on the ground path at the hierarchical scale cutoff
 - `object_kind == 1` uses rock atlas bank indices `0..2` for ordinary loose
-  plains rocks.
+  plains rocks and index `3` for the rare large rocky-patch rock formation.
+  Index `3` is still an immutable generated presentation record plus the
+  existing large-rock collision proof, not saved gameplay object state.
 - `object_kind == 3` uses static biofield flora atlas bank index `0` for the
   orange spiky plant and index `1` for the small brown seaweed object. Both are
   immutable generated presentation records, not saved gameplay object state.

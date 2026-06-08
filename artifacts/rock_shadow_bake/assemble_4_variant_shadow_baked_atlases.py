@@ -39,6 +39,13 @@ ASSETS = [
         "atlas": Path("assets/sprites/resources/atlases/plains_volcanic_rock_atlas.png"),
         "metadata": Path("assets/sprites/resources/atlases/plains_volcanic_rock_atlas.json"),
     },
+    {
+        "name": "rock_formation",
+        "source": "M:/Downloads/rock+formation+3d+model.glb",
+        "frames": Path("artifacts/rock_shadow_bake/rock_formation/frames_512_4variant"),
+        "atlas": Path("assets/sprites/resources/atlases/plains_rare_rock_formation_atlas.png"),
+        "metadata": Path("assets/sprites/resources/atlases/plains_rare_rock_formation_atlas.json"),
+    },
 ]
 
 

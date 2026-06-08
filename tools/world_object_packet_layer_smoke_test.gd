@@ -14,6 +14,7 @@ const DefaultMountainGenSettings = preload("res://data/balance/mountain_gen_sett
 const OBJECT_KIND_ROCK: int = 1
 const OBJECT_KIND_LIVING_FLORA: int = 2
 const OBJECT_KIND_SPIKY_FLORA: int = 3
+const ROCK_ATLAS_RARE_FORMATION: int = 3
 const SPIKY_FLORA_ATLAS_BROWN_SEAWEED: int = 1
 const OBJECT_FIELD_NAMES: Array[String] = [
 	"object_kind",
@@ -49,8 +50,8 @@ func _find_native_packet_with_objects() -> Dictionary:
 
 	var coords := PackedVector2Array()
 	var center_chunk := Vector2i(128, 64)
-	for y_offset: int in range(32):
-		for x_offset: int in range(32):
+	for y_offset: int in range(64):
+		for x_offset: int in range(64):
 			coords.append(Vector2(center_chunk.x + x_offset, center_chunk.y + y_offset))
 
 	var packets_variant: Variant = world_core.call(
@@ -71,6 +72,7 @@ func _find_native_packet_with_objects() -> Dictionary:
 	var best_spiky_count: int = 0
 	var best_living_count: int = 0
 	var best_brown_seaweed_count: int = 0
+	var best_rare_rock_formation_count: int = 0
 	for packet_variant: Variant in packets:
 		var packet: Dictionary = packet_variant as Dictionary
 		var object_kind: PackedByteArray = packet.get("object_kind", PackedByteArray()) as PackedByteArray
@@ -79,6 +81,7 @@ func _find_native_packet_with_objects() -> Dictionary:
 		var spiky_count: int = _count_kind(object_kind, OBJECT_KIND_SPIKY_FLORA)
 		var living_count: int = _count_kind(object_kind, OBJECT_KIND_LIVING_FLORA)
 		var brown_seaweed_count: int = _count_kind_atlas(object_kind, object_atlas, OBJECT_KIND_SPIKY_FLORA, SPIKY_FLORA_ATLAS_BROWN_SEAWEED)
+		var rare_rock_formation_count: int = _count_kind_atlas(object_kind, object_atlas, OBJECT_KIND_ROCK, ROCK_ATLAS_RARE_FORMATION)
 		if object_kind.size() > best_object_count:
 			best_packet = packet
 			best_object_count = object_kind.size()
@@ -86,22 +89,25 @@ func _find_native_packet_with_objects() -> Dictionary:
 			best_spiky_count = spiky_count
 			best_living_count = living_count
 			best_brown_seaweed_count = brown_seaweed_count
-		if rock_count > 0 and spiky_count > 0 and brown_seaweed_count > 0:
+			best_rare_rock_formation_count = rare_rock_formation_count
+		if rock_count > 0 and spiky_count > 0 and brown_seaweed_count > 0 and rare_rock_formation_count > 0:
 			best_packet = packet
 			best_object_count = object_kind.size()
 			best_rock_count = rock_count
 			best_spiky_count = spiky_count
 			best_living_count = living_count
 			best_brown_seaweed_count = brown_seaweed_count
+			best_rare_rock_formation_count = rare_rock_formation_count
 			break
 
 	_assert(best_object_count > 0, "Native object packet scan produced no objects.")
 	_assert(best_rock_count > 0, "Native object packet scan produced no rock objects.")
 	_assert(best_spiky_count > 0, "Native object packet scan produced no spiky flora objects.")
 	_assert(best_brown_seaweed_count > 0, "Native object packet scan produced no brown seaweed biofield flora objects.")
+	_assert(best_rare_rock_formation_count > 0, "Native object packet scan produced no rare rock formation objects.")
 	print(
-		"WORLD_OBJECT_PACKET_NATIVE objects=%d rocks=%d living=%d spiky=%d brown_seaweed=%d" %
-		[best_object_count, best_rock_count, best_living_count, best_spiky_count, best_brown_seaweed_count]
+		"WORLD_OBJECT_PACKET_NATIVE objects=%d rocks=%d living=%d spiky=%d brown_seaweed=%d rare_rock_formation=%d" %
+		[best_object_count, best_rock_count, best_living_count, best_spiky_count, best_brown_seaweed_count, best_rare_rock_formation_count]
 	)
 	return best_packet
 
@@ -124,7 +130,7 @@ func _assert_packet_arrays(packet: Dictionary) -> void:
 func _assert_packet_layer_consumes_packet(packet: Dictionary) -> void:
 	var layer := WorldObjectPacketLayer.new()
 	root.add_child(layer)
-	layer.set_rock_atlases([_make_texture(2048, 512), _make_texture(2048, 512), _make_texture(2048, 512)])
+	layer.set_rock_atlases([_make_texture(2048, 512), _make_texture(2048, 512), _make_texture(2048, 512), _make_texture(2048, 512)])
 	layer.set_living_flora_atlas(_make_texture(4096, 1024))
 	layer.set_spiky_flora_atlases([_make_texture(2048, 512), _make_texture(2048, 512)])
 	layer.configure_packet(packet)

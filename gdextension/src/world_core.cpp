@@ -115,7 +115,7 @@ constexpr uint8_t OBJECT_FLAG_COLLIDER = 1U << 0U;
 constexpr int32_t OBJECT_LOCAL_PX_QUANTUM = 4;
 
 constexpr int32_t ROCK_FRAME_COUNT = 32;
-constexpr int32_t ROCK_ATLAS_COUNT = 3;
+constexpr int32_t ROCK_ATLAS_COUNT = 4;
 constexpr int32_t ROCK_SCATTER_GRID_SIDE = 8;
 constexpr float ROCK_PRIMARY_DENSITY = 0.23f;
 constexpr float ROCK_SATELLITE_DENSITY = 0.18f;
@@ -123,6 +123,19 @@ constexpr float ROCK_VOLCANIC_CHANCE = 0.08f;
 constexpr float ROCK_EDGE_PADDING_PX = 18.0f;
 constexpr float ROCK_VISUAL_SCALE = 0.5f;
 constexpr float ROCK_LARGE_COLLISION_MIN_SIZE_PX = 42.0f;
+constexpr uint8_t RARE_ROCK_FORMATION_ATLAS_INDEX = 3U;
+constexpr int32_t RARE_ROCK_FORMATION_VARIANT_COUNT = 4;
+constexpr float RARE_ROCK_FORMATION_PATCH_CELL_PX = 1280.0f;
+constexpr float RARE_ROCK_FORMATION_PATCH_DENSITY = 0.54f;
+constexpr float RARE_ROCK_FORMATION_PATCH_THRESHOLD = 0.62f;
+constexpr float RARE_ROCK_FORMATION_PATCH_CLEARANCE_THRESHOLD = 0.30f;
+constexpr float RARE_ROCK_FORMATION_PLACEMENT_CELL_PX = 2048.0f;
+constexpr int32_t RARE_ROCK_FORMATION_MAX_PER_CHUNK = 1;
+constexpr float RARE_ROCK_FORMATION_EDGE_PADDING_PX = 112.0f;
+constexpr float RARE_ROCK_FORMATION_TERRAIN_CLEARANCE_PX = 96.0f;
+constexpr float RARE_ROCK_FORMATION_PATCH_CLEARANCE_PX = 96.0f;
+constexpr float RARE_ROCK_FORMATION_MIN_SIZE_PX = 214.0f;
+constexpr float RARE_ROCK_FORMATION_MAX_SIZE_PX = 255.0f;
 
 constexpr int32_t LIVING_FLORA_SCATTER_GRID_SIDE = 10;
 constexpr float LIVING_FLORA_PRIMARY_DENSITY = 0.42f;
@@ -586,6 +599,22 @@ float object_fbm2(float p_x, float p_y) {
 	return value / std::max(total, 0.0001f);
 }
 
+float object_rock_patch_fbm2(float p_x, float p_y) {
+	float x = p_x;
+	float y = p_y;
+	float value = 0.0f;
+	float amplitude = 0.56f;
+	float total = 0.0f;
+	for (int32_t index = 0; index < 4; ++index) {
+		value += object_value_noise(x, y) * amplitude;
+		total += amplitude;
+		x = x * 2.03f + 19.7f;
+		y = y * 2.03f - 11.2f;
+		amplitude *= 0.48f;
+	}
+	return value / std::max(total, 0.0001f);
+}
+
 float object_organic_region_mask(float p_world_px_x, float p_world_px_y, float p_cell_px, float p_density) {
 	const float px = p_world_px_x / std::max(p_cell_px, 1.0f);
 	const float py = p_world_px_y / std::max(p_cell_px, 1.0f);
@@ -605,6 +634,29 @@ float object_organic_region_mask(float p_world_px_x, float p_world_px_y, float p
 	const float erosion = object_fbm2(wx * 8.5f - 3.0f, wy * 8.5f + 103.0f);
 	region = world_utils::clamp_value(region + (erosion - 0.52f) * 0.18f, 0.0f, 1.0f);
 	return smoothstep01(0.16f, 0.86f, region);
+}
+
+float object_rock_patch_mask(float p_world_px_x, float p_world_px_y, float p_cell_px, float p_density) {
+	const float px = p_world_px_x / std::max(p_cell_px, 1.0f);
+	const float py = p_world_px_y / std::max(p_cell_px, 1.0f);
+	const float broad_warp_x = object_rock_patch_fbm2(px * 0.56f - 18.0f, py * 0.56f + 42.0f) - 0.5f;
+	const float broad_warp_y = object_rock_patch_fbm2(px * 0.61f + 73.0f, py * 0.61f - 15.0f) - 0.5f;
+	const float local_warp_x = object_rock_patch_fbm2(px * 1.73f + 9.0f, py * 1.73f + 84.0f) - 0.5f;
+	const float local_warp_y = object_rock_patch_fbm2(px * 1.58f - 61.0f, py * 1.58f + 23.0f) - 0.5f;
+	const float wx = px + broad_warp_x * 1.65f + local_warp_x * 0.50f;
+	const float wy = py + broad_warp_y * 1.65f + local_warp_y * 0.50f;
+
+	const float large_regions = object_rock_patch_fbm2(wx * 0.82f + 14.0f, wy * 0.82f - 37.0f);
+	const float medium_cut = object_rock_patch_fbm2(wx * 2.75f - 41.0f, wy * 2.75f + 18.0f);
+	const float edge_breakup = object_rock_patch_fbm2(wx * 6.8f + 87.0f, wy * 6.8f + 36.0f);
+	float field = large_regions * 0.76f + medium_cut * 0.16f + edge_breakup * 0.08f;
+	field += (edge_breakup - 0.5f) * 0.13f;
+
+	const float threshold = lerp_float(0.82f, 0.50f, world_utils::clamp_value(p_density, 0.0f, 1.0f));
+	float region = smoothstep01(threshold - 0.055f, threshold + 0.095f, field);
+	const float erosion = object_rock_patch_fbm2(wx * 9.6f + 51.0f, wy * 9.6f - 103.0f);
+	region = world_utils::clamp_value(region + (erosion - 0.54f) * 0.16f, 0.0f, 1.0f);
+	return smoothstep01(0.20f, 0.92f, region);
 }
 
 PackedByteArray make_packed_byte_array(const std::vector<uint8_t> &p_values) {
@@ -681,6 +733,26 @@ bool object_position_is_plain_with_clearance(
 			object_position_is_plain(p_local_x_px - diagonal_clearance, p_local_y_px - diagonal_clearance, p_terrain_ids, p_lake_flags);
 }
 
+bool object_rare_rock_patch_has_clearance(float p_world_px_x, float p_world_px_y) {
+	if (object_rock_patch_mask(
+				p_world_px_x,
+				p_world_px_y,
+				RARE_ROCK_FORMATION_PATCH_CELL_PX,
+				RARE_ROCK_FORMATION_PATCH_DENSITY) < RARE_ROCK_FORMATION_PATCH_THRESHOLD) {
+		return false;
+	}
+	const float clearance = RARE_ROCK_FORMATION_PATCH_CLEARANCE_PX;
+	const float diagonal_clearance = clearance * 0.72f;
+	return object_rock_patch_mask(p_world_px_x + clearance, p_world_px_y, RARE_ROCK_FORMATION_PATCH_CELL_PX, RARE_ROCK_FORMATION_PATCH_DENSITY) >= RARE_ROCK_FORMATION_PATCH_CLEARANCE_THRESHOLD &&
+			object_rock_patch_mask(p_world_px_x - clearance, p_world_px_y, RARE_ROCK_FORMATION_PATCH_CELL_PX, RARE_ROCK_FORMATION_PATCH_DENSITY) >= RARE_ROCK_FORMATION_PATCH_CLEARANCE_THRESHOLD &&
+			object_rock_patch_mask(p_world_px_x, p_world_px_y + clearance, RARE_ROCK_FORMATION_PATCH_CELL_PX, RARE_ROCK_FORMATION_PATCH_DENSITY) >= RARE_ROCK_FORMATION_PATCH_CLEARANCE_THRESHOLD &&
+			object_rock_patch_mask(p_world_px_x, p_world_px_y - clearance, RARE_ROCK_FORMATION_PATCH_CELL_PX, RARE_ROCK_FORMATION_PATCH_DENSITY) >= RARE_ROCK_FORMATION_PATCH_CLEARANCE_THRESHOLD &&
+			object_rock_patch_mask(p_world_px_x + diagonal_clearance, p_world_px_y + diagonal_clearance, RARE_ROCK_FORMATION_PATCH_CELL_PX, RARE_ROCK_FORMATION_PATCH_DENSITY) >= RARE_ROCK_FORMATION_PATCH_CLEARANCE_THRESHOLD &&
+			object_rock_patch_mask(p_world_px_x - diagonal_clearance, p_world_px_y + diagonal_clearance, RARE_ROCK_FORMATION_PATCH_CELL_PX, RARE_ROCK_FORMATION_PATCH_DENSITY) >= RARE_ROCK_FORMATION_PATCH_CLEARANCE_THRESHOLD &&
+			object_rock_patch_mask(p_world_px_x + diagonal_clearance, p_world_px_y - diagonal_clearance, RARE_ROCK_FORMATION_PATCH_CELL_PX, RARE_ROCK_FORMATION_PATCH_DENSITY) >= RARE_ROCK_FORMATION_PATCH_CLEARANCE_THRESHOLD &&
+			object_rock_patch_mask(p_world_px_x - diagonal_clearance, p_world_px_y - diagonal_clearance, RARE_ROCK_FORMATION_PATCH_CELL_PX, RARE_ROCK_FORMATION_PATCH_DENSITY) >= RARE_ROCK_FORMATION_PATCH_CLEARANCE_THRESHOLD;
+}
+
 void append_native_rock_object(
 	WorldObjectPacketBuffers &r_buffers,
 	Vector2i p_coord,
@@ -735,6 +807,103 @@ void append_native_rock_object(
 	append_object_record(r_buffers, OBJECT_KIND_ROCK, p_local_x_px, p_local_y_px, size_px, atlas_index, static_cast<uint8_t>(frame_index), flags, tint, phase);
 }
 
+bool append_native_rare_rock_formation_object(
+	WorldObjectPacketBuffers &r_buffers,
+	Vector2i p_coord,
+	const PackedInt32Array &p_terrain_ids,
+	const PackedByteArray &p_lake_flags,
+	float p_local_x_px,
+	float p_local_y_px,
+	uint64_t p_salt
+) {
+	if (p_local_x_px < RARE_ROCK_FORMATION_EDGE_PADDING_PX ||
+			p_local_y_px < RARE_ROCK_FORMATION_EDGE_PADDING_PX ||
+			p_local_x_px > static_cast<float>(CHUNK_SIZE_PX) - RARE_ROCK_FORMATION_EDGE_PADDING_PX ||
+			p_local_y_px > static_cast<float>(CHUNK_SIZE_PX) - RARE_ROCK_FORMATION_EDGE_PADDING_PX ||
+			!object_position_is_plain_with_clearance(
+					p_local_x_px,
+					p_local_y_px,
+					p_terrain_ids,
+					p_lake_flags,
+					RARE_ROCK_FORMATION_TERRAIN_CLEARANCE_PX)) {
+		return false;
+	}
+	const float world_px_x = static_cast<float>(static_cast<int64_t>(p_coord.x) * CHUNK_SIZE_PX) + p_local_x_px;
+	const float world_px_y = static_cast<float>(static_cast<int64_t>(p_coord.y) * CHUNK_SIZE_PX) + p_local_y_px;
+	if (!object_rare_rock_patch_has_clearance(world_px_x, world_px_y)) {
+		return false;
+	}
+
+	const float patch_score = object_rock_patch_mask(
+		world_px_x,
+		world_px_y,
+		RARE_ROCK_FORMATION_PATCH_CELL_PX,
+		RARE_ROCK_FORMATION_PATCH_DENSITY
+	);
+	float size_px = lerp_float(RARE_ROCK_FORMATION_MIN_SIZE_PX, RARE_ROCK_FORMATION_MAX_SIZE_PX, object_unit(p_salt, 0x107ULL));
+	size_px *= lerp_float(0.96f, 1.04f, world_utils::clamp_value(patch_score, 0.0f, 1.0f));
+	size_px = world_utils::clamp_value(size_px, RARE_ROCK_FORMATION_MIN_SIZE_PX, RARE_ROCK_FORMATION_MAX_SIZE_PX);
+	const int32_t frame_index = static_cast<int32_t>(std::floor(object_unit(p_salt, 0x97ULL) * static_cast<float>(RARE_ROCK_FORMATION_VARIANT_COUNT))) % RARE_ROCK_FORMATION_VARIANT_COUNT;
+	const float tint = lerp_float(0.90f, 1.0f, object_unit(p_salt, 0x67ULL));
+	const float phase = object_unit(p_salt, 0x157ULL);
+	append_object_record(
+		r_buffers,
+		OBJECT_KIND_ROCK,
+		p_local_x_px,
+		p_local_y_px,
+		size_px,
+		RARE_ROCK_FORMATION_ATLAS_INDEX,
+		static_cast<uint8_t>(frame_index),
+		OBJECT_FLAG_COLLIDER,
+		tint,
+		phase
+	);
+	return true;
+}
+
+void append_native_rare_rock_formation_placements(
+	WorldObjectPacketBuffers &r_buffers,
+	int64_t p_seed,
+	Vector2i p_coord,
+	int64_t p_world_version,
+	const PackedInt32Array &p_terrain_ids,
+	const PackedByteArray &p_lake_flags
+) {
+	const float chunk_min_world_x = static_cast<float>(static_cast<int64_t>(p_coord.x) * CHUNK_SIZE_PX);
+	const float chunk_min_world_y = static_cast<float>(static_cast<int64_t>(p_coord.y) * CHUNK_SIZE_PX);
+	const float chunk_max_world_x = chunk_min_world_x + static_cast<float>(CHUNK_SIZE_PX);
+	const float chunk_max_world_y = chunk_min_world_y + static_cast<float>(CHUNK_SIZE_PX);
+	const float jitter_margin = RARE_ROCK_FORMATION_PLACEMENT_CELL_PX * 0.36f;
+	const int64_t min_cell_x = static_cast<int64_t>(std::floor((chunk_min_world_x - jitter_margin) / RARE_ROCK_FORMATION_PLACEMENT_CELL_PX));
+	const int64_t min_cell_y = static_cast<int64_t>(std::floor((chunk_min_world_y - jitter_margin) / RARE_ROCK_FORMATION_PLACEMENT_CELL_PX));
+	const int64_t max_cell_x = static_cast<int64_t>(std::floor((chunk_max_world_x + jitter_margin) / RARE_ROCK_FORMATION_PLACEMENT_CELL_PX));
+	const int64_t max_cell_y = static_cast<int64_t>(std::floor((chunk_max_world_y + jitter_margin) / RARE_ROCK_FORMATION_PLACEMENT_CELL_PX));
+	int32_t placed_count = 0;
+	for (int64_t cell_y = min_cell_y; cell_y <= max_cell_y && placed_count < RARE_ROCK_FORMATION_MAX_PER_CHUNK; ++cell_y) {
+		for (int64_t cell_x = min_cell_x; cell_x <= max_cell_x && placed_count < RARE_ROCK_FORMATION_MAX_PER_CHUNK; ++cell_x) {
+			const uint64_t cell_hash = object_hash4(cell_x, cell_y, p_seed, p_world_version ^ static_cast<int64_t>(0x517d4b36ULL));
+			const float world_px_x = (static_cast<float>(cell_x) + 0.5f + (object_unit(cell_hash, 0x41ULL) - 0.5f) * 0.72f) * RARE_ROCK_FORMATION_PLACEMENT_CELL_PX;
+			const float world_px_y = (static_cast<float>(cell_y) + 0.5f + (object_unit(cell_hash, 0x53ULL) - 0.5f) * 0.72f) * RARE_ROCK_FORMATION_PLACEMENT_CELL_PX;
+			if (world_px_x < chunk_min_world_x ||
+					world_px_y < chunk_min_world_y ||
+					world_px_x >= chunk_max_world_x ||
+					world_px_y >= chunk_max_world_y) {
+				continue;
+			}
+			if (append_native_rare_rock_formation_object(
+					r_buffers,
+					p_coord,
+					p_terrain_ids,
+					p_lake_flags,
+					world_px_x - chunk_min_world_x,
+					world_px_y - chunk_min_world_y,
+					cell_hash)) {
+				++placed_count;
+			}
+		}
+	}
+}
+
 void append_native_object_placements(
 	WorldObjectPacketBuffers &r_buffers,
 	int64_t p_seed,
@@ -776,6 +945,7 @@ void append_native_object_placements(
 			}
 		}
 	}
+	append_native_rare_rock_formation_placements(r_buffers, p_seed, p_coord, p_world_version, p_terrain_ids, p_lake_flags);
 
 	int32_t living_count = 0;
 	const float living_cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(LIVING_FLORA_SCATTER_GRID_SIDE);

@@ -65,8 +65,9 @@ boundary, `WORLD_VERSION = 44` carries the grid-contract boundary,
 `WORLD_VERSION = 46` carries the historical clustered satellite-outcrop
 boundary, `WORLD_VERSION = 47` carries the strengthened satellite-outcrop
 boundary, `WORLD_VERSION = 48` carries the mountain passage/outcrop refinement
-boundary, and current `WORLD_VERSION = 49` carries the static biofield flora
-placement boundary.
+boundary, `WORLD_VERSION = 49` carries the static biofield flora placement
+boundary, and current `WORLD_VERSION = 50` carries the rare rocky-patch rock
+formation placement boundary.
 L3 water presentation is landed:
 `ChunkView` now owns the derived
 `WaterSurfaceLayer`, populated from `lake_flags` and current resolved
@@ -149,8 +150,11 @@ from `43` and the grid contract from `44` are unchanged. The mountain
 passage/outcrop refinement advances new worlds to `WORLD_VERSION = 48`
 so deterministic native carve masks can create walkable mountain passages,
 pockets, and gorges without changing lake packet fields.
-The static biofield flora placement boundary advances current new worlds to
+The static biofield flora placement boundary advances new worlds to
 `WORLD_VERSION = 49` without changing lake packet fields or lake algorithms.
+The rare rocky-patch rock formation placement boundary advances current new
+worlds to `WORLD_VERSION = 50`, also without changing lake packet fields or lake
+algorithms.
 
 ## Gameplay Goal
 
@@ -880,11 +884,11 @@ does today: one `(local_x, local_y, terrain_id, walkable)` entry.
 landed, because canonical packet output (`terrain_ids`, `walkable_flags`,
 `lake_flags`) changed for the same `(seed, coord)`.
 
-The current active value is `49`. It advances from `48` because native visual
-object placement now emits a small static brown seaweed object on the
-deterministic orange biofield mask, without changing the lake algorithm itself.
+The current active value is `50`. It advances from `49` because native visual
+object placement now emits a rare large rock formation on the deterministic
+rocky ground patch mask, without changing the lake algorithm itself.
 
-`world_version <= 48` is a historical algorithm / grid / object-placement
+`world_version <= 49` is a historical algorithm / grid / object-placement
 boundary and is rejected
 by the active pre-alpha loader.
 

@@ -53,6 +53,7 @@ const PLAINS_ROCK_SCATTER_ENABLED: bool = true
 const PLAINS_ROCK_ATLAS_1: Texture2D = preload("res://assets/sprites/resources/atlases/plains_rock_1_atlas.png")
 const PLAINS_ROCK_ATLAS_2: Texture2D = preload("res://assets/sprites/resources/atlases/plains_rock_2_atlas.png")
 const PLAINS_VOLCANIC_ROCK_ATLAS: Texture2D = preload("res://assets/sprites/resources/atlases/plains_volcanic_rock_atlas.png")
+const PLAINS_RARE_ROCK_FORMATION_ATLAS: Texture2D = preload("res://assets/sprites/resources/atlases/plains_rare_rock_formation_atlas.png")
 const PLAINS_LIVING_FLORA_ENABLED: bool = false
 const PLAINS_LIVING_FLORA_ATLAS_PATH: String = "res://assets/sprites/flora/atlases/brown_seaweed_living_4views_16frames_256.png"
 const PLAINS_SPIKY_FLORA_ENABLED: bool = true
@@ -2080,12 +2081,13 @@ func _ensure_plains_rock_scatter_sources() -> void:
 	if not PLAINS_ROCK_SCATTER_ENABLED:
 		_plains_rock_scatter_atlases.clear()
 		return
-	if _plains_rock_scatter_atlases.size() == 3:
+	if _plains_rock_scatter_atlases.size() == 4:
 		return
 	_plains_rock_scatter_atlases.clear()
 	_plains_rock_scatter_atlases.append(PLAINS_ROCK_ATLAS_1)
 	_plains_rock_scatter_atlases.append(PLAINS_ROCK_ATLAS_2)
 	_plains_rock_scatter_atlases.append(PLAINS_VOLCANIC_ROCK_ATLAS)
+	_plains_rock_scatter_atlases.append(PLAINS_RARE_ROCK_FORMATION_ATLAS)
 
 func _ensure_plains_living_flora_source() -> void:
 	if not PLAINS_LIVING_FLORA_ENABLED:

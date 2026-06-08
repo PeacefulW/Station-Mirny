@@ -64,6 +64,9 @@ V0 includes only:
   orange biofield patches, using a fixed front/top baked-shadow atlas frame;
 - a narrow small static biofield flora proof restricted to chunk-local orange
   biofield patches, using spiky flora atlas index `1` and no collision;
+- a narrow rare large rock-family proof restricted to chunk-local rocky ground
+  patch coverage, using rock atlas index `3` and the existing loaded large-rock
+  collision proof;
 - asset folder rules for sprites, atlases, and related presentation assets;
 - mod-compatible additive content registration direction for `plains`.
 
@@ -267,7 +270,7 @@ object_kind: PackedByteArray          # V0 family id: 1 rock, 2 living flora, 3 
 object_local_x_px_q4: PackedByteArray # chunk-local pixel X quantized to 4 px
 object_local_y_px_q4: PackedByteArray # chunk-local pixel Y quantized to 4 px
 object_size_px: PackedByteArray       # rendered sprite size in pixels
-object_atlas_index: PackedByteArray   # prepared atlas bank index; spiky flora index 1 is small static brown seaweed
+object_atlas_index: PackedByteArray   # prepared atlas bank index; spiky flora index 1 is small static brown seaweed, rock index 3 is rare rocky-patch rock formation
 object_variant: PackedByteArray       # atlas frame / animation view variant
 object_flags: PackedByteArray         # bit flags; bit 0 = large-rock collision proof
 object_tint: PackedByteArray          # 0..255 presentation tint scalar
@@ -303,6 +306,9 @@ Rules:
 - static biofield flora atlas bank index `0` is the orange spiky plant; index
   `1` is the small brown seaweed object and must pass the same deterministic
   orange biofield mask before emission.
+- rock atlas bank indices `0..2` are ordinary loose plains rocks; rock atlas
+  index `3` is reserved for the rare large rocky-patch rock formation and must
+  pass the deterministic rocky ground patch mask before emission.
 
 ### Batch Presentation Contract
 
@@ -419,6 +425,8 @@ Escalation path:
   and visual-only spiky flora;
 - additive native placement for small static biofield flora objects that reuse
   the spiky flora packet family and atlas index `1`;
+- sparse native placement for rare large rock-family objects that reuse the rock
+  packet family and atlas index `3`;
 - registry-prepared numeric indices for hot packets;
 - `MultiMeshInstance2D` batched rendering for mass presentation;
 - shader-uniform updates for dynamic wind and fake shadows;
@@ -527,6 +535,9 @@ V0 is acceptable when:
 - small static brown seaweed biofield objects are batched through spiky flora
   atlas index `1`, restricted to orange biofield patches, and not emitted as
   scene nodes;
+- rare large rock-family objects are batched through rock atlas index `3`,
+  restricted to rocky ground patch coverage, and use chunk-scoped collision
+  shape owners only;
 - accepted rocks and flora are emitted from the native object packet, not from
   a runtime GDScript scatter generator;
 - large loaded rocks with collision use chunk-scoped shape owners, not one

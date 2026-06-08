@@ -132,15 +132,19 @@ Current world generation extension:
   frequent and spatially varied, and deterministic native carve masks create
   walkable passages, pockets, and gorges inside mountain masses. It does not
   change save payload or chunk-diff shape.
-- `world_version == 49` is the current static biofield flora placement
+- `world_version == 49` is the historical static biofield flora placement
   boundary. It changes deterministic native visual object placement by allowing
   spiky flora atlas index `1` on the same orange biofield mask used by the
   static spiky flora proof. It does not change save payload or chunk-diff shape.
+- `world_version == 50` is the current rare rocky-patch rock formation placement
+  boundary. It changes deterministic native visual object placement by allowing
+  rock atlas index `3` on the same rocky ground patch mask used by presentation.
+  It does not change save payload or chunk-diff shape.
 - Current native visual object packet fields for rocks and flora are immutable
   generated presentation records plus the loaded large-rock collision proof.
   They are regenerated from `world_seed + chunk_coord + world_version` and do
   not extend `world.json` or per-chunk diff files.
-- `WorldRuntimeConstants.WORLD_VERSION` is therefore `49` for current saves;
+- `WorldRuntimeConstants.WORLD_VERSION` is therefore `50` for current saves;
   `38` remains the historical L2 packet boundary and `42` remains the
   historical L7 shore-warp boundary.
 - `worldgen_settings.lakes` stores the embedded per-save lake input copy
