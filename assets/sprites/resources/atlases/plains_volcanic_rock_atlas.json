@@ -10,7 +10,7 @@
   "camera": "orthographic top-front, 63 degree elevation, no side yaw",
   "shadows": "cycles two-pass render; real ground shadow pass composited under sprite",
   "postprocess": "two-pass object/shadow composite; slight bottom darken applied to object pixels",
-  "native_packet_compatibility": "32 frame slots, four unique variants repeated by index % 4",
+  "native_packet_compatibility": "32 frame slots, 4 unique variants repeated by index % 4",
   "frames": [
     {
       "index": 0,

@@ -39,15 +39,16 @@ const MOUNTAIN_HALO_MASK_RADIUS_TILES: int = 2
 const MOUNTAIN_HALO_MASK_PIXELS_PER_TILE: int = 8
 const MOUNTAIN_NATIVE_MASK_RUNTIME_ENABLED: bool = true
 const TERRAIN_EDGE_MASK_RUNTIME_ENABLED: bool = true
+const OBJECT_DEPTH_REFERENCE_QUANTUM_PX: float = 16.0
 const TERRAIN_EDGE_HALO_MASK_RADIUS_TILES: int = 2
 const TERRAIN_EDGE_HALO_MASK_PIXELS_PER_TILE: int = 8
 const TERRAIN_EDGE_TOP_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_top_albedo.png"
 const TERRAIN_EDGE_FACE_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_face_albedo.png"
 const TERRAIN_EDGE_TOP_NORMAL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_top_normal.png"
 const TERRAIN_EDGE_FACE_NORMAL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_face_normal.png"
-const GRASS_BLOB_OVERLAY_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/orange_biofield_albedo.png"
-const GRASS_BLOB_OVERLAY_TEXTURE_PATH_2: String = "res://assets/textures/world/biomes/plains/ground/orange_biofield_albedo.png"
-const GRASS_BLOB_OVERLAY_TEXTURE_PATH_3: String = "res://assets/textures/world/biomes/plains/ground/orange_biofield_albedo.png"
+const GRASS_BLOB_OVERLAY_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_grass_sparse_albedo.png"
+const GRASS_BLOB_OVERLAY_TEXTURE_PATH_2: String = "res://assets/textures/world/biomes/plains/ground/dry_grass_medium_albedo.png"
+const GRASS_BLOB_OVERLAY_TEXTURE_PATH_3: String = "res://assets/textures/world/biomes/plains/ground/dry_grass_dense_albedo.png"
 const GRASS_BLOB_OVERLAY_NORMAL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/orange_biofield_normal.png"
 const PLAINS_ROCK_SCATTER_ENABLED: bool = true
 const PLAINS_ROCK_ATLAS_1: Texture2D = preload("res://assets/sprites/resources/atlases/plains_rock_1_atlas.png")
@@ -77,6 +78,7 @@ var _requested_chunks: Dictionary = {}
 var _pending_publish_queue: Array[Vector2i] = []
 var _active_publish_chunk: Vector2i = INVALID_CHUNK_COORD
 var _player_chunk_coord: Vector2i = INVALID_CHUNK_COORD
+var _object_depth_reference_world_y: float = INF
 var _current_stream_radius_chunks: int = WorldRuntimeConstants.STREAM_RADIUS_CHUNKS
 var _desired_source_chunk_coords: Array[Vector2i] = []
 var _desired_visible_chunk_coords: Array[Vector2i] = []
@@ -731,6 +733,8 @@ func _streaming_tick() -> bool:
 	timing_step_usec = _record_streaming_step_timing(timing_records, "wrap", timing_step_usec)
 	_update_player_chunk_coord()
 	timing_step_usec = _record_streaming_step_timing(timing_records, "player_chunk", timing_step_usec)
+	_sync_object_depth_sort_reference_from_player()
+	timing_step_usec = _record_streaming_step_timing(timing_records, "object_depth", timing_step_usec)
 	_begin_mountain_native_mask_tick_metrics()
 	_enqueue_desired_chunks()
 	timing_step_usec = _record_streaming_step_timing(timing_records, "enqueue", timing_step_usec)
@@ -1465,6 +1469,8 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 	chunk_view.set_plains_rock_scatter_sources(_plains_rock_scatter_atlases)
 	chunk_view.set_living_flora_source(_plains_living_flora_atlas)
 	chunk_view.set_spiky_flora_sources(_plains_spiky_flora_atlases)
+	if not is_inf(_object_depth_reference_world_y):
+		chunk_view.apply_object_depth_sort_reference(_object_depth_reference_world_y)
 	chunk_view.apply_sun_lighting(
 		_sun_light_angle_deg,
 		_sun_shadow_length_px,
@@ -1474,6 +1480,21 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 	add_child(chunk_view)
 	_chunk_views[chunk_coord] = chunk_view
 	return chunk_view
+
+func _sync_object_depth_sort_reference_from_player() -> void:
+	var player: Player = PlayerAuthority.get_local_player()
+	if player == null:
+		return
+	var reference_y: float = floorf(player.global_position.y / OBJECT_DEPTH_REFERENCE_QUANTUM_PX) \
+		* OBJECT_DEPTH_REFERENCE_QUANTUM_PX
+	if is_equal_approx(reference_y, _object_depth_reference_world_y):
+		return
+	_object_depth_reference_world_y = reference_y
+	for chunk_view_variant: Variant in _chunk_views.values():
+		var chunk_view: ChunkView = chunk_view_variant as ChunkView
+		if chunk_view == null:
+			continue
+		chunk_view.apply_object_depth_sort_reference(_object_depth_reference_world_y)
 
 func _ensure_mining_feedback_layer() -> MiningFeedbackLayer:
 	if _mining_feedback_layer != null and is_instance_valid(_mining_feedback_layer):
@@ -2048,19 +2069,19 @@ func _ensure_grass_blob_overlay_source() -> void:
 		return
 	var grass_image: Image = _load_mountain_mask_source_image(
 		GRASS_BLOB_OVERLAY_TEXTURE_PATH,
-		"orange biofield overlay weak"
+		"dry grass overlay sparse"
 	)
 	var grass_image_2: Image = _load_mountain_mask_source_image(
 		GRASS_BLOB_OVERLAY_TEXTURE_PATH_2,
-		"orange biofield overlay medium"
+		"dry grass overlay medium"
 	)
 	var grass_image_3: Image = _load_mountain_mask_source_image(
 		GRASS_BLOB_OVERLAY_TEXTURE_PATH_3,
-		"orange biofield overlay dense"
+		"dry grass overlay dense"
 	)
 	var grass_normal_image: Image = _load_mountain_mask_source_image(
 		GRASS_BLOB_OVERLAY_NORMAL_TEXTURE_PATH,
-		"orange biofield overlay normal"
+		"grass overlay normal"
 	)
 	assert(grass_image != null, "Grass overlay source image is required: %s" % GRASS_BLOB_OVERLAY_TEXTURE_PATH)
 	assert(grass_image_2 != null, "Grass overlay source image is required: %s" % GRASS_BLOB_OVERLAY_TEXTURE_PATH_2)

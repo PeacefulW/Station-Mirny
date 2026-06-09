@@ -192,18 +192,14 @@ visible lake water:
   and terrain-edge shadow opacity scale. Shader parameters may differ per visual
   layer only through documented layer multipliers; they must not introduce a
   second hidden lighting curve.
-- Dry-ground grass / straw breakup may render as a chunk-local organic overlay
-  above the terrain-ground top surface. It samples the same terrain-ground mask
-  for clipping and derives deterministic region shapes in shader from world-space
-  coordinates. This overlay is presentation-only: it does not create terrain
-  ids, walkability, collision, mining targets, runtime diff data, save data, or
-  a new chunk readiness dependency.
-- Decorative rocky ground patches may use the same visual-only overlay model
-  above the terrain-ground top surface. They sample the ready terrain-ground
-  mask for clipping, use preloaded rocky albedo/normal material maps, and derive
-  deterministic patch shapes in shader from world-space coordinates. They must
-  not create terrain ids, walkability, collision, mining targets, runtime diff
-  data, save data, packet fields, or a new chunk readiness dependency.
+- Dry-ground grass / straw breakup and decorative rocky ground patches are
+  visual-only and belong to `ChunkView`. They reuse the ready terrain-ground
+  halo mask texture as a clip mask, derive deterministic region shapes from
+  world-space coordinates in shader, and render only the exact owned chunk
+  interior. They must not use decorative chunk-edge alpha feathering or a
+  visible-chunk-wide rebuild to hide seams. These overlays do not create terrain
+  ids, walkability, collision, mining targets, runtime diff data, save data,
+  packet fields, or a new chunk readiness dependency.
 
 ## Core Terms
 

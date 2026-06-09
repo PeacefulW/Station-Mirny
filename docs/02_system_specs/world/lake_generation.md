@@ -66,8 +66,9 @@ boundary, `WORLD_VERSION = 44` carries the grid-contract boundary,
 boundary, `WORLD_VERSION = 47` carries the strengthened satellite-outcrop
 boundary, `WORLD_VERSION = 48` carries the mountain passage/outcrop refinement
 boundary, `WORLD_VERSION = 49` carries the static biofield flora placement
-boundary, and current `WORLD_VERSION = 50` carries the rare rocky-patch rock
-formation placement boundary.
+boundary, `WORLD_VERSION = 50` carries the rare rocky-patch rock formation
+placement boundary, and current `WORLD_VERSION = 51` carries the rare
+rocky-patch rock pillar presentation boundary.
 L3 water presentation is landed:
 `ChunkView` now owns the derived
 `WaterSurfaceLayer`, populated from `lake_flags` and current resolved
@@ -152,9 +153,12 @@ so deterministic native carve masks can create walkable mountain passages,
 pockets, and gorges without changing lake packet fields.
 The static biofield flora placement boundary advances new worlds to
 `WORLD_VERSION = 49` without changing lake packet fields or lake algorithms.
-The rare rocky-patch rock formation placement boundary advances current new
-worlds to `WORLD_VERSION = 50`, also without changing lake packet fields or lake
-algorithms.
+The rare rocky-patch rock formation placement boundary advances new worlds to
+`WORLD_VERSION = 50`, also without changing lake packet fields or lake
+algorithms. The rare rocky-patch rock pillar presentation boundary advances
+current new worlds to `WORLD_VERSION = 51` because native object packets now
+choose among eight deterministic atlas variants for rock atlas index `3`; lake
+packet fields and lake algorithms remain unchanged.
 
 ## Gameplay Goal
 
@@ -884,11 +888,12 @@ does today: one `(local_x, local_y, terrain_id, walkable)` entry.
 landed, because canonical packet output (`terrain_ids`, `walkable_flags`,
 `lake_flags`) changed for the same `(seed, coord)`.
 
-The current active value is `50`. It advances from `49` because native visual
-object placement now emits a rare large rock formation on the deterministic
-rocky ground patch mask, without changing the lake algorithm itself.
+The current active value is `51`. It advances from `50` because native visual
+object placement now emits the rare large rocky-patch object with eight
+deterministic `45 degree` rock pillar variants, without changing the lake
+algorithm itself.
 
-`world_version <= 49` is a historical algorithm / grid / object-placement
+`world_version <= 50` is a historical algorithm / grid / object-placement
 boundary and is rejected
 by the active pre-alpha loader.
 

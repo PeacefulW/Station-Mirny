@@ -73,6 +73,13 @@ float terrain_mask(vec2 uv) {
 	return smoothstep(terrain_threshold_low, terrain_threshold_high, texture(mask_texture, uv).r);
 }
 
+float chunk_clip_alpha(vec2 uv) {
+	if (uv.x < chunk_uv_min.x || uv.x > chunk_uv_max.x || uv.y < chunk_uv_min.y || uv.y > chunk_uv_max.y) {
+		return 0.0;
+	}
+	return 1.0;
+}
+
 float organic_rock_patch(vec2 world_px) {
 	vec2 p = world_px / max(patch_cell_px, 1.0);
 	vec2 broad_warp = vec2(
@@ -99,7 +106,8 @@ float organic_rock_patch(vec2 world_px) {
 }
 
 void fragment() {
-	if (UV.x < chunk_uv_min.x || UV.x > chunk_uv_max.x || UV.y < chunk_uv_min.y || UV.y > chunk_uv_max.y) {
+	float clip_alpha = chunk_clip_alpha(UV);
+	if (clip_alpha <= 0.001) {
 		discard;
 	}
 
@@ -154,6 +162,7 @@ void fragment() {
 
 	float alpha = patch * edge_safe * patch_alpha * mix(0.62, 1.0, detail);
 	alpha *= 0.86 + fbm2(world_px / 138.0 + vec2(-12.0, 44.0)) * 0.20;
+	alpha *= clip_alpha;
 	if (alpha <= 0.01) {
 		discard;
 	}

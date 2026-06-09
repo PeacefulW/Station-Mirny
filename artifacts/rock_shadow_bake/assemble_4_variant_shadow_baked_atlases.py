@@ -10,7 +10,7 @@ FRAME_SIZE = 512
 COLUMNS = 8
 ROWS = 4
 FRAME_COUNT = COLUMNS * ROWS
-UNIQUE_VARIANTS = 4
+DEFAULT_UNIQUE_VARIANTS = 4
 GROUND_COLOR = (96, 83, 67, 255)
 CHECKER_A = (78, 70, 59, 255)
 CHECKER_B = (112, 98, 79, 255)
@@ -41,10 +41,11 @@ ASSETS = [
     },
     {
         "name": "rock_formation",
-        "source": "M:/Downloads/rock+formation+3d+model.glb",
+        "source": "M:/Downloads/rock+pillar+3d+model.glb",
         "frames": Path("artifacts/rock_shadow_bake/rock_formation/frames_512_4variant"),
         "atlas": Path("assets/sprites/resources/atlases/plains_rare_rock_formation_atlas.png"),
         "metadata": Path("assets/sprites/resources/atlases/plains_rare_rock_formation_atlas.json"),
+        "unique_variants": 8,
     },
 ]
 
@@ -129,8 +130,16 @@ def cleanup_tiny_alpha(image: Image.Image) -> Image.Image:
     return src
 
 
-def frame_paths(frames_dir: Path, asset_name: str, unique_index: int) -> tuple[Path, Path, Path]:
-    degrees = unique_index * 90
+def unique_variant_count(asset: dict[str, object]) -> int:
+    return int(asset.get("unique_variants", DEFAULT_UNIQUE_VARIANTS))
+
+
+def angle_degrees_for_variant(unique_index: int, unique_variants: int) -> int:
+    return round(360.0 * unique_index / max(unique_variants, 1))
+
+
+def frame_paths(frames_dir: Path, asset_name: str, unique_index: int, unique_variants: int) -> tuple[Path, Path, Path]:
+    degrees = angle_degrees_for_variant(unique_index, unique_variants)
     stem = f"{asset_name}_rot_{unique_index:02d}_{degrees:03d}deg"
     return (
         frames_dir / f"{stem}.png",
@@ -160,9 +169,10 @@ def make_checker(size: tuple[int, int], cell: int = 32) -> Image.Image:
 def load_unique_frames(asset: dict[str, object]) -> list[Image.Image]:
     asset_name = str(asset["name"])
     frames_dir = Path(asset["frames"])
+    unique_variants = unique_variant_count(asset)
     frames: list[Image.Image] = []
-    for unique_index in range(UNIQUE_VARIANTS):
-        final_path, object_path, shadow_path = frame_paths(frames_dir, asset_name, unique_index)
+    for unique_index in range(unique_variants):
+        final_path, object_path, shadow_path = frame_paths(frames_dir, asset_name, unique_index, unique_variants)
         if object_path.exists() and shadow_path.exists():
             frame = composite_two_pass(Image.open(object_path), Image.open(shadow_path))
             frame.save(final_path)
@@ -177,17 +187,18 @@ def load_unique_frames(asset: dict[str, object]) -> list[Image.Image]:
 
 
 def build_atlas(unique_frames: list[Image.Image]) -> tuple[Image.Image, list[dict[str, int | str]]]:
+    unique_variants = len(unique_frames)
     atlas = Image.new("RGBA", (FRAME_SIZE * COLUMNS, FRAME_SIZE * ROWS), (0, 0, 0, 0))
     frame_records: list[dict[str, int | str]] = []
     for index in range(FRAME_COUNT):
-        source_index = index % UNIQUE_VARIANTS
+        source_index = index % unique_variants
         x = (index % COLUMNS) * FRAME_SIZE
         y = (index // COLUMNS) * FRAME_SIZE
         atlas.alpha_composite(unique_frames[source_index], (x, y))
         frame_records.append({
             "index": index,
             "source_unique_index": source_index,
-            "angle_degrees": source_index * 90,
+            "angle_degrees": angle_degrees_for_variant(source_index, unique_variants),
             "x": x,
             "y": y,
             "width": FRAME_SIZE,
@@ -197,10 +208,11 @@ def build_atlas(unique_frames: list[Image.Image]) -> tuple[Image.Image, list[dic
 
 
 def make_preview(atlas: Image.Image, asset_name: str, output_dir: Path) -> None:
-    preview_size = (FRAME_SIZE * UNIQUE_VARIANTS, FRAME_SIZE)
+    unique_variants = unique_variant_count(next(asset for asset in ASSETS if str(asset["name"]) == asset_name))
+    preview_size = (FRAME_SIZE * unique_variants, FRAME_SIZE)
     ground = Image.new("RGBA", preview_size, GROUND_COLOR)
     checker = make_checker(preview_size)
-    for index in range(UNIQUE_VARIANTS):
+    for index in range(unique_variants):
         crop = atlas.crop((
             index * FRAME_SIZE,
             0,
@@ -209,18 +221,19 @@ def make_preview(atlas: Image.Image, asset_name: str, output_dir: Path) -> None:
         ))
         ground.alpha_composite(crop, (index * FRAME_SIZE, 0))
         checker.alpha_composite(crop, (index * FRAME_SIZE, 0))
-    ground.save(output_dir / f"{asset_name}_4variant_ground_preview.png")
-    checker.save(output_dir / f"{asset_name}_4variant_checker_preview.png")
+    ground.save(output_dir / f"{asset_name}_{unique_variants}variant_ground_preview.png")
+    checker.save(output_dir / f"{asset_name}_{unique_variants}variant_checker_preview.png")
 
 
 def write_metadata(asset: dict[str, object], frame_records: list[dict[str, int | str]]) -> None:
     metadata_path = Path(asset["metadata"])
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    unique_variants = unique_variant_count(asset)
     payload = {
         "source": str(asset["source"]),
         "sprite_sheet": Path(asset["atlas"]).name,
         "frame_count": FRAME_COUNT,
-        "unique_variant_count": UNIQUE_VARIANTS,
+        "unique_variant_count": unique_variants,
         "columns": COLUMNS,
         "rows": ROWS,
         "frame_width": FRAME_SIZE,
@@ -228,7 +241,7 @@ def write_metadata(asset: dict[str, object], frame_records: list[dict[str, int |
         "camera": "orthographic top-front, 63 degree elevation, no side yaw",
         "shadows": "cycles two-pass render; real ground shadow pass composited under sprite",
         "postprocess": "two-pass object/shadow composite; slight bottom darken applied to object pixels",
-        "native_packet_compatibility": "32 frame slots, four unique variants repeated by index % 4",
+        "native_packet_compatibility": f"32 frame slots, {unique_variants} unique variants repeated by index % {unique_variants}",
         "frames": frame_records,
     }
     metadata_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

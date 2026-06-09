@@ -25,6 +25,8 @@ const DEFAULT_ATLAS_FRAME_COUNT: int = 32
 const FRAME_COLOR_SCALE: float = 255.0
 const CONTACT_SHADOW_Z_INDEX: int = 4
 const DECOR_SPRITE_Z_INDEX: int = 5
+const DECOR_SPRITE_BEHIND_PLAYER_Z_INDEX: int = 5
+const DECOR_SPRITE_FRONT_PLAYER_Z_INDEX: int = 7
 const CONTACT_SHADOW_BASE_OPACITY: float = 0.30
 const CONTACT_SHADOW_SUN_OPACITY_SCALE: float = 0.08
 const CONTACT_SHADOW_MAX_OPACITY: float = 0.40
@@ -42,6 +44,9 @@ var _atlas_frame_count: int = DEFAULT_ATLAS_FRAME_COUNT
 var _chunk_size_px: float = 1024.0
 var _animation_frames_per_group: int = 1
 var _animation_fps: float = 0.0
+var _depth_reference_enabled: bool = false
+var _depth_chunk_origin_y: float = 0.0
+var _depth_reference_world_y: float = 0.0
 
 func set_atlas_layout(columns: int, rows: int, frame_count: int) -> void:
 	_atlas_columns = maxi(1, columns)
@@ -51,6 +56,13 @@ func set_atlas_layout(columns: int, rows: int, frame_count: int) -> void:
 
 func set_chunk_size_px(chunk_size_px: float) -> void:
 	_chunk_size_px = maxf(1.0, chunk_size_px)
+	_update_sprite_layer_depth_indices()
+
+func set_depth_sort_reference(chunk_origin_world_y: float, reference_world_y: float) -> void:
+	_depth_reference_enabled = true
+	_depth_chunk_origin_y = chunk_origin_world_y
+	_depth_reference_world_y = reference_world_y
+	_update_sprite_layer_depth_indices()
 
 func set_animation(frames_per_group: int, fps: float) -> void:
 	_animation_frames_per_group = maxi(1, frames_per_group)
@@ -215,7 +227,7 @@ func _split_buffer_by_depth_bucket(buffer: PackedFloat32Array) -> Array:
 	var count: int = _buffer_instance_count(buffer)
 	for instance_index: int in range(count):
 		var offset: int = instance_index * BUFFER_STRIDE
-		var y_position: float = buffer[offset + BUFFER_Y]
+		var y_position: float = buffer[offset + BUFFER_Y] + buffer[offset + BUFFER_SIZE_Y] * 0.45
 		var bucket_index: int = clampi(
 			floori((y_position / _chunk_size_px) * float(DEPTH_BUCKET_COUNT)),
 			0,
@@ -241,6 +253,7 @@ func _ensure_sprite_layers_for_atlas(atlas_index: int) -> Array:
 		layer.visible = false
 		add_child(layer)
 		layers.append(layer)
+	_update_sprite_layer_depth_indices()
 	return layers
 
 func _ensure_shadow_layer() -> MultiMeshInstance2D:
@@ -322,3 +335,18 @@ static func _get_unit_texture() -> Texture2D:
 	image.fill(Color.WHITE)
 	_shared_unit_texture = ImageTexture.create_from_image(image)
 	return _shared_unit_texture
+
+func _update_sprite_layer_depth_indices() -> void:
+	for layer_group: Array in _sprite_layers_by_atlas:
+		for bucket_index: int in range(layer_group.size()):
+			var layer: MultiMeshInstance2D = layer_group[bucket_index] as MultiMeshInstance2D
+			if layer == null:
+				continue
+			if not _depth_reference_enabled:
+				layer.z_index = DECOR_SPRITE_Z_INDEX
+				continue
+			var bucket_center_y: float = _depth_chunk_origin_y \
+				+ (float(bucket_index) + 0.5) / float(DEPTH_BUCKET_COUNT) * _chunk_size_px
+			layer.z_index = DECOR_SPRITE_FRONT_PLAYER_Z_INDEX \
+				if bucket_center_y > _depth_reference_world_y \
+				else DECOR_SPRITE_BEHIND_PLAYER_Z_INDEX

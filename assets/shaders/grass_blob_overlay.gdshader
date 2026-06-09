@@ -17,8 +17,11 @@ uniform float patch_cell_px = 1850.0;
 uniform float patch_density = 0.50;
 uniform float patch_alpha = 0.52;
 uniform float edge_clearance_px = 22.0;
+uniform float edge_feather_low = 0.10;
+uniform float edge_feather_high = 0.68;
+uniform float max_alpha = 0.94;
 uniform float normal_mix = 0.0;
-uniform float normal_strength = 0.34;
+uniform float normal_strength = 0.18;
 uniform float light_angle_deg = 234.0;
 uniform float light_ambient = 0.76;
 uniform float light_diffuse = 0.24;
@@ -26,7 +29,7 @@ uniform float terrain_threshold_low = 0.40;
 uniform float terrain_threshold_high = 0.58;
 uniform vec2 chunk_uv_min = vec2(0.1, 0.1);
 uniform vec2 chunk_uv_max = vec2(0.9, 0.9);
-uniform vec3 dry_grass_tint = vec3(1.04, 0.88, 0.60);
+uniform vec3 dry_grass_tint = vec3(1.0, 1.0, 1.0);
 uniform vec3 contact_shadow_tint = vec3(0.34, 0.18, 0.08);
 
 float luma(vec3 c) {
@@ -77,6 +80,13 @@ float terrain_mask(vec2 uv) {
 	return smoothstep(terrain_threshold_low, terrain_threshold_high, texture(mask_texture, uv).r);
 }
 
+float chunk_clip_alpha(vec2 uv) {
+	if (uv.x < chunk_uv_min.x || uv.x > chunk_uv_max.x || uv.y < chunk_uv_min.y || uv.y > chunk_uv_max.y) {
+		return 0.0;
+	}
+	return 1.0;
+}
+
 float organic_region_mask(vec2 world_px) {
 	vec2 p = world_px / max(patch_cell_px, 1.0);
 	vec2 broad_warp = vec2(
@@ -104,7 +114,8 @@ float organic_region_mask(vec2 world_px) {
 }
 
 void fragment() {
-	if (UV.x < chunk_uv_min.x || UV.x > chunk_uv_max.x || UV.y < chunk_uv_min.y || UV.y > chunk_uv_max.y) {
+	float clip_alpha = chunk_clip_alpha(UV);
+	if (clip_alpha <= 0.001) {
 		discard;
 	}
 
@@ -130,7 +141,11 @@ void fragment() {
 	edge_safe = smoothstep(0.36, 0.92, edge_safe);
 
 	float patch = organic_region_mask(world_px);
-	if (patch <= 0.01 || edge_safe <= 0.01) {
+	float feather_noise = fbm2(world_px / 182.0 + vec2(18.0, -54.0)) - 0.5;
+	float feather_low = clamp(edge_feather_low + feather_noise * 0.045, 0.0, 0.92);
+	float feather_high = clamp(edge_feather_high + feather_noise * 0.060, feather_low + 0.04, 1.0);
+	float patch_soft = smoothstep(feather_low, feather_high, patch);
+	if (patch_soft <= 0.01 || edge_safe <= 0.01) {
 		discard;
 	}
 
@@ -148,7 +163,7 @@ void fragment() {
 	vec4 grass_sample = mix(grass_sample_1, grass_sample_2, medium_mix);
 	grass_sample = mix(grass_sample, grass_sample_3, dense_mix);
 	float detail = smoothstep(0.32, 0.72, luma(grass_sample.rgb));
-	float patch_edge = smoothstep(0.05, 0.34, patch) * (1.0 - smoothstep(0.60, 0.92, patch));
+	float patch_edge = smoothstep(0.05, 0.30, patch_soft) * (1.0 - smoothstep(0.54, 0.92, patch_soft));
 	float a = radians(light_angle_deg);
 	vec3 light_dir = normalize(vec3(cos(a), sin(a), 0.70));
 	vec3 normal = vec3(0.0, 0.0, 1.0);
@@ -162,14 +177,15 @@ void fragment() {
 	float light = light_ambient + light_diffuse * clamp(dot(normal, light_dir), 0.0, 1.0);
 
 	vec3 color = grass_sample.rgb * dry_grass_tint * light;
-	color = mix(color, color * contact_shadow_tint, patch_edge * 0.22);
-	color *= 0.94 + fbm2(world_px / 390.0 + vec2(31.0, -7.0)) * 0.12;
+	color = mix(color, color * contact_shadow_tint, patch_edge * 0.10);
+	color *= 0.97 + fbm2(world_px / 390.0 + vec2(31.0, -7.0)) * 0.08;
 
-	float alpha = patch * edge_safe * patch_alpha * mix(0.58, 1.0, detail);
-	alpha *= 0.88 + fbm2(world_px / 114.0 + vec2(3.0, 61.0)) * 0.18;
+	float alpha = patch_soft * edge_safe * patch_alpha * mix(0.88, 1.0, detail);
+	alpha *= 0.94 + fbm2(world_px / 114.0 + vec2(3.0, 61.0)) * 0.10;
+	alpha *= clip_alpha;
 	if (alpha <= 0.01) {
 		discard;
 	}
 
-	COLOR = vec4(color, clamp(alpha, 0.0, 0.72));
+	COLOR = vec4(color, clamp(alpha, 0.0, max_alpha));
 }

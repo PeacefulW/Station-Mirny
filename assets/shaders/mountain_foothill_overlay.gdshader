@@ -73,6 +73,13 @@ float mountain_mask(vec2 uv) {
 	return smoothstep(top_threshold_low, top_threshold_high, texture(mask_texture, uv).r);
 }
 
+float chunk_clip_alpha(vec2 uv) {
+	if (uv.x < chunk_uv_min.x || uv.x > chunk_uv_max.x || uv.y < chunk_uv_min.y || uv.y > chunk_uv_max.y) {
+		return 0.0;
+	}
+	return 1.0;
+}
+
 float eight_dir_score(vec2 uv, vec2 texel, float radius_texels) {
 	float score = 0.0;
 	score = max(score, mountain_mask(uv + vec2(1.0, 0.0) * texel * radius_texels));
@@ -100,7 +107,8 @@ float eight_dir_open_score(vec2 uv, vec2 texel, float radius_texels) {
 }
 
 void fragment() {
-	if (UV.x < chunk_uv_min.x || UV.x > chunk_uv_max.x || UV.y < chunk_uv_min.y || UV.y > chunk_uv_max.y) {
+	float clip_alpha = chunk_clip_alpha(UV);
+	if (clip_alpha <= 0.001) {
 		discard;
 	}
 
@@ -138,6 +146,7 @@ void fragment() {
 	float feather = max(smoothstep(0.06, 0.82, edge_band), footprint_fill * 0.78);
 	float organic_alpha = 0.76 + (broad - 0.5) * 0.30 + (gravel_break - 0.5) * 0.18;
 	float alpha = clamp(feather * foothill_alpha * organic_alpha, 0.0, 0.78);
+	alpha *= clip_alpha;
 	if (alpha <= 0.01) {
 		discard;
 	}

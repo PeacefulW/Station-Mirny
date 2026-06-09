@@ -31,11 +31,16 @@ const TERRAIN_EDGE_TOP_TEXTURE_SCALE: float = 0.70
 const TERRAIN_EDGE_FACE_TEXTURE_SCALE: float = 0.38
 const TERRAIN_EDGE_TOP_ALPHA: float = 1.0
 const GRASS_BLOB_OVERLAY_ENABLED: bool = true
-const GRASS_BLOB_TEXTURE_SCALE: float = 0.78
+const GRASS_BLOB_TEXTURE_SCALE: float = 1.0
 const GRASS_BLOB_PATCH_CELL_PX: float = 2750.0
 const GRASS_BLOB_PATCH_DENSITY: float = 0.72
-const GRASS_BLOB_PATCH_ALPHA: float = 0.62
+const GRASS_BLOB_PATCH_ALPHA: float = 0.88
 const GRASS_BLOB_EDGE_CLEARANCE_PX: float = 30.0
+const GRASS_BLOB_EDGE_FEATHER_LOW: float = 0.10
+const GRASS_BLOB_EDGE_FEATHER_HIGH: float = 0.68
+const GRASS_BLOB_MAX_ALPHA: float = 0.94
+const GRASS_BLOB_NORMAL_MIX: float = 0.18
+const GRASS_BLOB_NORMAL_STRENGTH: float = 0.18
 const ROCK_PATCH_OVERLAY_ENABLED: bool = true
 const ROCK_PATCH_TEXTURE_SCALE: float = 0.66
 const ROCK_PATCH_CELL_PX: float = 1280.0
@@ -121,6 +126,8 @@ var _rock_scatter_atlases: Array[Texture2D] = []
 var _living_flora_atlas: Texture2D = null
 var _spiky_flora_atlases: Array[Texture2D] = []
 var _object_packet_layer: WorldObjectPacketLayer = null
+var _object_depth_reference_enabled: bool = false
+var _object_depth_reference_world_y: float = 0.0
 var _mountain_page_hit_mask: PackedByteArray = PackedByteArray()
 var _mountain_page_hit_mask_width: int = 0
 var _mountain_page_hit_mask_height: int = 0
@@ -287,6 +294,11 @@ func set_spiky_flora_sources(atlases: Array[Texture2D]) -> void:
 	_spiky_flora_atlases = atlases.duplicate()
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.set_spiky_flora_atlases(_spiky_flora_atlases)
+
+func apply_object_depth_sort_reference(reference_world_y: float) -> void:
+	_object_depth_reference_enabled = true
+	_object_depth_reference_world_y = reference_world_y
+	_apply_object_depth_sort_reference_to_layer()
 
 func apply_contour_debug_data(
 	solid_mask: PackedByteArray,
@@ -1655,7 +1667,7 @@ func _sync_grass_blob_overlay_visual(
 	material.set_shader_parameter("mask_texture", _terrain_edge_mask_texture)
 	if grass_overlay_normal_texture != null:
 		material.set_shader_parameter("grass_normal_texture", grass_overlay_normal_texture)
-		material.set_shader_parameter("normal_mix", 1.0)
+		material.set_shader_parameter("normal_mix", GRASS_BLOB_NORMAL_MIX)
 	else:
 		material.set_shader_parameter("normal_mix", 0.0)
 	material.set_shader_parameter("grass_texture_size", Vector2(
@@ -1681,6 +1693,10 @@ func _sync_grass_blob_overlay_visual(
 	material.set_shader_parameter("patch_density", GRASS_BLOB_PATCH_DENSITY)
 	material.set_shader_parameter("patch_alpha", GRASS_BLOB_PATCH_ALPHA)
 	material.set_shader_parameter("edge_clearance_px", GRASS_BLOB_EDGE_CLEARANCE_PX)
+	material.set_shader_parameter("edge_feather_low", GRASS_BLOB_EDGE_FEATHER_LOW)
+	material.set_shader_parameter("edge_feather_high", GRASS_BLOB_EDGE_FEATHER_HIGH)
+	material.set_shader_parameter("max_alpha", GRASS_BLOB_MAX_ALPHA)
+	material.set_shader_parameter("normal_strength", GRASS_BLOB_NORMAL_STRENGTH)
 	_apply_sun_lighting_to_grass_blob_material(material)
 	_set_mask_shader_chunk_clip(
 		material,
@@ -1743,6 +1759,7 @@ func _sync_object_packet_visual(packet: Dictionary) -> void:
 	layer.set_rock_atlases(_rock_scatter_atlases)
 	layer.set_living_flora_atlas(_living_flora_atlas)
 	layer.set_spiky_flora_atlases(_spiky_flora_atlases)
+	_apply_object_depth_sort_reference_to_layer()
 	layer.configure_packet(packet)
 	_apply_sun_lighting_to_object_packet_layer()
 
@@ -1755,11 +1772,22 @@ func _ensure_object_packet_layer() -> WorldObjectPacketLayer:
 	_object_packet_layer.z_index = 0
 	_object_packet_layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	add_child(_object_packet_layer)
+	_apply_object_depth_sort_reference_to_layer()
 	return _object_packet_layer
 
 func _clear_object_packet_visual() -> void:
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.visible = false
+
+func _apply_object_depth_sort_reference_to_layer() -> void:
+	if not _object_depth_reference_enabled \
+			or _object_packet_layer == null \
+			or not is_instance_valid(_object_packet_layer):
+		return
+	_object_packet_layer.set_depth_sort_reference(
+		WorldRuntimeConstants.chunk_origin_px(chunk_coord).y,
+		_object_depth_reference_world_y
+	)
 
 func _ensure_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
 	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)

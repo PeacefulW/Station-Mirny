@@ -65,8 +65,8 @@ V0 includes only:
 - a narrow small static biofield flora proof restricted to chunk-local orange
   biofield patches, using spiky flora atlas index `1` and no collision;
 - a narrow rare large rock-family proof restricted to chunk-local rocky ground
-  patch coverage, using rock atlas index `3` and the existing loaded large-rock
-  collision proof;
+  patch coverage, using rock atlas index `3`, eight deterministic `45 degree`
+  atlas variants, and the existing loaded large-rock collision proof;
 - asset folder rules for sprites, atlases, and related presentation assets;
 - mod-compatible additive content registration direction for `plains`.
 
@@ -270,7 +270,7 @@ object_kind: PackedByteArray          # V0 family id: 1 rock, 2 living flora, 3 
 object_local_x_px_q4: PackedByteArray # chunk-local pixel X quantized to 4 px
 object_local_y_px_q4: PackedByteArray # chunk-local pixel Y quantized to 4 px
 object_size_px: PackedByteArray       # rendered sprite size in pixels
-object_atlas_index: PackedByteArray   # prepared atlas bank index; spiky flora index 1 is small static brown seaweed, rock index 3 is rare rocky-patch rock formation
+object_atlas_index: PackedByteArray   # prepared atlas bank index; spiky flora index 1 is small static brown seaweed, rock index 3 is rare rocky-patch rock pillar
 object_variant: PackedByteArray       # atlas frame / animation view variant
 object_flags: PackedByteArray         # bit flags; bit 0 = large-rock collision proof
 object_tint: PackedByteArray          # 0..255 presentation tint scalar
@@ -307,8 +307,9 @@ Rules:
   `1` is the small brown seaweed object and must pass the same deterministic
   orange biofield mask before emission.
 - rock atlas bank indices `0..2` are ordinary loose plains rocks; rock atlas
-  index `3` is reserved for the rare large rocky-patch rock formation and must
-  pass the deterministic rocky ground patch mask before emission.
+  index `3` is reserved for the rare large rocky-patch rock pillar, may use
+  eight deterministic `45 degree` variants, and must pass the deterministic
+  rocky ground patch mask before emission.
 
 ### Batch Presentation Contract
 
@@ -326,7 +327,8 @@ Required direction:
   not per-frame CPU buffer rebuilds;
 - contact-shadow, dynamic sun-shadow, or wind changes update shader uniforms,
   not per-object CPU geometry;
-- depth ordering may use bounded depth buckets per chunk, but not one node per
+- depth ordering may use bounded depth buckets per chunk, including a bounded
+  player-reference split for object/player occlusion, but not one node per
   object;
 - source textures are preloaded or boot-prepared before runtime publish;
 - `ChunkView` may host the batch helper, but it must not compute canonical
@@ -535,9 +537,9 @@ V0 is acceptable when:
 - small static brown seaweed biofield objects are batched through spiky flora
   atlas index `1`, restricted to orange biofield patches, and not emitted as
   scene nodes;
-- rare large rock-family objects are batched through rock atlas index `3`,
-  restricted to rocky ground patch coverage, and use chunk-scoped collision
-  shape owners only;
+- rare large rock-family objects are batched through rock atlas index `3`, use
+  eight deterministic `45 degree` variants, are restricted to rocky ground patch
+  coverage, and use chunk-scoped collision shape owners only;
 - accepted rocks and flora are emitted from the native object packet, not from
   a runtime GDScript scatter generator;
 - large loaded rocks with collision use chunk-scoped shape owners, not one

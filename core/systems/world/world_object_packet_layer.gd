@@ -15,7 +15,9 @@ const ROCK_FRAME_COUNT: int = 32
 const RARE_ROCK_FORMATION_ATLAS_INDEX: int = 3
 const ROCK_COLLISION_LAYER: int = 2
 const ROCK_COLLISION_RADIUS_SCALE: float = 0.32
-const RARE_ROCK_FORMATION_COLLISION_RADIUS_SCALE: float = 0.22
+const RARE_ROCK_FORMATION_VISUAL_SCALE: float = 2.35
+const RARE_ROCK_FORMATION_COLLISION_RADIUS_SCALE: float = 0.08
+const RARE_ROCK_FORMATION_COLLISION_CENTER_Y_SCALE: float = 0.42
 const ROCK_SHADOW_WIDTH_SCALE: float = 0.92
 const ROCK_SHADOW_HEIGHT_SCALE: float = 0.30
 const ROCK_SHADOW_CENTER_Y_SCALE: float = 0.30
@@ -50,6 +52,9 @@ var _rock_count: int = 0
 var _living_flora_count: int = 0
 var _spiky_flora_count: int = 0
 var _collider_count: int = 0
+var _depth_reference_enabled: bool = false
+var _depth_chunk_origin_world_y: float = 0.0
+var _depth_reference_world_y: float = 0.0
 
 func set_rock_atlases(atlases: Array[Texture2D]) -> void:
 	_rock_atlases = atlases.duplicate()
@@ -92,6 +97,14 @@ func set_sun_lighting(
 			shadow_opacity,
 			shadow_softness_px
 		)
+
+func set_depth_sort_reference(chunk_origin_world_y: float, reference_world_y: float) -> void:
+	_depth_reference_enabled = true
+	_depth_chunk_origin_world_y = chunk_origin_world_y
+	_depth_reference_world_y = reference_world_y
+	_apply_depth_reference_to_batch_layer(_rock_batch_layer)
+	_apply_depth_reference_to_batch_layer(_living_flora_batch_layer)
+	_apply_depth_reference_to_batch_layer(_spiky_flora_batch_layer)
 
 func configure_packet(packet: Dictionary) -> void:
 	_rock_count = 0
@@ -189,16 +202,21 @@ func _append_rock(
 ) -> void:
 	if atlas_index < 0 or atlas_index >= rock_buffers.size():
 		return
+	var visual_size_px: float = size_px
+	var visual_position: Vector2 = position
+	if atlas_index == RARE_ROCK_FORMATION_ATLAS_INDEX:
+		visual_size_px *= RARE_ROCK_FORMATION_VISUAL_SCALE
+		visual_position.y -= (visual_size_px - size_px) * 0.5
 	var sprite_buffer: PackedFloat32Array = rock_buffers[atlas_index]
 	WorldDecorBatchLayer.append_instance(
 		sprite_buffer,
-		position,
-		Vector2.ONE * size_px,
+		visual_position,
+		Vector2.ONE * visual_size_px,
 		frame_index,
 		Color(tint_factor, tint_factor, tint_factor, 0.96),
 		0.0,
 		phase,
-		size_px / 64.0
+		visual_size_px / 64.0
 	)
 	rock_buffers[atlas_index] = sprite_buffer
 	var shadow_size := Vector2(
@@ -217,10 +235,12 @@ func _append_rock(
 	)
 	if (flags & OBJECT_FLAG_COLLIDER) != 0:
 		var collision_radius: float = clampf(size_px * ROCK_COLLISION_RADIUS_SCALE, 10.0, 18.0)
+		var collision_position: Vector2 = position + Vector2(0.0, size_px * 0.18)
 		if atlas_index == RARE_ROCK_FORMATION_ATLAS_INDEX:
-			collision_radius = clampf(size_px * RARE_ROCK_FORMATION_COLLISION_RADIUS_SCALE, 30.0, 56.0)
+			collision_radius = clampf(size_px * RARE_ROCK_FORMATION_COLLISION_RADIUS_SCALE, 12.0, 24.0)
+			collision_position = position + Vector2(0.0, size_px * RARE_ROCK_FORMATION_COLLISION_CENTER_Y_SCALE)
 		collision_records.append({
-			"position": position + Vector2(0.0, size_px * 0.18),
+			"position": collision_position,
 			"radius": collision_radius,
 		})
 	_rock_count += 1
@@ -329,6 +349,7 @@ func _ensure_rock_batch_layer() -> WorldDecorBatchLayer:
 	_rock_batch_layer = WorldDecorBatchLayer.new()
 	_rock_batch_layer.name = "RockObjectPacketBatchLayer"
 	add_child(_rock_batch_layer)
+	_apply_depth_reference_to_batch_layer(_rock_batch_layer)
 	return _rock_batch_layer
 
 func _ensure_living_flora_batch_layer() -> WorldDecorBatchLayer:
@@ -337,6 +358,7 @@ func _ensure_living_flora_batch_layer() -> WorldDecorBatchLayer:
 	_living_flora_batch_layer = WorldDecorBatchLayer.new()
 	_living_flora_batch_layer.name = "LivingFloraObjectPacketBatchLayer"
 	add_child(_living_flora_batch_layer)
+	_apply_depth_reference_to_batch_layer(_living_flora_batch_layer)
 	return _living_flora_batch_layer
 
 func _ensure_spiky_flora_batch_layer() -> WorldDecorBatchLayer:
@@ -345,6 +367,7 @@ func _ensure_spiky_flora_batch_layer() -> WorldDecorBatchLayer:
 	_spiky_flora_batch_layer = WorldDecorBatchLayer.new()
 	_spiky_flora_batch_layer.name = "SpikyFloraObjectPacketBatchLayer"
 	add_child(_spiky_flora_batch_layer)
+	_apply_depth_reference_to_batch_layer(_spiky_flora_batch_layer)
 	return _spiky_flora_batch_layer
 
 func _ensure_collision_body() -> StaticBody2D:
@@ -407,3 +430,8 @@ static func _valid_object_count(arrays: Array) -> int:
 		if value.size() != count:
 			return 0
 	return count
+
+func _apply_depth_reference_to_batch_layer(batch_layer: WorldDecorBatchLayer) -> void:
+	if batch_layer == null or not is_instance_valid(batch_layer) or not _depth_reference_enabled:
+		return
+	batch_layer.set_depth_sort_reference(_depth_chunk_origin_world_y, _depth_reference_world_y)

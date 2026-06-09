@@ -257,12 +257,17 @@ Current code notes:
   passes the orange biofield mask. `ChunkPacketV1` shape is unchanged because
   the object uses existing visual object arrays and does not add collision,
   save identity, commands, or events.
-- `world_version == 50` is the current rare rocky-patch rock formation
+- `world_version == 50` is the historical rare rocky-patch rock formation
   placement boundary: native object packets may emit rock family atlas index
   `3` as a sparse large object only when its deterministic center and clearance
   samples pass the rocky ground patch mask. `ChunkPacketV1` shape is unchanged
   because the object uses existing visual object arrays and the existing
   large-rock collision flag.
+- `world_version == 51` is the current rare rocky-patch rock pillar
+  presentation boundary: native object packets keep rock family atlas index `3`
+  but may choose eight `45 degree` atlas variants instead of four `90 degree`
+  variants. `ChunkPacketV1` shape is unchanged because the object still uses the
+  same `object_variant` byte field and existing large-rock collision flag.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded
@@ -519,7 +524,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current foundation runtime value is `48` |
+| `world_version` | `int` | — | Current foundation runtime value is `51` |
 | `terrain_ids` | `PackedInt32Array` | 256 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 256 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve, and plains ground opens `autotile_47` bank edges only against shallow/deep lake-bed neighbours |
 | `walkable_flags` | `PackedByteArray` | 256 | `1 = walkable`, `0 = blocked` |
@@ -594,7 +599,7 @@ Current code notes:
   `ChunkDiffFile` and must not be written into chunk diff JSON.
 - active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain either resolves into named mountain output or stays on the ground path at the hierarchical scale cutoff
 - `object_kind == 1` uses rock atlas bank indices `0..2` for ordinary loose
-  plains rocks and index `3` for the rare large rocky-patch rock formation.
+  plains rocks and index `3` for the rare large rocky-patch rock pillar.
   Index `3` is still an immutable generated presentation record plus the
   existing large-rock collision proof, not saved gameplay object state.
 - `object_kind == 3` uses static biofield flora atlas bank index `0` for the

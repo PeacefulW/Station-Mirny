@@ -120,9 +120,12 @@ events, or per-object scene nodes.
 
 The amendment also allows a narrow rare large rocky-patch object in the rock
 family. It is emitted as native object packet records with rock atlas index `3`,
-must pass the deterministic rocky ground patch mask before placement, and uses
-the same chunk-scoped large-rock collision proof. It does not create terrain ids,
-save identity, commands, events, or per-object scene nodes.
+must pass the deterministic rocky ground patch mask before placement, may choose
+among eight deterministic `45 degree` atlas variants, and uses the same
+chunk-scoped large-rock collision proof. Presentation may scale this pillar
+atlas taller than the byte-packed `object_size_px`, but collision remains a
+narrow base footprint. It does not create terrain ids, save identity, commands,
+events, or per-object scene nodes.
 
 ## Law 0 Classification
 
@@ -161,7 +164,7 @@ Required fields:
 |---|---|---|
 | `chunk_coord` | `Vector2i` | canonical chunk coordinate |
 | `world_seed` | `int` | copied into the packet for validation/debug |
-| `world_version` | `int` | first V0 runtime value starts at `1`; current active contract is `50` |
+| `world_version` | `int` | first V0 runtime value starts at `1`; current active contract is `51` |
 | `terrain_ids` | `PackedInt32Array` | length `256`, one terrain id per local tile |
 | `terrain_atlas_indices` | `PackedInt32Array` | length `256`, derived presentation atlas index per local tile |
 | `walkable_flags` | `PackedByteArray` | length `256`, `1 = walkable`, `0 = blocked` |
@@ -174,7 +177,7 @@ Approved additive visual object fields:
 | `object_local_x_px_q4` | `PackedByteArray` | chunk-local pixel X quantized to `4 px` |
 | `object_local_y_px_q4` | `PackedByteArray` | chunk-local pixel Y quantized to `4 px` |
 | `object_size_px` | `PackedByteArray` | rendered sprite size in pixels |
-| `object_atlas_index` | `PackedByteArray` | prepared atlas bank index for the family; spiky flora index `1` is the small static brown seaweed biofield object; rock index `3` is the rare large rocky-patch rock formation |
+| `object_atlas_index` | `PackedByteArray` | prepared atlas bank index for the family; spiky flora index `1` is the small static brown seaweed biofield object; rock index `3` is the rare large rocky-patch rock pillar |
 | `object_variant` | `PackedByteArray` | atlas frame / animation view variant |
 | `object_flags` | `PackedByteArray` | visual/physics proof flags; bit `0` = large-rock collision |
 | `object_tint` | `PackedByteArray` | `0..255` presentation tint scalar |
@@ -311,15 +314,12 @@ accepted 2D mountain look:
   Small generated decor, such as `plains` rocks, may clamp projected shadow
   length to zero and use a centered contact shadow when a directional cast
   shadow makes the sprite read as floating.
-- Chunk-local dry-ground grass / straw overlay is visual-only and belongs to
-  `ChunkView`. It reuses the ready terrain-ground mask texture as a clip mask
-  and derives organic blob coverage in shader from world-space coordinates.
-  This overlay must not affect terrain ids, walkability, collision, mining,
-  save/load, lake simulation, or chunk packet schemas.
-- Chunk-local rocky ground patch overlay is visual-only and belongs to
-  `ChunkView`. It reuses the ready terrain-ground mask texture as a clip mask,
-  samples preloaded rocky albedo/normal material maps, and derives organic
-  patch coverage in shader from world-space coordinates. It must not affect
+- Dry-ground grass / straw and rocky ground patch overlays are visual-only and
+  belong to `ChunkView`. They reuse the ready terrain-ground halo mask texture
+  as a clip mask, sample preloaded albedo/normal material maps, derive organic
+  coverage from world-space coordinates in shader, and render only the exact
+  owned chunk interior. They must not use decorative chunk-edge alpha feathering
+  or a visible-chunk-wide rebuild to hide seams. The overlay must not affect
   terrain ids, walkability, collision, mining, save/load, lake simulation, or
   chunk packet schemas.
 - Chunk-local mountain foothill / rocky apron overlay is visual-only and
