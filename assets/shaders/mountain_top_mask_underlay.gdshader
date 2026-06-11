@@ -59,6 +59,14 @@ uniform float side_shade_reach_px = 26.0;
 uniform float roof_drift_scale_px = 0.0;
 uniform float roof_drift_strength = 0.0;
 uniform float roof_vein_strength = 0.0;
+// Height terraces: concentric steps derived from the mask distance-to-edge
+// (ring probes, like the shore band). Inner plateaus lift slightly, a thin
+// dark step line separates the levels. Pure cosmetics: collision, mining, and
+// light/visibility gameplay (ADR-0005) are untouched.
+uniform float terrace_strength = 0.0;
+uniform float terrace_inner_px = 96.0;
+uniform float terrace_upper_px = 184.0;
+uniform float terrace_wobble_px = 30.0;
 uniform vec3 top_dust_tint = vec3(0.90, 0.84, 0.76);
 uniform vec3 rim_highlight_color = vec3(0.93, 0.49, 0.20);
 uniform vec3 cut_highlight_color = vec3(0.82, 0.39, 0.16);
@@ -155,6 +163,22 @@ float shadow_owner_weight(vec2 uv, vec2 min_uv, vec2 max_uv, vec2 texel, float b
 	// Multiply (not min): the 2 edge / 4 corner chunks sharing a seam then hold
 	// weights that sum to exactly 1, which the ownership alpha below relies on.
 	return wx * wy;
+}
+
+// Minimum mask solidity over an 8-direction ring: 1.0 means "no open edge
+// within this radius", i.e. the pixel sits deeper than radius_texels inside
+// the massif. The smooth falloff of the minimum doubles as the step ramp.
+float ring_interior(sampler2D mask_tex, vec2 uv, vec2 texel, float radius_texels) {
+	float interior = 1.0;
+	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(texel.x, 0.0) * radius_texels).r));
+	interior = min(interior, mask_to_top(texture(mask_tex, uv - vec2(texel.x, 0.0) * radius_texels).r));
+	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(0.0, texel.y) * radius_texels).r));
+	interior = min(interior, mask_to_top(texture(mask_tex, uv - vec2(0.0, texel.y) * radius_texels).r));
+	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(texel.x, texel.y) * radius_texels * 0.7071).r));
+	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(-texel.x, texel.y) * radius_texels * 0.7071).r));
+	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(texel.x, -texel.y) * radius_texels * 0.7071).r));
+	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(-texel.x, -texel.y) * radius_texels * 0.7071).r));
+	return interior;
 }
 
 vec2 visual_mask_uv(vec2 uv, vec2 texel, vec2 wp) {
@@ -318,6 +342,32 @@ void fragment() {
 		top_n = normalize(mix(top_n, blend_normals(top_n, top_detail_n), clamp(material_normal_mix, 0.0, 1.0)));
 	}
 	vec3 top_lit = top_col.rgb * (light_ambient + light_diffuse * clamp(dot(top_n, light_dir), 0.0, 1.0));
+	if (terrace_strength > 0.001 && top_here >= 0.5) {
+		// Concentric height terraces from distance-to-edge ring probes. The
+		// noise-wobbled radii keep the step contours organic and parallel to
+		// the warped silhouette (both feed off the same world-space mask).
+		float terrace_wobble = (fbm2(world_px / 300.0 + vec2(-9.0, 37.0)) - 0.5) * 2.0 * terrace_wobble_px;
+		float inner_texels = max((terrace_inner_px + terrace_wobble) / max(sample_step_px, 0.001), 1.0);
+		float upper_texels = max((terrace_upper_px + terrace_wobble * 1.4) / max(sample_step_px, 0.001), 1.0);
+		float inner_level = smoothstep(0.30, 0.72, ring_interior(TEXTURE, base_uv, texel, inner_texels));
+		float upper_level = smoothstep(0.30, 0.72, ring_interior(TEXTURE, base_uv, texel, upper_texels));
+		float plateau_lift = (inner_level * 0.075 + upper_level * 0.085) * terrace_strength;
+		// Asymmetric ledge per level: a dark base shadow just below the step
+		// and a lit lip just above it read as real relief, unlike a symmetric
+		// dark line.
+		float step_shadow = max(
+			smoothstep(0.16, 0.46, inner_level) * (1.0 - smoothstep(0.46, 0.60, inner_level)),
+			smoothstep(0.16, 0.46, upper_level) * (1.0 - smoothstep(0.46, 0.60, upper_level))
+		);
+		float step_lip = max(
+			smoothstep(0.50, 0.64, inner_level) * (1.0 - smoothstep(0.72, 0.92, inner_level)),
+			smoothstep(0.50, 0.64, upper_level) * (1.0 - smoothstep(0.72, 0.92, upper_level))
+		);
+		float step_breakup = 0.55 + 0.45 * small_mottle;
+		top_lit *= (1.0 + plateau_lift)
+			* (1.0 - step_shadow * 0.30 * terrace_strength * step_breakup)
+			* (1.0 + step_lip * 0.14 * terrace_strength * step_breakup);
+	}
 	if (roof_vein_strength > 0.001) {
 		// Sparse crack veins: a thin iso-band of gradient fbm, gated by a
 		// second field so the lines break up instead of running forever.

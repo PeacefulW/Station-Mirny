@@ -126,8 +126,9 @@ resources, the active runtime uses a transitional native-mask presentation:
   textures. It may also apply a small deterministic world-space cosmetic warp
   to its mask UVs (craggy silhouette instead of a melted blur contour, within
   the same cosmetic margin as the roof eave), sun-relative flank shading probed
-  from the mask along the light direction, and aperiodic roof tone drift with
-  sparse vein cracks. These are presentation-only material cues; collision,
+  from the mask along the light direction, aperiodic roof tone drift with
+  sparse vein cracks, and concentric height terraces derived from ring probes
+  of the mask distance-to-edge (lit plateau lips over dark step shadows). These are presentation-only material cues; collision,
   resource, and mining checks keep reading the raw mask bytes, and they do not
   create new terrain ids, save data, collision ownership, or worldgen state.
 - Mask bounds include a fixed halo around the chunk, so adjacent chunks overlap

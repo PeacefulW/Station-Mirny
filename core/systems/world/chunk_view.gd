@@ -66,6 +66,13 @@ const MOUNTAIN_SIDE_SHADE_REACH_PX: float = 26.0
 const MOUNTAIN_ROOF_DRIFT_SCALE_PX: float = 5200.0
 const MOUNTAIN_ROOF_DRIFT_STRENGTH: float = 0.12
 const MOUNTAIN_ROOF_VEIN_STRENGTH: float = 0.22
+# Terrace radii sized for the actual ridge widths the worldgen produces
+# (~120-300 px): the first step appears on any medium ridge, the second only
+# on fat massifs.
+const MOUNTAIN_TERRACE_STRENGTH: float = 1.0
+const MOUNTAIN_TERRACE_INNER_PX: float = 56.0
+const MOUNTAIN_TERRACE_UPPER_PX: float = 124.0
+const MOUNTAIN_TERRACE_WOBBLE_PX: float = 22.0
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 
@@ -878,6 +885,10 @@ func _upload_mountain_mask_texture(
 	material.set_shader_parameter("roof_drift_scale_px", MOUNTAIN_ROOF_DRIFT_SCALE_PX)
 	material.set_shader_parameter("roof_drift_strength", MOUNTAIN_ROOF_DRIFT_STRENGTH)
 	material.set_shader_parameter("roof_vein_strength", MOUNTAIN_ROOF_VEIN_STRENGTH)
+	material.set_shader_parameter("terrace_strength", MOUNTAIN_TERRACE_STRENGTH)
+	material.set_shader_parameter("terrace_inner_px", MOUNTAIN_TERRACE_INNER_PX)
+	material.set_shader_parameter("terrace_upper_px", MOUNTAIN_TERRACE_UPPER_PX)
+	material.set_shader_parameter("terrace_wobble_px", MOUNTAIN_TERRACE_WOBBLE_PX)
 	_set_mask_shader_chunk_clip(
 		material,
 		mask_origin_world,
