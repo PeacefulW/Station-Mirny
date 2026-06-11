@@ -86,6 +86,13 @@ const MOUNTAIN_BIOFIELD_RIM_STRENGTH: float = 1.0
 # Same scale family as the ground material's orange_field_scale_px, so rim
 # accents cluster near orange ground regions.
 const MOUNTAIN_BIOFIELD_RIM_SCALE_PX: float = 1450.0
+# Scree debris on the apron's outer fringe (rock rubble crumbling into the
+# steppe; presentation-only, same rock albedo the ground material uses).
+const MOUNTAIN_SCREE_TEXTURE: Texture2D = preload("res://assets/textures/world/biomes/plains/ground/rock_top_albedo.png")
+const MOUNTAIN_SCREE_STRENGTH: float = 1.0
+const MOUNTAIN_SCREE_TEXTURE_SCALE: float = 1.0
+const MOUNTAIN_SCREE_PATCH_SCALE_PX: float = 760.0
+const MOUNTAIN_SCREE_COVERAGE: float = 0.38
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 
@@ -1626,6 +1633,15 @@ func _sync_mountain_foothill_overlay_visual(
 	material.set_shader_parameter("outer_width_variation_px", MOUNTAIN_FOOTHILL_OUTER_WIDTH_VARIATION_PX)
 	material.set_shader_parameter("inner_width_px", MOUNTAIN_FOOTHILL_INNER_WIDTH_PX)
 	material.set_shader_parameter("foothill_alpha", MOUNTAIN_FOOTHILL_ALPHA)
+	material.set_shader_parameter("scree_texture", MOUNTAIN_SCREE_TEXTURE)
+	material.set_shader_parameter("scree_texture_size", Vector2(
+		maxf(1.0, float(MOUNTAIN_SCREE_TEXTURE.get_width())),
+		maxf(1.0, float(MOUNTAIN_SCREE_TEXTURE.get_height()))
+	))
+	material.set_shader_parameter("scree_strength", MOUNTAIN_SCREE_STRENGTH)
+	material.set_shader_parameter("scree_texture_scale", MOUNTAIN_SCREE_TEXTURE_SCALE)
+	material.set_shader_parameter("scree_patch_scale_px", MOUNTAIN_SCREE_PATCH_SCALE_PX)
+	material.set_shader_parameter("scree_coverage", MOUNTAIN_SCREE_COVERAGE)
 	_set_mask_shader_chunk_clip(
 		material,
 		_mountain_foothill_mask_origin_world,

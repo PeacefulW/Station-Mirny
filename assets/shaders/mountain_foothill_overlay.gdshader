@@ -13,6 +13,15 @@ uniform float outer_width_px = 116.0;
 uniform float outer_width_variation_px = 0.0;
 uniform float inner_width_px = 36.0;
 uniform float foothill_alpha = 0.62;
+// Scree debris: sparse large rock-rubble patches on the OUTER fringe of the
+// apron, crumbling into individual stones via the rock texture's own luma
+// (same dissolve trick as the ground material's rock patches).
+uniform sampler2D scree_texture : filter_linear_mipmap, repeat_enable;
+uniform vec2 scree_texture_size = vec2(1024.0, 1024.0);
+uniform float scree_strength = 0.0;
+uniform float scree_texture_scale = 1.0;
+uniform float scree_patch_scale_px = 760.0;
+uniform float scree_coverage = 0.38;
 uniform float top_threshold_low = 0.40;
 uniform float top_threshold_high = 0.58;
 uniform vec2 chunk_uv_min = vec2(0.1, 0.1);
@@ -35,15 +44,22 @@ float hash12(vec2 p) {
 	return fract((p3.x + p3.y) * p3.z);
 }
 
-float value_noise(vec2 p) {
+// Gradient noise (not value noise): the scree gate thresholds this field, and
+// thresholded value noise grows straight lattice-aligned polygon edges.
+vec2 random_gradient(vec2 p) {
+	vec2 h = vec2(hash12(p), hash12(p + vec2(17.31, -41.77))) * 2.0 - 1.0;
+	return normalize(h + vec2(0.001, -0.001));
+}
+
+float gradient_noise(vec2 p) {
 	vec2 i = floor(p);
 	vec2 f = fract(p);
-	vec2 u = f * f * (3.0 - 2.0 * f);
-	float a = hash12(i);
-	float b = hash12(i + vec2(1.0, 0.0));
-	float c = hash12(i + vec2(0.0, 1.0));
-	float d = hash12(i + vec2(1.0, 1.0));
-	return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+	vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+	float a = dot(random_gradient(i), f);
+	float b = dot(random_gradient(i + vec2(1.0, 0.0)), f - vec2(1.0, 0.0));
+	float c = dot(random_gradient(i + vec2(0.0, 1.0)), f - vec2(0.0, 1.0));
+	float d = dot(random_gradient(i + vec2(1.0, 1.0)), f - vec2(1.0, 1.0));
+	return clamp(mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 1.42 * 0.5 + 0.5, 0.0, 1.0);
 }
 
 float fbm2(vec2 p) {
@@ -51,7 +67,7 @@ float fbm2(vec2 p) {
 	float a = 0.56;
 	float total = 0.0;
 	for (int i = 0; i < 4; i++) {
-		v += value_noise(p) * a;
+		v += gradient_noise(p) * a;
 		total += a;
 		p = p * 2.04 + vec2(17.9, -23.1);
 		a *= 0.48;
@@ -147,7 +163,10 @@ void fragment() {
 	float organic_alpha = 0.76 + (broad - 0.5) * 0.30 + (gravel_break - 0.5) * 0.18;
 	float alpha = clamp(feather * foothill_alpha * organic_alpha, 0.0, 0.78);
 	alpha *= clip_alpha;
-	if (alpha <= 0.01) {
+	// Scree fringe: the outer tail of the apron ring, where the apron itself
+	// is already fading out.
+	float scree_fringe = smoothstep(0.02, 0.10, outside_band) * (1.0 - smoothstep(0.34, 0.60, outside_band));
+	if (alpha <= 0.01 && scree_fringe * scree_strength <= 0.01) {
 		discard;
 	}
 
@@ -172,5 +191,20 @@ void fragment() {
 	color = mix(color, color * contact_tint, smoothstep(0.30, 0.86, edge_band) * 0.18);
 	color *= 0.90 + detail * 0.16;
 
-	COLOR = vec4(color, alpha * sample_col.a);
+	float scree = 0.0;
+	if (scree_strength > 0.001 && scree_fringe > 0.001) {
+		vec4 rock_sample = texture(scree_texture, world_px * scree_texture_scale / max(scree_texture_size, vec2(1.0, 1.0)));
+		float rock_detail = smoothstep(0.30, 0.70, luma(rock_sample.rgb)) - 0.5;
+		float scree_field = fbm2(world_px / max(scree_patch_scale_px, 1.0) + vec2(43.0, -11.0));
+		float scree_threshold = mix(0.86, 0.52, clamp(scree_coverage, 0.0, 1.0));
+		// Luma dissolve: the patch boundary crumbles into individual stones
+		// instead of a soft airbrushed blob.
+		float gate = smoothstep(scree_threshold - 0.09, scree_threshold + 0.09, scree_field + rock_detail * 0.26);
+		scree = gate * scree_fringe * scree_strength;
+		vec3 scree_color = rock_sample.rgb * light * (0.90 + rock_detail * 0.34);
+		color = mix(color, scree_color, clamp(scree * 1.6, 0.0, 1.0));
+	}
+
+	float final_alpha = max(alpha, clamp(scree, 0.0, 1.0) * 0.92 * clip_alpha);
+	COLOR = vec4(color, final_alpha * sample_col.a);
 }

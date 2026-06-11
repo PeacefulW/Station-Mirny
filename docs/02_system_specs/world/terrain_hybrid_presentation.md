@@ -160,7 +160,9 @@ resources, the active runtime uses a transitional native-mask presentation:
   packet fields, or a separate topology owner. The captured footprint may fill
   the former mountain area so mined-out mountains leave a visible rocky trace.
   The apron may use world-space shader noise to locally widen the outer band,
-  as long as the authoritative mask and dirty owner stay unchanged. Mining may
+  and may scatter sparse rock-scree debris patches on its outer fringe (gated
+  by aperiodic world-space fields and dissolved by the rock texture's own
+  luma), as long as the authoritative mask and dirty owner stay unchanged. Mining may
   clear the live mountain mask but must not clear the captured footprint in the
   same chunk view; full chunk unload/reset may clear it. Refreshing it belongs
   to the existing bounded native-mask visual upload path.
