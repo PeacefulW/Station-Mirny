@@ -35,12 +35,24 @@ const MOUNTAIN_VISUAL_CLIP_MARGIN_PX: float = 512.0
 const MOUNTAIN_VISUAL_SOURCE_PADDING_PX: float = 320.0
 const MOUNTAIN_PAGE_VISUAL_INFLUENCE_MARGIN_TILES: int = 6
 const MOUNTAIN_INTERIOR_FILL_SAFETY_MARGIN_TILES: int = 2
-const MOUNTAIN_HALO_MASK_RADIUS_TILES: int = 2
+# Halo must cover the longest cross-chunk sampling reach of the mask shader,
+# or neighbour chunks cannot reproduce projected mountain shadows / aprons and
+# they cut at chunk seams: shadow reach sqrt(360^2 + (78 * 1.38 * 1.85)^2)
+# ~= 412 px + 48 px shadow draw overlap -> 460 px; foothill outer search is
+# 154 + 96 = 250 px. ceil(460 / 64) = 8 tiles.
+const MOUNTAIN_HALO_MASK_RADIUS_TILES: int = 8
 const MOUNTAIN_HALO_MASK_PIXELS_PER_TILE: int = 8
 const MOUNTAIN_NATIVE_MASK_RUNTIME_ENABLED: bool = true
+# The walkable plains surface is composed entirely by the world-space ground
+# material (ground_hybrid_material.gdshader). The terrain-edge mask is a
+# bounded SHORELINE enhancement only: it is built solely for chunks whose halo
+# contains both dry land and visible water, and its shader paints only the
+# organic contour band plus the bank facade, never the dry interior.
 const TERRAIN_EDGE_MASK_RUNTIME_ENABLED: bool = true
 const OBJECT_DEPTH_REFERENCE_QUANTUM_PX: float = 16.0
-const TERRAIN_EDGE_HALO_MASK_RADIUS_TILES: int = 2
+# Same cross-chunk sampling-reach requirement as MOUNTAIN_HALO_MASK_RADIUS_TILES:
+# the shoreline underlay projects the same WorldVisualLightingProfile shadows.
+const TERRAIN_EDGE_HALO_MASK_RADIUS_TILES: int = 8
 const TERRAIN_EDGE_HALO_MASK_PIXELS_PER_TILE: int = 8
 const TERRAIN_EDGE_TOP_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_top_albedo.png"
 const TERRAIN_EDGE_FACE_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_face_albedo.png"
@@ -1823,7 +1835,7 @@ func _apply_terrain_edge_mask_to_chunk_view(
 		chunk_coord,
 		TERRAIN_EDGE_HALO_MASK_RADIUS_TILES
 	)
-	if _terrain_edge_halo_has_solid(solid_halo):
+	if _terrain_edge_halo_has_shoreline(solid_halo):
 		_request_terrain_edge_mask_for_chunk(chunk_coord, solid_halo, reason)
 	else:
 		_forget_terrain_edge_mask(chunk_coord, true, false)
@@ -2200,7 +2212,7 @@ func _can_publish_chunk_with_terrain_edge_mask(chunk_coord: Vector2i, _packet: D
 		chunk_coord,
 		TERRAIN_EDGE_HALO_MASK_RADIUS_TILES
 	)
-	if not _terrain_edge_halo_has_solid(solid_halo):
+	if not _terrain_edge_halo_has_shoreline(solid_halo):
 		_terrain_edge_masks_by_chunk.erase(chunk_coord)
 		_terrain_edge_mask_inflight_chunks.erase(chunk_coord)
 		return true
@@ -2654,6 +2666,21 @@ func _build_terrain_edge_solid_halo(chunk_coord: Vector2i, halo_radius_tiles: in
 func _terrain_edge_halo_has_solid(solid_halo: PackedByteArray) -> bool:
 	for value: int in solid_halo:
 		if value != 0:
+			return true
+	return false
+
+func _terrain_edge_halo_has_shoreline(solid_halo: PackedByteArray) -> bool:
+	# The shoreline underlay is built only where dry land actually meets
+	# visible water inside the halo. Pure-land and pure-water chunks render
+	# without it: the ground material owns the dry interior.
+	var has_solid: bool = false
+	var has_open: bool = false
+	for value: int in solid_halo:
+		if value != 0:
+			has_solid = true
+		else:
+			has_open = true
+		if has_solid and has_open:
 			return true
 	return false
 

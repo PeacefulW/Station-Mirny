@@ -1,0 +1,14 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce GTX 1060 6GB
+
+[FrameBudget] streaming=3.6ms topology=0.0ms visual=0.0ms spawn=0.0ms total=3.6ms/6.0ms world.streaming_v0=3.6ms(60) world.mountain_native_mask_visual_upload=0.0ms(53)
+ground_zoom_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_zoom_probe/zoom_100.png
+[FrameBudget] streaming=4.8ms topology=0.0ms visual=0.0ms spawn=0.0ms total=4.8ms/6.0ms world.streaming_v0=4.8ms(60) world.mountain_native_mask_visual_upload=0.0ms(45)
+ground_zoom_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_zoom_probe/zoom_045.png
+[FrameBudget] streaming=5.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=5.4ms/6.0ms world.streaming_v0=5.4ms(60) world.mountain_native_mask_visual_upload=0.0ms(41)
+[FrameBudget] streaming=7.3ms topology=0.0ms visual=0.0ms spawn=0.0ms total=7.3ms/6.0ms world.streaming_v0=7.3ms(60) world.mountain_native_mask_visual_upload=0.0ms(36)
+ground_zoom_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_zoom_probe/zoom_022.png
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 7 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

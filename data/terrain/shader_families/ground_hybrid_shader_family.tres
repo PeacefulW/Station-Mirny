@@ -12,9 +12,18 @@ shape_texture_params = {
 "shape_normal_atlas": &"shape_normal_atlas"
 }
 material_texture_params = {
+"dirty_albedo_tex": &"dirty_albedo",
 "face_albedo_tex": &"face_albedo",
 "face_modulation": &"face_modulation",
 "face_normal_tex": &"face_normal",
+"grass_dense_albedo_tex": &"grass_dense_albedo",
+"grass_medium_albedo_tex": &"grass_medium_albedo",
+"grass_normal_tex": &"grass_normal",
+"grass_sparse_albedo_tex": &"grass_sparse_albedo",
+"grass_transition_albedo_tex": &"grass_transition_albedo",
+"orange_biofield_albedo_tex": &"orange_biofield_albedo",
+"rock_foothill_albedo_tex": &"rock_foothill_albedo",
+"rock_top_albedo_tex": &"rock_top_albedo",
 "top_albedo_tex": &"top_albedo",
 "top_modulation": &"top_modulation",
 "top_normal_tex": &"top_normal"

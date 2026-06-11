@@ -1,0 +1,110 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+[   0% ] [90m[1mfirst_scan_filesystem[22m | Started Инициализация проекта (5 steps)[39m[0m
+[   0% ] [90m[1mfirst_scan_filesystem[22m | Сканирование структуры файлов…[39m[0m
+[  16% ] [90m[1mfirst_scan_filesystem[22m | Загрузка глобальных имен классов…[39m[0m
+[  33% ] [90m[1mfirst_scan_filesystem[22m | Проверка GDExtensions…[39m[0m
+[  50% ] [90m[1mfirst_scan_filesystem[22m | Создание скриптов автозагрузки…[39m[0m
+[  66% ] [90m[1mfirst_scan_filesystem[22m | Инициализация плагинов…[39m[0m
+[38;2;218;165;32mIt was recognized that GdUnit4 is running in a test environment, therefore the GdUnit4 plugin will not be executed![0m
+[  83% ] [90m[1mfirst_scan_filesystem[22m | Начало сканирование файлов…[39m[0m
+[92m[ DONE ][39m [1mfirst_scan_filesystem[22m
+[0m
+[   0% ] [90m[1m_update_scan_actions[22m | Started Сканирование действий… (41 steps)[39m[0m
+[   0% ] [90m[1m_update_scan_actions[22m | brown_seaweed_living_view_000deg.webp[39m[0m
+[   2% ] [90m[1m_update_scan_actions[22m | brown_seaweed_living_view_045deg.webp[39m[0m
+[   4% ] [90m[1m_update_scan_actions[22m | brown_seaweed_living_view_090deg.webp[39m[0m
+[   7% ] [90m[1m_update_scan_actions[22m | brown_seaweed_living_view_135deg.webp[39m[0m
+[   9% ] [90m[1m_update_scan_actions[22m | running_source_preview.webp[39m[0m
+[  11% ] [90m[1m_update_scan_actions[22m | source_run_dir_00_000deg.webp[39m[0m
+[  14% ] [90m[1m_update_scan_actions[22m | source_run_dir_04_090deg.webp[39m[0m
+[  16% ] [90m[1m_update_scan_actions[22m | source_run_dir_08_180deg.webp[39m[0m
+[  19% ] [90m[1m_update_scan_actions[22m | source_run_dir_12_270deg.webp[39m[0m
+[  21% ] [90m[1m_update_scan_actions[22m | space_suit_run_preview.webp[39m[0m
+[  23% ] [90m[1m_update_scan_actions[22m | dirty.png[39m[0m
+[  26% ] [90m[1m_update_scan_actions[22m | dry_grass_dense_albedo.png[39m[0m
+[  28% ] [90m[1m_update_scan_actions[22m | dry_grass_medium_albedo.png[39m[0m
+[  30% ] [90m[1m_update_scan_actions[22m | dry_grass_sparse_albedo.png[39m[0m
+[  33% ] [90m[1m_update_scan_actions[22m | dry_grass_transition_albedo.png[39m[0m
+[  35% ] [90m[1m_update_scan_actions[22m | dry_ground_dug_albedo.png[39m[0m
+[  38% ] [90m[1m_update_scan_actions[22m | dry_ground_face_albedo.png[39m[0m
+[  40% ] [90m[1m_update_scan_actions[22m | dry_ground_face_modulation.png[39m[0m
+[  42% ] [90m[1m_update_scan_actions[22m | dry_ground_face_normal.png[39m[0m
+[  45% ] [90m[1m_update_scan_actions[22m | dry_ground_top_albedo.png[39m[0m
+[  47% ] [90m[1m_update_scan_actions[22m | dry_ground_top_modulation.png[39m[0m
+[  50% ] [90m[1m_update_scan_actions[22m | dry_ground_top_normal.png[39m[0m
+[  52% ] [90m[1m_update_scan_actions[22m | foothill_albedo.png[39m[0m
+[  54% ] [90m[1m_update_scan_actions[22m | orange_biofield_albedo.png[39m[0m
+[  57% ] [90m[1m_update_scan_actions[22m | orange_biofield_normal.png[39m[0m
+[  59% ] [90m[1m_update_scan_actions[22m | rock_top_albedo.png[39m[0m
+[  61% ] [90m[1m_update_scan_actions[22m | autotile_47.windows.template_debug.x86_64.obj[39m[0m
+[  64% ] [90m[1m_update_scan_actions[22m | autotile_47.windows.template_release.x86_64.obj[39m[0m
+[  66% ] [90m[1m_update_scan_actions[22m | lake_field.windows.template_debug.x86_64.obj[39m[0m
+[  69% ] [90m[1m_update_scan_actions[22m | lake_field.windows.template_release.x86_64.obj[39m[0m
+[  71% ] [90m[1m_update_scan_actions[22m | mountain_contour.windows.template_debug.x86_64.obj[39m[0m
+[  73% ] [90m[1m_update_scan_actions[22m | mountain_contour.windows.template_release.x86_64.obj[39m[0m
+[  76% ] [90m[1m_update_scan_actions[22m | mountain_field.windows.template_debug.x86_64.obj[39m[0m
+[  78% ] [90m[1m_update_scan_actions[22m | mountain_field.windows.template_release.x86_64.obj[39m[0m
+[  80% ] [90m[1m_update_scan_actions[22m | mountain_plateau_raster.windows.template_debug.x86_64.obj[39m[0m
+[  83% ] [90m[1m_update_scan_actions[22m | register_types.windows.template_debug.x86_64.obj[39m[0m
+[  85% ] [90m[1m_update_scan_actions[22m | register_types.windows.template_release.x86_64.obj[39m[0m
+[  88% ] [90m[1m_update_scan_actions[22m | world_core.windows.template_debug.x86_64.obj[39m[0m
+[  90% ] [90m[1m_update_scan_actions[22m | world_core.windows.template_release.x86_64.obj[39m[0m
+[  92% ] [90m[1m_update_scan_actions[22m | world_prepass.windows.template_debug.x86_64.obj[39m[0m
+[  95% ] [90m[1m_update_scan_actions[22m | world_prepass.windows.template_release.x86_64.obj[39m[0m
+[92m[ DONE ][39m [1m_update_scan_actions[22m
+[0m
+[   0% ] [90m[1mreimport[22m | Started Импорт или повторный импорт ассетов (4 steps)[39m[0m
+[   0% ] [90m[1mreimport[22m | Подготовка файлов к повторному импорту…[39m[0m
+[  20% ] [90m[1mreimport[22m | Подготовка файлов к повторному импорту…[39m[0m
+[  40% ] [90m[1mreimport[22m | Подготовка файлов к повторному импорту…[39m[0m
+[  60% ] [90m[1mreimport[22m | Подготовка файлов к повторному импорту…[39m[0m
+[   0% ] [90m[1mreimport[22m | Выполнение предимпортных операций…[39m[0m
+[   0% ] [90m[1mreimport[22m | dirty.png[39m[0m
+[  20% ] [90m[1mreimport[22m | dry_grass_transition_albedo.png[39m[0m
+[  40% ] [90m[1mreimport[22m | foothill_albedo.png[39m[0m
+[  60% ] [90m[1mreimport[22m | rock_top_albedo.png[39m[0m
+[  80% ] [90m[1mreimport[22m | Завершение импорта активов…[39m[0m
+[92m[ DONE ][39m [1mreimport[22m
+[0m
+[   0% ] [90m[1mreimport[22m | Started Импорт или повторный импорт ассетов (4 steps)[39m[0m
+[   0% ] [90m[1mreimport[22m | Выполнение операций после реимпорта…[39m[0m
+[92m[ DONE ][39m [1mreimport[22m
+[0m
+[   0% ] [90m[1mloading_editor_layout[22m | Started Загрузка редактора (5 steps)[39m[0m
+[   0% ] [90m[1mloading_editor_layout[22m | Загрузка макета редактора…[39m[0m
+[  16% ] [90m[1mloading_editor_layout[22m | Загрузка док-панели…[39m[0m
+[  33% ] [90m[1mloading_editor_layout[22m | Повторное открытие сцен…[39m[0m
+[  50% ] [90m[1mloading_editor_layout[22m | Загрузка макета центрального редактора…[39m[0m
+[  66% ] [90m[1mloading_editor_layout[22m | Загрузка макета окна плагина…[39m[0m
+ERROR: Could not create child process: "C:\Users\Мирный\AppData\Local\Programs\Microsoft VS Code\Code.exe" "C:/Users/peaceful/Station Peaceful/Station Peaceful" --goto "C:/Users/peaceful/Station Peaceful/Station Peaceful/scenes/ui/new_game_panel.gd:1:1"
+   at: create_process (platform/windows/os_windows.cpp:1590)
+ERROR: Couldn't open external text editor, falling back to the internal editor. Review your `text_editor/external/` editor settings.
+   at: edit (editor/script/script_editor_plugin.cpp:2604)
+ERROR: Could not create child process: "C:\Users\Мирный\AppData\Local\Programs\Microsoft VS Code\Code.exe" "C:/Users/peaceful/Station Peaceful/Station Peaceful" --goto "C:/Users/peaceful/Station Peaceful/Station Peaceful/core/entities/player/player.gd:1:1"
+   at: create_process (platform/windows/os_windows.cpp:1590)
+ERROR: Couldn't open external text editor, falling back to the internal editor. Review your `text_editor/external/` editor settings.
+   at: edit (editor/script/script_editor_plugin.cpp:2604)
+ERROR: Could not create child process: "C:\Users\Мирный\AppData\Local\Programs\Microsoft VS Code\Code.exe" "C:/Users/peaceful/Station Peaceful/Station Peaceful" --goto "C:/Users/peaceful/Station Peaceful/Station Peaceful/core/systems/world/terrain_presentation_registry.gd:1:1"
+   at: create_process (platform/windows/os_windows.cpp:1590)
+ERROR: Couldn't open external text editor, falling back to the internal editor. Review your `text_editor/external/` editor settings.
+   at: edit (editor/script/script_editor_plugin.cpp:2604)
+ERROR: Could not create child process: "C:\Users\Мирный\AppData\Local\Programs\Microsoft VS Code\Code.exe" "C:/Users/peaceful/Station Peaceful/Station Peaceful" --goto "C:/Users/peaceful/Station Peaceful/Station Peaceful/core/systems/world/world_preview_palette.gd:1:1"
+   at: create_process (platform/windows/os_windows.cpp:1590)
+ERROR: Couldn't open external text editor, falling back to the internal editor. Review your `text_editor/external/` editor settings.
+   at: edit (editor/script/script_editor_plugin.cpp:2604)
+ERROR: Could not create child process: "C:\Users\Мирный\AppData\Local\Programs\Microsoft VS Code\Code.exe" "C:/Users/peaceful/Station Peaceful/Station Peaceful" --goto "C:/Users/peaceful/Station Peaceful/Station Peaceful/scenes/world/world_runtime_v0_scene.gd:1:1"
+   at: create_process (platform/windows/os_windows.cpp:1590)
+ERROR: Couldn't open external text editor, falling back to the internal editor. Review your `text_editor/external/` editor settings.
+   at: edit (editor/script/script_editor_plugin.cpp:2604)
+ERROR: Could not create child process: "C:\Users\Мирный\AppData\Local\Programs\Microsoft VS Code\Code.exe" "C:/Users/peaceful/Station Peaceful/Station Peaceful" --goto "C:/Users/peaceful/Station Peaceful/Station Peaceful/core/systems/world/world_streamer.gd:1:1"
+   at: create_process (platform/windows/os_windows.cpp:1590)
+ERROR: Couldn't open external text editor, falling back to the internal editor. Review your `text_editor/external/` editor settings.
+   at: edit (editor/script/script_editor_plugin.cpp:2604)
+ERROR: Could not create child process: "C:\Users\Мирный\AppData\Local\Programs\Microsoft VS Code\Code.exe" "C:/Users/peaceful/Station Peaceful/Station Peaceful" --goto "C:/Users/peaceful/Station Peaceful/Station Peaceful/core/systems/world/world_tile_set_factory.gd:1:1"
+   at: create_process (platform/windows/os_windows.cpp:1590)
+ERROR: Couldn't open external text editor, falling back to the internal editor. Review your `text_editor/external/` editor settings.
+   at: edit (editor/script/script_editor_plugin.cpp:2604)
+[  83% ] [90m[1mloading_editor_layout[22m | Макет редактора готов.[39m[0m
+[92m[ DONE ][39m [1mloading_editor_layout[22m
+[0m

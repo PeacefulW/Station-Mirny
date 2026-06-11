@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=9 format=3]
+[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://data/terrain/terrain_material_set.gd" id="1"]
 [ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/dry_ground_top_albedo.png" id="2"]
@@ -7,6 +7,16 @@
 [ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/dry_ground_face_modulation.png" id="5"]
 [ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/dry_ground_top_normal.png" id="6"]
 [ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/dry_ground_face_normal.png" id="7"]
+
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/dirty.png" id="8"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/dry_grass_transition_albedo.png" id="9"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/dry_grass_sparse_albedo.png" id="10"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/dry_grass_medium_albedo.png" id="11"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/dry_grass_dense_albedo.png" id="12"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/orange_biofield_albedo.png" id="13"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/orange_biofield_normal.png" id="14"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/rock_top_albedo.png" id="15"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/foothill_albedo.png" id="16"]
 
 [resource]
 script = ExtResource("1")
@@ -18,11 +28,23 @@ top_modulation = ExtResource("4")
 face_modulation = ExtResource("5")
 top_normal = ExtResource("6")
 face_normal = ExtResource("7")
+extra_textures = {
+&"dirty_albedo": ExtResource("8"),
+&"grass_dense_albedo": ExtResource("12"),
+&"grass_medium_albedo": ExtResource("11"),
+&"grass_normal": ExtResource("14"),
+&"grass_sparse_albedo": ExtResource("10"),
+&"grass_transition_albedo": ExtResource("9"),
+&"orange_biofield_albedo": ExtResource("13"),
+&"rock_foothill_albedo": ExtResource("16"),
+&"rock_top_albedo": ExtResource("15")
+}
 sampling_params = {
 "back_rim_darkening": 0.96,
 "face_world_scale_px": 224.0,
 "top_world_scale_px": 384.0,
 "macro_world_scale_px": 896.0,
 "modulation_contrast": 1.04,
-"modulation_strength": 0.1
+"modulation_strength": 0.1,
+"organic_overlay_strength": 0.0
 }

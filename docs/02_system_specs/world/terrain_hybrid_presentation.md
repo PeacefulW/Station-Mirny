@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+art
 source_of_truth: true
-version: 1.0
-last_updated: 2026-06-06
+version: 1.1
+last_updated: 2026-06-10
 related_docs:
   - ../../README.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -160,30 +160,40 @@ resources, the active runtime uses a transitional native-mask presentation:
 - This native-mask bridge is a transitional presentation product, not a new
   canonical terrain geometry authoring model.
 
-### Runtime 2D Terrain Ground Native Masks
+### Runtime 2D Terrain Ground Composition
 
-The same transitional native-mask bridge may be used as the active 2D terrain
-ground presentation for dry ground, including low banks where dry ground meets
-visible lake water:
+The active dry-ground presentation is owned by the base terrain material, not
+by chunk-local masks or overlay sprites:
 
-- The authoritative source remains `terrain_ids` plus `lake_flags` from the
-  resolved chunk packet. Water is derived from `LAKE_FLAG_WATER_PRESENT` on
-  shallow/deep lake bed terrain. The terrain ground mask never owns terrain ids,
-  walkability, collision, mining, save/load, or lake simulation state.
-- `WorldStreamer` builds a bounded halo where dry terrain is solid and visible
-  water is open, then queues `WorldCore.build_mountain_halo_mask` through the
-  existing `mountain_halo_mask` worker path with a `terrain_edge` purpose tag.
-  This reuses the native smoothing/displacement path without adding a second
-  worker pool.
-- `ChunkView` owns the chunk-local visual mask and paints the dry ground top
-  surface plus a low facade / bank presentation from shared terrain top/face
-  textures. While the mask is active, the square base terrain tile is suppressed
-  for covered dry terrain so the old tile grid cannot show through.
-- Water renders below the terrain ground mask. The organic terrain mask, not the
-  square water tile, defines the visible dry/water contour.
-- Any chunk that contains visible dry terrain waits for ready terrain-ground mask
-  bytes and visual texture upload before first visible publish. Fully water
-  chunks skip the layer entirely.
+- The walkable plains surface (dirty soil, gritty dry ground, the dry-grass
+  density ladder, orange biofield cores, and sparse rocky patches) is composed
+  in the shared world-space ground material shader through
+  `TerrainMaterialSet` data. Every visible field is an aperiodic function of
+  world position (hash-noise fbm), never a repeat-sampled texture lookup:
+  texture-driven fields repeat on the texture period grid and render as
+  wallpaper at far camera zoom.
+- The composition holds no per-chunk state, so chunk-boundary seams cannot
+  exist in the ground field by construction. Per-chunk decorative overlay
+  sprites for grass/rock breakup are retired; they were the proven source of
+  ruler-straight cuts on chunk borders.
+- Land-only chunks do not wait for any terrain-ground mask bytes. First
+  visible publish depends on the ordinary chunk packet and tile material
+  upload only. Only chunks whose halo contains both dry land and visible
+  water wait for their shoreline mask.
+- The terrain-edge native-mask bridge (`terrain_edge` purpose tag through the
+  `mountain_halo_mask` worker path) runs as a bounded shoreline-contour
+  enhancement only:
+  - it is built solely for shoreline chunks (halo holds both dry land and
+    visible water);
+  - its shader paints only the organic contour, the bank facade, and a noisy
+    packed-shore top band (`top_band_px`), never the dry interior;
+  - lowered contour thresholds bulge the silhouette outward into water tiles
+    so it never undercuts square land tiles painted by the base layer;
+  - the chunk water fill is clipped by the same mask, so the visible water
+    contour and the shore band share one organic silhouette;
+  - the water fill renders only for chunks that actually contain visible
+    water, and a drained lake bed tile paints as ordinary plains ground (the
+    dark bed material is an underwater look only).
 - Mountains keep their separate native mask and z-order, so terrain ground
   presentation must not replace or mutate mountain presentation.
 - Mountain and terrain-ground shadow projection is driven by
@@ -192,14 +202,12 @@ visible lake water:
   and terrain-edge shadow opacity scale. Shader parameters may differ per visual
   layer only through documented layer multipliers; they must not introduce a
   second hidden lighting curve.
-- Dry-ground grass / straw breakup and decorative rocky ground patches are
-  visual-only and belong to `ChunkView`. They reuse the ready terrain-ground
-  halo mask texture as a clip mask, derive deterministic region shapes from
-  world-space coordinates in shader, and render only the exact owned chunk
-  interior. They must not use decorative chunk-edge alpha feathering or a
-  visible-chunk-wide rebuild to hide seams. These overlays do not create terrain
-  ids, walkability, collision, mining targets, runtime diff data, save data,
-  packet fields, or a new chunk readiness dependency.
+- Cross-chunk mask-shader seam law: per-chunk mask halos must cover the longest
+  cross-chunk sampling reach of their shaders (projected shadow walk plus
+  lateral softness, foothill outer search), and split shadow ownership across a
+  seam must composite to exactly the full shadow value
+  (`alpha = 1 - (1 - s)^w` with axis-multiplied weights). Ground composition
+  itself has no such seams because it has no chunk-local inputs.
 
 ## Core Terms
 
@@ -359,6 +367,7 @@ Canonical fields:
 - `face_modulation: Texture2D`
 - `top_normal: Texture2D`
 - `face_normal: Texture2D`
+- `extra_textures: Dictionary`
 - `shader_family_id: StringName`
 - `sampling_params: Dictionary`
 
@@ -370,6 +379,15 @@ Notes:
   contrast, tint opacity, or material-specific shader tuning.
 - Missing required maps should fail validation; they should not silently
   degrade on runtime hot paths.
+- `extra_textures` provides named material-only maps for shader families that
+  need more than the fixed slots (for example the dry-grass density ladder
+  albedos). Extra maps are presentation data; they must not add canonical
+  terrain ids or runtime packet fields.
+- All material maps sampled in world space with `repeat_enable` must be
+  seamlessly tileable: opposite PNG edges must match, or the repeat grid
+  renders ruler-straight seam lines across terrain. Generator exports and any
+  post-processing must preserve this property
+  (`tools/make_textures_tileable.gd` is the current offline normalizer).
 
 ## `TerrainShaderFamily`
 

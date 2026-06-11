@@ -40,6 +40,11 @@ uniform float projected_shadow_softness_px = 28.0;
 uniform vec3 projected_shadow_color = vec3(0.030, 0.026, 0.018);
 uniform float top_surface_alpha = 1.0;
 uniform float wall_surface_alpha = 1.0;
+// Shoreline band mode (0 = classic full top fill, used by mountains): the top
+// surface renders only within ~top_band_px of the open contour, with a noisy
+// feathered inner edge, so the world-space ground material keeps the interior.
+uniform float top_band_px = 0.0;
+uniform float top_band_feather_px = 48.0;
 uniform vec3 top_dust_tint = vec3(0.90, 0.84, 0.76);
 uniform vec3 rim_highlight_color = vec3(0.93, 0.49, 0.20);
 uniform vec3 cut_highlight_color = vec3(0.82, 0.39, 0.16);
@@ -123,7 +128,9 @@ float shadow_axis_owner_weight(float value, float min_value, float max_value, fl
 float shadow_owner_weight(vec2 uv, vec2 min_uv, vec2 max_uv, vec2 texel, float blend_texels) {
 	float wx = shadow_axis_owner_weight(uv.x, min_uv.x, max_uv.x, texel.x, blend_texels);
 	float wy = shadow_axis_owner_weight(uv.y, min_uv.y, max_uv.y, texel.y, blend_texels);
-	return min(wx, wy);
+	// Multiply (not min): the 2 edge / 4 corner chunks sharing a seam then hold
+	// weights that sum to exactly 1, which the ownership alpha below relies on.
+	return wx * wy;
 }
 
 void fragment() {
@@ -215,9 +222,15 @@ void fragment() {
 			shadow_weight_sum += source_weight * weight;
 		}
 		projected_shadow = smoothstep(0.045, 0.66, shadow_sum / max(shadow_weight_sum, 0.0001));
-		projected_shadow *= shadow_draw_area * shadow_owner_weight(UV, shadow_uv_min, shadow_uv_max, texel, shadow_blend_texels);
 		float shadow_breakup = 0.92 + fbm2(world_px / 460.0 + vec2(8.0, -19.0)) * 0.08;
-		projected_shadow = clamp(projected_shadow * shadow_open_space * projected_shadow_opacity * shadow_breakup, 0.0, projected_shadow_opacity);
+		float shadow_strength = clamp(projected_shadow * shadow_open_space * projected_shadow_opacity * shadow_breakup, 0.0, projected_shadow_opacity);
+		float owner_weight = shadow_draw_area * shadow_owner_weight(UV, shadow_uv_min, shadow_uv_max, texel, shadow_blend_texels);
+		// Split-ownership alpha: in the seam band the neighbouring chunks each
+		// draw a weighted share of the SAME world-space shadow value. Plain
+		// w * s shares alpha-composite to s - w*(1-w)*s^2 (a brighter band along
+		// every chunk seam). 1 - (1 - s)^w composites to exactly s when the
+		// participating weights sum to 1.
+		projected_shadow = 1.0 - pow(max(1.0 - shadow_strength, 0.0001), owner_weight);
 	}
 	if (coverage <= 0.01 && projected_shadow <= 0.002) {
 		discard;
@@ -275,6 +288,25 @@ void fragment() {
 
 	vec3 color = top_lit;
 	float out_alpha = top_here * top_col.a * top_surface_alpha;
+
+	if (top_band_px > 0.5) {
+		// Shoreline band: keep the top fill only near the open contour. The
+		// nearest-open probe at a noise-wobbled radius gives an irregular,
+		// packed-shore inner edge that dissolves into the ground material.
+		float band_wobble = (fbm2(world_px / 240.0 + vec2(27.0, -53.0)) - 0.5) * 2.0 * top_band_feather_px;
+		float band_texels = max((top_band_px + band_wobble) / max(sample_step_px, 0.001), 1.0);
+		float interior = top_here;
+		interior = min(interior, mask_to_top(texture(TEXTURE, UV + vec2(texel.x, 0.0) * band_texels).r));
+		interior = min(interior, mask_to_top(texture(TEXTURE, UV - vec2(texel.x, 0.0) * band_texels).r));
+		interior = min(interior, mask_to_top(texture(TEXTURE, UV + vec2(0.0, texel.y) * band_texels).r));
+		interior = min(interior, mask_to_top(texture(TEXTURE, UV - vec2(0.0, texel.y) * band_texels).r));
+		interior = min(interior, mask_to_top(texture(TEXTURE, UV + vec2(texel.x, texel.y) * band_texels * 0.7071).r));
+		interior = min(interior, mask_to_top(texture(TEXTURE, UV + vec2(-texel.x, texel.y) * band_texels * 0.7071).r));
+		interior = min(interior, mask_to_top(texture(TEXTURE, UV + vec2(texel.x, -texel.y) * band_texels * 0.7071).r));
+		interior = min(interior, mask_to_top(texture(TEXTURE, UV + vec2(-texel.x, -texel.y) * band_texels * 0.7071).r));
+		float band_alpha = 1.0 - smoothstep(0.35, 0.85, interior);
+		out_alpha *= band_alpha;
+	}
 
 	if (is_wall) {
 		float wall_depth = clamp(edge_below / wall_texels, 0.0, 1.0); // 0 = base (south), 1 = top (north)

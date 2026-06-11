@@ -1,0 +1,29 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce GTX 1060 6GB
+
+ground_zoom_probe: shore chunk (248, 23)
+[FrameBudget] streaming=8.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=8.0ms/6.0ms world.streaming_v0=8.0ms(60) world.mountain_native_mask_visual_upload=0.0ms(52)
+ground_zoom_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_zoom_probe/spawn_zoom_100.png
+[FrameBudget] streaming=9.3ms topology=0.0ms visual=0.0ms spawn=0.0ms total=9.3ms/6.0ms world.streaming_v0=9.3ms(60) world.mountain_native_mask_visual_upload=0.0ms(45)
+ground_zoom_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_zoom_probe/spawn_zoom_045.png
+[FrameBudget] streaming=10.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=10.0ms/6.0ms world.streaming_v0=10.0ms(60) world.mountain_native_mask_visual_upload=0.0ms(42)
+[FrameBudget] streaming=14.2ms topology=0.0ms visual=0.0ms spawn=0.0ms total=14.2ms/6.0ms world.streaming_v0=14.2ms(60) world.mountain_native_mask_visual_upload=0.0ms(36)
+ground_zoom_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_zoom_probe/spawn_zoom_022.png
+[FrameBudget] streaming=7.8ms topology=0.0ms visual=0.0ms spawn=0.0ms total=7.8ms/6.0ms world.streaming_v0=7.8ms(60) world.mountain_native_mask_visual_upload=0.0ms(49)
+ground_zoom_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_zoom_probe/edge_zoom_100.png
+[FrameBudget] streaming=10.1ms topology=0.0ms visual=0.0ms spawn=0.0ms total=10.1ms/6.0ms world.streaming_v0=10.1ms(60) world.mountain_native_mask_visual_upload=0.0ms(43)
+ground_zoom_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_zoom_probe/edge_zoom_045.png
+[FrameBudget] streaming=10.2ms topology=0.0ms visual=0.0ms spawn=0.0ms total=10.2ms/6.0ms world.streaming_v0=10.2ms(60) world.mountain_native_mask_visual_upload=0.0ms(38)
+ground_zoom_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_zoom_probe/edge_zoom_022.png
+[FrameBudget] streaming=10.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=10.4ms/6.0ms world.streaming_v0=10.4ms(60) world.mountain_native_mask_visual_upload=0.0ms(38)
+[FrameBudget] streaming=13.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=13.7ms/6.0ms world.streaming_v0=13.7ms(60) world.mountain_native_mask_visual_upload=0.0ms(34)
+ground_zoom_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_zoom_probe/shore_zoom_100.png
+[FrameBudget] streaming=11.3ms topology=0.0ms visual=0.0ms spawn=0.0ms total=11.3ms/6.0ms world.streaming_v0=11.3ms(60) world.mountain_native_mask_visual_upload=0.0ms(35)
+ground_zoom_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_zoom_probe/shore_zoom_045.png
+[FrameBudget] streaming=12.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=12.1ms/6.0ms world.streaming_v0=12.0ms(60) world.mountain_native_mask_visual_upload=0.0ms(33)
+[FrameBudget] streaming=13.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=13.7ms/6.0ms world.streaming_v0=13.7ms(60) world.mountain_native_mask_visual_upload=0.0ms(30)
+ground_zoom_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_zoom_probe/shore_zoom_022.png
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 7 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

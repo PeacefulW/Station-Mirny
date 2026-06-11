@@ -30,7 +30,14 @@ const TERRAIN_EDGE_FACADE_HEIGHT_PX: float = 22.0
 const TERRAIN_EDGE_TOP_TEXTURE_SCALE: float = 0.70
 const TERRAIN_EDGE_FACE_TEXTURE_SCALE: float = 0.38
 const TERRAIN_EDGE_TOP_ALPHA: float = 1.0
-const GRASS_BLOB_OVERLAY_ENABLED: bool = true
+const TERRAIN_EDGE_CONTOUR_THRESHOLD_LOW: float = 0.16
+const TERRAIN_EDGE_CONTOUR_THRESHOLD_HIGH: float = 0.34
+const TERRAIN_EDGE_TOP_BAND_PX: float = 88.0
+const TERRAIN_EDGE_TOP_BAND_FEATHER_PX: float = 56.0
+# Grass/rock are composed in the ground material from pure world-space fields
+# (see ground_hybrid_material.gdshader). Per-chunk overlay sprites are the
+# proven source of ruler-straight cuts on chunk borders and stay disabled.
+const GRASS_BLOB_OVERLAY_ENABLED: bool = false
 const GRASS_BLOB_TEXTURE_SCALE: float = 1.0
 const GRASS_BLOB_PATCH_CELL_PX: float = 2750.0
 const GRASS_BLOB_PATCH_DENSITY: float = 0.72
@@ -41,7 +48,7 @@ const GRASS_BLOB_EDGE_FEATHER_HIGH: float = 0.68
 const GRASS_BLOB_MAX_ALPHA: float = 0.94
 const GRASS_BLOB_NORMAL_MIX: float = 0.18
 const GRASS_BLOB_NORMAL_STRENGTH: float = 0.18
-const ROCK_PATCH_OVERLAY_ENABLED: bool = true
+const ROCK_PATCH_OVERLAY_ENABLED: bool = false
 const ROCK_PATCH_TEXTURE_SCALE: float = 0.66
 const ROCK_PATCH_CELL_PX: float = 1280.0
 const ROCK_PATCH_DENSITY: float = 0.54
@@ -189,8 +196,11 @@ func apply_next_batch(batch_size: int) -> bool:
 		if _should_suppress_mountain_visual(index, terrain_id):
 			_clear_mountain_visual_cell(local_coord)
 			continue
-		if _should_suppress_terrain_ground_visual(index, terrain_id):
-			_clear_terrain_base_visual_cell(local_coord)
+		if _is_dry_lake_bed_index(index, terrain_id):
+			# A drained lake bed is ordinary ground to the eye; the dark bed
+			# material is an underwater look and must never butt against the
+			# plains material as a bare square edge.
+			_apply_cell(local_coord, WorldRuntimeConstants.TERRAIN_PLAINS_GROUND, 0)
 		else:
 			_apply_cell(local_coord, terrain_id, terrain_atlas_index)
 		_apply_water_cell(local_coord, index)
@@ -234,8 +244,8 @@ func apply_runtime_cell(
 		_refresh_debug_solid_mask()
 		return
 	_sync_water_fill_visual()
-	if _should_suppress_terrain_ground_visual(index, terrain_id):
-		_clear_terrain_base_visual_cell(local_coord)
+	if _is_dry_lake_bed_index(index, terrain_id):
+		_apply_cell(local_coord, WorldRuntimeConstants.TERRAIN_PLAINS_GROUND, 0)
 	else:
 		_apply_cell(local_coord, terrain_id, terrain_atlas_index)
 	_apply_water_patch_around(local_coord)
@@ -876,6 +886,15 @@ func _upload_terrain_edge_mask_texture(
 	material.set_shader_parameter("face_texture_scale", TERRAIN_EDGE_FACE_TEXTURE_SCALE)
 	material.set_shader_parameter("facade_height_px", TERRAIN_EDGE_FACADE_HEIGHT_PX)
 	material.set_shader_parameter("overhang_px", 3.0)
+	# Shoreline band mode: the dry interior belongs to the ground material, so
+	# the mask paints only a noisy packed-shore strip along the water contour.
+	# Lower thresholds bulge the organic contour outward into the water tiles,
+	# so it never undercuts square land tiles that the base layer painted.
+	material.set_shader_parameter("top_threshold_low", TERRAIN_EDGE_CONTOUR_THRESHOLD_LOW)
+	material.set_shader_parameter("top_threshold_high", TERRAIN_EDGE_CONTOUR_THRESHOLD_HIGH)
+	material.set_shader_parameter("top_band_px", TERRAIN_EDGE_TOP_BAND_PX)
+	material.set_shader_parameter("top_band_feather_px", TERRAIN_EDGE_TOP_BAND_FEATHER_PX)
+	_apply_land_mask_to_water_fill()
 	material.set_shader_parameter("normal_strength", 0.48)
 	material.set_shader_parameter("light_ambient", 0.58)
 	material.set_shader_parameter("light_diffuse", 0.44)
@@ -950,6 +969,8 @@ func clear_terrain_edge_mask() -> void:
 	_terrain_edge_mask_origin_world = Vector2.ZERO
 	_terrain_edge_mask_step_px = 0.0
 	_terrain_edge_mask_visual_dirty = false
+	if _water_fill_material != null:
+		_water_fill_material.set_shader_parameter("land_mask_enabled", 0.0)
 	_clear_rock_patch_overlay()
 	_clear_grass_blob_overlay()
 
@@ -1288,7 +1309,39 @@ func _ensure_water_fill_material() -> ShaderMaterial:
 	_water_fill_material = ShaderMaterial.new()
 	_water_fill_material.shader = WATER_SURFACE_SHADER
 	_water_fill_material.set_shader_parameter("water_world_scale_px", 1024.0)
+	_water_fill_material.set_shader_parameter("land_mask_enabled", 0.0)
 	return _water_fill_material
+
+func _apply_land_mask_to_water_fill() -> void:
+	# Clip the chunk water fill by the shoreline mask so the visible water
+	# contour and the shore band share one organic silhouette.
+	var material: ShaderMaterial = _ensure_water_fill_material()
+	if _terrain_edge_mask_texture == null \
+			or _terrain_edge_mask_width <= 0 \
+			or _terrain_edge_mask_height <= 0 \
+			or _terrain_edge_mask_step_px <= 0.0:
+		material.set_shader_parameter("land_mask_enabled", 0.0)
+		return
+	var chunk_origin: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	var chunk_size_px: float = float(
+		WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX
+	)
+	var mask_world_size := Vector2(
+		float(_terrain_edge_mask_width) * _terrain_edge_mask_step_px,
+		float(_terrain_edge_mask_height) * _terrain_edge_mask_step_px
+	)
+	material.set_shader_parameter("land_mask", _terrain_edge_mask_texture)
+	material.set_shader_parameter("land_mask_enabled", 1.0)
+	material.set_shader_parameter("land_mask_uv_scale", Vector2(
+		chunk_size_px / mask_world_size.x,
+		chunk_size_px / mask_world_size.y
+	))
+	material.set_shader_parameter("land_mask_uv_offset", Vector2(
+		(chunk_origin.x - _terrain_edge_mask_origin_world.x) / mask_world_size.x,
+		(chunk_origin.y - _terrain_edge_mask_origin_world.y) / mask_world_size.y
+	))
+	material.set_shader_parameter("land_threshold_low", TERRAIN_EDGE_CONTOUR_THRESHOLD_LOW)
+	material.set_shader_parameter("land_threshold_high", TERRAIN_EDGE_CONTOUR_THRESHOLD_HIGH)
 
 func _ensure_debug_layer() -> ChunkDebugVisualLayer:
 	if _debug_layer != null and is_instance_valid(_debug_layer):
@@ -1805,6 +1858,14 @@ func _ensure_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
 	roof_layers_by_mountain[mountain_id] = terrain_layers
 	return layer
 
+func _is_dry_lake_bed_index(index: int, terrain_id: int) -> bool:
+	if terrain_id != WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW \
+			and terrain_id != WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP:
+		return false
+	if index < 0 or index >= _pending_lake_flags.size():
+		return true
+	return (int(_pending_lake_flags[index]) & WorldRuntimeConstants.LAKE_FLAG_WATER_PRESENT) == 0
+
 func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: int) -> void:
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
 		return
@@ -1865,7 +1926,9 @@ func _apply_water_cell(local_coord: Vector2i, index: int) -> void:
 
 func _sync_water_fill_visual() -> void:
 	var water_texture: Texture2D = _resolve_water_fill_texture()
-	if water_texture == null:
+	if water_texture == null or not _pending_has_visible_water():
+		# The fill is the under-water backdrop only; over dry chunks it would
+		# paint the whole chunk as a dark sea above the ground material.
 		if _water_fill_sprite != null and is_instance_valid(_water_fill_sprite):
 			_water_fill_sprite.texture = null
 			_water_fill_sprite.visible = false
@@ -1882,6 +1945,12 @@ func _sync_water_fill_visual() -> void:
 	sprite.position = Vector2.ZERO
 	sprite.scale = Vector2.ONE * chunk_size_px
 	sprite.visible = true
+
+func _pending_has_visible_water() -> bool:
+	for index: int in range(_pending_lake_flags.size()):
+		if (int(_pending_lake_flags[index]) & WorldRuntimeConstants.LAKE_FLAG_WATER_PRESENT) != 0:
+			return true
+	return false
 
 func _resolve_water_fill_texture() -> Texture2D:
 	if _pending_terrain_ids.is_empty() or _pending_lake_flags.is_empty():
@@ -1921,33 +1990,15 @@ func _clear_mountain_visual_cell(local_coord: Vector2i) -> void:
 	_clear_roof_surface_cell(local_coord)
 
 func _apply_ground_underlay_cell(local_coord: Vector2i) -> void:
+	# The ground material owns the whole dry surface; the shoreline underlay
+	# only adds an edge band on top, so the base ground cell always paints.
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
-		return
-	if _has_terrain_ground_mask_data():
-		_clear_terrain_base_visual_cell(local_coord)
 		return
 	_base_layer.set_cell(
 		local_coord,
 		WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND),
 		WorldTileSetFactory.get_atlas_coords(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND, 0)
 	)
-
-func _clear_terrain_base_visual_cell(local_coord: Vector2i) -> void:
-	_clear_cell(_base_layer, local_coord)
-	_clear_cell(_overlay_layer, local_coord)
-
-func _should_suppress_terrain_ground_visual(index: int, terrain_id: int) -> bool:
-	if not _has_terrain_ground_mask_data():
-		return false
-	if _is_mountain_visual_terrain(terrain_id):
-		return false
-	return index >= 0 and index < WorldRuntimeConstants.CHUNK_CELL_COUNT
-
-func _has_terrain_ground_mask_data() -> bool:
-	return _terrain_edge_mask_width > 0 \
-		and _terrain_edge_mask_height > 0 \
-		and _terrain_edge_mask_step_px > 0.0 \
-		and not _terrain_edge_mask_bytes.is_empty()
 
 func _clear_roof_surface_cell(local_coord: Vector2i) -> void:
 	for terrain_layers_variant: Variant in roof_layers_by_mountain.values():
