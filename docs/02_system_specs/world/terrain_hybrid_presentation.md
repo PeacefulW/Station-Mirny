@@ -128,7 +128,11 @@ resources, the active runtime uses a transitional native-mask presentation:
   the same cosmetic margin as the roof eave), sun-relative flank shading probed
   from the mask along the light direction, aperiodic roof tone drift with
   sparse vein cracks, and concentric height terraces derived from ring probes
-  of the mask distance-to-edge (lit plateau lips over dark step shadows). These are presentation-only material cues; collision,
+  of the mask distance-to-edge (lit plateau lips over dark step shadows).
+  Rim and cut highlights are derived from the rock albedo (brightened and
+  warmed by the documented low-sun shadow-length parameter), never painted
+  with fixed colors; sparse orange biofield accents may creep onto lit rims,
+  gated by the same world-space field family as the ground's orange patches. These are presentation-only material cues; collision,
   resource, and mining checks keep reading the raw mask bytes, and they do not
   create new terrain ids, save data, collision ownership, or worldgen state.
 - Mask bounds include a fixed halo around the chunk, so adjacent chunks overlap

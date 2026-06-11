@@ -73,6 +73,19 @@ const MOUNTAIN_TERRACE_STRENGTH: float = 1.0
 const MOUNTAIN_TERRACE_INNER_PX: float = 56.0
 const MOUNTAIN_TERRACE_UPPER_PX: float = 124.0
 const MOUNTAIN_TERRACE_WOBBLE_PX: float = 22.0
+# Explicit mountain rock palette (the shader defaults used to be the de-facto
+# art source; keep all colors tunable from here). Rim lips are derived from
+# the rock albedo in-shader; only the biofield creep accent is a color.
+const MOUNTAIN_TOP_DUST_TINT := Vector3(0.90, 0.84, 0.76)
+const MOUNTAIN_CLEFT_COLOR := Vector3(0.12, 0.045, 0.018)
+const MOUNTAIN_CRACK_COLOR := Vector3(0.055, 0.026, 0.012)
+const MOUNTAIN_BASE_DEBRIS_COLOR := Vector3(0.18, 0.075, 0.032)
+const MOUNTAIN_EAVE_SHADOW_COLOR := Vector3(0.13, 0.052, 0.022)
+const MOUNTAIN_BIOFIELD_RIM_COLOR := Vector3(0.88, 0.42, 0.12)
+const MOUNTAIN_BIOFIELD_RIM_STRENGTH: float = 1.0
+# Same scale family as the ground material's orange_field_scale_px, so rim
+# accents cluster near orange ground regions.
+const MOUNTAIN_BIOFIELD_RIM_SCALE_PX: float = 1450.0
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 
@@ -889,6 +902,14 @@ func _upload_mountain_mask_texture(
 	material.set_shader_parameter("terrace_inner_px", MOUNTAIN_TERRACE_INNER_PX)
 	material.set_shader_parameter("terrace_upper_px", MOUNTAIN_TERRACE_UPPER_PX)
 	material.set_shader_parameter("terrace_wobble_px", MOUNTAIN_TERRACE_WOBBLE_PX)
+	material.set_shader_parameter("top_dust_tint", MOUNTAIN_TOP_DUST_TINT)
+	material.set_shader_parameter("cleft_color", MOUNTAIN_CLEFT_COLOR)
+	material.set_shader_parameter("crack_color", MOUNTAIN_CRACK_COLOR)
+	material.set_shader_parameter("base_debris_color", MOUNTAIN_BASE_DEBRIS_COLOR)
+	material.set_shader_parameter("eave_shadow_color", MOUNTAIN_EAVE_SHADOW_COLOR)
+	material.set_shader_parameter("biofield_rim_color", MOUNTAIN_BIOFIELD_RIM_COLOR)
+	material.set_shader_parameter("biofield_rim_strength", MOUNTAIN_BIOFIELD_RIM_STRENGTH)
+	material.set_shader_parameter("biofield_rim_scale_px", MOUNTAIN_BIOFIELD_RIM_SCALE_PX)
 	_set_mask_shader_chunk_clip(
 		material,
 		mask_origin_world,
@@ -971,13 +992,11 @@ func _upload_terrain_edge_mask_texture(
 	material.set_shader_parameter("top_surface_alpha", TERRAIN_EDGE_TOP_ALPHA)
 	material.set_shader_parameter("wall_surface_alpha", 0.94)
 	material.set_shader_parameter("top_dust_tint", Vector3(0.82, 0.87, 0.90))
-	material.set_shader_parameter("rim_highlight_color", Vector3(0.42, 0.48, 0.50))
-	material.set_shader_parameter("cut_highlight_color", Vector3(0.34, 0.39, 0.41))
 	material.set_shader_parameter("cleft_color", Vector3(0.045, 0.052, 0.055))
 	material.set_shader_parameter("crack_color", Vector3(0.018, 0.023, 0.026))
 	material.set_shader_parameter("base_debris_color", Vector3(0.075, 0.082, 0.084))
 	material.set_shader_parameter("eave_shadow_color", Vector3(0.040, 0.048, 0.050))
-	material.set_shader_parameter("inner_rim_color", Vector3(0.32, 0.38, 0.40))
+	material.set_shader_parameter("biofield_rim_strength", 0.0)
 	_set_mask_shader_chunk_clip(
 		material,
 		_terrain_edge_mask_origin_world,

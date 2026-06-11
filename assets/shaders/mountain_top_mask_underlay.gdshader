@@ -68,13 +68,19 @@ uniform float terrace_inner_px = 96.0;
 uniform float terrace_upper_px = 184.0;
 uniform float terrace_wobble_px = 30.0;
 uniform vec3 top_dust_tint = vec3(0.90, 0.84, 0.76);
-uniform vec3 rim_highlight_color = vec3(0.93, 0.49, 0.20);
-uniform vec3 cut_highlight_color = vec3(0.82, 0.39, 0.16);
 uniform vec3 cleft_color = vec3(0.12, 0.045, 0.018);
 uniform vec3 crack_color = vec3(0.055, 0.026, 0.012);
 uniform vec3 base_debris_color = vec3(0.18, 0.075, 0.032);
 uniform vec3 eave_shadow_color = vec3(0.13, 0.052, 0.022);
-uniform vec3 inner_rim_color = vec3(0.70, 0.30, 0.11);
+// Rim lips are DERIVED from the rock albedo (brightened, sun-warmed via the
+// documented shadow-length parameter as the low-sun proxy), not painted with
+// fixed colors: the old hardcoded orange rim palette read as glowing neon.
+// Sparse orange biofield accents may creep onto lit rims; gated by the same
+// world-space field family as the ground's orange patches so mountain accents
+// cluster near orange ground regions.
+uniform vec3 biofield_rim_color = vec3(0.88, 0.42, 0.12);
+uniform float biofield_rim_strength = 0.0;
+uniform float biofield_rim_scale_px = 1450.0;
 uniform vec2 chunk_uv_min = vec2(0.1, 0.1);
 uniform vec2 chunk_uv_max = vec2(0.9, 0.9);
 uniform vec2 shadow_uv_min = vec2(0.1, 0.1);
@@ -446,13 +452,26 @@ void fragment() {
 		color = facade_color * vertical_mass;
 		color = mix(color, color * 0.72, strata_line * 0.42);
 		color = mix(color, color * 0.84, smoothstep(0.58, 0.86, broad_layer) * 0.22);
-		color = mix(color, cut_highlight_color, cut_highlight * 0.22);
+		// Lit rock instead of painted color: the exposed upper cut is the wall
+		// albedo brightened and warmed by the low sun (shadow length is the
+		// documented low-sun proxy from WorldVisualLightingProfile).
+		float low_sun_warmth = clamp((projected_shadow_length_px - 80.0) / 280.0, 0.0, 1.0);
+		vec3 sun_warm_tint = mix(vec3(1.0), vec3(1.16, 0.93, 0.76), 0.35 + low_sun_warmth * 0.65);
+		color = mix(color, face_col.rgb * 1.30 * sun_warm_tint, cut_highlight * 0.22);
 		color = mix(color, cleft_color, cleft * 0.28);
 		color = mix(color, crack_color, crack * 0.38);
 		color = mix(color, base_debris_color, base_debris * 0.55);
 		float top_rim = smoothstep(0.77, 1.0, wall_depth);
 		float base_outline = 1.0 - smoothstep(0.0, 1.0 / max(sample_step_px, 1.0), edge_below);
-		color = mix(color, rim_highlight_color, top_rim * 0.28);
+		vec3 rim_lip = face_col.rgb * 1.45 * sun_warm_tint;
+		if (biofield_rim_strength > 0.001) {
+			// Sparse biofield creep onto lit wall lips, clustered by the same
+			// world-space field family as the ground's orange patches.
+			float wall_bio_field = fbm2(world_px / max(biofield_rim_scale_px, 1.0) + vec2(-27.3, 8.1));
+			float wall_bio_gate = smoothstep(0.60, 0.72, wall_bio_field) * biofield_rim_strength;
+			rim_lip = mix(rim_lip, biofield_rim_color * (0.82 + small_mottle * 0.36), wall_bio_gate);
+		}
+		color = mix(color, rim_lip, top_rim * 0.30);
 		color = mix(color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0) * 0.92);
 		out_alpha = wall_surface_alpha;
 	}
@@ -469,11 +488,23 @@ void fragment() {
 		out_alpha = max(out_alpha, projected_shadow);
 	}
 
-	// Thin dark outline along the solid silhouette edge (sides / non-wall).
+	// Thin dark outline along the solid silhouette edge (sides / non-wall),
+	// then a lit stone lip just inside it (derived from the roof albedo, with
+	// optional sparse biofield creep matching the ground's orange field).
 	float silhouette = body_area * smoothstep(0.08, 0.5, top_here) * (1.0 - smoothstep(0.5, 0.82, top_here));
 	float inner_rim = body_area * smoothstep(0.42, 0.72, top_here) * (1.0 - smoothstep(0.76, 0.96, top_here));
 	color = mix(color, vec3(0.03, 0.02, 0.012), silhouette * 0.64);
-	color = mix(color, inner_rim_color, inner_rim * 0.10 * top_here);
+	float lip_low_sun = clamp((projected_shadow_length_px - 80.0) / 280.0, 0.0, 1.0);
+	vec3 lip_warm_tint = mix(vec3(1.0), vec3(1.16, 0.93, 0.76), 0.35 + lip_low_sun * 0.65);
+	vec3 inner_lip = top_col.rgb * 1.32 * lip_warm_tint;
+	float lip_mix = 0.12;
+	if (biofield_rim_strength > 0.001) {
+		float lip_bio_field = fbm2(world_px / max(biofield_rim_scale_px, 1.0) + vec2(-27.3, 8.1));
+		float lip_bio_gate = smoothstep(0.60, 0.72, lip_bio_field) * biofield_rim_strength;
+		inner_lip = mix(inner_lip, biofield_rim_color * (0.82 + small_mottle * 0.36), lip_bio_gate);
+		lip_mix += lip_bio_gate * 0.20;
+	}
+	color = mix(color, inner_lip, inner_rim * lip_mix * top_here);
 
 	COLOR = vec4(color, out_alpha);
 }
