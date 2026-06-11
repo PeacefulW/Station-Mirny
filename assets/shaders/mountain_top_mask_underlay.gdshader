@@ -45,6 +45,20 @@ uniform float wall_surface_alpha = 1.0;
 // feathered inner edge, so the world-space ground material keeps the interior.
 uniform float top_band_px = 0.0;
 uniform float top_band_feather_px = 48.0;
+// Cosmetic silhouette warp: bends the visible contour with world-space noise
+// so the blurred mask edge reads as crag instead of melt. Presentation-only:
+// collision/resource/mining keep reading the raw mask bytes (within the same
+// cosmetic margin as the roof eave). Shoreline materials keep 0 so the
+// water-fill clip stays in sync with the shore band.
+uniform float mask_warp_px = 0.0;
+// Sun-relative rim shading: roof edges facing the sun lighten, edges facing
+// away darken, so flanks read as volume at any sun angle.
+uniform float side_shade_strength = 0.0;
+uniform float side_shade_reach_px = 26.0;
+// Aperiodic roof macro variation: large tone drift plus sparse vein cracks.
+uniform float roof_drift_scale_px = 0.0;
+uniform float roof_drift_strength = 0.0;
+uniform float roof_vein_strength = 0.0;
 uniform vec3 top_dust_tint = vec3(0.90, 0.84, 0.76);
 uniform vec3 rim_highlight_color = vec3(0.93, 0.49, 0.20);
 uniform vec3 cut_highlight_color = vec3(0.82, 0.39, 0.16);
@@ -82,15 +96,25 @@ float hash12(vec2 p) {
 	return fract((p3.x + p3.y) * p3.z);
 }
 
-float value_noise(vec2 p) {
+// Gradient (Perlin-style) noise, NOT value noise: value noise is near-linear
+// inside each lattice cell, so thresholded features (veins, warped contours)
+// grow straight lattice-aligned segments. Gradient noise keeps them curved.
+vec2 random_gradient(vec2 p) {
+	vec2 h = vec2(hash12(p), hash12(p + vec2(17.31, -41.77))) * 2.0 - 1.0;
+	return normalize(h + vec2(0.001, -0.001));
+}
+
+float gradient_noise(vec2 p) {
 	vec2 i = floor(p);
 	vec2 f = fract(p);
-	vec2 u = f * f * (3.0 - 2.0 * f);
-	float a = hash12(i);
-	float b = hash12(i + vec2(1.0, 0.0));
-	float c = hash12(i + vec2(0.0, 1.0));
-	float d = hash12(i + vec2(1.0, 1.0));
-	return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+	vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+	float a = dot(random_gradient(i), f);
+	float b = dot(random_gradient(i + vec2(1.0, 0.0)), f - vec2(1.0, 0.0));
+	float c = dot(random_gradient(i + vec2(0.0, 1.0)), f - vec2(0.0, 1.0));
+	float d = dot(random_gradient(i + vec2(1.0, 1.0)), f - vec2(1.0, 1.0));
+	// 1.42: stretch raw gradient-noise spread to roughly value-noise spread so
+	// the existing tuning (mottle/strata amplitudes) keeps its look.
+	return clamp(mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 1.42 * 0.5 + 0.5, 0.0, 1.0);
 }
 
 float fbm2(vec2 p) {
@@ -98,7 +122,7 @@ float fbm2(vec2 p) {
 	float a = 0.56;
 	float total = 0.0;
 	for (int i = 0; i < 3; i++) {
-		v += value_noise(p) * a;
+		v += gradient_noise(p) * a;
 		total += a;
 		p = p * 2.07 + vec2(17.1, -9.4);
 		a *= 0.48;
@@ -133,6 +157,28 @@ float shadow_owner_weight(vec2 uv, vec2 min_uv, vec2 max_uv, vec2 texel, float b
 	return wx * wy;
 }
 
+vec2 visual_mask_uv(vec2 uv, vec2 texel, vec2 wp) {
+	if (mask_warp_px <= 0.001) {
+		return uv;
+	}
+	// World-space, chunk-agnostic warp: broad swing bends the contour, fine
+	// jitter chips it. Both sides of a chunk seam compute identical offsets.
+	vec2 broad = vec2(
+		fbm2(wp / 210.0 + vec2(-13.0, 71.0)),
+		fbm2(wp / 190.0 + vec2(47.0, -29.0))
+	) - vec2(0.5);
+	vec2 fine = vec2(
+		fbm2(wp / 64.0 + vec2(93.0, 8.0)),
+		fbm2(wp / 58.0 + vec2(-35.0, 102.0))
+	) - vec2(0.5);
+	vec2 warp = broad * 0.72 + fine * 0.28;
+	return clamp(
+		uv + warp * 2.0 * texel * (mask_warp_px / max(sample_step_px, 0.001)),
+		vec2(0.0),
+		vec2(1.0)
+	);
+}
+
 void fragment() {
 	float body_area = uv_rect_inside(UV, chunk_uv_min, chunk_uv_max);
 	float shadow_draw_area = uv_rect_inside(UV, shadow_draw_uv_min, shadow_draw_uv_max);
@@ -144,11 +190,12 @@ void fragment() {
 	vec2 tex_size = vec2(textureSize(TEXTURE, 0));
 	vec2 texel = 1.0 / tex_size;
 	vec2 world_px = world_origin_px + UV * tex_size * sample_step_px;
-	float top_here = mask_to_top(texture(TEXTURE, UV).r);
-	float top_l = mask_to_top(texture(TEXTURE, UV - vec2(texel.x, 0.0)).r);
-	float top_r = mask_to_top(texture(TEXTURE, UV + vec2(texel.x, 0.0)).r);
-	float top_u = mask_to_top(texture(TEXTURE, UV - vec2(0.0, texel.y)).r);
-	float top_d = mask_to_top(texture(TEXTURE, UV + vec2(0.0, texel.y)).r);
+	vec2 base_uv = visual_mask_uv(UV, texel, world_px);
+	float top_here = mask_to_top(texture(TEXTURE, base_uv).r);
+	float top_l = mask_to_top(texture(TEXTURE, base_uv - vec2(texel.x, 0.0)).r);
+	float top_r = mask_to_top(texture(TEXTURE, base_uv + vec2(texel.x, 0.0)).r);
+	float top_u = mask_to_top(texture(TEXTURE, base_uv - vec2(0.0, texel.y)).r);
+	float top_d = mask_to_top(texture(TEXTURE, base_uv + vec2(0.0, texel.y)).r);
 	vec2 mask_grad = vec2(top_l - top_r, top_u - top_d);
 
 	float wall_texels = max(1.0, facade_height_px / sample_step_px);
@@ -160,7 +207,7 @@ void fragment() {
 		float prev = top_here;
 		int steps = int(min(wall_texels + 2.0, 96.0));
 		for (int d = 1; d <= steps; d++) {
-			float cur = mask_to_top(texture(TEXTURE, UV + vec2(0.0, texel.y * float(d))).r);
+			float cur = mask_to_top(texture(TEXTURE, base_uv + vec2(0.0, texel.y * float(d))).r);
 			if (cur < 0.5 && prev >= 0.5) {
 				float t = (prev - 0.5) / max(prev - cur, 0.0001);
 				edge_below = float(d) - 1.0 + t;
@@ -176,7 +223,7 @@ void fragment() {
 	if (top_here < 0.5) {
 		int osteps = int(min(overhang_texels + 2.0, 24.0));
 		for (int d = 1; d <= osteps; d++) {
-			if (mask_to_top(texture(TEXTURE, UV - vec2(0.0, texel.y * float(d))).r) >= 0.5) {
+			if (mask_to_top(texture(TEXTURE, base_uv - vec2(0.0, texel.y * float(d))).r) >= 0.5) {
 				overhang = 1.0 - smoothstep(0.0, overhang_texels, float(d) - 1.0);
 				break;
 			}
@@ -244,6 +291,12 @@ void fragment() {
 	float mid_mottle = fbm2(world_px / 210.0 + vec2(3.7, 15.2));
 	float small_mottle = fbm2(world_px / 86.0 + vec2(-21.0, 5.0));
 	float top_variation = 0.94 + (macro - 0.5) * 0.18 + (mid_mottle - 0.5) * 0.08;
+	if (roof_drift_strength > 0.001 && roof_drift_scale_px > 1.0) {
+		// Large aperiodic tone drift so big massifs stop reading as one flat
+		// slab from far away (same trick as the ground material).
+		float roof_drift = fbm2(world_px / roof_drift_scale_px + vec2(7.3, -2.9));
+		top_variation *= mix(1.0 - roof_drift_strength, 1.0 + roof_drift_strength, roof_drift);
+	}
 
 	// Roof (top) -- mask-shape normal plus restrained texture relief.
 	vec2 top_uv = world_px * top_texture_scale / tz / max(top_texture_size, vec2(1.0));
@@ -265,6 +318,27 @@ void fragment() {
 		top_n = normalize(mix(top_n, blend_normals(top_n, top_detail_n), clamp(material_normal_mix, 0.0, 1.0)));
 	}
 	vec3 top_lit = top_col.rgb * (light_ambient + light_diffuse * clamp(dot(top_n, light_dir), 0.0, 1.0));
+	if (roof_vein_strength > 0.001) {
+		// Sparse crack veins: a thin iso-band of gradient fbm, gated by a
+		// second field so the lines break up instead of running forever.
+		float vein_base = fbm2(world_px / 760.0 + vec2(-41.0, 23.0));
+		float vein_line = smoothstep(0.475, 0.5, vein_base) * (1.0 - smoothstep(0.5, 0.525, vein_base));
+		float vein_gate = smoothstep(0.42, 0.62, fbm2(world_px / 340.0 + vec2(19.0, 57.0)));
+		top_lit *= 1.0 - vein_line * vein_gate * roof_vein_strength;
+	}
+	if (side_shade_strength > 0.001 && top_here >= 0.5) {
+		// Sun-relative flank shading: probe the mask along the light direction.
+		// A rim opening toward the sun is lit, a rim opening away falls into
+		// shade, so east/west flanks gain volume and track the time of day.
+		vec2 sun_step = vec2(cos(a), sin(a)) * texel * (side_shade_reach_px / max(sample_step_px, 0.001));
+		float open_toward = 1.0 - mask_to_top(texture(TEXTURE, base_uv + sun_step).r);
+		float open_away = 1.0 - mask_to_top(texture(TEXTURE, base_uv - sun_step).r);
+		float side_signed = open_toward - open_away;
+		float rim_breakup = 0.72 + small_mottle * 0.56;
+		top_lit *= 1.0
+			+ max(side_signed, 0.0) * side_shade_strength * 0.65 * rim_breakup
+			- max(-side_signed, 0.0) * side_shade_strength * rim_breakup;
+	}
 
 	// Wall -- layered strata, controlled relief, and sparse base chips.
 	vec2 face_uv = world_px * face_texture_scale / tz / max(face_texture_size, vec2(1.0));

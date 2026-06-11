@@ -1,0 +1,20 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce GTX 1060 6GB
+
+mountain_variant_probe: mountain chunk (10, 9) tile (13, 10)
+[FrameBudget] streaming=8.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=8.0ms/6.0ms world.streaming_v0=8.0ms(60) world.mountain_native_mask_visual_upload=0.0ms(52)
+mountain_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/mountain_variants/v0_current_z045.png
+mountain_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/mountain_variants/v0_current_z100.png
+mountain_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/mountain_variants/v1_drama_z045.png
+mountain_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/mountain_variants/v1_drama_z100.png
+mountain_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/mountain_variants/v2_volume_z045.png
+[FrameBudget] streaming=10.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=10.7ms/6.0ms world.streaming_v0=10.7ms(60) world.mountain_native_mask_visual_upload=0.0ms(41)
+mountain_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/mountain_variants/v2_volume_z100.png
+mountain_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/mountain_variants/v3_jagged_z045.png
+mountain_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/mountain_variants/v3_jagged_z100.png
+mountain_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/mountain_variants/v4_epic_z045.png
+mountain_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/mountain_variants/v4_epic_z100.png
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 7 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

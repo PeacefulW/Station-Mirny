@@ -123,8 +123,13 @@ resources, the active runtime uses a transitional native-mask presentation:
 - The active runtime shader may derive rim separation, layered facade strata,
   form-based normals, macro color variation, sparse cracks/debris, and a
   fresher exposed-cut look from the native mask plus existing top/facade
-  textures. These are presentation-only material cues; they do not create new
-  terrain ids, save data, collision ownership, or worldgen state.
+  textures. It may also apply a small deterministic world-space cosmetic warp
+  to its mask UVs (craggy silhouette instead of a melted blur contour, within
+  the same cosmetic margin as the roof eave), sun-relative flank shading probed
+  from the mask along the light direction, and aperiodic roof tone drift with
+  sparse vein cracks. These are presentation-only material cues; collision,
+  resource, and mining checks keep reading the raw mask bytes, and they do not
+  create new terrain ids, save data, collision ownership, or worldgen state.
 - Mask bounds include a fixed halo around the chunk, so adjacent chunks overlap
   enough for continuous contours. The owner chunk sample wins for gameplay
   queries inside its mask; neighbour masks are only an overlap fallback for

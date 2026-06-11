@@ -56,6 +56,16 @@ const ROCK_PATCH_ALPHA: float = 0.48
 const ROCK_PATCH_EDGE_CLEARANCE_PX: float = 28.0
 const MASK_UNDERLAY_CHUNK_OVERLAP_PX: float = 3.0
 const MASK_SHADOW_CHUNK_OVERLAP_PX: float = 48.0
+# Mountain presentation dressing (all cosmetic, raw mask bytes stay
+# authoritative for collision/resource/mining):
+# Art-direction pick: variant "drama" from the comparison grid session
+# (artifacts/mountain_variants/grid_*.png).
+const MOUNTAIN_VISUAL_MASK_WARP_PX: float = 12.0
+const MOUNTAIN_SIDE_SHADE_STRENGTH: float = 0.30
+const MOUNTAIN_SIDE_SHADE_REACH_PX: float = 26.0
+const MOUNTAIN_ROOF_DRIFT_SCALE_PX: float = 5200.0
+const MOUNTAIN_ROOF_DRIFT_STRENGTH: float = 0.12
+const MOUNTAIN_ROOF_VEIN_STRENGTH: float = 0.22
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 
@@ -822,6 +832,12 @@ func _upload_mountain_mask_texture(
 	material.set_shader_parameter("normal_strength", 0.48)
 	material.set_shader_parameter("light_ambient", 0.58)
 	material.set_shader_parameter("light_diffuse", 0.44)
+	material.set_shader_parameter("mask_warp_px", MOUNTAIN_VISUAL_MASK_WARP_PX)
+	material.set_shader_parameter("side_shade_strength", MOUNTAIN_SIDE_SHADE_STRENGTH)
+	material.set_shader_parameter("side_shade_reach_px", MOUNTAIN_SIDE_SHADE_REACH_PX)
+	material.set_shader_parameter("roof_drift_scale_px", MOUNTAIN_ROOF_DRIFT_SCALE_PX)
+	material.set_shader_parameter("roof_drift_strength", MOUNTAIN_ROOF_DRIFT_STRENGTH)
+	material.set_shader_parameter("roof_vein_strength", MOUNTAIN_ROOF_VEIN_STRENGTH)
 	_set_mask_shader_chunk_clip(
 		material,
 		mask_origin_world,
@@ -894,6 +910,9 @@ func _upload_terrain_edge_mask_texture(
 	material.set_shader_parameter("top_threshold_high", TERRAIN_EDGE_CONTOUR_THRESHOLD_HIGH)
 	material.set_shader_parameter("top_band_px", TERRAIN_EDGE_TOP_BAND_PX)
 	material.set_shader_parameter("top_band_feather_px", TERRAIN_EDGE_TOP_BAND_FEATHER_PX)
+	# No silhouette warp on shorelines: the water-fill clip samples the raw
+	# mask, and both silhouettes must stay identical.
+	material.set_shader_parameter("mask_warp_px", 0.0)
 	_apply_land_mask_to_water_fill()
 	material.set_shader_parameter("normal_strength", 0.48)
 	material.set_shader_parameter("light_ambient", 0.58)

@@ -60,6 +60,9 @@ func _run() -> void:
 	var shore_offset: Vector2 = _find_shore_offset(home)
 	if shore_offset != Vector2.INF:
 		spots["shore"] = shore_offset
+	var mountain_offset: Vector2 = _find_mountain_offset(home)
+	if mountain_offset != Vector2.INF:
+		spots["mountain"] = mountain_offset
 	DirAccess.open("res://").make_dir_recursive("artifacts/ground_zoom_probe")
 	for spot_name: String in spots.keys():
 		player.global_position = home + (spots[spot_name] as Vector2)
@@ -128,6 +131,76 @@ func _find_shore_offset(home: Vector2) -> Vector2:
 			print("ground_zoom_probe: shore chunk %s tile %s" % [str(chunk_coord), str(shore_local)])
 			return WorldRuntimeConstants.tile_to_world_center(world_tile) - home
 	return Vector2.INF
+
+func _find_mountain_offset(home: Vector2) -> Vector2:
+	# Find a partial-mountain chunk (silhouette crosses it) and stand a little
+	# south of an exposed wall tile so roof, facade, and flanks are framed.
+	var core: Object = ClassDB.instantiate("WorldCore")
+	if core == null or not core.has_method("generate_chunk_packets_batch"):
+		return Vector2.INF
+	var bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
+	var foundation: FoundationGenSettings = FoundationGenSettings.for_bounds(bounds)
+	var lakes: LakeGenSettings = LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict())
+	var mountain: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
+	var packed: PackedFloat32Array = mountain.flatten_to_packed()
+	packed = foundation.write_to_settings_packed(packed, bounds)
+	packed = lakes.write_to_settings_packed(packed)
+	var home_chunk: Vector2i = WorldRuntimeConstants.tile_to_chunk(
+		WorldRuntimeConstants.world_to_tile(home)
+	)
+	for radius: int in range(1, 25):
+		var coords := PackedVector2Array()
+		for cy: int in range(home_chunk.y - radius, home_chunk.y + radius + 1):
+			for cx: int in range(home_chunk.x - radius, home_chunk.x + radius + 1):
+				if maxi(absi(cx - home_chunk.x), absi(cy - home_chunk.y)) == radius:
+					coords.append(Vector2(cx, cy))
+		var packets: Array = core.call(
+			"generate_chunk_packets_batch",
+			WorldRuntimeConstants.DEFAULT_WORLD_SEED,
+			coords,
+			WorldRuntimeConstants.WORLD_VERSION,
+			packed
+		) as Array
+		for packet_variant: Variant in packets:
+			var packet: Dictionary = packet_variant as Dictionary
+			var solids: int = _mountain_solid_count(packet)
+			if solids < 70 or solids > 200:
+				continue
+			var south_tile: Vector2i = _find_south_mountain_edge_tile(packet)
+			if south_tile == Vector2i(-1, -1):
+				continue
+			var chunk_coord: Vector2i = packet.get("chunk_coord", Vector2i.ZERO) as Vector2i
+			var world_tile: Vector2i = chunk_coord * WorldRuntimeConstants.CHUNK_SIZE \
+				+ south_tile + Vector2i(0, 4)
+			print("ground_zoom_probe: mountain chunk %s tile %s" % [str(chunk_coord), str(south_tile)])
+			return WorldRuntimeConstants.tile_to_world_center(world_tile) - home
+	return Vector2.INF
+
+func _mountain_solid_count(packet: Dictionary) -> int:
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	var count: int = 0
+	for index: int in range(mini(terrain_ids.size(), WorldRuntimeConstants.CHUNK_CELL_COUNT)):
+		var terrain_id: int = int(terrain_ids[index])
+		if terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+				or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
+			count += 1
+	return count
+
+func _find_south_mountain_edge_tile(packet: Dictionary) -> Vector2i:
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	if terrain_ids.size() < WorldRuntimeConstants.CHUNK_CELL_COUNT:
+		return Vector2i(-1, -1)
+	for y: int in range(WorldRuntimeConstants.CHUNK_SIZE - 6, 1, -1):
+		for x: int in range(2, WorldRuntimeConstants.CHUNK_SIZE - 2):
+			var terrain_id: int = int(terrain_ids[y * WorldRuntimeConstants.CHUNK_SIZE + x])
+			var below_id: int = int(terrain_ids[(y + 1) * WorldRuntimeConstants.CHUNK_SIZE + x])
+			var solid: bool = terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+				or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
+			var below_open: bool = below_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+				and below_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
+			if solid and below_open:
+				return Vector2i(x, y)
+	return Vector2i(-1, -1)
 
 func _find_shore_land_tile(packet: Dictionary) -> Vector2i:
 	# Pick a dry land tile orthogonally adjacent to visible water, so the
