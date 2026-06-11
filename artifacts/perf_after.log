@@ -1,0 +1,19 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce GTX 1060 6GB
+
+[FrameBudget] streaming=3.0ms topology=0.0ms visual=0.5ms spawn=0.0ms total=3.5ms/6.0ms world.streaming_v0=3.0ms(60) world.mountain_native_mask_visual_upload=0.5ms(58)
+[FrameBudget] streaming=4.0ms topology=0.0ms visual=0.5ms spawn=0.0ms total=4.5ms/6.0ms world.streaming_v0=4.0ms(60) world.mountain_native_mask_visual_upload=0.5ms(57)
+streaming_perf_probe: initial settle frames=147
+[FrameBudget] streaming=3.9ms topology=0.0ms visual=0.5ms spawn=0.0ms total=4.4ms/6.0ms world.streaming_v0=3.9ms(60) world.mountain_native_mask_visual_upload=0.5ms(56)
+[FrameBudget] streaming=4.2ms topology=0.0ms visual=0.7ms spawn=0.0ms total=4.9ms/6.0ms world.streaming_v0=4.2ms(60) world.mountain_native_mask_visual_upload=0.7ms(55)
+streaming_perf_probe: offset=(6000.0, 0.0) frames=125 elapsed_ms=2096
+[FrameBudget] streaming=4.0ms topology=0.0ms visual=0.5ms spawn=0.0ms total=4.5ms/6.0ms world.streaming_v0=4.0ms(60) world.mountain_native_mask_visual_upload=0.5ms(56)
+[FrameBudget] streaming=3.8ms topology=0.0ms visual=0.7ms spawn=0.0ms total=4.5ms/6.0ms world.streaming_v0=3.8ms(60) world.mountain_native_mask_visual_upload=0.7ms(60)
+streaming_perf_probe: offset=(0.0, 5000.0) frames=100 elapsed_ms=1680
+[FrameBudget] streaming=3.9ms topology=0.0ms visual=0.5ms spawn=0.0ms total=4.4ms/6.0ms world.streaming_v0=3.9ms(60) world.mountain_native_mask_visual_upload=0.5ms(55)
+[FrameBudget] streaming=3.8ms topology=0.0ms visual=0.5ms spawn=0.0ms total=4.3ms/6.0ms world.streaming_v0=3.8ms(60) world.mountain_native_mask_visual_upload=0.5ms(59)
+streaming_perf_probe: offset=(-7000.0, -3000.0) frames=125 elapsed_ms=2096
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 7 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

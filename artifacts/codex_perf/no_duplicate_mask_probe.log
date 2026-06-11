@@ -1,0 +1,28 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+[FrameBudget] streaming=0.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.7ms/6.0ms world.streaming_v0=0.7ms(60) world.mountain_native_mask_visual_upload=0.0ms(59)
+[FrameBudget] streaming=0.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.7ms/6.0ms world.streaming_v0=0.7ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=0.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.7ms/6.0ms world.streaming_v0=0.7ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=0.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.7ms/6.0ms world.streaming_v0=0.7ms(60) world.mountain_native_mask_visual_upload=0.0ms(59)
+[FrameBudget] streaming=0.9ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.9ms/6.0ms world.streaming_v0=0.9ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=0.9ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.9ms/6.0ms world.streaming_v0=0.9ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=0.9ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.9ms/6.0ms world.streaming_v0=0.9ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=0.8ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.8ms/6.0ms world.streaming_v0=0.8ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=1.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.0ms/6.0ms world.streaming_v0=1.0ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=0.9ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.9ms/6.0ms world.streaming_v0=0.9ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=1.1ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.1ms/6.0ms world.streaming_v0=1.1ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=0.9ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.9ms/6.0ms world.streaming_v0=0.9ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=1.0ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.0ms/6.0ms world.streaming_v0=1.0ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=0.8ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.8ms/6.0ms world.streaming_v0=0.8ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=0.8ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.8ms/6.0ms world.streaming_v0=0.8ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=0.9ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.9ms/6.0ms world.streaming_v0=0.9ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=0.9ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.9ms/6.0ms world.streaming_v0=0.9ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=0.9ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.9ms/6.0ms world.streaming_v0=0.9ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+world_streaming_perf_probe: samples=900 avg_streaming=0.882ms max_streaming=6.270ms avg_total=0.917ms max_total=6.298ms max_visual=0.033ms max_publish_begin=4.207ms max_publish_apply=0.516ms max_publish_finalize=0.303ms over_budget_frames=64 max_pending_masks=0 max_publish_queue=25 native_halo=8 terrain_edge_inflight=0 terrain_edge_cached=0
+world_streaming_perf_probe_details: max_mountain_ready=0.684ms max_terrain_edge_prepare=0.698ms max_track_roof=0.047ms max_ensure_view=0.191ms max_apply_mountain_mask=0.009ms max_apply_terrain_edge_mask=0.016ms max_chunk_begin_apply=2.546ms
+world_streaming_perf_probe_visual_details: max_ensure_mountain_sources=0.000ms max_ensure_terrain_sources=0.000ms max_mountain_create_image=0.000ms max_mountain_upload_texture=0.000ms max_terrain_edge_create_image=0.000ms max_terrain_edge_upload_texture=0.000ms
+world_streaming_perf_probe_chunk_begin_details: max_copy_packet=0.010ms max_state=0.010ms max_ensure_layers=0.002ms max_sync_water=0.174ms max_sync_objects=2.192ms max_refresh_debug=0.141ms
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 7 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

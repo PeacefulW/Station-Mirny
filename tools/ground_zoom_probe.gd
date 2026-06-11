@@ -1,4 +1,4 @@
-extends Node
+extends SceneTree
 
 # Multi-zoom ground look probe: renders the live runtime ground at close, mid,
 # and far camera zoom over the spawn plains so texture repetition, aliasing,
@@ -19,19 +19,21 @@ const ZOOM_LEVELS: Array[float] = [1.0, 0.45, 0.22]
 const MAX_SETTLE_FRAMES: int = 600
 
 var _streamer: Node = null
+var _time_manager: Node = null
 
-func _ready() -> void:
+func _init() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
 	if DisplayServer.get_name() == "headless":
 		push_error("ground_zoom_probe: must run windowed")
-		get_tree().quit(1)
+		quit(1)
 		return
 	var scene: Node = (load(WORLD_SCENE) as PackedScene).instantiate()
-	add_child(scene)
-	await get_tree().process_frame
+	root.add_child(scene)
+	await process_frame
 	_streamer = scene.get_node_or_null("WorldStreamer")
+	_time_manager = root.get_node_or_null("TimeManager")
 	var camera: Camera2D = scene.get_node_or_null("Player/Camera2D") as Camera2D
 	var bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
 	var foundation: FoundationGenSettings = FoundationGenSettings.for_bounds(bounds)
@@ -44,9 +46,10 @@ func _run() -> void:
 		foundation,
 		lakes
 	)
-	TimeManager.set_paused(true)
-	TimeManager.restore_persisted_state(CAPTURE_HOUR, 1, 0)
-	TimeManager.set_paused(true)
+	if _time_manager != null:
+		_time_manager.call("set_paused", true)
+		_time_manager.call("restore_persisted_state", CAPTURE_HOUR, 1, 0)
+		_time_manager.call("set_paused", true)
 	camera.enabled = true
 	camera.position_smoothing_enabled = false
 	camera.set_process(false)
@@ -78,9 +81,9 @@ func _run() -> void:
 			_streamer._sync_sun_lighting_from_time(true)
 			camera.force_update_scroll()
 			for _frame: int in range(10):
-				await get_tree().process_frame
+				await process_frame
 			await RenderingServer.frame_post_draw
-			var img: Image = get_viewport().get_texture().get_image()
+			var img: Image = root.get_texture().get_image()
 			if img == null:
 				print("ground_zoom_probe: capture FAILED zoom %.2f" % zoom)
 				continue
@@ -89,8 +92,8 @@ func _run() -> void:
 			print("ground_zoom_probe: saved %s" % ProjectSettings.globalize_path(path))
 
 	scene.queue_free()
-	await get_tree().process_frame
-	get_tree().quit(0)
+	await process_frame
+	quit(0)
 
 func _find_shore_offset(home: Vector2) -> Vector2:
 	# Scan generated packets around the spawn for the nearest chunk holding both
@@ -240,9 +243,9 @@ func _capture_water_fill_ablation(camera: Camera2D) -> void:
 			fill.visible = false
 	print("ground_zoom_probe: water_fill_visible_chunks=%d" % hidden.size())
 	for _frame: int in range(8):
-		await get_tree().process_frame
+		await process_frame
 	await RenderingServer.frame_post_draw
-	var img: Image = get_viewport().get_texture().get_image()
+	var img: Image = root.get_texture().get_image()
 	if img != null:
 		img.save_png("%s/shore_nofill.png" % OUTPUT_DIR)
 		print("ground_zoom_probe: saved shore_nofill.png")
@@ -297,7 +300,7 @@ func _stream_until_stable() -> void:
 		_streamer._streaming_tick()
 		if _streamer.has_method("_mountain_native_mask_visual_apply_tick"):
 			_streamer._mountain_native_mask_visual_apply_tick()
-		await get_tree().process_frame
+		await process_frame
 		var debug: Dictionary = _streamer.get_mountain_mask_runtime_debug_state()
 		if _streamer._requested_chunks.is_empty() \
 				and int(debug.get("native_mask_inflight_count", 0)) == 0 \

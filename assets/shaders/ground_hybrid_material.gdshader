@@ -204,7 +204,7 @@ void fragment() {
 			// Wide band + per-pixel crumble by the rock grain itself: the patch
 			// edge falls apart into pebbles instead of a razor isoline.
 			float rock_crumble = (smoothstep(0.30, 0.74, luma(rock_color)) - 0.5) * 0.18;
-			float rock_region = smoothstep(rock_threshold - 0.16, rock_threshold + 0.16, rock_field + rock_crumble);
+			float rock_region = smoothstep(rock_threshold - 0.24, rock_threshold + 0.24, rock_field + rock_crumble);
 			rock_region *= 1.0 - smoothstep(0.30, 0.62, grass_field) * 0.78;
 			float rock_rim = smoothstep(0.02, 0.30, rock_region) * (1.0 - smoothstep(0.45, 0.95, rock_region));
 			top_color = mix(top_color, top_color * 0.90, rock_rim * 0.4);
@@ -238,7 +238,7 @@ void fragment() {
 			// --- orange biofield cores inside healthy grass ---
 			vec3 orange_color = texture(orange_biofield_albedo_tex, detail_uv * 0.84 + vec2(0.33, 0.12)).rgb;
 			float orange_threshold = mix(0.88, 0.50, clamp(orange_coverage, 0.0, 1.0));
-			float orange_region = smoothstep(orange_threshold - 0.16, orange_threshold + 0.16, orange_field + strand_detail * 0.14);
+			float orange_region = smoothstep(orange_threshold - 0.22, orange_threshold + 0.22, orange_field + strand_detail * 0.16);
 			orange_region *= smoothstep(0.44, 0.80, grass_density);
 			grass_color = mix(grass_color, orange_color, orange_region * 0.92);
 

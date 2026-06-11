@@ -1,0 +1,55 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+STREAMING_STEP_TIMING total=115.00ms {"drain_native_masks":0.007,"drain_packets":1.845,"enqueue":0.061,"evict":0.017,"object_depth":0.004,"player_chunk":0.016,"prune":0.042,"publish":112.993,"spawn":0.003,"wrap":0.011}
+[FrameBudget] streaming=2.3ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.3ms/6.0ms world.streaming_v0=2.3ms(60) world.mountain_native_mask_visual_upload=0.0ms(59)
+STREAMING_STEP_TIMING total=64.23ms {"drain_native_masks":0.008,"drain_packets":0.011,"enqueue":0.26,"evict":0.027,"object_depth":0.004,"player_chunk":0.024,"prune":0.131,"publish":63.74,"spawn":0.007,"wrap":0.017}
+STREAMING_STEP_TIMING total=57.76ms {"drain_native_masks":0.008,"drain_packets":0.012,"enqueue":0.266,"evict":0.052,"object_depth":0.004,"player_chunk":0.026,"prune":0.12,"publish":57.246,"spawn":0.005,"wrap":0.016}
+[FrameBudget] streaming=3.2ms topology=0.0ms visual=0.0ms spawn=0.0ms total=3.2ms/6.0ms world.streaming_v0=3.2ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+STREAMING_STEP_TIMING total=58.03ms {"drain_native_masks":0.008,"drain_packets":0.012,"enqueue":0.394,"evict":0.041,"object_depth":0.007,"player_chunk":0.023,"prune":0.181,"publish":57.343,"spawn":0.004,"wrap":0.015}
+[FrameBudget] streaming=2.2ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.2ms/6.0ms world.streaming_v0=2.2ms(60) world.mountain_native_mask_visual_upload=0.0ms(59)
+STREAMING_STEP_TIMING total=55.59ms {"drain_native_masks":0.007,"drain_packets":1.862,"enqueue":0.081,"evict":0.012,"object_depth":0.007,"player_chunk":0.03,"prune":0.031,"publish":53.543,"spawn":0.005,"wrap":0.013}
+[FrameBudget] streaming=1.6ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.6ms/6.0ms world.streaming_v0=1.6ms(60) world.mountain_native_mask_visual_upload=0.0ms(59)
+STREAMING_STEP_TIMING total=43.09ms {"drain_native_masks":0.004,"drain_packets":0.081,"enqueue":0.183,"evict":0.011,"object_depth":0.003,"player_chunk":0.014,"prune":0.097,"publish":42.678,"spawn":0.002,"wrap":0.009}
+STREAMING_STEP_TIMING total=47.70ms {"drain_native_masks":0.005,"drain_packets":0.009,"enqueue":0.197,"evict":0.015,"object_depth":0.005,"player_chunk":0.022,"prune":0.124,"publish":47.299,"spawn":0.004,"wrap":0.013}
+[FrameBudget] streaming=2.6ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.6ms/6.0ms world.streaming_v0=2.6ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+STREAMING_STEP_TIMING total=43.31ms {"drain_native_masks":0.004,"drain_packets":0.095,"enqueue":0.191,"evict":0.011,"object_depth":0.004,"player_chunk":0.019,"prune":0.097,"publish":42.869,"spawn":0.003,"wrap":0.011}
+[FrameBudget] streaming=1.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.7ms/6.0ms world.streaming_v0=1.7ms(60) world.mountain_native_mask_visual_upload=0.0ms(59)
+STREAMING_STEP_TIMING total=43.95ms {"drain_native_masks":0.004,"drain_packets":0.087,"enqueue":0.188,"evict":0.009,"object_depth":0.005,"player_chunk":0.014,"prune":0.097,"publish":43.528,"spawn":0.003,"wrap":0.008}
+STREAMING_STEP_TIMING total=45.63ms {"drain_native_masks":0.004,"drain_packets":0.005,"enqueue":0.192,"evict":0.009,"object_depth":0.004,"player_chunk":0.013,"prune":0.097,"publish":45.294,"spawn":0.003,"wrap":0.006}
+[FrameBudget] streaming=2.5ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.5ms/6.0ms world.streaming_v0=2.5ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+STREAMING_STEP_TIMING total=46.13ms {"drain_native_masks":0.004,"drain_packets":0.092,"enqueue":0.22,"evict":0.009,"object_depth":0.005,"player_chunk":0.014,"prune":0.108,"publish":45.667,"spawn":0.003,"wrap":0.009}
+STREAMING_STEP_TIMING total=45.53ms {"drain_native_masks":0.004,"drain_packets":0.448,"enqueue":0.165,"evict":0.013,"object_depth":0.005,"player_chunk":0.013,"prune":0.115,"publish":44.755,"spawn":0.002,"wrap":0.007}
+[FrameBudget] streaming=2.6ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.6ms/6.0ms world.streaming_v0=2.6ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+STREAMING_STEP_TIMING total=43.32ms {"drain_native_masks":0.005,"drain_packets":0.092,"enqueue":0.19,"evict":0.009,"object_depth":0.005,"player_chunk":0.019,"prune":0.099,"publish":42.878,"spawn":0.004,"wrap":0.013}
+STREAMING_STEP_TIMING total=44.88ms {"drain_native_masks":0.006,"drain_packets":0.138,"enqueue":0.191,"evict":0.009,"object_depth":0.005,"player_chunk":0.019,"prune":0.103,"publish":44.394,"spawn":0.003,"wrap":0.012}
+[FrameBudget] streaming=2.6ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.6ms/6.0ms world.streaming_v0=2.6ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+STREAMING_STEP_TIMING total=43.95ms {"drain_native_masks":0.003,"drain_packets":0.005,"enqueue":0.19,"evict":0.011,"object_depth":0.003,"player_chunk":0.013,"prune":0.096,"publish":43.62,"spawn":0.002,"wrap":0.007}
+STREAMING_STEP_TIMING total=52.03ms {"drain_native_masks":0.004,"drain_packets":0.087,"enqueue":0.191,"evict":0.015,"object_depth":0.004,"player_chunk":0.015,"prune":0.098,"publish":51.599,"spawn":0.003,"wrap":0.009}
+[FrameBudget] streaming=2.6ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.6ms/6.0ms world.streaming_v0=2.6ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+STREAMING_STEP_TIMING total=48.70ms {"drain_native_masks":0.004,"drain_packets":0.092,"enqueue":0.188,"evict":0.01,"object_depth":0.005,"player_chunk":0.019,"prune":0.097,"publish":48.271,"spawn":0.004,"wrap":0.012}
+[FrameBudget] streaming=1.9ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.9ms/6.0ms world.streaming_v0=1.9ms(60) world.mountain_native_mask_visual_upload=0.0ms(59)
+STREAMING_STEP_TIMING total=42.16ms {"drain_native_masks":0.003,"drain_packets":0.006,"enqueue":0.188,"evict":0.01,"object_depth":0.003,"player_chunk":0.011,"prune":0.124,"publish":41.806,"spawn":0.001,"wrap":0.007}
+STREAMING_STEP_TIMING total=42.41ms {"drain_native_masks":0.004,"drain_packets":0.084,"enqueue":0.187,"evict":0.01,"object_depth":0.004,"player_chunk":0.012,"prune":0.098,"publish":41.997,"spawn":0.003,"wrap":0.008}
+[FrameBudget] streaming=2.3ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.3ms/6.0ms world.streaming_v0=2.3ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+STREAMING_STEP_TIMING total=41.84ms {"drain_native_masks":0.003,"drain_packets":0.005,"enqueue":0.189,"evict":0.008,"object_depth":0.004,"player_chunk":0.012,"prune":0.095,"publish":41.51,"spawn":0.002,"wrap":0.007}
+STREAMING_STEP_TIMING total=44.51ms {"drain_native_masks":0.004,"drain_packets":0.404,"enqueue":0.167,"evict":0.01,"object_depth":0.004,"player_chunk":0.013,"prune":0.097,"publish":43.8,"spawn":0.002,"wrap":0.008}
+[FrameBudget] streaming=2.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.4ms/6.0ms world.streaming_v0=2.4ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+STREAMING_STEP_TIMING total=42.79ms {"drain_native_masks":0.004,"drain_packets":0.08,"enqueue":0.177,"evict":0.009,"object_depth":0.003,"player_chunk":0.012,"prune":0.1,"publish":42.393,"spawn":0.001,"wrap":0.007}
+STREAMING_STEP_TIMING total=42.50ms {"drain_native_masks":0.004,"drain_packets":0.007,"enqueue":0.195,"evict":0.008,"object_depth":0.004,"player_chunk":0.019,"prune":0.097,"publish":42.147,"spawn":0.003,"wrap":0.012}
+[FrameBudget] streaming=2.3ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.3ms/6.0ms world.streaming_v0=2.3ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+STREAMING_STEP_TIMING total=42.12ms {"drain_native_masks":0.004,"drain_packets":0.088,"enqueue":0.183,"evict":0.009,"object_depth":0.006,"player_chunk":0.02,"prune":0.097,"publish":41.697,"spawn":0.003,"wrap":0.01}
+STREAMING_STEP_TIMING total=45.38ms {"drain_native_masks":0.005,"drain_packets":0.101,"enqueue":0.276,"evict":0.009,"object_depth":0.004,"player_chunk":2.196,"prune":0.129,"publish":42.654,"spawn":0.002,"wrap":0.005}
+[FrameBudget] streaming=2.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.4ms/6.0ms world.streaming_v0=2.4ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+STREAMING_STEP_TIMING total=42.57ms {"drain_native_masks":0.004,"drain_packets":0.081,"enqueue":0.178,"evict":0.01,"object_depth":0.004,"player_chunk":0.012,"prune":0.131,"publish":42.136,"spawn":0.002,"wrap":0.006}
+[FrameBudget] streaming=1.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.7ms/6.0ms world.streaming_v0=1.7ms(60) world.mountain_native_mask_visual_upload=0.0ms(59)
+STREAMING_STEP_TIMING total=42.59ms {"drain_native_masks":0.003,"drain_packets":0.078,"enqueue":0.178,"evict":0.009,"object_depth":0.004,"player_chunk":0.011,"prune":0.095,"publish":42.198,"spawn":0.002,"wrap":0.006}
+STREAMING_STEP_TIMING total=42.02ms {"drain_native_masks":0.004,"drain_packets":0.005,"enqueue":0.182,"evict":0.009,"object_depth":0.004,"player_chunk":0.013,"prune":0.099,"publish":41.687,"spawn":0.002,"wrap":0.008}
+[FrameBudget] streaming=2.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.4ms/6.0ms world.streaming_v0=2.4ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+STREAMING_STEP_TIMING total=42.66ms {"drain_native_masks":0.003,"drain_packets":0.083,"enqueue":0.18,"evict":0.01,"object_depth":0.004,"player_chunk":0.011,"prune":0.096,"publish":42.263,"spawn":0.002,"wrap":0.006}
+STREAMING_STEP_TIMING total=43.15ms {"drain_native_masks":0.004,"drain_packets":0.082,"enqueue":0.192,"evict":0.01,"object_depth":0.004,"player_chunk":0.012,"prune":0.098,"publish":42.739,"spawn":0.003,"wrap":0.007}
+[FrameBudget] streaming=2.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.4ms/6.0ms world.streaming_v0=2.4ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+world_streaming_perf_probe: samples=900 avg_streaming=2.270ms max_streaming=55.726ms avg_total=2.306ms max_total=55.771ms max_visual=0.077ms over_budget_frames=86 max_pending_masks=0 max_publish_queue=25 native_halo=8 terrain_edge_inflight=0 terrain_edge_cached=0
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 7 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

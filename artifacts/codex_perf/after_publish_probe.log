@@ -1,0 +1,25 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+[FrameBudget] streaming=1.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.4ms/6.0ms world.streaming_v0=1.4ms(60) world.mountain_native_mask_visual_upload=0.0ms(59)
+[FrameBudget] streaming=2.2ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.2ms/6.0ms world.streaming_v0=2.2ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+[FrameBudget] streaming=1.5ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.5ms/6.0ms world.streaming_v0=1.5ms(60) world.mountain_native_mask_visual_upload=0.0ms(59)
+[FrameBudget] streaming=1.6ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.6ms/6.0ms world.streaming_v0=1.6ms(60) world.mountain_native_mask_visual_upload=0.0ms(59)
+[FrameBudget] streaming=2.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.4ms/6.0ms world.streaming_v0=2.4ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+[FrameBudget] streaming=2.5ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.5ms/6.0ms world.streaming_v0=2.5ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+[FrameBudget] streaming=2.5ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.5ms/6.0ms world.streaming_v0=2.5ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+[FrameBudget] streaming=1.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.7ms/6.0ms world.streaming_v0=1.7ms(60) world.mountain_native_mask_visual_upload=0.0ms(59)
+[FrameBudget] streaming=2.5ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.5ms/6.0ms world.streaming_v0=2.5ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+[FrameBudget] streaming=2.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.4ms/6.0ms world.streaming_v0=2.4ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+[FrameBudget] streaming=2.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.4ms/6.0ms world.streaming_v0=2.4ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+[FrameBudget] streaming=2.3ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.3ms/6.0ms world.streaming_v0=2.3ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+[FrameBudget] streaming=1.8ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.8ms/6.0ms world.streaming_v0=1.8ms(60) world.mountain_native_mask_visual_upload=0.0ms(59)
+[FrameBudget] streaming=2.3ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.3ms/6.0ms world.streaming_v0=2.3ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+[FrameBudget] streaming=2.3ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.4ms/6.0ms world.streaming_v0=2.3ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+[FrameBudget] streaming=2.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.4ms/6.0ms world.streaming_v0=2.4ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+[FrameBudget] streaming=1.7ms topology=0.0ms visual=0.0ms spawn=0.0ms total=1.7ms/6.0ms world.streaming_v0=1.7ms(60) world.mountain_native_mask_visual_upload=0.0ms(59)
+[FrameBudget] streaming=2.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=2.4ms/6.0ms world.streaming_v0=2.4ms(60) world.mountain_native_mask_visual_upload=0.0ms(58)
+world_streaming_perf_probe: samples=900 avg_streaming=2.211ms max_streaming=52.529ms avg_total=2.245ms max_total=52.556ms max_visual=0.030ms over_budget_frames=74 max_pending_masks=0 max_publish_queue=25 native_halo=8 terrain_edge_inflight=0 terrain_edge_cached=0
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 7 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

@@ -89,6 +89,8 @@ var _pending_mountain_atlas_indices: PackedInt32Array = PackedInt32Array()
 var _pending_world_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 var _pending_world_version: int = WorldRuntimeConstants.WORLD_VERSION
 var _apply_index: int = 0
+var _has_applied_cells: bool = false
+var _bulk_apply_layers_pristine: bool = false
 var _debug_grid_visible: bool = false
 var _debug_solid_mask_visible: bool = false
 var _debug_contour_visible: bool = false
@@ -143,6 +145,8 @@ var _rock_scatter_atlases: Array[Texture2D] = []
 var _living_flora_atlas: Texture2D = null
 var _spiky_flora_atlases: Array[Texture2D] = []
 var _object_packet_layer: WorldObjectPacketLayer = null
+var _object_packet_visual_dirty: bool = false
+var _pending_object_packet_visual: Dictionary = {}
 var _object_depth_reference_enabled: bool = false
 var _object_depth_reference_world_y: float = 0.0
 var _mountain_page_hit_mask: PackedByteArray = PackedByteArray()
@@ -167,7 +171,8 @@ func configure(new_chunk_coord: Vector2i) -> void:
 	position = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	_ensure_layers()
 
-func begin_apply(packet: Dictionary) -> void:
+func begin_apply(packet: Dictionary, defer_object_visual: bool = false) -> void:
+	var step_started: int = WorldPerfProbe.begin()
 	var packet_world_seed: int = int(packet.get("world_seed", WorldRuntimeConstants.DEFAULT_WORLD_SEED))
 	var packet_world_version: int = int(packet.get("world_version", WorldRuntimeConstants.WORLD_VERSION))
 	_pending_world_seed = packet_world_seed
@@ -181,13 +186,38 @@ func begin_apply(packet: Dictionary) -> void:
 	_pending_mountain_ids = (packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array).duplicate()
 	_pending_mountain_flags = (packet.get("mountain_flags", PackedByteArray()) as PackedByteArray).duplicate()
 	_pending_mountain_atlas_indices = (packet.get("mountain_atlas_indices", PackedInt32Array()) as PackedInt32Array).duplicate()
+	WorldPerfProbe.end("ChunkView.begin_apply.copy_packet", step_started)
+	step_started = WorldPerfProbe.begin()
 	_skip_full_mountain_surface_apply = not _mountain_tile_visuals_enabled and _is_pending_full_mountain_surface()
 	_apply_index = 0
+	_bulk_apply_layers_pristine = not _has_applied_cells
 	visible = false
+	WorldPerfProbe.end("ChunkView.begin_apply.state", step_started)
+	step_started = WorldPerfProbe.begin()
 	_ensure_layers()
+	WorldPerfProbe.end("ChunkView.begin_apply.ensure_layers", step_started)
+	step_started = WorldPerfProbe.begin()
 	_sync_water_fill_visual()
-	_sync_object_packet_visual(packet)
+	WorldPerfProbe.end("ChunkView.begin_apply.sync_water_fill", step_started)
+	step_started = WorldPerfProbe.begin()
+	if defer_object_visual:
+		_pending_object_packet_visual = packet
+		_object_packet_visual_dirty = true
+	else:
+		_sync_object_packet_visual(packet)
+	WorldPerfProbe.end("ChunkView.begin_apply.sync_objects", step_started)
+	step_started = WorldPerfProbe.begin()
 	_refresh_debug_solid_mask()
+	WorldPerfProbe.end("ChunkView.begin_apply.refresh_debug", step_started)
+
+func apply_pending_object_packet_visual() -> bool:
+	if not _object_packet_visual_dirty:
+		return false
+	var packet: Dictionary = _pending_object_packet_visual
+	_pending_object_packet_visual = {}
+	_object_packet_visual_dirty = false
+	_sync_object_packet_visual(packet)
+	return true
 
 func apply_next_batch(batch_size: int) -> bool:
 	if _pending_terrain_ids.is_empty():
@@ -217,6 +247,8 @@ func apply_next_batch(batch_size: int) -> bool:
 		_apply_roof_cell(local_coord, index)
 	_apply_index = end_index
 	if _apply_index >= _pending_terrain_ids.size():
+		_has_applied_cells = true
+		_bulk_apply_layers_pristine = false
 		return false
 	return true
 
@@ -615,6 +647,7 @@ func apply_pending_mountain_native_mask_visual(
 			or _mountain_top_mask_step_px <= 0.0 \
 			or _mountain_top_mask_bytes.size() != _mountain_top_mask_width * _mountain_top_mask_height:
 		return false
+	var create_image_started: int = WorldPerfProbe.begin()
 	var mask_image: Image = Image.create_from_data(
 		_mountain_top_mask_width,
 		_mountain_top_mask_height,
@@ -622,6 +655,8 @@ func apply_pending_mountain_native_mask_visual(
 		Image.FORMAT_L8,
 		_mountain_top_mask_bytes
 	)
+	WorldPerfProbe.end("ChunkView.mountain_visual.create_image", create_image_started)
+	var upload_started: int = WorldPerfProbe.begin()
 	_upload_mountain_mask_texture(
 		mask_image,
 		top_texture,
@@ -634,6 +669,7 @@ func apply_pending_mountain_native_mask_visual(
 		foothill_texture,
 		foothill_normal_texture
 	)
+	WorldPerfProbe.end("ChunkView.mountain_visual.upload_texture", upload_started)
 	_mountain_top_mask_image = mask_image
 	_mountain_top_mask_visual_dirty = false
 	_mountain_page_debug["native_mask_visual_pending"] = false
@@ -679,6 +715,7 @@ func apply_pending_terrain_edge_mask_visual(
 			or _terrain_edge_mask_step_px <= 0.0 \
 			or _terrain_edge_mask_bytes.size() != _terrain_edge_mask_width * _terrain_edge_mask_height:
 		return false
+	var create_image_started: int = WorldPerfProbe.begin()
 	var mask_image: Image = Image.create_from_data(
 		_terrain_edge_mask_width,
 		_terrain_edge_mask_height,
@@ -686,6 +723,8 @@ func apply_pending_terrain_edge_mask_visual(
 		Image.FORMAT_L8,
 		_terrain_edge_mask_bytes
 	)
+	WorldPerfProbe.end("ChunkView.terrain_edge_visual.create_image", create_image_started)
+	var upload_started: int = WorldPerfProbe.begin()
 	_upload_terrain_edge_mask_texture(
 		mask_image,
 		top_texture,
@@ -699,6 +738,7 @@ func apply_pending_terrain_edge_mask_visual(
 		rock_patch_texture,
 		rock_patch_normal_texture
 	)
+	WorldPerfProbe.end("ChunkView.terrain_edge_visual.upload_texture", upload_started)
 	_terrain_edge_mask_image = mask_image
 	_terrain_edge_mask_visual_dirty = false
 	return true
@@ -1889,14 +1929,16 @@ func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: in
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
 		return
 	if WorldTileSetFactory.uses_overlay_layer(terrain_id):
-		_clear_cell(_base_layer, local_coord)
+		if not _bulk_apply_layers_pristine:
+			_clear_cell(_base_layer, local_coord)
 		_overlay_layer.set_cell(
 			local_coord,
 			WorldTileSetFactory.get_source_id(terrain_id),
 			WorldTileSetFactory.get_atlas_coords(terrain_id, terrain_atlas_index)
 		)
 		return
-	_clear_cell(_overlay_layer, local_coord)
+	if not _bulk_apply_layers_pristine:
+		_clear_cell(_overlay_layer, local_coord)
 	_base_layer.set_cell(
 		local_coord,
 		WorldTileSetFactory.get_source_id(terrain_id),
@@ -1940,6 +1982,8 @@ func _apply_water_patch_around(local_coord: Vector2i) -> void:
 
 func _apply_water_cell(local_coord: Vector2i, index: int) -> void:
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
+		return
+	if _bulk_apply_layers_pristine:
 		return
 	_clear_cell(_water_layer, local_coord)
 

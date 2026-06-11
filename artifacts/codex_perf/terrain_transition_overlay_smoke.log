@@ -1,0 +1,80 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+ERROR: WorldCore must emit base_variant_indices in ChunkPacketV1.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/terrain_transition_overlay_smoke_test.gd:213)
+       [1] _assert_static_contract (res://tools/terrain_transition_overlay_smoke_test.gd:30)
+       [2] _init (res://tools/terrain_transition_overlay_smoke_test.gd:18)
+ERROR: WorldCore must emit transition_overlay_indices in ChunkPacketV1.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/terrain_transition_overlay_smoke_test.gd:213)
+       [1] _assert_static_contract (res://tools/terrain_transition_overlay_smoke_test.gd:34)
+       [2] _init (res://tools/terrain_transition_overlay_smoke_test.gd:18)
+ERROR: ChunkPacketV1 must include base_variant_indices at the native packet boundary.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/terrain_transition_overlay_smoke_test.gd:213)
+       [1] _assert_static_contract (res://tools/terrain_transition_overlay_smoke_test.gd:38)
+       [2] _init (res://tools/terrain_transition_overlay_smoke_test.gd:18)
+ERROR: ChunkPacketV1 must include transition_overlay_indices at the native packet boundary.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/terrain_transition_overlay_smoke_test.gd:213)
+       [1] _assert_static_contract (res://tools/terrain_transition_overlay_smoke_test.gd:42)
+       [2] _init (res://tools/terrain_transition_overlay_smoke_test.gd:18)
+ERROR: ChunkView must own a dedicated _transition_layer.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/terrain_transition_overlay_smoke_test.gd:213)
+       [1] _assert_static_contract (res://tools/terrain_transition_overlay_smoke_test.gd:52)
+       [2] _init (res://tools/terrain_transition_overlay_smoke_test.gd:18)
+ERROR: ChunkView must retain base_variant_indices during publish/apply.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/terrain_transition_overlay_smoke_test.gd:213)
+       [1] _assert_static_contract (res://tools/terrain_transition_overlay_smoke_test.gd:56)
+       [2] _init (res://tools/terrain_transition_overlay_smoke_test.gd:18)
+ERROR: ChunkView must retain transition_overlay_indices during publish/apply.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/terrain_transition_overlay_smoke_test.gd:213)
+       [1] _assert_static_contract (res://tools/terrain_transition_overlay_smoke_test.gd:60)
+       [2] _init (res://tools/terrain_transition_overlay_smoke_test.gd:18)
+ERROR: packet_schemas.md must document base_variant_indices.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/terrain_transition_overlay_smoke_test.gd:213)
+       [1] _assert_static_contract (res://tools/terrain_transition_overlay_smoke_test.gd:66)
+       [2] _init (res://tools/terrain_transition_overlay_smoke_test.gd:18)
+ERROR: packet_schemas.md must document transition_overlay_indices.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/terrain_transition_overlay_smoke_test.gd:213)
+       [1] _assert_static_contract (res://tools/terrain_transition_overlay_smoke_test.gd:70)
+       [2] _init (res://tools/terrain_transition_overlay_smoke_test.gd:18)
+ERROR: WORLD_VERSION must remain at the current mountain passage/outcrop refinement boundary; transition overlay work is visual-only.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/terrain_transition_overlay_smoke_test.gd:213)
+       [1] _assert_static_contract (res://tools/terrain_transition_overlay_smoke_test.gd:76)
+       [2] _init (res://tools/terrain_transition_overlay_smoke_test.gd:18)
+ERROR: WorldCore native packet must publish 256 base_variant_indices.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/terrain_transition_overlay_smoke_test.gd:213)
+       [1] _assert_native_packet_fields (res://tools/terrain_transition_overlay_smoke_test.gd:101)
+       [2] _init (res://tools/terrain_transition_overlay_smoke_test.gd:19)
+ERROR: WorldCore native packet must publish 256 transition_overlay_indices.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/terrain_transition_overlay_smoke_test.gd:213)
+       [1] _assert_native_packet_fields (res://tools/terrain_transition_overlay_smoke_test.gd:105)
+       [2] _init (res://tools/terrain_transition_overlay_smoke_test.gd:19)
+ERROR: ChunkView must create a valid transition TileMapLayer.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/terrain_transition_overlay_smoke_test.gd:213)
+       [1] _assert_chunk_view_renders_transition_overlay (res://tools/terrain_transition_overlay_smoke_test.gd:188)
+       [2] _init (res://tools/terrain_transition_overlay_smoke_test.gd:20)

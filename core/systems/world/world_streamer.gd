@@ -26,6 +26,11 @@ const MOUNTAIN_MASK_WORKER_COUNT: int = 3
 const MAX_PACKET_RESULTS_PER_TICK: int = 24
 const MAX_MOUNTAIN_PAGE_RESULTS_PER_TICK: int = 1
 const MAX_MOUNTAIN_NATIVE_MASK_RESULTS_PER_TICK: int = 8
+# Publish pipeline pacing: scan a bounded queue prefix for a publishable chunk
+# (a mask-stalled head must not block ready chunks behind it) and warm native
+# mask requests for a bounded number of queued chunks per tick.
+const PUBLISH_QUEUE_SCAN_LIMIT: int = 8
+const PUBLISH_MASK_PREFETCH_PER_TICK: int = 2
 const MOUNTAIN_PAGE_MAX_INFLIGHT: int = 18
 const MOUNTAIN_MASK_SOURCE_RADIUS_CHUNKS: int = 1
 const MOUNTAIN_PAGE_PREFETCH_RADIUS_CHUNKS: int = 1
@@ -41,7 +46,7 @@ const MOUNTAIN_INTERIOR_FILL_SAFETY_MARGIN_TILES: int = 2
 # ~= 412 px + 48 px shadow draw overlap -> 460 px; foothill outer search is
 # 154 + 96 = 250 px. ceil(460 / 64) = 8 tiles.
 const MOUNTAIN_HALO_MASK_RADIUS_TILES: int = 8
-const MOUNTAIN_HALO_MASK_PIXELS_PER_TILE: int = 8
+const MOUNTAIN_HALO_MASK_PIXELS_PER_TILE: int = 4
 const MOUNTAIN_NATIVE_MASK_RUNTIME_ENABLED: bool = true
 # The walkable plains surface is composed entirely by the world-space ground
 # material (ground_hybrid_material.gdshader). The terrain-edge mask is a
@@ -53,7 +58,7 @@ const OBJECT_DEPTH_REFERENCE_QUANTUM_PX: float = 16.0
 # Same cross-chunk sampling-reach requirement as MOUNTAIN_HALO_MASK_RADIUS_TILES:
 # the shoreline underlay projects the same WorldVisualLightingProfile shadows.
 const TERRAIN_EDGE_HALO_MASK_RADIUS_TILES: int = 8
-const TERRAIN_EDGE_HALO_MASK_PIXELS_PER_TILE: int = 8
+const TERRAIN_EDGE_HALO_MASK_PIXELS_PER_TILE: int = 4
 const TERRAIN_EDGE_TOP_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_top_albedo.png"
 const TERRAIN_EDGE_FACE_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_face_albedo.png"
 const TERRAIN_EDGE_TOP_NORMAL_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/ground/dry_ground_top_normal.png"
@@ -149,6 +154,11 @@ var _mountain_native_mask_inflight_chunks: Dictionary = {}
 var _terrain_edge_mask_revision_by_chunk: Dictionary = {}
 var _terrain_edge_masks_by_chunk: Dictionary = {}
 var _terrain_edge_mask_inflight_chunks: Dictionary = {}
+# Solid-halo build caches: a 32x32-tile halo costs ~1k packet lookups in
+# GDScript, and the publish gate used to rebuild it every tick while waiting
+# for a native mask. Keyed by chunk; validated by (epoch, revision).
+var _mountain_solid_halo_cache: Dictionary = {}
+var _terrain_edge_solid_halo_cache: Dictionary = {}
 var _last_terrain_edge_mask_result: Dictionary = {
 	"ready": false,
 }
@@ -171,6 +181,8 @@ var _pending_mountain_native_mask_visual_upload_chunks: Array[Vector2i] = []
 var _pending_mountain_native_mask_visual_upload_set: Dictionary = {}
 var _pending_terrain_edge_mask_visual_upload_chunks: Array[Vector2i] = []
 var _pending_terrain_edge_mask_visual_upload_set: Dictionary = {}
+var _pending_object_packet_visual_upload_chunks: Array[Vector2i] = []
+var _pending_object_packet_visual_upload_set: Dictionary = {}
 var _mountain_native_mask_visual_upload_count_total: int = 0
 var _mountain_native_mask_visual_upload_count_last_tick: int = 0
 var _mountain_native_mask_visual_upload_elapsed_ms_last: float = 0.0
@@ -762,7 +774,7 @@ func _streaming_tick() -> bool:
 	timing_step_usec = _record_streaming_step_timing(timing_records, "evict", timing_step_usec)
 	_end_mountain_native_mask_tick_metrics()
 	_report_streaming_step_timing(timing_records, timing_started_usec)
-	return _has_pending_streaming_work()
+	return false
 
 func _queue_mountain_native_mask_visual_upload(chunk_coord: Vector2i) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
@@ -802,15 +814,41 @@ func _drop_terrain_edge_mask_visual_upload(chunk_coord: Vector2i) -> void:
 		filtered.append(queued_coord)
 	_pending_terrain_edge_mask_visual_upload_chunks = filtered
 
+func _queue_object_packet_visual_upload(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if _pending_object_packet_visual_upload_set.has(chunk_coord):
+		return
+	_pending_object_packet_visual_upload_set[chunk_coord] = true
+	_pending_object_packet_visual_upload_chunks.append(chunk_coord)
+
+func _drop_object_packet_visual_upload(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	_pending_object_packet_visual_upload_set.erase(chunk_coord)
+	if _pending_object_packet_visual_upload_chunks.is_empty():
+		return
+	var filtered: Array[Vector2i] = []
+	for queued_coord: Vector2i in _pending_object_packet_visual_upload_chunks:
+		if queued_coord == chunk_coord:
+			continue
+		filtered.append(queued_coord)
+	_pending_object_packet_visual_upload_chunks = filtered
+
 func _mountain_native_mask_visual_apply_tick() -> bool:
+	# Process as many queued visual uploads as fit in the time budget. The old
+	# one-upload-per-tick pacing turned a sprint (dozens of queued chunks) into
+	# seconds of pop-in tail while each frame did ~0.1 ms of work.
 	_mountain_native_mask_visual_upload_count_last_tick = 0
+	var budget_usec: int = int(MOUNTAIN_NATIVE_MASK_VISUAL_UPLOAD_BUDGET_MS * 1000.0)
+	var tick_started_usec: int = Time.get_ticks_usec()
 	while not _pending_mountain_native_mask_visual_upload_chunks.is_empty():
 		var chunk_coord: Vector2i = _pending_mountain_native_mask_visual_upload_chunks.pop_front()
 		_pending_mountain_native_mask_visual_upload_set.erase(chunk_coord)
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
 		if chunk_view == null:
 			continue
+		var step_started: int = WorldPerfProbe.begin()
 		_ensure_mountain_mask_sources()
+		WorldPerfProbe.end("WorldStreamer.visual_upload.ensure_mountain_sources", step_started)
 		var started_usec: int = Time.get_ticks_usec()
 		var applied: bool = chunk_view.apply_pending_mountain_native_mask_visual(
 			_mountain_top_fill_texture,
@@ -824,21 +862,24 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			continue
 		var elapsed_ms: float = float(Time.get_ticks_usec() - started_usec) / 1000.0
 		_mountain_native_mask_visual_upload_count_total += 1
-		_mountain_native_mask_visual_upload_count_last_tick = 1
+		_mountain_native_mask_visual_upload_count_last_tick += 1
 		_mountain_native_mask_visual_upload_elapsed_ms_last = elapsed_ms
 		_mountain_native_mask_visual_upload_elapsed_ms_max_total = maxf(
 			_mountain_native_mask_visual_upload_elapsed_ms_max_total,
 			elapsed_ms
 		)
 		_mountain_native_mask_visual_upload_last_chunk = chunk_coord
-		return false
+		if Time.get_ticks_usec() - tick_started_usec >= budget_usec:
+			return false
 	while not _pending_terrain_edge_mask_visual_upload_chunks.is_empty():
 		var chunk_coord: Vector2i = _pending_terrain_edge_mask_visual_upload_chunks.pop_front()
 		_pending_terrain_edge_mask_visual_upload_set.erase(chunk_coord)
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
 		if chunk_view == null:
 			continue
+		var step_started: int = WorldPerfProbe.begin()
 		_ensure_terrain_edge_mask_sources()
+		WorldPerfProbe.end("WorldStreamer.visual_upload.ensure_terrain_sources", step_started)
 		if chunk_view.apply_pending_terrain_edge_mask_visual(
 			_terrain_edge_top_texture,
 			_terrain_edge_face_texture,
@@ -851,6 +892,18 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			_mountain_foothill_texture,
 			_mountain_foothill_normal_texture
 		):
+			if Time.get_ticks_usec() - tick_started_usec >= budget_usec:
+				return false
+	while not _pending_object_packet_visual_upload_chunks.is_empty():
+		var chunk_coord: Vector2i = _pending_object_packet_visual_upload_chunks.pop_front()
+		_pending_object_packet_visual_upload_set.erase(chunk_coord)
+		var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+		if chunk_view == null:
+			continue
+		var object_started: int = WorldPerfProbe.begin()
+		var object_applied: bool = chunk_view.apply_pending_object_packet_visual()
+		WorldPerfProbe.end("WorldStreamer.visual_upload.object_packet", object_started)
+		if object_applied and Time.get_ticks_usec() - tick_started_usec >= budget_usec:
 			return false
 	return false
 
@@ -923,49 +976,118 @@ func _publish_next_batch() -> void:
 	if _active_publish_chunk == INVALID_CHUNK_COORD:
 		if _pending_publish_queue.is_empty():
 			return
-		var next_publish_chunk: Vector2i = _pending_publish_queue.pop_front()
+		var publish_begin_started: int = WorldPerfProbe.begin()
+		_prefetch_queued_chunk_masks(PUBLISH_MASK_PREFETCH_PER_TICK)
+		# Bounded scan instead of strict FIFO: a head chunk waiting for its
+		# native mountain mask must not stall every ready chunk behind it.
+		var step_started: int = WorldPerfProbe.begin()
+		var picked_index: int = -1
+		var scan_limit: int = mini(_pending_publish_queue.size(), PUBLISH_QUEUE_SCAN_LIMIT)
+		for index: int in range(scan_limit):
+			var candidate: Vector2i = _pending_publish_queue[index]
+			var candidate_packet: Dictionary = _chunk_packets.get(candidate, {}) as Dictionary
+			if candidate_packet.is_empty():
+				continue
+			if _can_publish_chunk_with_mountain_mask(candidate, candidate_packet):
+				picked_index = index
+				break
+		WorldPerfProbe.end("WorldStreamer.publish.begin.mountain_ready", step_started)
+		if picked_index < 0:
+			WorldPerfProbe.end("WorldStreamer.publish.begin", publish_begin_started)
+			return
+		var next_publish_chunk: Vector2i = _pending_publish_queue[picked_index]
+		_pending_publish_queue.remove_at(picked_index)
 		var packet: Dictionary = _chunk_packets.get(next_publish_chunk, {}) as Dictionary
-		if packet.is_empty():
-			return
-		if not _can_publish_chunk_with_mountain_mask(next_publish_chunk, packet):
-			_pending_publish_queue.push_front(next_publish_chunk)
-			return
-		if not _can_publish_chunk_with_terrain_edge_mask(next_publish_chunk, packet):
-			_pending_publish_queue.push_front(next_publish_chunk)
-			return
+		step_started = WorldPerfProbe.begin()
+		_prepare_terrain_edge_mask_for_publish(next_publish_chunk, packet)
+		WorldPerfProbe.end("WorldStreamer.publish.begin.terrain_edge_prepare", step_started)
 		_active_publish_chunk = next_publish_chunk
+		step_started = WorldPerfProbe.begin()
 		_track_roof_layer_metric(_active_publish_chunk, packet)
+		WorldPerfProbe.end("WorldStreamer.publish.begin.track_roof", step_started)
+		step_started = WorldPerfProbe.begin()
 		var chunk_view: ChunkView = _ensure_chunk_view(_active_publish_chunk)
+		WorldPerfProbe.end("WorldStreamer.publish.begin.ensure_view", step_started)
+		step_started = WorldPerfProbe.begin()
 		_apply_mountain_mask_to_chunk_view(_active_publish_chunk, chunk_view, packet)
+		WorldPerfProbe.end("WorldStreamer.publish.begin.apply_mountain_mask", step_started)
+		step_started = WorldPerfProbe.begin()
 		_apply_terrain_edge_mask_to_chunk_view(_active_publish_chunk, chunk_view, packet)
-		chunk_view.begin_apply(packet)
+		WorldPerfProbe.end("WorldStreamer.publish.begin.apply_terrain_edge_mask", step_started)
+		step_started = WorldPerfProbe.begin()
+		chunk_view.begin_apply(packet, true)
+		_queue_object_packet_visual_upload(_active_publish_chunk)
+		WorldPerfProbe.end("WorldStreamer.publish.begin.chunk_begin_apply", step_started)
+		WorldPerfProbe.end("WorldStreamer.publish.begin", publish_begin_started)
 		return
 
 	var active_view: ChunkView = _chunk_views.get(_active_publish_chunk) as ChunkView
 	if active_view == null:
 		_active_publish_chunk = INVALID_CHUNK_COORD
 		return
+	var publish_apply_started: int = WorldPerfProbe.begin()
 	var has_more: bool = active_view.apply_next_batch(WorldRuntimeConstants.PUBLISH_BATCH_SIZE)
+	WorldPerfProbe.end("WorldStreamer.publish.apply_batch", publish_apply_started)
 	if not has_more:
-		if _is_chunk_view_waiting_for_terrain_ground_visual(active_view):
-			return
+		var publish_finalize_started: int = WorldPerfProbe.begin()
 		_handle_cover_chunk_published(_active_publish_chunk)
 		_refresh_debug_visuals_for_chunk(_active_publish_chunk)
 		active_view.visible = true
 		EventBus.chunk_loaded.emit(_active_publish_chunk)
+		WorldPerfProbe.end("WorldStreamer.publish.finalize", publish_finalize_started)
 		_active_publish_chunk = INVALID_CHUNK_COORD
 
 func _prune_stale_pending_publish_chunks() -> void:
 	if _pending_publish_queue.is_empty():
 		return
 	var filtered_queue: Array[Vector2i] = []
+	var seen: Dictionary = {}
 	for chunk_coord: Vector2i in _pending_publish_queue:
 		if not _is_chunk_desired(chunk_coord):
 			continue
-		if filtered_queue.has(chunk_coord):
+		if seen.has(chunk_coord):
 			continue
+		seen[chunk_coord] = true
 		filtered_queue.append(chunk_coord)
 	_pending_publish_queue = filtered_queue
+
+func _prefetch_queued_chunk_masks(max_builds: int) -> void:
+	# Warm the native mask pipeline for chunks waiting in the publish queue.
+	# Cache misses (fresh halo builds) are the bounded cost; chunks whose halos
+	# are already cached only pay cheap dictionary checks.
+	var builds: int = 0
+	for chunk_coord: Vector2i in _pending_publish_queue:
+		if builds >= max_builds:
+			return
+		if _prefetch_chunk_masks(chunk_coord):
+			builds += 1
+
+func _prefetch_chunk_masks(chunk_coord: Vector2i) -> bool:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var built_halo: bool = false
+	if MOUNTAIN_NATIVE_MASK_RUNTIME_ENABLED and _has_loaded_mountain_halo_sources(chunk_coord):
+		if not _mountain_solid_halo_cache.has(chunk_coord):
+			built_halo = true
+		var mountain_halo: Dictionary = _get_cached_mountain_solid_halo(chunk_coord)
+		if bool(mountain_halo.get("has_any", false)) \
+				and _get_ready_mountain_native_mask_result(chunk_coord).is_empty():
+			_request_mountain_native_mask_for_chunk(
+				chunk_coord,
+				mountain_halo.get("halo", PackedByteArray()) as PackedByteArray,
+				&"prefetch"
+			)
+	if TERRAIN_EDGE_MASK_RUNTIME_ENABLED and _has_loaded_terrain_edge_halo_sources(chunk_coord):
+		if not _terrain_edge_solid_halo_cache.has(chunk_coord):
+			built_halo = true
+		var edge_halo: Dictionary = _get_cached_terrain_edge_solid_halo(chunk_coord)
+		if bool(edge_halo.get("has_shoreline", false)) \
+				and _get_ready_terrain_edge_mask_result(chunk_coord).is_empty():
+			_request_terrain_edge_mask_for_chunk(
+				chunk_coord,
+				edge_halo.get("halo", PackedByteArray()) as PackedByteArray,
+				&"prefetch"
+			)
+	return built_halo
 
 func _evict_outside_ring(max_count: int) -> void:
 	var evicted: int = 0
@@ -987,6 +1109,7 @@ func _evict_outside_ring(max_count: int) -> void:
 		_chunk_packets.erase(chunk_coord)
 		_requested_chunks.erase(chunk_coord)
 		_pending_publish_queue.erase(chunk_coord)
+		_drop_object_packet_visual_upload(chunk_coord)
 		_handle_cover_chunk_unloaded(chunk_coord)
 		_forget_mountain_mask(chunk_coord, true, true)
 		_forget_terrain_edge_mask(chunk_coord, true, true)
@@ -1015,6 +1138,8 @@ func _has_pending_streaming_work() -> bool:
 	if not _terrain_edge_mask_inflight_chunks.is_empty():
 		return true
 	if not _pending_terrain_edge_mask_visual_upload_chunks.is_empty():
+		return true
+	if not _pending_object_packet_visual_upload_chunks.is_empty():
 		return true
 	for chunk_coord_variant: Variant in _chunk_views.keys():
 		if not _is_chunk_desired(chunk_coord_variant as Vector2i):
@@ -1185,7 +1310,8 @@ func _refresh_loaded_packets_from_diffs() -> void:
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
 		if chunk_view:
 			_track_roof_layer_metric(chunk_coord, _chunk_packets[chunk_coord] as Dictionary)
-			chunk_view.begin_apply(_chunk_packets[chunk_coord] as Dictionary)
+			chunk_view.begin_apply(_chunk_packets[chunk_coord] as Dictionary, true)
+			_queue_object_packet_visual_upload(chunk_coord)
 			_refresh_debug_visuals_for_chunk(chunk_coord)
 			if not _pending_publish_queue.has(chunk_coord):
 				_pending_publish_queue.append(chunk_coord)
@@ -1643,12 +1769,8 @@ func _handle_completed_terrain_edge_mask(result: Dictionary) -> void:
 	var chunk_view: ChunkView = _chunk_views.get(target_chunk, null) as ChunkView
 	if chunk_view != null:
 		_apply_ready_terrain_edge_mask_to_chunk_view(target_chunk, chunk_view, result)
-	var chunk_needs_publish_after_mask: bool = chunk_view == null or not chunk_view.visible
-	if chunk_needs_publish_after_mask \
-			and _is_chunk_desired(target_chunk) \
-			and not _pending_publish_queue.has(target_chunk) \
-			and target_chunk != _active_publish_chunk:
-		_pending_publish_queue.append(target_chunk)
+	# Terrain-edge masks are decorative shoreline presentation. They may attach
+	# to an existing view, but must not republish or block chunk visibility.
 
 func _build_mountain_native_mask_origin(chunk_coord: Vector2i) -> Vector2:
 	return WorldRuntimeConstants.chunk_origin_px(chunk_coord) \
@@ -1806,17 +1928,6 @@ func _apply_mountain_mask_to_chunk_view(
 	var ready_mask_result: Dictionary = _get_ready_mountain_native_mask_result(chunk_coord)
 	if not ready_mask_result.is_empty():
 		_apply_ready_mountain_native_mask_to_chunk_view(chunk_coord, chunk_view, ready_mask_result)
-		return
-	var solid_halo: PackedByteArray = _build_mountain_solid_halo(
-		chunk_coord,
-		MOUNTAIN_HALO_MASK_RADIUS_TILES
-	)
-	if _solid_halo_has_any(solid_halo):
-		_request_mountain_native_mask_for_chunk(chunk_coord, solid_halo, reason)
-	else:
-		_drop_mountain_native_mask_visual_upload(chunk_coord)
-		chunk_view.clear_mountain_render_page(reason == &"mining")
-		_record_mountain_native_mask_clear(chunk_coord, reason)
 
 func _apply_terrain_edge_mask_to_chunk_view(
 	chunk_coord: Vector2i,
@@ -1830,15 +1941,6 @@ func _apply_terrain_edge_mask_to_chunk_view(
 	var ready_mask_result: Dictionary = _get_ready_terrain_edge_mask_result(chunk_coord)
 	if not ready_mask_result.is_empty():
 		_apply_ready_terrain_edge_mask_to_chunk_view(chunk_coord, chunk_view, ready_mask_result)
-		return
-	var solid_halo: PackedByteArray = _build_terrain_edge_solid_halo(
-		chunk_coord,
-		TERRAIN_EDGE_HALO_MASK_RADIUS_TILES
-	)
-	if _terrain_edge_halo_has_shoreline(solid_halo):
-		_request_terrain_edge_mask_for_chunk(chunk_coord, solid_halo, reason)
-	else:
-		_forget_terrain_edge_mask(chunk_coord, true, false)
 
 func _record_mountain_native_mask_build(
 	chunk_coord: Vector2i,
@@ -1907,11 +2009,16 @@ func _refresh_mountain_native_masks_around_tile(world_tile: Vector2i) -> void:
 		if dig_packet.is_empty():
 			continue
 		_bump_mountain_mask_revision(affected_chunk)
+		_mountain_solid_halo_cache.erase(affected_chunk)
 		_mountain_native_masks_by_chunk.erase(affected_chunk)
 		_mountain_native_mask_inflight_chunks.erase(affected_chunk)
-		var dig_solid_halo: PackedByteArray = _build_mountain_solid_halo(affected_chunk, MOUNTAIN_HALO_MASK_RADIUS_TILES)
-		if _solid_halo_has_any(dig_solid_halo):
-			_request_mountain_native_mask_for_chunk(affected_chunk, dig_solid_halo, &"mining")
+		var dig_halo: Dictionary = _get_cached_mountain_solid_halo(affected_chunk)
+		if bool(dig_halo.get("has_any", false)):
+			_request_mountain_native_mask_for_chunk(
+				affected_chunk,
+				dig_halo.get("halo", PackedByteArray()) as PackedByteArray,
+				&"mining"
+			)
 
 func _build_mountain_native_mask_dirty_chunks_for_tile(world_tile: Vector2i) -> Array[Vector2i]:
 	var canonical_tile: Vector2i = _canonicalize_tile_coord(world_tile)
@@ -1955,6 +2062,7 @@ func _forget_mountain_mask(
 	_drop_mountain_native_mask_visual_upload(chunk_coord)
 	if bump_revision:
 		_bump_mountain_mask_revision(chunk_coord)
+	_mountain_solid_halo_cache.erase(chunk_coord)
 	_mountain_native_masks_by_chunk.erase(chunk_coord)
 	_mountain_native_mask_inflight_chunks.erase(chunk_coord)
 	if clear_view:
@@ -1974,6 +2082,7 @@ func _forget_terrain_edge_mask(
 	_drop_terrain_edge_mask_visual_upload(chunk_coord)
 	if bump_revision:
 		_bump_terrain_edge_mask_revision(chunk_coord)
+	_terrain_edge_solid_halo_cache.erase(chunk_coord)
 	_terrain_edge_masks_by_chunk.erase(chunk_coord)
 	_terrain_edge_mask_inflight_chunks.erase(chunk_coord)
 	if clear_view:
@@ -2187,47 +2296,40 @@ func _can_publish_chunk_with_mountain_mask(chunk_coord: Vector2i, packet: Dictio
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
 	if not _has_loaded_mountain_halo_sources(chunk_coord):
 		return false
-	var solid_halo: PackedByteArray = _build_mountain_solid_halo(
-		chunk_coord,
-		MOUNTAIN_HALO_MASK_RADIUS_TILES
-	)
-	if not _solid_halo_has_any(solid_halo):
+	var cached_halo: Dictionary = _get_cached_mountain_solid_halo(chunk_coord)
+	if not bool(cached_halo.get("has_any", false)):
 		_mountain_native_masks_by_chunk.erase(chunk_coord)
 		_mountain_native_mask_inflight_chunks.erase(chunk_coord)
 		return true
 	if not _get_ready_mountain_native_mask_result(chunk_coord).is_empty():
 		return true
-	_request_mountain_native_mask_for_chunk(chunk_coord, solid_halo, &"publish")
+	_request_mountain_native_mask_for_chunk(
+		chunk_coord,
+		cached_halo.get("halo", PackedByteArray()) as PackedByteArray,
+		&"publish"
+	)
 	if _packet_has_raster_mountain(packet):
 		return false
 	return true
 
-func _can_publish_chunk_with_terrain_edge_mask(chunk_coord: Vector2i, _packet: Dictionary) -> bool:
+func _prepare_terrain_edge_mask_for_publish(chunk_coord: Vector2i, _packet: Dictionary) -> void:
 	if not TERRAIN_EDGE_MASK_RUNTIME_ENABLED:
-		return true
+		return
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
 	if not _has_loaded_terrain_edge_halo_sources(chunk_coord):
-		return false
-	var solid_halo: PackedByteArray = _build_terrain_edge_solid_halo(
-		chunk_coord,
-		TERRAIN_EDGE_HALO_MASK_RADIUS_TILES
-	)
-	if not _terrain_edge_halo_has_shoreline(solid_halo):
+		return
+	var cached_halo: Dictionary = _get_cached_terrain_edge_solid_halo(chunk_coord)
+	if not bool(cached_halo.get("has_shoreline", false)):
 		_terrain_edge_masks_by_chunk.erase(chunk_coord)
 		_terrain_edge_mask_inflight_chunks.erase(chunk_coord)
-		return true
+		return
 	if not _get_ready_terrain_edge_mask_result(chunk_coord).is_empty():
-		return true
-	_request_terrain_edge_mask_for_chunk(chunk_coord, solid_halo, &"publish")
-	return false
-
-func _is_chunk_view_waiting_for_terrain_ground_visual(chunk_view: ChunkView) -> bool:
-	if chunk_view == null:
-		return false
-	var debug_state: Dictionary = chunk_view.get_terrain_edge_mask_debug_state()
-	if not bool(debug_state.get("terrain_edge_mask_active", false)):
-		return false
-	return not bool(debug_state.get("visual_ready", false))
+		return
+	_request_terrain_edge_mask_for_chunk(
+		chunk_coord,
+		cached_halo.get("halo", PackedByteArray()) as PackedByteArray,
+		&"publish"
+	)
 
 func _reset_runtime_state() -> void:
 	_generation_epoch += 1
@@ -2237,6 +2339,8 @@ func _reset_runtime_state() -> void:
 	_new_game_spawn_failed = false
 	_requested_chunks.clear()
 	_pending_publish_queue.clear()
+	_mountain_solid_halo_cache.clear()
+	_terrain_edge_solid_halo_cache.clear()
 	_active_publish_chunk = INVALID_CHUNK_COORD
 	_player_chunk_coord = INVALID_CHUNK_COORD
 	_current_stream_radius_chunks = WorldRuntimeConstants.STREAM_RADIUS_CHUNKS
@@ -2256,6 +2360,8 @@ func _reset_runtime_state() -> void:
 	_pending_mountain_native_mask_visual_upload_set.clear()
 	_pending_terrain_edge_mask_visual_upload_chunks.clear()
 	_pending_terrain_edge_mask_visual_upload_set.clear()
+	_pending_object_packet_visual_upload_chunks.clear()
+	_pending_object_packet_visual_upload_set.clear()
 	_mountain_native_mask_visual_upload_count_last_tick = 0
 	_mountain_native_mask_visible_republish_skip_count_total = 0
 	_mountain_surface_dig_visual_patch_skip_count_total = 0
@@ -2637,17 +2743,95 @@ func _solid_halo_has_any(solid_halo: PackedByteArray) -> bool:
 			return true
 	return false
 
+func _get_cached_mountain_solid_halo(chunk_coord: Vector2i) -> Dictionary:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var revision: int = _get_mountain_mask_revision(chunk_coord)
+	var cached: Dictionary = _mountain_solid_halo_cache.get(chunk_coord, {}) as Dictionary
+	if not cached.is_empty() \
+			and int(cached.get("revision", -2)) == revision \
+			and int(cached.get("epoch", -2)) == _generation_epoch:
+		return cached
+	var halo: PackedByteArray = _build_mountain_solid_halo(chunk_coord, MOUNTAIN_HALO_MASK_RADIUS_TILES)
+	cached = {
+		"revision": revision,
+		"epoch": _generation_epoch,
+		"halo": halo,
+		"has_any": _solid_halo_has_any(halo),
+	}
+	_mountain_solid_halo_cache[chunk_coord] = cached
+	return cached
+
+func _get_cached_terrain_edge_solid_halo(chunk_coord: Vector2i) -> Dictionary:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var revision: int = _get_terrain_edge_mask_revision(chunk_coord)
+	var cached: Dictionary = _terrain_edge_solid_halo_cache.get(chunk_coord, {}) as Dictionary
+	if not cached.is_empty() \
+			and int(cached.get("revision", -2)) == revision \
+			and int(cached.get("epoch", -2)) == _generation_epoch:
+		return cached
+	var halo: PackedByteArray = _build_terrain_edge_solid_halo(chunk_coord, TERRAIN_EDGE_HALO_MASK_RADIUS_TILES)
+	cached = {
+		"revision": revision,
+		"epoch": _generation_epoch,
+		"halo": halo,
+		"has_shoreline": _terrain_edge_halo_has_shoreline(halo),
+	}
+	_terrain_edge_solid_halo_cache[chunk_coord] = cached
+	return cached
+
 func _build_mountain_solid_halo(chunk_coord: Vector2i, halo_radius_tiles: int = 1) -> PackedByteArray:
 	halo_radius_tiles = maxi(1, halo_radius_tiles)
 	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + halo_radius_tiles * 2
 	var solid_halo := PackedByteArray()
 	solid_halo.resize(halo_side * halo_side)
-	for halo_y: int in range(halo_side):
-		for halo_x: int in range(halo_side):
-			var local_coord := Vector2i(halo_x - halo_radius_tiles, halo_y - halo_radius_tiles)
-			var world_tile: Vector2i = _chunk_local_to_tile(chunk_coord, local_coord)
-			if _loaded_mountain_contour_tile_is_solid(world_tile):
-				solid_halo[halo_y * halo_side + halo_x] = 1
+	var local_min: int = -halo_radius_tiles
+	var local_max: int = WorldRuntimeConstants.CHUNK_SIZE + halo_radius_tiles
+	for source_offset_y: int in range(-1, 2):
+		var source_local_min_y: int = source_offset_y * WorldRuntimeConstants.CHUNK_SIZE
+		var from_local_y: int = maxi(local_min, source_local_min_y)
+		var to_local_y: int = mini(local_max, source_local_min_y + WorldRuntimeConstants.CHUNK_SIZE)
+		if from_local_y >= to_local_y:
+			continue
+		for source_offset_x: int in range(-1, 2):
+			var source_local_min_x: int = source_offset_x * WorldRuntimeConstants.CHUNK_SIZE
+			var from_local_x: int = maxi(local_min, source_local_min_x)
+			var to_local_x: int = mini(local_max, source_local_min_x + WorldRuntimeConstants.CHUNK_SIZE)
+			if from_local_x >= to_local_x:
+				continue
+			var source_chunk: Vector2i = _canonicalize_chunk_coord(
+				chunk_coord + Vector2i(source_offset_x, source_offset_y)
+			)
+			var packet: Dictionary = _chunk_packets.get(source_chunk, {}) as Dictionary
+			if packet.is_empty():
+				continue
+			var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+			var walkable_flags: PackedByteArray = packet.get("walkable_flags", PackedByteArray()) as PackedByteArray
+			var mountain_ids: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
+			var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
+			var source_base_x: int = source_offset_x * WorldRuntimeConstants.CHUNK_SIZE
+			var source_base_y: int = source_offset_y * WorldRuntimeConstants.CHUNK_SIZE
+			for local_y: int in range(from_local_y, to_local_y):
+				var source_y: int = local_y - source_base_y
+				var halo_row: int = (local_y + halo_radius_tiles) * halo_side
+				var source_row: int = source_y * WorldRuntimeConstants.CHUNK_SIZE
+				for local_x: int in range(from_local_x, to_local_x):
+					var index: int = source_row + local_x - source_base_x
+					if index < 0 or index >= terrain_ids.size() or index >= walkable_flags.size():
+						continue
+					var terrain_id: int = int(terrain_ids[index])
+					if terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+							and terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
+						continue
+					if int(walkable_flags[index]) != 0:
+						continue
+					if index >= mountain_ids.size() or int(mountain_ids[index]) <= 0:
+						continue
+					if index >= mountain_flags.size():
+						continue
+					var flags: int = int(mountain_flags[index])
+					if (flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) == 0:
+						continue
+					solid_halo[halo_row + local_x + halo_radius_tiles] = 1
 	return solid_halo
 
 func _build_terrain_edge_solid_halo(chunk_coord: Vector2i, halo_radius_tiles: int = 1) -> PackedByteArray:
@@ -2655,12 +2839,48 @@ func _build_terrain_edge_solid_halo(chunk_coord: Vector2i, halo_radius_tiles: in
 	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + halo_radius_tiles * 2
 	var solid_halo := PackedByteArray()
 	solid_halo.resize(halo_side * halo_side)
-	for halo_y: int in range(halo_side):
-		for halo_x: int in range(halo_side):
-			var local_coord := Vector2i(halo_x - halo_radius_tiles, halo_y - halo_radius_tiles)
-			var world_tile: Vector2i = _chunk_local_to_tile(chunk_coord, local_coord)
-			if _loaded_terrain_edge_tile_is_solid(world_tile):
-				solid_halo[halo_y * halo_side + halo_x] = 1
+	var local_min: int = -halo_radius_tiles
+	var local_max: int = WorldRuntimeConstants.CHUNK_SIZE + halo_radius_tiles
+	for source_offset_y: int in range(-1, 2):
+		var source_local_min_y: int = source_offset_y * WorldRuntimeConstants.CHUNK_SIZE
+		var from_local_y: int = maxi(local_min, source_local_min_y)
+		var to_local_y: int = mini(local_max, source_local_min_y + WorldRuntimeConstants.CHUNK_SIZE)
+		if from_local_y >= to_local_y:
+			continue
+		for source_offset_x: int in range(-1, 2):
+			var source_local_min_x: int = source_offset_x * WorldRuntimeConstants.CHUNK_SIZE
+			var from_local_x: int = maxi(local_min, source_local_min_x)
+			var to_local_x: int = mini(local_max, source_local_min_x + WorldRuntimeConstants.CHUNK_SIZE)
+			if from_local_x >= to_local_x:
+				continue
+			var source_chunk: Vector2i = _canonicalize_chunk_coord(
+				chunk_coord + Vector2i(source_offset_x, source_offset_y)
+			)
+			var packet: Dictionary = _chunk_packets.get(source_chunk, {}) as Dictionary
+			if packet.is_empty():
+				continue
+			var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+			var lake_flags: PackedByteArray = packet.get("lake_flags", PackedByteArray()) as PackedByteArray
+			var source_base_x: int = source_offset_x * WorldRuntimeConstants.CHUNK_SIZE
+			var source_base_y: int = source_offset_y * WorldRuntimeConstants.CHUNK_SIZE
+			for local_y: int in range(from_local_y, to_local_y):
+				var source_y: int = local_y - source_base_y
+				var halo_row: int = (local_y + halo_radius_tiles) * halo_side
+				var source_row: int = source_y * WorldRuntimeConstants.CHUNK_SIZE
+				for local_x: int in range(from_local_x, to_local_x):
+					var index: int = source_row + local_x - source_base_x
+					if index < 0 or index >= terrain_ids.size():
+						continue
+					var terrain_id: int = int(terrain_ids[index])
+					var water_present: bool = index < lake_flags.size() \
+						and (int(lake_flags[index]) & WorldRuntimeConstants.LAKE_FLAG_WATER_PRESENT) != 0
+					if water_present \
+							and (
+								terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW \
+								or terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP
+							):
+						continue
+					solid_halo[halo_row + local_x + halo_radius_tiles] = 1
 	return solid_halo
 
 func _terrain_edge_halo_has_solid(solid_halo: PackedByteArray) -> bool:

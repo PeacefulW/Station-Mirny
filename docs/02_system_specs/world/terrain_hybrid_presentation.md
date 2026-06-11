@@ -183,8 +183,10 @@ by chunk-local masks or overlay sprites:
   ruler-straight cuts on chunk borders.
 - Land-only chunks do not wait for any terrain-ground mask bytes. First
   visible publish depends on the ordinary chunk packet and tile material
-  upload only. Only chunks whose halo contains both dry land and visible
-  water wait for their shoreline mask.
+  upload only. Shoreline masks are also non-blocking: chunks whose halo
+  contains both dry land and visible water publish immediately, request the
+  shoreline mask as decorative presentation work, and apply it later through
+  the bounded visual upload path when the worker result is ready.
 - The terrain-edge native-mask bridge (`terrain_edge` purpose tag through the
   `mountain_halo_mask` worker path) runs as a bounded shoreline-contour
   enhancement only:

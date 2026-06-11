@@ -1,0 +1,100 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+ERROR: WorldCore must delegate mountain silhouette edge enumeration to native mountain_silhouette code.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_static_contract (res://tools/mountain_silhouette_smoke_test.gd:33)
+       [2] _init (res://tools/mountain_silhouette_smoke_test.gd:20)
+ERROR: ChunkPacketV1 must include silhouette_edges at the native packet boundary.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_static_contract (res://tools/mountain_silhouette_smoke_test.gd:37)
+       [2] _init (res://tools/mountain_silhouette_smoke_test.gd:20)
+ERROR: ChunkPacketV1 must include silhouette_edge_count at the native packet boundary.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_static_contract (res://tools/mountain_silhouette_smoke_test.gd:41)
+       [2] _init (res://tools/mountain_silhouette_smoke_test.gd:20)
+ERROR: ChunkView must own one _silhouette_layer.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_static_contract (res://tools/mountain_silhouette_smoke_test.gd:47)
+       [2] _init (res://tools/mountain_silhouette_smoke_test.gd:20)
+ERROR: ChunkView silhouette rendering must use MultiMeshInstance2D, not node-per-edge sprites.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_static_contract (res://tools/mountain_silhouette_smoke_test.gd:48)
+       [2] _init (res://tools/mountain_silhouette_smoke_test.gd:20)
+ERROR: ChunkView must expose a local silhouette debug surface for smoke verification.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_static_contract (res://tools/mountain_silhouette_smoke_test.gd:52)
+       [2] _init (res://tools/mountain_silhouette_smoke_test.gd:20)
+ERROR: WORLD_VERSION must remain at the current mountain passage/outcrop refinement boundary; silhouette work is visual-only.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_static_contract (res://tools/mountain_silhouette_smoke_test.gd:58)
+       [2] _init (res://tools/mountain_silhouette_smoke_test.gd:20)
+ERROR: packet_schemas.md must document silhouette_edges.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_static_contract (res://tools/mountain_silhouette_smoke_test.gd:64)
+       [2] _init (res://tools/mountain_silhouette_smoke_test.gd:20)
+ERROR: packet_schemas.md must document silhouette_edge_count.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_static_contract (res://tools/mountain_silhouette_smoke_test.gd:65)
+       [2] _init (res://tools/mountain_silhouette_smoke_test.gd:20)
+ERROR: ChunkPacketV1 must carry silhouette_edges even when empty.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_native_packet_fields (res://tools/mountain_silhouette_smoke_test.gd:83)
+       [2] _init (res://tools/mountain_silhouette_smoke_test.gd:21)
+ERROR: ChunkPacketV1 must carry silhouette_edge_count even when zero.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_native_packet_fields (res://tools/mountain_silhouette_smoke_test.gd:84)
+       [2] _init (res://tools/mountain_silhouette_smoke_test.gd:21)
+ERROR: silhouette_edges must use four int records: foot_tile_index, direction, mountain_id, atlas_variant.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_native_packet_fields (res://tools/mountain_silhouette_smoke_test.gd:87)
+       [2] _init (res://tools/mountain_silhouette_smoke_test.gd:21)
+ERROR: Native silhouette search must find at least one generated silhouette edge packet.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_native_edge_semantics (res://tools/mountain_silhouette_smoke_test.gd:277)
+       [2] _assert_native_packet_fields (res://tools/mountain_silhouette_smoke_test.gd:91)
+       [3] _init (res://tools/mountain_silhouette_smoke_test.gd:21)
+ERROR: Native silhouette search must verify at least one in-chunk foot-to-walkable edge.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_native_edge_semantics (res://tools/mountain_silhouette_smoke_test.gd:278)
+       [2] _assert_native_packet_fields (res://tools/mountain_silhouette_smoke_test.gd:91)
+       [3] _init (res://tools/mountain_silhouette_smoke_test.gd:21)
+ERROR: ChunkView must expose get_silhouette_render_debug().
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_chunk_view_renders_packet_edges (res://tools/mountain_silhouette_smoke_test.gd:106)
+       [2] _init (res://tools/mountain_silhouette_smoke_test.gd:22)
+ERROR: ChunkView must expose flush_silhouette_debug_updates() for deterministic smoke tests.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/mountain_silhouette_smoke_test.gd:299)
+       [1] _assert_runtime_patch_promotes_new_exposed_surface (res://tools/mountain_silhouette_smoke_test.gd:149)
+       [2] _init (res://tools/mountain_silhouette_smoke_test.gd:23)

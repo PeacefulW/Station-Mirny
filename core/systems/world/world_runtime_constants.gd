@@ -5,6 +5,10 @@ const TILE_SIZE_PX: int = 64
 const CHUNK_SIZE: int = 16
 const CHUNK_CELL_COUNT: int = CHUNK_SIZE * CHUNK_SIZE
 const STREAM_RADIUS_CHUNKS: int = 1
+# Tiles applied to the active publish chunk per streaming tick. 64 set_cell
+# applies cost well under a millisecond, so a chunk becomes visible in ~4 ticks;
+# the old value of 4 stretched one chunk over 64 ticks (~1 s) and let a running
+# player outrace the streamer.
 const PUBLISH_BATCH_SIZE: int = 64
 
 const DEFAULT_WORLD_SEED: int = 131071
