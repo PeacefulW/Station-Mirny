@@ -40,6 +40,9 @@ uniform float projected_shadow_softness_px = 28.0;
 uniform vec3 projected_shadow_color = vec3(0.030, 0.026, 0.018);
 uniform float top_surface_alpha = 1.0;
 uniform float wall_surface_alpha = 1.0;
+// Hard dark contact line at the wall base; 0 removes it (mountains), the
+// shoreline keeps it for a crisp waterline.
+uniform float base_outline_strength = 0.92;
 // Shoreline band mode (0 = classic full top fill, used by mountains): the top
 // surface renders only within ~top_band_px of the open contour, with a noisy
 // feathered inner edge, so the world-space ground material keeps the interior.
@@ -249,8 +252,10 @@ void fragment() {
 	bool is_wall = body_area > 0.5 && top_here >= 0.5 && edge_below >= 0.0 && edge_below <= wall_texels;
 
 	// OPEN pixel: cosmetic roof eave just below the silhouette ("козырёк").
+	// overhang_px <= 0.5 disables the eave entirely (mountains stand directly
+	// on the foothill apron; the shoreline keeps its thin lip).
 	float overhang = 0.0;
-	if (top_here < 0.5) {
+	if (top_here < 0.5 && overhang_px > 0.5) {
 		int osteps = int(min(overhang_texels + 2.0, 24.0));
 		for (int d = 1; d <= osteps; d++) {
 			if (mask_to_top(texture(TEXTURE, base_uv - vec2(0.0, texel.y * float(d))).r) >= 0.5) {
@@ -472,7 +477,7 @@ void fragment() {
 			rim_lip = mix(rim_lip, biofield_rim_color * (0.82 + small_mottle * 0.36), wall_bio_gate);
 		}
 		color = mix(color, rim_lip, top_rim * 0.30);
-		color = mix(color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0) * 0.92);
+		color = mix(color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0) * base_outline_strength);
 		out_alpha = wall_surface_alpha;
 	}
 

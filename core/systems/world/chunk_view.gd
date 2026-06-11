@@ -917,6 +917,9 @@ func _upload_mountain_mask_texture(
 	material.set_shader_parameter("biofield_rim_color", MOUNTAIN_BIOFIELD_RIM_COLOR)
 	material.set_shader_parameter("biofield_rim_strength", MOUNTAIN_BIOFIELD_RIM_STRENGTH)
 	material.set_shader_parameter("biofield_rim_scale_px", MOUNTAIN_BIOFIELD_RIM_SCALE_PX)
+	# No bottom trim on mountains: the wall stands directly on the scree apron.
+	material.set_shader_parameter("overhang_px", 0.0)
+	material.set_shader_parameter("base_outline_strength", 0.0)
 	_set_mask_shader_chunk_clip(
 		material,
 		mask_origin_world,
